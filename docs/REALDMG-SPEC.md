@@ -3595,8 +3595,12 @@ entries) rather than the 64KB one the translator writes, and loses nothing:
   an image not loaded). A hit is about fifteen instructions where the
   search is eleven rounds and ~280; the next search there replaces it. A
   frame's searches are few PCs over and over - Looney Tunes' 375 distinct
-  ones, 16 of them 82% and 64 of them 95%. The host's meta part and the
-  harness give the filter's segment the 2KB more (`gbaot.py`). x86
+  ones, 16 of them 82% and 64 of them 95%. The filter and the cache
+  follow the block table IN ITS PART, 26KB in all, and the package finds
+  them at the table's segment plus (mask + 1) x 128 (`rw_ameta`): they were
+  in the meta part after the list at first, and a long list took that part
+  past 65,024 bytes - Link's Awakening 65,264, Super Mario Land 2 67,104,
+  Wario Land 68,672 - so those three would not package at all. x86
   instructions a frame, the walk-ordered images on the harness's script:
   Super Mario Land 2 -30%, Pokemon Red -24%, Metroid II -11%, Looney Tunes
   (.gb) -10%, Kirby's Dream Land -9%, Looney Tunes (.gbc) -7%, Donkey Kong

@@ -1085,8 +1085,11 @@ def package(build, img, rom, out, romname, image=None, log=print, embed=False):
                                              AOT_CODE + 2 * nseg if embed else 0,
                                              meta.get("hot", nseg),
                                              len(rom.d) // 1024 if embed else 0) + rel
-    metap = (hdr.ljust(loff, b"\0") + lst).ljust(foff, b"\0") + bytes(0x2800)  # filter, cache
-    parts = [segs[0][:0x8000], segs[0][0x8000:], table, metap]
+    metap = (hdr.ljust(loff, b"\0") + lst).ljust(foff, b"\0")
+    # the filter and the list's cache (rdgaot.inc, 10KB) follow the TABLE in
+    # its part: in the meta part, after a long list, they took that part past
+    # 65,024 bytes - Link's Awakening's 65,264, Wario Land's 68,672
+    parts = [segs[0][:0x8000], segs[0][0x8000:], table + bytes(0x2800), metap]
     for sg in segs[1:]:
         parts += [sg[:0x8000], sg[0x8000:]]
     plain = set()
