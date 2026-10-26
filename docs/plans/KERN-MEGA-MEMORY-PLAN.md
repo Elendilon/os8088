@@ -1624,8 +1624,9 @@ build that is MEANT TO GROW.
         one pool block as `SEG_SUBC` pairs, code selectors in the
         relocations and tokens, the images as `S_JITXT` pairs (20.15);
         the plain package still refuses (20.14). `tests/rdgaotmega.py`.
-      Its `high` line went too (REALDMG-SPEC 16.2.7); what is left is
-      section 8.6's file read, which RealDMG works round.
+      Its `high` line went too (REALDMG-SPEC 16.2.7), and with 8.6's file
+      read fixed (`ca60319e`) RealDMG's workaround for it is gone: nothing
+      of item 11 is left.
   Each converts on every kernel where the XT loop is no slower, or as a
   `PKG_MEGA` arm where it measures slower (MC7.2's answer).
   **Taken (2026-10-25, batch 1):** C64 and Apple II (the three bank fetch

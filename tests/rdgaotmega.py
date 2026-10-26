@@ -22,9 +22,10 @@ E9), opens the PACKAGE with no document, and reads the view:
     precompiled machine: S_JITON and S_JITFIX set, nothing translated;
   * every code image in ONE pool block (rw_axclaim): named to the core as a
     pair in S_JITXT, each based at or above 1MB and 64KB apart;
-  * the cartridge's banks above 1MB in place (bank 1's window), or - the
-    `oneclaim` leg, the package built RW_NOXPLAN - in one conventional claim,
-    read a bank at a time through a window each (rw_aromrd);
+  * the cartridge's banks above 1MB in place (bank 1's window, the run's
+    32KB step to bank 2), or - the `oneclaim` leg, the package built
+    RW_NOXPLAN - in one claim, read a bank at a time through a window each
+    (rw_aromrd), banks 16KB apart;
   * no trap whose CS is the core's or an image's code selector, and no
     kern_mega FAULT.
 
@@ -82,6 +83,7 @@ def leg(t, out, name, pkg, lst, rom_beside, where, game=False):
     fails, text, fix, on, xn, xlin, b1lin, coded = [], "", 0, 0, 0, [], 0, set()
     f0 = f1 = None
     rbase = None
+    bstep = 0
     try:
         if not box.wait_for("kern_mega: protected mode", 300):
             return ["%s: kern_mega never reached protected mode" % name]
@@ -142,6 +144,8 @@ def leg(t, out, name, pkg, lst, rom_beside, where, game=False):
                 coded.add(w)
             b1 = int.from_bytes(box.read(vb + rdgmega.S_BTAB1, 2), "little")
             b1lin = rdgmega.lin(box, b1) if b1 else 0
+            b2 = int.from_bytes(box.read(vb + rdgmega.S_BTAB1 + 2, 2), "little")
+            bstep = (rdgmega.lin(box, b2) - b1lin) if b1 and b2 else 0
     finally:
         box.stop()
     with open(box.e9, "rb") as f:
@@ -181,10 +185,12 @@ def leg(t, out, name, pkg, lst, rom_beside, where, game=False):
     if any(b - a != 0x10000 for a, b in zip(xlin, xlin[1:])):
         fails.append("the code images are not 64KB apart in one pool block: %s"
                      % " ".join("%06X" % x for x in xlin))
-    if where == "high" and b1lin < 0x100000:
-        fails.append("bank 1 is at linear %06X: the banks were not put in place" % b1lin)
-    if where == "one" and not 0 < b1lin < 0x100000:
-        fails.append("bank 1 is at linear %06X, not in a conventional claim" % b1lin)
+    if where == "high" and (b1lin < 0x100000 or bstep != 0x8000):
+        fails.append("bank 1 at linear %06X, bank 2 %X past it: the banks were not "
+                     "put in place (above 1MB, the run's 32KB step)" % (b1lin, bstep))
+    if where == "one" and bstep != 0x4000:     # (one claim: a window a bank,
+        fails.append("banks 1 and 2 are %X apart, not 16KB: not one claim"   # 16KB
+                     % bstep)                  #   apart; the claim may be high)
     if other:
         fails.append("%d traps charged to the core or an image, the first `%s`"
                      % (len(other), other[0]))

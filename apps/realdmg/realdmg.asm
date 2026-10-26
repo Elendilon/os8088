@@ -879,14 +879,6 @@ rw_load0:
     jnz .claim                      ;   20.14.6.3), and on a 1MB 286 Kirby's
     mov ax, [rw_romkb]              ;   Dream Land fits by exactly that KB
 .claim:
-%ifdef PKG_MEGA
-    cmp byte [rw_pm], 0             ; THE ARM UNDER CPU_F_PM: a claim of 64KB
-    je .c65                         ;   is OS88_HIGHMEM's and goes to the
-    cmp ax, 64                      ;   pool, and kern_mega fails
-    jne .c65                        ;   OSAPI_FILE_READ's whole 64KB file into
-    inc ax                          ;   one there ("read failed"; 32KB reads
-.c65:                               ;   fine, REALDMG-SPEC 16.2.6) - so a KB
-%endif                              ;   more keeps it conventional
     push ax
     call OSAPI_MEM_CLAIM            ; DX = its segment
     pop ax

@@ -2641,14 +2641,13 @@ carve (the core and the view) and cache A with the recompiler's part.
   LONE data selector, which `OSAPI_MEM_CODESEL` refuses; `rw_csel` then asks
   `SEG_SUBC` for a pair over it and answers the code half - a far jump
   through B's data selector would be a #GP per transfer.
-- **A kernel defect it works round**: kern_mega's `OSAPI_FILE_READ` of a
-  whole 65,536-byte file into a 64KB claim in the pool fails ("read
-  failed"); 32KB into a 32KB one reads (measured on the memory branch at
-  `f068399f`, after its 64KB window-stepping fix). A cartridge in ONE claim
-  of exactly 64KB would land there now, so under `CPU_F_PM` the arm claims
-  it a KB larger, which keeps it conventional. Cartridge RAM (33KB at most)
-  and the profile read fine. The kernel is the place to fix it; the line
-  comes out when it is.
+- **A kernel defect it worked round, since fixed**: kern_mega's
+  `OSAPI_FILE_READ` of a whole 65,536-byte file into a 64KB claim in the
+  pool failed ("read failed"), so the arm claimed a 64KB one-claim cartridge
+  a KB larger to keep it conventional. KERN-MEGA-MEMORY-PLAN 8.6 had the
+  report and `ca60319e` the fix; the workaround is gone, and
+  `tests/rdgmega.py`'s one-claim leg - cpu_instrs' exact 64KB, in the pool -
+  is the row that found it and now passes over it.
 - **The in-place load's slot stays CONVENTIONAL** (`OSAPI_MEM_CLAIM_DMA`,
   no page constraint): it is what the file is read into, and under
   `OS88_HIGHMEM` a 16KB claim went to the pool, where a read bounces a

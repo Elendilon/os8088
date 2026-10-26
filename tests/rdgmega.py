@@ -47,9 +47,11 @@ asks OSAPI_SEG for every "claim + N" it uses:
     tier, every one based above 1MB and 64KB apart (one pool block), and
     cache B above 1MB (the arm declares OS88_HIGHMEM);
   * ONECLAIM - the arm built again here with RW_NOXPLAN (never shipped), so
-    the cartridge goes in ONE conventional claim as on a machine with no
-    extended memory, and its banks are SEG_SUB windows into it (rw_pmfill):
-    bank 1's base below 1MB;
+    the cartridge goes in ONE claim as on a machine with no room for it in
+    place, and its banks are SEG_SUB windows into it (rw_pmfill): banks 1
+    and 2 16KB apart, where the in-place run's windows step 32KB. The claim
+    is cpu_instrs' exact 64KB, which OS88_HIGHMEM puts in the pool - what
+    found KERN-MEGA-MEMORY-PLAN 8.6's file read;
   * SQUEEZED - the arm built again here with RT_SQUEEZE (its image and its
     recompiler part, -DRDG_XTIER -DRT_SQUEEZE - never shipped) and two
     extra tiers rather than five (RW_XDEF=2: 0.5KB a tier, more of them
@@ -150,6 +152,7 @@ def leg(t, out, name, pkg, lst, rom, where, squeeze=False):
     t0 = time.time()
     box = os88bochs.Box(out, [], bimg=disk, btype="1_44", build=t.dir)
     fails, text, bank1, b1lin, xn, rcy = [], "", 0, 0, 0, 0
+    bstep = 0
     xlin, blin, rbase = [], 0, None
     try:
         if not box.wait_for("kern_mega: protected mode", 300):
@@ -223,6 +226,8 @@ def leg(t, out, name, pkg, lst, rom, where, squeeze=False):
                 xlin.append(lin(box, w) if w else 0)
             bank1 = int.from_bytes(box.read(vb + S_BTAB1, 2), "little")
             b1lin = lin(box, bank1) if bank1 else 0
+            bank2 = int.from_bytes(box.read(vb + S_BTAB1 + 2, 2), "little")
+            bstep = (lin(box, bank2) - b1lin) if bank2 and bank1 else 0
     finally:
         box.stop()
     with open(box.e9, "rb") as f:
@@ -268,9 +273,15 @@ def leg(t, out, name, pkg, lst, rom, where, squeeze=False):
     if where == "high" and b1lin < 0x100000:
         fails.append("the arm's bank 1 is at %04X (linear %06X), below 1MB: "
                      "the banks were not put in place" % (bank1, b1lin))
-    if where == "one" and not 0 < b1lin < 0x100000:
-        fails.append("the one-claim arm's bank 1 is at %04X (linear %06X), "
-                     "not in a conventional claim" % (bank1, b1lin))
+    # ...and in ONE claim the banks lie 16KB apart, a window each into it
+    # (rw_pmfill), where the in-place run's step 32KB: the claim itself may
+    # be anywhere, a 64KB one in the pool (OS88_HIGHMEM)
+    if where == "one" and bstep != 0x4000:
+        fails.append("the one-claim arm's banks 1 and 2 are %X apart, not 16KB: "
+                     "not one claim" % bstep)
+    if where == "high" and bstep != 0x8000:
+        fails.append("the in-place banks 1 and 2 are %X apart, not the run's "
+                     "32KB" % bstep)
     # REALDMG-HIGHCACHE-PLAN R2 (REALDMG-SPEC 16.2.6): the extra tiers are
     # 64KB windows of ONE extended-pool block - every one based at or above
     # 1MB, 64KB apart - and an arm with the pool behind it has some
