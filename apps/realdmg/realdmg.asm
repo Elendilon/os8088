@@ -335,8 +335,13 @@ rw_ntc          equ rw_lbuf + 40    ; the window's notice is up (rw_ntcwait)
 rw_ntct         equ rw_ntc + 1      ; word: the tick it went up
 rw_mhold        equ rw_ntct + 2     ; byte: a load holds every claim still -
                                     ;   rw_mfree declares nothing (rwmove.inc)
+rw_slotlent     equ rw_mhold + 1    ; byte: bank slots lent to the side
+                                    ;   features (rw_mclaim, rwbank.inc)
+rw_lgrab        equ rw_slotlent + 1 ; byte: rw_slotlend stilled the machine
+rw_loans        equ rw_lgrab + 1    ; byte: side buffers living in lent slots
+rw_lused        equ rw_loans + 1    ; word: ...their paragraphs, from the top
 %ifdef RDG_AOT
-rw_aseg         equ rw_mhold + 1    ; RWA_MAX words: each code image's claim,
+rw_aseg         equ rw_lused + 2    ; RWA_MAX words: each code image's claim,
                                     ;   or 0 (rwaot.inc)
 rw_anseg        equ rw_aseg + RWA_MAX * 2 ; byte: images claimed
 rw_afix         equ rw_anseg + 1    ; byte: the images are read and put right
@@ -370,7 +375,7 @@ rw_aunh         equ rw_aebank + 2   ; byte: the load's hold is let go for
                                     ;   the plan (rw_aloose)
 rw_bssend       equ rw_aunh + 1
 %else
-rw_bssend       equ rw_mhold + 1
+rw_bssend       equ rw_lused + 2
 %endif
 RW_BSS          equ rw_bssend - rw_win   ; derived: a sum by hand drifted
 RW_FBUF         equ 5760            ; rdg_render's frame, at [rw_fseg]:0
@@ -483,7 +488,7 @@ rw_entry:
 
 ; rw_reloc - OUR REGION MOVED (SPEC.md 66.6.1): BX = where it was, DX = where
 ; it is. rdgsys's own words moved with it; the state block in the view, which
-; did not, names our code segment in five vectors - by the selector a far
+; did not, names our code segment in six vectors - by the selector a far
 ; jump loads, which on kern_mega is the region's code alias and not BX or DX
 ; (rw_csel, REALDMG-SPEC 16.2.4). The worker is parked at OSAPI_TASK_ALIVE
 ; whenever this runs, never in the core.
@@ -519,6 +524,10 @@ rw_reloc:
     jne .4
     mov [S_MBCVEC+2], dx
 .4:
+    cmp [S_RXVEC+2], bx             ; (rdg_rx, the lazy bank's fetch:
+    jne .4x                         ;   REALDMG-SPEC 10.3.2)
+    mov [S_RXVEC+2], dx
+.4x:
     cmp [S_TRACEVEC+2], bx
     jne .5
     mov [S_TRACEVEC+2], dx

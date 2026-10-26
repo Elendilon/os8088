@@ -166,6 +166,13 @@ rdg_aotattach:
     xor ax,ax
     cld
     rep stosw
+    push es                         ; (no RET site counted yet: tr_rmeg's
+    push ds                         ;   S_RMEG, as rt_flush clears it)
+    pop es
+    mov di,S_RMEG
+    mov cx,32
+    rep stosw
+    pop es
     mov dx,si                       ; ...then a bit for each block in the
     mov ax,[S_JITHSEG]              ;   TABLE - the core's tr_ejf asks this
     mov ch,[S_HMASK]                ;   before the table, so it has to name

@@ -275,6 +275,11 @@ rt_flush:
     mov cx,ax
     xor ax,ax
     rep stosw
+    push ds                         ; (no RET site counted: tr_rmeg's)
+    pop es
+    mov di,S_RMEG
+    mov cx,32
+    rep stosw
     cmp word [S_JITGNX],0FFF0h      ; (the generations near a wrap: from
     jb .g                           ;   nothing, every link forgotten with
     mov word [S_JITGNX],0           ;   the table - 16.2.3)
@@ -940,8 +945,9 @@ rt_translate:
 .restart:
     cmp byte [S_JITPRE],2           ; a preload's cache is full (16.8):
     jne .go                         ;   this block is given up, not entered
-    mov word [S_JITOUT],0
-    ret
+.lazy:                              ; (...or its bank is not in: tr_int
+    mov word [S_JITOUT],0           ;   brings it in, interpreting it, and
+    ret                             ;   the next miss translates it)
 .go:
     mov si,[RT_PC0]
     mov ax,[S_BANK]
@@ -956,6 +962,8 @@ rt_translate:
     jae .reg
     mov cx,8000h
     mov bx,[S_ROMX]
+    or bx,bx                        ; a bank switched to lazily (REALDMG-
+    jz .lazy                        ;   SPEC 10.3.2): not translated now
 .reg:
     sub cx,si
     cmp cx,80h
@@ -2868,6 +2876,8 @@ rt_idle:
     cmp si,8000h
     jae .r                          ; RAM: never
     mov bx,[S_ROMX]
+    or bx,bx                        ; (a bank switched to lazily, 10.3.2:
+    jz .r                           ;   not an idle loop's, for now)
 .src:
     push ds
     pop es

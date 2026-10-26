@@ -3534,7 +3534,7 @@ SOAK = [
         "across the segments must fail. WHY QEMU: a correctness gate, "
         "counted, not timed. SOAK: one package's core",
         needs=("qemu", "nasm", "rgbds"), timeout=360),
-    Row("gbaot", "soak", py("tests/gbaot.py"), 620.0,
+    Row("gbaot", "soak", py("tests/gbaot.py"), 680.0,
         "REALDMG's FULL static recompiler (docs/REALDMG-SPEC.md section 20, "
         "tools/gbaot.py): each ROM translated WHOLE on the host, walked from "
         "its entries with no play, by RealDMG's own translator run under "
@@ -3545,15 +3545,22 @@ SOAK = [
         "writes, POPs from ROM, HBlank events, 64 banks of code), cpu_instrs, "
         "instr_timing, mem_timing, halt_bug and dmg-acid2. THREE NEGATIVE "
         "CONTROLS: GBRMW's most-entered block broken must differ, GBFLAGS "
-        "translated with RT_DEADBUG must change its sum, and GBBANK under a "
-        "driver whose filter leaves the table out (RDG_NOTABFILT, tr_ejf, "
-        "REALDMG-SPEC 20.9) must enter fewer precompiled blocks; then GBBANK "
+        "translated with RT_DEADBUG must change its sum, and GBBANKRD under "
+        "a driver whose filter leaves the table out (RDG_NOTABFILT, tr_ejf, "
+        "REALDMG-SPEC 20.9) must not enter the block its interpreted code "
+        "jumps to; then GBBANK "
         "with every block LISTED, so the list's search and its cache run, "
         "identical to the interpreter, and with the cache's bank key "
         "forgotten (RDG_AOTCACHEBUG) differing; GBSEAM3-5's JRs across the "
         "bank seam, GBSEAM4 with tr_ejf's DS taken out of the image's core "
-        "as the control; and GBLCDOFF, the LCD off for good, a frame's time "
-        "being a frame then. WHY UNICORN: the "
+        "as the control; GBLCDOFF, the LCD off for good, a frame's time "
+        "being a frame then; and GBRET, one RET returning to eight places, "
+        "its site made megamorphic by both recompilers (tr_rmeg, REALDMG-SPEC "
+        "16.4.1), the control sending the rewritten site on with another "
+        "return's HL; GBBANKRD, banks switched to LAZILY and read every way "
+        "the core has in a cache of three slots (REALDMG-SPEC 10.3.2), under "
+        "both recompilers and with a stale S_PC at every fetch, its controls "
+        "rd_rom unchecked and RDG_RXDSBUG. WHY UNICORN: the "
         "translation is the host's, and the check is counted, not timed. "
         "SOAK: one package's recompiler",
         needs=("nasm", "unicorn", "rgbds"), timeout=900),
@@ -3784,6 +3791,18 @@ SOAK = [
         "and the close hung for ever. 13s measured",
         needs=("86box", "nasm", "rgbds"),
         wants=("build/realdmg.o88", "build/os8088.img", "build/calc.o88")),
+    Row("rdglend", "soak", py("tests/rdglend.py"), 25.0,
+        "REALDMG's SIDE FEATURES IN LENT BANK SLOTS (docs/REALDMG-SPEC.md "
+        "10.3.3) on 86Box's 286-victory: GBBANK.GB precompiled in a build "
+        "that never asks the heap (-DRW_LENDTEST), so a replay's buttons and "
+        "the log's records must live in a slot the bank cache lends - Record "
+        "Replay and Log on, the cartridge checking every bank right on the "
+        "fewer slots, both off and written, every slot the cache's again, "
+        "GBBANK.SS1/.RP1 and GBBANK00.LOG on the disk. Its control, "
+        "-DRW_NOLEND (a full heap as the owner met it: no slot lent), must "
+        "fail. 24s measured",
+        needs=("86box", "nasm", "rgbds", "unicorn"),
+        wants=("build/os8088.img",)),
     Row("gbhifreq", "soak", py("tests/gbhifreq.py"), 10.0,
         "REALDMG's speaker asked for 131,072 Hz (docs/REALDMG-SPEC.md section "
         "17) on 86Box's 286: GBTONE.GB ends with square channel 1 at x = 7FFh, "

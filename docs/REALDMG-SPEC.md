@@ -688,6 +688,107 @@ cartridge in one claim, and no bank is ever fetched (`rw_xplan`,
   `.mega` - would hold the cartridge once instead of twice; not taken, so
   that this needs no kernel change.
 
+### 10.3.2 A bank switched to lazily
+
+**A switch is not a read.** Precompiled code - and the recompiler's - that
+calls into a bank needs none of the bank's bytes: its blocks are already
+code. Link's Awakening switches banks **68 times a frame** in its first
+room, through the bank switcher at 07B9, and touches **13 banks every
+frame**; a 9-slot cache (the owner's Victory 286 with one code image, 168K
+of heap) fetched **8.7 banks a frame**, ~250 a second over XMS, and that was
+most of the machine (`ZELDA00.LOG`: the Game Boy at 850-950 ms a second,
+45-69% of real time). Of those 13 banks the frame READS 6-7, and bank 19,
+switched to 7,896 times in 1,128 frames, is never read at all.
+
+So translated code's own `LD (2000-3FFF),A` (`rdggen.bank_lines`) records a
+bank the cache has not got as `S_ROMX` = **0** and goes on - where it used
+to hand the instruction to the interpreter, whose `mbc_set` fetched. The
+bank is fetched when something READS it, and every reader checks:
+- **in the core**: `rd_rom` (the read of 4000-7FFF that `rd_slow` and
+  `rd_s1-3` share), `pop_slow` (SP in the bank), `w16_cpy` (a copy out of
+  it), `tr_int` for a PC in the bank, `tr_ejf`'s way into the interpreter
+  (`tr_ejfno`: a DS of 0 is the lazy bank) and `op_D3`, the seam's trap.
+  Each finding 0 goes to `rx_get` with where it starts again: `S_RET` and DX
+  are kept in the view (`S_RXRET`, `S_RXDX` - `rdg_ret` clears DL), and
+  `S_RXVEC`'s `rdg_rx` fetches as a switch would (`rdg_setbank`) and comes
+  back through `rx_back`. Nothing is pushed: SP is the Game Boy's;
+- **in rdgsys**: `rdg_resume` into the interpreter's own dispatch (the
+  recompiler's resume is `tr_enter`, which needs no bank), and OAM DMA from
+  the bank (`rdg_romxok`). **A fetch keeps `S_SAVDS`**: `rdg_setbank` points
+  the core's DS at the bank when `S_PC` is in it - a switch's business - and
+  at a fetch `S_PC` is only what the last trip out left, so the first build
+  sent the interpreter, reading the bank from bank-0 code, back with DS the
+  bank's (Kirby's Dream Land under the recompiler parted at frame 209, Kirby
+  2 precompiled at 677). A harness whose slots sat just above bank 0's copy
+  hid it: a slot's segment less 400h there reads bank 0's own bytes;
+- **in the translator**, which is a part of its own in the package and
+  cannot fetch: `rt_translate` declines a block in a lazy bank (`S_JITOUT`
+  0, as a full preload does), so `tr_int` interprets it, fetching, and the
+  next miss translates it with the bank in; `rt_idle` answers no.
+
+The interpreter's own switches stay eager (`mbc_set`): its DS may be the
+bank. `rwmove` leaves an `S_ROMX` of 0 alone. Translated code keeps no DS,
+so the inline switch's `mov ds` of a 0 is harmless; `tr_int` and the
+resume load DS afresh.
+
+Measured with the harness's cache made the package's (`gbaot.py check
+--slots K`: that many slots, at the top of its range, chosen as
+`rw_bfetch` chooses - the frame stamps), over the owner's two replays
+of that room and 9 slots: **9,816 fetches to 247** in 1,128 frames and
+**11,935 to 979** in 2,503, every frame identical to the interpreter. What is
+left is real reads (`rd_rom`, 0.12 a frame) and the interpreter's eager
+switches (0.08). `tests/gbaot.py`'s GBBANKRD is the gate: banks 1-7 switched
+to in turn with a VBlank counting underneath, each read first by a byte, a
+POP or a computed JP HL in turn, in a cache of three slots, under both
+recompilers; every reader is seen fetching, and a run with `S_PC` made a
+bank PC at every fetch must still be the interpreter's frame for frame. Its
+two controls part at once: `rd_rom`'s check jumped over in every segment's
+copy (frame 0), and a driver built `RDG_RXDSBUG`, the fetch leaving DS to
+`rdg_setbank` (frame 1). And a cache is invisible or it is wrong: thirteen
+of the owner's cartridges and Link's Awakening, each arm against itself with
+every bank in and with 6-9 slots, 1,500 frames.
+
+### 10.3.3 The side features' room: lent bank slots
+
+The plan (10.3) gives the bank cache every KB the heap has past `RW_KEEPKB`,
+and a precompiled cartridge's images take theirs first (20.10), so on the
+owner's Victory with Link's Awakening a replay's 8KB of buttons and the log's
+4KB of records found **nothing left**: both refused, *not enough RAM*, on the
+build that made the game run at 80-100%. Reserving their room in the plan
+would cost a slot for the whole session; they are asked for rarely and a slot
+is worth more than either the rest of the time.
+
+So a side buffer (`rw_mclaim`) takes the heap's room when `OSAPI_MEM_AVAIL`
+says the heap has it - asked first, because a refused claim compacts the
+heap and sheds its caches, and the first build here, which grew and shrank
+the slots' claim through `OSAPI_MEM_REGROW`, found that out: a refusal moved
+the cartridge's RAM up against the slots and they could never grow back -
+and otherwise it **lives in bank slots LENT for it**. `rw_slotlend` takes the
+cache's top slot out of its use, its bank out of the table (the bank switched
+in is copied over slot 0's first, so `S_ROMX` and the core's DS never name a
+lent slot), never below `RW_LENDMIN` (4); `rw_lend` cuts the buffer from the
+lent slots top down, lending another when they are full. The slots' claim
+keeps its size - nothing is asked of the heap - so a loan cannot fail half
+way. `rw_mrel` lets a buffer go, and with the last of them every lent slot is
+the cache's again, EMPTY: `rw_bfetch` fills an empty slot before it evicts.
+A compaction that moves the slots moves the buffers in them (`rw_mlent`).
+The replay's buttons (`rw_rpclaim`/`rw_rpfree`) and the log's records and
+text (`rw_logtoggle`, `rw_logflush`, `rw_logwrite`) take and give their room
+this way.
+
+MEASURED on 86Box's `286-victory` with Link's Awakening and the Task Manager
+opened beside it, the heap full to the byte (580K of 580K): Record Replay
+lent one slot (9 to 8) and cut its buttons from it, Log took its records from
+the same slot, both stopped and written, and the cache was back at 9 slots
+with nothing lent - `.SS1`, a 930-frame `.RP1` that the harness plays back
+identical to the interpreter, and the `.LOG`, whose head says the 7 slots the
+cache had while the log's text lent a second one to be written.
+`tests/rdglend.py` is the gate, on our own GBBANK cartridge (1MB, a fetch at
+nearly every switch) in a build that never asks the heap (`-DRW_LENDTEST`):
+replay and log on, lent and cut, the cartridge still checking every bank
+right through it, all of it given back and the three files written; its
+control, `-DRW_NOLEND`, refuses both as a full heap did.
+
 ### 10.4 Save states
 
 **Nine slots a game, `NAME.SS1` to `NAME.SS9` beside it** as its `.SAV` is
@@ -2681,6 +2782,40 @@ bank-0 returns only, and every return into 4000-7FFF went the whole way
 round `tr_enter`: 35 a frame in Kirby's Dream Land walking, and caching them
 took the CPU alone from 9.75 to 9.06 ms a frame on `286-victory`.
 
+#### 16.4.1 A RET that returns to more places than two
+
+Two entries hold a routine called from two places and no more. **Link's
+Awakening's bank switcher** (07B9: `ld (2100),a / ld (DBAF),a / ret`) is
+called from everywhere, and in its first room its RET's site was REPATCHED
+20.5 times a frame, 28.7 for every site there - each one `tr_link`'s lookup,
+`tr_lpatch`, the tier found for the site (a walk of `S_JITXT` on an image
+segment, which is none of the three it compares first) and `tr_rpatch`'s
+eleven moves: ~110 instructions a return where a lookup is ~35. So a site is
+counted. `tr_lpok` sends a RET's site to `tr_rmeg` first, which keeps 16
+slots in `S_RMEG` - the site's offset and its patches, the slot chosen by
+SITE's bits 2-5 and taken over by any other site that lands there, counting
+from 0 again. **A site patched `RT_RMEGN` (6) times while it held its slot is
+MEGAMORPHIC**: both entries' PCs become FFFFh, which nothing returns to, the
+first one's `jne +13` becomes `jne +32`, and SITE + 38 - the `mov dx,SITE` -
+becomes `jmp tr_enter`. The return is then the event check, one compare and
+the jump to the lookup, and nothing is patched again. Six and not three: a
+routine with two callers at a time whose callers change with the scene fills
+twice a scene, and a site wrongly made megamorphic costs every return ~30
+instructions for the rest of the tier's life. `rt_unlink` needs nothing new:
+both PCs FFFFh are entries it leaves alone and drops the log of (`rt_undo`).
+`rt_flush` and `rdg_aotattach` clear the slots.
+
+Measured in the precompiled code (tools/gbaot.py, x86 instructions a frame
+over the owner's 1,128-frame replay of the first room): **24,180 to 22,202,
+-8.2%**. Across thirteen other cartridges on the harness's script, under the
+precompiled code and the dynamic recompiler both, no frame's state changed
+and the counts moved from +1 instruction to -4.8% (Metroid II); a script
+reaches few polymorphic returns. `tests/gbaot.py`'s GBRET is the gate: one
+routine called from four sites in bank 0 and four in bank 1, its sums checked
+by the ROM, and its site counted to `RT_RMEGN` by both recompilers; the
+control sends the rewritten site on through `tr_lno` with another return's
+HL, and the sums part.
+
 ### 16.5 Guards
 
 Translated code does not keep SI either, so a store that can reach the I/O
@@ -3793,12 +3928,32 @@ REALDMG.O88's own recompiler on the same ROM.
 
 `gbaot.py heat ROM DIR -o H.json` runs the precompiled machine in the
 harness and counts, exactly, every entry of every block (Unicorn's block
-hook at each block's address) and every ROM PC sent to the interpreter
-(a hook on `rdg_aotmiss`'s way out): over the harness's own scripted play,
-or over a REPLAY RealDMG recorded (section 10.5) from the save state it
-starts from (`--replay NAME.RPn --state NAME.SSn`; a state with cartridge
-RAM past the window is not taken yet). Nothing in the package counts - it is
-the host's run of the same machine, so it costs the 8088 nothing.
+hook at each block's address), every ROM PC sent to the interpreter (a
+hook on `rdg_aotmiss`'s way out) and **every instruction the interpreter
+runs** (the core's handler entries, a dispatch's `jmp dx` with DH the opcode
+at SI - 1): over the harness's own scripted play, or over a REPLAY RealDMG
+recorded (section 10.5) from the save state it starts from (`--replay
+NAME.RPn --state NAME.SSn`; a state with one bank of cartridge RAM is taken
+into A000-BFFF, one with more is not taken yet). Nothing in the package
+counts - it is the host's run of the same machine, so it costs the 8088
+nothing.
+
+The interpreter's instructions are the counters' third column because the
+first two see only a FRONTIER. A block left out of the image the counters
+ran on - dropped for room, as most of a big cartridge is in walk order - is
+interpreted, and code it calls or jumps to is interpreted after it with no
+`rdg_aotmiss` in between, so a hot routine reached only from cold code was
+counted nowhere and stayed out of the next build too. Link's Awakening, the
+owner's replay of its first room: the first image held 7,170 of 19,670
+block starts, 37 of a frame's ROM entries went to the interpreter, and the
+build from those counters was **32,133** x86 instructions a frame. Counted
+by instruction (2,126 of them a frame, 2,622 PCs, every block start among
+them weighted by its own) the build is **24,180, -24.7%**, with the
+interpreter's handlers 8.3% of the frame before and 3.9% once 16.4.1 was in
+too. A block
+start's count is its entries, the same number the block hook gives; a PC
+that is no block start weighs nothing. `gbaot.py check --replay --state`
+holds a build to the interpreter over the replay itself.
 
 `build --heat H.json` (and `make`, which does both) then:
 - **translates the hottest first** - the profile's weight byte, which

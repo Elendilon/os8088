@@ -113,6 +113,37 @@ rw_mdecl:
     popf
     ret
 
+; rw_mlent - rw_mreloc's, the slots moving: BX = where they were, AX = the
+; move, CX = the slots lent or not. A side buffer cut from a lent slot
+; (rwbank.inc's rw_lend, REALDMG-SPEC 10.3.3) moves with them - a replay's
+; buttons, the log's records; the log's text is only ever held pinned
+; (rw_logwrite). Keeps every register
+rw_mlent:
+    cmp byte [rw_loans], 0
+    je .r
+    push cx
+    push dx
+    mov ch, cl                      ; CX = the claim's paragraphs
+    xor cl, cl
+    shl cx, 1
+    shl cx, 1
+    mov dx, [rw_rpseg]
+    sub dx, bx
+    cmp dx, cx
+    jae .lg
+    add [rw_rpseg], ax
+.lg:
+    mov dx, [rw_logseg]
+    sub dx, bx
+    cmp dx, cx
+    jae .x
+    add [rw_logseg], ax
+.x:
+    pop dx
+    pop cx
+.r:
+    ret
+
 ; rw_mreloc - A CLAIM OF OURS MOVED (SPEC.md 66.2): BX = where it was, DX =
 ; where it is, DS = CS = ours, ES = KERNEL_SEG. Every word that names it, and
 ; every one derived from it, put right; may clobber AX-DI and ES. It runs in
@@ -161,7 +192,10 @@ rw_mreloc:
     cmp bx, [rw_slotseg]            ; ...or the bank cache's slots
     jne .n6
     mov [rw_slotseg], dx
-    mov cx, [rw_nslot]
+    mov cx, [rw_nslot]              ; (and the lent ones, whose side
+    add cl, [rw_slotlent]           ;   buffers move with them: 10.3.3)
+    adc ch, 0
+    call rw_mlent
 .bank:
     mov ch, cl                      ; x 400h
     xor cl, cl
@@ -180,7 +214,9 @@ rw_mreloc:
     inc si
     cmp si, RDG_BTAB + 512 * 2
     jb .b
-    mov di, [es:S_ROMX]             ; ...the bank switched in now
+    mov di, [es:S_ROMX]             ; ...the bank switched in now - none
+    or di, di                       ;   when it was switched to lazily
+    jz .bx                          ;   (REALDMG-SPEC 10.3.2)
     add di, 400h
     sub di, bx
     cmp di, cx

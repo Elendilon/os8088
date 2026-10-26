@@ -163,6 +163,9 @@ rw_bload:
 %endif
     jc .room
     mov [rw_slotseg], dx
+    mov byte [rw_slotlent], 0       ; (none lent, no buffer in one:
+    mov byte [rw_loans], 0          ;   rw_mclaim)
+    mov word [rw_lused], 0
     mov ax, [rw_romkb]
     sub ax, 16
 %ifdef PKG_MEGA
@@ -437,6 +440,237 @@ rw_bmiss:
     pop ax
     ret
 
+; SIDE FEATURES' ROOM (REALDMG-SPEC 10.3.3). The plan gives the bank cache
+; every KB the heap has past RW_KEEPKB, so on a small heap a replay's or the
+; log's buffer found none - and a slot is worth less than either while it is
+; asked for, and more than either the rest of the time. So a side buffer
+; takes the heap's room when OSAPI_MEM_AVAIL says there is some, and
+; otherwise LIVES IN BANK SLOTS LENT for it: the cache stops using its top
+; slots, one at a time and never below RW_LENDMIN, and the buffers are cut
+; from them top down. Nothing is asked of the heap - the slots' claim is
+; ours and keeps its size - so a loan cannot fail half way, and when the
+; last buffer is let go every lent slot is the cache's again, empty.
+RW_LENDMIN      equ 4
+
+; rw_mclaim - AX = KB: DX = a side feature's buffer, CF = 1 none (rw_mrel
+; lets it go). AX kept. UI task
+rw_mclaim:
+    push ax
+    push bx
+    push cx
+    mov cx, ax
+%ifndef RW_LENDTEST                 ; (tests/rdglend.py: the heap as if full)
+    call OSAPI_MEM_AVAIL            ; (asked first: a refused claim compacts
+    cmp ax, cx                      ;   the heap and sheds its caches)
+    jb .lend
+    mov ax, cx
+    call OSAPI_MEM_CLAIM
+    jnc .r
+%endif
+.lend:
+    mov ax, cx
+%ifdef RW_NOLEND                    ; (...and its control: no slot lent -
+    stc                             ;   what a full heap said before 10.3.3)
+%else
+    call rw_lend
+%endif
+.r:
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; rw_lend - AX = KB: DX = a buffer in lent slots, more lent as it needs. CF
+; = 1: the cache has no slot to lend (none, or RW_LENDMIN left)
+rw_lend:
+    push ax
+    push cx
+    mov cl, 6
+    shl ax, cl                      ; AX = paragraphs
+.room:
+    mov cl, [rw_slotlent]           ; room: lent x 400h paragraphs
+    xor ch, ch
+    xchg cl, ch
+    shl cx, 1
+    shl cx, 1                       ; CX = lent x 400h
+    sub cx, [rw_lused]
+    cmp cx, ax
+    jae .cut
+    call rw_slotlend
+    jnc .room
+    pop cx
+    pop ax
+    ret                             ; (CF)
+.cut:
+    add [rw_lused], ax
+    mov ax, [rw_nslot]              ; the top: past every slot, lent or not
+    add al, [rw_slotlent]
+    adc ah, 0
+    mov ah, al
+    xor al, al
+    shl ax, 1
+    shl ax, 1                       ; x 400h
+    add ax, [rw_slotseg]
+    sub ax, [rw_lused]
+    mov dx, ax
+    inc byte [rw_loans]
+    pop cx
+    pop ax
+    clc
+    ret
+
+; rw_mrel - DX = a buffer rw_mclaim gave: freed, or - one cut from lent
+; slots - let go, and with the last of them every lent slot back. UI task
+rw_mrel:
+    push ax
+    call rw_inlent
+    jnc .heap
+    dec byte [rw_loans]
+    jnz .r
+    mov word [rw_lused], 0
+    call rw_mgive
+    jmp short .r
+.heap:
+    call OSAPI_MEM_FREE
+.r:
+    pop ax
+    ret
+
+; rw_inlent - CF = 1 when DX is in the slots' claim (lent slots' buffers
+; are). Keeps every register but AX
+rw_inlent:
+    cmp byte [rw_loans], 0
+    je .no
+    cmp dx, [rw_slotseg]
+    jb .no
+    mov ax, [rw_nslot]
+    add al, [rw_slotlent]
+    adc ah, 0
+    mov ah, al
+    xor al, al
+    shl ax, 1
+    shl ax, 1
+    add ax, [rw_slotseg]
+    cmp dx, ax
+    jae .no
+    stc
+    ret
+.no:
+    clc
+    ret
+
+; rw_slotlend - the cache's top slot taken out of its use (nothing given
+; back to the heap: rw_lend cuts buffers from it). Its bank leaves the table
+; - unless it is the bank switched in, which is copied over slot 0's first,
+; so S_ROMX and the core's DS never name a lent slot. CF = 1: none to lend.
+; The machine is held still for it (rw_stgrab), or already was. UI task
+rw_slotlend:
+    cmp byte [rw_bcache], 1
+    jne .no
+    cmp word [rw_nslot], RW_LENDMIN
+    ja .go
+.no:
+    stc
+    ret
+.go:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov byte [rw_lgrab], 0
+    cmp byte [rw_stq], 2            ; (still already)
+    je .held
+    call rw_stgrab                  ; (CF: no game running, nothing to
+    jc .held                        ;   hold still)
+    mov byte [rw_lgrab], 1
+.held:
+    mov es, [rdg_viewseg]
+    mov si, [rw_nslot]
+    dec si
+    shl si, 1                       ; SI = the top slot x 2
+    mov bx, [rw_slotbank + si]      ; BX = its bank
+    or bx, bx
+    jz .gone
+    shl bx, 1
+    mov ax, [es:RDG_BTAB + bx]      ; AX = its table word
+    cmp ax, [es:S_ROMX]
+    jne .drop
+    push ds                         ; the bank switched in: over slot 0,
+    push si                         ;   whose bank leaves instead
+    mov di, [rw_slotbank]
+    shl di, 1
+    jz .e0                          ; (slot 0 empty: nobody's to drop)
+    mov word [es:RDG_BTAB + di], 0
+.e0:
+    mov cx, [rw_slotseg]            ; slot 0's segment, and the top's
+    mov dx, si
+    mov dh, dl                      ; (x 200h: SI is the slot x 2)
+    xor dl, dl
+    shl dx, 1
+    add dx, cx
+    push es
+    mov es, cx
+    mov ds, dx
+    xor si, si
+    xor di, di
+    mov cx, 8192
+    cld
+    rep movsw
+    pop es
+    pop si
+    pop ds
+    mov ax, [rw_slotseg]            ; the bank's table word, S_ROMX and a
+    sub ax, 400h                    ;   DS the core saved on it: slot 0's
+    mov dx, [es:RDG_BTAB + bx]
+    mov [es:RDG_BTAB + bx], ax
+    mov [es:S_ROMX], ax
+    cmp [es:S_SAVDS], dx
+    jne .s0
+    mov [es:S_SAVDS], ax
+.s0:
+    shr bx, 1
+    mov [rw_slotbank], bx
+    jmp short .gone
+.drop:
+    mov word [es:RDG_BTAB + bx], 0
+.gone:
+    mov word [rw_slotbank + si], 0
+    dec word [rw_nslot]
+    inc byte [rw_slotlent]
+    cmp byte [rw_lgrab], 0
+    je .x
+    call rw_strun
+.x:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
+
+; rw_mgive - every lent slot the cache's again, EMPTY (rw_bfetch fills an
+; empty slot first). Nothing the core names changes, so the machine runs on
+rw_mgive:
+    push si
+.l:
+    cmp byte [rw_slotlent], 0
+    je .r
+    mov si, [rw_nslot]
+    shl si, 1
+    mov word [rw_slotbank + si], 0
+    inc word [rw_nslot]
+    dec byte [rw_slotlent]
+    jmp short .l
+.r:
+    pop si
+    ret
+
 ; rw_bserve - on the UI task: the bank the worker is waiting for, if any
 rw_bserve:
     push bx
@@ -475,6 +709,8 @@ rw_bfetch:
     mov cx, [cs:rw_nslot]
 .v:
     mov di, [cs:rw_slotbank + si]
+    or di, di                       ; an EMPTY slot, given back by a side
+    jz .e                           ;   feature (rw_mgive): this one
     shl di, 1
     mov ax, [es:S_FRAMES]
     sub ax, [es:RDG_BUSE + di]       ; AX = frames since
@@ -488,6 +724,10 @@ rw_bfetch:
     mov di, [cs:rw_slotbank + bp]   ; its bank leaves the table
     shl di, 1
     mov word [es:RDG_BTAB + di], 0
+    jmp short .in
+.e:
+    mov bp, si
+.in:
     mov word [cs:rw_slotbank + bp], 0
     mov ax, bp
     mov ah, al
