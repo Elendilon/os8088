@@ -183,7 +183,12 @@ P_MODE, P_HMASK, P_NOC, P_REASON, P_OUT, P_BUDGET, P_BANK, P_BMP = (
     0x22, 0x23, 0x24, 0x25, 0x26, 0x28, 0x2A, 0x2C)
 E_INIT, E_PRELOAD, E_ROUND, E_FRAME, E_CONT = 0, 3, 6, 9, 12
 P_AOTINT, P_STLOAD = 0x36, 0x38
-STK_SEG, DRV_SEG = 0x0050, 0x0900
+STK_SEG, DRV_SEG = 0x0050, 0x0860      # the stack 0:84F0 down, aothost.bin
+DRV_MAX = 0x10000 - DRV_SEG * 16         #   up to the core at 1000:0 (CORE in
+                                          #   translate and run_arm): 31,232 bytes.
+                                          #   At 0900 it was 28,672, aothost had
+                                          #   grown to 28,686, and the core's
+                                          #   first 14 bytes were h_jitstub's last
 MEM_END = 0x10FFF0                       # what real mode can address, with A20
 TOKEN = 0xF000                            # a block table's segment, as written:
                                           #   TOKEN + n names the image's segment n
@@ -256,6 +261,9 @@ class Machine:
         from unicorn import x86_const as X
         self.X = X
         drv = open(prerequisites(build, defines), "rb").read()
+        if len(drv) > DRV_MAX:              # (the core is written over it later)
+            raise SystemExit("gbaot: aothost.bin is %d bytes, %d over the room under "
+                             "the core" % (len(drv), len(drv) - DRV_MAX))
         self.sym = symbols(build)
         self.rom = rom
         self.u = Uc(UC_ARCH_X86, UC_MODE_16)
@@ -428,7 +436,7 @@ def slot_of(pc, key, hmask):
 
 
 def translate(build, rom, entries, hmask=31, log=print, defines=(), rhm=7, heat=None,
-              hram=None):
+              hram=None, listall=False):
     """Every entry (bank, pc) translated, in rounds of two cache segments
     (the first round also fills the core's holes), the code's banks mapped a
     group at a time when they do not all fit. Returns the image.
@@ -578,7 +586,7 @@ def translate(build, rom, entries, hmask=31, log=print, defines=(), rhm=7, heat=
             used += sum(1 for x in sg[o:o + 256] if x)
     img = {"segs": segs, "blocks": blocks, "dropped": sorted(dropped), "entries": n,
            "code_bytes": used}
-    finish(img, m.sym, rom, keyed, rhm, heat)
+    finish(img, m.sym, rom, keyed, rhm, heat, listall)
     return img
 
 
@@ -601,7 +609,7 @@ def priorities(rom, keyed, heat=None):
     return sorted(keyed, key=lambda k: (-heat.get(k, 0), rank(k), k[1], k[0]))
 
 
-def finish(img, sym, rom, keyed, rhm, heat=None):
+def finish(img, sym, rom, keyed, rhm, heat=None, listall=False):
     """The machine's half of an image, made by the host:
       - the TABLE it runs with, (rhm + 1) x 256 entries, every block start
         placed by priority in its slot or the slot's neighbour (tr_ekey's
@@ -612,14 +620,17 @@ def finish(img, sym, rom, keyed, rhm, heat=None):
         where the machine dispatches for itself (a RET, JP HL, a resume);
       - the far jumps among them as RELOCATIONS, image and offset, for the
         loader to give the segment;
-      - one generation in every segment's FFF0h (16.2.3)."""
+      - one generation in every segment's FFF0h (16.2.3).
+    With `listall` the table is left empty and every block is listed - a
+    test's, so that a small ROM reaches the list's search and its cache
+    (rdgaot.inc) at all."""
     blocks, segs = img["blocks"], [bytearray(x) for x in img["segs"]]
     table = bytearray((rhm + 1) * 256 * 8)
     listed = []
     for pc, key in priorities(rom, [k for k in keyed if k in blocks], heat):
         n, off = blocks[(pc, key)]
         e = slot_of(pc, key, rhm)
-        for e2 in (e, e ^ 8):
+        for e2 in () if listall else (e, e ^ 8):
             if not struct.unpack_from("<H", table, e2 + 4)[0]:
                 struct.pack_into("<HBBHH", table, e2, pc, key, 0, off, TOKEN + n)
                 break
@@ -770,7 +781,8 @@ def run_arm(build, rom, mode, frames, img=None, prove=False, defines=(), joy=Non
         m.p(0x34, len(lst) // 8)
         FILT = LIST + (len(lst) + 15) // 16 + 1
         m.p(0x3A, FILT)
-        romseg = FILT + 0x200
+        romseg = FILT + 0x280              # (the filter's 8KB, and the cache's
+                                           #   2KB after it: rdgaot.inc)
         m.set_slots(romseg + 0x400, MEM_END // 16)
         m.init(3, VIEW, CORE, HASH, seg_at[1] if len(seg_at) > 1 else CORE, 0, romseg,
                hmask=meta["hmask"], core_image=bytes(segs[0]))
@@ -1054,7 +1066,7 @@ def package(build, img, rom, out, romname, image=None, log=print, embed=False):
                                              AOT_CODE + 2 * nseg if embed else 0,
                                              meta.get("hot", nseg),
                                              len(rom.d) // 1024 if embed else 0) + rel
-    metap = (hdr.ljust(loff, b"\0") + lst).ljust(foff, b"\0") + bytes(0x2000)
+    metap = (hdr.ljust(loff, b"\0") + lst).ljust(foff, b"\0") + bytes(0x2800)  # filter, cache
     parts = [segs[0][:0x8000], segs[0][0x8000:], table, metap]
     for sg in segs[1:]:
         parts += [sg[:0x8000], sg[0x8000:]]

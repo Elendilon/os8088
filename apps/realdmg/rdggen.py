@@ -1330,6 +1330,7 @@ cpy_ff:
     add dx,[ss:S_TMP2]
     jnc cpy_de
 .no:
+    xor dl,dl
     jmp word [ss:S_RET]
 """,
     0x64: """
@@ -1345,6 +1346,7 @@ cpy_de:
     cmp dx,0FF00h
     jna .go
 .no:
+    xor dl,dl
     jmp word [ss:S_RET]
 .h2:
     add dx,[ss:S_TMP2]
@@ -1372,7 +1374,7 @@ cpy_de:
 .hl:
     mov bx,si
     and ah,RDGF_C
-    or ah,RDGF_Z|RDGF_N
+    or ah,RDGF_Z|RDGF_N|06h         ; (DEC 1 -> 0's LAHF: PF and bit 1 too)
     mov si,[ss:S_TMP4]
     add si,6
     xor dl,dl
@@ -2122,7 +2124,7 @@ def main():
     L.append("%endif")
     L.append("%endmacro")
     L.append("%assign JDN 0")
-    L.append("%macro JDISPATCH 0")         # a control transfer's: the
+    L.append("%macro JDISPATCH 0-1 tr_ejf")  # a control transfer's: the
     L.append("%ifdef RDG_TRACE")            #   translated code at the target
     L.append("    jmp far [ss:S_TRACEVEC]")  # if there is any (tr_enter) -
     L.append("%else")                      #   but never in RAM, which runs
@@ -2130,7 +2132,11 @@ def main():
     L.append("%assign JDN JDN+1")          #   own (REALDMG-SPEC 16.3). Each
     L.append("    cmp si,8000h")           #   site is LABELLED: with no
     L.append("    jae %%d")                #   recompiler its first five bytes
-    L.append("    jmp tr_ejd")             #   become the plain dispatch
+    L.append("%ifdef RDG_AOTCORE")         #   become the plain dispatch;
+    L.append("    jmp %1")                 #   PRECOMPILED, the filter first
+    L.append("%else")
+    L.append("    jmp tr_ejd")
+    L.append("%endif")
     L.append("%%d:")
     L.append("    mov dh,[si]")
     L.append("    inc si")
@@ -2144,7 +2150,8 @@ def main():
         L.append("op_%02X:" % op)               #   REALDMG-SPEC 16.2.2)
         lines = gen_main(op).text()
         if op in CONTROL:                       # REALDMG-SPEC section 16.4
-            lines = [ln.replace("DISPATCH", "JDISPATCH") if ln.strip() == "DISPATCH"
+            jd = "JDISPATCH tr_ejd" if op in JD_NOFILTER else "JDISPATCH"
+            lines = [ln.replace("DISPATCH", jd) if ln.strip() == "DISPATCH"
                      else ln for ln in lines]
         L += lines
         if op in TAILS:
@@ -2201,9 +2208,148 @@ EXTRA += [("INC (HL) of RAM", rmw_lines(0x34, False), 1),
 EXTRA += [("CB %02X of RAM" % b, rmw_lines(b, True), 2) for b in RMW_CB]
 
 
+# The control transfers whose JDISPATCH asks the table before tr_ejf's filter
+# under a precompiled machine (REALDMG-SPEC 20.9): RET and RETI, which land on
+# a block far more often than the others - the place after a CALL is one, and
+# an interrupt returns into the code it interrupted
+JD_NOFILTER = {0xC9, 0xD9}
+
+
 # --- tails after a TAIL page's CB handler: the translator copies a tail -----
 # --- page whole, so its CB half's room is as reachable as its main half's --
 CBTAILS = {
+    0x7C: """
+%ifdef RDG_AOTCORE
+; tr_ejf: JDISPATCH's way in under a PRECOMPILED machine (REALDMG-SPEC 20.9):
+; the filter of every (PC, key) that has a block, table or list, asked
+; BEFORE the table. A PC it does not name - the walk's misses, an image
+; left on the disk - is dispatched here, DS being the jump's own, in about
+; twenty instructions where the table, its neighbour and rdg_aotmiss took
+; fifty. One it names goes to tr_ekey as before
+tr_ejf:
+    cmp byte [ss:S_JITFIX],0    ; (the dynamic arm: no filter)
+    je tr_ejd
+    mov [ss:S_SAVBX],bx
+    mov bx,si
+    mov dh,0FFh
+    cmp bh,40h
+    jb .k
+    mov dh,[ss:S_BANK]
+    and dh,[ss:S_BMASK]
+.k:
+    xor bh,dh                   ; PC ^ key << 8, as rdg_aotattach's
+    mov dl,bl
+    and dl,7
+    shr bx,1
+    shr bx,1
+    shr bx,1
+    mov [ss:S_AOTMID],bx
+    mov bl,dl
+    xor bh,bh
+    mov dl,[cs:tr_ebits+bx]
+    mov bx,[ss:S_AOTMID]
+    mov es,[ss:S_AOTFSEG]
+    test [es:bx],dl
+    jnz .may
+    mov bx,[ss:S_SAVBX]
+    xor dl,dl
+    mov dh,[si]
+    inc si
+    jmp dx
+.may:
+    mov bx,si
+    mov dl,dh
+    jmp tr_ekey
+tr_ebits:   db 1, 2, 4, 8, 16, 32, 64, 128
+%endif
+""",
+    0xDD: """
+; cpc_ff: a copy through (C), between RAM and HRAM - LD A,(HL+) / LD (C),A
+; / INC C / DEC B / JR NZ,-6 (DL = E2h) or LD A,(C) / INC C / LD (HL+),A /
+; DEC B / JR NZ,-6 (DL = F2h): Looney Tunes' objects, 32 bytes out to HRAM
+; and back, eight a frame (REALDMG-SPEC 16.6). SI = the head, the JR NZ
+; about to be taken and its 3 M-cycles not charged, B = r passes left. Only
+; when FF00+C..+r-1 lies in HRAM, HL's range in 8000-FEFF or FF80-FFFE, and
+; no event falls inside: 9r + 2 M-cycles
+cpc_ff:
+    mov [ss:S_TMP],dl
+    mov dl,ch
+    xor dh,dh                   ; r
+    mov [ss:S_TMP2],dx
+    mov [ss:S_TMP4],dx
+    shl dx,1
+    shl dx,1
+    shl dx,1
+    add dx,[ss:S_TMP4]
+    inc dx
+    inc dx                      ; 9r + 2
+    cmp bp,dx
+    jl cpc_no
+    mov [ss:S_TMP4],dx
+    cmp cl,80h                  ; C's range: HRAM, never I/O or IE
+    jb cpc_no
+    mov dl,cl
+    add dl,ch
+    jc cpc_no
+    mov dl,bh                   ; HL's starting in VRAM: the damage scan
+    sub dl,80h                  ;   compares it all (cpy_ff's)
+    cmp dl,20h
+    jae .x
+    mov byte [ss:RDG_VALL],1
+.x:
+    mov dx,bx
+    cmp dh,80h
+    jb cpc_no
+    cmp dx,0FF80h
+    jae .h
+    add dx,[ss:S_TMP2]
+    jc cpc_no
+    cmp dx,0FF00h
+    ja cpc_no
+    jmp cpc_go
+.h:
+    add dx,[ss:S_TMP2]
+    jnc cpc_go
+cpc_no:
+    xor dl,dl
+    jmp word [ss:S_RET]
+""",
+    0xE1: """
+; cpc_ff's second half: the bytes, then C, B, A, HL and F as the loop leaves them
+cpc_go:
+    sub bp,[ss:S_TMP4]
+    mov [ss:S_TMP4],si          ; (the loop's head)
+    mov [ss:S_TMP6],di          ; (DE)
+    mov dx,ss                   ; DS and ES the view
+    mov ds,dx
+    mov es,dx
+    mov dh,0FFh
+    mov dl,cl                   ; FF00 + C
+    add cl,ch
+    mov [ss:S_TMP+1],cl         ; C after
+    mov cx,[ss:S_TMP2]
+    mov si,bx
+    mov di,dx
+    cmp byte [ss:S_TMP],0E2h
+    je .cp
+    xchg si,di                  ; HRAM to HL
+.cp:
+    rep movsb
+    mov al,[di-1]               ; A, the last byte
+    cmp byte [ss:S_TMP],0E2h
+    je .hl
+    xchg si,di
+.hl:
+    mov bx,si                   ; HL += r
+    mov cl,[ss:S_TMP+1]         ; (B = 0: CX ran out)
+    mov di,[ss:S_TMP6]
+    and ah,RDGF_C
+    or ah,RDGF_Z|RDGF_N|06h     ; DEC 1 -> 0's, as fill_ff's
+    mov si,[ss:S_TMP4]
+    add si,6
+    xor dl,dl
+    jmp tr_enter
+""",
     0x40: """
 ; w16_ff: a 16-bit countdown closed by LD A,r / OR r / JR NZ - the delay,
 ; copy and fill that cartridges carry from one library (REALDMG-SPEC 16.6).

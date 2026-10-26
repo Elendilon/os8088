@@ -3504,7 +3504,10 @@ SOAK = [
         "leaves without F (REALDMG-SPEC 16.1.3), with a timer interrupt landing "
         "at their JR: the F its handler pushes and the AF each loop leaves must "
         "be the interpreter's, and its control (RT_LAZYBUG, the event taken "
-        "with F stale) must make them differ. And tools/gbprof/gbseam.asm's two "
+        "with F stale) must make them differ. And tools/gbprof/gbcpc.py's "
+        "copies through (C), RAM to HRAM and back (cpc_ff, REALDMG-SPEC 16.6), "
+        "whose sum must be the interpreter's, and its control (RT_CPCBUG, the "
+        "copy the wrong way round) must make them differ. And tools/gbprof/gbseam.asm's two "
         "ROMs, code run from bank 0 across 3FFF into the bank (REALDMG-SPEC "
         "3.1), interpreted and translated, with the trap left out as the "
         "control. And "
@@ -3530,7 +3533,7 @@ SOAK = [
         "across the segments must fail. WHY QEMU: a correctness gate, "
         "counted, not timed. SOAK: one package's core",
         needs=("qemu", "nasm", "rgbds"), timeout=360),
-    Row("gbaot", "soak", py("tests/gbaot.py"), 370.0,
+    Row("gbaot", "soak", py("tests/gbaot.py"), 620.0,
         "REALDMG's FULL static recompiler (docs/REALDMG-SPEC.md section 20, "
         "tools/gbaot.py): each ROM translated WHOLE on the host, walked from "
         "its entries with no play, by RealDMG's own translator run under "
@@ -3539,9 +3542,14 @@ SOAK = [
         "and 8000-FFFF identical, or for Blargg's and gbflags' the words on "
         "the link port. 15 ROMs: GBDEMO, the tools/gbprof ROMs (read-modify-"
         "writes, POPs from ROM, HBlank events, 64 banks of code), cpu_instrs, "
-        "instr_timing, mem_timing, halt_bug and dmg-acid2. TWO NEGATIVE "
-        "CONTROLS: GBRMW's most-entered block broken must differ, and GBFLAGS "
-        "translated with RT_DEADBUG must change its sum. WHY UNICORN: the "
+        "instr_timing, mem_timing, halt_bug and dmg-acid2. THREE NEGATIVE "
+        "CONTROLS: GBRMW's most-entered block broken must differ, GBFLAGS "
+        "translated with RT_DEADBUG must change its sum, and GBBANK under a "
+        "driver whose filter leaves the table out (RDG_NOTABFILT, tr_ejf, "
+        "REALDMG-SPEC 20.9) must enter fewer precompiled blocks; then GBBANK "
+        "with every block LISTED, so the list's search and its cache run, "
+        "identical to the interpreter, and with the cache's bank key "
+        "forgotten (RDG_AOTCACHEBUG) differing. WHY UNICORN: the "
         "translation is the host's, and the check is counted, not timed. "
         "SOAK: one package's recompiler",
         needs=("nasm", "unicorn", "rgbds"), timeout=900),
