@@ -362,6 +362,8 @@ class UI:
                 return False
             return t != seen[0]
         self._wait(ok, "the kernel to reach the desktop", limit)
+        if getattr(self.m, "boot_toast", None):     # kern_mega under Bochs:
+            self.m.boot_toast()                     # its boot toast gone
         return self
 
     def ready(self, limit=180.0, saver=False):

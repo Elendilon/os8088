@@ -660,6 +660,21 @@ class BochsMarty(om.Marty):
         shutil.rmtree(keep, ignore_errors=True)
         return self._status()
 
+    def boot_toast(self, limit=10.0):
+        """Wait out kern_mega's boot toast (`Entered protected mode`,
+        mega_mtoast): it is up when the desktop is, and a row that waits for
+        "a toast" after its first act reads it as the answer. os88marty's
+        kernel_up and os88ui's UI.up call this when the machine has it; a
+        toast lives TOAST_TICKS (~3 s), so this is at most that"""
+        import os88sym
+        on, buf = os88sym.linear("toast_on"), os88sym.linear("toast_buf")
+        end = time.time() + limit
+        while time.time() < end:
+            if not self.read(on, 1)[0] or not self.read(buf, 8).startswith(
+                    b"Entered"):
+                return
+            time.sleep(0.2)
+
     def _c_quit(self, **_):
         self.close()
         return {}
@@ -763,6 +778,7 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
         if boot is True:
             box.up()
             box.capture()
+            m.boot_toast()
             return m
         time.sleep(float(boot))
         return m

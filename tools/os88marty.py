@@ -2489,6 +2489,8 @@ def kernel_up(m, guest=120.0, what="the kernel to reach the desktop"):
             return False
         return t != seen[0]
     until(m, up, what, poll=0.05, guest=guest)
+    if getattr(m, "boot_toast", None):  # kern_mega under Bochs: its boot
+        m.boot_toast()                  # toast, out of the row's way
     return ui_done(m, what)
 
 
@@ -3601,6 +3603,11 @@ class BpTrace:
         self.error = None       # what the pump died of, re-raised at exit
         self._by_addr = {}
         self._bps = []
+        # 20 bits on an 8088 (a flat address wraps there); kern_mega under
+        # Bochs (os88bochsmarty) runs `.cold` and `.mega` above 1MB, and a
+        # stop there is a 24-bit linear address that must not alias
+        self._mask = 0xFFFFFFFF if getattr(m, "bochs", False) else 0xFFFFF
+        mask = self._mask
         # LOGGED TARGETS ARE NOT STOPS. `log=True` (every exec target) or
         # `log=[some of them]` arms those as the debug server's logging
         # breakpoints: it notes (address, cycles) and resumes the guest
@@ -3614,17 +3621,17 @@ class BpTrace:
         logset = set()
         if log and log is not True:
             for t in log:
-                logset.add((m.sym(t) if isinstance(t, str) else int(t)) & 0xFFFFF)
+                logset.add((m.sym(t) if isinstance(t, str) else int(t)) & mask)
         self._logaddrs = set()
         for t in targets:
             if isinstance(t, dict):             # a raw breakpoint dict
                 self._bps.append(t)
                 continue
             addr = m.sym(t) if isinstance(t, str) else int(t)
-            self._by_addr.setdefault(addr & 0xFFFFF, t if isinstance(t, str)
+            self._by_addr.setdefault(addr & mask, t if isinstance(t, str)
                                      else "%05X" % addr)
-            if log is True or (addr & 0xFFFFF) in logset:
-                self._logaddrs.add(addr & 0xFFFFF)
+            if log is True or (addr & mask) in logset:
+                self._logaddrs.add(addr & mask)
                 self._bps.append({"type": "exec", "addr": addr, "log": True})
             else:
                 self._bps.append({"type": "exec", "addr": addr})
@@ -3719,7 +3726,7 @@ class BpTrace:
         # `flat_ip` is (CS << 4) + IP on MartyPC; on kern_mega under Bochs
         # (os88bochsmarty) CS is a SELECTOR and flat_ip the LINEAR address
         flat = st.get("flat_ip", (st.get("cs", 0) << 4)
-                      + st.get("ip", 0)) & 0xFFFFF
+                      + st.get("ip", 0)) & self._mask
         rec = {"name": self._by_addr.get(flat, "?%05X" % flat),
                "addr": flat, "cycles": int(st.get("cycles", 0)),
                "stops": st.get("stops"), "instructions": st.get("instructions"),
