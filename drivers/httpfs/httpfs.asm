@@ -116,8 +116,6 @@ hf_entry:
 
 ; DRVV_ATTACH - nothing to find: it owns no hardware. out: CF=0, SI = svc
 hf_attach:
-    call OSAPI_CPU_INFO         ; AH the flags (hf_bnorm: CPU_F_PM)
-    mov [hf_cpuf], ah
     mov si, hf_svc
     clc
     ret
@@ -374,7 +372,6 @@ hf_pfx:     times HF_PFXMAX db 0
 hf_path:    times HF_PATHMAX db 0
 hf_lbuf:    times HF_LINEMAX db 0
 hf_sock:    db 0                ; the socket handle, 0 = none
-hf_cpuf:    db 0                ; OSAPI_CPU_INFO's AH, banked at attach
 hf_live:    db 0                ; 1 = it is KEPT, idle, for the next GET
 hf_kept:    db 0                ; 1 = this GET rides a kept connection
 hf_keep:    db 0                ; 1 = this reply's server agreed to keep it

@@ -1074,6 +1074,22 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
     # the row through the copy in run_dir (os88qmpbochs copies it home)
     if cimg:
         noc = False
+        # ITS GEOMETRY BY ITS SIZE: os88disk.py --hdd's one fixed shape
+        # (65 x 16 x 63) or Box's own (os88bochs.GEOM)
+        sz = os.path.getsize(cimg)
+        cgeom = next((g for g in ((65, 16, 63), tuple(ob.GEOM))
+                      if g[0] * g[1] * g[2] * 512 == sz), None)
+        if cgeom is None:       # ...or any blank whose size 16 heads of 63
+            for h, spt in ((16, 63), (16, 32), (4, 17)):    # or 32 sectors,
+                if sz % (h * spt * 512) == 0:               # or Box's 4 of
+                    cgeom = (sz // (h * spt * 512), h, spt)  # 17, divide
+                    break
+        if cgeom is None:
+            raise om.MartyError("os88bochsmarty: a C: of %d bytes is neither "
+                                "os88disk.py --hdd's 65/16/63 nor %r" %
+                                (sz, ob.GEOM))
+    else:
+        cgeom = None
     # ...and FILES ON IT: `extra` takes MartyPC's emulator arguments, which
     # mean nothing here, so a row that needs a file on C: (stikhiber's
     # HIBERNAT.PTR) passes ("--put", SPEC) pairs instead - os88disk.py's
@@ -1090,12 +1106,14 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
     box = ob.Box(run_dir, [], sb=sb, cfg=cfg, bimg=b, aimg=a,
                  btype=box_btype, cmode="keep" if cimg else "run",
                  build=bld, display=disp, megs=megs, noc=noc, vgahz=20, flog=True,
-                 ne2k=ne2k, noserial=noserial, imps2=wheel, put=put)
+                 ne2k=ne2k, noserial=noserial, imps2=wheel, put=put,
+                 cgeom=cgeom)
     m = BochsMarty(box, run_dir, label=label)
     m.imps2 = wheel or "type=imps2" in ob.BOCHSRC
     m._boxkw = dict(sb=sb, cfg=cfg, btype=box_btype, build=bld,
                     display=disp, megs=megs, noc=noc, vgahz=20, flog=True,
                     ne2k=ne2k, noserial=noserial, imps2=wheel,
+                    cgeom=cgeom,
                     cmode="keep")    # a reset keeps the C: it had
     try:
         _first_c(box)

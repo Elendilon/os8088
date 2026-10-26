@@ -192,8 +192,14 @@ def mega_twin(img, bld=None):
     if re.match(r"(os8088|small)[-\w]*\.img$", os.path.basename(ap)) and \
             os.path.dirname(ap) == os.path.realpath(bld):
         return img
-    if ap in _TWINS:
-        return _TWINS[ap]
+    # KEYED ON THE FILE AS IT STANDS: a row that boots the same fixture
+    # again meets its twin as the last machine left it (ethcfg's reboot,
+    # close() copying A: back into the twin), and one that REWRITES the
+    # fixture between boots (netinst's AUTOSTRT link) gets a fresh twin
+    st = os.stat(ap)
+    key = (ap, st.st_mtime_ns, st.st_size)
+    if key in _TWINS:
+        return _TWINS[key]
     sys.path.insert(0, os.path.join(ROOT, "tools"))
     import os88fat
     try:
@@ -225,7 +231,7 @@ def mega_twin(img, bld=None):
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run(["mcopy", "-o", "-i", out, p, "::/" + "/".join(parts)],
                        check=True, env=env, stdout=subprocess.DEVNULL)
-    _TWINS[ap] = out
+    _TWINS[key] = out
     return out
 
 

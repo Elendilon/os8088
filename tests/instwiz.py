@@ -82,7 +82,12 @@ class Wizard(object):
         self.seg = struct.unpack("<H", bytes(m.read(base + geom.W_SEG, 2)))[0]
 
     def mem(self, name, n, add=0):
-        return bytes(self.m.read(self.seg * 16 + SYM[name] + add, n))
+        # through `lin` where the machine has one: under kern_mega the
+        # package's W_SEG is an LDT selector (os88bochsmarty, os88qemu.lin)
+        lin = getattr(self.m, "lin", None)
+        off = SYM[name] + add
+        return bytes(self.m.read(lin(self.seg, off) if lin
+                                 else self.seg * 16 + off, n))
 
     def byte(self, name):
         return self.mem(name, 1)[0]

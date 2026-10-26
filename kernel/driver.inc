@@ -2035,6 +2035,10 @@ osapi_drv_classk_x:
     push bx
     push dx
     push si
+%ifdef KERN_MEGA
+    push cx                     ; CX = the rows that answered (see below)
+    xor cx, cx
+%endif
     mov dl, al                  ; DL = the class asked for
     xor dh, dh                  ; DH = the row index
     xor si, si                  ; SI = the KB so far
@@ -2045,6 +2049,9 @@ osapi_drv_classk_x:
     je .next                    ; not loaded: it holds nothing
     cmp [bx+DRVR_CLASS], dl     ; ...and the compare is against the ROW rather
     jne .next                   ; than a register, DL being the only bank here
+%ifdef KERN_MEGA
+    inc cx
+%endif
     add si, [bx+DRVR_KB]        ; the image drv_load claimed...
     mov bx, [bx+DRVR_SEG]       ; ...and everything that names it as owner.
     call mem_owned_kb           ; BX is the row pointer and this spends it,
@@ -2054,10 +2061,21 @@ osapi_drv_classk_x:
     cmp dh, DRV_MAX
     jb .row
     mov ax, si
+%ifdef KERN_MEGA
+    ; **NOT `cmp ax, 1` HERE**: drv_hi_move puts a driver's image above 1MB
+    ; and zeroes its DRVR_KB ("no heap held"), and its claims follow it into
+    ; the pool - so a LOADED class could weigh 0 conventional KB and answer
+    ; "nothing of that class is loaded". INSTALL's network check
+    ; (in_netck) read ETHER.DRV as absent and never asked the network
+    ; (KERN-MEGA-PLAN 14.88). The predicate is the rows; AX the KB, 0 or not
+    cmp cx, 1                   ; CF = 1 iff no row of the class is loaded
+    pop cx
+%else
+    cmp ax, 1                   ; CF = 1 iff AX = 0 - see the header
+%endif
     pop si
     pop dx
     pop bx
-    cmp ax, 1                   ; CF = 1 iff AX = 0 - see the header
     retf
 
 ; -----------------------------------------------------------------------------

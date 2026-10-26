@@ -11195,3 +11195,56 @@ NOT fixed here: a compaction that moves ETHER.DRV's image (SPEC.md 66.6.3)
 after it registered would strand the word the same way, and nothing tests
 that move with the zone up. The row is the one-line answer there too, at
 four bytes of the shared table; it wants its own gate first.
+
+### 14.87 HTTPFS.DRV stepped a selector as a paragraph: the CPU flags banked at attach (2026-10-26)
+
+**Found by porting `httpinstall` to kern_mega**: double-clicking the HTTP
+drive's zone faulted the machine - `kern_mega FAULT vector 0D`, error code
+1214h, at HTTPFS.DRV's `hf_body.take` (`mov es, [hf_bseg]`), CS 1184h being
+the driver's code alias. `httpmount` had passed: its fixture's OS88.IDX is
+small enough that one receive never crosses 128 bytes.
+
+**Cause**: `hf_bnorm` keeps `[hf_bseg]:[hf_boff]` under 128 bytes by adding
+`(offset >> 4) & F8h` to the segment, and is meant to be skipped under
+protected mode - it tested `[hf_cpuf]`, OSAPI_CPU_INFO's AH **banked at
+DRVV_ATTACH**. A driver SYSTEM.CFG wants is attached by `drv_boot_x` in REAL
+mode, before `mega_enter`, so the byte said "no CPU_F_PM" for the session,
+and the index claim - an LDT selector (11E4h, from `OSAPI_MEM_CLAIM_HI`) -
+was stepped to 1214h, a descriptor nobody had. A GDT identity selector
+survives that sum (selector + 8 is base + 128), which is why the drive's
+reads into kernel buffers never showed it.
+
+**Fix** (`drivers/httpfs/hfnet.inc`): `hf_bnorm` asks OSAPI_CPU_INFO each
+time (*"Any context - it reads two bytes"*) and `[hf_cpuf]` is gone. No
+kernel byte moves. **`mega-httpinstall` is the row**: red before it on the
+fault, green after - the install off the HTTP drive commits and every root
+file lands on C: with its bytes and attributes. **The same banking is in
+three more drivers and NOT fixed here**: RAMDISK.DRV's `[rd_cpuf]`
+(`rd_fold`), NET.DRV's `[net_cpuf]` (`net_norm`) and CDROM.DRV's
+`[cd_cpuf]` (`cd_bnorm`) are all set at DRVV_ATTACH, so each is wrong on
+kern_mega whenever its driver is loaded at boot rather than ticked on the
+Drivers page after it - each wants the same one-line change and a row of
+its own to show it.
+
+### 14.88 OSAPI_DRV_CLASSK said a driver above 1MB was not loaded (2026-10-26)
+
+**Found by porting `netinst` to kern_mega**: INSTALL's release check
+(`in_netck`) answered NET_NONE - *"no Ethernet driver is loaded"* - with
+ETHER.DRV up, DHCP bound and the HTTP drive reading through it, so the
+source page never offered the network and the install came off the floppy.
+
+**Cause**: `in_netck` asks `OSAPI_DRV_CLASSK` (SPEC.md 51.12) whether the
+NET class is loaded, and that cell's predicate is its own answer - CF = 1
+iff the class weighs 0 KB, `drv_load` writing DRVR_SEG and DRVR_KB together.
+On kern_mega `drv_hi_move` (item 82) moves a boot driver's image above 1MB,
+zeroes DRVR_KB (*"no heap held"*) and its claims follow it into the pool,
+so a loaded class weighed 0 conventional KB and read as absent. The DOS
+memory page (SPEC.md 96.32.3) asks the same question.
+
+**Fix** (`kernel/driver.inc`, inside `%ifdef KERN_MEGA`): the predicate
+counts the LOADED ROWS; AX stays the conventional KB, 0 for a class wholly
+above 1MB - which is what unloading it gives back there. kern_big and
+kern_small are byte-identical (the build number apart). **`mega-netinst`
+is the row**: red before it on *"A. the check answered 0, not 5"*, green
+after - the network row picked, the install from the published tree, the
+startup link written and obeyed across two more boots.

@@ -462,7 +462,8 @@ class Box(object):
                  btype="1_2", cmode="run", bootc=False, noa=False,
                  build=None, csys=False, put=(), cd=None, aimg=None,
                  display=None, megs=None, noc=False, vgahz=None,
-                 flog=False, mouse=None, noserial=False, imps2=False):
+                 flog=False, mouse=None, noserial=False, imps2=False,
+                 cgeom=None):
         # DISPLAY: the X display this machine owns - the module's
         # ($OS88_BOCHS_DISPLAY, :99) by default, or its own, so ONE process
         # can run several machines at once (one display each)
@@ -505,7 +506,7 @@ class Box(object):
         # MEGARUN rides the C: disk only, so a machine with none (`noc`,
         # os88bochsmarty) does not need it built - a knob tree a ported row
         # builds for itself (`targets=("mega",)`) has none
-        args = [] if noc else [
+        args = [] if noc or (cmode == "keep" and os.path.exists(c)) else [
             "RUN:" + self._stage(stage, os.path.join(bld, "megarun.o88"),
                                  "0run.o88")]
         for p in pkgs:
@@ -545,7 +546,8 @@ class Box(object):
                 ata0="" if noc else (
                     "ata0: enabled=1, ioaddr1=0x1f0, ioaddr2=0x3f0, irq=14\n"
                     "ata0-master: type=disk, path=%s, mode=flat, "
-                    "cylinders=%d, heads=%d, spt=%d\n" % ((c,) + GEOM)),
+                    "cylinders=%d, heads=%d, spt=%d\n"
+                    % ((c,) + tuple(cgeom or GEOM))),
                 vgahz=", update_freq=%d" % vgahz if vgahz else "",
                 boot="disk" if bootc else "floppy",
                 astat="ejected" if noa else "inserted",
