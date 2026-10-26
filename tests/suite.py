@@ -7113,6 +7113,25 @@ SOAK = [
         "BIOS buffer drained, and one more paced key still lands. Red on a "
         "MartyPC built without patch 14 (leg B stops in sch_stkdie).",
         needs=("marty",)),
+    Row("kbd4f", "soak", py("tests/kbd4f.py"), 8.0,
+        "THE SCANCODE COMES FROM THE ROM'S int 15h AH=4Fh, NOT A PEEK (SPEC.md "
+        "9.7.2). kbm_isr used to read port 60h ahead of the ROM whenever the "
+        "key-state map was armed or no mouse had spoken - free on an 8255 and "
+        "a real 8042, and on QEMU's (and v86's) 8042, which loads the NEXT "
+        "queued byte on a read, it TOOK a byte the ROM never saw: a press and "
+        "its release queued together lost the press, two makes queued lost "
+        "the first and stored the second twice, grey Left (E0 4B) stored 4B00 "
+        "TWICE. With the map armed: [kbm_nopeek] = 1 before any key (SeaBIOS "
+        "advertises 4Fh), 'a' down+up in ONE input-send-event stored once as "
+        "1E61, 's'+'d' downs stored 1F73 2064 with both map bits down, grey "
+        "Left stored ONCE as the ROM's E0 form 4BE0, and Alt+Enter (9.7.1) "
+        "with both downs batched stops at kbd_track.latch with AL = 1C (a GDB "
+        "breakpoint - ui_task spends [kbd_ae] within a pass) and is stored "
+        "once as 1CF0. RED on the kernel before 9.7.2: nothing for 'a', 2064 "
+        "2064, 4B00 4B00, no Alt+Enter at all. QEMU on the closed list, entry "
+        "4 (an 8042); MartyPC's 8255 keeps the peek. 8s is 5.1 measured",
+        needs=("qemu",), serial=True,
+        wants=("build/os8088.img", "build/apps.img")),
     Row("kdkbd", "soak", py("tests/kdkbd.py"), 50.0,
         "KERN_DOS KEEPS THE BIOS KEY BUFFER OFF FULL (SPEC.md 96.50). "
         "Reported off an 86Box 386: hold a direction key in Prince of Persia "

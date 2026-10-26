@@ -1070,6 +1070,11 @@ mega_k09:
     mov ax, MEGA_BDA
     mov ds, ax
     in al, 0x60
+    call KERNEL_SEG:kbm_scanf       ; THE ONE READ, and the key-state map and
+                                    ; keypad 5 are told what it got: kbm_isr
+                                    ; reads nothing here (SPEC.md 9.7.2), so an
+                                    ; emulated 8042 that loads its next byte on
+                                    ; a read cannot lose one. AL preserved
     cmp al, 0xE0
     jne .note0
     or byte [0x96], 0x02            ; the ROM's own E0 flag (40:96 bit 1)
@@ -9332,6 +9337,17 @@ mega_pmtail:
     mov [es:0x09*4], ax
     mov ax, [mega_old09+2]
     mov [es:0x09*4+2], ax
+    ; ...AND INT 15h, the ROM's again (SPEC.md 9.7.2). A reflection runs the
+    ; BIOS in real mode on this IVT, and the BIOS's own int 09h then calls int
+    ; 15h AH=4Fh - which must not land in kbm_i15, whose KDS loads the
+    ; protected-mode selector out of k_dsel. Unconditional: kbm_old15 is what
+    ; mouse_init FOUND, hooked or not. From here on mega_k09 reads port 60h
+    ; and hands the byte to kbm_scanf itself, so kbm_isr reads nothing
+    mov ax, [kbm_old15]
+    mov [es:0x15*4], ax
+    mov ax, [kbm_old15+2]
+    mov [es:0x15*4+2], ax
+    mov byte [kbm_nopeek], 1
     push ds                         ; ...and a COPY of IVT 08h-0Fh at 20h-27h:
     push cx                         ; the 8259 stays at its protected-mode base
     push es                         ; through every reflection (mega_svc), so

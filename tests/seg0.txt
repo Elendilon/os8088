@@ -11,7 +11,7 @@
 # ONE LINE PER FILE: <sites> <path>  # <reason>
 
 # --- real mode by construction: the boot, before mega_enter -------------------
-3 kernel/mouse.inc  # mouse_init's port probe and identify window (.boot2)
+2 kernel/mouse.inc  # mouse_init's port probe and identify window (.boot2) - the int 09h hook's own ES = 0 went with SPEC.md 9.7.2 (ES was already 0)
 1 kernel/sched.inc  # sched_init's vector install (.boot2)
 2 kernel/splash.inc  # the loading screen (.boot2)
 2 kernel/disk.inc  # the boot overlay's mount-time setup (.ovl)

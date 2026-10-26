@@ -59,7 +59,8 @@ KR_ISR      equ 12              ; PIC1 in-service
 KR_IRR      equ 13              ; PIC1 request
 KR_IMR      equ 14              ; PIC1 mask
 KR_X        equ 15              ; 'I': bit 0 [kbd_armed], bit 1 a mouse has
-                                ; spoken, bit 2 a PS/2 aux port; 'E': the
+                                ; spoken, bit 2 a PS/2 aux port, bit 3 the
+                                ; ROM hands the byte over (9.7.2); 'E': the
                                 ; bracket's CX flags
 
 ; -----------------------------------------------------------------------------
@@ -157,6 +158,12 @@ kbg_pre:
     or al, 4
 .na:
 %endif
+%ifdef KBD_I15
+    cmp byte [kbm_nopeek], 0    ; bit 3: SPEC.md 9.7.2's int 15h AH=4Fh path,
+    je .n4                      ; so KR_DAT is the byte the ROM HANDED us and
+    or al, 8                    ; not a re-read of port 60h
+.n4:
+%endif
     mov [bx+KR_X], al
     inc word [kbg_n1]
     test byte [bx+KR_FLG], 1
@@ -177,8 +184,13 @@ kbg_post:
     push si
     push es
     mov bx, [kbg_cur]
+%ifdef KBD_I15
+    cmp byte [kbm_nopeek], 0    ; SPEC.md 9.7.2: kbg_4f already has the byte,
+    jne .nore                   ; and on an 8042 that loads its NEXT byte on a
+%endif                          ; read, a re-read would take that one
     in al, 0x60                 ; the byte the ROM just took: a re-read
     mov [bx+KR_DAT], al
+.nore:
     call kbg_st
     mov [bx+KR_ST2], al
     xor ax, ax
@@ -202,6 +214,19 @@ kbg_post:
     pop bx
     pop ax
     ret
+
+%ifdef KBD_I15
+; -----------------------------------------------------------------------------
+; kbg_4f - kbm_scan's head: AL = the scancode it was handed (the ROM's, on
+; SPEC.md 9.7.2's path). DS = KERNEL_SEG; every register preserved
+; -----------------------------------------------------------------------------
+kbg_4f:
+    push bx
+    mov bx, [kbg_cur]
+    mov [bx+KR_DAT], al
+    pop bx
+    ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; kbg_irq0 - sch_isr's head, DS = KERNEL_SEG, IF = 0: inside a bracket, count
