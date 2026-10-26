@@ -18,7 +18,7 @@ design.
 
 ## Where it stands
 
-Waves 0 to 4 are built, the speed rounds after them are 1 to 8, and the
+Waves 0 to 4 are built, the speed rounds after them are 1 to 9, and the
 correctness items they turned up are closed. What is still open:
 - **The pins revisit** - after this release, at the owner's word.
 - **A JR across 4000h on the 8088's plain interpreter** lands with the wrong
@@ -28,8 +28,9 @@ correctness items they turned up are closed. What is still open:
   **a 286 speed figure with the 100% cap lifted** (W4's two not built).
 - **A cartridge whose code runs from WRAM** is interpreted (W3's GBRMW
   finding). No real game measured does; HRAM's routines are precompiled.
-- **The next speed round** starts from round 8's profile and its priced
-  list (below).
+- **Speed**: round 9 took the last item round 8's profile priced worth
+  building; the two left (the memory flushes, the event path) are ~2% each
+  and are written down with their costs.
 
 Moved off this plan: **the kern_mega arm** (20.14) is built on the
 kern_mega memory branch by the session doing that rework, which keeps
@@ -327,3 +328,16 @@ code, each holds 7.4 KB of tails and the gaps rounding leaves.
   the table wrong. Priced and left for later rounds: a memory access's
   own time charge (~650 a frame not beside an event check, ~3%), the event
   path's ~210 instructions (~2%), RET's misses past its inline cache.
+- [x] Speed, round 9 - the small items round 8 priced, each measured before
+  any was built. RET past its inline cache: 2 repatches and 3 `tr_link`s a
+  frame, ~150 instructions - CLOSED, nothing to win. What the dispatch
+  count was really made of is calls into HRAM: ~20 a frame through
+  `tr_enter` and the table, which the host now links straight to the
+  guarded HRAM block (REALDMG-SPEC 20.5) - Looney Tunes' replay 20,676 ->
+  20,057 (-3.0%), identical to the interpreter. NOT TAKEN, priced: a memory
+  access's flush of the pending charge, ~550 a frame (2.6%), because only
+  its slow path reads the time and saying so costs every memory template
+  a `sub` and an `add` in that slow path (bigger images on a heap that
+  holds two) or a contract across every slow helper; and the event path,
+  ~210 instructions an event over a dozen small routines, ~1,300 a frame
+  with no single waste.

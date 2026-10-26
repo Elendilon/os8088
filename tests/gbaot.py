@@ -108,10 +108,14 @@ def hram_leg(rom, found, extra, out, frames, ref="interp"):
     made = sorted(pc for pc, key in img["blocks"] if pc >= 0xFF80)
     if not made:
         return False, "%d HRAM PCs counted and none translated" % len(hram)
+    if not img.get("hlinked"):
+        return False, "%d HRAM blocks and no exit linked to one: the guard on a " \
+            "linked entry is untested" % len(made)
     out2 = out + "-hram"
     gbaot.save(img, out2, rom)
     ok, what = gbaot.compare(BUILD, rom, gbaot.load(out2), frames, ref=ref)
-    return ok, "%d HRAM blocks (%s); %s" % (len(made), " ".join("%04X" % p for p in made), what)
+    return ok, "%d HRAM blocks (%s), %d exits linked to them; %s" % (
+        len(made), " ".join("%04X" % p for p in made), img["hlinked"], what)
 
 
 def straddle():
