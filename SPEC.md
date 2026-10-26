@@ -55356,9 +55356,9 @@ a happy result — the disk this replaces was at 354 of 354.
 RealDMG (docs/REALDMG-SPEC.md) is at the root and its own demo cartridge,
 `GBDEMO.GB`, is in `MEDIA/` where its File dialog opens - LZ4-packed, 32,768
 bytes to 1,110, which RealDMG's single `OSAPI_FILE_READ` of a cartridge
-expands (§20.14.3). **It is built and not released**: the release skill's
-`mkzip.py` carries `media360`, `office360`, `network360` and `games360` and
-not this disk, so no release zip has it until that list is changed.
+expands (§20.14.3). **It is released**: the release skill's `mkzip.py`
+carries it beside the other category disks, as `360K/EMU360.IMG` in the
+release zip's folder per disk size.
 
 **The other three join it ON REQUEST**: `make emufull` (or `EMUFULL=1` on
 any make) builds the same image with C64, APPLE2 and RunCPM at the root,
@@ -55586,6 +55586,7 @@ contents are DERIVED from those omissions rather than listed again:
 | `APPS/` | `PIXEL.O88`; `MIDIRACK.O88`, a second copy |
 | `GAMES/` | `REALDMG.O88`, `DRMARCO.O88` |
 | `MEDIA/` | `GBDEMO.GB` (packed), `OS8088.V88`, and in `MIDI/` the eight songs `apps720.img` does not carry |
+| `PICTURES/` | PiXEL's 360 KB gallery selection, five pictures (§106.7) |
 | `SYSTEM/APPDATA/` | empty, §19.9 |
 
 It has the apps disk's folders and not a category disk's root (§24.6) because
@@ -55594,11 +55595,12 @@ thing. **MIDIRack rides it a second time** — `media360.img`'s shape at 360 KB
 — because the 720 KB system disk does not carry the player, and a `.MID` on a
 volume with no player opens nothing until the apps disk has been mounted. The
 demo video needs no such copy: `VIDEO.O88` is in the system disk's `APPS/`.
-368 of 713 clusters at its first build.
+368 of 713 clusters at its first build; PiXEL's five pictures (216
+clusters, 2026-10-26) took it to 587, leaving 126.
 
-**XTMP3 is not on it yet** and rides `make xtmp3disk`'s 720 KB floppy until
-the owner places it; its player and three songs are about 250 clusters, which
-fit. §24.6.1 binds this disk too: which package rides which 720 KB disk is a
+**XTMP3 is not on it** and rides `make xtmp3disk`'s 720 KB floppy, which the
+release ships as `PROGRAMS/XTMP3/XTMP3720.IMG`; its player and three songs are
+about 250 clusters, which fitted until the gallery took the room. §24.6.1 binds this disk too: which package rides which 720 KB disk is a
 decision with a date on it, expected to be reordered.
 
 ## 25. icons.inc — icon format, draw routine, built-in library
@@ -137201,8 +137203,9 @@ stick has none of these limits: it persists settings and saves like the
 installed disk it is.
 
 The 720KB and 1.44MB floppy *images* still matter to the same reader — a USB
-floppy drive and a Gotek take them — so the live media are additions to the
-release zip, not replacements for anything in it.
+floppy drive and a Gotek take them — so the live media are a zip of their own
+beside the release's floppies (`os8088-<version>-live.zip`, the images as
+`LIVEUSB.IMG` and `OS8088.ISO`), not replacements for anything in it.
 
 ### 80.4 Writing the media on a Mac, guided
 
@@ -137526,7 +137529,7 @@ because it never boots `kern_emu` (§9.11.7). On anything below a 386 the image
 still boots — `vmm_boot_x` refuses at its `[cpu_tier]` compare, the bit is
 ignored, and the machine keeps whatever mouse `mouse_init` found — but that is
 a property worth having, not a reason to ship it. `make live` does not build
-it, the release zip does not carry it, and the website's `tools/release.py`
+it, no release zip carries it, and the website's `tools/release.py`
 publishes it in place of `os8088-usb.img` as the demo's hard disk.
 
 **The page's half is the website's.** v86 delivers `mouse-absolute` events to
@@ -205871,6 +205874,16 @@ the bytes read.
   alone, the package staying; and `make pixeldisk` in all four
   geometries — the package at the root, the gallery in `PICTURES/`,
   `SYSTEM/APPDATA/` made.
+- **The gallery beside the package, where it fits** (2026-10-26, the owner's
+  rule: a hard disk keeps at least 100 KB free). `PICTURES/` at the root of
+  the live media and the VGA and CGA video demo disks (§98.5) holds all ten;
+  the Hercules video disk had 182 KB free and keeps PiXEL without them. The
+  360 KB selection — five pictures, 216 clusters at 1 KB — rides
+  `more720.img` (§24.7) and both everything sets, where it fits without
+  adding a disk. The 1.44 MB and 1.2 MB apps disks have ~160 KB free and
+  carry none, so the release ships `pixel.img`, the 1.44 MB pixeldisk, as
+  `PROGRAMS/PIXEL/PIXEL144.IMG` for the whole gallery on a floppy.
+  `$(PX_GALLERY)` and `$(PX_GALLERY_360)` are the disk arguments.
 - **Off `apps360.img` and `apps720.img`**, by §24.6.1's dated decision,
   taken 2026-10-02 with the plan: those disks had 25 and 37 clusters free,
   and PiXEL is ~16 KB on arrival and grows by a decoder a wave. The 720KB
