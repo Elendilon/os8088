@@ -7629,6 +7629,23 @@ SOAK = [
         wants=("build/kdos/DOS.O88", "build/DOSPIT.COM", "build/kernel.sys",
                "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
                "build/ctrl.drv", "build/hdd.drv")),
+    Row("kdreturnfsx", "soak", py("tests/kdreturn.py", "--fsx"), 30.0,
+        "...AND THE COMMAND TYPED AT THE FULL-SCREEN CONSOLE COMES HOME TO "
+        "IT (SPEC.md 96.33.16, KERN-MEGA-PLAN 14.113). A command typed there "
+        "sets [dos_fsxgo] and brings the bracket down for the launch, and "
+        "dos_run's exit is what puts it back - but the shut-down arm leaves "
+        "dos_run by `.outq`, so the wake that delivers the exit code has to. "
+        "kern_mega's trip got that call in 14.106 under `%ifdef DOS_MEGA`; "
+        "kern_big's shipped DOS.O88 did not, so the session came home "
+        "WINDOWED with [dos_fsxgo] standing, which the next program run from "
+        "the window spent on its exit by entering the full screen nobody "
+        "asked for. The wait is for the console back with this run's exit "
+        "line (its whole-machine arena) on it, then Esc and nothing left "
+        "owed. VERIFIED RED on the DOS.O88 before 14.113: [dos_fsxup]=0 "
+        "[dos_fsxgo]=1 on the desktop that came back. MartyPC.",
+        wants=("build/kdos/DOS.O88", "build/DOSHELLO.COM", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
+               "build/ctrl.drv", "build/hdd.drv")),
     Row("kdreturncx", "soak", py("tests/kdreturn.py", "--compact", "extent"),
         30.0,
         "...AND DOS MOVES UNDER THE HANDOFF (SPEC.md 96.40.8). The post "

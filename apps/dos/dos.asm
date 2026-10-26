@@ -1244,16 +1244,15 @@ dos_wake:
     call dos_con_ended
     mov bx, [dos_win]
     call dos_swap
-%ifdef DOS_MEGA
     call dos_fsx_back               ; ...AND BACK INTO THE FULL SCREEN when the
                                     ; command was typed there (SPEC.md
-                                    ; 96.33.16): every program is a trip here,
-                                    ; and the posted path leaves dos_run by
-                                    ; `.outq`, past its own call - so the trip's
+                                    ; 96.33.16): the posted path leaves dos_run
+                                    ; by `.outq`, past its own call - so the
                                     ; return is where [dos_fsxgo] is spent, or
-                                    ; it stood until some later launch spent
-                                    ; it (KERN-MEGA-PLAN 14.106)
-%endif
+                                    ; it stood until some later WINDOWED exit
+                                    ; spent it and threw that console into the
+                                    ; full screen. kern_mega's trip (14.106) and
+                                    ; kern_big's shut-down arm alike (14.113)
     jmp short .out
 .nocode:
 %endif
