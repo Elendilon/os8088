@@ -11277,7 +11277,9 @@ neither of which Bochs has). Four kern_mega defects came out of it, 14.85 to
   each host close until the next session is up (os88bbs) and redialling once
   got telansi through ten of thirteen fixtures; the long fragmented streams
   (`art`, `torture`) still stall. The partial work is on branch
-  `w1-telansi-wip`, unmerged.
+  `w1-telansi-wip`, unmerged. **Both now run on 86Box's slirp instead**
+  (tests/megaport.txt's wave 3 section), and telansi then reached a kern_mega
+  defect: see 14.110.
 - `thewire` is red on QEMU on this branch before any of this: its fixture
   will not pack, `TREEONE far-calls cell 0x04E3, at or past WIRE_TABLE_END
   0x04A5`. The archive's program is `build/mseg.o88`, a package with PARTS,
@@ -11456,3 +11458,56 @@ and the click that was meant for TELNET.O88 raised the Calculator instead,
 so File > Compress ran on CALC.O88 a second time and reported that. Red on
 the unfixed kernel (*"TELNET.O88: expected 'Already compressed' ... got
 'Cannot compress this one'"*), green after.
+
+### 14.110 Ctrl+] (and every ctrl punctuation key) was ASCII 0 in protected mode (2026-10-26)
+
+**Found by porting `telansi` to 86Box** (tests/megaport.txt's wave 3; Bochs's
+slirp had kept the row from getting this far, 14.89). Every fixture stream
+rendered, then *"Ctrl+] did not enter the full-screen bracket ([te_txm] is
+0)"*. Session > Full Screen from the menu entered it at once, so the bracket
+worked and the KEY did not arrive.
+
+**Cause**: `mega_k09` (`kernel/mega.inc`) is kern_mega's own int 09h: it
+fills the BIOS buffer that `mega_i16` serves. Its ctrl arm turned a letter
+into 1-26, kept Enter's CR and made Backspace 7Fh. Every other ctrl key was
+stored with ASCII 0. An IBM ROM gives ctrl + `[` `\` `]` as 1Bh 1Ch 1Dh,
+ctrl + `6` and `-` as 1Eh and 1Fh, and leaves Esc and Space their ASCII. So
+Telnet's `TET_ESC` (1Dh), which is the way into full screen and the way out
+(`apps/telnet/tetxt.inc`), never matched.
+
+**Fix**: the ctrl arm gives those six keys the ROM's codes. The change is
+inside `%ifdef KERN_MEGA`, so kern_big and kern_small are not touched.
+**`mega-telansi` is the row**. On the unfixed kernel it fails at that line.
+After the fix it passes, with `[con_tseg]` asked of its BASE: in protected
+mode the text framebuffer's segment is a selector whose base is B8000h. The
+row now reads that, and on QEMU it reads B800h as before.
+
+### 14.111 A sound driver's tick could stop the machine at the switch (2026-10-26)
+
+**Found by porting `mixersb16` to 86Box** (its SB16 machine): one boot in
+three under the row, and 2 of 32 in a bare boot loop, reached the desktop
+and then stopped with `[ticks]` frozen. 86Box's fault log named it: `#GP
+1058:A6D6 err 9D40 [loadseg(): Bigger than LDT limit]`. That address is
+`drv_svc_call_x`'s `mov ds, [es:drv_fseg]`, and the CPU was left in `.mega`
+with IF = 0.
+
+**Cause**: `mega_pmtail` executes `sti` in protected mode, and from there
+until `mem_xlatf` (MC7.4) runs, every claim holder still names its block by
+the PARAGRAPH the real-mode boot gave it. `drv_tab`'s row and the class fast
+path `drv_fseg` held 9D40h, SOUND.DRV's image. `snd_tick` far-calls a sound
+driver's `DSV_TICK` through `drv_fseg` from IRQ0. When a tick landed in that
+window, `mov ds, 9D40h` raised #GP, the handler stopped the machine, and the
+boot never got further. Whether it happens depends on where the tick falls,
+so the failure is intermittent. Every kern_mega machine with a sound driver
+that publishes a tick is exposed, under Bochs as well.
+
+**Fix**: kmain clears `[snd_live]`, the sound layer's own boot gate, before
+`mega_enter` and puts it back after `mem_xlatf`. `snd_tick` then returns at
+its first test for the whole window. The change is inside `%ifdef
+KERN_MEGA`. The same loop read 0 hangs in 25 boots after the fix, and
+`mega-mixersb16` passed 8 of 8. The rest of that row's
+intermittency belonged to the row: its two-second test toast had expired by
+the time the check read it, because `until` backs off to a quarter of a
+host second and 86Box runs fast-forwarded. The toast lasts five seconds now
+(`tests/mixer.py`).
+
