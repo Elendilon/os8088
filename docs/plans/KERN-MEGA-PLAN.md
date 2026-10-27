@@ -12572,3 +12572,34 @@ limit. That is an owner decision, not part of this answer.
 **The instrument stays**: `megarsq` (soak, Bochs, `--bootc`, 14s) asserts
 the bytes and the three passes and prints the times; `--build DIR` boots
 another tree, `--box86` runs it on the mr286.
+
+### 14.123 The HTTP drive opened a connection a SECTOR on kern_mega (2026-10-27) - FIXED
+
+`mega-httpmount` failed every run, alone as well as in a soak, on its two
+keep-alive legs while every functional leg passed: the launch of
+`MINES.O88` made **4 GETs over 3 connections** and the 100,001-byte copy
+**196 over 195**, where `httpmount` on kern_big makes 2 on one connection
+for each - and the test server logged a reset for nearly every request.
+Neither Bochs's NE2000 nor slirp was involved, and the resets were not the
+defect: `hf_abort` ends every connection that is not kept with an abort
+(SPEC.md 122.2.1), which is a RST by design. The count was the defect.
+
+196 is 100,001 / 512 rounded up. Both buffers - the loader's region, the
+copy engine's - are pool selectors above 1MB on kern_mega, and
+`drv_fs_call` sends a transfer into one through `drv_fs_hi`, which splits
+it into 512-byte `FSV_READAT`s through `dsk_secbuf` (item 81) for the
+redirectors that fold their buffer with paragraph arithmetic. To
+`HTTPFS.DRV` each piece is a GET of its own, and only the first, a "peek"
+from offset 0, is allowed to keep its connection, so the second piece
+rode it and every later one opened a fresh one. The driver never needed
+the bounce: `hf_bnorm` already asks the mode and folds nothing in
+protected mode (14.87).
+
+**Fix**: `FSCAP_SEL` = 4 in a file driver's `DSV_CAPS` (SPEC.md 62.9.2.4)
+says the transfer verbs take the selector as it is; `drv_fs_call` asks it
+after the selector test and skips the bounce. `HTTPFS.DRV` sets it.
+kern_mega `.cold` +12 bytes; kern_big, kern_small and `httpfs.bin` (5,567
+bytes, a cell that was 0) byte-identical in size, the two real-mode
+kernels byte-identical outright. `mega-httpmount` red before (the counts
+above) and green after: 2 GETs over 1 connection for each leg, as on
+kern_big.

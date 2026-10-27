@@ -110182,6 +110182,30 @@ the refusing dispatchers `drv_fs_call`/`drv_svc_none`/`drv_blk_call_x` and
 `drv_fs_has`, so those stubs are gone from this build: a redirected arm
 added here later fails to assemble instead of calling a refusal.
 
+##### 62.9.2.4 …and a driver whose transfers take a SELECTOR is not bounced (`FSCAP_SEL`)
+
+On kern_mega a transfer verb (`FSV_READ`, `_WRITE`, `_APPEND`, `_READAT`)
+whose buffer is a POOL selector - an `OS88_HIGH` package's segment, an
+`OS88_HIGHMEM` claim, the copy engine's buffer - is moved 512 bytes a call
+through `dsk_secbuf` (`drv_fs_hi`), because the RAM disk, the cable and the
+CD fold their destination with paragraph arithmetic, which on a selector
+names some other descriptor. That is right for them and ruinous for a
+volume on a WIRE: each piece is a call of the driver's own, and an
+`HTTPFS.DRV` `FSV_READAT` is one GET, so a 100,001-byte copy was **196 GETs
+over 195 connections** and a package launch four, where kern_big makes two
+on one kept connection (§122.2.1).
+
+So a `DRVC_FILE`-shaped driver may set **`FSCAP_SEL` = 4** in `DSV_CAPS`:
+*my transfer verbs load DX into a segment register as it is and walk only
+the offset*. `drv_fs_call` asks it after the selector test and passes the
+call through unsplit. `HTTPFS.DRV` sets it - `hf_bnorm` already asks the
+mode and folds nothing in protected mode (KERN-MEGA-PLAN 14.87) - and no
+other driver does. Only kern_mega reads the bit; the caller's buffer is
+inside its 64KB exactly as it was for the bounce, which advanced the offset
+alone too. Cost: kern_mega `.cold` +12 bytes, `HTTPFS.DRV` +0 (a cell that
+was 0); kern_big and kern_small byte-identical. `mega-httpmount` is the
+gate: red with the bit clear.
+
 #### 62.9.3 The branch sites, and the order to build them in
 
 Each is a test of `DV_KIND` at the top of a routine that already exists, so

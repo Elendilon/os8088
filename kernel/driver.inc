@@ -588,6 +588,13 @@ FSCAP_ICON  equ 2               ; ...and my VOLUME DRAWS ITS OWN desktop
                                 ; picture (SPEC.md 26.4.2): desk_pic asks my
                                 ; door's DRV_ICONV at the picture's origin
                                 ; instead of drawing the hard-disk icon
+FSCAP_SEL   equ 4               ; ...and my TRANSFER verbs take a pool
+                                ; SELECTOR as their buffer's DX as it is - no
+                                ; paragraph arithmetic on it, the offset
+                                ; walking alone - so kern_mega hands me a
+                                ; buffer above 1MB rather than bouncing it
+                                ; 512 bytes a call (drv_fs_hi, SPEC.md
+                                ; 62.9.2.4). Read by kern_mega alone
 DRV_ICONV   equ 0x41            ; that verb - clear of every door's own
                                 ; verbs, and of WZV_PAINT (0x40). Mirrored in
                                 ; drivers/os88drv.inc
@@ -2693,7 +2700,14 @@ drv_fs_call:
     test dl, 4                  ; OSAPI_XMEM_SEL window - is above 1MB, and
     jz .lowbuf                  ; a redirector does PARAGRAPH arithmetic on
     cmp dx, MEGA_LDT_FREE0 * 8  ; DX (RAMDISK.DRV, NET.DRV). drv_fs_hi moves
-    jb .lowbuf                  ; it 512 bytes a call through dsk_secbuf
+    jb .lowbuf                  ; it 512 bytes a call through dsk_secbuf -
+    push di                     ; UNLESS the driver says FSCAP_SEL: it walks
+    call drv_fs_seg             ; the offset alone and takes the selector as
+    je .sel                     ; it is (HTTPFS.DRV). Through the bounce a
+    test byte [di+DSV_CAPS], FSCAP_SEL ; READAT is one call a sector, and on
+.sel:                           ; a wire that is one GET - a connection - a
+    pop di                      ; sector (SPEC.md 62.9.2.4). No driver: ZF =
+    jnz .lowbuf                 ; 1, and drv_fs_hi's own call refuses
     jmp drv_fs_hi
 .lowbuf:
 %endif

@@ -468,6 +468,14 @@ FSCAP_LOCAL  equ 1              ; my reads cost what a memcpy costs
 ; inverts your picture like any other (SPEC.md 26.9.9)
 FSCAP_ICON   equ 2              ; my volume draws its own desktop picture
 DRV_ICONV    equ 0x41           ; ...through my door, verb DRV_ICONV
+; ...and the THIRD (SPEC.md 62.9.2.4): set it when your FSV_READ, _WRITE,
+; _APPEND and _READAT do NO paragraph arithmetic on the buffer's DX - it is
+; loaded into a segment register as it is and only the offset walks - and
+; kern_mega hands you a buffer above 1MB as its pool selector instead of
+; splitting the call into 512-byte pieces through a low buffer. The pieces
+; are each a call of yours: on a wire, each is a round trip. No other kernel
+; reads it, a real-mode segment being anything you like to do arithmetic on
+FSCAP_SEL    equ 4              ; my transfer verbs take a selector as it is
 
 FSV_READAT   equ 12             ; ...and its read half
 FSV_DELETE   equ 14             ; SI = name
