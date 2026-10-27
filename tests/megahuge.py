@@ -17,7 +17,11 @@ MEGAHUGE on C:'s RUN folder, lets MEGARUN start it, and asserts:
      its last below - the bridge, pool first;
   3. `MEGAHUGE: ok` - a pattern written through every window read back, the
      seam included, so no two windows alias;
-  4. `MEGAHUGE: again N` - the free gave both pieces back;
+  4. `MEGAHUGE: again N` - the free gave both pieces back, and `over
+     refused` - a claim of N + 1KB is refused, so N is EXACT: the boot's
+     read-ahead store and C:'s FAT window are standing at the query
+     (asserted) and are counted as the room the claim sheds, never as
+     room it lacks (KERN-MEGA-PLAN 14.121);
   5. no kern_mega FAULT or CLOSED;
   6. a WHOLE 64KB file read into a 64KB claim in the pool (KERN-MEGA-MEMORY-
      PLAN 8.6): `claim64 at` a base above 1MB, then `read64 ok` with bytes at
@@ -46,6 +50,22 @@ from os88fixture import need  # noqa: E402
 PKGS = ["build/megahuge.o88"]
 
 
+def cache_state(box):
+    """KERN-MEGA-PLAN 14.121: the boot's caches standing when the query is
+    asked - the read-ahead store and C:'s FAT window (volume 2), each a
+    selector, and where it is. The answer counts them as room a claim
+    sheds (mem_avail_lvl_x's mem_pg_cheap below 1MB, mx_maxrun above), and
+    the claim of exactly it, and the refusal of one KB more, say so."""
+    r, w = box.reads([("dsk_rah_seg", 2), ("dsk_fatwc", 16)])
+    out = {}
+    for k, v in (("dirw", int.from_bytes(r, "little")),
+                 ("fatw", int.from_bytes(w[4:6], "little"))):
+        if v & 4:
+            out[k] = "%04X@%X" % (v, box.sel_base(v))
+    print("megahuge: caches standing at the query: %s" % out)
+    return out
+
+
 def main():
     keep = "--keep" in sys.argv
     for p in PKGS + ["build/megarun.o88", "build/mega.img",
@@ -64,6 +84,7 @@ def main():
         if box.wait_for("kern_mega:", 240):
             box.up()
             xkb = int.from_bytes(box.read("xm_kb", 2), "little")
+            caches = cache_state(box)
             box.megarun()
             end = time.time() + 240
             while time.time() < end:
@@ -120,6 +141,13 @@ def main():
         if "MEGAHUGE: read64 ok" not in lines:
             fails.append("a whole 64KB file read into a 64KB pool claim: %s"
                          % [l for l in lines if "read64" in l])
+        if "MEGAHUGE: over refused" not in lines:
+            fails.append("a claim of the answer + 1KB was not refused: %s - "
+                         "the answer read SHORT" % [
+                             l for l in lines if "over" in l])
+        if not caches or not caches.get("dirw") or not caches.get("fatw"):
+            fails.append("the boot's read-ahead store and C:'s FAT window "
+                         "were not both standing at the query: %s" % caches)
         if got.get("again", [None])[0] != n:
             fails.append("asked again after the free: %s, not %d"
                          % (got.get("again"), n))

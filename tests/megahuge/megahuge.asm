@@ -113,6 +113,20 @@ mh_entry:
     call mh_say
     call mh_hex4
     call mh_nl
+    inc ax                          ; --- ONE KB MORE THAN THE ANSWER IS
+    xor bx, bx                      ; REFUSED (KERN-MEGA-PLAN 14.121): the
+    call OSAPI_MEM_HUGE             ; answer is the most, so a cache it
+    mov si, mh_s_ovn                ; counted is one the claim then sheds
+    jc .ovr
+    push ds
+    pop es
+    call OSAPI_MEM_FREE
+    mov si, mh_s_ovy
+.ovr:
+    push ds
+    pop es
+    call mh_say
+    call mh_nl
     mov ax, 64                      ; --- a WHOLE 64KB file into a 64KB pool
     call OSAPI_MEM_CLAIM            ; claim (KERN-MEGA-MEMORY-PLAN 8.6): the
     mov cl, 6                       ; run that ends at the window's end
@@ -275,6 +289,8 @@ mh_s_first: db 'MEGAHUGE: first ', 0
 mh_s_last:  db ' last ', 0
 mh_s_again: db 'MEGAHUGE: again ', 0
 mh_s_ok:    db 'MEGAHUGE: ok', 0
+mh_s_ovn:   db 'MEGAHUGE: over refused', 0
+mh_s_ovy:   db 'MEGAHUGE: over GOT', 0
 mh_s_bad:   db 'MEGAHUGE: bad ', 0
 mh_s_no:    db 'MEGAHUGE: no ', 0
 mh_s_c64:   db 'MEGAHUGE: claim64 at ', 0

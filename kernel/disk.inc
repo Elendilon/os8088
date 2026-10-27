@@ -6994,10 +6994,20 @@ dsk_rah_want:
 %ifdef KERN_MEGA
     cmp byte [dsk_rah_hi], 0    ; the store above 1MB is held: only its
     je .lo                      ; landing can have been shed, and a mount is
-    cmp word [dsk_rah_bnc], 0   ; where it comes back (dsk_rah_want's note)
+    cmp word [dsk_rah_seg], 0   ; where it comes back (dsk_rah_want's note)
+    je .hgone
+    cmp word [dsk_rah_bnc], 0
     jne .out
     call dsk_rah_land
     jmp short .out
+.hgone:                         ; ...OR THE STORE WAS: mx_shedf's forget
+    mov byte [dsk_rah_hi], 0    ; zeroes the word and nothing else, so the
+    mov bx, MEM_P_RAHB          ; landing stood low with nothing to land for
+    xor dx, dx                  ; and this branch never took a store again
+    xchg dx, [dsk_rah_bnc]      ; (KERN-MEGA-PLAN 14.121). The landing goes,
+    or dx, dx                   ; and the solve below takes both afresh
+    jz .lo
+    call mem_free_x
 .lo:
 %endif
     cmp word [dsk_rah_seg], 0
