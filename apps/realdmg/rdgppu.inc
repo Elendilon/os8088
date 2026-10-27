@@ -1210,20 +1210,18 @@ ppu_rowdirty:
     push dx
     mov dx,si
     sub dx,9800h                        ; DX = the row's offset in the maps
-    mov bx,dx                           ; the row's own byte: no tile changed,
-    push cx                             ;   and it answers (a cell outside the
+    mov bx,dx                           ; no tile changed: the row's own
+    push cx                             ;   byte answers (a cell outside the
     mov cl,5                            ;   21 shown costs a needless line,
-    shr bx,cl                           ;   never a missed one); a tile did,
-    pop cx                              ;   and a row no map byte of changed
-    cmp byte [es:RDG_DTCH],0            ;   can have changed only by its
-    jne .full                           ;   tiles, which are looked up with no
-    cmp byte [es:RDG_DMROW+bx],0        ;   branch - the 9000 mode's index is
-    jne .yes                            ;   the byte XOR 80h into the table
-    clc                                 ;   from tile 128, as 0-127 are
-    jmp short .r                        ;   256-383 there
+    shr bx,cl                           ;   never a missed one). A tile did:
+    pop cx                              ;   each cell's byte and its tile's,
+    cmp byte [es:RDG_DTCH],0            ;   with no branch - the 9000 mode's
+    jne .full                           ;   index is the byte XOR 80h into the
+    cmp byte [es:RDG_DMROW+bx],0        ;   table from tile 128, as 0-127 are
+    jne .yes                            ;   256-383 there. (Not the row's byte:
+    clc                                 ;   Kirby streams the map's columns
+    jmp short .r                        ;   off screen as it scrolls)
 .full:
-    cmp byte [es:RDG_DMROW+bx],0        ; (a map byte too: composed, as the
-    jne .yes                            ;   row's own byte says without tiles)
     push si
     push di
     xor bx,bx
@@ -1239,6 +1237,7 @@ ppu_rowdirty:
     mov cx,21
     mov dl,bl
 .tl:
+    or dl,[es:si+RDG_DMD-9800h]         ; the cell's own byte, then its tile
     lodsb
     xor al,ah
     mov bl,al
