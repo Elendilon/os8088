@@ -1273,9 +1273,16 @@ the interpreter for VRAM as they do for the cartridge.
 the view at 4610h; in play about one a frame), or, when the list ran out,
 `repe scasw` over the marks, two blocks a word - against the same shadows, with the same
 change bytes as the whole compare set, so nothing after it changes. The
-copy idiom (`cpy_ff`, 16.6) moves bytes with `REP MOVSB` and marks none:
-when either of its ranges starts in VRAM it sets `RDG_VALL` and the next
-scan compares all of it, as before the marks. A full frame (`RDG_DFULL`)
+copy idioms (`cpy_ff`, `cpc_ff`, 16.6) move bytes with `REP MOVSB` and
+mark none: when the range they WRITE starts in VRAM they set `RDG_VALL`
+and the next scan compares all of it, as before the marks (a copy out of
+VRAM writes none of it). The fill (`fill_ff`) marks what it writes
+(`vr_fill`): a fill inside one 16-byte block marks and lists that block as
+a store's first write would, and only one across two sets `RDG_VALL`.
+Kirby's Dream Land fills five or six bytes of its window's map row about
+once a frame, and the whole compare that cost was 6.4% of `286-mega` in its
+scrolling: on the owner's long replay, 21.4 -> 24.3 frames drawn a second at
+the same 99.6% of real time. A full frame (`RDG_DFULL`)
 clears the marks. A Game Boy stack in VRAM (`PUSH`, `CALL` are the 8086's
 own) would be unseen; no game puts one there.
 
@@ -3052,8 +3059,8 @@ otherwise:
   also how nearly every cartridge copies its OAM DMA routine to FF80 at
   boot (25 of the owner's 26). Only when FF00+C's range lies wholly in
   FF80-FFFE - C at least 80h and C + r not past FFh, so neither I/O nor
-  IE is touched - and HL's in 8000-FEFF or FF80-FFFE; a range starting in
-  VRAM sets `RDG_VALL`. `REP MOVSB` forward, then C += r, B = 0, A the
+  IE is touched - and HL's in 8000-FEFF or FF80-FFFE; HL's range starting
+  in VRAM and written (F2h) sets `RDG_VALL`. `REP MOVSB` forward, then C += r, B = 0, A the
   last byte, HL += r, F `fill_ff`'s. 9r + 2 M-cycles. DL tells the tail
   which shape (E2h or F2h, the opcode through C). Two CB-half tail slots,
   pages DDh and E1h (`cpc_ff`, `cpc_go`), which are tail pages already.
@@ -3072,8 +3079,8 @@ otherwise:
   0376 and Super Mario Land 2's 0322 after `LD B,A0h`; Wario Land's 11EB
   the rest of it; Pokemon Yellow's 0088, and its 1679 nested under a
   `DEC B`). Only when HL's range lies wholly in 8000-FEFF or FF80-FFFE,
-  where a translated store writes memory itself; a range starting in VRAM
-  sets `RDG_VALL`, as `cpy_ff`'s. `REP STOSB`, then HL += r, r = 0 and F
+  where a translated store writes memory itself; a range in VRAM is marked
+  for the damage scan by `vr_fill` (13.2.2). `REP STOSB`, then HL += r, r = 0 and F
   exactly as DEC's template leaves it for 1 -> 0 - Z and N, and LAHF's
   PF and bit 1 too (66h with C kept), so the AF word matches the loop's
   and `gbaot check` against the interpreter stays exact; its first build
