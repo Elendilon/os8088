@@ -84,6 +84,14 @@ CPV_BTNX, CPV_BTNY = 2, 72          # ...and the Set Primary button under them
 MODES = {"single": 0, "right": 1, "below": 2}
 
 
+def _lin(m, seg, off=0):
+    """SEG:OFF as a linear address. `seg << 4` on MartyPC; under kern_mega
+    (tools/os88megabochs.py) a claim's segment is an LDT SELECTOR, and
+    `m.lin` looks its base up in the descriptor."""
+    f = getattr(m, "lin", None)
+    return f(seg, off) if f is not None else (seg << 4) + off
+
+
 def _u16(b, i=0):
     return b[i] | (b[i + 1] << 8)
 

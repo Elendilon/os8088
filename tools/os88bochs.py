@@ -86,30 +86,76 @@ MEGS = int(os.environ.get("OS88_BOCHS_MEGS", "16"))
 # file (`hostfwd = tcp::2121-:21`, one rule a line, five at most), which is
 # how a HOST client reaches a server in the guest - FTPD (KERN-MEGA-PLAN 14.46)
 SLIRP = os.environ.get("OS88_BOCHS_SLIRP")
+# THE MOUSE: Bochs's PS/2 one by default; $OS88_BOCHS_MOUSE=serial puts a
+# Microsoft serial mouse on COM1 instead - the transport every MartyPC machine
+# has, and the only one kern_dos's INT 33h serves (kerndos/kdmouse.inc)
+MOUSE = os.environ.get("OS88_BOCHS_MOUSE", "ps2")
+# THE CLOCK'S START: the host's local time by default; $OS88_BOCHS_TIME0 = a
+# Unix time pins it, for a row whose answer depends on the hour it is run at
+# (tests/dosdir.py sets the time BACK to 13:45:30 - KERN-MEGA-PLAN 14.114)
+TIME0 = os.environ.get("OS88_BOCHS_TIME0", "local")
+
+# A FILE-SIZE CAP on every Bochs this module starts (KERN-MEGA-PLAN 14.115):
+# `error: action=report` writes a line per fault, so a real-mode #GP that
+# irets back into itself grew one run's bochs.log at ~500MB a minute and
+# filled a 252GB volume shared by four agents. Past the cap the write gets
+# SIGXFSZ and Bochs dies - a dead machine names itself, a full disk breaks
+# every process on the box. $OS88_BOCHS_FSIZE_MB overrides (0 = no cap).
+FSIZE_MB = int(os.environ.get("OS88_BOCHS_FSIZE_MB", "2048"))
+
+
+def _fsize_cap():
+    if FSIZE_MB > 0:
+        import resource
+        n = FSIZE_MB << 20
+        # NEVER ABOVE THE HARD LIMIT IT INHERITED: an operator's `ulimit -f`
+        # lower than the cap made setrlimit raise, and the row died in
+        # Popen ("Exception occurred in preexec_fn") before Bochs existed
+        _, hard = resource.getrlimit(resource.RLIMIT_FSIZE)
+        if hard != resource.RLIM_INFINITY:
+            n = min(n, hard)
+        resource.setrlimit(resource.RLIMIT_FSIZE, (n, n))
 BOCHSRC = """megs: {megs}
 romimage: file=/usr/share/bochs/BIOS-bochs-legacy
 vgaromimage: file=/usr/share/vgabios/vgabios.bin
-vga: extension=vbe
+vga: extension=vbe{vgahz}
 pci: enabled=0
 floppya: 1_44={a}, status={astat}
 floppyb: type={btype}, {bmedia}={b}, status=inserted
-ata0: enabled=1, ioaddr1=0x1f0, ioaddr2=0x3f0, irq=14
-ata0-master: type=disk, path={c}, mode=flat, cylinders={cy}, heads={hd}, spt={sp}
-{cd}boot: {boot}
+{ata0}{cd}boot: {boot}
 port_e9_hack: enabled=1
-mouse: enabled=1, type=ps2, toggle=ctrl+mbutton
-clock: sync=realtime, time0=local
-{sb}log: {log}
+mouse: enabled=1, type={mouse}, toggle=ctrl+mbutton
+{com1}{com}{cpu}clock: sync=realtime, time0={time0}
+{sb}{rcextra}log: {log}
 panic: action=report
 error: action=report
 info: action=ignore
+debug: action=ignore{flogdbg}
 display_library: x
 """
 
 
-INPUT_GAP = 0.06    # s: Bochs's GUI takes X events every ~10 ms of its own
+# THE CPU'S SPEED: Bochs's default is 4,000,000 instructions a guest second
+# (a 386SX-16, give or take), and `clock: sync=realtime` holds the guest to
+# it. $OS88_BOCHS_IPS asks for another figure - a row whose subject is a
+# real-time load (a synth feeding a card) on a faster 386 than that
+IPS = ("cpu: ips=%d\n" % int(os.environ["OS88_BOCHS_IPS"])
+       if os.environ.get("OS88_BOCHS_IPS") else "")
+
+
+INPUT_GAP = 0.03    # s: Bochs's GUI takes X events every ~10 ms of its own.
+# It was 0.06, and a stop is paid in GUEST time (the timers catch up on the
+# host clock afterwards), so a gesture of five stepped inputs - fmarrows'
+# click, Down, click inside FM_DBLCLK's 9 ticks - read 8-9 ticks at 0.06
+# and 5-6 at 0.03, every edge still confirmed off mouse_btn
 GLASS = 0.45        # s: two of Bochs's VGA updates (5 Hz) - see Box.shot
-GRAB = ("keydown", "ctrl", "click", 2, "keyup", "ctrl")
+# The capture toggle, as a press and a release with NOTHING between them:
+# xdotool's `click` holds the button ~100 ms (measured: `click 2` is 126 ms
+# of xdotool against 3 ms for `mousedown`), and since a debugger stop drops
+# the capture, a row that alternates input and stops paid that on every
+# input - in GUEST time, because the guest's timers catch up on the host
+# clock after a stop (sync=realtime)
+GRAB = ("keydown", "ctrl", "mousedown", 2, "mouseup", 2, "keyup", "ctrl")
 
 
 class _Input(object):
@@ -217,6 +263,38 @@ def shot(path):
     _input().shot(path)
 
 
+def autorepeat_off(display=None):
+    """Turn the X server's KEY AUTOREPEAT off on DISPLAY.
+
+    X autorepeats a held key as RELEASE/PRESS pairs, and Bochs passes each
+    pair to the guest as a break and a make - a real keyboard's typematic is
+    makes alone. So an xdotool `keydown` held for half a second was a dozen
+    fresh presses: a held Alt+Enter toggled ArtfulType full screen 8-13 times
+    (tests/altenter.py's hold, which the kernel's own typematic rule - a make
+    with the key already down is a repeat - was written to absorb, and could
+    not, because every make was preceded by a break). A new server is started
+    with `-r`; one already running (another agent's, a hand-started one) is
+    told here. It is server state, so it holds while a client - Bochs - is
+    connected: called once Bochs is up. libX11 by ctypes, since there is no
+    `xset` in the container."""
+    import ctypes
+    import ctypes.util
+    try:
+        x = ctypes.CDLL(ctypes.util.find_library("X11") or "libX11.so.6")
+        x.XOpenDisplay.restype = ctypes.c_void_p
+        x.XOpenDisplay.argtypes = [ctypes.c_char_p]
+        for f in ("XAutoRepeatOff", "XCloseDisplay"):
+            getattr(x, f).argtypes = [ctypes.c_void_p]
+        x.XSync.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        d = x.XOpenDisplay((display or DISPLAY).encode())
+        if d:
+            x.XAutoRepeatOff(d)
+            x.XSync(d, 0)
+            x.XCloseDisplay(d)
+    except OSError:
+        pass
+
+
 def xvfb(display=None):
     display = display or DISPLAY
     n = display.lstrip(":").split(".")[0]
@@ -233,7 +311,8 @@ def xvfb(display=None):
                 os.remove(stale)
             except OSError:
                 pass
-        subprocess.Popen(["Xvfb", display, "-screen", "0", "1024x768x24"],
+        subprocess.Popen(["Xvfb", display, "-screen", "0", "1024x768x24",
+                          "-r"],            # no key autorepeat: see above
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         for _ in range(50):             # until it is listening, not a guess
             if os.path.exists(sock):
@@ -407,7 +486,9 @@ class Box(object):
     def __init__(self, out, pkgs, sb=False, cfg=None, bimg=None, ne2k=False,
                  btype="1_2", cmode="run", bootc=False, noa=False,
                  build=None, csys=False, put=(), cd=None, aimg=None,
-                 display=None, megs=None):
+                 display=None, megs=None, noc=False, vgahz=None,
+                 flog=False, mouse=None, noserial=False, imps2=False,
+                 cimg=None, cgeom=None, ne2k_io=None, rcextra=""):
         # DISPLAY: the X display this machine owns - the module's
         # ($OS88_BOCHS_DISPLAY, :99) by default, or its own, so ONE process
         # can run several machines at once (one display each)
@@ -429,6 +510,13 @@ class Box(object):
         self.e9 = os.path.join(out, "e9.out")
         a, b = os.path.join(out, "a.img"), os.path.join(out, "b.img")
         c = os.path.join(out, "c.img")
+        # `cimg`: THE CALLER'S OWN FIXED DISK, mounted IN PLACE (written
+        # through, so the host reads back what the guest wrote, and a second
+        # Box on the same file boots what the first left) at `cgeom` (C, H,
+        # S) - a row's VHD, os88megabochs's `--mount hd:0:` (docs/BOCHS.md)
+        if cimg:
+            c, noc = os.path.abspath(cimg), False
+        geom = tuple(cgeom) if cgeom else GEOM
         shutil.copy(aimg or os.path.join(bld, "mega.img"), a)
         shutil.copy(bimg or os.path.join(ROOT, "build", "apps120.img"), b)
         if cfg is not None:
@@ -447,16 +535,22 @@ class Box(object):
         stage = os.path.join(out, "stage")
         shutil.rmtree(stage, ignore_errors=True)
         os.makedirs(stage)
-        args = ["RUN:" + self._stage(stage, os.path.join(bld,
-                                                         "megarun.o88"),
-                                     "0run.o88")]
+        # MEGARUN rides the C: disk only, so a machine with none (`noc`,
+        # os88megabochs) does not need it built - a knob tree a ported row
+        # builds for itself (`targets=("mega",)`) has none
+        args = [] if noc or cimg or (cmode == "keep" and os.path.exists(c)) else [
+            "RUN:" + self._stage(stage, os.path.join(bld, "megarun.o88"),
+                                 "0run.o88")]
         for p in pkgs:
             args.append("RUN:" + self._stage(stage, p,
                                              os.path.basename(p).lower()))
         args += list(put)          # --put: FOLDER:path, as os88disk.py takes it
         if csys:
             args += self._sysfiles(a, stage)
-        if cmode == "keep" and os.path.exists(c):
+        if noc or cimg:
+            pass                    # no fixed disk at all (os88megabochs),
+                                    # or the caller's own, as it stands
+        elif cmode == "keep" and os.path.exists(c):
             pass                    # the disk as the last boot left it
         elif cmode == "blank":
             with open(c, "wb") as fh:   # nothing on it: no MBR, no partition
@@ -472,9 +566,28 @@ class Box(object):
                 check=True, stdout=subprocess.DEVNULL)
         rc = os.path.join(out, "bochsrc")
         with open(rc, "w") as f:
+            # `imps2`: an IntelliMouse, so the WHEEL reaches the guest
             f.write(BOCHSRC.format(
-                megs=megs or MEGS, a=a, b=b, c=c, cy=GEOM[0], hd=GEOM[1], sp=GEOM[2],
-                boot="disk" if bootc else "floppy",
+                megs=megs or MEGS, a=a, b=b, cpu=IPS, time0=TIME0,
+                # `rcextra`: bochsrc lines a row adds as they stand - an
+                # option ROM (`optromimage1:`, tests/megapmmouse.py)
+                rcextra=rcextra,
+                mouse="imps2" if imps2 else (mouse or MOUSE),
+                com1="com1: enabled=1, mode=mouse\n"
+                if (mouse or MOUSE) == "serial" else "",
+                # NO UART AT ALL (`noserial`): the PS/2 mouse the only
+                # pointing device, QEMU's `-serial none` (tests/ps2mouse.py)
+                com="com1: enabled=0\n" if noserial and (mouse or MOUSE) != "serial" else "",
+                flogdbg=", floppy=report" if flog else "",
+                ata0="" if noc else (
+                    "ata0: enabled=1, ioaddr1=0x1f0, ioaddr2=0x3f0, irq=14\n"
+                    "ata0-master: type=disk, path=%s, mode=flat, "
+                    "cylinders=%d, heads=%d, spt=%d\n" % ((c,) + geom)),
+                vgahz=", update_freq=%d" % vgahz if vgahz else "",
+                # A C: OF THE CALLER'S tries A: first and falls to C: - a
+                # blank or empty A: is how a MartyPC row offers the BIOS C:
+                boot="disk" if bootc else (
+                    "floppy, disk" if cimg else "floppy"),
                 astat="ejected" if noa else "inserted",
                 btype=btype, bmedia={368640: "360k", 737280: "720k",
                                      1228800: "1_2", 1474560: "1_44"}
@@ -483,16 +596,27 @@ class Box(object):
                 cd=("ata1: enabled=1, ioaddr1=0x170, ioaddr2=0x370, irq=15\n"
                     "ata1-master: type=cdrom, path=%s, status=inserted\n" %
                     os.path.abspath(cd)) if cd else "",
-                sb=("sound: waveoutdrv=file, waveout=%s\n"
+                # waveindrv=dummy: the default input driver is the host's
+                # (ALSA, absent in a container), and a guest that opened the
+                # DSP for INPUT (Recorder, SPEC.md 34) wedged Bochs with no
+                # debugger prompt ever again - the dummy hands it silence
+                sb=("sound: waveoutdrv=file, waveout=%s, waveindrv=dummy\n"
                     "sb16: enabled=1, midimode=0, wavemode=1, "
-                    "dmatimer=600000\n" % os.path.join(out, "sb.wav"))
+                    "dmatimer=%s\n" % (os.path.join(out, "sb.wav"), os.environ.get("OS88_BOCHS_DMATIMER", "600000")))
                 if sb else "") + (
-                "ne2k: ioaddr=0x300, irq=10, mac=52:54:00:12:34:56, "
-                "ethmod=slirp%s\n" % (", script=" + os.path.abspath(SLIRP)
+                "ne2k: ioaddr=0x%x, irq=10, mac=52:54:00:12:34:56, "
+                "ethmod=slirp%s\n" % (ne2k_io or 0x300,
+                                       ", script=" + os.path.abspath(SLIRP)
                                        if SLIRP else "") if ne2k else ""))
         for n in os.listdir(out):
             if n.endswith(".lock"):
                 os.remove(os.path.join(out, n))
+        # ...and the caller's own C:'s, which lives OUTSIDE out: Bochs locks
+        # a disk image with PATH.lock and a stopped Bochs leaves it, so the
+        # second launch on the same disk (install, then boot it) was refused
+        # with "could not open hard drive image file"
+        if cimg and os.path.exists(c + ".lock"):
+            os.remove(c + ".lock")
         xvfb(self.display)
         self.f = open(self.e9, "wb")
         # The debugger reads a FIFO, held open by a `sleep` of its own so the
@@ -504,7 +628,7 @@ class Box(object):
         self.p = subprocess.Popen(["bochs", "-q", "-f", rc], cwd=out,
                                   stdin=os.open(fifo, os.O_RDWR),
                                   stdout=self.f, stderr=subprocess.STDOUT,
-                                  env=self.env)
+                                  env=self.env, preexec_fn=_fsize_cap)
         self.hold = subprocess.Popen("exec sleep 86400 > '%s'" % fifo,
                                      shell=True, env=self.env)
         with open(fifo, "w") as fh:
@@ -568,6 +692,7 @@ class Box(object):
                            env=self.env,
                            capture_output=True, text=True).stdout.split()[0]
         self.inp.regrab = False
+        autorepeat_off(self.display)
         self.xd("windowfocus", "--sync", w)
         self.xd("mousemove", 330, 300)
         self.xd("keydown", "ctrl")

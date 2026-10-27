@@ -159,7 +159,7 @@ def glass_eta(m, pseg, sy, mo):
         mo.run("to", str(mx + mw // 2), str(my + 4))    # the title: inert
     seg = word(m, 0, S("font_seg"))
     base = word(m, 0, S("font_base"))
-    raw = m.read(seg * 16 + base, FONT_N * 8)
+    raw = m.read(ethernet.os88qemu.lin(seg, base), FONT_N * 8)
     glyphs = {bytes(8): " "}
     for i in range(FONT_N):
         glyphs.setdefault(bytes(raw[i * 8:i * 8 + 8]), chr(FONT_FIRST + i))

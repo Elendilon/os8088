@@ -5782,6 +5782,7 @@ X3_FPSZ     equ 12                  ; a fingerprint: size, two CRC-32s
     X3B x3h_kind, 1                 ; THE HOLD (x3hold.inc): none, XMS, conv
     X3B x3h_on, 1                   ; ...whole
     X3B x3h_base, 4                 ; ...its XMS base, or its segment
+    X3B x3h_win, 2                  ; x3h_at's window, 0 = not made yet
     X3B x3h_ckb, 2                  ; ...a conventional one's KB
     X3B x3h_size, 4                 ; ...the file's bytes
     X3B x3h_have, 4                 ; ...and how many are in

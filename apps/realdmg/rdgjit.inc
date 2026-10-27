@@ -119,7 +119,22 @@ rt_init:
     mov [S_JITSEGB],cx
     mov [S_JITHSEG],bx
 %ifdef RDG_XTIER
-    mov byte [S_JITXN],0            ; (the extra tiers: rt_more's, after)
+    mov byte [S_JITXN],0            ; (the extra tiers: rt_more's, after -
+    push ax                         ;   the table cleared to its terminator,
+    push cx                         ;   so no stale pair is found by tr_lpx
+    push di                         ;   or rt_xlat)
+    push es
+    push ds
+    pop es
+    mov di,S_JITXT
+    mov cx,RT_XMAX * 2 + 2
+    xor ax,ax
+    cld
+    rep stosw
+    pop es
+    pop di
+    pop cx
+    pop ax
 %endif
     mov [S_HMASK],dl
     push es
@@ -195,6 +210,7 @@ rt_more:
     mov [S_JITXT+bx],ax
     mov [S_JITXT+bx+2],dx
     call rt_init.tails
+    mov word [es:0FFF0h],0          ; (not written: no generation, R1)
     clc
 .r:
     pop es
@@ -275,10 +291,30 @@ rt_flush:
     mov cx,ax
     xor ax,ax
     rep stosw
+    push ds                         ; (no RET site counted: tr_rmeg's)
+    pop es
+    mov di,S_RMEG
+    mov cx,32
+    rep stosw
     cmp word [S_JITGNX],0FFF0h      ; (the generations near a wrap: from
     jb .g                           ;   nothing, every link forgotten with
     mov word [S_JITGNX],0           ;   the table - 16.2.3)
 .g:
+%ifdef RDG_XTIER
+    mov cl,[S_JITXN]                ; every tier's generation 0: none is
+    add cl,3                        ;   written since this flush (R1 - a
+.z:                                 ;   tier is written when it is not 0)
+    dec cl
+    mov al,cl
+    call rt_tseg
+    or ax,ax
+    jz .zn
+    mov es,ax
+    mov word [es:0FFF0h],0
+.zn:
+    or cl,cl
+    jnz .z
+%endif
     mov ax,[S_JITSEGA]
     mov byte [S_JITTIER],0
     mov byte [S_JITUSED],1
@@ -940,8 +976,9 @@ rt_translate:
 .restart:
     cmp byte [S_JITPRE],2           ; a preload's cache is full (16.8):
     jne .go                         ;   this block is given up, not entered
-    mov word [S_JITOUT],0
-    ret
+.lazy:                              ; (...or its bank is not in: tr_int
+    mov word [S_JITOUT],0           ;   brings it in, interpreting it, and
+    ret                             ;   the next miss translates it)
 .go:
     mov si,[RT_PC0]
     mov ax,[S_BANK]
@@ -956,6 +993,8 @@ rt_translate:
     jae .reg
     mov cx,8000h
     mov bx,[S_ROMX]
+    or bx,bx                        ; a bank switched to lazily (REALDMG-
+    jz .lazy                        ;   SPEC 10.3.2): not translated now
 .reg:
     sub cx,si
     cmp cx,80h
@@ -1666,10 +1705,18 @@ rt_room:
     call rt_tseg                    ; AX = its segment, 0: none
     or ax,ax
     jz .nt                          ; (tier 0 always has one)
+%ifdef RDG_XTIER
+    push es                         ; written since the flush: its
+    mov es,ax                       ;   generation, which rt_flush zeroed
+    cmp word [es:0FFF0h],0          ;   (R1 - any count of tiers, where a
+    pop es                          ;   bit a tier held eight)
+    je .fresh
+%else
     mov ch,1
     shl ch,cl
     test [S_JITUSED],ch
     jz .fresh
+%endif
     cmp cl,[S_JITTIER]              ; written before: the OLDEST, so it
     je .flush                       ;   goes - but a preload or a fixed
     mov dl,[S_JITPRE]               ;   table stops at a full cache (16.8),
@@ -1685,7 +1732,9 @@ rt_room:
     inc word [S_JITRCY]
     inc word [S_JITFL]
 .fresh:
+%ifndef RDG_XTIER
     or [S_JITUSED],ch
+%endif
     mov [S_JITTIER],cl
     pop cx
     inc word [S_JITSW]
@@ -2868,6 +2917,8 @@ rt_idle:
     cmp si,8000h
     jae .r                          ; RAM: never
     mov bx,[S_ROMX]
+    or bx,bx                        ; (a bank switched to lazily, 10.3.2:
+    jz .r                           ;   not an idle loop's, for now)
 .src:
     push ds
     pop es

@@ -272,7 +272,12 @@ class Qemu:
         return open(p, "rb").read()
 
     def readseg(self, seg, off, n):
-        return self.read((seg << 4) + off, n)
+        return self.read(os88qemu.lin(seg, off), n)
+
+    def lin(self, seg, off=0):
+        """SEG:OFF's linear address (os88qemu.lin: a selector's base under
+        kern_mega) - tests/dispcp.py and os88ui read through it"""
+        return os88qemu.lin(seg, off)
 
     def quit(self):
         try:
@@ -343,8 +348,11 @@ class Mouse:
         os88qemu.pace(self._m(), secs)
 
     def _tool(self, *args):
-        subprocess.run(["python3", "tools/mouse.py", self._sock()]
-                       + list(args), check=True, capture_output=True)
+        r = subprocess.run(["python3", "tools/mouse.py", self._sock()]
+                           + list(args), capture_output=True, text=True)
+        if r.returncode:                    # say WHY, not just the status
+            raise RuntimeError("tools/mouse.py %s: %s" % (
+                " ".join(args), (r.stderr or r.stdout).strip()[-800:]))
 
     def run(self, *args):
         verb, xy = args[0], tuple(int(v) for v in args[1:])
@@ -606,6 +614,9 @@ def claims(m, S):
     It was a byte of its own at +10 until the record shrank to ten bytes, and
     this row, unregistered then, went on reading byte 10 and died on an
     IndexError nobody saw. The layout comes from the kernel's own equates."""
+    if os88qemu.MEGA:                   # kern_mega: a claim is named by its
+        import os88qmpmega             # SELECTOR, and the pool above 1MB
+        return os88qmpmega.claims()    # is claims too (os88qmpmega)
     raw = m.read(S("mem_tab"), MEM_MAX * MC_SIZE)
     out = []
     for i in range(MEM_MAX):

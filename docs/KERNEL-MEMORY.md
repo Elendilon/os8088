@@ -54,6 +54,15 @@ Rule 3 stays even with the kernels far under 128KB because the boot is where
 boot at a resident size of 110KB, which no resident figure can see. So it is
 asserted by booting, not only by guard 5's arithmetic.
 
+**kern_mega is outside all three rules, and its floor is a 1MB machine.** It
+is a knob build, so no budget and no 128KB boot binds it - and that is the
+design rather than a gap: kern_mega is meant to GROW, its real limits being
+64KB a segment and `.mega` for new protected-mode code (its `KERN_KB` may run
+to 255, `osapi_sys_kb` widening that byte unsigned there). What a machine
+needs to boot it is its own guard 5 in kernel.asm: the image read into a 1MB
+machine's 640KB of conventional memory. A 286 with less than 1MB has nothing
+above 1MB worth entering protected mode for; kern_big is its kernel.
+
 **Both numbers are DERIVED, not chosen.** The span starts at `KERNEL_SEG`
 (0x0060) and the rule says where it ends, so `KERN_BUDGET` is
 `KERN_RESIDENT_KB*1024 - KERNEL_SEG*16` on kern_big and

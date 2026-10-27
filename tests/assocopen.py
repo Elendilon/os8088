@@ -72,7 +72,8 @@ def bp_open(m, mo, wx, wy, name):
         mo._edge(False)         # make the first press no edge at all
     mo._edge(True)
     t1 = mo.ticks()
-    mo._edge(False)
+    if not getattr(m, "bochs", False):
+        mo._edge(False)         # (Bochs: in the chain below)
 
     # The second press is inside the trace, and it has to be: `_edge` proves
     # the press by polling the published `mouse_btn`, and a guest stopped at
@@ -83,7 +84,17 @@ def bp_open(m, mo, wx, wy, name):
     # would not stop the machine under the caller and time out every later
     # step. A trace clears its own set on the way out, on both paths.
     with os88marty.bp_trace(m, "fm_repaint") as tr:
-        mo._edge(True)          # ...the double-click
+        if getattr(m, "bochs", False):
+            # kern_mega under Bochs: a guest at real time, and every proven
+            # edge a stop and a re-capture - the release and the press
+            # between them were 8-9 ticks against a window of 9. So the
+            # release and the second press go out as ONE X chain, and only
+            # the press is proven, by the published button, after it
+            m._xd("mouseup", 1, "sleep", "0.03", "mousedown", 1)
+            os88marty.until(m, lambda _: mo.where()[2] & 1,
+                            "the second press to be decoded", guest=5.0)
+        else:
+            mo._edge(True)      # ...the double-click
         t2 = mo.ticks()
         m.mouse(0, 0, l=False)
         # A hit, or the UI task asleep with nothing pending across a whole

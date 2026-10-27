@@ -2290,3 +2290,83 @@ is the same three lines for `excitebikefront` and its siblings, and
 a reader that drops repeats, an arrow at a list's end) cannot fail this way;
 one that toggles, counts or navigates can, and that is the next row to look
 at when one of those goes red under load.
+
+### 17.13 A frozen tree is not `build/` to the kern_mega harness - and it was never load
+
+A scoped run of 36 rows at `--marty-jobs 3` (the VESA work, KERN-MEGA-PLAN
+14.115) failed seven that all passed when re-run with `os88test.py soak
+--marty-jobs 1`: `mega-lzcomp` (*"os88bochs: no kern_mega line in 240s"*),
+and six kern_big QEMU rows that had run AFTER the `mega-vesa*` family -
+`vesa` and `vesa8` with *"vid_kind 134, want 4 ... (vesa_row DRVR_SEG C818,
+DRVR_ERR 139)"*, `vesacp`, `vesafsx`, `vesablit4` and `vesagor` with *"the
+desktop never came up"*. The obvious reading was contention: three Bochs
+lanes at host real time, and a VESA.DRV refusal under a loaded QEMU.
+
+**Neither is load, and neither needs a second lane.** The re-run that passed
+did not only drop the width - `os88test.py` reads `build/`, and `os88soak.py`
+reads a FROZEN TREE (14.2), so every row is handed
+`build/trees/<tree>/os8088-360.img` for `build/os8088-360.img`. Three places
+in the kern_mega harness asked "is this the shipped image?" as
+`dirname(p) == build/`, and under a tree that answers NO for exactly the
+image it was written to recognise:
+
+* **`os88megacommon.mega_images`** swaps a shipped system disk for
+  `mega.img`. It did not swap the tree's, so `mega-lzcomp` booted **kern_big**
+  on Bochs and waited four minutes for a `kern_mega:` E9 line that kernel
+  never prints. `os88soak.py start -k mega-lzcomp --marty-jobs 1` is red on
+  its own, one Bochs on an idle box.
+* **`os88qmpmega._scratch`** decides which of a row's images the guest may
+  write back. It took the tree's `vesa.img` for a row's scratch, so the
+  `mega-vesa` row's Server made that path a SYMLINK into Bochs's run
+  directory for the whole boot and, at close, copied the live A: - a
+  `mega_twin`, i.e. **kern_mega's** `KERNEL.SYS` - back over it. `make` then
+  sees the fixture newer than its inputs and never rebuilds it, so the tree
+  stays poisoned for every later run on it. The kern_big `vesa` row booted
+  kern_mega under QEMU, and `DRVR_ERR 139` is kern_mega's memory read through
+  kern_big's map - not a refusal at all. Measured on the failing run's own
+  tree: `vesa`, `vesa8`, `vesafsx` and `vesablit4.img` all carried
+  `mega.img`'s `KERNEL.SYS`, mtimes inside the `mega-vesa*` window, while
+  `vesapref` and `vesablitd`, which no mega row boots, carried kern_big's.
+  `apps.img` was rewritten too (byte-identical this time; a guest that
+  saved to B: would not have been).
+* **every `OS88_MEGA_BUILD` fallback** (`os88megabochs`, `os88mega86box`,
+  `os88sym`'s kern_mega map, `os88map`, `os88box86api`, `dispapps`) read
+  `build/` - mega.img, megaapps.img and `megak/kernel.map` out of the
+  operator's directory while the row's own disks came out of the tree.
+
+**The fix** is three functions in `tools/os88build.py`, used by all of them:
+`mega_build()` (`$OS88_MEGA_BUILD`, else the run's tree, else `build/`),
+`shipped_dir(d)` (`build/` or the run's tree) and `shared_dir(d)` (those,
+or any tree under `build/trees/` - a knob tree is shared by every row asking
+for that knob). `_scratch` is now `not shared_dir`. Nothing a guest runs
+changed. `tests/unit/t_megatree.py` (`megatree`, soak) asserts all three
+answers with `$OS88_TREE` set and ratchets the `OS88_MEGA_BUILD` fallback
+spelling out of `tools/` and `tests/`; against the old predicates it fails
+four of its eleven checks.
+
+| run (`os88soak.py start`, `--marty-jobs 1`) | before | after |
+|---|---|---|
+| `-k mega-lzcomp` | FAIL, no kern_mega line in 240s | ok |
+| `-k mega-vesa -k vesa`, first run on a fresh tree | ok, ok - but the tree's `vesa.img` now carries kern_mega | ok, ok - `vesa.img` keeps kern_big's kernel |
+| the same, second run on that tree | **`vesa` FAIL**, the soak's own `DRVR_ERR 139` line | ok, ok |
+
+and the original 36-row set at `--marty-jobs 3`, in the failing run's own
+lane order (the six `mega-vesa*` rows before every `vesa*` one): **36 of 36
+ok** in 951 s, against 29 of 36 before, with `mega-lzcomp` 177.7 s - and
+every `vesa*.img` in the tree byte-identical before and after the run.
+
+A harness change took the same run: `os88bochs`'s file-size cap
+(`_fsize_cap`, the 2GB guard in the same merge) raised `RLIMIT_FSIZE` to its
+cap even when the shell's hard limit was lower, so under an operator's
+`ulimit -f` every Bochs row died in `Popen` with *"Exception occurred in
+preexec_fn"* before Bochs existed. It now stays at or under the inherited
+hard limit.
+
+**Two things to carry.** A row that passes under `os88test.py` and fails
+under `os88soak.py` is not proof of contention: re-run it ALONE under
+`os88soak.py` first (`--marty-jobs 1`), because the tree is the other
+difference and costs nothing to rule out. And **a tree a row has written to
+is poisoned for every later run on it** - the operator's
+`build/trees/plain-898921f7/` from the failing run still carries kern_mega
+in its four `vesa*` fixtures and must be deleted, or the next soak that
+reuses that key fails the same six rows on a fixed harness.

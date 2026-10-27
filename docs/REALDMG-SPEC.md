@@ -659,8 +659,8 @@ before it: STILL OPEN after 20 s; green: closed in 0.2-0.8 emulated s).
 
 **On kern_mega the cartridge is not copied down at all.** kern_mega's arm of
 the package (`make mega`'s `build/megak/apps/realdmg.o88`, assembled with
-`PKG_MEGA`, SPEC.md 20.18; the shipped build runs the bank cache above as
-before, and is correct there since 16.2.4) plans, under `CPU_F_PM`, before
+`PKG_MEGA`, SPEC.md 20.18; the shipped build REFUSES there since
+KERN-MEGA-MEMORY-PLAN MC7, 10.3.4) plans, under `CPU_F_PM`, before
 anything else: when the pool has room (`OSAPI_XMEM_CAPS`), banks 1 on go into
 one `OSAPI_XMEM_ALLOC` block and **each is addressed in place through a
 selector of its own**, so a switch is a pointer change as it is for a
@@ -688,8 +688,10 @@ cartridge in one claim, and no bank is ever fetched (`rw_xplan`,
   then refuses with the room message rather than fall back). Each of those
   goes to the bank cache or one claim as before.
 - **A move**: nothing to put right - a pool block never moves its selectors,
-  and the carve's walk (`rw_partsmv`) leaves a word with bit 2 set alone (a
-  heap segment is a multiple of 32; an LDT selector never is).
+  and under `CPU_F_PM` a move of any claim is a REBASE that calls no
+  relocation proc at all (MC7, 10.3.4); in real mode the carve's walk
+  (`rw_partsmv`) leaves a word with bit 2 set alone (a heap segment is a
+  multiple of 32; an LDT selector never is).
 - **MEASURED** (Bochs 2.7, 16MB, kern_mega with `MEGATRAP=1`, the attract
   of each, 40 s): Kirby's Dream Land (256KB, 16 banks) and Looney Tunes
   (1MB, 64 banks) in place, `[rw_nmiss]` 0, the second cache segment and
@@ -699,6 +701,158 @@ cartridge in one claim, and no bank is ever fetched (`rw_xplan`,
   `OSAPI_XMEM_RUN`'s. A run at 16KB - one more argument to that cell, in
   `.mega` - would hold the cartridge once instead of twice; not taken, so
   that this needs no kernel change.
+
+### 10.3.2 A bank switched to lazily
+
+**A switch is not a read.** Precompiled code - and the recompiler's - that
+calls into a bank needs none of the bank's bytes: its blocks are already
+code. Link's Awakening switches banks **68 times a frame** in its first
+room, through the bank switcher at 07B9, and touches **13 banks every
+frame**; a 9-slot cache (the owner's Victory 286 with one code image, 168K
+of heap) fetched **8.7 banks a frame**, ~250 a second over XMS, and that was
+most of the machine (`ZELDA00.LOG`: the Game Boy at 850-950 ms a second,
+45-69% of real time). Of those 13 banks the frame READS 6-7, and bank 19,
+switched to 7,896 times in 1,128 frames, is never read at all.
+
+So translated code's own `LD (2000-3FFF),A` (`rdggen.bank_lines`) records a
+bank the cache has not got as `S_ROMX` = **0** and goes on - where it used
+to hand the instruction to the interpreter, whose `mbc_set` fetched. The
+bank is fetched when something READS it, and every reader checks:
+- **in the core**: `rd_rom` (the read of 4000-7FFF that `rd_slow` and
+  `rd_s1-3` share), `pop_slow` (SP in the bank), `w16_cpy` (a copy out of
+  it), `tr_int` for a PC in the bank, `tr_ejf`'s way into the interpreter
+  (`tr_ejfno`: a DS of 0 is the lazy bank) and `op_D3`, the seam's trap.
+  Each finding 0 goes to `rx_get` with where it starts again: `S_RET` and DX
+  are kept in the view (`S_RXRET`, `S_RXDX` - `rdg_ret` clears DL), and
+  `S_RXVEC`'s `rdg_rx` fetches as a switch would (`rdg_setbank`) and comes
+  back through `rx_back`. Nothing is pushed: SP is the Game Boy's;
+- **in rdgsys**: `rdg_resume` into the interpreter's own dispatch (the
+  recompiler's resume is `tr_enter`, which needs no bank), and OAM DMA from
+  the bank (`rdg_romxok`). **A fetch keeps `S_SAVDS`**: `rdg_setbank` points
+  the core's DS at the bank when `S_PC` is in it - a switch's business - and
+  at a fetch `S_PC` is only what the last trip out left, so the first build
+  sent the interpreter, reading the bank from bank-0 code, back with DS the
+  bank's (Kirby's Dream Land under the recompiler parted at frame 209, Kirby
+  2 precompiled at 677). A harness whose slots sat just above bank 0's copy
+  hid it: a slot's segment less 400h there reads bank 0's own bytes;
+- **in the translator**, which is a part of its own in the package and
+  cannot fetch: `rt_translate` declines a block in a lazy bank (`S_JITOUT`
+  0, as a full preload does), so `tr_int` interprets it, fetching, and the
+  next miss translates it with the bank in; `rt_idle` answers no.
+
+The interpreter's own switches stay eager (`mbc_set`): its DS may be the
+bank. `rwmove` leaves an `S_ROMX` of 0 alone. Translated code keeps no DS,
+so the inline switch's `mov ds` of a 0 is harmless; `tr_int` and the
+resume load DS afresh.
+
+Measured with the harness's cache made the package's (`gbaot.py check
+--slots K`: that many slots, at the top of its range, chosen as
+`rw_bfetch` chooses - the frame stamps), over the owner's two replays
+of that room and 9 slots: **9,816 fetches to 247** in 1,128 frames and
+**11,935 to 979** in 2,503, every frame identical to the interpreter. What is
+left is real reads (`rd_rom`, 0.12 a frame) and the interpreter's eager
+switches (0.08). `tests/gbaot.py`'s GBBANKRD is the gate: banks 1-7 switched
+to in turn with a VBlank counting underneath, each read first by a byte, a
+POP or a computed JP HL in turn, in a cache of three slots, under both
+recompilers; every reader is seen fetching, and a run with `S_PC` made a
+bank PC at every fetch must still be the interpreter's frame for frame. Its
+two controls part at once: `rd_rom`'s check jumped over in every segment's
+copy (frame 0), and a driver built `RDG_RXDSBUG`, the fetch leaving DS to
+`rdg_setbank` (frame 1). And a cache is invisible or it is wrong: thirteen
+of the owner's cartridges and Link's Awakening, each arm against itself with
+every bank in and with 6-9 slots, 1,500 frames.
+
+### 10.3.3 The side features' room: lent bank slots
+
+The plan (10.3) gives the bank cache every KB the heap has past `RW_KEEPKB`,
+and a precompiled cartridge's images take theirs first (20.10), so on the
+owner's Victory with Link's Awakening a replay's 8KB of buttons and the log's
+4KB of records found **nothing left**: both refused, *not enough RAM*, on the
+build that made the game run at 80-100%. Reserving their room in the plan
+would cost a slot for the whole session; they are asked for rarely and a slot
+is worth more than either the rest of the time.
+
+So a side buffer (`rw_mclaim`) takes the heap's room when `OSAPI_MEM_AVAIL`
+says the heap has it - asked first, because a refused claim compacts the
+heap and sheds its caches, and the first build here, which grew and shrank
+the slots' claim through `OSAPI_MEM_REGROW`, found that out: a refusal moved
+the cartridge's RAM up against the slots and they could never grow back -
+and otherwise it **lives in bank slots LENT for it**. `rw_slotlend` takes the
+cache's top slot out of its use, its bank out of the table (the bank switched
+in is copied over slot 0's first, so `S_ROMX` and the core's DS never name a
+lent slot), never below `RW_LENDMIN` (4); `rw_lend` cuts the buffer from the
+lent slots top down, lending another when they are full. The slots' claim
+keeps its size - nothing is asked of the heap - so a loan cannot fail half
+way. `rw_mrel` lets a buffer go, and with the last of them every lent slot is
+the cache's again, EMPTY: `rw_bfetch` fills an empty slot before it evicts.
+A compaction that moves the slots moves the buffers in them (`rw_mlent`).
+The replay's buttons (`rw_rpclaim`/`rw_rpfree`) and the log's records and
+text (`rw_logtoggle`, `rw_logflush`, `rw_logwrite`) take and give their room
+this way.
+
+MEASURED on 86Box's `286-victory` with Link's Awakening and the Task Manager
+opened beside it, the heap full to the byte (580K of 580K): Record Replay
+lent one slot (9 to 8) and cut its buttons from it, Log took its records from
+the same slot, both stopped and written, and the cache was back at 9 slots
+with nothing lent - `.SS1`, a 930-frame `.RP1` that the harness plays back
+identical to the interpreter, and the `.LOG`, whose head says the 7 slots the
+cache had while the log's text lent a second one to be written.
+`tests/rdglend.py` is the gate, on our own GBBANK cartridge (1MB, a fetch at
+nearly every switch) in a build that never asks the heap (`-DRW_LENDTEST`):
+replay and log on, lent and cut, the cartridge still checking every bank
+right through it, all of it given back and the three files written; its
+control, `-DRW_NOLEND`, refuses both as a full heap did.
+
+### 10.3.4 kern_mega after MC7: every "claim + N" asked, the shipped build refused
+
+**KERN-MEGA-MEMORY-PLAN MC7 made every claim a selector** under `CPU_F_PM`,
+conventional ones included: a code/data PAIR (the code half 8 below the data
+half the claim answers), the identity aliases `(S >> 2) | 4` gone, and a
+compactor move a REBASE that calls no relocation proc. A paragraph SUM on a
+claim's value names some other descriptor, and RealDMG was built of them -
+the first was `CLOSED REALDMG 0D at 11AC:0778 err 2224`, `rw_jpart`'s `mov
+es, bp` with BP the recompiler's claim + 1000h.
+
+- **The shipped build refuses there** (`OS88_MEGA_REFUSE` in `rw_entry`,
+  SPEC.md 20.18): "Use the MEGA apps disk", before anything is claimed. It
+  is +34 bytes, the play path at its old parity (two `nop`s, `os88rdiff`
+  says every run moved evenly); in return `rw_csel`'s `OSAPI_MEM_CODESEL`
+  is the arm's alone (on every kernel the shipped build runs on a segment
+  IS its code selector), and `tests/megapkg.txt` has no RealDMG line. The
+  precompiled build (20.14) refused already.
+- **The arm asks `OSAPI_SEG` instead** (`rw_sub` = `SEG_SUB`, `rw_subc` =
+  `SEG_SUBC` for code), which a real-mode kernel answers with the very sum,
+  so the arm on one is the old arithmetic and `rw_mreloc`'s procs still put
+  the sums right after a move:
+
+| the sum it was | what the arm holds now |
+|---|---|
+| the frames: `[rw_pseg]` + `RW_PBUF / 16` | `[rw_fseg]` a `SEG_SUB` |
+| the recompiler's part, claim + 1000h (+ the table) | a `SEG_SUBC` pair (`rw_jsegs`); `rw_csel` answers its code half, 8 below |
+| the block table at claim + 1000h, when the pool had no 64KB for it | a `SEG_SUB`, `[rw_jtsub]` (`rw_jitsegs`) |
+| the extra tiers, B + 1000h, + 2000h... (16.2.5) | a `SEG_SUBC` pair each (`rw_jitxset`) |
+| the core, `op_seg` 0 | `op_cseg` 0 (`OP_WANT_CSEG`): a pair, so the far vectors name its code half |
+| bank 0's table word, the view - 400h | a `SEG_SUB` on the carve (`rw_b0set`); `rdg_setbank`'s fallback reads the table's word rather than doing the sum |
+| a cartridge in ONE claim: bank n at claim + (n - 1) x 400h | a `SEG_SUB` a bank (`rw_pmfill`, through `rdg_nres` / `rdg_bfill`) |
+| cartridge RAM bank k at `S_RAMSEG` + k x 200h | an OFFSET into its one claim, k x 2000h (`rdg_rambank` answers ES:DI) - every build, the claim being 33KB at most |
+
+- **The bank cache is refused under `CPU_F_PM`**: its slot 0's word is 400h
+  BELOW the slots' claim (`rw_bfill`), a base no selector over the claim can
+  name. `rw_plan` goes to one claim when the banks cannot go in place
+  (10.3.1: a machine with no extended memory, or a pool shorter than twice
+  the cartridge), so on kern_mega a cartridge over `RW_ROMMAX_KB` needs the
+  pool.
+- **What it costs is LDT entries**: one a bank (in place, already; one claim,
+  now), a pair a tier and for the part, one each for the frames, the table
+  and bank 0's window. An extra tier's pair is based in B past its first
+  64KB, so a B shrunk (`rw_jitxfree`) and grown again somewhere else asks
+  new ones; the old go with B or with the instance.
+- **MEASURED** (Bochs 2.7, kern_mega with `MEGATRAP=1`, `tests/rdgmega.py`):
+  the shipped build refuses; the arm passes blargg's `cpu_instrs`, all
+  eleven, under the recompiler with its banks in place (bank 1's window
+  based at linear FB9000h) and, rebuilt `RW_NOXPLAN`, with the cartridge in
+  one conventional claim (051000h) - each with 0 traps charged to the core
+  or a cache and 94 of the package's own at init.
 
 ### 10.4 Save states
 
@@ -2448,7 +2602,9 @@ is in the tiers that stay.
 
 On kern_mega (docs/plans/KERN-MEGA-PLAN.md) a segment is a SELECTOR, and a
 claim's segment S is two of them: S itself, a writable DATA segment, and
-`(S >> 2) | 4`, its read-only CODE alias. A far jump through S loads a data
+its read-only CODE half - `(S >> 2) | 4` when this was written, S - 8 since
+KERN-MEGA-MEMORY-PLAN MC7, which also made every "claim + N" a selector of
+its own (10.3.4). A far jump through S loads a data
 selector into CS, which is a #GP; the kernel completes it (`mega_gpfix`), and
 a write through CS is a #GP it completes too (`mega_gpw`). Both are correct
 and both cost an exception, ~1,200 clocks on a 286 - and **inside the core
@@ -2521,7 +2677,9 @@ selector, and every one **written through** as its data segment:
   docs/reports/REALDMG-MEGA-2026-10-25.md has the record. `tests/rdgmega.py`
   is the row.
 - **Cost**: REALDMG.O88 +115 bytes on disk (the image +128, the recompiler's
-  part +120, uncompressed), a line in tests/megapkg.txt.
+  part +120, uncompressed). Since 10.3.4 the shipped build refuses on
+  kern_mega and `rw_csel`'s `OSAPI_MEM_CODESEL` is the arm's alone, so
+  tests/megapkg.txt carries no line for it.
 
 ### 16.2.5 Extra tiers: kern_mega's arm
 
@@ -2562,12 +2720,13 @@ tier 3 on, in the same turn (0, the core's holes, 2, 3, 4... 0 again).
   (`[rw_bcache]` 2) and loaded, and after everything else of the game's -
   its RAM, its profile - so they take what is LEFT. They are **cache B's own
   claim grown** (`OSAPI_MEM_REGROW`) to 1 + k segments, the extra tiers at
-  B + 1000h, B + 2000h..., while **`RW_XRESKB` = 32KB** stays free beside
+  B + 1000h, B + 2000h... (under `CPU_F_PM` a `SEG_SUBC` pair each, 10.3.4),
+  while **`RW_XRESKB` = 32KB** stays free beside
   them, with the floor at 0: free memory only, no cache shed for them.
   - **One claim and not one a tier, because a claim RECORD is the scarce
     thing**: a package holds `MEM_OWNER_MAX` = 8, a game in the arm holds
-    six after its load, and the first build's claim per tier took it to
-    seven - so Machine > Log took the eighth, and F7's replay was refused
+    five after its load, and the first build's claim per tier (two extra
+    tiers on a 640KB machine) took it to seven - so Machine > Log took the eighth, and F7's replay was refused
     as "Replay: no room" with 91KB free, compacting and shedding the
     read-ahead on the way (`mem_claim`'s refusal path). Grown, the arm holds
     exactly the records the base did.
@@ -2575,12 +2734,111 @@ tier 3 on, in the same turn (0, the core's holes, 2, 3, 4... 0 again).
     Interpreter gives the cache back (`rw_jfree`) - B shrunk to 64KB in
     place (`rw_jitxfree`) - and with the instance. The way back to the
     recompiler grows it again (`rw_jitprep`).
-- **A move** of B moves them with it: `rw_mreloc` puts their segments
-  right off B's new base (`rw_jitxset`) and, the core running over B,
-  flushes as before (`rw_mjit`: `rt_init` and `rt_more` over them all
-  again).
+- **A move** of B moves them with it: in real mode `rw_mreloc` puts their
+  segments right off B's new base (`rw_jitxset`) and, the core running over
+  B, flushes as before (`rw_mjit`: `rt_init` and `rt_more` over them all
+  again); under `CPU_F_PM` the move rebases their selectors and nothing
+  runs (10.3.4).
 - **MEASURED** (86Box `286-mega`, 640KB conventional): see
   docs/reports/REALDMG-MEGA-TIERS-2026-10-25.md.
+- **SUPERSEDED under `CPU_F_PM` by 16.2.6**: the tiers are a pool block
+  there and cache B is not grown; what this section says of the core's side
+  (`rt_more`, the turn, `tr_lpx`) still holds, with the table moved.
+
+### 16.2.6 The extra tiers in the extended pool: kern_mega's arm
+
+docs/plans/REALDMG-HIGHCACHE-PLAN.md, R1 to R4, built on 16.2.5 and 10.3.4.
+**Under `CPU_F_PM` the extra tiers come out of the EXTENDED POOL, not the
+heap**, and the arm's claims of 64KB or less may go there too
+(`OS88_HIGHMEM`): the cartridge, the block table, cache B and every extra
+tier are above 1MB, and what is left in conventional memory is the parts
+carve (the core and the view) and cache A with the recompiler's part.
+
+- **The tiers are one pool block** (`rw_jitxget`): k x 64KB from
+  `OSAPI_XMEM_ALLOC`, one `OSAPI_XMEM_SEL` selector over its start, and a
+  `SEG_SUBC` pair a tier at n x 64KB from it (`rw_jitxset`, 10.3.4). No
+  claim record is spent (the block is the pool's; `MEM_OWNER_MAX` was why
+  16.2.5 grew cache B), cache B is a plain 64KB claim again, and freeing
+  the block (`rw_jitxfree`) takes the selector and every pair with it.
+- **How many**: `RW_XDEF` = 5 by default; **Machine > Cache: All** (the
+  arm's name for the item the shipped build calls Cache: 128K, the same bit
+  of REALDMG.CFG: every cache the machine affords - both 64KB segments in
+  real mode, the pool's tiers under `CPU_F_PM`) or **Static** (whose preload
+  stops at a full cache, 16.8) take up to `RT_XMAX` = 55. Either way the
+  pool keeps a quarter of what it has, `RW_XPRESKB` = 256KB at least, for
+  what runs beside. A setting changed during a game is the next game's.
+- **The table grows** (R1): `S_JITXT` is 55 pairs at 7120h-71FBh, the view's
+  free run after `PPU_LSCR`, with a ZERO word at 71FCh that the core's
+  `tr_lpx` stops at - so a host with no extra tiers (the shipped build, the
+  bare harness) scans one entry where it scanned five. `rt_init` clears it,
+  so no stale pair is found after a game closes.
+- **"Written since the flush" is a generation** (R1): a tier's word at FFF0h
+  is its generation (16.2.3), `rt_flush` zeroes every tier's and `rt_tier`
+  gives the one it enters a new one, so a tier is used when its word is not
+  0. `S_JITUSED`'s byte, a bit a tier, could count eight; the arm's part
+  (`RDG_XTIER`) uses the words, every other build keeps the byte.
+- **Cache B's code name** (16.2.4): `OS88_HIGHMEM` puts B in the pool as a
+  LONE data selector, which `OSAPI_MEM_CODESEL` refuses; `rw_csel` then asks
+  `SEG_SUBC` for a pair over it and answers the code half - a far jump
+  through B's data selector would be a #GP per transfer.
+- **A kernel defect it worked round, since fixed**: kern_mega's
+  `OSAPI_FILE_READ` of a whole 65,536-byte file into a 64KB claim in the
+  pool failed ("read failed"), so the arm claimed a 64KB one-claim cartridge
+  a KB larger to keep it conventional. KERN-MEGA-MEMORY-PLAN 8.6 had the
+  report and `ca60319e` the fix; the workaround is gone, and
+  `tests/rdgmega.py`'s one-claim leg - cpu_instrs' exact 64KB, in the pool -
+  is the row that found it and now passes over it.
+- **The in-place load's slot stays CONVENTIONAL** (`OSAPI_MEM_CLAIM_DMA`,
+  no page constraint): it is what the file is read into, and under
+  `OS88_HIGHMEM` a 16KB claim went to the pool, where a read bounces a
+  sector at a time - Looney Tunes' 1MB had not loaded in 150 emulated
+  seconds on 86Box's mr286 (Kirby's 256KB loaded, slowly enough to pass
+  unnoticed). Found by 20.15, which reads its images the same way.
+- **A move** (R3): a pool block moves by rebase, so its tiers' selectors
+  stay right and the cache is not flushed. (Before, a conventional cache
+  segment's move ran `rt_init` and forgot every block.)
+- **What it does not do yet** (R5): a hibernate writes the pool block into
+  its image like any other - correct, 64KB a tier. Freeing it first and
+  taking it again after needs a package-visible hibernate notice the kernel
+  does not have (KERN-MEGA-MEMORY-PLAN 8.4). The link log (124 entries in
+  cache A, 16.2.3) is unchanged: a full log refuses a link, which is a
+  lookup per execution and not an error, and nothing has filled it yet.
+- **MEASURED** (docs/reports/REALDMG-HIGHCACHE-2026-10-25.md): Bochs,
+  `tests/rdgmega.py`, cpu_instrs passes under the recompiler with five pool
+  tiers based at F69000h.. 64KB apart and cache B at FB9000h, no trap in the
+  core or a cache; the owner's Kirby's Dream Land replay on 86Box `286-mega`
+  runs at **98.0%** of real time with no tier recycled, where the shipped
+  build on kern_big, Cache: 128K, reads 91.2% and recycles a tier at the
+  miniboss (52% for a second).
+
+### 16.2.7 The region above 1MB: kern_mega's arm declares OS88_HIGH
+
+The arm - and `gbaot.py --mega`'s package (20.15) - says `OS88_HIGH` as well
+as `OS88_HIGHMEM`, so under `CPU_F_PM` kern_mega loads the package's REGION,
+its code and data, into a pair in extended memory: what is left in
+conventional memory is the parts carve (the core and the view), cache A
+with the recompiler's part and the in-place load's read slot. It closes
+tests/megahigh.txt's last line.
+
+**The audit** (SPEC.md's contract for the bit: no arithmetic on its own CS
+or DS, no code selector made of its own DS, no IRQ vector stamped with its
+own CS, no real-mode far pointer to itself):
+- every `cs` the package hands out is a far jump's - the core's vectors
+  (`S_EVVEC`, `S_IORVEC`, `S_IOWVEC`, `S_MBCVEC`, `S_RESVEC`), `S_JITVEC`,
+  `S_AOTVEC` - and is the region's code selector already (16.2.4);
+- the two `push cs` sites (`rdg_ilen`'s table, `rt_tab`'s templates) READ
+  through CS, which a code selector allows;
+- `rw_dsel` is the region's data selector, kept for code entered with DS
+  not ours (the damage scan's hook);
+- the full screen's `FSXF_RATE` hook, `int 16h` and the sound driver's FM
+  verbs took a selector for the region already.
+
+**MEASURED**: `tests/rdgmega.py` and `tests/rdgaotmega.py` assert the
+region's base is at or above 1MB (Bochs: linear FDE800h and FDDC00h), every
+leg passing as before; on 86Box `286-mega` Kirby's Dream Land's replay, with
+the save state loaded, the replay played and Machine > Log written through
+the region's buffers, runs at **99.2%** of real time (98.0% with the region
+low, 16.2.6) with 264K of heap left after the load.
 
 ### 16.3 Blocks and tr_enter
 
@@ -2692,6 +2950,40 @@ picture from 12 frames a second to 15. It once cached
 bank-0 returns only, and every return into 4000-7FFF went the whole way
 round `tr_enter`: 35 a frame in Kirby's Dream Land walking, and caching them
 took the CPU alone from 9.75 to 9.06 ms a frame on `286-victory`.
+
+#### 16.4.1 A RET that returns to more places than two
+
+Two entries hold a routine called from two places and no more. **Link's
+Awakening's bank switcher** (07B9: `ld (2100),a / ld (DBAF),a / ret`) is
+called from everywhere, and in its first room its RET's site was REPATCHED
+20.5 times a frame, 28.7 for every site there - each one `tr_link`'s lookup,
+`tr_lpatch`, the tier found for the site (a walk of `S_JITXT` on an image
+segment, which is none of the three it compares first) and `tr_rpatch`'s
+eleven moves: ~110 instructions a return where a lookup is ~35. So a site is
+counted. `tr_lpok` sends a RET's site to `tr_rmeg` first, which keeps 16
+slots in `S_RMEG` - the site's offset and its patches, the slot chosen by
+SITE's bits 2-5 and taken over by any other site that lands there, counting
+from 0 again. **A site patched `RT_RMEGN` (6) times while it held its slot is
+MEGAMORPHIC**: both entries' PCs become FFFFh, which nothing returns to, the
+first one's `jne +13` becomes `jne +32`, and SITE + 38 - the `mov dx,SITE` -
+becomes `jmp tr_enter`. The return is then the event check, one compare and
+the jump to the lookup, and nothing is patched again. Six and not three: a
+routine with two callers at a time whose callers change with the scene fills
+twice a scene, and a site wrongly made megamorphic costs every return ~30
+instructions for the rest of the tier's life. `rt_unlink` needs nothing new:
+both PCs FFFFh are entries it leaves alone and drops the log of (`rt_undo`).
+`rt_flush` and `rdg_aotattach` clear the slots.
+
+Measured in the precompiled code (tools/gbaot.py, x86 instructions a frame
+over the owner's 1,128-frame replay of the first room): **24,180 to 22,202,
+-8.2%**. Across thirteen other cartridges on the harness's script, under the
+precompiled code and the dynamic recompiler both, no frame's state changed
+and the counts moved from +1 instruction to -4.8% (Metroid II); a script
+reaches few polymorphic returns. `tests/gbaot.py`'s GBRET is the gate: one
+routine called from four sites in bank 0 and four in bank 1, its sums checked
+by the ROM, and its site counted to `RT_RMEGN` by both recompilers; the
+control sends the rewritten site on through `tr_lno` with another return's
+HL, and the sums part.
 
 ### 16.5 Guards
 
@@ -3805,12 +4097,32 @@ REALDMG.O88's own recompiler on the same ROM.
 
 `gbaot.py heat ROM DIR -o H.json` runs the precompiled machine in the
 harness and counts, exactly, every entry of every block (Unicorn's block
-hook at each block's address) and every ROM PC sent to the interpreter
-(a hook on `rdg_aotmiss`'s way out): over the harness's own scripted play,
-or over a REPLAY RealDMG recorded (section 10.5) from the save state it
-starts from (`--replay NAME.RPn --state NAME.SSn`; a state with cartridge
-RAM past the window is not taken yet). Nothing in the package counts - it is
-the host's run of the same machine, so it costs the 8088 nothing.
+hook at each block's address), every ROM PC sent to the interpreter (a
+hook on `rdg_aotmiss`'s way out) and **every instruction the interpreter
+runs** (the core's handler entries, a dispatch's `jmp dx` with DH the opcode
+at SI - 1): over the harness's own scripted play, or over a REPLAY RealDMG
+recorded (section 10.5) from the save state it starts from (`--replay
+NAME.RPn --state NAME.SSn`; a state with one bank of cartridge RAM is taken
+into A000-BFFF, one with more is not taken yet). Nothing in the package
+counts - it is the host's run of the same machine, so it costs the 8088
+nothing.
+
+The interpreter's instructions are the counters' third column because the
+first two see only a FRONTIER. A block left out of the image the counters
+ran on - dropped for room, as most of a big cartridge is in walk order - is
+interpreted, and code it calls or jumps to is interpreted after it with no
+`rdg_aotmiss` in between, so a hot routine reached only from cold code was
+counted nowhere and stayed out of the next build too. Link's Awakening, the
+owner's replay of its first room: the first image held 7,170 of 19,670
+block starts, 37 of a frame's ROM entries went to the interpreter, and the
+build from those counters was **32,133** x86 instructions a frame. Counted
+by instruction (2,126 of them a frame, 2,622 PCs, every block start among
+them weighted by its own) the build is **24,180, -24.7%**, with the
+interpreter's handlers 8.3% of the frame before and 3.9% once 16.4.1 was in
+too. A block
+start's count is its entries, the same number the block hook gives; a PC
+that is no block start weighs nothing. `gbaot.py check --replay --state`
+holds a build to the interpreter over the replay itself.
 
 `build --heat H.json` (and `make`, which does both) then:
 - **translates the hottest first** - the profile's weight byte, which
@@ -3885,33 +4197,79 @@ a time (`rw_aromrd`), the bank cache's `rw_bread` bank after bank
 `tests/gbaotpkg.py`'s second leg is a package with the ROM inside and
 nothing beside it, on the same 4KB-cluster volume.
 
-### 20.14 kern_mega: not yet
+### 20.14 kern_mega: the plain package refuses
 
-**Not in this release**: the arm is built on the kern_mega memory branch,
-with that rework, and is not here. What follows is this tree's.
+A precompiled package made WITHOUT `--mega` **refuses to start under
+kern_mega** (`CPU_F_PM`, before anything is claimed or read: *PRE: not on
+kern_mega*). On kern_mega a segment is a selector (16.2.4), and every name
+that build keeps is a DATA segment where the core needs a CODE selector -
+the code images' far jumps (the relocations), the table's and the list's +6
+- and its loader ADDS to segments: an image's second half at +800h, the
+list at the meta + its offset and its filter past the table, the embedded
+ROM's banks at +400h each. Section 20.15 is the build that runs there.
 
-A precompiled package **refuses to start under kern_mega** (`CPU_F_PM`,
-before anything is claimed or read: *PRE: not on kern_mega*), and the build
-refuses `RDG_AOT` with `PKG_MEGA`. On kern_mega a segment is a selector
-(16.2.4), and every name this arm keeps is a DATA segment where the core
-needs a CODE selector: the code images' far jumps (the relocations), the
-table's and the list's +6, `S_AOTVEC`, `S_AOTINT`, `S_JITVEC`. The loader
-also ADDS to segments - an image's second half at +800h, the embedded ROM's
-banks at +400h each - which names other selectors entirely there.
+### 20.15 kern_mega's package: `gbaot.py --mega`
 
-What is compatible already is the core's half, built by the kern_mega work
-(16.2.4, 16.2.5): `tr_lpes` writes a run-time link through the site's tier
-as DATA, or through CS itself when no pair names it, which is right for
-every image on a real-mode kernel - the merge's equivalence runs (every ROM
-of `tests/gbaot.py`, Kirby at four images and at one) are identical. The
-port is, in its order:
-1. each image as ONE stream of 64KB (two plain parts the host compressed
-   itself), expanded in place from offset 0, so no image is addressed past
-   its own selector;
-2. a code selector per image (`OSAPI_MEM_CODESEL`), given to the
-   relocations and the tokens, and to `S_AOTVEC`/`S_JITVEC` the region's;
-3. the images past the first two named to the core as extra tiers
-   (`S_JITXT`, 16.2.5) so a run-time link into one writes through its data
-   segment - `RT_XMAX` is 5, so seven images, and an eighth is left on the
-   disk;
-4. the embedded ROM through 10.3.1's above-1MB path instead of `rw_aromrd`.
+`gbaot.py make ... --mega` (and `package --mega`, the window's *For
+kern_mega* tick) packages the cartridge with realdmg.asm assembled RDG_AOT
+**and** `PKG_MEGA`: `build/gbaot/realdmgaotmega.bin`, which the bundle
+(20.12) carries beside the plain one. It runs on EVERY kernel - on a
+real-mode one each cell below answers the sum the plain build does - and it
+is the one that runs on kern_mega. It declares `OS88_HIGHMEM`.
+
+**Memory, under `CPU_F_PM`** - the owner's case for it: a protected-mode
+machine has the RAM for every code image and every bank at once:
+- **The ROM first**, in place above 1MB (10.3.1), or in one claim when the
+  pool cannot hold twice the cartridge (10.3.4: there is no bank cache to
+  trade images against here). `rw_load`'s images-first order is the
+  conventional heap's, and is kept for every real-mode kernel.
+- **Then every code image in ONE pool block** (`rw_axclaim`, at the load's
+  `rw_aclaim`): `OSAPI_XMEM_ALLOC` of n x 64KB, one `OSAPI_XMEM_SEL`
+  selector over its start, and image n a `SEG_SUBC` pair at (n - 1) x 64KB.
+  No claim record is spent - a package holds eight, and fourteen images
+  could not have been claims - and the heap's claims take any image the
+  pool could not. An image in the block that cannot be read is dropped from
+  the table and the list as before, its window going with the block.
+- **Reads go through CONVENTIONAL buffers**: the load's bounce
+  (`rw_abounce`) and the in-place load's slot (`rw_bload`, the recompiler's
+  arm too) are `OSAPI_MEM_CLAIM_DMA` claims with no page constraint, which
+  `OS88_HIGHMEM` leaves conventional. A file read into memory above 1MB
+  bounces a sector at a time: with the slot in the pool, Looney Tunes' 1MB
+  load had not finished in 150 emulated seconds on 86Box's mr286.
+
+**Names**:
+- **Code selectors** (`rw_acsset`, `rw_aimgc`): each image's and the core's
+  code selector, `rw_csel`'s answer, given to the relocations' far jumps
+  and to the table's and the list's +6 tokens; `S_JITOUT`, `S_JITCSA`,
+  `S_JITCS` the first loaded image's (or the core's).
+- **Run-time links** (16.2.4): every image in memory is named to the core
+  as a pair in `S_JITXT` (16.2.6's 55 pairs hold `RWA_MAX`'s 14), so a
+  link `tr_link` makes at run time into one is written through its data
+  half by `tr_lpx`; `rw_jdon` patches the core's dispatch sites through
+  `S_COREDS`, not `S_DISP+2`.
+- **No sums**: the list's and the filter's segments, each image's second
+  half and the embedded ROM's banks in one claim (`rw_aromrd`) are
+  `OSAPI_SEG` windows (`rw_sub`).
+
+20.14's old list, as it went: (1) one 64KB stream per image was not needed
+- the second half is a `SEG_SUB` window; (2) and (4) as planned; (3) the
+images are `S_JITXT` pairs and `RT_XMAX` is 55 now, so every image is
+named.
+
+**The test** is `tests/rdgaotmega.py` (Bochs, `MEGATRAP=1`): blargg's
+cpu_instrs precompiled SQUEEZED (`gbaot.py build --squeeze 0x210`: every
+image's code ends at 0210h, so a 64KB test ROM fills ten images with 30
+relocations and blocks left to the interpreter), four legs - the plain
+package refuses; the mega one with the ROM inside, beside it, and inside in
+one conventional claim (`RW_NOXPLAN`) passes all eleven tests precompiled,
+every image in one pool block above 1MB, no trap in the core or an image.
+`--rom` runs a commercial cartridge the same way, its frames in place of
+the verdict. Red with the image from before 20.15: the game never starts.
+
+**MEASURED** (docs/reports/REALDMG-AOT-MEGA-2026-10-26.md): Kirby's Dream
+Land precompiled under Bochs, four images in the pool block, banks in place
+or one claim, no trap in the core or an image; Looney Tunes (1MB) with the
+owner's replay as its counters, on 86Box `286-mega`: 7 images and all 64
+banks resident, nothing fetched, **94.7%** of real time a second (mean of
+seconds 3-70) against 94.9% for the plain package on kern_big (3 banks
+fetched) and 91.5% for the recompiler on kern_mega.

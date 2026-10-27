@@ -664,7 +664,12 @@ class Qemu:
         return open(p, "rb").read()
 
     def readseg(self, seg, off, n):
-        return self.read((seg << 4) + off, n)
+        return self.read(os88qemu.lin(seg, off), n)
+
+    def lin(self, seg, off=0):
+        """SEG:OFF's linear address (os88qemu.lin: a selector's base under
+        kern_mega) - tests/dispcp.py and os88ui read through it"""
+        return os88qemu.lin(seg, off)
 
     # dispcp.scroll_to drives the Disk window with ARROW KEYS, and it names
     # them the way MartyPC's harness does. QMP's `sendkey` has its own names,

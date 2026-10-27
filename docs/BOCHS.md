@@ -151,6 +151,217 @@ life of the process; `tools/os88test.py` takes the same locks for each Bochs
 row's own display (:110 up), so two runners - or a runner and a row's extra
 legs - never share one.
 
+## Rows ported from MartyPC: `OS88_MEGA=1` and tests/megaport.txt
+
+Most of the soak is written against MartyPC's `Marty` API, and
+`tools/os88megabochs.py` answers that API out of a Bochs running kern_mega
+instead. With `OS88_MEGA=1` in the environment, `os88marty.launch()` (and so
+`os88ui.boot()`) hands back a `MegaBochs`, and the row runs unchanged:
+
+    OS88_MEGA=1 python3 tests/sheetbtn.py
+
+**Bochs is one of two backends.** With `OS88_MEGA_EMU=86box` as well, the
+same call hands back an 86Box (`tools/os88mega86box.py`). Use it for the
+hardware Bochs has not got: a CGA, a Hercules, two video cards at once, a
+Sound Blaster on the emulated clock, a 1.2MB drive, or a slirp that carries
+the Telnet rows. docs/86BOX.md's *kern_mega rows on 86Box* is that backend.
+What both answer the same way (selectors, `.cold`/`.mega` symbols, the boot
+toast, the disk mapping) is `tools/os88megacommon.py`.
+
+It is a SERVER rather than a wrapper: `Marty` is built on one method,
+`cmd(**kw)`, and the shim answers those requests itself, so `type_text`,
+`readseg`, `bp_exec`, `go`, `wait_stop`, `advance` and every
+`os88marty.until`/`ui_done`/`settle` above them are MartyPC's own code. What
+it maps:
+
+- **disks** - a shipped system floppy in build/ (`os8088*.img`, `small*.img`)
+  becomes `build/mega.img`, a shipped apps floppy (`apps*.img`)
+  `build/megaapps.img`; any other image (a category disk, a scratch disk the
+  row built) goes in B: as it is - and a shipped SYSTEM floppy in B: is
+  `mega.img` too (the rows that boot C: and install or upgrade from B:). No
+  fixed disk unless the machine name has `_hdd` or the row hands one over
+  (below).
+- **symbols** - `os88sym` reads `build/megak/kernel.map` under `OS88_MEGA`
+  (`$OS88_MEGA_BUILD` for another tree); nothing is re-assembled.
+- **memory** - `read`/`write` are linear (`xp`/`writemem`/`setpmem`).
+  `readseg(seg, off)` takes a real segment OR an LDT selector, and every
+  package region and claim is a selector here, so a row that computes
+  `seg << 4` itself calls `m.lin(seg, off)` instead. A move REBASES a
+  selector and never changes it (KERN-MEGA-MEMORY-PLAN MC7.4), so a row
+  asking "did it move" or "does anything still name the old block" asks it
+  of the PARAGRAPH under each word - `tests/sheetmove.py`'s `seg_key(m, v)`,
+  read at the moment the row means (a selector's base read later is where
+  the block IS) - and a 1MB machine (`@OS88_BOCHS_MEGS=1`) is the one with
+  a conventional heap to move.
+- **time** - Bochs runs `clock: sync=realtime`, so `status()["cycles"]` is
+  the guest's running time at 4.77 MHz and a guest budget means what it
+  means on MartyPC. Nothing measured in cycles is a measurement here. The
+  clock STARTS at the host's local time, so a row whose answer depends on
+  the hour pins it with `@OS88_BOCHS_TIME0=<Unix time>` (`mega-dosdir`,
+  KERN-MEGA-PLAN 14.114).
+- **the glass** - `fbuf()` is the Bochs window's guest area (`xwd`), with
+  the DAC's six bits widened as a VGA reads them (`FC` -> `FF`); the window
+  is refreshed 20 times a second. `screen()` reads B8000.
+- **the FDC** - `disk()` counts `<<READ DONE>>`/`<<WRITE DONE>>` in Bochs's
+  own floppy log (`debug: floppy=report`), which is all os88ui and `ui_done`
+  use it for.
+- **breakpoints** - `exec`/`execseg` are `lb`, and what Bochs's fixed pool
+  of linear slots cannot take goes to `pb` (paging is off: the same address);
+  an address neither takes is an error. `mem`, `int` and `io` are refused.
+  `.cold` and `.mega` symbols are where kern_mega RUNS them above 1MB once it
+  is in protected mode (`sym()`), and a stop's `flat_ip` is its LINEAR
+  address - BpTrace keeps all of it rather than MartyPC's 20 bits. `park`
+  sets CS:IP on a stopped machine (`set cs` / `set eip`).
+- **input** - a key sent before any mouse event captures the window first
+  (keys went nowhere until something focused it); a held Ctrl survives the
+  re-capture after a debugger stop (that is Ctrl + middle click, and let it
+  go); a double-click's four edges go out in ONE xdotool chain with the guest
+  running, because stepping a real-time guest put them 5-9 ticks apart
+  against a window of 9. A key sent while the guest is STOPPED waits for the
+  resume and then goes one GUI pass apart: queued in X, the lot reached
+  Bochs's 16-scancode 8042 buffer in one pass and a paused
+  `os88marty.text_taken` kept four shifted characters of twelve.
+- **the boot toast** - kern_mega's `Entered protected mode` is EXPIRED
+  (`[toast_die]` wound back, its own path) by `kernel_up` and `UI.up`, since
+  it is up for eight seconds after the desktop and a row waiting for "a
+  toast" read it as the answer.
+- **reset** - a POWER CYCLE: Bochs's debugger has none, so the shim stops
+  that Bochs and boots another on the same display from the disks as the
+  guest left them, re-arming the breakpoints; SYSTEM.CFG is not re-injected.
+- **a floppy swap** - `mount(drive, path)` writes the new disk's bytes
+  OVER the drive's image in place while Bochs runs (it reads a floppy image
+  per sector, uncached), and tells the guest nothing, as MartyPC's does: the
+  kernel notices once the motor has stopped (SPEC.md 18.9.1). The geometry
+  is the one Bochs booted with, so the two images must be the same size
+  (tests/czto.py, tests/imgswap.py).
+- **FLAGS** - `setreg("flags", v)` is `set $eflags`, the only spelling
+  Bochs 2.7's debugger takes (`set eflags` is a syntax error, and the shim
+  used to send it and answer ok, so a row's injected CF never reached the
+  guest - tests/czto.py's CRC error read as a good sector). Measured, that
+  command writes bits 0-7 as given, puts its bit 9 in DF and its bit 10 in
+  OF, and leaves IF and TF alone: the shim passes DF and OF one bit down,
+  and IF/TF cannot be written at all.
+- **a menu straight after a launch** - os88ui's `menu_pick` waits, on
+  Bochs only, for the bar to carry the named item: a package's window is
+  visible (all `open` confirms) before its entry proc has run
+  OSAPI_MENU_SET, and at real time a pick read the half-built bar
+  (tests/toastfpg.py).
+- **scratch disks** - a row that COPIES a shipped floppy to put files on it
+  copies `os88marty.system_disk(path)` / `apps_disk(path)`, which are
+  `mega.img` / `megaapps.img` under `OS88_MEGA` and PATH otherwise; a
+  Makefile-built FIXTURE disk (`make stiktest`'s stik*360.img) is made again
+  on mega.img by `tests/megafix.py`'s `system_disk(path)`, and an APPS
+  fixture built out of shipped packages (covoxlisten720.img's Tracker and
+  Audio) gets every package that has a kern_mega ARM swapped for it by
+  `megafix.arm_disk(path)`. Files on an
+  `_hdd` machine's C: are `extra=["--put", SPEC]` (os88disk.py's
+  `FOLDER:path`).
+- **breakpoints** - `exec`/`execseg` are `lb`; `int` is an `lb` on the
+  vector's handler - the IDT gate under protected mode, so `int 0` is #DE
+  (tests/int0sweep.py); `mem` and `io` are refused. `park` moves CS:IP but
+  cannot clear IF (`set $eflags` leaves IF alone - FLAGS above): parked code starts with
+  `cli` (tests/evqfull.py).
+- **selectors** - `m.lin(seg, off)` reads the LDT or the GDT. kern_mega's
+  GDT is an identity map except the kernel's DATA (0010, based at
+  KERNEL_SEG x 16; KERNEL_SEG's own 0060 is its read-only CODE) and
+  COLD_SEG, whose base is `.cold`'s copy above 1MB (tests/tnest.py).
+- **the mouse and keys** - `launch(..., wheel=True)` is an IntelliMouse and
+  `m.wheel()` turns it (Bochs 2.7 never clears its last Z, so the shim
+  follows each turn with a zero-sum motion, or the next stop sends one more
+  notch); `launch(..., noserial=True)` takes COM1 out, QEMU's `-serial
+  none` (tests/ps2mouse.py). X KEY AUTOREPEAT IS OFF on the display: X
+  repeats a held key as release/press pairs, which Bochs hands the guest as
+  break/make, so a held Alt+Enter was a dozen presses.
+- **disks** - `disks()` names each drive's image AS MOUNTED, copied before
+  Bochs runs, so os88flush's diff has a reference (tests/cfgtrip.py).
+- **a write to CODE that has already run is not seen.** Bochs caches
+  decoded instructions per physical page and `setpmem` does not invalidate
+  that cache, so a row that patches a package's code after the code has
+  executed runs the OLD bytes (tests/uidrdis.py, measured by single-stepping
+  a patched `stc` that executed as the `push ax` it replaced). Patch before
+  the code first runs - uidrdis takes a second boot for it.
+- **a row's OWN fixed disk** - what MartyPC is handed, the shim takes:
+  `extra=["--mount", "hd:0:PATH"]` (os88marty.launch's own argument), or a
+  `run_dir=` from `os88marty.stage_run_dir()` on an `_hdd` machine, whose
+  `media/hdds/*.vhd` is the machine's disk (tests/install.py, instkeep.py,
+  inststate.py). It is mounted IN PLACE and WRITTEN THROUGH, so the host
+  reads back what the guest wrote and the next launch on the same file
+  boots what the last one left; its CHS is the VHD footer's (a raw image:
+  16 heads of 63 sectors, or `("--chs", "C/H/S")` in `extra`), which is
+  what Bochs's BIOS then reports. The machine tries A: then C:, and an A:
+  that is all zeros (tests/hdboot.py's BLANK - a MartyPC row's way of
+  offering the BIOS C:) or `None` is an EMPTY drive. `m.cimg` names the
+  file. Bochs locks a disk image with `PATH.lock` and a stopped Bochs
+  leaves it, so the Box removes a stale one before it mounts the file again.
+  A disk tool row's red check is a throwaway system disk with the driver's
+  bytes patched, booted as `$OS88_MEGA_A` (tests/hdsize.py's history in
+  KERN-MEGA-PLAN 14.95).
+- **ports, through the GUEST** - Bochs's debugger cannot touch an I/O
+  port, so `inb`, `outb` and `planes` are a few bytes of code the guest
+  runs: at 0000:0500 (its bytes put back after), entered through GDT
+  selector 0050h - the identity map's DATA descriptor there, flipped to
+  CODE for the run and back - with their inputs in registers, and
+  `pushf`/`cli` ... `popf` round the port work, so it is atomic against the
+  guest's interrupts and IF comes back as it was. Each stub sits at a fixed
+  offset and its bytes never change, for the decode cache above. `planes`
+  STOPS inside its stub with read mode 0 and the plane's Read Map Select set
+  and reads A0000 through the debugger, which reads it through Bochs's VGA
+  as a CPU would (tests/blitp.py, gorillasreactions.py).
+- **refused by name** - `flicker`, `pace` (the frame instrument; the
+  guest-seconds `os88marty.pace()` works), `snapshot`. A row built on one
+  is not portable. EFLAGS cannot be written either: `setreg('flags')` is a
+  no-op, Bochs 2.7's `set eflags` being a syntax error and `set $eflags`
+  forcing IF on and garbling the bits above it.
+
+Two knobs reach the machine. `$OS88_BOCHS_MOUSE=serial` swaps the PS/2
+mouse for a Microsoft serial one on COM1 - kern_dos's INT 33h serves a serial
+mouse and nothing else (kerndos/kdmouse.inc), so a DOS row about the mouse
+under a trip wants it. A machine name with `_ne2k` in it (or
+`$OS88_BOCHS_NE2K`) adds the NE2000 on slirp - the host is 10.0.2.2,
+`$OS88_BOCHS_SLIRP` its host-forwards - and, unless the row passes its own
+`cfg`, a SYSTEM.CFG on A: that wants ETHER.DRV (`cfg="keep"` leaves A:'s
+own alone); `ne2k_io=` puts the card at another port. `cimg=` boots a row's
+own raw hard disk as C: (os88disk.py `--hdd`'s 65/16/63, Box's own, or any
+size 16 heads of 63 or 32 sectors divide).
+
+**QEMU's network rows run through `tests/os88qmpmega.py`.** They were
+written against QEMU's QMP socket, driven from every side at once (their own
+`Qemu` classes, `xmcheck`, `tools/qmp.py`, `mouse.py`, `shot.py`), so under
+`OS88_MEGA` the launchers in `tests/os88qemu.py` (`make_test`) and the rows'
+own (`httpmount.QH`, `httpinstall.Q`, `vidxms.Q`, `wirezone.launch`) start a
+`Server` instead: a kern_mega Bochs with the NE2000, behind a server on the
+same socket path that answers QMP's `human-monitor-command` (`xp`,
+`pmemsave`, `sendkey`, `mouse_move`, `mouse_button`, `screendump`, `info
+status`, `stop`/`cont`, `system_reset`, `quit`), `input-send-event` and
+`query-status`. A `mouse_move` moves an INTENDED position only, clamped as
+the kernel clamps it, and the next command drives the guest there closed
+loop - so tools/mouse.py's pin-and-walk lands where it meant to. A row reads
+a segment it took out of the guest through `os88qemu.lin(seg, off)` (a
+selector's base here) and a driver's through `os88qemu.drv_base`. A system
+disk FIXTURE (ether360.img, telnetsys.img, httpmount.img, a row's own copy)
+is rebuilt on mega.img by `mega_twin` - the files in which it differs from
+the shipped disk of its geometry, never one the kernel builds - and B:, C:
+and a twinned A: are the live images through links, so a row reading its
+disk mid-run or after `quit` reads what the guest wrote.
+
+**Bochs's slirp is not QEMU's, and two rows are blocked on it** (telansi,
+telzm; docs/plans/KERN-MEGA-PLAN.md's 14.85-14.89): its `pktlog` (a
+`# slirp config` file with `pktlog = FILE`, through `$OS88_BOCHS_SLIRP`)
+shows a host's FIN re-sent every ~120 ms with no back-off, SYN+ACKs four at
+a time and a stream reset after a run of fast retransmits - against
+ETHER.DRV, which is POLLED and drains its ring only when a package calls it.
+A row that opens a dozen sessions one after another, or streams thousands of
+two-byte segments, loses some of them there and not on QEMU. **Both rows run
+on 86Box's slirp** (`OS88_MEGA_EMU=86box` on their megaport.txt lines). The
+QMP server above takes that backend too, and telansi then found a kern_mega
+keyboard defect that Bochs's slirp had kept it from reaching: Ctrl+] was
+ASCII 0 (KERN-MEGA-PLAN 14.110).
+
+A port is a line in `tests/megaport.txt`; `tests/suite.py` registers it as
+`mega-<name>`, the same command under `env OS88_MEGA=1`, `needs=("bochs",)`.
+An upper-case `NAME=VALUE` on the line goes into the row's environment
+beside it (`irqgrab OS88_BOCHS_MOUSE=serial`).
+
 ## Reading it
 
 * **`OUT/e9.out`** - the kernel's own trace. A `kern_mega FAULT vector VV

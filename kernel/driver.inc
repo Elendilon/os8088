@@ -2035,6 +2035,10 @@ osapi_drv_classk_x:
     push bx
     push dx
     push si
+%ifdef KERN_MEGA
+    push cx                     ; CX = the rows that answered (see below)
+    xor cx, cx
+%endif
     mov dl, al                  ; DL = the class asked for
     xor dh, dh                  ; DH = the row index
     xor si, si                  ; SI = the KB so far
@@ -2045,6 +2049,9 @@ osapi_drv_classk_x:
     je .next                    ; not loaded: it holds nothing
     cmp [bx+DRVR_CLASS], dl     ; ...and the compare is against the ROW rather
     jne .next                   ; than a register, DL being the only bank here
+%ifdef KERN_MEGA
+    inc cx
+%endif
     add si, [bx+DRVR_KB]        ; the image drv_load claimed...
     mov bx, [bx+DRVR_SEG]       ; ...and everything that names it as owner.
     call mem_owned_kb           ; BX is the row pointer and this spends it,
@@ -2054,10 +2061,21 @@ osapi_drv_classk_x:
     cmp dh, DRV_MAX
     jb .row
     mov ax, si
+%ifdef KERN_MEGA
+    ; **NOT `cmp ax, 1` HERE**: drv_hi_move puts a driver's image above 1MB
+    ; and zeroes its DRVR_KB ("no heap held"), and its claims follow it into
+    ; the pool - so a LOADED class could weigh 0 conventional KB and answer
+    ; "nothing of that class is loaded". INSTALL's network check
+    ; (in_netck) read ETHER.DRV as absent and never asked the network
+    ; (KERN-MEGA-PLAN 14.88). The predicate is the rows; AX the KB, 0 or not
+    cmp cx, 1                   ; CF = 1 iff no row of the class is loaded
+    pop cx
+%else
+    cmp ax, 1                   ; CF = 1 iff AX = 0 - see the header
+%endif
     pop si
     pop dx
     pop bx
-    cmp ax, 1                   ; CF = 1 iff AX = 0 - see the header
     retf
 
 ; -----------------------------------------------------------------------------
@@ -4167,10 +4185,9 @@ drv_release:
                                 ; that is where it ran - CF = 0 then, which
                                 ; leaves no claim to free
 %ifdef KERN_MEGA
-    test dl, 4                  ; an image ABOVE 1MB (drv_hi): its pool block
-    jz .lowimg                  ; and its selector pair go back, there being
-    cmp dx, MEGA_LDT_FREE0 * 8  ; no claim
-    jb .lowimg
+    MEGA_ISHI dx                ; an image ABOVE 1MB (drv_hi): its pool block
+    jc .lowimg                  ; and its selector pair go back, there being
+                                ; no claim
     xchg ax, dx
     call MEGA_SEL_CODE:mega_drvhifree
     xchg ax, dx
@@ -4276,8 +4293,8 @@ drv_hiboot_f:
     mov dx, [bx+DRVR_SEG]
     or dx, dx
     jz .n
-    test dl, 4
-    jnz .n                      ; already above 1MB
+    MEGA_ISHI dx
+    jnc .n                      ; already above 1MB
     cmp word [bx+DRVR_KB], 0
     je .n                       ; not a heap claim
     mov es, dx
@@ -5854,8 +5871,10 @@ section .cold                   ; ...and back: drv_notice_x runs AFTER the first
                                 ; it is resident cold code and not this
 drv_notice_x:
 %ifdef OS88_SHORTCUTS
+%ifndef KERN_MEGA               ; (kern_mega relaunches them after mega_enter:
     call stik_boot              ; the widgets FIRST (SPEC.md 110.4), so a
 %endif                          ; driver's panel opens IN FRONT of them
+%endif                          ; KERN-MEGA-PLAN 14.78 and stik_bootf)
     push ax
     cmp byte [drv_nerr], 0
     je .out
@@ -6130,6 +6149,13 @@ cpc_fdtest:
     call COLD_SEG:mmf_mem_claim ; DX = the claim
     jc .out
     mov si, dx                  ; SI = the claim, for the free
+%ifdef KERN_MEGA
+    mov ax, dx                  ; kern_mega: the page arithmetic below is on
+    call KERNEL_SEG:mega_s2segf ; the claim's real PARAGRAPH (a selector in
+    cmp ax, 0xFFFF              ; protected mode), and every segment register
+    je .free                    ; is loaded through a scratch selector
+    mov dx, ax                  ; (KSEG, KERN-MEGA-MEMORY-PLAN MC7.6)
+%endif
     mov bp, [disk_spt]
     mov cl, 5
     shl bp, cl                  ; BP = T, a track in paragraphs
@@ -6151,7 +6177,7 @@ cpc_fdtest:
     add dx, bx                  ; the track buffer after the cylinder
 .read:
     inc byte [dsk_rah_busy]
-    mov es, di
+    KSEG es, di, MEGA_SEL_K0    ; (kern_mega: the cylinder through K0)
     xor bx, bx
     mov byte [dsk_ioerr], 0     ; written only by a FAILED int 13h, so it is
                                 ; how a crossing that ERRORS is seen at all:
@@ -6177,7 +6203,7 @@ cpc_fdtest:
     jc .done                    ; no answer: the pick stands
     cmp byte [dsk_ioerr], 0
     jne .no                     ; it answered by falling back: no crossing
-    mov es, dx                  ; ES:0 = the track buffer
+    KSEG es, dx, MEGA_SEL_K1    ; ES:0 = the track buffer (kern_mega: K1)
     mov cx, [disk_spt]
     CSDO mov byte [CSEG cp_fdn], 2
 .trk:
@@ -6187,7 +6213,7 @@ cpc_fdtest:
     push si
     push di
     push ds
-    mov ds, di                  ; DS:0 = this track's half of the cylinder run
+    KSEG ds, di, MEGA_SEL_K0    ; DS:0 = this track's half of the cylinder run
     xor si, si
     xor di, di
     mov ch, cl
@@ -6209,6 +6235,9 @@ cpc_fdtest:
     CSDO mov byte [CSEG cp_fdno], 1 ; as 0, which is what Auto means there
 .done:
     dec byte [dsk_rah_busy]
+%ifdef KERN_MEGA
+.free:
+%endif
     mov dx, si
     mov bx, MEM_K_MOD
     call COLD_SEG:mmf_mem_free

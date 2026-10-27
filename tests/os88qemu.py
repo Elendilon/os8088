@@ -116,6 +116,12 @@ def kill(pidfile=None, sock=None, wait=1.0):
     """
     if pidfile is None:
         pidfile, sock = PIDFILE, (SOCK if sock is None else sock)
+    if SERVED:                          # a kern_mega Bochs or an 86Box:
+        import os88qmpmega             # closed by its server, which puts
+                                        # the disks back
+        for srv in list(os88qmpmega._LIVE):
+            if srv.pidfile == pidfile and not srv.closed:
+                srv.close()
     if pidfile and os.path.exists(pidfile):
         try:
             pid = int(open(pidfile).read().strip())
@@ -576,6 +582,10 @@ def poke(hmp, linear, data):
     out. Raises on any answer but OK - a write that did not happen must not
     read as a test of what it would have done.
     """
+    if SERVED:                          # the Bochs/86Box shim WRITES memory
+        import os88qmpmega
+        os88qmpmega.live().m.write(linear, bytes(data))
+        return
     import socket
     s0 = socket.socket()
     s0.bind(("127.0.0.1", 0))
@@ -793,7 +803,10 @@ def seg_snap(q, word, spans, base=None, what="a read through a heap base",
              step=True):
     """(seg, [bytes, ...]) through the segment the kernel word at flat
     `word` names, in one consistent snapshot - os88marty.seg_snap's twin."""
-    lin = base or (lambda s: s << 4)
+    # (under $OS88_MEGA the word names an LDT SELECTOR: `lin` resolves it,
+    # and os88geom.drv_base - a real-mode HMA sum - is lin's job there too)
+    lin = (lambda s: globals()["lin"](s, 0)) if MEGA \
+        else (base or (lambda s: s << 4))
     u16 = lambda b: b[0] | (b[1] << 8)          # noqa: E731
     busy = _busy(q)
     for _ in range(2):
@@ -1261,6 +1274,12 @@ def make_test(*knobs, copy=True, extra=()):
         if kv.get("ETHDUMP"):
             cmd += ["-object", "filter-dump,id=fdump,netdev=n0,file=%s"
                     % os.path.abspath(kv["ETHDUMP"])]
+    if SERVED:
+        # KERN_MEGA UNDER BOCHS, or ANY KERNEL UNDER 86Box ($OS88_EMU=86box):
+        # the same socket answered by tests/os88qmpmega.py, an NE2000 on the
+        # emulator's slirp for ETHER=, the PS/2 mouse for MOUSEPORT=ps2
+        return _mega(sock, pidfile, a, b, hd, d, ether=bool(kv.get("ETHER")),
+                     sb=bool(kv.get("SB16")), ps2=mp == "ps2")
     own(pidfile, sock)
     start(cmd + list(extra), cwd=ROOT, check=True,
                    stdout=subprocess.DEVNULL)
@@ -1268,6 +1287,60 @@ def make_test(*knobs, copy=True, extra=()):
     atexit.register(_killpid, pid)
     _point(sock, pidfile)
     return Instance(sock, pidfile, pid, a, b, hd, d)
+
+
+# -----------------------------------------------------------------------------
+# KERN_MEGA (docs/BOCHS.md, "Rows ported from MartyPC"). Under $OS88_MEGA a
+# launcher here starts tests/os88qmpmega.py's Server - a Bochs running
+# kern_mega with an NE2000 on its slirp - behind the socket path QEMU would
+# have had, so every QMP client a row uses drives it unchanged. Three helpers
+# carry what the transport cannot: `lin` (a guest-read segment is an LDT
+# SELECTOR there, so `seg << 4` is the wrong address), `drv_base` (os88geom's,
+# through `lin`) and `mega_twin` (a system-disk fixture rebuilt on mega.img).
+# Off kern_mega each is what the row computed before.
+# -----------------------------------------------------------------------------
+MEGA = bool(os.environ.get("OS88_MEGA"))
+# ...and SERVED is MEGA or a kern_big/kern_small row handed to 86Box
+# ($OS88_EMU=86box, tools/os88box86api.py): the launchers start the same
+# QMP server over it. `lin`, `drv_base` and `mega_twin` stay MEGA's alone -
+# a real-mode kernel's segment is `seg << 4` whatever runs it
+SERVED = MEGA or (os.environ.get("OS88_EMU") or "").lower() == "86box"
+
+
+def lin(seg, off=0):
+    """SEG:OFF's linear address: `(seg << 4) + off`, or a selector's base."""
+    if not MEGA:
+        return (seg << 4) + off
+    import os88qmpmega
+    return os88qmpmega.lin(seg, off)
+
+
+def drv_base(seg):
+    """os88geom.drv_base for the machine this process launched."""
+    sys.path.insert(0, os.path.join(ROOT, "tools"))
+    import os88geom
+    if not MEGA:
+        return os88geom.drv_base(seg)
+    return lin(seg, 0)
+
+
+def mega_twin(img):
+    """`img`, or under $OS88_MEGA its kern_mega twin (os88qmpmega)."""
+    if not MEGA:
+        return img
+    import os88qmpmega
+    return os88qmpmega.mega_twin(img)
+
+
+def _mega(sock, pidfile, a, b, hd, d, ether=True, sb=False, ps2=False):
+    import os88qmpmega
+    srv = os88qmpmega.Server(sock, pidfile, a, b, hd=hd, ne2k=ether,
+                              sb=sb, ps2=ps2)
+    _point(sock, pidfile)
+    inst = Instance(sock, pidfile, None, a, b, hd, d)
+    inst.server = srv
+    inst.close = srv.close
+    return inst
 
 
 # -----------------------------------------------------------------------------
