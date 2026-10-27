@@ -1115,12 +1115,20 @@ op_xload:
     jmp .chunk
 
 .fin:
+    push ds                     ; ES OFF THE BUFFER FIRST: the loop above left
+    pop es                      ; it there, and an X cell RESTORES the
+                                ; caller's ES on the way out - under kern_mega
+                                ; a selector the free just released, so every
+                                ; climb cost a #GP fixup (tests/pxsmega.py's
+                                ; launch, 0060:0513 = api_x.done's pop es)
     mov dx, [op_xstg]           ; the buffer was always transient: it exists
     call OSAPI_MEM_FREE         ; for the length of one span's climb
 .none:
     clc
     ret
 .drop:
+    push ds                     ; (the same: ES is still the buffer)
+    pop es
     mov dx, [op_xstg]
     call OSAPI_MEM_FREE
 .free:
@@ -1980,18 +1988,16 @@ op_hilift:
     jb .back
     push si
     push ds
-    push es
     mov cx, [si+OP_R_LEN]       ; read BEFORE DS moves
-    mov es, dx
-    mov ds, ax
-    xor si, si
-    xor di, di
-    cld
-    shr cx, 1
-    rep movsw
+    mov es, dx                  ; ES STAYS ON THE NEW CLAIM (op_fetch clobbers
+    mov ds, ax                  ; it): restoring it put it back on the OLD
+    xor si, si                  ; one, which the free below releases - and an
+    xor di, di                  ; X cell restores the caller's ES on the way
+    cld                         ; out, so under kern_mega every lift cost a
+    shr cx, 1                   ; #GP fixup (tests/pxsmega.py's launch,
+    rep movsw                   ; 0060:0513 = api_x.done's pop es)
     adc cx, cx
     rep movsb
-    pop es
     pop ds
     pop si
     xchg ax, dx                 ; AX = the new claim, DX = the old one...
