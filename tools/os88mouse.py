@@ -670,6 +670,25 @@ class Mouse:
         except Exception:                                   # noqa: BLE001
             pass                        # busy for good, or no symbols: try
 
+    BOCHS_QUIET = 0.04              # s a traced Bochs guest must run unstopped
+
+    def _bochs_clear(self, traces):
+        """Inside a held bp_trace on Bochs: record and resume every
+        breakpoint stop until the guest has run BOCHS_QUIET seconds without
+        one, so the next edge goes out onto a running guest (see dblclick).
+        Host seconds, and that is right here: Bochs's guest clock IS the
+        host's (sync=realtime). Gives up after five, leaving the span check
+        to say what the guest made of it."""
+        end = time.time() + 5.0
+        quiet = time.time() + self.BOCHS_QUIET
+        while time.time() < quiet and time.time() < end:
+            st = self.m.status()
+            if st.get("state") == "breakpoint":
+                self._service(traces, st)
+                self.m.run()
+                quiet = time.time() + self.BOCHS_QUIET
+            time.sleep(0.005)
+
     def dblclick(self, x, y, settle=None):
         """Two presses inside the kernel's own double-click window.
 
@@ -705,35 +724,36 @@ class Mouse:
             # all four, so it is an upper bound. A pump in a bp_trace block
             # resumes its own stops
             #
-            # ...AND INSIDE A bp_trace BLOCK THE BREAKPOINTS COME OFF FOR THE
-            # FOUR EDGES. A Bochs debugger stop RELEASES the mouse grab, so a
-            # breakpoint the first press reaches - its row highlight is a
-            # repaint, wm_draw_win - dropped the rest of the chain on the
-            # floor and the guest saw one click (bptrace's `B:/APPS`, the
-            # listing unchanged after 20 guest s). So the pumps are held, a
-            # stop already pending is recorded and resumed, and the innermost
-            # trace's set (the one armed) goes back on after the chain. Stops
-            # inside the gesture are not recorded on this backend; the
-            # MartyPC path above still records them
+            # ...AND INSIDE A bp_trace BLOCK THE EDGES GO OUT ONE AT A TIME,
+            # each one onto a guest that has run clear of any stop. A Bochs
+            # debugger stop RELEASES the mouse grab, so a breakpoint the first
+            # press reached - its row highlight is a repaint, wm_draw_win -
+            # dropped the rest of a one-call chain on the floor and the guest
+            # saw one click (bptrace's `B:/APPS`, the listing unchanged after
+            # 20 guest s). With the pumps held, every stop between edges is
+            # recorded and resumed HERE, which sets the shim's `regrab`, and
+            # the next edge's _xd takes the grab back before it is sent. The
+            # breakpoints stay ARMED: switching them off for the gesture lost
+            # the work its last release starts - deskwhole's traced
+            # title-bar restore reached `.whole` inside the 60 ms tail with
+            # nobody looking (mega-deskwhole). A stop storm that pushes the
+            # presses apart is refused by the span check below, by name
             with contextlib.ExitStack() as held:
                 for tr in traces:
                     held.enter_context(tr.hold())
-                if traces:
-                    st = self.m.status()
-                    self.m.breakpoints([])
-                    if st.get("state") == "breakpoint":
-                        self._service(traces, st)
-                        self.m.run()
-                try:
-                    self.m.mouse(0, 0)  # the grab, before the clock starts
-                    t1 = self.ticks()
+                self.m.mouse(0, 0)      # the grab, before the clock starts
+                t1 = self.ticks()
+                if not traces:
                     self.m._xd("mousedown", 1, "sleep", "0.03", "mouseup", 1,
                                "sleep", "0.03", "mousedown", 1, "sleep",
                                "0.03", "mouseup", 1, "sleep", "0.06")
-                    t2 = self.ticks()
-                finally:
-                    if traces:
-                        self.m.breakpoints(traces[-1]._bps)
+                else:
+                    for edge in ("mousedown", "mouseup", "mousedown",
+                                 "mouseup"):
+                        self._bochs_clear(traces)
+                        self.m._xd(edge, 1)
+                        time.sleep(0.03)
+                t2 = self.ticks()
             # ...which takes the X round trips and the grab with it (6-7
             # ticks measured, the presses themselves 60 ms apart), so it
             # refuses only what is plainly not a double-click; the verb that

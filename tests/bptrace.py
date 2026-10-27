@@ -238,10 +238,8 @@ def main():
         with os88marty.bp_trace(m, "gfx_fill", cap=1) as tr4:
             ui.open_drive("B")
             # ...AND ITS PAINT, inside the block: open_drive confirms on the
-            # window RECORD, which the paint follows (section 1). The fills
-            # the row counts used to land in the double-click's own row
-            # highlight - which on Bochs now runs with the breakpoints OFF,
-            # a stop there dropping the grab (os88mouse.dblclick)
+            # window RECORD, which the paint follows (section 1), so the
+            # block could close before the window's fills were drawn
             os88marty.ui_done(m)
         check(len(tr4.hits) <= 1, "the cap held: %d kept" % len(tr4.hits))
         check(tr4.overflowed == (tr4.n > 1),
