@@ -44,6 +44,7 @@ import base64
 import io
 import os
 import queue
+import struct
 import subprocess
 import sys
 import threading
@@ -1568,11 +1569,19 @@ def preview_frames(path, most=2000, tick=None):
     f0 = vid.first_shown(r)
     step = max(1, -(-(r.frames - f0) // most))
     out = []
-    for f, surf, rec, at, i in vid.v88_frames(r):
-        if tick:
-            tick(f, r.frames)
-        if f >= f0 and (f - f0) % step == 0:
-            out.append((f, render(r, surf, f)))
+    shown = prev = None                 # (a HELD record's frame, 98.1.3.9:
+    for f, surf, rec, at, i in vid.v88_frames(r):   # the glass keeps the
+        if tick:                        # picture before it while the
+            tick(f, r.frames)           # record builds the hidden page -
+        held = getattr(r, "held", False) and \
+            struct.unpack_from("<H", rec, 2)[0] & vid.REC_HELD
+        if not held:                    # which v88_frames hands back, and
+            shown = None                # the preview showed it half built
+        elif shown is None:             # in the last scene's colours:
+            shown = prev or bytes(surf)     # --flip-build's held run, the
+        if f >= f0 and (f - f0) % step == 0:    # owner's 2026-10-27)
+            out.append((f, render(r, shown if held else surf, f)))
+        prev = bytes(surf) if not held else prev
     return r, out
 
 

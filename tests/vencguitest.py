@@ -606,6 +606,49 @@ def _surf(r, k):
     return s
 
 
+def held_preview_leg():
+    """THE PREVIEW AT A HELD FRAME (98.1.3.9, 98.2.5.2.1): what the glass
+    shows - the picture before the held run - and not the hidden page the
+    record is building. A 16-colour clip against its own pages, frames 5-7
+    HELD toward frame 8's new ground: every frame's preview must be the
+    reference decode's. It showed the half-built page, in the last scene's
+    colours - the owner's 2026-10-27 report on a --flip-build file"""
+    import tempfile
+    bad = []
+    g = vid.Geom(vid.LAY_LIN80, 8, 16, bitplanes=True,
+                 stride=vid.screen_stride(vid.SCREEN_BY_NAME["640x350"]))
+    cvs = []
+    for f in range(12):
+        cv = bytearray([1 if f < 8 else 9]) * (64 * 16)
+        x = (f * 5) % 50
+        for y in range(4, 10):
+            cv[y * 64 + x:y * 64 + x + 8] = bytes([f % 16]) * 8
+        cvs.append(bytes(cv))
+    for f in (5, 6, 7):                 # (held toward frame 8's picture)
+        cvs[f] = cvs[8]
+    pal = bytes(range(48)) + bytes(vid.PAL_BYTES - 48)
+    with tempfile.TemporaryDirectory() as tmp:
+        out = os.path.join(tmp, "held.V88")
+        vid.encode_canvases(cvs, g, out, 15.0, vid.PF_VGA4, pal, "held",
+                            keysecs=60.0, flip=True,
+                            screen=vid.SCREEN_BY_NAME["640x350"], own=True,
+                            held=(5, 6, 7), ups=(9,))
+        r, frames = G.preview_frames(out)
+        ref = vid.Reader(out)
+        wrong = []
+        for f, img in frames:
+            surf = ref.g.surface()
+            ref.g.put(surf, vid.decode_at(ref, f))
+            if img.tobytes() != G.render(ref, surf, f).tobytes():
+                wrong.append(f)
+    print("   held preview: %d frames, %s differ from the glass"
+          % (len(frames), wrong or "none"))
+    if not frames or wrong:
+        bad.append("the preview at held frames is not the glass: frames %s"
+                   % wrong)
+    return bad
+
+
 def main():
     bad = []
     # --- 1
@@ -703,6 +746,7 @@ def main():
     ladder_leg(bad)
     bad += groups_leg()
     bad += options_leg()
+    bad += held_preview_leg()
     if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
         for b in bad:
             print("   FAIL: %s" % b)
