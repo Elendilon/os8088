@@ -110,6 +110,17 @@ name at once, picking another row meanwhile rather than parking a lane on the
 wait (`_locked_lane`).  tests/os88qemu.py's `lease_port` is the cross-runner
 half: another checkout's soak serving the same port is waited for.
 
+BOCHS AND 86BOX ROWS SHARE IT LAST (docs/plans/SOAK-PARALLEL.md 18).  The
+333 `mega-*`/`box-*` ports were serial and needed neither `marty` nor `qemu`,
+so they fell out of the lane by its admission test alone - a full soak spent
+hours running one Bochs at a time on a four-core box.  Their instances were
+private already: a Bochs row is handed an X display ($OS88_BOCHS_DISPLAY) and
+a run dir under build/bochs/inst/, an 86Box one a socket, a run dir and a
+GDB port.  What was NOT private is the SCRIPT's own scratch - a fixed
+build/<name>-run.img is private against every other script and not against
+the same script's port - so the lane holds every row's script as an implicit
+lock (`lane_locks`), and two rows of one script never run at once.
+
 WHAT STILL RUNS ALONE, and it is no longer about the emulator.  TWO flags,
 and they are different claims:
 
@@ -726,8 +737,39 @@ def run_row(row, caps, strict, verbose, unbuilt=(), shared=False):
     return Result(row, ok, False, time.time() - t0, out, reason, cpu)
 
 
+# THE EMULATORS whose rows share the concurrent lane (main's `conc`). A row
+# needing one of these runs a machine that is private by construction -
+# os88marty.launch's port and run dir, tests/os88qemu.py's RUNDIR, a Bochs
+# display from `_bochs_display` and os88megabochs's run dir, os88box.py's
+# socket, run dir and GDB port - so two of them never meet in the emulator.
+EMULATORS = ("marty", "qemu", "bochs", "86box")
+
+
+def lane_locks(row):
+    """The names `_locked_lane` holds for ROW: its own `Row.locks`, and the
+    SCRIPT it runs.
+
+    THE SCRIPT IS A LOCK because a test's scratch is private against every
+    OTHER test and against nothing else. 120 of the 296 scripts that
+    tests/megaport.txt ports write a FIXED path under build/ - `dosfix`'s
+    build/dosfix-run.img, `chartgal`'s build/chartgal.img, `dosram`'s
+    build/dosram.vhd, which a kern_mega port then mounts IN PLACE - and that
+    was safe while every port ran in the one-at-a-time lane, which never
+    overlaps the shared one. Once `mega-dosfix` shares a lane with `dosfix`
+    (and `mega-tmselfsu` with `mega-tmselfsu-16m`, and `box-X` with
+    `mega-X`), the two would write one file at once. One name per script
+    makes every such pair run end to end, whatever the script writes, with
+    nothing for the next row's author to remember; the rows of one script
+    are a lock group, so `_locked_lane` starts them early rather than as a
+    tail."""
+    script = next((c for c in row.cmd
+                   if c.startswith("tests/") and c.endswith(".py")), None)
+    return tuple(getattr(row, "locks", ())) + (
+        ("script:" + script,) if script else ())
+
+
 def _locked_lane(rows, width, run):
-    """Run `rows` `width` at a time, never two holding one `Row.locks` name.
+    """Run `rows` `width` at a time, never two holding one `lane_locks` name.
 
     A ThreadPoolExecutor with every row submitted would hand a lane to a row
     whose port is held and leave it parked on the lease for the length of the
@@ -749,7 +791,7 @@ def _locked_lane(rows, width, run):
                     if not pending:
                         return
                     free = [r for r in pending
-                            if not held & set(getattr(r, "locks", ()))]
+                            if not held & set(lane_locks(r))]
                     # LONGEST FIRST, and a LOCK GROUP by what it has left:
                     # the rows sharing a port run end to end whatever this
                     # does, so the group is the lane's critical path and
@@ -758,14 +800,14 @@ def _locked_lane(rows, width, run):
                     # 1,200 s row picked last is a 1,200 s tail)
                     left = {}
                     for p in pending:
-                        for lk in getattr(p, "locks", ()):
+                        for lk in lane_locks(p):
                             left[lk] = left.get(lk, 0.0) + p.secs
                     pick = max(free, key=lambda r: (
-                        max([left[lk] for lk in getattr(r, "locks", ())]
+                        max([left[lk] for lk in lane_locks(r)]
                             or [0.0]), r.secs), default=None)
                     if pick is not None:
                         pending.remove(pick)
-                        held.update(getattr(pick, "locks", ()))
+                        held.update(lane_locks(pick))
                         break
                     cond.wait()
             try:
@@ -773,7 +815,7 @@ def _locked_lane(rows, width, run):
             except Exception as e:                      # noqa: BLE001
                 res = Result(pick, False, False, 0.0, repr(e), "runner error")
             with cond:
-                held.difference_update(getattr(pick, "locks", ()))
+                held.difference_update(lane_locks(pick))
                 cond.notify_all()
             out.put(res)
 
@@ -1160,8 +1202,17 @@ def main():
     # the one-at-a-time lane - build/qmp.sock - is gone. A row that serves a
     # fixed host port declares it in `locks=`, and the lane never runs two
     # rows holding one name at once.
+    #
+    # ...AND BOCHS AND 86BOX ROWS, the last emulators to join it (docs/plans/
+    # SOAK-PARALLEL.md 18). The 333 `mega-*`/`box-*` ports were `serial` for
+    # the lane and needed neither `marty` nor `qemu` - `_ports` drops both -
+    # so they fell through this test into the one-at-a-time lane, and a full
+    # soak spent hours there at a load average under one. Their instances
+    # were private already (a Bochs takes an X display from the runner and a
+    # run dir of its own, an 86Box a socket, a run dir and a GDB port); what
+    # was NOT private is a row's own scratch, which `lane_locks` covers.
     conc = [r for r in ser
-            if mj > 1 and ("marty" in r.needs or "qemu" in r.needs)
+            if mj > 1 and any(e in r.needs for e in EMULATORS)
             and not r.builds and not r.alone]
     ser = [r for r in ser if r not in conc]
     if conc:

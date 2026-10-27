@@ -2370,3 +2370,78 @@ is poisoned for every later run on it** - the operator's
 `build/trees/plain-898921f7/` from the failing run still carries kern_mega
 in its four `vesa*` fixtures and must be deleted, or the next soak that
 reuses that key fails the same six rows on a fixed harness.
+
+## 18. BOCHS AND 86BOX ROWS — the 333 ports that were still one at a time
+
+**BUILT.** 17 emptied the one-at-a-time lane of QEMU and left it holding
+something nobody had put there on purpose: every `mega-<row>` and `box-<row>`
+port (tests/megaport.txt, tests/box86port.txt; tests/suite.py `_ports`) - 307
+on Bochs and 26 on 86Box. A port is `serial=True` for the emulator lane, and
+`_ports` DROPS the base row's `marty`, `qemu` and `qemu9` needs because the
+port runs on neither - so the lane's admission test, *needs `marty` or
+`qemu`*, refused every one and they ran end to end after everything else. On
+a four-core box a full soak then sat at a load average under one for hours.
+No row had ever been found unable to share; the test simply did not name the
+emulator.
+
+### 18.1 What the instances already had
+
+The emulator half was done before this started, one emulator at a time:
+
+| emulator | what is private per row | where |
+|---|---|---|
+| Bochs | an X display from the runner's pool (`:110`-`:149`, an flock on `/tmp/.os88bochs-<n>.lock` that `os88bochs.take_display` honours from `:150` up for a row's extra machines); a run dir under `build/bochs/inst/`; every process it counts or kills is the one whose environment names ITS display | `tools/os88test.py` `_bochs_display`, `tools/os88megabochs.py` `launch`, `tools/os88bochs.py` `running`/`stop` |
+| 86Box | a run dir under `build/86box/inst/` and a name from it, its automation socket inside that, a GDB port from `free_port`; `reap` removes only TEMP runs whose process is gone | `tools/os88box.py` `launch`, `tools/os88box86api.py`, `tools/os88mega86box.py` |
+
+Neither binds a fixed host port: Bochs's slirp forwards only what
+`$OS88_BOCHS_SLIRP` names, which no registered row sets, and a port that
+serves a fixture inherits the base row's `locks=`.
+
+### 18.2 What was NOT private: the SCRIPT's own scratch
+
+A row's scratch is private against every OTHER script, which is what the
+shared lane has always relied on, and against nothing else. 120 of the 296
+scripts tests/megaport.txt ports write a fixed path under `build/` -
+`dosram`'s `build/dosram.vhd`, which the Bochs port then MOUNTS IN PLACE
+(`os88megacommon.row_disk`), `dosfix`'s `build/dosfix-run.img`,
+`chartgal`'s `build/chartgal.img` - and that was safe only because the port
+ran in a lane that never overlaps the shared one. In one lane `dosram` and
+`mega-dosram` would build and boot one disk at once, and so would
+`mega-tmselfsu` with `mega-tmselfsu-16m`, `box-hdtake` with `mega-hdtake`,
+`megapixel` with `megapixelship`.
+
+The fix is in the runner, not in 120 scripts: `_locked_lane` holds a row's
+SCRIPT as an implicit lock (`lane_locks`, `script:tests/<x>.py` beside the
+row's own `locks=`), so two rows of one script never run at once whatever the
+script writes, and the next row's author has nothing to remember. It is a
+guard by construction rather than a cure for an observed failure - the A/B
+with the lock taken out ran `dosfix`+`mega-dosfix`, `dosram`+`mega-dosram`
+and `chartgal`+`mega-chartgal` side by side and all six passed, the
+overlapping windows missing each other - and it costs the lane nothing it
+can measure: over the whole soak the largest script group is `vidpage`'s 26
+rows, 1,955 declared seconds against a ~40,000 s lane at width 3, and a lock
+group is started first (`_locked_lane` orders by what a lock has left), so
+it is never the tail.
+
+One race of the same kind was in the harness and is fixed there:
+`os88box86api.cmos_primed` takes `build/86box/nvrcache/<hash>/` the moment
+every FILE NAME exists, and wrote each file with a plain `open(..., "wb")` -
+which makes the name before the bytes, so a second row priming the same
+machine could boot a truncated CMOS. It stages under its own pid and renames.
+
+### 18.3 The rule, and the runs
+
+The lane takes a row needing ANY of `marty`, `qemu`, `bochs`, `86box`
+(`tools/os88test.py` `EMULATORS`), less `builds=True` and `alone=True` as
+before. No Bochs or 86Box row is kept out of it. The 51 standalone Bochs and
+86Box rows (`megahiber`, `gbreplay`, ...) are untouched: they are not
+`serial`, so they were never in the one-at-a-time lane - they run in the
+host lane at `-j`, as 47 QEMU rows do (17 left those where they were too).
+
+Measured on 2026-10-27 in a worktree on the four-core container, with two
+other soaks running on the box (load average ~2 before these started):
+
+| set | `--marty-jobs 1` (the old lane) | `--marty-jobs 3` |
+|---|---|---|
+| 19 rows: 14 Bochs ports, `mega-zonedmg-86box`, 3 `box-*`, and `fcpapi` (MartyPC) beside its port | 19/19, **371.0 s** of rows | 19/19, **122.3 s** - 3.03x |
+| 32 more: 20 Bochs ports, 9 `mega-*-86box`, 3 `box-*` | - | 31/32 in 250.0 s; `box-ethernet` fails the SAME way at width 1 on an idle lane (`ethernet.py:1012`, `wins[-1]` of an empty list: B:'s window never opened), so it is the row's and not the lane's |

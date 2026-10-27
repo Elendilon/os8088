@@ -298,6 +298,11 @@ built one needed only the shipped kernel and a different fixture.
   failed at a different step every time (incident 17). Write scratch through
   `tempfile` (the runner points `$TMPDIR` at `build/tmp/`) or key it to the
   process, and use `os88marty.scratch_disk` for a manufactured image.
+  The runner backs this up for ONE case and only one: two rows running the
+  SAME script (a row and its `mega-`/`box-` port, two legs of one file)
+  never share the emulator lane at once - the script is an implicit lock
+  (`tools/os88test.py`'s `lane_locks`, docs/plans/SOAK-PARALLEL.md 18). It
+  does nothing for a path two DIFFERENT scripts both write.
 
 ---
 
