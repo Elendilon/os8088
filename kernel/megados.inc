@@ -1360,18 +1360,7 @@ mega_dosgo:
 
     ; --- the IVT's tick and keyboard: the BIOS's, for kern_dos ---------------
     ; mouse_unhook and the kernel's tail put mega's BCODE halves there
-    push es
-    push word MEGA_SEL_LOW0
-    pop es
-    mov ax, [mega_old08]
-    mov [es:0x08*4], ax
-    mov ax, [mega_old08+2]
-    mov [es:0x08*4+2], ax
-    mov ax, [mega_old09]
-    mov [es:0x09*4], ax
-    mov ax, [mega_old09+2]
-    mov [es:0x09*4+2], ax
-    pop es
+    call mega_ivtrom
 
     ; --- W7: THE ANCHOR, where a warm reset's boot looks first --------------
     ; GDT entry 0, which the CPU never reads, and outside the sum (the GDT's
@@ -1734,6 +1723,39 @@ mega_dkbup:
     ret
 
 ; -----------------------------------------------------------------------------
+; mega_ivtrom - the IVT's int 08h, 09h and 15h back to what the boot found, for
+;               real-mode code that outlives the kernel: kern_dos at the DOS
+;               handover, the streaming resume's stub. int 15h is mega_r15's
+;               (KERN-MEGA-PLAN 14.119), a KERNEL_SEG offset that is somebody
+;               else's code the moment the kernel is not there. PM, DS = KDATA;
+;               AX lost
+; -----------------------------------------------------------------------------
+mega_ivtrom:
+    push es
+    push si
+    push word MEGA_SEL_LOW0
+    pop es
+    mov si, mega_old08
+    mov ax, [si]
+    mov [es:0x08*4], ax
+    mov ax, [si+2]
+    mov [es:0x08*4+2], ax
+    mov ax, [si+4]                  ; mega_old09, which follows it
+    mov [es:0x09*4], ax
+    mov ax, [si+6]
+    mov [es:0x09*4+2], ax
+    mov ax, [mega_old15]
+    mov [es:0x15*4], ax
+    mov ax, [mega_old15+2]
+    mov [es:0x15*4+2], ax
+    pop si
+    pop es
+    ret
+%if mega_old09 - mega_old08 != 4
+ %error "mega_ivtrom reads mega_old09 at mega_old08 + 4"
+%endif
+
+; -----------------------------------------------------------------------------
 ; mega_hbgor - THE STREAMING RESUME's way out of the fresh kernel (KERN-MEGA-
 ;              MEMORY-PLAN MC4.1 (b); far, from HIBER.DRV's hbm_xres, PM, DS =
 ;              KDATA, the stage written into the text page). Does not return.
@@ -1757,18 +1779,8 @@ mega_hbgor:
 .stg:
     mov [mega_dstg], ax
     mov byte [mega_drmode], 1       ; ...placed under [mem_top]
-    push es
-    push word MEGA_SEL_LOW0
-    pop es
-    mov ax, [mega_old08]            ; the BIOS's tick and keyboard, for the
-    mov [es:0x08*4], ax             ; stub's int 13h and int 15h
-    mov ax, [mega_old08+2]
-    mov [es:0x08*4+2], ax
-    mov ax, [mega_old09]
-    mov [es:0x09*4], ax
-    mov ax, [mega_old09+2]
-    mov [es:0x09*4+2], ax
-    pop es
+    call mega_ivtrom                ; the BIOS's tick, keyboard and int 15h,
+                                    ; for the stub's int 13h and int 15h
     in al, 0x21                     ; the masks the stub runs under: the
     or al, 0x1A                     ; disks' lines as they are, the keyboard
     mov [mega_dkm1], al             ; and the mice off (hbm_handover's)

@@ -16824,6 +16824,21 @@ SOAK = [
         "machines run at once. 150s is 71 measured alone and 143 in three "
         "lanes (it is two machines itself), the trees built",
         needs=("bochs", "nasm"), timeout=1500),
+    Row("megaaltrdg", "soak", py("tests/megaaltrdg.py"), 90.0,
+        "docs/plans/KERN-MEGA-PLAN.md 14.119: Alt+Enter into RealDMG's full "
+        "screen came straight back out on the Victory 286 and gave the game "
+        "an Enter. 86Box's at286-port, kern_mega, RealDMG's arm and GBPAD.GB "
+        "(ours). REFLECT: the CPU stopped at fsx_setbios, Alt and Enter let "
+        "go there, so their breaks are taken by the ROM's int 09h inside the "
+        "reflected mode set - the key-state map must read both UP after "
+        "(mega_r15). REPEAT: a held Alt+Enter with the keyboard's repeats "
+        "leaves full screen and STAYS out (mega_k09 types no Alt+Enter). RED "
+        "on the kernel before (OS88_MEGA_BUILD=its tree): Alt and Enter held "
+        "in the map 3 of 3, and back into full screen on the first repeat. "
+        "90s is MEASURED",
+        needs=("86box", "nasm", "rgbds"),
+        wants=("build/mega.img", "build/megak/apps/realdmg.o88",
+               "build/os8088-720.img")),
     Row("mousess", "soak", py("tests/mousess.py"), 20.0,
         "SPEC.md 9.10.1: the mouse ISR's body runs on LOW_SEG whatever stack "
         "it interrupted. SeaBIOS serves int 13h and int 16h on a stack of its "

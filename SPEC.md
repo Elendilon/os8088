@@ -15478,6 +15478,18 @@ Five things hold it up.
   the kernel knowing which spelling this ROM chose. Without it SeaBIOS fires
   both paths — §9.6.4's flashing menu from a fifth direction.
 
+  **But only the FIRST typed copy matches**: the latch is an edge and the
+  typed key is not, so a typematic repeat of a held Alt+Enter is a typed copy
+  with an EMPTY latch, and it reaches the window as an ordinary key. Every
+  ROM's `AH = 00h` hands that over spelt as something else (`1CF0`), or not
+  at all - an enhanced ROM keeps `1C00` for `AH = 10h` - so it is never
+  `KEY_ALTENTER`. **kern_mega's own int 09h, `mega_k09`, therefore TYPES NO
+  ALT+ENTER** (KERN-MEGA-PLAN 14.119): it stored `1C00`, `mega_i16` hands
+  `AH = 00h` what it stored, and so every repeat of a held Alt+Enter reached
+  `ui_task` as another `KEY_ALTENTER` - full screen left and re-entered at the
+  keyboard's repeat rate - while inside a bracket the app's own `int 16h`
+  drain took it for Enter. The latch alone carries the key there, as on an XT.
+
   **This replaced a `kbd_aeclaim` that decoded `AL` instead** (`AH = 1C` whose
   `AL` is neither `0Dh` typed-or-shifted nor `0Ah` with Ctrl), and the
   replacement is the same answer asked of something that was *already decided*:
@@ -15603,7 +15615,8 @@ freeze one vector along):
 | the DOS handoff (§96.40.2 step 6) | `hbm_kd mouse_unhook`, before `kern_dos` loads - so `kdx_init` (§96.15.4) banks the ROM's own vector for its filter |
 | a resume from hibernation (§87.5) and DOS's live resume (§96.49) | nothing to do: the stub puts the IMAGE's IVT back, whose hooked vector and `kbm_old9` are that same machine's, exactly as before |
 | kern_mega entering protected mode (`mega_enter`) | a machine hooked at int 15h is turned into the int 09h shape before the switch: the ROM's int 15h back, `kbm_isr` into int 09h, the ROM's int 09h into `kbm_old9`, `[kbm_ivec]` = 24h. It has to be: `mega_idt_build` makes the IDT FROM the IVT, so an int 09h left the ROM's makes IRQ1 the EOI stub - a dead keyboard and an 8042 nobody reads, which stops the PS/2 mouse too (Bochs, `megakbtrip`, measured: the pointer never moved) - and a reflection runs the BIOS's int 09h on that IVT, whose 4Fh must not land in `kbm_i15`, whose `KDS` would load a protected-mode selector in real mode. In protected mode, with `[mega_on]` set, `kbm_isr` ALWAYS reads port 60h - the only read - and leaves the byte in `kbm_kbyte` for `mega_k09`, the ROM half it chains to, which reads that instead of the port |
-| kern_mega's DOS route (`megados.inc`) | the IVT's `int 15h` is already the ROM's |
+| kern_mega in protected mode: a REFLECTION (`mega_r15`, KERN-MEGA-PLAN 14.119) | a reflected BIOS call runs the ROM in real mode on the IVT, so an IRQ1 taken inside one is the ROM's own int 09h and neither `kbm_isr` nor `mega_k09` sees the byte. `mega_pmtail` therefore points IVT 15h at `mega_r15` (`.text`, real mode, `CS` = `KERNEL_SEG`) and keeps what was there in `mega_old15`: AH = 4Fh hands the ROM's AL to `kbd_track` when the map is armed, every other AH and the 4Fh itself chain on untouched, flags and registers the ROM's. Without it a key let go while a reflection runs - a full-screen bracket's own mode set, a CPU reset each way on a 286 - stays DOWN in the map for good (`tests/megaaltrdg.py`, 3 of 3 on the kernel before) |
+| kern_mega's DOS route and the streaming resume (`megados.inc`, `mega_ivtrom`) | IVT 08h, 09h AND 15h back to what the boot found before real-mode code that outlives the kernel runs - `kern_dos`'s filter banks the int 15h it finds, and the resume stub calls int 15h AH=87h - so `mega_r15`, a `KERNEL_SEG` offset, is never left there. The park restores the session's IVT, `mega_r15` with it, on the way home |
 | a stale vector | a restart that skipped `mouse_unhook` would bank `kbm_i15` as its own predecessor - and `mouse_init`'s own C0h question would jump to itself. `mouse_unhook` makes that unreachable, as §9.6.5 does for `int 09h`; there is no run-time guard |
 
 **`KBDDIAG=1`** (§9.8.1): on a machine hooked at int 15h the `I` row is
