@@ -3557,7 +3557,7 @@ SOAK = [
         "exactly - the cycle counts instr_timing checks are the core's own. "
         "SOAK: one package's core",
         needs=("qemu", "nasm", "rgbds"), timeout=660),
-    Row("rdgstatic", "soak", py("tests/rdgstatic.py"), 24.0,
+    Row("rdgstatic", "soak", py("tests/rdgstatic.py"), 80.0,
         "REALDMG's Static recompiler (docs/REALDMG-SPEC.md section 16.8): "
         "cpu_instrs, instr_timing, mem_timing and tools/gbprof/gbrmw.asm each "
         "run TWICE bare through tests/rdgcore/rdghost.asm - a first pass "
