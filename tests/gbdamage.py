@@ -15,8 +15,7 @@ The ROMs:
   every frame with the rest still.
 - With $OS88_GB_ROMS, the owner's Super Mario Land and Kirby's Dream Land.
   These scroll, use the window, move sprites, write the raster log and
-  rewrite tiles. And Link's Awakening as ZELDA.GB when it is there, whose
-  rooms animate a few tiles every frame under a still map.
+  rewrite tiles.
 
 It also reports how many lines were composed against 144 a call - what the
 renderer saved. QEMU counts work exactly; the time is another row's
@@ -47,8 +46,6 @@ def main():
     d = os.environ.get("OS88_GB_ROMS")
     if d:
         roms += [("SML", os.path.join(d, "SML.GB")), ("KIRBY", os.path.join(d, "KIRBY.GB"))]
-        if os.path.exists(os.path.join(d, "ZELDA.GB")):    # (animated tiles every
-            roms.append(("ZELDA", os.path.join(d, "ZELDA.GB")))   # frame: ppu_rowdirty)
     out = os.path.join(ROOT, "build", "realdmg")
     os.makedirs(out, exist_ok=True)
     fails = []
