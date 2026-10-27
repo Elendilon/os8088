@@ -55,6 +55,14 @@ drivers/net/net.asm 1           # NET.DRV's net_norm, the same rule as
     # faults on the first move (KERN-MEGA-MEMORY-PLAN MC7). A correctness
     # refusal - the CH375 path is untouched - and ~8 bytes
 
+drivers/sound/sb.inc 1          # SOUND.DRV's direct-ring ISR reads the
+    # 8237's count ONLY under CPU_F_PM (SPEC.md 34.5.2.2), banked at verb 0:
+    # on a real-mode kernel the block IRQ lands inside a disk ROM's
+    # channel-3 programming (the ST11M's BIOS v2.0 runs it with IF = 1) and
+    # its flip-flop clear sent the disk's DMA to the wrong address. A
+    # correctness test every build needs - SOUND.DRV is one driver on every
+    # kernel's disk - and 23 bytes with its bank
+
 apps/browser/browser.asm 1      # THE BROWSER'S ARENAS AS SELECTORS
     # (KERN-MEGA-MEMORY-PLAN MC7): br_entry banks CPU_F_PM in [br_mega] and
     # [br_docfar], and on kern_mega br_docmap, the parser's br_srcat and the
