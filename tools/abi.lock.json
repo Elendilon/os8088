@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "bdb5b36f5bf156ce2dd33282d547dc29bbc05320e8e9191737131c2fe70c6a51",
+  "fingerprint": "7c68e68c0a18f9a67e717c095448697a2898ee997f2e2f841fdf83f34cd1fa8f",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "49d93bb04e7feb6f4a5b194e4feeebd941a969afcb112d93dd1bbce7b8da8a9d",
+  "fingerprint": "e5b83e4b3530f1221818d57fde8e92e3e77ed8bcc8afb116123f27ffe62bf057",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -1232,6 +1232,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "OSAPI_XMEM_WALK gains BX = XMW_LONG (0x4C58): XMW_FIXED's records at XMW_LSIZE = 8 bytes with XMW_TAG, a kernel cache's whole MEM_P_* tag at +6 (KERN-MEGA-PLAN 14.92). Additive: a caller that does not ask gets the 6-byte records it always did, kern_big's XMEM.DRV refuses it (CF=1 AX=2) - no PKG_FMT bump",
+   "to": 11
+  },
+  {
+   "fingerprint": "e5b83e4b3530f1221818d57fde8e92e3e77ed8bcc8afb116123f27ffe62bf057",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_XMEM_CAPS contract clarified, no bump: a kernel cache in the kern_mega pool counts as free in AX and BL (a claim sheds it, KERN-MEGA-PLAN 14.122); every package built before still runs and plans better",
+   "to": 10
+  },
+  {
+   "fingerprint": "7c68e68c0a18f9a67e717c095448697a2898ee997f2e2f841fdf83f34cd1fa8f",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_XMEM_CAPS contract clarified, no bump: a kernel cache in the kern_mega pool counts as free in AX and BL (a claim sheds it, KERN-MEGA-PLAN 14.122); every package built before still runs and plans better",
    "to": 11
   }
  ]

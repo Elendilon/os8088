@@ -12448,3 +12448,67 @@ it is not done here: the Task Manager adds `tm_hicach` to it for AVAIL and
 reads `sized - caps` as the XMS bar's used, so the answer and that package
 move together - an owner decision (count caches in `mx_caps` and take the
 two `tm_hicach` uses out, or publish the cache KB beside it).
+
+### 14.122 OSAPI_XMEM_CAPS read short by every pool cache; and what 14.121's landing costs the Video Player (2026-10-27) - FIXED / MEASURED
+
+**1. The cell read short - FIXED, the owner's decision.** 14.121 left
+`mx_caps` subtracting every pool block, kernel caches included, while every
+claim the cells make outranks every cache and `mx_alloc` sheds one on the way
+(MC1). So the read-ahead store, the FAT windows, the icon and save-under
+caches all read as USED to every package that plans from the cell - and the
+Task Manager had worked round it twice, adding `[tm_hicach]` back for AVAIL
+and taking it off `[tm_hiused]` again. The owner: *"as long as the caches are
+counted when they should be and not when they should not be. Task manager
+isn't supposed to show purgables in its user used ram totals."*
+
+- `mx_caps` (`.mega`) skips an `MX_FPURGE` block, in AX and in BL's free
+  entries alike (a shed frees the entry too; `mx_alloc`'s `.full` sheds for
+  exactly that) - `mx_maxrun`'s and `mem_avail_lvl_x`'s rule, so the cell,
+  MC5's query and the conventional answer all count a cache the same way.
+  The one moment it over-reads is a FAT window mid-write, which `mx_shedf`
+  will not take. kern_big's `XMEM.DRV` holds no cache and is untouched.
+- **The ABI**: SPEC.md 41.8 now says what the KB counts and
+  `apps/os88api.inc`'s contract line says it too. A CLARIFICATION and not a
+  bump - the contract always read *"KB the pool can still hand out"*, the old
+  answer under-delivered on it, and every package built before runs and plans
+  better - recorded with `tools/abilock.py --update`, PKG_FMT 10 and DRV_VER
+  11 unchanged.
+- **The readers**, every one checked: the Task Manager (below); RealDMG's
+  `rw_bplan`, `rw_xplan` and its JIT tiers, the parts embed's `OP_XMS`
+  (`os88partsbody.inc`, two questions), DOS's `dos_k_xcaps` (int 2Fh's XMS
+  free), PiXEL (`pxedit`), XTMP3 (`x3hold`), REDLINE (`detect`), the Video
+  Player (its resident file, the ring above 1MB and the layer) and the RAM
+  disk (`rd_xms_here`, `rd_kb_max`) - ten, not seven. Each asks the cell
+  and then claims through `OSAPI_XMEM_ALLOC` (or `OSAPI_MEM_HUGE`), whose
+  owner is a slot, FFh or C0h|row, all above every cache's rank, so each now
+  plans the room it is given. Inside the kernel `mega_dosalloc` sizes a DOS
+  trip's XMS arena off `mx_caps`; it claims as `MX_KOWN` with BH = 0, also
+  above every cache, so a trip's arena takes the caches' room and the store
+  is re-solved by `dsk_rah_want` at the next mount (14.121) -
+  `mega-dosxms`, `-dosxmsq`, `-kdarena` and `-multiseg` green.
+- **The Task Manager**: `[tm_hicach]` is gone with both its uses - RAM's
+  used half is `sized - caps` with nothing taken off, AVAIL is the heap's
+  plus CAPS - and `tm_hikb` still leaves a cache out of `[tm_hisys]`, so the
+  caches are in no total and still listed under Purgeable by name (14.92).
+  And MAX RUN's replay (`tm_himax`) packed a cache block like any other and
+  read every cache SHORT the same way; it skips one now, as `mx_maxrun` does.
+  It is the SHIPPED build's code too (it runs on kern_mega windowed);
+  on kern_big and kern_small `[tm_hicach]` was always 0 (XMW_CLS is 0 there),
+  so nothing they show moves.
+
+**Bytes**: kern_mega `.mega` **+7**; kern_big and kern_small byte-identical.
+The shipped `taskmgr.o88` image 11,026 -> **11,019** (-7), bss 2,415 ->
+**2,413** (-2), file 9,775 -> 9,764; the arm's file 10,104 -> 10,092. Every
+other package byte-identical (the contract change is a comment).
+
+**Rows**: `megacaps` (new, Bochs 4MB off A: with C: beside it, 16s): the
+store and C:'s window asserted standing in the pool, then MEGACAPS claims
+exactly CAPS (`got`) and CAPS + 1KB (`over refused`). **Red** on the tree
+before: *"caps 0B68"* - 2,920K where 2,992K was there, 72K short (the store,
+the FAT windows and the boot's other pool caches) - and *"over GOT"*;
+**green** after, 2,992K given whole and one more refused. `megatmmem` grows
+a leg - AVAIL on the glass plus the rows' sum is the machine to the KB - and
+its `[tm_hicach]` leg goes; with the old Task Manager over the new cell it
+is **red** on two legs, *"RAM's used 77K"* against rows of 184K and *"AVAIL
+3635K + the rows' 184K"* over the 3,712K machine; **green** after (AVAIL
+3,528K + 184K). `megahuge` green.

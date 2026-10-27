@@ -3525,7 +3525,8 @@ tm_cap_avl:
 .hi:
     call OSAPI_XMEM_CAPS        ; AX = the pool's free KB (BX CX DX spent)
     add ax, [tm_avl]            ; AVAIL = the heap's and the pool's together,
-    add ax, [tm_hicach]         ; and the caches up there a claim sheds (MC1)
+                                ; the caches up there a claim sheds among the
+                                ; pool's (MC1, KERN-MEGA-PLAN 14.122)
     push ax
     call tm_himax               ; MAX RUN = the larger of the pool's run after
     cmp ax, [tm_maxrun]         ; mx_alloc's compaction and the heap's own
@@ -3633,6 +3634,11 @@ tm_himax:
     mov bp, ax
     jmp short .next
 .mov:
+    cmp byte [di+XMW_OWN], 0FEh ; a kernel CACHE takes no room: the claim
+    jne .mv                     ; sheds it (mx_maxrun's rule, KERN-MEGA-PLAN
+    cmp byte [di+XMW_CLS], MEM_PG_MIN   ; 14.122)
+    jae .next
+.mv:
     add bp, [di+XMW_KB]
     jmp short .next
 .end:
@@ -8065,7 +8071,6 @@ tm_hikb:
     add ax, dx
     mov [tm_hifix], ax          ; the System HMA row's KB, which the list's
                                 ; System itemises (tm_sysitems)
-    xor bx, bx                  ; BX = the kernel's CACHES up there (MC1)
     mov cx, [tm_xwn]            ; the SYSTEM's share above 1MB: everything
     mov di, tm_xw               ; outside the pool (DX) and every block the
 .sys:                           ; kernel or a driver owns - owner C0h and up
@@ -8080,10 +8085,9 @@ tm_hikb:
     cmp al, 0FEh                ; ...and NOT a kernel cache (TMX_KERN), in
     jne .sysa                   ; nobody's total and AVAIL's free half, as
     cmp byte [di+XMW_CLS], MEM_PG_MIN   ; its conventional twin is (SPEC.md
-    jb .sysa                    ; 28.4.1): it was in RAM's used half and in
-    add bx, [di+XMW_KB]         ; no row, so the rows came short of it by
-    jmp short .sysn             ; every cache the pool held (28.4.15)
-.sysa:
+    jae .sysn                   ; 28.4.1) - and OSAPI_XMEM_CAPS counts it
+.sysa:                          ; free already (KERN-MEGA-PLAN 14.122), so
+                                ; neither RAM's used half nor AVAIL adds it
     add dx, [di+XMW_KB]
 .sysn:
     add di, TM_XWR
@@ -8091,8 +8095,6 @@ tm_hikb:
     jmp .sys
 .sysd:
     mov [tm_hisys], dx
-    mov [tm_hicach], bx
-    sub [tm_hiused], bx
     cmp byte [tm_pm], 0         ; kern_mega: EVERYTHING the system holds above
     je .sysx                    ; 1MB is System>1MB's, the drivers' images and
     mov [tm_hifix], dx          ; blocks and the kernel's beside the fixed
@@ -8639,14 +8641,13 @@ tm_hifix    equ tm_uma + TM_UMAX * 4    ; KB between 1MB and the pool's base
 tm_hifix    equ tm_xw + TM_XWN * TM_XWR   ; tm_romscan and its records
 %endif                          ; go with it: SPEC.md 28.12)
 tm_hibase   equ tm_hifix + 2    ; KB from 1MB to the pool's base (tm_hikb)
-tm_hicach   equ tm_hibase + 2   ; KB of the kernel's caches in the pool (MC1)
 %ifdef PKG_MEGA
-tm_mconw    equ tm_hicach + 2   ; px of the map that is conventional memory:
+tm_mconw    equ tm_hibase + 2   ; px of the map that is conventional memory:
                                 ; TM_GW, or the left part, the rest being RAM
                                 ; above 1MB (SPEC.md 28.4.15, the arm's alone)
 tm_hiend    equ tm_mconw + 2
 %else
-tm_hiend    equ tm_hicach + 2
+tm_hiend    equ tm_hibase + 2
 %endif
 
 %ifdef TMF_HEAP

@@ -7061,15 +7061,25 @@ mx_maxrunf:
     call mx_maxrun
     retf
 
+; mx_caps - OSAPI_XMEM_CAPS's answer (KERN-MEGA-PLAN 14.122): AX = the KB
+; the pool can still hand out, BL = the table entries a claim can still have.
+; A kernel CACHE (MX_FPURGE) counts as FREE in both, because every claim that
+; reaches the pool through a cell outranks it and mx_alloc sheds it on the
+; way (mx_shed, MC1) - the rule mem_avail_lvl_x applies to a conventional
+; cache (SPEC.md 66.4) and mx_maxrun to this pool. Subtracting it made the
+; read-ahead store's 32KB read as used to every package that plans from here
 mx_caps:
     push si
     mov ax, [xm_kb]
     xor bl, bl
     mov si, mx_tab
 .scan:
+    test byte [ss:si+MX_FL], MX_FPURGE
+    jnz .free                       ; (a cache: the claim sheds it)
     sub ax, [ss:si+MX_KB]
     cmp word [ss:si+MX_KB], 0
     jne .next
+.free:
     inc bl
 .next:
     add si, MX_BLKSZ

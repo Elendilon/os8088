@@ -64550,7 +64550,10 @@ VGA), each of them true:
    nobody's total and in AVAIL's free half, as its conventional twin is
    (§28.4.1): `tm_hikb` leaves it out of both sums and keeps it in
    `[tm_hicach]`, and AVAIL adds it on kern_mega, where `mx_alloc` sheds it
-   for a claim. Measured after: `Ram 0.17/3.62M` over IVT+BIOS 3, System 68,
+   for a claim. (Since KERN-MEGA-PLAN 14.122 `OSAPI_XMEM_CAPS` counts a
+   cache as free itself, so `[tm_hicach]` and both its uses are gone: the
+   used half is `sized - caps` with no correction, AVAIL is the heap's and
+   CAPS's, and MAX RUN's replay skips a cache block as `mx_maxrun` does.) Measured after: `Ram 0.17/3.62M` over IVT+BIOS 3, System 68,
    System>1MB 96 and Programs 14 - 181K - and AVAIL 3531K, the two summing
    to the 3,712K the machine has.
 
@@ -80856,6 +80859,21 @@ against re-entry. (An earlier draft forbade COPY *under
 the gfx lock*; that was mistaken — a window callback is the intended caller
 and always holds it — and it made the contract self-contradictory. Lifting it
 changes no code: COPY never reads `gfx_lock_flag`.)
+
+**What CAPS's KB counts** (KERN-MEGA-PLAN 14.122). AX is the KB the pool
+can still hand out to a claim made through the cells, and on kern_mega that
+counts a kernel CACHE in the pool (an `MX_FPURGE` block: the read-ahead
+store, a FAT window, an icon or a save-under cache) as FREE, and its table
+entry in BL with it - because every claim the cells make outranks every cache
+and `mx_alloc` sheds one on the way (KERN-MEGA-MEMORY-PLAN MC1). It is the
+rule `OSAPI_MEM_AVAIL` applies to a conventional cache (§66.4) and
+`mx_maxrun` to the pool (MC5). Until 14.122 `mx_caps` subtracted the caches,
+so every package that plans from CAPS - RealDMG, the parts embed's `OP_XMS`,
+DOS's XMS, PiXEL, XTMP3, REDLINE, the Video Player, the RAM disk - read the
+32KB read-ahead store and every pool FAT window as used. A clarification,
+not a re-contract: the contract always said *can still hand out*. The one
+moment it over-reads is a FAT window mid-write, which `mx_shedf` will not
+take; kern_big's `XMEM.DRV` holds no cache and answers as before.
 
 ### 41.9 Forbidden (binding)
 
@@ -97615,9 +97633,10 @@ stands: `mem_avail_lvl_x` dissolves a conventional cache below the asker's
 rank (`mem_pg_cheap`), `mx_maxrun` counts an `MX_FPURGE` pool block as free,
 and `OSAPI_MEM_HUGE`'s query (MC5) is built from the two - `tests/
 megahuge.py` asserts the answer is claimed whole and one KB more is refused
-with the store and C:'s FAT window standing. `OSAPI_XMEM_CAPS` alone answers
-the pool's RAW free KB, caches counted as used; the Task Manager adds them
-back itself (`tm_hicach`).
+with the store and C:'s FAT window standing. `OSAPI_XMEM_CAPS` answered the
+pool's RAW free KB, caches counted as used, until KERN-MEGA-PLAN 14.122 made
+it count them as free too (§41.8); the Task Manager's add-back
+(`tm_hicach`) went with it.
 
 #### 50.6.9 kern_mega: the tables and the code at the TOP of RAM, the pool from 1MB (KERN-MEGA-MEMORY-PLAN MC2)
 

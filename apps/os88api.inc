@@ -2659,7 +2659,9 @@ KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
                                  ; memory KB the pool can still hand out (0 =
                                  ; none, and the three below will all refuse),
                                  ; DX:CX = the pool's 32-bit linear base, BL =
-                                 ; free block-table entries. Any context.
+                                 ; free block-table entries. A kernel cache in
+                                 ; the pool counts as free in AX and BL: a
+                                 ; claim sheds it (SPEC.md 41.8). Any context.
 %define OSAPI_XMEM_ALLOC    KERNEL_SEG:0x0160   ; DX:AX = bytes wanted, rounded
                                  ; up to 1KB; out CF=0 and DX:AX = the block's
                                  ; TOKEN, never 0 (opaque - hand it, plus an

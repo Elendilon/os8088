@@ -16775,6 +16775,19 @@ SOAK = [
         needs=("bochs",),
         wants=("build/mega.img", "build/megahuge.o88", "build/megarun.o88",
                "build/mbr.bin")),
+    Row("megacaps", "soak", py("tests/megacaps.py"), 60.0,
+        "docs/plans/KERN-MEGA-PLAN.md 14.122, SPEC.md 41.8: "
+        "OSAPI_XMEM_CAPS ANSWERS WHAT A CLAIM IS THEN GIVEN. kern_mega "
+        "under Bochs at 4MB off A: with C: beside it, so the 32KB "
+        "read-ahead store and C:'s FAT window are kernel caches in the "
+        "pool (asserted standing); MEGACAPS asks the cell, claims exactly "
+        "its KB through OSAPI_XMEM_ALLOC (`got`), frees it, and claims "
+        "one KB more (`over refused`). Red on the tree before: mx_caps "
+        "subtracted the caches, so the answer read short and one KB more "
+        "was GIVEN (`over GOT`). 60s is 16 measured",
+        needs=("bochs",),
+        wants=("build/mega.img", "build/megacaps.o88", "build/megarun.o88",
+               "build/mbr.bin")),
     Row("megafont", "soak", py("tests/megafont.py"), 75.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.120: NO KERNEL CLAIM PINS "
         "CONVENTIONAL MEMORY on kern_mega. A FONTSLOW=1 kern_mega (a private "

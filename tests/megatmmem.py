@@ -18,7 +18,9 @@ cell against the kernel's own glyph table):
   2. THE SUMS: IVT+BIOS + System + System>1MB + every program, as the page
      computes its collapsed rows, is RAM's used half exactly, with at least
      one kernel CACHE above 1MB present (so the sum is not vacuous) and in
-     none of them, its KB in [tm_hicach] for AVAIL; and System>1MB's
+     none of them - OSAPI_XMEM_CAPS counts it free since KERN-MEGA-PLAN
+     14.122, so the used half is `sized - caps` with nothing taken off, and
+     a cache counted twice reads the used half SHORT; and System>1MB's
      heading is the sum of the rows it opens into;
   3. THE ADDRESS: every DrvImg row's ADDR is five hex digits - the block's
      paragraph, checked against the walk's own record - and no row has
@@ -39,7 +41,9 @@ built into the image 10 legs of 12 are red - the drivers file under System
 (1), the caches leave the rows 70K short of RAM (2), ADDR reads HIGH (3)
 and the map is one frame (4). Each was also put back on its own: the
 [tm_pm] flag in tm_xgidof (1 and the sum red), the cache exclusion in
-tm_hikb (System>1MB's heading 70K over its rows, and [tm_hicach], red)
+tm_hikb (System>1MB's heading 70K over its rows, red). And 14.122: the
+arm with the old `sub [tm_hiused], bx` kept over the new mx_caps reads the
+used half short by every cache (2, red)
 and the paragraph in tm_xrow (3 red). Leg 6 is red on the arm before
 14.92 - every tag 0000 and all four pool caches lettered `Cache`.
 """
@@ -110,7 +114,7 @@ class TM(object):
     LABELS = ("tm_view", "tm_exp", "tm_cx", "tm_cy", "tm_xoff", "tm_usedk",
               "tm_totkb", "tm_kb", "tm_gkb", "tm_ist", "tm_iknd", "tm_lowkb",
               "tm_pm", "tm_hion", "tm_hiused", "tm_hitot", "tm_hisys",
-              "tm_xwn", "tm_xw", "tm_hifix", "tm_hibase", "tm_hicach",
+              "tm_xwn", "tm_xw", "tm_hifix", "tm_hibase",
               "tm_mconw", "tm_xgid", "tm_detail")
 
     def __init__(self, box, eq):
@@ -306,8 +310,6 @@ def main():
         want(span == tm.w("tm_hifix"),
              "2. System>1MB's rows - the fixed areas and every block filed "
              "under it - are %dK, its heading %dK" % (span, tm.w("tm_hifix")))
-        want(tm.w("tm_hicach") == sum(r[1] for r in caches),
-             "2. [tm_hicach] %dK is the caches' KB" % tm.w("tm_hicach"))
         gw = eq["TM_GW"]
         conv, hit = tm.w("tm_totkb"), tm.w("tm_hitot")
         cw = max(gw * conv // (conv + hit), gw // 3)
@@ -344,6 +346,16 @@ def main():
                            sorted("%05X" % p for p in paras)))
         want(not any(re.search(r"\sHIGH\s+\d+K", t) for t in text),
              "3. no row has HIGH in its ADDR column")
+        # KERN-MEGA-PLAN 14.122: AVAIL is everything a claim could get -
+        # the caches included once, by OSAPI_XMEM_CAPS - so it and RAM's
+        # used half are the machine to the KB. The arm's old add-back of
+        # the pool caches over the new cell reads every cache twice here
+        av = next((re.search(r"AVAIL (\d+)K", t) for t in text
+                   if re.search(r"AVAIL (\d+)K", t)), None)
+        tot = tm.w("tm_totkb") + tm.w("tm_hitot")
+        want(av and int(av.group(1)) + rows == tot,
+             "2. AVAIL %sK + the rows' %dK is the machine's %dK: no cache "
+             "counted twice" % (av and av.group(1), rows, tot))
         ram = next(((y, x) for y, x, t in lines
                     if t.lstrip().startswith("Ram ")), None)
         if ram is None:
