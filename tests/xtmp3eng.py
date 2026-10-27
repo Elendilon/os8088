@@ -420,7 +420,23 @@ class Rig(object):
             except Exception:                               # noqa: BLE001
                 pass
             time.sleep(poll)
-        print("     (timed out waiting for %s)" % what)
+        # WHICH of the two ended it, and what the player was doing: a guest
+        # whose budget was SPENT and one whose clock STOPPED want different
+        # fixes, and "under 0" alone said neither (xtmp3rate's pause leg in
+        # a soak: "the end" never came, and nothing could say why)
+        try:
+            why = ("its clock stopped for %ds of host time" % os88qemu.STALL
+                   if c.stalled() else "%.1f guest s spent" % (c.n / os88qemu.TICK_HZ))
+        except Exception:                                   # noqa: BLE001
+            why = "?"
+        try:
+            s = self.st()
+            now = "state %d md %d elap %d of %d under %d '%s'" % (
+                s["state"], s["md"], s["elap"], s["total"], s["under"],
+                self.errtext())
+        except Exception as e:                              # noqa: BLE001
+            now = "unreadable (%s)" % e
+        print("     (timed out waiting for %s: %s; %s)" % (what, why, now))
         return False
 
     def open_file(self, drive, name, listing):
