@@ -954,8 +954,10 @@ BOOT2_PAD  := $(shell echo $$(( $(BOOT2_SECS) * 512 )))
 # KERNEL_SEG:0 and never enters stage 2 at all. There has been no canary on
 # those disks for either value of this constant. What still holds is the
 # runtime fence one line down, and it is enough on its own: a payload shorter
-# than this offset gets no -DKSIG, boot/boot.asm's `%define KSIG 0` applies,
-# and stage 2's `cmp word [b2_ksig], 0` skips the compare.
+# than this offset gets no -DKSIG and boot/boot.asm's `%define KSIG 0` applies -
+# which is inert, because a FLAT_PAYLOAD never enters stage 2. Stage 2 itself
+# no longer reads 0 as "no canary": a kernel's real word can BE zero
+# (kern_mega's was), and that test switched its canary off (SPEC.md 18.93.1).
 # SPEC.md 6.0.1 took the blob to TEN sectors, and the probe moved one memory
 # sector down with it - 5632, memory sector 11, file sector 11 + 10 = 21, the
 # same file sector - so the band argument above is untouched. SPEC.md 26.10.5
@@ -985,6 +987,12 @@ KSIG_OFF := 4096
 KSIGDEF = -DKSIG_OFF=$(KSIG_OFF) $$(python3 -c "import sys; d = open(sys.argv[1], 'rb').read(); o = $(KSIG_OFF); print('-DKSIG=%d' % int.from_bytes(d[o:o+2], 'little')) if len(d) > o + 1 else None" $(1))
 
 # ...and the KERNEL's, which needs its own because SPEC.md 2.9 put stage 2 in
+# front of the image - and which is not a WORD but the 16-bit SUM of the
+# canary's whole sector (SPEC.md 18.93.1): one word was 0 on kern_mega, and
+# so was the same word of the wrong sector a 286 ROM delivered there.
+# KSIGDEF above stays a word: it feeds only FLAT_PAYLOAD sectors, which have
+# no stage 2 to compare it.
+#
 # front of the image: KSIG_OFF is a MEMORY offset from KERNEL_SEG and stage 2
 # holds it as a constant, so what shifts is only where the same bytes sit in
 # the FILE. The signature itself still has to be injected - it is read out of
@@ -993,12 +1001,12 @@ KSIGDEF = -DKSIG_OFF=$(KSIG_OFF) $$(python3 -c "import sys; d = open(sys.argv[1]
 #
 # AND IT REFUSES A KERNEL SHORTER THAN THE OFFSET. KSIGDEF above prints nothing
 # for a short payload on purpose; this one MUST NOT, because boot/boot.asm
-# defaults KSIG to 0 and 0 means NO CANARY - so a kernel that came out shorter
-# than KSIG_OFF (a cut-down build, a broken split) would boot with the check
-# silently switched off. The refusal is two-sided: the message goes to stderr
+# defaults KSIG to 0, and a kernel that came out shorter than KSIG_OFF (a
+# cut-down build, a broken split) would then be compared against a sector
+# it does not have. The refusal is two-sided: the message goes to stderr
 # and an option nasm rejects goes to stdout, because a failing `$(...)` on its
 # own does not fail the recipe - the sector would still assemble, canary-less.
-KSIGDEF2 = $$(python3 -c "import sys; d = open(sys.argv[1], 'rb').read(); o = $(KSIG_OFF) + $(BOOT2_PAD); print('-DKSIG=%d' % int.from_bytes(d[o:o+2], 'little')) if len(d) > o + 1 else (sys.stderr.write('KSIGDEF2: %s is %d bytes, shorter than KSIG_OFF + BOOT2_PAD = %d - no canary word to read, and KSIG=0 would switch the canary OFF\n' % (sys.argv[1], len(d), o)), print('--KSIGDEF2-REFUSED-kernel-shorter-than-KSIG_OFF'))" $(1))
+KSIGDEF2 = $$(python3 -c "import sys; d = open(sys.argv[1], 'rb').read(); o = $(KSIG_OFF) + $(BOOT2_PAD); print('-DKSIG=%d' % (sum(int.from_bytes(d[i:i+2], 'little') for i in range(o, o + 512, 2)) & 0xFFFF)) if len(d) >= o + 512 else (sys.stderr.write('KSIGDEF2: %s is %d bytes, shorter than KSIG_OFF + BOOT2_PAD + 512 = %d - no canary sector to sum\n' % (sys.argv[1], len(d), o + 512)), print('--KSIGDEF2-REFUSED-kernel-shorter-than-KSIG_OFF'))" $(1))
 
 # ...and THE BLOB'S OWN CHECKSUM (SPEC.md 2.9.7). The kernel's load has had
 # 18.93.1's canary since the day a BIOS was caught flipping heads early; the

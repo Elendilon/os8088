@@ -37710,10 +37710,26 @@ its own RAM; reading them back proves the write worked, which it always did. It
 says nothing about whether the BIOS consulted them. The only thing worth
 verifying is the **transfer**.
 
-So the build reads a word out of `KERNEL.SYS` at **file sector 21** and
-injects it as `KSIG`. After the load the boot sector compares, and on a mismatch
+So the build sums **file sector 21** of `KERNEL.SYS` - the 16-bit sum of its
+256 words - and injects it as `KSIG`. After the load the boot sector compares, and on a mismatch
 drops `run_max` to `SPT` and **does the whole load again**. A boot 2.2s slower
 beats a kernel that is quietly wrong.
+
+**THE SIGNATURE IS THE WHOLE SECTOR'S SUM, NOT ONE WORD OF IT.** It was the
+sector's first word, and two things were wrong with that. Stage 2 read `KSIG` =
+0 as "this image has no canary" and skipped the compare - and nothing that
+enters stage 2 can lack one (the `FLAT_PAYLOAD` diagnostics never do, and
+`KSIGDEF2` refuses a kernel too short to hold the sector), so the only zero
+that ever arrived was a kernel whose word really is zero: kern_mega's, a
+`ret`'s padding. With that test gone it was still no check, because the wrong
+sector a 286 ROM that cannot cross a head delivered there began with a zero as
+well - **495 of 512 bytes wrong and the canary passed**, after a Cylinder save
+(`BS_CYLASK`, §31.14), and the decoder spun on the wrong bytes for ever.
+`tests/megacz.py`'s third boot is the row that found it. A single word is a
+weak signature exactly where it matters, because the sectors a confused
+controller substitutes are often mostly zero; the sum of 256 words lets a wrong
+sector through one time in 65,536 whatever it begins with, for 13 bytes of the
+blob and 256 additions at the end of a load that took seconds.
 
 **THE OFFSET MUST NAME A SECTOR THAT CROSSES A HEAD**, and "past the first
 flip" is not the same statement. A run transfers correctly up to the head
