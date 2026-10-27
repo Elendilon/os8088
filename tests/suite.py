@@ -16788,6 +16788,20 @@ SOAK = [
         needs=("bochs",),
         wants=("build/mega.img", "build/megacaps.o88", "build/megarun.o88",
                "build/mbr.bin")),
+    Row("megarsq", "soak", py("tests/megarsq.py") + ["--bootc"], 30.0,
+        "docs/plans/KERN-MEGA-PLAN.md 14.122: AN INSTRUMENT - what "
+        "STREAMING a file costs on kern_mega, the Video Player's way: "
+        "OSAPI_FILE_READ_SEQ in 32 KB calls into one page-safe "
+        "conventional claim, 4 MB of SQ.DAT off C: booted (C: the "
+        "kernel's own BIOS volume, the read-ahead store in front of it), "
+        "every byte checked, three passes PIT-timed. The row asserts the "
+        "bytes and the three passes; the times compare kernels run the "
+        "same way (`--build DIR` boots another tree). An instrumented "
+        "tree adds fills, store hits, run bounces and the bytes copied "
+        "landing -> store. 30s is 16 measured",
+        needs=("bochs",),
+        wants=("build/mega.img", "build/megarsq.o88", "build/megarun.o88",
+               "build/mbr.bin")),
     Row("megafont", "soak", py("tests/megafont.py"), 75.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.120: NO KERNEL CLAIM PINS "
         "CONVENTIONAL MEMORY on kern_mega. A FONTSLOW=1 kern_mega (a private "

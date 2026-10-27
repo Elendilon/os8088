@@ -12512,3 +12512,63 @@ its `[tm_hicach]` leg goes; with the old Task Manager over the new cell it
 is **red** on two legs, *"RAM's used 77K"* against rows of 184K and *"AVAIL
 3635K + the rows' 184K"* over the 3,712K machine; **green** after (AVAIL
 3,528K + 184K). `megahuge` green.
+
+**2. "Won't the bounce cost the Video Player two copies?" - MEASURED: no
+copy of the stream, and 0.17% for the read-ahead's.** The owner asked it of
+14.121's landing. The answer is in where the player's bytes go, then in two
+emulators, the before arm `e6438b6b`'s tree built privately
+(`OS88_BUILDNUM`, `make mega`) and the after arm this tree.
+
+*Where the bytes go.* The player never hands the kernel a destination above
+1MB for stream data: its ring above 1MB (14.41) reads every chunk into ONE
+conventional 32 KB bounce (`[vp_dbnc]`, a page-safe claim) and copies it up
+itself (`vp_rhcp`), and a conventional ring is read into directly; the XMS
+hold is filled through a conventional claim too (`vp_xstep`'s `vp_mclaim`). So the reflected `int 13h` (or
+HDD.DRV) puts the stream straight into conventional memory on both arms and
+neither the store, the landing nor `dsk_xfer`'s run bounce sees a byte of
+it. What 14.121 changed for a stream is ONE thing: on a BIOS volume a
+read-ahead FILL - which `dsk_xfer` makes at the TAIL of a 32 KB call, the
+one run shorter than the rest of its track - now reads into the landing and
+is copied up into the store before the caller's part is copied out, where
+before it read into a store that was low. The FAT window does not move for
+a stream: the live window is a pool block in both trees (a window claimed
+after the switch always was; 14.121 moved the BOOT's), and it is filled
+once per window's worth of chain - 2,560 FAT16 entries, 5 MB of 2 KB
+clusters.
+
+*Counted* (Bochs at 4MB, a private tree of each arm with six counters in
+`disk.inc` that were never committed; `tests/megarsq.py`, MEGARSQ streaming
+4 MB of SQ.DAT three times in 32 KB `OSAPI_FILE_READ_SEQ` calls into a
+32 KB page-safe conventional claim, every byte checked): booted off C:, so
+C: is the kernel's own BIOS volume, both arms make **804 cache lookups, 56
+fills and 60 store hits** over 12 MB, and **no run bounce** of either kind;
+the after arm copies **244,736 bytes landing -> store** (20.4 KB a MB, 2.0%
+of the bytes) and the before arm none. Booted off A: with C: MOUNTED, the
+stream makes **no cache lookup at all** on either arm. The times under
+Bochs (the guest on the host's clock, a disk with no transfer time) are the
+same within its noise: 0.168-0.180 s a pass before, 0.170-0.171 after.
+
+*Timed* on 86Box's mr286 (vm/at286-port, MR BIOS 286 at 16 MHz, ISA IDE,
+C: booted; `tests/megarsq.py --box86`), which is deterministic - two runs of
+each arm gave the same figures to the millisecond: 4 MB in **4.184 / 4.204
+/ 4.199 s before and 4.189 / 4.213 / 4.206 s after**, ~975 KB/s - **+7 ms
+per 4 MB, 0.17%**, ~1.75 ms a MB, which is the 20 KB a MB of `rep movsw`.
+And the Video Player itself, `mega-vidsound` on the same machine with each
+arm's kernel swapped into build/megak/ (1,800 frames off C:, the SB2.0 the
+clock): **identical** - drew 1,800, stalls 0, late 0, pauses 0, the
+picture at most 1 frame behind, 59.59 s for 59.56 s of sound, both.
+
+*Not fixed, and why.* It is 0.17% of a stream's read time and ~1% of the
+copy the player already makes of every byte above 1MB (`vp_rhcp`, ~160 ms
+a MB on this machine). The fills it is a copy of buy a stream nothing on
+either arm - the next call's head would have read those sectors in its own
+first `int 13h` - so the clean removal is a gate that fills only on a
+request's FIRST run, which is shared cache policy (`disk.inc` serves
+kern_big and kern_small too, where the same tail fill costs two copies at
+13 cycles a byte) and on kern_mega alone needs a word and a store in
+`.text`'s kernel segment, whose ratchet (`tests/megaseg.txt`) stands at its
+limit. That is an owner decision, not part of this answer.
+
+**The instrument stays**: `megarsq` (soak, Bochs, `--bootc`, 14s) asserts
+the bytes and the three passes and prints the times; `--build DIR` boots
+another tree, `--box86` runs it on the mr286.
