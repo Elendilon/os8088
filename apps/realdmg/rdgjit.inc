@@ -1614,9 +1614,17 @@ rt_pick:
     cmp al,0F0h                     ; LDH A,(n): n >= 80h
     jne .e0
     cmp dl,80h
-    jb .no
+    jb .lcd
     mov ax,512
     jmp short .ff
+.lcd:
+    mov ax,RDGT_XLCD                ; ...or STAT or LY, to their answers
+    cmp dl,41h
+    je .ff
+    inc ax
+    cmp dl,44h
+    je .ff
+    jmp .no
 .e0:
     cmp al,0E0h                     ; LDH (n),A: 80h <= n < FFh, or a
     jne .fa                         ;   sound register io_wr only stores

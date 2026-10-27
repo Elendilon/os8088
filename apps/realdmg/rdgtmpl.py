@@ -360,9 +360,10 @@ def main():
             f.write("RDGC_%s equ 0x%04X\n" % (n.upper(), labels[n]))
         f.write("RDGT_HFREE equ %d\nRDGT_HTAIL equ %d\nRDGT_HJD equ %d\n"
                 "RDGT_XBANK equ %d\nRDGT_XNOF equ %d\nRDGT_FLG equ %d\n"
-                "RDGT_CFREE equ %d\nRDGT_XCB equ %d\n"
+                "RDGT_CFREE equ %d\nRDGT_XCB equ %d\nRDGT_XLCD equ %d\n"
                 % (HEAD - 12, HEAD - 8, HEAD - 4, 512 + rdggen.RDG_XBANK,
-                   512 + rdggen.RDG_XNOF, HEAD, HEAD - 16, 512 + rdggen.RDG_XCB))
+                   512 + rdggen.RDG_XNOF, HEAD, HEAD - 16, 512 + rdggen.RDG_XCB,
+                   512 + rdggen.RDG_XLCD))
         # the JDISPATCH sites again, for the package itself: an 8088 never
         # loads the recompiler's part (REALDMG-SPEC 16.9) and still makes
         # them plain DISPATCH (rw_jdoff)
