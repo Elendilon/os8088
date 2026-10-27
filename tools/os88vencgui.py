@@ -373,6 +373,9 @@ GROUPS = [
      _for(("text",), PF_WORDS["text"])),
     ("Colour", "CGA, 4 colours", ("cga_palette", "cga_bright", "cga_bg"),
      _for(("cga4",), PF_WORDS["cga4"])),
+    ("Colour", "CGA colours: what mixes", ("colour_mix", "colour_clip",
+                                           "edge_solid"),
+     _for(("cga4", "c160"), "CGA 4 colours or CGA 16 colours at 160 x 100")),
     ("Colour", "4 and 16 colours", ("vga4_plan_cap", "vga4_sparse"),
      _FOUR16),
     ("Colour", "CGA composite, 512 colours",
@@ -844,6 +847,8 @@ SUGGEST = {"rate": ["", "22050", "11025", "8000", "5512"],
            "volume": ["", "0.5", "1.5", "2", "3dB", "6dB"],
            "clip": ["", "0", "16"],
            "desktop_clip": ["0", "16", "32"],
+           "colour_clip": ["", "0", "16", "64", "255"],
+           "edge_solid": ["0", "32", "48", "64"],
            "text_busy": ["", "12", "2"],
            "layer_disk": [""],
            "layer_prefill": ["", "16", "32", "64", "all"],
@@ -867,7 +872,8 @@ BLANK_WORD = {"preset": "none", "layout": "auto", "pixfmt": "auto",
               "text_busy": "auto", "bank": "none", "layer_bank": "none",
               "layer_pool": "as Pool", "layer_disk": "none",
               "layer_prefill": "none", "prefill": "%g" % V.BANK_PREFILL,
-              "vga4_sparse": "auto", "worth": "%g" % V.AIM_WORTH}
+              "vga4_sparse": "auto", "colour_clip": "as Clip",
+              "worth": "%g" % V.AIM_WORTH}
 
 
 def blank_word(dest):

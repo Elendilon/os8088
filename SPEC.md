@@ -196778,6 +196778,49 @@ a one-bit file of the same size.
 three overrides; `os88vid --selfcheck` round-trips both and refuses three
 bad files.
 
+##### 98.2.6.1 What CGA's colours may mix (`--colour-mix`, `--colour-clip`, `--edge-solid`, 2026-10-27)
+
+**A pattern over four colours mixes OPPOSITES.** 98.2.5's plan picks colours
+whose mean is the target, and on CGA4's most-picked palette - black, light
+cyan, light red, white - **light cyan and light red average to a grey**. So a
+grey comes out as cyan and red dots, and a blue the palette's cyan does not
+quite match is corrected with red. On an RGB monitor that reads as coloured
+dots, never as the colour in between. `--clip` could only stop it by making
+everything near a colour solid, and a mid grey is NEARER light red (141
+levels) than black or white (221), so a high clip painted greys red and took
+the black-and-white grey dither with them - which is the half that works.
+Three options, CGA4 and C160 only (`KnollDitherer`), each off by default so a
+file re-encodes as it was:
+- **`--colour-mix hue`** limits each pixel's plan. The palette's GREYS
+  (chroma, max - min channel, under 48 of 255) are always allowed; a COLOUR
+  only within 60 degrees of hue of a pixel at least 40 from grey, so cyan and
+  red never meet in one plan and a grey pixel mixes black, white and the
+  greys between. And a coloured pixel's tone is ONE grey's: the greys darker
+  than its nearest colour where the pixel is darker, the lighter ones where
+  it is lighter - so a light edge of a colour mixes in white and never black
+  as well. A pixel with nothing allowed (no grey in the palette, no hue near)
+  may use any. The plan's colour bits are the allowed colours', so the
+  source-stable hold (98.2.5) cannot keep a colour the rule forbids.
+- **`--colour-clip N`** is `--clip` for the palette's COLOURS, `--clip` then
+  the greys' alone: within N on every channel of the plan's first (nearest
+  allowed) colour, a pixel IS that colour. 255 never dithers a colour, which
+  is *dither only grey*: flat colours solid, greys still black and white.
+  Its default is `--clip`'s, which is the rule before it.
+- **`--edge-solid N`**: a pixel whose source's 3 x 3 spans more than N levels
+  on some channel (its RANGE, high less low, so the middle of a blend is an
+  edge as well as its ends) is its nearest colour, never a dot. A pattern
+  needs an area to be seen, and an anti-aliased letter's one- or two-pixel
+  blend into the ground was cyan, white AND black dots around every solid
+  letter. 48 suits cartoons and titles; on camera footage texture reads as
+  edge and flattens, so 0 is the default.
+
+Measured on the clip that asked for it (a 60-second anime title sequence,
+palette 50h, a moving two seconds at 15 fps, the hold off): changed bytes a
+frame 571 at `--clip 128`, 556 with all three at `hue` / 255 / 48 - so the
+look costs nothing in the stream. The default arm is BYTE-IDENTICAL in its
+picture to the encoder before it (the options record grows by the three);
+the record is version 49.
+
 #### 98.2.7 A resident or Live file from a video (`--resident`, `--live`)
 
 `--resident` writes the RESIDENT form (98.1.7) of what the encoder made: one

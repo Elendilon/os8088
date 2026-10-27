@@ -719,6 +719,12 @@ CHOICE_HELP = {
         "2": "Two a sample: the whine at twice the rate, much quieter to "
              "the ear - ~96% of a 4.77 MHz 8088, so for a 286 or better",
     },
+    "colour_mix": {
+        "all": "Any of the palette's colours mix (the default): a grey can "
+               "be cyan and red dots",
+        "hue": "Greys mix black and white; a colour mixes only its own hue "
+               "and one grey - no dots of an opposite colour",
+    },
     "dither": {
         "bayer": "An ordered 8 x 8 pattern: steady, compresses best",
         "bluenoise": "A noise pattern: no visible grid, ~8% more data",
@@ -887,7 +893,7 @@ def implied(preset=None, pixfmt=None, profile="5150-st225", live=None,
 # its story the day that default moved. What a preset, a format or a
 # profile implied is stored as the value it came to, and so is the
 # speaker style's three numbers. It is ~160 bytes (os88vid.OPTS_ZDICT).
-OPTS_VERSION = 48
+OPTS_VERSION = 49
 # what is the encode's plumbing rather than how the file was made
 OPTS_SKIP = ("src", "out", "help", "progress", "quiet", "preview_png",
              "profiles", "posters_only")
@@ -921,7 +927,8 @@ OPTS_FINGERPRINT = {1: "06108fff43ef1307", 2: "496cc97e70197133",
                     41: "9c78d785df0d94a4", 42: "6f2cb773837bd222",
                     43: "ec2917558c23907f", 44: "1baaf8c2dacb6f7b",
                     45: "9f36a470662f10ba", 46: "bdf38e4e169941ba",
-                    47: "5de4b2ffebe0a64f", 48: "ba9e5d3fb742014e"}
+                    47: "5de4b2ffebe0a64f", 48: "ba9e5d3fb742014e",
+                    49: "238b11ab4d51b177"}
 LAG_MS = "50-100"       # --lag's default (98.2.1.1.3), the owner's (2026-10-16):
                         # a RANGE, searched for each burst, where it was one
                         # number tuned by hand. Its top is the 100 ms that
@@ -1121,6 +1128,11 @@ MIGRATIONS = {
     # 48: --flip-build (98.2.5.2.1) - a file made before it built no scene
     # ahead of its flip
     47: [("added", "flip_build", 0)],
+    # 49: --colour-mix, --colour-clip and --edge-solid (98.2.6.1) - a file
+    # made before them mixed any colours, clipped every colour at --clip
+    # and dithered its edges
+    48: [("added", "colour_mix", "all"), ("added", "colour_clip", None),
+         ("added", "edge_solid", 0.0)],
 }
 
 
@@ -1607,6 +1619,17 @@ def threshold_map(kind, w, h):
     m = bayer(8) if kind == "bayer" else bluenoise()
     reps = (-(-h // m.shape[0]), -(-w // m.shape[1]))
     return np.tile(m, reps)[:h, :w]
+
+
+def hue_chroma(x):
+    """(hue in degrees, chroma = max - min channel) of RGB `x` (..., 3)"""
+    r, g, b = x[..., 0], x[..., 1], x[..., 2]
+    mx, mn = x.max(-1), x.min(-1)
+    c = mx - mn
+    cz = np.where(c == 0, 1, c)
+    h = np.where(mx == r, ((g - b) / cz) % 6,
+                 np.where(mx == g, (b - r) / cz + 2, (r - g) / cz + 4))
+    return h * 60.0, c
 
 
 class Ditherer:
@@ -2155,10 +2178,23 @@ class KnollDitherer(Vga8Ditherer):
 
     HOLD_DECAY = 0.8                # the hold score's, a frame (settle)
 
+    # --colour-mix hue (98.2.6.1): a palette colour this far from grey
+    # (max - min channel, of 255) is a COLOUR, and a pixel this far from
+    # grey has a hue a colour must lie within HUE_GAP degrees of to mix
+    GREY_CHROMA = 48.0
+    HUE_CHROMA = 40.0
+    HUE_GAP = 60.0
+
     def __init__(self, w, h, palette, stable, clip=0.0, hold=0.0,
-                 score=0.0, cap=0.0, sparse=0):
+                 score=0.0, cap=0.0, sparse=0, mix="all", cclip=None,
+                 edge=0.0):
         super().__init__(w, h, palette, 0.0, stable)
         self.kclip = clip               # (every colour: see raw)
+        self.mix = mix                  # --colour-mix: see raw
+        self.cclip = cclip              # --colour-clip: see raw
+        self.edge = edge                # --edge-solid: see raw
+        ph, pc = hue_chroma(self.pal)
+        self.phue, self.pgrey = ph, pc < self.GREY_CHROMA
         self.sparse = sparse            # --vga4-sparse: see raw
         self.cap = cap                  # --vga4-plan-cap: see raw
         self.hold = hold                # --vga4-hold: see settle
@@ -2169,14 +2205,41 @@ class KnollDitherer(Vga8Ditherer):
         pal = self.pal
         self.luma = pal[:, 0] * 0.299 + pal[:, 1] * 0.587 + pal[:, 2] * 0.114
 
+    def allowed(self, f):
+        """--colour-mix hue (98.2.6.1): (h, w, colours) - the palette
+        colours each pixel's plan may use. The GREYS always; a COLOUR only
+        within HUE_GAP degrees of a pixel that is HUE_CHROMA from grey, so
+        two far hues (CGA's cyan and red, whose mean is a grey) never mix
+        into dots. And a coloured pixel's tone is ONE grey's: those darker
+        than its nearest colour where it is darker, those lighter where it
+        is lighter - a light edge of a colour mixes in white, not black"""
+        h, c = hue_chroma(f)
+        dh = np.abs((h[..., None] - self.phue + 180.0) % 360.0 - 180.0)
+        chrom = (dh <= self.HUE_GAP) & (c[..., None] >= self.HUE_CHROMA) \
+            & ~self.pgrey
+        d = ((f[..., None, :] - self.pal) ** 2).sum(-1)
+        ci = np.where(chrom, d, np.inf).argmin(-1)
+        lum = f @ np.array([0.299, 0.587, 0.114], np.float32)
+        darker = (lum < self.luma[ci])[..., None]
+        side = np.where(darker, self.luma <= self.luma[ci][..., None],
+                        self.luma >= self.luma[ci][..., None])
+        grey = self.pgrey & np.where(chrom.any(-1)[..., None], side, True)
+        ok = grey | chrom
+        return ok | ~ok.any(-1)[..., None]    # (no greys and no hue: any)
+
     def raw(self, rgb):
         f = rgb.astype(np.float32)
         err = np.zeros_like(f)
         cands = []
+        ok = self.allowed(f) if self.mix == "hue" else None
         for _ in range(self.N):
             t = np.clip(f + err, 0, 255)
-            q = np.clip(np.rint(t * (31 / 255)), 0, 31).astype(np.int32)
-            c = self.lut[(q[..., 0] << 10) | (q[..., 1] << 5) | q[..., 2]]
+            if ok is not None:
+                c = np.where(ok, ((t[..., None, :] - self.pal) ** 2).sum(-1),
+                             np.inf).argmin(-1).astype(np.uint8)
+            else:
+                q = np.clip(np.rint(t * (31 / 255)), 0, 31).astype(np.int32)
+                c = self.lut[(q[..., 0] << 10) | (q[..., 1] << 5) | q[..., 2]]
             if self.cap:
                 # THE PLAN'S REACH (--vga4-plan-cap, VIDEO-PALETTE-PLAN
                 # 10.3): a candidate further from the source than `cap`, or
@@ -2218,15 +2281,37 @@ class KnollDitherer(Vga8Ditherer):
             # colour, does not
             few = (cands == idx[..., None]).sum(-1) <= self.sparse
             idx = np.where(few, cands[..., 0].astype(np.uint8), idx)
-        if self.kclip:
+        if self.kclip or self.cclip or self.edge:
             # SOLID COLOURS (`--clip`, Ditherer's rule for a sparse palette):
             # a pixel within `clip` levels on every channel of the colour
             # nearest it - the plan's first - IS that colour. The plan
             # otherwise carries a near-black's small error until one cell in
             # sixteen takes dark grey or blue: an even grid of dots over
-            # every flat area, which also costs bytes as noise flickers them
+            # every flat area, which also costs bytes as noise flickers them.
+            # `--colour-clip` is the same rule for a COLOUR of the palette,
+            # `--clip` then the greys' alone (98.2.6.1): a flat colour the
+            # palette nearly has stays solid while greys still dither
             c0 = cands[..., 0]
-            near = np.abs(f - self.pal[c0]).max(-1) <= self.kclip
+            lim = np.float32(self.kclip) if self.cclip is None else \
+                np.where(self.pgrey[c0], np.float32(self.kclip),
+                         np.float32(self.cclip))
+            near = (np.abs(f - self.pal[c0]).max(-1) <= lim) & (lim > 0)
+            if self.edge:
+                # AN EDGE DOES NOT DITHER (`--edge-solid`, 98.2.6.1): where
+                # the source spans more than `edge` levels across a pixel's
+                # 3 x 3, the pixel is its nearest colour. A pattern needs an
+                # area to be seen; on a one- or two-pixel blend between two
+                # flat colours (an anti-aliased letter) it is stray dots
+                # (the 3 x 3's RANGE, high less low on each channel: the
+                # middle of a blend is an edge as well as its two ends)
+                pad = np.pad(f, ((1, 1), (1, 1), (0, 0)), mode="edge")
+                hh, ww = f.shape[:2]
+                hi, lo = f.copy(), f.copy()
+                for dy in range(3):
+                    for dx in range(3):
+                        n = pad[dy:dy + hh, dx:dx + ww]
+                        hi, lo = np.maximum(hi, n), np.minimum(lo, n)
+                near |= (hi - lo).max(-1) > self.edge
             idx = np.where(near, c0.astype(np.uint8), idx)
             plan = np.where(near, np.left_shift(np.uint16(1), c0.astype(
                 np.uint16)), plan)
@@ -9957,6 +10042,10 @@ def _encode(a, keep, tick, readers):
         0.0 if own16 else 16.0
     ksparse = a.vga4_sparse if getattr(a, "vga4_sparse", None) is not None \
         else 2 if own16 else 0
+    # CGA'S COLOURS, MIXED BY HUE (98.2.6.1): CGA4 and C160 only
+    cmix = dict(mix=getattr(a, "colour_mix", "all") or "all",
+                cclip=getattr(a, "colour_clip", None),
+                edge=getattr(a, "edge_solid", 0.0) or 0.0)
     optsblk = vid.pack_options(options_doc(a, sfps))
     pasp = vid.CGA4_ASPECT if cga4 else LIVE_ASPECT[a.live] if a.live \
         else vid.SCREENS[scr][3] if scr else None
@@ -10169,11 +10258,11 @@ def _encode(a, keep, tick, readers):
             cgapal, " ".join(str(c) for c in cols)))
         pal6 = b"".join(vid.STD16[3 * c:3 * c + 3] for c in cols)
         k4 = KnollDitherer(lw, lh, pal6, a.vga4_stable, kclip,
-                           a.vga4_hold, a.vga4_hold_score)
+                           a.vga4_hold, a.vga4_hold_score, **cmix)
         dith = Staged(k4, post=lambda i: pack_pixels(i, 4))
     elif c160:
         k16 = KnollDitherer(lw, lh, vid.STD16, a.vga4_stable, kclip,
-                            a.vga4_hold, a.vga4_hold_score)
+                            a.vga4_hold, a.vga4_hold_score, **cmix)
         dith = Staged(k16, post=lambda i: pack_pixels(i, 2))
     elif text:
         cgapal = vid.TEXT_COLOUR if tcol == "colour" else vid.TEXT_MONO
@@ -13044,6 +13133,27 @@ def parser():
                          "0 dithers everything. Default 16, and 0 for 16 "
                          "colours on a VGA in the clip's own (--palette "
                          "colourN), where --vga4-sparse 2 does its work")
+    ap.add_argument("--colour-mix", choices=("all", "hue"), default="all",
+                    help="cga4, c160: which colours the pattern dither may "
+                         "mix. all (the default): any - so on CGA's cyan, "
+                         "red and white a grey is cyan and red dots, and a "
+                         "blue picks up red. hue: greys mix only black, "
+                         "white and the greys between, and a colour only "
+                         "colours of its own hue plus the one grey on its "
+                         "side of it (98.2.6.1)")
+    ap.add_argument("--colour-clip", type=float, default=None,
+                    help="cga4, c160: --clip for the palette's COLOURS, "
+                         "--clip then the greys' alone: how close a pixel "
+                         "must be to a colour to be drawn as it SOLID. 255 "
+                         "never dithers a colour - only greys dither. "
+                         "Default: --clip's")
+    ap.add_argument("--edge-solid", type=float, default=0.0,
+                    help="cga4, c160: a pixel whose source's 3 x 3 spans "
+                         "more than this many levels (an edge) is its "
+                         "nearest colour, never a dot - for "
+                         "the anti-aliased edges of cartoons and titles. "
+                         "48 suits them; 0 (the default) is off, for "
+                         "camera footage, whose texture would flatten")
     ap.add_argument("--gamma", type=float, default=1.0,
                     help="ffmpeg's eq gamma: above 1 lightens the mid-tones")
     ap.add_argument("--contrast", type=float, default=1.0,
