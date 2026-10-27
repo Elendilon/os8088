@@ -554,8 +554,23 @@ def translate(build, rom, entries, hmask=31, log=print, defines=(), rhm=7, heat=
     # images filled on the low banks' cold code and a high bank's hot code was
     # dropped whole - Link's Awakening's music engine in banks 1E and 1F, 37%
     # of the block entries of the owner's replay, and all of bank 1B
-    hot = {k for k in keyed if (heat or {}).get(k, 0)}
-    passes = [(g, t) for t in ((True, False) if hot else (None,)) for g in groups]
+    # ...and the counted ones in two tiers: the blocks that hold 90% of the
+    # entries before the rest, so the hottest code of every group lands in the
+    # first images together - a call between two hot blocks in different
+    # images is a far jump, which the Victory 286 prices at ~2.9 us
+    # (cpubench) and Link's Awakening's replay ran 49 of a frame
+    counted = sorted((k for k in keyed if (heat or {}).get(k, 0)), key=lambda k: -heat[k])
+    tiers = []
+    if counted:
+        tot, run, top = sum(heat[k] for k in counted), 0, set()
+        for k in counted:
+            if run >= 0.9 * tot:
+                break
+            top.add(k)
+            run += heat[k]
+        tiers = [top, set(counted) - top] if not os.environ.get("GBAOT_NOTIER") else [set(counted)]
+    passes = [(g, t) for t in (tiers + [None] if tiers else [None]) for g in groups]
+    every = set().union(*tiers) if tiers else set()
     for gi, (group, tier) in enumerate(passes):
         if gi:
             for sl in m.slots:             # the last group's banks out
@@ -568,7 +583,7 @@ def translate(build, rom, entries, hmask=31, log=print, defines=(), rhm=7, heat=
         gset = set(group)
         bitmap(group)
         todo = {k: None for k in keyed if ((k[1] == 0xFF and group is groups[0]) or k[1] in gset)
-                and (tier is None or (k in hot) == tier)}
+                and (k in tier if tier is not None else k not in every)}
         while todo:
             prf = bytearray(mask * 4)
             offered = sorted(todo, key=lambda k: -weight(k))[:mask]
