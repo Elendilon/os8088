@@ -226,12 +226,14 @@ P_MODE, P_HMASK, P_NOC, P_REASON, P_OUT, P_BUDGET, P_BANK, P_BMP = (
     0x22, 0x23, 0x24, 0x25, 0x26, 0x28, 0x2A, 0x2C)
 E_INIT, E_PRELOAD, E_ROUND, E_FRAME, E_CONT = 0, 3, 6, 9, 12
 P_AOTINT, P_STLOAD = 0x36, 0x38
-STK_SEG, DRV_SEG = 0x0050, 0x0860      # the stack 0:84F0 down, aothost.bin
-DRV_MAX = 0x10000 - DRV_SEG * 16         #   up to the core at 1000:0 (CORE in
-                                          #   translate and run_arm): 31,232 bytes.
+STK_SEG, DRV_SEG = 0x0050, 0x0560      # the stack 0:54F0 down, aothost.bin
+STK_TOP = 0x4FF0                          #   up to the core at 1000:0 (CORE in
+DRV_MAX = 0x10000 - DRV_SEG * 16         #   translate and run_arm): 43,520 bytes.
                                           #   At 0900 it was 28,672, aothost had
                                           #   grown to 28,686, and the core's
-                                          #   first 14 bytes were h_jitstub's last
+                                          #   first 14 bytes were h_jitstub's
+                                          #   last; at 0860, 31,232, and the CB
+                                          #   group's dead flags took it 74 over
 MEM_END = 0x10FFF0                       # what real mode can address, with A20
 TOKEN = 0xF000                            # a block table's segment, as written:
                                           #   TOKEN + n names the image's segment n
@@ -351,7 +353,7 @@ class Machine:
     def enter(self, entry):
         X = self.X
         self.u.reg_write(X.UC_X86_REG_SS, STK_SEG)
-        self.u.reg_write(X.UC_X86_REG_SP, 0x7FF0)
+        self.u.reg_write(X.UC_X86_REG_SP, STK_TOP)
         self.u.reg_write(X.UC_X86_REG_DS, DRV_SEG)
         self.u.reg_write(X.UC_X86_REG_ES, DRV_SEG)
         self.u.reg_write(X.UC_X86_REG_CS, DRV_SEG)
