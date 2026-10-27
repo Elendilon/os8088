@@ -129,6 +129,18 @@ summary = "Spreads the desktop across two monitors so windows can be moved from 
 short = "Desktop across two monitors"
 needs = "Two display cards, such as a VGA or CGA beside a Hercules"
 
+["FDLG.DRV"]
+title = "File chooser"
+kind = "system"
+summary = "The Open and Save As chooser programs show, loaded when one asks for it. On the system disks for 128 KB machines."
+short = "Open and Save As chooser"
+
+["FILECP.DRV"]
+title = "Copy and paste files"
+kind = "system"
+summary = "Cut, Copy, Paste and Paste Into for files in a Disk window, loaded when you use them. On the system disks for 128 KB machines."
+short = "Cut, copy and paste files"
+
 ["FORMAT.DRV"]
 title = "Disk formatter"
 kind = "system"
@@ -166,6 +178,12 @@ kind = "system"
 summary = "The hard disk setup tool, used to partition and format a hard disk and install os8088 onto it."
 short = "Partition and install on a disk"
 needs = "A hard disk"
+
+["HTTPPAGE.DRV"]
+title = "HTTP drive settings"
+kind = "system"
+summary = "The Control Panel page for the HTTP drive: the web address to mount, and Mount and Unmount."
+short = "HTTP drive settings page"
 
 ["RAMPAGE.DRV"]
 title = "RAM disk settings"
@@ -238,6 +256,13 @@ summary = "Reads CD-ROM discs in an IDE CD-ROM drive as a drive on the desktop, 
 short = "CD-ROM discs and audio CDs"
 needs = "A 286 or better with an IDE (ATAPI) CD-ROM drive"
 
+["HTTPFS.DRV"]
+title = "HTTP drive"
+kind = "driver"
+summary = "Mounts a folder published on a web server as a read-only drive on the desktop. The Control Panel's Web Drive page takes the address."
+short = "A read-only drive from a web address"
+needs = "A network card, or the parallel link"
+
 ["RAMDISK.DRV"]
 title = "RAM disk"
 kind = "driver"
@@ -300,18 +325,6 @@ title = "Chart"
 kind = "program"
 summary = "Opens a spreadsheet file, draws a chart from a column of its numbers, and can save the chart as a BMP."
 short = "Charts from spreadsheet data"
-
-["CHART.OVL"]
-title = "Sheet charts and files"
-kind = "data"
-summary = "Part of Sheet, read when Sheet starts: its dialogs, its charts, its file formats and many of its functions. Keep it beside SHEET.O88."
-short = "Sheet's chart and file module"
-
-["MACRO.OVL"]
-title = "Sheet macros"
-kind = "data"
-summary = "Part of Sheet that runs its macros, read when Sheet starts. Keep it beside SHEET.O88."
-short = "Sheet's macro module"
 
 ["PAINT.O88"]
 title = "Paint"

@@ -1,0 +1,3 @@
+20261023
+Install and upgrade over the network,
+and check for a new release at startup.
