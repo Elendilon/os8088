@@ -2033,7 +2033,12 @@ dmg-acid2 reference as the window, on MartyPC's 5150 Hercules and CGA.
 is `rw_clk`'s, 838 ns a count, and each draw measures itself (`rw_timed`).
 A draw is due (`rw_drawdue`) in one of two cases:
 - **The game has caught up**: once as long as the last draw took has passed
-  since it ended. So drawing takes at most half the machine.
+  since it ended. So drawing takes at most half the machine. "Caught up"
+  is one frame behind or less in full screen, and less than a tick's frames
+  (`rw_pertick`) in the window, whose clock owes them a tick at a time: a
+  draw that ran past a period is not a game that is behind, and counting it
+  as one cost Link's Awakening a draw in four on `286-mega` with a fifth of
+  the machine idle in `FSX_WAIT`.
 - **The game is behind**: another such length later still. So drawing takes
   a third of the machine and the rest goes to catching up.
 - **The machine would otherwise sleep** - caught up, nothing owed, and a

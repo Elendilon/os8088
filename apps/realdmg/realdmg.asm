@@ -2928,8 +2928,10 @@ rw_worker:                          ;   the worker parked at the top of its
     call rw_stat
     sub word [rw_owed], 256
     xor bx, bx                      ; caught up: draw this one, once the
-    cmp word [rw_owed], 256         ;   last draw's own length has passed
-    jb .due                         ;   since it ended...
+    mov ax, [rw_owed]               ;   last draw's own length has passed
+    cmp ax, [rw_pertick]            ;   since it ended - and a tick's frames
+    jb .due                         ;   owed is the tick's own burst, not
+                                    ;   behind...
     mov bl, [rw_owed + 1]           ; ...or, behind, draws' lengths later
     xor bh, bh                      ;   again (rw_drawdue): a third of the
     call rw_behind                  ;   machine to the picture, or less the
