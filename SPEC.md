@@ -207076,7 +207076,15 @@ and until a row is painted the ring is filled only when the worker has run
 DRY, and the first wake that finds rows ready fills nothing and wakes again
 (once an open) - because `px_onwake` fills before it paints, which is right
 for throughput (the worker decodes while the UI paints) and was a 16 KB read
-queued in front of the first paint, seconds of first rows on an XT. **The handshake is
+queued in front of the first paint, seconds of first rows on an XT. **A row
+IN FLIGHT is a paint coming**, not the "rows out, none showable" of an
+interlaced picture's early passes: `px_emit` counts a source row as it
+starts and a master row as it ends, and below 1/1 a master row is a block
+of 2^s source rows (`[px_rcnt]` summed so far), so one source row out, or a
+block under way, waits for the worker like rows ready do. Treated as the
+interlaced case, a wake posted as the worker began its first row - where the
+tick's phase put it about one open in four - read 2 x 16 KB in front of it:
+BIG.BMP's first rows 4.57 s on the VGA XT against 3.40 (`pxbenchvga`). **The handshake is
 the Audio Player's** (§86.5, §77.1): a slot the worker has emptied has its
 `full` byte cleared and the request byte set LAST, then `OSAPI_WM_WAKE`;
 `px_onwake`, on the UI task and without the lock, fills every empty slot in
