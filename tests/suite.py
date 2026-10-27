@@ -16768,10 +16768,14 @@ SOAK = [
         "is a 0KB claim and refuses (`MEGAHUGE: no 01`). And "
         "KERN-MEGA-MEMORY-PLAN 8.6's leg: a whole 64KB file read into a "
         "64KB pool claim, red before the fix as `read64 refused, AX 0002`. "
+        "And KERN-MEGA-PLAN 14.121: the answer is EXACT with the boot's "
+        "read-ahead store and C:'s FAT window standing (asserted at the "
+        "query) - a claim of one KB more is refused (`over refused`). "
         "60s is 16 measured",
         needs=("bochs",),
-        wants=("build/mega.img", "build/megahuge.o88", "build/megarun.o88")),
-    Row("megafont", "soak", py("tests/megafont.py"), 60.0,
+        wants=("build/mega.img", "build/megahuge.o88", "build/megarun.o88",
+               "build/mbr.bin")),
+    Row("megafont", "soak", py("tests/megafont.py"), 75.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.120: NO KERNEL CLAIM PINS "
         "CONVENTIONAL MEMORY on kern_mega. A FONTSLOW=1 kern_mega (a private "
         "tree: the glyph table COPIED, the Victory 286's case) boots under "
@@ -16782,7 +16786,14 @@ SOAK = [
         "still the same pool block with the same bytes. Red without "
         "mem_hicaches_f's MEM_K_FONT call (a pinned FF10 at 9F80, font_seg "
         "base 9F800) and, on the resume, without hbm_wake's MEGA_ISHI "
-        "(font_seg swapped for the ROM's at F0000). 60s is 46 measured, "
+        "(font_seg swapped for the ROM's at F0000). And 14.121: both boots "
+        "carry a SYSTEM.CFG with two shortcuts and a third boots off A: "
+        "with C: beside it; NO kernel record (FBxx-FFxx) may stay in "
+        "conventional memory but the read-ahead's 5KB landing, [sc_seg] "
+        "must be a pool selector holding the file's rows, and every FAT "
+        "window word a pool selector. Red on the tree before 14.121: the "
+        "32KB store FE02 and the shortcuts' FF11 low on every boot, C:'s "
+        "window FD22 low (and leaked) on the A: one. 75s is 56 measured, "
         "the knob tree already built",
         needs=("bochs", "nasm")),
     Row("megakbtrip", "soak", py("tests/megakbtrip.py"), 60.0,

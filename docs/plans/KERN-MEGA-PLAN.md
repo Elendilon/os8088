@@ -12350,3 +12350,101 @@ copy is below 1MB (font_seg 114C, base 9F800)"*), and red with `hbm_wake`'s
 `MEGA_ISHI` branch taken out (*"resumed: the glyph table's copy is below
 1MB (font_seg 118C, base F0000)"* - the ROM's); green with both. The free
 conventional run on the A:-boot measurement went `2C00+462K` -> `+463K`.
+
+### 14.121 The boot's other caches sat in conventional memory too (2026-10-27) - FIXED
+
+**The report**: after 14.120 the owner's Victory 286 still showed a claim
+beside the font in the Task Manager's conventional map - *Shortcut*, the
+desktop shortcuts' table - and asked whether others would sit there too, and
+whether 14.120 had moved it. It had not: 14.120 moved the font alone.
+
+**The audit** (Bochs, 4MB, kern_mega; `mem_tab` and `mx_tab` read at the
+desktop after the switch; a SYSTEM.CFG with two shortcuts and a Sticky App,
+SOUND + HDD + ETHER wanted, a Sound Blaster and an NE2000 present; once off
+C:'s boot partition, the Victory's shape, and once off A: with C: beside it,
+14.120's):
+
+| claim | size | made by, when | kind | must it be low? | before | after |
+|---|---|---|---|---|---|---|
+| `MEM_P_DIRW` read-ahead store | 32KB | the boot's mount, real mode | cache, movable (`dsk_rah_reloc`) | **no** - above 1MB a fill reads into the landing and copies up (13.3) | 2080h, low, every boot | pool block, chunks kept |
+| `MEM_P_RAHB` its landing | 5KB | `dsk_rah_land` | cache, page-safe | **yes** - the reflected `int 13h` target | (none: the store was low) | 10A0h, the heap floor |
+| `MEM_K_SC` shortcuts' table | 1KB a row of 8 | the boot overlay from SYSTEM.CFG, real mode; CTRL.DRV after | movable (`sc_reloc`) | no - segment loads only | 2880h, low | pool block |
+| `MEM_P_FATW`+2, C:'s FAT window | 5KB | the boot's mount of C: (A: boot only; a C: boot uses the pin) | cache | no - item 85 bounces a pool window a run at a time | 2B00h, low **and LEAKED** | pool block, sectors kept |
+| `MEM_K_FONT` glyph copy | 1KB | `font_init`, real mode | pinned | no | (14.120) | pool (14.120) |
+| `MEM_K_IMG` a mounted image's run table | 1KB a mount | DISKOPS.DRV, AFTER the switch | movable (`img_reloc`) | no - segment loads only | conventional, top-down | pool block |
+| `MEM_K_CLIP`, `MEM_P_ICO`, save-unders, `MEM_P_FLIST` | - | after the switch | caches | no | pool already (item 84) | - |
+| driver images, `.DRV` modules | - | boot / on demand | - | no | pool already (`drv_hiboot_f`, `mod_hi`, 14.47) | - |
+| `MEM_K_ASC`, `_COPY`, `_CLONE`, `_CMPR`, `_HIB` | - | one operation | transient | - | freed before the operation returns | - |
+| autostart packages, Sticky Apps | - | `as_bootc` / `stik_bootf`, both AFTER the switch | regions | per the package's `OS88_HIGH` (MC8) | - | - |
+
+After the fix the only kernel record in `mem_tab` at the desktop is the 5KB
+landing, on both boots.
+
+**Two defects underneath, not just placement.** `mega_pmtail` called
+`dsk_fatw_lowf` and `dsk_rah_redof` after `mega_on` was set and BEFORE
+`mem_xlatf`, and both free by the PARAGRAPH the boot's word still held -
+which `mem_find_own` no longer matches once `mega_on` is set (it compares
+`mem_sel`). So `dsk_rah_redo` refused and the 32KB store stayed low on every
+kern_mega boot (13.3's *"now puts it above 1MB"* never happened), and
+`dsk_fatw_drop` ZEROED the slot before its refused free, leaking C:'s 5KB
+window record for the session - a purgeable record whose shed would have
+run `mem_pg_forget` over `dsk_fatwc[2]`, by then naming the window C: took
+again in the pool. And a store above 1MB that `mx_shedf` sheds has its word
+forgotten and nothing else, so `dsk_rah_want` saw `[dsk_rah_hi]` still set,
+kept the landing, and never took a store again.
+
+**Fix** (all kern_mega-only; kern_big and kern_small byte-identical,
+`os88rdiff.py`: 4,081 and 2,581 routines `same`):
+
+- `mem_hicaches_f` (`.cold`, after `mem_xlatf`) moves the shortcuts' table,
+  every boot FAT window (its two words, `dsk_fatwc[n]` and `[dsk_fatseg]`,
+  first named by selector - `mem_rr_tab` has no row for a cache's words, and
+  a row would have cost `.text`) and the read-ahead store through its `.one`,
+  which now also swaps `[dsk_fatseg]` when the window is the live one; the
+  store above 1MB then takes its landing. Contents move with them: nothing is
+  dropped. `dsk_fatw_lowf` and `dsk_rah_redof` are deleted.
+- `MEM_K_SC` and `MEM_K_IMG` join `mem_hitag`, so claims after the switch go
+  to the pool; `mem_regrow` sends a pool selector of a hitag claim to
+  `mega_kregrowf` (`mega_claimregrowf`'s body for an `MX_KOWN` block, found
+  by the new `mega_selfind`), so the table grows in the pool with its
+  selector kept. DISKOPS.DRV's mount claims through `mem_claim_x` on
+  kern_mega instead of `mem_claim_hi_x`, which skipped the pool arm.
+- `dsk_rah_want`'s above-1MB branch: a forgotten store clears
+  `[dsk_rah_hi]`, frees the landing and falls into the solve.
+
+**Bytes**: kern_mega `.cold` **+160** (above 1MB after the switch), `.mega`
+**-10**, `.text` +0, DISKOPS.DRV +0; nothing resident below 1MB. What it
+returns on the A:-boot: 32 + 5 + 1 KB of conventional memory less the 5KB
+landing, ~33KB; on a C: boot ~28KB.
+
+**Rows**: `megafont` grows a SYSTEM.CFG with two shortcuts on both its boots
+and a third boot off A: with C: beside it, and its check is now EVERY kernel
+record (FBxx-FFxx) bar the landing, plus `[sc_seg]` a pool selector holding
+the file's captions and every FAT window word a pool selector. **Red** on the
+tree before (`e6438b6b`): *"kernel claim(s) in conventional memory: ['2080
+own FE02', '2880 own FF11']"* on every boot and `'2B00 own FD22'` on the A:
+one, *"the shortcuts' table is not above 1MB (sc_seg 116C, base 28800)"*;
+**green** after, the hibernate and resume included (the table at
+`003EB800` before and after). `mega-desksc` and `mega-imgmount` green (the
+latter now asserts the mount's table above 1MB); a scratch run grew a
+table of eight SYSTEM.CFG shortcuts to fifteen rows by a drag, in the pool,
+the first eight captions intact.
+
+**14.120's open decision, answered.** Neither the directory cache nor a FAT
+window needs to be below 1MB - the reflected disk path bounces any buffer
+above 1MB through the landing or `dsk_secbuf` (item 85, 13.3) - so both now
+live in the pool, and only the 5KB landing stays low. And MC5's answer was
+NEVER shortened by them: `mem_avail_lvl_x` counts a conventional cache below
+the asker's rank as free (`mem_pg_cheap`) and `mx_maxrun` an `MX_FPURGE`
+pool block, the two `OSAPI_MEM_HUGE`'s query is built from. 14.120 read the
+bridge's 453K low piece as the run above the FAT window; it is the whole
+heap less the 64K reserve. Measured both before and after: 3,449K, claimed
+whole, and **one KB more refused** - `megahuge` now asserts that last
+(`MEGAHUGE: over refused`) with the store and C:'s window standing at the
+query. What DOES read short is `OSAPI_XMEM_CAPS`: `mx_caps` subtracts every
+pool block, caches included, and seven packages plan from it (RealDMG,
+`os88partsbody.inc`, DOS, PiXEL, XTMP3, REDLINE, the Task Manager). Changing
+it is not done here: the Task Manager adds `tm_hicach` to it for AVAIL and
+reads `sized - caps` as the XMS bar's used, so the answer and that package
+move together - an owner decision (count caches in `mx_caps` and take the
+two `tm_hicach` uses out, or publish the cache KB beside it).

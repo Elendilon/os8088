@@ -40762,6 +40762,14 @@ across a disk call that can claim, `[mem_pinimg]` (a second word beside
 restored), and DISKOPS.DRV from the claim to the mount's end, and from an
 unmount's first read to the free.
 
+**On kern_mega in protected mode the table is ABOVE 1MB** (docs/plans/
+KERN-MEGA-PLAN.md 14.121): `MEM_K_IMG` is on `mem_hitag`'s list and the mount
+claims through `mem_claim_x`, whose kern_mega arm takes a pool block under a
+selector of its own - every use of the table is a segment load, and a
+selector below or above 1MB reads the same. Nothing moves a pool block's
+holder, so `img_reloc` and `[mem_pinimg]` go quiet there; a refused pool
+claim falls back to conventional memory as before.
+
 ```
 0     db  the host's volume index   } the same five bytes, in the same order,
 1     dw  the host's spt            } as disk_drive / disk_spt / disk_heads,
@@ -57290,6 +57298,12 @@ package hands over is copied in whole and two bytes of it fixed up.
   (docs/plans/HEAP-UNPIN-PLAN.md 2.0).
 - `SC_MAX` is 15: with eight volumes and the service item that is 24 items,
   the cell count of the smallest screens (§26.9.1).
+- **On kern_mega it lives ABOVE 1MB** (docs/plans/KERN-MEGA-PLAN.md 14.121):
+  the boot overlay reads SYSTEM.CFG into it in real mode, before the switch,
+  and `mem_hicaches_f` then moves it into a pool block of its size and frees
+  the low claim; `MEM_K_SC` is on `mem_hitag`'s list, so a table made after
+  the switch is claimed there, and `mem_regrow` resizes it in the pool
+  (`mega_kregrowf`, the selector kept). Every use is a segment load.
 
 **THE PATH, NOT A CLUSTER.** This system has no volume identity: every disk
 carries one serial. A `(volume, cluster)` pair would mean only *this copy of
@@ -97577,6 +97591,33 @@ billed them to System. Now the pool follows §50.6.4 exactly:
 Cost: kern_mega `.mega` +139, `.cold` +125, `.text` +0 (the shared window's
 overhead unchanged), `.lowbss` +192; kern_big and kern_small byte-identical;
 the Task Manager +36 bytes of image.
+
+**The boot's caches go up at the switch too** (docs/plans/KERN-MEGA-PLAN.md
+14.121). The boot mounts its volumes and reads SYSTEM.CFG in REAL mode, so
+the read-ahead store (`MEM_P_DIRW`, 32KB), each volume's FAT window
+(`MEM_P_FATW`+n) and the shortcuts' table (`MEM_K_SC`, §26.8.1) are
+conventional claims when `mega_enter` runs. `mem_hicaches_f`, after
+`mem_xlatf`, MOVES each into a pool block of its size - contents and all, the
+naming word swapped with interrupts off, `[dsk_fatseg]` with it when the
+window is the live one - and frees the low claim; the store above 1MB then
+takes its 5KB page-safe landing (`MEM_P_RAHB`), which is an `int 13h`
+target and the one cache that stays below 1MB, as SPEC.md 18.95 has it. None
+of them is DROPPED: a cache the session has filled keeps what it holds. A
+FAT window's two words are not on `mem_rr_tab` (nothing moves a cache), so
+the routine names them by selector first. And when a claim later sheds the
+store above 1MB (`mx_shedf` forgets the word and nothing else),
+`dsk_rah_want` notices the forgotten store, gives the landing back and
+solves both afresh at the next mount, where it used to keep the landing for
+a store that never came back.
+
+The planning answers already count every one of these as room, wherever it
+stands: `mem_avail_lvl_x` dissolves a conventional cache below the asker's
+rank (`mem_pg_cheap`), `mx_maxrun` counts an `MX_FPURGE` pool block as free,
+and `OSAPI_MEM_HUGE`'s query (MC5) is built from the two - `tests/
+megahuge.py` asserts the answer is claimed whole and one KB more is refused
+with the store and C:'s FAT window standing. `OSAPI_XMEM_CAPS` alone answers
+the pool's RAW free KB, caches counted as used; the Task Manager adds them
+back itself (`tm_hicach`).
 
 #### 50.6.9 kern_mega: the tables and the code at the TOP of RAM, the pool from 1MB (KERN-MEGA-MEMORY-PLAN MC2)
 
