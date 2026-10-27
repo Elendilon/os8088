@@ -18738,6 +18738,11 @@ HERE_ = os.path.dirname(os.path.abspath(__file__))
 MEGAPORT = os.path.join(HERE_, "megaport.txt")
 BOX86PORT = os.path.join(HERE_, "box86port.txt")
 MEGA_WANTS = ("build/mega.img", "build/megaapps.img",
+              # ...and the 1.2MB pair `make mega` builds beside them: a port
+              # line cannot declare a want of its own, and wimgtrip's port
+              # writes megaapps120.img over mega120.img - undeclared, a
+              # frozen soak's tree did not have it (FileNotFoundError)
+              "build/mega120.img", "build/megaapps120.img",
               "build/megak/kernel.map",
               "build/megarun.o88")    # os88bochs.Box stages it on every boot
 
