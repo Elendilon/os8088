@@ -487,14 +487,20 @@ def measure(b, o):
             machine_item(b, ITEM_ILACE, MENU_SCREEN)
         if o.log and not o.replay:
             machine_item(b, ITEM_LOG)          # Log: Off -> on
-        if o.fs:
-            b.to(*MENU_MACHINE)
-            b.mouse(0, 0, 1)
-            b.pause(200)
-            b.to(*ITEM_FULLSCREEN, buttons=1)
-            b.pause(200)
-            b.mouse(0, 0, 0)
-            b.cmd("step 3000")
+        if o.fs:                                # (a busy machine can open the
+            fso = bss_off("rw_infsx")           #   menu after the drag has gone
+            for _ in range(5):                  #   by: tried until the package
+                b.to(*MENU_MACHINE)             #   says it is in the bracket)
+                b.mouse(0, 0, 1)
+                b.pause(600)
+                b.to(*ITEM_FULLSCREEN, buttons=1)
+                b.pause(400)
+                b.mouse(0, 0, 0)
+                b.cmd("step 3000")
+                if fso is None or b.memr(find(b)[0] * 16 + fso, 1)[0]:
+                    break
+            else:
+                raise SystemExit("rdgwin: Machine > Full Screen never took")
         seg, view, core = find(b)
         keys = [int(k, 0) for k in o.hold.split(",") if k]
         for k in keys:
