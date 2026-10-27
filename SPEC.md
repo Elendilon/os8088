@@ -8599,6 +8599,23 @@ restores a kernel image. It is belt and braces rather than a fix for a
 crash: the image's own IVT names the writing machine's BIOS too (§87.3),
 and `hb_ask` refuses a different adapter kind or memory size.
 
+**On kern_mega the copy leaves conventional memory at the switch**
+(docs/plans/KERN-MEGA-PLAN.md 14.120). `font_init` runs in real mode before
+`mega_enter`, so the claim is made exactly as above - and then
+`mem_hicaches_f`, which already moves the icon store, copies it into a 1KB
+pool block under a selector of its own (`mega_hiclaimf`, tag `MEM_K_FONT`,
+pinned in the pool and moved by its compactor like any block there), swaps
+`[font_seg]` with interrupts off and frees the low claim. Every use of the
+table is a segment-register load, so nothing else changes; a ROM pointer or
+a baked face's `LOW_SEG` is no claim and is left alone, and a refused pool
+claim leaves the copy where it was. The resume's step 4a reads a POOL
+selector as the heap copy and refills it in place (`MEGA_ISHI`): asked
+through `mega_s2segf` a block above 1MB reads FFFFh, which the ROM test
+would take for a ROM and swap for the slow table, stranding the block.
+**Cost: kern_mega only** - `.cold` +7 bytes (above 1MB on that kernel),
+HIBER.DRV +20; kern_big and kern_small byte-identical. `tests/megafont.py`
+is the row.
+
 **`make FONTSLOW=1`** skips the verdict and copies on any machine: MartyPC
 prices every ROM read as a RAM read (the clock reads 1000 x1000 there), so
 without the knob the copy path would never run where a row can see it.

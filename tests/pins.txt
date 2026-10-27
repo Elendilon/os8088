@@ -67,7 +67,12 @@ C kernel/hiber.inc MEM_K_HIB             # the hibernate's HMA-pool copy and res
                                          # around it is about to be overwritten
 B kernel/font.inc MEM_K_FONT             # the 8x8 glyph table copied out of an
                                          # option ROM: 1KB claimed TOP-DOWN at
-                                         # boot before any driver, never freed
+                                         # boot before any driver, never freed -
+                                         # on kern_mega it is copied above 1MB
+                                         # and FREED at the switch
+                                         # (mem_hicaches_f, KERN-MEGA-PLAN
+                                         # 14.120), so no conventional pin is
+                                         # left there at all
 X kernel/band.inc MEM_K_BAND             # the 1bpp band composer's buffer, taken
                                          # once at boot and never freed - and only
                                          # the BAND=1 knob assembles band.inc, so

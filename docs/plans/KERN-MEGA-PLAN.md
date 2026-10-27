@@ -12208,3 +12208,77 @@ system disk gains 28,062 bytes; `megaapps.img` is unchanged, because
 kern_big's apps disk does not carry it either. There is no `PKG_MEGA` arm, so
 the package grew by **0 bytes**, and no kernel changed: kern_big, kern_small
 and kern_mega are all byte-identical.
+
+### 14.120 The glyph table's copy sat at the top of conventional memory (2026-10-27) - FIXED
+
+**The report**: the owner's Victory 286 (4MB, an 8-bit Paradise PVGA1A)
+showed the Task Manager's memory map with a claim at the TOP of 640K, and
+the font and DESK.DRV listed under Kernel - read as kernel claims PARTITIONING
+the conventional arena, which KERN-MEGA-MEMORY-PLAN's round (MC2, MC3, MC5)
+meant nothing that need not be below 1MB would be in at all.
+
+**Where each one lands** (Bochs, 4MB, `FONTSLOW=1` kern_mega to force the
+copy; and 86Box's `vm/286-victory` shape):
+
+- **The font**: SPEC.md 6.0.1's `MEM_K_FONT`, 1KB, claimed by `font_init`
+  in REAL MODE before `mega_enter`, top-down and pinned - so at the
+  conventional CEILING, 9F80h-9FC0h, and `mem_xlatf` gives it a selector
+  over the same low bytes (`font_seg 114C base 0009F800`). Nothing moved it
+  after the switch: `mem_hicaches_f` moved the icon store and nothing else.
+  It does NOT split the free run - it is the top claim - but it is a
+  kilobyte of conventional memory (the DOS trip's arena, a bridged huge
+  claim's low piece) held for a table whose every use is a segment-register
+  load. On 86Box the PVGA1A's ROM costs nothing extra, FONT_PICK reads it in
+  place (`C000:569C`) and there is no claim; the real card is slow enough
+  to copy, which is why `FONTSLOW=1` is the instrument.
+- **DESK.DRV is already above 1MB** and always was on this kernel: a desk
+  widget's loader step and `stik_bootf` both run after the switch, `mod_need`
+  takes the usual conventional claim, `mod_hi` (14.47) copies the image into
+  a pool pair and frees it. Measured `kern_mega: above 1MB: DESK.DRV
+  003E0800` on Bochs and MODR_SEG 11A4h based 003EA800 on 86Box's Victory,
+  no `MEM_K_MOD` record left in `mem_tab`. The Task Manager lists POOL
+  blocks too (SPEC.md 28.4.15), under Kernel with the module's name, which
+  is what the report saw; the map draws it in the right-hand part.
+- **What else is low after the switch**, on a floppy boot with a hard disk:
+  `MEM_P_DIRW` (32KB, movable) and C:'s FAT window `MEM_P_FATW + 2` (5KB,
+  rloc 0), both claimed in real mode at the boot's mount. Both are CACHES -
+  the compactor drops them rather than walls on them (`mem_cp_drop`), and a
+  claim sheds them - so neither walls `mem_claim`. They DO shape MC5's
+  answer, which counts conventional FREE only: on that boot the free runs
+  are 63K, 9K and 463K, and `OSAPI_MEM_HUGE` answered 3,449K against a 2,996K
+  pool - the 453K low piece is the run above the FAT window, the ~104K below
+  it standing in for the 64K reserve. Not changed here (a FAT window has a
+  second naming word, `[dsk_fatseg]`, so moving one is more than a copy);
+  the options are counting conventional caches below the caller's rank in
+  MC5's answer as the pool's already are, or dropping the boot's FAT
+  windows at the switch so the first use re-takes one above 1MB.
+
+**Fix**: `mem_hicaches_f` (kernel/memory.inc, `.cold`) moves the copy the
+way it moves the icon store - its body is now a local `.one` called for
+`ico_seg`/`MEM_P_ICO` and `font_seg`/`MEM_K_FONT`: a pool block of the
+claim's size (`mega_hiclaimf`, the tag kept, pinned in the pool and moved by
+its compactor), the bytes copied and the word swapped with IF clear, the
+low claim freed. A ROM pointer or a baked face's `LOW_SEG` is no claim and
+is left alone; a refused pool claim leaves the copy where it was. And
+`hbm_wake`'s step 4a (HIBER.DRV), which refills a heap copy at a resume,
+tested `mega_s2segf`'s answer against A000h - FFFFh for a block above 1MB,
+so a resume would have swapped the pool copy for the slow ROM's pointer and
+stranded the block: it asks `MEGA_ISHI` first now. SPEC.md 6.0.1 carries
+the contract; `tests/pins.txt`'s `B` line for `MEM_K_FONT` says so.
+
+**Bytes**: kern_mega `.cold` **+7** (above 1MB on that kernel), HIBER.DRV
+(`.modh`) **+20**, nothing else; kern_big and kern_small byte-identical
+(`os88rdiff.py`: 4,081 and 2,581 routines `same`). The `.cold` shift after
+`mem_hicaches_f` is odd (+7); it is boot-once and cold-path code.
+
+**Row**: `megafont` (tests/megafont.py, soak, Bochs): a `FONTSLOW=1`
+kern_mega tree booted at 4MB off C:, DESKCLOK opened so DESK.DRV loads,
+then a hibernate and a resume. Asserts `[font_seg]` a pool selector holding
+a glyph table, NO pinned FFxxh record in `mem_tab`, DESK.DRV's MODR_SEG a
+pool selector, and after the resume the same block with the same bytes.
+**Red** with `mem_hicaches_f`'s font call taken out (*"pinned kernel
+claim(s) in conventional memory: ['9F80 own FF10']"*, *"the glyph table's
+copy is below 1MB (font_seg 114C, base 9F800)"*), and red with `hbm_wake`'s
+`MEGA_ISHI` branch taken out (*"resumed: the glyph table's copy is below
+1MB (font_seg 118C, base F0000)"* - the ROM's); green with both. The free
+conventional run on the A:-boot measurement went `2C00+462K` -> `+463K`.

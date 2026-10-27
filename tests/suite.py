@@ -16771,6 +16771,20 @@ SOAK = [
         "60s is 16 measured",
         needs=("bochs",),
         wants=("build/mega.img", "build/megahuge.o88", "build/megarun.o88")),
+    Row("megafont", "soak", py("tests/megafont.py"), 60.0,
+        "docs/plans/KERN-MEGA-PLAN.md 14.120: NO KERNEL CLAIM PINS "
+        "CONVENTIONAL MEMORY on kern_mega. A FONTSLOW=1 kern_mega (a private "
+        "tree: the glyph table COPIED, the Victory 286's case) boots under "
+        "Bochs at 4MB off C: and opens a desk widget, so DESK.DRV loads. "
+        "Asserts [font_seg] is a pool selector holding a glyph table, no "
+        "pinned FFxx record in mem_tab, DESK.DRV's MODR_SEG a pool "
+        "selector - then hibernates and resumes and asserts the table is "
+        "still the same pool block with the same bytes. Red without "
+        "mem_hicaches_f's MEM_K_FONT call (a pinned FF10 at 9F80, font_seg "
+        "base 9F800) and, on the resume, without hbm_wake's MEGA_ISHI "
+        "(font_seg swapped for the ROM's at F0000). 60s is 46 measured, "
+        "the knob tree already built",
+        needs=("bochs", "nasm")),
     Row("megakbtrip", "soak", py("tests/megakbtrip.py"), 60.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.61, 14.62: the keyboard INSIDE a "
         "DOS program and the keyboard and pointer after it, over ten round "
