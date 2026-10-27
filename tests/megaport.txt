@@ -246,7 +246,7 @@ ringmove-tracker secs=70 @OS88_BOCHS_MEGS=1   # Tracker ARM's speaker ring moves
 ringmove-midirack secs=70 @OS88_BOCHS_MEGS=1   # MIDIRack ARM's song, wavetable bank and mix claims move idle; bank and mix pinned while the card plays (mrwt720.img with the arm)
 rcmove secs=70 @OS88_BOCHS_MEGS=1   # RunCPM's 64KB Z80 claim moves at the A> prompt, rc_zseg and rc_z.seg name its new paragraph, 64KB hashed the same, and the CCP answers XYZZY? out of it
 zrestart secs=900 @OS88_BOCHS_MEGS=1   # Frotz's region moves at every park site and play goes on byte-identical to a no-move boot ([MORE] still pinned); the loop leg's park caught by a breakpoint, Bochs's 386 ending the loop between two polls
-editmove secs=90 @OS88_BOCHS_MEGS=1   # Note Pad's document and undo claims move under a live app, bytes and repaint identical
+editmove secs=90 @OS88_BOCHS_MEGS=1   # Note Pad's document and undo claims move under a live app, bytes and repaint identical - here heapfrag#2's pinned comb block lands flush under them, so the row reads that wall off mem_tab, closes heapfrag and POSTS the compaction
 editmove-frotz secs=90 @OS88_BOCHS_MEGS=1   # a running story's five claims move, zf_pcseg inside the moved story, zf_sdelta 0 (no proc runs: an ES pushed before the move is a selector), the VM answers
 weavemove secs=110 @OS88_BOCHS_MEGS=1   # two WEAVE instances' claims move and every copy names the same paragraph (a far vector's code half, a part row, the core's state block); PONG plays on, and its bundle moves under the running worker
 wdheapmove secs=70 @OS88_BOCHS_MEGS=1   # Word's six document claims all move, bytes intact, and three typed characters land in both the text and the CHP claim
