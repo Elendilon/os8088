@@ -20,6 +20,11 @@
 ; segment-register rows are protected-mode loads, which is part of the
 ; answer.
 ;
+;   Then the interleave (docs/reports/XMS-GAP-VICTORY286-2026-10-15.md): a
+; copy with its ends 0, 1, 2 and 3 KB apart mod 4 KB, and reads whose data
+; sits 0-3 KB from the code reading it - whether code and data sharing a
+; DRAM bank costs translated code what it costs a copy.
+;
 ;   ...open CPUBENCH.O88, click the window (or press R). The report is saved
 ;   beside the package as CPUBENCH1.TXT, CPUBENCH2.TXT... - bring them back.
 ;
@@ -183,6 +188,102 @@ cb_b_movsw:
     pop cx
     ret
 
+; the interleave rows (docs/reports/XMS-GAP-VICTORY286-2026-10-15.md: a
+; page-interleaved board closes a DRAM row on every access whose two ends
+; share a bank). A copy of 1,000 bytes in our 16 KB claim, its ends
+; [cb_csrc] and [cb_cdst]; and 1,000 reads of one byte of it, [cb_roff],
+; placed against the CODE reading it
+cb_b_cpy:
+    push cx
+    push si
+    push di
+    push ds
+    push es
+    mov si, [cb_csrc]
+    mov di, [cb_cdst]
+    mov ds, [cb_dseg]
+    push ds
+    pop es
+    mov cx, 500
+    cld
+    rep movsw
+    pop es
+    pop ds
+    pop di
+    pop si
+    pop cx
+    ret
+
+cb_b_rdes:
+    push cx
+    push bx
+    push es
+    mov es, [cb_dseg]
+    mov bx, [cb_roff]
+    mov cx, CB_PASS
+.pass:
+..@cb_rdloop:
+%rep CB_REP
+    mov dh, [es:bx]
+%endrep
+    dec cx
+    jz .done
+    jmp .pass
+.done:
+    pop es
+    pop bx
+    pop cx
+    ret
+
+; cb_gaps - the eight interleave rows, when the 16 KB claim was had
+cb_gaps:
+    mov si, cb_s_ghdr
+    call bl_sline
+    mov dx, [cb_dseg]
+    mov bl, SEG_LIN
+    call OSAPI_SEG                  ; DX:AX = the claim's linear base
+    mov [cb_dlin], ax
+    neg ax
+    and ax, 0x0FFF                  ; the first offset 0 mod 4 KB
+    mov [cb_d0], ax
+    mov dx, cs
+    mov bl, SEG_LIN
+    call OSAPI_SEG
+    add ax, ..@cb_rdloop + CB_REP * 3 / 2   ; the loop's middle, linear
+    mov [cb_clin], ax
+    xor bx, bx                      ; BX = the gap, 0 to 3 KB
+    mov di, cb_r_gcopy
+.c:
+    mov ax, [cb_d0]
+    mov [cb_csrc], ax
+    add ax, 8192
+    add ax, bx
+    mov [cb_cdst], ax
+    mov word [bl_body], cb_b_cpy
+    mov si, di
+    xor al, al
+    call bl_run
+    add di, CB_GLEN
+    add bx, 1024
+    cmp bx, 4096
+    jb .c
+    xor bx, bx
+.r:
+    mov ax, [cb_clin]               ; the byte BX past the code, mod 4 KB,
+    add ax, bx                      ;   in the claim's first 4 KB
+    sub ax, [cb_dlin]
+    and ax, 0x0FFF
+    mov [cb_roff], ax
+    mov word [bl_body], cb_b_rdes
+    mov si, di
+    xor al, al
+    call bl_run
+    add di, CB_GLEN
+    add bx, 1024
+    cmp bx, 4096
+    jb .r
+    ret
+
 cb_run:
     push ax
     push bx
@@ -291,6 +392,19 @@ cb_run:
     mov si, cb_r_movsw
     xor al, al
     call bl_run
+    cmp word [cb_dseg], 0
+    jne .have
+    mov ax, 16                      ; the interleave rows' 16 KB
+    call OSAPI_MEM_CLAIM
+    jc .nogap
+    mov [cb_dseg], dx
+.have:
+    call cb_gaps
+    jmp short .saved
+.nogap:
+    mov si, cb_s_nomem
+    call bl_sline
+.saved:
     call bl_operator
     mov si, cb_f_txt
     call bl_save
@@ -341,7 +455,34 @@ cb_r_callr:   db 'call + ret near', 0
 cb_r_callf:   db 'call + ret far', 0
 cb_r_movsw:   db 'rep movsw, 2 bytes', 0
 
+cb_s_ghdr:    db '-- the interleave: a page-interleaved board (2 KB pages) --', 0
+cb_s_nomem:   db 'NO MEMORY for the interleave rows (16 KB)', 0
+CB_GLEN       equ 24                ; each label below, padded to this
+cb_r_gcopy:   db 'copy 1000, ends 0K', 0
+              times CB_GLEN - 19 db 0
+              db 'copy 1000, ends 1K', 0
+              times CB_GLEN - 19 db 0
+              db 'copy 1000, ends 2K', 0
+              times CB_GLEN - 19 db 0
+              db 'copy 1000, ends 3K', 0
+              times CB_GLEN - 19 db 0
+              db 'read, 0K from code', 0
+              times CB_GLEN - 19 db 0
+              db 'read, 1K from code', 0
+              times CB_GLEN - 19 db 0
+              db 'read, 2K from code', 0
+              times CB_GLEN - 19 db 0
+              db 'read, 3K from code', 0
+              times CB_GLEN - 19 db 0
+
 cb_win:       dw 0
+cb_dseg:      dw 0
+cb_dlin:      dw 0
+cb_clin:      dw 0
+cb_d0:        dw 0
+cb_csrc:      dw 0
+cb_cdst:      dw 0
+cb_roff:      dw 0
 cb_dsv:       dw 0
 cb_fret:      dw 0, 0
 cb_done:      dw 0                  ; runs completed
