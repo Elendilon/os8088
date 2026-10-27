@@ -719,7 +719,7 @@ def finish(img, sym, rom, keyed, rhm, heat=None, listall=False):
         starts[n].append((off, key))       #   nearest block start below it
     for v in starts.values():
         v.sort()
-    relocs, linked, lazy, jns = [], 0, 0, 0
+    relocs, linked, lazy, jns, jshort = [], 0, 0, 0, 0
     nojns = bool(os.environ.get("GBAOT_NOJNS"))   # (the A/B)
     for n, sg in enumerate(segs):
         i = sg.find(b"\xBA")
@@ -758,6 +758,11 @@ def finish(img, sym, rom, keyed, rhm, heat=None, listall=False):
                         sg[i - 1] = rel & 0xFF       #   jns T, and the event's
                         sg[i:i + 2] = b"\xEB\x04"   #   way a jmp short to the
                         jns += 1                     #   mov si,T at SITE + 6
+                    elif tn == n and -128 <= toff - (at + 2) <= 127 and not nojns:
+                        sg[at] = 0xEB                # a jmp short where it
+                        sg[at + 1] = (toff - (at + 2)) & 0xFF   # reaches (a bank's
+                        sg[at + 2] = 0x90            #   exit, after its check)
+                        jshort += 1
                     elif tn == n:
                         sg[at] = 0xE9
                         struct.pack_into("<H", sg, at + 1, (toff - (at + 3)) & 0xFFFF)
@@ -782,7 +787,14 @@ def finish(img, sym, rom, keyed, rhm, heat=None, listall=False):
                 t = struct.unpack_from("<H", sg, i + 1)[0]
                 tgt = blocks.get((t, 0xFF)) if 0xFF80 <= t < 0xFFFF else None
                 if tgt is not None and tgt[0] == n:
-                    struct.pack_into("<H", sg, i + 6, (tgt[1] - (i + 8)) & 0xFFFF)
+                    rel = tgt[1] - (i + 5)
+                    if -128 <= rel <= 127 and not nojns:
+                        sg[i + 3] = 0x79             # js +3 / jmp near: one
+                        sg[i + 4] = rel & 0xFF       #   jns, the event's way
+                        sg[i + 5:i + 8] = b"\xEB\x01\x90"   # on past it
+                        jns += 1
+                    else:
+                        struct.pack_into("<H", sg, i + 6, (tgt[1] - (i + 8)) & 0xFFFF)
                     hlinked += 1
             i = sg.find(b"\xBE", i + 1)
     img["segs"] = [bytes(x) for x in segs]
@@ -802,7 +814,7 @@ def finish(img, sym, rom, keyed, rhm, heat=None, listall=False):
         hot = max(hot, 1) if len(segs) > 1 else 0
     img.update(table=bytes(table), list=bytes(lst), relocs=relocs, hmask=rhm,
                linked=linked, lazy=lazy, listed=len(listed), hot=hot, hlinked=hlinked,
-               jns=jns)
+               jns=jns, jshort=jshort)
 
 
 def tailpages(build):
