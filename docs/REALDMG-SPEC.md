@@ -2058,6 +2058,27 @@ A draw is due (`rw_drawdue`) in one of two cases:
 - **On an 8088** a draw is a large part of a second, and the picture rate
   falls while the game holds its speed.
 
+**Steady pacing (Shift+F2, full screen only).** The rules above draw a
+frame wherever there is room, so a game that cannot draw every frame draws
+at uneven gaps - Kirby's Dream Land scrolling on `286-mega` drew after 3, 5,
+8, 4 and 6 frames in one second - and the game's pace moves with them
+(95-105% second to second). STEADY draws every k-th frame and none between,
+the waits off the cadence kept (`rw_pace`, `rw_pk`; `rwfsx.inc`'s `.stdy`).
+k is what the cycles measure (`rw_padapt`): one more after two cadence draws
+in a row that began with the next frame already owed, one fewer after
+`RW_PDOWN` (4) in a row whose waits (`rw_pwait`, `[rw_pidl]`) would have held
+a cycle a frame shorter - with k frames of R a period P, a draw D and the
+waits I, kP = kR + D + I, so a cycle of k - 1 fits when I >= P - R, taken
+with an eighth of P to spare - and 1 to `RW_PKMAX` (6). On the owner's long
+Kirby replay it held k = 6 through the scrolling, 9 of every 10 draws six
+frames apart, ten pictures a second at 99-102% of real time, where Free drew
+8-12 at uneven gaps. Shift+F2 because the F-keys are all taken: the least
+used get a Shift. Not kept with the game, and the window's own rules are
+Free's. `[rw_phist]` counts the draws by the frames run since the one
+before (1-7, 8+) whichever way it is set, and `tests/rdgcore/rdgwin.py`
+prints it (`RDGWIN_GAPS=1` a second at a time, `RDGWIN_FSPRESS=shift+f2`
+the keys pressed inside the bracket).
+
 **The first field run is why "behind" is a share and not a period.** The
 first form drew every three ticks whenever the game was behind at all. On
 the Victory, Super Mario Land slips under 100% for a moment with an enemy
