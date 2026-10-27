@@ -638,12 +638,24 @@ class MegaBochs(MegaMixin, om.Marty):
         """xdotool on the machine's display, keeping a HELD Ctrl held: the
         re-capture after a debugger stop (os88bochs.GRAB) is Ctrl + middle
         click and lets Ctrl go, so a row holding ControlLeft across a read
-        (msel's Ctrl+click, any Ctrl+key) lost it at its next event"""
-        if self.box.inp.regrab:
-            held = [k for k in ("Control_L", "Control_R") if k in self._keys]
-            if held:
-                a = sum((("keydown", k) for k in held), ()) + a
-        self.box.xd(*a)
+        (msel's Ctrl+click, any Ctrl+key) lost it at its next event
+
+        UNDER THE MACHINE'S LOCK, which every stop is taken under
+        (`_stopped`, `_c_*`): a stop RELEASES the capture, so one landing
+        while an xdotool chain is still going out drops the rest of it. A
+        row that samples guest memory from a THREAD while it drives
+        (tests/curbusy.py's Watch) stopped the guest mid-double-click on
+        every read - the four edges reached the guest as at most one click
+        and B: never opened (mega-curbusy). Under the lock a chain and a
+        stop cannot overlap, and `regrab` - set inside the stop - is always
+        seen by the input that follows it"""
+        with self._lock:
+            if self.box.inp.regrab:
+                held = [k for k in ("Control_L", "Control_R")
+                        if k in self._keys]
+                if held:
+                    a = sum((("keydown", k) for k in held), ()) + a
+            self.box.xd(*a)
 
     def _c_mouse(self, dx=0, dy=0, l=False, r=False, wz=0, **_):
         if wz and not getattr(self, "imps2", False):
