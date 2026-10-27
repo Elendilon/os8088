@@ -558,7 +558,10 @@ def translate(build, rom, entries, hmask=31, log=print, defines=(), rhm=7, heat=
     # entries before the rest, so the hottest code of every group lands in the
     # first images together - a call between two hot blocks in different
     # images is a far jump, which the Victory 286 prices at ~2.9 us
-    # (cpubench) and Link's Awakening's replay ran 49 of a frame
+    # (cpubench) and Link's Awakening's replay ran 49 of a frame. OPT-IN
+    # (GBAOT_TIER=1): measured on the four replays it took Link's Awakening
+    # 60 -> 81 far transfers a frame and Kirby 31 -> 30, because a cold block
+    # that a hot one exits to is then laid in a later image
     counted = sorted((k for k in keyed if (heat or {}).get(k, 0)), key=lambda k: -heat[k])
     tiers = []
     if counted:
@@ -568,7 +571,7 @@ def translate(build, rom, entries, hmask=31, log=print, defines=(), rhm=7, heat=
                 break
             top.add(k)
             run += heat[k]
-        tiers = [top, set(counted) - top] if not os.environ.get("GBAOT_NOTIER") else [set(counted)]
+        tiers = [top, set(counted) - top] if os.environ.get("GBAOT_TIER") else [set(counted)]
     passes = [(g, t) for t in (tiers + [None] if tiers else [None]) for g in groups]
     every = set().union(*tiers) if tiers else set()
     for gi, (group, tier) in enumerate(passes):
