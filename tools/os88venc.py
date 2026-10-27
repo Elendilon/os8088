@@ -887,7 +887,7 @@ def implied(preset=None, pixfmt=None, profile="5150-st225", live=None,
 # its story the day that default moved. What a preset, a format or a
 # profile implied is stored as the value it came to, and so is the
 # speaker style's three numbers. It is ~160 bytes (os88vid.OPTS_ZDICT).
-OPTS_VERSION = 47
+OPTS_VERSION = 48
 # what is the encode's plumbing rather than how the file was made
 OPTS_SKIP = ("src", "out", "help", "progress", "quiet", "preview_png",
              "profiles", "posters_only")
@@ -921,7 +921,7 @@ OPTS_FINGERPRINT = {1: "06108fff43ef1307", 2: "496cc97e70197133",
                     41: "9c78d785df0d94a4", 42: "6f2cb773837bd222",
                     43: "ec2917558c23907f", 44: "1baaf8c2dacb6f7b",
                     45: "9f36a470662f10ba", 46: "bdf38e4e169941ba",
-                    47: "5de4b2ffebe0a64f"}
+                    47: "5de4b2ffebe0a64f", 48: "ba9e5d3fb742014e"}
 LAG_MS = "50-100"       # --lag's default (98.2.1.1.3), the owner's (2026-10-16):
                         # a RANGE, searched for each burst, where it was one
                         # number tuned by hand. Its top is the 100 ms that
@@ -1118,6 +1118,9 @@ MIGRATIONS = {
     45: [("added", "ladder_at", ""), ("added", "scene_join", "")],
     # 47: --blocks (98.1.10) - a file made before it is version 1
     46: [("added", "blocks", "off")],
+    # 48: --flip-build (98.2.5.2.1) - a file made before it built no scene
+    # ahead of its flip
+    47: [("added", "flip_build", 0)],
 }
 
 
@@ -4284,6 +4287,34 @@ def own_cells(enc):
     glass. The frames a scene's cells go on: the first, and the next where
     the budgets would cut it - 2 - or 1 where the pages are one picture"""
     return 2 if getattr(enc, "own", False) else 1
+
+
+def build_try(enc, ts, m, au, pal=None):
+    """--flip-build's trial (98.2.5.2.1): the stretch `ts` - the frames up
+    to and including a scene's first, ts[-1] - on a copy of the encoder,
+    its last `m` frames before the scene HELD toward it (drawn on the page
+    the glass is not showing, in the scene's colours `pal`, and not shown)
+    and the scene's first then drawn and shown. -> the scene's first
+    frame's pixels left wrong, 0 where it came out whole"""
+    e = enc_clone(enc)
+    e.probe = True
+    n = len(ts) - 1
+    for j, t in enumerate(ts):
+        a_ = au if j == 0 else b"\x80" * len(au)
+        if n - m <= j < n:
+            old = e.pal
+            if pal is not None:
+                e.set_pal(pal)
+            e.staying = True
+            _, rec = e.frame(ts[n], a_)
+            if pal is not None:
+                e.set_pal(old)
+        else:
+            if j == n and pal is not None:
+                e.set_pal(pal)
+            _, rec = e.frame(t, a_)
+        e.charge(rec, len(au))
+    return int(np.count_nonzero(e.screen != ts[n]))
 
 
 def degrade_choose(enc, ts, au, steps, fps, tp, first=None, cost=VFR_HOLD,
@@ -10902,6 +10933,34 @@ def _encode(a, keep, tick, readers):
                 cell = c
                 draw = coarse_of(e, target, c, au)
                 e.all3 = getattr(e, "wm3", False)
+        if pbn and vreplay is None and not e.vplan and vfut and \
+                not (pre and k <= pre) and k not in pev_at and \
+                draw is target:
+            # BUILT BEFORE THE SCENE (--flip-build, 98.2.5.2.1): a scene
+            # change within reach whose first frame the budgets would cut
+            # is built whole on the page the glass is not showing, by the
+            # fewest frames held before it that do it - the glass staying
+            # on the last scene meanwhile - then flipped to with its colours
+            kk = next((k + d for d in range(1, min(pbn, len(vfut)) + 1)
+                       if k + d in pev_at), None)
+            if kk is not None and kk not in e.vpbdone:
+                e.vpbdone.add(kk)
+                ts = [target] + list(vfut)[:kk - k]
+                kp = np.frombuffer(pev_at[kk], np.uint8)[:768].astype(
+                    np.float32).reshape(-1, 3) * (255.0 / 63)
+                busy(k, "building the scene at frame %d ahead: holds "
+                     "tried on copies of the encoder" % kk)
+                left0 = build_try(e, ts, 0, au, kp)
+                if left0:
+                    for m in range(1, kk - k + 1):
+                        if not build_try(e, ts, m, au, kp):
+                            e.vplan.extend([False] * (kk - k - m) +
+                                           [True] * m + [False])
+                            e.vpbuild[kk] = (m, kp)
+                            break
+                    else:
+                        e.vpbmiss.append(kk)
+                doing[0] = ""
         if vreplay is not None:
             if k in vreplay and draw is target:
                 held = True             # (nothing on the page shown: the
@@ -11012,8 +11071,14 @@ def _encode(a, keep, tick, readers):
             hdraw = None if vempty or vstay else vfut[j]
             if vstay:                   # (98.1.3.9: drawn on the hidden
                 e.staying = True        # page toward the next, not shown)
+            pb = e.vpbuild.get(k + j + 1) if vstay else None
+            if pb is not None:          # (--flip-build: in the scene's own
+                opal = e.pal            # colours, which go on with its flip)
+                e.set_pal(pb[1])
             ops, rec = e.frame(vfut[j] if vstay else
                                e.screen.copy() if vempty else hdraw, au)
+            if pb is not None:
+                e.set_pal(opal)
             if e.stats["cut"] > c0:
                 e.stats["cut"] -= 1
             else:
@@ -11021,6 +11086,11 @@ def _encode(a, keep, tick, readers):
             e.stats["holds"] = e.stats.get("holds", 0) + 1
         else:
             ops, rec = e.frame(draw, au)
+            if k in e.vpbuild:          # (--flip-build: flipped to the
+                e.own_next = True       # built page, the next record's page
+                e.stats["built"] = e.stats.get("built", 0) + 1  # is the
+                if e.stats["cut"] > c0:     # glass's copy first, as after
+                    e.vpbcut.append(k)      # a key - REC_UP, 98.1.3.10)
         e.all3 = False
         hops = p.after(k, rec, au, target) if p is not None else None
         left = int(np.count_nonzero(e.screen != target)) \
@@ -11256,6 +11326,15 @@ def _encode(a, keep, tick, readers):
     vspan = max(2, int(round(fps * VFR_SPAN)))
     vcost = float(getattr(a, "slow_cost", VFR_HOLD))
     enc.vplan = deque()
+    # --flip-build (98.2.5.2.1): a file flipped against its own pages, its
+    # held records drawn ahead, with a palette a scene to say where the
+    # scenes are
+    pbn = int(getattr(a, "flip_build", 0) or 0)
+    if pbn and not (vstay and getattr(enc, "own", False) and scene_pals):
+        say("   --flip-build: needs --flip --flip-own with --flip-hold "
+            "ahead and --scene-palettes, on two pages - left out")
+        pbn = 0
+    enc.vpbuild, enc.vpbdone, enc.vpbmiss, enc.vpbcut = {}, set(), [], []
     if vreplay is None:
         enc.vrates = {}
     vstate = None                       # (the glass's screen, a STAY's run)
@@ -11289,7 +11368,7 @@ def _encode(a, keep, tick, readers):
     vprev, vshown = False, None         # (the frame before held; and the
                                         # target the picture shown is of)
     while True:
-        while len(ahead) < 1 + max(enc.look, vspan - 1 if vfr else 0):
+        while len(ahead) < 1 + max(enc.look, vspan - 1 if vfr else 0, pbn):
             t = next(targets, None)
             if t is None:
                 break
@@ -11306,7 +11385,7 @@ def _encode(a, keep, tick, readers):
             sound.append(au)
             au = b""
         fut = list(ahead)[:enc.look]
-        vfut = list(ahead) if vfr else ()
+        vfut = list(ahead) if vfr or pbn else ()
         if not enc.lag_cands or (pre and f <= pre):
             # (the pre-roll at the allowance preroll() counted it with)
             x = step(enc, pa, f, target, au, fut, vfut)
@@ -11920,6 +11999,20 @@ def _encode(a, keep, tick, readers):
             for c in COARSE_LADDER + tuple(sorted(set(coarse_used) -
                                                   set(COARSE_LADDER)))
             if c in coarse_used), a.coarse_cut))
+    if getattr(a, "flip_build", 0) and hasattr(enc, "vpbuild"):
+        pb = enc.vpbuild
+        rep("base", "scenes built ahead: %d (--flip-build %d, 98.2.5.2.1)%s"
+            "%s%s" % (
+                len(pb), a.flip_build,
+                " - " + ", ".join("frame %d after %d held" % (f, pb[f][0])
+                                  for f in sorted(pb)) if pb else "",
+                "; %d still cut on the flip (frame %s)" % (
+                    len(enc.vpbcut), ", ".join(map(str, enc.vpbcut)))
+                if enc.vpbcut else "",
+                "; %d not within %d frames (frame %s)" % (
+                    len(enc.vpbmiss), a.flip_build,
+                    ", ".join(map(str, enc.vpbmiss)))
+                if enc.vpbmiss else ""))
     if scene_pals and st["cut"]:
         # WHERE THE CUTS ARE, scene by scene (VIDEO-PALETTE-PLAN 10.9): a
         # step before cutting is chosen per scene, so its cost is read there
@@ -12187,7 +12280,9 @@ def _encode(a, keep, tick, readers):
                ladder=dict(enc.vladder) if lsteps is not None else None,
                ladder_at=dict(enc.vladat), vstretch=list(enc.vstretch),
                pev_left=list(pev_left) if scene_pals else [],
-               cells=dict(coarse_used))
+               cells=dict(coarse_used),
+               built={f: v[0] for f, v in
+                      getattr(enc, "vpbuild", {}).items()})
     if enc.metric and enc.q_frames:     # (98.2.1.8.1's comparison)
         pr = picture_report(enc.q_frames, enc.q_bad, fps)
         res.update(q_worst=pr[1], q_broken=pr[3] / fps)
@@ -12452,6 +12547,17 @@ def parser():
                          "is shown (98.1.3.9; a player before it refuses the "
                          "file); EMPTY, it writes nothing and the picture "
                          "before is shown again")
+    ap.add_argument("--flip-build", type=int, default=0, metavar="N",
+                    help="--flip --flip-own with --scene-palettes: a scene "
+                         "change whose first frame the budgets would cut is "
+                         "BUILT AHEAD - up to N frames before it are held, "
+                         "the glass staying on the last scene while they "
+                         "draw the new one whole on the page it is not "
+                         "showing, the fewest that do it - then flipped to "
+                         "with its colours, and the frame after takes the "
+                         "glass's copy onto the page left behind through "
+                         "the VGA's latches (98.2.5.2.1). 0: off, the "
+                         "default")
     ap.add_argument("--slow-cost", type=float, default=VFR_HOLD,
                     metavar="PTS",
                     help="--min-fps's price of choppiness: each frame a "

@@ -448,7 +448,8 @@ GROUPS = [
     ("Degrade to Fit", "Or, without the ladder: for the whole clip",
      LADDER_SETS, ALWAYS),
     ("Degrade to Fit", "Held frames, either way", ("slow_cost",
-                                                    "flip_hold"), ALWAYS),
+                                                    "flip_hold",
+                                                    "flip_build"), ALWAYS),
     ("Trade-offs", "When a frame is cut", ("lookahead", "lookahead_floor",
                                                 "error", "cut",
                                                 "frame_cap", "edges",
@@ -512,6 +513,15 @@ FIELD_WHEN = {
         "A looped file or a layer is drawn against the frame before."
         if c.get("loop_from") or c.get("layer_disk") or
         c.get("layer_profile") else None),
+    # (98.2.5.2.1: a scene built ahead on the page the glass is not
+    # showing, held records drawn there, the scenes its palettes')
+    "flip_build": lambda c: FIELD_WHEN["flip_own"](c) or (
+        "Building a scene ahead is a file against its own pages': turn "
+        "Flip own on." if not c.get("flip_own") else
+        "Held frames drawn ahead build it: Flip hold ahead."
+        if c.get("flip_hold", "ahead") != "ahead" else
+        "The scenes are the palettes': turn Scene palettes on."
+        if not c.get("scene_palettes") else None),
     "lag": lambda c: "A Live file is drawn on the desktop: it keeps time "
     "frame by frame." if c.get("live") else None
     if c["audio"] not in ("none", "speaker") else

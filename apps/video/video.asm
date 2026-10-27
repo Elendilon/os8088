@@ -18999,8 +18999,9 @@ vp_flipdec:
 ; 37 7, VIDEO-SEEN-PLAN 3b): drawn on the back page as it stands - which is
 ; the frame two back, or after a HELD record the one it holds - so nothing is
 ; decoded again and nothing kept. Only a record with REC_UP (y1 bit 12, the
-; one after a key) first takes its rows y0..y1 off the glass, as 98.3.8.1's
-; copy does. Then shown, unless HELD. Clobbers AX, BX, CX, DX, SI, DI, BP, ES
+; one after a key, or after a flip to a page built ahead - 98.2.5.2.1) first
+; takes its rows y0..y1 off the glass, as 98.3.8.1's copy does. Then
+; shown, unless HELD. Clobbers AX, BX, CX, DX, SI, DI, BP, ES
 vp_owndec:
     push dx
     push si

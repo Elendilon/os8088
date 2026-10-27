@@ -192203,7 +192203,10 @@ period for the restore against 127% for the frame on Last Exile, Mode X).
   next record is drawn on the same page, against what it left.
 - **The record after a KEY** carries **`REC_UP`, y1 bit 12**: before its
   lists, its page takes the record's rows y0..y1 off the glass, every plane
-  through the latches (98.3.8.1's copy). A seek puts the key on both pages;
+  through the latches (98.3.8.1's copy). **So may any other record**
+  (2026-10-27): the one after a flip to a page built ahead carries it to
+  bring the page the flip left up to the glass (98.2.5.2.1), and a reader
+  and the player take it on any record exactly as they do after a key. A seek puts the key on both pages;
   a play through the key has the frame before it on the page drawn next -
   so the writer widens that record's band to every row where the two pages
   differ, and after the copy the page IS the glass, byte for byte, either
@@ -196675,6 +196678,51 @@ reaches the player, the format or the kernel.
   schedule and not by the disk. Blocks buy BYTES; where the CPU cuts, the
   cells are the coarse picture that fits.
 
+###### 98.2.5.2.1 A scene BUILT AHEAD on a flipped file (`--flip-build N`, 2026-10-27)
+
+**The owner's ask, after 98.2.5.2's cells**: *"page flipped when we can
+afford it, and for big scene changes fall back to single page, with the
+other page being built ahead"* - so a scene change comes in WHOLE rather
+than in cells. What shipped needs no single page at all, no new record
+and no player change, because a file against its own pages (98.1.3.10)
+already has both halves: a HELD record is drawn on the page the glass is
+not showing and not shown, the next drawn on the same page; and REC_UP
+copies rows off the glass onto the page about to be drawn, through the
+VGA's latches. Options version 48; `0`, off, is the default.
+
+- **WHERE**: a file `--flip --flip-own` with `--flip-hold ahead` and
+  `--scene-palettes` - the palettes are where the scenes are - on two
+  pages. Anything else says so and leaves it out.
+- **THE HOLD**: at a frame with a scene's first frame `k` at most N frames
+  on, the encoder tries on copies of itself (`build_try`) drawing every
+  frame to `k` as it would, then 1, 2, ... frames before `k` HELD - each
+  drawing `k`'s own picture, in `k`'s colours, onto the page the glass is
+  not showing - and takes the FEWEST that show `k` whole. None needed (the
+  scene fits as it is) and none enough (`k` still cut after holding every
+  frame there is) both leave the scene to the ladder and the cells. The
+  glass stays on the last scene through the held run: a still picture
+  there costs nothing to see, a moving one is held for that many periods.
+- **THE FLIP**: `k`'s own record is the rest, if any, and shows the page -
+  its sixteen go on with the flip as any flipped scene's do (98.3.8.3).
+- **THE PAGE LEFT BEHIND** still holds the last scene, so the record after
+  `k` carries REC_UP over every row where the pages differ, as the record
+  after a key does: the glass's copy, then that frame's own change against
+  it (`own_next`). A full 640 x 276 canvas is ~0.93M of the model's cycles
+  on the 286-picomem1 (its `lcopy_us`, 42 a plane byte), so on a machine
+  whose decode binds that frame shows `k` again and the motion resumes the
+  frame after - one repeated frame where cells would have been five.
+- **MEASURED** on the owner's Miku Miku 0:41-0:44 (`--ladder
+  coarsescene:frame --flip-build 8`, otherwise their command): the white
+  scene's last frame held 2 periods, the new scene WHOLE on its flip and
+  the second scene change after 1; error as seen 1.06% -> 0.59%, the view
+  as seen 18.1% -> 12.6% broken on average, 92 frames verified. The report
+  names each scene built, its holds, and any still cut on its flip or out
+  of reach.
+- **The gates**: `tests/vidowncells.py --leg build` (host side: built,
+  held, whole on its flip, REC_UP after it - red with the copy left out and
+  with no hold ever built) and `tests/vidscreen.py --build` (MartyPC: the
+  player across a held run, the flip and a REC_UP that follows no key).
+
 ##### 98.2.5.3 What the sixteen-colour options take together (the options audit, 2026-10-14)
 
 A 4 s clip of four scenes, with motion and sound, encoded under 528
@@ -199071,6 +199119,10 @@ record is not held to `VP_PREVKB`. Open refuses byte 37 7 with a loop.
   screens: the glass exact at every hold, odd and even frames apart, keys
   among them. With `REC_UP` ignored the Mode X arm FAILS before frame 38
   (480 pixels): its page was the frame before the key, not the key.
+  `tests/vidscreen.py --build` is `REC_UP` on a record that follows NO key
+  (98.2.5.2.1): three records held toward a scene change, the flip, and
+  the copy after it - `vp_owndec` tests the bit on every record, so it
+  needed no change.
 
 #### 98.3.9 Repeat
 
