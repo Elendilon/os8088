@@ -547,7 +547,14 @@ def translate(build, rom, entries, hmask=31, log=print, defines=(), rhm=7, heat=
     blocks = {}                            # (pc, key) -> (image segment n, offset)
     dropped = set()
     rnd, cont, cleared = 0, False, False
-    for gi, group in enumerate(groups):
+    # With counters, every group is gone through TWICE: first for the blocks
+    # the counters saw run, then for the rest. Once was in bank order, so the
+    # images filled on the low banks' cold code and a high bank's hot code was
+    # dropped whole - Link's Awakening's music engine in banks 1E and 1F, 37%
+    # of the block entries of the owner's replay, and all of bank 1B
+    hot = {k for k in keyed if (heat or {}).get(k, 0)}
+    passes = [(g, t) for t in ((True, False) if hot else (None,)) for g in groups]
+    for gi, (group, tier) in enumerate(passes):
         if gi:
             for sl in m.slots:             # the last group's banks out
                 if sl[1] is not None:
@@ -558,7 +565,8 @@ def translate(build, rom, entries, hmask=31, log=print, defines=(), rhm=7, heat=
                 m.map_bank(k)
         gset = set(group)
         bitmap(group)
-        todo = {k: None for k in keyed if (k[1] == 0xFF and gi == 0) or k[1] in gset}
+        todo = {k: None for k in keyed if ((k[1] == 0xFF and group is groups[0]) or k[1] in gset)
+                and (tier is None or (k in hot) == tier)}
         while todo:
             prf = bytearray(mask * 4)
             offered = sorted(todo, key=lambda k: -weight(k))[:mask]
