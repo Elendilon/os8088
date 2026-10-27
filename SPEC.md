@@ -194597,7 +194597,9 @@ stretch is more than that broken as seen, and its frames are cut as the
 budgets cut them; it changes how the rungs before it are judged and draws
 nothing new, so a cut rung's try is the one before it, not encoded
 again). Where
-the budgets would cut a stretch, or at a scene's first frame, each PREFIX
+the budgets would cut a stretch, or at a scene's first frame (a flipped
+file's palette frame too, every prefix at the full rate there: 98.2.5.2),
+each PREFIX
 of the ladder is encoded on copies of the encoder over the next half
 second - its slowest rate, its longest lag and its cells together - and
 the first that shows every frame WHOLE - or, at or past a cut rung, none
@@ -196639,6 +196641,39 @@ reaches the player, the format or the kernel.
   the nearest of its whole palette. A ladder's `coarsescene` rung follows: it is
   offered on Mode X (`auto`, `4x1`) and on VGA4 with or without a palette a
   scene, and left out on a packed screen.
+  **On a FLIPPED file with a palette a scene, and on BOTH of its pages
+  against its own (2026-10-27, the owner: a near full-screen scene change
+  on Miku Miku 0:41.8 that "cuts in" for ten frames and would not "block
+  in" whatever was set).** Two defects, each enough alone. (1) A flipped
+  file holds no frame its palette changes at - the palette goes on with
+  the flip, onto the picture shown - and the guard that kept the HOLD out
+  kept the whole LADDER out, so the scene's first frame, the one frame
+  `coarsescene` exists for, never climbed it and the rung never drew a
+  cell. With a ladder the frame climbs now, every prefix at the full rate
+  (`degrade_choose`'s `nohold`: its lag and its cells, no `slow`); with
+  `--min-fps` alone it is skipped as before, a rate being all that has to
+  offer. (2) With `--flip-own` (VIDEO-SEEN-PLAN 3b) each record is drawn on
+  the page the glass is NOT showing, as it stands - so the frame after the
+  scene's first is drawn on the page that still holds the scene before,
+  and cells on one page with a cut on the other alternated on the glass,
+  the old scene flashing back every second frame. So the scene's cells go
+  on the frame after too, where the budgets would cut it (`own_cells`, 2
+  on two own pages and 1 elsewhere, a plain flip bringing the back page up
+  to the frame shown), in that frame's own finest cell that fits; the
+  ladder's trial draws both, so the rung is judged by the picture it makes,
+  and `--coarse-cut` without a ladder does the same. On the owner's clip,
+  `--ladder coarsescene:frame`: the scene's first frame 32x8 and the next
+  64x8 where both pages had cut in from the old scene before. `tests/
+  vidowncells.py` is the gate.
+  **Blocks (98.1.10) are not a way to block a scene in on a machine whose
+  DECODE binds**, and the encoder is right not to take them there: on
+  VGA4 a block is ~740-840 cycles for its 32 pixels (`BLK_MEASURED`, the
+  player's own) against ~12 a pixel for the same pixels exact by planes,
+  so a whole new scene in blocks costs MORE than the scene exact - on that
+  clip 4.54M cycles against 2.00M exact and 0.74M in 32x8 cells, in a
+  frame's room of 0.85M on the 286-picomem1, which is cut by the lag
+  schedule and not by the disk. Blocks buy BYTES; where the CPU cuts, the
+  cells are the coarse picture that fits.
 
 ##### 98.2.5.3 What the sixteen-colour options take together (the options audit, 2026-10-14)
 

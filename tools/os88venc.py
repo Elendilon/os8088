@@ -3992,7 +3992,8 @@ def coarse_every(cell):
 
 
 def vfr_try(enc, ts, pat, au, tp, first=None, cost=VFR_HOLD, empty=False,
-            shown=None, stay=False, lag=None, count=False, every=None):
+            shown=None, stay=False, lag=None, count=False, every=None,
+            every_n=None):
     """The stretch `ts` encoded on a copy at the hold pattern `pat`: its
     mean view as seen, a frame against the picture it draws (a held one's
     the next shown, and VFR_HOLD more). `first`, what the first frame
@@ -4005,7 +4006,9 @@ def vfr_try(enc, ts, pat, au, tp, first=None, cost=VFR_HOLD, empty=False,
     (the ladder's). COUNT -> (that, the frames it shows that were cut, the
     most broken frame's view as seen, no hold's charge in it). EVERY,
     coarseany's: each frame drawn at its own time that the budgets would
-    cut is drawn as every(e, frame, au) says - cells - instead"""
+    cut is drawn as every(e, frame, au) says - cells - instead; EVERY_N,
+    only the stretch's first that many frames are (a scene's cells on
+    each page of a --flip-own file, own_cells)"""
     e = enc_clone(enc)
     if lag is not None:
         e.flag_lag = lag
@@ -4042,8 +4045,8 @@ def vfr_try(enc, ts, pat, au, tp, first=None, cost=VFR_HOLD, empty=False,
         c0 = e.stats["cut"]
         ev = every(e, ts[k], au if j == 0 else b"\x80" * len(au)) \
             if every is not None and k == j and not (
-                j == 0 and first is not None and first is not ts[0]) \
-            else None
+                j == 0 and first is not None and first is not ts[0]) and (
+                every_n is None or j < every_n) else None
         if j == 0 and k == 0 and first is not None and first is not ts[0]:
             e.all3 = e.wm3
             _, rec = e.frame(first, au)
@@ -4266,16 +4269,26 @@ def trial_pool(enc, a, most):
 
 
 def _ladder_trial(e, ts, pat, au, tp, first, cost, empty, shown, stay,
-                  lag, ac):
+                  lag, ac, an=None):
     """A ladder prefix's trial (degrade_choose), in a worker"""
     return vfr_try(e, ts, pat, au, tp, first, cost, empty, shown, stay,
                    lag=lag, count=True,
-                   every=coarse_every(ac) if ac else None)
+                   every=coarse_every(ac) if ac else None, every_n=an)
+
+
+def own_cells(enc):
+    """A SCENE'S CELLS ON EACH PAGE (--flip-own on two pages, 98.2.1.9):
+    every record is drawn on the page the glass is not showing, as it
+    stands, so the page after a scene's first frame still holds the scene
+    before it - cells on one page and a cut on the other alternate on the
+    glass. The frames a scene's cells go on: the first, and the next where
+    the budgets would cut it - 2 - or 1 where the pages are one picture"""
+    return 2 if getattr(enc, "own", False) else 1
 
 
 def degrade_choose(enc, ts, au, steps, fps, tp, first=None, cost=VFR_HOLD,
                    empty=False, shown=None, stay=False, coarse=None,
-                   scene=False, pool=None):
+                   scene=False, pool=None, nohold=False):
     """THE DEGRADE LADDER at a stretch (--ladder): today's draw, then each
     of the ladder's prefixes (`steps`, degrade_steps), each encoded on a
     copy - the first that shows every frame WHOLE, or past a cut rung no
@@ -4285,7 +4298,10 @@ def degrade_choose(enc, ts, au, steps, fps, tp, first=None, cost=VFR_HOLD,
     stretch's frames the budgets would cut in cells (coarse_every) ->
     (hold pattern, rate, lag frames, scene cell, rung index, any cell).
     With a `pool` (TrialPool) every prefix's trial runs at once, today's
-    draw here meanwhile, and the same rule reads them in order"""
+    draw here meanwhile, and the same rule reads them in order. NOHOLD, a
+    stretch whose first frame may not be held - a flipped file's new
+    scene palette, which goes on with the flip onto the picture shown -
+    climbs every prefix at the full rate: its lag and its cells, no slow"""
     n = len(ts)
     full = [False] * n
     # (each prefix's draw: a trial where it draws other than the one
@@ -4293,6 +4309,8 @@ def degrade_choose(enc, ts, au, steps, fps, tp, first=None, cost=VFR_HOLD,
     # made once a cell, here, before any trial: none changes the encoder)
     tries, cfs, was = [], {}, (1.0, None, False, None)
     for i, r, lag, sc, tol, ac in steps:
+        if nohold:
+            r = 1.0
         cell = sc if scene else None
         if coarse is None:
             ac = None
@@ -4310,8 +4328,11 @@ def degrade_choose(enc, ts, au, steps, fps, tp, first=None, cost=VFR_HOLD,
         for t in tries:
             if t[8]:
                 i, r, lag, cell, tol, ac, pat, cf = t[:8]
+                tac, tan = ac, None
+                if not ac and cf is not first and own_cells(enc) > 1:
+                    tac, tan = cell, own_cells(enc)
                 t[9] = pool.submit(_ladder_trial, enc, ts, pat, au, tp, cf,
-                                   cost, empty, shown, stay, lag, ac)
+                                   cost, empty, shown, stay, lag, tac, tan)
     got = vfr_try(enc, ts, full, au, tp, first, cost, empty, shown,
                   stay, count=True)
     v, cuts, worst = got
@@ -4324,10 +4345,13 @@ def degrade_choose(enc, ts, au, steps, fps, tp, first=None, cost=VFR_HOLD,
         return best[1:]
     for i, r, lag, cell, tol, ac, pat, cf, new, job in tries:
         if new:
+            tac, tan = ac, None         # (the other page's cells: own_cells)
+            if not ac and cf is not first and own_cells(enc) > 1:
+                tac, tan = cell, own_cells(enc)
             got = job.get() if job is not None else vfr_try(
                 enc, ts, pat, au, tp, cf, cost, empty, shown, stay,
                 lag=lag, count=True,
-                every=coarse_every(ac) if ac else None)
+                every=coarse_every(tac) if tac else None, every_n=tan)
         v, cuts, worst = got            # (a cut rung alone: the same draw)
         if os.environ.get("OS88_VENC_LADLOG"):
             with open(os.environ["OS88_VENC_LADLOG"], "a") as fl:
@@ -10862,6 +10886,8 @@ def _encode(a, keep, tick, readers):
             if cell != "full":
                 draw = coarse_of(e, target, cell, au)
                 e.all3 = getattr(e, "wm3", False)
+                if own_cells(e) > 1:    # (the other page's too: own_cells)
+                    e.vcellrun = (k + own_cells(e), a.coarse_cut)
         held = hdraw = None
         if lsteps is not None and vreplay is None:
             if e.vlagn:
@@ -10885,7 +10911,8 @@ def _encode(a, keep, tick, readers):
                 e.stats["holds"] = e.stats.get("holds", 0) + 1
         elif vfr and not (pre and k <= pre) and not e.vplan and vfut and (
                 draw is target or k in cells_at) and not (
-                (vempty or vstay) and scene_pals and k in pev_at):
+                (vempty or vstay) and scene_pals and k in pev_at and
+                lsteps is None):
             # (nor a PRE-ROLL frame: the still is painted in plainly, as
             # preroll() counted it, or key 0 is not whole - 98.2.9.2)
             # (a flipped file holds no frame its palette changes at: the
@@ -10918,7 +10945,8 @@ def _encode(a, keep, tick, readers):
                         e, t, c if c != "auto" else
                         coarse_pick(e, t, au), au))
                     if coarse_on and k else None, k in cells_at,
-                    pool=trials())
+                    pool=trials(), nohold=bool(
+                        (vempty or vstay) and scene_pals and k in pev_at))
                 doing[0] = ""
                 if lg is not None:      # (the rung's lag, until level)
                     e.flag_lag, e.vlagn = lg, n
@@ -10945,7 +10973,8 @@ def _encode(a, keep, tick, readers):
                 # (coarseany: each frame the budgets would cut of what is
                 # committed drawn in cells, from this one - below)
                 e.vcellrun = (k + (n if any(pat) else VFR_AGAIN), ev) \
-                    if ev else None
+                    if ev else (k + own_cells(e), lc) if lc is not None and \
+                    draw is not target and own_cells(e) > 1 else None
             elif vcut and lsteps is None:
                 busy(k, "the frame rate at frame %d: slower rates tried on "
                      "copies of the encoder" % k)

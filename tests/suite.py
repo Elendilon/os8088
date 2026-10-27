@@ -15963,6 +15963,18 @@ SOAK = [
         "pans (98.2.1.2.1), and --bands' writes never climbing back a band "
         "(98.2.1.2.2), each red with its mechanism taken out.",
         needs=("ffmpeg",)),
+    Row("vidowncells", "soak", py("tests/vidowncells.py"), 40.0,
+        "SPEC.md 98.2.5.2: a scene's cells on a FLIPPED file against its "
+        "own pages, host-side. A test card cut to a held grained picture, "
+        "each its own sixteen, 640 wide on 16 colours' own 640 x 350 screen, "
+        "--flip --flip-own on the 286-picomem1, --ladder "
+        "coarsescene:frame,cut:100: the scene rung must draw cells on BOTH "
+        "pages, and the frame after the scene's first - the other page - "
+        "must show no more of the scene before than the first does. Broken "
+        "on purpose - the ladder's old guard back (it skipped a flipped "
+        "file's palette frame whole), the rung left out (--broken), the "
+        "cells on one page alone (--broken2) - it FAILS naming which",
+        needs=("ffmpeg",), cpus=2),
     Row("vidlag", "soak", py("tests/vidlag.py"), 40.0,
         "SPEC.md 98.2.1.1.3: the lag searched, host-side. A frame's ceiling "
         "under the lag schedule must be the most it may take - safe and "
