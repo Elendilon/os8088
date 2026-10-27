@@ -177,6 +177,9 @@ def main():
     for kf in (kern, BUILD / "smallk" / "kernel.sys",
                BUILD / "megak" / "kernel.sys"):
         if not kf.exists():
+            if kf.parent.name == "megak":
+                continue            # `make mega` is on demand: `all` never
+                                    # builds it, so a fresh tree has none
             sys.exit(f"t_canary: no {kf.relative_to(ROOT)} - run make first")
         kk = kf.read_bytes()
         for step in (-512, 512):
