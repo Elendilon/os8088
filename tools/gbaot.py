@@ -1385,6 +1385,9 @@ def make(build, rom_path, out, romname=None, heat_frames=3000, replays=(), check
             if os.path.exists(part):
                 os.remove(part)
     finally:
+        keep = os.environ.get("GBAOT_KEEP")    # the first and final images and
+        if keep:                               #   the heat, to package again
+            shutil.copytree(work, keep, dirs_exist_ok=True)
         shutil.rmtree(work, ignore_errors=True)
     return out
 

@@ -463,11 +463,14 @@ def press(b, o):
         if re.match(r"w\d+$", k):              # w5000: run 5 emulated s
             b.cmd("step %s" % k[1:])
         elif k:                                 # held 300 ms: a game polls
-            code = os88box.KEYS[k]              #   once a frame, and a slow
-            b.cmd("key down 0x%X" % code)       #   frame is longer than a tap
-            b.cmd("step 300")
-            b.cmd("key up 0x%X" % code)
-            b.cmd("step 2000")
+            codes = [os88box.KEYS[c] for c in k.split("+")]   # once a frame,
+            for c in codes:                     #   and a slow frame is
+                b.cmd("key down 0x%X" % c)      #   longer than a tap (a
+                b.cmd("step 50")                #   chord's keys one at a
+            b.cmd("step 300")                   #   time)
+            for c in reversed(codes):
+                b.cmd("key up 0x%X" % c)
+            b.cmd("step 2000")                  #   a tap (shift+f2: a chord)
 
 
 def measure(b, o):
@@ -513,12 +516,23 @@ def measure(b, o):
                     break
             else:
                 raise SystemExit("rdgwin: Machine > Full Screen never took")
+            if os.environ.get("RDGWIN_FSPRESS"):    # keys inside the bracket
+                o.press, was = os.environ["RDGWIN_FSPRESS"], o.press   # (shift+f2:
+                press(b, o)                         #   Steady pacing)
+                o.press = was
         seg, view, core = find(b)
         keys = [int(k, 0) for k in o.hold.split(",") if k]
         for k in keys:
             b.cmd("key down 0x%02X" % k)
         b.cmd("step 2000")
         f0, t0 = frames(b, view), b.cmd("info").get("ms")
+        hpo = bss_off("rw_plast")               # the draws' gaps (rw_timed):
+        def gaps():                             #   rw_phist, after rw_plast
+            if hpo is None:
+                return None
+            r = b.memr(seg*16 + hpo + 2, 16)
+            return [int.from_bytes(r[2*i:2*i+2], "little") for i in range(8)]
+        h0 = gaps()
         j0 = jitstat(b, view)
         rcy0 = int.from_bytes(b.memr(b.lin(view) + 0x482F, 2), "little")     # S_JITRCY
         bk0 = bankstat(b, seg)
@@ -527,6 +541,7 @@ def measure(b, o):
             per, fp = [], f0
             ovo = bss_off("rw_ovltxt")          # ...and the F1 line, as the
             rows = []                           #   glass shows it each second
+            hp = gaps()
             for _ in range(int(o.secs)):
                 b.cmd("step 1000")
                 f = frames(b, view)
@@ -534,6 +549,19 @@ def measure(b, o):
                 fp = f
                 ov = b.memr(seg*16 + ovo, 16).split(b"\0")[0].decode("latin-1") \
                     if ovo is not None else "?"
+                hn = gaps() if os.environ.get("RDGWIN_GAPS") else None
+                if hn is not None:              # this second's gaps
+                    hs = [(y - x) & 0xFFFF for x, y in zip(hp, hn)]
+                    hp = hn
+                    pko = bss_off("rw_pk")
+                    pk = b.memr(seg*16 + pko, 1)[0] if pko is not None else 0
+                    pco = bss_off("rw_pace")
+                    pc = b.memr(seg*16 + pco, 1)[0] if pco is not None else 9
+                    pdo = bss_off("rw_pdn")
+                    pdn = b.memr(seg*16 + pdo, 1)[0] if pdo is not None else 0
+                    pil = bss_off("rw_pidl")
+                    pi = int.from_bytes(b.memr(seg*16 + pil, 2), "little") if pil is not None else 0
+                    ov = "%s p%d k%d d%d i%d [%s]" % (ov, pc, pk, pdn, pi, "".join("%d," % v for v in hs).rstrip(","))
                 dlo = bss_off("rw_dlast")      # the last draw's length
                 if dlo is not None:
                     dl = int.from_bytes(b.memr(seg*16 + dlo, 4), "little")
@@ -545,7 +573,7 @@ def measure(b, o):
                 " ".join("%.0f" % p for p in per), min(per), max(per)))
             print("rdgwin: second  frames%  F1 line            recycled  banks")
             for i, (p, ov, rc, bk) in enumerate(rows):
-                print("rdgwin: %6d  %6.0f%%  %-26s  %8d  %5s" % (
+                print("rdgwin: %6d  %6.0f%%  %-40s  %8d  %5s" % (
                     i + 1, p, ov, (rc - rcy0) & 0xFFFF,
                     "-" if bk is None else ((bk[1] - bk0[1]) & 0xFFFF) if bk0 else bk[1]))
         else:
@@ -560,6 +588,13 @@ def measure(b, o):
               "overlay: %s" % (os.path.basename(o.rom), o.vm, n, secs, n / secs,
                                100.0 * n / secs / GB_HZ,
                                "%d%% %d fps drawn" % ov if ov else "none"))
+        h1 = gaps()
+        if h0 and h1:
+            h = [(y - x) & 0xFFFF for x, y in zip(h0, h1)]
+            tot = sum(h) or 1
+            print("rdgwin: draws by frames since the one before (1..7, 8+): %s; "
+                  "%d draws, mean gap %.2f" % (" ".join(str(v) for v in h), sum(h),
+                                              sum((i + 1) * v for i, v in enumerate(h)) / tot))
         print("rdgwin: %.1f events a frame (S_EVCOUNT, which wraps at 65536)"
               % (((e1 - e0) & 0xFFFF) / max(n, 1)))
         nb = (j1[1] - j0[1]) & 0xFFFF
