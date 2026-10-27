@@ -135870,6 +135870,35 @@ nothing that runs per pass was given anything to do.
   task and doing nothing else - its two `jmp .done`s became SHORT jumps
   when the session code above it moved out into `fd_session`.
 
+### 77.53 An active-mode data socket that is already CLOSING is a connection
+
+`fd_data_ready` decides when a PORT transfer's socket may be used: `NSK_UP`
+is ready, `NSK_CONNECT` is not yet, and it treated **every other state as a
+failure** - dropping the socket and setting `[fd_xf]` to `FX_NONE` **without
+a reply**. A client that STORs a small file is done inside one window: it
+accepts the connection, sends, and closes, and its FIN is the end-of-file. If
+all of that lands before the worker's first poll after the 150, the socket
+goes `NSK_CONNECT` -> `NSK_UP` -> `NSK_CLOSING` without the server ever
+seeing it UP, and the upload was thrown away while the control connection
+sat waiting for a 226 that nothing would send. The session stayed `serving`
+until the client gave up.
+
+It is a race on the relative speed of the two ends, so it reads as a flake:
+`tests/ftpd.py`'s 8b (four 1,028-byte active STORs) failed once in a full
+soak, and a loop of 7's PASV LIST plus 8b's two STORs under CPU hogs lost
+**7 STORs in 680**, each with the guest's clock running all 30 seconds the
+client waited (29.8 guest seconds of 30.2 host) - a server that was running
+and had forgotten the transfer, not a slow one: `[fd_xf]` and `[fd_dmode]`
+both zero, nothing created, and a debug build's store at `.failed` read
+`NSK_CLOSING` both times. With the fix the same loop lost **0 in 304**.
+
+Two changes. **`NSK_CLOSING` is a connection**: the readable bytes are still
+there, and §77's receive stage already drains a closing socket to CX = 0
+before it finishes, which is what netpkg.inc says end of stream is. And the
+failure that remains (`NSK_FAILED`, `NSK_CLOSED`, a driver error) **answers
+425** through `fd_xfail` - abort the data socket, forget the transfer, say
+so - instead of leaving the client to time out.
+
 ## 78. WIREFRAME — a rotating solid, drawn only with lines (`apps/wire/wire.asm`)
 
 The demonstration §5.6.4.1 was built for, and the one that says out loud

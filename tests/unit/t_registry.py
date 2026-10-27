@@ -135,6 +135,8 @@ UNREGISTERED = {
                    "rather than thirteen times - library, not a test. What "
                    "checks it is `t_qemuown`, which asserts every launcher "
                    "calls it",
+    "gftp.py": "ftplib with every timeout read as GUEST seconds - a library "
+               "imported by tests/ftpd.py, not a row; ftpd is what drives it",
     "benchlib.inc": "a benchmark library, not a test",
     "trklog.inc": "tracker's logging build, %included by apps/tracker",
     "trkscrl.inc": "tracker's scroll-gate build, %included by apps/tracker",
