@@ -2033,7 +2033,12 @@ dmg-acid2 reference as the window, on MartyPC's 5150 Hercules and CGA.
 is `rw_clk`'s, 838 ns a count, and each draw measures itself (`rw_timed`).
 A draw is due (`rw_drawdue`) in one of two cases:
 - **The game has caught up**: once as long as the last draw took has passed
-  since it ended. So drawing takes at most half the machine.
+  since it ended. So drawing takes at most half the machine. "Caught up"
+  is one frame behind or less in full screen, and less than a tick's frames
+  (`rw_pertick`) in the window, whose clock owes them a tick at a time: a
+  draw that ran past a period is not a game that is behind, and counting it
+  as one cost Link's Awakening a draw in four on `286-mega` with a fifth of
+  the machine idle in `FSX_WAIT`.
 - **The game is behind**: another such length later still. So drawing takes
   a third of the machine and the rest goes to catching up.
 - **The machine would otherwise sleep** - caught up, nothing owed, and a
@@ -3664,9 +3669,11 @@ one of five entries (0 init, 3 preload, 6 a new round, 9 a frame, 12 go on
 in the same segments), and takes the machine back at an `INT 3`: the end of
 the entry, or a bank the host serves (`rdg_nres`'s hooks, section 10.3).
 
-The driver is loaded at 0860:0 and the core at 1000:0, which leaves it
-31,232 bytes, and `Machine` refuses a larger `aothost.bin` rather than
-writing the core over its end. It was at 0900:0 with 28,672, and when the
+The driver is loaded at 0560:0 and the core at 1000:0, which leaves it
+43,520 bytes (the stack 0:54F0 down, under it), and `Machine` refuses a
+larger `aothost.bin` rather than writing the core over its end. It was at
+0860:0 with 31,232 until the CB group's dead flags (16.1.2) took it 74
+over, and at 0900:0 with 28,672 before that; and when the
 driver grew to 28,686 the core's first 14 bytes landed on the end of
 `h_jitstub`, mode 3's door for a ROM PC that has no block (`rt_aotstop`'s
 answer under a fixed table). No check measured here reached that door, so

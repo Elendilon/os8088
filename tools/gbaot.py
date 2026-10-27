@@ -226,12 +226,14 @@ P_MODE, P_HMASK, P_NOC, P_REASON, P_OUT, P_BUDGET, P_BANK, P_BMP = (
     0x22, 0x23, 0x24, 0x25, 0x26, 0x28, 0x2A, 0x2C)
 E_INIT, E_PRELOAD, E_ROUND, E_FRAME, E_CONT = 0, 3, 6, 9, 12
 P_AOTINT, P_STLOAD = 0x36, 0x38
-STK_SEG, DRV_SEG = 0x0050, 0x0860      # the stack 0:84F0 down, aothost.bin
-DRV_MAX = 0x10000 - DRV_SEG * 16         #   up to the core at 1000:0 (CORE in
-                                          #   translate and run_arm): 31,232 bytes.
+STK_SEG, DRV_SEG = 0x0050, 0x0560      # the stack 0:54F0 down, aothost.bin
+STK_TOP = 0x4FF0                          #   up to the core at 1000:0 (CORE in
+DRV_MAX = 0x10000 - DRV_SEG * 16         #   translate and run_arm): 43,520 bytes.
                                           #   At 0900 it was 28,672, aothost had
                                           #   grown to 28,686, and the core's
-                                          #   first 14 bytes were h_jitstub's last
+                                          #   first 14 bytes were h_jitstub's
+                                          #   last; at 0860, 31,232, and the CB
+                                          #   group's dead flags took it 74 over
 MEM_END = 0x10FFF0                       # what real mode can address, with A20
 TOKEN = 0xF000                            # a block table's segment, as written:
                                           #   TOKEN + n names the image's segment n
@@ -351,7 +353,7 @@ class Machine:
     def enter(self, entry):
         X = self.X
         self.u.reg_write(X.UC_X86_REG_SS, STK_SEG)
-        self.u.reg_write(X.UC_X86_REG_SP, 0x7FF0)
+        self.u.reg_write(X.UC_X86_REG_SP, STK_TOP)
         self.u.reg_write(X.UC_X86_REG_DS, DRV_SEG)
         self.u.reg_write(X.UC_X86_REG_ES, DRV_SEG)
         self.u.reg_write(X.UC_X86_REG_CS, DRV_SEG)
@@ -547,7 +549,32 @@ def translate(build, rom, entries, hmask=31, log=print, defines=(), rhm=7, heat=
     blocks = {}                            # (pc, key) -> (image segment n, offset)
     dropped = set()
     rnd, cont, cleared = 0, False, False
-    for gi, group in enumerate(groups):
+    # With counters, every group is gone through TWICE: first for the blocks
+    # the counters saw run, then for the rest. Once was in bank order, so the
+    # images filled on the low banks' cold code and a high bank's hot code was
+    # dropped whole - Link's Awakening's music engine in banks 1E and 1F, 37%
+    # of the block entries of the owner's replay, and all of bank 1B
+    # ...and the counted ones in two tiers: the blocks that hold 90% of the
+    # entries before the rest, so the hottest code of every group lands in the
+    # first images together - a call between two hot blocks in different
+    # images is a far jump, which the Victory 286 prices at ~2.9 us
+    # (cpubench) and Link's Awakening's replay ran 49 of a frame. OPT-IN
+    # (GBAOT_TIER=1): measured on the four replays it took Link's Awakening
+    # 60 -> 81 far transfers a frame and Kirby 31 -> 30, because a cold block
+    # that a hot one exits to is then laid in a later image
+    counted = sorted((k for k in keyed if (heat or {}).get(k, 0)), key=lambda k: -heat[k])
+    tiers = []
+    if counted:
+        tot, run, top = sum(heat[k] for k in counted), 0, set()
+        for k in counted:
+            if run >= 0.9 * tot:
+                break
+            top.add(k)
+            run += heat[k]
+        tiers = [top, set(counted) - top] if os.environ.get("GBAOT_TIER") else [set(counted)]
+    passes = [(g, t) for t in (tiers + [None] if tiers else [None]) for g in groups]
+    every = set().union(*tiers) if tiers else set()
+    for gi, (group, tier) in enumerate(passes):
         if gi:
             for sl in m.slots:             # the last group's banks out
                 if sl[1] is not None:
@@ -558,7 +585,8 @@ def translate(build, rom, entries, hmask=31, log=print, defines=(), rhm=7, heat=
                 m.map_bank(k)
         gset = set(group)
         bitmap(group)
-        todo = {k: None for k in keyed if (k[1] == 0xFF and gi == 0) or k[1] in gset}
+        todo = {k: None for k in keyed if ((k[1] == 0xFF and group is groups[0]) or k[1] in gset)
+                and (k in tier if tier is not None else k not in every)}
         while todo:
             prf = bytearray(mask * 4)
             offered = sorted(todo, key=lambda k: -weight(k))[:mask]
@@ -709,7 +737,8 @@ def finish(img, sym, rom, keyed, rhm, heat=None, listall=False):
         starts[n].append((off, key))       #   nearest block start below it
     for v in starts.values():
         v.sort()
-    relocs, linked, lazy = [], 0, 0
+    relocs, linked, lazy, jns, jshort = [], 0, 0, 0, 0
+    nojns = bool(os.environ.get("GBAOT_NOJNS"))   # (the A/B)
     for n, sg in enumerate(segs):
         i = sg.find(b"\xBA")
         while i != -1 and i < 0xFFF0:
@@ -740,7 +769,19 @@ def finish(img, sym, rom, keyed, rhm, heat=None, listall=False):
                         sg[i + 5] = bank
                         sg[i + 6:i + 8] = b"\x75\x05"
                     tn, toff = tgt
-                    if tn == n:
+                    rel = toff - at
+                    if (tn == n and at == i and sg[i - 2:i] == b"\x78\x06"
+                            and -128 <= rel <= 127 and not nojns):
+                        sg[i - 2] = 0x79             # js +6 / jmp near T: one
+                        sg[i - 1] = rel & 0xFF       #   jns T, and the event's
+                        sg[i:i + 2] = b"\xEB\x04"   #   way a jmp short to the
+                        jns += 1                     #   mov si,T at SITE + 6
+                    elif tn == n and -128 <= toff - (at + 2) <= 127 and not nojns:
+                        sg[at] = 0xEB                # a jmp short where it
+                        sg[at + 1] = (toff - (at + 2)) & 0xFF   # reaches (a bank's
+                        sg[at + 2] = 0x90            #   exit, after its check)
+                        jshort += 1
+                    elif tn == n:
                         sg[at] = 0xE9
                         struct.pack_into("<H", sg, at + 1, (toff - (at + 3)) & 0xFFFF)
                     else:
@@ -764,7 +805,14 @@ def finish(img, sym, rom, keyed, rhm, heat=None, listall=False):
                 t = struct.unpack_from("<H", sg, i + 1)[0]
                 tgt = blocks.get((t, 0xFF)) if 0xFF80 <= t < 0xFFFF else None
                 if tgt is not None and tgt[0] == n:
-                    struct.pack_into("<H", sg, i + 6, (tgt[1] - (i + 8)) & 0xFFFF)
+                    rel = tgt[1] - (i + 5)
+                    if -128 <= rel <= 127 and not nojns:
+                        sg[i + 3] = 0x79             # js +3 / jmp near: one
+                        sg[i + 4] = rel & 0xFF       #   jns, the event's way
+                        sg[i + 5:i + 8] = b"\xEB\x01\x90"   # on past it
+                        jns += 1
+                    else:
+                        struct.pack_into("<H", sg, i + 6, (tgt[1] - (i + 8)) & 0xFFFF)
                     hlinked += 1
             i = sg.find(b"\xBE", i + 1)
     img["segs"] = [bytes(x) for x in segs]
@@ -783,7 +831,8 @@ def finish(img, sym, rom, keyed, rhm, heat=None, listall=False):
             cum += per[hot]
         hot = max(hot, 1) if len(segs) > 1 else 0
     img.update(table=bytes(table), list=bytes(lst), relocs=relocs, hmask=rhm,
-               linked=linked, lazy=lazy, listed=len(listed), hot=hot, hlinked=hlinked)
+               linked=linked, lazy=lazy, listed=len(listed), hot=hot, hlinked=hlinked,
+               jns=jns, jshort=jshort)
 
 
 def tailpages(build):

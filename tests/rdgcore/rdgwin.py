@@ -197,6 +197,9 @@ def profile(b, seg, core, n, view=0):
             v.sort()
         print("profile: %d code images in memory (of %d claimed): %s" % (
             len(imgs), bss[28], " ".join("%04X" % s for s in sorted(imgs))))
+    fine = rdgprof.labels(LST, local=True) if os.environ.get("RDGWIN_FINE") else []
+    fk = [o for o, _ in fine]
+    fhits = collections.Counter()
     aper = collections.Counter()
     hits = collections.Counter()
     where = collections.Counter()
@@ -216,6 +219,9 @@ def profile(b, seg, core, n, view=0):
         elif seg*16 <= ip < seg*16 + size:
             k = bisect.bisect_right(pk, ip - seg*16) - 1
             hits["pkg " + (psyms[k][1] if k >= 0 else "?")] += 1
+            if fine:                            # RDGWIN_FINE: by local label
+                k = bisect.bisect_right(fk, ip - seg*16) - 1
+                fhits[fine[k][1] if k >= 0 else "?"] += 1
         elif jit and b.lin(jit) <= ip < b.lin(jit) + 0x10000 and ((ip - b.lin(jit)) >> 8) in tails:
             k = bisect.bisect_right(ck, ip - b.lin(jit)) - 1  # the core's tails, copied
             hits["tail " + (csyms[k][1] if ck and k >= 0 else "?")] += 1
@@ -232,9 +238,13 @@ def profile(b, seg, core, n, view=0):
             wpc["%s%04X" % ("%02X:" % bk if bk is not None else "", pc & 0xFFF0)] += 1
         elif ip >= 0xF0000:
             hits["BIOS"] += 1
+            if fine:
+                fhits["BIOS %05X" % (ip & 0xFFFC0)] += 1
         else:
             k = bisect.bisect_right(lk, ip) - 1
             hits["kern " + (lin[k][1] if k >= 0 else "?")] += 1
+            if fine:
+                fhits["kern %05X" % (ip & 0xFFFF0)] += 1
     groups = collections.Counter()
     for k, v in hits.items():
         groups[k.split()[0]] += v
@@ -272,6 +282,8 @@ def profile(b, seg, core, n, view=0):
                     print("block %s at %04X, %d bytes:" % (k0, o, len(code)))
                     for ln in dis.splitlines():
                         print("%4s %s" % (cnt.get(int(ln[:8], 16), ""), ln))
+    for k, v in fhits.most_common(60):
+        print("fine %5.1f%% %s" % (100.0*v/n, k))
     if aper:
         print("precompiled samples by block (key:PC), of %d: " % sum(aper.values()) + "  ".join(
             "%s %.1f%%" % (k, 100.0 * v / sum(aper.values())) for k, v in aper.most_common(20)))
@@ -487,14 +499,20 @@ def measure(b, o):
             machine_item(b, ITEM_ILACE, MENU_SCREEN)
         if o.log and not o.replay:
             machine_item(b, ITEM_LOG)          # Log: Off -> on
-        if o.fs:
-            b.to(*MENU_MACHINE)
-            b.mouse(0, 0, 1)
-            b.pause(200)
-            b.to(*ITEM_FULLSCREEN, buttons=1)
-            b.pause(200)
-            b.mouse(0, 0, 0)
-            b.cmd("step 3000")
+        if o.fs:                                # (a busy machine can open the
+            fso = bss_off("rw_infsx")           #   menu after the drag has gone
+            for _ in range(5):                  #   by: tried until the package
+                b.to(*MENU_MACHINE)             #   says it is in the bracket)
+                b.mouse(0, 0, 1)
+                b.pause(600)
+                b.to(*ITEM_FULLSCREEN, buttons=1)
+                b.pause(400)
+                b.mouse(0, 0, 0)
+                b.cmd("step 3000")
+                if fso is None or b.memr(find(b)[0] * 16 + fso, 1)[0]:
+                    break
+            else:
+                raise SystemExit("rdgwin: Machine > Full Screen never took")
         seg, view, core = find(b)
         keys = [int(k, 0) for k in o.hold.split(",") if k]
         for k in keys:
@@ -516,6 +534,10 @@ def measure(b, o):
                 fp = f
                 ov = b.memr(seg*16 + ovo, 16).split(b"\0")[0].decode("latin-1") \
                     if ovo is not None else "?"
+                dlo = bss_off("rw_dlast")      # the last draw's length
+                if dlo is not None:
+                    dl = int.from_bytes(b.memr(seg*16 + dlo, 4), "little")
+                    ov = "%s %4.1fms" % (ov, dl * 0.000838)
                 rows.append((per[-1], ov,
                              int.from_bytes(b.memr(b.lin(view) + 0x482F, 2), "little"),
                              bankstat(b, seg)))
@@ -523,7 +545,7 @@ def measure(b, o):
                 " ".join("%.0f" % p for p in per), min(per), max(per)))
             print("rdgwin: second  frames%  F1 line            recycled  banks")
             for i, (p, ov, rc, bk) in enumerate(rows):
-                print("rdgwin: %6d  %6.0f%%  %-18s  %8d  %5s" % (
+                print("rdgwin: %6d  %6.0f%%  %-26s  %8d  %5s" % (
                     i + 1, p, ov, (rc - rcy0) & 0xFFFF,
                     "-" if bk is None else ((bk[1] - bk0[1]) & 0xFFFF) if bk0 else bk[1]))
         else:

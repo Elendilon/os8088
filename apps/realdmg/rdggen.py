@@ -1818,13 +1818,25 @@ io_rd:
 ; in S_TNF: the PPU's place now is S_TNF - BP, modulo a frame. With the LCD
 ; off, LY is 0 and STAT is its fixed part, mode 0.
 io_lcd:
+    cmp bl,44h
+    je io_ly
+; io_stat / io_ly: the same answers entered directly - a translated LDH
+; A,(41h) or (44h), whose register the translator knew (rdgjit's rt_pick:
+; Link's Awakening's line-by-line waits through a room's scroll were a
+; quarter of a 286 in io_rd's dispatch and this). BX is not read: DH's
+; bit 7 says which, STAT's being always set
+io_stat:
     mov [ss:S_SAVAX],ax
     mov dh,[ss:0FF41h]
     and dh,78h
     or dh,80h
-    xor al,al
-    cmp byte [ss:S_LCDON],0
-    je .done
+    jmp short io_lc
+io_ly:
+    mov [ss:S_SAVAX],ax
+    xor dh,dh
+io_lc:
+    cmp byte [ss:S_LCDON],0     ; LCD off: LY 0 and STAT its fixed part,
+    je .out                     ;   mode 0 - DH as it stands, either way
     mov ax,[ss:S_TNF]
     sub ax,bp
 .wrap:
@@ -1853,9 +1865,9 @@ io_lcd:
     jae .done                   ; mode 0
     or dh,3                     ; mode 3
 .done:
-    cmp bl,44h
-    jne .out
-    mov dh,al
+    test dh,dh
+    js .out
+    mov dh,al                   ; LY
 .out:
     mov ax,[ss:S_SAVAX]
     xor dl,dl
@@ -3027,6 +3039,50 @@ NOF_OPS += [k << 4 | 9 for k in range(4)]
 RDG_XNOF = len(EXTRA)
 EXTRA += [("%02X without F" % op, None if op in (0x34, 0x35) else nof_lines(op), 1)
           for op in NOF_OPS]
+
+
+def cb_nof_lines(cb, carry):
+    """CB cb, a rotate or shift of a register, without its flags (carry
+    False: every one dead) or with C alone (carry True: Z, N and H dead) -
+    REALDMG-SPEC 16.1.2. C alone is the 8086's CF put into AH by a LAHF,
+    which leaves AH's Z and H whatever the shift made them: dead, by the
+    same look that chose the record. RL and RR still take C in."""
+    y, r = (cb >> 3) & 7, R8[cb & 7]
+    L = []
+    if r in X86:
+        reg = X86[r]
+    else:
+        L.append("    mov dx,di")
+        reg = "dh" if r == "D" else "dl"
+    L += ["    " + ln for ln in {0: [f"rol {reg},1"], 1: [f"ror {reg},1"],
+                                 2: ["sahf", f"rcl {reg},1"], 3: ["sahf", f"rcr {reg},1"],
+                                 4: [f"shl {reg},1"], 5: [f"sar {reg},1"],
+                                 6: [f"rol {reg},1"] * 4, 7: [f"shr {reg},1"]}[y]]
+    if carry:
+        L.append("    and ah,0FEh" if y == 6 else "    lahf")   # (SWAP: C = 0)
+    if r in ("D", "E"):
+        L.append("    mov di,dx")
+    return L + ["    sub bp,2"]
+
+
+# Their records, 512 + RDG_XCB + k with k = (cb >> 3) x 7 + the register
+# (B C D E H L A: cb AND 7, A's 7 made 6), the carry-only ones 56 on -
+# rdgjit.inc's rt_deadcb. (HL)'s are the read-modify-writes above.
+CB_NOF = [(y << 3) | r for y in range(8) for r in (0, 1, 2, 3, 4, 5, 7)]
+RDG_XCB = len(EXTRA)
+EXTRA += [("CB %02X without F" % cb, cb_nof_lines(cb, False), 2) for cb in CB_NOF]
+EXTRA += [("CB %02X with C alone" % cb, cb_nof_lines(cb, True), 2) for cb in CB_NOF]
+
+# LDH A,(41h) and LDH A,(44h): STAT and LY, straight to their answers -
+# not the HRAM test, HL kept and io_rd's dispatch, which the general LDH
+# template spends on a register the translator already knows
+RDG_XLCD = len(EXTRA)
+EXTRA += [("LDH A,(%02Xh)" % n, ["    sub bp,2",           # (the read is the
+                                 "    mov word [ss:S_RET],.k",  # third M-cycle's)
+                                 "    jmp near io_%s" % nm,
+                                 ".k:",
+                                 "    mov al,dh",
+                                 "    sub bp,1"], 2) for n, nm in ((0x41, "stat"), (0x44, "ly"))]
 
 
 if __name__ == "__main__":

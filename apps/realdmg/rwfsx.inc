@@ -388,8 +388,13 @@ rw_fsmain:
     inc byte [rw_fsrun]
     xor bx, bx
     dec word [rw_fsleft]
-    jz .due                         ; caught up: draw this one, when due
-    cmp byte [rw_fsrun], RW_FSSKIP  ; (rw_drawdue, as the window's)...
+    cmp word [rw_fsleft], 1         ; caught up, or ONE frame behind (a draw
+    jbe .due                        ;   that ran past a period): draw this
+                                    ;   one, when due (rw_drawdue, as the
+                                    ;   window's) - Link's Awakening skipped
+                                    ;   a draw in four for that with a fifth
+                                    ;   of the machine idle
+    cmp byte [rw_fsrun], RW_FSSKIP  ; ...
     jb .f
     mov bx, [rw_fsleft]             ; ...or behind (rw_drawdue), by more
     call rw_behind                  ;   the further behind
