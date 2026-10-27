@@ -241,14 +241,19 @@ def main():
         # come down before the window can appear AND before the wake can even
         # be dispatched, so a machine that got this wrong shows 80x25 text with
         # a package running behind it.
+        # ON THE BRACKET'S BYTE, NOT ON THE SCREEN: the full screen is 80x25
+        # text with a BLINKING cursor, so "the screen stopped changing" never
+        # comes where the emulator draws the blink (Bochs: mega-dospkg spent
+        # 360 guest seconds in settle here), and [dos_fsxup] is what the next
+        # line asks anyway
         to_dos()
         ui.menu_pick("Program", "Full Screen")
-        os88marty.settle(m)
-        if not m.read(dosmap.lin(m, dosseg(), dm["dos_fsxup"]), 1)[0]:
+        fsx = lambda: m.read(dosmap.lin(m, dosseg(), dm["dos_fsxup"]), 1)[0]
+        if not wait(fsx, "Program > Full Screen to raise [dos_fsxup]", 25.0):
             fail("Program > Full Screen did not raise [dos_fsxup], so step 4 "
                  "is not testing the full screen at all")
         else:
-            typ("PAINT.O88\n")
+            m.type_text("PAINT.O88\n")     # (typ() settles: the blink again)
             wait(lambda: not m.read(dosmap.lin(m, dosseg(), dm["dos_fsxup"]), 1)[0],
                  "the console's bracket to come down", 25.0)
             up = m.read(dosmap.lin(m, dosseg(), dm["dos_fsxup"]), 1)[0]
