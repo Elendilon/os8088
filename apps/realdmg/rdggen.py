@@ -1419,9 +1419,15 @@ stat_ff:
     mov ax,RDG_FRAME+RDG_HBL      ; to line 0's mode 0
     sub ax,[ss:S_TMP4]
 stat_t:
-    sub ax,8                    ; a pass short (0 is exact, gbrmw's
-    jbe stat_none               ;   Waits; 8 over is not)
-    and al,0F8h
+    add ax,2                    ; every pass whose read is still "not yet":
+    and ax,0FFF8h               ;   the read is 5 M-cycles after the JR and
+    jz stat_none                ;   8 apart, so whole passes to DIST + 2
+                                ;   leave the next read the first that sees
+                                ;   it (gbrmw's Waits, against WRAM's copy).
+                                ;   It was a pass short, and that pass read
+                                ;   once or twice more for nothing:
+                                ;   Link's Awakening's line waits through a
+                                ;   room's scroll, a read a line
     mov dx,bp
     sub dx,8
     jle stat_none
