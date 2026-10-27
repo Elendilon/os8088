@@ -605,7 +605,7 @@ rdg_renderd:
     inc byte [PPU_LY]
     cmp byte [PPU_LY],144
     jb .line
-    jmp short .done
+    jmp .done
 .fast:                                  ; FAST, not interlaced: RDG_DLD says
     xor ax,ax                           ;   which lines, ppu_dfast having
     mov di,RDG_DCHG                      ;   judged them by rows. The change
@@ -624,11 +624,44 @@ rdg_renderd:
     inc word [es:RDG_DCOMP]
     call ppu_line
     call ppu_dput
-    jmp short .fnext
-.fskip:
-    call ppu_wstep
-.fnext:
     inc byte [PPU_LY]
+    cmp byte [PPU_LY],144
+    jb .fl
+    jmp short .done
+.fskip:                                 ; a RUN of lines not composed, found
+    mov cl,144                          ;   at once: to the next one that is,
+    mov al,[PPU_LOGL]                   ;   or the next raster write's line
+    cmp al,cl                           ;   (above this one: ppu_log ran), or
+    jae .fs1                            ;   the end. Each moved the window's
+    mov cl,al                           ;   counter as ppu_wstep did - a call
+.fs1:                                   ;   a line was a sixth of Link's
+    xor ch,ch                           ;   Awakening's frame drawing nothing
+    sub cl,bl
+    lea di,[RDG_DLD+bx]
+    mov dl,bl                           ; DL = the run's first line
+    xor al,al
+    repe scasb
+    je .fs2
+    dec di                              ; (stopped ON a line to compose)
+.fs2:
+    sub di,RDG_DLD
+    mov ax,di                           ; AL = the run's end
+    mov [PPU_LY],al
+    mov ah,[PPU_REGS+0]                 ; the window on: lines from WY on
+    and ah,0A1h                         ;   in the run, each one
+    cmp ah,0A1h
+    jne .fs3
+    cmp byte [PPU_REGS+7],166
+    ja .fs3
+    mov ah,[PPU_REGS+6]
+    cmp dl,ah
+    jae .fs4
+    mov dl,ah
+.fs4:
+    sub al,dl
+    jbe .fs3
+    add [PPU_WLINE],al
+.fs3:
     cmp byte [PPU_LY],144
     jb .fl
 .done:
@@ -1234,19 +1267,20 @@ ppu_rowdirty:
 .tm:
     and cx,31
     add si,cx                           ; SI = the first cell
-    mov cx,21
     mov dl,bl
-.tl:
-    or dl,[es:si+RDG_DMD-9800h]         ; the cell's own byte, then its tile
-    lodsb
-    xor al,ah
-    mov bl,al
-    or dl,[es:bx+di]
-    test si,31                          ; (past column 31: column 0)
-    jnz .tn
-    sub si,32
-.tn:
-    loop .tl
+    mov bx,32                           ; two runs where the 21 wrap past
+    sub bx,cx                           ;   column 31: no test a cell
+    mov cx,21
+    cmp bx,cx
+    jae .t1
+    sub cx,bx
+    push cx
+    mov cx,bx
+    call .run
+    pop cx
+    sub si,32                           ; (column 0)
+.t1:
+    call .run
     pop di
     pop si
     cmp dl,1                            ; CF = DL was 0, so NOT it: a tile
@@ -1259,6 +1293,30 @@ ppu_rowdirty:
     pop cx
     pop bx
     ret
+.run:                                   ; CX cells (1-21) from SI, UNROLLED:
+    mov bx,cx                           ;   entered 13 x CX bytes before .re
+    shl cx,1
+    shl cx,1
+    add bx,cx
+    add bx,cx
+    add bx,cx
+    mov cx,.re
+    sub cx,bx
+    xor bx,bx
+    jmp cx
+.u0:
+%rep 21
+    or dl,[es:si+RDG_DMD-9800h]         ; the cell's own byte, then its tile
+    lodsb
+    xor al,ah
+    mov bl,al
+    or dl,[es:bx+di]
+%endrep
+.re:
+    ret
+%if (.re - .u0) <> 21 * 13
+%error ppu_rowdirty's unrolled cell is not 13 bytes
+%endif
 
 ; ppu_sdirty: CF = 1 if a sprite that may cover the line uses a changed tile
 ppu_sdirty:
