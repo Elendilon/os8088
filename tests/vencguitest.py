@@ -312,6 +312,19 @@ def options_leg():
     if G.blank_fill("coarse_cut", vf) != "auto":
         bad.append("Coarse cut emptied is put back to %r, not auto"
                    % G.blank_fill("coarse_cut", vf))
+    # FLIP BUILD (98.2.5.2.1) is offered exactly where it applies - flipped,
+    # against its own pages, held ahead, a palette a scene - and greyed with
+    # the reason otherwise. The window's context once left Flip own out, so
+    # the field read it as off and greyed itself on the very form it is for
+    fb = dict(G.form_start(), preset="vga4", palette="colour16",
+              screen="640x350", scene_palettes="1", flip="1", flip_own="1")
+    for what, vals, want in (
+            ("all on", {}, None), ("no Flip own", {"flip_own": ""}, "Flip own"),
+            ("Flip hold empty", {"flip_hold": "empty"}, "Flip hold"),
+            ("no Scene palettes", {"scene_palettes": ""}, "Scene palettes")):
+        why = G.group_state(dict(fb, **vals))[1]["flip_build"]
+        if (why is None) != (want is None) or (want and want not in why):
+            bad.append("Flip build with %s: %r" % (what, why))
     # NO BOX STANDS EMPTY FOR A VALUE IT HAS, and none takes a word typed
     # blind (the boxes audit, 2026-10-14): on every target, every field that
     # applies shows a value or its BLANK_WORD - but for the free text that

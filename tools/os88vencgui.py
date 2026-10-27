@@ -1089,6 +1089,10 @@ def form_context(values):
                 # (what the narrower rules - flip's, page-ahead's, the
                 # layer's - read: never here, so they never greyed a thing)
                 flip=g("flip") not in ("", "0", "False"),
+                # (--flip-build's rule reads these two: missing, it saw
+                # Flip own off and greyed itself whatever the form said)
+                flip_own=g("flip_own") not in ("", "0", "False"),
+                flip_hold=g("flip_hold") or "ahead",
                 repeat=g("repeat") not in ("", "0", "False"),
                 loop_from=g("loop_from"), layer_disk=g("layer_disk"),
                 layer_profile=g("layer_profile"),
