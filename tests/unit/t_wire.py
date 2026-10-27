@@ -1704,9 +1704,15 @@ def fence(tmp, mod):
     pix = os.path.join(BUILD, "pixel.o88")
     if os.path.exists(pix):
         lvl, top = mod.cell_level([open(pix, "rb").read()])
-        eq(lvl, 4, "PiXEL's depth blit needs a level-4 Wire",
-           "it far-calls 0x%04X, which v1.0.20261020's kernel (table end "
-           "0x04A5) does not have" % (top or 0))
+        # AT LEAST 4, not exactly: the depth blit is past v1.0.20261020's
+        # table end (0x04A5), and PiXEL has since gained later cells
+        # (OSAPI_SEG, 0x04E3), which can only raise the level - an exact 4
+        # failed the day an unrelated call moved the top cell on
+        check(lvl is not None and lvl >= 4,
+              "PiXEL's depth blit needs at least a level-4 Wire",
+              "it far-calls 0x%04X; v1.0.20261020's kernel (table end "
+              "0x04A5) does not have its depth blit" % (top or 0),
+              got=lvl, want=">= 4")
     tm = os.path.join(BUILD, "taskmgr.o88")
     if os.path.exists(tm):
         lvl, top = mod.cell_level([open(tm, "rb").read()])
