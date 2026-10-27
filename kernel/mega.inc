@@ -255,6 +255,39 @@ mega_rhval  dw 0                    ; mem_reown_x's answer to a re-home: the
 mega_rv     db 0
 mega_imr1   db 0
 mega_imr2   db 0
+mega_old15  dd 0                    ; the int 15h mega_r15 chains to
+
+; -----------------------------------------------------------------------------
+; mega_r15 - int 15h IN A REFLECTION: the key-state map kept through the BIOS
+;            (KERN-MEGA-PLAN 14.119, SPEC.md 9.7.2)
+;
+; A reflection runs the BIOS in real mode on the IVT, so an IRQ1 taken inside
+; one is the ROM's own int 09h - kbm_isr and mega_k09 never see the byte, and
+; SPEC.md 9.7's map misses it. On a 286 a reflection is a CPU reset each way,
+; and a mode set on a slow card is long, so the break of the Alt+Enter that
+; asked for it lands there: the map then holds Alt or Enter DOWN for good,
+; os88alt_edge reads a hold that is not there and the game's pad reads Start.
+; The ROM's int 09h calls int 15h AH=4Fh with the byte it read (SPEC.md
+; 9.7.2's own door), so this is that door for the reflections: the byte to
+; kbd_track, nothing translated, and on to the int 15h mega_pmtail found.
+; Real mode, CS = KERNEL_SEG; mega_dosgo and mega_hbgor put that int 15h back
+; for code that outlives the kernel. Every register and flag is the ROM's
+; -----------------------------------------------------------------------------
+mega_r15:
+    cmp ah, 0x4F
+    jne .c
+    pushf
+    push ds
+    push cs
+    pop ds
+    cmp byte [kbd_armed], 0
+    je .n
+    call kbd_track                  ; preserves AL and every register
+.n:
+    pop ds
+    popf
+.c:
+    jmp far [cs:mega_old15]
 
 ; -----------------------------------------------------------------------------
 ; mega_enter - switch to protected mode (KERN-MEGA-PLAN 2.1)
@@ -1432,6 +1465,12 @@ mega_k09:
     mov ah, bl
     test dl, 0x08
     jz .ctrl
+    cmp bl, 0x1C                    ; ALT+ENTER IS NOT TYPED (14.119): no
+    je .eoi                         ; ROM's AH=00h hands it over, and here
+                                    ; it read as KEY_ALTENTER itself, so every
+                                    ; typematic repeat was another toggle and
+                                    ; a bracket's own drain took it for Enter.
+                                    ; kbd_ae's latch, an edge, carries the key
     xor al, al                      ; alt + a key: ASCII 0, the scan code
     cmp bl, 0x02                    ; ...and alt + 1-0, - and = are 78h-83h
     jb .store
@@ -11999,6 +12038,12 @@ mega_pmtail:
     mov [es:0x09*4], ax
     mov ax, [mega_old09+2]
     mov [es:0x09*4+2], ax
+    mov ax, mega_r15                ; ...and int 15h through mega_r15, so the
+    xchg ax, [es:0x15*4]            ; ROM's int 09h tells the key-state map
+    mov [mega_old15], ax            ; what it took (14.119)
+    mov ax, KERNEL_SEG
+    xchg ax, [es:0x15*4+2]
+    mov [mega_old15+2], ax
     push ds                         ; ...and a COPY of IVT 08h-0Fh at 20h-27h:
     push cx                         ; the 8259 stays at its protected-mode base
     push es                         ; through every reflection (mega_svc), so

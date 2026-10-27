@@ -12209,6 +12209,74 @@ kern_big's apps disk does not carry it either. There is no `PKG_MEGA` arm, so
 the package grew by **0 bytes**, and no kernel changed: kern_big, kern_small
 and kern_mega are all byte-identical.
 
+### 14.119 Alt+Enter into RealDMG's full screen came straight back out (2026-10-27) - FIXED
+
+**Reported** off the Victory 286 at 74121682: in RealDMG, Alt+Enter went
+full screen, came out again at once, and usually gave the game an Enter.
+The suspicion was a recent "fix" to key reading. **It was not one of them**:
+SPEC.md 9.7.2's `KBD_I15` (2b68a8e3), 14.110's ctrl arm and 14.79's seed all
+read correctly, and RealDMG seeds its bracket where 14.79 says to. Two older
+kern_mega gaps, both keyboard, both mega-only, and both shown on 86Box's
+at286-port (a real 286 reset path, MR BIOS) by `tests/megaaltrdg.py`:
+
+1. **A key a REFLECTION took never reached the key-state map.** A reflected
+   BIOS call runs the ROM in real mode on the IVT, so an IRQ1 inside one is
+   the ROM's own int 09h; `kbm_isr` is not in it and `kbd_track` never sees
+   the byte. The bracket's own mode set is a reflection - on a 286 a CPU
+   reset each way, and on the Victory's PVGA1A a slow one - so the hand that
+   lets Alt+Enter go lands in it. The map then holds Alt and Enter DOWN for
+   good: `os88alt_edge`'s next both-down (one more press of either key) is
+   a "fresh" Alt+Enter and leaves, and an Enter whose break was lost is a
+   Start the game's pad reads as held. Stopping the CPU at `fsx_setbios` and
+   letting both keys go there left **both in the map, 3 of 3**. kern_big has
+   no reflections: its AT path is the ROM's int 09h calling int 15h AH=4Fh,
+   which `kbm_i15` hears every time.
+2. **`mega_k09` TYPED Alt+Enter as `1C00`** - which IS `KEY_ALTENTER`. No
+   ROM's `AH = 00h` hands this combination over in that spelling (SeaBIOS
+   says `1CF0`, an enhanced ROM keeps `1C00` for `AH = 10h`), and SPEC.md
+   9.7.1's latch is an EDGE that de-duplicates only the first typed copy.
+   So every typematic repeat of a held Alt+Enter reached `ui_task` as
+   another `KEY_ALTENTER`: holding the chord to leave full screen left and
+   went **back in on the first repeat**, and inside a bracket the app's own
+   `int 16h` drain (`rw_fsdrain` -> `rw_klat`) took each repeat for Enter.
+   kern_big on the same 86Box 286 does not re-enter (measured).
+
+**Fix**, all inside `%ifdef KERN_MEGA`:
+
+- `mega_r15` (`.text`, real mode): `mega_pmtail` points IVT 15h at it and
+  keeps what was there in `mega_old15`. AH = 4Fh hands the ROM's byte to
+  `kbd_track` when the map is armed; everything chains on untouched. It is
+  SPEC.md 9.7.2's own door, opened for the reflections. Real-mode code that
+  outlives the kernel gets the boot's int 15h back: `mega_ivtrom` (`.mega`)
+  now puts IVT 08h, 09h and 15h back for `mega_dosgo` and `mega_hbgor`,
+  whose two copies of the 08h/09h stores it replaces. The DOS park restores
+  the session's IVT, `mega_r15` with it.
+- `mega_k09` stores no Alt+Enter: the latch alone carries it, as on an XT.
+
+**Bytes** (`tools/os88rdiff.py kernel 74121682 <this>`): kern_mega `.text`
+**+30** (`mega_r15` 26, `mega_old15` 4: real-mode code, so `tests/megaseg.txt`
+4,351 -> 4,381 with the reason), `.mega` **+22** (`mega_pmtail` +22,
+`mega_k09` +8, `mega_ivtrom` 52 against the 60 its two callers lost).
+kern_big and kern_small are **byte-identical** (4,081 and 2,581 routines,
+all same). `tests/cswrites.txt`: one more `push cs`/`pop ds` pair in
+`mega.inc`, real mode by construction. No package changed.
+
+**Who else it covers**: both halves are the kernel's, so every Alt+Enter
+consumer on kern_mega - every `os88alt_edge` bracket (Tracker, the Video
+Player, PiXEL and the rest of `grep -l OS88_ALTENTER_SEED apps`) and every
+SPEC.md 11.2 latch window (ArtfulType toggled at the repeat rate too) - and
+every other key whose make or break falls inside a reflection (any
+reflected `int 10h` or `int 13h`, not only the mode set).
+
+**Row**: `megaaltrdg` (soak, 86Box). REFLECT: the CPU stopped at
+`fsx_setbios`, both keys let go, run on - the map must read both up. REPEAT:
+full screen, then Alt+Enter held 1.5s with a make every 0.1s after 0.5s -
+it must leave and stay out. **Red** on 74121682 (`OS88_MEGA_BUILD` = that
+tree): Alt and Enter held 3 of 3, and back in at 0.6s. Green after; and
+`megakbtrip`, `megahiber`, `megahibfull`, `mega-altenter` and
+`mega-kbdburst` stay green (the DOS route and the streaming resume take
+`mega_ivtrom`).
+
 ### 14.120 The glyph table's copy sat at the top of conventional memory (2026-10-27) - FIXED
 
 **The report**: the owner's Victory 286 (4MB, an 8-bit Paradise PVGA1A)
