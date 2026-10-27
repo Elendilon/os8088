@@ -71321,6 +71321,24 @@ allocator's two tables grew from 9 entries to 18, `opl_wr` became the bank-0
 face of `opl_wrp` (the address port in DX), and the claim, release, gate and
 batch are the rest. MIDIRack (§105) is the consumer.
 
+#### 34.12.1 A write's delays: an OPL2's, or an OPL3's
+
+`opl_wrp` follows the address write with 6 status reads and the data write
+with 35 - the YM3812's 3.3 us and 23 us, with room, at an ISA read's ~1 us.
+**An OPL3 takes 2 and 4** (`[opl_fast]`): the YMF262 wants ~0.28 us after
+either write. The chip is taken to be one when `opl_kind_probe` says so
+(both of its tests: the status bits and the timer through 38Ah) OR when the
+Sound Blaster beside it answers DSP version 4 or later - an SB16 or a true
+compatible, every one of which carries an OPL3-class chip. The second is
+not a guess at the bank: 86Box's SB16, a YMF262, fails the probe's
+second-bank test and stays `SND_OPL2` for the claim, which is what that test
+is for, while its delays are an OPL3's. It is what RealDMG's FM sound costs, a few
+registers a channel each frame: on `286-mega`'s Sound Blaster 16 the
+writes' delays were ~2% of the machine in Kirby's Dream Land, which a
+profile that sorted every address at or above F0000h as the BIOS had been
+reporting as the BIOS's share. The counts are tested inside the write's
+`pushf` ... `popf`, so the caller's flags come back as they were.
+
 ### 34.13 The MPU-401 — MIDI out, in UART mode (`SOUND.DRV`, `drivers/sound/mpu.inc`)
 
 **The daughterboard's road.** A Roland SC-55 or MT-32 on the connector, a

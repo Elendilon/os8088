@@ -200,15 +200,27 @@ def profile(b, seg, core, n, view=0):
     fine = rdgprof.labels(LST, local=True) if os.environ.get("RDGWIN_FINE") else []
     fk = [o for o, _ in fine]
     fhits = collections.Counter()
+    bhits = collections.Counter()
     aper = collections.Counter()
     hits = collections.Counter()
     where = collections.Counter()
     wpc = collections.Counter()
     jips = []
+    ilin = []                                   # the images by LINEAR base:
+    for sg, i in imgs.items():                  #   under kern_mega a segment
+        try:                                    #   is a selector, and its
+            ilin.append((b.lin(sg), sg, i))     #   base is no segment x 16
+        except Exception:
+            pass
     for _ in range(n):
         b.cmd("step 1")
         r = b.cmd("regs")
         ip = r["cs_base"] + (r["eip"] & 0xFFFF)
+        for lb, sg, i in ilin:
+            if lb <= ip < lb + 0x10000:
+                r = dict(r, cs_base=sg << 4)    # (as the real-mode test reads it)
+                ip = (sg << 4) + (r["eip"] & 0xFFFF)
+                break
         if (r["cs_base"] >> 4) in imgs:
             sg = r["cs_base"] >> 4
             hits["aot img%d" % imgs[sg]] += 1
@@ -239,7 +251,21 @@ def profile(b, seg, core, n, view=0):
         elif ip >= 0xF0000:
             hits["BIOS"] += 1
             if fine:
-                fhits["BIOS %05X" % (ip & 0xFFFC0)] += 1
+                fhits["BIOS %06X" % (ip & 0xFFFFC0)] += 1
+                if ip >= 0x100000:              # above 1MB: kern_mega's .cold
+                    bhits["hi cs %04X ip %04X" % (r["cs"], r["eip"] & 0xFFF0)] += 1   # / .mega
+                pm = r.get("cr0", 0) & 1        # who called it: real mode's
+                if pm:                          #   stack is SS x 16 (in
+                    ss = r["ss"]                #   kern_mega: an identity GDT
+                    sb = ss * 16 if not ss & 7 else ((ss & 0xFFF8) << 2) * 16   # entry,
+                    st = b.memr(sb + (r["esp"] & 0xFFFF), 12)   # or an LDT alias)
+                    w = [int.from_bytes(st[i:i + 2], "little") for i in range(0, 12, 2)]
+                    bhits["pm cs %04X ss %04X: %s" % (r["cs"], ss,
+                        " ".join("%04X" % x for x in w))] += 1
+                else:                           #   protected mode no base
+                    st = b.memr(r["ss"] * 16 + (r["esp"] & 0xFFFF), 12)   # is given)
+                    w = [int.from_bytes(st[i:i + 2], "little") for i in range(0, 12, 2)]
+                    bhits["real ss %04X: %s" % (r["ss"], " ".join("%04X" % x for x in w))] += 1
         else:
             k = bisect.bisect_right(lk, ip) - 1
             hits["kern " + (lin[k][1] if k >= 0 else "?")] += 1
@@ -282,6 +308,18 @@ def profile(b, seg, core, n, view=0):
                     print("block %s at %04X, %d bytes:" % (k0, o, len(code)))
                     for ln in dis.splitlines():
                         print("%4s %s" % (cnt.get(int(ln[:8], 16), ""), ln))
+    for k, v in bhits.most_common(25):         # the BIOS's samples by stack
+        print("bios %4d %s" % (v, k))
+    if os.environ.get("RDGWIN_HIDUMP"):         # the high code's bytes, to name
+        for k, v in bhits.most_common(4):       #   the image they belong to
+            m = re.match(r"hi cs ([0-9A-F]{4}) ip ([0-9A-F]{4})", k)
+            if m:
+                cs, ip = int(m.group(1), 16), int(m.group(2), 16)
+                print("hidump %04X:%04X lin %06X %s" % (cs, ip, b.lin(cs),
+                      b.memr(b.lin(cs) + ip, 48).hex()))
+                pk = os.environ.get("RDGWIN_HIPEEK")
+                if pk:
+                    print("hipeek %04X:%s %s" % (cs, pk, b.memr(b.lin(cs) + int(pk, 16), 4).hex()))
     for k, v in fhits.most_common(60):
         print("fine %5.1f%% %s" % (100.0*v/n, k))
     if aper:
