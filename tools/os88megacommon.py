@@ -44,6 +44,12 @@ def mega_images(image, apps):
     it) goes in as it is, because what is on it is the row's subject."""
     import os88build
     bld = os88build.mega_build()
+    # RESOLVED FIRST, as os88marty.launch does for MartyPC: a scratch disk a
+    # row names `build/x.img` was WRITTEN into the run's tree by
+    # scratch_disk, and the literal opened as it stands is a FileNotFoundError
+    # in a soak (mega-wdcombo). at() is the identity outside one
+    image = os88build.at(image) if image else image
+    apps = os88build.at(apps) if apps else apps
 
     # build/ OR THE RUN'S TREE: under a frozen soak a row's
     # `build/os8088-360.img` arrives as the tree's, and testing for build/
