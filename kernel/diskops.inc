@@ -3148,7 +3148,11 @@ clo_mount:
     push word [dskw_raw+DE_ATTR]    ; the attribute and byte 12, read while
     mov ax, IMG_KB              ; the stat's entry is the one staged
     mov bx, MEM_K_IMG
+%ifdef KERN_MEGA
+    CLO_KCALL mem_claim_x       ; ...on kern_mega ABOVE 1MB in protected mode
+%else                           ; (mem_hitag, KERN-MEGA-PLAN 14.121), every
     CLO_KCALL mem_claim_hi_x    ; DX = the claim, top-down, pinned until .marked
+%endif                          ; use being a segment load
     pop di                      ; DI = the attribute word
     pop bx
     pop si                      ; SI = the sectors, from here to the row

@@ -7192,41 +7192,11 @@ dsk_rah_land:
 .out:
     jmp kretc_dx
 
-; dsk_fatw_lowf - FAR, from mega_enter (KERN-MEGA-PLAN 10.3 item 38): the
-; FAT windows the boot's mounts CLAIMED were placed before `.cold`'s rung and
-; the read-ahead's 32K came free under them, so each stands on a hole - 72K
-; under C:'s, measured, with the largest run 481K of 553K. A window that is a
-; claim, clean, and not the live one is given back (dsk_fatw_drop), and its
-; volume's next mount takes it again first-fit FROM THE FLOOR, where it walls
-; nothing. The live window and anything dirty are left exactly as they are.
-; Every register preserved
-dsk_fatw_lowf:
-    push ax
-    push bx
-    cmp word [dsk_fatd0], 0xFFFF
-    jne .out                    ; a FAT sector is dirty: touch nothing
-    xor al, al
-.vol:
-    push ax
-    call dsk_fatw_slota
-    jc .next
-    mov bx, [bx+DVOL_MAX*2]     ; the window's claim, 0 = none
-    or bx, bx
-    jz .next
-    cmp bx, FAT_SEG             ; the pin is not a claim
-    je .next
-    cmp bx, [dsk_fatseg]        ; ...and the live window stays live
-    je .next
-    call dsk_fatw_drop          ; AL = the volume
-.next:
-    pop ax
-    inc al
-    cmp al, DVOL_MAX
-    jb .vol
-.out:
-    pop bx
-    pop ax
-    retf
+; dsk_fatw_lowf lived here - mega_enter's drop of the boot's idle FAT
+; windows (item 38). It ran before mem_xlatf and freed by PARAGRAPH, which
+; mem_find_own no longer matches once mega_on is set, so it zeroed the slot and
+; LEAKED the claim; mem_hicaches_f now moves each window above 1MB with its
+; sectors instead (KERN-MEGA-PLAN 14.121).
 
 ; dsk_rah_dropf - FAR, from the DOS park's claim (mega_dosclaimf): the store
 ; and its landing given back and NOT re-solved, so a park sized from what the
@@ -7244,11 +7214,9 @@ dsk_rah_dropf:
     pop ax
     retf
 
-; dsk_rah_redof - dsk_rah_redo for a FAR caller: mega_enter, whose switch
-; makes the store's home above 1MB reachable for the first time
-dsk_rah_redof:
-    call dsk_rah_redo
-    retf
+; dsk_rah_redof lived here, mega_enter's re-solve of the read-ahead store:
+; the same paragraph free, so it refused and the boot's 32KB stayed low.
+; mem_hicaches_f moves the store, chunks and all (KERN-MEGA-PLAN 14.121)
 %endif
 
 ; -----------------------------------------------------------------------------

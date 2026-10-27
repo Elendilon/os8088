@@ -95,9 +95,16 @@ def img_claims(ui):
     """How many live heap claims carry MEM_K_IMG (kernel/memory.inc's
     mem_tab: MEM_MAX records of MC_SIZE = 10, segment at +0, owner at +4)."""
     raw = bytes(ui.m.read(ui._S("mem_tab"), 32 * 10))
-    return sum(1 for i in range(32)
-               if raw[i * 10] | raw[i * 10 + 1]
-               and (raw[i * 10 + 4] | raw[i * 10 + 5] << 8) == 0xFF12)
+    n = sum(1 for i in range(32)
+            if raw[i * 10] | raw[i * 10 + 1]
+            and (raw[i * 10 + 4] | raw[i * 10 + 5] << 8) == 0xFF12)
+    # kern_mega in protected mode claims the table ABOVE 1MB (KERN-MEGA-PLAN
+    # 14.121): a pool block with no mem_tab record, so a mount's claim is its
+    # live row's IMG_DVSEG resolving there
+    if getattr(ui.m, "bochs", False):
+        n += sum(1 for r in images(ui)
+                 if r[5] & 4 and lin(ui.m, r[5]) >= 0x100000)
+    return n
 
 
 def wait_images(ui, n, what):
@@ -229,6 +236,10 @@ with os88ui.boot(SYS_IMG, apps=host, machine=MACHINE) as ui:
     check(secs == 720 and lbl == "TEST" and seg != 0,
           "the row: 720 sectors, label TEST, a claim", (secs, lbl, seg))
     check(img_claims(ui) == 1, "...one MEM_K_IMG claim", img_claims(ui))
+    if getattr(ui.m, "bochs", False):
+        check(lin(ui.m, seg) >= 0x100000, "...and on kern_mega it is above "
+              "1MB, no conventional memory (KERN-MEGA-PLAN 14.121)",
+              "%05X" % lin(ui.m, seg))
     ui.open_drive(letter)
     names = [r[0] for r in ui.listing()]
     check(names == ["HELLO.TXT"], "%s: lists the file inside the image, "

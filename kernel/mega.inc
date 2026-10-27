@@ -9703,7 +9703,10 @@ mega_claimfreef:
 ; the caller's. Clobbers nothing else
 mega_claimfind:
     call MEGA_SEL_CODE:mega_ownerf
-    jc .o
+    jc mega_selfind.o
+; mega_selfind - the same for an owner already in BL (MX_KOWN: the kernel's
+; own blocks, mega_kregrowf). Clobbers nothing else
+mega_selfind:
     mov si, mx_tab
 .l:
     cmp word [ss:si+MX_KB], 0
@@ -9764,6 +9767,25 @@ mega_mxbase:
 ; the caller's DS or ES, reloaded on the way out of the cell, names the new
 ; bytes and no word the package holds has to change. Every register but DX
 ; kept (and DX is what it was)
+; mega_kregrowf - the same for one of the KERNEL's own pool blocks
+; (mega_hiclaim, MX_KOWN): mem_regrow's arm for a mem_hitag claim above 1MB
+; (KERN-MEGA-PLAN 14.121 - the desktop shortcuts' table grows a KB per eight)
+mega_kregrowf:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push ds
+    push es
+    mov bl, MX_KOWN
+    or ax, ax
+    jz mega_claimregrowf.no
+    mov bp, ax
+    call mega_selfind
+    jmp short mega_claimregrowf.found
 mega_claimregrowf:
     push ax
     push bx
@@ -9778,6 +9800,7 @@ mega_claimregrowf:
     jz .no
     mov bp, ax                      ; BP = the new KB
     call mega_claimfind             ; SI = the claim's entry, BL = its owner
+.found:
     jc .no
     inc byte [sch_lock]             ; every base below is used before any
     test byte [ss:si+MX_FL], MX_FHUGE  ; other task can compact it away
@@ -12067,10 +12090,11 @@ mega_pmtail:
     call mega_strcal                ; how this CPU restarts a faulted string
                                     ; write (KERN-MEGA-PLAN 10.3 item 54.1),
                                     ; before anything can fault one
-    call COLD_SEG:dsk_fatw_lowf     ; the FAT windows standing on the holes
-    call COLD_SEG:dsk_rah_redof     ; M3: the read-ahead store re-solved, which
-                                    ; now puts it above 1MB (dsk_rah_wanthi):
-                                    ; the boot's mount claimed it in real mode
+                                    ; (the boot's FAT windows and read-ahead
+                                    ; store go above 1MB in mem_hicaches_f,
+                                    ; AFTER mem_xlatf: freed here, by
+                                    ; paragraph, they were not - KERN-MEGA-
+                                    ; PLAN 14.121)
     mov si, mega_mon
     call mm_say
     push es                         ; ...and on the GLASS, for a field machine

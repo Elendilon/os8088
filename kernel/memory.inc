@@ -3295,10 +3295,18 @@ section .cold
 ; use of each is a segment-register load and offsets inside it, never a BIOS
 ; buffer, a DMA head or paragraph arithmetic - and the FAT windows, since item
 ; 85 bounces a selector a RUN at a time. Not anything the compactor or a
-; regrow must reach. Clobbers nothing else
+; regrow must reach - except the desktop shortcuts' table and a mounted image's
+; run table (KERN-MEGA-PLAN 14.121): every use of either is a segment load too,
+; and mem_regrow resizes a pool block in the pool (mega_kregrowf), so a
+; shortcut added after the switch no longer lands in conventional memory.
+; Clobbers nothing else
 ; -----------------------------------------------------------------------------
 mem_hitag:
     cmp bx, MEM_P_ICO
+    je .yes
+    cmp bx, MEM_K_SC
+    je .yes
+    cmp bx, MEM_K_IMG
     je .yes
     cmp bx, MEM_P_MSAVE
     je .yes
@@ -3403,6 +3411,33 @@ mem_hicaches_f:
                                 ; register load. A ROM pointer, or a baked
                                 ; face's LOW_SEG, is no MEM_K_FONT claim and
                                 ; mem_find_own refuses it: nothing done
+    mov si, sc_seg              ; ...the DESKTOP SHORTCUTS' table (14.121),
+    mov bx, MEM_K_SC            ; read out of SYSTEM.CFG by the boot overlay
+    call .one                   ; in real mode...
+    mov si, dsk_fatseg          ; ...the boot's FAT WINDOWS, each MOVED with
+    call .xl                    ; its sectors (dsk_fatw_lowf used to drop the
+    mov si, dsk_fatwc           ; idle ones by paragraph and so freed nothing,
+    mov bx, MEM_P_FATW          ; leaking a 5KB record low for the session).
+.fw:                            ; mem_xlatf's walk has no row for their words
+    push si                     ; - they are a cache's, which nothing moves -
+    call .xl                    ; so each is named by its SELECTOR here first
+    call .one
+    pop si
+    inc si
+    inc si
+    inc bx
+    cmp bx, MEM_P_FATW + MEM_P_FATW_N
+    jb .fw
+    cmp byte [dsk_rah_hi], 0    ; ...and the READ-AHEAD STORE, 32KB, with its
+    jne .rdone                  ; chunks: above 1MB a fill reads into the 5KB
+    mov si, dsk_rah_seg         ; landing below and copies up (dsk_rah_wanthi,
+    mov bx, MEM_P_DIRW          ; KERN-MEGA-PLAN 13.3). mega_pmtail's
+    call .one                   ; dsk_rah_redof re-solved it by paragraph
+    MEGA_ISHI [dsk_rah_seg]     ; before mem_xlatf, which freed nothing
+    jc .rdone
+    mov byte [dsk_rah_hi], 1
+    call dsk_rah_land           ; (refused: the store serves what it holds
+.rdone:                         ; and fills nothing until a mount re-takes it)
     pop es
     pop ds
     pop di
@@ -3413,6 +3448,25 @@ mem_hicaches_f:
     pop ax
 .ret:
     retf
+; .xl - SI = a word that may still name a claim by its PARAGRAPH: its
+; selector instead (mem_val). Clobbers AX, DI
+.xl:
+    mov ax, [si]
+    push si
+    mov si, MEM_FIRST
+.xn:
+    call mem_next
+    jc .xo
+    cmp [ss:si+MC_SEG], ax
+    jne .xn
+    call mem_val
+    pop di
+    mov [di], ax
+    mov si, di
+    ret
+.xo:
+    pop si
+    ret
 ; .one - SI = the word naming a claim, BX = its tag: the claim to a pool block
 ; of its size, the word swapped with interrupts off, the low claim freed. Any
 ; refusal leaves it where it is. Clobbers AX, CX, DX, SI, DI, ES
@@ -3455,6 +3509,10 @@ mem_hicaches_f:
     pop ds
     pop si
     mov [si], ax                ; the store is up here from now on
+    cmp [dsk_fatseg], dx        ; ...and a FAT window that is the LIVE one is
+    jne .nlive                  ; also [dsk_fatseg] (SPEC.md 18.8.4)
+    mov [dsk_fatseg], ax
+.nlive:
     popf
     call mem_free_x.conv        ; ...and the low claim goes (BX, DX kept)
 .done:
@@ -4208,6 +4266,15 @@ mem_movable_x:
 ; leaves a hole behind it, and fragmentation not created needs no repairing.
 ; -----------------------------------------------------------------------------
 mem_regrow:
+%ifdef KERN_MEGA
+    MEGA_ISHI dx                ; ONE OF THE KERNEL'S POOL BLOCKS (mem_hitag,
+    jc .conv                    ; KERN-MEGA-PLAN 14.121): resized in the pool
+    call mem_hitag              ; and its selector kept - the shortcuts' table
+    jc .conv                    ; after the switch. Any other selector falls
+    call COLD_SEG:mega_kregrowf ; to the fence below, which refuses it
+    ret
+.conv:
+%endif
     push ax                     ; (no BX: nothing here writes it - every
     push cx                     ; callee banks its own - which is a byte under
     push si                     ; the kretc_cx ladder it left through until
