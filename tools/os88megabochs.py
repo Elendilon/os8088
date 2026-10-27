@@ -217,9 +217,12 @@ class MegaBochs(MegaMixin, om.Marty):
         whichever prompt comes first, and a `Breakpoint` line says which."""
         if self._state != "running" or self._bp_hit():
             return
-        gap = self.box.inp.last + ob.INPUT_GAP - time.time()
-        if gap > 0:
-            time.sleep(gap)
+        # NOT WHILE BOCHS HAS INPUT UNREAD: the stop releases the grab, and
+        # an event read after it is dropped (os88bochs._Input.taken). A
+        # breakpoint reached meanwhile is a stop already, and is this one
+        self.box.inp.taken(stopped=self._bp_hit)
+        if self._state != "running" or self._bp_hit():
+            return                      # (_bp_hit records the stop itself)
         end, kick = time.time() + 20, time.time() + 1.0
         os.kill(self.box.p.pid, signal.SIGINT)
         nap = 0.002

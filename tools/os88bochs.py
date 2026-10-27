@@ -64,6 +64,7 @@ import argparse
 import re
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import time
@@ -172,6 +173,8 @@ class _Input(object):
         self.env = dict(os.environ, DISPLAY=display)
         self.regrab = False
         self.last = 0.0
+        self.pid = None         # the Bochs reading this display (Box sets it)
+        self.sent = False       # input sent that Bochs may not have READ yet
         # ONE xdotool at a time on a display: a row that wiggles the mouse
         # in a thread while it clicks would otherwise have two calls both
         # see `regrab` and toggle the capture twice - OFF
@@ -184,14 +187,112 @@ class _Input(object):
             if self.regrab:
                 self.regrab = False
                 pre = GRAB
-            subprocess.run(["xdotool"] + [str(x) for x in pre + a],
-                           env=self.env, check=True)
+            # ...ENDING IN A ROUND TRIP (XQueryPointer): requests on one
+            # connection are done in order, so when xdotool has its reply
+            # the X server has PROCESSED every fake event before it and
+            # written them to Bochs's connection - which is what `taken`
+            # below then watches drain. (Its x:/y: line is the reply.)
+            subprocess.run(["xdotool"] + [str(x) for x in pre + a]
+                           + ["getmouselocation"], env=self.env, check=True,
+                           stdout=subprocess.DEVNULL)
             self.last = time.time()
+            self.sent = True
+
+    def taken(self, stopped=None, timeout=10.0):
+        """Return once Bochs has READ every input sent to it - and only then
+        may the debugger take the machine, because A STOP RELEASES THE GRAB
+        and an event Bochs takes after it goes to an uncaptured window, which
+        drops it. This was INPUT_GAP alone, a host-time guess that the GUI
+        had got round to the X queue: on a loaded box Bochs is not scheduled
+        for longer than that, the stop came first, and the edge was lost -
+        mega-httpinstall's "guest never saw the button release", a press
+        confirmed and its release never arriving because nothing after it
+        re-took the grab. Now it is a CONDITION: the receive queue of Bochs's
+        X connection, read through sock_diag (`unread`), is empty. INPUT_GAP
+        still follows it, for the events Xlib has read and not yet handed
+        over. `stopped()` true means Bochs is at its prompt and reads no X
+        until it resumes, so there is nothing to wait for; `timeout` is a
+        backstop for a box with no sock_diag, where this is INPUT_GAP alone
+        as before."""
+        if self.sent and self.pid:
+            end = time.time() + timeout
+            nap = 0.001
+            while True:
+                if stopped is not None and stopped():
+                    return              # still unread: the next stop asks
+                n = unread(self.pid)
+                if not n or time.time() > end:  # 0, or no answer
+                    break
+                time.sleep(nap)
+                nap = min(nap * 2, 0.01)
+            self.sent = False
+        gap = self.last + INPUT_GAP - time.time()
+        if gap > 0:
+            time.sleep(gap)
 
     def shot(self, path):
         subprocess.run("xwd -root -silent | convert xwd:- -crop 650x500+5+40 "
                        "+repage '%s'" % path, shell=True, env=self.env,
                        check=True)
+
+
+def _sockets(pid):
+    """The inodes of PID's sockets - for Bochs, its X connection."""
+    out = []
+    try:
+        for fd in os.listdir("/proc/%d/fd" % pid):
+            try:
+                ln = os.readlink("/proc/%d/fd/%s" % (pid, fd))
+            except OSError:
+                continue
+            if ln.startswith("socket:["):
+                out.append(int(ln[8:-1]))
+    except OSError:
+        pass
+    return out
+
+
+def unread(pid):
+    """Bytes waiting UNREAD in the receive queues of PID's unix sockets,
+    asked of the kernel through NETLINK_SOCK_DIAG (UNIX_DIAG_RQLEN) one
+    socket at a time; None where the box will not answer. For Bochs that is
+    the X events its GUI has not yet taken (see _Input.taken)."""
+    import socket as so
+    total, seen = 0, False
+    try:
+        s = so.socket(so.AF_NETLINK, so.SOCK_RAW, 4)    # NETLINK_SOCK_DIAG
+    except OSError:
+        return None
+    try:
+        s.settimeout(1.0)
+        for ino in _sockets(pid):
+            # unix_diag_req: family, protocol, pad, states, ino, show
+            # (UDIAG_SHOW_RQLEN), cookie = INET_DIAG_NOCOOKIE: an EXACT get
+            req = struct.pack("=BBHIIIII", so.AF_UNIX, 0, 0, 0xFFFFFFFF, ino,
+                              0x10, 0xFFFFFFFF, 0xFFFFFFFF)
+            s.send(struct.pack("=IHHII", 16 + len(req), 20, 1, ino, 0) + req)
+            data = s.recv(8192)
+            o = 0
+            while o + 16 <= len(data):
+                ln, typ = struct.unpack_from("=IH", data, o)
+                if typ == 20 and ln >= 32:      # SOCK_DIAG_BY_FAMILY
+                    a = o + 32
+                    while a + 4 <= o + ln:
+                        al, at = struct.unpack_from("=HH", data, a)
+                        if al < 4:
+                            break
+                        if at == 4 and al >= 12:        # UNIX_DIAG_RQLEN
+                            total += struct.unpack_from("=I", data, a + 4)[0]
+                            seen = True
+                        a += (al + 3) & ~3
+                if ln < 16:
+                    break
+                o += (ln + 3) & ~3
+    except OSError:
+        return None
+    finally:
+        s.close()
+    return total if seen else None
 
 
 _IN = {}
@@ -376,9 +477,9 @@ def session(out, cmds, timeout=20.0, pids=None, inp=None, interrupt=True):
     # INPUT FIRST: a stop RELEASES Bochs's mouse capture, so a click still
     # in the X queue when the debugger takes over is dropped on the floor.
     # Give the GUI the moment it needs to have taken the last xdotool input.
-    gap = (inp or _input()).last + INPUT_GAP - time.time()
-    if gap > 0:
-        time.sleep(gap)
+    # (taken: until Bochs has READ it, then INPUT_GAP - a machine already
+    # at its prompt reads no X, so there is nothing to wait for there)
+    (inp or _input()).taken(stopped=None if interrupt else (lambda: True))
     n = os.path.getsize(e9)
     end = time.time() + timeout
     if not interrupt:
@@ -629,6 +730,7 @@ class Box(object):
                                   stdin=os.open(fifo, os.O_RDWR),
                                   stdout=self.f, stderr=subprocess.STDOUT,
                                   env=self.env, preexec_fn=_fsize_cap)
+        self.inp.pid = self.p.pid       # (the wrapper execs bochs-bin)
         self.hold = subprocess.Popen("exec sleep 86400 > '%s'" % fifo,
                                      shell=True, env=self.env)
         with open(fifo, "w") as fh:

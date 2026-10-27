@@ -132,8 +132,12 @@ kernel instead of sleeping:
 takes over, so after a read the next move or click reaches nobody. A Box that
 has captured re-captures inside the NEXT xdotool call (`xd`, so a row's own
 `os88bochs.xd(...)` is covered too): X delivers the toggle ahead of the input.
-And a stop waits `INPUT_GAP` (60 ms) after the last input, so a click still in
-the X queue is taken while the mouse is captured rather than dropped.
+And a stop waits until Bochs has READ the last input - every `xd` ends in an X
+round trip, so the server has written its events to Bochs's connection, and
+`_Input.taken` then watches that socket's receive queue drain through
+sock_diag - plus `INPUT_GAP` (30 ms), so a click still queued is taken while
+the mouse is captured rather than dropped. A fixed gap alone was a guess about
+host scheduling and lost edges on a loaded box.
 
 | `box.in_fsx()` | an exclusive fullscreen bracket is running (`[fsx_task]` not FFh) - ui_task is FROZEN inside one, so `ui_done` cannot end there; wait on this into and out of it |
 | `box.fault()` | the first `kern_mega FAULT` line, or None; every `until` raises on one at once rather than waiting out its budget |
