@@ -1301,18 +1301,16 @@ cpy_ff:
     cmp bp,dx
     jl .no
     mov [ss:S_TMP4],dx
-    mov dl,bh                   ; either range starting in VRAM: the
-    sub dl,80h                  ;   damage scan compares it all, these
-    cmp dl,20h                  ;   stores marking no block (vr_wr)
-    jae .x1
+    mov dx,di                   ; the DESTINATION starting in VRAM - DE
+    cmp byte [ss:S_TMP],2Ah     ;   for 2Ah, HL for 1Ah: the damage scan
+    je .d                       ;   compares it all, these stores marking
+    mov dx,bx                   ;   no block (vr_wr). A copy OUT of VRAM
+.d:                             ;   writes none of it (cpc_go's, which
+    sub dh,80h                  ;   Kirby's Dream Land's window row to
+    cmp dh,20h                  ;   HRAM a frame had cost an 8KB compare
+    jae .x                      ;   each time)
     mov byte [ss:RDG_VALL],1
-.x1:
-    mov dx,di
-    sub dh,80h
-    cmp dh,20h
-    jae .x2
-    mov byte [ss:RDG_VALL],1
-.x2:
+.x:
     mov dx,bx                   ; HL's range...
     cmp dh,80h
     jb .no
@@ -2455,12 +2453,6 @@ cpc_ff:
     mov dl,cl
     add dl,ch
     jc cpc_no
-    mov dl,bh                   ; HL's starting in VRAM: the damage scan
-    sub dl,80h                  ;   compares it all (cpy_ff's)
-    cmp dl,20h
-    jae .x
-    mov byte [ss:RDG_VALL],1
-.x:
     mov dx,bx
     cmp dh,80h
     jb cpc_no
@@ -2498,6 +2490,12 @@ cpc_go:
     je .cp
     xchg si,di                  ; HRAM to HL
 .cp:
+    cmp di,0A000h               ; the DESTINATION in VRAM: the damage
+    jae .nv                     ;   scan compares it all, these stores
+    cmp di,8000h                ;   marking no block (vr_wr). A copy OUT
+    jb .nv                      ;   of VRAM writes none of it - Kirby's
+    mov byte [ss:RDG_VALL],1    ;   Dream Land's window row to HRAM, a
+.nv:                            ;   frame, cost a whole 8KB compare each
     rep movsb
     mov al,[di-1]               ; A, the last byte
     cmp byte [ss:S_TMP],0E2h
