@@ -212,7 +212,12 @@ FIXTURE = {
         # THE ARCHIVE (SPEC.md 92.13). Tier 0 so the 8088/8086 filter keeps
         # it: assertion 4 counts what that filter shows, and a tier-3 archive
         # would leave the two assertions reading each other's fixture.
+        # needs_wire 6: the tree carries build/mseg.o88, whose parts library
+        # calls OSAPI_SEG (0x04E3) - the cell fence (SPEC.md 92.2), declared
+        # as the site's own entries declare it, and what this tree's Wire
+        # (WIRE_LEVEL 6) installs
         {"stem": "TREEONE", "title": "A whole tree", "kind": 0, "tier": 0,
+         "needs_wire": 6,
          "archive": {"file": "TREEONE.WPK"},
          "description": "Folders, in one stream."},
         # A VERSION 2 ARCHIVE (SPEC.md 92.13.1): one file past the claim, so
