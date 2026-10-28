@@ -212,6 +212,15 @@ def pace(m, secs):
         time.sleep(secs)
         return 0.0
     want = secs * GUEST_PACE
+    # ...EXACTLY, where the machine can stop itself after that much of its
+    # own time (os88megabochs: Bochs's time breakpoint). Polled, a pause
+    # ends when a reading says it has: free here, but a stop on Bochs, so
+    # its readings are 50-500 host ms apart and the guest ran the gap
+    exact = getattr(m, "pace_exact", None)
+    if exact is not None:
+        got = exact(want)
+        if got is not None:
+            return got
     st = m.status()
     c0 = int(st.get("cycles", 0))
     t0 = time.time()

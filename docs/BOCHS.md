@@ -79,24 +79,68 @@ kern_mega rows **fail under host load and pass alone**:
   been running, so a "guest-second" budget drained while the guest made no
   progress.
 
-Under `slowdown` a stop costs the guest nothing and its tick density is the
-same on any box. **The shim reads the clock OFF the guest**
+Under `slowdown` the guest's tick density is the same on any box - but **a
+stop costs the guest nothing ONLY with the clock preload**,
+`tools/bochs/bxclock.c`, which `os88bochs.Box` builds into
+`build/bochs/` with the host's `cc` and puts on Bochs's `LD_PRELOAD`.
+Bochs 2.7's slowdown timer (iodev/slowdown_timer.cc) caps the guest against
+`time(NULL)`, the WALL clock: host seconds spent stopped at the debugger -
+every read, screenshot and breakpoint - left the guest behind it, and on the
+resume Bochs ran flat out until it had caught up. Measured on a loaded box,
+half a host second of running after a 2 s stop held **2.41-2.60 guest
+seconds** against 0.42-0.45 with no stop; a `boxed()`-shaped look (pause,
+three reads, the glass, run, `pace(0.01)`) whose stop took 0.3 host s cost
+**0.39-0.50 guest s** where the same look with a quick stop cost 0.11. So a
+row's guest time per host interval moved with host load, which is what
+`mega-vidfskeysvga4` (7 looks at a toast that needs 8) and
+`mega-assocopen` (a double-click 9-10 ticks apart) failed on. The preload
+replaces `time()` with a clock that does not move while Bochs does not run:
+the slowdown timer calls it every guest millisecond, so a running Bochs
+calls it every host millisecond or less, and any gap over 50 ms
+(`$OS88_BXCLOCK_GAP_MS`) is a stop and is taken out whole. With it the same
+two measurements read **0.59-0.61** and **0.07-0.10**. `$OS88_BXCLOCK=0` is
+the A/B; without a compiler `os88build.have_bochs()` answers no and every
+Bochs row SKIPS (`os88soak.py check` names it), rather than run on a clock
+whose answers depend on the box.
+
+**The shim reads the clock OFF the guest**
 (`os88megabochs._cycles`): every stop it makes for a read carries a `ptime`
 for free, and a status poll on a running guest takes one when the last is
 older than 50 ms (at most every 0.5 s, and no oftener than leaves the guest
 running ~80% of the time - a stop is ten times dearer on a loaded box). It
 never extrapolates, so a reading can lag the guest but never lead it, and a
-budget spent against it cannot run out while the guest stood still.
-`advance(cycles=)` hands out guest time the same way. What `slowdown` does
-NOT give is a smooth map from host time to guest time: it holds the guest
-up to a second ahead of `time(NULL)` and catches up at full speed when it
-falls behind (iodev/slowdown_timer.cc), so a burst of guest time can follow
-a host stall. **That is why input whose SPACING matters is not host-timed**:
+budget spent against it cannot run out while the guest stood still. That lag
+is the second way host time leaked in, because a guest capped at real time
+runs the whole gap between two readings: a `pace(0.01)` (0.045 guest s)
+ended on the first reading past it, and on a loaded box that was half a
+guest second - `mega-vidfskeysvga4` fitted 4 looks where it fits 15, with
+the preload in. So **`os88marty.pace` and `advance(cycles=)` end on Bochs's
+own TIME BREAKPOINT** (`os88megabochs._run_exact`: `sb N` on a stopped
+guest, `c`, the prompt it stops at), exact to the instruction - or to the
+guest's next interrupt when it is in HLT, a breakpoint being checked at an
+instruction's end - whatever the host is doing. Two limits: it is not used
+while a row has a breakpoint of its own armed (a time breakpoint cannot be
+deleted, so one a row's breakpoint got ahead of would stop the guest later,
+unasked), nor inside a `bp_trace` pump; both fall back to the polled clock.
+And **Bochs 2.7's second `sb` is a defect**: dbg_main.cc re-arms the timer
+CONTINUOUS, so it fires every N for ever and stops a guest the shim thinks
+is running (`mega-stikmenu` took 524 s). pc_system.cc's handler re-arms
+one-shot for the next one queued, so the shim queues a SENTINEL years away
+before its first `sb` and every later one is the queue's head. What
+`slowdown` still does NOT give is a smooth map from host time to guest time
+(it holds the guest up to a second ahead of the clock), so a burst of guest
+time can follow a host stall. **That is why input whose SPACING matters is not host-timed**:
 a double-click is queued on a stopped guest and reaches it in one GUI pass
 (`queued_input`, below). `$OS88_BOCHS_SYNC=realtime` puts the old clock
 back, shim and all, for an A/B; `$OS88_BOCHS_IPS` changes the speed (a
 host that cannot reach it runs the guest slower than real time, which the
-guest-time waits absorb).
+guest-time waits absorb), and `Box(ips=)` changes it for ONE machine whose
+subject needs a faster CPU - XT-MP3's Auto measures its decode against guest
+time and rightly declines to play live at 4M (`tests/x3mega.py`'s play leg
+asks 25M). A KEY whose spacing matters is the double-click's case one device
+along: `tests/lemmega.py`'s F12-twice nuke queues each press on a stopped
+guest and stops on a `watch w` of the game's own state between them, where
+`key F12 F12 --delay 100` reached one pass of the game as one press.
 
 ## Commands
 
@@ -208,7 +252,7 @@ between its two presses.
 | `box.in_fsx()` | an exclusive fullscreen bracket is running (`[fsx_task]` not FFh) - ui_task is FROZEN inside one, so `ui_done` cannot end there; wait on this into and out of it |
 | `box.fault()` | the first `kern_mega FAULT` line, or None; every `until` raises on one at once rather than waiting out its budget |
 | `box.shot(path)` | a screenshot after `GLASS` (0.45 s): the X window lags the guest by up to one of Bochs's 5 Hz VGA updates |
-| `m.fbuf()` (os88megabochs) | the same window, after `GLASS` only while the guest RUNS: a stopped Bochs paints nothing, and under `slowdown` every host second spent stopped is run back as a guest sprint on the resume, so a sleep there only handed the guest time (`mega-vidfskeysvga4` looked at its toast 4 times instead of 11) |
+| `m.fbuf()` (os88megabochs) | the same window, after `GLASS` only while the guest RUNS: a stopped Bochs paints nothing, and before the clock preload (*The clock*) every host second spent stopped was run back as a guest sprint on the resume, so a sleep there only handed the guest time (`mega-vidfskeysvga4` looked at its toast 4 times instead of 11) |
 | `box.xd(...)`, `box.key(...)`, `box.type(...)` | xdotool on THIS machine's display - one call at a time (a thread wiggling the mouse beside a click is safe) |
 | `box.at_prompt(cmds)` | the machine is ALREADY stopped (an `lb` breakpoint hit): run CMDS and continue, on the prompts |
 | text screen | `box.read(0xB8000, n)[0::2]` is the characters - how a hibernate's `os8088 has hibernated` is waited for, it having no E9 line |

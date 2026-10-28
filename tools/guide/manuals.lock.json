@@ -1178,9 +1178,9 @@
    "tools/os88venc.py",
    "tools/os88vencgui.py"
   ],
-  "stamped": "1ef08ce1",
-  "strings": "50468df0c72055bf",
-  "why": "checked: Flip offered on the NARROW screens and --page-ahead auto building a flipped file at three pages or more (elendilon's 9d6da57b..74566cf5) - the page lists 'tearing and second pages' as one Trade-offs row and names no per-screen availability or page-ahead mode; below its level"
+  "stamped": "64818263",
+  "strings": "2ca9c0e5cadcc280",
+  "why": "checked: --flip-build (a flipped file's scene built ahead), --colour-mix/--colour-clip/--edge-solid for cga4 and c160, Flip build offered in the window and the preview at a held frame (elendilon's a96b7a7b..f7c40759) - the page names the Colour tab's palette choices and 'tearing and second pages' as one row each and lists no per-format colour or flip options; below its level"
  },
  "TRACKER_O88": {
   "sources": [

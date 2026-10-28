@@ -247,9 +247,10 @@ def requirements():
     req.append(("bochs", os88build.have_bochs(),
                 "the kern_mega rows (megatrap0's #GP census and the other mega*): "
                 "Bochs is the one emulator here that checks a 286's segment "
-                "rules (docs/BOCHS.md).",
+                "rules (docs/BOCHS.md) - and it runs under a clock preload "
+                "built with the host's C compiler (tools/bochs/bxclock.c).",
                 "apt-get install -y bochs bochsbios vgabios bochs-x xvfb "
-                "xdotool x11-apps imagemagick"))
+                "xdotool x11-apps imagemagick gcc"))
 
     req.append(("86box", os88build.have_86box(),
                 "gbreplay, gbbank, gbhifreq and megacdrom, which need the "
