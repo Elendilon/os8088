@@ -701,6 +701,8 @@ class Mouse:
     BOCHS_QUIET = 0.04              # s a traced Bochs guest must run unstopped
     SERIAL_LEAD = 1.0               # s a Bochs guest runs unstopped first...
     SERIAL_GAP = 0.2                # ...and s between serial edges (a poll)
+    SERIAL_PACE = 0.15              # GUEST s between paced serial edges: past
+                                    # one 100 ms poll, presses 5.5 ticks apart
 
     def _bochs_clear(self, traces):
         """Inside a held bp_trace on Bochs: record and resume every
@@ -773,34 +775,54 @@ class Mouse:
                     # button state (iodev/serial.cc mouse_enq) and turns it
                     # into a packet only when its idle UART polls - every
                     # 100 ms of GUEST time - so edges read in one pass merge
-                    # into one release, and so did edges 30 ms apart once a
-                    # guest ms was a real one (mega-kdmouse). Each edge
-                    # proven off mouse_btn before the next was 9 ticks press
-                    # to press: every proof is a stop, and a guest that has
-                    # been stopped runs its idle time back at full speed
-                    # (docs/BOCHS.md, *The clock*). So the guest first runs
-                    # SERIAL_LEAD host seconds unstopped - `sync=slowdown`
-                    # holds it up to a second AHEAD of the wall clock, where
-                    # it runs at real time and no faster - and the edges go
-                    # out SERIAL_GAP apart, a poll each (at 0.13 a guest
-                    # running behind the clock merged two), with no stop
-                    # until the last; the release is then proven
-                    with self.m._lock:
-                        self.m.box.inp.taken()
-                        time.sleep(self.SERIAL_LEAD)
-                        t1 = self.ticks()
-                        g = str(self.SERIAL_GAP)
-                        self.m._xd("mousedown", 1, "sleep", g, "mouseup", 1,
-                                   "sleep", g, "mousedown", 1, "sleep", g,
-                                   "mouseup", 1)
-                        span = (self.ticks() - t1) & 0xFFFFFFFF
-                    self._edge(False)
-                    # (around the whole chain, three gaps and two reads:
-                    # 7-13 ticks measured, the presses two gaps apart)
-                    if span >= 2 * DBL_TICKS:
-                        raise MartyError("a Bochs serial double-click took %d "
-                                         "ticks around its four edges "
-                                         "(window %d)" % (span, DBL_TICKS))
+                    # into one release (mega-kdmouse). So each edge goes out
+                    # on a STOPPED guest that then runs EXACTLY SERIAL_PACE
+                    # guest seconds (os88megabochs.paced_input): a poll each,
+                    # the presses 2 x SERIAL_PACE apart, whatever the host
+                    # does. It was HOST time - SERIAL_LEAD seconds unstopped,
+                    # then SERIAL_GAP sleeps inside one xdotool chain - and
+                    # the clock preload takes a descheduled Bochs's time out
+                    # whole (docs/BOCHS.md, *The clock*), so on a loaded box
+                    # two edges fell in one poll and the double-click was a
+                    # single click: the drive or file SELECTED and nothing
+                    # opened (mega-irqgrab, mega-dosmouevt, mega-kdnomouse;
+                    # 1 in 7 at load 5 on an open_drive loop).
+                    edges = (("mousedown", 1), ("mouseup", 1),
+                             ("mousedown", 1), ("mouseup", 1))
+                    ran = self.m.paced_input(edges, self.SERIAL_PACE)
+                    if ran:
+                        # PRESS TO PRESS, off the time breakpoints: ticks
+                        # read around the call would count the host's gaps
+                        # either side of it too (36 at load 12, for a
+                        # gesture of 11)
+                        span = int((ran[0] + ran[1]) * 18.2065)
+                        self._edge(False)
+                        if span >= DBL_TICKS:
+                            raise MartyError(
+                                "a paced Bochs serial double-click put its "
+                                "presses %d ticks apart (window %d)"
+                                % (span, DBL_TICKS))
+                    else:
+                        # a breakpoint of the row's own armed, or a pump:
+                        # no exact run to be had, so the host-timed spacing
+                        # it had before - with its load dependence
+                        with self.m._lock:
+                            self.m.box.inp.taken()
+                            time.sleep(self.SERIAL_LEAD)
+                            t1 = self.ticks()
+                            g = str(self.SERIAL_GAP)
+                            self.m._xd("mousedown", 1, "sleep", g, "mouseup",
+                                       1, "sleep", g, "mousedown", 1,
+                                       "sleep", g, "mouseup", 1)
+                            span = (self.ticks() - t1) & 0xFFFFFFFF
+                        self._edge(False)
+                        # (around the whole chain, three gaps and two
+                        # reads: the presses two gaps apart)
+                        if span >= 2 * DBL_TICKS:
+                            raise MartyError(
+                                "a Bochs serial double-click took %d ticks "
+                                "around its four edges (window %d)"
+                                % (span, DBL_TICKS))
                 else:
                     span = 0
                     self.m.queued_input(
@@ -812,7 +834,7 @@ class Mouse:
                     self._bochs_clear(traces)
             if self.verbose:
                 print("  double-click at (%d,%d): %s" % (
-                    x, y, "%d tick(s) around" % span
+                    x, y, "%d tick(s)" % span
                     if os88bochs.MOUSE == "serial" else "queued, one GUI pass"))
             _wait(self.m, settle, "dblclick", 2.0)
             return span

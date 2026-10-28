@@ -339,9 +339,17 @@ it maps:
   edge or one chain at a time, the span was the host's. Bochs's SERIAL
   mouse ($OS88_BOCHS_MOUSE=serial) cannot take a queue - it LATCHES the
   button state and polls its idle UART every 100 guest ms
-  (iodev/serial.cc) - so there the guest runs a second unstopped first,
-  which `slowdown` turns into a lead over the wall clock, and the edges go
-  out 0.2 s apart, a poll each. A key sent while the guest is STOPPED waits for the
+  (iodev/serial.cc), so two edges inside one poll are one packet - so
+  there each edge goes out on a STOPPED guest that then runs EXACTLY 0.15
+  guest seconds on a time breakpoint (`paced_input`), a poll each and the
+  presses 0.30 s (5.5 ticks) apart. It was host-timed - a second unstopped,
+  then the edges 0.2 HOST seconds apart - and the clock preload takes a
+  descheduled Bochs's time out whole, so on a loaded box two edges fell in
+  one poll or the presses past the window: an `open_drive` loop missed 12
+  of 30 at load 5 and 25 of 40 at load 7-12 (the drive SELECTED, nothing
+  open: mega-irqgrab, mega-dosmouevt, mega-kdnomouse), and 0 of 80 paced.
+  With a breakpoint of the row's own armed there is no exact run,
+  and the host-timed spacing is the fallback. A key sent while the guest is STOPPED waits for the
   resume and then goes one GUI pass apart: queued in X, the lot reached
   Bochs's 16-scancode 8042 buffer in one pass and a paused
   `os88marty.text_taken` kept four shifted characters of twelve.
