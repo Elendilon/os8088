@@ -200,7 +200,7 @@ def bxclock():
     os.makedirs(d, exist_ok=True)
     tmp = "%s.%d.tmp" % (so, os.getpid())
     r = subprocess.run([cc, "-O2", "-Wall", "-shared", "-fPIC", "-o", tmp,
-                        BXCLOCK_SRC], capture_output=True, text=True)
+                        BXCLOCK_SRC, "-ldl"], capture_output=True, text=True)
     if r.returncode:
         raise RuntimeError("os88bochs: %s failed on %s:\n%s"
                            % (cc, BXCLOCK_SRC, r.stderr))

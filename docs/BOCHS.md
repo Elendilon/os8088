@@ -126,7 +126,37 @@ And **Bochs 2.7's second `sb` is a defect**: dbg_main.cc re-arms the timer
 CONTINUOUS, so it fires every N for ever and stops a guest the shim thinks
 is running (`mega-stikmenu` took 524 s). pc_system.cc's handler re-arms
 one-shot for the next one queued, so the shim queues a SENTINEL years away
-before its first `sb` and every later one is the queue's head. What
+before its first `sb` and every later one is the queue's head.
+
+Two more host-time leaks surfaced once waits were exact, and both are fixed.
+**A halted CPU slept the HOST**: Debian builds Bochs with
+`BX_USE_IDLE_HACK`, so every HLT (cpu/proc_ctrl.cc) waits up to 1 ms in the
+X GUI's `select()` for an X event - a host millisecond that buys the guest
+only the ticks to its next timer. kern_mega's idle task halts after every
+IRQ0, so with the PIT at 8 kHz (Tracker's speaker player on a card-less
+machine) the guest ran at an EIGHTH of real time: 0.35M instructions a host
+second at 4% CPU, and `mega-trkcompact`'s `pace(1.0)` - 4.5 guest seconds -
+had not run after 45 host seconds (4 of 4 runs; it had failed this way
+before, on the polled clock, in 2 of 6 soaks). The same preload makes a
+`select()` called FROM the X GUI plugin with a timeout a poll
+(`$OS88_BXIDLE=1` keeps the sleep, the A/B); the slowdown timer still caps
+the guest at real time. And **a SIGINT can be lost**: Bochs echoes the `c`
+as readline reads it, and `bx_dbg_continue_command` then clears
+`interrupt_requested` before it runs, so a stop sent in between is erased.
+An exact pace stops the guest milliseconds after resuming it, which lands in
+that window on a busy box, and `_halt`'s second SIGINT came a host SECOND
+later - a guest second run inside one look (traced: `_halt` 1.032 s,
+4.5M instructions in a 0.045 s pace), `mega-vidfskeysvga4` 5-7 looks where
+20 fit. The kick is every 50 ms now (`MegaBochs.KICK`; a SIGINT at the prompt
+is harmless, the next `c` clearing it, and the empty line it makes is let
+land before prompts are counted). `$OS88_BOCHS_EXACT=0` puts the polled
+clock back for an A/B.
+
+Rows that read guest state and then ACT on it in host time are still a race
+on any emulator, and three are now stepped rather than polled: `pxfolder`
+reads the shown picture and sends Esc with the machine stopped, `weavemove`
+walks from the serve to its reading in `advance` steps, and `vidfskeys`'s
+looks are `advance`s (see each row). What
 `slowdown` still does NOT give is a smooth map from host time to guest time
 (it holds the guest up to a second ahead of the clock), so a burst of guest
 time can follow a host stall. **That is why input whose SPACING matters is not host-timed**:
