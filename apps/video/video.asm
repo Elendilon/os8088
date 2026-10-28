@@ -17050,6 +17050,10 @@ vp_sndprep:
 .ret:
     ret
 .spk:                               ; NO CARD: THE SPEAKER (98.3.15) - PCM8,
+%ifdef VP_NOSPKFX
+    cmp byte [vp_spkpwm], 0         ; (a diag build with no shaper: a clip
+    je .ret                         ; made for a card plays silent here)
+%endif
     cmp byte [vp_livem], 0          ; not Live (the desktop cannot give up
     jne .ret                        ; channel 0). The ring the card would
     cmp byte [vp_audio], 1          ; read, and the table its counts are
@@ -17074,6 +17078,7 @@ vp_sndprep:
     pop di
     jc .spkno                       ; a rate it cannot: silent
     mov byte [vp_snd], VP_SPK
+%ifndef VP_NOSPKFX
     cmp byte [vp_spkpwm], 0         ; A CLIP MADE FOR A CARD is SHAPED for the
     jne .shp                        ; speaker here (34.11.9), as the encoder
     push ax                         ; shapes one made for it: a straight wave
@@ -17086,6 +17091,7 @@ vp_sndprep:
     pop es
     pop di
     pop ax
+%endif
 .shp:
     ret
 .spkno:
@@ -17106,7 +17112,11 @@ vp_ringkb:
     cmp byte [vp_snd], VP_SPK
     jne .small
 .big:
+%ifdef VP_NOSPKFX
+    mov ax, VP_RL / 1024 + 1
+%else
     mov ax, VP_RL / 1024 + (SPKFX_RINGEND + 1023) / 1024
+%endif
     ret
 .ask:                               ; not claimed yet: the speaker's, if
     cmp byte [vp_livem], 0          ; there is no card (vp_sndprep's test)
@@ -20557,10 +20567,12 @@ vp_aput:
     jne .nlev                       ; sample of it is emitted (34.11.9)
     or dx, dx
     jz .nlev
+%ifndef VP_NOSPKFX
     push ds
     mov ds, dx
     call os88spkfx_level
     pop ds
+%endif
 .nlev:
     cmp byte [vp_sadp], 0           ; THE PLAYER DECODES: two samples a byte
     je .nd
@@ -20597,7 +20609,9 @@ vp_aput:
     jne .cm                         ; table's middle, or a count of 1 where
     push ds                         ; the shaper has the carrier away
     mov ds, dx
+%ifndef VP_NOSPKFX
     call os88spkfx_emit
+%endif
     pop ds
     ret
 .sil:
@@ -20675,7 +20689,9 @@ vp_aput:
 %define OS88SPK_DRYCNT              ; (the speaker's dry stretches, counted)
 %endif
 %include "os88spk.inc"              ; the speaker's ring player (34.11)
-%include "os88spkfx.inc"            ; ...and its shaper (34.11.9)
+%ifndef VP_NOSPKFX                  ; (VP_NOSPKFX: a diag build's room -
+%include "os88spkfx.inc"            ;  kern_mega's VPDIAG, the Makefile)
+%endif                              ; ...and its shaper (34.11.9)
 
 ; =============================================================================
 ; the window

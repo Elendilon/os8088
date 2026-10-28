@@ -6800,6 +6800,11 @@ endif
 ifneq ($(VPDIAG),)
 VPDEF += -DVP_DIAG
 endif
+# ...and the kern_mega ARM's diag build leaves out the speaker SHAPER
+# (VP_NOSPKFX, 2,367 bytes): the arm plus the card is over APP_MAX_SIZE by
+# ~1.2 KB, and a card-made clip on the speaker is the one play it drops
+# (silent). A file made for the speaker plays as ever; the shipped builds
+# never define it
 VPSTAMP := $(BUILD)/.vplayer-$(if $(NOLIVESND),nolivesnd,livesnd)$(if $(VPDIAG),-diag)
 $(shell mkdir -p $(BUILD); \
         [ -f $(VPSTAMP) ] || { rm -f $(BUILD)/.vplayer-* \
@@ -14724,7 +14729,7 @@ $(MEGAAPPDIR)/video.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vos
                          apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc \
                          apps/os88parts.inc apps/os88partsbody.inc apps/video/vblk.inc apps/os88mega.inc $(VPSTAMP) | $(BUILD)
 	@mkdir -p $(MEGAAPPDIR)
-	$(NASM) -f bin -w+error $(STKLST) -I apps/ $(VPDEF) -DPKG_MEGA -o $@ apps/video/video.asm
+	$(NASM) -f bin -w+error $(STKLST) -I apps/ $(VPDEF) $(if $(VPDIAG),-DVP_NOSPKFX) -DPKG_MEGA -o $@ apps/video/video.asm
 	@echo "video (PKG_MEGA): $(call FILESIZE,$@) bytes"
 $(MEGAAPPDIR)/video.o88: $(MEGAAPPDIR)/video.bin $(BUILD)/vblk.bin $(BUILD)/vblkpm.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(MEGAAPPDIR)/video.bin -o $@ --part $(BUILD)/vblk.bin --part $(BUILD)/vblkpm.bin
