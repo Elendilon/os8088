@@ -349,8 +349,19 @@ rw_slotlent     equ rw_mhold + 1    ; byte: bank slots lent to the side
 rw_lgrab        equ rw_slotlent + 1 ; byte: rw_slotlend stilled the machine
 rw_loans        equ rw_lgrab + 1    ; byte: side buffers living in lent slots
 rw_lused        equ rw_loans + 1    ; word: ...their paragraphs, from the top
+rw_pace         equ rw_lused + 2    ; byte: full screen's pacing Steady (1) or
+                                    ;   Free (0) - Shift+F2 (rwfsx.inc)
+rw_pk           equ rw_pace + 1     ; byte: Steady draws every k-th frame...
+rw_pup          equ rw_pk + 1       ; byte: ...cadence draws behind in a row
+rw_pdn          equ rw_pup + 1      ; byte: ...and with a frame's room in a row
+rw_pidl         equ rw_pdn + 1      ; word: the cycle's waits, counts / 4
+rw_pt0          equ rw_pidl + 2     ; word: a wait's start (rw_pwait)
+rw_plast        equ rw_pt0 + 2      ; word: [rw_nrun] at the last draw...
+rw_phist        equ rw_plast + 2    ; 8 words: draws by the frames run since
+                                    ;   the one before, 1-7 and 8+ (rw_timed;
+                                    ;   tests/rdgcore/rdgwin.py reads them)
 %ifdef RDG_AOT
-rw_aseg         equ rw_lused + 2    ; RWA_MAX words: each code image's claim,
+rw_aseg         equ rw_phist + 16   ; RWA_MAX words: each code image's claim,
                                     ;   or 0 (rwaot.inc)
 rw_anseg        equ rw_aseg + RWA_MAX * 2 ; byte: images claimed
 rw_afix         equ rw_anseg + 1    ; byte: the images are read and put right
@@ -384,7 +395,7 @@ rw_aunh         equ rw_aebank + 2   ; byte: the load's hold is let go for
                                     ;   the plan (rw_aloose)
 rw_bssend       equ rw_aunh + 1
 %else
-rw_bssend       equ rw_lused + 2
+rw_bssend       equ rw_phist + 16
 %endif
 RW_BSS          equ rw_bssend - rw_win   ; derived: a sum by hand drifted
 RW_FBUF         equ 5760            ; rdg_render's frame, at [rw_fseg]:0
@@ -557,8 +568,12 @@ rw_reloc:
 .6:
 %ifdef RDG_AOT
     cmp [S_AOTVEC+2], bx            ; (rdg_aotmiss, ours)
-    jne .r
+    jne .7
     mov [S_AOTVEC+2], dx
+.7:
+    cmp [S_HYLVEC+2], bx            ; (rdg_aotlink, ours: 20.16)
+    jne .r
+    mov [S_HYLVEC+2], dx
 %endif
 .r:
     pop ds
@@ -842,6 +857,7 @@ rw_load0:
     je .nojit                       ;   asked for)
     cmp byte [rw_hmask], 7          ; ...then with the table at 16KB
     je .min4
+.jit16:
     mov dx, [rw_jitseg]
     call OSAPI_MEM_FREE
     mov word [rw_jitseg], 0
@@ -865,6 +881,13 @@ rw_load0:
     call rw_plan
     jnc .planned
 .nobig:
+    cmp word [rdg_dmgseg], 0        ; no room with it: the damage memory
+    je .nobig1                      ;   goes back BEFORE the recompiler, as
+    mov dx, [rdg_dmgseg]            ;   it does for the ROM's claim (.claim)
+    call OSAPI_MEM_FREE             ;   - .loaded claims it again if there
+    mov word [rdg_dmgseg], 0        ;   is room - and the recompiler is
+    jmp short .jit16                ;   claimed again over the place it left
+.nobig1:
     mov dx, [rw_jitseg]             ; no room with it: the ROM without it
     call OSAPI_MEM_FREE
     mov word [rw_jitseg], 0
@@ -2928,8 +2951,10 @@ rw_worker:                          ;   the worker parked at the top of its
     call rw_stat
     sub word [rw_owed], 256
     xor bx, bx                      ; caught up: draw this one, once the
-    cmp word [rw_owed], 256         ;   last draw's own length has passed
-    jb .due                         ;   since it ended...
+    mov ax, [rw_owed]               ;   last draw's own length has passed
+    cmp ax, [rw_pertick]            ;   since it ended - and a tick's frames
+    jb .due                         ;   owed is the tick's own burst, not
+                                    ;   behind...
     mov bl, [rw_owed + 1]           ; ...or, behind, draws' lengths later
     xor bh, bh                      ;   again (rw_drawdue): a third of the
     call rw_behind                  ;   machine to the picture, or less the
@@ -3070,6 +3095,28 @@ rw_drawnow:
 ; rw_timed - call SI (a draw), then [rw_drawt] = its end + its length, and
 ; the log told how long it took
 rw_timed:
+    push ax
+    push bx
+    mov ax, [rw_nrun]               ; the frames run since the last draw,
+    mov bx, ax                      ;   counted 1-7 and 8+ - what Steady
+    xchg bx, [rw_plast]             ;   pacing evens out
+    sub ax, bx
+    jnb .g1
+    mov ax, [rw_nrun]               ; (rw_stat began its count again: the
+.g1:                                ;   frames since then)
+    or ax, ax
+    jz .g0
+    dec ax
+.g0:
+    cmp ax, 7
+    jbe .g
+    mov ax, 7
+.g:
+    shl ax, 1
+    mov bx, ax
+    inc word [rw_phist + bx]
+    pop bx
+    pop ax
     mov byte [rw_undrawn], 0
     mov al, [rw_dgen]               ; (a clock changed under the draw - it
     push ax                         ;   parked across a whole full screen -
@@ -3425,8 +3472,24 @@ rw_keys:
     mov cl, 2
     call rw_fedge
     jnc .nof2
+    mov al, 2Ah                     ; Shift+F2: full screen's pacing, Free
+    call OSAPI_KEY_DOWN             ;   or Steady (rwfsx.inc's rw_pace) -
+    jc .pace                        ;   the F-keys are all taken, so the
+    mov al, 36h                     ;   least used get a Shift (2Ah, 36h)
+    call OSAPI_KEY_DOWN
+    jc .pace
     call rw_iltoggle
     mov si, [rw_i_scr + 2 * RW_SIL] ; (what rw_mgrey made the item say)
+    call rw_note
+    jmp short .nof2
+.pace:
+    xor byte [rw_pace], 1
+    mov byte [rw_pk], 1
+    mov si, rw_s_pfree
+    cmp byte [rw_pace], 0
+    je .pn
+    mov si, rw_s_pstdy
+.pn:
     call rw_note
 .nof2:
 %ifdef RDG_AOT
@@ -4851,6 +4914,8 @@ rw_jmenu:       db 1, 3, 2          ; CPU's items 0-2: the mode each chooses
 rw_spdtab:      dw 256, 230, 192, 128   ; Speed, 256ths of the Game Boy's
 
 rw_s_fps:       db 'fps', 0
+rw_s_pfree:     db 'Pacing: Free', 0
+rw_s_pstdy:     db 'Pacing: Steady', 0
 rw_s_jit:       db ' JIT', 0
 rw_s_aot:       db ' AOT', 0
 rw_s_open1:     db 'Machine > Load Game', 0

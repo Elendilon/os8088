@@ -32,6 +32,35 @@ correctness items they turned up are closed. What is still open:
 - **Speed**: round 10 took Link's Awakening's two (the counters' blind
   spot, megamorphic RETs); left and priced are the memory flushes and the
   event path (~2% each) and bank switches (~8% of Link's Awakening).
+- **Coverage is only as good as the replays the heat came from.** Code
+  reached only through a jump table is invisible to the walk, so an image
+  interprets it until a heat run has entered it. Link's Awakening's
+  push-the-spiked-beetle stretch, from the owner's replay (2026-10-28), was
+  60 such ROM PCs entered ~3 times a frame (banks 15h and 00h). That was
+  ~20% of the 86Box 286 in `rdg_aotmiss`, `tr_ejf`, `tr_ekey` and `op_*`,
+  and it held the game at 82-95%. With that replay added to the heat it
+  is 1 PC: 100% and 15 -> 22-23 pictures a second, `check` identical over
+  its 460 frames. **On kern_mega this is answered** (REALDMG-SPEC 20.16):
+  the package carries the recompiler and translates its own misses, which
+  lands that replay at 99-102% with no replay in the counters. Still open
+  for the machines without it - the 8088's and kern_big's packages - is
+  the walk seeing these tables (a pass over `JP (HL)` sites that reads the
+  table they index); only 19 of Link's Awakening's 60 PCs appear as a word
+  anywhere in the ROM, so it can narrow the gap but not close it.
+  **The walk's half is built (2026-10-28)**: a dispatcher reached by a JP
+  out of its RST vector or by a CALL is recognised (`gbstatic.dispatcher`
+  - Link's Awakening's RST 00 is `JP 2872h`, so none of its tables was
+  read), a table's 0000h/FFFFh are holes rather than its end, a PARALLEL
+  bank table (`LD HL,nn / ADD HL,DE / LD A,(HL) / CALL switch` then `LD
+  A,E / RST`) gives each entry its bank, a table's targets are block starts
+  (they never were, in any game), and the images fill after the counted
+  blocks with what is ONE control transfer from them (`near_heat`, depth 3
+  measured worse). Link's Awakening's walk went 1,232 -> ~40,000 block
+  starts, and that is the finding: the images (10 on the host, ~7,700
+  blocks) are what binds, not the walk. On the beetle replay, unrecorded,
+  34,671 -> 33,235 x86 instructions a frame (the interpreter 9,318 ->
+  6,544) against 25,450 recorded; the recorded replay unchanged. Of its 60
+  PCs 19 are precompiled now, 22 found and dropped for room, 19 not found.
 
 Moved off this plan: **the kern_mega arm** (20.14) is built on the
 kern_mega memory branch by the session doing that rework, which keeps

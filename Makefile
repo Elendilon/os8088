@@ -13033,6 +13033,28 @@ $(BUILD)/vm3bench360.img: $(BUILD)/vm3bench.o88 tools/os88disk.py
 $(BUILD)/vm3bench144.img: $(BUILD)/vm3bench.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/vm3bench.o88
 
+# CPUBENCH (tests/cpubench/cpubench.asm): what the instruction shapes
+# RealDMG's translated code is made of cost THIS machine - jumps taken and
+# not, LAHF/SAHF, SUB BP, memory through SS, segment loads - so 86Box's 286
+# and a real one can be set side by side (REALDMG-AOT-PLAN's branch round).
+# `make cpubench` is the package on a 1.44MB and a 360KB disk alone
+.PHONY: cpubench
+cpubench: $(BUILD)/cpubench144.img $(BUILD)/cpubench360.img
+
+$(BUILD)/cpubench.bin: tests/cpubench/cpubench.asm tests/benchlib.inc apps/os88api.inc tools/benchlint.py | $(BUILD)
+	python3 tools/benchlint.py tests/cpubench/cpubench.asm
+	$(NASM) -f bin -w+error -I apps/ -I tests/ -o $@ tests/cpubench/cpubench.asm
+	@echo "cpubench: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/cpubench.o88: $(BUILD)/cpubench.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/cpubench.bin -o $@
+
+$(BUILD)/cpubench144.img: $(BUILD)/cpubench.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/cpubench.o88
+
+$(BUILD)/cpubench360.img: $(BUILD)/cpubench.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/cpubench.o88
+
 # ...and wave 0 (b): streaming a 12.6 MB file off the fixed disk, and the
 # controller's own ceiling. tests/viddisk.py builds the VHD it runs on.
 vidbench: $(BUILD)/viddisk.o88

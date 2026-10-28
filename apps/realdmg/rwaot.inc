@@ -18,6 +18,8 @@
 ;   12  dw the list's offset in the part, a multiple of 16
 ;   14  the cartridge's header, 0134h-014Fh (28 bytes)
 ;   42  the ROM's file name, NUL-terminated (13 bytes)
+;   55  db kern_mega's package: the recompiler's part's row, the last, or 0
+;       (REALDMG-SPEC 20.16: the misses translated)
 ;   56  dw the list's filter's offset, a multiple of 16 (8KB of zeros:
 ;       rdg_aotattach builds it)
 ;   58  db the first row of the ROM's pieces, 0 for none (REALDMG-SPEC
@@ -98,6 +100,16 @@ rw_ameta:
     shr dx, cl
     add ax, dx
 .nor:
+%ifdef PKG_MEGA
+    mov dl, [es:55]                 ; (20.16: the recompiler's part, the
+    or dl, dl                       ;   last row)
+    jz .noj
+    cmp dl, al
+    jne .bad1
+    inc ax
+.noj:
+    mov [rw_ajrow], dl
+%endif
     cmp al, [op_t_n]
     jne .bad1
     mov al, [es:7]
@@ -575,6 +587,9 @@ rw_aread:
     inc bx
     jmp short .l
 .back:
+%ifdef PKG_MEGA
+    call rw_hyload                  ; (the misses' recompiler, 20.16)
+%endif
     call rw_fback
 .fix:
     call rw_afixup
@@ -1060,6 +1075,9 @@ rw_aoton:
     mov bx, [cs:rw_afseg]
     call rdg_aotattach
     pop bx
+%ifdef PKG_MEGA
+    call rw_hyon                    ; (the misses translated, 20.16)
+%endif
     pop cx
     pop ax
     ret
@@ -1136,6 +1154,224 @@ rw_apre:
 .h:
     stosb
     ret
+
+%ifdef PKG_MEGA
+; MISSES TRANSLATED (REALDMG-SPEC 20.16), kern_mega's package alone: what the
+; host did not precompile - a jump table's targets, a stretch no replay ran
+; - is counted as the interpreter takes it, and at HY_HOT entries the
+; recompiler (the last part, rdgjitp.asm built RDG_HYB) makes it a block in
+; a RUNTIME tier, filed in a table of its own (rdgaot.inc's rdg_hyins). One
+; pool block holds it all: RWH_T tiers at most, the part, the table.
+RWH_T           equ 4
+
+; rw_hyload - in rw_aread, on the UI task in the package's folder: the pool
+; block claimed (as many tiers as fit, one at least) and the part read into
+; it. Nothing claimed when the package has no part or the machine is not
+; protected-mode; on any failure nothing is kept. Every register kept
+rw_hyload:
+    cmp byte [rw_pm], 0
+    je .r0
+    cmp byte [rw_ajrow], 0
+    je .r0
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push bp
+    mov cx, RWH_T + 2               ; tiers, the part and the table
+.try:
+    mov dx, cx                      ; DX:AX = CX x 64KB
+    xor ax, ax
+    call OSAPI_XMEM_ALLOC
+    jnc .got
+    dec cx
+    cmp cx, 3
+    jae .try
+    jmp short .x
+.got:
+    mov [rw_hybase], ax
+    mov [rw_hybase + 2], dx
+    push cx
+    xor cx, cx
+    call OSAPI_XMEM_SEL             ; AX = its first 64KB's selector
+    pop cx
+    jc .free
+    mov dx, ax
+    xor ax, ax                      ; AX = paragraphs into the block
+    xor bx, bx
+.p:
+    push dx
+    call rw_subc                    ; DX = that 64KB's data half
+    jc .pe
+    mov [rw_hyseg + bx], dx
+    pop dx
+    add ah, 10h
+    inc bx
+    inc bx
+    loop .p
+    mov si, bx                      ; the last two: the part, the table
+    sub si, 4
+    mov ax, si
+    shr ax, 1
+    mov [rw_hyn], al                ; (the tiers before them)
+    mov bp, [rw_hyseg + si]
+    mov al, [rw_ajrow]
+    call rw_apart
+    jc .free
+    mov [rw_hyp], bp
+    mov ax, [rw_hyseg + si + 2]
+    mov [rw_hyh], ax
+    mov ax, bp                      ; the doors, by its code selector
+    call rw_csel
+    mov [rw_jhyon + 2], ax
+    mov [rw_jxlat + 2], ax
+    mov [rw_jmore + 2], ax
+    jmp short .x
+.pe:
+    pop dx
+.free:
+    mov ax, [rw_hybase]
+    call OSAPI_XMEM_FREE
+    xor ax, ax
+    mov [rw_hybase], ax
+    mov [rw_hybase + 2], ax
+    mov [rw_hyp], ax
+.x:
+    pop bp
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.r0:
+    ret
+
+; rw_hyon - DS = the view, at the end of rw_aoton (every machine start):
+; the runtime table emptied, the tiers past the first put in S_JITXT AHEAD
+; of the images (rt_room's turn reaches a precompiled image only when every
+; runtime tier is written, and stops there), the first made current
+; (rt_hyon) and the core told to count. Every register kept
+rw_hyon:
+    cmp word [cs:rw_hyp], 0
+    je .r0
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov ax, [cs:rw_hyh]             ; the table and the counts, empty
+    mov [S_HYSEG], ax
+    mov es, ax
+    xor di, di
+    mov cx, HY_SEGB / 2
+    xor ax, ax
+    cld
+    rep stosw
+    mov [S_HYN], ax
+    mov [S_HYMISS], ax
+    mov bl, [cs:rw_hyn]             ; BL = runtime tiers past the first
+    dec bl
+    jz .one
+    push ds                         ; the images' pairs moved up BL places
+    pop es
+    mov al, [S_JITXN]
+    xor ah, ah
+    mov cx, ax
+    shl cx, 1                       ; (CX = their words)
+    shl ax, 1
+    shl ax, 1
+    mov si, S_JITXT - 2
+    add si, ax                      ; SI = the last word
+    mov al, bl
+    xor ah, ah
+    shl ax, 1
+    shl ax, 1
+    mov di, si
+    add di, ax
+    std
+    rep movsw
+    cld
+    mov bh, [S_JITXN]
+    mov byte [S_JITXN], 0           ; ...and the tiers in front (rt_more:
+    mov si, rw_hyseg + 2            ;   their tails, no generation)
+    mov cl, bl
+    xor ch, ch
+.t:
+    mov ax, [cs:si]
+    push ax
+    call rw_csel
+    mov dx, ax
+    pop ax
+    call far [cs:rw_jmore]
+    inc si
+    inc si
+    loop .t
+    add [S_JITXN], bh
+    mov bl, [S_JITXN]               ; (the table's zero after them)
+    xor bh, bh
+    shl bx, 1
+    shl bx, 1
+    mov word [S_JITXT + bx], 0
+.one:
+    mov byte [S_HYON], 1            ; (first: rt_tier takes the images'
+    mov ax, [cs:rw_hyseg]           ;   generation when it is on)
+    push ax
+    call rw_csel
+    mov dx, ax
+    pop ax
+    call far [cs:rw_jhyon]
+    mov word [S_JITVEC], rw_hyjit
+    mov [S_JITVEC + 2], cs
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.r0:
+    ret
+
+; rw_hyjit - the translator's door under S_HYON (rdgaot.inc's .cnt): the
+; miss at SI made a block (the part's rt_translate) and filed (rdg_hyins),
+; then back at the core's tr_back - into it, or the interpreter's when none
+; could be made
+rw_hyjit:
+    RDG_TOHOST
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    push bp
+    push es
+    push si
+    call far [cs:rw_jxlat]
+    pop si
+    push si
+    call rdg_hyins
+    pop si
+    pop es
+    pop bp
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    jmp rdg_ret
+
+rw_hybase       dw 0, 0             ; the pool block, or 0
+rw_hyseg        times RWH_T + 2 dw 0    ; its 64KBs' data halves
+rw_hyn          db 0                ; ...the runtime tiers among them
+rw_hyp          dw 0                ; the part's data half, 0: none loaded
+rw_hyh          dw 0                ; ...and the table's
+rw_ajrow        db 0                ; the part's row (the meta's byte 55)
+rw_jhyon        dw 50, 0            ; the part's rt_hyon, AX and DX as its
+rw_jxlat        dw 60, 0            ; ...and its rt_translate, SI the PC
+%endif
 
 ; the translator's door: nothing is translated, so a block asked for is the
 ; interpreter's (aothost.asm's h_jitstub)

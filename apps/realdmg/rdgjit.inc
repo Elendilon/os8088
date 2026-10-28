@@ -223,6 +223,39 @@ rt_more:
     ret
 %endif
 
+; rt_hyon - DS = the view, a PRECOMPILED machine's misses TRANSLATED
+; (REALDMG-SPEC 20.16), S_HYON already 1: AX = the runtime tier's segment
+; and DX its code selector (0: the same) - the second cache segment, its
+; tails copied, current, its generation the images' (rt_tier). Every other
+; tier is marked written, so a full one stops the translator (S_JITPRE 2)
+; rather than moving it into a precompiled image; with RDG_XTIER the host
+; has put any more runtime tiers first in S_JITXT, the images after them.
+; Keeps every register
+rt_hyon:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov [S_JITSEGB],ax
+    mov [S_JITCSB],dx
+    call rt_init.tails
+    mov byte [S_JITUSED],0FFh
+    mov byte [S_JITTIER],2
+    mov byte [S_JITPRE],0
+    mov ax,[S_JITSEGB]
+    call rt_tier
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ; rt_resume - DS = the view: the recompiler back on over the cache it had
 ; when it was turned off (the package's rw_jitoff), nothing forgotten - the
 ; cache holds only ROM's translations, keyed by PC and bank, and neither
@@ -343,6 +376,13 @@ rt_tier:
     mov es,ax                       ; its generation: the newest (16.2.3)
     inc word [S_JITGNX]
     mov si,[S_JITGNX]
+    cmp byte [S_HYON],0             ; (a precompiled machine's runtime
+    je .gn                          ;   tier: the images' own generation,
+    push es                         ;   so no link is logged - none is ever
+    mov es,[S_JITSEGA]              ;   undone, and the log would be in an
+    mov si,[es:0FFF0h]              ;   image - 20.16)
+    pop es
+.gn:
     mov [es:0FFF0h],si
     pop es
     mov si,RT_HFREE
@@ -1062,11 +1102,15 @@ rt_translate:
     jne .nf
     mov al,[JIT_BUF+bx+1]
     inc ah
-    jmp short .tm
+    call rt_deadcb                  ; a shift of a register: without F, or
+    cmp ah,2                        ;   with C alone, when what follows
+    jb .tm                          ;   writes the rest first (16.1.2)
+    jmp short .bare
 .nf:
     call rt_deadf                   ; INC/DEC r, ADD HL,rr: without F when
     or ah,ah                        ;   the next instruction overwrites it
     jz .tm
+.bare:
     push ax                         ; (and so marked, for rt_lazy)
     push cx
     push bx
@@ -1147,17 +1191,21 @@ rt_translate:
     ; in (tr_miss: tr_enter's own, or its neighbour)
     mov si,[RT_PC0]
     mov dl,[S_JITBK]
+    mov ax,[RT_ENT]
+    mov [S_JITOUT],ax
+    mov ax,[S_JITCS]                ; ...in the segment it was written in,
+    mov [S_JITOUT+2],ax             ;   as a jump names it (16.2.4)
     mov bx,[S_JITSLOT]
+    cmp bx,0FFFFh                   ; (no slot: a precompiled machine's
+    je .ntab                        ;   miss, which its host files, 20.16)
     mov es,[S_JITHSEG]
     mov [es:JIT_HASH+bx],si
     mov [es:JIT_HASH+bx+2],dl
     mov ax,[RT_ENT]
     mov [es:JIT_HASH+bx+4],ax
-    mov [S_JITOUT],ax
-    mov ax,[S_JITCS]                ; ...in the segment it was written in,
-                                    ;   as a jump names it (16.2.4)
+    mov ax,[S_JITCS]
     mov [es:JIT_HASH+bx+6],ax
-    mov [S_JITOUT+2],ax
+.ntab:
     inc word [S_JITNB]
     cmp word [RT_PC0],8000h
     jae .hr
@@ -1186,6 +1234,8 @@ rt_aotstop:
     push bx
     push cx
     push es
+    cmp word [cs:RT_AOTBMP],0       ; (no bitmap: a run-time translation on
+    je .no                          ;   a precompiled machine, 20.16)
     mov es,[cs:RT_AOTBMP]
     mov ax,bx
     add ax,[RT_PC0]                 ; AX = the PC
@@ -1307,6 +1357,110 @@ rt_deadf:
     pop dx
 .r0:
     pop ax
+    ret
+
+; rt_deadcb - AX = 256 + a CB opcode at JIT_BUF+BX: a rotate or shift of a
+; register gets its record without F (rdggen.cb_nof_lines) when what follows
+; overwrites all four flags before reading one, or its record with C alone
+; when that is true of Z, N and H; else AX as it was. Keeps BX
+rt_deadcb:
+    cmp al,40h
+    jae .r
+    mov dl,al
+    and dl,7
+    cmp dl,6
+    je .r                           ; ((HL): the read-modify-writes)
+    jb .k
+    dec dl                          ; (A, 7: the seventh, 6)
+.k:
+    push bx
+    push ax
+    inc bx
+    inc bx                          ; BX = the next instruction
+    mov dh,0Fh
+    call rt_dlook                   ; CF = 0: all four dead
+    mov cx,0
+    jnc .rec
+    mov dh,7
+    call rt_dlook                   ; ...Z, N and H dead: C alone
+%ifdef RT_CBBUG                     ; (tests/gbcpu.py's control: C dropped
+    mov cx,0                        ;   with the rest)
+%else
+    mov cx,56
+%endif
+    jc .live
+.rec:
+    pop ax
+    push cx
+    mov cl,3                        ; (op >> 3) x 7 + the register
+    shr al,cl
+    mov ah,7
+    mul ah
+    add al,dl                       ; (DL: rt_dlook keeps it)
+    adc ah,0
+    pop cx
+    add ax,cx
+    add ax,RDGT_XCB
+    pop bx
+    ret
+.live:
+    pop ax
+    pop bx
+.r:
+    ret
+
+; rt_dlook - DH = flags still live, BX = an instruction in JIT_BUF: CF = 0
+; when it and those after it overwrite every one before any is read, as
+; rt_deadf's look (and its stops). Keeps BX and DL; AX, CX, SI lost
+rt_dlook:
+    push bx
+    mov cx,[RT_CNT]
+.k:
+    inc cx                          ; CX = the count with this one
+    cmp cx,RT_MAXI
+    jae .live
+    mov ax,[RT_CNT]
+    add ax,RT_DLOOK
+    cmp cx,ax
+    ja .live
+    lea si,[bx+3]
+    cmp si,[RT_N]
+    ja .live
+%ifdef RT_AOTSTOP
+    call rt_aotstop
+    jc .live
+%endif
+    push cx
+    call rt_fmask
+    and cl,dh
+%ifndef RT_DEADBUG
+    jnz .livec
+%endif
+    and ch,0Fh
+    not ch
+    and dh,ch
+    jz .dead
+    shl si,1
+    mov si,[cs:rt_tab + si]
+    or si,si
+    jz .livec
+    test byte [cs:rt_tab + si + 4],1+2+4+16+64
+    jnz .livec
+    mov al,[cs:rt_tab + si + 3]
+    cbw
+    add bx,ax
+    pop cx
+    jmp .k
+.dead:
+    pop cx
+    pop bx
+    clc
+    ret
+.livec:
+    pop cx
+.live:
+    pop bx
+    stc
     ret
 
 ; rt_fmask - the instruction at JIT_BUF+BX: SI = its record's index, CH =
@@ -1506,9 +1660,17 @@ rt_pick:
     cmp al,0F0h                     ; LDH A,(n): n >= 80h
     jne .e0
     cmp dl,80h
-    jb .no
+    jb .lcd
     mov ax,512
     jmp short .ff
+.lcd:
+    mov ax,RDGT_XLCD                ; ...or STAT or LY, to their answers
+    cmp dl,41h
+    je .ff
+    inc ax
+    cmp dl,44h
+    je .ff
+    jmp .no
 .e0:
     cmp al,0E0h                     ; LDH (n),A: 80h <= n < FFh, or a
     jne .fa                         ;   sound register io_wr only stores

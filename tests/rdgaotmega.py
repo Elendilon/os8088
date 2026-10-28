@@ -53,7 +53,19 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 sys.path.insert(0, HERE)
 import os88bochs  # noqa: E402
 import os88build  # noqa: E402
-import rdgmega  # noqa: E402
+import rdgmega
+
+def _defs(names):
+    """The view's offsets out of apps/realdmg/rdgdefs.inc, not restated"""
+    v = {}
+    for ln in open(os.path.join(ROOT, "apps", "realdmg", "rdgdefs.inc")):
+        p = ln.split(";")[0].split()
+        if len(p) == 3 and p[1] == "equ" and p[0] in names:
+            v[p[0]] = int(p[2].replace("RDG_STATE+", ""), 0)
+    return v
+
+
+HY = _defs(("S_HYON", "S_HYN", "S_JITSEGB", "S_JITCSB"))  # noqa: E402
 
 LIMIT = 150
 REGION_ALLOW = 200
@@ -81,6 +93,7 @@ def leg(t, out, name, pkg, lst, rom_beside, where, game=False):
     t0 = time.time()
     box = os88bochs.Box(out, [], bimg=disk, btype="1_44", build=t.dir)
     fails, text, fix, on, xn, xlin, b1lin, coded = [], "", 0, 0, 0, [], 0, set()
+    hyon, hyn, hytiers = 0, 0, []
     f0 = f1 = None
     rbase = None
     bstep = 0
@@ -139,6 +152,23 @@ def leg(t, out, name, pkg, lst, rom_beside, where, game=False):
                 xlin.append(rdgmega.lin(box, d) if d else 0)
                 if c:
                     coded.add(c)
+            # the misses translated (REALDMG-SPEC 20.16): the runtime tiers
+            # - the second cache segment, then the S_JITXT pairs ahead of
+            # the images, 64KB apart in a pool block of their own - are not
+            # images; what the squeezed images left must be made there
+            hyon = box.read(vb + HY["S_HYON"], 1)[0]
+            if hyon:
+                r0 = int.from_bytes(box.read(vb + HY["S_JITSEGB"], 2), "little")
+                r0lin = rdgmega.lin(box, r0)
+                k = 0
+                while k < len(xlin) and xlin[k] == r0lin + 0x10000 * (k + 1):
+                    k += 1
+                hytiers, xlin = [r0lin] + xlin[:k], xlin[k:]
+                xn -= k
+                hyn = int.from_bytes(box.read(vb + HY["S_HYN"], 2), "little")
+                c = int.from_bytes(box.read(vb + HY["S_JITCSB"], 2), "little")
+                if c:
+                    coded.add(c)
             w = int.from_bytes(box.read(vb + rdgmega.S_DISP + 2, 2), "little")
             if w:
                 coded.add(w)
@@ -175,6 +205,13 @@ def leg(t, out, name, pkg, lst, rom_beside, where, game=False):
                      % (LIMIT, text[-60:]))
     if not (on and fix):
         fails.append("not the precompiled machine: S_JITON %d, S_JITFIX %d" % (on, fix))
+    print("rdgaotmega: %s: misses translated %s" % (name, "OFF" if not hyon else
+          "(S_HYON %d): %d runtime tiers at %s, %d blocks made" % (
+              hyon, len(hytiers), " ".join("%06X" % x for x in hytiers), hyn)))
+    if not hyon:
+        fails.append("the misses are not translated (REALDMG-SPEC 20.16): S_HYON 0")
+    elif not game and hyn == 0:
+        fails.append("the squeezed images' misses made no block at run time")
     if xn < (1 if game else 2):
         fails.append("%d code images named to the core" % xn)
     if (rbase or 0) < 0x100000:          # REALDMG-SPEC 16.2.7: OS88_HIGH

@@ -1273,9 +1273,16 @@ the interpreter for VRAM as they do for the cartridge.
 the view at 4610h; in play about one a frame), or, when the list ran out,
 `repe scasw` over the marks, two blocks a word - against the same shadows, with the same
 change bytes as the whole compare set, so nothing after it changes. The
-copy idiom (`cpy_ff`, 16.6) moves bytes with `REP MOVSB` and marks none:
-when either of its ranges starts in VRAM it sets `RDG_VALL` and the next
-scan compares all of it, as before the marks. A full frame (`RDG_DFULL`)
+copy idioms (`cpy_ff`, `cpc_ff`, 16.6) move bytes with `REP MOVSB` and
+mark none: when the range they WRITE starts in VRAM they set `RDG_VALL`
+and the next scan compares all of it, as before the marks (a copy out of
+VRAM writes none of it). The fill (`fill_ff`) marks what it writes
+(`vr_fill`): a fill inside one 16-byte block marks and lists that block as
+a store's first write would, and only one across two sets `RDG_VALL`.
+Kirby's Dream Land fills five or six bytes of its window's map row about
+once a frame, and the whole compare that cost was 6.4% of `286-mega` in its
+scrolling: on the owner's long replay, 21.4 -> 24.3 frames drawn a second at
+the same 99.6% of real time. A full frame (`RDG_DFULL`)
 clears the marks. A Game Boy stack in VRAM (`PUSH`, `CALL` are the 8086's
 own) would be unseen; no game puts one there.
 
@@ -1840,6 +1847,9 @@ first frame: **Windowed is slow: / Alt+Enter for / Full Screen**. The
 window composes a frame and hands it to the kernel to blit, where full
 screen writes the card itself (section 15), so on every machine the window
 is the slow way to play and nothing else said so.
+Where the window's time goes was measured on the 86Box 286 (bytes
+written to the card, not the OS's per-call work), and the options left to
+cut it are docs/plans/WINDOWED-DRAW-PLAN.md.
 - `[rw_ntc]` is the notice; `rw_paint` draws it in place of the picture
   while it is set, and the worker's `rw_ntcwait` holds the game's first
   frame back until the time is up, then clears it and marks every line
@@ -2033,7 +2043,12 @@ dmg-acid2 reference as the window, on MartyPC's 5150 Hercules and CGA.
 is `rw_clk`'s, 838 ns a count, and each draw measures itself (`rw_timed`).
 A draw is due (`rw_drawdue`) in one of two cases:
 - **The game has caught up**: once as long as the last draw took has passed
-  since it ended. So drawing takes at most half the machine.
+  since it ended. So drawing takes at most half the machine. "Caught up"
+  is one frame behind or less in full screen, and less than a tick's frames
+  (`rw_pertick`) in the window, whose clock owes them a tick at a time: a
+  draw that ran past a period is not a game that is behind, and counting it
+  as one cost Link's Awakening a draw in four on `286-mega` with a fifth of
+  the machine idle in `FSX_WAIT`.
 - **The game is behind**: another such length later still. So drawing takes
   a third of the machine and the rest goes to catching up.
 - **The machine would otherwise sleep** - caught up, nothing owed, and a
@@ -2045,6 +2060,27 @@ A draw is due (`rw_drawdue`) in one of two cases:
   frame it has caught up".
 - **On an 8088** a draw is a large part of a second, and the picture rate
   falls while the game holds its speed.
+
+**Steady pacing (Shift+F2, full screen only).** The rules above draw a
+frame wherever there is room, so a game that cannot draw every frame draws
+at uneven gaps - Kirby's Dream Land scrolling on `286-mega` drew after 3, 5,
+8, 4 and 6 frames in one second - and the game's pace moves with them
+(95-105% second to second). STEADY draws every k-th frame and none between,
+the waits off the cadence kept (`rw_pace`, `rw_pk`; `rwfsx.inc`'s `.stdy`).
+k is what the cycles measure (`rw_padapt`): one more after two cadence draws
+in a row that began with the next frame already owed, one fewer after
+`RW_PDOWN` (4) in a row whose waits (`rw_pwait`, `[rw_pidl]`) would have held
+a cycle a frame shorter - with k frames of R a period P, a draw D and the
+waits I, kP = kR + D + I, so a cycle of k - 1 fits when I >= P - R, taken
+with an eighth of P to spare - and 1 to `RW_PKMAX` (6). On the owner's long
+Kirby replay it held k = 6 through the scrolling, 9 of every 10 draws six
+frames apart, ten pictures a second at 99-102% of real time, where Free drew
+8-12 at uneven gaps. Shift+F2 because the F-keys are all taken: the least
+used get a Shift. Not kept with the game, and the window's own rules are
+Free's. `[rw_phist]` counts the draws by the frames run since the one
+before (1-7, 8+) whichever way it is set, and `tests/rdgcore/rdgwin.py`
+prints it (`RDGWIN_GAPS=1` a second at a time, `RDGWIN_FSPRESS=shift+f2`
+the keys pressed inside the bracket).
 
 **The first field run is why "behind" is a share and not a period.** The
 first form drew every three ticks whenever the game was behind at all. On
@@ -3047,8 +3083,8 @@ otherwise:
   also how nearly every cartridge copies its OAM DMA routine to FF80 at
   boot (25 of the owner's 26). Only when FF00+C's range lies wholly in
   FF80-FFFE - C at least 80h and C + r not past FFh, so neither I/O nor
-  IE is touched - and HL's in 8000-FEFF or FF80-FFFE; a range starting in
-  VRAM sets `RDG_VALL`. `REP MOVSB` forward, then C += r, B = 0, A the
+  IE is touched - and HL's in 8000-FEFF or FF80-FFFE; HL's range starting
+  in VRAM and written (F2h) sets `RDG_VALL`. `REP MOVSB` forward, then C += r, B = 0, A the
   last byte, HL += r, F `fill_ff`'s. 9r + 2 M-cycles. DL tells the tail
   which shape (E2h or F2h, the opcode through C). Two CB-half tail slots,
   pages DDh and E1h (`cpc_ff`, `cpc_go`), which are tail pages already.
@@ -3067,8 +3103,8 @@ otherwise:
   0376 and Super Mario Land 2's 0322 after `LD B,A0h`; Wario Land's 11EB
   the rest of it; Pokemon Yellow's 0088, and its 1679 nested under a
   `DEC B`). Only when HL's range lies wholly in 8000-FEFF or FF80-FFFE,
-  where a translated store writes memory itself; a range starting in VRAM
-  sets `RDG_VALL`, as `cpy_ff`'s. `REP STOSB`, then HL += r, r = 0 and F
+  where a translated store writes memory itself; a range in VRAM is marked
+  for the damage scan by `vr_fill` (13.2.2). `REP STOSB`, then HL += r, r = 0 and F
   exactly as DEC's template leaves it for 1 -> 0 - Z and N, and LAHF's
   PF and bit 1 too (66h with C kept), so the AF word matches the loop's
   and `gbaot check` against the interpreter stays exact; its first build
@@ -3664,9 +3700,11 @@ one of five entries (0 init, 3 preload, 6 a new round, 9 a frame, 12 go on
 in the same segments), and takes the machine back at an `INT 3`: the end of
 the entry, or a bank the host serves (`rdg_nres`'s hooks, section 10.3).
 
-The driver is loaded at 0860:0 and the core at 1000:0, which leaves it
-31,232 bytes, and `Machine` refuses a larger `aothost.bin` rather than
-writing the core over its end. It was at 0900:0 with 28,672, and when the
+The driver is loaded at 0560:0 and the core at 1000:0, which leaves it
+43,520 bytes (the stack 0:54F0 down, under it), and `Machine` refuses a
+larger `aothost.bin` rather than writing the core over its end. It was at
+0860:0 with 31,232 until the CB group's dead flags (16.1.2) took it 74
+over, and at 0900:0 with 28,672 before that; and when the
 driver grew to 28,686 the core's first 14 bytes landed on the end of
 `h_jitstub`, mode 3's door for a ROM PC that has no block (`rt_aotstop`'s
 answer under a fixed table). No check measured here reached that door, so
@@ -4273,3 +4311,77 @@ owner's replay as its counters, on 86Box `286-mega`: 7 images and all 64
 banks resident, nothing fetched, **94.7%** of real time a second (mean of
 seconds 3-70) against 94.9% for the plain package on kern_big (3 banks
 fetched) and 91.5% for the recompiler on kern_mega.
+
+### 20.16 kern_mega's package: its misses translated
+
+A precompiled image is only as complete as the walk (20.2) and the replays
+its counters came from (20.11): code reached through a jump table or a
+computed jump, in a stretch no replay ran, is not in it, and every entry to
+it is the interpreter's - for the rest of the session. The owner's Link's
+Awakening replay pushing a spiked beetle met 60 such PCs, ~3 entries a frame
+each, and the machine sat at 82-95% (`rdg_aotmiss`, `tr_ejf`, `tr_ekey` and
+the handlers ~20% of 86Box's `286-mega`). A replay per scene is not an
+answer for a fifteen-hour game, so kern_mega's package carries the
+recompiler and translates what the host did not:
+
+- **The part.** `gbaot.py package --mega` appends `rdgjitp.asm` built
+  `RDG_XTIER RDG_HYB` against the PRECOMPILED core's templates
+  (`build/gbaot/rdgjitpaot.bin`) as the last row, and the meta's byte 55
+  names it. The plain package has no such row and none of what follows.
+- **The memory.** `rw_hyload` (in `rw_aread`, under `CPU_F_PM`) claims ONE
+  pool block of up to `RWH_T` = 4 runtime tiers + the part + the runtime
+  table, as many tiers as fit and one at least, each 64KB a `SEG_SUBC` pair.
+  On any failure nothing is kept and the package is 20.15's.
+- **Counting.** `S_HYON` 1 sends both of the core's ways to the interpreter
+  through `rdg_aotmiss`: a filter miss (`.nof`), and `tr_ejf`'s (`tr_ejfno`
+  asks `S_HYON` first). A ROM PC there is counted in a direct-mapped table
+  of 2,048 (`HY_CNT`, the high byte folded in - two PCs 800h apart in one
+  bank otherwise reset each other for ever, which is how 73DFh and 7BDFh of
+  bank 15h stayed interpreted), and at `HY_HOT` = 16 entries the translator
+  is asked with no slot (`S_JITSLOT` FFFFh, so `rt_translate` writes nothing
+  into the host's FIXED table) and the core comes back at `tr_back`.
+- **Filing.** `rdg_hyins` puts the block in the RUNTIME TABLE (`HY_TAB`,
+  4,096 entries, open addressing, nothing ever taken out, full at 3,072),
+  sets its filter bit and makes the miss cache's entry for it the block -
+  so the next look finds it as it finds a listed one. A miss whose filter
+  bit is set and that is not listed probes the runtime table (`.rh`).
+- **Chaining.** `tr_link` chains only what is in the fixed table, so a
+  runtime block's exits into the list or the runtime table would pay
+  `tr_link`, `tr_enter`, `tr_new2` and the lookup on every pass - measured
+  6,320 x86 instructions a frame where the interpreter had spent 302. Under
+  `S_HYON`, `tr_lno` goes through `tr_lnx` (in slot 45's CB half: slot 42 has
+  no room) to `rdg_aotlink`, which looks the target up as any miss and, found,
+  goes on through `tr_lpatch` in the site's own tier (`S_HYLP`, its CS
+  stored by `tr_lnx`) - chained, once.
+- **The tiers.** The first is the second cache segment (`S_JITSEGB`); the
+  rest are put in `S_JITXT` AHEAD of the images (`rw_hyon`), so `rt_room`'s
+  turn meets a precompiled image only when every runtime tier is written,
+  and stops there: a fixed table never flushes (16.8), `S_JITPRE` goes to 2
+  and `S_HYON` to 2 - what was made is still found, nothing more is made.
+  A runtime tier takes the images' own generation (`rt_tier` reads
+  `S_JITSEGA`'s), so no link between them is logged: none is ever undone,
+  and the log would sit in an image.
+- **The host.** `aothost.asm`'s mode 4 is the same machine (one tier, the
+  table in the space ten images leave: `run_arm`), and `gbaot.py check
+  --arm hyb` holds it to the interpreter.
+
+**The gate** is `tests/gbaot.py`'s misses leg: GBBANK, GBRET and cpu_instrs
+precompiled from BANK 0'S ENTRIES ALONE, run with their misses translated,
+identical to the interpreter (GBBANK makes 63 blocks at run time), and red
+under `RDG_HYBUG` (a block filed under the next bank's key). Images built
+with no heat at all - Link's Awakening 1,232 blocks, Kirby's Dream Land
+3,151, Super Mario Land 1,899, Looney Tunes 4,649 - are identical to the
+interpreter over each one's 3,000-frame replay with 603, 7, 37 and 8 blocks
+made at run time.
+
+**MEASURED** on the owner's beetle replay: x86 instructions a frame on the
+host, the image without that replay in its counters 34,671 (the
+interpreter 9,318 of them) against **26,202** with its misses translated
+(the interpreter 1,100, the runtime tiers 1,522) - and 25,450 for the image
+built WITH the replay, so the run lands within 3% of a perfect precompile.
+On 86Box `286-mega` the same package went from 82-95% of real time and 13-17
+pictures a second to **99-102% and 22-24**, the image built with the replay's
+own.
+
+The core changed with it (`tr_ejfno`, `tr_lno`, `tr_lnx`), so every image is
+precompiled again; the plain package's machine is unchanged, `S_HYON` 0.

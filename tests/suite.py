@@ -3566,7 +3566,7 @@ SOAK = [
         "exactly - the cycle counts instr_timing checks are the core's own. "
         "SOAK: one package's core",
         needs=("qemu", "nasm", "rgbds"), timeout=660),
-    Row("rdgstatic", "soak", py("tests/rdgstatic.py"), 24.0,
+    Row("rdgstatic", "soak", py("tests/rdgstatic.py"), 80.0,
         "REALDMG's Static recompiler (docs/REALDMG-SPEC.md section 16.8): "
         "cpu_instrs, instr_timing, mem_timing and tools/gbprof/gbrmw.asm each "
         "run TWICE bare through tests/rdgcore/rdghost.asm - a first pass "
@@ -15277,6 +15277,17 @@ SOAK = [
         "glass exact, odd and even frames apart",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
+    Row("vidscreenb", "soak", py("tests/vidscreen.py", "--build",
+                                 "--screen", "640x350"), 60.0,
+        "SPEC.md 98.2.5.2.1, 98.3.8.7: a scene BUILT AHEAD on a file against "
+        "its own pages, on 640 x 350 - vidscreen's clip with frames 17-19 "
+        "HELD toward frame 20, its scene change, and frame 21's record "
+        "carrying REC_UP though no key comes before it. Holds across the "
+        "run: the glass on frame 16 while held, frame 20 whole, frame 21 on "
+        "the page the copy brought up. Fails if the player took REC_UP only "
+        "after a key",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
     Row("vidscreenn", "soak", py("tests/vidscreen.py", "--screen",
                                  "320x200n", "--screen", "320x240n"), 45.0,
         "SPEC.md 98.1.3.2.5.1: vidscreen's flipped clip on the two NARROW "
@@ -15972,6 +15983,22 @@ SOAK = [
         "pans (98.2.1.2.1), and --bands' writes never climbing back a band "
         "(98.2.1.2.2), each red with its mechanism taken out.",
         needs=("ffmpeg",)),
+    Row("vidowncells", "soak", py("tests/vidowncells.py"), 80.0,
+        "SPEC.md 98.2.5.2, 98.2.5.2.1: a scene on a FLIPPED file against its "
+        "own pages, host-side. A test card cut to a held grained picture, "
+        "each its own sixteen, 640 wide on 16 colours' own 640 x 350 screen, "
+        "--flip --flip-own on the 286-picomem1, --ladder "
+        "coarsescene:frame,cut:100: the scene rung must draw cells on BOTH "
+        "pages, and the frame after the scene's first - the other page - "
+        "must show no more of the scene before than the first does. Broken "
+        "on purpose - the ladder's old guard back (it skipped a flipped "
+        "file's palette frame whole), the rung left out (--broken), the "
+        "cells on one page alone (--broken2) - it FAILS naming which. The "
+        "build leg encodes it again with --flip-build 8: the scene built "
+        "by frames HELD before it, the glass on the last scene meanwhile, "
+        "WHOLE on its flip, and REC_UP on the record after it; red with the "
+        "copy left out (--broken3) and with no hold ever built (--broken4)",
+        needs=("ffmpeg",), cpus=2),
     Row("vidlag", "soak", py("tests/vidlag.py"), 40.0,
         "SPEC.md 98.2.1.1.3: the lag searched, host-side. A frame's ceiling "
         "under the lag schedule must be the most it may take - safe and "

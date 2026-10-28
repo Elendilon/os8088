@@ -6310,7 +6310,8 @@ def encode_canvases(canvases, g, out, fps, pixfmt=PF_MONO1, palette=None,
                     title="", keysecs=KEY_SECS, poster=None, rowscale=1,
                     flip=False, loop=None, repeat=False, cgapal=None,
                     screen=SCR_480, pev=None, subs=None, kpart=KEY_PART,
-                    held=(), own=False, thumbs=None, resident=False):
+                    held=(), own=False, thumbs=None, resident=False,
+                    ups=()):
     """encode_frames for canvases already in hand (bytes, g.wb a row) - the
     only way to make a VGA8 file without a video (SPEC.md 98.2): silent,
     every changed byte. `pev`: a palette a scene's table (98.1.3.2.3).
@@ -6318,7 +6319,8 @@ def encode_canvases(canvases, g, out, fps, pixfmt=PF_MONO1, palette=None,
     (a SUB2 file's colour ones, 98.1.3.2.4). `held`: the frames whose
     records are HELD (98.1.3.9, a flipped file's) - drawn, not shown.
     `own`: flipped with each record against its own page (FLIP_OWN), the
-    record after a key bringing its page up by the rows that differ.
+    record after a key bringing its page up by the rows that differ - and
+    each frame in `ups` too (a flip to a page built ahead, 98.2.5.2.1).
     `thumbs`: the writer's DESKTOP POSTERS (98.1.3.11), as Writer.thumbs
     takes them. `resident`: written as a RESIDENT file (98.1.7)"""
     rate, spf = max(1, round(fps * 100)), 100
@@ -6335,7 +6337,7 @@ def encode_canvases(canvases, g, out, fps, pixfmt=PF_MONO1, palette=None,
         pcv, vis = [prev, prev], 0
         for k, cv in enumerate(canvases):
             d, up = vis ^ 1, None
-            if wr.keys and wr.keys[-1][0] == k - 1:
+            if wr.keys and wr.keys[-1][0] == k - 1 or k in ups:
                 rows = [y for y in range(g.h)
                         if pcv[d][y * g.w:(y + 1) * g.w] !=
                         pcv[vis][y * g.w:(y + 1) * g.w]]

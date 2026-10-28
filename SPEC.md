@@ -71342,6 +71342,24 @@ allocator's two tables grew from 9 entries to 18, `opl_wr` became the bank-0
 face of `opl_wrp` (the address port in DX), and the claim, release, gate and
 batch are the rest. MIDIRack (§105) is the consumer.
 
+#### 34.12.1 A write's delays: an OPL2's, or an OPL3's
+
+`opl_wrp` follows the address write with 6 status reads and the data write
+with 35 - the YM3812's 3.3 us and 23 us, with room, at an ISA read's ~1 us.
+**An OPL3 takes 2 and 4** (`[opl_fast]`): the YMF262 wants ~0.28 us after
+either write. The chip is taken to be one when `opl_kind_probe` says so
+(both of its tests: the status bits and the timer through 38Ah) OR when the
+Sound Blaster beside it answers DSP version 4 or later - an SB16 or a true
+compatible, every one of which carries an OPL3-class chip. The second is
+not a guess at the bank: 86Box's SB16, a YMF262, fails the probe's
+second-bank test and stays `SND_OPL2` for the claim, which is what that test
+is for, while its delays are an OPL3's. It is what RealDMG's FM sound costs, a few
+registers a channel each frame: on `286-mega`'s Sound Blaster 16 the
+writes' delays were ~2% of the machine in Kirby's Dream Land, which a
+profile that sorted every address at or above F0000h as the BIOS had been
+reporting as the BIOS's share. The counts are tested inside the write's
+`pushf` ... `popf`, so the caller's flags come back as they were.
+
 ### 34.13 The MPU-401 — MIDI out, in UART mode (`SOUND.DRV`, `drivers/sound/mpu.inc`)
 
 **The daughterboard's road.** A Roland SC-55 or MT-32 on the connector, a
@@ -192279,7 +192297,10 @@ period for the restore against 127% for the frame on Last Exile, Mode X).
   next record is drawn on the same page, against what it left.
 - **The record after a KEY** carries **`REC_UP`, y1 bit 12**: before its
   lists, its page takes the record's rows y0..y1 off the glass, every plane
-  through the latches (98.3.8.1's copy). A seek puts the key on both pages;
+  through the latches (98.3.8.1's copy). **So may any other record**
+  (2026-10-27): the one after a flip to a page built ahead carries it to
+  bring the page the flip left up to the glass (98.2.5.2.1), and a reader
+  and the player take it on any record exactly as they do after a key. A seek puts the key on both pages;
   a play through the key has the frame before it on the page drawn next -
   so the writer widens that record's band to every row where the two pages
   differ, and after the copy the page IS the glass, byte for byte, either
@@ -194673,7 +194694,9 @@ stretch is more than that broken as seen, and its frames are cut as the
 budgets cut them; it changes how the rungs before it are judged and draws
 nothing new, so a cut rung's try is the one before it, not encoded
 again). Where
-the budgets would cut a stretch, or at a scene's first frame, each PREFIX
+the budgets would cut a stretch, or at a scene's first frame (a flipped
+file's palette frame too, every prefix at the full rate there: 98.2.5.2),
+each PREFIX
 of the ladder is encoded on copies of the encoder over the next half
 second - its slowest rate, its longest lag and its cells together - and
 the first that shows every frame WHOLE - or, at or past a cut rung, none
@@ -196715,6 +196738,84 @@ reaches the player, the format or the kernel.
   the nearest of its whole palette. A ladder's `coarsescene` rung follows: it is
   offered on Mode X (`auto`, `4x1`) and on VGA4 with or without a palette a
   scene, and left out on a packed screen.
+  **On a FLIPPED file with a palette a scene, and on BOTH of its pages
+  against its own (2026-10-27, the owner: a near full-screen scene change
+  on Miku Miku 0:41.8 that "cuts in" for ten frames and would not "block
+  in" whatever was set).** Two defects, each enough alone. (1) A flipped
+  file holds no frame its palette changes at - the palette goes on with
+  the flip, onto the picture shown - and the guard that kept the HOLD out
+  kept the whole LADDER out, so the scene's first frame, the one frame
+  `coarsescene` exists for, never climbed it and the rung never drew a
+  cell. With a ladder the frame climbs now, every prefix at the full rate
+  (`degrade_choose`'s `nohold`: its lag and its cells, no `slow`); with
+  `--min-fps` alone it is skipped as before, a rate being all that has to
+  offer. (2) With `--flip-own` (VIDEO-SEEN-PLAN 3b) each record is drawn on
+  the page the glass is NOT showing, as it stands - so the frame after the
+  scene's first is drawn on the page that still holds the scene before,
+  and cells on one page with a cut on the other alternated on the glass,
+  the old scene flashing back every second frame. So the scene's cells go
+  on the frame after too, where the budgets would cut it (`own_cells`, 2
+  on two own pages and 1 elsewhere, a plain flip bringing the back page up
+  to the frame shown), in that frame's own finest cell that fits; the
+  ladder's trial draws both, so the rung is judged by the picture it makes,
+  and `--coarse-cut` without a ladder does the same. On the owner's clip,
+  `--ladder coarsescene:frame`: the scene's first frame 32x8 and the next
+  64x8 where both pages had cut in from the old scene before. `tests/
+  vidowncells.py` is the gate.
+  **Blocks (98.1.10) are not a way to block a scene in on a machine whose
+  DECODE binds**, and the encoder is right not to take them there: on
+  VGA4 a block is ~740-840 cycles for its 32 pixels (`BLK_MEASURED`, the
+  player's own) against ~12 a pixel for the same pixels exact by planes,
+  so a whole new scene in blocks costs MORE than the scene exact - on that
+  clip 4.54M cycles against 2.00M exact and 0.74M in 32x8 cells, in a
+  frame's room of 0.85M on the 286-picomem1, which is cut by the lag
+  schedule and not by the disk. Blocks buy BYTES; where the CPU cuts, the
+  cells are the coarse picture that fits.
+
+###### 98.2.5.2.1 A scene BUILT AHEAD on a flipped file (`--flip-build N`, 2026-10-27)
+
+**The owner's ask, after 98.2.5.2's cells**: *"page flipped when we can
+afford it, and for big scene changes fall back to single page, with the
+other page being built ahead"* - so a scene change comes in WHOLE rather
+than in cells. What shipped needs no single page at all, no new record
+and no player change, because a file against its own pages (98.1.3.10)
+already has both halves: a HELD record is drawn on the page the glass is
+not showing and not shown, the next drawn on the same page; and REC_UP
+copies rows off the glass onto the page about to be drawn, through the
+VGA's latches. Options version 48; `0`, off, is the default.
+
+- **WHERE**: a file `--flip --flip-own` with `--flip-hold ahead` and
+  `--scene-palettes` - the palettes are where the scenes are - on two
+  pages. Anything else says so and leaves it out.
+- **THE HOLD**: at a frame with a scene's first frame `k` at most N frames
+  on, the encoder tries on copies of itself (`build_try`) drawing every
+  frame to `k` as it would, then 1, 2, ... frames before `k` HELD - each
+  drawing `k`'s own picture, in `k`'s colours, onto the page the glass is
+  not showing - and takes the FEWEST that show `k` whole. None needed (the
+  scene fits as it is) and none enough (`k` still cut after holding every
+  frame there is) both leave the scene to the ladder and the cells. The
+  glass stays on the last scene through the held run: a still picture
+  there costs nothing to see, a moving one is held for that many periods.
+- **THE FLIP**: `k`'s own record is the rest, if any, and shows the page -
+  its sixteen go on with the flip as any flipped scene's do (98.3.8.3).
+- **THE PAGE LEFT BEHIND** still holds the last scene, so the record after
+  `k` carries REC_UP over every row where the pages differ, as the record
+  after a key does: the glass's copy, then that frame's own change against
+  it (`own_next`). A full 640 x 276 canvas is ~0.93M of the model's cycles
+  on the 286-picomem1 (its `lcopy_us`, 42 a plane byte), so on a machine
+  whose decode binds that frame shows `k` again and the motion resumes the
+  frame after - one repeated frame where cells would have been five.
+- **MEASURED** on the owner's Miku Miku 0:41-0:44 (`--ladder
+  coarsescene:frame --flip-build 8`, otherwise their command): the white
+  scene's last frame held 2 periods, the new scene WHOLE on its flip and
+  the second scene change after 1; error as seen 1.06% -> 0.59%, the view
+  as seen 18.1% -> 12.6% broken on average, 92 frames verified. The report
+  names each scene built, its holds, and any still cut on its flip or out
+  of reach.
+- **The gates**: `tests/vidowncells.py --leg build` (host side: built,
+  held, whole on its flip, REC_UP after it - red with the copy left out and
+  with no hold ever built) and `tests/vidscreen.py --build` (MartyPC: the
+  player across a held run, the flip and a REC_UP that follows no key).
 
 ##### 98.2.5.3 What the sixteen-colour options take together (the options audit, 2026-10-14)
 
@@ -196770,6 +196871,49 @@ a one-bit file of the same size.
 `videnc` checks both lossless, frame by frame, and CGA4's byte against the
 three overrides; `os88vid --selfcheck` round-trips both and refuses three
 bad files.
+
+##### 98.2.6.1 What CGA's colours may mix (`--colour-mix`, `--colour-clip`, `--edge-solid`, 2026-10-27)
+
+**A pattern over four colours mixes OPPOSITES.** 98.2.5's plan picks colours
+whose mean is the target, and on CGA4's most-picked palette - black, light
+cyan, light red, white - **light cyan and light red average to a grey**. So a
+grey comes out as cyan and red dots, and a blue the palette's cyan does not
+quite match is corrected with red. On an RGB monitor that reads as coloured
+dots, never as the colour in between. `--clip` could only stop it by making
+everything near a colour solid, and a mid grey is NEARER light red (141
+levels) than black or white (221), so a high clip painted greys red and took
+the black-and-white grey dither with them - which is the half that works.
+Three options, CGA4 and C160 only (`KnollDitherer`), each off by default so a
+file re-encodes as it was:
+- **`--colour-mix hue`** limits each pixel's plan. The palette's GREYS
+  (chroma, max - min channel, under 48 of 255) are always allowed; a COLOUR
+  only within 60 degrees of hue of a pixel at least 40 from grey, so cyan and
+  red never meet in one plan and a grey pixel mixes black, white and the
+  greys between. And a coloured pixel's tone is ONE grey's: the greys darker
+  than its nearest colour where the pixel is darker, the lighter ones where
+  it is lighter - so a light edge of a colour mixes in white and never black
+  as well. A pixel with nothing allowed (no grey in the palette, no hue near)
+  may use any. The plan's colour bits are the allowed colours', so the
+  source-stable hold (98.2.5) cannot keep a colour the rule forbids.
+- **`--colour-clip N`** is `--clip` for the palette's COLOURS, `--clip` then
+  the greys' alone: within N on every channel of the plan's first (nearest
+  allowed) colour, a pixel IS that colour. 255 never dithers a colour, which
+  is *dither only grey*: flat colours solid, greys still black and white.
+  Its default is `--clip`'s, which is the rule before it.
+- **`--edge-solid N`**: a pixel whose source's 3 x 3 spans more than N levels
+  on some channel (its RANGE, high less low, so the middle of a blend is an
+  edge as well as its ends) is its nearest colour, never a dot. A pattern
+  needs an area to be seen, and an anti-aliased letter's one- or two-pixel
+  blend into the ground was cyan, white AND black dots around every solid
+  letter. 48 suits cartoons and titles; on camera footage texture reads as
+  edge and flattens, so 0 is the default.
+
+Measured on the clip that asked for it (a 60-second anime title sequence,
+palette 50h, a moving two seconds at 15 fps, the hold off): changed bytes a
+frame 571 at `--clip 128`, 556 with all three at `hue` / 255 / 48 - so the
+look costs nothing in the stream. The default arm is BYTE-IDENTICAL in its
+picture to the encoder before it (the options record grows by the three);
+the record is version 49.
 
 #### 98.2.7 A resident or Live file from a video (`--resident`, `--live`)
 
@@ -199112,6 +199256,10 @@ record is not held to `VP_PREVKB`. Open refuses byte 37 7 with a loop.
   screens: the glass exact at every hold, odd and even frames apart, keys
   among them. With `REC_UP` ignored the Mode X arm FAILS before frame 38
   (480 pixels): its page was the frame before the key, not the key.
+  `tests/vidscreen.py --build` is `REC_UP` on a record that follows NO key
+  (98.2.5.2.1): three records held toward a scene change, the flip, and
+  the copy after it - `vp_owndec` tests the bit on every record, so it
+  needed no change.
 
 #### 98.3.9 Repeat
 

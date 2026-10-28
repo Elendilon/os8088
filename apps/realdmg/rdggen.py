@@ -974,7 +974,11 @@ tr_hm1 equ $-1               ; (its immediate: rt_init's to set, 16.3)
     jmp tr_lpatch
 tr_lno:
     mov bx,[ss:S_SAVBX]
+%ifdef RDG_AOTCORE
+    jmp tr_lnx                  ; (20.16's question first: slot 45's)
+%else
     jmp tr_enter
+%endif
 """,
     0x44: """
 ; tr_enter's last part: back from the translator, and the interpreter
@@ -1301,18 +1305,16 @@ cpy_ff:
     cmp bp,dx
     jl .no
     mov [ss:S_TMP4],dx
-    mov dl,bh                   ; either range starting in VRAM: the
-    sub dl,80h                  ;   damage scan compares it all, these
-    cmp dl,20h                  ;   stores marking no block (vr_wr)
-    jae .x1
-    mov byte [ss:RDG_VALL],1
-.x1:
-    mov dx,di
+    mov dx,di                   ; the DESTINATION starting in VRAM - DE
+    cmp byte [ss:S_TMP],2Ah     ;   for 2Ah, HL for 1Ah: the damage scan
+    je .d                       ;   compares it all, these stores marking
+    mov dx,bx                   ;   no block (vr_wr). A copy OUT of VRAM
+.d:                             ;   writes none of it (cpc_go's too)
     sub dh,80h
     cmp dh,20h
-    jae .x2
+    jae .x
     mov byte [ss:RDG_VALL],1
-.x2:
+.x:
     mov dx,bx                   ; HL's range...
     cmp dh,80h
     jb .no
@@ -1421,9 +1423,15 @@ stat_ff:
     mov ax,RDG_FRAME+RDG_HBL      ; to line 0's mode 0
     sub ax,[ss:S_TMP4]
 stat_t:
-    sub ax,8                    ; a pass short (0 is exact, gbrmw's
-    jbe stat_none               ;   Waits; 8 over is not)
-    and al,0F8h
+    add ax,2                    ; every pass whose read is still "not yet":
+    and ax,0FFF8h               ;   the read is 5 M-cycles after the JR and
+    jz stat_none                ;   8 apart, so whole passes to DIST + 2
+                                ;   leave the next read the first that sees
+                                ;   it (gbrmw's Waits, against WRAM's copy).
+                                ;   It was a pass short, and that pass read
+                                ;   once or twice more for nothing:
+                                ;   Link's Awakening's line waits through a
+                                ;   room's scroll, a read a line
     mov dx,bp
     sub dx,8
     jle stat_none
@@ -1818,13 +1826,25 @@ io_rd:
 ; in S_TNF: the PPU's place now is S_TNF - BP, modulo a frame. With the LCD
 ; off, LY is 0 and STAT is its fixed part, mode 0.
 io_lcd:
+    cmp bl,44h
+    je io_ly
+; io_stat / io_ly: the same answers entered directly - a translated LDH
+; A,(41h) or (44h), whose register the translator knew (rdgjit's rt_pick:
+; Link's Awakening's line-by-line waits through a room's scroll were a
+; quarter of a 286 in io_rd's dispatch and this). BX is not read: DH's
+; bit 7 says which, STAT's being always set
+io_stat:
     mov [ss:S_SAVAX],ax
     mov dh,[ss:0FF41h]
     and dh,78h
     or dh,80h
-    xor al,al
-    cmp byte [ss:S_LCDON],0
-    je .done
+    jmp short io_lc
+io_ly:
+    mov [ss:S_SAVAX],ax
+    xor dh,dh
+io_lc:
+    cmp byte [ss:S_LCDON],0     ; LCD off: LY 0 and STAT its fixed part,
+    je .out                     ;   mode 0 - DH as it stands, either way
     mov ax,[ss:S_TNF]
     sub ax,bp
 .wrap:
@@ -1853,9 +1873,9 @@ io_lcd:
     jae .done                   ; mode 0
     or dh,3                     ; mode 3
 .done:
-    cmp bl,44h
-    jne .out
-    mov dh,al
+    test dh,dh
+    js .out
+    mov dh,al                   ; LY
 .out:
     mov ax,[ss:S_SAVAX]
     xor dl,dl
@@ -2217,6 +2237,42 @@ JD_NOFILTER = {0xC9, 0xD9}
 # --- tails after a TAIL page's CB handler: the translator copies a tail -----
 # --- page whole, so its CB half's room is as reachable as its main half's --
 CBTAILS = {
+    0x0B: """
+; vr_fill: fill_go's r bytes from HL in VRAM ([S_TMP2] = r), with no store
+; through vr_wr - their one 16-byte block marked and listed as vr_new marks
+; a store's, or, a fill across two blocks, the whole of VRAM compared
+; (RDG_VALL). Kirby's Dream Land fills five or six bytes of its window's
+; row about once a frame, and the whole compare was 6.4% of 286-mega while
+; it scrolled. DX and DI are free (fill_go has DE); on at fill_g2
+vr_fill:
+    mov di,bx
+    add di,[ss:S_TMP2]
+    dec di                      ; the last byte
+    xor di,bx
+    cmp di,10h
+    jae .all                    ; (another block)
+    mov di,bx
+    shr di,1
+    shr di,1
+    shr di,1
+    shr di,1
+    and di,1FFh                 ; the block, as vr_wr's
+    cmp byte [ss:RDG_VMARK+di],0
+    jne .k                      ; (marked and listed already)
+    mov byte [ss:RDG_VMARK+di],1
+    shr di,1
+    mov dx,di                   ; DL = its pair, as vr_new lists it
+    mov di,[ss:RDG_VLN]
+    cmp di,RDG_VLMAX
+    jae .k
+    mov [ss:RDG_VLIST+di],dl
+    inc word [ss:RDG_VLN]
+    jmp short .k
+.all:
+    mov byte [ss:RDG_VALL],1
+.k:
+    jmp fill_g2
+""",
     0xEB: """
 ; rd_rom - [BX] in 4000-7FFF, the bank's: DH, on at [S_RET] (rd_slow's and
 ; rd_s1-3's). A bank switched to lazily is fetched first (REALDMG-SPEC
@@ -2244,6 +2300,8 @@ tr_irx:                         ; (tr_int's: its DX is not live - nor
     jmp short rx_get
 %ifdef RDG_AOTCORE
 tr_ejfno:                       ; tr_ejf's no-block way, into the
+    cmp byte [ss:S_HYON],0      ;   (misses TRANSLATED, 20.16: counted
+    jne tr_ejfhy                ;   at rdg_aotmiss, as the filter's are)
     mov bx,[ss:S_SAVBX]         ;   interpreter (the core's copy only:
     mov dx,ds                   ;   the handlers are there) - DS 0 is the
     or dx,dx                    ;   bank switched to lazily, in first and
@@ -2255,6 +2313,8 @@ tr_ejfno:                       ; tr_ejf's no-block way, into the
 tr_ejfrx:
     mov dx,tr_ejf
     jmp short rx_got
+tr_ejfhy:
+    jmp far [ss:S_AOTVEC]
 %endif
 seam_rx:                        ; (op_D3's: DX the dispatch's)
     mov dx,op_D3
@@ -2443,12 +2503,6 @@ cpc_ff:
     mov dl,cl
     add dl,ch
     jc cpc_no
-    mov dl,bh                   ; HL's starting in VRAM: the damage scan
-    sub dl,80h                  ;   compares it all (cpy_ff's)
-    cmp dl,20h
-    jae .x
-    mov byte [ss:RDG_VALL],1
-.x:
     mov dx,bx
     cmp dh,80h
     jb cpc_no
@@ -2486,6 +2540,12 @@ cpc_go:
     je .cp
     xchg si,di                  ; HRAM to HL
 .cp:
+    cmp di,0A000h               ; the DESTINATION in VRAM: the damage
+    jae .nv                     ;   scan compares it all, these stores
+    cmp di,8000h                ;   marking no block (vr_wr). A copy OUT
+    jb .nv                      ;   of VRAM writes none of it
+    mov byte [ss:RDG_VALL],1
+.nv:
     rep movsb
     mov al,[di-1]               ; A, the last byte
     cmp byte [ss:S_TMP],0E2h
@@ -2775,14 +2835,14 @@ fill_ff:
     0x7D: """
 ; fill_ff's other half (page 7F's CB half): the fill itself
 fill_go:
-    mov dl,bh                   ; a range starting in VRAM: the damage scan
-    sub dl,80h                  ;   compares it all, these stores marking
-    cmp dl,20h                  ;   no block (vr_wr), as cpy_ff's
-    jae .nv
-    mov byte [ss:RDG_VALL],1
-.nv:
     sub bp,[ss:S_TMP4]
     mov [ss:S_TMP4],di          ; (DE)
+    mov dl,bh                   ; a range starting in VRAM: these stores
+    sub dl,80h                  ;   marking no block (vr_wr), vr_fill
+    cmp dl,20h                  ;   marks it
+    jae fill_g2
+    jmp vr_fill
+fill_g2:
     mov [ss:S_TMP6],cx
     mov dx,ss
     mov es,dx                   ; (ES is every helper's to load)
@@ -2840,6 +2900,18 @@ tr_lpx:
 .xh:
     mov es,[ss:bx]
     jmp tr_lpok
+%ifdef RDG_AOTCORE
+; tr_lnx: tr_link's target is not in the fixed table. Misses TRANSLATED
+; (20.16): the list's and the runtime table's blocks are chained too, by
+; rdg_aotlink, through tr_lpatch in this - the site's - tier
+tr_lnx:
+    cmp byte [ss:S_HYON],0
+    jne .hy
+    jmp tr_enter
+.hy:
+    mov [ss:S_HYLP+2],cs
+    jmp far [ss:S_HYLVEC]
+%endif
 """,
     0x41: """
 ; POP's slow path, SP below C000h (REALDMG-SPEC 5): DX = the word at SP and
@@ -3027,6 +3099,50 @@ NOF_OPS += [k << 4 | 9 for k in range(4)]
 RDG_XNOF = len(EXTRA)
 EXTRA += [("%02X without F" % op, None if op in (0x34, 0x35) else nof_lines(op), 1)
           for op in NOF_OPS]
+
+
+def cb_nof_lines(cb, carry):
+    """CB cb, a rotate or shift of a register, without its flags (carry
+    False: every one dead) or with C alone (carry True: Z, N and H dead) -
+    REALDMG-SPEC 16.1.2. C alone is the 8086's CF put into AH by a LAHF,
+    which leaves AH's Z and H whatever the shift made them: dead, by the
+    same look that chose the record. RL and RR still take C in."""
+    y, r = (cb >> 3) & 7, R8[cb & 7]
+    L = []
+    if r in X86:
+        reg = X86[r]
+    else:
+        L.append("    mov dx,di")
+        reg = "dh" if r == "D" else "dl"
+    L += ["    " + ln for ln in {0: [f"rol {reg},1"], 1: [f"ror {reg},1"],
+                                 2: ["sahf", f"rcl {reg},1"], 3: ["sahf", f"rcr {reg},1"],
+                                 4: [f"shl {reg},1"], 5: [f"sar {reg},1"],
+                                 6: [f"rol {reg},1"] * 4, 7: [f"shr {reg},1"]}[y]]
+    if carry:
+        L.append("    and ah,0FEh" if y == 6 else "    lahf")   # (SWAP: C = 0)
+    if r in ("D", "E"):
+        L.append("    mov di,dx")
+    return L + ["    sub bp,2"]
+
+
+# Their records, 512 + RDG_XCB + k with k = (cb >> 3) x 7 + the register
+# (B C D E H L A: cb AND 7, A's 7 made 6), the carry-only ones 56 on -
+# rdgjit.inc's rt_deadcb. (HL)'s are the read-modify-writes above.
+CB_NOF = [(y << 3) | r for y in range(8) for r in (0, 1, 2, 3, 4, 5, 7)]
+RDG_XCB = len(EXTRA)
+EXTRA += [("CB %02X without F" % cb, cb_nof_lines(cb, False), 2) for cb in CB_NOF]
+EXTRA += [("CB %02X with C alone" % cb, cb_nof_lines(cb, True), 2) for cb in CB_NOF]
+
+# LDH A,(41h) and LDH A,(44h): STAT and LY, straight to their answers -
+# not the HRAM test, HL kept and io_rd's dispatch, which the general LDH
+# template spends on a register the translator already knows
+RDG_XLCD = len(EXTRA)
+EXTRA += [("LDH A,(%02Xh)" % n, ["    sub bp,2",           # (the read is the
+                                 "    mov word [ss:S_RET],.k",  # third M-cycle's)
+                                 "    jmp near io_%s" % nm,
+                                 ".k:",
+                                 "    mov al,dh",
+                                 "    sub bp,1"], 2) for n, nm in ((0x41, "stat"), (0x44, "ly"))]
 
 
 if __name__ == "__main__":
