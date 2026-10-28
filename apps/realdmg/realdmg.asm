@@ -568,8 +568,12 @@ rw_reloc:
 .6:
 %ifdef RDG_AOT
     cmp [S_AOTVEC+2], bx            ; (rdg_aotmiss, ours)
-    jne .r
+    jne .7
     mov [S_AOTVEC+2], dx
+.7:
+    cmp [S_HYLVEC+2], bx            ; (rdg_aotlink, ours: 20.16)
+    jne .r
+    mov [S_HYLVEC+2], dx
 %endif
 .r:
     pop ds

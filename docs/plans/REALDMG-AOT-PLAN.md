@@ -40,10 +40,13 @@ correctness items they turned up are closed. What is still open:
   ~20% of the 86Box 286 in `rdg_aotmiss`, `tr_ejf`, `tr_ekey` and `op_*`,
   and it held the game at 82-95%. With that replay added to the heat it
   is 1 PC: 100% and 15 -> 22-23 pictures a second, `check` identical over
-  its 460 frames. The open question is a GENERAL fix rather than one more
-  replay per scene: how the walk can see these tables (a pass over
-  `JP (HL)` sites that reads the table they index), and how many games
-  have the same gap.
+  its 460 frames. **On kern_mega this is answered** (REALDMG-SPEC 20.16):
+  the package carries the recompiler and translates its own misses, which
+  lands that replay at 99-102% with no replay in the counters. Still open
+  for the machines without it - the 8088's and kern_big's packages - is
+  the walk seeing these tables (a pass over `JP (HL)` sites that reads the
+  table they index); only 19 of Link's Awakening's 60 PCs appear as a word
+  anywhere in the ROM, so it can narrow the gap but not close it.
 
 Moved off this plan: **the kern_mega arm** (20.14) is built on the
 kern_mega memory branch by the session doing that rework, which keeps

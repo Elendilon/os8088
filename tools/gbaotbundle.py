@@ -29,7 +29,7 @@ import os88vbundle  # noqa: E402
 ROOTS = ("gbaotgui.py", "gbaot.py", "os88disk.py", "os88pkg.py")
 THIRD_PARTY = {"unicorn", "tkinterdnd2"}   # (tkinterdnd2 optional: drops off Windows)
 BINS = ("aothost.bin", "rdgcore.bin", "rdgtmpl.bin", "rdgcore.inc", "realdmgaot.bin",
-        "realdmgaotmega.bin")
+        "realdmgaotmega.bin", "rdgjitpaot.bin")
 FOLDER = "os8088-gbaot"
 
 README = """os8088 GAME BOY PRECOMPILER
@@ -96,6 +96,7 @@ def main():
     import gbaot
     gbaot.aot_image(a.build)               # (every binary, current)
     gbaot.aot_image(a.build, mega=True)    # (and kern_mega's, REALDMG-SPEC 20.15)
+    gbaot.aot_jitpart(a.build)             # (...and its recompiler, 20.16)
     mods, other = os88vbundle.closure(ROOTS)
     stray = other - THIRD_PARTY
     if stray:

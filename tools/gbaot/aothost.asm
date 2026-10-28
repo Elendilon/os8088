@@ -21,6 +21,9 @@
 ;                         by mode 2, FIXED (S_JITFIX), the HRAM's code
 ;                         interpreted (h_jitstub), the resume through
 ;                         tr_enter
+;   4  precompiled, its   mode 3, and a miss counted to HY_HOT is
+;      misses translated  translated into a RUNTIME tier at p_hyr0 and filed
+;                         in the runtime table at p_hyseg (REALDMG-SPEC 20.16)
 ;
 ; Assembled at org 0 by tools/gbaot.py, which finds the entries at the top.
 ; =============================================================================
@@ -65,6 +68,8 @@ p_aotint    dw rdg_aotmiss.no           ; 36h  where a miss goes to the
                                         ;      interpreter (the heat's misses)
 p_stload    dw h_stload                 ; 38h  entered here: a save state
 p_filt      dw 0                        ; 3Ah  the list's filter (mode 3)
+p_hyseg     dw 0                        ; 3Ch  the runtime table's (mode 4)
+p_hyr0      dw 0                        ; 3Eh  ...and its runtime tier
     times 40h-($-$$) db 0
 
 ; the stops: the host takes the machine at the INT 3 and puts it back at the
@@ -91,6 +96,8 @@ h_init:
     cmp al,2
     je .tr
     cmp al,3
+    je .aot
+    cmp al,4
     je .aot
     xor al,al                           ; 0: the interpreter as there was one
     call rt_dispatch                    ;   before the recompiler
@@ -137,9 +144,35 @@ h_init:
     mov cx,[cs:p_listn]
     mov bx,[cs:p_filt]                  ;   and its filter
     call rdg_aotattach
+    cmp byte [cs:p_mode],4
+    jne .done
+    call h_hyon
 .done:
     STOP 0
     jmp short $
+
+; h_hyon - mode 4 (REALDMG-SPEC 20.16): the runtime tier at p_hyr0 as the
+; second cache segment, its tails copied and its generation the newest, every
+; other tier marked written - so a full one stops the translator rather than
+; moving it into a precompiled image - and the runtime table empty
+h_hyon:
+    mov byte [S_HYON],1                 ; (first: rt_tier gives the tier
+    mov ax,[cs:p_hyr0]                  ;   the images' generation)
+    xor dx,dx
+    call rt_hyon
+    mov ax,[cs:p_hyseg]
+    mov [S_HYSEG],ax
+    mov es,ax
+    xor di,di
+    mov cx,HY_SEGB / 2
+    xor ax,ax
+    cld
+    rep stosw
+    mov [S_HYN],ax
+    mov [S_HYMISS],ax
+    mov word [S_JITVEC],h_hyjit
+    mov [S_JITVEC+2],cs
+    ret
 
 ; h_preload - one round of rt_preload: p_out = the blocks translated
 h_preload:
@@ -260,4 +293,29 @@ RT_AOTBMP       equ 2Ch                 ; p_bmp: rdgjit.inc's rt_aotstop
 h_jitstub:
     RDG_TOHOST
     mov word [S_JITOUT],0
+    jmp rdg_ret
+
+; h_hyjit - mode 4's translator door: the miss at SI made a block in the
+; runtime tier and filed (rdg_hyins), then back at the core's tr_back
+h_hyjit:
+    RDG_TOHOST
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
+    call rt_translate
+    mov si,[RT_PC0]
+    call rdg_hyins
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     jmp rdg_ret

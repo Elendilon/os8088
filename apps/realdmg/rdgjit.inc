@@ -223,6 +223,39 @@ rt_more:
     ret
 %endif
 
+; rt_hyon - DS = the view, a PRECOMPILED machine's misses TRANSLATED
+; (REALDMG-SPEC 20.16), S_HYON already 1: AX = the runtime tier's segment
+; and DX its code selector (0: the same) - the second cache segment, its
+; tails copied, current, its generation the images' (rt_tier). Every other
+; tier is marked written, so a full one stops the translator (S_JITPRE 2)
+; rather than moving it into a precompiled image; with RDG_XTIER the host
+; has put any more runtime tiers first in S_JITXT, the images after them.
+; Keeps every register
+rt_hyon:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov [S_JITSEGB],ax
+    mov [S_JITCSB],dx
+    call rt_init.tails
+    mov byte [S_JITUSED],0FFh
+    mov byte [S_JITTIER],2
+    mov byte [S_JITPRE],0
+    mov ax,[S_JITSEGB]
+    call rt_tier
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ; rt_resume - DS = the view: the recompiler back on over the cache it had
 ; when it was turned off (the package's rw_jitoff), nothing forgotten - the
 ; cache holds only ROM's translations, keyed by PC and bank, and neither
@@ -343,6 +376,13 @@ rt_tier:
     mov es,ax                       ; its generation: the newest (16.2.3)
     inc word [S_JITGNX]
     mov si,[S_JITGNX]
+    cmp byte [S_HYON],0             ; (a precompiled machine's runtime
+    je .gn                          ;   tier: the images' own generation,
+    push es                         ;   so no link is logged - none is ever
+    mov es,[S_JITSEGA]              ;   undone, and the log would be in an
+    mov si,[es:0FFF0h]              ;   image - 20.16)
+    pop es
+.gn:
     mov [es:0FFF0h],si
     pop es
     mov si,RT_HFREE
@@ -1151,17 +1191,21 @@ rt_translate:
     ; in (tr_miss: tr_enter's own, or its neighbour)
     mov si,[RT_PC0]
     mov dl,[S_JITBK]
+    mov ax,[RT_ENT]
+    mov [S_JITOUT],ax
+    mov ax,[S_JITCS]                ; ...in the segment it was written in,
+    mov [S_JITOUT+2],ax             ;   as a jump names it (16.2.4)
     mov bx,[S_JITSLOT]
+    cmp bx,0FFFFh                   ; (no slot: a precompiled machine's
+    je .ntab                        ;   miss, which its host files, 20.16)
     mov es,[S_JITHSEG]
     mov [es:JIT_HASH+bx],si
     mov [es:JIT_HASH+bx+2],dl
     mov ax,[RT_ENT]
     mov [es:JIT_HASH+bx+4],ax
-    mov [S_JITOUT],ax
-    mov ax,[S_JITCS]                ; ...in the segment it was written in,
-                                    ;   as a jump names it (16.2.4)
+    mov ax,[S_JITCS]
     mov [es:JIT_HASH+bx+6],ax
-    mov [S_JITOUT+2],ax
+.ntab:
     inc word [S_JITNB]
     cmp word [RT_PC0],8000h
     jae .hr
@@ -1190,6 +1234,8 @@ rt_aotstop:
     push bx
     push cx
     push es
+    cmp word [cs:RT_AOTBMP],0       ; (no bitmap: a run-time translation on
+    je .no                          ;   a precompiled machine, 20.16)
     mov es,[cs:RT_AOTBMP]
     mov ax,bx
     add ax,[RT_PC0]                 ; AX = the PC
