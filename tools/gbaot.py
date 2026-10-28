@@ -535,7 +535,7 @@ def near_heat(rom, found, entries, heat, depth=NEAR_DEPTH):
 
 
 def translate(build, rom, entries, hmask=31, log=print, defines=(), rhm=7, heat=None,
-              hram=None, squeeze=0, listall=False, near=None):
+              hram=None, squeeze=0, listall=False, near=None, images=None):
     """Every entry (bank, pc) translated, in rounds of two cache segments
     (the first round also fills the core's holes), the code's banks mapped a
     group at a time when they do not all fit. Returns the image.
@@ -649,9 +649,11 @@ def translate(build, rom, entries, hmask=31, log=print, defines=(), rhm=7, heat=
             if cont:
                 m.enter(E_CONT)            # on where the last round stopped
             elif rnd:
-                if len(segs) + 1 > HOST_MAX:   # the images are full: the
-                    dropped |= set(todo)       #   coldest are interpreted
-                    break
+                if len(segs) + 1 > (images or HOST_MAX - 1) + 1:   # the images are
+                    dropped |= set(todo)       #   full: the coldest are interpreted
+                    break                      #   (`images`, at most AOT_MAX: past
+                                               #   HOST_MAX - 1 the host runs only
+                                               #   that many, degrade's way)
                 m.w(SEGA, 0, bytes(0x10000))
                 m.w(SEGB, 0, bytes(0x10000))
                 m.enter(E_ROUND)
@@ -929,7 +931,9 @@ def run_arm(build, rom, mode, frames, img=None, prove=False, defines=(), joy=Non
     m = Machine(build, rom, defines)
     CORE, VIEW, HASH = 0x1000, 0x2000, 0x3000
     if mode in (3, 4):
-        meta, segs, table = img
+        if len(img[1]) > HOST_MAX:         # more images than this layout
+            img = degrade(build, img, HOST_MAX - 1)   # holds: the rest run as the
+        meta, segs, table = img                       #   package runs an image
         seg_at = [CORE] + [0x4000 + 0x1000 * i for i in range(len(segs) - 1)]
         LIST = seg_at[-1] + 0x1000 if len(segs) > 1 else 0x4000
         segs = [bytearray(x) for x in segs]
@@ -1204,13 +1208,16 @@ def degrade(build, img, keep):
 
     def empty(b, tab):
         t = bytearray(b)
+        out = bytearray()
         for e in range(0, len(t), 8):
             seg = struct.unpack_from("<H", t, e + 6)[0]
             if seg >= TOKEN and seg - TOKEN > keep:
-                struct.pack_into("<H", t, e + 4, 0)
-                if tab:                    # out of every lookup's reach
-                    struct.pack_into("<HB", t, e, 0x8000, 0)
-        return bytes(t)
+                if not tab:                # a LIST entry goes: unlisted and
+                    continue               #   offset 0 are both interpreted,
+                struct.pack_into("<H", t, e + 4, 0)   # and only one costs the
+                struct.pack_into("<HB", t, e, 0x8000, 0)   # meta part 8 bytes
+            out += t[e:e + 8]              #   (the TABLE's: out of every
+        return bytes(out)                  #   lookup's reach, kept in place)
     meta = dict(meta, relocs=relocs, list=empty(meta["list"], False), segs=keep + 1)
     return meta, [bytes(x) for x in segs], empty(table, True)
 
@@ -1218,7 +1225,7 @@ def degrade(build, img, keep):
 # --- the package: GAME.O88 (REALDMG-SPEC 20.10) ------------------------------
 
 S_JITLIM = 0x4814                  # rdgdefs.inc's: RT_SQUEEZE's limit
-AOT_MAX = 14                       # realdmg.asm's RWA_MAX
+AOT_MAX = 29                       # realdmg.asm's RWA_MAX
 HOST_MAX = 11                      # ...and what run_arm's layout holds: image i
                                    #   at 4000h + 1000h x i, the list and its
                                    #   filter after the last, all under 10000h
@@ -1302,11 +1309,21 @@ def package(build, img, rom, out, romname, image=None, log=print, embed=False, m
                       len(meta["relocs"]), loff)
     hdr += bytes.fromhex(meta["header"]) + romname.encode().ljust(13, b"\0")[:13]
     foff = (loff + len(lst) + 15) & ~15
+    if foff > META_MAX:                    # (the filter's word, below, as well)
+        raise SystemExit(
+            "gbaot: the meta part would be %d bytes, over %d: %d code images list %d blocks "
+            "and %d relocations - fewer images (--images, --prefer)" % (
+                foff, META_MAX, nseg, len(lst) // 8, len(meta["relocs"])))
     hdr = hdr.ljust(55, b"\0") + bytes([jrow]) + struct.pack("<HBBH", foff,
                                              AOT_CODE + 2 * nseg if embed else 0,
                                              meta.get("hot", nseg),
                                              len(rom.d) // 1024 if embed else 0) + rel
     metap = (hdr.ljust(loff, b"\0") + lst).ljust(foff, b"\0")
+    if len(metap) > META_MAX:              # one part (SPEC.md 20.12.11): the
+        raise SystemExit(                  #   list and the relocations bind
+            "gbaot: the meta part would be %d bytes, over %d: %d code images list %d blocks "
+            "and %d relocations - fewer images (--images, --prefer)" % (
+                len(metap), META_MAX, nseg, len(lst) // 8, len(meta["relocs"])))
     # the filter and the list's cache (rdgaot.inc, 10KB) follow the TABLE in
     # its part: in the meta part, after a long list, they took that part past
     # 65,024 bytes - Link's Awakening's 65,264, Wario Land's 68,672
@@ -1341,10 +1358,10 @@ def package(build, img, rom, out, romname, image=None, log=print, embed=False, m
     finally:
         shutil.rmtree(work, ignore_errors=True)
     size = os.path.getsize(out)
-    if size >= 1 << 20:                    # PKG_FILE_HI (SPEC.md 19.1): the
+    if size >= PKG_FILE_MAX:               # PKG_FILE_HI (SPEC.md 19.1): the
         os.remove(out)                     #   mount types no package file of
-        raise SystemExit(                  #   1MB or more as one
-            "gbaot: %s would be %d bytes; a package file is under 1MB (SPEC.md 19.1)%s" % (
+        raise SystemExit(                  #   32MB or more as one
+            "gbaot: %s would be %d bytes; a package file is under 32MB (SPEC.md 19.1)%s" % (
                 out, size, " - make it without --embed, the ROM beside it" if embed else ""))
     carve = 64 + 16 + (len(metap) + 1023) // 1024 + 64
     log("gbaot: %s, %d bytes: the core and %d code images (64 KB of heap each, %d of them "
@@ -1353,6 +1370,49 @@ def package(build, img, rom, out, romname, image=None, log=print, embed=False, m
             "the ROM is inside it" if embed else "it opens %s beside it" % romname)
         + ("; kern_mega's build (it runs on every kernel)" if mega else ""))
     return size
+
+
+PKG_FILE_MAX = 512 << 16          # SPEC.md 19.1: a package file is under 32MB
+META_MAX = 65024                  # SPEC.md 20.12.11: a part's bytes at most
+
+
+def package_fit(build, img, rom, out, romname, log=print, embed=False, mega=False,
+                prefer=None):
+    """package(), choosing what gives when the ROM inside and every code
+    image will not both fit a package (the 32MB file, AOT_ROWS rows):
+    `prefer` "rom" keeps the ROM inside and leaves the coldest images out
+    (degrade's way - what they held is interpreted, or translated at run
+    time on kern_mega, REALDMG-SPEC 20.16); "code" keeps every image and
+    puts the ROM BESIDE the package when it does not fit inside. None is
+    package() as it was: refused"""
+    package_fit.embedded = embed           # (what came out: the GUI's floppy)
+    if prefer is None:
+        return package(build, img, rom, out, romname, log=log, embed=embed, mega=mega)
+    nseg = len(img[1]) - 1
+
+    def trimmed(emb):                  # the coldest images out until it fits:
+        rows = AOT_ROWS - AOT_CODE - (len(rom.d) // 0x8000 if emb else 0) - (1 if mega else 0)
+        keep = min(nseg, rows // 2)    #   the rows, the meta part, the file
+        while True:
+            try:
+                if keep < nseg:
+                    log("gbaot: %d code images of %d fit (%s)" % (
+                        keep, nseg, "the ROM inside" if emb else "the ROM beside it"))
+                return package(build, degrade(build, img, keep) if keep < nseg else img, rom,
+                               out, romname, log=log, embed=emb, mega=mega)
+            except SystemExit:
+                if keep <= 1:
+                    raise
+                keep -= 1
+    if embed and prefer == "code":     # every image the format holds, and
+        try:                           #   the ROM inside only when it fits
+            return package(build, img, rom, out, romname, log=log, embed=True, mega=mega)
+        except SystemExit as e:
+            log("gbaot: %s" % str(e).splitlines()[0])
+        log("gbaot: the code first (--prefer code): the ROM beside the package")
+        package_fit.embedded = False
+        return trimmed(False)
+    return trimmed(embed)
 
 
 def hottest(build, rom, img, frames=600):
@@ -1411,7 +1471,7 @@ def compare(build, rom, img, frames, ref="interp", arm="aot", serial=False, defi
 
 
 def make(build, rom_path, out, romname=None, heat_frames=3000, replays=(), check=0,
-         log=print, embed=False, mega=False):
+         log=print, embed=False, mega=False, images=None, prefer=None):
     """GAME.O88 from a ROM in one go: the walk, the translation, a run of it
     with the harness's script (and any replays, from their save states) for
     the counters, the translation again with the hottest blocks first and
@@ -1426,7 +1486,7 @@ def make(build, rom_path, out, romname=None, heat_frames=3000, replays=(), check
         os.path.basename(rom_path), len(data) // 1024, len(found), len(lead)))
     work = tempfile.mkdtemp(prefix="gbaotmk-")
     try:
-        img = translate(build, rom, lead, log=log)
+        img = translate(build, rom, lead, log=log, images=images)
         d0 = os.path.join(work, "first")
         save(img, d0, rom)
         heats = []
@@ -1452,14 +1512,15 @@ def make(build, rom_path, out, romname=None, heat_frames=3000, replays=(), check
             near = near_heat(rom, found, lead, heat, int(os.environ.get(   # found is
                 "GBAOT_NEAR", NEAR_DEPTH)))                  #   dropped
             img = translate(build, rom, lead, log=log, heat=heat,
-                            hram=hram, near=near)
+                            hram=hram, near=near, images=images)
         d1 = os.path.join(work, "final")
         save(img, d1, rom)
         # GAME.O88 is written under its own name only once it is checked: a
         # package that failed the check is not left beside the ROM
         part = out + ".part"
         try:
-            package(build, load(d1), rom, part, romname, log=log, embed=embed, mega=mega)
+            package_fit(build, load(d1), rom, part, romname, log=log, embed=embed, mega=mega,
+                        prefer=prefer)
             if check:
                 log("gbaot: checking %d frames beside the interpreter..." % check)
                 ok, what = compare(build, rom, load(d1), check, log=log)
@@ -1479,6 +1540,8 @@ def make(build, rom_path, out, romname=None, heat_frames=3000, replays=(), check
 
 
 def cmd_make(a):
+    if a.images is not None and not 1 <= a.images <= AOT_MAX:
+        raise SystemExit("gbaot: --images is 1 to %d" % AOT_MAX)
     reps = []
     for r in a.replay:
         rp, _, ss = r.partition(",")
@@ -1486,7 +1549,7 @@ def cmd_make(a):
             raise SystemExit("gbaot: --replay NAME.RPn,NAME.SSn: a replay and the state it starts from")
         reps.append((rp, ss))
     make(a.build, a.rom, a.out, a.romname, a.frames, reps, a.check, embed=a.embed,
-         mega=a.mega)
+         mega=a.mega, images=a.images, prefer=a.prefer)
 
 
 def cmd_package(a):
@@ -1494,8 +1557,8 @@ def cmd_package(a):
     img = load(a.dir)
     if img[0]["rom_sha256"] != hashlib.sha256(rom.d).hexdigest():
         raise SystemExit("gbaot: %s was not built from %s" % (a.dir, a.rom))
-    package(a.build, img, rom, a.out, a.romname or rom_name(a.rom), embed=a.embed,
-            mega=a.mega)
+    package_fit(a.build, img, rom, a.out, a.romname or rom_name(a.rom), embed=a.embed,
+                mega=a.mega, prefer=a.prefer)
 
 
 def cmd_check(a):
@@ -1590,6 +1653,14 @@ def main():
     p.add_argument("--romname", help="the 8.3 name it opens beside it (default: the ROM's)")
     p.add_argument("--embed", action="store_true", help="the ROM inside the package")
     p.add_argument("--mega", action="store_true", help="kern_mega's build of the package")
+    for x in (mk, p):
+        x.add_argument("--prefer", choices=("rom", "code"),
+                       help="with --embed, when the ROM and every code image do not both fit: "
+                       "'rom' leaves the coldest images out, 'code' puts the ROM beside it")
+    mk.add_argument("--images", type=int, metavar="N",
+                    help="code images at most (default %d, what the host runs; up to %d - "
+                    "past %d the host checks the first %d, as a package runs them with less "
+                    "memory)" % (HOST_MAX - 1, AOT_MAX, HOST_MAX - 1, HOST_MAX - 1))
     a = ap.parse_args()
     a.frames_given = "-n" in sys.argv or "--frames" in sys.argv
     return {"cover": cmd_cover, "heat": cmd_heat, "make": cmd_make, "build": cmd_build, "check": cmd_check,

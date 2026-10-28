@@ -9918,7 +9918,9 @@ pkgrun: $(BUILD)/pkgrun.img $(BUILD)/pkgrun360.img
 # NOT a package - and validate_o88 exists to make exactly that unbuildable.
 # --raw is the escape (os88disk.py, --scramble's precedent) and nothing
 # shipped uses it. The pair is the experiment: 70,144 bytes must type 1 and be
-# refused Too large, 1,048,576 must type 0 and be refused Bad package.
+# refused Too large, 33,554,432 must type 0 and be refused Bad package - a
+# size HUGE.O88's ENTRY says (tests/pkgbig/lie.py, after the verify) over its
+# 1MB of data, the boundary being more than a floppy holds.
 # 1.44MB only - the four fixtures do not fit a 360KB disk, and neither rule
 # they test has any geometry in it. The disk carries BOTH gates' fixtures
 # (tests/pkgbig.py and tests/pkgfence.py) because it is one `--raw` build and
@@ -9927,7 +9929,7 @@ pkgrun: $(BUILD)/pkgrun.img $(BUILD)/pkgrun360.img
 # ...and PKGMAX.O88, the one fixture that IS a package (tests/pkgmax.py): a
 # real image + bss of exactly APP_MAX_SIZE, which must LOAD - SPEC.md 20.1.1's
 # 64KB claim, the size two of the loader's words used to wrap on.
-$(BUILD)/pkgbig.img: tests/pkgbig/mkfix.py tests/pkgbig/pkgmax.asm \
+$(BUILD)/pkgbig.img: tests/pkgbig/mkfix.py tests/pkgbig/lie.py tests/pkgbig/pkgmax.asm \
                      apps/os88api.inc tools/os88disk.py tools/os88pkg.py \
                      | $(BUILD)
 	python3 tests/pkgbig/mkfix.py $(BUILD)/pkgbig
@@ -9941,6 +9943,7 @@ $(BUILD)/pkgbig.img: tests/pkgbig/mkfix.py tests/pkgbig/pkgmax.asm \
 		$(BUILD)/pkgbig/BSSWRAP.O88 $(BUILD)/pkgbig/BSSWORST.O88 \
 		$(BUILD)/pkgbig/PKGMAX.O88
 	@python3 tools/os88disk.py --verify $@
+	python3 tests/pkgbig/lie.py $@ HUGE.O88 33554432
 
 # --- PKGFMT, the format byte's disk (ON DEMAND: `make pkgfmt`) ---------------
 #

@@ -4961,7 +4961,10 @@ dsk_synth_x:
     jne .size
     cmp byte [es:si+DSK_R_EXT+2], '8'
     jne .size
-    cmp dx, PKG_FILE_HI         ; the file must be under 1MB. It was `test dx,
+    cmp dh, PKG_FILE_HI >> 8    ; the file must be under 32MB (DH: the same
+                                ;   3 bytes as `cmp dx, imm8`, so nothing hot
+                                ;   moves - PKG_FILE_HI a multiple of 256,
+                                ;   kernel.asm asserts it). It was `test dx,
     jae .size                   ; dx` - the file had to fit 16 bits - and what
                                 ; changed it is that APP_MAX_SIZE no longer
                                 ; bounds a FILE (SPEC.md 19.1). It bounds the

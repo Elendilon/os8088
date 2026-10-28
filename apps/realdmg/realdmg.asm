@@ -122,7 +122,12 @@ RW_XDEF         equ 5               ; ...and how many it takes without
                                     ;   tests/rdgmega.py's squeezed leg 2)
 RW_PRFKB        equ 9               ;   the count (REALDMG-SPEC 16.8)
 %ifdef RDG_AOT
-RWA_MAX         equ 14              ; code images past the core, at most
+RWA_MAX         equ 29              ; code images past the core, at most:
+                                    ;   what RWA_ROWS holds with the ROM
+                                    ;   beside it and the recompiler's row
+                                    ;   (5 + 2 x 29 + 1 = 64). It was 14,
+                                    ;   which no real-mode heap could hold
+                                    ;   anyway; on kern_mega the pool can
 RWA_TABLE       equ 3               ; the parts: the block table (16KB)...
 RWA_META        equ 4               ; ...the meta and the list (rwaot.inc)...
 RWA_CODE        equ 5               ; ...and each image's two halves from here,

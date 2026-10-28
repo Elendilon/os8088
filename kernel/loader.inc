@@ -807,9 +807,9 @@ ld_res_name:
 ;      CF=1 with AL = LD_EBAD / LD_EBIG
 ; -----------------------------------------------------------------------------
 ld_take:
-    cmp dx, PKG_FILE_HI
+    cmp dh, PKG_FILE_HI >> 8    ; (DH: disk.inc's three bytes, its reason)
     jae .big                    ; past what the mount will type at all: a file
-                                ; up to 1MB is a package now (SPEC.md 19.1),
+                                ; under 32MB is a package now (SPEC.md 19.1),
                                 ; so a 70KB one arrives with a LOW word of
                                 ; 4,608 - a plausible small package - and
                                 ; reading it without this is the wrap SPEC.md
