@@ -228,11 +228,29 @@ def main():
         mo = ethernet.Mouse()
         dispcp.open_drive(m, mo, S, ethernet.settle, "B")
         wx, wy = dispcp.win_rect(m, S, dispcp.win_list(m, S)[-1])[:2]
+        had = set(dispcp.win_list(m, S))
         dispcp.open_named(m, mo, S, ethernet.settle, wx, wy, "BROWSER.O88")
-        browser_slot = dispcp.win_list(m, S)[-1]
-        rec = m.read(S("wm_wins") + browser_slot * dispcp.WIN_SIZE,
-                     dispcp.WIN_SIZE)
-        pseg = rec[22] | rec[23] << 8
+
+        def browser():
+            """the NEW window, once it is a package's (its segment set)"""
+            for slot in dispcp.win_list(m, S):
+                if slot in had:
+                    continue
+                r = m.read(S("wm_wins") + slot * dispcp.WIN_SIZE,
+                           dispcp.WIN_SIZE)
+                if r[22] | r[23] << 8:
+                    return slot, r[22] | r[23] << 8
+            return None
+        # THE BROWSER'S WINDOW, waited for: open_named's QEMU path clicks and
+        # settles, and a launch on kern_mega's 4M-instruction Bochs outlasts
+        # the settle - win_list[-1] was still the Disk window, segment 0, and
+        # every read of the Browser's state came out of the wrong place
+        # (br_nstate read 195; the page had been fetched)
+        if not ethernet.os88qemu.acted(m, lambda: browser() is not None,
+                                       secs=60, what="the Browser's window",
+                                       poll=0.3):
+            raise SystemExit("brdownload: BROWSER.O88 opened no window")
+        browser_slot, pseg = browser()
         sy = brclick.browser_syms()
         nstate = sy["br_nstate"]
         ethernet.gsleep(1.0)
