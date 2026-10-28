@@ -3573,7 +3573,7 @@ SOAK = [
         "across the segments must fail. WHY QEMU: a correctness gate, "
         "counted, not timed. SOAK: one package's core",
         needs=("qemu", "nasm", "rgbds"), timeout=360),
-    Row("gbaot", "soak", py("tests/gbaot.py"), 680.0,
+    Row("gbaot", "soak", py("tests/gbaot.py"), 715.0,
         "REALDMG's FULL static recompiler (docs/REALDMG-SPEC.md section 20, "
         "tools/gbaot.py): each ROM translated WHOLE on the host, walked from "
         "its entries with no play, by RealDMG's own translator run under "
