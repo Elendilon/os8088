@@ -69835,7 +69835,35 @@ the test in the ISR). Verb 9's read is unchanged - it runs in task context
 under `cli`, and a task inside `int 13h` holds `[sch_lock]`, so no other
 task's verb can land between a ROM's pairs.
 
+#### 34.5.2.3 ...and on a PicoMEM, on any kernel (2026-10-28)
+
+**34.5.2.2 took the 8237 read off the real-mode kernels for every card, and a
+PicoMEM 1.x is the card that needs it most.** Reported by the owner off the
+Victory 286 with a PicoMEM V1 on kern_big: VGA demo videos that had played
+smooth (T69 among them) pause on every play, and kern_mega is worse. A 1.x's
+Sound Blaster never raises its own line (34.10.1): the card's multiplexer
+walks a request list with IF = 0 and delivers each audio request as a
+*software* `int`, and a request list is a place two block ends can become one
+delivery. Counting one block an IRQ then loses blocks exactly as 34.5.2.1's
+masked reflection did, and the Video Player's clock (`SND_EXT_CONS`, 98.3.1)
+falls behind the card.
+
+So `[sbl_dpm]` is set at verb 0 under `CPU_F_PM` **or when the attach found a
+PicoMEM** (`[pm_base]`, the ramp passed). It does not reopen 34.5.2.2's
+hazard: the same multiplexer rewrites channel 1's address and count registers
+after every 128-byte copy, from whatever it interrupted, so a machine with the
+card already has an ISR touching the flip-flop at every block; ours adds one
+more read in the same place. The ST11M case - a DMA disk ROM with IF = 1 and a
+real Sound Blaster - keeps one block an IRQ.
+
+What it costs: 9 bytes of `SOUND.DRV`, 12,078 -> 12,087, still a 12KB claim;
+`NOPICOMEM=1` assembles none of it. It is an inference from the card's
+protocol and this cycle's diff, not a measurement - no emulator here models a
+PicoMEM 1.x - so the check is the Victory, with the Video Player's `VPDIAG=1`
+card reading `Dry` and `Lead` after a T69 play.
+
 #### 34.5.3 An external ring, and ADPCM4 (the Video Player)
+
 
 **A ring in the PACKAGE'S OWN claim**, opened with `SND_OPENF_RING +
 SND_OPENF_EXT` on verb 0: the ring at DI:SI (DI its segment), RL = 4096
