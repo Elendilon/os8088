@@ -349,10 +349,17 @@ def main_marty():
             mo.to(x, 8)
             mo._sep()
             mo._edge(True)
+            # ...DROPPED, not merely begun: `is_open` is also true from
+            # menu_drop's claim of the save-under ([menu_sseg]) to its
+            # [menu_dropd] = 1 - a window a 4M-instruction guest is often
+            # caught in - and a release there left [menu_sseg] claimed with
+            # nothing dropped for as long as anyone watched (6 guest s,
+            # 2 runs in 4 under Bochs; the press-and-hold this row means is
+            # a pull-down that is DOWN)
             try:
                 os88marty.until(m, lambda _: byte(m, "menu_cell") == cell
-                                and is_open(), "bar cell %d" % cell,
-                                guest=3.0)
+                                and byte(m, "menu_dropd") == 1,
+                                "bar cell %d" % cell, guest=3.0)
             except os88marty.MartyError:
                 pass
             got, dropped = byte(m, "menu_cell"), 1 if is_open() else 0
