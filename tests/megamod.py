@@ -45,7 +45,8 @@ AUDIBLE for most of the play (50 ms blocks above an RMS floor) and NOT NOISE
 (the median spectral flatness of 4,096-sample frames, 100 Hz to 4 kHz: white
 noise reads ~0.56 and these modules ~0.01). Bochs's SB16 drains its DMA
 faster than the rate it is programmed for (`dmatimer`), so the replayer runs
-~10x the music's tempo here: the capture is music, but not in time. The
+ahead of the music's tempo here (~1.5x on the guest's clock; ~10x when Bochs
+ran `sync=realtime`): the capture is music, but not in time. The
 MIDIRack legs read the same capture, and before it that the card's stream
 OPENED on MIDIRack's external ring and that the block IRQ's consumed count
 in that ring moves - a song that plays out inside the listen (the fast DMA
@@ -220,7 +221,16 @@ def audio(path):
         return (len(x) / rate, 0.0, 1.0)
     x = x[on[0] * blk:]
     rms = rms[on[0]:]
-    act = float((rms > 0.01).mean())
+    # AUDIBLE IS ABOVE -50 dBFS (RMS 0.003), not -40: since Bochs's clock
+    # is the guest's (docs/BOCHS.md *The clock*) the replayer plays near
+    # the module's own tempo, and these modules' quiet passages sit between
+    # the two - a trk capture's blocks are bimodal, a tenth under 0.001
+    # (silence) and the rest from 0.003 up with a median of 0.013. At 0.01
+    # the quiet passages counted as SILENT and the leg read 47-56% from
+    # run to run against a bar of 50% (mega-megamod's trk and trkarm). At
+    # 0.003 the same captures read ~88%, and a card that is not being fed
+    # is still silence
+    act = float((rms > 0.003).mean())
     # FLATNESS IN THE BAND THE PLAYERS MIX INTO, 100 Hz to 4 kHz: the card's
     # capture is resampled to its own rate, so the band above the mix rate's
     # Nyquist is empty and a whole-band figure reads "tonal" for anything
@@ -406,8 +416,12 @@ def leg_tracker(leg, out, pkg, mapsyms, mod, check_wide=False):
              (leg, PLAY, "" if bad is None else " | " + bad))
         print("   %s: (position, pattern, row) a second apart: %s" %
               (leg, " ".join("%d/%d/%d" % x for x in trail)))
-        want(t.b("mp_songpos") != p0, "%s: the song position moved (%d -> "
-             "%d)" % (leg, p0, t.b("mp_songpos")))
+        # ...AT ANY POINT of the play, not net of it: the wide module is six
+        # orders and loops, and at its own tempo (the guest's clock) 14 s is
+        # one lap almost exactly - a run read 5 -> 0..5 -> 5 and failed
+        moved = sorted(set(x[0] for x in trail) | {t.b("mp_songpos")})
+        want(any(x != p0 for x in moved), "%s: the song position moved "
+             "(%d, then %s)" % (leg, p0, moved))
         if check_wide:
             for p in WIDE_ORDERS:
                 v = seen.get(p, [])
