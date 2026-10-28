@@ -465,7 +465,11 @@ rw_axclaim:
     inc byte [rw_anseg]
     inc byte [rw_axn]
     pop dx
-    add ah, 10h
+    add ah, 10h                     ; (past 1MB of the block the paragraphs
+    jnz .pn                         ;   wrap: on from this image's own
+    mov dx, [rw_aseg + bx]          ;   selector, its base + 64KB - image
+    mov ah, 10h                     ;   17 was image 1's bytes again)
+.pn:
     inc bx
     inc bx
     loop .p
