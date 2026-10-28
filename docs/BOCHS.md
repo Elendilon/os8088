@@ -44,24 +44,26 @@ starts if that display is not up:
 | E9 | `port_e9_hack`: every byte the kernel writes to port E9h lands in `OUT/e9.out` |
 | sound | `--sb`: an SB16 at 220h, IRQ 5, DMA 1, its output written to `OUT/sb.wav` |
 | network | `--ne2k`: an NE2000 at 300h, IRQ 10, on Bochs's own slirp (the host is 10.0.2.2). `$OS88_BOCHS_SLIRP` names a slirp config for it - a first line `# slirp config`, then up to five `hostfwd = tcp::2121-:21` lines - which is how a HOST client reaches a server in the guest: FTPD's control port and four of its passive ports, with `curl --ftp-skip-pasv-ip` (KERN-MEGA-PLAN 14.46) |
-| clock | `slowdown` at `cpu: ips=100000000` - see *The clock* below |
+| clock | `slowdown` at `cpu: ips=4000000` - see *The clock* below |
 
 ### The clock
 
 **Guest time is the guest's INSTRUCTION COUNT, and the host only caps it.**
-`clock: sync=slowdown` makes Bochs's time `ptime / ips` - 100,000,000
-instructions a guest second, HLT included - and sleeps whenever the guest
-gets ahead of the wall clock, so it runs at real time at most (measured:
-18.2 BIOS ticks a host second idle, 0.5-1x through a busy boot on this
-container). 100M is the machine the rows were written against: under the
-old `realtime` the CPU ran as fast as the host ran Bochs, ~100M a wall
-second, and at Bochs's own default of 4M `mega-ethernet` and
-`mega-vidvga4` lost races to the CPU, still at 25M. A loaded host runs a
-quarter of it, so there the guest runs SLOWER than real time - which costs
-host seconds and nothing else, because every wait below is the guest's.
+`clock: sync=slowdown` makes Bochs's time `ptime / ips` - 4,000,000
+instructions a guest second, Bochs's default, HLT included - and sleeps
+whenever the guest gets ahead of the wall clock, so it runs at real time at
+most (measured: 4.00M instructions and 18.2 BIOS ticks a host second on an
+idle desktop). That is a SLOWER guest CPU than the rows used to see: under
+`realtime` the CPU ran as fast as the host ran Bochs, ~100M a wall second
+here, and two rows were racing it against a fixed pause (`mega-ethernet`'s
+settle against the Browser's load, `mega-vidvga4`'s `before` against the
+progress widget) - both wait on the state they meant now. 100M was tried and
+refused: ten Trackers' busy phase runs ~6M a host second, so the guest fell
+to 1/17 of real time and `os88marty.pace`'s backstop fired. A loaded host
+that cannot keep 4M runs the guest slower than real time, which costs host
+seconds and nothing else, because every wait below is the guest's.
 It ran `sync=realtime` until 2026-10-27, and that is the mode that made
-kern_mega
-rows **fail under host load and pass alone**:
+kern_mega rows **fail under host load and pass alone**:
 
 - under `realtime` the PIT follows the HOST clock and the CPU runs as fast
   as the host lets it, so a starved Bochs is a SLOWER MACHINE to the guest -

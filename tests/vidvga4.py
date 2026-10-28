@@ -174,15 +174,25 @@ def main():
 
             until(lambda mm: rb("vp_loaded") == 1, "the header", 30.0)
             until(lambda mm: rw("vp_ploads") >= 1, "the poster", 60.0)
-            # ...AND THE DISK QUIET: the reads that follow the poster put
-            # the progress widget on the bar ([fpg_on]), and a `before`
-            # taken under it differs from the `after` by the widget - it
-            # was a race on how fast the guest's CPU is against a pace,
-            # which a 4 MIPS kern_mega under Bochs (docs/BOCHS.md, *The
-            # clock*) lost every time
-            fpg = ui._S("fpg_on")
-            until(lambda mm: m.read(fpg, 1)[0] == 0,
-                  "the loading widget to leave the bar", 60.0)
+            # ...AND THE PROGRESS WIDGET OFF THE BAR: the reads after the
+            # poster put it up (SPEC.md 7.4, [fpg_on]) and it is taken down
+            # a while after [fpg_on] clears, so a `before` taken under it
+            # differs from the `after` by the widget alone. It was a race of
+            # the guest's CPU against a fixed pause, which a slower CPU lost
+            # every time (kern_mega under Bochs at 4M instructions a guest
+            # second, docs/BOCHS.md *The clock*). The widget's zone is blank
+            # menu bar once it has gone - no dark pixel in x 340-480
+            def widget_gone(_):
+                fw, fh, rgb = glass()
+                sx, sy = fw / 640, fh / 480
+                for y in range(1, 15):
+                    ry = int((y + 0.5) * sy)
+                    for x in range(340, 481):
+                        o = 3 * (ry * fw + int((x + 0.5) * sx))
+                        if rgb[o] + rgb[o + 1] + rgb[o + 2] < 3 * 128:
+                            return False
+                return True
+            until(widget_gone, "the progress widget to leave the bar", 60.0)
             ui.mo.to(8, 470)
             os88marty.pace(m, 1.0)
             bar0 = menubar()

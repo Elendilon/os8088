@@ -147,18 +147,20 @@ display_library: x
 # under load and passed alone. $OS88_BOCHS_SYNC=realtime is the A/B, and
 # os88megabochs reads its clock the old way under it.
 #
-# THE SPEED, 100M instructions a guest second, is the machine the rows were
-# written against: under `realtime` the CPU ran as fast as this host runs
-# Bochs - ~100M a wall second, measured here - while the PIT kept wall time,
-# so that WAS the guest's speed on an idle box. At Bochs's own default of 4M
-# two rows lost a race to the CPU (mega-ethernet's settle ended before the
-# Browser's window, mega-vidvga4's `before` caught the load's progress widget)
-# and still did at 25M. A host that cannot run 100M - a loaded one runs a
-# quarter of it - runs the guest SLOWER THAN REAL TIME, and every wait the
-# shim measures is the guest's, so that costs host seconds and nothing else.
-# $OS88_BOCHS_IPS changes it.
+# THE SPEED is Bochs's own default, 4M instructions a guest second (a
+# 386SX-16, give or take - faster than the 286 kern_mega is for). Under
+# `realtime` the CPU ran as fast as this host runs Bochs, ~100M a wall second,
+# so two rows had been racing that CPU against a fixed pause and lost at 4M
+# (mega-ethernet, mega-vidvga4 - both now wait on the state they meant). 100M
+# was tried and REFUSED: a busy phase of mega-trkcompact (ten Trackers) runs
+# ~6M a host second here, so a 100M guest fell to 1/17 of real time and
+# os88marty.pace's backstop fired; a loaded host runs a quarter of that. The
+# guest-time waits absorb a guest slower than real time, but only down to
+# that backstop, so the speed is one a loaded host can still keep.
+# $OS88_BOCHS_IPS changes it - a row whose subject is a real-time load on a
+# faster 386
 SYNC = os.environ.get("OS88_BOCHS_SYNC", "slowdown")
-IPS_N = int(os.environ.get("OS88_BOCHS_IPS") or 100000000)
+IPS_N = int(os.environ.get("OS88_BOCHS_IPS") or 4000000)
 IPS = "cpu: ips=%d\n" % IPS_N
 
 
