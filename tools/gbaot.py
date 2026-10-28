@@ -152,7 +152,7 @@ def walk(rom, seeds=()):
         extra = set(seeds)
         for _ in range(6):
             found, _, _, _ = G.discover(rom, extra, True, fanout=fan)
-            new = jump_tables(rom, found) - extra
+            new = (jump_tables(rom, found) | G.discover.seeds) - extra
             if not new:
                 break
             extra |= new
@@ -171,6 +171,8 @@ def leaders(rom, found, extra, side=False):
     may take an interrupt or switch the bank (the IF/IE write and the guard
     leave there, REALDMG-SPEC 16.5) and after EI."""
     lead = {(0, 0x100)} | {(0, v) for v in range(0, 0x68, 8)} | set(extra)
+    for ents in getattr(G.discover, "jtabs", {}).values():   # an RST's or a
+        lead |= {(b if pc >= 0x4000 else 0, pc) for b, pc in ents}   # CALL's table
     for (b, pc), op in found.items():
         a1 = rom.byte(b, pc + 1)
         imm = a1 | rom.byte(b, pc + 2) << 8
@@ -486,8 +488,54 @@ def slot_of(pc, key, hmask):
     return ((bh << 8) | bl) * 8
 
 
+NEAR_DEPTH = 1                     # near_heat's control transfers (3 measured worse)
+
+
+def near_heat(rom, found, entries, heat, depth=NEAR_DEPTH):
+    """The uncounted block starts in tiers by how many control transfers
+    away from the counted code they are - a jump, a call, a return or a
+    jump table's entry each 1, running on into the next instruction 0
+    (gbstatic.supergraph's edges; the last walk's tables). A list of sets of
+    (pc, key), nearest first. Images fill in this order after the counted
+    blocks, where they filled bank by bank: Link's Awakening's entity
+    handlers are one table entry from its hot dispatch at 3952h and were
+    dropped behind the low banks' cold code"""
+    import collections as C
+    jt = getattr(G.discover, "jtabs", {})
+    succ, _ = G.supergraph(rom, found, jt)
+    dist, dq = {}, C.deque()
+    for pc, key in heat or {}:
+        k = (0 if pc < 0x4000 else key, pc)
+        if k in found and k not in dist:
+            dist[k] = 0
+            dq.append(k)
+    while dq:
+        k = dq.popleft()
+        d, op = dist[k], found[k]
+        nx = k[1] + (2 if op == 0xCB else G.LEN[op])
+        out = [t for t in succ.get(k, ()) if t not in ("RET", None)]
+        if (op == 0xCD or op in G.RSTS) and k not in jt:   # a call goes on
+            out.append((k[0] if nx >= 0x4000 else 0, nx))   #   where it returns
+        for t in out:                      # (not RET's edges: they are every
+            for u in (t,):                 #   caller of a shared routine)
+                if u not in found:
+                    continue
+                w = 0 if u[1] == nx and u[0] == (k[0] if nx >= 0x4000 else 0) else 1
+                if d + w > depth or dist.get(u, depth + 1) <= d + w:
+                    continue
+                dist[u] = d + w
+                (dq.appendleft if w == 0 else dq.append)(u)
+    tiers = [set() for _ in range(depth)]
+    for b, pc in entries:
+        d = dist.get((b if pc >= 0x4000 else 0, pc))
+        k = (pc, 0xFF if pc < 0x4000 else b)
+        if d and (heat or {}).get(k, 0) == 0:
+            tiers[d - 1].add(k)
+    return tiers
+
+
 def translate(build, rom, entries, hmask=31, log=print, defines=(), rhm=7, heat=None,
-              hram=None, squeeze=0, listall=False):
+              hram=None, squeeze=0, listall=False, near=None):
     """Every entry (bank, pc) translated, in rounds of two cache segments
     (the first round also fills the core's holes), the code's banks mapped a
     group at a time when they do not all fit. Returns the image.
@@ -572,6 +620,10 @@ def translate(build, rom, entries, hmask=31, log=print, defines=(), rhm=7, heat=
             top.add(k)
             run += heat[k]
         tiers = [top, set(counted) - top] if os.environ.get("GBAOT_TIER") else [set(counted)]
+    for t in near or ():                   # ...then what is NEAR the counted
+        t = set(t) - set(counted)          #   code (near_heat), nearest first
+        if t:
+            tiers.append(t)
     passes = [(g, t) for t in (tiers + [None] if tiers else [None]) for g in groups]
     every = set().union(*tiers) if tiers else set()
     for gi, (group, tier) in enumerate(passes):
@@ -1397,8 +1449,10 @@ def make(build, rom_path, out, romname=None, heat_frames=3000, replays=(), check
                 "again, the hottest first" % (len(heat), len(more), len(hram)))
             found, extra = walk(rom, set(extra) | more)   # the misses WALKED: a
             lead = leaders(rom, found, extra)               #   start the walk never
-            img = translate(build, rom, lead, log=log, heat=heat,   # found is dropped
-                            hram=hram)
+            near = near_heat(rom, found, lead, heat, int(os.environ.get(   # found is
+                "GBAOT_NEAR", NEAR_DEPTH)))                  #   dropped
+            img = translate(build, rom, lead, log=log, heat=heat,
+                            hram=hram, near=near)
         d1 = os.path.join(work, "final")
         save(img, d1, rom)
         # GAME.O88 is written under its own name only once it is checked: a

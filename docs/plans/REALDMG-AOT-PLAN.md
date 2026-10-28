@@ -47,6 +47,20 @@ correctness items they turned up are closed. What is still open:
   the walk seeing these tables (a pass over `JP (HL)` sites that reads the
   table they index); only 19 of Link's Awakening's 60 PCs appear as a word
   anywhere in the ROM, so it can narrow the gap but not close it.
+  **The walk's half is built (2026-10-28)**: a dispatcher reached by a JP
+  out of its RST vector or by a CALL is recognised (`gbstatic.dispatcher`
+  - Link's Awakening's RST 00 is `JP 2872h`, so none of its tables was
+  read), a table's 0000h/FFFFh are holes rather than its end, a PARALLEL
+  bank table (`LD HL,nn / ADD HL,DE / LD A,(HL) / CALL switch` then `LD
+  A,E / RST`) gives each entry its bank, a table's targets are block starts
+  (they never were, in any game), and the images fill after the counted
+  blocks with what is ONE control transfer from them (`near_heat`, depth 3
+  measured worse). Link's Awakening's walk went 1,232 -> ~40,000 block
+  starts, and that is the finding: the images (10 on the host, ~7,700
+  blocks) are what binds, not the walk. On the beetle replay, unrecorded,
+  34,671 -> 33,235 x86 instructions a frame (the interpreter 9,318 ->
+  6,544) against 25,450 recorded; the recorded replay unchanged. Of its 60
+  PCs 19 are precompiled now, 22 found and dropped for room, 19 not found.
 
 Moved off this plan: **the kern_mega arm** (20.14) is built on the
 kern_mega memory branch by the session doing that rework, which keeps
