@@ -500,8 +500,9 @@ FAST = [
     Row("xtmp3rate", "soak", py("tests/xtmp3eng.py", "--leg", "ladder",
                                 "--leg", "slowdown", "--leg", "rungfail",
                                 "--leg", "playwav", "--leg", "pause",
-                                "--leg", "wavdirs", "--leg", "xtpeak"),
-        370.0,
+                                "--leg", "wavdirs", "--leg", "xtpeak",
+                                "--leg", "mainstall"),
+        395.0,
         "XTMP3's ladder and its mid-track slowdown (xtmp3eng's RATE legs, "
         "SPEC.md 121.5): the stub's cost a rung is spun on the 8253, so the "
         "verdict is the guest's CPU against the PIT - and rungfail, and the "
@@ -519,7 +520,10 @@ FAST = [
         "on `qemuvt` (os88build.qemuvt(), tools/qemu9/i8257-icount.patch): "
         "stock QEMU moves the 8237's transfers on its main loop in HOST "
         "time, so a starved main loop stopped the card - 'The sound card "
-        "stopped', pause's 'under 0' - on 8.2 and 9.2 alike",
+        "stopped', pause's 'under 0' - on 8.2 and 9.2 alike. mainstall "
+        "is that gate: QEMU's main-loop thread alone stopped 300 ms three "
+        "times in a live play, red on a stock QEMU (OS88_QEMUVT=0 by "
+        "hand)",
         needs=("qemu", "qemuvt", "nasm", "mtools", "numpy"), serial=True,
         wants=("build/xtmp3s.o88", "build/xtmp3s.bin", "build/xtmp3.o88",
                "build/xtmp3.bin", "build/os8088.img",
@@ -528,7 +532,8 @@ FAST = [
     Row("xtmp3eng", "soak", py("tests/xtmp3eng.py", "--skip", "ladder",
                                "--skip", "slowdown", "--skip", "rungfail",
                                "--skip", "playwav", "--skip", "pause",
-                               "--skip", "wavdirs", "--skip", "xtpeak"),
+                               "--skip", "wavdirs", "--skip", "xtpeak",
+                               "--skip", "mainstall"),
         750.0,
         "XTMP3's engine (SPEC.md 121.5-121.7, docs/xtmp3/ENGINE.md) over the "
         "STUB backend (`make xtmp3stub`: a tone whose cost a rung is set by "
