@@ -519,7 +519,7 @@ class Mouse:
     EDGE_GUEST = BUSY
     EDGE_RESEND = 0.25
 
-    def _edge(self, down, tries=None, resend=None, btn=1):
+    def _edge(self, down, tries=None, resend=None, btn=1, hold=True):
         """One button edge, PROVEN: send the packet, then wait until the
         published mouse_btn agrees. A packet clocked into the UART while the
         guest is not servicing it is simply lost, and the only difference a
@@ -557,8 +557,8 @@ class Mouse:
                 sent = c
             if (self.where()[2] & btn) == want:
                 self._last_edge = self.ticks()   # ...for _sep above
-                if down:
-                    self._hold(self._last_edge)
+                if down and hold:       # (hold=False: the first press of
+                    self._hold(self._last_edge)  # a hand-made double-click)
                 return
             if (c - c0) / os88marty.GUEST_HZ >= budget:
                 break
@@ -590,10 +590,16 @@ class Mouse:
     HOLD_TICKS = 2
 
     def _hold(self, t0):
-        end = time.time() + 30          # (a backstop: a PAUSED guest has no
-        while ((self.ticks() - t0) & 0xFFFFFFFF) < self.HOLD_TICKS:
-            if time.time() > end:       # ticks to give, and holds nothing)
+        last, seen = t0, time.time()
+        while True:
+            t = self.ticks()
+            if ((t - t0) & 0xFFFFFFFF) >= self.HOLD_TICKS:
                 return
+            if t != last:
+                last, seen = t, time.time()
+            elif time.time() - seen > 2.0:
+                return      # a guest standing at a breakpoint, or paused:
+                            # its clock gives nothing, and nothing polls
             time.sleep(0.01)
 
     # A DOUBLE-CLICK'S TWO PRESSES ARE SPACED IN GUEST CYCLES, NOT HOST ROUND

@@ -194,17 +194,16 @@ order, so that line in `bochs.log` means every event before it was taken, and
 events off the socket while Bochs is blocked writing a frame to a slow X
 server, a stop taken then left them unprocessed, the resume took them
 UNCAPTURED, and the GRAB that had come with them toggled the capture back on
-behind the harness - whose next GRAB toggled it OFF. A relative move taken
-uncaptured also left the X pointer off the warp home, so the next capture
-flung the guest's pointer by the difference (`mega-redlinechipvga-tune`'s
-drop-down click landed at `mouse_x` = `mouse_y` = 0). Only on a loaded box:
-`mega-redlinechipvga-tune`, `-assocopen` (two first clicks 26 ticks apart)
-and `-stikmenu` failed four Bochs rows to a box with the old wait and passed
-with this one. `$OS88_BOCHS_TAKEN=socket` is the A/B. And a PRESS is held
-for a whole guest tick before its release (`os88mouse.Mouse.HOLD_TICKS`): a
-loop that polls the button LEVEL - a tracker, the Sticky Apps panel, the
-volume popup - never saw a press released a few host ms after the guest
-first showed it.
+behind the harness - whose next GRAB toggled it OFF. Only on a loaded box.
+`$OS88_BOCHS_TAKEN=socket` is the A/B: at four Bochs rows to a box,
+`mega-assocopen` and `-minesrc` six times each failed 1 of 12 the old way
+(minesrc's G, a press that did not take) and 0 of 12 this way. And a PRESS
+is held for a whole guest tick before its release
+(`os88mouse.Mouse.HOLD_TICKS`): a loop that polls the button LEVEL - a
+tracker, the Sticky Apps panel, the volume popup - never saw a press
+released a few host ms after the guest first showed it. A hand-made
+double-click passes `hold=False` (tests/assocopen.py), or the hold lands
+between its two presses.
 
 | `box.in_fsx()` | an exclusive fullscreen bracket is running (`[fsx_task]` not FFh) - ui_task is FROZEN inside one, so `ui_done` cannot end there; wait on this into and out of it |
 | `box.fault()` | the first `kern_mega FAULT` line, or None; every `until` raises on one at once rather than waiting out its budget |

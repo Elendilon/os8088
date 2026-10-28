@@ -184,11 +184,11 @@ GLASS = 0.45        # s: two of Bochs's VGA updates (5 Hz) - see Box.shot
 # writing a frame to a slow X server, and a debugger stop taken then left
 # them unprocessed - and a stop DROPS THE CAPTURE, so on the resume a button
 # or a motion went nowhere and the GRAB toggled the capture back ON behind
-# the harness's back, whose next GRAB toggled it OFF; and a relative move
-# taken uncaptured left the pointer away from the warp home, so the next
-# capture flung the guest's pointer by the difference - mega-redlinechipvga-
-# tune's drop-down click landed at mouse_x = mouse_y = 0. Only on a loaded
-# box, which is where the X server is slow.
+# the harness's back, whose next GRAB toggled it OFF. Only on a loaded box,
+# which is where the X server is slow. (The A/B, $OS88_BOCHS_TAKEN=socket,
+# at four Bochs rows to a box: mega-assocopen and -minesrc x6 each, 1 of 12
+# failed the old way - minesrc's G, a press that did not take - and 0 of 12
+# the new; a stronger wait either way, and a cheap one.)
 # $OS88_BOCHS_TAKEN=socket is the A/B: `taken` as it was, the sentinel only
 # counted, and a stop taken with a chain still unprocessed said on stderr
 TAKEN = os.environ.get("OS88_BOCHS_TAKEN", "sentinel")

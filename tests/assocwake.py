@@ -138,7 +138,7 @@ def dbl_at_handover(m, mo, wx, wy, name, before_wins):
 
     if mo.where()[2] & 1:
         mo._edge(False)
-    mo._edge(True)
+    mo._edge(True, hold=False)  # (no hold: it is a double-click's first)
     t1 = mo.ticks()
     if not getattr(m, "bochs", False):
         mo._edge(False)         # (Bochs: in the chain below)
@@ -167,7 +167,7 @@ def dbl_at_handover(m, mo, wx, wy, name, before_wins):
             os88marty.until(m, lambda _: mo.where()[2] & 1,
                             "the second press to be decoded", guest=5.0)
         else:
-            mo._edge(True)              # ...the double-click
+            mo._edge(True, hold=False)  # ...the double-click
         t2 = mo.ticks()
         m.mouse(0, 0, l=False)
         if tr.until(lambda: seen["handover"] is not None, "assoc_handover",

@@ -70,7 +70,7 @@ def bp_open(m, mo, wx, wy, name):
 
     if mo.where()[2] & 1:       # a button left down by something else would
         mo._edge(False)         # make the first press no edge at all
-    mo._edge(True)
+    mo._edge(True, hold=False)  # (no hold: it is a double-click's first)
     t1 = mo.ticks()
     if not getattr(m, "bochs", False):
         mo._edge(False)         # (Bochs: in the chain below)
@@ -94,7 +94,7 @@ def bp_open(m, mo, wx, wy, name):
             os88marty.until(m, lambda _: mo.where()[2] & 1,
                             "the second press to be decoded", guest=5.0)
         else:
-            mo._edge(True)      # ...the double-click
+            mo._edge(True, hold=False)  # ...the double-click
         t2 = mo.ticks()
         m.mouse(0, 0, l=False)
         # A hit, or the UI task asleep with nothing pending across a whole
