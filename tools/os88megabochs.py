@@ -927,6 +927,66 @@ class MegaBochs(MegaMixin, om.Marty):
             self._log.append({"cycles": self._cycles(), "kind": "queued",
                               "args": list(a)})
 
+    def paced_input(self, chains, gap):
+        """Send each xdotool chain of CHAINS to a STOPPED guest and run it
+        EXACTLY `gap` GUEST seconds before the next (_run_exact) - input
+        whose spacing matters, on a device that cannot take a queue.
+
+        Bochs's SERIAL mouse is that device: it LATCHES the button state
+        (iodev/serial.cc mouse_enq) and builds a packet only when its idle
+        UART polls, every 100 guest ms, so two edges inside one poll are one
+        packet carrying the second's level - a press and its release merge
+        into NO press. os88mouse.dblclick used to space them with host
+        sleeps on a running guest, which the clock preload makes a guest
+        interval of anything from ~0 (a Bochs descheduled for over 50 ms is
+        a STOP to bxclock, and its time is taken out whole) to the 0.2 s it
+        meant - so on a loaded box the edges merged and the double-click
+        was one click (mega-irqgrab, mega-dosmouevt, mega-kdnomouse: the
+        drive selected, nothing opened).
+
+        Each chain is read in the first GUI pass after the resume (a guest
+        ms), long before the time breakpoint, so the capture the stop drops
+        is back (`regrab`, os88bochs) when Bochs reads it. A chain still
+        unread at the stop - it cannot be read stopped - is waited for on a
+        running guest, as queued_input does, and said.
+
+        Leaves the guest RUNNING. Answers the GUEST seconds run after each
+        chain, read off the time breakpoint (so they are the spacing the
+        guest saw, exactly, where ticks read around the call also count the
+        host's gaps either side of it); [] when an exact run cannot be had
+        here (a breakpoint of the row's own armed, a bp_trace pump,
+        `realtime`), having sent nothing: the caller spaces it another way.
+        """
+        if ob.SYNC == "realtime" or self._pumping or self._bps:
+            return []
+        ran = []
+        with self._lock:
+            self._halt()
+            if self._state != "paused":
+                return []               # a breakpoint got there first
+            for a in chains:
+                self._xd(*a)
+                g = self._run_exact(gap)
+                ran.append(g)
+                if not g:
+                    self._resume()
+                    raise om.MartyError("os88megabochs: paced input could "
+                                        "not run the guest %.3f s exactly "
+                                        "after %r" % (gap, a))
+                inp = self.box.inp
+                inp._scan()
+                if inp.sent and inp.log and inp.seen < inp.marks:
+                    sys.stderr.write("os88megabochs: %r unread after %.3f "
+                                     "guest s - waited for running\n"
+                                     % (a, gap))
+                    self._resume()
+                    inp.taken(stopped=self._bp_hit)
+                    self._halt()
+            self._resume()
+            self._log.append({"cycles": self._cycles(), "kind": "paced",
+                              "args": [list(a) for a in chains]})
+        return ran
+
     def _c_mouse(self, dx=0, dy=0, l=False, r=False, wz=0, **_):
         if wz and not getattr(self, "imps2", False):
             raise om.MartyError("os88megabochs: no wheel on Bochs's PS/2 "
