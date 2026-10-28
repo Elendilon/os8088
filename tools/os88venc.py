@@ -10557,7 +10557,13 @@ def _encode(a, keep, tick, readers):
         EncoderP(g, prof, fps, audio_cyc, audio_bps, palette and
                  palette[:48], a.flip) if vga4 else \
         Encoder(g, prof, fps, audio_cyc, audio_bps, palette)
-    if fown and not pa_on:
+    # (ONLY THE REAL page-ahead pass, the one with a plan, is a file on N
+    # pages: the PLAN pass logs and is the plain file auto ships when it
+    # declines, so it is made as asked - against its own page with
+    # --flip-own. It was made with neither own nor its page brought up
+    # once auto reached a flipped file, 2026-10-28)
+    pa_real = pa_on and getattr(a, "_paplan", None) is not None
+    if fown and not pa_real:
         enc.own_init()              # (two pages: byte 37 7, 98.1.3.10)
     elif fown:
         enc.nobring = True          # (on N pages: PageAheadF's, 98.2.1.8.5)
@@ -10732,7 +10738,7 @@ def _encode(a, keep, tick, readers):
                         os.path.basename(a.src))[0][:47],
                     credits=a.credits or "", keysecs=a.keysecs,
                     palette=palette, rowscale=dh, flip=a.flip,
-                    own=fown and not pa_on,
+                    own=fown and not pa_real,
                     aspect=scaled_aspect(pasp or vid.ASPECT[L], dh),
                     loop=None if a.loop_from is None else
                     max(0, round(a.loop_from * fps)),
