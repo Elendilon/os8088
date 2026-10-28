@@ -396,6 +396,17 @@ def main():
             check(any(c[0] == "Sticky Apps" for c in ui.menus()),
                   "the desktop's bar carries 'Sticky Apps'")
             dw = ui.open_drive("A")
+            # ...ONCE THE BAR IS THE WINDOW'S: open_drive answers when the
+            # window EXISTS, and the bar follows its activation a pass or
+            # more later - read at once, it was still the desktop's
+            # (['Apple', 'File', 'Sticky Apps'], mega-stikmenu at four Bochs
+            # rows to a box). Bounded, so a bar that never changes still
+            # fails below on what it says
+            try:
+                ui._wait(lambda: "Disk" in [c[0] for c in ui.menus()],
+                         "the Disk window's bar", T)
+            except os88ui.UIError:
+                pass
             bar = [c[0] for c in ui.menus()]
             check("Sticky Apps" not in bar and "Disk" in bar,
                   "a Disk window's bar does not (%r)" % bar)

@@ -175,6 +175,25 @@ GLASS = 0.45        # s: two of Bochs's VGA updates (5 Hz) - see Box.shot
 # of xdotool against 3 ms for `mousedown`), and since a debugger stop drops
 # the capture, a row that alternates input and stops paid that on every
 # input - in GUEST time while the clock was sync=realtime
+# THE SENTINEL, which ends every xdotool chain (_Input.xd): a key Bochs's X
+# GUI maps to nothing, so it hands the guest nothing and logs instead -
+# `xkeypress(): keysym 1008ff49 unhandled!` at `error: action=report` (gui/
+# x.cc, the switch's default). Its line in bochs.log says Bochs has PROCESSED
+# every event sent before it. Reading the X socket dry said only that Bochs
+# had READ them: xcb pulls events off the socket while Bochs is blocked
+# writing a frame to a slow X server, and a debugger stop taken then left
+# them unprocessed - and a stop DROPS THE CAPTURE, so on the resume a button
+# or a motion went nowhere and the GRAB toggled the capture back ON behind
+# the harness's back, whose next GRAB toggled it OFF; and a relative move
+# taken uncaptured left the pointer away from the warp home, so the next
+# capture flung the guest's pointer by the difference - mega-redlinechipvga-
+# tune's drop-down click landed at mouse_x = mouse_y = 0. Only on a loaded
+# box, which is where the X server is slow.
+# $OS88_BOCHS_TAKEN=socket is the A/B: `taken` as it was, the sentinel only
+# counted, and a stop taken with a chain still unprocessed said on stderr
+TAKEN = os.environ.get("OS88_BOCHS_TAKEN", "sentinel")
+SENTINEL = "XF86Launch9"
+SENTINEL_LOG = b"keysym 1008ff49 unhandled"
 GRAB = ("keydown", "ctrl", "mousedown", 2, "mouseup", 2, "keyup", "ctrl")
 
 
@@ -194,6 +213,10 @@ class _Input(object):
         self.last = 0.0
         self.pid = None         # the Bochs reading this display (Box sets it)
         self.sent = False       # input sent that Bochs may not have READ yet
+        self.log = None         # its bochs.log, for the SENTINEL (Box sets it)
+        self.marks = 0          # sentinels sent to this Bochs...
+        self.seen = 0           # ...and seen in its log
+        self.logpos = 0
         # ONE xdotool at a time on a display: a row that wiggles the mouse
         # in a thread while it clicks would otherwise have two calls both
         # see `regrab` and toggle the capture twice - OFF
@@ -216,10 +239,27 @@ class _Input(object):
             # arrived as `kbtripgetmouselocation`, a Bad command in the DOS
             # window, and megasheet's macro name as COUNTgetmouselocation.
             # There xdotool's exit is the round trip: XCloseDisplay XSyncs
-            tail = [] if "type" in a else ["getmouselocation"]
+            #
+            # ...AND ENDING IN THE SENTINEL where the Bochs has a log: a key
+            # it does not map, which it does not hand the guest and DOES log
+            # (see SENTINEL). X delivers a client's events in order and
+            # handle_events takes them in order, so its line in bochs.log
+            # is proof that every event of the chain has been PROCESSED, not
+            # merely read off the socket - which is what `taken` waits on.
+            # `type` takes every argument left as text, so after one it is
+            # a second call (xdotool's exit XSyncs: its events come first)
+            if self.log:
+                tail = [] if "type" in a else ["key", SENTINEL]
+            else:
+                tail = [] if "type" in a else ["getmouselocation"]
             subprocess.run(["xdotool"] + [str(x) for x in pre + a] + tail,
                            env=self.env, check=True,
                            stdout=subprocess.DEVNULL)
+            if self.log and "type" in a:
+                subprocess.run(["xdotool", "key", SENTINEL], env=self.env,
+                               check=True, stdout=subprocess.DEVNULL)
+            if self.log:
+                self.marks += 1
             self.last = time.time()
             self.sent = True
 
@@ -239,6 +279,45 @@ class _Input(object):
         until it resumes, so there is nothing to wait for; `timeout` is a
         backstop for a box with no sock_diag, where this is INPUT_GAP alone
         as before."""
+        if self.sent and self.pid and self.log and TAKEN == "socket":
+            # THE A/B: the socket read dry and INPUT_GAP, as before the
+            # sentinel - and the sentinel still COUNTED, so what that left
+            # in flight at a stop is said (os88bochs: ... in flight)
+            self._taken_socket(stopped, timeout)
+            self._scan()
+            if self.seen < self.marks:
+                sys.stderr.write("os88bochs: %s: a stop with %d input chain(s)"
+                                 " in flight\n" % (self.display,
+                                                    self.marks - self.seen))
+                self.seen = self.marks
+            return
+        if self.sent and self.pid and self.log:
+            end = time.time() + timeout
+            nap = 0.001
+            while self.seen < self.marks:
+                if stopped is not None and stopped():
+                    return              # still pending: the next stop asks
+                self._scan()
+                if self.seen >= self.marks:
+                    break
+                if time.time() > end:
+                    # NOT TAKEN AT ALL: the chain went to a window that is
+                    # not Bochs's. Said, and forgiven, so the next input is
+                    # not charged this one's timeout as well
+                    sys.stderr.write(
+                        "os88bochs: %s: Bochs logged %d of %d input sentinels"
+                        " in %.0fs - input went to another window, or Bochs"
+                        " is wedged\n" % (self.display, self.seen,
+                                           self.marks, timeout))
+                    self.seen = self.marks
+                    break
+                time.sleep(nap)
+                nap = min(nap * 2, 0.01)
+            self.sent = False
+            return                      # PROCESSED: nothing is in flight
+        self._taken_socket(stopped, timeout)
+
+    def _taken_socket(self, stopped, timeout):
         if self.sent and self.pid:
             end = time.time() + timeout
             nap = 0.001
@@ -254,6 +333,26 @@ class _Input(object):
         gap = self.last + INPUT_GAP - time.time()
         if gap > 0:
             time.sleep(gap)
+
+    def _scan(self):
+        """Count the SENTINEL's log lines past `logpos` into `seen` (a press
+        and a release each log one: two lines a sentinel)."""
+        try:
+            with open(self.log, "rb") as f:
+                f.seek(self.logpos)
+                t = f.read()
+        except OSError:
+            return
+        cut = t.rfind(b"\n") + 1
+        self._half = getattr(self, "_half", 0) + t[:cut].count(SENTINEL_LOG)
+        self.logpos += cut
+        self.seen = self._half // 2
+
+    def attach(self, pid, log):
+        """A NEW Bochs on this display: what the last one owed is void."""
+        self.pid, self.log = pid, log
+        self.marks = self.seen = self.logpos = self._half = 0
+        self.sent = False
 
     def shot(self, path):
         subprocess.run("xwd -root -silent | convert xwd:- -crop 650x500+5+40 "
@@ -758,7 +857,8 @@ class Box(object):
                                   stdin=os.open(fifo, os.O_RDWR),
                                   stdout=self.f, stderr=subprocess.STDOUT,
                                   env=self.env, preexec_fn=_fsize_cap)
-        self.inp.pid = self.p.pid       # (the wrapper execs bochs-bin)
+        self.inp.attach(self.p.pid,     # (the wrapper execs bochs-bin)
+                        os.path.join(out, "bochs.log"))
         self.hold = subprocess.Popen("exec sleep 86400 > '%s'" % fifo,
                                      shell=True, env=self.env)
         with open(fifo, "w") as fh:

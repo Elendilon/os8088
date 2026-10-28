@@ -483,7 +483,15 @@ class MegaBochs(MegaMixin, om.Marty):
 
     def _fbuf(self):
         """(w, h, rgb24) of the guest's display, out of the Bochs window."""
-        time.sleep(ob.GLASS)
+        # GLASS only for a RUNNING guest, whose next updates are what it
+        # waits for. A STOPPED one paints nothing until it resumes, so the
+        # sleep bought no pixel - and under sync=slowdown every host second
+        # stopped is paid back as a guest SPRINT on the resume (the clock
+        # catches up), so a row looking at a paused machine N times handed
+        # the guest N x GLASS of extra time: mega-vidfskeysvga4 saw a toast
+        # ~25 frames long 4 times, ~7 frames a look, and failed `looks < 8`
+        if self._state == "running":
+            time.sleep(ob.GLASS)
         raw = subprocess.run(["xwd", "-silent", "-id", self._window()],
                              env=self.box.env, capture_output=True,
                              check=True).stdout

@@ -184,16 +184,32 @@ kernel instead of sleeping:
 takes over, so after a read the next move or click reaches nobody. A Box that
 has captured re-captures inside the NEXT xdotool call (`xd`, so a row's own
 `os88bochs.xd(...)` is covered too): X delivers the toggle ahead of the input.
-And a stop waits until Bochs has READ the last input - every `xd` ends in an X
-round trip, so the server has written its events to Bochs's connection, and
-`_Input.taken` then watches that socket's receive queue drain through
-sock_diag - plus `INPUT_GAP` (30 ms), so a click still queued is taken while
-the mouse is captured rather than dropped. A fixed gap alone was a guess about
-host scheduling and lost edges on a loaded box.
+And a stop waits until Bochs has PROCESSED the last input: every `xd` chain
+ends in a SENTINEL key (`os88bochs.SENTINEL`, XF86Launch9) that Bochs's X GUI
+maps to nothing, so it hands the guest nothing and logs
+`keysym 1008ff49 unhandled!` instead - X and `handle_events` keep a chain in
+order, so that line in `bochs.log` means every event before it was taken, and
+`_Input.taken` waits for it. It watched the X socket drain before
+(sock_diag, then `INPUT_GAP`), and that was READ, not PROCESSED: xcb pulls
+events off the socket while Bochs is blocked writing a frame to a slow X
+server, a stop taken then left them unprocessed, the resume took them
+UNCAPTURED, and the GRAB that had come with them toggled the capture back on
+behind the harness - whose next GRAB toggled it OFF. A relative move taken
+uncaptured also left the X pointer off the warp home, so the next capture
+flung the guest's pointer by the difference (`mega-redlinechipvga-tune`'s
+drop-down click landed at `mouse_x` = `mouse_y` = 0). Only on a loaded box:
+`mega-redlinechipvga-tune`, `-assocopen` (two first clicks 26 ticks apart)
+and `-stikmenu` failed four Bochs rows to a box with the old wait and passed
+with this one. `$OS88_BOCHS_TAKEN=socket` is the A/B. And a PRESS is held
+for a whole guest tick before its release (`os88mouse.Mouse.HOLD_TICKS`): a
+loop that polls the button LEVEL - a tracker, the Sticky Apps panel, the
+volume popup - never saw a press released a few host ms after the guest
+first showed it.
 
 | `box.in_fsx()` | an exclusive fullscreen bracket is running (`[fsx_task]` not FFh) - ui_task is FROZEN inside one, so `ui_done` cannot end there; wait on this into and out of it |
 | `box.fault()` | the first `kern_mega FAULT` line, or None; every `until` raises on one at once rather than waiting out its budget |
 | `box.shot(path)` | a screenshot after `GLASS` (0.45 s): the X window lags the guest by up to one of Bochs's 5 Hz VGA updates |
+| `m.fbuf()` (os88megabochs) | the same window, after `GLASS` only while the guest RUNS: a stopped Bochs paints nothing, and under `slowdown` every host second spent stopped is run back as a guest sprint on the resume, so a sleep there only handed the guest time (`mega-vidfskeysvga4` looked at its toast 4 times instead of 11) |
 | `box.xd(...)`, `box.key(...)`, `box.type(...)` | xdotool on THIS machine's display - one call at a time (a thread wiggling the mouse beside a click is safe) |
 | `box.at_prompt(cmds)` | the machine is ALREADY stopped (an `lb` breakpoint hit): run CMDS and continue, on the prompts |
 | text screen | `box.read(0xB8000, n)[0::2]` is the characters - how a hibernate's `os8088 has hibernated` is waited for, it having no E9 line |

@@ -557,6 +557,8 @@ class Mouse:
                 sent = c
             if (self.where()[2] & btn) == want:
                 self._last_edge = self.ticks()   # ...for _sep above
+                if down:
+                    self._hold(self._last_edge)
                 return
             if (c - c0) / os88marty.GUEST_HZ >= budget:
                 break
@@ -573,6 +575,26 @@ class Mouse:
             % ("right" if btn == 2 else "left",
                "press" if down else "release", budget, self.EDGE_RESEND,
                self.where()[2]))
+
+    # A PRESS IS HELD FOR A WHOLE GUEST TICK, as a finger holds one. A loop
+    # that POLLS the level rather than taking the queued EVT_MDOWN - a
+    # tracker such as menu_track or the Sticky Apps panel, the volume popup
+    # (drivers/sound/volume.inc .poll) - sees a press only if one of its
+    # polls lands inside it, and a poll is a task_yield apart. `_edge`
+    # released the moment mouse_btn read 1: a few HOST ms, which is all the
+    # guest got of it when the host was busy - the guest ran a step, the
+    # read stopped it (Bochs) or the box descheduled it, and the release was
+    # next. mega-stikmenu's click off the panel never closed it, with
+    # mouse_btn proven both ways, at four Bochs rows to a box and never
+    # alone. Two increments of the BIOS tick is one whole tick in between.
+    HOLD_TICKS = 2
+
+    def _hold(self, t0):
+        end = time.time() + 30          # (a backstop: a PAUSED guest has no
+        while ((self.ticks() - t0) & 0xFFFFFFFF) < self.HOLD_TICKS:
+            if time.time() > end:       # ticks to give, and holds nothing)
+                return
+            time.sleep(0.01)
 
     # A DOUBLE-CLICK'S TWO PRESSES ARE SPACED IN GUEST CYCLES, NOT HOST ROUND
     # TRIPS. `_edge` proves an edge by polling the guest while it runs freely,
