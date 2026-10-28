@@ -190,7 +190,7 @@ def main():
         box.dbl(591, 160, "C:'s Disk window")
         box.dbl(150, 123, "DOCS's listing")
         box.goto(160, 139)                  # MAC.SLK, the first row
-        box.xd("click", "--repeat", 2, "--delay", 120, 1)
+        box.dblclick()
         box.until(lambda: box.pkg_base("SHEET"), "SHEET started", 120)
         mark = len(box.lines())     # the trap census from here on
         rbase = box.pkg_base("SHEET")

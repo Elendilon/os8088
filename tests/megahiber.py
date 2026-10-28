@@ -120,7 +120,7 @@ def main():
         box.dbl(591, 160, "C:'s Disk window")
         box.dbl(150, 123, "RUN's listing")
         box.goto(160, 155)              # MEGAHIB
-        box.xd("click", "--repeat", 2, "--delay", 120, 1)
+        box.dblclick()
         if not box.wait_for("MEGAHIB: held", 60):
             fails.append("MEGAHIB never held its block")
         box.ui_done("MEGAHIB's window")

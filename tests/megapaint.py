@@ -293,7 +293,7 @@ def main():
         box.dbl(591, 160, "C:'s Disk window")
         box.dbl(150, 123, "PICS's listing")
         box.goto(160, 139)
-        box.xd("click", "--repeat", 2, "--delay", 120, 1)
+        box.dblclick()
         box.ui_done("Paint opening BIGPIC.BMP", secs=180)
         box.shot(os.path.join(out, "opened.png"))
         pt = Paint(box)

@@ -154,7 +154,7 @@ def main():
             if i == 1:
                 box.goto(165, 123)      # the Disk window's one row
                 th.start()
-                ob.xd("click", "--repeat", 2, "--delay", 120, 1)
+                box.dblclick()
             else:
                 ob.xd("key", "--delay", 30, *(["BackSpace"] * 4))
                 ob.xd("type", "--delay", 120, TYPED)
@@ -171,7 +171,7 @@ def main():
                 retyped.append(i)
                 if i == 1:
                     ob.goto(165, 123)
-                    ob.xd("click", "--repeat", 2, "--delay", 120, 1)
+                    box.dblclick()
                 else:
                     ob.xd("key", "--delay", 60, *(["BackSpace"] * 8))
                     ob.xd("type", "--delay", 120, TYPED)

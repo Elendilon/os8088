@@ -142,7 +142,7 @@ def leg(name, keep, t, display=None):
             before = lg.counts("KBTRIP ready", "KBTRIP key", "unparked")
             if i == 1:
                 box.goto(165, 123)      # the Disk window's one row
-                box.xd("click", "--repeat", 2, "--delay", 120, 1)
+                box.dblclick()
                 ok = lg.wait(["KBTRIP ready"], before[:1], 90) is not None
             else:
                 ok = lg.command(before[0])

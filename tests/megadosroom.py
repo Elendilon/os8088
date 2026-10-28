@@ -108,7 +108,7 @@ def main():
             fails.append("nothing to fill: the pool had no free KB")
         box.dbl(591, 105, "B:'s Disk window")
         box.goto(165, 123)
-        ob.xd("click", "--repeat", 2, "--delay", 120, 1)
+        box.dblclick()
         if not box.wait_for("KBTRIP ready", 240):
             fails.append("KBTRIP never started (the trip refused?)")
         else:

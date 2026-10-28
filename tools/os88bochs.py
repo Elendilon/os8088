@@ -482,7 +482,8 @@ def _tail(path, n):
         return f.read().decode("latin-1")
 
 
-def session(out, cmds, timeout=20.0, pids=None, inp=None, interrupt=True):
+def session(out, cmds, timeout=20.0, pids=None, inp=None, interrupt=True,
+            at_prompt=None):
     """Break in, run the debugger commands CMDS, continue - and answer the
     transcript of the commands, read off OUT/e9.out (the debugger writes to
     the same stdout the E9 hack does).
@@ -539,6 +540,8 @@ def session(out, cmds, timeout=20.0, pids=None, inp=None, interrupt=True):
                 break               # say what it did say, and carry on
             time.sleep(nap)
             nap = min(nap * 2, 0.02)
+    if at_prompt is not None:       # ...anything the caller does while
+        at_prompt()                 # the guest is stopped (Box.dblclick)
     with open(os.path.join(out, "dbg.fifo"), "w") as fh:
         fh.write("c\n")
     # ...and until Bochs has READ it (it echoes each command after its
@@ -1106,13 +1109,32 @@ class Box(object):
         self.xd("click", button)
         return self.ui_done(what, lock=lock)
 
+    def dblclick(self):
+        """A double-click where the pointer is, QUEUED ON A STOPPED GUEST:
+        Bochs's GUI drains the X queue in one pass and each PS/2 button
+        change is a packet of its own, so the four edges are a few GUEST ms
+        apart whatever the host does (os88megabochs.queued_input is the
+        shim's twin; docs/BOCHS.md *The clock*). `click --repeat 2 --delay
+        120` spaced them in HOST time, and a guest catching up after a long
+        stop - megahma's few hundred `setpmem`s - ran that spacing past the
+        kernel's 9-tick window: two first clicks, KBTRIP never started.
+        The stop drops the capture, so the queue starts with GRAB."""
+        def queue():
+            if self.captured:
+                self.inp.regrab = True
+            self.inp.xd("mousedown", 1, "mouseup", 1, "mousedown", 1,
+                        "mouseup", 1)
+        session(self.out, [], pids=[self.p.pid], inp=self.inp,
+                at_prompt=queue)
+        self.inp.taken()            # read by Bochs before any next stop
+
     def dbl(self, x=None, y=None, what="the UI to take the double-click",
             lock=True):
         """A double-click, then `ui_done` - `lock=False` when what it opens
         is a program whose worker holds the gfx lock (a game)."""
         if x is not None:
             self.goto(x, y)
-        self.xd("click", "--repeat", 2, "--delay", 120, 1)
+        self.dblclick()
         return self.ui_done(what, lock=lock)
 
     def megarun(self, row=0):
