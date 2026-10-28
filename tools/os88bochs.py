@@ -716,7 +716,8 @@ class Box(object):
                  build=None, csys=False, put=(), cd=None, aimg=None,
                  display=None, megs=None, noc=False, vgahz=None,
                  flog=False, mouse=None, noserial=False, imps2=False,
-                 cimg=None, cgeom=None, ne2k_io=None, rcextra=""):
+                 cimg=None, cgeom=None, ne2k_io=None, rcextra="",
+                 ips=None):
         # DISPLAY: the X display this machine owns - the module's
         # ($OS88_BOCHS_DISPLAY, :99) by default, or its own, so ONE process
         # can run several machines at once (one display each)
@@ -796,7 +797,13 @@ class Box(object):
         with open(rc, "w") as f:
             # `imps2`: an IntelliMouse, so the WHEEL reaches the guest
             f.write(BOCHSRC.format(
-                megs=megs or MEGS, a=a, b=b, cpu=IPS, time0=TIME0, sync=SYNC,
+                # `ips`: THIS machine's guest speed, where the row's subject
+                # is a real-time load the default 4M CPU correctly declines
+                # (tests/x3mega.py's live play); $OS88_BOCHS_IPS still wins
+                megs=megs or MEGS, a=a, b=b,
+                cpu=("cpu: ips=%d\n" % ips
+                     if ips and not os.environ.get("OS88_BOCHS_IPS") else IPS),
+                time0=TIME0, sync=SYNC,
                 # `rcextra`: bochsrc lines a row adds as they stand - an
                 # option ROM (`optromimage1:`, tests/megapmmouse.py)
                 rcextra=rcextra,

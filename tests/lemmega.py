@@ -56,6 +56,55 @@ from os88fixture import need  # noqa: E402
 import lemplaymarty  # noqa: E402
 
 FAILS = []
+TPS = 18.2                      # BIOS ticks a guest second
+
+
+def ticks(box):
+    """The kernel's tick count: GUEST time, which a loaded host cannot
+    shorten (docs/BOCHS.md, *The clock*)"""
+    return int.from_bytes(box.read(box.sym("ticks"), 2), "little")
+
+
+def gsleep(box, secs, done=None):
+    """SECS of GUEST time (or until DONE()). A host sleep hands a guest
+    under `sync=slowdown` whatever the host gave Bochs - on a loaded box a
+    fraction of it"""
+    t = ticks(box)
+    box.until(lambda: (done is not None and done()) or
+              (ticks(box) - t) & 0xFFFF >= secs * TPS,
+              "%g guest seconds" % secs, 60 + secs * 10, poll=0.25)
+
+
+def nuke(box, sym):
+    """F12 TWICE, in the game's own terms (lemmings.c ovl_key): the second
+    press must reach a pass that has seen F12 UP since the first, and within
+    LEM_DBLKEY = 5 ticks of it. `key F12 F12 --delay 100` spaced the two
+    presses in HOST time, and under `sync=slowdown` a host interval is no
+    guest interval - Bochs runs ahead of the wall clock and sleeps, and an X
+    event that arrives while it sleeps is taken with whatever came after
+    it, so both presses reached ONE pass and the second was a typematic
+    repeat to the game: no nuke, and the Esc that followed opened the
+    postview instead of leaving it. So each press is queued on a STOPPED
+    guest (Box.dblclick's shape) and the guest is stopped on WRITES to the
+    game's own state - the first press's `lem_nuket`, then the `lem_f12up =
+    0` beside it, then the pass's `lem_f12up = 1` - and the second press is
+    queued there: one pass on, whatever the host does."""
+    base = box.pkg_base("LEMMINGS")
+    nuket, f12up = base + sym["_lem_nuket"], base + sym["_lem_f12up"]
+
+    def press():
+        if box.captured:
+            box.inp.regrab = True
+        box.inp.xd("key", "F12")
+
+    os88bochs.session(box.out, ["watch w 0x%x" % nuket], pids=[box.p.pid],
+                      inp=box.inp, at_prompt=press)
+    box.inp.taken()
+    box.at_prompt(["unwatch", "watch w 0x%x" % f12up], timeout=60)
+    box.at_prompt([], timeout=60)           # the press's lem_f12up = 0
+    os88bochs.session(box.out, ["unwatch"], 60, pids=[box.p.pid],
+                      inp=box.inp, interrupt=False, at_prompt=press)
+    box.inp.taken()                         # (...and = 1: the second press)
 
 
 def want(cond, what):
@@ -111,15 +160,15 @@ def main():
             wait on, so the key is offered every 10 s, five times."""
             def moving():
                 a = rd("_lem_iter")
-                time.sleep(1)
+                gsleep(box, 1)
                 return rd("_lem_iter") != a
 
             wr("_lem_sel", sel)
             box.key("Return")                   # the launch: the preview
             box.until(box.in_fsx, what + ": the bracket", 120)
             for n in range(5):
-                end = time.time() + 10
-                while time.time() < end and not moving():
+                t = ticks(box)
+                while (ticks(box) - t) & 0xFFFF < 10 * TPS and not moving():
                     if box.fault():
                         raise RuntimeError(box.fault())
                 if moving():
@@ -133,7 +182,7 @@ def main():
 
         # --- 1. Fun 1 ----------------------------------------------------
         play(0, "fun1")
-        time.sleep(20)
+        gsleep(box, 20)
         it1 = rd("_lem_iter")
         box.shot(os.path.join(out, "fun1-play.png"))
         raw = box.pkg_read("LEMMINGS", sym["_lem_tpl"], 8)
@@ -155,27 +204,28 @@ def main():
         want(it1 > 0, "1. Fun 1 plays: _lem_iter %d after 20s" % it1)
 
         # --- 2. the nuke ----------------------------------------------------
-        box.key("F12", "F12", delay=100)
-        time.sleep(25)
+        nuke(box, sym)
+        box.until(lambda: rd("_lem_nuked") == 1, "the nuke taken", 120)
+        box.until(lambda: rd("_lem_finished") == 1,
+                  "every lemming gone after the nuke", 240)
         it2 = rd("_lem_iter")
         box.shot(os.path.join(out, "fun1-nuked.png"))
         want(it2 > it1, "2. the nuke's explosions (the T sync path): "
-             "_lem_iter %d -> %d" % (it1, it2))
+             "_lem_iter %d -> %d, every lemming gone" % (it1, it2))
 
         # --- 3. Fun 22, a special level ---------------------------------
-        box.key("Escape")
-        box.until(lambda: not box.in_fsx() or rd("_lem_screen") != 0,
-                  "out of the level", 120)
-        time.sleep(3)
-        for _ in range(3):              # the postview, then the list
+        # the verdict is in, so the loop leaves for the postview: Esc there
+        # is the menu (the list), and an Esc the play loop took first is
+        # the postview - so Esc until the bracket is left, in GUEST time
+        for _ in range(4):
             if not box.in_fsx():
                 break
             box.key("Escape")
-            time.sleep(3)
+            gsleep(box, 3, lambda: not box.in_fsx())
         box.until(lambda: not box.in_fsx(), "back on the desktop", 120)
         box.ui_done("the launcher again", secs=120)
         play(21, "fun22")
-        time.sleep(20)
+        gsleep(box, 20)
         it3 = rd("_lem_iter")
         box.shot(os.path.join(out, "fun22-play.png"))
         want(it3 > 0, "3. Fun 22 (the special picture) plays: _lem_iter %d"

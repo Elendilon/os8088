@@ -96,7 +96,13 @@ a double-click is queued on a stopped guest and reaches it in one GUI pass
 (`queued_input`, below). `$OS88_BOCHS_SYNC=realtime` puts the old clock
 back, shim and all, for an A/B; `$OS88_BOCHS_IPS` changes the speed (a
 host that cannot reach it runs the guest slower than real time, which the
-guest-time waits absorb).
+guest-time waits absorb), and `Box(ips=)` changes it for ONE machine whose
+subject needs a faster CPU - XT-MP3's Auto measures its decode against guest
+time and rightly declines to play live at 4M (`tests/x3mega.py`'s play leg
+asks 25M). A KEY whose spacing matters is the double-click's case one device
+along: `tests/lemmega.py`'s F12-twice nuke queues each press on a stopped
+guest and stops on a `watch w` of the game's own state between them, where
+`key F12 F12 --delay 100` reached one pass of the game as one press.
 
 ## Commands
 

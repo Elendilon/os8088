@@ -6287,7 +6287,7 @@ SOAK = [
         wants=("build/mega.img", "build/megak/kernel.map",
                "build/megarun.o88", "build/lemmings.o88",
                "build/lemmings.img")),
-    Row("x3mega", "soak", py("tests/x3mega.py"), 60.0,
+    Row("x3mega", "soak", py("tests/x3mega.py"), 85.0,
         "XT-MP3 UNDER kern_mega WITH OS88_HIGHMEM DECLARED (KERN-MEGA-MEMORY-"
         "PLAN MC7, SPEC.md 121): its claims of 64KB or less are LDT selectors "
         "over pool blocks above 1MB, where adding paragraphs to one names "
