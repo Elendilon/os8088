@@ -429,13 +429,13 @@ def main():
             # and every block one part entered entered from four. Part 0
             # searched whatever the key must lose blocks
             ok, what = gbaot.compare(BUILD, rom, gbaot.load(out3), frames, lparts=4)
-            n1, n4 = (entered(rom, out3, frames, lp) for lp in (1, 4))
+            n1, n4 = (entered(rom, out3, 300, lp) for lp in (1, 4))
             ok = ok and n1 == n4
             print("%-4s %-28s %s; %d blocks entered from one part, %d from four" % (
                 "ok" if ok else "FAIL", "GBBANK, the list in 4 parts", what, n1, n4))
             bad += not ok
             if not a.k:
-                nb = entered(rom, out3, frames, 4, ("RDG_LXBUG",))
+                nb = entered(rom, out3, 300, 4, ("RDG_LXBUG",))
                 ok = nb < n4
                 print("%-4s %-28s %s" % ("ok" if ok else "FAIL", "control: part 0 only",
                                          "%d blocks entered, as it must be fewer" % nb if ok
