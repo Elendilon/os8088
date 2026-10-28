@@ -23,8 +23,11 @@ The driver knows these kinds of sound hardware:
   driver switches those sounds on for you, which on DOS needs a separate
   program.
 
-Programs that use it include the Audio Player, Tracker, MIDIRack and the
-Video Player, and several games play their music through it.
+Programs that use it include the Audio Player, Tracker, MIDIRack, XTMP3,
+WaveRack and the Video Player, and several games play their music through
+it. WaveRack records through it too: the card writes the sound straight
+into WaveRack's own memory while the disk is busy, so a take keeps going
+while it is saved.
 
 ## Why it is on the system disk
 

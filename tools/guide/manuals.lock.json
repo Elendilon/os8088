@@ -1236,6 +1236,14 @@
   "strings": "4095e5c86a5e295a",
   "why": "the driver passes wheel notches to the kernel (SPEC.md 9.12.8), so the wheel scrolls the front window"
  },
+ "WAVERACK_O88": {
+  "sources": [
+   "apps/waverack"
+  ],
+  "stamped": "45eeb8dd7",
+  "strings": "f2f678d1c518c94a",
+  "why": "Checked against the review fixes: 'Take still recording' on a save over a live take, Record greyed on a floppy above 8,000 Hz and after a DSP 1.x answers once, the take's endings without 'kept' when nothing was written - all said; the overrun's minutes form is below the page's detail"
+ },
  "WEAVE": {
   "sources": [],
   "stamped": "e4576a70",
