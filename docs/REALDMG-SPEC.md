@@ -4010,9 +4010,11 @@ until 20.17; the host sets the count):
 |---|---|---|
 | 0, 1 | the core with the host's code in its holes | the carve |
 | 2 | the view | the carve's scratch |
-| 3 | the block table, 16KB, its segment words tokens F000h + n | the carve |
-| 4 | the meta (rwaot.inc's header) and the list | the carve |
+| 3 | the block table, its segment words tokens F000h + n: 16KB, or 32KB in kern_mega's package (20.17.1), then the filter and the list's cache | the carve |
+| 4 | the meta (rwaot.inc's header) | the carve |
 | 5.. | each code image's two 32KB halves, `OP_SELF` | a 64KB claim each |
+| then | the relocations, 16,256 a part, eager (`OP_ASSET`, LZ4) | the carve |
+| then | the list, up to `RDG_LXMAX` = 4 parts of 8,128 entries, eager | the carve |
 | then | with `--embed`, the ROM in plain 32KB pieces (20.13) | the ROM's claim or the bank cache |
 
 The table is laid out for 64 rows, the most a part table holds, and the

@@ -73,8 +73,12 @@ rdg_aotmiss:
     jmp .go
 .srch:
     mov es,[ss:S_AOTLSEG]
-    mov word [ss:S_AOTLO],0
     mov bx,[ss:S_AOTLN]
+    cmp byte [ss:S_AOTLX],1         ; (the list in parts, 20.17: which)
+    ja .chunk
+.bs:
+    mov [ss:S_AOTCN],bx
+    mov word [ss:S_AOTLO],0
     mov [ss:S_AOTHI],bx
 .l:
     mov bx,[ss:S_AOTLO]             ; the first entry not below (key, PC)
@@ -102,7 +106,7 @@ rdg_aotmiss:
     mov [ss:S_AOTLO],bx
     jmp short .l
 .end:
-    cmp bx,[ss:S_AOTLN]
+    cmp bx,[ss:S_AOTCN]
     jae .neg
     shl bx,1
     shl bx,1
@@ -218,6 +222,36 @@ rdg_aotmiss:
     mov bx,[ss:S_SAVBX]             ; the interpreter's, as tr_kint goes
     jmp far [ss:S_AOTINT]
 
+; (the list in parts, REALDMG-SPEC 20.17: the last part whose first entry
+; is not above (key, PC) holds it if any does - parts are the sorted list cut
+; in order - and part 0 is S_AOTLSEG's; DX is free, nothing is pushed)
+rdg_aotmiss.chunk:
+    mov bl,[ss:S_AOTLX]
+    dec bl
+    xor bh,bh
+    shl bx,1
+    shl bx,1
+    shl bx,1
+.ck:
+%ifdef RDG_LXBUG                        ; (tests/gbaot.py's control: part
+    jmp short .cp                       ;   0 searched whatever the key)
+%endif
+    mov dl,[ss:S_AOTKEY]
+    cmp dl,[ss:bx+S_AOTLXT+4]
+    jb .cp
+    ja .ct
+    cmp si,[ss:bx+S_AOTLXT+2]
+    jae .ct
+.cp:
+    sub bx,8
+    jnz .ck
+    mov bx,[ss:S_AOTLN]             ; part 0: ES is its already
+    jmp rdg_aotmiss.bs
+.ct:
+    mov es,[ss:bx+S_AOTLXT]
+    mov bx,[ss:bx+S_AOTLXT+6]
+    jmp rdg_aotmiss.bs
+
 ; rdg_aotlink - tr_lno's way here under S_HYON (20.16): tr_link's target,
 ; SI, DH its key, [S_LINK] the exit, not in the fixed table - looked up as
 ; any miss, and a block found is chained rather than only entered
@@ -303,7 +337,10 @@ rdg_hyins:
 ; rdg_aotattach - DS = the view: the list at AX (CX entries) attached with
 ; its filter at BX (8KB, built here from the entries with a block: one whose
 ; image was not loaded has offset 0), and the core's misses pointed at
-; rdg_aotmiss in THIS segment. Every register kept
+; rdg_aotmiss in THIS segment. A list in PARTS (20.17): the host has put
+; S_AOTLX and each part's segment and entries in S_AOTLXT, AX and CX being
+; part 0's; each part's first entry is copied into its directory row here.
+; S_AOTLX 0 is one part, AX's. Every register kept
 rdg_aotattach:
     push ax
     push bx
@@ -315,6 +352,12 @@ rdg_aotattach:
     mov [S_AOTLSEG],ax
     mov [S_AOTLN],cx
     mov [S_AOTFSEG],bx
+    cmp byte [S_AOTLX],1
+    ja .px
+    mov byte [S_AOTLX],1            ; (one part: AX's, its row too)
+    mov [S_AOTLXT],ax
+    mov [S_AOTLXT+6],cx
+.px:
     mov word [S_AOTVEC],rdg_aotmiss
     mov [S_AOTVEC+2],cs
     mov word [S_HYLVEC],rdg_aotlink
@@ -347,11 +390,34 @@ rdg_aotattach:
     call rdg_aotbitset              ;   its blocks away)
     pop ds
 %endif
-    mov cx,dx
-    mov ax,[S_AOTLSEG]
+    xor si,si                       ; every part of the list: its bits,
+.lp:                                ;   and its first entry in its row
+    mov ax,[S_AOTLXT+si]
+    mov cx,[S_AOTLXT+si+6]
+    jcxz .lnx
+    push si
+    push ds
+    mov ds,ax
+    mov dx,[0]
+    mov bl,[2]
+    pop ds
+    pop si
+    mov [S_AOTLXT+si+2],dx
+    mov [S_AOTLXT+si+4],bl
+    push si
     push ds
     call rdg_aotbitset
     pop ds
+    pop si
+.lnx:
+    add si,8
+    mov al,[S_AOTLX]
+    xor ah,ah
+    shl ax,1
+    shl ax,1
+    shl ax,1
+    cmp si,ax
+    jb .lp
     pop es
     pop di
     pop si

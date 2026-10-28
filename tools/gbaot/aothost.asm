@@ -70,7 +70,9 @@ p_stload    dw h_stload                 ; 38h  entered here: a save state
 p_filt      dw 0                        ; 3Ah  the list's filter (mode 3)
 p_hyseg     dw 0                        ; 3Ch  the runtime table's (mode 4)
 p_hyr0      dw 0                        ; 3Eh  ...and its runtime tier
-    times 40h-($-$$) db 0
+p_lxt       times RDG_LXMAX dw 0, 0     ; 40h  the list's parts: segment and
+p_lxn       db 0                        ; 50h  entries each, and how many
+    times 60h-($-$$) db 0                ;      (20.17; p_list is part 0)
 
 ; the stops: the host takes the machine at the INT 3 and puts it back at the
 ; instruction after it
@@ -140,6 +142,19 @@ h_init:
     mov word [S_JITEND],0               ; no room: rt_room is never reached,
     mov al,1                            ;   but say so
     call rt_dispatch
+    mov al,[cs:p_lxn]                   ; (the list in parts, 20.17)
+    mov [S_AOTLX],al
+    xor si,si
+    xor di,di
+.lx:
+    mov ax,[cs:p_lxt+si]
+    mov [S_AOTLXT+di],ax
+    mov ax,[cs:p_lxt+si+2]
+    mov [S_AOTLXT+di+6],ax
+    add si,4
+    add di,8
+    cmp si,RDG_LXMAX * 4
+    jb .lx
     mov ax,[cs:p_list]                  ; the table's misses: the host's list
     mov cx,[cs:p_listn]
     mov bx,[cs:p_filt]                  ;   and its filter

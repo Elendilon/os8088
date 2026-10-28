@@ -925,7 +925,7 @@ def load(out):
 # --- run --------------------------------------------------------------------
 
 def run_arm(build, rom, mode, frames, img=None, prove=False, defines=(), joy=None,
-            state=None, heat=False, slots=None):
+            state=None, heat=False, slots=None, lparts=None):
     """Yields each frame's state: mode 0 the interpreter, 1 the dynamic
     recompiler, 3 the precompiled code in `img` (meta, segs, table)."""
     m = Machine(build, rom, defines)
@@ -952,10 +952,23 @@ def run_arm(build, rom, mode, frames, img=None, prove=False, defines=(), joy=Non
         t = reseg(table)
         lst = reseg(meta["list"])
         m.w(HASH, 0, t)
-        m.w(LIST, 0, lst)
+        sg = LIST                          # the list in its parts (20.17), as
+        lx = []                            #   the package lays them out
+        per = 8 * -(-len(lst) // (8 * lparts)) if lparts else LIST_PART
+        for k in range(0, max(len(lst), 1), per):   # (lparts: the list cut in
+            c = lst[k:k + per]                       #   that many, the search's gate)
+            m.w(sg, 0, c)
+            lx.append((sg, len(c) // 8))
+            sg += (len(c) + 15) // 16 + 1
+        if len(lx) > LIST_PARTS:
+            raise SystemExit("gbaot: %d list parts; the machine searches %d" % (len(lx), LIST_PARTS))
+        for k, (a, n) in enumerate(lx):
+            m.p(0x40 + 4 * k, a)
+            m.p(0x42 + 4 * k, n)
+        m.p(0x50, len(lx), 1)
         m.p(0x32, LIST)
-        m.p(0x34, len(lst) // 8)
-        FILT = LIST + (len(lst) + 15) // 16 + 1
+        m.p(0x34, lx[0][1])
+        FILT = sg
         m.p(0x3A, FILT)
         romseg = FILT + 0x280              # (the filter's 8KB, and the cache's
                                            #   2KB after it: rdgaot.inc)
@@ -1292,51 +1305,56 @@ def package(build, img, rom, out, romname, image=None, log=print, embed=False, m
     if nseg > AOT_MAX:
         raise SystemExit("gbaot: %d code images; the package holds %d" % (nseg, AOT_MAX))
     romrows = len(rom.d) // 0x8000 if embed else 0
-    if embed and (len(rom.d) % 0x8000 or AOT_CODE + 2 * nseg + romrows > AOT_ROWS):
-        raise SystemExit("gbaot: a %d KB ROM with %d code images does not fit the package's "
-                         "%d parts; make it without --embed" % (len(rom.d) // 1024, nseg, AOT_ROWS))
+    lst = meta["list"]
+    rel = b"".join(struct.pack("<BBH", n, tn | (0x80 if form else 0), site)
+                   for n, site, tn, form in meta["relocs"])
+    # THE RELOCATIONS AND THE LIST IN PARTS OF THEIR OWN (REALDMG-SPEC 20.17):
+    # in the meta part they bound a package at ~10 images (65,024 bytes)
+    relp = [rel[k:k + REL_PART] for k in range(0, len(rel), REL_PART)]
+    lstp = [lst[k:k + LIST_PART] for k in range(0, len(lst), LIST_PART)]
+    if len(lstp) > LIST_PARTS:
+        raise SystemExit("gbaot: %d listed blocks are %d list parts; the package searches %d - "
+                         "fewer images (--images, --prefer)" % (len(lst) // 8, len(lstp), LIST_PARTS))
+    relrow = AOT_CODE + 2 * nseg
+    lstrow = relrow + len(relp)
+    romrow = lstrow + len(lstp)
+    jrow = romrow + romrows if mega else 0   # (20.16: the recompiler last)
+    nrows = romrow + romrows + (1 if jrow else 0)
+    if embed and len(rom.d) % 0x8000 or nrows > AOT_ROWS:
+        raise SystemExit("gbaot: %d code images, %d relocation and %d list parts%s are %d rows; "
+                         "the package holds %d - fewer images (--images, --prefer)%s" % (
+                             nseg, len(relp), len(lstp),
+                             " and a %d KB ROM" % (len(rom.d) // 1024) if embed else "",
+                             nrows, AOT_ROWS, ", or the ROM beside it" if embed else ""))
     import os88lz
     b = bytearray(open(image or aot_image(build, mega), "rb").read())
     at = b.find(b"O88PARTS")
     rows = at + 10
-    jrow = AOT_CODE + 2 * nseg + romrows if mega else 0   # (20.16: the recompiler
-    b[at + 8] = AOT_CODE + 2 * nseg + romrows + (1 if jrow else 0)  # last) the rows
-    lst = meta["list"]
-    rel = b"".join(struct.pack("<BBH", n, tn | (0x80 if form else 0), site)
-                   for n, site, tn, form in meta["relocs"])
-    loff = (62 + len(rel) + 15) & ~15
-    hdr = struct.pack("<6sBBHHH", b"RDAOT1", nseg, meta["hmask"], len(lst) // 8,
-                      len(meta["relocs"]), loff)
+    b[at + 8] = nrows
+    for r in range(relrow, romrow):        # eager, into the carve: the load
+        b[rows + 8 * r] = 1                #   reads them, OP_ASSET | OP_COMP
+        b[rows + 8 * r + 1] = 16           #   (rwaot.inc's rw_ameta)
+    hdr = struct.pack("<6sBBHHBB", b"RDAOT2", nseg, meta["hmask"], len(lst) // 8,
+                      len(meta["relocs"]), relrow if relp else 0, len(relp))
     hdr += bytes.fromhex(meta["header"]) + romname.encode().ljust(13, b"\0")[:13]
-    foff = (loff + len(lst) + 15) & ~15
-    if foff > META_MAX:                    # (the filter's word, below, as well)
-        raise SystemExit(
-            "gbaot: the meta part would be %d bytes, over %d: %d code images list %d blocks "
-            "and %d relocations - fewer images (--images, --prefer)" % (
-                foff, META_MAX, nseg, len(lst) // 8, len(meta["relocs"])))
-    hdr = hdr.ljust(55, b"\0") + bytes([jrow]) + struct.pack("<HBBH", foff,
-                                             AOT_CODE + 2 * nseg if embed else 0,
-                                             meta.get("hot", nseg),
-                                             len(rom.d) // 1024 if embed else 0) + rel
-    metap = (hdr.ljust(loff, b"\0") + lst).ljust(foff, b"\0")
-    if len(metap) > META_MAX:              # one part (SPEC.md 20.12.11): the
-        raise SystemExit(                  #   list and the relocations bind
-            "gbaot: the meta part would be %d bytes, over %d: %d code images list %d blocks "
-            "and %d relocations - fewer images (--images, --prefer)" % (
-                len(metap), META_MAX, nseg, len(lst) // 8, len(meta["relocs"])))
+    hdr = hdr.ljust(55, b"\0") + bytes([jrow]) + struct.pack(
+        "<BBBBH", lstrow if lstp else 0, len(lstp), romrow if embed else 0,
+        meta.get("hot", nseg), len(rom.d) // 1024 if embed else 0)
+    metap = hdr.ljust(64, b"\0")
     # the filter and the list's cache (rdgaot.inc, 10KB) follow the TABLE in
     # its part: in the meta part, after a long list, they took that part past
     # 65,024 bytes - Link's Awakening's 65,264, Wario Land's 68,672
     parts = [segs[0][:0x8000], segs[0][0x8000:], table + bytes(0x2800), metap]
     for sg in segs[1:]:
         parts += [sg[:0x8000], sg[0x8000:]]
+    parts += relp + lstp
     plain = set()
     for i in range(romrows):               # the ROM: plain, so its pieces lie
         parts.append(rom.d[i * 0x8000:(i + 1) * 0x8000])   # back to back
-        plain.add(AOT_CODE + 2 * nseg + i)
+        plain.add(romrow + i)
     if jrow:                               # kern_mega's: the recompiler, for
         parts.append(open(aot_jitpart(build), "rb").read())   # the misses (20.16)
-    filed = [0, 1, 3, 4] + list(range(AOT_CODE, AOT_CODE + 2 * nseg + romrows + (1 if jrow else 0)))
+    filed = [0, 1, 3, 4] + list(range(AOT_CODE, nrows))
     work = tempfile.mkdtemp(prefix="gbaotpkg-")
     try:                                   # (the parts gone however it ends)
         paths = []
@@ -1363,7 +1381,8 @@ def package(build, img, rom, out, romname, image=None, log=print, embed=False, m
         raise SystemExit(                  #   32MB or more as one
             "gbaot: %s would be %d bytes; a package file is under 32MB (SPEC.md 19.1)%s" % (
                 out, size, " - make it without --embed, the ROM beside it" if embed else ""))
-    carve = 64 + 16 + (len(metap) + 1023) // 1024 + 64
+    carve = 64 + (len(table) + 0x2800 + 1023) // 1024 + 64 + sum(
+        (len(x) + 1023) // 1024 for x in [metap] + relp + lstp)
     log("gbaot: %s, %d bytes: the core and %d code images (64 KB of heap each, %d of them "
         "hot), the table, %d listed, %d relocations; the carve is %d KB with the view; %s" % (
             out, size, nseg, meta.get("hot", nseg), len(lst) // 8, len(meta["relocs"]), carve,
@@ -1374,6 +1393,9 @@ def package(build, img, rom, out, romname, image=None, log=print, embed=False, m
 
 PKG_FILE_MAX = 512 << 16          # SPEC.md 19.1: a package file is under 32MB
 META_MAX = 65024                  # SPEC.md 20.12.11: a part's bytes at most
+REL_PART = 65024                  # a relocation part: 16,256 of 4 bytes
+LIST_PART = 8128 * 8              # a list part: 8,128 entries of 8 (a part's
+LIST_PARTS = 4                    #   most), RDG_LXMAX of them (rdgdefs.inc)
 
 
 def package_fit(build, img, rom, out, romname, log=print, embed=False, mega=False,
@@ -1392,7 +1414,9 @@ def package_fit(build, img, rom, out, romname, log=print, embed=False, mega=Fals
 
     def trimmed(emb):                  # the coldest images out until it fits:
         rows = AOT_ROWS - AOT_CODE - (len(rom.d) // 0x8000 if emb else 0) - (1 if mega else 0)
-        keep = min(nseg, rows // 2)    #   the rows, the meta part, the file
+        keep = min(nseg, (rows - 2) // 2)   # the rows (two at least for the
+                                            #   relocation and list parts), the
+                                            #   list's parts, the file
         while True:
             try:
                 if keep < nseg:
@@ -1437,13 +1461,14 @@ def broken(img, which):
 
 
 def compare(build, rom, img, frames, ref="interp", arm="aot", serial=False, defines=(),
-            log=print, joy=None, state=None, slots=None):
+            log=print, joy=None, state=None, slots=None, lparts=None):
     """Run two arms side by side - the script, or a replay from its save
     state (`joy`, `state`). Returns (identical, what was found)."""
     r = run_arm(build, rom, ARMS[ref], frames, img if ref in ("aot", "hyb") else None, defines=defines,
-                joy=joy, state=state, slots=slots)
+                joy=joy, state=state, slots=slots, lparts=lparts)
     k = run_arm(build, rom, ARMS[arm], frames, img if arm in ("aot", "hyb") else None,
-                prove=(arm in ("aot", "hyb")), defines=defines, joy=joy, state=state, slots=slots)
+                prove=(arm in ("aot", "hyb")), defines=defines, joy=joy, state=state, slots=slots,
+                lparts=lparts)
     m0 = m1 = None
     if serial:                            # a ROM that reports on its link port:
         for (f, x0, s0, m0), (_, x1, s1, m1) in zip(r, k):   # its words, not its
@@ -1486,7 +1511,8 @@ def make(build, rom_path, out, romname=None, heat_frames=3000, replays=(), check
         os.path.basename(rom_path), len(data) // 1024, len(found), len(lead)))
     work = tempfile.mkdtemp(prefix="gbaotmk-")
     try:
-        img = translate(build, rom, lead, log=log, images=images)
+        rhm = 15 if mega else 7            # kern_mega's table 32KB (20.17):
+        img = translate(build, rom, lead, log=log, images=images, rhm=rhm)   # more held, less listed
         d0 = os.path.join(work, "first")
         save(img, d0, rom)
         heats = []
@@ -1512,7 +1538,7 @@ def make(build, rom_path, out, romname=None, heat_frames=3000, replays=(), check
             near = near_heat(rom, found, lead, heat, int(os.environ.get(   # found is
                 "GBAOT_NEAR", NEAR_DEPTH)))                  #   dropped
             img = translate(build, rom, lead, log=log, heat=heat,
-                            hram=hram, near=near, images=images)
+                            hram=hram, near=near, images=images, rhm=rhm)
         d1 = os.path.join(work, "final")
         save(img, d1, rom)
         # GAME.O88 is written under its own name only once it is checked: a
@@ -1583,7 +1609,7 @@ def cmd_check(a):
         frames = min(frames, n)
         state = open(a.state, "rb").read()
     ok, what = compare(a.build, rom, img, frames, a.ref, a.arm, a.serial, joy=joy, state=state,
-                       slots=a.slots)
+                       slots=a.slots, lparts=a.list_parts)
     print("gbaot: " + what)
     return 0 if ok else 1
 
@@ -1629,6 +1655,9 @@ def main():
                    "package runs when the heap holds no more")
     k.add_argument("--slots", type=int, help="a bank cache of this many 16KB slots, as the "
                    "package keeps one when the cartridge does not fit")
+    k.add_argument("--list-parts", type=int, choices=range(1, LIST_PARTS + 1), metavar="N",
+                   help="the list cut into N parts, however long it is (REALDMG-SPEC 20.17.1: "
+                   "the part search's gate)")
     k.add_argument("--replay", help="a NAME.RPn to play instead of the script...")
     k.add_argument("--state", help="...from the NAME.SSn it starts from")
     mk = sub.add_parser("make", help="GAME.O88 from a ROM: build, count, build again, package")

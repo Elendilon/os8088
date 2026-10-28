@@ -130,7 +130,14 @@ S_HYLNK         equ 0x489C          ; byte: rdg_aotmiss came from tr_link's
                                     ;   miss - a block found is CHAINED
 S_HYLVEC        equ 0x489D          ; dword: rdg_aotlink, tr_lno's way there
 S_HYLP          equ 0x48A1          ; dword: tr_lpatch in the site's tier
-RDG_FREE         equ 0x48A5          ; the rest of the window is unassigned,
+; the LIST in parts of its own (REALDMG-SPEC 20.17): S_AOTLSEG/S_AOTLN are
+; the first, and the directory names each - the search chooses its part by
+; the first entry, then searches inside it as one list
+S_AOTLX         equ 0x48A5          ; byte: the list's parts (0 or 1: one)
+S_AOTCN         equ 0x48A6          ; word: the searched part's entries
+S_AOTLXT        equ 0x48C0          ; RDG_LXMAX x 8: segment, its first
+RDG_LXMAX       equ 4               ;   entry's PC and key, -, its entries
+RDG_FREE         equ 0x48A8          ; the rest of the window is unassigned,
                                     ; but for rdgppu.inc's 4900-66FF and:
 ; CODE SELECTORS (REALDMG-SPEC 16.2.4): a segment the core or the recompiler
 ; JUMPS to is named by the selector a far jump may load - the segment itself

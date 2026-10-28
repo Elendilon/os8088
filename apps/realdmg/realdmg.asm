@@ -398,7 +398,16 @@ rw_arombase     equ rw_aromkb + 2   ; dword: ...and its byte offset in the
 rw_aebank       equ rw_arombase + 4 ; word: rw_bread's next bank out of it
 rw_aunh         equ rw_aebank + 2   ; byte: the load's hold is let go for
                                     ;   the plan (rw_aloose)
-rw_bssend       equ rw_aunh + 1
+rw_alx          equ rw_aunh + 1     ; RDG_LXMAX x 4: the list's parts, each
+                                    ;   segment and entries (REALDMG-SPEC
+                                    ;   20.17)...
+rw_alxn         equ rw_alx + RDG_LXMAX * 4 ; byte: ...how many
+rw_alrow        equ rw_alxn + 1     ; byte: ...and the first's row
+rw_arr          equ rw_alrow + 1    ; byte: the relocations' first row...
+rw_arn          equ rw_arr + 1      ; byte: ...and their rows
+rw_arcur        equ rw_arn + 1      ; byte: rw_afixup's row...
+rw_arleft       equ rw_arcur + 1    ; byte: ...and rows to go
+rw_bssend       equ rw_arleft + 1
 %else
 rw_bssend       equ rw_phist + 16
 %endif
