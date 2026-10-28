@@ -122,10 +122,16 @@ RW_XDEF         equ 5               ; ...and how many it takes without
                                     ;   tests/rdgmega.py's squeezed leg 2)
 RW_PRFKB        equ 9               ;   the count (REALDMG-SPEC 16.8)
 %ifdef RDG_AOT
-RWA_MAX         equ 14              ; code images past the core, at most
+RWA_MAX         equ 29              ; code images past the core, at most:
+                                    ;   what RWA_ROWS holds with the ROM
+                                    ;   beside it and the recompiler's row
+                                    ;   (5 + 2 x 29 + 1 = 64). It was 14,
+                                    ;   which no real-mode heap could hold
+                                    ;   anyway; on kern_mega the pool can
 RWA_TABLE       equ 3               ; the parts: the block table (16KB)...
 RWA_META        equ 4               ; ...the meta and the list (rwaot.inc)...
-RWA_CODE        equ 5               ; ...and each image's two halves from here,
+RWA_CODE        equ 5               ; ...the relocations' and the list's parts
+                                    ;   from here, then each image's two halves
 RWA_ROWS        equ 64              ;   then the ROM's pieces if it is in the
                                     ;   package; the most rows a table has
 %endif
@@ -393,7 +399,18 @@ rw_arombase     equ rw_aromkb + 2   ; dword: ...and its byte offset in the
 rw_aebank       equ rw_arombase + 4 ; word: rw_bread's next bank out of it
 rw_aunh         equ rw_aebank + 2   ; byte: the load's hold is let go for
                                     ;   the plan (rw_aloose)
-rw_bssend       equ rw_aunh + 1
+rw_alx          equ rw_aunh + 1     ; RDG_LXMAX x 4: the list's parts, each
+                                    ;   segment and entries (REALDMG-SPEC
+                                    ;   20.17)...
+rw_alxn         equ rw_alx + RDG_LXMAX * 4 ; byte: ...how many
+rw_alrow        equ rw_alxn + 1     ; byte: ...and the first's row
+rw_arr          equ rw_alrow + 1    ; byte: the relocations' first row...
+rw_arn          equ rw_arr + 1      ; byte: ...and their rows
+rw_arcur        equ rw_arn + 1      ; byte: rw_afixup's row...
+rw_arleft       equ rw_arcur + 1    ; byte: ...and rows to go
+rw_acode        equ rw_arleft + 1   ; byte: the first image's row (after
+                                    ;   the relocations' and the list's)
+rw_bssend       equ rw_acode + 1
 %else
 rw_bssend       equ rw_phist + 16
 %endif
@@ -4994,8 +5011,11 @@ OS88_PARTS_BEGIN RWA_ROWS
     OS88_PART OP_ASSET, OP_COMP                 ; 3  the block table
     OS88_PART OP_ASSET, OP_COMP                 ; 4  the meta and the list
 %rep RWA_ROWS - RWA_CODE
-    OS88_PART OP_SEG, OP_LAZY | OP_COMP | OP_SELF ; 5..  the code images,
-%endrep                                         ;   then the ROM's 32KB pieces
+    OS88_PART OP_SEG, OP_LAZY | OP_COMP | OP_SELF ; 5..  the relocations' and
+%endrep                                         ;   the list's (made eager into
+                                                ;   the carve by the host), the
+                                                ;   code images, then the
+                                                ;   ROM's 32KB pieces
 OS88_PARTS_END
 %else
 OS88_PARTS_BEGIN 4
