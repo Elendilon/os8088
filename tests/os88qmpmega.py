@@ -608,9 +608,7 @@ class Server(object):
         was, self._btn = self._btn, mask
         m = self.m
         if self.box86:                  # the serial mouse's own report:
-            if (mask ^ was) & 3:        # buttons with no motion
-                m.cmd(cmd="mouse", dx=0, dy=0, l=bool(mask & 1),
-                      r=bool(mask & 2))
+            self._box_edges(was, mask)  # buttons with no motion
             return
         # A BURST OF EDGES GOES TO X AS ONE xdotool CHAIN, not one process
         # an edge. Bochs's guest clock IS the host's (sync=realtime), so
@@ -631,6 +629,30 @@ class Server(object):
                 self._chain.append(("mousedown" if mask & bit else "mouseup",
                                     xb))
         self._chain_t = time.time()
+
+    def _box_edges(self, was, mask):
+        """86Box: each changed button an edge the guest has DECODED.
+
+        86Box's automation `mouse` verb SETS the button state and the serial
+        mouse reports it at its own poll, so edges sent back to back are
+        COALESCED - a double-click's four `mouse_button`s (os88qemu.
+        mouse_dblclick sends them in one burst, which is right for QEMU's
+        msmouse, a packet queued per edge) reached the guest as no edge at
+        all, and box-ethernet's Disk window never opened. So each edge waits
+        until the published mouse_btn agrees (os88mouse.Mouse._edge, which
+        re-sends a dropped packet), as QEMU's queue would have delivered it.
+        A guest that never decodes it is left for the caller's own check to
+        name, as QEMU leaves it: this layer does not raise on an edge."""
+        from os88marty import MartyError
+        for bit in (1, 2):
+            if not (mask ^ was) & bit:
+                continue
+            try:
+                self.mo._edge(bool(mask & bit), btn=bit)
+            except MartyError:
+                pass
+            # (_edge's packet carries the OTHER button up: a chord of left
+            # and right is not a gesture any row here makes)
 
     HOLD = 0.3      # s with no further edge before a queued burst goes out:
                     # longer than xmcheck.dblclick's longest gap (0.12 s)
