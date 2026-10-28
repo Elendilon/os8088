@@ -740,6 +740,46 @@ def qemu9():
 # other row: they stay on the system QEMU) - nasm3's build/nasm3 shape, so the
 # script's work counts without an export.
 QEMU9_BIN = os.path.join(ROOT, "build", "qemu9", "inst", "bin")
+QEMU9_PATCHES = os.path.join(ROOT, "tools", "qemu9")
+
+
+def qemu_patchver():
+    """The pkgversion tools/setup-qemu9.sh builds into its QEMU: 'os8088-'
+    and twelve hex digits of SHA-256 over tools/qemu9/*.patch in name order,
+    so a QEMU built before a patch changed is told apart by its --version."""
+    import glob
+    import hashlib
+    h = hashlib.sha256()
+    for f in sorted(glob.glob(os.path.join(QEMU9_PATCHES, "*.patch"))):
+        with open(f, "rb") as fh:
+            h.update(fh.read())
+    return "os8088-" + h.hexdigest()[:12]
+
+
+def qemuvt():
+    """build/qemu9's QEMU when it carries THIS tree's tools/qemu9/ patches.
+
+    Stock QEMU runs the 8237 DMA controller off an idle BOTTOM HALF on the
+    main loop - HOST time - while under -icount the vCPU runs on without the
+    BQL and spends GUEST time. A main loop the host starved therefore let
+    guest time pass with no transfer, and a Sound Blaster's block IRQ came
+    late by however long that was: 300 ms of host starvation, one thread
+    only, is SOUND.DRV's watchdog and 'The sound card stopped' on 8.2 and
+    9.2 alike (xtmp3rate's pause leg in a loaded soak). i8257-icount.patch
+    moves the channels onto a QEMU_CLOCK_VIRTUAL timer under -icount, which
+    the vCPU thread runs at the instruction count of its deadline, so the
+    transfer follows the GUEST: the same play survives two-second stalls of
+    that thread. Without -icount the patched device is stock. A row whose
+    answer rests on the card's clock under -icount needs `qemuvt`."""
+    p = os.path.join(QEMU9_BIN, "qemu-system-i386")
+    if not os.path.exists(p):
+        return None
+    try:
+        out = subprocess.run([p, "--version"], capture_output=True,
+                             text=True, timeout=30).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return p if "(%s)" % qemu_patchver() in (out or "") else None
 
 
 def tree_root():

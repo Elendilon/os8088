@@ -515,8 +515,12 @@ FAST = [
         "under -icount shift=4 now (os88qemu.icount, 17.8): the PIT, the "
         "card and the guest's work all count instructions, so the answer is "
         "the same at any load and the row shares the lane. "
-        "OS88_QEMU_ICOUNT=0 is the A/B",
-        needs=("qemu", "nasm", "mtools", "numpy"), serial=True,
+        "OS88_QEMU_ICOUNT=0 is the A/B. The CARD only follows that clock "
+        "on `qemuvt` (os88build.qemuvt(), tools/qemu9/i8257-icount.patch): "
+        "stock QEMU moves the 8237's transfers on its main loop in HOST "
+        "time, so a starved main loop stopped the card - 'The sound card "
+        "stopped', pause's 'under 0' - on 8.2 and 9.2 alike",
+        needs=("qemu", "qemuvt", "nasm", "mtools", "numpy"), serial=True,
         wants=("build/xtmp3s.o88", "build/xtmp3s.bin", "build/xtmp3.o88",
                "build/xtmp3.bin", "build/os8088.img",
                "build/mixercfg/SYSTEM.CFG", "build/mbr.bin",
@@ -18811,7 +18815,7 @@ def _ports(base, path, prefix, env0, wants0, what):
                                            "os88_emu=86box")
                              for e in env0 + env) else "bochs"
         needs = tuple(n for n in r.needs if n not in ("marty", "qemu",
-                                                      "qemu9")) + (emu,)
+                                                      "qemu9", "qemuvt")) + (emu,)
         out.append(Row(prefix + name + ("-" + alias if alias else ""),
                        "soak",
                        ["env"] + list(env0) + env + cmd,

@@ -209,6 +209,17 @@ def requirements():
                 "                   refused by the proxy, git is not - and "
                 "prints the PATH line)"))
 
+    req.append(("qemuvt", bool(os88build.qemuvt()),
+                "xtmp3rate: under -icount stock QEMU moves the Sound Blaster's "
+                "DMA in HOST time, so a loaded box stops the card "
+                "(os88build.qemuvt()); tools/qemu9/'s patch puts it on the "
+                "guest's clock.",
+                "tools/setup-qemu9.sh\n"
+                "                  (applies tools/qemu9/*.patch and rebuilds "
+                "build/qemu9 - a\n"
+                "                   QEMU 9 built before them is rebuilt, "
+                "about ten minutes)"))
+
     marty = B("martypc", "run", "martypc_headless")
     req.append(("martypc", os.path.exists(marty),
                 "the default instrument. Without it EVERY emulator row skips, "

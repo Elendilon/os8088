@@ -166,7 +166,7 @@ Row("lzmod", "soak", py("tests/lzmod.py"), 30.0,
 | `cmd` | `py("tests/x.py", "--flag")`, run with `cwd=ROOT` |
 | `secs` | **measured** (§4) |
 | `why` | what breaks if this goes red, with the § that owns it - for somebody who finds it failing in a year |
-| `needs` | capabilities, probed: `marty`, `qemu`, `qemu9`, `86box`, `bochs`, `nasm`, `nasm3`, `cc`, `pil`, `unicorn`, `ffmpeg`, `dosbox`, ... A Python module the row imports is a capability too. A missing one SKIPS the row - the box declining to answer, never a pass |
+| `needs` | capabilities, probed: `marty`, `qemu`, `qemu9`, `qemuvt`, `86box`, `bochs`, `nasm`, `nasm3`, `cc`, `pil`, `unicorn`, `ffmpeg`, `dosbox`, ... A Python module the row imports is a capability too. A missing one SKIPS the row - the box declining to answer, never a pass |
 | `wants` | build artefacts the row OPENS that `make all` does not build - **paths, never make targets** (§5.1) |
 | `serial` | it drives an emulator; implied by `needs=("marty",)`, say it for QEMU |
 | `builds` | it runs `make` in `build/`. **You almost certainly do not want this** (§5) |

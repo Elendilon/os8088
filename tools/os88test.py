@@ -306,6 +306,10 @@ def capabilities():
     # that RESUMES a hibernate under QEMU needs it.
     if os88build.qemu9():
         caps.add("qemu9")
+    # ...and one whose DMA follows the GUEST's clock under -icount
+    # (os88build.qemuvt(): tools/qemu9/'s patches, by its --version)
+    if os88build.qemuvt():
+        caps.add("qemuvt")
     # The BINARY, not the directory: build/cc exists from the moment
     # tools/setup-cc.sh starts cloning, so a half-finished or failed setup
     # would grant the capability and turn a skip into a confusing build
@@ -706,7 +710,8 @@ def run_row(row, caps, strict, verbose, unbuilt=(), shared=False):
         qdir = tempfile.mkdtemp(prefix="os88q-%s-" % row.name[:16],
                                 dir="/tmp")
         env = dict(env or os.environ, OS88_QEMU_DIR=qdir)
-    q9 = os88build.qemu9() if "qemu9" in row.needs else None
+    q9 = (os88build.qemuvt() if "qemuvt" in row.needs else
+          os88build.qemu9() if "qemu9" in row.needs else None)
     if q9:                              # the rows launch QEMU BY NAME
         env = dict(env or os.environ)
         env["PATH"] = os.path.dirname(q9) + os.pathsep + env.get("PATH", "")

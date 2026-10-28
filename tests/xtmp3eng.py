@@ -2179,7 +2179,20 @@ def main():
         if not os.path.exists(os88build.at(f)):
             sys.exit("xtmp3eng: no %s - make && make xtmp3stub "
                      "build/mixercfg/SYSTEM.CFG" % f)
-    for name in [n for n in (a.leg or list(LEGS)) if n not in a.skip]:
+    legs = [n for n in (a.leg or list(LEGS)) if n not in a.skip]
+    if os88qemu.icount() and set(legs) & set(RATE_LEGS):
+        # THE CARD'S CLOCK (os88build.qemuvt()): stock QEMU moves the SB16's
+        # DMA on its main loop in HOST time, so under -icount a starved main
+        # loop stops the card. The runner puts the patched QEMU first on
+        # PATH for xtmp3rate (needs `qemuvt`); a hand run does it here
+        vt = os88build.qemuvt()
+        if vt:
+            os.environ["PATH"] = (os.path.dirname(vt) + os.pathsep +
+                                  os.environ.get("PATH", ""))
+        else:
+            print("xtmp3eng: NOTE no qemuvt (tools/setup-qemu9.sh) - the "
+                  "rate legs' card runs in host time")
+    for name in legs:
         _ICOUNT[0] = name in RATE_LEGS
         print("xtmp3eng: %s%s" % (name, " (-icount)" if _ICOUNT[0] and
                                   os88qemu.icount() else ""))

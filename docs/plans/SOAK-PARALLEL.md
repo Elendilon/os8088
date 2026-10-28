@@ -2059,6 +2059,36 @@ relative (rungs against each other, a decode against a yardstick). A row
 ABOUT host behaviour, or whose throttle is the rate it compares, cannot use
 it.
 
+**17.8.1 - icount did NOT put the Sound Blaster on the guest's clock, and
+`xtmp3rate` kept failing under load because of it.** The paragraphs above
+say the SB16's DMA runs on the virtual clock. It does not: QEMU's 8237
+(`hw/dma/i8257.c`) moves a running channel from an IDLE BOTTOM HALF on the
+main loop, polled at host intervals of up to 10 ms, while under TCG the vCPU
+thread executes without the BQL - so guest time keeps passing while the main
+loop is not scheduled, and the card's block IRQ is late by however long that
+was. Made exact by stopping ONLY QEMU's main thread (ptrace, its tid) during
+a live play: 120 ms stalls every second play to the end, a single 300 ms
+stall is SOUND.DRV's watchdog (2 block periods + 3 ticks) and *The sound
+card stopped*, with 0 underruns - the pause leg's "under 0" exactly - on
+8.2.2 and on 9.2.4 alike. Stopping the WHOLE process for 500 ms is harmless
+(the guest's clock stops with it): it is the main loop falling behind the
+vCPU, which is what a loaded box does. `tools/qemu9/i8257-icount.patch`
+runs the channels off a QEMU_CLOCK_VIRTUAL timer under -icount, which the
+vCPU thread runs at the instruction count of its deadline; the same play then
+survives seven TWO-SECOND stalls of the main thread with 0 underruns, and
+the seven rate legs pass. `tools/setup-qemu9.sh` builds it into build/qemu9
+with a pkgversion naming the patch set (`os8088-<hash>`), `os88build.qemuvt()`
+reads that back, and `xtmp3rate` needs `qemuvt`. The DISK is not covered:
+IDE's aio completes on the main loop as well, so a read's latency is still
+the host's - a look-ahead ring absorbs it here, and it is the next place to
+look if a rate row underruns.
+
+The same row's other failure was the PRODUCT: `rungfail`'s *no ERROR on the
+way* saw state 10 because XTMP3's ladder published ERROR for an instant on
+every retry of a rung that could not start (seven times a run, under a
+watchpoint), and a 0.1 s host poll caught it more often the less guest time
+each poll covered. Fixed in `apps/xtmp3/x3eng.inc`, +6 bytes.
+
 ### 17.9 The host sleeps, row by row
 
 Prioritised by the soaks' FAIL lines (`build/soak/*/run.log` in both
