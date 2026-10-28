@@ -201932,6 +201932,18 @@ with every frame still the decode's; VIDDISK X prints `xg_gap answers G`
 under its grid, so a field run checks the measurement against the copies it
 was taken from.
 
+**On kern_mega with the ring above 1MB the BOUNCE is placed** (2026-10-28).
+There a fill reads into a conventional 32 KB bounce (`[vp_dbnc]`, KERN-MEGA-PLAN
+14.41) and a bank's chunk is copied up from it, so it is the buffer the rule
+is about - and `vp_rhtry` claimed it bare. It takes `vp_xgpad`'s slack now,
+and `[vp_dbnc]` is the `vp_xgal` SUB of its claim (`[vp_dbclm]`, which is
+freed). The diag trailer had hidden it twice over: on kern_mega it wrote the
+ring and its claim as SELECTORS, which `tools/os88vfit.py` reads as
+paragraphs - a ring "128 bytes into its claim" was the next LDT entry - and
+with the ring above 1MB it now names the bounce and its claim, as linear
+paragraphs (`vp_prlin`). +36 bytes of the arm; the shipped `video.bin` is
+byte-identical, and every hot routine of the arm is identical at an even shift.
+
 ##### 98.3.18.13 The XMS bank, decoded in place by LOADALL (2026-10-15)
 
 **On a 286, a file longer than the pool plays out of its BANK with no copy

@@ -13862,7 +13862,7 @@ vp_sfree:
     mov dx, [vp_rclm]               ; (the claim: [vp_ring] may start in it)
     call .f
 %ifdef PKG_MEGA
-    mov dx, [vp_dbnc]               ; (THE RING ABOVE 1MB: its bounce, and
+    mov dx, [vp_dbclm]              ; (THE RING ABOVE 1MB: its bounce, and
     call .f                         ; vp_addr's head back, KERN-MEGA-PLAN
     call vp_rhoff                   ; 14.41)
 %else
@@ -13983,15 +13983,30 @@ vp_rhtry:
     mov cx, ax
     mov ax, VP_CHUNK / 1024         ; THE BOUNCE, conventional, first
 %ifdef PKG_MEGA
+    call vp_xgpad                   ; ...+ THE GAP's slack, BX: it is what a
+                                    ; bank's chunk is COPIED UP from, so it is
+                                    ; placed against the bank as a conventional
+                                    ; ring is (os88xgap.inc) - it was claimed
+                                    ; bare, and a Victory's copy up ran at the
+                                    ; 0-apart 1.8x (2026-10-28)
     push cx                         ; ...and INSIDE ONE 64 KB PAGE: the kernel
     mov cx, ax                      ; cuts a run at a page's edge (dsk_runcap),
     call OSAPI_MEM_CLAIM_DMA        ; so a straddling bounce made every chunk
     pop cx                          ; TWO int 13h calls - on a BIOS-served disk
     jnc .bok                        ; two reflections, a 286's CPU reset each
     call vp_mclaim                  ; (KERN-MEGA-PLAN 14.73). Anywhere, as
-    jc .no                          ; before, when no page-safe run is free
-    nop                             ; (the decode after this at the parity it
-.bok:                               ; had - tools/os88rdiff.py --hot)
+    jnc .bok                        ; before, when no page-safe run is free
+    sub ax, bx                      ; ...and without the slack when that
+    xor bx, bx                      ; is what did not fit
+    call vp_mclaim
+    jc .no
+.bok:
+    mov [vp_dbclm], dx              ; (the claim, which vp_sfree frees)
+    or bx, bx
+    jz .bpl
+    mov ax, [vp_xbase]              ; that far in, mod 2G: a SUB of the
+    call vp_xgal                    ; claim, which goes with it
+.bpl:
 %else
     call vp_mclaim
     jc .no
@@ -14005,9 +14020,10 @@ vp_rhtry:
     jz .got                         ; in conventional memory, or windows
     call vp_mfree                   ; 64 KB apart: let go of it)
 .nob:
-    mov dx, [vp_dbnc]
+    mov dx, [vp_dbclm]
     call vp_mfree
     mov word [vp_dbnc], 0
+    mov word [vp_dbclm], 0
 .no:
     pop cx
     pop bx
@@ -14081,6 +14097,7 @@ vp_rhoff:
     xor ax, ax
     mov [vp_rhi], al
     mov [vp_dbnc], ax
+    mov [vp_dbclm], ax
     mov [vp_rbw], ax                ; (the BIGSP window went with the claim)
     call vp_rhpat                   ; (and a conventional ring's patch:
     pop ax                          ; vp_rsmk)
@@ -18697,11 +18714,34 @@ vp_prend:
     lodsw
     xchg bx, ax
     mov ax, [bx]
+%ifdef PKG_MEGA
+    cmp bx, vp_ring                 ; (protected mode: the ring and its
+    je .dr                          ; claim are SELECTORS, which the trailer
+    cmp bx, vp_rclm                 ; reads as paragraphs - the placement's
+    jne .dn                         ; verdict came out of selector numbers)
+    cmp byte [vp_rhi], 0            ; ...and with the ring ABOVE 1MB, what is
+    je .dl                          ; copied up to a bank is the BOUNCE, so it
+    mov ax, [vp_dbclm]              ; and its claim are what the trailer
+    jmp short .dl                   ; names
+.dr:
+    cmp byte [vp_rhi], 0
+    je .dl
+    mov ax, [vp_dbnc]
+.dl:
+    call vp_prlin
+.dn:
+%endif
     stosw
     loop .dw
     mov ax, cs
+%ifdef PKG_MEGA
+    call vp_prlin
+%endif
     stosw
     mov ax, ss
+%ifdef PKG_MEGA
+    call vp_prlin
+%endif
     stosw
     mov al, '1'
 .try:
@@ -22981,7 +23021,9 @@ vp_rhi:       db 0                      ; THE RING ABOVE 1MB this session: a
                                         ; 14.41), and vp_addr patched to
                                         ; vp_paddr
 vp_dbnc:      dw 0                      ; ...and the conventional bounce its
-                                        ; disk reads land in, whole runs
+                                        ; disk reads land in, whole runs -
+                                        ; placed at THE GAP in...
+vp_dbclm:     dw 0                      ; ...this claim, which is freed
 vp_apsv:      db 0, 0, 0                ; ...and vp_addr's own head, kept
 vp_xrun:      dw 0                      ; the hold's or bank's RUN of selectors
                                         ; (OSAPI_XMEM_RUN, protected mode), 0
@@ -23526,6 +23568,41 @@ vp_pr61:      db 0                  ; ...port 61h as it was
 vp_prfn:      db 'VPPROF1.DAT', 0
 ; THE CARD'S TRAILER's words (98.3.22.3), in this order - tools/os88vfit.py
 ; DI_NAMES is the other copy. A byte's word carries its neighbour above it
+%ifdef PKG_MEGA
+; vp_prlin - AX = a segment or, in protected mode, a selector: AX = its
+; linear address in paragraphs, the low 16 bits of it (the trailer's
+; arithmetic is mod 4 KB and within a claim, so a wrap above 1MB costs it
+; nothing). A selector SEG_LIN refuses, or 0, is left as it is. Every other
+; register kept
+vp_prlin:
+    cmp byte [vp_pm], 0
+    je .r
+    or ax, ax
+    jz .r
+    push bx
+    push cx
+    push dx
+    push ax
+    mov dx, ax
+    mov bl, SEG_LIN
+    call OSAPI_SEG                  ; DX:AX = the linear address
+    pop bx                          ; (BX = as it was)
+    jnc .ok
+    xchg ax, bx                     ; refused: as it was
+    jmp short .o
+.ok:
+    mov cl, 4
+    shr ax, cl
+    mov cl, 12
+    shl dx, cl
+    or ax, dx
+.o:
+    pop dx
+    pop cx
+    pop bx
+.r:
+    ret
+%endif
 vp_ditab:     dw vp_mrun0, vp_mfre0, vp_k, vp_rneed, vp_mrun, vp_mkeep
               dw vp_msnd, vp_lmin, vp_lminf, vp_gap, vp_pstrm, vp_pause
               dw vp_pmax, vp_pmaxf, vp_stall, vp_late, vp_dt, vp_done
