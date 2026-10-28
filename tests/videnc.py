@@ -1887,6 +1887,31 @@ def main():
                        % ("byte 37 = 5" if getattr(ro, "fpage", False) else
                           "NOT byte 37 = 5", nb, ro.frames, reso["cuts"],
                           resf["cuts"]))
+        # ...and AUTO DECLINING keeps --flip-own (2026-10-28, the owner's
+        # Ikaruga): a calm clip cuts nothing, so auto ships its plan pass -
+        # which must be against its own page as asked, and not the plain
+        # flipped file it was while the plan pass read page-ahead as on
+        calm = os.path.join(ptmp, "calm.mkv")
+        subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i",
+                        "testsrc2=size=320x180:rate=24,trim=duration=1.5",
+                        "-c:v", "ffv1", calm], check=True)
+        for scr_ in (["--preset", "modex"],
+                     ["--preset", "vga4-full", "--screen", "320x240n"]):
+            out = os.path.join(ptmp, "autoown.V88")
+            venc.encode(venc.parser().parse_args(
+                [calm, out, "--quiet", "--profile", "486-dx2-66", "--audio",
+                 "none", "--fit", "fill", "--flip", "--flip-own",
+                 "--page-ahead", "auto"] + scr_))
+            vid.verify_v88(out)
+            ra = vid.Reader(out)
+            print("   5k: --flip-own, auto %s: %s" % (
+                " ".join(scr_[1:]), "built ahead" if getattr(ra, "fpage",
+                                                            False) else
+                "against its own page" if getattr(ra, "own", False) else
+                "PLAIN FLIPPED"))
+            if not (getattr(ra, "fpage", False) or getattr(ra, "own", False)):
+                bad.append("--flip-own with --page-ahead auto on %s shipped "
+                           "a plain flipped file" % " ".join(scr_[1:]))
     except vid.V88Error as e:
         bad.append("flipped and built ahead: %s" % e)
     shutil.rmtree(ptmp, ignore_errors=True)

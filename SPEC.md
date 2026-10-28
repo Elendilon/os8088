@@ -195703,7 +195703,14 @@ Options version 26 takes a version-25 record's flag as `on` or `off`.
   pages leave nothing to build on and it does not run. It was refused with
   `--flip` outright until then, a rule written before 98.2.1.8.5 existed, so
   a flipped file was built ahead only with `on`.
-  Everywhere else `auto` is one plain pass, as before.
+  Everywhere else `auto` is one plain pass, as before. **The plan pass is
+  made as asked, `--flip-own` included** (2026-10-28): only the real pass,
+  the one with a plan, gives a file against its own page up for
+  PageAheadF's. From 2026-10-26 the plan pass read page-ahead as on, so an
+  auto that declined shipped a plain flipped file for a `--flip-own` ask -
+  the owner's Ikaruga re-encode, 2 MB smaller and pausing on the Victory,
+  every record against the frame before and the back page brought up each
+  frame. `tests/videnc.py` 5k has the leg.
 - **Where it applies, the plan pass IS the plain encode, and its file is
   kept.** Both passes' reports are held (`_Held`), the encoder window's
   PROGRESS lines going straight through. **The view as seen decides**
