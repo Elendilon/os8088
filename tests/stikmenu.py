@@ -109,7 +109,20 @@ class Menu:
             # holder's, so a stm_live read there is a witness of nothing
             # (it read 1 one boot in five and the row raced the scan)
             return 0
-        return _lin(self.m, seg) if seg else 0
+        lin = _lin(self.m, seg) if seg else 0
+        if lin and getattr(self.m, "bochs", False) and lin < 0x100000:
+            # ...AND UNDER PROTECTED MODE THE CONVENTIONAL CLAIM IS A
+            # SELECTOR TOO (the claim's own LDT pair, kernel/mod.inc
+            # mod_need/mod_hi), so the test above lets it through: base()
+            # named the claim the file is being READ into, and stm_live
+            # there is whatever that memory held. drop() took a panel that
+            # was not up and read stm_nsl = 0 - mega-stikmenu's A or D,
+            # IndexError on an empty slab list, 2 to 5 runs in 8 at two
+            # Bochs rows to a box - and C's fpg_on / busy-clock FAILs are
+            # the same race met during the scan. STIKMENU.DRV is MOD_HIOK
+            # (mod_hi): the image it runs is the copy ABOVE 1MB
+            return 0
+        return lin
 
     def rd(self, name, n):
         return bytes(self.m.read(self.base() + self.off[name], n))
