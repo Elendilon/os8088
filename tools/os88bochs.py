@@ -163,6 +163,50 @@ SYNC = os.environ.get("OS88_BOCHS_SYNC", "slowdown")
 IPS_N = int(os.environ.get("OS88_BOCHS_IPS") or 4000000)
 IPS = "cpu: ips=%d\n" % IPS_N
 
+# A STOP COSTS THE GUEST NOTHING - but only with tools/bochs/bxclock.c
+# preloaded (docs/BOCHS.md, *The clock*). `slowdown`'s cap reads time(NULL),
+# the WALL clock, so host seconds spent stopped at the debugger (every read,
+# every screenshot, every breakpoint) put the guest behind it, and on the
+# resume Bochs ran flat out until it had caught up - up to a guest second at
+# many times real speed, after every stop that crossed a second of the wall
+# clock. How much guest time a host-timed interval then held depended on how
+# long the stops had taken, which is host load: mega-vidfskeysvga4 looked at
+# its toast 7 times where it needs 8. The preload replaces time() with a
+# clock that does not move while Bochs does not run. $OS88_BXCLOCK=0 is the
+# A/B (the wall clock again).
+BXCLOCK = os.environ.get("OS88_BXCLOCK", "1") != "0"
+BXCLOCK_SRC = os.path.join(ROOT, "tools", "bochs", "bxclock.c")
+
+
+def bxclock():
+    """The path of the built clock preload, building it if it is not there:
+    build/bochs/bxclock-<hash of the source>.so, so a changed source is a
+    new file and two machines starting at once never see a half-written
+    one. RuntimeError naming the compiler when it cannot be built -
+    `os88build.have_bochs()` asks for one first, so a row skips instead."""
+    import hashlib
+    with open(BXCLOCK_SRC, "rb") as f:
+        h = hashlib.sha1(f.read()).hexdigest()[:12]
+    d = os.path.join(ROOT, "build", "bochs")
+    so = os.path.join(d, "bxclock-%s.so" % h)
+    if os.path.exists(so):
+        return so
+    cc = shutil.which("cc") or shutil.which("gcc")
+    if not cc:
+        raise RuntimeError("os88bochs: no C compiler (cc) to build %s, the "
+                           "preload a stopped Bochs needs (docs/BOCHS.md, "
+                           "*The clock*); OS88_BXCLOCK=0 runs without it"
+                           % BXCLOCK_SRC)
+    os.makedirs(d, exist_ok=True)
+    tmp = "%s.%d.tmp" % (so, os.getpid())
+    r = subprocess.run([cc, "-O2", "-Wall", "-shared", "-fPIC", "-o", tmp,
+                        BXCLOCK_SRC], capture_output=True, text=True)
+    if r.returncode:
+        raise RuntimeError("os88bochs: %s failed on %s:\n%s"
+                           % (cc, BXCLOCK_SRC, r.stderr))
+    os.replace(tmp, so)
+    return so
+
 
 INPUT_GAP = 0.03    # s: Bochs's GUI takes X events every ~10 ms of its own.
 # It was 0.06, and under sync=realtime a stop was paid in GUEST time (the
@@ -860,10 +904,18 @@ class Box(object):
         if os.path.exists(fifo):
             os.remove(fifo)
         os.mkfifo(fifo)
+        # The clock preload on BOCHS ALONE (the wrapper script execs
+        # bochs-bin and the variable rides through), never on the display's
+        # shared env, which xdotool and xwd also run under
+        benv = self.env
+        if BXCLOCK and SYNC == "slowdown":
+            pre = os.environ.get("LD_PRELOAD")
+            benv = dict(self.env, LD_PRELOAD=bxclock() +
+                        (" " + pre if pre else ""))
         self.p = subprocess.Popen(["bochs", "-q", "-f", rc], cwd=out,
                                   stdin=os.open(fifo, os.O_RDWR),
                                   stdout=self.f, stderr=subprocess.STDOUT,
-                                  env=self.env, preexec_fn=_fsize_cap)
+                                  env=benv, preexec_fn=_fsize_cap)
         self.inp.attach(self.p.pid,     # (the wrapper execs bochs-bin)
                         os.path.join(out, "bochs.log"))
         self.hold = subprocess.Popen("exec sleep 86400 > '%s'" % fifo,

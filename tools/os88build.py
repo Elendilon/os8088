@@ -618,10 +618,24 @@ def have_pil():
 def have_bochs():
     """Can THIS box run tools/os88bochs.py? Bochs with the legacy BIOS it
     boots (the default BIOS's 32-bit init crashes there), and the X tools the
-    sweep drives it with: Xvfb, xdotool, xwd and ImageMagick's convert."""
-    return all(shutil.which(t) for t in ("bochs", "Xvfb", "xdotool", "xwd",
-                                         "convert")) and \
-        os.path.exists("/usr/share/bochs/BIOS-bochs-legacy")
+    sweep drives it with: Xvfb, xdotool, xwd and ImageMagick's convert -
+    and the clock preload every Box runs Bochs under, tools/bochs/bxclock.c,
+    BUILT (a C compiler), because without it a stopped guest is paid its
+    stop back in guest time afterwards and a row's answer moves with the
+    host's load (docs/BOCHS.md, *The clock*)."""
+    if not (all(shutil.which(t) for t in ("bochs", "Xvfb", "xdotool", "xwd",
+                                          "convert")) and
+            os.path.exists("/usr/share/bochs/BIOS-bochs-legacy")):
+        return False
+    sys.path.insert(0, os.path.join(ROOT, "tools"))
+    import os88bochs
+    if not os88bochs.BXCLOCK or os88bochs.SYNC != "slowdown":
+        return True             # the A/B: run without it, as asked
+    try:
+        os88bochs.bxclock()
+    except (RuntimeError, OSError):
+        return False
+    return True
 
 
 def have_unicorn():
