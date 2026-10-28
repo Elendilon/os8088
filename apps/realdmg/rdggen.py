@@ -1301,18 +1301,16 @@ cpy_ff:
     cmp bp,dx
     jl .no
     mov [ss:S_TMP4],dx
-    mov dl,bh                   ; either range starting in VRAM: the
-    sub dl,80h                  ;   damage scan compares it all, these
-    cmp dl,20h                  ;   stores marking no block (vr_wr)
-    jae .x1
-    mov byte [ss:RDG_VALL],1
-.x1:
-    mov dx,di
+    mov dx,di                   ; the DESTINATION starting in VRAM - DE
+    cmp byte [ss:S_TMP],2Ah     ;   for 2Ah, HL for 1Ah: the damage scan
+    je .d                       ;   compares it all, these stores marking
+    mov dx,bx                   ;   no block (vr_wr). A copy OUT of VRAM
+.d:                             ;   writes none of it (cpc_go's too)
     sub dh,80h
     cmp dh,20h
-    jae .x2
+    jae .x
     mov byte [ss:RDG_VALL],1
-.x2:
+.x:
     mov dx,bx                   ; HL's range...
     cmp dh,80h
     jb .no
@@ -1421,9 +1419,15 @@ stat_ff:
     mov ax,RDG_FRAME+RDG_HBL      ; to line 0's mode 0
     sub ax,[ss:S_TMP4]
 stat_t:
-    sub ax,8                    ; a pass short (0 is exact, gbrmw's
-    jbe stat_none               ;   Waits; 8 over is not)
-    and al,0F8h
+    add ax,2                    ; every pass whose read is still "not yet":
+    and ax,0FFF8h               ;   the read is 5 M-cycles after the JR and
+    jz stat_none                ;   8 apart, so whole passes to DIST + 2
+                                ;   leave the next read the first that sees
+                                ;   it (gbrmw's Waits, against WRAM's copy).
+                                ;   It was a pass short, and that pass read
+                                ;   once or twice more for nothing:
+                                ;   Link's Awakening's line waits through a
+                                ;   room's scroll, a read a line
     mov dx,bp
     sub dx,8
     jle stat_none
@@ -2229,6 +2233,42 @@ JD_NOFILTER = {0xC9, 0xD9}
 # --- tails after a TAIL page's CB handler: the translator copies a tail -----
 # --- page whole, so its CB half's room is as reachable as its main half's --
 CBTAILS = {
+    0x0B: """
+; vr_fill: fill_go's r bytes from HL in VRAM ([S_TMP2] = r), with no store
+; through vr_wr - their one 16-byte block marked and listed as vr_new marks
+; a store's, or, a fill across two blocks, the whole of VRAM compared
+; (RDG_VALL). Kirby's Dream Land fills five or six bytes of its window's
+; row about once a frame, and the whole compare was 6.4% of 286-mega while
+; it scrolled. DX and DI are free (fill_go has DE); on at fill_g2
+vr_fill:
+    mov di,bx
+    add di,[ss:S_TMP2]
+    dec di                      ; the last byte
+    xor di,bx
+    cmp di,10h
+    jae .all                    ; (another block)
+    mov di,bx
+    shr di,1
+    shr di,1
+    shr di,1
+    shr di,1
+    and di,1FFh                 ; the block, as vr_wr's
+    cmp byte [ss:RDG_VMARK+di],0
+    jne .k                      ; (marked and listed already)
+    mov byte [ss:RDG_VMARK+di],1
+    shr di,1
+    mov dx,di                   ; DL = its pair, as vr_new lists it
+    mov di,[ss:RDG_VLN]
+    cmp di,RDG_VLMAX
+    jae .k
+    mov [ss:RDG_VLIST+di],dl
+    inc word [ss:RDG_VLN]
+    jmp short .k
+.all:
+    mov byte [ss:RDG_VALL],1
+.k:
+    jmp fill_g2
+""",
     0xEB: """
 ; rd_rom - [BX] in 4000-7FFF, the bank's: DH, on at [S_RET] (rd_slow's and
 ; rd_s1-3's). A bank switched to lazily is fetched first (REALDMG-SPEC
@@ -2455,12 +2495,6 @@ cpc_ff:
     mov dl,cl
     add dl,ch
     jc cpc_no
-    mov dl,bh                   ; HL's starting in VRAM: the damage scan
-    sub dl,80h                  ;   compares it all (cpy_ff's)
-    cmp dl,20h
-    jae .x
-    mov byte [ss:RDG_VALL],1
-.x:
     mov dx,bx
     cmp dh,80h
     jb cpc_no
@@ -2498,6 +2532,12 @@ cpc_go:
     je .cp
     xchg si,di                  ; HRAM to HL
 .cp:
+    cmp di,0A000h               ; the DESTINATION in VRAM: the damage
+    jae .nv                     ;   scan compares it all, these stores
+    cmp di,8000h                ;   marking no block (vr_wr). A copy OUT
+    jb .nv                      ;   of VRAM writes none of it
+    mov byte [ss:RDG_VALL],1
+.nv:
     rep movsb
     mov al,[di-1]               ; A, the last byte
     cmp byte [ss:S_TMP],0E2h
@@ -2787,14 +2827,14 @@ fill_ff:
     0x7D: """
 ; fill_ff's other half (page 7F's CB half): the fill itself
 fill_go:
-    mov dl,bh                   ; a range starting in VRAM: the damage scan
-    sub dl,80h                  ;   compares it all, these stores marking
-    cmp dl,20h                  ;   no block (vr_wr), as cpy_ff's
-    jae .nv
-    mov byte [ss:RDG_VALL],1
-.nv:
     sub bp,[ss:S_TMP4]
     mov [ss:S_TMP4],di          ; (DE)
+    mov dl,bh                   ; a range starting in VRAM: these stores
+    sub dl,80h                  ;   marking no block (vr_wr), vr_fill
+    cmp dl,20h                  ;   marks it
+    jae fill_g2
+    jmp vr_fill
+fill_g2:
     mov [ss:S_TMP6],cx
     mov dx,ss
     mov es,dx                   ; (ES is every helper's to load)

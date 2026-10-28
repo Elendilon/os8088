@@ -3019,8 +3019,17 @@ gfx_blitp_v:
     mov ax, [ss:vga_pr_rs]
     sub ax, [ss:vga_pr_n]       ; AX = a row's source advance past it
 .frow:
-    mov cx, [ss:vga_pr_n]
-    rep movsb
+    mov cx, [ss:vga_pr_n]       ; WORDS where it can (Map Mask one plane,
+    test di, 1                  ;   bit mask open, no Set/Reset: a word is
+    jz .fev                     ;   two bytes of the plane), from an even
+    movsb                       ;   framebuffer byte: a 16-bit card takes it
+    dec cx                      ;   as one transfer, an 8-bit one as two and
+.fev:                           ;   the loop is still half as long. The
+    shr cx, 1                   ;   window's RealDMG picture is four planes of
+    rep movsw                   ;   20 a row - this copy was 5.6% of 286-mega
+    jnc .fone                   ;   in it (rep movsw keeps CF)
+    movsb
+.fone:
     add si, ax
     add di, bp
     dec dx

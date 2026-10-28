@@ -880,9 +880,9 @@
   "sources": [
    "apps/realdmg"
   ],
-  "stamped": "a42f0d4f",
-  "strings": "6261802908aeb9b8",
-  "why": "Read the diff since 733366a8: the precompiled package is the user-visible part (its own program, the ROM beside or inside it, CPU > Precompiled, the F1 line's Pn/m, four toasts) and has a section, a file row and two Good-to-know lines. fill_ff/w16_ff, the kern_mega arm's tiers and the image load order are below the page's detail"
+  "stamped": "5734441e",
+  "strings": "6477c968484e9734",
+  "why": "Shift+F2 Steady pacing added to Making a game faster and the Screen table; the copy and fill marking, renderer and draw-pacing changes are below the page's detail"
  },
  "REDLINE_O88": {
   "sources": [

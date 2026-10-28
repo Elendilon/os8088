@@ -32,6 +32,18 @@ correctness items they turned up are closed. What is still open:
 - **Speed**: round 10 took Link's Awakening's two (the counters' blind
   spot, megamorphic RETs); left and priced are the memory flushes and the
   event path (~2% each) and bank switches (~8% of Link's Awakening).
+- **Coverage is only as good as the replays the heat came from.** Code
+  reached only through a jump table is invisible to the walk, so an image
+  interprets it until a heat run has entered it. Link's Awakening's
+  push-the-spiked-beetle stretch, from the owner's replay (2026-10-28), was
+  60 such ROM PCs entered ~3 times a frame (banks 15h and 00h). That was
+  ~20% of the 86Box 286 in `rdg_aotmiss`, `tr_ejf`, `tr_ekey` and `op_*`,
+  and it held the game at 82-95%. With that replay added to the heat it
+  is 1 PC: 100% and 15 -> 22-23 pictures a second, `check` identical over
+  its 460 frames. The open question is a GENERAL fix rather than one more
+  replay per scene: how the walk can see these tables (a pass over
+  `JP (HL)` sites that reads the table they index), and how many games
+  have the same gap.
 
 Moved off this plan: **the kern_mega arm** (20.14) is built on the
 kern_mega memory branch by the session doing that rework, which keeps
