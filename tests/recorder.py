@@ -158,7 +158,15 @@ def main():
 
         # --- 3. play on the card ----------------------------------------------
         ui.menu_pick("Sound", "Play")
-        if p.rb("rc_st") != RC_PLAY or msg() != "PLAYING (SB)":
+        # WAITED FOR, not read once: menu_pick returns when the menu is down,
+        # and the Play command's state and status can land a poll later - a
+        # single read here failed a soak with 'st 2, PLAYING (SB)', both
+        # already right by the time the message was formatted
+        try:
+            M.until(m, lambda _: p.rb("rc_st") == RC_PLAY
+                    and msg() == "PLAYING (SB)", "Play's stream",
+                    poll=.05, guest=5.0)
+        except M.MartyError:
             fail("3: Play did not open the stream (st %d, %r)"
                  % (p.rb("rc_st"), msg()))
         M.guest_sleep(m, 1.6)
