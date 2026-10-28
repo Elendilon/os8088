@@ -2457,9 +2457,16 @@ and the shim's `status()["cycles"]` was host seconds of running. So kern_mega
 rows failed under load and passed alone, in the guest's own terms: a
 double-click read 18-50 ticks against a window of 9 (`mega-alertbtn`,
 `-trkcompact`, `-bptrace`, `-int0sweep`), and Tracker's speaker calibration
-refused its Play (`mega-ringmove-tracker`). The clock is `sync=slowdown` now -
-guest time is the instruction count, read off `ptime` - and a double-click is
-queued on a stopped guest so its spacing is no host interval at all. With the
-soak running and a CPU hog beside the rows: base 4 of 5 of those rows FAILED
-(load 8-16), the fix 5 of 5 passed, and with `mega-install` and
-`mega-clipgrow` 7 of 7, repeated (load 2-15).
+refused its Play (`mega-ringmove-tracker`). The clock is `sync=slowdown` now
+at Bochs's default 4M instructions a guest second - guest time is the
+instruction count, read off `ptime` - and a double-click is queued on a stopped
+guest (the shim's `queued_input`, `os88bochs.Box.dblclick` for the rows that
+drive a Box) so its spacing is no host interval at all. With the soak running
+and a CPU hog beside the rows: base 4 of 5 of those rows FAILED (load 8-16),
+the fix 5 of 5 passed, and with `mega-install` and `mega-clipgrow` 7 of 7,
+repeated (load 2-15). One speed was tried and refused on the way: 100M, the
+CPU the rows had under `realtime`, starved `mega-trkcompact`'s ten Trackers to
+1/17 of real time and fired `pace`'s host backstop (docs/BOCHS.md).
+`megakbtrip`, `megapiclose` (its green arm) and `megasheet` fail at the BASE
+too, unloaded and on either clock - trip 2's typed command never hands over,
+the macro's message never comes - so they are not this.
