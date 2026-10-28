@@ -81544,6 +81544,27 @@ in the include it costs no resident byte and no ABI, and it is the os88la.inc
 shape - written once, assembled by each caller. The Video Player is the first
 (98.3.18.12).
 
+#### 41.14.1 The sixteenth was a shift by zero (2026-10-28)
+
+**From 2026-10-25 to this fix `xg_gap` answered 0 on every board.** Its
+threshold is `t0 - t0 >> 4`, and the shift read CL "still 4" from the DS
+shift that computed C. When the scratch claim replaced DS:0 as the copy's
+conventional end (KERN-MEGA-MEMORY-PLAN MC7), C came from `OSAPI_SEG`
+instead and CL arrived as the claim's `xor cx, cx`: the threshold was 0, no
+count is at or below 0, and the answer was "no preference". The measurement
+itself was right - its counts are saved in a `VPDIAG=1` profile, and the
+Victory's read `0 3546, 2K 1973 (0.56)` beside `G = 0`.
+
+Reported off the owner's Victory 286 with a PicoMEM V1, on kern_big: the VGA
+demo videos that played smooth when they shipped (T69) paused on every play.
+The bank's copy up is the reader's whole cost there, and at 0 apart it is
+1.8x the placed one, so the reader fell behind: `Lead 1`, 72 pauses, every
+one the stream's, with the draw at half the period. A/B on the machine, one
+part of the T69 release at a time on today's disk: its `SOUND.DRV` and its
+`HDD.DRV` changed nothing; its `VIDEO.O88` alone played clean (`G = 2048`,
+0 pauses, 0 late). The fix sets CL where it is read, two bytes in each
+caller (`VIDEO.O88`, `VIDDISK`).
+
 ### 41.15 Tier 2's loaded bases (2026-10-16)
 
 **On a 386 or better, a copy and a read in place both address extended
