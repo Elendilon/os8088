@@ -54,7 +54,7 @@ import gbstatic as G  # noqa: E402
 # the only thing the window said was "rdggen.py returned non-zero exit status 2"
 PREBUILT = os.path.join(HERE, "gbaot-bin")
 PREBUILT_FILES = ("aothost.bin", "rdgcore.bin", "rdgtmpl.bin", "rdgcore.inc", "rdgdefs.inc",
-                  "realdmgaot.bin", "realdmgaotmega.bin")
+                  "realdmgaot.bin", "realdmgaotmega.bin", "rdgjitpaot.bin")
 TREE_FILES = [os.path.join("apps", "realdmg", f) for f in
               ("rdggen.py", "rdgtmpl.py", "rdgdefs.inc", "rdgsys.inc", "rdgjit.inc",
                "rdgaot.inc", "realdmg.asm")] + [os.path.join("tools", "gbaot", "aothost.asm")]
@@ -152,7 +152,7 @@ def walk(rom, seeds=()):
         extra = set(seeds)
         for _ in range(6):
             found, _, _, _ = G.discover(rom, extra, True, fanout=fan)
-            new = jump_tables(rom, found) - extra
+            new = (jump_tables(rom, found) | G.discover.seeds) - extra
             if not new:
                 break
             extra |= new
@@ -171,6 +171,8 @@ def leaders(rom, found, extra, side=False):
     may take an interrupt or switch the bank (the IF/IE write and the guard
     leave there, REALDMG-SPEC 16.5) and after EI."""
     lead = {(0, 0x100)} | {(0, v) for v in range(0, 0x68, 8)} | set(extra)
+    for ents in getattr(G.discover, "jtabs", {}).values():   # an RST's or a
+        lead |= {(b if pc >= 0x4000 else 0, pc) for b, pc in ents}   # CALL's table
     for (b, pc), op in found.items():
         a1 = rom.byte(b, pc + 1)
         imm = a1 | rom.byte(b, pc + 2) << 8
@@ -366,7 +368,7 @@ class Machine:
             self.stopped = False
             cs = self.u.reg_read(X.UC_X86_REG_CS)
             ip = self.u.reg_read(X.UC_X86_REG_IP)
-            self.u.emu_start(cs * 16 + ip, MEM_END + 0xF, timeout=60 * 1000000)
+            self.u.emu_start(cs * 16 + ip, MEM_END + 0xF, timeout=int(os.environ.get("GBAOT_EMUTO", "60")) * 1000000)
             if not self.stopped:
                 raise RuntimeError("the machine stopped at %04X:%04X" % (
                     self.u.reg_read(X.UC_X86_REG_CS), self.u.reg_read(X.UC_X86_REG_IP)))
@@ -486,8 +488,54 @@ def slot_of(pc, key, hmask):
     return ((bh << 8) | bl) * 8
 
 
+NEAR_DEPTH = 1                     # near_heat's control transfers (3 measured worse)
+
+
+def near_heat(rom, found, entries, heat, depth=NEAR_DEPTH):
+    """The uncounted block starts in tiers by how many control transfers
+    away from the counted code they are - a jump, a call, a return or a
+    jump table's entry each 1, running on into the next instruction 0
+    (gbstatic.supergraph's edges; the last walk's tables). A list of sets of
+    (pc, key), nearest first. Images fill in this order after the counted
+    blocks, where they filled bank by bank: Link's Awakening's entity
+    handlers are one table entry from its hot dispatch at 3952h and were
+    dropped behind the low banks' cold code"""
+    import collections as C
+    jt = getattr(G.discover, "jtabs", {})
+    succ, _ = G.supergraph(rom, found, jt)
+    dist, dq = {}, C.deque()
+    for pc, key in heat or {}:
+        k = (0 if pc < 0x4000 else key, pc)
+        if k in found and k not in dist:
+            dist[k] = 0
+            dq.append(k)
+    while dq:
+        k = dq.popleft()
+        d, op = dist[k], found[k]
+        nx = k[1] + (2 if op == 0xCB else G.LEN[op])
+        out = [t for t in succ.get(k, ()) if t not in ("RET", None)]
+        if (op == 0xCD or op in G.RSTS) and k not in jt:   # a call goes on
+            out.append((k[0] if nx >= 0x4000 else 0, nx))   #   where it returns
+        for t in out:                      # (not RET's edges: they are every
+            for u in (t,):                 #   caller of a shared routine)
+                if u not in found:
+                    continue
+                w = 0 if u[1] == nx and u[0] == (k[0] if nx >= 0x4000 else 0) else 1
+                if d + w > depth or dist.get(u, depth + 1) <= d + w:
+                    continue
+                dist[u] = d + w
+                (dq.appendleft if w == 0 else dq.append)(u)
+    tiers = [set() for _ in range(depth)]
+    for b, pc in entries:
+        d = dist.get((b if pc >= 0x4000 else 0, pc))
+        k = (pc, 0xFF if pc < 0x4000 else b)
+        if d and (heat or {}).get(k, 0) == 0:
+            tiers[d - 1].add(k)
+    return tiers
+
+
 def translate(build, rom, entries, hmask=31, log=print, defines=(), rhm=7, heat=None,
-              hram=None, squeeze=0, listall=False):
+              hram=None, squeeze=0, listall=False, near=None):
     """Every entry (bank, pc) translated, in rounds of two cache segments
     (the first round also fills the core's holes), the code's banks mapped a
     group at a time when they do not all fit. Returns the image.
@@ -572,6 +620,10 @@ def translate(build, rom, entries, hmask=31, log=print, defines=(), rhm=7, heat=
             top.add(k)
             run += heat[k]
         tiers = [top, set(counted) - top] if os.environ.get("GBAOT_TIER") else [set(counted)]
+    for t in near or ():                   # ...then what is NEAR the counted
+        t = set(t) - set(counted)          #   code (near_heat), nearest first
+        if t:
+            tiers.append(t)
     passes = [(g, t) for t in (tiers + [None] if tiers else [None]) for g in groups]
     every = set().union(*tiers) if tiers else set()
     for gi, (group, tier) in enumerate(passes):
@@ -876,7 +928,7 @@ def run_arm(build, rom, mode, frames, img=None, prove=False, defines=(), joy=Non
     recompiler, 3 the precompiled code in `img` (meta, segs, table)."""
     m = Machine(build, rom, defines)
     CORE, VIEW, HASH = 0x1000, 0x2000, 0x3000
-    if mode == 3:
+    if mode in (3, 4):
         meta, segs, table = img
         seg_at = [CORE] + [0x4000 + 0x1000 * i for i in range(len(segs) - 1)]
         LIST = seg_at[-1] + 0x1000 if len(segs) > 1 else 0x4000
@@ -903,14 +955,20 @@ def run_arm(build, rom, mode, frames, img=None, prove=False, defines=(), joy=Non
         m.p(0x3A, FILT)
         romseg = FILT + 0x280              # (the filter's 8KB, and the cache's
                                            #   2KB after it: rdgaot.inc)
-        m.set_slots(romseg + 0x400, MEM_END // 16)
+        free, top = romseg + 0x400, MEM_END // 16
+        if mode == 4:                      # 20.16: the runtime table, ONE
+            m.p(0x3C, free)                #   bank slot, then the runtime tier
+            free += 0xA00                  #   last - a segment is 16 bits, and
+            top = free + 0x400             #   ten images leave ~127KB above
+            m.p(0x3E, top)                 #   them (p_hyseg, p_hyr0)
+        m.set_slots(free, top)
         if slots:                          # a bank cache as small as a
             m.slots = m.slots[-slots:]     #   machine's (10.3.2's gate) - and
                                            #   not under bank 0's copy: a slot's
                                            #   segment less 400h there reads
                                            #   bank 0's own bytes at 0000-3FFF,
                                            #   which hid a DS left on the bank
-        m.init(3, VIEW, CORE, HASH, seg_at[1] if len(seg_at) > 1 else CORE, 0, romseg,
+        m.init(mode, VIEW, CORE, HASH, seg_at[1] if len(seg_at) > 1 else CORE, 0, romseg,
                hmask=meta["hmask"], core_image=bytes(segs[0]))
         if prove:                          # count what runs in the code segments:
             from unicorn import UC_HOOK_BLOCK  # the core's own handlers are
@@ -1119,7 +1177,7 @@ def cmd_build(a):
               img.get("hlinked", 0), a.out))
 
 
-ARMS = {"interp": 0, "dyn": 1, "aot": 3}
+ARMS = {"interp": 0, "dyn": 1, "aot": 3, "hyb": 4}   # hyb: 20.16
 
 
 def degrade(build, img, keep):
@@ -1191,6 +1249,25 @@ def aot_image(build, mega=False):
     return out
 
 
+def aot_jitpart(build):
+    """The recompiler as a part (rdgjitp.asm), assembled against the
+    PRECOMPILED core's templates and offsets with RDG_HYB: kern_mega's
+    package carries it to translate what the host did not precompile
+    (REALDMG-SPEC 20.16) - build/gbaot/rdgjitpaot.bin"""
+    d = aotdir(build)
+    prerequisites(build)
+    out = os.path.join(d, "rdgjitpaot.bin")
+    if BUNDLED:
+        return out
+    srcs = [os.path.join(INC, f) for f in ("rdgjitp.asm", "rdgjit.inc", "rdgdefs.inc")]
+    srcs += [os.path.join(d, "rdgtmpl.bin"), os.path.join(d, "rdgcore.inc")]
+    if not os.path.exists(out) or any(os.path.getmtime(x) > os.path.getmtime(out) for x in srcs):
+        run(["nasm", "-f", "bin", "-w+error", "-DRDG_XTIER", "-DRDG_HYB",
+             "-I", d + "/", "-I", INC + "/", "-o", out,
+             os.path.join(INC, "rdgjitp.asm")], "assembling the recompiler's part")
+    return out
+
+
 def rom_name(path):
     b = os.path.basename(path).upper()
     stem, _, ext = b.rpartition(".") if "." in b else (b, "", "")
@@ -1215,7 +1292,8 @@ def package(build, img, rom, out, romname, image=None, log=print, embed=False, m
     b = bytearray(open(image or aot_image(build, mega), "rb").read())
     at = b.find(b"O88PARTS")
     rows = at + 10
-    b[at + 8] = AOT_CODE + 2 * nseg + romrows  # the rows there are
+    jrow = AOT_CODE + 2 * nseg + romrows if mega else 0   # (20.16: the recompiler
+    b[at + 8] = AOT_CODE + 2 * nseg + romrows + (1 if jrow else 0)  # last) the rows
     lst = meta["list"]
     rel = b"".join(struct.pack("<BBH", n, tn | (0x80 if form else 0), site)
                    for n, site, tn, form in meta["relocs"])
@@ -1224,7 +1302,7 @@ def package(build, img, rom, out, romname, image=None, log=print, embed=False, m
                       len(meta["relocs"]), loff)
     hdr += bytes.fromhex(meta["header"]) + romname.encode().ljust(13, b"\0")[:13]
     foff = (loff + len(lst) + 15) & ~15
-    hdr = hdr.ljust(56, b"\0") + struct.pack("<HBBH", foff,
+    hdr = hdr.ljust(55, b"\0") + bytes([jrow]) + struct.pack("<HBBH", foff,
                                              AOT_CODE + 2 * nseg if embed else 0,
                                              meta.get("hot", nseg),
                                              len(rom.d) // 1024 if embed else 0) + rel
@@ -1239,7 +1317,9 @@ def package(build, img, rom, out, romname, image=None, log=print, embed=False, m
     for i in range(romrows):               # the ROM: plain, so its pieces lie
         parts.append(rom.d[i * 0x8000:(i + 1) * 0x8000])   # back to back
         plain.add(AOT_CODE + 2 * nseg + i)
-    filed = [0, 1, 3, 4] + list(range(AOT_CODE, AOT_CODE + 2 * nseg + romrows))
+    if jrow:                               # kern_mega's: the recompiler, for
+        parts.append(open(aot_jitpart(build), "rb").read())   # the misses (20.16)
+    filed = [0, 1, 3, 4] + list(range(AOT_CODE, AOT_CODE + 2 * nseg + romrows + (1 if jrow else 0)))
     work = tempfile.mkdtemp(prefix="gbaotpkg-")
     try:                                   # (the parts gone however it ends)
         paths = []
@@ -1300,10 +1380,10 @@ def compare(build, rom, img, frames, ref="interp", arm="aot", serial=False, defi
             log=print, joy=None, state=None, slots=None):
     """Run two arms side by side - the script, or a replay from its save
     state (`joy`, `state`). Returns (identical, what was found)."""
-    r = run_arm(build, rom, ARMS[ref], frames, img if ref == "aot" else None, defines=defines,
+    r = run_arm(build, rom, ARMS[ref], frames, img if ref in ("aot", "hyb") else None, defines=defines,
                 joy=joy, state=state, slots=slots)
-    k = run_arm(build, rom, ARMS[arm], frames, img if arm == "aot" else None,
-                prove=(arm == "aot"), defines=defines, joy=joy, state=state, slots=slots)
+    k = run_arm(build, rom, ARMS[arm], frames, img if arm in ("aot", "hyb") else None,
+                prove=(arm in ("aot", "hyb")), defines=defines, joy=joy, state=state, slots=slots)
     m0 = m1 = None
     if serial:                            # a ROM that reports on its link port:
         for (f, x0, s0, m0), (_, x1, s1, m1) in zip(r, k):   # its words, not its
@@ -1322,8 +1402,12 @@ def compare(build, rom, img, frames, ref="interp", arm="aot", serial=False, defi
     if slots:
         banks = "; %d slots, banks fetched %d (%s) against %d (%s)" % (
             slots, getattr(m1, "fetches", 0), arm, getattr(m0, "fetches", 0), ref)
+    hy = ""
+    if arm == "hyb":                      # (20.16: the misses made blocks)
+        hy = "; %d misses made blocks (%d counted)" % (
+            m1.r16(m1.view, m1.sym["S_HYN"]), m1.r16(m1.view, m1.sym["S_HYMISS"]))
     return True, "%d frames IDENTICAL, %s against %s; %d precompiled blocks entered, %d translated " \
-        "while running%s" % (frames, arm, ref, ran, nbr, banks)
+        "while running%s%s" % (frames, arm, ref, ran, nbr, banks, hy)
 
 
 def make(build, rom_path, out, romname=None, heat_frames=3000, replays=(), check=0,
@@ -1365,8 +1449,10 @@ def make(build, rom_path, out, romname=None, heat_frames=3000, replays=(), check
                 "again, the hottest first" % (len(heat), len(more), len(hram)))
             found, extra = walk(rom, set(extra) | more)   # the misses WALKED: a
             lead = leaders(rom, found, extra)               #   start the walk never
-            img = translate(build, rom, lead, log=log, heat=heat,   # found is dropped
-                            hram=hram)
+            near = near_heat(rom, found, lead, heat, int(os.environ.get(   # found is
+                "GBAOT_NEAR", NEAR_DEPTH)))                  #   dropped
+            img = translate(build, rom, lead, log=log, heat=heat,
+                            hram=hram, near=near)
         d1 = os.path.join(work, "final")
         save(img, d1, rom)
         # GAME.O88 is written under its own name only once it is checked: a
@@ -1472,8 +1558,8 @@ def main():
     k.add_argument("-n", "--frames", type=int, default=1200)
     k.add_argument("--serial", action="store_true",
                    help="compare what the game says on its link port, not each frame")
-    k.add_argument("--ref", default="interp", choices=("interp", "dyn", "aot"))
-    k.add_argument("--arm", default="aot", choices=("interp", "dyn", "aot"))
+    k.add_argument("--ref", default="interp", choices=("interp", "dyn", "aot", "hyb"))
+    k.add_argument("--arm", default="aot", choices=("interp", "dyn", "aot", "hyb"))
     k.add_argument("--break-block", help="BB:PPPP: break this block on purpose (must go red)")
     k.add_argument("--break-hot", action="store_true", help="break the most entered block")
     k.add_argument("--keep", type=int, help="only this many code images past the core, as the "

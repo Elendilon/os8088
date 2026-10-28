@@ -18,7 +18,7 @@ rgbds) and the test suites tools/getgbtest.py fetches at pinned SHA-256s.
 None is committed, and no commercial game is used: those are the owner's
 field measurement (docs/reports/REALDMG-FULLSTATIC-2026-10-25.md).
 
-EIGHT NEGATIVE CONTROLS, every one of which must go red:
+NINE NEGATIVE CONTROLS, every one of which must go red:
   - the most-entered block of GBRMW.GB with its first byte changed: the
     check must see the precompiled code at all;
   - GBFLAGS.GB translated by a driver built with RT_DEADBUG (a flag's read
@@ -39,7 +39,15 @@ EIGHT NEGATIVE CONTROLS, every one of which must go red:
     segment's copy: a read of a bank not yet fetched must differ;
   - GBBANKRD.GB under a driver built with RDG_RXDSBUG (a fetch leaves the
     core's DS to rdg_setbank) with S_PC made the bank's at every fetch: the
-    interpreter reading the bank from bank-0 code must go wrong.
+    interpreter reading the bank from bank-0 code must go wrong;
+  - GBBANK.GB precompiled with bank 0's code alone and its misses
+    translated (REALDMG-SPEC 20.16) under a driver built with RDG_HYBUG (a
+    runtime block filed under the next bank's key): it must differ.
+
+The misses' leg (REALDMG-SPEC 20.16) precompiles GBBANK, GBRET and
+cpu_instrs from BANK 0'S ENTRIES ALONE - everything in a switchable bank is
+what the walk did not find - and runs the machine that translates what it
+misses beside the interpreter: identical, with blocks made at run time.
 """
 import argparse
 import os
@@ -319,6 +327,23 @@ def lazy_control(rom, out, frames):
     return gbaot.compare(BUILD, rom, (meta, segs, table), frames, slots=LAZY_SLOTS)
 
 
+# the misses translated (REALDMG-SPEC 20.16): the rows whose banked code a
+# bank-0-only image leaves to the run, and the frames each needs to make some
+HYBLEG = ("GBBANK", "GBRET", "cpu_instrs")
+
+
+def hyb_leg(rom, found, extra, out, frames, serial, defines=()):
+    lead = {(b, pc) for b, pc in gbaot.leaders(rom, found, extra) if pc < 0x4000}
+    img = gbaot.translate(BUILD, rom, lead, log=lambda *x: None)
+    out2 = out + "-bank0"
+    gbaot.save(img, out2, rom)
+    ok, what = gbaot.compare(BUILD, rom, gbaot.load(out2), frames, arm="hyb", serial=serial,
+                             defines=defines)
+    if ok and not serial and " 0 misses made blocks" in what:
+        return False, "no miss was translated: the leg tests nothing - " + what
+    return ok, what
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("-k", help="only the rows whose label contains this")
@@ -433,6 +458,17 @@ def main():
             if not a.k:
                 ok, what = rmeg_control(rom, out, frames)
                 print("%-4s %-28s %s" % ("FAIL" if ok else "ok", "control: stale HL on",
+                                         "passed - the gate cannot go red" if ok
+                                         else what + ", as it must"))
+                bad += ok
+        if label.split()[0] in HYBLEG:
+            ok, what = hyb_leg(rom, found, extra, out, frames, serial)
+            print("%-4s %-28s %s" % ("ok" if ok else "FAIL", "%s, misses translated" % label.split()[0],
+                                     what))
+            bad += not ok
+            if label.startswith("GBBANK (") and not a.k:
+                ok, what = hyb_leg(rom, found, extra, out, frames, serial, ("RDG_HYBUG",))
+                print("%-4s %-28s %s" % ("FAIL" if ok else "ok", "control: RDG_HYBUG",
                                          "passed - the gate cannot go red" if ok
                                          else what + ", as it must"))
                 bad += ok

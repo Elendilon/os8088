@@ -4311,3 +4311,77 @@ owner's replay as its counters, on 86Box `286-mega`: 7 images and all 64
 banks resident, nothing fetched, **94.7%** of real time a second (mean of
 seconds 3-70) against 94.9% for the plain package on kern_big (3 banks
 fetched) and 91.5% for the recompiler on kern_mega.
+
+### 20.16 kern_mega's package: its misses translated
+
+A precompiled image is only as complete as the walk (20.2) and the replays
+its counters came from (20.11): code reached through a jump table or a
+computed jump, in a stretch no replay ran, is not in it, and every entry to
+it is the interpreter's - for the rest of the session. The owner's Link's
+Awakening replay pushing a spiked beetle met 60 such PCs, ~3 entries a frame
+each, and the machine sat at 82-95% (`rdg_aotmiss`, `tr_ejf`, `tr_ekey` and
+the handlers ~20% of 86Box's `286-mega`). A replay per scene is not an
+answer for a fifteen-hour game, so kern_mega's package carries the
+recompiler and translates what the host did not:
+
+- **The part.** `gbaot.py package --mega` appends `rdgjitp.asm` built
+  `RDG_XTIER RDG_HYB` against the PRECOMPILED core's templates
+  (`build/gbaot/rdgjitpaot.bin`) as the last row, and the meta's byte 55
+  names it. The plain package has no such row and none of what follows.
+- **The memory.** `rw_hyload` (in `rw_aread`, under `CPU_F_PM`) claims ONE
+  pool block of up to `RWH_T` = 4 runtime tiers + the part + the runtime
+  table, as many tiers as fit and one at least, each 64KB a `SEG_SUBC` pair.
+  On any failure nothing is kept and the package is 20.15's.
+- **Counting.** `S_HYON` 1 sends both of the core's ways to the interpreter
+  through `rdg_aotmiss`: a filter miss (`.nof`), and `tr_ejf`'s (`tr_ejfno`
+  asks `S_HYON` first). A ROM PC there is counted in a direct-mapped table
+  of 2,048 (`HY_CNT`, the high byte folded in - two PCs 800h apart in one
+  bank otherwise reset each other for ever, which is how 73DFh and 7BDFh of
+  bank 15h stayed interpreted), and at `HY_HOT` = 16 entries the translator
+  is asked with no slot (`S_JITSLOT` FFFFh, so `rt_translate` writes nothing
+  into the host's FIXED table) and the core comes back at `tr_back`.
+- **Filing.** `rdg_hyins` puts the block in the RUNTIME TABLE (`HY_TAB`,
+  4,096 entries, open addressing, nothing ever taken out, full at 3,072),
+  sets its filter bit and makes the miss cache's entry for it the block -
+  so the next look finds it as it finds a listed one. A miss whose filter
+  bit is set and that is not listed probes the runtime table (`.rh`).
+- **Chaining.** `tr_link` chains only what is in the fixed table, so a
+  runtime block's exits into the list or the runtime table would pay
+  `tr_link`, `tr_enter`, `tr_new2` and the lookup on every pass - measured
+  6,320 x86 instructions a frame where the interpreter had spent 302. Under
+  `S_HYON`, `tr_lno` goes through `tr_lnx` (in slot 45's CB half: slot 42 has
+  no room) to `rdg_aotlink`, which looks the target up as any miss and, found,
+  goes on through `tr_lpatch` in the site's own tier (`S_HYLP`, its CS
+  stored by `tr_lnx`) - chained, once.
+- **The tiers.** The first is the second cache segment (`S_JITSEGB`); the
+  rest are put in `S_JITXT` AHEAD of the images (`rw_hyon`), so `rt_room`'s
+  turn meets a precompiled image only when every runtime tier is written,
+  and stops there: a fixed table never flushes (16.8), `S_JITPRE` goes to 2
+  and `S_HYON` to 2 - what was made is still found, nothing more is made.
+  A runtime tier takes the images' own generation (`rt_tier` reads
+  `S_JITSEGA`'s), so no link between them is logged: none is ever undone,
+  and the log would sit in an image.
+- **The host.** `aothost.asm`'s mode 4 is the same machine (one tier, the
+  table in the space ten images leave: `run_arm`), and `gbaot.py check
+  --arm hyb` holds it to the interpreter.
+
+**The gate** is `tests/gbaot.py`'s misses leg: GBBANK, GBRET and cpu_instrs
+precompiled from BANK 0'S ENTRIES ALONE, run with their misses translated,
+identical to the interpreter (GBBANK makes 63 blocks at run time), and red
+under `RDG_HYBUG` (a block filed under the next bank's key). Images built
+with no heat at all - Link's Awakening 1,232 blocks, Kirby's Dream Land
+3,151, Super Mario Land 1,899, Looney Tunes 4,649 - are identical to the
+interpreter over each one's 3,000-frame replay with 603, 7, 37 and 8 blocks
+made at run time.
+
+**MEASURED** on the owner's beetle replay: x86 instructions a frame on the
+host, the image without that replay in its counters 34,671 (the
+interpreter 9,318 of them) against **26,202** with its misses translated
+(the interpreter 1,100, the runtime tiers 1,522) - and 25,450 for the image
+built WITH the replay, so the run lands within 3% of a perfect precompile.
+On 86Box `286-mega` the same package went from 82-95% of real time and 13-17
+pictures a second to **99-102% and 22-24**, the image built with the replay's
+own.
+
+The core changed with it (`tr_ejfno`, `tr_lno`, `tr_lnx`), so every image is
+precompiled again; the plain package's machine is unchanged, `S_HYON` 0.

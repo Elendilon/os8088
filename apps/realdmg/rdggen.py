@@ -974,7 +974,11 @@ tr_hm1 equ $-1               ; (its immediate: rt_init's to set, 16.3)
     jmp tr_lpatch
 tr_lno:
     mov bx,[ss:S_SAVBX]
+%ifdef RDG_AOTCORE
+    jmp tr_lnx                  ; (20.16's question first: slot 45's)
+%else
     jmp tr_enter
+%endif
 """,
     0x44: """
 ; tr_enter's last part: back from the translator, and the interpreter
@@ -2296,6 +2300,8 @@ tr_irx:                         ; (tr_int's: its DX is not live - nor
     jmp short rx_get
 %ifdef RDG_AOTCORE
 tr_ejfno:                       ; tr_ejf's no-block way, into the
+    cmp byte [ss:S_HYON],0      ;   (misses TRANSLATED, 20.16: counted
+    jne tr_ejfhy                ;   at rdg_aotmiss, as the filter's are)
     mov bx,[ss:S_SAVBX]         ;   interpreter (the core's copy only:
     mov dx,ds                   ;   the handlers are there) - DS 0 is the
     or dx,dx                    ;   bank switched to lazily, in first and
@@ -2307,6 +2313,8 @@ tr_ejfno:                       ; tr_ejf's no-block way, into the
 tr_ejfrx:
     mov dx,tr_ejf
     jmp short rx_got
+tr_ejfhy:
+    jmp far [ss:S_AOTVEC]
 %endif
 seam_rx:                        ; (op_D3's: DX the dispatch's)
     mov dx,op_D3
@@ -2892,6 +2900,18 @@ tr_lpx:
 .xh:
     mov es,[ss:bx]
     jmp tr_lpok
+%ifdef RDG_AOTCORE
+; tr_lnx: tr_link's target is not in the fixed table. Misses TRANSLATED
+; (20.16): the list's and the runtime table's blocks are chained too, by
+; rdg_aotlink, through tr_lpatch in this - the site's - tier
+tr_lnx:
+    cmp byte [ss:S_HYON],0
+    jne .hy
+    jmp tr_enter
+.hy:
+    mov [ss:S_HYLP+2],cs
+    jmp far [ss:S_HYLVEC]
+%endif
 """,
     0x41: """
 ; POP's slow path, SP below C000h (REALDMG-SPEC 5): DX = the word at SP and

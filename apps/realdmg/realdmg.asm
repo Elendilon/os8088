@@ -568,8 +568,12 @@ rw_reloc:
 .6:
 %ifdef RDG_AOT
     cmp [S_AOTVEC+2], bx            ; (rdg_aotmiss, ours)
-    jne .r
+    jne .7
     mov [S_AOTVEC+2], dx
+.7:
+    cmp [S_HYLVEC+2], bx            ; (rdg_aotlink, ours: 20.16)
+    jne .r
+    mov [S_HYLVEC+2], dx
 %endif
 .r:
     pop ds
@@ -853,6 +857,7 @@ rw_load0:
     je .nojit                       ;   asked for)
     cmp byte [rw_hmask], 7          ; ...then with the table at 16KB
     je .min4
+.jit16:
     mov dx, [rw_jitseg]
     call OSAPI_MEM_FREE
     mov word [rw_jitseg], 0
@@ -876,6 +881,13 @@ rw_load0:
     call rw_plan
     jnc .planned
 .nobig:
+    cmp word [rdg_dmgseg], 0        ; no room with it: the damage memory
+    je .nobig1                      ;   goes back BEFORE the recompiler, as
+    mov dx, [rdg_dmgseg]            ;   it does for the ROM's claim (.claim)
+    call OSAPI_MEM_FREE             ;   - .loaded claims it again if there
+    mov word [rdg_dmgseg], 0        ;   is room - and the recompiler is
+    jmp short .jit16                ;   claimed again over the place it left
+.nobig1:
     mov dx, [rw_jitseg]             ; no room with it: the ROM without it
     call OSAPI_MEM_FREE
     mov word [rw_jitseg], 0
