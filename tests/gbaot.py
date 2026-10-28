@@ -428,7 +428,7 @@ def main():
             # four, the search choosing a part by its first entry - identical,
             # and every block one part entered entered from four. Part 0
             # searched whatever the key must lose blocks
-            ok, what = gbaot.compare(BUILD, rom, gbaot.load(out3), frames, lparts=4)
+            ok, what = gbaot.compare(BUILD, rom, gbaot.load(out3), 300, lparts=4)
             n1, n4 = (entered(rom, out3, 300, lp) for lp in (1, 4))
             ok = ok and n1 == n4
             print("%-4s %-28s %s; %d blocks entered from one part, %d from four" % (
