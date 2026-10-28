@@ -255,6 +255,16 @@ FAST = [
         "repo', and was tests/kerndos.py's `-l /dev/null` on every soak, with "
         "eleven more sites one failed assembly away. The argument is gated "
         "and not the device, so it is caught at the edit"),
+    Row("coldsym", "fast", py("tests/unit/t_coldsym.py"), 1.2,
+        "NO SCRIPT RESOLVES A `.cold` LABEL THROUGH os88sym.linear(). On a "
+        "machine with neither a VGA nor an EGA - MartyPC's default CGA among "
+        "them - kmain_o slides `.cold` down by VGA_PARA at boot (SPEC.md "
+        "2.10.9), so the map's address is 0x7F0 bytes above the routine and "
+        "a breakpoint there stops in another one: tests/fddpark.py and "
+        "tests/usbmouse.py read the machine in the SECOND boot, after the "
+        "int 19h they existed to read it at, and passed. m.sym() follows the "
+        "slide; a deliberate unslid use is a line in tests/coldsym.txt. "
+        "VERIFIED TO FAIL on the three rows' old forms"),
     Row("retired", "fast", py("tests/unit/t_retired.py"), 0.3,
         "every package under apps/ ships, or apps/RETIRED.txt says why not "
         "(SPEC.md 20.16). CLAUDE.md's Layout section states the invariant - "
