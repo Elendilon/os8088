@@ -3019,17 +3019,17 @@ gfx_blitp_v:
     mov ax, [ss:vga_pr_rs]
     sub ax, [ss:vga_pr_n]       ; AX = a row's source advance past it
 .frow:
-    mov cx, [ss:vga_pr_n]       ; WORDS where it can (Map Mask one plane,
-    test di, 1                  ;   bit mask open, no Set/Reset: a word is
-    jz .fev                     ;   two bytes of the plane), from an even
-    movsb                       ;   framebuffer byte: a 16-bit card takes it
-    dec cx                      ;   as one transfer, an 8-bit one as two and
-.fev:                           ;   the loop is still half as long. The
-    shr cx, 1                   ;   window's RealDMG picture is four planes of
-    rep movsw                   ;   20 a row - this copy was 5.6% of 286-mega
-    jnc .fone                   ;   in it (rep movsw keeps CF)
-    movsb
-.fone:
+    mov cx, [ss:vga_pr_n]
+    rep movsb                   ; BYTES, and a word copy is REFUSED: on the
+                                ; 8088's 8-bit bus `rep movsw` is 33 clocks a
+                                ; word against 2 x 17 - one clock saved - and
+                                ; the even-byte test, the shift and the odd
+                                ; tail cost ~40 a ROW. Built and MEASURED on
+                                ; MartyPC's XT VGA: Gorillas' animation frame
+                                ; (2-byte rows) 71.7 ms words against 68.3
+                                ; bytes, over tests/gorillasmenu.py's 75 ms
+                                ; budget; it bought 50.9 -> 50.7 ms on 86Box's
+                                ; 286-mega, and a 2-byte row loses there too
     add si, ax
     add di, bp
     dec dx

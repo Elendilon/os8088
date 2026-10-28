@@ -246,6 +246,21 @@ def main():
                 # land inside the join's own toast-then-free window and call
                 # it still. The reading has to hold for STILL guest seconds
                 # (what two polls span on an idle box), whatever the box does
+                #
+                # AND THE VERDICT IS THE STAGED TEXT, NOT A LIT STRIP. A toast
+                # is up for TOAST_TICKS (3 guest s) from the moment it is
+                # said, and a still reading needs two polls STILL apart - so
+                # on kern_mega under Bochs on a loaded box, where a poll's
+                # debugger stops spaced the looks 1-2 GUEST seconds apart,
+                # the strip was said, seen once and gone before the second
+                # look: the join HAD finished ('Uncompressed' staged, the
+                # claim freed, the result on A:) and this waited 120 guest
+                # seconds for a lit strip that was never coming back
+                # (mega-czto, two whole soaks, at whichever swap leg lost the
+                # draw). Every wait here starts from a toast_buf that key()
+                # or unto() emptied, so what is in it now was said AFTER the
+                # key, lit or not - `on` is left in the reading only so its
+                # going out is a change like any other
                 now = (claim(), mode(), ui.toast())
                 cyc = int(m.status()["cycles"])
                 if box.get("last") != now:
@@ -266,14 +281,14 @@ def main():
                     # still up too, and is the "said" arm's once it is freed
                     t, on = ui.toast()
                     if (was is None or c[1] != was
-                            or (on and t.startswith("Missing"))):
+                            or t.startswith("Missing")):
                         box["r"] = ("asked", c[1])
                         box["why"] = (t, on, c, mode(),
                                       int(m.status()["cycles"]))
                         return True
                     return False
                 t, on = ui.toast()
-                if on and t and not c and w16("fdlg_win") == 0:
+                if t and not c and w16("fdlg_win") == 0:
                     box["r"] = ("said", t)
                     return True
                 return False
@@ -442,8 +457,9 @@ def main():
                 for _ in range(20000):
                     if m.wait_stop(limit=0.3) != "breakpoint":
                         if claim() is None and mode() == 0:
-                            t, on = ui.toast()
-                            return (t if on else None), hits, hops
+                            t, on = ui.toast()      # staged since the key
+                            return (t or None), hits, hops  # (outcome's
+                                                            # reason)
                         continue
                     rg = m.regs()
                     here = lin(rg["cs"], rg["ip"])

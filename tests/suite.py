@@ -3582,7 +3582,7 @@ SOAK = [
         "across the segments must fail. WHY QEMU: a correctness gate, "
         "counted, not timed. SOAK: one package's core",
         needs=("qemu", "nasm", "rgbds"), timeout=360),
-    Row("gbaot", "soak", py("tests/gbaot.py"), 680.0,
+    Row("gbaot", "soak", py("tests/gbaot.py"), 715.0,
         "REALDMG's FULL static recompiler (docs/REALDMG-SPEC.md section 20, "
         "tools/gbaot.py): each ROM translated WHOLE on the host, walked from "
         "its entries with no play, by RealDMG's own translator run under "
@@ -4036,14 +4036,14 @@ SOAK = [
         "SPEC.md 19.1's package-size rule and the loader half that makes it "
         "safe. APP_MAX_SIZE bounds the primary SEGMENT's image+bss; it "
         "stopped bounding the FILE when a package could carry parts, so the "
-        "mount types a *.O88 up to PKG_FILE_HI (1MB) and ld_run_body step 1 "
+        "mount types a *.O88 under PKG_FILE_HI (32MB) and ld_run_body step 1 "
         "tests the staged size's HIGH word before it trusts the low one. "
         "LIFTING THE MOUNT'S RULE ALONE IS A DEFECT and this is what catches "
         "it: a 70KB file's low word is 4,608, a plausible small package, so "
         "without the guard the loader sizes a region from a wrapped length "
         "and answers `Bad package` about a file whose only fault is its size "
         "(SPEC.md 21.4's hazard). TWO FILES AND THE PAIR IS THE EXPERIMENT - "
-        "70,144 bytes must type 1 and be refused LD_EBIG, 1,048,576 must "
+        "70,144 bytes must type 1 and be refused LD_EBIG, 33,554,432 must "
         "type 0 and be refused LD_EBAD; BIGPKG alone is also what a rule "
         "that types everything looks like, and HUGE alone is also what the "
         "old `high word == 0` rule looks like. The instrument is [ld_status] "

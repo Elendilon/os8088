@@ -4058,8 +4058,8 @@ APP_MAX_SIZE equ 0xFE00      ; image + bss budget: 63.5KB (§20.1.1). The ceilin
                              ; what the heap has contiguous
 PKG_DISP     equ 12          ; the dispatcher's fixed offset inside a
                              ; package's header (§20.2)
-PKG_FILE_HI  equ 16          ; the high word of the biggest FILE the mount
-                             ; will type as a package: <1MB (§19.1). It is
+PKG_FILE_HI  equ 512         ; the high word of the biggest FILE the mount
+                             ; will type as a package: <32MB (§19.1). It is
                              ; NOT APP_MAX_SIZE - that bounds the primary
                              ; segment's image+bss and stopped bounding the
                              ; file when a package could carry parts
@@ -41419,7 +41419,7 @@ this order:
   loader.
 - **type 1 (loadable package)** iff ALL of: raw ext bytes 8..10 == `"O88"`
   (uppercase exact — foreign OSes uppercase short names on write); size
-  dword high word **< `PKG_FILE_HI`** (§3), i.e. the file is under 1MB; size
+  dword high word **< `PKG_FILE_HI`** (§3), i.e. the file is under 32MB; size
   low word ≥ 1; raw FstClusLO ∈ [2, `dsk_maxclus`]. A garbage entry can never
   reach the loader as type 1.
 
@@ -41429,12 +41429,18 @@ this order:
   than its primary segment. The old rule recorded the tradeoff that *"a
   ≥64KB `*.O88` reads 'Bad package' rather than 'Too large' — it cannot be a
   package, so the message is truthful"*, and the second half of that sentence
-  is what stopped being true. `PKG_FILE_HI` is a **decision, not a
-  derivation**: 1MB is far above any package this tree has or plans (the
-  largest, `LOOM.O88` plus its overlay, is ~98KB) and far below anything that
-  could overflow the loader's KB arithmetic. Above it the verdict is `Bad
-  package` again, and the tradeoff is recorded in the same terms one ceiling
-  further out.
+  is what stopped being true. `PKG_FILE_HI` was a **decision, not a
+  derivation** - 1MB, far above any package this tree had - until RealDMG's
+  precompiled cartridges on kern_mega (a ROM inside and up to 29 code
+  images, REALDMG-SPEC 20.17) made the decision the only limit left. It is
+  now the **derivation**, **512**, the file under **32MB**: a part's row
+  names its offset in 512-byte sectors in a WORD (§20.12.3), and
+  `OSAPI_FILE_READ_AT`'s one `div` by 512 needs the offset's high word
+  under 512 (kernel/diskw.inc) - so a package any bigger could not be read
+  past 32MB whatever the mount said. Both sites compare DH with 2 - three
+  bytes, as `cmp dx, 16` was, so no hot routine moves. Above it the verdict is
+  `Bad package` again, and the tradeoff is recorded in the same terms one
+  ceiling further out.
 
   **Lifting this rule ALONE is a defect**, and §21 step 1 is the other half:
   a 70KB file's size low word is 4,608, a perfectly plausible small package,
@@ -81537,6 +81543,27 @@ left then (6 now, §41.12.6), so measuring there is a KB of every 286 and 386's 
 in the include it costs no resident byte and no ABI, and it is the os88la.inc
 shape - written once, assembled by each caller. The Video Player is the first
 (98.3.18.12).
+
+#### 41.14.1 The sixteenth was a shift by zero (2026-10-28)
+
+**From 2026-10-25 to this fix `xg_gap` answered 0 on every board.** Its
+threshold is `t0 - t0 >> 4`, and the shift read CL "still 4" from the DS
+shift that computed C. When the scratch claim replaced DS:0 as the copy's
+conventional end (KERN-MEGA-MEMORY-PLAN MC7), C came from `OSAPI_SEG`
+instead and CL arrived as the claim's `xor cx, cx`: the threshold was 0, no
+count is at or below 0, and the answer was "no preference". The measurement
+itself was right - its counts are saved in a `VPDIAG=1` profile, and the
+Victory's read `0 3546, 2K 1973 (0.56)` beside `G = 0`.
+
+Reported off the owner's Victory 286 with a PicoMEM V1, on kern_big: the VGA
+demo videos that played smooth when they shipped (T69) paused on every play.
+The bank's copy up is the reader's whole cost there, and at 0 apart it is
+1.8x the placed one, so the reader fell behind: `Lead 1`, 72 pauses, every
+one the stream's, with the draw at half the period. A/B on the machine, one
+part of the T69 release at a time on today's disk: its `SOUND.DRV` and its
+`HDD.DRV` changed nothing; its `VIDEO.O88` alone played clean (`G = 2048`,
+0 pauses, 0 late). The fix sets CL where it is read, two bytes in each
+caller (`VIDEO.O88`, `VIDDISK`).
 
 ### 41.15 Tier 2's loaded bases (2026-10-16)
 
