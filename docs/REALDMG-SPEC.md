@@ -4407,16 +4407,19 @@ of them are now the owner's to choose:
   work unchecked by a run. Their order is the counters' (20.11) and then
   `near_heat`'s, so what is past ten is the colder code.
 - **`--prefer rom|code`** with `--embed` (the window's *If it does not all
-  fit*): the package file is under 1MB (SPEC.md 19.1) and the part table
-  holds `AOT_ROWS` = 64 rows - 5 fixed, two an image, one a 32KB of an
-  embedded ROM, one for kern_mega's recompiler. `rom` keeps the ROM inside
+  fit*): the package file is under 32MB (SPEC.md 19.1) and the part table
+  holds `AOT_ROWS` = 64 rows - 5 fixed, the relocations' and the list's
+  parts (20.17.1), two an image, one a 32KB of an embedded ROM, one for
+  kern_mega's recompiler. `rom` keeps the ROM inside
   and leaves the coldest images out until it fits (`degrade` again); `code`
   keeps every image and writes the package with the ROM BESIDE it when the
   two do not fit together. Without `--prefer` a package that does not fit
   is refused, as before.
 - **`RWA_MAX` 14 -> 29**: 14 was the package's own array (`rw_aseg`,
   `rw_acs`) and nothing else - more than any real-mode heap could hold - and
-  29 is what 64 rows hold with the ROM beside it (5 + 2 x 29 + 1). A plain
+  29 is what 64 rows held with the ROM beside it (5 + 2 x 29 + 1) before
+  the relocations and the list took rows of their own; 28 is the most with
+  them (two rows, a small list). A plain
   package on a real-mode kernel claims what its heap holds, as before; the
   rest is interpreted.
 
@@ -4426,18 +4429,51 @@ the one limit left; 32MB is the derivation (a part's sector offset is a
 word, `READ_AT` divides by 512 once). Link's Awakening with its ROM inside
 and ten images is 1,000,918 bytes, which the old bound refused.
 
-**What binds at ten images today is the META PART, not the harness.** The
-header, the relocations (4 bytes each) and the list (8 bytes a block the
-table does not hold) are one part, at most 65,024 bytes (SPEC.md 20.12.11):
-Link's Awakening's ten images list 5,816 blocks and 3,543 relocations, and
-twenty would be 12,992 and 7,349 - 133KB. So `--images` past ~10-11 is cut
-back by `package_fit` (`degrade`, the coldest images out) whichever way
-`--prefer` goes, and says so. Going past it is a FORMAT change, and its
-three parts are separable:
-1. the relocations in a part of their own (`rw_afixup` reads them a part
-   at a time);
-2. the block table at 32KB (`hmask` 15, 4,096 entries - a part holds it,
-   64KB does not), halving the list;
-3. the list in several parts, `rdg_aotmiss`'s binary search choosing the
-   part by key first - an offset of eight bytes an entry reaches 8,192 in
-   one segment.
+**What bound at ten images was the META PART, not the harness**, and
+RDAOT2 takes it out (20.17.1). The header, the relocations (4 bytes each)
+and the list (8 bytes a block the table does not hold) were one part, at
+most 65,024 bytes (SPEC.md 20.12.11): Link's Awakening's ten images list
+5,816 blocks and 3,543 relocations, and twenty 12,992 and 7,349 - 133KB.
+
+#### 20.17.1 RDAOT2: the relocations and the list in parts of their own
+
+The meta part is the 64-byte header alone now (rwaot.inc's comment is the
+layout). The relocations are parts of their own, 16,256 to a part, and the
+list is cut into up to `RDG_LXMAX` = 4 sorted parts of 8,128 entries: 32,512
+listed blocks, against 8,128 for a whole package before. Both are EAGER
+carve parts, at rows 5 on (`OP_ASSET`, packed), because os88pkg refuses an
+eager part after a lazy one (SPEC.md 20.12.4) and every image half is lazy;
+the images start at `rw_acode`, after them.
+
+- **The search** (`rdg_aotmiss`): one part is the list as it was, plus one
+  `cmp` of `S_AOTLX`. With more, `.chunk` walks the part directory
+  (`S_AOTLXT`: each part's segment, its first entry's PC and key, and its
+  entries) from the last part down to the first whose first entry is not
+  above (key, PC), and bisects that part alone. `rdg_aotattach` fills each
+  row's first entry and sets each part's filter bits.
+- **kern_mega's package builds its table at 32KB** (`hmask` 15, 4,096
+  entries) where the plain package keeps 16KB, so a real-mode heap pays
+  nothing. On Zelda's twenty images that took the list 12,992 -> 10,963,
+  16% and not the half estimated: the table holds the HOTTEST blocks, and
+  what was listed is the cold tail either way.
+- **What binds now** is the 64 rows: 5 fixed, a relocation part or two, up
+  to four list parts, two an image, a 32KB of an embedded ROM and one for
+  kern_mega's recompiler. Zelda: 19 images with its 512KB ROM inside
+  (1,338,838 bytes), all 20 with it beside (850,390).
+- **Images past 16 on kern_mega** were the first thing the format reached
+  that nothing had: `rw_axclaim` named image n at (n - 1) x 1000h
+  paragraphs from the pool block's one selector, and that 16-bit offset
+  wraps at 1MB - image 17 was based on image 1, and loading it overwrote
+  image 1's code (Zelda: 14 and 16 images at 60 fps, 18 drew nothing). Past
+  the wrap it goes on from the image before's own selector.
+- **The host checks any images** (`gbaot.py check --only 1,12-20`,
+  `subset()`): its ten were the first ten, so images past ten had never run
+  on it. `--list-parts N` cuts any list in N; `tests/gbaot.py`'s GBBANK leg
+  runs four parts against one (as many blocks entered) and `RDG_LXBUG`
+  (part 0 searched whatever the key) must enter fewer.
+
+**What it costs** (86Box `286-mega`, Zelda, the same ten images both ways,
+the ROM inside): the file 1,000,918 -> 1,001,430 bytes; on the beetle
+replay the machine idle 52.4% -> 52.3% and `rdg_aotmiss` 1.7% -> 2.0%,
+inside the sampling's noise; on the long replay 60.76 and 59.62 fps, both
+held.
