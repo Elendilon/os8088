@@ -1203,15 +1203,25 @@ def degrade(build, img, keep):
     entry into a missing image emptied, and a far jump into one put back to
     the exit it was before the host linked it - `mov dx,SITE / jmp
     tr_lsite` - for tr_link to find nothing behind at run time"""
+    return subset(build, img, range(1, keep + 1))
+
+
+def subset(build, img, keep):
+    """degrade() with any images kept: `keep` the image numbers (1 the first
+    past the core), renumbered in that order - so the host's ten can be ANY
+    ten, and images past the tenth run on the host too (`check --images`)"""
     meta, segs, table = img
     lsite = symbols(build)["RDGC_TR_LSITE"]
-    segs = [bytearray(x) for x in segs[:keep + 1]]
+    new = {0: 0}
+    for i in keep:
+        new[i] = len(new)
+    segs = [bytearray(segs[i]) if i in new else None for i in range(len(segs))]
     relocs = []
     for n, site, tn, form in meta["relocs"]:
-        if n > keep:
+        if n not in new:
             continue
-        if tn <= keep:
-            relocs.append((n, site, tn, form))
+        if tn in new:
+            relocs.append((new[n], site, new[tn], form))
             continue
         sg = segs[n]
         sg[site] = 0xBA
@@ -1224,15 +1234,20 @@ def degrade(build, img, keep):
         out = bytearray()
         for e in range(0, len(t), 8):
             seg = struct.unpack_from("<H", t, e + 6)[0]
-            if seg >= TOKEN and seg - TOKEN > keep:
-                if not tab:                # a LIST entry goes: unlisted and
-                    continue               #   offset 0 are both interpreted,
-                struct.pack_into("<H", t, e + 4, 0)   # and only one costs the
-                struct.pack_into("<HB", t, e, 0x8000, 0)   # meta part 8 bytes
-            out += t[e:e + 8]              #   (the TABLE's: out of every
-        return bytes(out)                  #   lookup's reach, kept in place)
-    meta = dict(meta, relocs=relocs, list=empty(meta["list"], False), segs=keep + 1)
-    return meta, [bytes(x) for x in segs], empty(table, True)
+            if seg >= TOKEN and struct.unpack_from("<H", t, e + 4)[0]:
+                if seg - TOKEN not in new:
+                    if not tab:            # a LIST entry goes: unlisted and
+                        continue           #   offset 0 are both interpreted,
+                    struct.pack_into("<H", t, e + 4, 0)   # and only one costs
+                    struct.pack_into("<HB", t, e, 0x8000, 0)   # 8 bytes
+                else:                      #   (the TABLE's: out of every
+                    struct.pack_into("<H", t, e + 6, TOKEN + new[seg - TOKEN])
+            out += t[e:e + 8]              #   lookup's reach, kept in place)
+        return bytes(out)
+    order = [0] + list(keep)
+    hot = sum(1 for i in keep if i <= meta.get("hot", len(segs) - 1))
+    meta = dict(meta, relocs=relocs, list=empty(meta["list"], False), segs=len(order), hot=hot)
+    return meta, [bytes(segs[i]) for i in order], empty(table, True)
 
 
 # --- the package: GAME.O88 (REALDMG-SPEC 20.10) ------------------------------
@@ -1590,6 +1605,13 @@ def cmd_package(a):
 def cmd_check(a):
     rom = G.Rom(open(a.rom, "rb").read())
     img = load(a.dir)
+    if a.only:                            # (images by number, ranges too)
+        keep = []
+        for r in a.only.split(","):
+            lo, _, hi = r.partition("-")
+            keep += range(int(lo), int(hi or lo) + 1)
+        img = subset(a.build, img, keep)
+        print("gbaot: images %s only, as 1 to %d" % (a.only, len(keep)))
     if a.keep is not None:
         img = degrade(a.build, img, a.keep)
         print("gbaot: as the package runs with %d code images of %d" % (a.keep, len(load(a.dir)[1]) - 1))
@@ -1653,6 +1675,8 @@ def main():
     k.add_argument("--break-hot", action="store_true", help="break the most entered block")
     k.add_argument("--keep", type=int, help="only this many code images past the core, as the "
                    "package runs when the heap holds no more")
+    k.add_argument("--only", help="these code images only (1,11-19): the rest as not loaded, "
+                   "so images past the host's ten are run on it too")
     k.add_argument("--slots", type=int, help="a bank cache of this many 16KB slots, as the "
                    "package keeps one when the cartridge does not fit")
     k.add_argument("--list-parts", type=int, choices=range(1, LIST_PARTS + 1), metavar="N",

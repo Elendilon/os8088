@@ -137,7 +137,7 @@ S_AOTLX         equ 0x48A5          ; byte: the list's parts (0 or 1: one)
 S_AOTCN         equ 0x48A6          ; word: the searched part's entries
 S_AOTLXT        equ 0x48C0          ; RDG_LXMAX x 8: segment, its first
 RDG_LXMAX       equ 4               ;   entry's PC and key, -, its entries
-RDG_FREE         equ 0x48A8          ; the rest of the window is unassigned,
+RDG_FREE         equ 0x48E0          ; the rest of the window is unassigned,
                                     ; but for rdgppu.inc's 4900-66FF and:
 ; CODE SELECTORS (REALDMG-SPEC 16.2.4): a segment the core or the recompiler
 ; JUMPS to is named by the selector a far jump may load - the segment itself
