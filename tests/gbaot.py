@@ -18,7 +18,7 @@ rgbds) and the test suites tools/getgbtest.py fetches at pinned SHA-256s.
 None is committed, and no commercial game is used: those are the owner's
 field measurement (docs/reports/REALDMG-FULLSTATIC-2026-10-25.md).
 
-NINE NEGATIVE CONTROLS, every one of which must go red:
+TEN NEGATIVE CONTROLS, every one of which must go red:
   - the most-entered block of GBRMW.GB with its first byte changed: the
     check must see the precompiled code at all;
   - GBFLAGS.GB translated by a driver built with RT_DEADBUG (a flag's read
@@ -31,6 +31,9 @@ NINE NEGATIVE CONTROLS, every one of which must go red:
   - GBBANK.GB with every block in the list (the table left empty, so the
     search and its cache are what run) under a driver built with
     RDG_AOTCACHEBUG (the cache's bank key forgotten): it must differ;
+  - the same list cut in four parts under a driver built with RDG_LXBUG
+    (part 0 searched whatever the key, REALDMG-SPEC 20.17.1): it must enter
+    fewer blocks than four parts searched properly do;
   - GBSEAM4.GB with tr_ejf's choice of DS taken out of the precompiled core
     (a JR from the bank back to a bank-0 PC with no block): it must differ;
   - GBRET.GB with tr_rmeg's megamorphic site jumping on through tr_lno, its
@@ -302,6 +305,14 @@ def lazy_stale(rom, out, frames, fix=True):
     return n[0] > 0, "S_PC stale at %d fetches: %d frames identical" % (n[0], frames)
 
 
+def entered(rom, out, frames, lparts, defines=()):
+    """precompiled blocks entered over `frames`, the list in `lparts` parts"""
+    for f, x, st, m in gbaot.run_arm(BUILD, rom, 3, frames, gbaot.load(out), prove=True,
+                                     defines=defines, lparts=lparts):
+        pass
+    return sum(v for k, v in m.ran.items() if k != "code")
+
+
 def notab_count(rom, out, frames, defines):
     """The entries of GBBANKRD's Add9 block (ADD A,9 / RET in bank 0)"""
     pc = bytes(rom.d[:0x4000]).index(b"\xC6\x09\xC9")
@@ -413,6 +424,23 @@ def main():
                                          "passed - the gate cannot go red" if ok
                                          else what + ", as it must"))
                 bad += ok
+            # THE LIST IN PARTS (REALDMG-SPEC 20.17.1): the same list cut in
+            # four, the search choosing a part by its first entry - identical,
+            # and every block one part entered entered from four. Part 0
+            # searched whatever the key must lose blocks
+            ok, what = gbaot.compare(BUILD, rom, gbaot.load(out3), 300, lparts=4)
+            n1, n4 = (entered(rom, out3, 300, lp) for lp in (1, 4))
+            ok = ok and n1 == n4
+            print("%-4s %-28s %s; %d blocks entered from one part, %d from four" % (
+                "ok" if ok else "FAIL", "GBBANK, the list in 4 parts", what, n1, n4))
+            bad += not ok
+            if not a.k:
+                nb = entered(rom, out3, 300, 4, ("RDG_LXBUG",))
+                ok = nb < n4
+                print("%-4s %-28s %s" % ("ok" if ok else "FAIL", "control: part 0 only",
+                                         "%d blocks entered, as it must be fewer" % nb if ok
+                                         else "%d entered - the gate cannot go red" % nb))
+                bad += not ok
         if label.startswith("GBSEAM4") and not a.k:
             # its JR back to 3FF8 has no block: tr_ejf's no-block way must
             # choose DS. The image's core without that choice must part

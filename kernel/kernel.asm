@@ -84,18 +84,22 @@ APP_MAX_SIZE equ 0xFE00         ; the biggest single package: 63.5KB, and
                                 ; bss) in a word (SPEC.md 20.1.1); it was
                                 ; 0xF000, the retired pool's size. Mirrored
                                 ; in apps/os88api.inc and tools/os88pkg.py
-PKG_FILE_HI  equ 16             ; the HIGH word of the biggest FILE the mount
+PKG_FILE_HI  equ 512            ; the HIGH word of the biggest FILE the mount
                                 ; will type as a package (SPEC.md 19.1): the
-                                ; file must be under 1MB. It is deliberately
+                                ; file must be under 32MB. It is deliberately
                                 ; NOT APP_MAX_SIZE - that bounds the primary
                                 ; segment's image+bss, which is all it ever
                                 ; meant, and it stopped bounding the FILE the
                                 ; moment a package could carry parts beyond
-                                ; its own segment. A decision rather than a
-                                ; derivation: far above any package this tree
-                                ; has (the largest is ~98KB) and far below
-                                ; anything that could overflow the loader's
-                                ; KB arithmetic
+                                ; its own segment. 32MB is the DERIVATION:
+                                ; a part's offset is a word of 512-byte
+                                ; sectors (SPEC.md 20.12.3) and READ_AT's
+                                ; div by 512 needs the high word under 512 -
+                                ; 1MB, the decision it was, became the one
+                                ; limit left on kern_mega
+%if PKG_FILE_HI & 0FFh
+%error PKG_FILE_HI is compared as DH (disk.inc, loader.inc): a multiple of 256
+%endif
 PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
                                 ; .o88 header (SPEC.md 20.2): three bytes,
                                 ; `call bp / retf`. Every kernel-to-package

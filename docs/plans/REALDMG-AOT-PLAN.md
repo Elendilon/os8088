@@ -192,7 +192,7 @@ code, each holds 7.4 KB of tails and the gaps rounding leaves.
   ever played". Two field defects found on the way and fixed (REALDMG-SPEC
   20.10): image reads refused on a hard disk's clusters, and four images
   starving the bank cache (13,705 banks fetched in 100 s).
-- [x] The ROM inside the package (REALDMG-SPEC 20.13), under 1MB.
+- [x] The ROM inside the package (REALDMG-SPEC 20.13), under 1MB (32MB since 20.17).
 - [x] Merged with the kern_mega RealDMG work: the shipped REALDMG.O88 and its
   kern_mega arm are byte-identical to elendilon's; the precompiled gates
   pass on the merged core.
