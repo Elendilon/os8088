@@ -64371,6 +64371,11 @@ every other kernel refuses the whole cell (AX = 1) as before. Cost: kern_mega
 `.mega` 17,840 → 17,871 (**+31 bytes**), `.text` +0; `XMEM.DRV` 2,042 → 2,051
 bytes of image (**+9**, 1,891 → 1,900 on the disk); kern_big and kern_small
 `kernel.bin` **byte-identical** (cmp at one commit).
+**Those 9 bytes CROSSED 41.12.6's 2KB** - the claim is `mem_bytes_kb_x` of
+the image, so 2,051 was a 3KB claim on every 286 and 386, and only
+`tests/hma286.py`'s check 1 (`in 2 KB`) said so. `xm_walk` copies a record
+as the entry's first six bytes with three `movsw` - `+5` is never written, so
+it is the record's zero - which is 10 bytes off: **2,041**, 7 inside 2KB.
 
 
 ### 28.4.12 `OSAPI_IMG_NAME`: which driver or module an image is
@@ -81391,7 +81396,8 @@ The claim is `mem_bytes_kb_x` of the image, and the image had drifted to
 386 with memory above 1MB: §41.13's LOADALL took 1,156 -> 2,021, §41.15
 2,041, `XMV_WALK` (§41.16) 2,098 - the crossing - and §28.4.13's HMA walk
 2,239. Three moves bring it to **2,042**, 6 bytes inside 2KB, no kernel byte
-and no behaviour change:
+and no behaviour change (§28.4.11's `XMW_LONG` refusal then took it to 2,051,
+across again, and `xm_walk`'s record copy brought it back to **2,041**):
 
 | move | image |
 |---|---:|
