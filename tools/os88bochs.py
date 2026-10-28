@@ -211,8 +211,14 @@ class _Input(object):
             # the X server has PROCESSED every fake event before it and
             # written them to Bochs's connection - which is what `taken`
             # below then watches drain. (Its x:/y: line is the reply.)
-            subprocess.run(["xdotool"] + [str(x) for x in pre + a]
-                           + ["getmouselocation"], env=self.env, check=True,
+            # EXCEPT AFTER `type`, which takes EVERY argument left as text:
+            # the round trip was typed into the guest as letters - `kbtrip`
+            # arrived as `kbtripgetmouselocation`, a Bad command in the DOS
+            # window, and megasheet's macro name as COUNTgetmouselocation.
+            # There xdotool's exit is the round trip: XCloseDisplay XSyncs
+            tail = [] if "type" in a else ["getmouselocation"]
+            subprocess.run(["xdotool"] + [str(x) for x in pre + a] + tail,
+                           env=self.env, check=True,
                            stdout=subprocess.DEVNULL)
             self.last = time.time()
             self.sent = True
