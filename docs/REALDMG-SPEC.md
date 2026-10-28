@@ -1847,6 +1847,9 @@ first frame: **Windowed is slow: / Alt+Enter for / Full Screen**. The
 window composes a frame and hands it to the kernel to blit, where full
 screen writes the card itself (section 15), so on every machine the window
 is the slow way to play and nothing else said so.
+Where the window's time goes was measured on the 86Box 286 (bytes
+written to the card, not the OS's per-call work), and the options left to
+cut it are docs/plans/WINDOWED-DRAW-PLAN.md.
 - `[rw_ntc]` is the notice; `rw_paint` draws it in place of the picture
   while it is set, and the worker's `rw_ntcwait` holds the game's first
   frame back until the time is up, then clears it and marks every line
