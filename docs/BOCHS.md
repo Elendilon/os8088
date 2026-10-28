@@ -172,6 +172,18 @@ along: `tests/lemmega.py`'s F12-twice nuke queues each press on a stopped
 guest and stops on a `watch w` of the game's own state between them, where
 `key F12 F12 --delay 100` reached one pass of the game as one press.
 
+**MANY TO A CORE.** Because a guest is capped at real time, a Bochs row keeps
+a FRACTION of a core busy - the guest 3% idle and 13% flat out, the whole row
+with its harness 0.1-0.25 (docs/plans/SOAK-PARALLEL.md 19.1) - so
+`tools/os88test.py`'s emulator lane weighs a Bochs-only row a quarter of a
+lane (`--bochs-per-core`, `$OS88_BOCHS_PER_CORE`, default 4; 1 is the old
+one-row-a-lane), a whole one for its first 15 s, and admits one only while
+the box has 0.75 of a core idle. The limit is SATURATION and not any shared
+resource: displays (`:110`-`:149`, forty), run dirs and process ownership are
+per row already (SOAK-PARALLEL 18.1), while past the box's last core every
+guest runs below real time and the few host-second waits named above stop
+meaning what they say.
+
 ## Commands
 
 ```
