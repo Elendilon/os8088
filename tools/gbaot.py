@@ -1315,9 +1315,10 @@ def package(build, img, rom, out, romname, image=None, log=print, embed=False, m
     if len(lstp) > LIST_PARTS:
         raise SystemExit("gbaot: %d listed blocks are %d list parts; the package searches %d - "
                          "fewer images (--images, --prefer)" % (len(lst) // 8, len(lstp), LIST_PARTS))
-    relrow = AOT_CODE + 2 * nseg
-    lstrow = relrow + len(relp)
-    romrow = lstrow + len(lstp)
+    relrow = AOT_CODE                      # (eager carve parts come before
+    lstrow = relrow + len(relp)            #   every lazy one, SPEC.md 20.12.4:
+    coderow = lstrow + len(lstp)           #   the images after them)
+    romrow = coderow + 2 * nseg
     jrow = romrow + romrows if mega else 0   # (20.16: the recompiler last)
     nrows = romrow + romrows + (1 if jrow else 0)
     if embed and len(rom.d) % 0x8000 or nrows > AOT_ROWS:
@@ -1331,7 +1332,7 @@ def package(build, img, rom, out, romname, image=None, log=print, embed=False, m
     at = b.find(b"O88PARTS")
     rows = at + 10
     b[at + 8] = nrows
-    for r in range(relrow, romrow):        # eager, into the carve: the load
+    for r in range(relrow, coderow):       # eager, into the carve: the load
         b[rows + 8 * r] = 1                #   reads them, OP_ASSET | OP_COMP
         b[rows + 8 * r + 1] = 16           #   (rwaot.inc's rw_ameta)
     hdr = struct.pack("<6sBBHHBB", b"RDAOT2", nseg, meta["hmask"], len(lst) // 8,
@@ -1344,10 +1345,9 @@ def package(build, img, rom, out, romname, image=None, log=print, embed=False, m
     # the filter and the list's cache (rdgaot.inc, 10KB) follow the TABLE in
     # its part: in the meta part, after a long list, they took that part past
     # 65,024 bytes - Link's Awakening's 65,264, Wario Land's 68,672
-    parts = [segs[0][:0x8000], segs[0][0x8000:], table + bytes(0x2800), metap]
+    parts = [segs[0][:0x8000], segs[0][0x8000:], table + bytes(0x2800), metap] + relp + lstp
     for sg in segs[1:]:
         parts += [sg[:0x8000], sg[0x8000:]]
-    parts += relp + lstp
     plain = set()
     for i in range(romrows):               # the ROM: plain, so its pieces lie
         parts.append(rom.d[i * 0x8000:(i + 1) * 0x8000])   # back to back

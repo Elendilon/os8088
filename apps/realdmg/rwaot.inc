@@ -6,10 +6,11 @@
 ; `package` writes. Included by realdmg.asm after rdgaot.inc.
 ;
 ; THE PARTS (realdmg.asm's table): 0 and 1 the core with the host's code in
-; its holes, 2 the view, 3 the block table (16KB or 32KB, the tokens F000h + n in its
-; segment words), 4 the meta, and from 5 each code
-; image's two 32KB halves, then the relocation and list parts, which are OP_SELF: rw_aread reads them into a
-; claim of 64KB each, through a bounce (rw_apart).
+; its holes, 2 the view, 3 the block table (16KB or 32KB, the tokens F000h +
+; n in its segment words), 4 the meta, from 5 the relocations' and the
+; list's parts (eager, in the carve), then each code image's two 32KB
+; halves, which are OP_SELF: rw_aread reads them into a claim of 64KB each,
+; through a bounce (rw_apart).
 ;
 ; THE META, part 4:
 ;   0   'RDAOT2'
@@ -80,9 +81,6 @@ rw_ameta:
     cmp al, RWA_MAX
     ja .bad1
     mov [rw_ans], al
-    xor ah, ah                      ; the table the package was made with:
-    shl ax, 1                       ;   two rows an image...
-    add ax, RWA_CODE
     mov dl, [es:59]                 ; (the hot ones: all of them, unsaid)
     mov dh, [rw_ans]
     or dl, dl
@@ -93,9 +91,11 @@ rw_ameta:
     mov dl, dh
 .hset:
     mov [rw_ahot], dl
-    mov dl, [es:12]                 ; then the relocations' rows and the
-    mov dh, [es:13]                 ;   list's, each where the last left off
-    mov [rw_arr], dl                ;   (20.17)...
+    mov ax, RWA_CODE                ; the table the package was made with:
+    mov dl, [es:12]                 ;   the relocations' rows and the list's
+    mov dh, [es:13]                 ;   first, each where the last left off
+    mov [rw_arr], dl                ;   (20.17: the carve's, which come
+                                    ;   before every lazy row)...
     mov [rw_arn], dh
     or dh, dh
     jz .nrel
@@ -115,6 +115,11 @@ rw_ameta:
     jne .bad1
     add al, dh
 .nlst:
+    mov [rw_acode], al              ; ...two rows an image...
+    mov dl, [rw_ans]
+    xor dh, dh
+    shl dx, 1
+    add ax, dx
     mov dx, [es:60]                 ; ...and a row a 32KB of the ROM in it
     mov [rw_aromkb], dx
     cmp byte [es:58], 0
@@ -587,7 +592,7 @@ rw_aread:
     shr bx, 1
     mov al, bl
     shl al, 1
-    add al, RWA_CODE
+    add al, [rw_acode]
     call rw_apart                   ; the first half...
     jc .lost
     inc al
