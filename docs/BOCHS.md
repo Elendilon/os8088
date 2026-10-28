@@ -44,7 +44,57 @@ starts if that display is not up:
 | E9 | `port_e9_hack`: every byte the kernel writes to port E9h lands in `OUT/e9.out` |
 | sound | `--sb`: an SB16 at 220h, IRQ 5, DMA 1, its output written to `OUT/sb.wav` |
 | network | `--ne2k`: an NE2000 at 300h, IRQ 10, on Bochs's own slirp (the host is 10.0.2.2). `$OS88_BOCHS_SLIRP` names a slirp config for it - a first line `# slirp config`, then up to five `hostfwd = tcp::2121-:21` lines - which is how a HOST client reaches a server in the guest: FTPD's control port and four of its passive ports, with `curl --ftp-skip-pasv-ip` (KERN-MEGA-PLAN 14.46) |
-| clock | realtime |
+| clock | `slowdown` at `cpu: ips=100000000` - see *The clock* below |
+
+### The clock
+
+**Guest time is the guest's INSTRUCTION COUNT, and the host only caps it.**
+`clock: sync=slowdown` makes Bochs's time `ptime / ips` - 100,000,000
+instructions a guest second, HLT included - and sleeps whenever the guest
+gets ahead of the wall clock, so it runs at real time at most (measured:
+18.2 BIOS ticks a host second idle, 0.5-1x through a busy boot on this
+container). 100M is the machine the rows were written against: under the
+old `realtime` the CPU ran as fast as the host ran Bochs, ~100M a wall
+second, and at Bochs's own default of 4M `mega-ethernet` and
+`mega-vidvga4` lost races to the CPU, still at 25M. A loaded host runs a
+quarter of it, so there the guest runs SLOWER than real time - which costs
+host seconds and nothing else, because every wait below is the guest's.
+It ran `sync=realtime` until 2026-10-27, and that is the mode that made
+kern_mega
+rows **fail under host load and pass alone**:
+
+- under `realtime` the PIT follows the HOST clock and the CPU runs as fast
+  as the host lets it, so a starved Bochs is a SLOWER MACHINE to the guest -
+  fewer instructions a tick. Tracker's speaker calibration (SPEC.md 45.25)
+  then priced every rung too dear and refused the Play
+  (`mega-ringmove-tracker`), and an 8 kHz rate hook ate what was left;
+- a host stall (Bochs descheduled, a debugger stop) was CAUGHT UP in ticks
+  afterwards, so the guest saw time it had not executed: a double-click
+  whose four edges went out 0.33 s apart read a tick count ~54 on, and
+  `mega-alertbtn`, `-trkcompact`, `-bptrace` and `-int0sweep` read 18-50
+  ticks against the 9-tick window;
+- and the shim's `status()["cycles"]` was the HOST seconds the guest had
+  been running, so a "guest-second" budget drained while the guest made no
+  progress.
+
+Under `slowdown` a stop costs the guest nothing and its tick density is the
+same on any box. **The shim reads the clock OFF the guest**
+(`os88megabochs._cycles`): every stop it makes for a read carries a `ptime`
+for free, and a status poll on a running guest takes one when the last is
+older than 50 ms (at most every 0.5 s, and no oftener than leaves the guest
+running ~80% of the time - a stop is ten times dearer on a loaded box). It
+never extrapolates, so a reading can lag the guest but never lead it, and a
+budget spent against it cannot run out while the guest stood still.
+`advance(cycles=)` hands out guest time the same way. What `slowdown` does
+NOT give is a smooth map from host time to guest time: it holds the guest
+up to a second ahead of `time(NULL)` and catches up at full speed when it
+falls behind (iodev/slowdown_timer.cc), so a burst of guest time can follow
+a host stall. **That is why input whose SPACING matters is not host-timed**:
+a double-click is queued on a stopped guest and reaches it in one GUI pass
+(`queued_input`, below). `$OS88_BOCHS_SYNC=realtime` puts the old clock
+back, shim and all, for an A/B; `$OS88_BOCHS_IPS` changes the speed (a
+host that cannot reach it runs the guest slower than real time, which the
+guest-time waits absorb).
 
 ## Commands
 
@@ -197,9 +247,10 @@ it maps:
   read at the moment the row means (a selector's base read later is where
   the block IS) - and a 1MB machine (`@OS88_BOCHS_MEGS=1`) is the one with
   a conventional heap to move.
-- **time** - Bochs runs `clock: sync=realtime`, so `status()["cycles"]` is
-  the guest's running time at 4.77 MHz and a guest budget means what it
-  means on MartyPC. Nothing measured in cycles is a measurement here. The
+- **time** - `status()["cycles"]` is the GUEST's time at 4.77 MHz, read
+  off Bochs's instruction count (*The clock*, above), so a guest budget
+  means what it means on MartyPC and a loaded box cannot shorten it.
+  Nothing measured in cycles is a measurement of an 8088 here. The
   clock STARTS at the host's local time, so a row whose answer depends on
   the hour pins it with `@OS88_BOCHS_TIME0=<Unix time>` (`mega-dosdir`,
   KERN-MEGA-PLAN 14.114).
@@ -219,9 +270,17 @@ it maps:
 - **input** - a key sent before any mouse event captures the window first
   (keys went nowhere until something focused it); a held Ctrl survives the
   re-capture after a debugger stop (that is Ctrl + middle click, and let it
-  go); a double-click's four edges go out in ONE xdotool chain with the guest
-  running, because stepping a real-time guest put them 5-9 ticks apart
-  against a window of 9. A key sent while the guest is STOPPED waits for the
+  go); a double-click's four edges are QUEUED ON A STOPPED GUEST
+  (`queued_input`) - Bochs's GUI drains the X queue in one pass and each
+  button change is a PS/2 packet of its own, so the gesture is a few guest
+  ms long whatever the host does, inside a `bp_trace` block too (a stop met
+  before that pass is recorded for its trace). Sent to a running guest, one
+  edge or one chain at a time, the span was the host's. Bochs's SERIAL
+  mouse ($OS88_BOCHS_MOUSE=serial) cannot take a queue - it LATCHES the
+  button state and polls its idle UART every 100 guest ms
+  (iodev/serial.cc) - so there the guest runs a second unstopped first,
+  which `slowdown` turns into a lead over the wall clock, and the edges go
+  out 0.2 s apart, a poll each. A key sent while the guest is STOPPED waits for the
   resume and then goes one GUI pass apart: queued in X, the lot reached
   Bochs's 16-scancode 8042 buffer in one pass and a paused
   `os88marty.text_taken` kept four shifted characters of twelve.

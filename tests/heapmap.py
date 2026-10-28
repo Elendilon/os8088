@@ -208,8 +208,8 @@ def sample_mega(limit=60.0):
     machine is Bochs's own: its SB16, an NE2000 on slirp and an ATA disk, and
     A: is mega.img with this row's SYSTEM.CFG (the launch's `cfg`). There is
     no XMEM.DRV to want - kern_mega's pool IS the memory above 1MB - so what
-    this maps is every driver kern_mega loads. `limit` is guest seconds, which
-    Bochs's realtime clock makes host ones."""
+    this maps is every driver kern_mega loads. `limit` is HOST seconds, a
+    backstop: Bochs's guest runs at real time at most (docs/BOCHS.md)."""
     import os88megabochs
     os.environ["OS88_BOCHS_NE2K"] = "1"     # ...and the NE2000 (no MartyPC
     m = os88megabochs.launch("build/os8088.img", apps="build/apps.img",

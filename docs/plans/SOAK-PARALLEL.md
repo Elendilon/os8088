@@ -2445,3 +2445,21 @@ other soaks running on the box (load average ~2 before these started):
 |---|---|---|
 | 19 rows: 14 Bochs ports, `mega-zonedmg-86box`, 3 `box-*`, and `fcpapi` (MartyPC) beside its port | 19/19, **371.0 s** of rows | 19/19, **122.3 s** - 3.03x |
 | 32 more: 20 Bochs ports, 9 `mega-*-86box`, 3 `box-*` | - | 31/32 in 250.0 s; `box-ethernet` fails the SAME way at width 1 on an idle lane (`ethernet.py:1012`, `wins[-1]` of an empty list: B:'s window never opened), so it is the row's and not the lane's |
+
+### 18.4 A Bochs guest's clock was the HOST's - the last place contention reached the guest
+
+**BUILT** (docs/BOCHS.md, *The clock*). §1's finding is that contention makes
+a row less thorough because its waits run on the guest's clock - and on
+Bochs, until 2026-10-27, the guest's clock WAS the host's. `clock:
+sync=realtime` ran the PIT off the wall clock, so a starved Bochs was a slower
+machine to the guest and a stall was caught up in ticks it never executed,
+and the shim's `status()["cycles"]` was host seconds of running. So kern_mega
+rows failed under load and passed alone, in the guest's own terms: a
+double-click read 18-50 ticks against a window of 9 (`mega-alertbtn`,
+`-trkcompact`, `-bptrace`, `-int0sweep`), and Tracker's speaker calibration
+refused its Play (`mega-ringmove-tracker`). The clock is `sync=slowdown` now -
+guest time is the instruction count, read off `ptime` - and a double-click is
+queued on a stopped guest so its spacing is no host interval at all. With the
+soak running and a CPU hog beside the rows: base 4 of 5 of those rows FAILED
+(load 8-16), the fix 5 of 5 passed, and with `mega-install` and
+`mega-clipgrow` 7 of 7, repeated (load 2-15).

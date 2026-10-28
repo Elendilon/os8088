@@ -611,8 +611,8 @@ class Server(object):
             self._box_edges(was, mask)  # buttons with no motion
             return
         # A BURST OF EDGES GOES TO X AS ONE xdotool CHAIN, not one process
-        # an edge. Bochs's guest clock IS the host's (sync=realtime), so
-        # whatever spaces the edges on the host spaces them in the guest -
+        # an edge. Whatever spaces the edges on the host spaces them in the
+        # guest (with sync=realtime it WAS the guest's clock) -
         # and a double-click's four `mouse_button`s (xmcheck.dblclick) each
         # spawning xdotool were 1.15 s press to press on a loaded box, one
         # xdotool taking 0.83 s to start, against FM_DBLCLK's nine ticks:
@@ -674,12 +674,22 @@ class Server(object):
             if not m.box.captured:
                 m.box.capture()
             args = []
+            # A PS/2 MOUSE TAKES THE BURST QUEUED ON A STOPPED GUEST
+            # (os88megabochs.queued_input): one GUI pass, a packet an edge,
+            # so its spacing is no host interval at all. A SERIAL one keeps
+            # the 30 ms: Bochs's serial mouse latches the LAST button state
+            # (iodev/serial.cc mouse_enq), so edges read in one pass merge
+            import os88bochs
+            queued = len(chain) > 1 and os88bochs.MOUSE != "serial"
             for edge in chain:
-                if args:
+                if args and not queued:
                     args += ["sleep", "0.03"]
                 args += list(edge)
             with m._lock:
-                m._xd(*args)
+                if queued:
+                    m.queued_input(*args)
+                else:
+                    m._xd(*args)
                 for ed, xb in chain:
                     if ed == "mousedown":
                         m._btn.add(xb)

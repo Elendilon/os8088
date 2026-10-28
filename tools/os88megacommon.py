@@ -83,9 +83,10 @@ class MegaMixin(object):
     ((base, limit) of the live tables), `gdt(sel)` and `protected()`."""
 
     def _clock(self):
-        """Seconds of GUEST time, for the waits below. Bochs runs the guest
-        at real time (`clock: sync=realtime`), so the host's clock is it;
-        86Box runs it fast-forwarded and overrides this with its own."""
+        """Seconds of GUEST time, for the waits below. The host's clock is
+        only the fallback: Bochs reads its guest's (os88megabochs._clock,
+        `ptime` under `clock: sync=slowdown`) and 86Box runs it
+        fast-forwarded and overrides this with its own."""
         return time.time()
 
     def selector(self, sel):

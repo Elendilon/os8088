@@ -671,14 +671,16 @@ class Mouse:
             pass                        # busy for good, or no symbols: try
 
     BOCHS_QUIET = 0.04              # s a traced Bochs guest must run unstopped
+    SERIAL_LEAD = 1.0               # s a Bochs guest runs unstopped first...
+    SERIAL_GAP = 0.2                # ...and s between serial edges (a poll)
 
     def _bochs_clear(self, traces):
         """Inside a held bp_trace on Bochs: record and resume every
         breakpoint stop until the guest has run BOCHS_QUIET seconds without
         one, so the next edge goes out onto a running guest (see dblclick).
-        Host seconds, and that is right here: Bochs's guest clock IS the
-        host's (sync=realtime). Gives up after five, leaving the span check
-        to say what the guest made of it."""
+        Host seconds, and that is right here: what it waits out is HOST
+        work - a stop's prompt reaching the shim. Gives up after five,
+        leaving the span check to say what the guest made of it."""
         end = time.time() + 5.0
         quiet = time.time() + self.BOCHS_QUIET
         while time.time() < quiet and time.time() < end:
@@ -715,57 +717,75 @@ class Mouse:
         # dozen advances and records any stop it meets itself.
         traces = list(getattr(self.m, "_traces", ()))
         if getattr(self.m, "bochs", False):
-            # KERN_MEGA UNDER BOCHS (os88megabochs): its guest runs at HOST
-            # time, so stepping it costs the ticks the stepping takes - a
-            # halt and a resume per advance put the presses 5-9 ticks apart
-            # against a window of 9. Free-running, the four edges go out in
-            # ONE xdotool chain 30 ms apart (Bochs takes X events every
-            # ~10 ms), with no stop between them; the span is read around
-            # all four, so it is an upper bound. A pump in a bp_trace block
-            # resumes its own stops
+            # KERN_MEGA UNDER BOCHS (os88megabochs): the four edges are QUEUED
+            # ON A STOPPED GUEST and reach it in one pass of Bochs's GUI - a
+            # gesture a few guest ms long whatever the host does, so there is
+            # no span to check (os88megabochs.queued_input). They used to go
+            # out to a RUNNING guest in one xdotool chain 30 ms apart - and,
+            # inside a bp_trace block, one edge at a time with every stop
+            # between them resumed here - which made the span the HOST's:
+            # 6-7 ticks idle against a window of 9, and 18-28 at a soak's
+            # load of 15-30 (mega-alertbtn, mega-trkcompact, mega-bptrace,
+            # mega-int0sweep), the guest seeing two first clicks.
             #
-            # ...AND INSIDE A bp_trace BLOCK THE EDGES GO OUT ONE AT A TIME,
-            # each one onto a guest that has run clear of any stop. A Bochs
-            # debugger stop RELEASES the mouse grab, so a breakpoint the first
-            # press reached - its row highlight is a repaint, wm_draw_win -
-            # dropped the rest of a one-call chain on the floor and the guest
-            # saw one click (bptrace's `B:/APPS`, the listing unchanged after
-            # 20 guest s). With the pumps held, every stop between edges is
-            # recorded and resumed HERE, which sets the shim's `regrab`, and
-            # the next edge's _xd takes the grab back before it is sent. The
-            # breakpoints stay ARMED: switching them off for the gesture lost
-            # the work its last release starts - deskwhole's traced
-            # title-bar restore reached `.whole` inside the 60 ms tail with
-            # nobody looking (mega-deskwhole). A stop storm that pushes the
-            # presses apart is refused by the span check below, by name
+            # INSIDE A bp_trace BLOCK the pumps are HELD for the gesture and
+            # a breakpoint it meets is recorded for its trace here, as the
+            # pump would have (queued_input's `service`); the breakpoints
+            # stay ARMED, because switching them off lost the work the last
+            # release starts - deskwhole's traced title-bar restore reached
+            # `.whole` inside the tail with nobody looking (mega-deskwhole).
             with contextlib.ExitStack() as held:
                 for tr in traces:
                     held.enter_context(tr.hold())
-                self.m.mouse(0, 0)      # the grab, before the clock starts
-                t1 = self.ticks()
-                if not traces:
-                    self.m._xd("mousedown", 1, "sleep", "0.03", "mouseup", 1,
-                               "sleep", "0.03", "mousedown", 1, "sleep",
-                               "0.03", "mouseup", 1, "sleep", "0.06")
+                if traces:
+                    self._bochs_clear(traces)
+                import os88bochs
+                if os88bochs.MOUSE == "serial":
+                    # ...BUT NOT ON BOCHS'S SERIAL MOUSE, which LATCHES the
+                    # button state (iodev/serial.cc mouse_enq) and turns it
+                    # into a packet only when its idle UART polls - every
+                    # 100 ms of GUEST time - so edges read in one pass merge
+                    # into one release, and so did edges 30 ms apart once a
+                    # guest ms was a real one (mega-kdmouse). Each edge
+                    # proven off mouse_btn before the next was 9 ticks press
+                    # to press: every proof is a stop, and a guest that has
+                    # been stopped runs its idle time back at full speed
+                    # (docs/BOCHS.md, *The clock*). So the guest first runs
+                    # SERIAL_LEAD host seconds unstopped - `sync=slowdown`
+                    # holds it up to a second AHEAD of the wall clock, where
+                    # it runs at real time and no faster - and the edges go
+                    # out SERIAL_GAP apart, a poll each (at 0.13 a guest
+                    # running behind the clock merged two), with no stop
+                    # until the last; the release is then proven
+                    with self.m._lock:
+                        self.m.box.inp.taken()
+                        time.sleep(self.SERIAL_LEAD)
+                        t1 = self.ticks()
+                        g = str(self.SERIAL_GAP)
+                        self.m._xd("mousedown", 1, "sleep", g, "mouseup", 1,
+                                   "sleep", g, "mousedown", 1, "sleep", g,
+                                   "mouseup", 1)
+                        span = (self.ticks() - t1) & 0xFFFFFFFF
+                    self._edge(False)
+                    # (around the whole chain, three gaps and two reads:
+                    # 7-13 ticks measured, the presses two gaps apart)
+                    if span >= 2 * DBL_TICKS:
+                        raise MartyError("a Bochs serial double-click took %d "
+                                         "ticks around its four edges "
+                                         "(window %d)" % (span, DBL_TICKS))
                 else:
-                    for edge in ("mousedown", "mouseup", "mousedown",
-                                 "mouseup"):
-                        self._bochs_clear(traces)
-                        self.m._xd(edge, 1)
-                        time.sleep(0.03)
-                t2 = self.ticks()
-            # ...which takes the X round trips and the grab with it (6-7
-            # ticks measured, the presses themselves 60 ms apart), so it
-            # refuses only what is plainly not a double-click; the verb that
-            # asked for one confirms what the guest made of it
-            span = (t2 - t1) & 0xFFFFFFFF
-            if span >= 2 * DBL_TICKS:
-                raise MartyError("a Bochs double-click took %d ticks around "
-                                 "its four edges (window %d)"
-                                 % (span, DBL_TICKS))
+                    span = 0
+                    self.m.queued_input(
+                        "mousedown", 1, "mouseup", 1, "mousedown", 1,
+                        "mouseup", 1,
+                        service=(lambda st: self._service(traces, st))
+                        if traces else None)
+                if traces:
+                    self._bochs_clear(traces)
             if self.verbose:
-                print("  double-click at (%d,%d): at most %d tick(s) apart"
-                      % (x, y, span))
+                print("  double-click at (%d,%d): %s" % (
+                    x, y, "%d tick(s) around" % span
+                    if os88bochs.MOUSE == "serial" else "queued, one GUI pass"))
             _wait(self.m, settle, "dblclick", 2.0)
             return span
         with contextlib.ExitStack() as held:

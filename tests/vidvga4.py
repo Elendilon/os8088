@@ -174,6 +174,15 @@ def main():
 
             until(lambda mm: rb("vp_loaded") == 1, "the header", 30.0)
             until(lambda mm: rw("vp_ploads") >= 1, "the poster", 60.0)
+            # ...AND THE DISK QUIET: the reads that follow the poster put
+            # the progress widget on the bar ([fpg_on]), and a `before`
+            # taken under it differs from the `after` by the widget - it
+            # was a race on how fast the guest's CPU is against a pace,
+            # which a 4 MIPS kern_mega under Bochs (docs/BOCHS.md, *The
+            # clock*) lost every time
+            fpg = ui._S("fpg_on")
+            until(lambda mm: m.read(fpg, 1)[0] == 0,
+                  "the loading widget to leave the bar", 60.0)
             ui.mo.to(8, 470)
             os88marty.pace(m, 1.0)
             bar0 = menubar()

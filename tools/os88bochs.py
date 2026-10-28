@@ -126,7 +126,7 @@ floppyb: type={btype}, {bmedia}={b}, status=inserted
 {ata0}{cd}boot: {boot}
 port_e9_hack: enabled=1
 mouse: enabled=1, type={mouse}, toggle=ctrl+mbutton
-{com1}{com}{cpu}clock: sync=realtime, time0={time0}
+{com1}{com}{cpu}clock: sync={sync}, time0={time0}
 {sb}{rcextra}log: {log}
 panic: action=report
 error: action=report
@@ -136,17 +136,35 @@ display_library: x
 """
 
 
-# THE CPU'S SPEED: Bochs's default is 4,000,000 instructions a guest second
-# (a 386SX-16, give or take), and `clock: sync=realtime` holds the guest to
-# it. $OS88_BOCHS_IPS asks for another figure - a row whose subject is a
-# real-time load (a synth feeding a card) on a faster 386 than that
-IPS = ("cpu: ips=%d\n" % int(os.environ["OS88_BOCHS_IPS"])
-       if os.environ.get("OS88_BOCHS_IPS") else "")
+# THE CLOCK (docs/BOCHS.md, *The clock*): `sync=slowdown` makes Bochs's time
+# its INSTRUCTION COUNT - IPS_N a guest second, HLT included - and only caps
+# it at real time, so a stall on the host (Bochs descheduled, a debugger stop)
+# is time the guest never sees, and its instructions per tick are the same on
+# any box. `realtime` ran the PIT off the host's clock instead: a starved
+# Bochs was a slower machine to the guest (Tracker refused its Play on the
+# calibration) and a stall was caught up in ticks afterwards (a double-click
+# read 18-50 ticks against a window of 9) - every kern_mega row that failed
+# under load and passed alone. $OS88_BOCHS_SYNC=realtime is the A/B, and
+# os88megabochs reads its clock the old way under it.
+#
+# THE SPEED, 100M instructions a guest second, is the machine the rows were
+# written against: under `realtime` the CPU ran as fast as this host runs
+# Bochs - ~100M a wall second, measured here - while the PIT kept wall time,
+# so that WAS the guest's speed on an idle box. At Bochs's own default of 4M
+# two rows lost a race to the CPU (mega-ethernet's settle ended before the
+# Browser's window, mega-vidvga4's `before` caught the load's progress widget)
+# and still did at 25M. A host that cannot run 100M - a loaded one runs a
+# quarter of it - runs the guest SLOWER THAN REAL TIME, and every wait the
+# shim measures is the guest's, so that costs host seconds and nothing else.
+# $OS88_BOCHS_IPS changes it.
+SYNC = os.environ.get("OS88_BOCHS_SYNC", "slowdown")
+IPS_N = int(os.environ.get("OS88_BOCHS_IPS") or 100000000)
+IPS = "cpu: ips=%d\n" % IPS_N
 
 
 INPUT_GAP = 0.03    # s: Bochs's GUI takes X events every ~10 ms of its own.
-# It was 0.06, and a stop is paid in GUEST time (the timers catch up on the
-# host clock afterwards), so a gesture of five stepped inputs - fmarrows'
+# It was 0.06, and under sync=realtime a stop was paid in GUEST time (the
+# timers caught up on the host clock afterwards), so a gesture of five stepped inputs - fmarrows'
 # click, Down, click inside FM_DBLCLK's 9 ticks - read 8-9 ticks at 0.06
 # and 5-6 at 0.03, every edge still confirmed off mouse_btn
 GLASS = 0.45        # s: two of Bochs's VGA updates (5 Hz) - see Box.shot
@@ -154,8 +172,7 @@ GLASS = 0.45        # s: two of Bochs's VGA updates (5 Hz) - see Box.shot
 # xdotool's `click` holds the button ~100 ms (measured: `click 2` is 126 ms
 # of xdotool against 3 ms for `mousedown`), and since a debugger stop drops
 # the capture, a row that alternates input and stops paid that on every
-# input - in GUEST time, because the guest's timers catch up on the host
-# clock after a stop (sync=realtime)
+# input - in GUEST time while the clock was sync=realtime
 GRAB = ("keydown", "ctrl", "mousedown", 2, "mouseup", 2, "keyup", "ctrl")
 
 
@@ -471,8 +488,8 @@ def session(out, cmds, timeout=20.0, pids=None, inp=None, interrupt=True):
     ON CONDITION, NOT ON A CLOCK: the stop is the debugger's prompt
     appearing, and each command is done when the NEXT prompt does, so a
     stop costs ~15-20 ms where `dbg`'s fixed 1.5 + 2 + 0.3n s used to. The
-    guest is stopped for exactly that long; with `clock: sync=realtime` its
-    timers catch up on the host clock afterwards."""
+    guest is stopped for exactly that long, which under `sync=slowdown` it
+    never sees."""
     e9 = os.path.join(out, "e9.out")
     # INPUT FIRST: a stop RELEASES Bochs's mouse capture, so a click still
     # in the X queue when the debugger takes over is dropped on the floor.
@@ -669,7 +686,7 @@ class Box(object):
         with open(rc, "w") as f:
             # `imps2`: an IntelliMouse, so the WHEEL reaches the guest
             f.write(BOCHSRC.format(
-                megs=megs or MEGS, a=a, b=b, cpu=IPS, time0=TIME0,
+                megs=megs or MEGS, a=a, b=b, cpu=IPS, time0=TIME0, sync=SYNC,
                 # `rcextra`: bochsrc lines a row adds as they stand - an
                 # option ROM (`optromimage1:`, tests/megapmmouse.py)
                 rcextra=rcextra,
@@ -856,8 +873,9 @@ class Box(object):
 
     def until(self, cond, what, secs=60.0, poll=0.1):
         """Poll COND() (which reads the guest) until true; RuntimeError
-        naming WHAT after SECS host seconds - the guest's clock is the host's
-        here (`clock: sync=realtime`)."""
+        naming WHAT after SECS host seconds - a BACKSTOP: the guest runs at
+        real time at most (`clock: sync=slowdown`), so a loaded box makes it
+        tighter, never looser."""
         end = time.time() + secs
         while True:
             v = cond()
