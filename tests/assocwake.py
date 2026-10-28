@@ -126,6 +126,8 @@ def dbl_at_handover(m, mo, wx, wy, name, before_wins):
     The arm goes BETWEEN the two presses (assocopen.py's `bp_open`, for its
     reasons): the first press legitimately draws, and the final release is
     sent unproven because the guest may by then be standing at a stop.
+    On Bochs (kern_mega) the whole gesture is os88mouse.dblclick's, queued
+    on a stopped guest inside the trace (assocopen.py's `bp_open`).
 
     Returns {"handover": (new_windows, rect, frame) or None,
              "toast": bytes or None}.
@@ -136,12 +138,14 @@ def dbl_at_handover(m, mo, wx, wy, name, before_wins):
     mo.to(x, y)
     os88marty.ui_done(m)
 
-    if mo.where()[2] & 1:
+    bochs = getattr(m, "bochs", False)
+    t1 = 0
+    if not bochs:
+        if mo.where()[2] & 1:       # a button left down by something else
+            mo._edge(False)         # would make the first press no edge
+        mo._edge(True, hold=False)  # (no hold: it is a double-click's first)
+        t1 = mo.ticks()
         mo._edge(False)
-    mo._edge(True, hold=False)  # (no hold: it is a double-click's first)
-    t1 = mo.ticks()
-    if not getattr(m, "bochs", False):
-        mo._edge(False)         # (Bochs: in the chain below)
 
     seen = {"handover": None, "toast": None}
 
@@ -160,16 +164,26 @@ def dbl_at_handover(m, mo, wx, wy, name, before_wins):
                                         # rest of the load run at full speed
 
     with os88marty.bp_trace(m, HANDOVER, "toast_now", on_hit=on_hit) as tr:
-        if getattr(m, "bochs", False):
-            # kern_mega under Bochs: assocopen.py's reason - the release and
-            # the second press as ONE X chain, the press proven after it
-            m._xd("mouseup", 1, "sleep", "0.03", "mousedown", 1)
-            os88marty.until(m, lambda _: mo.where()[2] & 1,
-                            "the second press to be decoded", guest=5.0)
+        if bochs:
+            # KERN_MEGA UNDER BOCHS: the WHOLE gesture through
+            # os88mouse.dblclick, which queues all four edges on a STOPPED
+            # guest so they reach it in one pass of Bochs's GUI, a few guest
+            # ms apart (os88megabochs.queued_input) - its trace held, and
+            # any stop it meets recorded for it. Any spacing a host decides
+            # is wrong here: `sync=slowdown` pays a stopped guest's time back
+            # as a catch-up sprint, and the first press, the arm and an X
+            # chain with the second press in it measured 0.08 HOST seconds
+            # and 9-10 guest TICKS apart - two first clicks, the window being
+            # 9 (docs/BOCHS.md, *The clock*). The first press is inside the
+            # trace on this path, which is harmless for its targets: a
+            # press on a row moves the selection band (fm_lsel_bar /
+            # fm_sel_bar) and never reaches assoc_handover or toast_now
+            mo.dblclick(x, y, settle=0)
+            t2 = t1
         else:
             mo._edge(True, hold=False)  # ...the double-click
-        t2 = mo.ticks()
-        m.mouse(0, 0, l=False)
+            t2 = mo.ticks()
+            m.mouse(0, 0, l=False)
         if tr.until(lambda: seen["handover"] is not None, "assoc_handover",
                     limit=30.0, required=False):
             tr.until(lambda: seen["toast"] is not None,
