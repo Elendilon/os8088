@@ -12616,3 +12616,12 @@ the bar, of an older kernel. Before building a protected-mode handler for the
 card's multiplexer (a driver's, with a kernel hook to hand it the line), the
 `MEGADIAG` kernel counts both kinds of reflection for a whole play and the
 kern_mega diag player saves them in its profile (SPEC.md 98.3.22.5).
+
+**Its first field run found a MEGADIAG fault that predates it**: every
+`MEGADIAG` kernel since MC7 takes a #GP(C800h) at the PicoMEM's first IRQ
+reflection - the Video Player's play froze at its first sound, with the
+counter and on the control without it alike. `mega_pmpre` (14.65's PicoMEM
+reading for the bar) loaded the option ROM's real-mode segment into ES in
+protected mode as an identity selector, which MC7 removed. It runs in the
+reflection's REAL-MODE half now, just before the ROM's handler, where C800h is
+a segment. The shipped kernel never had it.

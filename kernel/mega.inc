@@ -1208,24 +1208,24 @@ mega_rfsec:
 ; [4], since its audio stub raises the SB's IRQ only on an unmasked line.
 ; After: an audio request that left no SB line caught [3] is the failure.
 ; DS = KDATA, interrupts off. Preserves everything
+section .text                   ; (mega_pmpre runs in REAL mode)
 mega_pmpre:
     push ax
     push bx
     push es
     mov byte [mega_pmaud], 0
-    mov ax, MEGA_SEL_LOW0
-    mov es, ax
-    mov bl, [mega_rv]
-    xor bh, bh
-    shl bx, 2
-    mov ax, [es:bx+2]               ; the handler's segment
-    mov word [mega_pmseg], 0
+    xor ax, ax                      ; REAL MODE (the reflection's half that
+    mov es, ax                      ; calls the ROM): the IVT at 0:0, and the
+    mov bl, [mega_rv]               ; ROM's RAM by its own segment. It was
+    xor bh, bh                      ; read in protected mode through the ROM
+    shl bx, 1                       ; segment AS A SELECTOR - an identity
+    shl bx, 1                       ; selector only until MC7 cut the GDT to
+    mov ax, [es:bx+2]               ; the kernel's own, and a #GP(C800h) on
+    mov word [mega_pmseg], 0        ; a PicoMEM ever since (2026-10-29)
     cmp ax, 0xC000
     jb .x
     cmp ax, 0xF000
     jae .x
-    test al, 7                      ; an identity selector only on the grid
-    jnz .x
     mov [mega_pmseg], ax
     mov es, ax
     cmp byte [es:0x4356], 0         ; a DMA copy
@@ -1249,6 +1249,7 @@ mega_pmpre:
     pop bx
     pop ax
     ret
+section .mega
 mega_pmpost:
     cmp byte [mega_pmaud], 0
     je .x
@@ -2788,12 +2789,8 @@ mega_svc:
     mov [mega_irqr], ah             ; 1: an option ROM's IRQ (mega_irqrom)
 %ifdef MEGA_DIAG
     call mega_pit                   ; ...and when it started (mega_rfsec)
-    mov [mega_rft0], ax
-    cmp byte [mega_irqr], 0
-    je .nopm
-    call mega_pmpre                 ; a PicoMEM's: what it was asked to do
-.nopm:
-%endif
+    mov [mega_rft0], ax             ; (a PicoMEM's state is read in the real-
+%endif                              ; mode half: mega_pmpre)
     push es
     mov ax, MEGA_BDA
     mov es, ax
@@ -2940,6 +2937,9 @@ cpu 286
     je .go0
     call mega_capon                 ; an IRQ: kernel lines caught, not run
     mov byte [.stiop], 0x90         ; ...and an ISR is entered with IF off
+%ifdef MEGA_DIAG
+    call mega_pmpre                 ; a PicoMEM's: what it was asked to do
+%endif
 .go0:
     jmp short .go                   ; ...and the prefetch queue is flushed
 .go:
