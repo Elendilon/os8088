@@ -100,6 +100,19 @@ def _map(src, defines, incs):
 # its own passes it ON TOP: `package("DOSNET_CARD")` is the shipped DOS plus
 # that, which is what `make DOSNETCARD=1` builds.
 SHIPPED = ("DOSKPART", "DOS_EXTCORE")
+# ...and kern_mega's (OS88_MEGA=1, tools/os88megabochs.py) is the same
+# package built `-DDOS_MEGA` as well (Makefile, $(BUILD)/dosp.bin), which
+# moves the bss again - so under OS88_MEGA that define is part of the default
+if os.environ.get("OS88_MEGA"):
+    SHIPPED += ("DOS_MEGA",)
+
+
+def lin(m, seg, off=0):
+    """The linear address of SEG:OFF in a live guest. Under kern_mega (a
+    MegaBochs, `m.lin`) a package's segment is an LDT SELECTOR and its base
+    is the descriptor's; on every real-mode kernel it is `seg << 4`."""
+    f = getattr(m, "lin", None)
+    return f(seg, off) if f else (seg << 4) + off
 
 
 def package(*defines, shipped=True):
@@ -122,6 +135,16 @@ def package(*defines, shipped=True):
                 ("apps", os.path.join("apps", "dos"),
                  os.path.join("drivers", "net"),
                  "kerndos"))          # -DDOSKPART's launch block (96.40)
+
+
+def kerndos():
+    """Every label in kern_mega's kern_dos for the HMA (build/megak/
+    kerndos.bin: `kerndos/kdos.asm -DDOS_EXTCORE -DKD_MEGA -DDOS_MEGA`), as an
+    offset in its own segment - FFFF while it runs, being the HMA host."""
+    return _map(os.path.join(ROOT, "kerndos", "kdos.asm"),
+                ["DOS_EXTCORE", "KD_MEGA", "DOS_MEGA"],
+                ("kernel", "kerndos", "apps", os.path.join("apps", "dos"),
+                 os.path.join("drivers", "net")))
 
 
 def rect(m, pseg, dm, name):
