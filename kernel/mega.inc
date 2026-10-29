@@ -2969,6 +2969,7 @@ cpu 286
 %ifdef MEGA_DIAG
     mov al, 3                       ; mark 3: into the BIOS
     call KERNEL_SEG:mega_fdmkf
+    call mega_fdson                 ; ...and its IRQ0 sampled while it has it
 %endif
     jmp short .go                   ; ...and the prefetch queue is flushed
 .go:
@@ -2988,7 +2989,8 @@ cpu 286
     mov ax, KERNEL_SEG
     mov ds, ax
 %ifdef MEGA_DIAG
-    mov al, 4                       ; mark 4: the BIOS returned
+    call mega_fdsoff                ; the sampler off (before the mark: it
+    mov al, 4                       ; draws too) - mark 4: the BIOS returned
     call KERNEL_SEG:mega_fdmkf
 %endif
     cmp byte [mega_irqr], 0
@@ -7249,6 +7251,297 @@ mega_fdmkf:
     pop cx
     pop ax
     ret
+; -----------------------------------------------------------------------------
+; THE BIOS-CALL SAMPLER (MEGADIAG=1, KERN-MEGA-PLAN 14.125): while a floppy
+; int 13h reflection is in the BIOS, real mode's IRQ0 (IVT 20h, the BIOS's
+; own handler copied there by mega_enter) goes through mega_fdsamp first,
+; which prints one line at rows 56-63 in its own hex font and chains on. A
+; BIOS that never returns is still sampled on every tick - the line says
+; WHERE it is, and its count says whether ticks still come. Fields, spaces
+; between: count, CS, IP, FLAGS, 40:3E 40:3F 40:40 40:41, the master IMR,
+; ISR, IRR, the 765's MSR, the DIR. mega_fdson / mega_fdsoff are NEAR, real
+; mode, IF = 0, DS = KERNEL_SEG; they preserve every register
+; -----------------------------------------------------------------------------
+mega_fdson:
+    cmp byte [mega_fdmko], 0
+    je .x
+    push ax
+    push es
+    xor ax, ax
+    mov es, ax
+    mov ax, [es:0x20*4]
+    mov [mega_fdsold], ax
+    mov ax, [es:0x20*4+2]
+    mov [mega_fdsold+2], ax
+    mov word [es:0x20*4], mega_fdsamp
+    mov word [es:0x20*4+2], KERNEL_SEG
+    mov byte [mega_fdson_], 1
+    pop es
+    pop ax
+.x:
+    ret
+mega_fdsoff:
+    cmp byte [mega_fdson_], 0
+    je .x
+    push ax
+    push es
+    xor ax, ax
+    mov es, ax
+    mov ax, [mega_fdsold]
+    mov [es:0x20*4], ax
+    mov ax, [mega_fdsold+2]
+    mov [es:0x20*4+2], ax
+    mov byte [mega_fdson_], 0
+    pop es
+    pop ax
+.x:
+    ret
+
+mega_fdsamp:                        ; IRQ0 in real mode, inside the BIOS
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push ds
+    push es
+    mov bp, sp                      ; [bp+18] IP, +20 CS, +22 FLAGS
+    mov ax, KERNEL_SEG
+    mov ds, ax
+    cld
+    inc byte [mega_fdsn]
+    push ds
+    pop es
+    mov di, mega_fdsbuf
+    mov al, [mega_fdsn]
+    call .hb
+    mov ax, [bp+20]
+    call .hw
+    mov ax, [bp+18]
+    call .hw
+    mov ax, [bp+22]
+    call .hw
+    push ds
+    mov ax, MEGA_BDA
+    mov ds, ax
+    mov bl, [0x3E]
+    mov bh, [0x3F]
+    mov cl, [0x40]
+    mov ch, [0x41]
+    pop ds
+    mov al, bl
+    call .hb
+    mov al, bh
+    call .hb
+    mov al, cl
+    call .hb
+    mov al, ch
+    call .hb
+    in al, 0x21
+    call .hb
+    mov al, 0x0B
+    out 0x20, al
+    in al, 0x20
+    call .hb
+    mov al, 0x0A
+    out 0x20, al
+    in al, 0x20
+    call .hb
+    mov dx, MEGA_FD_MSR
+    in al, dx
+    call .hb
+    mov dx, MEGA_FD_CCR
+    in al, dx
+    call .hb
+    mov byte [di], 0xFE             ; the end
+    mov si, mega_fdsbuf
+    mov di, 56 * 80                 ; row 56, column 0
+    call mega_fdhex
+    pop es
+    pop ds
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    jmp far [cs:mega_fdsold]        ; the BIOS's own tick
+.hw:                                ; AX as four nibbles and a space
+    push ax
+    mov al, ah
+    call .nib2
+    pop ax
+.hb:                                ; AL as two nibbles and a space
+    call .nib2
+    mov al, 16
+    stosb
+    ret
+.nib2:
+    push ax
+    shr al, 1
+    shr al, 1
+    shr al, 1
+    shr al, 1
+    stosb
+    pop ax
+    and al, 0x0F
+    stosb
+    ret
+
+; mega_fdhex - DS:SI = glyph numbers (0-15 hex, 16 space, FEh end), DI = the
+; frame buffer offset: drawn white on black, eight rows, a byte a glyph.
+; IF = 0, real mode. Clobbers AX BX CX DX SI DI ES
+mega_fdhex:
+    cmp byte [vid_planes], 4
+    jne .x
+    call mega_fdvon
+    mov ax, 0xA000
+    mov es, ax
+.g:
+    lodsb
+    cmp al, 0xFE
+    je .done
+    xor ah, ah
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    mov bx, ax
+    add bx, mega_fdhfont
+    push di
+    mov cx, 8
+.r:
+    mov al, [bx]
+    mov [es:di], al
+    inc bx
+    add di, 80
+    loop .r
+    pop di
+    inc di
+    jmp .g
+.done:
+    call mega_fdvoff
+.x:
+    ret
+
+; mega_fdvon / mega_fdvoff - the VGA's write state for plain byte stores
+; (map mask 0Fh; GC set/reset off, replace, write mode 0, bit mask FFh),
+; banked and put back. IF = 0. Preserves everything
+mega_fdvon:
+    push ax
+    push dx
+    mov dx, 0x3C4
+    in al, dx
+    mov [mega_fdvs], al
+    mov al, 2
+    out dx, al
+    inc dx
+    in al, dx
+    mov [mega_fdvs+1], al
+    mov al, 0x0F
+    out dx, al
+    mov dx, 0x3CE
+    in al, dx
+    mov [mega_fdvs+2], al
+    mov ah, 1
+    call .one
+    mov [mega_fdvs+3], al
+    mov ah, 3
+    call .one
+    mov [mega_fdvs+4], al
+    mov ah, 5
+    call .one
+    mov [mega_fdvs+5], al
+    mov ah, 8
+    call .one
+    mov [mega_fdvs+6], al
+    pop dx
+    pop ax
+    ret
+.one:                               ; GC index AH: AL = its old value, and it
+    mov al, ah                      ; is written 0 - or FFh for the bit mask
+    out dx, al
+    inc dx
+    in al, dx
+    push ax
+    xor al, al
+    cmp ah, 8
+    jne .w
+    mov al, 0xFF
+.w:
+    out dx, al
+    pop ax
+    dec dx
+    ret
+mega_fdvoff:
+    push ax
+    push dx
+    mov dx, 0x3CE
+    mov ax, 0x0100
+    mov al, 1
+    out dx, al
+    inc dx
+    mov al, [mega_fdvs+3]
+    out dx, al
+    dec dx
+    mov al, 3
+    out dx, al
+    inc dx
+    mov al, [mega_fdvs+4]
+    out dx, al
+    dec dx
+    mov al, 5
+    out dx, al
+    inc dx
+    mov al, [mega_fdvs+5]
+    out dx, al
+    dec dx
+    mov al, 8
+    out dx, al
+    inc dx
+    mov al, [mega_fdvs+6]
+    out dx, al
+    dec dx
+    mov al, [mega_fdvs+2]
+    out dx, al
+    mov dx, 0x3C4
+    mov al, 2
+    out dx, al
+    inc dx
+    mov al, [mega_fdvs+1]
+    out dx, al
+    dec dx
+    mov al, [mega_fdvs]
+    out dx, al
+    pop dx
+    pop ax
+    ret
+
+mega_fdhfont:                       ; 0-F and a space, 8 rows each
+    db 0x3C,0x66,0x6E,0x76,0x66,0x66,0x3C,0
+    db 0x18,0x38,0x18,0x18,0x18,0x18,0x7E,0
+    db 0x3C,0x66,0x06,0x0C,0x30,0x60,0x7E,0
+    db 0x3C,0x66,0x06,0x1C,0x06,0x66,0x3C,0
+    db 0x0C,0x1C,0x3C,0x6C,0x7E,0x0C,0x0C,0
+    db 0x7E,0x60,0x7C,0x06,0x06,0x66,0x3C,0
+    db 0x1C,0x30,0x60,0x7C,0x66,0x66,0x3C,0
+    db 0x7E,0x06,0x0C,0x18,0x30,0x30,0x30,0
+    db 0x3C,0x66,0x66,0x3C,0x66,0x66,0x3C,0
+    db 0x3C,0x66,0x66,0x3E,0x06,0x0C,0x38,0
+    db 0x18,0x3C,0x66,0x66,0x7E,0x66,0x66,0
+    db 0x7C,0x66,0x66,0x7C,0x66,0x66,0x7C,0
+    db 0x3C,0x66,0x60,0x60,0x60,0x66,0x3C,0
+    db 0x78,0x6C,0x66,0x66,0x66,0x6C,0x78,0
+    db 0x7E,0x60,0x60,0x7C,0x60,0x60,0x7E,0
+    db 0x7E,0x60,0x60,0x7C,0x60,0x60,0x60,0
+    db 0,0,0,0,0,0,0,0
+mega_fdsold dw 0, 0                 ; the BIOS's IRQ0, while sampled
+mega_fdson_ db 0                    ; 1: the sampler is installed
+mega_fdsn   db 0                    ; ticks sampled this boot
+mega_fdvs   times 7 db 0            ; the VGA registers mega_fdvon banked
+mega_fdsbuf times 48 db 0           ; the line, as glyph numbers
 %endif
 mega_fdoff  db 0                    ; 1: switched off for the session
 mega_fdfail db 0                    ; fallbacks in a row

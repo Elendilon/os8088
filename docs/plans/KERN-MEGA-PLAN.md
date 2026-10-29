@@ -12808,3 +12808,29 @@ The last white block is the last stage reached: 1 means the reset never
 came back, 3 the BIOS never returned, and 5 means the reflection finished
 and the freeze is after it. QEMU (a 386, so the CR0 route) lights all five
 on an ejected A:.
+
+**Second field reading (owner, 2026-10-29): it is the BIOS call that never
+returns, and it has a repro.** Play one particular video, then touch the
+empty drive, and it freezes every time. The strip read as before (`q33
+n0001 ... s81dFF`), and the marks read **1, 2 and 3 white, 4 and 5 black**:
+the reflection left protected mode, the 286's reset came back into real
+mode, the BIOS's `int 13h` was entered, and **it never returned**. So the
+Victory's own diskette code hangs on the empty drive, but only after a
+video, and only under kern_mega.
+
+The players' own port writes do not explain it (channel 2 and port 61h are
+the profiling build's alone). What a video leaves behind is the open
+question, and the next instrument asks the BIOS where it is.
+
+**The third instrument: the BIOS-call sampler** (`mega_fdson`/`mega_fdsamp`,
+MEGADIAG only). While a floppy reflection is in the BIOS, real mode's IRQ0
+vector (IVT 20h, the BIOS's handler as `mega_enter` copied it) points at
+`mega_fdsamp`. It prints one line at rows 56-63, white on black in its own
+16-glyph hex font (the kernel's glyph table is not reachable from real mode),
+then chains to the BIOS's own handler. The line holds the tick count, the
+interrupted CS:IP and FLAGS, 40:3E/3F/40/41, the master IMR/ISR/IRR, and the
+765's MSR and DIR. A frozen BIOS with ticks running keeps repainting it, so
+CS:IP names the loop: F000 the system BIOS, C800-EFFF an option ROM such as
+the PicoMEM's. A frozen count means IRQ0 stopped too, and the last sample
+shows where. QEMU: one tick in SeaBIOS's call at F000:8A2A, ISR 01 (inside
+the tick, as expected), and the machine goes on.
