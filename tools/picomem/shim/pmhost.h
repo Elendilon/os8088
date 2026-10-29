@@ -65,6 +65,14 @@ int pm_mem_write(uint32_t addr, uint8_t v);
  * 0 for its SRAM and ROM, more for PSRAM and EMS. An ESTIMATE (4.3). */
 int pm_mem_waits(uint32_t addr);
 
+/* What the card decodes NOW, for an adapter that maps only that (mapping
+ * more would answer for ports and memory nobody is there to answer for).
+ * io[b] is the device type on ports b*8..b*8+7, 0 = none; mem[b] the memory
+ * index on the 8 KB block at b*8 KB, 0 = none. Both change at run time:
+ * re-read after a write the card decoded and after pm_advance. */
+void pm_io_map(uint8_t io[128]);
+void pm_mem_map(uint8_t mem[128]);
+
 /* Introspection for tests: the status register as port 2A0h would read it
  * without the read, and the 8 KB of shared RAM behind the BIOS. */
 uint8_t pm_peek_status(void);

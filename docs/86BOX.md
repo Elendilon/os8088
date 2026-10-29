@@ -81,6 +81,16 @@ rows on 86Box*, below), and each is inert until something asks for it:
   `fdc` answers `{"reads":N,"writes":N}`.
 - **`06-fdc-counters.patch`** - those two counters are the READ DATA and
   WRITE DATA commands the controller completed. They are MartyPC's `disk()`.
+- **`07-picomem.patch`** - the PicoMEM, as **its own firmware**: an ISA
+  memory-card device (`isamem0_type = picomem`, section `[PicoMEM #1]` with
+  `irq`, `sd_image`, `lib`) that is a thin adapter around `libpmhost`, the
+  card's firmware compiled for the host by `tools/picomem/build.sh`. The
+  library is loaded with `dlopen`, so this patch builds without it; a machine
+  that asks for the card without the library logs why and runs without it.
+  The firmware's decode is mirrored per 8-port block and per 8 KB block, so
+  nothing else on the bus changes. `OS88_PMHOST_LOG=1` puts every command the
+  PC sends, with its answer, in `86box.log`, and `OS88_PMHOST=LIB` swaps the
+  library. `vm/xt-picomem1` is the machine (docs/plans/PICOMEM-EMU-PLAN.md).
 
 A binary built before these three is refused by the backend, which names
 the rebuild (`python3 tools/os88box.py build`).

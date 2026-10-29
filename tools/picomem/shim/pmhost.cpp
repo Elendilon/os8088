@@ -33,10 +33,14 @@
 
 int pmh_fw_main(void);                         // picomem.cpp's main, renamed
 extern volatile uint8_t PM_Status;
+extern volatile uint8_t PM_Command;
+extern volatile uint8_t PM_CmdDataL;
+extern volatile uint8_t PM_CmdDataH;
 extern volatile uint8_t PM_DP_RAM[8 * 1024];
 extern "C" bool pmh_bus_memr(uint32_t a, uint8_t *d);
 extern "C" bool pmh_bus_memw(uint32_t a, uint8_t d);
 extern "C" uint8_t pmh_bus_memidx(uint32_t a);
+extern "C" uint8_t pmh_bus_portdev(uint32_t block);
 extern "C" bool pmh_bus_ior(uint32_t p, uint8_t *d);
 extern "C" bool pmh_bus_iow(uint32_t p, uint8_t d);
 
@@ -281,8 +285,42 @@ PMH_API void pm_advance(uint64_t ns)
 
 PMH_API uint64_t pm_time_ns(void) { return now_ns; }
 
-PMH_API int pm_io_read(uint16_t port, uint8_t *v) { return pmh_bus_ior(port & 0x3FF, v); }
-PMH_API int pm_io_write(uint16_t port, uint8_t v) { return pmh_bus_iow(port & 0x3FF, v); }
+// OS88_PMHOST_LOG=1: one log line per command the PC sends - its number and
+// argument, and the status and answer it finished with. On the iron this is
+// what the firmware's PM_INFO lines would say over the debug UART.
+static int cmd_log = -1;
+static int cmd_open = -1;                     // the command awaiting its answer
+
+static bool logging(void)
+{
+    if (cmd_log < 0) {
+        const char *e = getenv("OS88_PMHOST_LOG");
+        cmd_log = e && *e && *e != '0';
+    }
+    return cmd_log;
+}
+
+PMH_API int pm_io_read(uint16_t port, uint8_t *v)
+{
+    int r = pmh_bus_ior(port & 0x3FF, v);
+    if (cmd_open >= 0 && (port & 0x3FF) == 0x2A0 && *v != 1) {
+        pmh_log("cmd %02Xh done: status %d answer %02X%02Xh", cmd_open, *v,
+                PM_CmdDataH, PM_CmdDataL);
+        cmd_open = -1;
+    }
+    return r;
+}
+
+PMH_API int pm_io_write(uint16_t port, uint8_t v)
+{
+    uint8_t l = PM_CmdDataL, h = PM_CmdDataH, st = PM_Status;
+    int r = pmh_bus_iow(port & 0x3FF, v);
+    if ((port & 0x3FF) == 0x2A0 && logging() && v != 1 && v != 2) {
+        pmh_log("cmd %02Xh arg %02X%02Xh (status was %d)", v, h, l, st);
+        cmd_open = v;
+    }
+    return r;
+}
 PMH_API int pm_mem_read(uint32_t a, uint8_t *v) { return pmh_bus_memr(a & 0xFFFFF, v); }
 PMH_API int pm_mem_write(uint32_t a, uint8_t v) { return pmh_bus_memw(a & 0xFFFFF, v); }
 
@@ -292,6 +330,16 @@ PMH_API int pm_mem_waits(uint32_t a)
     // PSRAM measured at about 8 wait states. ESTIMATES until a field run.
     uint8_t idx = pmh_bus_memidx(a & 0xFFFFF);
     return idx >= 16 ? 8 : 0;
+}
+
+PMH_API void pm_io_map(uint8_t out[128])
+{
+    for (uint32_t b = 0; b < 128; b++) out[b] = pmh_bus_portdev(b);
+}
+
+PMH_API void pm_mem_map(uint8_t out[128])
+{
+    for (uint32_t b = 0; b < 128; b++) out[b] = pmh_bus_memidx(b << 13);
 }
 
 PMH_API uint8_t pm_peek_status(void) { return PM_Status; }

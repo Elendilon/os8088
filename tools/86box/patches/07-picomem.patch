@@ -1,0 +1,398 @@
+os8088 patch 07: the PicoMEM, as its own firmware.
+
+A new ISA memory-card device, `isamem0_type = picomem`, that is a thin
+adapter around libpmhost - the PicoMEM's firmware compiled for the host by
+os8088's tools/picomem/build.sh and loaded at run time with dlopen, so this
+patch builds with no dependency on it. Every I/O and memory cycle the card
+decodes goes to the firmware; its decode is mirrored into 86Box per 8-port
+block and per 8 KB block, so nothing else on the bus changes; card time is
+the machine's, in 100 us ticks. Config: [PicoMEM #1] irq, sd_image, lib.
+tools/os88box.py resolves lib and copies sd_image like a disk.
+
+docs/plans/PICOMEM-EMU-PLAN.md section 5.1.
+
+diff --git a/src/device/CMakeLists.txt b/src/device/CMakeLists.txt
+index 4526b6c..b67d080 100644
+--- a/src/device/CMakeLists.txt
++++ b/src/device/CMakeLists.txt
+@@ -38,6 +38,7 @@ add_library(dev OBJECT
+     ibm_xma.c
+     mcamem.c
+     isamem.c
++    isa_picomem.c
+     isarom.c
+     isartc.c
+     isapnp.c
+diff --git a/src/device/isa_picomem.c b/src/device/isa_picomem.c
+new file mode 100644
+index 0000000..772efa6
+--- /dev/null
++++ b/src/device/isa_picomem.c
+@@ -0,0 +1,346 @@
++/*
++ * 86Box    A hypervisor and IBM PC system emulator that specializes in
++ *          running old operating systems and software designed for IBM
++ *          PC systems and compatibles from 1981 through fairly recent
++ *          system designs based on the PCI bus.
++ *
++ *          This file is part of the 86Box distribution.
++ *
++ *          The PicoMEM, an 8-bit ISA card built on a Raspberry Pi Pico,
++ *          run as ITS OWN FIRMWARE: this device is a thin adapter around
++ *          libpmhost (os8088's tools/picomem), which is the card's firmware
++ *          compiled for the host. Every bus cycle the card decodes goes to
++ *          that firmware, and card time is this machine's time.
++ *
++ *          The library is loaded at run time (dlopen), so this file builds
++ *          with no dependency on it; a machine configured with the card and
++ *          no library refuses to start the device and says why.
++ *
++ *          os8088 patch 07 (tools/86box/patches/07-picomem.patch);
++ *          docs/plans/PICOMEM-EMU-PLAN.md section 5.1.
++ *
++ * Authors: os8088 contributors
++ *
++ *          Copyright 2026 os8088 contributors.
++ */
++#include <stdarg.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <dlfcn.h>
++#define HAVE_STDARG_H
++#include <86box/86box.h>
++#include <86box/device.h>
++#include <86box/io.h>
++#include <86box/mem.h>
++#include <86box/pic.h>
++#include <86box/timer.h>
++#include <86box/path.h>
++#include <86box/plat.h>
++#include <86box/isamem.h>
++
++/* pmhost.h, restated: this file must build without the library's tree. */
++typedef struct pm_host {
++    void *ctx;
++    void (*irq)(void *ctx, int line, int level);
++    void (*log)(void *ctx, const char *text);
++} pm_host_t;
++
++typedef struct pm_cfg {
++    int         irq;
++    const char *sd_image;
++} pm_cfg_t;
++
++/* Card time per timer tick. The firmware's own waits are in microseconds
++ * and its commands finish within one slice, so 100 us is fine-grained
++ * enough for the BIOS's polling and cheap enough for the host. */
++#define PICOMEM_TICK_US 100.0
++
++typedef struct picomem_t {
++    void *lib;
++    int (*create)(const pm_cfg_t *, const pm_host_t *);
++    void (*advance)(uint64_t);
++    int (*io_read)(uint16_t, uint8_t *);
++    int (*io_write)(uint16_t, uint8_t);
++    int (*mem_read)(uint32_t, uint8_t *);
++    int (*mem_write)(uint32_t, uint8_t);
++    void (*io_map)(uint8_t *);
++    void (*mem_map)(uint8_t *);
++
++    int           irq;
++    int           level;
++    pc_timer_t    timer;
++    uint8_t       io_dev[128];   /* what the card decodes, as last mirrored */
++    uint8_t       mem_idx[128];
++    mem_mapping_t map[128];      /* one per 8 KB block, enabled while decoded */
++    char          sd_path[1024];
++    pm_host_t     host;
++} picomem_t;
++
++static picomem_t *the_card;      /* libpmhost is one card per library */
++
++static void picomem_sync(picomem_t *dev);
++
++static void
++picomem_log_cb(void *ctx, const char *text)
++{
++    (void) ctx;
++    pclog("PicoMEM: %s\n", text);
++}
++
++static void
++picomem_irq_cb(void *ctx, int line, int level)
++{
++    picomem_t *dev = (picomem_t *) ctx;
++
++    if (line < 0 || line > 15 || level == dev->level)
++        return;
++    dev->level = level;
++    if (level)
++        picint(1 << line);
++    else
++        picintc(1 << line);
++}
++
++static uint8_t
++picomem_inb(uint16_t port, void *priv)
++{
++    picomem_t *dev = (picomem_t *) priv;
++    uint8_t    v   = 0xff;
++
++    if (!dev->io_read(port, &v))
++        v = 0xff;               /* not driven: inb() ANDs, so FFh is no answer */
++    return v;
++}
++
++static void
++picomem_outb(uint16_t port, uint8_t val, void *priv)
++{
++    picomem_t *dev = (picomem_t *) priv;
++
++    if (dev->io_write(port, val)) {
++        /* A command or an EMS page may have moved the card's map: let core 0
++         * take the command now rather than at the next tick, then mirror. */
++        dev->advance(0);
++        picomem_sync(dev);
++    }
++}
++
++static uint8_t
++picomem_readb(uint32_t addr, void *priv)
++{
++    picomem_t *dev = (picomem_t *) priv;
++    uint8_t    v   = 0xff;
++
++    dev->mem_read(addr, &v);
++    return v;
++}
++
++static void
++picomem_writeb(uint32_t addr, uint8_t val, void *priv)
++{
++    picomem_t *dev = (picomem_t *) priv;
++
++    dev->mem_write(addr, val);
++}
++
++/* Mirror the card's decode into 86Box: a port block's handlers and an 8 KB
++ * mapping exist exactly while the firmware's tables say the card answers. */
++static void
++picomem_sync(picomem_t *dev)
++{
++    uint8_t io[128];
++    uint8_t mem[128];
++
++    dev->io_map(io);
++    dev->mem_map(mem);
++    for (int b = 0; b < 128; b++) {
++        if ((io[b] != 0) != (dev->io_dev[b] != 0))
++            io_handler(io[b] != 0, b << 3, 8,
++                       picomem_inb, NULL, NULL, picomem_outb, NULL, NULL, dev);
++        dev->io_dev[b] = io[b];
++        if ((mem[b] != 0) != (dev->mem_idx[b] != 0)) {
++            if (mem[b])
++                mem_mapping_enable(&dev->map[b]);
++            else
++                mem_mapping_disable(&dev->map[b]);
++        }
++        dev->mem_idx[b] = mem[b];
++    }
++}
++
++static void
++picomem_tick(void *priv)
++{
++    picomem_t *dev = (picomem_t *) priv;
++
++    dev->advance((uint64_t) (PICOMEM_TICK_US * 1000.0));
++    picomem_sync(dev);
++    timer_advance_u64(&dev->timer, (uint64_t) (PICOMEM_TICK_US * TIMER_USEC));
++}
++
++#define PM_SYM(f, n)                                                  \
++    do {                                                              \
++        *(void **) &dev->f = dlsym(dev->lib, n);                      \
++        if (!dev->f) {                                                \
++            pclog("PicoMEM: %s has no %s\n", lib_path, n);            \
++            goto fail;                                                \
++        }                                                             \
++    } while (0)
++
++static void
++picomem_resolve(const char *p, char *out, size_t n)
++{
++    if (!p || !*p) {
++        out[0] = '\0';
++        return;
++    }
++    if (path_abs((char *) p))
++        snprintf(out, n, "%s", p);
++    else
++        path_append_filename(out, usr_path, p);
++}
++
++static void *
++picomem_init(const device_t *info)
++{
++    (void) info;
++    picomem_t *dev;
++    char       lib_path[1024];
++    pm_cfg_t   cfg;
++
++    if (the_card) {
++        pclog("PicoMEM: only one card per machine\n");
++        return NULL;
++    }
++    dev = (picomem_t *) calloc(1, sizeof(picomem_t));
++
++    picomem_resolve(device_get_config_string("lib"), lib_path, sizeof lib_path);
++    if (!lib_path[0] && getenv("OS88_PMHOST"))
++        snprintf(lib_path, sizeof lib_path, "%s", getenv("OS88_PMHOST"));
++    dev->lib = lib_path[0] ? dlopen(lib_path, RTLD_NOW | RTLD_LOCAL) : NULL;
++    if (!dev->lib) {
++        pclog("PicoMEM: cannot load libpmhost '%s': %s "
++              "(os8088: tools/picomem/build.sh)\n", lib_path, dlerror());
++        free(dev);
++        return NULL;
++    }
++    PM_SYM(create, "pm_create");
++    PM_SYM(advance, "pm_advance");
++    PM_SYM(io_read, "pm_io_read");
++    PM_SYM(io_write, "pm_io_write");
++    PM_SYM(mem_read, "pm_mem_read");
++    PM_SYM(mem_write, "pm_mem_write");
++    PM_SYM(io_map, "pm_io_map");
++    PM_SYM(mem_map, "pm_mem_map");
++
++    dev->irq = device_get_config_int("irq");
++    picomem_resolve(device_get_config_string("sd_image"), dev->sd_path, sizeof dev->sd_path);
++
++    /* Every 8 KB block gets a mapping now, disabled; sync enables the ones
++     * the card decodes, so a block appears and vanishes as its firmware's
++     * table entry does. */
++    for (int b = 0; b < 128; b++) {
++        mem_mapping_add(&dev->map[b], b << 13, 0x2000,
++                        picomem_readb, NULL, NULL, picomem_writeb, NULL, NULL,
++                        NULL, MEM_MAPPING_EXTERNAL, dev);
++        mem_mapping_disable(&dev->map[b]);
++    }
++
++    dev->host.ctx = dev;
++    dev->host.irq = picomem_irq_cb;
++    dev->host.log = picomem_log_cb;
++    cfg.irq       = dev->irq;
++    cfg.sd_image  = dev->sd_path[0] ? dev->sd_path : NULL;
++    if (dev->create(&cfg, &dev->host) != 0) {
++        pclog("PicoMEM: pm_create refused (one card per library)\n");
++        goto fail;
++    }
++    the_card = dev;
++    picomem_sync(dev);
++
++    timer_add(&dev->timer, picomem_tick, dev, 0);
++    timer_set_delay_u64(&dev->timer, (uint64_t) (PICOMEM_TICK_US * TIMER_USEC));
++    pclog("PicoMEM: %s, IRQ %d, SD %s\n", lib_path, dev->irq,
++          dev->sd_path[0] ? dev->sd_path : "(none)");
++    return dev;
++
++fail:
++    if (dev->lib)
++        dlclose(dev->lib);
++    free(dev);
++    return NULL;
++}
++
++static void
++picomem_close(void *priv)
++{
++    picomem_t *dev = (picomem_t *) priv;
++
++    /* The card's thread is parked inside the library and cannot be joined,
++     * so the library stays loaded; the machine is going away anyway. */
++    timer_disable(&dev->timer);
++    if (the_card == dev)
++        the_card = NULL;
++    free(dev);
++}
++
++// clang-format off
++static const device_config_t picomem_config[] = {
++    {
++        .name           = "irq",
++        .description    = "IRQ jumper",
++        .type           = CONFIG_SELECTION,
++        .default_string = NULL,
++        .default_int    = 5,
++        .file_filter    = NULL,
++        .spinner        = { 0 },
++        .selection      = {
++            { .description = "IRQ 2", .value = 2 },
++            { .description = "IRQ 3", .value = 3 },
++            { .description = "IRQ 5", .value = 5 },
++            { .description = "IRQ 7", .value = 7 },
++            { .description = ""                  }
++        },
++        .bios           = { { 0 } }
++    },
++    {
++        .name           = "sd_image",
++        .description    = "microSD card image",
++        .type           = CONFIG_FNAME,
++        .default_string = NULL,
++        .default_int    = 0,
++        .file_filter    = "Disk images (*.img)|*.img",
++        .spinner        = { 0 },
++        .selection      = { { 0 } },
++        .bios           = { { 0 } }
++    },
++    {
++        .name           = "lib",
++        .description    = "libpmhost (the card's firmware)",
++        .type           = CONFIG_FNAME,
++        .default_string = NULL,
++        .default_int    = 0,
++        .file_filter    = "Shared libraries (*.so)|*.so",
++        .spinner        = { 0 },
++        .selection      = { { 0 } },
++        .bios           = { { 0 } }
++    },
++    { .name = "", .description = "", .type = CONFIG_END }
++};
++// clang-format on
++
++const device_t picomem_device = {
++    .name          = "PicoMEM",
++    .internal_name = "picomem",
++    .flags         = DEVICE_ISA,
++    .local         = 0,
++    .init          = picomem_init,
++    .close         = picomem_close,
++    .reset         = NULL,
++    .available     = NULL,
++    .speed_changed = NULL,
++    .force_redraw  = NULL,
++    .config        = picomem_config
++};
+diff --git a/src/device/isamem.c b/src/device/isamem.c
+index c87421e..f6744cc 100644
+--- a/src/device/isamem.c
++++ b/src/device/isamem.c
+@@ -2284,6 +2284,8 @@ static const device_t mplus2_device = {
+     .config        = mplus2_config
+ };
+ 
++extern const device_t picomem_device;   /* isa_picomem.c (os8088 patch 07) */
++
+ static const struct {
+     const device_t *dev;
+ } boards[] = {
+@@ -2322,6 +2324,7 @@ static const struct {
+ #endif /* USE_ISAMEM_IAB */
+     { &lotech_ems_device   },
+     { &mplus2_device       },
++    { &picomem_device      },
+     { NULL                 }
+     // clang-format on
+ };

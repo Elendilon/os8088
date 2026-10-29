@@ -445,7 +445,7 @@ plus `test-full` after the last.
 | wave | delivers | done when |
 |---|---|---|
 | **0. Spike** (estimate 2-3 days; **BUILT**, section 6.1) | `host/` CMake target building `dev_picomem_io` + `pm_cmd` + `dev_memory` + `isa_irq` + `pm_pccmd` with the shim; the baton; the yield audit; a `ctypes` driver | A Python script against `libpmhost-v1.so` reads the 2A3h ramp, runs commands 00h/73h/77h/78h with the real firmware's answers, and serves the BIOS bytes at D0000h. **Its first consumer is `tests/picomem.py` itself**: its `sb`/`vs` legs swap their Python port model for the library, and the legs that pass are now agreeing with the card. |
-| **1. 86Box: the card boots** | `07-picomem.patch`, `vm/xt-picomem1`, the SD-image tool | The PicoMEM BIOS banner and setup menu appear (screenshot via `os88box.py`); `int 13h` 6000h answers DX=AA55h, BX=D000h, CH=jumper; os8088 reaches a desktop with `pm_init`'s 100-read ramp passed. |
+| **1. 86Box: the card boots** (**BUILT**, 6.2) | `07-picomem.patch`, `vm/xt-picomem1`, the SD-image tool | The PicoMEM BIOS banner and setup menu appear (screenshot via `os88box.py`); `int 13h` 6000h answers DX=AA55h, BX=D000h, CH=jumper; os8088 reaches a desktop with `pm_init`'s 100-read ramp passed. |
 | **2. Sound, 1.x** | AdLib + SB 2.0 with virtual DMA (snoop, multiplexer, CPU copy), audio out | SOUND.DRV's Drivers row reads the SB and the AdLib on the card. A WAV plays and the card's output is captured (an `OS88_PMWAV` env var, in `04-sb-capture`'s shape). `pm_tick`'s AdLib keep-alive matters: removing it goes silent after 4 s, the firmware's own idle cut-off. |
 | **3. Disks** | `int 13h` floppy and HDD from SD-image files | B: is kept through `dsk_fdd_pmemu` (FDDn_Attribute bit 7); HDD.DRV's BIOS rung reads a VHD through the card; the warm restart (1234h, FFFF:0) re-enters the PicoMEM BIOS. |
 | **4. NE2000** | the card's NE2000 over 86Box slirp | ETHER.DRV finds it at the configured base with the un-doubled PROM; DHCP and a fetch as in `tests/ethernet.py`. |
@@ -552,6 +552,37 @@ clock, and a clock read is a yield point.
     is right on any firmware, the closed 2.x one included. `pmlib` is
     green, and the walk now reads `000, 220 (PORTUSED), 240`. The firmware
     fork's move path is unchanged, so the defect is still the card's.
+
+### 6.2 Wave 1, as built
+
+`tools/86box/patches/07-picomem.patch` adds the card to 86Box as an ISA
+memory card, `isamem0_type = picomem`. It is ~330 lines of adapter, and it
+`dlopen`s `libpmhost`. Two new library calls, `pm_io_map` and `pm_mem_map`,
+tell it what the firmware decodes right now. It mirrors exactly that, per
+8-port block and per 8 KB block, and re-reads both after every write the
+card decoded and every 100 us tick, so a port or window appears and vanishes
+as the firmware's table does. `tools/os88box.py` resolves the profile's
+`lib` path and copies its `sd_image` into the run, as it already does for
+disks. `vm/xt-picomem1` is a 640 KB 8088 XT with an OAK VGA and the card on
+IRQ 5.
+
+**What it showed:**
+- The real PicoMEM BIOS comes up in 86Box: *"ROM @D000 - Port : 2A0 -
+  IRQ : 5"*, with the IRQ found by the BIOS's own detection.
+- os8088 boots to a desktop on `build/os8088-360.img`.
+- On `make picomemtest`'s `pmsys360.img`, the Drivers page reads **Sound:
+  Loaded**, attached to the card.
+
+`OS88_PMHOST_LOG=1` puts each command in `86box.log`, and that log is a
+complete trace of the PC's side of the card's protocol:
+- the BIOS's RAM probe (0Bh x4);
+- the IRQ detection (30h, 31h);
+- the 64-block memory map (06h);
+- SaveCfg, MEM_Init, DEV_Init and the disk list (08h, 07h, 09h, 85h, 82h);
+- then os8088: SOUND.DRV's `78h 0` (SPEC.md 34.10.2's off-first), `73h 1`,
+  `77h 0107h`, `78h 220h`, and USBMOUSE.DRV's `52h`.
+
+Ethernet stays *Not loaded* until wave 4 builds the NE2000.
 
 ## 7. What it will catch, and what it cannot
 

@@ -158,3 +158,9 @@ extern "C" bool pmh_bus_ior(uint32_t ISA_IO_Addr, uint8_t *Data)
     *Data = ISA_Data;
     return ISA_WasRead;
 }
+
+// The device type decoding this I/O block (port >> 3), 0 = none.
+extern "C" uint8_t pmh_bus_portdev(uint32_t block)
+{
+    return GetPortType((block << 3) & 0x3FF);
+}
