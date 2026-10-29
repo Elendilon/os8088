@@ -5849,7 +5849,7 @@ SOAK = [
         "taken off the list this row reproduces exactly that (DRVE_HW)",
         needs=("marty", "nasm"), serial=True, timeout=300,
         wants=("build/emstest.img",)),
-    Row("emscard", "soak", py("tests/ems.py", "--leg", "card"), 90.0,
+    Row("emscard", "soak", py("tests/ems.py", "--leg", "card"), 60.0,
         "SPEC.md 107.2 against a REAL PicoMEM 1.x's EMS: the card's own "
         "firmware in 86Box (docs/plans/PICOMEM-EMU-PLAN.md wave 5, "
         "vm/xt-picomem1). A first boot lets the card's BIOS map the machine "
@@ -5860,7 +5860,7 @@ SOAK = [
         "and EMS.DRV says DRVE_HW",
         needs=("86box", "pmhost"), serial=True, timeout=400,
         wants=("build/emstest.img",)),
-    Row("emscard2", "soak", py("tests/ems.py", "--leg", "card2"), 90.0,
+    Row("emscard2", "soak", py("tests/ems.py", "--leg", "card2"), 75.0,
         "emscard's checks on a PicoMEM 2.x (vm/xt-picomem2, our firmware "
         "built PICOMEM_20, docs/plans/PICOMEM-EMU-PLAN.md wave 6): its EMS "
         "lives in the RP2350's mapped PSRAM, an EMS page register write "
@@ -18291,7 +18291,7 @@ SOAK = [
         "on IRQ 5's own line; with only 7 jumpered it ends through the "
         "multiplexer on 7 and FAILS 2 checks",
         needs=("nasm", "unicorn", "pmhost")),
-    Row("pmbox", "soak", py("tests/pmbox.py"), 260.0,
+    Row("pmbox", "soak", py("tests/pmbox.py"), 170.0,
         "docs/plans/PICOMEM-EMU-PLAN.md waves 1-7: the PicoMEM in 86Box "
         "(vm/xt-picomem1, tools/86box/patches/07-picomem.patch) running ITS "
         "OWN FIRMWARE (libpmhost), three boots. snd: the BIOS detects the "
@@ -18321,7 +18321,7 @@ SOAK = [
         needs=("86box", "pmhost"), serial=True,
         wants=("build/pmsys360.img", "build/pmboxb360.img", "build/pmhd.img",
                "build/apps360.img", "build/mega.img")),
-    Row("pmmarty", "soak", py("tests/pmmarty.py"), 70.0,
+    Row("pmmarty", "soak", py("tests/pmmarty.py"), 50.0,
         "docs/plans/PICOMEM-EMU-PLAN.md wave 8: the PicoMEM's own firmware "
         "(libpmhost) as a MartyPC card (tools/martypc/patches/17-picomem.patch), "
         "on a 4.77 MHz 5150: os8088_5150_herc_pm1_gla (a 1.x on IRQ 5) and "
@@ -18335,7 +18335,7 @@ SOAK = [
         "plays on",
         needs=("marty", "pmhost"), serial=True,
         wants=("build/pmsys360.img", "build/pmboxb360.img")),
-    Row("pmbox2", "soak", py("tests/pmbox.py", "--board", "2"), 185.0,
+    Row("pmbox2", "soak", py("tests/pmbox.py", "--board", "2"), 160.0,
         "docs/plans/PICOMEM-EMU-PLAN.md wave 6: pmbox's legs on a PicoMEM 2.x "
         "(vm/xt-picomem2 and its -1fd/-usbm twins: OUR firmware, pm1x-pr, "
         "built PICOMEM_20 - the first run of it as a 2.x anywhere - IRQ 7 "
