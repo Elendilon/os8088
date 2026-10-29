@@ -358,3 +358,31 @@ extern "C" bool aon_timer_get_time_calendar(struct tm *t)
     gmtime_r(&s, t);
     return true;
 }
+
+// ---- PMCFG_t's layout, for tools/picomem/mksd.py's PICOMEM.CFG writer ----------
+// offsetof() off the firmware's own struct, so a firmware that moves a field
+// fails mksd.py --selfcheck instead of writing a config the card misreads.
+#include <stddef.h>
+#include "pm_defines.h"
+PMH_API const char *pm_cfg_fields(void)
+{
+    static char buf[1024];
+    snprintf(buf, sizeof buf,
+             "size=%u,FDD=%u,HDD=%u,FDD_Attribute=%u,HDD_Attribute=%u,MEM_Map=%u,"
+             "EMS_Port=%u,EMS_Addr=%u,FastBoot=%u,PMBOOT=%u,EnableUSB=%u,Boot_HDD=%u,"
+             "EnableWifi=%u,ne2000IRQ=%u,ne2000Port=%u,Adlib=%u,TDYPort=%u,CMSPort=%u,"
+             "SBPort=%u,SBIRQ=%u,MMBPort=%u,UseRTC=%u,FDDPath=%u,HDDPath=%u",
+             (unsigned)sizeof(PMCFG_t), (unsigned)offsetof(PMCFG_t, FDD),
+             (unsigned)offsetof(PMCFG_t, HDD), (unsigned)offsetof(PMCFG_t, FDD_Attribute),
+             (unsigned)offsetof(PMCFG_t, HDD_Attribute), (unsigned)offsetof(PMCFG_t, MEM_Map),
+             (unsigned)offsetof(PMCFG_t, EMS_Port), (unsigned)offsetof(PMCFG_t, EMS_Addr),
+             (unsigned)offsetof(PMCFG_t, FastBoot), (unsigned)offsetof(PMCFG_t, PMBOOT),
+             (unsigned)offsetof(PMCFG_t, EnableUSB), (unsigned)offsetof(PMCFG_t, Boot_HDD),
+             (unsigned)offsetof(PMCFG_t, EnableWifi), (unsigned)offsetof(PMCFG_t, ne2000IRQ),
+             (unsigned)offsetof(PMCFG_t, ne2000Port), (unsigned)offsetof(PMCFG_t, Adlib),
+             (unsigned)offsetof(PMCFG_t, TDYPort), (unsigned)offsetof(PMCFG_t, CMSPort),
+             (unsigned)offsetof(PMCFG_t, SBPort), (unsigned)offsetof(PMCFG_t, SBIRQ),
+             (unsigned)offsetof(PMCFG_t, MMBPort), (unsigned)offsetof(PMCFG_t, UseRTC),
+             (unsigned)offsetof(PMCFG_t, FDDPath), (unsigned)offsetof(PMCFG_t, HDDPath));
+    return buf;
+}

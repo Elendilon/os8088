@@ -721,7 +721,8 @@ def launch(vm, name=None, a=None, b=None, c=None, d=None, mem=None, sets=(),
         if lib:
             cfg_set(order, secs, "PicoMEM #1", "lib",
                     os.path.abspath(os.path.join(srcdir, lib)))
-        sd = cfg_get(secs, "PicoMEM #1", "sd_image")
+        # OS88_PMSD names another card - a row's own (tools/picomem/mksd.py)
+        sd = os.environ.get("OS88_PMSD") or cfg_get(secs, "PicoMEM #1", "sd_image")
         if sd:
             sd = os.path.normpath(os.path.join(srcdir, sd))
             if not os.path.isfile(sd):

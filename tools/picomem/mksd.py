@@ -2,6 +2,7 @@
 """mksd.py - a microSD card image for libpmhost's PicoMEM (docs/plans/PICOMEM-EMU-PLAN.md 4.5).
 
     python3 tools/picomem/mksd.py OUT.img [--mb 32] [FILE ...] [DIR/NAME=SRC ...]
+                                  [--fdd N:IMG] [--hdd N:IMG] [--cfg FIELD=VALUE]
     python3 tools/picomem/mksd.py --selfcheck
 
 The card reads its SD through FatFS (lib/FatFs_SPI, pm_disk.cpp): a
@@ -14,6 +15,15 @@ firmware's `0:/config.txt` against it case-blind.
 
     mksd.py build/picomem/sd.img                         # an empty card
     mksd.py sd.img config.txt FLOPPY/DOS.IMG=dos33.img   # with a config and a floppy
+    mksd.py sd.img --fdd 1:build/apps360.img             # B: an image off the card
+    mksd.py sd.img --hdd 0:hd.img --cfg FastBoot=1       # C: one, and no key wait
+
+--fdd/--hdd copy the image into /FLOPPY or /HDD and name it in a PICOMEM.CFG,
+the card's binary saved setup (PMCFG_t): what the BIOS's setup menu would have
+written after a user picked the image. Everything not set is the firmware's
+own default, which is zero (PM_ResetConfig). The layout is PMCFG_t's and
+--selfcheck compares it with the offsets libpmhost reports (pm_cfg_fields),
+so a firmware that moves a field fails there rather than on a card.
 
 An empty card is not the same machine as no card: with none, the firmware's
 CMD_FDD_Mount never counts the PC's floppies and the BIOS then clears them
@@ -31,6 +41,37 @@ SECTOR = 512
 SERIAL = 0x0588_0EED
 STAMP_DATE = ((2026 - 1980) << 9) | (10 << 5) | 29   # 2026-10-29, fixed
 STAMP_TIME = 0
+
+
+# PMCFG_t (src/pm_defines.h), as offsets: (offset, kind). FSizeName_t is a
+# u16 size and a 14-byte name; the paths are 64 bytes each.
+CFG_SIZE = 644
+CFG = {"FDD": (0, "fsn2"), "HDD": (32, "fsn4"), "FDD_Attribute": (96, "b2"),
+       "HDD_Attribute": (98, "b4"), "MEM_Map": (138, "b64"), "EMS_Port": (202, "b"),
+       "EMS_Addr": (203, "b"), "FastBoot": (207, "b"), "PMBOOT": (208, "b"),
+       "EnableUSB": (210, "b"), "Boot_HDD": (213, "b"), "EnableWifi": (214, "b"),
+       "ne2000IRQ": (215, "b"), "ne2000Port": (216, "w"), "Adlib": (229, "b"),
+       "TDYPort": (230, "w"), "CMSPort": (232, "w"), "SBPort": (234, "w"),
+       "SBIRQ": (236, "b"), "MMBPort": (238, "w"), "UseRTC": (241, "b"),
+       "FDDPath": (260, "p2"), "HDDPath": (388, "p4")}
+
+
+def picomem_cfg(fdd=(), hdd=(), sets=()):
+    """PICOMEM.CFG: zeros, then FDD/HDD n named (n, NAME, size in KB), then
+    FIELD=VALUE for the byte and word fields"""
+    c = bytearray(CFG_SIZE)
+    for kind, base, lst in (("FDD", 0, fdd), ("HDD", 32, hdd)):
+        for n, name, kb in lst:
+            o = base + 16 * n
+            # size FExxh means "a physical drive, redirected" - never that
+            struct.pack_into("<H14s", c, o, min(kb, 0xFDFF), name.encode("ascii"))
+    for k, v in sets:
+        if k not in CFG or CFG[k][1] not in ("b", "w"):
+            raise SystemExit("mksd: %r is not a byte or word field of PMCFG_t (%s)"
+                             % (k, ", ".join(x for x in CFG if CFG[x][1] in ("b", "w"))))
+        o, t = CFG[k]
+        struct.pack_into("<B" if t == "b" else "<H", c, o, int(v, 0))
+    return bytes(c)
 
 
 def name83(name):
@@ -146,6 +187,20 @@ def selfcheck():
         q = os.path.join(d, "sd2.img")
         build(q, [("", "config.txt", b"BIOS D000\n"), ("FLOPPY", "A.IMG", bytes(368640))])
         ok = ok and open(q, "rb").read() == b
+    # the layout against the firmware's own, when libpmhost is built
+    lib = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__)))), "build", "picomem", "v1", "libpmhost-v1.so")
+    if os.path.exists(lib):
+        import ctypes
+        L = ctypes.CDLL(lib)
+        L.pm_cfg_fields.restype = ctypes.c_char_p
+        fw = dict(kv.split("=") for kv in L.pm_cfg_fields().decode().split(","))
+        bad = ["%s %s/%d" % (k, fw[k], CFG[k][0]) for k in CFG
+               if k in fw and int(fw[k]) != CFG[k][0]]
+        if int(fw["size"]) != CFG_SIZE:
+            bad.append("size %s/%d" % (fw["size"], CFG_SIZE))
+        print("mksd: PMCFG_t layout against libpmhost: %s" % (", ".join(bad) or "agrees"))
+        ok = ok and not bad
     print("mksd: selfcheck %s" % ("ok" if ok else "FAILED"))
     return 0 if ok else 1
 
@@ -155,6 +210,12 @@ def main():
     ap.add_argument("out", nargs="?")
     ap.add_argument("items", nargs="*", help="FILE (at the root) or FOLDER/NAME=SRC")
     ap.add_argument("--mb", type=int, default=32)
+    ap.add_argument("--fdd", action="append", default=[], metavar="N:IMG",
+                    help="floppy N (0 = A:, 1 = B:) is IMG, off the card")
+    ap.add_argument("--hdd", action="append", default=[], metavar="N:IMG",
+                    help="hard disk N (0 = 80h) is IMG, off the card")
+    ap.add_argument("--cfg", action="append", default=[], metavar="FIELD=VALUE",
+                    help="a byte or word field of PICOMEM.CFG")
     ap.add_argument("--selfcheck", action="store_true")
     a = ap.parse_args()
     if a.selfcheck:
@@ -169,6 +230,17 @@ def main():
             dst, src = os.path.basename(it), it
         folder, _, name = dst.rpartition("/")
         files.append((folder, name, open(src, "rb").read()))
+    fdd, hdd = [], []
+    for lst, opt, folder in ((fdd, a.fdd, "FLOPPY"), (hdd, a.hdd, "HDD")):
+        for spec in opt:
+            num, _, src = spec.partition(":")
+            base = os.path.splitext(os.path.basename(src))[0].upper()[:8]
+            data = open(src, "rb").read()
+            files.append((folder, base + ".IMG", data))
+            lst.append((int(num), base, len(data) // 1024))
+    if fdd or hdd or a.cfg:
+        files.append(("", "PICOMEM.CFG", picomem_cfg(fdd, hdd,
+                                                     [kv.split("=", 1) for kv in a.cfg])))
     n = build(a.out, files, a.mb)
     print("mksd: %s, %d MB FAT16, %d clusters, %d file(s)" % (a.out, a.mb, n, len(files)))
     return 0

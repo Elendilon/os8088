@@ -5583,8 +5583,20 @@ $(BUILD)/pmsys360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(
 $(BUILD)/pmboxb360.img: $(BUILD)/pmdma.o88 $(BUILD)/sbtest.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/pmdma.o88 $(BUILD)/sbtest.o88
 
+# ...and the hard disk the card serves as 80h off its microSD: os8088 booted
+# from a PicoMEM-hosted image, the field machine's own setup (SPEC.md
+# 52.10.16), with A: empty - the card's BIOS int 13h and the kernel's hard-disk
+# loader, every sector through the card's PC-command channel.
+$(BUILD)/pmhd.img: $(BUILD)/mbr.bin $(BUILD)/boothd.bin $(KERNFILE) $(DRIVERS) \
+                   $(BUILD)/pmcfg/system.cfg tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --hdd \
+	    --mbr $(BUILD)/mbr.bin --boot $(BUILD)/boothd.bin \
+	    --kernel $(KERNFILE) \
+	    $(DRIVERS) $(BUILD)/pmcfg/system.cfg --folder SYSTEM/APPDATA
+	@python3 tools/os88disk.py --verify-hdd $@
+
 .PHONY: pmboxtest
-pmboxtest: $(BUILD)/pmsys360.img $(BUILD)/pmboxb360.img
+pmboxtest: $(BUILD)/pmsys360.img $(BUILD)/pmboxb360.img $(BUILD)/pmhd.img
 ifneq ($(NOPICOMEM),)
 	$(error pmboxtest is meaningless with NOPICOMEM=1: SOUND.DRV would not ask the card for anything)
 endif

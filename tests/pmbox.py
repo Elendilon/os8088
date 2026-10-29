@@ -77,21 +77,11 @@ def wav_frames(path):
     return rate, list(zip(fr[0::2], fr[1::2]))
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--keep", help="leave the capture and the log here")
-    a = ap.parse_args()
-    for f in ("build/pmsys360.img", "build/pmboxb360.img",
-              "build/picomem/v1/libpmhost-v1.so"):
-        if not os.path.exists(os.path.join(ROOT, f)):
-            print("SKIP: %s is not built (make pmboxtest; tools/picomem/build.sh)" % f)
-            return 0
-
-    tmp = a.keep or tempfile.mkdtemp(prefix="pmbox-")
-    os.makedirs(tmp, exist_ok=True)
+def leg_snd(tmp):
+    """checks 1-4: the card's boot, SOUND.DRV, PMDMA, SBTEST's tone"""
     wav = os.path.join(tmp, "card.wav")
-    os.environ.update(OS88_EMU="86box", OS88_86BOX_VM="xt-picomem1",
-                      OS88_PMHOST_LOG="1", OS88_PMWAV=wav)
+    os.environ.update(OS88_PMWAV=wav)
+    os.environ.pop("OS88_PMSD", None)
     import os88marty
     import os88ui
     from cycweb import pkg_syms, Pkg
@@ -182,6 +172,139 @@ def main():
     else:
         check(False, "the card's DAC was captured (%s)" % wav)
 
+
+
+def leg_fdd(tmp):
+    """checks 5 and 7: the card's own int 13h is B: - on a machine with ONE
+    floppy drive (vm/xt-picomem1-1fd), so B: exists only on the card.
+
+    The card's SD holds build/pmboxb360.img, mounted as floppy 1 in its
+    PICOMEM.CFG (mksd.py --fdd 1:). The PicoMEM BIOS counts it into the
+    equipment word and takes over int 13h for drive 1, and the kernel keeps a
+    B: its own probe finds no drive behind because the card's FDD1_Attribute
+    says it is an image (SPEC.md 18.97.6, dsk_fdd_pmemu). A B: listing that
+    shows PMDMA.O88 is the card's firmware answering every sector through its
+    PC-command channel (CMD 88h, the shared disk buffer, the BIOS's REP
+    MOVSW). Then Restart (check 7)."""
+    import subprocess
+    import os88marty
+    import os88ui
+    sd = os.path.join(tmp, "fdd-sd.img")
+    subprocess.run([sys.executable, os.path.join(ROOT, "tools/picomem/mksd.py"), sd,
+                    "--fdd", "1:" + os.path.join(ROOT, "build/pmboxb360.img")],
+                   check=True, stdout=subprocess.DEVNULL)
+    os.environ["OS88_PMSD"] = sd
+    os.environ["OS88_86BOX_VM"] = "xt-picomem1-1fd"
+    os.environ.pop("OS88_PMWAV", None)
+    try:
+        with os88ui.boot(os.path.join(ROOT, "build/pmsys360.img"),
+                         machine="os8088_xt_vga", quick=True) as ui:
+            m = ui.m
+            cmds = log_cmds(open(os.path.join(m.b.run, "86box.log")).read())
+            ui.open_drive("B")
+            names = [e.name if hasattr(e, "name") else str(e) for e in ui.listing()]
+            check(any("PMDMA" in n.upper() for n in names),
+                  "a machine with ONE drive has a B:, and it lists the card's "
+                  "image (%s)" % names[:8])
+            n88 = sum(1 for c in cmds if c[0] == 0x88)
+            cmds = log_cmds(open(os.path.join(m.b.run, "86box.log")).read())
+            check(sum(1 for c in cmds if c[0] == 0x88) > n88,
+                  "...through the card's int 13h (CMD 88h %d -> %d)"
+                  % (n88, sum(1 for c in cmds if c[0] == 0x88)))
+
+            # check 7: RESTART on a PicoMEM is a WARM reset (SPEC.md 18.100.1:
+            # 1234h at 0040:0072, then FFFF:0), so POST runs the card's BIOS
+            # again - which int 19h would not. Posted as fddpark.py posts it.
+            # DEV_Init (09h), not the IRQ detection: a warm boot keeps the
+            # line the card's BIOS found at power-on and skips 30h
+            n30 = sum(1 for c in cmds if c[0] == 0x09)
+            m.write(m.sym("ui_rebootq"), bytes([2]))      # UI_RBQ_NOFLUSH
+            logf = os.path.join(m.b.run, "86box.log")
+            n30s = lambda: sum(1 for c in log_cmds(open(logf).read()) if c[0] == 0x09)
+            try:
+                os88marty.until(m, lambda _: n30s() > n30, guest=60,
+                                what="the card's BIOS to run again")
+            except os88marty.MartyError:
+                pass
+            again = n30s()
+            if again > n30:
+                ui.up()
+            check(again > n30, "Restart re-ran the card's BIOS (DEV_Init, "
+                  "09h: %d -> %d) and os8088 came back" % (n30, again))
+            ui.open_drive("B")
+            names = [str(e) for e in ui.listing()]
+            check(any("PMDMA" in n.upper() for n in names),
+                  "...with the card's B: still mounted (%s)" % names[:4])
+    except (os88marty.MartyError, os88ui.UIError) as e:
+        check(False, "the machine: %s" % str(e).split(". ")[0])
+    finally:
+        os.environ.pop("OS88_PMSD", None)
+        os.environ["OS88_86BOX_VM"] = "xt-picomem1"
+
+
+def leg_hdd(tmp):
+    """check 6: os8088 BOOTS off a hard disk the card serves (SPEC.md 52.10.16).
+
+    build/pmhd.img - a bootable os8088 FAT16 hard disk - is HDD 0 on the
+    card's microSD (mksd.py --hdd 0:), A: is EMPTY, and the machine must
+    reach a desktop: the XT's POST finds no floppy, the PicoMEM BIOS's int
+    13h answers 80h, the MBR and boothd load the kernel through it, and the
+    kernel's hard-disk boot volume reads the drivers through it too."""
+    import subprocess
+    import os88marty
+    import os88ui
+    sd = os.path.join(tmp, "hdd-sd.img")
+    subprocess.run([sys.executable, os.path.join(ROOT, "tools/picomem/mksd.py"), sd,
+                    "--mb", "64", "--hdd", "0:" + os.path.join(ROOT, "build/pmhd.img"),
+                    # the card's own boot strap: an XT BIOS goes to ROM BASIC
+                    # when its floppy is empty, as this one did without it
+                    "--cfg", "PMBOOT=1"],
+                   check=True, stdout=subprocess.DEVNULL)
+    os.environ["OS88_PMSD"] = sd
+    os.environ.pop("OS88_PMWAV", None)
+    try:
+        with os88ui.boot(None, apps=os.path.join(ROOT, "build/apps360.img"),
+                         machine="os8088_xt_vga", quick=True) as ui:
+            m = ui.m
+            cmds = log_cmds(open(os.path.join(m.b.run, "86box.log")).read())
+            n88 = sum(1 for c in cmds if c[0] == 0x88)
+            check(n88 >= 10, "a desktop, off the card's hard disk with A: empty "
+                  "(%d int 13h calls through CMD 88h; the loader reads in "
+                  "long runs)" % n88)
+            ui.open_drive("C")
+            names = [str(e) for e in ui.listing()]
+            # the kernel and drivers are SYSTEM-attributed and not listed; the
+            # SYSTEM folder is pmhd.img's, and A: is empty
+            check(any("SYSTEM" in n.upper() for n in names),
+                  "C: is the card's disk: its SYSTEM folder lists (%s)" % names[:6])
+    except (os88marty.MartyError, os88ui.UIError) as e:
+        check(False, "the machine: %s" % str(e).split(". ")[0])
+    finally:
+        os.environ.pop("OS88_PMSD", None)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("legs", nargs="*", default=["snd", "fdd", "hdd"],
+                    help="snd (checks 1-4), fdd (checks 5, 7), hdd (check 6)")
+    ap.add_argument("--keep", help="leave the captures and logs here")
+    a = ap.parse_args()
+    for f in ("build/pmsys360.img", "build/pmboxb360.img", "build/apps360.img",
+              "build/pmhd.img",
+              "build/picomem/v1/libpmhost-v1.so"):
+        if not os.path.exists(os.path.join(ROOT, f)):
+            print("SKIP: %s is not built (make pmboxtest; tools/picomem/build.sh)" % f)
+            return 0
+    tmp = a.keep or tempfile.mkdtemp(prefix="pmbox-")
+    os.makedirs(tmp, exist_ok=True)
+    os.environ.update(OS88_EMU="86box", OS88_86BOX_VM="xt-picomem1",
+                      OS88_PMHOST_LOG="1")
+    if "snd" in a.legs:
+        leg_snd(tmp)
+    if "fdd" in a.legs:
+        leg_fdd(tmp)
+    if "hdd" in a.legs:
+        leg_hdd(tmp)
     if not a.keep:
         shutil.rmtree(tmp, ignore_errors=True)
     if FAILS:

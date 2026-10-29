@@ -447,7 +447,7 @@ plus `test-full` after the last.
 | **0. Spike** (estimate 2-3 days; **BUILT**, section 6.1) | `host/` CMake target building `dev_picomem_io` + `pm_cmd` + `dev_memory` + `isa_irq` + `pm_pccmd` with the shim; the baton; the yield audit; a `ctypes` driver | A Python script against `libpmhost-v1.so` reads the 2A3h ramp, runs commands 00h/73h/77h/78h with the real firmware's answers, and serves the BIOS bytes at D0000h. **Its first consumer is `tests/picomem.py` itself**: its `sb`/`vs` legs swap their Python port model for the library, and the legs that pass are now agreeing with the card. |
 | **1. 86Box: the card boots** (**BUILT**, 6.2) | `07-picomem.patch`, `vm/xt-picomem1`, the SD-image tool | The PicoMEM BIOS banner and setup menu appear (screenshot via `os88box.py`); `int 13h` 6000h answers DX=AA55h, BX=D000h, CH=jumper; os8088 reaches a desktop with `pm_init`'s 100-read ramp passed. |
 | **2. Sound, 1.x** (**BUILT**, 6.3) | AdLib + SB 2.0 with virtual DMA (snoop, multiplexer, CPU copy), audio out | SOUND.DRV's Drivers row reads the SB and the AdLib on the card. A WAV plays and the card's output is captured (an `OS88_PMWAV` env var, in `04-sb-capture`'s shape). `pm_tick`'s AdLib keep-alive matters: removing it goes silent after 4 s, the firmware's own idle cut-off. |
-| **3. Disks** | `int 13h` floppy and HDD from SD-image files | B: is kept through `dsk_fdd_pmemu` (FDDn_Attribute bit 7); HDD.DRV's BIOS rung reads a VHD through the card; the warm restart (1234h, FFFF:0) re-enters the PicoMEM BIOS. |
+| **3. Disks** (**BUILT**, 6.4) | `int 13h` floppy and HDD from SD-image files | B: is kept through `dsk_fdd_pmemu` (FDDn_Attribute bit 7); HDD.DRV's BIOS rung reads a VHD through the card; the warm restart (1234h, FFFF:0) re-enters the PicoMEM BIOS. |
 | **4. NE2000** | the card's NE2000 over 86Box slirp | ETHER.DRV finds it at the configured base with the un-doubled PROM; DHCP and a fetch as in `tests/ethernet.py`. |
 | **5. Mouse and EMS** | `pm_mouse`; the card's EMS at 288h/D000h | USBMOUSE.DRV's PicoMEM backend moves the pointer (`int 33h` AX=0060h through the multiplexer); EMS.DRV finds 288h/D000h on the card instead of on the Lo-tech model. |
 | **6. The 2.x** | `libpmhost-v2` (`pm1x-pr` built `PICOMEM_20`, no GUS/MPU), real IRQ lines, real DMA, `vm/pc5150-picomem2` | SOUND.DRV configures the SB through command 77h on our firmware's 2.x build. If the public source still ignores the IRQ/DMA it is given (`PM2-10-4-26`'s note, section 9), this is where we find out, and the fix goes into `fw/`. This is the **first run of our code on a 2.x anywhere**, and it yields a `.uf2` to try on the 5150. |
@@ -627,6 +627,44 @@ takes away the PC's floppy drives.**
 - The same card with an empty SD reads 446Dh. Every `vm/` profile
   therefore mounts one: `tools/picomem/mksd.py` writes it, and
   `build.sh` makes `build/picomem/sd.img`.
+
+### 6.4 Wave 3, as built
+
+**What exists.**
+- **`tools/picomem/mksd.py` writes the card's whole SD.** `--fdd N:IMG` and
+  `--hdd N:IMG` put an image in `/FLOPPY` or `/HDD` and name it in a
+  `PICOMEM.CFG`, the binary `PMCFG_t` the BIOS's setup menu would have
+  written after a user picked it. `--cfg FIELD=VALUE` sets any byte or word
+  field.
+- The layout is `PMCFG_t`'s, 644 bytes. `--selfcheck` compares every offset
+  with `pm_cfg_fields()`, which the library builds from `offsetof()` on the
+  firmware's own struct, and they agree.
+- `OS88_PMSD=IMG` hands `os88box` a row's own card.
+- `vm/xt-picomem1-1fd` is the same XT with ONE floppy drive.
+
+**What `tests/pmbox.py` shows** (three boots, **122 s**, 13 checks):
+- **fdd.** On the one-drive XT, B: exists and lists the card's image
+  (PMDMA, SBTEST). This is SPEC.md 18.97.6 in the very situation it was
+  written for: the PicoMEM BIOS counts the image into the equipment word,
+  takes int 13h drive 1, and the kernel keeps a B: whose drive its probe
+  cannot find. The listing is the card's firmware answering through its PC
+  command channel: command 88h, the shared disk buffer, the BIOS's
+  `REP MOVSW`.
+- **Restart** is the warm reset of SPEC.md 18.100.1. It re-runs the card's
+  BIOS (DEV_Init 09h, 1 -> 2), os8088 comes back, and B: is still the card's.
+  On a warm boot the BIOS keeps the IRQ it found at power-on and skips
+  command 30h, which the first draft of the check assumed it would not.
+- **hdd.** `build/pmhd.img`, a bootable os8088 FAT16 disk at the card's
+  default geometry (65/16/63), is HDD 0. With **A: empty**, os8088 reaches
+  a desktop and C: is that disk. The kernel arrives in 24 int 13h calls,
+  because the loader reads in long runs. That is the field machine's
+  PicoMEM-hosted VHD of SPEC.md 52.10.16. It needs the card's own boot
+  strap (`PMBOOT=1`): the XT's BIOS goes to ROM BASIC when its floppy is
+  empty, as it did here first.
+
+**Not yet broken on purpose.** The fdd and restart checks have no knob that
+undoes them: there is no build without `dsk_fdd_pmemu` or with an `int 19h`
+Restart. The snd leg's NOSNOOP break turns the row red as a whole.
 
 ## 7. What it will catch, and what it cannot
 

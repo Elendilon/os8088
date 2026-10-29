@@ -18268,18 +18268,23 @@ SOAK = [
         "the walk (SPEC.md 34.10.2), and without that the vsfw CMS case "
         "FAILS 3 checks, CMS's 224h reading FFh",
         needs=("nasm", "unicorn", "pmhost")),
-    Row("pmbox", "soak", py("tests/pmbox.py"), 60.0,
-        "docs/plans/PICOMEM-EMU-PLAN.md waves 1-2: the PicoMEM in 86Box "
+    Row("pmbox", "soak", py("tests/pmbox.py"), 125.0,
+        "docs/plans/PICOMEM-EMU-PLAN.md waves 1-3: the PicoMEM in 86Box "
         "(vm/xt-picomem1, tools/86box/patches/07-picomem.patch) running ITS "
-        "OWN FIRMWARE (libpmhost): the BIOS detects the card's IRQ, SOUND.DRV "
-        "attaches on it in SPEC.md 34.10's order (78h 0 first, 34.10.2), "
-        "PMDMA's four ways of programming channel 1 all copy from the right "
-        "address through the 1.x's virtual DMA, and SBTEST's 1 kHz square "
-        "plays 2 s out of the card's own DAC (OS88_PMWAV, 49,716 Hz, card "
-        "time). Broken on purpose, OS88_PMHOST_NOSNOOP=1: PMDMA's auto-init "
-        "stream never ends and the tone never plays - 4 FAILS",
+        "OWN FIRMWARE (libpmhost), three boots. snd: the BIOS detects the "
+        "card's IRQ, SOUND.DRV attaches in SPEC.md 34.10's order (78h 0 "
+        "first, 34.10.2), PMDMA's four ways of programming channel 1 all copy "
+        "from the right address through the 1.x's virtual DMA, and SBTEST's "
+        "1 kHz square plays 2 s out of the card's own DAC (OS88_PMWAV). fdd: "
+        "on a ONE-drive XT, B: is the card's image off its microSD through "
+        "its int 13h (SPEC.md 18.97.6), and Restart is a warm reset that "
+        "re-runs the card's BIOS (18.100.1). hdd: os8088 boots off a hard "
+        "disk the card serves with A: empty (52.10.16). Broken on purpose, "
+        "OS88_PMHOST_NOSNOOP=1: PMDMA's auto-init stream never ends and the "
+        "tone never plays - 4 FAILS",
         needs=("86box", "pmhost"), serial=True,
-        wants=("build/pmsys360.img", "build/pmboxb360.img")),
+        wants=("build/pmsys360.img", "build/pmboxb360.img", "build/pmhd.img",
+               "build/apps360.img")),
     Row("xmla", "soak", py("tests/xmla.py"), 2.0,
         "SPEC.md 41.13: XMEM.DRV's LOADALL transport, without a 286 - xm_bios, "
         "xm_lcopy, xm_lend, xm_lainit and xm_ltrip cut out of xmem.asm with "
