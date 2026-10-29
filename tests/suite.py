@@ -18291,8 +18291,8 @@ SOAK = [
         "on IRQ 5's own line; with only 7 jumpered it ends through the "
         "multiplexer on 7 and FAILS 2 checks",
         needs=("nasm", "unicorn", "pmhost")),
-    Row("pmbox", "soak", py("tests/pmbox.py"), 185.0,
-        "docs/plans/PICOMEM-EMU-PLAN.md waves 1-5: the PicoMEM in 86Box "
+    Row("pmbox", "soak", py("tests/pmbox.py"), 260.0,
+        "docs/plans/PICOMEM-EMU-PLAN.md waves 1-7: the PicoMEM in 86Box "
         "(vm/xt-picomem1, tools/86box/patches/07-picomem.patch) running ITS "
         "OWN FIRMWARE (libpmhost), three boots. snd: the BIOS detects the "
         "card's IRQ, SOUND.DRV attaches in SPEC.md 34.10's order (78h 0 "
@@ -18308,14 +18308,19 @@ SOAK = [
         "with no 86Box mouse at all, the card's USB mouse (86Box's pointer as "
         "HID reports) reaches USBMOUSE.DRV's PicoMEM backend through the "
         "card's IRQ and int 33h AX=0060h (SPEC.md 9.12.7) and os88ui opens "
-        "A: by double-click. Broken on purpose, OS88_PMHOST_NOSNOOP=1: "
+        "A: by double-click. mega: KERN_MEGA on vm/at286-picomem1, the card "
+        "its only mouse - the card's int 33h caught in kern_mega's IRQ "
+        "reflection and replayed (KERN-MEGA-PLAN 14.117) drives os88ui, and "
+        "SBTEST's tone plays through reflected multiplexer IRQs; with "
+        "mega_capon's int 33h capture skipped the pointer is stuck and 3 "
+        "checks FAIL. Broken on purpose, OS88_PMHOST_NOSNOOP=1: "
         "PMDMA's auto-init stream never ends and the tone never plays - 4 "
         "FAILS; USBMOUSE.DRV built in the old order (enable before the int 33h "
         "hook) with a report already waiting, the boot never reaches the "
         "desktop - FIELD-NOTES 66's freeze, reproduced",
         needs=("86box", "pmhost"), serial=True,
         wants=("build/pmsys360.img", "build/pmboxb360.img", "build/pmhd.img",
-               "build/apps360.img")),
+               "build/apps360.img", "build/mega.img")),
     Row("pmbox2", "soak", py("tests/pmbox.py", "--board", "2"), 185.0,
         "docs/plans/PICOMEM-EMU-PLAN.md wave 6: pmbox's legs on a PicoMEM 2.x "
         "(vm/xt-picomem2 and its -1fd/-usbm twins: OUR firmware, pm1x-pr, "

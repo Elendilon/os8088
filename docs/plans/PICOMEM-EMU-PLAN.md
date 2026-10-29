@@ -451,7 +451,7 @@ plus `test-full` after the last.
 | **4. NE2000** (**BUILT**, 6.5) | the card's NE2000 over 86Box slirp | ETHER.DRV finds it at the configured base with the un-doubled PROM; DHCP and a fetch as in `tests/ethernet.py`. |
 | **5. Mouse and EMS** (**BUILT**, 6.6) | `pm_mouse_move`; the card's EMS at 288h/E000h | USBMOUSE.DRV's PicoMEM backend moves the pointer (`int 33h` AX=0060h through the multiplexer); EMS.DRV finds 288h/D000h on the card instead of on the Lo-tech model. |
 | **6. The 2.x** (**BUILT**, 6.7; the machine is `vm/xt-picomem2`) | `libpmhost-v2` (`pm1x-pr` built `PICOMEM_20`, no GUS/MPU), real IRQ lines, real DMA, `vm/pc5150-picomem2` | SOUND.DRV configures the SB through command 77h on our firmware's 2.x build. If the public source still ignores the IRQ/DMA it is given (`PM2-10-4-26`'s note, section 9), this is where we find out, and the fix goes into `fw/`. This is the **first run of our code on a 2.x anywhere**, and it yields a `.uf2` to try on the 5150. |
-| **7. kern_mega** | `vm/286-mega` with the card | The reflected multiplexer IRQs are visible and counted under `faults`/E9; this gives the open KERN-MEGA item a machine. |
+| **7. kern_mega** (**BUILT**, 6.8; the machine is `vm/at286-picomem1`) | `vm/286-mega` with the card | The reflected multiplexer IRQs are visible and counted under `faults`/E9; this gives the open KERN-MEGA item a machine. |
 | **8. MartyPC** | `17-picomem.patch`, the snoop hook, two machines | `pm_runaway`'s detection is measured on a 4.77 MHz 8088 against the card's own DMA pacing; `videmsslow`'s premise (8 wait states) is read off a real card model. |
 | **9. Suite and docs** | rows, profiles, TESTING.md, FIELD-MACHINES | Section 8's rows registered; docs/TESTING.md's matrix gains a PicoMEM row; CLAUDE.md's emulator lists name the profiles. |
 
@@ -806,6 +806,33 @@ on the 5150". Building one needs the Pico SDK and an ARM toolchain, which
 this tree's tools do not fetch; section 10 is the recipe. The host build
 answers what our firmware would do on a 2.x; whether the iron agrees is
 that `.uf2`'s question.
+
+### 6.8 Wave 7, as built
+
+**What exists.** `vm/at286-picomem1` is `vm/at286-port`, the mr286 every
+kern_mega row on 86Box boots (with its seeded CMOS), plus a PicoMEM 1.x
+whose USB mouse is the machine's only pointer, as the Victory 286 has one.
+`tests/pmbox.py mega` (check 10) boots `build/mega.img` with SOUND, ETHER
+and USBMOUSE wanted.
+
+**What it showed.** Everything the card raises is its option ROM's IRQ,
+so kern_mega reflects it to real mode (`mega_irqrom`). Two things ride
+those reflections, and both work against the card's own firmware:
+- **The mouse.** The card's ROM does `int 33h AX=0060h` inside the
+  reflection. `mega_capon` catches it and `mega_m33go` replays it in
+  protected mode (KERN-MEGA-PLAN 14.117, until now run only against a
+  model ROM under Bochs). The card's mouse drives os88ui to B: and opens
+  SBTEST. The mouse is moved before the machine runs, as in check 9.
+- **The Sound Blaster.** SBTEST's tone plays 2.01 s, and every 128-byte
+  block of it is a reflected multiplexer IRQ whose ROM handler copies it.
+- MEASURED broken on purpose: with `mega_capon`'s int 33h capture skipped,
+  kern_mega still boots in protected mode and SOUND.DRV still attaches,
+  but the pointer never moves and the leg FAILS 3 checks.
+
+The plan's "counted under `faults`/E9" is not what the leg asserts. The
+reflections are proved by what they carry, the copies and the reports,
+which is the stronger statement. A count would need a counter kern_mega
+does not keep.
 
 ## 7. What it will catch, and what it cannot
 

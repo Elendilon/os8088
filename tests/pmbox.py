@@ -30,6 +30,12 @@ Then leg mouse (check 9), on vm/xt-picomem1-usbm - no 86Box mouse, the
 card's USB mouse fed 86Box's pointer: USBMOUSE.DRV turns it on (52h) and
 os88ui double-clicks A: open through the card's IRQ and int 33h AX=0060h.
 
+Leg mega (check 10) is kern_mega on vm/at286-picomem1, the card its only
+mouse: the card's int 33h caught inside kern_mega's IRQ reflection drives
+os88ui, and SBTEST's tone plays through reflected multiplexer IRQs.
+`--board 2` runs the legs on a 2.x (vm/xt-picomem2) and leaves PMDMA and
+the mega leg out.
+
 Broken on purpose, OS88_PMHOST_NOSNOOP=1 (the card stops hearing the PC's
 8237 writes): MEASURED below in the plan's 6.3 - A to D still read right
 (the BIOS's copy takes its source from the 8237 itself), but PMDMA's
@@ -81,6 +87,39 @@ def wav_frames(path):
     n = struct.unpack_from("<I", d, 40)[0] // 4
     fr = struct.unpack_from("<%dh" % (2 * n), d, 44)
     return rate, list(zip(fr[0::2], fr[1::2]))
+
+
+def check_tone(wav):
+    """SBTEST's 2 s of a 1 kHz square, out of the card's own DAC"""
+    if os.path.exists(wav) and os.path.getsize(wav) > 44:
+        rate, fr = wav_frames(wav)
+        left = [l for l, _ in fr]
+        # the capture is the whole session - the BIOS's beep and PMDMA's
+        # 64-byte transfers click too - so the tone is the LONGEST stretch of
+        # 10 ms blocks with any level in them
+        blk = rate // 100
+        act = [max(left[i:i + blk]) - min(left[i:i + blk]) > 1000
+               for i in range(0, len(left) - blk, blk)]
+        runs, st = [], None
+        for i, on in enumerate(act + [False]):
+            if on and st is None:
+                st = i
+            elif not on and st is not None:
+                runs.append((st, i))
+                st = None
+        a0, b0 = max(runs, key=lambda r: r[1] - r[0]) if runs else (0, 0)
+        tone = left[a0 * blk:b0 * blk]
+        secs = len(tone) / rate
+        mean = sum(tone) / max(1, len(tone))
+        ups = sum(1 for i in range(1, len(tone)) if tone[i - 1] <= mean < tone[i])
+        hz = ups / secs if secs else 0
+        pp = (max(tone) - min(tone)) if tone else 0
+        check(1.8 < secs < 2.4, "the card's DAC played one stretch of %.2f s "
+              "(SBTEST stages 2 s)" % secs)
+        check(950 < hz < 1050 and pp > 2000, "...a %.0f Hz tone at %d peak to "
+              "peak (SBTEST's 1 kHz square)" % (hz, pp))
+    else:
+        check(False, "the card's DAC was captured (%s)" % wav)
 
 
 def leg_snd(tmp):
@@ -151,35 +190,7 @@ def leg_snd(tmp):
     except (os88marty.MartyError, os88ui.UIError) as e:
         check(False, "the machine: %s" % str(e).split(". ")[0])
 
-    if os.path.exists(wav) and os.path.getsize(wav) > 44:
-        rate, fr = wav_frames(wav)
-        left = [l for l, _ in fr]
-        # the capture is the whole session - the BIOS's beep and PMDMA's
-        # 64-byte transfers click too - so the tone is the LONGEST stretch of
-        # 10 ms blocks with any level in them
-        blk = rate // 100
-        act = [max(left[i:i + blk]) - min(left[i:i + blk]) > 1000
-               for i in range(0, len(left) - blk, blk)]
-        runs, st = [], None
-        for i, on in enumerate(act + [False]):
-            if on and st is None:
-                st = i
-            elif not on and st is not None:
-                runs.append((st, i))
-                st = None
-        a0, b0 = max(runs, key=lambda r: r[1] - r[0]) if runs else (0, 0)
-        tone = left[a0 * blk:b0 * blk]
-        secs = len(tone) / rate
-        mean = sum(tone) / max(1, len(tone))
-        ups = sum(1 for i in range(1, len(tone)) if tone[i - 1] <= mean < tone[i])
-        hz = ups / secs if secs else 0
-        pp = (max(tone) - min(tone)) if tone else 0
-        check(1.8 < secs < 2.4, "the card's DAC played one stretch of %.2f s "
-              "(SBTEST stages 2 s)" % secs)
-        check(950 < hz < 1050 and pp > 2000, "...a %.0f Hz tone at %d peak to "
-              "peak (SBTEST's 1 kHz square)" % (hz, pp))
-    else:
-        check(False, "the card's DAC was captured (%s)" % wav)
+    check_tone(wav)
 
 
 
@@ -398,11 +409,74 @@ def leg_mouse_up(ui, m):
     ui.close(w)
 
 
+def leg_mega(tmp):
+    """check 10: KERN_MEGA WITH THE CARD - the 286 protected-mode kernel on
+    vm/at286-picomem1 (the kern_mega rows' mr286, plus a PicoMEM 1.x whose
+    USB mouse is the machine's only pointer), SOUND, ETHER and USBMOUSE
+    wanted. Every interrupt the card raises is its option ROM's, so
+    kern_mega REFLECTS it to real mode (mega_irqrom, KERN-MEGA-PLAN 10.3
+    item 18) - and the two things that ride those reflections are the ones
+    this boots: SBTEST's tone, every 128-byte block of it a reflected
+    multiplexer IRQ whose ROM handler copies it, and the card's mouse, whose
+    ROM does int 33h AX=0060h inside that reflection, caught by mega_cap33
+    and replayed in protected mode (14.117 - until now only ever run
+    against a model ROM under Bochs). The mouse is moved before the machine
+    runs, as in check 9."""
+    import os88marty
+    import os88ui
+    wav = os.path.join(tmp, "mega.wav")
+    os.environ.update(OS88_MEGA="1", OS88_MEGA_EMU="86box",
+                      OS88_MEGA_VM="at286-picomem1", OS88_PMWAV=wav)
+    os.environ.pop("OS88_PMSD", None)
+    try:
+        import os88box86api
+        # build/mega.img with a SYSTEM.CFG wanting SOUND, ETHER and USBMOUSE
+        # (the pmsys disks' set), written the way the backends write theirs
+        a = os88box86api._with_cfg(os.path.join(ROOT, "build/mega.img"),
+                                   (1 << 0) | (1 << 4) | (1 << 6))
+        cm = os88marty.launch(a, apps=os.path.join(ROOT, "build/pmboxb360.img"),
+                              machine="os8088_xt_vga", boot=False)  # (the profile is the AT)
+        m = cm.__enter__()
+        try:
+            m.b.mouse(12, 9, 0)
+            m.run()
+            ui = os88ui.UI(m)
+            ui.up(limit=240.0)
+            os88marty.no_saver(m)
+            feat = m.read(m.sym("cpu_feat"), 1)[0]
+            check(feat & 0x10, "kern_mega is in PROTECTED mode (cpu_feat %02Xh "
+                  "has CPU_F_PM)" % feat)
+            cmds = log_cmds(open(os.path.join(m.b.run, "86box.log")).read())
+            names = [c for c, _, _, _ in cmds]
+            att = [x[:2] for x in cmds if x[0] in (0x73, 0x77, 0x78)]
+            check(0x52 in names and att[:2] == [(0x78, 0), (0x73, 1)]
+                  and (0x78, 0x220) in att,
+                  "kern_mega is up with the card: SOUND.DRV's 78h 0, 73h 1 ... "
+                  "78h 220h and USBMOUSE.DRV's 52h (%d commands)" % len(cmds))
+            ptr = lambda: tuple(struct.unpack("<HH", bytes(m.read(m.sym("mouse_x"), 4))))
+            p0 = ptr()
+            w = ui.path("B:/SBTEST.O88")
+            check(ptr() != p0 and w is not None,
+                  "the card's mouse, through the reflected int 33h, moved the "
+                  "pointer %r -> %r and opened B:'s SBTEST" % (p0, ptr()))
+            x, y, ww, hh = ui._rect(w.i)
+            ui.mo.click(x + ww // 2, y + hh // 2, settle=0)
+            os88marty.pace(m, 4.0)
+        finally:
+            cm.__exit__(None, None, None)
+    except (os88marty.MartyError, os88ui.UIError, SystemExit) as e:
+        check(False, "the machine: %s" % str(e).split(". ")[0])
+    finally:
+        for k in ("OS88_MEGA", "OS88_MEGA_EMU", "OS88_MEGA_VM", "OS88_PMWAV"):
+            os.environ.pop(k, None)
+    check_tone(wav)
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("legs", nargs="*", default=["snd", "fdd", "hdd", "net", "mouse"],
+    ap.add_argument("legs", nargs="*", default=["snd", "fdd", "hdd", "net", "mouse", "mega"],
                     help="snd (checks 1-4), fdd (checks 5, 7), hdd (check 6), "
-                         "net (check 8), mouse (check 9)")
+                         "net (check 8), mouse (check 9), mega (check 10, the 1.x only)")
     ap.add_argument("--keep", help="leave the captures and logs here")
     ap.add_argument("--board", type=int, choices=(1, 2), default=1,
                     help="2: the same legs on a PicoMEM 2.x (vm/xt-picomem2: "
@@ -431,6 +505,8 @@ def main():
         leg_net(tmp)
     if "mouse" in a.legs:
         leg_mouse(tmp)
+    if "mega" in a.legs and a.board == 1:
+        leg_mega(tmp)
     if not a.keep:
         shutil.rmtree(tmp, ignore_errors=True)
     if FAILS:
