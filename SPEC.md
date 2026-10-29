@@ -202437,6 +202437,31 @@ not `MEGADIAG` they read 0. Under Bochs (no PicoMEM) a full-screen play of
 `OS8088.V88` counts the bracket's two mode sets, 9.4 ms each, and no IRQ.
 The shipped kern_mega kernel is byte-identical.
 
+The first field reading added up the IRQs' time wrong: an IRQ's reflection
+keeps the mask, so a channel-0 reload inside it is never counted at 40:6C
+and the length came out NEGATIVE - both plays' totals read 112.5 s, a small
+negative in the published word. A negative length now takes one period back
+(65,536 counts at the ROM's rate, the bracket's divisor under it). Read
+again on the Victory with the PicoMEM: **2,161 IRQs in a 77.3 s play, 1.0 ms
+each, 2.8% of it**, and the services **38.7%, 27.1 ms each**.
+
+##### 98.3.22.6 Two frames a call when behind, under kern_mega (2026-10-29)
+
+**The picture lagged the sound by a second on kern_mega with the ring 90
+frames ahead of it**, so the reader was not short. Every 32 KB read is one
+reflected `int 13h` of ~27 ms - the same as kern_big's own call, 28.7 against
+30.5 ms timed off a play's buffering reads - but under kern_big the hook runs
+INSIDE that call and under kern_mega it is shut out, and the periods that
+fell in the call come back as ONE hook call (`mega_rfclk`). A flipped file
+draws a frame a call (`vp_fcap` = 1), so a read cost the picture a call it
+never got back: same draws, same reads, frames behind median 14-35 against
+kern_big's 0. The kern_mega arm, flipping (`vp_flip` = 1) and with more
+frames due than the call would draw, draws a SECOND, after `vp_vwait` has
+seen the first one's page latch - so no frame goes into a page still on the
+glass, and the wait (under one refresh) is spent only while behind. The
+shipped player is unchanged: under kern_big the hook is not coalesced, and
+the second frame's decode would come out of a ring whose lead there is one.
+
 ##### 98.3.22.1 What the first profiles changed in the encoder (2026-10-15)
 
 **Three plays on the owner's Victory 286** (docs/reports/VIDPROF-

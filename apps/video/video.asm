@@ -18090,6 +18090,17 @@ vp_hook:
     jbe .n2
     inc word [vp_late]              ; more behind the sound than a call draws
     mov cx, [vp_fcap]
+%ifdef PKG_MEGA
+    cmp byte [vp_flip], 1           ; FLIPPING AND BEHIND, UNDER KERN_MEGA: a
+    jne .n2                         ; SECOND frame, once the first one's page
+    inc cx                          ; has latched (below). A reflected int 13h
+                                    ; holds the CPU ~27 ms with the hook shut
+                                    ; out, and its periods come back as ONE
+                                    ; call (mega_rfclk), so a frame a call
+                                    ; lost a call a read and never caught up:
+                                    ; a second behind the sound with the ring
+                                    ; 90 frames ahead (SPEC.md 98.3.22.6)
+%endif
 .n2:
     call vp_lybh
     sti
@@ -18101,7 +18112,16 @@ vp_hook:
     call vp_frame
     pop cx
     jc .top
+%ifdef PKG_MEGA
+    dec cx
+    jz .top
+    cmp byte [vp_flip], 1           ; (the page it shows latched before the
+    jne .f2                         ; next draw goes into the one it replaced)
+    call vp_vwait
+    jmp short .f2
+%else
     loop .f2
+%endif
 .top:
     sti
     mov bx, [vp_due]                ; still frames due after them: behind
