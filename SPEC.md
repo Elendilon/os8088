@@ -196490,6 +196490,11 @@ for byte the 519,000 file but for its options block, because the model's
 bank never emptied at either - its share ran ~4% under the diagnostic player's, and
 the margin in the bucket was 1.8 MB at 519,000 and 0.5 MB at 488,000.
 
+`mega_disk` was measured on players WITHOUT the two tiers (98.3.18.18),
+which skip the copy up in exactly the stretches it was measured in, so it is
+an upper bound on what kern_mega costs a file and is to be re-taken from
+plays of a tiered player.
+
 #### 98.2.4 Detail: less picture, the same screen
 
 **`--detail WxH`** (VGA8) makes the picture at a W-th of the canvas's width
@@ -202406,6 +202411,16 @@ copied and read every few chunks against the reference decode (20 seams and
 27 of the clip's 41 chunks straight in, 39 holds, 0 wrong); with the seam's
 copy taken out the play wedges. The diag build counts both (`tcn`, `tsw`) in
 the trailer, which `tools/os88vfit.py` prints.
+
+**The encoder prices it** (`os88venc.py`'s `TIERS`, `_drate`): in place the
+bank's copy up is charged on the disk only while the bucket is past the
+ring's reserve, as the copying FIFO's always was - where before the tiers it
+was charged on every chunk. Replayed through the model at each frame's
+measured share (98.2.3.8), Catch My Heart at kern_mega's 456,720 bytes a
+second falls 105 KB short at the worst against 1,019 KB without them, so a
+file made with `--kernel mega` gives up far less to cover the stretch the
+bank drains in. The borrows stay charged on every frame, which over-prices a
+record in a conventional slot a little.
 
 #### 98.3.22 The play's profile: every frame timed on the machine (2026-10-15)
 

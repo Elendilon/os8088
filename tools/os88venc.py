@@ -1457,6 +1457,11 @@ def audio_block(afmt, rate):
     return half
 
 
+TIERS = True            # THE PLAYER'S TWO TIERS (98.3.18.18): in place, a
+                        # chunk read with the reader close behind the picture
+                        # skips the copy up (_drate). A file is made for the
+                        # player that has them; one without them plays it a
+                        # copy short in the stretches the bank has drained
 AHEAD_SLACK = 0.10      # ...and Auto's (98.2.1.3): the share under the
                         # profile's disk an in-step stream must still fit
                         # at, or the file carries its sound ahead. T69 read
@@ -4877,8 +4882,11 @@ class Encoder:
             through borrows - `xbor_n` a frame (the super-packet and record
             headers, the record, the sound) and one more every `xyield`
             record bytes (vdec.inc's yields) - each `xbor_us`. The bank's
-            copy UP is the reader's, on the disk (set_bank), on EVERY
-            chunk: the ring is the bank's slots.
+            copy UP is the reader's, on the disk (set_bank), on every chunk
+            the BANK takes: one read with every live chunk in the
+            conventional ring is not copied (the two tiers, 98.3.18.18,
+            _drate). The borrows stay charged on every frame, which over-
+            prices a record in the conventional ring a little
           - "copy" (98.3.18.2's FIFO: a play the in-place paths refuse,
             on any tier - before 98.3.18.14 every 386 play, which is why
             the 486's profile said so): a banked record is copied DOWN inside
@@ -4948,12 +4956,16 @@ class Encoder:
 
     def _drate(self):
         """The disk's rate this frame: the profile's, less the bank's copies
-        while the bank holds anything (set_bank)"""
+        while the bank holds anything (set_bank). IN PLACE too, since the
+        player's two tiers (SPEC.md 98.3.18.18): a chunk read while every
+        live chunk fits the conventional ring goes there with no copy up, so
+        the copy is the reader's only while the bucket is past the ring's
+        reserve - where, before them, every chunk went up through the bank"""
         if self.bank and self.dslow != 1.0 and \
-                (getattr(self, "xmode", None) == "inplace" or
-                 self.disk.level > self.reserve):
-            return self.drate0 / self.dslow     # (in place: every chunk
-        return self.drate0                      # goes up through the bank)
+                ((getattr(self, "xmode", None) == "inplace" and
+                  not TIERS) or self.disk.level > self.reserve):
+            return self.drate0 / self.dslow
+        return self.drate0
 
     def begin(self):
         """A frame starts (_begin), and where the LAG SCHEDULE runs (fgrid:
