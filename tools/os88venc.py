@@ -285,7 +285,15 @@ PROFILES = {
     # fell 83 ms behind at most against 55 and 0 at 3.75 and read smoother on
     # the Victory, and the whole frame's share has been 123-126% on every
     # profiled play with no harm (SPEC.md 98.3.22.1)
+    # MEGA_DISK 0.88 (2026-10-29, SPEC.md 98.2.3.8): two plays' timed reads
+    # replayed through this curve at each frame's MEASURED share - Catch My
+    # Heart and Sonic 2 on the Victory - reproduce kern_big's dry frame
+    # within 2% of 519,000 (1371 against 1312, 737 against 733), and
+    # kern_mega's only at 475,000 and 455,000: 0.915 and 0.877, the worse
+    # taken. A reflected int 13h is a CPU reset, and the card's block
+    # interrupts are reflections too
     "286-picomem1": dict(disk=519000, avg=2.25, peak=5.4, owe=1.6, speed=4.5,
+                         mega_disk=0.88,
                          ring=8, xcopy=0.345, lcopy_us=1.966,
                          cyc_us=CYC_US_286PVGA8, **XPLAY_VICTORY,
                          **PLAY_VICTORY,
@@ -893,7 +901,7 @@ def implied(preset=None, pixfmt=None, profile="5150-st225", live=None,
 # its story the day that default moved. What a preset, a format or a
 # profile implied is stored as the value it came to, and so is the
 # speaker style's three numbers. It is ~160 bytes (os88vid.OPTS_ZDICT).
-OPTS_VERSION = 49
+OPTS_VERSION = 50
 # what is the encode's plumbing rather than how the file was made
 OPTS_SKIP = ("src", "out", "help", "progress", "quiet", "preview_png",
              "profiles", "posters_only")
@@ -928,7 +936,7 @@ OPTS_FINGERPRINT = {1: "06108fff43ef1307", 2: "496cc97e70197133",
                     43: "ec2917558c23907f", 44: "1baaf8c2dacb6f7b",
                     45: "9f36a470662f10ba", 46: "bdf38e4e169941ba",
                     47: "5de4b2ffebe0a64f", 48: "ba9e5d3fb742014e",
-                    49: "238b11ab4d51b177"}
+                    49: "238b11ab4d51b177", 50: "a2712f22a376dcac"}
 LAG_MS = "50-100"       # --lag's default (98.2.1.1.3), the owner's (2026-10-16):
                         # a RANGE, searched for each burst, where it was one
                         # number tuned by hand. Its top is the 100 ms that
@@ -1133,6 +1141,8 @@ MIGRATIONS = {
     # and dithered its edges
     48: [("added", "colour_mix", "all"), ("added", "colour_clip", None),
          ("added", "edge_solid", 0.0)],
+    # 50: --kernel (98.2.3.8) - a file made before it was made for kern_big
+    49: [("added", "kernel", "big")],
 }
 
 
@@ -9932,6 +9942,12 @@ def _encode(a, keep, tick, readers):
             pdef.get("frame_cap", "32")
     if a.live and prof["avg"] is not None:
         prof["avg"] = LIVE_AVG          # (the decode and the blit: 98.2.7)
+    # KERN_MEGA'S DISK (98.2.3.8): the profile's own rate, scaled by what
+    # the machine measured under kern_mega at the same share - before an
+    # explicit --disk, which is the rate on whichever kernel it names
+    if getattr(a, "kernel", "big") == "mega" and prof.get("disk") and \
+            prof.get("mega_disk"):
+        prof["disk"] = round(prof["disk"] * prof["mega_disk"])
     for k in ("disk", "avg", "peak", "owe", "reserve"):
         if getattr(a, k) is not None and getattr(a, k) != "auto":
             prof[k] = getattr(a, k)
@@ -12442,6 +12458,12 @@ def parser():
                          "frame is fitted to (--profiles says what each is)")
     ap.add_argument("--disk", type=float, help="the profile's bytes a "
                     "second, overridden")
+    ap.add_argument("--kernel", choices=("big", "mega"), default="big",
+                    help="the kernel it will play under: mega is kern_mega, "
+                         "whose every disk read is a CPU reset on a 286, "
+                         "and on a profile that has measured it the disk is "
+                         "that much slower (mega_disk, SPEC.md 98.2.3.8); "
+                         "a file made for mega plays on kern_big too")
     ap.add_argument("--avg", type=avg_arg, default="auto",
                     help="...its average CPU share, or AUTO (the default): the per-frame ceiling's on a profile whose disk curve already prices the reader, the profile's own share on one without (98.2.1.5)")
     ap.add_argument("--peak", type=float, help="...its per-frame ceiling")

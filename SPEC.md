@@ -196460,6 +196460,36 @@ ever. `tests/videnc.py` 5c.2 is the gate: a flat level is one level
 a ramp reaches every level with solid ends, and a Mode X file made with
 grey4 uses indices 0 to 3 and carries the ramp.
 
+##### 98.2.3.8 `--kernel mega`: kern_mega's disk (2026-10-29)
+
+**A file made for `286-picomem1` ran its bank dry on kern_mega and not, as
+a rule, on kern_big.** Replaying a play's own reads through the profile's
+curve settles which of the model's inputs is wrong: each frame's MEASURED
+share of its period (the play's VPPROF, 98.3.22) fed to `disk_at`, the
+records' bytes spent, the bank as the file was made for (2,944 KB, full at
+the first frame). For kern_big the replay runs dry within 2% of where the
+machine did - Catch My Heart at frame 1371 against 1312, Sonic 2 at 737
+against 733 - so the curve holds there. For kern_mega the same replay only
+runs dry where the play did with the disk at 475,000 (Catch) and 455,000
+(Sonic): 0.915 and 0.877 of the curve. Every read is a reflected `int 13h`,
+a CPU reset on a 286 (KERN-MEGA-PLAN 14.73), and so is every card block
+interrupt (98.3.22.5).
+
+So the profile carries `mega_disk` = 0.88, the worse of the two, and
+`--kernel mega` scales its disk by it before an explicit `--disk` is
+applied, which names the rate on whichever kernel it says. `--kernel big`
+is the default and changes nothing. A profile without `mega_disk` is
+unmeasured under kern_mega, and `--kernel mega` leaves it as it is. The
+encoder's bank model spends where the bucket allows, so the cut lands where
+the bank would have run dry and nowhere else, and a file made for kern_mega
+plays on kern_big too. Options version 50 (`kernel`, `big` for every older
+record).
+
+Why a lower `--disk` alone changed nothing: Catch at 488,000 came out byte
+for byte the 519,000 file but for its options block, because the model's
+bank never emptied at either - its share ran ~4% under the diagnostic player's, and
+the margin in the bucket was 1.8 MB at 519,000 and 0.5 MB at 488,000.
+
 #### 98.2.4 Detail: less picture, the same screen
 
 **`--detail WxH`** (VGA8) makes the picture at a W-th of the canvas's width
