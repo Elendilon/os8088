@@ -3051,6 +3051,17 @@ mega_svc_back:
     cwd
     add bx, ax
     adc si, dx                      ; SI:BX = the length, PIT counts
+    or si, si                       ; NEGATIVE: channel 0 reloaded and the
+    jns .rqok                       ; ROM never counted it - an IRQ's
+    inc si                          ; reflection keeps the mask, so its
+    cmp byte [sch_fast], SCH_RATE   ; IRQ0s wait for mega_replay - so one
+    jne .rqok                       ; period more, 65536 at the ROM's rate
+    cmp word [spk_seg], 0           ; or the bracket's divisor. Without it
+    jne .rqok                       ; every such reflection SUBTRACTED and
+    dec si                          ; the published total read as a small
+    add bx, [sch_rdiv]              ; negative: 112.5 s, the word's ceiling
+    adc si, 0
+.rqok:
     mov di, mega_rqi
     cmp byte [mega_irqr], 0
     jne .rq2
