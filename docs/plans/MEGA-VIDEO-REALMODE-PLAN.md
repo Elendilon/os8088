@@ -575,6 +575,25 @@ deduplicated union below, plus `test-full`.
    other packages now (games with a fullscreen disk loader), or keep it to
    the Video Player until the field says it holds?
 
+### 5.1 The owner's answers (2026-10-29)
+
+1. **Whichever is simpler** - to the owner's mind "always real", unless
+   there is a benefit to the dual-mode bracket or it is actually the simpler
+   and more reliable one. DECIDED: **always**, the one code path, for every
+   streamed fsx play that asks - unless W0's census finds a concrete loss
+   (a native-disk 286 whose rung-1 PIO the real-mode bracket cannot keep),
+   in which case W0 says so with the measurement before W1 starts.
+2. **The percentage is not a target.** What is: no dead code left behind -
+   whatever the bracket makes unreachable in the kern_mega arm is deleted in
+   the wave that makes it so, however little that is.
+3. **A fault inside the bracket hanging like kern_big's: acceptable.**
+4. **The first fill: wherever the switch point is cleanest and works** -
+   the implementer's call, written down with the reason.
+5. **The flag is GENERIC.** `FSXF_REAL` is open to every fsx package from
+   the day it ships, documented in SPEC.md 53 as a bracket flag like
+   `FSXF_RATE`: other programs are expected to hit the same wall, if not as
+   hard as the Video Player.
+
 ---
 
 ## 6. What this plan could not determine
