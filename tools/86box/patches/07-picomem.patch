@@ -7,12 +7,13 @@ patch builds with no dependency on it. Every I/O and memory cycle the card
 decodes goes to the firmware; its decode is mirrored into 86Box per 8-port
 block and per 8 KB block, so nothing else on the bus changes; card time is
 the machine's, in 100 us ticks, and its DAC is mixed in at 48 kHz.
-Config: [PicoMEM #1] irq, sd_image, lib.
+Config: [PicoMEM #1] irq, sd_image, lib. The card's NE2000 (a Pico W's Wi-Fi
+bridge) reaches 86Box's network through a companion NIC, net_01_card =
+picomem_ne2k, which network.c starts like any card.
 tools/os88box.py resolves lib and copies sd_image like a disk.
 
 docs/plans/PICOMEM-EMU-PLAN.md section 5.1.
 
-diff --git a/src/device/CMakeLists.txt b/src/device/CMakeLists.txt
 diff --git a/src/device/CMakeLists.txt b/src/device/CMakeLists.txt
 index 4526b6c..b67d080 100644
 --- a/src/device/CMakeLists.txt
@@ -27,10 +28,10 @@ index 4526b6c..b67d080 100644
      isapnp.c
 diff --git a/src/device/isa_picomem.c b/src/device/isa_picomem.c
 new file mode 100644
-index 0000000..dad3ebd
+index 0000000..33c6c4b
 --- /dev/null
 +++ b/src/device/isa_picomem.c
-@@ -0,0 +1,389 @@
+@@ -0,0 +1,453 @@
 +/*
 + * 86Box    A hypervisor and IBM PC system emulator that specializes in
 + *          running old operating systems and software designed for IBM
@@ -73,12 +74,15 @@ index 0000000..dad3ebd
 +#include <86box/plat.h>
 +#include <86box/isamem.h>
 +#include <86box/sound.h>
++#include <86box/thread.h>
++#include <86box/network.h>
 +
 +/* pmhost.h, restated: this file must build without the library's tree. */
 +typedef struct pm_host {
 +    void *ctx;
 +    void (*irq)(void *ctx, int line, int level);
 +    void (*log)(void *ctx, const char *text);
++    void (*net_tx)(void *ctx, const uint8_t *frame, int len);
 +} pm_host_t;
 +
 +typedef struct pm_cfg {
@@ -103,6 +107,7 @@ index 0000000..dad3ebd
 +    void (*mem_map)(uint8_t *);
 +    int (*audio)(int16_t *, int);   /* optional: a library with no DAC is silent */
 +    int (*audio_rate)(void);
++    void (*net_rx)(const uint8_t *, int); /* optional: a library with no NE2000 */
 +
 +    int           irq;
 +    int           level;
@@ -118,6 +123,16 @@ index 0000000..dad3ebd
 +} picomem_t;
 +
 +static picomem_t *the_card;      /* libpmhost is one card per library */
++
++/* The card's NE2000 is a Pico W's Wi-Fi bridge; here its "air" is 86Box's
++ * network, reached through a companion network card (picomem_ne2k_device,
++ * below) that 86Box's network layer starts like any NIC - network_attach
++ * only works from inside that. The two meet through this pointer, in
++ * whichever order 86Box starts them. */
++static netcard_t *pm_netcard;
++
++/* The station address libpmhost's NE2000 answers with (pmhost_wifi.cpp). */
++static uint8_t pm_mac[6] = { 0x28, 0xCD, 0xC1, 0x08, 0x80, 0x88 };
 +
 +static void picomem_sync(picomem_t *dev);
 +
@@ -141,6 +156,54 @@ index 0000000..dad3ebd
 +    else
 +        picintc(1 << line);
 +}
++
++static void
++picomem_net_tx_cb(void *ctx, const uint8_t *frame, int len)
++{
++    (void) ctx;
++    if (pm_netcard)
++        network_tx(pm_netcard, (uint8_t *) frame, len);
++}
++
++static int
++picomem_ne2k_rx(void *priv, uint8_t *buf, int len)
++{
++    (void) priv;
++    if (the_card && the_card->net_rx)
++        the_card->net_rx(buf, len);
++    return 1;
++}
++
++static void *
++picomem_ne2k_init(const device_t *info)
++{
++    (void) info;
++    pm_netcard = network_attach(&pm_netcard, pm_mac, picomem_ne2k_rx, NULL);
++    return &pm_netcard;
++}
++
++static void
++picomem_ne2k_close(void *priv)
++{
++    (void) priv;
++    if (pm_netcard)
++        netcard_close(pm_netcard);
++    pm_netcard = NULL;
++}
++
++const device_t picomem_ne2k_device = {
++    .name          = "PicoMEM NE2000 (the card's Wi-Fi)",
++    .internal_name = "picomem_ne2k",
++    .flags         = DEVICE_ISA,
++    .local         = 0,
++    .init          = picomem_ne2k_init,
++    .close         = picomem_ne2k_close,
++    .reset         = NULL,
++    .available     = NULL,
++    .speed_changed = NULL,
++    .force_redraw  = NULL,
++    .config        = NULL
++};
 +
 +static uint8_t
 +picomem_inb(uint16_t port, void *priv)
@@ -305,6 +368,7 @@ index 0000000..dad3ebd
 +
 +    *(void **) &dev->audio      = dlsym(dev->lib, "pm_audio_read");
 +    *(void **) &dev->audio_rate = dlsym(dev->lib, "pm_audio_rate");
++    *(void **) &dev->net_rx     = dlsym(dev->lib, "pm_net_rx");
 +
 +    dev->irq = device_get_config_int("irq");
 +    picomem_resolve(device_get_config_string("sd_image"), dev->sd_path, sizeof dev->sd_path);
@@ -322,6 +386,7 @@ index 0000000..dad3ebd
 +    dev->host.ctx = dev;
 +    dev->host.irq = picomem_irq_cb;
 +    dev->host.log = picomem_log_cb;
++    dev->host.net_tx = picomem_net_tx_cb;
 +    cfg.irq       = dev->irq;
 +    cfg.sd_image  = dev->sd_path[0] ? dev->sd_path : NULL;
 +    if (dev->create(&cfg, &dev->host) != 0) {
@@ -441,3 +506,24 @@ index c87421e..f6744cc 100644
      { NULL                 }
      // clang-format on
  };
+diff --git a/src/network/network.c b/src/network/network.c
+index cb77d76..d7556b9 100644
+--- a/src/network/network.c
++++ b/src/network/network.c
+@@ -84,6 +84,8 @@ typedef struct net_card_migrate_t {
+     const char     *old_internal_name;
+ } net_card_migrate_t;
+ 
++extern const device_t picomem_ne2k_device;   /* device/isa_picomem.c */
++
+ static const NETWORK_CARD net_cards[] = {
+     // clang-format off
+     { &device_none                },
+@@ -100,6 +102,7 @@ static const NETWORK_CARD net_cards[] = {
+     { &wd8003e_device             },
+     { &wd8003eb_device            },
+     { &wd8013ebt_device           },
++    { &picomem_ne2k_device        },   /* os8088 patch 07: the PicoMEM's */
+     /* COM */
+     { &modem_device               },
+     /* LPT */

@@ -448,7 +448,7 @@ plus `test-full` after the last.
 | **1. 86Box: the card boots** (**BUILT**, 6.2) | `07-picomem.patch`, `vm/xt-picomem1`, the SD-image tool | The PicoMEM BIOS banner and setup menu appear (screenshot via `os88box.py`); `int 13h` 6000h answers DX=AA55h, BX=D000h, CH=jumper; os8088 reaches a desktop with `pm_init`'s 100-read ramp passed. |
 | **2. Sound, 1.x** (**BUILT**, 6.3) | AdLib + SB 2.0 with virtual DMA (snoop, multiplexer, CPU copy), audio out | SOUND.DRV's Drivers row reads the SB and the AdLib on the card. A WAV plays and the card's output is captured (an `OS88_PMWAV` env var, in `04-sb-capture`'s shape). `pm_tick`'s AdLib keep-alive matters: removing it goes silent after 4 s, the firmware's own idle cut-off. |
 | **3. Disks** (**BUILT**, 6.4) | `int 13h` floppy and HDD from SD-image files | B: is kept through `dsk_fdd_pmemu` (FDDn_Attribute bit 7); HDD.DRV's BIOS rung reads a VHD through the card; the warm restart (1234h, FFFF:0) re-enters the PicoMEM BIOS. |
-| **4. NE2000** | the card's NE2000 over 86Box slirp | ETHER.DRV finds it at the configured base with the un-doubled PROM; DHCP and a fetch as in `tests/ethernet.py`. |
+| **4. NE2000** (**BUILT**, 6.5) | the card's NE2000 over 86Box slirp | ETHER.DRV finds it at the configured base with the un-doubled PROM; DHCP and a fetch as in `tests/ethernet.py`. |
 | **5. Mouse and EMS** | `pm_mouse`; the card's EMS at 288h/D000h | USBMOUSE.DRV's PicoMEM backend moves the pointer (`int 33h` AX=0060h through the multiplexer); EMS.DRV finds 288h/D000h on the card instead of on the Lo-tech model. |
 | **6. The 2.x** | `libpmhost-v2` (`pm1x-pr` built `PICOMEM_20`, no GUS/MPU), real IRQ lines, real DMA, `vm/pc5150-picomem2` | SOUND.DRV configures the SB through command 77h on our firmware's 2.x build. If the public source still ignores the IRQ/DMA it is given (`PM2-10-4-26`'s note, section 9), this is where we find out, and the fix goes into `fw/`. This is the **first run of our code on a 2.x anywhere**, and it yields a `.uf2` to try on the 5150. |
 | **7. kern_mega** | `vm/286-mega` with the card | The reflected multiplexer IRQs are visible and counted under `faults`/E9; this gives the open KERN-MEGA item a machine. |
@@ -665,6 +665,41 @@ takes away the PC's floppy drives.**
 **Not yet broken on purpose.** The fdd and restart checks have no knob that
 undoes them: there is no build without `dsk_fdd_pmemu` or with an `int 19h`
 Restart. The snd leg's NOSNOOP break turns the row red as a whole.
+
+### 6.5 Wave 4, as built
+
+**What exists.**
+- **The library compiles the card's NE2000 as-is** (`src/ne2000/ne2000.c`,
+  `PM_WIFI=1`, the Pico W's).
+- Its wire, the CYW43 Wi-Fi chip, is `pmhost_wifi.cpp`:
+  - joining succeeds at once and the link is up;
+  - `cyw43_send_ethernet` is the host's new `net_tx`;
+  - `pm_net_rx` is the chip's receive callback.
+- The station address is fixed: 28:CD:C1:08:80:88, Raspberry Pi's OUI.
+- **In 86Box, a companion NIC carries the frames.** `network_attach` works
+  only for a card 86Box's network layer itself starts, so patch 07 adds
+  `picomem_ne2k`. The profile names it (`net_01_card = picomem_ne2k` on
+  slirp), and it passes frames between that backend and the PicoMEM device.
+- `mksd.py` writes a `WIFI.TXT`, because without one the firmware never
+  starts the NE2000.
+- The default card (`build/picomem/sd.img`) has the NE2000 at 300h on
+  IRQ 3, as the field cards do.
+
+**What it showed.**
+- `tests/pmbox.py net`: ETHER.DRV attaches on the card at 300h with its
+  station address, through SPEC.md 72.2's un-doubled-PROM probe. DHCP
+  binds 10.0.2.15 through the card's 8390, with 2 frames each way.
+- The NE2000's IRQ comes through the 1.x multiplexer as a software
+  `int 0Bh`.
+- The row is 16 checks over four boots, **143 s**.
+
+**A host-only bug worth knowing:** `ne2000.c` calls newlib's `itoa`, which
+glibc lacks. Without a prototype, C takes its result as an `int`, which
+truncates a 64-bit pointer, and 86Box crashed the first time
+`PM_Wifi_GetStatus` ran. The shim now declares it. This is the second time
+the firmware's 32-bit assumptions have mattered (6.1's `pmh_cell` was the
+first), so a new firmware file brought into the build wants its pointer
+arithmetic read.
 
 ## 7. What it will catch, and what it cannot
 

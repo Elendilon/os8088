@@ -283,10 +283,57 @@ def leg_hdd(tmp):
         os.environ.pop("OS88_PMSD", None)
 
 
+def leg_net(tmp):
+    """check 8: ETHER.DRV finds the card's NE2000 and DHCP binds through it.
+
+    The default card (tools/picomem/build.sh's sd.img) has its NE2000 at
+    300h on IRQ 3, as the field cards do. Its wire is the Pico W's Wi-Fi,
+    which here is 86Box's slirp through the companion NIC picomem_ne2k. So
+    ETHER.DRV's probe has to accept the card's un-doubled PROM (SPEC.md
+    72.2), its 8390 has to send the DISCOVER and take the OFFER and ACK into
+    its ring, and the card's multiplexer has to raise the NE2000's IRQ as
+    int 0Bh - and the lease is slirp's 10.0.2.15."""
+    import os88marty
+    import os88ui
+    import ethernet as eth
+    syms = eth.ether_syms()
+    os.environ.pop("OS88_PMSD", None)
+    os.environ.pop("OS88_PMWAV", None)
+    try:
+        with os88ui.boot(os.path.join(ROOT, "build/pmsys360.img"),
+                         machine="os8088_xt_vga", quick=True) as ui:
+            m = ui.m
+            S = m.sym
+            drvseg = lambda: eth.u16(m.read(S("drv_tab") + eth.ETH_ROW * eth.DRVR_SZ
+                                            + eth.DRVR_SEG, 2))
+            seg = drvseg()
+            check(seg != 0, "ETHER.DRV attached (segment %04X)" % seg)
+            if not seg:
+                return
+            rd = lambda n, k: bytes(m.read(seg * 16 + syms[n], k))
+            base = eth.u16(rd("eth_base", 2))
+            mac = rd("eth_mac", 6)
+            check(base == 0x300 and mac == bytes([0x28, 0xCD, 0xC1, 0x08, 0x80, 0x88]),
+                  "...on the card's NE2000: base %03Xh, station %s" % (base, mac.hex()))
+            try:
+                os88marty.until(m, lambda _: rd("dhcp_st", 1)[0] == eth.DH_BOUND,
+                                guest=30, what="DHCP to bind")
+            except os88marty.MartyError:
+                pass
+            ip = eth.dotted(rd("eth_ip", 4))
+            check(rd("dhcp_st", 1)[0] == eth.DH_BOUND and ip == "10.0.2.15",
+                  "DHCP bound through the card: %s (state %d), %d frames in, %d out"
+                  % (ip, rd("dhcp_st", 1)[0], eth.u16(rd("eth_nrx", 2)),
+                     eth.u16(rd("eth_ntx", 2))))
+    except (os88marty.MartyError, os88ui.UIError) as e:
+        check(False, "the machine: %s" % str(e).split(". ")[0])
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("legs", nargs="*", default=["snd", "fdd", "hdd"],
-                    help="snd (checks 1-4), fdd (checks 5, 7), hdd (check 6)")
+    ap.add_argument("legs", nargs="*", default=["snd", "fdd", "hdd", "net"],
+                    help="snd (checks 1-4), fdd (checks 5, 7), hdd (check 6), "
+                         "net (check 8)")
     ap.add_argument("--keep", help="leave the captures and logs here")
     a = ap.parse_args()
     for f in ("build/pmsys360.img", "build/pmboxb360.img", "build/apps360.img",
@@ -305,6 +352,8 @@ def main():
         leg_fdd(tmp)
     if "hdd" in a.legs:
         leg_hdd(tmp)
+    if "net" in a.legs:
+        leg_net(tmp)
     if not a.keep:
         shutil.rmtree(tmp, ignore_errors=True)
     if FAILS:

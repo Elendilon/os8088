@@ -52,6 +52,7 @@ set(FW_SOURCES
   qwiic/pm_i2c.c qwiic/i2c_ht16k33.c qwiic/i2c_pfc85263.cpp
   lib/FatFs_SPI/ff15/source/ff.c lib/FatFs_SPI/ff15/source/ffsystem.c
   lib/FatFs_SPI/ff15/source/ffunicode.c lib/FatFs_SPI/src/f_util.c
+  ne2000/ne2000.c
 )
 list(TRANSFORM FW_SOURCES PREPEND ${FW}/)
 
@@ -86,6 +87,7 @@ file(WRITE ${BIOS_C}
 # ---- the shim ---------------------------------------------------------------
 set(SHIM_SOURCES
   ${SHIM}/pmhost.cpp ${SHIM}/pmhost_sd.cpp ${SHIM}/pmhost_audio.cpp
+  ${SHIM}/pmhost_wifi.cpp
   ${BIOS_C})
 
 add_library(pmhost SHARED ${FW_SOURCES} ${SHIM_SOURCES})
@@ -103,7 +105,7 @@ set_target_properties(pmhost PROPERTIES C_STANDARD 11 CXX_STANDARD 17)
 set(COMMON_DEFS
   PMHOST=1 BOARD_PICOMEM=1 ROM_BIOS=0x0D0000u USE_RTC=1 USE_SDCARD=1
   SD_CRC_ENABLED=0 USE_AUDIO=1 USE_EMU8950_OPL=1 EMU8950_NO_TLL=1
-  EMU8950_NO_TEST_FLAG=1 EMU8950_NO_RATECONV USE_ALARM=1 PM_PRINTF=0
+  EMU8950_NO_TEST_FLAG=1 EMU8950_NO_RATECONV USE_ALARM=1
   UART_PIN0=0 CFG_TUSB_DEBUG=0 SD_DEBUG=0 USE_PRINTF=0 USE_DBG_PRINTF=0
   DISP32=0 CORE1_ALIVETEST=0 TEST_PSRAM=0 TEST_SDCARD=0 TEST_DFS=0
   TEST_OTHER=0 DO_FAST_RAM=0 ASYNC_UART=0 USB_UART=0 USE_SBDSP=1
@@ -112,7 +114,8 @@ set(COMMON_DEFS
   EMU8950_ASM=0       # HOST: the RP2040 slot renderer is ARM assembly
   PM_ENABLE_STDIO=0   # HOST: logging goes through the host's log callback
   USE_USBHOST=0       # HOST: the mouse arrives through pm_mouse (later wave)
-  PM_WIFI=0 USE_NE2000=0  # HOST: wave 4 brings the NE2000 core
+  PM_WIFI=1 USE_NE2000=1  # the Pico W's: its Wi-Fi is pmhost_wifi.cpp
+  CYW43_PIO_CLOCK_DIV_INT=4
   USE_AUDIO_I2S=1 PICO_AUDIO_I2S_DATA_PIN=26 PICO_AUDIO_I2S_CLOCK_PIN_BASE=27
   PICO_AUDIO_I2S_PIO=1 PICO_AUDIO_I2S_SM=3 PICO_AUDIO_I2S_DMA_IRQ=1
   PSRAM_PIN_CS=5 PSRAM_PIN_SCK=6 PSRAM_PIN_MOSI=7 PSRAM_PIN_MISO=4
@@ -123,6 +126,14 @@ else()
   set(BOARD_DEFS BOARD_PM=1 PICO_RP2040=1 RASPBERRYPI_PICO_W=1 PM_WIFI_LED=1
     PM_SYS_CLK=280 USE_HWIRQ=0 USE_HWDMA=0 USE_SPI_PSRAM=1
     USE_SPI_PSRAM_DMA=1 PSRAM_HEAP=0)
+endif()
+# PMH_PRINTF=ON: the firmware's own PM_INFO/PM_ERROR trace, on stdout - what
+# the iron prints on its debug UART. For a session chasing a hang; never a row.
+option(PMH_PRINTF "the firmware's debug printf" OFF)
+if(PMH_PRINTF)
+  list(APPEND COMMON_DEFS PM_PRINTF=1)
+else()
+  list(APPEND COMMON_DEFS PM_PRINTF=0)
 endif()
 target_compile_definitions(pmhost PRIVATE ${COMMON_DEFS} ${BOARD_DEFS})
 find_package(Threads REQUIRED)

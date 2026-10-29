@@ -90,7 +90,9 @@ rows on 86Box*, below), and each is inert until something asks for it:
   The firmware's decode is mirrored per 8-port block and per 8 KB block, so
   nothing else on the bus changes. `OS88_PMHOST_LOG=1` puts every command the
   PC sends, with its answer, in `86box.log`, and `OS88_PMHOST=LIB` swaps the
-  library. The card's DAC is mixed in, and `OS88_PMWAV=FILE` captures it at
+  library, and `OS88_PMSD=IMG` another microSD. The card's NE2000 is on the
+  network through a companion NIC, `net_01_card = picomem_ne2k`. The card's
+  DAC is mixed in, and `OS88_PMWAV=FILE` captures it at
   its own 49,716 Hz in card time. `vm/xt-picomem1` is the machine
   (docs/plans/PICOMEM-EMU-PLAN.md).
 

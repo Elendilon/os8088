@@ -49,7 +49,8 @@ spi_inst_t pmh_spi0 = {0}, pmh_spi1 = {1};
 i2c_inst_t pmh_i2c0 = {0}, pmh_i2c1 = {1};
 uint8_t pmh_psram[PMH_PSRAM_SIZE];
 
-static pm_host_t host;
+pm_host_t pmh_host;                    // pmhost_wifi.cpp sends through it
+#define host pmh_host
 static pm_cfg_t cfg;
 static bool started;
 static uint64_t now_ns;                       // card time

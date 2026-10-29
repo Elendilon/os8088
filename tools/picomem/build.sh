@@ -65,6 +65,8 @@ done
 # --- the microSD card every vm/ PicoMEM profile mounts -------------------------
 # An EMPTY card and not none: with no card the firmware never counts the PC's
 # floppies, and the BIOS clears them from the equipment word (the plan's 6.3).
-python3 "$HERE/mksd.py" "$BUILD/sd.img" >/dev/null
-echo "    $BUILD/sd.img (empty microSD, tools/picomem/mksd.py)"
+# The NE2000 at 300h on IRQ 3, as the field cards have it - and 300h is the
+# first base ETHER.DRV asks (SPEC.md 72.2).
+python3 "$HERE/mksd.py" "$BUILD/sd.img" --cfg ne2000Port=0x300 --cfg ne2000IRQ=3 >/dev/null
+echo "    $BUILD/sd.img (microSD: no images, NE2000 300h/IRQ 3; tools/picomem/mksd.py)"
 

@@ -31,6 +31,9 @@ typedef struct pm_host {
     void (*irq)(void *ctx, int line, int level);
     /* One line of diagnostic text, no newline. NULL = discard. */
     void (*log)(void *ctx, const char *text);
+    /* A frame the card's NE2000 sent: the Wi-Fi chip's "air" is the host's
+     * network. NULL = the card has no network. */
+    void (*net_tx)(void *ctx, const uint8_t *frame, int len);
 } pm_host_t;
 
 typedef struct pm_cfg {
@@ -72,6 +75,11 @@ int pm_mem_waits(uint32_t addr);
  * a WAV, in card time, so a capture is the same on every run. */
 int pm_audio_rate(void);
 int pm_audio_read(int16_t *lr, int frames);
+
+/* A frame off the host's network, into the card's NE2000 (the CYW43's
+ * receive callback). Its station address is pm_net_mac's, fixed. */
+void pm_net_rx(const uint8_t *frame, int len);
+void pm_net_mac(uint8_t mac[6]);
 
 /* What the card decodes NOW, for an adapter that maps only that (mapping
  * more would answer for ports and memory nobody is there to answer for).

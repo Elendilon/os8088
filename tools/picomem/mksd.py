@@ -216,6 +216,8 @@ def main():
                     help="hard disk N (0 = 80h) is IMG, off the card")
     ap.add_argument("--cfg", action="append", default=[], metavar="FIELD=VALUE",
                     help="a byte or word field of PICOMEM.CFG")
+    ap.add_argument("--no-wifi", action="store_true",
+                    help="no WIFI.TXT: the card's NE2000 never starts")
     ap.add_argument("--selfcheck", action="store_true")
     a = ap.parse_args()
     if a.selfcheck:
@@ -238,6 +240,11 @@ def main():
             data = open(src, "rb").read()
             files.append((folder, base + ".IMG", data))
             lst.append((int(num), base, len(data) // 1024))
+    # the Pico W's Wi-Fi credentials: without WIFI.TXT the firmware never
+    # starts its NE2000 (PM_ConnectWifi), and what they say does not matter
+    # to libpmhost, whose network is the emulator's (pmhost_wifi.cpp)
+    if not a.no_wifi and not any(n.upper() == "WIFI.TXT" for f, n, _ in files if not f):
+        files.append(("", "WIFI.TXT", b"os8088\r\nos8088-picomem\r\n"))
     if fdd or hdd or a.cfg:
         files.append(("", "PICOMEM.CFG", picomem_cfg(fdd, hdd,
                                                      [kv.split("=", 1) for kv in a.cfg])))

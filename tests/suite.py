@@ -18268,8 +18268,8 @@ SOAK = [
         "the walk (SPEC.md 34.10.2), and without that the vsfw CMS case "
         "FAILS 3 checks, CMS's 224h reading FFh",
         needs=("nasm", "unicorn", "pmhost")),
-    Row("pmbox", "soak", py("tests/pmbox.py"), 125.0,
-        "docs/plans/PICOMEM-EMU-PLAN.md waves 1-3: the PicoMEM in 86Box "
+    Row("pmbox", "soak", py("tests/pmbox.py"), 150.0,
+        "docs/plans/PICOMEM-EMU-PLAN.md waves 1-4: the PicoMEM in 86Box "
         "(vm/xt-picomem1, tools/86box/patches/07-picomem.patch) running ITS "
         "OWN FIRMWARE (libpmhost), three boots. snd: the BIOS detects the "
         "card's IRQ, SOUND.DRV attaches in SPEC.md 34.10's order (78h 0 "
@@ -18279,7 +18279,9 @@ SOAK = [
         "on a ONE-drive XT, B: is the card's image off its microSD through "
         "its int 13h (SPEC.md 18.97.6), and Restart is a warm reset that "
         "re-runs the card's BIOS (18.100.1). hdd: os8088 boots off a hard "
-        "disk the card serves with A: empty (52.10.16). Broken on purpose, "
+        "disk the card serves with A: empty (52.10.16). net: ETHER.DRV finds "
+        "the card's NE2000 at 300h (72.2) and DHCP binds 10.0.2.15 through "
+        "its Wi-Fi bridge, here 86Box's slirp. Broken on purpose, "
         "OS88_PMHOST_NOSNOOP=1: PMDMA's auto-init stream never ends and the "
         "tone never plays - 4 FAILS",
         needs=("86box", "pmhost"), serial=True,

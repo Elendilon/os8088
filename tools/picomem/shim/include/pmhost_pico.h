@@ -51,6 +51,10 @@ typedef uint64_t absolute_time_t;
 #define panic(...) pmh_panic(__VA_ARGS__)
 void pmh_panic(const char *fmt, ...) __attribute__((noreturn));
 
+/* newlib's itoa (pmhost_wifi.cpp). glibc has none, and C without this
+ * prototype takes the pointer it returns as an int: 32 bits of it. */
+char *itoa(int value, char *str, int base);
+
 /* ---- time: card time, which only pm_advance moves ----------------------- */
 uint64_t time_us_64(void);
 uint32_t time_us_32(void);

@@ -39,10 +39,12 @@ STAT_READY, STAT_CMDINPROGRESS, STAT_CMDERROR, STAT_CMDNOTFOUND, STAT_INIT, STAT
 
 IRQ_FN = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_int, ctypes.c_int)
 LOG_FN = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_char_p)
+NET_FN = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint8), ctypes.c_int)
 
 
 class _Host(ctypes.Structure):
-    _fields_ = [("ctx", ctypes.c_void_p), ("irq", IRQ_FN), ("log", LOG_FN)]
+    _fields_ = [("ctx", ctypes.c_void_p), ("irq", IRQ_FN), ("log", LOG_FN),
+                ("net_tx", NET_FN)]
 
 
 class _Cfg(ctypes.Structure):
@@ -86,12 +88,15 @@ class Card:
         L.pm_mem_waits.argtypes = [ctypes.c_uint32]
         L.pm_peek_status.restype = ctypes.c_uint8
         L.pm_shared_ram.restype = ctypes.POINTER(ctypes.c_uint8)
+        L.pm_net_rx.argtypes = [ctypes.c_char_p, ctypes.c_int]
         self.irq_lines = {}                     # line -> level, as the card last drove it
         self.irq_log = []                       # (card ns, line, level)
         self.log = []
         self._irq_cb = IRQ_FN(self._on_irq)     # kept alive: the library holds these
         self._log_cb = LOG_FN(self._on_log)
-        self._host = _Host(None, self._irq_cb, self._log_cb)
+        self.sent = []                          # frames the card's NE2000 sent
+        self._net_cb = NET_FN(self._on_net)
+        self._host = _Host(None, self._irq_cb, self._log_cb, self._net_cb)
         self._cfg = _Cfg(irq_jumper, sd.encode() if sd else None)
         self.irq_jumper = irq_jumper
         if L.pm_create(ctypes.byref(self._cfg), ctypes.byref(self._host)) != 0:
@@ -101,6 +106,13 @@ class Card:
         self.irq_lines[line] = level
         self.irq_log.append((self.lib.pm_time_ns(), line, level))
 
+
+    def _on_net(self, ctx, frame, n):
+        self.sent.append(bytes(frame[:n]))
+
+    def net_rx(self, frame):
+        """A frame off the network, into the card's NE2000."""
+        self.lib.pm_net_rx(frame, len(frame))
 
     def _on_log(self, ctx, text):
         self.log.append(text.decode(errors="replace"))
