@@ -202374,6 +202374,28 @@ no room with `FERR_BIG` (20.14.6.3), so every play wrote `VPPROF1.DAT` over
 the last. Only `FERR_NOENT` is free now; any other answer moves on to the
 next n, so a disk error never overwrites a profile either.
 
+##### 98.3.22.4 Version 4: the reads TIMED (2026-10-29)
+
+`make VPDIAG=time` (`-DVP_RDTIME`, a field build like `VPDIAG=1` and never
+shipped) keeps version 2's read log in version 2's room with a different
+record: the frame drawn when the read began, how many frames the picture was
+then behind the card's due (`[vp_due] - [vp_done]`, signed), the read's
+length in units of 16 PIT counts (13.4 us, saturating at 878 ms) and its
+bytes. The length is the BRACKET'S clock (`vp_dstamp`, the hook's periods and
+channel 0's count), not channel 2's, which wraps at 55 ms - one 32 KB read on
+a BIOS-served disk under kern_mega is about 76 ms. On kern_mega the periods a
+reflection swallowed are delivered as it returns, so the length holds there
+too. A read outside `OSAPI_FSX_RUN`, where that clock does not run - the
+fill before the bracket, a play in the window - is recorded FFFEh, untimed,
+and one of 878 ms or more FFFDh. The header says version 4, and
+`tools/os88vfit.py FILE.V88 VPPROFn.DAT --reads` prints the reads' rate while reading, their lengths, the slowest
+twelve with their frames, and how far behind the picture was across the play.
+
+It is for the two questions the Victory's version 3 profiles could not
+answer: what makes some kern_big boots pause where others do not (a slow
+read shows up at its frame), and how much of kern_mega's lag is reads holding
+the hook off.
+
 ##### 98.3.22.1 What the first profiles changed in the encoder (2026-10-15)
 
 **Three plays on the owner's Victory 286** (docs/reports/VIDPROF-

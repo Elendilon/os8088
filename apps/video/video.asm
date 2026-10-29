@@ -7300,7 +7300,13 @@ vp_xbread:
     push word [vp_cur + FSEQ_OFF + 2]   ; (where it starts, for the log)
     push word [vp_cur + FSEQ_OFF]
 %endif
+%ifdef VP_RDTIME
+    call vp_rtb
+%endif
     call OSAPI_FILE_READ_SEQ        ; AX = the bytes (DX 0: a chunk)
+%ifdef VP_RDTIME
+    call vp_rte
+%endif
     call vp_hdis                    ; (flags kept)
 %ifdef VP_RDLOG
     pop bx                          ; (DI:BX where it started; BX is the
@@ -14593,7 +14599,13 @@ vp_srun:
     call vp_bset                    ; ...which is told where things are
     nop                             ; (the play's routines' parity)
     pop ax
+%ifdef VP_RDTIME
+    mov byte [vp_rtin], 1           ; (the bracket's clock runs: reads timed)
+%endif
     call OSAPI_FSX_RUN
+%ifdef VP_RDTIME
+    mov byte [vp_rtin], 0
+%endif
     pushf
     push ax
     mov ax, vp_rmove
@@ -17585,7 +17597,13 @@ vp_fill:
     pop es
     mov di, vp_cur
     mov si, vp_name
+%ifdef VP_RDTIME
+    call vp_rtb
+%endif
     call OSAPI_FILE_READ_SEQ
+%ifdef VP_RDTIME
+    call vp_rte
+%endif
     pop bx
     pop di
     pop es
@@ -18397,7 +18415,14 @@ vp_blitr:
 ; -----------------------------------------------------------------------------
 %ifdef VP_DIAG
 VP_PRH      equ 48                  ; a 48-byte header (version 2)...
+%ifdef VP_RDTIME
 %ifdef VP_RDLOG
+  %error "VP_RDTIME and VP_RDLOG are two shapes of the one read log"
+%endif
+VP_PRMAX    equ 11000               ; ...frames profiled at most, and READS
+VP_RLMAX    equ 2048                ; TIMED (version 4): the frame, how far
+                                    ; behind, the read's length, its bytes
+%elifdef VP_RDLOG
 VP_PRMAX    equ 11000               ; ...frames profiled at most (43 KB)...
 VP_RLMAX    equ 2048                ; ...and READS logged at most, 8 bytes
                                     ; each (98.3.22.2) - 59 KB in all
@@ -18525,6 +18550,79 @@ vp_prlog:
     pop cx
 .r:
     ret
+%endif
+%ifdef VP_RDTIME
+
+; vp_rtb - a read about to be made: the bracket's clock, the frame drawn and
+; how far the picture is behind the card's due, kept for vp_rte. Every
+; register kept
+vp_rtb:
+    push ax
+    push dx
+    call vp_dstamp
+    mov [vp_rts], ax
+    mov [vp_rts + 2], dx
+    mov ax, [vp_done]
+    mov [vp_rtd], ax
+    mov ax, [vp_due]
+    sub ax, [vp_done]
+    mov [vp_rtbh], ax
+    pop dx
+    pop ax
+    ret
+
+; vp_rte - the read made, AX = its bytes and the flags its own: one record
+; (the frame, frames behind, its length in 16-count units saturating at
+; FFFFh = 878 ms, the bytes). Every register and the flags kept
+vp_rte:
+    pushf
+    cmp word [vp_prseg], 0
+    je .r
+    cmp word [vp_prnl], VP_RLMAX
+    jae .r
+    inc word [vp_prnl]
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push es
+    mov bx, ax
+    mov ax, 0xFFFE                  ; (FFFEh: OUTSIDE the bracket, where its
+    cmp byte [vp_rtin], 0           ; clock does not run - the fill before
+    je .ok                          ; it, or a play in the window: untimed)
+    call vp_dstamp
+    sub ax, [vp_rts]
+    sbb dx, [vp_rts + 2]
+    mov cx, 4
+.sh:
+    shr dx, 1
+    rcr ax, 1
+    loop .sh
+    or dx, dx
+    jz .ok
+    mov ax, 0xFFFD                  ; (saturated: 878 ms or more)
+.ok:
+    mov si, [vp_prlp]
+    add word [vp_prlp], 8
+    mov es, [vp_prseg]
+    mov cx, [vp_rtd]
+    mov [es:si], cx                 ; the frame drawn at the read
+    mov cx, [vp_rtbh]
+    mov [es:si + 2], cx             ; ...frames behind the card then
+    mov [es:si + 4], ax             ; ...its length / 16 PIT counts
+    mov [es:si + 6], bx             ; ...its bytes
+    pop es
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.r:
+    popf
+    ret
+%endif
+%ifdef VP_RDLOG
 
 ; vp_prbad - a damaged super-packet: the first one's where, into the header
 ; (the hook's cursor and the reader's), and the count. Every register kept
@@ -18578,7 +18676,7 @@ vp_prbeg:
     mov [vp_prna], ax
     shl ax, 1                       ; four bytes a frame, the header and the
     shl ax, 1                       ; read log, in whole KB
-%ifdef VP_RDLOG
+%if VP_RLMAX
     push ax
     add ax, VP_PRH
     mov [vp_prlp], ax               ; (the log's first entry: after them)
@@ -18660,7 +18758,11 @@ vp_prend:
     mov es, [vp_prseg]              ; THE HEADER, in the claim's first 48
     mov word [es:0], 'VP'           ; (+38 on, a damaged super-packet's
     mov word [es:2], 'PR'           ; where, vp_prbad's, already there)
+%ifdef VP_RDTIME
+    mov word [es:4], 4              ; version 4: 3, the reads TIMED
+%else
     mov word [es:4], 3              ; version 3 (the card's trailer, VPDI)
+%endif
     mov ax, [vp_prn]
     mov [es:6], ax
     mov ax, [vp_pitdiv]
@@ -23619,6 +23721,12 @@ vp_prna:      dw 0                  ; ...its frame slots,
 vp_prnl:      dw 0                  ; ...the reads logged,
 %ifdef VP_RDLOG
 vp_prlp:      dw 0                  ; ...and where the next goes
+%elifdef VP_RDTIME
+vp_prlp:      dw 0                  ; ...and where the next goes
+vp_rts:       dd 0                  ; (vp_rtb: the read's start, the frame
+vp_rtd:       dw 0                  ;  drawn then and how far behind)
+vp_rtbh:      dw 0
+vp_rtin:      db 0                  ; (1: inside OSAPI_FSX_RUN)
 %endif
 vp_prbd:      dw 0                  ; ...and damaged super-packets seen
                                     ; THE HEADER (written into the claim):

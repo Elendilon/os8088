@@ -6800,12 +6800,18 @@ endif
 ifneq ($(VPDIAG),)
 VPDEF += -DVP_DIAG
 endif
+# VPDIAG=time adds the TIMED READ LOG (VP_RDTIME, SPEC.md 98.3.22.4): every
+# read's length and how far the picture was behind the card when it began,
+# which `tools/os88vfit.py FILE.V88 VPPROFn.DAT --reads` prints
+ifeq ($(VPDIAG),time)
+VPDEF += -DVP_RDTIME
+endif
 # ...and the kern_mega ARM's diag build leaves out the speaker SHAPER
 # (VP_NOSPKFX, 2,367 bytes): the arm plus the card is over APP_MAX_SIZE by
 # ~1.2 KB, and a card-made clip on the speaker is the one play it drops
 # (silent). A file made for the speaker plays as ever; the shipped builds
 # never define it
-VPSTAMP := $(BUILD)/.vplayer-$(if $(NOLIVESND),nolivesnd,livesnd)$(if $(VPDIAG),-diag)
+VPSTAMP := $(BUILD)/.vplayer-$(if $(NOLIVESND),nolivesnd,livesnd)$(if $(VPDIAG),-diag$(filter time,$(VPDIAG)))
 $(shell mkdir -p $(BUILD); \
         [ -f $(VPSTAMP) ] || { rm -f $(BUILD)/.vplayer-* \
                                       $(BUILD)/video.bin $(BUILD)/video.o88; \

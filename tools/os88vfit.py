@@ -66,7 +66,11 @@ def read_prof(path):
                                 (nb,) + struct.unpack_from("<5H", d, 38)))
         w = struct.unpack_from("<%dH" % (2 * n), d, 48)
         at = 48 + 4 * na
-        h["reads"] = [struct.unpack_from("<IHH", d, at + 8 * i)
+        # (VERSION 4, VP_RDTIME's: each read TIMED - the frame drawn at
+        # it, frames behind the card then, its length in 16 PIT counts
+        # and its bytes - in place of version 2's offset and sum)
+        h["reads"] = [struct.unpack_from("<HhHH" if h["ver"] >= 4 else
+                                         "<IHH", d, at + 8 * i)
                       for i in range(nl)]
         h["card"] = read_card(d, at + 8 * nl) if h["ver"] >= 3 else None
     else:
@@ -182,6 +186,46 @@ def reads_check(path, h):
     return bad
 
 
+def read_times(prof, h):
+    """VERSION 4's TIMED READS (VP_RDTIME): how long each read held the
+    player, against how far the picture was behind the card when it began -
+    the reads that make a play late, by frame"""
+    allr = h["reads"]
+    rs = [r for r in allr if r[2] != 0xFFFE]    # (FFFEh: outside the bracket)
+    if len(rs) != len(allr):
+        print("%s: %d reads outside the bracket, untimed (the fill before "
+              "it, or a play in the window)" % (os.path.basename(prof),
+                                                len(allr) - len(rs)))
+    if not rs:
+        raise SystemExit("%s: no reads timed" % prof)
+    ms = [r[2] * 16 * PIT_US / 1000 for r in rs]    # (FFFDh: 878 ms or more)
+    kb = sum(r[3] for r in rs) / 1024
+    print("%s: %d reads timed, %.0f KB in %.2f s of reading - %.0f KB/s "
+          "while reading" % (os.path.basename(prof), len(rs), kb,
+                             sum(ms) / 1000, kb / max(sum(ms) / 1000, 1e-9)))
+    print("   a read: median %.1f ms, 90%% %.1f, 99%% %.1f, most %.1f"
+          % (q(ms, 0.5), q(ms, 0.9), q(ms, 0.99), max(ms)))
+    beh = [r[1] for r in rs]
+    print("   frames behind the card at a read: median %d, 90%% %d, most %d"
+          % (q(beh, 0.5), q(beh, 0.9), max(beh)))
+    print("   the slowest twelve (frame, behind, ms, bytes):")
+    for i in sorted(range(len(rs)), key=lambda i: -ms[i])[:12]:
+        print("      read %4d: frame %5d, %3d behind, %6.1f ms, %d"
+              % (i, rs[i][0], rs[i][1], ms[i], rs[i][3]))
+    # how far behind, across the play, in tenths
+    n = len(rs)
+    print("   behind across the play (each tenth of the reads: frames, "
+          "most / median; read ms median):")
+    for t in range(10):
+        part = rs[t * n // 10:(t + 1) * n // 10]
+        pm = ms[t * n // 10:(t + 1) * n // 10]
+        if part:
+            print("      frames %5d-%5d: behind %3d / %3d; read %.1f ms"
+                  % (part[0][0], part[-1][0], max(r[1] for r in part),
+                     q([r[1] for r in part], 0.5), q(pm, 0.5)))
+    return 0
+
+
 def lstsq(rows, ys):
     """Least squares by the normal equations - no numpy needed for 2-3
     unknowns"""
@@ -217,6 +261,8 @@ def main():
     ap.add_argument("--reads", action="store_true")
     a = ap.parse_args()
     h, tot, drw = read_prof(a.prof)
+    if a.reads and h["ver"] >= 4:
+        return read_times(a.prof, h)
     if a.reads:
         if h["ver"] < 2 or not h["reads"]:
             raise SystemExit("%s: no read log (VIDEOR.O88's, version 2)"
