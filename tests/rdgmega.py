@@ -164,7 +164,7 @@ def leg(t, out, name, pkg, lst, rom, where, squeeze=False):
         mark = os.path.getsize(box.e9)
         box.dbl(160, 139, "the game to start", lock=False)   # CPUINSTR.GB
         if where == "refuse":
-            time.sleep(20)
+            box.guest_sleep(20, poll=0.5)   # 20 GUEST seconds to start in
             if box.pkg_base("RealDMG") is not None:
                 fails.append("the shipped build STARTED under kern_mega's "
                              "protected mode (OS88_MEGA_REFUSE)")

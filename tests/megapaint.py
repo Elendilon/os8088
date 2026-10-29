@@ -185,7 +185,7 @@ def menu_pick(box, title, item):
         raise RuntimeError("no %r in %s: %r" % (item, t, items))
     box.goto((x0 + x1) // 2, g.MBAR_H // 2)
     box.xd("mousedown", 1)
-    time.sleep(0.6)
+    box.guest_sleep(0.6)                # GUEST seconds (Box.guest_sleep)
     y1 = u16(box.read(box.sym("menu_y1"), 2))
     mx = u16(box.read(box.sym("menu_x1"), 2))
     box.goto(mx + 8, y1 + 1 + k[0] * g.MENU_ITEM_H + g.MENU_ITEM_H // 2)

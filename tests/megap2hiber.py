@@ -122,7 +122,7 @@ def menu_hibernate(box):
         box.xd("mousemove_relative", "--", 0, 30)
         time.sleep(0.04)
     box.xd("mousemove_relative", "--", 0, 16)
-    time.sleep(0.5)
+    box.guest_sleep(0.5)    # the hold, in GUEST time
     box.xd("mouseup", 1)
     box.ui_done("the Hibernate dialog")     # (was 10 s slept)
     box.goto(225, 225)              # Hibernate

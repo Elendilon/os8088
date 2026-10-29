@@ -1386,7 +1386,7 @@ def _sweep_boot(d, todo, quiet_secs, sb, cfg, build, cap_secs, linger, put,
                     last = l[9:]
                     started.append(last)
                 elif l == "MEGARUN: ok" and last:
-                    time.sleep(4)
+                    box.guest_sleep(4)  # GUEST seconds to draw, then look
                     shot(os.path.join(d, last.replace(".", "_") + ".png"))
                     report.append((last, "ok"))
                 elif l.startswith("MEGARUN: no "):
@@ -1401,8 +1401,9 @@ def _sweep_boot(d, todo, quiet_secs, sb, cfg, build, cap_secs, linger, put,
             if fault == "done":
                 if linger:
                     # MEGATRAP=1: let what was started run on, so its
-                    # loops land in the census, then a picture of it
-                    time.sleep(linger)
+                    # loops land in the census, then a picture of it -
+                    # LINGER GUEST seconds, however long the host takes
+                    box.guest_sleep(linger, poll=0.5)
                     shot(os.path.join(d, "LINGER.png"))
                 break
             if fault:

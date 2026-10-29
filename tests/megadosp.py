@@ -98,7 +98,7 @@ def main():
                 box.ui_done("DOS to finish " + name, secs=LIMIT)
             except RuntimeError as e:   # a FAULT: reported below, from E9
                 print("megadosp: %s" % e)
-            time.sleep(tail)
+            box.guest_sleep(tail)       # GUEST seconds (Box.guest_sleep)
             with open(box.e9, "rb") as f:
                 f.seek(pos[0])
                 t = f.read()

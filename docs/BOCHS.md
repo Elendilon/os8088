@@ -162,7 +162,11 @@ each read a stop that costs the guest nothing - and `megavidv2` spaces its
 keys with it: its "Space again a second in, while the blocks are coming"
 was a host second, which with four Bochs to a core paused the play before
 its first frame, so both of its tails were wrong (old row 2 of 2 red beside
-four Bochs rows, new 3 of 3 green). What
+four Bochs rows, new 3 of 3 green). Every Bochs row's holds, gaps and tails
+are guest time now - thirty-odd standalone sites and the shim rows'
+`fmrefuse` and `heapmap` - and `tests/unit/t_bochssleep.py` (fast tier)
+fails a `time.sleep` in a Bochs row's script that is not a poll's interval,
+a sub-0.1 s event spacing or marked `# host: <why>`. What
 `slowdown` still does NOT give is a smooth map from host time to guest time
 (it holds the guest up to a second ahead of the clock), so a burst of guest
 time can follow a host stall. **That is why input whose SPACING matters is not host-timed**:

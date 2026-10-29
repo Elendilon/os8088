@@ -265,6 +265,18 @@ FAST = [
         "int 19h they existed to read it at, and passed. m.sym() follows the "
         "slide; a deliberate unslid use is a line in tests/coldsym.txt. "
         "VERIFIED TO FAIL on the three rows' old forms"),
+    Row("bochssleep", "fast", py("tests/unit/t_bochssleep.py"), 1.5,
+        "NO ROW THAT RUNS UNDER BOCHS PACES ITS SCENARIO IN HOST SECONDS. "
+        "Bochs's guest clock is its instruction count capped at real time "
+        "(docs/BOCHS.md, *The clock*), so a Bochs short of CPU - four to a "
+        "core in the soak's Bochs lane - runs fewer guest seconds a host "
+        "second, and a time.sleep() between two inputs holds less of the "
+        "guest: megavidv2's second Space landed before the first frame. "
+        "Every time.sleep in the script of a row needing Bochs must be a "
+        "poll's interval (inside a while, or a `for _` that can break), a "
+        "literal under 0.1 s, or marked `# host: <why>`; a scenario step is "
+        "Box.guest_sleep / os88marty.guest_sleep / pace. VERIFIED TO FAIL "
+        "on the tree before it (45 sites, 38 of them scenario steps)"),
     Row("retired", "fast", py("tests/unit/t_retired.py"), 0.3,
         "every package under apps/ ships, or apps/RETIRED.txt says why not "
         "(SPEC.md 20.16). CLAUDE.md's Layout section states the invariant - "
