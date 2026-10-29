@@ -734,8 +734,8 @@ runs it; its numbers are not the machine's (VIDBENCH's mr286 rows are 1.2-
   copy is ~0.28 ms + 0.173 ms a KB by either transport, the 16 KB piece
   stands, and the bank's fill models at ~763 KB/s.
 - **L6 - the conventional memory L4 gives back, as more buffer** (the
-  owner's, 2026-10-15; DEFERRED until the profiles and the encoder match
-  real playback). In place the ring is the bank's slots and the
+  owner's, 2026-10-15; BUILT 2026-10-29 as TWO TIERS, SPEC.md 98.3.18.18 -
+  the design is below the original sketch, and the encoder prices it). In place the ring is the bank's slots and the
   conventional ring shrinks from up to 15 slots to two and a mirror; that
   memory is not needed to PLAY THROUGH any more, but it is still depth. The
   shape to cost first: a ring whose slots are a TABLE - the bank's in XMS
@@ -749,7 +749,7 @@ runs it; its numbers are not the machine's (VIDBENCH's mr286 rows are 1.2-
   conventional one is not contiguous in either - it wants a mirror per
   memory boundary, or the table ordered so the crossing never happens).
 
-  - **L6's DESIGN, as it is being built (2026-10-29).** What made it
+  - **L6's DESIGN, as built (2026-10-29).** What made it
     worth building is a measurement: on the Victory's PicoMEM, Catch My
     Heart and Sonic 2 drain the bank and the reader then runs DRY, and a
     play's timed reads (SPEC.md 98.3.22.4) put the reader in `READ_SEQ` only
