@@ -1,0 +1,509 @@
+# PicoMEM under an emulator: the card's own firmware, run beside the CPU
+
+> **PLAN, NOTHING BUILT.** Branch `picomem-emulator`, cut from `elendilon`
+> on 2026-10-29. This is an investigation and a proposal. Every number in it
+> is a citation or an estimate, and each estimate says so. The firmware
+> facts were read off `Elendilon/ISA-PicoMEM` (`main` at `fdd008e`,
+> `pm1x-pr` at `5e507be2`); paths below without a prefix are in that repo's
+> `src/`.
+
+## 0. The recommendation, in five lines
+
+1. **Do not write another model of the card. Run the card's firmware.**
+   Compile the PicoMEM firmware's device logic for the host, against a thin
+   shim that replaces the RP2040's bus loop, PIO, PSRAM, SD and Wi-Fi. That
+   gives a C library, **`libpmhost`**, with one call per ISA bus cycle
+   (section 4).
+2. **The library is the part that carries across.** Each emulator then
+   needs only a thin adapter of a few hundred lines that forwards I/O and
+   memory cycles, IRQs, DMA, audio, network and mouse (section 5).
+3. **86Box first.** It is C like the firmware. It is the only emulator here
+   that already has every service the card needs: ISA memory mapping at any
+   address, slirp networking, sound mixing, an 8237, and both field
+   machines' CPU classes (the PicoMEM 1.x lives in a 286, the 2.x in a 5150).
+   It is also what the owner suggested.
+4. **MartyPC second**, through Rust FFI to the same library. It answers the
+   questions that need cycle timing, such as SB DMA racing, EMS wait states
+   and the poll deadlines in `pm_wait`, and it is the default instrument the
+   suite already runs on.
+5. **Bochs: not recommended.** It is a 386 and is used here only for
+   kern_mega. 86Box's `286-mega` covers the one PicoMEM question kern_mega
+   has (section 3.3).
+
+Card 1.x and card 2.x are **two builds of the same library**, selected by
+the firmware's own board defines. They are not two models. The 1.x comes
+first: its firmware is the one os8088 ships (`firmware/picomem1/`), and its
+virtual-DMA path is where most of docs/FIELD-NOTES.md 66 happened.
+
+## 1. Why: what testing the card looks like today
+
+No emulator here has a PicoMEM. The tree says so in four places
+(`docs/plans/completed/ksp11/picomem.md`, `tests/picomem.py:6`,
+`tests/megapmmouse.py:17`, `tools/os88test.py:334`). What the tree has
+instead is **three models written by us**:
+
+| model | what it is | what it can't see |
+|---|---|---|
+| `tests/picomem.py` (1,840 lines; legs `ne sb vs kern mouse pmdma pmsnd`) | Unicorn x86 running slices of the shipped driver against Python port/interrupt hooks written from `ne2000.c` and a disassembled `pmbios.bin` | The firmware. Every answer is our reading of it |
+| `drivers/usbmouse/pmsim.inc` (`-DPMSIM`) + `tests/megapmmouse/pmrom.asm` | A stand-in PM BIOS `int 13h` 6000h/10h/11h and a 512-byte option ROM at D000h, for Bochs | Everything except the mouse handshake |
+| `os8088_5150_herc_hdd_sb_ems288_gla` (`emspico` row) | MartyPC's Lo-tech EMS moved to 288h/D000h | The PicoMEM's EMS, its wait states, and its BIOS |
+
+FIELD-NOTES 66 lists **thirteen defects** found on the iron, two of which
+were firmware bugs. The 2.x has not been re-checked since the 1.x round.
+Each model was written after the fact to pin a defect that was already
+known, so it agrees with our understanding of the card by construction. A
+model cannot report that the understanding is wrong. That job falls to the
+5150 and the Victory 286, one photograph at a time.
+
+**Running the real firmware changes that.** The model would then be the
+card's own C, so a disagreement between os8088 and the card would show up
+as a failure here rather than on the iron. And because the owner maintains
+the firmware fork, **firmware changes get a test bench too**: the A10 fix,
+the disk-wait fix and the 512-byte copies were all firmware fixes.
+
+## 2. The card in one page (what an adapter must carry)
+
+These are the facts the design rests on. The agents' reports behind this
+section cite file and line for each.
+
+- **I/O:** 10-bit decode, claimed in 8-port blocks through
+  `IO_Index_T[port>>3]` (`isa_devices/dev_picomem_io.h:14-41`). The base is
+  hard-wired to **2A0h** (`picomem.cpp:232`).
+
+  | port | read | write |
+  |---|---|---|
+  | +0 | status | command |
+  | +1 | data low | data low |
+  | +2 | data high | data high |
+  | +3 | test counter (+1 per read) | — |
+  | +4 | stream | stream |
+
+  A command write puts a token on the core-to-core FIFO, and core 0 runs
+  `PM_ExecCMD` (`pm_cmd.cpp:516-1618`). Commands 01h (IRQ ack) and 02h
+  (DMA-copy ack) are handled on the bus path itself, not queued.
+- **Memory:** a 16 KB BIOS ROM at `ROM_BIOS` (default D0000h; config.txt
+  `BIOS xxxx` moves it), followed by **8 KB of shared RAM** (`PM_DP_RAM`).
+  Shared RAM layout: config at +82, PC-command registers at +850, IRQ
+  multiplexer at +854, `PCCR_Param` at +886, disk buffer at +4096,
+  virtual-DMA buffer at +6144.
+  - Extra RAM is added per 16 KB block from `MEM_Map[64]` when the PC sends
+    command 07h. That means **the memory map changes at run time**.
+  - EMS is Lo-tech style at 268h/288h/298h/2A8h with a frame at D000h or
+    E000h, up to 4 MB.
+  - Wait states: 1.x PSRAM is about 8; 2.x QSPI is about 1.
+- **The BIOS to load is the shipped binary** (`src/rom/pmbios.bin` for 1.x,
+  `pm2bios.bin` for 2.x). **`pmbios/*.asm` is older than both**: different
+  shared-RAM offsets, different command numbers, and the old IRQ dispatch.
+  It is not to be rebuilt from.
+- **IRQ (1.x):** one jumpered line (3, 5 or 7) driven by a multiplexer
+  (`pm_libs/isa_irq.cpp:78-187`). The request list sits at shared RAM +854.
+  The ROM's handler acknowledges with `out 2A0h,1` and turns the SB/NE2000
+  requests into `int 8+n`.
+- **IRQ (2.x, `USE_HWIRQ`):** real lines 3/5/6/7, with the card's own line
+  on IRQ 7.
+- **DMA (1.x):** the card snoops the PC's writes to 8237 ports 00h-0Fh and
+  80h-87h, then asks the CPU through the multiplexer to copy each block into
+  shared RAM +6144 (`isa_dma.cpp:106-150`).
+- **DMA (2.x, `USE_HWDMA`):** real DREQ/DACK/TC on channel 1 or 3.
+- **Reverse channel:** for `int 13h` (command 88h) and EtherDFS (89h) the
+  card drives the PC's CPU through a shared-RAM command loop
+  (`pm_libs/pm_pccmd.cpp:43-135` against `pmbios/pm_cmd.asm:118-165`).
+  `PM_ExecCMD` **busy-waits on shared-RAM bytes the emulated CPU writes**.
+  This is the one hard constraint on the design (section 4.3).
+- **Devices** (each in `isa_devices/`):
+  - AdLib (emu8950)
+  - CMS
+  - Tandy
+  - Mindscape
+  - Covox
+  - SB 2.0 DSP
+  - NE2000 (over CYW43 Wi-Fi)
+  - USB joystick and mouse
+  - RTC
+  - GUS and MPU-401 (2.x only)
+
+  Port maps and enable commands are in section 3 of the firmware report.
+  The ones os8088 touches are AdLib (73h), SB (77h/78h), NE2000, EMS, the
+  mouse (`int 13h` 6010h/6011h → `int 33h` AX=0060h), and `int 13h`
+  floppy/HDD from images, including the FDDn_Attribute B: test.
+
+## 3. The choices
+
+### 3.1 How to model the card
+
+| option | what | verdict |
+|---|---|---|
+| **A. Native re-implementation** in each emulator (Rust in MartyPC, C in 86Box), loading the real `pmbios.bin` | Write the port block, command set, IRQ multiplexer, virtual DMA, SB, NE2000 and int13 again, by hand | **Refused as the main line.** It is `tests/picomem.py` again in a third language, twice. It tests our understanding rather than the card, it doubles the work for a second emulator, and it drifts every time the owner changes the firmware. |
+| **B. Firmware in the loop: `libpmhost`** | The firmware's own C/C++ compiled for the host. Its bus loop is replaced by an API, and its platform calls by a shim | **Chosen.** One body of code, which is the card's, under every emulator. Firmware fixes are testable before flashing. v1 and v2 come from the firmware's own `#if`s. |
+| **C. Emulate the RP2040** (Renode, rp2040js, Wokwi) and run the real `.uf2` | Co-simulate a 270 MHz dual-core RP2040 and its PIO programs against ISA bus cycles | **Refused.** The PIO bus capture is cycle-exact against 4.77 MHz bus timing, so co-simulating it means simulating hundreds of ARM cycles per ISA cycle. None of the RP2040 emulators found models PIO at the level these programs need (`rp2040-pio-emulator` runs one state machine and no pin sets). The seam in B sits exactly above the part C would spend its effort on. |
+
+What B gives up, stated up front: everything **below the seam**. That
+covers bus-level decode (FIELD-NOTES 66's AEN/A10 defect), IOCHRDY timing,
+the 1.x's SD/PSRAM SPI contention, and the PIO programs themselves. Those
+stay the iron's job. Section 7 is the list of what B can and cannot catch.
+
+### 3.2 Which emulator
+
+| | 86Box | MartyPC | Bochs |
+|---|---|---|---|
+| language | C, same as the firmware | Rust (FFI through `cc` in `build.rs`) | C++ plugin |
+| field machines | 286 (Victory, 1.x) **and** 5150 (`vm/pc5150`, 2.x) | 8088 only; covers the 5150 | 386 only |
+| ISA memory window at D0000h, run-time remaps | `mem_mapping_add` at 4 KB granularity | `register_map`, 8 KB granularity, needs a new `MmioDeviceType` | `DEV_register_memory_handlers` |
+| snoop the 8237's ports (1.x virtual DMA) | **Yes.** 86Box's I/O handlers are a per-port list, so a second handler on 00h-0Fh/80h-87h sees the writes the real 8237 also gets. Verify this in wave 1 | **No.** One device per port; `bus/io.rs` needs a snoop hook | Possible |
+| real DMA (2.x) | `dma_channel_read/write` | `DMAController` (patch 01's SB is the template) | Yes |
+| network for the NE2000 | slirp, already used by `vm/xt-wire` and `pc5150` | **None.** The NE2000 leg would need a backend | slirp |
+| sound out | `sound_add_handler` | `SoundSourceDescriptor` (patch 10's Covox is the template) | Yes |
+| timing | not cycle-accurate | **cycle-accurate**, the suite's default instrument | no |
+| scripting in this tree | `tools/os88box.py` (automation socket, `faults`, screenshots, `box-*` rows) | `tools/os88marty.py`, `os88ui.py`, the soak | `tools/os88bochs.py` |
+| licence | GPL-2, same as the firmware | MIT; a local build linked to a GPL library is fine and is never redistributed (section 9, Q4) | LGPL |
+
+**86Box first** because it is the only column with every row filled. It
+runs both field machines' CPU classes, so the 1.x can be tested in the
+286 it really lives in. Its network backend makes the card's NE2000
+testable end to end (DHCP through slirp, as `xt-wire` does). And the
+adapter is C calling C.
+
+**MartyPC second**, for what only it can say. Is `pm_runaway`'s
+32-byte/100-reads threshold right at 4.77 MHz? Does `pm_wait`'s 9-tick
+deadline hold? What does EMS cost at 8 wait states (`videmsslow`)? Those
+are timing questions, and 86Box is not cycle-accurate. The adapter is the
+same library behind `extern "C"`. MartyPC lacks the 8237 snoop, so that is
+one hook in `bus/io.rs`, and it lacks a NIC, so the card's NE2000 is left
+out there (it is 86Box's job).
+
+### 3.3 Why not Bochs as well
+
+Bochs is here only because it faults like a real 286 does on kern_mega
+(docs/BOCHS.md), and its CPU is a 386. The one PicoMEM item kern_mega has
+open is servicing the multiplexer's reflected IRQs in protected mode
+(KERN-MEGA-PLAN: 61 reflections a second at 3.3 ms each). That item wants a
+286 with a real reset path, and 86Box's `286-mega` profile with the card
+added is that machine. Once `libpmhost` exists, a Bochs plugin is an
+estimated ~400 lines. That is cheap enough to build the day a question
+needs it, and no question needs it today.
+
+## 4. `libpmhost`: the design
+
+### 4.1 Where it lives
+
+**Recommended: in the firmware fork,** as a `host/` CMake target beside
+`src/`. The shim then moves with the firmware it shims, and the fork's CI
+can build it on every firmware commit. It is also a candidate to offer
+FreddyVRetro upstream, since a firmware developer with an emulator is the
+same win at the source. os8088 pins it the way it pins 86Box and MartyPC:
+`tools/picomem/UPSTREAM` names a repo and commit, and
+`tools/picomem/build.sh` fetches and builds into `build/picomem/`. Nothing
+from the firmware is committed to os8088. The alternative, a shim kept in
+os8088's tree that compiles the fork's files from outside, also works but
+breaks silently when a file moves (section 9, Q1).
+
+### 4.2 The seam and the C API
+
+The firmware already has the seam. Every bus cycle in
+`pm_isa_rp2040.h:164-390` (1.x) and `pm_isa_rp2350_m2_v15.h:176-360` (2.x)
+ends in `dev_X_ior(port, &data)`, `dev_X_iow(port, data)` or a
+`RAM_Offset_Table[MEM_Index_T[a>>13]][a]` access. `isa_devices.cpp:60-84`
+even has ready-made `dev_ior[]`/`dev_iow[]` tables indexed by device type,
+which are not compiled today. The host build compiles those tables and
+puts this API on top. **This is a sketch to argue with, not a contract:**
+
+```c
+pm_t *pm_create(const pm_cfg_t *cfg, const pm_host_t *host);
+  /* cfg:  board (PM1x|PM2x), BIOS image path, SD image path, jumpers
+           (IRQ line, DMA ch), Wi-Fi on/off.
+     host: callbacks - irq(line, level), dma_req(ch, on) [2.x],
+           dma_xfer(ch, byte*) [2.x], map_changed(), net_tx(buf, len),
+           audio_rate, log(level, text). */
+bool pm_io_read (pm_t *, uint16_t port, uint8_t *v);  /* true = card drives the bus */
+bool pm_io_write(pm_t *, uint16_t port, uint8_t  v);  /* includes 8237 snoop ports  */
+bool pm_mem_read (pm_t *, uint32_t a, uint8_t *v);
+bool pm_mem_write(pm_t *, uint32_t a, uint8_t  v);
+int  pm_mem_waits(pm_t *, uint32_t a);  /* IOCHRDY wait states for this block */
+int  pm_mem_map  (pm_t *, pm_range_t *out, int max);  /* windows the card decodes now */
+void pm_advance  (pm_t *, uint64_t ns); /* run card time: timers, core 0, audio */
+int  pm_audio    (pm_t *, int16_t *lr, int frames);
+void pm_net_rx   (pm_t *, const uint8_t *, int);
+void pm_mouse    (pm_t *, int dx, int dy, int buttons);
+void pm_destroy  (pm_t *);
+```
+
+**What is compiled** (the firmware report's "mostly pure C" list):
+
+- `dev_picomem_io`, `dev_memory`, `dev_adlib`/`cms`/`tandy`/`mindscape`/
+  `covox`/`sbdsp`/`dma`
+- `pm_cmd.cpp`, needing `#if` guards around cyw43, tusb, I2C and OLED
+- `pm_libs/pm_pccmd.cpp`, `isa_irq.cpp`
+- `audio_devices` (`emu8950.c` with `EMU8950_ASM=0`, `emu2149`, `square`,
+  `sbdsp`, `covox_dac`, `audio_fifo`)
+- `ne2000.c` with the CYW43 send/receive split out
+- `dosbox/bios_disk.cpp`, `pm_libs/pm_disk.cpp`, FatFS
+- 2.x adds `gus-x.cpp` and `dev_mpu` later
+
+**What is replaced, not ported:**
+
+- `picomem.cpp`'s clocks, GPIO and `main`
+- the core-1 assembly loops and `*.pio`
+- PSRAM drivers (host arrays instead)
+- the SD SPI driver (FatFS `diskio` over a host file)
+- USB host and tinyusb (replaced by `pm_mouse` into the firmware's mouse
+  report path)
+- CYW43 (replaced by `net_tx`/`pm_net_rx`)
+- `pico_pic.c`'s alarm pool (replaced by an event queue in card time)
+- the I2S mixer output (replaced by `pm_audio`)
+
+### 4.3 The hard part: core 0, and determinism
+
+On the iron, core 0 runs `PM_ExecCMD` concurrently with the PC. During
+commands 88h and 89h it spins on shared-RAM bytes **that only the emulated
+CPU will write**. Calling `PM_ExecCMD` straight from `pm_io_write` would
+deadlock the emulator against itself.
+
+The design: **core 0 runs on its own host thread, but holds a baton.** The
+emulator owns the baton except inside `pm_advance`. `pm_advance` hands it
+to core 0 and takes it back at the first yield point. Yield points are:
+
+- **`time_us_64()` and `sleep_us()`.** In the host build these return card
+  time, which `pm_advance` moves, and yield. Every spin that reads the
+  clock therefore advances only as the emulator does.
+- **`PM_HOST_YIELD()`**, a macro the fork adds at the few spins that poll
+  shared RAM without reading the clock (`PC_Wait_CMD_End` and its
+  siblings). It is empty on the iron, so the shipped image does not change.
+  Auditing those loops is wave 0's first job.
+- **The FIFO pop** in core 0's main loop, when nothing is queued.
+
+The baton makes runs **deterministic**: the same emulator inputs give the
+same card behaviour on every run, whatever the host is doing. That is a
+requirement for the suite (docs/WRITING-TESTS.md), not a nicety. A free-
+running second thread would make every row's verdict depend on host load.
+That is the kind of row SOAK-PARALLEL §1 shows failing in a way that looks
+like the feature under test.
+
+Card speed is a separate question. With the baton, the card is infinitely
+fast between yields. On the iron a command takes microseconds and a
+512-byte SD read takes milliseconds. `pm_advance` therefore charges
+modelled costs per operation: SD sector, PSRAM access, command dispatch.
+These come from a table seeded from the field reports and **labelled as
+estimates**. MartyPC's timing rows read against that table, and a
+disagreement with the iron is a table fix.
+
+### 4.4 v1 and v2
+
+These are two builds of `libpmhost`:
+
+- **`PM1x`:** `PICOMEM_BOARD "PICOMEM"`, i.e. `firmware/picomem1/v1board.patch`'s
+  defines, with no `USE_HWIRQ`/`USE_HWDMA`. Source: `pm1x-pr`, the commit
+  os8088 ships as `PM_W_10_16_26_OS8088.uf2`.
+- **`PM2x`:** `BOARD_PM20` with `USE_HWIRQ`, `USE_HWDMA`, 256 KB fast RAM and
+  QSPI PSRAM. Source: the fork's `main`, or the 2.x release the 5150 runs
+  (section 9, Q2).
+
+The adapter asks which build it was handed and wires:
+
+- **1.x:** one IRQ line plus the 8237 snoop.
+- **2.x:** four lines, a real DMA channel, and the RTC.
+
+### 4.5 The SD card
+
+The firmware reads `config.txt`, `wifi.txt`, `/FLOPPY` and `/HDD` off FAT
+through FatFS. The host build keeps FatFS and points its `diskio` at a
+**raw SD image file**: a FAT32 image built by a small host tool that copies
+in floppy images, a VHD, and a `config.txt` (`BIOS D000`, `IRQ 5`, ...).
+Configuration is then exactly the card's own, and a profile's whole PicoMEM
+setup is one file beside its `86box.cfg`. A host directory instead of an
+image is a convenience to consider later, not in wave 1.
+
+## 5. The adapters
+
+### 5.1 86Box
+
+The adapter is a new device, `src/device/isa_picomem.c`, carried as
+`tools/86box/patches/07-picomem.patch`. Its `device_t` config offers:
+
+- the board (1.x or 2.x)
+- the BIOS and SD image paths
+- the IRQ jumper and the DMA channel
+
+It wires the following:
+
+- **I/O:**
+  - `io_sethandler` on 2A0h-2A7h, plus each block the firmware claims,
+    re-read after every command.
+  - A snoop handler on 00h-0Fh and 80h-87h on 1.x builds, which forwards
+    writes and never drives reads.
+- **Memory:** `mem_mapping_add` per range `pm_mem_map` reports, re-run
+  on `map_changed`. The firmware can fill holes in conventional RAM, so this
+  includes blocks below A0000h on a machine configured with less.
+- **IRQ:** `picint`/`picintc`.
+- **DMA (2.x):** `dma_channel_read`/`write`.
+- **Sound:** `sound_add_handler`, pulling `pm_audio`.
+- **Network:** `network_attach`, wired to `net_tx`/`pm_net_rx`.
+- **Mouse:** when the card's mouse is on, the profile's mouse goes to
+  `pm_mouse`.
+- **Time:** a `timer_add` that calls `pm_advance` with the emulated time
+  since the last call.
+
+The CMake change links `build/picomem/libpmhost-{v1,v2}.a`.
+`tools/86box/build.sh` builds the library first.
+
+New profiles, each a copy of an existing one with the card added:
+
+- `vm/286-picomem1`: `286-victory`, minus the SB and the NE1000, which the
+  card provides.
+- `vm/xt-picomem1`: an XT with the 1.x, the machine the card was designed
+  for.
+- `vm/pc5150-picomem2`: `pc5150` with the card, 2.x.
+
+Each boots `make picomemtest`'s `pmsys720.img`/`pmsys360.img`, which
+already exist (Makefile 5536-5584).
+
+### 5.2 MartyPC
+
+The adapter is `crates/marty_core/src/devices/picomem.rs` with a
+`build.rs` that links `libpmhost`, carried as
+`tools/martypc/patches/17-picomem.patch` and cut against the pin plus
+patches 01-16 (`tools/martypc/README.md:24-44`). It implements:
+
+- `IoDevice` for 2A0h and the claimed blocks
+- `MemoryMappedDevice` for the windows, with a new `MmioDeviceType`
+  variant; 8 KB granularity fits the card's 16 KB ROM + 8 KB RAM at D0000h
+- `pic.request_interrupt`
+- `pm_mem_waits` charged as bus wait states, which is the point of
+  bringing MartyPC in
+
+New machinery it needs:
+
+- **An I/O snoop hook** in `bus/io.rs` for the 8237's ports.
+- **A `[machine.picomem]` toml key**, alongside the existing `[machine.ems]`.
+
+New machines:
+
+- `os8088_5150_herc_pm1_gla`
+- `os8088_5150_herc_pm2_gla` (a 5150 with the 2.x is the real 5150 #2)
+
+**The NE2000 is left out on MartyPC.** There is no network backend there,
+and docs/TESTING.md's list already sends the NIC to QEMU and 86Box.
+
+## 6. Waves
+
+Each wave ends with something runnable and a named check. The tiers follow
+the Testing section of CLAUDE.md: host checks per wave, and one soak union
+plus `test-full` after the last.
+
+| wave | delivers | done when |
+|---|---|---|
+| **0. Spike** (estimate 2-3 days) | `host/` CMake target building `dev_picomem_io` + `pm_cmd` + `dev_memory` + `isa_irq` + `pm_pccmd` with the shim; the baton; the yield audit; a `ctypes` driver | A Python script against `libpmhost-v1.so` reads the 2A3h ramp, runs commands 00h/73h/77h/78h with the real firmware's answers, and serves the BIOS bytes at D0000h. **Its first consumer is `tests/picomem.py` itself**: its `sb`/`vs` legs swap their Python port model for the library, and the legs that pass are now agreeing with the card. |
+| **1. 86Box: the card boots** | `07-picomem.patch`, `vm/xt-picomem1`, the SD-image tool | The PicoMEM BIOS banner and setup menu appear (screenshot via `os88box.py`); `int 13h` 6000h answers DX=AA55h, BX=D000h, CH=jumper; os8088 reaches a desktop with `pm_init`'s 100-read ramp passed. |
+| **2. Sound, 1.x** | AdLib + SB 2.0 with virtual DMA (snoop, multiplexer, CPU copy), audio out | SOUND.DRV's Drivers row reads the SB and the AdLib on the card. A WAV plays and the card's output is captured (an `OS88_PMWAV` env var, in `04-sb-capture`'s shape). `pm_tick`'s AdLib keep-alive matters: removing it goes silent after 4 s, the firmware's own idle cut-off. |
+| **3. Disks** | `int 13h` floppy and HDD from SD-image files | B: is kept through `dsk_fdd_pmemu` (FDDn_Attribute bit 7); HDD.DRV's BIOS rung reads a VHD through the card; the warm restart (1234h, FFFF:0) re-enters the PicoMEM BIOS. |
+| **4. NE2000** | the card's NE2000 over 86Box slirp | ETHER.DRV finds it at the configured base with the un-doubled PROM; DHCP and a fetch as in `tests/ethernet.py`. |
+| **5. Mouse and EMS** | `pm_mouse`; the card's EMS at 288h/D000h | USBMOUSE.DRV's PicoMEM backend moves the pointer (`int 33h` AX=0060h through the multiplexer); EMS.DRV finds 288h/D000h on the card instead of on the Lo-tech model. |
+| **6. The 2.x** | `libpmhost-v2`, real IRQ lines, real DMA, `vm/pc5150-picomem2` | The 2.x leg of FIELD-NOTES 66 (SB refused until IRQ 7, then configured) reproduces with PM2-6-21-26's behaviour and passes with the os8088 path. This is the **first time the 2.x has been checked since the 1.x round**. |
+| **7. kern_mega** | `vm/286-mega` with the card | The reflected multiplexer IRQs are visible and counted under `faults`/E9; this gives the open KERN-MEGA item a machine. |
+| **8. MartyPC** | `17-picomem.patch`, the snoop hook, two machines | `pm_runaway`'s detection is measured on a 4.77 MHz 8088 against the card's own DMA pacing; `videmsslow`'s premise (8 wait states) is read off a real card model. |
+| **9. Suite and docs** | rows, profiles, TESTING.md, FIELD-MACHINES | Section 8's rows registered; docs/TESTING.md's matrix gains a PicoMEM row; CLAUDE.md's emulator lists name the profiles. |
+
+**Estimates, all unmeasured:**
+
+| work | estimate |
+|---|---|
+| waves 0-3 | 2-3 weeks |
+| waves 4-7 | 1-2 weeks |
+| wave 8 | about 1 week |
+
+Wave 0 is where the estimate is weakest. The yield audit and the `pm_cmd.cpp`
+guards could take longer than they look. If they do, the fallback is option
+A for the base-port block only, with the device files still compiled from
+the firmware.
+
+## 7. What it will catch, and what it cannot
+
+This is an assessment against FIELD-NOTES 66's list. Section 6 is where
+each claim gets tested.
+
+| 66 item | catchable here? |
+|---|---|
+| NE2000 ring at the wrong page; un-doubled PROM | **Yes**, wave 4 (86Box) |
+| Empty slot accepted as an NE2000 | Yes, as a negative: a profile without the card |
+| IRQ discovery stealing the multiplexer vector | **Yes**, wave 2 |
+| 2.x refusing the SB until IRQ 7 | **Yes**, wave 6, with that firmware build |
+| CMS holding 220h (PORTUSED) | **Yes**, wave 2 with CMS on in `config.txt` |
+| B: missing; restart hanging | **Yes**, wave 3 |
+| Mouse enabled before the hook froze the machine | **Yes**, wave 5 |
+| Detach losing BX | Yes, wave 5 |
+| **DMA cycle decoded as an 8237 write (A10)** | **No.** It is below the seam, in the PIO bus decode. |
+| Channel 1 racing (`pm_runaway`) | **Partly.** The logic is the firmware's, but the pacing is section 4.3's cost table. MartyPC is where it is worth asking. |
+| Disk starving the SB; crackles from IRQ-before-copy | **Yes in logic.** Both were firmware sequencing, which is exactly what is compiled. |
+| Disk dropping sectors past 120 ms | Yes, if the cost table makes a copy that slow; a test can force it |
+
+**Always out of reach:**
+
+- PIO and bus decode
+- IOCHRDY electrical timing
+- the 1.x's shared SD/PSRAM SPI bus stalls
+- Wi-Fi itself (slirp stands in for it)
+- USB enumeration
+- anything a specific PC's chipset does to an 8-bit card, which is REDLINE's
+  subject (SPEC.md 103.6)
+
+**The iron stays the authority**; this moves the first round of each
+question off it.
+
+## 8. Rows it would add (names are proposals)
+
+| row | emulator | asserts |
+|---|---|---|
+| `box-pmboot1` / `box-pmboot2` | 86Box | BIOS banner; 6000h detect; os8088 desktop |
+| `box-pmsb1` / `box-pmsb2` | 86Box | SB + AdLib attach; captured WAV non-silent and right length |
+| `box-pmdisk` | 86Box | B: kept; VHD boot via HDD.DRV; warm restart |
+| `box-pmnet` | 86Box | DHCP + fetch through the card's NE2000 |
+| `box-pmmouse` | 86Box | pointer moves through `int 33h` 0060h |
+| `pmlib` | host (soak) | `tests/picomem.py`'s legs against `libpmhost` instead of the Python model |
+| `pmrace` | MartyPC | `pm_runaway` behaviour on an 8088 |
+
+Each needs its break-it-on-purpose check (docs/WRITING-TESTS.md §1). For
+example, `box-pmsb1` must go red with `NOPICOMEM=1`, and `box-pmmouse` with
+the hook ordering reversed.
+
+## 9. Open questions for the owner
+
+1. **Where does the shim live:** in the firmware fork's `host/` (recommended,
+   section 4.1) or in os8088's `tools/picomem/`?
+2. **Which commits are "the card":**
+   - For the 1.x, `pm1x-pr` (`5e507be2`, what os8088 ships).
+   - For the 2.x, the fork's `main` (`fdd008e`), or the PM2-6-21-26 or
+     PM2-10-4-26 release the 5150 runs?
+   - And what is `os8088-pm114` (`8ab70ed`)? It looks like the `OS88_DIAG`
+     1.14 build that PMDMA's DK01/DMALOG2/AH0x records read.
+3. **Offer it upstream?** A host build of the firmware is useful to
+   FreddyVRetro. Upstreaming it would mean the `PM_HOST_YIELD()` points and
+   guards stay maintained by the firmware's author.
+4. **Licensing note.** The firmware and 86Box are GPL-2, so that pairing is
+   clean. MartyPC is MIT: a local build linked to a GPL library becomes GPL
+   as a binary. That is fine for a test instrument nobody redistributes, and
+   os8088 commits only the patch and the pin, never firmware source.
+5. **Scope of v2 extras.** Include GUS and MPU-401 when the 2.x lands, or
+   leave them until a package wants them? (Nothing in os8088 uses either on
+   the card today.)
+
+## 10. Building the real firmware (for reference)
+
+- **CI recipe** (`.github/workflows/build.yml`): Ubuntu 22.04, pico-sdk
+  2.1.1 plus pico-extras, arm-gcc 14.2.Rel1, recursive submodules, then
+  `cmake src && cmake --build`. `src/CMakeLists.txt`'s VS Code header names
+  SDK 2.2.0 and toolchain 15_2_Rel1.
+- **Board selection is by editing `src/CMakeLists.txt`.** The 2.x default
+  is `pimoroni_pico_plus2_rp2350` with `PICOMEM_BOARD "PICOMEM_20"`. The
+  1.x is `pico_w` with `"PICOMEM"`, which is what
+  `firmware/picomem1/v1board.patch` sets.
+- **Submodules are not populated** in a fresh clone (tinyusb, rp2040-psram,
+  tusb_xinput, WonderMCA). `src/PrepareTinyUSB.sh` fetches tinyusb's
+  dependencies. The host build of section 4 needs **none** of them, which is
+  part of why the seam is drawn where it is.
+- **The PC BIOS** is NASM (`pmbios/M.bat`), but use the committed
+  `src/rom/pm{,2}bios.bin` (section 2).
+- **DOS drivers:** `drivers/` holds binaries (PMINIT, PMEMM, PMMOUSE,
+  NE2000, PMDFS). Sources are in `src/drivers/` except the PMDFS client.
+  The HDD zips in `images/` carry them, which makes a DOS-under-86Box
+  cross-check (docs/DOS-DEBUGGING.md's method) available once wave 2 lands.
+- **Upstream information** is on the project wiki
+  (github.com/FreddyVRetro/ISA-PicoMEM/wiki). The README has no build steps.
