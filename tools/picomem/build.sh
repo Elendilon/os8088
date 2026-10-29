@@ -61,3 +61,10 @@ for b in $BOARDS; do
         || { grep -B2 -A6 -E "error|Error" "$BUILD/$b/make.log" | head -40 >&2; exit 1; }
     echo "    $BUILD/$b/libpmhost-$b.so"
 done
+
+# --- the microSD card every vm/ PicoMEM profile mounts -------------------------
+# An EMPTY card and not none: with no card the firmware never counts the PC's
+# floppies, and the BIOS clears them from the equipment word (the plan's 6.3).
+python3 "$HERE/mksd.py" "$BUILD/sd.img" >/dev/null
+echo "    $BUILD/sd.img (empty microSD, tools/picomem/mksd.py)"
+

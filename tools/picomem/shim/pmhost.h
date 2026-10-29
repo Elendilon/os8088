@@ -65,6 +65,14 @@ int pm_mem_write(uint32_t addr, uint8_t v);
  * 0 for its SRAM and ROM, more for PSRAM and EMS. An ESTIMATE (4.3). */
 int pm_mem_waits(uint32_t addr);
 
+/* The card's DAC: what it played, in card time, as 16-bit stereo frames at
+ * pm_audio_rate() Hz (49,716, the OPL's rate). pm_audio_read moves up to
+ * `frames` of them into lr (L, R interleaved) and returns how many there
+ * were; the rest is the host's to pad. OS88_PMWAV=FILE also writes them to
+ * a WAV, in card time, so a capture is the same on every run. */
+int pm_audio_rate(void);
+int pm_audio_read(int16_t *lr, int frames);
+
 /* What the card decodes NOW, for an adapter that maps only that (mapping
  * more would answer for ports and memory nobody is there to answer for).
  * io[b] is the device type on ports b*8..b*8+7, 0 = none; mem[b] the memory

@@ -446,7 +446,7 @@ plus `test-full` after the last.
 |---|---|---|
 | **0. Spike** (estimate 2-3 days; **BUILT**, section 6.1) | `host/` CMake target building `dev_picomem_io` + `pm_cmd` + `dev_memory` + `isa_irq` + `pm_pccmd` with the shim; the baton; the yield audit; a `ctypes` driver | A Python script against `libpmhost-v1.so` reads the 2A3h ramp, runs commands 00h/73h/77h/78h with the real firmware's answers, and serves the BIOS bytes at D0000h. **Its first consumer is `tests/picomem.py` itself**: its `sb`/`vs` legs swap their Python port model for the library, and the legs that pass are now agreeing with the card. |
 | **1. 86Box: the card boots** (**BUILT**, 6.2) | `07-picomem.patch`, `vm/xt-picomem1`, the SD-image tool | The PicoMEM BIOS banner and setup menu appear (screenshot via `os88box.py`); `int 13h` 6000h answers DX=AA55h, BX=D000h, CH=jumper; os8088 reaches a desktop with `pm_init`'s 100-read ramp passed. |
-| **2. Sound, 1.x** | AdLib + SB 2.0 with virtual DMA (snoop, multiplexer, CPU copy), audio out | SOUND.DRV's Drivers row reads the SB and the AdLib on the card. A WAV plays and the card's output is captured (an `OS88_PMWAV` env var, in `04-sb-capture`'s shape). `pm_tick`'s AdLib keep-alive matters: removing it goes silent after 4 s, the firmware's own idle cut-off. |
+| **2. Sound, 1.x** (**BUILT**, 6.3) | AdLib + SB 2.0 with virtual DMA (snoop, multiplexer, CPU copy), audio out | SOUND.DRV's Drivers row reads the SB and the AdLib on the card. A WAV plays and the card's output is captured (an `OS88_PMWAV` env var, in `04-sb-capture`'s shape). `pm_tick`'s AdLib keep-alive matters: removing it goes silent after 4 s, the firmware's own idle cut-off. |
 | **3. Disks** | `int 13h` floppy and HDD from SD-image files | B: is kept through `dsk_fdd_pmemu` (FDDn_Attribute bit 7); HDD.DRV's BIOS rung reads a VHD through the card; the warm restart (1234h, FFFF:0) re-enters the PicoMEM BIOS. |
 | **4. NE2000** | the card's NE2000 over 86Box slirp | ETHER.DRV finds it at the configured base with the un-doubled PROM; DHCP and a fetch as in `tests/ethernet.py`. |
 | **5. Mouse and EMS** | `pm_mouse`; the card's EMS at 288h/D000h | USBMOUSE.DRV's PicoMEM backend moves the pointer (`int 33h` AX=0060h through the multiplexer); EMS.DRV finds 288h/D000h on the card instead of on the Lo-tech model. |
@@ -583,6 +583,50 @@ complete trace of the PC's side of the card's protocol:
   `77h 0107h`, `78h 220h`, and USBMOUSE.DRV's `52h`.
 
 Ethernet stays *Not loaded* until wave 4 builds the NE2000.
+
+### 6.3 Wave 2, as built
+
+**What exists.**
+- **The card's DAC is the firmware's own mixer.** The I2S driver
+  (`audio_i2s.c`) is replaced by an alarm in card time on its exact cadence:
+  64 frames per buffer at 49,716 Hz, taken with `take_mixed_buffer()` as the
+  DMA interrupt does.
+- `pm_audio_read()` drains what the DAC "played". The 86Box adapter mixes
+  it in, linearly resampled to 48 kHz.
+- `OS88_PMWAV=FILE` writes it as a WAV in card time, so a capture is the
+  same on every run.
+- `tests/pmbox.py` (row `pmbox`, soak, **53 s**) boots `pmsys360.img` with
+  `pmboxb360.img` in B: through `os88ui` under `$OS88_EMU=86box`.
+
+**What it showed:**
+- **The 1.x's virtual DMA works end to end on the real BIOS and
+  firmware.** PMDMA's four ways of programming channel 1 (sb.inc's
+  sequence, reads between, PMINIT's order, the page first) all copy from
+  the address programmed. That covers the 8237 snoop, the multiplexer IRQ,
+  and the PicoMEM BIOS's copy into the card's buffer.
+- **SBTEST's tone comes out of the card.** It is a 1 kHz square at 8,000 Hz
+  through `OSAPI_SND_STREAM`. The capture holds one 2.01 s stretch at
+  995 Hz, 11,264 peak to peak, played by the firmware's DSP into its mixer.
+- **Broken on purpose** (`OS88_PMHOST_NOSNOOP=1`, the card deaf to the 8237):
+  - A to D still read right, because the BIOS's copy reads its source off
+    the 8237 itself.
+  - PMDMA's auto-init stream never ends, so its window never closes.
+  - The tone never plays.
+  - 4 FAILs. So the snoop is what keeps a STREAM going, not what aims a
+    single transfer. That was not obvious from either side's source.
+
+**FINDING (the firmware's, for FreddyVRetro): a PicoMEM with NO microSD card
+takes away the PC's floppy drives.**
+- `CMD_FDD_Mount` runs `pm_disk_update_fdd_nb()` only inside
+  `if (PM_EnableSD())`. With no card, `New_FloppyNB` stays 0.
+- The BIOS's `FDD_UpdateBIOSVar` then clears bit 0 and bits 6-7 of the
+  equipment word.
+- Measured: 0040:0010 reads 446Dh without the card and **442Ch** with it
+  and no SD. os8088 then has no drive zone for A: or B:, though it booted
+  from A:.
+- The same card with an empty SD reads 446Dh. Every `vm/` profile
+  therefore mounts one: `tools/picomem/mksd.py` writes it, and
+  `build.sh` makes `build/picomem/sd.img`.
 
 ## 7. What it will catch, and what it cannot
 

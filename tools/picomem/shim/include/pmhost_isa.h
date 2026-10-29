@@ -87,9 +87,18 @@ extern "C" uint8_t pmh_bus_memidx(uint32_t ISA_Addr)
     return GetMEMIndex(ISA_Addr & 0xFFFFF);
 }
 
+// OS88_PMHOST_NOSNOOP=1: the card stops hearing the PC's 8237 writes - a
+// break-on-purpose for the rows (tests/pmbox.py), never a model of anything.
+static int pmh_nosnoop = -1;
+
 extern "C" bool pmh_bus_iow(uint32_t ISA_IO_Addr, uint8_t ISAIOW_Data)
 {
     uint32_t IO_Device = GetPortType(ISA_IO_Addr & 0x3FF);
+    if (pmh_nosnoop < 0) {
+        const char *e = getenv("OS88_PMHOST_NOSNOOP");
+        pmh_nosnoop = e && *e && *e != '0';
+    }
+    if (pmh_nosnoop && IO_Device == DEV_DMA) return false;
     switch (IO_Device) {
     case DEV_PM:    dev_pmio_iow(ISA_IO_Addr, ISAIOW_Data); break;
     case DEV_LTEMS: dev_ems_iow(ISA_IO_Addr, ISAIOW_Data); break;

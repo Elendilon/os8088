@@ -6,11 +6,13 @@ os8088's tools/picomem/build.sh and loaded at run time with dlopen, so this
 patch builds with no dependency on it. Every I/O and memory cycle the card
 decodes goes to the firmware; its decode is mirrored into 86Box per 8-port
 block and per 8 KB block, so nothing else on the bus changes; card time is
-the machine's, in 100 us ticks. Config: [PicoMEM #1] irq, sd_image, lib.
+the machine's, in 100 us ticks, and its DAC is mixed in at 48 kHz.
+Config: [PicoMEM #1] irq, sd_image, lib.
 tools/os88box.py resolves lib and copies sd_image like a disk.
 
 docs/plans/PICOMEM-EMU-PLAN.md section 5.1.
 
+diff --git a/src/device/CMakeLists.txt b/src/device/CMakeLists.txt
 diff --git a/src/device/CMakeLists.txt b/src/device/CMakeLists.txt
 index 4526b6c..b67d080 100644
 --- a/src/device/CMakeLists.txt
@@ -25,10 +27,10 @@ index 4526b6c..b67d080 100644
      isapnp.c
 diff --git a/src/device/isa_picomem.c b/src/device/isa_picomem.c
 new file mode 100644
-index 0000000..772efa6
+index 0000000..dad3ebd
 --- /dev/null
 +++ b/src/device/isa_picomem.c
-@@ -0,0 +1,346 @@
+@@ -0,0 +1,389 @@
 +/*
 + * 86Box    A hypervisor and IBM PC system emulator that specializes in
 + *          running old operating systems and software designed for IBM
@@ -70,6 +72,7 @@ index 0000000..772efa6
 +#include <86box/path.h>
 +#include <86box/plat.h>
 +#include <86box/isamem.h>
++#include <86box/sound.h>
 +
 +/* pmhost.h, restated: this file must build without the library's tree. */
 +typedef struct pm_host {
@@ -98,6 +101,8 @@ index 0000000..772efa6
 +    int (*mem_write)(uint32_t, uint8_t);
 +    void (*io_map)(uint8_t *);
 +    void (*mem_map)(uint8_t *);
++    int (*audio)(int16_t *, int);   /* optional: a library with no DAC is silent */
++    int (*audio_rate)(void);
 +
 +    int           irq;
 +    int           level;
@@ -106,6 +111,9 @@ index 0000000..772efa6
 +    uint8_t       mem_idx[128];
 +    mem_mapping_t map[128];      /* one per 8 KB block, enabled while decoded */
 +    char          sd_path[1024];
++    double        apos;          /* resampler: position between src[0] and src[1] */
++    double        astep;         /* card frames per output frame */
++    int16_t       asrc[2][2];    /* the two card frames being interpolated */
 +    pm_host_t     host;
 +} picomem_t;
 +
@@ -211,6 +219,35 @@ index 0000000..772efa6
 +    timer_advance_u64(&dev->timer, (uint64_t) (PICOMEM_TICK_US * TIMER_USEC));
 +}
 +
++/* The card's DAC, mixed in: the firmware's 49,716 Hz stereo, resampled
++ * linearly to the sound thread's rate. pm_audio_read() hands over what the DAC
++ * played in card time; a short read (the card behind, or silent) holds the
++ * last frame rather than clicking to zero. */
++static void
++picomem_get_buffer(int32_t *buffer, uint16_t len, void *priv)
++{
++    picomem_t *dev = (picomem_t *) priv;
++
++    if (!dev->audio)
++        return;
++    for (int c = 0; c < len; c++) {
++        while (dev->apos >= 1.0) {
++            int16_t f[2];
++            dev->asrc[0][0] = dev->asrc[1][0];
++            dev->asrc[0][1] = dev->asrc[1][1];
++            if (dev->audio(f, 1) == 1) {
++                dev->asrc[1][0] = f[0];
++                dev->asrc[1][1] = f[1];
++            }
++            dev->apos -= 1.0;
++        }
++        for (int ch = 0; ch < 2; ch++)
++            buffer[c * 2 + ch] += (int32_t) (dev->asrc[0][ch] +
++                                  (dev->asrc[1][ch] - dev->asrc[0][ch]) * dev->apos);
++        dev->apos += dev->astep;
++    }
++}
++
 +#define PM_SYM(f, n)                                                  \
 +    do {                                                              \
 +        *(void **) &dev->f = dlsym(dev->lib, n);                      \
@@ -266,6 +303,9 @@ index 0000000..772efa6
 +    PM_SYM(io_map, "pm_io_map");
 +    PM_SYM(mem_map, "pm_mem_map");
 +
++    *(void **) &dev->audio      = dlsym(dev->lib, "pm_audio_read");
++    *(void **) &dev->audio_rate = dlsym(dev->lib, "pm_audio_rate");
++
 +    dev->irq = device_get_config_int("irq");
 +    picomem_resolve(device_get_config_string("sd_image"), dev->sd_path, sizeof dev->sd_path);
 +
@@ -290,6 +330,11 @@ index 0000000..772efa6
 +    }
 +    the_card = dev;
 +    picomem_sync(dev);
++
++    if (dev->audio && dev->audio_rate) {
++        dev->astep = (double) dev->audio_rate() / (double) SOUND_FREQ;
++        sound_add_handler(picomem_get_buffer, dev);
++    }
 +
 +    timer_add(&dev->timer, picomem_tick, dev, 0);
 +    timer_set_delay_u64(&dev->timer, (uint64_t) (PICOMEM_TICK_US * TIMER_USEC));
