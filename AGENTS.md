@@ -760,7 +760,14 @@ controller, so no XT profile can host one),
 `xt-weave`, `386-weave`, `xt-weave-256`, `xt-pixelstein`, `xt-pixelstein-herc`,
 `xt-pixel`, `386-pixel`, `xt-isotron`, `xt-isotron-cga`, `xt-isotron-herc`,
 `xt-isotron-ega`, `xt-lemmings`, `386-lemmings`;
-plus `marty` (MartyPC). **`386-ps2` is the only machine here with a PS/2
+plus `marty` (MartyPC). **The PicoMEM machines are not make targets**:
+`vm/xt-picomem1` and `vm/xt-picomem2` (with `-1fd` and `-usbm` twins) and
+`vm/at286-picomem1` run the card's OWN firmware, `libpmhost`
+(`tools/picomem/build.sh`), through `tools/86box/patches/07-picomem.patch`,
+so they launch through `tools/os88box.py` on the patched 86Box rather than
+`$(BOX)`; MartyPC's are `os8088_5150_herc_pm1_gla` and `_pm2_gla`
+(`tools/martypc/patches/17-picomem.patch`). `soak -k 'pm*'` runs them
+(docs/plans/PICOMEM-EMU-PLAN.md). **`386-ps2` is the only machine here with a PS/2
 mouse** — every other config is `mouse_type = msserial`, which is why §9.9
 shipped and went untested on anything but QEMU for months; it is a Packard
 Bell Legend 300SX, whose bus flags are what give 86Box's 8042 an auxiliary

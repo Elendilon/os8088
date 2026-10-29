@@ -1,6 +1,8 @@
 # PicoMEM under an emulator: the card's own firmware, run beside the CPU
 
-> **WAVE 0 IS BUILT (section 6.1); waves 1-9 are the plan.** Branch
+> **ALL TEN WAVES ARE BUILT (sections 6.1-6.9, and section 8's rows).**
+> What is not: the 2.x `.uf2` for the iron (6.7), and `os8088-pm114`'s
+> diagnostic commits, which no leg needed. Branch
 > `picomem-emulator`, cut from `elendilon` on 2026-10-29. This began as an
 > investigation and a proposal. Every number in it
 > is a citation or an estimate, and each estimate says so. The firmware
@@ -453,7 +455,7 @@ plus `test-full` after the last.
 | **6. The 2.x** (**BUILT**, 6.7; the machine is `vm/xt-picomem2`) | `libpmhost-v2` (`pm1x-pr` built `PICOMEM_20`, no GUS/MPU), real IRQ lines, real DMA, `vm/pc5150-picomem2` | SOUND.DRV configures the SB through command 77h on our firmware's 2.x build. If the public source still ignores the IRQ/DMA it is given (`PM2-10-4-26`'s note, section 9), this is where we find out, and the fix goes into `fw/`. This is the **first run of our code on a 2.x anywhere**, and it yields a `.uf2` to try on the 5150. |
 | **7. kern_mega** (**BUILT**, 6.8; the machine is `vm/at286-picomem1`) | `vm/286-mega` with the card | The reflected multiplexer IRQs are visible and counted under `faults`/E9; this gives the open KERN-MEGA item a machine. |
 | **8. MartyPC** (**BUILT**, 6.9) | `17-picomem.patch`, the snoop hook, two machines | `pm_runaway`'s detection is measured on a 4.77 MHz 8088 against the card's own DMA pacing; `videmsslow`'s premise (8 wait states) is read off a real card model. |
-| **9. Suite and docs** | rows, profiles, TESTING.md, FIELD-MACHINES | Section 8's rows registered; docs/TESTING.md's matrix gains a PicoMEM row; CLAUDE.md's emulator lists name the profiles. |
+| **9. Suite and docs** (**BUILT**: section 8, docs/TESTING.md *The PicoMEM*) | rows, profiles, TESTING.md, FIELD-MACHINES | Section 8's rows registered; docs/TESTING.md's matrix gains a PicoMEM row; CLAUDE.md's emulator lists name the profiles. |
 
 **Estimates, all unmeasured:**
 
@@ -916,21 +918,24 @@ each claim gets tested.
 **The iron stays the authority**; this moves the first round of each
 question off it.
 
-## 8. Rows it would add (names are proposals)
+## 8. The rows (BUILT)
+
+The proposals this section carried became fewer, broader rows:
 
 | row | emulator | asserts |
 |---|---|---|
-| `box-pmboot1` / `box-pmboot2` | 86Box | BIOS banner; 6000h detect; os8088 desktop |
-| `box-pmsb1` / `box-pmsb2` | 86Box | SB + AdLib attach; captured WAV non-silent and right length |
-| `box-pmdisk` | 86Box | B: kept; VHD boot via HDD.DRV; warm restart |
-| `box-pmnet` | 86Box | DHCP + fetch through the card's NE2000 |
-| `box-pmmouse` | 86Box | pointer moves through `int 33h` 0060h |
-| `pmlib` | host (soak) | `tests/picomem.py`'s legs against `libpmhost` instead of the Python model |
-| `pmrace` | MartyPC | `pm_runaway` behaviour on an 8088 |
+| `pmlib` | host (unicorn) | `tests/picomem.py`'s sb and vs legs against `libpmhost` instead of the Python model; the 2.x's real DMA (`sb2fw`) |
+| `pmbox` | 86Box | the 1.x: BIOS, SOUND.DRV's order, PMDMA, SBTEST's tone; B: on the card and Restart; the hard-disk boot; the NE2000 and DHCP; the USB mouse; kern_mega with the card |
+| `pmbox2` | 86Box | the same legs on a 2.x (PMDMA and kern_mega left out) |
+| `emscard`, `emscard2` | 86Box | EMS.DRV against the card's EMS |
+| `pmmarty` | MartyPC | both boards on a 4.77 MHz 5150; `pm_runaway` against the card's own pacing |
 
-Each needs its break-it-on-purpose check (docs/WRITING-TESTS.md §1). For
-example, `box-pmsb1` must go red with `NOPICOMEM=1`, and `box-pmmouse` with
-the hook ordering reversed.
+Each was broken on purpose and went red (docs/WRITING-TESTS.md 1): the
+section above each wave's write-up names how. `box-pmmouse`'s proposed break
+(the hook order reversed) is check 9's, and it reproduced FIELD-NOTES 66's
+freeze. `box-pmsb1`'s (`NOPICOMEM=1`) was not used: `pmbox` refuses to
+build its disks that way, so the snoop and the jumpers are the breaks.
+`pmrace` became `pmmarty`, and it shows the quiet half only (6.9).
 
 ## 9. Decisions, and what is still open
 
