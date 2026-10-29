@@ -49,6 +49,8 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 
 FAILS = []
+VM = "xt-picomem1"      # --board 2: xt-picomem2, its -1fd and -usbm twins
+OWN = 5                 # the card's own line: the 1.x's jumper, the 2.x's IRQ 7
 
 
 def check(cond, what):
@@ -108,35 +110,38 @@ def leg_snd(tmp):
                   att[3][:2] == (0x78, 0x220) and all(x[3] == 0 for x in att[:4]),
                   "SOUND.DRV: 78h 0, 73h 1, 77h, 78h 220h, all answered 0 (%s)"
                   % ["%02Xh %04Xh=%04Xh" % (c, g, r) for c, g, s, r in att])
-            check(att[2][1] & 0xFF not in (5,) if len(att) > 2 else False,
-                  "the SB's IRQ is not the card's own 5 (77h %04Xh)"
-                  % (att[2][1] if len(att) > 2 else 0))
+            check(att[2][1] & 0xFF != OWN if len(att) > 2 else False,
+                  "the SB's IRQ is not the card's own %d (77h %04Xh)"
+                  % (OWN, att[2][1] if len(att) > 2 else 0))
 
-            print("pmbox: PMDMA's R - the 1.x's virtual DMA, four ways")
-            syms, _ = pkg_syms("tests/pmdma/pmdma.asm", incs=("apps/", "tests/", "build/"))
-            w = ui.path("B:/PMDMA.O88")
-            m.key("KeyR")
-            p = Pkg(m, os88marty.pkg_seg(m, w.i), syms)
-            rd = lambda: list(m.read(p.addr("pd_res"), 4))
-            # pd_run starts every variant at "no copy" (4) and reports each
-            # as it lands; the R key's whole run is one callback
-            try:
-                os88marty.until(m, lambda _: 4 not in rd(), guest=30,
-                                what="PMDMA's four variants to report")
-            except os88marty.MartyError:
-                pass
-            res = rd()
-            check(res == [0, 0, 0, 0], "every variant copied from the address "
-                  "programmed (pd_res %s: 0 right, 1 page, 2 wrong, 4 none)" % res)
-            # R runs on into G and E - E a 2KB AUTO-INIT stream - in the same
-            # callback, so the window closes only once the stream has ended
-            try:
-                ui.close(w, limit=120.0)
-                check(True, "PMDMA's whole run ended, its auto-init stream "
-                      "included (the window closed)")
-            except os88ui.UIError as e:
-                check(False, "PMDMA's whole run ended, its auto-init stream "
-                      "included: %s" % str(e).split(".")[0])
+            # PMDMA asks a 1.x where its VIRTUAL DMA copied from; a 2.x has
+            # real DMA lines and copies nothing, so it has no answer to give
+            if OWN == 5:
+                print("pmbox: PMDMA's R - the 1.x's virtual DMA, four ways")
+                syms, _ = pkg_syms("tests/pmdma/pmdma.asm", incs=("apps/", "tests/", "build/"))
+                w = ui.path("B:/PMDMA.O88")
+                m.key("KeyR")
+                p = Pkg(m, os88marty.pkg_seg(m, w.i), syms)
+                rd = lambda: list(m.read(p.addr("pd_res"), 4))
+                # pd_run starts every variant at "no copy" (4) and reports each
+                # as it lands; the R key's whole run is one callback
+                try:
+                    os88marty.until(m, lambda _: 4 not in rd(), guest=30,
+                                    what="PMDMA's four variants to report")
+                except os88marty.MartyError:
+                    pass
+                res = rd()
+                check(res == [0, 0, 0, 0], "every variant copied from the address "
+                      "programmed (pd_res %s: 0 right, 1 page, 2 wrong, 4 none)" % res)
+                # R runs on into G and E - E a 2KB AUTO-INIT stream - in the same
+                # callback, so the window closes only once the stream has ended
+                try:
+                    ui.close(w, limit=120.0)
+                    check(True, "PMDMA's whole run ended, its auto-init stream "
+                          "included (the window closed)")
+                except os88ui.UIError as e:
+                    check(False, "PMDMA's whole run ended, its auto-init stream "
+                          "included: %s" % str(e).split(".")[0])
 
             print("pmbox: SBTEST's tone, through the card's DAC")
             w = ui.path("B:/SBTEST.O88")
@@ -198,7 +203,7 @@ def leg_fdd(tmp):
                     "--fdd", "1:" + os.path.join(ROOT, "build/pmboxb360.img")],
                    check=True, stdout=subprocess.DEVNULL)
     os.environ["OS88_PMSD"] = sd
-    os.environ["OS88_86BOX_VM"] = "xt-picomem1-1fd"
+    os.environ["OS88_86BOX_VM"] = VM + "-1fd"
     os.environ.pop("OS88_PMWAV", None)
     try:
         with os88ui.boot(os.path.join(ROOT, "build/pmsys360.img"),
@@ -243,7 +248,7 @@ def leg_fdd(tmp):
         check(False, "the machine: %s" % str(e).split(". ")[0])
     finally:
         os.environ.pop("OS88_PMSD", None)
-        os.environ["OS88_86BOX_VM"] = "xt-picomem1"
+        os.environ["OS88_86BOX_VM"] = VM
 
 
 def leg_hdd(tmp):
@@ -351,7 +356,7 @@ def leg_mouse(tmp):
     import os88ui
     os.environ.pop("OS88_PMSD", None)
     os.environ.pop("OS88_PMWAV", None)
-    os.environ["OS88_86BOX_VM"] = "xt-picomem1-usbm"
+    os.environ["OS88_86BOX_VM"] = VM + "-usbm"
     try:
         # Launched PAUSED and the mouse moved FIRST: the card then holds a
         # report from before os8088 started, which its firmware raises the
@@ -373,7 +378,7 @@ def leg_mouse(tmp):
     except (os88marty.MartyError, os88ui.UIError, SystemExit) as e:
         check(False, "the machine: %s" % str(e).split(". ")[0])
     finally:
-        os.environ["OS88_86BOX_VM"] = "xt-picomem1"
+        os.environ["OS88_86BOX_VM"] = VM
 
 
 def leg_mouse_up(ui, m):
@@ -399,16 +404,22 @@ def main():
                     help="snd (checks 1-4), fdd (checks 5, 7), hdd (check 6), "
                          "net (check 8), mouse (check 9)")
     ap.add_argument("--keep", help="leave the captures and logs here")
+    ap.add_argument("--board", type=int, choices=(1, 2), default=1,
+                    help="2: the same legs on a PicoMEM 2.x (vm/xt-picomem2: "
+                         "our firmware built PICOMEM_20, IRQ 7 jumpered, DRQ 1)")
     a = ap.parse_args()
+    global VM, OWN
+    if a.board == 2:
+        VM, OWN = "xt-picomem2", 7
     for f in ("build/pmsys360.img", "build/pmboxb360.img", "build/apps360.img",
               "build/pmhd.img",
-              "build/picomem/v1/libpmhost-v1.so"):
+              "build/picomem/v%d/libpmhost-v%d.so" % (a.board, a.board)):
         if not os.path.exists(os.path.join(ROOT, f)):
             print("SKIP: %s is not built (make pmboxtest; tools/picomem/build.sh)" % f)
             return 0
     tmp = a.keep or tempfile.mkdtemp(prefix="pmbox-")
     os.makedirs(tmp, exist_ok=True)
-    os.environ.update(OS88_EMU="86box", OS88_86BOX_VM="xt-picomem1",
+    os.environ.update(OS88_EMU="86box", OS88_86BOX_VM=VM,
                       OS88_PMHOST_LOG="1")
     if "snd" in a.legs:
         leg_snd(tmp)

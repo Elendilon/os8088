@@ -34,11 +34,17 @@ typedef struct pm_host {
     /* A frame the card's NE2000 sent: the Wi-Fi chip's "air" is the host's
      * network. NULL = the card has no network. */
     void (*net_tx)(void *ctx, const uint8_t *frame, int len);
+    /* The 2.x raised DRQ on CHANNEL for one byte: answer it with pm_dma_byte
+     * when the 8237 moves it. NULL = no DMA (a 1.x never calls it). */
+    void (*dma_req)(void *ctx, int channel);
 } pm_host_t;
 
 typedef struct pm_cfg {
     int irq;               /* the 1.x's IRQ jumper: 3, 5 or 7 (2 on rev 1.1) */
     const char *sd_image;  /* a raw image of the microSD card; NULL = no card */
+    int irq_lines;         /* the 2.x's jumpers, bit n = IRQ n (3, 5, 6, 7);
+                              0 = the one line `irq` names. A 1.x ignores it */
+    int dma;               /* the 2.x's DRQ channel; 0 = 1 */
 } pm_cfg_t;
 
 /* Start the card: power-on, then the firmware's main() on the card thread,
@@ -96,6 +102,16 @@ void pm_mouse_move(int dx, int dy, int buttons);
  * re-read after a write the card decoded and after pm_advance. */
 void pm_io_map(uint8_t io[128]);
 void pm_mem_map(uint8_t mem[128]);
+
+/* 1 or 2: which board this library is (pm1x-pr built PICOMEM or
+ * PICOMEM_20). */
+int pm_board(void);
+
+/* The 2.x's DMA: the byte the 8237 moved for a DRQ host.dma_req announced,
+ * with TC. Returns 0 if the card was not asking. pm_dma_pending is how many
+ * DRQs are outstanding. */
+int pm_dma_byte(uint8_t v, int tc);
+int pm_dma_pending(void);
 
 /* Introspection for tests: the status register as port 2A0h would read it
  * without the read, and the 8 KB of shared RAM behind the BIOS. */

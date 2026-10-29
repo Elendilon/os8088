@@ -9,7 +9,10 @@ block and per 8 KB block, so nothing else on the bus changes; card time is
 the machine's, in 100 us ticks, and its DAC is mixed in at 48 kHz.
 Config: [PicoMEM #1] irq, sd_image, lib, usb_mouse (86Box's pointer as the
 card's USB mouse, polled every 8 ms; the machine's own mouse must be
-none). The card's NE2000 (a Pico W's Wi-Fi
+none), and for a 2.x library irq3/irq5/irq6/irq7 (its jumpers: each pin
+reaches its line only when set) and dma (its DRQ channel, 1 or 3): the
+2.x's real DMA is a DRQ the card raises per byte, answered from 86Box's
+8237 with dma_channel_read after each card slice. The card's NE2000 (a Pico W's Wi-Fi
 bridge) reaches 86Box's network through a companion NIC, net_01_card =
 picomem_ne2k, which network.c starts like any card.
 tools/os88box.py resolves lib and copies sd_image like a disk.
@@ -30,10 +33,10 @@ index 4526b6c..b67d080 100644
      isapnp.c
 diff --git a/src/device/isa_picomem.c b/src/device/isa_picomem.c
 new file mode 100644
-index 0000000..3272d2c
+index 0000000..cb2775d
 --- /dev/null
 +++ b/src/device/isa_picomem.c
-@@ -0,0 +1,489 @@
+@@ -0,0 +1,592 @@
 +/*
 + * 86Box    A hypervisor and IBM PC system emulator that specializes in
 + *          running old operating systems and software designed for IBM
@@ -79,6 +82,7 @@ index 0000000..3272d2c
 +#include <86box/thread.h>
 +#include <86box/network.h>
 +#include <86box/mouse.h>
++#include <86box/dma.h>
 +
 +/* pmhost.h, restated: this file must build without the library's tree. */
 +typedef struct pm_host {
@@ -86,11 +90,14 @@ index 0000000..3272d2c
 +    void (*irq)(void *ctx, int line, int level);
 +    void (*log)(void *ctx, const char *text);
 +    void (*net_tx)(void *ctx, const uint8_t *frame, int len);
++    void (*dma_req)(void *ctx, int channel);
 +} pm_host_t;
 +
 +typedef struct pm_cfg {
 +    int         irq;
 +    const char *sd_image;
++    int         irq_lines;
++    int         dma;
 +} pm_cfg_t;
 +
 +/* Card time per timer tick. The firmware's own waits are in microseconds
@@ -116,6 +123,7 @@ index 0000000..3272d2c
 +    int (*audio_rate)(void);
 +    void (*net_rx)(const uint8_t *, int); /* optional: a library with no NE2000 */
 +    void (*mouse)(int, int, int);   /* optional: the card's USB mouse */
++    int (*dma_byte)(uint8_t, int);  /* a 2.x's real DMA (pm_dma_byte) */
 +
 +    int           irq;
 +    int           level;
@@ -131,9 +139,12 @@ index 0000000..3272d2c
 +    int           mouse_on;      /* config usb_mouse: 86Box's pointer is the card's */
 +    int           mouse_tick;
 +    int           mouse_b;
++    int           dma_ch;        /* the 2.x's DRQ channel */
++    int           dma_want;      /* DRQs the card raised, not yet answered */
 +} picomem_t;
 +
 +static picomem_t *the_card;      /* libpmhost is one card per library */
++static void picomem_dma(picomem_t *dev);
 +
 +/* The card's NE2000 is a Pico W's Wi-Fi bridge; here its "air" is 86Box's
 + * network, reached through a companion network card (picomem_ne2k_device,
@@ -236,6 +247,7 @@ index 0000000..3272d2c
 +        /* A command or an EMS page may have moved the card's map: let core 0
 +         * take the command now rather than at the next tick, then mirror. */
 +        dev->advance(0);
++        picomem_dma(dev);
 +        picomem_sync(dev);
 +    }
 +}
@@ -283,6 +295,34 @@ index 0000000..3272d2c
 +    }
 +}
 +
++/* THE 2.x's DMA. Its firmware raises DRQ for one byte at a time (the PIO
++ * program isa_dma_w_tc); 86Box's 8237 is pulled rather than pushed, so the
++ * DRQ is counted from the card thread and answered here, after the card's
++ * slice: dma_channel_read is the cycle, and the byte goes back with TC. A
++ * channel not yet programmed or masked answers DMA_NODATA, and the DRQ stays
++ * up for the next tick, as the line would. */
++static void
++picomem_dma_req_cb(void *ctx, int channel)
++{
++    picomem_t *dev = (picomem_t *) ctx;
++
++    (void) channel;
++    dev->dma_want++;
++}
++
++static void
++picomem_dma(picomem_t *dev)
++{
++    for (int n = 0; dev->dma_want > 0 && n < 64; n++) {
++        int v = dma_channel_read(dev->dma_ch);
++        if (v == DMA_NODATA)
++            break;
++        dev->dma_want--;
++        if (dev->dma_byte)
++            dev->dma_byte((uint8_t) v, (v & DMA_OVER) != 0);
++    }
++}
++
 +static void
 +picomem_tick(void *priv)
 +{
@@ -303,6 +343,7 @@ index 0000000..3272d2c
 +    }
 +
 +    dev->advance((uint64_t) (PICOMEM_TICK_US * 1000.0));
++    picomem_dma(dev);
 +    picomem_sync(dev);
 +    timer_advance_u64(&dev->timer, (uint64_t) (PICOMEM_TICK_US * TIMER_USEC));
 +}
@@ -395,6 +436,8 @@ index 0000000..3272d2c
 +    *(void **) &dev->audio_rate = dlsym(dev->lib, "pm_audio_rate");
 +    *(void **) &dev->net_rx     = dlsym(dev->lib, "pm_net_rx");
 +    *(void **) &dev->mouse      = dlsym(dev->lib, "pm_mouse_move");
++    *(void **) &dev->dma_byte   = dlsym(dev->lib, "pm_dma_byte");
++    dev->dma_ch                 = device_get_config_int("dma");
 +    dev->mouse_on               = device_get_config_int("usb_mouse");
 +
 +    dev->irq = device_get_config_int("irq");
@@ -414,7 +457,11 @@ index 0000000..3272d2c
 +    dev->host.irq = picomem_irq_cb;
 +    dev->host.log = picomem_log_cb;
 +    dev->host.net_tx = picomem_net_tx_cb;
++    dev->host.dma_req = picomem_dma_req_cb;
 +    cfg.irq       = dev->irq;
++    cfg.irq_lines = (device_get_config_int("irq3") << 3) | (device_get_config_int("irq5") << 5)
++                  | (device_get_config_int("irq6") << 6) | (device_get_config_int("irq7") << 7);
++    cfg.dma       = dev->dma_ch;
 +    cfg.sd_image  = dev->sd_path[0] ? dev->sd_path : NULL;
 +    if (dev->create(&cfg, &dev->host) != 0) {
 +        pclog("PicoMEM: pm_create refused (one card per library)\n");
@@ -471,6 +518,65 @@ index 0000000..3272d2c
 +            { .description = "IRQ 7", .value = 7 },
 +            { .description = ""                  }
 +        },
++        .bios           = { { 0 } }
++    },
++    {
++        .name           = "dma",
++        .description    = "DRQ (PicoMEM 2.x)",
++        .type           = CONFIG_SELECTION,
++        .default_string = NULL,
++        .default_int    = 1,
++        .file_filter    = NULL,
++        .spinner        = { 0 },
++        .selection      = {
++            { .description = "DMA 1", .value = 1 },
++            { .description = "DMA 3", .value = 3 },
++            { .description = ""                  }
++        },
++        .bios           = { { 0 } }
++    },
++    {
++        .name           = "irq3",
++        .description    = "IRQ 3 jumper (PicoMEM 2.x)",
++        .type           = CONFIG_BINARY,
++        .default_string = NULL,
++        .default_int    = 0,
++        .file_filter    = NULL,
++        .spinner        = { 0 },
++        .selection      = { { 0 } },
++        .bios           = { { 0 } }
++    },
++    {
++        .name           = "irq5",
++        .description    = "IRQ 5 jumper (PicoMEM 2.x)",
++        .type           = CONFIG_BINARY,
++        .default_string = NULL,
++        .default_int    = 0,
++        .file_filter    = NULL,
++        .spinner        = { 0 },
++        .selection      = { { 0 } },
++        .bios           = { { 0 } }
++    },
++    {
++        .name           = "irq6",
++        .description    = "IRQ 6 jumper (PicoMEM 2.x)",
++        .type           = CONFIG_BINARY,
++        .default_string = NULL,
++        .default_int    = 0,
++        .file_filter    = NULL,
++        .spinner        = { 0 },
++        .selection      = { { 0 } },
++        .bios           = { { 0 } }
++    },
++    {
++        .name           = "irq7",
++        .description    = "IRQ 7 jumper (PicoMEM 2.x)",
++        .type           = CONFIG_BINARY,
++        .default_string = NULL,
++        .default_int    = 0,
++        .file_filter    = NULL,
++        .spinner        = { 0 },
++        .selection      = { { 0 } },
 +        .bios           = { { 0 } }
 +    },
 +    {

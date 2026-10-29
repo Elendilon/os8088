@@ -9,7 +9,8 @@
 # Pico SDK, an ARM toolchain or the firmware's submodules: the seam is drawn
 # above everything that would.
 #
-#   tools/picomem/build.sh            # v1 (PicoMEM 1.x)
+#   tools/picomem/build.sh            # v1 and v2 (PicoMEM 1.x and 2.x)
+#   BOARDS=v2 tools/picomem/build.sh  # one of them
 #   python3 tools/picomem/pmhost.py   # the self-check, against the result
 #
 # Pinned for MartyPC's reason (tools/martypc/build.sh): an instrument that
@@ -20,7 +21,7 @@ HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ROOT=$(CDPATH= cd -- "$HERE/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build/picomem}
 SRC=$BUILD/src
-BOARDS=${BOARDS:-v1}
+BOARDS=${BOARDS:-v1 v2}
 
 val() { sed -n "s/^$1=//p" "$HERE/UPSTREAM"; }
 REPO=$(val repo); PIN=$(val commit)

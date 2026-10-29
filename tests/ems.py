@@ -163,7 +163,7 @@ def leg_none(syms):
     return bad
 
 
-def leg_card(syms):
+def leg_card(syms, vm="xt-picomem1"):
     """leg board's checks against a REAL PicoMEM 1.x's EMS: the card's own
     firmware under 86Box (tools/picomem, vm/xt-picomem1), its microSD set
     for EMS at 288h and E000h - E000h because this firmware's BIOS sits at
@@ -183,7 +183,7 @@ def leg_card(syms):
                           stdout=subprocess.DEVNULL)
     env = dict(os.environ, OS88_PMSD=blank, OS88_PMHOST_LOG="1")
     name = "emscard%d" % os.getpid()
-    subprocess.check_call(box + ["launch", "xt-picomem1", "--name", name,
+    subprocess.check_call(box + ["launch", vm, "--name", name,
                                  "--fresh", "--temp", "--turbo"],
                           env=env, stdout=subprocess.DEVNULL)
     run = os.path.join(ROOT, "build/86box/run", name)
@@ -203,14 +203,13 @@ def leg_card(syms):
                            "--cfg-from", os.path.join(run, "picomem-sd.img"),
                            "--cfg", "EMS_Port=2", "--cfg", "EMS_Addr=1"],
                           stdout=subprocess.DEVNULL)
-    os.environ.update(OS88_EMU="86box", OS88_86BOX_VM="xt-picomem1",
-                      OS88_PMSD=sd)
+    os.environ.update(OS88_EMU="86box", OS88_86BOX_VM=vm, OS88_PMSD=sd)
     return leg_board(syms, "os8088_xt_vga", 0xE000, 0x288, CARD_PAGES)
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--leg", choices=("board", "none", "pico", "card", "both"),
+    ap.add_argument("--leg", choices=("board", "none", "pico", "card", "card2", "both"),
                     default="both")
     a = ap.parse_args()
     os.chdir(ROOT)
@@ -229,6 +228,8 @@ def main():
             bad += leg_board(syms, PICO, 0xD000, 0x288)
         if a.leg == "card":
             bad += leg_card(syms)
+        if a.leg == "card2":
+            bad += leg_card(syms, "xt-picomem2")
     except Fail as e:
         bad.append(str(e))
     if bad:

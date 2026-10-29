@@ -154,9 +154,14 @@ static inline void pio_sm_claim(PIO p, uint sm) { (void)p; (void)sm; }
 static inline int pio_claim_unused_sm(PIO p, bool r) { (void)p; (void)r; return 0; }
 static inline void pio_sm_unclaim(PIO p, uint sm) { (void)p; (void)sm; }
 static inline uint pio_add_program(PIO p, const pio_program_t *g) { (void)p; (void)g; return 0; }
-static inline void pio_sm_put(PIO p, uint sm, uint32_t v) { (void)p; (void)sm; (void)v; }
-static inline void pio_sm_put_blocking(PIO p, uint sm, uint32_t v) { (void)p; (void)sm; (void)v; }
-static inline uint32_t pio_sm_get(PIO p, uint sm) { (void)p; (void)sm; return 0; }
+/* The one state machine with a host end is the 2.x's DMA program (pio0 SM
+ * 3, isa_dma.h): a word put to it is a DRQ, and what it pushes back is the
+ * byte the 8237 moved (pmhost.cpp). Every other put and get goes nowhere. */
+void pmh_pio_put(PIO p, uint sm, uint32_t v);
+uint32_t pmh_pio_get(PIO p, uint sm);
+static inline void pio_sm_put(PIO p, uint sm, uint32_t v) { pmh_pio_put(p, sm, v); }
+static inline void pio_sm_put_blocking(PIO p, uint sm, uint32_t v) { pmh_pio_put(p, sm, v); }
+static inline uint32_t pio_sm_get(PIO p, uint sm) { return pmh_pio_get(p, sm); }
 static inline uint32_t pio_sm_get_blocking(PIO p, uint sm) { (void)p; (void)sm; return 0; }
 static inline void pio_sm_exec(PIO p, uint sm, uint i) { (void)p; (void)sm; (void)i; }
 static inline uint pio_encode_jmp(uint a) { return a; }
@@ -209,8 +214,33 @@ static inline uint32_t clock_get_hz(int c) { (void)c; return 280000000u; }
 #define clk_sys 5
 #define clk_peri 6
 static inline uint32_t frequency_count_khz(uint s) { (void)s; return 0; }
-static inline void irq_set_enabled(uint n, bool e) { (void)n; (void)e; }
-static inline void irq_set_exclusive_handler(uint n, irq_handler_t h) { (void)n; (void)h; }
+enum { CLOCKS_FC0_SRC_VALUE_PLL_SYS_CLKSRC_PRIMARY = 1, CLOCKS_FC0_SRC_VALUE_PLL_USB_CLKSRC_PRIMARY,
+       CLOCKS_FC0_SRC_VALUE_ROSC_CLKSRC, CLOCKS_FC0_SRC_VALUE_CLK_SYS, CLOCKS_FC0_SRC_VALUE_CLK_PERI,
+       CLOCKS_FC0_SRC_VALUE_CLK_USB, CLOCKS_FC0_SRC_VALUE_CLK_ADC };
+static inline void vreg_disable_voltage_limit(void) {}
+static inline void hw_write_masked(volatile uint32_t *a, uint32_t v, uint32_t m) { *a = (*a & ~m) | (v & m); }
+#define QMI_M0_TIMING_CLKDIV_LSB 0
+#define QMI_M0_TIMING_CLKDIV_BITS 0xFFu
+#define QMI_M0_TIMING_RXDELAY_LSB 8
+#define QMI_M0_TIMING_RXDELAY_BITS 0x700u
+#define SEL_ADR 1
+#define SEL_DAT 0
+#define SEL_ADL 0
+#define SEL_ADH 1
+/* Interrupt handlers are KEPT: the 2.x's DMA ISR is called when the host
+ * hands a byte over (pm_dma_byte), as the PIO's FIFO interrupt calls it. */
+#define PIO0_IRQ_0 15
+#define PICO_HIGHEST_IRQ_PRIORITY 0
+enum { pis_sm0_rx_fifo_not_empty = 1, pis_sm1_rx_fifo_not_empty = 2,
+       pis_sm2_rx_fifo_not_empty = 4, pis_sm3_rx_fifo_not_empty = 8 };
+static inline void pio_set_irq0_source_enabled(PIO p, int s, bool e) { (void)p; (void)s; (void)e; }
+void irq_set_enabled(uint n, bool e);
+void irq_set_exclusive_handler(uint n, irq_handler_t h);
+#if MUX_V2
+/* the 2.x's OLED and front-panel buttons: absent here (pmhost.cpp) */
+bool pm_display_init(uint8_t type);
+void pm_input_init(void);
+#endif
 static inline void irq_set_priority(uint n, uint8_t p) { (void)n; (void)p; }
 
 typedef struct { uint32_t csr, div, top; } pwm_config;

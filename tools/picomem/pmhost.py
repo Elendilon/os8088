@@ -40,15 +40,17 @@ STAT_READY, STAT_CMDINPROGRESS, STAT_CMDERROR, STAT_CMDNOTFOUND, STAT_INIT, STAT
 IRQ_FN = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_int, ctypes.c_int)
 LOG_FN = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_char_p)
 NET_FN = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint8), ctypes.c_int)
+DMA_FN = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_int)
 
 
 class _Host(ctypes.Structure):
     _fields_ = [("ctx", ctypes.c_void_p), ("irq", IRQ_FN), ("log", LOG_FN),
-                ("net_tx", NET_FN)]
+                ("net_tx", NET_FN), ("dma_req", DMA_FN)]
 
 
 class _Cfg(ctypes.Structure):
-    _fields_ = [("irq", ctypes.c_int), ("sd_image", ctypes.c_char_p)]
+    _fields_ = [("irq", ctypes.c_int), ("sd_image", ctypes.c_char_p),
+                ("irq_lines", ctypes.c_int), ("dma", ctypes.c_int)]
 
 
 _serial = itertools.count()
@@ -67,9 +69,12 @@ class CardError(Exception):
 
 class Card:
     """One PicoMEM. irq_jumper is the 1.x's IRQ jumper; sd is a raw image of
-    the microSD card or None for no card."""
+    the microSD card or None for no card. On a 2.x (board="v2") irq_lines is
+    the jumper mask, bit n = IRQ n (default IRQ 7 alone, as the field 2.x
+    has it), and dma its DRQ channel."""
 
-    def __init__(self, board="v1", irq_jumper=5, sd=None, lib=None):
+    def __init__(self, board="v1", irq_jumper=5, sd=None, lib=None,
+                 irq_lines=None, dma=1):
         path = lib or os.path.join(BUILD, board, "libpmhost-%s.so" % board)
         if not os.path.exists(path):
             raise CardError("%s is not built: run tools/picomem/build.sh" % path)
@@ -89,6 +94,12 @@ class Card:
         L.pm_peek_status.restype = ctypes.c_uint8
         L.pm_shared_ram.restype = ctypes.POINTER(ctypes.c_uint8)
         L.pm_net_rx.argtypes = [ctypes.c_char_p, ctypes.c_int]
+        L.pm_dma_byte.argtypes = [ctypes.c_uint8, ctypes.c_int]
+        self.board = L.pm_board()
+        if irq_lines is None:
+            irq_lines = 1 << 7 if self.board == 2 else 0
+        self.drq = []                           # channels the card raised DRQ on
+        self._dma_cb = DMA_FN(lambda ctx, ch: self.drq.append(ch))
         self.irq_lines = {}                     # line -> level, as the card last drove it
         self.irq_log = []                       # (card ns, line, level)
         self.log = []
@@ -96,8 +107,9 @@ class Card:
         self._log_cb = LOG_FN(self._on_log)
         self.sent = []                          # frames the card's NE2000 sent
         self._net_cb = NET_FN(self._on_net)
-        self._host = _Host(None, self._irq_cb, self._log_cb, self._net_cb)
-        self._cfg = _Cfg(irq_jumper, sd.encode() if sd else None)
+        self._host = _Host(None, self._irq_cb, self._log_cb, self._net_cb,
+                           self._dma_cb)
+        self._cfg = _Cfg(irq_jumper, sd.encode() if sd else None, irq_lines, dma)
         self.irq_jumper = irq_jumper
         if L.pm_create(ctypes.byref(self._cfg), ctypes.byref(self._host)) != 0:
             raise CardError("pm_create refused (one card per process)")
@@ -153,7 +165,9 @@ class Card:
         """Power-on to READY, as the BIOS waits for it (pmbios.asm spins on
         status 4). Returns the card time it took."""
         t0 = self.now_us
-        while self.status == STAT_INIT:
+        # ...and until the card answers at its base at all: a 2.x's status
+        # byte reads READY before its init has installed the port
+        while self.status == STAT_INIT or self.inb(BASE) is None:
             if self.now_us - t0 > budget_us:
                 raise CardError("card still INIT after %d us" % budget_us)
             self.advance(step_us)
@@ -171,16 +185,24 @@ class Card:
         if self.wait_ready() != STAT_READY:
             raise CardError("card not READY for CMD_SendIRQ")
         self.outb(BASE, 0x30)
-        line, t0 = None, self.now_us
+        line, t0, fired = None, self.now_us, 0
         while self.inb(BASE) == STAT_CMDINPROGRESS:
             for l, lv in self.irq_lines.items():
-                if lv and line is None:
-                    line = l                     # the "handler": BV_IRQ = n
-                    self.poke(ROM + 0x4000 + 11, l)
+                if lv and not fired >> l & 1:
+                    fired |= 1 << l
+                    if line is None or self.board == 2:
+                        line = l                 # the "handler": BV_IRQ = n
+                        self.poke(ROM + 0x4000 + 11, l)
             if self.now_us - t0 > budget_us:
                 raise CardError("CMD_SendIRQ still running after %d us" % budget_us)
             self.advance(step_us)
+        if self.board == 2:                      # the 2.x's: every line that
+            self.poke(ROM + 0x4000 + 12, fired)  # fired, BV_HWIRQ (isa_irq.cpp)
         return line
+
+    def dma_byte(self, v, tc=False):
+        """The 8237's cycle for one DRQ the 2.x raised: True if it was asked."""
+        return bool(self.lib.pm_dma_byte(v, 1 if tc else 0))
 
     def dsp_at(self, bases=(0x220, 0x240, 0x230, 0x250, 0x260)):
         """The base whose Sound Blaster DSP answers a reset with AAh, or None:

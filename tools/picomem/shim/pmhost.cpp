@@ -29,6 +29,10 @@
 #include "psram_spi.h"
 #include "pmhost.h"
 #include "dev_mouse.h"
+#if MUX_V2
+#include "pico_psram.h"
+#include "hardware/structs/qmi.h"
+#endif
 
 #define PMH_API extern "C" __attribute__((visibility("default")))
 
@@ -243,6 +247,9 @@ static bool fire_one_due(uint64_t t_us)
     return true;
 }
 
+// The 2.x's jumpers: pm_cfg_t.irq_lines, or the one line `irq` names.
+static int pmh_irq_lines(void) { return cfg.irq_lines ? cfg.irq_lines : 1 << cfg.irq; }
+
 // ---- GPIO: the IRQ pins ------------------------------------------------------------
 // The card drives its IRQ lines through inverters, so a pin at 0 is a line
 // asserted. On a 1.x the one pin is PIN_PM_IRQ and the line is the jumper's.
@@ -254,9 +261,79 @@ extern "C" void gpio_put(uint pin, bool v)
         if (pin_state[pin] == (uint8_t)v + 1) return;
         pin_state[pin] = (uint8_t)v + 1;
     }
+#if MUX_V2
+    // The 2.x's four pins, each through a jumper to its ISA line; the
+    // multiplexer's (PIN_PM_IRQ) is IRQ 7's pin. An open jumper is a pin
+    // that reaches nothing - which the BIOS's 30h detection finds out.
+    int line = pin == PIN_IRQ3 ? 3 : pin == PIN_IRQ5 ? 5 : pin == PIN_IRQ6 ? 6
+             : pin == PIN_IRQ7 ? 7 : -1;
+    if (line >= 0 && (pmh_irq_lines() >> line & 1) && host.irq)
+        host.irq(host.ctx, line, v ? 0 : 1);
+#else
     if (pin == PIN_PM_IRQ && host.irq) host.irq(host.ctx, cfg.irq, v ? 0 : 1);
+#endif
 }
 extern "C" bool gpio_get(uint pin) { return pin < sizeof pin_state && pin_state[pin] == 2; }
+
+// ---- the 2.x's DMA: its PIO program, by its two ends --------------------------------
+// isa_dma_w_tc (isa_iomem_m2_v15.pio): a word put to pio0 SM 3 raises DRQ;
+// the 8237's cycle (DACK and IOW) latches the bus byte, which the program
+// pushes with the TC flag in bits 8-31, and the FIFO's interrupt runs the
+// device's ISR, which takes the word with pio_sm_get. The host's half: a put
+// is host.dma_req, and pm_dma_byte is the cycle.
+static irq_handler_t irq_tab[32];
+static bool irq_on[32];
+static uint32_t dma_rx;
+static int dma_wanted;                        // DRQs not yet answered
+
+extern "C" void irq_set_exclusive_handler(uint n, irq_handler_t h) { if (n < 32) irq_tab[n] = h; }
+extern "C" void irq_set_enabled(uint n, bool e) { if (n < 32) irq_on[n] = e; }
+
+extern "C" void pmh_pio_put(PIO p, uint sm, uint32_t v)
+{
+    (void)v;
+    if (p != pio0 || sm != 3) return;
+    dma_wanted++;
+    if (host.dma_req) host.dma_req(host.ctx, cfg.dma ? cfg.dma : 1);
+}
+
+extern "C" uint32_t pmh_pio_get(PIO p, uint sm)
+{
+    return (p == pio0 && sm == 3) ? dma_rx : 0;
+}
+
+PMH_API int pm_dma_byte(uint8_t v, int tc)
+{
+    if (!dma_wanted) return 0;
+    dma_wanted--;
+    dma_rx = v | (tc ? 0xFFFFFF00u : 0);
+    if (irq_on[PIO0_IRQ_0] && irq_tab[PIO0_IRQ_0]) irq_tab[PIO0_IRQ_0]();
+    return 1;
+}
+
+PMH_API int pm_dma_pending(void) { return dma_wanted; }
+
+PMH_API int pm_board(void)
+{
+#if MUX_V2
+    return 2;
+#else
+    return 1;
+#endif
+}
+
+// ---- the 2.x's QSPI PSRAM and its odds and ends ---------------------------------------
+#if MUX_V2
+uint8_t pmh_psram2[PMH_PSRAM2_SIZE];
+size_t ps_size = PMH_PSRAM2_SIZE, ps_heap_size;
+qmi_hw_t pmh_qmi;
+void setup_psram(bool useheap, uint32_t heapstart) { ps_heap_size = useheap ? ps_size - heapstart : 0; }
+void psram_reinit_timing(void) {}
+void *ps_malloc(size_t n) { return calloc(1, n); }
+size_t ps_total_space(void) { return ps_heap_size; }
+bool pm_display_init(uint8_t t) { (void)t; return false; }   // no OLED
+void pm_input_init(void) {}                                   // ...and so no panel buttons
+#endif
 
 // ---- the API ---------------------------------------------------------------------------
 PMH_API int pm_create(const pm_cfg_t *c, const pm_host_t *h)

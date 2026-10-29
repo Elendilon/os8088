@@ -1880,6 +1880,57 @@ def leg_pmdma(tmp):
                   % (hw[-1] if hw else "none"))
 
 
+def leg_sb2fw(tmp):
+    """THE 2.x's OWN FIRMWARE (libpmhost-v2: pm1x-pr built PICOMEM_20) with
+    IRQ 3, 5 and 7 jumpered. Its BIOS detection (30h) sees all three lines;
+    SOUND.DRV's sequence (73h 1, 77h IRQ 5 DMA 1, 78h 220h) is accepted; and
+    a 64-byte single-cycle DSP transfer goes by REAL DMA - one DRQ per byte,
+    each answered as the 8237 would, TC on the last - and ends on IRQ 5's
+    OWN line, the jumpered one, rather than through the multiplexer."""
+    sys.path.insert(0, os.path.join(ROOT, "tools", "picomem"))
+    import pmhost
+    from pmhost import BASE, ROM
+    print("picomem: the 2.x's own firmware, real DMA")
+    try:
+        card = pmhost.Card(board="v2", irq_lines=(1 << 3) | (1 << 5) | (1 << 7))
+    except pmhost.CardError as e:
+        check(False, "libpmhost-v2: %s" % e)
+        return
+    card.boot()
+    card.detect_irq()
+    hw = card.peek(ROM + 0x4000 + 12)
+    check(card.board == 2 and hw == 0xA8,
+          "30h raised lines 3, 5 and 7 (BV_HWIRQ %02Xh, as the BIOS records it)" % hw)
+    answers = [card.cmd(c, a)[1] for c, a in ((0x73, 1), (0x77, 0x0105), (0x78, 0x220))]
+    check(answers == [0, 0, 0] and card.dsp_at() == 0x220,
+          "73h 1, 77h IRQ 5 DMA 1, 78h 220h accepted %s; the DSP answers at 220h"
+          % answers)
+
+    def dsp(v):
+        for _ in range(200):
+            if not card.inb(0x22C) & 0x80:
+                break
+            card.advance(5)
+        card.outb(0x22C, v)
+    card.irq_log.clear()
+    n = 64
+    for v in (0xD1, 0x40, 256 - 125, 0x14, n - 1, 0):
+        dsp(v)
+    fed = 0
+    for _ in range(4000):
+        card.advance(50)
+        while card.drq and fed < n:
+            card.drq.pop(0)
+            card.dma_byte(fed, tc=fed == n - 1)
+            fed += 1
+        if fed >= n and any(l == 5 and lv for _, l, lv in card.irq_log):
+            break
+    lines = sorted(set(l for _, l, lv in card.irq_log if lv))
+    check(fed == n and card.lib.pm_dma_pending() == 0,
+          "%d of %d bytes moved by DRQ, none left asking" % (fed, n))
+    check(lines == [5], "the block's end raised IRQ 5's own line (lines %s)" % lines)
+
+
 def main():
     legs = sys.argv[1:] or ["ne", "sb", "vs", "kern", "mouse", "pmdma",
                            "pmsnd"]
@@ -1894,6 +1945,8 @@ def main():
             leg_sb(tmp, fw=True)
         if "vsfw" in legs:
             leg_vs(tmp, fw=True)
+        if "sb2fw" in legs:
+            leg_sb2fw(tmp)
         if "kern" in legs:
             leg_kern(tmp)
         if "mouse" in legs:

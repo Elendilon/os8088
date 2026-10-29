@@ -5860,6 +5860,14 @@ SOAK = [
         "and EMS.DRV says DRVE_HW",
         needs=("86box", "pmhost"), serial=True, timeout=400,
         wants=("build/emstest.img",)),
+    Row("emscard2", "soak", py("tests/ems.py", "--leg", "card2"), 90.0,
+        "emscard's checks on a PicoMEM 2.x (vm/xt-picomem2, our firmware "
+        "built PICOMEM_20, docs/plans/PICOMEM-EMU-PLAN.md wave 6): its EMS "
+        "lives in the RP2350's mapped PSRAM, an EMS page register write "
+        "moving a RAM_Offset_Table entry, where the 1.x's goes through SPI - "
+        "and EMS.DRV finds it at 288h/E000h with 256 pages all the same",
+        needs=("86box", "pmhost"), serial=True, timeout=400,
+        wants=("build/emstest.img",)),
     Row("videms", "soak", py("tests/videms.py"), 70.0,
         "SPEC.md 98.3.18.6-7: VIDEO.O88'S BANK IN EXPANDED MEMORY, decoded IN "
         "PLACE (the ring is the board's slots, the conventional ring 2), on MartyPC's "
@@ -18264,7 +18272,7 @@ SOAK = [
         "mistakes as port numbers, and E's verified start must need more "
         "than one start and keep the stream in the ring",
         needs=("nasm", "unicorn")),
-    Row("pmlib", "soak", py("tests/picomem.py", "sbfw", "vsfw"), 2.0,
+    Row("pmlib", "soak", py("tests/picomem.py", "sbfw", "vsfw", "sb2fw"), 3.0,
         "docs/plans/PICOMEM-EMU-PLAN.md wave 0: picomem's sb and vs legs - "
         "SOUND.DRV's PicoMEM attach and VIDSND's reconfigure, as they ship, "
         "under unicorn - with the card's ports answered by the card's OWN "
@@ -18277,7 +18285,11 @@ SOAK = [
         "the firmware MOVING an active DSP onto CMS's ports at 220h, which "
         "the model's PORTUSED hid; pm_init now switches the DSP off before "
         "the walk (SPEC.md 34.10.2), and without that the vsfw CMS case "
-        "FAILS 3 checks, CMS's 224h reading FFh",
+        "FAILS 3 checks, CMS's 224h reading FFh. sb2fw (wave 6): the 2.x "
+        "build (libpmhost-v2) with IRQ 3, 5 and 7 jumpered takes SOUND.DRV's "
+        "sequence and moves a DSP transfer by REAL DMA, a DRQ a byte, ending "
+        "on IRQ 5's own line; with only 7 jumpered it ends through the "
+        "multiplexer on 7 and FAILS 2 checks",
         needs=("nasm", "unicorn", "pmhost")),
     Row("pmbox", "soak", py("tests/pmbox.py"), 185.0,
         "docs/plans/PICOMEM-EMU-PLAN.md waves 1-5: the PicoMEM in 86Box "
@@ -18301,6 +18313,21 @@ SOAK = [
         "FAILS; USBMOUSE.DRV built in the old order (enable before the int 33h "
         "hook) with a report already waiting, the boot never reaches the "
         "desktop - FIELD-NOTES 66's freeze, reproduced",
+        needs=("86box", "pmhost"), serial=True,
+        wants=("build/pmsys360.img", "build/pmboxb360.img", "build/pmhd.img",
+               "build/apps360.img")),
+    Row("pmbox2", "soak", py("tests/pmbox.py", "--board", "2"), 185.0,
+        "docs/plans/PICOMEM-EMU-PLAN.md wave 6: pmbox's legs on a PicoMEM 2.x "
+        "(vm/xt-picomem2 and its -1fd/-usbm twins: OUR firmware, pm1x-pr, "
+        "built PICOMEM_20 - the first run of it as a 2.x anywhere - IRQ 7 "
+        "jumpered and DRQ 1, as the field 2.x). SOUND.DRV's attach is "
+        "accepted with the SB on unjumpered IRQ 5 (the multiplexer carries "
+        "it), and SBTEST's 1 kHz tone plays 2 s by the 2.x's REAL DMA from "
+        "86Box's 8237; B: on the card, Restart, the hard-disk boot, the "
+        "NE2000 and the USB mouse as on the 1.x. PMDMA is left out: it asks "
+        "the 1.x's VIRTUAL DMA where it copied. Broken on purpose, the "
+        "card's DMA jumper on 3 while SOUND.DRV programs 1: the tone is 0.01 s "
+        "and 2 checks FAIL",
         needs=("86box", "pmhost"), serial=True,
         wants=("build/pmsys360.img", "build/pmboxb360.img", "build/pmhd.img",
                "build/apps360.img")),

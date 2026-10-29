@@ -32,7 +32,11 @@ static inline bool pmh_in(uintptr_t p, const volatile void *base, size_t n)
 static inline bool pmh_known(uintptr_t p)
 {
     return pmh_in(p, PMBIOS, 16 * 1024) || pmh_in(p, PM_DP_RAM, sizeof PM_DP_RAM)
-        || pmh_in(p, PM_Memory, sizeof PM_Memory);
+        || pmh_in(p, PM_Memory, sizeof PM_Memory)
+#if MUX_V2
+        || pmh_in(p, pmh_psram2, PMH_PSRAM2_SIZE)
+#endif
+        ;
 }
 static volatile uint8_t *pmh_cell(uint32_t idx, uint32_t a)
 {
@@ -43,6 +47,34 @@ static volatile uint8_t *pmh_cell(uint32_t idx, uint32_t a)
     return NULL;
 }
 
+#if MUX_V2
+// THE 2.x (pm_isa_rp2350_m2_v15.h). Its PSRAM is mapped into the RP2350's
+// address space, so the loop reads every index - RAM, ROM, disk buffer,
+// PSRAM and EMS - through RAM_Offset_Table, and an EMS page register write
+// moves its table entry (dev_memory.cpp). It writes the Pico's RAM below
+// MI_W_NOWS_END and the PSRAM from 16 up, and nothing in between (the ROMs).
+extern "C" bool pmh_bus_memr(uint32_t ISA_Addr, uint8_t *Data)
+{
+    uint32_t idx = GetMEMIndex(ISA_Addr & 0xFFFFF);   // the table is kept bus-shaped: A8-A11 inverted
+    if (idx == MEM_I_NULL) return false;
+    volatile uint8_t *c = pmh_cell(idx, ISA_Addr);
+    if (!c) return false;
+    *Data = *c;
+    return true;
+}
+
+extern "C" bool pmh_bus_memw(uint32_t ISA_Addr, uint8_t Data)
+{
+    uint32_t idx = GetMEMIndex(ISA_Addr & 0xFFFFF);
+    if (idx == MEM_I_NULL) return false;
+    if (idx < MI_W_NOWS_END || idx >= 16) {
+        volatile uint8_t *c = pmh_cell(idx, ISA_Addr);
+        if (c) *c = Data;
+        return c != NULL;
+    }
+    return true;                                      // a ROM: decoded, and ignored
+}
+#else
 extern "C" bool pmh_bus_memr(uint32_t ISA_Addr, uint8_t *Data)
 {
     uint32_t idx = GetMEMIndex(ISA_Addr & 0xFFFFF);   // the table is kept bus-shaped: A16-A19 inverted
@@ -80,6 +112,7 @@ extern "C" bool pmh_bus_memw(uint32_t ISA_Addr, uint8_t Data)
 #endif
     return true;
 }
+#endif // MUX_V2
 
 // The memory index the card would decode at this address (0 = none).
 extern "C" uint8_t pmh_bus_memidx(uint32_t ISA_Addr)

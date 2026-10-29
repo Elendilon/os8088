@@ -450,7 +450,7 @@ plus `test-full` after the last.
 | **3. Disks** (**BUILT**, 6.4) | `int 13h` floppy and HDD from SD-image files | B: is kept through `dsk_fdd_pmemu` (FDDn_Attribute bit 7); HDD.DRV's BIOS rung reads a VHD through the card; the warm restart (1234h, FFFF:0) re-enters the PicoMEM BIOS. |
 | **4. NE2000** (**BUILT**, 6.5) | the card's NE2000 over 86Box slirp | ETHER.DRV finds it at the configured base with the un-doubled PROM; DHCP and a fetch as in `tests/ethernet.py`. |
 | **5. Mouse and EMS** (**BUILT**, 6.6) | `pm_mouse_move`; the card's EMS at 288h/E000h | USBMOUSE.DRV's PicoMEM backend moves the pointer (`int 33h` AX=0060h through the multiplexer); EMS.DRV finds 288h/D000h on the card instead of on the Lo-tech model. |
-| **6. The 2.x** | `libpmhost-v2` (`pm1x-pr` built `PICOMEM_20`, no GUS/MPU), real IRQ lines, real DMA, `vm/pc5150-picomem2` | SOUND.DRV configures the SB through command 77h on our firmware's 2.x build. If the public source still ignores the IRQ/DMA it is given (`PM2-10-4-26`'s note, section 9), this is where we find out, and the fix goes into `fw/`. This is the **first run of our code on a 2.x anywhere**, and it yields a `.uf2` to try on the 5150. |
+| **6. The 2.x** (**BUILT**, 6.7; the machine is `vm/xt-picomem2`) | `libpmhost-v2` (`pm1x-pr` built `PICOMEM_20`, no GUS/MPU), real IRQ lines, real DMA, `vm/pc5150-picomem2` | SOUND.DRV configures the SB through command 77h on our firmware's 2.x build. If the public source still ignores the IRQ/DMA it is given (`PM2-10-4-26`'s note, section 9), this is where we find out, and the fix goes into `fw/`. This is the **first run of our code on a 2.x anywhere**, and it yields a `.uf2` to try on the 5150. |
 | **7. kern_mega** | `vm/286-mega` with the card | The reflected multiplexer IRQs are visible and counted under `faults`/E9; this gives the open KERN-MEGA item a machine. |
 | **8. MartyPC** | `17-picomem.patch`, the snoop hook, two machines | `pm_runaway`'s detection is measured on a 4.77 MHz 8088 against the card's own DMA pacing; `videmsslow`'s premise (8 wait states) is read off a real card model. |
 | **9. Suite and docs** | rows, profiles, TESTING.md, FIELD-MACHINES | Section 8's rows registered; docs/TESTING.md's matrix gains a PicoMEM row; CLAUDE.md's emulator lists name the profiles. |
@@ -751,6 +751,62 @@ arithmetic read.
   THAT config, which is what a user does in the card's setup. MEASURED:
   with EMS set on a blank config, EMS.DRV answers DRVE_HW.
 
+### 6.7 Wave 6, as built
+
+**What exists.**
+- **`libpmhost-v2`**: the same source built `PICOMEM_20`, with the
+  firmware's own board block (`BOARD_PM20`, `MUX_V2`, `USE_HWIRQ`,
+  `USE_HWDMA`, `PSRAM_HEAP`, the RP2350's 360 MHz) and `USE_GUS=0
+  USE_MPU=0`. It links `pm2bios.bin`, the 2.x's BIOS. `build.sh` builds
+  both boards by default. The 2.x's OLED is off in the host build, a
+  display nobody can see; its I2C RTC and Qwiic bus answer as empty.
+- **The bus header serves both multiplexers.** On a 2.x the PSRAM is
+  mapped into the RP2350's address space, so every memory index, EMS
+  included, reads through `RAM_Offset_Table`; the host's PSRAM is an 8 MB
+  array at `__psram_start__`. The I/O half needed nothing: `GetPortType`
+  already hides MUX_V2's A8-A9 inversion.
+- **Four IRQ pins.** IRQ 3, 5, 6 and 7 each reach their ISA line only
+  when jumpered (`pm_cfg_t.irq_lines`); the multiplexer's pin is IRQ 7's.
+- **Real DMA.** The 2.x's DMA is a PIO program (`isa_dma_w_tc`): a word
+  put to it raises DRQ, the 8237's cycle latches the bus byte, and the
+  FIFO's interrupt runs the device's ISR. The host keeps both ends: a put
+  is the new `host.dma_req` callback, `pm_dma_byte(v, tc)` is the cycle,
+  and interrupt handlers are now kept so it can call the ISR. In 86Box a
+  DRQ is counted on the card thread and answered after the slice with
+  `dma_channel_read`, because 86Box's 8237 is pulled, not pushed.
+- **Machines:** `vm/xt-picomem2`, `-1fd` and `-usbm`, jumpered as the
+  field 2.x is (IRQ 7, DRQ 1). Section 4.4 named a `pc5150-picomem2`; the
+  XT twin was chosen so every leg of `pmbox` runs on both boards
+  unchanged. A 5150 profile can follow if a ROM-specific question needs
+  one.
+
+**What it showed.** This is the first run of `pm1x-pr` as a 2.x anywhere.
+- `tests/pmbox.py --board 2`: every leg passes. SOUND.DRV's sequence is
+  accepted on our firmware's 2.x build, **with the SB on IRQ 5, which
+  this card has no jumper for**: the firmware sends it through the
+  multiplexer on IRQ 7. SBTEST's 1 kHz tone plays 2.01 s through the
+  card's real DMA. B: on the card, Restart, the hard-disk boot, DHCP
+  through the NE2000 (IRQ 3, also through the multiplexer) and the USB
+  mouse behave as on the 1.x.
+- `tests/ems.py --leg card2`: EMS at 288h/E000h, 256 pages, out of the
+  mapped PSRAM.
+- `tests/picomem.py sb2fw` (host only): with lines 3, 5 and 7 jumpered, a
+  64-byte transfer moves a DRQ a byte and ends on IRQ 5's own line.
+- The 2.x's BIOS detects only the jumpered lines (`BV_HWIRQ 80` with IRQ
+  7 alone, read off the firmware's own trace).
+- **PMDMA has no answer on a 2.x.** It asks where the 1.x's VIRTUAL DMA
+  copied from, and a 2.x copies nothing, so its G and E stages loop. The
+  2.x leg leaves it out; SBTEST's tone is the 2.x's DMA test.
+- MEASURED broken on purpose: the card's DMA jumper on 3 while SOUND.DRV
+  programs channel 1 gives 0.01 s of tone, which is FIELD-MACHINES'
+  "DMA jumper must be on 1" as a failure an emulator can show.
+
+**Not done: the `.uf2`.** Section 4.4 said wave 6 "yields a `.uf2` to try
+on the 5150". Building one needs the Pico SDK and an ARM toolchain, which
+this tree's tools do not fetch; section 10 is the recipe. The host build
+answers what our firmware would do on a 2.x; whether the iron agrees is
+that `.uf2`'s question.
+
 ## 7. What it will catch, and what it cannot
 
 This is an assessment against FIELD-NOTES 66's list. Section 6 is where
@@ -761,7 +817,7 @@ each claim gets tested.
 | NE2000 ring at the wrong page; un-doubled PROM | **Yes**, wave 4 (86Box) |
 | Empty slot accepted as an NE2000 | Yes, as a negative: a profile without the card |
 | IRQ discovery stealing the multiplexer vector | **Yes**, wave 2 |
-| 2.x refusing the SB until IRQ 7 | **Yes**, wave 6, with that firmware build |
+| 2.x refusing the SB until IRQ 7 | **Answered for our firmware**, wave 6 (6.7): it accepts the SB on an unjumpered line. The refusal was the closed firmware's |
 | CMS holding 220h (PORTUSED) | **Yes**, wave 2 with CMS on in `config.txt` |
 | B: missing; restart hanging | **Yes**, wave 3 |
 | Mouse enabled before the hook froze the machine | **Yes, reproduced**, wave 5 (6.6) |
