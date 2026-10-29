@@ -6555,6 +6555,9 @@ mega_fdirq:
     push ax
     push bx
     mov bx, [ticks]
+%ifdef MEGA_DIAG
+    call mega_fdgini                ; MEGADIAG=1's floppy strip (14.124)
+%endif
 .l:
     test byte [es:0x3E], 0x80       ; SPUN, not halted: the Victory 286 took
     jnz .ok                         ; a PARITY NMI on this loop's hlt twice,
@@ -6562,7 +6565,12 @@ mega_fdirq:
     sub ax, bx                      ; - the 8237 reading RAM under a halted
     cmp ax, 37                      ; CPU, which the BIOS's own spin never
     ja .to                          ; does - and ten 1MB copies through the
-    jmp short .l                    ; BIOS raised none (KERN-MEGA-PLAN 10.3)
+%ifdef MEGA_DIAG                    ; BIOS raised none (KERN-MEGA-PLAN 10.3)
+    mov al, 'q'
+    call mega_fdgstep               ; CF = 1: [ticks] never moved, rescued
+    jc .to
+%endif
+    jmp short .l
 .ok:
     and byte [es:0x3E], 0x7F
     pop bx
@@ -6581,17 +6589,235 @@ mega_fdtk:
     push cx
     mov cx, ax
     mov bx, [ticks]
+%ifdef MEGA_DIAG
+    call mega_fdgini                ; MEGADIAG=1's floppy strip (14.124): the
+%endif                              ; field's empty-drive freeze is in HERE
 .l:
     mov ax, [ticks]
     sub ax, bx
     cmp ax, cx
     jae .x
+%ifdef MEGA_DIAG
+    mov al, 'k'                     ; painted before EVERY halt, so a machine
+    call mega_fdgstep               ; that never wakes shows the state it
+    jc .x                           ; went to sleep in
+%endif
     hlt
     jmp short .l
 .x:
     pop cx
     pop bx
     ret
+
+%ifdef MEGA_DIAG
+; -----------------------------------------------------------------------------
+; THE FLOPPY STRIP (MEGADIAG=1, KERN-MEGA-PLAN 14.124): the native path's two
+; waits - the motor spin-up (mega_fdtk, 'k') and the 765's interrupt
+; (mega_fdirq, 'q') - paint one line under the menu bar from INSIDE the loop,
+; for the empty-drive freeze, which stops in the spin-up and leaves nothing
+; else on the glass. Read left to right:
+;   k/q + step   which wait, and [mega_fdstep]
+;   n  passes    of the loop: with 'k' each one is a WAKE from hlt
+;   t  [ticks]   ...which the wait counts. Frozen while n moves = IRQs arrive
+;                and the tick does not count; both frozen = nothing wakes us
+;   b  40:6C     the BIOS tick mega_t08 keeps: is the chain still running?
+;   c  PIT ch0   its count, latched - moving = the PIT runs
+;   p  reloads   of ch0 seen since the wait began: an IRQ-free clock
+;   f  FLAGS     of the waiting code: bit 9 (0200h) is IF
+;   m i r        the master 8259's mask, in-service and request registers
+;   e g o        40:3E (calibrated, IRQ6 flag), 40:3F (motors), 40:40 (count)
+;   s d          the 765's MSR and the DIR (bit 7 the change line)
+;   x            waits rescued so far this boot
+; With 'k' painted before every hlt, a machine that never wakes shows the
+; state it slept in; WIGGLE THE MOUSE and each IRQ4 wake repaints it. A wait
+; whose [ticks] never move while 400 PIT reloads go by is RESCUED - ended as
+; if it had run out - so a run that would have frozen goes on, with x > 0.
+; DS = KDATA. Preserves every register; CF is mega_fdgstep's answer
+; -----------------------------------------------------------------------------
+mega_fdgini:
+    push ax
+    mov word [mega_fdgn], 0
+    mov word [mega_fdgp], 0
+    mov ax, [ticks]
+    mov [mega_fdgt], ax
+    mov word [mega_fdgtp], 0xFFFF
+    call mega_fdgpc
+    mov [mega_fdgc], ax
+    pop ax
+    ret
+
+; AX = PIT channel 0's count, latched
+mega_fdgpc:
+    pushf
+    cli
+    xor al, al
+    out 0x43, al
+    in al, 0x40
+    mov ah, al
+    in al, 0x40
+    xchg al, ah
+    popf
+    ret
+
+; one pass of a wait: AL = 'k' or 'q'. CF = 1 rescue it
+mega_fdgstep:
+    push ax
+    push bx
+    mov bl, al
+    inc word [mega_fdgn]
+    call mega_fdgpc
+    cmp ax, [mega_fdgc]             ; a down-counter: higher than last time is
+    mov [mega_fdgc], ax             ; a reload
+    jbe .nr
+    inc word [mega_fdgp]
+.nr:
+    mov ax, [ticks]
+    cmp bl, 'k'
+    je .paint                       ; the spin-up: every pass (a wake each)
+    cmp ax, [mega_fdgtp]
+    jne .paint                      ; the IRQ wait: each new tick...
+    test word [mega_fdgn], 0x0FFF
+    jnz .chk                        ; ...or every 4,096 spins
+.paint:
+    mov [mega_fdgtp], ax
+    mov al, bl
+    call mega_fdgdraw
+.chk:
+    mov ax, [ticks]
+    cmp ax, [mega_fdgt]
+    jne .ok                         ; the tick moves: never rescued
+    cmp word [mega_fdgp], 400
+    jb .ok
+    inc byte [mega_fdgx]
+    mov al, bl
+    call mega_fdgdraw
+    pop bx
+    pop ax
+    stc
+    ret
+.ok:
+    pop bx
+    pop ax
+    clc
+    ret
+
+; the line itself, AL = the wait's letter
+mega_fdgdraw:
+    pushf
+    pop word [mega_fdgf]            ; the waiting code's FLAGS, IF and all
+    pusha
+    push es
+    push ds
+    pop es                          ; ES = KDATA: the buffer, by stosb
+    mov di, mega_fdgbuf
+    stosb
+    mov al, [mega_fdstep]
+    call mega_bhex2
+    mov bx, mega_fdglab             ; " n" " t" ... as each word goes down
+    mov ax, [mega_fdgn]
+    call .w
+    mov ax, [ticks]
+    call .w
+    push ds
+    mov ax, MEGA_BDA
+    mov ds, ax
+    mov ax, [0x6C]
+    pop ds
+    call .w
+    mov ax, [mega_fdgc]
+    call .w
+    mov ax, [mega_fdgp]
+    call .w
+    mov ax, [mega_fdgf]
+    call .w
+    pushf                           ; the 8259, one IF = 0 window: OCW3
+    cli                             ; selects which register 20h reads
+    in al, 0x21
+    mov cl, al
+    mov al, 0x0B
+    out 0x20, al
+    in al, 0x20
+    mov ch, al
+    mov al, 0x0A                    ; ...and the IRR selected again, as the
+    out 0x20, al                    ; 8259 is left everywhere else
+    in al, 0x20
+    mov dl, al
+    popf
+    mov al, cl
+    call .b
+    mov al, ch
+    call .b
+    mov al, dl
+    call .b
+    push ds
+    mov ax, MEGA_BDA
+    mov ds, ax
+    mov cl, [0x3E]
+    mov ch, [0x3F]
+    mov dl, [0x40]
+    pop ds
+    mov al, cl
+    call .b
+    mov al, ch
+    call .b
+    mov al, dl
+    call .b
+    mov dx, MEGA_FD_MSR
+    in al, dx
+    call .b
+    mov dx, MEGA_FD_CCR
+    in al, dx
+    call .b
+    mov al, [mega_fdgx]
+    call .b
+    xor al, al
+    stosb
+    mov al, [gfx_lock_flag]         ; BANKED and forced, as KFZTRACE's strip
+    mov ah, [gfx_dis]               ; is: whoever holds the mutex is not
+    push ax                         ; drawing while int 13h runs
+    mov al, [gfx_color]
+    push ax
+    push word [wm_clip_n]
+    mov byte [gfx_lock_flag], 0
+    mov word [wm_clip_n], 0
+    mov byte [gfx_dis], 0
+    mov byte [gfx_color], CBLACK
+    xor cx, cx                      ; x = 0: the line ends at 560, clear of
+    mov dx, MBAR_H + 8              ; the drive icons' column
+    mov si, mega_fdgbuf
+    mov ax, (CWHITE << 8) | CBLACK
+    call KERNEL_SEG:cw_font_run
+    pop word [wm_clip_n]
+    pop ax
+    mov [gfx_color], al
+    pop ax
+    mov [gfx_lock_flag], al
+    mov [gfx_dis], ah
+    pop es
+    popa
+    ret
+.w:                                 ; a label pair from BX, then AX in hex
+    push ax
+    mov al, [bx]
+    stosb
+    mov al, [bx+1]
+    stosb
+    add bx, 2
+    pop ax
+    jmp mega_bhex4
+.b:                                 ; ...or the next byte in AL. A space only
+    push ax                         ; where the label table has one: the
+    mov al, [bx]                    ; register groups run together
+    cmp al, '.'
+    je .bn
+    stosb
+.bn:
+    mov al, [bx+1]
+    stosb
+    add bx, 2
+    pop ax
+    jmp mega_bhex2
+%endif
 
 ; CL milliseconds: port 61h bit 4 is the AT's refresh request, which toggles
 ; every 15 us, so a millisecond is ~66 toggles. Each toggle is bounded, so a
@@ -6700,6 +6926,15 @@ mega_fdres  times 7 db 0            ; ST0 ST1 ST2 C H R N
 mega_tfdoff db "native floppy off: BIOS from now", 0
 mega_tfdfb  db "FD BIOS ss s0s1s2 Dmm", 0
 mega_fdtold db 0                    ; 1 = mega_tfdfb has been shown this boot
+mega_fdglab db " n t b c p f m.i.r e.g.o s.d x." ; mega_fdgdraw's labels,
+mega_fdgbuf times 80 db 0           ; two bytes a field ('.' = no space)
+mega_fdgn   dw 0                    ; passes of the wait
+mega_fdgp   dw 0                    ; PIT channel 0 reloads seen in it
+mega_fdgc   dw 0                    ; ...its count when last read
+mega_fdgt   dw 0                    ; [ticks] when the wait began
+mega_fdgtp  dw 0                    ; [ticks] when last painted
+mega_fdgf   dw 0                    ; FLAGS where the strip was asked for
+mega_fdgx   db 0                    ; waits rescued this boot
 %endif
 mega_fdstep db 0
 mega_fdsaid db 0

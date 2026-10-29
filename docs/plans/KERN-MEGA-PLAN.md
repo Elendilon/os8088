@@ -12607,3 +12607,86 @@ bytes, a cell that was 0) byte-identical in size, the two real-mode
 kernels byte-identical outright. `mega-httpmount` red before (the counts
 above) and green after: 2 GETs over 1 connection for each leg, as on
 kern_big.
+
+### 14.124 The empty-drive freeze is in the native path's motor SPIN-UP: an instrument for it (2026-10-29) - OPEN
+
+**Where it stops, from the owner's description** (14.31 and 14.35's
+freeze, which still happens during installs, drive switching and the file
+manager). On kern_big an empty drive buzzes at once and the call is over in
+about a third of a second. On kern_mega the drive LIGHTS first, sits lit for
+half a second to a second, and only then buzzes. **The freeze is always in
+the lit, silent stretch**; a call that reaches the buzz always completes,
+and so does the next empty drive after it. That stretch is `mega_fdgo` (14.6,
+kernel/mega.inc) between the DOR write that starts the motor and the
+RECALIBRATE, which is the buzz. Inside it, the only thing that is not a
+bounded loop of a few hundred milliseconds at worst (`mm_fdout`'s 65,536
+polls, `mega_fdms_wait`) is the spin-up wait, `mega_fdtk`. **It `hlt`s until
+`[ticks]` has advanced by the motor-start time, and it has no other bound.**
+So the machine stops there if IRQ0 stops being delivered or counted. That
+covers IRQ0 masked, an in-service bit at or above IRQ0 never EOI'd, IF
+clear, or `sch_isr` not reaching `inc word [ticks]`. It also stops there if
+the CPU never leaves the `hlt`. A dead mouse fits the first two:
+an IRQ0 in service and never ended blocks every lower line, IRQ4 included.
+kern_big never takes this path, because the BIOS does the whole call in
+real mode. It spins rather than halts, and it counts the
+spin-up in its own loop rather than in our tick.
+
+Nothing in the code says which of those it is, and 14.35 says it is a STATE
+left by earlier use (first thing after a boot the same install works). So
+**this is an instrument, not a fix**.
+
+**`MEGADIAG=1`'s floppy strip** (`make megadiag`, build/megadiag/mega.img).
+`mega_fdtk` and `mega_fdirq`, the native path's two waits, paint one line
+under the menu bar from inside the loop, through `cw_font_run` with the gfx
+mutex banked and forced, as KFZTRACE's strip does. The spin-up paints
+before EVERY `hlt`, so a machine that never wakes shows the state it went to
+sleep in. **Wiggling the mouse** wakes the `hlt` on IRQ4, if IRQ4 is alive,
+and each wake repaints. The line, left to right:
+
+| field | what it is | what it answers |
+|---|---|---|
+| `k`/`q` + 2 hex | the spin-up (`k`) or the 765's IRQ (`q`), then `[mega_fdstep]` (with `k`, the step the PREVIOUS call ended on) | which wait |
+| `n` | passes of the loop; with `k`, each is a wake from `hlt` | does anything wake it |
+| `t` | `[ticks]`, which the wait counts | `n` moving and `t` frozen: IRQs arrive and the tick does not count |
+| `b` | 40:6C, which `mega_t08` (the chain) keeps | is the chain running |
+| `c` | PIT channel 0's count, latched | does the PIT run |
+| `p` | channel 0 reloads seen since the wait began | an IRQ-free clock |
+| `f` | FLAGS of the waiting code | bit 9 (`0200h`) is IF |
+| `m` `i` `r` | the master 8259's IMR, ISR, IRR | `i01` with `r01` is IRQ0 in service and never EOI'd; `m` bit 0 is IRQ0 masked |
+| `e` `g` `o` | 40:3E, 40:3F, 40:40 | calibrated/IRQ6 flag, motors, motor-off count |
+| `s` `d` | the 765's MSR and the DIR | `d80` is the change line |
+| `x` | waits RESCUED this boot | below |
+
+**A rescue**: a wait whose `[ticks]` has not moved while 400 channel-0
+reloads went by (with `k`, 400 wakes) is ended as if it had run out. The
+spin-up then carries on and the IRQ wait falls back to the BIOS. A run that
+would have frozen therefore goes on with `x` above zero, and the line the
+rescue painted stays up. 400 is about eleven seconds of an idle PIT; with
+`k` and a dead tick, it is a few seconds of wiggling.
+
+**What to bring back**: a photograph of the strip on the frozen machine,
+first without touching anything, then after a few seconds of moving the
+mouse. If it did not freeze, a photograph of the line after the empty-drive
+access, with `x`.
+
+Shipped kern_mega is **byte-identical** (every byte is inside
+`%ifdef MEGA_DIAG`; `kernel.bin` compared at one commit), and kern_big and
+kern_small do not assemble `mega.inc`'s native path. Exercised under QEMU on
+the diagnostic disk with A: ejected: the strip repaints through both waits
+(`k08 ... e00g01oEE s80d80 x00`: uncalibrated, the change line up, a
+fallback at step 5) and the machine goes on. QEMU's empty B: never reaches
+the native path, and no emulator here freezes, so neither the rescue nor the
+freeze has been seen.
+
+**One defect found on the way, NOT fixed, because it changes what the field
+measures**: the reset probe is dead on the native path. `mega_fd13` sets
+`[mega_fdbusy]` = 1 BEFORE it calls `mega_fdgo`, and `mega_fdgo`'s first act,
+`mm_fdrprobe` (CL = 1), returns at once when `[mega_fdbusy]` is set. That
+test was added (item 19) for the REFLECTED IRQ in the middle of our own
+transfer, and it has silenced the probe's other caller ever since. So a 765
+that a reflected call's 286 reset has re-initialised reaches the native path
+with its four reset interrupts unsensed and every head believed to be at
+cylinder 0. That is the "state left by earlier use" 14.35 asks for. It is
+not obviously THIS freeze, because an unsensed reset should cost a
+two-second IRQ timeout and a fallback rather than a hang. It is the first
+thing to fix once the strip has said what the freeze is.
