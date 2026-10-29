@@ -18253,6 +18253,20 @@ SOAK = [
         "mistakes as port numbers, and E's verified start must need more "
         "than one start and keep the stream in the ring",
         needs=("nasm", "unicorn")),
+    Row("pmlib", "soak", py("tests/picomem.py", "sbfw", "vsfw"), 2.0,
+        "docs/plans/PICOMEM-EMU-PLAN.md wave 0: picomem's sb and vs legs - "
+        "SOUND.DRV's PicoMEM attach and VIDSND's reconfigure, as they ship, "
+        "under unicorn - with the card's ports answered by the card's OWN "
+        "FIRMWARE (pm1x-pr, compiled for the host by tools/picomem/build.sh) "
+        "instead of picomem's Python model; the 8237, 8259 and port B stay "
+        "modelled, being the motherboard's. The card is booted and its IRQ "
+        "detected as its BIOS does at POST. Broken on purpose: the driver's "
+        "skip of the card's own line taken out offers [7, 5] and FAILS 2 "
+        "checks, the firmware's refusal still steering the SB to 5. It found "
+        "the firmware MOVING an active DSP onto CMS's ports at 220h, which "
+        "the model's PORTUSED hid - the vsfw CMS case FAILS until that is "
+        "decided (the plan's wave 0 findings)",
+        needs=("nasm", "unicorn", "pmhost")),
     Row("xmla", "soak", py("tests/xmla.py"), 2.0,
         "SPEC.md 41.13: XMEM.DRV's LOADALL transport, without a 286 - xm_bios, "
         "xm_lcopy, xm_lend, xm_lainit and xm_ltrip cut out of xmem.asm with "

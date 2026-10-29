@@ -244,6 +244,12 @@ def requirements():
                 "(SPEC.md 34.10.1, 72.2, 106.24, 106.25).",
                 "python3 -m pip install unicorn"))
 
+    req.append(("pmhost", os88build.have_pmhost(),
+                "pmlib, which runs SOUND.DRV's and VIDSND's PicoMEM code against "
+                "the card's OWN firmware compiled for the host, in place of "
+                "picomem's model (docs/plans/PICOMEM-EMU-PLAN.md).",
+                "tools/picomem/build.sh      (seconds; fetches the firmware)"))
+
     req.append(("bochs", os88build.have_bochs(),
                 "the kern_mega rows (megatrap0's #GP census and the other mega*): "
                 "Bochs is the one emulator here that checks a 286's segment "

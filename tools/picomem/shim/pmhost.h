@@ -1,0 +1,75 @@
+/* pmhost.h - libpmhost's API: a PicoMEM card, running its own firmware,
+ * driven one ISA bus cycle at a time. docs/plans/PICOMEM-EMU-PLAN.md 4.2.
+ *
+ * ONE CARD PER PROCESS. The firmware keeps its state in globals, as it can
+ * on a Pico, so there is no handle: pm_create starts the card and the other
+ * calls talk to it.
+ *
+ * THREADS. The firmware's core 0 (its init, command loop and every command)
+ * runs on a host thread of its own, but only while pm_advance holds the card
+ * running; everything else here runs on the caller's thread with core 0
+ * parked. Nothing runs concurrently, so a run is a function of its inputs
+ * (4.3). Call every function from one thread.
+ *
+ * TIME. The card has no clock of its own. Card time starts at 0 and moves
+ * only through pm_advance; a firmware wait (sleep_us, a timeout) is a wait
+ * in that time, so the emulator's clock is the card's.
+ *
+ * GPL-2.0-or-later, like the firmware it runs.
+ */
+#pragma once
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct pm_host {
+    void *ctx;
+    /* An ISA IRQ line changed. level 1 = asserted. Called from pm_advance
+     * or from a bus call, on the caller's thread. */
+    void (*irq)(void *ctx, int line, int level);
+    /* One line of diagnostic text, no newline. NULL = discard. */
+    void (*log)(void *ctx, const char *text);
+} pm_host_t;
+
+typedef struct pm_cfg {
+    int irq;               /* the 1.x's IRQ jumper: 3, 5 or 7 (2 on rev 1.1) */
+    const char *sd_image;  /* a raw image of the microSD card; NULL = no card */
+} pm_cfg_t;
+
+/* Start the card: power-on, then the firmware's main() on the card thread,
+ * which runs as pm_advance lets it. Returns 0, or -1 if already started. */
+int pm_create(const pm_cfg_t *cfg, const pm_host_t *host);
+
+/* Run card time forward by ns nanoseconds: due timer events fire, then
+ * core 0 runs until it next waits. */
+void pm_advance(uint64_t ns);
+uint64_t pm_time_ns(void);
+
+/* One I/O cycle at a 10-bit port. A read returns 1 if the card drove the
+ * bus (*v is then the byte), 0 if it did not. Writes return 1 if a card
+ * device decoded the port. The 8237's ports (00h-0Fh, 81h-87h) belong to
+ * the motherboard; on a 1.x the card only listens, so give it every CPU
+ * write there too, as the bus does. Never a DMA cycle: the card decodes
+ * those away (the A10 fix, docs/FIELD-NOTES.md 66). */
+int pm_io_read(uint16_t port, uint8_t *v);
+int pm_io_write(uint16_t port, uint8_t v);
+
+/* One memory cycle at a 20-bit address. Return 1 if the card decodes the
+ * address (*v is then the byte), 0 if not. The map moves at run time (the
+ * BIOS's MEM_Init, an EMS frame), so ask per cycle or after a command. */
+int pm_mem_read(uint32_t addr, uint8_t *v);
+int pm_mem_write(uint32_t addr, uint8_t v);
+/* What the card would charge in IOCHRDY wait states for that address:
+ * 0 for its SRAM and ROM, more for PSRAM and EMS. An ESTIMATE (4.3). */
+int pm_mem_waits(uint32_t addr);
+
+/* Introspection for tests: the status register as port 2A0h would read it
+ * without the read, and the 8 KB of shared RAM behind the BIOS. */
+uint8_t pm_peek_status(void);
+const volatile uint8_t *pm_shared_ram(void);
+
+#ifdef __cplusplus
+}
+#endif

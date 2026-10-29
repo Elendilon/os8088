@@ -653,6 +653,14 @@ def have_unicorn():
     return True
 
 
+def have_pmhost():
+    """Is libpmhost built - the PicoMEM's own firmware, compiled for the host
+    by tools/picomem/build.sh (docs/plans/PICOMEM-EMU-PLAN.md)? A file test:
+    the library is the artefact, and a row without it SKIPS."""
+    return os.path.exists(os.path.join(ROOT, "build", "picomem", "v1",
+                                       "libpmhost-v1.so"))
+
+
 def have_numpy():
     """Can THIS interpreter import numpy - its C extension, not just the name?
 

@@ -1,7 +1,8 @@
 # PicoMEM under an emulator: the card's own firmware, run beside the CPU
 
-> **PLAN, ALL DECISIONS TAKEN, NOTHING BUILT.** Branch `picomem-emulator`, cut from `elendilon`
-> on 2026-10-29. This is an investigation and a proposal. Every number in it
+> **WAVE 0 IS BUILT (section 6.1); waves 1-9 are the plan.** Branch
+> `picomem-emulator`, cut from `elendilon` on 2026-10-29. This began as an
+> investigation and a proposal. Every number in it
 > is a citation or an estimate, and each estimate says so. The firmware
 > facts were read off `Elendilon/ISA-PicoMEM` (`main` at `fdd008e`,
 > `pm1x-pr` at `5e507be2`); paths below without a prefix are in that repo's
@@ -443,7 +444,7 @@ plus `test-full` after the last.
 
 | wave | delivers | done when |
 |---|---|---|
-| **0. Spike** (estimate 2-3 days) | `host/` CMake target building `dev_picomem_io` + `pm_cmd` + `dev_memory` + `isa_irq` + `pm_pccmd` with the shim; the baton; the yield audit; a `ctypes` driver | A Python script against `libpmhost-v1.so` reads the 2A3h ramp, runs commands 00h/73h/77h/78h with the real firmware's answers, and serves the BIOS bytes at D0000h. **Its first consumer is `tests/picomem.py` itself**: its `sb`/`vs` legs swap their Python port model for the library, and the legs that pass are now agreeing with the card. |
+| **0. Spike** (estimate 2-3 days; **BUILT**, section 6.1) | `host/` CMake target building `dev_picomem_io` + `pm_cmd` + `dev_memory` + `isa_irq` + `pm_pccmd` with the shim; the baton; the yield audit; a `ctypes` driver | A Python script against `libpmhost-v1.so` reads the 2A3h ramp, runs commands 00h/73h/77h/78h with the real firmware's answers, and serves the BIOS bytes at D0000h. **Its first consumer is `tests/picomem.py` itself**: its `sb`/`vs` legs swap their Python port model for the library, and the legs that pass are now agreeing with the card. |
 | **1. 86Box: the card boots** | `07-picomem.patch`, `vm/xt-picomem1`, the SD-image tool | The PicoMEM BIOS banner and setup menu appear (screenshot via `os88box.py`); `int 13h` 6000h answers DX=AA55h, BX=D000h, CH=jumper; os8088 reaches a desktop with `pm_init`'s 100-read ramp passed. |
 | **2. Sound, 1.x** | AdLib + SB 2.0 with virtual DMA (snoop, multiplexer, CPU copy), audio out | SOUND.DRV's Drivers row reads the SB and the AdLib on the card. A WAV plays and the card's output is captured (an `OS88_PMWAV` env var, in `04-sb-capture`'s shape). `pm_tick`'s AdLib keep-alive matters: removing it goes silent after 4 s, the firmware's own idle cut-off. |
 | **3. Disks** | `int 13h` floppy and HDD from SD-image files | B: is kept through `dsk_fdd_pmemu` (FDDn_Attribute bit 7); HDD.DRV's BIOS rung reads a VHD through the card; the warm restart (1234h, FFFF:0) re-enters the PicoMEM BIOS. |
@@ -466,6 +467,90 @@ Wave 0 is where the estimate is weakest. The yield audit and the `pm_cmd.cpp`
 guards could take longer than they look. If they do, the fallback is option
 A for the base-port block only, with the device files still compiled from
 the firmware.
+
+### 6.1 Wave 0, as built (2026-10-29)
+
+**What exists.**
+- `tools/picomem/` holds four things:
+  - `UPSTREAM` pins FreddyVRetro/ISA-PicoMEM `be7b2e6`.
+  - `patches/fw/01-pm1x-pr.patch` is `pm1x-pr`, byte for byte the firmware
+    in `firmware/picomem1/`.
+  - `patches/host/01-pmhost.patch` holds four `PMHOST`-only hunks.
+  - `shim/` holds the SDK stand-in headers, the card thread, the clock,
+    the FIFO, the alarm pool, the SD image and the API.
+- `build.sh` builds `build/picomem/v1/libpmhost-v1.so`, fetch included, in
+  **6.5 seconds**.
+- `tools/picomem/pmhost.py` is the ctypes driver and the self-check.
+- `tests/picomem.py` gained the legs `sbfw` and `vsfw`. Suite row `pmlib`
+  (soak) runs them, under a new `pmhost` capability that the runner and
+  `os88soak.py check` both report.
+
+**How much of the firmware it is.**
+- Compiled as-is: `picomem.cpp`'s `main` and init, the whole of
+  `pm_cmd.cpp`, every ISA device the 1.x builds, the IRQ multiplexer and
+  virtual DMA, the OPL (emu8950's own host path, `PICO_ON_DEVICE` unset),
+  the SB DSP, `bios_disk.cpp`, `pm_disk.cpp`, FatFS and the Qwiic scan.
+  That is 47 firmware files.
+- Replaced: the PIO bus loop (`shim/include/pmhost_isa.h`, the same
+  tables and device calls, transcribed), the SDK, the SD SPI driver and
+  the I2S driver.
+- The link needed **no stub of any firmware function**. Every undefined
+  symbol was an SDK one or the SD/I2S drivers.
+
+**The seam held, with two corrections that will matter to every adapter:**
+
+1. **The memory table is bus-shaped.** `MEM_Index_T` is indexed with
+   A16-A19 inverted (`addr ^ 0xF0000` on a 1.x, `^ 0x00F00` on `MUX_V2`),
+   because that is how the pins arrive. `GetMEMIndex`/`GetPortType` do it,
+   and the shim calls them rather than the raw tables.
+2. **The memory pointers assume a 32-bit address space.**
+   `RAM_Offset_Table` holds `&PMBIOS[-ROM_BIOS]` and the like, several of
+   them negated as `uint32`. That wraps on a Pico and is 2^32 out on a
+   64-bit host. `pmh_cell()` undoes the wrap and checks that the result
+   lands in one of the card's arrays.
+
+**The baton is deterministic.** Two runs of `pmhost.py` print the same
+bytes. Only two loops needed a host yield: `pccmd_wait()`, which every
+int 13h, PC-command and EtherDFS wait goes through, and
+`dev_pmio_do_rw`'s transfer loop. Everything else that waits reads the
+clock, and a clock read is a yield point.
+
+**What it showed on its first day:**
+
+- **The model was right where it was written from the firmware.** The card
+  boots to READY in 2.0 ms of card time and the 2A3h test register counts.
+  The ROM's 55AAh header is at D000:0 and the shared RAM's 12h magic at
+  D400:0. Command 77h refuses the card's own line with 1, as `picomem.py`
+  assumed. Every check of `sbfw` passes on the real firmware, CMS case
+  included.
+- **The SB needs the BIOS first.** The firmware answers 78h with
+  `CMDERR_NOIRQ` (13h) until the PC's BIOS has run CMD_SendIRQ (30h) and
+  written the line it saw into shared RAM byte 11 (`BV_IRQ`).
+  `pmhost.Card.detect_irq()` is that step. It is POST's job, and on the
+  iron it is always done before os8088 runs.
+- **FINDING: the model's PORTUSED rule was wrong, and the real rule loses
+  the card's CMS.**
+  - `dev_sbdsp_install` (pm1x-pr, and FreddyVRetro's public `main`) MOVES
+    an already-active DSP to any port it is asked for. It runs no
+    `GetPortType` test on that path, so with CMS at 220h and the DSP at
+    240h, `78h 220h` answers 0 and writes `DEV_SBDSP` over CMS's blocks.
+  - Switching the DSP off then clears those blocks, and the card's CMS
+    stops decoding: 224h reads FFh where it read 7Fh, until a reset.
+  - `drivers/sound/picomem.inc`'s `pm_init` walks `pm_sbports` from 220h.
+    So any `pm_init` while the DSP is on, with CMS enabled, takes 220h
+    from CMS.
+  - VIDSND's reconfigure does this, and it is the `vsfw` leg's 3 FAILs.
+    SOUND.DRV re-attaching in the same session would too, since detach
+    leaves the DSP on. That covers the Drivers page untick and re-tick, and
+    a hibernate's detach and reload. This was reasoned from the code and
+    not run.
+  - `picomem.py`'s strict model answered PORTUSED there and could not see
+    any of it.
+  - **The fix is the owner's call:** in the driver (switch the DSP off
+    before the walk), in the firmware fork (test the port on the move
+    path, as the install path already does), or both. The driver fix is the
+    one that also covers a 2.x running FreddyVRetro's closed firmware.
+    `pmlib` stays red on that case until it is decided.
 
 ## 7. What it will catch, and what it cannot
 
