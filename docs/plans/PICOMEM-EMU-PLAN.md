@@ -1,6 +1,6 @@
 # PicoMEM under an emulator: the card's own firmware, run beside the CPU
 
-> **PLAN, NOTHING BUILT.** Branch `picomem-emulator`, cut from `elendilon`
+> **PLAN, ALL DECISIONS TAKEN, NOTHING BUILT.** Branch `picomem-emulator`, cut from `elendilon`
 > on 2026-10-29. This is an investigation and a proposal. Every number in it
 > is a citation or an estimate, and each estimate says so. The firmware
 > facts were read off `Elendilon/ISA-PicoMEM` (`main` at `fdd008e`,
@@ -14,6 +14,8 @@
 > the primary target.** GUS and MPU-401 are **left out**: they are
 > `USE_GUS`/`USE_MPU` in the firmware's own CMake, so leaving them out costs
 > nothing.
+> Our `OS88_DIAG` commits are used where they help. The shim is GPL-2.
+> The tool exists for our own testing; anything wider is for later.
 
 ## 0. The recommendation, in five lines
 
@@ -228,7 +230,7 @@ firmware plus `OS88_DIAG` (DK01, DMALOG2 and the AH0x records PMDMA reads),
 and it builds identically with the knob off. Carrying its commits as one
 more `fw/` patch would give the emulator an `OS88_DIAG=1` build, so PMDMA's
 K, A and B keys could be checked against something before the iron
-(section 9, Q-c).
+(section 9, decision 4).
 
 ### 4.2 The seam and the C API
 
@@ -561,24 +563,26 @@ is the first thing wave 6 must check: does `pm1x-pr`'s command 77h work on
 a `PICOMEM_20` build, or is the 2.x path in public source still the
 June one?
 
-**Still open:**
+**Decided by the owner, the same day:**
 
-- **(a) Upstream.** Offering the host build to FreddyVRetro was the
-  recommendation when it lived in the fork. With it in os8088 that is a
-  packaging question for the end (decision 1), not now.
-- **(b) Licensing.** The firmware and 86Box are GPL-2, so that pairing is
-  clean.
-  - os8088 is MIT and commits only `tools/picomem/shim/`, which is our own
-    code, plus patches and a pin.
-  - The *built* library is GPL-2, as is anything statically linked to it.
-    That includes a local MartyPC build, which is never redistributed.
-  - The shim's own licence is the owner's call. GPL-2 is the simplest
-    choice if it is ever packaged with the firmware.
-  - Context: `firmware/picomem1/` already put a GPL-2 binary in this tree,
-    by the owner's decision of 2026-10-15.
-- **(c) The diagnostic knob.** Should `os8088-pm114`'s commits be the second
-  `fw/` patch, for an `OS88_DIAG=1` emulator build (section 4.1)? It costs
-  nothing with the knob off, and it lets PMDMA be tested off the iron.
+4. **The diagnostic commits are available as needed.** `os8088-pm114`'s
+   `OS88_DIAG` work goes in as a `fw/` patch when a wave finds it useful
+   (section 4.1). The likeliest wave is 2, where PMDMA's K, A and B keys
+   could be checked off the iron.
+   - It does **not** apply as-is. `os8088-pm114` and `pm1x-pr` are siblings
+     on `be7b2e6`, not one on the other: each carries its own copy of the
+     SB and disk-wait fixes. So the diag patch must be cut from the
+     `OS88_DIAG` commits alone (`0a74dc4`, `bea75b4`, `056c4d5`) and
+     re-applied on top of `pm1x-pr`.
+5. **Licence: GPL-2, for the shim as well.** That matches the firmware it
+   compiles and the library it builds.
+6. **Purpose: our own testing, first and only.** Unlike the firmware fixes
+   on `pm1x-pr`, which have gone to FreddyVRetro for review, this may never
+   leave os8088. Packaging it, or offering it upstream, is an option to
+   weigh once it is usefully working for us and not before. Nothing in
+   waves 0-9 is shaped around outside users.
+
+**Nothing is open.** The next step is wave 0.
 
 ## 10. Building the real firmware (for reference)
 
@@ -599,6 +603,9 @@ June one?
     it.
   - The only 1.x image whose exact source is public is the one os8088
     already ships: `PM_W_10_16_26_OS8088.uf2`, built from `pm1x-pr`.
+- **`os8088-pm114`'s `3f63220` carries a Linux build script and notes** for
+  the 1.x. It is the recipe `PM_W_10_16_26_OS8088.uf2` was made with, and
+  the place to start when wave 6 builds a real 2.x `.uf2`.
 - **Submodules are not populated** in a fresh clone (tinyusb, rp2040-psram,
   tusb_xinput, WonderMCA). `src/PrepareTinyUSB.sh` fetches tinyusb's
   dependencies. The host build of section 4 needs **none** of them, which is
