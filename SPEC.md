@@ -202462,23 +202462,25 @@ glass, and the wait (under one refresh) is spent only while behind. The
 shipped player is unchanged: under kern_big the hook is not coalesced, and
 the second frame's decode would come out of a ring whose lead there is one.
 
-##### 98.3.22.7 The card's block under kern_mega (2026-10-29)
+##### 98.3.22.7 The card's block under kern_mega: TRIED AND REVERTED (2026-10-29)
 
 With 98.3.22.6 the picture kept up, and what was left was the reader
-running dry at the same frame (Catch's 1312) a pausing kern_big play had -
-the disk's margin, on both kernels. The one cost kern_mega adds is the card's
-block interrupt: every one is a reflection (`mega_irqrom`), ~1.0 ms on the
-Victory, ~27 a second counted (the rest land inside a reflected `int 13h`,
-where the ROM takes them in real mode), 2.7-3.3% of a play. `vp_sblk`
-halves the block while it is longer than 25 ms of sound; the kern_mega arm
-halves while it is longer than 100 ms (`VP_BLKDIV` 10), so 22 kHz PCM8 keeps
-2,048 bytes, 93 ms, and interrupts a quarter as often. The frames' clock is
-not the block's: `vp_adue` syncs to the card's consumed count at each block
-and runs on the hook's periods between, up to `vp_acap` - a block's worth of
-frames and two more, which scales with it - so a longer block moves when the
-clock is corrected and not how often a frame is shown. The cost is that the
-reader keeps 93 ms of sound ahead rather than 23. The shipped player is
-unchanged.
+running dry at the frame (Catch's 1312) a pausing kern_big play had too. The
+one cost kern_mega adds is the card's block interrupt: each is a reflection
+(`mega_irqrom`), ~1.0 ms on the Victory, ~27 a second counted, 2.7-3.3% of a
+play. The kern_mega arm was built halving the block only while it was longer
+than 100 ms of sound (`VP_BLKDIV` 10), 2,048 bytes at 22 kHz PCM8 - and on
+the Victory **the card stopped for good a few seconds in** (Catch's clock
+froze at frame 99, one card pause, then no interrupt for the rest of the
+play; the picture ran on its periods with no clock to be behind). The
+frames' clock was never the issue - `vp_adue` interpolates on the hook's
+periods between blocks - and the likelier cause, not yet shown, is that the
+SOUND'S LEAD is cut for the 25 ms block:
+the encoder writes a file's sound ahead (`AHEAD_FRAMES`, `audio_lead`) and
+its in-step budget against `VP_BLKDIV` 40, so a 93 ms block asks the stream
+to queue more ahead of the card than the file carries. Reverted: a longer
+block is an ENCODER change first (the lead and the block agreed in
+os88venc.py and the player together), and 3% does not buy it.
 
 ##### 98.3.22.1 What the first profiles changed in the encoder (2026-10-15)
 
