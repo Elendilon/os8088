@@ -6,6 +6,14 @@
 > facts were read off `Elendilon/ISA-PicoMEM` (`main` at `fdd008e`,
 > `pm1x-pr` at `5e507be2`); paths below without a prefix are in that repo's
 > `src/`.
+>
+> **The owner's decisions (2026-10-29), which section 9 records in full:**
+> the tool lives in **os8088** (`tools/picomem/`), and can be packaged
+> separately at the end. It runs **our** firmware, `pm1x-pr`, for **both**
+> boards, as a patch stack on upstream's newest public source. **86Box is
+> the primary target.** GUS and MPU-401 are **left out**: they are
+> `USE_GUS`/`USE_MPU` in the firmware's own CMake, so leaving them out costs
+> nothing.
 
 ## 0. The recommendation, in five lines
 
@@ -186,16 +194,41 @@ needs it, and no question needs it today.
 
 ### 4.1 Where it lives
 
-**Recommended: in the firmware fork,** as a `host/` CMake target beside
-`src/`. The shim then moves with the firmware it shims, and the fork's CI
-can build it on every firmware commit. It is also a candidate to offer
-FreddyVRetro upstream, since a firmware developer with an emulator is the
-same win at the source. os8088 pins it the way it pins 86Box and MartyPC:
-`tools/picomem/UPSTREAM` names a repo and commit, and
-`tools/picomem/build.sh` fetches and builds into `build/picomem/`. Nothing
-from the firmware is committed to os8088. The alternative, a shim kept in
-os8088's tree that compiles the fork's files from outside, also works but
-breaks silently when a file moves (section 9, Q1).
+**In os8088, under `tools/picomem/` (the owner's decision).** It is an
+os8088 test instrument, used by our tools and soaks. It can be packaged up
+for outside use at the end, but it is not kept in the firmware fork. The
+layout follows `tools/86box/` and `tools/martypc/`, the two instruments
+this tree already builds from a pin plus patches:
+
+| path | what |
+|---|---|
+| `tools/picomem/UPSTREAM` | the upstream firmware repo and the commit it is pinned at |
+| `tools/picomem/patches/fw/*.patch` | **our firmware changes**, the `pm1x-pr` commit as a patch on that pin. These are the same changes the iron runs |
+| `tools/picomem/patches/host/*.patch` | the few edits the host build alone needs (`PM_HOST_YIELD()` where a spin polls shared RAM without reading the clock, section 4.3). Empty on the iron, so they could also go into `fw/` once proven |
+| `tools/picomem/shim/` | os8088's own source: stub `pico/*.h` headers, the clock, the FIFO, the event queue, FatFS `diskio` over a file, the `pm_*` API of section 4.2, and the CMake that picks the firmware's files |
+| `tools/picomem/build.sh` | fetch at the pin, `git apply` `fw/` then `host/` in order, build `build/picomem/libpmhost-{v1,v2}.{a,so}` |
+
+**Nothing from the firmware is committed to os8088**, only patches and the
+pin. That is the same footing as 86Box and MartyPC. The shim is written
+against the firmware's interfaces, so a moved or renamed file fails the
+build loudly rather than silently.
+
+**Keeping up with upstream.** When FreddyVRetro publishes newer source:
+
+1. Move `UPSTREAM`'s pin.
+2. Re-cut `fw/` against the new pin. The `pm1x-pr` branch in the fork is
+   where that rebase is done, and the patch is regenerated from it.
+3. Rebuild.
+
+`tools/martypc/README.md:24-44` is the rule for cutting a patch: against
+the pin **plus every earlier patch**, never against the pin alone.
+
+**The diagnostic knob comes along for free.** `os8088-pm114` is the same
+firmware plus `OS88_DIAG` (DK01, DMALOG2 and the AH0x records PMDMA reads),
+and it builds identically with the knob off. Carrying its commits as one
+more `fw/` patch would give the emulator an `OS88_DIAG=1` build, so PMDMA's
+K, A and B keys could be checked against something before the iron
+(section 9, Q-c).
 
 ### 4.2 The seam and the C API
 
@@ -288,14 +321,31 @@ disagreement with the iron is a table fix.
 
 ### 4.4 v1 and v2
 
-These are two builds of `libpmhost`:
+These are two builds of `libpmhost` from **one source**: upstream at the
+pin plus `pm1x-pr`. The owner's choice is **our own code on both boards**.
 
 - **`PM1x`:** `PICOMEM_BOARD "PICOMEM"`, i.e. `firmware/picomem1/v1board.patch`'s
-  defines, with no `USE_HWIRQ`/`USE_HWDMA`. Source: `pm1x-pr`, the commit
-  os8088 ships as `PM_W_10_16_26_OS8088.uf2`.
-- **`PM2x`:** `BOARD_PM20` with `USE_HWIRQ`, `USE_HWDMA`, 256 KB fast RAM and
-  QSPI PSRAM. Source: the fork's `main`, or the 2.x release the 5150 runs
-  (section 9, Q2).
+  defines, with no `USE_HWIRQ`/`USE_HWDMA`. This is exactly what os8088
+  ships as `PM_W_10_16_26_OS8088.uf2`.
+- **`PM2x`:** `PICOMEM_BOARD "PICOMEM_20"`, i.e. the branch's own default
+  `CMakeLists.txt`, with `USE_HWIRQ`, `USE_HWDMA`, 256 KB fast RAM and QSPI
+  PSRAM. It takes **`USE_GUS=0 USE_MPU=0`** (the owner's decision). The
+  board block turns both on (`CMakeLists.txt:257-258`), and these flags are
+  the firmware's own compile-time gates, so leaving them out is free.
+  `USE_CDROM` is already 0 on every board.
+
+**What the v2 build is and is not.** It is `pm1x-pr` running on a 2.x. That
+combination has **never been tried on the iron**: the 5150's card runs
+FreddyVRetro's closed `PM2-10-4-26`. So the emulator's v2 answers *"what
+would our firmware do on a 2.x"*. That is the question the owner wants
+answered, and it is not the same as *"what does the 5150 do today"*. The
+two differ in exactly the places listed for `PM2-10-4-26` in section 10.
+
+There is a useful side effect: wave 6 makes the first `PM2x` build of our
+source. A real `.uf2` of the same source is one `cmake` away (section 10),
+and it is the image to try on the 5150 once the emulator is happy with it.
+
+The adapter asks which build it was handed and wires:
 
 The adapter asks which build it was handed and wires:
 
@@ -397,7 +447,7 @@ plus `test-full` after the last.
 | **3. Disks** | `int 13h` floppy and HDD from SD-image files | B: is kept through `dsk_fdd_pmemu` (FDDn_Attribute bit 7); HDD.DRV's BIOS rung reads a VHD through the card; the warm restart (1234h, FFFF:0) re-enters the PicoMEM BIOS. |
 | **4. NE2000** | the card's NE2000 over 86Box slirp | ETHER.DRV finds it at the configured base with the un-doubled PROM; DHCP and a fetch as in `tests/ethernet.py`. |
 | **5. Mouse and EMS** | `pm_mouse`; the card's EMS at 288h/D000h | USBMOUSE.DRV's PicoMEM backend moves the pointer (`int 33h` AX=0060h through the multiplexer); EMS.DRV finds 288h/D000h on the card instead of on the Lo-tech model. |
-| **6. The 2.x** | `libpmhost-v2`, real IRQ lines, real DMA, `vm/pc5150-picomem2` | The 2.x leg of FIELD-NOTES 66 (SB refused until IRQ 7, then configured) reproduces with PM2-6-21-26's behaviour and passes with the os8088 path. This is the **first time the 2.x has been checked since the 1.x round**. |
+| **6. The 2.x** | `libpmhost-v2` (`pm1x-pr` built `PICOMEM_20`, no GUS/MPU), real IRQ lines, real DMA, `vm/pc5150-picomem2` | SOUND.DRV configures the SB through command 77h on our firmware's 2.x build. If the public source still ignores the IRQ/DMA it is given (`PM2-10-4-26`'s note, section 9), this is where we find out, and the fix goes into `fw/`. This is the **first run of our code on a 2.x anywhere**, and it yields a `.uf2` to try on the 5150. |
 | **7. kern_mega** | `vm/286-mega` with the card | The reflected multiplexer IRQs are visible and counted under `faults`/E9; this gives the open KERN-MEGA item a machine. |
 | **8. MartyPC** | `17-picomem.patch`, the snoop hook, two machines | `pm_runaway`'s detection is measured on a 4.77 MHz 8088 against the card's own DMA pacing; `videmsslow`'s premise (8 wait states) is read off a real card model. |
 | **9. Suite and docs** | rows, profiles, TESTING.md, FIELD-MACHINES | Section 8's rows registered; docs/TESTING.md's matrix gains a PicoMEM row; CLAUDE.md's emulator lists name the profiles. |
@@ -464,26 +514,71 @@ Each needs its break-it-on-purpose check (docs/WRITING-TESTS.md §1). For
 example, `box-pmsb1` must go red with `NOPICOMEM=1`, and `box-pmmouse` with
 the hook ordering reversed.
 
-## 9. Open questions for the owner
+## 9. Decisions, and what is still open
 
-1. **Where does the shim live:** in the firmware fork's `host/` (recommended,
-   section 4.1) or in os8088's `tools/picomem/`?
-2. **Which commits are "the card":**
-   - For the 1.x, `pm1x-pr` (`5e507be2`, what os8088 ships).
-   - For the 2.x, the fork's `main` (`fdd008e`), or the PM2-6-21-26 or
-     PM2-10-4-26 release the 5150 runs?
-   - And what is `os8088-pm114` (`8ab70ed`)? It looks like the `OS88_DIAG`
-     1.14 build that PMDMA's DK01/DMALOG2/AH0x records read.
-3. **Offer it upstream?** A host build of the firmware is useful to
-   FreddyVRetro. Upstreaming it would mean the `PM_HOST_YIELD()` points and
-   guards stay maintained by the firmware's author.
-4. **Licensing note.** The firmware and 86Box are GPL-2, so that pairing is
-   clean. MartyPC is MIT: a local build linked to a GPL library becomes GPL
-   as a binary. That is fine for a test instrument nobody redistributes, and
-   os8088 commits only the patch and the pin, never firmware source.
-5. **Scope of v2 extras.** Include GUS and MPU-401 when the 2.x lands, or
-   leave them until a package wants them? (Nothing in os8088 uses either on
-   the card today.)
+**Decided by the owner, 2026-10-29:**
+
+1. **Where it lives: os8088, `tools/picomem/`** (section 4.1). It is for our
+   tools and soaks, and it may be packaged separately at the end.
+2. **Which code is "the card": our own.** `pm1x-pr` (`5e507be2`), carried
+   as a patch stack on upstream's newest public source, for **both** boards
+   (section 4.4). **86Box is the primary target.**
+   - The patch stack is how the tree keeps up with upstream: move the pin,
+     re-cut the patches.
+   - `os8088-pm114` (`8ab70ed`) is the same firmware plus the `OS88_DIAG`
+     knob. It builds identically with the knob off, and the knob was never
+     part of the upstream PR branch.
+3. **GUS and MPU-401: out.** They are `USE_GUS`/`USE_MPU` in the firmware's
+   own CMake, so leaving them out costs nothing. They can be turned on the
+   day a package wants either (section 4.4).
+
+**Found while answering 2: the October release cannot be built, and it
+does not need to be.** FreddyVRetro has said the public firmware is not
+the current code, and the history agrees:
+
+- Upstream's **`a7cd888` "October 4 2026 Release"** adds
+  `firmware/PicoMEM2/PM2-10-4-26.uf2`, but **no firmware source**. Its
+  whole diff to `src/` is the GLaTICK ROM coming out.
+- The newest firmware source anywhere public is still **`cfa8674`
+  "PicoMEM 2 Firmware Source (21-6-2026)"**, plus one contributor's ADPCM
+  pull request (`6faace6`).
+- `pm1x-pr` sits on `be7b2e6`, which is upstream's HEAD, so **our patches
+  are already on the newest source there is**.
+
+What `PM2-10-4-26` changed and we cannot see, from its own release notes:
+
+- CD-ROM (MKE) and ROM emulation
+- the I/O dispatch moved into a table
+- the PicoMEM IRQ configurable on any line
+- SB DSP init timing
+- RTC fixes for GLaTICK
+- DFS fixes
+- **"Sound Blaster IRQ/DMA config was not implemented (was using
+  default)"**
+
+The last one is FIELD-NOTES 66's 2.x item 4 seen from the other side. It
+is the first thing wave 6 must check: does `pm1x-pr`'s command 77h work on
+a `PICOMEM_20` build, or is the 2.x path in public source still the
+June one?
+
+**Still open:**
+
+- **(a) Upstream.** Offering the host build to FreddyVRetro was the
+  recommendation when it lived in the fork. With it in os8088 that is a
+  packaging question for the end (decision 1), not now.
+- **(b) Licensing.** The firmware and 86Box are GPL-2, so that pairing is
+  clean.
+  - os8088 is MIT and commits only `tools/picomem/shim/`, which is our own
+    code, plus patches and a pin.
+  - The *built* library is GPL-2, as is anything statically linked to it.
+    That includes a local MartyPC build, which is never redistributed.
+  - The shim's own licence is the owner's call. GPL-2 is the simplest
+    choice if it is ever packaged with the firmware.
+  - Context: `firmware/picomem1/` already put a GPL-2 binary in this tree,
+    by the owner's decision of 2026-10-15.
+- **(c) The diagnostic knob.** Should `os8088-pm114`'s commits be the second
+  `fw/` patch, for an `OS88_DIAG=1` emulator build (section 4.1)? It costs
+  nothing with the knob off, and it lets PMDMA be tested off the iron.
 
 ## 10. Building the real firmware (for reference)
 
@@ -495,6 +590,15 @@ the hook ordering reversed.
   is `pimoroni_pico_plus2_rp2350` with `PICOMEM_BOARD "PICOMEM_20"`. The
   1.x is `pico_w` with `"PICOMEM"`, which is what
   `firmware/picomem1/v1board.patch` sets.
+- **What can be built.**
+  - Upstream's HEAD (`be7b2e6`) builds, and `pm1x-pr` is one commit on it.
+  - **`PM2-10-4-26` cannot be built.** Its source was never published
+    (section 9).
+  - For the 1.x, whether the published `PM_W_11_16_25` can be rebuilt from
+    some commit in the history has not been checked, and nothing here needs
+    it.
+  - The only 1.x image whose exact source is public is the one os8088
+    already ships: `PM_W_10_16_26_OS8088.uf2`, built from `pm1x-pr`.
 - **Submodules are not populated** in a fresh clone (tinyusb, rp2040-psram,
   tusb_xinput, WonderMCA). `src/PrepareTinyUSB.sh` fetches tinyusb's
   dependencies. The host build of section 4 needs **none** of them, which is
