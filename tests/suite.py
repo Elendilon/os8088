@@ -18321,6 +18321,20 @@ SOAK = [
         needs=("86box", "pmhost"), serial=True,
         wants=("build/pmsys360.img", "build/pmboxb360.img", "build/pmhd.img",
                "build/apps360.img", "build/mega.img")),
+    Row("pmmarty", "soak", py("tests/pmmarty.py"), 70.0,
+        "docs/plans/PICOMEM-EMU-PLAN.md wave 8: the PicoMEM's own firmware "
+        "(libpmhost) as a MartyPC card (tools/martypc/patches/17-picomem.patch), "
+        "on a 4.77 MHz 5150: os8088_5150_herc_pm1_gla (a 1.x on IRQ 5) and "
+        "_pm2_gla (a 2.x, IRQ 7 and DRQ 1, as 5150 #2's). On each the card's "
+        "BIOS runs its POST, SOUND.DRV attaches in SPEC.md 34.10's order, "
+        "SBTEST's 1 kHz tone plays 2 s out of the card's DAC - by the 1.x's "
+        "virtual DMA, the 8088 copying every block, and by the 2.x's real DMA "
+        "- and pm_runaway (34.10.5) never masks channel 1 against the card's "
+        "own pacing. Broken on purpose, OS88_PMHOST_NOSNOOP=1: the 1.x plays "
+        "nothing and its tone checks FAIL; the 2.x, with no snoop to lose, "
+        "plays on",
+        needs=("marty", "pmhost"), serial=True,
+        wants=("build/pmsys360.img", "build/pmboxb360.img")),
     Row("pmbox2", "soak", py("tests/pmbox.py", "--board", "2"), 185.0,
         "docs/plans/PICOMEM-EMU-PLAN.md wave 6: pmbox's legs on a PicoMEM 2.x "
         "(vm/xt-picomem2 and its -1fd/-usbm twins: OUR firmware, pm1x-pr, "

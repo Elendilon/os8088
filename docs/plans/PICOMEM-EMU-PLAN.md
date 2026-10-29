@@ -452,7 +452,7 @@ plus `test-full` after the last.
 | **5. Mouse and EMS** (**BUILT**, 6.6) | `pm_mouse_move`; the card's EMS at 288h/E000h | USBMOUSE.DRV's PicoMEM backend moves the pointer (`int 33h` AX=0060h through the multiplexer); EMS.DRV finds 288h/D000h on the card instead of on the Lo-tech model. |
 | **6. The 2.x** (**BUILT**, 6.7; the machine is `vm/xt-picomem2`) | `libpmhost-v2` (`pm1x-pr` built `PICOMEM_20`, no GUS/MPU), real IRQ lines, real DMA, `vm/pc5150-picomem2` | SOUND.DRV configures the SB through command 77h on our firmware's 2.x build. If the public source still ignores the IRQ/DMA it is given (`PM2-10-4-26`'s note, section 9), this is where we find out, and the fix goes into `fw/`. This is the **first run of our code on a 2.x anywhere**, and it yields a `.uf2` to try on the 5150. |
 | **7. kern_mega** (**BUILT**, 6.8; the machine is `vm/at286-picomem1`) | `vm/286-mega` with the card | The reflected multiplexer IRQs are visible and counted under `faults`/E9; this gives the open KERN-MEGA item a machine. |
-| **8. MartyPC** | `17-picomem.patch`, the snoop hook, two machines | `pm_runaway`'s detection is measured on a 4.77 MHz 8088 against the card's own DMA pacing; `videmsslow`'s premise (8 wait states) is read off a real card model. |
+| **8. MartyPC** (**BUILT**, 6.9) | `17-picomem.patch`, the snoop hook, two machines | `pm_runaway`'s detection is measured on a 4.77 MHz 8088 against the card's own DMA pacing; `videmsslow`'s premise (8 wait states) is read off a real card model. |
 | **9. Suite and docs** | rows, profiles, TESTING.md, FIELD-MACHINES | Section 8's rows registered; docs/TESTING.md's matrix gains a PicoMEM row; CLAUDE.md's emulator lists name the profiles. |
 
 **Estimates, all unmeasured:**
@@ -833,6 +833,55 @@ The plan's "counted under `faults`/E9" is not what the leg asserts. The
 reflections are proved by what they carry, the copies and the reports,
 which is the stronger statement. A count would need a counter kern_mega
 does not keep.
+
+### 6.9 Wave 8, as built
+
+**What exists.** `tools/martypc/patches/17-picomem.patch` adds
+`devices/picomem.rs`, the same library as a MartyPC card under a
+`[machine.picomem]` key (`irq`, and for a 2.x `irq_lines` and `dma`):
+- `dlopen` by hand (`dlopen`/`dlsym` declared, glibc already linked), so
+  the patch adds no crate.
+- The card answers a port no other device claims and hears every write.
+  MartyPC's port map has an "unresolved" fall-through, so that is two
+  small hooks in `bus/io.rs`, and it is exactly how a 1.x snoops the 8237.
+  Section 5.2's "snoop hook" is this.
+- One MMIO window, D0000-EFFFF (`MmioDeviceType::PicoMem`), charged the
+  firmware's own wait states: `pm_mem_waits`, times three system ticks a
+  clock.
+- Its `run` slice advances card time, answers a 2.x's DRQs from the 8237
+  (`check_dma_ready`, `do_dma_read_u8`) and mirrors IRQ levels into the
+  PIC.
+- `os88marty.launch` gives a `_pm1`/`_pm2` machine `$OS88_PMHOST` for that
+  board and a private copy of the microSD.
+- Machines: `os8088_5150_herc_pm1_gla` (a 1.x on IRQ 5) and
+  `os8088_5150_herc_pm2_gla` (a 2.x, IRQ 7 and DRQ 1, as 5150 #2's).
+
+**One thing it cost.** The first build advanced the card on every `run`
+call, and MartyPC calls `run` far more often than 86Box ticks. Each
+advance hands the card thread the baton, so the guest ran at under a tenth
+of real time. Card time now moves in 100 us slices, as in 86Box. A write
+the card decodes still advances it at once. The boot-and-play went from
+over 15 minutes to 33 s.
+
+**What it showed** (`tests/pmmarty.py`, 68 s for both boards):
+- On a 4.77 MHz 5150, both boards run the card's BIOS POST, SOUND.DRV
+  attaches in 34.10's order, and SBTEST's tone plays 2.01 s out of the
+  card's DAC. On the 1.x the 8088 copies every block in the card's ROM; on
+  the 2.x the 8237 moves it.
+- **`pm_runaway` did not fire on either board** (`sbl_drqmask` 0). Its
+  32-byte threshold was set on the field 286. This is the first time it
+  has met a card's own DMA pacing on the 8088 the project is calibrated
+  against, and a false mask would have stopped the 2.x's stream.
+- MEASURED broken on purpose: `OS88_PMHOST_NOSNOOP=1` silences the 1.x,
+  and the 2.x, with no snoop to lose, plays on.
+
+**What it does not answer.** The field's racing channel 1 came from the
+1.x's board (a floating DRQ1, 34.10.5), which is below the seam. So this
+shows that `pm_runaway` stays quiet when it should, not that it fires when
+it should; `tests/picomem.py`'s racing case is still the only test of the
+firing half. The 8 wait states charged for the 1.x's PSRAM are the cost
+table's estimate (4.3), so `videmsslow`'s premise is now *run* against a
+card model, but the number itself still comes from the field report.
 
 ## 7. What it will catch, and what it cannot
 
