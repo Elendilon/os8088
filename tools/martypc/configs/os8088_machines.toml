@@ -2591,7 +2591,7 @@ overlays = ["pcxt_2_360k_floppies", "pcxt_2_serial_ports",
     clock_mode = "Default"
 
 # os8088_5150_herc_pm1_gla / _pm2_gla - `herc_gla` plus a PICOMEM running its
-# OWN FIRMWARE (patches/17-picomem.patch, docs/plans/PICOMEM-EMU-PLAN.md wave
+# OWN FIRMWARE (patches/17-picomem.patch, docs/plans/completed/PICOMEM-EMU-PLAN.md wave
 # 8): the 1.x on IRQ 5, the owner's 286 card's jumper, and the 2.x jumpered as
 # 5150 #2's is - IRQ 7 alone, DRQ 1 (docs/FIELD-MACHINES.md). The firmware is
 # libpmhost (tools/picomem/build.sh) and the microSD an image: os88marty sets

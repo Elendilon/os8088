@@ -335,7 +335,7 @@ def capabilities():
     if os88build.have_unicorn():
         caps.add("unicorn")
     # ...and the PicoMEM's OWN FIRMWARE built for the host (tools/picomem,
-    # docs/plans/PICOMEM-EMU-PLAN.md), which the same row's fw legs run the
+    # docs/plans/completed/PICOMEM-EMU-PLAN.md), which the same row's fw legs run the
     # driver against in place of the model
     if os88build.have_pmhost():
         caps.add("pmhost")

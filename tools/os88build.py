@@ -655,7 +655,7 @@ def have_unicorn():
 
 def have_pmhost():
     """Is libpmhost built - the PicoMEM's own firmware, compiled for the host
-    by tools/picomem/build.sh (docs/plans/PICOMEM-EMU-PLAN.md)? A file test:
+    by tools/picomem/build.sh (docs/plans/completed/PICOMEM-EMU-PLAN.md)? A file test:
     the library is the artefact, and a row without it SKIPS. Both boards:
     build.sh builds the 1.x and the 2.x together."""
     return all(os.path.exists(os.path.join(ROOT, "build", "picomem", b,

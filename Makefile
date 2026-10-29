@@ -5576,7 +5576,7 @@ $(BUILD)/pmsys360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(
 		$(BUILD)/pmcfg/system.cfg $(BUILD)/pmdma.o88 $(APPDATAFOLDER)
 
 # PMBOXTEST - the B: disk for the PicoMEM UNDER 86Box (tools/picomem,
-# vm/xt-picomem1, docs/plans/PICOMEM-EMU-PLAN.md), beside pmsys360.img in A:
+# vm/xt-picomem1, docs/plans/completed/PICOMEM-EMU-PLAN.md), beside pmsys360.img in A:
 # (SOUND/ETHER/USBMOUSE wanted at boot): PMDMA, and SBTEST - 2 s of a 1 kHz
 # square at 8,000 Hz, mono 8-bit, the one thing a DSP 2.x plays, for a row to
 # hear through the card's own DAC (OS88_PMWAV). tests/pmbox.py is the row.

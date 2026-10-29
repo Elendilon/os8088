@@ -1,5 +1,5 @@
 /* pmhost.cpp - the card thread, card time, the core-to-core FIFO, the timer
- * alarms, the IRQ pins, and the pm_* API. docs/plans/PICOMEM-EMU-PLAN.md 4.
+ * alarms, the IRQ pins, and the pm_* API. docs/plans/completed/PICOMEM-EMU-PLAN.md 4.
  *
  * THE BATON (4.3). The firmware's core 0 spins: on the command FIFO, on its
  * clock, and - in an int 13h - on shared-RAM bytes that only the PC writes.

@@ -1,5 +1,5 @@
 /* pmhost.h - libpmhost's API: a PicoMEM card, running its own firmware,
- * driven one ISA bus cycle at a time. docs/plans/PICOMEM-EMU-PLAN.md 4.2.
+ * driven one ISA bus cycle at a time. docs/plans/completed/PICOMEM-EMU-PLAN.md 4.2.
  *
  * ONE CARD PER PROCESS. The firmware keeps its state in globals, as it can
  * on a Pico, so there is no handle: pm_create starts the card and the other

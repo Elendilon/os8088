@@ -5851,7 +5851,7 @@ SOAK = [
         wants=("build/emstest.img",)),
     Row("emscard", "soak", py("tests/ems.py", "--leg", "card"), 60.0,
         "SPEC.md 107.2 against a REAL PicoMEM 1.x's EMS: the card's own "
-        "firmware in 86Box (docs/plans/PICOMEM-EMU-PLAN.md wave 5, "
+        "firmware in 86Box (docs/plans/completed/PICOMEM-EMU-PLAN.md wave 5, "
         "vm/xt-picomem1). A first boot lets the card's BIOS map the machine "
         "and save PICOMEM.CFG; EMS is set on THAT (288h, E000h - the card's "
         "BIOS is at D000h) and every check of ems's board leg holds at the "
@@ -5862,7 +5862,7 @@ SOAK = [
         wants=("build/emstest.img",)),
     Row("emscard2", "soak", py("tests/ems.py", "--leg", "card2"), 75.0,
         "emscard's checks on a PicoMEM 2.x (vm/xt-picomem2, our firmware "
-        "built PICOMEM_20, docs/plans/PICOMEM-EMU-PLAN.md wave 6): its EMS "
+        "built PICOMEM_20, docs/plans/completed/PICOMEM-EMU-PLAN.md wave 6): its EMS "
         "lives in the RP2350's mapped PSRAM, an EMS page register write "
         "moving a RAM_Offset_Table entry, where the 1.x's goes through SPI - "
         "and EMS.DRV finds it at 288h/E000h with 256 pages all the same",
@@ -18273,7 +18273,7 @@ SOAK = [
         "than one start and keep the stream in the ring",
         needs=("nasm", "unicorn")),
     Row("pmlib", "soak", py("tests/picomem.py", "sbfw", "vsfw", "sb2fw"), 3.0,
-        "docs/plans/PICOMEM-EMU-PLAN.md wave 0: picomem's sb and vs legs - "
+        "docs/plans/completed/PICOMEM-EMU-PLAN.md wave 0: picomem's sb and vs legs - "
         "SOUND.DRV's PicoMEM attach and VIDSND's reconfigure, as they ship, "
         "under unicorn - with the card's ports answered by the card's OWN "
         "FIRMWARE (pm1x-pr, compiled for the host by tools/picomem/build.sh) "
@@ -18292,7 +18292,7 @@ SOAK = [
         "multiplexer on 7 and FAILS 2 checks",
         needs=("nasm", "unicorn", "pmhost")),
     Row("pmbox", "soak", py("tests/pmbox.py"), 170.0,
-        "docs/plans/PICOMEM-EMU-PLAN.md waves 1-7: the PicoMEM in 86Box "
+        "docs/plans/completed/PICOMEM-EMU-PLAN.md waves 1-7: the PicoMEM in 86Box "
         "(vm/xt-picomem1, tools/86box/patches/07-picomem.patch) running ITS "
         "OWN FIRMWARE (libpmhost), three boots. snd: the BIOS detects the "
         "card's IRQ, SOUND.DRV attaches in SPEC.md 34.10's order (78h 0 "
@@ -18322,7 +18322,7 @@ SOAK = [
         wants=("build/pmsys360.img", "build/pmboxb360.img", "build/pmhd.img",
                "build/apps360.img", "build/mega.img")),
     Row("pmmarty", "soak", py("tests/pmmarty.py"), 50.0,
-        "docs/plans/PICOMEM-EMU-PLAN.md wave 8: the PicoMEM's own firmware "
+        "docs/plans/completed/PICOMEM-EMU-PLAN.md wave 8: the PicoMEM's own firmware "
         "(libpmhost) as a MartyPC card (tools/martypc/patches/17-picomem.patch), "
         "on a 4.77 MHz 5150: os8088_5150_herc_pm1_gla (a 1.x on IRQ 5) and "
         "_pm2_gla (a 2.x, IRQ 7 and DRQ 1, as 5150 #2's). On each the card's "
@@ -18336,7 +18336,7 @@ SOAK = [
         needs=("marty", "pmhost"), serial=True,
         wants=("build/pmsys360.img", "build/pmboxb360.img")),
     Row("pmbox2", "soak", py("tests/pmbox.py", "--board", "2"), 160.0,
-        "docs/plans/PICOMEM-EMU-PLAN.md wave 6: pmbox's legs on a PicoMEM 2.x "
+        "docs/plans/completed/PICOMEM-EMU-PLAN.md wave 6: pmbox's legs on a PicoMEM 2.x "
         "(vm/xt-picomem2 and its -1fd/-usbm twins: OUR firmware, pm1x-pr, "
         "built PICOMEM_20 - the first run of it as a 2.x anywhere - IRQ 7 "
         "jumpered and DRQ 1, as the field 2.x). SOUND.DRV's attach is "

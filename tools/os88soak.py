@@ -247,7 +247,7 @@ def requirements():
     req.append(("pmhost", os88build.have_pmhost(),
                 "pmlib, which runs SOUND.DRV's and VIDSND's PicoMEM code against "
                 "the card's OWN firmware compiled for the host, in place of "
-                "picomem's model (docs/plans/PICOMEM-EMU-PLAN.md).",
+                "picomem's model (docs/plans/completed/PICOMEM-EMU-PLAN.md).",
                 "tools/picomem/build.sh      (seconds; fetches the firmware)"))
 
     req.append(("bochs", os88build.have_bochs(),

@@ -44,7 +44,7 @@ entry that owns it once work starts.
 - [x] **USBMOUSE.DRV's PicoMEM path** - the card's real-mode `int 33h`
   0060h is captured inside the IRQ reflection and replayed in protected
   mode. 14.117. Untested on a real PicoMEM - but run against the card's
-  own firmware in 86Box (docs/plans/PICOMEM-EMU-PLAN.md wave 7, `soak -k
+  own firmware in 86Box (docs/plans/completed/PICOMEM-EMU-PLAN.md wave 7, `soak -k
   pmbox`): the pointer moves, and stays put with the capture taken out.
 - [x] **REDLINE** ships on kern_mega's system disks. 14.118.
 

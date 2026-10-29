@@ -70555,7 +70555,7 @@ DSP is off after every reset, so a first attach never meets this. A SECOND
 `pm_init` in one session does: SOUND.DRV's detach leaves the DSP on, so
 re-ticking the driver or a hibernate's detach and reload, and VIDSND's
 reconfigure, would take 220h from CMS. Found by the card's own firmware
-under `tools/picomem` (docs/plans/PICOMEM-EMU-PLAN.md 6.1). The model in
+under `tools/picomem` (docs/plans/completed/PICOMEM-EMU-PLAN.md 6.1). The model in
 `tests/picomem.py` had answered PORTUSED there, and the fix needed no
 assumption about which firmware is on the card: off-then-walk is right on
 every version. It costs 7 bytes, and on a first attach it is a no-op

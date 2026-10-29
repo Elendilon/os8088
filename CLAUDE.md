@@ -964,7 +964,7 @@ plus `marty` (MartyPC). **The PicoMEM machines are not make targets**:
 so they launch through `tools/os88box.py` on the patched 86Box rather than
 `$(BOX)`; MartyPC's are `os8088_5150_herc_pm1_gla` and `_pm2_gla`
 (`tools/martypc/patches/17-picomem.patch`). `soak -k 'pm*'` runs them
-(docs/plans/PICOMEM-EMU-PLAN.md). **`386-ps2` is the only machine here with a PS/2
+(docs/plans/completed/PICOMEM-EMU-PLAN.md). **`386-ps2` is the only machine here with a PS/2
 mouse** — every other config is `mouse_type = msserial`, which is why §9.9
 shipped and went untested on anything but QEMU for months; it is a Packard
 Bell Legend 300SX, whose bus flags are what give 86Box's 8042 an auxiliary
