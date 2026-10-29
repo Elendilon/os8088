@@ -554,6 +554,13 @@ CHOICE_HELP = {
                "and 48 KB frames",
         "lossless": "No budget: every change kept, whatever it costs",
     },
+    "kernel": {
+        "big": "kern_big, the real-mode kernel: the profile's disk as "
+               "measured (the default)",
+        "mega": "kern_mega, the 286's protected-mode kernel: every disk "
+                "read is a CPU reset, so the disk is the profile's own "
+                "share slower where it has measured one",
+    },
     "aim": {
         "asked": "Encode what was asked for, nothing more (the default)",
         "quality": "Spend budget the video leaves unused on a bigger "
