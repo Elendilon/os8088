@@ -93,8 +93,12 @@ rows on 86Box*, below), and each is inert until something asks for it:
   library, and `OS88_PMSD=IMG` another microSD. The card's NE2000 is on the
   network through a companion NIC, `net_01_card = picomem_ne2k`. The card's
   DAC is mixed in, and `OS88_PMWAV=FILE` captures it at
-  its own 49,716 Hz in card time. `vm/xt-picomem1` is the machine
-  (docs/plans/PICOMEM-EMU-PLAN.md).
+  its own 49,716 Hz in card time. `usb_mouse = 1` makes 86Box's pointer the
+  card's USB mouse (a HID report every 8 ms), for a machine whose own
+  `mouse_type` is `none` - `tools/os88box86api.py` sets that itself when a
+  profile asks for the card's mouse. `vm/xt-picomem1` is the machine, and
+  `vm/xt-picomem1-usbm` the same one with the card's mouse as its only
+  pointer (docs/plans/PICOMEM-EMU-PLAN.md).
 
 A binary built before these three is refused by the backend, which names
 the rebuild (`python3 tools/os88box.py build`).

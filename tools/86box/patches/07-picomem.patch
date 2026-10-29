@@ -7,7 +7,9 @@ patch builds with no dependency on it. Every I/O and memory cycle the card
 decodes goes to the firmware; its decode is mirrored into 86Box per 8-port
 block and per 8 KB block, so nothing else on the bus changes; card time is
 the machine's, in 100 us ticks, and its DAC is mixed in at 48 kHz.
-Config: [PicoMEM #1] irq, sd_image, lib. The card's NE2000 (a Pico W's Wi-Fi
+Config: [PicoMEM #1] irq, sd_image, lib, usb_mouse (86Box's pointer as the
+card's USB mouse, polled every 8 ms; the machine's own mouse must be
+none). The card's NE2000 (a Pico W's Wi-Fi
 bridge) reaches 86Box's network through a companion NIC, net_01_card =
 picomem_ne2k, which network.c starts like any card.
 tools/os88box.py resolves lib and copies sd_image like a disk.
@@ -28,10 +30,10 @@ index 4526b6c..b67d080 100644
      isapnp.c
 diff --git a/src/device/isa_picomem.c b/src/device/isa_picomem.c
 new file mode 100644
-index 0000000..33c6c4b
+index 0000000..3272d2c
 --- /dev/null
 +++ b/src/device/isa_picomem.c
-@@ -0,0 +1,453 @@
+@@ -0,0 +1,489 @@
 +/*
 + * 86Box    A hypervisor and IBM PC system emulator that specializes in
 + *          running old operating systems and software designed for IBM
@@ -76,6 +78,7 @@ index 0000000..33c6c4b
 +#include <86box/sound.h>
 +#include <86box/thread.h>
 +#include <86box/network.h>
++#include <86box/mouse.h>
 +
 +/* pmhost.h, restated: this file must build without the library's tree. */
 +typedef struct pm_host {
@@ -95,6 +98,10 @@ index 0000000..33c6c4b
 + * enough for the BIOS's polling and cheap enough for the host. */
 +#define PICOMEM_TICK_US 100.0
 +
++/* A USB mouse reports at most once a frame: 8 ms is a full-speed HID mouse's
++ * usual interval, so the pointer is polled every this many ticks. */
++#define PICOMEM_MOUSE_TICKS 80
++
 +typedef struct picomem_t {
 +    void *lib;
 +    int (*create)(const pm_cfg_t *, const pm_host_t *);
@@ -108,6 +115,7 @@ index 0000000..33c6c4b
 +    int (*audio)(int16_t *, int);   /* optional: a library with no DAC is silent */
 +    int (*audio_rate)(void);
 +    void (*net_rx)(const uint8_t *, int); /* optional: a library with no NE2000 */
++    void (*mouse)(int, int, int);   /* optional: the card's USB mouse */
 +
 +    int           irq;
 +    int           level;
@@ -120,6 +128,9 @@ index 0000000..33c6c4b
 +    double        astep;         /* card frames per output frame */
 +    int16_t       asrc[2][2];    /* the two card frames being interpolated */
 +    pm_host_t     host;
++    int           mouse_on;      /* config usb_mouse: 86Box's pointer is the card's */
++    int           mouse_tick;
++    int           mouse_b;
 +} picomem_t;
 +
 +static picomem_t *the_card;      /* libpmhost is one card per library */
@@ -277,6 +288,20 @@ index 0000000..33c6c4b
 +{
 +    picomem_t *dev = (picomem_t *) priv;
 +
++    /* The card's USB mouse: 86Box's own pointer, with no 86Box mouse device
++     * to take it first (the profile says mouse_type = none). Positive dy is
++     * down, as a HID report has it. */
++    if (dev->mouse && dev->mouse_on && ++dev->mouse_tick >= PICOMEM_MOUSE_TICKS) {
++        int dx = 0, dy = 0, b = mouse_get_buttons_ex() & 7;
++        dev->mouse_tick = 0;
++        if (mouse_moved())
++            mouse_subtract_coords(&dx, &dy, NULL, NULL, -128, 127, 0, 0);
++        if (dx || dy || b != dev->mouse_b) {
++            dev->mouse_b = b;
++            dev->mouse(dx, dy, b);
++        }
++    }
++
 +    dev->advance((uint64_t) (PICOMEM_TICK_US * 1000.0));
 +    picomem_sync(dev);
 +    timer_advance_u64(&dev->timer, (uint64_t) (PICOMEM_TICK_US * TIMER_USEC));
@@ -369,6 +394,8 @@ index 0000000..33c6c4b
 +    *(void **) &dev->audio      = dlsym(dev->lib, "pm_audio_read");
 +    *(void **) &dev->audio_rate = dlsym(dev->lib, "pm_audio_rate");
 +    *(void **) &dev->net_rx     = dlsym(dev->lib, "pm_net_rx");
++    *(void **) &dev->mouse      = dlsym(dev->lib, "pm_mouse_move");
++    dev->mouse_on               = device_get_config_int("usb_mouse");
 +
 +    dev->irq = device_get_config_int("irq");
 +    picomem_resolve(device_get_config_string("sd_image"), dev->sd_path, sizeof dev->sd_path);
@@ -464,6 +491,17 @@ index 0000000..33c6c4b
 +        .default_string = NULL,
 +        .default_int    = 0,
 +        .file_filter    = "Shared libraries (*.so)|*.so",
++        .spinner        = { 0 },
++        .selection      = { { 0 } },
++        .bios           = { { 0 } }
++    },
++    {
++        .name           = "usb_mouse",
++        .description    = "USB mouse (the host's pointer; set the machine's mouse to none)",
++        .type           = CONFIG_BINARY,
++        .default_string = NULL,
++        .default_int    = 0,
++        .file_filter    = NULL,
 +        .spinner        = { 0 },
 +        .selection      = { { 0 } },
 +        .bios           = { { 0 } }

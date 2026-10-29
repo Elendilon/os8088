@@ -81,6 +81,14 @@ int pm_audio_read(int16_t *lr, int frames);
 void pm_net_rx(const uint8_t *frame, int len);
 void pm_net_mac(uint8_t mac[6]);
 
+/* A movement and the buttons now (bit 0 left, 1 right, 2 middle), as the
+ * card's USB host would report one. The firmware sends it to the PC on its
+ * next pass of the main loop once PMMOUSE (52h) has turned the mouse on.
+ * Unlike a HID report, a movement that arrives before the last one was sent
+ * is ADDED to it rather than replacing it, clamped to 8 bits, so a test that
+ * moves twice in one slice loses nothing. */
+void pm_mouse_move(int dx, int dy, int buttons);
+
 /* What the card decodes NOW, for an adapter that maps only that (mapping
  * more would answer for ports and memory nobody is there to answer for).
  * io[b] is the device type on ports b*8..b*8+7, 0 = none; mem[b] the memory

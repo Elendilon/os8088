@@ -28,6 +28,7 @@
 #include "pm_board.h"
 #include "psram_spi.h"
 #include "pmhost.h"
+#include "dev_mouse.h"
 
 #define PMH_API extern "C" __attribute__((visibility("default")))
 
@@ -341,6 +342,19 @@ PMH_API void pm_io_map(uint8_t out[128])
 PMH_API void pm_mem_map(uint8_t out[128])
 {
     for (uint32_t b = 0; b < 128; b++) out[b] = pmh_bus_memidx(b << 13);
+}
+
+static int pmh_clamp8(int v) { return v < -128 ? -128 : v > 127 ? 127 : v; }
+
+PMH_API void pm_mouse_move(int dx, int dy, int buttons)
+{
+    // Core 0 is parked at a yield point whenever the host has the baton, so
+    // this cannot tear against the main loop's read.
+    if (pm_mouse.event) { dx += pm_mouse.x; dy += pm_mouse.y; }
+    pm_mouse.x = (int8_t)pmh_clamp8(dx);
+    pm_mouse.y = (int8_t)pmh_clamp8(dy);
+    pm_mouse.buttons = (uint8_t)buttons;
+    pm_mouse.event = true;
 }
 
 PMH_API uint8_t pm_peek_status(void) { return PM_Status; }

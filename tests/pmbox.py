@@ -26,6 +26,10 @@ log (OS88_PMHOST_LOG) and its DAC (OS88_PMWAV) captured. What must hold:
      output (49,716 Hz, its OPL's rate) carries it - a level that moves, and
      a period of 1 ms.
 
+Then leg mouse (check 9), on vm/xt-picomem1-usbm - no 86Box mouse, the
+card's USB mouse fed 86Box's pointer: USBMOUSE.DRV turns it on (52h) and
+os88ui double-clicks A: open through the card's IRQ and int 33h AX=0060h.
+
 Broken on purpose, OS88_PMHOST_NOSNOOP=1 (the card stops hearing the PC's
 8237 writes): MEASURED below in the plan's 6.3 - A to D still read right
 (the BIOS's copy takes its source from the 8237 itself), but PMDMA's
@@ -329,11 +333,71 @@ def leg_net(tmp):
         check(False, "the machine: %s" % str(e).split(". ")[0])
 
 
+def leg_mouse(tmp):
+    """check 9: the card's USB mouse is the machine's only pointer.
+
+    vm/xt-picomem1-usbm has no 86Box mouse at all: the adapter hands 86Box's
+    pointer to the card as USB reports (pm_mouse_move, every 8 ms), and the
+    card's firmware raises its IRQ and its BIOS does int 33h AX = 0060h -
+    which only USBMOUSE.DRV's PicoMEM backend answers (SPEC.md 9.12.7). So
+    the driver turned the card's mouse on (52h), and os88ui reaching a drive
+    zone and DOUBLE-CLICKING it open is movement and buttons through all of
+    that. MEASURED broken on purpose two ways: with the card's mouse off
+    and no 86Box mouse, the pointer is stuck; with USBMOUSE.DRV built in the
+    old order (52h's enable before the int 33h hook), the boot below never
+    reaches the desktop - and with that build and no early movement it does,
+    so the freeze is the field's: the order AND a report already waiting."""
+    import os88marty
+    import os88ui
+    os.environ.pop("OS88_PMSD", None)
+    os.environ.pop("OS88_PMWAV", None)
+    os.environ["OS88_86BOX_VM"] = "xt-picomem1-usbm"
+    try:
+        # Launched PAUSED and the mouse moved FIRST: the card then holds a
+        # report from before os8088 started, which its firmware raises the
+        # instant 52h turns the mouse on (SPEC.md 9.12.7, FIELD-NOTES 66) -
+        # so this boot is the one that froze the 5150 when the driver enabled
+        # the mouse before hooking int 33h.
+        cm = os88marty.launch(os.path.join(ROOT, "build/pmsys360.img"),
+                              machine="os8088_xt_vga", boot=False)
+        m = cm.__enter__()
+        try:
+            m.b.mouse(12, 9, 0)
+            m.run()
+            ui = os88ui.UI(m)
+            ui.up(limit=180.0)
+            os88marty.no_saver(m)
+            leg_mouse_up(ui, m)
+        finally:
+            cm.__exit__(None, None, None)
+    except (os88marty.MartyError, os88ui.UIError, SystemExit) as e:
+        check(False, "the machine: %s" % str(e).split(". ")[0])
+    finally:
+        os.environ["OS88_86BOX_VM"] = "xt-picomem1"
+
+
+def leg_mouse_up(ui, m):
+    """check 9's two halves, on a machine that is up"""
+    cmds = log_cmds(open(os.path.join(m.b.run, "86box.log")).read())
+    on = [x for x in cmds if x[0] == 0x52]
+    check(bool(on) and on[-1][3] & 0xFF == 0,
+          "USBMOUSE.DRV turned the card's mouse on (52h, %s)" %
+          ["%02Xh=%04Xh" % (c, r) for c, _, _, r in on])
+    ptr = lambda: tuple(struct.unpack("<HH", bytes(m.read(m.sym("mouse_x"), 4))))
+    p0 = ptr()
+    w = ui.open_drive("A")
+    p1 = ptr()
+    check(p1 != p0 and w is not None,
+          "the pointer moved %r -> %r and the double-click opened A:"
+          % (p0, p1))
+    ui.close(w)
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("legs", nargs="*", default=["snd", "fdd", "hdd", "net"],
+    ap.add_argument("legs", nargs="*", default=["snd", "fdd", "hdd", "net", "mouse"],
                     help="snd (checks 1-4), fdd (checks 5, 7), hdd (check 6), "
-                         "net (check 8)")
+                         "net (check 8), mouse (check 9)")
     ap.add_argument("--keep", help="leave the captures and logs here")
     a = ap.parse_args()
     for f in ("build/pmsys360.img", "build/pmboxb360.img", "build/apps360.img",
@@ -354,6 +418,8 @@ def main():
         leg_hdd(tmp)
     if "net" in a.legs:
         leg_net(tmp)
+    if "mouse" in a.legs:
+        leg_mouse(tmp)
     if not a.keep:
         shutil.rmtree(tmp, ignore_errors=True)
     if FAILS:

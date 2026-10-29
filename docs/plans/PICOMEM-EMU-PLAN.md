@@ -449,7 +449,7 @@ plus `test-full` after the last.
 | **2. Sound, 1.x** (**BUILT**, 6.3) | AdLib + SB 2.0 with virtual DMA (snoop, multiplexer, CPU copy), audio out | SOUND.DRV's Drivers row reads the SB and the AdLib on the card. A WAV plays and the card's output is captured (an `OS88_PMWAV` env var, in `04-sb-capture`'s shape). `pm_tick`'s AdLib keep-alive matters: removing it goes silent after 4 s, the firmware's own idle cut-off. |
 | **3. Disks** (**BUILT**, 6.4) | `int 13h` floppy and HDD from SD-image files | B: is kept through `dsk_fdd_pmemu` (FDDn_Attribute bit 7); HDD.DRV's BIOS rung reads a VHD through the card; the warm restart (1234h, FFFF:0) re-enters the PicoMEM BIOS. |
 | **4. NE2000** (**BUILT**, 6.5) | the card's NE2000 over 86Box slirp | ETHER.DRV finds it at the configured base with the un-doubled PROM; DHCP and a fetch as in `tests/ethernet.py`. |
-| **5. Mouse and EMS** | `pm_mouse`; the card's EMS at 288h/D000h | USBMOUSE.DRV's PicoMEM backend moves the pointer (`int 33h` AX=0060h through the multiplexer); EMS.DRV finds 288h/D000h on the card instead of on the Lo-tech model. |
+| **5. Mouse and EMS** (**BUILT**, 6.6) | `pm_mouse_move`; the card's EMS at 288h/E000h | USBMOUSE.DRV's PicoMEM backend moves the pointer (`int 33h` AX=0060h through the multiplexer); EMS.DRV finds 288h/D000h on the card instead of on the Lo-tech model. |
 | **6. The 2.x** | `libpmhost-v2` (`pm1x-pr` built `PICOMEM_20`, no GUS/MPU), real IRQ lines, real DMA, `vm/pc5150-picomem2` | SOUND.DRV configures the SB through command 77h on our firmware's 2.x build. If the public source still ignores the IRQ/DMA it is given (`PM2-10-4-26`'s note, section 9), this is where we find out, and the fix goes into `fw/`. This is the **first run of our code on a 2.x anywhere**, and it yields a `.uf2` to try on the 5150. |
 | **7. kern_mega** | `vm/286-mega` with the card | The reflected multiplexer IRQs are visible and counted under `faults`/E9; this gives the open KERN-MEGA item a machine. |
 | **8. MartyPC** | `17-picomem.patch`, the snoop hook, two machines | `pm_runaway`'s detection is measured on a 4.77 MHz 8088 against the card's own DMA pacing; `videmsslow`'s premise (8 wait states) is read off a real card model. |
@@ -701,6 +701,56 @@ the firmware's 32-bit assumptions have mattered (6.1's `pmh_cell` was the
 first), so a new firmware file brought into the build wants its pointer
 arithmetic read.
 
+### 6.6 Wave 5, as built
+
+**What exists.**
+- **`pm_mouse_move(dx, dy, buttons)`** in the library is the card's USB
+  host's output: it fills the firmware's own `pm_mouse` as a HID report
+  would. `patches/host/` adds the main-loop block that sends it, which is
+  the `USE_USBHOST` block's body without `tuh_task()` (the host build has
+  no TinyUSB). One deliberate difference from a HID report: a movement
+  that arrives before the last was sent is ADDED to it rather than
+  replacing it, so a test that moves twice in one slice loses nothing.
+- **In 86Box, `usb_mouse = 1`** makes 86Box's pointer the card's mouse,
+  polled every 8 ms (a full-speed HID mouse's interval). The machine must
+  have no mouse of its own, or it takes every movement first; the backend
+  (`tools/os88box86api.py`) sets `mouse_type = none` for a profile that
+  asks for the card's. `vm/xt-picomem1-usbm` is that profile.
+- **The card's EMS needs no adapter code.** Its LTEMS port decode and its
+  frame in PSRAM are the firmware's own, mirrored like any other block.
+- **`mksd.py --cfg-from SDIMG`** starts PICOMEM.CFG from a card's saved
+  one, which is what EMS needs (below).
+
+**What it showed.**
+- `tests/pmbox.py mouse` (check 9): with no 86Box mouse at all,
+  USBMOUSE.DRV's PicoMEM backend turns the card's mouse on (52h), and
+  os88ui reaches the A: zone and double-clicks it open. Every movement and
+  both clicks went card IRQ -> the card's BIOS -> `int 33h` AX=0060h ->
+  `um_pm33` -> `OSAPI_MOUSE_FEED`.
+- **FIELD-NOTES 66's freeze is reproduced, exactly as the field saw it.**
+  The leg moves the mouse BEFORE the machine runs, so the card holds a
+  report from before os8088 started. With the driver built in the old
+  order (52h's enable before the `int 33h` hook), the boot never reaches
+  the desktop. With the same build and no early movement, it does. With
+  the shipped order it does either way. So the defect needs both halves,
+  the order and a report already waiting, which is what the field note
+  says and what no model of the card had shown.
+- `tests/ems.py --leg card`: EMS.DRV finds the card at 288h with its frame
+  at E000h, and every check of the board leg holds at **256 pages**, 4 MB:
+  the card's page register is a byte.
+
+**Two things about EMS a user of the card would meet too.**
+- **E000h, not D000h.** This firmware's BIOS sits at D000h (`ROM_BIOS`),
+  so a 64 KB frame there would sit on it.
+- **EMS set on a fresh config is turned off again.** At every boot the
+  card's BIOS compares the memory map it detects with the one saved in
+  PICOMEM.CFG ("Memory change : Reset the RAM Config."), and on any
+  difference it resets the RAM settings, EMS among them. A config written
+  from scratch has no map, so it always differs. The leg therefore boots
+  once on a blank card, lets the BIOS save its map (08h), and sets EMS on
+  THAT config, which is what a user does in the card's setup. MEASURED:
+  with EMS set on a blank config, EMS.DRV answers DRVE_HW.
+
 ## 7. What it will catch, and what it cannot
 
 This is an assessment against FIELD-NOTES 66's list. Section 6 is where
@@ -714,7 +764,7 @@ each claim gets tested.
 | 2.x refusing the SB until IRQ 7 | **Yes**, wave 6, with that firmware build |
 | CMS holding 220h (PORTUSED) | **Yes**, wave 2 with CMS on in `config.txt` |
 | B: missing; restart hanging | **Yes**, wave 3 |
-| Mouse enabled before the hook froze the machine | **Yes**, wave 5 |
+| Mouse enabled before the hook froze the machine | **Yes, reproduced**, wave 5 (6.6) |
 | Detach losing BX | Yes, wave 5 |
 | **DMA cycle decoded as an 8237 write (A10)** | **No.** It is below the seam, in the PIO bus decode. |
 | Channel 1 racing (`pm_runaway`) | **Partly.** The logic is the firmware's, but the pacing is section 4.3's cost table. MartyPC is where it is worth asking. |

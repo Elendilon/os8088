@@ -56,10 +56,39 @@ CFG = {"FDD": (0, "fsn2"), "HDD": (32, "fsn4"), "FDD_Attribute": (96, "b2"),
        "FDDPath": (260, "p2"), "HDDPath": (388, "p4")}
 
 
-def picomem_cfg(fdd=(), hdd=(), sets=()):
-    """PICOMEM.CFG: zeros, then FDD/HDD n named (n, NAME, size in KB), then
-    FIELD=VALUE for the byte and word fields"""
-    c = bytearray(CFG_SIZE)
+def read_root_file(img, want):
+    """A root-directory file's bytes off a FAT16 volume - this tool's or one
+    the card's FatFS has written to since - or None"""
+    with open(img, "rb") as f:
+        bs = f.read(SECTOR)
+        bps, spc, res, nfats, rootn = struct.unpack_from("<HBHBH", bs, 11)
+        fatsz = struct.unpack_from("<H", bs, 22)[0]
+        f.seek(res * bps)
+        fat = f.read(fatsz * bps)
+        f.seek((res + nfats * fatsz) * bps)
+        root = f.read(rootn * 32)
+        data0 = res + nfats * fatsz + rootn * 32 // bps
+        for i in range(0, len(root), 32):
+            e = root[i:i + 32]
+            if e[0] == 0:
+                break
+            if e[0] == 0xE5 or e[11] & 0x18 or e[:11] != name83(want):
+                continue
+            clus, size = struct.unpack_from("<HI", e, 26)
+            out = b""
+            while 2 <= clus < 0xFFF8 and len(out) < size:
+                f.seek((data0 + (clus - 2) * spc) * bps)
+                out += f.read(spc * bps)
+                clus = struct.unpack_from("<H", fat, 2 * clus)[0]
+            return out[:size]
+    return None
+
+
+def picomem_cfg(fdd=(), hdd=(), sets=(), base=None):
+    """PICOMEM.CFG: zeros (or BASE, a card's own saved file), then FDD/HDD n
+    named (n, NAME, size in KB), then FIELD=VALUE for the byte and word
+    fields"""
+    c = bytearray(base[:CFG_SIZE].ljust(CFG_SIZE, b"\0") if base else CFG_SIZE)
     for kind, base, lst in (("FDD", 0, fdd), ("HDD", 32, hdd)):
         for n, name, kb in lst:
             o = base + 16 * n
@@ -216,6 +245,10 @@ def main():
                     help="hard disk N (0 = 80h) is IMG, off the card")
     ap.add_argument("--cfg", action="append", default=[], metavar="FIELD=VALUE",
                     help="a byte or word field of PICOMEM.CFG")
+    ap.add_argument("--cfg-from", metavar="SDIMG",
+                    help="start PICOMEM.CFG from the one on SDIMG - a card's own, "
+                         "saved by its BIOS on a boot, so its memory map is the "
+                         "machine's (the BIOS turns EMS off against any other)")
     ap.add_argument("--no-wifi", action="store_true",
                     help="no WIFI.TXT: the card's NE2000 never starts")
     ap.add_argument("--selfcheck", action="store_true")
@@ -245,9 +278,15 @@ def main():
     # to libpmhost, whose network is the emulator's (pmhost_wifi.cpp)
     if not a.no_wifi and not any(n.upper() == "WIFI.TXT" for f, n, _ in files if not f):
         files.append(("", "WIFI.TXT", b"os8088\r\nos8088-picomem\r\n"))
-    if fdd or hdd or a.cfg:
+    base = None
+    if a.cfg_from:
+        base = read_root_file(a.cfg_from, "PICOMEM.CFG")
+        if base is None:
+            raise SystemExit("mksd: %s has no PICOMEM.CFG" % a.cfg_from)
+    if fdd or hdd or a.cfg or base:
         files.append(("", "PICOMEM.CFG", picomem_cfg(fdd, hdd,
-                                                     [kv.split("=", 1) for kv in a.cfg])))
+                                                     [kv.split("=", 1) for kv in a.cfg],
+                                                     base)))
     n = build(a.out, files, a.mb)
     print("mksd: %s, %d MB FAT16, %d clusters, %d file(s)" % (a.out, a.mb, n, len(files)))
     return 0

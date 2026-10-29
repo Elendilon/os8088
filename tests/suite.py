@@ -5849,6 +5849,17 @@ SOAK = [
         "taken off the list this row reproduces exactly that (DRVE_HW)",
         needs=("marty", "nasm"), serial=True, timeout=300,
         wants=("build/emstest.img",)),
+    Row("emscard", "soak", py("tests/ems.py", "--leg", "card"), 90.0,
+        "SPEC.md 107.2 against a REAL PicoMEM 1.x's EMS: the card's own "
+        "firmware in 86Box (docs/plans/PICOMEM-EMU-PLAN.md wave 5, "
+        "vm/xt-picomem1). A first boot lets the card's BIOS map the machine "
+        "and save PICOMEM.CFG; EMS is set on THAT (288h, E000h - the card's "
+        "BIOS is at D000h) and every check of ems's board leg holds at the "
+        "card's 256 pages. Broken on purpose (EMS set on a config whose map "
+        "is not the machine's), the BIOS's Memory change check turns EMS off "
+        "and EMS.DRV says DRVE_HW",
+        needs=("86box", "pmhost"), serial=True, timeout=400,
+        wants=("build/emstest.img",)),
     Row("videms", "soak", py("tests/videms.py"), 70.0,
         "SPEC.md 98.3.18.6-7: VIDEO.O88'S BANK IN EXPANDED MEMORY, decoded IN "
         "PLACE (the ring is the board's slots, the conventional ring 2), on MartyPC's "
@@ -18268,8 +18279,8 @@ SOAK = [
         "the walk (SPEC.md 34.10.2), and without that the vsfw CMS case "
         "FAILS 3 checks, CMS's 224h reading FFh",
         needs=("nasm", "unicorn", "pmhost")),
-    Row("pmbox", "soak", py("tests/pmbox.py"), 150.0,
-        "docs/plans/PICOMEM-EMU-PLAN.md waves 1-4: the PicoMEM in 86Box "
+    Row("pmbox", "soak", py("tests/pmbox.py"), 185.0,
+        "docs/plans/PICOMEM-EMU-PLAN.md waves 1-5: the PicoMEM in 86Box "
         "(vm/xt-picomem1, tools/86box/patches/07-picomem.patch) running ITS "
         "OWN FIRMWARE (libpmhost), three boots. snd: the BIOS detects the "
         "card's IRQ, SOUND.DRV attaches in SPEC.md 34.10's order (78h 0 "
@@ -18281,9 +18292,15 @@ SOAK = [
         "re-runs the card's BIOS (18.100.1). hdd: os8088 boots off a hard "
         "disk the card serves with A: empty (52.10.16). net: ETHER.DRV finds "
         "the card's NE2000 at 300h (72.2) and DHCP binds 10.0.2.15 through "
-        "its Wi-Fi bridge, here 86Box's slirp. Broken on purpose, "
-        "OS88_PMHOST_NOSNOOP=1: PMDMA's auto-init stream never ends and the "
-        "tone never plays - 4 FAILS",
+        "its Wi-Fi bridge, here 86Box's slirp. mouse: on vm/xt-picomem1-usbm, "
+        "with no 86Box mouse at all, the card's USB mouse (86Box's pointer as "
+        "HID reports) reaches USBMOUSE.DRV's PicoMEM backend through the "
+        "card's IRQ and int 33h AX=0060h (SPEC.md 9.12.7) and os88ui opens "
+        "A: by double-click. Broken on purpose, OS88_PMHOST_NOSNOOP=1: "
+        "PMDMA's auto-init stream never ends and the tone never plays - 4 "
+        "FAILS; USBMOUSE.DRV built in the old order (enable before the int 33h "
+        "hook) with a report already waiting, the boot never reaches the "
+        "desktop - FIELD-NOTES 66's freeze, reproduced",
         needs=("86box", "pmhost"), serial=True,
         wants=("build/pmsys360.img", "build/pmboxb360.img", "build/pmhd.img",
                "build/apps360.img")),

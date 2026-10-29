@@ -6,6 +6,8 @@ the iron runs (every hunk is behind PMHOST, which only tools/picomem/shim sets).
   dev_audiomix.cpp   pico_pic.h on the host too (the PIC is compiled here)
   pm_pccmd.cpp       pccmd_wait() yields: the PC is the emulator
   dev_picomem_io.cpp the port-4 transfer loop yields likewise
+  pm_cmd.cpp         the mouse report the USB host path sends, sent off
+                     pm_mouse() instead (no tinyusb on the host)
 
 Cut against the pin plus patches/fw/ (tools/martypc/README.md's rule).
 GPL-2.0-or-later, like the firmware.
@@ -64,6 +66,40 @@ index 195a292..056ae6d 100644
  {
  
  #ifdef BOARD_WM10
+diff --git a/src/pm_cmd.cpp b/src/pm_cmd.cpp
+index e63b8b9..9a00cf7 100644
+--- a/src/pm_cmd.cpp
++++ b/src/pm_cmd.cpp
+@@ -110,6 +110,9 @@ If not, see <https://www.gnu.org/licenses/>.
+ #include "dev_irq.h"
+ #include "dev_joystick.h"
+ #include "ethdfs.h"
++#if PMHOST
++#include "dev_mouse.h"   // HOST: pm_mouse, which the USB driver's hid_dev.h carries on the iron
++#endif
+ 
+ #if USE_USBHOST
+ #include "dev_joystick.h"
+@@ -2200,6 +2203,19 @@ if (USB_Host_Enabled)
+  }
+ #endif
+ 
++#if PMHOST
++  // HOST: the mouse arrives through pm_mouse() (tools/picomem), not a USB HID
++  // report, and is sent exactly as the USE_USBHOST block above sends it
++  if (pm_mouse.event&&MOUSE_Enabled)
++   {
++    pm_mouse.event=false;
++    SVAR_IRQ->mouse_x=pm_mouse.x;
++    SVAR_IRQ->mouse_y=pm_mouse.y;
++    SVAR_IRQ->mouse_b=pm_mouse.buttons;
++    bus_pm_irq_raise(IRQ_R_MOUSE,1,false);
++   }
++#endif
++
+ #if USE_MPU
+   dev_mpu_update();
+ #endif
 diff --git a/src/pm_libs/pm_pccmd.cpp b/src/pm_libs/pm_pccmd.cpp
 index 93ee9ac..9402b9a 100644
 --- a/src/pm_libs/pm_pccmd.cpp
