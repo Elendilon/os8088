@@ -107,7 +107,7 @@ def leg(t, out, name, pkg, lst, rom_beside, where, game=False):
         mark = os.path.getsize(box.e9)
         box.dbl(160, 139, "the package to start", lock=False)
         if where == "refuse":
-            time.sleep(20)
+            box.guest_sleep(20, poll=0.5)   # 20 GUEST seconds to start in
             if box.pkg_base("RealDMG") is not None:
                 fails.append("the plain precompiled package STARTED under kern_mega")
             if any(l.startswith("kern_mega FAULT") for l in box.lines()):
@@ -115,9 +115,11 @@ def leg(t, out, name, pkg, lst, rom_beside, where, game=False):
             box.shot(os.path.join(out, "end.png"))
             print("rdgaotmega: %s: %s" % (name, "refused" if not fails else "; ".join(fails)))
             return ["%s: %s" % (name, f) for f in fails]
-        end = time.time() + (GAME_SECS if game else LIMIT)
+        end = time.time() + (GAME_SECS * 10 + 30 if game else LIMIT)
+        g0 = box.ptime() if game else 0     # --rom: GAME_SECS of GUEST time
         view = None
-        while time.time() < end:
+        while time.time() < end and not (
+                game and box.ptime() - g0 >= GAME_SECS * box.ips):
             time.sleep(3)
             if any(l.startswith("kern_mega FAULT") for l in box.lines()):
                 break

@@ -117,7 +117,7 @@ def leg(name, keep):
                    for l in lines):
                 break
             time.sleep(0.2)
-        time.sleep(1)
+        box.guest_sleep(1)              # the lines after the verdict
         lines = box.lines()
     except RuntimeError as e:
         fails.append(str(e))

@@ -141,7 +141,7 @@ def main():
                 box.ui_done("PiXEL to paint " + name, secs=LIMIT)
             except RuntimeError as e:   # a FAULT: reported below, from E9
                 print("pxmega: %s" % e)
-            time.sleep(tail)
+            box.guest_sleep(tail)       # GUEST seconds (Box.guest_sleep)
             with open(box.e9, "rb") as f:
                 f.seek(pos[0])
                 t = f.read()
