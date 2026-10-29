@@ -202400,7 +202400,7 @@ the hook off.
 
 A `MEGADIAG` kernel (`make megadiag`) keeps running totals of what it hands to
 real mode - an option ROM's IRQ (`mega_irqrom`) and a BIOS service
-(`int 13h`, `int 10h`...) - counted and timed in `mega_rqacc` as each one
+(`int 13h`, `int 10h`...) - counted and timed in `mega_svc_back` as each one
 returns: the periods the ROM counted at 40:6C times channel 0's divisor, plus
 the count's own progress, so a 50 ms reflected read is measured where
 `mega_rfsec`'s 16-bit sample of an IRQ's wraps. The four are published at
@@ -202408,7 +202408,11 @@ the count's own progress, so a 50 ms reflected read is measured where
 services, theirs - after every reflection; `kd_leave`'s handoff record writes
 the same four words only on its way out, and the font picker's `FP` at F8 is
 left alone. A transfer bounced above 1MB (`mega_hibnc`) returns by another
-path and is not counted.
+path and is not counted. It is IN LINE and uses NO STACK: an IRQ's
+reflection runs on whatever it interrupted, an `FSXF_RATE` hook's 48 bytes
+among them (53.2.2). The first build called a routine with four pushes and
+two nested calls, and the Victory faulted mid-play on it (a #GP, error 0) -
+the stack the likelier cause than anything the routine computed.
 
 The kern_mega arm's diag player (`VP_RQ`, which `VP_DIAG` with `PKG_MEGA`
 defines) reads the four through an `OSAPI_SEG` window before and after

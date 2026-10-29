@@ -1268,69 +1268,6 @@ mega_pit:
     xchg al, ah
     ret
 
-; mega_rqacc - a reflection ending (mega_svc_back, before mega_rfclk moves
-; 40:6C): its length into the running totals, IRQs' and services' apart, and
-; the four published at 0040:00F0 - counts, and times in units of 2,048 PIT
-; counts (1.7 ms) - where a package's diag build reads them around a play
-; (the Video Player's, SPEC.md 98.3.22.5). The length is the periods the ROM
-; counted at 40:6C times channel 0's divisor, plus the count's own progress:
-; a reflected read is ~50 ms, past the 16-bit sample mega_rfsec takes of an
-; IRQ's. DS = KDATA, IF = 0. Clobbers AX, BX, CX, DX (the frame's restored)
-mega_rqacc:
-    push es
-    mov ax, MEGA_BDA
-    mov es, ax
-    mov cx, [es:0x6C]
-    sub cx, [mega_t0]               ; CX = the periods the ROM counted
-    call mega_pit
-    mov bx, [mega_rft0]
-    sub bx, ax                      ; BX = the count's progress (signed)
-    mov dx, cx                      ; DX:AX = periods x 65536 at the ROM's
-    xor ax, ax                      ; rate...
-    cmp byte [sch_fast], SCH_RATE
-    jne .t
-    cmp word [spk_seg], 0
-    jne .t
-    mov ax, cx                      ; ...or x the bracket's divisor
-    mul word [sch_rdiv]
-.t:
-    push dx
-    xchg ax, bx
-    cwd
-    add bx, ax
-    pop ax
-    adc ax, dx                      ; AX:BX = the length, PIT counts
-    mov cx, mega_rqi
-    cmp byte [mega_irqr], 0
-    jne .k
-    mov cx, mega_rqs
-.k:
-    xchg cx, bx                     ; (BX = its totals, CX the length's low)
-    inc word [bx]
-    add [bx + 2], cx
-    adc [bx + 4], ax
-    mov ax, [mega_rqi]              ; PUBLISHED: 0040:00F0 IRQs, their time,
-    mov [es:0xF0], ax               ; services, their time
-    mov ax, [mega_rqi + 2]
-    mov dx, [mega_rqi + 4]
-    call .u
-    mov [es:0xF2], ax
-    mov ax, [mega_rqs]
-    mov [es:0xF4], ax
-    mov ax, [mega_rqs + 2]
-    mov dx, [mega_rqs + 4]
-    call .u
-    mov [es:0xF6], ax
-    pop es
-    ret
-.u:                                 ; DX:AX >> 11 (the low word of it)
-    mov cl, 11
-    shr ax, cl
-    mov cl, 5
-    shl dx, cl
-    or ax, dx
-    ret
-
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -3079,7 +3016,69 @@ mega_svc_back:
     out 0x40, al
 .nospk2:
 %ifdef MEGA_DIAG
-    call mega_rqacc                 ; (its length, before 40:6C is fixed up)
+    ; THE REFLECTION'S LENGTH, into the running totals (SPEC.md 98.3.22.5):
+    ; IN LINE and on NO STACK - an IRQ's reflection runs on whatever it
+    ; interrupted, an FSXF_RATE hook's 48 bytes among them (SPEC.md 53.2.2),
+    ; and every register used here is the frame's to restore; ES too, which
+    ; mega_rfclk sets for itself and the frame's pop es puts back. The
+    ; periods the ROM counted at 40:6C (before mega_rfclk fixes it) times
+    ; channel 0's divisor, plus the count's own progress: a 50 ms read, past
+    ; mega_rfsec's 16-bit sample. Published at 0040:00F0 - IRQs, their time
+    ; in 2,048-count units, services, theirs - for a diag package to read
+    mov ax, MEGA_BDA
+    mov es, ax
+    mov cx, [es:0x6C]
+    sub cx, [mega_t0]               ; CX = the periods
+    xor al, al
+    out 0x43, al                    ; (channel 0 latched)
+    in al, 0x40
+    mov ah, al
+    in al, 0x40
+    xchg al, ah
+    mov bx, [mega_rft0]
+    sub bx, ax                      ; BX = the count's progress (signed)
+    mov dx, cx                      ; DX:AX = periods x 65536 at the ROM's
+    xor ax, ax                      ; rate...
+    cmp byte [sch_fast], SCH_RATE
+    jne .rq1
+    cmp word [spk_seg], 0
+    jne .rq1
+    mov ax, cx                      ; ...or x the bracket's divisor
+    mul word [sch_rdiv]
+.rq1:
+    mov si, dx
+    xchg ax, bx
+    cwd
+    add bx, ax
+    adc si, dx                      ; SI:BX = the length, PIT counts
+    mov di, mega_rqi
+    cmp byte [mega_irqr], 0
+    jne .rq2
+    mov di, mega_rqs
+.rq2:
+    inc word [di]
+    add [di + 2], bx
+    adc [di + 4], si
+    mov ax, [mega_rqi]
+    mov [es:0xF0], ax
+    mov ax, [mega_rqi + 2]
+    mov dx, [mega_rqi + 4]
+    mov cl, 11
+    shr ax, cl
+    mov cl, 5
+    shl dx, cl
+    or ax, dx
+    mov [es:0xF2], ax
+    mov ax, [mega_rqs]
+    mov [es:0xF4], ax
+    mov ax, [mega_rqs + 2]
+    mov dx, [mega_rqs + 4]
+    mov cl, 11
+    shr ax, cl
+    mov cl, 5
+    shl dx, cl
+    or ax, dx
+    mov [es:0xF6], ax
 %endif
     call mega_rfclk                 ; the IRQ0s the ROM took meanwhile
     mov ax, [ss:bp+0]               ; ES back: its own selector if the BIOS
@@ -12321,7 +12320,7 @@ mega_nmilin resb 3                  ; sector count
 mega_nmisn  resb 1
 mega_rft0   resw 1                  ; PIT ch0 at a reflection's start
 mega_rqi    resw 3                  ; IRQ reflections: count, PIT counts (32)
-mega_rqs    resw 3                  ; ...and services' (mega_rqacc)
+mega_rqs    resw 3                  ; ...and services' (mega_svc_back)
 mega_rfsum  resw 2                  ; ...this second's total counts
 mega_rfn    resw 1                  ; ...and how many
 mega_rfr    resw 1                  ; the last second shown: how many
