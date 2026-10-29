@@ -244,6 +244,12 @@ def requirements():
                 "(SPEC.md 34.10.1, 72.2, 106.24, 106.25).",
                 "python3 -m pip install unicorn"))
 
+    req.append(("pmhost", os88build.have_pmhost(),
+                "pmlib, which runs SOUND.DRV's and VIDSND's PicoMEM code against "
+                "the card's OWN firmware compiled for the host, in place of "
+                "picomem's model (docs/plans/PICOMEM-EMU-PLAN.md).",
+                "tools/picomem/build.sh      (seconds; fetches the firmware)"))
+
     req.append(("bochs", os88build.have_bochs(),
                 "the kern_mega rows (megatrap0's #GP census and the other mega*): "
                 "Bochs is the one emulator here that checks a 286's segment "
@@ -777,6 +783,28 @@ def widths(cores, mj=None, hj=None):
             hj if hj else max(2, cores))
 
 
+def _bpc(a):
+    """Bochs rows per emulator-lane core (docs/plans/SOAK-PARALLEL.md 19).
+
+    A Bochs guest is capped at real time by `sync=slowdown` and the clock
+    preload, so a Bochs row spends ~0.15 of a core where a MartyPC row spends
+    one; tools/os88test.py's lane weighs it `1/bpc` of a lane. The number is
+    os88test's BOCHS_PER_CORE unless `--bochs-per-core` or
+    `$OS88_BOCHS_PER_CORE` says otherwise, and it is passed through
+    explicitly so the run's meta.json records what it ran at."""
+    if getattr(a, "bpc", None):
+        return max(1, a.bpc)
+    env = os.environ.get("OS88_BOCHS_PER_CORE")
+    if env:
+        try:
+            return max(1, int(env))
+        except ValueError:
+            pass
+    sys.path.insert(0, os.path.join(ROOT, "tools"))
+    import importlib
+    return importlib.import_module("os88test").BOCHS_PER_CORE
+
+
 def _declared(a):
     """Every `wants=` artefact of the rows THIS invocation selected.
 
@@ -961,7 +989,9 @@ def start(a):
     mj, hj = widths(cores, a.marty_jobs, a.j)
 
     blocking, advisory = preflight()
-    print("os88soak: %d core(s); emulator lane %d, host lane %d" % (cores, mj, hj))
+    bpc = _bpc(a)
+    print("os88soak: %d core(s); emulator lane %d (Bochs rows %d a core), "
+          "host lane %d" % (cores, mj, bpc, hj))
     if advisory:
         skips = would_skip()
         print()
@@ -1073,7 +1103,8 @@ def start(a):
               "while it runs will break rows%s" % (YELLOW, OFF))
 
     cmd = ["python3", os.path.join("tools", "os88test.py"), a.tier,
-           "--marty-jobs", str(mj), "-j", str(hj)]
+           "--marty-jobs", str(mj), "-j", str(hj),
+           "--bochs-per-core", str(bpc)]
     if a.user_asked:
         cmd.append("--user-asked")
     for g in a.k:
@@ -1088,6 +1119,7 @@ def start(a):
     log = os.path.join(d, "run.log")
     meta = {"started": time.time(), "cmd": cmd, "cores": cores,
             "marty_jobs": mj, "host_jobs": hj, "tier": a.tier,
+            "bochs_per_core": bpc,
             "resumed": len(skip), "root": ROOT,
             # The denominator, fixed at the first start and carried through
             # every resume - see _selected().
@@ -1254,10 +1286,11 @@ def status(a):
     skp = [n for v, n, _ in seen if v == "SKIP"]
     el = time.time() - meta["started"]
 
-    print("os88soak: %s  %s  (%s, lane %d)"
+    print("os88soak: %s  %s  (%s, lane %d, Bochs %d a core)"
           % (os.path.basename(d),
              "%sRUNNING%s" % (GREEN, OFF) if alive else "%sfinished%s" % (DIM, OFF),
-             meta.get("tier", "soak"), meta.get("marty_jobs", 1)))
+             meta.get("tier", "soak"), meta.get("marty_jobs", 1),
+             meta.get("bochs_per_core", 1)))
     print("  elapsed  %s" % _hms(el))
     print("  reported %d%s   ok %d   FAIL %d   SKIP %d"
           % (len(seen), "/%d" % total if total else "", len(ok), len(bad), len(skp)))
@@ -1352,7 +1385,8 @@ def check(a):
     blocking, advisory = preflight()
     cores = _cores()
     mj, hj = widths(cores, a.marty_jobs, a.j)
-    print("os88soak: %d core(s) -> emulator lane %d, host lane %d" % (cores, mj, hj))
+    print("os88soak: %d core(s) -> emulator lane %d (Bochs rows %d a core), "
+          "host lane %d" % (cores, mj, _bpc(a), hj))
     print()
     for name, ok, why, fix in requirements():
         print("%s %-14s %s" % ("%s ok %s" % (GREEN, OFF) if ok
@@ -1399,6 +1433,10 @@ def main():
     ap.add_argument("--marty-jobs", type=int, default=None, dest="marty_jobs",
                     help="emulator lane width (default: one per core, "
                          "see widths())")
+    ap.add_argument("--bochs-per-core", type=int, default=None, dest="bpc",
+                    help="Bochs-only rows per emulator-lane core (default: "
+                         "$OS88_BOCHS_PER_CORE, else os88test.BOCHS_PER_CORE; "
+                         "1 is the old one-row-a-lane). See _bpc()")
     ap.add_argument("-j", type=int, default=None, help="host-side lane width")
     ap.add_argument("--resume", action="store_true",
                     help="continue the last run, excluding rows it reported")

@@ -105,7 +105,7 @@ def main():
         if not box.wait_for("KBTRIP ready", 120):
             fails.append("KBTRIP never started")
         else:
-            time.sleep(1.5)
+            box.guest_sleep(1.5)        # GUEST seconds (Box.guest_sleep)
             ob.xd("key", "k")
             if not box.wait_for("kern_mega: unparked", 120):
                 fails.append("the session never came back")

@@ -151,13 +151,13 @@ def leg(name, keep, t, display=None):
                         "keyboard did not reach the DOS window" % i)
                 box.shot(os.path.join(out, "dead%02d.png" % i))
                 break
-            time.sleep(1.5)
+            box.guest_sleep(1.5)        # GUEST seconds (Box.guest_sleep)
             stop = [False]
             th = threading.Thread(target=wiggle, args=(box, stop))
             box.xd("key", "k")
             th.start()                  # ...the pointer moving from the key
             back = lg.wait(["unparked"], before[2:], 90)
-            time.sleep(4)               # ...through the whole return
+            box.guest_sleep(4)          # ...through the whole return
             stop[0] = True
             th.join()
             if not back:
@@ -199,7 +199,7 @@ def leg(name, keep, t, display=None):
                         "not reach the DOS window")
             else:
                 box.xd("key", "k")
-                time.sleep(3)
+                box.guest_sleep(3)
     finally:
         box.stop()
     hits = lg.text().count(LOST)

@@ -281,13 +281,13 @@ had added.
 {
   "big": {
     "blobseg": 6272,
-    "boot2": 6444,
+    "boot2": 6447,
     "bootmax": 120320,
     "bss": 5398,
     "budget": 100864,
     "codemax": 65536,
-    "cold": 37650,
-    "coldpara": 2354,
+    "cold": 37690,
+    "coldpara": 2356,
     "colds": 3790,
     "fatpara": 288,
     "fats": 3008,
@@ -302,23 +302,23 @@ had added.
     "minramkb": 128,
     "ovl": 5110,
     "stk0": 512,
-    "text": 41128,
+    "text": 41134,
     "toppara": 2880,
     "vga": 2032,
     "vgabuf": 336,
     "vgabufpara": 21,
     "vgars": 3663,
-    "vgas": 6144
+    "vgas": 6146
   },
   "emu": {
     "blobseg": 6304,
-    "boot2": 6559,
+    "boot2": 6562,
     "bootmax": 119808,
     "bss": 5398,
     "budget": 100864,
     "codemax": 65536,
-    "cold": 37644,
-    "coldpara": 2353,
+    "cold": 37690,
+    "coldpara": 2356,
     "colds": 3822,
     "fatpara": 288,
     "fats": 3040,
@@ -333,23 +333,23 @@ had added.
     "minramkb": 128,
     "ovl": 5110,
     "stk0": 512,
-    "text": 41320,
+    "text": 41390,
     "toppara": 2880,
     "vga": 2032,
     "vgabuf": 336,
     "vgabufpara": 21,
     "vgars": 3695,
-    "vgas": 6175
+    "vgas": 6178
   },
   "small": {
     "blobseg": 3936,
-    "boot2": 4562,
+    "boot2": 4565,
     "bootmax": 121344,
     "bss": 2969,
     "budget": 64000,
     "codemax": 65536,
-    "cold": 21541,
-    "coldpara": 1347,
+    "cold": 21581,
+    "coldpara": 1349,
     "colds": 2484,
     "fatpara": 64,
     "fats": 2208,
@@ -364,13 +364,13 @@ had added.
     "minramkb": 128,
     "ovl": 1482,
     "stk0": 512,
-    "text": 30796,
+    "text": 30802,
     "toppara": 1568,
     "vga": 0,
     "vgabuf": 0,
     "vgabufpara": 0,
     "vgars": 0,
-    "vgas": 3831
+    "vgas": 3833
   }
 }
 ```
@@ -741,15 +741,15 @@ there and nowhere else.
 <!-- kernsize:themes -->
 | theme | bytes | share |
 |---|---:|---:|
-| the file system, end to end | 29,436 | 37.4% |
+| the file system, end to end | 29,436 | 37.3% |
 | the window system and its furniture | 22,475 | 28.5% |
 | drawing: adapters, primitives, glyphs, icons | 10,845 | 13.8% |
 | hardware: drivers, clock, mouse, sound, CPU, XMS | 8,035 | 10.2% |
-| the kernel proper: API table, heap, scheduler, events | 7,371 | 9.4% |
+| the kernel proper: API table, heap, scheduler, events | 7,417 | 9.4% |
 | the Control Panel | 316 | 0.4% |
 | the About box, the one built-in kind left in apps.inc | 300 | 0.4% |
 | kern_mega: protected mode, the pool, the DOS park | 0 | 0.0% |
-| **total** | **78,778** | |
+| **total** | **78,824** | |
 <!-- /kernsize:themes -->
 
 <!-- BEGIN generated table -->
@@ -814,8 +814,8 @@ there and nowhere else.
 | `compress.inc` — the LZB compressor (§20.15), an on-demand module and 0 resident | — | — | **0** | — | — | — |
 | `dockmod.inc` — `DOCK.DRV`, the Advanced Dock runtime (§30.5), an on-demand module on `kern_big` | — | — | **0** | — | — | — |
 | `extmod.inc` — `EXTD.DRV`, the extended desktop's placement policy (§39.19.6), an on-demand module on `kern_big` | — | — | **0** | — | — | — |
-| `kernel.asm` — API table, entry points, `kmain`, the shims | 2,165 | 241 | **2,406** | — | — | 662 |
-| **total** | **41,128** | **37,650** | **78,778** | **5,398** | **5,358** | **6,444** |
+| `kernel.asm` — API table, entry points, `kmain`, the shims | 2,171 | 281 | **2,452** | — | — | 665 |
+| **total** | **41,134** | **37,690** | **78,824** | **5,398** | **5,358** | **6,447** |
 <!-- END generated table -->
 
 ### Reading it

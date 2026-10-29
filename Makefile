@@ -5575,6 +5575,32 @@ $(BUILD)/pmsys360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(
 		$(DRIVERS360) $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
 		$(BUILD)/pmcfg/system.cfg $(BUILD)/pmdma.o88 $(APPDATAFOLDER)
 
+# PMBOXTEST - the B: disk for the PicoMEM UNDER 86Box (tools/picomem,
+# vm/xt-picomem1, docs/plans/PICOMEM-EMU-PLAN.md), beside pmsys360.img in A:
+# (SOUND/ETHER/USBMOUSE wanted at boot): PMDMA, and SBTEST - 2 s of a 1 kHz
+# square at 8,000 Hz, mono 8-bit, the one thing a DSP 2.x plays, for a row to
+# hear through the card's own DAC (OS88_PMWAV). tests/pmbox.py is the row.
+$(BUILD)/pmboxb360.img: $(BUILD)/pmdma.o88 $(BUILD)/sbtest.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/pmdma.o88 $(BUILD)/sbtest.o88
+
+# ...and the hard disk the card serves as 80h off its microSD: os8088 booted
+# from a PicoMEM-hosted image, the field machine's own setup (SPEC.md
+# 52.10.16), with A: empty - the card's BIOS int 13h and the kernel's hard-disk
+# loader, every sector through the card's PC-command channel.
+$(BUILD)/pmhd.img: $(BUILD)/mbr.bin $(BUILD)/boothd.bin $(KERNFILE) $(DRIVERS) \
+                   $(BUILD)/pmcfg/system.cfg tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --hdd \
+	    --mbr $(BUILD)/mbr.bin --boot $(BUILD)/boothd.bin \
+	    --kernel $(KERNFILE) \
+	    $(DRIVERS) $(BUILD)/pmcfg/system.cfg --folder SYSTEM/APPDATA
+	@python3 tools/os88disk.py --verify-hdd $@
+
+.PHONY: pmboxtest
+pmboxtest: $(BUILD)/pmsys360.img $(BUILD)/pmboxb360.img $(BUILD)/pmhd.img
+ifneq ($(NOPICOMEM),)
+	$(error pmboxtest is meaningless with NOPICOMEM=1: SOUND.DRV would not ask the card for anything)
+endif
+
 .PHONY: picomemtest
 picomemtest: $(BUILD)/pmsys720.img $(BUILD)/pmsys360.img
 ifneq ($(NOPICOMEM),)

@@ -70546,6 +70546,21 @@ so nothing downstream learns the port from here, and `[sbl_base]` is where a
 dump reads it (a `[pm_sbport]` that recorded it a second time, and that
 nothing read, went in kernel size pass 11).
 
+**The walk starts with the DSP OFF** (`78h 0`, before the AdLib and IRQ
+commands). The firmware's PORTUSED test is on the INSTALL path only:
+`dev_sbdsp_install` MOVES a DSP that is already active to any port it is
+asked for, writing `DEV_SBDSP` over whatever held those blocks. Switching it
+off later clears them, and the card's CMS stops decoding until a reset. The
+DSP is off after every reset, so a first attach never meets this. A SECOND
+`pm_init` in one session does: SOUND.DRV's detach leaves the DSP on, so
+re-ticking the driver or a hibernate's detach and reload, and VIDSND's
+reconfigure, would take 220h from CMS. Found by the card's own firmware
+under `tools/picomem` (docs/plans/PICOMEM-EMU-PLAN.md 6.1). The model in
+`tests/picomem.py` had answered PORTUSED there, and the fix needed no
+assumption about which firmware is on the card: off-then-walk is right on
+every version. It costs 7 bytes, and on a first attach it is a no-op
+command.
+
 #### 34.10.3 Why it is the default: two port reads and no heap
 
 **Confirmed on both cards** — a PicoMEM 1.x in a 286 (network) and a 2.x in a

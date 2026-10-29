@@ -126,7 +126,47 @@ And **Bochs 2.7's second `sb` is a defect**: dbg_main.cc re-arms the timer
 CONTINUOUS, so it fires every N for ever and stops a guest the shim thinks
 is running (`mega-stikmenu` took 524 s). pc_system.cc's handler re-arms
 one-shot for the next one queued, so the shim queues a SENTINEL years away
-before its first `sb` and every later one is the queue's head. What
+before its first `sb` and every later one is the queue's head.
+
+Two more host-time leaks surfaced once waits were exact, and both are fixed.
+**A halted CPU slept the HOST**: Debian builds Bochs with
+`BX_USE_IDLE_HACK`, so every HLT (cpu/proc_ctrl.cc) waits up to 1 ms in the
+X GUI's `select()` for an X event - a host millisecond that buys the guest
+only the ticks to its next timer. kern_mega's idle task halts after every
+IRQ0, so with the PIT at 8 kHz (Tracker's speaker player on a card-less
+machine) the guest ran at an EIGHTH of real time: 0.35M instructions a host
+second at 4% CPU, and `mega-trkcompact`'s `pace(1.0)` - 4.5 guest seconds -
+had not run after 45 host seconds (4 of 4 runs; it had failed this way
+before, on the polled clock, in 2 of 6 soaks). The same preload makes a
+`select()` called FROM the X GUI plugin with a timeout a poll
+(`$OS88_BXIDLE=1` keeps the sleep, the A/B); the slowdown timer still caps
+the guest at real time. And **a SIGINT can be lost**: Bochs echoes the `c`
+as readline reads it, and `bx_dbg_continue_command` then clears
+`interrupt_requested` before it runs, so a stop sent in between is erased.
+An exact pace stops the guest milliseconds after resuming it, which lands in
+that window on a busy box, and `_halt`'s second SIGINT came a host SECOND
+later - a guest second run inside one look (traced: `_halt` 1.032 s,
+4.5M instructions in a 0.045 s pace), `mega-vidfskeysvga4` 5-7 looks where
+20 fit. The kick is every 50 ms now (`MegaBochs.KICK`; a SIGINT at the prompt
+is harmless, the next `c` clearing it, and the empty line it makes is let
+land before prompts are counted). `$OS88_BOCHS_EXACT=0` puts the polled
+clock back for an A/B.
+
+Rows that read guest state and then ACT on it in host time are still a race
+on any emulator, and three are now stepped rather than polled: `pxfolder`
+reads the shown picture and sends Esc with the machine stopped, `weavemove`
+walks from the serve to its reading in `advance` steps, and `vidfskeys`'s
+looks are `advance`s (see each row). A row on `os88bochs.Box` directly has
+`Box.guest_sleep(secs)` for the same job - `ptime` read every 50 ms host,
+each read a stop that costs the guest nothing - and `megavidv2` spaces its
+keys with it: its "Space again a second in, while the blocks are coming"
+was a host second, which with four Bochs to a core paused the play before
+its first frame, so both of its tails were wrong (old row 2 of 2 red beside
+four Bochs rows, new 3 of 3 green). Every Bochs row's holds, gaps and tails
+are guest time now - thirty-odd standalone sites and the shim rows'
+`fmrefuse` and `heapmap` - and `tests/unit/t_bochssleep.py` (fast tier)
+fails a `time.sleep` in a Bochs row's script that is not a poll's interval,
+a sub-0.1 s event spacing or marked `# host: <why>`. What
 `slowdown` still does NOT give is a smooth map from host time to guest time
 (it holds the guest up to a second ahead of the clock), so a burst of guest
 time can follow a host stall. **That is why input whose SPACING matters is not host-timed**:
@@ -141,6 +181,18 @@ asks 25M). A KEY whose spacing matters is the double-click's case one device
 along: `tests/lemmega.py`'s F12-twice nuke queues each press on a stopped
 guest and stops on a `watch w` of the game's own state between them, where
 `key F12 F12 --delay 100` reached one pass of the game as one press.
+
+**MANY TO A CORE.** Because a guest is capped at real time, a Bochs row keeps
+a FRACTION of a core busy - the guest 3% idle and 13% flat out, the whole row
+with its harness 0.1-0.25 (docs/plans/SOAK-PARALLEL.md 19.1) - so
+`tools/os88test.py`'s emulator lane weighs a Bochs-only row a quarter of a
+lane (`--bochs-per-core`, `$OS88_BOCHS_PER_CORE`, default 4; 1 is the old
+one-row-a-lane), a whole one for its first 15 s, and admits one only while
+the box has 0.75 of a core idle. The limit is SATURATION and not any shared
+resource: displays (`:110`-`:149`, forty), run dirs and process ownership are
+per row already (SOAK-PARALLEL 18.1), while past the box's last core every
+guest runs below real time and the few host-second waits named above stop
+meaning what they say.
 
 ## Commands
 
@@ -339,9 +391,17 @@ it maps:
   edge or one chain at a time, the span was the host's. Bochs's SERIAL
   mouse ($OS88_BOCHS_MOUSE=serial) cannot take a queue - it LATCHES the
   button state and polls its idle UART every 100 guest ms
-  (iodev/serial.cc) - so there the guest runs a second unstopped first,
-  which `slowdown` turns into a lead over the wall clock, and the edges go
-  out 0.2 s apart, a poll each. A key sent while the guest is STOPPED waits for the
+  (iodev/serial.cc), so two edges inside one poll are one packet - so
+  there each edge goes out on a STOPPED guest that then runs EXACTLY 0.15
+  guest seconds on a time breakpoint (`paced_input`), a poll each and the
+  presses 0.30 s (5.5 ticks) apart. It was host-timed - a second unstopped,
+  then the edges 0.2 HOST seconds apart - and the clock preload takes a
+  descheduled Bochs's time out whole, so on a loaded box two edges fell in
+  one poll or the presses past the window: an `open_drive` loop missed 12
+  of 30 at load 5 and 25 of 40 at load 7-12 (the drive SELECTED, nothing
+  open: mega-irqgrab, mega-dosmouevt, mega-kdnomouse), and 0 of 80 paced.
+  With a breakpoint of the row's own armed there is no exact run,
+  and the host-timed spacing is the fallback. A key sent while the guest is STOPPED waits for the
   resume and then goes one GUI pass apart: queued in X, the lot reached
   Bochs's 16-scancode 8042 buffer in one pass and a paused
   `os88marty.text_taken` kept four shifted characters of twelve.

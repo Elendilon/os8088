@@ -159,7 +159,7 @@ def main():
                 ob.xd("key", "--delay", 30, *(["BackSpace"] * 4))
                 ob.xd("type", "--delay", 120, TYPED)
                 th.start()
-                time.sleep(0.4)
+                box.guest_sleep(0.4)
                 ob.xd("key", "Return")
             ready = tr.wait(["KBTRIP ready"], before[:1], 90 if i == 1 else 45)
             if not ready and tr.counts("kern_mega: parked")[0] == parked:
@@ -175,7 +175,7 @@ def main():
                 else:
                     ob.xd("key", "--delay", 60, *(["BackSpace"] * 8))
                     ob.xd("type", "--delay", 120, TYPED)
-                    time.sleep(0.4)
+                    box.guest_sleep(0.4)
                     ob.xd("key", "Return")
                 ready = tr.wait(["KBTRIP ready"], before[:1], 90)
             stop[0] = True
@@ -185,7 +185,7 @@ def main():
                              "keyboard did not reach the DOS window" % i)
                 ob.shot(os.path.join(OUT, "dead%02d.png" % i))
                 break
-            time.sleep(1.5)
+            box.guest_sleep(1.5)        # GUEST seconds (Box.guest_sleep)
             ob.xd("key", "k")
             got = tr.wait(["KBTRIP key", "KBTRIP nokey"], before[1:3], 45)
             lines = [l for l in tr.text().splitlines()

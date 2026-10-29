@@ -70,7 +70,7 @@ def main():
                        l.startswith("MEGAOWN: no") for l in lines):
                     break
                 time.sleep(0.2)
-            time.sleep(2)
+            box.guest_sleep(2)          # GUEST seconds (Box.guest_sleep)
             os88bochs.shot(os.path.join(out, "after.png"))
             lines = box.lines()
         else:

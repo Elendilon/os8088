@@ -43,7 +43,9 @@ entry that owns it once work starts.
   14.116.
 - [x] **USBMOUSE.DRV's PicoMEM path** - the card's real-mode `int 33h`
   0060h is captured inside the IRQ reflection and replayed in protected
-  mode. 14.117. Untested on a real PicoMEM.
+  mode. 14.117. Untested on a real PicoMEM - but run against the card's
+  own firmware in 86Box (docs/plans/PICOMEM-EMU-PLAN.md wave 7, `soak -k
+  pmbox`): the pointer moves, and stays put with the capture taken out.
 - [x] **REDLINE** ships on kern_mega's system disks. 14.118.
 
 **Defects - FIXED:**
@@ -73,7 +75,9 @@ Video Player and RealDMG (their `PKG_MEGA` arms run instead).
 - MC9, what still goes low (DMA rings above 1MB, BIGSP, `mx_tab`):
   KERN-MEGA-MEMORY-PLAN section 5, deferred.
 - Field: the Victory's 640K-1MB Task Manager rows (14.70.3), T69/LASTX on the
-  PicoMEM (14.73; works on 86Box), the PicoMEM's IRQ reflections, and
+  PicoMEM (14.73; works on 86Box), the PicoMEM's IRQ reflections (in 86Box
+  with the card's own firmware they carry its Sound Blaster and its mouse:
+  PICOMEM-EMU-PLAN wave 7), and
   docs/plans/completed/KERN-MEGA-DOS-PLAN.md's untested-on-iron list.
 - Task Manager dump to file (14.70.3): deferred by the owner.
 
