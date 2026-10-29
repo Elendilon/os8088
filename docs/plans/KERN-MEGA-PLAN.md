@@ -12603,3 +12603,16 @@ bytes, a cell that was 0) byte-identical in size, the two real-mode
 kernels byte-identical outright. `mega-httpmount` red before (the counts
 above) and green after: 2 GETs over 1 connection for each leg, as on
 kern_big.
+
+### 14.124 What the Video Player's reflections cost, counted per play (2026-10-29) - INSTRUMENT
+
+The Victory's timed profiles (SPEC.md 98.3.22.4) put kern_mega's Catch My
+Heart at 65% of the play inside reads and 48% drawing, Sonic at 43% and 38%,
+with the picture 18-48 frames behind the card and the reader 89-95 chunks
+ahead: on kern_big the hook decodes inside a read, here a reflection holds it
+off, so the two add. 14.31's `RFL` put the PicoMEM's own IRQ reflections at
+61 a second, 3.3 ms each - ~20% of the machine - but that was one second on
+the bar, of an older kernel. Before building a protected-mode handler for the
+card's multiplexer (a driver's, with a kernel hook to hand it the line), the
+`MEGADIAG` kernel counts both kinds of reflection for a whole play and the
+kern_mega diag player saves them in its profile (SPEC.md 98.3.22.5).

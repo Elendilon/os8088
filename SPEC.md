@@ -202396,6 +202396,28 @@ answer: what makes some kern_big boots pause where others do not (a slow
 read shows up at its frame), and how much of kern_mega's lag is reads holding
 the hook off.
 
+##### 98.3.22.5 kern_mega's reflections across a play (2026-10-29)
+
+A `MEGADIAG` kernel (`make megadiag`) keeps running totals of what it hands to
+real mode - an option ROM's IRQ (`mega_irqrom`) and a BIOS service
+(`int 13h`, `int 10h`...) - counted and timed in `mega_rqacc` as each one
+returns: the periods the ROM counted at 40:6C times channel 0's divisor, plus
+the count's own progress, so a 50 ms reflected read is measured where
+`mega_rfsec`'s 16-bit sample of an IRQ's wraps. The four are published at
+`0040:00F0` - IRQs, their time in units of 2,048 PIT counts (1.7 ms),
+services, theirs - after every reflection; `kd_leave`'s handoff record writes
+the same four words only on its way out, and the font picker's `FP` at F8 is
+left alone. A transfer bounced above 1MB (`mega_hibnc`) returns by another
+path and is not counted.
+
+The kern_mega arm's diag player (`VP_RQ`, which `VP_DIAG` with `PKG_MEGA`
+defines) reads the four through an `OSAPI_SEG` window before and after
+`OSAPI_FSX_RUN` and appends the differences to the trailer, after CS and SS;
+`tools/os88vfit.py` prints them as a share of the play. On a kernel that is
+not `MEGADIAG` they read 0. Under Bochs (no PicoMEM) a full-screen play of
+`OS8088.V88` counts the bracket's two mode sets, 9.4 ms each, and no IRQ.
+The shipped kern_mega kernel is byte-identical.
+
 ##### 98.3.22.1 What the first profiles changed in the encoder (2026-10-15)
 
 **Three plays on the owner's Victory 286** (docs/reports/VIDPROF-

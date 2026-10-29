@@ -87,7 +87,10 @@ DI_NAMES = ("mrun0", "mfre0", "k", "rneed", "mrun", "mkeep", "msnd", "lmin",
             "lydkb", "lydln", "lytm", "lytl", "rate", "blk", "tier",
             "rshort", "kr", "xbn", "ring", "rclm", "xbase_lo", "xbase_hi",
             "xgap", "xgok", "xg_t0", "xg_bt", "xg_best", "xg0", "xg512",
-            "xg1k", "xg2k", "xg4k", "xg8k", "cs", "ss")
+            "xg1k", "xg2k", "xg4k", "xg8k", "cs", "ss",
+            # (the kern_mega arm's: MEGADIAG's reflections across the
+            # bracket - IRQs, their time / 2,048 PIT counts, services, theirs)
+            "rqin", "rqit", "rqsn", "rqst")
 DI_BYTES = ("rneed", "mkeep", "msnd", "tier", "rshort", "xgok")
 XG_GAPS = (0, 512, 1024, 2048, 4096, 8192)
 
@@ -134,6 +137,22 @@ def print_card(c, fps):
     print("     sound %d Hz, block %d; CPU tier %d; bank slots %d, ring "
           "slots in use %d" % (c["rate"], c["blk"], c["tier"], c["xbn"],
                                c["kr"]))
+    if "rqin" in c:
+        u = 2048 * PIT_US / 1e6
+        secs = c["dt"] / 18.2065
+        if c["rqin"] or c["rqsn"]:
+            print("   kern_mega's REFLECTIONS across the play (a MEGADIAG "
+                  "kernel):")
+            for what, n, t in (("IRQs to an option ROM", c["rqin"], c["rqit"]),
+                               ("BIOS services (int 13h...)", c["rqsn"],
+                                c["rqst"])):
+                print("     %-27s %6d, %.1f s = %.1f%% of the play's %.1f s"
+                      "%s" % (what, n, t * u, 100 * t * u / max(secs, 1e-9),
+                             secs, ", %.2f ms each" % (1000 * t * u / n)
+                             if n else ""))
+        else:
+            print("   kern_mega's reflections: none counted (not a MEGADIAG "
+                  "kernel?)")
     print("   WHERE THIS BOOT PUT IT:")
     print("     the package at %d (CS %04X), its stack SS %04X"
           % (c["cs"] * 16, c["cs"], c["ss"]))

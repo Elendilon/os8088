@@ -129,6 +129,9 @@ VP_RSLN     equ VP_KBIG + 5         ; ...a ring claim's slots past them: the
                                     ; mirror and the gap's slack
 VP_COLS    equ 35                  ; the info panel's text columns
 %ifdef VP_DIAG
+%ifdef PKG_MEGA
+%define VP_RQ                       ; (the kern_mega arm's diag: MEGADIAG's
+%endif                              ;  reflection counts around the bracket)
 VP_LINES    equ 13                  ; (the last five the heap's, the reader's
                                     ; and the layer's tests: VPDIAG=1, a
                                     ; field diagnostic)
@@ -14602,7 +14605,34 @@ vp_srun:
 %ifdef VP_RDTIME
     mov byte [vp_rtin], 1           ; (the bracket's clock runs: reads timed)
 %endif
+%ifdef VP_RQ
+    push di
+    mov di, vp_rq0                  ; (the kernel's reflections before it)
+    call vp_rqget
+    pop di
+%endif
     call OSAPI_FSX_RUN
+%ifdef VP_RQ
+    pushf
+    push ax
+    push cx
+    push di
+    mov di, vp_rqd                  ; ...and after: the bracket's own
+    call vp_rqget
+    mov cx, 4
+    mov di, vp_rqd
+.rqd:
+    mov ax, [di]
+    sub ax, [di + vp_rq0 - vp_rqd]
+    mov [di], ax
+    inc di
+    inc di
+    loop .rqd
+    pop di
+    pop cx
+    pop ax
+    popf
+%endif
 %ifdef VP_RDTIME
     mov byte [vp_rtin], 0
 %endif
@@ -18811,7 +18841,7 @@ vp_prend:
     mov ax, VP_DIN
     stosw
     mov si, vp_ditab
-    mov cx, VP_DIN - 2
+    mov cx, (vp_ditab_end - vp_ditab) / 2
 .dw:
     lodsw
     xchg bx, ax
@@ -18845,6 +18875,11 @@ vp_prend:
     call vp_prlin
 %endif
     stosw
+%ifdef VP_RQ
+    mov si, vp_rqd                  ; (the bracket's reflections, after them)
+    mov cx, 4
+    rep movsw
+%endif
     mov al, '1'
 .try:
     mov [vp_prfn + 6], al
@@ -23715,7 +23750,11 @@ vp_ditab:     dw vp_mrun0, vp_mfre0, vp_k, vp_rneed, vp_mrun, vp_mkeep
               dw xg_tt, xg_tt + 2, xg_tt + 4, xg_tt + 6, xg_tt + 8
               dw xg_tt + 10
 vp_ditab_end:
+%ifdef VP_RQ
+VP_DIN      equ (vp_ditab_end - vp_ditab) / 2 + 6  ; ...CS, SS and the four
+%else
 VP_DIN      equ (vp_ditab_end - vp_ditab) / 2 + 2  ; ...and CS, SS
+%endif
 VP_DIL      equ 8 + 2 * VP_DIN
 vp_prna:      dw 0                  ; ...its frame slots,
 vp_prnl:      dw 0                  ; ...the reads logged,
@@ -23727,6 +23766,64 @@ vp_rts:       dd 0                  ; (vp_rtb: the read's start, the frame
 vp_rtd:       dw 0                  ;  drawn then and how far behind)
 vp_rtbh:      dw 0
 vp_rtin:      db 0                  ; (1: inside OSAPI_FSX_RUN)
+%endif
+%ifdef VP_RQ
+vp_rq0:       dw 0, 0, 0, 0         ; 0040:00F0 before the bracket...
+vp_rqd:       dw 0, 0, 0, 0         ; ...and the bracket's: kern_mega's
+                                    ; MEGADIAG reflections - IRQs, their
+                                    ; time / 2,048 PIT counts, services,
+                                    ; theirs (mega_rqacc, SPEC.md 98.3.22.5)
+
+; vp_rqget - DI -> 4 words: 0040:00F0's, through a window in protected mode.
+; Every register kept
+vp_rqget:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push ds
+    push es
+    mov dx, 0x004F
+    mov cx, 8
+    xor ax, ax
+    mov bl, SEG_WIN
+    call OSAPI_SEG                  ; DX = it (the paragraph in real mode)
+    jc .z
+    push dx
+    push ds
+    pop es
+    mov ds, dx
+    xor si, si
+    mov cx, 4
+    cld
+    rep movsw
+    pop dx
+    push es
+    pop ds
+    cmp byte [vp_pm], 0
+    je .r
+    push ds
+    pop es                          ; (ES off it: SEG_FREE's pop es)
+    mov bl, SEG_FREE
+    call OSAPI_SEG
+    jmp short .r
+.z:
+    xor ax, ax
+    mov cx, 4
+    push ds
+    pop es
+    cld
+    rep stosw
+.r:
+    pop es
+    pop ds
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
 %endif
 vp_prbd:      dw 0                  ; ...and damaged super-packets seen
                                     ; THE HEADER (written into the claim):
