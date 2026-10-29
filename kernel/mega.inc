@@ -2834,6 +2834,19 @@ mega_svc:
     out 0x40, al                    ; the play waits for it
     out 0x40, al
 .nospk:
+%ifdef MEGA_DIAG
+    mov byte [mega_fdmko], 0        ; the reflection marks (14.125): a FLOPPY
+    cmp byte [ss:bp+20], 0x13       ; int 13h only
+    jne .nofdmk
+    cmp byte [mega_irqr], 0
+    jne .nofdmk
+    test byte [ss:bp+14], 0x80
+    jnz .nofdmk
+    mov byte [mega_fdmko], 1
+    mov al, 1
+    call KERNEL_SEG:mega_fdmkf
+.nofdmk:
+%endif
     jmp KERNEL_SEG:mega_svc_lo      ; ...and down into the window real mode
 section .text                       ; can reach, which is all that stays low
 ; mega_svc_lo - mega_svc's REAL-MODE WINDOW: out of protected mode, the call,
@@ -2889,6 +2902,11 @@ cpu 286
     mov ss, ax
     mov ax, KERNEL_SEG
     mov ds, ax
+%ifdef MEGA_DIAG
+    mov al, 2                       ; mark 2: real mode, the reset came back
+    call KERNEL_SEG:mega_fdmkf
+    mov ax, KERNEL_SEG
+%endif
     mov [k_dsel], ax                ; THE MOUSE ISR RUNS HERE TOO (14.1 answer
                                     ; 18): every KDS in it loads this word,
                                     ; which is the real segment now
@@ -2948,6 +2966,10 @@ cpu 286
     call mega_pmpre                 ; a PicoMEM's: what it was asked to do
 %endif
 .go0:
+%ifdef MEGA_DIAG
+    mov al, 3                       ; mark 3: into the BIOS
+    call KERNEL_SEG:mega_fdmkf
+%endif
     jmp short .go                   ; ...and the prefetch queue is flushed
 .go:
     pop es
@@ -2965,6 +2987,10 @@ cpu 286
     mov bp, sp
     mov ax, KERNEL_SEG
     mov ds, ax
+%ifdef MEGA_DIAG
+    mov al, 4                       ; mark 4: the BIOS returned
+    call KERNEL_SEG:mega_fdmkf
+%endif
     cmp byte [mega_irqr], 0
     je .nocap
     call mega_capoff
@@ -3001,6 +3027,11 @@ section .mega
 mega_svc_back:
     ; STKBALANCE-OK: mega_svc's back half - entered by a far jump on the frame its
     ; front half built (es ds pusha vector, the BIOS's FLAGS above it), left by iret
+%ifdef MEGA_DIAG
+    mov al, 5                       ; mark 5: protected mode again
+    call KERNEL_SEG:mega_fdmkf
+    mov byte [mega_fdmko], 0
+%endif
     xor ax, ax                      ; the pointer's frame buffer back to its
     xchg ax, [mega_vsw]             ; SELECTORS (mega_vrm), before the mask
     or ax, ax                       ; below opens its line in protected mode:
@@ -7078,6 +7109,147 @@ mega_selbase:
     ret
 
 section .text                   ; (KERN-MEGA-SEGMENTS-PLAN: back from .mega)
+%ifdef MEGA_DIAG
+; -----------------------------------------------------------------------------
+; mega_fdmkf - FAR, BOTH MODES: the floppy reflection's stage marks
+; (KERN-MEGA-PLAN 14.125). Five 8x8 blocks under the floppy strip, written
+; straight into the VGA frame buffer - by its segment in the real-mode window
+; where nothing else can draw, by [vid_seg]'s selector in protected mode. AL = the stage: 1 leaving protected mode (and 2-5
+; blacked out), 2 real mode after the reset, 3 into the BIOS's int 13h, 4 the
+; BIOS returned, 5 protected mode again. A frozen machine's last WHITE block
+; is the last stage it reached. Only while [mega_fdmko] says this reflection
+; is a floppy int 13h, only on a planar (VGA) display. The graphics
+; controller's and sequencer's registers it uses are put back. DS = the
+; kernel's data in either mode. Preserves everything
+; -----------------------------------------------------------------------------
+mega_fdmkf:
+    pushf
+    cli
+    cmp byte [mega_fdmko], 0
+    je .out
+    cmp byte [vid_planes], 4
+    jne .out
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    push es
+    mov bl, al
+    smsw ax                         ; WHICH MODE: real mode names the frame
+    test al, 1                      ; buffer by its segment, protected mode
+    mov ax, 0xA000                  ; by [vid_seg] - a selector since MC7.4,
+    jz .seg                         ; parked in [mega_vsw] while a reflection
+    mov ax, [mega_vsw]              ; holds [vid_seg] as the segment
+    or ax, ax                       ; (mega_vrm)
+    jnz .seg
+    mov ax, [vid_seg]
+.seg:
+    mov es, ax
+    mov dx, 0x3C4                   ; the sequencer's index and map mask
+    in al, dx
+    push ax
+    mov al, 2
+    out dx, al
+    inc dx
+    in al, dx
+    push ax
+    mov al, 0x0F
+    out dx, al
+    mov dx, 0x3CE                   ; the GC's index, then 1, 3, 5 and 8
+    in al, dx
+    push ax
+    mov cx, 0x0100                  ; CH = 1 (set/reset enable) -> 0
+    call .gcset
+    mov cx, 0x0300                  ; function: replace
+    call .gcset
+    mov cx, 0x0500                  ; write mode 0
+    call .gcset
+    mov cx, 0x08FF                  ; every bit
+    call .gcset
+    cmp bl, 1
+    jne .one
+    mov al, 2                       ; stage 1: 2-5 black first
+.clr:
+    mov ah, 0
+    call .blk
+    inc al
+    cmp al, 5
+    jbe .clr
+.one:
+    mov al, bl
+    mov ah, 0xFF
+    call .blk
+    pop cx                          ; (the four GC values, last pushed first)
+    mov ch, 8
+    call .gcput
+    pop cx
+    mov ch, 5
+    call .gcput
+    pop cx
+    mov ch, 3
+    call .gcput
+    pop cx
+    mov ch, 1
+    call .gcput
+    pop ax
+    mov dx, 0x3CE
+    out dx, al                      ; the GC index as it was
+    pop ax
+    mov dx, 0x3C5
+    out dx, al                      ; the map mask
+    pop ax
+    dec dx
+    out dx, al                      ; the sequencer index
+    pop es
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.out:
+    popf
+    retf
+; CH = a GC index: its value pushed under the return address, CL written
+.gcset:
+    pop di                          ; the return address
+    mov dx, 0x3CE
+    mov al, ch
+    out dx, al
+    inc dx
+    in al, dx
+    xor ah, ah
+    push ax
+    mov al, cl
+    out dx, al
+    jmp di
+; CH = a GC index, CL its value back
+.gcput:
+    mov dx, 0x3CE
+    mov al, ch
+    out dx, al
+    inc dx
+    mov al, cl
+    out dx, al
+    ret
+; block AL (1-5) filled with AH: rows 40-47, byte column AL x 2
+.blk:
+    push ax
+    push cx
+    xor di, di
+    mov di, ax
+    and di, 0x00FF
+    shl di, 1                       ; byte column 2, 4 ... 10
+    add di, 40 * 80
+    mov cx, 8
+.row:
+    mov [es:di], ah
+    add di, 80
+    loop .row
+    pop cx
+    pop ax
+    ret
+%endif
 mega_fdoff  db 0                    ; 1: switched off for the session
 mega_fdfail db 0                    ; fallbacks in a row
 mega_fdpend db 0                    ; 1: a fallback awaits the BIOS's verdict
@@ -7104,6 +7276,7 @@ mega_fdgt   dw 0                    ; [ticks] when the wait began
 mega_fdgtp  dw 0                    ; [ticks] when last painted
 mega_fdgf   dw 0                    ; FLAGS where the strip was asked for
 mega_fdgx   db 0                    ; waits rescued this boot
+mega_fdmko  db 0                    ; 1: this reflection is a floppy int 13h
 mega_fdgj   db 0                    ; reflections taken inside a native call
 mega_fdgv   db 0                    ; ...the last one's vector
 %endif

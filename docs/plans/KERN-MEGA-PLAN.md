@@ -12760,3 +12760,51 @@ and opened an empty A: through the native path (no option ROM there, so `j`
 stays 0 and the mask is empty, which is all an emulator here can show).
 `t_buildmatrix`'s `megafdmask` row keeps the arm assembling.
 
+
+**First field reading (owner, 2026-10-29, the Victory, diagnostic disk at
+f5dad967)**: install from a mounted image froze on its empty-drive check,
+and moving the mouse changed nothing. The strip read `q33 n0001 t0C1E
+b685A cF0B6 p0000 f0213 m18i00r00 e00g01j00v00 s81dFF x00`. **The native
+path is not where it stops**:
+
+- `q33`: the last native wait was the IRQ wait after the recalibrate had
+  succeeded. Step 33h is where the change line is still up, so
+  `mega_fdgo` seeks to cylinder 1. `s81` is drive A seeking and `dFF` the
+  change line: an empty drive, as expected.
+- `n0001`: the loop made one pass and painted once. A CPU still spinning
+  there repaints at every tick or every 4,096 passes, a few milliseconds.
+  So the seek's IRQ came, the wait ended, and the native path fell back to
+  the BIOS by design. The strip paints only in native waits, so nothing
+  after that point could update it.
+- `f0213` (IF on), `i00 r00` (nothing in service or pending): no stuck
+  8259. `j00`: no PicoMEM reflection landed in the wait, which tells
+  against the second round's hypothesis.
+- `m18`: IRQ3 and IRQ4 are masked, so the serial mouse is dead for the
+  length of the call. That is the "mouse never recovers", not a separate
+  fault.
+
+The owner's own observation agrees: the single head move happened (the
+native recalibrate and seek) and the BIOS's buzz, its own head test, did
+not. **So the freeze is inside the reflected BIOS `int 13h` that follows
+the native fallback**: on a 286, a CPU reset through the Victory's BIOS
+into real mode, the BIOS's call, and back. kern_big makes the same BIOS
+call in plain real mode and never freezes.
+
+**The second instrument: five stage marks** (`mega_fdmkf`, MEGADIAG only).
+Five 8x8 blocks under the strip, written straight into the VGA frame
+buffer: by `A000h` in real mode, and by `[vid_seg]`'s selector in protected
+mode (`A000h` is NOT an identity selector since MC7.4; the first build
+took #GP there). Only a floppy `int 13h` reflection marks them:
+
+| block | lit when |
+|---|---|
+| 1 | leaving protected mode (2-5 blacked out first) |
+| 2 | in real mode after the reset (`mega_svc_lo.rmc`) |
+| 3 | entering the BIOS's `int 13h` |
+| 4 | the BIOS returned |
+| 5 | protected mode again (`mega_svc_back`) |
+
+The last white block is the last stage reached: 1 means the reset never
+came back, 3 the BIOS never returned, and 5 means the reflection finished
+and the freeze is after it. QEMU (a 386, so the CR0 route) lights all five
+on an ejected A:.
