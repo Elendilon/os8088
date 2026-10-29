@@ -245,6 +245,50 @@ def read_times(prof, h):
     return 0
 
 
+def disk_windows(h, out, r, prof, period_us, n=100):
+    """THE READER AGAINST THE PROFILE'S DISK (SPEC.md 98.3.22.7): per n
+    frames, the bytes the file asks a second (records + sound), the draw's
+    share of the period, the rate the encoder's curve gives the reader at
+    that share, and the rate the timed reads delivered while reading - the
+    one figure the encoder's disk bucket is refilled by"""
+    rs = [x for x in h["reads"] if x[2] not in (0xFFFE, 0xFFFD)]
+    if h["ver"] < 4 or not rs or not prof.get("disk_at"):
+        print("   --disk: wants a version-4 profile (VPDIAG=time) and a "
+              "profile with a disk curve")
+        return
+    cv = prof["disk_at"]
+
+    def at(sh):
+        for (x0, y0), (x1, y1) in zip(cv, cv[1:]):
+            if sh <= x1:
+                return y0 + (y1 - y0) * (sh - x0) / (x1 - x0)
+        return cv[-1][1]
+    byf = {o[0]: o for o in out}
+    per = period_us / 1e6
+    print("   THE READER against %s's disk, %d frames at a time (KB/s):"
+          % (prof.get("name", "the profile"), n))
+    print("      frames        asks  share  curve  read  read/curve  behind")
+    ratios = []
+    for w0 in range(0, h["frames"], n):
+        fs = [byf[i] for i in range(w0, w0 + n) if i in byf]
+        rr = [x for x in rs if w0 <= x[0] < w0 + n]
+        if not fs or not rr:
+            continue
+        ask = (sum(o[5] for o in fs) + r.abytes * len(fs)) / \
+            (len(fs) * per) / 1024
+        sh = sum(o[2] for o in fs) / len(fs) / period_us
+        cur = prof["disk"] * at(sh) / 1024
+        t = sum(x[2] * 16 * PIT_US for x in rr) / 1e6
+        got = sum(x[3] for x in rr) / 1024 / t
+        ratios.append(got / cur if cur else 0.0)
+        print("      %5d-%5d  %5.0f  %4.0f%%  %5.0f %5.0f     %5.2f    %4d"
+              % (w0, w0 + len(fs) - 1, ask, 100 * sh, cur, got,
+                 ratios[-1], max(x[1] for x in rr)))
+    if ratios:
+        print("   read/curve: median %.2f, 10%% %.2f, 90%% %.2f"
+              % (q(ratios, .5), q(ratios, .1), q(ratios, .9)))
+
+
 def lstsq(rows, ys):
     """Least squares by the normal equations - no numpy needed for 2-3
     unknowns"""
@@ -278,6 +322,9 @@ def main():
     ap.add_argument("--profile")
     ap.add_argument("--csv")
     ap.add_argument("--reads", action="store_true")
+    ap.add_argument("--disk", action="store_true",
+                    help="(version 4) the reader against the profile's disk "
+                         "curve, a hundred frames at a time")
     a = ap.parse_args()
     h, tot, drw = read_prof(a.prof)
     if a.reads and h["ver"] >= 4:
@@ -391,6 +438,8 @@ def main():
     if wrapped:
         print("   %d frames ran 54 ms or more (channel 2 wrapped): left out"
               % wrapped)
+    if a.disk:
+        disk_windows(h, out, r, prof, period_us)
     if a.csv:
         with open(a.csv, "w") as f:
             f.write("frame,total_us,draw_us,model_us,prev_model_us,bytes\n")

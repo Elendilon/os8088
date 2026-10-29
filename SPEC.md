@@ -202462,6 +202462,24 @@ glass, and the wait (under one refresh) is spent only while behind. The
 shipped player is unchanged: under kern_big the hook is not coalesced, and
 the second frame's decode would come out of a ring whose lead there is one.
 
+##### 98.3.22.7 The card's block under kern_mega (2026-10-29)
+
+With 98.3.22.6 the picture kept up, and what was left was the reader
+running dry at the same frame (Catch's 1312) a pausing kern_big play had -
+the disk's margin, on both kernels. The one cost kern_mega adds is the card's
+block interrupt: every one is a reflection (`mega_irqrom`), ~1.0 ms on the
+Victory, ~27 a second counted (the rest land inside a reflected `int 13h`,
+where the ROM takes them in real mode), 2.7-3.3% of a play. `vp_sblk`
+halves the block while it is longer than 25 ms of sound; the kern_mega arm
+halves while it is longer than 100 ms (`VP_BLKDIV` 10), so 22 kHz PCM8 keeps
+2,048 bytes, 93 ms, and interrupts a quarter as often. The frames' clock is
+not the block's: `vp_adue` syncs to the card's consumed count at each block
+and runs on the hook's periods between, up to `vp_acap` - a block's worth of
+frames and two more, which scales with it - so a longer block moves when the
+clock is corrected and not how often a frame is shown. The cost is that the
+reader keeps 93 ms of sound ahead rather than 23. The shipped player is
+unchanged.
+
 ##### 98.3.22.1 What the first profiles changed in the encoder (2026-10-15)
 
 **Three plays on the owner's Victory 286** (docs/reports/VIDPROF-

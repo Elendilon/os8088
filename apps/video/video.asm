@@ -109,7 +109,13 @@ VP_ESLOW    equ 40                  ; tenths of RAM's time: EMS first and in
 VP_RL       equ 16384               ; the audio ring (SPEC.md 98.3.1)...
 VP_RLCODE   equ 2                   ; ...4096 << 2
 VP_BLOCK    equ 2048                ; the card's block: one interrupt each
+%ifdef PKG_MEGA
+VP_BLKDIV   equ 10                  ; ...halved while longer than 1/10 s: under
+                                    ; kern_mega each block interrupt is a
+                                    ; reflection, ~1 ms on a 286 (98.3.22.7)
+%else
 VP_BLKDIV   equ 40                  ; ...halved while longer than 1/40 s
+%endif
 VP_HALFHI   equ 22222               ; (PCM8 past this keeps it: vp_sblk)
 VP_SPK      equ 2                   ; [vp_snd]: the SPEAKER plays it (98.3.15)
 VP_SPKMAX   equ 8000                ; the fastest PCM an 8088 plays through
@@ -17333,7 +17339,7 @@ vp_sblk:
 .b:
     xor dx, dx
     mov cx, VP_BLKDIV
-    div cx                          ; AX = the bytes in 25 ms
+    div cx                          ; AX = the bytes in 25 ms (100: kern_mega)
     mov dx, VP_BLOCK
     xor cx, cx
 .l:
