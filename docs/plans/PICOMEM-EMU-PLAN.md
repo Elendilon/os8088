@@ -546,11 +546,12 @@ clock, and a clock read is a yield point.
     not run.
   - `picomem.py`'s strict model answered PORTUSED there and could not see
     any of it.
-  - **The fix is the owner's call:** in the driver (switch the DSP off
-    before the walk), in the firmware fork (test the port on the move
-    path, as the install path already does), or both. The driver fix is the
-    one that also covers a 2.x running FreddyVRetro's closed firmware.
-    `pmlib` stays red on that case until it is decided.
+  - **FIXED in the driver (2026-10-29), the owner's choice.** `pm_init`
+    now sends `78h 0` before the walk (SPEC.md 34.10.2). That is 7 bytes:
+    SOUND.DRV's image went 12,078 -> 12,085 and stayed a 12 KB claim. It
+    is right on any firmware, the closed 2.x one included. `pmlib` is
+    green, and the walk now reads `000, 220 (PORTUSED), 240`. The firmware
+    fork's move path is unchanged, so the defect is still the card's.
 
 ## 7. What it will catch, and what it cannot
 

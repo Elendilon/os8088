@@ -18264,8 +18264,9 @@ SOAK = [
         "skip of the card's own line taken out offers [7, 5] and FAILS 2 "
         "checks, the firmware's refusal still steering the SB to 5. It found "
         "the firmware MOVING an active DSP onto CMS's ports at 220h, which "
-        "the model's PORTUSED hid - the vsfw CMS case FAILS until that is "
-        "decided (the plan's wave 0 findings)",
+        "the model's PORTUSED hid; pm_init now switches the DSP off before "
+        "the walk (SPEC.md 34.10.2), and without that the vsfw CMS case "
+        "FAILS 3 checks, CMS's 224h reading FFh",
         needs=("nasm", "unicorn", "pmhost")),
     Row("xmla", "soak", py("tests/xmla.py"), 2.0,
         "SPEC.md 41.13: XMEM.DRV's LOADALL transport, without a 286 - xm_bios, "

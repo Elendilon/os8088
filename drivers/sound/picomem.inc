@@ -374,6 +374,9 @@ pm_init:
     popf
 
 .snd:                           ; --- 3: the AdLib, then the SB's IRQ -------
+    mov al, PMC_SBONOFF         ; the DSP OFF first (SPEC.md 34.10.2): the
+    xor bx, bx                  ; firmware MOVES an active one to any port
+    call pm_cmd                 ; asked, over CMS's 220h, with no PORTUSED
     mov al, PMC_ADLIB
     mov bx, 1
     call pm_cmd
