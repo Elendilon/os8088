@@ -309,7 +309,7 @@ KNOBS = [
     ("megadiag",    ["KERN_MEGA=1", "MEGADIAG=1"]),
     ("megadiag-hb", ["KERN_MEGA=1", "MEGADIAG=1"], "hiber.drv"),
     # `MEGAFDMASK=1` is kern_mega's A/B for the empty-drive freeze (KERN-
-    # MEGA-PLAN 14.124; `make megafdmask` builds its disks): the native
+    # MEGA-PLAN 14.125; `make megafdmask` builds its disks): the native
     # floppy call with the option ROMs' IRQ lines masked. Nothing else
     # assembles that arm.
     ("megafdmask",  ["KERN_MEGA=1", "MEGAFDMASK=1"]),

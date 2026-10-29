@@ -12608,7 +12608,29 @@ kernels byte-identical outright. `mega-httpmount` red before (the counts
 above) and green after: 2 GETs over 1 connection for each leg, as on
 kern_big.
 
-### 14.124 The empty-drive freeze is in the native path's motor SPIN-UP: an instrument for it (2026-10-29) - OPEN
+### 14.124 What the Video Player's reflections cost, counted per play (2026-10-29) - INSTRUMENT
+
+The Victory's timed profiles (SPEC.md 98.3.22.4) put kern_mega's Catch My
+Heart at 65% of the play inside reads and 48% drawing, Sonic at 43% and 38%,
+with the picture 18-48 frames behind the card and the reader 89-95 chunks
+ahead: on kern_big the hook decodes inside a read, here a reflection holds it
+off, so the two add. 14.31's `RFL` put the PicoMEM's own IRQ reflections at
+61 a second, 3.3 ms each - ~20% of the machine - but that was one second on
+the bar, of an older kernel. Before building a protected-mode handler for the
+card's multiplexer (a driver's, with a kernel hook to hand it the line), the
+`MEGADIAG` kernel counts both kinds of reflection for a whole play and the
+kern_mega diag player saves them in its profile (SPEC.md 98.3.22.5).
+
+**Its first field run found a MEGADIAG fault that predates it**: every
+`MEGADIAG` kernel since MC7 takes a #GP(C800h) at the PicoMEM's first IRQ
+reflection - the Video Player's play froze at its first sound, with the
+counter and on the control without it alike. `mega_pmpre` (14.65's PicoMEM
+reading for the bar) loaded the option ROM's real-mode segment into ES in
+protected mode as an identity selector, which MC7 removed. It runs in the
+reflection's REAL-MODE half now, just before the ROM's handler, where C800h is
+a segment. The shipped kernel never had it.
+
+### 14.125 The empty-drive freeze is in the native path's motor SPIN-UP: an instrument for it (2026-10-29) - OPEN
 
 **Where it stops, from the owner's description** (14.31 and 14.35's
 freeze, which still happens during installs, drive switching and the file

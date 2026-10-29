@@ -1208,24 +1208,24 @@ mega_rfsec:
 ; [4], since its audio stub raises the SB's IRQ only on an unmasked line.
 ; After: an audio request that left no SB line caught [3] is the failure.
 ; DS = KDATA, interrupts off. Preserves everything
+section .text                   ; (mega_pmpre runs in REAL mode)
 mega_pmpre:
     push ax
     push bx
     push es
     mov byte [mega_pmaud], 0
-    mov ax, MEGA_SEL_LOW0
-    mov es, ax
-    mov bl, [mega_rv]
-    xor bh, bh
-    shl bx, 2
-    mov ax, [es:bx+2]               ; the handler's segment
-    mov word [mega_pmseg], 0
+    xor ax, ax                      ; REAL MODE (the reflection's half that
+    mov es, ax                      ; calls the ROM): the IVT at 0:0, and the
+    mov bl, [mega_rv]               ; ROM's RAM by its own segment. It was
+    xor bh, bh                      ; read in protected mode through the ROM
+    shl bx, 1                       ; segment AS A SELECTOR - an identity
+    shl bx, 1                       ; selector only until MC7 cut the GDT to
+    mov ax, [es:bx+2]               ; the kernel's own, and a #GP(C800h) on
+    mov word [mega_pmseg], 0        ; a PicoMEM ever since (2026-10-29)
     cmp ax, 0xC000
     jb .x
     cmp ax, 0xF000
     jae .x
-    test al, 7                      ; an identity selector only on the grid
-    jnz .x
     mov [mega_pmseg], ax
     mov es, ax
     cmp byte [es:0x4356], 0         ; a DMA copy
@@ -1249,6 +1249,7 @@ mega_pmpre:
     pop bx
     pop ax
     ret
+section .mega
 mega_pmpost:
     cmp byte [mega_pmaud], 0
     je .x
@@ -2788,19 +2789,15 @@ mega_svc:
     mov [mega_irqr], ah             ; 1: an option ROM's IRQ (mega_irqrom)
 %ifdef MEGA_DIAG
     cmp byte [mega_fdbusy], 0       ; ...landing INSIDE a native floppy call:
-    je .nofdj                       ; the floppy strip's j and v (14.124)
+    je .nofdj                       ; the floppy strip's j and v (14.125)
     inc byte [mega_fdgj]
     mov [mega_fdgv], al
 .nofdj:
 %endif
 %ifdef MEGA_DIAG
     call mega_pit                   ; ...and when it started (mega_rfsec)
-    mov [mega_rft0], ax
-    cmp byte [mega_irqr], 0
-    je .nopm
-    call mega_pmpre                 ; a PicoMEM's: what it was asked to do
-.nopm:
-%endif
+    mov [mega_rft0], ax             ; (a PicoMEM's state is read in the real-
+%endif                              ; mode half: mega_pmpre)
     push es
     mov ax, MEGA_BDA
     mov es, ax
@@ -2947,6 +2944,9 @@ cpu 286
     je .go0
     call mega_capon                 ; an IRQ: kernel lines caught, not run
     mov byte [.stiop], 0x90         ; ...and an ISR is entered with IF off
+%ifdef MEGA_DIAG
+    call mega_pmpre                 ; a PicoMEM's: what it was asked to do
+%endif
 .go0:
     jmp short .go                   ; ...and the prefetch queue is flushed
 .go:
@@ -3022,6 +3022,82 @@ mega_svc_back:
     mov al, ah
     out 0x40, al
 .nospk2:
+%ifdef MEGA_DIAG
+    ; THE REFLECTION'S LENGTH, into the running totals (SPEC.md 98.3.22.5):
+    ; IN LINE and on NO STACK - an IRQ's reflection runs on whatever it
+    ; interrupted, an FSXF_RATE hook's 48 bytes among them (SPEC.md 53.2.2),
+    ; and every register used here is the frame's to restore; ES too, which
+    ; mega_rfclk sets for itself and the frame's pop es puts back. The
+    ; periods the ROM counted at 40:6C (before mega_rfclk fixes it) times
+    ; channel 0's divisor, plus the count's own progress: a 50 ms read, past
+    ; mega_rfsec's 16-bit sample. Published at 0040:00F0 - IRQs, their time
+    ; in 2,048-count units, services, theirs - for a diag package to read
+    mov ax, MEGA_BDA
+    mov es, ax
+    mov cx, [es:0x6C]
+    sub cx, [mega_t0]               ; CX = the periods
+    xor al, al
+    out 0x43, al                    ; (channel 0 latched)
+    in al, 0x40
+    mov ah, al
+    in al, 0x40
+    xchg al, ah
+    mov bx, [mega_rft0]
+    sub bx, ax                      ; BX = the count's progress (signed)
+    mov dx, cx                      ; DX:AX = periods x 65536 at the ROM's
+    xor ax, ax                      ; rate...
+    cmp byte [sch_fast], SCH_RATE
+    jne .rq1
+    cmp word [spk_seg], 0
+    jne .rq1
+    mov ax, cx                      ; ...or x the bracket's divisor
+    mul word [sch_rdiv]
+.rq1:
+    mov si, dx
+    xchg ax, bx
+    cwd
+    add bx, ax
+    adc si, dx                      ; SI:BX = the length, PIT counts
+    or si, si                       ; NEGATIVE: channel 0 reloaded and the
+    jns .rqok                       ; ROM never counted it - an IRQ's
+    inc si                          ; reflection keeps the mask, so its
+    cmp byte [sch_fast], SCH_RATE   ; IRQ0s wait for mega_replay - so one
+    jne .rqok                       ; period more, 65536 at the ROM's rate
+    cmp word [spk_seg], 0           ; or the bracket's divisor. Without it
+    jne .rqok                       ; every such reflection SUBTRACTED and
+    dec si                          ; the published total read as a small
+    add bx, [sch_rdiv]              ; negative: 112.5 s, the word's ceiling
+    adc si, 0
+.rqok:
+    mov di, mega_rqi
+    cmp byte [mega_irqr], 0
+    jne .rq2
+    mov di, mega_rqs
+.rq2:
+    inc word [di]
+    add [di + 2], bx
+    adc [di + 4], si
+    mov ax, [mega_rqi]
+    mov [es:0xF0], ax
+    mov ax, [mega_rqi + 2]
+    mov dx, [mega_rqi + 4]
+    mov cl, 11
+    shr ax, cl
+    mov cl, 5
+    shl dx, cl
+    or ax, dx
+    mov [es:0xF2], ax
+    mov ax, [mega_rqs]
+    mov [es:0xF4], ax
+    mov ax, [mega_rqs + 2]
+    mov dx, [mega_rqs + 4]
+    mov cl, 11
+    shr ax, cl
+    mov cl, 5
+    shl dx, cl
+    or ax, dx
+    mov [es:0xF6], ax
+%endif
     call mega_rfclk                 ; the IRQ0s the ROM took meanwhile
     mov ax, [ss:bp+0]               ; ES back: its own selector if the BIOS
     cmp ax, [mega_res]              ; left it alone, and a selector for the
@@ -6091,7 +6167,7 @@ mega_fd13:
 
 %ifdef MEGA_FDMASK
 ; -----------------------------------------------------------------------------
-; MEGAFDMASK=1 (KERN-MEGA-PLAN 14.124): the A/B for the empty-drive freeze.
+; MEGAFDMASK=1 (KERN-MEGA-PLAN 14.125): the A/B for the empty-drive freeze.
 ; The native path waits with IF = 1 - a second in the motor spin-up - and an
 ; IRQ whose gate is a reflecting stub (mega_irv: an option ROM's, a PicoMEM's
 ; multiplexer) that lands there is a trip to real mode, on a 286 a CPU reset
@@ -6645,7 +6721,7 @@ mega_fdirq:
     push bx
     mov bx, [ticks]
 %ifdef MEGA_DIAG
-    call mega_fdgini                ; MEGADIAG=1's floppy strip (14.124)
+    call mega_fdgini                ; MEGADIAG=1's floppy strip (14.125)
 %endif
 .l:
     test byte [es:0x3E], 0x80       ; SPUN, not halted: the Victory 286 took
@@ -6679,7 +6755,7 @@ mega_fdtk:
     mov cx, ax
     mov bx, [ticks]
 %ifdef MEGA_DIAG
-    call mega_fdgini                ; MEGADIAG=1's floppy strip (14.124): the
+    call mega_fdgini                ; MEGADIAG=1's floppy strip (14.125): the
 %endif                              ; field's empty-drive freeze is in HERE
 .l:
     mov ax, [ticks]
@@ -6700,7 +6776,7 @@ mega_fdtk:
 
 %ifdef MEGA_DIAG
 ; -----------------------------------------------------------------------------
-; THE FLOPPY STRIP (MEGADIAG=1, KERN-MEGA-PLAN 14.124): the native path's two
+; THE FLOPPY STRIP (MEGADIAG=1, KERN-MEGA-PLAN 14.125): the native path's two
 ; waits - the motor spin-up (mega_fdtk, 'k') and the 765's interrupt
 ; (mega_fdirq, 'q') - paint one line under the menu bar from INSIDE the loop,
 ; for the empty-drive freeze, which stops in the spin-up and leaves nothing
@@ -12586,7 +12662,9 @@ mega_nmifd  resb 1                  ; 1: a native floppy transfer was in
 mega_nmiop  resb 1                  ; flight - its op, DMA address and
 mega_nmilin resb 3                  ; sector count
 mega_nmisn  resb 1
-mega_rft0   resw 1                  ; PIT ch0 at an IRQ reflection's start
+mega_rft0   resw 1                  ; PIT ch0 at a reflection's start
+mega_rqi    resw 3                  ; IRQ reflections: count, PIT counts (32)
+mega_rqs    resw 3                  ; ...and services' (mega_svc_back)
 mega_rfsum  resw 2                  ; ...this second's total counts
 mega_rfn    resw 1                  ; ...and how many
 mega_rfr    resw 1                  ; the last second shown: how many
