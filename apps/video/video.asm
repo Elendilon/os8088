@@ -12313,8 +12313,6 @@ vp_smov:
     call vp_mmovz
     mov dx, [vp_bseg]               ; (and the block decoder, 98.3.23)
     call vp_mmovz
-    mov dx, [vp_tseg]               ; (and the two tiers' table, 98.3.18.18)
-    call vp_mmovz
 %ifdef PKG_MEGA
     mov dx, [vp_fxseg]              ; (and the speaker shaper, 98.3.15.2)
     call vp_mmovz
@@ -12383,7 +12381,7 @@ vp_smove:
     ret
 
 vp_smtab:     dw vp_rclm, vp_keep, vp_prevseg, vp_shseg, vp_pseg, vp_kshd
-              dw vp_pevseg, vp_p8seg, vo_s1seg, vp_bseg, vp_tseg
+              dw vp_pevseg, vp_p8seg, vo_s1seg, vp_bseg
 %ifdef PKG_MEGA
               dw vp_fxseg           ; (the speaker shaper's part, 98.3.15.2)
 %endif
@@ -13900,9 +13898,6 @@ vp_sfree:
 %else
 %endif
     mov dx, [vp_keep]
-    call .f
-    xor dx, dx                      ; (the two tiers' table, 98.3.18.18)
-    xchg dx, [vp_tseg]
     call .f
     mov dx, [vp_aseg]
     call .f
@@ -17613,7 +17608,7 @@ vp_lstage:
 ; every live chunk fits it, and to the bank once it is full, so the bank
 ; still banks in the calm stretches when its copy is cheap.
 ;
-;   - [vp_tseg]:0 is a word a chunk (the live window is under 256): the slot,
+;   - vp_ttab's table is a word a chunk (the live window is under 256): the slot,
 ;     bit 15 the conventional tier, bit 14 a SEAM. vp_slot answers it and
 ;     vp_xbaddr turns a conventional one into a pointer the decode reads as
 ;     a copying ring's, a segment below VP_XSEL, so VP_DSDX borrows for none
@@ -17629,6 +17624,7 @@ vp_lstage:
 ;     slot is held until the new chunk is popped. So each tier keeps a slot
 ;     free to be left with.
 ; =============================================================================
+VP_TOFF     equ VP_CHUNK - 512      ; the table's place in the mirror slot
 VP_TMIN     equ 4                   ; the least ring for a tier: the bounce
                                     ; and three slots
 
@@ -17671,17 +17667,6 @@ vp_treset:
     mov [vp_tkb], ax
     cmp ax, 4
     jb .off
-    cmp word [vp_tseg], 0           ; THE TABLE, once a session (vp_sfree
-    jne .tb                         ; gives it back)
-    push dx
-    mov ax, 1
-    call vp_mclaim
-    jc .nt
-    mov [vp_tseg], dx
-.nt:
-    pop dx
-    jc .off
-.tb:
     xor ax, ax
     mov [vp_twb], ax
     mov [vp_twc], ax
@@ -17706,11 +17691,11 @@ vp_treset:
 vp_tget:
     push bx
     push es
-    mov es, [vp_tseg]
+    call vp_ttab
     mov bl, al
     xor bh, bh
     shl bx, 1
-    mov ax, [es:bx]
+    mov ax, [es:bx + VP_TOFF]
     pop es
     pop bx
     and ah, 0xBF                    ; (the seam's bit)
@@ -17738,6 +17723,32 @@ vp_tcseg:
     shl ax, cl
     add ax, [vp_ring]
     pop cx
+    ret
+
+; vp_ttab - ES = the segment of THE TABLE: the last 512 bytes of the
+; conventional tier's MIRROR slot ([vp_k]), at VP_TOFF. A super-packet is 64
+; sectors at most here (BIGSP has no tiers), so what runs on past a slot's
+; end into its mirror is 63 sectors at most and those 512 bytes are never
+; the mirror's. It was a claim of its own, and a play with sound, a palette a
+; scene, a page flip, a part and a profile had spent the package's eight
+; (MEM_OWNER_MAX): the claim was refused and the tier went off. Every other
+; register kept
+vp_ttab:
+    push ax
+    mov ax, [vp_k]
+    call vp_tcseg
+    mov es, ax
+    pop ax
+    ret
+
+; vp_tcap - CX = bytes for a mirror, at most VP_TOFF: vp_mneed answers the
+; whole chunk when it cannot size the crossing, and a super-packet of 64
+; sectors runs on at most 63 into its mirror. Every other register kept
+vp_tcap:
+    cmp cx, VP_TOFF
+    jbe .r
+    mov cx, VP_TOFF
+.r:
     ret
 
 ; vp_tcaddr - vp_addr for the conventional tier: AX = its slot, BX = an
@@ -17774,11 +17785,11 @@ vp_tpop:
     jae .r
     push bx
     push es
-    mov es, [vp_tseg]
+    call vp_ttab
     mov bl, al
     xor bh, bh
     shl bx, 1
-    mov ax, [es:bx]
+    mov ax, [es:bx + VP_TOFF]
     pop es
     pop bx
     test ah, 0x80
@@ -17920,8 +17931,8 @@ vp_tfill:
     xor bh, bh
     shl bx, 1
     push es
-    mov es, [vp_tseg]
-    mov [es:bx], dx                 ; (before [vp_lc] says it is there)
+    call vp_ttab
+    mov [es:bx + VP_TOFF], dx       ; (before [vp_lc] says it is there)
     pop es
     mov [vp_tcur], cl
     or cl, cl
@@ -17966,6 +17977,7 @@ vp_tseam:
     jnz .go
     jmp .out
 .go:
+    call vp_tcap                    ; (never into the table: vp_ttab)
     inc cx
     and cl, 0xFE
     cmp byte [vp_tcur], 0
@@ -18049,6 +18061,7 @@ vp_tcmir:
     push es
     call vp_mneed
     jcxz .out
+    call vp_tcap                    ; (never into the table: vp_ttab)
     mov ax, [vp_k]
     call vp_tcseg
     mov es, ax
@@ -23098,11 +23111,15 @@ vp_fmt:
     mov ax, [vp_done]
     sub ax, [vp_base]
     call vp_psw
-    mov al, '/'                     ; (' of ' ran a whole play's line past
-    call vp_putc                    ; the card: its pauses fell off the end)
-    mov ax, [vp_frames]
+    mov ax, [vp_frames]             ; ...of how many - only when that is not
+    cmp ax, [vp_done]               ; all of them: "Drew 1868/1868, stalls
+    je .dall                        ; 199, pauses 78" is 37 columns and the
+    mov al, '/'                     ; card is 35, so its pauses fell off the
+    call vp_putc                    ; end (' of ' had already been cut to a
+    mov ax, [vp_frames]             ; slash for the same reason)
     sub ax, [vp_base]
     call vp_putw
+.dall:
     mov si, vp_s_stall
     mov ax, [vp_stall]
     call vp_psw
@@ -24537,7 +24554,7 @@ vp_einp:      db 0                  ; 1: this session decodes IN PLACE (98.3.18.
 vp_xip:       db 0                  ; 1: the hold, decoded in place (98.3.18.11)
 vp_ttwo:      db 0                  ; 1: the bank in place has a CONVENTIONAL
                                     ; TIER beside it (LOADALL-PLAN L6,
-                                    ; SPEC.md 98.3.18.18): [vp_tseg]:0 says
+                                    ; SPEC.md 98.3.18.18): vp_ttab's table says
                                     ; which tier and slot a chunk is in
 vp_tcur:      db 0                  ; ...the last chunk's tier: 1 conventional
 vp_tkb:       dw 0                  ; ...the bank's slots ([vp_kr])
@@ -24547,8 +24564,6 @@ vp_twc:       dw 0
 vp_tlb:       dw 0                  ; ...and its live slots
 vp_tlc:       dw 0
 vp_tfree:     dw 0                  ; ...the chunks under this one popped
-vp_tseg:      dw 0                  ; ...and the table: a word a chunk, 512
-                                    ; bytes of a 1 KB claim of the session's
 %ifdef VP_TTEST
 vp_trun:      dw 0                  ; ...a gate's: chunks since its switch
 %endif

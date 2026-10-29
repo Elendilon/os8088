@@ -202396,9 +202396,17 @@ TIER beside the bank (docs/plans/LOADALL-PLAN.md L6):
   mod K) was costed first and buys an eighth of the copies whenever they
   fall, which is ~1%.
 - **The table**: a word a chunk, `chunk & 0FFh` (the live window is under
-  256), in a 1 KB claim of the session's ([vp_tseg], movable between
-  brackets with the rest): the slot, bit 15 the conventional tier, bit 14 a
-  seam. `vp_slot` answers it; `vp_xbaddr` turns a conventional slot into a
+  256), in the LAST 512 BYTES of the conventional tier's mirror slot
+  (`vp_ttab`, VP_TOFF): the slot, bit 15 the conventional tier, bit 14 a
+  seam. A super-packet is 64 sectors at most where there are tiers, so what
+  runs past a slot's end into its mirror is 63 at most and those 512 bytes
+  are never the mirror's (`vp_tcap` holds every copy into a mirror to it).
+  It was a 1 KB claim of its own first, and on the owner's Victory the
+  first field play said "0 chunks read straight in": a play with sound, a
+  palette a scene, a page flip, the block decoder's part and a profile had
+  spent the package's eight claims (MEM_OWNER_MAX), the claim was refused,
+  and the tier went off - which no gate here saw, each playing a silent clip
+  with no profile. `vp_slot` answers it; `vp_xbaddr` turns a conventional slot into a
   pointer the decode reads as a copying ring's - a SEGMENT below VP_XSEL, so
   `VP_DSDX` borrows for none of it and the decode is untouched.
 - **Each tier a FIFO** with its own next slot and live count, popped as
@@ -202422,7 +202430,7 @@ TIER beside the bank (docs/plans/LOADALL-PLAN.md L6):
 
 Not taken - one tier, as before - for BIGSP (its mirror is two slots), Live,
 a bank under four slots or a ring under four, and wherever the bank is not
-in place. +742 bytes of `video.o88`, a 1 KB claim a play, no kernel byte.
+in place. +~770 bytes of `video.o88`, no claim and no kernel byte.
 `tests/vidxip.py --arm banktier` is the gate: a `VP_TTEST` build that
 switches every three chunks wherever both tiers can take it, so a seam is
 copied and read every few chunks against the reference decode (20 seams and
