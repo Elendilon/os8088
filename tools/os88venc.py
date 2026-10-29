@@ -292,8 +292,15 @@ PROFILES = {
     # kern_mega's only at 475,000 and 455,000: 0.915 and 0.877, the worse
     # taken. A reflected int 13h is a CPU reset, and the card's block
     # interrupts are reflections too
+    # XRD 0.159 (2026-10-29, SPEC.md 98.2.3.9): the in-place reader's own
+    # ms a KB past the copy up. Catch My Heart's timed reads on kern_big,
+    # replayed through this curve at each frame's measured share, ran the
+    # bank dry within 2% of where the machine did only with 0.345 ms a KB
+    # charged on every chunk - the copy is 0.186 of it (xup, placed at the
+    # gap), so this is the rest: the bounce, the mirror, the reader's loop.
+    # The copy is skipped by the two tiers (98.3.18.18) and this is not
     "286-picomem1": dict(disk=519000, avg=2.25, peak=5.4, owe=1.6, speed=4.5,
-                         mega_disk=0.88,
+                         mega_disk=0.88, xrd=0.159,
                          ring=8, xcopy=0.345, lcopy_us=1.966,
                          cyc_us=CYC_US_286PVGA8, **XPLAY_VICTORY,
                          **PLAY_VICTORY,
@@ -4933,7 +4940,7 @@ class Encoder:
         anything (set_bank's test)"""
         return bool(self.bank) and self.disk.level > self.reserve
 
-    def set_bank(self, bank, pre, xcopy=0.0):
+    def set_bank(self, bank, pre, xcopy=0.0, xrd=0.0):
         """THE XMS BANK (SPEC.md 98.3.18.2): `bank` bytes ahead of the ring,
         so the disk bucket is that much deeper, and `pre` of them filled
         before the first frame (98.3.18.3), so it starts that much fuller.
@@ -4960,6 +4967,10 @@ class Encoder:
                 raise vid.V88Error("the bank's copies leave the disk %d bytes "
                                    "a second, and the sound is %d"
                                    % (self.drate / self.dslow, self.abps))
+        # THE READER'S OWN COST IN PLACE (`xrd`, 98.2.3.9): what a play's
+        # reader spends a KB past the copy - measured off the machine, not
+        # priced - charged on every chunk in place, tier or not
+        self.dread = 1.0 + (xrd or 0.0) / 1000.0 * self.drate / 1024
 
     def _drate(self):
         """The disk's rate this frame: the profile's, less the bank's copies
@@ -4968,11 +4979,14 @@ class Encoder:
         live chunk fits the conventional ring goes there with no copy up, so
         the copy is the reader's only while the bucket is past the ring's
         reserve - where, before them, every chunk went up through the bank"""
-        if self.bank and self.dslow != 1.0 and \
-                ((getattr(self, "xmode", None) == "inplace" and
-                  not TIERS) or self.disk.level > self.reserve):
-            return self.drate0 / self.dslow
-        return self.drate0
+        if not self.bank:
+            return self.drate0
+        inplace = getattr(self, "xmode", None) == "inplace"
+        x = getattr(self, "dread", 1.0) - 1.0 if inplace else 0.0
+        if self.dslow != 1.0 and ((inplace and not TIERS) or
+                                  self.disk.level > self.reserve):
+            x += self.dslow - 1.0
+        return self.drate0 / (1.0 + x)
 
     def begin(self):
         """A frame starts (_begin), and where the LAG SCHEDULE runs (fgrid:
@@ -10664,7 +10678,8 @@ def _encode(a, keep, tick, readers):
         bank = int(a.bank * 1024)
         pre = bank if a.prefill == "all" else \
             min(bank, int(float(a.prefill or BANK_PREFILL) * prof["disk"]))
-        enc.set_bank(bank, pre, prof.get("xup", prof.get("xcopy")) or 0.0)
+        enc.set_bank(bank, pre, prof.get("xup", prof.get("xcopy")) or 0.0,
+                     prof.get("xrd") or 0.0)
     elif a.prefill:
         raise vid.V88Error("--prefill fills a --bank, and there is none")
     # THE LAG (98.2.1.1.2): --lag ms, in frames. Only calls that come faster

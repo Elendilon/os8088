@@ -196495,6 +196495,24 @@ which skip the copy up in exactly the stretches it was measured in, so it is
 an upper bound on what kern_mega costs a file and is to be re-taken from
 plays of a tiered player.
 
+##### 98.2.3.9 `xrd`: the in-place reader's own cost (2026-10-29)
+
+**Catch My Heart at 519,000 and at 488,000 came out the same file** because
+the encoder's bucket never ran low: re-encoded from its source with the
+encoder of the day, byte for byte the owner's but for the options block, its
+lowest level anywhere was **2,551 KB of 3,040** - where the machine's bank
+ran empty at frame 1312. The model's per-frame share ran ~2 points under the
+plays' measured ones, which is not that gap; the reader's rate is. In place
+it charged the copy up alone, `xup` 0.186 ms a KB (placed at the gap,
+98.3.18.12), and the plays' timed reads replayed through the curve run dry
+where the machine did only with 0.345 charged on every chunk. The rest,
+0.159 ms a KB, is the reader's own work on a chunk past the copy - the
+bounce, the mirror, its loop - and the profile carries it as `xrd`, charged
+on every chunk in place; the copy is still skipped by the two tiers
+(98.3.18.18). Replayed: kern_big's Catch keeps a 624 KB margin at 519,000
+(it cuts nothing, as before), and `--kernel mega` runs 1,238 KB short, which
+the bank model now cuts for in the stretch it drains in.
+
 #### 98.2.4 Detail: less picture, the same screen
 
 **`--detail WxH`** (VGA8) makes the picture at a W-th of the canvas's width
