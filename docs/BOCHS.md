@@ -156,7 +156,13 @@ Rows that read guest state and then ACT on it in host time are still a race
 on any emulator, and three are now stepped rather than polled: `pxfolder`
 reads the shown picture and sends Esc with the machine stopped, `weavemove`
 walks from the serve to its reading in `advance` steps, and `vidfskeys`'s
-looks are `advance`s (see each row). What
+looks are `advance`s (see each row). A row on `os88bochs.Box` directly has
+`Box.guest_sleep(secs)` for the same job - `ptime` read every 50 ms host,
+each read a stop that costs the guest nothing - and `megavidv2` spaces its
+keys with it: its "Space again a second in, while the blocks are coming"
+was a host second, which with four Bochs to a core paused the play before
+its first frame, so both of its tails were wrong (old row 2 of 2 red beside
+four Bochs rows, new 3 of 3 green). What
 `slowdown` still does NOT give is a smooth map from host time to guest time
 (it holds the guest up to a second ahead of the clock), so a burst of guest
 time can follow a host stall. **That is why input whose SPACING matters is not host-timed**:
