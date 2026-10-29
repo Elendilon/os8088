@@ -2787,6 +2787,13 @@ mega_svc:
     mov [mega_rv], al
     mov [mega_irqr], ah             ; 1: an option ROM's IRQ (mega_irqrom)
 %ifdef MEGA_DIAG
+    cmp byte [mega_fdbusy], 0       ; ...landing INSIDE a native floppy call:
+    je .nofdj                       ; the floppy strip's j and v (14.124)
+    inc byte [mega_fdgj]
+    mov [mega_fdgv], al
+.nofdj:
+%endif
+%ifdef MEGA_DIAG
     call mega_pit                   ; ...and when it started (mega_rfsec)
     mov [mega_rft0], ax
     cmp byte [mega_irqr], 0
@@ -5989,9 +5996,15 @@ mega_fd13:
     mov es, ax                      ; (the caller's ES is its BUFFER)
     inc byte [sch_lock]             ; nothing switches under the 765
     mov byte [mega_fdbusy], 1
+%ifdef MEGA_FDMASK
+    call mega_fdmskon               ; MEGAFDMASK=1: no reflection in here
+%endif
     sti
     call mega_fdgo                  ; CF = 1 fall back; else AH = status
     cli
+%ifdef MEGA_FDMASK
+    call mega_fdmskoff
+%endif
     mov byte [mega_fdbusy], 0
     pushf
     push ax
@@ -6075,6 +6088,82 @@ mega_fd13:
 .no:
     stc
     ret
+
+%ifdef MEGA_FDMASK
+; -----------------------------------------------------------------------------
+; MEGAFDMASK=1 (KERN-MEGA-PLAN 14.124): the A/B for the empty-drive freeze.
+; The native path waits with IF = 1 - a second in the motor spin-up - and an
+; IRQ whose gate is a reflecting stub (mega_irv: an option ROM's, a PicoMEM's
+; multiplexer) that lands there is a trip to real mode, on a 286 a CPU reset
+; through the BIOS's, from the middle of a call that is driving the 765. A
+; reflected int 13h never has one: the IRQ runs inside the BIOS call, which
+; is real mode already. So for the native call those lines are MASKED - the
+; 8259 latches an edge while masked, so the IRQ is late and not lost - and
+; only the bits this set are cleared again. IF = 0, DS = KDATA. Preserves all
+; -----------------------------------------------------------------------------
+mega_fdmskon:
+    push ax
+    push bx
+    push dx
+    push si
+    push es
+    mov ax, MEGA_SEL_IDT
+    mov es, ax
+    mov si, 0x20*8
+    mov dx, 1
+    xor bx, bx
+.l:
+    cmp word [es:si+2], MEGA_SEL_CODE
+    jne .n
+    mov ax, [es:si]
+    sub ax, mega_irv
+    cmp ax, 14*6
+    jae .n
+    or bx, dx                       ; a reflecting stub's line
+.n:
+    add si, 8
+    cmp dx, 0x80
+    jne .s
+    mov si, 0x70*8                  ; the slave's gates
+.s:
+    shl dx, 1
+    jnz .l
+    in al, 0x21
+    mov ah, al
+    in al, 0xA1
+    xchg al, ah                     ; AX = the IMRs, master low
+    not ax
+    and bx, ax                      ; only the lines open now are ours to shut
+    not ax
+    mov [mega_fdmadd], bx
+    or ax, bx
+    out 0x21, al
+    mov al, ah
+    out 0xA1, al
+    pop es
+    pop si
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+mega_fdmskoff:
+    pushf
+    push ax
+    push bx
+    mov bx, [mega_fdmadd]
+    not bx
+    in al, 0x21
+    and al, bl
+    out 0x21, al
+    in al, 0xA1
+    and al, bh
+    out 0xA1, al
+    pop bx
+    pop ax
+    popf
+    ret
+%endif
 
 ; mega_fdjudge - a native fallback, judged by what the BIOS then made of the
 ; same call (mega_svc_back, BP = its frame, the BIOS's FLAGS at +20). Only a
@@ -6625,7 +6714,10 @@ mega_fdtk:
 ;   p  reloads   of ch0 seen since the wait began: an IRQ-free clock
 ;   f  FLAGS     of the waiting code: bit 9 (0200h) is IF
 ;   m i r        the master 8259's mask, in-service and request registers
-;   e g o        40:3E (calibrated, IRQ6 flag), 40:3F (motors), 40:40 (count)
+;   e g          40:3E (calibrated, IRQ6 flag), 40:3F (motors)
+;   j v          reflections taken INSIDE a native call this boot - an option
+;                ROM's IRQ (a PicoMEM's) landing in a wait - and the last one's
+;                vector (1Xh-ish: 0Ah-0Fh IRQ2-7, 70h-77h IRQ8-15)
 ;   s d          the 765's MSR and the DIR (bit 7 the change line)
 ;   x            waits rescued so far this boot
 ; With 'k' painted before every hlt, a machine that never wakes shows the
@@ -6754,13 +6846,14 @@ mega_fdgdraw:
     mov ds, ax
     mov cl, [0x3E]
     mov ch, [0x3F]
-    mov dl, [0x40]
     pop ds
     mov al, cl
     call .b
     mov al, ch
     call .b
-    mov al, dl
+    mov al, [mega_fdgj]
+    call .b
+    mov al, [mega_fdgv]
     call .b
     mov dx, MEGA_FD_MSR
     in al, dx
@@ -6926,7 +7019,7 @@ mega_fdres  times 7 db 0            ; ST0 ST1 ST2 C H R N
 mega_tfdoff db "native floppy off: BIOS from now", 0
 mega_tfdfb  db "FD BIOS ss s0s1s2 Dmm", 0
 mega_fdtold db 0                    ; 1 = mega_tfdfb has been shown this boot
-mega_fdglab db " n t b c p f m.i.r e.g.o s.d x." ; mega_fdgdraw's labels,
+mega_fdglab db " n t b c p f m.i.r e.g.j.v s.d.x" ; mega_fdgdraw's labels,
 mega_fdgbuf times 80 db 0           ; two bytes a field ('.' = no space)
 mega_fdgn   dw 0                    ; passes of the wait
 mega_fdgp   dw 0                    ; PIT channel 0 reloads seen in it
@@ -6935,6 +7028,8 @@ mega_fdgt   dw 0                    ; [ticks] when the wait began
 mega_fdgtp  dw 0                    ; [ticks] when last painted
 mega_fdgf   dw 0                    ; FLAGS where the strip was asked for
 mega_fdgx   db 0                    ; waits rescued this boot
+mega_fdgj   db 0                    ; reflections taken inside a native call
+mega_fdgv   db 0                    ; ...the last one's vector
 %endif
 mega_fdstep db 0
 mega_fdsaid db 0
@@ -6957,6 +7052,9 @@ mega_hbdh   db 0                    ; ...and the head (DH)
 mega_fdcmos db 0xFF                 ; CMOS byte 10h, once read
 mega_fdx    db 0                    ; 1 while dsk_xfer's int 13h is in flight
 mega_fddir  db 0                    ; the CCR read: bit 7 the change line
+%ifdef MEGA_FDMASK
+mega_fdmadd dw 0                    ; the IRQ lines mega_fdmskon shut
+%endif
 
 ; =============================================================================
 ; M3: MEMORY ABOVE 1MB (KERN-MEGA-PLAN 10, wave M3; 12.2). Two things live

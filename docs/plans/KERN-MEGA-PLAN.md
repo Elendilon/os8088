@@ -12653,7 +12653,8 @@ and each wake repaints. The line, left to right:
 | `p` | channel 0 reloads seen since the wait began | an IRQ-free clock |
 | `f` | FLAGS of the waiting code | bit 9 (`0200h`) is IF |
 | `m` `i` `r` | the master 8259's IMR, ISR, IRR | `i01` with `r01` is IRQ0 in service and never EOI'd; `m` bit 0 is IRQ0 masked |
-| `e` `g` `o` | 40:3E, 40:3F, 40:40 | calibrated/IRQ6 flag, motors, motor-off count |
+| `e` `g` | 40:3E, 40:3F | calibrated/IRQ6 flag, motors |
+| `j` `v` | reflections taken INSIDE a native call this boot, and the last one's vector (added in the second round, below) | did an option ROM's IRQ land in a wait |
 | `s` `d` | the 765's MSR and the DIR | `d80` is the change line |
 | `x` | waits RESCUED this boot | below |
 
@@ -12690,3 +12691,50 @@ cylinder 0. That is the "state left by earlier use" 14.35 asks for. It is
 not obviously THIS freeze, because an unsensed reset should cost a
 two-second IRQ timeout and a fallback rather than a hang. It is the first
 thing to fix once the strip has said what the freeze is.
+
+**Second round (owner, 2026-10-29).** The diagnostic disk installed almost
+fifty times without a freeze. The plain kern_mega then froze on its first
+install. The owner also sees it more often **after FTPD or after playing a
+video**. On the Victory both of those run through the PicoMEM: its network
+card and its Sound Blaster both deliver their IRQs through the card's option
+ROM. So a PicoMEM IRQ is a REFLECTION, and on a 286 that is a CPU reset
+through the BIOS's reset path (14.31 counted 61 a second while a video
+played). That is the one state those two programs leave behind which an
+install does not: a card with interrupts still coming.
+
+**Where that meets the freeze.** A reflected `int 13h` never has an IRQ
+reflection inside it: the IRQ runs inside the BIOS call, which is real mode
+already, and `mega_rmaskf` leaves option-ROM lines open for exactly that.
+The native path is different. It waits with IF on, deliberately (the pointer
+and the sound must not stop), and its spin-up wait is about a second of it.
+**That is the one place in the kernel where a PicoMEM IRQ becomes a CPU
+reset from the middle of a call that is driving the 765.** The reset path is
+the one that re-initialises the 8259 (14.64) and has reset the 765 behind
+our back (`mega_fdrprobe`). And `mega_r286`'s reset probe is skipped while
+`[mega_fdbusy]` is set: item 19 added that test for exactly this case and
+then gave it no answer. This is a hypothesis with a mechanism, not a
+finding. Why the reset would HANG there, rather than cost a two-second
+timeout, is not known. And the diagnostic build passing fifty times does
+not by itself say that the strip's timing hid it: those runs may not have
+had FTPD or a video before them.
+
+**Two disks, one question each:**
+
+- **`make megadiag`** now carries `j` and `v`: every reflection `mega_svc`
+  takes while `[mega_fdbusy]` is set, and the last one's vector. They
+  replace `o` (40:40, which is FFh throughout a native call). The run to
+  take: FTPD or a video, then the install. `j` above zero means the
+  hypothesis' event happened, freeze or not.
+- **`make megafdmask`** (`MEGAFDMASK=1`) is the plain kern_mega with that
+  event made impossible. `mega_fdmskon` masks every line whose gate is a
+  reflecting stub (`mega_irv`, the same test `mega_rmaskf` makes) across
+  the native call. It clears only the bits it set, after the call. An edge
+  that arrives while masked is latched by the 8259, so the IRQ is late by
+  at most the call and not lost. The A/B against the plain disk: FTPD or a
+  video, then install, several times on each.
+
+Shipped kern_mega is byte-identical with both. Both disks booted under QEMU
+and opened an empty A: through the native path (no option ROM there, so `j`
+stays 0 and the mask is empty, which is all an emulator here can show).
+`t_buildmatrix`'s `megafdmask` row keeps the arm assembling.
+
