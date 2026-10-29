@@ -17641,6 +17641,10 @@ vp_tierq:
     jne .no
     cmp byte [vp_livem], 0
     jne .no
+    cmp byte [vp_lyfl], 0           ; (a LAYER, 98.1.9: it reads when the ring
+    jne .no                         ; is full, and its file is for a disk fast
+                                    ; enough that the copy does not bind -
+                                    ; tests/vidlysplit.py's in-place arm)
     cmp cx, VP_TMIN
     jb .no
     mov byte [vp_ttwo], 1
