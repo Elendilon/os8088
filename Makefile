@@ -6842,7 +6842,7 @@ $(shell mkdir -p $(BUILD); \
         [ -f $(VPSTAMP) ] || { rm -f $(BUILD)/.vplayer-* \
                                       $(BUILD)/video.bin $(BUILD)/video.o88; \
                                 touch $(VPSTAMP); })
-$(BUILD)/video.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc \
+$(BUILD)/video.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/video/vfx.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc \
                     apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc \
                     apps/os88parts.inc apps/os88partsbody.inc apps/video/vblk.inc apps/os88mega.inc $(VPSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error $(STKLST) -I apps/ $(VPDEF) -o $@ apps/video/video.asm
@@ -6862,6 +6862,11 @@ $(BUILD)/vblk.bin: apps/video/vblk.asm apps/video/vblk.inc | $(BUILD)
 $(BUILD)/vblkpm.bin: apps/video/vblk.asm apps/video/vblk.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -DVB_PM -o $@ apps/video/vblk.asm
 VBLKPARTS = --part $(BUILD)/vblk.bin
+# ...and the kern_mega arm's part 2, the SPEAKER SHAPER (SPEC.md 98.3.15.2):
+# apps/os88spkfx.inc assembled alone, because the arm outgrew APP_MAX_SIZE
+# and the shaper is its one subsystem with a three-call interface. The
+# shipped VIDEO.O88 includes os88spkfx.inc as it always did. Assembled
+# -DPKG_MEGA into $(MEGAAPPDIR), the arm's own (KERN-MEGA-PLAN 14.66)
 
 $(BUILD)/video.o88: $(BUILD)/video.bin $(BUILD)/vblk.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/video.bin -o $@ $(VBLKPARTS)
@@ -13319,7 +13324,7 @@ videnchd: $(VIDENC_BASE) $(BUILD)/vidbench.o88 $(BUILD)/viddisk.o88 \
 # `make 486-video` boots it in 86Box.
 VID486_CYLS ?= 250
 VID486CLIPS ?=
-$(BUILD)/videodiag.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc apps/os88parts.inc apps/os88partsbody.inc apps/video/vblk.inc apps/os88mega.inc | $(BUILD)
+$(BUILD)/videodiag.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/video/vfx.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc apps/os88parts.inc apps/os88partsbody.inc apps/video/vblk.inc apps/os88mega.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -DVP_DIAG -o $@ apps/video/video.asm
 $(BUILD)/videodiag.o88: $(BUILD)/videodiag.bin $(BUILD)/vblk.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/videodiag.bin -o $@ $(VBLKPARTS)
@@ -13328,7 +13333,7 @@ $(BUILD)/videodiag.o88: $(BUILD)/videodiag.bin $(BUILD)/vblk.bin tools/os88pkg.p
 # super-packet was found, saved in the profile for tools/os88vfit.py --reads
 # to hold against the file. Its room is the layer's and the speaker's info
 # lines, which a card's play of a file with no layer does not draw
-$(BUILD)/videordlog.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc apps/os88parts.inc apps/os88partsbody.inc apps/video/vblk.inc apps/os88mega.inc | $(BUILD)
+$(BUILD)/videordlog.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/video/vfx.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc apps/os88parts.inc apps/os88partsbody.inc apps/video/vblk.inc apps/os88mega.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -DVP_DIAG -DVP_RDLOG -o $@ apps/video/video.asm
 $(BUILD)/videordlog.o88: $(BUILD)/videordlog.bin $(BUILD)/vblk.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/videordlog.bin -o $@ $(VBLKPARTS)
@@ -14757,14 +14762,17 @@ MEGASYSOPTARGS = $(addprefix SYSTEM:,$(call MEGASUB,$(SYSOPTIONAL)))
 MEGACOREARGS = $(addprefix APPS:,$(call MEGASUB,$(CORE_TOOLS))) \
                $(addprefix GAMES:,$(call MEGASUB,$(CORE_GAMES)))
 
-$(MEGAAPPDIR)/video.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc \
+$(MEGAAPPDIR)/video.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/video/vfx.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc \
                          apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc \
                          apps/os88parts.inc apps/os88partsbody.inc apps/video/vblk.inc apps/os88mega.inc $(VPSTAMP) | $(BUILD)
 	@mkdir -p $(MEGAAPPDIR)
-	$(NASM) -f bin -w+error $(STKLST) -I apps/ $(VPDEF) $(if $(VPDIAG),-DVP_NOSPKFX) -DPKG_MEGA -o $@ apps/video/video.asm
+	$(NASM) -f bin -w+error $(STKLST) -I apps/ $(VPDEF) -DPKG_MEGA -o $@ apps/video/video.asm
 	@echo "video (PKG_MEGA): $(call FILESIZE,$@) bytes"
-$(MEGAAPPDIR)/video.o88: $(MEGAAPPDIR)/video.bin $(BUILD)/vblk.bin $(BUILD)/vblkpm.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(MEGAAPPDIR)/video.bin -o $@ --part $(BUILD)/vblk.bin --part $(BUILD)/vblkpm.bin
+$(MEGAAPPDIR)/vfx.bin: apps/video/vfx.asm apps/video/vfx.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc | $(BUILD)
+	@mkdir -p $(MEGAAPPDIR)
+	$(NASM) -f bin -w+error -I apps/ -DPKG_MEGA -o $@ apps/video/vfx.asm
+$(MEGAAPPDIR)/video.o88: $(MEGAAPPDIR)/video.bin $(BUILD)/vblk.bin $(BUILD)/vblkpm.bin $(MEGAAPPDIR)/vfx.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(MEGAAPPDIR)/video.bin -o $@ --part $(BUILD)/vblk.bin --part $(BUILD)/vblkpm.bin --part $(MEGAAPPDIR)/vfx.bin
 
 $(MEGAAPPDIR)/audio.bin: apps/audio/audio.asm $(AUDIO_SRC) apps/os88mega.inc | $(BUILD)
 	@mkdir -p $(MEGAAPPDIR)

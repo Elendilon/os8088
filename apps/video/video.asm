@@ -7250,7 +7250,14 @@ vp_xbipq:
 ; vp_xbaddr - vp_addr in the XMS bank: AX = a chunk, BX = an offset in it ->
 ; DX = a handle, SI its offset (vp_xmk). Clobbers AX, BX, CX
 vp_xbaddr:
+    cmp byte [vp_ttwo], 0           ; TWO TIERS (LOADALL-PLAN L6): a chunk in
+    je .b                           ; the conventional tier is a pointer the
+    call vp_tget                    ; decode reads as a copying ring's - DX
+    jnc .bs                         ; a segment, below VP_XSEL - so VP_DSDX
+    jmp vp_tcaddr                   ; borrows for none of it
+.b:
     call vp_slot
+.bs:
     xor dx, dx
     shr ax, 1
     rcr dx, 1
@@ -8209,6 +8216,7 @@ vp_bksay:
 ; vp_eend - the session is over: in place no more - the board's slots the
 ; hybrid's bank again, emptied. Every register kept
 vp_eend:
+    mov byte [vp_ttwo], 0           ; (and no tiers: L6)
     cmp byte [vp_einp], 0
     je .r
     push ax
@@ -8369,6 +8377,10 @@ vp_pfcap:                           ; CX = the most it can fill: the bank's
     cmp byte [vp_einp], 0           ; gate's cap may hold under them
     je .r
     mov cx, [vp_kr]
+    cmp byte [vp_ttwo], 0           ; ...and with two tiers both, less the
+    je .r                           ; slot each keeps for a seam (L6)
+    add cx, [vp_tkc]
+    sub cx, 2
 .r:
     ret
 
@@ -11644,9 +11656,8 @@ vp_sstart:
     call vp_xipq                    ; decoded in place by LOADALL
     jc .knp                         ; (98.3.18.11)
 .kin:
-    mov cx, [vp_msl]
-    inc cx
-.knp:
+    call vp_tierq                   ; CX = the conventional ring's slots: the
+.knp:                               ; least, or a tier beside the bank (L6)
     call vp_bkind                   ; (what the card says after it)
     mov [vp_k], cx
     mov byte [vp_rshort], 0         ; A RING SHORT OF THE STREAM'S (98.1.1):
@@ -11661,6 +11672,8 @@ vp_sstart:
 %ifdef PKG_MEGA
     mov ax, cx
     add ax, [vp_msl]
+    cmp byte [vp_ttwo], 0           ; (a conventional TIER reads off the disk
+    jne .rcv                        ; into it: conventional memory, L6)
     call vp_rhtry                   ; ABOVE 1MB (14.41): no bounce slot, no
     jc .rcv                         ; gap's slack, no layer's mirror
     mov [vp_rclm], dx
@@ -12300,6 +12313,12 @@ vp_smov:
     call vp_mmovz
     mov dx, [vp_bseg]               ; (and the block decoder, 98.3.23)
     call vp_mmovz
+    mov dx, [vp_tseg]               ; (and the two tiers' table, 98.3.18.18)
+    call vp_mmovz
+%ifdef PKG_MEGA
+    mov dx, [vp_fxseg]              ; (and the speaker shaper, 98.3.15.2)
+    call vp_mmovz
+%endif
     cmp byte [vp_lyb], 0            ; (and THE LAYER's own claim, in place -
     jne .nly                        ; 98.1.9: a flip's slots are the ring
     mov dx, [vp_lyseg]              ; claim's top, and move with it)
@@ -12364,7 +12383,10 @@ vp_smove:
     ret
 
 vp_smtab:     dw vp_rclm, vp_keep, vp_prevseg, vp_shseg, vp_pseg, vp_kshd
-              dw vp_pevseg, vp_p8seg, vo_s1seg, vp_bseg
+              dw vp_pevseg, vp_p8seg, vo_s1seg, vp_bseg, vp_tseg
+%ifdef PKG_MEGA
+              dw vp_fxseg           ; (the speaker shaper's part, 98.3.15.2)
+%endif
 %ifdef VP_DIAG
               dw vp_prseg           ; (the profile: vp_prmark and the read
 %endif                              ; log load it at each use)
@@ -12525,6 +12547,7 @@ vp_spos:
     ; --- the hook's state: before the first super-packet
     xor ax, ax
     mov [vp_lc], ax
+    call vp_treset                  ; (the two tiers empty: L6. AX kept)
     call vp_lyunc                   ; (a LATE no, the ring past its slots
                                     ; then: chunk 0 again, so they are its
                                     ; now - 98.1.9.10)
@@ -13877,6 +13900,9 @@ vp_sfree:
 %else
 %endif
     mov dx, [vp_keep]
+    call .f
+    xor dx, dx                      ; (the two tiers' table, 98.3.18.18)
+    xchg dx, [vp_tseg]
     call .f
     mov dx, [vp_aseg]
     call .f
@@ -17109,7 +17135,13 @@ vp_sndprep:
 .ret:
     ret
 .spk:                               ; NO CARD: THE SPEAKER (98.3.15) - PCM8,
-%ifdef VP_NOSPKFX
+%ifdef PKG_MEGA
+    cmp byte [vp_spkpwm], 0         ; (the kern_mega arm's shaper is a PART:
+    jne .fxok                       ; fetched for a clip made for a card, and
+    call vp_fxget                   ; without it the clip plays silent here,
+    jc .ret                         ; 98.3.15.2)
+.fxok:
+%elifdef VP_NOSPKFX
     cmp byte [vp_spkpwm], 0         ; (a diag build with no shaper: a clip
     je .ret                         ; made for a card plays silent here)
 %endif
@@ -17137,7 +17169,7 @@ vp_sndprep:
     pop di
     jc .spkno                       ; a rate it cannot: silent
     mov byte [vp_snd], VP_SPK
-%ifndef VP_NOSPKFX
+%if %isdef(PKG_MEGA) || %isndef(VP_NOSPKFX)
     cmp byte [vp_spkpwm], 0         ; A CLIP MADE FOR A CARD is SHAPED for the
     jne .shp                        ; speaker here (34.11.9), as the encoder
     push ax                         ; shapes one made for it: a straight wave
@@ -17146,7 +17178,11 @@ vp_sndprep:
     mov es, [vp_aseg]               ; ring's claim, so a card machine never
     mov di, VP_RL + SPKFX_RINGX     ; holds it (34.11.9)
     mov ax, 0x0100 | SPKFX_PRE_DIFF
+%ifdef PKG_MEGA
+    call vp_fxinit
+%else
     call os88spkfx_init
+%endif
     pop es
     pop di
     pop ax
@@ -17171,7 +17207,7 @@ vp_ringkb:
     cmp byte [vp_snd], VP_SPK
     jne .small
 .big:
-%ifdef VP_NOSPKFX
+%if %isdef(VP_NOSPKFX) && %isndef(PKG_MEGA)
     mov ax, VP_RL / 1024 + 1
 %else
     mov ax, VP_RL / 1024 + (SPKFX_RINGEND + 1023) / 1024
@@ -17566,11 +17602,483 @@ vp_lstage:
 %else
 %endif
 
+; =============================================================================
+; TWO TIERS BESIDE THE BANK IN PLACE (docs/plans/LOADALL-PLAN.md L6, SPEC.md
+; 98.3.18.18). The bank's every chunk is read into the bounce and copied UP,
+; ~6 ms of every 32 KB on the Victory: time the reader spends that it does not
+; spend reading, and it is spent hardest where the bank has drained and the
+; reader is close behind the picture. So the conventional ring the bank in
+; place had shrunk to two slots keeps its slots, as a second TIER: a chunk
+; goes there - read straight off the disk, decoded with no borrow - while
+; every live chunk fits it, and to the bank once it is full, so the bank
+; still banks in the calm stretches when its copy is cheap.
+;
+;   - [vp_tseg]:0 is a word a chunk (the live window is under 256): the slot,
+;     bit 15 the conventional tier, bit 14 a SEAM. vp_slot answers it and
+;     vp_xbaddr turns a conventional one into a pointer the decode reads as
+;     a copying ring's, a segment below VP_XSEL, so VP_DSDX borrows for none
+;     of it and the decode needs nothing.
+;   - Each tier is a FIFO with its own next slot and live count, popped as
+;     vp_lfloor passes (vp_tpop), and its own MIRROR past its last slot. The
+;     conventional tier's slots are the ring's 1 .. K-1: slot 0 is still the
+;     bank's bounce, at the gap.
+;   - A super-packet that runs from one tier into the other is the one new
+;     case: at a SWITCH the new chunk's head - what vp_mneed says the one
+;     before it runs on into - is copied into the OLD tier's next slot, right
+;     after the chunk it continues (its mirror, when that is slot 0), and the
+;     slot is held until the new chunk is popped. So each tier keeps a slot
+;     free to be left with.
+; =============================================================================
+VP_TMIN     equ 4                   ; the least ring for a tier: the bounce
+                                    ; and three slots
+
+; vp_tierq - at .kin, CX = the slots the conventional ring would take: CX =
+; that, [vp_ttwo] 1, when the bank plays in place and a tier is worth it;
+; else [vp_ttwo] 0 and CX the least ring a key's read needs. Every other
+; register kept
+vp_tierq:
+    mov byte [vp_ttwo], 0
+%ifndef VP_NOTIER
+    cmp byte [vp_einp], 2           ; (the XMS bank in place: EMS's and the
+    jne .no                         ; hold's have no copy to save)
+    cmp word [vp_msl], 1            ; (BIGSP: two mirror slots a tier)
+    jne .no
+    cmp byte [vp_livem], 0
+    jne .no
+    cmp cx, VP_TMIN
+    jb .no
+    mov byte [vp_ttwo], 1
+    ret
+.no:
+%endif
+    mov cx, [vp_msl]
+    inc cx
+    ret
+
+; vp_treset - the stream (re)starts at chunk 0: both tiers empty, the next
+; chunk the conventional tier's. A ring that came out short of VP_TMIN, or a
+; bank short of four slots, plays with no tier. Every register kept
+vp_treset:
+    cmp byte [vp_ttwo], 0
+    je .r
+    push ax
+    mov ax, [vp_k]
+    dec ax                          ; (less the bounce)
+    mov [vp_tkc], ax
+    cmp ax, VP_TMIN - 1
+    jb .off
+    mov ax, [vp_kr]
+    mov [vp_tkb], ax
+    cmp ax, 4
+    jb .off
+    cmp word [vp_tseg], 0           ; THE TABLE, once a session (vp_sfree
+    jne .tb                         ; gives it back)
+    push dx
+    mov ax, 1
+    call vp_mclaim
+    jc .nt
+    mov [vp_tseg], dx
+.nt:
+    pop dx
+    jc .off
+.tb:
+    xor ax, ax
+    mov [vp_twb], ax
+    mov [vp_twc], ax
+    mov [vp_tlb], ax
+    mov [vp_tlc], ax
+    mov [vp_tfree], ax
+%if %isdef(VP_DIAG) || %isdef(VP_TTEST)
+    mov [vp_tcn], ax
+    mov [vp_tsw], ax
+%endif
+    mov byte [vp_tcur], 1
+    pop ax
+.r:
+    ret
+.off:
+    mov byte [vp_ttwo], 0
+    pop ax
+    ret
+
+; vp_tget - AX = a chunk -> AX = its slot, CF = 1 the conventional tier's.
+; Every other register kept
+vp_tget:
+    push bx
+    push es
+    mov es, [vp_tseg]
+    mov bl, al
+    xor bh, bh
+    shl bx, 1
+    mov ax, [es:bx]
+    pop es
+    pop bx
+    and ah, 0xBF                    ; (the seam's bit)
+    rol ax, 1
+    shr ax, 1                       ; CF = bit 15, and bit 15 clear
+    ret
+
+; vp_tcseg - AX = a slot of the conventional ring -> AX = its segment (its
+; selector in protected mode). Every other register kept
+vp_tcseg:
+%ifdef PKG_MEGA
+    cmp byte [vp_pm], 0
+    je .rm
+    push bx
+    mov bx, ax
+    shl bx, 1
+    mov ax, [vp_rsel + bx]
+    pop bx
+    ret
+.rm:
+%else
+%endif
+    push cx
+    mov cl, 11
+    shl ax, cl
+    add ax, [vp_ring]
+    pop cx
+    ret
+
+; vp_tcaddr - vp_addr for the conventional tier: AX = its slot, BX = an
+; offset -> DX:SI, as the copying ring's. Clobbers AX, BX, CX
+vp_tcaddr:
+    inc ax                          ; (the ring's slot: the bounce is 0)
+    call vp_tcseg
+%ifdef PKG_MEGA
+    cmp byte [vp_pm], 0             ; (a selector: the offset as it is)
+    je .rm
+    mov dx, ax
+    mov si, bx
+    ret
+.rm:
+%else
+%endif
+    mov si, bx                      ; (on kern_mega's 8-paragraph grid, as
+    and si, 127                     ; every segment a package builds:
+    and bl, 0x80                    ; KERN-MEGA-PLAN 14.39)
+    mov cl, 4
+    shr bx, cl
+    add ax, bx
+    mov dx, ax
+    ret
+
+; vp_tpop - the chunks under vp_lfloor given back to their tiers (a seam's
+; slot with its chunk). Clobbers AX, BX
+vp_tpop:
+    mov ax, [vp_lc]
+    call vp_lfloor                  ; BX = the lowest chunk still live
+.l:
+    mov ax, [vp_tfree]
+    cmp ax, bx
+    jae .r
+    push bx
+    push es
+    mov es, [vp_tseg]
+    mov bl, al
+    xor bh, bh
+    shl bx, 1
+    mov ax, [es:bx]
+    pop es
+    pop bx
+    test ah, 0x80
+    jz .b
+    dec word [vp_tlc]
+    test ah, 0x40
+    jz .n
+    dec word [vp_tlb]
+    jmp short .n
+.b:
+    dec word [vp_tlb]
+    test ah, 0x40
+    jz .n
+    dec word [vp_tlc]
+.n:
+    inc word [vp_tfree]
+    jmp short .l
+.r:
+    ret
+
+; vp_tfill - vp_fill with two tiers: the stream's next chunk into the tier
+; the policy names, its slot in the table, a seam if it switched, and
+; [vp_lc] published LAST (vp_fill's tail). CF as vp_fill's
+vp_tfill:
+    call vp_tpop
+    mov ax, [vp_lc]
+    call vp_lfloor
+    sub ax, bx                      ; AX = the live chunks
+%ifdef VP_TTEST
+    ; A GATE'S BUILD (tests/vidxip.py --arm banktier): a switch every
+    ; VP_TTEST chunks wherever both tiers can take it, so a seam is read
+    ; every few chunks and not twice a play
+    inc word [vp_trun]
+    cmp word [vp_trun], VP_TTEST
+    jb .tt
+    mov bx, [vp_tlc]
+    add bx, 2
+    cmp bx, [vp_tkc]
+    ja .tt
+    mov bx, [vp_tlb]
+    add bx, 2
+    cmp bx, [vp_tkb]
+    ja .tt
+    mov word [vp_trun], 0
+    cmp byte [vp_tcur], 0
+    je .conv
+    jmp .bank
+.tt:
+%endif
+    cmp byte [vp_tcur], 0
+    je .fromb
+    mov bx, [vp_tlc]                ; IN THE CONVENTIONAL TIER: it takes this
+    add bx, 2                       ; one while a slot past it is left for a
+    cmp bx, [vp_tkc]                ; seam...
+    jbe .conv
+    mov bx, [vp_tlb]                ; ...and then the bank does
+    inc bx
+    cmp bx, [vp_tkb]
+    jbe .bank
+    jmp short .none
+.fromb:
+    add ax, 2                       ; IN THE BANK: back to the conventional
+    cmp ax, [vp_tkc]                ; tier once every live chunk would fit
+    ja .stayb                       ; it, the reader close behind the
+    mov bx, [vp_tlc]                ; picture - and the bank has its slot
+    add bx, 2                       ; for the seam
+    cmp bx, [vp_tkc]
+    ja .stayb
+    mov bx, [vp_tlb]
+    inc bx
+    cmp bx, [vp_tkb]
+    jbe .conv
+.stayb:
+    mov bx, [vp_tlb]                ; ...or on in the bank, one left for a
+    add bx, 2                       ; seam
+    cmp bx, [vp_tkb]
+    jbe .bank
+.none:
+    stc
+    ret
+.bank:
+    mov bx, [vp_twb]
+    call vp_xbread                  ; AX = the bytes: the bounce, copied up
+    jnc .bk
+    jmp vp_fill.ioerr
+.bk:
+    call vp_dtime
+    mov dx, [vp_twb]                ; the entry: the bank's slot
+    xor cl, cl
+    jmp short .rec
+.conv:
+    mov ax, [vp_twc]
+    inc ax
+    call vp_tcseg
+    mov dx, ax                      ; DX:BX = the slot, off the disk
+    xor bx, bx
+    mov cx, VP_CHUNK
+    push ds
+    pop es
+    mov di, vp_cur
+    mov si, vp_name
+%ifdef VP_RDTIME
+    call vp_rtb
+%endif
+    call OSAPI_FILE_READ_SEQ
+%ifdef VP_RDTIME
+    call vp_rte
+%endif
+    jnc .cv
+    jmp vp_fill.ioerr
+.cv:
+    call vp_dtime
+%if %isdef(VP_DIAG) || %isdef(VP_TTEST)
+    inc word [vp_tcn]
+%endif
+    mov dx, [vp_twc]
+    or dh, 0x80                     ; the entry: the conventional tier's
+    mov cl, 1
+.rec:                               ; AX = the bytes, DX the entry, CL tier
+    push ax
+    cmp cl, [vp_tcur]
+    je .same
+    push dx
+    mov ax, [vp_lc]
+    call vp_lfloor
+    pop dx
+    cmp ax, bx                      ; anything live before it: a SEAM
+    jbe .put
+    call vp_tseam
+    jmp short .put
+.same:
+    test dh, 0x80                   ; the conventional tier's slot 0 after
+    jz .put                         ; its last: its MIRROR (the bank's is
+    test dx, 0x3FFF                 ; vp_xbread's)
+    jnz .put
+    call vp_tcmir
+.put:
+    mov bl, [vp_lc]
+    xor bh, bh
+    shl bx, 1
+    push es
+    mov es, [vp_tseg]
+    mov [es:bx], dx                 ; (before [vp_lc] says it is there)
+    pop es
+    mov [vp_tcur], cl
+    or cl, cl
+    jnz .ac
+    mov ax, [vp_twb]
+    inc ax
+    cmp ax, [vp_tkb]
+    jb .ab
+    xor ax, ax
+.ab:
+    mov [vp_twb], ax
+    inc word [vp_tlb]
+    jmp short .pub
+.ac:
+    mov ax, [vp_twc]
+    inc ax
+    cmp ax, [vp_tkc]
+    jb .aw
+    xor ax, ax
+.aw:
+    mov [vp_twc], ax
+    inc word [vp_tlc]
+.pub:
+    pop ax
+    cmp ax, VP_CHUNK                ; ZF=0: the stream's last, short chunk
+    pushf
+    jmp vp_fill.pub
+
+; vp_tseam - a SWITCH, CL = the new tier and DX its entry, [vp_lc] the chunk
+; just read: what of it the super-packet before it runs on into (vp_mneed)
+; copied into the OLD tier's next slot - its mirror when that is slot 0 - and
+; the slot held with this chunk (DX's bit 14). A copy refused leaves no seam.
+; Every register kept but DX
+vp_tseam:
+    push ax
+    push cx
+    push si
+    push di
+    push es
+    call vp_mneed                   ; CX = the bytes
+    or cx, cx
+    jnz .go
+    jmp .out
+.go:
+    inc cx
+    and cl, 0xFE
+    cmp byte [vp_tcur], 0
+    jne .dn
+    mov ax, [vp_twc]                ; THE BANK'S SEAM: UP from the chunk's
+    inc ax                          ; conventional slot...
+    call vp_tcseg
+    mov es, ax
+    mov ax, [vp_twb]                ; ...into the bank's next slot
+    or ax, ax
+    jnz .u
+    mov ax, [vp_tkb]                ; (slot 0: its mirror, after its last)
+.u:
+    push dx
+    call vp_bslot                   ; DX:AX = the slot x 32 KB
+    add ax, [vp_xbase]
+    adc dx, [vp_xbase + 2]
+    xor si, si
+    xor di, di                      ; UP
+    call OSAPI_XMEM_COPY
+    pop dx
+    jc .out
+    mov ax, [vp_twb]
+    inc ax
+    cmp ax, [vp_tkb]
+    jb .ub
+    xor ax, ax
+.ub:
+    mov [vp_twb], ax
+    inc word [vp_tlb]
+    jmp short .held
+.dn:
+    mov ax, [vp_twc]                ; THE CONVENTIONAL TIER'S: DOWN from the
+    or ax, ax                       ; bank's slot the chunk went to (the
+    jnz .d                          ; bounce may not hold it all - a rung-1
+    mov ax, [vp_tkc]                ; disk's sectors go straight up) into
+.d:                                 ; the tier's next slot, its mirror at 0
+    inc ax
+    call vp_tcseg
+    mov es, ax
+    mov ax, [vp_twb]
+    push dx
+    call vp_bslot
+    add ax, [vp_xbase]
+    adc dx, [vp_xbase + 2]
+    xor si, si
+    mov di, 1                       ; DOWN
+    call OSAPI_XMEM_COPY
+    pop dx
+    jc .out
+    mov ax, [vp_twc]
+    inc ax
+    cmp ax, [vp_tkc]
+    jb .db
+    xor ax, ax
+.db:
+    mov [vp_twc], ax
+    inc word [vp_tlc]
+.held:
+    or dh, 0x40
+%if %isdef(VP_DIAG) || %isdef(VP_TTEST)
+    inc word [vp_tsw]
+%endif
+.out:
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; vp_tcmir - the conventional tier's slot 0 just read after its last slot:
+; what a super-packet there runs on into, into the MIRROR after the last.
+; Every register kept
+vp_tcmir:
+    push ax
+    push cx
+    push si
+    push di
+    push ds
+    push es
+    call vp_mneed
+    jcxz .out
+    mov ax, [vp_k]
+    call vp_tcseg
+    mov es, ax
+    mov ax, 1
+    call vp_tcseg
+    inc cx
+    shr cx, 1
+    mov ds, ax
+    xor si, si
+    xor di, di
+    cld
+    rep movsw
+.out:
+    pop es
+    pop ds
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
 vp_fill:
     cmp byte [vp_resid], 0          ; RESIDENT: nothing to read (98.1.7)
     jne .none
     cmp byte [vp_eof], 0
     jne .eof
+    cmp byte [vp_ttwo], 0           ; TWO TIERS (LOADALL-PLAN L6)
+    je .one
+    jmp vp_tfill
+.one:
     mov ax, [vp_lc]                 ; the chunk to read
     call vp_lfloor                  ; the lowest chunk still read: its slot
     add bx, [vp_kr]                 ; and every one after it are still live
@@ -17771,8 +18279,9 @@ vp_mneed:
     mov ax, dx
     call vp_addr                    ; DX:SI = the super-packet
     push ds
-    mov ds, dx
-    mov di, [si+2]
+    VP_DSDX                         ; (IN PLACE a HANDLE, whose `mov ds`
+    mov di, [si+2]                  ; read the high memory under FFF0h, not
+    VP_DSEND                        ; the header: VP_DSDX borrows for it)
     pop ds
     pop bx
     pop dx
@@ -20543,11 +21052,16 @@ vp_nextw:
 ; K is whatever the machine had room for, not a power of two). Everything
 ; else preserved but the flags. One `div`, 2-4 calls a frame
 vp_slot:
+    cmp byte [vp_ttwo], 0           ; (TWO TIERS: the table's, LOADALL-PLAN
+    jne .t                          ; L6)
     push dx
     xor dx, dx
     div word [vp_kr]                ; (the ring's slots: the board's in place)
     xchg ax, dx
     pop dx
+    ret
+.t:
+    call vp_tget
     ret
 
 ; vp_addr - AX = a chunk, BX = an offset in it -> DX:SI, a far pointer
@@ -20764,7 +21278,12 @@ vp_aput:
     jne .nlev                       ; sample of it is emitted (34.11.9)
     or dx, dx
     jz .nlev
-%ifndef VP_NOSPKFX
+%ifdef PKG_MEGA
+    push ds
+    mov ds, dx
+    call far [cs:vp_fxlev]          ; (the part: 98.3.15.2)
+    pop ds
+%elifndef VP_NOSPKFX
     push ds
     mov ds, dx
     call os88spkfx_level
@@ -20806,7 +21325,9 @@ vp_aput:
     jne .cm                         ; table's middle, or a count of 1 where
     push ds                         ; the shaper has the carrier away
     mov ds, dx
-%ifndef VP_NOSPKFX
+%ifdef PKG_MEGA
+    call far [cs:vp_fxemt]          ; (the part: 98.3.15.2)
+%elifndef VP_NOSPKFX
     call os88spkfx_emit
 %endif
     pop ds
@@ -20886,9 +21407,14 @@ vp_aput:
 %define OS88SPK_DRYCNT              ; (the speaker's dry stretches, counted)
 %endif
 %include "os88spk.inc"              ; the speaker's ring player (34.11)
-%ifndef VP_NOSPKFX                  ; (VP_NOSPKFX: a diag build's room -
-%include "os88spkfx.inc"            ;  kern_mega's VPDIAG, the Makefile)
-%endif                              ; ...and its shaper (34.11.9)
+%ifdef PKG_MEGA                     ; ...and its shaper (34.11.9): in the
+%include "video/vfx.inc"            ; kern_mega arm a PART (98.3.15.2,
+SPKFX_PRE_DIFF equ VFX_PRE_DIFF     ; vp_fxget), the arm having outgrown
+SPKFX_RINGX   equ VFX_RINGX         ; APP_MAX_SIZE
+SPKFX_RINGEND equ VFX_RINGEND
+%elifndef VP_NOSPKFX                ; (VP_NOSPKFX: a diag build's room)
+%include "os88spkfx.inc"
+%endif
 
 ; =============================================================================
 ; the window
@@ -22611,8 +23137,11 @@ vp_fmt:
     xor bl, bl
     call vp_putn
 .mem:
-%ifdef VP_DIAG
-%ifndef VP_RDLOG                    ; (VIDEOR: the read log in its room)
+%if %isdef(VP_DIAG) && %isndef(PKG_MEGA)    ; (the kern_mega arm's diag
+%ifndef VP_RDLOG                    ; build: no room, and its VPPROF says all
+                                    ; of it - os88vfit prints the card from
+                                    ; the trailer, 98.3.22.3)
+                                    ; (VIDEOR: the read log in its room)
     ; 12: THE LAYER'S TESTS (98.1.9.3, 98.1.9.4) - the disk as timed, the
     ; line it was held to, and key 0 timed against its model
     mov ax, [vp_lysp]
@@ -23332,7 +23861,7 @@ vp_s_stall:   db ', stalls ', 0
 vp_s_pause:   db ', pauses ', 0
 vp_s_late:    db 'Late ', 0
 vp_s_room:    db 'Making room for the play...', 0
-%ifdef VP_DIAG
+%if %isdef(VP_DIAG) && %isndef(PKG_MEGA)
 vp_s_heap:    db 'Heap ', 0
 %ifndef VP_RDLOG
 vp_s_tdsk:    db 'Disk ', 0
@@ -23769,6 +24298,7 @@ vp_ditab:     dw vp_mrun0, vp_mfre0, vp_k, vp_rneed, vp_mrun, vp_mkeep
               dw vp_xbase + 2, vp_xgap, vp_xgok, xg_t0, xg_bt, xg_best
               dw xg_tt, xg_tt + 2, xg_tt + 4, xg_tt + 6, xg_tt + 8
               dw xg_tt + 10
+              dw vp_tcn, vp_tsw, vp_tkc ; (the two tiers: L6, 98.3.18.18)
 vp_ditab_end:
 %ifdef VP_RQ
 VP_DIN      equ (vp_ditab_end - vp_ditab) / 2 + 6  ; ...CS, SS and the four
@@ -24005,6 +24535,27 @@ vp_xlo:       dd 0                  ; ...the file offset of its head
 vp_xems:      db 0                  ; 1: the bank is EMS pages (98.3.18.6)
 vp_einp:      db 0                  ; 1: this session decodes IN PLACE (98.3.18.7)
 vp_xip:       db 0                  ; 1: the hold, decoded in place (98.3.18.11)
+vp_ttwo:      db 0                  ; 1: the bank in place has a CONVENTIONAL
+                                    ; TIER beside it (LOADALL-PLAN L6,
+                                    ; SPEC.md 98.3.18.18): [vp_tseg]:0 says
+                                    ; which tier and slot a chunk is in
+vp_tcur:      db 0                  ; ...the last chunk's tier: 1 conventional
+vp_tkb:       dw 0                  ; ...the bank's slots ([vp_kr])
+vp_tkc:       dw 0                  ; ...the conventional tier's ([vp_k] - 1)
+vp_twb:       dw 0                  ; ...each tier's next slot
+vp_twc:       dw 0
+vp_tlb:       dw 0                  ; ...and its live slots
+vp_tlc:       dw 0
+vp_tfree:     dw 0                  ; ...the chunks under this one popped
+vp_tseg:      dw 0                  ; ...and the table: a word a chunk, 512
+                                    ; bytes of a 1 KB claim of the session's
+%ifdef VP_TTEST
+vp_trun:      dw 0                  ; ...a gate's: chunks since its switch
+%endif
+%if %isdef(VP_DIAG) || %isdef(VP_TTEST)
+vp_tcn:       dw 0                  ; ...chunks read into the conventional
+vp_tsw:       dw 0                  ; tier, and seams copied (98.3.18.18)
+%endif
 vp_xact:      db 0                  ; ...a borrow is open (VP_DSDX..VP_DSEND)
 vp_xif:       db 0                  ; ...and its caller had IF on (2) or off
 vp_xidx:      db 0                  ; ...vp_xpend's last
@@ -24150,14 +24701,16 @@ vp_s_buf:     db 'Buffering ', 0    ; (here, past the libraries: eleven bytes
 ; times moves for it
 ; =============================================================================
 %ifdef PKG_MEGA
-    OS88_PARTS_BEGIN 2
+    OS88_PARTS_BEGIN 3
 %else
     OS88_PARTS_BEGIN 1
 %endif
       OS88_PART OP_SEG, OP_COMP | OP_LAZY   ; 0 the block decoder (vblk.asm)
 %ifdef PKG_MEGA
       OS88_PART OP_SEG, OP_COMP | OP_LAZY   ; 1 ...its protected-mode assembly
-    OS88_PARTS_END                          ;   (VB_PM, 98.3.23.2)
+                                            ;   (VB_PM, 98.3.23.2)
+      OS88_PART OP_SEG, OP_COMP | OP_LAZY   ; 2 the speaker shaper (vfx.asm,
+    OS88_PARTS_END                          ;   98.3.15.2)
 %else
     OS88_PARTS_END
 %endif
@@ -24208,6 +24761,112 @@ vp_bget:
 .r:
     pop es
     ret
+
+%ifdef PKG_MEGA
+; vp_fxget - the kern_mega arm's SPEAKER SHAPER, part 2 (98.3.15.2): fetched
+; the first time a clip made for a card plays on the speaker, checked to be
+; ours, and MOVABLE as the block decoder is. UI task (vp_sndprep's callers).
+; CF = 1 not to be had (op_fetch has said why): that clip plays silent.
+; Preserves all but flags
+vp_fxget:
+    cmp word [vp_fxseg], 0
+    jne .ok
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov al, 2
+    call op_fetch
+    jc .no
+    mov al, 2
+    call op_seg
+    or ax, ax
+    jz .no
+    mov es, ax
+    cmp word [es:VFX_SIG], VFX_SIGVAL
+    jne .no
+    cmp byte [es:VFX_ABI], VFX_ABIVER
+    jne .no
+    cmp byte [es:VFX_NVEC], VFXV_N
+    jb .no
+    mov [vp_fxseg], ax
+    xchg ax, dx
+    mov ax, vp_smove
+    call vp_mmov
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.ok:
+    clc
+    ret
+.no:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    stc
+    ret
+
+; vp_fxinit - os88spkfx_init through the part: its vectors as far addresses
+; NOW (the package may have moved since the last play, and does not inside
+; one), the speaker library's state handed over and os88spk_sil taken back.
+; ES:DI, AX as os88spkfx_init's. Preserves all
+vp_fxinit:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push bp
+    mov [vp_fxax], ax               ; (os88spkfx_init's AL and AH)
+    push es
+    mov dx, [vp_fxseg]
+    mov es, dx
+    mov ax, dx
+    cmp byte [vp_pm], 0             ; (through the part's CODE alias: the
+    je .cs                          ; data segment's far call is a #GP the
+    call OSAPI_MEM_CODESEL          ; kernel completes, KERN-MEGA-PLAN 14.48)
+    jnc .cs
+    mov ax, dx
+.cs:
+    mov [vp_fxini + 2], ax
+    mov [vp_fxlev + 2], ax
+    mov [vp_fxemt + 2], ax
+    mov ax, [es:VFX_VEC + 2 * VFXV_INIT]
+    mov [vp_fxini], ax
+    mov ax, [es:VFX_VEC + 2 * VFXV_LEVEL]
+    mov [vp_fxlev], ax
+    mov ax, [es:VFX_VEC + 2 * VFXV_EMIT]
+    mov [vp_fxemt], ax
+    pop es                          ; (the family's, as init takes it)
+    mov bx, dx                      ; BX = the part's data segment
+    mov cx, [os88spk_lptp]
+    mov dx, [os88spk_rseg]
+    mov si, [os88spk_rl]
+    xor ax, ax
+    mov al, [os88spk_sil]
+    mov bp, ax
+    mov ax, [vp_fxax]
+    call far [vp_fxini]
+    mov [os88spk_sil], cl
+    pop bp
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+%endif
 
 ; vp_v2chk - vp_parse's, for a version 2 file (98.1.10, 98.3.23): CF = 1 and
 ; [vp_msg] said when this player will not play it - a format with no blocks,
@@ -24422,6 +25081,13 @@ vp_bfs:       dd 0                  ; ...its vectors, as far addresses at the
 vp_blin:      dd 0                  ; bracket's door (vp_bset)
 vp_bpln:      dd 0
 vp_b1v:       dd 0
+%ifdef PKG_MEGA
+vp_fxseg:     dw 0                  ; the speaker shaper, part 2 (98.3.15.2)
+vp_fxini:     dd 0                  ; ...its vectors as far addresses, set
+vp_fxlev:     dd 0                  ; at each play's init (vp_fxinit)
+vp_fxemt:     dd 0
+vp_fxax:      dw 0
+%endif
 vp_m3gate:    db 1                  ; 0: no write mode 3 even on a VGA - a
                                     ; gate's (tests/vidv2.py), the EGA's
                                     ; plane-at-a-time arms on a machine here
@@ -24540,8 +25206,9 @@ vp_lsrem      equ vp_lsin + 2       ; and the bytes still to read or move
 vp_etseg      equ vp_lsrem + 4      ; vp_erate's segment (vp_open's)
 vp_dskend     equ vp_etseg + 2
 %if vp_dskend - vo_sav > VO_SAV + 256 ; (the scratch is the longer: the bss
-    OS88_BSS OP_BSS + vp_dskend - vp_pal ; is the palette and it, the save and
+vp_ovend      equ vp_dskend         ; is the palette and it, the save and
 %else                               ; the page table inside it)
-    OS88_BSS OP_BSS + 48 + VO_SAV + 256
+vp_ovend      equ vo_sav + VO_SAV + 256
 %endif
+    OS88_BSS OP_BSS + vp_ovend - vp_pal
     OS88_IMAGE_END

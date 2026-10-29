@@ -749,6 +749,38 @@ runs it; its numbers are not the machine's (VIDBENCH's mr286 rows are 1.2-
   conventional one is not contiguous in either - it wants a mirror per
   memory boundary, or the table ordered so the crossing never happens).
 
+  - **L6's DESIGN, as it is being built (2026-10-29).** What made it
+    worth building is a measurement: on the Victory's PicoMEM, Catch My
+    Heart and Sonic 2 drain the bank and the reader then runs DRY, and a
+    play's timed reads (SPEC.md 98.3.22.4) put the reader in `READ_SEQ` only
+    75-90% of the time - the copy up is ~6 ms of every 32 KB chunk on top
+    of the read. Two findings shape it:
+    1. **A fixed table buys nothing.** With chunk c in slot c mod K and K
+       the bank's 101 slots plus the ring's 8, an eighth of the chunks skip
+       the copy whenever they are read. The gain is in WHEN: a chunk read
+       while the reader is close behind the picture - the dry stretch,
+       exactly - is the one whose copy costs the play. So chunks go to the
+       CONVENTIONAL tier while every live chunk fits there, and to the bank
+       once it is full: the bank still banks in the calm stretches, when its
+       copy is cheap, and a stretch that drains it reads straight off the
+       disk into memory the hook decodes with no borrow.
+    2. **The decoder needs nothing.** `vp_addr` answers DX:SI, and
+       `VP_DSDX` already decides per POINTER whether DX is a handle (a
+       borrow) or a segment - so a super-packet in a conventional slot of an
+       in-place session decodes as a copying session's does.
+    The mechanism: a table of a word a chunk (`chunk & 0FFh`, the live
+    window under 256), bit 15 the tier and the rest the slot, read by
+    `vp_slot`'s callers in place of chunk mod K; each tier a FIFO with its
+    own write slot and live count, popped as `vp_lfloor` passes, its own
+    MIRROR at its end. A super-packet that runs from one tier into the other
+    is the one new case, and it is handled where the conventional ring
+    handles its wrap: at a SWITCH the chunk's head (`vp_mneed`) is copied
+    into the old tier's next slot, right after the chunk it continues, and
+    that slot is held until the new chunk is popped. A tier is left only
+    while it has that slot free. Off when nothing is in place, on BIGSP and
+    on Repeat (as in place is); a rung-1 disk already skips the copy and
+    gains nothing.
+
 - **L7 - BIGSP in the bank in place** (9.2.1's third item; NOT STARTED,
   the smallest of these): `[vp_kr]` = the bank's slots less `[vp_msl]`, and
   `vp_xbread` mirrors slots 0 and 1 into kr and kr + 1 as the conventional

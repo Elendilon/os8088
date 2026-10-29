@@ -87,7 +87,10 @@ DI_NAMES = ("mrun0", "mfre0", "k", "rneed", "mrun", "mkeep", "msnd", "lmin",
             "lydkb", "lydln", "lytm", "lytl", "rate", "blk", "tier",
             "rshort", "kr", "xbn", "ring", "rclm", "xbase_lo", "xbase_hi",
             "xgap", "xgok", "xg_t0", "xg_bt", "xg_best", "xg0", "xg512",
-            "xg1k", "xg2k", "xg4k", "xg8k", "cs", "ss",
+            "xg1k", "xg2k", "xg4k", "xg8k",
+            # (the two tiers beside the bank, SPEC.md 98.3.18.18: a trailer
+            # from before them has none - read_card counts the words)
+            "tcn", "tsw", "tkc", "cs", "ss",
             # (the kern_mega arm's: MEGADIAG's reflections across the
             # bracket - IRQs, their time / 2,048 PIT counts, services, theirs)
             "rqin", "rqit", "rqsn", "rqst")
@@ -101,7 +104,11 @@ def read_card(d, at):
         return None
     ln, n = struct.unpack_from("<HH", d, at + 4)
     w = struct.unpack_from("<%dH" % n, d, at + 8)
-    c = dict(zip(DI_NAMES, w))
+    names = DI_NAMES
+    i = DI_NAMES.index("tcn")
+    if n in (i + 2, i + 6):         # (a trailer before the tiers)
+        names = DI_NAMES[:i] + DI_NAMES[i + 3:]
+    c = dict(zip(names, w))
     for k in DI_BYTES:
         if k in c:
             c[k] &= 0xFF
@@ -137,6 +144,12 @@ def print_card(c, fps):
     print("     sound %d Hz, block %d; CPU tier %d; bank slots %d, ring "
           "slots in use %d" % (c["rate"], c["blk"], c["tier"], c["xbn"],
                                c["kr"]))
+    if c.get("tkc"):
+        print("     TWO TIERS (98.3.18.18): %d conventional slots beside the "
+              "bank; %d chunks read straight into them, %d seams copied"
+              % (c["tkc"], c["tcn"], c["tsw"]))
+    elif "tkc" in c:
+        print("     two tiers: none this play (no bank in place, or no room)")
     if "rqin" in c:
         u = 2048 * PIT_US / 1e6
         secs = c["dt"] / 18.2065

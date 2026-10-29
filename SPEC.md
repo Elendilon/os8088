@@ -200180,6 +200180,28 @@ clip's writes to the file's own bytes.
 rounding 0 (it reads another byte of the same image); no kernel byte, no
 change to `os88spk.inc`.
 
+#### 98.3.15.2 The kern_mega arm's shaper, a part (2026-10-29)
+
+The kern_mega arm (`PKG_MEGA`) outgrew `APP_MAX_SIZE` when the two tiers
+(98.3.18.18) went in: 478 bytes of headroom against ~800 of code. The
+speaker shaper (`apps/os88spkfx.inc`, 34.11.9), 2,394 bytes of the arm, is
+its one subsystem with a three-call interface and no state the player
+reads, so the arm carries it as PART 2 of `VIDEO.O88` (`apps/video/vfx.asm`,
+OP_SEG | OP_COMP | OP_LAZY, 1,428 bytes packed) and far-calls it through
+`video/vfx.inc`'s vectors; the shipped build includes the shaper as it
+always did. What the include reads of the speaker library - the ring, its
+count table, whether it drives a Covox - is handed over at `VFXV_INIT`, and
+`os88spk_sil`, the one thing it writes there, comes back in CL. It is
+fetched the first time a clip made for a card plays on the speaker
+(`vp_fxget`, the UI task's), movable as the block decoder is, and refused it
+plays that clip silent. The arm is 60,679 bytes, 1.7 KB under the limit
+with its bss.
+
+**Its diag build** (`VPDIAG=time`, kern_mega) also drops the info card's
+diag lines - Heap, Ring, Lead, Dry - which its VPPROF carries word for word
+and `os88vfit.py` prints from the trailer (98.3.22.3): 42 bytes to spare.
+The `-DVP_NOSPKFX` the Makefile gave that build is gone with the need for it.
+
 #### 98.3.16 TEXT: full screen, on any adapter
 
 **TEXT plays full screen only** (the owner's call), as CGA's colours do
@@ -202332,6 +202354,58 @@ has, gives up one slot for a page-safe claim (`vp_rclk1`: LASTX 21.4 calls a
 second, then 11.3). Either claim falls back to the plain one when no
 page-safe run is free. The PKG_MEGA arm alone; the shipped `video.bin` is
 byte-identical.
+
+##### 98.3.18.18 Two tiers: the conventional ring beside the bank in place (2026-10-29)
+
+**In place, every chunk of the bank goes disk -> the bounce -> copied UP**
+(98.3.18.13), ~6 ms of every 32 KB on the Victory - and the reader runs
+DRY exactly where the bank has drained and it is close behind the picture,
+so that copy is spent where the play can least afford it. The conventional
+ring the bank in place had shrunk to the least a key's read needs (two
+slots and a mirror) now keeps the slots it would have had, as a second
+TIER beside the bank (docs/plans/LOADALL-PLAN.md L6):
+
+- **Where a chunk goes**: to the conventional tier while every live chunk
+  would fit it - read straight off the disk into a slot the hook decodes
+  with no borrow - and to the bank once it is full. The bank still banks in
+  the calm stretches, when its copy is cheap; a stretch that drains it is
+  read with no copy at all. A fixed rotation over both (chunk c in slot c
+  mod K) was costed first and buys an eighth of the copies whenever they
+  fall, which is ~1%.
+- **The table**: a word a chunk, `chunk & 0FFh` (the live window is under
+  256), in a 1 KB claim of the session's ([vp_tseg], movable between
+  brackets with the rest): the slot, bit 15 the conventional tier, bit 14 a
+  seam. `vp_slot` answers it; `vp_xbaddr` turns a conventional slot into a
+  pointer the decode reads as a copying ring's - a SEGMENT below VP_XSEL, so
+  `VP_DSDX` borrows for none of it and the decode is untouched.
+- **Each tier a FIFO** with its own next slot and live count, popped as
+  `vp_lfloor` passes, and its own MIRROR past its last slot. The
+  conventional tier's slots are the ring's 1 .. K-1: slot 0 is still the
+  bank's bounce, at the gap (98.3.18.12), and the tier's slots are 32 KB
+  multiples on from it, so a seam's copy is placed too.
+- **A super-packet that runs from one tier into the other** is the one new
+  case, handled the way the ring handles its wrap: at a SWITCH, what of the
+  new chunk the super-packet before it runs on into (`vp_mneed`) is copied
+  into the OLD tier's next slot - right after the chunk it continues, or
+  its mirror when that slot is 0 - and the slot is held until the new chunk
+  is popped. So a tier is left only while it has that slot free. Into the
+  bank it is a copy up from the chunk's slot; into the conventional tier a
+  copy DOWN from the bank's slot, because on a rung-1 disk (98.3.18.15) the
+  bounce does not hold what went straight up.
+- **`vp_mneed` reads its headers through `VP_DSDX`** now. In place its
+  `vp_addr` answers a HANDLE, and a plain `mov ds` on one read the high
+  memory under FFF0h instead of the header; the walk then mostly fell to its
+  "the whole chunk" bound, so the mirror was right and too long.
+
+Not taken - one tier, as before - for BIGSP (its mirror is two slots), Live,
+a bank under four slots or a ring under four, and wherever the bank is not
+in place. +742 bytes of `video.o88`, a 1 KB claim a play, no kernel byte.
+`tests/vidxip.py --arm banktier` is the gate: a `VP_TTEST` build that
+switches every three chunks wherever both tiers can take it, so a seam is
+copied and read every few chunks against the reference decode (20 seams and
+27 of the clip's 41 chunks straight in, 39 holds, 0 wrong); with the seam's
+copy taken out the play wedges. The diag build counts both (`tcn`, `tsw`) in
+the trailer, which `tools/os88vfit.py` prints.
 
 #### 98.3.22 The play's profile: every frame timed on the machine (2026-10-15)
 
