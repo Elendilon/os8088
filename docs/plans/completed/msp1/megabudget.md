@@ -108,8 +108,17 @@ tighter figure is an owner question below.
 
 ## ROWS RUN
 
-See the commit that adds this note's last line: `soak -k buildmatrix -k
-megatree` and `full -k megahigh`, once, after the last code commit.
+Once, after the last code commit (`fc8c0b08`; the tip after it is docs only):
+
+| row | tier | why | result |
+|---|---|---|---|
+| `buildmatrix` | soak | the Makefile's `-DKERN_KNOB` filter and `BOOT2_XSEC` moved; every knob arm, the six mega ones among them, must still assemble | ok, 381.1s |
+| `megatree` | soak | kern_mega's private-tree plumbing, cheap | ok, 0.1s |
+| `megahigh` | full | kern_mega's above-1MB ratchet, which reads its build | ok, 1.8s |
+| `kernbudget` (and the rest of `fast`) | fast | t_kernbudget changed | 68 passed |
+
+No emulator row: the kernels are byte-identical, so a boot row would run
+yesterday's kernel and answer yesterday's question.
 
 ## WANTS THE OWNER
 
