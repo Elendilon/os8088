@@ -258,11 +258,12 @@ def main():
                  % (p.rb("rc_st"), msg()))
         if not p.rw("rc_rseg"):
             fail("5: recording with no ring claimed")
-        M.guest_sleep(m, 1.0)
-        grown = p.rw("rc_len")
-        if not 4000 <= grown < 40000:
-            fail("5: 1 s of recording with nothing clicked took %d bytes - "
-                 "the timer's pump is not running" % grown)
+        M.guest_sleep(m, 0.5)           # 4,000 bytes: under the smallest
+        grown = p.rw("rc_len")          # grant tier (RC_D_LEN), so not FULL
+        if not 1500 <= grown <= 6000 or p.rb("rc_st") != RC_REC:
+            fail("5: 0.5 s of recording with nothing clicked took %d bytes, "
+                 "state %d %r - the timer's pump is not running (cap %d)"
+                 % (grown, p.rb("rc_st"), msg(), p.rw("rc_cap")))
         ui.menu_pick("Sound", "Stop")
         if p.rb("rc_st") != RC_IDLE:
             fail("5: Stop left state %d (%r)" % (p.rb("rc_st"), msg()))
@@ -271,7 +272,7 @@ def main():
         if p.rw("rc_rseg") or after != mine:
             fail("5: the ring was not freed (rc_rseg %04x, claims %s against "
                  "%s)" % (p.rw("rc_rseg"), after, mine))
-        print("PASS 5: Record opened the ring, the pump took %d bytes in 1 s "
+        print("PASS 5: Record opened the ring, the pump took %d bytes in .5 s "
               "unclicked, Stop closed it and freed the ring (%r, %d bytes)"
               % (grown, msg(), p.rw("rc_len")), flush=True)
     print("recorder: ok", flush=True)
