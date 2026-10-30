@@ -210977,6 +210977,35 @@ Broken on purpose: with `xm_release_rec`'s `EMSV_GONE` call removed the third
 instance finds 125 pages and no quarter free; with `drv_pkg_call_x`'s slot
 swap removed the second instance is GIVEN the first's quarter and its handle.
 
+### 107.8 Inside kern_mega's real-mode bracket
+
+A package that lists `FSXL_DRV, DRVC_EMS` (§53.2.3) has the driver carried
+below 1MB for its bracket: image and state copied into a conventional claim
+at the freeze, `OSAPI_DRV_CALL` served by the twin at that copy's paragraph
+with the caller's slot in BH, and both copied back up at the exit. So a
+handle or a quarter taken on one side is the caller's on the other, and the
+board itself - its pages and its four registers - is the same hardware
+throughout. One answer differs, and a package has to know it: **the frame
+`EMSV_FRAME` and `EMSV_CAPS` hand back is the segment of the side it was
+asked on** - a selector (`OSAPI_SEG`'s `SEG_WIN`) in protected mode, the
+PARAGRAPH inside the bracket, where the real-mode `OSAPI_SEG` answers the
+paragraph itself. A selector held from before the bracket names nothing in
+real mode, so ask `EMSV_FRAME` again inside (quarters you hold already are
+answered CF = 0), and again after. Not listed, the class answers no driver
+(CF = 1, AX = 0).
+
+`tests/vidrmbems.py` (soak row `vidrmbems`) is the gate, on
+`vm/286-mega-ems` - `vm/286-mega`'s mr286 with 86Box's Lo-tech EMS board at
+260h / E000h, 2 MB, the only machine in the tree that gives kern_mega one:
+EMS.DRV loaded `DRVE_OK` in protected mode; MEGARMBE (`tests/megarmb/`)
+allocating and mapping before a bracket, reading that state and that page
+through the twin inside it, allocating, mapping and writing in real mode,
+and seeing every one of those after it in protected mode - then mapping,
+freeing and unframing back to 128 pages and four quarters. Broken on
+purpose: with `fsx_rcopyf`'s copy back UP removed, the handle made inside
+is forgotten (CAPS 124 free, `EMSV_BASE` `EMSE_BAD`) and the quarters are
+never given back.
+
 ## 108. isoTron — a light-wall duel in a raised 3D arena (`apps/isotron/isotron.asm`)
 
 ISOTRON.O88 is a light-wall duel: the player against the computer on a raised
