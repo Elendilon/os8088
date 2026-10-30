@@ -599,7 +599,10 @@ cache could not be claimed and the game ran interpreted (its log has no J).
   window as in full screen, with the recompiler on or off, so it read as
   the interpreter running whatever the status line said. Otherwise one
   claim without that room, as before, and then
-  over 256K is refused (`over 256K wants XMS`). The probe answers a KB over
+  over 256K is refused (`needs more XMS` - 24 characters is a toast's
+  room, and the first wording, `over 256K wants XMS`, lost its last word to
+  it; it also fires when there IS extended memory, only too little of it,
+  which that wording denied). The probe answers a KB over
   an exact size (SPEC.md 20.14.6.3), so the plan takes whole banks; bank 0's
   header must then say the same size, which a compressed file - read raw
   here - does not. The log's head gives the heap the plan saw.

@@ -4924,7 +4924,7 @@ rw_it_sep:      db MENU_DIS, '----------------------', 0
     RW_MI rw_it_plys, 'Stop Replay', 'F7'
 rw_s_prfst:     db 'Static reads the profile', 0
 rw_s_jroom:     db 'No room: Interpreter', 0
-rw_s_bignx:     db 'Cache: from the next game', 0
+rw_s_bignx:     db 'Cache: for the next game', 0
 rw_s_cfg:       db 'REALDMG.CFG', 0
 rw_spdit:       dw rw_it_spd0, rw_it_spd1, rw_it_spd2, rw_it_spd3
 rw_sndit:       dw rw_it_snd0, rw_it_snd1, rw_it_snd2
@@ -4948,7 +4948,7 @@ rw_s_slow1:     db 'Windowed is slow:', 0
 rw_s_slow2:     db 'Alt+Enter for', 0
 rw_s_slow3:     db 'Full Screen', 0
 rw_s_stop2:     db 'an invalid opcode', 0
-rw_s_big:       db 'REALDMG: over 256K wants XMS', 0
+rw_s_big:       db 'REALDMG: needs more XMS', 0
 rw_s_notrom:    db 'REALDMG: not a GB ROM', 0
 rw_s_cgb:       db 'REALDMG: needs GB Color', 0
 rw_s_mbc:       db 'REALDMG: MBC '
