@@ -5765,20 +5765,31 @@ kmain:
                                 ; here on (KERN-MEGA-MEMORY-PLAN MC7.4)...
     pop ax
     mov [snd_live], al          ; ...after which the tick may run again
-    call COLD_SEG:drv_hiboot_f  ; ...and the boot's drivers above 1MB, now
-                                ; that there is a pool (item 82)...
-    call COLD_SEG:mem_hicaches_f ; ...and its caches (item 84)
-%ifdef OS88_SHORTCUTS
-    call COLD_SEG:stik_bootf    ; ...the Sticky Apps, bound in the mode they
-                                ; run in (KERN-MEGA-PLAN 14.78; drv_notice_x
-                                ; does it before the switch elsewhere)...
-    call COLD_SEG:as_bootc      ; ...and AUTOSTART last, so a package it opens
-                                ; is placed as one opened by hand would be -
-                                ; above 1MB when it says OS88_HIGH
-                                ; (KERN-MEGA-MEMORY-PLAN MC8)
-%endif
+    call COLD_SEG:kmain_hic     ; ...and the rest, one far call to .cold
 %endif
     jmp ui_task                 ; task 0 becomes the UI task; never returns
+
+%ifdef KERN_MEGA
+; kmain_hic - kern_mega's boot tail after mega_enter, FAR: four far calls that
+; were kmain's in .text (kern_mega size pass 1)
+section .cold
+kmain_hic:
+    call COLD_SEG:drv_hiboot_f  ; ...the boot's drivers above 1MB, now that
+                                ; there is a pool (item 82)...
+    call COLD_SEG:mem_hicaches_f ; ...and its caches (item 84)
+%ifdef OS88_SHORTCUTS
+    call stik_boot              ; ...the Sticky Apps, bound in the mode they
+                                ; run in (KERN-MEGA-PLAN 14.78; drv_notice_x
+                                ; does it before the switch elsewhere)...
+    jmp as_bootc                ; ...and AUTOSTART last (its retf is ours), so
+                                ; a package it opens is placed as one opened
+                                ; by hand would be - above 1MB when it says
+                                ; OS88_HIGH (KERN-MEGA-MEMORY-PLAN MC8)
+%else
+    retf
+%endif
+section .text
+%endif
 
 ; =============================================================================
 ; osapi helpers (SPEC.md 20.4) - tiny accessors for loaded programs, reached
@@ -5808,19 +5819,24 @@ kmain:
 ; EVERY KERNEL BUT kern_mega answers it IN THE CELL (OSAPI_XREFUSE, kernel
 ; size pass 14), so the body below is kern_mega's alone.
 %ifdef KERN_MEGA
-osapi_xmem_sel:
-    cmp byte [mega_on], 0
-    je .no
-    push bx
-    call xm_ownbl               ; BL = who is asking
-    call MEGA_SEL_CODE:mega_xmself
+osapi_xmem_sel:                 ; (xmem_run's shape: the [mega_on] test and
+    push bx                     ; the refusal are .cold's, osapi_xmem_selc -
+    call xm_ownbl               ; kern_mega size pass 1. xm_ownbl is a pure
+    call COLD_SEG:osapi_xmem_selc ; query, so it may run in real mode too)
     pop bx
     ret
+section .cold
+osapi_xmem_selc:
+    cmp byte [mega_on], 0
+    je .no
+    call MEGA_SEL_CODE:mega_xmself ; BL = who is asking
+    retf
 .no:
-    mov ax, 1
-    cmp al, 2                   ; CF = 1 - and SIX bytes where `stc` is five,
-    ret                         ; which keeps every hot routine after this on
-                                ; the byte parity t_hotpar measured it at
+    mov ax, 1                   ; CF = 1, AX = 1: not available here -
+    cmp al, 2                   ; `cmp` and not `stc`, a byte longer, which
+    retf                        ; keeps the hot .cold routines after this on
+                                ; the parity they were measured at
+section .text
 %endif
 
 ; ---- osapi_xmem_run - API slot 0x04CB (KERN-MEGA-PLAN 14.16) ----------------
@@ -6073,11 +6089,16 @@ osapi_img_name equ mod_gone     ; `stc / retf`: CF = 1, every register kept
 ; THE TASK MANAGER'S "RAM IS RAM" (KERN-MEGA-PLAN 13.6): what is above 1MB, and
 ; whose, so a package's memory is one figure wherever it was placed.
 %ifdef KERN_MEGA
-osapi_xmem_walk:
-    cmp byte [mega_on], 0
-    je osapi_xmem_sel.no
-    call MEGA_SEL_CODE:mega_xmwalkf ; (`.mega`: KERN-MEGA-SEGMENTS-PLAN)
+osapi_xmem_walk:                ; (the body is .cold's: kern_mega size pass 1)
+    call COLD_SEG:osapi_xmem_walkc
     ret
+section .cold
+osapi_xmem_walkc:
+    cmp byte [mega_on], 0
+    je osapi_xmem_selc.no
+    call MEGA_SEL_CODE:mega_xmwalkf ; (`.mega`: KERN-MEGA-SEGMENTS-PLAN)
+    retf
+section .text
 %elifndef KERN_BIG
 osapi_xmem_walk equ xm_copy     ; kern_small: no extended memory, and its
                                 ; xm_copy is AX = 1, CF = 1 with every other
@@ -6096,15 +6117,20 @@ osapi_xmem_walk equ xm_copy     ; kern_small: no extended memory, and its
 ; Every kernel but kern_mega answers it IN THE CELL - `mov ax, dx / cmp ax, 1`
 ; (kernel size pass 14) - so the body is kern_mega's alone.
 %ifdef KERN_MEGA
-osapi_mem_codesel:
+osapi_mem_codesel:              ; (the body is .cold's: kern_mega size
+    call COLD_SEG:osapi_mem_codeselc ; pass 1)
+    ret
+section .cold
+osapi_mem_codeselc:
     cmp byte [mega_on], 0
     je .rm
     call MEGA_SEL_CODE:mega_codeself ; (`.mega`: KERN-MEGA-SEGMENTS-PLAN)
-    ret
+    retf
 .rm:
     mov ax, dx
     cmp ax, 1                   ; CF = 1 iff DX = 0
-    ret
+    retf
+section .text
 %endif
 
 ; ---- osapi_rand - seed = seed*25173 + 13849; out: AX = new seed --------------
