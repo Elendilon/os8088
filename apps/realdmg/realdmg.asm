@@ -673,7 +673,7 @@ rw_dsel         dw 0                ; our DATA segment, for code entered
                                     ;   with DS somebody else's (rw_reloc)
 %ifdef PKG_MEGA
 rw_pm           db 0                ; CPU_F_PM at entry: kern_mega's arm
-rw_xsel         dw 0                ; the bank run's first selector
+rw_xsel         dw 0                ; the banks in place: the first window
 rw_jtsel        dw 0                ; the block table's selector, or 0 (rw_jtx)
 rw_jtsub        dw 0                ; ...or in the claim under CPU_F_PM
                                     ;   (OSAPI_XMEM_RUN, REALDMG-SPEC 10.3.1)
@@ -2601,9 +2601,7 @@ rw_unload:
     mov byte [rw_ntc], 0
     cmp byte [rw_bcache], 0         ; the ROM: the bank cache's store and
     je .one                         ;   slots, or its one claim
-    mov ax, [rw_xbase]
-    mov dx, [rw_xbase + 2]
-    call OSAPI_XMEM_FREE            ; (its run of selectors with it)
+    call rw_xfree                   ; (or the banks in place, 10.3.1)
     xor dx, dx
     xchg dx, [rw_slotseg]
     or dx, dx                       ; (none: the banks in place, 10.3.1)
@@ -4918,7 +4916,7 @@ rw_it_sep:      db MENU_DIS, '----------------------', 0
     RW_MI rw_it_plys, 'Stop Replay', 'F7'
 rw_s_prfst:     db 'Static reads the profile', 0
 rw_s_jroom:     db 'No room: Interpreter', 0
-rw_s_bignx:     db 'Cache: from the next game', 0
+rw_s_bignx:     db 'Cache: for the next game', 0
 rw_s_cfg:       db 'REALDMG.CFG', 0
 rw_spdit:       dw rw_it_spd0, rw_it_spd1, rw_it_spd2, rw_it_spd3
 rw_sndit:       dw rw_it_snd0, rw_it_snd1, rw_it_snd2
@@ -4942,7 +4940,7 @@ rw_s_slow1:     db 'Windowed is slow:', 0
 rw_s_slow2:     db 'Alt+Enter for', 0
 rw_s_slow3:     db 'Full Screen', 0
 rw_s_stop2:     db 'an invalid opcode', 0
-rw_s_big:       db 'REALDMG: over 256K wants XMS', 0
+rw_s_big:       db 'REALDMG: needs more XMS', 0
 rw_s_notrom:    db 'REALDMG: not a GB ROM', 0
 rw_s_cgb:       db 'REALDMG: needs GB Color', 0
 rw_s_mbc:       db 'REALDMG: MBC '
