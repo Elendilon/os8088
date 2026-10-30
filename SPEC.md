@@ -201955,17 +201955,24 @@ six vectors.
   `[vp_ptfp + 2]`. The part writes nothing through its own CS, which is a
   read-only code alias under protected mode; its names' table is read
   through it.
-- **Fetched at LAUNCH and kept** (`vp_cpget`, called by the entry proc
-  beside `vp_bget`'s block decoder): one claim for the instance's life,
-  movable with the session's claims (`vp_smtab`), on its code alias in
-  protected mode (`OSAPI_MEM_CODESEL`, asked at every call since a move may
-  change it), and on its real paragraph inside a real-mode bracket, where
-  the card's ninth line is drawn too - `[vp_cpseg]` is in `vp_rlst`. The
-  first build fetched it at the first door instead, with the session's
-  claims standing, and a version 2 Repeat play on lin320 then drew 72 wrong
-  pixels (`megavidv2`); fetched at launch it draws none. The cause was not
-  found. A part that will not come is a door not asked (protected mode) and
-  a line not drawn.
+- **Fetched at LAUNCH and kept, PINNED** (`vp_cpget`, called by the
+  entry proc beside `vp_bget`'s block decoder): one claim for the
+  instance's life, on its code alias in protected mode (`OSAPI_MEM_CODESEL`,
+  asked at every call) and on its real paragraph inside a real-mode bracket,
+  where the card's ninth line is drawn too - `[vp_cpseg]` is in `vp_rlst`.
+  A part that will not come is a door not asked (protected mode) and a line
+  not drawn. **Two other shapes were built and each broke a play**, which is
+  why it is this one:
+  * fetched at the FIRST DOOR, with a session's claims standing,
+    `megavidv2`'s version 2 Repeat play on lin320 drew 72 wrong pixels;
+  * MOVABLE (the shaper's shape, `vp_smove`), `megavidv2`'s modex leg had
+    the player CLOSED by a #GP at its next stop - `vp_sstop` -> `vp_after`
+    -> `vp_kpic` -> `vp_decram` -> `vd_n_p3`'s `movsw`, the key's picture
+    decoded into the box from the file held in XMS, 3 runs of 3. A pinned
+    1 KB or 2 KB dummy claim at launch broke neither, so what triggers it is
+    a compaction having somewhere to move, not the part's code: a latent
+    defect in the key picture's read under protected mode that a heap
+    arrangement exposes, NOT FIXED here and reported with W5's.
 - **The profile's two ends are written once for both builds**
   (`apps/video/vprof.inc`): the shipped player expands them where they
   always were, so every shipped build - plain, `VPDIAG=1`, `VPDIAG=time`,
