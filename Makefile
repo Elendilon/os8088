@@ -14587,6 +14587,13 @@ $(BUILD)/megarmbf.bin: tests/megarmb/megarmbf.asm apps/os88api.inc apps/os88real
 	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megarmb/megarmbf.asm
 $(BUILD)/megarmbf.o88: $(BUILD)/megarmbf.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/megarmbf.bin -o $@
+# MEGARMBD (tests/megarmb/megarmbd.asm): a real-mode bracket on an EXTENDED
+# DESKTOP, a mode set on either display (SPEC.md 53.2.3, MEGA-VIDEO-REALMODE-
+# PLAN W7) - tests/megarmbext.py, on 86Box's two-card vm/286-mega-multimon
+$(BUILD)/megarmbd.bin: tests/megarmb/megarmbd.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megarmb/megarmbd.asm
+$(BUILD)/megarmbd.o88: $(BUILD)/megarmbd.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/megarmbd.bin -o $@
 # MEGARMBX (tests/megarmb/megarmbx.asm): what a real-mode bracket READS - the
 # extent list's OSAPI_FILE_READ_SEQ, the XMEM_COPY twin, OSAPI_DRV_CALL into a
 # low HDD.DRV (SPEC.md 53.2.3, MEGA-VIDEO-REALMODE-PLAN W3) - tests/vidrmb.py
@@ -14732,7 +14739,7 @@ $(BUILD)/megalowb.o88: $(BUILD)/megalowb.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/megalowb.bin -o $@
 megarun: $(BUILD)/megarun.o88 $(BUILD)/megaxm.o88 $(BUILD)/megahib.o88 $(BUILD)/megarmb.o88 \
         $(BUILD)/megarmbl.o88 $(BUILD)/megarmbf.o88 $(BUILD)/megarmbx.o88 $(BUILD)/megarmbs.o88 \
-        $(BUILD)/megarmbe.o88 \
+        $(BUILD)/megarmbe.o88 $(BUILD)/megarmbd.o88 \
         $(BUILD)/mega.img
 .PHONY: megarun
 

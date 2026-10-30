@@ -16805,9 +16805,12 @@ SOAK = [
         "SPEC.md 53.2.3, docs/plans/MEGA-VIDEO-REALMODE-PLAN.md W2: the "
         "real-mode bracket's FALLBACK and its TABLE under Bochs. MEGARMBF "
         "(OS88_HIGH, OS88_HIGHMEM) asks FSXF_REAL where real mode cannot be "
-        "had - KEEPWORKER, a TF_SERVICE task, EXTD.DRV loaded, a SERIAL.DRV "
-        "lease (the row pokes each state and puts it back), the heap filled - "
-        "and each bracket RUNS in protected mode with SI = its FSXR_* reason; "
+        "had - KEEPWORKER and the heap filled - and each bracket RUNS in "
+        "protected mode with SI = its FSXR_* reason; since W7 a TF_SERVICE "
+        "task and EXTD.DRV's row (both poked and put back) are TAKEN real, "
+        "and a REAL SERIAL.DRV lease on COM1 is too: its queued byte is sent "
+        "from inside by the pointer's ISR at IVT 24h and gone from the "
+        "owner's ring after (red, 0100, with srl_seg left a selector); "
         "a HUGE claim above 1MB in apps/os88real.inc's list makes the "
         "PACKAGE fall back (prep CF = 1); a conventional one is renamed to its "
         "real paragraph inside and written through it; inside a real-mode "
@@ -16826,6 +16829,24 @@ SOAK = [
         needs=("bochs", "nasm"),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
                "build/megarmbf.o88", "build/megarmbf.bin")),
+    Row("megarmbext", "soak", py("tests/megarmbext.py"), 40.0,
+        "SPEC.md 53.2.3's W7 paragraph, MEGA-VIDEO-REALMODE-PLAN W7: the "
+        "real-mode bracket on an EXTENDED DESKTOP, on 86Box's two-card "
+        "286-mega-multimon (a Paradise VGA and a Hercules) with Extend in "
+        "SYSTEM.CFG. MEGARMBD's two FSXF_REAL brackets, CH = 1 and CH = 2: "
+        "SI 0, no CPU_F_PM, every EXFP slot on EXTD.DRV's low copy inside, "
+        "one display, mode 13h's fill on the VGA and FFh on the Hercules on "
+        "the glass with the other monitor dark; then the Video Player's "
+        "kern_mega arm on a second boot, a streamed VGA8 file and a one-bit "
+        "Hercules one, each played full screen REAL ([fsx_rwhy] 0) on its "
+        "display - which needed SPEC.md 98.3.24.2's held room, the door "
+        "having answered FSXR_ROOM on any 4 MB 286 before it. After: two "
+        "displays, the slots byte for byte, no exception charged. Red (8) "
+        "with the FSXR_EXTD test put back. 40s is 20 measured",
+        needs=("86box",),
+        wants=("build/mega.img", "build/megarun.o88", "build/megarmbd.o88",
+               "build/megarmbd.bin", "build/megak/apps/video.o88",
+               "build/megak/kernel.map")),
     Row("vidrmbfrag", "soak", py("tests/vidrmb.py"), 50.0,
         "SPEC.md 53.2.3, docs/plans/MEGA-VIDEO-REALMODE-PLAN.md W3: what a "
         "REAL-MODE BRACKET reads, under Bochs booted off C: with no driver "

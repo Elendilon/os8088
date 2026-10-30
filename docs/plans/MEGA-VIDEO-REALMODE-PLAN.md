@@ -6,8 +6,8 @@ pass (2026-10-30, section 4's entries); W3 (the extent reader, the low
 drivers, the XMEM twins) and W4 (SOUND.DRV low, the stream and the speaker
 door) are BUILT and their gates pass (2026-10-30); W5 (the player) is
 BUILT and its gates pass (2026-10-30) - its arm's `VPDIAG` builds no
-longer fit `APP_MAX_SIZE`, which W6 needs (W5's entry); W6-W7 are not
-started.** The plan was first written against
+longer fit `APP_MAX_SIZE`, which W6 needs (W5's entry); W6's disks are with
+the owner; W7 is BUILT and its gates pass (2026-10-30, its entry).** The plan was first written against
 `4d3d0943` from source and documents only. **W0 measured it again on
 `df2e1fbf`**, and section 7 is that census: every `PKG_MEGA` block of the
 player classified and assembled, the bracket's real API whitelist walked off
@@ -1475,6 +1475,34 @@ deduplicated union below, plus `test-full`.
   ring in an `OS88_HIGH` region shows it gone after (x = 0101). Broken on
   purpose - `srl_seg` left the owner's SELECTOR for the bracket - the byte
   never reaches the owner's ring (0100), red.
+
+  **The two-display gate is `megarmbext`** (86Box, a new profile
+  `vm/286-mega-multimon`: `vm/286-victory`'s AMI 286 with a Paradise VGA and
+  a HERCULES, a monitor each, Extend in SYSTEM.CFG). Its first boot is
+  `tests/megarmb/megarmbd.asm`'s MEGARMBD: an `FSXF_REAL` bracket on CH = 1
+  and on CH = 2, each SI 0 with no `CPU_F_PM`, every `EXFP` slot on the low
+  copy's paragraph inside and one display, mode 13h's fill on the VGA and
+  FFh on the Hercules ON THE GLASS with the other monitor dark (the patched
+  86Box's `screenshot1`), and after it two displays with the slots byte for
+  byte. Its second boot is the VIDEO PLAYER's arm itself, a streamed VGA8
+  file and a one-bit Hercules one - the player picks the display its file
+  is for wherever its window is - each played full screen REAL on its own
+  display. Broken on purpose - the `FSXR_EXTD` test put back - 8 FAILS, SI
+  3 on every bracket and play; EXTD.DRV's row left empty instead, the HERC
+  mode set is refused on the VGA's kind and nothing collapses.
+
+  **The player's legs found a W5 defect that W7 had to fix to be gated at
+  all** (SPEC.md 98.3.24.2): on a 4 MB 286 the door answered `FSXR_ROOM` to
+  EVERY streamed play - with one display too, and on the tree before W7 -
+  because the ring took the conventional heap (480 KB, 16.5 KB left) and,
+  being on the 64 KB page grid, left even an 80 KB-smaller ring's slack in
+  two runs (46.5 + 29 KB) where the region's copy needs 63 in one. The
+  plan's own W5 row had owed "the ring's sizing leaves the room" and it had
+  not been built. `vp_rbhold` claims 80 KB top-down before the ring sizes
+  itself and `vp_rbfree` hands it back after: +60 bytes of the arm, the
+  shipped player byte-identical. **This bears on W6**: the Victory's field
+  run, on the W6 disks, would have read protected mode on every streamed
+  play.
 
 ---
 

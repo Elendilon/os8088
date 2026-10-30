@@ -11551,6 +11551,9 @@ vp_sstart:
     jmp .ring
 .strm:
     call vp_lyclaim                 ; THE LAYER's slots first (98.1.9)
+%ifdef PKG_MEGA
+    call vp_rbhold                  ; (the real-mode bracket's room, held
+%endif                              ; across the ring's sizing: 98.3.24.2)
     ; --- the ring: K slots and the mirror (SPEC.md 98.3). IN THE BRACKET,
     ;     as many as the machine has, 2..[vp_kmax]: every slot past the
     ;     header's ring is headroom the encode never counted on. LIVE plays
@@ -11671,8 +11674,14 @@ vp_sstart:
     call vp_mclaim
     jnc .rgot
     pop bx
+%ifdef PKG_MEGA
+    call vp_rbfree
+%endif
     jmp .memf
 .rgot:
+%ifdef PKG_MEGA
+    call vp_rbfree                  ; (the bracket's room back, at the top)
+%endif
     mov [vp_rclm], dx               ; (what is freed, and what moves)
 %ifdef PKG_MEGA
     mov [vp_rckb], ax               ; (its KB, vp_rsmk's)
@@ -11766,6 +11775,48 @@ vp_sstart:
     nop                             ; (never run: what follows at the parity
                                     ; it had - tools/os88rdiff.py --hot)
 %else
+%endif
+
+%ifdef PKG_MEGA
+; vp_rbhold - THE REAL-MODE BRACKET's ROOM (SPEC.md 98.3.24.2), in protected
+; mode: VP_RBRKB claimed TOP-DOWN and conventional (the DMA door, CX = 0)
+; before the ring sizes itself, and vp_rbfree's after it is claimed - so the
+; ring, which vp_rclaim puts on the 64 KB page grid and so leaves what is
+; under its first page, cannot take the room the door's copy of the region
+; needs in ONE run. Without it a streamed play on a 4 MB 286 left 16-46 KB
+; runs and the door answered FSXR_ROOM. Nothing when it is refused: the play
+; is the one it was. Every register kept
+VP_RBRKB    equ 64 + 16             ; (64: a region is at most APP_MAX_SIZE;
+                                    ; 16 the service area, EXTD.DRV's copy
+                                    ; and a driver's: SOUND.DRV's 8, HDD's 4)
+vp_rbhold:
+    cmp byte [vp_pm], 0
+    je .o
+    push ax
+    push cx
+    push dx
+    mov ax, VP_RBRKB
+    xor cx, cx
+    call OSAPI_MEM_CLAIM_DMA_HI
+    jc .n
+    mov [vp_rbh], dx
+.n:
+    pop dx
+    pop cx
+    pop ax
+.o:
+    ret
+vp_rbfree:
+    push dx
+    xor dx, dx
+    xchg dx, [vp_rbh]
+    or dx, dx
+    jz .o
+    call OSAPI_MEM_FREE
+.o:
+    pop dx
+    ret
+    nop                             ; (parity, never run: the hot code below)
 %endif
 
 ; vp_kres - AX = the largest free run, KB -> AX = what the ring may take of
@@ -23615,6 +23666,9 @@ vp_sub2:      db 0                      ; ...with list maps and colour leads
 vp_m3on:      db 0                      ; the GC is in write mode 3 (98.1.3.2.4)
                                         ; (the colour is vd_walk's VW_COL)
 %ifdef PKG_MEGA                         ; (the kern_mega arm's, 14.66)
+%ifdef PKG_MEGA
+vp_rbh:       dw 0                      ; vp_rbhold's claim, 0 none (98.3.24.2)
+%endif
 vp_pm:        db 0                      ; CPU_F_PM, banked at entry: segments
                                         ; are selectors (KERN-MEGA-PLAN 14.16)
               db 0                      ; (the words below at the parity

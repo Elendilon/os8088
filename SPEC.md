@@ -202049,6 +202049,35 @@ to spare, from 594), `VPDIAG=1` **64,560** (464 to spare) and `VPDIAG=time`
 registering it movable cost; the part itself, which is no image's, is 1,009,
 1,565 and 1,573 bytes. Every shipped build is byte-identical.
 
+##### 98.3.24.2 The bracket's room, held across the ring's sizing (2026-10-30)
+
+**A streamed play's real-mode bracket needs ONE conventional run the size of
+the player's region** - the door's copy of it (§53.2.3), 63 KB for the arm
+- plus the service area and the low drivers' copies, and the ring is sized
+from conventional memory too: "as many slots as the machine has". On
+kern_mega the ring is also put on the 64 KB page grid (`vp_rclaim`,
+KERN-MEGA-PLAN 14.73), so what lies under its first page is left over as a
+run of its own. Measured on 86Box's 4 MB AMI 286 (`vm/286-victory` and its
+two-card twin) with the speaker: a 480 KB ring left 16.5 KB, and a ring
+merely sized 80 KB smaller still left the room in two runs, 46.5 KB under
+the ring and 29 KB over it - and the door answered `FSXR_ROOM` on EVERY
+streamed play, so none of them was real. MEGA-VIDEO-REALMODE-PLAN's W5
+entry had owed this ("the player's ring goes conventional, so its own
+sizing leaves the room") and it had not been built.
+
+**`vp_rbhold` claims the room itself, TOP-DOWN, before the ring sizes
+itself, and `vp_rbfree` gives it back once the ring is claimed** - at the
+arena's top, one run, where the door's bottom-up first fit finds it.
+`VP_RBRKB` = 80 KB: a region is at most `APP_MAX_SIZE`, and 16 for the
+service area, EXTD.DRV's copy and a driver's (SOUND.DRV's 8, HDD.DRV's 4).
+It is the conventional door with no head (`OSAPI_MEM_CLAIM_DMA_HI`, CX = 0),
+since an `OS88_HIGHMEM` package's plain claims go above 1MB. Only under
+`CPU_F_PM` and only in the arm; a refused hold is the play it was. The
+ring is up to 80 KB smaller for it. +60 bytes of the arm's image (63,832;
+`VPDIAG=time` 64,799, 225 to spare), the shipped player byte-identical.
+`tests/megarmbext.py`'s player legs are the gate: both plays real on an
+extended desktop, and `FSXR_ROOM` on both without it.
+
 ### 98.4 The window: the Preview (wave 6)
 
 **The window IS the Preview** (VIDEO-PLAN 3.3): the file's poster in a

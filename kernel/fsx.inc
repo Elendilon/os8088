@@ -1871,11 +1871,13 @@ fsx_rextf:
     mov bp, rms_drv - rms_lo + RMD_EXT
     mov [es:bp+RMD_SEL], dx
     lsl cx, dx                  ; the claim's last byte (a module is far
-    inc cx                      ; under 64KB)...
+    jnz .x                      ; under 64KB) - or no descriptor: no image
+    inc cx                      ; (CF = 0 from the `or`)...
     inc cx
     and cx, -2                  ; ...and its bytes, even
     call fsx_rdlow
     mov al, FSXR_DROOM
+.x:
     pop es
 .o:
     ret
@@ -2409,19 +2411,20 @@ fsx_rvdn:
 .k:
     ret
 
-; fsx_rexfill - every EXFP slot := DX:AX - or, EXTD.DRV LOADED (W7), every
-; slot's SEGMENT := DX and its offset kept. Both ends of a bracket see the
-; same row: the module cannot be dropped while one runs. Clobbers CX, DI
+; fsx_rexfill - ZF = 1: every EXFP slot := DX:AX; ZF = 0 (W7, EXTD.DRV's low
+; copy): every slot's SEGMENT := DX and its offset kept. The drop decides by
+; the row's RMD_SEG and the return by what the drop wrote (KERNEL_SEG is
+; fsx_rgone's), so the two ends agree whatever the module row says.
+; Clobbers CX, DI; no flag is written in the loop
 fsx_rexfill:
     mov di, EXFP
     mov cx, EXT_NENT
 .l:
-    cmp word [mod_tab + MOD_EXT * MODR_SIZE + MODR_SEG], 0
-    jne .s
+    jnz .s
     mov [di], ax
 .s:
     mov [di+2], dx
-    add di, 4
+    lea di, [di+4]
     loop .l
     ret
 
@@ -2604,6 +2607,7 @@ fsx_rupf:
     call fsx_rserup             ; a lease's ring, words and slots back (W7)
     mov ax, [ss:fsx_rexfp]      ; EXTD.DRV's slots back: mod_gone's, or the
     mov dx, [ss:fsx_rexfp+2]    ; image's code selector (W7)
+    cmp word [EXFP+2], KERNEL_SEG ; (ZF: the drop's fsx_rgone, the whole slot)
     call fsx_rexfill
     mov si, fsx_rbank
     mov ax, fsx_rvup
