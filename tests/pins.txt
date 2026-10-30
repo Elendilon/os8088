@@ -376,6 +376,13 @@ X apps/video/video.asm @vp_rclaim        # a CLAIM WRAPPER this scan cannot see
                                          # past the second to the shared ret):
                                          # kern_mega's ring, every caller storing
                                          # DX in vp_rclm, which vp_smtab declares
+X apps/realdmg/rwbank.inc rw_xsel        # kern_mega's arm: the cartridge IN PLACE,
+                                         # one OSAPI_MEM_HUGE claim in the POOL
+                                         # (REALDMG-SPEC 10.3.1). It is not a wall:
+                                         # the pool packs a huge block like any
+                                         # unpinned one, rebasing its windows, and
+                                         # OSAPI_MEM_MOVABLE refuses a selector
+                                         # above 1MB, so there is nothing to declare
 X apps/realdmg/rwaot.inc rw_aseg+bx      # a precompiled cartridge's CODE IMAGES,
                                          # each a CS the worker runs in: its frame
                                          # holds one at every pre-emption, which
