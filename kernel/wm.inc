@@ -2375,9 +2375,8 @@ wm_wake:
     call evq_push
 .queued:
     popf
-    clc
-    jmp short .out
-.full:
+    db 0xA9                     ; test ax, imm16 over .full's popf and stc:
+.full:                          ; CF = 0, the answer (kernel size pass 15)
     popf
     stc
 .out:
@@ -3138,12 +3137,13 @@ wm_destroy:
                                 ; record is cleared out from under us
     test byte [si+W_FLAGS], 2
     jnz .bank                   ; ...and a FULLSCREEN window needs no arm of
-    mov ax, 1                   ; its own: wm_win_rect already answers its rect
-    xor bx, bx                  ; WITHOUT the shadow (SPEC.md 11.2), which is
-    xor cx, cx                  ; what the block that stood here recomputed
-    xor dx, dx                  ; word for word. Already hidden: its pixels
-                                ; went at the wm_hide, so an empty rect - the
-                                ; chrome is all this owes (x1 > x2 is empty)
+    xor ax, ax                  ; its own: wm_win_rect already answers its rect
+    cwd                         ; WITHOUT the shadow (SPEC.md 11.2), which is
+    mov bx, ax                  ; what the block that stood here recomputed
+    mov cx, ax                  ; word for word. Already hidden: its pixels
+    inc ax                      ; went at the wm_hide, so an empty rect (1, 0,
+                                ; 0, 0) - the chrome is all this owes (x1 > x2
+                                ; is empty). CWD for DX's zero (pass 15, -1)
 .bank:
     push ax                     ; the rect, banked on the stack across the
     push bx                     ; teardown - which is call-balanced, so it
@@ -4748,13 +4748,11 @@ wm_hit:
     ja .minbox
     mov al, 2
     jmp .out
-.minbox:
-    mov ax, [bx+W_X]            ; minimize box: W_X+W_W-19 .. W_X+W_W-9
-    add ax, [bx+W_W]            ; (the close box mirrored, SPEC.md 11)
-    sub ax, WM_BOX_X0 + 1
-    sub ax, cx
-    cmp ax, WM_BOX_W
-    ja .title
+.minbox:                        ; minimize box: W_X+W_W-19 .. W_X+W_W-9 (the
+    add ax, [bx+W_W]            ; close box mirrored, SPEC.md 11) - and AX is
+    sub ax, (WM_BOX_X0 + WM_BOX_W) + (WM_BOX_X0 + 1)    ; still the close
+    cmp ax, WM_BOX_W            ; box's W_X+18-x, so W_W less 27 moves it there
+    ja .title                   ; (kernel size pass 15, -5)
     mov al, 3
     jmp .out
 .title:
@@ -4832,13 +4830,11 @@ wm_hit_ttl_b:
     ja .minbox
     mov al, 2
     retf                        ; FAR: wm_hit `call far`s thv (THV_HIT)
-.minbox:
-    mov ax, [bx+W_X]            ; minimize box: W_X+W_W-19 .. W_X+W_W-9
-    add ax, [bx+W_W]            ; (the close box mirrored, SPEC.md 11)
-    sub ax, WM_BOX_X0 + 1
-    sub ax, cx
-    cmp ax, WM_BOX_W
-    ja .title
+.minbox:                        ; minimize box: W_X+W_W-19 .. W_X+W_W-9 (the
+    add ax, [bx+W_W]            ; close box mirrored, SPEC.md 11) - and AX is
+    sub ax, (WM_BOX_X0 + WM_BOX_W) + (WM_BOX_X0 + 1)    ; still the close
+    cmp ax, WM_BOX_W            ; box's W_X+18-x, so W_W less 27 moves it there
+    ja .title                   ; (kernel size pass 15, -5)
     mov al, 3
     retf
 .title:
@@ -5121,23 +5117,21 @@ wm_rgrow:
 ; -----------------------------------------------------------------------------
 wm_dmg_union:
     push di
-    mov di, [si+W_X]
-    cmp di, ax
-    jge .x1
-    mov ax, di
-.x1:
-    mov di, [si+W_Y]
-    cmp di, bx
-    jge .y1
-    mov bx, di
-.y1:
-    mov di, [si+W_X]
+    mov di, [si+W_X]            ; X FIRST AND THEN Y, so each origin is loaded
+    cmp di, ax                  ; once and the far edge is the `add` on top of
+    jge .x1                     ; it (kernel size pass 15, -6: the four
+    mov ax, di                  ; updates are independent, so their order is
+.x1:                            ; free)
     add di, [si+W_W]            ; the drop shadow's own column
     cmp di, cx
     jle .x2
     mov cx, di
 .x2:
     mov di, [si+W_Y]
+    cmp di, bx
+    jge .y1
+    mov bx, di
+.y1:
     add di, [si+W_H]
     cmp di, dx
     jle .y2
