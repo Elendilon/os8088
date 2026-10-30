@@ -14598,6 +14598,7 @@ VPR_HIGH    equ 0x15
 VPR_SPLIT   equ 0x16
 VPR_MOVED   equ 0x17
 VPR_CLAIM   equ 0x18
+VPR_SHAD    equ 0x19
 
 ; vp_rdoor - OSAPI_FSX_RUN's door: CL |= FSXF_REAL, BP = the list and SI = 0
 ; when real mode serves this play - its two claims taken and its words
@@ -14625,16 +14626,20 @@ vp_rdoor:
     mov al, VPR_HIGH                ; THE RING ABOVE 1MB (98.3.18.17)
     cmp byte [vp_rhi], 0
     jne .pm
-    cmp byte [vp_xems], 0           ; AN XMS BANK protected mode reads in
-    jne .nb                         ; place (5.3 ruling 1): under the
-    mov ah, [vp_xbank]              ; speaker, or a version 2 file, real
-    or ah, [vp_einp]                ; mode would copy it down instead
-    jz .nb
-    mov al, VPR_SPK
+    cmp byte [vp_xems], 0           ; XMS READ IN PLACE (5.3 ruling 1), the
+    jne .nb                         ; bank's or the hold's, as protected
+    mov ah, [vp_xbank]              ; mode decided it: under the speaker,
+    or ah, [vp_einp]                ; a version 2 file or the shadow, real
+    or ah, [vp_xip]                 ; mode's borrow would hold interrupts
+    jz .nb                          ; off through decoders with no yield
+    mov al, VPR_SPK                 ; site, and its rules copy instead
     cmp byte [vp_snd], VP_SPK
     je .pm
     mov al, VPR_V2
     cmp byte [vp_v2], 0
+    jne .pm
+    mov al, VPR_SHAD
+    cmp byte [vp_shadow], 0
     jne .pm
 .nb:
     mov al, VPR_MOVED               ; a block not where its token names: real
@@ -14844,6 +14849,7 @@ vp_rpost:
     je .f
     mov byte [vp_rran], 0
     call vp_bset
+    call vp_fxbind                  ; (the shaper's, on its selectors again)
     cmp byte [vp_rpic], 0
     je .f
     mov byte [vp_rpic], 0
@@ -14891,6 +14897,8 @@ vp_rin:
     xor al, al
     call vp_rhpat
     call vp_bset
+    call vp_spkbind                 ; THE SPEAKER's ring on its real segment,
+    call vp_fxbind                  ; and the shaper's (a part's) too
     mov al, [vp_xip]
     or al, al
     jnz .y
@@ -14920,6 +14928,7 @@ vp_rout:
     mov di, vp_rlst_bank
     call os88real_swap
     mov byte [vp_pm], 1
+    call vp_spkbind                 ; (the shaper's is vp_rpost's: CODESEL)
     mov ax, [vp_rself]
     mov [vp_self], ax
     mov al, [vp_rpat]
@@ -14930,6 +14939,20 @@ vp_rout:
     mov byte [vp_rbr], 0
     pop di
     pop si
+    pop ax
+.o:
+    ret
+
+; vp_spkbind - os88spk_rseg, the speaker library's ring, on the segment
+; [vp_aseg] names in this mode: os88spk_init kept the one it was given, and a
+; speaker play opened on the desktop crosses into the bracket (98.3.24). The
+; ISR reads its samples through it. Every register kept
+vp_spkbind:
+    cmp byte [vp_snd], VP_SPK
+    jne .o
+    push ax
+    mov ax, [vp_aseg]
+    mov [os88spk_rseg], ax
     pop ax
 .o:
     ret
@@ -25272,10 +25295,10 @@ vp_pfbuf      equ vp_skbuf          ; the line, composed in the seek's own
 %endif
 vp_s_rreal:   db 'Real mode', 0
 vp_s_rpm:     db 'Protected: ', 0
-VPR_NOWN      equ 8                     ; vp_rwhys: VPR_LIVE.. first, then
+VPR_NOWN      equ 9                     ; vp_rwhys: VPR_LIVE.. first, then
 VPR_NALL      equ VPR_NOWN + 9          ; FSXR_KEEP..FSXR_DROOM
 vp_rwhys:     dw vp_s_rw11, vp_s_rw12, vp_s_rw13, vp_s_rw14, vp_s_rw15
-              dw vp_s_rw16, vp_s_rw17, vp_s_rw18
+              dw vp_s_rw16, vp_s_rw17, vp_s_rw18, vp_s_rw19
               dw vp_s_rk1, vp_s_rk2, vp_s_rk3, vp_s_rk4, vp_s_rk5, vp_s_rk6
               dw vp_s_rk7, vp_s_rk8, vp_s_rk5
 vp_s_rw11:    db 'Live', 0
@@ -25286,6 +25309,7 @@ vp_s_rw15:    db 'ring above 1MB', 0
 vp_s_rw16:    db 'layer split', 0
 vp_s_rw17:    db 'bank moved', 0
 vp_s_rw18:    db 'claim above 1MB', 0
+vp_s_rw19:    db 'shadow, in place', 0
 vp_s_rk1:     db 'a worker kept', 0
 vp_s_rk2:     db "a driver's worker", 0
 vp_s_rk3:     db 'extended desktop', 0
@@ -25474,6 +25498,47 @@ vp_fxinit:
     pop cx
     pop bx
     pop ax
+    ret
+
+; vp_fxbind - a mode change under a shaped speaker play (98.3.24): the
+; part's vectors on the CS this mode calls it through, and the two segments
+; it keeps - its own data segment and the ring's - given again (VFXV_BIND),
+; its state kept. vp_rin's in the bracket, vp_rpost's after it: what the
+; part was set up with is the other mode's. Nothing when no play is shaped.
+; Preserves all
+vp_fxbind:
+    cmp byte [vp_snd], VP_SPK
+    jne .o
+    cmp byte [vp_spkpwm], 0         ; (a clip made for the speaker: none)
+    jne .o
+    cmp word [vp_fxini + 2], 0      ; (never set up)
+    je .o
+    push ax
+    push bx
+    push dx
+    push es
+    mov dx, [vp_fxseg]
+    mov es, dx
+    mov ax, dx
+    cmp byte [vp_pm], 0
+    je .cs
+    call OSAPI_MEM_CODESEL          ; (vp_fxinit's: the CODE alias)
+    jnc .cs
+    mov ax, dx
+.cs:
+    mov [vp_fxini + 2], ax
+    mov [vp_fxlev + 2], ax
+    mov [vp_fxemt + 2], ax
+    mov ax, [es:VFX_VEC + 2 * VFXV_BIND]
+    mov [vp_fxini], ax              ; (vp_fxinit sets it again at a play)
+    mov bx, dx
+    mov dx, [vp_aseg]
+    call far [vp_fxini]
+    pop es
+    pop dx
+    pop bx
+    pop ax
+.o:
     ret
 %endif
 

@@ -30,6 +30,7 @@
     dw vfx_init                     ; +4 VFXV_INIT
     dw vfx_level                    ; +6 VFXV_LEVEL
     dw vfx_emit                     ; +8 VFXV_EMIT
+    dw vfx_bind                     ; +10 VFXV_BIND
 
 vfx_init:
     push ds
@@ -51,6 +52,14 @@ vfx_level:
 
 vfx_emit:
     call os88spkfx_emit
+    retf
+
+vfx_bind:                           ; (98.3.24: a bracket's mode change)
+    push ds
+    mov ds, bx
+    mov [os88spk_rseg], dx
+    mov [os88spkfx_dsel], bx
+    pop ds
     retf
 
 ; what os88spkfx.inc reads of the speaker library, as VFXV_INIT handed it
