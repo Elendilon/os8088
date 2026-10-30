@@ -6571,9 +6571,9 @@ FSXF_REAL       equ 8           ; OSAPI_FSX_RUN CX bit 3 (SPEC.md 53.2.3): on
                                 ; same. apps/os88real.inc renames your claims
 FSXR_REAL       equ 0           ; ...SI out: the bracket ran in real mode
 FSXR_KEEP       equ 1           ; ...protected: FSXF_KEEPWORKER was asked
-FSXR_SVC        equ 2           ; ...protected: a driver's worker is alive
-FSXR_EXTD       equ 3           ; ...protected: the extended desktop is up
-FSXR_SERIAL     equ 4           ; ...protected: a SERIAL.DRV lease is open
+FSXR_SVC        equ 2           ; (RETIRED, never answered: a driver's
+FSXR_EXTD       equ 3           ; worker, the extended desktop and a
+FSXR_SERIAL     equ 4           ; SERIAL.DRV lease are all real since W7)
 FSXR_ROOM       equ 5           ; ...protected: no conventional room for the
                                 ; copy of an OS88_HIGH region, or for the
                                 ; bracket's service area (W3: its twins and

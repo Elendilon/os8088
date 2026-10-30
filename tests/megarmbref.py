@@ -15,11 +15,16 @@ legs, and what is asserted of each:
 
   K  FSXF_KEEPWORKER - CF 0, SI = FSXR_KEEP (1), CPU_F_PM inside, the entry ran
   S  a TF_SERVICE task (this row sets the bit on task 0 while the package
-     waits, and clears it after) - SI = FSXR_SVC (2), protected, ran
-  E  EXTD.DRV's row said loaded (its MODR_SEG poked, then put back) -
-     SI = FSXR_EXTD (3), protected, ran
-  L  a SERIAL.DRV lease said open ([ser_row] poked to a row no port has) -
-     SI = FSXR_SERIAL (4), protected, ran
+     waits, and clears it after) - REAL since W7 (SI = 0, no CPU_F_PM): the
+     worker is parked, where it was FSXR_SVC
+  E  EXTD.DRV's row poked with a value that names no descriptor, then put
+     back - REAL since W7: the door tests no row (it was FSXR_EXTD). A
+     LOADED image is tests/megarmbext.py's, on two cards under 86Box
+  L  a REAL SERIAL.DRV lease on COM1, a byte queued in its ring by hand -
+     REAL since W7 (it was FSXR_SERIAL), and inside, the pointer's ISR run
+     at IRQ4's vector served the leased row through SERIAL.DRV at its
+     paragraph and sent the byte from the ring's COPY: after, the OWNER's
+     ring (its region above 1MB) shows it gone (x = 0101)
   M  the heap filled by the package's own claims - SI = FSXR_ROOM (5),
      protected, ran
   H  an OSAPI_MEM_HUGE claim ABOVE 1MB in apps/os88real.inc's list:
@@ -192,12 +197,9 @@ def main():
         done = set()
         deadline = time.time() + 300
         pokes = {"S": [("setpmem 0x%x 1 0x%x" % (tf, tf0[0] | eq["TF_SERVICE"]))],
-                 "E": ["setpmem 0x%x 2 0x1234" % ext],
-                 "L": ["setpmem 0x%x 2 0x0100" % box.sym("ser_row")]}
+                 "E": ["setpmem 0x%x 2 0x1234" % ext]}
         unpokes = {"S": ["setpmem 0x%x 1 0x%x" % (tf, tf0[0])],
-                   "E": ["setpmem 0x%x 2 0x%x" % (ext, u16(ext0))],
-                   "L": ["setpmem 0x%x 2 0x%x" % (box.sym("ser_row"),
-                                                   u16(ser0))]}
+                   "E": ["setpmem 0x%x 2 0x%x" % (ext, u16(ext0))]}
         while time.time() < deadline:
             ls = box.lines()
             if any(l.startswith(NAME + ": done") for l in ls) or box.fault():
@@ -265,9 +267,16 @@ def main():
                            "ran" if d.get("mark") == 0xC33C else "DID NOT run"))
         return d
     leg("K", 1, True, "FSXF_KEEPWORKER fell back")
-    leg("S", 2, True, "a TF_SERVICE task: fell back")
-    leg("E", 3, True, "EXTD.DRV loaded: fell back")
-    leg("L", 4, True, "a SERIAL.DRV lease: fell back")
+    leg("S", 0, False, "a TF_SERVICE task: real mode taken, the worker "
+        "parked (W7)")
+    leg("E", 0, False, "EXTD.DRV's row poked: real mode taken, the door "
+        "tests no row (W7)")
+    ll = leg("L", 0, False, "a SERIAL.DRV lease open: real mode taken (W7)")
+    want(ll.get("x") == 0x0101, "L: the lease opened, the pointer's ISR ran "
+         "at IVT 24h inside and sent the queued byte from the ring's copy - "
+         "the OWNER's ring shows it gone (x %04x, want 0101: EEnn the open "
+         "refused, 02nn IRQ4's vector not the kernel's, 0100 nothing sent)"
+         % ll.get("x", 0))
     m = leg("M", 5, True, "no conventional room: fell back")
     want(m.get("x", 0) > 0, "M: the package held %d claims" % m.get("x", 0))
     h = leg("H", 0, True, "the package's own fallback (not asked)")

@@ -1450,6 +1450,32 @@ deduplicated union below, plus `test-full`.
   lifts (the row's asserts change in the same diff), plus the two-display
   play.
 
+  **BUILT (2026-10-30): all three tests are gone from `fsx_rprepf`** (SPEC.md
+  53.2.3's W7 paragraph is the contract). The extended desktop: EXTD.DRV
+  takes a fourth row of the service area's low drivers (`RMD_EXT`, its
+  whole claim by `lsl`, copied with the region's) and the drop aims every
+  `EXFP` slot's SEGMENT at it, offsets kept; the census of the module's
+  bracket path is `EXTF_KIND` and `EXTF_ENTER` alone (`OSAPI_FSX_CAPS` is
+  not a kept cell and `wm_content`'s arm is resident) and it is real-mode
+  code as written. A driver's worker: parked, nothing to tell - SB's are
+  covered by 53.3's release and §34.5's underrun contract, USBMOUSE's poll
+  simply stops. A lease: `SERFP`'s segments the module's paragraph (its
+  claim is conventional, an `%error` keeps it so), the ring served where
+  the module can reach it in real mode - the REGION's own copy when the
+  lease is the bracket package's (a service-area copy there was overwritten
+  by the region's copy-up at the return: the first build's L leg sent the
+  byte and the owner's ring said it had not), else a 517-byte copy in the
+  service area - and its line left open when its vector is the kernel's.
+  **Bytes**: kern_big and kern_small BYTE-IDENTICAL (`cmp`, both
+  `kernel.bin`/`kernel.sys`, one commit count); kern_mega `.mega` **+336**
+  (22,560 -> 22,896, crossing a rung), `.lowbss` +8, `.text` +0, `.cold` +0,
+  the kernel-segment ratchet unchanged. **`megarmbref`** (Bochs): S and E
+  TAKEN, and L a REAL lease on COM1 whose byte, queued by hand, is sent
+  from inside the bracket by the pointer's ISR at IVT 24h - the owner's
+  ring in an `OS88_HIGH` region shows it gone after (x = 0101). Broken on
+  purpose - `srl_seg` left the owner's SELECTOR for the bracket - the byte
+  never reaches the owner's ring (0100), red.
+
 ---
 
 ## 5. Open questions for the owner

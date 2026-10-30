@@ -46,9 +46,9 @@ FSXF_REAL       equ 8           ; ...bit 3 (SPEC.md 53.2.3): the bracket in REAL
 ; One test each at the door, in this order, so each lifts by itself
 FSXR_REAL       equ 0
 FSXR_KEEP       equ 1               ; FSXF_KEEPWORKER
-FSXR_SVC        equ 2               ; a TF_SERVICE task alive
-FSXR_EXTD       equ 3               ; EXTD.DRV loaded
-FSXR_SERIAL     equ 4               ; a SERIAL.DRV lease open
+FSXR_SVC        equ 2               ; (RETIRED by W7 - never answered: a
+FSXR_EXTD       equ 3               ; driver's worker parks, EXTD.DRV runs
+FSXR_SERIAL     equ 4               ; low, a lease is served; the numbers stay)
 FSXR_ROOM       equ 5               ; no conventional room for the copy, or
                                     ; for the service area (W3)
 FSXR_VOL        equ 6               ; a listed stream real mode cannot read
@@ -1441,28 +1441,14 @@ fsx_rprepf:
     mov al, FSXR_KEEP
     test si, FSXF_KEEPWORKER    ; one task runs in real mode: nothing to keep
     jnz .out
-    mov al, FSXR_EXTD
-    cmp word [mod_tab + MOD_EXT * MODR_SIZE + MODR_SEG], 0
-    jne .out                    ; EXTD.DRV's image, above 1MB, cannot be
-                                ; called (the extended desktop's second display)
-    mov al, FSXR_SERIAL
-    cmp word [ser_row], 0xFFFF  ; a SERIAL.DRV lease: the pointer's ISR far-
-    jne .out                    ; calls the module for the leased UART (SERFP)
-    mov al, FSXR_SVC
+                                ; (FSXR_SVC, FSXR_EXTD and FSXR_SERIAL were
+                                ; tests here until W7: a driver's worker is
+                                ; parked, EXTD.DRV runs from a low copy and a
+                                ; lease is serviced - fsx_rextf, fsx_rserdn)
     pusha
     xor ax, ax                  ; (`.lowbss` is not zeroed: .no reads these)
     mov [ss:fsx_rlow], ax
     mov [ss:fsx_rsvc], ax
-    mov bx, sch_tasks           ; ...and a driver's worker would never run
-    mov cx, MAX_TASKS
-.t:
-    cmp byte [bx+T_STATE], 0
-    je .tn
-    test byte [bx+T_FLAGS], TF_SERVICE
-    jnz .no
-.tn:
-    add bx, T_SIZE
-    loop .t
     mov bp, sp                  ; THE LIST (W3), the caller's DS:BP - under
     mov es, [bp+38]             ; pusha, our AX and far return, kent_di's six,
     mov bp, [bp+40]             ; the X stub's return and its ES - walked in
@@ -1517,6 +1503,8 @@ fsx_rprepf:
     jc .no
     call fsx_rdrvf              ; ...and the drivers' low copies: AL =
     jc .why                     ; FSXR_DROOM or (W4) FSXR_DRV
+    call fsx_rextf              ; ...and EXTD.DRV's (W7): AL = FSXR_DROOM
+    jc .why
     mov byte [fsx_rmode], 1
     popa
     mov al, FSXR_REAL
@@ -1726,6 +1714,20 @@ fsx_rsvcf:
     mov cx, RMR_SIZE
     mul cx
     add ax, rms_runs - rms_lo   ; the claim's bytes: code, rows, runs
+    xor dx, dx
+    cmp word [ser_row], 0xFFFF  ; ...and a SERIAL.DRV lease's ring after
+    je .nser                    ; them (W7, fsx_rserdn), at an even offset
+    push ds                     ; (the runs are words) - unless the lease is
+    mov ds, [mod_tab + MOD_SER * MODR_SIZE + MODR_SEG] ; THIS package's: its
+    mov bx, [SRL_O_SEG]         ; ring is in the region, which runs where
+    pop ds                      ; [fsx_rseg] says, and a second copy would
+    inc dx                      ; be overwritten by the region's at the
+    cmp bx, [di+I_SPTR]         ; return. DX = 1 says so (no ring is at an
+    je .nser                    ; odd offset)
+    mov dx, ax
+    add ax, SER_SIZE
+.nser:
+    mov [ss:fsx_rserb], dx
     push ax
     call fsx_rlowclaim          ; DX = the selector, AX:CX its base
     pop si
@@ -1830,33 +1832,10 @@ fsx_rdrvf:
     shl cx, 4
     add cx, [DRV_H_IMG]
     pop ds
-    inc cx
-    and cx, -2                  ; (words)
-    mov ax, dx
-    push cx
-    call mega_selbase           ; DX:AX = its base
-    pop cx
-    jc .nx
-    cmp dx, 0x10
-    jb .para                    ; conventional: it runs where it is
-    mov [es:bp+RMD_HI], ax
-    mov [es:bp+RMD_HI+2], dx
-    mov [es:bp+RMD_LEN], cx
-    xchg ax, cx                 ; AX = bytes
-    push bx
-    call fsx_rlowclaim          ; DX = the claim, AX:CX its base
-    pop bx
+    call fsx_rdlow              ; AX = its paragraph, the copy's or its own
     jc .room
-    mov [es:bp+RMD_CL], dx
-    mov [es:bp+RMD_LO], cx
-    mov [es:bp+RMD_LO+2], ax
-    xchg ax, dx
-    xchg ax, cx                 ; DX:AX = the copy's base
-.para:
-    shr ax, 4
-    shl dx, 12
-    or ax, dx
-    mov [es:bp+RMD_SEG], ax
+    or ax, ax
+    jz .nx                      ; (a selector with no base: not carried)
     cmp bl, DRVC_SOUND
     jne .nx
     test al, 0x1F               ; SBL_DSCS: DS = CS only on a 512-byte
@@ -1876,6 +1855,67 @@ fsx_rdrvf:
     mov al, FSXR_DROOM
     stc
     jmp short .o
+
+; fsx_rextf - EXTD.DRV LOW (W7, SPEC.md 53.2.3): a loaded extended desktop's
+; module gets the service area's RMD_EXT row - its whole claim (LSL: the
+; image and its tail), copied down and back up as a driver's is - and the
+; drop aims EXFP's segments at RMD_SEG. Nothing when it is not loaded (the
+; row stays zero, and the drop's fsx_rgone stands). CF = 1 and AL =
+; FSXR_DROOM: no room for the copy. PM, DS = KDATA. Clobbers AX, CX, DX, BP
+fsx_rextf:
+    mov dx, [mod_tab + MOD_EXT * MODR_SIZE + MODR_SEG]
+    or dx, dx                   ; its DATA selector (mega_mods_fix), 0 = not
+    jz .o                       ; loaded: CF = 0 from the `or`
+    push es
+    mov es, [ss:fsx_rsvc]
+    mov bp, rms_drv - rms_lo + RMD_EXT
+    mov [es:bp+RMD_SEL], dx
+    lsl cx, dx                  ; the claim's last byte (a module is far
+    inc cx                      ; under 64KB)...
+    inc cx
+    and cx, -2                  ; ...and its bytes, even
+    call fsx_rdlow
+    mov al, FSXR_DROOM
+    pop es
+.o:
+    ret
+
+; fsx_rdlow - a low copy's row: DX = the image's data selector, CX = its bytes
+; (even), ES:BP = the row. Conventional already: RMD_SEG its own paragraph.
+; Above 1MB: a conventional claim, RMD_CL/HI/LO/LEN for fsx_rcprow, and
+; RMD_SEG the claim's paragraph. out CF = 0, AX = RMD_SEG (0 if the selector
+; has no base, and the row then unset); CF = 1 no room. Clobbers CX, DX
+fsx_rdlow:
+    mov ax, dx
+    push cx
+    call mega_selbase           ; DX:AX = its base
+    pop cx
+    jc .none
+    cmp dx, 0x10
+    jb .para                    ; conventional: it runs where it is
+    mov [es:bp+RMD_HI], ax
+    mov [es:bp+RMD_HI+2], dx
+    mov [es:bp+RMD_LEN], cx
+    xchg ax, cx                 ; AX = bytes
+    push bx
+    call fsx_rlowclaim          ; DX = the claim, AX:CX its base
+    pop bx
+    jc .o
+    mov [es:bp+RMD_CL], dx
+    mov [es:bp+RMD_LO], cx
+    mov [es:bp+RMD_LO+2], ax
+    xchg ax, dx
+    xchg ax, cx                 ; DX:AX = the copy's base
+.para:
+    shr ax, 4
+    shl dx, 12
+    or ax, dx
+    mov [es:bp+RMD_SEG], ax
+.o:
+    ret
+.none:
+    xor ax, ax                  ; (CF = 0)
+    ret
 
 ; fsx_rsndq - the sound row's SNDV_RMODE list (W4), asked of the driver
 ; (AL = 2, THE DOOR: it does first what real mode cannot - the IRQ discovery
@@ -1963,6 +2003,8 @@ fsx_rcopyf:
     add bx, RMD_SIZE
     dec dx
     jnz .d
+    add bx, RMD_EXT - RMD_NA * RMD_SIZE ; ...and EXTD.DRV's (W7), with the
+    call fsx_rcprow             ; region's: nothing writes it in between
 .o:
     pop es
     popa
@@ -2026,6 +2068,8 @@ fsx_rdownf:
     mov [k_vsa], ax
 .nvs:
     call fsx_rsnddn             ; SOUND.DRV low, its lines open (W4) -
+    call fsx_rserdn             ; ...a SERIAL.DRV lease served, its line
+                                ; open (W7) -
     mov [mega_rmask], bx        ; and THE MASKS mega_r286 COMPARES A 286'S
                                 ; RESET AGAINST with them: left at the lines
                                 ; mega_rmaskf said, the compare missed, the
@@ -2042,12 +2086,17 @@ fsx_rdownf:
     mov es, ax                  ; it is IVT 20h's - fsx_rupf's forced sync
     mov word [es:MEGA_PIC_BASE*4], fsx_rtick   ; puts the ROM's back
     mov word [es:MEGA_PIC_BASE*4+2], KERNEL_SEG
-    mov ax, [EXFP]              ; EXTD.DRV's slots, every one mod_gone's (the
-    mov [ss:fsx_rexfp], ax      ; door refused a loaded image): fsx_rgone's
-    mov ax, [EXFP+2]            ; for the bracket, the one far pointer banked
-    mov [ss:fsx_rexfp+2], ax
-    mov ax, fsx_rgone
+    mov ax, [EXFP]              ; EXTD.DRV's slots: unloaded, every one
+    mov [ss:fsx_rexfp], ax      ; mod_gone's, and fsx_rgone's for the
+    mov ax, [EXFP+2]            ; bracket; LOADED (W7), every segment its
+    mov [ss:fsx_rexfp+2], ax    ; low copy's paragraph, the offsets kept
+    mov es, [ss:fsx_rsvc]       ; (fsx_rexfill). Slot 0 is the far pointer
+    mov dx, [es:rms_drv - rms_lo + RMD_EXT + RMD_SEG] ; banked: one segment
+    or dx, dx                   ; for all of them either way
+    jnz .exl
     mov dx, KERNEL_SEG
+.exl:
+    mov ax, fsx_rgone
     call fsx_rexfill
     mov word [k_seg0], 0        ; low memory is segment 0 again (MEGA_SEG0)
     and byte [cpu_feat], ~CPU_F_PM & 0xFF ; OSAPI_CPU_INFO answers real mode
@@ -2360,15 +2409,151 @@ fsx_rvdn:
 .k:
     ret
 
-; fsx_rexfill - every EXFP slot := DX:AX. Clobbers CX, DI
+; fsx_rexfill - every EXFP slot := DX:AX - or, EXTD.DRV LOADED (W7), every
+; slot's SEGMENT := DX and its offset kept. Both ends of a bracket see the
+; same row: the module cannot be dropped while one runs. Clobbers CX, DI
 fsx_rexfill:
     mov di, EXFP
     mov cx, EXT_NENT
 .l:
+    cmp word [mod_tab + MOD_EXT * MODR_SIZE + MODR_SEG], 0
+    jne .s
     mov [di], ax
+.s:
     mov [di+2], dx
     add di, 4
     loop .l
+    ret
+
+; -----------------------------------------------------------------------------
+; fsx_rserdn - A SERIAL.DRV LEASE INTO THE BRACKET (W7, SPEC.md 53.2.3), at the
+; drop: IF = 0, PM, DS = KDATA. The pointer's ISR far-calls the module for
+; the leased UART (mou_isr_ser): SERFP's segments made the module's paragraph
+; (its claim is conventional - the %error), the OWNER's ring (in its region,
+; above 1MB or not) copied into the service area and srl_seg:srl_buf aimed at
+; the copy, and the leased line left open when its real-mode vector is the
+; kernel's - mega_rmaskf's own test for the mouse's. Nothing with no lease.
+; in/out BX = the lines to shut. Every other register kept
+; -----------------------------------------------------------------------------
+%if MOD_HIOK & (1 << MOD_SER)
+ %error "fsx_rserdn calls SERIAL.DRV at its own paragraph: its claim must stay conventional"
+%endif
+fsx_rserdn:
+    cmp word [ss:fsx_rserb], 0
+    je .o
+    push ax
+    push cx
+    push dx
+    push si
+    push di
+    push ds
+    push es
+    mov dx, [SERFP+2]           ; its code selector, banked
+    mov [ss:fsx_rsfp], dx
+    mov ax, [mod_tab + MOD_SER * MODR_SIZE + MODR_SEG] ; its data selector
+    push ax
+    call mega_selbase           ; DX:AX = its base, below 1MB
+    shr ax, 4
+    shl dx, 12
+    or dx, ax                   ; DX = its paragraph
+    mov di, SERFP + 2
+    mov cx, SER_NENT
+.s:
+    mov [di], dx
+    add di, 4
+    loop .s
+    mov ax, [fsx_rseg]          ; (the region's paragraph, for its own)
+    mov dx, [ss:fsx_rmsseg]     ; the copy, in the twins' own segment
+    mov di, [ss:fsx_rserb]
+    pop ds                      ; DS = the module's data
+    mov si, [SRL_O_BUF]
+    mov cx, [SRL_O_SEG]
+    mov [ss:fsx_rsrbf], si      ; the owner's ring, banked...
+    mov [ss:fsx_rsrsg], cx
+    cmp di, 1
+    jne .cp
+    mov [SRL_O_SEG], ax         ; ...THIS package's: the region's paragraph,
+    mov ah, [SRL_O_MASK]        ; the offset as it was
+    push ax
+    jmp short .line
+.cp:
+    mov [SRL_O_SEG], dx         ; ...another's: the copy named in its place
+    lea dx, [di + rms_lo]
+    mov [SRL_O_BUF], dx
+    mov ah, [SRL_O_MASK]        ; its line's PIC bit, IRQ3 or IRQ4
+    push ax
+    mov es, [ss:fsx_rsvc]
+    mov ds, cx
+    mov cx, SER_SIZE
+    cld
+    rep movsb                   ; the owner's ring into the copy
+.line:
+    mov al, MEGA_PIC_BASE - 1
+.b:
+    inc ax                      ; (the bit rides off AH's bottom, the count
+    shr ah, 1                   ; up AL's: the line is under 8)
+    jnc .b                      ; AL = the line's real-mode vector
+    mov ah, 4
+    mul ah
+    xchg ax, si
+    pop ax
+    mov cx, MEGA_SEL_LOW0
+    mov ds, cx
+    cmp word [si+2], KERNEL_SEG
+    jne .shut                   ; not the kernel's: it stays shut
+    not ah
+    and bl, ah                  ; ...open
+.shut:
+    pop es
+    pop ds
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop ax
+.o:
+    ret
+
+; fsx_rserup - ...and back, at the return (IF = 0, PM, DS = KDATA): the ring
+; copied over the owner's, srl_seg and srl_buf the owner's again, SERFP's
+; code selector. Every register kept
+fsx_rserup:
+    cmp word [ss:fsx_rserb], 0
+    je .o
+    push ax
+    push cx
+    push si
+    push di
+    push ds
+    push es
+    mov ax, [ss:fsx_rsfp]
+    mov di, SERFP + 2
+    mov cx, SER_NENT
+.s:
+    mov [di], ax
+    add di, 4
+    loop .s
+    mov es, [mod_tab + MOD_SER * MODR_SIZE + MODR_SEG]
+    mov ax, [ss:fsx_rsrsg]
+    mov di, [ss:fsx_rsrbf]
+    mov [es:SRL_O_SEG], ax
+    mov [es:SRL_O_BUF], di
+    mov si, [ss:fsx_rserb]
+    cmp si, 1
+    je .own                     ; THIS package's: the region's copy-up has it
+    mov es, ax                  ; ES:DI = the owner's ring
+    mov ds, [ss:fsx_rsvc]       ; DS:SI = the copy
+    mov cx, SER_SIZE
+    cld
+    rep movsb
+.own:
+    pop es
+    pop ds
+    pop di
+    pop si
+    pop cx
+    pop ax
+.o:
     ret
 
 ; fsx_rvup - ...and its step back: the bank's word into [DI]
@@ -2416,8 +2601,9 @@ fsx_rupf:
     out 0xA1, al
     mov word [k_seg0], MEGA_SEL_LOW0
     or byte [cpu_feat], CPU_F_PM
-    mov ax, [ss:fsx_rexfp]      ; EXTD.DRV's slots back to mod_gone's
-    mov dx, [ss:fsx_rexfp+2]
+    call fsx_rserup             ; a lease's ring, words and slots back (W7)
+    mov ax, [ss:fsx_rexfp]      ; EXTD.DRV's slots back: mod_gone's, or the
+    mov dx, [ss:fsx_rexfp+2]    ; image's code selector (W7)
     call fsx_rexfill
     mov si, fsx_rbank
     mov ax, fsx_rvup
@@ -2483,10 +2669,14 @@ RMD_TICK    equ 22              ; DRVC_SOUND (W4): dw its DSV_TICK...
 RMD_STR     equ 24              ; ...dw its DSV_STREAM...
 RMD_SEL     equ 26              ; ...dw (protected mode's) its data selector
 RMD_SIZE    equ 28
-RMD_N       equ 3               ; DRVC_DISK's row, DRVC_EMS's, DRVC_SOUND's
+RMD_N       equ 4               ; DRVC_DISK's row, DRVC_EMS's, DRVC_SOUND's,
+                                ; EXTD.DRV's (W7)
 RMD_NA      equ 2               ; ...the first RMD_NA copied at the freeze's
                                 ; arm; SOUND's at the drop, at IF = 0 (W4)
 RMD_SND     equ 2 * RMD_SIZE    ; ...the sound row's offset in rms_drv
+RMD_EXT     equ 3 * RMD_SIZE    ; ...and EXTD.DRV's (W7: no class, no verb -
+                                ; RMD_CLS 0 matches no call - an image the
+                                ; EXFP slots are aimed at, fsx_rextf)
 RMS_SNMAX   equ 4               ; SNDV_RMODE's words the kernel renames
 SNDV_RMODE  equ 13              ; drivers/sound/sndpkg.inc, held equal by
                                 ; tests/unit/t_mirror.py
@@ -3657,5 +3847,11 @@ fsx_rmsseg  resw 1              ; ...and the paragraph its twins run at
 %ifdef VID_EXT
 fsx_rvxep   resw 2              ; ...and [vx_ep], the VESA desktop's hook
 %endif
+fsx_rserb   resw 1              ; a SERIAL.DRV lease's ring copy (W7): its
+                                ; offset in the service area's claim, 0 = no
+                                ; lease (fsx_rsvcf)
+fsx_rsfp    resw 1              ; ...SERFP's code selector, banked
+fsx_rsrsg   resw 1              ; ...and the module's srl_seg and srl_buf -
+fsx_rsrbf   resw 1              ; the OWNER's ring - banked
 section .text
 %endif

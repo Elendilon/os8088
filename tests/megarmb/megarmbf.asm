@@ -14,11 +14,20 @@
 ;
 ;   K  FSXF_REAL + FSXF_KEEPWORKER: falls back, FSXR_KEEP
 ;   S  FSXF_REAL with a TF_SERVICE task alive - the harness sets the bit on
-;      task 0 while the package waits (`wait S`): falls back, FSXR_SVC
+;      task 0 while the package waits (`wait S`): REAL since W7, the worker
+;      parked (it was FSXR_SVC)
 ;   E  FSXF_REAL with EXTD.DRV's row said loaded (the harness pokes its
-;      MODR_SEG): falls back, FSXR_EXTD
-;   L  FSXF_REAL with a SERIAL.DRV lease said open (the harness pokes
-;      [ser_row] to a row no port has): falls back, FSXR_SERIAL
+;      MODR_SEG with a value that names no descriptor): REAL since W7 - the
+;      door no longer tests the row, and a row with no image is no low copy
+;      (it was FSXR_EXTD; a LOADED image is tests/megarmbext.py's, 86Box)
+;   L  FSXF_REAL with a REAL SERIAL.DRV lease open on COM1 (W7; it was
+;      FSXR_SERIAL), a byte queued by hand in the ring's TX half: inside,
+;      `int 24h` - IRQ4's vector in the bracket - runs the pointer's ISR,
+;      which serves the leased row through SERIAL.DRV at its paragraph and
+;      sends the byte from the ring's COPY; after, the owner's ring (in this
+;      OS88_HIGH region, above 1MB) shows the byte gone. x = 01dd: the
+;      vector was the kernel's and dd bytes went; 02xx: it was not; EEee:
+;      the lease refused, ee its AX
 ;   M  FSXF_REAL with the heap filled by the package's own claims (through
 ;      the DMA door, CX = 0: conventional ones - OSAPI_MEM_CLAIM gives an
 ;      OS88_HIGHMEM package memory above 1MB), so no
@@ -107,16 +116,14 @@ mf_tick:
     call mf_run
     mov al, 'K'
     call mf_rep
-    ; --- S, E, L: a state the harness makes, then puts back -----------
+    ; --- S, E: a state the harness makes, then puts back; L: a lease ---
     mov al, 'S'
     mov di, mf_rs
     call mf_poked
     mov al, 'E'
     mov di, mf_re
     call mf_poked
-    mov al, 'L'
-    mov di, mf_rl
-    call mf_poked
+    call mf_lease                   ; L: a REAL lease (W7), no poke
     ; --- M: no conventional room -----------------------------------------
     call mf_fill
     mov di, mf_rm
@@ -241,6 +248,58 @@ mf_poked:
     jne .u
     pop ax
     jmp mf_rep
+
+; mf_lease - leg L (W7): a lease on COM1, named by the user (115.1.1), the
+; region pinned first as SPEC.md 115 asks; a byte queued straight into the
+; ring's TX half; the bracket; the ring read after; the lease closed
+mf_lease:
+    mov dx, ds
+    xor ax, ax
+    call OSAPI_MEM_MOVABLE          ; pin the region before the ring
+    xor ax, ax                      ; Open
+    mov bx, 0x0081                  ; COM1, the user's; 9600
+    mov si, mf_ser
+    call OSAPI_SERIAL
+    jnc .open
+    mov ah, 0xEE
+    mov [mf_x], ax
+    jmp short .rep
+.open:
+    mov bl, [mf_ser+4]              ; TX tail
+    xor bh, bh
+    mov byte [mf_ser+SER_TX+bx], 'Z'
+    inc bl
+    mov [mf_ser+3], bl              ; TX head: one byte queued
+    mov byte [mf_lint], 2
+    mov di, mf_rl
+    mov cx, FSXF_REAL
+    mov word [mf_ent], mf_main_l
+    call mf_run0
+    mov al, [mf_ser+4]              ; the tail, moved by the ISR inside:
+    sub al, [mf_ser+3]              ; 0 when it reached the head, FFh not
+    inc al                          ; (so 1 = the byte went)
+    mov ah, [mf_lint]
+    mov [mf_x], ax
+    mov al, 1                       ; Close
+    call OSAPI_SERIAL
+.rep:
+    mov al, 'L'
+    jmp mf_rep
+
+; L's entry: IRQ4's vector in the bracket is IVT 24h (the 8259 stays at its
+; protected-mode base); the kernel's there, it is run once by hand
+mf_main_l:
+    call mf_main
+    push es
+    xor ax, ax
+    mov es, ax
+    cmp word [es:0x24*4+2], 0x0060
+    pop es
+    jne .out
+    mov byte [mf_lint], 1
+    int 0x24
+.out:
+    ret
 
 ; mf_run - CX = flags, DI = the leg's record: the bracket, entry mf_main.
 ; mf_run0 - ...with the entry at [mf_ent]
@@ -623,4 +682,7 @@ mf_rp       equ mf_rh + 6
 mf_rn       equ mf_rp + 6
 mf_rn2      equ mf_rn + 6
 mf_cls      equ mf_rn2 + 6          ; leg M's claims
-MF_RESN     equ mf_cls + MF_NCLM * 2 - mf_res
+mf_lint     equ mf_cls + MF_NCLM * 2 ; leg L: 1 the ISR run, 2 not the kernel's
+mf_ser      equ mf_lint + 2         ; ...and its ring (SPEC.md 115)
+SER_TX      equ 261
+MF_RESN     equ mf_ser + SER_BUFFER_SIZE - mf_res

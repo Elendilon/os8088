@@ -104020,9 +104020,9 @@ at the door, so that each can be lifted by itself:
 |---|---|---|---|
 | `FSXR_REAL` | 0 | (it was had) | |
 | `FSXR_KEEP` | 1 | `FSXF_KEEPWORKER`: one task runs in real mode, so there is nothing to keep | no - the package's own combination |
-| `FSXR_SVC` | 2 | a `TF_SERVICE` task (a driver's worker) is alive and would never be scheduled | YES - owed (MEGA-VIDEO-REALMODE-PLAN W7) |
-| `FSXR_EXTD` | 3 | EXTD.DRV, the extended desktop's module, is loaded: its image is above 1MB and `OSAPI_FSX_MODE`, `OSAPI_FSX_CAPS` and `OSAPI_WM_CONTENT` far-call it | YES - owed (W7: a play on either display) |
-| `FSXR_SERIAL` | 4 | a SERIAL.DRV lease is open (SPEC.md 115): the pointer's ISR far-calls the module (`SERFP`) for the leased UART on every interrupt | YES - owed (W7) |
+| `FSXR_SVC` | 2 | RETIRED by W7, never answered: a `TF_SERVICE` task (a driver's worker) alive is PARKED for the bracket (below) | - |
+| `FSXR_EXTD` | 3 | RETIRED by W7, never answered: a loaded EXTD.DRV (the extended desktop) runs from a LOW COPY (below), so a bracket on either display is real | - |
+| `FSXR_SERIAL` | 4 | RETIRED by W7, never answered: a SERIAL.DRV lease open is serviced in the bracket (below) | - |
 | `FSXR_ROOM` | 5 | the region is above 1MB (`OS88_HIGH`) and the heap has no conventional claim for its copy - or, since W3, none for the bracket's SERVICE AREA (below) | sometimes - owed in part (MEGA-VIDEO-REALMODE-PLAN 5.3.3: the HMA) |
 | `FSXR_VOL` | 6 | a stream the LIST names is on a volume real mode cannot read: a redirected or file-driver volume (NET.DRV's share, CDROM.DRV, HTTPFS.DRV, RAMDISK.DRV), a mounted image, or a sector past CHS's reach | no - a PERMANENT protected-mode case (MEGA-VIDEO-REALMODE-PLAN 5.3 item 2), said on the info card |
 | `FSXR_FRAG` | 7 | the LIST's files need more than `FSXL_RUNS` (224) contiguous runs between them, or there are more than `FSXL_NMAX` (4) of them | rarely - a badly fragmented disk; a copy plays |
@@ -104314,9 +104314,54 @@ entry block whether or not the module is loaded (`EXTCALL`; unloaded, every
 slot is `mod_gone`'s, CF = 1 being the one-display answer) - and unloaded,
 that slot names `.cold` through a protected-mode SELECTOR, a wild segment in
 real mode: the first build of this hung inside `OSAPI_FSX_MODE`. So the drop
-points the block at a `.text` twin of `mod_gone` and the return puts it back,
-and a loaded EXTD.DRV (the extended desktop) sends the bracket to protected
-mode (`FSXR_EXTD`, owed: MEGA-VIDEO-REALMODE-PLAN W7).
+points the block at a `.text` twin of `mod_gone` and the return puts it back.
+
+**W7 - the three states a user is in, real since** (MEGA-VIDEO-REALMODE-PLAN
+W7; the owner: *"we need to not refuse states the user is going to be in"*).
+Each was one test at the door and each test is gone:
+
+- **The extended desktop** (`FSXR_EXTD` retired). A loaded EXTD.DRV gets a
+  row of the service area's low drivers (`RMD_EXT`): its claim, image and
+  tail, copied DOWN into a conventional claim at the freeze's arm and back UP
+  at the exit as a driver's is (it runs where it is when the claim is
+  conventional already), and at the drop every `EXFP` slot's SEGMENT becomes
+  that copy's paragraph, the offsets kept; the return puts the code selector
+  back. What a bracket reaches of the module is `OSAPI_FSX_MODE`'s two verbs,
+  `EXTF_KIND` and `EXTF_ENTER` (the collapse onto the bracket's display) -
+  `OSAPI_FSX_CAPS` is not a kept cell, and `OSAPI_WM_CONTENT`'s
+  second-display arm is resident - and that path is real-mode code as it
+  stands: `DS` the kernel's, every kernel routine reached through
+  `KERNEL_SEG` (`EXK`, whose frame names `KERNEL_SEG`, and `.text`'s
+  `vid_blank_kind`, `vid_depth_set`), no `.cold`, no selector and no write
+  through its own CS; the two video records' segments are words the drop's
+  walk already makes real (`mega_vwalk`'s `vid_ctx` rows). So a play runs in
+  real mode on EITHER display: `OSAPI_FSX_RUN` CH = 0 the window's, n
+  display n-1. No room for the copy is `FSXR_DROOM`, as a driver's.
+- **A driver's worker** (`FSXR_SVC` retired). The bracket runs ONE task, so
+  every `TF_SERVICE` worker is PARKED for it and resumes at the return,
+  where a protected-mode bracket would have kept scheduling it. What that
+  costs is the driver's own, and both drivers that spawn one are safe by
+  their own contracts: a Sound Blaster's refill or drain worker serves a
+  stream that is a FOREIGN one (the door released it, 53.3) or the bracket
+  package's own, which a real-mode bracket feeds itself (`OSAPI_SND_STREAM`'s
+  twin) - and a stream left unfed pauses under §34.5's underrun contract,
+  silence and never stale audio, and the worker resumes it; USBMOUSE.DRV's
+  poll stops, so a USB pointer does not move inside the bracket, where
+  nothing draws it, and moves again after.
+- **A SERIAL.DRV lease** (`FSXR_SERIAL` retired, §115). The pointer's ISR
+  far-calls the module for the leased UART, which in real mode needs three
+  things the drop provides and the return takes back, at IF = 0: the three
+  `SERFP` slots' segment made the module's paragraph (its claim is
+  conventional on kern_mega - SERIAL.DRV is not one of `MOD_HIOK`'s, and an
+  `%error` keeps it so); the lease's 517-byte ring - in the OWNER's region,
+  which may be above 1MB - copied into the service area and the module's
+  `srl_seg`/`srl_buf` pointed at the copy, then copied back over the owner's
+  and the two words restored; and the leased line LEFT OPEN where the drop
+  shuts the serial lines, when its real-mode vector is the kernel's
+  (`mega_rmaskf`'s own test for the mouse's), so the UART is drained in the
+  bracket and its line keeps making edges. The owner cannot call the lease
+  inside the bracket (`OSAPI_SERIAL` is not a kept cell), so nothing but the
+  ISR touches the copy.
 
 ### 53.3 Entry silences what it strands (binding)
 
