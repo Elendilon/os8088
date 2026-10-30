@@ -6966,6 +6966,20 @@ SOAK = [
         "here as too few rows.",
         needs=("marty",), wants=("build/os8088-360.img", "build/apps360.img")),
 
+    Row("icogrow", "soak", py("tests/icogrow.py"), 20.0,
+        "THE ICON STORE GROWS (SPEC.md 25.9.6). A fixed 60-row store was "
+        "outgrown by a standard install of the two 1.44MB disks, and a full "
+        "store answers the generic icon. ico_add now grows the claim a KB at "
+        "a time with mem_regrow. The row makes the store FULL by writing "
+        "[ico_max] down to the rows held, then opens a second volume whose "
+        "packages the first lacked: at ICO_KBMAX (the negative control, same "
+        "boot) they stay on the generic icon and the store does not move; at "
+        "ICO_KB the store grows a KB, [ico_max] is re-derived, every new "
+        "reference names a real row, and row 0's key and body are "
+        "byte-identical at the new base - the capture-at-the-head layout "
+        "(ICO_RBASE) keeping a row's offset fixed across a move.",
+        needs=("marty",), wants=("build/os8088-360.img", "build/apps360.img")),
+
     Row("ascabsorb", "soak", py("tests/ascabsorb.py"), 20.0,
         "ASSOC.DAT'S BUFFER IS A FILE BUFFER (SPEC.md 54.7.4 / 25.9.4). The "
         "volume's association cache was a 3KB claim held for the SESSION, and "

@@ -57188,15 +57188,15 @@ Distinct package icons demandable at once, measured over the shipped images:
 most `ASSOC_NAPP` composed bodies. (This paragraph said 26 and 29 when the
 tree shipped fewer programs; the figure grows with every program written, which
 is why the store is sized by what one whole `ASSOC.DAT` can declare rather
-than by today's count.) `ICO_NROW` is **60** on `kern_big` - 60 x 82 = 4,920
-bytes plus §54.7.6.2's capture, 5,107 of a 5KB claim, so a full `ASSOC.DAT`
-(`ASC_NAPP` = 55) is absorbed whole with rows to spare - and 24 on
-`kern_small`, which SPEC.md 51.0 leaves no driver-backed volume and fewer
+than by today's count.) **That premise did not hold and §25.9.6 retires it**:
+the store is a 5KB first claim that GROWS to 20KB, so it holds what the
+machine has met rather than what one file can declare. `kern_small` keeps a
+fixed 24 rows, SPEC.md 51.0 leaving it no driver-backed volume and fewer
 packages.
 
-`ASC_NAPP` is 55: that is a VOLUME's question, and it is the most rows that
-fit 5KB with 64 extension rows beside them (§54.7.1). It was 32 and the 720KB
-apps disk held exactly 32 packages, so the cap was already binding there.
+`ASC_NAPP` is 90: that is a VOLUME's question, and it is the most rows that
+fit 8KB with 64 extension rows beside them (§54.7.7). It was 55 at 5KB, and
+32 before that, when the 720KB apps disk held exactly 32 packages.
 
 #### 25.9.3 What it replaced, and what `kern_small` pays instead
 
@@ -57271,6 +57271,50 @@ than a redraw — the absorbed rows go with it — so `ico_need` clears
 one three-sector re-read at the next mount rather than a sector per package.
 The rank stays `MEM_PG_TRIV` regardless: what is lost is still recoverable
 without asking the user for anything.
+
+#### 25.9.6 The store GROWS, a kilobyte at a time
+
+A fixed 60 rows was outgrown by the shipped disks themselves. A standard
+install of the two 1.44MB disks puts **50 distinct packages** on a hard disk,
+and the store holds a row per package PLUS a row per composed document body
+(§25.9: one per association slot, and one more whenever a slot's glyph
+changes) - so it filled, and `ico_add`'s *full* answer is §25's generic icon.
+The document types were the ones that lost, because they are composed last:
+only when a folder holding documents is browsed. An install of everything not
+retired needs ~64 package rows and ~22 document rows.
+
+So `ico_add`, finding the store full, calls **`ico_grow`**, which takes the
+claim up one kilobyte with `mem_regrow` (§50.3) and works out the rows the new
+claim holds into `[ico_max]`. The first claim is still `ICO_KB` = 5 and still
+60 rows (the capture moved, below, into bytes the rounding already had), and the ceiling `ICO_KBMAX` = 20 is 247 rows:
+a row number is a byte and 0xFE/0xFF are `ICO_R_FOLDER` and `ICO_R_NONE`.
+A machine with a few programs pays for a few, and nothing that names a row
+changes - a row's OFFSET never moves inside the claim, only the claim's base
+can, and `[ico_seg]` is the one word every reader takes it from.
+
+**Why the grow cannot disturb its callers.** `ico_add` is reached from the
+harvest and from `asc_seed`'s walk of an `ASSOC.DAT` claim, both of which hold
+OTHER claims' segments across it. `mem_regrow` compacts nothing and sheds only
+blocks ranked strictly below the claimant, and the store is `MEM_PG_TRIV`, the
+cheapest rank there is - so a grow sheds nothing, moves nothing but the store,
+and on a heap with no room simply refuses, which is today's generic icon.
+
+**The capture (§54.7.6.2) moved to the HEAD of the claim** to make that true:
+it lived in the KB rounding past the last row, which is exactly where a grow
+adds rows. `ICO_CAP` is 0, `ICO_RBASE` = 188 is row 0, and `ico_rowoff`,
+`ico_scan` and the flush's own row walk (`ascw.inc`) add it. The first claim
+loses no row to it: (5,120 - 188) / 82 is still 60.
+
+**A shed resets it.** `ico_demote` zeroes `[ico_seg]` and the count word as
+before; the next `ico_need` claims `ICO_KB` again and writes `[ico_max]` and
+`[ico_kb]` as one word, so a store that comes back is a first claim and not
+the size the last one had reached.
+
+`kern_small` keeps a FIXED 24-row store and none of this: it has no
+associations (§54.0) and a diet on which no byte goes to growing it - it
+builds BYTE-IDENTICAL. Cost on `kern_big`, measured against the tree before:
+**79 bytes**, `.text` +2 (`[ico_max]`, `[ico_kb]`) and `.cold` +77 -
+resident, no rung crossed.
 
 ### 26.8 Desktop shortcuts
 
@@ -105755,7 +105799,7 @@ choices in it are the load-bearing ones:
 
 - **`assoc_app_of`, not `asc_slot_of` — find, never create.** A slot only
   matters if some extension points at it, and the kernel's table is
-  `ASSOC_NAPP` = **16** rows against a disk that may cache 55. Creating a
+  `ASSOC_NAPP` = **16** rows against a disk that may cache 90. Creating a
   slot per package would evict the associations this exists to serve.
 - **After `asc_merge_ext`**, so a package that *declares* its extensions
   (§54.6) has already been given its slot and is found here like anything
@@ -106125,16 +106169,18 @@ floppy every package's first sector is on a track of its own, so a
 re-read of twenty headers would miss §18.95's cache for all but the last
 few, at ~400 ms a call.
 
-So the harvest keeps them, **in the store's own claim**: 60 rows of 82 bytes
-are 4,920 bytes of a 5,120-byte claim, and the capture is the tail:
+So the harvest keeps them, **in the store's own claim**, at its HEAD - it was
+the tail, in the KB rounding past row 59, until §25.9.6 made the store grow
+off its end:
 
 | offset | |
 |---|---|
-| `ICO_CAP` = `ICO_NROW * ICO_ROW` | `ICO_CAP_MAX` = 11 records of `ICO_CAP_RSZ` = 17 bytes: the store row the record is for, then the header's association block verbatim (count, then 5 x 3 extension bytes) |
+| `ICO_CAP` = 0 | `ICO_CAP_MAX` = 11 records of `ICO_CAP_RSZ` = 17 bytes: the store row the record is for, then the header's association block verbatim (count, then 5 x 3 extension bytes) |
 
 (It was an 11-byte row array and eleven 16-byte records after it until kernel
 size pass 13: one stride makes a record one `mul` and its row one `stosb`,
-and 187 bytes fit the same 200 the array and its pad took.)
+and 187 bytes fit the same 200 the array and its pad took. Row 0 is
+`ICO_RBASE` = 188, the record area rounded even.)
 
 How many records are held is **`[ico_capn]`**, a resident byte right behind
 `[ico_n]`. The store that empties the store is a word store that empties the
@@ -106292,6 +106338,41 @@ system disk still 347 of 354 clusters.
   step 7 writes nothing.
 - **The file lands where the FAT allocator puts it** (§54.7.5's last
   paragraph).
+
+### 54.7.7 The reader's claim is the FILE'S size, and the cap is the largest file
+
+`asc_use` used to claim `ASC_KB` whatever the volume held, so a floppy with
+three programs read a 1KB file into a 5KB claim, and the cap that claim set -
+`ASC_NAPP` 55 - was what a busy volume ran into. An install of everything not
+retired puts about **64 packages on one hard-disk volume** (counted off the
+live-media payload, §80.6), which is nine past it, and every package past the
+cap is harvested the slow way at every mount: a sector read apiece, ~400 ms
+of `int 13h` each on the target machine.
+
+So the two questions are separated. **The claim is the file's own size**,
+rounded to a kilobyte: the root walk runs FIRST, finds the file's sector
+count, and only then claims `(sectors + 1) / 2` KB. A file is written with
+exactly its used rows (§54.7.6.4), so a sparse disk's cache costs a sparse
+disk's claim. **`ASC_KB` is now the LARGEST file a build writes and reads** -
+8KB, which holds `ASC_NAPP` = **90** app rows and `ASC_NEXT` = 64 extension
+rows (90 x 88 + 16 + 64 x 4 = 8,192). A file past it is refused rather than
+read, exactly as before, and every other test on the bytes is unchanged: the
+counts must fit the bytes actually read, which now are the claim.
+
+**The one claim still sized from the cap is the flush's** (`FORMAT.DRV`,
+§54.7.6.4): an old-file buffer and a new-file buffer of `ASC_KB` each, now
+~18KB of transient work claim where it was ~12KB. It is held only for the
+flush and freed before it returns; sizing it from the counts is the follow-on
+if a busy heap starts refusing flushes.
+
+It cost **13 bytes of `.cold`**, resident: the claim moved below the root
+walk and takes its size from the sector count. `kern_small` has no
+`ASSOC.DAT` and is byte-identical.
+
+**An older kernel refuses a file past its own `ASC_KB`**, so a 90-row cache
+on a disk taken back to one is no cache at all there - slow and correct, the
+same answer as a missing file - and a file of 55 rows or fewer reads the same
+on both.
 
 ### 54.8 Accepting the document: five apps, and the three traps between them
 
