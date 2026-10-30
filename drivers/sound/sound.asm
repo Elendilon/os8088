@@ -729,19 +729,17 @@ opl_claim:
     cmp al, dh
     je .mine
     popf
-    jmp short .bad
+.bad:
+    stc
+    jmp short .out
 .take:
     mov [opl_own+bx], dh
 .mine:
-    popf
-    pop bx
-    pop ax
+    popf                        ; (the caller's flags: CF is set after it)
     clc
-    ret
-.bad:
+.out:
     pop bx
     pop ax
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -751,23 +749,17 @@ opl_claim:
 ; clobbers: nothing else (flags)
 ; -----------------------------------------------------------------------------
 opl_owned:
-    push ax
     push bx
     cmp cl, OPL_NCH
     jae .no
     mov bl, cl
     xor bh, bh
-    mov al, [opl_own+bx]
-    cmp al, dh
-    jne .no
-    pop bx
-    pop ax
-    clc
-    ret
+    cmp [opl_own+bx], dh
+    je .yes                     ; (an EQUAL compare: CF = 0)
 .no:
-    pop bx
-    pop ax
     stc
+.yes:
+    pop bx                      ; (pop leaves the flags)
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1151,12 +1143,8 @@ opl_regok:
     cmp al, 0x15                ; ...and carrier
     je .no
 .yes:
+    CLC_OR_STC .no
     pop ax
-    clc
-    ret
-.no:
-    pop ax
-    stc
     ret
 
 ; -----------------------------------------------------------------------------

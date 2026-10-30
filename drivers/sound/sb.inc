@@ -2738,9 +2738,7 @@ sbl_dma_get:
     pop dx
     pop cx
     pop ax
-    ret
-.ok:
-    clc
+.ok:                            ; (CF = 0: `jne` after a compare with 0)
     ret
 
 ; sbl_dma_put - free the double buffer if it is held. Clobbers nothing.
