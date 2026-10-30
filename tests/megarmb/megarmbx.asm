@@ -135,7 +135,22 @@ mx_tick:
     ; --- B, F, G, D: B:\ ----------------------------------------------------
     xor dx, dx
     mov bl, 1
-    call OSAPI_FILE_GOTO_Q
+    call OSAPI_FILE_GOTO
+    sbb dx, dx                      ; (on E9: CF, AX)
+    mov si, mx_s_goto
+    call mx_say
+    xchg ax, dx
+    call mx_hex4
+    xchg ax, dx
+    call mx_hex4
+    call OSAPI_FILE_HERE
+    mov al, ' '
+    call mx_out1
+    mov al, bl
+    call mx_hex2
+    mov ax, dx
+    call mx_hex4
+    call mx_nl
     mov al, 'B'
     mov bx, mx_lb
     mov word [mx_name], mx_n_b
@@ -158,10 +173,12 @@ mx_tick:
     call mx_leg
     mov dx, [mx_home]               ; ...and home
     mov bl, [mx_hdrv]
-    call OSAPI_FILE_GOTO_Q
+    call OSAPI_FILE_GOTO
     ; --- A: HDV_ARM through the twin --------------------------------------
     mov al, 'A'
     mov bx, mx_la
+    mov word [mx_name], mx_n_c
+    mov byte [mx_salt], 0x11
     mov word [mx_body], mx_arm
     call mx_leg0
     ; --- N: what the table answers ---------------------------------------
@@ -682,6 +699,7 @@ mx_s_xbad:  db ' xbad ', 0
 mx_s_n:     db ' n ', 0
 mx_s_x:     db ' x ', 0
 mx_s_caps:  db ' caps ', 0
+mx_s_goto:  db 'goto B: ', 0
 
 ; THE RESULT BLOCK, in the bss (tests/vidrmb.py reads it: its offset is
 ; os88_image_end, the .bin header's image size)

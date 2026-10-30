@@ -1479,7 +1479,9 @@ fsx_rprepf:
     mov ax, [di+I_SIZE]         ; image + bss, FFFFh for a whole 64KB
     mov cx, ax
     inc cx
-    and cl, 0xFE                ; the copy moves words (mega_imghif's sum)
+    and cx, -2                  ; the copy moves words (mega_imghif's sum): CX,
+                                ; not CL - a region of 7FFh bytes made CL 0
+                                ; and the copy 64KB, over the next claim
     jnz .len
     mov cx, 0xFFFE              ; a 64KB region: mega_lincopy's ceiling
 .len:
@@ -1797,7 +1799,7 @@ fsx_rdrvf:
     add cx, [DRV_H_IMG]
     pop ds
     inc cx
-    and cl, 0xFE                ; (words)
+    and cx, -2                  ; (words)
     mov ax, dx
     push cx
     call mega_selbase           ; DX:AX = its base
@@ -1878,8 +1880,8 @@ fsx_rcopyf:
     jz .dw
     xchg si, di
 .dw:
-    push ax
-    mov ax, [es:si]
+    pusha                       ; (mega_lincopy spends AX..DI: BX and DX are
+    mov ax, [es:si]             ; the walk's)
     mov [mega_xsrc], ax
     mov ax, [es:si+2]
     mov [mega_xsrc+2], ax
@@ -1890,7 +1892,7 @@ fsx_rcopyf:
     inc byte [sch_lock]
     call KERNEL_SEG:mega_lincopyf
     dec byte [sch_lock]
-    pop ax
+    popa
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2412,6 +2414,7 @@ rms_rrow    dw 0                ; READ_SEQ: the stream's row
 rms_rbuf    dw 0                ; ...the buffer's paragraph, advanced...
 rms_rofs    dw 0                ; ...and its offset, 0..15
 rms_rn      dw 0                ; ...the bytes it delivers
+rms_rcap    dw 0                ; ...its capacity
 rms_rsec    dw 0                ; ...the sectors still to read
 rms_xl      dd 0                ; the transport: the next sector,
 rms_xn      dw 0                ; ...the sectors left,
@@ -2499,6 +2502,7 @@ rms_rseq:
     jnz .fail
     or cx, cx
     jz .fail
+    mov [rms_rcap], cx
     mov si, bx                  ; the buffer, normalized: offset 0..15
     and si, 15
     mov [rms_rofs], si
@@ -2507,16 +2511,20 @@ rms_rseq:
     mov [rms_rbuf], dx
     mov ax, [es:di+FSEQ_OFF]
     mov dx, [es:di+FSEQ_OFF+2]
+    mov bx, [ds:bp+RMS_SIZE]
+    mov si, [ds:bp+RMS_SIZE+2]
+    sub bx, ax
+    sbb si, dx                  ; SI:BX = what is left of the file
+    jc .end                     ; (at or past the end: nothing, whatever
+    mov cx, bx                  ; the offset - READ_AT's order)
+    or cx, si
+    jz .end
+    mov cx, [rms_rcap]
     test ax, 511
     jz .al
     mov ax, FERR_NAME
     jmp .fail
 .al:
-    mov bx, [ds:bp+RMS_SIZE]
-    mov si, [ds:bp+RMS_SIZE+2]
-    sub bx, ax
-    sbb si, dx                  ; SI:BX = what is left of the file
-    jc .end
     or si, si
     jnz .cap
     cmp bx, cx
