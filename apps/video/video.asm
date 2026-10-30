@@ -135,6 +135,9 @@ VP_COLS    equ 35                  ; the info panel's text columns
 VP_LINES    equ 13                  ; (the last five the heap's, the reader's
                                     ; and the layer's tests: VPDIAG=1, a
                                     ; field diagnostic)
+%elifdef PKG_MEGA
+VP_LINES    equ 9                   ; (the kern_mega arm's ninth: which
+                                    ; bracket and why, 98.3.24)
 %else
 VP_LINES    equ 8
 %endif
@@ -14577,6 +14580,426 @@ vp_rhcp:
 %else
 %endif
 
+%ifdef PKG_MEGA
+;
+; =============================================================================
+; THE REAL-MODE BRACKET (SPEC.md 98.3.24, MEGA-VIDEO-REALMODE-PLAN W5): the
+; kern_mega arm asks OSAPI_FSX_RUN for FSXF_REAL (53.2.3) whenever real mode
+; serves the play as well as protected mode does - and then the bracket runs
+; as it does on kern_big, int 13h native and the hook inside the read. The
+; player's own reasons not to ask are tested first (vp_rdoor), the kernel's
+; come back in SI, and the info card's ninth line says which (vp_rline).
+; =============================================================================
+VPR_LIVE    equ 0x11                ; the player's reasons, [vp_rwhy] (the
+VPR_SPK     equ 0x12                ; kernel's are FSXR_*, 1-9)
+VPR_V2      equ 0x13
+VPR_RES     equ 0x14
+VPR_HIGH    equ 0x15
+VPR_SPLIT   equ 0x16
+VPR_MOVED   equ 0x17
+VPR_CLAIM   equ 0x18
+
+; vp_rdoor - OSAPI_FSX_RUN's door: CL |= FSXF_REAL, BP = the list and SI = 0
+; when real mode serves this play - its two claims taken and its words
+; banked (os88real_prep) - else [vp_rwhy] the reason it does not, and CL,
+; BP as they came. Every other register kept
+vp_rdoor:
+    mov byte [vp_rasked], 0
+    cmp byte [vp_pm], 0
+    jne .k
+    ret                             ; (a real-mode kernel: as shipped)
+.k:
+    push ax
+    push bx
+    push dx
+    push si
+    push di
+    mov al, VPR_LIVE                ; LIVE (98.3.10): selector runs on the
+    cmp byte [vp_lsess], 0          ; desktop, protected mode by ruling
+    jne .pm
+    cmp byte [vp_livem], 0
+    jne .pm
+    mov al, VPR_RES                 ; RESIDENT: its cursors are offsets in
+    cmp byte [vp_resid], 0          ; protected mode, segments in real
+    jne .pm
+    mov al, VPR_HIGH                ; THE RING ABOVE 1MB (98.3.18.17)
+    cmp byte [vp_rhi], 0
+    jne .pm
+    cmp byte [vp_xems], 0           ; AN XMS BANK protected mode reads in
+    jne .nb                         ; place (5.3 ruling 1): under the
+    mov ah, [vp_xbank]              ; speaker, or a version 2 file, real
+    or ah, [vp_einp]                ; mode would copy it down instead
+    jz .nb
+    mov al, VPR_SPK
+    cmp byte [vp_snd], VP_SPK
+    je .pm
+    mov al, VPR_V2
+    cmp byte [vp_v2], 0
+    jne .pm
+.nb:
+    mov al, VPR_MOVED               ; a block not where its token names: real
+    call vp_xmoved                  ; mode reads it at the token's address
+    jc .pm
+    mov al, VPR_SPLIT               ; THE LAYER's split (98.1.9.2), owed: it
+    cmp byte [vp_lysplt], 0         ; claims and frees XMS on verdicts taken
+    jne .ns                         ; inside, which real mode refuses
+    cmp word [vp_lybkb], 0
+    je .ns
+    cmp byte [vp_xems], 0
+    je .pm
+.ns:
+    call vp_rclaims                 ; what the bracket cannot claim
+    mov si, vp_rlst                 ; ...and every word a real segment
+    mov di, vp_rlst_bank
+    call os88real_prep
+    mov al, VPR_CLAIM
+    jc .pmf
+    call vp_rmklist                 ; BP = the list
+    or cl, FSXF_REAL
+    mov byte [vp_rasked], 1
+    pop di
+    pop si
+    xor si, si                      ; (FSXR_REAL in)
+    jmp short .o
+.pmf:
+    call vp_rgive
+.pm:
+    mov [vp_rwhy], al
+    pop di
+    pop si
+.o:
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; vp_xmoved - CF=1: the hold's or bank's XMS block is not at its token (the
+; pool moved it), so real mode, which reads at the token, may not have it.
+; Every register kept
+vp_xmoved:
+    cmp byte [vp_xems], 0
+    jne .no
+    push ax
+    push bx
+    push dx
+    mov ax, [vp_xbase]
+    or ax, [vp_xbase + 2]
+    jz .ok                          ; (no block: CF=0 from the or)
+    mov dx, [vp_xrun]
+    or dx, dx
+    stc
+    jz .o                           ; (no run to ask: moved, for all we know)
+    mov bl, SEG_LIN
+    call OSAPI_SEG                  ; DX:AX = where it is now
+    jc .o
+    cmp ax, [vp_xbase]
+    jne .mv
+    cmp dx, [vp_xbase + 2]
+    je .ok
+.mv:
+    stc
+    jmp short .o
+.ok:
+    clc
+.o:
+    pop dx
+    pop bx
+    pop ax
+    ret
+.no:
+    clc
+    ret
+
+; vp_rclaims - the two claims a real-mode bracket cannot make, at its door: a
+; seek's key-entry scratch, and the sound's ring when none is held (Unmute in
+; the full screen) - with the speaker's shaper part where the speaker would
+; shape. Each is what the bracket's own claim would have been; none is an
+; error. Every register kept
+vp_rclaims:
+    push ax
+    push bx
+    push cx
+    push dx
+    cmp word [vp_nkeys], 0
+    je .snd
+    cmp word [vp_skscr], 0
+    jne .snd
+    mov ax, [vp_kekb]
+    call vp_mclaim
+    jc .snd
+    mov [vp_skscr], dx
+.snd:
+    cmp byte [vp_audio], 0
+    je .o
+    cmp byte [vp_nosnd], 0
+    jne .o
+    cmp word [vp_aseg], 0
+    jne .o
+    call vp_scaps
+    test ax, SND_CAP_PCM_BG
+    jz .spk
+    mov ax, VP_RL / 1024 + 1        ; a card's: vp_sndprep's .hw
+    mov cx, ax
+    call OSAPI_MEM_CLAIM_DMA_HI
+    jc .o
+    jmp short .got
+.spk:
+    cmp byte [vp_spkpwm], 0         ; the speaker's: its shaper part first
+    jne .sp1                        ; (a card's clip, 98.3.15.2)
+    call vp_fxget
+    jc .o
+.sp1:
+    call vp_ringkb
+    call vp_mclaim
+    jc .o
+.got:
+    mov [vp_aseg], dx               ; held with [vp_snd] 0: no sound yet
+.o:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; vp_rgive - after the bracket: the door's scratch given back, and the sound's
+; ring if the play went out silent (muted inside, or never unmuted). Every
+; register kept
+vp_rgive:
+    push dx
+    xor dx, dx
+    xchg dx, [vp_skscr]
+    or dx, dx
+    jz .s
+    call vp_mfree
+.s:
+    cmp byte [vp_snd], 0
+    jne .o
+    xor dx, dx
+    xchg dx, [vp_aseg]
+    or dx, dx
+    jz .o
+    call vp_mfree
+.o:
+    pop dx
+    ret
+
+; vp_rmklist - BP = the FSXL_ list (SPEC.md 53.2.3): the file, HDD.DRV, the
+; card when the play may sound through one, EMS for an EMS bank. Every other
+; register kept
+vp_rmklist:
+    push ax
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    cld
+    mov di, vp_rlbuf
+    mov al, FSXL_FILE
+    stosb
+    mov si, vp_name
+    mov cx, 13
+    rep movsb
+    mov ax, FSXL_DRV | DRVC_DISK << 8
+    stosw
+    cmp byte [vp_xems], 0
+    je .ne
+    mov ax, FSXL_DRV | DRVC_EMS << 8
+    stosw
+.ne:
+    cmp byte [vp_audio], 0
+    je .e
+    cmp byte [vp_nosnd], 0
+    jne .e
+    push di
+    call vp_scaps
+    pop di
+    test ax, SND_CAP_PCM_BG
+    jz .e
+    mov ax, FSXL_DRV | DRVC_SOUND << 8
+    stosw
+.e:
+    mov al, FSXL_END
+    stosb
+    mov bp, vp_rlbuf
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; vp_rpost - right after OSAPI_FSX_RUN, protected mode again, flags kept: the
+; kernel's answer onto the card, and what the bracket owed undone - the block
+; decoder's pointers made again on its selector, the frame put in the box,
+; the door's claims given back. Every register kept
+vp_rpost:
+    pushf
+    cmp byte [vp_rasked], 0
+    je .o
+    mov ax, si
+    mov [vp_rwhy], al               ; (0: it ran in real mode)
+    cmp byte [vp_rran], 0
+    je .f
+    mov byte [vp_rran], 0
+    call vp_bset
+    cmp byte [vp_rpic], 0
+    je .f
+    mov byte [vp_rpic], 0
+    call vp_sesspic                 ; THE FRAME IN THE BOX (98.3.7), which
+    call vp_fmt                     ; the bracket could not claim or draw
+.f:
+    call vp_rgive
+.o:
+    popf
+    ret
+
+; vp_rin - FIRST in the entry proc: in a REAL-MODE bracket (kern_mega, and
+; OSAPI_CPU_INFO answers real mode) every listed word its real segment,
+; [vp_self] our CS, [vp_pm] 0 - every runtime-dual arm the shipped one -
+; vp_addr's protected-mode head off, the block decoder's pointers on its
+; real segment, and the yield sites live for a block read in place. Nothing
+; in a protected-mode bracket. Every register kept
+vp_rin:
+    mov byte [vp_rbr], 0
+    cmp byte [vp_pm], 0
+    je .o
+    push ax
+    call OSAPI_CPU_INFO
+    test ah, CPU_F_PM
+    pop ax
+    jnz .o
+    push ax
+    push si
+    push di
+    mov byte [vp_rbr], 1
+    mov byte [vp_rran], 1
+    mov ax, [vp_self]
+    mov [vp_rself], ax
+    mov [vp_self], cs               ; (the bracket runs a COPY of us)
+    mov si, vp_rlst
+    mov di, vp_rlst_bank
+    call os88real_swap
+    mov byte [vp_pm], 0
+    xor ax, ax
+    cmp byte [vp_addr], 0xE9        ; (vp_paddr's patch, the protected-mode
+    jne .np                         ; head: off for the bracket)
+    inc ax
+.np:
+    mov [vp_rpat], al
+    xor al, al
+    call vp_rhpat
+    call vp_bset
+    mov al, [vp_xip]
+    or al, al
+    jnz .y
+    cmp byte [vp_einp], 2
+    jne .ny
+.y:
+    mov al, 1                       ; IN PLACE: real mode borrows, and a
+    call vd_ypatch                  ; borrow yields
+.ny:
+    pop di
+    pop si
+    pop ax
+.o:
+    ret
+
+; vp_rout - LAST in the entry proc: vp_rin undone, before the copy we run in
+; is copied back over the window's. Every register kept
+vp_rout:
+    cmp byte [vp_rbr], 0
+    je .o
+    push ax
+    push si
+    push di
+    xor al, al                      ; (protected mode never yields: a
+    call vd_ypatch                  ; selector survives every interrupt)
+    mov si, vp_rlst
+    mov di, vp_rlst_bank
+    call os88real_swap
+    mov byte [vp_pm], 1
+    mov ax, [vp_rself]
+    mov [vp_self], ax
+    mov al, [vp_rpat]
+    or al, al
+    jz .np
+    call vp_rhpat                   ; vp_paddr's head again
+.np:
+    mov byte [vp_rbr], 0
+    pop di
+    pop si
+    pop ax
+.o:
+    ret
+
+; vp_rhave - CF=0 DX = the sound's ring a real-mode bracket holds already
+; (the door's, or one Mute kept): vp_sndprep's claim, which real mode
+; refuses. CF=1 make the claim. Every other register kept
+vp_rhave:
+    cmp byte [vp_rbr], 0
+    je .no
+    mov dx, [vp_aseg]
+    or dx, dx
+    jz .no
+    clc
+    ret
+.no:
+    stc
+    ret
+
+; vp_rspic - vp_sesspic, or in a real-mode bracket owed to vp_rpost: the
+; poster's claim and its drawing are the desktop's (OSAPI_MEM_CLAIM_HI)
+vp_rspic:
+    cmp byte [vp_rbr], 0
+    je vp_sesspic
+    mov byte [vp_rpic], 1
+    ret
+
+; vp_rskclm - a seek's claim for its key entry (AX KB): in a real-mode
+; bracket the door's scratch, CF=1 none. CF=0 DX = it
+vp_rskclm:
+    cmp byte [vp_rbr], 0
+    je vp_mclaim
+    mov dx, [vp_skscr]
+    cmp dx, 1                       ; CF = 1 for 0
+    ret
+
+; vp_rline - the info card's ninth line (98.3.24): which bracket the last play
+; took, and why not real mode. DI = the line. Every register kept
+vp_rline:
+    cmp byte [vp_rwhy], 0xFF
+    je .r
+    push ax
+    push bx
+    push si
+    mov si, vp_s_rreal
+    mov al, [vp_rwhy]
+    or al, al
+    jz .p
+    mov si, vp_s_rpm
+    call vp_puts
+    mov bl, al
+    xor bh, bh
+    sub bl, 0x11
+    jae .own                        ; the player's
+    add bl, 0x11 + VPR_NOWN - 1     ; ...or the kernel's, after them
+.own:
+    cmp bl, VPR_NALL
+    jae .x
+    shl bx, 1
+    mov si, [vp_rwhys + bx]
+.p:
+    call vp_puts
+.x:
+    pop si
+    pop bx
+    pop ax
+.r:
+    ret
+
+%endif
 ; -----------------------------------------------------------------------------
 ; vp_srun - brackets on the session until it stops or goes back to the
 ; desktop. [vp_wantwin] asks for the window; the window is taken if it can
@@ -14638,7 +15061,17 @@ vp_srun:
     call vp_rqget
     pop di
 %endif
+%ifdef PKG_MEGA
+    push bp
+    push si
+    call vp_rdoor                   ; REAL MODE, or why not (98.3.24)
+%endif
     call OSAPI_FSX_RUN
+%ifdef PKG_MEGA
+    call vp_rpost                   ; (flags kept)
+    pop si
+    pop bp
+%endif
 %ifdef VP_RQ
     pushf
     push ax
@@ -15117,6 +15550,12 @@ vp_keyat:
 ; the window: back to the desktop, paused)
 ; =============================================================================
 vp_main:
+%ifdef PKG_MEGA
+    call vp_rin                     ; (a REAL-MODE bracket's words, 98.3.24)
+    call vp_main0
+    jmp vp_rout                     ; (...and back, before the copy goes up)
+vp_main0:
+%endif
     OS88_ALTENTER_SEED              ; the Alt+Enter that got us here is held
     xor ax, ax
     mov [vp_stepq], ax              ; (no frame steps from the last bracket)
@@ -15611,7 +16050,11 @@ vp_main:
     cmp byte [vp_winm], 0           ; the window -> the full screen: the
     jne .ret                        ; desktop between them is not the point
 .pic:
+%ifdef PKG_MEGA
+    call vp_rspic                   ; (real mode: after the bracket, 98.3.24)
+%else
     call vp_sesspic                 ; THE FRAME IN THE BOX, for the repaint
+%endif
 .fmt:                               ; the bracket's exit makes (§53.6) - and
     call vp_fmt                     ; the card's text, which shares the box's
 .ret:                               ; save
@@ -16155,7 +16598,11 @@ vp_skdue:
     jc .back
     mov [vp_skk], ax
     mov ax, [vp_kekb]               ; its entry - and ON, the first key past
+%ifdef PKG_MEGA
+    call vp_rskclm                  ; (real mode: the door's scratch, 98.3.24)
+%else
     call vp_mclaim                  ; the frame on the glass
+%endif
     jc .back
     mov [vp_rdseg], dx
     mov ax, [vp_skk]
@@ -17086,6 +17533,10 @@ vp_sndoff:
     mov [vp_snd], dl                ; (the hook reads it: before the free)
     mov [vp_sdefer], dl             ; ...and a card deferred to the first
     mov [vp_owed], dx               ; Space is not started on a freed ring
+%ifdef PKG_MEGA
+    cmp byte [vp_rbr], 0            ; (REAL MODE: the ring is KEPT, for an
+    jne .p                          ; Unmute inside - 98.3.24)
+%endif
     xchg dx, [vp_aseg]
     or dx, dx
     jz .p
@@ -17127,10 +17578,17 @@ vp_sndprep:
     mov byte [vp_sadp], 1
     shl word [vp_rbytes], 1
 .hw:
+%ifdef PKG_MEGA
+    call vp_rhave                   ; (real mode: the ring kept, 98.3.24)
+    jnc .hwr
+%endif
     mov ax, VP_RL / 1024 + 1        ; A CARD: the ring and its two control
     mov cx, ax                      ; words, page-safe and never moved
     call OSAPI_MEM_CLAIM_DMA_HI
     jc .ret                         ; no room for it: the play is silent
+%ifdef PKG_MEGA
+.hwr:
+%endif
     mov [vp_aseg], dx
     mov byte [vp_snd], 1
 .ret:
@@ -17156,8 +17614,15 @@ vp_sndprep:
 .lpt:                               ; asked per play, before os88spk_init
     call os88spk_lpt                ; builds the table for it
     call vp_ringkb                  ; (RL + 272 of it: the table follows
+%ifdef PKG_MEGA
+    call vp_rhave                   ; (real mode: the ring kept, 98.3.24)
+    jnc .spr
+%endif
     call vp_mclaim                  ; the control words - and the shaper's
     jc .ret                         ; family after it, for a card's clip)
+%ifdef PKG_MEGA
+.spr:
+%endif
     mov [vp_aseg], dx
     push di
     mov di, dx
@@ -23230,6 +23695,13 @@ vp_fmt:
     xor bl, bl
     call vp_putn
 .mem:
+%ifdef PKG_MEGA
+    cmp byte [vp_played], 0         ; 8: WHICH BRACKET (98.3.24)
+    je .nrb
+    mov di, vp_lines + 8 * VP_LINE
+    call vp_rline
+.nrb:
+%endif
 %if %isdef(VP_DIAG) && %isndef(PKG_MEGA)    ; (the kern_mega arm's diag
 %ifndef VP_RDLOG                    ; build: no room, and its VPPROF says all
                                     ; of it - os88vfit prints the card from
@@ -23812,6 +24284,17 @@ vp_xbw:       dw 0                      ; ...and a BIGSP record's bound window
 vp_self:      dw 0                      ; OUR DATA segment or selector, for a
                                         ; write while DS is a record's
                                         ; (VP_OWNB, KERN-MEGA-PLAN 14.16)
+vp_rbr:       db 0                      ; THE REAL-MODE BRACKET (98.3.24): 1
+                                        ; inside one (vp_rin)
+vp_rran:      db 0                      ; ...the last one ran (vp_rpost's)
+vp_rasked:    db 0                      ; ...the door asked FSXF_REAL
+vp_rwhy:      db 0xFF                   ; ...the card's: 0 real, FSXR_* the
+                                        ; kernel's, VPR_* ours, FFh none yet
+vp_rpic:      db 0                      ; ...the frame in the box owed after
+vp_rpat:      db 0                      ; ...vp_addr was patched at the entry
+vp_rself:     dw 0                      ; ...[vp_self] outside
+vp_skscr:     dw 0                      ; ...the door's scratch for a seek
+vp_rlbuf:     times 1 + 13 + 3 * 2 + 1 db 0 ; ...the FSXL_ list (vp_rmklist)
 vp_rsel:      times VP_RSLN dw 0        ; PROTECTED MODE (KERN-MEGA-MEMORY-
                                         ; PLAN MC7): the ring's slots, one
                                         ; SEG_SUB each from its start (vp_rsmk)
@@ -24780,6 +25263,38 @@ vp_pfbuf      equ vp_skbuf          ; the line, composed in the seek's own
                                     ; main loop builds one at a time
 
 %include "os88alt.inc"              ; Alt+Enter in the bracket (SPEC.md 11.2.1.1)
+%ifdef PKG_MEGA
+%include "os88real.inc"             ; the real-mode bracket's words (98.3.24)
+%ifdef VP_DIAG
+    OS88REAL_LIST vp_rlst, vp_rclm, vp_keep, vp_prevseg, vp_shseg, vp_pseg, vp_kshd, vp_pevseg, vp_p8seg, vo_s1seg, vp_bseg, vp_fxseg, vp_ring, vp_lyseg, vp_aseg, vp_eseg, vp_skscr, vp_prseg
+%else
+    OS88REAL_LIST vp_rlst, vp_rclm, vp_keep, vp_prevseg, vp_shseg, vp_pseg, vp_kshd, vp_pevseg, vp_p8seg, vo_s1seg, vp_bseg, vp_fxseg, vp_ring, vp_lyseg, vp_aseg, vp_eseg, vp_skscr
+%endif
+vp_s_rreal:   db 'Real mode', 0
+vp_s_rpm:     db 'Protected: ', 0
+VPR_NOWN      equ 8                     ; vp_rwhys: VPR_LIVE.. first, then
+VPR_NALL      equ VPR_NOWN + 9          ; FSXR_KEEP..FSXR_DROOM
+vp_rwhys:     dw vp_s_rw11, vp_s_rw12, vp_s_rw13, vp_s_rw14, vp_s_rw15
+              dw vp_s_rw16, vp_s_rw17, vp_s_rw18
+              dw vp_s_rk1, vp_s_rk2, vp_s_rk3, vp_s_rk4, vp_s_rk5, vp_s_rk6
+              dw vp_s_rk7, vp_s_rk8, vp_s_rk5
+vp_s_rw11:    db 'Live', 0
+vp_s_rw12:    db 'speaker, in place', 0
+vp_s_rw13:    db 'v2, in place', 0
+vp_s_rw14:    db 'resident', 0
+vp_s_rw15:    db 'ring above 1MB', 0
+vp_s_rw16:    db 'layer split', 0
+vp_s_rw17:    db 'bank moved', 0
+vp_s_rw18:    db 'claim above 1MB', 0
+vp_s_rk1:     db 'a worker kept', 0
+vp_s_rk2:     db "a driver's worker", 0
+vp_s_rk3:     db 'extended desktop', 0
+vp_s_rk4:     db 'a serial lease', 0
+vp_s_rk5:     db 'no low memory', 0
+vp_s_rk6:     db 'its volume', 0
+vp_s_rk7:     db 'fragmented', 0
+vp_s_rk8:     db 'a driver', 0
+%endif
 %define OS88UI_ABOUT                ; the standard About card (SPEC.md 20.5.1)
 %define OS88UI_BIMG                 ; ...and buttons with PICTURES, drawn with
 %define OS88UI_NOGLYPH              ; no pixel written twice (SPEC.md 13.8.9),

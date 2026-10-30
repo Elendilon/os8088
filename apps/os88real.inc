@@ -30,7 +30,11 @@
 ;                  must happen, because the copy the entry ran in is copied
 ;                  back over the window's. A real-mode kernel's SEG_REAL is
 ;                  the value itself, so there the exchange changes nothing.
-;                  Every register kept
+;                  A word that is 0 is left as it is both ways: 0 at the
+;                  door is no claim, and 0 at the second call is a claim
+;                  the bracket let go of, which stays let go of. A word the
+;                  bracket changed to ANOTHER segment is the package's to
+;                  rename. Every register kept
 ;
 ; A hook (FSXF_RATE) that reads a listed word must be a no-op until the
 ; first swap and again from before the second - the "ready" byte 53.2.2
@@ -71,9 +75,12 @@ os88real_prep:
     or bx, bx
     jz .ok                      ; (CF = 0 from the or)
     mov dx, [bx]
-    mov bl, SEG_REAL
+    or dx, dx                   ; 0 - NO CLAIM in that word - banks 0: the
+    jz .z                       ; null selector has no segment, and asking
+    mov bl, SEG_REAL            ; refused the whole list
     call OSAPI_SEG              ; DX = the real segment with the same base
     jc .no                      ; ...or none: SI at its entry
+.z:
     mov [di], dx
     inc si
     inc si
@@ -100,9 +107,12 @@ os88real_swap:
     mov bx, [si]
     or bx, bx
     jz .out
-    mov ax, [di]
+    cmp word [bx], 0            ; A WORD THAT IS 0 STAYS 0, both ways: no
+    je .n                       ; claim at the door, or one the bracket let
+    mov ax, [di]                ; go of - and its bank not put back over it
     xchg ax, [bx]
     mov [di], ax
+.n:
     inc si
     inc si
     inc di
