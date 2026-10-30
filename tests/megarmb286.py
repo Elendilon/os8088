@@ -16,7 +16,9 @@ and MEGARUN on B:, double-clicks MEGARUN, and lets it start both. 86Box has
 no port E9, so every verdict is read out of the packages' own bss (megarmb.asm's
 result block) and the kernel's words. Asserted, per package:
 
-  1. R (FSXF_REAL + FSXF_KEEPWORKER) refuses; A and B are taken;
+  1. R (FSXF_REAL + FSXF_KEEPWORKER) FALLS BACK - it runs in protected
+     mode, SI = FSXR_KEEP, CPU_F_PM inside (W2), and costs no reset; A and
+     B are taken in real mode, SI = FSXR_REAL;
   2. INSIDE A, [k_dsel] = KERNEL_SEG and [fsx_rmode] = 1 (the CPU is in real
      mode in the bracket), [k_seg0] = 0, CPU_F_PM clear, VSEG's words the
      segments themselves, IVT 20h = fsx_rtick;
@@ -201,7 +203,7 @@ def main():
             b.until(inside, "%s inside its real-mode bracket" % name, 60000, 20)
             b.until(lambda: b.memr(res, 1)[0] == 1, "%s's three legs" % name,
                     120000, 100)
-            got[name] = (base, b.memr(res, 44), look)
+            got[name] = (base, b.memr(res, 48), look)
         r1 = resets(b, ip)
         b.ui_done(limit_ms=20000, lock=False)
         ivt = b.memr(0, 0x200)
@@ -228,9 +230,13 @@ def main():
         mx, adt, adb, mark = u16(r, 14), u16(r, 16), u16(r, 18), u16(r, 20)
         bseg, bdt, bdb, off0, off1 = (u16(r, 22), u16(r, 24), u16(r, 26),
                                       u16(r, 28), u16(r, 30))
-        want(rcf == 0xFF, "1. R refused (cf %02x)" % rcf)
-        want(acf == 0 and bcf == 0, "1. A and B were taken (%02x, %02x)" %
-             (acf, bcf))
+        rwhy, rfeat, awhy, bwhy = r[44], r[45], r[46], r[47]
+        want(rcf == 0 and rwhy == 1 and rfeat & 0x10,
+             "1. R fell back to protected mode (cf %02x, SI %02x = "
+             "FSXR_KEEP, feat %02x)" % (rcf, rwhy, rfeat))
+        want(acf == 0 and bcf == 0 and awhy == 0 and bwhy == 0,
+             "1. A and B were taken in real mode (%02x, %02x; SI %02x, %02x)"
+             % (acf, bcf, awhy, bwhy))
         if not lk:
             want(False, "2. a look landed inside %s's leg A" % name)
         else:

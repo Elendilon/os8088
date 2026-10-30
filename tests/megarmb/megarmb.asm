@@ -13,9 +13,10 @@
 ; callback is a window callback under the gfx lock, which OSAPI_FSX_RUN
 ; wants). In order:
 ;
-;   R  FSXF_REAL with FSXF_KEEPWORKER: must REFUSE on kern_mega in protected
-;      mode (one task runs in real mode) - and is accepted, the bit ignored,
-;      on every kernel in real mode
+;   R  FSXF_REAL with FSXF_KEEPWORKER: on kern_mega in protected mode real
+;      mode cannot be had (one task runs there), so the bracket FALLS BACK
+;      (W2): it runs in protected mode, SI = FSXR_KEEP, and the entry sees
+;      CPU_F_PM - and on every kernel in real mode the bit is ignored
 ;   A  FSXF_REAL + FSXF_RATE at MB_DIV (291 Hz): the entry proc banks its CS
 ;      and OSAPI_CPU_INFO's AH, reads [ticks] and 40:6C under one cli, sets
 ;      ready and halts until the hook has been handed MB_PER periods, reads
@@ -29,10 +30,10 @@
 ;   and around all of it, [ticks] - 40:6C under one cli before R and after B
 ;
 ; E9 lines:  <NAME>: start
-;            <NAME>: R cf C
-;            <NAME>: A cf C cs CCCC feat FF calls NNNN periods PPPPPPPP max MM
+;            <NAME>: R cf C why WW feat FF
+;            <NAME>: A cf C why WW cs CCCC feat FF calls NNNN periods PPPPPPPP max MM
 ;                    ticks TTTT bios BBBB mark MMMM
-;            <NAME>: B cf C seg SSSS ticks TTTT bios BBBB
+;            <NAME>: B cf C why WW seg SSSS ticks TTTT bios BBBB
 ;            <NAME>: off OOOO OOOO      ([ticks] - 40:6C, before and after)
 ;            <NAME>: done
 ; =============================================================================
@@ -94,14 +95,25 @@ mb_tick:
     mov bx, [mb_win]
     mov ax, mb_main_r
     mov cx, FSXF_REAL + FSXF_KEEPWORKER
+    xor si, si                      ; FSXR_REAL in: SI is the answer out
     call OSAPI_FSX_RUN
     sbb ax, ax
     mov [mb_rcf], al
+    mov ax, si
+    mov [mb_rwhy], al
     mov si, mb_s_r
     call mb_say
     mov al, [mb_rcf]
     and al, 1
     call mb_dig
+    mov si, mb_s_why
+    call mb_puts
+    mov al, [mb_rwhy]
+    call mb_hex2
+    mov si, mb_s_feat
+    call mb_puts
+    mov al, [mb_rfeat]
+    call mb_hex2
     call mb_nl
     ; --- A: REAL + RATE ----------------------------------------------------
     mov bx, [mb_win]
@@ -109,14 +121,21 @@ mb_tick:
     mov cx, FSXF_REAL + FSXF_RATE
     mov dx, MB_DIV
     mov di, mb_hook
+    xor si, si
     call OSAPI_FSX_RUN
     sbb ax, ax
     mov [mb_acf], al
+    mov ax, si
+    mov [mb_awhy], al
     mov si, mb_s_a
     call mb_say
     mov al, [mb_acf]
     and al, 1
     call mb_dig
+    mov si, mb_s_why
+    call mb_puts
+    mov al, [mb_awhy]
+    call mb_hex2
     mov si, mb_s_cs
     call mb_puts
     mov ax, [mb_cs]
@@ -156,14 +175,21 @@ mb_tick:
     mov bx, [mb_win]
     mov ax, mb_main_b
     mov cx, FSXF_REAL
+    xor si, si
     call OSAPI_FSX_RUN
     sbb ax, ax
     mov [mb_bcf], al
+    mov ax, si
+    mov [mb_bwhy], al
     mov si, mb_s_b
     call mb_say
     mov al, [mb_bcf]
     and al, 1
     call mb_dig
+    mov si, mb_s_why
+    call mb_puts
+    mov al, [mb_bwhy]
+    call mb_hex2
     mov si, mb_s_seg
     call mb_puts
     mov ax, [mb_bseg]
@@ -232,8 +258,10 @@ mb_both:
     pop es
     ret
 
-; R's entry: never reached on kern_mega in protected mode
+; R's entry: in PROTECTED mode on kern_mega (the fallback, W2)
 mb_main_r:
+    call OSAPI_CPU_INFO
+    mov [mb_rfeat], ah
     ret
 
 ; A's entry - REAL MODE on kern_mega: SI = the window, DS = CS = ours
@@ -385,6 +413,7 @@ mb_s_start: db 'start', 0
 mb_s_r:     db 'R cf ', 0
 mb_s_a:     db 'A cf ', 0
 mb_s_cs:    db ' cs ', 0
+mb_s_why:   db ' why ', 0
 mb_s_feat:  db ' feat ', 0
 mb_s_calls: db ' calls ', 0
 mb_s_per:   db ' periods ', 0
@@ -429,5 +458,9 @@ mb_at0      equ mb_res + 36
 mb_ab0      equ mb_res + 38
 mb_bt0      equ mb_res + 40
 mb_bb0      equ mb_res + 42
-MB_RESN     equ 44
+mb_rwhy     equ mb_res + 44         ; byte: R's SI out, FSXR_* (W2)
+mb_rfeat    equ mb_res + 45         ; byte: OSAPI_CPU_INFO's AH inside R
+mb_awhy     equ mb_res + 46
+mb_bwhy     equ mb_res + 47
+MB_RESN     equ 48
 mb_fsi      equ mb_res + MB_RESN

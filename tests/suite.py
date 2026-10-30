@@ -16771,7 +16771,8 @@ SOAK = [
         "REAL-MODE BRACKET (FSXF_REAL) under Bochs, the 386's CR0 way down. "
         "tests/megarmb's MEGARMB (OS88_HIGH: its region above 1MB, so the "
         "bracket runs a COPY below) and MEGARMBL (a conventional region) each "
-        "run FSXF_REAL with KEEPWORKER (refused), with FSXF_RATE at 291 Hz and "
+        "run FSXF_REAL with KEEPWORKER (W2: falls back to protected mode, "
+        "SI = FSXR_KEEP), with FSXF_RATE at 291 Hz and "
         "a hook that skips, and alone with OSAPI_FSX_MODE inside. Stopped "
         "INSIDE: CR0.PE = 0, [k_seg0] 0, CPU_F_PM clear, VSEG's and vid_tab's "
         "words the segments, IVT 20h fsx_rtick; the hook's periods against "
@@ -16789,8 +16790,8 @@ SOAK = [
         "SPEC.md 53.2.3, docs/plans/MEGA-VIDEO-REALMODE-PLAN.md W1: the same "
         "real-mode bracket on 86Box's 286-victory, which can only leave "
         "protected mode by the CMOS shutdown-0Ah RESET through mega_r286. "
-        "Both packages' legs off their bss (no E9 there): R refused, A and B "
-        "taken, real mode inside with step 3's words real, a copy of the "
+        "Both packages' legs off their bss (no E9 there): R falls back to "
+        "protected mode (SI = FSXR_KEEP, no reset), A and B taken in real mode, real mode inside with step 3's words real, a copy of the "
         "high region run, periods exact, 40:6C with [ticks], the bss read "
         "back, FSI_SEG A000h; EXACTLY one reset at mega_down's int 3 per "
         "taken bracket (4) and none for the return; the IVT and the pointer "
@@ -16800,6 +16801,31 @@ SOAK = [
         needs=("86box",),
         wants=("build/mega.img", "build/megarun.o88", "build/megarmb.o88",
                "build/megarmbl.o88")),
+    Row("megarmbref", "soak", py("tests/megarmbref.py"), 35.0,
+        "SPEC.md 53.2.3, docs/plans/MEGA-VIDEO-REALMODE-PLAN.md W2: the "
+        "real-mode bracket's FALLBACK and its TABLE under Bochs. MEGARMBF "
+        "(OS88_HIGH, OS88_HIGHMEM) asks FSXF_REAL where real mode cannot be "
+        "had - KEEPWORKER, a TF_SERVICE task, EXTD.DRV loaded, a SERIAL.DRV "
+        "lease (the row pokes each state and puts it back), the heap filled - "
+        "and each bracket RUNS in protected mode with SI = its FSXR_* reason; "
+        "a HUGE claim above 1MB in apps/os88real.inc's list makes the "
+        "PACKAGE fall back (prep CF = 1); a conventional one is renamed to its "
+        "real paragraph inside and written through it; inside a real-mode "
+        "bracket OSAPI_MEM_CLAIM and the 3-byte OSAPI_FILE_RENAME answer CF = "
+        "1 with every register kept, the OSAPI_SEG twin answers SEG_LIN and "
+        "refuses SEG_AT, FSX_WAIT and MOUSE answer, the table read INSIDE is "
+        "exactly the real-mode image off the rmk_* runs, and the package's "
+        "protected re-run gets the claim. After: the table byte for byte, "
+        "every poked word back, [fsx_rwhy] FFh, the pointer moving. Red with "
+        "the W1 refusal put back (K-M cf 1, their entries never run), a kept "
+        "run dropped from fsx_rkeep (FSX_WAIT refused, 15 table bytes off), "
+        "the SEG twin left a refusal, the table not copied back (N refused "
+        "whole, the table changed after), SI's answer not written (K-M SI 0) "
+        "and os88real_swap never swapping (P's word the selector inside, the "
+        "pattern lost). 35s is 25-26 measured",
+        needs=("bochs", "nasm"),
+        wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
+               "build/megarmbf.o88", "build/megarmbf.bin")),
     Row("megaxmove", "soak", py("tests/megaxmove.py"), 25.0,
         "SPEC.md 50.6.10, docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md MC3: on "
         "kern_mega an OSAPI_XMEM_ALLOC block MOVES and is read back through "

@@ -14,7 +14,9 @@ legs from its window's timer (tests/megarmb/megarmb.asm): R (FSXF_REAL with
 FSXF_KEEPWORKER), A (FSXF_REAL + FSXF_RATE at 291 Hz, a hook that skips) and
 B (FSXF_REAL alone, OSAPI_FSX_MODE to mode 13h inside). Asserted, per package:
 
-  1. R REFUSES (one task runs in real mode); A and B are taken;
+  1. R FALLS BACK (one task runs in real mode, so W2's bracket runs it in
+     PROTECTED mode instead): CF = 0, SI = FSXR_KEEP and CPU_F_PM inside;
+     A and B are taken in real mode, SI = FSXR_REAL;
   2. INSIDE A the machine is in real mode and step 3's words are real: the
      row stops Bochs while [fsx_rmode] = 1 and [k_dsel] = KERNEL_SEG, and
      reads CR0.PE = 0, [k_seg0] = 0, CPU_F_PM clear, VSEG's four words and
@@ -190,9 +192,15 @@ def main():
             want(False, "%s ran every leg (no `done` line)" % name)
             continue
         R, A, B = r.get("R", {}), r.get("A", {}), r.get("B", {})
-        want(R.get("cf") == 1, "1. R (FSXF_REAL + FSXF_KEEPWORKER) refused")
-        want(A.get("cf") == 0 and B.get("cf") == 0,
-             "1. A and B were taken (cf %s, %s)" % (A.get("cf"), B.get("cf")))
+        want(R.get("cf") == 0 and R.get("why") == 1
+             and R.get("feat", 0) & 0x10,
+             "1. R (FSXF_REAL + FSXF_KEEPWORKER) fell back: cf %s, SI %s "
+             "(FSXR_KEEP), CPU_F_PM inside (feat %s)"
+             % (R.get("cf"), R.get("why"), R.get("feat")))
+        want(A.get("cf") == 0 and B.get("cf") == 0
+             and A.get("why") == 0 and B.get("why") == 0,
+             "1. A and B were taken in real mode (cf %s, %s; SI %s, %s)"
+             % (A.get("cf"), B.get("cf"), A.get("why"), B.get("why")))
         lk = looks.get(name)
         if lk is None:
             want(False, "2. a look landed inside %s's leg A" % name)

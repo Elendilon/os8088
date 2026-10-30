@@ -14581,6 +14581,12 @@ $(BUILD)/megarmbl.bin: tests/megarmb/megarmb.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -DMB_LOW -o $@ tests/megarmb/megarmb.asm
 $(BUILD)/megarmbl.o88: $(BUILD)/megarmbl.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/megarmbl.bin -o $@
+# MEGARMBF (tests/megarmb/megarmbf.asm): the real-mode bracket's FALLBACK and
+# its TABLE (SPEC.md 53.2.3, MEGA-VIDEO-REALMODE-PLAN W2) - tests/megarmbref.py
+$(BUILD)/megarmbf.bin: tests/megarmb/megarmbf.asm apps/os88api.inc apps/os88real.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megarmb/megarmbf.asm
+$(BUILD)/megarmbf.o88: $(BUILD)/megarmbf.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/megarmbf.bin -o $@
 # MEGAHUGE (tests/megahuge): ONE CLAIM FOR ALL OF IT (KERN-MEGA-MEMORY-PLAN
 # MC5) - OSAPI_MEM_HUGE's query, a claim of its answer bridged across the
 # pool and the heap, a pattern through every window, the free, the query again
@@ -14702,7 +14708,7 @@ $(BUILD)/megalowb.bin: tests/megaown/megaown.asm apps/os88api.inc | $(BUILD)
 $(BUILD)/megalowb.o88: $(BUILD)/megalowb.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/megalowb.bin -o $@
 megarun: $(BUILD)/megarun.o88 $(BUILD)/megaxm.o88 $(BUILD)/megahib.o88 $(BUILD)/megarmb.o88 \
-        $(BUILD)/megarmbl.o88 $(BUILD)/mega.img
+        $(BUILD)/megarmbl.o88 $(BUILD)/megarmbf.o88 $(BUILD)/mega.img
 .PHONY: megarun
 
 # `make megatrap` - kern_mega with MEGATRAP=1, as a whole tree of its own in
