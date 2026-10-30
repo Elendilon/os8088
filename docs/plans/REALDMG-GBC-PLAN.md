@@ -1,6 +1,8 @@
 # REALDMG-GBC-PLAN - Game Boy Color in RealDMG, with the Game Boy no slower
 
-**Status: PLAN, nothing built** (written 2026-10-30 on `elendilon-next`).
+**Status: PLAN, nothing built** (written 2026-10-30 on `elendilon-next`; the
+owner's answers to its five questions are section 10, and the sections before
+already follows them).
 RealDMG (docs/REALDMG-SPEC.md) runs the original Game Boy and refuses a
 cartridge whose header byte 0143h is C0h, *"needs GB Color"* (REALDMG-SPEC
 section 10). This plan is how it stops refusing.
@@ -86,12 +88,14 @@ proof. The alternatives, and why not:
   every WRAM access is ~10 clocks on a 286 on the most frequent memory
   operation the Game Boy makes.
 
-**What the user sees**: `.GB` opens RealDMG and `.GBC` opens RealGBC (the
-association, SPEC.md 54). RealDMG given a C0h cartridge says
-`REALDMG: use REALGBC` (it is 20 characters; a toast holds 24) instead of
-*"needs GB Color"* - or, better, hands the document on (open question 1).
-RealGBC given a DMG-only cartridge (0143h = 00h) hands it to RealDMG, which
-runs it faster.
+**What the user sees** (decided, section 10): `.GB` opens RealDMG and
+`.GBC` opens RealGBC (the association, SPEC.md 54). **RealDMG given a C0h
+cartridge hands the document on to RealGBC** - the user never sees a
+refusal - and RealGBC given a DMG-only cartridge (0143h = 00h) hands it to
+RealDMG. A DUAL cartridge (80h) runs in Color in RealGBC, and can still be
+opened in RealDMG to run as a Game Boy, which is expected to be faster
+(there is no Color machine under it at all); RealDMG's Machine > Load Game
+keeps accepting 80h as it does today.
 
 The rest of this plan describes the Color build. "The DMG build" is
 REALDMG.O88 as it ships, and the gates in section 7 are what keep it so.
@@ -218,11 +222,20 @@ damage path, the raster log - and adds:
 | **any, windowed** (Hercules, CGA, EGA, VGA) | the colour's LUMINANCE quantised to 2 bits, so the 5,760-byte two-plane buffer and every writer of section 13-15 take it unchanged | G3 |
 | **VGA full screen** (mode 0Dh today, section 15) | 16 colours: the frame's 64 palette entries quantised to the 16 the mode has | G4 |
 | **VGA full screen, 256 colours** | mode 13h's DAC loaded with the 64 palette entries themselves: **exact colour**, no quantisation; a mid-frame palette write is approximated by line | G4 |
-| **VGA/EGA windowed in colour** | the desktop's 16 fixed colours, nearest by distance - the one that looks worst, and so last | G4, owner's call |
+| **VGA/EGA windowed in colour** | the desktop's 16 fixed colours, nearest by distance | G4 |
 
-The grey arm comes first because it is the one that makes every adapter run
-Color games at once, through writers that already exist; colour is then a
-writer question and not a composer one.
+**Colour is the default wherever the display has it** (decided, section 10),
+windowed and full screen. **Greys are an OPTION, offered only if they are
+faster**: the grey arm reuses the DMG's two-plane buffer and writers, so it
+is likely to be (a 2-bit plane pair against a 4-bit index per pixel through
+the writer), but that is a G4 measurement - if colour costs no more, the
+option is not shipped. On Hercules and CGA's mono modes greys are the only
+picture and not an option.
+
+The grey arm is still BUILT first (G3) because it makes every adapter run
+Color games at once through writers that already exist; colour is then a
+writer question and not a composer one, and G4 is what makes it the
+default.
 
 **What it costs the DMG**: nothing - `rdgppu.inc` is not edited. The tables
 the Color composer needs (bit reverse, luminance, the palette's minterms)
@@ -264,17 +277,20 @@ the host and name the rows; the soak rows run once, after the last wave.
   Currie, MIT) against its reference image reduced to the same luminance
   quantisation, and `gbdamage`'s shape over a Color game (damage against
   whole frames, 0 differing).
-- **G4 - colour.** Full screen 256 colours (exact) and 16 colours; the
-  windowed colour arm if the owner wants it (question 3). **Gate**:
-  `cgb-acid2` exact in mode 13h.
+- **G4 - colour, the default.** Full screen 256 colours (exact) and 16
+  colours, and windowed colour on VGA/EGA. Then the measurement that decides
+  the grey OPTION: `rdgbench`'s shape on a Color game, colour against grey,
+  windowed and full screen, on `286-victory`; the Machine menu item ships
+  only if grey is measurably faster (section 5). **Gate**: `cgb-acid2` exact
+  in mode 13h.
 - **G5 - the recompiler.** Color templates (WRAM per 3.2's choice, VRAM
   writes, the copy idioms' bank), chosen once per session; Static mode's
   table (16.8). **Gate**: `gbcpu`/`gbaot`'s legs run in Color mode
   translated and interpreted, identical frame for frame; G0's games
   measured both ways. If G0 found a game that design A makes slow, B is
   built here.
-- **G6 - the package.** The `.GBC` association and the hand-offs (section
-  2); cartridge RAM up to 128KB (fixing 10.1's four-bank cap - a DMG-side
+- **G6 - the package.** The `.GBC` association (RealGBC's) and the two
+  hand-offs (section 2); cartridge RAM up to 128KB (fixing 10.1's four-bank cap - a DMG-side
   defect too, and the one change in this plan that touches the DMG build,
   in cold load code only); save states with the Color fields, VRAM bank 1,
   WRAM banks and palette RAM (10.4, a format version bump); the log's head
@@ -283,6 +299,32 @@ the host and name the rows; the soak rows run once, after the last wave.
   doodle drawn on kern_mega (Bochs for correctness, 86Box's `286-mega` for a
   time), compared with the reference emulator's state after each step as
   the project's own `test_rom.py` does.
+
+- **T - trimmed cartridges, for the DMG too, and independent of every
+  Color wave** (decided, section 10). Two halves:
+  - **A file shorter than its header** is accepted when it is a whole
+    number of 16KB banks: the banks past its end are not stored at all and
+    read FFh, which is what a real cartridge's unpopulated ROM answers. The
+    memory a cartridge takes becomes the FILE's size, so a 2MB cartridge
+    trimmed to its 76 real banks needs 1.2MB, in one claim, the bank cache
+    or kern_mega's place alike.
+  - **A full-size file whose tail is FFh** gets the same saving without
+    anyone trimming it: the load already reads every bank (`rw_bload`,
+    `rw_bread`), so a bank that is all FFh is noted and not stored, and
+    every such bank's table entry names ONE shared FFh bank. Most such
+    padding is at the end, so the stores keep their bank-n-at-n layout
+    and simply stop early; a hole in the middle shares the FFh bank
+    through the table.
+  - What it touches is LOAD code: `rw_plan`'s size (the file's, not the
+    header's), `rw_bload` and the one-claim read, `rw_xfill`/`rw_pmfill`
+    and `rw_bfill`'s table, and `rw_hdrchk`'s size compare - none of it a
+    path a frame runs through (7.3, judged with `os88rdiff`), and
+    `S_BMASK` stays the header's so a game's bank arithmetic is unchanged.
+  - The owner's example is Looney Tunes, a "1MB" cartridge more than half
+    empty by their account (not measured here: no cartridge is in the
+    tree); gb-diffusion is 76 banks of 128. **Gate**: `gbbank`'s cartridge
+    built trimmed and with an FFh tail, every bank still checking right,
+    and the claim's size read off the machine against the file's.
 
 **Not in this plan**: the full static recompiler for Color cartridges
 (section 20's `gbaot.py` refuses a C0h game until a wave says otherwise),
@@ -337,9 +379,7 @@ header and `rom/main.asm`:
 - **MBC5, 2MB, no RAM** - of whose 128 banks only 76 hold data (1.19MB); the
   rest is FFh padding. On kern_mega since 2026-10-30 it needs ~2MB of the
   extended pool in place (REALDMG-SPEC 10.3.1), so a 3MB machine is tight;
-  trimmed to 76 banks with byte 0148h patched it would need 1.2MB, but
-  RealDMG checks the header's size against the file's, so a trimmed file is
-  refused today (question 5).
+  wave T makes it 1.2MB, trimmed or not.
 
 **What to expect, ESTIMATED**: the work is ~160M CPU M-cycles a drawing in
 double speed. RealDMG runs DMG games at about real speed on a 12 MHz 286
@@ -363,20 +403,19 @@ nearer real time on a 386. No measurement exists; G7 takes one.
   again. Which disks carry it is a G6 question against the cluster counts
   (`emu360.img` is where RealDMG lives at 360KB).
 
-## 10. Open questions for the owner
+## 10. The owner's decisions (2026-10-30)
 
-1. **Hand-off or refuse.** RealDMG given a C0h cartridge: hand the document to
-   RealGBC (one call, the user never notices), or refuse in a toast naming
-   it? The recommendation is to hand it on.
-2. **Dual cartridges (80h)**: RealDMG runs them today as a DMG, faster. In
-   RealGBC by default, or stay with RealDMG unless opened with RealGBC? The
-   recommendation is the association decides: `.GB` RealDMG, `.GBC` RealGBC,
-   and most dual games ship as `.GBC`.
-3. **Windowed colour on VGA/EGA**: the desktop's 16 fixed colours (G4's last
-   row), or luminance greys in a window and colour in full screen?
-4. **One package or two** (section 2): the recommendation is two, because
-   it makes the speed guarantee a `cmp`.
-5. **Trimmed ROMs**: accept a file shorter than its header's size by
-   padding the missing banks with FFh (what the hardware reads from an
-   unpopulated ROM)? It is a DMG-side load change (7.3) and helps exactly
-   cartridges like gb-diffusion's.
+1. **Hand it on.** RealDMG given a C0h cartridge hands the document to
+   RealGBC, and `.GBC` becomes RealGBC's association (section 2).
+2. **Dual cartridges (80h) are RealGBC's**, in Color - and can still be
+   loaded in RealDMG as a Game Boy, for the speed that is expected to buy.
+3. **Colour**, with an option to fall back to greys **only if that is a
+   speed benefit** - which G4 measures before the option ships (section 5).
+4. **Two packages for the initial plan** (section 2). To be reconsidered
+   when it is built, against what one package would actually cost in speed
+   and in package size - so G1 records both packages' sizes, and G5's
+   measurements are the input to that reconsideration.
+5. **Trim: yes**, because what it buys is memory - a "2MB" cartridge that
+   is mostly padding stops taking 2MB. It is wave T, and it reaches DMG
+   cartridges too (Looney Tunes, the owner's example), so it does not wait
+   for the Color work.
