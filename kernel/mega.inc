@@ -1831,8 +1831,8 @@ mega_nmi:
     in al, 0x61
     test al, 0xC0
     jz .out                         ; spurious: nothing latched
+%ifdef MEGA_DIAG                    ; ([mega_nmi61] is mega_nmitell's alone)
     mov [mega_nmi61], al
-%ifdef MEGA_DIAG
     push bp                         ; WHERE it landed, which a parity NMI
     mov bp, sp                      ; reaches a few cycles after the read
     mov ax, [bp+6]                  ; that tripped it: [bp+6] IP, [bp+8] CS
@@ -1854,8 +1854,8 @@ mega_nmi:
     mov [mega_nmisn], al
 .nofd:
     or byte [mega_tellq], 1         ; ...and on the menu bar (MEGADIAG=1)
-%endif
     mov al, [mega_nmi61]
+%endif
     inc byte [mega_nmin]
     and al, 0x0F                    ; the writable half, as it reads
     mov ah, al
