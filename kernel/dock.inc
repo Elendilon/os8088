@@ -330,7 +330,7 @@ dkb_band:
     retf
 %1 %+ _reflow:                  ; the far half it had in `.text` until kernel
     %2 dock_geom                ; size pass 13 (docs/plans/completed/ksp13/
-    call COLD_SEG:desk_rowcalc_x ; dispsw.md): one entry, not five shims
+    call %4 %+ _rowcalc         ; dispsw.md): one entry, not five shims
     call %4 %+ _refit
     %2 wm_su_drop_all
     %2 dock_force

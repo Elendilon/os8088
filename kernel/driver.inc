@@ -3977,7 +3977,8 @@ section .modc                   ; IMAGE CODE (see VGC_FORCE's banner below):
 ;           through drv_call's far entry
 %1 %+ _call:
     mov bp, [bx+DRVR_ENT]
-    call COLD_SEG:drvf_drv_call
+    call %2                     ; drv_call, through this image's KGO_PAIR
+    dw drv_call                 ; hop (it keeps BP)
     ret
 %endmacro
 
@@ -5846,6 +5847,15 @@ WM_REFIT bvw, BSWK
 DOCK_APPLY bdk, BSWK, BSWC, bvw
 %endif
 EXF_SYNC bxf, BSWC              ; ...and EXTD.DRV's sync (extmod.inc)
+%ifdef COLD_SLIDE               ; ...and the desktop grid's (desk.inc): the
+bvw_rowcalc:                    ; geometry from `.cfx` (cfx_grid, kernel.asm),
+    call CFX_RAM:cfx_grid       ; which costs this blob nothing, and the
+    BSWC desk_reflow            ; reflow - desk_rowcalc's two halves, in its
+    ret                         ; order
+%else
+DESK_ROWCALC bvw, BSWC          ; (kern_mega: no `.cfx`, and blob to spare)
+VID_CTXCAP bvs_ctxcap, ret      ; ...and bvs_disp_init's capture (vidsel.inc)
+%endif
 KGO_PAIR bvs
 %endif
 DRV_TITLES bdt                  ; the rows' names, for drv_boot_x's 'Loading
@@ -6006,8 +6016,9 @@ section .cold                   ; ...the far entries themselves live HERE, or
 ; pass 14: their callers are the blob, CTRL.DRV's panel and HIBER.DRV, and each
 ; reaches the near body through its own image's KGO_PAIR hop - bvs_cgo,
 ; cp_cgo, hbg_cgo - at the five bytes the far call was)
-drvf_drv_call:           call drv_call
-                    retf
+; (drvf_drv_call went in kernel size pass 15: its callers are the blob,
+; CTRL.DRV and HIBER.DRV, each reaching drv_call through its own KGO_PAIR hop
+; at the five bytes the far call was - and the hop keeps BP, drv_call's input)
 drvf_drv_cls_svc:        call drv_cls_svc_x
                     retf
 

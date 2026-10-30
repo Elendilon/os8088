@@ -260,7 +260,7 @@ sc_walk:
 ; the reflow gives it the first free cell, pinned - so the user can retry it
 ; or Delete it, and the next SYSTEM.CFG write keeps it so. A load the loader
 ; REFUSED keeps its row. desk_reflow is lock-free-safe here: it rewrites
-; [desk_zslot] and posts cells, never draws, and kmain's own desk_rowcalc_x
+; [desk_zslot] and posts cells, never draws, and kmain's own bvw_rowcalc
 ; runs it with nothing held. A pending resume or DOS question
 ; ([ui_rebootq]) stands everything down: that image IS the session.
 ; -----------------------------------------------------------------------------

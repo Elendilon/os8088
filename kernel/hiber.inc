@@ -2232,7 +2232,8 @@ hbm_sweep:
     push dx                     ; to undo - the record is not counted and DI
     push di                     ; does not move - and the row, the skip and the
     mov al, DRVV_HWINFO         ; buffer are banked because the answer is the
-    call COLD_SEG:drvf_drv_call ; DRIVER's code: AX/BX/CX = its three words
+    call hbg_cgo                ; DRIVER's code: AX/BX/CX = its three words
+    dw drv_call
     pop di
     pop dx
     jc .noinfo

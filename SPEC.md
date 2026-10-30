@@ -75122,6 +75122,17 @@ overlay code (§2.5) and is dead FAT by the time the Control Panel can change
 the adapter under it, so the arithmetic is resident - `desk_rowcalc_x`, in
 `.cold` and ending in a `retf` - and the overlay far-calls that body by name
 (the `ovw_desk_rowcalc` shim it bounced through went in kernel size pass 9).
+**Since kernel size pass 15 it is not resident at all** (ksp15/blob.md):
+nothing resident ever called it, so it is desk.inc's `DESK_ROWCALC` macro,
+expanded where its callers are - `wm_rowcalc` in `CTRL.DRV` (Set Primary,
+the Dock page, the arrangement row) and `bvw_rowcalc` for the boot (kmain_o,
+after `desk_init` returns and again after `drv_boot`, the blob's `bvs_switch`
+and `bdk_reflow`). On kern_big and kern_emu the boot's GEOMETRY half is
+`cfx_grid` in `.cfx`, past `cfx_tab` (the blob had nine bytes), and
+`bvw_rowcalc` is a far call to it followed by the reflow; kern_mega's blob
+takes the whole copy. On kern_small `desk_reflow` and `desk_live` had no
+other caller and are written into the macro, so all three left resident:
+kern_big, kern_emu and kern_mega `.cold` -100, kern_small `.cold` -123.
 
 **On kern_small `vid_switch` is `CTRL.DRV`'s** (kernel size pass 13). Its one
 caller there is the Display page - that build has no `drv_boot` to apply
@@ -75131,7 +75142,8 @@ only it reaches (`vid_equip`, `vid_blank`, `vid_avail_test`, `wm_su_drop_all`,
 `.modu` there and `.text` on kern_big) and reach the kernel through the
 panel's `CPXK` hop: 187 resident bytes on the 128 KB machine's kernel, for
 the order above unchanged. `desk_rowcalc`'s resident thunk goes with it - the
-image makes the far call to `desk_rowcalc_x` itself.
+image makes the far call to `desk_rowcalc_x` itself (and since kernel size
+pass 15 carries its own copy, `wm_rowcalc`).
 
 **On kern_big (and kern_emu) it is `CTRL.DRV`'s too** (kernel size pass 13,
 docs/plans/completed/ksp13/dispsw.md). Setting a new PRIMARY is the Display
@@ -75336,7 +75348,7 @@ changes** — drawing is spatially coherent, so the steady state is
 |---|---|
 | `[vid_ndisp]` | displays the kernel has **brought up** — 2 after §39.13, 1 for ever on a one-card machine. Not the same question as how far the *desktop* spans, which is `[vid_w]`/`[vid_h]` and is still one display's until docs/plans/completed/DUAL-DISPLAY-PLAN.md step 6 |
 | `[vid_cur]` | which display's geometry is in the live block |
-| `vid_ctx_capture` | AL = display; bank the live geometry into that record |
+| `vid_ctx_capture` | AL = display; bank the live geometry into that record. Not resident since kernel size pass 15: vidsel.inc's `VID_CTXCAP` macro, expanded in each of its callers' images - `vid_ctxcap` (CTRL.DRV), `ext_ctxcap` (EXTD.DRV), `cfx_ctxcap` (`.cfx`, the blob's on kern_big and kern_emu), `bvs_ctxcap` (kern_mega's blob) - and written into the boot overlay's `vid_ctx_init` |
 | `vid_ctx_act` | AL = display; make it current, **returning immediately if it already is** |
 | `vid_ctx_init` | one display, at the virtual origin, holding what is on screen now |
 
@@ -78098,7 +78110,7 @@ collapse, which is the invariant kept by construction rather than by care.
 
 - **The Control Panel** (§31.10.2's arrangement row, inside `CTRL.DRV`, +50
   image bytes and no resident ones) calls `exf_sync`, then
-  `vid_disp_init`, `desk_rowcalc_x` and `wm_refit` - what `vid_disp_relayout`
+  `vid_disp_init`, `wm_rowcalc` and `wm_refit` - what `vid_disp_relayout`
   was, written out in the image since kernel size pass 13 - then `exf_sync` again: the first loads before anything
   moves and the second drops after the collapse. A refusal skips the relayout
   and toasts the panel's own `Needs Sys Disk A:` (§2.8.4) — the panel is
@@ -213957,7 +213969,7 @@ stik_boot:       [ui_rebootq] != 0  -> nothing (a resume or DOS question is up)
   icons and one toast (single slot, last wins, §59.3).
 - **`desk_reflow` with no lock is safe**: it rewrites `[desk_zslot]` and posts
   `[desk_cdirty]` and nothing else, never draws, and runs lock-free already
-  from `desk_rowcalc_x` in kmain and from `OSAPI_DESK_ITEM`'s driver half at
+  from `bvw_rowcalc` in kmain and from `OSAPI_DESK_ITEM`'s driver half at
   attach. Nothing else can touch the table at this point: `ui_task` does not
   exist yet and no package is running.
 - **A pending hibernate or DOS question stands everything down**: `hb_probe`
