@@ -1320,10 +1320,8 @@ dskw_rt_scan:
 ; into dskw_raw and dskw_n83, which the remove body reads.
 ; -----------------------------------------------------------------------------
 dskw_rt_byclus:
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; KENT: push ax..di (AX is restored too: no
+                                ; caller reads it - kernel size pass 15)
     mov ax, [dsk_cwd]
     mov dx, [dskw_rt_clus]
     call dsk_byclus_x           ; SS:SI -> the entry; dsk_ent is a by-product
@@ -1334,11 +1332,7 @@ dskw_rt_byclus:
     call dskw_rawn83
     clc
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; dskw_rt_zap - mark the entry dskw_n83 names deleted, and free no chain

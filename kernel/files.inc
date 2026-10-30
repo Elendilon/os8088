@@ -1783,9 +1783,7 @@ fmv_sync_x:
 %ifdef FM_MSEL
     call fm_mzero               ; ...and a multi-selection was of the folder
 %endif                          ; that went: its indices name the ROOT now
-    push si
-    call fm_settitle0
-    pop si
+    call fm_settitle0           ; (SI is kretc_di's to restore - no bank)
 .out:
     jmp kretc_di
 
@@ -6522,7 +6520,8 @@ fm_hasdot:
 ; -----------------------------------------------------------------------------
 ; fm_edit_commit - Enter in the editor: do whatever was armed (SPEC.md 22)
 ; in:  [fm_vp] published; gfx lock held, UI task - dskw_*'s required context
-; out: nothing (all registers preserved); the verdict is said as a toast
+; out: nothing; the verdict is said as a toast
+; clobbers: AX..DI, flags (its one caller, fm_editkey, banks them)
 ;
 ; Every dskw_* resolves its name in [dsk_cwd], which is whichever window last
 ; navigated - so the sync is not a nicety: without it a New Folder typed in
@@ -6541,8 +6540,8 @@ fm_hasdot:
 ; armed, NOT from FS_SEL now: an 8.3 display name is a legal dskw_name83
 ; input (SPEC.md 19), and it cannot go stale under us the way an index can.
 ; -----------------------------------------------------------------------------
-fm_edit_commit:
-    call kentc_di
+fm_edit_commit:                 ; (no frame: fm_editkey, its one caller, banks
+                                ; AX..DI round it - kernel size pass 15)
     mov di, [fm_vp]
     mov al, [di+FS_EDIT]
     cmp al, FM_ESAVE            ; the Save chooser's box: its own answer,
@@ -6634,8 +6633,7 @@ fm_edit_commit:
     mov al, FDH_COMMIT          ; posted, not acted on: the chooser is the
     call fdlg_hook              ; window this key is about to draw (38.6)
 .done:
-    call fm_edit_end
-    jmp kretc_di
+    jmp fm_edit_end             ; ...whose frame and `ret` are ours too
 
     ; FORMAT IS PAST THE EXIT (kernel size pass 11): in line it put the Save
     ; box's `je .save` out of a short jump's reach.
@@ -7310,15 +7308,16 @@ fm_edit_seed:
 ; -----------------------------------------------------------------------------
 ; fm_extkeep - no extension typed? keep the one it had (SPEC.md 22.10)
 ; in:  fm_ebuf/fm_elen = the typed name, fm_onam = the old one
-; out: nothing (all registers preserved); fm_ebuf/fm_elen may grow
+; out: nothing; fm_ebuf/fm_elen may grow
+; clobbers: AX, BX, SI, DI, flags
 ;
 ; Only when the user typed no '.' at all. Typing one - including a trailing
 ; '.' with nothing after it - is how the extension is changed or dropped, so
 ; theirs always wins. Bounded at 12, and a name with no room for an extension
 ; is left as typed for dskw_name83 to judge.
 ; -----------------------------------------------------------------------------
-fm_extkeep:
-    call kentc_di
+fm_extkeep:                     ; (no frame: fm_edit_commit reloads SI and
+                                ; DI after it and reads nothing else - pass 15)
     call fm_hasdot
     jc .out                     ; the user typed one: theirs wins
     mov si, fm_onam
@@ -7347,7 +7346,7 @@ fm_extkeep:
     mov byte [di], 0
     mov [fm_elen], bl
 .out:
-    jmp kretc_di
+    ret
 
 ; -----------------------------------------------------------------------------
 ; fm_edit_end - leave the editor (internal; also the "cancel" path)

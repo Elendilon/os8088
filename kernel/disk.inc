@@ -5954,7 +5954,9 @@ dsk_free_clus_x:
 .fat:
     xor di, di                  ; DI = free clusters
     mov si, 2                   ; SI = cluster under test
-    cmp si, [dsk_maxclus]
+    mov cx, [dsk_maxclus]       ; CX = the last cluster, held through the FAT12
+    cmp si, cx                  ; walk and .slow (dsk_next_clus_x keeps it);
+                                ; .f16 spends CX and reads the word - pass 15
     ja .jcounted                ; a volume with no data clusters
     mov ax, si                  ; make the window cover cluster 2, so the
     call dsk_fat_ofs_x            ; residency test below reads a loaded window
@@ -5995,7 +5997,7 @@ dsk_free_clus_x:
     inc di
 .odd:
     inc si
-    cmp si, [dsk_maxclus]
+    cmp si, cx           
     ja .c12                     ; an odd cluster count ends on the even half
     mov dl, [es:bx+2]           ; odd entry = (ax >> 12) | b2 << 4, and it is
     or dl, dl                   ; zero exactly when both halves are
@@ -6006,7 +6008,7 @@ dsk_free_clus_x:
 .pnext:
     inc si
     add bx, 3
-    cmp si, [dsk_maxclus]
+    cmp si, cx           
     jbe .pair
 .c12:
     dec byte [sch_lock]         ; ...and ES is nobody's again
@@ -6071,7 +6073,7 @@ dsk_free_clus_x:
 ; one caller, its own SI/DI bank and its own copy of the start - all of which
 ; the frame above already is (kernel size pass 13)
 .slow:
-    cmp si, [dsk_maxclus]
+    cmp si, cx           
     ja .counted
     mov ax, si
     call dsk_next_clus_x
