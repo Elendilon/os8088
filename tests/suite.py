@@ -16889,21 +16889,24 @@ SOAK = [
         needs=("86box", "ffmpeg"),
         wants=("build/mega.img", "build/megak/apps/video.o88",
                "build/megak/apps/video.map", "build/megak/kernel.map")),
-    Row("vidrmbtwice", "soak", py("tests/vidrmbtwice.py"), 90.0,
-        "SPEC.md 53.2.3, 98.3.24, KERN-MEGA-PLAN 14.129-14.131: the owner's "
-        "Victory's three, on 86Box's 4 MB mr286 with an SB2.0 captured and "
-        "a private FONTSLOW=1 kern_mega (the glyph table's copy above 1MB): "
-        "a Catch-shaped clip named CATCH.V88 (nine characters) with white "
-        "noise ahead four frames, played to its end TWICE in a real-mode "
-        "bracket. Each play: the card open in the bracket (a short name "
-        "ended the list before DRVC_SOUND - Miku's silence), the text's "
-        "glyphs the kernel's 760 bytes and play 2's Paused box play 1's "
-        "pixels (the copy's selector handed to real mode), the capture's "
-        "first half second the file's (the lead staged off the wrong "
-        "memory - the first second's static). Red three ways, one per fix. "
-        "56 s measured, the FONTSLOW tree rebuilt in it",
+    Row("vidrmbtwice", "soak", py("tests/vidrmbtwice.py"), 60.0,
+        "SPEC.md 53.2.3, 98.1.8.2, 98.3.24, KERN-MEGA-PLAN 14.129-14.132: "
+        "the owner's Victory's sound and text defects, on 86Box's mr286 with "
+        "an SB2.0 captured: a Catch-shaped clip named CATCH.V88 (nine "
+        "characters), white noise from frame 0 six frames ahead with the key "
+        "leads apart, key 0 at frame 0, played to its end TWICE on kern_big "
+        "(1 MB, the shipped player) and on a private FONTSLOW=1 kern_mega "
+        "(4 MB, the real-mode bracket). Each play: the card open (a short "
+        "name ended the list before DRVC_SOUND), the capture the file's "
+        "sound from byte 0 and whole (the lead staged after the reader had "
+        "taken its ring; key 0's frame-0 sound), frame 1 drawn at least 0.6 "
+        "of a frame after the card opens, and on kern_mega the text's glyphs "
+        "the kernel's and play 2's Paused box play 1's. Red four ways, one "
+        "per fix. 46 s measured with the clip made once (ffmpeg + os88venc) "
+        "and the FONTSLOW tree built",
         needs=("86box", "ffmpeg"),
-        wants=("build/megaapps.img",)),
+        wants=("build/megaapps.img", "build/os8088.img", "build/video.o88",
+               "build/video.map")),
     Row("vidrmbfrag", "soak", py("tests/vidrmb.py"), 50.0,
         "SPEC.md 53.2.3, docs/plans/MEGA-VIDEO-REALMODE-PLAN.md W3: what a "
         "REAL-MODE BRACKET reads, under Bochs booted off C: with no driver "

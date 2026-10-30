@@ -193738,6 +193738,44 @@ PCM8 with a seam, ADPCM4 - and requires the same sound for every frame,
 a seek from every key that plays the stream's own (ADPCM4 decoded from the
 key's reference), and four damaged files refused.
 
+#### 98.1.8.2 A lead is staged where it is read, and key 0 plays frame 0 (2026-10-30)
+
+**Two defects of the player's, both heard on the owner's Victory and both
+on kern_big as on kern_mega.**
+
+- **The lead was staged a session too late.** `vp_spos` reads a lead into
+  the stream's ring - a key's apart (98.1.8.1) at `[vp_kbkb]` KB past the
+  key's read, the start's at the ring's head - and `vp_lstage` copied it
+  into the sound ring's tail only once the session had started, after the
+  key's later parts (98.1.3.8) and the first fill had read into the same
+  ring. Where the lead lay on what they took, its tail was theirs: on
+  kern_big at 1 MB the last 142 bytes of a 5,514-byte lead, and on the
+  Victory's Catch My Heart 420 bytes of the reader's tier table played as
+  sound (2,073 distinct samples of 00/01 opening every play). On kern_mega
+  it was all of it (KERN-MEGA-PLAN 14.131): read on the desktop by a slot's
+  SELECTOR - the bank in place, above 1MB - and staged in the real-mode
+  bracket by a paragraph. `vp_lnow` stages it the moment `vp_spos` has
+  read it, in the mode that read it, and `vp_lstage` keeps a staged lead
+  when nothing new was read.
+- **A play from a key began a frame late.** A key's lead is frames
+  *k* + 1 .. *k* + *A*, so a play from key 0 at FRAME 0 - every colour or
+  page-ahead file's play from the start - never played frame 0's sound, and
+  the card's clock started under frame 1: the first frame's picture was
+  replaced at once and its sound was never heard. For a key at frame 0 of a
+  PCM8 file, frame 0's sound is the START's lead's first frame, so
+  `vp_lnow` reads it too and stages it before the key's lead
+  (`[vp_lpre]` 1), and `vp_acur` anchors the clock on the key's own frame:
+  the card plays frame 0's sound under frame 0's picture and frame 1 is
+  drawn a frame later. A key past frame 0 (a seek) still starts at *k* + 1,
+  as 98.1.8 says, its own frame's sound being in a record the play does not
+  read; and a pre-roll (98.2.9) puts key 0 past frame 0 with its first
+  frames silent, so nothing changes there. ADPCM4 is left as it was: its
+  reference is frame *k* + 1's sample (98.1.1.1).
+
+`tests/vidrmbtwice.py` holds both on both kernels: the card's capture is
+the file's sound from byte 0 and whole, and frame 1 is drawn at least
+0.6 of a frame after the card opens (~17 ms before, 57-60 after).
+
 #### 98.1.9 THE LAYER: one file, a better play on a better machine
 
 **A file made for a slow disk carries a second stream, encoded on top of
@@ -202122,14 +202160,12 @@ SI (`FSXR_*`): it may still run the bracket in protected mode, for a reason
 of its own (§53.2.3's table) - a stream on a file-driver volume
 (`FSXR_VOL`) is the common one.
 
-**The sound-ahead lead is staged at the door** (98.1.8, KERN-MEGA-PLAN
-14.131). `vp_spos` reads a start key's lead on the desktop into the ring's
-slot by its SELECTOR - with the bank in place, XMS above 1MB - which no real
-segment names, so `vp_rdoor` runs `vp_lstage` in protected mode, after its
-claims, into the card ring's tail, and the bracket's `vp_lstage` keeps a
-staged lead when nothing new was read. Staged in the bracket it was the
-conventional ring's bytes instead: the file's head, played as the first
-frames' sound.
+**The sound-ahead lead is staged where it is read** (98.1.8.2,
+KERN-MEGA-PLAN 14.131). `vp_spos` reads a start key's lead on the desktop
+into the ring's slot by its SELECTOR - with the bank in place, XMS above
+1MB - which no real segment names; staged in the bracket it was the
+conventional ring's bytes instead, the file's head played as the first
+frames' sound. `vp_lnow` stages it in the mode that read it.
 
 **Inside** (`vp_main`, when `OSAPI_CPU_INFO` answers real mode under the
 arm): the words swapped for their real segments (`os88real_swap`),

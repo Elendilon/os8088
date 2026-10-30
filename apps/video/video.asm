@@ -12391,6 +12391,7 @@ vp_spos:
     mov [vp_kidx], ax
     mov [vp_lpar], ax               ; (a lead's paragraphs past the ring)
     mov [vp_alst], ax               ; no lead read (98.1.8), none staged,
+    mov [vp_lpre], al               ; (nor the key's own frame's sound)
     mov [va_pc], ax                 ; and the audio cursor before the ring
     mov [vp_afr], ax                ; (vp_lfloor reads it from the first fill,
     dec ax                          ; and its frame until vp_sopen sets it)
@@ -12474,6 +12475,9 @@ vp_spos:
     jc .kbad
     mov [vp_lsrc], si
 .knl:
+    call vp_lnow                    ; THE LEAD STAGED WHERE IT WAS READ, and
+                                    ; the key's own frame's sound before it
+                                    ; (98.1.8.2)
     mov ax, [vp_ke+KE_K]
     inc ax
     mov [vp_base], ax               ; the first frame the stream draws
@@ -12501,6 +12505,7 @@ vp_spos:
     call vp_rdat
     jc .kbad
     mov [vp_lsrc], si
+    call vp_lnow                    ; (staged at once: 98.1.8.2)
 .nl0:
     ; --- the reader: from the cluster boundary under the stream's start
     call vp_bseek                   ; ...or from INSIDE THE BANK, if it holds
@@ -16998,6 +17003,7 @@ vp_sopen:
     mov cx, [vp_alst]               ; SOUND AHEAD (98.1.8): the lead vp_lstage
     jcxz .pfl                       ; staged in the ring's tail goes first -
     mov bl, [vp_ahead]              ; frames base .. base + A - 1, one piece
+    add bl, [vp_lpre]               ; (and the key's own frame's, first)
     mov si, VP_RL                   ; each (the speaker's shaper sees them as
     sub si, cx                      ; it sees a record's)
 .al:
@@ -17419,9 +17425,13 @@ vp_acur:
     cld
     rep movsw
     mov cx, [vp_vseq]               ; the clock counts every lap (98.3.9)
-    mov [vp_abase], cx
+    sub cl, [vp_lpre]               ; - from the KEY's frame when its own
+    sbb ch, 0                       ; sound is staged (98.1.8.2): the card
+    mov [vp_abase], cx              ; plays it under the key's picture
     mov cx, [vp_done]               ; ...and the frame the cursor is at: going
-    mov [vp_afr0], cx               ; in paused, one is drawn after this
+    sub cl, [vp_lpre]               ; in paused, one is drawn after this
+    sbb ch, 0
+    mov [vp_afr0], cx
     pop es
     pop di
     pop si
@@ -17630,17 +17640,91 @@ vp_lfloor:
 .r:
     ret
 
+; vp_lnow - vp_spos's: the lead it has just read STAGED NOW (vp_lstage), out
+; of a ring the session is about to read into - the key's later parts and the
+; first fill land on it, and a lead staged later was partly theirs (98.1.8.2:
+; the owner's Catch opened on 2,073 samples of a tier table on kern_big) -
+; and then, for a play from a key at frame 0 of a PCM8 file, THAT FRAME'S
+; OWN SOUND, the start's lead's first frame, staged before it with
+; [vp_lpre] 1, so the card starts under the key's picture and not a frame
+; on. Every register kept
+vp_lnow:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    call vp_lstage
+    cmp word [vp_krec], 0xFFFF      ; a KEY's start...
+    je .o
+    cmp word [vp_ke+KE_K], 0        ; ...at frame 0
+    jne .o
+    cmp byte [vp_ahead], 0          ; ...with its lead staged
+    je .o
+    cmp word [vp_alst], 0
+    je .o
+    cmp byte [vp_audio], 1          ; PCM8: ADPCM4's reference is frame 1's
+    jne .o                          ; sample (98.1.1.1)
+    push word [vp_rdseg]
+    mov ax, [vp_kbkb]               ; past the key's read, as a lead apart
+    mov cl, 6                       ; is (vp_spos .kapart) - its bytes are
+%ifdef PKG_MEGA
+    cmp byte [vp_pm], 0             ; staged by now
+    je .rp
+    add ax, 31
+    mov cl, 5
+    shr ax, cl
+    call vp_rslot
+    jmp short .rs
+.rp:
+%endif
+    shl ax, cl
+    add ax, [vp_ring]
+%ifdef PKG_MEGA
+.rs:
+%endif
+    mov [vp_rdseg], ax
+    mov ax, [vp_lead0]              ; the start's lead's first frame
+    mov dx, [vp_lead0+2]
+    mov cx, [vp_abytes]
+    call vp_rdat                    ; SI = it, in [vp_rdseg]
+    mov ax, [vp_rdseg]
+    pop word [vp_rdseg]
+    jc .o                           ; (unread: the play starts a frame on)
+    push ds
+    push es
+    mov cx, [vp_abytes]
+    mov di, VP_RL                   ; ...just before the lead in the tail
+    sub di, [vp_alst]
+    sub di, cx
+    mov es, [vp_aseg]
+    mov ds, ax
+    cld
+    rep movsb
+    pop es
+    pop ds
+    mov ax, [vp_abytes]
+    add [vp_alst], ax
+    mov byte [vp_lpre], 1
+.o:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ; vp_lstage - SOUND AHEAD (98.1.8): the lead vp_spos read with the key, or
 ; the start's, copied out of the ring - which the stream is about to fill
 ; over it - into the sound ring's TAIL, where vp_sopen queues it. A muted
 ; play stages none. Clobbers AX, CX, SI, DI
 vp_lstage:
-%ifdef PKG_MEGA
-    cmp word [vp_lsrc], 0xFFFF      ; NOTHING READ: a lead the door staged
-    je .r                           ; stays staged (vcold.asm's vp_rdoor,
-                                    ; KERN-MEGA-PLAN 14.131) - vp_spos zeroes
-                                    ; [vp_alst] for a play that has none
-%endif
+    cmp word [vp_lsrc], 0xFFFF      ; NOTHING READ: a lead staged where it
+    je .r                           ; was read (vp_lnow) stays staged -
+                                    ; vp_spos zeroes [vp_alst] for a play
+                                    ; that has none
     xor ax, ax
     mov [vp_alst], ax
     mov si, [vp_lsrc]
@@ -24401,6 +24485,7 @@ vp_klead:     dd 0                  ; ...the keys' leads' table, apart, or 0
 vp_lpar:      dw 0                  ; ...a lead read past the ring's start
 vp_lsrc:      dw 0xFFFF             ; ...a lead read into the ring, or FFFFh
 vp_alst:      dw 0                  ; ...its bytes staged in the sound ring
+vp_lpre:      db 0                  ; ...the first of them the key's OWN frame's
 vp_mbuf:      times VP_MBUF db 0    ; vp_fits's "Needs n KB..."
 vp_v4p:       db 0                  ; LIVE IN COLOUR (98.3.10.4): BLITP may walk the
                                     ; clip (vp_v4blit; its repack's words are

@@ -13243,18 +13243,37 @@ ran in the bracket and took `[vp_lpar]` as paragraphs past the ring's real
 segment, so the lead it staged was the ring's 17th byte on: the file's head
 (captured: file offset ~6,000, frames 0-5 of noise), and once the lead was
 read as a slot instead, zeros - the conventional ring is not where the
-selector pointed. The lead is staged at the DOOR now, in protected mode
-(vcold.asm's `vp_rdoor`, after `vp_rclaims`), into the card ring's tail,
-which the bracket reaches by its real segment; `vp_lstage` keeps a staged
-lead when nothing new was read. Measured on 86Box with the real 09-Catch:
-the card's output is the file's sound from byte 0, 71,163 distinct samples
-in order (it was 5,160 of static first). PKG_MEGA only; the shipped player
-is byte-identical. Gate `vidrmbtwice` (3), red with the door's staging out.
+selector pointed. It was first fixed by staging the lead at the DOOR, in
+protected mode; the owner then heard the same opening on kern_big, and the
+root cause was the player's own and older (SPEC.md 98.1.8.2): the lead was
+staged a session late, after reads into the same ring. `vp_lnow` stages it
+the moment `vp_spos` has read it, in the mode that read it, which fixes both
+kernels and makes the door's call redundant - it is gone. Measured on 86Box
+with the real 09-Catch: the card's output is the file's sound from byte 0,
+71,163 distinct samples in order (it was 5,160 of static first). Gate
+`vidrmbtwice` (3), red with `vp_lnow`'s staging out, on both kernels.
 
-ALSO SEEN, NOT FIXED, ON EVERY KERNEL: a play from a key loses about one
-frame of its first record tails (this row's clip starts 1.0 frames in on
-kern_big's shipped player as on kern_mega's arm, to the run), and on
-kern_big the real Catch opens on 2,073 distinct samples of 00/01 before frame
-7 - the lead apart, read at `[vp_kbkb]` KB past the key into a ring the bank
-in place had cut to two slots (a reading, not confirmed). The row tolerates
-the first and does not run kern_big.
+The two things this entry first left open - kern_big's own opening and a
+play from a key starting a frame late - are 14.132.
+
+### 14.132 kern_big's opening static and the frame a play from key 0 lost (2026-10-30) - FIXED
+
+Both were the shipped player's, so both kernels had them (SPEC.md 98.1.8.2).
+kern_big's Catch My Heart opened on 2,073 distinct samples of 00/01: the
+start key's lead, read at `[vp_kbkb]` KB past the key, lost its last 420
+bytes to the reader's two-tier table before `vp_lstage` copied it out at
+the session's start (a 1 MB kern_big loses the last 142 of this row's clip
+the same way). Root-caused by stepping the guest a millisecond at a time
+over the lead's tail: its bytes changed every ~29 ms under the reader's
+`int 13h` into the ring (CS 9F80, DS the ring). `vp_lnow` stages it where
+it is read. And a play from key 0 at frame 0 began a frame late, because a
+key's lead is frames *k* + 1 .. *k* + *A*: the start's lead's first frame is
+now staged before it and the clock anchored on frame 0 (`[vp_lpre]`), so
+frame 0's sound plays under frame 0's picture. The shipped `video.o88`
+changes (48,357 bytes); kern_big and kern_small are byte-identical, and so
+is the kern_mega kernel. `vidrmbtwice` runs a kern_big leg now (1 MB, the
+shipped player) beside the kern_mega one, and asserts on both that the
+capture is the file's sound from byte 0 and whole and that frame 1 is drawn
+at least 0.6 of a frame after the card opens (57-60 ms; 15-18 before).
+Red, both legs: `vp_lnow`'s staging out (the contiguity, 5,332 of 10,945),
+its frame-0 piece out (the start, sample 914, and the 17 ms).
