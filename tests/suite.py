@@ -16847,6 +16847,19 @@ SOAK = [
         wants=("build/mega.img", "build/megarun.o88", "build/megarmbd.o88",
                "build/megarmbd.bin", "build/megak/apps/video.o88",
                "build/megak/kernel.map")),
+    Row("vidmegaclaims", "soak", py("tests/vidmegaclaims.py"), 60.0,
+        "SPEC.md 50's per-owner cap on kern_mega, KERN-MEGA-PLAN 14.127: the "
+        "Video Player's kern_mega arm PLAYS a Catch-shaped file (16 colours "
+        "on 320x200n, two pages flipped, a palette a scene, PCM8 ahead on "
+        "the speaker) off a BIOS-served C: on 86Box's 4 MB mr286 - the "
+        "owner's Victory's 'Not enough memory to play it' with 474K free. "
+        "Space takes the screen, the player holds 10 claims in the play, it "
+        "ends by itself. Red (4) with MEM_OWNER_MAX 8: the ring was the "
+        "ninth claim. The clip is made once into build/vidmegaclaims/ "
+        "(ffmpeg + os88venc, ~80 s); 60s is 15 measured after that",
+        needs=("86box", "ffmpeg"),
+        wants=("build/mega.img", "build/megak/apps/video.o88",
+               "build/megak/apps/video.map", "build/megak/kernel.map")),
     Row("vidrmbfrag", "soak", py("tests/vidrmb.py"), 50.0,
         "SPEC.md 53.2.3, docs/plans/MEGA-VIDEO-REALMODE-PLAN.md W3: what a "
         "REAL-MODE BRACKET reads, under Bochs booted off C: with no driver "

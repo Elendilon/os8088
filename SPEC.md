@@ -96485,6 +96485,18 @@ its first. Eight is Paint's measured peak (scratch, canvas, undo, clipboard,
 LZW, and the transient sixth it holds while trading a bigger clipboard for a
 smaller) plus its region and one spare.
 
+**On kern_mega the cap is TWELVE** (`kernel/memory.inc`, kern_big and
+kern_small byte-identical; KERN-MEGA-PLAN 14.127). The Video Player's
+kern_mega arm holds EIGHT before a play's ring - the block decoder part,
+the cold part (98.3.24.1), the speaker shaper's part, the palette events,
+the poster, the keeper, a record buffer and the text's second save - so
+the ring was the ninth and was refused whatever the heap held: on the
+owner's Victory 286 no streamed play started at all ("Not enough memory to
+play it" with 474K free in one run). A play then wants the bracket's held
+room (98.3.24.2), its door's scratch and an Unmute's ring on top: twelve.
+The table is unchanged (`MEM_MAX`), and the cap still falls on whoever
+causes it. `tests/vidmegaclaims.py` is the gate.
+
 The kernel's own claims, and what each replaced:
 
 | tag / owner | KB | taken by | replaces |
