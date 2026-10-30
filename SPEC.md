@@ -201979,10 +201979,10 @@ six vectors.
   the read log, `NOLIVESND` - is byte-identical; the arm's part expands them
   with `VPR_CALL` and `VPR_CS` aimed at the trampoline.
 
-**What it bought** (image + bss against 65,024): the arm **63,764** (1,260
-to spare, from 594), `VPDIAG=1` **64,552** (472 to spare) and `VPDIAG=time`
-**64,731** (293 to spare); the part itself, which is no image's, is 1,009,
-1,565 and 1,573 bytes.
+**What it bought** (image + bss against 65,024): the arm **63,756** (1,268
+to spare, from 594), `VPDIAG=1` **64,544** (480 to spare) and `VPDIAG=time`
+**64,723** (301 to spare); the part itself, which is no image's, is 1,009,
+1,565 and 1,573 bytes. Every shipped build is byte-identical.
 
 ### 98.4 The window: the Preview (wave 6)
 

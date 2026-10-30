@@ -1383,6 +1383,19 @@ deduplicated union below, plus `test-full`.
   `VP_NOSPKFX` again; the speaker library's protected-mode ISR family ~430
   if the diag arm played the speaker in real mode only. Any two are not
   enough; the choice is the owner's.
+  **RESOLVED the same day without dropping a feature** (SPEC.md 98.3.24.1):
+  the door, its afterword, the card's ninth line and, in a diag build, the
+  profile's two ends and the reflection counts moved out of the image into
+  a fourth PART, `apps/video/vcold.asm` - a LINKED part, PiXEL's shape,
+  reading the player's words by the names `tools/os88plink.py` takes from
+  the player's own map and calling its routines back through a trampoline.
+  The arm 63,756 (1,268 to spare), `VPDIAG=1` 64,544 (480), `VPDIAG=time`
+  64,723 (301); every shipped build byte-identical. The part is fetched at
+  launch and PINNED: fetched at the first door, `megavidv2`'s lin320 drew 72
+  wrong pixels, and movable, its modex leg had the player CLOSED by a #GP in
+  the next stop's key picture (`vp_after` -> `vp_kpic` -> `vd_n_p3`) - a
+  latent defect a compaction exposes, NOT FIXED, recorded in 98.3.24.1.
+  `mega-vidgrey` mirrored the card at eight lines and is taught nine.
 * **W6. Parity, on the Victory** (field, docs/FIELD-MACHINES.md). Send
   `make VPDIAG=time` and `make megadiag` builds of both kernels' players.
   * **The measurement**: Catch My Heart and Sonic 2, the owner's
