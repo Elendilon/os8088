@@ -12906,10 +12906,7 @@ mega_mpmovef:
 ; not zeroed at boot), then a pair for every claim real mode made. Clobbers
 ; nothing
 mega_mpall:
-    push ax
-    push cx
-    push si
-    push di
+    pusha                           ; (once, at the switch: 286 code)
     push es
     push ss
     pop es
@@ -12928,10 +12925,7 @@ mega_mpall:
     cmp si, mem_tab + MEM_MAX * MC_SIZE
     jb .l
     pop es
-    pop di
-    pop si
-    pop cx
-    pop ax
+    popa
     ret
 
 ; mega_rseg - AX = a REAL-MODE segment the BIOS handed back in ES or DS (a
@@ -13124,12 +13118,7 @@ mega_vfixall:
 mega_vxpm:
     cmp word [vx_ep+2], 0
     je .ret                         ; not armed: no VESA desktop
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push bp
+    pusha                           ; (once, at the switch: 286 code)
     push es
     mov dx, [vx_ep+2]
     call mega_p2d                   ; DX = the image's DATA selector
@@ -13163,12 +13152,7 @@ mega_vxpm:
     mov word [vx_ep+2], KERNEL_SEG
 .out:
     pop es
-    pop bp
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
+    popa
 .ret:
     ret
 %endif
