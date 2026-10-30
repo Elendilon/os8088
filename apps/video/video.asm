@@ -14655,7 +14655,8 @@ vp_spkbind:
 vp_rxfree:
     cmp byte [vp_rbr], 0
     jne .owe
-    jmp OSAPI_XMEM_FREE
+    call OSAPI_XMEM_FREE
+    ret
 .owe:
     push bx
     mov bx, vp_rxo
@@ -14689,7 +14690,10 @@ vp_rxgive:
     jz .z
     call OSAPI_XMEM_FREE
 .z:
-    add bx, 4
+    inc bx                          ; (four incs: what follows at the
+    inc bx                          ; parity it had)
+    inc bx
+    inc bx
     cmp bx, vp_rxo + 8
     jb .l
     pop dx
