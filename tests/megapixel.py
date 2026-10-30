@@ -411,7 +411,7 @@ def main():
     rows = bmp_rows(got) if got else None
     want(rows == exp, "OUT.BMP on B: is the master to the byte (%s)" %
          ("missing" if got is None else "%d bytes" % len(got)))
-    want(not e9bad(), "no CLOSED and no FAULT on E9")
+    want(not e9bad(), "no CLOSED and no FAULT (the kernel's state)")
     print("megapixel: %.0fs under Bochs" % (time.time() - t0))
     for f in FAILS:
         print("FAIL: " + f)

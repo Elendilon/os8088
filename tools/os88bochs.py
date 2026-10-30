@@ -1171,7 +1171,7 @@ class Box(object):
             try:
                 if self._state()[2]:
                     self._flt = self._fbuf_line()
-            except RuntimeError:
+            except (RuntimeError, OSError):
                 return None
         return getattr(self, "_flt", None)
 
@@ -1180,8 +1180,13 @@ class Box(object):
         "kern_mega FAULT ..." and "kern_mega CLOSED NAME vv at cccc:iiii" -
         which is what the shipped kernel put on E9 before MEGA_E9. CLOSED
         carries the LAST incident (mega_fkmsg holds one), so a row counting
-        incidents wants a MEGADIAG=1 tree. Read it BEFORE `stop()`; a read
-        that fails is a line too, so it cannot pass for a clean run."""
+        incidents polls (tests/megaflt.py). Once a Box has been asked, its
+        `stop()` reads it one last time, and after the stop this answers
+        that reading; a read that fails is a line too, so it cannot pass for
+        a clean run."""
+        if getattr(self, "_stopped_faults", None) is not None:
+            return list(self._stopped_faults)
+        self._asked = True
         try:
             home, _, inf, fkn = self._state()
             out = []
@@ -1191,7 +1196,7 @@ class Box(object):
                 msg = self.read("mega_fkmsg", 25).split(b"\0")[0]
                 out.append("kern_mega CLOSED " + msg.decode("latin-1"))
             return out
-        except RuntimeError as e:
+        except (RuntimeError, OSError) as e:
             return ["kern_mega state unreadable: %s" % e]
 
     # A DOS TRIP: kern_mega parks the session above 1MB and kern_dos takes
@@ -1515,6 +1520,9 @@ class Box(object):
         self.dbl(160, 139 + 16 * row, "MEGARUN's start")
 
     def stop(self):
+        if getattr(self, "_asked", False) and self.p.poll() is None and \
+                getattr(self, "_stopped_faults", None) is None:
+            self._stopped_faults = self.faults()    # (see faults())
         self.hold.kill()
         self.p.terminate()
         try:
