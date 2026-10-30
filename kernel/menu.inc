@@ -2284,10 +2284,7 @@ menu_item_dis:
 ; clobbers: nothing (flags only)
 ; -----------------------------------------------------------------------------
 menu_item_xor:
-    push ax
-    push bx
-    push cx
-    push dx
+    call kent_di                ; (kernel size pass 15)
     mov cl, 4
     shl ax, cl                  ; index * 16
     add ax, [menu_y1]
@@ -2300,7 +2297,7 @@ menu_item_xor:
     mov cx, [menu_x2]
     dec cx
     call vga_xor_fill_vram      ; VRAM-direct transient overlay (SPEC.md 32)
-    jmp kret_dx
+    jmp kret_di
 
 ; -----------------------------------------------------------------------------
 ; menu_title_xor - toggle the highlight on the tracked menu's title cell
@@ -2309,18 +2306,14 @@ menu_item_xor:
 ; clobbers: nothing (flags only)
 ; -----------------------------------------------------------------------------
 menu_title_xor:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+    call kent_di                ; (kernel size pass 15)
     mov si, [menu_ent]
     mov ax, [ss:si + MB_XL]
     xor bx, bx
     mov cx, [ss:si + MB_XR]
     mov dx, MBAR_H - 2          ; the black rule stays black
     call gfx_xor_fill
-    jmp kret_si
+    jmp kret_di
 
 ; -----------------------------------------------------------------------------
 ; menu_trunc - stage an item string, truncated to MENU_MAXCH glyphs

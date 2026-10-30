@@ -6767,9 +6767,8 @@ wm_clip_split:
 
     dec word [wm_clip_n]        ; drop it: the last rect moves into its slot
     mov bx, [wm_clip_n]         ; (a self-copy when it WAS the last)
-    shl bx, 1                   ; WCR_SZ is 8, and it is meant to stay 8
-    shl bx, 1
-    shl bx, 1
+    mov cl, 3                   ; WCR_SZ is 8, and it is meant to stay 8 - CX
+    shl bx, cl                  ; is banked and not yet loaded (pass 15)
     add bx, wm_clip_tab         ; BX -> the last rect
     mov di, si
     mov si, bx
@@ -6982,15 +6981,12 @@ wm_clip_free:
 wm_ttl_seen:
     cmp word [wm_clip_n], 0
     je wm_clip_free             ; disarmed: draw it, and that `clc`/`ret` is
-    push ax                     ; already written one label up
-    push bx
-    push cx
-    push dx
+    call kent_di                ; already written one label up (pass 15)
     call wm_ttl_rect            ; AX,BX,CX,DX = the strip, inclusive
     xchg ax, cx                 ; containment with the corners exchanged IS
     xchg bx, dx                 ; overlap - 11.3.3's own idiom, and the walk
     call wm_clip_walk           ; is the RAW one: wm_draw_win is in virtual
-    jmp kret_dx                 ; coordinates and wm_clip_tab is virtual, so
+    jmp kret_di                 ; coordinates and wm_clip_tab is virtual, so
                                 ; wm_clip_t1's display translation would be a
                                 ; second one. (`pop` writes no flags, so the
                                 ; answer survives to the caller's branch)

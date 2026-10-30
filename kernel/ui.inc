@@ -1589,11 +1589,12 @@ ui_track:
     mov di, ui_origx
     movsw                       ; ui_origx
     movsw                       ; ui_origy
-    lea si, [bx + W_X]          ; ...and the outline starts on the window
-    mov cx, 4                   ; rect: ui_curx, ui_cury, ui_dragw, ui_dragh
-    rep movsw                   ; from W_X, W_Y, W_W, W_H. Six words in 20
-    pop si                      ; bytes where six load/store pairs were 35
-                                ; (kernel size pass 9). CX, DI and ES are
+    call wm_bank4               ; ...and the outline starts on the window
+    pop si                      ; rect: ui_curx, ui_cury, ui_dragw, ui_dragh
+                                ; from W_X, W_Y, W_W, W_H - DI is ui_curx now,
+                                ; and wm.inc's banker copies the four (kernel
+                                ; size pass 15; pass 9 had made six load/store
+                                ; pairs two movsw and a rep). DI and ES are
                                 ; spent: both callers reload what they use
 
     call gfx_lock
@@ -2850,8 +2851,8 @@ ui_sys_find:
     inc di
     or al, al
     jnz .cmp
-    pop di
-    jmp short .out
+    pop di                      ; CF = 0 from the `or`: found
+    ret                         ; (kernel size pass 15: was a jump to the ret)
 .nomatch:
     pop di
 .next:
