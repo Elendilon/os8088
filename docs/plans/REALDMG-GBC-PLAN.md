@@ -2,7 +2,7 @@
 
 **Status: PLAN, nothing built** (written 2026-10-30 on `elendilon-next`; the
 owner's answers to its five questions are section 10, and the sections before
-already follows them).
+already follow them).
 RealDMG (docs/REALDMG-SPEC.md) runs the original Game Boy and refuses a
 cartridge whose header byte 0143h is C0h, *"needs GB Color"* (REALDMG-SPEC
 section 10). This plan is how it stops refusing.
