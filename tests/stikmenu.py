@@ -109,7 +109,20 @@ class Menu:
             # holder's, so a stm_live read there is a witness of nothing
             # (it read 1 one boot in five and the row raced the scan)
             return 0
-        return _lin(self.m, seg) if seg else 0
+        lin = _lin(self.m, seg) if seg else 0
+        if lin and getattr(self.m, "bochs", False) and lin < 0x100000:
+            # ...AND UNDER PROTECTED MODE THE CONVENTIONAL CLAIM IS A
+            # SELECTOR TOO (the claim's own LDT pair, kernel/mod.inc
+            # mod_need/mod_hi), so the test above lets it through: base()
+            # named the claim the file is being READ into, and stm_live
+            # there is whatever that memory held. drop() took a panel that
+            # was not up and read stm_nsl = 0 - mega-stikmenu's A or D,
+            # IndexError on an empty slab list, 2 to 5 runs in 8 at two
+            # Bochs rows to a box - and C's fpg_on / busy-clock FAILs are
+            # the same race met during the scan. STIKMENU.DRV is MOD_HIOK
+            # (mod_hi): the image it runs is the copy ABOVE 1MB
+            return 0
+        return lin
 
     def rd(self, name, n):
         return bytes(self.m.read(self.base() + self.off[name], n))
@@ -396,6 +409,17 @@ def main():
             check(any(c[0] == "Sticky Apps" for c in ui.menus()),
                   "the desktop's bar carries 'Sticky Apps'")
             dw = ui.open_drive("A")
+            # ...ONCE THE BAR IS THE WINDOW'S: open_drive answers when the
+            # window EXISTS, and the bar follows its activation a pass or
+            # more later - read at once, it was still the desktop's
+            # (['Apple', 'File', 'Sticky Apps'], mega-stikmenu at four Bochs
+            # rows to a box). Bounded, so a bar that never changes still
+            # fails below on what it says
+            try:
+                ui._wait(lambda: "Disk" in [c[0] for c in ui.menus()],
+                         "the Disk window's bar", T)
+            except os88ui.UIError:
+                pass
             bar = [c[0] for c in ui.menus()]
             check("Sticky Apps" not in bar and "Disk" in bar,
                   "a Disk window's bar does not (%r)" % bar)

@@ -94,7 +94,7 @@ def main():
                                      "MEGAHUGE: bad")) for l in lines):
                     break
                 time.sleep(0.2)
-            time.sleep(1)
+            box.guest_sleep(1)          # the lines after the verdict
             lines = box.lines()
         else:
             fails.append("no kern_mega line in 240s")

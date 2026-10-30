@@ -57,9 +57,13 @@ it meant to, and a closed loop above it converges in one step.
 BUTTONS ARE NOT VERIFIED one edge at a time. A double-click is four
 `mouse_button`s ~0.1 s apart down one connection (xmcheck.dblclick,
 ethernet.Mouse.dblclick) and the kernel's window is nine ticks; proving each
-edge costs a debugger stop a poll and pushed the pair apart. Each goes to X
-at once with the guest running, as os88megabochs's own double-click does,
-and the shim holds the next stop off until Bochs has taken it (INPUT_GAP).
+edge costs a debugger stop a poll and pushed the pair apart. Edges are
+QUEUED and go to X as ONE xdotool chain 30 ms apart, as os88megabochs's own
+double-click does, at the next command of another kind or after HOLD with
+no further edge (Server._button: Bochs's guest clock is the host's, so an
+xdotool spawned per edge spaced a loaded box's double-click 1.15 s apart).
+The next stop is then held off until Bochs has READ the chain
+(os88bochs._Input.taken), because a stop drops the grab.
 
 MEMORY: an address is LINEAR, as QEMU's `xp`/`pmemsave` take it. A row that
 computes `seg << 4` from a guest-read segment reads the wrong place under
@@ -373,6 +377,8 @@ class Server(object):
                 os.symlink(src, dst)
         self._tx = self._ty = None
         self._btn = 0
+        self._chain = []                # button edges not yet sent (_button)
+        self._chain_t = 0.0
         self._wh = None
         self._lk = threading.RLock()
         self._pid()
@@ -384,6 +390,8 @@ class Server(object):
         self.ls.bind(sock)
         self.ls.listen(8)
         threading.Thread(target=self._accept, daemon=True).start()
+        if not self.box86:
+            threading.Thread(target=self._flusher, daemon=True).start()
         _LIVE.append(self)
         atexit.register(self.close)
 
@@ -453,6 +461,8 @@ class Server(object):
             for ev in args.get("events", ()):
                 self._event(ev)
             return {}
+        if cmd not in ("input-send-event", "human-monitor-command"):
+            self._flush()               # (both of those decide for themselves)
         if cmd == "query-status":
             st = self.m.status().get("state")
             return {"status": "running" if st == "running" else "paused",
@@ -477,7 +487,11 @@ class Server(object):
         if not w:
             return ""
         op = w[0]
-        if op != "mouse_move":
+        if op != "mouse_button":
+            self._flush()               # (edges first: a drag's press, then
+        if op != "mouse_move":          # the motion it carries)
+            if self._tx is not None:
+                self._flush()
             self._sync()
         if op == "mouse_move":
             self._move(int(w[1]), int(w[2]))
@@ -594,22 +608,96 @@ class Server(object):
         was, self._btn = self._btn, mask
         m = self.m
         if self.box86:                  # the serial mouse's own report:
-            if (mask ^ was) & 3:        # buttons with no motion
-                m.cmd(cmd="mouse", dx=0, dy=0, l=bool(mask & 1),
-                      r=bool(mask & 2))
+            self._box_edges(was, mask)  # buttons with no motion
             return
-        if not m.box.captured:
-            m.box.capture()
-        with m._lock:
-            for bit, xb in ((1, 1), (2, 3), (4, 2)):
-                if (mask ^ was) & bit:
-                    m._xd("mousedown" if mask & bit else "mouseup", xb)
-                    if mask & bit:
+        # A BURST OF EDGES GOES TO X AS ONE xdotool CHAIN, not one process
+        # an edge. Whatever spaces the edges on the host spaces them in the
+        # guest (with sync=realtime it WAS the guest's clock) -
+        # and a double-click's four `mouse_button`s (xmcheck.dblclick) each
+        # spawning xdotool were 1.15 s press to press on a loaded box, one
+        # xdotool taking 0.83 s to start, against FM_DBLCLK's nine ticks:
+        # two FIRST clicks, nothing opened (mega-httpinstall, 3 runs in 6
+        # with four CPU hogs). So an edge is QUEUED, and the chain goes out
+        # at the next command of any other kind - every row's next step is a
+        # read or a wait, which needs it sent - or once no edge has followed
+        # for HOLD, so a click with only a host sleep after it still lands.
+        # In the chain the edges are 30 ms apart, os88mouse's Bochs
+        # double-click, so the gesture's span is the chain's and not the
+        # host's: one X request stream, read by Bochs in one GUI pass
+        for bit, xb in ((1, 1), (2, 3), (4, 2)):
+            if (mask ^ was) & bit:
+                self._chain.append(("mousedown" if mask & bit else "mouseup",
+                                    xb))
+        self._chain_t = time.time()
+
+    def _box_edges(self, was, mask):
+        """86Box: each changed button an edge the guest has DECODED.
+
+        86Box's automation `mouse` verb SETS the button state and the serial
+        mouse reports it at its own poll, so edges sent back to back are
+        COALESCED - a double-click's four `mouse_button`s (os88qemu.
+        mouse_dblclick sends them in one burst, which is right for QEMU's
+        msmouse, a packet queued per edge) reached the guest as no edge at
+        all, and box-ethernet's Disk window never opened. So each edge waits
+        until the published mouse_btn agrees (os88mouse.Mouse._edge, which
+        re-sends a dropped packet), as QEMU's queue would have delivered it.
+        A guest that never decodes it is left for the caller's own check to
+        name, as QEMU leaves it: this layer does not raise on an edge."""
+        from os88marty import MartyError
+        for bit in (1, 2):
+            if not (mask ^ was) & bit:
+                continue
+            try:
+                self.mo._edge(bool(mask & bit), btn=bit)
+            except MartyError:
+                pass
+            # (_edge's packet carries the OTHER button up: a chord of left
+            # and right is not a gesture any row here makes)
+
+    HOLD = 0.3      # s with no further edge before a queued burst goes out:
+                    # longer than xmcheck.dblclick's longest gap (0.12 s)
+
+    def _flusher(self):
+        while not self.closed:
+            time.sleep(0.02)
+            if self._chain and time.time() - self._chain_t >= self.HOLD:
+                with self._lk:
+                    self._flush()
+
+    def _flush(self):
+        """Send the queued button edges (see _button) as one chain."""
+        with self._lk:
+            chain, self._chain = self._chain, []
+            if not chain:
+                return
+            m = self.m
+            if not m.box.captured:
+                m.box.capture()
+            args = []
+            # A PS/2 MOUSE TAKES THE BURST QUEUED ON A STOPPED GUEST
+            # (os88megabochs.queued_input): one GUI pass, a packet an edge,
+            # so its spacing is no host interval at all. A SERIAL one keeps
+            # the 30 ms: Bochs's serial mouse latches the LAST button state
+            # (iodev/serial.cc mouse_enq), so edges read in one pass merge
+            import os88bochs
+            queued = len(chain) > 1 and os88bochs.MOUSE != "serial"
+            for edge in chain:
+                if args and not queued:
+                    args += ["sleep", "0.03"]
+                args += list(edge)
+            with m._lock:
+                if queued:
+                    m.queued_input(*args)
+                else:
+                    m._xd(*args)
+                for ed, xb in chain:
+                    if ed == "mousedown":
                         m._btn.add(xb)
                     else:
                         m._btn.discard(xb)
 
     def _key(self, q, down):
+        self._flush()                   # (in the order they were sent)
         m = self.m
         if self.box86:
             m.cmd(cmd="key", key=martykey(q), down=down, up=not down)
@@ -627,10 +715,13 @@ class Server(object):
             k = d["key"]
             if k.get("type") != "qcode":
                 raise ValueError("a key event by %s" % k.get("type"))
+            self._flush()
             self._sync()
             self._key(k["data"], d.get("down", True))
         elif t == "btn":
             bit = {"left": 1, "right": 2, "middle": 4}[d["button"]]
+            if self._tx is not None:
+                self._flush()
             self._sync()
             self._button((self._btn | bit) if d.get("down") else
                          (self._btn & ~bit))

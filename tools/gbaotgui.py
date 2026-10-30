@@ -5,9 +5,11 @@
 
 Choose a Game Boy cartridge and it writes GAME.O88 beside it: RealDMG with
 the whole cartridge translated ahead of time (tools/gbaot.py's `make`), so
-the game never stops to translate. The ROM is NOT inside the package - put
-the two side by side on an os8088 disk, double-click the package, and it
-opens its ROM itself. Optionally:
+the game never stops to translate. With "Put the ROM inside the package"
+ticked - the default - the package CONTAINS the cartridge ROM: it is one
+file that runs alone, it is the cartridge itself, and it must not be shared.
+Unticked, the ROM is not inside it - put the two side by side on an os8088
+disk, double-click the package, and it opens its ROM itself. Optionally:
 
   * REPLAYS - a NAME.RPn RealDMG recorded (Save State > Record Replay) and
     the NAME.SSn it starts from: the counters are taken from real play as
@@ -157,6 +159,10 @@ def main():
     frames, check, disk = tk.IntVar(value=3000), tk.IntVar(value=0), tk.StringVar(value="none")
     embed = tk.IntVar(value=1)
     mega = tk.IntVar(value=0)
+    nimg = tk.IntVar(value=10)
+    prefer = tk.StringVar(value="Keep the ROM inside, fewer code images")
+    PREFS = [("Keep the ROM inside, fewer code images", "rom"),
+             ("Keep every code image, the ROM beside it", "code")]
     rpv, ssv = tk.StringVar(), tk.StringVar()     # the replay being chosen
     reps = []                                    # ...and those added to the list
     RPTYPES = (("RealDMG replay", "*.rp? *.RP?"), ("all files", "*"))
@@ -296,6 +302,14 @@ def main():
     ttk.Checkbutton(f, text="For kern_mega (protected mode; runs on every kernel)",
                     variable=mega).grid(row=r, column=1, sticky="w")
     r += 1
+    ttk.Label(f, text="Code images, at most").grid(row=r, column=0, sticky="w")
+    ttk.Spinbox(f, from_=1, to=29, increment=1, textvariable=nimg,
+                width=8).grid(row=r, column=1, sticky="w")
+    r += 1                                 # (10: what this machine checks; more
+    ttk.Label(f, text="If it does not all fit").grid(row=r, column=0, sticky="w")
+    ttk.Combobox(f, textvariable=prefer, values=[p for p, _ in PREFS], state="readonly",
+                 width=44).grid(row=r, column=1, sticky="w")   # are for kern_mega)
+    r += 1
     ttk.Label(f, text="...and a floppy").grid(row=r, column=0, sticky="w")
     ttk.Combobox(f, textvariable=disk, values=[s for s, _ in SIZES], state="readonly",
                  width=10).grid(row=r, column=1, sticky="w")
@@ -331,7 +345,8 @@ def main():
             import gbaot
             gbaot.make(os.path.join(gbaot.ROOT, "build"), a["rom"], a["out"], a["name"],
                        a["frames"], a["reps"], a["check"], log=say, embed=a["embed"],
-                       mega=a["mega"])
+                       mega=a["mega"], images=a["images"], prefer=a["prefer"])
+            a["embed"] = getattr(gbaot.package_fit, "embedded", a["embed"])
             if a["disk"]:
                 import shutil
                 import tempfile
@@ -366,7 +381,8 @@ def main():
         a = {"rom": rom.get(), "out": out.get(), "name": name.get().upper(),
              "frames": frames.get(), "reps": use, "check": check.get(),
              "disk": dict(SIZES)[disk.get()], "embed": bool(embed.get()),
-             "mega": bool(mega.get())}
+             "mega": bool(mega.get()), "images": nimg.get(),
+             "prefer": dict(PREFS)[prefer.get()]}
         go.configure(state="disabled")
         say("making %s from %s..." % (a["out"], a["rom"]))
         threading.Thread(target=work, args=(a,), daemon=True).start()

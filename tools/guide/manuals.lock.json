@@ -576,9 +576,9 @@
   "sources": [
    "apps/install"
   ],
-  "stamped": "177c1b6c",
-  "strings": "e66d0a07c66d6c99",
-  "why": "the check asks the sockets directly; nothing the page says changed"
+  "stamped": "92340637",
+  "strings": "5dfa863f9bc6c17e",
+  "why": "main's 117.10 fixes: the ARG_TEXT gate and a network install's ASSOC.DAT finish are internal; a named network source that fails is refused before the format, which the page's 'the last line of the list says why' covers; OS88VER.TXT's new lines are the 'what is new' lines it already describes - page checked, nothing to change"
  },
  "INTRO_MID": {
   "sources": [],
@@ -880,9 +880,9 @@
   "sources": [
    "apps/realdmg"
   ],
-  "stamped": "a42f0d4f",
-  "strings": "6261802908aeb9b8",
-  "why": "Read the diff since 733366a8: the precompiled package is the user-visible part (its own program, the ROM beside or inside it, CPU > Precompiled, the F1 line's Pn/m, four toasts) and has a section, a file row and two Good-to-know lines. fill_ff/w16_ff, the kern_mega arm's tiers and the image load order are below the page's detail"
+  "stamped": "5734441e",
+  "strings": "6477c968484e9734",
+  "why": "Shift+F2 Steady pacing added to Making a game faster and the Screen table; the copy and fill marking, renderer and draw-pacing changes are below the page's detail"
  },
  "REDLINE_O88": {
   "sources": [
@@ -1178,9 +1178,9 @@
    "tools/os88venc.py",
    "tools/os88vencgui.py"
   ],
-  "stamped": "1ef08ce1",
-  "strings": "50468df0c72055bf",
-  "why": "checked: Flip offered on the NARROW screens and --page-ahead auto building a flipped file at three pages or more (elendilon's 9d6da57b..74566cf5) - the page lists 'tearing and second pages' as one Trade-offs row and names no per-screen availability or page-ahead mode; below its level"
+  "stamped": "64818263",
+  "strings": "2ca9c0e5cadcc280",
+  "why": "checked: --flip-build (a flipped file's scene built ahead), --colour-mix/--colour-clip/--edge-solid for cga4 and c160, Flip build offered in the window and the preview at a held frame (elendilon's a96b7a7b..f7c40759) - the page names the Colour tab's palette choices and 'tearing and second pages' as one row each and lists no per-format colour or flip options; below its level"
  },
  "TRACKER_O88": {
   "sources": [

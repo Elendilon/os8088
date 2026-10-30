@@ -864,6 +864,48 @@ def main():
         if stray[1] * 10 > stray[0] or stray[1] > 0.01 * f.size / 3:
             bad.append("%s: --clip 16 still leaves %d stray dots"
                        % (name, stray[1]))
+    # --- 5b.1: ...and what CGA's colours may MIX (SPEC.md 98.2.6.1). On
+    # palette 50h light cyan and light red average to a grey, so a grey
+    # field under --colour-mix all is cyan and red dots and under hue is
+    # black and white alone; and an anti-aliased letter (teal into white,
+    # a three-pixel blend) keeps black dots on its edge until --edge-solid
+    # makes the edge solid. Each "before" must show its fault, or the leg
+    # tests nothing
+    pal50 = b"".join(vid.STD16[3 * c:3 * c + 3]
+                     for c in vid.cga4_colours(0x50))
+    chrom = lambda i: int(((i == 1) | (i == 2)).sum())
+    grey = np.clip(np.full((120, 160, 3), 128.0) + rnd.normal(
+        0, 3, (120, 160, 3)), 0, 255).astype(np.uint8)
+    mixed = [chrom(venc.KnollDitherer(160, 120, pal50, 0, 16.0, mix=m)
+                   (grey)) for m in ("all", "hue")]
+    print("   cga4 50h grey: %d colour dots mixing all, %d by hue"
+          % tuple(mixed))
+    if mixed[0] < 200:
+        bad.append("cga4 grey: --colour-mix all put %d colour dots down - "
+                   "the leg tests nothing" % mixed[0])
+    if mixed[1]:
+        bad.append("cga4 grey: --colour-mix hue still put %d colour dots "
+                   "in a grey" % mixed[1])
+    letter = np.full((120, 160, 3), 255, np.uint8)
+    for k in range(4):                  # (a band at each of the pattern's
+        r = slice(30 * k, 30 * k + 30)  # four column phases)
+        letter[r, :80 + k] = (50, 190, 200)
+        letter[r, 80 + k] = (120, 160, 170)     # (the blend's light end is
+        letter[r, 81 + k] = (185, 215, 220)     # grey enough to mix black
+        letter[r, 82 + k] = (225, 240, 245)     # and white)
+    blacks = []
+    for e in (0.0, 48.0):
+        i = venc.KnollDitherer(160, 120, pal50, 0, 16.0, mix="hue",
+                               cclip=255.0, edge=e)(letter)
+        blacks.append(int((i[:, 78:88] == 0).sum()))
+    print("   cga4 50h letter edge: %d black dots, %d with --edge-solid 48"
+          % tuple(blacks))
+    if blacks[0] < 20:
+        bad.append("cga4 edge: %d black dots with no --edge-solid - the "
+                   "leg tests nothing" % blacks[0])
+    if blacks[1]:
+        bad.append("cga4 edge: --edge-solid 48 left %d black dots on a "
+                   "letter's edge" % blacks[1])
     # --- 5c: ...and a colour held by the PATTERN'S stability (SPEC.md
     # 98.2.5) is one the pixel's new plan still mixes. A dim red field
     # puts red in a few cells of each tile; when it sinks to near-black by
@@ -1845,6 +1887,31 @@ def main():
                        % ("byte 37 = 5" if getattr(ro, "fpage", False) else
                           "NOT byte 37 = 5", nb, ro.frames, reso["cuts"],
                           resf["cuts"]))
+        # ...and AUTO DECLINING keeps --flip-own (2026-10-28, the owner's
+        # Ikaruga): a calm clip cuts nothing, so auto ships its plan pass -
+        # which must be against its own page as asked, and not the plain
+        # flipped file it was while the plan pass read page-ahead as on
+        calm = os.path.join(ptmp, "calm.mkv")
+        subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i",
+                        "testsrc2=size=320x180:rate=24,trim=duration=1.5",
+                        "-c:v", "ffv1", calm], check=True)
+        for scr_ in (["--preset", "modex"],
+                     ["--preset", "vga4-full", "--screen", "320x240n"]):
+            out = os.path.join(ptmp, "autoown.V88")
+            venc.encode(venc.parser().parse_args(
+                [calm, out, "--quiet", "--profile", "486-dx2-66", "--audio",
+                 "none", "--fit", "fill", "--flip", "--flip-own",
+                 "--page-ahead", "auto"] + scr_))
+            vid.verify_v88(out)
+            ra = vid.Reader(out)
+            print("   5k: --flip-own, auto %s: %s" % (
+                " ".join(scr_[1:]), "built ahead" if getattr(ra, "fpage",
+                                                            False) else
+                "against its own page" if getattr(ra, "own", False) else
+                "PLAIN FLIPPED"))
+            if not (getattr(ra, "fpage", False) or getattr(ra, "own", False)):
+                bad.append("--flip-own with --page-ahead auto on %s shipped "
+                           "a plain flipped file" % " ".join(scr_[1:]))
     except vid.V88Error as e:
         bad.append("flipped and built ahead: %s" % e)
     shutil.rmtree(ptmp, ignore_errors=True)

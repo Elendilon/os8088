@@ -122,7 +122,9 @@ def wiggle(stop):
 
 def main():
     keep = "--keep" in sys.argv
-    ob.BOCHSRC = ob.BOCHSRC.replace("type=ps2", "type=imps2")
+    ob.MOUSE = "imps2"   # an IntelliMouse. BOCHSRC is a template now
+    # (`type={mouse}`), so the replace that stood here matched nothing
+    # and every Box booted a plain PS/2 mouse: no wheel, mou_p2wz 0
     shutil.rmtree(OUT, ignore_errors=True)
     os.makedirs(OUT)
     com = os.path.join(OUT, "KBTRIP.COM")
@@ -152,12 +154,12 @@ def main():
             if i == 1:
                 box.goto(165, 123)      # the Disk window's one row
                 th.start()
-                ob.xd("click", "--repeat", 2, "--delay", 120, 1)
+                box.dblclick()
             else:
                 ob.xd("key", "--delay", 30, *(["BackSpace"] * 4))
                 ob.xd("type", "--delay", 120, TYPED)
                 th.start()
-                time.sleep(0.4)
+                box.guest_sleep(0.4)
                 ob.xd("key", "Return")
             ready = tr.wait(["KBTRIP ready"], before[:1], 90 if i == 1 else 45)
             if not ready and tr.counts("kern_mega: parked")[0] == parked:
@@ -169,11 +171,11 @@ def main():
                 retyped.append(i)
                 if i == 1:
                     ob.goto(165, 123)
-                    ob.xd("click", "--repeat", 2, "--delay", 120, 1)
+                    box.dblclick()
                 else:
                     ob.xd("key", "--delay", 60, *(["BackSpace"] * 8))
                     ob.xd("type", "--delay", 120, TYPED)
-                    time.sleep(0.4)
+                    box.guest_sleep(0.4)
                     ob.xd("key", "Return")
                 ready = tr.wait(["KBTRIP ready"], before[:1], 90)
             stop[0] = True
@@ -183,7 +185,7 @@ def main():
                              "keyboard did not reach the DOS window" % i)
                 ob.shot(os.path.join(OUT, "dead%02d.png" % i))
                 break
-            time.sleep(1.5)
+            box.guest_sleep(1.5)        # GUEST seconds (Box.guest_sleep)
             ob.xd("key", "k")
             got = tr.wait(["KBTRIP key", "KBTRIP nokey"], before[1:3], 45)
             lines = [l for l in tr.text().splitlines()

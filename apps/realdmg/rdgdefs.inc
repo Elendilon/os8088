@@ -110,7 +110,34 @@ S_RXVEC         equ 0x488B          ; dword: rdg_rx, the core's way to a bank
 S_RXRET         equ 0x488F          ; word: ...S_RET while it is fetched,
 S_RXGO          equ 0x4891          ; word: where the reader starts again
 S_RXDX          equ 0x4893          ; word: and its DX (rdg_ret clears DL)
-RDG_FREE         equ 0x4895          ; the rest of the window is unassigned,
+; a PRECOMPILED cartridge's misses TRANSLATED (REALDMG-SPEC 20.16): a PC
+; the host did not precompile is counted as the interpreter takes it, and at
+; HY_HOT entries the translator makes it a block in a RUNTIME tier, named in
+; a table of its own - never the host's, which is fixed
+S_HYON          equ 0x4895          ; byte: 0 off, 1 translating, 2 the
+                                    ;   runtime tiers full - looked up only
+S_HYSEG         equ 0x4896          ; word: the runtime table and the count
+S_HYN           equ 0x4898          ; word: blocks in the runtime table
+S_HYMISS        equ 0x489A          ; word: misses counted (stat, wraps)
+HY_TAB          equ 0x0000          ; 4,096 x 8: PC, key, -, offset, code
+HY_TABN         equ 4096            ;   selector - open addressing, no entry
+HY_TABMAX       equ 3072            ;   is ever taken out; full at 3/4
+HY_CNT          equ 0x8000          ; 2,048 x 4: PC, key, count, direct-
+HY_CNTN         equ 2048            ;   mapped (a clash only delays one)
+HY_SEGB         equ 0xA000          ; the segment's bytes
+HY_HOT          equ 16              ; entries before a miss is translated
+S_HYLNK         equ 0x489C          ; byte: rdg_aotmiss came from tr_link's
+                                    ;   miss - a block found is CHAINED
+S_HYLVEC        equ 0x489D          ; dword: rdg_aotlink, tr_lno's way there
+S_HYLP          equ 0x48A1          ; dword: tr_lpatch in the site's tier
+; the LIST in parts of its own (REALDMG-SPEC 20.17): S_AOTLSEG/S_AOTLN are
+; the first, and the directory names each - the search chooses its part by
+; the first entry, then searches inside it as one list
+S_AOTLX         equ 0x48A5          ; byte: the list's parts (0 or 1: one)
+S_AOTCN         equ 0x48A6          ; word: the searched part's entries
+S_AOTLXT        equ 0x48C0          ; RDG_LXMAX x 8: segment, its first
+RDG_LXMAX       equ 4               ;   entry's PC and key, -, its entries
+RDG_FREE         equ 0x48E0          ; the rest of the window is unassigned,
                                     ; but for rdgppu.inc's 4900-66FF and:
 ; CODE SELECTORS (REALDMG-SPEC 16.2.4): a segment the core or the recompiler
 ; JUMPS to is named by the selector a far jump may load - the segment itself

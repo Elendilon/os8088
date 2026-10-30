@@ -123,9 +123,15 @@ def dbl_at_handover(m, mo, wx, wy, name, before_wins):
     SPEC.md 42.14 for a race in its own harness. The callback runs before the
     resume, so a read there IS the stop it belongs to, however slow the host.
 
-    The arm goes BETWEEN the two presses (assocopen.py's `bp_open`, for its
-    reasons): the first press legitimately draws, and the final release is
-    sent unproven because the guest may by then be standing at a stop.
+    The whole gesture is os88mouse.dblclick's, inside the trace, on both
+    emulators (assocopen.py's `bp_open`, for its reasons): stepped on
+    MartyPC and queued on Bochs, on a STOPPED guest with the pump held, and
+    any stop it meets recorded for the trace - `on_hit` included. The first
+    press inside the trace is harmless for its targets: a press on a row
+    moves the selection band (fm_lsel_bar / fm_sel_bar) and never reaches
+    assoc_handover or toast_now. The hand-made MartyPC gesture it replaces
+    was spaced by host round trips, 7-8 guest ticks of a 9-tick window on
+    this box, and lost the double-click about one run in two.
 
     Returns {"handover": (new_windows, rect, frame) or None,
              "toast": bytes or None}.
@@ -135,13 +141,6 @@ def dbl_at_handover(m, mo, wx, wy, name, before_wins):
     x, y = dispcp.row_xy(wx, wy, row)
     mo.to(x, y)
     os88marty.ui_done(m)
-
-    if mo.where()[2] & 1:
-        mo._edge(False)
-    mo._edge(True)
-    t1 = mo.ticks()
-    if not getattr(m, "bochs", False):
-        mo._edge(False)         # (Bochs: in the chain below)
 
     seen = {"handover": None, "toast": None}
 
@@ -160,27 +159,12 @@ def dbl_at_handover(m, mo, wx, wy, name, before_wins):
                                         # rest of the load run at full speed
 
     with os88marty.bp_trace(m, HANDOVER, "toast_now", on_hit=on_hit) as tr:
-        if getattr(m, "bochs", False):
-            # kern_mega under Bochs: assocopen.py's reason - the release and
-            # the second press as ONE X chain, the press proven after it
-            m._xd("mouseup", 1, "sleep", "0.03", "mousedown", 1)
-            os88marty.until(m, lambda _: mo.where()[2] & 1,
-                            "the second press to be decoded", guest=5.0)
-        else:
-            mo._edge(True)              # ...the double-click
-        t2 = mo.ticks()
-        m.mouse(0, 0, l=False)
+        mo.dblclick(x, y, settle=0)   # (raises on a span >= DBL_TICKS)
         if tr.until(lambda: seen["handover"] is not None, "assoc_handover",
                     limit=30.0, required=False):
             tr.until(lambda: seen["toast"] is not None,
                      "a toast after the handover", limit=60.0, required=False)
 
-    span = (t2 - t1) & 0xFFFFFFFF
-    if span >= os88mouse.DBL_TICKS:
-        sys.exit("assocwake: the two presses were %d ticks apart and the "
-                 "window is %d - the guest saw two FIRST clicks, so nothing "
-                 "below is about a double-click at all"
-                 % (span, os88mouse.DBL_TICKS))
     return seen
 
 

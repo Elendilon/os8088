@@ -1,6 +1,6 @@
 {
  "DRV_VER": {
-  "fingerprint": "7c68e68c0a18f9a67e717c095448697a2898ee997f2e2f841fdf83f34cd1fa8f",
+  "fingerprint": "314fbbea973b777acbec4b427aa9d984a9de23ac420a0d6948320c7fe0c280ee",
   "version": 11
  },
  "PKG_FMT": {
@@ -1246,6 +1246,13 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "OSAPI_XMEM_CAPS contract clarified, no bump: a kernel cache in the kern_mega pool counts as free in AX and BL (a claim sheds it, KERN-MEGA-PLAN 14.122); every package built before still runs and plans better",
+   "to": 11
+  },
+  {
+   "fingerprint": "314fbbea973b777acbec4b427aa9d984a9de23ac420a0d6948320c7fe0c280ee",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "os88drv.inc: FSCAP_SEL = 4, a DRVC_FILE driver's DSV_CAPS bit saying its transfer verbs take a selector as it is (SPEC.md 62.9.2.4); a constant added, nothing built before changes meaning",
    "to": 11
   }
  ]

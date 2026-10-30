@@ -40,6 +40,7 @@ K-1 into the mirror, computed on the host, and the row FAILS if the clip has
 none. Broken on purpose - vp_fill's mirror copy skipped - those holds FAIL.
 """
 import argparse
+import contextlib
 import os
 import random
 import struct
@@ -342,16 +343,44 @@ def main():
             # --- 2: on time, the ring big enough for the whole clip
             ww("vp_kmax", a.ring)
             m.write(base + syms["vp_played"], b"\0")
-            m.type_text("p")
-            os88marty.until(m, lambda mm: rb("vp_ready") == 1,
-                            "the second play to start", poll=0.1,
-                            limit=300.0, guest=60.0)
-            c0 = int(m.status().get("cycles", 0))
-            toast2 = rb("vo_toast")
-            os88marty.until(m, lambda mm: rb("vp_ready") == 0,
-                            "the second play to end", poll=0.1, limit=300.0,
-                            guest=60.0)
-            c1 = int(m.status().get("cycles", 0))
+            # THE PLAY'S EDGES ARE TAKEN AT THE INSTRUCTION, not at a poll.
+            # c0 and c1 were the cycle counter read when a 0.1 host-second
+            # poll NOTICED [vp_ready] move, so each carried that poll's
+            # latency in guest cycles - 0.2 s alone and 0.4 s at a load of
+            # 6 on four cores, where the same play's own 93 ticks are 5.11 s
+            # (the soak read 5.52 against a 5.50 bound). A watch on the byte
+            # stops the guest at every access to it, and the stop's cycle
+            # count is the guest's own: the value read there is the store's
+            # (kern_mega's Bochs synthesises `cycles`, below, so its run
+            # keeps the polled pair and asserts nothing on them)
+            ready = (base + syms["vp_ready"]) & 0xFFFFF
+            with (contextlib.nullcontext() if mega else os88marty.bp_trace(
+                    m, {"type": "mem", "addr": ready},
+                    on_hit=lambda mm, rec: mm.read(ready, 1)[0])) as tr:
+                m.type_text("p")
+                os88marty.until(m, lambda mm: rb("vp_ready") == 1,
+                                "the second play to start", poll=0.1,
+                                limit=300.0, guest=60.0)
+                p0 = int(m.status().get("cycles", 0))
+                toast2 = rb("vo_toast")
+                os88marty.until(m, lambda mm: rb("vp_ready") == 0,
+                                "the second play to end", poll=0.1,
+                                limit=300.0, guest=60.0)
+                p1 = int(m.status().get("cycles", 0))
+                hits = list(tr.hits) if tr is not None else [
+                    {"hit": 1, "cycles": p0}, {"hit": 0, "cycles": p1}]
+            c0 = c1 = None
+            for h in hits:
+                if c0 is None and h.get("hit") == 1:
+                    c0 = h["cycles"]
+                elif c0 is not None and h.get("hit") == 0:
+                    c1 = h["cycles"]
+                    break
+            if c0 is None or c1 is None:
+                sys.exit("vidplay: the watch on vp_ready saw no play "
+                         "(%d stops)" % len(hits))
+            print("   (the watch on vp_ready stopped the guest %d times)"
+                  % len(hits))
             os88marty.until(m, lambda mm: rb("vp_played") == 1,
                             "the bracket to return", poll=0.05, limit=120.0,
                             guest=30.0)

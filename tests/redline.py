@@ -786,7 +786,10 @@ def chipset(machine):
                     'an 8088 greys the Target drop-down', limit=20)
         stat = p.data('cs_stat', 19).decode('ascii')
         assert stat.startswith('Stock: BIOS timing'), stat
-        # the drop-down: open it, pick C&T NEAT (row 7)
+        # the drop-down: open it, pick C&T NEAT (row 7) - once cs_geom has
+        # PLACED it (see pick() in tune for why)
+        M.until(ui.m, lambda _: any(p.data('cs_drop', 8)),
+                'the drop-down placed', limit=20)
         dx1, dy1, dx2, dy2 = struct.unpack('<4H', p.data('cs_drop', 8))
         ui.m.run()
         ui.mo.click((dx1 + dx2) // 2, (dy1 + dy2) // 2, settle=0)
@@ -880,6 +883,13 @@ def tune(machine):
             ui.mo.click((x1 + x2) // 2, (y1 + y2) // 2, settle=0)
 
         def pick(rec, item):
+            # ONCE THE CONTROL IS PLACED: its rect is cs_geom's, filled by a
+            # paint after the tab's identify-and-measure, so reading it the
+            # moment cs_measd is set could find it all zeros - and the click
+            # went to (0, 0), the drop-down never opened (mega-redlinechipvga-
+            # tune at four Bochs rows to a box; the click logged as TO (0,0))
+            M.until(ui.m, lambda _: any(p.data(rec, 8)), '%s placed' % rec,
+                    limit=20)
             x1, y1, x2, y2 = struct.unpack('<4H', p.data(rec, 8))
             ui.m.run()
             ui.mo.click((x1 + x2) // 2, (y1 + y2) // 2, settle=0)

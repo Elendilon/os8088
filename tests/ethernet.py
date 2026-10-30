@@ -590,7 +590,7 @@ class Server(threading.Thread):
                 elif self.chunk_size > 0 and self.chunk_delay > 0:
                     for pos in range(0, len(response), self.chunk_size):
                         c.sendall(response[pos:pos + self.chunk_size])
-                        time.sleep(self.chunk_delay)    # (the server's: above)
+                        time.sleep(self.chunk_delay)    # host: the server's pacing
                 else:
                     c.sendall(response)
             except OSError:
@@ -1011,6 +1011,14 @@ def main():
         wins = dispcp.win_list(m, S)
         wx, wy = dispcp.win_rect(m, S, wins[-1])[:2]
         dispcp.open_named(m, Mouse(), S, settle, wx, wy, "BROWSER.O88")
+        # ...ON THE WINDOW, not on the settle: the settle ends when the UI
+        # task idles, and the Browser's load can still be on its way then -
+        # a race of the guest's CPU that kern_mega under Bochs at 4M
+        # instructions a guest second lost every time (docs/BOCHS.md)
+        c = os88qemu.Clock(m)
+        while (len(dispcp.win_list(m, S)) <= len(wins) and c.secs() < 30.0
+               and not c.stalled()):
+            time.sleep(0.1)
         wins2 = dispcp.win_list(m, S)
         if len(wins2) <= len(wins):
             m.quit()

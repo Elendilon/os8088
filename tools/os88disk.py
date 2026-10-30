@@ -283,9 +283,9 @@ def validate_o88(path: str) -> bytes:
     # tail is the package's own (SPEC.md 20.12) - so image <= file is the
     # whole rule, the 16-bit ceiling belongs to the IMAGE and not to the file,
     # and the mount types such a file up to PKG_FILE_HI (SPEC.md 19.1).
-    if parts and len(data) >= (1 << 20):
-        fail(f"{path}: {len(data)} bytes; PKG_FILE_HI caps a package file at "
-             "1MB (SPEC.md 19.1)")
+    if parts and len(data) >= (512 << 16):
+        fail(f"{path}: {len(data)} bytes; PKG_FILE_HI caps a package file "
+             "under 32MB (SPEC.md 19.1)")
     hname = data[16:32].split(b"\0", 1)[0]
     if not hname:
         fail(f"{path}: empty name field in header")
@@ -420,7 +420,7 @@ ASC_ROWCLUS = 10             # the folder the program lives in (0 = root),
                              # patched in after cluster assignment (SPEC.md
                              # 54.7.1) - it costs the file nothing, the row
                              # having reserved six bytes since it was written
-ASC_NAPP  = 55               # kernel/assoc.inc: what fits ASC_KB = 5
+ASC_NAPP  = 90               # kernel/assoc.inc: what fits ASC_KB = 8
 ASC_NEXT  = 64
 
 # The kernel's own built-in association stems (kernel/assoc.inc assoc_stem).

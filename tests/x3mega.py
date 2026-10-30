@@ -90,6 +90,17 @@ X3_PCMRES = 2560
 CAPS_CELL = 0x600 + 0x15A
 CAPS_NONE = bytes((0x31, 0xC0, 0xCB))          # xor ax, ax / retf
 ROW0_Y, ROW_X, ROW_H = 123, 170, 16            # a Disk window's rows
+# THE PLAY LEG'S CPU. Auto's ladder (x3eng.inc x3l_run) MEASURES each rung's
+# decode in audio seconds a guest second and plays live only on one that
+# keeps 1.25x - and Bochs's default guest, 4M instructions a guest second
+# (docs/BOCHS.md, *The clock*), is slower than the 386DX/25 that already
+# takes Decode First on a 128 kbps song (docs/xtmp3/FIELD.md), so there it
+# correctly offers the dialog (md 5) and this leg's subject - a LIVE play
+# out of an XMS hold - never happens. It passed under `sync=realtime` only
+# because that guest ran as fast as the host ran Bochs. 12M already plays
+# Quarter live and 25M Half; the measure is guest time either way, so a
+# loaded host makes the leg slower and not different
+PLAY_IPS = 25000000
 
 FAILS = []
 
@@ -138,7 +149,7 @@ class X3(object):
                     err=struct.unpack_from("<H", b, 22)[0], md=md[0])
 
 
-def boot(leg, out, mp3):
+def boot(leg, out, mp3, ips=None):
     d = os.path.join(out, leg)
     os.makedirs(d)
     disk = os.path.join(d, "bsrc.img")
@@ -147,7 +158,7 @@ def boot(leg, out, mp3):
                     "--folder", "SYSTEM/APPDATA"], check=True,
                    stdout=subprocess.DEVNULL)
     box = os88bochs.Box(d, [], sb=True, cfg=1, bimg=disk, btype="1_44",
-                        megs=16, display=DISPLAY)
+                        megs=16, display=DISPLAY, ips=ips)
     box.up()
     box.capture()
     box.dbl(591, 105, "B:'s Disk window")
@@ -178,7 +189,7 @@ def common(leg, box, x):
 
 def leg_play(out):
     leg = "play"
-    box, d = boot(leg, out, PLAYMP3)
+    box, d = boot(leg, out, PLAYMP3, ips=PLAY_IPS)
     try:
         open_mp3(box)
         x = X3(box)
@@ -195,14 +206,18 @@ def leg_play(out):
                     % (leg, s["md"])):
             return
         g0, f0 = x.w("x3_grans"), x.w("x3_frames")
-        time.sleep(3)
+        # ...decoding ON: granules and frames counting up, read off the
+        # guest (a host sleep is a fraction of a guest second on a loaded box)
+        box.until(lambda: bad_lines(box) or
+                  (x.w("x3_grans") > g0 + 10 and x.w("x3_frames") > f0 + 5),
+                  "granules and frames counting", 120, 0.5)
         s = x.st()
         g1, f1 = x.w("x3_grans"), x.w("x3_frames")
         want(x.b("x3_sopen") == 1 and s["md"] in (MD_LIVE, MD_STEP),
              "%s: the card's stream open, still live (md %d)"
              % (leg, s["md"]))
-        want(g1 > g0 and f1 > f0, "%s: granules %d -> %d, frames %d -> %d "
-             "in 3 s" % (leg, g0, g1, f0, f1))
+        want(g1 > g0 and f1 > f0, "%s: granules %d -> %d, frames %d -> %d"
+             % (leg, g0, g1, f0, f1))
         want(x.w("x3h_ncopy") > 0, "%s: gulps copied out of the hold: %d, "
              "disk reads %d" % (leg, x.w("x3h_ncopy"), x.w("x3_nrseq")))
         box.shot(os.path.join(d, "play.png"))
@@ -294,14 +309,14 @@ def leg_conv(out):
             box.until(lambda: x.st()["md"] == MD_IDLE, "the stop", 60, 0.5)
         for _ in range(Q_XTSTD):
             box.key("q")
-            time.sleep(0.4)
+            box.guest_sleep(0.4)
         want(x.rd(("x3_st", 3))[0][2] == Q_XTSTD,
              "%s: the override is XT STANDARD" % leg)
         box.key("d")
         box.until(lambda: x.st()["md"] == MD_CHOOSE, "the drive dialog",
                   120, 0.5)
         box.key("Return")                       # C:, the only hard drive
-        time.sleep(3)
+        box.guest_sleep(3)                      # GUEST seconds
         box.key("Return")                       # the Save dialog, on C:
         box.until(lambda: bad_lines(box) or x.st()["md"] == MD_CONV,
                   "the conversion", 120, 0.3)

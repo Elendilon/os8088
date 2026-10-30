@@ -122,7 +122,7 @@ def menu_hibernate(box):
         box.xd("mousemove_relative", "--", 0, 30)
         time.sleep(0.04)
     box.xd("mousemove_relative", "--", 0, 16)
-    time.sleep(0.5)
+    box.guest_sleep(0.5)    # the hold, in GUEST time
     box.xd("mouseup", 1)
     box.ui_done("the Hibernate dialog")     # (was 10 s slept)
     box.goto(225, 225)              # Hibernate
@@ -138,7 +138,9 @@ def off(box):
 
 def main():
     keep = "--keep" in sys.argv
-    ob.BOCHSRC = ob.BOCHSRC.replace("type=ps2", "type=imps2")
+    ob.MOUSE = "imps2"   # an IntelliMouse. BOCHSRC is a template now
+    # (`type={mouse}`), so the replace that stood here matched nothing
+    # and every Box booted a plain PS/2 mouse: no wheel, mou_p2wz 0
     shutil.rmtree(OUT, ignore_errors=True)
     os.makedirs(OUT)
     t0 = time.time()

@@ -101,11 +101,11 @@ def main():
         box.dbg(cmds, timeout=60)
         box.dbl(591, 105, "B:'s Disk window")
         box.goto(165, 123)
-        ob.xd("click", "--repeat", 2, "--delay", 120, 1)
+        box.dblclick()
         if not box.wait_for("KBTRIP ready", 120):
             fails.append("KBTRIP never started")
         else:
-            time.sleep(1.5)
+            box.guest_sleep(1.5)        # GUEST seconds (Box.guest_sleep)
             ob.xd("key", "k")
             if not box.wait_for("kern_mega: unparked", 120):
                 fails.append("the session never came back")

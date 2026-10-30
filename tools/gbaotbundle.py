@@ -29,7 +29,7 @@ import os88vbundle  # noqa: E402
 ROOTS = ("gbaotgui.py", "gbaot.py", "os88disk.py", "os88pkg.py")
 THIRD_PARTY = {"unicorn", "tkinterdnd2"}   # (tkinterdnd2 optional: drops off Windows)
 BINS = ("aothost.bin", "rdgcore.bin", "rdgtmpl.bin", "rdgcore.inc", "realdmgaot.bin",
-        "realdmgaotmega.bin")
+        "realdmgaotmega.bin", "rdgjitpaot.bin")
 FOLDER = "os8088-gbaot"
 
 README = """os8088 GAME BOY PRECOMPILER
@@ -59,12 +59,18 @@ USING IT
      Dropping is built in on Windows; elsewhere it wants
          python3 -m pip install tkinterdnd2
   2. Make the package (a minute or two; a 1 MB cartridge longer).
-  3. Put GAME.O88 and the cartridge, under the name the window shows, in one
-     folder of an os8088 disk - or tick a floppy and it makes one - and
-     double-click the package. It opens its own ROM, and refuses any other.
+  3. With "Put the ROM inside the package" ticked - the default - GAME.O88
+     is the whole game in one file: copy it to an os8088 disk - or tick a
+     floppy and it makes one - and double-click it. Unticked, put GAME.O88
+     and the cartridge, under the name the window shows, in one folder of
+     an os8088 disk and double-click the package: it opens its own ROM, and
+     refuses any other.
 
-  The ROM is never inside the package: it is yours and stays a file of its
-  own. A package is one cartridge's.
+  WITH THE BOX TICKED THE PACKAGE CONTAINS THE CARTRIDGE ROM. It is the
+  cartridge itself, and it must not be shared or posted. To give someone
+  only the precompiled code, untick the box: that package carries no ROM and
+  opens the one beside it, which they bring themselves. A package is one
+  cartridge's either way.
 
   COUNTERS: the window runs the translated game for a while with a scripted
   player and puts the code that ran most in the first of the package's
@@ -90,6 +96,7 @@ def main():
     import gbaot
     gbaot.aot_image(a.build)               # (every binary, current)
     gbaot.aot_image(a.build, mega=True)    # (and kern_mega's, REALDMG-SPEC 20.15)
+    gbaot.aot_jitpart(a.build)             # (...and its recompiler, 20.16)
     mods, other = os88vbundle.closure(ROOTS)
     stray = other - THIRD_PARTY
     if stray:

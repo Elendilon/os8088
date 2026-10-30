@@ -300,9 +300,17 @@ JUMP = 256              # a step bigger than this was SET, not counted
 # A FIXED MACHINE, for a row whose answer is the guest's SPEED against its own
 # clock (docs/plans/SOAK-PARALLEL.md 17.8). `-icount shift=N` makes every
 # guest instruction cost 2^N ns of VIRTUAL time, and QEMU's PIT, the BIOS
-# tick, the SB16's DMA and the wav audiodev all run on that virtual clock -
-# so a bench timed on the 8253 counts INSTRUCTIONS, and a host that starves
-# the emulator stretches the wall time and moves no answer. `align=off`
+# tick and the wav audiodev all run on that virtual clock - so a bench timed
+# on the 8253 counts INSTRUCTIONS, and a host that starves the emulator
+# stretches the wall time and moves no answer. **The SB16's DMA does NOT, on
+# a stock QEMU**: the 8237 moves its transfers from an idle bottom half on
+# the main loop, in HOST time, while the vCPU runs on without the BQL - so a
+# main loop starved 300 ms of host time (that thread alone) stopped the card,
+# 'The sound card stopped' on 8.2 and 9.2 alike, which is what a loaded soak
+# did to xtmp3rate. tools/qemu9/i8257-icount.patch puts the channels on a
+# virtual-clock timer under -icount; a row whose card is the clock needs
+# `qemuvt` (os88build.qemuvt()). The disk is the residual: IDE's aio
+# completes on the main loop too, so a read's latency is still the host's. `align=off`
 # lets it run as fast as the host can rather than pacing virtual time to
 # real; `sleep=on` keeps an IDLE guest (hlt) on real time, which is what a
 # disk transfer or a throttled drive waiting on the host needs - with

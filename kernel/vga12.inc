@@ -3020,7 +3020,16 @@ gfx_blitp_v:
     sub ax, [ss:vga_pr_n]       ; AX = a row's source advance past it
 .frow:
     mov cx, [ss:vga_pr_n]
-    rep movsb
+    rep movsb                   ; BYTES, and a word copy is REFUSED: on the
+                                ; 8088's 8-bit bus `rep movsw` is 33 clocks a
+                                ; word against 2 x 17 - one clock saved - and
+                                ; the even-byte test, the shift and the odd
+                                ; tail cost ~40 a ROW. Built and MEASURED on
+                                ; MartyPC's XT VGA: Gorillas' animation frame
+                                ; (2-byte rows) 71.7 ms words against 68.3
+                                ; bytes, over tests/gorillasmenu.py's 75 ms
+                                ; budget; it bought 50.9 -> 50.7 ms on 86Box's
+                                ; 286-mega, and a 2-byte row loses there too
     add si, ax
     add di, bp
     dec dx

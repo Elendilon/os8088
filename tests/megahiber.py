@@ -120,7 +120,7 @@ def main():
         box.dbl(591, 160, "C:'s Disk window")
         box.dbl(150, 123, "RUN's listing")
         box.goto(160, 155)              # MEGAHIB
-        box.xd("click", "--repeat", 2, "--delay", 120, 1)
+        box.dblclick()
         if not box.wait_for("MEGAHIB: held", 60):
             fails.append("MEGAHIB never held its block")
         box.ui_done("MEGAHIB's window")
@@ -139,7 +139,7 @@ def main():
             box.xd("mousemove_relative", "--", 0, 30)
             time.sleep(0.04)
         box.xd("mousemove_relative", "--", 0, 16)
-        time.sleep(0.5)
+        box.guest_sleep(0.5)    # the hold, in GUEST time
         box.xd("mouseup", 1)
         box.ui_done("the Hibernate dialog")
         box.goto(225, 225)              # Hibernate

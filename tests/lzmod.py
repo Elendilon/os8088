@@ -200,7 +200,8 @@ def main():
     fails = []
     plain = host_checks(fails)
     P = pkg_syms("apps/tracker/tracker.asm")
-    apps = os88build.at(IMG)
+    apps = mega_disk(os88build.at(PACKED)) if os.environ.get("OS88_MEGA") \
+        else os88build.at(IMG)
     if a.nohint:
         apps = strike(apps)
     try:
@@ -208,6 +209,29 @@ def main():
     finally:
         if a.nohint:
             os.remove(apps)
+
+
+def mega_disk(packed):
+    """Under OS88_MEGA, IMG's two files with kern_mega's Tracker ARM
+    (build/megak/apps/tracker.o88) in place of the shipped one - trackmove's
+    disk() for this row. The shipped build refuses its speaker tier in
+    protected mode (KERN-MEGA-PLAN 14.66), and pkg_syms answers the ARM's
+    offsets there, so with the shipped Tracker on the disk every read of its
+    bss was at the wrong offset: [trk_modseg] read 50EB and the module claim
+    as all zeros while the window showed the module loaded. A private copy,
+    removed at exit"""
+    import atexit
+    import shutil
+    import subprocess
+    import tempfile
+    d = tempfile.mkdtemp(prefix="lzmega-")
+    atexit.register(shutil.rmtree, d, True)
+    out = os.path.join(d, os.path.basename(IMG))
+    subprocess.run([sys.executable, "tools/os88disk.py", "-o", out, "--size",
+                    "360", os88build.at("build/megak/apps/tracker.o88"),
+                    packed], check=True, stdout=subprocess.DEVNULL,
+                   cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return out
 
 
 def strike(src):

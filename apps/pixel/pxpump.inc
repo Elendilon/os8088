@@ -218,11 +218,22 @@ px_pumpfill:
     cmp word [px_rdone], 0          ; only when the worker has run DRY (its
                                     ; next slot empty), not ahead of it -
     jne .wait                       ; unless rows are decoded and NONE is
-    cmp word [px_srcdone], 0        ; showable yet (an interlaced picture's
-    je .wait                        ; early passes, SPEC.md 106.18): then no
-    test byte [px_k + PXK_FLAGS], PXKF_DCT  ; paint is coming to wait for...
-    jz .painted                     ; - but a JPEG's rows come a BAND at a
-                                    ; time, completed by px_kfix: rows out
+    cmp word [px_srcdone], 1        ; showable yet (an interlaced picture's
+    jbe .wait                       ; early passes, SPEC.md 106.18): then no
+    cmp byte [px_rcnt], 0           ; paint is coming to wait for... - but
+    jne .wait                       ; THE ROW IN FLIGHT is not that: px_emit
+                                    ; counts a source row as it STARTS and a
+                                    ; master row when it ends, and below 1/1
+                                    ; a master row is a block of 2^s source
+                                    ; rows ([px_rcnt] summed so far). A wake
+                                    ; posted as the worker began its first
+                                    ; row read 2 x 16 KB in front of it:
+                                    ; BIG.BMP's first rows 4.57 s on the VGA
+                                    ; XT against 3.40, by the tick's phase
+                                    ; (SPEC.md 106.9)
+    test byte [px_k + PXK_FLAGS], PXKF_DCT  ; ...and a JPEG's rows come a
+    jz .painted                     ; BAND at a time, completed by px_kfix:
+                                    ; rows out
                                     ; and none complete is a band under way,
                                     ; and its paint IS coming. A wake that
                                     ; landed there read 16 KB in front of
@@ -236,6 +247,9 @@ px_pumpfill:
     je .dry
     pop ax
     ret                             ; (it wakes us when it has: px_rnext)
+    nop                             ; PARITY PAD, never executed: the 7
+                                    ; bytes above keep the routines below
+                                    ; on their measured even shift
 .dry:
     cmp byte [px_tabok], 0          ; ...and the first wake that finds rows
     je .painted                     ; ready and none painted fills nothing

@@ -212,6 +212,15 @@ def pace(m, secs):
         time.sleep(secs)
         return 0.0
     want = secs * GUEST_PACE
+    # ...EXACTLY, where the machine can stop itself after that much of its
+    # own time (os88megabochs: Bochs's time breakpoint). Polled, a pause
+    # ends when a reading says it has: free here, but a stop on Bochs, so
+    # its readings are 50-500 host ms apart and the guest ran the gap
+    exact = getattr(m, "pace_exact", None)
+    if exact is not None:
+        got = exact(want)
+        if got is not None:
+            return got
     st = m.status()
     c0 = int(st.get("cycles", 0))
     t0 = time.time()
@@ -781,6 +790,24 @@ class Marty:
         """
         import os88sym
         addr = os88sym.linear(name, defines)
+        if os88sym.segment_of(name, defines) == \
+                os88sym.equates(defines).get("COLD_SEG"):
+            addr -= self.cold_slide(defines)
+        return addr
+
+    def cold_slide(self, defines=()):
+        """How many BYTES below its map address `.cold` runs on this machine
+        right now: VGA_PARA * 16 once kmain_o has slid it, else 0.
+
+        **Ask it AFTER the boot**, never at launch: before cfx_slide runs,
+        [api_coldseg] still reads COLD_HOME on every machine, so a `.cold`
+        address resolved then is the UNSLID one even where the slide is about
+        to happen (tests/stikhiber.py arms both for exactly that reason). A
+        tool that maps sampled CS:IPs back to names subtracts this from every
+        `.cold` row of its table, or it names the routine 0x7F0 bytes away
+        (tools/os88vidprof.py, tools/os88rate.py).
+        """
+        import os88sym
         # **`.cold` MAY HAVE SLID** (docs/plans/MOVABLE-COLD-PLAN.md 2): on a
         # machine with neither a VGA nor an EGA, kmain_o moves it down by
         # VGA_PARA at boot, and from then on a `.cold` label at COLD_SEG is
@@ -789,12 +816,11 @@ class Marty:
         # nothing else ever writes that value (a ROM or the HMA write their
         # own segments, which the rows that want them name themselves)
         eq = os88sym.equates(defines)
-        if "VGA_PARA" in eq and \
-                os88sym.segment_of(name, defines) == eq["COLD_SEG"]:
+        if "VGA_PARA" in eq:
             live = self.read(os88sym.linear("api_coldseg", defines), 2)
             if live[0] | live[1] << 8 == eq["COLD_HOME"] - eq["VGA_PARA"]:
-                addr -= eq["VGA_PARA"] * 16
-        return addr
+                return eq["VGA_PARA"] * 16
+        return 0
 
     def write(self, addr, data):
         return self.cmd(cmd="write", addr=addr, data=data.hex())["written"]
@@ -4976,6 +5002,20 @@ def launch(image, apps=None, machine="os8088_5150_cga", addr=None,
            "--machine-config-name", machine] + mounts + list(extra)
     env = dict(os.environ, MARTYPC_DEBUG_ADDR=want,
                MARTYPC_DEBUG_PORTFILE=portfile)
+    # A PICOMEM (`_pm1`/`_pm2`, tools/martypc/patches/17-picomem.patch): its
+    # firmware is libpmhost for that board, and its microSD a copy in this
+    # instance's directory, because the card writes its config back to it.
+    # $OS88_PMHOST and $OS88_PMSD, when the caller set them, win.
+    pm = re.search(r"_pm([12])(?:_|$)", machine or "")
+    if pm:
+        ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        b = "v" + pm.group(1)
+        env.setdefault("OS88_PMHOST", os.path.join(
+            ROOT, "build", "picomem", b, "libpmhost-%s.so" % b))
+        sd = os.environ.get("OS88_PMSD") or os.path.join(
+            ROOT, "build", "picomem", "sd.img")
+        env["OS88_PMSD"] = os.path.join(run_dir, "picomem-sd.img")
+        shutil.copyfile(sd, env["OS88_PMSD"])
     log = open(logpath, "wb")
     proc = subprocess.Popen(cmd, cwd=run_dir, env=env, stdout=log, stderr=log)
 

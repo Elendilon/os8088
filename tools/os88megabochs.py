@@ -27,11 +27,15 @@ WHAT IT MAPS, AND WHAT IT CANNOT
     serves). An adapter, a ROM or a clock card in
     the name is ignored - a row whose subject is one of those is not a row to
     port.
-  * the clock: Bochs runs `clock: sync=realtime`, so a guest second IS a host
-    second here. `status()["cycles"]` is the guest's RUNNING time at 4.77MHz,
-    so every guest budget in os88marty means the same number of seconds of
-    machine time it means on MartyPC. Nothing measured in cycles is a
-    measurement here.
+  * the clock: Bochs runs `clock: sync=slowdown` (os88bochs.SYNC), so its
+    time is its instruction count and the host only caps it at real time.
+    `status()["cycles"]` is that GUEST time at 4.77MHz, read off `ptime`
+    (_cycles), so every guest budget in os88marty means the same amount of
+    the machine's own time here as on MartyPC, on any box. Nothing measured
+    in cycles is a measurement of an 8088. A stop costs the guest nothing
+    (os88bochs.bxclock, the time() preload), and os88marty.pace and
+    `advance(cycles=)` end on Bochs's time breakpoint (_run_exact), so a
+    wait is the same amount of guest on a loaded box as on an idle one.
   * memory: `read`/`write` are LINEAR (paging is off). `readseg(seg, off)`
     takes a REAL segment or a SELECTOR - under kern_mega every package
     region and heap claim is an LDT selector, and the GDT is an identity
@@ -84,6 +88,9 @@ from os88megacommon import (MegaMixin, mega_images,  # noqa: E402,F401
                             hd_geometry, row_disk, _blank)
 
 GUEST_HZ = om.GUEST_HZ
+# $OS88_BOCHS_EXACT=0: waits end on the polled clock again, not on Bochs's
+# time breakpoint (MegaBochs._run_exact) - the A/B
+EXACT = os.environ.get("OS88_BOCHS_EXACT", "1") != "0"
 _WIDEN = bytes(v | v >> 6 for v in range(256))
 
 # W3C KeyboardEvent.code (MartyKey's names) -> X keysym
@@ -151,6 +158,11 @@ class MegaBochs(MegaMixin, om.Marty):
         self._stops = 0
         self._cyc = 0.0             # guest seconds run before _since
         self._since = time.time()   # running since (None while stopped)
+        self._gt = 0                # Bochs's `ptime` at the last reading,
+        self._gt0 = 0               # ...at cycle 0 (launch(boot=False)),
+        self._gt_at = 0.0           # ...taken at this host time, and
+        self._gt_dirty = True       # ...the guest has run since it
+        self._gt_cost = 0.0         # host seconds the last clock stop took
         self._bps = {}              # bochs bp number -> linear
         self._bpmark = os.path.getsize(box.e9)   # e9 offset of the last resume
         self._at = (0, 0, 0)        # cs, ip, flat ip of the last stop
@@ -173,10 +185,64 @@ class MegaBochs(MegaMixin, om.Marty):
                 shutil.copy(live, self._src[d])
 
     # ---- the clock --------------------------------------------------------
-    def _cycles(self):
-        run = self._cyc + ((time.time() - self._since)
-                           if self._since is not None else 0.0)
-        return int(run * GUEST_HZ)
+    # THE GUEST'S OWN CLOCK, NOT THE HOST'S (docs/BOCHS.md, *The clock*).
+    # Under `clock: sync=slowdown` (os88bochs.SYNC, the default) Bochs's time
+    # IS its instruction count - `ptime` over `cpu: ips=` is guest seconds to
+    # the instruction, HLT included - and the host only CAPS it at real time.
+    # So the clock here is read OFF the guest: a stop this module makes for a
+    # read carries a `ptime` with it for nothing (`_stopped`), and a status
+    # poll on a running guest whose last reading is older than GT_STALE host
+    # seconds takes one. Between readings it does NOT extrapolate: a reading
+    # can only lag the guest, never lead it, so no budget spent against it
+    # can run out while the guest made no progress - which is the failure
+    # the host-time clock had under load (a descheduled Bochs was charged
+    # every second it did not run). OS88_BOCHS_SYNC=realtime puts the old
+    # clock back for an A/B: host seconds the guest ran, nothing else.
+    GT_STALE = float(os.environ.get("OS88_BOCHS_GTSTALE", "0.05"))
+    GT_MAXAGE = 0.5
+
+    def _cycles(self, fresh=False, stale=None):
+        if ob.SYNC == "realtime":
+            run = self._cyc + ((time.time() - self._since)
+                               if self._since is not None else 0.0)
+            return int(run * GUEST_HZ)
+        if fresh and not self._closed and self._proc.poll() is None:
+            try:
+                if self._state == "running":
+                    # ...AND NO OFTENER THAN THE STOPS LEAVE IT RUNNING ~80%
+                    # of the time: a stop is ~20 ms idle and ten times that
+                    # on a loaded box, and a poll loop reading the clock
+                    # every GT_STALE then kept the guest at its prompt -
+                    # mega-trkcompact's pause ran at a tenth of real time
+                    age = time.time() - self._gt_at
+                    # - but at least every GT_MAXAGE, or os88marty's stall
+                    # arm (GUEST_STALL, 2 host s) reads a still clock as a
+                    # stopped machine
+                    if age > min(max(self.GT_STALE if stale is None
+                                     else stale, 4 * self._gt_cost),
+                                 self.GT_MAXAGE):
+                        t0 = time.time()
+                        self._stopped([])       # halts, reads ptime, resumes
+                        self._gt_cost = time.time() - t0
+                elif self._gt_dirty:
+                    self._gt_take(self._do(["ptime"]))
+            except om.MartyError:
+                pass                # a wedged machine: the last reading
+        return int(max(0, self._gt - self._gt0) * GUEST_HZ / ob.IPS_N)
+
+    def _clock(self):
+        """MegaMixin's guest seconds: the clock above"""
+        if ob.SYNC == "realtime":
+            return time.time()
+        return self._cycles(fresh=True) / GUEST_HZ
+
+    def _gt_take(self, text):
+        """A `ptime` answer in TEXT, if there is one, onto the clock."""
+        got = re.findall(r"ptime: (\d+)", text or "")
+        if got:
+            self._gt = int(got[-1])
+            self._gt_at = time.time()
+            self._gt_dirty = self._state == "running"
 
     # ---- the debugger channel -------------------------------------------
     def _e9(self, start):
@@ -217,10 +283,24 @@ class MegaBochs(MegaMixin, om.Marty):
         whichever prompt comes first, and a `Breakpoint` line says which."""
         if self._state != "running" or self._bp_hit():
             return
-        gap = self.box.inp.last + ob.INPUT_GAP - time.time()
-        if gap > 0:
-            time.sleep(gap)
-        end, kick = time.time() + 20, time.time() + 1.0
+        # NOT WHILE BOCHS HAS INPUT UNREAD: the stop releases the grab, and
+        # an event read after it is dropped (os88bochs._Input.taken). A
+        # breakpoint reached meanwhile is a stop already, and is this one
+        self.box.inp.taken(stopped=self._bp_hit)
+        if self._state != "running" or self._bp_hit():
+            return                      # (_bp_hit records the stop itself)
+        # A SIGINT CAN BE LOST, and the kick is what finds it: Bochs echoes
+        # the `c` as readline reads it, and bx_dbg_continue_command then
+        # CLEARS bx_guard.interrupt_requested before it runs (dbg_main.cc),
+        # so a signal landing between the two is erased. A stop made just
+        # after a resume - every exact pace (_run_exact) makes one - lands
+        # in that window on a busy box, and the kick at 1 s it had was a
+        # host second of RUNNING guest: a whole guest second spent in one
+        # look of mega-vidfskeysvga4, 1.032 s in the trace, so 7 looks where
+        # 20 fit. A SIGINT at the prompt is harmless (that same `c` clears
+        # it), so the kick comes every KICK host seconds
+        end, kick = time.time() + 20, time.time() + self.KICK
+        kicks = 1
         os.kill(self.box.p.pid, signal.SIGINT)
         nap = 0.002
         while True:
@@ -229,13 +309,20 @@ class MegaBochs(MegaMixin, om.Marty):
                 break
             if time.time() > kick:
                 os.kill(self.box.p.pid, signal.SIGINT)
-                kick = time.time() + 1.0
+                kicks += 1
+                kick = time.time() + self.KICK
             if time.time() > end:
                 raise om.MartyError("os88megabochs: no debugger prompt in 20s"
                                     " - Bochs on %s is gone or wedged"
                                     % self.box.display)
             time.sleep(nap)
             nap = min(nap * 2, 0.02)
+        if kicks > 1:
+            # ...and a kick that reached the PROMPT ends its read as an
+            # empty line, which prints a prompt more: let it land before
+            # anything counts prompts (_do measures from after it)
+            time.sleep(0.03)
+            t = self._e9(self._bpmark)
         self._stopped_now("breakpoint" if re.search(r"Breakpoint \d+,", t)
                           else "paused", t)
 
@@ -286,6 +373,7 @@ class MegaBochs(MegaMixin, om.Marty):
         self._bpmark = n
         self._state = "running"
         self._since = time.time()
+        self._gt_dirty = True
         q = self.__dict__.pop("_kq", None)
         for a in q or ():               # _c_key's keys typed while stopped,
             self._xd(*a)                # one GUI pass apart
@@ -298,7 +386,11 @@ class MegaBochs(MegaMixin, om.Marty):
                 self._halt()
                 if self._state == "paused":
                     try:
-                        return self._do(cmds, timeout)
+                        # ...and THE CLOCK RIDES ALONG: one `ptime` more in
+                        # the batch reads the guest's time for nothing
+                        t = self._do(list(cmds) + ["ptime"], timeout)
+                        self._gt_take(t)
+                        return t
                     finally:
                         self._resume()
                         # a stop made only for a read is not a stop a
@@ -415,7 +507,15 @@ class MegaBochs(MegaMixin, om.Marty):
 
     def _fbuf(self):
         """(w, h, rgb24) of the guest's display, out of the Bochs window."""
-        time.sleep(ob.GLASS)
+        # GLASS only for a RUNNING guest, whose next updates are what it
+        # waits for. A STOPPED one paints nothing until it resumes, so the
+        # sleep bought no pixel - and under sync=slowdown every host second
+        # stopped is paid back as a guest SPRINT on the resume (the clock
+        # catches up), so a row looking at a paused machine N times handed
+        # the guest N x GLASS of extra time: mega-vidfskeysvga4 saw a toast
+        # ~25 frames long 4 times, ~7 frames a look, and failed `looks < 8`
+        if self._state == "running":
+            time.sleep(ob.GLASS)
         raw = subprocess.run(["xwd", "-silent", "-id", self._window()],
                              env=self.box.env, capture_output=True,
                              check=True).stdout
@@ -463,7 +563,7 @@ class MegaBochs(MegaMixin, om.Marty):
     def _status(self):
         self._bp_hit()
         cs, ip, flat = self._at
-        return {"state": self._state, "cycles": self._cycles(),
+        return {"state": self._state, "cycles": self._cycles(fresh=True),
                 "stops": self._stops, "cs": cs, "ip": ip, "flat_ip": flat}
 
     def _c_ping(self, **_):
@@ -496,16 +596,136 @@ class MegaBochs(MegaMixin, om.Marty):
         self._stopped_now("paused", t)
         return self._status()
 
+    KICK = 0.05                # s: _halt's SIGINT again, until a prompt
+    TB_SENTINEL = 10 ** 15     # ticks: eight years of guest at 4M
+
+    def _run_exact(self, secs, count=False):
+        """Run the guest EXACTLY `secs` guest seconds and leave it STOPPED:
+        Bochs's own time breakpoint (`sb N`, N instructions on - a
+        pc_system timer, so it counts through HLT), armed on a stopped
+        guest, then `c` and the prompt it stops at. The guest seconds it
+        ran (1 instruction's worth at the least, so truthy); None
+        when it cannot be used, and the caller polls the clock instead:
+        under `realtime`, inside a bp_trace pump, or with a breakpoint of
+        the row's own armed - a time breakpoint cannot be deleted, so one
+        a row's breakpoint got ahead of would stop the guest later, at a
+        moment nobody asked for.
+
+        WHY: the clock otherwise reads the guest only every 50-500 host
+        ms (_cycles), and a guest capped at real time runs that whole lag
+        - so a short wait handed out what the HOST took to look, a tenth
+        of a guest second idle and half of one on a loaded box, where
+        mega-vidfskeysvga4's pace(0.01) per look fitted 4 looks into a
+        toast that fits 15. With the stop costing the guest nothing
+        (os88bochs.bxclock), a wait ended this way is the same on any
+        box."""
+        if not EXACT or ob.SYNC == "realtime" or self._pumping or \
+                self._bps or \
+                self._closed or self._proc.poll() is not None:
+            return None
+        n = int(round(secs * ob.IPS_N))
+        if n < 1:
+            return 1.0 / ob.IPS_N
+        with self._lock:
+            if self._bps:
+                return None
+            if self._state == "running":
+                self._halt()
+                if self._state != "paused":
+                    return None         # a breakpoint got there first
+                self._stops -= 1
+            # BOCHS 2.7'S TIME BREAKPOINT IS ONE-SHOT ONCE: the second `sb`
+            # takes dbg_main.cc's re-arm path, which activates the timer
+            # CONTINUOUS - it then fires every N for ever, stopping a guest
+            # this module thinks is running (mega-stikmenu ran 524s instead
+            # of ~100) - while pc_system.cc's handler re-arms ONE-SHOT for
+            # the next one queued. So the queue always holds a SENTINEL
+            # years away, armed first: every `sb` here is then the head,
+            # and its handler leaves the timer one-shot on the sentinel
+            if getattr(self, "_tb_pid", None) != self._proc.pid:
+                self._do(["sb %d" % self.TB_SENTINEL])
+                self._tb_pid = self._proc.pid
+            self._gt_take(self._do(["ptime", "sb %d" % n]))
+            g0 = self._gt
+            self._resume()
+            mark = self._bpmark
+            t0 = time.time()
+            end = t0 + max(5.0, secs * om.HOST_BACKSTOP)
+            nap = 0.002
+            while True:
+                t = self._e9(mark)
+                if ob._PROMPT.search(t) and t.rstrip(" ").endswith(">"):
+                    break
+                if time.time() > end:
+                    # ...and SAY HOW FAR it got: stop it and read the clock,
+                    # which tells a breakpoint that never fired from a guest
+                    # that never ran
+                    got = "?"
+                    try:
+                        self._halt()
+                        self._gt_take(self._do(["ptime"]))
+                        got = "%d" % (self._gt - g0)
+                    except om.MartyError:
+                        pass
+                    raise om.MartyError(
+                        "os88megabochs: %.3f guest seconds (sb %d) had not "
+                        "run after %.0f host seconds - %s instructions had "
+                        "- Bochs on %s; the transcript since: %r"
+                        % (secs, n, time.time() - t0, got, self.box.display,
+                           t[-400:]))
+                time.sleep(nap)
+                nap = min(nap * 2, 0.01)
+            self._stopped_now("paused", t)
+            if not count:               # advance's stop is a stop, pace's
+                self._stops -= 1        # is not
+            self._gt_take(self._do(["ptime"]))
+        return max(1, self._gt - g0) / ob.IPS_N
+
+    def pace_exact(self, secs):
+        """os88marty.pace's GUEST seconds, exactly (_run_exact), the guest
+        left RUNNING as a pause leaves it; None when it cannot be done
+        exactly here, and pace polls the clock as it does on MartyPC."""
+        if self._state != "running":
+            return None                 # a pause ends at a stop: pace's own
+        g = self._run_exact(secs)
+        if not g:
+            return None
+        self._resume()
+        return g
+
     def _c_advance(self, frames=None, cycles=None, card=None, **_):
         secs = (cycles / GUEST_HZ if cycles is not None else
                 (frames or 1) / 60.0)
         self._bp_hit()
+        if self._run_exact(secs, count=True):
+            return self._status()
+        if ob.SYNC == "realtime":
+            self._resume()
+            end = time.time() + secs
+            while time.time() < end:
+                if self._bp_hit():
+                    return self._status()
+                time.sleep(min(0.01, max(0.0, end - time.time())))
+            self._halt()
+            return self._status()
+        # GUEST seconds, read off the guest (_cycles): a host that stalls
+        # makes this take longer, never hand the guest less than it asked
+        want = self._cycles(fresh=True) + int(secs * GUEST_HZ)
         self._resume()
-        end = time.time() + secs
-        while time.time() < end:
+        t0 = time.time()
+        while True:
             if self._bp_hit():
                 return self._status()
-            time.sleep(min(0.01, max(0.0, end - time.time())))
+            rem = (want - self._cycles()) / GUEST_HZ
+            if rem <= 0:
+                break
+            # ...looking only once the host has had the time to run it: the
+            # guest runs at real time at most, so an earlier look is a stop
+            # spent on an answer known in advance
+            if time.time() - t0 >= secs * 0.9:
+                if self._cycles(fresh=True, stale=min(0.02, rem)) >= want:
+                    break
+            time.sleep(min(0.005, max(0.001, rem / 4)))
         self._halt()
         return self._status()
 
@@ -638,12 +858,134 @@ class MegaBochs(MegaMixin, om.Marty):
         """xdotool on the machine's display, keeping a HELD Ctrl held: the
         re-capture after a debugger stop (os88bochs.GRAB) is Ctrl + middle
         click and lets Ctrl go, so a row holding ControlLeft across a read
-        (msel's Ctrl+click, any Ctrl+key) lost it at its next event"""
-        if self.box.inp.regrab:
-            held = [k for k in ("Control_L", "Control_R") if k in self._keys]
-            if held:
-                a = sum((("keydown", k) for k in held), ()) + a
-        self.box.xd(*a)
+        (msel's Ctrl+click, any Ctrl+key) lost it at its next event
+
+        UNDER THE MACHINE'S LOCK, which every stop is taken under
+        (`_stopped`, `_c_*`): a stop RELEASES the capture, so one landing
+        while an xdotool chain is still going out drops the rest of it. A
+        row that samples guest memory from a THREAD while it drives
+        (tests/curbusy.py's Watch) stopped the guest mid-double-click on
+        every read - the four edges reached the guest as at most one click
+        and B: never opened (mega-curbusy). Under the lock a chain and a
+        stop cannot overlap, and `regrab` - set inside the stop - is always
+        seen by the input that follows it"""
+        with self._lock:
+            if self.box.inp.regrab:
+                held = [k for k in ("Control_L", "Control_R")
+                        if k in self._keys]
+                if held:
+                    a = sum((("keydown", k) for k in held), ()) + a
+            self.box.xd(*a)
+
+
+    def queued_input(self, *a, service=None):
+        """Send xdotool input A to a STOPPED guest, so all of it reaches the
+        machine in ONE pass of Bochs's GUI - an atomic gesture in GUEST
+        time, whatever the host does in between (os88mouse.dblclick).
+
+        gui/x.cc's handle_events drains the whole X queue each time it runs
+        (once a guest ms), and each button change is a PS/2 packet of its
+        own (iodev/keyboard.cc mouse_motion's force_enq), so the four edges
+        of a double-click reach the 8042 a few guest ms apart. The stop
+        drops Bochs's capture, so `regrab` puts os88bochs.GRAB ahead of A in
+        the same call; X delivers it first, and with the pointer parked at
+        the capture's warp home a re-capture moves nothing.
+
+        WHAT IT MUST NOT DO is stop again before that pass: the prompt drops
+        the capture and the queue would be read uncaptured - lost. So it
+        returns once Bochs has READ its X connection dry (os88bochs._Input.
+        taken, which every stop waits on as well).
+
+        A BREAKPOINT met before that read (a bp_trace's, inside a held
+        pump) is handed to SERVICE(status) and resumed: the queue starts
+        with GRAB, so it is read captured all the same - but that stop set
+        `regrab` for a capture the queue then took back, and the GRAB the
+        next input would carry would toggle it OFF. So after such a stop the
+        capture is dropped once more by a stop of our own, and `regrab` is
+        true again because it is."""
+        def stop_seen():
+            if service is not None and self._state == "breakpoint":
+                service(self._status())
+        with self._lock:
+            self._halt()
+            stop_seen()
+            self._xd(*a)
+            self._resume()
+            between = False
+            end = time.time() + 20.0
+            while True:
+                self.box.inp.taken(stopped=self._bp_hit)
+                if self._state == "running" or time.time() > end:
+                    break
+                between = True
+                stop_seen()
+                self._resume()
+            if between:
+                self._halt()
+                stop_seen()
+                self._resume()
+            self._log.append({"cycles": self._cycles(), "kind": "queued",
+                              "args": list(a)})
+
+    def paced_input(self, chains, gap):
+        """Send each xdotool chain of CHAINS to a STOPPED guest and run it
+        EXACTLY `gap` GUEST seconds before the next (_run_exact) - input
+        whose spacing matters, on a device that cannot take a queue.
+
+        Bochs's SERIAL mouse is that device: it LATCHES the button state
+        (iodev/serial.cc mouse_enq) and builds a packet only when its idle
+        UART polls, every 100 guest ms, so two edges inside one poll are one
+        packet carrying the second's level - a press and its release merge
+        into NO press. os88mouse.dblclick used to space them with host
+        sleeps on a running guest, which the clock preload makes a guest
+        interval of anything from ~0 (a Bochs descheduled for over 50 ms is
+        a STOP to bxclock, and its time is taken out whole) to the 0.2 s it
+        meant - so on a loaded box the edges merged and the double-click
+        was one click (mega-irqgrab, mega-dosmouevt, mega-kdnomouse: the
+        drive selected, nothing opened).
+
+        Each chain is read in the first GUI pass after the resume (a guest
+        ms), long before the time breakpoint, so the capture the stop drops
+        is back (`regrab`, os88bochs) when Bochs reads it. A chain still
+        unread at the stop - it cannot be read stopped - is waited for on a
+        running guest, as queued_input does, and said.
+
+        Leaves the guest RUNNING. Answers the GUEST seconds run after each
+        chain, read off the time breakpoint (so they are the spacing the
+        guest saw, exactly, where ticks read around the call also count the
+        host's gaps either side of it); [] when an exact run cannot be had
+        here (a breakpoint of the row's own armed, a bp_trace pump,
+        `realtime`), having sent nothing: the caller spaces it another way.
+        """
+        if ob.SYNC == "realtime" or self._pumping or self._bps:
+            return []
+        ran = []
+        with self._lock:
+            self._halt()
+            if self._state != "paused":
+                return []               # a breakpoint got there first
+            for a in chains:
+                self._xd(*a)
+                g = self._run_exact(gap)
+                ran.append(g)
+                if not g:
+                    self._resume()
+                    raise om.MartyError("os88megabochs: paced input could "
+                                        "not run the guest %.3f s exactly "
+                                        "after %r" % (gap, a))
+                inp = self.box.inp
+                inp._scan()
+                if inp.sent and inp.log and inp.seen < inp.marks:
+                    sys.stderr.write("os88megabochs: %r unread after %.3f "
+                                     "guest s - waited for running\n"
+                                     % (a, gap))
+                    self._resume()
+                    inp.taken(stopped=self._bp_hit)
+                    self._halt()
+            self._resume()
+            self._log.append({"cycles": self._cycles(), "kind": "paced",
+                              "args": [list(a) for a in chains]})
+        return ran
 
     def _c_mouse(self, dx=0, dy=0, l=False, r=False, wz=0, **_):
         if wz and not getattr(self, "imps2", False):
@@ -794,6 +1136,9 @@ class MegaBochs(MegaMixin, om.Marty):
         self._btn, self._keys, self._bps = set(), set(), {}
         self._ldt, self._win, self._flog = None, None, (0, [0, 0])
         self._state, self._since = "running", time.time()
+        # ...and the clock carries on from where it was: the new Bochs's
+        # `ptime` starts again at 0
+        self._gt0, self._gt, self._gt_dirty = self._gt0 - self._gt, 0, True
         _first_c(self.box)
         self._bpmark = os.path.getsize(self.box.e9)
         if bps:
@@ -1194,6 +1539,9 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
             # by `status()["cycles"] == 0` (tests/tank.py's open_game), and
             # the moments Bochs ran before this pause are its BIOS's POST
             m._cyc = 0.0
+            if ob.SYNC != "realtime":
+                m._gt_take(m._do(["ptime"]))
+                m._gt0 = m._gt
             return m
         if boot is True:
             box.up()

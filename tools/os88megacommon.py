@@ -44,6 +44,12 @@ def mega_images(image, apps):
     it) goes in as it is, because what is on it is the row's subject."""
     import os88build
     bld = os88build.mega_build()
+    # RESOLVED FIRST, as os88marty.launch does for MartyPC: a scratch disk a
+    # row names `build/x.img` was WRITTEN into the run's tree by
+    # scratch_disk, and the literal opened as it stands is a FileNotFoundError
+    # in a soak (mega-wdcombo). at() is the identity outside one
+    image = os88build.at(image) if image else image
+    apps = os88build.at(apps) if apps else apps
 
     # build/ OR THE RUN'S TREE: under a frozen soak a row's
     # `build/os8088-360.img` arrives as the tree's, and testing for build/
@@ -77,9 +83,10 @@ class MegaMixin(object):
     ((base, limit) of the live tables), `gdt(sel)` and `protected()`."""
 
     def _clock(self):
-        """Seconds of GUEST time, for the waits below. Bochs runs the guest
-        at real time (`clock: sync=realtime`), so the host's clock is it;
-        86Box runs it fast-forwarded and overrides this with its own."""
+        """Seconds of GUEST time, for the waits below. The host's clock is
+        only the fallback: Bochs reads its guest's (os88megabochs._clock,
+        `ptime` under `clock: sync=slowdown`) and 86Box runs it
+        fast-forwarded and overrides this with its own."""
         return time.time()
 
     def selector(self, sel):

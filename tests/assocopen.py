@@ -48,19 +48,29 @@ def say(s):
 
 
 def bp_open(m, mo, wx, wy, name):
-    """Double-click `name` with a breakpoint armed across the SECOND press.
+    """Double-click `name` inside a breakpoint on `fm_repaint`.
 
-    Returns (repainted, span_in_ticks). The pointer is placed and both edges
-    of the first press are PROVEN against the guest's own published
-    `mouse_btn` (SPEC.md 9.4.3) - a packet clocked into a 1200-baud UART
-    while the previous one is in flight is simply dropped, and the only
-    difference a caller can see is that the guest did nothing.
+    Returns (repainted, span_in_ticks). The WHOLE gesture is
+    os88mouse.dblclick's, on both emulators, inside the trace: its presses
+    are stepped (MartyPC) or queued (Bochs) on a STOPPED guest with the
+    trace's pump held, and a stop it meets is recorded for the trace - so the
+    span between the presses is the UART's and the ISR's, not the host's.
+    The first press is inside the trace, which is harmless for its target: a
+    press on a row moves the selection band (fm_lsel_bar / fm_sel_bar) and
+    never reaches fm_repaint.
 
-    The arm goes between the two presses rather than around both, because
-    the FIRST press legitimately draws (it moves the selection band, SPEC.md
-    22.2) and the second is the whole question. The final RELEASE is sent
-    unproven: by then the guest may be standing at the breakpoint, where it
-    decodes nothing and `_edge` could only ever time out.
+    It was HAND-MADE on MartyPC - a proven press, a proven release, the arm,
+    a proven second press, each edge a poll loop of host round trips - and
+    that span was a quantity of the BOX: MartyPC runs several times faster
+    than a 5150, so the ~80 host ms those three proofs take on this box were
+    7-8 guest ticks against a window of 9, the release's proof alone 1-2 or
+    4-5 ticks depending on whether it was seen on the first poll or after a
+    20 ms nap. And the ticks it read back were each taken AFTER a proof, so
+    the presses' true birth ticks could be further apart than the 7 it
+    reported: the folder did not open, half the runs, "7 ticks apart".
+    On Bochs a host-spaced gesture is worse still: `sync=slowdown` pays a
+    stopped guest's time back as a catch-up sprint, so 0.08 host seconds
+    read 9-10 ticks (docs/BOCHS.md, *The clock*).
     """
     entry = dispcp.row_of(m, S, name)
     row = dispcp.scroll_to(m, mo, S, UD, wx, wy, entry)
@@ -68,35 +78,12 @@ def bp_open(m, mo, wx, wy, name):
     mo.to(x, y)
     os88marty.ui_done(m)
 
-    if mo.where()[2] & 1:       # a button left down by something else would
-        mo._edge(False)         # make the first press no edge at all
-    mo._edge(True)
-    t1 = mo.ticks()
-    if not getattr(m, "bochs", False):
-        mo._edge(False)         # (Bochs: in the chain below)
-
-    # The second press is inside the trace, and it has to be: `_edge` proves
-    # the press by polling the published `mouse_btn`, and a guest stopped at
-    # `fm_repaint` never publishes another one. It worked before only because
-    # the repaint cannot be reached until the click has been decoded - an
-    # ordering, not a guarantee - and the `finally` below was the other half
-    # of the same problem, clearing the set by hand so the NEXT fm_repaint
-    # would not stop the machine under the caller and time out every later
-    # step. A trace clears its own set on the way out, on both paths.
+    bochs = getattr(m, "bochs", False)
     with os88marty.bp_trace(m, "fm_repaint") as tr:
-        if getattr(m, "bochs", False):
-            # kern_mega under Bochs: a guest at real time, and every proven
-            # edge a stop and a re-capture - the release and the press
-            # between them were 8-9 ticks against a window of 9. So the
-            # release and the second press go out as ONE X chain, and only
-            # the press is proven, by the published button, after it
-            m._xd("mouseup", 1, "sleep", "0.03", "mousedown", 1)
-            os88marty.until(m, lambda _: mo.where()[2] & 1,
-                            "the second press to be decoded", guest=5.0)
-        else:
-            mo._edge(True)      # ...the double-click
-        t2 = mo.ticks()
-        m.mouse(0, 0, l=False)
+        # The gesture holds the pump and records its own stops (dblclick),
+        # and a trace clears its set on the way out on both paths - so no
+        # later fm_repaint stops the machine under the caller
+        span = mo.dblclick(x, y, settle=0)
         # A hit, or the UI task asleep with nothing pending across a whole
         # tick: the open's pass is over, so a repaint it owed would have
         # stopped the machine already. (It was `tr.wait(1, limit=30)`, whose
@@ -118,13 +105,13 @@ def bp_open(m, mo, wx, wy, name):
                  required=False)
     state = tr.n > 0
     os88marty.ui_done(m)
-    span = (t2 - t1) & 0xFFFFFFFF
-    if span >= os88mouse.DBL_TICKS:
-        sys.exit("assocopen: the two presses were %d ticks apart and the "
-                 "window is %d - the guest saw two FIRST clicks, so nothing "
-                 "below is about a double-click at all"
-                 % (span, os88mouse.DBL_TICKS))
-    return state, span
+    # (dblclick raises on a span of DBL_TICKS or more itself)
+    return state, (None if bochs else span)
+
+
+def gap(span):
+    """The presses' spacing as reported: Bochs's are queued (bp_open)."""
+    return "queued, one GUI pass" if span is None else "%d ticks apart" % span
 
 
 # every read below is guest memory (or the framebuffer after the UI is
@@ -146,8 +133,8 @@ with os88marty.launch(SYS_IMG, apps=APPS_IMG, machine=MACHINE,
 
     # --- 1. the control: a folder MUST repaint ------------------------------
     hit, span = bp_open(m, mo, wx, wy, "MEDIA")
-    say("folder  MEDIA      -> fm_repaint %s  (%d ticks apart)"
-        % ("HIT" if hit else "not hit", span))
+    say("folder  MEDIA      -> fm_repaint %s  (%s)"
+        % ("HIT" if hit else "not hit", gap(span)))
     if not hit:
         fails.append("a FOLDER open did not reach fm_repaint - fm_go replaced "
                      "the listing, the selection and the caption, so the "
@@ -166,8 +153,8 @@ with os88marty.launch(SYS_IMG, apps=APPS_IMG, machine=MACHINE,
     before = dispcp.win_list(m, S)
     hit, span = bp_open(m, mo, wx, wy, doc)
     after = dispcp.win_list(m, S)
-    say("document %-10s -> fm_repaint %s  (%d ticks apart)"
-        % (doc, "HIT" if hit else "not hit", span))
+    say("document %-10s -> fm_repaint %s  (%s)"
+        % (doc, "HIT" if hit else "not hit", gap(span)))
     say("windows %r -> %r" % (before, after))
 
     # THE CLAIM FIRST, THE SEATBELT SECOND, and that order is not cosmetic.

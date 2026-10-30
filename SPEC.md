@@ -4058,8 +4058,8 @@ APP_MAX_SIZE equ 0xFE00      ; image + bss budget: 63.5KB (§20.1.1). The ceilin
                              ; what the heap has contiguous
 PKG_DISP     equ 12          ; the dispatcher's fixed offset inside a
                              ; package's header (§20.2)
-PKG_FILE_HI  equ 16          ; the high word of the biggest FILE the mount
-                             ; will type as a package: <1MB (§19.1). It is
+PKG_FILE_HI  equ 512         ; the high word of the biggest FILE the mount
+                             ; will type as a package: <32MB (§19.1). It is
                              ; NOT APP_MAX_SIZE - that bounds the primary
                              ; segment's image+bss and stopped bounding the
                              ; file when a package could carry parts
@@ -15803,7 +15803,7 @@ unchanged, so they pair with the ordinary apps disks.
 
 | row | written by | when |
 |---|---|---|
-| `I` | `kbm_isr` | every IRQ1. `st` is port 64h BEFORE the ROM's handler, `>st` and `60` are port 64h and port 60h AFTER it - or, with `x` bit 3 set (§9.7.2's int 15h AH=4Fh path), the byte the ROM handed over, since a re-read there could take the next one - `tl>tl` the BIOS buffer tail either side, `key` the word the ROM stored (0 if the tail did not move) |
+| `I` | `kbm_isr` | every IRQ1. `st` is port 64h BEFORE the ROM's handler, `>st` and `60` are port 64h and port 60h AFTER it - or, with `x` bit 3 set (§9.7.2's int 15h AH=4Fh path), the byte the ROM handed over, since a re-read there could take the next one - `tl>tl` the BIOS buffer tail either side, `key` the word the ROM stored (0 if the tail did not move). On that path the ROM stores only AFTER its `int 15h` returns, so `>st`, the second `tl` and `key` are taken at the next record or tick (`kbg_late`), not at the call |
 | `S` | `sch_isr` | inside a bracket, a tick whose keyboard state CHANGED - OBF and AUX from port 64h, and IRQ1's bit in the PIC's ISR, IRR and IMR |
 | `E` / `L` | `fsx_run` | a bracket entered (`x` = its flags) / leaving, BEFORE `.restore` drains the BIOS buffer |
 
@@ -15825,6 +15825,8 @@ saw OBF set, IRQ1 requested, in service, and masked.
 
 **What it changes**: only that `kbm_isr` CALLS the ROM's `int 09h`
 (`pushf`/`call far`) instead of jumping to it, so the aftermath can be read.
+On §9.7.2's path it calls the ROM's `int 15h` that way, with the AX the ROM
+handed over (AH = 4Fh, AL = the byte) and 4Fh's CF = 1 put back first.
 Port 64h is a status read with no side effect, and port 60h is read only after
 the ROM has taken the byte, when a re-read returns the same byte and consumes
 nothing — so the ROM sees the hardware a plain kernel shows it. Port 64h is
@@ -26423,7 +26425,12 @@ FPG_BAR_PX equ FPG_BOX_W - 2    ; 62: the trough, in pixels
 
 The origin is `[vid_clk_hx] - FPG_W`, computed at arm time from the **live**
 geometry (§39.2) exactly as the clock is — never from `MENU_CLK_HX`, which is
-the VGA reference. Everything it draws is in §39.4's black/white class, no
+the VGA reference — and taken again by `fpg_show` after the composition it
+makes, because the toast it hands the bar back from may have held the
+clock's field, and its going moves `[vid_clk_hx]` under a clock line past 22
+cells (§34.15). On the overdraw arm, which has already painted the box at the
+old origin, the rows outside the text band that the new box does not cover
+are filled with the bar's ground; the band there is the composition's. Everything it draws is in §39.4's black/white class, no
 dither anywhere, because an 8x8 dithered glyph loses half its strokes on a
 1bpp adapter (§48's wave counter) and a 1px box frame would lose half of
 itself.
@@ -27465,7 +27472,7 @@ path (§45), and `WF_SNAP` (§11.94) doing it for ordinary windows.
 | `menu_furniture` | `menu_draw_bar`'s overdraw arm since kernel size pass 14 (its one caller; the name is kept here for the record): white-fills the bar's field, draws the black rule and the logo, forgets every cell. |
 | `menu_bar_text` | in: nothing (gfx lock held). Composes menus, clock and toast into `menu_bcell` and emits the runs that differ. Preserves all registers. `menu_sound`'s door: the composition alone. |
 | `menu_bar_clock` | as `menu_bar_text`, past the menus: the clock and the toast strip only - and then `menu_sound`. |
-| `menu_bt_ent` | `menu_draw_bar`'s door: CF = 1 the whole bar's cells, CF = 0 the clock's, then `menu_sound`. |
+| `menu_bt_ent` | `menu_draw_bar`'s door: CF = 1 the whole bar's cells, CF = 0 the clock's - after `toast_place` and `menu_sound` have settled the geometry (§34.15), and then `menu_sound` again. |
 
 #### The composition IS the diff
 
@@ -37703,10 +37710,26 @@ its own RAM; reading them back proves the write worked, which it always did. It
 says nothing about whether the BIOS consulted them. The only thing worth
 verifying is the **transfer**.
 
-So the build reads a word out of `KERNEL.SYS` at **file sector 21** and
-injects it as `KSIG`. After the load the boot sector compares, and on a mismatch
+So the build sums **file sector 21** of `KERNEL.SYS` - the 16-bit sum of its
+256 words - and injects it as `KSIG`. After the load the boot sector compares, and on a mismatch
 drops `run_max` to `SPT` and **does the whole load again**. A boot 2.2s slower
 beats a kernel that is quietly wrong.
+
+**THE SIGNATURE IS THE WHOLE SECTOR'S SUM, NOT ONE WORD OF IT.** It was the
+sector's first word, and two things were wrong with that. Stage 2 read `KSIG` =
+0 as "this image has no canary" and skipped the compare - and nothing that
+enters stage 2 can lack one (the `FLAT_PAYLOAD` diagnostics never do, and
+`KSIGDEF2` refuses a kernel too short to hold the sector), so the only zero
+that ever arrived was a kernel whose word really is zero: kern_mega's, a
+`ret`'s padding. With that test gone it was still no check, because the wrong
+sector a 286 ROM that cannot cross a head delivered there began with a zero as
+well - **495 of 512 bytes wrong and the canary passed**, after a Cylinder save
+(`BS_CYLASK`, §31.14), and the decoder spun on the wrong bytes for ever.
+`tests/megacz.py`'s third boot is the row that found it. A single word is a
+weak signature exactly where it matters, because the sectors a confused
+controller substitutes are often mostly zero; the sum of 256 words lets a wrong
+sector through one time in 65,536 whatever it begins with, for 13 bytes of the
+blob and 256 additions at the end of a load that took seconds.
 
 **THE OFFSET MUST NAME A SECTOR THAT CROSSES A HEAD**, and "past the first
 flip" is not the same statement. A run transfers correctly up to the head
@@ -41396,7 +41419,7 @@ this order:
   loader.
 - **type 1 (loadable package)** iff ALL of: raw ext bytes 8..10 == `"O88"`
   (uppercase exact — foreign OSes uppercase short names on write); size
-  dword high word **< `PKG_FILE_HI`** (§3), i.e. the file is under 1MB; size
+  dword high word **< `PKG_FILE_HI`** (§3), i.e. the file is under 32MB; size
   low word ≥ 1; raw FstClusLO ∈ [2, `dsk_maxclus`]. A garbage entry can never
   reach the loader as type 1.
 
@@ -41406,12 +41429,18 @@ this order:
   than its primary segment. The old rule recorded the tradeoff that *"a
   ≥64KB `*.O88` reads 'Bad package' rather than 'Too large' — it cannot be a
   package, so the message is truthful"*, and the second half of that sentence
-  is what stopped being true. `PKG_FILE_HI` is a **decision, not a
-  derivation**: 1MB is far above any package this tree has or plans (the
-  largest, `LOOM.O88` plus its overlay, is ~98KB) and far below anything that
-  could overflow the loader's KB arithmetic. Above it the verdict is `Bad
-  package` again, and the tradeoff is recorded in the same terms one ceiling
-  further out.
+  is what stopped being true. `PKG_FILE_HI` was a **decision, not a
+  derivation** - 1MB, far above any package this tree had - until RealDMG's
+  precompiled cartridges on kern_mega (a ROM inside and up to 29 code
+  images, REALDMG-SPEC 20.17) made the decision the only limit left. It is
+  now the **derivation**, **512**, the file under **32MB**: a part's row
+  names its offset in 512-byte sectors in a WORD (§20.12.3), and
+  `OSAPI_FILE_READ_AT`'s one `div` by 512 needs the offset's high word
+  under 512 (kernel/diskw.inc) - so a package any bigger could not be read
+  past 32MB whatever the mount said. Both sites compare DH with 2 - three
+  bytes, as `cmp dx, 16` was, so no hot routine moves. Above it the verdict is
+  `Bad package` again, and the tradeoff is recorded in the same terms one
+  ceiling further out.
 
   **Lifting this rule ALONE is a defect**, and §21 step 1 is the other half:
   a 70KB file's size low word is 4,608, a perfectly plausible small package,
@@ -57159,15 +57188,15 @@ Distinct package icons demandable at once, measured over the shipped images:
 most `ASSOC_NAPP` composed bodies. (This paragraph said 26 and 29 when the
 tree shipped fewer programs; the figure grows with every program written, which
 is why the store is sized by what one whole `ASSOC.DAT` can declare rather
-than by today's count.) `ICO_NROW` is **60** on `kern_big` - 60 x 82 = 4,920
-bytes plus §54.7.6.2's capture, 5,107 of a 5KB claim, so a full `ASSOC.DAT`
-(`ASC_NAPP` = 55) is absorbed whole with rows to spare - and 24 on
-`kern_small`, which SPEC.md 51.0 leaves no driver-backed volume and fewer
+than by today's count.) **That premise did not hold and §25.9.6 retires it**:
+the store is a 5KB first claim that GROWS to 20KB, so it holds what the
+machine has met rather than what one file can declare. `kern_small` keeps a
+fixed 24 rows, SPEC.md 51.0 leaving it no driver-backed volume and fewer
 packages.
 
-`ASC_NAPP` is 55: that is a VOLUME's question, and it is the most rows that
-fit 5KB with 64 extension rows beside them (§54.7.1). It was 32 and the 720KB
-apps disk held exactly 32 packages, so the cap was already binding there.
+`ASC_NAPP` is 90: that is a VOLUME's question, and it is the most rows that
+fit 8KB with 64 extension rows beside them (§54.7.7). It was 55 at 5KB, and
+32 before that, when the 720KB apps disk held exactly 32 packages.
 
 #### 25.9.3 What it replaced, and what `kern_small` pays instead
 
@@ -57242,6 +57271,62 @@ than a redraw — the absorbed rows go with it — so `ico_need` clears
 one three-sector re-read at the next mount rather than a sector per package.
 The rank stays `MEM_PG_TRIV` regardless: what is lost is still recoverable
 without asking the user for anything.
+
+#### 25.9.6 The store GROWS, a kilobyte at a time
+
+A fixed 60 rows was outgrown by the shipped disks themselves. A standard
+install of the two 1.44MB disks puts **50 distinct packages** on a hard disk,
+and the store holds a row per package PLUS a row per composed document body
+(§25.9: one per association slot, and one more whenever a slot's glyph
+changes) - so it filled, and `ico_add`'s *full* answer is §25's generic icon.
+The document types were the ones that lost, because they are composed last:
+only when a folder holding documents is browsed. An install of everything not
+retired needs ~64 package rows and ~22 document rows.
+
+**What a full store looked like in the field.** *"Icons go missing on the
+hard disk - `.IMG` first, and INSTALL.O88 - and come back after a restart."*
+A `*.IMG` takes its diskette picture (§18.101.6) in the DOCUMENT pass, which
+every listing harvests last, so it is the first body to find the store full;
+INSTALL.O88 sits at the root, a folder browsed late. The restart is the store
+starting empty. And the count is easy to reach: the size is half the key, so
+a floppy carrying a DIFFERENT BUILD of programs already on the hard disk
+takes a second row for each. `tests/icohd.py` is that machine - an install,
+a reboot from C:, ten re-sized packages and a `.IMG` on B: - and the tree
+before this section stops at 60 rows with three packages and the `.IMG` on
+the generic icon.
+
+So `ico_add`, finding the store full, calls **`ico_grow`**, which takes the
+claim up one kilobyte with `mem_regrow` (§50.3) and works out the rows the new
+claim holds into `[ico_max]`. The first claim is still `ICO_KB` = 5 and still
+60 rows (the capture moved, below, into bytes the rounding already had), and the ceiling `ICO_KBMAX` = 20 is 247 rows:
+a row number is a byte and 0xFE/0xFF are `ICO_R_FOLDER` and `ICO_R_NONE`.
+A machine with a few programs pays for a few, and nothing that names a row
+changes - a row's OFFSET never moves inside the claim, only the claim's base
+can, and `[ico_seg]` is the one word every reader takes it from.
+
+**Why the grow cannot disturb its callers.** `ico_add` is reached from the
+harvest and from `asc_seed`'s walk of an `ASSOC.DAT` claim, both of which hold
+OTHER claims' segments across it. `mem_regrow` compacts nothing and sheds only
+blocks ranked strictly below the claimant, and the store is `MEM_PG_TRIV`, the
+cheapest rank there is - so a grow sheds nothing, moves nothing but the store,
+and on a heap with no room simply refuses, which is today's generic icon.
+
+**The capture (§54.7.6.2) moved to the HEAD of the claim** to make that true:
+it lived in the KB rounding past the last row, which is exactly where a grow
+adds rows. `ICO_CAP` is 0, `ICO_RBASE` = 188 is row 0, and `ico_rowoff`,
+`ico_scan` and the flush's own row walk (`ascw.inc`) add it. The first claim
+loses no row to it: (5,120 - 188) / 82 is still 60.
+
+**A shed resets it.** `ico_demote` zeroes `[ico_seg]` and the count word as
+before; the next `ico_need` claims `ICO_KB` again and writes `[ico_max]` and
+`[ico_kb]` as one word, so a store that comes back is a first claim and not
+the size the last one had reached.
+
+`kern_small` keeps a FIXED 24-row store and none of this: it has no
+associations (§54.0) and a diet on which no byte goes to growing it - it
+builds BYTE-IDENTICAL. Cost on `kern_big`, measured against the tree before:
+**79 bytes**, `.text` +2 (`[ico_max]`, `[ico_kb]`) and `.cold` +77 -
+resident, no rung crossed.
 
 ### 26.8 Desktop shortcuts
 
@@ -58287,6 +58372,8 @@ then runs RLAPPLY with nobody touching anything.
 the path's NUL, inside the same 45-byte field. The path and the parameter
 share 44 characters, and the field's last byte is forced to 0 by `lnk_open`
 as it always was, so the parameter is terminated whatever the file says.
+**A link file shorter than 50 bytes carries none**: the record is read onto
+the stack, and a tail the file did not supply is the stack's bytes.
 `LNK_V` stays **1**: a kernel that predates this ends the path at its NUL and
 never reads the rest, so a new link opens on an old kernel as a plain one.
 
@@ -58325,7 +58412,10 @@ a flag. A parameter costs the table nothing and serves any program.
 
 Writers: `apps/os88link.inc`'s `OS88_LINK` takes the parameter as an optional
 fifth argument; `tools/os88lnk.py --arg` writes one and `--read` shows it.
-The Control Panel's Alt-drop writes none.
+The Control Panel's Alt-drop writes none, and zeroes the field before the
+path goes in: its record is built in `cpc_buf`, the settings file's buffer,
+which nothing clears, and a 12-character name's NUL is the last byte
+`sc_m_wpath` copies, so the byte after it was whatever the buffer held.
 
 ## 27. HELLO and NOTEPAD — the second and third packages
 
@@ -64343,6 +64433,11 @@ every other kernel refuses the whole cell (AX = 1) as before. Cost: kern_mega
 `.mega` 17,840 → 17,871 (**+31 bytes**), `.text` +0; `XMEM.DRV` 2,042 → 2,051
 bytes of image (**+9**, 1,891 → 1,900 on the disk); kern_big and kern_small
 `kernel.bin` **byte-identical** (cmp at one commit).
+**Those 9 bytes CROSSED 41.12.6's 2KB** - the claim is `mem_bytes_kb_x` of
+the image, so 2,051 was a 3KB claim on every 286 and 386, and only
+`tests/hma286.py`'s check 1 (`in 2 KB`) said so. `xm_walk` copies a record
+as the entry's first six bytes with three `movsw` - `+5` is never written, so
+it is the record's zero - which is 10 bytes off: **2,041**, 7 inside 2KB.
 
 
 ### 28.4.12 `OSAPI_IMG_NAME`: which driver or module an image is
@@ -64396,7 +64491,7 @@ the install succeeds, +28, the door's offset at FFFF, and far-calls
 |---|---|
 | `XMW_HMAK` (F5h) | `.cold` and the tail: `XMW_OFF` FFFFh, `XMW_KB` 64 less `HB_HI`'s whole KB |
 | `XMW_HMAI` (F6h) | a driver's image: `XMW_OFF` the segment it runs at, `XMW_KB` its bytes rounded UP, `XMW_CLS` its class off its own header |
-| `XMW_HMAB` (F7h) | a buffer a driver took there, the same fields, class off its OWNER's header |
+| `XMW_HMAB` (F7h) | a buffer a driver took there, the same fields, class off its OWNER's header - at `HB_ORG` for an owner in the pool (segment F000h up, `hb_drop`'s test) and at offset 0 for one left in the heap |
 
 All of it is inside the span `[tm_hifix]` already counts, so `tm_hikb`'s
 system sum and `tm_himax` skip F0h-F7h, and a block's group is flagged
@@ -69571,8 +69666,8 @@ tone path enters `spk_gate_on` below the PWM half.
 ### 34.5 Sound Blaster — back, as a driver
 
 Retired once, and no longer: `drivers/sound/sb.inc` is the DSP scan, the
-stream verbs, the auto-init/single-cycle strategy gate and the deferred IRQ
-discovery, all of it inside `SOUND.DRV` rather than the kernel (§51.4). What
+stream verbs, the auto-init/single-cycle strategy gate and the IRQ
+discovery (at the attach, once a load: §34.5.7), all of it inside `SOUND.DRV` rather than the kernel (§51.4). What
 changed in the move is where its memory comes from — a **heap claim**
 (`OSAPI_MEM_CLAIM_DMA_HI`), not a pinned segment, which is why the 64KB
 DMA-page rule had to become something the allocator answers (§50.3) rather
@@ -69740,11 +69835,16 @@ nothing was lost, three after a stretch that swallowed two. Three guards:
   offset banked each time, 0 at verb 0) is no count at all, and the IRQ adds
   one block as before - a card whose 8237 registers say nothing is played the
   way it always was;
-- **an offset half the ring or more past consumed's** is BEHIND it, not ahead
-  (a count read before the copy that advances it - a PicoMEM 1.x's
-  multiplexer writes channel 1's count back after each 128-byte copy,
-  §34.10.1), and adds nothing; **zero whole blocks** adds nothing either, and
-  the next IRQ's count takes them;
+- **an offset within 256 bytes short of a whole ring past consumed's** is
+  BEHIND it, not ahead (a count read before the copy that advances it - a
+  PicoMEM 1.x's multiplexer writes channel 1's count back after each
+  128-byte copy, §34.10.1 - with that lag twice over), and adds nothing;
+  **zero whole blocks** adds nothing either, and the next IRQ's count takes
+  them. The window is the copy's lag and no wider: half the ring classed a
+  two-block ring's every ordinary advance - one block and the few bytes the
+  chip has read since - as behind, so consumed never moved and the card
+  replayed the ring until Stop, and it lost a four-block ring's count after
+  a stretch that swallowed two;
 - **consumed past the total** - `total − consumed` more than the ring, which
   is negative: the chip played through the end of what was fed while the
   line was masked (a whole ring fed is verb 1's bound and is not this) -
@@ -70093,21 +70193,27 @@ reads the end of the stream as the end of the song.
   or into a driver in RAM. An unused line's vector is the BIOS's own dummy
   handler in its ROM, and nothing in os8088 hooks IRQ 5, so a hooked vector
   is a claim. It is read at discovery, when the candidates' vectors have
-  been put back.
+  been put back - at the driver's attach since §34.5.7.
 
-**Refused** means `sbl_f_irqdisc` answers "no usable card" for that winner
-on every path - the firing probe, the SB16 mixer's read-back and a PicoMEM's
-configured line - so the stream open fails with error 4. A package then
-takes its no-card path (the Audio Player and XTMP3 the speaker or the
-Covox, §86.21), the FM chip stays usable (it needs no IRQ), and the first
-refusal of a session raises the toast `IRQ 5 is the hard disk's` (24
-characters, §59.10). The cure is the card's jumper: IRQ 7 is the first
-candidate. A card on any other line is untouched, and so is every AT.
+**Refused** means `sbl_f_irqdisc` answers "no usable line" (`[sbl_irq]` =
+0FFh) for that winner on every path - the firing probe, the SB16 mixer's
+read-back and a PicoMEM's configured line - and **`sbl_attach` then refuses
+the DSP tier** as `DRVE_HW` (§34.5.7): no stream verb is published and
+`SND_RT_SB` is not set, so a package takes its no-card path (the Audio
+Player and XTMP3 the speaker or the Covox, §86.21), the OPL2 attaches alone
+(it needs no IRQ), and a Control Panel that turns the Sound Blaster tier on
+reports the refusal as it reports any other. **It says nothing**: the
+machine boots working, on FM, and the owner's rule is that a boot which
+changes something but works does not toast - there are boot toasts enough
+(it raised `IRQ 5 is the hard disk's` at the first open it refused until
+§34.5.7). The cure is the card's jumper: IRQ 7 is the first candidate. A
+card on any other line is untouched, and so is every AT.
 
-It cost `SOUND.DRV` 84 bytes of image (11,823 to 11,907), inside its 12 KB claim. `tests/sbirq5.py` (the
-`sbirq5` row) holds it: refused on an 8088 with a hooked IRQ 5, accepted on
-an unhooked one, on a 286 and a 386, and on IRQ 7; with the refusal broken,
-2 checks fail.
+It cost `SOUND.DRV` 84 bytes of image (11,823 to 11,907), inside its 12 KB
+claim, and since §34.5.7 none of it is resident. `tests/sbirq5.py` (the
+`sbirq5` row) holds it: refused (and silent) on an 8088 with a hooked IRQ 5,
+accepted on an unhooked one, on a 286 and a 386, and on IRQ 7; with the
+refusal broken, 2 checks fail.
 
 #### 34.5.6.1 ...and the disk that never hooks it: an ST11 on IRQ 5 (2026-10-26)
 
@@ -70136,6 +70242,51 @@ refusal would take the sound from. Whether a real ST11 drives the line
 while disabled is not known here. **The cure is the card's line**, as in
 34.5.6: `vm/pc5150`, `vm/viddemo-cga` and `vm/viddemo-herc`, the three
 profiles here with an ST11 and an SB 2.0, put the card on IRQ 7.
+
+#### 34.5.7 Found once a load: the scan and the discovery are attach-only (2026-10-30)
+
+**The Sound Blaster's reset scan, its IRQ discovery and the SB16's 16-bit
+channel test run ONCE, at `DRVV_ATTACH`** (`sbl_find`), and are laid out
+past `snd_keepmix` with the other attach-only code (§34.15.1, `SBL_ONCE` in
+`sb.inc`), so none of them is resident once the attach has answered. Until
+then the discovery waited for the first stream open (it was "deferred to
+first use") and the scan re-ran at every `DRVV_TIER` "on", which kept
+`sbl_f_irqdisc`, §34.5.6's IRQ 5 test, the four candidate stubs, their
+tables, `sbl_f_probe`, `sbl_dsp_rd` and `sbl_hdma_find` in RAM for the whole
+session on every machine - 820 bytes, for questions whose answers
+cannot change until the driver is reloaded.
+
+- **What is settled**: `[sbl_base]`, the DSP version and `[sbl_auto]`,
+  `[sbl_irq]` (0FFh = no usable line) and `[sbl_hdma]`. They sit OUTSIDE
+  `sbl_state_init`'s cleared run, so a tier change keeps them.
+- **`sbl_attach`** - the attach's second half and all of `DRVV_TIER`'s "on" -
+  refuses `DRVE_HW` with no base or no usable line, resets the DSP at the
+  settled base (a card that stopped answering is refused as the scan would
+  have refused it), and **hooks `sbl_isr` on the settled line** (`sbl_hook`).
+  `sbl_detach`'s `sbl_unhook` takes it off again. So the vector is held while
+  the DSP tier is up, from the attach, where it used to be from the first
+  open; nothing else hooks the candidates (§34.5.6), and the ISR's spurious
+  leg already answers an IRQ 7 that arrives with no stream.
+- **A discovery that confirms nothing** now refuses the DSP tier for the
+  load, where it used to refuse each open with error 4 and ask again at the
+  next. The OPL2 still attaches. It is retried once inside the discovery, as
+  before.
+- **The attach runs with interrupts on** - the F2h wait needs the tick, and
+  `pm_wait`'s header has the measurement that `drv_boot` calls the attach
+  with IF = 1; a mid-session load is a task's call like any other.
+- **`DRVV_HWINFO` now knows the line** whenever a card attached, so the
+  `BLASTER=` a DOS program is given carries `I` (§96.17.1).
+- **`snd_entry`'s attach body (`snd_attach`) moved below `snd_keepmix` with
+  them**: it runs once, before the shrink. `DRVV_READY` answers from a
+  five-byte `snd_ready` above it.
+
+| build | no mixer (`snd_keep`) | a mixer (`snd_keepmix`) | image |
+|---|---|---|---|
+| shipped (PicoMEM) | 7,501 → **6,681** (-820) | 11,046 → **10,226** (-820) | 12,085 → 12,026 |
+| `NOPICOMEM=1` | 7,295 → **6,501** (-794) | 10,840 → **10,046** (-794) | 11,575 → 11,516 |
+
+`tests/sbirq5.py` and `tests/picomem.py` cut the discovery and `sbl_hook` out
+of `sb.inc` as they ship; `tests/unit/t_sndonce.py` holds the layout.
 ### 34.6 Recording and staging — back, as a driver
 
 Went with §34.5 and came back with it. Verb 7 grants out of the driver's
@@ -70501,6 +70652,21 @@ every port. Whatever base is taken is one `sbl_f_probe` finds by its own scan,
 so nothing downstream learns the port from here, and `[sbl_base]` is where a
 dump reads it (a `[pm_sbport]` that recorded it a second time, and that
 nothing read, went in kernel size pass 11).
+
+**The walk starts with the DSP OFF** (`78h 0`, before the AdLib and IRQ
+commands). The firmware's PORTUSED test is on the INSTALL path only:
+`dev_sbdsp_install` MOVES a DSP that is already active to any port it is
+asked for, writing `DEV_SBDSP` over whatever held those blocks. Switching it
+off later clears them, and the card's CMS stops decoding until a reset. The
+DSP is off after every reset, so a first attach never meets this. A SECOND
+`pm_init` in one session does: SOUND.DRV's detach leaves the DSP on, so
+re-ticking the driver or a hibernate's detach and reload, and VIDSND's
+reconfigure, would take 220h from CMS. Found by the card's own firmware
+under `tools/picomem` (docs/plans/completed/PICOMEM-EMU-PLAN.md 6.1). The model in
+`tests/picomem.py` had answered PORTUSED there, and the fix needed no
+assumption about which firmware is on the card: off-then-walk is right on
+every version. It costs 7 bytes, and on a first attach it is a no-op
+command.
 
 #### 34.10.3 Why it is the default: two port reads and no heap
 
@@ -71304,6 +71470,24 @@ allocator's two tables grew from 9 entries to 18, `opl_wr` became the bank-0
 face of `opl_wrp` (the address port in DX), and the claim, release, gate and
 batch are the rest. MIDIRack (§105) is the consumer.
 
+#### 34.12.1 A write's delays: an OPL2's, or an OPL3's
+
+`opl_wrp` follows the address write with 6 status reads and the data write
+with 35 - the YM3812's 3.3 us and 23 us, with room, at an ISA read's ~1 us.
+**An OPL3 takes 2 and 4** (`[opl_fast]`): the YMF262 wants ~0.28 us after
+either write. The chip is taken to be one when `opl_kind_probe` says so
+(both of its tests: the status bits and the timer through 38Ah) OR when the
+Sound Blaster beside it answers DSP version 4 or later - an SB16 or a true
+compatible, every one of which carries an OPL3-class chip. The second is
+not a guess at the bank: 86Box's SB16, a YMF262, fails the probe's
+second-bank test and stays `SND_OPL2` for the claim, which is what that test
+is for, while its delays are an OPL3's. It is what RealDMG's FM sound costs, a few
+registers a channel each frame: on `286-mega`'s Sound Blaster 16 the
+writes' delays were ~2% of the machine in Kirby's Dream Land, which a
+profile that sorted every address at or above F0000h as the BIOS had been
+reporting as the BIOS's share. The counts are tested inside the write's
+`pushf` ... `popf`, so the caller's flags come back as they were.
+
 ### 34.13 The MPU-401 — MIDI out, in UART mode (`SOUND.DRV`, `drivers/sound/mpu.inc`)
 
 **The daughterboard's road.** A Roland SC-55 or MT-32 on the connector, a
@@ -71720,7 +71904,12 @@ what is SHOWING, is what the field width and the hit test read, not the
 driver's capability. A toast moved the boundary three cells left until it
 was found to letter the strip under §12.8's progress widget, whose origin is
 taken at arm time; the boundary no longer moves for a toast at all, so the
-widget and the strip cannot meet. A move relayouts the application menus at
+widget and the strip cannot meet - except under the 12-hour line with
+seconds, where a toast that hides the speaker gives the field back its 22
+cells and its going takes them again, so `fpg_show` re-takes the widget's
+origin (§12.8). **The geometry is settled before the composition**:
+`menu_bt_ent` runs `toast_place` and `menu_sound` first, so the clock and the
+strip are never lettered from the old boundary and then moved. A move relayouts the application menus at
 the new boundary - their existing prefix/index rule is unchanged - and
 forgets the drawn record from the old boundary on, so a segment growing
 back repaints cells the clock had drawn. It was the LEFT end of a field
@@ -71802,9 +71991,12 @@ has answered:
   one-time chip init, `mpu_probe` and its three helpers with `os88_pin`,
   `cvx_probe` and the `snd_upnm` it falls into, the PicoMEM's bring-up and
   undo (`pm_init`, `pm_cmd`, `pm_wait`, `pm_undo`) and `mix_probe`. They run
-  inside `DRVV_ATTACH` and never again, on EVERY machine. **The Sound Blaster
-  probe is not among them**: `DRVV_TIER` re-runs `sbl_attach` all session, so
-  `sb.inc` stays whole.
+  inside `DRVV_ATTACH` and never again, on EVERY machine. **So, since
+  §34.5.7, are the Sound Blaster's scan, IRQ discovery and 16-bit channel
+  test** (`sb.inc`'s `SBL_ONCE`, through `sbl_find`) **and the attach body
+  itself** (`snd_attach`): `DRVV_TIER` re-runs `sbl_attach`, but that only
+  resets the DSP at the base the scan settled and hooks the line the
+  discovery settled - it asks the hardware nothing new.
 - **the mixer verbs (7–9), the speaker icon (10, 12) and the volume popup
   (11)**, dead on every machine whose attach found no readable mixer: the PC
   speaker, an AdLib alone, a Covox, an MPU-401, a Sound Blaster older than the
@@ -71824,11 +72016,16 @@ claim to it before the tier and `DRVV_READY` calls (§51.1.3):
 
 | build | no mixer (`snd_keep`) | a mixer (`snd_keepmix`) |
 |---|---|---|
-| shipped (PicoMEM in) | 6,579 bytes: **11KB → 7KB**, 589 under the rung | 10,124: **11KB → 10KB**, 116 under |
-| `NOPICOMEM=1` | 6,373: 11KB → 7KB | 9,918: 11KB → 10KB |
+| shipped (PicoMEM in) | 6,681 bytes: **12KB → 7KB** | 10,226: **12KB → 10KB** |
+| `NOPICOMEM=1` | 6,501: 12KB → 7KB | 10,046: 12KB → 10KB |
+
+(Measured 2026-10-30, after §34.5.7; the table first carried 6,579 and
+10,124 against an 11,151-byte image, and the image had grown to 7,501 and
+11,046 kept by the time §34.5.7 took the Sound Blaster's attach-only half.)
 
 The attach-only bodies are defined as macros (`MPU_ONCE`, `CVX_ONCE`,
-`PM_ONCE`, `MIX_ONCE`) and expanded where their files put them unless
+`PM_ONCE`, `MIX_ONCE`, and `sb.inc`'s `SBL_ONCE`, which SOUND.DRV alone
+includes and so expands unconditionally) and expanded where their files put them unless
 `SND_SPLIT` is defined - which SOUND.DRV does, expanding them past
 `snd_keepmix` - so `picomem.inc`'s other includers (`tests/picomem/`,
 `tests/vidbench/vidsnd.asm`) assemble exactly as before.
@@ -81353,7 +81550,8 @@ The claim is `mem_bytes_kb_x` of the image, and the image had drifted to
 386 with memory above 1MB: §41.13's LOADALL took 1,156 -> 2,021, §41.15
 2,041, `XMV_WALK` (§41.16) 2,098 - the crossing - and §28.4.13's HMA walk
 2,239. Three moves bring it to **2,042**, 6 bytes inside 2KB, no kernel byte
-and no behaviour change:
+and no behaviour change (§28.4.11's `XMW_LONG` refusal then took it to 2,051,
+across again, and `xm_walk`'s record copy brought it back to **2,041**):
 
 | move | image |
 |---|---:|
@@ -81475,6 +81673,27 @@ left then (6 now, §41.12.6), so measuring there is a KB of every 286 and 386's 
 in the include it costs no resident byte and no ABI, and it is the os88la.inc
 shape - written once, assembled by each caller. The Video Player is the first
 (98.3.18.12).
+
+#### 41.14.1 The sixteenth was a shift by zero (2026-10-28)
+
+**From 2026-10-25 to this fix `xg_gap` answered 0 on every board.** Its
+threshold is `t0 - t0 >> 4`, and the shift read CL "still 4" from the DS
+shift that computed C. When the scratch claim replaced DS:0 as the copy's
+conventional end (KERN-MEGA-MEMORY-PLAN MC7), C came from `OSAPI_SEG`
+instead and CL arrived as the claim's `xor cx, cx`: the threshold was 0, no
+count is at or below 0, and the answer was "no preference". The measurement
+itself was right - its counts are saved in a `VPDIAG=1` profile, and the
+Victory's read `0 3546, 2K 1973 (0.56)` beside `G = 0`.
+
+Reported off the owner's Victory 286 with a PicoMEM V1, on kern_big: the VGA
+demo videos that played smooth when they shipped (T69) paused on every play.
+The bank's copy up is the reader's whole cost there, and at 0 apart it is
+1.8x the placed one, so the reader fell behind: `Lead 1`, 72 pauses, every
+one the stream's, with the draw at half the period. A/B on the machine, one
+part of the T69 release at a time on today's disk: its `SOUND.DRV` and its
+`HDD.DRV` changed nothing; its `VIDEO.O88` alone played clean (`G = 2048`,
+0 pauses, 0 late). The fix sets CL where it is read, two bytes in each
+caller (`VIDEO.O88`, `VIDDISK`).
 
 ### 41.15 Tier 2's loaded bases (2026-10-16)
 
@@ -102710,7 +102929,10 @@ a volume with `KERNEL.SYS` on it, and a copy of a volume onto itself replaces
 each file with its own first chunk), and **the system disk is looked for in
 every floppy drive**, lowest first, where it was A: alone — a machine that
 boots its hard disk has a blank in A: or nothing, and the new system disk in
-whichever drive the BIOS was not reading. The apps phase takes the same
+whichever drive the BIOS was not reading. A source `HDI_GO` NAMED (117.10.5)
+is the one exception: it is the only volume asked, so a network tree with no
+`KERNEL.SYS` is refused before the format rather than replaced by whatever
+floppy is in A:. The apps phase takes the same
 destination guard. The caption for a disk it cannot find reads `No system
 disk found - nothing done`.
 
@@ -105648,7 +105870,7 @@ choices in it are the load-bearing ones:
 
 - **`assoc_app_of`, not `asc_slot_of` — find, never create.** A slot only
   matters if some extension points at it, and the kernel's table is
-  `ASSOC_NAPP` = **16** rows against a disk that may cache 55. Creating a
+  `ASSOC_NAPP` = **16** rows against a disk that may cache 90. Creating a
   slot per package would evict the associations this exists to serve.
 - **After `asc_merge_ext`**, so a package that *declares* its extensions
   (§54.6) has already been given its slot and is found here like anything
@@ -106018,16 +106240,18 @@ floppy every package's first sector is on a track of its own, so a
 re-read of twenty headers would miss §18.95's cache for all but the last
 few, at ~400 ms a call.
 
-So the harvest keeps them, **in the store's own claim**: 60 rows of 82 bytes
-are 4,920 bytes of a 5,120-byte claim, and the capture is the tail:
+So the harvest keeps them, **in the store's own claim**, at its HEAD - it was
+the tail, in the KB rounding past row 59, until §25.9.6 made the store grow
+off its end:
 
 | offset | |
 |---|---|
-| `ICO_CAP` = `ICO_NROW * ICO_ROW` | `ICO_CAP_MAX` = 11 records of `ICO_CAP_RSZ` = 17 bytes: the store row the record is for, then the header's association block verbatim (count, then 5 x 3 extension bytes) |
+| `ICO_CAP` = 0 | `ICO_CAP_MAX` = 11 records of `ICO_CAP_RSZ` = 17 bytes: the store row the record is for, then the header's association block verbatim (count, then 5 x 3 extension bytes) |
 
 (It was an 11-byte row array and eleven 16-byte records after it until kernel
 size pass 13: one stride makes a record one `mul` and its row one `stosb`,
-and 187 bytes fit the same 200 the array and its pad took.)
+and 187 bytes fit the same 200 the array and its pad took. Row 0 is
+`ICO_RBASE` = 188, the record area rounded even.)
 
 How many records are held is **`[ico_capn]`**, a resident byte right behind
 `[ico_n]`. The store that empties the store is a word store that empties the
@@ -106185,6 +106409,41 @@ system disk still 347 of 354 clusters.
   step 7 writes nothing.
 - **The file lands where the FAT allocator puts it** (§54.7.5's last
   paragraph).
+
+### 54.7.7 The reader's claim is the FILE'S size, and the cap is the largest file
+
+`asc_use` used to claim `ASC_KB` whatever the volume held, so a floppy with
+three programs read a 1KB file into a 5KB claim, and the cap that claim set -
+`ASC_NAPP` 55 - was what a busy volume ran into. An install of everything not
+retired puts about **64 packages on one hard-disk volume** (counted off the
+live-media payload, §80.6), which is nine past it, and every package past the
+cap is harvested the slow way at every mount: a sector read apiece, ~400 ms
+of `int 13h` each on the target machine.
+
+So the two questions are separated. **The claim is the file's own size**,
+rounded to a kilobyte: the root walk runs FIRST, finds the file's sector
+count, and only then claims `(sectors + 1) / 2` KB. A file is written with
+exactly its used rows (§54.7.6.4), so a sparse disk's cache costs a sparse
+disk's claim. **`ASC_KB` is now the LARGEST file a build writes and reads** -
+8KB, which holds `ASC_NAPP` = **90** app rows and `ASC_NEXT` = 64 extension
+rows (90 x 88 + 16 + 64 x 4 = 8,192). A file past it is refused rather than
+read, exactly as before, and every other test on the bytes is unchanged: the
+counts must fit the bytes actually read, which now are the claim.
+
+**The one claim still sized from the cap is the flush's** (`FORMAT.DRV`,
+§54.7.6.4): an old-file buffer and a new-file buffer of `ASC_KB` each, now
+~18KB of transient work claim where it was ~12KB. It is held only for the
+flush and freed before it returns; sizing it from the counts is the follow-on
+if a busy heap starts refusing flushes.
+
+It cost **13 bytes of `.cold`**, resident: the claim moved below the root
+walk and takes its size from the sector count. `kern_small` has no
+`ASSOC.DAT` and is byte-identical.
+
+**An older kernel refuses a file past its own `ASC_KB`**, so a 90-row cache
+on a disk taken back to one is no cache at all there - slow and correct, the
+same answer as a missing file - and a file of 55 rows or fewer reads the same
+on both.
 
 ### 54.8 Accepting the document: five apps, and the three traps between them
 
@@ -110140,6 +110399,30 @@ the rest, and a second round took `filecp.inc`'s six (`FILECP.DRV` 1,936 ->
 the refusing dispatchers `drv_fs_call`/`drv_svc_none`/`drv_blk_call_x` and
 `drv_fs_has`, so those stubs are gone from this build: a redirected arm
 added here later fails to assemble instead of calling a refusal.
+
+##### 62.9.2.4 …and a driver whose transfers take a SELECTOR is not bounced (`FSCAP_SEL`)
+
+On kern_mega a transfer verb (`FSV_READ`, `_WRITE`, `_APPEND`, `_READAT`)
+whose buffer is a POOL selector - an `OS88_HIGH` package's segment, an
+`OS88_HIGHMEM` claim, the copy engine's buffer - is moved 512 bytes a call
+through `dsk_secbuf` (`drv_fs_hi`), because the RAM disk, the cable and the
+CD fold their destination with paragraph arithmetic, which on a selector
+names some other descriptor. That is right for them and ruinous for a
+volume on a WIRE: each piece is a call of the driver's own, and an
+`HTTPFS.DRV` `FSV_READAT` is one GET, so a 100,001-byte copy was **196 GETs
+over 195 connections** and a package launch four, where kern_big makes two
+on one kept connection (§122.2.1).
+
+So a `DRVC_FILE`-shaped driver may set **`FSCAP_SEL` = 4** in `DSV_CAPS`:
+*my transfer verbs load DX into a segment register as it is and walk only
+the offset*. `drv_fs_call` asks it after the selector test and passes the
+call through unsplit. `HTTPFS.DRV` sets it - `hf_bnorm` already asks the
+mode and folds nothing in protected mode (KERN-MEGA-PLAN 14.87) - and no
+other driver does. Only kern_mega reads the bit; the caller's buffer is
+inside its 64KB exactly as it was for the bounce, which advanced the offset
+alone too. Cost: kern_mega `.cold` +12 bytes, `HTTPFS.DRV` +0 (a cell that
+was 0); kern_big and kern_small byte-identical. `mega-httpmount` is the
+gate: red with the bit clear.
 
 #### 62.9.3 The branch sites, and the order to build them in
 
@@ -133728,15 +134011,21 @@ released when the kernel's teardown says the instance has gone.
   per verb. DOS's `DOSNET_CARD` test arm, which stands in for the cable, asks
   `NETV_STATE` before its arena is taken, as NET.DRV holds its buffers from
   load. Without that it read a largest free run of 0KB. **A claim inside a
-  verb may not move anything.** A worker's claim is plain first fit anyway
-  (§66.3.1, as `sbl_v_grant`'s is). A UI-task caller's would compact, though,
-  and the caller may hold a claim's segment in a register across the verb:
-  DOS's `NETV_RECV` target, or its arena under a running program. The first
-  build let a claim compact, and DOSPKT.COM's first `NETV_RAW` hung the
-  machine exactly that way. So `sk_try` never asks for more than the largest
-  free run (`sk_lrun`, read once per claim): it takes a smaller rung rather
-  than moving the heap. A refusal is the same "no ring" the socket reports
-  today.
+  verb can move the heap.** A worker's claim is plain first fit (§66.3.1, as
+  `sbl_v_grant`'s is), but a UI-task caller's compacts and sheds when first
+  fit fails, and the kernel gives a driver no first-fit-only door. So a
+  slot's first non-raw verb, and a socket open that finds no pool, is a call
+  that can claim, and §66.3's second author rule binds its caller as it does
+  around any other: re-read a movable claim's base after it. The first build
+  claimed on any first verb, and DOSPKT.COM's first `NETV_RAW` compacted the
+  heap under DOS's arena and hung the machine; the raw verbs never claim now,
+  which is what keeps a running DOS program's arena still. `sk_try` never asks for
+  more than the largest free run (`sk_lrun`, read once per claim), but that
+  is not a first-fit bound: `OSAPI_MEM_AVAIL`'s run is the one a compaction
+  and a shed would leave, so a rung under it can still move the heap. What
+  the bound buys is that a rung the heap cannot serve at all is never asked
+  for, since a refused claim has compacted and shed every cache on its way
+  to CF = 1. A refusal is the same "no ring" the socket reports today.
 - **When it goes back.** When no slot's bit is set *and* no ring is out
   (`sk_idle`, from `sk_ring_put` and from teardown). Both halves are needed,
   because a call from an entry proc carries slot 0xFF (`inst_caller` has no
@@ -133755,8 +134044,8 @@ released when the kernel's teardown says the instance has gone.
 What it costs: `kern_big` gains the class compare and the teardown call
 (`kern_small` has no driver layer and is unchanged). `ETHER.DRV` gains the
 bookkeeping and loses `eth_buf_apply`. The time cost is one claim per first
-network session, a walk of the claim table and never a compaction. On a
-fragmented heap the price is a smaller rung, not a moved heap. Memory can no longer
+network session: a walk of the claim table, and on a fragmented heap the
+compaction the claim needs, as any UI-task claim takes. Memory can no longer
 refuse the attach, so a machine short of heap now loads the driver and
 refuses at the first connect instead.
 
@@ -135798,6 +136087,35 @@ nothing that runs per pass was given anything to do.
   `fd_step`'s `.waiting`, reached only while the worker is waiting on the UI
   task and doing nothing else - its two `jmp .done`s became SHORT jumps
   when the session code above it moved out into `fd_session`.
+
+### 77.53 An active-mode data socket that is already CLOSING is a connection
+
+`fd_data_ready` decides when a PORT transfer's socket may be used: `NSK_UP`
+is ready, `NSK_CONNECT` is not yet, and it treated **every other state as a
+failure** - dropping the socket and setting `[fd_xf]` to `FX_NONE` **without
+a reply**. A client that STORs a small file is done inside one window: it
+accepts the connection, sends, and closes, and its FIN is the end-of-file. If
+all of that lands before the worker's first poll after the 150, the socket
+goes `NSK_CONNECT` -> `NSK_UP` -> `NSK_CLOSING` without the server ever
+seeing it UP, and the upload was thrown away while the control connection
+sat waiting for a 226 that nothing would send. The session stayed `serving`
+until the client gave up.
+
+It is a race on the relative speed of the two ends, so it reads as a flake:
+`tests/ftpd.py`'s 8b (four 1,028-byte active STORs) failed once in a full
+soak, and a loop of 7's PASV LIST plus 8b's two STORs under CPU hogs lost
+**7 STORs in 680**, each with the guest's clock running all 30 seconds the
+client waited (29.8 guest seconds of 30.2 host) - a server that was running
+and had forgotten the transfer, not a slow one: `[fd_xf]` and `[fd_dmode]`
+both zero, nothing created, and a debug build's store at `.failed` read
+`NSK_CLOSING` both times. With the fix the same loop lost **0 in 304**.
+
+Two changes. **`NSK_CLOSING` is a connection**: the readable bytes are still
+there, and §77's receive stage already drains a closing socket to CX = 0
+before it finishes, which is what netpkg.inc says end of stream is. And the
+failure that remains (`NSK_FAILED`, `NSK_CLOSED`, a driver error) **answers
+425** through `fd_xfail` - abort the data socket, forget the transfer, say
+so - instead of leaving the client to time out.
 
 ## 78. WIREFRAME — a rotating solid, drawn only with lines (`apps/wire/wire.asm`)
 
@@ -167826,8 +168144,8 @@ RECORD i, 256 bytes at 32 + 256*i
  +253 1   WC_NEEDW: the oldest Wire that can INSTALL the record - 1 for a
           plain record or a version 1 archive, 2 for a version 2 archive
           (92.13.1), 3 when a package the record installs far-calls an
-          API cell at or past 0x046D (the cell fence, below); the highest
-          that applies. 0 is "no claim"
+          API cell at or past 0x046D, 4 at or past 0x04A5 (the cell fence,
+          below); the highest that applies. 0 is "no claim"
  +254 2   zero
 
 SIDECAR TABLE entry j, 16 bytes at (header +10) + 16*j
@@ -167845,7 +168163,7 @@ WC_PKGFMT with ITS OWN `PKG_FMT`, which needs nothing from the kernel: a
 running package's format IS the kernel's, or the loader would not have
 started it (§20.2.0). Higher greys both buttons with `Needs a newer os8088 -
 update the system disk`, lower with `Made for an older os8088`; a WC_NEEDW
-above `WIRE_LEVEL` (3) greys them with `Needs a newer Wire - update the
+above `WIRE_LEVEL` (6) greys them with `Needs a newer Wire - update the
 system disk`. 0 in either is a catalog from before the bytes and is not
 judged. **Every Wire released before these bytes reads none of them** - the
 reader never looked past +252 - so the bytes protect machines from the
@@ -167874,6 +168192,9 @@ the true sentence for it too. The rows are `WIRE_CELL_LEVELS` in
 | level | a package that far-calls a cell at or past | fenced from | first Wire at the level |
 |---|---|---|---|
 | 3 | 0x046D | every level-2 Wire at `PKG_FMT` 10: v1.0.20261014 (its table ends at 0x046D) and v1.0.20261019 (0x0499) | v1.0.20261020 |
+| 4 | 0x04A5 | the level-3 Wire, v1.0.20261020 (its table ends at 0x04A5): PiXEL calls `OSAPI_GFX_BLITD` (0x04AB, §120), 1942 `OSAPI_MEM_CODESEL` (0x04B9) and PIXELSTEIN 3D and Skies `OSAPI_MEM_SUBSEG` (0x04D1) | v1.0.20261025 |
+| 5 | 0x04D7 | the level-4 Wire, v1.0.20261025 (its table ends at 0x04D7): the Task Manager calls `OSAPI_IMG_NAME` (0x04D7) and INSTALL `OSAPI_ARG_TEXT` (0x04DD) | v1.0.20261026 |
+| 6 | 0x04E3 | the level-5 Wire, v1.0.20261026 (its table ends at 0x04E3): `OSAPI_SEG` (0x04E3, §50.6.11) is called by every package carrying the parts library (`apps/os88partsbody.inc`), by PiXEL, PIXELSTEIN 3D, REDLINE and the Tracker | the release after v1.0.20261026 |
 
 **A row's cell is the table end of the OLDEST kernel the level fences, not
 of the last release.** Two releases share `PKG_FMT` 10 and both Wires are
@@ -167881,7 +168202,7 @@ level 2, so one byte has to hold both back, and the older table is the one
 that decides. That over-fences a v1.0.20261019 machine for the cells
 0x046D..0x0498 it does have - TeXpad and FTPD read `Needs a newer Wire`
 there and would have run - which is the safe side of a one-byte test.
-`WIRE_TABLE_END` (0x04A5) is the end of the table the TOP level's kernel
+`WIRE_TABLE_END` (0x04E9) is the end of the table the TOP level's kernel
 has. **A call at or past `WIRE_TABLE_END` is refused** by `--verify
 --pkgdir`, because no Wire in the field can be told about it: the release
 that first publishes such a package adds a row (the next level, its first
@@ -178917,13 +179238,16 @@ of zero, so no `BLASTER=` is written at all. A variable naming a card that is
 not there sends a program to reset a DSP that will never answer — a hang,
 where its absence is a fallback. That is §96.15.1's argument one device along.
 
-#### 96.17.1 The IRQ is usually not known, and that is the driver's design
+#### 96.17.1 The IRQ is known since the attach, and omitted when it is not
 
-`sbl_irq` starts at `0FFh` and the Sound Blaster driver **defers IRQ discovery
-to first use** (§34.5): the line is learned by provoking an interrupt during
-the first stream, not by probing at attach. So a machine that has booted and
-not yet played a sound genuinely does not know which line its card is on —
-which is the *common* case at the moment a DOS program is launched.
+**Since §34.5.7 the Sound Blaster driver discovers its line at the attach**,
+so `[sbl_irq]` names it whenever the DSP tier is up and a DOS program's
+`BLASTER=` carries `I`. Until then the discovery was deferred to the first
+stream, and a machine that had booted and not yet played a sound genuinely did
+not know which line its card was on - the *common* case at the moment a DOS
+program is launched, and the reason the rule below was written. It still
+binds: `DRVV_HWINFO` answers the base of a card whose tier was refused (no
+usable line, §34.5.6), and `[sbl_irq]` is `0FFh` there.
 
 `BLASTER=` therefore carries the `I` field **only when there is one to carry**,
 and omits it otherwise. A variable naming the wrong line sends a program to
@@ -178933,7 +179257,9 @@ own the guess. That is §96.15.1's argument for the third time in this section,
 and it keeps arriving at the same answer: **a confident wrong number is worse
 than a missing one.**
 
-**The alternative was considered and not taken.** `DRVV_HWINFO` could call the
+**The alternative was considered and not taken** (and §34.5.7 has since made
+it moot, the discovery being an attach-only routine that is not resident when
+the question is asked). `DRVV_HWINFO` could call the
 driver's own `sbl_f_irqdisc` and force the discovery, since it is asked exactly
 once and the driver is about to be unloaded anyway. It is refused because that
 routine is reached from inside a stream open with the ring already sized, hooks
@@ -192170,7 +192496,10 @@ period for the restore against 127% for the frame on Last Exile, Mode X).
   next record is drawn on the same page, against what it left.
 - **The record after a KEY** carries **`REC_UP`, y1 bit 12**: before its
   lists, its page takes the record's rows y0..y1 off the glass, every plane
-  through the latches (98.3.8.1's copy). A seek puts the key on both pages;
+  through the latches (98.3.8.1's copy). **So may any other record**
+  (2026-10-27): the one after a flip to a page built ahead carries it to
+  bring the page the flip left up to the glass (98.2.5.2.1), and a reader
+  and the player take it on any record exactly as they do after a key. A seek puts the key on both pages;
   a play through the key has the frame before it on the page drawn next -
   so the writer widens that record's band to every row where the two pages
   differ, and after the copy the page IS the glass, byte for byte, either
@@ -194564,7 +194893,9 @@ stretch is more than that broken as seen, and its frames are cut as the
 budgets cut them; it changes how the rungs before it are judged and draws
 nothing new, so a cut rung's try is the one before it, not encoded
 again). Where
-the budgets would cut a stretch, or at a scene's first frame, each PREFIX
+the budgets would cut a stretch, or at a scene's first frame (a flipped
+file's palette frame too, every prefix at the full rate there: 98.2.5.2),
+each PREFIX
 of the ladder is encoded on copies of the encoder over the next half
 second - its slowest rate, its longest lag and its cells together - and
 the first that shows every frame WHOLE - or, at or past a cut rung, none
@@ -195544,7 +195875,14 @@ Options version 26 takes a version-25 record's flag as `on` or `off`.
   pages leave nothing to build on and it does not run. It was refused with
   `--flip` outright until then, a rule written before 98.2.1.8.5 existed, so
   a flipped file was built ahead only with `on`.
-  Everywhere else `auto` is one plain pass, as before.
+  Everywhere else `auto` is one plain pass, as before. **The plan pass is
+  made as asked, `--flip-own` included** (2026-10-28): only the real pass,
+  the one with a plan, gives a file against its own page up for
+  PageAheadF's. From 2026-10-26 the plan pass read page-ahead as on, so an
+  auto that declined shipped a plain flipped file for a `--flip-own` ask -
+  the owner's Ikaruga re-encode, 2 MB smaller and pausing on the Victory,
+  every record against the frame before and the back page brought up each
+  frame. `tests/videnc.py` 5k has the leg.
 - **Where it applies, the plan pass IS the plain encode, and its file is
   kept.** Both passes' reports are held (`_Held`), the encoder window's
   PROGRESS lines going straight through. **The view as seen decides**
@@ -196279,6 +196617,59 @@ ever. `tests/videnc.py` 5c.2 is the gate: a flat level is one level
 a ramp reaches every level with solid ends, and a Mode X file made with
 grey4 uses indices 0 to 3 and carries the ramp.
 
+##### 98.2.3.8 `--kernel mega`: kern_mega's disk (2026-10-29)
+
+**A file made for `286-picomem1` ran its bank dry on kern_mega and not, as
+a rule, on kern_big.** Replaying a play's own reads through the profile's
+curve settles which of the model's inputs is wrong: each frame's MEASURED
+share of its period (the play's VPPROF, 98.3.22) fed to `disk_at`, the
+records' bytes spent, the bank as the file was made for (2,944 KB, full at
+the first frame). For kern_big the replay runs dry within 2% of where the
+machine did - Catch My Heart at frame 1371 against 1312, Sonic 2 at 737
+against 733 - so the curve holds there. For kern_mega the same replay only
+runs dry where the play did with the disk at 475,000 (Catch) and 455,000
+(Sonic): 0.915 and 0.877 of the curve. Every read is a reflected `int 13h`,
+a CPU reset on a 286 (KERN-MEGA-PLAN 14.73), and so is every card block
+interrupt (98.3.22.5).
+
+So the profile carries `mega_disk` = 0.88, the worse of the two, and
+`--kernel mega` scales its disk by it before an explicit `--disk` is
+applied, which names the rate on whichever kernel it says. `--kernel big`
+is the default and changes nothing. A profile without `mega_disk` is
+unmeasured under kern_mega, and `--kernel mega` leaves it as it is. The
+encoder's bank model spends where the bucket allows, so the cut lands where
+the bank would have run dry and nowhere else, and a file made for kern_mega
+plays on kern_big too. Options version 50 (`kernel`, `big` for every older
+record).
+
+Why a lower `--disk` alone changed nothing: Catch at 488,000 came out byte
+for byte the 519,000 file but for its options block, because the model's
+bank never emptied at either - its share ran ~4% under the diagnostic player's, and
+the margin in the bucket was 1.8 MB at 519,000 and 0.5 MB at 488,000.
+
+`mega_disk` was measured on players WITHOUT the two tiers (98.3.18.18),
+which skip the copy up in exactly the stretches it was measured in, so it is
+an upper bound on what kern_mega costs a file and is to be re-taken from
+plays of a tiered player.
+
+##### 98.2.3.9 `xrd`: the in-place reader's own cost (2026-10-29)
+
+**Catch My Heart at 519,000 and at 488,000 came out the same file** because
+the encoder's bucket never ran low: re-encoded from its source with the
+encoder of the day, byte for byte the owner's but for the options block, its
+lowest level anywhere was **2,551 KB of 3,040** - where the machine's bank
+ran empty at frame 1312. The model's per-frame share ran ~2 points under the
+plays' measured ones, which is not that gap; the reader's rate is. In place
+it charged the copy up alone, `xup` 0.186 ms a KB (placed at the gap,
+98.3.18.12), and the plays' timed reads replayed through the curve run dry
+where the machine did only with 0.345 charged on every chunk. The rest,
+0.159 ms a KB, is the reader's own work on a chunk past the copy - the
+bounce, the mirror, its loop - and the profile carries it as `xrd`, charged
+on every chunk in place; the copy is still skipped by the two tiers
+(98.3.18.18). Replayed: kern_big's Catch keeps a 624 KB margin at 519,000
+(it cuts nothing, as before), and `--kernel mega` runs 1,238 KB short, which
+the bank model now cuts for in the stretch it drains in.
+
 #### 98.2.4 Detail: less picture, the same screen
 
 **`--detail WxH`** (VGA8) makes the picture at a W-th of the canvas's width
@@ -196606,6 +196997,84 @@ reaches the player, the format or the kernel.
   the nearest of its whole palette. A ladder's `coarsescene` rung follows: it is
   offered on Mode X (`auto`, `4x1`) and on VGA4 with or without a palette a
   scene, and left out on a packed screen.
+  **On a FLIPPED file with a palette a scene, and on BOTH of its pages
+  against its own (2026-10-27, the owner: a near full-screen scene change
+  on Miku Miku 0:41.8 that "cuts in" for ten frames and would not "block
+  in" whatever was set).** Two defects, each enough alone. (1) A flipped
+  file holds no frame its palette changes at - the palette goes on with
+  the flip, onto the picture shown - and the guard that kept the HOLD out
+  kept the whole LADDER out, so the scene's first frame, the one frame
+  `coarsescene` exists for, never climbed it and the rung never drew a
+  cell. With a ladder the frame climbs now, every prefix at the full rate
+  (`degrade_choose`'s `nohold`: its lag and its cells, no `slow`); with
+  `--min-fps` alone it is skipped as before, a rate being all that has to
+  offer. (2) With `--flip-own` (VIDEO-SEEN-PLAN 3b) each record is drawn on
+  the page the glass is NOT showing, as it stands - so the frame after the
+  scene's first is drawn on the page that still holds the scene before,
+  and cells on one page with a cut on the other alternated on the glass,
+  the old scene flashing back every second frame. So the scene's cells go
+  on the frame after too, where the budgets would cut it (`own_cells`, 2
+  on two own pages and 1 elsewhere, a plain flip bringing the back page up
+  to the frame shown), in that frame's own finest cell that fits; the
+  ladder's trial draws both, so the rung is judged by the picture it makes,
+  and `--coarse-cut` without a ladder does the same. On the owner's clip,
+  `--ladder coarsescene:frame`: the scene's first frame 32x8 and the next
+  64x8 where both pages had cut in from the old scene before. `tests/
+  vidowncells.py` is the gate.
+  **Blocks (98.1.10) are not a way to block a scene in on a machine whose
+  DECODE binds**, and the encoder is right not to take them there: on
+  VGA4 a block is ~740-840 cycles for its 32 pixels (`BLK_MEASURED`, the
+  player's own) against ~12 a pixel for the same pixels exact by planes,
+  so a whole new scene in blocks costs MORE than the scene exact - on that
+  clip 4.54M cycles against 2.00M exact and 0.74M in 32x8 cells, in a
+  frame's room of 0.85M on the 286-picomem1, which is cut by the lag
+  schedule and not by the disk. Blocks buy BYTES; where the CPU cuts, the
+  cells are the coarse picture that fits.
+
+###### 98.2.5.2.1 A scene BUILT AHEAD on a flipped file (`--flip-build N`, 2026-10-27)
+
+**The owner's ask, after 98.2.5.2's cells**: *"page flipped when we can
+afford it, and for big scene changes fall back to single page, with the
+other page being built ahead"* - so a scene change comes in WHOLE rather
+than in cells. What shipped needs no single page at all, no new record
+and no player change, because a file against its own pages (98.1.3.10)
+already has both halves: a HELD record is drawn on the page the glass is
+not showing and not shown, the next drawn on the same page; and REC_UP
+copies rows off the glass onto the page about to be drawn, through the
+VGA's latches. Options version 48; `0`, off, is the default.
+
+- **WHERE**: a file `--flip --flip-own` with `--flip-hold ahead` and
+  `--scene-palettes` - the palettes are where the scenes are - on two
+  pages. Anything else says so and leaves it out.
+- **THE HOLD**: at a frame with a scene's first frame `k` at most N frames
+  on, the encoder tries on copies of itself (`build_try`) drawing every
+  frame to `k` as it would, then 1, 2, ... frames before `k` HELD - each
+  drawing `k`'s own picture, in `k`'s colours, onto the page the glass is
+  not showing - and takes the FEWEST that show `k` whole. None needed (the
+  scene fits as it is) and none enough (`k` still cut after holding every
+  frame there is) both leave the scene to the ladder and the cells. The
+  glass stays on the last scene through the held run: a still picture
+  there costs nothing to see, a moving one is held for that many periods.
+- **THE FLIP**: `k`'s own record is the rest, if any, and shows the page -
+  its sixteen go on with the flip as any flipped scene's do (98.3.8.3).
+- **THE PAGE LEFT BEHIND** still holds the last scene, so the record after
+  `k` carries REC_UP over every row where the pages differ, as the record
+  after a key does: the glass's copy, then that frame's own change against
+  it (`own_next`). A full 640 x 276 canvas is ~0.93M of the model's cycles
+  on the 286-picomem1 (its `lcopy_us`, 42 a plane byte), so on a machine
+  whose decode binds that frame shows `k` again and the motion resumes the
+  frame after - one repeated frame where cells would have been five.
+- **MEASURED** on the owner's Miku Miku 0:41-0:44 (`--ladder
+  coarsescene:frame --flip-build 8`, otherwise their command): the white
+  scene's last frame held 2 periods, the new scene WHOLE on its flip and
+  the second scene change after 1; error as seen 1.06% -> 0.59%, the view
+  as seen 18.1% -> 12.6% broken on average, 92 frames verified. The report
+  names each scene built, its holds, and any still cut on its flip or out
+  of reach.
+- **The gates**: `tests/vidowncells.py --leg build` (host side: built,
+  held, whole on its flip, REC_UP after it - red with the copy left out and
+  with no hold ever built) and `tests/vidscreen.py --build` (MartyPC: the
+  player across a held run, the flip and a REC_UP that follows no key).
 
 ##### 98.2.5.3 What the sixteen-colour options take together (the options audit, 2026-10-14)
 
@@ -196661,6 +197130,49 @@ a one-bit file of the same size.
 `videnc` checks both lossless, frame by frame, and CGA4's byte against the
 three overrides; `os88vid --selfcheck` round-trips both and refuses three
 bad files.
+
+##### 98.2.6.1 What CGA's colours may mix (`--colour-mix`, `--colour-clip`, `--edge-solid`, 2026-10-27)
+
+**A pattern over four colours mixes OPPOSITES.** 98.2.5's plan picks colours
+whose mean is the target, and on CGA4's most-picked palette - black, light
+cyan, light red, white - **light cyan and light red average to a grey**. So a
+grey comes out as cyan and red dots, and a blue the palette's cyan does not
+quite match is corrected with red. On an RGB monitor that reads as coloured
+dots, never as the colour in between. `--clip` could only stop it by making
+everything near a colour solid, and a mid grey is NEARER light red (141
+levels) than black or white (221), so a high clip painted greys red and took
+the black-and-white grey dither with them - which is the half that works.
+Three options, CGA4 and C160 only (`KnollDitherer`), each off by default so a
+file re-encodes as it was:
+- **`--colour-mix hue`** limits each pixel's plan. The palette's GREYS
+  (chroma, max - min channel, under 48 of 255) are always allowed; a COLOUR
+  only within 60 degrees of hue of a pixel at least 40 from grey, so cyan and
+  red never meet in one plan and a grey pixel mixes black, white and the
+  greys between. And a coloured pixel's tone is ONE grey's: the greys darker
+  than its nearest colour where the pixel is darker, the lighter ones where
+  it is lighter - so a light edge of a colour mixes in white and never black
+  as well. A pixel with nothing allowed (no grey in the palette, no hue near)
+  may use any. The plan's colour bits are the allowed colours', so the
+  source-stable hold (98.2.5) cannot keep a colour the rule forbids.
+- **`--colour-clip N`** is `--clip` for the palette's COLOURS, `--clip` then
+  the greys' alone: within N on every channel of the plan's first (nearest
+  allowed) colour, a pixel IS that colour. 255 never dithers a colour, which
+  is *dither only grey*: flat colours solid, greys still black and white.
+  Its default is `--clip`'s, which is the rule before it.
+- **`--edge-solid N`**: a pixel whose source's 3 x 3 spans more than N levels
+  on some channel (its RANGE, high less low, so the middle of a blend is an
+  edge as well as its ends) is its nearest colour, never a dot. A pattern
+  needs an area to be seen, and an anti-aliased letter's one- or two-pixel
+  blend into the ground was cyan, white AND black dots around every solid
+  letter. 48 suits cartoons and titles; on camera footage texture reads as
+  edge and flattens, so 0 is the default.
+
+Measured on the clip that asked for it (a 60-second anime title sequence,
+palette 50h, a moving two seconds at 15 fps, the hold off): changed bytes a
+frame 571 at `--clip 128`, 556 with all three at `hue` / 255 / 48 - so the
+look costs nothing in the stream. The default arm is BYTE-IDENTICAL in its
+picture to the encoder before it (the options record grows by the three);
+the record is version 49.
 
 #### 98.2.7 A resident or Live file from a video (`--resident`, `--live`)
 
@@ -199003,6 +199515,10 @@ record is not held to `VP_PREVKB`. Open refuses byte 37 7 with a loop.
   screens: the glass exact at every hold, odd and even frames apart, keys
   among them. With `REC_UP` ignored the Mode X arm FAILS before frame 38
   (480 pixels): its page was the frame before the key, not the key.
+  `tests/vidscreen.py --build` is `REC_UP` on a record that follows NO key
+  (98.2.5.2.1): three records held toward a scene change, the flip, and
+  the copy after it - `vp_owndec` tests the bit on every record, so it
+  needed no change.
 
 #### 98.3.9 Repeat
 
@@ -199843,6 +200359,28 @@ clip's writes to the file's own bytes.
 10, `vp_mdet`'s test 5, the info line 8 and its string 8, and the period's
 rounding 0 (it reads another byte of the same image); no kernel byte, no
 change to `os88spk.inc`.
+
+#### 98.3.15.2 The kern_mega arm's shaper, a part (2026-10-29)
+
+The kern_mega arm (`PKG_MEGA`) outgrew `APP_MAX_SIZE` when the two tiers
+(98.3.18.18) went in: 478 bytes of headroom against ~800 of code. The
+speaker shaper (`apps/os88spkfx.inc`, 34.11.9), 2,394 bytes of the arm, is
+its one subsystem with a three-call interface and no state the player
+reads, so the arm carries it as PART 2 of `VIDEO.O88` (`apps/video/vfx.asm`,
+OP_SEG | OP_COMP | OP_LAZY, 1,428 bytes packed) and far-calls it through
+`video/vfx.inc`'s vectors; the shipped build includes the shaper as it
+always did. What the include reads of the speaker library - the ring, its
+count table, whether it drives a Covox - is handed over at `VFXV_INIT`, and
+`os88spk_sil`, the one thing it writes there, comes back in CL. It is
+fetched the first time a clip made for a card plays on the speaker
+(`vp_fxget`, the UI task's), movable as the block decoder is, and refused it
+plays that clip silent. The arm is 60,679 bytes, 1.7 KB under the limit
+with its bss.
+
+**Its diag build** (`VPDIAG=time`, kern_mega) also drops the info card's
+diag lines - Heap, Ring, Lead, Dry - which its VPPROF carries word for word
+and `os88vfit.py` prints from the trailer (98.3.22.3): 42 bytes to spare.
+The `-DVP_NOSPKFX` the Makefile gave that build is gone with the need for it.
 
 #### 98.3.16 TEXT: full screen, on any adapter
 
@@ -201641,6 +202179,18 @@ with every frame still the decode's; VIDDISK X prints `xg_gap answers G`
 under its grid, so a field run checks the measurement against the copies it
 was taken from.
 
+**On kern_mega with the ring above 1MB the BOUNCE is placed** (2026-10-28).
+There a fill reads into a conventional 32 KB bounce (`[vp_dbnc]`, KERN-MEGA-PLAN
+14.41) and a bank's chunk is copied up from it, so it is the buffer the rule
+is about - and `vp_rhtry` claimed it bare. It takes `vp_xgpad`'s slack now,
+and `[vp_dbnc]` is the `vp_xgal` SUB of its claim (`[vp_dbclm]`, which is
+freed). The diag trailer had hidden it twice over: on kern_mega it wrote the
+ring and its claim as SELECTORS, which `tools/os88vfit.py` reads as
+paragraphs - a ring "128 bytes into its claim" was the next LDT entry - and
+with the ring above 1MB it now names the bounce and its claim, as linear
+paragraphs (`vp_prlin`). +36 bytes of the arm; the shipped `video.bin` is
+byte-identical, and every hot routine of the arm is identical at an even shift.
+
 ##### 98.3.18.13 The XMS bank, decoded in place by LOADALL (2026-10-15)
 
 **On a 286, a file longer than the pool plays out of its BANK with no copy
@@ -201985,6 +202535,76 @@ second, then 11.3). Either claim falls back to the plain one when no
 page-safe run is free. The PKG_MEGA arm alone; the shipped `video.bin` is
 byte-identical.
 
+##### 98.3.18.18 Two tiers: the conventional ring beside the bank in place (2026-10-29)
+
+**In place, every chunk of the bank goes disk -> the bounce -> copied UP**
+(98.3.18.13), ~6 ms of every 32 KB on the Victory - and the reader runs
+DRY exactly where the bank has drained and it is close behind the picture,
+so that copy is spent where the play can least afford it. The conventional
+ring the bank in place had shrunk to the least a key's read needs (two
+slots and a mirror) now keeps the slots it would have had, as a second
+TIER beside the bank (docs/plans/LOADALL-PLAN.md L6):
+
+- **Where a chunk goes**: to the conventional tier while every live chunk
+  would fit it - read straight off the disk into a slot the hook decodes
+  with no borrow - and to the bank once it is full. The bank still banks in
+  the calm stretches, when its copy is cheap; a stretch that drains it is
+  read with no copy at all. A fixed rotation over both (chunk c in slot c
+  mod K) was costed first and buys an eighth of the copies whenever they
+  fall, which is ~1%.
+- **The table**: a word a chunk, `chunk & 0FFh` (the live window is under
+  256), in the LAST 512 BYTES of the conventional tier's mirror slot
+  (`vp_ttab`, VP_TOFF): the slot, bit 15 the conventional tier, bit 14 a
+  seam. A super-packet is 64 sectors at most where there are tiers, so what
+  runs past a slot's end into its mirror is 63 at most and those 512 bytes
+  are never the mirror's (`vp_tcap` holds every copy into a mirror to it).
+  It was a 1 KB claim of its own first, and on the owner's Victory the
+  first field play said "0 chunks read straight in": a play with sound, a
+  palette a scene, a page flip, the block decoder's part and a profile had
+  spent the package's eight claims (MEM_OWNER_MAX), the claim was refused,
+  and the tier went off - which no gate here saw, each playing a silent clip
+  with no profile. `vp_slot` answers it; `vp_xbaddr` turns a conventional slot into a
+  pointer the decode reads as a copying ring's - a SEGMENT below VP_XSEL, so
+  `VP_DSDX` borrows for none of it and the decode is untouched.
+- **Each tier a FIFO** with its own next slot and live count, popped as
+  `vp_lfloor` passes, and its own MIRROR past its last slot. The
+  conventional tier's slots are the ring's 1 .. K-1: slot 0 is still the
+  bank's bounce, at the gap (98.3.18.12), and the tier's slots are 32 KB
+  multiples on from it, so a seam's copy is placed too.
+- **A super-packet that runs from one tier into the other** is the one new
+  case, handled the way the ring handles its wrap: at a SWITCH, what of the
+  new chunk the super-packet before it runs on into (`vp_mneed`) is copied
+  into the OLD tier's next slot - right after the chunk it continues, or
+  its mirror when that slot is 0 - and the slot is held until the new chunk
+  is popped. So a tier is left only while it has that slot free. Into the
+  bank it is a copy up from the chunk's slot; into the conventional tier a
+  copy DOWN from the bank's slot, because on a rung-1 disk (98.3.18.15) the
+  bounce does not hold what went straight up.
+- **`vp_mneed` reads its headers through `VP_DSDX`** now. In place its
+  `vp_addr` answers a HANDLE, and a plain `mov ds` on one read the high
+  memory under FFF0h instead of the header; the walk then mostly fell to its
+  "the whole chunk" bound, so the mirror was right and too long.
+
+Not taken - one tier, as before - for BIGSP (its mirror is two slots), Live,
+a bank under four slots or a ring under four, and wherever the bank is not
+in place. +~770 bytes of `video.o88`, no claim and no kernel byte.
+`tests/vidxip.py --arm banktier` is the gate: a `VP_TTEST` build that
+switches every three chunks wherever both tiers can take it, so a seam is
+copied and read every few chunks against the reference decode (20 seams and
+27 of the clip's 41 chunks straight in, 39 holds, 0 wrong); with the seam's
+copy taken out the play wedges. The diag build counts both (`tcn`, `tsw`) in
+the trailer, which `tools/os88vfit.py` prints.
+
+**The encoder prices it** (`os88venc.py`'s `TIERS`, `_drate`): in place the
+bank's copy up is charged on the disk only while the bucket is past the
+ring's reserve, as the copying FIFO's always was - where before the tiers it
+was charged on every chunk. Replayed through the model at each frame's
+measured share (98.2.3.8), Catch My Heart at kern_mega's 456,720 bytes a
+second falls 105 KB short at the worst against 1,019 KB without them, so a
+file made with `--kernel mega` gives up far less to cover the stretch the
+bank drains in. The borrows stay charged on every frame, which over-prices a
+record in a conventional slot a little.
+
 #### 98.3.22 The play's profile: every frame timed on the machine (2026-10-15)
 
 **A `VPDIAG=1` player times every frame it draws and saves the times**, so
@@ -202070,6 +202690,99 @@ refusal for *no such file* - but a file that IS there refuses a read into
 no room with `FERR_BIG` (20.14.6.3), so every play wrote `VPPROF1.DAT` over
 the last. Only `FERR_NOENT` is free now; any other answer moves on to the
 next n, so a disk error never overwrites a profile either.
+
+##### 98.3.22.4 Version 4: the reads TIMED (2026-10-29)
+
+`make VPDIAG=time` (`-DVP_RDTIME`, a field build like `VPDIAG=1` and never
+shipped) keeps version 2's read log in version 2's room with a different
+record: the frame drawn when the read began, how many frames the picture was
+then behind the card's due (`[vp_due] - [vp_done]`, signed), the read's
+length in units of 16 PIT counts (13.4 us, saturating at 878 ms) and its
+bytes. The length is the BRACKET'S clock (`vp_dstamp`, the hook's periods and
+channel 0's count), not channel 2's, which wraps at 55 ms - one 32 KB read on
+a BIOS-served disk under kern_mega is about 76 ms. On kern_mega the periods a
+reflection swallowed are delivered as it returns, so the length holds there
+too. A read outside `OSAPI_FSX_RUN`, where that clock does not run - the
+fill before the bracket, a play in the window - is recorded FFFEh, untimed,
+and one of 878 ms or more FFFDh. The header says version 4, and
+`tools/os88vfit.py FILE.V88 VPPROFn.DAT --reads` prints the reads' rate while reading, their lengths, the slowest
+twelve with their frames, and how far behind the picture was across the play.
+
+It is for the two questions the Victory's version 3 profiles could not
+answer: what makes some kern_big boots pause where others do not (a slow
+read shows up at its frame), and how much of kern_mega's lag is reads holding
+the hook off.
+
+##### 98.3.22.5 kern_mega's reflections across a play (2026-10-29)
+
+A `MEGADIAG` kernel (`make megadiag`) keeps running totals of what it hands to
+real mode - an option ROM's IRQ (`mega_irqrom`) and a BIOS service
+(`int 13h`, `int 10h`...) - counted and timed in `mega_svc_back` as each one
+returns: the periods the ROM counted at 40:6C times channel 0's divisor, plus
+the count's own progress, so a 50 ms reflected read is measured where
+`mega_rfsec`'s 16-bit sample of an IRQ's wraps. The four are published at
+`0040:00F0` - IRQs, their time in units of 2,048 PIT counts (1.7 ms),
+services, theirs - after every reflection; `kd_leave`'s handoff record writes
+the same four words only on its way out, and the font picker's `FP` at F8 is
+left alone. A transfer bounced above 1MB (`mega_hibnc`) returns by another
+path and is not counted. It is IN LINE and uses NO STACK: an IRQ's
+reflection runs on whatever it interrupted, an `FSXF_RATE` hook's 48 bytes
+among them (53.2.2). The first build called a routine with four pushes and
+two nested calls, and the Victory faulted mid-play on it (a #GP, error 0) -
+the stack the likelier cause than anything the routine computed.
+
+The kern_mega arm's diag player (`VP_RQ`, which `VP_DIAG` with `PKG_MEGA`
+defines) reads the four through an `OSAPI_SEG` window before and after
+`OSAPI_FSX_RUN` and appends the differences to the trailer, after CS and SS;
+`tools/os88vfit.py` prints them as a share of the play. On a kernel that is
+not `MEGADIAG` they read 0. Under Bochs (no PicoMEM) a full-screen play of
+`OS8088.V88` counts the bracket's two mode sets, 9.4 ms each, and no IRQ.
+The shipped kern_mega kernel is byte-identical.
+
+The first field reading added up the IRQs' time wrong: an IRQ's reflection
+keeps the mask, so a channel-0 reload inside it is never counted at 40:6C
+and the length came out NEGATIVE - both plays' totals read 112.5 s, a small
+negative in the published word. A negative length now takes one period back
+(65,536 counts at the ROM's rate, the bracket's divisor under it). Read
+again on the Victory with the PicoMEM: **2,161 IRQs in a 77.3 s play, 1.0 ms
+each, 2.8% of it**, and the services **38.7%, 27.1 ms each**.
+
+##### 98.3.22.6 Two frames a call when behind, under kern_mega (2026-10-29)
+
+**The picture lagged the sound by a second on kern_mega with the ring 90
+frames ahead of it**, so the reader was not short. Every 32 KB read is one
+reflected `int 13h` of ~27 ms - the same as kern_big's own call, 28.7 against
+30.5 ms timed off a play's buffering reads - but under kern_big the hook runs
+INSIDE that call and under kern_mega it is shut out, and the periods that
+fell in the call come back as ONE hook call (`mega_rfclk`). A flipped file
+draws a frame a call (`vp_fcap` = 1), so a read cost the picture a call it
+never got back: same draws, same reads, frames behind median 14-35 against
+kern_big's 0. The kern_mega arm, flipping (`vp_flip` = 1) and with more
+frames due than the call would draw, draws a SECOND, after `vp_vwait` has
+seen the first one's page latch - so no frame goes into a page still on the
+glass, and the wait (under one refresh) is spent only while behind. The
+shipped player is unchanged: under kern_big the hook is not coalesced, and
+the second frame's decode would come out of a ring whose lead there is one.
+
+##### 98.3.22.7 The card's block under kern_mega: TRIED AND REVERTED (2026-10-29)
+
+With 98.3.22.6 the picture kept up, and what was left was the reader
+running dry at the frame (Catch's 1312) a pausing kern_big play had too. The
+one cost kern_mega adds is the card's block interrupt: each is a reflection
+(`mega_irqrom`), ~1.0 ms on the Victory, ~27 a second counted, 2.7-3.3% of a
+play. The kern_mega arm was built halving the block only while it was longer
+than 100 ms of sound (`VP_BLKDIV` 10), 2,048 bytes at 22 kHz PCM8 - and on
+the Victory **the card stopped for good a few seconds in** (Catch's clock
+froze at frame 99, one card pause, then no interrupt for the rest of the
+play; the picture ran on its periods with no clock to be behind). The
+frames' clock was never the issue - `vp_adue` interpolates on the hook's
+periods between blocks - and the likelier cause, not yet shown, is that the
+SOUND'S LEAD is cut for the 25 ms block:
+the encoder writes a file's sound ahead (`AHEAD_FRAMES`, `audio_lead`) and
+its in-step budget against `VP_BLKDIV` 40, so a 93 ms block asks the stream
+to queue more ahead of the card than the file carries. Reverted: a longer
+block is an ENCODER change first (the lead and the block agreed in
+os88venc.py and the player together), and 3% does not buy it.
 
 ##### 98.3.22.1 What the first profiles changed in the encoder (2026-10-15)
 
@@ -206973,7 +207686,15 @@ and until a row is painted the ring is filled only when the worker has run
 DRY, and the first wake that finds rows ready fills nothing and wakes again
 (once an open) - because `px_onwake` fills before it paints, which is right
 for throughput (the worker decodes while the UI paints) and was a 16 KB read
-queued in front of the first paint, seconds of first rows on an XT. **The handshake is
+queued in front of the first paint, seconds of first rows on an XT. **A row
+IN FLIGHT is a paint coming**, not the "rows out, none showable" of an
+interlaced picture's early passes: `px_emit` counts a source row as it
+starts and a master row as it ends, and below 1/1 a master row is a block
+of 2^s source rows (`[px_rcnt]` summed so far), so one source row out, or a
+block under way, waits for the worker like rows ready do. Treated as the
+interlaced case, a wake posted as the worker began its first row - where the
+tick's phase put it about one open in four - read 2 x 16 KB in front of it:
+BIG.BMP's first rows 4.57 s on the VGA XT against 3.40 (`pxbenchvga`). **The handshake is
 the Audio Player's** (§86.5, §77.1): a slot the worker has emptied has its
 `full` byte cleared and the request byte set LAST, then `OSAPI_WM_WAKE`;
 `px_onwake`, on the UI task and without the lock, fills every empty slot in
@@ -220865,7 +221586,7 @@ back when they are done.
 ### 117.10 Installing over the network
 
 `docs/plans/completed/NET-UPDATE-PLAN.md` is the story list. **The network install is
-the ordinary install with another source volume**: `HTTPFS.DRV` (120) mounts
+the ordinary install with another source volume**: `HTTPFS.DRV` (122) mounts
 a published tree and `HDI_GO` NAMES that volume as its source (117.10.5).
 The engine learns one thing - that a named source carried the apps with it -
 and the driver and the kernel learn nothing.
@@ -220888,12 +221609,15 @@ build.
 #### 117.10.2 The published tree, and `OS88VER.TXT`
 
 `make nettree` writes `build/nettree/`, which holds **one tree per kernel**:
-`big/` and `mega/`. kern_big and kern_mega install different kernels and
-different package builds (kern_mega's arms, 20.18), so a machine must upgrade
-from the tree of the kernel it runs. Each tree is the 1.44MB system disk's
-files and the 1.44MB apps disk's files as one - `build/os8088.img` and
-`build/apps.img` for `big/`, `build/mega.img` and `build/megaapps.img` for
-`mega/` - `SYSTEM\OS88VER.TXT`, and the
+`big/`, `mega/` and `emu/`. kern_big, kern_mega and kern_emu install
+different kernels, and kern_mega different package builds too (its arms,
+20.18), so a machine must upgrade from the tree of the kernel it runs. Each
+tree is the 1.44MB system disk's files and the 1.44MB apps disk's files as
+one - `build/os8088.img` and `build/apps.img` for `big/`, `build/mega.img`
+and `build/megaapps.img` for `mega/`, `build/emu.img` and the SHIPPED
+`build/apps.img` for `emu/` (there is no emu apps disk, 9.11.7; `make
+nettree` therefore needs `make mega` and builds `make emu`'s disk) -
+`SYSTEM\OS88VER.TXT`, and the
 `OS88.IDX` `tools/os88httpdrv.py export` writes for it. The version file is
 in `SYSTEM\` because an install copies the tree whole: there it lands beside
 the rest of the system on the installed volume, as that machine's record of
@@ -220902,12 +221626,34 @@ carries every file's size and the drive believes it**, so a file edited in
 the published folder is served cut to its old length: edit
 `apps/install/OS88VER.TXT` and build the tree again, or re-index the folder in
 place with `os88httpdrv.py export DIR DIR`. **`ASSOC.DAT` is left
-out**: an install builds the destination's own (52.10.14). The release skill
-publishes `build/nettree/` whole at **`http://os8088.com/net/`**, so the two
-trees are `http://os8088.com/net/big/` - the `IN_URL` of the INSTALL on
-kern_big's system disks - and `http://os8088.com/net/mega/`, the `IN_URL` of
-the INSTALL kern_mega's system disks carry (`$(MEGAINST)`, the same source
-assembled with the other address).
+out**: an install builds the destination's own (52.10.14). The release
+publishes `build/nettree/` whole under **`http://os8088.com/net/`**, so the
+three trees are `http://os8088.com/net/big/` - the `IN_URL` of the INSTALL on
+kern_big's system disks - `http://os8088.com/net/mega/`, the `IN_URL` of the
+INSTALL kern_mega's system disks carry (`$(MEGAINST)`, the same source
+assembled with the other address), and `http://os8088.com/net/emu/`, the
+`IN_URL` of `$(EMUINST)`, the copy on `build/emu.img` and on `make
+usb-emu`'s image in kern_big's place.
+
+**The store.** The trees live in an R2 bucket named `os8088-net`, bound to
+the os8088-web Worker as `NET`. A key is `<YYYYMMDD>/<kernel>/<path>`:
+`<kernel>` is `big`, `mega` or `emu`, and `<path>` is the tree path exactly
+as `build/nettree/<kernel>/` holds it (`20261101/big/SYSTEM/OS88VER.TXT`,
+`20261101/big/OS88.IDX`). One pointer object, `CURRENT`, has the eight-digit
+release (117.10.1) as its whole body. The Worker serves
+`GET /net/<kernel>/<path>` from `<CURRENT>/<kernel>/<path>`: plain `http`, no
+redirect, `Content-Length` always, `Range: bytes=a-b` answered `206` with
+`Content-Range`, no chunked encoding and no compression - what `HTTPFS.DRV`
+(122) and the check (117.10.3) can read. **An old release's prefix stays
+until the maintainer deletes it**, so a machine mid-install keeps getting
+files that match the `OS88.IDX` it already fetched: an in-place overwrite
+would serve sizes that disagree with the index, which the drive believes.
+The upload is `tools/netpublish.py` in the os8088-web repository: `python3
+tools/netpublish.py --release YYYYMMDD <os-repo>/build/nettree` uploads every
+file under the prefix and only then writes `CURRENT`; `--verify` fetches
+`http://os8088.com/net/{big,mega,emu}/SYSTEM/OS88VER.TXT` and checks `200`,
+no `Location`, a `Content-Length`, line 1 equal to the release, and a Range
+request answered `206`.
 
 `OS88VER.TXT` is text: line 1 the release, `YYYYMMDD`, and up to four more
 lines of what is new, each shown to 40 characters. CR, LF or both end a line;
@@ -220936,7 +221682,7 @@ and 2.2KB off the network for one file of about 150 bytes, at every boot
 once the startup check (117.10.6) is on. The drive is mounted only when
 `Next` is pressed with the network picked (117.10.5), and the user's own
 address is banked then. **`HTTPDRV.CFG` is never written** - only the
-Control Panel's page saves it (121.5) - so the setting a user made survives
+Control Panel's page saves it (122.5) - so the setting a user made survives
 whatever happens here.
 
 `IN_URL` is split into `IN_HOST`, `IN_PORT` and `IN_PATH` **by the
@@ -220946,7 +221692,15 @@ index entry either, so the check reads an `OS88VER.TXT` edited on the server
 whole - the install's copy of it is still sized by the index (117.10.2).
 
 The window is up before the request, saying *Looking for a newer os8088 on
-the network...*, so a slow server is a sentence rather than a frozen screen.
+the network...*, so a slow server is a sentence on the screen - **but the
+screen is frozen behind it**: `in_vget` loops on its socket verbs and the
+tick count without yielding, from the window's timer with the gfx lock held,
+so the UI task takes no input and nothing else paints until the reply or the
+ten seconds are over. `ETHER.DRV`'s own task still runs (the machine is
+pre-emptive), so the exchange completes; what it costs is the wait, which on
+an XT includes the DNS, the connect and the reply of a successful check. The
+startup check (117.10.6) runs the same loop from the entry, with no window
+up yet.
 
 **WHAT COUNTS AS AN ANSWER** is a reply whose status is exactly `200` *and*
 whose body opens with eight digits (`in_vparse`, the release line of
@@ -221004,9 +221758,16 @@ with it**. Standing there, the system phase came off the network and then the
 engine did what it does on a floppy machine - looked for an apps disk already
 in a drive (52.10.5) and, finding one in B:, carried straight on and copied
 the apps phase off the floppy without INSTALL ever being asked. Named, the
-engine skips that probe, answers `HDG_APPS` with no line asking for a disk,
-and INSTALL sends `HDI_QUIT` - the engine's `ASSOC.DAT` pass runs on a
-declined apps phase too (52.10.14) - and goes to Done. The drive is put back
+engine skips that probe and the apps phase both, runs the apps phase's
+finish - the installed volume's `ASSOC.DAT` in FULL mode (52.10.14), the
+release of the writer and the log's totals - and answers `HDG_DONE`, and
+INSTALL goes to Done. It answered `HDG_APPS` first and INSTALL sent
+`HDI_QUIT`, which only releases: the full flush never ran on a network
+install. **A named source is also the only source asked**: the system-disk
+check (52.10.15) does not fall back to the floppies for it, so a tree with no
+`KERNEL.SYS`, or a root the HTTP drive could not read, is refused before the
+format - where falling back installed the system disk in A: with no apps
+phase and said Done. The drive is put back
 as in 117.10.3 when the window closes. `HDI_QUIT` is sent **only to a run
 that is waiting** (`[in_wait]`, set by an `HDG_APPS` answer): it is
 `HDD.DRV`'s door, which reads `HDDTOOL.DRV` in before it forwards a verb, so
@@ -221025,7 +221786,15 @@ the first picked writes
 it, so a user can turn it off by installing again or by deleting the link.
 
 Started with `CHECK` (`OSAPI_ARG_TEXT`), INSTALL runs 117.10.3 **before** it
-creates a window. Nothing newer, no card, or no answer: one toast saying which
+creates a window. **The cell is asked whether it is there first**: a kernel
+built before `OSAPI_ARG_TEXT` ends its table at `0x04DD` and a far call there
+runs data (the debug registry's tags, or kern_mega's data word), and the new
+release's `A:\INSTALL.O88` double-clicked on a machine booted from an older
+C: is exactly that kernel. `in_entry` compares the cell's bytes - `push bp`
+and a `call` - and the call's target with those of `OSAPI_ARG_FILE` (`0x0249`,
+54.5, the same `OSAPI_RCSLOT` on every kernel) without calling either;
+a mismatch takes the plain start, which is exact, since a kernel without the
+cell cannot have started INSTALL from a link. Nothing newer, no card, or no answer: one toast saying which
 (*os8088 is up to date*, *Update check: no network*) and the entry refuses,
 which aborts the launch with the toast standing and no `Load failed` (20.12.4).
 Newer: the window, on the source page, with the network row picked.
@@ -221059,6 +221828,8 @@ when the class is down, and the arrow keys' radio redraw:
 | `HDDTOOL.DRV` image / file | 18,322 -> **18,327** / 14,079 -> 14,100 | the named source; `hd_pv_go`'s erase normaliser went, the bit now being a bit. No cluster crossed |
 | `INSTALL.O88` image / bss, the direct check | 9,126 -> **9,461** / 1,521 -> 1,972 | `in_vget` and its three helpers, `net_find`, the request and host strings (about 70 bytes for `os8088.com`); the mount, the walk into `SYSTEM\` and the file read left the check. The bss is the reply buffer, 320 -> 768 |
 | `INSTALL.O88` on the disk | 7,230 -> **7,542** | no cluster crossed: the eighth KB at 360KB, the fifteenth 512 bytes elsewhere |
+| `INSTALL.O88` image, the review's round | 9,469 -> **9,477** | the `OSAPI_ARG_TEXT` gate (117.10.6) in, the `HDG_APPS` branch for a named source out |
+| `HDDTOOL.DRV` image | 16,510 -> **16,510** | the named source's finish and its refusal (117.10.5): different bytes, the same length |
 
 `tests/netinst.py` (soak, QEMU) is the gate: the check, the install - with an
 apps disk in B: that must NOT be copied - the link and the boot check with
@@ -223699,6 +224470,13 @@ may carry `#`, `%` or `&` - and every server reads `%XX` as the byte.
 `HF_IDLE` = 182 ticks, ten seconds, with nothing arriving is a timeout. A
 file verb runs on the UI task with the gfx lock held, so that bound IS the
 longest a dead server freezes the machine, exactly as a dead floppy would.
+**The status line and the headers have a deadline of their own**, because
+the idle bound restarts with every byte and a header is read to its LF
+however long it is: `HF_HDRT` = 364 ticks, twenty seconds from the request,
+for all of them, checked at every refill. A server that keeps SENDING
+headers - hostile or broken, with no LF or with LFs forever - is a timeout
+(`HFE_TIMEOUT`) like a silent one, rather than a machine frozen for as long
+as it cares to talk. The body needs no such bound: it is `[hf_left]` bytes.
 
 The reply is read through one kilobyte of staging (`hf_rbuf`, `NET_SKMAX`):
 header lines a byte at a time, the body in runs copied to the caller's
@@ -223715,7 +224493,11 @@ the image) and so is a read of a packed file (the sniff, then the read),
 and each was a handshake and a close. So the request says
 `Connection: keep-alive` - on **HTTP/1.0**, which forbids a chunked reply
 this driver does not decode - and a reply read **whole** leaves its socket
-open (`[hf_live]`) when the server agreed - **`keep-alive` in the reply's
+open (`[hf_live]`) **for the one GET that follows a peek**: only a
+`FSV_READAT` from offset 0 that stopped short of the file's end - the
+loader's peek, the sniff, a copy's first chunk - is kept, and a GET that
+rode a kept connection ends it however it went, as the index's fetch and a
+whole-file read always do. And only when the server agreed - **`keep-alive` in the reply's
 `Connection:`, and that alone**, anywhere in its list (Apache with HTTP/2
 enabled says `Upgrade, Keep-Alive`, and the driver reads any `K` in the
 value as it: `close` has none): the request is HTTP/1.0, and a 1.0 client's
@@ -223730,17 +224512,25 @@ A 200 answering a read has an unread tail and is kept only when the read
 took it to the file's end; Mount,
 Unmount and detach drop a kept connection, so a re-pointed drive never
 sends its next GET to the old server. **What it holds is one of
-`ETHER.DRV`'s socket slots while the drive is idle**, until the server
-closes it (`os88httpdrv.py serve` does after 15 seconds).
+`ETHER.DRV`'s eight socket slots and one of its three lean rings - and
+with a ring held, the ring pool's claim, which `sk_idle` gives back only
+when no ring is** - until the drive's next verb, even after the server has
+closed it: the driver has no timer, and a socket the peer closed is freed
+only by our own abort. That is why the keep is narrowed to a peek's one
+successor rather than left on every reply: a hold that waited for the next
+verb after an index fetch or a whole read could last the session, and a
+third lean user (FTPD's control connection, the Browser and Telnet) would
+be refused for it.
 
 **A connection that is not kept is ABORTED, never closed** - even after a
 reply read whole. A close we start holds its slot through FIN-WAIT for a
-round trip, and there are four. Found in the field against Apache, whose
+round trip, and the slots and rings are few. Found in the field against Apache, whose
 `Upgrade, Keep-Alive` the first parser read as no: every GET ended in our
 close, and the sniff's or the header peek's OPEN, the next GET, was refused
 while the read after it connected - so a packed file opened as its raw
 `CZ` bytes and every package off the drive said `Load failed`. The HFDIAG
-build (`-DHFDIAG`, `drivers/httpfs/hfdiag.inc`) is the instrument that
+build (`make HFDIAG=1`, `drivers/httpfs/hfdiag.inc`: both images, the page
+being what draws the log) is the instrument that
 showed it: the last two reads drawn on the page, what each asked, what the
 reply said and what landed.
 
@@ -223826,7 +224616,7 @@ drive picture.
 |---|---|---|---|
 | 0 | `HFV_IDENT` | | AX = `'HF'`, CX = `HF_ABI` |
 | 1 | `HFV_STATE` | | AL = the volume (FFh none), AH = `HFS_IDLE`/`LAZY`/`READY`/`FAILED`, CX = records, DX = the last HTTP status, SI = the last `HFE_*` |
-| 2 | `HFV_MOUNT` | ES:SI = a NUL address | AL = the volume. **Lazy**: nothing is fetched. A drive already mounted is re-pointed and its index dropped |
+| 2 | `HFV_MOUNT` | ES:SI = a NUL address | AL = the volume. **Lazy**: nothing is fetched. A drive already mounted is re-pointed: its index dropped, and its volume given back and added again, so the kernel's drive and folder - handles into the OLD index - fall back to A: and every banked position is asked again through `FSV_CHDIR`, which checks it against the new one. An address refused (`HFE_URL`) drops the index and any kept connection too, so a half-parsed host is never sent a GET: the drive stays, failed, until a good address is mounted |
 | 3 | `HFV_UNMOUNT` | | the volume and the index go back |
 | 4 | `HFV_FETCH` | | the index fetched now: CX = records; CF = 1 and AX = an `HFE_*` |
 | 5 | `HFV_URL` | ES:DI = 96 bytes | the address the drive is pointed at, NUL-terminated |
@@ -223890,7 +224680,7 @@ Measured at one build number against the tree before it:
 | | `kern_big` | `kern_small` |
 |---|---|---|
 | resident | **81 bytes**: `.text` +43 - `drv_tab`'s row (16), its two strings (22), `drv_fptr10`'s pair (4), `drv_svcix`'s byte (1) - and `.bss` +38, `drv_owner`'s word and the class's 36-byte service-table copy. `DRVC_CD`'s shape (§119.5), five bytes of longer name over it. No rung crossed (the image rung 409 -> 316 left). `.boot2` +1, `drv_cfgbit`'s byte, is not resident | 0 - byte-identical |
-| `HTTPFS.DRV` | **5,460 bytes of image, a 6 KB claim while attached; 3,575 on the floppy** (7 clusters at 360 KB), LZ4 - 7,927 / 5,653 with the page in it. The 1 KB reader is most of its bss | none |
+| `HTTPFS.DRV` | **5,557 bytes of image, a 6 KB claim while attached; 3,658 on the floppy** (8 clusters at 360 KB), LZ4 - 7,927 / 5,653 with the page in it. The 1 KB reader is most of its bss | none |
 | `HTTPPAGE.DRV` | **2,357 bytes of image, a 3 KB claim while the panel shows the page; 2,030 on the floppy** - four 512-byte clusters, and under 2 KB as split. Half of it is the shared field (`os88line.inc`, 775) and button (`os88ui.inc`, 299) | none |
 | while mounted | the index's claim: `ceil((16 + 18 x records) / 1024)` KB - **2 KB for a system disk's 70 records**, 16 KB at `HF_MAXREC` | none |
 

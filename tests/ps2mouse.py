@@ -339,6 +339,29 @@ def main_marty():
 
         def is_open():
             return byte(m, "menu_dropd") == 1 or word(m, "menu_sseg") != 0
+
+        # DOWN, per kind of cell: a pull-down says [menu_dropd] = 1, and the
+        # Sticky Apps cell (kern_big) never does - stikmenu.inc's panel claims
+        # the same [menu_sseg] and says it is up with STIKMENU.DRV's own
+        # stm_live, which tests/stikmenu.py's Menu reads (kern_mega's
+        # selector caveat included). Waiting on [menu_dropd] alone timed that
+        # cell out silently and released late; kern_small has no module, so
+        # the second half answers False there
+        class _Sym:
+            _S = staticmethod(os88sym.linear)
+        try:
+            import stikmenu
+            stik = stikmenu.Menu(m, _Sym())
+        except Exception:                   # noqa: BLE001 - no STIKMENU
+            stik = None
+
+        def down():
+            if byte(m, "menu_dropd") == 1:
+                return True
+            try:
+                return bool(stik and stik.base() and stik.b("stm_live"))
+            except Exception:               # noqa: BLE001
+                return False
         nbar = word(m, "menu_nbar")
         for cell in range(nbar):
             ent = m.read(os88sym.linear("menu_bar") + cell * MB_ENTSZ,
@@ -349,10 +372,15 @@ def main_marty():
             mo.to(x, 8)
             mo._sep()
             mo._edge(True)
+            # ...DOWN, not merely begun (`down` above): `is_open` is also
+            # true from the save-under's claim, and the press-and-hold this
+            # row means is a cell whose pull-down or panel is ON SCREEN. A
+            # release before that is not a kernel race - menu_drop's first
+            # poll closes a pull-down; the Sticky panel stays up for a click
+            # by design (stikmenu.inc's stm_loop) - but it is not this row
             try:
                 os88marty.until(m, lambda _: byte(m, "menu_cell") == cell
-                                and is_open(), "bar cell %d" % cell,
-                                guest=3.0)
+                                and down(), "bar cell %d" % cell, guest=3.0)
             except os88marty.MartyError:
                 pass
             got, dropped = byte(m, "menu_cell"), 1 if is_open() else 0

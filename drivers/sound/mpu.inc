@@ -27,8 +27,6 @@ MPU_ACK     equ 0xFE
 MPU_DRR     equ 0x40                ; status bit 6: 1 = cannot take a byte
 MPU_DSR     equ 0x80                ; status bit 7: 1 = nothing to read
 
-mpu_bases:  dw 0x330, 0x300
-mpu_one:    dw 0                    ; ...or the ONE the Ports view pinned
 
 ; --- MPU_ONCE: ATTACH-ONLY (SPEC.md 34.15.1) ------------------------------
 ; mpu_probe, mpu_alone, mpu_waitw and mpu_ack run inside the attach and never after.
@@ -36,6 +34,8 @@ mpu_one:    dw 0                    ; ...or the ONE the Ports view pinned
 ; sets it and expands MPU_ONCE past snd_keepmix, the end of what the driver
 ; keeps once its attach has answered, so these bytes leave the claim.
 %macro MPU_ONCE 0
+mpu_bases:  dw 0x330, 0x300           ; (attach-only, with the probe)
+mpu_one:    dw 0                    ; ...or the ONE the Ports view pinned
 ; -----------------------------------------------------------------------------
 ; mpu_probe - is an MPU-401 at 330h or 300h? If so it is put in UART mode and
 ; [mpu_base] says where. out: CF=0 found; CF=1 none, and no port was written

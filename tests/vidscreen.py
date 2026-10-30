@@ -39,6 +39,13 @@ not flipped, and it is played WITHOUT forcing the full screen: a file in its
 own colours must refuse the window by itself (vp_canwin), and a play in the
 window leaves the glass the desktop's, which fails every hold.
 
+--build (with --own implied) holds frames 17-19 toward frame 20 - the
+clip's scene change, a new flat ground - and gives frame 21's record
+REC_UP, the copy off the glass onto the page the flip left: a scene built
+ahead (--flip-build, 98.2.5.2.1). Its holds straddle it - the glass on
+frame 16 through the held run, frame 20 whole, frame 21 drawn on the
+copied page - so a player that took REC_UP only after a key FAILS there.
+
 Broken on purpose: with vp_scrset's palette left out the glass is in the
 EGA's colours and every hold FAILS; with vp_show's OUTs skipped the glass
 stays on page 0 and the holds a frame apart differ from it; and on 640 x
@@ -75,6 +82,10 @@ def u16(b, i=0):
 
 
 OWN = False                             # --own: VIDEO-SEEN-PLAN 3b's records
+BUILD = False                           # --build: 98.2.5.2.1's scene built
+BUILD_HELD = (17, 18, 19)               # ahead - these held toward frame 20,
+BUILD_UP = 21                           # the next scene's, and this the copy
+STOPS_BUILD = (2, 3, 18, 19, 20, 21, 22, 23, NF)    # after its flip
 LCOPY = False                           # --lcopy: every bring-up the copy
 
 
@@ -97,11 +108,16 @@ def clip(tmp, scr):
                 cv[(y + r) * W + x:(y + r) * W + x + 40] = \
                     bytes([(f + r // 4) % 16]) * 40
         cvs.append(bytes(cv))
+    if BUILD:                           # (the frames held draw the scene's
+        for f in BUILD_HELD:            # first picture, on the page the
+            cvs[f] = cvs[BUILD_HELD[-1] + 1]    # glass is not showing)
     pal = bytes(v for c in PAL for v in c) + bytes(vid.PAL_BYTES - 48)
     out = os.path.join(tmp, "SCR%d.V88" % scr)
     vid.encode_canvases(cvs, g, out, FPS, vid.PF_VGA4, pal,
                         "vidscreen clip", keysecs=2.0, poster=1,
-                        flip=scr != 0, screen=scr, own=OWN and scr != 0)
+                        flip=scr != 0, screen=scr, own=OWN and scr != 0,
+                        held=BUILD_HELD if BUILD and scr else (),
+                        ups=(BUILD_UP,) if BUILD and scr else ())
     vid.verify_v88(out)
     return out
 
@@ -171,11 +187,12 @@ def one(ui, scr, v88, syms, bad):
             m.write(base + syms["vp_nowin"], b"\1")
         if LCOPY:                       # (98.3.8.1: the copy off the glass
             ww("vp_flcw", 0)            # on every frame, never the decode)
-        ww("vp_stopat", STOPS[0])
+        stops = STOPS_BUILD if BUILD and scr else STOPS
+        ww("vp_stopat", stops[0])
         m.write(base + syms["vp_played"], b"\0")
         m.type_text("p")
         ty0, tx0 = (SH - H) // 2, ((SW - W) // 16) * 8
-        for si, n in enumerate(STOPS):
+        for si, n in enumerate(stops):
             until(lambda mm: rb("vp_held") == 1 and rw("vp_done") == n,
                   "hold before frame %d" % n, 240.0)
             ref = vid.decode_at(r, n - 1)
@@ -206,7 +223,7 @@ def one(ui, scr, v88, syms, bad):
             if wrong:
                 bad.append("%s: the glass before frame %d is wrong in %d "
                            "pixels" % (name, n, wrong))
-            ww("vp_stopat", STOPS[si + 1] if si + 1 < len(STOPS)
+            ww("vp_stopat", stops[si + 1] if si + 1 < len(stops)
                else 0xFFFF)
             m.write(base + syms["vp_held"], b"\0")
         until(lambda mm: rb("vp_played") == 1, "the play's end", 60.0)
@@ -229,9 +246,14 @@ def main():
     ap.add_argument("--own", action="store_true",
                     help="the flipped screens' clips AGAINST THEIR OWN PAGE "
                     "(byte 37 7, VIDEO-SEEN-PLAN 3b)")
+    ap.add_argument("--build", action="store_true",
+                    help="with --own: frames 17-19 HELD toward frame 20, a "
+                    "scene change, and frame 21's record bringing its page "
+                    "up by the copy off the glass - a scene built ahead "
+                    "(--flip-build, 98.2.5.2.1)")
     a = ap.parse_args()
-    global OWN, LCOPY
-    OWN, LCOPY = a.own, a.lcopy
+    global OWN, LCOPY, BUILD
+    OWN, LCOPY, BUILD = a.own or a.build, a.lcopy, a.build
     os.chdir(ROOT)
     syms, _ = pkg_syms("apps/video/video.asm", ("apps/",))
     pkg = os88build.at("build/video.o88")

@@ -133,7 +133,7 @@ RealDMG's short messages, such as a new Speed setting.
 
 ## Making a game faster
 
-Five settings trade looks or speed for smoothness.
+Six settings trade looks or speed for smoothness.
 
 **Interlace.** **Screen > Interlace**, or `F2`, steps through four
 settings. They give RealDMG less to draw when the picture moves.
@@ -155,6 +155,13 @@ pixels instead of one at a time. Everything on the screen moves together, so
 the game still lines up, but a smooth scroll becomes a jump every few frames.
 By 8 saves the most while a game scrolls, about a quarter of the drawing, and
 is the hardest to play; By 4 and By 2 are gentler and save less.
+
+**Steady.** On the full screen, `Shift+F2` switches between Free and
+Steady. Free draws a picture whenever there is time for one, so a game that
+cannot draw every frame shows its pictures at uneven gaps. Steady draws every
+second, third or up to every sixth frame and none between, as often as the
+game can keep up with, so the gaps are even. It often draws fewer pictures
+than Free. RealDMG starts in Free.
 
 RealDMG remembers Two Shades and Scroll for each game.
 
@@ -309,6 +316,7 @@ the same as the item.
 | Item | Key | What it does |
 |---|---|---|
 | Interlace: Off | `F2` | Step through Off, On, Scrolling and Doubled |
+| (no item) | `Shift+F2` | On the full screen: Steady or Free pictures |
 | Two Shades | `F10` | Draw in black and white only, for speed. Kept for each game |
 | Scroll | `F11` | Smooth, or move the picture in steps of 8, 4 or 2 pixels, for speed. Kept for each game |
 
@@ -381,8 +389,9 @@ that is not write-protected and has some room.
   GB ROM** for a file that is not a Game Boy game, **REALDMG: needs GB
   Color** for a game for the Game Boy Color alone, **REALDMG: MBC 22h
   unknown** (or another number) for a cartridge chip it does not have, and
-  **REALDMG: over 256K wants XMS** for a big game with no memory above 1MB
-  to keep it in.
+  **REALDMG: needs more XMS** for a game over 256K when there is not enough
+  memory above 1MB to keep it in - none at all, or, on the kern_mega disks,
+  less than the game's size.
 - **REALDMG: no room for ROM** or **no room for RAM** means the system does
   not have the memory free. Close other programs, or choose CPU >
   Interpreter to give the recompiler's memory back, and load the game

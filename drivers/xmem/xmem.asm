@@ -172,6 +172,8 @@ XB_OFF          equ 0           ; word: KB from the pool base
 XB_KB           equ 2           ; word: size in KB. ZERO MEANS THE ENTRY IS
                                 ; FREE - there is no separate in-use flag.
 XB_OWN          equ 4           ; byte: the stamping instance (0xFF = kernel)
+                                ; ...AND +5 IS ALWAYS 0: nothing writes it,
+                                ; and xm_walk copies +0..+5 as the record
 XM_BLKSZ        equ 8           ; the stride. 8 and not 5, because the table
                                 ; lives in xm_once's region and costs no byte
                                 ; of the image whatever its stride - and
@@ -401,15 +403,17 @@ xm_walk:
     jcxz .done
     cmp word [si+XB_KB], 0
     je .n
-    push ax
-    mov ax, [si+XB_OFF]
-    stosw
-    mov ax, [si+XB_KB]
-    stosw
-    mov al, [si+XB_OWN]
-    xor ah, ah
-    stosw
-    pop ax
+    push si                     ; THE RECORD IS THE ENTRY'S FIRST SIX BYTES,
+    movsw                       ; copied: XB_OFF, XB_KB, then XB_OWN and the
+    movsw                       ; byte after it, which nothing ever writes and
+    movsw                       ; xm_attach's zeroing of the scratch leaves 0 -
+    pop si                      ; the record's `db 0`. 5 bytes where loading
+                                ; and storing each field was 15, and AX (the
+                                ; count) is never touched. It is what puts the
+                                ; image BACK INSIDE 2KB after XMW_LONG's
+                                ; refusal above took it to 2,051 bytes and a
+                                ; 3KB claim (SPEC.md 41.12.6, 28.4.11;
+                                ; tests/hma286.py's check 1)
     inc ax
     dec cx
 .n:

@@ -106,7 +106,11 @@ def doors(m):
 def at_rest(m, where):
     offs, segs = doors(m)
     bodies = [m.sym(d) for d in DOORS]          # sym() is LINEAR, so the
-    got = [(s << 4) + o for o, s in zip(offs, segs)]    # door's target is too
+    # door's target is too - and on kern_mega a door's segment word is a
+    # SELECTOR (wmz_crect_b's is .cold's, whose base is above 1MB), so it is
+    # resolved through the machine's own descriptor table, not shifted
+    lin = getattr(m, "lin", lambda s_, o_=0: (s_ << 4) + o_)
+    got = [lin(s, o) for o, s in zip(offs, segs)]
     if got != bodies:
         fail("%s: a door still points away from the kernel's own body: %s"
              % (where, ["%05X" % g for g in got]))
@@ -468,10 +472,17 @@ def leg_b(eq):
 
 # --- C, D, E ------------------------------------------------------------------
 def fixture(folder, name, win95, saved):
-    files = [os88build.at("build/ctrl.drv"),     # the panel, and its
+    # kern_mega's modules are its OWN build's (build/megak): a kern_big
+    # CTRL.DRV on its disk is a module of another kernel, and the chip menu's
+    # Control Panel then never opens. The directory is chosen BEFORE at()
+    # resolves the path - it used to be a .replace("build/ctrl.drv", ...) on
+    # at()'s ANSWER, which under a frozen soak is build/trees/<tree>/ctrl.drv
+    # and matched nothing, so only the soak shipped the wrong modules.
+    mods = "build/megak/" if MEGA else "build/"
+    files = [os88build.at(mods + "ctrl.drv"),    # the panel, and its
              os88build.at("build/thmpal.drv")]   # Customize... window
     if win95:
-        files.append(os88build.at("build/win95.drv"))
+        files.append(os88build.at(mods + "win95.drv"))
     if saved:
         d = folder / name
         d.mkdir()
@@ -488,11 +499,6 @@ def fixture(folder, name, win95, saved):
         # its system disk is 1.44MB (KERN-MEGA-PLAN 14.1 answer 19)
         size, boot, kern = "1440", "build/megak/boot.bin", \
             "build/megak/kernel.sys"
-        files = [f.replace(os.path.join("build", "ctrl.drv"),
-                           os.path.join("build", "megak", "ctrl.drv"))
-                 .replace(os.path.join("build", "win95.drv"),
-                          os.path.join("build", "megak", "win95.drv"))
-                 for f in files]
     subprocess.run([sys.executable, "tools/os88disk.py", "-o", str(image),
                     "--size", size, "--boot", os88build.at(boot),
                     "--kernel", os88build.at(kern), *files],

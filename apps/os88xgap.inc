@@ -104,8 +104,14 @@ xg_gap:
     jb .g
     mov ax, [xg_t0]                 ; a preference only if it is a sixteenth
     mov bx, ax                      ; better than 0 apart: a board with none
-    shr bx, cl                      ; (CL is still 4) measures within its
-    sub ax, bx                      ; noise, and its answer is 0
+    mov cl, 4                       ; measures within its noise, and its
+    shr bx, cl                      ; answer is 0. CL SET HERE: it was "still
+    sub ax, bx                      ; 4" from the old DS shift, and when the
+                                    ; scratch claim took that shift's place
+                                    ; CL came here 0, the threshold was t0
+                                    ; itself and every board answered 0 - the
+                                    ; Victory's 0.56 at 2 KB thrown away and
+                                    ; T69 starved (SPEC.md 41.14.1)
     cmp [xg_bt], ax
     mov ax, [xg_best]
     jbe .out

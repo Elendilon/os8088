@@ -288,8 +288,13 @@ def machine_config(machine, mega=False, images=()):
     if not mega:
         # THE MOUSE the name asks for (the 386's profile carries a PS/2 one)
         # and the XT's RAM; kern_mega's machine keeps its profile's own
+        # A profile whose PicoMEM carries the USB mouse (vm/xt-picomem1-usbm)
+        # has NO 86Box mouse: the card reads 86Box's pointer itself, and a
+        # mouse device would take every movement first.
+        order, secs = ob.read_cfg(ob.find_cfg(profile))
+        usbm = dict(secs.get("PicoMEM #1", [])).get("usb_mouse") == "1"
         sets.append(("Input devices", "mouse_type",
-                     "ps2" if "_ps2" in n else "msserial"))
+                     "none" if usbm else "ps2" if "_ps2" in n else "msserial"))
         if "_ps2" in n:         # ...and NO UART, as QEMU's `-serial none`:
             sets += [("Ports (COM & LPT)", "serial1_enabled", "0"),  # the
                      ("Ports (COM & LPT)", "serial2_enabled", "0")]  # aux
@@ -529,10 +534,19 @@ def cmos_primed(profile, a, b, sets, nvr, mono=False, c=None, kmap=None,
     else:
         raise om.MartyError("%s: %s's BIOS still complained about its CMOS "
                             "after %d setup rounds" % (TAG, profile, rnd + 1))
+    # WRITTEN ATOMICALLY, because two rows priming one machine is the
+    # ordinary case now that 86Box rows share the emulator lane
+    # (docs/plans/SOAK-PARALLEL.md 18): the reader above takes the cache the
+    # moment every NAME exists, and a plain `open(..., "wb")` makes the name
+    # before the bytes - so the second row could boot a truncated CMOS. Each
+    # writer stages under its own pid and renames; both write the same bytes,
+    # so whichever rename lands last is as good as the first
     os.makedirs(d, exist_ok=True)
     for f, cm in out.items():
-        with open(os.path.join(d, f), "wb") as fh:
+        tmp = os.path.join(d, ".%s.%d" % (f, os.getpid()))
+        with open(tmp, "wb") as fh:
             fh.write(cm)
+        os.replace(tmp, os.path.join(d, f))
     return out
 
 

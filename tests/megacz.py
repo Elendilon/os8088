@@ -110,11 +110,15 @@ def boot(img, bimg, name, keep):
     b = os88box.launch("286-mega", name=name, hold=True, fresh=True, a=img,
                        b=bimg, temp=not keep, inplace=True)  # (the verbs
                                                 # write B:, read back here)
-    hma286.mr_setup(b)
-    b.kernel_up(guest_ms=90000, idle=False)
-    b.until(lambda: b.byte("mega_on"), "protected mode", 30000, 250)
-    b.ui_done(cap_ms=10000)
-    return b
+    try:
+        hma286.mr_setup(b)
+        b.kernel_up(guest_ms=90000, idle=False)
+        b.until(lambda: b.byte("mega_on"), "protected mode", 30000, 250)
+        b.ui_done(cap_ms=10000)
+    except BaseException:
+        b.quit(remove=not keep)     # a boot that fails is outside every
+        raise                       # caller's try: without this its 86Box
+    return b                        # ran on after the row had reported
 
 
 def rb(b, addr):

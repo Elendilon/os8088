@@ -4961,7 +4961,10 @@ dsk_synth_x:
     jne .size
     cmp byte [es:si+DSK_R_EXT+2], '8'
     jne .size
-    cmp dx, PKG_FILE_HI         ; the file must be under 1MB. It was `test dx,
+    cmp dh, PKG_FILE_HI >> 8    ; the file must be under 32MB (DH: the same
+                                ;   3 bytes as `cmp dx, imm8`, so nothing hot
+                                ;   moves - PKG_FILE_HI a multiple of 256,
+                                ;   kernel.asm asserts it). It was `test dx,
     jae .size                   ; dx` - the file had to fit 16 bits - and what
                                 ; changed it is that APP_MAX_SIZE no longer
                                 ; bounds a FILE (SPEC.md 19.1). It bounds the
@@ -9088,23 +9091,14 @@ code: the body-to-glyph delta has to be the same in both"
 %else                           ; ...and kern_small has no glyphs at all
 ICO_ROW     equ ICO_R_BODY + DSK_ICO_SIZE   ; (SPEC.md 54.0), so it carries no
 %endif                          ; column for them
-%ifdef KERN_SMALL
-ICO_NROW    equ 24              ; SPEC.md 51.0 leaves this kernel no
-%else                           ; driver-backed volume and fewer packages
-ICO_NROW    equ 60              ; a full ASSOC.DAT (ASC_NAPP 55) is absorbed
-%endif                          ; WHOLE (SPEC.md 54.7.4), so the store has to
-                                ; hold one and some: 60 x 82 + the capture is
-                                ; 5,107 of a 5KB claim (it was 48, 4KB)
-ICO_KB      equ (ICO_NROW*ICO_ROW + 1023) / 1024
 %ifdef OS88_ASSOC
-; THE CAPTURE (SPEC.md 54.7.6.2): the claim's KB rounding is 200 bytes past
-; the last row, and the harvest keeps there the one thing an ASSOC.DAT row
-; needs that the store does not hold - a declaring package's association
-; block - so the flush never reads a package a second time for it. It costs
-; no heap: those bytes were already claimed and unused.
-ICO_CAP      equ ICO_NROW * ICO_ROW
-ICO_CAP_MAX  equ 11                 ; records: one action's worth - every
-                                    ; declaring program in the tree. HOW MANY
+; THE CAPTURE (SPEC.md 54.7.6.2): the harvest keeps in the store's claim the
+; one thing an ASSOC.DAT row needs that the store does not hold - a declaring
+; package's association block - so the flush never reads a package a second
+; time for it. It sits at the HEAD of the claim and the rows follow it, so
+; the claim can grow off its end (SPEC.md 25.9.6) without the capture moving.
+ICO_CAP      equ 0              ; assoc.inc's asc_learn adds NOTHING for it
+ICO_CAP_MAX  equ 11                 ; records: one action's worth. HOW MANY
                                     ; are held is [ico_capn], beside [ico_n],
                                     ; so the two words that empty the store
                                     ; empty the capture too
@@ -9113,9 +9107,28 @@ ICO_CAP_RSZ  equ 17                 ; a RECORD: the store row it is for, then
                                     ; so a record is one `mul` and its row byte
                                     ; one `stosb` (kernel size pass 13: it was
                                     ; a row array and a 16-byte record array)
-%if ICO_CAP + ICO_CAP_MAX * ICO_CAP_RSZ > ICO_KB * 1024
-  %error "the capture (SPEC.md 54.7.6.2) no longer fits the icon store's KB rounding: shrink ICO_CAP_MAX, or pay a KB of claim and say so"
+ICO_RBASE    equ (ICO_CAP + ICO_CAP_MAX * ICO_CAP_RSZ + 1) & ~1
+                                    ; ...and row 0, EVEN: dsk_copy_seg_x's
+                                    ; `rep movsw` is the one alignment that
+                                    ; binds here, and ICO_ROW is even too
+; THE STORE GROWS (SPEC.md 25.9.6). It is claimed at ICO_KB and taken up a
+; kilobyte at a time by mem_regrow when a body finds it full - so a machine
+; with a few programs pays for a few, and an install of everything pays for
+; everything. ICO_NROW is the FIRST claim's rows and [ico_max] the current
+; claim's; ICO_KBMAX keeps a row number a byte with 0xFE/0xFF free, and
+; `div bl`'s quotient inside AL: (20 x 1024 - 188) / 82 = 247.
+ICO_KB       equ 5
+ICO_KBMAX    equ 20
+ICO_NROW     equ (ICO_KB * 1024 - ICO_RBASE) / ICO_ROW
+%if (ICO_KBMAX * 1024 - ICO_RBASE) / ICO_ROW > 253
+  %error "the icon store's largest claim holds more rows than a row byte can name (0xFE and 0xFF are ICO_R_FOLDER and ICO_R_NONE)"
 %endif
+%else
+ICO_RBASE   equ 0               ; kern_small: no capture, and a FIXED store -
+ICO_NROW    equ 24              ; SPEC.md 51.0 leaves this kernel no
+                                ; driver-backed volume and fewer packages,
+                                ; and its diet spends no byte on growing it
+ICO_KB      equ (ICO_NROW*ICO_ROW + 1023) / 1024
 %endif
 
 ICO_R_FOLDER equ 0xFE           ; not a row: the built-in folder body
@@ -9142,6 +9155,11 @@ ico_need:
     call mem_claim_x
     jc .out                     ; CF = 1 is the refusal, as it arrives
     mov [ico_seg], dx
+%ifdef OS88_ASSOC
+    mov word [ico_max], ICO_NROW | (ICO_KB << 8)    ; ...and [ico_kb] with it:
+                                ; a shed leaves both describing the claim it
+                                ; took, so every fresh claim says its own size
+%endif
                                 ; ([ico_n] is ALREADY 0 here on both kernels:
                                 ; .bss starts zeroed, and ico_demote, the only
                                 ; thing that zeroes [ico_seg], zeroes the WORD
@@ -9257,7 +9275,11 @@ ico_scan:
     call ico_need
     jc .nostore
     xor al, al
+%if ICO_RBASE
+    mov di, ICO_RBASE           ; row 0 is past the capture (SPEC.md 25.9.6)
+%else
     xor di, di
+%endif
     mov si, ico_keyb
     cld                         ; ...ONCE, not per row: nothing below sets DF
 .row:
@@ -9301,6 +9323,9 @@ ico_rowoff:
     push ax
     mov ah, ICO_ROW
     mul ah                      ; AX = AL * AH, and AH is a constant
+%if ICO_RBASE
+    add ax, ICO_RBASE           ; past the capture (SPEC.md 25.9.6)
+%endif
     mov di, ax
     pop ax
     ret
@@ -9351,10 +9376,16 @@ ico_add:
                                 ; would take, which is the whole of why the
                                 ; claim, the count and the row offset are not
                                 ; asked for again here
-    cmp al, ICO_NROW
-    jae .no                     ; full, or no store at all: SPEC.md 25's
-                                ; generic icon, and the caller reads CF=1 as
-                                ; exactly that
+%ifdef OS88_ASSOC
+    cmp al, [ico_max]
+    jb .room                    ; full, or no store at all (AL = 0xFF, which
+    call ico_grow               ; no claim's [ico_max] reaches): GROW it
+    jc .no                      ; (SPEC.md 25.9.6), and a refusal is SPEC.md
+.room:                          ; 25's generic icon - the caller reads CF=1
+%else                           ; as exactly that. ES is the grown claim and
+    cmp al, ICO_NROW            ; DI is where it was: rows never move inside
+    jae .no                     ; it, which is why the capture went first
+%endif
     push ax
     mov si, ico_keyb
     mov cx, ICO_KEY
@@ -9392,6 +9423,57 @@ ico_add:
     stc
 .fin:
     jmp dskw_find.out           ; the same six pops (a pop writes no flag)
+
+%ifdef OS88_ASSOC
+; -----------------------------------------------------------------------------
+; ico_grow - take the full store up a kilobyte (SPEC.md 25.9.6)
+; in:       [ico_seg] = the claim, or 0 = none
+; out:      CF = 0, ES = the claim (it may have MOVED) and [ico_max] raised;
+;           CF = 1 = no store, at ICO_KBMAX, or the heap said no
+; clobbers: ES (an output) and the flags
+;
+; mem_regrow is the whole of it: in place when the run above is free, else a
+; new block and a copy. NOTHING ELSE MOVES OR GOES - it compacts nothing, and
+; it sheds only what ranks strictly below the claim, which for MEM_PG_TRIV is
+; nothing at all - so the harvest and asc_seed, which hold other claims'
+; segments across an ico_add, hold good ones. A row's OFFSET never changes;
+; only the base can, and [ico_seg] is re-read by everything that names it.
+; -----------------------------------------------------------------------------
+ico_grow:
+    push ax
+    push bx
+    push dx
+    mov dx, [ico_seg]
+    mov al, [ico_kb]
+    cmp al, ICO_KBMAX           ; CF = 1 below the ceiling...
+    cmc                         ; ...and CF = 1 AT it, the refusal
+    jc .out
+    or dx, dx
+    stc
+    jz .out                     ; no store: nothing to grow
+    inc ax
+    xor ah, ah                  ; AX = the new size in KB
+    mov bx, MEM_P_ICO
+    call mem_regrow             ; DX = the base now
+    jc .out
+    mov [ico_seg], dx
+    mov es, dx
+    mov [ico_kb], al
+    mov ah, al
+    xor al, al
+    shl ax, 1
+    shl ax, 1                   ; AX = the claim's bytes (<= 20,480)
+    sub ax, ICO_RBASE
+    mov bl, ICO_ROW
+    div bl                      ; AL = the rows it holds (ICO_KBMAX keeps it
+    mov [ico_max], al           ; a byte)
+    clc                         ; (`div` leaves the flags undefined)
+.out:
+    pop dx
+    pop bx
+    pop ax
+    ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; ico_body - where row AL's body lives
@@ -9487,6 +9569,9 @@ ico_capn:   db 0                ; ...and the capture's records (SPEC.md
                                 ; 54.7.6.2). RIGHT BEHIND [ico_n]: every
                                 ; store that empties the one is a word store
                                 ; that empties both
+ico_max:    db 0                ; the rows the CURRENT claim holds...
+ico_kb:     db 0                ; ...and its KB (SPEC.md 25.9.6). One word,
+                                ; written whole by ico_need's claim
 %endif
 section .cold
 

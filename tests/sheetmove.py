@@ -262,7 +262,11 @@ def rt_watch(m, S, SH, seg, stub, trigger):
     # through it, where `mem_claim` is only .text's trampoline - the disk
     # layer is in .cold and calls mem_claim_x direct, so a breakpoint on the
     # trampoline saw none of the caches a file call claims back
-    claim, reloc = S("mem_claim_x.go"), S("mem_reloc_call")
+    # ...through m.sym() and NOT S(): both are `.cold`, and on this row's
+    # CGA kmain_o slid `.cold` down by VGA_PARA at boot, so os88sym.linear's
+    # addresses are 0x7F0 bytes above the live code and neither stop ever
+    # matched (MOVABLE-COLD-PLAN 2; tests/fddpark.py found the class)
+    claim, reloc = m.sym("mem_claim_x.go"), m.sym("mem_reloc_call")
     stg = lambda: u16(m.read(seg * 16 + SH["sh_stgseg"], 2))
     res = {"in": False, "rloc": None, "stg": None, "claims": 0, "forced": 0,
            "moved": 0, "out": False}
