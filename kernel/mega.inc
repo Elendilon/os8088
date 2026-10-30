@@ -721,8 +721,11 @@ mega_capon:
     mov si, mega_capsave
     mov bx, 0x0A*4                  ; IRQ2's software vector...
     call .pair
+    cmp byte [mega_capsw], 0        ; (a service's: those alone, 14.125)
+    jne .no22
     mov bx, 0x22*4                  ; ...and its hardware one
     call .pair
+.no22:
     mov ax, [es:0x33*4]             ; ...and int 33h, when it names a driver
     mov dx, [es:0x33*4+2]           ; image (KERN-MEGA-PLAN 14.117): the
     mov [mega_c33sv], ax            ; PicoMEM's multiplexer hands each USB
@@ -769,8 +772,11 @@ mega_capoff:
     mov si, mega_capsave
     mov bx, 0x0A*4
     call .pair
+    cmp byte [mega_capsw], 0        ; a service caught the software pair only
+    jne .no22
     mov bx, 0x22*4
     call .pair
+.no22:
     mov ax, [mega_c33sv]            ; int 33h as it was
     mov [es:0x33*4], ax
     mov ax, [mega_c33sv+2]
@@ -822,6 +828,8 @@ mega_m33y   dw 0
 mega_m33b   dw 0                    ; the last buttons,
 mega_m33n   db 0                    ; and how many (0 = none to deliver)
 mega_irqpend db 0
+mega_capsw  db 0                    ; 1: a SERVICE reflection's catch - the
+                                    ; software vectors and int 33h only
 
 ; mega_replay - PROTECTED MODE, after an IRQ reflection: each line a capture
 ; stub caught, delivered through its IDT gate, lowest line first
@@ -2958,14 +2966,19 @@ cpu 286
     mov al, [mega_rv]               ; real mode: code is memory again
     mov [.intop+1], al
     mov byte [.stiop], 0xFB         ; sti: a service runs with IF on...
-    cmp byte [mega_irqr], 0
-    je .go0
-    call mega_capon                 ; an IRQ: kernel lines caught, not run
-    mov byte [.stiop], 0x90         ; ...and an ISR is entered with IF off
-%ifdef MEGA_DIAG
-    call mega_pmpre                 ; a PicoMEM's: what it was asked to do
-%endif
-.go0:
+    mov byte [mega_capsw], 1        ; A SERVICE CATCHES TOO (KERN-MEGA-PLAN
+    cmp byte [mega_irqr], 0         ; 14.125): mega_rmaskf leaves an option
+    je .svcap                       ; ROM's line OPEN for the call (14.73),
+    mov byte [mega_capsw], 0        ; so a PicoMEM's multiplexer runs in it and
+    call mega_capon                 ; raises its Sound Blaster's IRQ as a
+    mov byte [.stiop], 0x90         ; software int 8+n - whose IVT entry is
+%ifdef MEGA_DIAG                    ; SOUND.DRV's protected-mode handler,
+    call mega_pmpre                 ; which real mode ran as SEGMENT 1254h
+%endif                              ; and never left. An IRQ: kernel lines
+    jmp short .go0                  ; caught, not run, and an ISR entered with
+.svcap:                             ; IF off. A service: only the SOFTWARE
+    call mega_capon                 ; vectors and int 33h - the hardware ones
+.go0:                               ; keep the mouse's real-mode ISR live
 %ifdef MEGA_DIAG
     mov al, 3                       ; mark 3: into the BIOS
     call KERNEL_SEG:mega_fdmkf
@@ -2993,10 +3006,7 @@ cpu 286
     mov al, 4                       ; draws too) - mark 4: the BIOS returned
     call KERNEL_SEG:mega_fdmkf
 %endif
-    cmp byte [mega_irqr], 0
-    je .nocap
-    call mega_capoff
-.nocap:
+    call mega_capoff                ; both kinds caught something now
     mov al, 0x8D                    ; NMI off until the selectors are back: the
     out 0x70, al                    ; PM IDTR in real mode reads gates as IVT
     lgdt [mega_gdtr]                ; all three again: a 286's reset cleared
@@ -3157,9 +3167,11 @@ mega_svc_back:
     and word [ss:bp+28], ~0x08D5
     or [ss:bp+28], ax
     cmp byte [mega_fdpend], 0       ; a native floppy fallback: did the BIOS
-    je .rh                          ; do what it could not? (mega_fdjudge)
+    je .rh0                         ; do what it could not? (mega_fdjudge)
     call mega_fdjudge
-.rh:
+.rh0:
+    call mega_replay                ; what an option ROM raised in the call,
+.rh:                                ; delivered through the IDT (14.125)
     cmp word [sch_rpend], 0         ; THE PERIODS THE ROM TOOK, TO THE HOOK
     je .out                         ; NOW (KERN-MEGA-PLAN 14.73): every IRQ0
     cmp byte [sch_fast], SCH_RATE   ; that fell in the call was the ROM's, so
@@ -7134,7 +7146,6 @@ mega_fdmkf:
     push ax
     push bx
     push cx
-    push dx
     push di
     push es
     mov bl, al
@@ -7148,27 +7159,7 @@ mega_fdmkf:
     mov ax, [vid_seg]
 .seg:
     mov es, ax
-    mov dx, 0x3C4                   ; the sequencer's index and map mask
-    in al, dx
-    push ax
-    mov al, 2
-    out dx, al
-    inc dx
-    in al, dx
-    push ax
-    mov al, 0x0F
-    out dx, al
-    mov dx, 0x3CE                   ; the GC's index, then 1, 3, 5 and 8
-    in al, dx
-    push ax
-    mov cx, 0x0100                  ; CH = 1 (set/reset enable) -> 0
-    call .gcset
-    mov cx, 0x0300                  ; function: replace
-    call .gcset
-    mov cx, 0x0500                  ; write mode 0
-    call .gcset
-    mov cx, 0x08FF                  ; every bit
-    call .gcset
+    call mega_fdvon
     cmp bl, 1
     jne .one
     mov al, 2                       ; stage 1: 2-5 black first
@@ -7182,63 +7173,18 @@ mega_fdmkf:
     mov al, bl
     mov ah, 0xFF
     call .blk
-    pop cx                          ; (the four GC values, last pushed first)
-    mov ch, 8
-    call .gcput
-    pop cx
-    mov ch, 5
-    call .gcput
-    pop cx
-    mov ch, 3
-    call .gcput
-    pop cx
-    mov ch, 1
-    call .gcput
-    pop ax
-    mov dx, 0x3CE
-    out dx, al                      ; the GC index as it was
-    pop ax
-    mov dx, 0x3C5
-    out dx, al                      ; the map mask
-    pop ax
-    dec dx
-    out dx, al                      ; the sequencer index
+    call mega_fdvoff
     pop es
     pop di
-    pop dx
     pop cx
     pop bx
     pop ax
 .out:
     popf
     retf
-; CH = a GC index: its value pushed under the return address, CL written
-.gcset:
-    pop di                          ; the return address
-    mov dx, 0x3CE
-    mov al, ch
-    out dx, al
-    inc dx
-    in al, dx
-    xor ah, ah
-    push ax
-    mov al, cl
-    out dx, al
-    jmp di
-; CH = a GC index, CL its value back
-.gcput:
-    mov dx, 0x3CE
-    mov al, ch
-    out dx, al
-    inc dx
-    mov al, cl
-    out dx, al
-    ret
 ; block AL (1-5) filled with AH: rows 40-47, byte column AL x 2
 .blk:
-    push ax
     push cx
-    xor di, di
     mov di, ax
     and di, 0x00FF
     shl di, 1                       ; byte column 2, 4 ... 10
@@ -7249,8 +7195,8 @@ mega_fdmkf:
     add di, 80
     loop .row
     pop cx
-    pop ax
     ret
+
 ; -----------------------------------------------------------------------------
 ; THE BIOS-CALL SAMPLER (MEGADIAG=1, KERN-MEGA-PLAN 14.125): while a floppy
 ; int 13h reflection is in the BIOS, real mode's IRQ0 (IVT 20h, the BIOS's
@@ -7479,7 +7425,6 @@ mega_fdvoff:
     push ax
     push dx
     mov dx, 0x3CE
-    mov ax, 0x0100
     mov al, 1
     out dx, al
     inc dx

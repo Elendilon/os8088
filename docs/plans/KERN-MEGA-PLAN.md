@@ -12834,3 +12834,49 @@ CS:IP names the loop: F000 the system BIOS, C800-EFFF an option ROM such as
 the PicoMEM's. A frozen count means IRQ0 stopped too, and the last sample
 shows where. QEMU: one tick in SeaBIOS's call at F000:8A2A, ISR 01 (inside
 the tick, as expected), and the machine goes on.
+
+**Third field reading, and the CAUSE (owner, 2026-10-29)**: any video played
+through the PicoMEM 1.x's Sound Blaster, then the empty drive, freezes every
+time. The sampler kept painting (count `2A` then `52`, so ticks run, IF on)
+and read, both times:
+
+    cnt  CS   IP   FLAGS 3E 3F 40 41 IMR ISR IRR MSR DIR
+    2A  1254 09AA  0217  80 00 FD 00  98  01  00  80  7F
+
+The CPU sits at **1254:09AA**, which is not the BIOS (F000) and not an
+option ROM. It is a **protected-mode selector run as a real-mode segment**:
+bit 2 is TI, and `(S >> 2) | 4 = 1254h` is the LDT code alias of a DRIVER
+IMAGE at segment 4940h. `3E` = 80h says the seek's IRQ6 had arrived, so the
+BIOS's own wait would have ended; something called out of the BIOS's call
+never came back. `IMR 98` has IRQ5 OPEN, and the PicoMEM's line is IRQ5.
+
+**The mechanism.** 14.73 made `mega_rmaskf` leave an option ROM's line OPEN
+for a SERVICE reflection, so the PicoMEM's multiplexer keeps running during
+a reflected BIOS call. After a video the card still has Sound Blaster work
+queued. Its ROM services that in real mode, inside the BIOS's floppy call,
+and raises its SB's IRQ the way SPEC.md 34.10.1 says it does: a SOFTWARE
+`int 8+n`, here `int 0Dh`. IVT 0Dh is SOUND.DRV's handler, hooked from
+protected mode as a CODE SELECTOR, and real mode jumped to it as a segment.
+`mega_capon` exists for exactly this. It swaps every IVT entry for IRQ2-7
+that names kernel or driver code for a capture stub, and `mega_replay`
+delivers what was caught through the IDT once back. But it ran for an IRQ
+REFLECTION only, and 14.73 opened the line for SERVICES without bringing it
+along. The empty drive is what makes it likely: an empty-drive BIOS call
+runs for seconds, a normal read for milliseconds. It hangs rather than
+crashing outright because the bytes at 1254:09AA happen to form a loop.
+`int 33h` was exposed the same way: the card's USB mouse reports would have
+reached USBMOUSE.DRV's protected-mode handler in real mode too.
+
+**FIXED**: a SERVICE reflection now catches as well (`[mega_capsw]`). It
+takes the SOFTWARE vectors 0Ah-0Fh and `int 33h` only. The hardware vectors
+22h-27h stay as they are, so the kernel's own mouse ISR keeps running in
+real mode during a BIOS call, as `mega_rmaskf` intends. `mega_capoff` puts
+back exactly what was taken, and `mega_svc_back` replays the catch for a
+service as it already did for an IRQ. All of it runs in the real-mode
+window, so it is low: **+22 bytes** of kern_mega's low segment
+(tests/megaseg.txt 4,381 -> 4,403). kern_big and kern_small are untouched,
+since mega.inc is not in them.
+
+Verified: QEMU boots the fixed kern_mega and an empty A: still falls back to
+the BIOS and returns. QEMU has no PicoMEM, so the freeze itself is the
+Victory's to confirm: video through the PicoMEM SB, then the empty drive.
