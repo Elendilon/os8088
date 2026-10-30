@@ -78,4 +78,4 @@
 #             `.mega`, osapi_xmem_sel/_walk and osapi_mem_codesel's bodies
 #             into `.cold` behind 6-byte doors, and kmain's four far calls
 #             after mega_enter into one (kmain_hic)
-4327
+3167
