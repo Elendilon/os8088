@@ -57303,7 +57303,8 @@ a reboot from C:, ten re-sized packages and a `.IMG` on B: - and the tree
 before this section stops at 60 rows with three packages and the `.IMG` on
 the generic icon.
 
-So `ico_add`, finding the store full, calls **`ico_grow`**, which takes the
+So `ico_add`, finding the store full, **grows it** (once `ico_grow`, written
+at its one call site since kernel size pass 15), which takes the
 claim up one kilobyte with `mem_regrow` (§50.3) and works out the rows the new
 claim holds into `[ico_max]`. The first claim is still `ICO_KB` = 5 and still
 60 rows (the capture moved, below, into bytes the rounding already had), and the ceiling `ICO_KBMAX` = 20 is 247 rows:
@@ -70299,7 +70300,9 @@ integration branch), whose ISR arm and verb 4 path are resident: measured on
 the merge, the shipped build keeps **6,863** with no mixer and **10,408** with
 one (`tests/unit/t_sndonce.py`) - +182 over the table, all of it §34.6.4's,
 and the mixer case's 182 crossed the KB back to 11. §34.6.5 is what took it
-back: 6,392 and **9,937**, 7KB and 10KB.
+back: 6,392 and **9,937**, 7KB and 10KB. Kernel size pass 15 took them to
+**5,797 and 8,622** - **6KB** and **9KB** - and split the no-mixer case by
+the hardware found (§34.15.1).
 
 `tests/sbirq5.py` and `tests/picomem.py` cut the discovery and `sbl_hook` out
 of `sb.inc` as they ship; `tests/unit/t_sndonce.py` holds the layout.
@@ -72055,17 +72058,23 @@ default clock and every toast lost the gap to it. The icon uses the menu
 bar's live background and ink, including Dark and Color themes: the kernel
 passes `thm_rpair`'s pair to verb 12 (`SNDV_MIXICON_THEME`), and a theme
 repaint invalidates its cache. On a 1bpp display the driver stages the
-bitmap in screen polarity, inverting it for Dark with the popup's existing
-scratch. Verb 10 stays in the driver for an older kernel; this kernel calls
+bitmap in screen polarity, inverting it for Dark IN PLACE and back again
+around the blit (it borrowed the popup's slider band until kernel size pass
+15 moved that band into the popup's claim). Verb 10 stays in the driver for an older kernel; this kernel calls
 12 alone, so a sound driver built before the themed verb shows no speaker
 rather than costing every kernel the fallback. SOUND.DRV rounds to 11KB of
 image plus state on the heap; `DRVM_IMG_SND` is 11. **That is the IMAGE**: loaded,
-the driver holds 10KB with a mixer and 7KB without, the attach-only code -
+the driver holds 9KB with a mixer and 6KB without, the attach-only code -
 and with no mixer the mixer verbs and this popup too - having been handed
-back after the attach (§34.15.1). The popup claims only
-its adapter-sized save-under while open: up to 8KB on VGA/EGA and 2KB on
-the mono adapters. VESA uses the same depth-based formula: 15KB at 8bpp or
-30KB at 16bpp (§120.4).
+back after the attach (§34.15.1). The popup claims only while open: its
+adapter-sized save-under AND, at the claim's foot, the slider's 968-byte
+1bpp band (176 x 44) - which until kernel size pass 15 was resident in the
+image on every mixer machine. Up to 9KB on VGA/EGA and 3KB on the mono
+adapters; VESA uses the same depth-based formula, 16KB at 8bpp or 31KB at
+16bpp (§120.4) - the band is one KB more than the save-under alone on each.
+`apps/os88gfx.inc`'s `GFXE_BAND_SEG` is what lets the band live there: an
+opt-in that writes every band byte through ES and copies each glyph's rows
+out of the font first (§5.12), ~+4,000 cycles a slider redraw.
 Its hit range is tested before
 the Date/Time cell, without changing application menu indices. The icon is
 cached independently, invalidated when the bar is overwritten or capabilities
@@ -72121,8 +72130,9 @@ https://www.phatcode.net/res/243/files/sbhwpg.pdf .
 
 ### 34.15.1 What a machine cannot run leaves the claim
 
-SOUND.DRV is 11,151 bytes and two runs of it are dead weight once its attach
-has answered:
+SOUND.DRV is 10,460 bytes (11,151 when this was written) and four runs of
+it are dead weight once its attach has answered - one on every machine, and
+three on every machine without the hardware each one drives:
 
 - **the attach-only code** - `opl_probe` and `opl_kind_probe`, `opl_init`'s
   one-time chip init, `mpu_probe` and its three helpers with `os88_pin`,
@@ -72139,46 +72149,78 @@ has answered:
   speaker, an AdLib alone, a Covox, an MPU-401, a Sound Blaster older than the
   CT1335. The kernel never shows the speaker there (`SND_CAP_MIXER` is clear)
   and Mixer is told `SNDE_NOMIX`.
+- **the MPU-401's output** (`mpu_put`, `mpu_hush` and verbs 2–5's bodies),
+  dead wherever `mpu_probe` found no interface - nearly every machine.
+- **the PicoMEM's keep-alive and race check** (`pm_runaway`, `pm_tick`),
+  dead wherever `pm_init` found no card.
 
-So the image is laid out to give them back, with two ends:
+So the image is laid out to give them back. **The rule (kernel size pass
+15): the middle runs are ordered, and a machine keeps the image up to the
+end of the LAST one it has a user for** - each run is reached only behind
+its own test in the runs above it, and a run kept for a later one's sake is
+code that machine kept before:
 
 ```
-[header][the tiers][their state][mix_kind] snd_keep: [mixer][popup][their state] snd_keepmix: [attach-only]
+[header][the tiers][their state][mix_kind]
+  snd_keep:    [PicoMEM: pm_runaway, pm_tick]          kept with [pm_base]
+  snd_keeppm:  [MPU-401: mpu_put, mpu_hush, verbs]     kept with [mpu_base]
+  snd_keepmpu: [mixer][popup][SBL_PRO][their state]    kept with [mix_kind]
+  snd_keepmix: [attach-only]                           never kept
 ```
 
-The attach - the one place `mix_probe` runs, so a tier change cannot bring a
-mixer into existence - writes `snd_keepmix` into the header's `DRV_H_KEEP`,
-or `snd_keep` when `[mix_kind]` is 0, and the kernel shrinks the image's
-claim to it before the tier and `DRVV_READY` calls (§51.1.3):
+The attach - the one place `mix_probe`, `mpu_probe` and `pm_init` run, so a
+tier change cannot bring any of them into existence - writes the offset into
+the header's `DRV_H_KEEP`, and the kernel shrinks the image's claim to it
+before the tier and `DRVV_READY` calls (§51.1.3):
 
-| build | no mixer (`snd_keep`) | a mixer (`snd_keepmix`) |
-|---|---|---|
-| shipped (PicoMEM in) | 6,681 bytes: **12KB → 7KB** | 10,226: **12KB → 10KB** |
-| `NOPICOMEM=1` | 6,501: 12KB → 7KB | 10,046: 12KB → 10KB |
+| build | the tiers alone (`snd_keep`) | + a PicoMEM (`snd_keeppm`) | + an MPU-401 (`snd_keepmpu`) | a mixer (`snd_keepmix`) | image |
+|---|---|---|---|---|---|
+| shipped (PicoMEM in) | 5,797: **11KB → 6KB** | 5,913: 6KB | 6,098: 6KB | 8,622: **11KB → 9KB** | 10,460: 11KB |
+| `NOPICOMEM=1` | 5,756: 10KB → 6KB | (no run) | 5,941: 6KB | 8,465: 9KB | 9,945: 10KB |
 
-(Measured 2026-10-30, after §34.5.7; the table first carried 6,579 and
-10,124 against an 11,151-byte image, and the image had grown to 7,501 and
-11,046 kept by the time §34.5.7 took the Sound Blaster's attach-only half.)
+(Measured at kernel size pass 15, 2026-10-30, against two runs of 6,392 /
+9,937 in an 11,737-byte image, and `NOPICOMEM=1`'s 6,209 / 9,754 / 11,224 -
+docs/plans/completed/ksp15/snd.md. The table first carried 6,579 and
+10,124 against an 11,151-byte image; §34.5.7 measured 6,681 and 10,226.
+The mixer's run lost the popup's 968-byte slider band to the popup's own
+claim, §34.15.) No machine keeps more than it did with two runs: a mixer
+machine keeps everything below `snd_keepmix` as before, and one with an
+MPU-401 and no mixer keeps the PicoMEM's 116 bytes it would have kept anyway.
 
 The attach-only bodies are defined as macros (`MPU_ONCE`, `CVX_ONCE`,
 `PM_ONCE`, `MIX_ONCE`, and `sb.inc`'s `SBL_ONCE`, which SOUND.DRV alone
 includes and so expands unconditionally) and expanded where their files put them unless
 `SND_SPLIT` is defined - which SOUND.DRV does, expanding them past
 `snd_keepmix` - so `picomem.inc`'s other includers (`tests/picomem/`,
-`tests/vidbench/vidsnd.asm`) assemble exactly as before.
+`tests/vidbench/vidsnd.asm`) assemble exactly as before. The two device
+runs are the same shape: `PM_RES` and `MPU_RES`, expanded in place without
+`SND_SPLIT` (and then `pm_runaway` asks `[pm_up]` itself and each MPU verb
+`[mpu_base]`, as they always did) and in their runs with it.
 
-**Nothing kept is ever reached into what was handed back.** `snd_pkg`
-refuses verbs 7–12 with `SNDE_NOMIX` when `[mix_kind]` is 0 (verb 11's CF = 1
+**Nothing kept is ever reached into what was handed back.** The device runs
+first: `sbl_tick` asks `[pm_up]` before `pm_runaway` (a compare it used to
+make a call later, so a machine without the card pays fewer cycles in IRQ0
+than before), `pm_tickpub` publishes `pm_tick` only with `[pm_base]`, `snd_pkg`
+refuses verbs 2–5 with `SNDE_NOMIDI` - their own answer - without
+`[mpu_base]`, and `mpu_detach` (resident) reaches `mpu_hush` only with
+`[mpu_own]`, which only a successful `SNDV_MIDOPEN` sets. Then the mixer:
+`snd_pkg` refuses verbs 7–12 with `SNDE_NOMIX` when `[mix_kind]` is 0 (verb 11's CF = 1
 is then "not on the speaker", which is true), and `snd_detach` tests it
 before `mix_detach` - which is why `mix_kind` is the core's byte and not
 `MIX_STATE`'s, and why the verbs themselves no longer test it. The THIRD door
 is an SB Pro's stereo stream (§34.5.5): `sbl_pro_st` reads and writes mixer
 0Eh, and it is reached only by a stream verb 11 accepted as stereo - which
 it does only against `SND_CAP_STEREO`, and `snd_sb_pub` publishes that to a
-DSP 3.xx only when `[mix_kind]` is 2. `sbl_stop_stream`'s write puts 0Eh back
-behind `[sbl_pst]`, which nothing but `sbl_pro_st` sets. So the guard is the
-caps word, read once at attach, and not a test at the call. Below
-`snd_keepmix` only `snd_entry` names a label past it. Both rules are layout
+DSP 3.xx only when `[mix_kind]` is 2. `sbl_stop_stream`'s `sbl_pro_end` puts
+0Eh back behind `[sbl_pst]`, which nothing but `sbl_pro_st` sets. So the
+guard is the caps word, read once at attach, and not a test at the call -
+**and since kernel size pass 15 both routines live in the MIXER's run**
+(`sb.inc`'s `SBL_PRO`, expanded after `mixer.inc`): the only code in `sb.inc`
+that touches the CT1345 is handed back with the rest of the mixer on a
+machine without one, and `sbl_hw_start` and `sbl_stop_stream` are the doors
+`t_sndonce` names. Below
+`snd_keepmix` only `snd_entry` names a label past it, and no run names a
+label in a LATER run outside the doors above. Both rules are layout
 rules that assemble cleanly when broken, so `tests/unit/t_sndonce.py` reads
 them off the assembler's listing; its first run found `snd_detach` calling
 `opl_tmrst`, a ten-byte helper that had sat between the probes and moved with
@@ -75115,6 +75157,17 @@ overlay code (§2.5) and is dead FAT by the time the Control Panel can change
 the adapter under it, so the arithmetic is resident - `desk_rowcalc_x`, in
 `.cold` and ending in a `retf` - and the overlay far-calls that body by name
 (the `ovw_desk_rowcalc` shim it bounced through went in kernel size pass 9).
+**Since kernel size pass 15 it is not resident at all** (ksp15/blob.md):
+nothing resident ever called it, so it is desk.inc's `DESK_ROWCALC` macro,
+expanded where its callers are - `wm_rowcalc` in `CTRL.DRV` (Set Primary,
+the Dock page, the arrangement row) and `bvw_rowcalc` for the boot (kmain_o,
+after `desk_init` returns and again after `drv_boot`, the blob's `bvs_switch`
+and `bdk_reflow`). On kern_big and kern_emu the boot's GEOMETRY half is
+`cfx_grid` in `.cfx`, past `cfx_tab` (the blob had nine bytes), and
+`bvw_rowcalc` is a far call to it followed by the reflow; kern_mega's blob
+takes the whole copy. On kern_small `desk_reflow` and `desk_live` had no
+other caller and are written into the macro, so all three left resident:
+kern_big, kern_emu and kern_mega `.cold` -100, kern_small `.cold` -123.
 
 **On kern_small `vid_switch` is `CTRL.DRV`'s** (kernel size pass 13). Its one
 caller there is the Display page - that build has no `drv_boot` to apply
@@ -75124,7 +75177,8 @@ only it reaches (`vid_equip`, `vid_blank`, `vid_avail_test`, `wm_su_drop_all`,
 `.modu` there and `.text` on kern_big) and reach the kernel through the
 panel's `CPXK` hop: 187 resident bytes on the 128 KB machine's kernel, for
 the order above unchanged. `desk_rowcalc`'s resident thunk goes with it - the
-image makes the far call to `desk_rowcalc_x` itself.
+image makes the far call to `desk_rowcalc_x` itself (and since kernel size
+pass 15 carries its own copy, `wm_rowcalc`).
 
 **On kern_big (and kern_emu) it is `CTRL.DRV`'s too** (kernel size pass 13,
 docs/plans/completed/ksp13/dispsw.md). Setting a new PRIMARY is the Display
@@ -75329,7 +75383,7 @@ changes** — drawing is spatially coherent, so the steady state is
 |---|---|
 | `[vid_ndisp]` | displays the kernel has **brought up** — 2 after §39.13, 1 for ever on a one-card machine. Not the same question as how far the *desktop* spans, which is `[vid_w]`/`[vid_h]` and is still one display's until docs/plans/completed/DUAL-DISPLAY-PLAN.md step 6 |
 | `[vid_cur]` | which display's geometry is in the live block |
-| `vid_ctx_capture` | AL = display; bank the live geometry into that record |
+| `vid_ctx_capture` | AL = display; bank the live geometry into that record. Not resident since kernel size pass 15: vidsel.inc's `VID_CTXCAP` macro, expanded in each of its callers' images - `vid_ctxcap` (CTRL.DRV), `ext_ctxcap` (EXTD.DRV), `cfx_ctxcap` (`.cfx`, the blob's on kern_big and kern_emu), `bvs_ctxcap` (kern_mega's blob) - and written into the boot overlay's `vid_ctx_init` |
 | `vid_ctx_act` | AL = display; make it current, **returning immediately if it already is** |
 | `vid_ctx_init` | one display, at the virtual origin, holding what is on screen now |
 
@@ -78091,7 +78145,7 @@ collapse, which is the invariant kept by construction rather than by care.
 
 - **The Control Panel** (§31.10.2's arrangement row, inside `CTRL.DRV`, +50
   image bytes and no resident ones) calls `exf_sync`, then
-  `vid_disp_init`, `desk_rowcalc_x` and `wm_refit` - what `vid_disp_relayout`
+  `vid_disp_init`, `wm_rowcalc` and `wm_refit` - what `vid_disp_relayout`
   was, written out in the image since kernel size pass 13 - then `exf_sync` again: the first loads before anything
   moves and the second drops after the collapse. A refusal skips the relayout
   and toasts the panel's own `Needs Sys Disk A:` (§2.8.4) — the panel is
@@ -213950,7 +214004,7 @@ stik_boot:       [ui_rebootq] != 0  -> nothing (a resume or DOS question is up)
   icons and one toast (single slot, last wins, §59.3).
 - **`desk_reflow` with no lock is safe**: it rewrites `[desk_zslot]` and posts
   `[desk_cdirty]` and nothing else, never draws, and runs lock-free already
-  from `desk_rowcalc_x` in kmain and from `OSAPI_DESK_ITEM`'s driver half at
+  from `bvw_rowcalc` in kmain and from `OSAPI_DESK_ITEM`'s driver half at
   attach. Nothing else can touch the table at this point: `ui_task` does not
   exist yet and no package is running.
 - **A pending hibernate or DOS question stands everything down**: `hb_probe`

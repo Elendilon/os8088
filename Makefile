@@ -1785,12 +1785,11 @@ SBSTAMP := $(BUILD)/.sbpkg$(if $(SBDRAGOFF),-off$(SBDRAGOFF))$(if $(SBRATE),-r$(
 # **LZ4 IS THE DEFAULT AND SHIPS** (SPEC.md 20.13.5). It was a knob for one
 # cycle, tested in the field on the 360KB set, and it is now what every
 # shipped floppy carries - so `make` alone builds the compressed disks and
-# `make PKGZ=` builds the uncompressed ones. LZB is NOT shipped: it is ten
-# points better on ratio and four times slower to expand, and until somebody
-# has that trade measured on a 5150 the machine takes the fast one. Its knob
-# stays, on both sides (`make PKGZ=lzb COMPRESS=lzb`, or `zset ZFMT=lzb`),
-# because the whole point of a second format is that it can be added on top
-# later without the disk layout moving.
+# `make PKGZ=` builds the uncompressed ones. LZ4 is the DEFAULT format; LZB
+# (ten points better on ratio, four times slower to expand) ships too, for the
+# twenty package builds `LZBPKGS` names (SPEC.md 20.13.5), so the kernel keeps
+# both decoders. `make PKGZ=lzb COMPRESS=lzb` (or `zset ZFMT=lzb`) packs
+# everything with it.
 #
 # THE KERNEL HAS TO CARRY THE FORMAT, so pair it: `make PKGZ=lzb COMPRESS=lzb`.
 # PKGZ alone with the default kernel gives an apps disk of packages that will

@@ -73,4 +73,15 @@
 #             IRQ7 ISR left as a selector by mega_ivt_sync, reached by a
 #             SPURIOUS IRQ7 inside the empty drive's BIOS call. mega_capon's
 #             filter, real mode, so low
-4417
+# 2026-10-30: +18, to 4,435, kernel size pass 15 (recent) - NOT kern_mega
+#             growing: its segment is 52,983 either side. kern_big's shrank by
+#             18 (the lone relocated words as one mem_rr_tab row, clip_reloc
+#             and sc_reloc gone), and every piece of that is a ROW kern_mega
+#             does not walk - its words can hold selectors - so it keeps the
+#             procs and the difference widens by exactly kern_big's saving
+# 2026-10-30: +8, to 4,443, kernel size pass 15 (gui close-out) - the
+#             same shape again: fdlg_rqsp and drv_blkseg joined kern_big's
+#             mem_rr_lone run, and kern_mega keeps their two MEM_RR_ONE rows
+#             (8 bytes) because it does not walk that run. kern_mega's
+#             segment did not grow (.text 47,392 -> 47,386)
+4443

@@ -2278,6 +2278,27 @@ dbg_reg_at:                     ; 0060:000E - THE DEBUG REGISTRY (SPEC.md 57)
 %1: stc
 %endmacro
 
+; THE SKIP BYTES (kernel size pass 15): an opcode whose immediate IS the next
+; instruction, in place of a two-byte `jmp short` over it - CLC_OR_STC's trick
+; for any short instruction. CODE, not data: they are macros so that
+; os88ovlchk's rule 1 (no `db` in .cold) keeps meaning what it says. Each
+; names what it writes, which the site must have proved dead:
+%macro SKIPF1 0                 ; test al, imm8 over ONE byte: writes the
+    db 0xA8                     ; flags (CF = 0), nothing else
+%endmacro
+%macro SKIPF2 0                 ; test ax, imm16 over TWO bytes: the same
+    db 0xA9
+%endmacro
+%macro SKIPAL1 0                ; mov al, imm8 over one byte: AL, NO flag
+    db 0xB0
+%endmacro
+%macro SKIPDL1 0                ; mov dl, imm8 over one byte: DL, no flag
+    db 0xB2
+%endmacro
+%macro SKIPCX2 0                ; mov cx, imm16 over two bytes: CX, no flag
+    db 0xB9
+%endmacro
+
 osapi_table:
 apic_gfx_lock:
     OSAPI_SLOT gfx_lock           ; 0x0010
@@ -4363,10 +4384,8 @@ api_fdlg_open:
     jz .nodef                   ; "no default": the ZERO is the argument, so it
     call api_cpname             ; must reach fdlg_open unstaged and unchanged
     mov si, api_name            ; a kernel offset, so it survives the DS switch
-    jmp short .go
-.nodef:
-    xor si, si
-.go:
+.nodef:                         ; (SI is 0 already on the `jz` that brings it
+.go:                            ; here - kernel size pass 15, -4)
     pop es                      ; the caller's ES back: it is the buffer
     pop di                      ; and its DI, which fdlg_open needs as an
                                 ; input (the completion proc's offset)
@@ -5447,6 +5466,9 @@ kmain_o:
                                 ; FDD_MOTORW + FDD_SEEKW - 32 ticks, 1.76 s,
                                 ; the longest single wait in the whole boot
     OVLCALL  desk_init  ; volume zones for the desktop (SPEC.md 26.1)
+    call bvw_rowcalc            ; ...and the grid's shape and its first
+                                ; reflow, desk_init's last step until kernel
+                                ; size pass 15 (desk.inc's DESK_ROWCALC)
     MARKW 21
     OVLCALL  dock_init          ; dock strip scratch (SPEC.md 30)
     MARKW 22
@@ -5509,7 +5531,7 @@ kmain_o:
 %ifndef KERN_SMALL
     mov byte [desk_ready], 1    ; from here on the desktop places things...
 %endif
-    call COLD_SEG:desk_rowcalc_x    ; every volume the boot added and every
+    call bvw_rowcalc            ; every volume the boot added and every
                                 ; shortcut and placed drive SYSTEM.CFG put
                                 ; back, into their cells in one pass - and
                                 ; rowcalc, not the bare reflow, because the
@@ -5927,6 +5949,14 @@ osapi_seg:                      ; (api_rxc's far body: DS = KDATA)
     mov cl, 12
     shr dx, cl                  ; DX:AX = DX x 16
     pop cx
+%ifdef KERN_BIG                 ; (kern_small: the old shape, for the parity
+    SKIPF2                      ; of gfx_blit1_x right after this routine)
+.sub:                           ; test ax, imm16 over .sub's add: flags only,
+    add dx, ax                  ; and the clc below is the answer (kernel size
+.ok:                            ; pass 15: one `clc / retf` for both)
+    clc
+    retf
+%else
 .ok:
     clc
     retf
@@ -5934,6 +5964,7 @@ osapi_seg:                      ; (api_rxc's far body: DS = KDATA)
     add dx, ax
     clc
     retf
+%endif
 .no:
     stc
     retf                        ; (an EVEN body: dsk_xfer, dsk_runcap,
@@ -6011,7 +6042,9 @@ osapi_img_name:                 ; (api_rsc's far body: DS = KDATA)
 %endif
 .mod:                           ; SI is the row's segment word either way, and
     mov al, 1                   ; the name's pointer is the word after it in a
-    jmp short .name             ; drv_tab row and a mod_tab row alike (asserted
+    SKIPF2                      ; drv_tab row and a mod_tab row alike (asserted
+                                ; - and test ax, imm16 over the mov below keeps
+                                ; AL; the `or` in .c writes CF - pass 15)
 .drv:                           ; below), so one load serves both
     mov al, 0
 .name:
@@ -6507,6 +6540,10 @@ osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
 ; CTRL.DRV (ctrl.inc) and `bvs` in the boot blob (driver.inc). The CS it
 ; stores is the far return's, on the stack, spent before the hop returns - not
 ; a published segment, which is what os88ovlchk's CS rule is about.
+%macro HBGC 1                   ; HIBER.DRV's CPXC (hiber.inc): its own far hop
+    call hbg_cgo                ; into the near .cold routine %1 (kernel size
+    dw %1                       ; pass 15)
+%endmacro
 %macro KGO_PAIR 1
 %1 %+ _cgo:                     ; ovlchk: builds its own far frame
     push ax                     ; STKBALANCE-OK: a far frame built by hand, its
@@ -8313,6 +8350,37 @@ cfx_grp:
     ret
 cfx_tab:    times CFX_MAX db 0
 cfx_tab_end:
+; -----------------------------------------------------------------------------
+; cfx_grid - desk_rowcalc's geometry for the BOOT (desk.inc's DESK_GRID): the
+;            blob's bvw_rowcalc far-calls it and then reflows (kernel size pass
+;            15). All registers preserved but flags.
+;
+; HERE because the blob had nine bytes and `.cfx` is the RAM nothing claims
+; until mem_unblob - which is after kmain_o's last call - and PAST cfx_tab
+; because the first KVGABUF_SIZE bytes of this section are `.vgabuf`'s RAM
+; too (VGABUF_RAM is COLD_RAM + COLD_PARA): the slide is done with them
+; before the planar decoder's first use, and this is called long after. It
+; names no segment, so os88cfx has nothing to stamp in it.
+; -----------------------------------------------------------------------------
+cfx_grid:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    DESK_GRID
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    retf
+; cfx_ctxcap - vid_ctx_capture for the blob's bvs_disp_init (vidsel.inc's
+; VID_CTXCAP), here for cfx_grid's reason
+VID_CTXCAP cfx_ctxcap, retf
+%if cfx_grid - $$ < KVGABUF_SIZE
+  %error "cfx_grid lies in the RAM `.vgabuf` shares with `.cfx`"
+%endif
 cfx_end:
 CFX_SIZE    equ cfx_end - $$
 %if (CFX_RAM * 16 + CFX_SIZE) > BLOB_SEG_AT * 16
