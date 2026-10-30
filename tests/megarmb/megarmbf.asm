@@ -56,6 +56,14 @@ MF_PAT      equ 0x5AA5
 MF_WAIT     equ 36                  ; the timer: two seconds after launch
 MF_LOOK     equ 54                  ; leg N's three seconds inside
 MF_NCLM     equ 40                  ; leg M's claims, at most
+MF_BIG      equ 60000               ; bss that makes the REGION ~61 KB: a
+                                    ; package's claims stop at its floor, and
+                                    ; the kernel's claim for the region's copy
+                                    ; may still have the ~51 KB under it, so M
+                                    ; needs a copy bigger than that (W3 - W1's
+                                    ; door claimed 64 KB for this region,
+                                    ; a rounding defect, which is what M used
+                                    ; to fall back on)
 
 mf_entry:
     push si
@@ -243,6 +251,7 @@ mf_run0:
     mov bx, [mf_win]
     mov ax, [mf_ent]
     xor si, si                      ; FSXR_REAL in
+    xor bp, bp                      ; no FSXL_ list (W3)
     call OSAPI_FSX_RUN
     sbb dl, dl
     mov di, [mf_cur]
@@ -577,7 +586,7 @@ mf_s_done:  db 'done', 0
 
 ; THE RESULT BLOCK, in the bss: tests/megarmbref.py writes mf_go (its
 ; offset is os88_image_end, the .bin header's image size) and reads E9
-    OS88_BSS MF_RESN
+    OS88_BSS MF_RESN + MF_BIG
     OS88_IMAGE_END
 
 mf_res      equ os88_image_end

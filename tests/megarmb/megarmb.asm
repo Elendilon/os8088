@@ -96,6 +96,7 @@ mb_tick:
     mov ax, mb_main_r
     mov cx, FSXF_REAL + FSXF_KEEPWORKER
     xor si, si                      ; FSXR_REAL in: SI is the answer out
+    xor bp, bp                      ; no FSXL_ list (W3)
     call OSAPI_FSX_RUN
     sbb ax, ax
     mov [mb_rcf], al
@@ -122,6 +123,7 @@ mb_tick:
     mov dx, MB_DIV
     mov di, mb_hook
     xor si, si
+    xor bp, bp                      ; no FSXL_ list (W3)
     call OSAPI_FSX_RUN
     sbb ax, ax
     mov [mb_acf], al
@@ -176,6 +178,7 @@ mb_tick:
     mov ax, mb_main_b
     mov cx, FSXF_REAL
     xor si, si
+    xor bp, bp                      ; no FSXL_ list (W3)
     call OSAPI_FSX_RUN
     sbb ax, ax
     mov [mb_bcf], al

@@ -119,10 +119,33 @@ def parse(lines):
     return out
 
 
-def expect_table(before, box):
+# W3's SERVICE-AREA twins (fsx_rkeepm): a far jump to [fsx_rmsseg]:twin, the
+# twin's offset being `.mega`'s own
+TWINS = (("apic_xm_caps", "rms_xcaps"), ("apic_xm_copy", "rms_xcopy"),
+         ("apic_drv_pkg_call", "rms_drvx"), ("apic_drv_call_at", "rms_drva"),
+         ("rmk_rseq", "rms_rseq"))
+
+
+def megaoff():
+    """`.mega` labels' offsets (os88bochs's map places only the four
+    segments real mode names)"""
+    import os88sym
+    off, sect, _ = os88sym._parse_map(os.path.join(ROOT, "build", "megak",
+                                                   "kernel.map"))
+    return off
+
+
+def expect_table(before, box, msseg):
     """the real-mode image fsx_rdownf promises, off the protected-mode one"""
     img = bytearray([0xF9] * TLEN)
     img[TLEN - 1] = 0xCB
+    mo = megaoff()
+    for cell, twin in TWINS:
+        c = box.sym(cell) - KSEG * 16 - TBL
+        t = mo[twin]
+        img[c - 1] = 0xCB
+        img[c:c + 5] = bytes([0xEA, t & 0xFF, t >> 8, msseg & 0xFF,
+                              msseg >> 8])
     runs = []
     for r in RUNS:
         a = box.sym(r) - KSEG * 16 - TBL
@@ -148,7 +171,7 @@ def main():
     out = tempfile.mkdtemp(prefix="megarmbref-")
     t0 = time.time()
     box = os88bochs.Box(out, [os.path.join(ROOT, PKG)])
-    lines, look, after, moved = [], None, None, False
+    lines, look, after, moved, msseg = [], None, None, False, 0
     ext = None
     try:
         if not box.wait_for("kern_mega:", 240):
@@ -191,12 +214,14 @@ def main():
                 else:
                     box.dbg(pokes[c] + ["setpmem 0x%x 1 0x%x" % (go, ord(c))])
             if look is None and any(l.startswith(NAME + ": P ") for l in ls):
-                rm, kd, rs = box.reads([("fsx_rmode", 1), ("k_dsel", 2),
-                                        ("fsx_rseg", 2)])
+                rm, kd, rs, ms = box.reads([("fsx_rmode", 1),
+                                            ("k_dsel", 2), ("fsx_rseg", 2),
+                                            ("fsx_rmsseg", 2)])
                 if rm[0] == 1 and u16(kd) == KSEG:
                     ins = box.read(u16(rs) * 16 + roff + 19, 1)[0]
                     if ins == 1:
                         look = box.read(KSEG * 16 + TBL, TLEN)
+                        msseg = u16(ms)
             time.sleep(0.05)
         else:
             want(False, "%s finished its legs in 300s" % NAME)
@@ -207,7 +232,7 @@ def main():
             after = box.reads([(KSEG * 16 + TBL, TLEN), (tf, 1), (ext, 2),
                                ("ser_row", 2), ("vx_ep", 4), ("fsx_rwhy", 1),
                                ("fsx_rmode", 1), ("fsx_task", 1)])
-            exp, runs = expect_table(tbl0, box)
+            exp, runs = expect_table(tbl0, box, msseg)
             box.capture()
             a = box.mouse()
             try:

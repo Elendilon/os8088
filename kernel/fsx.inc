@@ -1453,12 +1453,17 @@ fsx_rprepf:
 .tn:
     add bx, T_SIZE
     loop .t
-    mov bp, inst_vol_enter      ; THE LIST (W3), resolved in the caller's
-    call KERNEL_SEG:mega_tcall  ; own folder: its DS:BP - under pusha, our
-    mov bp, sp                  ; AX and far return, kent_di's six, the X
-    mov es, [bp+38]             ; stub's return and its ES - walked into the
-    mov bp, [bp+40]             ; park's scratch, FSXR_VOL, _FRAG or _DRV in
-    call fsx_rlist              ; AL
+    mov bp, sp                  ; THE LIST (W3), the caller's DS:BP - under
+    mov es, [bp+38]             ; pusha, our AX and far return, kent_di's six,
+    mov bp, [bp+40]             ; the X stub's return and its ES - walked in
+    or bp, bp                   ; the caller's own folder into the park's
+    jz .nl                      ; scratch, FSXR_VOL, _FRAG or _DRV in AL. No
+    push bp                     ; list, no remount: the machine stays where
+    mov bp, inst_vol_enter      ; it stands
+    call KERNEL_SEG:mega_tcall
+    pop bp
+.nl:
+    call fsx_rlist
     jc .why
     popa                        ; (AL the reason again, for every exit below)
     mov al, FSXR_ROOM
