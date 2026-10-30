@@ -5069,7 +5069,9 @@ OS88_BSS_SIZE equ 0
                                                 ; W_ONKEY's environment, near
                                                 ; ret), and on its return
                                                 ; restores the desktop whole.
-                                                ; Out CF=1 refused. Inside:
+                                                ; Out CF=1 refused; CF=0 with
+                                                ; FSXF_REAL, SI = FSXR_* (pass
+                                                ; SI = 0 in). Inside:
                                                 ; poll int 16h for keys and
                                                 ; OSAPI_MOUSE for the mouse -
                                                 ; no events are dispatched;
@@ -6553,10 +6555,21 @@ FSXF_REAL       equ 8           ; OSAPI_FSX_RUN CX bit 3 (SPEC.md 53.2.3): on
                                 ; call), the copy is written back at the exit,
                                 ; IRQ n is vector 20h + n (write no IVT 08h-
                                 ; 0Fh or 20h-27h cell), and only the cells
-                                ; 53.2.3 lists run. kern_mega refuses it with
-                                ; FSXF_KEEPWORKER, under a driver's worker,
-                                ; with the extended desktop up, or with no
-                                ; low room for an OS88_HIGH region
+                                ; 53.2.3 lists run - any other cell answers
+                                ; CF = 1. Pass SI = FSXR_REAL: on CF = 0 SI is
+                                ; the ANSWER, FSXR_REAL it ran in real mode or
+                                ; the reason it ran in PROTECTED mode instead
+                                ; - kern_mega never refuses the bit, it falls
+                                ; back, and a kernel in real mode keeps SI.
+                                ; Inside, OSAPI_CPU_INFO's CPU_F_PM says the
+                                ; same. apps/os88real.inc renames your claims
+FSXR_REAL       equ 0           ; ...SI out: the bracket ran in real mode
+FSXR_KEEP       equ 1           ; ...protected: FSXF_KEEPWORKER was asked
+FSXR_SVC        equ 2           ; ...protected: a driver's worker is alive
+FSXR_EXTD       equ 3           ; ...protected: the extended desktop is up
+FSXR_SERIAL     equ 4           ; ...protected: a SERIAL.DRV lease is open
+FSXR_ROOM       equ 5           ; ...protected: no conventional room for the
+                                ; copy of an OS88_HIGH region
 FSX_SUBTICK     equ 3           ; ...and this is the divider, so with FASTTICK
                                 ; armed FSXW_FRAME returns 3 x 18.2065 = 54.6
                                 ; times a second. A constant, not a

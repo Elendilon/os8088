@@ -103982,24 +103982,58 @@ its exit**, so the whole bracket runs as it would on kern_big.
 docs/plans/MEGA-VIDEO-REALMODE-PLAN.md is the design and its W1 entry the
 decisions; this section is the contract.
 
-**In** (with CX bit 3, `FSXF_REAL` = 8): nothing more. It combines with any
-other flag. **kern_big and kern_small accept it and ignore it** - they are in
-real mode already, and the bit is stripped at the door, so a package asks
-for it unconditionally. So does kern_mega on a machine where it never
-entered protected mode. **On kern_mega in protected mode it refuses, CF = 1
-and nothing changed**, for four structural reasons: with
-`FSXF_KEEPWORKER` (one task runs in real mode, so there is nothing to keep);
-while a `TF_SERVICE` task is alive (a driver's worker would never be
-scheduled); while EXTD.DRV, the extended desktop's module, is loaded (its
-image is above 1MB, and three of the cells below call it); and when the
-region is above 1MB (`OS88_HIGH`) and the heap has no conventional claim for
-its copy. A refused real-mode bracket is a refusal
-like any other (§47): a package that would rather play in protected mode
-than not at all calls again without the bit, and says which it got.
+**In** (with CX bit 3, `FSXF_REAL` = 8): SI = `FSXR_REAL` (0), so that one
+answer reads the same on every kernel (below). It combines with any other
+flag. **kern_big and kern_small accept it and ignore it** - they are in real
+mode already, and the bit is stripped at the door, so a package asks for it
+unconditionally. So does kern_mega on a machine where it never entered
+protected mode. **On kern_mega in protected mode it never refuses: where real
+mode cannot be had, the SAME bracket runs in protected mode** - today's
+bracket, exactly as if the bit had not been asked (MEGA-VIDEO-REALMODE-PLAN
+5.3: the bracket is DUAL, real mode by default) - and the kernel says which
+it took and why.
+
+**Out** (CF = 0, the bracket ran): **SI = `FSXR_*`, the bracket's answer** -
+`FSXR_REAL` (0) it ran in real mode, otherwise the reason it ran in
+protected mode instead. A kernel in real mode already leaves SI as it came,
+which is why SI goes in as `FSXR_REAL`; without `FSXF_REAL`, and on CF = 1,
+SI is kept on every kernel. Inside the entry proc the same answer is
+`OSAPI_CPU_INFO`'s: AH carries `CPU_F_PM` in a protected-mode bracket and
+does not in a real-mode one. The reasons (`apps/os88api.inc`), each ONE test
+at the door, so that each can be lifted by itself:
+
+| `FSXR_*` | value | why real mode cannot be had | a state the user is in? |
+|---|---|---|---|
+| `FSXR_REAL` | 0 | (it was had) | |
+| `FSXR_KEEP` | 1 | `FSXF_KEEPWORKER`: one task runs in real mode, so there is nothing to keep | no - the package's own combination |
+| `FSXR_SVC` | 2 | a `TF_SERVICE` task (a driver's worker) is alive and would never be scheduled | YES - owed (MEGA-VIDEO-REALMODE-PLAN W7) |
+| `FSXR_EXTD` | 3 | EXTD.DRV, the extended desktop's module, is loaded: its image is above 1MB and `OSAPI_FSX_MODE`, `OSAPI_FSX_CAPS` and `OSAPI_WM_CONTENT` far-call it | YES - owed (W7: a play on either display) |
+| `FSXR_SERIAL` | 4 | a SERIAL.DRV lease is open (SPEC.md 115): the pointer's ISR far-calls the module (`SERFP`) for the leased UART on every interrupt | YES - owed (W7) |
+| `FSXR_ROOM` | 5 | the region is above 1MB (`OS88_HIGH`) and the heap has no conventional claim for its copy | sometimes - owed in part (MEGA-VIDEO-REALMODE-PLAN 5.3.3: the HMA) |
+
+W3 adds the extent reader's own (a stream it cannot serve, a file
+fragmented past its cap) the same way. **A refusal (CF = 1) is for a state
+the user will not normally be in** - the owner's rule - so none of these
+refuses: each is a fallback, and the plan lists which wave owes each one
+that a user will be in.
+
+**What the PACKAGE refuses is its own to fall back from.** A claim the
+package holds that has no real-mode segment (above 1MB: `SEG_REAL` answers
+CF = 1), or a service it needs that the real-mode table does not offer, is
+the package's reason: it calls without `FSXF_REAL`, or - having found out
+inside - returns from its entry proc and calls again without it.
+`apps/os88real.inc` is the first half written once: `os88real_prep` asks
+`SEG_REAL` for every word of a list at the door and banks the answers,
+CF = 1 naming the word that has none, and `os88real_swap`, called first and
+last inside the entry proc, exchanges the list with the bank when - and only
+when - the bracket is a real-mode one. The kernel renames nothing of the
+package's (MEGA-VIDEO-REALMODE-PLAN 7.4).
 
 **What the kernel does, on kern_mega**:
-1. at the door, after every other test: the refusals above, and a
-   conventional claim of the region's size when the region is above 1MB;
+1. at the door, after every other test: the reasons above, in that order -
+   the first that holds is the answer and the bracket goes on in protected
+   mode with nothing taken - and a conventional claim of the region's size
+   when the region is above 1MB;
 2. at the freeze's arm (IF = 1, nothing else of the package can run): the
    whole region - image and bss, `I_SIZE` - copied DOWN into that claim;
 3. at the entry, with IF = 0: the video and font layer's segment words,
@@ -104007,7 +104041,10 @@ than not at all calls again without the bit, and says which it got.
    (KERN-MEGA-MEMORY-PLAN MC7.4 made them selectors); the 8259's masks a
    service reflection's (the BIOS's own lines and the pointer's, §9.10); IVT
    20h - IRQ0 there, the PIC staying at its protected-mode base - the
-   kernel's REAL-MODE TICK; and out of protected mode, by CR0 on a 386 and
+   kernel's REAL-MODE TICK; `[vx_ep]`, the VESA desktop's hook, pointed at
+   `vx_null` (an `.text` answer that draws nothing, where the hook is a
+   protected-mode selector of `VESA.DRV`); the API TABLE SWAPPED (below);
+   and out of protected mode, by CR0 on a 386 and
    by the CMOS shutdown-0Ah reset through `mega_r286` on a 286, the
    reflection's two ways down;
 4. the entry proc called in real mode, as `wm_pkgcall` calls it: **DS = CS
@@ -104016,7 +104053,7 @@ than not at all calls again without the bit, and says which it got.
 5. when it returns, with IF = 0: the A20 line proved open, protected mode
    again (`lmsw` on both CPUs), the IVT's IRQ vectors re-synced into the
    IDT (a FORCED `mega_ivt_sync`, which also puts IVT 20h-27h back as the
-   copy of 08h-0Fh), the masks and every word of step 3 back, the rate
+   copy of 08h-0Fh), the table, the masks and every word of step 3 back, the rate
    disarmed, the whole region copied back UP and the claim freed - and then
    §53.6's restore, as for any bracket.
 
@@ -104057,21 +104094,45 @@ mounted `SOUND.DRV` image is above 1MB): its tick waits for the exit.
   the edges an ICW1 loses (KERN-MEGA-PLAN 14.62) - so IRQ n is vector 20h + n
   there and the kernel's tick holds 20h. A package that takes an IRQ goes
   through the kernel's door for it.
-- **The calls.** The kernel's `.text` is conventional memory and runs in
-  real mode; `.cold`, `.mega`, every driver image and every module are above
-  1MB and do not. What runs as it is, once step 3 has made its words real:
-  the inline cells (`OSAPI_GET_TICKS`; `OSAPI_CPU_INFO`, which answers
-  without `CPU_F_PM` inside), `OSAPI_FSX_MODE`, `OSAPI_FSX_SURF`,
-  `OSAPI_FSX_PAGE`, `OSAPI_VIDEO`, `OSAPI_FONT_GLYPHS`, `OSAPI_KEY_DOWN`,
-  `OSAPI_SND_CAPS`, `OSAPI_WM_CONTENT` and `OSAPI_WM_WAKE`
-  (MEGA-VIDEO-REALMODE-PLAN 7.2), and the BIOS itself by `int`: `int 16h`
-  for the keyboard, `int 10h` within §53.7's rules. **Every other cell is
-  UNDEFINED inside a real-mode bracket today**, not refused: wave W2 swaps
-  the API table for the bracket, after which a cell outside the list
-  answers CF = 1, and W2-W4 add the real-mode twins of the services a play
-  needs - the file reader, the XMS copies, the sound stream and the speaker
-  door, `OSAPI_MOUSE`, `OSAPI_SEG`, `OSAPI_FSX_WAIT`. Until a twin exists,
-  pace on `hlt` and the hook, not on `OSAPI_FSX_WAIT`.
+- **The calls - the real-mode TABLE.** The kernel's `.text` is conventional
+  memory and runs in real mode; `.cold`, `.mega`, every driver image and
+  every module are above 1MB and do not. So for the bracket the API table
+  (`KERNEL_SEG:0x0010`, 1,241 bytes) is SWAPPED at the drop and put back at
+  the return, and **a cell outside the list below answers CF = 1, every
+  register and flag but CF as it came** - refused, never undefined, and
+  wherever in the cell it is entered. What the list offers:
+  * **as it is**, once step 3 has made its words real: the inline cells
+    (`OSAPI_GET_TICKS`, `OSAPI_SET_COLOR`; `OSAPI_CPU_INFO`, which answers
+    without `CPU_F_PM` inside), `OSAPI_FSX_MODE`, `OSAPI_FSX_SURF`,
+    `OSAPI_FSX_PAGE`, `OSAPI_VIDEO`, `OSAPI_FONT_GLYPHS`, `OSAPI_KEY_DOWN`,
+    `OSAPI_SND_CAPS`, `OSAPI_WM_CONTENT` and `OSAPI_WM_WAKE`
+    (MEGA-VIDEO-REALMODE-PLAN 7.2);
+  * **as it is, with a real-mode arm** of a few bytes: `OSAPI_FSX_WAIT`,
+    whose `FSXW_FRAME` waits on `hlt` (there is no scheduler to yield to),
+    and `OSAPI_MOUSE`, which answers the pointer's words and does not run
+    the keyboard pointer (its menu path is `.cold`): on a machine with no
+    mouse the arrow keys do not move it inside, and a button the keyboard
+    latched stays latched to the exit, as it would under kern_big;
+  * **a TWIN**: `OSAPI_SEG`, whose body is `.cold`, answers real mode's
+    sums - `SEG_LIN` DX x 16, `SEG_SUB`/`SEG_SUBC` DX + AX, `SEG_REAL`,
+    `SEG_WIN`, `SEG_BWIN` and `SEG_FREE` the value itself, `SEG_AIM` and
+    `SEG_AT` refused - kern_big's answers, from the one body both share;
+  * and the BIOS itself by `int`: `int 16h` for the keyboard, `int 10h`
+    within §53.7's rules.
+  W3 and W4 add the twins of the services a play needs - the file reader,
+  the XMS copies, `OSAPI_DRV_CALL`, the sound stream and the speaker door -
+  and until then those cells refuse.
+
+  **How the swap is made** (MEGA-VIDEO-REALMODE-PLAN W2's decision): neither
+  a module nor a second resident image. At the drop, in protected mode, the
+  table is BANKED in the DOS park's scratch (`MEGA_SEL_PSCR`, the tail of
+  `.mega`'s rung above 1MB, which no bracket and no trip can use at once),
+  every byte of it is written `F9h` (`stc`), a `CBh` (`retf`) is put before
+  every cell the list keeps and at the table's end, the kept cells' bytes
+  are copied back, and the twin's first five are a far jump. A refused cell
+  is a slide of `stc` into the next `retf`. The return copies the bank back
+  whole. It costs no conventional byte and no disk read, and the list is
+  labels in the table itself, so it cannot drift from the cells' lengths.
 - **A fault inside is a real-mode fault**: no `kern_mega FAULT` line, and the
   machine stops as kern_big's would (the owner's ruling,
   MEGA-VIDEO-REALMODE-PLAN 5.1.3).
@@ -104086,7 +104147,15 @@ protected-mode state), `.mega` +518 (the protected-mode halves and
 +419. Nothing is an on-demand module: a module read at every bracket would be
 a system-disk read at every Play (the W1 entry says why). `tests/megarmb.py`
 (Bochs, the 386's way) and `tests/megarmb286.py` (86Box's 286-victory, the
-reset) are the gates.
+reset) are the gates. **W2 - the fallback, the table, the twin and the two
+real-mode arms - measured against W1**: kern_big and kern_small
+**byte-identical**; kern_mega `.text` **+69** (`osapi_segr` 40, moved from
+`.cold`, which keeps a 5-byte far jump: `.cold` **-35**; the arms of
+`OSAPI_FSX_WAIT` and `OSAPI_MOUSE` 7 each; the foot's answer 15 and its byte,
+less the door's `jc`), `.mega` **+252** (the reasons, the swap and its list),
+`.lowbss` +4 (the VESA hook's bank), `.bss` +0, and **no conventional byte
+for the table** - the bank is the park's scratch above 1MB.
+`tests/megarmbref.py` (Bochs) is W2's gate.
 
 **EXTD.DRV's slots are the one kernel word the plan's census missed.**
 `OSAPI_FSX_MODE`, `OSAPI_WM_CONTENT` and `OSAPI_FSX_CAPS` far-call EXTD.DRV's
@@ -104095,7 +104164,8 @@ slot is `mod_gone`'s, CF = 1 being the one-display answer) - and unloaded,
 that slot names `.cold` through a protected-mode SELECTOR, a wild segment in
 real mode: the first build of this hung inside `OSAPI_FSX_MODE`. So the drop
 points the block at a `.text` twin of `mod_gone` and the return puts it back,
-and a loaded EXTD.DRV (the extended desktop) refuses the real-mode bracket.
+and a loaded EXTD.DRV (the extended desktop) sends the bracket to protected
+mode (`FSXR_EXTD`, owed: MEGA-VIDEO-REALMODE-PLAN W7).
 
 ### 53.3 Entry silences what it strands (binding)
 
