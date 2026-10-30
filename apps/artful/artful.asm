@@ -20,7 +20,7 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'ArtfulType', at_entry, 1, OS88_STACK_192 | OS88_HIGH | OS88_HIGHMEM
+    OS88_HEADER 'ArtfulType', at_entry, 3, OS88_STACK_192 | OS88_HIGH | OS88_HIGHMEM
                                 ; THE WORKER'S STACK, declared
                                 ; rather than defaulted (SPEC.md 8.7):
                                 ; static 50 for at_worker
@@ -63,6 +63,15 @@
     dw 0001011001101000b
     dw 0000010110100000b
     OS88_ICON16_END
+
+; --- the extensions this program opens (SPEC.md 54.6, flags bit 1) ------------
+; DECLARED, where they used to be one of the kernel's built-in associations:
+; SPEC.md 54.2.3 retired those, and the boot volume's ASSOC.DAT - which is
+; built from declarations like this one - is what the machine knows now.
+    OS88_ASSOC16
+    db 1
+    OS88_ASSOC_EXT 'MD'
+    OS88_ASSOC16_END
 
 ; --- the document lives in the HEAP, not in this package's bss (SPEC.md 46.9)
 ; It used to be AT_DOCCAP bytes of bss, which was a holdover from a kernel

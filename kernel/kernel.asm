@@ -5496,6 +5496,14 @@ kmain_o:
                                 ; and before anything writes above 1MB
 %endif
     BLOBCALL drv_boot_x         ; ...and load what SYSTEM.CFG asks for
+%ifdef OS88_ASSOC
+    call COLD_SEG:asc_boot_f    ; ...and the BOOT volume's ASSOC.DAT, while
+                                ; the head is still on it and before anything
+                                ; is drawn (SPEC.md 54.2.3): it is what the
+                                ; built-in associations were. One int 13h for
+                                ; the file; the root it is found in is the
+                                ; one drv_boot_x's mount just walked
+%endif
 %ifdef KERN_EMU
     BLOBCALL vmm_boot_x         ; ...one of which may be SPEC.md 9.11's
                                 ; absolute pointer, which is DRVC_OVL and so

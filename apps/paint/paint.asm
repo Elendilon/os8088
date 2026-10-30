@@ -181,7 +181,7 @@
     PTMENU PT_MENU_VIEW
 %endif
 
-    OS88_HEADER 'PAINT', pt_entry, 1, OS88_HIGH | OS88_HIGHMEM
+    OS88_HEADER 'PAINT', pt_entry, 3, OS88_HIGH | OS88_HIGHMEM
                                     ; ...and its CLAIMS may be above 1MB too
                                     ; (KERN-MEGA-PLAN 14.13). Under kern_mega's
                                     ; protected mode EVERY claim is an LDT
@@ -247,6 +247,16 @@
     dw 0x3E00
     dw 0x0000
     OS88_ICON16_END
+
+; --- the extensions this program opens (SPEC.md 54.6, flags bit 1) ------------
+; DECLARED, where they used to be one of the kernel's built-in associations:
+; SPEC.md 54.2.3 retired those, and the boot volume's ASSOC.DAT - which is
+; built from declarations like this one - is what the machine knows now.
+    OS88_ASSOC16
+    db 2
+    OS88_ASSOC_EXT 'BMP'
+    OS88_ASSOC_EXT 'GIF'
+    OS88_ASSOC16_END
 
 ; --- the memory we CLAIM from the kernel (SPEC.md 50) ---------------------------
 ; One contiguous block, asked for at startup and carved into four: canvas,

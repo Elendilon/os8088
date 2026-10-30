@@ -107,7 +107,7 @@
 %define NPF_ABOUT
 %endif
 
-    OS88_HEADER 'NOTEPAD', np_entry, 1, OS88_STACK_192 | OS88_HIGH | OS88_HIGHMEM
+    OS88_HEADER 'NOTEPAD', np_entry, 3, OS88_STACK_192 | OS88_HIGH | OS88_HIGHMEM
                                 ; THE WORKER'S STACK, declared
                                 ; rather than defaulted (SPEC.md 8.7):
                                 ; static 74 for np_worker
@@ -171,6 +171,15 @@
     dw 0x3FFC
     dw 0x0000
     OS88_ICON16_END
+
+; --- the extensions this program opens (SPEC.md 54.6, flags bit 1) ------------
+; DECLARED, where they used to be one of the kernel's built-in associations:
+; SPEC.md 54.2.3 retired those, and the boot volume's ASSOC.DAT - which is
+; built from declarations like this one - is what the machine knows now.
+    OS88_ASSOC16
+    db 1
+    OS88_ASSOC_EXT 'TXT'
+    OS88_ASSOC16_END
 
 ; --- the document lives in the HEAP, not in this package's bss (SPEC.md 27.6)
 ; A note is data, and data of a size only the user knows; a package's region

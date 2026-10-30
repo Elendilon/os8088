@@ -79,6 +79,7 @@ import sys
 
 sys.path.insert(0, "tools")
 sys.path.insert(0, "tests")
+import os88assoc                                           # noqa: E402
 import os88marty
 import os88mouse
 import os88sym
@@ -102,7 +103,7 @@ MACHINE = sys.argv[1] if len(sys.argv) > 1 else "os8088_5150_cga_gla"
 SYS_IMG = sys.argv[2] if len(sys.argv) > 2 else "build/os8088-360.img"
 APPS_IMG = "build/apps360.img"
 S = os88sym.linear
-NAPP = 16                       # ASSOC_NAPP
+NAPP = os88assoc.counts()[0]    # ASSOC_NAPP
 DECLARED = ("BROWSER", "TEXPAD")
 PARK = (320, 190)               # the pointer is DRAWN, over the window like
                                 # anything else - it only has to be in the
@@ -119,8 +120,10 @@ def say(s):
 
 def slots(m):
     """{stem: 8-byte glyph} for every live app slot."""
-    stem = m.read(S("assoc_stem"), NAPP * 8)
-    glyph = m.read(S("assoc_glyph"), NAPP * 8)
+    if os88assoc.table(m, "AT_STEM") is None:
+        return {}
+    stem = m.read(os88assoc.table(m, "AT_STEM"), NAPP * 8)
+    glyph = m.read(os88assoc.table(m, "AT_GLYPH"), NAPP * 8)
     out = {}
     for i in range(NAPP):
         s = bytes(stem[i * 8:(i + 1) * 8])

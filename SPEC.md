@@ -104969,6 +104969,9 @@ is exactly the all-zero sentinel `fm_draw_icon16` already reads on
 from an unresolved one and draws the bare page, which is the right answer for
 it anyway.
 
+**§54.2.3 moved all of it into the icon store's claim and retired the
+built-ins.** What follows is how it was in `.text`.
+
 **All of it is in `.text`, not `.bss`**: `-f bin` zeroes nothing, so
 initialised data is in the image and writable at runtime (the `ui_tm_cwd` /
 `dsk_fatw0` / `fdlg_win` idiom). The build-time defaults **are** the table and
@@ -105034,6 +105037,68 @@ slot"* - the only way a slot is taken, so a flush stops reading the headers
 of plain packages that merely held one. **0 bytes**: the two calls are the
 same size.
 
+
+### 54.2.3 The tables live in the icon store's claim, and nothing is built in
+
+The two tables of §54.2 were resident: sixteen program slots and thirty-two
+extension rows in `.text`, five programs and eight extensions of them built
+in at assembly time with glyphs baked by `tools/os88mini.py`. A standard
+install of the two 1.44MB disks filled all sixteen slots, and nothing freed
+one within a session. They are not resident any more.
+
+**Where they are.** At the head of the icon store's claim (§25.9.6), after
+§54.7.6.2's capture: `AT_STEM` (`ASSOC_NAPP` x 8), `AT_GLYPH` (x 8), `AT_EXT`
+(`ASSOC_NEXT` x 4), `AT_CLUS` (x 2) and `AT_DRV` (x 1), the same parallel
+arrays as before, and the icon rows start at `ICO_RBASE` behind them.
+`ASSOC_NAPP` is **32** and `ASSOC_NEXT` **64** - 896 bytes of purgeable heap,
+against an install of everything's 22 programs and 39 extensions - and the
+first claim went 5KB to 6KB to keep its 60-odd icon rows. `ico_need` zeroes
+the tables and sets every hint's volume to 0xFF on every fresh claim.
+
+**How they are reached.** `assoc_tab` puts the claim in ES or answers CF=1;
+`assoc_find`, `assoc_app_of`, the two `_new` routines and every hint read or
+write go through it. A glyph or a stem a caller reads through DS is a COPY
+(`assoc_row8`, into `assoc_glyb`), and a writer puts a glyph back with
+`assoc_glyph_wb`. **No claim, no associations**: every lookup answers "none",
+which every caller already handled - so a machine short enough of memory to
+have shed the store still runs programs, and its documents open again once
+the store can be claimed.
+
+**What a shed costs.** The tables go with the icons. Nothing new brings them
+back: an empty store already makes the next mount re-read its volume's
+`ASSOC.DAT` (§54.7.4), and a double-click in between takes §54.4.3's search,
+which reads the volumes' files. A pending open names a slot of tables that
+went, so `ico_demote` turns it into that search (`ASSOC_FIND`).
+
+**Nothing is built in.** PAINT (`BMP`, `GIF`), NOTEPAD (`TXT`) and ARTFUL
+(`MD`) declare in their own headers now, as TRACKER and DOS already did, and
+**the boot reads the boot volume's `ASSOC.DAT`** (`asc_boot_f`, straight
+after `drv_boot_x`'s mount and before anything is drawn) - which is what the
+built-ins were: the programs on the disk the machine started from, known
+before a window has been opened. It is one `int 13h` for the file, which
+§54.7.5 puts beside `KERNEL.SYS` on a system disk, and it claims the store at
+boot with the boot disk's icons already in it. The reason `.COM` and `.EXE`
+had to be built in - a declaration was not known until the program's own
+volume was browsed - is answered by the boot read for the boot disk and by
+§54.4.3's search for every other. `.IMG` was never an association and is
+unchanged.
+
+**A runtime claim is written through.** `OSAPI_ASSOC_SET` used to live in
+RAM alone (the sticky bit). It records where the program is - the kernel
+stands in the program's folder while it starts, which is when a program
+registers - and posts its volume's flush. The writer (`asw_sticky`, in
+`FORMAT.DRV`) appends the kernel's runtime rows for each package it writes,
+with **bit 7 of the row's program byte set**; `asc_merge_ext` reads that as
+`ASSOC_STICKY`, so the claim outranks a declaration after a shed or a reboot
+exactly as it did before either. An old row's runtime rows are never copied
+(the carry-over matches the index exactly, and bit 7 fails it), so each
+flush writes them afresh and nothing accumulates. A kernel before this one
+reads a bit-7 row as an index past the program count and skips it.
+
+Cost on `kern_big`, measured against the tree before: **-100 resident
+bytes** - `.text` -420 (the tables and the built-in data), `.cold` +312
+(the accessors and the boot door), `.bss` +8 - and the boot blob +5.
+`kern_small` has no associations (§54.0) and is byte-identical.
 ### 54.3 The icon: a page frame with the program's glyph inset
 
 The document page is a 16×16 dog-eared page — the second icon in this kernel

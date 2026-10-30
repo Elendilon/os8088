@@ -53,6 +53,7 @@ import sys
 
 sys.path.insert(0, "tools")
 sys.path.insert(0, "tests")
+import os88assoc                                           # noqa: E402
 import os88build                                              # noqa: E402
 import os88marty                                              # noqa: E402
 import os88mouse                                              # noqa: E402
@@ -64,7 +65,7 @@ MACHINE = sys.argv[1] if len(sys.argv) > 1 else "os8088_5150_cga_gla"
 SYS_IMG = "build/os8088-360.img"
 DOC_IMG = "build/doscom360.img"          # DOSHELLO.COM at the root
 S = os88sym.linear
-NAPP = 16                                # ASSOC_NAPP
+NAPP = os88assoc.counts()[0]             # ASSOC_NAPP
 PARK = (320, 190)
 PIX1BPP = ("cga", "mda")
 fails = []
@@ -92,8 +93,10 @@ def shipped_and_reduced():
 
 def slots(m):
     """{stem: (index, 8-byte glyph)} for every live app slot."""
-    stem = m.read(S("assoc_stem"), NAPP * 8)
-    glyph = m.read(S("assoc_glyph"), NAPP * 8)
+    if os88assoc.table(m, "AT_STEM") is None:
+        return {}
+    stem = m.read(os88assoc.table(m, "AT_STEM"), NAPP * 8)
+    glyph = m.read(os88assoc.table(m, "AT_GLYPH"), NAPP * 8)
     out = {}
     for i in range(NAPP):
         s = bytes(stem[i * 8:(i + 1) * 8])
@@ -111,7 +114,7 @@ def dos_glyph(m):
 
 
 def poison(m, idx, what):
-    m.write(S("assoc_glyph") + idx * 8, what)
+    m.write(os88assoc.table(m, "AT_GLYPH") + idx * 8, what)
     got = dos_glyph(m)[1]
     if got != what:
         sys.exit("dosglyph: the poison did not take (%s against %s) - the "
@@ -280,7 +283,7 @@ with os88marty.launch(SYS_IMG, apps=DOC_IMG, machine=MACHINE) as m:
                      "composition made before it (SPEC.md 25.9.4)")
     else:
         for r, slot, g in live:
-            want = bytes(m.read(S("assoc_glyph") + slot * 8, 8))
+            want = bytes(m.read(os88assoc.table(m, "AT_GLYPH") + slot * 8, 8))
             if g != want:
                 fails.append("document row %d says slot %d composed from %s, "
                              "and that slot now holds %s - the key has drifted "

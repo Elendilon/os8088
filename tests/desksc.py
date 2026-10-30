@@ -27,6 +27,9 @@ claim 26.8 makes is asked of the GUEST'S OWN STATE rather than of a picture:
      and Enter on it, selected, opens a Disk window there.
   H  a DOCUMENT's (MEDIA\\GUIDE.TEX) keeps its full 8.3 caption and a
      double-click opens it in its program, through the association.
+  H2 ...and after a REBOOT, double-clicked before any Disk window is open:
+     the boot already knows the boot volume's associations (SPEC.md 54.2.3),
+     and TEXPAD, on B:, is found by SPEC.md 54.4.3's search.
   I  a shortcut whose target is GONE (the folder's, its path rewritten in
      guest memory to one that does not exist) says `Shortcut not found (B:)`
      on a double-click, naming its drive.
@@ -54,6 +57,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "tools"))
 import os88ui      # noqa: E402
 import os88geom as geom   # noqa: E402
 import os88fat     # noqa: E402
+import os88assoc   # noqa: E402
 import os88marty   # noqa: E402
 
 ROOT = os.path.join(HERE, "..")
@@ -423,6 +427,41 @@ def main():
         for w in list(ui.windows()):
             if w.visible and w.title not in before_t:
                 ui.close(w)
+
+        # --- H2: ...and at BOOT, before any Disk window is open -----------
+        # SPEC.md 54.2.3: the association tables live in the icon store's
+        # claim and nothing is built in. The boot reads the BOOT volume's
+        # ASSOC.DAT (so TXT -> NOTEPAD is known before the desktop is drawn),
+        # and GUIDE.TEX's program is on B:, which no mount has read yet - so
+        # the double-click has to find TEXPAD through SPEC.md 54.4.3's
+        # search, from a desktop where nothing has been browsed at all.
+        print("H2: reboot, then double-click the document's shortcut at once")
+        m.reset()
+        m.run()
+        ui.up()
+        os88marty.no_saver(m)
+        napp, next_ = os88assoc.counts()
+        ext = os88assoc.table(m, "AT_EXT")
+        known = {}
+        if ext is not None:
+            raw = m.read(ext, next_ * 4)
+            known = {bytes(raw[4 * j:4 * j + 3]): raw[4 * j + 3]
+                     for j in range(next_) if raw[4 * j]}
+        check(b"TXT" in known,
+              "the boot read the boot volume's ASSOC.DAT: TXT is known before "
+              "any window opened (%r)" % sorted(known))
+        before_t = ui.titles()
+        ui.mo.dblclick(hx, hy)
+        ui._wait(lambda: len(ui.titles()) > len(before_t),
+                 "the document's program to open from a fresh boot", 90,
+                 snapshot=lambda: (ui.titles(), ui.toast()))
+        check(True, "the document opened after a reboot in %r"
+              % [t for t in ui.titles() if t not in before_t])
+        for w in list(ui.windows()):
+            if w.visible and w.title not in before_t:
+                ui.close(w)
+        ui.open_drive("B")              # the legs below want a window, and
+                                        # the reboot closed the ones G opened
 
         # --- I: a target that is not there -------------------------------
         print("I: the folder's target gone, double-click it")

@@ -619,7 +619,7 @@ asw_take_old:
     mov [es:di+ASC_ROWCLUS], ax
     ; and its association rows, re-indexed
     mov cx, [cs:bp+asw_onext-asw_v]
-    jcxz .out
+    jcxz .stk
     mov ax, ASC_ROW
     mul word [cs:bp+asw_onapp-asw_v]
     add ax, ASW_OLD + ASC_HDR
@@ -634,8 +634,10 @@ asw_take_old:
 .nx:
     add si, 4
     loop .ext
-.out:
-    ret
+.stk:
+    jmp asw_sticky              ; a row carried over keeps its runtime claims
+.out:                           ; too - and never COPIES one, the index
+    ret                         ; compare above failing on bit 7
 
 ; asw_oext - CF = 1 when an old association row names old row [asw_oix]
 asw_oext:
@@ -744,18 +746,24 @@ asw_header:
 ; is a stem whose first byte is 0, which a sanitized name never is
 asw_slotfull:
     push bx
-    mov bx, assoc_stem
+    push es
+    mov bx, [ico_seg]           ; the tables are in the store's claim (SPEC.md
+    cmp bx, 1                   ; 54.2.3): none at all reads as FULL, which
+    jc .out                     ; makes the flush read the header - the safe
+    mov es, bx                  ; answer
+    mov bx, AT_STEM
 .s:
-    cmp byte [bx], 0
+    cmp byte [es:bx], 0
     je .free
     add bx, 8
-    cmp bx, assoc_stem + ASSOC_NAPP * 8
+    cmp bx, AT_STEM + ASSOC_NAPP * 8
     jb .s
     stc
-    pop bx
-    ret
+    jmp short .out
 .free:
     clc
+.out:
+    pop es
     pop bx
     ret
 
@@ -782,6 +790,66 @@ asw_cold:                       ; STKBALANCE-OK: steps its own return address
     mov bp, [cs:bp-2]
     call COLD_SEG:wm_cbd
     pop bp
+    ret
+
+; asw_sticky - the kernel's RUNTIME claims for the package row [asw_ix] is
+; (SPEC.md 54.2.3), appended with bit 7 of the row byte set: the file's mark
+; for one, which asc_merge_ext reads back as ASSOC_STICKY. An old row's are
+; never copied (asw_take_old matches the index exactly, and bit 7 fails it),
+; so each flush writes them afresh from the table and nothing piles up.
+; ES = the work claim on entry and on exit; AX, BX, CX, DX, SI, DI spent
+asw_sticky:
+    mov si, [cs:bp+asw_ent-asw_v]   ; the entry's first eight bytes: the stem
+    mov di, assoc_stemb
+    mov cx, 8
+.st:
+    mov al, [es:si]
+    mov [di], al
+    inc si
+    inc di
+    loop .st
+    push es
+    mov si, assoc_stemb
+    ASWX assoc_app_of           ; AL = its slot
+    jc .out
+    or al, ASSOC_STICKY
+    mov dl, al                  ; DL = what a runtime row of it reads
+    mov bx, [ico_seg]
+    or bx, bx
+    jz .out
+    mov es, bx
+    mov si, AT_EXT
+    mov cx, ASSOC_NEXT
+.r:
+    cmp byte [es:si], 0
+    je .n
+    cmp [es:si+3], dl
+    jne .n
+    push cx
+    push si
+    mov ax, [es:si]
+    mov cl, [es:si+2]
+    push es
+    mov es, [cs:bp+asw_seg-asw_v]
+    mov [es:ASW_BLK+1], ax      ; staged in the work claim, where asw_ext
+    mov [es:ASW_BLK+3], cl      ; reads (the block is spent by now)
+    mov si, ASW_BLK+1
+    mov ax, [cs:bp+asw_ne-asw_v]
+    push ax
+    call asw_ext
+    pop ax
+    cmp ax, [cs:bp+asw_ne-asw_v]
+    je .full                    ; the rows were full: nothing written
+    or byte [es:di-1], ASSOC_STICKY
+.full:
+    pop es
+    pop si
+    pop cx
+.n:
+    add si, 4
+    loop .r
+.out:
+    pop es
     ret
 
 ; -----------------------------------------------------------------------------
@@ -819,13 +887,13 @@ asw_emit:
     rep movsw
     pop ds
     cmp byte [cs:bp+asw_hblk-asw_v], 0
-    je .out
+    je .stk
     mov si, ASW_BLK             ; and the extensions it declares
     mov cl, [es:si]
     cmp cl, ASSOC_DECLMAX
-    ja .out                     ; a corrupt count declares nothing
+    ja .stk                     ; a corrupt count declares nothing
     xor ch, ch
-    jcxz .out
+    jcxz .stk
     inc si
 .e:
     push si
@@ -836,6 +904,8 @@ asw_emit:
     pop si
     add si, 3
     loop .e
+.stk:
+    jmp asw_sticky              ; ...and the RUNTIME claims (SPEC.md 54.2.3)
 .out:
     ret
 

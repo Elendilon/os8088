@@ -423,14 +423,6 @@ ASC_ROWCLUS = 10             # the folder the program lives in (0 = root),
 ASC_NAPP  = 90               # kernel/assoc.inc: what fits ASC_KB = 8
 ASC_NEXT  = 64
 
-# The kernel's own built-in association stems (kernel/assoc.inc assoc_stem).
-# Mirrored here ONLY to order the rows, so that if the cap ever bites it is an
-# icon row that is lost and never an association. Being out of date costs a
-# cached icon, never correctness - which is why it is a plain list and not a
-# generated one.
-ASC_DEFAULT_STEMS = (b"PAINT", b"NOTEPAD", b"TRACKER", b"ARTFUL", b"DOS")
-
-
 def build_assoc(groups):
     """ASSOC.DAT for this volume (SPEC.md 54.7 / 54.7.1).
 
@@ -445,9 +437,10 @@ def build_assoc(groups):
     directory chains exist - which is the whole of the two-pass, and it works
     because only the row's CONTENTS depend on the layout, never its size.
 
-    Rows are ordered association-bearing first (a header declaration, or a
-    stem the kernel already knows), so that if ASC_NAPP ever bites it is an
-    icon that is lost and not the ability to open a document.
+    Rows are ordered association-bearing first (a header declaration - the
+    kernel has no built-in associations since SPEC.md 54.2.3), so that if
+    ASC_NAPP ever bites it is an icon that is lost and not the ability to
+    open a document.
 
     An iconless package still gets a row, holding 64 zero bytes - the all-zero
     "no icon" sentinel the kernel already understands, so caching the ABSENCE
@@ -476,8 +469,7 @@ def build_assoc(groups):
                         if e != b"O88":
                             decl.append(e)
             stem = name11[0:8]
-            known = stem.rstrip() in ASC_DEFAULT_STEMS
-            cand.append((not (decl or known), stem, len(body) & 0xFFFF,
+            cand.append((not decl, stem, len(body) & 0xFFFF,
                          icon, glyph, decl, key))
     # stable: the ordering key is only the association flag, so argument order
     # survives inside each half and a rebuild is byte-identical

@@ -9107,7 +9107,16 @@ ICO_CAP_RSZ  equ 17                 ; a RECORD: the store row it is for, then
                                     ; so a record is one `mul` and its row byte
                                     ; one `stosb` (kernel size pass 13: it was
                                     ; a row array and a 16-byte record array)
-ICO_RBASE    equ (ICO_CAP + ICO_CAP_MAX * ICO_CAP_RSZ + 1) & ~1
+; THE ASSOCIATION TABLES (SPEC.md 54.2) follow it: they live in this claim
+; and nowhere else, so a shed takes them with the icons and the next mount's
+; ASSOC.DAT read puts both back. Parallel arrays, as they were in .text.
+AT_STEM      equ (ICO_CAP + ICO_CAP_MAX * ICO_CAP_RSZ + 1) & ~1
+AT_GLYPH     equ AT_STEM + ASSOC_NAPP * 8
+AT_EXT       equ AT_GLYPH + ASSOC_NAPP * 8
+AT_CLUS      equ AT_EXT + ASSOC_NEXT * 4
+AT_DRV       equ AT_CLUS + ASSOC_NAPP * 2
+AT_END       equ AT_DRV + ASSOC_NAPP
+ICO_RBASE    equ (AT_END + 1) & ~1
                                     ; ...and row 0, EVEN: dsk_copy_seg_x's
                                     ; `rep movsw` is the one alignment that
                                     ; binds here, and ICO_ROW is even too
@@ -9117,7 +9126,7 @@ ICO_RBASE    equ (ICO_CAP + ICO_CAP_MAX * ICO_CAP_RSZ + 1) & ~1
 ; everything. ICO_NROW is the FIRST claim's rows and [ico_max] the current
 ; claim's; ICO_KBMAX keeps a row number a byte with 0xFE/0xFF free, and
 ; `div bl`'s quotient inside AL: (20 x 1024 - 188) / 82 = 247.
-ICO_KB       equ 5
+ICO_KB       equ 6
 ICO_KBMAX    equ 20
 ICO_NROW     equ (ICO_KB * 1024 - ICO_RBASE) / ICO_ROW
 %if (ICO_KBMAX * 1024 - ICO_RBASE) / ICO_ROW > 253
@@ -9159,6 +9168,19 @@ ico_need:
     mov word [ico_max], ICO_NROW | (ICO_KB << 8)    ; ...and [ico_kb] with it:
                                 ; a shed leaves both describing the claim it
                                 ; took, so every fresh claim says its own size
+    push cx                     ; ...AND THE ASSOCIATION TABLES EMPTY (SPEC.md
+    push di                     ; 54.2): mem_claim does not clear a block, and
+    mov es, dx                  ; a free row is a ZERO first byte. Every hint
+    mov di, AT_STEM             ; volume 0xFF, "never seen"
+    mov cx, (AT_DRV - AT_STEM) / 2
+    xor ax, ax
+    cld
+    rep stosw
+    mov al, 0xFF
+    mov cl, ASSOC_NAPP
+    rep stosb
+    pop di
+    pop cx
 %endif
                                 ; ([ico_n] is ALREADY 0 here on both kernels:
                                 ; .bss starts zeroed, and ico_demote, the only
@@ -9215,6 +9237,10 @@ ico_need:
 ico_demote:
     mov word [ico_seg], 0       ; NEITHER A FRAME NOR A `pushf` HERE - see the
 %ifdef OS88_ASSOC
+    cmp byte [assoc_dapp], ASSOC_NAPP   ; a PENDING open names a slot of the
+    jae .dapp                   ; tables that just went: ask the volumes
+    mov byte [assoc_dapp], ASSOC_FIND   ; instead (SPEC.md 54.4.3)
+.dapp:
     mov word [ico_n], 0         ; header: `mem_pg_forget` has banked the lot.
 %else                           ; (A WORD: [ico_capn] goes with the store,
     mov byte [ico_n], 0         ; SPEC.md 54.7.6.2)

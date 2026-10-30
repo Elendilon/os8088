@@ -45,6 +45,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
+import os88assoc                                           # noqa: E402
 import os88marty, os88ui, os88build, os88flush              # noqa: E402
 from os88fat import Fat12                                     # noqa: E402
 import fatdel                                                 # noqa: E402
@@ -155,12 +156,18 @@ class Flushes(object):
         os88marty.guest_sleep(self.m, tail)
 
 
-NAPP, NEXT = 16, 32                 # ASSOC_NAPP, ASSOC_NEXT (kernel/assoc.inc)
+NAPP, NEXT = os88assoc.counts()     # ASSOC_NAPP, ASSOC_NEXT (kernel/assoc.inc)
 
 
 def ext_map(ui):
-    raw = ui.m.read(ui._S("assoc_ext"), NEXT * 4)
-    stems = ui.m.read(ui._S("assoc_stem"), NAPP * 8)
+    """{extension: stem}, out of the tables in the store's claim (SPEC.md
+    54.2.3) - empty when the store has none."""
+    ext, stem = (os88assoc.table(ui.m, "AT_EXT"),
+                 os88assoc.table(ui.m, "AT_STEM"))
+    if ext is None:
+        return {}
+    raw = ui.m.read(ext, NEXT * 4)
+    stems = ui.m.read(stem, NAPP * 8)
     out = {}
     for j in range(NEXT):
         e = raw[4 * j:4 * j + 3]
