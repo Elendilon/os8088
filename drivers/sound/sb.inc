@@ -1346,12 +1346,7 @@ sbl_v_open:
     jz .e7x                     ; an EXTERNAL ring (SPEC.md 34.5.3) is a ring:
     push cx                     ; DI:SI, RL = 4096 << the size code, and no
     mov al, [sbl_oflags]        ; grant - the package claimed it itself
-    mov cl, SND_OPENF_RLSH
-    shr al, cl
-    and al, 3
-    mov cl, al
-    mov ax, 4096
-    shl ax, cl
+    call sbl_xrl
     pop cx
     jmp short .grantok
 .e7x:                           ; the refusals' trampolines, within short
@@ -1437,10 +1432,7 @@ sbl_v_open:
 .wdsh0:
     pop cx
 .wddiv:
-    div bx
-    add ax, 3
-    mov [sbl_wd_rst], ax
-    mov [sbl_wd], ax
+    call sbl_wdset
     xor ax, ax
     mov [sbl_direct], ax        ; ...and sbl_ext, the byte after it
     mov [sbl_adpcm], al
@@ -1491,28 +1483,24 @@ sbl_v_open:
     dec ax                      ; AX = 2 halves - 1, against RL - 1
     cmp ax, [sbl_rmask]
     ja .dbuf
-    call sbl_ring_phys          ; SI = the ring: AX/DL = where the chip sees it
+    call sbl_ring_phys          ; SI = the ring: [sbl_xoff]/[sbl_xpage]
     jc .dbuf                    ; straddles a page: the copy path
     test byte [sbl_ofmt], SND_FMT_16
     jz .even                    ; a 16-bit ring is played as WORDS, so its
     test al, 1                  ; physical base must be even (SPEC.md 34.5.5)
     jnz .e7x2
 .even:
-    mov [sbl_xoff], ax
-    mov [sbl_xpage], dl
     mov ax, [sbl_rmask]         ; the DMA cycle IS the ring
     mov [sbl_xcnt], ax
     mov byte [sbl_direct], 1
     test byte [sbl_oflags], SND_OPENF_EXT
     jz .pin
     mov byte [sbl_ext], 1       ; EXTERNAL (SPEC.md 34.5.3): the control words
-    mov ax, si                  ; sit after the ring, in the package's claim,
-    add ax, [sbl_rmask]         ; which THE PACKAGE keeps still until close
-    inc ax                      ; (SND_OPENF_EXT, os88api.inc; the kernel no
+    call sbl_xctl               ; sit after the ring, in the package's claim,
+                                ; which THE PACKAGE keeps still until close
+                                ; (SND_OPENF_EXT, os88api.inc; the kernel no
                                 ; longer pins MC_DMA, SPEC.md 66.6.4) - and
                                 ; there is no pool of ours to pin
-    mov [sbl_extctl], ax
-    mov [sbl_extctl+2], di
     jmp short .dset
 .e7x2:
     jmp .e7
@@ -1687,34 +1675,21 @@ sbl_v_open_in:
     cmp byte [sbl_auto], 0      ; ...captured in place by auto-init DMA:
     je .e7                      ; a DSP 1.x has no 2Ch
     mov [sbl_str_inst], dh      ; (DH dies in sbl_ring_phys below)
+    mov ch, ah                  ; CH = the flags (CX is not read here)
     mov al, ah
-    mov cl, SND_OPENF_RLSH
-    shr al, cl
-    mov ah, al                  ; AH = the block code above the size code
-    and al, 3
-    mov cl, al
-    mov dx, 4096
-    shl dx, cl
-    dec dx
-    mov [sbl_rmask], dx         ; RL - 1, the DMA cycle's count
-    mov cl, 2                   ; (SND_OPENF_BLKSH - SND_OPENF_RLSH)
-    shr ah, cl
-    mov cl, ah
+    call sbl_xrl                ; AX = RL
+    dec ax
+    mov [sbl_rmask], ax         ; RL - 1, the DMA cycle's count
+    mov cl, SND_OPENF_BLKSH
+    shr ch, cl
+    mov cl, ch
     mov ax, SBL_RHALF
     shr ax, cl
     mov [sbl_half], ax          ; the block, as verb 0's external ring takes
-    lea ax, [si+1]              ; it; the control words after the ring
-    add ax, dx
-    mov [sbl_extctl], ax
-    mov [sbl_extctl+2], di
+    call sbl_xctl               ; it; the control words after the ring
     mov [sbl_rseg], di
-    call sbl_ring_phys          ; SI = the ring: AX/DL = where the chip sees it
+    call sbl_ring_phys          ; SI = the ring: [sbl_xoff]/[sbl_xpage]...
     jc .e7                      ; ...unless it straddles a 64KB page
-    mov [sbl_xoff], ax
-    mov [sbl_xpage], dl
-%if SND_OPENF_BLKSH - SND_OPENF_RLSH != 2
-  %error "verb 4 reads the block code two bits above the size code"
-%endif
     mov ax, 0x4240              ; TC = 256 - 1,000,000/rate (SPEC.md 34.5)
     mov dx, 0x000F
     div bx                      ; AX = 1e6/rate (66..250 by the range check)
@@ -1722,10 +1697,8 @@ sbl_v_open_in:
     mov [sbl_tc], al
     mov ax, SBL_WD_IN & 0xFFFF  ; watchdog: 2 block periods in ticks + 3
     mov dx, SBL_WD_IN >> 16     ; = (2*SBL_RHALF*18.2)/rate + 3, derived
-    div bx
-    add ax, 3
-    mov [sbl_wd_rst], ax        ; (sized for SBL_RHALF: a smaller block
-    mov [sbl_wd], ax            ; only makes it more patient)
+    call sbl_wdset              ; (sized for SBL_RHALF: a smaller block
+                                ; only makes it more patient)
     push es                     ; the caller's count starts at 0 with ours
     les bx, [sbl_extctl]        ; (BX: the rate is spent)
     mov word [es:bx+SND_EXT_CONS], 0
@@ -2806,11 +2779,45 @@ sbl_dma_put:
     ret
 
 ; -----------------------------------------------------------------------------
+; sbl_xrl - an external ring's length from its size code (SPEC.md 34.5.3)
+; in:  AL = the open flags; out: AX = RL = 4096 << AL bits 4-5; clobbers CL
+; sbl_xctl - its control words' far pointer: [sbl_extctl] = DI:SI + RL
+; in:  DI:SI = the ring, [sbl_rmask] = RL - 1; out: nothing; clobbers AX
+; sbl_wdset - the watchdog's period: [sbl_wd_rst] = [sbl_wd] = DX:AX / BX + 3
+; in:  DX:AX = the dividend, BX = the rate; out: AX = the period; clobbers DX
+; Verb 0 and verb 4 each had a copy of all three.
+; -----------------------------------------------------------------------------
+sbl_xrl:
+    mov cl, SND_OPENF_RLSH
+    shr al, cl
+    and al, 3
+    mov cl, al
+    mov ax, 4096
+    shl ax, cl
+    ret
+
+sbl_xctl:
+    lea ax, [si+1]
+    add ax, [sbl_rmask]
+    mov [sbl_extctl], ax
+    mov [sbl_extctl+2], di
+    ret
+
+sbl_wdset:
+    div bx
+    add ax, 3
+    mov [sbl_wd_rst], ax
+    mov [sbl_wd], ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; sbl_ring_phys - where the 8237 would see a ring in the pool (SPEC.md 34.5.2)
 ; in:  SI = the ring's offset in [sbl_rseg] - the pool, or an external ring's
 ;      own claim (SPEC.md 34.5.3) - and [sbl_rmask] = RL - 1
 ; out: CF = 0 the whole ring is inside one 64KB physical page, AX = its offset
-;      in that page and DL = the page; CF = 1 it straddles one
+;      in that page and DL = the page; CF = 1 it straddles one. Either way
+;      [sbl_xoff]/[sbl_xpage] = AX/DL - both callers wanted them there, and
+;      a refused open has published nothing that reads them
 ; clobbers: DH (flags)
 ; -----------------------------------------------------------------------------
 sbl_ring_phys:
@@ -2824,8 +2831,10 @@ sbl_ring_phys:
     adc dl, 0                   ; into the page
     push ax
     add ax, [sbl_rmask]         ; the ring's last byte: a carry out of the
-    pop ax                      ; low 16 bits is a page crossed (pop and pop
-    pop cx                      ; leave the flags alone)
+    pop ax                      ; low 16 bits is a page crossed (pop, pop
+    pop cx                      ; and mov leave the flags alone)
+    mov [sbl_xoff], ax
+    mov [sbl_xpage], dl
     ret
 
 ; -----------------------------------------------------------------------------

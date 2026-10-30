@@ -70299,7 +70299,7 @@ integration branch), whose ISR arm and verb 4 path are resident: measured on
 the merge, the shipped build keeps **6,863** with no mixer and **10,408** with
 one (`tests/unit/t_sndonce.py`) - +182 over the table, all of it §34.6.4's,
 and the mixer case's 182 crossed the KB back to 11. §34.6.5 is what took it
-back: 6,421 and **9,966**, 7KB and 10KB.
+back: 6,392 and **9,937**, 7KB and 10KB.
 
 `tests/sbirq5.py` and `tests/picomem.py` cut the discovery and `sbl_hook` out
 of `sb.inc` as they ship; `tests/unit/t_sndonce.py` holds the layout.
@@ -70549,12 +70549,16 @@ keeps the body, its mode and command as immediates now), the ISR's
 half-swap input leg (the input leg IS the external count), the grant branch
 of verb 4, `[sbl_drain_h]` and `SBL_RING`'s carve of the 8KB DMA buffer - a
 record stream claims no DMA buffer at all. `sbl_worker`'s `call si` went
-with the second worker: `sbl_refill_task` IS the loop.
+with the second worker: `sbl_refill_task` IS the loop. And what verb 0 and
+verb 4 each had a copy of is one copy now - the size code's length
+(`sbl_xrl`), the control words' pointer (`sbl_xctl`), the watchdog's divide
+(`sbl_wdset`), and `sbl_ring_phys` storing `[sbl_xoff]`/`[sbl_xpage]` itself:
+29 bytes of the 471, the PCM_IN gate costing 10 of them back.
 
 | measured, shipped build (PicoMEM in) | before | after |
 |---|---|---|
-| `snd_keep` (no mixer) | 6,863 → 7KB | **6,421 → 7KB** |
-| `snd_keepmix` (a mixer) | 10,408 → **11KB** | **9,966 → 10KB** |
+| `snd_keep` (no mixer) | 6,863 → 7KB | **6,392 → 7KB** |
+| `snd_keepmix` (a mixer) | 10,408 → **11KB** | **9,937 → 10KB** |
 | `sbl_v_open_in` | 293 | 215 |
 | `sbl_isr` | 420 | 366 |
 | `sbl_hw_start_in` | 95 | 58 |
