@@ -1395,7 +1395,7 @@ deduplicated union below, plus `test-full`.
   lin320 drew 72 wrong pixels, and movable, its modex leg had the player
   CLOSED by a #GP in the next stop's key picture (`vp_after` -> `vp_kpic`
   -> `vd_n_p3`). **Both were ONE KERNEL DEFECT, now FIXED** (KERN-MEGA-PLAN
-  14.125, SPEC.md 50.6.11): `SEG_SUB` answered a key shadow's plane with the
+  14.126, SPEC.md 50.6.11): `SEG_SUB` answered a key shadow's plane with the
   player's own `SEG_AT` window, which the next record's read re-aimed. With
   `mega_dfind` refusing windows (+16 bytes of `.mega`, kern_big and
   kern_small byte-identical) the part is MOVABLE again, the shaper's shape,

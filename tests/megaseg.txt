@@ -92,4 +92,19 @@
 #             under the speaker's sample ISR (8). The twins, the low copy and
 #             the renaming are `.mega`, and the twins' copy is the service
 #             area's claim
-4887
+# 2026-10-30: +22, to 4,403, KERN-MEGA-PLAN 14.125 - a SERVICE reflection
+#             catches the option ROMs' software IRQs too (mega_capsw and its
+#             tests in mega_svc_lo, mega_capon and mega_capoff): the empty-
+#             drive freeze was the PicoMEM's ROM raising its Sound Blaster's
+#             int 0Dh inside the BIOS's floppy call, into SOUND.DRV's
+#             protected-mode handler run as real-mode segment 1254h. It all
+#             runs in the reflection's REAL-MODE window, so it has to be low
+# 2026-10-30: +14, to 4,417, KERN-MEGA-PLAN 14.125 - the same catch takes
+#             the HARDWARE cells 22h-27h that hold an LDT selector: the
+#             freeze's ninth reading found IVT 27h = 1294:0981, SOUND.DRV's
+#             IRQ7 ISR left as a selector by mega_ivt_sync, reached by a
+#             SPURIOUS IRQ7 inside the empty drive's BIOS call. mega_capon's
+#             filter, real mode, so low
+# 2026-10-30: MERGED, the two branches' entries above both stand (4,887 and
+#             4,417 were each measured against 4,381): 4,887 + 36 = 4,923
+4923

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """THE PICOMEM UNDER MARTYPC, ITS OWN FIRMWARE ON A 4.77 MHz 8088
-(docs/plans/PICOMEM-EMU-PLAN.md wave 8).
+(docs/plans/completed/PICOMEM-EMU-PLAN.md wave 8).
 
     make pmboxtest marty && tools/picomem/build.sh && python3 tests/pmmarty.py [pm1] [pm2]
 

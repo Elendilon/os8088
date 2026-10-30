@@ -6,7 +6,7 @@
  * moved only by pm_advance), the core-to-core FIFO is a queue, a GPIO write
  * to an IRQ pin is the host's irq callback, and everything that touches a
  * peripheral the host has no copy of (PIO, PLL, I2C, PWM, the voltage
- * regulator) does nothing. docs/plans/PICOMEM-EMU-PLAN.md section 4.
+ * regulator) does nothing. docs/plans/completed/PICOMEM-EMU-PLAN.md section 4.
  *
  * GPL-2.0-or-later, like the firmware it is compiled into.
  */

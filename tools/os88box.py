@@ -711,7 +711,7 @@ def launch(vm, name=None, a=None, b=None, c=None, d=None, mem=None, sets=(),
             cfg_set(order, secs, "Floppy and CD-ROM drives", key, None)
             continue
         cfg_set(order, secs, "Floppy and CD-ROM drives", key, os.path.abspath(path))
-    # The PicoMEM (tools/picomem, docs/plans/PICOMEM-EMU-PLAN.md): its
+    # The PicoMEM (tools/picomem, docs/plans/completed/PICOMEM-EMU-PLAN.md): its
     # library resolves against the PROFILE like a disk does, and its microSD
     # image is COPIED into the run like one, so a SaveCfg or a write to an
     # image mounted from the card never reaches build/. OS88_PMHOST names

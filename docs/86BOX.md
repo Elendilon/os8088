@@ -103,7 +103,7 @@ rows on 86Box*, below), and each is inert until something asks for it:
   its line only when jumpered, and the 2.x's real DMA is a DRQ a byte,
   answered from 86Box's 8237 after each card slice. `vm/xt-picomem2` (with
   `-1fd` and `-usbm` twins) is that card as the field 2.x is jumpered, IRQ 7
-  and DRQ 1 (docs/plans/PICOMEM-EMU-PLAN.md).
+  and DRQ 1 (docs/plans/completed/PICOMEM-EMU-PLAN.md).
 
 A binary built before these three is refused by the backend, which names
 the rebuild (`python3 tools/os88box.py build`).

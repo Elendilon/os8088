@@ -808,6 +808,22 @@ runs it; its numbers are not the machine's (VIDBENCH's mr286 rows are 1.2-
   refusing `VP_SPK`. Gate: `vidspk`-shaped, on QEMU's speaker under LA_SIM -
   the samples counted against the clip's, none lost.
 
+- **L10 - version 2 in place: yield sites in the block decoder** (the
+  owner's, 2026-10-30; SECONDARY - after the kern_mega real-mode bracket,
+  docs/plans/MEGA-VIDEO-REALMODE-PLAN.md 5.3). A bank in place reads each
+  record through a borrow - LOADALL on a 286, a loaded base on a 386 - with
+  interrupts off, and the decode lets them back in only at its YIELD sites
+  (vdec.inc's VD_YCK, `vd_ypatch`, L4). The block decoder part
+  (`apps/video/vblk.asm`, SPEC.md 98.3.23) has none, so `vp_xbipq` refuses a
+  version 2 file in place (`or al, [vp_v2]`) and such a play copies each
+  chunk DOWN out of the bank - a missing capability, not a limit: the same
+  yield sites in `vb_walk`'s loop (a check every VP_XYB bytes of the list,
+  the borrow reopened at the same SI) would let it read in place on kern_big
+  as the other decoders do, and take the real-mode bracket under kern_mega
+  too. Not urgent: block files are mostly made to fit a floppy, not to
+  stream a heavy video. Gate when built: `vidxipbank`'s shape on a version 2
+  clip, every tenth frame held against the reference decode.
+
 All three are "not blocked, just more work" (the owner, 2026-10-15), and
 none is scheduled ahead of the profiling and the encoder matching playback.
 

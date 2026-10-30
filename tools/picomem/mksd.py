@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""mksd.py - a microSD card image for libpmhost's PicoMEM (docs/plans/PICOMEM-EMU-PLAN.md 4.5).
+"""mksd.py - a microSD card image for libpmhost's PicoMEM (docs/plans/completed/PICOMEM-EMU-PLAN.md 4.5).
 
     python3 tools/picomem/mksd.py OUT.img [--mb 32] [FILE ...] [DIR/NAME=SRC ...]
                                   [--fdd N:IMG] [--hdd N:IMG] [--cfg FIELD=VALUE]

@@ -238,7 +238,7 @@ snd_entry:
     cmp al, DRVV_HWINFO
     je snd_hwinfo
     cmp al, DRVV_READY
-    je .ready                   ; nothing to do: this driver keeps no settings
+    je snd_ready                ; nothing to do: this driver keeps no settings
                                 ; blob (SPEC.md 51.9) and the probe already
                                 ; ran at ATTACH, so READY just re-answers with
                                 ; the table it built then. It went to .nosb
@@ -253,161 +253,19 @@ snd_entry:
                                 ; and past the port pin's read, which could
                                 ; only agree (SPEC.md 34.13.2)
     cmp al, DRVV_ATTACH
-    jne .nohw                   ; an unknown verb REFUSES rather than probing
+    jne .no                     ; an unknown verb REFUSES rather than probing
                                 ; hardware nobody asked about
-    mov si, snd_services        ; the answer, and the base every cell below is
-                                ; written through (drv_attach banks SI)
-    ; --- attach ---------------------------------------------------------------
-    ; TWO tiers, independently present. Either one alone is worth attaching
-    ; for, so the refusal is only when NEITHER answers - and the service
-    ; table is built from what actually replied, so a machine with an AdLib
-    ; and no Sound Blaster publishes FM and no stream verb at all.
-                                ; [drv_up] is 0 here without a store: the
-                                ; image was loaded a moment ago and ATTACH is
-                                ; the first verb it gets (os88drv.inc's
-                                ; OS88_STATE) - a tier change re-runs
-                                ; sbl_attach, never this
-%ifdef PICOMEM
-    call pm_init                ; a PicoMEM's AdLib and Sound Blaster do not
-                                ; answer until the card is told to install
-                                ; them, and on DOS that is PMINIT.EXE's job
-                                ; (SPEC.md 34.10). HERE, three instructions
-                                ; ahead of the probe that has to find them,
-                                ; because this is the only point in the system
-                                ; that is defined to be between drv_boot and
-                                ; the first port read. It answers nothing: a
-                                ; card that came up is found below because it
-                                ; is now really there, and a machine with no
-                                ; PicoMEM in it has had a hundred reads of
-                                ; 2A3h and not one write anywhere
-%endif
-    call opl_probe              ; the timer-flag dance; a present chip is
-    jc .nofm                    ; FULLY initialised before this returns
-    mov byte [drv_up], 1
-    mov word [si+DSV_FM], opl_fm_op
-    mov word [si+DSV_TONE], opl_tone
-    mov word [si+DSV_RELINST], snd_release_both
-    or word [si+DSV_CAPS], SND_CAP_FM
-    or word [si+DSV_TIERS], 1 << SND_RT_FM
-    mov word [si+DSV_NAME], snd_s_opl
-%ifdef PICOMEM
-    call pm_tickpub             ; the card's AdLib wants a tick of its own
-%endif                          ; (SPEC.md 34.10.6), with or without a DSP
-.nofm:
-    call sbl_attach             ; the reset scan, then the DMA buffer
-    jnc .sbok
-    cmp al, DRVE_TWICE
-    je .bug                     ; NOT .nosb. Every other refusal here is a fact
-                                ; about the machine and degrades to FM-only,
-                                ; which is a real configuration; this one says
-                                ; we attached twice, and swallowing it would
-                                ; leave the driver up and looking fine with the
-                                ; report thrown away - the exact silence the
-                                ; code exists to break. It is a FUTURE
-                                ; regression's guard: the DRVV_READY
-                                ; fallthrough that used to reach here is fixed
-                                ; above, so nothing should ever take this jump
-    jmp short .nosb
-.sbok:
-    mov byte [drv_up], 1
-    cmp byte [sbl_verhi], 4     ; a DSP 4 (an SB16 or a true compatible)
-    jb .sbo                     ;   carries an OPL3-class chip: its short
-    mov byte [opl_fast], 1      ;   write delays (SPEC.md 34.12.1), whatever
-.sbo:                           ;   opl_kind_probe made of the second bank
-    call mix_probe              ; save/test/restore; no mixer reset (34.15)
-    call snd_sb_pub             ; the stream verb, the tick, the caps and the
-                                ; card's name - what DRVV_TIER's "on" also
-                                ; publishes - and then the two cells only an
-                                ; attach writes
-    mov word [si+DSV_RELINST], snd_release_both
-                                ; ...and the release verb, which the OPL leg
-                                ; above may already have published. It must be
-                                ; set by EITHER half attaching, because it is
-                                ; now the one entry that releases BOTH - a
-                                ; card with no OPL still has grants and a
-                                ; staging pool to give back
-    or word [si+DSV_TIERS], 1 << SND_RT_SB
-                                ; ...and THIS is the only place that bit is
-                                ; ever set: snd_tier may take the DSP tier
-                                ; away and give it back all session, but
-                                ; whether a card is in the machine was
-                                ; settled here and cannot change until the
-                                ; driver is reloaded. That is what lets the
-                                ; Control Panel grey the row instead of
-                                ; running the six-base reset scan on a click
-                                ;
-                                ; DSV_NAME (snd_sb_pub) is what the Control Panel's Sound
-                                ; page calls the CARD ROW, and the SOUND
-                                ; BLASTER TAKES IT WHENEVER IT ATTACHES -
-                                ; unconditionally, overwriting the OPL2's.
-                                ;
-                                ; It used to defer to whatever named itself
-                                ; first, on the reasoning that the row is the
-                                ; TONE sink and the tone comes out of the
-                                ; OPL2. That is true and it is still the wrong
-                                ; name, because EVERY Sound Blaster carries an
-                                ; OPL2 of its own and that chip is probed
-                                ; FIRST: the row therefore read 'AdLib' on
-                                ; every real Sound Blaster ever made, and the
-                                ; page's one statement about the machine's
-                                ; hardware named the smaller half of it. The
-                                ; tone still comes out of an OPL2 either way -
-                                ; the SB's - so the new name is no less true
-                                ; of the sink, and strictly more true of the
-                                ; card. It doubles as the answer to "did the
-                                ; DSP tier attach?", since nothing else can
-                                ; put that string on the page.
-.nosb:
-    call mpu_probe              ; THE THIRD REASON TO ATTACH (SPEC.md 34.13):
-    mov ax, snd_s_mpu           ; an MPU-401 alone is worth loading for - a
-    call snd_upnm               ; module on the connector is a whole synth
-                                ; the package reaches through DSV_PKGCALL
-                                ; (attach only - READY jumps past both
-                                ; probes to .ready - so SI is ours)
-    call cvx_probe              ; THE FOURTH (SPEC.md 34.14): parallel ports
-                                ; a Covox could be on. It says only that the
-                                ; Sound page's Covox choices are live (their
-                                ; DSV_TIERS bits) - the DAC is undetectable
-                                ; and is never published here, only by the
-                                ; tier the user picks (snd_tier's tail). It
-                                ; ends in snd_upnm itself
-    cmp byte [drv_up], 0
-    je .nohw
-    mov ax, snd_keepmix         ; WHAT THIS MACHINE KEEPS (SPEC.md 34.15.1):
-    cmp byte [mix_kind], 0      ; never the attach-only code past snd_keepmix,
-    jne .keep                   ; and with NO MIXER nothing past snd_keep
-    mov ax, snd_keep            ; either - the mixer verbs and the volume
-.keep:                          ; popup. The kernel shrinks the claim to it.
-    mov [DRV_H_KEEP], ax        ; Settled HERE and only here: mix_probe runs
-                                ; at attach alone, so a tier change cannot
-                                ; bring a mixer into existence
-    sub ax, strict word $$      ; ...and IN THE HMA, where there is no claim
-    or ah, MEMHMA_KEEP >> 8     ; to shrink, the pool block is cut the same
-    call OSAPI_MEM_HMA          ; (SPEC.md 51.1.3.1) - before HDD.DRV and
-                                ; NET.DRV are placed above it, so the freed
-                                ; run is the pool's free middle, not a hole.
-                                ; CF = 1 in the heap: the kernel's shrink.
-                                ; STRICT WORD: `$$` is 0 at org 0 and C000 at
-                                ; DRV_HMA_ORG, and the two assemblies must be
-                                ; byte-parallel for the relocation diff
-.ready:
+    jmp snd_attach              ; ...and the attach is BELOW snd_keepmix: it
+                                ; runs once, before the shrink, so its body is
+                                ; handed back with the probes it calls
+.no:
+    stc
+    ret
+snd_ready:
     mov si, snd_services
     clc
     ret
-.nohw:
-%ifdef PICOMEM
-    call pm_undo                ; ...and if we turned a PicoMEM's DSP on and
-                                ; then found nothing, put it back: SPEC.md
-                                ; 51.2's attach is all-or-nothing, and a
-                                ; refusal that left a port changed is exactly
-                                ; what that rule forbids. NOT on the .bug path
-                                ; below - DRVE_TWICE means an attach is
-                                ; already live and owns the card
-%endif
-    mov al, DRVE_HW             ; the reason, explicitly: attach's refusal may
-.bug:                           ; carry a DRVE_* now (SPEC.md 51.2) and the
-    stc                         ; kernel reads whatever AL holds - so .bug
-    ret                         ; joins here with DRVE_TWICE already in AL
+
 
 ; -----------------------------------------------------------------------------
 ; snd_sb_pub - publish the Sound Blaster tier: the stream verb, the tick, the
@@ -439,8 +297,8 @@ snd_sb_pub:
                                 ; where a high DMA channel can be programmed
                                 ; (SPEC.md 34.5.5)
     or word [si+DSV_CAPS], SND_CAP_ADPCM4Q | SND_CAP_STEREO
-    call sbl_hdma_find
-    jc .out
+    cmp byte [sbl_hdma], 0      ; found once a load, by sbl_find
+    je .out
     or byte [si+DSV_CAPS+1], SND_CAP_PCM16 >> 8
     ret
 .pro:                           ; an SB Pro's stereo switch is a CT1345 bit,
@@ -1179,15 +1037,14 @@ snd_rmode:
     mov si, es                  ; the kernel's (KERNEL_SEG, or MEGA_SEL_KDATA
     cmp si, 0x60                ; in protected mode), as SNDV_MIXPOP asks
     ja snd_pkg.bad
-    cmp al, 2
-    jb .flip
-    cmp byte [sbl_irq], 0xFF    ; AL = 2, THE DOOR: what real mode cannot do
-    jne .list                   ; done first - verb 0's deferred IRQ
-    cmp word [sbl_base], 0      ; discovery, whose probe vectors are 08h-0Fh
-    je .list                    ; and whose hook would name the low copy
-    call sbl_f_irqdisc
-    jmp short .list
-.flip:
+    cmp al, 2                   ; AL = 2, THE DOOR: the list alone. It ran
+    jae .list                   ; the Sound Blaster's deferred IRQ discovery
+                                ; first until that became the ATTACH's
+                                ; (SPEC.md 34.5.7): it is SBL_ONCE now, not
+                                ; resident after the attach, so nothing here
+                                ; may reach it - and the hook it would have
+                                ; made is the attach's, which the drop points
+                                ; at the low copy with every other cell
     xor al, 1
     mov [sbl_dpm], al           ; 1 back in protected mode, 0 in the bracket
 .list:
@@ -1488,13 +1345,179 @@ VOLUME_STATE                    ; the file's trailing run - see snd_keepmix)
 ; Everything below runs inside DRVV_ATTACH and never again - the probes, the
 ; OPL's one-time init, the PicoMEM's bring-up and the mixer's own probe - so
 ; the attach hands it back on EVERY machine: DRV_H_KEEP is this offset with a
-; mixer and snd_keep without one. NOT the Sound Blaster's probe: DRVV_TIER
-; re-runs sbl_attach all session, so sb.inc stays whole above. Nothing above
-; may call down here after the attach returns, and t_sndonce is what says so.
+; mixer and snd_keep without one. The Sound Blaster's scan and IRQ discovery
+; are here too (sb.inc's SBL_ONCE, through sbl_find): DRVV_TIER re-runs
+; sbl_attach all session, but that only resets the DSP at the base the scan
+; settled, and the first open hooks the line the discovery settled - neither
+; asks the hardware again. So is DRVV_ATTACH's own body, snd_attach. Nothing
+; above may call down here after the attach returns, and t_sndonce is what
+; says so.
 ; The price is that the state above is no longer the file's trailing zero
 ; run, so ~1.3KB of zeros ship - a few bytes under PKGZ, 1.3KB under PKGZ=.
 ; =============================================================================
 snd_keepmix:
+; -----------------------------------------------------------------------------
+; snd_attach - DRVV_ATTACH's body, entered from snd_entry (SPEC.md 51.2).
+; BELOW snd_keepmix on purpose: it runs once, before the attach shrinks the
+; claim, so every byte of it is handed back on every machine.
+; -----------------------------------------------------------------------------
+snd_attach:
+    mov si, snd_services        ; the answer, and the base every cell below is
+                                ; written through (drv_attach banks SI)
+    ; --- attach ---------------------------------------------------------------
+    ; TWO tiers, independently present. Either one alone is worth attaching
+    ; for, so the refusal is only when NEITHER answers - and the service
+    ; table is built from what actually replied, so a machine with an AdLib
+    ; and no Sound Blaster publishes FM and no stream verb at all.
+                                ; [drv_up] is 0 here without a store: the
+                                ; image was loaded a moment ago and ATTACH is
+                                ; the first verb it gets (os88drv.inc's
+                                ; OS88_STATE) - a tier change re-runs
+                                ; sbl_attach, never this
+%ifdef PICOMEM
+    call pm_init                ; a PicoMEM's AdLib and Sound Blaster do not
+                                ; answer until the card is told to install
+                                ; them, and on DOS that is PMINIT.EXE's job
+                                ; (SPEC.md 34.10). HERE, three instructions
+                                ; ahead of the probe that has to find them,
+                                ; because this is the only point in the system
+                                ; that is defined to be between drv_boot and
+                                ; the first port read. It answers nothing: a
+                                ; card that came up is found below because it
+                                ; is now really there, and a machine with no
+                                ; PicoMEM in it has had a hundred reads of
+                                ; 2A3h and not one write anywhere
+%endif
+    call opl_probe              ; the timer-flag dance; a present chip is
+    jc .nofm                    ; FULLY initialised before this returns
+    mov byte [drv_up], 1
+    mov word [si+DSV_FM], opl_fm_op
+    mov word [si+DSV_TONE], opl_tone
+    mov word [si+DSV_RELINST], snd_release_both
+    or word [si+DSV_CAPS], SND_CAP_FM
+    or word [si+DSV_TIERS], 1 << SND_RT_FM
+    mov word [si+DSV_NAME], snd_s_opl
+%ifdef PICOMEM
+    call pm_tickpub             ; the card's AdLib wants a tick of its own
+%endif                          ; (SPEC.md 34.10.6), with or without a DSP
+.nofm:
+    call sbl_find               ; the reset scan and the IRQ discovery, ONCE
+                                ; a load (SPEC.md 34.5): both are below
+                                ; snd_keepmix, and a tier change re-uses the
+                                ; answer rather than asking again
+    call sbl_attach             ; publish what sbl_find settled
+    jnc .sbok
+    cmp al, DRVE_TWICE
+    je .bug                     ; NOT .nosb. Every other refusal here is a fact
+                                ; about the machine and degrades to FM-only,
+                                ; which is a real configuration; this one says
+                                ; we attached twice, and swallowing it would
+                                ; leave the driver up and looking fine with the
+                                ; report thrown away - the exact silence the
+                                ; code exists to break. It is a FUTURE
+                                ; regression's guard: the DRVV_READY
+                                ; fallthrough that used to reach here is fixed
+                                ; above, so nothing should ever take this jump
+    jmp short .nosb
+.sbok:
+    mov byte [drv_up], 1
+    cmp byte [sbl_verhi], 4     ; a DSP 4 (an SB16 or a true compatible)
+    jb .sbo                     ;   carries an OPL3-class chip: its short
+    mov byte [opl_fast], 1      ;   write delays (SPEC.md 34.12.1), whatever
+.sbo:                           ;   opl_kind_probe made of the second bank
+    call mix_probe              ; save/test/restore; no mixer reset (34.15)
+    call snd_sb_pub             ; the stream verb, the tick, the caps and the
+                                ; card's name - what DRVV_TIER's "on" also
+                                ; publishes - and then the two cells only an
+                                ; attach writes
+    mov word [si+DSV_RELINST], snd_release_both
+                                ; ...and the release verb, which the OPL leg
+                                ; above may already have published. It must be
+                                ; set by EITHER half attaching, because it is
+                                ; now the one entry that releases BOTH - a
+                                ; card with no OPL still has grants and a
+                                ; staging pool to give back
+    or word [si+DSV_TIERS], 1 << SND_RT_SB
+                                ; ...and THIS is the only place that bit is
+                                ; ever set: snd_tier may take the DSP tier
+                                ; away and give it back all session, but
+                                ; whether a card is in the machine was
+                                ; settled here and cannot change until the
+                                ; driver is reloaded. That is what lets the
+                                ; Control Panel grey the row instead of
+                                ; running the six-base reset scan on a click
+                                ;
+                                ; DSV_NAME (snd_sb_pub) is what the Control Panel's Sound
+                                ; page calls the CARD ROW, and the SOUND
+                                ; BLASTER TAKES IT WHENEVER IT ATTACHES -
+                                ; unconditionally, overwriting the OPL2's.
+                                ;
+                                ; It used to defer to whatever named itself
+                                ; first, on the reasoning that the row is the
+                                ; TONE sink and the tone comes out of the
+                                ; OPL2. That is true and it is still the wrong
+                                ; name, because EVERY Sound Blaster carries an
+                                ; OPL2 of its own and that chip is probed
+                                ; FIRST: the row therefore read 'AdLib' on
+                                ; every real Sound Blaster ever made, and the
+                                ; page's one statement about the machine's
+                                ; hardware named the smaller half of it. The
+                                ; tone still comes out of an OPL2 either way -
+                                ; the SB's - so the new name is no less true
+                                ; of the sink, and strictly more true of the
+                                ; card. It doubles as the answer to "did the
+                                ; DSP tier attach?", since nothing else can
+                                ; put that string on the page.
+.nosb:
+    call mpu_probe              ; THE THIRD REASON TO ATTACH (SPEC.md 34.13):
+    mov ax, snd_s_mpu           ; an MPU-401 alone is worth loading for - a
+    call snd_upnm               ; module on the connector is a whole synth
+                                ; the package reaches through DSV_PKGCALL
+                                ; (attach only - READY jumps past both
+                                ; probes to .ready - so SI is ours)
+    call cvx_probe              ; THE FOURTH (SPEC.md 34.14): parallel ports
+                                ; a Covox could be on. It says only that the
+                                ; Sound page's Covox choices are live (their
+                                ; DSV_TIERS bits) - the DAC is undetectable
+                                ; and is never published here, only by the
+                                ; tier the user picks (snd_tier's tail). It
+                                ; ends in snd_upnm itself
+    cmp byte [drv_up], 0
+    je .nohw
+    mov ax, snd_keepmix         ; WHAT THIS MACHINE KEEPS (SPEC.md 34.15.1):
+    cmp byte [mix_kind], 0      ; never the attach-only code past snd_keepmix,
+    jne .keep                   ; and with NO MIXER nothing past snd_keep
+    mov ax, snd_keep            ; either - the mixer verbs and the volume
+.keep:                          ; popup. The kernel shrinks the claim to it.
+    mov [DRV_H_KEEP], ax        ; Settled HERE and only here: mix_probe runs
+                                ; at attach alone, so a tier change cannot
+                                ; bring a mixer into existence
+    sub ax, strict word $$      ; ...and IN THE HMA, where there is no claim
+    or ah, MEMHMA_KEEP >> 8     ; to shrink, the pool block is cut the same
+    call OSAPI_MEM_HMA          ; (SPEC.md 51.1.3.1) - before HDD.DRV and
+                                ; NET.DRV are placed above it, so the freed
+                                ; run is the pool's free middle, not a hole.
+                                ; CF = 1 in the heap: the kernel's shrink.
+                                ; STRICT WORD: `$$` is 0 at org 0 and C000 at
+                                ; DRV_HMA_ORG, and the two assemblies must be
+                                ; byte-parallel for the relocation diff
+.ready:
+    jmp snd_ready
+.nohw:
+%ifdef PICOMEM
+    call pm_undo                ; ...and if we turned a PicoMEM's DSP on and
+                                ; then found nothing, put it back: SPEC.md
+                                ; 51.2's attach is all-or-nothing, and a
+                                ; refusal that left a port changed is exactly
+                                ; what that rule forbids. NOT on the .bug path
+                                ; below - DRVE_TWICE means an attach is
+                                ; already live and owns the card
+%endif
+    mov al, DRVE_HW             ; the reason, explicitly: attach's refusal may
+.bug:                           ; carry a DRVE_* now (SPEC.md 51.2) and the
+    stc                         ; kernel reads whatever AL holds - so .bug
+    ret                         ; joins here with DRVE_TWICE already in AL
+
 ; =============================================================================
 ; opl_probe - the OPL2 timer-flag dance (SPEC.md 34.2, binding)
 ;
@@ -1643,6 +1666,8 @@ opl_init:
     pop ax
     ret
 
+    SBL_ONCE                    ; sb.inc: the reset scan and the IRQ
+                                ; discovery, through sbl_find (SPEC.md 34.5)
     MPU_ONCE                    ; mpu.inc: mpu_probe and its three helpers
     OS88_PIN                    ; ...and os88_pin, whose one caller is
                                 ; mpu_probe (SPEC.md 51.9.2)

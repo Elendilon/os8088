@@ -5851,7 +5851,7 @@ SOAK = [
         wants=("build/emstest.img",)),
     Row("emscard", "soak", py("tests/ems.py", "--leg", "card"), 60.0,
         "SPEC.md 107.2 against a REAL PicoMEM 1.x's EMS: the card's own "
-        "firmware in 86Box (docs/plans/PICOMEM-EMU-PLAN.md wave 5, "
+        "firmware in 86Box (docs/plans/completed/PICOMEM-EMU-PLAN.md wave 5, "
         "vm/xt-picomem1). A first boot lets the card's BIOS map the machine "
         "and save PICOMEM.CFG; EMS is set on THAT (288h, E000h - the card's "
         "BIOS is at D000h) and every check of ems's board leg holds at the "
@@ -5862,7 +5862,7 @@ SOAK = [
         wants=("build/emstest.img",)),
     Row("emscard2", "soak", py("tests/ems.py", "--leg", "card2"), 75.0,
         "emscard's checks on a PicoMEM 2.x (vm/xt-picomem2, our firmware "
-        "built PICOMEM_20, docs/plans/PICOMEM-EMU-PLAN.md wave 6): its EMS "
+        "built PICOMEM_20, docs/plans/completed/PICOMEM-EMU-PLAN.md wave 6): its EMS "
         "lives in the RP2350's mapped PSRAM, an EMS page register write "
         "moving a RAM_Offset_Table entry, where the 1.x's goes through SPI - "
         "and EMS.DRV finds it at 288h/E000h with 256 pages all the same",
@@ -6964,6 +6964,34 @@ SOAK = [
         "(name, size) because it is the only identity available without a "
         "SECTOR READ - keying on either half alone over-merges and shows up "
         "here as too few rows.",
+        needs=("marty",), wants=("build/os8088-360.img", "build/apps360.img")),
+
+    Row("icohd", "soak", py("tests/icohd.py"), 95.0,
+        "THE FIELD REPORT, END TO END (SPEC.md 25.9.6): a hard disk "
+        "installed from the system + apps pair lost icons - *.IMG first, "
+        "and INSTALL.O88. A real install on MartyPC's XT-IDE machine, a "
+        "reboot from C:, and a scratch B: of ten shipped packages padded by "
+        "16 bytes (another build of the same programs: same names, new "
+        "sizes, so new keys), XTMP3 and a BACKUP.IMG. Every live entry of "
+        "every folder on both is asked whether it references ICO_R_NONE. "
+        "The tree before the grow stops at 60 rows with MINES, SOLITAIR, "
+        "TELNET and BACKUP.IMG generic; with it the store takes a sixth KB "
+        "and nothing is, and the row also fails if the scenario stops "
+        "overflowing a first claim.",
+        needs=("marty",), wants=("build/os8088-720.img", "build/apps720.img")),
+
+    Row("icogrow", "soak", py("tests/icogrow.py"), 20.0,
+        "THE ICON STORE GROWS (SPEC.md 25.9.6). A fixed 60-row store was "
+        "outgrown by a standard install of the two 1.44MB disks, and a full "
+        "store answers the generic icon. ico_add now grows the claim a KB at "
+        "a time with mem_regrow. The row makes the store FULL by writing "
+        "[ico_max] down to the rows held, then opens a second volume whose "
+        "packages the first lacked: at ICO_KBMAX (the negative control, same "
+        "boot) they stay on the generic icon and the store does not move; at "
+        "ICO_KB the store grows a KB, [ico_max] is re-derived, every new "
+        "reference names a real row, and row 0's key and body are "
+        "byte-identical at the new base - the capture-at-the-head layout "
+        "(ICO_RBASE) keeping a row's offset fixed across a move.",
         needs=("marty",), wants=("build/os8088-360.img", "build/apps360.img")),
 
     Row("ascabsorb", "soak", py("tests/ascabsorb.py"), 20.0,
@@ -8260,9 +8288,10 @@ SOAK = [
         "uses NO SYSTEM.CFG deliberately - 51.3.1's boot sniff mounts the "
         "driver on a machine with a card and no configuration at all, which "
         "is the common case an earlier revision of 96.16 got wrong. The "
-        "visible half is BLASTER=, and its IRQ field is ABSENT on purpose: "
-        "discovery is deferred to first use, so naming a line here is naming "
-        "the wrong one.",
+        "visible half is BLASTER=, and its IRQ field names the card's line, "
+        "IRQ 7: the driver discovers it at its attach (SPEC.md 34.5.7), so it "
+        "is known before any sound has played - it was ABSENT while discovery "
+        "waited for the first stream.",
         needs=("marty",), serial=True,
         wants=("build/dossnd360.img",)),
     Row("dosirq", "soak", py("tests/dosirq.py"), 20.0,
@@ -18485,7 +18514,8 @@ SOAK = [
         "card there never plays one block and falls silent. sbl_f_irqdisc "
         "and sbl_irq5_taken, cut out of sb.inc as they ship (picomem.py's "
         "sbslice), run under unicorn on an SB16 whose mixer names the line: "
-        "refused with one toast on an 8088, once a session; accepted on IRQ 5 "
+        "refused SILENTLY on an 8088 (sbl_attach then refuses the DSP tier "
+        "and the OPL2 attaches alone, SPEC.md 34.5.7); accepted on IRQ 5 "
         "when the vector is the BIOS's own dummy and on a 286 or 386 (the negative "
         "controls), and on IRQ 7 beside a taken 5. With the refusal broken "
         "(sbl_irq5_taken always CF=0) 2 checks FAIL",
@@ -18520,7 +18550,7 @@ SOAK = [
         "than one start and keep the stream in the ring",
         needs=("nasm", "unicorn")),
     Row("pmlib", "soak", py("tests/picomem.py", "sbfw", "vsfw", "sb2fw"), 3.0,
-        "docs/plans/PICOMEM-EMU-PLAN.md wave 0: picomem's sb and vs legs - "
+        "docs/plans/completed/PICOMEM-EMU-PLAN.md wave 0: picomem's sb and vs legs - "
         "SOUND.DRV's PicoMEM attach and VIDSND's reconfigure, as they ship, "
         "under unicorn - with the card's ports answered by the card's OWN "
         "FIRMWARE (pm1x-pr, compiled for the host by tools/picomem/build.sh) "
@@ -18539,7 +18569,7 @@ SOAK = [
         "multiplexer on 7 and FAILS 2 checks",
         needs=("nasm", "unicorn", "pmhost")),
     Row("pmbox", "soak", py("tests/pmbox.py"), 170.0,
-        "docs/plans/PICOMEM-EMU-PLAN.md waves 1-7: the PicoMEM in 86Box "
+        "docs/plans/completed/PICOMEM-EMU-PLAN.md waves 1-7: the PicoMEM in 86Box "
         "(vm/xt-picomem1, tools/86box/patches/07-picomem.patch) running ITS "
         "OWN FIRMWARE (libpmhost), three boots. snd: the BIOS detects the "
         "card's IRQ, SOUND.DRV attaches in SPEC.md 34.10's order (78h 0 "
@@ -18569,7 +18599,7 @@ SOAK = [
         wants=("build/pmsys360.img", "build/pmboxb360.img", "build/pmhd.img",
                "build/apps360.img", "build/mega.img")),
     Row("pmmarty", "soak", py("tests/pmmarty.py"), 50.0,
-        "docs/plans/PICOMEM-EMU-PLAN.md wave 8: the PicoMEM's own firmware "
+        "docs/plans/completed/PICOMEM-EMU-PLAN.md wave 8: the PicoMEM's own firmware "
         "(libpmhost) as a MartyPC card (tools/martypc/patches/17-picomem.patch), "
         "on a 4.77 MHz 5150: os8088_5150_herc_pm1_gla (a 1.x on IRQ 5) and "
         "_pm2_gla (a 2.x, IRQ 7 and DRQ 1, as 5150 #2's). On each the card's "
@@ -18583,7 +18613,7 @@ SOAK = [
         needs=("marty", "pmhost"), serial=True,
         wants=("build/pmsys360.img", "build/pmboxb360.img")),
     Row("pmbox2", "soak", py("tests/pmbox.py", "--board", "2"), 160.0,
-        "docs/plans/PICOMEM-EMU-PLAN.md wave 6: pmbox's legs on a PicoMEM 2.x "
+        "docs/plans/completed/PICOMEM-EMU-PLAN.md wave 6: pmbox's legs on a PicoMEM 2.x "
         "(vm/xt-picomem2 and its -1fd/-usbm twins: OUR firmware, pm1x-pr, "
         "built PICOMEM_20 - the first run of it as a 2.x anywhere - IRQ 7 "
         "jumpered and DRQ 1, as the field 2.x). SOUND.DRV's attach is "

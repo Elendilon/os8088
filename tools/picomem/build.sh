@@ -1,6 +1,6 @@
 #!/bin/sh
 # Build libpmhost: a PicoMEM card running its OWN firmware, for the host
-# (docs/plans/PICOMEM-EMU-PLAN.md).
+# (docs/plans/completed/PICOMEM-EMU-PLAN.md).
 #
 # Fetches the firmware at the pin in UPSTREAM, applies patches/fw/ (our
 # firmware: pm1x-pr, what firmware/picomem1/ ships) and then patches/host/

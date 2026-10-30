@@ -1920,9 +1920,9 @@ fsx_rdlow:
     ret
 
 ; fsx_rsndq - the sound row's SNDV_RMODE list (W4), asked of the driver
-; (AL = 2, THE DOOR: it does first what real mode cannot - the IRQ discovery
-; a Sound Blaster defers to its first stream, whose probe vectors are IVT
-; 08h-0Fh and whose hook would name the low copy) into the service area,
+; (AL = 2, THE DOOR: the list alone since SPEC.md 34.5.7 made a Sound
+; Blaster's IRQ discovery its attach's - the door ran it here while it was
+; deferred to the first stream) into the service area,
 ; and each word asked whether it HAS a real
 ; segment - a selector above 1MB has none, and a stream that is not handed
 ; one cannot play in the bracket. ES = the service area, ES:BP the row. CF =
