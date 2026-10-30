@@ -5101,19 +5101,15 @@ mega_rmaskf:
     cmp al, MOU_FEEDROW
     jae .k
     mov al, [mou_line]
-    mov ah, 0x24                    ; IRQ4's vector in real mode (base 20h)
     cmp al, MOU_L4
-    je .vec
-    mov ah, 0x23
+    je .v4
     cmp al, MOU_L3
     jne .k
+    cmp word [es:0x23*4+2], KERNEL_SEG  ; IRQ3's vector in real mode (base 20h)
+    jmp short .vec
+.v4:
+    cmp word [es:0x24*4+2], KERNEL_SEG  ; ...or IRQ4's
 .vec:
-    push bx
-    mov bl, ah
-    xor bh, bh
-    shl bx, 2
-    cmp word [es:bx+2], KERNEL_SEG
-    pop bx
     jne .k
     not al
     and bl, al
@@ -5280,9 +5276,8 @@ mega_hibnc:
 .samet:
     or cl, ah
     mov [mega_hbcx], cx
-    mov al, [mega_hbn]
-    xor ah, ah
-    xchg al, ah                     ; AX = sectors x 256...
+    mov ah, [mega_hbn]
+    xor al, al                      ; AX = sectors x 256...
     shl ax, 1                       ; ...x 2 = bytes
     add [mega_hbsi], ax
     jmp .run
@@ -5300,7 +5295,6 @@ mega_hibnc:
 ; DX, BX, ES; DS kept
 .copy:
     push ds
-    xor ch, ch
     mov ch, [mega_hbn]              ; CX = sectors x 256 words
     xor cl, cl
     mov si, [mega_hbsi]
@@ -5600,13 +5594,7 @@ mega_hugebf:
 .no:
     stc
 .out:
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop bx
-    pop ax
-    retf
+    jmp mega_hugef.o                ; (its epilogue: the same six pushes)
 .no0:
     stc
     retf
@@ -5665,23 +5653,14 @@ mega_hugec:
     call mega_hgfree                ; DI = a run of CX free entries
     jc .full
     push bx
-    mov bx, 0xFFFF                  ; the code half: the first 64KB...
-    cmp bp, 64
-    jae .cl
-    mov bx, bp                      ; ...or the claim's end
-    shl bx, 10
-    dec bx
-.cl:
-    mov [es:di], bx
-    pop bx
-    mov [es:di+2], ax
-    mov [es:di+4], dl
-    mov byte [es:di+5], 0x9A
-    mov word [es:di+6], 0
+    mov bx, bp
+    push cx
+    mov cx, 1                       ; the code half: the first 64KB or the
+    call mega_hgfill                ; claim's end, as a window's...
+    pop cx
+    mov byte [es:di+5], 0x9A        ; ...but CODE
     add di, 8
     dec cx
-    push bx
-    mov bx, bp
     call mega_hgfillx               ; the windows, at SI's step
     pop bx
     popf
@@ -5790,15 +5769,15 @@ mega_hgfree:
 ; shape, KERN-MEGA-PLAN 14.41). Clobbers nothing
 mega_hgfill16:
     pusha
-    mov bp, 2
+    mov bp, 16                      ; BP = the step, in KB
     jmp short mega_hgfill.go
 mega_hgfill32:
     pusha
-    mov bp, 1
+    mov bp, 32
     jmp short mega_hgfill.go
 mega_hgfill:
     pusha
-    xor bp, bp
+    mov bp, 64
 .go:
 .fill:
     mov word [es:di], 0xFFFF        ; a whole 64KB...
@@ -5814,23 +5793,13 @@ mega_hgfill:
     mov [es:di+4], dl
     mov byte [es:di+5], 0x92        ; data, present: taken
     mov word [es:di+6], 0
-    or bp, bp
-    jnz .h32
-    inc dl                          ; the next 64KB
-    sub bx, 64
-    jmp short .nx
-.h32:
-    cmp bp, 1
-    jne .h16
-    add ax, 0x8000                  ; ...or the next 32KB
+    mov si, bp                      ; the next window: the base on by the
+    shl si, 10                      ; step - 4000h, 8000h, or (64KB) 0 and
+    add ax, si                      ; the carry into DL by hand
     adc dl, 0
-    sub bx, 32
-    jmp short .nx
-.h16:
-    add ax, 0x4000                  ; ...or the next 16KB
+    cmp si, 1                       ; (CF = 1: SI = 0, the 64KB step)
     adc dl, 0
-    sub bx, 16
-.nx:
+    sub bx, bp
     add di, 8
     loop .fill
     popa
@@ -5897,14 +5866,11 @@ mega_xmrunf:
     jnz .not
     or dh, dh
     jnz .not                        ; above 16MB: no pool there
-    mov si, ax                      ; DX:SI = the base, kept
     push dx
     sub dx, MEGA_XPOOL >> 16
     jc .notp                        ; below the pool
-    mov cl, 10
-    shr ax, cl
-    mov cl, 6
-    shl dx, cl
+    shr ax, 10
+    shl dx, 6
     or ax, dx                       ; AX = its KB from the pool's base
     pop dx
     inc byte [sch_lock]             ; the scan to the MX_SEL store: the
@@ -5923,68 +5889,24 @@ mega_xmrunf:
     jmp .notl
 .fs:
     cmp word [ss:di+MX_SEL], 0
-    je .fs1
-    jmp .notl                       ; (a selector already: one view a block)
-.fs1:
-    mov si, [ss:di+MX_OFF]          ; DX:SI = where the block is now
-    mov dx, si
-    shl si, 10
+    jne .notl                       ; (a selector already: one view a block)
+    mov ax, [ss:di+MX_OFF]          ; DX:AX = where the block is now
+    mov dx, ax
+    shl ax, 10
     shr dx, 6
     add dx, MEGA_XPOOL >> 16
-    mov bp, [ss:di+MX_KB]              ; BP = KB
-    mov cx, bp
+    mov bx, [ss:di+MX_KB]           ; BX = KB
+    mov cx, bx
     add cx, 31
-    shr cx, 1
-    shr cx, 1
-    shr cx, 1
-    shr cx, 1
-    shr cx, 1                       ; CX = the selectors, one per 32KB
+    shr cx, 5                       ; CX = the selectors, one per 32KB
     push di
-    mov ax, MEGA_SEL_LDTD
-    mov es, ax
-    mov di, MEGA_LDT_FREE0 * 8
+    mov si, MEGA_SEL_LDTD
+    mov es, si
     pushf
     cli                             ; the scan and the claim are one step
-.scan:
-    push di
-    push cx
-.fr:
-    cmp di, [ss:mega_ldte]
-    jae .full
-    cmp byte [es:di+5], 0
-    jne .taken
-    add di, 8
-    loop .fr
-    pop cx                          ; a run of CX free entries from the DI
-    pop di                          ; under it
-    push di
-    push cx
-    mov ax, si                      ; DX:AX = window 0's base
-    mov bx, bp                      ; BX = KB from it to the block's end
-.fill:
-    mov word [es:di], 0xFFFF        ; a whole 64KB...
-    cmp bx, 64
-    jae .lim
-    push bx                         ; ...or to the block's end
-    mov bh, bl
-    xor bl, bl
-    shl bx, 1
-    shl bx, 1                       ; (KB x 1024: under 64KB here)
-    dec bx
-    mov [es:di], bx
-    pop bx
-.lim:
-    mov [es:di+2], ax
-    mov [es:di+4], dl
-    mov byte [es:di+5], 0x92        ; data, present: taken
-    mov word [es:di+6], 0
-    add ax, 0x8000                  ; the next 32KB
-    adc dl, 0
-    sub bx, 32
-    add di, 8
-    loop .fill
-    pop cx
-    pop di
+    call mega_hgfree                ; DI = a run of CX free entries
+    jc .full
+    call mega_hgfill32              ; ...a 64KB window every 32KB of it
     popf
     lea dx, [di+4]                  ; DX = the first selector (TI = 1)
     pop di
@@ -5995,14 +5917,7 @@ mega_xmrunf:
     mov cx, 8
     clc
     jmp short .out
-.taken:
-    pop cx
-    pop di
-    add di, 8                       ; the run starts one entry on
-    jmp .scan
 .full:
-    pop cx
-    pop di
     popf
     pop di
     dec byte [sch_lock]
@@ -6032,11 +5947,7 @@ mx_runcntf:
     dec ax
     mov cx, [ss:si+MX_KB]
     add cx, 31
-    shr cx, 1
-    shr cx, 1
-    shr cx, 1
-    shr cx, 1
-    shr cx, 1
+    shr cx, 5
     retf
 section .text
 
@@ -6096,10 +6007,8 @@ mega_fd13:
     ja .no                          ; DMA count below must fit 16 bits
     mov [mega_fdn], al
     mov dx, [ss:bp+14]              ; DL = drive, DH = head
-    cmp dl, 1
-    ja .no
-    cmp dh, 1
-    ja .no
+    test dx, 0xFEFE                 ; each 0 or 1
+    jnz .no
     mov [mega_fdd], dl
     mov [mega_fdh], dh
     mov cx, [ss:bp+16]              ; CH = cylinder, CL = sector (a floppy's
@@ -6131,9 +6040,8 @@ mega_fd13:
     mov ah, 0x70                    ; 300 kbps, double-stepped
     jmp short .rate
 .t250:
-    cmp al, 1
-    jb .no
-    cmp al, 4
+    dec al                          ; types 1-4 only
+    cmp al, 3
     ja .no
 .rate:
     mov [mega_fdms], ah
@@ -6147,9 +6055,8 @@ mega_fd13:
     jnz .no                         ; above 16MB: the 8237 cannot reach it
     mov [mega_fdlin], ax
     mov [mega_fdlin+2], dl
-    xor ch, ch
-    mov cl, [mega_fdn]
-    xchg ch, cl                     ; CX = sectors x 256...
+    mov ch, [mega_fdn]
+    xor cl, cl                      ; CX = sectors x 256...
     shl cx, 1                       ; ...x 2 = bytes (<= 36864)
     dec cx                          ; the 8237 counts N - 1
     mov [mega_fdcnt], cx
@@ -6171,9 +6078,7 @@ mega_fd13:
 %endif
     mov byte [mega_fdbusy], 0
     pushf
-    push ax
-    mov ax, MEGA_BDA
-    mov es, ax
+    push ax                         ; (ES is still the BDA: mega_fdgo keeps it)
     mov al, [dsk_dpt+2]
     mov [es:0x40], al               ; the motor-off count, ROM's own value
     and byte [es:0x3F], 0x7F        ; ...and no write in progress
@@ -6424,21 +6329,16 @@ mega_fdgo:
     pushf                           ; ZF = 1: the motor was OFF
     and ah, 0xCF                    ; 3F: bits 4-5 = the drive selected
     or ah, dl
-    push cx
     mov ch, cl
-    mov cl, 4
-    shl ch, cl
+    shl ch, 4
     or ah, ch
-    pop cx
     cmp byte [mega_fdop], 3
     jne .nw
     or ah, 0x80                     ; bit 7: a write in progress
 .nw:
     mov [es:0x3F], ah
     mov al, ah
-    and al, 0x0F                    ; the motors as DOR bits 4-7
-    mov cl, 4
-    shl al, cl
+    shl al, 4                       ; the motors as DOR bits 4-7
     or al, 0x0C                     ; not reset, DMA on
     or al, [mega_fdd]               ; ...this drive selected
     mov dx, MEGA_FD_DOR
@@ -6447,11 +6347,9 @@ mega_fdgo:
     jnz .spun
     mov al, [dsk_dpt+10]            ; motor start, 1/8 s
     xor ah, ah
-    mov cl, 9
-    mul cl
+    imul ax, ax, 9
     add ax, 3
-    shr ax, 1
-    shr ax, 1                       ; ...in ticks: 125 / 55 ~ 9 / 4
+    shr ax, 2                       ; ...in ticks: 125 / 55 ~ 9 / 4
     call mega_fdtk
 .spun:
     mov byte [mega_fdstep], 1
@@ -6684,20 +6582,18 @@ mega_fdseek:
     in al, dx
     and al, 0xC0
     cmp al, 0x80                    ; RQM, and DIO = to the controller
-    je .go
+    je .go                          ; (CF = 0: equal)
     loop .w
     pop ax
-    pop dx
-    pop cx
     stc
-    ret
+    jmp short .x
 .go:
     pop ax
     inc dx
     out dx, al
+.x:
     pop dx
     pop cx
-    clc
     ret
 %1 %+ fdin:
     push cx
@@ -6708,18 +6604,15 @@ mega_fdseek:
     in al, dx
     and al, 0xC0
     cmp al, 0xC0                    ; RQM, and DIO = to the CPU
-    je .go
-    loop .w
-    pop dx
-    pop cx
-    stc
-    ret
+    je .go                          ; (CF = 0: equal)
+    loop .w                         ; (CF = 1: AL is below C0h here)
+    jmp short .x
 .go:
     inc dx
     in al, dx
+.x:
     pop dx
     pop cx
-    clc
     ret
 
 ; SENSE INTERRUPT STATUS -> AL = ST0, AH = the present cylinder
@@ -6729,11 +6622,9 @@ mega_fdseek:
     jc .x
     call %1 %+ fdin
     jc .x
-    push ax
-    call %1 %+ fdin
     mov ah, al
-    pop dx
-    mov al, dl
+    call %1 %+ fdin                  ; (it keeps AH)
+    xchg al, ah
 .x:
     ret
 
@@ -6783,18 +6674,15 @@ mega_fdseek:
     inc byte [mega_fdrst+bx]
     or byte [mega_tellq], 4
 %endif
-    pop dx
-    pop cx
-    pop bx
-    pop ax
     stc
-    ret
+    jmp short .x
 .no:
+    clc
+.x:
     pop dx
     pop cx
     pop bx
     pop ax
-    clc
     ret
 
 %endmacro
@@ -6824,16 +6712,14 @@ mega_fdirq:
     jc .to
 %endif
     jmp short .l
-.ok:
-    and byte [es:0x3E], 0x7F
-    pop bx
-    pop ax
-    clc
-    ret
 .to:
+    stc
+    jmp short .x
+.ok:
+    and byte [es:0x3E], 0x7F        ; (CF = 0)
+.x:
     pop bx
     pop ax
-    stc
     ret
 
 ; AX ticks of nothing, halting
@@ -7124,10 +7010,7 @@ mega_fdtype:
 .have:
     cmp byte [mega_fdd], 0
     jne .b
-    shr al, 1
-    shr al, 1
-    shr al, 1
-    shr al, 1
+    shr al, 4
 .b:
     and al, 0x0F
     ret
@@ -7138,28 +7021,21 @@ mega_fdtype:
 mega_selbase:
     or ax, ax
     jz .no
+    push es
+    push bx
+    mov bx, MEGA_SEL_LDTD
     test al, 4
-    jz .gdt
-    and al, 0xF8
-    push es
-    push bx
-    mov bx, ax
-    mov ax, MEGA_SEL_LDTD
-    jmp short .rd
-.gdt:
-    push es
-    push bx
-    and al, 0xF8
-    mov bx, ax
-    mov ax, MEGA_SEL_WIN
+    jnz .rd
+    mov bx, MEGA_SEL_WIN
 .rd:
-    mov es, ax
+    mov es, bx
+    and al, 0xF8
+    xchg ax, bx                     ; BX = the descriptor's offset
     mov ax, [es:bx+2]
-    xor dh, dh
+    xor dh, dh                      ; (CF = 0)
     mov dl, [es:bx+4]
     pop bx
     pop es
-    clc
     ret
 .no:
     stc
