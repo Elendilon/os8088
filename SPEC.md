@@ -104284,7 +104284,15 @@ protected-mode door, drop and return 707 - and `.lowbss` +4. **No
 conventional byte at rest**: a real-mode bracket claims its service area
 (3 KB for a contiguous file, 4 KB at `FSXL_RUNS`) and each low driver's
 copy (HDD.DRV 4 KB) for its own length. `tests/vidrmb.py` is W3's gate
-(rows `vidrmbfrag`, `vidrmbhdd`, `vidrmb286`).
+(rows `vidrmbfrag`, `vidrmbhdd`, `vidrmb286`). **W4 - SOUND.DRV low, the
+stream and the speaker door - measured against W3**: kern_big and kern_small
+**byte-identical**; kern_mega `.text` **+18** (`fsx_rtick`'s far call to
+`DSV_TICK` and the hook's IF rule; the kernel-segment ratchet to 4,887),
+`.bss` +0, `.cold` +0, `.lowbss` +2, `.mega` **+848** of which the service
+area's twins are +352 (2,016 -> 2,368); SOUND.DRV +56 bytes (`SNDV_RMODE`).
+`tests/vidrmbsnd.py` is W4's gate (rows `vidrmbsnd` on Bochs's SB16,
+`vidrmbsnd286` on a 286 with an SB 2.0, `vidrmbsndpm` on a PicoMEM 1.x
+running its own firmware).
 
 **EXTD.DRV's slots are the one kernel word the plan's census missed.**
 `OSAPI_FSX_MODE`, `OSAPI_WM_CONTENT` and `OSAPI_FSX_CAPS` far-call EXTD.DRV's

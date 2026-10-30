@@ -3,8 +3,9 @@
 **Status: PLAN. W0 (the census) is DONE (2026-10-29); W1 (the drop and
 the return) and W2 (the table and the fallback) are BUILT and their gates
 pass (2026-10-30, section 4's entries); W3 (the extent reader, the low
-drivers, the XMEM twins) is BUILT and its gates pass (2026-10-30); W4-W7
-are not started.** The plan was first written against
+drivers, the XMEM twins) and W4 (SOUND.DRV low, the stream and the speaker
+door) are BUILT and their gates pass (2026-10-30); W5-W7 are not
+started.** The plan was first written against
 `4d3d0943` from source and documents only. **W0 measured it again on
 `df2e1fbf`**, and section 7 is that census: every `PKG_MEGA` block of the
 player classified and assembled, the bracket's real API whitelist walked off
@@ -936,7 +937,7 @@ deduplicated union below, plus `test-full`.
   | `FSXR_SVC` | a driver's worker alive (a network driver's, a sound stream's task) | **W7** - the bracket would starve it; either the driver is told (a verb, as `DSV_RMODE`) or its worker's work is run from the real-mode tick |
   | `FSXR_SERIAL` | a SERIAL.DRV lease open (§115) | **W7** - the leased UART's capture (`SERFP+SER_IRQ`) from a low copy of the module, or the ISR skipping the leased row in a real-mode bracket with the module told |
   | `FSXR_ROOM` | a full conventional heap and an `OS88_HIGH` region - or no room for W3's service area | **W5 in part** (the player's ring goes conventional, so its own sizing leaves the room, 5.2 item 4), and the HMA placement of 5.3.3 later |
-  | `FSXR_DRV` | a listed driver the bracket does not carry: `DRVC_SOUND` | **W4** (SOUND.DRV low, `DSV_RMODE`) |
+  | `FSXR_DRV` | a listed driver the bracket does not carry: ~~`DRVC_SOUND`~~ - **lifted by W4**; now only a class no play reaches (`DRVC_NET`, ...) or a SOUND.DRV word above 1MB | done |
   | `FSXR_DROOM` | no room for a driver's low copy | **W5 in part**, with `FSXR_ROOM` |
   | `FSXR_FRAG` | a file past `FSXL_RUNS` runs | - (a copy plays; protected mode serves it meanwhile) |
   | `FSXR_VOL` | an FS-driver, redirected or image volume | **PERMANENT** (5.3 item 2): the info card's line |
@@ -1154,6 +1155,124 @@ deduplicated union below, plus `test-full`.
   * `pmbox` / `pmbox2` with the PicoMEM's own firmware: its multiplexer
     served natively in the bracket, and `MEGADIAG`'s IRQ count at 0 inside
     it.
+  **W4 BUILT (2026-10-30)**, SPEC.md 53.2.3's *THE SOUND DRIVER (W4)* the
+  contract. What was built, and where it differs from the text above:
+  * **`DSV_RMODE` is `SNDV_RMODE` (13)**, a `DSV_PKGCALL` verb and not a
+    service slot: a new `DSV_*` slot grows `DSV_SIZE`, which is in every
+    kernel's copied driver tables, so kern_big and kern_small would have
+    moved. The driver answers a LIST of its segment words (`sbl_rseg`, the
+    external ring's control-word segment, the pool, the double buffer) and
+    the KERNEL renames them - selector to paragraph at the drop, and at the
+    return either the banked selector (a word the bracket left alone) or
+    the selector of the claim based at that paragraph (`mega_p2d`, a word
+    the bracket WROTE: a stream opened inside). So a stream opened in
+    either mode plays on in the other, both directions, which is what
+    Play-then-F needs as well as Live's F. The verb also flips the 8237
+    rule (§34.5.2.2 reads the DMA count only where the line is masked
+    across BIOS calls) and, at the DOOR (AL = 2), runs the IRQ discovery a
+    Sound Blaster defers to its first stream: its probe stubs are IVT
+    08h-0Fh, where the bracket's 8259 does not deliver, and its hook would
+    name the low copy and outlive it. The first build had the first stream
+    of the session open inside a bracket and every stream after it, in
+    both modes, was silent.
+  * **The copy is at the DROP and the RETURN, at IF = 0** (`fsx_rsnddn`,
+    `fsx_rsndup`), not at the freeze's arm: the card plays across both
+    switches, and a block IRQ between an IF = 1 copy and the drop is
+    counted into the image that stops running.
+  * **The card's line**: every IVT cell 08h-0Fh / 70h-77h naming the
+    driver's code half is banked and pointed at the copy, a master line's
+    twin at 20h + n too, the line taken out of the drop's masks - AND out
+    of `[mega_rmask]`, which `mega_r286` compares a 286's reset against:
+    left as `mega_rmaskf` said, the compare missed on `vm/286-hma`, the
+    8259 was re-initialised and every real-mode leg played nothing, where a
+    386 (no reset) was green.
+  * **The tick** far-calls `rms_stick` (`DSV_TICK` through the low copy,
+    DS = it, ES = `KERNEL_SEG`), and the hook runs at IF = 1 under the
+    speaker's sample ISR, `sch_rhook`'s rule. **The audit**: `sbl_tick`
+    reads the watchdog's counter and the PicoMEM's port and no segment
+    word, so the four renamed words are everything a real-mode segment
+    could reach between brackets.
+  * **The twins**: `OSAPI_SND_STREAM` (`rms_sstr`, `osapi_snd_stream`'s
+    register contract to the low `DSV_STREAM`, AX = 4 with no sink
+    carried); `OSAPI_FSX_SPK` (`rms_spk`: AL = 2 writes IVT 20h and answers
+    the chain `KERNEL_SEG:fsx_rtick`, AL = 1 closes, AL = 0 refused AX = 1
+    as in protected mode, a tone sounding AX = 3). **The owner's rule is
+    untouched**: the speaker's fast in-place play keeps the protected-mode
+    bracket (5.3 ruling 1); the shipped speaker library still asks AL = 0
+    in a real bracket and is refused - teaching `os88spk_go` AL = 2 there
+    is W5's, with the player that chooses the bracket.
+  * **A defect W2 shipped and W4's gate found**: `apps/os88real.inc`'s
+    `OS88REAL_LIST` took its words as one greedy parameter (`2+`), so a
+    list of TWO had a one-word bank and `os88real_prep` wrote the first
+    word's real segment over the second word. `2-*` now; every list until
+    MEGARMBS had one word.
+
+  **Gates** (all green, each run twice or more; `tests/vidrmbsnd.py`,
+  MEGARMBS - one 32 KB direct external ring at 8,000 Hz, a protected-mode
+  CONTROL leg first, a stream opened in a bracket carried out, in, out and
+  in to its close on a SECOND ring, a stream opened in protected mode
+  carried in and out, a watchdog only `DSV_TICK` can fire, the speaker's
+  twin with its own real-mode sample ISR):
+  * **`vidrmbsnd`** (Bochs, SB16, 42 s): every leg's bytes a tick within a
+    block and 10% of the control's, PLAYING at each end; the watchdog
+    ENDS the masked stream in 11 ticks; S: K = 40, 23,600 samples = K x
+    590 periods, 590 of 590 hook calls at IF = 1, IVT 20h `fsx_rtick`
+    after the close; SOUND.DRV's ring words selectors of the ring's claim
+    after the brackets; and the card's capture (`sb.wav`) one unbroken
+    sawtooth for 21.2 s - 664 periods, 0 phase breaks, across ten
+    switches. Bochs's SB16 runs its DMA on its own timer (~680 bytes a
+    tick for 8,000 Hz), which is why the claim is against the control.
+  * **`vidrmbsnd286`** (86Box `286-hma`, the mr286 with an SB 2.0, 10 s):
+    the same legs by the 286's RESET way down, 14,336-16,384 bytes in 36
+    ticks (15,818 due at 8,000 Hz: block-granular), read off the bss.
+  * **`vidrmbsndpm`** (86Box `at286-picomem1`, a PicoMEM 1.x running its
+    own firmware, 26 s with the CMOS cache warm) - **the plan's `pmbox`
+    gate**: the card's Sound Blaster plays every real-mode leg at the
+    control's rate, its interrupts served natively in the bracket where
+    protected mode reflects each one. `MEGADIAG`'s IRQ count was not read
+    (a knob kernel); that the stream counts at all inside is the answer,
+    there being no reflection in real mode to count.
+  * **Broken on purpose, each red**: the drop's IVT 20h + n twin left out
+    (Bochs: the machine hangs - IRQ 5 reaches a selector); the return's
+    `mega_p2d` left out (Bochs: `kern_mega FAULT 0D` in protected mode,
+    and the words check); `rms_stick` a bare `retf` (W: not ENDED in 90
+    ticks); `rms_spk` writing IVT 08h (S: 0 samples); `[mega_rmask]` not
+    given the opened line (286: every real-mode leg 0 bytes); the IVT
+    redirect taken out (PicoMEM: every real-mode leg 0 bytes). The 20h + n
+    twin alone left out stays GREEN on the PicoMEM, which raises its SB's
+    `int 0Dh` in software - so the twin and the 08h + n cell are both
+    needed, one per kind of card.
+  * W1-W3's rows re-run on W4: `megarmb`, `megarmb286`, `megarmbref`
+    (taught the two new twins), `vidrmbfrag` (its D leg now `DRVC_NET`:
+    `DRVC_SOUND` is carried), `vidrmbhdd`, `vidrmb286`, and `vidrmbems`
+    merged in from `mega-rmb-ems` - all green.
+  * **Not run, and why**: the plan's `vidsound`, `vidxipsnd`, `vidsnd`
+    and `vidrmbswap` are the PLAYER's, and the player does not ask
+    `FSXF_REAL` until W5, so they reach only the unchanged path;
+    `vidrmbsnd`'s carried legs are `vidrmbswap`'s instrument-level
+    equivalent and `vidrmbswap` itself is W5's.
+
+  **Bytes** (`tools/kernsize.py`, kern_mega against W3's `def83132`;
+  kern_big and kern_small `cmp`'d byte-identical - `kernel.bin` and
+  `kernel.sys` of both - against W3 built at the same build number):
+  kern_mega `.text` **+18** (`fsx_rtick`: the tick's far call 10, the
+  hook's IF rule 8; `tests/megaseg.txt` 4,869 -> 4,887), `.bss` +0, `.cold`
+  +0, `.lowbss` +2 (`fsx_rstko`), `.mega` **+848** - the service area's
+  twins 2,016 -> **2,368** (+352: `rms_sstr`, `rms_spk`, `rms_stick` and
+  the sound state), the protected-mode door, drop and return the rest -
+  which crosses one `.mega` rung (23,552 -> 24,064: KERN_SIZE at boot
+  +512, resident after the switch unchanged at 67,584, `.mega` going above
+  1MB). SOUND.DRV **+56 bytes** of image and of file (`snd_rmode` and its
+  list, inside what a machine keeps), on every disk that carries it - a
+  verb every kernel's driver answers, priced here so the owner can call
+  it trivial or not (KERN-MEGA-PLAN 14.66).
+
+  **What W5 inherits**: the player lists `FSXL_DRV DRVC_SOUND`, opens or
+  carries its stream as it does today and gets the card's clock in either
+  mode; `os88spk_go` must ask AL = 2 when CPU_INFO answers real mode
+  inside a kern_mega bracket (an AL = 0 refusal with AX = 1 is the sign);
+  and a multi-word `OS88REAL_LIST` now works.
+
 * **W5. The player.** The arm takes the real-mode bracket at its door
   (section 3.1.2), moves the 15 non-offered cells' call sites out of the
   bracket (section 7.2's table: a pre-claimed scratch for `vp_skdue`, the
