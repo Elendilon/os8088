@@ -49,7 +49,19 @@ FSXR_KEEP       equ 1               ; FSXF_KEEPWORKER
 FSXR_SVC        equ 2               ; a TF_SERVICE task alive
 FSXR_EXTD       equ 3               ; EXTD.DRV loaded
 FSXR_SERIAL     equ 4               ; a SERIAL.DRV lease open
-FSXR_ROOM       equ 5               ; no conventional room for the copy
+FSXR_ROOM       equ 5               ; no conventional room for the copy, or
+                                    ; for the service area (W3)
+FSXR_VOL        equ 6               ; a listed stream real mode cannot read
+FSXR_FRAG       equ 7               ; ...more runs or files than the list holds
+FSXR_DRV        equ 8               ; a listed driver class not carried low
+FSXR_DROOM      equ 9               ; no conventional room for a driver's copy
+; ...and FSXF_REAL's LIST (SPEC.md 53.2.3, W3; mirrored in apps/os88api.inc):
+; the caller's BP, entries naming what the bracket will read
+FSXL_END        equ 0
+FSXL_FILE       equ 1               ; db FSXL_FILE, a NUL 8.3 name
+FSXL_DRV        equ 2               ; db FSXL_DRV, a DRVC_* class
+FSXL_NMAX       equ 4               ; ...files a list may name
+FSXL_RUNS       equ 224             ; ...runs, all of them together
 SCH_RATE        equ FSXF_RATE + 1 ; [sch_fast]'s value while FSXF_RATE is armed:
                                 ; 5, outside sch_fast_on's 2..4 and not 0.
                                 ; fsx_run DERIVES it, and FSX_SUBTICK, from
@@ -1401,15 +1413,18 @@ section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
 cpu 286
 ; -----------------------------------------------------------------------------
 ; fsx_rprepf - FAR, fsx_run's door: the real-mode bracket's REASONS and its
-; claim. in: PM, DS = KDATA, DI = the instance record, SI = the flags as
-; asked. out: [fsx_rwhy] = FSXR_REAL, [fsx_rmode] = 1, [fsx_rseg] the
-; paragraph the entry will run at and - when the region is above 1MB - a
-; conventional claim for its copy, both linears and the length banked; or
-; [fsx_rwhy] = the first FSXR_* reason that holds and NOTHING taken: the
-; bracket goes on in protected mode (SPEC.md 53.2.3 - a fallback, never a
-; refusal, for a state the user is in). ONE TEST A REASON, in FSXR_*'s
-; order, so lifting one (MEGA-VIDEO-REALMODE-PLAN's owed list) deletes its
-; three lines and nothing else. Every register kept
+; claims. in: PM, DS = KDATA, DI = the instance record, SI = the flags as
+; asked, and fsx_run's frame (the caller's DS:BP is the FSXL_ list, BP = 0
+; none: SPEC.md 53.2.3). out: [fsx_rwhy] =
+; FSXR_REAL, [fsx_rmode] = 1, [fsx_rseg] the paragraph the entry will run at
+; and - when the region is above 1MB - a conventional claim for its copy, both
+; linears and the length banked; the SERVICE AREA (W3) claimed and filled -
+; the twins' code, the list's extent rows and runs - and each low driver's
+; claim; or [fsx_rwhy] = the first FSXR_* reason that holds and NOTHING
+; taken: the bracket goes on in protected mode (SPEC.md 53.2.3 - a fallback,
+; never a refusal, for a state the user is in). ONE TEST A REASON, so lifting
+; one (MEGA-VIDEO-REALMODE-PLAN's owed list) deletes its lines and nothing
+; else. Every register kept
 ; -----------------------------------------------------------------------------
 fsx_rprepf:
     push ax                     ; AL = the reason, as each test is reached
@@ -1425,7 +1440,9 @@ fsx_rprepf:
     jne .out                    ; calls the module for the leased UART (SERFP)
     mov al, FSXR_SVC
     pusha
-    mov word [ss:fsx_rlow], 0   ; (`.lowbss` is not zeroed: .no reads it)
+    xor ax, ax                  ; (`.lowbss` is not zeroed: .no reads these)
+    mov [ss:fsx_rlow], ax
+    mov [ss:fsx_rsvc], ax
     mov bx, sch_tasks           ; ...and a driver's worker would never run
     mov cx, MAX_TASKS
 .t:
@@ -1436,15 +1453,28 @@ fsx_rprepf:
 .tn:
     add bx, T_SIZE
     loop .t
+    mov bp, inst_vol_enter      ; THE LIST (W3), resolved in the caller's
+    call KERNEL_SEG:mega_tcall  ; own folder: its DS:BP - under pusha, our
+    mov bp, sp                  ; AX and far return, kent_di's six, the X
+    mov es, [bp+38]             ; stub's return and its ES - walked into the
+    mov bp, [bp+40]             ; park's scratch, FSXR_VOL, _FRAG or _DRV in
+    call fsx_rlist              ; AL
+    jc .why
     popa                        ; (AL the reason again, for every exit below)
     mov al, FSXR_ROOM
     pusha
+    mov bx, di
+    sub bx, inst_tab
+    mov cl, 5
+    shr bx, cl                  ; BX = the slot: every claim is the
+    mov [ss:fsx_rown], bx       ; instance's, so a teardown frees what an exit
+                                ; did not
     mov ax, [di+I_SPTR]
     call mega_selbase           ; DX:AX = the region's base
     jc .no
     cmp dx, 0x10
     jb .para                    ; conventional: it runs where it is
-    mov [ss:fsx_rhi], ax           ; ABOVE 1MB (OS88_HIGH): a copy, low
+    mov [ss:fsx_rhi], ax        ; ABOVE 1MB (OS88_HIGH): a copy, low
     mov [ss:fsx_rhi+2], dx
     mov ax, [di+I_SIZE]         ; image + bss, FFFFh for a whole 64KB
     mov cx, ax
@@ -1454,79 +1484,414 @@ fsx_rprepf:
     mov cx, 0xFFFE              ; a 64KB region: mega_lincopy's ceiling
 .len:
     mov [ss:fsx_rlen], cx
-    add ax, 1023                ; ...in whole KB, the claim's unit
-    mov cl, 10
-    shr ax, cl
-    jnc .kb
-    mov ax, 64
-.kb:
-    mov bx, di
-    sub bx, inst_tab
-    mov cl, 5
-    shr bx, cl                  ; BX = the slot: the claim is the instance's,
-    mov [ss:fsx_rown], bx          ; so a teardown frees what an exit did not
-    call COLD_SEG:mmf_mem_claim ; DX = its data selector
-    jc .no
+    call fsx_rlowclaim          ; AX bytes -> DX = a conventional claim's
+    jc .no                      ; selector, AX:CX its base
     mov [ss:fsx_rlow], dx
-    mov ax, dx
-    call mega_selbase           ; DX:AX = the copy's base, below 1MB
-    jc .no
-    mov [ss:fsx_rlo], ax
-    mov [ss:fsx_rlo+2], dx
+    mov [ss:fsx_rlo], cx
+    mov [ss:fsx_rlo+2], ax
+    xchg ax, dx
+    xchg ax, cx                 ; DX:AX = the copy's base
 .para:
     shr ax, 4                   ; DX:AX (< 1MB, paragraph-aligned) -> the
     shl dx, 12                  ; paragraph
     or ax, dx
     mov [fsx_rseg], ax
+    call fsx_rsvcf              ; THE SERVICE AREA (W3), FSXR_ROOM's too
+    jc .no
+    call fsx_rdrvf              ; ...and the drivers' low copies
+    mov al, FSXR_DROOM          ; (mov leaves CF)
+    jc .why
     mov byte [fsx_rmode], 1
     popa
     mov al, FSXR_REAL
     jmp short .out
+.why:
+    mov bp, sp
+    mov [bp+14], al             ; the reason into pusha's AX
 .no:
-    cmp word [ss:fsx_rlow], 0      ; (the claim's own base could not be read:
-    je .no1                     ; it goes back)
-    mov dx, [ss:fsx_rlow]
-    mov bx, [ss:fsx_rown]
-    call COLD_SEG:mmf_mem_free
-    mov word [ss:fsx_rlow], 0
-.no1:
+    call fsx_rfree              ; whatever was taken goes back
     popa
 .out:
     mov [fsx_rwhy], al
     pop ax
     retf
 
+; fsx_rlowclaim - AX = bytes -> CF = 0 and DX = a conventional claim of that
+; many (whole KB) owned by [ss:fsx_rown], AX:CX = its linear base (below
+; 1MB); CF = 1 none, nothing taken. Clobbers AX, CX, DX
+fsx_rlowclaim:
+    push bx
+    add ax, 1023                ; ...in whole KB, the claim's unit
+    mov al, ah
+    rcr al, 1                   ; (the add's carry is the 64th KB)
+    shr al, 1
+    xor ah, ah
+    mov bx, [ss:fsx_rown]
+    call COLD_SEG:mmf_mem_claim ; DX = its data selector
+    jc .o
+    mov ax, dx
+    push dx
+    call mega_selbase           ; DX:AX = its base
+    mov cx, ax
+    xchg ax, dx                 ; AX:CX
+    pop dx
+    jc .fr
+    cmp ax, 0x10
+    cmc
+    jnc .o                      ; below 1MB: the answer
+.fr:
+    mov bx, [ss:fsx_rown]       ; (a base it cannot use: back)
+    call COLD_SEG:mmf_mem_free
+    stc
+.o:
+    pop bx
+    ret
+
+; fsx_rfree - every claim fsx_rprepf may have taken - the region's copy, the
+; service area, the drivers' copies (listed in the service area) - freed and
+; forgotten. PM, DS = KDATA. Every register kept
+fsx_rfree:
+    pusha
+    push es
+    mov bx, [ss:fsx_rown]
+    xor dx, dx
+    xchg dx, [ss:fsx_rlow]
+    call .f
+    mov ax, [ss:fsx_rsvc]
+    or ax, ax
+    jz .nos
+    mov es, ax
+    mov si, rms_drv - rms_lo
+    mov cx, RMD_N
+.d:
+    xor dx, dx
+    xchg dx, [es:si+RMD_CL]
+    call .f
+    add si, RMD_SIZE
+    loop .d
+    xor dx, dx
+    xchg dx, [ss:fsx_rsvc]
+    call .f
+.nos:
+    pop es
+    popa
+    ret
+.f:
+    or dx, dx
+    jz .fo
+    call COLD_SEG:mmf_mem_free
+.fo:
+    ret
+
 ; -----------------------------------------------------------------------------
-; fsx_rcopyf - FAR: AL = 0 the region DOWN into its copy, 1 back UP. Nothing
-; when the region is conventional ([ss:fsx_rlow] = 0). PM, DS = KDATA, any IF
-; (fsx_run's copy runs at IF = 1, under sch_lock as every mega_lincopy does).
-; Every register kept
+; fsx_rlist - THE LIST (SPEC.md 53.2.3, W3): ES:BP = the caller's FSXL_
+; entries, BP = 0 none. Each FSXL_FILE's name goes into a stream row of the
+; park's scratch (MEGA_SEL_PSCR, FSX_RSR + n x RMS_SSZ, upper-cased) and its
+; file is walked into runs after FSX_RSN (fsx_rwalkf); each FSXL_DRV's class
+; into the scratch's mask. out CF = 0, or CF = 1 and AL = FSXR_VOL / FSXR_FRAG
+; / FSXR_DRV. PM, DS = KDATA. Clobbers AX, BX, CX, DX, SI, DI
+; -----------------------------------------------------------------------------
+fsx_rlist:
+    push es
+    push es
+    mov ax, MEGA_SEL_PSCR       ; the scratch's counters, zero
+    mov ds, ax
+    xor ax, ax
+    mov [FSX_RSV+FSV_NSTR], ax  ; (the stream count and the class mask)
+    mov [FSX_RSV+FSV_NRUN], ax
+    pop ds                      ; DS:SI = the list
+    cld
+    mov si, bp
+    or si, si
+    jz .ok
+.e:
+    lodsb
+    cmp al, FSXL_DRV
+    je .drv
+    cmp al, FSXL_FILE
+    jne .ok                     ; FSXL_END, or anything else, ends it
+    mov ax, MEGA_SEL_PSCR
+    mov es, ax
+    mov al, [es:FSX_RSV+FSV_NSTR]
+    cmp al, FSXL_NMAX
+    mov ah, FSXR_FRAG           ; (a row too many is the extent list's room)
+    jae .no
+    mov ah, RMS_SSZ
+    mul ah
+    add ax, FSX_RSR
+    mov di, ax                  ; ES:DI = the row
+    mov bx, di                  ; (its start, for the walk)
+    mov cx, 12                  ; the name: 12 bytes at most, and a NUL
+.n:
+    lodsb
+    cmp al, 'a'
+    jb .u
+    cmp al, 'z'
+    ja .u
+    sub al, 0x20                ; upper case, as the twin compares it
+.u:
+    stosb
+    or al, al
+    jz .nd
+    loop .n
+    mov byte [es:di], 0         ; (a 13th byte: NUL, and the rest skipped)
+.sk:
+    lodsb
+    or al, al
+    jnz .sk
+.nd:
+    push si                     ; the list, on past the name
+    push ds
+    push es
+    pop ds                      ; DS:SI = the row's name ->
+    mov si, bx
+    mov ax, MEGA_SEL_KDATA
+    mov es, ax
+    mov di, api_name            ; ...KERNEL:api_name, for the stat
+    mov cx, 13
+    rep movsb
+    mov ds, ax                  ; DS = KDATA
+    mov di, bx
+    call COLD_SEG:fsx_rwalkf    ; AL = 0, or the reason
+    mov bx, MEGA_SEL_PSCR
+    mov ds, bx
+    inc byte [FSX_RSV+FSV_NSTR] ; (one row more: `inc` of memory, CF kept)
+    pop ds
+    pop si
+    or al, al
+    jz .e
+    mov ah, al
+    jmp short .no
+.drv:
+    lodsb                       ; the class
+    mov ah, 1
+    cmp al, DRVC_DISK
+    je .dm
+    mov ah, 2
+    cmp al, DRVC_EMS
+    je .dm
+    mov ah, FSXR_DRV            ; any other: not carried (W4: the sound's)
+    jmp short .no
+.dm:
+    push ds
+    mov bx, MEGA_SEL_PSCR
+    mov ds, bx
+    or [FSX_RSV+FSV_DMSK], ah
+    pop ds
+    jmp .e
+.no:
+    mov al, ah
+    stc
+    jmp short .x
+.ok:
+    clc
+.x:
+    mov bx, MEGA_SEL_KDATA      ; (mov leaves CF)
+    mov ds, bx
+    pop es
+    ret
+
+; -----------------------------------------------------------------------------
+; fsx_rsvcf - THE SERVICE AREA (W3): a conventional claim holding the real-
+; mode twins' code and data (rms_lo..rms_hi, copied out of `.mega`), then the
+; scratch's stream rows and runs at rms_strm, and the paragraph that runs
+; them in [ss:fsx_rmsseg] - the twins' offsets being `.mega`'s own, so
+; CS x 16 = the claim's base - rms_lo. CF = 1: no room (FSXR_ROOM), nothing
+; taken. PM, DS = KDATA. Clobbers AX, BX, CX, DX, SI, DI
+; -----------------------------------------------------------------------------
+fsx_rsvcf:
+    push es
+    mov ax, MEGA_SEL_PSCR
+    mov es, ax
+    mov ax, [es:FSX_RSV+FSV_NRUN]
+    mov cx, RMR_SIZE
+    mul cx
+    add ax, rms_runs - rms_lo   ; the claim's bytes: code, rows, runs
+    push ax
+    call fsx_rlowclaim          ; DX = the selector, AX:CX its base
+    pop si
+    jc .o
+    mov [ss:fsx_rsvc], dx
+    sub cx, rms_lo              ; the paragraph CS x 16 = base - rms_lo
+    sbb ax, 0                   ; (rms_lo is a multiple of 16 and far below
+    shr cx, 4                   ; any heap base)
+    shl ax, 12
+    or cx, ax
+    mov [ss:fsx_rmsseg], cx
+    push ds
+    mov es, dx
+    xor di, di
+    mov si, rms_lo              ; the code, out of `.mega` (its CS is a
+    mov cx, rms_strm - rms_lo   ; READABLE code selector)
+    mov ax, MEGA_SEL_CODE
+    mov ds, ax
+    cld
+    rep movsb
+    mov ax, MEGA_SEL_PSCR       ; ...the rows and the runs after it, and the
+    mov ds, ax                  ; class mask and the stream count into its
+    xor si, si                  ; data
+    mov cx, [FSX_RSV+FSV_NRUN]
+    mov ax, RMR_SIZE
+    mul cx
+    add ax, FSX_RSN
+    xchg ax, cx
+    rep movsb
+    mov ax, [FSX_RSV+FSV_NSTR]  ; AL the count, AH the mask
+    pop ds
+    mov [es:rms_nstr - rms_lo], ax
+    mov al, [ss:fsx_rown]
+    mov [es:rms_slot - rms_lo], al
+    mov al, [cpu_tier]
+    mov [es:rms_tier - rms_lo], al
+    clc
+.o:
+    pop es
+    ret
+
+; -----------------------------------------------------------------------------
+; fsx_rdrvf - THE LOW DRIVERS (W3): each class the list asked for (rms_dmsk:
+; DRVC_DISK, DRVC_EMS) whose driver is loaded gets a row in the service area -
+; its DSV_BLK and DSV_PKGCALL, and the REAL paragraph it runs at: its own when
+; its image is conventional, else a conventional claim's, the image and bss
+; copied down at the freeze's arm and back up at the exit (fsx_rcopyf).
+; CF = 1: no room (FSXR_DROOM). PM, DS = KDATA. Clobbers AX, BX, CX, DX, SI,
+; DI, BP
+; -----------------------------------------------------------------------------
+fsx_rdrvf:
+    push es
+    mov es, [ss:fsx_rsvc]
+    mov bp, rms_drv - rms_lo    ; ES:BP = the row
+    mov bl, DRVC_DISK
+    mov bh, 1                   ; ...its mask bit
+.c:
+    test [es:rms_dmsk - rms_lo], bh
+    jz .nx
+    mov al, bl
+    cbw
+    dec ax
+    shl ax, 2
+    xchg ax, si
+    mov dx, [drv_fptr+si+2]     ; the driver's data selector, 0 = not loaded
+    or dx, dx
+    jz .nx
+    mov [es:bp+RMD_CLS], bl
+    mov word [es:bp+RMD_DSP], PKG_DISP
+    mov ax, [drv_fptr7]         ; DRVC_EMS: its door in drv_fptr7's offset
+    cmp bl, DRVC_EMS            ; half, and no service table
+    je .pk
+    push dx
+    mov al, bl
+    call COLD_SEG:drvf_drv_cls_svc  ; DI = the class's table
+    pop dx
+    jc .nx
+    mov ax, [di+DSV_BLK]
+    mov [es:bp+RMD_BLK], ax
+    mov ax, [di+DSV_PKGCALL]
+.pk:
+    mov [es:bp+RMD_PKG], ax
+    push ds
+    mov ds, dx
+    mov cl, [DRV_H_BSSP]        ; the bytes it runs in: image + bss
+    xor ch, ch
+    shl cx, 4
+    add cx, [DRV_H_IMG]
+    pop ds
+    inc cx
+    and cl, 0xFE                ; (words)
+    mov ax, dx
+    push cx
+    call mega_selbase           ; DX:AX = its base
+    pop cx
+    jc .nx
+    cmp dx, 0x10
+    jb .para                    ; conventional: it runs where it is
+    mov [es:bp+RMD_HI], ax
+    mov [es:bp+RMD_HI+2], dx
+    mov [es:bp+RMD_LEN], cx
+    xchg ax, cx                 ; AX = bytes
+    push bx
+    call fsx_rlowclaim          ; DX = the claim, AX:CX its base
+    pop bx
+    jc .o
+    mov [es:bp+RMD_CL], dx
+    mov [es:bp+RMD_LO], cx
+    mov [es:bp+RMD_LO+2], ax
+    xchg ax, dx
+    xchg ax, cx                 ; DX:AX = the copy's base
+.para:
+    shr ax, 4
+    shl dx, 12
+    or ax, dx
+    mov [es:bp+RMD_SEG], ax
+.nx:
+    add bp, RMD_SIZE
+    shl bh, 1
+    mov bl, DRVC_EMS
+    cmp bh, 2
+    je .c
+    clc
+.o:
+    pop es
+    ret
+
+; -----------------------------------------------------------------------------
+; fsx_rcopyf - FAR: AL = 0 the region DOWN into its copy, and each low
+; driver's image into its, 1 all of them back UP. Nothing for one that runs
+; where it is. PM, DS = KDATA, any IF (fsx_run's copy runs at IF = 1, under
+; sch_lock as every mega_lincopy does). Every register kept
 ; -----------------------------------------------------------------------------
 fsx_rcopyf:
-    cmp word [ss:fsx_rlow], 0
-    je .out
     pusha
+    push es
+    push ss
+    pop es
+    cmp word [ss:fsx_rlow], 0
+    je .nr
     mov si, fsx_rhi
     mov di, fsx_rlo
-    or al, al
-    jz .d
-    xchg si, di
-.d:
-    mov ax, [ss:si]
-    mov [mega_xsrc], ax
-    mov ax, [ss:si+2]
-    mov [mega_xsrc+2], ax
-    mov ax, [ss:di]
-    mov [mega_xdst], ax
-    mov ax, [ss:di+2]
-    mov [mega_xdst+2], ax
     mov cx, [ss:fsx_rlen]
+    call .one
+.nr:
+    mov bx, [ss:fsx_rsvc]
+    or bx, bx
+    jz .o
+    mov es, bx
+    mov bx, rms_drv - rms_lo
+    mov dx, RMD_N
+.d:
+    cmp word [es:bx+RMD_CL], 0
+    je .dn
+    lea si, [bx+RMD_HI]
+    lea di, [bx+RMD_LO]
+    mov cx, [es:bx+RMD_LEN]
+    call .one
+.dn:
+    add bx, RMD_SIZE
+    dec dx
+    jnz .d
+.o:
+    pop es
+    popa
+    retf
+.one:                           ; ES:SI the high linear, ES:DI the low, CX
+    or al, al                   ; bytes, AL the way
+    jz .dw
+    xchg si, di
+.dw:
+    push ax
+    mov ax, [es:si]
+    mov [mega_xsrc], ax
+    mov ax, [es:si+2]
+    mov [mega_xsrc+2], ax
+    mov ax, [es:di]
+    mov [mega_xdst], ax
+    mov ax, [es:di+2]
+    mov [mega_xdst+2], ax
     inc byte [sch_lock]
     call KERNEL_SEG:mega_lincopyf
     dec byte [sch_lock]
-    popa
-.out:
-    retf
+    pop ax
+    ret
 
 ; -----------------------------------------------------------------------------
 ; fsx_rdownf - FAR, the last of protected mode before the drop (IF = 0, DS =
@@ -1536,6 +1901,7 @@ fsx_rcopyf:
 ; and CPU_F_PM (SPEC.md 53.2.3 step 3). Every register kept
 ; -----------------------------------------------------------------------------
 %define FSX_RKEEPN (fsx_rkeep_end - fsx_rkeep) ; fsx_rkeep's bytes
+%define FSX_RKMN (fsx_rkeepm_end - fsx_rkeepm) ; ...and fsx_rkeepm's
 fsx_rdownf:
     pusha
     push es
@@ -1602,6 +1968,18 @@ fsx_rdownf:
     mov al, 0xF9                ; stc
     rep stosb
     mov byte [osapi_table_end - 1], 0xCB ; retf
+    mov bx, FSX_RKMN            ; THE SERVICE AREA'S TWINS (W3) FIRST: a
+.km:                            ; `retf` before each lands in the cell above
+    sub bx, 4                   ; it, and if that is a kept run's last byte,
+    mov di, [cs:fsx_rkeepm+bx]  ; the copy-back below puts it right
+    mov byte [di-1], 0xCB
+    mov byte [di], 0xEA         ; `jmp far [fsx_rmsseg]:twin`
+    mov ax, [cs:fsx_rkeepm+bx+2]
+    mov [di+1], ax
+    mov ax, [ss:fsx_rmsseg]
+    mov [di+3], ax
+    or bx, bx
+    jnz .km
     mov bx, FSX_RKEEPN          ; the list's bytes, walked down
 .keep:
     sub bx, 6                   ; (BX = the row's offset in the list)
@@ -1647,6 +2025,17 @@ fsx_rkeep:
     dw rmk_10, rmk_10e - rmk_10, 0  ; OSAPI_FSX_PAGE
     dw rmk_seg, 0, osapi_segr       ; OSAPI_SEG: the twin
 fsx_rkeep_end:
+; fsx_rkeepm - ...and the service area's (W3): {dw the cell, dw the twin in
+; `.mega`'s numbering}, a far jump to [fsx_rmsseg]:twin - the claim the twins
+; were copied into (fsx_rsvcf). READ_AT, XMEM_ALLOC and XMEM_FREE are not
+; here: they answer CF = 1 (SPEC.md 53.2.3)
+fsx_rkeepm:
+    dw apic_xm_caps, rms_xcaps          ; OSAPI_XMEM_CAPS
+    dw apic_xm_copy, rms_xcopy          ; OSAPI_XMEM_COPY
+    dw apic_drv_pkg_call, rms_drvx      ; OSAPI_DRV_CALL (ES = your DS)
+    dw apic_drv_call_at, rms_drva       ; OSAPI_DRV_CALL_AT (ES as it is)
+    dw rmk_rseq, rms_rseq               ; OSAPI_FILE_READ_SEQ
+fsx_rkeepm_end:
 %if OSAPI_TABLE_LEN > MPS_SIZE
  %error "the real-mode bracket banks the API table in the park's scratch: MPS_SIZE must hold OSAPI_TABLE_LEN"
 %endif
@@ -1740,18 +2129,1021 @@ fsx_rupf:
     sti                         ; the copy back at IF = 1: no other task runs
     mov al, 1                   ; (frozen) and the rate is off, so nothing
     call MEGA_SEL_CODE:fsx_rcopyf ; in protected mode writes the window's
-                                ; copy meanwhile
-    mov dx, [ss:fsx_rlow]
-    or dx, dx
-    jz .nofree
-    mov bx, [ss:fsx_rown]
-    call COLD_SEG:mmf_mem_free
-    mov word [ss:fsx_rlow], 0
-.nofree:
-    pop es
+                                ; copy meanwhile - nor a low driver's image
+    call fsx_rfree              ; ...and every claim back: the copies', the
+    pop es                      ; service area's
     popa
     retf
 cpu 8086
+
+; =============================================================================
+; THE SERVICE AREA (SPEC.md 53.2.3, MEGA-VIDEO-REALMODE-PLAN W3): what a
+; real-mode bracket reads files, extended memory and the low drivers with.
+;
+; THE LIST'S EXTENTS. A stream the caller names (FSXL_FILE) is walked at the
+; door, while protected mode still has the file layer, into a row of the
+; park's scratch (MEGA_SEL_PSCR - free at the door: a trip, a hibernate and a
+; bracket exclude each other, and the table is banked there only at the drop)
+; and its RUNS after the rows: absolute sectors of a BIOS unit, or a DRVC_DISK
+; volume's own. fsx_rsvcf then copies rows and runs into the service area
+; behind the twins' code, so the claim is exactly as big as the file is
+; fragmented.
+; =============================================================================
+RMS_NAME    equ 0               ; db[13]: the name, upper case, NUL
+RMS_ERR     equ 13              ; db: 0, or the FERR_* the twin answers
+RMS_SIZE    equ 14              ; dd: the file's size
+RMS_RUN     equ 18              ; dw: its first run's index
+RMS_NRUN    equ 20              ; dw: ...and how many
+RMS_KIND    equ 22              ; db: DVK_BIOS 0, DVK_DRV 1
+RMS_UNIT    equ 23              ; db: the int 13h drive, or the driver's handle
+RMS_SPT     equ 24              ; dw: a BIOS unit's sectors a track...
+RMS_HEADS   equ 26              ; dw: ...and heads
+RMS_CYL     equ 28              ; db: 1 = a call may run to the CYLINDER's end
+                                ; (SPEC.md 18.91.1, 18.91.5), 0 the track's
+RMS_SSZ     equ 32
+RMR_LBA     equ 0               ; a run: dd its first sector...
+RMR_CNT     equ 4               ; ...dw its sectors
+RMR_SIZE    equ 6
+FSX_RSR     equ 0               ; the scratch: the rows...
+FSX_RSN     equ FSXL_NMAX * RMS_SSZ ; ...the runs
+FSX_RSV     equ FSX_RSN + FSXL_RUNS * RMR_SIZE ; ...and its counters:
+FSV_NSTR    equ 0               ; db: rows written
+FSV_DMSK    equ 1               ; db: the classes asked (1 DISK, 2 EMS)
+FSV_NRUN    equ 2               ; dw: runs written
+%if FSX_RSV + 4 > MPS_SIZE
+  %error "the extent list's scratch is the park's: MPS_SIZE must hold FSXL_NMAX rows and FSXL_RUNS runs"
+%endif
+RMD_CLS     equ 0               ; a LOW DRIVER's row: db its class (0 none)
+RMD_DSP     equ 2               ; dw PKG_DISP \ the far pointer its calls go
+RMD_SEG     equ 4               ; dw its paragraph / through
+RMD_BLK     equ 6               ; dw its DSV_BLK
+RMD_PKG     equ 8               ; dw its DSV_PKGCALL
+RMD_CL      equ 10              ; (protected mode's) dw the copy's claim, 0 =
+RMD_HI      equ 12              ; it runs where it is; dd its image's base
+RMD_LO      equ 16              ; ...dd the copy's
+RMD_LEN     equ 20              ; ...dw the bytes, even
+RMD_SIZE    equ 22
+RMD_N       equ 2               ; DRVC_DISK's row, then DRVC_EMS's
+%if RMS_NAME + 13 > RMS_ERR || FSV_DMSK != FSV_NSTR + 1
+  %error "a stream row's name is 13 bytes; fsx_rsvcf moves FSV_NSTR and FSV_DMSK as one word"
+%endif
+
+section .cold
+cpu 286
+; -----------------------------------------------------------------------------
+; fsx_rwalkf - FAR, one FSXL_FILE: the name at api_name stat'ed where
+; inst_vol_enter stood the machine (the caller's folder), and its chain walked
+; into runs in the park's scratch - DI = its row there, its name already in
+; it. out AL = 0 (with the row's RMS_ERR the stat's or the chain's FERR_*,
+; which the twin answers - what the file layer would say), or AL = FSXR_VOL
+; (a redirected or file-driver volume, a mounted image, or a sector past
+; CHS's reach) / FSXR_FRAG (the runs are full). PM, DS = KDATA. Clobbers AX,
+; BX, CX, DX, SI
+; -----------------------------------------------------------------------------
+FSW_REM     equ 0               ; dd: sectors still to walk
+FSW_BASE    equ 4               ; dd: the partition's base (a BIOS unit's)
+FSW_MAX     equ 8               ; dd: the sectors CHS reaches
+FSW_LBA     equ 12              ; dd: this cluster's first sector
+FSW_LAST    equ 16              ; dw: this stream's last run, 0 = none yet
+FSW_SIZE    equ 18
+fsx_rwalkf:
+    push es
+    push bp
+    sub sp, FSW_SIZE
+    mov bp, sp                  ; (SS: the locals)
+    mov si, api_name
+    call dskw_stat_x            ; BX = the first cluster, DX:CX = the size
+    mov si, MEGA_SEL_PSCR
+    mov es, si
+    jnc .found
+    mov [es:di+RMS_ERR], al     ; (every FERR_* fits a byte)
+    jmp .ok
+.found:
+    mov byte [es:di+RMS_ERR], 0
+    mov [es:di+RMS_SIZE], cx
+    mov [es:di+RMS_SIZE+2], dx
+    add cx, 511                 ; its sectors, (size + 511) / 512
+    adc dx, 0
+    mov ax, cx
+    shr ax, 9
+    mov si, dx
+    shl si, 7
+    or ax, si
+    mov [bp+FSW_REM], ax
+    shr dx, 9
+    mov [bp+FSW_REM+2], dx
+    xor ax, ax
+    mov [bp+FSW_BASE], ax
+    mov [bp+FSW_BASE+2], ax
+    mov [bp+FSW_LAST], ax
+    dec ax
+    mov [bp+FSW_MAX], ax        ; a driver's volume: its own bound
+    mov [bp+FSW_MAX+2], ax
+    mov si, bx                  ; SI = the cluster from here on
+    mov bl, [disk_drive]
+    call dsk_vol_row_x          ; BX = the volume's row
+    mov al, FSXR_VOL
+    jc .no
+    mov cx, [bx+DV_KIND]        ; CL = the kind, CH = the unit
+    mov [es:di+RMS_KIND], cl
+    mov [es:di+RMS_UNIT], ch
+    cmp cl, DVK_DRV
+    jne .bios
+    cmp byte [bx+DV_CLASS], DRVC_DISK
+    jne .no                     ; (a mounted image, a file class: AL VOL)
+    or byte [es:FSX_RSV+FSV_DMSK], 1 ; ...whose driver goes low
+    jmp short .walk
+.bios:
+    cmp cl, DVK_BIOS
+    jne .no                     ; a REDIRECTED volume has no sectors at all
+    mov ax, [disk_spt]
+    mov [es:di+RMS_SPT], ax
+    mov dx, [disk_heads]
+    mov [es:di+RMS_HEADS], dx
+    mul dx                      ; AX = a cylinder's sectors
+    mov dx, 80                  ; dsk_geom_pick's bound: a floppy's 80
+    test ch, 0x80               ; cylinders, CHS's 1024 on a fixed disk
+    jz .fl
+    mov dx, 1024
+.fl:
+    mul dx
+    mov [bp+FSW_MAX], ax        ; DX:AX = the sectors CHS can name
+    mov [bp+FSW_MAX+2], dx
+    xor al, al                  ; THE RUN'S BOUND, as dsk_xfer's .runcmp:
+%ifndef TRACK_RUN               ; a fixed disk's reads to the cylinder
+    test ch, 0x80               ; (DSK_HCYL), a floppy's where the boot's
+    jz .flc                     ; canary saw the FDC carry one ([dsk_cylrun])
+ %ifdef DSK_HCYL
+  %ifdef DSK_HCYLPROBE
+    mov al, [dsk_hcyl]
+  %else
+    mov al, 1
+  %endif
+ %endif
+    jmp short .cy
+.flc:
+    mov al, [dsk_cylrun]
+.cy:
+%endif
+    mov [es:di+RMS_CYL], al
+    mov bl, [disk_drive]        ; ...and the partition's base, made absolute
+    xor bh, bh                  ; here (dsk_geom_pick's dsk_vbase)
+    shl bx, 2
+    mov ax, [dsk_vbase+bx]
+    mov [bp+FSW_BASE], ax
+    mov ax, [dsk_vbase+bx+2]
+    mov [bp+FSW_BASE+2], ax
+.walk:
+    mov ax, [es:FSX_RSV+FSV_NRUN]
+    mov [es:di+RMS_RUN], ax
+    mov word [es:di+RMS_NRUN], 0
+.lp:
+    mov ax, [bp+FSW_REM]
+    or ax, [bp+FSW_REM+2]
+    jz .ok
+    mov ax, si
+    call dsk_clus2lba_x         ; AX = its first sector, [dsk_c2hi] above
+    jc .eio
+    mov dx, [dsk_c2hi]
+    add ax, [bp+FSW_BASE]
+    adc dx, [bp+FSW_BASE+2]
+    mov [bp+FSW_LBA], ax
+    mov [bp+FSW_LBA+2], dx
+    mov cl, [dsk_spc]           ; take: the cluster, or the file's last sectors
+    xor ch, ch
+    cmp word [bp+FSW_REM+2], 0
+    jne .tk
+    cmp cx, [bp+FSW_REM]
+    jbe .tk
+    mov cx, [bp+FSW_REM]
+.tk:
+    add ax, cx                  ; ...whose end CHS must reach
+    adc dx, 0
+    cmp dx, [bp+FSW_MAX+2]
+    jne .rc
+    cmp ax, [bp+FSW_MAX]
+.rc:
+    mov al, FSXR_VOL
+    ja .no
+    mov bx, [bp+FSW_LAST]       ; THE SAME RUN, when it starts where the last
+    or bx, bx                   ; one ends (and has room)
+    jz .new
+    mov ax, [es:bx+RMR_LBA]
+    mov dx, [es:bx+RMR_LBA+2]
+    add ax, [es:bx+RMR_CNT]
+    adc dx, 0
+    cmp ax, [bp+FSW_LBA]
+    jne .new
+    cmp dx, [bp+FSW_LBA+2]
+    jne .new
+    cmp word [es:bx+RMR_CNT], 0xFF00
+    jae .new
+    add [es:bx+RMR_CNT], cx
+    jmp short .adv
+.new:
+    mov ax, [es:FSX_RSV+FSV_NRUN]
+    cmp ax, FSXL_RUNS
+    jae .frag
+    inc word [es:FSX_RSV+FSV_NRUN]
+    inc word [es:di+RMS_NRUN]
+    imul bx, ax, RMR_SIZE
+    add bx, FSX_RSN
+    mov [bp+FSW_LAST], bx
+    mov ax, [bp+FSW_LBA]
+    mov [es:bx+RMR_LBA], ax
+    mov ax, [bp+FSW_LBA+2]
+    mov [es:bx+RMR_LBA+2], ax
+    mov [es:bx+RMR_CNT], cx
+.adv:
+    sub [bp+FSW_REM], cx
+    sbb word [bp+FSW_REM+2], 0
+    mov ax, [bp+FSW_REM]
+    or ax, [bp+FSW_REM+2]
+    jz .ok
+    mov ax, si
+    call dsk_next_clus_x        ; the next link
+    jc .eio
+    mov si, ax
+    jmp .lp
+.frag:
+    mov al, FSXR_FRAG
+    jmp short .no
+.eio:
+    mov byte [es:di+RMS_ERR], FERR_IO ; a chain the file layer would refuse
+.ok:
+    xor al, al
+.no:
+    add sp, FSW_SIZE
+    pop bp
+    pop es
+    retf
+cpu 8086
+
+section .mega
+cpu 286
+; =============================================================================
+; THE REAL-MODE TWINS (SPEC.md 53.2.3, W3): assembled into `.mega` and never
+; run there. fsx_rsvcf copies rms_lo..rms_strm into the bracket's SERVICE
+; AREA, a conventional claim, with the extent rows and runs behind it, and the
+; table's cells far-jump to [fsx_rmsseg]:twin - a CS whose x 16 is the claim's
+; base less rms_lo, so every label below is the twin's own offset there. Their
+; data is in the same copy, read through CS: and written with DS = CS; the
+; kernel's through KERNEL_SEG (a real segment in the bracket) and mx_tab
+; through SS (LOW_SEG). WHY NOT RESIDENT `.text`: these are ~1.6 KB that a
+; machine needs only inside a real-mode bracket, and `.text` is conventional
+; memory on every kern_mega machine for ever; a module would be a system-disk
+; read at every Play (W1's decision 1). Copied out of `.mega` they cost the
+; bracket a claim and no disk.
+; =============================================================================
+; ovlchk: real mode - every line from here to rms_hi runs below 1MB, in real
+; mode, at [fsx_rmsseg]: `push cs` there is its own segment (os88ovlchk)
+align 16
+rms_lo:
+rms_nstr    db 0                ; the stream rows (fsx_rsvcf), and...
+rms_dmsk    db 0                ; ...the classes the list asked
+rms_slot    db 0                ; the bracket's instance: XMEM's owner
+rms_tier    db 0                ; [cpu_tier]
+rms_la      db 0                ; 1: la_capture has run in this bracket
+            db 0
+rms_drv:    times RMD_N * RMD_SIZE db 0 ; the low drivers (fsx_rdrvf)
+rms_src     dd 0                ; a copy's two linear ends
+rms_dst     dd 0
+rms_rrow    dw 0                ; READ_SEQ: the stream's row
+rms_rbuf    dw 0                ; ...the buffer's paragraph, advanced...
+rms_rofs    dw 0                ; ...and its offset, 0..15
+rms_rn      dw 0                ; ...the bytes it delivers
+rms_rsec    dw 0                ; ...the sectors still to read
+rms_xl      dd 0                ; the transport: the next sector,
+rms_xn      dw 0                ; ...the sectors left,
+rms_xrun    dw 0                ; ...this call's,
+rms_xcx     dw 0                ; ...its int 13h CX,
+rms_xdh     db 0                ; ...its head,
+rms_xbn     db 0                ; ...1 = through dsk_secbuf (a 64KB page
+                                ; boundary inside the sector)
+%define LA_NOPROBE              ; a 286 IS tier 1 (FLAGS' top nibble), and
+%include "os88la.inc"           ; kern_mega runs on nothing older
+cpu 286
+%define UB_DS
+%define UB_ES
+%include "os88ub.inc"
+cpu 286
+    LA_DATA
+    UB_DATA
+
+; rms_ncmp - DS:SI the caller's NUL name against the row at CS:BP: ZF = 1
+; the same, upper case either way. Clobbers AX
+rms_ncmp:
+    push si
+    push bp
+.l:
+    lodsb
+    cmp al, 'a'
+    jb .u
+    cmp al, 'z'
+    ja .u
+    sub al, 0x20
+.u:
+    cmp al, [cs:bp]
+    jne .o
+    inc bp
+    or al, al
+    jnz .l
+.o:
+    pop bp
+    pop si
+    ret
+
+; -----------------------------------------------------------------------------
+; rms_rseq - OSAPI_FILE_READ_SEQ's TWIN: READ_SEQ's contract (DS:SI the name,
+; DX:BX the buffer, CX its capacity, ES:DI the cursor), served from the
+; extent list. The offset is the cursor's FSEQ_OFF, whole sectors (READ_AT's
+; FERR_NAME otherwise, as is a capacity that is not), and the cursor comes
+; back advanced with every byte but FSEQ_OFF zero - a SEEK, so the next
+; protected-mode call re-seeds from the name. A name the list did not carry
+; answers FERR_NAME; one whose stat or chain failed at the door, that FERR_*
+; -----------------------------------------------------------------------------
+rms_rseq:
+    push bx
+    push cx
+    push si
+    push di
+    push bp
+    push ds
+    push es
+    cld
+    mov bp, rms_strm
+    push cx
+    mov cl, [cs:rms_nstr]
+    xor ch, ch
+    jcxz .nf
+.f:
+    call rms_ncmp
+    je .got
+    add bp, RMS_SSZ
+    loop .f
+.nf:
+    pop cx
+    mov ax, FERR_NAME
+    jmp .fail
+.got:
+    pop cx
+    push cs
+    pop ds                      ; DS = ours: the name is spent
+    mov [rms_rrow], bp
+    mov al, [ds:bp+RMS_ERR]
+    cbw
+    or ax, ax
+    jnz .fail
+    mov al, FERR_NAME
+    test cx, 511                ; (0 too: a capacity is whole sectors)
+    jnz .fail
+    or cx, cx
+    jz .fail
+    mov si, bx                  ; the buffer, normalized: offset 0..15
+    and si, 15
+    mov [rms_rofs], si
+    shr bx, 4
+    add dx, bx
+    mov [rms_rbuf], dx
+    mov ax, [es:di+FSEQ_OFF]
+    mov dx, [es:di+FSEQ_OFF+2]
+    test ax, 511
+    jz .al
+    mov ax, FERR_NAME
+    jmp .fail
+.al:
+    mov bx, [ds:bp+RMS_SIZE]
+    mov si, [ds:bp+RMS_SIZE+2]
+    sub bx, ax
+    sbb si, dx                  ; SI:BX = what is left of the file
+    jc .end
+    or si, si
+    jnz .cap
+    cmp bx, cx
+    jae .cap
+    mov cx, bx                  ; ...its tail
+.cap:
+    or cx, cx
+    jz .end
+    mov [rms_rn], cx
+    add cx, 511
+    rcr cx, 1
+    shr cx, 8                   ; the sectors
+    mov [rms_rsec], cx
+    mov si, dx                  ; SI:AX = the first one, in the file
+    shr si, 9
+    shr ax, 9
+    shl dx, 7
+    or ax, dx
+    imul bx, [ds:bp+RMS_RUN], RMR_SIZE
+    add bx, rms_runs            ; BX = the stream's first run
+    mov cx, [ds:bp+RMS_NRUN]
+.r:
+    jcxz .eio
+    or si, si
+    jnz .rs
+    cmp ax, [bx+RMR_CNT]
+    jb .rin
+.rs:
+    sub ax, [bx+RMR_CNT]
+    sbb si, 0
+    add bx, RMR_SIZE
+    dec cx
+    jmp short .r
+.rin:
+    mov si, [bx+RMR_CNT]
+    sub si, ax                  ; SI = what this run has left
+    xor dx, dx
+    add ax, [bx+RMR_LBA]
+    adc dx, [bx+RMR_LBA+2]      ; DX:AX = its sector
+.rd:
+    push cx
+    mov cx, [rms_rsec]
+    cmp cx, si
+    jbe .tk
+    mov cx, si
+.tk:
+    call rms_xfer               ; CX sectors at DX:AX into the buffer
+    jc .eio1
+    sub [rms_rsec], cx
+    sub si, cx
+    add ax, cx
+    adc dx, 0
+    pop cx
+    cmp word [rms_rsec], 0
+    je .done
+    or si, si
+    jnz .rd
+    add bx, RMR_SIZE            ; the next run
+    dec cx
+    jz .eio
+    mov ax, [bx+RMR_LBA]
+    mov dx, [bx+RMR_LBA+2]
+    mov si, [bx+RMR_CNT]
+    jmp short .rd
+.done:
+    mov ax, [rms_rn]
+    add [es:di+FSEQ_OFF], ax
+    adc word [es:di+FSEQ_OFF+2], 0
+    push ax
+    xor ax, ax
+    mov cx, FSEQ_OFF / 2        ; the rest of it zero: a seek
+    rep stosw
+    pop ax
+    xor dx, dx
+    jmp short .out              ; (CF = 0 from the `xor`)
+.end:
+    xor ax, ax                  ; at or past the end: nothing, CF = 0
+    cwd
+    jmp short .out
+.eio1:
+    pop cx
+.eio:
+    mov ax, FERR_IO
+.fail:
+    stc
+.out:
+    pop es
+    pop ds
+    pop bp
+    pop di
+    pop si
+    pop cx
+    pop bx
+    retf
+
+; rms_xfer - CX sectors (>= 1) at DX:AX of the stream [rms_rrow] into the
+; buffer at [rms_rbuf]:[rms_rofs], which it advances. DS = CS. CF = 1 the
+; read failed. Every register kept
+rms_xfer:
+    ; STKBALANCE-OK: a DRVC_DISK volume's DSV_BLK is entered by a CONSTRUCTED far call (push cs / push .back / push seg / push PKG_DISP / retf) whose `retf` the driver's dispatcher answers at .back - drv_pkg_disp's shape, in real mode
+    pusha
+    push es
+    mov bp, [rms_rrow]
+    mov [rms_xl], ax
+    mov [rms_xl+2], dx
+    mov [rms_xn], cx
+    cmp byte [ds:bp+RMS_KIND], 0
+    je .n
+    mov ax, [rms_drv+RMD_SEG]   ; ---- a DRVC_DISK volume: ITS DSV_BLK, at
+    or ax, ax                   ; its low copy (the driver splits the run)
+    jz .fail
+    push cs
+    push word .back
+    push ax
+    push word PKG_DISP
+    mov ds, ax                  ; DS = the driver's
+    mov si, [cs:rms_xl]         ; DI:SI = the sector...
+    mov di, [cs:rms_xl+2]
+    mov cx, [cs:rms_xn]         ; ...CX the count...
+    mov bx, [cs:rms_rofs]       ; ...DX:BX the buffer
+    mov dx, [cs:rms_rbuf]
+    mov ah, [cs:bp+RMS_UNIT]    ; AH = its handle, AL = 0 read
+    xor al, al
+    mov bp, [cs:rms_drv+RMD_BLK]
+    push word KERNEL_SEG
+    pop es
+    retf                        ; (its dispatcher: `call bp / retf`)
+.back:
+    push cs
+    pop ds
+    jc .fail
+    mov cx, [rms_xn]
+    shl cx, 5
+    add [rms_rbuf], cx
+    jmp .ok
+.n:                             ; ---- a BIOS unit: CHS, dsk_xfer's bounds
+    mov si, [rms_xn]
+    or si, si
+    jz .ok
+    mov ax, [ds:bp+RMS_SPT]
+    mul word [ds:bp+RMS_HEADS]
+    mov cx, ax                  ; a cylinder's sectors
+    mov ax, [rms_xl]
+    mov dx, [rms_xl+2]
+    div cx                      ; AX = the cylinder (the door proved < 1024)
+    mov bx, ax
+    mov ax, dx
+    xor dx, dx
+    div word [ds:bp+RMS_SPT]    ; AX = the head, DX = the sector - 1
+    mov [rms_xdh], al
+    mov cx, [ds:bp+RMS_SPT]
+    sub cx, dx                  ; the TRACK's end...
+    cmp byte [ds:bp+RMS_CYL], 0
+    je .tr
+    mov cx, [ds:bp+RMS_HEADS]   ; ...or the CYLINDER's: (heads - head) x spt
+    sub cx, ax                  ; less what is behind the head
+    mov ax, [ds:bp+RMS_SPT]
+    push dx
+    mul cx
+    pop dx
+    sub ax, dx
+    mov cx, ax
+.tr:
+    cmp cx, si
+    jbe .t1
+    mov cx, si
+.t1:
+    xchg bh, bl                 ; CH = the cylinder's low 8 bits, CL bits 6-7
+    ror bl, 1                   ; its 8-9, bits 0-5 the sector
+    ror bl, 1
+    inc dx
+    or bl, dl
+    mov [rms_xcx], bx
+    mov byte [rms_xbn], 0
+    mov ax, [rms_rbuf]          ; THE 64KB PAGE (dsk_runcap): what is left of
+    shl ax, 4                   ; it under the buffer, in whole sectors
+    add ax, [rms_rofs]
+    neg ax
+    jz .pg                      ; (a page's start: all of it)
+    shr ax, 9
+    jnz .pc
+    inc byte [rms_xbn]          ; not one whole sector: through dsk_secbuf
+    mov cx, 1
+    jmp short .pg
+.pc:
+    cmp cx, ax
+    jbe .pg
+    mov cx, ax
+.pg:
+    mov [rms_xrun], cx
+    mov al, [ds:bp+RMS_UNIT]
+    cmp al, 0x80
+    jae .att0
+    mov al, [ds:bp+RMS_SPT]     ; a floppy: the volume's EOT (SPEC.md 18.92)
+    push ds
+    push word KERNEL_SEG
+    pop ds
+    mov [dsk_dpt+4], al
+    pop ds
+.att0:
+    mov di, 3                   ; three tries a run...
+.att:
+    cmp byte [rms_xbn], 0
+    je .bb
+    push word LOW_SEG
+    pop es
+    mov bx, dsk_secbuf
+    jmp short .bs
+.bb:
+    mov es, [rms_rbuf]
+    mov bx, [rms_rofs]
+.bs:
+    mov cx, [rms_xcx]
+    mov dh, [rms_xdh]
+    mov dl, [ds:bp+RMS_UNIT]
+    mov al, [rms_xrun]
+    mov ah, 2
+    int 0x13
+    jnc .did
+    xor ah, ah                  ; ...a reset between them...
+    mov dl, [ds:bp+RMS_UNIT]
+    int 0x13
+    dec di
+    jnz .att
+    cmp word [rms_xrun], 1      ; ...and then a sector at a time (18.91)
+    jbe .fail
+    mov word [rms_xrun], 1
+    mov di, 3
+    jmp short .att
+.did:
+    cmp byte [rms_xbn], 0
+    je .adv
+    push ds                     ; the bounced sector out to the buffer
+    push word LOW_SEG
+    pop ds
+    mov si, dsk_secbuf
+    mov es, [cs:rms_rbuf]
+    mov di, [cs:rms_rofs]
+    mov cx, 256
+    cld
+    rep movsw
+    pop ds
+.adv:
+    mov cx, [rms_xrun]
+    add [rms_xl], cx
+    adc word [rms_xl+2], 0
+    sub [rms_xn], cx
+    shl cx, 5
+    add [rms_rbuf], cx
+    jmp .n
+.ok:
+    clc
+    jmp short .x
+.fail:
+    stc
+.x:
+    pop es
+    popa
+    ret
+
+; -----------------------------------------------------------------------------
+; rms_xcaps - OSAPI_XMEM_CAPS's TWIN: mx_caps's answer off mx_tab, which no
+; code changes in a real-mode bracket. out AX = KB free, DX:CX the pool's
+; base, BL free entries
+; -----------------------------------------------------------------------------
+rms_xcaps:
+    push si
+    push ds
+    push word KERNEL_SEG
+    pop ds
+    mov ax, [xm_kb]
+    or ax, ax
+    jnz .p
+    cwd                         ; no store: kern_mega's own no-store answer
+    xor cx, cx
+    mov bl, XM_MAX_BLKS
+    jmp short .o
+.p:
+    xor bl, bl
+    mov si, mx_tab
+.scan:
+    test byte [ss:si+MX_FL], MX_FPURGE
+    jnz .free                   ; (a cache: a claim sheds it)
+    sub ax, [ss:si+MX_KB]
+    cmp word [ss:si+MX_KB], 0
+    jne .next
+.free:
+    inc bl
+.next:
+    add si, MX_BLKSZ
+    cmp si, mx_tab_end
+    jb .scan
+    mov dx, MEGA_XPOOL >> 16
+    xor cx, cx                  ; (CF = 0)
+.o:
+    pop ds
+    pop si
+    retf
+
+; -----------------------------------------------------------------------------
+; rms_xcopy - OSAPI_XMEM_COPY's TWIN: ES:SI the conventional end, DX:AX the
+; extended end - a TOKEN and an offset (SPEC.md 50.6.10), translated by
+; mx_tab to where the block is NOW, which nothing changes in a real-mode
+; bracket - CX bytes (even, <= 32768), DI 0 out / 1 in. Moved by LOADALL on a
+; 286 and by a loaded base on a 386, in kern_big's XMEM.DRV's pieces (16 KB /
+; 2 KB, interrupts open between them), with A20 proved first. out CF = 0;
+; CF = 1 AX = 1 no store / 2 not a block of yours / 3 bad length. Every other
+; register kept
+; -----------------------------------------------------------------------------
+rms_xcopy:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push ds
+    push es
+    push cs
+    pop ds
+    mov bp, 3
+    jcxz .e
+    test cl, 1
+    jnz .e
+    cmp cx, 32768
+    ja .e
+    mov bp, 1
+    push es
+    push word KERNEL_SEG
+    pop es
+    cmp word [es:xm_kb], 0
+    pop es
+    je .e
+    mov bp, 2
+    mov bl, [rms_slot]
+    call rms_xchk               ; DX:AX = where those bytes are now
+    jc .e
+    push dx
+    push ax
+    mov ax, es                  ; the conventional end, linear
+    mov dx, 16
+    mul dx
+    add ax, si
+    adc dx, 0
+    mov bp, cx                  ; BP = the bytes
+    or di, di
+    jnz .in
+    mov [rms_src], ax
+    mov [rms_src+2], dx
+    pop word [rms_dst]
+    pop word [rms_dst+2]
+    jmp short .go
+.in:
+    mov [rms_dst], ax
+    mov [rms_dst+2], dx
+    pop word [rms_src]
+    pop word [rms_src+2]
+.go:
+    call KERNEL_SEG:mega_a20f   ; A20 proved open (a BIOS may have shut it)
+    cmp byte [rms_tier], CPU_386
+    jae .u
+    call rms_lcopy
+    jmp short .ok
+.u:
+    call rms_ucopy
+.ok:
+    xor ax, ax                  ; (CF = 0)
+    jmp short .o
+.e:
+    mov ax, bp
+    stc
+.o:
+    pop es
+    pop ds
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    retf
+
+; rms_xchk - mx_chk in real mode: DX:AX = a name, CX = bytes, BL = the owner
+; -> CF = 0 inside one of its blocks and DX:AX = where those bytes are now;
+; CF = 1 not. Clobbers nothing else
+rms_xchk:
+    push cx
+    push si
+    push di
+    push ax
+    push dx
+    mov di, ax                  ; DI = the KB the range spans...
+    and di, 0x03FF
+    add di, cx
+    add di, 1023
+    shr di, 10
+    sub dx, MEGA_XPOOL >> 16    ; ...AX = its first, from the pool's base
+    jc .no
+    cmp dh, 0x04
+    jae .no
+    shr ax, 10
+    shl dx, 6
+    or ax, dx
+    add di, ax                  ; ...DI its end
+    jc .no
+    mov si, mx_tab
+.scan:
+    cmp [ss:si+MX_OWN], bl
+    jne .next
+    cmp word [ss:si+MX_KB], 0
+    je .next
+    mov cx, [ss:si+MX_AUX]      ; a package's block is named by its TOKEN
+    cmp cx, ax
+    ja .next
+    add cx, [ss:si+MX_KB]
+    cmp cx, di
+    jae .found
+.next:
+    add si, MX_BLKSZ
+    cmp si, mx_tab_end
+    jb .scan
+.no:
+    pop dx
+    pop ax
+    stc
+    jmp short .o
+.found:
+    pop dx
+    pop ax
+    mov cx, [ss:si+MX_AUX]      ; KB the name is above the block, signed
+    sub cx, [ss:si+MX_OFF]
+    mov di, cx
+    shl cx, 10
+    sar di, 6                   ; DI:CX = bytes
+    sub ax, cx
+    sbb dx, di                  ; (CF: a block moved UP borrows - no answer)
+    clc
+.o:
+    pop di
+    pop si
+    pop cx
+    ret
+
+; rms_ucopy - XMEM.DRV's tier-2 transport (xm_ucopy): [rms_src] -> [rms_dst],
+; BP bytes (even), 2 KB a chunk with DS's and ES's bases loaded (ub_set) and
+; interrupts off for each. DS = CS. Clobbers AX, BX, CX, DX, SI, DI, BP and
+; the high halves
+rms_ucopy:
+.chunk:
+    mov cx, bp
+    jcxz .fin
+    cmp cx, 2048
+    jbe .have
+    mov cx, 2048
+.have:
+    sub bp, cx
+    mov dx, cx
+    pushf
+    cli
+    push ds
+    push es
+cpu 386
+    mov eax, [rms_src]
+    mov ebx, [rms_dst]
+    movzx ecx, cx
+    add [rms_src], ecx
+    add [rms_dst], ecx
+    call ub_set                 ; DS = the source, ES = the destination
+    xor si, si
+    xor di, di
+    mov cx, dx
+    shr cx, 2
+    cld
+    rep movsd
+    test dl, 2
+    jz .cd
+    movsw
+.cd:
+cpu 286
+    pop es
+    pop ds
+    popf
+    jmp short .chunk
+.fin:
+    ret
+
+; rms_lcopy - XMEM.DRV's tier-1 transport by LOADALL (xm_lcopy, SPEC.md
+; 41.13): 16 KB a borrow (XM_LPIECE's measured trade), interrupts off for
+; each. DS = CS. Clobbers AX, BX, CX, DX, SI, DI, BP
+rms_lcopy:
+    cmp byte [rms_la], 0
+    jne .piece
+    call la_capture             ; the MSW, IDTR and GDTR of THIS bracket
+    mov byte [rms_la], 1
+.piece:
+    mov cx, bp
+    jcxz .fin
+    cmp cx, 16384
+    jbe .have
+    mov cx, 16384
+.have:
+    sub bp, cx
+    mov ax, [rms_src]
+    mov dx, [rms_src+2]
+    mov di, la_dsc
+    mov bx, la_dsv
+    call rms_lend
+    push ax
+    mov ax, [rms_dst]
+    mov dx, [rms_dst+2]
+    mov di, la_esc
+    mov bx, la_esv
+    call rms_lend
+    xchg di, ax
+    pop si
+    mov ax, [la_dsv]            ; the extended end shows the conventional
+    or ax, [la_esv]             ; end's selector
+    mov [la_dsv], ax
+    mov [la_esv], ax
+    push cx
+    shr cx, 1
+    pushf
+    cli
+    call la_borrow
+    rep movsw
+    call la_restore             ; DS = ES = ours again
+    popf
+    pop cx
+    add [rms_src], cx
+    adc word [rms_src+2], 0
+    add [rms_dst], cx
+    adc word [rms_dst+2], 0
+    jmp short .piece
+.fin:
+    ret
+
+; rms_lend - xm_lend: one end of a piece, DX:AX its linear address, DI its
+; cache dword, BX its visible selector word. Clobbers AX, DX
+rms_lend:
+    cmp dx, 0x0010
+    jae .ext
+    push cx
+    push ax
+    and ax, 0xFFF0
+    mov [di], ax
+    mov [di+2], dx
+    shr ax, 4
+    shl dx, 12
+    or ax, dx
+    mov [bx], ax
+    pop ax
+    and ax, 0x000F
+    pop cx
+    ret
+.ext:
+    mov [di], ax
+    mov [di+2], dx
+    mov word [bx], 0
+    xor ax, ax
+    ret
+
+; -----------------------------------------------------------------------------
+; rms_drvx - OSAPI_DRV_CALL's TWIN (an X cell: ES = your DS); rms_drv -
+; OSAPI_DRV_CALL_AT's (ES as you set it). BH = the class: a driver the door
+; carried low (rms_drv's rows) is called at its real paragraph, through its
+; DSV_PKGCALL, with DRVC_EMS handed your slot in BH as drv_pkg_call_x hands
+; it; any other class answers CF = 1 AX = 0, as for no driver. BP, DS, ES
+; and DI come back yours
+; -----------------------------------------------------------------------------
+rms_drvx:
+    push es
+    push ds
+    pop es
+    call rms_drvb
+    pop es
+    retf
+rms_drva:
+    call rms_drvb
+    retf
+rms_drvb:
+    ; STKBALANCE-OK: the driver is entered by a CONSTRUCTED far call (four pushes and a `retf`) that its dispatcher returns from at .back, where the three banked words come off - drv_pkg_disp's shape, in real mode
+    push bp
+    push ds
+    push di
+    mov di, rms_drv
+    mov bp, RMD_N
+.f:
+    cmp [cs:di+RMD_CLS], bh
+    je .got
+    add di, RMD_SIZE
+    dec bp
+    jnz .f
+.none:
+    pop di
+    pop ds
+    pop bp
+    xor ax, ax
+    stc
+    ret
+.got:
+    mov bp, [cs:di+RMD_PKG]
+    or bp, bp
+    jz .none
+    cmp bh, DRVC_EMS
+    jne .c
+    mov bh, [cs:rms_slot]       ; EMS keys its pages on the CALLER (107.1)
+.c:
+    push cs
+    push word .back
+    push word [cs:di+RMD_SEG]
+    push word PKG_DISP
+    mov ds, [cs:di+RMD_SEG]
+    mov di, sp
+    mov di, [ss:di+8]           ; the caller's DI again: an argument
+    retf
+.back:
+    pop di
+    pop ds
+    pop bp
+    ret
+align 16
+rms_hi:
+; ovlchk: end real mode
+rms_strm    equ rms_hi          ; the copy's stream rows (FSX_RSR's)...
+rms_runs    equ rms_strm + FSX_RSN ; ...and runs
+cpu 8086
+
 
 section .lowbss                 ; PROTECTED-MODE STATE, so out of the kernel
                                 ; segment (tests/megaseg.txt): only `.mega`
@@ -1772,6 +3164,8 @@ fsx_rlow    resw 1              ; ...the copy's claim (its data selector), 0
                                 ; = none: the region runs where it is
 fsx_rown    resw 1              ; ...and its owner, the instance's slot
 fsx_rexfp   resw 2              ; EXTD.DRV's slots' far pointer, mod_gone's
+fsx_rsvc    resw 1              ; the SERVICE AREA's claim (W3), 0 = none -
+fsx_rmsseg  resw 1              ; ...and the paragraph its twins run at
 %ifdef VID_EXT
 fsx_rvxep   resw 2              ; ...and [vx_ep], the VESA desktop's hook
 %endif

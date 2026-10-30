@@ -3815,6 +3815,7 @@ apic_inst_minimize:               ; DOCK.DRV's door (SPEC.md 30.4)
                                   ;          (SPEC.md 20.5.1.3.3)
     MEGA_ICWB W_ONCLICK
     OSAPI_IEND
+rmk_rseq:         ; (a real-mode bracket's twin: fsx_rkeepm)
     OSAPI_RNCELL dwf_dskw_read_seq ; 0x0455  N: A STREAMING READ (SPEC.md
                                   ;          18.4.8): SI = name, DX:BX = the
                                   ;          buffer, CX = capacity (clusters),

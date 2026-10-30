@@ -2277,7 +2277,7 @@ KERNEL_SRC := kernel/kernel.asm
 # perfectly, never reached the disk, and the only symptom was os88sym refusing
 # a map that described "a DIFFERENT kernel".
 KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm \
-              drivers/thmpal/thmrows.inc
+              drivers/thmpal/thmrows.inc apps/os88la.inc apps/os88ub.inc
 
 .PHONY: stkdiag kbddiag small emu mega kernsplit all run run-640 run-720 run-120 debug test test-snd xt xt-640 pc5150 xt-mfm xt-cga \
         xt-hercules xt-ega xt-multimon 286 286-525 386sx 386 386-xms 386-ps2 xt-sound xt-sound-1.44 xt-midirack 386-midirack xt-covox xt-wire \
@@ -14587,6 +14587,13 @@ $(BUILD)/megarmbf.bin: tests/megarmb/megarmbf.asm apps/os88api.inc apps/os88real
 	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megarmb/megarmbf.asm
 $(BUILD)/megarmbf.o88: $(BUILD)/megarmbf.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/megarmbf.bin -o $@
+# MEGARMBX (tests/megarmb/megarmbx.asm): what a real-mode bracket READS - the
+# extent list's OSAPI_FILE_READ_SEQ, the XMEM_COPY twin, OSAPI_DRV_CALL into a
+# low HDD.DRV (SPEC.md 53.2.3, MEGA-VIDEO-REALMODE-PLAN W3) - tests/vidrmb.py
+$(BUILD)/megarmbx.bin: tests/megarmb/megarmbx.asm apps/os88api.inc apps/os88real.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megarmb/megarmbx.asm
+$(BUILD)/megarmbx.o88: $(BUILD)/megarmbx.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/megarmbx.bin -o $@
 # MEGAHUGE (tests/megahuge): ONE CLAIM FOR ALL OF IT (KERN-MEGA-MEMORY-PLAN
 # MC5) - OSAPI_MEM_HUGE's query, a claim of its answer bridged across the
 # pool and the heap, a pattern through every window, the free, the query again
@@ -14708,7 +14715,7 @@ $(BUILD)/megalowb.bin: tests/megaown/megaown.asm apps/os88api.inc | $(BUILD)
 $(BUILD)/megalowb.o88: $(BUILD)/megalowb.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/megalowb.bin -o $@
 megarun: $(BUILD)/megarun.o88 $(BUILD)/megaxm.o88 $(BUILD)/megahib.o88 $(BUILD)/megarmb.o88 \
-        $(BUILD)/megarmbl.o88 $(BUILD)/megarmbf.o88 $(BUILD)/mega.img
+        $(BUILD)/megarmbl.o88 $(BUILD)/megarmbf.o88 $(BUILD)/megarmbx.o88 $(BUILD)/mega.img
 .PHONY: megarun
 
 # `make megatrap` - kern_mega with MEGATRAP=1, as a whole tree of its own in
