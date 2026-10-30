@@ -16922,6 +16922,19 @@ SOAK = [
         needs=("86box",),
         wants=("build/mega.img", "build/megarun.o88", "build/megarmbs.o88",
                "build/megarmbs.bin")),
+    Row("vidrmbsndpm", "soak", py("tests/vidrmbsnd.py", "--box86", "--vm",
+                                  "at286-picomem1"), 60.0,
+        "SPEC.md 53.2.3, MEGA-VIDEO-REALMODE-PLAN W4 (its pmbox gate): "
+        "vidrmbsnd's legs on vm/at286-picomem1 - the mr286 with a PicoMEM "
+        "1.x running ITS OWN FIRMWARE (libpmhost), SOUND.DRV's PicoMEM tier "
+        "the sink and the card's USB mouse the only pointer: the card's "
+        "Sound Blaster plays every real-mode leg at the control's rate, its "
+        "IRQs served natively in the bracket where protected mode reflects "
+        "every one (KERN-MEGA-PLAN 14.73). A seeded CMOS, primed once and "
+        "cached. 60s is 25 measured with the cache warm",
+        needs=("86box", "pmhost"), serial=True,
+        wants=("build/mega.img", "build/megarun.o88", "build/megarmbs.o88",
+               "build/megarmbs.bin", "build/picomem/v1/libpmhost-v1.so")),
     Row("megaxmove", "soak", py("tests/megaxmove.py"), 25.0,
         "SPEC.md 50.6.10, docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md MC3: on "
         "kern_mega an OSAPI_XMEM_ALLOC block MOVES and is read back through "

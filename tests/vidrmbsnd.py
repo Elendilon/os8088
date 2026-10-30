@@ -49,6 +49,9 @@ record each in its bss), and what is asserted:
 
 --box86 runs the legs on 86Box's 286-hma (an SB 2.0, the bracket by the
 286's RESET), read off the package's bss: 86Box has no E9 and no capture.
+`--box86 --vm at286-picomem1` runs them on a PicoMEM 1.x with its own
+firmware (tools/picomem/build.sh), whose Sound Blaster's IRQs protected mode
+reflects one by one and the real-mode bracket serves natively.
 
 THE FAILING CASES (docs/WRITING-TESTS.md 1) are in MEGA-VIDEO-REALMODE-PLAN's
 W4 entry, each a one-line break of the kernel that takes this row red.
@@ -400,10 +403,12 @@ def box86(a):
     tmp = tempfile.mkdtemp(prefix="vidrmbsnd286")
     img = os.path.join(tmp, "mega.img")
     shutil.copy(os.path.join(B, "mega.img"), img)
+    pm = "picomem" in a.vm                     # the card's USB mouse is the
+    bits = 1 | (1 << 6 if pm else 0)            # pointer there (USBMOUSE.DRV)
     cfg = os.path.join(tmp, "SYSTEM.CFG")       # SOUND.DRV wanted (bit 0)
     with open(cfg, "wb") as fh:
         fh.write(b"O88CFG\0\0" + (3).to_bytes(2, "little") + b"DW" +
-                 bytes([1, 2]) + (1).to_bytes(2, "little") + b"\0\0")
+                 bytes([1, 2]) + bits.to_bytes(2, "little") + b"\0\0")
     fat = os.path.join(ROOT, "tools", "os88fat.py")
     subprocess.run([sys.executable, fat, "del", img, "SYSTEM.CFG"],
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -420,12 +425,19 @@ def box86(a):
     subprocess.run([sys.executable, os.path.join(ROOT, "tools", "os88disk.py"),
                     "-o", bimg, "--size", "1440"] + files, check=True,
                    stdout=subprocess.DEVNULL)
-    hd = os.path.join(tmp, "hd.img")             # (the profile's IDE disk:
-    with open(hd, "wb") as fh:                   # blank, so A: boots)
-        fh.truncate(63 * 16 * 65 * 512)
+    hd, nvr = None, None
+    if pm:                                      # a SEEDED CMOS, primed once
+        import os88box86api as BA               # and cached (os88box86api)
+        nvr = BA.cmos_primed(a.vm, img, bimg, (), BA.cmos_seed(a.vm, img,
+                                                               bimg, 0))
+    else:
+        hd = os.path.join(tmp, "hd.img")        # (the profile's IDE disk:
+        with open(hd, "wb") as fh:              # blank, so A: boots)
+            fh.truncate(63 * 16 * 65 * 512)
     b = os88box.launch(a.vm, name="vidrmbsnd286%d" % os.getpid(), hold=True,
                        fresh=True, a=img, b=bimg, c=hd, temp=not a.keep,
-                       turbo=True, sets=("Sound.sndcard=sb2.0",))
+                       turbo=True, nvr=nvr,
+                       sets=() if pm else ("Sound.sndcard=sb2.0",))
     off, sect, equ = os88sym._parse_map(os.path.join(B, "megak",
                                                      "kernel.map"))
     rtick = off["fsx_rtick"]
@@ -433,7 +445,8 @@ def box86(a):
     res, after = None, None
     t0 = time.time()
     try:
-        mr_setup(b)
+        if not pm:
+            mr_setup(b)
         b.kernel_up(guest_ms=120000)
         b.until(lambda: b.byte("mega_on"), "protected mode", 30000, 250)
         b.ui_done(cap_ms=10000)
@@ -494,7 +507,11 @@ def main():
     ap.add_argument("--keep", action="store_true")
     ap.add_argument("--box86", action="store_true",
                     help="86Box's 286 (--vm) with an SB 2.0: the reset way")
-    ap.add_argument("--vm", default="286-hma")
+    ap.add_argument("--vm", default="286-hma",
+                    help="286-hma (an SB 2.0), or at286-picomem1: a PicoMEM "
+                    "1.x running its own firmware (tools/picomem/build.sh), "
+                    "whose Sound Blaster's blocks come through its option "
+                    "ROM's multiplexer")
     a = ap.parse_args()
     return box86(a) if a.box86 else bochs(a)
 
