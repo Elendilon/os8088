@@ -8768,10 +8768,8 @@ mx_dfree:
     mov ax, [ss:si+MX_OFF]
     add ax, [ss:si+MX_KB]
     call mx_kblin                   ; DX:AX = its end
-    push ax
-    mov ax, MEGA_SEL_LDTD
-    mov es, ax
-    pop ax
+    push MEGA_SEL_LDTD
+    pop es
     mov di, MEGA_LDT_FREE0 * 8
 .d:
     cmp byte [es:di+5], 0
@@ -9177,10 +9175,8 @@ MX_KDRV     equ 0xFD                ; ...and for a DRIVER'S IMAGE (drv_hi_move):
 mega_ldt_alloc:
     push di
     push es
-    push ax
-    mov ax, MEGA_SEL_LDTD
-    mov es, ax
-    pop ax
+    push MEGA_SEL_LDTD
+    pop es
     mov di, MEGA_LDT_FREE0 * 8
     pushf
     cli                             ; the scan and the claim are one step
@@ -9215,10 +9211,8 @@ mega_ldt_alloc:
 mega_ldt_alloc2:
     push di
     push es
-    push ax
-    mov ax, MEGA_SEL_LDTD
-    mov es, ax
-    pop ax
+    push MEGA_SEL_LDTD
+    pop es
     mov di, MEGA_LDT_FREE0 * 8
     pushf
     cli
@@ -9311,10 +9305,8 @@ mega_ldt_free:
     and di, 0xFFF8
     cmp di, MEGA_LDT_FREE0 * 8
     jb .no
-    push ax
-    mov ax, MEGA_SEL_LDTD
-    mov es, ax
-    pop ax
+    push MEGA_SEL_LDTD
+    pop es
     pushf
     cli
     mov word [es:di], 0
@@ -12224,10 +12216,8 @@ mega_segown:
 mega_wfind:
     push si
     push es
-    push ax
-    mov ax, MEGA_SEL_LDTD
-    mov es, ax
-    pop ax
+    push MEGA_SEL_LDTD
+    pop es
     mov si, mega_wtab
 .l:
     mov di, [ss:si]
@@ -12293,10 +12283,8 @@ mega_wset:
     add sp, 2                       ; (the match: not wanted)
     push es
     push di
-    push ax
-    mov ax, MEGA_SEL_LDTD
-    mov es, ax
-    pop ax
+    push MEGA_SEL_LDTD
+    pop es
     mov di, si
     and di, 0xFFF8
     pushf
@@ -12678,10 +12666,8 @@ mx_inblk:
 mega_dfind:
     push di
     push es
-    push ax
-    mov ax, MEGA_SEL_LDTD
-    mov es, ax
-    pop ax
+    push MEGA_SEL_LDTD
+    pop es
     mov di, MEGA_LDT_FREE0 * 8
 .l:
     push ax
@@ -12817,10 +12803,8 @@ mega_mpsyncf:
     or di, di
     jz .o
     call mega_mpbase
-    push ax
-    mov ax, MEGA_SEL_LDTD
-    mov es, ax
-    pop ax
+    push MEGA_SEL_LDTD
+    pop es
     and di, 0xFFF8
     pushf
     cli
@@ -12889,10 +12873,8 @@ mega_mpmovef:
     mov dx, ax
     shl ax, 4
     shr dx, 12                      ; DL:AX = the old base
-    push ax
-    mov ax, MEGA_SEL_LDTD
-    mov es, ax
-    pop ax
+    push MEGA_SEL_LDTD
+    pop es
     mov di, MEGA_LDT_FREE0 * 8
     pushf
     cli
@@ -13276,10 +13258,8 @@ mega_cdfree:
     mov dx, ax
     shl ax, 4
     shr dx, 12                      ; DL:AX = the base
-    push ax
-    mov ax, MEGA_SEL_LDTD
-    mov es, ax
-    pop ax
+    push MEGA_SEL_LDTD
+    pop es
     mov di, MEGA_LDT_FREE0 * 8
 .d:
     cmp byte [es:di+5], 0
