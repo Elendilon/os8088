@@ -1,8 +1,8 @@
 # MEGA-VIDEO-REALMODE-PLAN - the Video Player's bracket in real mode under kern_mega
 
 **Status: PLAN. W0 (the census) is DONE (2026-10-29); W1 (the drop and
-the return) is BUILT and its gates pass (2026-10-30, section 4's W1 entry);
-W2-W6 are not started.** The plan was first written against
+the return) and W2 (the table and the fallback) are BUILT and their gates
+pass (2026-10-30, section 4's entries); W3-W7 are not started.** The plan was first written against
 `4d3d0943` from source and documents only. **W0 measured it again on
 `df2e1fbf`**, and section 7 is that census: every `PKG_MEGA` block of the
 player classified and assembled, the bracket's real API whitelist walked off
@@ -311,10 +311,12 @@ this is a clarified contract with no `PKG_FMT` bump
 **What the kernel does at the drop**, in protected mode, in this order.
 **Always, for every bracket that asks (5.1.1)**: there is no "only when it
 pays" test any more. What is left are STRUCTURAL refusals, and because the
-owner's rule is one code path (5.1.1, 5.1.2), **a refused real-mode bracket
+owner's rule is one code path (5.1.1, 5.1.2), ~~**a refused real-mode bracket
 is a refused PLAY with its reason (§47), not a protected-mode bracket**: the
 deletions of section 7.1 are dead only if nothing falls back to the code
-they serve.
+they serve.~~ **Superseded by 5.3 (the bracket is DUAL) and built so by W2:
+no reason refuses - each FALLS BACK to the protected-mode bracket and SI
+says which (SPEC.md 53.2.3).**
 
 1. **Refuse what the real-mode bracket structurally cannot run**: a
    `TF_SERVICE` task alive (a driver's worker - `kernel/driver.inc:4434` -
@@ -488,9 +490,11 @@ and neither is byte-identical.
 #### 3.1.2 What the package does
 
 * **The arm passes `FSXF_REAL` with DX or ES:DI naming the stream**, at the
-  one call site (`video.asm:14635`). A refusal is a refused play, said with
+  one call site (`video.asm:14635`). ~~A refusal is a refused play, said with
   its reason (`[vp_msg]`, as the CF = 1 arm before `.ran` already does at
-  `video.asm:14668-14673`), and NOT a second call without the bit.
+  `video.asm:14668-14673`), and NOT a second call without the bit.~~ **(5.3,
+  W2: the kernel falls back by itself and answers in SI; the card says
+  which bracket and why.)**
 * **At its door, still in protected mode, it puts REAL SEGMENTS in its own
   words** and keeps the protected-mode ones to put back after (section 7.4):
   `SEG_REAL` (§50.6.11) for each claim base, its own real-mode derivations
@@ -827,14 +831,169 @@ deduplicated union below, plus `test-full`.
     is a walk now), `megadosp` / `megakbtrip` / `megahiber` and the hibernate
     rows (`mega_dosgo_lo`, `mega_hbgor`), `megacurdisk` (`mega_rmaskf`), and
     the megaport `vid*` rows, whose bracket door changed by the strip.
-* **W2. The table.** The API swap and the twelve run-as-is cells, the
-  `SEG`, `MOUSE` and `FSX_WAIT` twins, and the `FSXF_REAL` contract in §53
-  (bracket flag, PIC at 20h, no IVT 08h-0Fh writes, real segments only,
-  what refuses). **There is no kernel-side rename of the package any more**
-  (section 3.1, step 5). Gate: `megarmbref`, a refusal arm for each
-  structural reason of step 1, and a non-whitelisted call answering CF=1;
-  each refuses the play with its reason and leaves the desktop as it was.
-  Existing: `vidclose`, `vidxipbanktier`.
+* **W2. The table, and the fallback - BUILT 2026-10-30, its gate green.**
+  SPEC.md 53.2.3 is the contract (rewritten before the code: the fallback,
+  SI's answer, the table, the twin and the package's half);
+  `kernel/fsx.inc` (`fsx_rprepf`, `fsx_rdownf`, `fsx_rupf`, `fsx_rkeep`,
+  the foot of `fsx_run`), `kernel/kernel.asm` (`rmk_*`, `osapi_segr`),
+  `kernel/mouse.inc` and `apps/os88real.inc` are the code.
+
+  **What was built.**
+  * **The DUAL bracket (5.3).** `FSXF_REAL` never refuses on kern_mega in
+    protected mode: `fsx_rprepf` tests the reasons in order, and the first
+    that holds goes in `[fsx_rwhy]` with NOTHING taken, so the same bracket
+    goes on in protected mode, exactly today's. `fsx_run`'s foot puts the
+    answer in the caller's SI: `FSXR_REAL` (0), `FSXR_KEEP`, `FSXR_SVC`,
+    `FSXR_EXTD`, `FSXR_SERIAL`, `FSXR_ROOM`. A kernel in real mode keeps SI,
+    so a package passes SI = 0 and reads one answer on every kernel; inside,
+    `OSAPI_CPU_INFO`'s `CPU_F_PM` says the same. Each reason is ONE test of
+    three lines, so lifting one (the owed list below) deletes it and touches
+    nothing else.
+  * **The table.** At the drop `fsx_rdownf` banks the 1,241-byte table in the
+    DOS park's scratch (`MEGA_SEL_PSCR`, 1,490 bytes above 1MB with `.mega`,
+    asserted to hold it), writes every byte `stc`, puts a `retf` before each
+    kept run and at the end, copies the kept runs back off `fsx_rkeep`'s
+    list, and makes `OSAPI_SEG` a far jump to its twin; `fsx_rupf` copies
+    the bank back before IF = 1. A refused cell - any shape, entered at any
+    byte - slides down `stc`s to a `retf`: CF = 1, every other register and
+    flag kept. The list is 11 rows of {first cell, bytes, twin} whose cells
+    are label pairs in the table itself (`rmk_1`..`rmk_10`, `rmk_seg`), so a
+    run is exactly its cells and cannot drift.
+  * **The twins W1 left.** `OSAPI_SEG`: its real-mode arm moved from `.cold`
+    to `.text` as `osapi_segr`, which the `.cold` body (on a kern_mega that
+    never switched) far-jumps to and the table jumps to - kern_big's
+    answers out of the one body. `OSAPI_FSX_WAIT` and `OSAPI_MOUSE` turned
+    out cheaper as ARMS than as twins: `FSXW_FRAME` waits on `hlt` while
+    `[fsx_rmode]` is set (no scheduler), and `osapi_mouse` skips `kbm_poll`
+    (its menu path is `.cold`) - 7 bytes each where a twin body is 30-100.
+    No other cell of W0's table is cheap enough for W2: `DRV_CALL` needs the
+    low drivers (W3), the XMEM cells and `READ_SEQ` are W3's, `SND_STREAM`
+    and `FSX_SPK` W4's.
+  * **The package's half: `apps/os88real.inc`** (W0's "SEG_REAL at its door",
+    7.4): `OS88REAL_LIST` names a package's claim words, `os88real_prep`
+    asks `SEG_REAL` for each at the door and banks the answers (CF = 1 = a
+    claim with no real segment - above 1MB - and the package does not ask
+    for the bit: ITS OWN fallback), and `os88real_swap`, first and last in
+    the entry proc, exchanges list and bank only when the bracket IS real.
+    The exchange is symmetric, so the second call puts the selectors back
+    before the copy is written up over the window's.
+
+  **The audit W1 asked for** (a far call through a kernel slot table in a
+  run-as-is cell). Walked off a kern_mega listing from every kept cell's
+  body, the twins' and `mou_isr`/`mou_p2_isr`, flagging every far or
+  indirect call, `int`, descriptor instruction and selector word:
+  * `EXFP` (EXTD.DRV) from `fsx_mode` - W1's, still `fsx_rgone`'s;
+  * **`SERFP` (SERIAL.DRV) from the POINTER'S ISR** - `mou_isr_ser` far-calls
+    the module for a leased UART on every interrupt, a wild selector in real
+    mode. Not in W0's census, which walked the cells and not the ISRs. A
+    lease open is a state the user is in (§115's link games), so it is a
+    FALLBACK reason, `FSXR_SERIAL`, owed;
+  * **`[vx_ep]` (VESA.DRV's hook)** from `vid_setmode`, the cursor and the
+    glyph renderers: reachable only on a VESA desktop and then only by
+    drawing (not offered) and the cursor (not drawn under the held lock), so
+    no kept cell reaches it - but the drop points it at `vx_null` for the
+    bracket anyway, the far slot's insurance (`.lowbss` +4 for its bank);
+  * `dkv` (DOCK.DRV) from `gfx_hole_arm`, and `thv`: drawing only, not
+    offered;
+  * `osapi_mouse`'s port re-arm (§9.13) in real mode compares IVT 0Ch's
+    segment with CS - 0060h in both modes - and is harmless; `int 10h` in
+    `fsx_setbios`/`vid_text` and `int 16h` are the BIOS's in real mode.
+
+  **Decisions, and why**:
+  1. **The table is GENERATED AT THE DROP and banked in the park's scratch**:
+     not a module, not a resident second image. A module is a system-disk
+     read at every Play (W1's decision 1); a resident real-mode image is
+     1,241 bytes of every kern_mega machine's conventional memory for ever;
+     a heap claim for the bank is conventional room at every Play and
+     another reason to fall back. The park's scratch is 1,490 bytes above
+     1MB that nothing else can use while a bracket runs (a trip, a hibernate
+     and a bracket exclude each other), so the bank costs NO byte anywhere.
+     The generator is a `.mega` loop over a 66-byte list (in extended
+     memory), against 3.1.1's estimate of 2,482 for two images.
+  2. **The sled, not per-cell refusal bytes**: writing `stc` over every byte
+     and a `retf` before each kept run refuses every cell shape at once with
+     no cell-length table at all (W0's 348-byte offset list), and refuses an
+     entry mid-cell too.
+  3. **A fallback is the kernel's, a package refusal the package's.** The
+     kernel cannot know a package holds a claim above 1MB, and the package
+     cannot know a driver's worker is alive - so the kernel falls back for
+     what it sees and says why, and `os88real_prep` lets the package decline
+     to ask. Neither refuses the play.
+  4. **The owner's rule binds the reasons** (2026-10-30: "We need to not
+     refuse states the user is going to be in"): nothing in W2 is a refusal.
+     The reasons a user will be in are owed, below.
+  5. **SI, not AX, carries the answer**: SI is no input of `OSAPI_FSX_RUN`,
+     so a kernel that keeps it answers `FSXR_REAL` for nothing - kern_big
+     and kern_small stay byte-identical.
+
+  **Owed - reasons for a state the user WILL be in, each to be lifted by
+  deleting its one test once the wave that owes it is built**:
+  | reason | the state | owed by |
+  |---|---|---|
+  | `FSXR_EXTD` | the extended desktop (two displays): EXTD.DRV's entry slots far-called by `OSAPI_FSX_MODE`, `OSAPI_FSX_CAPS`, `OSAPI_WM_CONTENT` | **W7** - real-mode targets (twins of the EXTF verbs the three cells reach, or a low copy of the module's image for the bracket), and a fullscreen play on EITHER display (the owner, 2026-10-30: the player supports both) |
+  | `FSXR_SVC` | a driver's worker alive (a network driver's, a sound stream's task) | **W7** - the bracket would starve it; either the driver is told (a verb, as `DSV_RMODE`) or its worker's work is run from the real-mode tick |
+  | `FSXR_SERIAL` | a SERIAL.DRV lease open (§115) | **W7** - the leased UART's capture (`SERFP+SER_IRQ`) from a low copy of the module, or the ISR skipping the leased row in a real-mode bracket with the module told |
+  | `FSXR_ROOM` | a full conventional heap and an `OS88_HIGH` region | **W3/W5 in part** (the player's ring goes conventional, so its own sizing leaves the room, 5.2 item 4), and the HMA placement of 5.3.3 later |
+  | `FSXR_KEEP` | none: the package's own combination | - |
+
+  **Bytes** (the kern_mega map against W1's `321199e6`, both at one commit
+  count; `tools/kernsize.py` on kern_big and kern_small): **kern_big and
+  kern_small BYTE-IDENTICAL** (`cmp` of both `kernel.bin`s). kern_mega
+  `.text` **+69** (`osapi_segr` 40; the two arms 7 each; the foot 15 and its
+  byte; less the door's `jc`), `.cold` **-35**, `.mega` **+252** (the
+  reasons, the swap, the list), `.lowbss` **+4**, `.bss` +0; the
+  kernel-segment ratchet `tests/megaseg.txt` +69 to 4,869, itemised there.
+  `apps/os88real.inc` is ~75 bytes in a package that includes it; no
+  shipped package does yet (the player is W5's).
+
+  **Gate: `megarmbref`** (Bochs, a 386; `tests/megarmb/megarmbf.asm`'s
+  MEGARMBF, `OS88_HIGH` and `OS88_HIGHMEM`) - green, 26 s, run three times.
+  Each FALLBACK arm runs and is asserted to have RUN in protected mode with
+  its reason: K (`FSXF_KEEPWORKER`, SI 1), S (a `TF_SERVICE` task: the row
+  sets the bit on task 0 while the package waits, SI 2), E (EXTD.DRV's row
+  poked, SI 3), L (`[ser_row]` poked to a row no port has, SI 4), M (the
+  heap filled by the package's own conventional claims, SI 5); H, a
+  `OSAPI_MEM_HUGE` claim above 1MB (linear FD0000h) in os88real's list, so
+  prep says CF = 1 and the package runs without the bit; P, a conventional
+  claim renamed inside to the paragraph prep banked (1160h), `5AA5h`
+  written through it in real mode reading back through the selector after;
+  N, a real-mode bracket in which `OSAPI_MEM_CLAIM` (a rare cell) and
+  `OSAPI_FILE_RENAME` (a 3-byte JCELL) answer CF = 1 with every register
+  kept, the SEG twin answers `SEG_LIN` = CS x 16 and refuses `SEG_AT`,
+  `FSX_WAIT` and `MOUSE` answer, and the table read INSIDE is the real-mode
+  image to the byte; then n, the package's own re-run without the bit,
+  where the claim is had. After: the table byte for byte, every poked word
+  back, `[vx_ep]` back, `[fsx_rwhy]` FFh, the pointer moving. **W1's
+  `megarmb` and `megarmb286` were updated** for R's new meaning (CF 0,
+  SI = `FSXR_KEEP`, `CPU_F_PM` inside; no reset on the 286) and both are
+  green with the table swap in every taken bracket.
+
+  **Broken on purpose**, each red and each put back:
+  * the W1 refusal put back (the door `jmp .fail` on any reason): K, S, E,
+    L and M answer CF = 1 and their entries never run (5 red);
+  * a kept run dropped from `fsx_rkeep` (`rmk_7`, FSX_MODE and FSX_WAIT):
+    `OSAPI_FSX_WAIT` answers CF = 1 inside N, and the table read inside
+    differs from the image in 15 bytes, the first a missing `retf` at 023Ah;
+  * the SEG twin left a refusal (`rmk_seg` with no target): `SEG_LIN`
+    answers CF = 1, 5 bytes off at 04E3h;
+  * the table NOT copied back at the return: the first real-mode bracket
+    (P) leaves the sled in place, so N's own `OSAPI_FSX_RUN` is refused,
+    nothing after it runs and the table after differs (7 red);
+  * SI's answer not written at the foot: K-M come back SI 0 (5 red);
+  * `os88real_swap` never swapping (the package's half): inside P the word
+    is still the selector (1204h against the banked 1160h) and the pattern
+    written through it is lost (2 red).
+
+  **Existing rows W2 can reach**, for the final pass (not run here):
+  `megarmb` and `megarmb286` (run here, green), every row that calls
+  `OSAPI_SEG` on kern_mega in real mode or on a never-switched kern_mega
+  (the `.cold` body is a far jump now) - `megaxmove`, `megatbl`,
+  `megasweep`, `megahdd*`, `megasb*` and the megaport `vid*` rows, whose
+  packages ask `OSAPI_SEG` constantly; `megacurdisk` and the mouse rows on
+  kern_mega (`osapi_mouse`'s new test); the megaport rows using
+  `OSAPI_FSX_WAIT` (`vidvga4`, `vidmodex`, `vidplayvga`, `vidpage`, the
+  game ports); `t_api_abi` (fast, already green: the table's bytes are
+  unchanged); and `vidclose` and `vidxipbanktier`, which the plan named.
 * **W3. The extent reader, the low HDD.DRV and EMS.DRV, and the XMEM
   twins.** A silent play. The `READ_SEQ` twin serves `DVK_BIOS` volumes by
   `int 13h` and `DVK_DRV` block volumes through the low driver's `DSV_BLK`
@@ -867,8 +1026,13 @@ deduplicated union below, plus `test-full`.
   mute and unmute's claims, the layer split and the gap's claims, the
   poster's claim and the session stop at the exit), and deletes what section
   3.7 measured as dead: 368 lines of `video.asm`, the speaker library's and
-  the shaper's protected-mode copies - and does not keep the protected-mode
-  bracket as a fallback. `t_megapkg` must still pass (fast tier), and
+  the shaper's protected-mode copies - ~~and does not keep the protected-mode
+  bracket as a fallback~~ **(superseded by 5.3: the protected-mode bracket
+  STAYS for the three plays 5.3 names and for every `FSXR_*` reason W2's
+  door answers; the arm passes SI = 0, reads SI's answer onto the info
+  card's line (5.3.2), and takes `apps/os88real.inc` for its claim words,
+  whose `os88real_prep` CF = 1 is the player's own fallback; only what NO
+  play can reach is deleted)**. `t_megapkg` must still pass (fast tier), and
   `tests/megapkg.txt`'s allowance for `video.asm` only turns one way.
   Gates: the megaport `vid*` rows (`vidvga4`, `vidmodex`, `vidplayvga`,
   `vidvga8`, `vidresidentvga`, `vidlivevga`, `vidpage`, `vidfskeysvga4`,
@@ -894,6 +1058,34 @@ deduplicated union below, plus `test-full`.
     needed (the owner's rule).
   * Repeat on `vm/286-victory` with the XT-IDE disk (14.73's reproduction)
     as the in-house twin.
+* **W7. The states a user is in that W2 sends to protected mode** (the
+  owner, 2026-10-30: *"We need to not refuse states the user is going to
+  be in, and the Video Player supports playing on either screen in
+  fullscreen"* - it may come as the last wave). W2's owed table names each
+  reason; this wave lifts them one at a time, each by deleting its one test
+  in `fsx_rprepf` once its state works in real mode:
+  * **`FSXR_EXTD` - the extended desktop.** EXTD.DRV's entry block (`EXFP`)
+    is far-called by `OSAPI_FSX_MODE` (`EXTF_KIND`, the collapse),
+    `OSAPI_FSX_CAPS` and `OSAPI_WM_CONTENT` (and `fsx_run`'s restore, in
+    protected mode). Serve the EXTF verbs those cells reach in real mode -
+    real-mode targets in `.text`, or a LOW COPY of the module's image for
+    the bracket on W4's SOUND.DRV pattern - and gate it with a fullscreen
+    play on EITHER display of `xt-multimon`-class hardware (a mode set on the
+    secondary through `OSAPI_FSX_RUN` CH = n), with the window on the other.
+    The census must re-walk the module's own code for selectors.
+  * **`FSXR_SVC` - a driver's worker alive** (ETHER's, a sound stream task):
+    the real-mode bracket has one task. Either tell the driver (a verb, as
+    W4's `DSV_RMODE`) so its worker parks for the bracket, or run its work
+    from the real-mode tick through its low copy.
+  * **`FSXR_SERIAL` - a SERIAL.DRV lease open** (§115): the pointer's ISR
+    far-calls `SERFP + SER_IRQ` for the leased UART on every interrupt. A
+    low copy of the module, or the ISR leaving the leased row to a
+    real-mode capture the module is told about.
+  * **`FSXR_ROOM`** is W3/W5's in part (the conventional ring sized to leave
+    the region's copy room) and 5.3.3's HMA idea after.
+  Gates: `megarmbref`'s S, E and L arms turn from FALLBACK to TAKEN as each
+  lifts (the row's asserts change in the same diff), plus the two-display
+  play.
 
 ---
 
