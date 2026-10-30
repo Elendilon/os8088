@@ -70299,7 +70299,8 @@ integration branch), whose ISR arm and verb 4 path are resident: measured on
 the merge, the shipped build keeps **6,863** with no mixer and **10,408** with
 one (`tests/unit/t_sndonce.py`) - +182 over the table, all of it §34.6.4's,
 and the mixer case's 182 crossed the KB back to 11. §34.6.5 is what took it
-back: 6,392 and **9,937**, 7KB and 10KB.
+back: 6,392 and **9,937**, 7KB and 10KB. Kernel size pass 15 took them to
+**6,106 and 9,551** - **6KB** and 10KB (§34.15.1).
 
 `tests/sbirq5.py` and `tests/picomem.py` cut the discovery and `sbl_hook` out
 of `sb.inc` as they ship; `tests/unit/t_sndonce.py` holds the layout.
@@ -72121,8 +72122,8 @@ https://www.phatcode.net/res/243/files/sbhwpg.pdf .
 
 ### 34.15.1 What a machine cannot run leaves the claim
 
-SOUND.DRV is 11,151 bytes and two runs of it are dead weight once its attach
-has answered:
+SOUND.DRV is 11,369 bytes (11,151 when this was written) and two runs of it
+are dead weight once its attach has answered:
 
 - **the attach-only code** - `opl_probe` and `opl_kind_probe`, `opl_init`'s
   one-time chip init, `mpu_probe` and its three helpers with `os88_pin`,
@@ -72151,14 +72152,15 @@ mixer into existence - writes `snd_keepmix` into the header's `DRV_H_KEEP`,
 or `snd_keep` when `[mix_kind]` is 0, and the kernel shrinks the image's
 claim to it before the tier and `DRVV_READY` calls (§51.1.3):
 
-| build | no mixer (`snd_keep`) | a mixer (`snd_keepmix`) |
-|---|---|---|
-| shipped (PicoMEM in) | 6,681 bytes: **12KB → 7KB** | 10,226: **12KB → 10KB** |
-| `NOPICOMEM=1` | 6,501: 12KB → 7KB | 10,046: 12KB → 10KB |
+| build | no mixer (`snd_keep`) | a mixer (`snd_keepmix`) | image |
+|---|---|---|---|
+| shipped (PicoMEM in) | 6,106 bytes: **12KB → 6KB** | 9,551: **12KB → 10KB** | 11,369 |
+| `NOPICOMEM=1` | 5,949: 11KB → 6KB | 9,394: 11KB → 10KB | 10,864 |
 
-(Measured 2026-10-30, after §34.5.7; the table first carried 6,579 and
-10,124 against an 11,151-byte image, and the image had grown to 7,501 and
-11,046 kept by the time §34.5.7 took the Sound Blaster's attach-only half.)
+(Measured at kernel size pass 15, 2026-10-30, against 6,392 / 9,937 /
+11,737 and `NOPICOMEM=1`'s 6,209 / 9,754 / 11,224 before it -
+docs/plans/completed/ksp15/snd.md. The table first carried 6,579 and
+10,124 against an 11,151-byte image; §34.5.7 measured 6,681 and 10,226.)
 
 The attach-only bodies are defined as macros (`MPU_ONCE`, `CVX_ONCE`,
 `PM_ONCE`, `MIX_ONCE`, and `sb.inc`'s `SBL_ONCE`, which SOUND.DRV alone
@@ -72175,9 +72177,14 @@ before `mix_detach` - which is why `mix_kind` is the core's byte and not
 is an SB Pro's stereo stream (§34.5.5): `sbl_pro_st` reads and writes mixer
 0Eh, and it is reached only by a stream verb 11 accepted as stereo - which
 it does only against `SND_CAP_STEREO`, and `snd_sb_pub` publishes that to a
-DSP 3.xx only when `[mix_kind]` is 2. `sbl_stop_stream`'s write puts 0Eh back
-behind `[sbl_pst]`, which nothing but `sbl_pro_st` sets. So the guard is the
-caps word, read once at attach, and not a test at the call. Below
+DSP 3.xx only when `[mix_kind]` is 2. `sbl_stop_stream`'s `sbl_pro_end` puts
+0Eh back behind `[sbl_pst]`, which nothing but `sbl_pro_st` sets. So the
+guard is the caps word, read once at attach, and not a test at the call -
+**and since kernel size pass 15 both routines live in the MIXER's run**
+(`sb.inc`'s `SBL_PRO`, expanded after `mixer.inc`): the only code in `sb.inc`
+that touches the CT1345 is handed back with the rest of the mixer on a
+machine without one, and `sbl_hw_start` and `sbl_stop_stream` are the doors
+`t_sndonce` names. Below
 `snd_keepmix` only `snd_entry` names a label past it. Both rules are layout
 rules that assemble cleanly when broken, so `tests/unit/t_sndonce.py` reads
 them off the assembler's listing; its first run found `snd_detach` calling
