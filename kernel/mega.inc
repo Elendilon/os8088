@@ -2173,8 +2173,8 @@ mega_fkill:
     pop ds
     mov byte [mega_n0], 0           ; a reported fault never finishes a step of
                                     ; mega_null0's: none is pending after it
-    mov ax, LOW_SEG
-    mov es, ax                      ; ES = .lowbss throughout
+    push word LOW_SEG               ; ES = .lowbss throughout
+    pop es
     mov bx, [ss:bp+20]              ; --- the vector: a program's own
     cmp bx, 0xFFFF                  ; (FF: a software interrupt nobody
     je .vok                         ; handles, mega_unh)
@@ -2844,8 +2844,8 @@ mega_svc:
     mov [mega_rft0], ax             ; (a PicoMEM's state is read in the real-
 %endif                              ; mode half: mega_pmpre)
     push es
-    mov ax, MEGA_BDA
-    mov es, ax
+    push word MEGA_BDA
+    pop es
     mov ax, [es:0x6C]               ; the tick, so the ones the BIOS takes
     pop es                          ; while it holds the CPU are credited
     mov [mega_t0], ax
@@ -3254,8 +3254,8 @@ mega_svc_back:
 ; taken back to the ticks they really were.
 mega_rfclk:
     push es
-    mov ax, MEGA_BDA
-    mov es, ax
+    push word MEGA_BDA
+    pop es
     mov ax, [es:0x6C]
     sub ax, [mega_t0]               ; AX = the periods the ROM took
     jz .out
@@ -6939,8 +6939,8 @@ mega_fdgdraw:
     mov ax, [ticks]
     call .w
     push ds
-    mov ax, MEGA_BDA
-    mov ds, ax
+    push word MEGA_BDA
+    pop ds
     mov ax, [0x6C]
     pop ds
     call .w
@@ -11936,21 +11936,20 @@ mega_imghifree:
 ; -----------------------------------------------------------------------------
 section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
 mega_segf:
-    cmp bl, SEG_LIN
-    je .lin
-    cmp bl, SEG_REAL
-    je .real
-    cmp bl, SEG_WIN
-    je .win
+%if SEG_LIN != 0 || SEG_REAL != 1 || SEG_WIN != 2 || SEG_SUB != 3 || SEG_FREE != 4 || SEG_SUBC != 5 || SEG_BWIN != 6 || SEG_AIM != 7 || SEG_AT != 8
+  %error "mega_segf's dispatch takes the verbs two to a compare, in order"
+%endif
+    cmp bl, SEG_REAL            ; TWO VERBS A COMPARE (kernel size pass 15):
+    jb .lin                     ; the verbs are 0..8 in order, so one `cmp`
+    je .real                    ; answers below and equal at once
     cmp bl, SEG_SUB
+    jb .win
     je .sub
-    cmp bl, SEG_FREE
-    je .free
     cmp bl, SEG_SUBC
+    jb .free
     je .subc
-    cmp bl, SEG_BWIN
-    je .bwin
     cmp bl, SEG_AIM
+    jb .bwin
     je .aimj
     cmp bl, SEG_AT
     je .at
