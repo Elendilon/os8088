@@ -6006,7 +6006,11 @@ vp_xfree:
     jne .e
     mov ax, [vp_xbase]
     mov dx, [vp_xbase+2]
+%ifdef PKG_MEGA
+    call vp_rxfree                  ; (a real-mode bracket's: owed)
+%else
     call OSAPI_XMEM_FREE
+%endif
     jmp short .x
 .e:
     mov byte [vp_xems], 0           ; EMS: the pages and the two quarters
@@ -13590,7 +13594,11 @@ vp_lyxfree:
     mov byte [vp_lyxq], 0
     mov ax, [vp_lyxb]
     mov dx, [vp_lyxb+2]
+%ifdef PKG_MEGA
+    call vp_rxfree                  ; (a real-mode bracket's: owed)
+%else
     call OSAPI_XMEM_FREE
+%endif
     pop dx
     pop ax
 .r:
@@ -14521,6 +14529,7 @@ vp_rpost:
     pushf
     cmp byte [vp_rasked], 0
     je .o
+    push ax
     mov ax, si
     mov [vp_rwhy], al               ; (0: it ran in real mode)
     cmp byte [vp_rran], 0
@@ -14534,10 +14543,14 @@ vp_rpost:
     call vp_sesspic                 ; THE FRAME IN THE BOX (98.3.7), which
     call vp_fmt                     ; the bracket could not claim or draw
 .f:
+    call vp_rxgive                  ; (the XMS let go of inside)
     call vp_rgive
+    pop ax
 .o:
     popf
     ret
+    nop                             ; (never run: what follows at the parity
+                                    ; it had - tools/os88rdiff.py --hot)
 
 ; vp_rin - FIRST in the entry proc: in a REAL-MODE bracket (kern_mega, and
 ; OSAPI_CPU_INFO answers real mode) every listed word its real segment,
@@ -14633,6 +14646,56 @@ vp_spkbind:
     mov [os88spk_rseg], ax
     pop ax
 .o:
+    ret
+
+; vp_rxfree - OSAPI_XMEM_FREE of the block DX:AX, which a real-mode bracket
+; refuses (53.2.3): there it is OWED, banked for vp_rpost to give back once
+; protected mode is back. Two can be owed - the hold's or bank's block and
+; the layer's (vp_xfree takes both). Every register kept
+vp_rxfree:
+    cmp byte [vp_rbr], 0
+    jne .owe
+    jmp OSAPI_XMEM_FREE
+.owe:
+    push bx
+    mov bx, vp_rxo
+    cmp word [bx], 0
+    jne .n
+    cmp word [bx + 2], 0
+    je .put
+.n:
+    add bx, 4
+.put:
+    mov [bx], ax
+    mov [bx + 2], dx
+    pop bx
+    ret
+
+; vp_rxgive - vp_rpost's: every block a real-mode bracket owed, freed.
+; Every register kept
+vp_rxgive:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov bx, vp_rxo
+.l:
+    xor ax, ax
+    xor dx, dx
+    xchg ax, [bx]
+    xchg dx, [bx + 2]
+    mov cx, ax
+    or cx, dx
+    jz .z
+    call OSAPI_XMEM_FREE
+.z:
+    add bx, 4
+    cmp bx, vp_rxo + 8
+    jb .l
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; vp_rhave - CF=0 DX = the sound's ring a real-mode bracket holds already
@@ -23968,6 +24031,8 @@ vp_rpat:      db 0                      ; ...vp_addr was patched at the entry
 vp_rself:     dw 0                      ; ...[vp_self] outside
 vp_skscr:     dw 0                      ; ...the door's scratch for a seek
 vp_rlbuf:     times 1 + 13 + 3 * 2 + 1 db 0 ; ...the FSXL_ list (vp_rmklist)
+vp_rxo:       dw 0, 0, 0, 0             ; ...XMS blocks the bracket let go
+                                        ; of, freed after it (vp_rxfree)
 vp_rsel:      times VP_RSLN dw 0        ; PROTECTED MODE (KERN-MEGA-MEMORY-
                                         ; PLAN MC7): the ring's slots, one
                                         ; SEG_SUB each from its start (vp_rsmk)
