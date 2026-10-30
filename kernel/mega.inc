@@ -8861,13 +8861,9 @@ mega_xmsel:
     jc .not                         ; below the pool
     mov si, ax                      ; SI = the window's first KB from the
     mov di, dx                      ; pool's base
-    push cx
-    mov cl, 10
-    shr si, cl
-    mov cl, 6
-    shl di, cl
+    shr si, 10                      ; (`.mega` is 286 code: the shifts
+    shl di, 6                       ; take a count)
     or si, di
-    pop cx
     jcxz .full                      ; DX:AX = its end, exclusive
     add ax, cx
     adc dx, 0
@@ -8877,10 +8873,8 @@ mega_xmsel:
 .end:
     add ax, 1023                    ; ...rounded up to a KB
     adc dx, 0
-    mov cl, 10
-    shr ax, cl
-    mov cl, 6
-    shl dx, cl
+    shr ax, 10
+    shl dx, 6
     or ax, dx                       ; AX = the first KB past the window
     mov di, mx_tab
 .scan:
@@ -9013,7 +9007,7 @@ mxs_hi      dw 0
 mxs_len     dw 0
 
 ; DX:AX = linear (mx_rel, as KB from the pool base) or bytes (mx_tokb, as
-; KB) -> AX; CF = 1 below the pool or 64MB or more. Clobbers CL, DX
+; KB) -> AX; CF = 1 below the pool or 64MB or more. Clobbers DX
 section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
 mx_rel:
     sub dx, MEGA_XPOOL >> 16
@@ -9022,10 +9016,8 @@ mx_tokb:
     cmp dh, 0x04
     cmc
     jc .out
-    mov cl, 10
-    shr ax, cl
-    mov cl, 6
-    shl dx, cl
+    shr ax, 10
+    shl dx, 6
     or ax, dx
 .out:
     ret
@@ -9044,8 +9036,7 @@ mx_chk:
     and di, 0x03FF
     add di, cx
     add di, 1023
-    mov cl, 10
-    shr di, cl
+    shr di, 10
     call mx_rel
     jc .no
     add di, ax
@@ -9550,7 +9541,7 @@ mega_modhif:
     pop cx                          ; reads N x 16 there all the same)
     mov [mega_xsrc], ax
     mov [mega_xsrc+2], dx
-    call KERNEL_SEG:mega_lincopyf
+    call mx_lcopy
     pop ax
     clc
 .out:
@@ -9827,7 +9818,6 @@ XMW_PAD     equ 0xF4                ; (none since MC2: kept for the SDK)
 ; step 9 publishes it). Clobbers nothing else
 mega_slotof:
     push ax
-    push cx
     push di
     mov ax, es
     mov di, [ld_rec]
@@ -9853,13 +9843,11 @@ mega_slotof:
 .slot:
     mov ax, di
     sub ax, inst_tab
-    mov cl, 5                       ; I_RECSZ = 32 (ld_slot's shift)
-    shr ax, cl
+    shr ax, 5                       ; I_RECSZ = 32 (ld_slot's shift)
     mov bl, al
     clc
 .o:
     pop di
-    pop cx
     pop ax
     ret
 
@@ -11590,7 +11578,7 @@ mega_imghuge:
     push cx
     mov cx, ax
     shl cx, 4                       ; bytes, even
-    call KERNEL_SEG:mega_lincopyf
+    call mx_lcopy
     pop cx
     pop ax
     add word [mega_xsrc], 0x8000    ; (only a whole chunk is ever followed)
@@ -11679,7 +11667,7 @@ mega_imghif:
     jnz .copy
     mov cx, 0xFFFE                  ; a 64KB region: mega_lincopy's ceiling
 .copy:
-    call KERNEL_SEG:mega_lincopyf
+    call mx_lcopy
     dec byte [sch_lock]
     pop ax
     add ax, 8                       ; the DATA half names the region
@@ -11702,7 +11690,8 @@ mega_pkghifree:
     mov bl, dl
     or bl, 0x80
     call mega_rgnsubfree
-    call MEGA_SEL_CODE:mega_imghifree
+.t:
+    call mega_imghifree
     pop bx
     retf
 
@@ -11950,11 +11939,9 @@ mega_rgnconv:
 mega_drvhifree:
     push bx
     mov bl, MX_KDRV
-    call MEGA_SEL_CODE:mega_imghifree
-    pop bx
-    retf
+    jmp mega_pkghifree.t
 
-; mega_imghifree - FAR: AX = an image's DATA selector, BL = its pool owner
+; mega_imghifree - AX = an image's DATA selector, BL = its pool owner
 ; -> the block and both of the pair's entries are free. Clobbers nothing
 mega_imghifree:
     push ax
@@ -11974,7 +11961,7 @@ mega_imghifree:
     pop cx
     pop bx
     pop ax
-    retf
+    ret
 
 ; -----------------------------------------------------------------------------
 ; mega_segf - FAR: OSAPI_SEG's body in protected mode (SPEC.md 50.6.11,
@@ -13528,13 +13515,7 @@ mega_idt_gatef:
     call mega_idt_gate
     retf
 section .mega                       ; ...and `.mega` bodies low code calls,
-mega_strcalf:                       ; every one of them in protected mode
-    call mega_strcal
-    retf
-mega_fd13f:
-    call mega_fd13
-    retf
-mega_selbasef:
+mega_selbasef:                      ; every one of them in protected mode
     call mega_selbase
     retf
 mega_p2df:
