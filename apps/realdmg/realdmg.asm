@@ -673,7 +673,7 @@ rw_dsel         dw 0                ; our DATA segment, for code entered
                                     ;   with DS somebody else's (rw_reloc)
 %ifdef PKG_MEGA
 rw_pm           db 0                ; CPU_F_PM at entry: kern_mega's arm
-rw_xsel         dw 0                ; the bank run's first selector
+rw_xsel         dw 0                ; the banks in place: the first window
 rw_jtsel        dw 0                ; the block table's selector, or 0 (rw_jtx)
 rw_jtsub        dw 0                ; ...or in the claim under CPU_F_PM
                                     ;   (OSAPI_XMEM_RUN, REALDMG-SPEC 10.3.1)
@@ -2601,9 +2601,7 @@ rw_unload:
     mov byte [rw_ntc], 0
     cmp byte [rw_bcache], 0         ; the ROM: the bank cache's store and
     je .one                         ;   slots, or its one claim
-    mov ax, [rw_xbase]
-    mov dx, [rw_xbase + 2]
-    call OSAPI_XMEM_FREE            ; (its run of selectors with it)
+    call rw_xfree                   ; (or the banks in place, 10.3.1)
     xor dx, dx
     xchg dx, [rw_slotseg]
     or dx, dx                       ; (none: the banks in place, 10.3.1)
