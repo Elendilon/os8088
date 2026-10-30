@@ -201919,11 +201919,60 @@ region to `[fsx_rseg]` while `[fsx_rmode]` is 1, the megaport `vid*` rows
 having taken the region's base before the play.
 
 **What it cost** (image + bss against `APP_MAX_SIZE`, 65,024): the arm
-63,308 -> **64,430** (image 60,687 -> 61,773, bss +36), the shipped player
-62,547 and byte-identical, kern_big and kern_small byte-identical. The
-arm's `VPDIAG=1` build is **65,726** and `VPDIAG=time`'s **65,913** -
-over by 702 and 889 bytes (W4's were 64,800 and 64,987), so neither
-assembles: MEGA-VIDEO-REALMODE-PLAN W5's entry says what was weighed.
+63,308 -> 64,430 (image 60,687 -> 61,773, bss +36), the shipped player
+62,547 and byte-identical, kern_big and kern_small byte-identical. That put
+the arm's `VPDIAG=1` build at 65,726 and `VPDIAG=time`'s at 65,913 - over,
+so neither assembled - and 98.3.24.1 is the answer.
+
+##### 98.3.24.1 The arm's COLD PART (2026-10-30)
+
+**Part 3 of the arm's VIDEO.O88 is code moved OUT of the image**, because
+a part is not counted against `APP_MAX_SIZE` (§20.12) and the arm's diag
+builds had outgrown it: the door (`vp_rdoor` with `vp_xmoved`,
+`vp_rclaims`, `vp_rgive`, `vp_rmklist`), its afterword (`vp_rpost`,
+`vp_rxgive`), the info card's ninth line and its names (`vp_rline`), and
+with `VP_DIAG` the profile's two ends (`vp_prbeg`, `vp_prend`, `vp_prlin`)
+and the reflection counts (`vp_rqget`). All of it is COLD - once a play at
+most, on the desktop or at a bracket's edge - so a far call costs nothing a
+play can see. `apps/video/vcold.asm` is the part and `apps/video/vcold.inc`
+its header: a signature, the player image size it was linked against, and
+six vectors.
+
+- **It is a LINKED part, PiXEL's shape (§106.20)**: DS is the player's
+  throughout, and the part reads and writes the player's variables by the
+  names `tools/os88plink.py` takes out of the MAP the player's own assembly
+  wrote (`$(MEGAAPPDIR)/vclink.inc`). The part lists what it takes in its
+  own source (`;@data`, `;@call`, a `:DEFINE` for the diag build's), a name
+  the map has not got fails the build, and a ROUTINE comes out as `PC_name`
+  so that a plain `call` of one stays an assembly error. The player refuses
+  a part linked against another build of itself (`VK_IMG`).
+- **Calls go both ways.** The player's entries are STUBS (`vp_cpcall`):
+  every register and flag as the caller left them, a far call through the
+  vector, and the part's `retf`. The part reaches the player's routines
+  back through `vp_ptramp` - `[vp_ptgt]` the routine, near-called in the
+  player's own code segment, `retf` - which is `VPC` in the part, and the
+  player's CS where a routine records it (the profile's trailer) is
+  `[vp_ptfp + 2]`. The part writes nothing through its own CS, which is a
+  read-only code alias under protected mode; its names' table is read
+  through it.
+- **Fetched at the first call and kept** (`vp_cpget`, the shaper's shape):
+  movable with the session's claims (`vp_smtab`), on its code alias in
+  protected mode (`OSAPI_MEM_CODESEL`, asked at every call since a move may
+  change it), and on its real paragraph inside a real-mode bracket, where
+  the card's ninth line is drawn too - `[vp_cpseg]` is in `vp_rlst`. It is
+  never fetched inside a real-mode bracket; the door, which always runs
+  first, has. A part that will not come is a door not asked (protected
+  mode) and a line not drawn.
+- **The profile's two ends are written once for both builds**
+  (`apps/video/vprof.inc`): the shipped player expands them where they
+  always were, so every shipped build - plain, `VPDIAG=1`, `VPDIAG=time`,
+  the read log, `NOLIVESND` - is byte-identical; the arm's part expands them
+  with `VPR_CALL` and `VPR_CS` aimed at the trampoline.
+
+**What it bought** (image + bss against 65,024; the part's own bytes in
+brackets, which are no image's): the arm **63,760** (1,264 to spare, from
+594), `VPDIAG=1` **64,548** (476 to spare) and `VPDIAG=time` **64,727**
+(297 to spare) - the part 1,009, 1,565 and 1,573 bytes.
 
 ### 98.4 The window: the Preview (wave 6)
 

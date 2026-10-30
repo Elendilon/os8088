@@ -50,7 +50,7 @@ PLAY = 60                       # 400 frames at 24 fps, and its settle
 
 
 def build_pkg(tmp):
-    """The kern_mega arm assembled VP_TTEST=3, with its three parts"""
+    """The kern_mega arm assembled VP_TTEST=3, with its four parts"""
     b = os.path.join(tmp, "video.bin")
     subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", "apps/",
                     "-DPKG_MEGA", "-DVP_TTEST=3",
@@ -60,11 +60,20 @@ def build_pkg(tmp):
     subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", "apps/",
                     "-DPKG_MEGA", "-o", fx, "apps/video/vfx.asm"],
                    check=True, cwd=ROOT)
+    # ...and its COLD PART, linked to THIS assembly's map (SPEC.md 98.3.24.1)
+    lk, vc = os.path.join(tmp, "vclink.inc"), os.path.join(tmp, "vcold.bin")
+    subprocess.run([sys.executable, "tools/os88plink.py", b,
+                    os.path.join(tmp, "video.map"), "apps/video/vcold.asm",
+                    "-o", lk], check=True, cwd=ROOT)
+    subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", "apps/", "-I",
+                    tmp + "/", "-DPKG_MEGA", "-o", vc,
+                    "apps/video/vcold.asm"], check=True, cwd=ROOT)
     o = os.path.join(tmp, "VIDEO.O88")
     subprocess.run([sys.executable, "tools/os88pkg.py", b, "-o", o,
                     "--part", os.path.join(BUILD, "vblk.bin"),
                     "--part", os.path.join(BUILD, "vblkpm.bin"),
-                    "--part", fx], check=True, capture_output=True, cwd=ROOT)
+                    "--part", fx, "--part", vc], check=True,
+                   capture_output=True, cwd=ROOT)
     return o, os.path.join(tmp, "video.map")
 
 

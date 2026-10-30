@@ -12306,6 +12306,7 @@ vp_smtab:     dw vp_rclm, vp_keep, vp_prevseg, vp_shseg, vp_pseg, vp_kshd
               dw vp_pevseg, vp_p8seg, vo_s1seg, vp_bseg
 %ifdef PKG_MEGA
               dw vp_fxseg           ; (the speaker shaper's part, 98.3.15.2)
+              dw vp_cpseg           ; (the cold part, 98.3.24.1)
 %endif
 %ifdef VP_DIAG
               dw vp_prseg           ; (the profile: vp_prmark and the read
@@ -14283,277 +14284,125 @@ vp_plset:
 ; player's own reasons not to ask are tested first (vp_rdoor), the kernel's
 ; come back in SI, and the info card's ninth line says which (vp_rline).
 ; =============================================================================
-VPR_LIVE    equ 0x11                ; the player's reasons, [vp_rwhy] (the
-VPR_SPK     equ 0x12                ; kernel's are FSXR_*, 1-9)
-VPR_V2      equ 0x13
-VPR_RES     equ 0x14
-VPR_SPLIT   equ 0x15
-VPR_MOVED   equ 0x16
-VPR_CLAIM   equ 0x17
-VPR_SHAD    equ 0x18
+; =============================================================================
+; THE ARM'S COLD PART (SPEC.md 98.3.24.1): part 3, apps/video/vcold.asm - the
+; door, its afterword and the card's ninth line, and with VP_DIAG the profile's
+; two ends and with VP_RQ the reflection counts, moved out of the image
+; because a part is not APP_MAX_SIZE's. Each entry here is a STUB that
+; far-calls the part's vector with every register as its caller left it, and
+; the part reaches the player's own routines back through vp_ptramp. The
+; part is fetched at the first call and kept, movable (vp_smtab), and it
+; runs in a real-mode bracket as on the desktop ([vp_cpseg] is in vp_rlst).
+; A part that will not come is a door not asked and a line not drawn.
+; =============================================================================
+%include "video/vcold.inc"          ; (its header and vectors)
 
-; vp_rdoor - OSAPI_FSX_RUN's door: CL |= FSXF_REAL, BP = the list and SI = 0
-; when real mode serves this play - its two claims taken and its words
-; banked (os88real_prep) - else [vp_rwhy] the reason it does not, and CL,
-; BP as they came. Every other register kept
-vp_rdoor:
-    mov byte [vp_rasked], 0
-    cmp byte [vp_pm], 0
-    jne .k
-    ret                             ; (a real-mode kernel: as shipped)
-.k:
-    push ax
-    push bx
-    push dx
-    push si
-    push di
-    mov al, VPR_LIVE                ; LIVE (98.3.10): selector runs on the
-    cmp byte [vp_lsess], 0          ; desktop, protected mode by ruling
-    jne .pm
-    cmp byte [vp_livem], 0
-    jne .pm
-    mov al, VPR_RES                 ; RESIDENT: its cursors are offsets in
-    cmp byte [vp_resid], 0          ; protected mode, segments in real
-    jne .pm
-    cmp byte [vp_xems], 0           ; XMS READ IN PLACE (5.3 ruling 1), the
-    jne .nb                         ; bank's or the hold's, as protected
-    mov ah, [vp_xbank]              ; mode decided it: under the speaker,
-    or ah, [vp_einp]                ; a version 2 file or the shadow, real
-    or ah, [vp_xip]                 ; mode's borrow would hold interrupts
-    jz .nb                          ; off through decoders with no yield
-    mov al, VPR_SPK                 ; site, and its rules copy instead
-    cmp byte [vp_snd], VP_SPK
-    je .pm
-    mov al, VPR_V2
-    cmp byte [vp_v2], 0
-    jne .pm
-    mov al, VPR_SHAD
-    cmp byte [vp_shadow], 0
-    jne .pm
-.nb:
-    mov al, VPR_MOVED               ; a block not where its token names: real
-    call vp_xmoved                  ; mode reads it at the token's address
-    jc .pm
-    mov al, VPR_SPLIT               ; THE LAYER's split (98.1.9.2), owed: it
-    cmp byte [vp_lysplt], 0         ; claims and frees XMS on verdicts taken
-    jne .ns                         ; inside, which real mode refuses
-    cmp word [vp_lybkb], 0
-    je .ns
-    cmp byte [vp_xems], 0
-    je .pm
-.ns:
-    call vp_rclaims                 ; what the bracket cannot claim
-    mov si, vp_rlst                 ; ...and every word a real segment
-    mov di, vp_rlst_bank
-    call os88real_prep
-    mov al, VPR_CLAIM
-    jc .pmf
-    call vp_rmklist                 ; BP = the list
-    or cl, FSXF_REAL
-    mov byte [vp_rasked], 1
-    pop di
-    pop si
-    xor si, si                      ; (FSXR_REAL in)
-    jmp short .o
-.pmf:
-    call vp_rgive
-.pm:
-    mov [vp_rwhy], al
-    pop di
-    pop si
-.o:
-    pop dx
-    pop bx
-    pop ax
-    ret
+vp_rdoor:                           ; ...each its routine's contract
+    mov byte [vp_rasked], 0         ; (none asked if the part will not come)
+    mov byte [vp_cpv], VK_RDOOR
+    jmp short vp_cpcall
+vp_rpost:
+    mov byte [vp_cpv], VK_RPOST
+    jmp short vp_cpcall
+vp_rline:
+    mov byte [vp_cpv], VK_RLINE
+    jmp short vp_cpcall
+%ifdef VP_DIAG
+vp_prbeg:
+    mov byte [vp_cpv], VK_PRBEG
+    jmp short vp_cpcall
+vp_prend:
+    mov byte [vp_cpv], VK_PREND
+    jmp short vp_cpcall
+%endif
+%ifdef VP_RQ
+vp_rqget:
+    mov byte [vp_cpv], VK_RQGET
+    jmp short vp_cpcall
+%endif
 
-; vp_xmoved - CF=1: the hold's or bank's XMS block is not at its token (the
-; pool moved it), so real mode, which reads at the token, may not have it.
-; Every register kept
-vp_xmoved:
-    cmp byte [vp_xems], 0
-    jne .no
-    push ax
-    push bx
-    push dx
-    mov ax, [vp_xbase]
-    or ax, [vp_xbase + 2]
-    jz .ok                          ; (no block: CF=0 from the or)
-    mov dx, [vp_xrun]
-    or dx, dx
-    stc
-    jz .o                           ; (no run to ask: moved, for all we know)
-    mov bl, SEG_LIN
-    call OSAPI_SEG                  ; DX:AX = where it is now
-    jc .o
-    cmp ax, [vp_xbase]
-    jne .mv
-    cmp dx, [vp_xbase + 2]
-    je .ok
-.mv:
-    stc
-    jmp short .o
-.ok:
-    clc
-.o:
-    pop dx
-    pop bx
-    pop ax
+; vp_cpcall - vector [vp_cpv] of the cold part, every register and the flags
+; as the stub's caller left them; nothing when the part will not come
+vp_cpcall:
+    pushf
+    call vp_cpget
+    jc .no
+    popf
+    call far [vp_cpfp]
     ret
 .no:
-    clc
+    popf
     ret
 
-; vp_rclaims - the two claims a real-mode bracket cannot make, at its door: a
-; seek's key-entry scratch, and the sound's ring when none is held (Unmute in
-; the full screen) - with the speaker's shaper part where the speaker would
-; shape. Each is what the bracket's own claim would have been; none is an
-; error. Every register kept
-vp_rclaims:
+; vp_ptramp - the part's way back: [vp_ptgt] near-called in OUR code segment,
+; every register its caller's (vcold.asm's VPC)
+vp_ptramp:
+    call [vp_ptgt]
+    retf
+
+; vp_cpget - CF=0: [vp_cpfp] vector [vp_cpv] of the cold part, on the CS this
+; mode calls it through (protected mode's CODE alias, as vp_fxinit's), and
+; [vp_ptfp] our own way back. The part fetched the first time, checked to be
+; the one built against THIS image, and movable from then on. Not fetched
+; inside a real-mode bracket (the door always has). Every register kept
+vp_cpget:
     push ax
     push bx
     push cx
     push dx
-    cmp word [vp_nkeys], 0
-    je .snd
-    cmp word [vp_skscr], 0
-    jne .snd
-    mov ax, [vp_kekb]
-    call vp_mclaim
-    jc .snd
-    mov [vp_skscr], dx
-.snd:
-    cmp byte [vp_audio], 0
-    je .o
-    cmp byte [vp_nosnd], 0
-    jne .o
-    cmp word [vp_aseg], 0
-    jne .o
-    call vp_scaps
-    test ax, SND_CAP_PCM_BG
-    jz .spk
-    mov ax, VP_RL / 1024 + 1        ; a card's: vp_sndprep's .hw
-    mov cx, ax
-    call OSAPI_MEM_CLAIM_DMA_HI
-    jc .o
-    jmp short .got
-.spk:
-    cmp byte [vp_spkpwm], 0         ; the speaker's: its shaper part first
-    jne .sp1                        ; (a card's clip, 98.3.15.2)
-    call vp_fxget
-    jc .o
-.sp1:
-    call vp_ringkb
-    call vp_mclaim
-    jc .o
-.got:
-    mov [vp_aseg], dx               ; held with [vp_snd] 0: no sound yet
-.o:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; vp_rgive - after the bracket: the door's scratch given back, and the sound's
-; ring if the play went out silent (muted inside, or never unmuted). Every
-; register kept
-vp_rgive:
-    push dx
-    xor dx, dx
-    xchg dx, [vp_skscr]
-    or dx, dx
-    jz .s
-    call vp_mfree
-.s:
-    cmp byte [vp_snd], 0
-    jne .o
-    xor dx, dx
-    xchg dx, [vp_aseg]
-    or dx, dx
-    jz .o
-    call vp_mfree
-.o:
-    pop dx
-    ret
-
-; vp_rmklist - BP = the FSXL_ list (SPEC.md 53.2.3): the file, HDD.DRV, the
-; card when the play may sound through one, EMS for an EMS bank. Every other
-; register kept
-vp_rmklist:
-    push ax
-    push cx
     push si
     push di
     push es
-    push ds
-    pop es
-    cld
-    mov di, vp_rlbuf
-    mov al, FSXL_FILE
-    stosb
-    mov si, vp_name
-    mov cx, 13
-    rep movsb
-    mov ax, FSXL_DRV | DRVC_DISK << 8
-    stosw
-    cmp byte [vp_xems], 0
-    je .ne
-    mov ax, FSXL_DRV | DRVC_EMS << 8
-    stosw
-.ne:
-    cmp byte [vp_audio], 0
-    je .e
-    cmp byte [vp_nosnd], 0
-    jne .e
-    push di
-    call vp_scaps
-    pop di
-    test ax, SND_CAP_PCM_BG
-    jz .e
-    mov ax, FSXL_DRV | DRVC_SOUND << 8
-    stosw
-.e:
-    mov al, FSXL_END
-    stosb
-    mov bp, vp_rlbuf
+    mov dx, [vp_cpseg]
+    or dx, dx
+    jnz .have
+    cmp byte [vp_rbr], 0
+    jne .no
+    mov al, 3
+    call op_fetch
+    jc .no
+    mov al, 3
+    call op_seg
+    or ax, ax
+    jz .no
+    mov es, ax
+    cmp word [es:VK_SIG], VK_SIGVAL
+    jne .no
+    cmp word [es:VK_IMG], OS88_IMAGE_SIZE   ; (built against this image)
+    jne .no
+    mov [vp_cpseg], ax
+    xchg ax, dx
+    mov ax, vp_smove                ; ...and moved with the session's claims
+    call vp_mmov
+.have:
+    mov es, dx
+    mov ax, dx
+    cmp byte [vp_pm], 0
+    je .cs
+    call OSAPI_MEM_CODESEL
+    jnc .cs
+    mov ax, dx
+.cs:
+    mov [vp_cpfp + 2], ax
+    mov [vp_ptfp + 2], cs
+    mov bl, [vp_cpv]
+    xor bh, bh
+    shl bx, 1
+    mov ax, [es:VK_VEC + bx]
+    mov [vp_cpfp], ax
+    clc
+    jmp short .o
+.no:
+    stc
+.o:
     pop es
     pop di
     pop si
+    pop dx
     pop cx
+    pop bx
     pop ax
     ret
-
-; vp_rpost - right after OSAPI_FSX_RUN, protected mode again, flags kept: the
-; kernel's answer onto the card, and what the bracket owed undone - the block
-; decoder's pointers made again on its selector, the frame put in the box,
-; the door's claims given back. Every register kept
-vp_rpost:
-    pushf
-    cmp byte [vp_rasked], 0
-    je .o
-    push ax
-    mov ax, si
-    mov [vp_rwhy], al               ; (0: it ran in real mode)
-    cmp byte [vp_rran], 0
-    je .f
-    mov byte [vp_rran], 0
-    call vp_bset
-    call vp_fxbind                  ; (the shaper's, on its selectors again)
-    cmp byte [vp_rpic], 0
-    je .f
-    mov byte [vp_rpic], 0
-    call vp_sesspic                 ; THE FRAME IN THE BOX (98.3.7), which
-    call vp_fmt                     ; the bracket could not claim or draw
-.f:
-    call vp_rxgive                  ; (the XMS let go of inside)
-    call vp_rgive
-    pop ax
-.o:
-    popf
-    ret
-    nop                             ; (never run: what follows at the parity
-                                    ; it had - tools/os88rdiff.py --hot)
 
 ; vp_rin - FIRST in the entry proc: in a REAL-MODE bracket (kern_mega, and
 ; OSAPI_CPU_INFO answers real mode) every listed word its real segment,
@@ -14684,36 +14533,6 @@ vp_rxfree:
     pop bx
     ret
 
-; vp_rxgive - vp_rpost's: every block a real-mode bracket owed, freed.
-; Every register kept
-vp_rxgive:
-    push ax
-    push bx
-    push cx
-    push dx
-    mov bx, vp_rxo
-.l:
-    xor ax, ax
-    xor dx, dx
-    xchg ax, [bx]
-    xchg dx, [bx + 2]
-    mov cx, ax
-    or cx, dx
-    jz .z
-    call OSAPI_XMEM_FREE
-.z:
-    inc bx                          ; (four incs: what follows at the
-    inc bx                          ; parity it had)
-    inc bx
-    inc bx
-    cmp bx, vp_rxo + 8
-    jb .l
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
 ; vp_rhave - CF=0 DX = the sound's ring a real-mode bracket holds already
 ; (the door's, or one Mute kept): vp_sndprep's claim, which real mode
 ; refuses. CF=1 make the claim. Every other register kept
@@ -14744,39 +14563,6 @@ vp_rskclm:
     je vp_mclaim
     mov dx, [vp_skscr]
     cmp dx, 1                       ; CF = 1 for 0
-    ret
-
-; vp_rline - the info card's ninth line (98.3.24): which bracket the last play
-; took, and why not real mode. DI = the line. Every register kept
-vp_rline:
-    cmp byte [vp_rwhy], 0xFF
-    je .r
-    push ax
-    push bx
-    push si
-    mov si, vp_s_rreal
-    mov al, [vp_rwhy]
-    or al, al
-    jz .p
-    mov si, vp_s_rpm
-    call vp_puts
-    mov bl, al
-    xor bh, bh
-    sub bl, 0x11
-    jae .own                        ; the player's
-    add bl, 0x11 + VPR_NOWN - 1     ; ...or the kernel's, after them
-.own:
-    cmp bl, VPR_NALL
-    jae .x
-    shl bx, 1
-    mov si, [vp_rwhys + bx]
-.p:
-    call vp_puts
-.x:
-    pop si
-    pop bx
-    pop ax
-.r:
     ret
 
 %endif
@@ -19538,58 +19324,10 @@ vp_prbad:
     ret
 %endif
 
-; vp_prbeg - a session starts: the words' claim, zeroed - before the rings
-; are sized, or a machine with no XMS has no room for it after (vp_prgo
-; runs the clock, or gives the claim back to the speaker)
-vp_prbeg:
-    push ax
-    push cx
-    push dx
-    push di
-    push es
-    cmp word [vp_prseg], 0
-    jne .out                        ; (a session already profiled, unsaved)
-    mov word [vp_prn], 0
-    mov word [vp_prnl], 0
-    mov word [vp_prbd], 0
-    mov ax, [vp_frames]
-    cmp ax, VP_PRMAX
-    jbe .n
-    mov ax, VP_PRMAX
-.n:
-    mov [vp_prna], ax
-    shl ax, 1                       ; four bytes a frame, the header and the
-    shl ax, 1                       ; read log, in whole KB
-%if VP_RLMAX
-    push ax
-    add ax, VP_PRH
-    mov [vp_prlp], ax               ; (the log's first entry: after them)
-    pop ax
+%ifndef PKG_MEGA
+%include "video/vprof.inc"          ; (the kern_mega arm's are its cold
+    VPROF_BEG                       ; part's, vcold.asm: 98.3.24.1)
 %endif
-    add ax, VP_PRH + 8 * VP_RLMAX + VP_DIL + 1023
-    mov cl, 10
-    shr ax, cl
-    call vp_mclaim
-    jc .out
-    mov [vp_prseg], dx
-    mov es, dx
-    xor di, di
-    mov cx, ax
-    mov ax, cx                      ; KB x 512 words
-    mov cl, 9
-    shl ax, cl
-    mov cx, ax
-    xor ax, ax
-    cld
-    rep stosw
-.out:
-    pop es
-    pop di
-    pop dx
-    pop cx
-    pop ax
-    ret
-
 ; vp_prgo - the session's clock is set: channel 2 run free for the profile
 ; - unless the speaker plays it (98.3.15), whose clock channel 2 is: the
 ; claim given back. Clobbers AX
@@ -19618,162 +19356,9 @@ vp_prgo:
     out 0x42, al                    ; 65,536: free running
     ret
 
-; vp_prend - the session stopped: the profile written as VPPROFn.DAT (the
-; first n from 1 not on the disk) and its claim given back. Every register
-; kept
-vp_prend:
-    cmp word [vp_prseg], 0
-    jne .go
-    ret
-.go:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push es
-    mov dx, [vp_prseg]              ; PINNED for the rest of it (SPEC.md
-    xor ax, ax                      ; 66.5.7.1): the write holds ES:BX on it
-    call vp_mmov                    ; across the file layer's own claims, and
-    nop                             ; it is freed at the end (nop: parity)
-    mov al, [vp_pr61]               ; the gate as it was
-    out 0x61, al
-    mov es, [vp_prseg]              ; THE HEADER, in the claim's first 48
-    mov word [es:0], 'VP'           ; (+38 on, a damaged super-packet's
-    mov word [es:2], 'PR'           ; where, vp_prbad's, already there)
-%ifdef VP_RDTIME
-    mov word [es:4], 4              ; version 4: 3, the reads TIMED
-%else
-    mov word [es:4], 3              ; version 3 (the card's trailer, VPDI)
+%ifndef PKG_MEGA
+    VPROF_END
 %endif
-    mov ax, [vp_prn]
-    mov [es:6], ax
-    mov ax, [vp_pitdiv]
-    mov [es:8], ax
-    mov al, [vp_pitper0]
-    mov ah, [vp_snd]
-    mov [es:10], ax
-    mov al, [vp_flip]
-    mov ah, [vp_einp]
-    mov [es:12], ax
-    mov al, [vp_xip]
-    mov ah, [vp_lbk]
-    mov [es:14], ax
-    mov si, vp_name
-    mov di, 16
-    mov cx, 13
-    cld
-    rep movsb
-    mov ax, [vp_late]
-    stosw                           ; +29
-    mov di, 32
-    mov ax, [vp_prna]               ; +32 the slots, +34 the reads, +36 the
-    stosw                           ; damaged super-packets
-    mov ax, [vp_prnl]
-    stosw
-    mov ax, [vp_prbd]
-    stosw
-    ; THE CARD'S TRAILER (98.3.22.3), after the words and the reads: 'VPDI',
-    ; its bytes, its words' count, then every number the info card draws
-    ; and where this boot put the play (vp_ditab), the package's CS and SS
-    mov di, [vp_prna]
-    shl di, 1
-    shl di, 1
-    mov ax, [vp_prnl]
-    shl ax, 1
-    shl ax, 1
-    shl ax, 1
-    add di, ax
-    add di, VP_PRH
-    mov ax, 'VP'
-    stosw
-    mov ax, 'DI'
-    stosw
-    mov ax, VP_DIL
-    stosw
-    mov ax, VP_DIN
-    stosw
-    mov si, vp_ditab
-    mov cx, (vp_ditab_end - vp_ditab) / 2
-.dw:
-    lodsw
-    xchg bx, ax
-    mov ax, [bx]
-%ifdef PKG_MEGA
-    cmp bx, vp_ring                 ; (protected mode: the ring and its
-    je .dl                          ; claim are SELECTORS, which the trailer
-    cmp bx, vp_rclm                 ; reads as paragraphs - the placement's
-    jne .dn                         ; verdict came out of selector numbers)
-.dl:
-    call vp_prlin
-.dn:
-%endif
-    stosw
-    loop .dw
-    mov ax, cs
-%ifdef PKG_MEGA
-    call vp_prlin
-%endif
-    stosw
-    mov ax, ss
-%ifdef PKG_MEGA
-    call vp_prlin
-%endif
-    stosw
-%ifdef VP_RQ
-    mov si, vp_rqd                  ; (the bracket's reflections, after them)
-    mov cx, 4
-    rep movsw
-%endif
-    mov al, '1'
-.try:
-    mov [vp_prfn + 6], al
-    push ax
-    push ds
-    pop es
-    xor bx, bx
-    xor cx, cx
-    xor dx, dx
-    mov si, vp_prfn
-    call OSAPI_FILE_READ            ; zero bytes: is it there?
-    xchg bx, ax                     ; (BX = the refusal)
-    pop ax
-    jnc .next                       ; (an empty one: there)
-    cmp bx, FERR_NOENT              ; ONLY no such file is free: one that is
-    je .free                        ; there refuses FERR_BIG (a read into no
-.next:                              ; room, 20.14.6.3), and that refusal
-    inc al                          ; once overwrote VPPROF1 every play
-    cmp al, '9'
-    jbe .try
-    jmp short .drop                 ; nine already: none written
-.free:
-    mov cx, [vp_prna]               ; the header, every frame slot, and the
-    shl cx, 1                       ; reads logged after them, and the
-    shl cx, 1                       ; card's trailer
-    add cx, VP_PRH + VP_DIL
-    mov ax, [vp_prnl]
-    shl ax, 1
-    shl ax, 1
-    shl ax, 1
-    add cx, ax
-    xor dx, dx
-    mov es, [vp_prseg]
-    xor bx, bx
-    mov si, vp_prfn
-    call OSAPI_FILE_WRITE           ; the header and the words
-.drop:
-    mov dx, [vp_prseg]
-    call OSAPI_MEM_FREE
-    mov word [vp_prseg], 0
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
 %else
 %macro VP_PRDONE 0
 %endmacro
@@ -24046,6 +23631,12 @@ vp_rpic:      db 0                      ; ...the frame in the box owed after
 vp_rpat:      db 0                      ; ...vp_addr was patched at the entry
 vp_rself:     dw 0                      ; ...[vp_self] outside
 vp_skscr:     dw 0                      ; ...the door's scratch for a seek
+vp_cpseg:     dw 0                      ; THE COLD PART (98.3.24.1): its claim,
+vp_cpfp:      dw 0, 0                   ; ...the vector being called, far,
+vp_ptfp:      dw vp_ptramp, 0           ; ...our way back, far,
+vp_ptgt:      dw 0                      ; ...where it goes,
+vp_cpv:       db 0, 0                   ; ...and which vector (and the words
+                                        ; below at the parity they had)
 vp_rlbuf:     times 1 + 13 + 3 * 2 + 1 db 0 ; ...the FSXL_ list (vp_rmklist)
 vp_rxo:       dw 0, 0, 0, 0             ; ...XMS blocks the bracket let go
                                         ; of, freed after it (vp_rxfree)
@@ -24584,41 +24175,6 @@ vp_pr61:      db 0                  ; ...port 61h as it was
 vp_prfn:      db 'VPPROF1.DAT', 0
 ; THE CARD'S TRAILER's words (98.3.22.3), in this order - tools/os88vfit.py
 ; DI_NAMES is the other copy. A byte's word carries its neighbour above it
-%ifdef PKG_MEGA
-; vp_prlin - AX = a segment or, in protected mode, a selector: AX = its
-; linear address in paragraphs, the low 16 bits of it (the trailer's
-; arithmetic is mod 4 KB and within a claim, so a wrap above 1MB costs it
-; nothing). A selector SEG_LIN refuses, or 0, is left as it is. Every other
-; register kept
-vp_prlin:
-    cmp byte [vp_pm], 0
-    je .r
-    or ax, ax
-    jz .r
-    push bx
-    push cx
-    push dx
-    push ax
-    mov dx, ax
-    mov bl, SEG_LIN
-    call OSAPI_SEG                  ; DX:AX = the linear address
-    pop bx                          ; (BX = as it was)
-    jnc .ok
-    xchg ax, bx                     ; refused: as it was
-    jmp short .o
-.ok:
-    mov cl, 4
-    shr ax, cl
-    mov cl, 12
-    shl dx, cl
-    or ax, dx
-.o:
-    pop dx
-    pop cx
-    pop bx
-.r:
-    ret
-%endif
 vp_ditab:     dw vp_mrun0, vp_mfre0, vp_k, vp_rneed, vp_mrun, vp_mkeep
               dw vp_msnd, vp_lmin, vp_lminf, vp_gap, vp_pstrm, vp_pause
               dw vp_pmax, vp_pmaxf, vp_stall, vp_late, vp_dt, vp_done
@@ -24654,56 +24210,6 @@ vp_rqd:       dw 0, 0, 0, 0         ; ...and the bracket's: kern_mega's
                                     ; time / 2,048 PIT counts, services,
                                     ; theirs (mega_rqacc, SPEC.md 98.3.22.5)
 
-; vp_rqget - DI -> 4 words: 0040:00F0's, through a window in protected mode.
-; Every register kept
-vp_rqget:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push ds
-    push es
-    mov dx, 0x004F
-    mov cx, 8
-    xor ax, ax
-    mov bl, SEG_WIN
-    call OSAPI_SEG                  ; DX = it (the paragraph in real mode)
-    jc .z
-    push dx
-    push ds
-    pop es
-    mov ds, dx
-    xor si, si
-    mov cx, 4
-    cld
-    rep movsw
-    pop dx
-    push es
-    pop ds
-    cmp byte [vp_pm], 0
-    je .r
-    push ds
-    pop es                          ; (ES off it: SEG_FREE's pop es)
-    mov bl, SEG_FREE
-    call OSAPI_SEG
-    jmp short .r
-.z:
-    xor ax, ax
-    mov cx, 4
-    push ds
-    pop es
-    cld
-    rep stosw
-.r:
-    pop es
-    pop ds
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
 %endif
 vp_prbd:      dw 0                  ; ...and damaged super-packets seen
                                     ; THE HEADER (written into the claim):
@@ -25020,34 +24526,10 @@ vp_pfbuf      equ vp_skbuf          ; the line, composed in the seek's own
 %ifdef PKG_MEGA
 %include "os88real.inc"             ; the real-mode bracket's words (98.3.24)
 %ifdef VP_DIAG
-    OS88REAL_LIST vp_rlst, vp_rclm, vp_keep, vp_prevseg, vp_shseg, vp_pseg, vp_kshd, vp_pevseg, vp_p8seg, vo_s1seg, vp_bseg, vp_fxseg, vp_ring, vp_lyseg, vp_aseg, vp_eseg, vp_skscr, vp_prseg
+    OS88REAL_LIST vp_rlst, vp_rclm, vp_keep, vp_prevseg, vp_shseg, vp_pseg, vp_kshd, vp_pevseg, vp_p8seg, vo_s1seg, vp_bseg, vp_fxseg, vp_cpseg, vp_ring, vp_lyseg, vp_aseg, vp_eseg, vp_skscr, vp_prseg
 %else
-    OS88REAL_LIST vp_rlst, vp_rclm, vp_keep, vp_prevseg, vp_shseg, vp_pseg, vp_kshd, vp_pevseg, vp_p8seg, vo_s1seg, vp_bseg, vp_fxseg, vp_ring, vp_lyseg, vp_aseg, vp_eseg, vp_skscr
+    OS88REAL_LIST vp_rlst, vp_rclm, vp_keep, vp_prevseg, vp_shseg, vp_pseg, vp_kshd, vp_pevseg, vp_p8seg, vo_s1seg, vp_bseg, vp_fxseg, vp_cpseg, vp_ring, vp_lyseg, vp_aseg, vp_eseg, vp_skscr
 %endif
-vp_s_rreal:   db 'Real mode', 0
-vp_s_rpm:     db 'Protected: ', 0
-VPR_NOWN      equ 8                     ; vp_rwhys: VPR_LIVE.. first, then
-VPR_NALL      equ VPR_NOWN + 9          ; FSXR_KEEP..FSXR_DROOM
-vp_rwhys:     dw vp_s_rw11, vp_s_rw12, vp_s_rw13, vp_s_rw14, vp_s_rw15
-              dw vp_s_rw16, vp_s_rw17, vp_s_rw18
-              dw vp_s_rk1, vp_s_rk2, vp_s_rk3, vp_s_rk4, vp_s_rk5, vp_s_rk6
-              dw vp_s_rk7, vp_s_rk8, vp_s_rk5
-vp_s_rw11:    db 'Live', 0
-vp_s_rw12:    db 'speaker, in place', 0
-vp_s_rw13:    db 'v2, in place', 0
-vp_s_rw14:    db 'resident', 0
-vp_s_rw15:    db 'layer split', 0
-vp_s_rw16:    db 'bank moved', 0
-vp_s_rw17:    db 'claim above 1MB', 0
-vp_s_rw18:    db 'shadow, in place', 0
-vp_s_rk1:     db 'a worker kept', 0
-vp_s_rk2:     db "a driver's worker", 0
-vp_s_rk3:     db 'extended desktop', 0
-vp_s_rk4:     db 'a serial lease', 0
-vp_s_rk5:     db 'no low memory', 0
-vp_s_rk6:     db 'its volume', 0
-vp_s_rk7:     db 'fragmented', 0
-vp_s_rk8:     db 'a driver', 0
               db 0                      ; (what follows at the parity it had
                                         ; - tools/os88rdiff.py)
 %endif
@@ -25066,7 +24548,7 @@ vp_s_buf:     db 'Buffering ', 0    ; (here, past the libraries: eleven bytes
 ; times moves for it
 ; =============================================================================
 %ifdef PKG_MEGA
-    OS88_PARTS_BEGIN 3
+    OS88_PARTS_BEGIN 4
 %else
     OS88_PARTS_BEGIN 1
 %endif
@@ -25075,7 +24557,9 @@ vp_s_buf:     db 'Buffering ', 0    ; (here, past the libraries: eleven bytes
       OS88_PART OP_SEG, OP_COMP | OP_LAZY   ; 1 ...its protected-mode assembly
                                             ;   (VB_PM, 98.3.23.2)
       OS88_PART OP_SEG, OP_COMP | OP_LAZY   ; 2 the speaker shaper (vfx.asm,
-    OS88_PARTS_END                          ;   98.3.15.2)
+                                            ;   98.3.15.2)
+      OS88_PART OP_SEG, OP_COMP | OP_LAZY   ; 3 the cold part (vcold.asm,
+    OS88_PARTS_END                          ;   98.3.24.1)
 %else
     OS88_PARTS_END
 %endif
