@@ -104210,8 +104210,8 @@ for the exit (a tone is not the bracket's: the speaker is the door's).
   driver hands it: `SNDV_RMODE` (13, `drivers/sound/sndpkg.inc` - what the
   plan calls `DSV_RMODE`; a `DSV_PKGCALL` verb rather than a service slot,
   so `DSV_SIZE` and every kernel's copied tables stay where they are), AL =
-  1 at the drop and 0 at the return, the kernel's alone (ES at or below 60h,
-  `SNDV_MIXPOP`'s test), answers SI = the offset in the driver's segment of
+  2 at the door, 1 at the drop and 0 at the return, the kernel's alone (ES
+  at or below 60h, `SNDV_MIXPOP`'s test), answers SI = the offset in the driver's segment of
   a list of word offsets and CX = its count - SOUND.DRV's are the ring's
   segment, an external ring's control-word segment, the staging pool and
   the double buffer. At the drop each word is banked and made the real
@@ -104223,7 +104223,13 @@ for the exit (a tone is not the bracket's: the speaker is the door's).
   (none at all being a word naming no claim: 0). The same verb flips the
   8237 rule (§34.5.2.2: the block ISR reads the DMA count only where its
   line is masked across BIOS calls, which is protected mode's reflections
-  and not the bracket's native `int 13h`). **(3) The card's line is
+  and not the bracket's native `int 13h`), and at the DOOR (AL = 2) does
+  first what real mode cannot: the IRQ discovery a Sound Blaster defers to
+  its first stream (§34.5), whose probe stubs are IVT 08h-0Fh - where the
+  bracket's 8259 does not deliver - and whose hook would name the low copy
+  and outlive it. The first build had a stream opened inside a real-mode
+  bracket discover its line THERE, and every stream after it, in both
+  modes, was silent. **(3) The card's line is
   redirected**: every IVT cell 08h-0Fh naming the driver's image is banked
   and pointed at the low copy, and so is its twin at 20h + n, where the
   8259 delivers it - so the line reaches the ISR whether it arrives as the

@@ -1179,8 +1179,18 @@ snd_rmode:
     mov si, es                  ; the kernel's (KERNEL_SEG, or MEGA_SEL_KDATA
     cmp si, 0x60                ; in protected mode), as SNDV_MIXPOP asks
     ja snd_pkg.bad
+    cmp al, 2
+    jb .flip
+    cmp byte [sbl_irq], 0xFF    ; AL = 2, THE DOOR: what real mode cannot do
+    jne .list                   ; done first - verb 0's deferred IRQ
+    cmp word [sbl_base], 0      ; discovery, whose probe vectors are 08h-0Fh
+    je .list                    ; and whose hook would name the low copy
+    call sbl_f_irqdisc
+    jmp short .list
+.flip:
     xor al, 1
     mov [sbl_dpm], al           ; 1 back in protected mode, 0 in the bracket
+.list:
     mov si, snd_rmlist
     mov cx, (snd_rmlist_end - snd_rmlist) / 2
     clc

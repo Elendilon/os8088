@@ -91,8 +91,11 @@ SNDV_DACINFO equ 6              ; THE COVOX (SPEC.md 34.14). out CF=0, AX = the
 
 SNDV_RMODE   equ 13             ; THE KERNEL'S ALONE (kern_mega's real-mode
                                 ; bracket, SPEC.md 53.2.3 - the plan's
-                                ; DSV_RMODE): AL = 1 the bracket is about to
-                                ; leave protected mode with this image copied
+                                ; DSV_RMODE): AL = 2 at its door, while
+                                ; protected mode can still do what real mode
+                                ; cannot (the IRQ discovery verb 0 defers),
+                                ; AL = 1 the bracket is about to leave
+                                ; protected mode with this image copied
                                 ; low, AL = 0 it is back. out CF=0, SI = the
                                 ; offset here of a list of CX word offsets,
                                 ; each a SEGMENT word the kernel renames both

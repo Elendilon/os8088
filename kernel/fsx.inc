@@ -1878,8 +1878,10 @@ fsx_rdrvf:
     jmp short .o
 
 ; fsx_rsndq - the sound row's SNDV_RMODE list (W4), asked of the driver
-; (AL = 0, which answers the list and leaves protected mode's 8237 rule as it
-; is) into the service area, and each word asked whether it HAS a real
+; (AL = 2, THE DOOR: it does first what real mode cannot - the IRQ discovery
+; a Sound Blaster defers to its first stream, whose probe vectors are IVT
+; 08h-0Fh and whose hook would name the low copy) into the service area,
+; and each word asked whether it HAS a real
 ; segment - a selector above 1MB has none, and a stream that is not handed
 ; one cannot play in the bracket. ES = the service area, ES:BP the row. CF =
 ; 1 and AL = FSXR_DRV a word with none, or a list longer than RMS_SNMAX.
@@ -1892,7 +1894,7 @@ fsx_rsndq:
     push ds
     pop es                      ; ES = KDATA: the verb is the kernel's alone
     mov bx, DRVC_SOUND * 256 + SNDV_RMODE
-    xor al, al
+    mov al, 2
     mov bp, drv_pkg_call_x
     call KERNEL_SEG:mega_tcall  ; SI = the list in its segment, CX = count
     pop es

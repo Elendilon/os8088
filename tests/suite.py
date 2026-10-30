@@ -16837,7 +16837,7 @@ SOAK = [
         "after the bracket in protected mode: RMBXC.DAT on C:, RMBXB.DAT on "
         "a B: floppy, FRAGA.DAT walked to the CAP (224 single-sector runs, "
         "real mode) and FRAGB.DAT one run past it (FSXR_FRAG, the same reads "
-        "in protected mode); FSXL_DRV DRVC_SOUND falls back FSXR_DRV; "
+        "in protected mode); FSXL_DRV DRVC_NET falls back FSXR_DRV; "
         "inside, an unlisted name answers FERR_NAME, a listed missing one "
         "FERR_NOENT, READ_AT and XMEM_ALLOC are refused, XMEM_CAPS answers "
         "what protected mode did and the COPY twin reads what protected mode "
@@ -16872,6 +16872,24 @@ SOAK = [
         needs=("86box",),
         wants=("build/mega.img", "build/megarun.o88", "build/megarmbx.o88",
                "build/megarmbx.bin")),
+    Row("vidrmbsnd", "soak", py("tests/vidrmbsnd.py"), 60.0,
+        "SPEC.md 53.2.3, MEGA-VIDEO-REALMODE-PLAN W4: the SOUND side of a "
+        "real-mode bracket on Bochs's SB16 with SOUND.DRV mounted. MEGARMBS "
+        "plays one 32 KB direct external ring at 8,000 Hz: opened inside a "
+        "real-mode bracket (the OSAPI_SND_STREAM twin to the LOW COPY) and "
+        "carried out, in, out and in again to its close, and a second one "
+        "opened in protected mode (Live) carried in and out - every leg's "
+        "bytes a tick within a block and 10% of a protected-mode control's, "
+        "the stream PLAYING at each end; a stream whose block IRQs are "
+        "masked inside ENDED by the watchdog only the real-mode tick's "
+        "DSV_TICK can fire; the speaker door's twin (AL = 0 refused, AL = 2 "
+        "writing IVT 20h, K = 40, K samples a rate period, every hook call "
+        "at IF = 1, IVT 20h the tick's again after the close); and the "
+        "card's capture one unbroken sawtooth across ten switches. 60s is "
+        "41 measured",
+        needs=("bochs", "nasm"),
+        wants=("build/mega.img", "build/megarun.o88",
+               "build/megarmbs.o88", "build/megarmbs.bin")),
     Row("megaxmove", "soak", py("tests/megaxmove.py"), 25.0,
         "SPEC.md 50.6.10, docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md MC3: on "
         "kern_mega an OSAPI_XMEM_ALLOC block MOVES and is read back through "

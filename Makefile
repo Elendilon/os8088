@@ -14594,6 +14594,14 @@ $(BUILD)/megarmbx.bin: tests/megarmb/megarmbx.asm apps/os88api.inc apps/os88real
 	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megarmb/megarmbx.asm
 $(BUILD)/megarmbx.o88: $(BUILD)/megarmbx.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/megarmbx.bin -o $@
+# MEGARMBS (tests/megarmb/megarmbs.asm): the SOUND side of a real-mode
+# bracket - SOUND.DRV low, a stream through the OSAPI_SND_STREAM twin carried
+# across the bracket both ways, the watchdog DSV_TICK fires, the speaker
+# door's twin (SPEC.md 53.2.3, MEGA-VIDEO-REALMODE-PLAN W4) - tests/vidrmbsnd.py
+$(BUILD)/megarmbs.bin: tests/megarmb/megarmbs.asm apps/os88api.inc apps/os88real.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megarmb/megarmbs.asm
+$(BUILD)/megarmbs.o88: $(BUILD)/megarmbs.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/megarmbs.bin -o $@
 # MEGAHUGE (tests/megahuge): ONE CLAIM FOR ALL OF IT (KERN-MEGA-MEMORY-PLAN
 # MC5) - OSAPI_MEM_HUGE's query, a claim of its answer bridged across the
 # pool and the heap, a pattern through every window, the free, the query again
@@ -14715,7 +14723,8 @@ $(BUILD)/megalowb.bin: tests/megaown/megaown.asm apps/os88api.inc | $(BUILD)
 $(BUILD)/megalowb.o88: $(BUILD)/megalowb.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/megalowb.bin -o $@
 megarun: $(BUILD)/megarun.o88 $(BUILD)/megaxm.o88 $(BUILD)/megahib.o88 $(BUILD)/megarmb.o88 \
-        $(BUILD)/megarmbl.o88 $(BUILD)/megarmbf.o88 $(BUILD)/megarmbx.o88 $(BUILD)/mega.img
+        $(BUILD)/megarmbl.o88 $(BUILD)/megarmbf.o88 $(BUILD)/megarmbx.o88 $(BUILD)/megarmbs.o88 \
+        $(BUILD)/mega.img
 .PHONY: megarun
 
 # `make megatrap` - kern_mega with MEGATRAP=1, as a whole tree of its own in
