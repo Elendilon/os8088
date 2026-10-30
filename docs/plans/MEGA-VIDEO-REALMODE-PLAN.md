@@ -4,7 +4,9 @@
 the return) and W2 (the table and the fallback) are BUILT and their gates
 pass (2026-10-30, section 4's entries); W3 (the extent reader, the low
 drivers, the XMEM twins) and W4 (SOUND.DRV low, the stream and the speaker
-door) are BUILT and their gates pass (2026-10-30); W5-W7 are not
+door) are BUILT and their gates pass (2026-10-30); W5 (the player) is
+BUILT and its gates pass (2026-10-30) - its arm's `VPDIAG` builds no
+longer fit `APP_MAX_SIZE`, which W6 needs (W5's entry); W6-W7 are not
 started.** The plan was first written against
 `4d3d0943` from source and documents only. **W0 measured it again on
 `df2e1fbf`**, and section 7 is that census: every `PKG_MEGA` block of the
@@ -1291,6 +1293,96 @@ deduplicated union below, plus `test-full`.
   `vidvga8`, `vidresidentvga`, `vidlivevga`, `vidpage`, `vidfskeysvga4`,
   `vidclose`, `vidwin`, `vidpreview`, `vidsound`, `vidcard`) and the
   `vidxip*` family. `vidlivevga` proves Live untouched.
+  **W5 BUILT (2026-10-30)**, SPEC.md 98.3.24 the contract. What was built,
+  and where it differs from the text above:
+  * **The door** (`vp_rdoor`, at `vp_srun`'s `OSAPI_FSX_RUN`) asks
+    `FSXF_REAL` unless one of the player's reasons holds - LIVE, SPEAKER
+    IN PLACE, VERSION 2 IN PLACE, SHADOW IN PLACE (5.3 ruling 1; "in
+    place" is the bank's OR THE HOLD's, as protected mode decided it),
+    RESIDENT, SPLIT, MOVED, HIGH CLAIM - and passes the list (`FSXL_FILE`,
+    `DRVC_DISK`, `DRVC_SOUND` for a card, `DRVC_EMS` for an EMS bank). The
+    kernel's `FSXR_*` comes back in SI; both land in `[vp_rwhy]` and on the
+    info card's ninth line (5.3 ruling 2).
+  * **The XMS claims did NOT move to the door, and this is why**:
+    `vp_lysplit`'s split frees and re-claims on verdicts taken by the
+    session's FIRST FRAME (the CPU timed, the disk's verdict), so there is
+    nothing to decide at the door. That one session - a layered file's
+    first, with an XMS layer bank - takes protected mode (SPLIT) and every
+    later one real mode. `vp_xfree` and `vp_lyxfree` inside a real bracket
+    (a refused copy, a refused map) drop the bank as ever and OWE the
+    `OSAPI_XMEM_FREE` (`vp_rxfree`), made after the bracket (`vp_rxgive`).
+    The seek's scratch and an Unmute's ring ARE the door's (`vp_rclaims`).
+  * **The ring above 1MB is DELETED** (98.3.18.17, 456 bytes): it was the
+    one PKG_MEGA piece that existed only for protected-mode streaming, and
+    keeping it would have sent every streamed play on a machine with XMS
+    to protected mode - the first build of the door had it as a reason and
+    `vidrmbplay` would have read no real bracket on any XMS machine. 5.2
+    item 4 and 5.3 ruling 3 accepted the conventional ring.
+  * **Nothing else became dead.** The dual bracket keeps every
+    protected-mode streaming path reachable: the fallback (SPLIT, the
+    kernel's reasons, HIGH CLAIM) streams exactly as before, Live is
+    protected mode by ruling, and the speaker's, version 2's and the
+    shadow's in-place reads stay there by ruling. Section 3.7's other DEAD
+    rows were written for a bracket that always took real mode, and 5.3
+    reversed that.
+  * **Three defects the gates found**:
+    1. **the speaker in a real bracket hung** (`megavidbig`'s held leg,
+       `megavidring`'s lin80): the library's ring segment (`os88spk_rseg`)
+       and the shaper part's far vectors and data segment were set up on
+       the desktop as SELECTORS. `vp_rin` re-binds both (`vp_spkbind`,
+       `vp_fxbind`, the part's new `VFXV_BIND`, VFX_ABIVER 2) and
+       `vp_rpost` binds them back;
+    2. **a 286's first real-mode borrow reset the machine**
+       (`mega-vidwin`, vm/at286-port): `vp_xok` never ran `la_capture`
+       because protected mode decided the hold in place, so LOADALL loaded
+       an IDT of limit 0. `vp_rin` captures it, every bracket;
+    3. **the megaport harness read the region, not the copy that runs**
+       (`mega-vidplayvga`, `-vidpage`, `-vidwin`, `-vidpreview`): every
+       row takes the region's base before the play. Under the deleted ring
+       those plays were protected mode and nothing showed it.
+       `tools/os88megacommon.py` maps a read, a write or an exec
+       breakpoint inside the bracket window's region to `[fsx_rseg]` while
+       `[fsx_rmode]` is 1 (a breakpoint on `fsx_rland` re-arms the set for
+       each copy and is never seen by the row). And `tests/vidwin.py`'s
+       hold at 100 is armed off a 0.02 s poll: at 86Box's 6x a 0.3 s poll
+       was 54 frames and the faster real-mode swap ran past it (2 in 3).
+
+  **Gates** (all green): the plan's megaport `vid*` rows above (`vidwin`
+  4 of 4 after its poll, and the base `vidwin` on MartyPC), `vidsound`,
+  `vidcard`, and a new **`vidrmbplay`** - WHICH bracket a play took, read
+  two ways that do not lean on each other ([fsx_rmode] polled during it,
+  [vp_rwhy] after): a speaker play at 1MB REAL with its chain the real-mode
+  door's, a hold under the speaker at 16MB PROTECTED (SPEAKER IN PLACE),
+  the same hold through an SB16 REAL, a Live clip full screen PROTECTED
+  (LIVE). **Broken on purpose**: the player of `02a5f114` (before the
+  rebind) hangs `spk` and `held`; `vp_rdoor` without `FSXF_REAL` turns
+  `spk` and `card` red on [fsx_rmode] while [vp_rwhy] reads 00h either
+  way; without the `la_capture`, `mega-vidwin` resets the machine; without
+  the harness's copy, `mega-vidplayvga` times out at its first hold.
+  Re-run on the final tree: `megavidbig`, `megavidring`, `megavidtier`,
+  `megavidv2`, `vidrmbfrag`, `vidrmbhdd`, `vidrmb286`, `vidrmbems`,
+  `vidrmbsnd`, `vidrmbsnd286`, `vidrmbsndpm`, `megarmb`, `megarmb286`,
+  `megarmbref`. **Not run**: the `vidxip*` family - the shipped player is
+  byte-identical and kern_big with it, so they reach nothing W5 changed.
+
+  **Bytes**: kern_big, kern_small and kern_mega `kernel.bin`/`kernel.sys`
+  `cmp`'d byte-identical against W4's sources built at the same build
+  number; the shipped `video.bin` (59,926) and `video.o88` (48,357) too.
+  The arm 63,308 -> **64,430** of `APP_MAX_SIZE`'s 65,024 (image 60,687
+  -> 61,773, bss 2,621 -> 2,657), `video.o88` 52,628 -> 53,665; part 2
+  (the shaper) 2,421 -> 2,436. The other arms the speaker library reaches
+  (`os88spk_go`'s AL = 2 retry, PKG_MEGA only): AUDIO 9,593 -> 9,607 and
+  TRACKER 27,018 -> 27,049 file bytes; MIDIRACK and XTMP3 the same size.
+  **OPEN, AND W6 NEEDS IT**: the arm's `VPDIAG=1` build is 65,726 and
+  `VPDIAG=time`'s 65,913 - over by 702 and 889 bytes, so neither
+  assembles (W4's were 64,800 and 64,987: 224 and 37 to spare). The arm's
+  diag card was trimmed to nine lines (144 bytes of bss; it carried four
+  lines it never wrote). What else is weighable (`VP_NOLIVESND` MEASURED,
+  the rest ESTIMATED from the routines' spans): `VP_NOLIVESND` 233; the reason NAMES in the diag arm as numbers ~250; the shaper's glue
+  (`vp_fxget`, `vp_fxinit`, `vp_fxbind`) ~270 if the diag arm honoured
+  `VP_NOSPKFX` again; the speaker library's protected-mode ISR family ~430
+  if the diag arm played the speaker in real mode only. Any two are not
+  enough; the choice is the owner's.
 * **W6. Parity, on the Victory** (field, docs/FIELD-MACHINES.md). Send
   `make VPDIAG=time` and `make megadiag` builds of both kernels' players.
   * **The measurement**: Catch My Heart and Sonic 2, the owner's

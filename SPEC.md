@@ -201823,25 +201823,33 @@ holds keeps the play in protected mode:
 | reason | why real mode is not asked |
 |---|---|
 | LIVE | a Live session's bracket (98.3.10): its ring, its hold and its resident files are read in place through selector runs on the desktop, and the coordinator's ruling keeps Live in protected mode |
-| SPEAKER, IN PLACE | the PC speaker or the Covox (98.3.15) with an XMS bank protected mode would read in place - the owner's ruling (MEGA-VIDEO-REALMODE-PLAN 5.3 ruling 1): real mode refuses that read under the speaker's clock and copies each chunk down, 375 ticks against 182 on `vm/286` |
-| VERSION 2, IN PLACE | a version 2 file (98.3.23) with an XMS bank: the block decoder has no yield site, so real mode copies the bank down too (5.3 ruling 1) |
+| SPEAKER, IN PLACE | the PC speaker or the Covox (98.3.15) with XMS read IN PLACE - the bank's (98.3.18.13) or the file held whole (98.3.18.11), as the session decided it under protected mode's rules - the owner's ruling (MEGA-VIDEO-REALMODE-PLAN 5.3 ruling 1): real mode refuses that read under the speaker's clock and copies each chunk down, 375 ticks against 182 on `vm/286` |
+| VERSION 2, IN PLACE | a version 2 file (98.3.23) read in place: the block decoder has no yield site, so real mode copies it down too (5.3 ruling 1) |
 | RESIDENT | a resident play (98.1.7): its cursors are paragraph OFFSETS into the block under protected mode and segments in real mode, and a cursor carried between them would mean something else |
-| HIGH RING | the ring above 1MB (98.3.18.17), which a real-mode bracket cannot address |
 | SPLIT | a file's first session while its layer's pool split is still owed (98.1.9.2): the split frees and claims XMS on verdicts taken INSIDE the bracket, and `OSAPI_XMEM_ALLOC` / `_FREE` are refused there (§53.2.3). The next session takes real mode |
 | MOVED | the XMS bank's block is not where its token names (the pool compacted it): real mode reads a bank at its token's address, on kern_mega as on kern_big, so the block must be there |
-| HIGH CLAIM | a claim of the session's has no real-mode segment (`SEG_REAL` refused: above 1MB) - `os88real_prep`'s CF = 1 |
+| HIGH CLAIM | a claim of the session's has no real-mode segment (`SEG_REAL` refused: above 1MB) - `os88real_prep`'s CF = 1. Every claim the arm makes is conventional (`vp_mclaim`, the parts' door), so this is a refusal nobody has seen |
+| SHADOW, IN PLACE | the shadow (98.3.19.3) read in place: its decoders have no yield site either. The owner: the shadow may take whichever bracket is simpler (5.3 ruling 1) |
+
+**Every session's ring is conventional** (98.3.18.17 is deleted), so no
+ring is a reason - and a file held whole and read in place with a card is
+read by the real-mode borrow, LOADALL on a 286 and a loaded base on a 386
+(98.3.18.11, 98.3.18.14), the yield sites live for the bracket.
 
 Otherwise the door asks `FSXF_REAL` with **the LIST**: `FSXL_FILE` and the
-open file's name, the layer's file's when the session reads one,
+open file's name (a layer is in the same file, 98.1.9),
 `FSXL_DRV DRVC_DISK` (HDD.DRV's low copy, and with it `HDV_ARM`'s read
 straight into XMS), `FSXL_DRV DRVC_SOUND` when the session plays through a
 card, and `FSXL_DRV DRVC_EMS` for an EMS bank. It also takes **two claims
 the bracket cannot**: a seek's key-entry scratch (`[vp_kekb]` KB, when the
 file has keys), and the card's ring when the session has audio, a card and
-none held yet (Unmute inside the full screen, 98.3.17) - both given back
-after the bracket. Then `os88real_prep` over the player's segment words:
-every claim's base (`vp_smtab`), the ring and the layer's segment, the card's
-ring, the EMS frame, the seek's scratch. The KERNEL's answer comes back in
+none held yet (Unmute inside the full screen, 98.3.17) - on the speaker,
+its ring and, for a clip made for a card, the shaper's part (98.3.15.2) -
+both given back after the bracket. Then `os88real_prep` over the player's
+segment words (`vp_rlst`): the ring's claim, the keeper, the posters', the
+shadow's and the planes' claims, the block decoder's part and the shaper's,
+the ring and the layer's segment, the sound's ring, the EMS frame and the
+seek's scratch. The KERNEL's answer comes back in
 SI (`FSXR_*`): it may still run the bracket in protected mode, for a reason
 of its own (§53.2.3's table) - a stream on a file-driver volume
 (`FSXR_VOL`) is the common one.
@@ -201850,10 +201858,24 @@ of its own (§53.2.3's table) - a stream on a file-driver volume
 arm): the words swapped for their real segments (`os88real_swap`),
 `[vp_self]` = CS (the bracket runs a COPY of the region, §53.2.3),
 `[vp_pm]` = 0 - so every runtime-dual arm takes the shipped arithmetic -
-`vp_addr`'s protected-mode head unpatched (`vp_rhpat`) and the block
-decoder's far pointers made again (`vp_bset`) on its real segment. On the
-way out, before the entry returns, all of it back - and the block decoder's
-pointers made again in protected mode after `OSAPI_FSX_RUN` returns.
+`vp_addr`'s protected-mode head unpatched (`vp_rhpat`), the block
+decoder's far pointers made again (`vp_bset`) on its real segment, the yield
+sites live when the session reads XMS in place (`vd_ypatch`) - and on a 286
+the machine state LOADALL loads captured there (`la_capture`), because the
+session decided its read in place under protected mode, where `vp_xok`
+never captures it: a borrow that LOADALLs an IDT of limit 0 resets the
+machine, as `mega-vidwin` did on `vm/at286-port` - and **the
+speaker's two remembered segments re-bound**: the library's ring
+(`os88spk_rseg`, which its ISR and its accounting read) to the ring's real
+segment, and the shaper part's vectors to the part's real CS with its own
+data segment and ring given again through `VFXV_BIND` (vfx.inc) - its
+state kept. Set up on the desktop, both named SELECTORS, and the shaper
+far-called through a protected-mode code alias as a real segment, which
+hung the first build of this (`tests/vidrmbplay.py`'s failing case). On
+the way out, before the entry returns, all of it back - and the block
+decoder's pointers and the shaper's vectors made again in protected mode
+after `OSAPI_FSX_RUN` returns (`OSAPI_MEM_CODESEL` is not a real-mode
+cell).
 
 **The calls real mode cannot serve leave the bracket**:
 - a seek's claim for its key entry is the door's scratch (`vp_skdue`);
@@ -201863,9 +201885,10 @@ pointers made again in protected mode after `OSAPI_FSX_RUN` returns.
 - the frame in the box (`vp_sesspic`: `OSAPI_MEM_CLAIM_HI`, the poster's
   drawing) is made after `OSAPI_FSX_RUN` returns, where the desktop's
   repaint needs it;
-- an XMS failure's `vp_xfree` inside answers CF = 1 from the kernel: the
-  play drops the bank as ever and the block is given back when the
-  instance's are (its owner is the instance).
+- an XMS failure's `vp_xfree` inside (a copy refused, the board refusing a
+  map) drops the bank as ever, but its `OSAPI_XMEM_FREE` - the hold's or
+  bank's block and the layer's - is OWED (`vp_rxfree`) and made after
+  `OSAPI_FSX_RUN` returns (`vp_rxgive`).
 
 **The speaker in a real-mode bracket** (34.11.1.1): the speaker library's
 `os88spk_go` (and `os88spk_stop`'s owed tick) asks `OSAPI_FSX_SPK` AL = 0;
@@ -201876,10 +201899,31 @@ answering the chain. The shipped library never meets that refusal.
 **The info card's ninth line** (the arm's alone, below line 7) says which
 bracket the last play took and why: `Real mode`, or `Protected: ` and the
 reason - the player's (`Live`, `speaker, in place`, `v2, in place`,
-`resident`, `ring above 1MB`, `layer split`, `bank moved`, `claim above
-1MB`) or the kernel's (`its volume`, `fragmented`, `a driver's worker`,
-`the extended desktop`, `a serial lease`, `no low memory`, `a driver`).
-A card whose buttons are inside it shows its first eight lines, as before.
+`resident`, `layer split`, `bank moved`, `claim above 1MB`, `shadow, in
+place`; `[vp_rwhy]` 11h-18h in that order) or the kernel's (`FSXR_*`: `a
+worker kept`, `a driver's worker`, `extended desktop`, `a serial lease`,
+`no low memory`, `its volume`, `fragmented`, `a driver`). `[vp_rwhy]` is
+FFh until a play has asked, 0 for real mode. A card whose buttons are
+inside it shows its first eight lines, as before; the arm's DIAG card is
+nine lines, its four field lines being the VPPROF trailer's (98.3.22.3).
+
+**The gate** is `tests/vidrmbplay.py`: which bracket a play took, read off
+the kernel's `[fsx_rmode]` during it and `[vp_rwhy]` after - a speaker
+play at 1MB REAL (its chain the real-mode door's), a hold under the
+speaker PROTECTED with SPEAKER, IN PLACE, the same hold through a card
+REAL, a Live clip taken full screen PROTECTED with LIVE.
+
+**A row reading the player mid-play** reads the COPY: `tools/os88megacommon.py`
+sends a read, a write or an exec breakpoint inside the bracket window's
+region to `[fsx_rseg]` while `[fsx_rmode]` is 1, the megaport `vid*` rows
+having taken the region's base before the play.
+
+**What it cost** (image + bss against `APP_MAX_SIZE`, 65,024): the arm
+63,308 -> **64,430** (image 60,687 -> 61,773, bss +36), the shipped player
+62,547 and byte-identical, kern_big and kern_small byte-identical. The
+arm's `VPDIAG=1` build is **65,726** and `VPDIAG=time`'s **65,913** -
+over by 702 and 889 bytes (W4's were 64,800 and 64,987), so neither
+assembles: MEGA-VIDEO-REALMODE-PLAN W5's entry says what was weighed.
 
 ### 98.4 The window: the Preview (wave 6)
 
@@ -202731,6 +202775,16 @@ kernel's share is `OSAPI_XMEM_RUN`'s. The speaker and the shadow in place
 are +20 more (57,860).
 
 ##### 98.3.18.17 Protected mode: the ring above 1MB (2026-10-21)
+
+**DELETED by MEGA-VIDEO-REALMODE-PLAN W5 (98.3.24), 2026-10-30**: every
+session's ring is conventional again, as on kern_big, because any session
+may enter a bracket and a real-mode bracket cannot address a pool claim -
+a ring above 1MB would have sent every streamed play on an XMS machine to
+protected mode. The owner accepted the conventional memory it costs
+(MEGA-VIDEO-REALMODE-PLAN 5.2 item 4, 5.3 ruling 3). `vp_rhiq`, `vp_rhkb`,
+`vp_rhtry`, `vp_rhfit`, `vp_bnc`, `vp_rhcp` and the bounce `[vp_dbnc]` went
+with it, 456 bytes of the arm; `vp_rhpat` stays, for the conventional
+ring's selectors (`vp_rsmk`). What follows is the record.
 
 **On kern_mega in protected mode a stream's RING is a pool claim**, so a
 play no longer sizes itself from what is left below 640K, and no longer
