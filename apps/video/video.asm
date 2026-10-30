@@ -390,6 +390,10 @@ vp_entry:
     nop                             ; (never run: what follows keeps its
 .ld:                                ; parity, for the play's routines)
     call vp_bget                    ; THE BLOCK DECODER on a colour screen
+%ifdef PKG_MEGA
+    call vp_cpget                   ; THE COLD PART (98.3.24.1), at launch:
+    nop                             ; claimed before any session's (nop: what
+%endif                              ; follows at the parity it had)
     call OSAPI_ARG_FILE             ; CF = 1: launched with no document
     jc .nodoc
     call vp_cpname                  ; ES:SI is the kernel's: copy it out now
@@ -14342,9 +14346,12 @@ vp_ptramp:
 
 ; vp_cpget - CF=0: [vp_cpfp] vector [vp_cpv] of the cold part, on the CS this
 ; mode calls it through (protected mode's CODE alias, as vp_fxinit's), and
-; [vp_ptfp] our own way back. The part fetched the first time, checked to be
-; the one built against THIS image, and movable from then on. Not fetched
-; inside a real-mode bracket (the door always has). Every register kept
+; [vp_ptfp] our own way back. The part is fetched at LAUNCH (the entry proc
+; calls this beside vp_bget), checked to be the one built against THIS image,
+; and movable from then on - fetched at the first door instead, with a
+; session's claims standing, a version 2 Repeat play on lin320 drew 72 wrong
+; pixels (megavidv2), a cause not found. Never fetched inside a real-mode
+; bracket. Every register kept
 vp_cpget:
     push ax
     push bx

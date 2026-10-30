@@ -201955,24 +201955,27 @@ six vectors.
   `[vp_ptfp + 2]`. The part writes nothing through its own CS, which is a
   read-only code alias under protected mode; its names' table is read
   through it.
-- **Fetched at the first call and kept** (`vp_cpget`, the shaper's shape):
+- **Fetched at LAUNCH and kept** (`vp_cpget`, called by the entry proc
+  beside `vp_bget`'s block decoder): one claim for the instance's life,
   movable with the session's claims (`vp_smtab`), on its code alias in
   protected mode (`OSAPI_MEM_CODESEL`, asked at every call since a move may
   change it), and on its real paragraph inside a real-mode bracket, where
-  the card's ninth line is drawn too - `[vp_cpseg]` is in `vp_rlst`. It is
-  never fetched inside a real-mode bracket; the door, which always runs
-  first, has. A part that will not come is a door not asked (protected
-  mode) and a line not drawn.
+  the card's ninth line is drawn too - `[vp_cpseg]` is in `vp_rlst`. The
+  first build fetched it at the first door instead, with the session's
+  claims standing, and a version 2 Repeat play on lin320 then drew 72 wrong
+  pixels (`megavidv2`); fetched at launch it draws none. The cause was not
+  found. A part that will not come is a door not asked (protected mode) and
+  a line not drawn.
 - **The profile's two ends are written once for both builds**
   (`apps/video/vprof.inc`): the shipped player expands them where they
   always were, so every shipped build - plain, `VPDIAG=1`, `VPDIAG=time`,
   the read log, `NOLIVESND` - is byte-identical; the arm's part expands them
   with `VPR_CALL` and `VPR_CS` aimed at the trampoline.
 
-**What it bought** (image + bss against 65,024; the part's own bytes in
-brackets, which are no image's): the arm **63,760** (1,264 to spare, from
-594), `VPDIAG=1` **64,548** (476 to spare) and `VPDIAG=time` **64,727**
-(297 to spare) - the part 1,009, 1,565 and 1,573 bytes.
+**What it bought** (image + bss against 65,024): the arm **63,764** (1,260
+to spare, from 594), `VPDIAG=1` **64,552** (472 to spare) and `VPDIAG=time`
+**64,731** (293 to spare); the part itself, which is no image's, is 1,009,
+1,565 and 1,573 bytes.
 
 ### 98.4 The window: the Preview (wave 6)
 
