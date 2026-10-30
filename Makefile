@@ -1472,10 +1472,16 @@ endif
 # KERN_MEGA=1 selects kern_mega (docs/plans/KERN-MEGA-PLAN.md): kern_big
 # switched into 286 PROTECTED MODE once it is up. ADDED to KERN_BIG the way
 # KERN_EMU is, for KERN_EMU's reason - every `%ifdef KERN_BIG` still applies.
-# It is a KNOB for now rather than a product: it is in $(KNOBS) and is NOT
-# exempted from -DKERN_KNOB below, so guard 1 does not bind it while it is
-# brought up and guard 2 (the 64KB segment) still does. `make mega` builds it
-# into build/megak/ and nothing under build/ that `all` ships is touched.
+# It is a NORMAL BUILD WITH A BUDGET OF ITS OWN since kern_mega size pass 1
+# (the owner's decision; docs/plans/completed/msp1/megabudget.md): it is in
+# $(KNOBS) for the stamp and the matrix, and it is EXEMPTED from -DKERN_KNOB
+# below with KERN_SMALL and KERN_EMU, so guard 1 binds it - on what it keeps
+# in CONVENTIONAL memory after the switch, KERN_MEGA_RESIDENT_KB (kernel.asm
+# rule 4) - and `make budget-check` measures it. Its own knobs (MEGATRAP,
+# MEGADIAG, MEGAFDMASK, PICLOSE) are NOT exempted and stay KERN_KNOB builds.
+# Built is not RELEASED: no release zip and no release skill carries its
+# disks yet. `make mega` builds it into build/megak/ and nothing under build/
+# that `all` ships is touched.
 ifneq ($(KERN_MEGA),)
 VIDDEF += -DKERN_MEGA
 endif
@@ -2126,7 +2132,11 @@ KNOBS := $(strip $(foreach k,VIDEO HERCSEG RTC DISKCNT DISKAL BOOTDIAG FLOPPY1 \
 # kern_emu carrying -DKERN_KNOB would SKIP guard 1 (the KERN_BUDGET footprint
 # check), so the one build that adds a feature would be the one build nothing
 # measured.
-ifneq ($(filter-out KERN_SMALL=% KERN_EMU=% NOHEDGE=% NOPICOMEM=% NOLIVESND=% VPDIAG=% HFDIAG=% HFTRACE=% NOATBLIT1=% NOATFAST=% NOATWALK=% NOATSBAR=% NOATROW=% NOATBLANK=% NOATPLAIN=% NOATCX=% NOATRESPAN=% NOATFETCH=% NOATCELL=% NOATTAIL=% NOATONE=% NOATSU=%,$(KNOBS)),)
+# ...and KERN_MEGA joins them (kern_mega size pass 1): it was a knob while it
+# was brought up, and is a build with a budget of its own now (kernel.asm
+# rule 4). A kern_mega WITH a knob - MEGATRAP=1, MEGADIAG=1 and the rest -
+# still has that knob in this list, so it is still -DKERN_KNOB.
+ifneq ($(filter-out KERN_SMALL=% KERN_EMU=% KERN_MEGA=% NOHEDGE=% NOPICOMEM=% NOLIVESND=% VPDIAG=% HFDIAG=% HFTRACE=% NOATBLIT1=% NOATFAST=% NOATWALK=% NOATSBAR=% NOATROW=% NOATBLANK=% NOATPLAIN=% NOATCX=% NOATRESPAN=% NOATFETCH=% NOATCELL=% NOATTAIL=% NOATONE=% NOATSU=%,$(KNOBS)),)
 VIDDEF += -DKERN_KNOB
 BOOT2_XSEC := 1
 endif
@@ -2142,7 +2152,13 @@ endif
 # into the blob (ksp14/reach.md): kern_big's thirteen hold them with 61 bytes
 # to spare, and vmm_boot_x is the ~100 more that kern_emu carries. Only an
 # emulator boots it.
+# ...and kern_mega keeps the knob's sector it took while it WAS one (kern_mega
+# size pass 1): only a 286 or better boots it, so the sector costs no 8088
+# anything, and the kernel stays byte-identical to the knob build it was.
 ifneq ($(KERN_EMU),)
+BOOT2_XSEC := 1
+endif
+ifneq ($(KERN_MEGA),)
 BOOT2_XSEC := 1
 endif
 ifneq ($(BOOT2_XSEC),)
@@ -14089,17 +14105,21 @@ small: $(BUILD)/small360.img $(BUILD)/small720.img $(BUILD)/small.img
 	@python3 tools/kernsplit.py $(SMALLDIR)/kernel.bin $(BUILD)/kernel.bin
 
 # THE BUDGETS AT AN UPSTREAM MERGE OR A RELEASE (kernel/kernel.asm, at
-# KERN_BUDGET). The build itself lets either kernel run KERN_GRACE over its
+# KERN_BUDGET). The build itself lets any kernel run KERN_GRACE over its
 # budget, because branch and integration work lands a feature whole and
-# size-passes it after; this is where that grace ends. It measures both
-# SHIPPED kernels (kern_emu is kern_big's budget) - a knob kernel has no
-# budget - and fails naming the one that is over, which is then a size pass or a conversation with the owner,
-# never a raise. .claude/skills/release-os8088 and docs/UPSTREAM.md run it.
+# size-passes it after; this is where that grace ends. It measures every
+# BUDGETED kernel (kern_emu is kern_big's budget; kern_mega's is its own, on
+# what it keeps in conventional memory after the switch, kernel.asm rule 4) -
+# a knob kernel has no budget - and fails naming the one that is over, which
+# is then a size pass or a conversation with the owner, never a raise.
+# .claude/skills/release-os8088 and docs/UPSTREAM.md run it. kern_mega being
+# measured here does not make it RELEASED: no release artefact carries it.
 .PHONY: budget-check
-budget-check: $(BUILD)/kernel.bin small emu
+budget-check: $(BUILD)/kernel.bin small emu mega
 	@python3 tools/kernsize.py --release --build $(BUILD) --ico $(ICODIR)
 	@python3 tools/kernsize.py --release --build $(SMALLDIR) --ico $(SMALLDIR) -DKERN_SMALL
 	@python3 tools/kernsize.py --release --build $(EMUDIR) --ico $(EMUDIR) -DKERN_BIG -DKERN_EMU
+	@python3 tools/kernsize.py --release --build $(MEGADIR) --ico $(MEGADIR) -DKERN_BIG -DKERN_MEGA
 
 # its kernel is $(SMALLDIR)'s, so its modules are too
 # --- WHAT THE SMALL DISKS DO NOT CARRY (SPEC.md 24.5) -------------------------
