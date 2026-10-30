@@ -3161,20 +3161,16 @@ mega_svc_back:
     mov [es:0xF0], ax
     mov ax, [mega_rqi + 2]
     mov dx, [mega_rqi + 4]
-    mov cl, 11
-    shr ax, cl
-    mov cl, 5
-    shl dx, cl
+    shr ax, 11
+    shl dx, 5
     or ax, dx
     mov [es:0xF2], ax
     mov ax, [mega_rqs]
     mov [es:0xF4], ax
     mov ax, [mega_rqs + 2]
     mov dx, [mega_rqs + 4]
-    mov cl, 11
-    shr ax, cl
-    mov cl, 5
-    shl dx, cl
+    shr ax, 11
+    shl dx, 5
     or ax, dx
     mov [es:0xF6], ax
 %endif
@@ -4749,8 +4745,7 @@ mega_mods_fix:
     mov cx, [di + mod_fpt + 2 - (MOD_TAB_OFF >> 1)]
     mov di, [di + mod_fpt - (MOD_TAB_OFF >> 1)]
     sub cx, di
-    shr cx, 1
-    shr cx, 1
+    shr cx, 2
     jcxz .n
 .s:
     cmp [di+2], ax
@@ -5369,9 +5364,7 @@ mega_hugef:
     jc .no
     inc byte [sch_lock]             ; the base is aimed before any other
     mov bp, ax                      ; task can compact it away
-    mov dx, ax
-    shl ax, 10
-    shr dx, 6                       ; DX:AX = bytes
+    call mega_kbc                   ; DX:AX = bytes
     call MEGA_SEL_CODE:mx_allocf       ; DX:AX = the block's base
     jc .nol
     mov cx, bp
@@ -5534,9 +5527,7 @@ mega_hugebf:
     mov [mega_bfc], dx              ; (its pair's data selector)
     inc byte [sch_lock]             ; --- the POOL piece, and the run, one step
     mov ax, [mega_bfp]
-    mov dx, ax
-    shl ax, 10
-    shr dx, 6
+    call mega_kbc
     mov bl, [mega_bfown]
     call MEGA_SEL_CODE:mx_allocf    ; DX:AX = its base
     jc .noc
@@ -6032,11 +6023,7 @@ mx_runcntf:
     dec ax
     mov cx, [ss:si+MX_KB]
     add cx, 31
-    shr cx, 1
-    shr cx, 1
-    shr cx, 1
-    shr cx, 1
-    shr cx, 1
+    shr cx, 5
     retf
 section .text
 
@@ -6411,8 +6398,6 @@ mega_fdgo:
     mov cl, 1
     call mm_fdrprobe              ; reset by a reflected service? recalibrate
     mov cl, [mega_fdd]
-    mov al, 0x10
-    shl al, cl                      ; this drive's motor bit
     mov byte [es:0x40], 0xFF        ; no motor-off while we work
     in al, 0x21
     and al, 0xBF                    ; IRQ6 open: the BIOS wants it so too
@@ -6424,12 +6409,9 @@ mega_fdgo:
     pushf                           ; ZF = 1: the motor was OFF
     and ah, 0xCF                    ; 3F: bits 4-5 = the drive selected
     or ah, dl
-    push cx
-    mov ch, cl
-    mov cl, 4
-    shl ch, cl
+    mov ch, cl                      ; (CX is this routine's to clobber, and
+    shl ch, 4                       ; CL is the drive still)
     or ah, ch
-    pop cx
     cmp byte [mega_fdop], 3
     jne .nw
     or ah, 0x80                     ; bit 7: a write in progress
@@ -6437,8 +6419,7 @@ mega_fdgo:
     mov [es:0x3F], ah
     mov al, ah
     and al, 0x0F                    ; the motors as DOR bits 4-7
-    mov cl, 4
-    shl al, cl
+    shl al, 4
     or al, 0x0C                     ; not reset, DMA on
     or al, [mega_fdd]               ; ...this drive selected
     mov dx, MEGA_FD_DOR
@@ -6450,8 +6431,7 @@ mega_fdgo:
     mov cl, 9
     mul cl
     add ax, 3
-    shr ax, 1
-    shr ax, 1                       ; ...in ticks: 125 / 55 ~ 9 / 4
+    shr ax, 2                       ; ...in ticks: 125 / 55 ~ 9 / 4
     call mega_fdtk
 .spun:
     mov byte [mega_fdstep], 1
@@ -6584,8 +6564,7 @@ mega_fdgo:
     call mm_fdout
     jc .fall
     mov al, [mega_fdh]
-    shl al, 1
-    shl al, 1
+    shl al, 2
     or al, [mega_fdd]
     call mm_fdout
     jc .fall
@@ -6646,8 +6625,7 @@ mega_fdseek:
     call mm_fdout
     jc .x
     mov al, [mega_fdh]
-    shl al, 1
-    shl al, 1
+    shl al, 2
     or al, [mega_fdd]
     call mm_fdout
     jc .x
@@ -7124,10 +7102,7 @@ mega_fdtype:
 .have:
     cmp byte [mega_fdd], 0
     jne .b
-    shr al, 1
-    shr al, 1
-    shr al, 1
-    shr al, 1
+    shr al, 4
 .b:
     and al, 0x0F
     ret
@@ -8949,13 +8924,9 @@ mega_xmsel:
     jc .not                         ; below the pool
     mov si, ax                      ; SI = the window's first KB from the
     mov di, dx                      ; pool's base
-    push cx
-    mov cl, 10
-    shr si, cl
-    mov cl, 6
-    shl di, cl
+    shr si, 10
+    shl di, 6
     or si, di
-    pop cx
     jcxz .full                      ; DX:AX = its end, exclusive
     add ax, cx
     adc dx, 0
@@ -8965,11 +8936,7 @@ mega_xmsel:
 .end:
     add ax, 1023                    ; ...rounded up to a KB
     adc dx, 0
-    mov cl, 10
-    shr ax, cl
-    mov cl, 6
-    shl dx, cl
-    or ax, dx                       ; AX = the first KB past the window
+    call mx_kb                      ; AX = the first KB past the window
     mov di, mx_tab
 .scan:
     cmp word [ss:di+MX_KB], 0
@@ -9101,19 +9068,20 @@ mxs_hi      dw 0
 mxs_len     dw 0
 
 ; DX:AX = linear (mx_rel, as KB from the pool base) or bytes (mx_tokb, as
-; KB) -> AX; CF = 1 below the pool or 64MB or more. Clobbers CL, DX
+; KB) -> AX; CF = 1 below the pool or 64MB or more. Clobbers DX
 section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
 mx_rel:
     sub dx, MEGA_XPOOL >> 16
-    jc mx_tokb.out
+    jc mx_kb.out
 mx_tokb:
     cmp dh, 0x04
     cmc
-    jc .out
-    mov cl, 10
-    shr ax, cl
-    mov cl, 6
-    shl dx, cl
+    jc mx_kb.out
+mx_kb:                              ; ...and DX:AX bytes -> AX KB with no
+                                    ; range test (kernel size pass 15). The
+                                    ; `or` leaves CF = 0
+    shr ax, 10
+    shl dx, 6
     or ax, dx
 .out:
     ret
@@ -9132,8 +9100,7 @@ mx_chk:
     and di, 0x03FF
     add di, cx
     add di, 1023
-    mov cl, 10
-    shr di, cl
+    shr di, 10
     call mx_rel
     jc .no
     add di, ax
@@ -9218,8 +9185,7 @@ mx_copy:
     pop bx
     cmp byte [es:si+XMC_DIR], 0
     jne .in
-    mov [mega_xsrc], ax             ; out: conventional -> extended
-    mov [mega_xsrc+2], dx
+    call mega_xsrcset               ; out: conventional -> extended
     mov [mega_xdst], di
     mov [mega_xdst+2], bx
     jmp short .go
@@ -9636,8 +9602,7 @@ mega_modhif:
     push cx                         ; DESCRIPTOR: a selector since KERN-MEGA-
     call mega_selbase               ; MEMORY-PLAN MC7.4 (an identity segment
     pop cx                          ; reads N x 16 there all the same)
-    mov [mega_xsrc], ax
-    mov [mega_xsrc+2], dx
+    call mega_xsrcset
     call KERNEL_SEG:mega_lincopyf
     pop ax
     clc
@@ -9857,10 +9822,7 @@ mega_xmcls:
     and bx, 0x1F
     cmp bx, DRV_MAX
     jae .o
-    shl bx, 1                       ; DRVR_SIZE = 16
-    shl bx, 1
-    shl bx, 1
-    shl bx, 1
+    shl bx, 4                       ; DRVR_SIZE = 16
     mov ah, [bx+drv_tab+DRVR_CLASS]
     jmp short .o
 .img:
@@ -9915,7 +9877,6 @@ XMW_PAD     equ 0xF4                ; (none since MC2: kept for the SDK)
 ; step 9 publishes it). Clobbers nothing else
 mega_slotof:
     push ax
-    push cx
     push di
     mov ax, es
     mov di, [ld_rec]
@@ -9941,13 +9902,11 @@ mega_slotof:
 .slot:
     mov ax, di
     sub ax, inst_tab
-    mov cl, 5                       ; I_RECSZ = 32 (ld_slot's shift)
-    shr ax, cl
+    shr ax, 5                       ; I_RECSZ = 32 (ld_slot's shift)
     mov bl, al
     clc
 .o:
     pop di
-    pop cx
     pop ax
     ret
 
@@ -10510,8 +10469,7 @@ mx_cpmove:
     shr dx, 7                       ; DX:AX = its offset in the block
     add ax, [bp+6]
     adc dx, [bp+8]
-    mov [mega_xsrc], ax
-    mov [mega_xsrc+2], dx
+    call mega_xsrcset
     sub ax, [bp+10]                 ; ...and less the drop, where it goes
     sbb dx, [bp+12]
     mov [mega_xdst], ax
@@ -10670,8 +10628,7 @@ mega_bparaf:
     mov dx, ax
     shl ax, 4
     shr dx, 12
-    mov [mega_xsrc], ax
-    mov [mega_xsrc+2], dx
+    call mega_xsrcset
     mov ax, di
     mov dx, ax
     shl ax, 4
@@ -11003,9 +10960,7 @@ mx_xcut:
 
 ; mx_kblin - AX = KB from the pool base -> DX:AX = the linear address
 mx_kblin:
-    mov dx, ax
-    shl ax, 10
-    shr dx, 6
+    call mega_kblin                 ; (megados.inc: the same section)
     add dx, MEGA_XPOOL >> 16
     ret
 
@@ -11025,9 +10980,7 @@ mega_claimhf:
     jc .no                          ; OS88_HIGHMEM package, 0C0h | row for an
                                     ; OS88_DRV_HICLAIM driver
     mov si, ax                      ; SI = KB
-    mov dx, ax
-    shl ax, 10
-    shr dx, 6                       ; DX:AX = bytes
+    call mega_kbc                   ; DX:AX = bytes
     inc byte [sch_lock]             ; the base is aimed before any other
     call MEGA_SEL_CODE:mx_allocf    ; task can compact it away (14.37)
     jc .nol                         ; DX:AX = the block's base
@@ -11084,11 +11037,7 @@ mega_claimfreef:
 .nb:
     mov [mega_bfpart], ax
     push dx
-    mov ax, [ss:si+MX_OFF]             ; its base: the pool's plus KB x 1024
-    mov dx, ax
-    shl ax, 10
-    shr dx, 6
-    add dx, MEGA_XPOOL >> 16
+    call mega_mxbase                ; its base: the pool's plus KB x 1024
     call MEGA_SEL_CODE:mx_freef                    ; ...and mx_unsel takes the selector
     pop dx
     jmp short .o
@@ -11152,10 +11101,17 @@ mega_claimkbf:
 ; Clobbers nothing else
 mega_mxbase:
     mov ax, [ss:si+MX_OFF]
+    call mega_kbc
+    add dx, MEGA_XPOOL >> 16
+    ret
+
+; mega_kbc - AX KB -> DX:AX bytes, `.cold`'s copy of mega_kblin (`.mega`'s):
+; five protected-mode-only sites here wrote it out (kernel size pass 15).
+; Clobbers nothing else
+mega_kbc:
     mov dx, ax
     shl ax, 10
     shr dx, 6
-    add dx, MEGA_XPOOL >> 16
     ret
 
 ; mega_claimregrowf - FAR (osapi_mem_regrow, `.cold`): an OS88_HIGHMEM claim
@@ -11224,9 +11180,7 @@ mega_claimregrowf:
     call .hroom                     ; the KB above it free: grown in place
     jnc .ogrow                      ; (KERN-MEGA-PLAN 14.49)
     mov ax, bp
-    mov dx, ax
-    shl ax, 10
-    shr dx, 6                       ; DX:AX = the new size in bytes
+    call mega_kbc                   ; DX:AX = the new size in bytes
     call MEGA_SEL_CODE:mx_allocf                   ; DX:AX = the new block's base
     jnc .gnew
     call .hpack                     ; no block that size: the pool packed
@@ -11345,9 +11299,7 @@ mega_claimregrowf:
     call .hroom
     jnc .hsel                       ; the KB above it are free
     mov ax, bp
-    mov dx, ax
-    shl ax, 10
-    shr dx, 6
+    call mega_kbc
     call MEGA_SEL_CODE:mx_allocf    ; DX:AX = a fresh block of the new size
     jc .hagain
     call mega_mxat                  ; DI = its entry
@@ -11594,8 +11546,7 @@ mega_imghuge:
     push cx                         ; DESCRIPTOR: a selector since KERN-MEGA-
     call mega_selbase               ; MEMORY-PLAN MC7.4 (an identity segment
     pop cx                          ; reads N x 16 there all the same)
-    mov [mega_xsrc], ax
-    mov [mega_xsrc+2], dx
+    call mega_xsrcset
 .c:
     mov ax, 0x800                   ; 32KB a call, in paragraphs
     cmp cx, ax
@@ -11689,8 +11640,7 @@ mega_imghif:
     push cx                         ; DESCRIPTOR: a selector since KERN-MEGA-
     call mega_selbase               ; MEMORY-PLAN MC7.4 (an identity segment
     pop cx                          ; reads N x 16 there all the same)
-    mov [mega_xsrc], ax
-    mov [mega_xsrc+2], dx
+    call mega_xsrcset
     or cx, cx
     jnz .copy
     mov cx, 0xFFFE                  ; a 64KB region: mega_lincopy's ceiling
