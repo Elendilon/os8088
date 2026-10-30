@@ -479,7 +479,9 @@ refuses with a toast naming why:
   over 0134h-014Ch) wrong - "not a GB ROM", the file not a cartridge;
 - **0143h = C0h**, a game for the Game Boy Color alone - "needs GB Color".
   A game for both (80h) runs as a Game Boy, and `.GBC` is a RealDMG
-  document beside `.GB`, the extension such games mostly carry;
+  document beside `.GB`, the extension such games mostly carry. How the
+  Color is to be added without slowing the Game Boy is
+  docs/plans/REALDMG-GBC-PLAN.md, a plan with nothing built;
 - **a type rdgsys does not have** - "MBC xxh unknown". The ones it runs are
   00-03, 05-06, 08-09, 0F-13 and 19-1E (`rw_mbcok`, a bit each); MMM01,
   HuC1, HuC3, MBC6, MBC7, TAMA5 and the Pocket Camera used to fall through
