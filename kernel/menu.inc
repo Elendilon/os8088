@@ -2114,11 +2114,9 @@ menu_kbnav:
     or al, al
     jz .noj                     ; Left/Right keep their pixel step, which is
                                 ; how the pointer leaves a menu sideways
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; AX too, so the exit is kretfc_di's run - AX
+                                ; was "clobbered" and comes back unchanged now,
+                                ; which no caller minds (kernel size pass 15)
     cbw
     mov si, ax                  ; SI = the direction, and the sign the scan
                                 ; below walks in
@@ -2190,16 +2188,14 @@ menu_kbnav:
     mov [mouse_y], bx           ; rather than by a rectangle known here
     mov byte [cur_shchk], 1     ; ...and the pointer MOVED (SPEC.md 7.2.1.1)
     inc byte [ui_post]          ; ...and SAY SO once (SPEC.md 13.13)
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
     clc
-    retf                        ; FAR: kbm_move reaches this across the segment
+    jmp kretfc_di               ; FAR: kbm_move reaches this across the segment
 .no:                            ; boundary now, and no thunk stands in between
     stc                         ; (SPEC.md 2.6.1)
     retf
+    nop                         ; PARITY, never executed or read (kernel size
+                                ; pass 15): `.cold` between here and dsk_xfer
+                                ; came out an odd number of bytes shorter
 section .text
 
 ; -----------------------------------------------------------------------------

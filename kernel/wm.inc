@@ -5876,7 +5876,12 @@ wm_obscured:
     test byte [bx+W_FLAGS], 2   ; on screen at all? Everything a hidden window
     jz .gone                    ; would draw lands on somebody else's window or
                                 ; on the desktop, and nothing ever erases it
-    call kent_di                ; wm_fit's frame (kernel size pass 15)
+    push ax                     ; the shared ladder's frame, BX included, now
+    push bx                     ; that wm_fit's pops are kret_di (kernel size
+    push cx                     ; pass 15: a push and not kent_di, this being
+    push dx                     ; asked per window of a damage repaint)
+    push si
+    push di
     call wm_zabove              ; SI -> the first entry above us, CX = how many
     jc .clear                   ; not in the z-order: nothing can be over us
 .scan:
@@ -6181,7 +6186,11 @@ wm_clip_set:
 ; means "not covered", i.e. draw it. Skipping on a maybe would lose pixels.
 ; -----------------------------------------------------------------------------
 wm_covered:
-    call kent_di                ; (kernel size pass 15: the ladder's frame)
+    push ax                     ; BX too, so `.out` is the shared ladder's rung
+    push bx                     ; now that wm_zoom's pops are kret_di (kernel
+    push cx                     ; size pass 15: wm_covered is per window per
+    push dx                     ; damage repaint, so a push and not kent_di)
+    push si
     call wm_seed_frame          ; the frame plus the 1px drop shadow, which
     call wm_clip_occl           ; wm_draw_win draws. (No clear first: the seed
                                 ; sets [wm_clip_n] itself)
@@ -6192,7 +6201,7 @@ wm_covered:
     call wm_clip_clear
     clc
 .out:
-    jmp kret_di
+    jmp kret_si
 
 ; -----------------------------------------------------------------------------
 ; wm_clip_seed - internal: arm the list with one rect and nothing subtracted
@@ -6740,14 +6749,20 @@ wm_clip_subr:                   ; ...and the walk, from those four words
 ; them and find (by construction) that they do not touch the occluder.
 ; -----------------------------------------------------------------------------
 wm_clip_split:
-    call kent_di                ; (kernel size pass 15: SI banked with the rest,
-    mov di, wm_cl_rx1           ; so the slot copy below may spend it)           ; the rect is about to be overwritten: bank it
+    push ax                     ; SI banked with the rest (kernel size pass 15:
+    push bx                     ; the shared ladder's frame, so `.full` is a
+    push cx                     ; rung and the slot copy below may spend SI -
+    push dx                     ; pushes and not kent_di, a split being per
+    push si                     ; fragment of a damage repaint)
+    push di
+    mov di, wm_cl_rx1           ; the rect is about to be overwritten: bank it
     call wm_cpy4                ; (SI -> it; wm_cl_r* are x1,y1,x2,y2 in order)
 
     dec word [wm_clip_n]        ; drop it: the last rect moves into its slot
     mov bx, [wm_clip_n]         ; (a self-copy when it WAS the last)
-    mov cl, 3                   ; WCR_SZ is 8, and it is meant to stay 8 - CX
-    shl bx, cl                  ; is banked and not yet loaded (pass 15)
+    shl bx, 1                   ; WCR_SZ is 8, and it is meant to stay 8
+    shl bx, 1
+    shl bx, 1
     add bx, wm_clip_tab         ; BX -> the last rect
     mov di, si
     mov si, bx
@@ -6960,12 +6975,15 @@ wm_clip_free:
 wm_ttl_seen:
     cmp word [wm_clip_n], 0
     je wm_clip_free             ; disarmed: draw it, and that `clc`/`ret` is
-    call kent_di                ; already written one label up (pass 15)
+    push ax                     ; already written one label up
+    push bx
+    push cx
+    push dx
     call wm_ttl_rect            ; AX,BX,CX,DX = the strip, inclusive
     xchg ax, cx                 ; containment with the corners exchanged IS
     xchg bx, dx                 ; overlap - 11.3.3's own idiom, and the walk
     call wm_clip_walk           ; is the RAW one: wm_draw_win is in virtual
-    jmp kret_di                 ; coordinates and wm_clip_tab is virtual, so
+    jmp kret_dx                 ; coordinates and wm_clip_tab is virtual, so
                                 ; wm_clip_t1's display translation would be a
                                 ; second one. (`pop` writes no flags, so the
                                 ; answer survives to the caller's branch)
@@ -8108,15 +8126,12 @@ wm_chrome_rect_x:
     add dx, 13
     cmp ah, 3
     mov ax, [si+W_X]            ; (writes no flags: the cmp above still stands)
-    je .min
+    jne .close
+    add ax, [si+W_W]            ; minimize box: the close box mirrored
+    sub ax, 18 + 9              ; (W_X+W_W-18 .. W_X+W_W-10), the +9 below
+.close:                         ; included - one tail for both (pass 15, -6)
     add ax, 9                   ; close box interior: W_X+9 .. W_X+17
     mov cx, ax
-    add cx, 8
-    ret
-.min:
-    add ax, [si+W_W]
-    sub ax, 18                  ; minimize box: the close box mirrored
-    mov cx, ax                  ; (W_X+W_W-18 .. W_X+W_W-10)
     add cx, 8
     ret
 
@@ -8147,16 +8162,12 @@ wm_chrome_relit_x:
     jnz .clear                  ; no title bar at all (SPEC.md 11.2)
     cmp di, bp
     jne .clear                  ; not frontmost: no boxes were drawn
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+    call kentc_di               ; (kernel size pass 15: the armed window only)
     mov si, di
     mov ah, [ui_armr]
     call wm_chrome_rect_x
     call ct_cw_gfx_xor_fill         ; the caller holds the gfx lock: every
-    jmp kretc_si                    ; wm_draw_title caller does
+    jmp kretc_di                    ; wm_draw_title caller does
 .out:
     ret
 .clear:
@@ -8983,7 +8994,11 @@ wm_su_owed:
 ; covered case has to be answered HERE.
 ; -----------------------------------------------------------------------------
 wm_chrome_clip:
-    call kent_di                ; (kernel size pass 15: DI, the input, kept too)
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
     call wm_clip_clear
     mov bx, di
     call wm_obscured
@@ -9025,7 +9040,7 @@ wm_chrome_clip:
                                 ; here is one a background painter would have
                                 ; skipped, and here it is one this pass owes
 .out:
-    jmp kret_di                 ; (`pop` writes no flags, so the answer above
+    jmp kret_si                 ; (`pop` writes no flags, so the answer above
                                 ; survives to the caller's branch)
 
 ; -----------------------------------------------------------------------------
@@ -10780,7 +10795,12 @@ wm_draw_shadow:
 
 wm_draw_win:
     KFZ 24                      ; one window's frame and content
-    call kent_di                ; (kernel size pass 15)
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
     mov di, bx                  ; DI = window ptr for the duration
 %ifndef REDRAWFULL
     mov byte [wm_su_bok], 0     ; no band has been put back in THIS draw yet
