@@ -327,6 +327,12 @@ volume_label:  db 'Volume',0
 volume_memerr: db 'Volume needs memory',0
 
 %define MIXUI_BUFFER volume_band
+%define MIXUI_H 44              ; volume_popup FILLS the panel white before
+                                ; the first band, and nothing but the band
+                                ; draws inside it, so the four blank rows
+                                ; under the scale marks need not be written
+                                ; at all: 88 bytes of the band, the same
+                                ; pixels on the glass
 %include "os88mixui.inc"
 
 %macro VOLUME_STATE 0
@@ -343,5 +349,5 @@ volume_planes: db 0
 volume_drag: db 0
 volume_prev: db 0
 volume_btn: db 0
-volume_band: times 176*48/8 db 0
+volume_band: times 176*MIXUI_H/8 db 0
 %endmacro

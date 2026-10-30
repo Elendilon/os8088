@@ -415,10 +415,21 @@ opl_opregs:                     ; the 5 per-operator register bases, in
     db 0x20, 0x40, 0x60         ; patch-byte order (SPEC.md 34.2):
     db 0x80, 0xE0               ; char/level/attack-decay/sustain-release/wave
 
-opl_fmax:                       ; highest Hz whose F-Number fits 10 bits at
-    dw 48, 97, 194, 388         ; block 0..7: floor(1023*49716 / 2^(20-b)).
-    dw 776, 1552, 3104, 6208    ; The keyon scan picks the SMALLEST block
-                                ; that fits - maximum F-Number precision
+OPL_FMAX7   equ 6208            ; highest Hz whose F-Number fits 10 bits at
+                                ; block 7: floor(1023*49716 / 2^13). Block
+                                ; b's is floor(1023*49716 / 2^(20-b)), which
+                                ; is exactly 6208 >> (7 - b) for every b -
+                                ; 48, 97, 194, 388, 776, 1552, 3104 - so
+                                ; opl_keyon halves it rather than reading an
+                                ; eight-word table. It picks the SMALLEST
+                                ; block that fits - maximum F-Number precision
+%assign opl_b 0
+%rep 8
+  %if (OPL_FMAX7 >> (7 - opl_b)) != (1023 * 49716) / (1 << (20 - opl_b))
+    %error "opl_keyon's halving no longer gives block opl_b's ceiling"
+  %endif
+  %assign opl_b opl_b + 1
+%endrep
 
 ; The default patch, loaded onto all 9 channels by the init and the
 ; square-ish voice the routed tone tier sounds on channel 8 (SPEC.md 34.3):
@@ -517,21 +528,19 @@ opl_keyon:
     push bx
     push cx
     push dx
-    push si
     cmp bx, 19
     jb .bad
-    xor si, si                  ; SI = block scan index * 2
+    mov ax, OPL_FMAX7           ; block 7's ceiling...
+    cmp bx, ax
+    ja .bad                     ; > 6208 Hz: no block fits (SPEC.md 34.2)
+    mov ch, 7                   ; CH = block (CL still the channel)
 .blk:
-    cmp bx, [opl_fmax+si]
-    jbe .got
-    add si, 2
-    cmp si, 16
-    jb .blk
-    jmp .bad                    ; > 6208 Hz: no block fits (SPEC.md 34.2)
+    shr ax, 1                   ; ...and block b-1's is block b's halved
+    cmp bx, ax                  ; (opl_fmax's eight words were exactly
+    ja .got                     ; 6208 >> (7 - b)): stop at the smallest
+    dec ch                      ; block whose ceiling still holds BX
+    jnz .blk
 .got:
-    mov ax, si
-    shr ax, 1                   ; AL = block b (0..7)
-    mov ch, al                  ; CH = block (CL still the channel)
     push cx
     mov cl, 20
     sub cl, ch                  ; CL = 20 - b, the shift count
@@ -565,7 +574,6 @@ opl_keyon:
     call opl_wr                 ; B0h+ch: the note starts
     CLC_OR_STC .bad
 .out:
-    pop si
     pop dx
     pop cx
     pop bx
@@ -721,19 +729,17 @@ opl_claim:
     cmp al, dh
     je .mine
     popf
-    jmp short .bad
+.bad:
+    stc
+    jmp short .out
 .take:
     mov [opl_own+bx], dh
 .mine:
-    popf
-    pop bx
-    pop ax
+    popf                        ; (the caller's flags: CF is set after it)
     clc
-    ret
-.bad:
+.out:
     pop bx
     pop ax
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -743,23 +749,17 @@ opl_claim:
 ; clobbers: nothing else (flags)
 ; -----------------------------------------------------------------------------
 opl_owned:
-    push ax
     push bx
     cmp cl, OPL_NCH
     jae .no
     mov bl, cl
     xor bh, bh
-    mov al, [opl_own+bx]
-    cmp al, dh
-    jne .no
-    pop bx
-    pop ax
-    clc
-    ret
+    cmp [opl_own+bx], dh
+    je .yes                     ; (an EQUAL compare: CF = 0)
 .no:
-    pop bx
-    pop ax
     stc
+.yes:
+    pop bx                      ; (pop leaves the flags)
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1143,12 +1143,8 @@ opl_regok:
     cmp al, 0x15                ; ...and carrier
     je .no
 .yes:
+    CLC_OR_STC .no
     pop ax
-    clc
-    ret
-.no:
-    pop ax
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1308,6 +1304,8 @@ mix_kind:   db 0                ; 0 = no mixer: 1/2/3 the CT1335/1345/1745.
 snd_keep:
 %include "volume.inc"           ; the loaded driver's quick-volume popup
 %include "mixer.inc"            ; hardware mixer verbs (SPEC.md 34.15)
+SBL_PRO                         ; sb.inc: an SB Pro stereo stream's mixer
+                                ; half, which only [mix_kind] = 2 reaches
 
 MIX_STATE                       ; (zero, and SHIPPED now: they are no longer
 VOLUME_STATE                    ; the file's trailing run - see snd_keepmix)

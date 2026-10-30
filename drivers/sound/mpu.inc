@@ -218,11 +218,10 @@ mpu_put:
     loop .w
     stc
     jmp short .out
-.go:
+.go:                                ; (CF = 0: the TEST cleared it)
     dec dx
     mov al, ah
     out dx, al
-    clc
 .out:
     pop dx
     pop cx
@@ -293,8 +292,7 @@ mpu_v_open:                         ; SNDV_MIDOPEN: the interface is ES's
     mov [mpu_own], bx
     popf
     pop bx
-    xor ax, ax
-    clc
+    xor ax, ax                  ; (CF = 0)
     ret
 
 mpu_v_write:                        ; SNDV_MIDW: ES:SI, CX bytes
@@ -343,8 +341,7 @@ mpu_v_close:                        ; SNDV_MIDCLOSE: silenced and given back
     call mpu_hush
     mov word [mpu_own], 0
 .not:
-    xor ax, ax
-    clc
+    xor ax, ax                  ; (CF = 0)
     ret
 
 ; mpu_detach - the driver going: a module that was playing is silenced

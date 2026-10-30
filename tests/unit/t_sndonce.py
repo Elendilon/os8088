@@ -41,11 +41,12 @@ import os88drvsym                                       # noqa: E402
 ATTACH = {"snd_entry"}                  # rule 1's one door
 # rule 2's doors, behind [mix_kind]: snd_pkg's verb table and snd_detach
 # test it at the call; an SB Pro STEREO stream tests it at attach instead -
-# sbl_pro_st runs only for a stream verb 11 took as stereo, which needs
-# SND_CAP_STEREO, which snd_sb_pub grants a DSP 3.xx only with [mix_kind] = 2,
-# and sbl_stop_stream's restore is behind [sbl_pst], which only sbl_pro_st
+# sbl_hw_start calls sbl_pro_st (in the mixer's run, sb.inc's SBL_PRO) only
+# for a stream verb 11 took as stereo, which needs SND_CAP_STEREO, which
+# snd_sb_pub grants a DSP 3.xx only with [mix_kind] = 2, and
+# sbl_stop_stream's sbl_pro_end is behind [sbl_pst], which only sbl_pro_st
 # sets (SPEC.md 34.15.1)
-MIXDOORS = {"snd_ptab", "snd_detach", "sbl_pro_st", "sbl_stop_stream"}
+MIXDOORS = {"snd_ptab", "snd_detach", "sbl_hw_start", "sbl_stop_stream"}
 LST = re.compile(r"^\s*\d+\s+([0-9A-F]{8})\s+\S")
 LABEL = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):")
 IDENT = re.compile(r"(?<![.\w])([A-Za-z_][A-Za-z0-9_]*)")
