@@ -304,6 +304,16 @@ mega_enter:
     ret
 .room:
     cli
+%ifdef MEGA_DIAG
+    push es                         ; int 40h as the BIOS left it, for the
+    xor ax, ax                      ; floppy sampler's line 8 (14.125)
+    mov es, ax
+    mov ax, [es:0x40*4]
+    mov [mega_fdv40], ax
+    mov ax, [es:0x40*4+2]
+    mov [mega_fdv40+2], ax
+    pop es
+%endif
     in al, 0x70                     ; NMI off across the switch: a real-mode
     or al, 0x80                     ; IVT is not an IDT
     out 0x70, al
@@ -7213,7 +7223,9 @@ mega_fdmkf:
 ; bytes at CS:IP. Line 6 (rows 96-103): the IVT's cells for vectors 06 0D
 ; 10 13 15 1C 40, segment then offset. Line 7 (rows 104-111): the eight
 ; bytes before each of the far returns at [SP] and [SP+4] - the calls that
-; led here. mega_fdson / mega_fdsoff are NEAR, real
+; led here. Line 8 (rows 112-119): 40:13, [mem_top], int 40h at
+; mega_enter (segment, offset), int 40h now, and twelve bytes at it.
+; mega_fdson / mega_fdsoff are NEAR, real
 ; mode, IF = 0, DS = KERNEL_SEG; they preserve every register
 ; -----------------------------------------------------------------------------
 mega_fdson:
@@ -7443,6 +7455,43 @@ mega_fdsamp:                        ; IRQ0 in real mode, inside the BIOS
     mov si, mega_fdsbuf
     mov di, 104 * 80
     call mega_fdhex
+    ; --- line 8 (rows 112-119): 40:13 (int 12h's KB), the kernel's
+    ; [mem_top], int 40h as it was at mega_enter and as it is now, and the
+    ; twelve bytes at the vector now - the diskette service the BIOS's
+    ; int 13h hands a floppy call to, which the freeze reads as RAM
+    push ds
+    pop es
+    mov di, mega_fdsbuf
+    push ds
+    mov ax, MEGA_BDA
+    mov ds, ax
+    mov ax, [0x13]
+    pop ds
+    call .hw
+    mov ax, [mem_top]
+    call .hw
+    mov ax, [mega_fdv40+2]
+    call .hw
+    mov ax, [mega_fdv40]
+    call .hw
+    push ds
+    xor ax, ax
+    mov ds, ax
+    lds si, [0x40*4]                ; DS:SI = int 40h now
+    mov ax, ds
+    call .hw
+    mov ax, si
+    call .hw
+    mov cx, 12
+.v40:
+    lodsb
+    call .hb
+    loop .v40
+    pop ds
+    mov byte [di], 0xFE
+    mov si, mega_fdsbuf
+    mov di, 112 * 80
+    call mega_fdhex
     pop es
     pop ds
     pop bp
@@ -7643,6 +7692,7 @@ mega_fdsn   db 0                    ; ticks sampled this boot
 mega_fdvs   times 7 db 0            ; the VGA registers mega_fdvon banked
 mega_fdsbuf times 64 db 0           ; a line, as glyph numbers
 mega_fdsvec db 0x06, 0x0D, 0x10, 0x13, 0x15, 0x1C, 0x40, 0xFF
+mega_fdv40  dw 0, 0                 ; int 40h at mega_enter (offset, segment)
 %endif
 mega_fdoff  db 0                    ; 1: switched off for the session
 mega_fdfail db 0                    ; fallbacks in a row

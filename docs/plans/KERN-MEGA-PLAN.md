@@ -12946,3 +12946,31 @@ is still not known.
 (segment, offset: seven, since eight runs past column 79), and the eight
 bytes before each of the two far returns at [SP] and [SP+4], which are the
 calls themselves.
+
+**Seventh field reading (owner, 2026-10-30)**: line 6, the IVT cells:
+06 C000:0ECD, 0D F000:D265, 10 F000:E2C3, 13 F000:E987, 15 F000:D265, 1C
+C000:0ECD, **40 8FB8:3297**. Line 7: the bytes before both "returns" are
+zeros and a font glyph (`7C C6 C6 C6 7C`), so neither was a call site. Line
+2 is stale stack, not a chain.
+
+**Two corrections to the sixth reading**: no vector points at 1254. Line 3
+was STALE: when nothing matches, the line is empty, `mega_fdhex` draws
+nothing, and the previous sample's line stays on the glass (a defect of
+the instrument). And the chain is not through C400.
+
+**What it points at instead**: on an AT with a fixed disk the BIOS's `int
+13h` hands a FLOPPY request to `int 40h`, the diskette service, and here
+that vector is **RAM**: 8FB8:3297, about 575 KB up. Nothing in os8088
+writes vector 40h (searched: the kernel, the drivers, the packages), and
+the PicoMEM's BIOS (FreddyVRetro/ISA-PicoMEM's pmbios.asm) hooks 13h, 41h
+and 46h but not 40h. So the handler is the machine's own, or an option
+ROM's, installed at boot in RAM that the BIOS should have taken off the top
+(40:13). The owner's question is the right one: kern_big uses all of the
+640K and never breaks it, so either kern_big never writes there (it is
+above `int 12h`'s figure) and something on kern_mega does, or the vector
+itself changed during the session.
+
+**Line 8** answers that: 40:13 (`int 12h`'s KB), the kernel's `[mem_top]`,
+`int 40h` as `mega_enter` found it before the switch, `int 40h` now, and
+twelve bytes at it (still code, or overwritten). QEMU reads `027F` (639 KB)
+and `9FC0`.
