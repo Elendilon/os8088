@@ -7424,9 +7424,9 @@ wm_ownseg:
     or dx, dx
     jnz .yes
     mov dx, KERNEL_SEG          ; 0 means the kernel made it (wm_seg_of's rule)
-.yes:                           ; (CF = 0: the OR above, and MOV keeps it)
-    jmp short .out
-.no:
+.yes:                           ; (CF = 0: the OR above, and MOV keeps it - and
+    db 0xA8                     ; test al, imm8 over the stc, kernel size pass
+.no:                            ; 15; OSAPI_WM_OWNSEG's contract is CF)
     stc
 .out:
     pop bx
@@ -7781,11 +7781,11 @@ wm_draw_title:                  ; Windows, and this body otherwise
 .boxes:
     mov ax, [di+W_X]            ; the close box at W_X+6...
     add ax, 6
-    call wm_tbox
-    mov ax, [di+W_X]            ; ...and the minimize box, its mirror (SPEC.md
-    add ax, [di+W_W]            ; 11), at W_X+W_W-21 - the same shape, so one
-    sub ax, 21                  ; body draws both
-    call wm_tbox
+    call wm_tbox                ; ...which hands back AX = W_X+8, its frame's
+    add ax, [di+W_W]            ; left - so the minimize box, its mirror
+    sub ax, 21 + 8              ; (SPEC.md 11), at W_X+W_W-21 is W_W less 29 on
+    call wm_tbox                ; it: the same shape, so one body draws both
+                                ; (kernel size pass 15, -3)
     inc ax                      ; collapse glyph: black bar across row W_Y+9,
     inc ax                      ; cols W_X+W_W-17 .. W_X+W_W-11 - the frame
     add bx, 5                   ; wm_tbox leaves in AX..DX, inset 2px and taken

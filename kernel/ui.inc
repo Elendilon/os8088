@@ -2211,19 +2211,19 @@ ui_grow:
     ; 11.95.2). Taking the new rect alone leaves the seven columns the window
     ; VACATED standing on the desktop. With the origin unmoved this is the
     ; larger of the two widths off the one x, exactly as before.
-    mov cx, [ui_curx]           ; old x2 = old x + old w
-    add cx, [ui_origx]
-    mov ax, [bx + W_X]          ; ...against new x2 = x + w, the drop shadow's
-    add ax, [bx + W_W]          ; own column
-    cmp ax, cx
-    jbe .uw
-    mov cx, ax
-.uw:
-    mov ax, [bx + W_X]          ; x1 = the leftmost of the two
-    cmp ax, [ui_curx]
+    mov ax, [bx + W_X]          ; new x2 = x + w, the drop shadow's own
+    mov cx, ax                  ; column...
+    add cx, [bx + W_W]
+    mov di, [ui_curx]           ; (DI is dead here: ui_grow's callers own none)
+    cmp ax, di                  ; x1 = the leftmost of the two
     jbe .ux
-    mov ax, [ui_curx]
+    mov ax, di
 .ux:
+    add di, [ui_origx]          ; ...against old x2 = old x + old w, the larger
+    cmp cx, di                  ; kept (kernel size pass 15: each origin loaded
+    jae .uw                     ; once, -4)
+    mov cx, di
+.uw:
     mov bx, [bx + W_Y]          ; (the read completes before BX changes)
     call wm_paint_dmg           ; caller-held lock, per the wm contract
     mov word [wm_dmg_rzwin], 0  ; a one-shot, and its life is that one call
