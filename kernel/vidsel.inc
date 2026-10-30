@@ -1692,10 +1692,9 @@ vid_ctx_act:
     pop ax                      ; uses no segment register and no SI
 .out:
     ret
-    nop                         ; PARITY PAD, never run (kernel size pass 15):
-                                ; vid_ctx_capture and vid_ctx_pre left `.text`
-                                ; here 29 bytes shorter, and an odd hole put
-                                ; cur_move and font_run at an odd shift
+%ifdef KERN_SMALL
+    nop                         ; PARITY PAD, never run, kern_small only (kernel
+%endif                          ; size pass 15): kern_big paired it with viddet's
 
 ; -----------------------------------------------------------------------------
 ; vid_ctx_init - one display, at the origin, holding what is on screen now

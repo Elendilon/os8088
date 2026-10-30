@@ -2486,8 +2486,9 @@ section .text                   ; DATA, so back to the kernel segment
 ; The staged far pointer drv_blk_call assembles per call. Adjacent and in this
 ; order because `call far [mem]` takes the offset from the word and the segment
 ; from the one after it.
-drv_blkfp:   dw PKG_DISP
-drv_blkseg:  dw 0
+                                ; (drv_blkfp and drv_blkseg are memory.inc's
+                                ; now, the segment half the first word of
+                                ; mem_rr_lone - kernel size pass 15)
 section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
                                 ; segment of its own. DS is still KERNEL_SEG,
                                 ; so the DATA stays in .text at every toggle
@@ -3246,7 +3247,7 @@ drv_cp_class_x:
 .done:
     mov al, bh                  ; ...which is the COUNT, for the entry above.
     stc                         ; Both ctrl.inc callers test CF, so AL on the
-    jmp short .out              ; refusal path changing is invisible
+    SKIPCX2                     ; refusal path changing is invisible (mov cx, imm16 over .hit's mov: no flag, CX popped - pass 15)
 .hit:                           ; (the `cmp bl, bh` that came here was equal,
     mov al, cl                  ; so CF = 0 already, and `mov` keeps it)
 .out:
@@ -3463,8 +3464,8 @@ drv_load_at:
 .ioerr:                         ; three names, one answer: DRVE_BAD
 .badfree:
     mov al, DRVE_BAD
-    jmp short .fail
-.nomem:
+    SKIPF2                      ; (test ax, imm16 over the mov: AL kept, and
+.nomem:                         ; .fail reads no flag - kernel size pass 15)
 .big:                           ; ...and two for DRVE_MEM
     mov al, DRVE_MEM            ; ...and falls into the tail: the attach's
                                 ; refusal map that sat between is %1_att's

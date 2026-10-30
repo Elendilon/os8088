@@ -3165,7 +3165,9 @@ mem_rr_tab:
     MEM_RR_ROW menu_seg, 2, 2   ; the bar's owner, and the DROPPED menu, which
                                 ; is live in exactly the context SPEC.md 66.3
                                 ; rule 3 names
+%ifdef KERN_MEGA                ; (in mem_rr_lone off kern_mega, pass 15)
     MEM_RR_ONE fdlg_rqsp        ; the file dialog's staleness cookie
+%endif
 %ifdef KERN_BIG
     MEM_RR_ROW hb_dosseg, 2, 2  ; the DOS handoff's posted region (SPEC.md
                                 ; 96.40.8) and the driver file dialog's
@@ -3182,7 +3184,9 @@ mem_rr_tab:
 %ifndef KERN_MEGA
     MEM_RR_ONE xm_row + DRVR_SEG    ; XMEM.DRV (kernel/xmem.inc)
 %endif
+%ifdef KERN_MEGA                    ; (in mem_rr_lone off kern_mega, pass 15)
     MEM_RR_ONE drv_blkseg           ; the block-verb far pointer's segment half
+%endif
 %endif
 %ifdef KERN_BIG
     MEM_RR_ONE thmv_row + DRVR_SEG  ; THMPAL.DRV (kernel/vga12.inc, SPEC.md
@@ -4004,7 +4008,16 @@ section .text
 ; Declared here, outside every OS88_COMPACT span, because every kernel has
 ; them and only kern_big walks them. In .text with real initialisers, so all
 ; of them read 0 before anything sets them on any boot path.
-mem_rr_lone:
+%ifdef OS88_DRIVERS
+drv_blkfp:  dw PKG_DISP         ; driver.inc's staged block-verb far pointer:
+%endif                          ; the offset half, BEFORE the row, so that
+mem_rr_lone:                    ; `call far [drv_blkfp]` reads its segment
+%ifdef OS88_DRIVERS             ; from the row's first word (kernel size
+drv_blkseg: dw 0                ; pass 15, -4: it was a row of its own)
+%endif
+%ifndef FDLG_MOD
+fdlg_rqsp:  dw 0                ; the file dialog's staleness cookie
+%endif                          ; (fdlg.inc; kern_small's is FDLG.DRV's own)
 menu_sseg:  dw 0                ; the menu save-under claim's segment, 0 =
                                 ; none (menu_drop then repaints instead)
 %ifdef OS88_ASSOC
@@ -4220,10 +4233,9 @@ mem_free_x:
     mov word [ss:si+MC_SEG], 0     ; the record IS the allocator (SPEC.md 50.3)
 .ok:                            ; ...and mem_movable_x's two exits, below, are
     popf                        ; these: the same fence under the same IF = 0
-    clc                         ; window, writing a different word
-    jmp short .out
-.busy:
-    popf
+    SKIPF2                      ; window, writing a different word. test ax,
+.busy:                          ; imm16 over .busy's popf/stc: CF = 0 (kernel
+    popf                        ; size pass 15)
     stc
 .out:
     pop si
@@ -4385,9 +4397,8 @@ mem_regrow:
 .setr:
 %endif
     popf
-    clc
-    jmp short .out
-.fail:
+    SKIPF2                      ; test ax, imm16 over .fail's popf/stc: CF = 0
+.fail:                          ; (kernel size pass 15)
     popf
     stc
 .out:

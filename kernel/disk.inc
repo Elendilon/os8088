@@ -1021,8 +1021,8 @@ dsk_bpb_zap:
 ; -----------------------------------------------------------------------------
 dsk_bpb_bank_put:
     stc                         ; PUT...
-    jmp short dsk_bpb_bank
-dsk_bpb_bank_get:
+    SKIPDL1                     ; (mov dl, imm8 over the clc: CF kept, and the
+dsk_bpb_bank_get:               ; sbb overwrites DL - kernel size pass 15)
     clc                         ; ...or GET
 dsk_bpb_bank:                   ; (no frame: disk_mount_x carries nothing
     sbb dx, dx                  ; across either call - pass 15, -8) DX = 0 GET, 0xFFFF PUT
@@ -5288,8 +5288,10 @@ dsk_clus2lba_x:
     add ax, [dsk_datalba]
     jc .bad
 %endif
-    jmp short .out              ; CF = 0 on both arms: kern_small's from the
+    SKIPF1                      ; CF = 0 on both arms: kern_small's from the
                                 ; `jc`, and kern_big's `adc dx, 0` cannot carry
+                                ; (test al, imm8 over .bad's stc keeps it -
+                                ; kernel size pass 15; every caller reads CF)
                                 ; - (cluster-2) * spc is under 2^22, so DX is
                                 ; far below 0FFFFh
 .bad:
@@ -5738,8 +5740,8 @@ dsk_fatw_home:
 ; or the `mov bl, al` their callers spelt at the call (kernel size pass 14)
 dsk_fatw_slotd:
     mov bl, [disk_drive]
-    jmp short dsk_fatw_slot
-dsk_fatw_slota:
+    SKIPF2                      ; test ax, imm16 over `mov bl, al`: the cmp
+dsk_fatw_slota:                 ; below sets every flag (kernel size pass 15)
     mov bl, al
 dsk_fatw_slot:
     cmp bl, DVOL_MAX
@@ -7322,9 +7324,9 @@ dsk_dirw_get_x:
     pop ax
     jnc .out
     or al, 1                    ; a read failed: AX != 0 and ZF = 0
-    jmp short .stc
-.end:
-    xor ax, ax                  ; the chain ended: AX = 0 and ZF = 1
+    SKIPF2                      ; test ax, imm16 over the xor: AL's bit 0 is
+.end:                           ; set, so ZF stays 0, and the stc below sets CF
+    xor ax, ax                  ; the chain ended: AX = 0 and ZF = 1 (pass 15)
 .stc:
     stc                         ; (and no pop below writes a flag)
 .out:
@@ -7803,7 +7805,10 @@ dsk_here_ok:
     jne .no
     cmp ax, [dsk_cwd]           ; ...and this directory
     jne .no
-    jmp dsk_media_ok            ; ...and the MEDIA half answers the rest
+    SKIPF2                      ; ...and the MEDIA half answers the rest:
+                                ; test ax, imm16 steps over .no's stc/ret into
+                                ; dsk_media_ok, the next byte, whose first
+                                ; flag read follows its own call (pass 15)
                                 ; (SPEC.md 18.9.1.1). NO PUSH: the identity
                                 ; half only COMPARES, so the contract's "every
                                 ; register preserved" needs nothing spent to
@@ -8262,8 +8267,8 @@ dsk_byclus_x:
     pop es                      ; the formatter reads the entry through ES
     call dsk_synth_name         ; dsk_ent = stem[.ext], DI -> its end
     mov cx, di
-    sub cx, dsk_ent             ; CX = the length, and CF=0 with it
-    jmp short .out
+    sub cx, dsk_ent             ; CX = the length, and CF=0 with it, which
+    SKIPF1                      ; test al, imm8 over the stc keeps (pass 15)
 .none:
     stc
 .out:
@@ -8469,8 +8474,8 @@ dsk_read_chain_x:
 .newrun:
     mov di, si
     mov cx, ax
-    jmp short .consume
-.extend:
+    SKIPF2                      ; test ax, imm16 over the add: .consume's sub
+.extend:                        ; sets every flag (kernel size pass 15)
     add cx, ax
 .consume:
     mov bp, si                  ; ...which the next cluster is asked about
@@ -8506,8 +8511,8 @@ dsk_read_chain_x:
     jmp kretc_bp
 .fail1:
     mov al, 1                   ; disk_read failed
-    jmp short .failc
-.fail2:
+    SKIPF2                      ; (test ax, imm16 over the mov: AL kept; the
+.fail2:                         ; stc below is the flag - pass 15)
     mov al, 2                   ; chain corrupt
 .failc:
     mov bp, sp                  ; THE CODE GOES STRAIGHT INTO THE BANKED AX:
@@ -9405,8 +9410,8 @@ ico_add:
     xchg ax, cx                 ; the row back (`xchg` writes no flag)
     pop dx
     pop bx
-    jc .no
-.room:
+    jc .fin                     ; CF = 1 is the refusal already (kernel size
+.room:                          ; pass 15: no `stc` of its own on this arm)
 %else
     cmp al, ICO_NROW
     jae .no
@@ -9443,9 +9448,11 @@ ico_add:
 %endif
     pop ax
     inc byte [ico_n]
-    jmp short .fin
+%ifndef OS88_ASSOC
+    jmp short .fin              ; (kern_small's `jae` arrives with CF = 0)
 .no:
     stc
+%endif
 .fin:
     jmp dskw_find.out           ; the same six pops (a pop writes no flag)
 
@@ -9784,8 +9791,8 @@ ico_ref_try:
     call asc_take_x             ; ...and the location and glyph the read would
 %endif                          ; have given (54.7)
     mov bl, al
-    jmp short .set
-.folder:                        ; every folder REFERENCES the built-in body,
+    SKIPF2                      ; (test ax, imm16 over the mov bl: BL kept, and
+.folder:                        ; no flag is read at .set - pass 15)                        ; every folder REFERENCES the built-in body,
     mov bl, ICO_R_FOLDER        ; which is already in `.text` - so it takes no
 .set:                           ; row, no copy and no byte of the store, and a
     mov ax, dx                  ; DOS game directory costs it nothing at all

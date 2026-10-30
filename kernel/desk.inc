@@ -880,7 +880,7 @@ desk_reflow:
     call desk_cmark             ; item REMEMBERS it, to have back (pass 2)
 .rel:
     mov al, DSL_GONE
-    jmp short .orit
+    SKIPF2                      ; (test ax, imm16 over the mov: AL kept, the `or` sets the flags - pass 15)
 .forget:
     mov al, 0xFF                ; (OR with all ones is the store)
 .orit:
@@ -2299,11 +2299,8 @@ osapi_desk_item_x:
     or al, al                   ; boot. AL = 0 removed; the zone back is a
     jnz .no                     ; refusal, or no disk to read the module from
 .ok:
-    clc
-    jmp short .out
-.no:
-    stc
-.out:
+    CLC_OR_STC .no              ; (kernel size pass 15: OSAPI_DESK_ITEM's
+.out:                           ; answer is CF)
     pop es
     pop di
     pop si

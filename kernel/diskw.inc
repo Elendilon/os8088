@@ -5187,10 +5187,8 @@ dskw_name83:
     jmp short .stem             ; back: it is not an output)
 .ext_end:
     jcxz .bad                   ; a trailing dot with no extension (or, from
-    clc                         ; .stem, no name at all)
-    jmp short .out
-.bad:
-    stc
+                                ; .stem, no name at all)
+    CLC_OR_STC .bad             ; (kernel size pass 15: every caller reads CF)
 .out:
     jmp kretc_di
 

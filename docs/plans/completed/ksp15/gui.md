@@ -259,3 +259,87 @@ minimize-box arithmetic directly: both were checked by reading (TAKEN 5 and
 ## DEFECTS FOUND
 
 None in shipped behaviour.
+
+## Close-out round
+
+The coordinator's close-out started at kernel-size-15 `e5e201bf`, where the
+pass stood at -460 on kern_big. The commits are `93150611` and `fa84d472`.
+Resident is `.text`+`.bss`+`.cold`+`.lowbss`+`.vgabuf`, plus `.mega` on
+kern_mega, read off each kernel's map:
+
+| kernel | base `e5e201bf` | tip | delta |
+|---|---|---|---|
+| kern_big | 89,548 | **89,471** | **-77** |
+| kern_small | 57,871 | **57,834** | -37 |
+| kern_emu | 89,804 | **89,727** | -77 |
+| kern_mega | 123,287 | **123,218** | -69 |
+
+`hotpar` is green on both kernels and the fast tier passes.
+`tests/megaseg.txt` went up by 8 to 4,443. kern_mega did not grow here:
+kern_big folded two MEM_RR_ONE rows into `mem_rr_lone`, and kern_mega keeps
+those rows because it does not walk that run.
+
+Package images that moved:
+
+| images | change |
+|---|---|
+| browser, notepad, scribe, sheet, sheet.trim, taskmgr, texpad, thewire, word | -9 each |
+| midirack | -4 |
+| redline, syscheck, the small-arm notepad | -3 each |
+| `kerndos.bin` | -10 |
+| kern_small's FDLG.DRV and FILECP.DRV images | -1 each |
+| kern_big's CTRL, HIBER, DOCK, DESK and DISKOPS images | unchanged |
+
+### TAKEN
+
+1. **Skip bytes became macros.** `SKIPF1`/`SKIPF2` are `test al`/`test ax`
+   and write the flags with CF=0. `SKIPAL1`/`SKIPDL1`/`SKIPCX2` are
+   `mov al`/`dl`/`cx` and write no flag. They are defined in `kernel.asm` and
+   `kerndos/kdshim.inc`, with an `%ifnmacro` fallback in `lz.inc` for
+   `OS88CZ.COM`. They are macros because os88ovlchk rule 1 refuses a `db`
+   line in `.cold`, and because `tools/stkbalance.py` must read them as data.
+   Each site is a `jmp short` (2 bytes) turned into one skip byte. The flag
+   and register each caller reads were checked:
+   - `dsk_clus2lba_x`, `dsk_byclus_x`, `dsk_bpb_bank_put`, `dsk_fatw_slotd`
+   - `dsk_dirw_get_x` (bit 0 keeps ZF=0)
+   - `dsk_here_ok` (into `dsk_media_ok`'s refusal)
+   - `dsk_read_chain_x` (two sites), `ico_ref_try`
+   - `fm_focus_x`, `fm_scroll_by`, `fm_c_drva`, `fm_c_cut`, `fcp_run2`, `fdlg_post_cancel`
+   - `mem_free_x`, `mem_regrow` (over `popf/stc`)
+   - `drv_cp_class_x`, `drv_load_at`, `desk_reflow`, `icon_draw_ix`
+   - `lz_decomp_big` (this one also fixes the parity of `[gfx_blit1_x, dsk_xfer)`)
+   - kern_big only: `osapi_seg` and `db_force`, which stay as they were on kern_small for its parity
+   - `osapi_img_name`
+   - `apps/os88ui.inc`: `sbtrack`, `sbthumb`, `sbhit`, which is the 9 bytes every scroll-bar package lost
+2. **Known carry.** Each of these `clc`/`stc` had every predecessor already
+   leaving CF at that value, so it was removed or turned into `CLC_OR_STC`:
+   - `ico_add` (kern_big)
+   - `fm_find_view`, `fm_dgwait`, `fm_drag` (`.click` deleted), `fm_scrollpaint`
+   - `fmv_icorefs`, `fm_brect`, `fm_status_only`
+   - `dskw_name83`, `osapi_desk_item_x`
+   - `os88ui_sbgrab`
+   - `api_fdlg_open` (SI is already 0 on its path, so `jmp`+`xor` went, -4)
+3. **recent.md CROSS-FILE.** `fdlg_rqsp` (on kern_big, where it is not a
+   module) and `drv_blkseg` joined `mem_rr_lone`, and their MEM_RR_ONE rows
+   stay only on kern_mega. `osapi_seg` -1 was taken in its paired form
+   (item 1).
+4. **blob.md CROSS-FILE.** `hbk_drv_blk_call` and `os88ui_btn_f` were
+   deleted. HIBER.DRV reaches `drv_blk_call_x` and `os88ui_kbtn` through a
+   new `HBGC` hop (`hbg_cgo`), and CTRL.DRV and `shutdown.inc` use `CPXC`.
+   `fdlg.inc` calls `os88ui_kbtn` near. `tests/btnsites.txt` went from 6 to
+   5 for os88ui.inc.
+5. **Parity pads.** On kern_big, viddet.inc's pass-14 pad and vidsel.inc's
+   pass-15 pad fold as a pair, -2. `vid_ox`/`vid_oy` lie between them and
+   move from odd to even, which helps their readers. Both pads stay on
+   kern_small: there, removing either one moves `font_run` or `cur_move`.
+
+### REFUSED
+
+- **`lz_lz4`'s known carry.** The scanner missed a `jne`, so the carry is not known.
+- **`assoc_tryfold`.** CF comes from a call.
+- **`dsk_dirw_next_x`.** The `adc` edge case leaves CF=1 reachable.
+- **`pth_leaf`.** Its callers were not traced, and they were not worth tracing for one byte.
+- **The `wm_lf_pad` and clip.inc pad pair.** The save-under words, `wm_cov_*` and `wm_an_n` lie between them and would land odd (fold.md's hot-data warning).
+- **vga12.inc's VID_EXT `db 0` and font.inc's.** Each is a local alignment inside its own routine (`%if ($ - .vram) & 1`), not half of a pair.
+- **My `menu_kbnav` `.cold` pad.** It stays until an odd `.cold` saving lands in `[gfx_blit1_x, dsk_xfer)`. None was left this round.
+- **The damage-repaint kent_di WANTS and LZB.** Not this round, per the brief.
