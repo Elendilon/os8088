@@ -349,6 +349,10 @@ python3 tools/os88soak.py status   #   `make test-soak` runs the same rows
               #   every capability gap, the rows that
               #   would SKIP because of it — a skip is the box declining to
               #   answer, not a pass — and the command that fixes each one.
+              #   WITH -k, ONLY THE GAPS A SELECTED ROW CAN HIT, and only
+              #   those are probed: `start` prewarms first and refuses
+              #   only over what is left, so a scoped first run on a
+              #   fresh box is not stopped for Bochs it never needed.
               #   The width is ONE PER CORE. It was CORES-1, to leave the
               #   operator a core, and that argument did not survive its own
               #   evidence: `status` READS A FILE, and every row width 4 was
