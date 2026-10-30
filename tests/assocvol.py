@@ -39,6 +39,7 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import os88marty as M, os88ui, os88build, os88geom as geom   # noqa: E402
+import os88assoc                                               # noqa: E402
 from cycweb import pkg_syms                                    # noqa: E402
 
 MACHINE = "os8088_5150_herc_720_gla"
@@ -90,6 +91,22 @@ def main():
                         for r in rows[w.y + 20:w.y + w.h - 2]]
 
             # --- ICON
+            # The boot reads the BOOT volume's ASSOC.DAT (SPEC.md 54.2.3), so
+            # on this machine .V88 is known before anything is drawn - which
+            # is the fix for the field report, from the other end. The leg is
+            # about a window listed BEFORE the association arrives, so it
+            # makes that state: .V88's row taken out of the tables and A:'s
+            # cache marked unread, which is the machine before the boot read.
+            napp, next_ = os88assoc.counts()
+            ext = os88assoc.table(m, "AT_EXT")
+            raw = m.read(ext, next_ * 4)
+            gone = [j for j in range(next_) if raw[4 * j:4 * j + 3] == b"V88"]
+            if not gone:
+                bad.append("ICON: .V88 was not known at boot - the boot read "
+                           "of A:'s ASSOC.DAT did not happen")
+            for j in gone:
+                m.write(ext + 4 * j, b"\0")
+            m.write(m.sym("asc_vol"), b"\xff")
             b = ui.open_drive("B")
             before = content(b)
             ui.path(home)

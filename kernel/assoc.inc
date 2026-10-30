@@ -844,6 +844,8 @@ section .text
 ; bin zeroes nothing and ui.inc reads this on the machine's very first idle
 ; pass, before anything has written it (the fdlg_win precedent).
 assoc_dapp:  db 0xFF            ; the app slot to open it with, 0xFF = none
+assoc_rsd:   db 0               ; 1 = a shed took the tables: re-read the boot
+                                ; volume's ASSOC.DAT at the next idle pass
 assoc_xstk:  db 0               ; ASSOC_STICKY while asc_merge_ext takes a
                                 ; runtime row out of a file (SPEC.md 54.2.3)
 assoc_argp:  db 0               ; 1 = a document is waiting to be claimed by
@@ -1310,9 +1312,17 @@ assoc_run_x:
 
     push es
 
+    cmp byte [assoc_rsd], 0     ; A SHED took the tables (SPEC.md 54.2.3):
+    je .norsd                   ; the boot volume's associations first, so a
+    call assoc_reseed           ; document posted with them is answered
+.norsd:
     mov al, [assoc_dapp]
     mov byte [assoc_dapp], 0xFF ; consume before running, not after
     push ax
+    cmp al, 0xFF                ; ...the reseed was all that was posted
+    jne .posted
+    jmp .out
+.posted:
     cmp al, ASSOC_FLUSH         ; NOT A DOCUMENT AT ALL (SPEC.md 54.7.6.3): a
     jb .doc                     ; harvest or a search learned something this
     and ax, 7                   ; volume's ASSOC.DAT does not hold. DL = the
@@ -1850,6 +1860,27 @@ assoc_app_get:
 ; routine above's `ret`, where a NASM local would belong to THAT routine.
 asc_use_out:
     jmp asc_use_x.out
+
+; assoc_reseed - a shed took the tables (SPEC.md 54.2.3): what the boot read
+; supplied - the boot volume's ASSOC.DAT - is read again, from wherever the
+; machine stands and back there, and every window's document icons are told.
+; UI task, nothing held (assoc_run_x's first act). Clobbers AX and BX
+assoc_reseed:
+    mov byte [assoc_rsd], 0
+    mov al, [disk_drive]
+    mov bx, [dsk_cwd]
+    push ax
+    push bx
+    mov al, [dsk_bootvol]
+    xor bx, bx
+    call dsk_goto               ; the boot volume's root; CF = it is not there
+    jc .back
+    call asc_use_x
+.back:
+    pop bx
+    pop ax
+    call dsk_goto
+    jmp fmv_icostale
 
 ; asc_boot_f - kmain_o's door to asc_use_x for the BOOT volume (SPEC.md
 ; 54.2.3): far, because kmain_o runs from the boot overlay

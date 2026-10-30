@@ -9241,6 +9241,8 @@ ico_demote:
     jae .dapp                   ; tables that just went: ask the volumes
     mov byte [assoc_dapp], ASSOC_FIND   ; instead (SPEC.md 54.4.3)
 .dapp:
+    mov byte [assoc_rsd], 1     ; ...and the BOOT volume's associations go
+    inc byte [ui_post]          ; back at the next idle pass (54.2.3)
     mov word [ico_n], 0         ; header: `mem_pg_forget` has banked the lot.
 %else                           ; (A WORD: [ico_capn] goes with the store,
     mov byte [ico_n], 0         ; SPEC.md 54.7.6.2)

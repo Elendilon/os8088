@@ -105,59 +105,56 @@ def main():
                     out.append((name.decode("latin-1"), ix[i]))
             return out
 
-        ui.path("B:/APPS")
+        # THE BOOT HAS ALREADY FILLED SOME OF IT (SPEC.md 54.2.3): the boot
+        # volume's ASSOC.DAT is absorbed before the desktop is drawn, so A:'s
+        # packages are rows now and B:'s are the ones nothing has met.
         os88marty.settle(m)
         seg0, n0, max0, kb0 = state()
-        print("icogrow: B:/APPS  store %04X  rows %d of %d  %dKB"
+        print("icogrow: at boot  store %04X  rows %d of %d  %dKB"
               % (seg0, n0, max0, kb0))
         if not seg0 or not n0:
-            fail("B:/APPS stored no rows, so there is nothing to grow")
+            fail("the boot stored no rows - the boot read of A:'s ASSOC.DAT "
+                 "(SPEC.md 54.2.3) did not happen")
         if kb0 != V("ICO_KB") or max0 != (kb0 * 1024 - rbase) // row:
             fail("a first claim should read %dKB and %d rows; it reads %dKB "
                  "and %d (ico_need writes the pair as one word)"
                  % (V("ICO_KB"), (V("ICO_KB") * 1024 - rbase) // row,
                     kb0, max0))
-        b_names = {nm for nm, r in refs() if r not in (ICO_R_FOLDER, ICO_R_NONE)}
         row0 = bytes(m.read(lin(seg0, rbase), span))
 
         # --- 1: FULL, AT THE CEILING: the grow must refuse ---------------
         kput("ico_max", n0)
         kput("ico_kb", V("ICO_KBMAX"))
-        ui.open_drive("A")
-        os88marty.settle(m)
-        ui.path("A:/APPS")
+        ui.path("B:/APPS")
         os88marty.settle(m)
         seg1, n1, max1, kb1 = state()
-        new1 = [(nm, r) for nm, r in refs() if nm not in b_names]
+        new1 = [(nm, r) for nm, r in refs() if r == ICO_R_NONE]
         print("icogrow: leg 1 (ceiling)  store %04X  rows %d of %d  %dKB  "
-              "A:-only %s" % (seg1, n1, max1, kb1,
-                              " ".join("%s=%02X" % x for x in new1)))
+              "generic %s" % (seg1, n1, max1, kb1,
+                              " ".join(nm for nm, _ in new1)))
         if not new1:
-            fail("A:/APPS has no package B:/APPS did not, so nothing here "
-                 "wants a new row - the disks changed under this row")
+            fail("every package in B:/APPS found a row in a store at its "
+                 "ceiling: the poke is not reaching ico_add's test, so leg 2 "
+                 "would prove nothing")
         if n1 != n0 or seg1 != seg0 or kb1 != V("ICO_KBMAX"):
             fail("at ICO_KBMAX the store still changed (rows %d -> %d, "
                  "%04X -> %04X, %dKB): the ceiling does not refuse"
                  % (n0, n1, seg0, seg1, kb1))
-        if any(r != ICO_R_NONE for nm, r in new1):
-            fail("a full store at its ceiling gave A:-only packages a row "
-                 "(%s): the poke is not reaching ico_add's test, so leg 2 "
-                 "would prove nothing" % new1)
+        wanted = {nm for nm, _ in new1}
 
         # --- 2: FULL, ROOM TO GROW --------------------------------------
         kput("ico_kb", V("ICO_KB"))
-        ui.path("A:/")
+        ui.path("B:/")
         os88marty.settle(m)
-        ui.path("A:/APPS")
+        ui.path("B:/APPS")
         os88marty.settle(m)
         seg2, n2, max2, kb2 = state()
-        new2 = [(nm, r) for nm, r in refs() if nm not in b_names]
+        new2 = [(nm, r) for nm, r in refs() if nm in wanted]
         print("icogrow: leg 2 (grow)     store %04X  rows %d of %d  %dKB  "
-              "A:-only %s" % (seg2, n2, max2, kb2,
-                              " ".join("%s=%02X" % x for x in new2)))
-        if kb2 != V("ICO_KB") + 1:
-            fail("the store did not grow: %dKB, wanted %dKB (SPEC.md 25.9.6)"
-                 % (kb2, V("ICO_KB") + 1))
+              "%s" % (seg2, n2, max2, kb2,
+                      " ".join("%s=%02X" % x for x in new2)))
+        if kb2 <= V("ICO_KB"):
+            fail("the store did not grow: %dKB (SPEC.md 25.9.6)" % kb2)
         if max2 != (kb2 * 1024 - rbase) // row:
             fail("[ico_max] reads %d for a %dKB claim, which holds %d"
                  % (max2, kb2, (kb2 * 1024 - rbase) // row))
@@ -165,7 +162,7 @@ def main():
             fail("the store grew and took no row (%d -> %d)" % (n0, n2))
         bad = [x for x in new2 if x[1] == ICO_R_NONE or x[1] >= n2]
         if bad:
-            fail("A:-only package(s) %s still on the generic icon or past "
+            fail("package(s) %s still on the generic icon or past "
                  "[ico_n] = %d after the grow" % (bad, n2))
 
         # --- 3: THE OLD ROWS CAME WITH IT -------------------------------

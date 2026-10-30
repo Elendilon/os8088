@@ -219,9 +219,16 @@ def leg_write(bad):
             diff = [k for k in r if r[k] != rows[s][k]]
             bad.append("WRITE: %s differs from os88disk's row in %s"
                        % (s.decode().strip(), diff))
+    # ...AND MAY HOLD MORE, exactly right: since SPEC.md 54.2.3 the boot
+    # absorbs A:'s cache, so a package A: shares with B: (MINES in GAMES,
+    # TASKMGR in SYSTEM) is in the store before B: is browsed, and the
+    # incremental flush writes its row too. What it may not do is write one
+    # the builder would not have: every extra must be the builder's own row
     extra = set(rows) - set(want)
-    if extra:
-        bad.append("WRITE: rows the folder does not hold: %s" % extra)
+    wrong = [s for s in extra if s not in orig_rows or rows[s] != orig_rows[s]]
+    if wrong:
+        bad.append("WRITE: rows the volume does not hold as written: %s"
+                   % wrong)
     if not rows:
         bad.append("WRITE: an empty file")
     want_exts = set(x for x in orig_exts if x[1] in rows)

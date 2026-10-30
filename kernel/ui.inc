@@ -803,7 +803,10 @@ ui_task:
 .chk_assoc:
 %ifdef OS88_ASSOC
     cmp byte [assoc_dapp], 0xFF ; a document double-click (SPEC.md 54.4):
-    je .chk_pcmd                ; find its program, load it, and hand the
+    jne .assoc                  ; find its program, load it, and hand the
+    cmp byte [assoc_rsd], 0     ; ...or a shed's RESEED of the boot volume's
+    je .chk_pcmd                ; associations (SPEC.md 54.2.3)
+.assoc:
     call COLD_SEG:assoc_run_x   ; document over by pull. Consumes the slot
                                 ; itself, and does its own locking
 %endif                          ; kern_small posts no document (SPEC.md 54.0),

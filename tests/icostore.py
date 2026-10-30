@@ -131,10 +131,26 @@ def main():
                      int.from_bytes(raw[i * st + V("LD_DE_SIZE"):i * st + V("LD_DE_SIZE") + 2], "little"))
                     for i in range(n)]
 
-        if rows() != 0:
-            fail("the store already holds %d row(s) before any listing - it is "
-                 "claimed LAZILY (SPEC.md 25.9), so a fresh desktop must have "
-                 "none" % rows())
+        boot_rows = rows()
+        if boot_rows == 0:
+            fail("the store is empty on a fresh desktop - SPEC.md 54.2.3 has "
+                 "the boot read the boot volume's ASSOC.DAT, which absorbs "
+                 "its bodies, so A:'s packages should already be rows")
+        print("icostore: the boot read put %d row(s) in the store"
+              % boot_rows)
+
+        def row_key(r):
+            # the store row's own key (stem, size) - SPEC.md 25.9: the rows
+            # after the capture and the tables (ICO_RBASE), ICO_ROW apiece
+            seg = int.from_bytes(m.read((kseg << 4) + V("ico_seg"), 2),
+                                 "little")
+            raw = m.read(lin(seg, V("ICO_RBASE") + r * V("ICO_ROW")),
+                         V("ICO_KEY"))
+            return (raw[:8], int.from_bytes(raw[8:10], "little"))
+
+        def stem8(name):
+            stem = name.split(b".")[0]
+            return stem + b" " * (8 - len(stem))
 
         ui.path("B:/APPS")
         os88marty.settle(m)
@@ -215,6 +231,10 @@ def main():
         # held only while A:/APPS carried enough packages B: also had to
         # outnumber them, and failed the day SPEC.md 24.3.1.2 took Browser
         # and Telnet off the system disk with the store behaving exactly.
+        # BY THE ROW'S OWN KEY rather than by the order rows were taken in:
+        # since SPEC.md 54.2.3 the boot absorbs A:'s cache first, so a row
+        # below B:'s count may be A:'s quite properly. What must hold is that
+        # every package resolves to the row whose key IS its (stem, size).
         for k, r in zip(a_keys, a_refs):
             if r in (ICO_R_FOLDER, ICO_R_NONE):
                 continue
@@ -223,10 +243,10 @@ def main():
                 fail("A:/APPS/%s is the same (name, size) as B:'s and resolved "
                      "to row %02X, not B:'s %02X - a second copy of one body"
                      % (name, r, b_key[k]))
-            if k not in b_key and r < b_rows:
-                fail("A:/APPS/%s is on no listing B: made and resolved to "
-                     "B:'s row %02X - two different bodies merged"
-                     % (name, r))
+            if name.upper().endswith(".O88") and \
+                    row_key(r) != (stem8(k[0].upper()), k[1] & 0xFFFF):
+                fail("A:/APPS/%s resolved to row %02X, whose key is %r - two "
+                     "different bodies merged" % (name, r, row_key(r)))
 
         # --- 4: A SHED, and what a listing staged before it then draws ----
         # SPEC.md 50.6's shed zeroes the holder's word and frees the block;

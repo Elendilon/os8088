@@ -554,14 +554,53 @@ asw_one:
     jne .hdr                    ; the installer's file must be exact
     mov si, assoc_stemb
     ASWX assoc_app_of
-    jnc .hdr                    ; a slot: it may declare, the capture never
-                                ; saw it (a built-in program, or a row
-                                ; absorbed from ANOTHER volume's cache)
+    jnc .tab                    ; a slot: it may declare, the capture never
+                                ; saw it (a row absorbed from ANOTHER
+                                ; volume's cache - the boot volume's, since
+                                ; SPEC.md 54.2.3)
     call asw_slotfull           ; no slot, and there was ROOM for one: a
     jnc .emit                   ; package that declared would have taken it
                                 ; (assoc_note_app, asc_merge_ext), so this
     jmp short .hdr              ; one is plain. With the table FULL that
                                 ; proves nothing - read it
+.tab:
+    ; ...ITS DECLARATIONS ARE THE TABLE'S ROWS NAMING THE SLOT, so the block
+    ; is rebuilt from RAM rather than from a header read (SPEC.md 54.2.3):
+    ; the boot absorbs the boot volume's cache, and every package that disk
+    ; shares with this one arrives here with no record. A runtime row (bit 7
+    ; set) is not a declaration and fails the exact compare. ES = the claim
+    mov dl, al                  ; DL = the slot
+    mov di, ASW_BLK
+    xor ax, ax
+    mov cx, 8
+    cld
+    rep stosw                   ; the block, zeroed
+    mov di, ASW_BLK + 1
+    mov bx, [ico_seg]           ; there: assoc_app_of found the slot in it
+    push ds
+    mov ds, bx
+    mov si, AT_EXT
+    mov cx, ASSOC_NEXT
+.tr:
+    cmp byte [si], 0
+    je .tn
+    cmp [si+3], dl
+    jne .tn
+    cmp ah, ASSOC_DECLMAX
+    jae .tn
+    movsw                       ; DS:SI the row's three bytes, ES:DI the
+    movsb                       ; block
+    inc ah
+    inc si
+    jmp short .tl
+.tn:
+    add si, 4
+.tl:
+    loop .tr
+    pop ds
+    mov [es:ASW_BLK], ah
+    CSDO mov byte [CSEG bp+asw_hblk-asw_v], 1
+    jmp short .emit
 .rec:
     lea si, [bx+1]              ; past the row byte: the block
     pop es                      ; ES = the claim again; the record is in the

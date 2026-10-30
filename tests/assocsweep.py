@@ -98,13 +98,27 @@ def check(what, ok, detail):
 def leg_hd():
     print("hd: hard-disk boot, A: empty, B:\\MEDIA\\BEVERLY.MOD, C:\\TRACKER.O88")
     vhd = os.path.join(B, "assocsweep-%d.vhd" % os.getpid())
+    # C: CARRIES ITS ASSOC.DAT, as every installed volume does (the
+    # installer flushes one, SPEC.md 52.10.14): nothing is built in since
+    # SPEC.md 54.2.3, so the boot read of C:'s cache is how this machine
+    # knows .MOD is TRACKER's. Built by the disk builder's own code, for the
+    # one package, which lives in the root (folder cluster 0)
+    sys.path.insert(0, os.path.join(ROOT, "tools"))
+    import os88disk
+    trk = open(os.path.join(B, "tracker.o88"), "rb").read()
+    asc, _ = os88disk.build_assoc({"": [(b"TRACKER O88", trk, 0)]})
+    ascf = vhd + ".ASSOC.DAT"
+    with open(ascf, "wb") as f:
+        f.write(asc)
     subprocess.check_call(
         ["python3", "tools/os88hdd.py", "--template", TEMPLATE, "--out", vhd,
          "--kernel", os.path.join(B, "kernel.sys"),
          "--vbr", os.path.join(B, "boothd.bin"),
          "--mbr", os.path.join(B, "mbr.bin"),
-         "--file", "TRACKER.O88=" + os.path.join(B, "tracker.o88")],
+         "--file", "TRACKER.O88=" + os.path.join(B, "tracker.o88"),
+         "--file", "ASSOC.DAT=" + ascf],
         cwd=ROOT, stdout=subprocess.DEVNULL)
+    os.remove(ascf)
     m = M.launch(None, apps=os.path.join(B, "media360.img"),
                  machine=M.machine("os8088_5150_cga_hdd"),
                  extra=["--mount", "hd:0:" + vhd], boot=False)
