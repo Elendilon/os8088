@@ -1195,6 +1195,7 @@ mega_kwd:
     ret
 .lost:
     pop es
+%ifdef MEGA_E9
     push si
     mov si, mega_mkwd               ; "kern_mega: 8042 edge lost, 64=ss"
     call mm_puts
@@ -1203,6 +1204,7 @@ mega_kwd:
     mov al, 10
     call mm_putc
     pop si
+%endif
     test ah, 0x20
     jnz .aux
     int MEGA_PIC_BASE + 1           ; IRQ1's gate: kbm_isr
@@ -1219,7 +1221,9 @@ mega_kwd:
 .drop:
     in al, 0x60
     ret
+%ifdef MEGA_E9
 mega_mkwd   db "kern_mega: 8042 edge lost, 64=", 0
+%endif
 %endif
 
 %ifdef MEGA_DIAG                    ; the menu bar's RFL and Q lines (14.65)
@@ -2084,7 +2088,8 @@ mega_fault:
 mega_report:                        ; is finished there, not reported
     call mega_fkill                 ; a PACKAGE's fault closes the package and
                                     ; does not come back (KERN-MEGA-PLAN 14.42)
-    mov si, mega_mflt
+%ifdef MEGA_E9                      ; the whole frame to the debug port: a
+    mov si, mega_mflt               ; shipped kernel has the glass line below
     call mm_puts
     mov ax, [ss:bp+20]              ; the vector
     call mm_hex2
@@ -2116,10 +2121,13 @@ mega_report:                        ; is finished there, not reported
     call mm_hex4
     mov al, 10
     call mm_putc
-    ; --- ...and on the GLASS, for a machine with no debug port: one line
-    ; under the menu bar, through font_run, the way KFZTRACE's strip is
-    ; drawn (sched.inc). Once only: a fault inside the drawing comes back
-    ; here, and the second time the E9 line above is all there is
+%endif
+    ; --- ...and on the GLASS: one line under the menu bar, through
+    ; font_run, the way KFZTRACE's strip is drawn (sched.inc). Once only: a
+    ; fault inside the drawing comes back here, and the second time the
+    ; first one's line is what stays (MEGA_E9 builds dump each to E9 too).
+    ; [mega_infault] and mega_fbuf are also how the harness learns of it
+    ; (tools/os88bochs.py's Box.fault), so both are set before the drawing
     cmp byte [mega_infault], 0
     jne .dead
     mov byte [mega_infault], 1
@@ -2449,7 +2457,8 @@ mega_fown:
     ret
 
 ; mega_fkmsg_mk - the toast, "NAME vv at cccc:iiii", into mega_fkmsg, and
-; the E9 line "kern_mega CLOSED NAME vv at cccc:iiii err eeee". In: BP = the
+; on a MEGA_E9 build the E9 line "kern_mega CLOSED NAME vv at cccc:iiii err
+; eeee" (the harness reads mega_fkmsg and [mega_fkn] instead). In: BP = the
 ; frame, DX = the region (its header's +16 is the name), ES = .lowbss.
 ; Clobbers AX, BX, CX
 mega_fkmsg_mk:
@@ -2486,6 +2495,7 @@ mega_fkmsg_mk:
     call mega_bhex4
     mov byte [es:di], 0
     mov byte [es:mega_fktm], 1
+%ifdef MEGA_E9
     mov si, mega_mclo
     call mm_puts
     mov si, mega_fkmsg
@@ -2503,11 +2513,14 @@ mega_fkmsg_mk:
     call mm_hex4
     mov al, 10
     call mm_putc
+%endif
     pop di
     pop si
     ret
+%ifdef MEGA_E9
 mega_mclo   db 10, "kern_mega CLOSED ", 0
 mega_mcle   db " err ", 0
+%endif
 
 ; mega_fkdo - ui_task, nothing held ([mega_tellq] bit 6): close what
 ; mega_fkill unwound out of, say so, and end the incident once its record is
@@ -2807,6 +2820,7 @@ mega_svc:
     add sp, 2                       ; the vector
     iret
 .refl1:
+%ifdef MEGA_E9
     cmp byte [ss:bp+20], 0x13       ; a FIXED disk's int 13h, reflected: said
     jne .refl2                      ; once on port E9, because HDD.DRV's rung 1
     test byte [ss:bp+14], 0x80      ; is meant to leave a BIOS-known drive
@@ -2822,6 +2836,7 @@ mega_svc:
     mov si, mega_mhd13
     call mm_say
     pop si
+%endif
 .refl2:
     mov ax, [ss:bp+0]               ; ES and DS as SEGMENTS
     mov [mega_ses], ax
@@ -4507,8 +4522,9 @@ mega_strcal_gp:                     ; the probe's #GP: record and skip it
     mov byte [mega_scal], 0x80      ; written, and no length assumed
     jmp mega_gpfix.resume
 
-; mega_strcal - measure it (mega_enter, protected mode, DS = KDATA). The
-; result goes to E9 as `kern_mega: string restart r<si><di><cx><ip> p...`.
+; mega_strcal - measure it (mega_enter, protected mode, DS = KDATA) into
+; mega_sdr / mega_sdp; a MEGA_E9 build also says it on E9, as `kern_mega:
+; string restart r<si><di><cx><ip> p...`.
 ; Preserves every register
 mega_strcal:
     pusha
@@ -4537,6 +4553,7 @@ mega_strcal:
     mov dx, .i2
     call .take
     mov byte [mega_scal], 0
+%ifdef MEGA_E9
     mov si, mega_mscal
     call mm_puts
     mov si, mega_sdr
@@ -4556,6 +4573,7 @@ mega_strcal:
     loop .say
     mov al, 10
     call mm_putc
+%endif
     popf
     pop es
     popa
@@ -4910,6 +4928,7 @@ mega_s2segc:
     pop es
     retf
 
+%ifdef MEGA_E9
 section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
 mega_drvsayf:                       ; FAR: ES = a driver image just placed
     push ax                         ; above 1MB (drv_hi_move): its name to E9,
@@ -4978,8 +4997,10 @@ section .text                   ; (KERN-MEGA-SEGMENTS-PLAN: back from .mega)
     ret
 %endmacro
     MEGA_E9IO mega_
-section .mega                       ; ...and `.mega`'s, with ITS strings and
-    MEGA_E9IO mm_                   ; the 8042's wait (kept beside mega_kbw)
+section .mega                       ; ...and `.mega`'s, with ITS strings
+    MEGA_E9IO mm_
+%endif ; MEGA_E9 (from mega_drvsayf: a shipped kern_mega has no E9 writer)
+section .mega                       ; the 8042's wait (kept beside mega_kbw)
 mm_kbw:
     xor cx, cx
 .w:
@@ -4987,6 +5008,7 @@ mm_kbw:
     test al, 2
     loopnz .w
     ret
+%ifdef MEGA_E9
 mega_mon    db "kern_mega: protected mode", 10, 0
 mega_mhd13  db "kern_mega: a fixed-disk transfer went to the BIOS (int 13h reflected)", 10, 0
 mega_mdrv   db "kern_mega: above 1MB: ", 0
@@ -4998,6 +5020,7 @@ mega_mfst   db "  stack: ", 0
 mega_mreg   db 10, "  ES DS DI SI BP SP BX DX CX AX SS: ", 0
 mega_mscal  db 'kern_mega: string restart r', 0
 mega_mscalp db ' p', 0
+%endif
 section .text
 
 ; ---- the API's hot cells' stubs (OSAPI_SLOT's kern_mega arm) --------------
@@ -6122,6 +6145,7 @@ mega_fd13:
     jc .fall
     mov [es:0x41], ah               ; the BIOS's last status
     mov byte [mega_fdfail], 0
+%ifdef MEGA_E9
     push cx                         ; the first one per drive, on port E9:
     mov cl, [mega_fdd]              ; a field run can see the path was taken
     mov ch, 1
@@ -6142,6 +6166,7 @@ mega_fd13:
     pop si
 .said:
     pop cx
+%endif
     mov al, [mega_fdn]
     or ah, ah
     jz .ok
@@ -6156,6 +6181,7 @@ mega_fd13:
     clc
     ret
 .fall:
+%ifdef MEGA_E9
     push si
     mov si, mega_mfdfb
     call mm_puts
@@ -6186,6 +6212,7 @@ mega_fd13:
     mov al, 10
     call mm_putc
     pop si
+%endif
     mov byte [mega_fdpend], 1       ; ...and whether it COUNTS is the BIOS's
                                     ; to say: mega_fdjudge, on its way back
 .no:
@@ -6324,21 +6351,23 @@ mega_fdjudge:
     cmp byte [mega_fdfail], 8
     jb .out
     mov byte [mega_fdoff], 1
+%ifdef MEGA_E9                      ; (MEGA_DIAG implies it)
     push si
     push cx
     push es
     mov si, mega_mfdoff
     call mm_say
-%ifdef MEGA_DIAG
+ %ifdef MEGA_DIAG
     push ds                         ; ...and on the GLASS, which is all a
     pop es                          ; field machine shows: toast_show only
     mov si, mega_tfdoff             ; stages it, the UI task draws it
     mov cx, 146
     call KERNEL_SEG:cw_toast_show
-%endif
+ %endif
     pop es
     pop cx
     pop si
+%endif
 .out:
     pop ax
     ret
@@ -7991,8 +8020,10 @@ mega_fdgj   db 0                    ; reflections taken inside a native call
 mega_fdgv   db 0                    ; ...the last one's vector
 %endif
 mega_fdstep db 0
-mega_fdsaid db 0
-mega_hdsaid db 0
+%ifdef MEGA_E9
+mega_fdsaid db 0                    ; bit n: drive n's native path said
+mega_hdsaid db 0                    ; 1 = mega_mhd13 said (once a session)
+%endif
 mega_rmask  dw 0x3FB8               ; the OR masks the last service reflection
                                     ; set, master low and slave high
                                     ; (mega_rmaskf), for mega_r286 to compare
@@ -9461,7 +9492,8 @@ mega_modhif:
 ; selector it now runs under -> `kern_mega: above 1MB: CTRL.DRV 00FF3800` on
 ; the debug port, the driver line's shape (mega_drvsayf), so a field run and
 ; an emulator both read where every module went (KERN-MEGA-PLAN 14.47).
-; Every register kept
+; Every register kept. MEGA_E9 only: the harness reads MODR_SEG's base instead
+%ifdef MEGA_E9
 mega_modsayf:
     push ax
     push dx
@@ -9495,6 +9527,7 @@ mega_modsayf:
     pop dx
     pop ax
     retf
+%endif
 
 ; mega_modvfixf - FAR (mod_hiboot): AX = a module's conventional CODE ALIAS,
 ; DX = the pair's code selector it has just moved to -> every far pointer in
@@ -9833,12 +9866,14 @@ mega_gatef:
     mov dx, mega_tmem               ; minimum beyond FITTING (answer 16)
     jnc .go
 .refuse:
+%ifdef MEGA_E9
     mov si, mega_mrm                ; "kern_mega: " and the toast's own line
     call KERNEL_SEG:mega_putsf
     mov si, dx
     call KERNEL_SEG:mega_putsf
     mov al, 10
     out 0xE9, al
+%endif
     push es
     push ds
     pop es
@@ -13268,7 +13303,9 @@ mega_ldtd:                          ; the LDT's descriptor (GDT entry 3)
     dw 0, 0                         ; (its base and limit: mega_tset)
     db 0, 0x82
     dw 0
+%ifdef MEGA_E9
 mega_mrm    db "kern_mega: ", 0     ; ...the debug port's line is the toast's
+%endif
 mega_t86    db "real mode: 8086-class CPU", 0
 mega_tmem   db "real mode: no room for kern_mega's tables", 0
 mega_ta20   db "real mode: A20 will not open", 0
@@ -13347,12 +13384,14 @@ mega_pmtail:
                                     ; AFTER mem_xlatf: freed here, by
                                     ; paragraph, they were not - KERN-MEGA-
                                     ; PLAN 14.121)
-    mov si, mega_mon
+%ifdef MEGA_E9
+    mov si, mega_mon                ; (the harness reads [mega_on] instead)
     call mm_say
-    push es                         ; ...and on the GLASS, for a field machine
-    push ds                         ; with no debug port: the menu bar says it
-    pop es                          ; for a few seconds (toast_show only
-    mov si, mega_mtoast             ; stages; the UI task's first idle pass
+%endif
+    push es                         ; ...and on the GLASS: the menu bar says it
+    push ds                         ; for a few seconds (toast_show only
+    pop es                          ; stages; the UI task's first idle pass
+    mov si, mega_mtoast
 %ifdef MEGA_DIAG
     cmp byte [cpu_tier], CPU_386    ; ...naming the way BACK it will use,
     jb .t286                        ; which is the thing a field run is for
@@ -13377,9 +13416,11 @@ section .text
 mega_xdescf:                        ; low bodies `.mega` calls...
     call mega_xdesc
     retf
+%ifdef MEGA_E9
 mega_putsf:                         ; (a DS string: the kernel's CS reads it)
     call mega_puts
     retf
+%endif
 mega_pic_pmf:
     call mega_pic_pm
     retf
