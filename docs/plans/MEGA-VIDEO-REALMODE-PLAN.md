@@ -6,8 +6,10 @@ pass (2026-10-30, section 4's entries); W3 (the extent reader, the low
 drivers, the XMEM twins) and W4 (SOUND.DRV low, the stream and the speaker
 door) are BUILT and their gates pass (2026-10-30); W5 (the player) is
 BUILT and its gates pass (2026-10-30) - its arm's `VPDIAG` builds no
-longer fit `APP_MAX_SIZE`, which W6 needs (W5's entry); W6's disks are with
-the owner; W7 is BUILT and its gates pass (2026-10-30, its entry).** The plan was first written against
+longer fit `APP_MAX_SIZE`, which W6 needs (W5's entry); W6 is BUILT AND
+MEASURED on the Victory: parity (2026-10-30, its entry and
+docs/reports/VIDPROF-W6-2026-10-30.md); W7 is BUILT and its gates pass
+(2026-10-30, its entry).** The plan was first written against
 `4d3d0943` from source and documents only. **W0 measured it again on
 `df2e1fbf`**, and section 7 is that census: every `PKG_MEGA` block of the
 player classified and assembled, the bracket's real API whitelist walked off
@@ -1401,7 +1403,22 @@ deduplicated union below, plus `test-full`.
   kern_small byte-identical) the part is MOVABLE again, the shaper's shape,
   at +16 bytes of each arm: 63,772 (1,252), 64,560 (464), 64,739 (285).
   `mega-vidgrey` mirrored the card at eight lines and is taught nine.
-* **W6. Parity, on the Victory** (field, docs/FIELD-MACHINES.md). Send
+* **W6. Parity, on the Victory** - **BUILT, 2026-10-30: PARITY**
+  (docs/reports/VIDPROF-W6-2026-10-30.md). Under the `MEGADIAG` kern_mega
+  with the `VPDIAG=time` player, Catch My Heart drew every frame with **5
+  stalls, 70 late and 0 pauses** against kern_big's 24 stalls and 222 late;
+  Sonic 2 with **0 stalls, 8 pauses and 79 late** against kern_big's 6
+  pauses and 296 late - the pauses on both kernels being the stream running
+  dry near frames 690-720, the file's and not the kernel's. The reads run at
+  503 and 499 KB/s against 490 and 494, the frames-behind median is 0 on
+  all four, and the bracket made **4-6 BIOS reflections and one option-ROM
+  IRQ in a whole play**. So `mega_disk` came out at parity and the
+  encoder's `--kernel mega` is RETIRED with it (SPEC.md 98.2.3.8, options
+  version 51: a record that said mega reads as kern_big's); `xrd` stays,
+  being the reader's own cost on both kernels. The same evening's field
+  defects - the text's glyphs, a short name's silence and the lead's
+  static - are KERN-MEGA-PLAN 14.129-14.131, gated by `vidrmbtwice`.
+  The story as it was set (field, docs/FIELD-MACHINES.md). Send
   `make VPDIAG=time` and `make megadiag` builds of both kernels' players.
   * **The measurement**: Catch My Heart and Sonic 2, the owner's
     kern_big-encoded files, played on kern_big and on kern_mega with the

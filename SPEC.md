@@ -197048,7 +197048,22 @@ ever. `tests/videnc.py` 5c.2 is the gate: a flat level is one level
 a ramp reaches every level with solid ends, and a Mode X file made with
 grey4 uses indices 0 to 3 and carries the ramp.
 
-##### 98.2.3.8 `--kernel mega`: kern_mega's disk (2026-10-29)
+##### 98.2.3.8 `--kernel mega`: kern_mega's disk (2026-10-29) - RETIRED 2026-10-30
+
+**RETIRED (options version 51, MEGA-VIDEO-REALMODE-PLAN W6).** What it
+priced was the PROTECTED-MODE bracket, every `int 13h` a reflection and on a
+286 a CPU reset. kern_mega now plays these files in a REAL-MODE bracket
+(98.3.24) that reads natively, and W6 measured it on the Victory against
+kern_big on the same machine (docs/reports/VIDPROF-W6-2026-10-30.md): Catch
+My Heart 5 stalls and 70 late against kern_big's 24 and 222, Sonic 2 8
+pauses and 79 late against 6 and 296 - Sonic's pauses being the stream dry
+near frames 690-720 on both kernels - the reads at 503 and 499 KB/s against
+490 and 494, and 4-6 BIOS reflections in a whole play. So the option, its
+help, and the `286-picomem1` profile's `mega_disk` are gone; one budget
+serves both kernels. A record of version 50 that says `kernel` drops it with
+a note and reads as kern_big's, which it now is. `xrd` (98.2.3.9) stays: it
+is the in-place reader's own cost on either kernel. What follows is the
+record of the option as it was.
 
 **A file made for `286-picomem1` ran its bank dry on kern_mega and not, as
 a rule, on kern_big.** Replaying a play's own reads through the profile's
