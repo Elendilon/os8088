@@ -15651,6 +15651,21 @@ SOAK = [
         "every lap, thirteen of them. The mirror copied from the wrong bytes "
         "takes it red at 36 of 39 holds",
         needs=("qemu", "nasm")),
+    Row("vidxipbanktier", "soak", py("tests/vidxip.py", "--arm",
+                                     "banktier"), 110.0,
+        "SPEC.md 98.3.18.18: the TWO TIERS beside the bank in place - a "
+        "VP_TTEST build that switches tier every three chunks wherever both "
+        "can take it, the bank capped at 6, so a SEAM is copied and read "
+        "every few chunks against the reference decode (20 seams and 27 of "
+        "41 chunks straight into the conventional tier, 39 holds, 0 wrong). "
+        "With vp_tseam's copy taken out the play wedges at a hold",
+        needs=("qemu", "nasm")),
+    Row("vidxipbanktiersnd", "soak", py("tests/vidxip.py", "--arm",
+                                        "banktiersnd"), 110.0,
+        "SPEC.md 98.3.18.18: vidxipbanktier with QEMU's SB16 and a clip with "
+        "sound - the audio cursor reading its chunks through the tier table "
+        "too",
+        needs=("qemu", "nasm")),
     Row("vidxipbankbig", "soak", py("tests/vidxip.py", "--arm", "bankbig"),
         70.0,
         "SPEC.md 98.3.18.13: the bank in place for a BIGSP file (98.1.4.1), "
@@ -16595,6 +16610,17 @@ SOAK = [
         needs=("bochs",),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
                "build/megak/apps/video.o88")),
+    Row("megavidtier", "soak", py("tests/megavidtier.py"), 80.0,
+        "SPEC.md 98.3.18.18, 98.3.15.2: the two tiers on kern_mega - the "
+        "arm assembled VP_TTEST=3 (and its speaker shaper a part) under "
+        "Bochs at 2MB, vidxip's 1.3 MB bank clip played full screen to its "
+        "end: every frame drawn, no FAULT, the tier on, 13 seams and 16 "
+        "chunks straight into a conventional slot read through the ring's "
+        "selectors. Red with vp_tseam's copy taken out: a #GP at frame 150. "
+        "80s is 59 measured",
+        needs=("bochs", "nasm"),
+        wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
+               "build/vblk.bin", "build/vblkpm.bin")),
     Row("megavidv2", "soak", py("tests/megavidv2.py"), 140.0,
         "SPEC.md 98.3.23.2: a VERSION 2 video played on kern_mega through "
         "the block decoder's PROTECTED-MODE part with NO #GP fixup. "

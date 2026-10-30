@@ -196617,6 +196617,59 @@ ever. `tests/videnc.py` 5c.2 is the gate: a flat level is one level
 a ramp reaches every level with solid ends, and a Mode X file made with
 grey4 uses indices 0 to 3 and carries the ramp.
 
+##### 98.2.3.8 `--kernel mega`: kern_mega's disk (2026-10-29)
+
+**A file made for `286-picomem1` ran its bank dry on kern_mega and not, as
+a rule, on kern_big.** Replaying a play's own reads through the profile's
+curve settles which of the model's inputs is wrong: each frame's MEASURED
+share of its period (the play's VPPROF, 98.3.22) fed to `disk_at`, the
+records' bytes spent, the bank as the file was made for (2,944 KB, full at
+the first frame). For kern_big the replay runs dry within 2% of where the
+machine did - Catch My Heart at frame 1371 against 1312, Sonic 2 at 737
+against 733 - so the curve holds there. For kern_mega the same replay only
+runs dry where the play did with the disk at 475,000 (Catch) and 455,000
+(Sonic): 0.915 and 0.877 of the curve. Every read is a reflected `int 13h`,
+a CPU reset on a 286 (KERN-MEGA-PLAN 14.73), and so is every card block
+interrupt (98.3.22.5).
+
+So the profile carries `mega_disk` = 0.88, the worse of the two, and
+`--kernel mega` scales its disk by it before an explicit `--disk` is
+applied, which names the rate on whichever kernel it says. `--kernel big`
+is the default and changes nothing. A profile without `mega_disk` is
+unmeasured under kern_mega, and `--kernel mega` leaves it as it is. The
+encoder's bank model spends where the bucket allows, so the cut lands where
+the bank would have run dry and nowhere else, and a file made for kern_mega
+plays on kern_big too. Options version 50 (`kernel`, `big` for every older
+record).
+
+Why a lower `--disk` alone changed nothing: Catch at 488,000 came out byte
+for byte the 519,000 file but for its options block, because the model's
+bank never emptied at either - its share ran ~4% under the diagnostic player's, and
+the margin in the bucket was 1.8 MB at 519,000 and 0.5 MB at 488,000.
+
+`mega_disk` was measured on players WITHOUT the two tiers (98.3.18.18),
+which skip the copy up in exactly the stretches it was measured in, so it is
+an upper bound on what kern_mega costs a file and is to be re-taken from
+plays of a tiered player.
+
+##### 98.2.3.9 `xrd`: the in-place reader's own cost (2026-10-29)
+
+**Catch My Heart at 519,000 and at 488,000 came out the same file** because
+the encoder's bucket never ran low: re-encoded from its source with the
+encoder of the day, byte for byte the owner's but for the options block, its
+lowest level anywhere was **2,551 KB of 3,040** - where the machine's bank
+ran empty at frame 1312. The model's per-frame share ran ~2 points under the
+plays' measured ones, which is not that gap; the reader's rate is. In place
+it charged the copy up alone, `xup` 0.186 ms a KB (placed at the gap,
+98.3.18.12), and the plays' timed reads replayed through the curve run dry
+where the machine did only with 0.345 charged on every chunk. The rest,
+0.159 ms a KB, is the reader's own work on a chunk past the copy - the
+bounce, the mirror, its loop - and the profile carries it as `xrd`, charged
+on every chunk in place; the copy is still skipped by the two tiers
+(98.3.18.18). Replayed: kern_big's Catch keeps a 624 KB margin at 519,000
+(it cuts nothing, as before), and `--kernel mega` runs 1,238 KB short, which
+the bank model now cuts for in the stretch it drains in.
+
 #### 98.2.4 Detail: less picture, the same screen
 
 **`--detail WxH`** (VGA8) makes the picture at a W-th of the canvas's width
@@ -200307,6 +200360,28 @@ clip's writes to the file's own bytes.
 rounding 0 (it reads another byte of the same image); no kernel byte, no
 change to `os88spk.inc`.
 
+#### 98.3.15.2 The kern_mega arm's shaper, a part (2026-10-29)
+
+The kern_mega arm (`PKG_MEGA`) outgrew `APP_MAX_SIZE` when the two tiers
+(98.3.18.18) went in: 478 bytes of headroom against ~800 of code. The
+speaker shaper (`apps/os88spkfx.inc`, 34.11.9), 2,394 bytes of the arm, is
+its one subsystem with a three-call interface and no state the player
+reads, so the arm carries it as PART 2 of `VIDEO.O88` (`apps/video/vfx.asm`,
+OP_SEG | OP_COMP | OP_LAZY, 1,428 bytes packed) and far-calls it through
+`video/vfx.inc`'s vectors; the shipped build includes the shaper as it
+always did. What the include reads of the speaker library - the ring, its
+count table, whether it drives a Covox - is handed over at `VFXV_INIT`, and
+`os88spk_sil`, the one thing it writes there, comes back in CL. It is
+fetched the first time a clip made for a card plays on the speaker
+(`vp_fxget`, the UI task's), movable as the block decoder is, and refused it
+plays that clip silent. The arm is 60,679 bytes, 1.7 KB under the limit
+with its bss.
+
+**Its diag build** (`VPDIAG=time`, kern_mega) also drops the info card's
+diag lines - Heap, Ring, Lead, Dry - which its VPPROF carries word for word
+and `os88vfit.py` prints from the trailer (98.3.22.3): 42 bytes to spare.
+The `-DVP_NOSPKFX` the Makefile gave that build is gone with the need for it.
+
 #### 98.3.16 TEXT: full screen, on any adapter
 
 **TEXT plays full screen only** (the owner's call), as CGA's colours do
@@ -202104,6 +202179,18 @@ with every frame still the decode's; VIDDISK X prints `xg_gap answers G`
 under its grid, so a field run checks the measurement against the copies it
 was taken from.
 
+**On kern_mega with the ring above 1MB the BOUNCE is placed** (2026-10-28).
+There a fill reads into a conventional 32 KB bounce (`[vp_dbnc]`, KERN-MEGA-PLAN
+14.41) and a bank's chunk is copied up from it, so it is the buffer the rule
+is about - and `vp_rhtry` claimed it bare. It takes `vp_xgpad`'s slack now,
+and `[vp_dbnc]` is the `vp_xgal` SUB of its claim (`[vp_dbclm]`, which is
+freed). The diag trailer had hidden it twice over: on kern_mega it wrote the
+ring and its claim as SELECTORS, which `tools/os88vfit.py` reads as
+paragraphs - a ring "128 bytes into its claim" was the next LDT entry - and
+with the ring above 1MB it now names the bounce and its claim, as linear
+paragraphs (`vp_prlin`). +36 bytes of the arm; the shipped `video.bin` is
+byte-identical, and every hot routine of the arm is identical at an even shift.
+
 ##### 98.3.18.13 The XMS bank, decoded in place by LOADALL (2026-10-15)
 
 **On a 286, a file longer than the pool plays out of its BANK with no copy
@@ -202448,6 +202535,76 @@ second, then 11.3). Either claim falls back to the plain one when no
 page-safe run is free. The PKG_MEGA arm alone; the shipped `video.bin` is
 byte-identical.
 
+##### 98.3.18.18 Two tiers: the conventional ring beside the bank in place (2026-10-29)
+
+**In place, every chunk of the bank goes disk -> the bounce -> copied UP**
+(98.3.18.13), ~6 ms of every 32 KB on the Victory - and the reader runs
+DRY exactly where the bank has drained and it is close behind the picture,
+so that copy is spent where the play can least afford it. The conventional
+ring the bank in place had shrunk to the least a key's read needs (two
+slots and a mirror) now keeps the slots it would have had, as a second
+TIER beside the bank (docs/plans/LOADALL-PLAN.md L6):
+
+- **Where a chunk goes**: to the conventional tier while every live chunk
+  would fit it - read straight off the disk into a slot the hook decodes
+  with no borrow - and to the bank once it is full. The bank still banks in
+  the calm stretches, when its copy is cheap; a stretch that drains it is
+  read with no copy at all. A fixed rotation over both (chunk c in slot c
+  mod K) was costed first and buys an eighth of the copies whenever they
+  fall, which is ~1%.
+- **The table**: a word a chunk, `chunk & 0FFh` (the live window is under
+  256), in the LAST 512 BYTES of the conventional tier's mirror slot
+  (`vp_ttab`, VP_TOFF): the slot, bit 15 the conventional tier, bit 14 a
+  seam. A super-packet is 64 sectors at most where there are tiers, so what
+  runs past a slot's end into its mirror is 63 at most and those 512 bytes
+  are never the mirror's (`vp_tcap` holds every copy into a mirror to it).
+  It was a 1 KB claim of its own first, and on the owner's Victory the
+  first field play said "0 chunks read straight in": a play with sound, a
+  palette a scene, a page flip, the block decoder's part and a profile had
+  spent the package's eight claims (MEM_OWNER_MAX), the claim was refused,
+  and the tier went off - which no gate here saw, each playing a silent clip
+  with no profile. `vp_slot` answers it; `vp_xbaddr` turns a conventional slot into a
+  pointer the decode reads as a copying ring's - a SEGMENT below VP_XSEL, so
+  `VP_DSDX` borrows for none of it and the decode is untouched.
+- **Each tier a FIFO** with its own next slot and live count, popped as
+  `vp_lfloor` passes, and its own MIRROR past its last slot. The
+  conventional tier's slots are the ring's 1 .. K-1: slot 0 is still the
+  bank's bounce, at the gap (98.3.18.12), and the tier's slots are 32 KB
+  multiples on from it, so a seam's copy is placed too.
+- **A super-packet that runs from one tier into the other** is the one new
+  case, handled the way the ring handles its wrap: at a SWITCH, what of the
+  new chunk the super-packet before it runs on into (`vp_mneed`) is copied
+  into the OLD tier's next slot - right after the chunk it continues, or
+  its mirror when that slot is 0 - and the slot is held until the new chunk
+  is popped. So a tier is left only while it has that slot free. Into the
+  bank it is a copy up from the chunk's slot; into the conventional tier a
+  copy DOWN from the bank's slot, because on a rung-1 disk (98.3.18.15) the
+  bounce does not hold what went straight up.
+- **`vp_mneed` reads its headers through `VP_DSDX`** now. In place its
+  `vp_addr` answers a HANDLE, and a plain `mov ds` on one read the high
+  memory under FFF0h instead of the header; the walk then mostly fell to its
+  "the whole chunk" bound, so the mirror was right and too long.
+
+Not taken - one tier, as before - for BIGSP (its mirror is two slots), Live,
+a bank under four slots or a ring under four, and wherever the bank is not
+in place. +~770 bytes of `video.o88`, no claim and no kernel byte.
+`tests/vidxip.py --arm banktier` is the gate: a `VP_TTEST` build that
+switches every three chunks wherever both tiers can take it, so a seam is
+copied and read every few chunks against the reference decode (20 seams and
+27 of the clip's 41 chunks straight in, 39 holds, 0 wrong); with the seam's
+copy taken out the play wedges. The diag build counts both (`tcn`, `tsw`) in
+the trailer, which `tools/os88vfit.py` prints.
+
+**The encoder prices it** (`os88venc.py`'s `TIERS`, `_drate`): in place the
+bank's copy up is charged on the disk only while the bucket is past the
+ring's reserve, as the copying FIFO's always was - where before the tiers it
+was charged on every chunk. Replayed through the model at each frame's
+measured share (98.2.3.8), Catch My Heart at kern_mega's 456,720 bytes a
+second falls 105 KB short at the worst against 1,019 KB without them, so a
+file made with `--kernel mega` gives up far less to cover the stretch the
+bank drains in. The borrows stay charged on every frame, which over-prices a
+record in a conventional slot a little.
+
 #### 98.3.22 The play's profile: every frame timed on the machine (2026-10-15)
 
 **A `VPDIAG=1` player times every frame it draws and saves the times**, so
@@ -202533,6 +202690,99 @@ refusal for *no such file* - but a file that IS there refuses a read into
 no room with `FERR_BIG` (20.14.6.3), so every play wrote `VPPROF1.DAT` over
 the last. Only `FERR_NOENT` is free now; any other answer moves on to the
 next n, so a disk error never overwrites a profile either.
+
+##### 98.3.22.4 Version 4: the reads TIMED (2026-10-29)
+
+`make VPDIAG=time` (`-DVP_RDTIME`, a field build like `VPDIAG=1` and never
+shipped) keeps version 2's read log in version 2's room with a different
+record: the frame drawn when the read began, how many frames the picture was
+then behind the card's due (`[vp_due] - [vp_done]`, signed), the read's
+length in units of 16 PIT counts (13.4 us, saturating at 878 ms) and its
+bytes. The length is the BRACKET'S clock (`vp_dstamp`, the hook's periods and
+channel 0's count), not channel 2's, which wraps at 55 ms - one 32 KB read on
+a BIOS-served disk under kern_mega is about 76 ms. On kern_mega the periods a
+reflection swallowed are delivered as it returns, so the length holds there
+too. A read outside `OSAPI_FSX_RUN`, where that clock does not run - the
+fill before the bracket, a play in the window - is recorded FFFEh, untimed,
+and one of 878 ms or more FFFDh. The header says version 4, and
+`tools/os88vfit.py FILE.V88 VPPROFn.DAT --reads` prints the reads' rate while reading, their lengths, the slowest
+twelve with their frames, and how far behind the picture was across the play.
+
+It is for the two questions the Victory's version 3 profiles could not
+answer: what makes some kern_big boots pause where others do not (a slow
+read shows up at its frame), and how much of kern_mega's lag is reads holding
+the hook off.
+
+##### 98.3.22.5 kern_mega's reflections across a play (2026-10-29)
+
+A `MEGADIAG` kernel (`make megadiag`) keeps running totals of what it hands to
+real mode - an option ROM's IRQ (`mega_irqrom`) and a BIOS service
+(`int 13h`, `int 10h`...) - counted and timed in `mega_svc_back` as each one
+returns: the periods the ROM counted at 40:6C times channel 0's divisor, plus
+the count's own progress, so a 50 ms reflected read is measured where
+`mega_rfsec`'s 16-bit sample of an IRQ's wraps. The four are published at
+`0040:00F0` - IRQs, their time in units of 2,048 PIT counts (1.7 ms),
+services, theirs - after every reflection; `kd_leave`'s handoff record writes
+the same four words only on its way out, and the font picker's `FP` at F8 is
+left alone. A transfer bounced above 1MB (`mega_hibnc`) returns by another
+path and is not counted. It is IN LINE and uses NO STACK: an IRQ's
+reflection runs on whatever it interrupted, an `FSXF_RATE` hook's 48 bytes
+among them (53.2.2). The first build called a routine with four pushes and
+two nested calls, and the Victory faulted mid-play on it (a #GP, error 0) -
+the stack the likelier cause than anything the routine computed.
+
+The kern_mega arm's diag player (`VP_RQ`, which `VP_DIAG` with `PKG_MEGA`
+defines) reads the four through an `OSAPI_SEG` window before and after
+`OSAPI_FSX_RUN` and appends the differences to the trailer, after CS and SS;
+`tools/os88vfit.py` prints them as a share of the play. On a kernel that is
+not `MEGADIAG` they read 0. Under Bochs (no PicoMEM) a full-screen play of
+`OS8088.V88` counts the bracket's two mode sets, 9.4 ms each, and no IRQ.
+The shipped kern_mega kernel is byte-identical.
+
+The first field reading added up the IRQs' time wrong: an IRQ's reflection
+keeps the mask, so a channel-0 reload inside it is never counted at 40:6C
+and the length came out NEGATIVE - both plays' totals read 112.5 s, a small
+negative in the published word. A negative length now takes one period back
+(65,536 counts at the ROM's rate, the bracket's divisor under it). Read
+again on the Victory with the PicoMEM: **2,161 IRQs in a 77.3 s play, 1.0 ms
+each, 2.8% of it**, and the services **38.7%, 27.1 ms each**.
+
+##### 98.3.22.6 Two frames a call when behind, under kern_mega (2026-10-29)
+
+**The picture lagged the sound by a second on kern_mega with the ring 90
+frames ahead of it**, so the reader was not short. Every 32 KB read is one
+reflected `int 13h` of ~27 ms - the same as kern_big's own call, 28.7 against
+30.5 ms timed off a play's buffering reads - but under kern_big the hook runs
+INSIDE that call and under kern_mega it is shut out, and the periods that
+fell in the call come back as ONE hook call (`mega_rfclk`). A flipped file
+draws a frame a call (`vp_fcap` = 1), so a read cost the picture a call it
+never got back: same draws, same reads, frames behind median 14-35 against
+kern_big's 0. The kern_mega arm, flipping (`vp_flip` = 1) and with more
+frames due than the call would draw, draws a SECOND, after `vp_vwait` has
+seen the first one's page latch - so no frame goes into a page still on the
+glass, and the wait (under one refresh) is spent only while behind. The
+shipped player is unchanged: under kern_big the hook is not coalesced, and
+the second frame's decode would come out of a ring whose lead there is one.
+
+##### 98.3.22.7 The card's block under kern_mega: TRIED AND REVERTED (2026-10-29)
+
+With 98.3.22.6 the picture kept up, and what was left was the reader
+running dry at the frame (Catch's 1312) a pausing kern_big play had too. The
+one cost kern_mega adds is the card's block interrupt: each is a reflection
+(`mega_irqrom`), ~1.0 ms on the Victory, ~27 a second counted, 2.7-3.3% of a
+play. The kern_mega arm was built halving the block only while it was longer
+than 100 ms of sound (`VP_BLKDIV` 10), 2,048 bytes at 22 kHz PCM8 - and on
+the Victory **the card stopped for good a few seconds in** (Catch's clock
+froze at frame 99, one card pause, then no interrupt for the rest of the
+play; the picture ran on its periods with no clock to be behind). The
+frames' clock was never the issue - `vp_adue` interpolates on the hook's
+periods between blocks - and the likelier cause, not yet shown, is that the
+SOUND'S LEAD is cut for the 25 ms block:
+the encoder writes a file's sound ahead (`AHEAD_FRAMES`, `audio_lead`) and
+its in-step budget against `VP_BLKDIV` 40, so a 93 ms block asks the stream
+to queue more ahead of the card than the file carries. Reverted: a longer
+block is an ENCODER change first (the lead and the block agreed in
+os88venc.py and the player together), and 3% does not buy it.
 
 ##### 98.3.22.1 What the first profiles changed in the encoder (2026-10-15)
 
