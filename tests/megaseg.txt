@@ -73,4 +73,9 @@
 #             IRQ7 ISR left as a selector by mega_ivt_sync, reached by a
 #             SPURIOUS IRQ7 inside the empty drive's BIOS call. mega_capon's
 #             filter, real mode, so low
-4417
+# 2026-10-30: -90, to 4,327, kern_mega size pass 1 (shared): the speaker
+#             door's IRQ0 gate writes and the stream's ring test into
+#             `.mega`, osapi_xmem_sel/_walk and osapi_mem_codesel's bodies
+#             into `.cold` behind 6-byte doors, and kmain's four far calls
+#             after mega_enter into one (kmain_hic)
+4327

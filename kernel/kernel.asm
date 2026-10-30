@@ -371,8 +371,22 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; and a plain `mov` everywhere else. KPARA - AX = the real paragraph of the
 ; segment in AX (a K scratch's base on kern_mega, AX itself elsewhere), for
 ; arithmetic on a register KSEG loaded (KERN-MEGA-MEMORY-PLAN MC7.6)
+; IN DISKOPS.DRV (`.modl`, fifty of the tree's fifty-four sites) the slot and
+; the segment-register load are a NEAR helper's, ksg_<sreg>_<slot> at the
+; image's end (below, before modl_end): the site is `push ax / mov ax, src /
+; call / pop ax`, eight bytes or so against seventeen, and the helper keeps DI
+; and FLAGS as the inline form does (kern_mega size pass 1). A combination no
+; helper exists for is an undefined label at assembly - add its row there
 %macro KSEG 3
 %ifdef KERN_MEGA
+ %ifidni __?SECT?__, [section .modl]
+    push ax
+  %ifnidni %2, ax
+    mov ax, %2
+  %endif
+    call ksg_ %+ %1 %+ _ %+ %3
+    pop ax
+ %else
     push ax
     push di
     mov ax, %2
@@ -381,6 +395,7 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
     mov %1, ax
     pop di
     pop ax
+ %endif
 %else
     mov %1, %2
 %endif
@@ -5750,20 +5765,31 @@ kmain:
                                 ; here on (KERN-MEGA-MEMORY-PLAN MC7.4)...
     pop ax
     mov [snd_live], al          ; ...after which the tick may run again
-    call COLD_SEG:drv_hiboot_f  ; ...and the boot's drivers above 1MB, now
-                                ; that there is a pool (item 82)...
-    call COLD_SEG:mem_hicaches_f ; ...and its caches (item 84)
-%ifdef OS88_SHORTCUTS
-    call COLD_SEG:stik_bootf    ; ...the Sticky Apps, bound in the mode they
-                                ; run in (KERN-MEGA-PLAN 14.78; drv_notice_x
-                                ; does it before the switch elsewhere)...
-    call COLD_SEG:as_bootc      ; ...and AUTOSTART last, so a package it opens
-                                ; is placed as one opened by hand would be -
-                                ; above 1MB when it says OS88_HIGH
-                                ; (KERN-MEGA-MEMORY-PLAN MC8)
-%endif
+    call COLD_SEG:kmain_hic     ; ...and the rest, one far call to .cold
 %endif
     jmp ui_task                 ; task 0 becomes the UI task; never returns
+
+%ifdef KERN_MEGA
+; kmain_hic - kern_mega's boot tail after mega_enter, FAR: four far calls that
+; were kmain's in .text (kern_mega size pass 1)
+section .cold
+kmain_hic:
+    call COLD_SEG:drv_hiboot_f  ; ...the boot's drivers above 1MB, now that
+                                ; there is a pool (item 82)...
+    call COLD_SEG:mem_hicaches_f ; ...and its caches (item 84)
+%ifdef OS88_SHORTCUTS
+    call stik_boot              ; ...the Sticky Apps, bound in the mode they
+                                ; run in (KERN-MEGA-PLAN 14.78; drv_notice_x
+                                ; does it before the switch elsewhere)...
+    jmp as_bootc                ; ...and AUTOSTART last (its retf is ours), so
+                                ; a package it opens is placed as one opened
+                                ; by hand would be - above 1MB when it says
+                                ; OS88_HIGH (KERN-MEGA-MEMORY-PLAN MC8)
+%else
+    retf
+%endif
+section .text
+%endif
 
 ; =============================================================================
 ; osapi helpers (SPEC.md 20.4) - tiny accessors for loaded programs, reached
@@ -5793,19 +5819,24 @@ kmain:
 ; EVERY KERNEL BUT kern_mega answers it IN THE CELL (OSAPI_XREFUSE, kernel
 ; size pass 14), so the body below is kern_mega's alone.
 %ifdef KERN_MEGA
-osapi_xmem_sel:
-    cmp byte [mega_on], 0
-    je .no
-    push bx
-    call xm_ownbl               ; BL = who is asking
-    call MEGA_SEL_CODE:mega_xmself
+osapi_xmem_sel:                 ; (xmem_run's shape: the [mega_on] test and
+    push bx                     ; the refusal are .cold's, osapi_xmem_selc -
+    call xm_ownbl               ; kern_mega size pass 1. xm_ownbl is a pure
+    call COLD_SEG:osapi_xmem_selc ; query, so it may run in real mode too)
     pop bx
     ret
+section .cold
+osapi_xmem_selc:
+    cmp byte [mega_on], 0
+    je .no
+    call MEGA_SEL_CODE:mega_xmself ; BL = who is asking
+    retf
 .no:
-    mov ax, 1
-    cmp al, 2                   ; CF = 1 - and SIX bytes where `stc` is five,
-    ret                         ; which keeps every hot routine after this on
-                                ; the byte parity t_hotpar measured it at
+    mov ax, 1                   ; CF = 1, AX = 1: not available here -
+    cmp al, 2                   ; `cmp` and not `stc`, a byte longer, which
+    retf                        ; keeps the hot .cold routines after this on
+                                ; the parity they were measured at
+section .text
 %endif
 
 ; ---- osapi_xmem_run - API slot 0x04CB (KERN-MEGA-PLAN 14.16) ----------------
@@ -6058,11 +6089,16 @@ osapi_img_name equ mod_gone     ; `stc / retf`: CF = 1, every register kept
 ; THE TASK MANAGER'S "RAM IS RAM" (KERN-MEGA-PLAN 13.6): what is above 1MB, and
 ; whose, so a package's memory is one figure wherever it was placed.
 %ifdef KERN_MEGA
-osapi_xmem_walk:
-    cmp byte [mega_on], 0
-    je osapi_xmem_sel.no
-    call MEGA_SEL_CODE:mega_xmwalkf ; (`.mega`: KERN-MEGA-SEGMENTS-PLAN)
+osapi_xmem_walk:                ; (the body is .cold's: kern_mega size pass 1)
+    call COLD_SEG:osapi_xmem_walkc
     ret
+section .cold
+osapi_xmem_walkc:
+    cmp byte [mega_on], 0
+    je osapi_xmem_selc.no
+    call MEGA_SEL_CODE:mega_xmwalkf ; (`.mega`: KERN-MEGA-SEGMENTS-PLAN)
+    retf
+section .text
 %elifndef KERN_BIG
 osapi_xmem_walk equ xm_copy     ; kern_small: no extended memory, and its
                                 ; xm_copy is AX = 1, CF = 1 with every other
@@ -6081,15 +6117,20 @@ osapi_xmem_walk equ xm_copy     ; kern_small: no extended memory, and its
 ; Every kernel but kern_mega answers it IN THE CELL - `mov ax, dx / cmp ax, 1`
 ; (kernel size pass 14) - so the body is kern_mega's alone.
 %ifdef KERN_MEGA
-osapi_mem_codesel:
+osapi_mem_codesel:              ; (the body is .cold's: kern_mega size
+    call COLD_SEG:osapi_mem_codeselc ; pass 1)
+    ret
+section .cold
+osapi_mem_codeselc:
     cmp byte [mega_on], 0
     je .rm
     call MEGA_SEL_CODE:mega_codeself ; (`.mega`: KERN-MEGA-SEGMENTS-PLAN)
-    ret
+    retf
 .rm:
     mov ax, dx
     cmp ax, 1                   ; CF = 1 iff DX = 0
-    ret
+    retf
+section .text
 %endif
 
 ; ---- osapi_rand - seed = seed*25173 + 13849; out: AX = new seed --------------
@@ -8385,6 +8426,9 @@ OVL_SIZE equ ovl_end - $$     ; `$$` is 0 here: `.ovl` has a vstart of its
 %endif
 %endif
 %if ((OVL_SIZE + 511) / 512) * 512 > FAT_PARA * 16 + DSK_WIN_BYTES
+%ifdef KERN_MEGA
+%error "kern_mega: the boot overlay's window half has outgrown the FAT window plus dsk_secbuf - a diagnostic knob that grows `.ovl` wants its define in kernel/dskwin.inc's kern_mega DSK_OVLPAD test; otherwise see SPEC.md 2.1.2 and 2.5.3"
+%endif
 %error "the boot overlay's window half has outgrown the FAT window plus dsk_secbuf - see SPEC.md 2.1.2 and 2.5.3. Move a body to the blob (`.ovl`, SPEC.md 2.5.3.2) or out of the boot path"
 %endif
 
@@ -8507,6 +8551,41 @@ modf_end:
 MODF_SIZE equ modf_end - $$
 
 section .modl
+%ifdef KERN_MEGA
+; KSEG's near helpers for this image (the macro above): ES or DS = a selector
+; over the REAL paragraph in AX through scratch slot <slot>, mega_kaimf's
+; answer. Each row sets DI to its slot and joins its register's tail; DI and
+; FLAGS kept (mega_kaimf keeps FLAGS), AX clobbered - the site saves it
+%macro KSG_ROW 2
+ksg_%1_%2:
+    push di
+    mov di, %2
+    jmp short ksg_%1_MEGA_SEL_K5.go
+%endmacro
+    KSG_ROW es, MEGA_SEL_K0
+    KSG_ROW es, MEGA_SEL_K1
+    KSG_ROW es, MEGA_SEL_K3
+    KSG_ROW es, MEGA_SEL_K4
+ksg_es_MEGA_SEL_K5:
+    push di
+    mov di, MEGA_SEL_K5
+.go:
+    call COLD_SEG:mega_kaimf
+    mov es, ax
+    pop di
+    ret
+    KSG_ROW ds, MEGA_SEL_K0
+    KSG_ROW ds, MEGA_SEL_K1
+    KSG_ROW ds, MEGA_SEL_K4
+ksg_ds_MEGA_SEL_K5:
+    push di
+    mov di, MEGA_SEL_K5
+.go:
+    call COLD_SEG:mega_kaimf
+    mov ds, ax
+    pop di
+    ret
+%endif
 modl_end:
 MODL_SIZE equ modl_end - $$
 
