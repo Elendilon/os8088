@@ -23,17 +23,22 @@ Four checks:
      `ico_demote`'s half - SPEC.md 54.7.4's guard in `asc_use` is a compare on
      that byte and was inert while the shed left it set), and the window owes
      FSD_ICONS
-  3. after DOS closes: the debt is spent and the store holds rows again
-  4. ...and the window's own reference byte for the .COM RESOLVES - it names
-     a row the store actually holds, which is the thing the user sees: a page
-     icon rather than the generic diamond. It is checked against the live row
-     count and not against the sentinel, because a repair that never runs
-     leaves the byte exactly as it was and what moved under it is the store
+  3. after DOS closes: the debt is spent, and the .COM's reference is SPEC.md
+     25's GENERIC ICON, written. The association tables went with the store
+     (SPEC.md 54.2.3) and B: has no ASSOC.DAT to bring `.COM` back - DOS's
+     row came from A:'s, read at boot - so the honest answer is "no icon",
+     and NOT a disk spun up to find one. What it must never be is the row
+     number the reference held before the shed: once the store refills past
+     it, the document draws whatever package took that row
+  4. ...and a double-click still OPENS it in DOS, through SPEC.md 54.4.3's
+     search of the volumes' ASSOC.DATs: the association comes back when it
+     is asked for, from where it lives. (Its ICON cannot be asserted after
+     that with this program: running it sheds the store again)
 
-VERIFIED RED both ways. With `ico_demote`'s call to `fmv_icostale` taken out,
-check 2's debt is 0 and check 4 reads 0xFF. With only the `[ico_n]` store
-removed, check 2 reads the stale count and the repair then declines to
-re-absorb, which check 3 sees as an empty store.
+VERIFIED RED: with the document pass's `.dp_none` arm taken out (the
+reference left alone when there is no association), check 3 reads the old
+row number. With `ico_demote`'s call to `fmv_icostale` taken out, check 2's
+debt is 0.
 
 MartyPC: DOS.O88 is a real DOS program taking the real arena, and no other
 emulator here runs one.
@@ -170,28 +175,44 @@ def main():
             bad.append("the window still owes %d after DOS closed: the "
                        "debt was never spent, so the repair did not run"
                        % dirty2)
-        if not n2:
-            bad.append("the store is still EMPTY: fmv_icorefs either refused "
-                       "or its asc_use re-read did not happen")
-        # **THE REFERENCE HAS TO RESOLVE, not merely not be the sentinel.**
-        # A repair that never runs leaves the byte exactly as it was - row 0,
-        # a perfectly ordinary value - and what changed under it is that row 0
-        # no longer exists. So the check is against the live row count, which
-        # is the condition dsk_ico_stage actually applies; testing the byte
-        # alone passes on the broken kernel.
-        if ref2 == ICO_R_NONE or ref2 >= n2:
-            bad.append("entry 0's reference is %02X against %d live row(s), "
-                       "so it resolves to nothing and %s draws SPEC.md 25's "
-                       "generic icon - which is the defect exactly as the "
-                       "field reported it" % (ref2, n2, NAME))
+        if ref2 != ICO_R_NONE:
+            bad.append("entry 0's reference is %02X after the shed, with %d "
+                       "live row(s): no volume read since knows `.COM`, so it "
+                       "must be the generic icon WRITTEN (SPEC.md 54.2.3) - a "
+                       "row number left standing draws whatever package "
+                       "takes that row next" % (ref2, n2))
+
+        # --- 4: the association comes back when it is asked for -------------
+        # ...and only the OPEN can be asserted with this program: running
+        # it claims the whole arena again, which sheds the store - and the
+        # association just re-learned with it - a second time.
+        w = ui.path("B:/" + NAME)
+        if not w or not w.title.upper().startswith("DOS"):
+            bad.append("double-clicking %s after the shed did not open it in "
+                       "DOS: SPEC.md 54.4.3's search should find DOS through "
+                       "A:'s ASSOC.DAT (%r)" % (NAME, w and w.title))
+        else:
+            print("icoshed: reopened %s in %r through the search"
+                  % (NAME, w.title))
+            try:
+                os88marty.until(m, lambda _m: store(m)[0] == 0,
+                                "the program running", poll=0.3,
+                                limit=5 * os88marty.GUEST_PACE
+                                / os88marty.GUEST_BUDGET_RATIO)
+            except os88marty.MartyError:
+                pass
+            m.key("Escape")
+            quiet(m)
+            ui.close(w)
+            quiet(m)
 
     if bad:
         print("icoshed: FAIL")
         for b in bad:
             print("  - %s" % b)
         return 1
-    print("icoshed: the store was shed, the notice was raised and the "
-          "window's references came back for one ASSOC.DAT read")
+    print("icoshed: the store was shed, the reference went to the generic "
+          "icon rather than a stale row, and the double-click still opened it")
     return 0
 
 

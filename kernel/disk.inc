@@ -8795,12 +8795,12 @@ dsk_docpass:                    ; `dsk_icopass`'s reason for having no
     mov al, [assoc_docslot]     ; ...keyed by the SLOT it composed from, so
     jnc .dp_key                 ; every document of one association is one row
     call dsk_img_icon           ; ...or a *.IMG, which no program opens and
-    jne .dp_skip                ; which draws the desktop's diskette
+    jne .dp_none                ; which draws the desktop's diskette
                                 ; (SPEC.md 18.101.6). AL = its key, over the
                                 ; slot read above for nothing (`mov` writes
                                 ; no flag, so it costs the doc arm no branch)
 %else
-    jc .dp_skip
+    jc .dp_none
     mov al, [assoc_docslot]     ; ...keyed by the SLOT it composed from, so
 %endif                          ; every document of one association is one row
 .dp_key:
@@ -8811,6 +8811,14 @@ dsk_docpass:                    ; `dsk_icopass`'s reason for having no
     mov dx, KERNEL_SEG          ; ...the kernel segment, named (SPEC.md 2.6
     call ico_put                ; rule 2: CS is COLD_SEG here)
     pop dx
+    jmp short .dp_skip
+.dp_none:                       ; NO ASSOCIATION: SPEC.md 25's generic icon,
+    mov ax, dx                  ; WRITTEN - not the reference left alone. A
+    mov bl, ICO_R_NONE          ; repair re-runs this pass over a listing
+    call ico_ref_set            ; whose bytes predate a shed, so the old row
+                                ; number stood, and once the store refilled
+                                ; past it the document drew whatever package
+                                ; took that row (SPEC.md 54.2.3)
 .dp_skip:
     popf
 .dp_next:
@@ -9241,8 +9249,6 @@ ico_demote:
     jae .dapp                   ; tables that just went: ask the volumes
     mov byte [assoc_dapp], ASSOC_FIND   ; instead (SPEC.md 54.4.3)
 .dapp:
-    mov byte [assoc_rsd], 1     ; ...and the BOOT volume's associations go
-    inc byte [ui_post]          ; back at the next idle pass (54.2.3)
     mov word [ico_n], 0         ; header: `mem_pg_forget` has banked the lot.
 %else                           ; (A WORD: [ico_capn] goes with the store,
     mov byte [ico_n], 0         ; SPEC.md 54.7.6.2)

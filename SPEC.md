@@ -105064,11 +105064,21 @@ which every caller already handled - so a machine short enough of memory to
 have shed the store still runs programs, and its documents open again once
 the store can be claimed.
 
-**What a shed costs.** The tables go with the icons. Nothing new brings them
-back: an empty store already makes the next mount re-read its volume's
-`ASSOC.DAT` (§54.7.4), and a double-click in between takes §54.4.3's search,
-which reads the volumes' files. A pending open names a slot of tables that
-went, so `ico_demote` turns it into that search (`ASSOC_FIND`).
+**What a shed costs.** The tables go with the icons, and they come back the
+way they arrived: an empty store makes the next mount re-read ITS volume's
+`ASSOC.DAT` (§54.7.4), and a double-click takes §54.4.3's search, which reads
+the volumes' files. A pending open names a slot of tables that went, so
+`ico_demote` turns it into that search (`ASSOC_FIND`). **Nothing goes back to
+the boot volume for them**: the boot disk may not be in the drive, the
+program may live on some other disk anyway, and a special trip would spin up
+a drive nobody asked for after every shed. A document whose program's volume
+has not been read since is drawn as what it now is, unassociated - and
+`dsk_docpass` WRITES that (`ICO_R_NONE`) rather than leaving the reference
+alone: a repair re-runs the pass over a listing whose bytes predate the shed,
+so the old row number stood, and once the store refilled past it the
+document drew whatever package took that row. Built-ins hid that, the pass
+never meeting a document without a slot. `tests/icoshed.py` is the gate,
+red on the old row number with the write taken out.
 
 **Nothing is built in.** PAINT (`BMP`, `GIF`), NOTEPAD (`TXT`) and ARTFUL
 (`MD`) declare in their own headers now, as TRACKER and DOS already did, and
@@ -105095,9 +105105,10 @@ exactly as it did before either. An old row's runtime rows are never copied
 flush writes them afresh and nothing accumulates. A kernel before this one
 reads a bit-7 row as an index past the program count and skips it.
 
-Cost on `kern_big`, measured against the tree before: **-100 resident
-bytes** - `.text` -420 (the tables and the built-in data), `.cold` +312
-(the accessors and the boot door), `.bss` +8 - and the boot blob +5.
+Cost on `kern_big`, measured against the tree before: **-88 resident
+bytes** - `.text` -420 (the tables and the built-in data), `.cold` +324
+(the accessors, the boot door and the generic-icon write), `.bss` +8 - and
+the boot blob +5.
 `kern_small` has no associations (§54.0) and is byte-identical.
 ### 54.3 The icon: a page frame with the program's glyph inset
 
