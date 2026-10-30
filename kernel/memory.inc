@@ -3217,12 +3217,18 @@ mem_rr_tab:
     ; and mem_shed_one zeroes the caches' through mem_pg_own,
     ; so it never holds a base that is not its own live claim. Not on
     ; kern_mega, where [ico_seg] and [dsk_rah_seg] can hold a SELECTOR
-    MEM_RR_ONE menu_sseg
-    MEM_RR_ONE ico_seg
-    MEM_RR_ONE dsk_rah_seg
-%ifdef OS88_ASSOC
-    MEM_RR_ONE asc_seg              ; ASSOC.DAT's one-call file buffer
-%endif
+    ;
+    ; ...and AS TWO ROWS, not six (kernel size pass 15): a row names a run of
+    ; adjacent words for its four bytes, so the lone words were gathered -
+    ; [ico_seg] and [dsk_rah_seg] side by side in disk.inc (kerndos assembles
+    ; that file too, so they stay there), and the rest in mem_rr_lone below,
+    ; which also took [clip_seg] and [sc_seg]: their procs were a bare
+    ; `mov [w], dx / ret`, and each word is zeroed before its claim is freed
+    ; (clip_drop's, ovl_sc_free's and sc_m_kb's stores; nothing between the
+    ; free and the store can compact) and set only from the claim's own base,
+    ; so a row is as exact for them as for the four above
+    MEM_RR_ROW ico_seg, 2, 2        ; ...and dsk_rah_seg
+    MEM_RR_ROW mem_rr_lone, (mem_rr_lone_end - mem_rr_lone) / 2, 2
 %endif
     dw 0
     ; --- ES = LOW_SEG (SPEC.md 2.6) --------------------------------------
@@ -3989,6 +3995,28 @@ mem_compact:
                                 ; that is safe because they BALANCE - .cold is
                                 ; in force at the top and at the bottom - so a
                                 ; build without the span never leaves .cold
+
+section .text
+; --- THE LONE RELOCATED WORDS, ONE BLOCK (kernel size pass 15) --------------
+; Each is one kernel claim's base segment, 0 = none, and on kern_big (not
+; kern_mega, where each can hold a SELECTOR) mem_rr_tab names them all with
+; ONE row - four bytes for the lot where each was a row or a proc of its own.
+; Declared here, outside every OS88_COMPACT span, because every kernel has
+; them and only kern_big walks them. In .text with real initialisers, so all
+; of them read 0 before anything sets them on any boot path.
+mem_rr_lone:
+menu_sseg:  dw 0                ; the menu save-under claim's segment, 0 =
+                                ; none (menu_drop then repaints instead)
+%ifdef OS88_ASSOC
+asc_seg:    dw 0                ; ASSOC.DAT's one-call file buffer (assoc.inc)
+%endif
+clip_seg:   dw 0                ; the clipboard's claim (clip.inc), 0 = none
+                                ; held - which IS an empty clipboard
+%ifdef OS88_SHORTCUTS
+sc_seg:     dw 0                ; the desktop shortcuts' table (desksc.inc),
+%endif                          ; 0 = no shortcuts
+mem_rr_lone_end:
+section .cold
 
 %ifndef OS88_COMPACT
 ; -----------------------------------------------------------------------------

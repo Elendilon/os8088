@@ -2682,8 +2682,7 @@ menu_bend:  resw 1              ; ...and the first cell past the last menu's
                                 ; menu_bar_text, read by toast_place only
 menu_bfirst: resw 1             ; the span that differs, 0FFFFh = none
 menu_blast: resw 1
-menu_sseg:  resw 1              ; the save-under claim's segment, 0 = none
-                                ; (menu_drop then repaints instead)
+                                ; (menu_sseg is memory.inc's mem_rr_lone)
 menu_tbuf   equ clk_str         ; menu_trunc's staging buffer. It was carved
                                 ; out of the clock's field buffer, which went
                                 ; when the clock moved into menu_bcell - and
