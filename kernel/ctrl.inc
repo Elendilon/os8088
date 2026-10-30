@@ -3063,12 +3063,12 @@ cp_thmv_open:
     mov ch, [thm_kind]
     mov bp, [bx+DRVR_ENT]
     mov al, THMV_OPEN
-    call COLD_SEG:drvf_drv_call
+    CPXC drv_call
     jnc .out
     mov bx, thmv_row            ; it loaded and then refused: give it back -
     mov bp, [bx+DRVR_ENT]       ; the panel close's own two steps (the tail
     mov al, THMV_CLOSE          ; of drv_cp_closed_x), through the two far
-    call COLD_SEG:drvf_drv_call ; entries. The row and the entry are loaded
+    CPXC drv_call               ; entries. The row and the entry are loaded
     CPXC drv_release  ; again: a refusing driver may answer in
 .no:                            ; BX, and drv_call spends BP
     stc
@@ -4171,7 +4171,7 @@ cp_vid_vxcall:
     cmp word [bx+DRVR_SEG], 0
     je .no
     mov bp, [bx+DRVR_ENT]
-    call COLD_SEG:drvf_drv_call
+    CPXC drv_call
     pop bp
     pop bx
     ret
