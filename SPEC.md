@@ -104009,10 +104009,29 @@ at the door, so that each can be lifted by itself:
 | `FSXR_SVC` | 2 | a `TF_SERVICE` task (a driver's worker) is alive and would never be scheduled | YES - owed (MEGA-VIDEO-REALMODE-PLAN W7) |
 | `FSXR_EXTD` | 3 | EXTD.DRV, the extended desktop's module, is loaded: its image is above 1MB and `OSAPI_FSX_MODE`, `OSAPI_FSX_CAPS` and `OSAPI_WM_CONTENT` far-call it | YES - owed (W7: a play on either display) |
 | `FSXR_SERIAL` | 4 | a SERIAL.DRV lease is open (SPEC.md 115): the pointer's ISR far-calls the module (`SERFP`) for the leased UART on every interrupt | YES - owed (W7) |
-| `FSXR_ROOM` | 5 | the region is above 1MB (`OS88_HIGH`) and the heap has no conventional claim for its copy | sometimes - owed in part (MEGA-VIDEO-REALMODE-PLAN 5.3.3: the HMA) |
+| `FSXR_ROOM` | 5 | the region is above 1MB (`OS88_HIGH`) and the heap has no conventional claim for its copy - or, since W3, none for the bracket's SERVICE AREA (below) | sometimes - owed in part (MEGA-VIDEO-REALMODE-PLAN 5.3.3: the HMA) |
+| `FSXR_VOL` | 6 | a stream the LIST names is on a volume real mode cannot read: a redirected or file-driver volume (NET.DRV's share, CDROM.DRV, HTTPFS.DRV, RAMDISK.DRV), a mounted image, or a sector past CHS's reach | no - a PERMANENT protected-mode case (MEGA-VIDEO-REALMODE-PLAN 5.3 item 2), said on the info card |
+| `FSXR_FRAG` | 7 | the LIST's files need more than `FSXL_RUNS` (224) contiguous runs between them, or there are more than `FSXL_NMAX` (4) of them | rarely - a badly fragmented disk; a copy plays |
+| `FSXR_DRV` | 8 | the LIST names a driver class the bracket does not carry low (it carries `DRVC_DISK` and `DRVC_EMS`) | YES for `DRVC_SOUND` - owed (W4) |
+| `FSXR_DROOM` | 9 | no conventional claim for a driver's low copy | sometimes - owed with `FSXR_ROOM` |
 
-W3 adds the extent reader's own (a stream it cannot serve, a file
-fragmented past its cap) the same way. **A refusal (CF = 1) is for a state
+**THE LIST (W3).** With `FSXF_REAL`, **BP = 0 or the offset in the
+caller's DS of a list** naming what the bracket will read, so the kernel can
+make it readable before it leaves protected mode - every kernel in real mode
+ignores BP and keeps it, as every cell does. Entries, until any other byte
+(`FSXL_END` = 0): `db FSXL_FILE` (1) then a NUL 8.3 name - a file the
+bracket's `OSAPI_FILE_READ_SEQ` will read, BY THAT NAME, resolved in the
+caller's own folder at the door; `db FSXL_DRV` (2) then a `DRVC_*` class - a
+driver the bracket's `OSAPI_DRV_CALL` will reach (a file on a `DRVC_DISK`
+volume asks for that driver itself). At the door, in protected mode, each
+file is stat'ed and its cluster chain WALKED into runs of absolute sectors -
+a `DVK_BIOS` unit's (the partition's base added, CHS's reach checked) or a
+`DVK_DRV` `DRVC_DISK` volume's own - and each driver the list reaches whose
+image is above 1MB is given a conventional claim its image and bss are
+copied DOWN into at the freeze's arm and back UP at the exit, as the region
+is (a driver already conventional runs where it is). The walk happens in the
+park's scratch, so a bracket that falls back takes nothing. A stat or chain
+that fails is not a fallback: the twin answers that `FERR_*` for that name. **A refusal (CF = 1) is for a state
 the user will not normally be in** - the owner's rule - so none of these
 refuses: each is a fallback, and the plan lists which wave owes each one
 that a user will be in.
@@ -104119,9 +104138,38 @@ mounted `SOUND.DRV` image is above 1MB): its tick waits for the exit.
     `SEG_AT` refused - kern_big's answers, from the one body both share;
   * and the BIOS itself by `int`: `int 16h` for the keyboard, `int 10h`
     within §53.7's rules.
-  W3 and W4 add the twins of the services a play needs - the file reader,
-  the XMS copies, `OSAPI_DRV_CALL`, the sound stream and the speaker door -
-  and until then those cells refuse.
+  * **the SERVICE AREA's twins (W3)**, real-mode code that lives in `.mega`
+    and is COPIED, with the list's runs behind it, into a conventional claim
+    of the instance's for the bracket (2,000 bytes of code and data, 128 of
+    rows, 6 a run: 3 KB for a contiguous file), its cells far jumps to it:
+    - `OSAPI_FILE_READ_SEQ`: READ_SEQ's contract out of the runs - the
+      cursor's `FSEQ_OFF` in whole sectors and a capacity of whole sectors
+      (READ_AT's `FERR_NAME` otherwise); a `DVK_BIOS` file by `int 13h` with
+      `dsk_xfer`'s bounds (the track, or the cylinder where the kernel's own
+      reads run to it, the 64KB DMA page with a sector bounced through
+      `dsk_secbuf`, the floppy's EOT, three tries, then a sector at a time);
+      a `DRVC_DISK` file through the LOW copy's `DSV_BLK`, so HDD.DRV's
+      rung 1 keeps its native PIO - and gains `HDV_ARM`'s read straight into
+      XMS, which it refuses under `CPU_F_PM`. The cursor comes back with
+      `FSEQ_OFF` advanced and every other byte ZERO - a seek - so the next
+      protected-mode call re-seeds from the name. A name the list did not
+      carry answers `FERR_NAME`;
+    - `OSAPI_XMEM_COPY`: the TOKEN translated through `mx_tab` to where the
+      block is now (nothing moves a block while no protected-mode code
+      runs), the bytes moved by LOADALL on a 286 (`apps/os88la.inc`, 16 KB
+      a borrow) and by a loaded base on a 386 (`apps/os88ub.inc`, 2 KB a
+      chunk), interrupts open between pieces and A20 proved first - kern_big
+      XMEM.DRV's two transports;
+    - `OSAPI_XMEM_CAPS`: the pool's answer off `mx_tab`;
+    - `OSAPI_DRV_CALL` and `OSAPI_DRV_CALL_AT`: a class the door carried low
+      is called at its real paragraph through its `DSV_PKGCALL` (`DRVC_EMS`
+      handed the caller's slot in BH, as in protected mode); any other class
+      answers CF = 1 AX = 0, as for no driver.
+  `OSAPI_FILE_READ_AT`, `OSAPI_XMEM_ALLOC` and `OSAPI_XMEM_FREE` stay
+  REFUSED: an allocator in real mode would be a second one to keep in step
+  with `mx_alloc`'s tokens for one call site, so the Video Player's split
+  claims move to its door (W5). W4 adds the sound stream and the speaker
+  door, and until then those cells refuse.
 
   **How the swap is made** (MEGA-VIDEO-REALMODE-PLAN W2's decision): neither
   a module nor a second resident image. At the drop, in protected mode, the

@@ -5071,7 +5071,8 @@ OS88_BSS_SIZE equ 0
                                                 ; restores the desktop whole.
                                                 ; Out CF=1 refused; CF=0 with
                                                 ; FSXF_REAL, SI = FSXR_* (pass
-                                                ; SI = 0 in). Inside:
+                                                ; SI = 0 in; BP = 0 or your
+                                                ; FSXL_ list). Inside:
                                                 ; poll int 16h for keys and
                                                 ; OSAPI_MOUSE for the mouse -
                                                 ; no events are dispatched;
@@ -6569,7 +6570,36 @@ FSXR_SVC        equ 2           ; ...protected: a driver's worker is alive
 FSXR_EXTD       equ 3           ; ...protected: the extended desktop is up
 FSXR_SERIAL     equ 4           ; ...protected: a SERIAL.DRV lease is open
 FSXR_ROOM       equ 5           ; ...protected: no conventional room for the
-                                ; copy of an OS88_HIGH region
+                                ; copy of an OS88_HIGH region, or for the
+                                ; bracket's service area (W3: its twins and
+                                ; the extent lists, ~2-3 KB)
+FSXR_VOL        equ 6           ; ...protected: a listed stream is on a
+                                ; volume real mode cannot read - a redirected
+                                ; or file-driver volume (a network share, the
+                                ; CD-ROM, HTTP, a RAM disk), a mounted image,
+                                ; or a sector past CHS's reach
+FSXR_FRAG       equ 7           ; ...protected: the listed streams need more
+                                ; than FSXL_RUNS runs (a fragmented file), or
+                                ; there are more than FSXL_NMAX of them
+FSXR_DRV        equ 8           ; ...protected: a listed driver class the
+                                ; real-mode bracket cannot carry (it carries
+                                ; DRVC_DISK and DRVC_EMS)
+FSXR_DROOM      equ 9           ; ...protected: no conventional room for a
+                                ; driver's low copy
+; FSXF_REAL's LIST (SPEC.md 53.2.3): BP = 0, or the offset in your DS of
+; entries naming what the bracket will read, so the kernel can make it
+; readable in real mode before it leaves protected mode. Ignored by every
+; kernel in real mode (BP is kept, as by every cell)
+FSXL_END        equ 0           ; ...the list's end (any other byte ends it)
+FSXL_FILE       equ 1           ; db FSXL_FILE, 'NAME.EXT', 0: a file your
+                                ; OSAPI_FILE_READ_SEQ will read inside, by
+                                ; THIS name, in your folder - walked into an
+                                ; extent list at the door
+FSXL_DRV        equ 2           ; db FSXL_DRV, DRVC_*: a driver your
+                                ; OSAPI_DRV_CALL will reach inside (a stream
+                                ; on a DRVC_DISK volume asks for its own)
+FSXL_NMAX       equ 4           ; ...files a list may name
+FSXL_RUNS       equ 224         ; ...contiguous runs, all its files together
 FSX_SUBTICK     equ 3           ; ...and this is the divider, so with FASTTICK
                                 ; armed FSXW_FRAME returns 3 x 18.2065 = 54.6
                                 ; times a second. A constant, not a

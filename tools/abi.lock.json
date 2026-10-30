@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "98eae9ea1768fe29139e506d6d1301c1ad02dba58ae782228177d3317ec70a9f",
+  "fingerprint": "6630f2da697313d3a6b1ce9fd90a02066deac79de564639aed2cb3076dfab1a5",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "f7c8c4f8f59c75e35c285a65bc2191f35e4c38ffc488c5284bbf0556330cb1ac",
+  "fingerprint": "ae0d989b8c447a2266816aa57f7b2de22cda4d0b850df1340cc267215c4a8656",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -1281,6 +1281,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "FSXF_REAL falls back instead of refusing and answers in SI (FSXR_*): a new output of a bit no shipped package asks, so everything built before still runs (MEGA-VIDEO-REALMODE-PLAN W2, SPEC.md 53.2.3)",
+   "to": 11
+  },
+  {
+   "fingerprint": "ae0d989b8c447a2266816aa57f7b2de22cda4d0b850df1340cc267215c4a8656",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "FSXF_REAL's LIST (BP, FSXL_*) and FSXR_VOL/FRAG/DRV/DROOM: a clarified contract, no cell moved (SPEC.md 53.2.3, MEGA-VIDEO-REALMODE-PLAN W3)",
+   "to": 10
+  },
+  {
+   "fingerprint": "6630f2da697313d3a6b1ce9fd90a02066deac79de564639aed2cb3076dfab1a5",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "FSXF_REAL's LIST (BP, FSXL_*) and FSXR_VOL/FRAG/DRV/DROOM: a clarified contract, no cell moved (SPEC.md 53.2.3, MEGA-VIDEO-REALMODE-PLAN W3)",
    "to": 11
   }
  ]
