@@ -13085,3 +13085,34 @@ So the shim now DRAWS its counts too (`mega_fd5ln`, line 12, rows 152-159:
 and out of the card's handler. A freeze inside the card's handler then
 reads ins > outs on the glass, with no reset needed. The emulated card
 raised no IRQ5 inside a call, so the line has not been seen drawn there.
+
+**Twelfth field reading, and a CORRECTION: readings ten to twelve are the
+instrument's own freeze.** The twelfth photo froze without a video, with no
+`5555` line. Its picture was the tenth's: two ticks, the BIOS's PIT-reading
+delay routine at F000:CEA4. The same build, on vm/at286-picomem1 with an
+empty B:, froze too:
+- the tick stopped;
+- the CPU sat in the BIOS's `int 06h` (invalid opcode) handler with IF off,
+  returning to 0060:5530, inside `mega_fdsamp`'s line-6 loop;
+- 0060:5500-5535 held line text, hex nibbles with 10h between them.
+
+**Lines 9-10 (58547c59) wrote six `nn ssss oooo` entries, 78 bytes, into
+the 64-byte `mega_fdsbuf`**. That overran `mega_fdsvec` and its FFh
+terminator, so the NEXT tick's line 6 ran off the end, writing the vectors
+it read over the sampler's own code. Every MEGADIAG floppy call whose IVT
+diff had five entries or more froze on its second tick.
+
+That accounts for:
+- every "count 02" photo;
+- the count-01 variant of the ninth;
+- the tenth's reboot;
+- the twelfth's freeze with no video.
+
+The ninth reading's data is still good: tick one drew it before anything
+was overrun. And the IRQ7 cause stands on readings that predate lines 9-10:
+the CPU in garbage at 1254:09AA = SOUND.DRV's 0981 + 29h. `mega_fdsbuf` is
+96 bytes now and `mega_fd5buf` 56 (the 6666 line is 46). The same
+empty-B: run then samples six ticks and answers "No os8088 disk (B:)".
+
+**So the shipped kern_mega with 3455b173's fix has NOT been shown to fail.**
+The tenth reading's reboot came off the diag disk.

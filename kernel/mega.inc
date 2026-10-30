@@ -7285,6 +7285,12 @@ mega_fdson:
     mov word [es:0x25*4], mega_fd5sh
     mov word [es:0x25*4+2], KERNEL_SEG
 .n5:
+    mov ax, [es:0x21*4]             ; ...the keyboard's IRQ through a shim
+    mov [mega_fdkold], ax           ; that draws the PIT, so a key pressed
+    mov ax, [es:0x21*4+2]           ; in a freeze says what holds it
+    mov [mega_fdkold+2], ax
+    mov word [es:0x21*4], mega_fdksh
+    mov word [es:0x21*4+2], KERNEL_SEG
     mov word [es:0x467], mega_fdpm  ; ...and a CPU RESET inside the call goes
     mov word [es:0x469], KERNEL_SEG ; to mega_fdpm, not to POST: CMOS
     mov al, 0x8F                    ; shutdown code 0Ah, as a 286's
@@ -7309,6 +7315,10 @@ mega_fdsoff:
     mov ax, [mega_fdsold+2]
     mov [es:0x20*4+2], ax
     mov byte [mega_fdson_], 0
+    mov ax, [mega_fdkold]           ; the keyboard's shim out
+    mov [es:0x21*4], ax
+    mov ax, [mega_fdkold+2]
+    mov [es:0x21*4+2], ax
     mov ax, [mega_fd5old+2]         ; the IRQ5 shim out
     or ax, ax
     jz .n5
@@ -7338,6 +7348,69 @@ mega_fd5sh:
     inc word [cs:mega_fd5out]
     call mega_fd5ln
     iret
+
+; mega_fdksh - the keyboard's IRQ while a floppy call is sampled. Line 13
+; (rows 160-167): 6666, a count of keys, the interrupted CS IP FLAGS, the
+; PIT's channel 0 STATUS by read-back (bit 6 NULL COUNT: a count written
+; and not yet loaded - a counter waiting for its second byte does not
+; count), its count read twice, and IMR ISR IRR. Then on to the ROM's
+; int 09h. Nothing drawn when a key does nothing: IF is off
+mega_fdksh:
+    pusha
+    push ds
+    push es
+    mov bp, sp                      ; [bp+20] IP, +22 CS, +24 FLAGS
+    mov ax, KERNEL_SEG
+    mov ds, ax
+    mov es, ax
+    cld
+    inc byte [mega_fdkn]
+    mov di, mega_fd5buf
+    mov ax, 0x6666
+    call mega_fdsamp.hw
+    mov al, [mega_fdkn]
+    call mega_fdsamp.hb
+    mov ax, [bp+22]
+    call mega_fdsamp.hw
+    mov ax, [bp+20]
+    call mega_fdsamp.hw
+    mov ax, [bp+24]
+    call mega_fdsamp.hw
+    mov al, 0xE2                    ; read-back: channel 0's status only
+    out 0x43, al
+    jmp short $+2
+    in al, 0x40
+    call mega_fdsamp.hb
+    call .pit
+    call mega_fdsamp.hw
+    call .pit
+    call mega_fdsamp.hw
+    in al, 0x21
+    call mega_fdsamp.hb
+    mov al, 0x0B
+    out 0x20, al
+    in al, 0x20
+    call mega_fdsamp.hb
+    mov al, 0x0A
+    out 0x20, al
+    in al, 0x20
+    call mega_fdsamp.hb
+    mov byte [di], 0xFE
+    mov si, mega_fd5buf
+    mov di, 160 * 80
+    call mega_fdhex
+    pop es
+    pop ds
+    popa
+    jmp far [cs:mega_fdkold]
+.pit:                               ; AX = channel 0's count, latched
+    xor al, al
+    out 0x43, al
+    in al, 0x40
+    mov ah, al
+    in al, 0x40
+    xchg al, ah
+    ret
 
 ; mega_fd5ln - line 12 (rows 152-159), drawn by the shim at each way in and
 ; out of the card's handler, so a FREEZE inside it is on the glass without a
@@ -7959,10 +8032,12 @@ mega_fd5old dw 0, 0                 ; the card's IRQ5, while shimmed
 mega_fd5in  dw 0                    ; ...the shim's ways in
 mega_fd5out dw 0                    ; ...and out
 mega_fdcapn dw 0                    ; the capture stubs' hits
-mega_fd5buf times 40 db 0           ; mega_fd5ln's line
+mega_fd5buf times 56 db 0           ; mega_fd5ln and mega_fdksh: 36 and 46
+mega_fdkold dw 0, 0                 ; the keyboard's IRQ, while shimmed
+mega_fdkn   db 0                    ; keys the shim saw
 mega_fdsn   db 0                    ; ticks sampled this boot
 mega_fdvs   times 7 db 0            ; the VGA registers mega_fdvon banked
-mega_fdsbuf times 64 db 0           ; a line, as glyph numbers
+mega_fdsbuf times 96 db 0           ; a line, as glyph numbers (lines 9-10: 79)
 mega_fdsvec db 0x06, 0x0D, 0x10, 0x13, 0x15, 0x1C, 0x40, 0xFF
 mega_fdv40  dw 0, 0                 ; int 40h at mega_enter (offset, segment)
 section .bss
