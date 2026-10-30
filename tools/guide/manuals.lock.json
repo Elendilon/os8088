@@ -1020,9 +1020,9 @@
   "sources": [
    "drivers/sound"
   ],
-  "stamped": "e60ae715",
-  "strings": "84884b633231227c",
-  "why": "main's IRQ 5 refusal on an XT (SPEC.md 34.5.6) and stereo/16-bit streams (34.5.5) at the merge of main: the refusal's toast and its cure added to Good to know; the streams change no page text"
+  "stamped": "44f73b32",
+  "strings": "d5ccec072faf56ae",
+  "why": "kernel size pass 15: the page's memory figures follow the new keeps, 6K and 9K (SPEC.md 34.15.1)"
  },
  "SPACEJAM_MID": {
   "sources": [],
