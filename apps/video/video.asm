@@ -8216,7 +8216,13 @@ vp_bksay:
 ; vp_eend - the session is over: in place no more - the board's slots the
 ; hybrid's bank again, emptied. Every register kept
 vp_eend:
-    mov byte [vp_ttwo], 0           ; (and no tiers: L6)
+    mov byte [vp_ttwo], 0           ; (and no tiers: L6, vp_fill's head back)
+%ifndef PKG_MEGA
+    push ax
+    xor al, al
+    call vp_tpat
+    pop ax
+%endif
     cmp byte [vp_einp], 0
     je .r
     push ax
@@ -17682,6 +17688,10 @@ vp_treset:
     mov [vp_tsw], ax
 %endif
     mov byte [vp_tcur], 1
+%ifndef PKG_MEGA
+    inc ax
+    call vp_tpat                    ; vp_fill's head a jmp to vp_tfill
+%endif
     pop ax
 .r:
     ret
@@ -17689,6 +17699,40 @@ vp_treset:
     mov byte [vp_ttwo], 0
     pop ax
     ret
+
+%ifndef PKG_MEGA
+; vp_tpat - AL = 1: vp_fill's head a jump to vp_tfill; AL = 0: its own three
+; bytes back. vp_rhpat's shape, through DS - so a session with no tiers runs
+; vp_fill's own instructions and pays nothing for them (a test there, with
+; vp_slot's, took tests/vidsound.py --loop 90 a frame behind on the 5150).
+; Every register kept
+vp_tpat:
+    push ax
+    push bx
+    mov bx, vp_fill
+    or al, al
+    jz .back
+    cmp byte [bx], 0xE9             ; (patched already)
+    je .r
+    mov ax, [bx]
+    mov [vp_tpsv], ax
+    mov al, [bx+2]
+    mov [vp_tpsv+2], al
+    mov byte [bx], 0xE9             ; jmp near vp_tfill
+    mov word [bx+1], vp_tfill - (vp_fill + 3)
+    jmp short .r
+.back:
+    cmp byte [bx], 0xE9
+    jne .r
+    mov ax, [vp_tpsv]
+    mov [bx], ax
+    mov al, [vp_tpsv+2]
+    mov [bx+2], al
+.r:
+    pop bx
+    pop ax
+    ret
+%endif
 
 ; vp_tget - AX = a chunk -> AX = its slot, CF = 1 the conventional tier's.
 ; Every other register kept
@@ -17818,6 +17862,10 @@ vp_tpop:
 ; the policy names, its slot in the table, a seam if it switched, and
 ; [vp_lc] published LAST (vp_fill's tail). CF as vp_fill's
 vp_tfill:
+    cmp byte [vp_eof], 0            ; (vp_fill's own tests, which its head's
+    je .go                          ; patch jumps over: no Repeat and nothing
+    jmp vp_fill.none                ; resident ever has tiers)
+.go:
     call vp_tpop
     mov ax, [vp_lc]
     call vp_lfloor
@@ -18087,15 +18135,18 @@ vp_tcmir:
     pop ax
     ret
 
-vp_fill:
+vp_fill:                            ; (TWO TIERS: a jmp to vp_tfill here, for
+                                    ; the session - vp_tpat)
     cmp byte [vp_resid], 0          ; RESIDENT: nothing to read (98.1.7)
     jne .none
     cmp byte [vp_eof], 0
     jne .eof
-    cmp byte [vp_ttwo], 0           ; TWO TIERS (LOADALL-PLAN L6)
-    je .one
-    jmp vp_tfill
-.one:
+%ifdef PKG_MEGA
+    cmp byte [vp_ttwo], 0           ; TWO TIERS (L6): the kern_mega arm never
+    je .one                         ; runs on an 8088, and a test here is
+    jmp vp_tfill                    ; bytes it has none of (vp_tpat is the
+.one:                               ; shipped build's)
+%endif
     mov ax, [vp_lc]                 ; the chunk to read
     call vp_lfloor                  ; the lowest chunk still read: its slot
     add bx, [vp_kr]                 ; and every one after it are still live
@@ -18271,6 +18322,56 @@ vp_fill:
 ; follow) or anything it cannot size. It was the whole 32 KB every time, 1.8%
 ; of a 5150 streaming off XT-IDE with K = 8 and 8% with K = 2 (VIDEO-PLAN
 ; 15.8). Preserves all but CX
+; THE WALK, assembled twice in the shipped build (%1 = 1 reads its header
+; through VP_DSDX): IN PLACE vp_addr answers a HANDLE, whose plain `mov ds`
+; read the high memory under FFF0h instead of the header - and the test that
+; borrows for it, in the loop, was ~40 cycles a header on a copying ring's
+; every wrap, which took tests/vidsound.py --loop 90 a frame behind on the
+; 5150. So the choice is made once a call. The kern_mega arm never runs on
+; an 8088 and keeps the one walk with the test in it
+%macro VP_MNWALK 1
+%%w:
+    cmp dx, [vp_lc]                 ; at or past the chunk just read: nothing
+    jae %%none                       ; before it runs on into it
+    jcxz %%all                       ; the chain's end
+    cmp cx, [vp_spcap]
+    ja %%all
+    dec bp
+    jz %%all
+    push cx                         ; ITS HEADER's next: the one after it
+    push dx
+    push bx
+    mov ax, dx
+    call vp_addr                    ; DX:SI = the super-packet
+    push ds
+%if %1
+    VP_DSDX
+    mov di, [si+2]
+    VP_DSEND
+%else
+    mov ds, dx
+    mov di, [si+2]
+%endif
+    pop ds
+    pop bx
+    pop dx
+    pop cx
+    mov ax, dx                      ; its end...
+    call vp_spend
+    mov dx, ax
+    mov cx, di                      ; the next one's sectors, at its start
+    cmp dx, [vp_lc]
+    jb %%w
+    ja %%all                        ; ...right through it (BIGSP): all of it
+    mov cx, bx                      ; it started before [vp_lc] and runs BX
+    jmp .out                        ; bytes into it
+%%none:
+    xor cx, cx
+    jmp .out
+%%all:
+    mov cx, VP_CHUNK
+    jmp .out
+%endmacro
 vp_mneed:
     push ax
     push bx
@@ -18282,41 +18383,17 @@ vp_mneed:
     mov bx, [vp_po]                 ; chunk and an offset into it, and CX its
     mov cx, [vp_psec]               ; sectors
     mov bp, 1024                    ; (a bound on the walk)
-.w:
-    cmp dx, [vp_lc]                 ; at or past the chunk just read: nothing
-    jae .none                       ; before it runs on into it
-    jcxz .all                       ; the chain's end
-    cmp cx, [vp_spcap]
-    ja .all
-    dec bp
-    jz .all
-    push cx                         ; ITS HEADER's next: the one after it
-    push dx
-    push bx
-    mov ax, dx
-    call vp_addr                    ; DX:SI = the super-packet
-    push ds
-    VP_DSDX                         ; (IN PLACE a HANDLE, whose `mov ds`
-    mov di, [si+2]                  ; read the high memory under FFF0h, not
-    VP_DSEND                        ; the header: VP_DSDX borrows for it)
-    pop ds
-    pop bx
-    pop dx
-    pop cx
-    mov ax, dx                      ; its end...
-    call vp_spend
-    mov dx, ax
-    mov cx, di                      ; the next one's sectors, at its start
-    cmp dx, [vp_lc]
-    jb .w
-    ja .all                         ; ...right through it (BIGSP): all of it
-    mov cx, bx                      ; it started before [vp_lc] and runs BX
-    jmp short .out                  ; bytes into it
-.none:
-    xor cx, cx
-    jmp short .out
-.all:
-    mov cx, VP_CHUNK
+%ifdef PKG_MEGA
+    VP_MNWALK 1
+%else
+    cmp byte [vp_einp], 2           ; (the XMS bank in place: handles)
+    jne .wp
+    jmp .wx
+.wp:
+    VP_MNWALK 0
+.wx:
+    VP_MNWALK 1
+%endif
 .out:
     pop bp
     pop di
@@ -21069,16 +21146,11 @@ vp_nextw:
 ; K is whatever the machine had room for, not a power of two). Everything
 ; else preserved but the flags. One `div`, 2-4 calls a frame
 vp_slot:
-    cmp byte [vp_ttwo], 0           ; (TWO TIERS: the table's, LOADALL-PLAN
-    jne .t                          ; L6)
-    push dx
-    xor dx, dx
-    div word [vp_kr]                ; (the ring's slots: the board's in place)
-    xchg ax, dx
+    push dx                         ; (TWO TIERS ask vp_tget: vp_xbaddr and
+    xor dx, dx                      ; vp_tfill, the only callers in place -
+    div word [vp_kr]                ; nothing an 8088 runs pays a test for
+    xchg ax, dx                     ; them, tests/vidsound.py --loop 90)
     pop dx
-    ret
-.t:
-    call vp_tget
     ret
 
 ; vp_addr - AX = a chunk, BX = an offset in it -> DX:SI, a far pointer
@@ -24568,6 +24640,9 @@ vp_twc:       dw 0
 vp_tlb:       dw 0                  ; ...and its live slots
 vp_tlc:       dw 0
 vp_tfree:     dw 0                  ; ...the chunks under this one popped
+%ifndef PKG_MEGA
+vp_tpsv:      db 0, 0, 0            ; ...vp_fill's own head, while patched
+%endif
 %ifdef VP_TTEST
 vp_trun:      dw 0                  ; ...a gate's: chunks since its switch
 %endif
