@@ -69610,8 +69610,8 @@ tone path enters `spk_gate_on` below the PWM half.
 ### 34.5 Sound Blaster — back, as a driver
 
 Retired once, and no longer: `drivers/sound/sb.inc` is the DSP scan, the
-stream verbs, the auto-init/single-cycle strategy gate and the deferred IRQ
-discovery, all of it inside `SOUND.DRV` rather than the kernel (§51.4). What
+stream verbs, the auto-init/single-cycle strategy gate and the IRQ
+discovery (at the attach, once a load: §34.5.7), all of it inside `SOUND.DRV` rather than the kernel (§51.4). What
 changed in the move is where its memory comes from — a **heap claim**
 (`OSAPI_MEM_CLAIM_DMA_HI`), not a pinned segment, which is why the 64KB
 DMA-page rule had to become something the allocator answers (§50.3) rather
@@ -70137,21 +70137,27 @@ reads the end of the stream as the end of the song.
   or into a driver in RAM. An unused line's vector is the BIOS's own dummy
   handler in its ROM, and nothing in os8088 hooks IRQ 5, so a hooked vector
   is a claim. It is read at discovery, when the candidates' vectors have
-  been put back.
+  been put back - at the driver's attach since §34.5.7.
 
-**Refused** means `sbl_f_irqdisc` answers "no usable card" for that winner
-on every path - the firing probe, the SB16 mixer's read-back and a PicoMEM's
-configured line - so the stream open fails with error 4. A package then
-takes its no-card path (the Audio Player and XTMP3 the speaker or the
-Covox, §86.21), the FM chip stays usable (it needs no IRQ), and the first
-refusal of a session raises the toast `IRQ 5 is the hard disk's` (24
-characters, §59.10). The cure is the card's jumper: IRQ 7 is the first
-candidate. A card on any other line is untouched, and so is every AT.
+**Refused** means `sbl_f_irqdisc` answers "no usable line" (`[sbl_irq]` =
+0FFh) for that winner on every path - the firing probe, the SB16 mixer's
+read-back and a PicoMEM's configured line - and **`sbl_attach` then refuses
+the DSP tier** as `DRVE_HW` (§34.5.7): no stream verb is published and
+`SND_RT_SB` is not set, so a package takes its no-card path (the Audio
+Player and XTMP3 the speaker or the Covox, §86.21), the OPL2 attaches alone
+(it needs no IRQ), and a Control Panel that turns the Sound Blaster tier on
+reports the refusal as it reports any other. **It says nothing**: the
+machine boots working, on FM, and the owner's rule is that a boot which
+changes something but works does not toast - there are boot toasts enough
+(it raised `IRQ 5 is the hard disk's` at the first open it refused until
+§34.5.7). The cure is the card's jumper: IRQ 7 is the first candidate. A
+card on any other line is untouched, and so is every AT.
 
-It cost `SOUND.DRV` 84 bytes of image (11,823 to 11,907), inside its 12 KB claim. `tests/sbirq5.py` (the
-`sbirq5` row) holds it: refused on an 8088 with a hooked IRQ 5, accepted on
-an unhooked one, on a 286 and a 386, and on IRQ 7; with the refusal broken,
-2 checks fail.
+It cost `SOUND.DRV` 84 bytes of image (11,823 to 11,907), inside its 12 KB
+claim, and since §34.5.7 none of it is resident. `tests/sbirq5.py` (the
+`sbirq5` row) holds it: refused (and silent) on an 8088 with a hooked IRQ 5,
+accepted on an unhooked one, on a 286 and a 386, and on IRQ 7; with the
+refusal broken, 2 checks fail.
 
 #### 34.5.6.1 ...and the disk that never hooks it: an ST11 on IRQ 5 (2026-10-26)
 
@@ -70180,6 +70186,51 @@ refusal would take the sound from. Whether a real ST11 drives the line
 while disabled is not known here. **The cure is the card's line**, as in
 34.5.6: `vm/pc5150`, `vm/viddemo-cga` and `vm/viddemo-herc`, the three
 profiles here with an ST11 and an SB 2.0, put the card on IRQ 7.
+
+#### 34.5.7 Found once a load: the scan and the discovery are attach-only (2026-10-30)
+
+**The Sound Blaster's reset scan, its IRQ discovery and the SB16's 16-bit
+channel test run ONCE, at `DRVV_ATTACH`** (`sbl_find`), and are laid out
+past `snd_keepmix` with the other attach-only code (§34.15.1, `SBL_ONCE` in
+`sb.inc`), so none of them is resident once the attach has answered. Until
+then the discovery waited for the first stream open (it was "deferred to
+first use") and the scan re-ran at every `DRVV_TIER` "on", which kept
+`sbl_f_irqdisc`, §34.5.6's IRQ 5 test, the four candidate stubs, their
+tables, `sbl_f_probe`, `sbl_dsp_rd` and `sbl_hdma_find` in RAM for the whole
+session on every machine - about 800 bytes, for questions whose answers
+cannot change until the driver is reloaded.
+
+- **What is settled**: `[sbl_base]`, the DSP version and `[sbl_auto]`,
+  `[sbl_irq]` (0FFh = no usable line) and `[sbl_hdma]`. They sit OUTSIDE
+  `sbl_state_init`'s cleared run, so a tier change keeps them.
+- **`sbl_attach`** - the attach's second half and all of `DRVV_TIER`'s "on" -
+  refuses `DRVE_HW` with no base or no usable line, resets the DSP at the
+  settled base (a card that stopped answering is refused as the scan would
+  have refused it), and **hooks `sbl_isr` on the settled line** (`sbl_hook`).
+  `sbl_detach`'s `sbl_unhook` takes it off again. So the vector is held while
+  the DSP tier is up, from the attach, where it used to be from the first
+  open; nothing else hooks the candidates (§34.5.6), and the ISR's spurious
+  leg already answers an IRQ 7 that arrives with no stream.
+- **A discovery that confirms nothing** now refuses the DSP tier for the
+  load, where it used to refuse each open with error 4 and ask again at the
+  next. The OPL2 still attaches. It is retried once inside the discovery, as
+  before.
+- **The attach runs with interrupts on** - the F2h wait needs the tick, and
+  `pm_wait`'s header has the measurement that `drv_boot` calls the attach
+  with IF = 1; a mid-session load is a task's call like any other.
+- **`DRVV_HWINFO` now knows the line** whenever a card attached, so the
+  `BLASTER=` a DOS program is given carries `I` (§96.17.1).
+- **`snd_entry`'s attach body (`snd_attach`) moved below `snd_keepmix` with
+  them**: it runs once, before the shrink. `DRVV_READY` answers from a
+  five-byte `snd_ready` above it.
+
+| build | no mixer (`snd_keep`) | a mixer (`snd_keepmix`) | image |
+|---|---|---|---|
+| shipped (PicoMEM) | 7,501 → **6,685** (-816) | 11,046 → **10,230** (-816) | 12,085 → 12,030 |
+| `NOPICOMEM=1` | 7,295 → **6,505** (-790) | 10,840 → **10,050** (-790) | 11,575 → 11,520 |
+
+`tests/sbirq5.py` and `tests/picomem.py` cut the discovery and `sbl_hook` out
+of `sb.inc` as they ship; `tests/unit/t_sndonce.py` holds the layout.
 ### 34.6 Recording and staging — back, as a driver
 
 Went with §34.5 and came back with it. Verb 7 grants out of the driver's
@@ -71884,9 +71935,12 @@ has answered:
   one-time chip init, `mpu_probe` and its three helpers with `os88_pin`,
   `cvx_probe` and the `snd_upnm` it falls into, the PicoMEM's bring-up and
   undo (`pm_init`, `pm_cmd`, `pm_wait`, `pm_undo`) and `mix_probe`. They run
-  inside `DRVV_ATTACH` and never again, on EVERY machine. **The Sound Blaster
-  probe is not among them**: `DRVV_TIER` re-runs `sbl_attach` all session, so
-  `sb.inc` stays whole.
+  inside `DRVV_ATTACH` and never again, on EVERY machine. **So, since
+  §34.5.7, are the Sound Blaster's scan, IRQ discovery and 16-bit channel
+  test** (`sb.inc`'s `SBL_ONCE`, through `sbl_find`) **and the attach body
+  itself** (`snd_attach`): `DRVV_TIER` re-runs `sbl_attach`, but that only
+  resets the DSP at the base the scan settled and hooks the line the
+  discovery settled - it asks the hardware nothing new.
 - **the mixer verbs (7–9), the speaker icon (10, 12) and the volume popup
   (11)**, dead on every machine whose attach found no readable mixer: the PC
   speaker, an AdLib alone, a Covox, an MPU-401, a Sound Blaster older than the
@@ -71906,11 +71960,16 @@ claim to it before the tier and `DRVV_READY` calls (§51.1.3):
 
 | build | no mixer (`snd_keep`) | a mixer (`snd_keepmix`) |
 |---|---|---|
-| shipped (PicoMEM in) | 6,579 bytes: **11KB → 7KB**, 589 under the rung | 10,124: **11KB → 10KB**, 116 under |
-| `NOPICOMEM=1` | 6,373: 11KB → 7KB | 9,918: 11KB → 10KB |
+| shipped (PicoMEM in) | 6,685 bytes: **12KB → 7KB** | 10,230: **12KB → 10KB** |
+| `NOPICOMEM=1` | 6,505: 12KB → 7KB | 10,050: 12KB → 10KB |
+
+(Measured 2026-10-30, after §34.5.7; the table first carried 6,579 and
+10,124 against an 11,151-byte image, and the image had grown to 7,501 and
+11,046 kept by the time §34.5.7 took the Sound Blaster's attach-only half.)
 
 The attach-only bodies are defined as macros (`MPU_ONCE`, `CVX_ONCE`,
-`PM_ONCE`, `MIX_ONCE`) and expanded where their files put them unless
+`PM_ONCE`, `MIX_ONCE`, and `sb.inc`'s `SBL_ONCE`, which SOUND.DRV alone
+includes and so expands unconditionally) and expanded where their files put them unless
 `SND_SPLIT` is defined - which SOUND.DRV does, expanding them past
 `snd_keepmix` - so `picomem.inc`'s other includers (`tests/picomem/`,
 `tests/vidbench/vidsnd.asm`) assemble exactly as before.
@@ -179086,13 +179145,16 @@ of zero, so no `BLASTER=` is written at all. A variable naming a card that is
 not there sends a program to reset a DSP that will never answer — a hang,
 where its absence is a fallback. That is §96.15.1's argument one device along.
 
-#### 96.17.1 The IRQ is usually not known, and that is the driver's design
+#### 96.17.1 The IRQ is known since the attach, and omitted when it is not
 
-`sbl_irq` starts at `0FFh` and the Sound Blaster driver **defers IRQ discovery
-to first use** (§34.5): the line is learned by provoking an interrupt during
-the first stream, not by probing at attach. So a machine that has booted and
-not yet played a sound genuinely does not know which line its card is on —
-which is the *common* case at the moment a DOS program is launched.
+**Since §34.5.7 the Sound Blaster driver discovers its line at the attach**,
+so `[sbl_irq]` names it whenever the DSP tier is up and a DOS program's
+`BLASTER=` carries `I`. Until then the discovery was deferred to the first
+stream, and a machine that had booted and not yet played a sound genuinely did
+not know which line its card was on - the *common* case at the moment a DOS
+program is launched, and the reason the rule below was written. It still
+binds: `DRVV_HWINFO` answers the base of a card whose tier was refused (no
+usable line, §34.5.6), and `[sbl_irq]` is `0FFh` there.
 
 `BLASTER=` therefore carries the `I` field **only when there is one to carry**,
 and omits it otherwise. A variable naming the wrong line sends a program to
@@ -179102,7 +179164,9 @@ own the guess. That is §96.15.1's argument for the third time in this section,
 and it keeps arriving at the same answer: **a confident wrong number is worse
 than a missing one.**
 
-**The alternative was considered and not taken.** `DRVV_HWINFO` could call the
+**The alternative was considered and not taken** (and §34.5.7 has since made
+it moot, the discovery being an attach-only routine that is not resident when
+the question is asked). `DRVV_HWINFO` could call the
 driver's own `sbl_f_irqdisc` and force the discovery, since it is asked exactly
 once and the driver is about to be unloaded anyway. It is refused because that
 routine is reached from inside a stream open with the ring already sized, hooks

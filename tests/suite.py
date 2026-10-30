@@ -8260,9 +8260,10 @@ SOAK = [
         "uses NO SYSTEM.CFG deliberately - 51.3.1's boot sniff mounts the "
         "driver on a machine with a card and no configuration at all, which "
         "is the common case an earlier revision of 96.16 got wrong. The "
-        "visible half is BLASTER=, and its IRQ field is ABSENT on purpose: "
-        "discovery is deferred to first use, so naming a line here is naming "
-        "the wrong one.",
+        "visible half is BLASTER=, and its IRQ field names the card's line, "
+        "IRQ 7: the driver discovers it at its attach (SPEC.md 34.5.7), so it "
+        "is known before any sound has played - it was ABSENT while discovery "
+        "waited for the first stream.",
         needs=("marty",), serial=True,
         wants=("build/dossnd360.img",)),
     Row("dosirq", "soak", py("tests/dosirq.py"), 20.0,
@@ -18238,7 +18239,8 @@ SOAK = [
         "card there never plays one block and falls silent. sbl_f_irqdisc "
         "and sbl_irq5_taken, cut out of sb.inc as they ship (picomem.py's "
         "sbslice), run under unicorn on an SB16 whose mixer names the line: "
-        "refused with one toast on an 8088, once a session; accepted on IRQ 5 "
+        "refused SILENTLY on an 8088 (sbl_attach then refuses the DSP tier "
+        "and the OPL2 attaches alone, SPEC.md 34.5.7); accepted on IRQ 5 "
         "when the vector is the BIOS's own dummy and on a 286 or 386 (the negative "
         "controls), and on IRQ 7 beside a taken 5. With the refusal broken "
         "(sbl_irq5_taken always CF=0) 2 checks FAIL",
