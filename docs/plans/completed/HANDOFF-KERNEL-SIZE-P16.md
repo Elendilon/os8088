@@ -149,7 +149,20 @@ with `tools/os88soak.py`, and `test-full` once; the results are in section 7.1.
 
 ### 7.1 The final pass
 
-(filled in at the close)
+- **The union, 149 rows, once, on the merged tip** (`tools/os88soak.py`,
+  run `20261030-213536`): **149 ok, 0 FAIL, 0 SKIP** in 22 minutes, with
+  `tools/picomem/build.sh` and `tools/setup-cc.sh` run first so `pmlib`,
+  `pmmarty` and `megaovl` did not skip. `recorder` passed in it - it is
+  intermittent at the base too (section 5).
+- **`test-full`, once: 77 ok, 2 FAIL.** `docindex` was the coordinator's
+  merge leaving `docs/INDEX.md` stale (regenerated). `guidelock-full` named
+  three guide pages: SOUND_DRV was this pass's (the page said ~7K / 10K;
+  now 6K / 9K, restamped), and **TOOL_VENC and VIDEO_O88 were already stale
+  at the base** - their sources moved past their stamps before `e4896481` -
+  and are left to whoever owns the Video Player's tools. Re-run, `docindex`
+  is ok and `guidelock-full` fails on those two alone.
+- `make`, `make small`, `make emu` and `make mega` build at the tip; the fast
+  tier is 66/66.
 
 ## 8. METHOD LESSONS
 
