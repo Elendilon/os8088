@@ -4273,7 +4273,9 @@ drv_hi_move:
     pop bx
     mov word [bx+DRVR_KB], 0    ; no heap held
     mov es, [bx+DRVR_SEG]
-    call MEGA_SEL_CODE:mega_drvsayf
+%ifdef MEGA_E9
+    call MEGA_SEL_CODE:mega_drvsayf ; its name to the debug port
+%endif
 .out:
     pop dx
     pop cx

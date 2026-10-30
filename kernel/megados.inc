@@ -1126,6 +1126,7 @@ mega_dosparkf:
     mov ax, 0xFFFF
 .tout:
     mov [mega_dout], ax
+%ifdef MEGA_E9
     mov si, mega_m_park             ; "kern_mega: parked kkkK at pppppp sum
     call mm_puts                  ;  ssss:ssss" on port E9 (KERN-MEGA-DOS-
     mov ax, [mega_dikb]             ; PLAN 10's W1 line), so a break-on-purpose
@@ -1146,6 +1147,7 @@ mega_dosparkf:
     call mm_hex4
     mov al, 10
     call mm_putc
+%endif
 .ret:
     pop es
     pop ds
@@ -1691,8 +1693,10 @@ mega_dwake:
 %ifdef MEGA_DIAG
     or byte [mega_tellq], 0x20      ; the trip, on the menu bar
 %endif
+%ifdef MEGA_E9
     mov si, mega_m_unpark
     call mm_puts
+%endif
     mov byte [mega_dwoke], 1
     jmp mega_dosparkf.ret
 
@@ -1828,8 +1832,10 @@ mega_hbwake:
     mov [mega_fdx], al
     mov [mega_irqpend], al
     call mega_dkbup
+%ifdef MEGA_E9
     mov si, mega_m_hbwake
     call mm_puts
+%endif
     jmp far [mega_hbwk]
 
 ; -----------------------------------------------------------------------------
@@ -2051,11 +2057,13 @@ mega_dec4:                          ; AX -> four decimal digits at ES:DI
 ; .cold: the loader's check. THE PARK STUB IS kernel/megapark.inc, in
 ; HIBER.DRV's image: it is data as well as code, which .cold may not carry
 ; =============================================================================
+%ifdef MEGA_E9
 mega_m_park db "kern_mega: parked ", 0     ; the debug port's lines, read through
 mega_m_at   db "K at ", 0                 ; `.mega`'s CS by mm_puts
 mega_m_sum  db " sum ", 0
 mega_m_unpark db "kern_mega: unparked", 10, 0
 mega_m_hbwake db "kern_mega: resumed", 10, 0
+%endif
 section .cold
 
 ; =============================================================================
@@ -2140,6 +2148,7 @@ mega_wrprobe:
     xor bx, bx
     call .mv
     jc .out
+%ifdef MEGA_E9
     push si                         ; on port E9, as the kernel's other lines
     mov si, .said
 .say:
@@ -2152,6 +2161,7 @@ mega_wrprobe:
     db "kern_mega: a park survived the reset", 10, 0
 .said0:
     pop si
+%endif
     ; --- A20, which the warm boot may have shut --------------------------------
     in al, 0x92
     or al, 2

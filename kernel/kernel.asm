@@ -250,6 +250,19 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 %error "MEGA_DIAG (MEGADIAG=1) is kern_mega's alone - build it with KERN_MEGA=1"
  %endif
 %endif
+; MEGA_E9 - kern_mega's lines on the DEBUG PORT (E9h: Bochs's port_e9_hack).
+; A SHIPPED kern_mega writes nothing there: the switch, a fault's dump, a
+; package closed, a park, an image moved above 1MB, the native floppy's
+; verdicts are each a developer's reading, and the harness reads the same
+; facts out of guest STATE instead (mega_on; mega_infault and mega_fbuf;
+; mega_fkn and mega_fkmsg - tools/os88bochs.py). MEGADIAG=1 puts them back,
+; and so does MEGATRAP=1, whose census is read in their context.
+%ifdef MEGA_DIAG
+ %define MEGA_E9
+%endif
+%ifdef MEGA_TRAPLOG
+ %define MEGA_E9
+%endif
 
 ; KDS / KES - "DS (ES) = the kernel's data", from code running in .text.
 ; In real mode that is `push cs / pop ds`, and on every build but kern_mega it

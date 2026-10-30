@@ -78,4 +78,8 @@
 #             `.mega`, osapi_xmem_sel/_walk and osapi_mem_codesel's bodies
 #             into `.cold` behind 6-byte doors, and kmain's four far calls
 #             after mega_enter into one (kmain_hic)
-3167
+# 2026-10-30: -72, to 3,095, kern_mega size pass 1 (e9gate): the shipped
+#             kern_mega writes nothing to the debug port (kernel.asm's
+#             MEGA_E9) - mega_putsf's door, the `.text` E9 writer, the
+#             refusal's E9 line and the debug strings that lived in `.text`
+3095

@@ -800,9 +800,10 @@ title screen; the PS/2 mouse (QEMU's aux port, IRQ12) as well as the serial
 one; the Sticky Apps menu (STIKMENU.DRV) and the Control Panel (CTRL.DRV,
 every page), the first on-demand modules to run in protected mode; a desktop
 shortcut dropped, which wrote SYSTEM.CFG through a reflected `int 13h` write
-(the image verifies clean afterwards). A fault is reported on the debug port AND on the glass - one line under
+(the image verifies clean afterwards). A fault is reported on the glass - one line under
 the menu bar, vector, error code, CS:IP and SP - so a machine with no debug
-port can be read by photograph.
+port can be read by photograph; a `MEGADIAG=1` or `MEGATRAP=1` build dumps
+the frame to the debug port as well (14.127).
 
 **What the bring-up found, in the order it found it** - each is a rule for
 whoever extends this:
@@ -7504,7 +7505,9 @@ driver volume alike. Module by module:
   moves before it hooks and never needs it. And `mega_modsayf`:
   `kern_mega: above 1MB: CTRL.DRV 00FF3800` on the debug port for every
   module that moves - the driver line's shape (`mega_drvsayf`) - so a field
-  run or an emulator reads where each one went.
+  run or an emulator reads where each one went (a `MEGADIAG=1` or
+  `MEGATRAP=1` build's only since 14.127; `os88bochs.Box.mod_base` reads it
+  off the row).
 
 **Cost, measured at build 270 (ff8d47ab) against the change built
 uncommitted (one build number)**:
@@ -9821,7 +9824,8 @@ were `RFL` and `Q`, which fire while a PicoMEM's Sound Blaster plays.
 | `H ssss:oooo bbbbbbbb rrr` | `hbm_d1why` (`kernel/hiber.inc`) | the DOS handoff record read back wrong | **MEGADIAG** - the shipped kern_mega says kern_big's `Not our handoff record` instead, so the refusal stays and only its hex goes |
 
 E9 (`out 0xE9`) is invisible on real hardware and is NOT a toast, so every
-E9-only line stays on both arms: `kern_mega: protected mode`, `mega_mhd13`,
+E9-only line stayed on both arms here - **until 14.127, which takes them all
+off the shipped kern_mega**: `kern_mega: protected mode`, `mega_mhd13`,
 `above 1MB`, `native floppy ...`, `floppy fell back ...`, `string restart`,
 `8042 edge lost`, `parked`/`unparked`/`resumed`, MEGATRAP's `T` lines. The
 copies of the menu-bar lines that `mega_nmitell.say` also wrote to E9 (with
@@ -13161,3 +13165,59 @@ purpose: 64KB took `budget-check` red at 512 over with `make` still green
 **Not done, deliberately**: no release zip, no release skill, no website - the
 owner's "not released yet". `make budget-check`, which the release skill
 runs, does build kern_mega's disks into build/megak/ now; nothing ships them.
+
+### 14.127 No debug-port output in the shipped kernel: MEGA_E9 (2026-10-30) - DONE
+
+**The owner's decision**: *"Debug port writes: These should be gated just in
+principle, we shouldn't leave our debug lying around the shipped kernel. We
+did a pass earlier to gate off all the debug toasts, but I didn't think to
+ask about debug that wasn't a toast."* 14.65 took the debug TOASTS behind
+`MEGADIAG=1` and, on its own reading that E9 is invisible on iron, left every
+E9 line on both arms. This takes them off the shipped one.
+
+**What is gated** - every `out 0xE9` the shipped kern_mega made, behind
+`MEGA_E9`, which `kernel.asm` defines for `MEGADIAG=1` and for `MEGATRAP=1`
+(the census reads in their context, and its rows read them): the switch
+(`kern_mega: protected mode`), `mega_report`'s frame dump, the `CLOSED` line,
+`mega_strcal`'s `string restart` (the MEASUREMENT stays - `mega_gpfix` uses
+it), the once-a-session reflected fixed-disk note (`mega_hdsaid`), the 8042
+watchdog's `edge lost` (the re-delivery stays), the native floppy's
+`native floppy X` / `fell back` / `OFF` lines (`mega_fdsaid`),
+`mega_drvsayf` and `mega_modsayf` (`above 1MB: NAME`) and their two call
+sites in `driver.inc` and `mod.inc`, the real-mode refusal's echo before its
+toast, the DOS park's `parked`/`unparked`/`resumed` lines, `mega_wrprobe`'s
+`a park survived the reset`, and the writers themselves - both
+`MEGA_E9IO` copies, `mega_putsf`'s door, and every string. MEGATRAP's own
+`T` lines, `mx_cplog` and `mx_lcchk` were `MEGA_TRAPLOG` already.
+
+**What it bought**, `tools/kernsize.py --build build/megak`: `.mega` with
+its scratch 19,554 -> **18,482 (-1,072**; 18,057 + 1,497 -> 16,988 + 1,494,
+the split moving a byte with the build number), `.text` 46,298 -> **46,226
+(-72)**, `.cold` 45,979 -> **45,945 (-34)**, `.boot2` 6,620 -> 6,567 (-53). `KERN_SIZE` at boot 130,560 -> 129,024, resident after the switch
+64,512 -> **64,000** (the image rung one step down, 51 left). kern_mega's segment
+overhead over kern_big 3,167 -> 3,095 (`tests/megaseg.txt`). **kern_big and
+kern_small are byte-identical, and so are the `MEGADIAG=1` and `MEGATRAP=1`
+kern_megas** (md5 against the base tree's own builds) - each gate wraps
+exactly the code that was there, so the diagnostic builds print every line
+they printed. Nothing a user sees moved: every toast, the glass fault line
+and the boot's `Entered protected mode` stay.
+
+**The harness reads STATE instead** (`tools/os88bochs.py`, docs/BOCHS.md
+*Waiting on the guest*), because every Bochs row learned of the switch and
+of faults from these lines: `wait_pm` is `[mega_on]`; `fault()` is
+`[mega_infault]`, which `mega_report` sets before it draws, and the glass
+line it composes in `mega_fbuf` (so a fatal fault still ends every `until`
+at once, at most a second late); `faults()` adds `[mega_fkn]` with the
+CLOSED toast in `mega_fkmsg` - the LAST incident, which `tests/megaflt.py`
+polls to name all six of its builds; `arm_trip`/`wait_trip` is
+`[mega_dwoke]`, written 0 by the harness before a trip and set 1 by
+`mega_dwake` after the restore; `wait_resumed` is `[hb_resumes]`;
+`mod_base` is a module's `mod_tab` row. Each first checks a `.text`
+constant at its address, because during a DOS trip conventional memory is
+kern_dos's. The sweep polls `faults()` and keeps the CLOSED lines beside
+each boot's `e9.out` (`faults.out`, read by `tests/megasweep.py`). **One
+row could not be moved to state**: `tests/megapiclose.py`'s green leg is
+proved by the watchdog's `8042 edge lost` line and the watchdog keeps no
+count, so its two PICLOSE trees are built with `MEGADIAG=1` as well.
+86Box's fault log (`OS88_FAULTLOG`, docs/86BOX.md) never read E9 and is
+untouched. The record is `docs/plans/completed/msp1/e9gate.md`.
