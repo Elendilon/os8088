@@ -1628,13 +1628,13 @@ wm_min_ax:
     cmp ax, cx
     jbe .out
     mov ax, cx
+    db 0xA9                     ; test ax, imm16 - the imm16 is the xor below:
+.zero:                          ; every caller sets its own flags off AX
+    xor ax, ax                  ; (kernel size pass 15: was a jump back)
 .out:
     pop si
     pop cx
     ret
-.zero:
-    xor ax, ax
-    jmp short .out
 
 ; -----------------------------------------------------------------------------
 ; wm_min_axd - ...or the SYSTEM floor, for the two paths a USER drives
@@ -4134,8 +4134,9 @@ wm_flush_ck:
     add ax, cx
     cmp di, ax
     cmc                         ; CF = 1 iff the right edge reaches it (NOT
-    jmp short .out              ; below) - the compare's own carry, inverted
-.no:
+    db 0xB0                     ; below) - the compare's own carry, inverted.
+.no:                            ; mov al, imm8 over the clc: no flag written,
+                                ; and AL comes back at kret_di (pass 15)
     clc
 .out:
     jmp kret_di
@@ -9660,9 +9661,9 @@ wm_su_bytes:
     jnz .big
 %endif
     mov [wm_su_fsz], ax
-    jmp short .out
-.big:
-    stc
+    db 0xA8                     ; test al, imm8 over the stc: CF = 0 as the
+.big:                           ; `or` left it, and both callers read CF alone
+    stc                         ; (kernel size pass 15)
 .out:
     jmp kret_di
 
@@ -9716,9 +9717,9 @@ wm_su_scrset:
     jnz .big
 %endif
     mov [wm_su_scrsz], ax
-    jmp short .out
-.big:
-    stc
+    db 0xA8                     ; test al, imm8 over the stc: CF = 0 as the
+.big:                           ; `or` left it, and both callers read CF alone
+    stc                         ; (kernel size pass 15)
 .out:
     jmp kret_di
 
@@ -9900,9 +9901,9 @@ wm_su_ck:
                                 ; every buffer is banked at 1 and the compare
                                 ; was 1 against 1 (kernel size pass 13)
     mov ax, si                  ; ...and the segment, for wm_su_try. CF = 0
-    jmp short .out              ; already: the compare that just said EQUAL
-.no:
-    stc
+    db 0xA8                     ; already: the compare that just said EQUAL -
+.no:                            ; and test al, imm8 over the stc keeps it 0;
+    stc                         ; every caller reads CF alone (pass 15)
 .out:
     pop es                      ; a pop touches no flag, so CF survives
     pop si
@@ -10680,8 +10681,10 @@ wm_su_try:
     mov byte [wm_su_bok], 1     ; the bands are on the glass again - including
 %endif                          ; when nothing was put back, which says the
                                 ; same thing (SPEC.md 11.96.11)
-                                ; (CF = 0: `jb .frag` was not taken.)
-    jmp short .out              ; THE CACHE IS NOT SPENT HERE. It used to be
+                                ; (CF = 0: `jb .frag` was not taken, and the
+    db 0xA8                     ; test al, imm8 that steps over .no's stc
+                                ; leaves it 0 - kernel size pass 15.)
+                                ; THE CACHE IS NOT SPENT HERE. It used to be
                                 ; dropped on the grounds that this window is
                                 ; about to be the front one and will change
                                 ; its own pixels - true of a raise and false

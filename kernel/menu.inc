@@ -633,8 +633,8 @@ menu_relayout:
 %if AMENU_TITLE != MB_TITLE || AMENU_ITEMS != MB_ITEMS || AMENU_NITEM != MB_NITEM || MB_TITLE != 0 || MB_ITEMS != 2 || MB_NITEM != 4 || AMENU_ENTSZ != 6
   %error "menu_relayout copies an AMENU entry's first three words into the MB record with three movsw, and steps SI by the copy alone"
 %endif
-    jmp short .done
-
+    db 0xA8                     ; test al, imm8 over the `pop cx`: flags are
+                                ; dead at .done (kernel size pass 15)
 .full:
     pop cx                      ; the bar is full: everything from here on
                                 ; is dropped, so the cells that DID fit keep
@@ -1152,7 +1152,9 @@ menu_bt_raw:
     mov di, [toast_scell]
     mov si, toast_buf
     mov al, ' '                 ; the gap cell FIRST, into the loop past its
-    jmp short .sput             ; load: [toast_scn] counts it, and menu_bemit
+    db 0xA8                     ; load: [toast_scn] counts it, and menu_bemit
+                                ; (test al, imm8 over the lodsb: AL kept, and
+                                ; the `or` rewrites every flag - pass 15)
 .sch:                           ; white-fills its left 4px after the run
     lodsb                       ; (SPEC.md 59.8.1). Pass 14: 4 bytes
 .sput:                          ; **BIT 7 SET ON EVERY CELL** (SPEC.md 59.2):

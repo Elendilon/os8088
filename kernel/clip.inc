@@ -157,9 +157,9 @@ clip_put:
     jmp short .out              ; CF = 0: `xor di, di` cleared it and REP
 .empty:                         ; MOVSB writes no flag
     call clip_drop              ; ...and CF = 0 out of clip_drop too (its
-    jmp short .out              ; header says so); `.toobig` enters at its
-.toobig:                        ; own `stc` below
-    stc
+    db 0xA8                     ; header says so), which test al, imm8 over the
+.toobig:                        ; stc keeps (kernel size pass 15); `.toobig`
+    stc                         ; enters at its own `stc`
 .out:
     pop es                      ; POP touches no flags, so the answer above
     pop ds                      ; rides out through all nine of them
