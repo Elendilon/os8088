@@ -666,10 +666,6 @@ wm_fit:
 .out:
     jmp kret_di                 ; (kernel size pass 15: kent_di and this ladder,
                                 ; -5 for ~100 clocks, once per placement)
-    db 0                        ; PARITY, never executed or read (kernel size
-                                ; pass 15): wm_fit came out 13 bytes shorter,
-                                ; and an odd hole here would put wm_db_r/_b's
-                                ; words, and wm_paint_all, at an odd shift
 
 %ifdef KERN_BIG
 ; -----------------------------------------------------------------------------
@@ -894,11 +890,8 @@ wm_dmg_rebands:                         ; ...the SAME damage again: nothing
     mov bx, [wm_db_b+2]
     mov cx, [wm_db_b+4]
     mov dx, [wm_db_b+6]
-    clc
-    ret
-.none:
-    stc
-    ret
+    CLC_OR_STC .none            ; (kernel size pass 15: the refusal's stc is
+    ret                         ; the imm8, so only CF is the answer)
 
 wm_db_r     times 4 dw 0        ; wm_dmg_bands: the damage it was handed, and
 wm_db_b     times 4 dw 0        ; the bounding box of the seeds it emitted -
@@ -1038,11 +1031,8 @@ wm_dmg_rebands:                         ; ...the SAME damage again: nothing
     mov bx, [wm_db_b+2]
     mov cx, [wm_db_b+4]
     mov dx, [wm_db_b+6]
-    clc
-    ret
-.none:
-    stc
-    ret
+    CLC_OR_STC .none            ; (kernel size pass 15: the refusal's stc is
+    ret                         ; the imm8, so only CF is the answer)
 
 wm_db_r     times 4 dw 0        ; wm_dmg_bands: the damage it was handed, and
 wm_db_b     times 4 dw 0        ; the bounding box of the seeds it emitted -
@@ -1382,10 +1372,10 @@ wm_dock_snap:
     jle .no                     ; already at or above it
     mov [bx+W_Y], dx
     stc
-    jmp short .out
-.no:
-    clc
-.out:
+    db 0xB0                     ; mov al, imm8 - the imm8 is the clc below, and
+.no:                            ; AL comes back off the stack, so this writes
+    clc                         ; no flag and no live register (kernel size
+.out:                           ; pass 15: was a jump over the clc)
     pop dx
     pop cx
     pop ax
@@ -1776,14 +1766,11 @@ wm_pref_take:
     jz .no                      ; (0, 0): nothing to say about this adapter
     or cx, cx
     jz .no
-    mov bx, di                  ; CF = 0 from the `or`, which `mov` keeps
-    mov [bx+W_W], ax
+    mov [bx+W_W], ax            ; (BX is still the window: wm_strseg keeps it)
     mov [bx+W_H], cx
-.out:
+    CLC_OR_STC .no              ; CF = 0 here, and the refusal's `stc` is the
+.out:                           ; imm8 it steps over (kernel size pass 15)
     jmp wm_create.out           ; the same pops, in the same order
-.no:
-    stc
-    jmp short .out
 
 ; -----------------------------------------------------------------------------
 ; wm_kind_now - AL = the adapter kind window BX is standing on
@@ -3494,13 +3481,10 @@ wm_fs_vis:
     jnz .no                     ; draw them (SPEC.md 39.17.1). `pop` leaves
 %endif                          ; the flags alone
 .yes:
-    pop bx
     stc
-    ret
-.no:
-    pop bx
-    clc
-    ret
+.no:                            ; EVERY jump here follows an `or` or a `test`,
+    pop bx                      ; which clear CF - so the `clc` and the second
+    ret                         ; epilogue went (kernel size pass 15, -5)
 
 ; -----------------------------------------------------------------------------
 ; wm_fs_zpos - where the fullscreen window sits in wm_zord (module internal)
@@ -3524,11 +3508,11 @@ wm_fs_zpos:
     inc si
     loop .scan
     pop si                      ; not in the order: walk the lot, as before
-    jmp short .out
-.found:
-    add sp, 2
-.out:
-    jmp kret_cx
+    db 0xA8                     ; test al, imm8 - the imm8 is the `pop cx`
+.found:                         ; below, so only a find drops the banked SI
+    pop cx                      ; ...into CX, which kret_cx puts back anyway
+.out:                           ; (kernel size pass 15: was `add sp, 2` and a
+    jmp kret_cx                 ; jump; flags are this routine's to clobber)
 
 ; -----------------------------------------------------------------------------
 ; wm_raise - the paint half of "this window is coming to the front"
@@ -4973,11 +4957,8 @@ wm_dmg_shadowed:
     cmp [wm_dmg_y2], dx
     jge .yes
 .no:
-    clc
-    ret
-.yes:
-    stc
-    ret
+    CLC_OR_STC .yes             ; (kernel size pass 15: CF is the answer, the
+    ret                         ; one caller's `jnc` the only reader)
 
 ; -----------------------------------------------------------------------------
 ; wm_dmg_stale - can any pixel of this window have gone stale?
@@ -5041,15 +5022,12 @@ wm_dmg_stale:
     cmp dx, ax
     jge .exposed
     stc                         ; covered again: nothing of it is showing -
-    jmp kret_si                 ; and a `pop` writes no flag
-.exposed:
-    clc
+    db 0xB0                     ; and a `pop` writes no flag. mov al, imm8:
+.exposed:                       ; the imm8 is the clc, AL comes back off the
+    clc                         ; stack (kernel size pass 15)
     jmp kret_si
 .mark:
-    clc
-    ret
-.clean:
-    stc
+    CLC_OR_STC .clean           ; (the one caller reads CF alone)
     ret
 
 ; -----------------------------------------------------------------------------
@@ -9263,11 +9241,8 @@ wm_su_vset:
     mov [wm_su_vx2], cx
     mov [wm_su_vy2], dx
     mov word [wm_su_von], 1
-    clc
-    jmp short .out
-.no:
-    stc
-.out:
+    CLC_OR_STC .no              ; (kernel size pass 15: both callers read CF
+.out:                           ; alone)
     jmp kret_di
 
 ; -----------------------------------------------------------------------------
@@ -9641,10 +9616,7 @@ wm_su_frag:
     jg .no
     cmp bx, dx
     jg .no
-    clc
-    ret
-.no:
-    stc
+    CLC_OR_STC .no              ; (kernel size pass 15: CF is the answer)
     ret
 
 ; wm_su_bytes - [wm_su_fsz] = the buffer bytes gfx_save writes for the rect in
@@ -9973,10 +9945,7 @@ wm_dc_ok:
     cmp di, [wm_dc_win]         ; a window record is never 0, so this cannot
     jne .no                     ; match the "nothing cached" state by accident
 .yes:
-    clc
-    ret
-.no:
-    stc
+    CLC_OR_STC .no              ; (kernel size pass 15: CF is the answer)
     ret
 
 ; wm_dc_take - bank window BX's content before it moves, and relabel it

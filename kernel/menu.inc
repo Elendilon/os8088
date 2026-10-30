@@ -405,9 +405,8 @@ menu_activate:
     call menu_relayout
     stc
     ret
-.same:
-    clc
-    ret
+.same:                          ; `je` off an equal `cmp`: CF = 0 already
+    ret                         ; (kernel size pass 15: the clc went)
 
 ; -----------------------------------------------------------------------------
 ; OSAPI_MENU_OWNER - who is the ACTIVE APPLICATION? (SPEC.md 12/12.6)

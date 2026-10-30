@@ -4424,11 +4424,8 @@ gfx_sub_arm:
     sub ax, cx
     mul di
     mov [gfx_sub_ps], ax
-    clc
-    jmp short .out
-.no:
-    stc
-.out:
+    CLC_OR_STC .no              ; (kernel size pass 15: its one caller reads
+.out:                           ; CF alone)
     jmp kret_bp
 
 ; -----------------------------------------------------------------------------
