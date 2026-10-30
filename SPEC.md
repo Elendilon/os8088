@@ -103672,7 +103672,8 @@ gfx lock held, the `wm_fullscreen` contract — and **does not return until
 the app is done being fullscreen**. In: AX = a near entry inside the
 caller's own image, BX = the caller's own window ptr, CX = flags (bit 0 =
 `FSXF_KEEPWORKER`, §53.2; bit 1 = `FSXF_FASTTICK`, §53.2.1; bit 2 =
-`FSXF_RATE`, §53.2.2, which also takes DX and DI; all other bits of CL
+`FSXF_RATE`, §53.2.2, which also takes DX and DI; bit 3 = `FSXF_REAL`,
+§53.2.3, which every kernel accepts and only kern_mega acts on; all other bits of CL
 must be 0) and CH = the DISPLAY (§53.1.2: 0 the window's own, n display
 n-1, `kern_big` only). The kernel arms the
 freeze, silences what the freeze strands (§53.3), and calls the entry
@@ -103966,6 +103967,135 @@ The nested-chain switch guard is 7 more, in both kernels. **Measured** at
 - the BIOS's own 40:6C moved with `[ticks]`;
 - a hook that `sti`s and runs two periods long every 16th call was skipped
   and handed up to 3 periods at once, with none lost.
+
+### 53.2.3 `FSXF_REAL` — the bracket in REAL MODE (kern_mega; every kernel accepts it)
+
+A bracket already owns the machine (§53.1): the kernel is parked underneath
+it and what the app may call is a closed list (§53.7). Under kern_mega that
+app still runs in protected mode, so every BIOS service it reaches - a disk
+read above all - is a REFLECTION: one trip out of protected mode and back
+per call, a CPU reset on a 286, with the rate hook shut out of the call
+(§53.2.2's last paragraph) where a real-mode kernel's hook interrupts the
+same `int 13h` and works through it. `FSXF_REAL` asks for the other answer:
+**leave protected mode ONCE, at the bracket's entry, and come back ONCE, at
+its exit**, so the whole bracket runs as it would on kern_big.
+docs/plans/MEGA-VIDEO-REALMODE-PLAN.md is the design and its W1 entry the
+decisions; this section is the contract.
+
+**In** (with CX bit 3, `FSXF_REAL` = 8): nothing more. It combines with any
+other flag. **kern_big and kern_small accept it and ignore it** - they are in
+real mode already, and the bit is stripped at the door, so a package asks
+for it unconditionally. So does kern_mega on a machine where it never
+entered protected mode. **On kern_mega in protected mode it refuses, CF = 1
+and nothing changed**, for four structural reasons: with
+`FSXF_KEEPWORKER` (one task runs in real mode, so there is nothing to keep);
+while a `TF_SERVICE` task is alive (a driver's worker would never be
+scheduled); while EXTD.DRV, the extended desktop's module, is loaded (its
+image is above 1MB, and three of the cells below call it); and when the
+region is above 1MB (`OS88_HIGH`) and the heap has no conventional claim for
+its copy. A refused real-mode bracket is a refusal
+like any other (§47): a package that would rather play in protected mode
+than not at all calls again without the bit, and says which it got.
+
+**What the kernel does, on kern_mega**:
+1. at the door, after every other test: the refusals above, and a
+   conventional claim of the region's size when the region is above 1MB;
+2. at the freeze's arm (IF = 1, nothing else of the package can run): the
+   whole region - image and bss, `I_SIZE` - copied DOWN into that claim;
+3. at the entry, with IF = 0: the video and font layer's segment words,
+   `[k_seg0]` and `CPU_F_PM` turned back into their real-mode values
+   (KERN-MEGA-MEMORY-PLAN MC7.4 made them selectors); the 8259's masks a
+   service reflection's (the BIOS's own lines and the pointer's, §9.10); IVT
+   20h - IRQ0 there, the PIC staying at its protected-mode base - the
+   kernel's REAL-MODE TICK; and out of protected mode, by CR0 on a 386 and
+   by the CMOS shutdown-0Ah reset through `mega_r286` on a 286, the
+   reflection's two ways down;
+4. the entry proc called in real mode, as `wm_pkgcall` calls it: **DS = CS
+   = a real paragraph** (the copy, or the region's own paragraph when it is
+   conventional), ES = KERNEL_SEG, SI = the window, IF = 1;
+5. when it returns, with IF = 0: the A20 line proved open, protected mode
+   again (`lmsw` on both CPUs), the IVT's IRQ vectors re-synced into the
+   IDT (a FORCED `mega_ivt_sync`, which also puts IVT 20h-27h back as the
+   copy of 08h-0Fh), the masks and every word of step 3 back, the rate
+   disarmed, the whole region copied back UP and the claim freed - and then
+   §53.6's restore, as for any bracket.
+
+**The real-mode tick** is `sch_isr`'s three arms with no scheduler in them:
+every IRQ0 counts `[sch_subs]` (§53.5.1's frame clock); under `FSXF_RATE`
+the accumulator decides a tick exactly as §53.2.2's does and every entry
+calls the hook, under the same three skip rules - the previous call has not
+returned, or SS is not `LOW_SEG` (a ROM service on a stack of its own); under
+`FSXF_FASTTICK` every Nth entry is a tick; with neither, every entry is. A
+tick chains the ROM's own IRQ0 handler, which keeps 40:6C and sends the EOI,
+and bumps `[ticks]`, so the two agree across the bracket to the tick; a
+period that is no tick sends its own EOI. There is no task switch, because
+there is one task. **So the hook runs INSIDE whatever the entry proc is
+doing, a BIOS call included** - kern_big's behaviour, which a protected-mode
+bracket can only approximate after the call. `snd_tick` does not run (a
+mounted `SOUND.DRV` image is above 1MB): its tick waits for the exit.
+
+**What the package must do** (binding):
+- **Every segment it uses inside is a REAL one.** Its own are: CS and DS.
+  But the copy of the region it runs in is NOT the one its window names, so
+  a word in which it banked its own segment BEFORE the call holds the
+  window's copy's value - a selector - and is wrong inside. Take the
+  segment from CS inside the entry proc. The kernel calls no relocation
+  proc for this: a region above 1MB has none recorded (§66.6.1 refuses the
+  declaration there), and the copy is not a move, since the window's copy
+  is the one that stands again at the exit.
+- **Everything the entry proc and the hook write in their copy is copied
+  back**, the whole region, before anything else of the package runs. The
+  window's copy is not to be written meanwhile, and nothing can: no other
+  task runs and no protected-mode code calls the package.
+- **The hook may run in protected mode BEFORE the entry proc**, between the
+  rate's arm and the drop, on the window's copy - which the copy-back then
+  overwrites. §53.2.2's rule already covers it: a hook is a no-op until the
+  entry proc says it is ready, and that byte is only ever set in the copy the
+  entry proc runs in.
+- **Never write IVT 08h-0Fh, nor 20h-27h.** The 8259 stays at kern_mega's
+  base, 20h, as it does through every reflection - re-basing it would cost
+  the edges an ICW1 loses (KERN-MEGA-PLAN 14.62) - so IRQ n is vector 20h + n
+  there and the kernel's tick holds 20h. A package that takes an IRQ goes
+  through the kernel's door for it.
+- **The calls.** The kernel's `.text` is conventional memory and runs in
+  real mode; `.cold`, `.mega`, every driver image and every module are above
+  1MB and do not. What runs as it is, once step 3 has made its words real:
+  the inline cells (`OSAPI_GET_TICKS`; `OSAPI_CPU_INFO`, which answers
+  without `CPU_F_PM` inside), `OSAPI_FSX_MODE`, `OSAPI_FSX_SURF`,
+  `OSAPI_FSX_PAGE`, `OSAPI_VIDEO`, `OSAPI_FONT_GLYPHS`, `OSAPI_KEY_DOWN`,
+  `OSAPI_SND_CAPS`, `OSAPI_WM_CONTENT` and `OSAPI_WM_WAKE`
+  (MEGA-VIDEO-REALMODE-PLAN 7.2), and the BIOS itself by `int`: `int 16h`
+  for the keyboard, `int 10h` within §53.7's rules. **Every other cell is
+  UNDEFINED inside a real-mode bracket today**, not refused: wave W2 swaps
+  the API table for the bracket, after which a cell outside the list
+  answers CF = 1, and W2-W4 add the real-mode twins of the services a play
+  needs - the file reader, the XMS copies, the sound stream and the speaker
+  door, `OSAPI_MOUSE`, `OSAPI_SEG`, `OSAPI_FSX_WAIT`. Until a twin exists,
+  pace on `hlt` and the hook, not on `OSAPI_FSX_WAIT`.
+- **A fault inside is a real-mode fault**: no `kern_mega FAULT` line, and the
+  machine stops as kern_big's would (the owner's ruling,
+  MEGA-VIDEO-REALMODE-PLAN 5.1.3).
+
+**What it costs, measured** (`tools/kernsize.py`, the plan's W1 entry has
+the spans): **kern_big and kern_small +3 bytes of `.text` each**, the
+`and cl, ~FSXF_REAL` at the door, and nothing else. **kern_mega**: `.text`
++422 (everything real mode runs - the landing, the tick, the door - and
+`mega_a20`, MOVED from `.cold`, which is -112), `.lowbss` +74 (the
+protected-mode state), `.mega` +518 (the protected-mode halves and
+`mega_vwalk`), `.bss` +0; the kernel-segment ratchet `tests/megaseg.txt`
++419. Nothing is an on-demand module: a module read at every bracket would be
+a system-disk read at every Play (the W1 entry says why). `tests/megarmb.py`
+(Bochs, the 386's way) and `tests/megarmb286.py` (86Box's 286-victory, the
+reset) are the gates.
+
+**EXTD.DRV's slots are the one kernel word the plan's census missed.**
+`OSAPI_FSX_MODE`, `OSAPI_WM_CONTENT` and `OSAPI_FSX_CAPS` far-call EXTD.DRV's
+entry block whether or not the module is loaded (`EXTCALL`; unloaded, every
+slot is `mod_gone`'s, CF = 1 being the one-display answer) - and unloaded,
+that slot names `.cold` through a protected-mode SELECTOR, a wild segment in
+real mode: the first build of this hung inside `OSAPI_FSX_MODE`. So the drop
+points the block at a `.text` twin of `mod_gone` and the return puts it back,
+and a loaded EXTD.DRV (the extended desktop) refuses the real-mode bracket.
 
 ### 53.3 Entry silences what it strands (binding)
 

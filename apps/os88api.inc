@@ -5045,6 +5045,7 @@ OS88_BSS_SIZE equ 0
                                                 ; FSXF_FASTTICK - SPEC.md
                                                 ; 53.2.1; bit 2 = FSXF_RATE,
                                                 ; with DX and DI - 53.2.2;
+                                                ; bit 3 = FSXF_REAL - 53.2.3;
                                                 ; all others of CL must be
                                                 ; 0, or it refuses) and CH
                                                 ; = THE DISPLAY: 0 your
@@ -6540,6 +6541,22 @@ FSXF_RATE       equ 4           ; OSAPI_FSX_RUN CX bit 2 (SPEC.md 53.2.2,
                                 ; it a no-op until you are ready. Not with
                                 ; FSXF_FASTTICK. [ticks] keeps its rate
 FSX_RATE_MIN    equ 2048        ; ...the fastest divisor: 582 Hz
+FSXF_REAL       equ 8           ; OSAPI_FSX_RUN CX bit 3 (SPEC.md 53.2.3): on
+                                ; kern_mega in protected mode, run the WHOLE
+                                ; bracket in REAL MODE - one drop at the entry,
+                                ; one return at the exit - instead of one
+                                ; reflection per BIOS call. Every kernel takes
+                                ; the bit and the others ignore it. Inside,
+                                ; DS = CS = a REAL paragraph that may be a
+                                ; COPY of your region (take your segment from
+                                ; CS, never from a word banked before the
+                                ; call), the copy is written back at the exit,
+                                ; IRQ n is vector 20h + n (write no IVT 08h-
+                                ; 0Fh or 20h-27h cell), and only the cells
+                                ; 53.2.3 lists run. kern_mega refuses it with
+                                ; FSXF_KEEPWORKER, under a driver's worker,
+                                ; with the extended desktop up, or with no
+                                ; low room for an OS88_HIGH region
 FSX_SUBTICK     equ 3           ; ...and this is the divider, so with FASTTICK
                                 ; armed FSXW_FRAME returns 3 x 18.2065 = 54.6
                                 ; times a second. A constant, not a
