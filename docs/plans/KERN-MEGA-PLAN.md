@@ -12974,3 +12974,30 @@ itself changed during the session.
 `int 40h` as `mega_enter` found it before the switch, `int 40h` now, and
 twelve bytes at it (still code, or overwritten). QEMU reads `027F` (639 KB)
 and `9FC0`.
+
+**Eighth field reading (owner, 2026-10-30)**, line 8: 40:13 = 027F (639 KB),
+`[mem_top]` = 9FC0, `int 40h` at `mega_enter` F000:D265 and **now
+F000:D265**. The bytes there are `50 1E 52 B8 0B FF BA 20 00 EE ...`, the
+BIOS's unexpected-interrupt handler (it reads the 8259's ISR). So `int 40h`
+is ROM and never moved. And this BIOS's `int 13h` (F000:E987) does its own
+diskette work: it does not chain to 40h. But line 6, painted in the SAME
+tick, read 40 = 8FB8:3297, and vectors 06/0D/10 differ between the sixth
+and eighth photos in a way no real IVT does: real vector values (F000:D265,
+C000:0ECD, 8FB8:3297) turn up in the wrong slots. QEMU verifies line 6
+against memory. **So the IVT is being REWRITTEN while the machine sits
+frozen**, by something that can write between two CPU reads a few
+microseconds apart.
+
+**Emulation (vm/at286-picomem1, the card's own firmware)**: kern_mega with
+SOUND.DRV, pmbox's SBTEST tone through the card's Sound Blaster. Across the
+tone exactly two vectors change, 0Fh and 27h, to 11AC:0981 (SOUND.DRV's
+IRQ7, a real segment, as designed), and nothing in the 6 s after. So the
+card's sound path corrupts nothing THERE. That machine's `int 13h` is the
+card's hook (D000:2FAF) and its `int 40h` the BIOS's (F000:EC59), not the
+Victory's arrangement.
+
+**Lines 9-10**: `mega_enter` copies the whole IVT; the sampler prints every
+vector that differs from that copy, `nn ssss oooo`, six a line, twelve at
+most. The vectors kern_mega moves on purpose (IRQ0-7 in 08h-0Fh and
+20h-27h, 15h, 33h) are the expected entries. QEMU's lines match its memory
+dump.

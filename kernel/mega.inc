@@ -312,6 +312,23 @@ mega_enter:
     mov [mega_fdv40], ax
     mov ax, [es:0x40*4+2]
     mov [mega_fdv40+2], ax
+    push ds                         ; ...and the WHOLE IVT, for the sampler's
+    push si                         ; lines 9-10: what changed since
+    push di
+    push cx
+    push ds
+    push es
+    pop ds                          ; DS = 0
+    pop es                          ; ES = the kernel's data
+    xor si, si
+    mov di, mega_ivtboot
+    mov cx, 512
+    cld
+    rep movsw
+    pop cx
+    pop di
+    pop si
+    pop ds
     pop es
 %endif
     in al, 0x70                     ; NMI off across the switch: a real-mode
@@ -7225,6 +7242,8 @@ mega_fdmkf:
 ; bytes before each of the far returns at [SP] and [SP+4] - the calls that
 ; led here. Line 8 (rows 112-119): 40:13, [mem_top], int 40h at
 ; mega_enter (segment, offset), int 40h now, and twelve bytes at it.
+; Lines 9-10 (rows 120-135): each vector that differs from the IVT
+; mega_enter copied, as `nn ssss oooo`, six a line, twelve at most.
 ; mega_fdson / mega_fdsoff are NEAR, real
 ; mode, IF = 0, DS = KERNEL_SEG; they preserve every register
 ; -----------------------------------------------------------------------------
@@ -7492,6 +7511,72 @@ mega_fdsamp:                        ; IRQ0 in real mode, inside the BIOS
     mov si, mega_fdsbuf
     mov di, 112 * 80
     call mega_fdhex
+    ; --- lines 9-10 (rows 120-135): every IVT vector that differs from the
+    ; copy mega_enter took, `nn ssss oooo`, six a line, twelve at most
+    xor bx, bx                      ; BX = the vector
+    mov dx, 120 * 80                ; DX = where this line goes
+.dl:
+    push ds
+    pop es
+    mov di, mega_fdsbuf
+    mov cl, 6                       ; CL = room left on the line
+.dv:
+    cmp bx, 256
+    jae .dflush
+    mov si, bx
+    shl si, 1
+    shl si, 1
+    push ds
+    xor ax, ax
+    mov ds, ax
+    mov ax, [si]
+    mov ch, 0                       ; (scratch)
+    push ax
+    mov ax, [si+2]
+    pop si                          ; SI = the offset now, AX = the segment
+    pop ds
+    push bx
+    shl bx, 1
+    shl bx, 1
+    cmp si, [mega_ivtboot+bx]
+    jne .dif
+    cmp ax, [mega_ivtboot+bx+2]
+    je .same
+.dif:
+    pop bx
+    push ax
+    mov al, bl
+    call .hb
+    pop ax
+    call .hw
+    mov ax, si
+    call .hw
+    inc bx
+    dec cl
+    jnz .dv
+    jmp short .dflush
+.same:
+    pop bx
+    inc bx
+    jmp .dv
+.dflush:
+    mov byte [di], 0xFE
+    push bx
+    push dx
+    push cx
+    mov si, mega_fdsbuf
+    mov di, dx
+    call mega_fdhex
+    pop cx
+    pop dx
+    pop bx
+    cmp dx, 128 * 80
+    jae .ddone
+    cmp bx, 256
+    jae .ddone
+    mov dx, 128 * 80
+    jmp .dl
+.ddone:
     pop es
     pop ds
     pop bp
@@ -7693,6 +7778,9 @@ mega_fdvs   times 7 db 0            ; the VGA registers mega_fdvon banked
 mega_fdsbuf times 64 db 0           ; a line, as glyph numbers
 mega_fdsvec db 0x06, 0x0D, 0x10, 0x13, 0x15, 0x1C, 0x40, 0xFF
 mega_fdv40  dw 0, 0                 ; int 40h at mega_enter (offset, segment)
+section .bss
+mega_ivtboot resw 512               ; the IVT as mega_enter found it
+section .text
 %endif
 mega_fdoff  db 0                    ; 1: switched off for the session
 mega_fdfail db 0                    ; fallbacks in a row
