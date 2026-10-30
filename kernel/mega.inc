@@ -838,6 +838,9 @@ mega_cap2:                          ; six bytes a line: IRQ n -> bit n
 %endrep
 mega_capc:
     or [cs:mega_irqpend], al        ; real mode: code is memory
+%ifdef MEGA_DIAG
+    inc word [cs:mega_fdcapn]       ; (the post-mortem's count, 14.125)
+%endif
     pop ax
     iret
 ; mega_cap33 - int 33h for the length of an IRQ reflection, in REAL mode. AX =
@@ -7268,6 +7271,28 @@ mega_fdson:
     mov word [es:0x20*4], mega_fdsamp
     mov word [es:0x20*4+2], KERNEL_SEG
     mov byte [mega_fdson_], 1
+    xor ax, ax                      ; THE POST-MORTEM (14.125): this call's
+    mov [mega_fd5in], ax            ; counts from zero...
+    mov [mega_fd5out], ax
+    mov [mega_fdcapn], ax
+    mov [mega_fd5old+2], ax
+    cmp word [es:0x25*4+2], 0xA000  ; ...the card's IRQ5, when a ROM has it,
+    jb .n5                          ; through a shim that counts the ways in
+    mov ax, [es:0x25*4]             ; and out...
+    mov [mega_fd5old], ax
+    mov ax, [es:0x25*4+2]
+    mov [mega_fd5old+2], ax
+    mov word [es:0x25*4], mega_fd5sh
+    mov word [es:0x25*4+2], KERNEL_SEG
+.n5:
+    mov word [es:0x467], mega_fdpm  ; ...and a CPU RESET inside the call goes
+    mov word [es:0x469], KERNEL_SEG ; to mega_fdpm, not to POST: CMOS
+    mov al, 0x8F                    ; shutdown code 0Ah, as a 286's
+    out 0x70, al                    ; reflection takes it
+    mov al, 0x0A
+    out 0x71, al
+    mov al, 0x0D
+    out 0x70, al
     pop es
     pop ax
 .x:
@@ -7284,10 +7309,112 @@ mega_fdsoff:
     mov ax, [mega_fdsold+2]
     mov [es:0x20*4+2], ax
     mov byte [mega_fdson_], 0
+    mov ax, [mega_fd5old+2]         ; the IRQ5 shim out
+    or ax, ax
+    jz .n5
+    mov [es:0x25*4+2], ax
+    mov ax, [mega_fd5old]
+    mov [es:0x25*4], ax
+.n5:
+    mov al, 0x8F                    ; ...and the reset trap disarmed
+    out 0x70, al
+    xor al, al
+    out 0x71, al
+    mov al, 0x0D
+    out 0x70, al
     pop es
     pop ax
 .x:
     ret
+
+; mega_fd5sh - the card's IRQ5 while a floppy call is sampled: counted in
+; and out, so a post-mortem says whether the CPU died inside the ROM's
+; handler (in > out) or outside it
+mega_fd5sh:
+    inc word [cs:mega_fd5in]
+    pushf
+    call far [cs:mega_fd5old]
+    inc word [cs:mega_fd5out]
+    iret
+
+; mega_fdpm - where a CPU RESET inside a sampled floppy call lands (40:67,
+; CMOS shutdown 0Ah, armed by mega_fdson), instead of POST: real mode, every
+; register undefined. Line 11 (rows 144-151): EEEE, the IRQ5 shim's ins and
+; outs, the capture stubs' hits and the lines they caught, ticks sampled,
+; IMR ISR IRR, the FDC's MSR, 40:3E-41, then IVT 25h and 27h as they stand.
+; The machine then halts - power it off
+mega_fdpm:
+    cli
+    mov ax, KERNEL_SEG
+    mov ds, ax
+    mov es, ax
+    mov ss, [mega_rss]
+    mov sp, [mega_rsp]
+    sub sp, 0x40
+    cld
+    mov al, 0x8F                    ; the next reset a real one
+    out 0x70, al
+    xor al, al
+    out 0x71, al
+    mov di, mega_fdsbuf
+    mov ax, 0xEEEE
+    call mega_fdsamp.hw
+    mov ax, [mega_fd5in]
+    call mega_fdsamp.hw
+    mov ax, [mega_fd5out]
+    call mega_fdsamp.hw
+    mov ax, [mega_fdcapn]
+    call mega_fdsamp.hw
+    mov al, [mega_irqpend]
+    call mega_fdsamp.hb
+    mov al, [mega_fdsn]
+    call mega_fdsamp.hb
+    in al, 0x21
+    call mega_fdsamp.hb
+    mov al, 0x0B
+    out 0x20, al
+    in al, 0x20
+    call mega_fdsamp.hb
+    mov al, 0x0A
+    out 0x20, al
+    in al, 0x20
+    call mega_fdsamp.hb
+    mov dx, MEGA_FD_MSR
+    in al, dx
+    call mega_fdsamp.hb
+    mov bx, 0x3E
+.bda:
+    mov ax, MEGA_BDA
+    mov ds, ax
+    mov al, [bx]
+    mov cx, KERNEL_SEG
+    mov ds, cx
+    call mega_fdsamp.hb
+    inc bx
+    cmp bx, 0x42
+    jb .bda
+    xor bx, bx
+    mov ds, bx
+    mov ax, [0x25*4+2]
+    mov cx, [0x25*4]
+    mov dx, [0x27*4+2]
+    mov si, [0x27*4]
+    mov bx, KERNEL_SEG
+    mov ds, bx
+    call mega_fdsamp.hw
+    mov ax, cx
+    call mega_fdsamp.hw
+    mov ax, dx
+    call mega_fdsamp.hw
+    mov ax, si
+    call mega_fdsamp.hw
+    mov byte [di], 0xFE
+    mov si, mega_fdsbuf
+    mov di, 144 * 80
+    call mega_fdhex
+.h:
+    hlt
+    jmp .h
 
 mega_fdsamp:                        ; IRQ0 in real mode, inside the BIOS
     push ax
@@ -7780,6 +7907,10 @@ mega_fdhfont:                       ; 0-F and a space, 8 rows each
     db 0,0,0,0,0,0,0,0
 mega_fdsold dw 0, 0                 ; the BIOS's IRQ0, while sampled
 mega_fdson_ db 0                    ; 1: the sampler is installed
+mega_fd5old dw 0, 0                 ; the card's IRQ5, while shimmed
+mega_fd5in  dw 0                    ; ...the shim's ways in
+mega_fd5out dw 0                    ; ...and out
+mega_fdcapn dw 0                    ; the capture stubs' hits
 mega_fdsn   db 0                    ; ticks sampled this boot
 mega_fdvs   times 7 db 0            ; the VGA registers mega_fdvon banked
 mega_fdsbuf times 64 db 0           ; a line, as glyph numbers

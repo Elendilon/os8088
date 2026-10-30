@@ -13035,3 +13035,43 @@ and a driver at a real segment stay live. `mega_capoff` restores all twelve
 cells. +14 bytes low (tests/megaseg.txt). `pmbox` (the card's own firmware
 on vm/at286-picomem1) passes. The slave's IR15 (77h) has the same exposure
 and is NOT covered: no reading has shown it.
+
+**Tenth field reading (owner, 2026-10-30): the fix holds and the machine
+now REBOOTS.** IVT 27h reads `0060:4948`, `mega_cap2`'s IRQ7 stub, so the
+stray reaches nothing now. But the sampler stops after two ticks at
+F000:CEBC, inside the BIOS's floppy routine, with IMR 98, ISR 01 (the tick
+itself) and IF on. The stage marks never reach 4, and the screen sits until
+POST clears it. That is the variant an earlier reading had with the count
+stuck at 01, so it predates the fix; the stray was the first of two. The
+stack line's odd SP is task 0's own (`STK0_TOP` is odd), not corruption.
+
+What it is not, from emulation (vm/at286-picomem1, the card's own firmware):
+- REPLAYING a stray: a build that marks IRQ7 caught on every service
+  reflection ran the whole of `pmbox` clean.
+- The card's SB used and then an empty drive: SBTEST's tone then an empty
+  A:, and the Video Player playing 08-WILLY.V88 off a card-served C: then an
+  empty B:, both answer "No os8088 disk" and run on.
+
+The emulated card never makes the stray, so the rest needs the iron. The
+PicoMEM ROM's IRQ5 handler (pmbios.asm `PM_Int`) runs the card's PC
+commands - port writes, memory copies, the 8237's channel registers - and
+skips forwarding an SB IRQ whose line is masked (`SkipInt`, status
+DISABLED). kern_mega masks IRQ7 across the call and kern_big does not.
+
+**The instrument: a post-mortem.** For the length of a sampled floppy call,
+MEGADIAG arms CMOS shutdown code 0Ah with 40:67 at `mega_fdpm`. A CPU reset
+inside the call (a triple fault, the 8042's reset line, a jump to FFFF:0)
+then skips POST and lands in `mega_fdpm`, which halts. Its line 11 (rows
+144-151) reads, in order:
+- `EEEE`
+- the card's IRQ5 handler's ways IN and OUT, counted by a shim at IVT 25h
+  (`mega_fd5sh`). In greater than out means the reset came from inside the
+  card's handler.
+- the capture stubs' hits, and the lines they caught
+- the ticks sampled
+- IMR, ISR, IRR
+- the FDC's MSR
+- 40:3E-41
+- IVT 25h and 27h
+
+A forced reset in the call, on the emulated 286, landed there and drew it.
