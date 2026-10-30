@@ -464,6 +464,18 @@ pm_undo:
 .out:
     ret
 
+; --- attach-only state and tables: only pm_init and sb.inc's discovery (both
+; inside DRVV_ATTACH) read or write these, so they leave the claim with them
+pm_irqs:    db 7, 5, 3, 0       ; sb.inc's own candidate order, less IRQ 2:
+                                ; PMINIT will not offer it and an XT's line 2
+                                ; is the one a card is least likely to own.
+                                ; sbl_f_irqdisc maps n to candidate (7-n)/2,
+                                ; which holds for these three and not for 2
+pm_pmirq:   db 0                ; the card's OWN (multiplexer) IRQ, 0 = unknown
+pm_sbports: dw PM_SB_PORT, 0x240, 0x230, 0x250, 0x260, 0
+                                ; PM_SB_PORT first, then sbl_bases' order less
+                                ; 210h, which PMINIT does not offer either
+pm_irq:     db 0                ; the line the firmware accepted, 0 = none
 %endmacro
 %ifndef SND_SPLIT
     PM_ONCE
@@ -609,17 +621,7 @@ pm_tickpub:
 %endif                          ; PM_CORE
 
 ; --- state and tables (a driver has no .bss - drivers/os88drv.inc) -----------
-pm_irqs:    db 7, 5, 3, 0       ; sb.inc's own candidate order, less IRQ 2:
-                                ; PMINIT will not offer it and an XT's line 2
-                                ; is the one a card is least likely to own.
-                                ; sbl_f_irqdisc maps n to candidate (7-n)/2,
-                                ; which holds for these three and not for 2
 pm_base:    dw 0                ; the card's command port, 0 = no card found
-pm_pmirq:   db 0                ; the card's OWN (multiplexer) IRQ, 0 = unknown
-pm_sbports: dw PM_SB_PORT, 0x240, 0x230, 0x250, 0x260, 0
-                                ; PM_SB_PORT first, then sbl_bases' order less
-                                ; 210h, which PMINIT does not offer either
-pm_irq:     db 0                ; the line the firmware accepted, 0 = none
 pm_up:      db 0                ; 1 = we turned the DSP on and owe an undo
 pm_keepc:   db 0                ; pm_tick's count toward PM_KEEPT
 pm_rchk:    db 0                ; pm_runaway's ticks left this stream
