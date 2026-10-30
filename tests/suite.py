@@ -6966,6 +6966,20 @@ SOAK = [
         "here as too few rows.",
         needs=("marty",), wants=("build/os8088-360.img", "build/apps360.img")),
 
+    Row("icohd", "soak", py("tests/icohd.py"), 95.0,
+        "THE FIELD REPORT, END TO END (SPEC.md 25.9.6): a hard disk "
+        "installed from the system + apps pair lost icons - *.IMG first, "
+        "and INSTALL.O88. A real install on MartyPC's XT-IDE machine, a "
+        "reboot from C:, and a scratch B: of ten shipped packages padded by "
+        "16 bytes (another build of the same programs: same names, new "
+        "sizes, so new keys), XTMP3 and a BACKUP.IMG. Every live entry of "
+        "every folder on both is asked whether it references ICO_R_NONE. "
+        "The tree before the grow stops at 60 rows with MINES, SOLITAIR, "
+        "TELNET and BACKUP.IMG generic; with it the store takes a sixth KB "
+        "and nothing is, and the row also fails if the scenario stops "
+        "overflowing a first claim.",
+        needs=("marty",), wants=("build/os8088-720.img", "build/apps720.img")),
+
     Row("icogrow", "soak", py("tests/icogrow.py"), 20.0,
         "THE ICON STORE GROWS (SPEC.md 25.9.6). A fixed 60-row store was "
         "outgrown by a standard install of the two 1.44MB disks, and a full "

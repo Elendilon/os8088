@@ -19,10 +19,8 @@ packages the first did not, and each one wants a row.
      be a store that was never full.
   2  `[ico_kb]` back to ICO_KB and the listing re-made: the store GROWS -
      `[ico_kb]` + 1, `[ico_max]` re-derived from it, more rows than it held -
-     an A:-only package that was on the generic icon in leg 1 takes a row,
-     and no reference names a row past `[ico_n]`.  (INSTALL.O88 is on the
-     generic icon on this disk before and after the grow, on the tree before
-     it too, so it is not counted.)
+     every A:-only package that was on the generic icon in leg 1 takes a
+     row, and no reference names a row past `[ico_n]`.
   3  ...AND THE ROWS IT HELD CAME WITH IT.  `mem_regrow` extends in place or
      moves and copies; either way row 0's key and body are byte-identical at
      the store's base afterwards, which is the capture-at-the-head layout
@@ -94,8 +92,14 @@ def main():
             st = V("DSK_DE_STRIDE")
             raw = m.read(lin(vseg), n * st)
             ix = m.read(lin(vseg, n * st), n)
+            # FS_N, NOT dsk_nmax: the claim is dsk_nmax slots wide and a
+            # short listing leaves the previous one's names and references
+            # behind it - read past FS_N, A:/APPS "had" INSTALL.O88 on the
+            # generic icon, which was the ROOT's stale slot 5 and no fault
+            live = int.from_bytes(m.read((kseg << 4) + vp + V("FS_N"), 2),
+                                  "little")
             out = []
-            for i in range(n):
+            for i in range(min(live, n)):
                 name = raw[i * st:i * st + 16].split(b"\0")[0]
                 if name.upper().endswith(b".O88"):
                     out.append((name.decode("latin-1"), ix[i]))
@@ -159,18 +163,10 @@ def main():
                  % (max2, kb2, (kb2 * 1024 - rbase) // row))
         if n2 <= n0:
             fail("the store grew and took no row (%d -> %d)" % (n0, n2))
-        # AT LEAST ONE, not every one: INSTALL.O88 draws the generic icon on
-        # this disk with or without any of this - measured on the tree
-        # before the store grew - so "every A:-only package" would be a
-        # claim about a defect that is not this row's
-        got = [x for x in new2 if x[1] != ICO_R_NONE]
-        if not got:
-            fail("no A:-only package took a row after the grow - every one "
-                 "is still on the generic icon (%s)" % new2)
-        past = [x for x in got if x[1] >= n2]
-        if past:
-            fail("A:-only package(s) %s reference rows past [ico_n] = %d"
-                 % (past, n2))
+        bad = [x for x in new2 if x[1] == ICO_R_NONE or x[1] >= n2]
+        if bad:
+            fail("A:-only package(s) %s still on the generic icon or past "
+                 "[ico_n] = %d after the grow" % (bad, n2))
 
         # --- 3: THE OLD ROWS CAME WITH IT -------------------------------
         after = bytes(m.read(lin(seg2, rbase), span))

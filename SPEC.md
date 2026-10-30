@@ -57283,6 +57283,18 @@ The document types were the ones that lost, because they are composed last:
 only when a folder holding documents is browsed. An install of everything not
 retired needs ~64 package rows and ~22 document rows.
 
+**What a full store looked like in the field.** *"Icons go missing on the
+hard disk - `.IMG` first, and INSTALL.O88 - and come back after a restart."*
+A `*.IMG` takes its diskette picture (§18.101.6) in the DOCUMENT pass, which
+every listing harvests last, so it is the first body to find the store full;
+INSTALL.O88 sits at the root, a folder browsed late. The restart is the store
+starting empty. And the count is easy to reach: the size is half the key, so
+a floppy carrying a DIFFERENT BUILD of programs already on the hard disk
+takes a second row for each. `tests/icohd.py` is that machine - an install,
+a reboot from C:, ten re-sized packages and a `.IMG` on B: - and the tree
+before this section stops at 60 rows with three packages and the `.IMG` on
+the generic icon.
+
 So `ico_add`, finding the store full, calls **`ico_grow`**, which takes the
 claim up one kilobyte with `mem_regrow` (§50.3) and works out the rows the new
 claim holds into `[ico_max]`. The first claim is still `ICO_KB` = 5 and still
