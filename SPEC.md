@@ -70197,7 +70197,7 @@ then the discovery waited for the first stream open (it was "deferred to
 first use") and the scan re-ran at every `DRVV_TIER` "on", which kept
 `sbl_f_irqdisc`, §34.5.6's IRQ 5 test, the four candidate stubs, their
 tables, `sbl_f_probe`, `sbl_dsp_rd` and `sbl_hdma_find` in RAM for the whole
-session on every machine - about 800 bytes, for questions whose answers
+session on every machine - 820 bytes, for questions whose answers
 cannot change until the driver is reloaded.
 
 - **What is settled**: `[sbl_base]`, the DSP version and `[sbl_auto]`,
@@ -70226,8 +70226,8 @@ cannot change until the driver is reloaded.
 
 | build | no mixer (`snd_keep`) | a mixer (`snd_keepmix`) | image |
 |---|---|---|---|
-| shipped (PicoMEM) | 7,501 → **6,685** (-816) | 11,046 → **10,230** (-816) | 12,085 → 12,030 |
-| `NOPICOMEM=1` | 7,295 → **6,505** (-790) | 10,840 → **10,050** (-790) | 11,575 → 11,520 |
+| shipped (PicoMEM) | 7,501 → **6,681** (-820) | 11,046 → **10,226** (-820) | 12,085 → 12,026 |
+| `NOPICOMEM=1` | 7,295 → **6,501** (-794) | 10,840 → **10,046** (-794) | 11,575 → 11,516 |
 
 `tests/sbirq5.py` and `tests/picomem.py` cut the discovery and `sbl_hook` out
 of `sb.inc` as they ship; `tests/unit/t_sndonce.py` holds the layout.
@@ -71960,8 +71960,8 @@ claim to it before the tier and `DRVV_READY` calls (§51.1.3):
 
 | build | no mixer (`snd_keep`) | a mixer (`snd_keepmix`) |
 |---|---|---|
-| shipped (PicoMEM in) | 6,685 bytes: **12KB → 7KB** | 10,230: **12KB → 10KB** |
-| `NOPICOMEM=1` | 6,505: 12KB → 7KB | 10,050: 12KB → 10KB |
+| shipped (PicoMEM in) | 6,681 bytes: **12KB → 7KB** | 10,226: **12KB → 10KB** |
+| `NOPICOMEM=1` | 6,501: 12KB → 7KB | 10,046: 12KB → 10KB |
 
 (Measured 2026-10-30, after §34.5.7; the table first carried 6,579 and
 10,124 against an 11,151-byte image, and the image had grown to 7,501 and
