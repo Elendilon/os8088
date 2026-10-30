@@ -16890,6 +16890,26 @@ SOAK = [
         needs=("bochs", "nasm"),
         wants=("build/mega.img", "build/megarun.o88",
                "build/megarmbs.o88", "build/megarmbs.bin")),
+    Row("vidrmbems", "soak", py("tests/vidrmbems.py"), 20.0,
+        "SPEC.md 53.2.3 and 107.8, MEGA-VIDEO-REALMODE-PLAN W3: EMS.DRV "
+        "through kern_mega's REAL-MODE BRACKET, on vm/286-mega-ems - the "
+        "owner's mr286 with 86Box's Lo-tech EMS board (260h, E000h, 2 MB), "
+        "the only machine here that gives kern_mega an EMS board. MEGARMBE "
+        "allocates and maps in protected mode (the frame a selector), then "
+        "inside a bracket listing FSXL_DRV DRVC_EMS: IDENT, CAPS and BASE "
+        "through the OSAPI_DRV_CALL twin answer what protected mode left "
+        "(the frame now the paragraph E000h), a second handle is allocated, "
+        "pages mapped and the frame written and read in REAL mode; a bracket "
+        "with an empty list answers no driver; after it, protected mode "
+        "sees the handle made inside, the quarters and the board as real "
+        "mode left them, maps through it and frees everything back to 128 "
+        "pages. EMS.DRV's code byte for byte, its tables empty, the board "
+        "read off the emulator, the kernel at rest. Red with fsx_rcopyf's "
+        "copy back UP taken out (H2 forgotten: CAPS 124, BASE H2 EMSE_BAD, "
+        "the map refused, the quarters never freed). 20s is 5-9 measured",
+        needs=("86box",),
+        wants=("build/mega.img", "build/megarmbe.o88", "build/megarmbe.bin",
+               "build/ems.bin")),
     Row("megaxmove", "soak", py("tests/megaxmove.py"), 25.0,
         "SPEC.md 50.6.10, docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md MC3: on "
         "kern_mega an OSAPI_XMEM_ALLOC block MOVES and is read back through "

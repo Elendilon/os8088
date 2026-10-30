@@ -14602,6 +14602,14 @@ $(BUILD)/megarmbs.bin: tests/megarmb/megarmbs.asm apps/os88api.inc apps/os88real
 	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megarmb/megarmbs.asm
 $(BUILD)/megarmbs.o88: $(BUILD)/megarmbs.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/megarmbs.bin -o $@
+# MEGARMBE (tests/megarmb/megarmbe.asm): EMS.DRV through a real-mode bracket -
+# allocated and mapped on both sides of it, the frame written and read in real
+# mode, the driver's state across the copy down and back up (SPEC.md 53.2.3,
+# 107; MEGA-VIDEO-REALMODE-PLAN W3) - tests/vidrmbems.py on vm/286-mega-ems
+$(BUILD)/megarmbe.bin: tests/megarmb/megarmbe.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megarmb/megarmbe.asm
+$(BUILD)/megarmbe.o88: $(BUILD)/megarmbe.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/megarmbe.bin -o $@
 # MEGAHUGE (tests/megahuge): ONE CLAIM FOR ALL OF IT (KERN-MEGA-MEMORY-PLAN
 # MC5) - OSAPI_MEM_HUGE's query, a claim of its answer bridged across the
 # pool and the heap, a pattern through every window, the free, the query again
@@ -14724,6 +14732,7 @@ $(BUILD)/megalowb.o88: $(BUILD)/megalowb.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/megalowb.bin -o $@
 megarun: $(BUILD)/megarun.o88 $(BUILD)/megaxm.o88 $(BUILD)/megahib.o88 $(BUILD)/megarmb.o88 \
         $(BUILD)/megarmbl.o88 $(BUILD)/megarmbf.o88 $(BUILD)/megarmbx.o88 $(BUILD)/megarmbs.o88 \
+        $(BUILD)/megarmbe.o88 \
         $(BUILD)/mega.img
 .PHONY: megarun
 

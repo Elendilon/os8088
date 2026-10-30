@@ -1070,8 +1070,11 @@ deduplicated union below, plus `test-full`.
      a mounted image's; RAMDISK.DRV is a FILE class (`DRVC_FILE2`), not the
      block class 5.2 item 3 assumed, so it is among them.
   4. **`DRVC_SOUND` falls back (`FSXR_DRV`)** until W4 carries it; EMS is
-     carried by the same code as HDD.DRV and **untested** here - no emulator
-     in the tree gives kern_mega an EMS board.
+     carried by the same code as HDD.DRV. It was untested at W3 - no
+     emulator in the tree gave kern_mega an EMS board - and is gated since
+     by `vidrmbems` (SPEC.md 107.8) on `vm/286-mega-ems`, 86Box's Lo-tech
+     board on the owner's mr286: green on its first run, with no defect in
+     the EMS path, and red with the copy back up taken out.
   5. **No new XMS twin translation pin**: the copy reads `mx_tab` live, so a
      token is right however far its block moved before the door.
 
