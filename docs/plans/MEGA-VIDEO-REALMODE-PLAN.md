@@ -869,6 +869,44 @@ asked to be told before W1 starts, so W1 waits on rulings 2 and 3 below.
 
 ---
 
+### 5.3 The owner's rulings on 5.2 (2026-10-30) - the bracket is DUAL
+
+5.1.1's "always real" gives way where W0 found a real loss, because only
+~21% of the arm becomes dead anyway: **the protected-mode bracket STAYS, as
+the fallback**, and the real-mode bracket is the default.
+
+1. **In-place reads that real mode must refuse** (5.2 item 2): keep them in
+   the PROTECTED-MODE bracket where that is faster - "if it is easy enough
+   to keep the extra code and keep these faster, that is optimal".
+   * **The PC speaker's clock: keep it fast** (the protected-mode bracket,
+     182 ticks against real mode's 375 on `vm/286`).
+   * **The shadow: not a concern** - it is always slow, the fallback for "we
+     cannot play that here"; it may take whichever bracket is simpler.
+   * **Version 2**: the owner asked why it would be slower. Not the block
+     decoding itself: in REAL mode an in-place read of the bank borrows a
+     segment by LOADALL (a 386's loaded base) with interrupts off, and the
+     decoders let interrupts back in only at their YIELD sites (vdec.inc's
+     VD_YCK, `vd_ypatch`); the block decoder part (`vblk.asm`, 98.3.23) has
+     none, so the shipped real-mode rules refuse version 2 in place
+     (`vp_xbipq`'s `vp_v2` test) and the play copies each chunk down out of
+     the bank instead - one 32 KB copy a chunk more. In protected mode the
+     bank is read through selectors with interrupts on, so the question
+     does not arise. So: version 2 in place takes the protected-mode bracket
+     too, until (if ever) `vblk.asm` gains yield sites.
+2. **Streams from FS-driver or redirected volumes** (5.2 item 3): the
+   PROTECTED-MODE bracket, as today, with a line on the INFO CARD saying why
+   the play is slower (the card already says which bank a play used; this
+   says which bracket and the reason).
+3. **Conventional memory** (5.2 item 4): accepted. If the HMA is usable from
+   the bracket, the region's low copy and the drivers could go there later;
+   62 KB is close to what fits, so something may still have to move lower.
+
+**So W1-W5 build the real-mode bracket BESIDE today's, chosen per play**:
+real mode unless the play is one of the three above, and the kern_mega
+arm's protected-mode bracket code stays for them - only what NO play can
+reach any more (the ring above 1MB where a real-mode play no longer needs
+it, and anything else W5 proves unreachable) is deleted.
+
 ## 6. What this plan could not determine
 
 * ~~Which kern_mega `.text` bodies on the bracket's whitelist are
