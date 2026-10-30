@@ -746,13 +746,13 @@ mega_capon:
     mov es, ax
     mov [mega_irqpend], al
     mov si, mega_capsave
+    xor bp, bp                      ; (every cell a stub)
     mov bx, 0x0A*4                  ; IRQ2's software vector...
     call .pair
-    cmp byte [mega_capsw], 0        ; (a service's: those alone, 14.125)
-    jne .no22
-    mov bx, 0x22*4                  ; ...and its hardware one
-    call .pair
-.no22:
+    mov bp, [mega_capsw]            ; ...and its hardware one - a SERVICE's
+    and bp, 0xFF                    ; takes only the cells real mode cannot
+    mov bx, 0x22*4                  ; reach at all, an LDT selector left by
+    call .pair                      ; mega_ivt_sync (KERN-MEGA-PLAN 14.125)
     mov ax, [es:0x33*4]             ; ...and int 33h, when it names a driver
     mov dx, [es:0x33*4+2]           ; image (KERN-MEGA-PLAN 14.117): the
     mov [mega_c33sv], ax            ; PicoMEM's multiplexer hands each USB
@@ -784,6 +784,15 @@ mega_capon:
     jae .k
     or dx, dx
     jz .k
+    or bp, bp                       ; a service's hardware cell: a stub only
+    jz .c                           ; for a SELECTOR - the kernel's mouse
+    mov al, dl                      ; ISRs and a real segment stay live, and
+    and al, 7                       ; a spurious IRQ7 the 8259 delivers past
+    cmp al, 4                       ; its mask must not run SOUND.DRV's
+    jne .k                          ; selector as a segment
+    cmp dx, MEGA_LDT_FREE0 * 8
+    jb .k
+.c:
     mov word [es:bx], di
     mov word [es:bx+2], KERNEL_SEG
 .k:
@@ -799,11 +808,8 @@ mega_capoff:
     mov si, mega_capsave
     mov bx, 0x0A*4
     call .pair
-    cmp byte [mega_capsw], 0        ; a service caught the software pair only
-    jne .no22
     mov bx, 0x22*4
     call .pair
-.no22:
     mov ax, [mega_c33sv]            ; int 33h as it was
     mov [es:0x33*4], ax
     mov ax, [mega_c33sv+2]
@@ -856,7 +862,8 @@ mega_m33b   dw 0                    ; the last buttons,
 mega_m33n   db 0                    ; and how many (0 = none to deliver)
 mega_irqpend db 0
 mega_capsw  db 0                    ; 1: a SERVICE reflection's catch - the
-                                    ; software vectors and int 33h only
+                                    ; software vectors, int 33h, and only
+                                    ; the hardware cells holding a selector
 
 ; mega_replay - PROTECTED MODE, after an IRQ reflection: each line a capture
 ; stub caught, delivered through its IDT gate, lowest line first

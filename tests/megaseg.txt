@@ -67,4 +67,10 @@
 #             int 0Dh inside the BIOS's floppy call, into SOUND.DRV's
 #             protected-mode handler run as real-mode segment 1254h. It all
 #             runs in the reflection's REAL-MODE window, so it has to be low
-4403
+# 2026-10-30: +14, to 4,417, KERN-MEGA-PLAN 14.125 - the same catch takes
+#             the HARDWARE cells 22h-27h that hold an LDT selector: the
+#             freeze's ninth reading found IVT 27h = 1294:0981, SOUND.DRV's
+#             IRQ7 ISR left as a selector by mega_ivt_sync, reached by a
+#             SPURIOUS IRQ7 inside the empty drive's BIOS call. mega_capon's
+#             filter, real mode, so low
+4417

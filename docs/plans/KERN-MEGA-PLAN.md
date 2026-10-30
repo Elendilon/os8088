@@ -12630,7 +12630,7 @@ protected mode as an identity selector, which MC7 removed. It runs in the
 reflection's REAL-MODE half now, just before the ROM's handler, where C800h is
 a segment. The shipped kernel never had it.
 
-### 14.125 The empty-drive freeze is in the native path's motor SPIN-UP: an instrument for it (2026-10-29) - OPEN
+### 14.125 The empty-drive freeze is in the native path's motor SPIN-UP: an instrument for it (2026-10-29) - FIX ON TEST
 
 **Where it stops, from the owner's description** (14.31 and 14.35's
 freeze, which still happens during installs, drive switching and the file
@@ -13001,3 +13001,37 @@ vector that differs from that copy, `nn ssss oooo`, six a line, twelve at
 most. The vectors kern_mega moves on purpose (IRQ0-7 in 08h-0Fh and
 20h-27h, 15h, 33h) are the expected entries. QEMU's lines match its memory
 dump.
+
+**Ninth field reading (owner, 2026-10-30) - THE CAUSE.** Line 10 reads
+`27 1294 0981`: real-mode IRQ7's vector, the cell the 8259 delivers to while
+the BIOS's floppy call runs, holds **SOUND.DRV's IRQ7 ISR as an LDT
+SELECTOR**. 0981 is the offset emulation reads at `11AC:0981`; 1294 is
+TI = 1, a selector. `mega_ivt_sync`'s `.fixrow` turns a selector back into a
+segment only when the image is below 1MB, leaving it in place otherwise on
+the stated assumption that the line is masked across a reflection. It is
+masked (line 1, IMR = 98h). But **the 8259 delivers IR7's vector for a
+SPURIOUS interrupt whatever IMR says**, and the empty drive's BIOS call is
+the longest window kern_mega ever spends in real mode with IF on. Real
+mode runs `1294:0981` as a segment, which is the garbage `1254:09AA` the
+first readings stopped in. The variant with the tick count stuck at 01 and
+CS:IP in the ROM is the same jump taken with IF = 0. The service capture
+above did not cover it, because it skipped the hardware pair 22h-27h to
+keep the kernel's mouse ISRs (0060:3643, 0060:3635) live.
+
+It explains the three things the readings left open:
+- **Video first**: the Video Player pushes SOUND.DRV's image above 1MB,
+  which is what leaves the selector behind.
+- **The light before the buzz**: the drive light is on while the BIOS waits
+  for the motor, which is when the spurious edge lands.
+- **Not kern_big**: kern_big's drivers live at real segments, so no IVT cell
+  there is ever a selector.
+
+**The fix**: a service reflection's `mega_capon` takes the hardware pair
+too, but only the cells holding an LDT selector at or above
+`MEGA_LDT_FREE0`, real mode's unreachable ones. Each gets `mega_cap2`'s
+stub, and what it catches is replayed through the IDT gate, the same handler
+a spurious IRQ7 in protected mode reaches. The kernel's own ISRs, the ROMs'
+and a driver at a real segment stay live. `mega_capoff` restores all twelve
+cells. +14 bytes low (tests/megaseg.txt). `pmbox` (the card's own firmware
+on vm/at286-picomem1) passes. The slave's IR15 (77h) has the same exposure
+and is NOT covered: no reading has shown it.
