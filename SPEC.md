@@ -75341,7 +75341,7 @@ changes** — drawing is spatially coherent, so the steady state is
 |---|---|
 | `[vid_ndisp]` | displays the kernel has **brought up** — 2 after §39.13, 1 for ever on a one-card machine. Not the same question as how far the *desktop* spans, which is `[vid_w]`/`[vid_h]` and is still one display's until docs/plans/completed/DUAL-DISPLAY-PLAN.md step 6 |
 | `[vid_cur]` | which display's geometry is in the live block |
-| `vid_ctx_capture` | AL = display; bank the live geometry into that record |
+| `vid_ctx_capture` | AL = display; bank the live geometry into that record. Not resident since kernel size pass 15: vidsel.inc's `VID_CTXCAP` macro, expanded in each of its callers' images - `vid_ctxcap` (CTRL.DRV), `ext_ctxcap` (EXTD.DRV), `cfx_ctxcap` (`.cfx`, the blob's on kern_big and kern_emu), `bvs_ctxcap` (kern_mega's blob) - and written into the boot overlay's `vid_ctx_init` |
 | `vid_ctx_act` | AL = display; make it current, **returning immediately if it already is** |
 | `vid_ctx_init` | one display, at the virtual origin, holding what is on screen now |
 

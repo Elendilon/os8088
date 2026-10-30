@@ -5876,6 +5876,7 @@ bvw_rowcalc:                    ; geometry from `.cfx` (cfx_grid, kernel.asm),
     ret                         ; order
 %else
 DESK_ROWCALC bvw, BSWC          ; (kern_mega: no `.cfx`, and blob to spare)
+VID_CTXCAP bvs_ctxcap, ret      ; ...and bvs_disp_init's capture (vidsel.inc)
 %endif
 KGO_PAIR bvs
 %endif
