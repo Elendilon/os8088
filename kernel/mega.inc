@@ -564,21 +564,21 @@ mega_idt_gate:
     cmp al, 2                       ; runs in protected mode alone is -
     je .put                         ; KERN-MEGA-SEGMENTS-PLAN 3.6)
     mov dx, ax                      ; an EXCEPTION: stub BX
-    shl dx, 3                       ; (mega_xs is 8 bytes a stub)
+    shl dx, 3                       ; (mega_xs is SEVEN bytes a stub)
+    sub dx, ax
     add dx, mega_xs
     jmp .put
 .notx:
     cmp al, 0x20
     jae .notsvc
-    mov dx, ax                      ; a BIOS SERVICE
-    sub dx, 0x10
-    shl dx, 3
-    add dx, mega_ss
+    mov dx, ax                      ; a BIOS SERVICE: mega_ss is FIVE bytes
+    shl dx, 2                       ; a stub, from vector 10h
+    add dx, ax
+    add dx, mega_ss - 0x10 * 5
     mov cx, MEGA_SEL_CODE
     cmp al, 0x16
     jne .put
     mov dx, mega_i16                ; ...the keyboard is native
-    mov cx, MEGA_SEL_CODE
     jmp .put
 .notsvc:
     mov si, ax                      ; IVT slot to translate
@@ -1670,6 +1670,7 @@ mega_i16:
     push ds
     mov bx, MEGA_BDA
     mov ds, bx
+    mov si, ax                      ; SI's high byte = the function
     cmp ah, 0x00
     je .get
     cmp ah, 0x10
@@ -1686,15 +1687,13 @@ mega_i16:
     je .put
     jmp .out
 .get:
-    mov si, ax                      ; SI's high byte = the function
-.wait:
     cli
     mov bx, [0x1A]
     cmp bx, [0x1C]
     jne .have
     sti
     hlt                             ; the tick or the key wakes it
-    jmp .wait
+    jmp .get
 .have:
     mov ax, [bx]
     inc bx
@@ -1705,14 +1704,8 @@ mega_i16:
 .gw:
     mov [0x1A], bx
     sti
-    test si, 0xF000                 ; AH = 00h: an E0 ASCII reads as 0
-    jnz .out
-    cmp al, 0xE0
-    jne .out
-    xor al, al
-    jmp .out
+    jmp short .e0
 .peek:
-    mov si, ax
     mov bx, [0x1A]
     cmp bx, [0x1C]
     jne .pfull
@@ -1721,7 +1714,8 @@ mega_i16:
 .pfull:
     and word [bp+6], ~0x0040
     mov ax, [bx]
-    test si, 0xF000
+.e0:                                ; (both readers: kern_mega size pass 1)
+    test si, 0xF000                 ; AH = 00h: an E0 ASCII reads as 0
     jnz .out
     cmp al, 0xE0
     jne .out
@@ -1756,24 +1750,23 @@ mega_i16:
     iret
 
 ; -----------------------------------------------------------------------------
-; the BIOS's software services, 10h-1Fh: sixteen stubs of eight bytes, each
-; `push imm8 vector / jmp near mega_svc / three bytes of padding`
+; the BIOS's software services, 10h-1Fh: sixteen stubs of five bytes, each
+; `push imm8 vector / jmp near mega_svc`
 ; -----------------------------------------------------------------------------
 section .text                   ; (KERN-MEGA-SEGMENTS-PLAN: back from .mega)
 section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
 mega_ss:
 %assign mega_v 0x10
-%rep 16
-    push byte mega_v
+%rep 16                             ; (five bytes a stub, no padding:
+    push byte mega_v                ; kern_mega size pass 1 - it was eight)
     jmp near mega_svc
-    times 3 nop
   %assign mega_v mega_v + 1
 %endrep
-%if $ - mega_ss != 16*8
- %error "mega_ss is eight bytes a stub"
+%if $ - mega_ss != 16*5
+ %error "mega_ss is five bytes a stub"
 %endif
 
-; the exceptions, 00h-0Fh, the same eight bytes. 8 and 10-14 arrive with an
+; the exceptions, 00h-0Fh, seven bytes each (eight until kern_mega size pass 1). 8 and 10-14 arrive with an
 ; error code under the return address; the rest do not, and their stub pushes
 ; a 0 in its place, so mega_fault always sees [vector] [error] [IP] [CS] [FLAGS]
 section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
@@ -1783,17 +1776,16 @@ mega_xs:
  %if mega_v == 8 || (mega_v >= 10 && mega_v <= 14)
     push byte mega_v
     jmp near mega_fault
-    times 3 nop
+    times 2 nop
  %else
     push byte 0
     push byte mega_v
     jmp near mega_fault
-    nop
  %endif
   %assign mega_v mega_v + 1
 %endrep
-%if $ - mega_xs != 16*8
- %error "mega_xs is eight bytes a stub"
+%if $ - mega_xs != 16*7
+ %error "mega_xs is seven bytes a stub"
 %endif
 
 mega_unh:                           ; a software interrupt nothing handles
@@ -2104,26 +2096,12 @@ mega_report:                        ; is finished there, not reported
     call mm_puts
     mov cx, 16                      ; sixteen words of whatever the CPU left: the
     lea bx, [bp+22]                 ; error code (or IP), IP, CS, FLAGS, ...
-.st:
-    mov ax, [ss:bx]
-    call mm_hex4
-    mov al, ' '
-    call mm_putc
-    inc bx
-    inc bx
-    loop .st
+    call .words
     mov si, mega_mreg
     call mm_puts
     mov cx, 10                      ; ES DS DI SI BP SP BX DX CX AX
     mov bx, bp
-.rg:
-    mov ax, [ss:bx]
-    call mm_hex4
-    mov al, ' '
-    call mm_putc
-    inc bx
-    inc bx
-    loop .rg
+    call .words
     mov ax, ss
     call mm_hex4
     mov al, 10
@@ -2163,6 +2141,15 @@ mega_report:                        ; is finished there, not reported
 .dead:
     hlt
     jmp .dead
+.words:                             ; CX words at SS:BX to E9, a space after
+    mov ax, [ss:bx]                 ; each (both dumps: kern_mega size pass 1)
+    call mm_hex4
+    mov al, ' '
+    call mm_putc
+    inc bx
+    inc bx
+    loop .words
+    ret
 
 ; -----------------------------------------------------------------------------
 ; mega_fkill - A FAULT IN A PACKAGE CLOSES THE PACKAGE (KERN-MEGA-PLAN 14.42)
