@@ -771,7 +771,11 @@ make mega     # KERN_MEGA, the 286+ protected-mode kernel (docs/plans/
               #   Pair mega.img with megaapps.img, not with build/apps.img:
               #   the shipped Video Player REFUSES under protected mode and
               #   the shipped speaker library refuses its PCM tier there.
-              #   `make megapkgs` prints each arm against its shipped build
+              #   `make megapkgs` prints each arm against its shipped build.
+              #   It is a BUDGETED build and not a knob (rule 4 under Hard
+              #   rules): `make budget-check` builds and measures it, and
+              #   `kernsize --bless --build build/megak` blesses it - but it
+              #   is not RELEASED, and no release zip carries its disks
 make rom      # THE KERNEL IN ROM (SPEC.md 2.10, docs/plans/ROM-PLAN.md): an
 make socketrom#   IBM 5150's five spare sockets, U28-U32 at F4000-FDFFF, as
               #   ONE option ROM, written into build/rom/ as the 40KB window
@@ -1248,20 +1252,27 @@ user gives a different workflow. The worked example is
   (guard 1's `KERN_BUDGET`, DERIVED from those, plus `tests/kernresident.py`
   and `tests/small128.py` for the half an assembler cannot see) — and **BOTH
   BOOT on 128KB** (guard 5, `MIN_RAM_KB`, asserted by booting each kernel on a
-  128KB machine). **A budget is met EXACTLY at an upstream merge or a release;
+  128KB machine). **kern_mega is rule 4 and is budgeted too** (kern_mega size
+  pass 1, docs/plans/completed/msp1/megabudget.md): it RESIDES in **68KB of
+  CONVENTIONAL memory** once it has switched - `MEGA_RESIDENT`, `KERN_SIZE`
+  less the `.cold` and `.mega` rungs that go above 1MB, and NOT `KERN_SIZE`,
+  which is a boot-time transient there - and BOOTS on its 1MB floor machine's
+  640KB (guard 5's mega arm, `MEGA_BOOT_KB`); budgeted is not RELEASED, and no
+  release artefact carries its disks. **A budget is met EXACTLY at an upstream merge or a release;
   branch and integration work may run up to 2KB over it** (`KERN_GRACE` —
   features land whole and are size-passed after), and `make budget-check` is
-  where that grace ends. Over a budget at that point is a conversation with
+  where that grace ends, on all four budgeted kernels. Over a budget at that point is a conversation with
   the owner and a rework of the budgets, never a quiet raise.
   `KERN_CODE_MAX` is separate and absolute: `.text` + `.bss` inside one 64KB
   window because offsets are 16 bits. **Booting on a machine and residing in
   one are different questions** — the 128KB boot is where overlays and boot
   order broke machines whose resident size was well under it. `kernsize`
-  prints both lines; quote the one you mean. **None of the three binds a KNOB
+  prints both lines; quote the one you mean. **None of the rules binds a KNOB
   build** — guard 2 is the whole of what
   bounds it, because nobody boots one and every machine here has 640KB or
   could; a RAM-constrained test states its own constraint instead.
-  `KERN_SMALL` is not a knob for this purpose. **`soak -k 'buildmatrix'` is
+  `KERN_SMALL`, `KERN_EMU` and `KERN_MEGA` are not knobs for this purpose;
+  a knob ON kern_mega (`MEGATRAP=1`, `MEGADIAG=1`, ...) is. **`soak -k 'buildmatrix'` is
   the only thing that builds the knob kernels.**
 - **Before spending a resident byte, ask whether the feature is an ON-DEMAND
   MODULE** (§2.8, `kernel/mod.inc`, docs/plans/completed/ONDEMAND-PLAN.md §1's

@@ -73,8 +73,11 @@ DSK_ICO_SIZE equ 64              ; harvested icon slot stride (SPEC.md 19)
 ; a listing owns a reference byte per entry and nothing else. DSK_ICO_SIZE is
 ; still the width of one body, in the store.
 %ifdef KERN_MEGA
- ; kern_mega IS A KERN_KNOB BUILD BY CONSTRUCTION (the Makefile does not exempt
- ; it from guard 1), and that alone used to buy it the knob pad below - 1,024
+ ; kern_mega WAS A KERN_KNOB BUILD BY CONSTRUCTION until it took a budget of
+ ; its own (kern_mega size pass 1, msp1/megabudget.md: plain kern_mega has no
+ ; KERN_KNOB now, but MEGATRAP, MEGADIAG and every other knob ON it still
+ ; does, so this arm stays FIRST and stays define-based), and that alone used
+ ; to buy it the knob pad below - 1,024
  ; bytes of `.lowbss`, which on kern_mega is CONVENTIONAL MEMORY FOR EVER,
  ; for an overlay that does not need them: kern_mega's own `.ovl` is 5,109 and
  ; rounds to the 5,120 the window holds unpadded, and so do MEGATRAP, MEGADIAG,

@@ -13116,3 +13116,48 @@ empty-B: run then samples six ticks and answers "No os8088 disk (B:)".
 
 **So the shipped kern_mega with 3455b173's fix has NOT been shown to fail.**
 The tenth reading's reboot came off the diag disk.
+
+### 14.126 kern_mega stops being a KERN_KNOB build and takes a budget of its own (2026-10-30) - BUILT
+
+**The owner's decision, verbatim**: *"Yes, it should be a normal build with
+its own budget. We're getting close to being stable enough for a general
+release - and this is a step on that path. Note that this still doesn't move
+it to "released" yet - so we're not building disks in the release zip/skill
+yet."* kern_mega size pass 1's follow-up, docs/plans/completed/msp1/megabudget.md.
+
+**What KERN_KNOB was buying it**, use by use: guard 1 skipped (no budget at
+all), guard 5's 128KB line skipped (its own 640KB arm already stood),
+`BOOT2_KNOBSEC`'s fourteenth blob sector, `dskwin.inc`'s 1,024-byte
+`.lowbss` pad (already overridden by size pass 1's define-based arm, which
+stays first and stays define-based because the knobs ON kern_mega still need
+it), and the tools' readings of it - kernsize treated `-DKERN_KNOB` as part
+of the variant and refused to bless, os88sym added it for every
+`KERN_MEGA` re-assembly. `HMA_COLD_AT`'s knob arm and `MOU_IN_BLOB` never
+reached kern_mega (`COLD_VSTART` is 0x80 there; the probe rule is
+kern_small's).
+
+**What each became.** The Makefile exempts `KERN_MEGA=%` from `-DKERN_KNOB`
+with `KERN_SMALL` and `KERN_EMU`, and adds the blob sector for `KERN_MEGA` by
+name in `KERN_EMU`'s block (`BOOT2_KNOBSEC` gains an `%elifdef KERN_MEGA`), so
+**the kernel is byte-identical** - `kernel.bin` and `kernel.sys` against
+759da0e6, and kern_big, kern_small and kern_emu with it. kernel.asm grows
+**rule 4**: `KERN_MEGA_RESIDENT_KB` = 68, so `KERN_BUDGET` = 68,096 on
+kern_mega, and guard 1 holds **`MEGA_RESIDENT`** to it - `KERN_SIZE` less the
+`.cold` and `.mega` rungs, the conventional memory the kernel keeps once those
+are above 1MB. `KERN_SIZE` (130,560) is not budgeted: it is the boot-time
+transient guard 5's mega arm bounds, `MEGA_BOOT_KB` = 640, now named beside
+`MIN_RAM_KB`; the 128KB line skips kern_mega by name. The knobs on kern_mega
+(`MEGATRAP`, `MEGADIAG`, `MEGAFDMASK`, `PICLOSE`) still pass `-DKERN_KNOB` and
+skip guard 1 - `MEGADIAG=1` measures exactly 68,096 resident, the whole budget.
+
+**The number**: 64,512 resident at the tip, 3,584 spare - seven steps, which is
+kern_big's own headroom to the byte. `tools/kernsize.py` has a kern_mega
+baseline now (blessed with `--bless --build build/megak`), its footprint line
+prints resident against the budget and the boot line the 640KB ceiling, and
+`make budget-check` builds and measures it as the fourth kernel. Broken on
+purpose: 64KB took `budget-check` red at 512 over with `make` still green
+(inside the grace), and 61KB took `make mega` red at guard 1.
+
+**Not done, deliberately**: no release zip, no release skill, no website - the
+owner's "not released yet". `make budget-check`, which the release skill
+runs, does build kern_mega's disks into build/megak/ now; nothing ships them.
