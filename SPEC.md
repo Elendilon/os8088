@@ -57303,7 +57303,8 @@ a reboot from C:, ten re-sized packages and a `.IMG` on B: - and the tree
 before this section stops at 60 rows with three packages and the `.IMG` on
 the generic icon.
 
-So `ico_add`, finding the store full, calls **`ico_grow`**, which takes the
+So `ico_add`, finding the store full, **grows it** (once `ico_grow`, written
+at its one call site since kernel size pass 15), which takes the
 claim up one kilobyte with `mem_regrow` (§50.3) and works out the rows the new
 claim holds into `[ico_max]`. The first claim is still `ICO_KB` = 5 and still
 60 rows (the capture moved, below, into bytes the rounding already had), and the ceiling `ICO_KBMAX` = 20 is 247 rows:

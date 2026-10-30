@@ -6465,10 +6465,19 @@ dsk_rah_runs: dw 0               ; how many slots the LIVE claim has (SPEC.md
                                  ; with a real initialiser for its neighbour's
                                  ; reason: -f bin zeroes no .bss and this
                                  ; bounds a write
+%ifndef KD_BUILD
+ico_seg:     dw 0               ; THE ICON STORE's claim (below), 0 = none
+                                ; (refused, or no listing has wanted a body
+%endif                          ; yet) - here so that it is ADJACENT to...
 dsk_rah_seg:  dw 0               ; the claim, 0 = none. In .text with a real
                                  ; initialiser: -f bin zeroes nothing, this is
                                  ; read before anything sets it, and it is the
                                  ; word mem_pg_own names
+%ifndef KD_BUILD                ; ...which mem_rr_tab names as ONE row (kernel
+%if dsk_rah_seg - ico_seg != 2  ; size pass 15)
+  %error "ico_seg and dsk_rah_seg must stay adjacent (mem_rr_tab names them as one row)"
+%endif
+%endif
 dsk_rah_busy: db 0               ; ...and 1 while a fill is in dsk_xfer, so the
                                  ; fill's own read is not itself cached
 %ifdef OS88_BIGVOL
@@ -9167,14 +9176,13 @@ ico_need:
                                 ; count (SPEC.md 54.7.6.2) - in the same
                                 ; breath. Kernel size pass 13 dropped the store)
 %ifdef OS88_COMPACT             ; (kern_small: nothing moves, SPEC.md 66.0)
-    mov ax, ico_reloc
-    mov bx, MEM_P_ICO
-    push dx                     ; ...and a refusal here only PINS it, which is
+    mov ax, ico_reloc           ; ...and a refusal here only PINS it, which is
     call mem_movable_x          ; a compaction that achieves less rather than
-    pop dx                      ; anything wrong (SPEC.md 66.2). The claim is
-                                ; banked across it rather than re-read out of
-                                ; [ico_seg], which is two bytes and asks
-                                ; nothing about what that routine does to DX
+                                ; anything wrong (SPEC.md 66.2). BX is still
+                                ; MEM_P_ICO and DX the claim: mem_claim keeps
+                                ; every register but DX, and mem_movable
+                                ; clobbers nothing but the flags (kernel size
+                                ; pass 15: -5, the tag and the bank)
 %endif
 .have:
     mov es, dx
@@ -9379,12 +9387,58 @@ ico_add:
 %ifdef OS88_ASSOC
     cmp al, [ico_max]
     jb .room                    ; full, or no store at all (AL = 0xFF, which
-    call ico_grow               ; no claim's [ico_max] reaches): GROW it
-    jc .no                      ; (SPEC.md 25.9.6), and a refusal is SPEC.md
-.room:                          ; 25's generic icon - the caller reads CF=1
-%else                           ; as exactly that. ES is the grown claim and
-    cmp al, ICO_NROW            ; DI is where it was: rows never move inside
-    jae .no                     ; it, which is why the capture went first
+                                ; no claim's [ico_max] reaches): GROW it
+                                ; (SPEC.md 25.9.6), and a refusal is SPEC.md
+                                ; 25's generic icon - the caller reads CF=1
+                                ; as exactly that. ES is the grown claim and
+                                ; DI is where it was: rows never move inside
+                                ; it, which is why the capture went first.
+    ; --- ico_grow, INLINE (its one caller; kernel size pass 15): take the
+    ; full store up a kilobyte. mem_regrow is the whole of it: in place when
+    ; the run above is free, else a new block and a copy. NOTHING ELSE MOVES
+    ; OR GOES - it compacts nothing, and it sheds only what ranks strictly
+    ; below the claim, which for MEM_PG_TRIV is nothing at all - so the
+    ; harvest and asc_seed, which hold other claims' segments across an
+    ; ico_add, hold good ones. A row's OFFSET never changes; only the base
+    ; can, and [ico_seg] is re-read by everything that names it. BX and DX
+    ; are this routine's inputs (the body), so they are banked; the row
+    ; rides in CX, which .fin restores
+    push bx
+    push dx
+    xchg ax, cx                 ; CL = the row
+    mov dx, [ico_seg]
+    mov al, [ico_kb]
+    cmp al, ICO_KBMAX           ; CF = 1 below the ceiling...
+    cmc                         ; ...and CF = 1 AT it, the refusal
+    jc .gout
+    or dx, dx
+    stc
+    jz .gout                    ; no store: nothing to grow
+    inc ax
+    cbw                         ; AX = the new size in KB (<= ICO_KBMAX)
+    mov bx, MEM_P_ICO
+    call mem_regrow             ; DX = the base now; AX kept
+    jc .gout
+    mov [ico_seg], dx
+    mov es, dx
+    mov [ico_kb], al
+    xchg ah, al                 ; AX = KB x 256 (AH was 0)...
+    shl ax, 1
+    shl ax, 1                   ; ...x 4 = the claim's bytes (<= 20,480)
+    sub ax, ICO_RBASE
+    mov bl, ICO_ROW
+    div bl                      ; AL = the rows it holds (ICO_KBMAX keeps it
+    mov [ico_max], al           ; a byte)
+    clc                         ; (`div` leaves the flags undefined)
+.gout:
+    xchg ax, cx                 ; the row back (`xchg` writes no flag)
+    pop dx
+    pop bx
+    jc .no
+.room:
+%else
+    cmp al, ICO_NROW
+    jae .no
 %endif
     push ax
     mov si, ico_keyb
@@ -9423,57 +9477,6 @@ ico_add:
     stc
 .fin:
     jmp dskw_find.out           ; the same six pops (a pop writes no flag)
-
-%ifdef OS88_ASSOC
-; -----------------------------------------------------------------------------
-; ico_grow - take the full store up a kilobyte (SPEC.md 25.9.6)
-; in:       [ico_seg] = the claim, or 0 = none
-; out:      CF = 0, ES = the claim (it may have MOVED) and [ico_max] raised;
-;           CF = 1 = no store, at ICO_KBMAX, or the heap said no
-; clobbers: ES (an output) and the flags
-;
-; mem_regrow is the whole of it: in place when the run above is free, else a
-; new block and a copy. NOTHING ELSE MOVES OR GOES - it compacts nothing, and
-; it sheds only what ranks strictly below the claim, which for MEM_PG_TRIV is
-; nothing at all - so the harvest and asc_seed, which hold other claims'
-; segments across an ico_add, hold good ones. A row's OFFSET never changes;
-; only the base can, and [ico_seg] is re-read by everything that names it.
-; -----------------------------------------------------------------------------
-ico_grow:
-    push ax
-    push bx
-    push dx
-    mov dx, [ico_seg]
-    mov al, [ico_kb]
-    cmp al, ICO_KBMAX           ; CF = 1 below the ceiling...
-    cmc                         ; ...and CF = 1 AT it, the refusal
-    jc .out
-    or dx, dx
-    stc
-    jz .out                     ; no store: nothing to grow
-    inc ax
-    xor ah, ah                  ; AX = the new size in KB
-    mov bx, MEM_P_ICO
-    call mem_regrow             ; DX = the base now
-    jc .out
-    mov [ico_seg], dx
-    mov es, dx
-    mov [ico_kb], al
-    mov ah, al
-    xor al, al
-    shl ax, 1
-    shl ax, 1                   ; AX = the claim's bytes (<= 20,480)
-    sub ax, ICO_RBASE
-    mov bl, ICO_ROW
-    div bl                      ; AL = the rows it holds (ICO_KBMAX keeps it
-    mov [ico_max], al           ; a byte)
-    clc                         ; (`div` leaves the flags undefined)
-.out:
-    pop dx
-    pop bx
-    pop ax
-    ret
-%endif
 
 ; -----------------------------------------------------------------------------
 ; ico_body - where row AL's body lives
@@ -9523,13 +9526,9 @@ ico_reloc:                      ; mem_hicaches_f swaps [ico_seg] for a pool
 .out:                           ; the store is never freed but by a shed, and
     ret                         ; ico_demote zeroes the word in that same
 %else                           ; protocol
-ico_reloc   equ mem_rr_none
-    db 0                        ; PARITY PAD, never executed or read: `.text`
-%endif                          ; from here to its end lost an odd 11, and an
-                                ; odd `.text` starts `.bss` - every word in it
-                                ; - on an odd address (dsk_ico's `align 2`
-                                ; above evens out everything before it)
-%endif
+ico_reloc   equ mem_rr_none   ; (its PARITY PAD went in kernel size pass
+%endif                          ; 15: sc_reloc's odd 5, after it, evens
+%endif                          ; `.text` out again)
 
 %ifdef OS88_IMG
 %ifdef OS88_COMPACT
@@ -9559,8 +9558,8 @@ img_reloc:                      ; (SI and CX are ours to spend:
 %endif
 %endif
 
-ico_seg:    dw 0                ; the store's claim, 0 = none (refused, or no
-                                ; listing has wanted a body yet)
+                                ; (ico_seg, the store's claim, is beside
+                                ; dsk_rah_seg above: one mem_rr_tab row)
 ico_n:      db 0                ; rows in use. It only grows: the store is
                                 ; retired by a PURGE and not by a mount, which
                                 ; is what makes it machine-wide
