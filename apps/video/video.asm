@@ -14599,6 +14599,13 @@ vp_rin:
     cmp byte [vp_einp], 2
     jne .ny
 .y:
+%ifndef LA_SIM
+    cmp byte [vp_tier], CPU_386     ; A 286's BORROW IS LOADALL, and the
+    jae .yb                         ; machine state it loads is captured
+    mov byte [la_csacc], 0x93       ; HERE, in this real mode: vp_xok's
+    call la_capture                 ; capture is real mode's on kern_big,
+.yb:                                ; and protected mode decided this
+%endif                              ; session (an IDT of limit 0 resets)
     mov al, 1                       ; IN PLACE: real mode borrows, and a
     call vd_ypatch                  ; borrow yields
 .ny:
@@ -14607,6 +14614,8 @@ vp_rin:
     pop ax
 .o:
     ret
+    nop                             ; (never run: what follows at the parity
+                                    ; it had - tools/os88rdiff.py --hot)
 
 ; vp_rout - LAST in the entry proc: vp_rin undone, before the copy we run in
 ; is copied back over the window's. Every register kept

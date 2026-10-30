@@ -10,12 +10,14 @@
 ; is kept here, under os88spk.inc's own names; what it writes there
 ; (os88spk_sil) goes back in CL.
 ;
-; PROTECTED MODE ONLY in practice - the arm runs on kern_mega - and the
-; include's own PKG_MEGA arm is what makes a span cost no trap: os88spkfx_init
-; banks DS, which VFXV_INIT makes this part's DATA segment, as the selector
-; its writing copies go through (SPEC.md 34.11.1.1). Init's own writes go
+; Set up in protected mode - the arm runs on kern_mega - and the include's
+; own PKG_MEGA arm is what makes a span cost no trap: os88spkfx_init banks
+; DS, which VFXV_INIT makes this part's DATA segment, as the selector its
+; writing copies go through (SPEC.md 34.11.1.1). Init's own writes go
 ; through CS and are a #GP each that the kernel completes - once a play, where
-; the include has always paid them.
+; the include has always paid them. A REAL-MODE bracket (98.3.24) plays the
+; same writing copies through a real segment: VFXV_BIND gives the part its
+; data segment and the ring's in the mode the call comes from.
 ; =============================================================================
     cpu 8086
     bits 16
