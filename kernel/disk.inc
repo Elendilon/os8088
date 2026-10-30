@@ -1064,8 +1064,9 @@ dsk_bpb_bank:                   ; (no frame: disk_mount_x carries nothing
     mov si, ax
     mov di, dsk_bpbh            ; the staged head
     mov byte [dsk_bpbpre], 1    ; ...so dsk_bpb_check skips rules 1-2 and the
-    jmp short .move             ; staging, and only those
-.put:
+    rep movsw                   ; staging, and only those. (The copy written
+    ret                         ; out where a `jmp short .move` was: one byte
+.put:                           ; for the hot path's parity, pass 15)
     mov di, ax
     mov si, [dsk_sigcur]
     add bx, bx
@@ -5044,7 +5045,8 @@ dsk_up_open:
 ;           ES = LOW_SEG
 ; out:      those entries with the folders first, each group in ascending
 ;           name order
-; clobbers: flags
+; clobbers: AX, BX, CX, DX, SI, DI, flags - its one caller, disk_mount_x,
+;           carries only BP and ES past it (kernel size pass 15)
 ;
 ; BX rather than disk_dir because the parent link (SPEC.md 19.5) is not part
 ; of the sort: it occupies slot 0 in a subdirectory and stays there, so the
@@ -5068,7 +5070,7 @@ dsk_up_open:
 ; es: overrides instead.
 ; -----------------------------------------------------------------------------
 dsk_sortdir:
-    call kentc_di               ; KENT: push ax..di
+    ; (no frame: BP and ES are all disk_mount_x carries past it - pass 15)
 
 
 
@@ -5147,13 +5149,22 @@ dsk_sortdir:
 .placed:
     cmp di, bx
     je .next                    ; already in place: an entry not moved
-    mov si, bx
-    call dsk_swapent
+    mov si, bx                  ; --- exchange [SI] and [DI], 32 bytes (it
+    push cx                     ; was dsk_swapent, this its one caller -
+    mov cx, DSK_DE_STRIDE       ; kernel size pass 15) ---
+.swap:
+    mov al, [es:si]             ; one xchg where a second load and store were
+    xchg al, [es:di]            ; (size pass 10, -3)
+    mov [es:si], al
+    inc si                      ; SI and DI run off the two entries, and
+    inc di                      ; .outer reloads both
+    loop .swap
+    pop cx
 .next:
     add bx, DSK_DE_STRIDE
     jmp short .outer
 .out:
-    jmp kretc_di
+    ret
 
 ; -----------------------------------------------------------------------------
 ; dsk_upper - fold one name byte to upper case (module-internal)
@@ -5169,24 +5180,6 @@ dsk_upper:
     sub al, 'a'-'A'
 .out:
     ret
-
-; -----------------------------------------------------------------------------
-; dsk_swapent - exchange two synthesized directory entries (module-internal)
-; in:       SI, DI = LOW_SEG offsets, ES = LOW_SEG
-; out:      the two entries exchanged
-; clobbers: flags (AX, CX, SI and DI preserved)
-; -----------------------------------------------------------------------------
-dsk_swapent:
-    call kentc_di               ; KENT: push ax..di
-    mov cx, DSK_DE_STRIDE
-.next:
-    mov al, [es:si]             ; one xchg where a second load and store were
-    xchg al, [es:di]            ; (size pass 10, -3)
-    mov [es:si], al
-    inc si
-    inc di
-    loop .next
-    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; dsk_peek_x - the head of a file, whichever transport (SPEC.md 20.14.6.2)
