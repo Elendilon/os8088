@@ -8624,9 +8624,7 @@ mx_free:
     xchg ax, cx
     cmp cx, ax
     jne .next
-    call mx_unsel                   ; its OSAPI_XMEM_SEL selector goes too
-    mov word [ss:si+MX_KB], 0
-    mov byte [ss:si+MX_OWN], 0xFF
+    call mx_kill                    ; its OSAPI_XMEM_SEL selector goes too
     popf
     jmp short .out
 .next:
@@ -8651,9 +8649,7 @@ mx_relall:
 .scan:
     cmp [ss:si+MX_OWN], al
     jne .next
-    call mx_unsel
-    mov word [ss:si+MX_KB], 0
-    mov byte [ss:si+MX_OWN], 0xFF
+    call mx_kill
 .next:
     add si, MX_BLKSZ
     cmp si, mx_tab_end
@@ -8675,6 +8671,14 @@ mx_relall:
     jb .w
     popf
     pop si
+    ret
+
+; mx_kill - SI = an mx_tab entry: free - its selectors back (mx_unsel), its
+; KB 0 and its owner FFh. Clobbers nothing
+mx_kill:
+    call mx_unsel
+    mov word [ss:si+MX_KB], 0
+    mov byte [ss:si+MX_OWN], 0xFF
     ret
 
 ; mx_relinst - an instance's teardown (XMV_RELINST): AL = its slot -> its
@@ -9137,8 +9141,8 @@ mx_copy:
     mov [mega_xdst], ax
     mov [mega_xdst+2], dx
 .go:
-    call KERNEL_SEG:mega_lincopyf
-    clc
+    call mx_lcopy                   ; (`.mega` too: the door's round trip
+    clc                             ; through `.text` bought nothing)
     jmp short .out
 .fail:
     stc
@@ -11083,16 +11087,8 @@ mega_claimfreef:
     push ax
     push bx
     push si
-    call MEGA_SEL_CODE:mega_ownerf
-    jc .no
-    mov si, mx_tab
-.l:
-    cmp word [ss:si+MX_KB], 0
-    je .n
-    cmp [ss:si+MX_SEL], dx
-    jne .n
-    cmp [ss:si+MX_OWN], bl
-    jne .n
+    call mega_claimfind             ; SI = the claim's entry, BL = its owner
+    jc .o
     xor ax, ax                      ; A BRIDGE's conventional piece, for
     test byte [ss:si+MX_FL], MX_FBRIDGE ; mmf_osapi_mem_free to free after
     jz .nb                          ; this one (KERN-MEGA-MEMORY-PLAN MC5)
@@ -11100,20 +11096,9 @@ mega_claimfreef:
 .nb:
     mov [mega_bfpart], ax
     push dx
-    mov ax, [ss:si+MX_OFF]             ; its base: the pool's plus KB x 1024
-    mov dx, ax
-    shl ax, 10
-    shr dx, 6
-    add dx, MEGA_XPOOL >> 16
-    call MEGA_SEL_CODE:mx_freef                    ; ...and mx_unsel takes the selector
+    call mega_mxbase                ; DX:AX = its base
+    call MEGA_SEL_CODE:mx_freef     ; ...and mx_unsel takes the selector
     pop dx
-    jmp short .o
-.n:
-    add si, MX_BLKSZ
-    cmp si, mx_tab_end
-    jb .l
-.no:
-    stc
 .o:
     pop si
     pop bx
@@ -11262,8 +11247,13 @@ mega_claimregrowf:
     pop dx
     call MEGA_SEL_CODE:mx_freef                    ; no LDT entry: the new block goes back
 .nol:
-    dec byte [sch_lock]
+    stc
+.unl:
+    dec byte [sch_lock]             ; (dec keeps CF)
+    jmp short .pop
 .no:
+    stc
+.pop:                               ; THE EXIT, every one: CF the answer
     pop es
     pop ds
     pop bp
@@ -11273,7 +11263,6 @@ mega_claimregrowf:
     pop cx
     pop bx
     pop ax
-    stc
     retf
 .copy:
     push bx
@@ -11324,19 +11313,9 @@ mega_claimregrowf:
 .aim:
     mov cx, bp
     shl cx, 10
-    call MEGA_SEL_CODE:mega_xmself                 ; the caller's selector over the new size
-    dec byte [sch_lock]
-    pop es                          ; (it cannot fail: the block is the
-    pop ds                          ; caller's and already has its selector)
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    clc
-    retf
+    call MEGA_SEL_CODE:mega_xmself  ; the caller's selector over the new size
+    clc                             ; (it cannot fail: the block is the
+    jmp short .unl                  ; caller's and already has its selector)
 
 ; --- A RUN (MX_FHUGE: OSAPI_MEM_HUGE's) AT ANY SIZE (KERN-MEGA-PLAN 14.37).
 ; SI = its entry, BL = its owner, BP = the new KB, ES = anything. The bytes:
@@ -11352,9 +11331,8 @@ mega_claimregrowf:
 ; the claim's bytes and run whole, wherever the pass left them
 .huge:
     test byte [ss:si+MX_FL], MX_FH32 | MX_FH16 | MX_FBRIDGE ; (windows
-    jz .h64                         ; 32KB or 16KB apart: not regrown, 14.41;
+    jnz .hnol                       ; 32KB or 16KB apart: not regrown, 14.41;
                                     ; nor a bridge, MC5)
-    jmp .nol
 .h64:
     cmp bp, [ss:si+MX_KB]
     jbe .hsel                       ; a shrink or a level: in place
@@ -11453,18 +11431,8 @@ mega_claimregrowf:
     mov dx, [ss:si+MX_SEL]             ; --- the answer: the run's first -----
     mov bp, sp
     mov [bp+10], dx                 ; (the DX this proc pushed)
-    dec byte [sch_lock]
-    pop es
-    pop ds
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
     clc
-    retf
+    jmp .unl
 
 ; .hfill - ES:DI = the run's first entry, CX = its length, BP = the KB: the
 ; claim is BP KB and the run's descriptors say so, over its block's base
