@@ -235,6 +235,15 @@ mx_leg0:
     mov [di+L_CF], dl
     mov ax, si
     mov [di+L_WHY], al
+    cmp word [mx_body], mx_rd       ; A READ leg: its XMS once more, in
+    jne .np                         ; PROTECTED mode - the kernel's own token
+    call mx_back                    ; translation against the twin's
+    mov di, [mx_cur]
+    jnc .pb
+    mov cx, 0xFFFF
+.pb:
+    mov [di+L_X1], cx
+.np:
     pop ax
     jmp mx_rep
 
@@ -283,6 +292,30 @@ mx_rd:
     adc word [mx_off+2], 0
     jmp short .lp
 .back:                              ; ...and every byte back in from XMS
+    call mx_back
+    jc .xerr
+    mov di, [mx_cur]
+    mov [di+L_XBAD], cx
+    ret
+.xerr:
+    or ax, 0x8000                   ; an XMEM_COPY failure: AX's code, marked
+.err:
+    mov di, [mx_cur]
+    cmp word [di+L_ERR], 0
+    jne .out
+    or ax, ax
+    jnz .e1
+    dec ax
+.e1:
+    mov [di+L_ERR], ax
+.out:
+    ret
+
+; mx_back - the leg's L_BYTES back in from the XMS block, 32 KB at a time,
+; checked: CX = the dwords wrong; CF = 1 and AX an XMEM_COPY refused
+mx_back:
+    xor ax, ax
+    mov [mx_xb], ax
     mov di, [mx_cur]
     mov ax, [di+L_BYTES]
     mov dx, [di+L_BYTES+2]
@@ -314,24 +347,18 @@ mx_rd:
     jc .xerr
     mov ax, [mx_got]
     call mx_chk
-    mov di, [mx_cur]
-    add [di+L_XBAD], cx
+    add [mx_xb], cx
     mov ax, [mx_got]
     add [mx_off], ax
     adc word [mx_off+2], 0
     jmp short .bl
-.xerr:
-    or ax, 0x8000                   ; an XMEM_COPY failure: AX's code, marked
-.err:
-    mov di, [mx_cur]
-    cmp word [di+L_ERR], 0
-    jne .out
-    or ax, ax
-    jnz .e1
-    dec ax
-.e1:
-    mov [di+L_ERR], ax
 .out:
+    mov cx, [mx_xb]
+    clc
+.x:
+    ret
+.xerr:
+    stc
     ret
 
 ; mx_seq - one READ_SEQ of [mx_name] into [mx_buf]: out CF, AX = bytes
@@ -541,6 +568,19 @@ mx_nrm:
     mov [di+L_X4], ax
     call OSAPI_XMEM_CAPS            ; ...and CAPS answers
     mov [mx_capsi], ax
+    mov word [mx_off], MX_CHUNK     ; ...and the COPY twin reads what D wrote
+    mov word [mx_off+2], 0          ; in PROTECTED mode: RMBXB.DAT's second
+    mov byte [mx_salt], 0x22        ; 32 KB, at its own offset
+    mov cx, MX_CHUNK
+    mov di, 1
+    call mx_xcp
+    mov di, [mx_cur]
+    mov cx, 0xFFFF
+    jc .nx
+    mov ax, MX_CHUNK
+    call mx_chk
+.nx:
+    mov [di+L_XBAD], cx
     ret
 
 ; mx_rep - AL = the leg's letter: its line on E9
@@ -726,4 +766,5 @@ mx_end      equ mx_off + 4          ; dd
 mx_map      equ mx_end + 4          ; 8 bytes: HDV_DISARM's
 mx_rcur     equ mx_map + 8          ; FSEQ_SIZE: the READ_SEQ cursor
 mx_got      equ mx_rcur + FSEQ_SIZE ; this chunk's bytes
-MX_RESN     equ mx_got + 2 - mx_res
+mx_xb       equ mx_got + 2          ; mx_back's count
+MX_RESN     equ mx_xb + 2 - mx_res

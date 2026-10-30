@@ -16826,6 +16826,52 @@ SOAK = [
         needs=("bochs", "nasm"),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
                "build/megarmbf.o88", "build/megarmbf.bin")),
+    Row("vidrmbfrag", "soak", py("tests/vidrmb.py"), 50.0,
+        "SPEC.md 53.2.3, docs/plans/MEGA-VIDEO-REALMODE-PLAN.md W3: what a "
+        "REAL-MODE BRACKET reads, under Bochs booted off C: with no driver "
+        "(C: the kernel's own BIOS volume). MEGARMBX lists its file "
+        "(FSXL_FILE) and inside the bracket streams it with "
+        "OSAPI_FILE_READ_SEQ in 32 KB calls out of the extent list the door "
+        "walked, checks every dword, copies each chunk out with the "
+        "OSAPI_XMEM_COPY twin and back in, and the XMS is read once more "
+        "after the bracket in protected mode: RMBXC.DAT on C:, RMBXB.DAT on "
+        "a B: floppy, FRAGA.DAT walked to the CAP (224 single-sector runs, "
+        "real mode) and FRAGB.DAT one run past it (FSXR_FRAG, the same reads "
+        "in protected mode); FSXL_DRV DRVC_SOUND falls back FSXR_DRV; "
+        "inside, an unlisted name answers FERR_NAME, a listed missing one "
+        "FERR_NOENT, READ_AT and XMEM_ALLOC are refused, XMEM_CAPS answers "
+        "what protected mode did and the COPY twin reads what protected mode "
+        "wrote; after, the table and every claim back. Red with every "
+        "extent one sector late (C, B, F wrong in every dword) and with the "
+        "twin's token translation a dword off (the protected-mode re-read "
+        "and N). 50s is 37-41 measured",
+        needs=("bochs", "nasm"),
+        wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
+               "build/megarmbx.o88", "build/megarmbx.bin")),
+    Row("vidrmbhdd", "soak", py("tests/vidrmb.py", "--hdd"), 55.0,
+        "SPEC.md 53.2.3, MEGA-VIDEO-REALMODE-PLAN W3: vidrmbfrag with HDD.DRV "
+        "wanted, so C: is a DRVC_DISK volume - its file read inside the "
+        "real-mode bracket through the LOW COPY of HDD.DRV's DSV_BLK "
+        "(Bochs's IDE: rung 1, native PIO), and HDV_ARM through the "
+        "OSAPI_DRV_CALL twin: 32 KB read STRAIGHT INTO XMS with every "
+        "sector's bit in the map and every dword right there (zeroed "
+        "first) - the read rung 1 refuses under protected mode. After, "
+        "HDD.DRV's image header and device row as they were. 55s is 41-43 "
+        "measured",
+        needs=("bochs", "nasm"),
+        wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
+               "build/megarmbx.o88", "build/megarmbx.bin")),
+    Row("vidrmb286", "soak", py("tests/vidrmb.py", "--box86"), 15.0,
+        "SPEC.md 53.2.3, MEGA-VIDEO-REALMODE-PLAN W3: vidrmbfrag's legs on "
+        "86Box's 286-victory, every file on B: - the real-mode bracket by "
+        "the RESET way down, OSAPI_XMEM_COPY by LOADALL (apps/os88la.inc in "
+        "the service area), every dword right in the buffer, back through "
+        "the twin and back again in protected mode. Red with the twin's "
+        "token translation a dword off (C, B, F's protected-mode re-read, "
+        "N). 15s is 6-7 measured",
+        needs=("86box",),
+        wants=("build/mega.img", "build/megarun.o88", "build/megarmbx.o88",
+               "build/megarmbx.bin")),
     Row("megaxmove", "soak", py("tests/megaxmove.py"), 25.0,
         "SPEC.md 50.6.10, docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md MC3: on "
         "kern_mega an OSAPI_XMEM_ALLOC block MOVES and is read back through "

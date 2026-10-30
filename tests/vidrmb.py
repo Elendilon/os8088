@@ -31,8 +31,12 @@ asserted of each (a record per leg in its bss):
      every sector's bit in the map and every dword right in XMS (zeroed
      first); without HDD.DRV, DRV_CALL answers no driver (CF, AX = 0)
   N  inside a real-mode bracket: an unlisted name FERR_NAME, a listed file
-     that is not there FERR_NOENT, READ_AT and XMEM_ALLOC refused, and
-     XMEM_CAPS what protected mode answered
+     that is not there FERR_NOENT, READ_AT and XMEM_ALLOC refused,
+     XMEM_CAPS what protected mode answered, and XMEM_COPY reading back what
+     protected mode wrote (D's second 32 KB)
+  and every READ leg's XMS is read back once more AFTER its bracket, in
+  protected mode - the kernel's own token translation against the twin's,
+  which a round trip through the twin alone could not tell apart
   and after: no bracket up, [fsx_rwhy] FFh, the service area and every
   driver copy's claim given back ([fsx_rsvc] 0), the table byte for byte,
   with --hdd HDD.DRV's image header as it was, no kern_mega FAULT.
@@ -191,6 +195,10 @@ def judge(r, hdd):
         want(d.get("bad") == 0 and d.get("xbad") == 0,
              "%s: every dword right in the buffer (%d wrong) and back from "
              "XMS (%d wrong)" % (c, d.get("bad", -1), d.get("xbad", -1)))
+        want(d.get("x", [1])[0] == 0,
+             "%s: ...and read back from XMS AGAIN in protected mode, through "
+             "the kernel's own token translation (%d wrong)"
+             % (c, d.get("x", [-1])[0]))
     read_leg("C", "RMBXC.DAT", 0, False, "its own folder%s" %
              (", a DRVC_DISK volume through HDD.DRV's low copy" if hdd
               else ""))
@@ -227,6 +235,9 @@ def judge(r, hdd):
          "FERR_NOENT (%d)" % (x[0], x[1]))
     want(x[2] == 0xFFFF and x[3] == 0xFFFF,
          "N: READ_AT (%04x) and XMEM_ALLOC (%04x) refused" % (x[2], x[3]))
+    want(n.get("xbad") == 0, "N: the COPY twin reads what protected mode "
+         "wrote (D's RMBXB.DAT, its second 32 KB: %d wrong)"
+         % n.get("xbad", -1))
     want(r.get("capsi") == r.get("capso") and r.get("capso"),
          "N: XMEM_CAPS inside %d KB, outside %d KB" % (r.get("capsi", 0),
                                                          r.get("capso", 0)))
@@ -395,8 +406,11 @@ def box86(a):
                 600000, 500)
         res = b.memr(base + roff, 16 + len(LEGS) * LEG_SZ)
         b.ui_done(limit_ms=20000, lock=False)
+        import os88sym                  # (.lowbss: LOW_SEG's, by the map)
+        off, sect, equ = os88sym._parse_map(os.path.join(B, "megak",
+                                                         "kernel.map"))
         after = (b.byte("fsx_rwhy"), b.byte("fsx_rmode"), b.byte("fsx_task"),
-                 b.word("fsx_rsvc"))
+                 u16(b.memr(equ["LOW_SEG"] * 16 + off["fsx_rsvc"], 2)))
     except SystemExit as e:
         want(False, "the machine stopped answering or a step missed: %s" % e)
     finally:
