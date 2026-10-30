@@ -5,24 +5,37 @@ Kernel size pass 15 (`docs/plans/completed/ksp15/BRIEF.md`). Assignment:
 SPEC.md 34.15.1) from 6,392 to under 6,144; bonus `snd_keepmix` from 9,937
 toward 9,216. Branch `ksp15-snd`, base `49ad5d67` (`e4896481` plus the brief).
 Figures are ASSEMBLED bytes off the image and its symbol map
-(`tests/unit/t_sndonce.py` prints the two keeps). **No kernel source changed**
-(`git diff 49ad5d67 -- kernel/ drivers/os88drv.inc apps/os88api.inc` is
-empty), so all four kernels are byte-identical to the base and no ABI moved.
+(`tests/unit/t_sndonce.py` prints every keep). One kernel line changed, at
+the end: `DRVM_IMG_SND` 12 -> 11 in `kernel/driver.inc`, the Drivers page's
+price of the image, which `t_drvmem` (fast) holds to the image's KB - a
+value, so no kernel's size moved; nothing in `drivers/os88drv.inc` or
+`apps/os88api.inc` changed and no ABI moved.
+
+The pass ran in two rounds: the brief's goal (commits `5f5df415`,
+`23b5adde`), then round 1's WANTS THE OWNER 1 and 2, which the owner
+approved (`61c6fa09`, TAKEN AT THE OWNER'S WORD below); its 3 was not.
 
 ## BASE AND TIP
 
-| SOUND.DRV | base | tip | delta |
+| SOUND.DRV (shipped, PicoMEM in) | base `49ad5d67` | round 1 `acd7f4eb` | **tip** |
 |---|---:|---:|---:|
-| **`snd_keep`** (no mixer) | 6,392 -> 7KB claim | **6,106 -> 6KB** | **-286** |
-| **`snd_keepmix`** (a mixer) | 9,937 -> 10KB | **9,551 -> 10KB** | **-386** |
-| image (unpacked; the load claim) | 11,737 -> 12KB | 11,369 -> 12KB | -368 |
-| `NOPICOMEM=1` `snd_keep` | 6,209 -> 7KB | **5,949 -> 6KB** | -260 |
-| `NOPICOMEM=1` `snd_keepmix` | 9,754 -> 10KB | 9,394 -> 10KB | -360 |
-| `NOPICOMEM=1` image | 11,224 -> 11KB | 10,864 -> 11KB | -360 |
+| no mixer, no PicoMEM, no MPU-401 (`snd_keep`) | 6,392 (7KB) | 6,106 (6KB) | **5,797 (6KB)** |
+| no mixer, a PicoMEM (`snd_keeppm`) | 6,392 (7KB) | 6,106 (6KB) | **5,913 (6KB)** |
+| no mixer, an MPU-401 (`snd_keepmpu`) | 6,392 (7KB) | 6,106 (6KB) | **6,098 (6KB)** |
+| a mixer (`snd_keepmix`) | 9,937 (10KB) | 9,551 (10KB) | **8,622 (9KB)** |
+| image (unpacked; the load claim) | 11,737 (12KB) | 11,369 (12KB) | **10,460 (11KB)** |
 
-The goal is met with 38 bytes to spare (`NOPICOMEM=1` 195). The bonus is not:
-`snd_keepmix` is 335 bytes above 9,216, and WANTS THE OWNER 2 is the only
-lever left that reaches it (the popup's 968-byte band).
+| `NOPICOMEM=1` | base | round 1 | **tip** |
+|---|---:|---:|---:|
+| no mixer, no MPU-401 | 6,209 (7KB) | 5,949 (6KB) | **5,756 (6KB)** |
+| no mixer, an MPU-401 | 6,209 (7KB) | 5,949 (6KB) | **5,941 (6KB)** |
+| a mixer | 9,754 (10KB) | 9,394 (10KB) | **8,465 (9KB)** |
+| image | 11,224 (11KB) | 10,864 (11KB) | **9,945 (10KB)** |
+
+**Both goals are met**: the no-mixer keep is under 6,144 for every machine
+class (the worst, an MPU-401 and no mixer, by 46 bytes), and the mixer keep
+is 594 under the bonus's 9,216. No machine keeps more than at round 1 or at
+the base.
 
 Every other includer of a `drivers/sound/*.inc`:
 
@@ -33,6 +46,20 @@ Every other includer of a `drivers/sound/*.inc`:
 | `tests/picomem/sbhx.asm`, `vshx.asm` | `picomem.inc`, sb.inc cut by `tests/picomem.py` | - | assemble; the slice still finds `sbl_hook`/`sbl_cell` |
 | MIDIRack, RealDMG, XTMP3 (all arms), the Mixer's verbs | `sndpkg.inc` only | - | byte-identical (`sndpkg.inc` untouched) |
 | `SOUND.DRV`'s HMA image (`sound.hma.bin`) | all | - | builds (`make`) |
+
+And every includer of `apps/os88gfx.inc`, whose `GFXE_BAND_SEG` is new and
+opt-in: **byte-identical** at the same commit, the build directory's md5s
+taken before and after (`make`, `make small`, `make emu`, `make mega`) -
+CYCLONE, DESKCAL (and its small arm), DESKCLOK (and its small arm),
+MISSILE, MIXER, PIXEL (and its kern_mega arm), the Sticky App library
+`stiklib.bin` (kern_big, kern_small, kern_emu, kern_mega), STIKNOTE, TANK
+(and its small arm), WIRE, WIREFLEET (`wireflet`), SAVER.DRV, and
+`tests/stikprob` in both its arms (STIKPROB, DESKPROB), assembled by hand
+before and after. Thirteen packages, SOUND.DRV the fourteenth. What did
+change in the build tree is SOUND.DRV, and the kernel images and the kernel
+modules cut from them (`ctrl`, `desk`, `diskops`, `dock`, `extd`, `format`,
+`hiber`, `serial`, `stikmenu`, `win95`, and kern_small's `fdlg`/`filecp`)
+plus SYSCHECK - every one of them the `DRVM_IMG_SND` constant.
 
 ## TAKEN
 
@@ -128,32 +155,89 @@ equal the base's first 44, and the base's rows 44..47 are all white
   (`os88_r_si`) has too few users below `snd_keep` to pay its six bytes.
 * **`MIXUI_H` 44 for `MIXER.O88`**: see above - not proven pixel-identical.
 
+## TAKEN AT THE OWNER'S WORD (round 2, `61c6fa09`)
+
+WANTS THE OWNER 1 and 2 of round 1, approved; 3 was not, and is not taken.
+
+### 1. Four keep points: `[tiers] [PicoMEM] [MPU-401] [mixer] [attach]`
+
+`picomem.inc`'s `PM_RES` (`pm_runaway`, `pm_tick`) and `mpu.inc`'s
+`MPU_RES` (`mpu_put`, `mpu_hush`, verbs 2..5's bodies) are macros expanded in
+place without `SND_SPLIT` - so `tests/picomem/` and `vidsnd.asm` assemble
+the code they always had, `pm_runaway` asking `[pm_up]` and each verb
+`[mpu_base]` itself - and by `sound.asm` into runs of their own between
+`snd_keep` and the mixer's. The attach keeps up to the end of the LAST run
+it found a user for: `[mix_kind]`, then `[mpu_base]`, then `[pm_base]`.
+
+* **The doors.** `sbl_tick` asks `[pm_up]` before `call pm_runaway` (the
+  test that was the callee's first instruction - so a machine without the
+  card spends a compare and a taken jump in IRQ0 where it spent a call, a
+  compare, a jump and a ret: FEWER cycles). `pm_tickpub`, resident, publishes
+  `pm_tick` only with `[pm_base]` - the keep's own test. `snd_pkg` refuses
+  verbs 2..5 with `SNDE_NOMIDI` without `[mpu_base]`, the verbs' own answer
+  word for word, so their bodies drop the test under `SND_SPLIT`.
+  `mpu_detach` stays resident and reaches `mpu_hush` only with `[mpu_own]`,
+  which only a successful `SNDV_MIDOPEN` sets.
+* **`t_sndonce`** now knows five runs: rule 2 is "no reference into a LATER
+  middle run outside that run's doors", run by run (a run kept for a later
+  one's sake is free to name an earlier one). Broken on purpose twice:
+  `sbl_tick` out of the PicoMEM's doors and `mpu_detach` out of the MPU's,
+  and it named `pm_runaway` and `mpu_hush`.
+* **No machine keeps more**: the four figures in BASE AND TIP are each at or
+  below round 1's single no-mixer figure (6,106), the MPU case carrying the
+  PicoMEM's 116 bytes it carried before.
+
+### 2. The popup's band in the popup's claim
+
+* **`apps/os88gfx.inc`'s `GFXE_BAND_SEG`** (opt-in; a word holding the
+  band's segment). Every band byte the TEXT routines write goes through ES
+  (`GFXE_BS_` = `es:`), `gfxe_bclear` and `gfxe_bfill` load ES from the word,
+  and `gfxe_glyph` copies a glyph's eight rows out of the kernel's font into
+  `gfxe_gly` (8 bytes) first, so ES is free to be the band while the rows
+  are merged (`GFXE_FS_` drops the `es:` on the font reads). It `%error`s
+  with LINE, BITS, SCALE, the band utilities or the Sticky App library - the
+  paths it does not cover. `os88mixui.inc` passes it on as `MIXUI_BAND_SEG`
+  and blits from that segment. Every other includer is byte-identical (the
+  table above).
+* **`volume.inc`**: the band is at offset 0 of the save-under claim
+  (`MIXUI_BUFFER` 0, `MIXUI_BAND_SEG volume_save`), the pixels after it
+  (`OSAPI_GFX_SAVE`/`_REST` at `VOLUME_BANDSZ` = 968). `mixui_draw` runs
+  only while that claim is held. `volume_band` (968 bytes of every mixer
+  machine's keep) is gone: **-929** of `snd_keepmix` net.
+* **The Dark theme's icon** borrowed 48 bytes of the band to invert the
+  speaker. It inverts `mix_speaker` IN PLACE, blits, and inverts it back:
+  nothing else reads the bitmap and the UI task is in the routine for both
+  passes. A unicorn harness ran the base's and the tip's `mix_icon` for both
+  displays and both papers and compared the blit's registers and the 48
+  bytes it was handed: identical, and the bitmap restored.
+* **Pixel identity**: the same harness as round 1, with the tip's band in a
+  segment of its own - identical to the base's first 44 rows for every value
+  0..100, and the only image bytes `mixui_draw` writes are its own and the
+  library's state words (`gfxe_gly` among them).
+* **Cycles** (counted in the harness, priced, not timed on a machine):
+  +236..264 instructions and +277..310 segment prefixes a `mixui_draw` -
+  the glyph copies (~11 instructions and a 4-word `rep movsw` a glyph) and
+  an `es:` on every band write. Roughly **+4,000 cycles, ~0.85 ms on a
+  4.77MHz 8088, a slider redraw**, against a redraw of ~5,000-5,700
+  instructions before its blit. Not a listed hot path: it is the popup's
+  drag.
+* **The claim, per adapter** (72 rows x 26 bytes x planes, +968): mono
+  1,872 -> 2,840, **2KB -> 3KB**; VGA/EGA 7,488 -> 8,456, **8KB -> 9KB**;
+  VESA 8bpp 14,976 -> 15,944, **15KB -> 16KB**; VESA 16bpp 29,952 ->
+  30,920, **30KB -> 31KB**. It crosses a KB on every adapter - for as long as
+  the popup is up, from the heap, where the 968 bytes were resident for the
+  session on every mixer machine before. `tests/mixer.py` asserts the new
+  figure (it asserted the old one and went red, as it should).
+* **`DRVM_IMG_SND` 12 -> 11** (`kernel/driver.inc`, in fsys's file - the one
+  line, forced by `t_drvmem`, which failed `make` until it moved): the image
+  is 10,460 bytes, 11KB.
+
 ## WANTS THE OWNER
 
-1. **A third keep point: the PicoMEM's and the MPU-401's resident halves
-   after the core** (`[core] [PicoMEM] [MPU] [mixer] [attach]`, `DRV_H_KEEP`
-   the end of the last run the attach found a user for). On a machine with
-   neither - most of them - `snd_keep` would fall by ~330 more (PicoMEM 123:
-   `pm_runaway` 76, `pm_tick` 47; MPU 215: `mpu_put`, `mpu_hush`, the four
-   verbs and `mpu_nomidi` - `mpu_detach`, `pm_tickpub` and `pm_rchk` stay
-   resident, `snd_pkg` tests `[mpu_base]` for the four verbs, and the
-   `call pm_runaway` in `sbl_tick` takes the `[pm_up]` test that is inside
-   it today, so a PicoMEM machine pays nothing). It is not a functionality
-   change, but it is a new layout rule beyond SPEC.md 34.15.1's two, with
-   `t_sndonce` to extend, so it is put rather than taken. Not taken: this
-   pass's figure stands without it.
-2. **The popup's band in the popup's own claim** (the bonus): `volume_band`
-   is 968 bytes of every mixer machine's keep, used only while the popup is
-   up - and the popup already claims a heap block for the screen it covers.
-   Composing there takes `snd_keepmix` to ~8,600 (9KB). It needs
-   `apps/os88gfx.inc` to compose into a band in ANOTHER segment (today every
-   `GFXE_BAND_BUF` access is DS-relative), a shared-library change across
-   every package that includes it - which is why it is a proposal. Without it
-   the bonus is 335 bytes away.
-3. **(alternative to 2) order the runs `[core] [mixer] [MPU] [PicoMEM]`**: an
-   SB Pro (a mixer, no MPU, no PicoMEM) would keep ~9,190 (9KB) - and a
-   machine with an MPU and no mixer would keep the whole mixer (+3.4KB). A
-   trade between machine classes, so the owner's.
+None open. Round 1's three were: (1) the device keep points and (2) the band
+in the popup's claim, both TAKEN above; (3) ordering the runs `[core]
+[mixer] [MPU] [PicoMEM]`, which would have made a no-mixer machine with an
+MPU-401 or a PicoMEM keep the mixer, NOT approved and not taken.
 
 ## WANTS AN ABI BREAK
 
@@ -161,26 +245,45 @@ None.
 
 ## CROSS-FILE
 
-None. `apps/os88mixui.inc` (no agent's row) is taken above, and said so.
+* `kernel/driver.inc` (fsys's row): `DRVM_IMG_SND` 12 -> 11, one value,
+  forced by `t_drvmem` (above). No other line of the kernel changed.
+* `apps/os88mixui.inc` and `apps/os88gfx.inc` (no agent's row) are taken
+  above, and said so; `tests/mixer.py`'s claim figure follows the band.
 
 ## ROWS RUN
 
-Once, after the last code commit, `python3 tools/os88test.py soak -k ...
---marty-jobs 1`: **23 ok, 0 failed** - `sndonce`, `sndkeep`, `sndmove`,
-`sndplay`, `recorder`, `sndfmt`, `sndcap`, `ringmove-audio`, `sbirq5`,
-`picomem`, `pmlib`, `pmmarty`, `mpupin`, `midirackmpu`, `midiracksb`,
-`midirackfm`, `fmpatch`, `fmrefuse`, `gorillasmusic` (which breakpoints
-`opl_keyon` and reads the pitch), `covoxdrv`, `mixerhost`, `mixervga`,
-`mixersb16`. The first pass SKIPPED `pmlib`/`pmmarty` (no `libpmhost` in a
-fresh worktree: `tools/picomem/build.sh` built it) and FAILED `mpupin` on a
-missing `mcopy` (`apt-get install mtools`); all three passed on the re-run.
-`t_sndonce` was broken on purpose (`sbl_hw_start` out of its doors) and
-named `sbl_pro_st` as the reach past `snd_keep`. `make`, `make small`,
-`make emu` and `make mega` build; the fast tier is 66/66. No row reaches an
-SB Pro's stereo stream (MartyPC's card is a DSP 2.01, QEMU's an SB16), so
-`SBL_PRO` is verbatim code moved, its guard argued above and held by
-`t_sndonce`. Not run: `waverackrec` (2,400 s declared; its record path is
-`recorder`'s verb 4 and verb 6, which ran).
+**Round 1** (after `23b5adde`, `--marty-jobs 1`): 23 ok, 0 failed -
+`sndonce`, `sndkeep`, `sndmove`, `sndplay`, `recorder`, `sndfmt`, `sndcap`,
+`ringmove-audio`, `sbirq5`, `picomem`, `pmlib`, `pmmarty`, `mpupin`,
+`midirackmpu`, `midiracksb`, `midirackfm`, `fmpatch`, `fmrefuse`,
+`gorillasmusic` (which breakpoints `opl_keyon` and reads the pitch),
+`covoxdrv`, `mixerhost`, `mixervga`, `mixersb16`. (`pmlib`/`pmmarty` first
+SKIPPED for want of `libpmhost` and `mpupin` FAILED on a missing `mcopy`;
+`tools/picomem/build.sh` and `apt-get install mtools` fixed both.)
+
+**Round 2** (after `61c6fa09`): **26 ok, 1 failed** - the round-1 set plus
+`mixercga`, `mixerherc`, `mixervesa` (the popup's claim on every adapter)
+and `dosest` (which reads `DRVM_SND`). The five `mixer*` rows first FAILED
+on `save-under has the adapter-sized claim` - the row asserted the claim
+without the band, the change it exists to see - and pass with
+`tests/mixer.py` taught the band (+1KB on every adapter, above).
+
+**`recorder` FAILS and it is not this change**: `FAIL 5: Stop left state 1
+('RECORDING...')` - the Stop picked from the Sound menu does not stop the
+take - in every one of nine runs this round (one of them the same leg's
+`took 6144 bytes` in 0.5 s instead). It fails IDENTICALLY with round 1's driver, library and kernel
+sources put back over the tip and rebuilt (it passed at round 1), and with
+the attach forced to keep the whole image - so neither the layout nor any
+byte here is the cause. The box was at load 5 on 4 cores (five agents).
+Its record path - verb 4, verb 6, the ISR's input leg - is unchanged by
+round 2. **Re-run it alone on a quiet box before believing it**
+(`os88bisect.py classify recorder`).
+
+Also: `t_sndonce` broken on purpose in both rounds; `make`, `make small`,
+`make emu`, `make mega` build at the tip; the fast tier is 66/66. No row
+reaches an SB Pro's stereo stream (MartyPC's card is a DSP 2.01, QEMU's an
+SB16), so `SBL_PRO` is verbatim code moved, its guard argued above and held
+by `t_sndonce`. Not run: `waverackrec` (2,400 s declared).
 
 ## DEFECTS FOUND
 

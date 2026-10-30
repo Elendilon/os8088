@@ -14,6 +14,9 @@
 %define GFXE_BAND_W 176
 %define GFXE_BAND_H MIXUI_H
 %define GFXE_BAND_BUF MIXUI_BUFFER
+%ifdef MIXUI_BAND_SEG           ; ...an offset in the segment this word holds
+  %define GFXE_BAND_SEG MIXUI_BAND_SEG  ; rather than in DS (os88gfx.inc's
+%endif                          ; GFXE_BAND_SEG; SOUND.DRV's popup claim)
 %include "os88gfx.inc"
 %define DEC_U16
 %include "os88dec.inc"
@@ -98,6 +101,9 @@ mixui_draw:
     mov al, CWHITE
     mov ah, CBLACK
     call OSAPI_GFX_BLIT1_PEN
+%ifdef MIXUI_BAND_SEG
+    mov es, [MIXUI_BAND_SEG]    ; the band's segment for the blit
+%endif
     mov si, MIXUI_BUFFER
     mov bp, 22
     mov ax, [mixui_x]
