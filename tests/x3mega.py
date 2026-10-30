@@ -113,8 +113,7 @@ def want(cond, what):
 
 
 def bad_lines(box):
-    return [l for l in box.lines() if l.startswith("kern_mega FAULT") or
-            l.startswith("kern_mega CLOSED")]
+    return box.faults()
 
 
 class X3(object):

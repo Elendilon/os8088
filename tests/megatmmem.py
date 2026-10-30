@@ -433,8 +433,7 @@ def main():
                  "never the bare Cache: %s"
                  % (", ".join(wrong) or
                     ", ".join("%05X %s" % (p, seen.get(p)) for p in para)))
-        bad = [l for l in box.lines() if "kern_mega FAULT" in l or
-               "kern_mega CLOSED" in l]
+        bad = box.faults()
         want(not bad, "5. no kern_mega fault%s" %
              "".join(" | " + l for l in bad[:3]))
     except Exception as e:      # noqa: BLE001 - the machine stopped

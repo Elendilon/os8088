@@ -771,7 +771,11 @@ make mega     # KERN_MEGA, the 286+ protected-mode kernel (docs/plans/
               #   Pair mega.img with megaapps.img, not with build/apps.img:
               #   the shipped Video Player REFUSES under protected mode and
               #   the shipped speaker library refuses its PCM tier there.
-              #   `make megapkgs` prints each arm against its shipped build
+              #   `make megapkgs` prints each arm against its shipped build.
+              #   It is a BUDGETED build and not a knob (rule 4 under Hard
+              #   rules): `make budget-check` builds and measures it, and
+              #   `kernsize --bless --build build/megak` blesses it - but it
+              #   is not RELEASED, and no release zip carries its disks
 make rom      # THE KERNEL IN ROM (SPEC.md 2.10, docs/plans/ROM-PLAN.md): an
 make socketrom#   IBM 5150's five spare sockets, U28-U32 at F4000-FDFFF, as
               #   ONE option ROM, written into build/rom/ as the 40KB window
@@ -922,7 +926,7 @@ make clean
 | `KBDDIAG=1` | record what the KEYBOARD sent and what the ROM made of it (**SPEC.md §9.8.1**), for a machine with no debugger: every IRQ1 with port 64h before the ROM's `int 09h` and 64h and 60h after it, the BIOS buffer's head and tail either side and the word stored, the PIC's ISR, IRR and IMR, and inside an fsx bracket the same state sampled each tick - a 64-record ring drawn under the menu bar. It is for docs/FIELD-NOTES.md 63, a Pentium 4 whose USB-through-PS/2 keyboard types on the desktop and cannot PAUSE MIDIRack's speaker play, and its three possible pictures say which link broke: no `I` rows inside the bracket, `I` rows whose tail never moves, or a tail that moved and a head that never caught up. The only behaviour it changes is that `kbm_isr` CALLS the ROM's `int 09h` instead of jumping to it. `make kbddiag` builds the four system disks; the shipped kernel is byte-identical, and it cannot be built with `MOUDIAG=1`, which draws in the same place |
 | `NOFDMEDIA=1` | take **SPEC.md 38.10**'s `MEDIA` default out of the Standard File chooser: an app whose user has never chosen a folder opens it where the app was **LAUNCHED** from instead of in `MEDIA` at its drive's root. The default is a nicety rather than a contract, so it is the part of the dialog whose bytes are easy to take back - this knob is how, `t_buildmatrix` keeps it assembling, and `tests/fdlgchoose.py` is verified to fail on it |
 | `PICLOSE=1\|2` | kern_mega only: **LOSE INTERRUPT EDGES on purpose** (docs/plans/KERN-MEGA-PLAN.md 14.64). On the way down of every reflected BIOS call, both 8259s are initialised - ICW1 erases every pending edge - after a window that waits for a byte to be sitting in the 8042, and the masks go back as they were. It is what the Victory 286's BIOS is inferred to do on its reset path, and no emulator here loses an edge by itself (Bochs is a 386 with no reset per call; 86Box rebuilds IRR from line levels). `1` keeps `mega_kwd`, the tick's lost-edge watchdog; `2` compiles it out, which is the 343124b2 kernel on that BIOS: move the pointer through a DOS program's live resume and the mouse AND the keyboard are dead. `tests/megapiclose.py` builds both into private trees and is the A/B |
-| `MEGADIAG=1` | kern_mega only: **put its FIELD READINGS back on the menu bar** (docs/plans/KERN-MEGA-PLAN.md 14.65; `make megadiag` builds the disks into `build/megadiag/`). A shipped kern_mega shows the protected-mode toast at boot (`Entered protected mode`) and the lines a user acts on - a package closed for faulting, its refusals, the hibernate's - and nothing else; this build names the route in that toast instead (`protected, 286 reset` / `protected, 386 CR0`) and adds `mega_tell`'s `NMI`, `RST`, `FDC RESET`, `RFL` and `Q` lines, the DOS trip's `DOSP`, the native floppy's `FD BIOS` and *native floppy off* toasts, and the handoff record's hex (`H ssss:oooo ...`) in place of *Not our handoff record*. Those were how the Victory 286 was debugged off photographs, so a field run that needs one is given this disk. It costs the shipped kern_mega nothing: **-280 `.text`, -920 `.mega`, -42 `.bss`** came out of it, kern_big and kern_small are byte-identical either way, and E9's own lines stay on both arms |
+| `MEGADIAG=1` | kern_mega only: **put its FIELD READINGS back on the menu bar** (docs/plans/KERN-MEGA-PLAN.md 14.65; `make megadiag` builds the disks into `build/megadiag/`). A shipped kern_mega shows the protected-mode toast at boot (`Entered protected mode`) and the lines a user acts on - a package closed for faulting, its refusals, the hibernate's - and nothing else; this build names the route in that toast instead (`protected, 286 reset` / `protected, 386 CR0`) and adds `mega_tell`'s `NMI`, `RST`, `FDC RESET`, `RFL` and `Q` lines, the DOS trip's `DOSP`, the native floppy's `FD BIOS` and *native floppy off* toasts, and the handoff record's hex (`H ssss:oooo ...`) in place of *Not our handoff record*. Those were how the Victory 286 was debugged off photographs, so a field run that needs one is given this disk. It costs the shipped kern_mega nothing: **-280 `.text`, -920 `.mega`, -42 `.bss`** came out of it, kern_big and kern_small are byte-identical either way. **It is also the only build whose KERNEL writes to the debug port** (port E9h, Bochs's `e9.out`; `MEGATRAP=1` does too): the switch, a fault's dump, a package closed, a park and its return, a resume, a module above 1MB, the native floppy's verdicts (KERN-MEGA-PLAN 14.127). The shipped kern_mega writes nothing there - **-1,072 `.mega` (with its scratch), -72 `.text`, -34 `.cold`** more - and a row reads the same facts out of guest state (`tools/os88bochs.py`'s `wait_pm`, `fault`/`faults`, `wait_trip`, `wait_resumed`, `mod_base`; docs/BOCHS.md) |
 | `MEGAFDMASK=1` | kern_mega only: the A/B for the **empty-drive freeze** (docs/plans/KERN-MEGA-PLAN.md 14.125; `make megafdmask` builds its disks into `build/megafdmask/`). The native floppy call masks every IRQ line whose gate reflects to an option ROM - a PicoMEM's multiplexer - for its length, so no reflection, on a 286 a CPU reset through the BIOS, lands in the second-long motor spin-up it waits in with IF on. A reflected BIOS `int 13h` never has one: that IRQ runs inside the BIOS call, already in real mode. The 8259 latches an edge while masked, so the IRQ is late and not lost. The shipped kern_mega is byte-identical; `MEGADIAG=1`'s floppy strip counts the reflections it would have prevented (`j`, `v`) |
 | `NOVIDEXT=1` | assemble kern_big WITHOUT SPEC.md 120.3's external renderer hook - no `VID_VESA` kind, no `VESA.DRV` row, no compare at the planar bodies. The A/B the hook's resident cost is measured against (**382 bytes** on the tree of 2026-10-26: `.text` 317, `.bss` 39, `.cold` 26, and 200 of the boot blob), and the only thing keeping the unhooked arms assembling. `t_buildmatrix`'s `novidext` row builds it |
 | `MEGATRAP=1` | kern_mega only: its **TRAP CENSUS** (docs/plans/KERN-MEGA-PLAN.md 10.3) - every #GP writes one line to port E9 (error code, CS:IP, DS, ES and the image CS runs in) before `mega_gpfix`, `mega_gpw` or `mega_null0` completes it. Those fixups are correct and cost a fault apiece, so a site in a loop is a slow program that looks like a working one; `tools/megatraps.py` ranks the lines. `make megatrap` builds its disk into `build/megatrap/`, so `build/mega.img` is never it |
@@ -1248,20 +1252,27 @@ user gives a different workflow. The worked example is
   (guard 1's `KERN_BUDGET`, DERIVED from those, plus `tests/kernresident.py`
   and `tests/small128.py` for the half an assembler cannot see) — and **BOTH
   BOOT on 128KB** (guard 5, `MIN_RAM_KB`, asserted by booting each kernel on a
-  128KB machine). **A budget is met EXACTLY at an upstream merge or a release;
+  128KB machine). **kern_mega is rule 4 and is budgeted too** (kern_mega size
+  pass 1, docs/plans/completed/msp1/megabudget.md): it RESIDES in **68KB of
+  CONVENTIONAL memory** once it has switched - `MEGA_RESIDENT`, `KERN_SIZE`
+  less the `.cold` and `.mega` rungs that go above 1MB, and NOT `KERN_SIZE`,
+  which is a boot-time transient there - and BOOTS on its 1MB floor machine's
+  640KB (guard 5's mega arm, `MEGA_BOOT_KB`); budgeted is not RELEASED, and no
+  release artefact carries its disks. **A budget is met EXACTLY at an upstream merge or a release;
   branch and integration work may run up to 2KB over it** (`KERN_GRACE` —
   features land whole and are size-passed after), and `make budget-check` is
-  where that grace ends. Over a budget at that point is a conversation with
+  where that grace ends, on all four budgeted kernels. Over a budget at that point is a conversation with
   the owner and a rework of the budgets, never a quiet raise.
   `KERN_CODE_MAX` is separate and absolute: `.text` + `.bss` inside one 64KB
   window because offsets are 16 bits. **Booting on a machine and residing in
   one are different questions** — the 128KB boot is where overlays and boot
   order broke machines whose resident size was well under it. `kernsize`
-  prints both lines; quote the one you mean. **None of the three binds a KNOB
+  prints both lines; quote the one you mean. **None of the rules binds a KNOB
   build** — guard 2 is the whole of what
   bounds it, because nobody boots one and every machine here has 640KB or
   could; a RAM-constrained test states its own constraint instead.
-  `KERN_SMALL` is not a knob for this purpose. **`soak -k 'buildmatrix'` is
+  `KERN_SMALL`, `KERN_EMU` and `KERN_MEGA` are not knobs for this purpose;
+  a knob ON kern_mega (`MEGATRAP=1`, `MEGADIAG=1`, ...) is. **`soak -k 'buildmatrix'` is
   the only thing that builds the knob kernels.**
 - **Before spending a resident byte, ask whether the feature is an ON-DEMAND
   MODULE** (§2.8, `kernel/mod.inc`, docs/plans/completed/ONDEMAND-PLAN.md §1's

@@ -250,6 +250,19 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 %error "MEGA_DIAG (MEGADIAG=1) is kern_mega's alone - build it with KERN_MEGA=1"
  %endif
 %endif
+; MEGA_E9 - kern_mega's lines on the DEBUG PORT (E9h: Bochs's port_e9_hack).
+; A SHIPPED kern_mega writes nothing there: the switch, a fault's dump, a
+; package closed, a park, an image moved above 1MB, the native floppy's
+; verdicts are each a developer's reading, and the harness reads the same
+; facts out of guest STATE instead (mega_on; mega_infault and mega_fbuf;
+; mega_fkn and mega_fkmsg - tools/os88bochs.py). MEGADIAG=1 puts them back,
+; and so does MEGATRAP=1, whose census is read in their context.
+%ifdef MEGA_DIAG
+ %define MEGA_E9
+%endif
+%ifdef MEGA_TRAPLOG
+ %define MEGA_E9
+%endif
 
 ; KDS / KES - "DS (ES) = the kernel's data", from code running in .text.
 ; In real mode that is `push cs / pop ds`, and on every build but kern_mega it
@@ -371,8 +384,22 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; and a plain `mov` everywhere else. KPARA - AX = the real paragraph of the
 ; segment in AX (a K scratch's base on kern_mega, AX itself elsewhere), for
 ; arithmetic on a register KSEG loaded (KERN-MEGA-MEMORY-PLAN MC7.6)
+; IN DISKOPS.DRV (`.modl`, fifty of the tree's fifty-four sites) the slot and
+; the segment-register load are a NEAR helper's, ksg_<sreg>_<slot> at the
+; image's end (below, before modl_end): the site is `push ax / mov ax, src /
+; call / pop ax`, eight bytes or so against seventeen, and the helper keeps DI
+; and FLAGS as the inline form does (kern_mega size pass 1). A combination no
+; helper exists for is an undefined label at assembly - add its row there
 %macro KSEG 3
 %ifdef KERN_MEGA
+ %ifidni __?SECT?__, [section .modl]
+    push ax
+  %ifnidni %2, ax
+    mov ax, %2
+  %endif
+    call ksg_ %+ %1 %+ _ %+ %3
+    pop ax
+ %else
     push ax
     push di
     mov ax, %2
@@ -381,6 +408,7 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
     mov %1, ax
     pop di
     pop ax
+ %endif
 %else
     mov %1, %2
 %endif
@@ -1126,10 +1154,27 @@ DRV_HMA_SEG equ 0xF000
 ; where it ends, so there is nothing to choose but the KB. How the previous
 ; figures (129,536 and 107,520) moved, thirty-five times, is
 ; docs/history/KERN-BUDGET-LEDGER.md.
+;
+;   4. kern_mega fully RESIDES in KERN_MEGA_RESIDENT_KB (68KB) of CONVENTIONAL
+;      memory once it has switched - KERN_SIZE less the `.cold` and `.mega`
+;      rungs, which go above 1MB at the switch and are given to the heap
+;      (MEGA_RESIDENT below, kernsize's `resident` figure). It is a SHIPPED-
+;      SHAPE build with a budget of its own and not a KERN_KNOB build any more
+;      (kern_mega size pass 1, docs/plans/completed/msp1/megabudget.md): the
+;      owner made it "a normal build with its own budget", a step towards a
+;      release that is not one yet. KERN_SIZE at boot is NOT what it is held
+;      to - that transient is guard 5's mega arm, the conventional memory of
+;      the 1MB floor machine. Sized at the 64,512 bytes it measured with
+;      kern_big's own headroom, 3,584 (seven steps).
 KERN_RESIDENT_KB       equ 100  ; rule 1
 KERN_SMALL_RESIDENT_KB equ 64   ; rule 2
+KERN_MEGA_RESIDENT_KB  equ 68   ; rule 4
 KERN_GRACE             equ 2048 ; branch and integration headroom over either
-%ifdef KERN_BIG
+%ifdef KERN_MEGA
+KERN_BUDGET equ KERN_MEGA_RESIDENT_KB*1024 - KERNEL_SEG*16
+                                ; = 68,096, against MEGA_RESIDENT and not
+                                ; KERN_SIZE (guard 1)
+%elifdef KERN_BIG
 KERN_BUDGET equ KERN_RESIDENT_KB*1024 - KERNEL_SEG*16
                                 ; = 100,864
 %else
@@ -1182,6 +1227,10 @@ BOOT_STACK  equ 2048            ; ...and its stack, growing down from there
 ; tests/small128.py and tests/kernresident.py boot each kernel on the 128KB
 ; machine, which is the half an assembler cannot answer.
 MIN_RAM_KB  equ 128
+%ifdef KERN_MEGA                ; ...and kern_mega's, which is not 128KB
+MEGA_MIN_RAM_KB equ 1024        ; (guard 5's mega arm): the machine,
+MEGA_BOOT_KB    equ 640         ; conventional and extended, and the
+%endif                          ; conventional half stage 1 reads into
 
 %ifdef KERN_SMALL
 DSK_FAT_SECS equ 2              ; TWO on kern_small: 1,024 bytes of FAT_SEG
@@ -1566,6 +1615,14 @@ KERN_END    equ ((VGABUF_RAM + VGABUF_PARA + 31) / 32) * 32 ; ...and there the
 KERN_END    equ VGABUF_RAM + VGABUF_PARA   ; ...and there the kernel stops
 %endif
 KERN_SIZE   equ (KERN_END - KERNEL_SEG) * 16   ; what KERN_BUDGET measures
+%ifdef KERN_MEGA
+MEGA_RESIDENT equ KERN_SIZE - (COLD_PARA + MEGA_PARA) * 16 ; ...and on
+                                ; kern_mega what it measures INSTEAD: the
+                                ; conventional memory the kernel holds once
+                                ; `.cold` and `.mega` are above 1MB and their
+                                ; two rungs are heap (rule 4, guard 1). The
+                                ; VGABUF rung stays, above the hole they leave
+%endif
 
 HEAP_SEG    equ KERN_END        ; the claim heap (SPEC.md 50) starts where
                                 ; the kernel ACTUALLY ends, not where a
@@ -1738,9 +1795,17 @@ XM_MAX_BLKS equ 8               ; the pool's fixed block table, entries: a
 ; vid_apply and wm_refit's callees moved into the blob, and kern_big's
 ; thirteen hold them with 61 bytes to spare - vmm_boot_x is ~100). The Makefile
 ; adds it in the knob's block, as before.
+; ...and kern_mega takes it on kern_emu's terms (kern_mega size pass 1,
+; docs/plans/completed/msp1/megabudget.md): it was a KERN_KNOB build and took
+; the knob's sector that way, and since it stopped being one it keeps the
+; sector by name - it boots only on a 286 or better, so stage 1 reading one
+; sector more costs no period 8088 anything, and its blob is the knob length
+; it always was (byte-identical kernel, the Makefile's KERN_MEGA block).
 %ifdef KERN_KNOB
   %define BOOT2_KNOBSEC 1
 %elifdef KERN_EMU
+  %define BOOT2_KNOBSEC 1
+%elifdef KERN_MEGA
   %define BOOT2_KNOBSEC 1
 %else
   %define BOOT2_KNOBSEC 0
@@ -5772,20 +5837,31 @@ kmain:
                                 ; here on (KERN-MEGA-MEMORY-PLAN MC7.4)...
     pop ax
     mov [snd_live], al          ; ...after which the tick may run again
-    call COLD_SEG:drv_hiboot_f  ; ...and the boot's drivers above 1MB, now
-                                ; that there is a pool (item 82)...
-    call COLD_SEG:mem_hicaches_f ; ...and its caches (item 84)
-%ifdef OS88_SHORTCUTS
-    call COLD_SEG:stik_bootf    ; ...the Sticky Apps, bound in the mode they
-                                ; run in (KERN-MEGA-PLAN 14.78; drv_notice_x
-                                ; does it before the switch elsewhere)...
-    call COLD_SEG:as_bootc      ; ...and AUTOSTART last, so a package it opens
-                                ; is placed as one opened by hand would be -
-                                ; above 1MB when it says OS88_HIGH
-                                ; (KERN-MEGA-MEMORY-PLAN MC8)
-%endif
+    call COLD_SEG:kmain_hic     ; ...and the rest, one far call to .cold
 %endif
     jmp ui_task                 ; task 0 becomes the UI task; never returns
+
+%ifdef KERN_MEGA
+; kmain_hic - kern_mega's boot tail after mega_enter, FAR: four far calls that
+; were kmain's in .text (kern_mega size pass 1)
+section .cold
+kmain_hic:
+    call COLD_SEG:drv_hiboot_f  ; ...the boot's drivers above 1MB, now that
+                                ; there is a pool (item 82)...
+    call COLD_SEG:mem_hicaches_f ; ...and its caches (item 84)
+%ifdef OS88_SHORTCUTS
+    call stik_boot              ; ...the Sticky Apps, bound in the mode they
+                                ; run in (KERN-MEGA-PLAN 14.78; drv_notice_x
+                                ; does it before the switch elsewhere)...
+    jmp as_bootc                ; ...and AUTOSTART last (its retf is ours), so
+                                ; a package it opens is placed as one opened
+                                ; by hand would be - above 1MB when it says
+                                ; OS88_HIGH (KERN-MEGA-MEMORY-PLAN MC8)
+%else
+    retf
+%endif
+section .text
+%endif
 
 ; =============================================================================
 ; osapi helpers (SPEC.md 20.4) - tiny accessors for loaded programs, reached
@@ -5815,19 +5891,24 @@ kmain:
 ; EVERY KERNEL BUT kern_mega answers it IN THE CELL (OSAPI_XREFUSE, kernel
 ; size pass 14), so the body below is kern_mega's alone.
 %ifdef KERN_MEGA
-osapi_xmem_sel:
-    cmp byte [mega_on], 0
-    je .no
-    push bx
-    call xm_ownbl               ; BL = who is asking
-    call MEGA_SEL_CODE:mega_xmself
+osapi_xmem_sel:                 ; (xmem_run's shape: the [mega_on] test and
+    push bx                     ; the refusal are .cold's, osapi_xmem_selc -
+    call xm_ownbl               ; kern_mega size pass 1. xm_ownbl is a pure
+    call COLD_SEG:osapi_xmem_selc ; query, so it may run in real mode too)
     pop bx
     ret
+section .cold
+osapi_xmem_selc:
+    cmp byte [mega_on], 0
+    je .no
+    call MEGA_SEL_CODE:mega_xmself ; BL = who is asking
+    retf
 .no:
-    mov ax, 1
-    cmp al, 2                   ; CF = 1 - and SIX bytes where `stc` is five,
-    ret                         ; which keeps every hot routine after this on
-                                ; the byte parity t_hotpar measured it at
+    mov ax, 1                   ; CF = 1, AX = 1: not available here -
+    cmp al, 2                   ; `cmp` and not `stc`, a byte longer, which
+    retf                        ; keeps the hot .cold routines after this on
+                                ; the parity they were measured at
+section .text
 %endif
 
 ; ---- osapi_xmem_run - API slot 0x04CB (KERN-MEGA-PLAN 14.16) ----------------
@@ -6091,11 +6172,16 @@ osapi_img_name equ mod_gone     ; `stc / retf`: CF = 1, every register kept
 ; THE TASK MANAGER'S "RAM IS RAM" (KERN-MEGA-PLAN 13.6): what is above 1MB, and
 ; whose, so a package's memory is one figure wherever it was placed.
 %ifdef KERN_MEGA
-osapi_xmem_walk:
-    cmp byte [mega_on], 0
-    je osapi_xmem_sel.no
-    call MEGA_SEL_CODE:mega_xmwalkf ; (`.mega`: KERN-MEGA-SEGMENTS-PLAN)
+osapi_xmem_walk:                ; (the body is .cold's: kern_mega size pass 1)
+    call COLD_SEG:osapi_xmem_walkc
     ret
+section .cold
+osapi_xmem_walkc:
+    cmp byte [mega_on], 0
+    je osapi_xmem_selc.no
+    call MEGA_SEL_CODE:mega_xmwalkf ; (`.mega`: KERN-MEGA-SEGMENTS-PLAN)
+    retf
+section .text
 %elifndef KERN_BIG
 osapi_xmem_walk equ xm_copy     ; kern_small: no extended memory, and its
                                 ; xm_copy is AX = 1, CF = 1 with every other
@@ -6114,15 +6200,20 @@ osapi_xmem_walk equ xm_copy     ; kern_small: no extended memory, and its
 ; Every kernel but kern_mega answers it IN THE CELL - `mov ax, dx / cmp ax, 1`
 ; (kernel size pass 14) - so the body is kern_mega's alone.
 %ifdef KERN_MEGA
-osapi_mem_codesel:
+osapi_mem_codesel:              ; (the body is .cold's: kern_mega size
+    call COLD_SEG:osapi_mem_codeselc ; pass 1)
+    ret
+section .cold
+osapi_mem_codeselc:
     cmp byte [mega_on], 0
     je .rm
     call MEGA_SEL_CODE:mega_codeself ; (`.mega`: KERN-MEGA-SEGMENTS-PLAN)
-    ret
+    retf
 .rm:
     mov ax, dx
     cmp ax, 1                   ; CF = 1 iff DX = 0
-    ret
+    retf
+section .text
 %endif
 
 ; ---- osapi_rand - seed = seed*25173 + 13849; out: AX = new seed --------------
@@ -8453,6 +8544,9 @@ OVL_SIZE equ ovl_end - $$     ; `$$` is 0 here: `.ovl` has a vstart of its
 %endif
 %endif
 %if ((OVL_SIZE + 511) / 512) * 512 > FAT_PARA * 16 + DSK_WIN_BYTES
+%ifdef KERN_MEGA
+%error "kern_mega: the boot overlay's window half has outgrown the FAT window plus dsk_secbuf - a diagnostic knob that grows `.ovl` wants its define in kernel/dskwin.inc's kern_mega DSK_OVLPAD test; otherwise see SPEC.md 2.1.2 and 2.5.3"
+%endif
 %error "the boot overlay's window half has outgrown the FAT window plus dsk_secbuf - see SPEC.md 2.1.2 and 2.5.3. Move a body to the blob (`.ovl`, SPEC.md 2.5.3.2) or out of the boot path"
 %endif
 
@@ -8575,6 +8669,41 @@ modf_end:
 MODF_SIZE equ modf_end - $$
 
 section .modl
+%ifdef KERN_MEGA
+; KSEG's near helpers for this image (the macro above): ES or DS = a selector
+; over the REAL paragraph in AX through scratch slot <slot>, mega_kaimf's
+; answer. Each row sets DI to its slot and joins its register's tail; DI and
+; FLAGS kept (mega_kaimf keeps FLAGS), AX clobbered - the site saves it
+%macro KSG_ROW 2
+ksg_%1_%2:
+    push di
+    mov di, %2
+    jmp short ksg_%1_MEGA_SEL_K5.go
+%endmacro
+    KSG_ROW es, MEGA_SEL_K0
+    KSG_ROW es, MEGA_SEL_K1
+    KSG_ROW es, MEGA_SEL_K3
+    KSG_ROW es, MEGA_SEL_K4
+ksg_es_MEGA_SEL_K5:
+    push di
+    mov di, MEGA_SEL_K5
+.go:
+    call COLD_SEG:mega_kaimf
+    mov es, ax
+    pop di
+    ret
+    KSG_ROW ds, MEGA_SEL_K0
+    KSG_ROW ds, MEGA_SEL_K1
+    KSG_ROW ds, MEGA_SEL_K4
+ksg_ds_MEGA_SEL_K5:
+    push di
+    mov di, MEGA_SEL_K5
+.go:
+    call COLD_SEG:mega_kaimf
+    mov ds, ax
+    pop di
+    ret
+%endif
 modl_end:
 MODL_SIZE equ modl_end - $$
 
@@ -8916,8 +9045,12 @@ SK_MEGA_KB equ SK_R(SK_CUM4) - SK_R(SK_CUM4 - MEGA_PARA * 16) ; rungs when they
   %assign KS_LOWS   LOW_SEG      ; than re-deriving one order of it in
   %assign KS_VGAS   VGABUF_RAM   ; Python (ROM_COLD reorders it)
   %assign KS_BLOB   BLOB_SEG_AT  ; where the boot sectors put the blob
+ %ifdef KERN_MEGA                ; (kern_mega's guard 5 is its own arm)
+  %assign KS_MINRAM MEGA_BOOT_KB
+ %else
   %assign KS_MINRAM MIN_RAM_KB   ; ...and guard 5's ceiling, because a report
-  %assign KS_BOOTMX MIN_RAM_KB*1024 - BOOT_SECT - BOOT_STACK - KERNEL_SEG*16 - BOOT2_PAD
+ %endif
+  %assign KS_BOOTMX KS_MINRAM*1024 - BOOT_SECT - BOOT_STACK - KERNEL_SEG*16 - BOOT2_PAD
                                  ; that names one guard teaches everybody to
                                  ; steer by it, and for a while the one it
                                  ; named was the looser of the two
@@ -8927,14 +9060,16 @@ SK_MEGA_KB equ SK_R(SK_CUM4) - SK_R(SK_CUM4 - MEGA_PARA * 16) ; rungs when they
     %assign KS_MSCR  MEGA_SCR_OFF + MPS_SIZE - MEGA_SIZE ; variant): `.mega`,
     %assign KS_MEGAP MEGA_PARA  ; the park's scratch on its tail, the rung
     %assign KS_MEGAS MEGA_RAM   ; and its base (KERN-MEGA-PLAN 14.45)
-    %warning ksm: mega=KS_MEGA mscr=KS_MSCR megapara=KS_MEGAP megas=KS_MEGAS
+    %assign KS_MRES  MEGA_RESIDENT ; ...and what guard 1 holds it to
+    %warning ksm: mega=KS_MEGA mscr=KS_MSCR megapara=KS_MEGAP megas=KS_MEGAS mres=KS_MRES
   %endif
 %endif
 
 ; 1. KERN_BUDGET - the FOOTPRINT. The whole kernel - image, scratch, FAT
 ;    snapshot, disk buffers and every task stack - is one span starting at
 ;    KERNEL_SEG, and it fits KERN_BUDGET (100,864 on kern_big, 64,000 on
-;    kern_small) just above the BIOS data area, with KERN_GRACE over it
+;    kern_small, and 68,096 on kern_mega against what it keeps in conventional
+;    memory after the switch) just above the BIOS data area, with KERN_GRACE over it
 ;    allowed in branch and integration work. The exact figure is checked by
 ;    `make budget-check` at an upstream merge or a release; raising a budget
 ;    is a decision with the owner, not a build fix (docs/KERNEL-MEMORY.md).
@@ -8944,8 +9079,9 @@ SK_MEGA_KB equ SK_R(SK_CUM4) - SK_R(SK_CUM4 - MEGA_PARA * 16) ; rungs when they
 ;    knob on it exists to answer a question about a machine, it is not what
 ;    anybody boots, and the RAM it takes is a fact about that session rather
 ;    than about the product. `-DKERN_KNOB` is how it knows - the Makefile
-;    passes it whenever $(KNOBS) holds anything but KERN_SMALL, which is a
-;    SHIPPED configuration with a budget of its own and stays bound by it.
+;    passes it whenever $(KNOBS) holds anything but KERN_SMALL, KERN_EMU or
+;    KERN_MEGA (and the package-only knobs), each a configuration with a
+;    budget of its own that stays bound by it.
 ;    docs/history/KERN-BUDGET-LEDGER.md has the five knobs that taught this.
 ;
 ;    What bounds a knob kernel is guard 2 (one 64KB segment, which nobody can raise) and
@@ -8953,8 +9089,19 @@ SK_MEGA_KB equ SK_R(SK_CUM4) - SK_R(SK_CUM4 - MEGA_PARA * 16) ; rungs when they
 ;    and, for a FIELD kernel specifically, tools/fieldsize.py, which reports
 ;    whether it shares a KIMG_PARA rung with the shipped one so that "bigger"
 ;    stays known about rather than silent.
+;
+;    **kern_mega IS BOUND, on what it keeps in conventional memory**
+;    (rule 4): MEGA_RESIDENT, KERN_SIZE less the `.cold` and `.mega` rungs
+;    that leave for above 1MB at the switch. It was a KERN_KNOB build until
+;    kern_mega size pass 1 and skipped this guard entirely; its knob arms
+;    (MEGATRAP, MEGADIAG, MEGAFDMASK, PICLOSE and every other knob built
+;    with KERN_MEGA=1) still carry KERN_KNOB and still skip it.
 %ifndef KERN_KNOB
-%if KERN_SIZE > KERN_BUDGET + KERN_GRACE
+%ifdef KERN_MEGA
+%if MEGA_RESIDENT > KERN_BUDGET + KERN_GRACE
+%error "kern_mega too big: what it keeps in conventional memory after the switch is past KERN_BUDGET's branch grace - see docs/KERNEL-MEMORY.md"
+%endif
+%elif KERN_SIZE > KERN_BUDGET + KERN_GRACE
 %error "kernel too big: past KERN_BUDGET's branch grace - see docs/KERNEL-MEMORY.md"
 %endif
 %endif
@@ -9155,20 +9302,28 @@ SK_MEGA_KB equ SK_R(SK_CUM4) - SK_R(SK_CUM4 - MEGA_PARA * 16) ; rungs when they
 ;    not make a RAM-constrained test impossible - it makes the test state its
 ;    own constraint instead of borrowing the shipped kernel's.
 %ifndef KERN_KNOB
+%ifndef KERN_MEGA
 %if KERNEL_SEG*16 + KERN_SIZE + BOOT2_PAD > MIN_RAM_KB*1024 - BOOT_SECT - BOOT_STACK
 %error "the kernel cannot BOOT on MIN_RAM_KB - see docs/KERNEL-MEMORY.md"
 %endif
 %endif
-;    **kern_mega's floor is a 1MB machine, and it is guard 5 there.** It is a
-;    knob build, so the 128KB line above never bound it, and nothing said what
-;    did. A 286 with less than 1MB has no pool above it to be worth entering
-;    protected mode for - kern_big is the kernel for it - and kern_mega is
-;    MEANT to grow, its limits being 64KB a segment and `.mega` for new code
-;    (KERN-MEGA-MEMORY-PLAN, the owner's word). Stage 1 still loads the whole
-;    image into CONVENTIONAL memory, so the question is 640KB's, not 1MB's
+%endif
+;    **kern_mega's floor is a 1MB machine, and it is guard 5 there.** It is
+;    not held to the 128KB line above, and it never was: a 286 with less than
+;    1MB has no pool above it to be worth entering protected mode for - kern_big
+;    is the kernel for it - and kern_mega is MEANT to grow, its limits being
+;    64KB a segment and `.mega` for new code (KERN-MEGA-MEMORY-PLAN, the
+;    owner's word). Stage 1 still loads the whole image into CONVENTIONAL
+;    memory, so the question is the 1MB machine's 640KB of it, not 1MB's -
+;    MEGA_BOOT_KB, which kernsize's `boot` line reads as the ceiling. It binds
+;    the knob arms as well (unlike the 128KB line, which is a policy a knob is
+;    excused from, this is the only memory the machine HAS below 1MB). What
+;    kern_mega really boots in is far less - KERNEL_SEG*16 + KERN_SIZE +
+;    BOOT2_PAD + BOOT_SECT + BOOT_STACK, ~139KB at kern_mega size pass 1 -
+;    and whether to hold it to a smaller machine (a 256KB IBM 5170) is the
+;    owner's (docs/plans/completed/msp1/megabudget.md)
 %ifdef KERN_MEGA
-MEGA_MIN_RAM_KB equ 1024
-%if KERNEL_SEG*16 + KERN_SIZE + BOOT2_PAD > 640*1024 - BOOT_SECT - BOOT_STACK
+%if KERNEL_SEG*16 + KERN_SIZE + BOOT2_PAD > MEGA_BOOT_KB*1024 - BOOT_SECT - BOOT_STACK
 %error "kern_mega cannot BOOT on its 1MB floor machine's 640KB - see docs/KERNEL-MEMORY.md"
 %endif
 %endif

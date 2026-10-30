@@ -84,4 +84,16 @@
 #             mem_rr_lone run, and kern_mega keeps their two MEM_RR_ONE rows
 #             (8 bytes) because it does not walk that run. kern_mega's
 #             segment did not grow (.text 47,392 -> 47,386)
-4443
+# 2026-10-30: -90, to 4,327, kern_mega size pass 1 (shared): the speaker
+#             door's IRQ0 gate writes and the stream's ring test into
+#             `.mega`, osapi_xmem_sel/_walk and osapi_mem_codesel's bodies
+#             into `.cold` behind 6-byte doors, and kmain's four far calls
+#             after mega_enter into one (kmain_hic)
+# 2026-10-30: -72, to 3,095, kern_mega size pass 1 (e9gate): the shipped
+#             kern_mega writes nothing to the debug port (kernel.asm's
+#             MEGA_E9) - mega_putsf's door, the `.text` E9 writer, the
+#             refusal's E9 line and the debug strings that lived in `.text`
+# 2026-10-30: to 3,121, the merge of elendilon (kernel size pass 15) into
+#             mega-size-1: both passes' kern_mega savings together, against
+#             kern_big after pass 15
+3121

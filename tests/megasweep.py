@@ -113,6 +113,15 @@ def main():
             elif line.startswith("kern_mega CLOSED") or \
                     line.startswith("kern_mega FAULT"):
                 fails.append("%s: %s" % (last, line))
+        # a SHIPPED kern_mega writes neither line to E9: the sweep reads its
+        # state and keeps what it saw beside the log (os88bochs._sweep_boot)
+        cl = os.path.join(os.path.dirname(log), "faults.out")
+        if os.path.exists(cl):
+            for row in open(cl, errors="replace").read().splitlines():
+                who, line = row.split("\t", 1)
+                if not any(f.startswith("%s: %s" % (who, line))
+                           for f in fails):
+                    fails.append("%s: %s" % (who, line))
     for n in pk:
         if n not in started:
             fails.append("%s: MEGARUN never started it" % n)

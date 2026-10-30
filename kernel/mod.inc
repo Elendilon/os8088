@@ -788,10 +788,12 @@ mod_hi:
 .free:
     pop dx                      ; the conventional claim's selector
     mov [bx+MODR_SEG], ax       ; MODR_SEG = the selector
+%ifdef MEGA_E9
     push si
     mov si, [bx+MODR_FILE]      ; ...and where it went, to the debug port
     call MEGA_SEL_CODE:mega_modsayf
     pop si
+%endif
     push bx
     mov bx, MEM_K_MOD
     call mem_free_x

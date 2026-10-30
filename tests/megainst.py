@@ -107,8 +107,7 @@ def main():
     bad = []
 
     def faulted():
-        return [l for l in box.lines()
-                if l.startswith(("kern_mega FAULT", "kern_mega CLOSED"))]
+        return box.faults()
 
     def byte(label):
         return box.pkg_read("INSTALL", label, 1, pkgmap=MAP)[0]
@@ -142,7 +141,7 @@ def main():
     def enter():
         box.key("Return")
     try:
-        if not box.wait_for("kern_mega: protected mode", 300):
+        if not box.wait_pm(300):
             raise Fail("kern_mega never reached protected mode")
         box.up()
         box.megarun()

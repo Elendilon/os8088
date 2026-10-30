@@ -157,7 +157,7 @@ def leg(t, out, name, pkg, lst, rom, where, squeeze=False):
     bstep, xsel = 0, 0
     xlin, blin, rbase = [], 0, None
     try:
-        if not box.wait_for("kern_mega: protected mode", 300):
+        if not box.wait_pm(300):
             return ["%s: kern_mega never reached protected mode" % name]
         box.up()
         box.capture()
