@@ -243,8 +243,7 @@ def main():
         box.ui_done(what, secs=secs)
 
     def e9bad():
-        return [l for l in box.lines() if l.startswith("kern_mega CLOSED")
-                or l.startswith("kern_mega FAULT")]
+        return box.faults()
 
     def canvas(name):
         from PIL import Image
@@ -273,7 +272,7 @@ def main():
 
     exp = picture()
     try:
-        if not box.wait_for("kern_mega: protected mode", 300):
+        if not box.wait_pm(300):
             print("FAIL: kern_mega never reached protected mode")
             return 1
         box.up()

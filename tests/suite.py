@@ -16951,7 +16951,7 @@ SOAK = [
         "on kern_mega IN PROTECTED MODE, under MEGATRAP=1's census (a "
         "private tree). Bochs boots off C:'s boot partition with the system "
         "files beside it, MEGAHIB holds 64KB of XMS and Mines a window, the "
-        "System menu hibernates, a second boot resumes: `kern_mega: resumed` "
+        "System menu hibernates, a second boot resumes ([hb_resumes]) "
         "and MEGAHIB's 64KB must read back. The hibernate itself may take at "
         "most 2,048 #GP fixups - the conventional picture was one write from "
         "segment 0, the NULL selector, and took 32,512 null0 fixups in "
@@ -17003,7 +17003,8 @@ SOAK = [
         "pinned records) writes HIBERNAT.IMG instead, runs the program with "
         "no park, reboots at its exit (kern_dos's W6 route) and the boot "
         "resumes the image unasked through the streaming resume. Asserts no "
-        "park line, KBTRIP's key, `kern_mega: resumed` and the filler back. "
+        "park ([mega_dwoke]), KBTRIP's key, a resume ([hb_resumes]) and the "
+        "filler back. "
         "Red on the tree before: the trip refuses and KBTRIP never starts. "
         "60s is 16 measured",
         needs=("bochs",),
@@ -17118,6 +17119,7 @@ SOAK = [
         "- a byte stranded in the 8042's one buffer with its edge erased by "
         "a BIOS that initialises the 8259 on a 286's reset path. No emulator "
         "loses an edge, so the row builds two private trees with PICLOSE "
+        "and MEGADIAG=1 (the watchdog's evidence is an E9 line) "
         "(Makefile: both 8259s initialised on every reflection's way down, "
         "after a window that waits for a byte). Bochs with an IntelliMouse, "
         "KBTRIP round trips with the pointer moving from the key through "

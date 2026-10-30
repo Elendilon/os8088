@@ -260,8 +260,7 @@ def check_audio(leg, d):
 
 # --- a boot ------------------------------------------------------------------
 def bad_lines(box):
-    return [l for l in box.lines() if l.startswith("kern_mega FAULT") or
-            l.startswith("kern_mega CLOSED")]
+    return box.faults()
 
 
 def pkg_map(src, incs, defines=()):

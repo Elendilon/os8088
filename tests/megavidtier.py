@@ -100,9 +100,9 @@ def main():
             return v[0] if n == 1 else v[0] | (v[1] << 8)
 
         def fault():
-            return [l for l in box.lines() if l.startswith("kern_mega FAULT")]
+            return [l for l in box.faults() if "kern_mega FAULT" in l]
         try:
-            if not box.wait_for("kern_mega: protected mode", 300):
+            if not box.wait_pm(300):
                 fails.append("kern_mega never reached protected mode")
                 return 1
             box.up()
