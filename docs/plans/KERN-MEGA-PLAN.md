@@ -9823,7 +9823,11 @@ were `RFL` and `Q`, which fire while a PicoMEM's Sound Blaster plays.
 E9 (`out 0xE9`) is invisible on real hardware and is NOT a toast, so every
 E9-only line stays on both arms: `kern_mega: protected mode`, `mega_mhd13`,
 `above 1MB`, `native floppy ...`, `floppy fell back ...`, `string restart`,
-`8042 edge lost`, `parked`/`unparked`/`resumed`, MEGATRAP's `T` lines. The
+`8042 edge lost`, `parked`/`unparked`/`resumed`, MEGATRAP's `T` lines.
+(kern_mega size pass 1 moved three of them under the knob after all, no row
+reading them on the shipped build: `mega_mhd13` and `string restart` behind
+MEGADIAG, and `8042 edge lost` behind MEGADIAG or PICLOSE, whose row does
+read it - docs/plans/completed/msp1/pmcore.md.) The
 copies of the menu-bar lines that `mega_nmitell.say` also wrote to E9 (with
 `[mega_rstn]`, the reset count) go with the lines. No row read them (a grep of
 `tests/` and `tools/` for every string and for `mega_tellq`, `mega_rf*`,
