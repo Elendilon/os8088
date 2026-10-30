@@ -1005,11 +1005,12 @@ dsk_bpb_zap:
 ; dsk_bpb_bank_get - restore [disk_drive]'s banked BPB, if it has one
 ; out: CF = 0 and dsk_bpb + [dsk_sigcur] filled with NO disk read;
 ;      CF = 1 = read the boot sector the ordinary way
-; clobbers: flags
+; clobbers: AX..DI, ES, flags
 ;
 ; dsk_bpb_bank_put - remember [disk_drive]'s validated BPB, if it is fixed
-; out: nothing; every register preserved
-; clobbers: flags - its one caller, disk_mount_x, reads none across it
+; out: nothing
+; clobbers: AX..DI, ES, flags - both halves' one caller, disk_mount_x, carries
+;      no register across either (kernel size pass 15)
 ;
 ; ONE BODY, the direction in DX: the two halves gate on the same question
 ; (a floppy outside a batch is neither banked nor trusted, SPEC.md 18.9.3),
@@ -1023,10 +1024,8 @@ dsk_bpb_bank_put:
     jmp short dsk_bpb_bank
 dsk_bpb_bank_get:
     clc                         ; ...or GET
-dsk_bpb_bank:
-    call kentc_di               ; KENT: push ax..di (no flag moves)
-    push es
-    sbb dx, dx                  ; DX = 0 GET, 0xFFFF PUT (`push` writes no flag)
+dsk_bpb_bank:                   ; (no frame: disk_mount_x carries nothing
+    sbb dx, dx                  ; across either call - pass 15, -8) DX = 0 GET, 0xFFFF PUT
 %ifdef OS88_IMG
     cmp byte [dsk_vflop], 0     ; ...and an image ON one, vflop 2 (SPEC.md
     je .ok                      ; 18.101.7), is swapped with it
@@ -1079,12 +1078,10 @@ dsk_bpb_bank:
     mov si, dsk_bpbh
 .move:
     rep movsw
-    jmp short .out
+    ret
 .no:
     stc
-.out:
-    pop es                      ; ES alone: kretc_es's rung would pop a BP
-    jmp kretc_di                ; that kentc_di never banked
+    ret
 section .text                   ; DATA, so back to the kernel segment
                                 ; (SPEC.md 2.6 rule 1)
 
@@ -4497,7 +4494,7 @@ disk_mount_x:
 ;      disk_spt/disk_heads are filled, dsk_fattype set per the SPEC.md 19
 ;      detection. CF=1: reject; nothing guaranteed stored (the caller
 ;      resets the fallback).
-; clobbers: nothing but CF
+; clobbers: AX..DI, ES and flags (disk_mount_x reads none of them after)
 ;
 ; Rule 1 runs via one es: word compare against the sector in low memory;
 ; the boot sector's BPB (offsets 11..28) is then staged into dsk_bpbh (kernel
@@ -4507,14 +4504,9 @@ disk_mount_x:
 ; the two failure modes the table exists to prevent are a divide fault or
 ; hang with sch_lock held and a read landing outside its buffer.
 ; -----------------------------------------------------------------------------
-dsk_bpb_check:
-    call kentc_di               ; KENT: push ax..di
-
-
-
-
-
-    push es
+dsk_bpb_check:                  ; (no frame: its one caller, disk_mount_x,
+                                ; carries none of AX..DI or ES across it -
+                                ; kernel size pass 15, -8)
 
     ; A BANKED head skips rules 1 and 2 and the staging, and only those (SPEC.md
     ; 18.9.2): it passed rules 1 and 2 when it was banked (both are asked of
@@ -4833,12 +4825,10 @@ dsk_bpb_check:
                                 ; canary" are one answer and it is the cautious
                                 ; one.
     clc
-    jmp short .out
+    ret
 .fail:
     stc
-.out:
-    pop es
-    jmp kretc_di
+    ret
 
 ; -----------------------------------------------------------------------------
 ; dsk_ent_zero - blank the staged directory entry (module-internal)
@@ -5351,7 +5341,8 @@ dsk_c2arm_ret:
 ; -----------------------------------------------------------------------------
 ; dsk_fatw_park - bank the outgoing volume's window (SPEC.md 18.8.1)
 ; in:  [disk_drive] still names the volume being left
-; out: nothing (all registers preserved)
+; out: nothing; clobbers AX and flags (disk_mount_x, its one caller, zeroes
+;      AX next), every other register preserved - DX carries the new drive
 ;
 ; Called at the very top of disk_mount, before [disk_drive] moves. A volume
 ; with no window of its own has nothing to bank - its sectors are about to be
@@ -5364,8 +5355,7 @@ dsk_c2arm_ret:
 ; window is clean by the time a copy switches away.
 ; -----------------------------------------------------------------------------
 dsk_fatw_park:
-    push ax
-    push bx
+    push bx                     ; (AX: disk_mount_x zeroes it next, pass 15)
     cmp word [dsk_fatw0], 0xFFFF
     je .bank                    ; nothing resident: nothing to flush - but the
                                 ; bank is still written below, because 0xFFFF
@@ -5403,22 +5393,20 @@ dsk_fatw_park:
                                 ; banking
 .out:
     pop bx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
 ; dsk_fatw_pick - point the window at the incoming volume's (SPEC.md 18.8.1)
 ; out: CF=0 the window is already loaded and holds a valid sector; CF=1 = the
 ;      caller owes it a load
-; clobbers: flags
+; clobbers: AX, BX, flags
 ;
 ; Only a QUIET mount (SPEC.md 18.9) may reuse a banked window. A full mount is
 ; a re-validation of the whole volume - the disk may have been swapped - so it
 ; takes the load, and "a torn mount is a failed mount" survives untouched.
 ; -----------------------------------------------------------------------------
-dsk_fatw_pick:
-    push ax
-    push bx
+dsk_fatw_pick:                  ; (no bank: disk_mount_x reads neither AX nor
+                                ; BX after it - kernel size pass 15)
     mov word [dsk_fatseg], FAT_SEG
     call dsk_fatw_slotd
     jc .homeless
@@ -5461,15 +5449,14 @@ dsk_fatw_pick:
 %endif
     stc
 .out:
-    pop bx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
 ; dsk_bpb_sig - which disk is this? (SPEC.md 18.8.2)
 ; in:  ES = LOW_SEG and dsk_secbuf holds LBA 0, just read and validated
 ; out: [dsk_sigcur] = a 16-bit signature, never 0
-; clobbers: nothing (all registers preserved)
+; clobbers: AX, CX, SI, flags - its one caller, disk_mount_x, runs
+;      dsk_bpb_check next, which clobbers all three itself
 ;
 ; The whole 512 bytes, rotated between adds so the sum is position-sensitive
 ; rather than a plain checksum. The sector is already in RAM - the mount has
@@ -5485,11 +5472,8 @@ dsk_fatw_pick:
 ; mounts, then write) is accepted deliberately; a full mount re-validates and
 ; is what every navigation costs, so only a background operation is exposed.
 ; -----------------------------------------------------------------------------
-dsk_bpb_sig:
-    push ax
-    push cx
-    push si
-    xor ax, ax
+dsk_bpb_sig:                    ; (no bank: dsk_bpb_check runs straight
+    xor ax, ax                  ; after it and frames nothing - pass 15, -6)
     mov si, dsk_secbuf
     mov cx, 256
 .sum:
@@ -5503,15 +5487,12 @@ dsk_bpb_sig:
     inc ax                      ; 0 is the "nothing banked" value in
 .ok:                            ; dsk_fatwsig, so a real sector must not be it
     mov [dsk_sigcur], ax
-    pop si
-    pop cx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
 ; dsk_fatw_want - give a FLOPPY its own FAT window too (SPEC.md 18.8.2)
 ; in:  [disk_drive] = the volume being mounted
-; out: nothing (all registers preserved)
+; out: nothing; clobbers AX..DI and flags (its one caller is disk_mount_x)
 ;
 ; 18.8.1 gave the private window to driver-backed volumes only, on the
 ; reasoning that a floppy's window is its whole FAT and never moves - true,
@@ -5556,14 +5537,14 @@ DSK_FATW_MINK equ ((DSK_FAT_SECS*512 + 1023) / 1024) * 2   ; ...and it is
                                 ; anybody for it
 %endif
 
-dsk_fatw_want:
-    call kentc_di               ; KENT: push ax..di (SI, DI for the rung)
+dsk_fatw_want:                  ; (no frame: disk_mount_x, its one caller,
+                                ; carries no register across it - pass 15)
     call dsk_fatw_slotd         ; EVERY volume, not just the two floppies:
                                 ; the driver volumes' claim at osapi_vol_add
     jc .out                     ; is their only one, so a refusal there used
     cmp word [bx+DVOL_MAX*2], 0 ; to be PERMANENT where a floppy retried
     jne .out                    ; every mount (SPEC.md 18.8.3)
-    call dsk_fatw_pinned        ; the kernel's own window is free? Take it -
+    call dsk_fatw_scan          ; the kernel's own window is free (CF=1)? Take it -
     jc .pin                     ; it is already paid for, so there is no gate
 %ifdef KERN_MEGA
     cmp byte [ss:mega_pm], 0    ; kern_mega in protected mode: the claim is a
@@ -5599,12 +5580,13 @@ dsk_fatw_want:
     mov word [bx+DVOL_MAX*2], FAT_SEG
     or word [bx], -1            ; nothing of OURS is in it yet, whatever the
 .out:                           ; bytes hold
-    jmp kretc_di
+    ret
 
 ; -----------------------------------------------------------------------------
-; dsk_fatw_pinned / dsk_fatw_evict - the kernel's own window (SPEC.md 18.8.3)
+; dsk_fatw_evict - the kernel's own window (SPEC.md 18.8.3)
 ;
-; pinned: out CF=0 = some volume holds FAT_SEG, CF=1 = it is free
+; (dsk_fatw_want asks "is it pinned" with dsk_fatw_scan below: CF=0 = some
+; volume holds FAT_SEG, CF=1 = it is free - kernel size pass 15)
 ; evict:  out nothing (every register preserved, flags clobbered) - the holder
 ;         is demoted to homeless, which is where every volume stood before
 ;         18.8.1, and both its words go: a cleared dsk_fatwc with a live
@@ -5617,44 +5599,38 @@ dsk_fatw_want:
 ; LOW_SEG, which is above FAT_SEG - which is the same fact that lets
 ; dsk_fatw_reloc scan the array without a guard.
 ;
-; evict re-scans rather than taking a pointer from pinned, so no register has
+; evict re-scans rather than taking a pointer from the want's scan, so no register has
 ; to survive the mem_claim in between; that call can COMPACT, and reasoning
 ; about which pointers a compaction leaves alone is the kind of argument this
 ; file should not have to make twice.
 ; -----------------------------------------------------------------------------
-dsk_fatw_pinned:
+dsk_fatw_evict:
     push cx
     push si
-    mov si, dsk_fatwc
-    mov cx, DVOL_MAX
-.scan:
-    cmp word [si], FAT_SEG
-    je .out                     ; equal leaves CF=0, which IS the answer; the
-    inc si                      ; pops below do not touch flags
-    inc si
-    loop .scan
-    stc
+.again:
+    call dsk_fatw_scan          ; one holder by design (18.8.3), but every
+    jc .out                     ; one goes, as the old single sweep took them
+    and word [si], 0                    ; homeless: no claim, and...
+    or word [si-DVOL_MAX*2], -1         ; ...nothing of theirs resident
+    jmp short .again
 .out:
     pop si
     pop cx
     ret
 
-dsk_fatw_evict:
-    push cx
-    push si
+; dsk_fatw_scan - the walk evict and dsk_fatw_want share (kernel size pass 15):
+; out CF=0 SI -> the dsk_fatwc word holding FAT_SEG, CF=1 none; CX clobbered
+dsk_fatw_scan:
     mov si, dsk_fatwc
     mov cx, DVOL_MAX
 .scan:
     cmp word [si], FAT_SEG
-    jne .next
-    and word [si], 0                    ; homeless: no claim, and...
-    or word [si-DVOL_MAX*2], -1         ; ...nothing of theirs resident
-.next:
+    je .ret                     ; equal leaves CF=0
     inc si
     inc si
     loop .scan
-    pop si
-    pop cx
+    stc
+.ret:
     ret
 
 ; -----------------------------------------------------------------------------
