@@ -1728,6 +1728,15 @@ fsx_rsvcf:
     add ax, SER_SIZE
 .nser:
     mov [ss:fsx_rserb], dx
+    xor dx, dx                  ; ...and THE GLYPH TABLE'S COPY last, when it
+    MEGA_ISHI word [font_seg]   ; is above 1MB (MEM_K_FONT, KERN-MEGA-PLAN
+    jc .nfnt                    ; 14.120/14.129): no real segment reaches it
+    inc ax                      ; there, so the bracket reads it here
+    and al, 0xFE                ; (at an even offset: rep movsw)
+    mov dx, ax
+    add ax, FONT_BYTES
+.nfnt:
+    mov [ss:fsx_rfont], dx
     push ax
     call fsx_rlowclaim          ; DX = the selector, AX:CX its base
     pop si
@@ -1764,6 +1773,16 @@ fsx_rsvcf:
     mov [es:rms_slot - rms_lo], al
     mov al, [cpu_tier]
     mov [es:rms_tier - rms_lo], al
+    mov di, [ss:fsx_rfont]      ; the glyph table's copy, out of the pool
+    or di, di
+    jz .nf
+    push ds
+    mov si, [font_base]
+    mov ds, [font_seg]
+    mov cx, FONT_BYTES / 2
+    rep movsw
+    pop ds
+.nf:
     clc
 .o:
     pop es
@@ -2105,6 +2124,15 @@ fsx_rdownf:
     mov si, fsx_rbank
     mov ax, fsx_rvdn
     call mega_vwalk
+    mov ax, [ss:fsx_rfont]      ; THE GLYPH TABLE above 1MB (fsx_rvdn left
+    or ax, ax                   ; its selector, which real mode cannot use):
+    jz .fnt                     ; the service area's copy instead, in the
+    add ax, rms_lo              ; twins' own paragraph (KERN-MEGA-PLAN
+    xchg ax, [font_base]        ; 14.129). [font_seg] goes back off the
+    mov [ss:fsx_rfbase], ax     ; bank at the return, [font_base] off this
+    mov ax, [ss:fsx_rmsseg]
+    mov [font_seg], ax
+.fnt:
 %ifdef VID_EXT
     mov ax, [vx_ep]             ; the VESA desktop's hook: VESA.DRV's code
     mov [ss:fsx_rvxep], ax      ; half above 1MB, a selector real mode cannot
@@ -2612,6 +2640,11 @@ fsx_rupf:
     mov si, fsx_rbank
     mov ax, fsx_rvup
     call mega_vwalk
+    cmp word [ss:fsx_rfont], 0  ; the glyph table's offset back (the drop's
+    je .fnt                     ; copy: KERN-MEGA-PLAN 14.129)
+    mov ax, [ss:fsx_rfbase]
+    mov [font_base], ax
+.fnt:
     mov byte [fsx_rmode], 0
     sti                         ; the copy back at IF = 1: no other task runs
     mov al, 1                   ; (frozen) and the rate is off, so nothing
@@ -3854,6 +3887,11 @@ fsx_rvxep   resw 2              ; ...and [vx_ep], the VESA desktop's hook
 fsx_rserb   resw 1              ; a SERIAL.DRV lease's ring copy (W7): its
                                 ; offset in the service area's claim, 0 = no
                                 ; lease (fsx_rsvcf)
+fsx_rfont   resw 1              ; the GLYPH TABLE's copy in the service area
+                                ; (KERN-MEGA-PLAN 14.129): its offset in the
+                                ; claim, 0 = none - the table is not above
+                                ; 1MB (fsx_rsvcf)
+fsx_rfbase  resw 1              ; ...and [font_base], banked at the drop
 fsx_rsfp    resw 1              ; ...SERFP's code selector, banked
 fsx_rsrsg   resw 1              ; ...and the module's srl_seg and srl_buf -
 fsx_rsrbf   resw 1              ; the OWNER's ring - banked

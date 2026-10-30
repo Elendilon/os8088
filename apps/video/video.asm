@@ -17635,6 +17635,12 @@ vp_lfloor:
 ; over it - into the sound ring's TAIL, where vp_sopen queues it. A muted
 ; play stages none. Clobbers AX, CX, SI, DI
 vp_lstage:
+%ifdef PKG_MEGA
+    cmp word [vp_lsrc], 0xFFFF      ; NOTHING READ: a lead the door staged
+    je .r                           ; stays staged (vcold.asm's vp_rdoor,
+                                    ; KERN-MEGA-PLAN 14.131) - vp_spos zeroes
+                                    ; [vp_alst] for a play that has none
+%endif
     xor ax, ax
     mov [vp_alst], ax
     mov si, [vp_lsrc]

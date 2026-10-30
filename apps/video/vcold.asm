@@ -39,7 +39,7 @@
 ;@data vp_aseg vp_spkpwm vp_rlbuf vp_name vp_rran vp_rpic vp_rxo vp_ptgt
 ;@data vp_ptfp VP_SPK VP_RL
 ;@call os88real_prep vp_mclaim vp_scaps vp_fxget vp_ringkb vp_mfree vp_bset
-;@call vp_fxbind vp_sesspic vp_fmt
+;@call vp_fxbind vp_sesspic vp_fmt vp_lstage
 ;@data:VP_DIAG vp_prseg vp_prn vp_prnl vp_prbd vp_prna vp_frames vp_pr61
 ;@data:VP_DIAG vp_pitdiv vp_pitper0 vp_flip vp_lbk vp_late vp_ditab
 ;@data:VP_DIAG vp_ditab_end vp_ring vp_rclm vp_prfn VP_PRMAX VP_PRH VP_DIL
@@ -161,6 +161,13 @@ vp_rdoor:
     je .pm
 .ns:
     call vp_rclaims                 ; what the bracket cannot claim
+    push cx                         ; ...and the SOUND AHEAD's lead staged
+    push es                         ; HERE, in protected mode (98.1.8,
+    VPC vp_lstage                   ; KERN-MEGA-PLAN 14.131): vp_spos read
+    pop es                          ; it on the desktop into the ring's slot
+    pop cx                          ; by its selector, which is the bank in
+                                    ; place above 1MB, and the bracket's
+                                    ; real segment is the conventional ring
     mov si, vp_rlst                 ; ...and every word a real segment
     mov di, vp_rlst_bank
     VPC os88real_prep
@@ -310,9 +317,13 @@ vp_rmklist:
     mov di, vp_rlbuf
     mov al, FSXL_FILE
     stosb
-    mov si, vp_name
-    mov cx, 13
-    rep movsb
+    mov si, vp_name                 ; the name TO ITS NUL and no further
+    mov cx, 13                      ; (SPEC.md 98.3.24): the list's next
+.nm:                                ; entry starts after it, and a 13-byte
+    lodsb                           ; copy put a short name's padding there
+    stosb                           ; - a 0, FSXL_END, so DRVC_SOUND was
+    or al, al                       ; never read and the bracket played
+    loopnz .nm                      ; silent (KERN-MEGA-PLAN 14.130)
     mov ax, FSXL_DRV | DRVC_DISK << 8
     stosw
     cmp byte [vp_xems], 0

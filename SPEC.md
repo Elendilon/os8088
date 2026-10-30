@@ -104211,7 +104211,15 @@ package's (MEGA-VIDEO-REALMODE-PLAN 7.4).
    whole region - image and bss, `I_SIZE` - copied DOWN into that claim;
 3. at the entry, with IF = 0: the video and font layer's segment words,
    `[k_seg0]` and `CPU_F_PM` turned back into their real-mode values
-   (KERN-MEGA-MEMORY-PLAN MC7.4 made them selectors); the 8259's masks a
+   (KERN-MEGA-MEMORY-PLAN MC7.4 made them selectors) - and when the glyph
+   table is the `MEM_K_FONT` COPY (§6.0.1), which kern_mega moves above 1MB
+   at the switch (KERN-MEGA-PLAN 14.120) where no real segment reaches it,
+   its 760 bytes copied into the service area at the door and
+   `[font_seg]:[font_base]` named there for the bracket, so
+   `OSAPI_FONT_GLYPHS` answers a table real mode can read (both put back at
+   the return; KERN-MEGA-PLAN 14.129 - on a machine whose option ROM is
+   slow, the owner's Paradise, a player's full-screen text was noise without
+   it); the 8259's masks a
    service reflection's (the BIOS's own lines and the pointer's, §9.10); IVT
    20h - IRQ0 there, the PIC staying at its protected-mode base - the
    kernel's REAL-MODE TICK; `[vx_ep]`, the VESA desktop's hook, pointed at
@@ -202074,7 +202082,15 @@ read by the real-mode borrow, LOADALL on a 286 and a loaded base on a 386
 (98.3.18.11, 98.3.18.14), the yield sites live for the bracket.
 
 Otherwise the door asks `FSXF_REAL` with **the LIST**: `FSXL_FILE` and the
-open file's name (a layer is in the same file, 98.1.9),
+open file's name (a layer is in the same file, 98.1.9) - written to ITS NUL
+and no further, as §53.2.3 reads it: the list's next byte is the one after
+the NUL, so a name copied whole as `vp_name`'s 13 bytes put that name's
+padding where the next entry goes, a 0 is `FSXL_END`, and every entry after
+it was never read. A name of 12 characters filled the field and played; any
+shorter one dropped `DRVC_SOUND`, so the stream had no sink in the bracket
+and the play was SILENT (`07-Miku.V88`, 11 characters, beside a
+`09-Catch.V88` that sounded - KERN-MEGA-PLAN 14.130, the fix verified on the
+owner's Victory),
 `FSXL_DRV DRVC_DISK` (HDD.DRV's low copy, and with it `HDV_ARM`'s read
 straight into XMS), `FSXL_DRV DRVC_SOUND` when the session plays through a
 card, and `FSXL_DRV DRVC_EMS` for an EMS bank. It also takes **two claims
@@ -202090,6 +202106,15 @@ seek's scratch. The KERNEL's answer comes back in
 SI (`FSXR_*`): it may still run the bracket in protected mode, for a reason
 of its own (§53.2.3's table) - a stream on a file-driver volume
 (`FSXR_VOL`) is the common one.
+
+**The sound-ahead lead is staged at the door** (98.1.8, KERN-MEGA-PLAN
+14.131). `vp_spos` reads a start key's lead on the desktop into the ring's
+slot by its SELECTOR - with the bank in place, XMS above 1MB - which no real
+segment names, so `vp_rdoor` runs `vp_lstage` in protected mode, after its
+claims, into the card ring's tail, and the bracket's `vp_lstage` keeps a
+staged lead when nothing new was read. Staged in the bracket it was the
+conventional ring's bytes instead: the file's head, played as the first
+frames' sound.
 
 **Inside** (`vp_main`, when `OSAPI_CPU_INFO` answers real mode under the
 arm): the words swapped for their real segments (`os88real_swap`),

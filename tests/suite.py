@@ -16889,6 +16889,21 @@ SOAK = [
         needs=("86box", "ffmpeg"),
         wants=("build/mega.img", "build/megak/apps/video.o88",
                "build/megak/apps/video.map", "build/megak/kernel.map")),
+    Row("vidrmbtwice", "soak", py("tests/vidrmbtwice.py"), 90.0,
+        "SPEC.md 53.2.3, 98.3.24, KERN-MEGA-PLAN 14.129-14.131: the owner's "
+        "Victory's three, on 86Box's 4 MB mr286 with an SB2.0 captured and "
+        "a private FONTSLOW=1 kern_mega (the glyph table's copy above 1MB): "
+        "a Catch-shaped clip named CATCH.V88 (nine characters) with white "
+        "noise ahead four frames, played to its end TWICE in a real-mode "
+        "bracket. Each play: the card open in the bracket (a short name "
+        "ended the list before DRVC_SOUND - Miku's silence), the text's "
+        "glyphs the kernel's 760 bytes and play 2's Paused box play 1's "
+        "pixels (the copy's selector handed to real mode), the capture's "
+        "first half second the file's (the lead staged off the wrong "
+        "memory - the first second's static). Red three ways, one per fix. "
+        "56 s measured, the FONTSLOW tree rebuilt in it",
+        needs=("86box", "ffmpeg"),
+        wants=("build/megaapps.img",)),
     Row("vidrmbfrag", "soak", py("tests/vidrmb.py"), 50.0,
         "SPEC.md 53.2.3, docs/plans/MEGA-VIDEO-REALMODE-PLAN.md W3: what a "
         "REAL-MODE BRACKET reads, under Bochs booted off C: with no driver "

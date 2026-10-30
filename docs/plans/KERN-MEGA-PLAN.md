@@ -13197,3 +13197,64 @@ that hooks a line at a real-mode attach and may move high is covered, not
 only SOUND.DRV - and it matters on the owner's Victory, whose PicoMEM is a
 Sound Blaster. SNDV_RMODE's door no longer calls the discovery (it is
 `SBL_ONCE`'s, not resident after the attach).
+
+### 14.129 A slow option ROM's glyph table was out of the bracket's reach (2026-10-30) - FIXED
+
+The owner's Victory 286, 9abdcaae: from the second play on, the Video
+Player's full-screen "Buffering" line was noise in the right colour, on a
+dark box that was right. The Paradise's option ROM times slow, so
+`font_init` COPIES the glyph table into `MEM_K_FONT`, and kern_mega moves the
+copy above 1MB at the switch (14.120). In a real-mode bracket
+`fsx_rvdn` cannot rename a pool selector (`mega_s2segf` answers FFFFh), so
+`[font_seg]` stayed a selector and the `OSAPI_FONT_GLYPHS` twin handed the
+player `11B4:0000`, a paragraph of nothing. 86Box does not slow a ROM, so
+`FONTSLOW=1` is the instrument, and with it the FIRST play was noise as
+well; the field's first play may have run in a protected-mode bracket
+instead, which reads the copy by its selector (not confirmed). Fixed at the
+door: `fsx_rsvcf` takes 760 bytes more in the service area when the table
+is in the pool and copies it there, and the drop names it (`[fsx_rmsseg]`,
+`rms_lo` + `[fsx_rfont]`) after `mega_vwalk` banks the selector; the return
+puts `[font_base]` back and the walk puts `[font_seg]`. kern_mega `.mega`
++96 and `.lowbss` +4, the segment +0; kern_big and kern_small
+byte-identical. SPEC.md 53.2.3
+step 3. Gate `vidrmbtwice` (2), red with the copy left out.
+
+### 14.130 A short file name ended the bracket's list before its sound driver (2026-10-30) - FIXED, FIELD-VERIFIED
+
+`07-Miku.V88` played SILENT on the Victory every time, between files that
+had sound. `vp_rmklist` wrote `FSXL_FILE` and then all 13 bytes of
+`vp_name`; the kernel's `fsx_rlist` reads the name to its NUL and takes the
+byte after as the next entry - for a name of 11 characters, the padding's
+0, `FSXL_END`. `FSXL_DRV DRVC_SOUND` was never read, the service area had no
+sound row, and the stream's open answered AX = 4, "no streaming sink". A
+12-character name filled the field exactly, which is why `09-Catch.V88`
+sounded. The player now writes the name to its NUL (SPEC.md 98.3.24); a
+package-only change, and the owner ran it on the live 9abdcaae kern_mega:
+Miku and the other short names have sound. Gate `vidrmbtwice` (1, 3) on
+`CATCH.V88`, nine characters, red with the 13-byte copy.
+
+### 14.131 A play's first second was the file's head, played as sound (2026-10-30) - FIXED
+
+Every real-mode play of the owner's Catch opened on static. Its key leads
+are APART (98.1.8.1), so `vp_spos` - run on the desktop, in protected mode -
+reads the start key's lead into the ring's slot 1 by its SELECTOR, which
+with the bank in place (`[vp_einp]` 2) is XMS above 1MB; `vp_lstage` then
+ran in the bracket and took `[vp_lpar]` as paragraphs past the ring's real
+segment, so the lead it staged was the ring's 17th byte on: the file's head
+(captured: file offset ~6,000, frames 0-5 of noise), and once the lead was
+read as a slot instead, zeros - the conventional ring is not where the
+selector pointed. The lead is staged at the DOOR now, in protected mode
+(vcold.asm's `vp_rdoor`, after `vp_rclaims`), into the card ring's tail,
+which the bracket reaches by its real segment; `vp_lstage` keeps a staged
+lead when nothing new was read. Measured on 86Box with the real 09-Catch:
+the card's output is the file's sound from byte 0, 71,163 distinct samples
+in order (it was 5,160 of static first). PKG_MEGA only; the shipped player
+is byte-identical. Gate `vidrmbtwice` (3), red with the door's staging out.
+
+ALSO SEEN, NOT FIXED, ON EVERY KERNEL: a play from a key loses about one
+frame of its first record tails (this row's clip starts 1.0 frames in on
+kern_big's shipped player as on kern_mega's arm, to the run), and on
+kern_big the real Catch opens on 2,073 distinct samples of 00/01 before frame
+7 - the lead apart, read at `[vp_kbkb]` KB past the key into a ring the bank
+in place had cut to two slots (a reading, not confirmed). The row tolerates
+the first and does not run kern_big.
