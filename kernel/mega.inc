@@ -1195,16 +1195,14 @@ mega_kwd:
     ret
 .lost:
     pop es
-%if %isdef(MEGA_DIAG) || %isdef(PIC_LOSE) ; (kern_mega size pass 1: the E9
-    push si                         ; line is for tests/megapiclose.py's
-    mov si, mega_mkwd               ; PICLOSE=1 leg and MEGADIAG=1, nothing
-    call mm_puts                    ; else reads it)
-    mov al, ah                      ; "kern_mega: 8042 edge lost, 64=ss"
+    push si
+    mov si, mega_mkwd               ; "kern_mega: 8042 edge lost, 64=ss"
+    call mm_puts
+    mov al, ah
     call mm_hex2
     mov al, 10
     call mm_putc
     pop si
-%endif
     test ah, 0x20
     jnz .aux
     int MEGA_PIC_BASE + 1           ; IRQ1's gate: kbm_isr
@@ -1221,9 +1219,7 @@ mega_kwd:
 .drop:
     in al, 0x60
     ret
-%if %isdef(MEGA_DIAG) || %isdef(PIC_LOSE)
 mega_mkwd   db "kern_mega: 8042 edge lost, 64=", 0
-%endif
 %endif
 
 %ifdef MEGA_DIAG                    ; the menu bar's RFL and Q lines (14.65)
@@ -2096,12 +2092,26 @@ mega_report:                        ; is finished there, not reported
     call mm_puts
     mov cx, 16                      ; sixteen words of whatever the CPU left: the
     lea bx, [bp+22]                 ; error code (or IP), IP, CS, FLAGS, ...
-    call .words
+.st:
+    mov ax, [ss:bx]
+    call mm_hex4
+    mov al, ' '
+    call mm_putc
+    inc bx
+    inc bx
+    loop .st
     mov si, mega_mreg
     call mm_puts
     mov cx, 10                      ; ES DS DI SI BP SP BX DX CX AX
     mov bx, bp
-    call .words
+.rg:
+    mov ax, [ss:bx]
+    call mm_hex4
+    mov al, ' '
+    call mm_putc
+    inc bx
+    inc bx
+    loop .rg
     mov ax, ss
     call mm_hex4
     mov al, 10
@@ -2141,15 +2151,6 @@ mega_report:                        ; is finished there, not reported
 .dead:
     hlt
     jmp .dead
-.words:                             ; CX words at SS:BX to E9, a space after
-    mov ax, [ss:bx]                 ; each (both dumps: kern_mega size pass 1)
-    call mm_hex4
-    mov al, ' '
-    call mm_putc
-    inc bx
-    inc bx
-    loop .words
-    ret
 
 ; -----------------------------------------------------------------------------
 ; mega_fkill - A FAULT IN A PACKAGE CLOSES THE PACKAGE (KERN-MEGA-PLAN 14.42)
@@ -2806,9 +2807,6 @@ mega_svc:
     add sp, 2                       ; the vector
     iret
 .refl1:
-%ifdef MEGA_DIAG                    ; (MEGADIAG=1 only since kern_mega size
-                                    ; pass 1: an E9 line no row reads, and a
-                                    ; test on every reflection)
     cmp byte [ss:bp+20], 0x13       ; a FIXED disk's int 13h, reflected: said
     jne .refl2                      ; once on port E9, because HDD.DRV's rung 1
     test byte [ss:bp+14], 0x80      ; is meant to leave a BIOS-known drive
@@ -2825,7 +2823,6 @@ mega_svc:
     call mm_say
     pop si
 .refl2:
-%endif
     mov ax, [ss:bp+0]               ; ES and DS as SEGMENTS
     mov [mega_ses], ax
     call COLD_SEG:mega_s2segc
@@ -4511,8 +4508,7 @@ mega_strcal_gp:                     ; the probe's #GP: record and skip it
     jmp mega_gpfix.resume
 
 ; mega_strcal - measure it (mega_enter, protected mode, DS = KDATA). The
-; result goes to E9 as `kern_mega: string restart r<si><di><cx><ip> p...` on
-; a MEGADIAG=1 build.
+; result goes to E9 as `kern_mega: string restart r<si><di><cx><ip> p...`.
 ; Preserves every register
 mega_strcal:
     pusha
@@ -4541,9 +4537,8 @@ mega_strcal:
     mov dx, .i2
     call .take
     mov byte [mega_scal], 0
-%ifdef MEGA_DIAG                    ; the E9 report: MEGADIAG=1 only since
-    mov si, mega_mscal              ; kern_mega size pass 1 (no row reads it;
-    call mm_puts                    ; mega_strfix reads mega_sdr/sdp)
+    mov si, mega_mscal
+    call mm_puts
     mov si, mega_sdr
     mov cx, 8
 .say:
@@ -4561,7 +4556,6 @@ mega_strcal:
     loop .say
     mov al, 10
     call mm_putc
-%endif
     popf
     pop es
     popa
@@ -4994,9 +4988,7 @@ mm_kbw:
     loopnz .w
     ret
 mega_mon    db "kern_mega: protected mode", 10, 0
-%ifdef MEGA_DIAG
 mega_mhd13  db "kern_mega: a fixed-disk transfer went to the BIOS (int 13h reflected)", 10, 0
-%endif
 mega_mdrv   db "kern_mega: above 1MB: ", 0
 mega_mfdoff db "kern_mega: native floppy OFF - eight fallbacks in a row", 10, 0
 mega_mfdon  db "kern_mega: native floppy ", 0
@@ -5004,10 +4996,8 @@ mega_mfdfb  db "kern_mega: floppy fell back to the BIOS at step ", 0
 mega_mflt   db 10, "kern_mega FAULT vector ", 0
 mega_mfst   db "  stack: ", 0
 mega_mreg   db 10, "  ES DS DI SI BP SP BX DX CX AX SS: ", 0
-%ifdef MEGA_DIAG
 mega_mscal  db 'kern_mega: string restart r', 0
 mega_mscalp db ' p', 0
-%endif
 section .text
 
 ; ---- the API's hot cells' stubs (OSAPI_SLOT's kern_mega arm) --------------
