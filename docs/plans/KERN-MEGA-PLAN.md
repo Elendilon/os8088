@@ -12629,3 +12629,28 @@ reading for the bar) loaded the option ROM's real-mode segment into ES in
 protected mode as an identity selector, which MC7 removed. It runs in the
 reflection's REAL-MODE half now, just before the ROM's handler, where C800h is
 a segment. The shipped kernel never had it.
+
+### 14.125 A SEG_SUB answered with its owner's own WINDOW (2026-10-30) - FIXED
+
+The Video Player's arm (MEGA-VIDEO-REALMODE-PLAN W5) had its player CLOSED by
+a #GP in `vd_n_p3`'s plane copy, at `vp_sstop` -> `vp_after` -> `vp_kpic` ->
+`vp_decram`, with DS = ES = 12F4h - once its cold part was registered
+movable, 3 runs of 3 on `megavidv2`'s modex leg; and in another arrangement a
+72-pixel tail on lin320. Pinned dummy claims of 1 KB and 2 KB triggered
+neither, and a compaction moving a stale selector was the first theory and
+WRONG: `mega_cdfree` and `mx_dfree` already pass windows by (14.80). What the
+movable claim changed was the ORDER the LDT was handed out in.
+
+`OSAPI_SEG`'s `SEG_SUB` reuses a descriptor of the same base, reach and type
+(`mega_dfind`), and it did not ask whether that descriptor was a `mega_wtab`
+row. The player's `SEG_AT` window `[vp_wk]` was left aimed at a base that a
+new key shadow's second plane began at, `SEG_SUB` answered 12F4h as
+`vp_spl[1]`, and the next re-aim of the window for a record's read moved the
+plane under the decoder - so the copy from plane to plane read and wrote the
+same selector. `mega_dfind` refuses a window now, bound or not (SPEC.md
+50.6.11): **+16 bytes of `.mega`** (12 of code and the section's alignment;
+14 left in its rung), kern_big and kern_small byte-identical. With the check
+taken out the modex leg goes red at `back to the card` again; with it, the
+movable part runs all three layouts green, so the part is movable again
+(SPEC.md 98.3.24.1). Any package holding a `SEG_AT` window beside `SEG_SUB`
+claims had the same exposure - the parts' `op_at`/`op_seg` among them.

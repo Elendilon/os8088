@@ -11425,6 +11425,13 @@ mega_dfind:
     jne .n
     cmp [es:di], cx
     jne .n
+    push dx                         ; ...AND NO WINDOW (SPEC.md 50.6.11): a
+    push di                         ; window is its owner's to re-aim, and
+    lea dx, [di+4]                  ; one left over this very base answered
+    call mega_wslot                 ; as a SUB moved that SUB at its next
+    pop di                          ; aim (KERN-MEGA-PLAN 14.125)
+    pop dx
+    jnc .n
     lea ax, [di+4]
     clc
     jmp short .o

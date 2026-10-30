@@ -97981,7 +97981,15 @@ On kern_mega in protected mode (`mega_segf`, `.mega`):
   a window that went with its block cannot be freed a second time at its
   owner's end, after the entry is somebody else's.
 - The same base and reach asked again answer the SAME selector, a window or
-  a SUB alike, so a caller that asks once per access holds one entry.
+  a SUB alike, so a caller that asks once per access holds one entry - **but
+  a SUB never answers a WINDOW** (`mega_dfind` passes every `mega_wtab` row
+  by, bound or not). A window is the caller's to re-aim, and its owner may
+  have left it over exactly the base a new claim's SUB asks for: the Video
+  Player's `SEG_AT` window, last aimed into a key's read, sat where a new
+  key shadow's second plane began, `SEG_SUB` answered it as that plane, and
+  the next record's re-aim moved the plane onto the read - a 72-pixel tail
+  on lin320 in one arrangement, and in another the player CLOSED by a #GP
+  in `vd_n_p3` (MEGA-VIDEO-REALMODE-PLAN W5, KERN-MEGA-PLAN 14.125).
 - Refusals: CF = 1, AX = 1 when no LDT entry or no `mega_wtab` row is free,
   2 for the null selector, 3 not in a block (`SEG_SUBC`, `SEG_BWIN`), 4 not a
   bound window of the caller's and 5 past its block's end (`SEG_AIM`).
@@ -201955,33 +201963,45 @@ six vectors.
   `[vp_ptfp + 2]`. The part writes nothing through its own CS, which is a
   read-only code alias under protected mode; its names' table is read
   through it.
-- **Fetched at LAUNCH and kept, PINNED** (`vp_cpget`, called by the
+- **Fetched at LAUNCH and kept, MOVABLE** (`vp_cpget`, called by the
   entry proc beside `vp_bget`'s block decoder): one claim for the
-  instance's life, on its code alias in protected mode (`OSAPI_MEM_CODESEL`,
-  asked at every call) and on its real paragraph inside a real-mode bracket,
-  where the card's ninth line is drawn too - `[vp_cpseg]` is in `vp_rlst`.
-  A part that will not come is a door not asked (protected mode) and a line
-  not drawn. **Two other shapes were built and each broke a play**, which is
-  why it is this one:
-  * fetched at the FIRST DOOR, with a session's claims standing,
-    `megavidv2`'s version 2 Repeat play on lin320 drew 72 wrong pixels;
-  * MOVABLE (the shaper's shape, `vp_smove`), `megavidv2`'s modex leg had
-    the player CLOSED by a #GP at its next stop - `vp_sstop` -> `vp_after`
-    -> `vp_kpic` -> `vp_decram` -> `vd_n_p3`'s `movsw`, the key's picture
-    decoded into the box from the file held in XMS, 3 runs of 3. A pinned
-    1 KB or 2 KB dummy claim at launch broke neither, so what triggers it is
-    a compaction having somewhere to move, not the part's code: a latent
-    defect in the key picture's read under protected mode that a heap
-    arrangement exposes, NOT FIXED here and reported with W5's.
+  instance's life, registered with `vp_smove` in `vp_smtab` as the speaker
+  shaper's part is (98.3.15.2) and pinned by `vp_smov` around a bracket the
+  same way, on its code alias in protected mode (`OSAPI_MEM_CODESEL`,
+  asked at every call) and on its real paragraph inside a real-mode
+  bracket, where the card's ninth line is drawn too - `[vp_cpseg]` is in
+  `vp_rlst`. A part that will not come is a door not asked (protected mode)
+  and a line not drawn. Fetched at the FIRST DOOR instead, with a session's
+  claims standing, `megavidv2`'s version 2 Repeat play on lin320 drew 72
+  wrong pixels - the defect below, in another arrangement of the LDT. It
+  stays at launch, where it is one claim taken before a session's and never
+  a disk read at a door.
+- **Movable is what found a KERNEL defect, and it is fixed there**
+  (§50.6.11, KERN-MEGA-PLAN 14.125). Registered movable, `megavidv2`'s
+  modex leg had the player CLOSED by a #GP at its next stop - `vp_sstop` ->
+  `vp_after` -> `vp_kpic` -> `vp_decram` -> `vd_n_p3`'s `movsw` with DS =
+  ES - 3 runs of 3, and pinned 1 KB and 2 KB dummy claims broke nothing,
+  because the claim was never the cause: it changed the ORDER the LDT was
+  handed out in. `OSAPI_SEG`'s `SEG_SUB` answered the key shadow's second
+  plane (`vp_spl`) with the selector that was the player's own `SEG_AT`
+  window `[vp_wk]`, aimed at that base at that moment, so the next
+  re-aim of the window for the record's read moved the plane under the
+  decoder and the plane copy's source and destination became one. A
+  `SEG_SUB` never answers a window now; the movable part runs 3 of 3 on
+  all three layouts, and with the kernel check taken out the modex leg
+  goes red again at `back to the card`. The shipped player has no such
+  defect: a real-mode kernel refuses `SEG_SUB` and `SEG_AT` both and the
+  player's segments are sums.
 - **The profile's two ends are written once for both builds**
   (`apps/video/vprof.inc`): the shipped player expands them where they
   always were, so every shipped build - plain, `VPDIAG=1`, `VPDIAG=time`,
   the read log, `NOLIVESND` - is byte-identical; the arm's part expands them
   with `VPR_CALL` and `VPR_CS` aimed at the trampoline.
 
-**What it bought** (image + bss against 65,024): the arm **63,756** (1,268
-to spare, from 594), `VPDIAG=1` **64,544** (480 to spare) and `VPDIAG=time`
-**64,723** (301 to spare); the part itself, which is no image's, is 1,009,
+**What it bought** (image + bss against 65,024): the arm **63,772** (1,252
+to spare, from 594), `VPDIAG=1` **64,560** (464 to spare) and `VPDIAG=time`
+**64,739** (285 to spare) - 16 bytes each above the pinned part's, which
+registering it movable cost; the part itself, which is no image's, is 1,009,
 1,565 and 1,573 bytes. Every shipped build is byte-identical.
 
 ### 98.4 The window: the Preview (wave 6)

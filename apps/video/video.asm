@@ -12242,6 +12242,9 @@ vp_smov:
 %ifdef PKG_MEGA
     mov dx, [vp_fxseg]              ; (and the speaker shaper, 98.3.15.2)
     call vp_mmovz
+    mov dx, [vp_cpseg]              ; (and the cold part, 98.3.24.1, which
+    call vp_mmovz                   ; the bracket's ninth line calls)
+    nop                             ; (parity: the hot routines below stay even)
 %endif
     cmp byte [vp_lyb], 0            ; (and THE LAYER's own claim, in place -
     jne .nly                        ; 98.1.9: a flip's slots are the ring
@@ -12310,6 +12313,7 @@ vp_smtab:     dw vp_rclm, vp_keep, vp_prevseg, vp_shseg, vp_pseg, vp_kshd
               dw vp_pevseg, vp_p8seg, vo_s1seg, vp_bseg
 %ifdef PKG_MEGA
               dw vp_fxseg           ; (the speaker shaper's part, 98.3.15.2)
+              dw vp_cpseg           ; (and the cold part, 98.3.24.1)
 %endif
 %ifdef VP_DIAG
               dw vp_prseg           ; (the profile: vp_prmark and the read
@@ -14294,8 +14298,8 @@ vp_plset:
 ; because a part is not APP_MAX_SIZE's. Each entry here is a STUB that
 ; far-calls the part's vector with every register as its caller left it, and
 ; the part reaches the player's own routines back through vp_ptramp. The
-; part is fetched at launch and kept, pinned, and it runs in a real-mode
-; bracket as on the desktop ([vp_cpseg] is in vp_rlst).
+; part is fetched at launch and kept, movable (vp_smtab), and it runs in a
+; real-mode bracket as on the desktop ([vp_cpseg] is in vp_rlst).
 ; A part that will not come is a door not asked and a line not drawn.
 ; =============================================================================
 %include "video/vcold.inc"          ; (its header and vectors)
@@ -14347,9 +14351,8 @@ vp_ptramp:
 ; mode calls it through (protected mode's CODE alias, as vp_fxinit's), and
 ; [vp_ptfp] our own way back. The part is fetched at LAUNCH (the entry proc
 ; calls this beside vp_bget), checked to be the one built against THIS image,
-; and PINNED: SPEC.md 98.3.24.1 says what a movable one and a fetch at the
-; first door each broke. Never fetched inside a real-mode bracket. Every
-; register kept
+; and movable from then on, as the shaper is (SPEC.md 98.3.24.1). Never
+; fetched inside a real-mode bracket. Every register kept
 vp_cpget:
     push ax
     push bx
@@ -14375,8 +14378,10 @@ vp_cpget:
     jne .no
     cmp word [es:VK_IMG], OS88_IMAGE_SIZE   ; (built against this image)
     jne .no
-    mov [vp_cpseg], ax              ; (PINNED: a movable part here crashes
-    xchg ax, dx                     ; the next stop's key picture, 98.3.24.1)
+    mov [vp_cpseg], ax
+    xchg ax, dx
+    mov ax, vp_smove                ; ...and moved with the session's claims
+    call vp_mmov                    ; (vp_smtab), the shaper's shape
 .have:
     mov es, dx
     mov ax, dx

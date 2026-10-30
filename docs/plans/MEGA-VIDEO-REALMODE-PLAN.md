@@ -1390,11 +1390,16 @@ deduplicated union below, plus `test-full`.
   reading the player's words by the names `tools/os88plink.py` takes from
   the player's own map and calling its routines back through a trampoline.
   The arm 63,756 (1,268 to spare), `VPDIAG=1` 64,544 (480), `VPDIAG=time`
-  64,723 (301); every shipped build byte-identical. The part is fetched at
-  launch and PINNED: fetched at the first door, `megavidv2`'s lin320 drew 72
-  wrong pixels, and movable, its modex leg had the player CLOSED by a #GP in
-  the next stop's key picture (`vp_after` -> `vp_kpic` -> `vd_n_p3`) - a
-  latent defect a compaction exposes, NOT FIXED, recorded in 98.3.24.1.
+  64,723 (301); every shipped build byte-identical. The part was first
+  fetched at launch and PINNED: fetched at the first door, `megavidv2`'s
+  lin320 drew 72 wrong pixels, and movable, its modex leg had the player
+  CLOSED by a #GP in the next stop's key picture (`vp_after` -> `vp_kpic`
+  -> `vd_n_p3`). **Both were ONE KERNEL DEFECT, now FIXED** (KERN-MEGA-PLAN
+  14.125, SPEC.md 50.6.11): `SEG_SUB` answered a key shadow's plane with the
+  player's own `SEG_AT` window, which the next record's read re-aimed. With
+  `mega_dfind` refusing windows (+16 bytes of `.mega`, kern_big and
+  kern_small byte-identical) the part is MOVABLE again, the shaper's shape,
+  at +16 bytes of each arm: 63,772 (1,252), 64,560 (464), 64,739 (285).
   `mega-vidgrey` mirrored the card at eight lines and is taught nine.
 * **W6. Parity, on the Victory** (field, docs/FIELD-MACHINES.md). Send
   `make VPDIAG=time` and `make megadiag` builds of both kernels' players.
