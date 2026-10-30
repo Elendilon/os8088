@@ -128,10 +128,13 @@ VP_RSLN     equ VP_KBIG + 5         ; ...a ring claim's slots past them: the
                                     ; mirror's two, the bounce, the layer's
                                     ; mirror and the gap's slack
 VP_COLS    equ 35                  ; the info panel's text columns
-%ifdef VP_DIAG
-%ifdef PKG_MEGA
+%if %isdef(VP_DIAG) && %isdef(PKG_MEGA)
 %define VP_RQ                       ; (the kern_mega arm's diag: MEGADIAG's
-%endif                              ;  reflection counts around the bracket)
+                                    ;  reflection counts around the bracket)
+VP_LINES    equ 9                   ; (no line past the bracket's: the arm's
+                                    ; diag card carries none, its VPPROF
+                                    ; says all of it - os88vfit, 98.3.22.3)
+%elifdef VP_DIAG
 VP_LINES    equ 13                  ; (the last five the heap's, the reader's
                                     ; and the layer's tests: VPDIAG=1, a
                                     ; field diagnostic)
