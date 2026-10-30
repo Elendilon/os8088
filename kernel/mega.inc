@@ -7210,7 +7210,10 @@ mega_fdmkf:
 ; 72-79): every IVT vector whose segment is the interrupted CS, up to
 ; twelve - the door real mode came in by. Line 4 (rows 80-87): the
 ; interrupted AX BX CX DX SI DI BP DS ES. Line 5 (rows 88-95): the sixteen
-; bytes at CS:IP. mega_fdson / mega_fdsoff are NEAR, real
+; bytes at CS:IP. Line 6 (rows 96-103): the IVT's cells for vectors 06 0D
+; 10 13 15 1C 40, segment then offset. Line 7 (rows 104-111): the eight
+; bytes before each of the far returns at [SP] and [SP+4] - the calls that
+; led here. mega_fdson / mega_fdsoff are NEAR, real
 ; mode, IF = 0, DS = KERNEL_SEG; they preserve every register
 ; -----------------------------------------------------------------------------
 mega_fdson:
@@ -7395,6 +7398,51 @@ mega_fdsamp:                        ; IRQ0 in real mode, inside the BIOS
     mov si, mega_fdsbuf
     mov di, 88 * 80
     call mega_fdhex
+    ; --- line 6 (rows 96-103): the IVT's own cells for 06 0D 10 13 15 1C
+    ; 40, segment then offset (seven: eight would run past column 79) - which chain the BIOS call went through
+    push ds
+    pop es
+    mov di, mega_fdsbuf
+    mov bx, mega_fdsvec
+.vec:
+    mov al, [bx]
+    cmp al, 0xFF
+    je .vecd
+    push bx
+    xor ah, ah
+    shl ax, 1
+    shl ax, 1
+    mov si, ax
+    push ds
+    xor ax, ax
+    mov ds, ax
+    mov ax, [si+2]
+    mov dx, [si]
+    pop ds
+    call .hw
+    mov ax, dx
+    call .hw
+    pop bx
+    inc bx
+    jmp .vec
+.vecd:
+    mov byte [di], 0xFE
+    mov si, mega_fdsbuf
+    mov di, 96 * 80
+    call mega_fdhex
+    ; --- line 7 (rows 104-111): eight bytes before each of the two far
+    ; return addresses line 2 shows at [SP+0] and [SP+4] - the CALLS
+    push ds
+    pop es
+    mov di, mega_fdsbuf
+    mov si, 24                      ; [bp+24] IP, [bp+26] CS ...
+    call .callsite
+    mov si, 28                      ; ...[bp+28] IP, [bp+30] CS
+    call .callsite
+    mov byte [di], 0xFE
+    mov si, mega_fdsbuf
+    mov di, 104 * 80
+    call mega_fdhex
     pop es
     pop ds
     pop bp
@@ -7405,6 +7453,23 @@ mega_fdsamp:                        ; IRQ0 in real mode, inside the BIOS
     pop bx
     pop ax
     jmp far [cs:mega_fdsold]        ; the BIOS's own tick
+.callsite:                          ; [bp+si] = an IP, [bp+si+2] its CS: the
+    push ds                         ; eight bytes before that IP, then a gap
+    mov ax, [bp+si]
+    sub ax, 8
+    push ax
+    mov ax, [bp+si+2]
+    mov ds, ax
+    pop si
+    mov cx, 8
+.cs1:
+    lodsb
+    call .hb
+    loop .cs1
+    pop ds
+    mov al, 16
+    stosb
+    ret
 .hw:                                ; AX as four nibbles and a space
     push ax
     mov al, ah
@@ -7577,6 +7642,7 @@ mega_fdson_ db 0                    ; 1: the sampler is installed
 mega_fdsn   db 0                    ; ticks sampled this boot
 mega_fdvs   times 7 db 0            ; the VGA registers mega_fdvon banked
 mega_fdsbuf times 64 db 0           ; a line, as glyph numbers
+mega_fdsvec db 0x06, 0x0D, 0x10, 0x13, 0x15, 0x1C, 0x40, 0xFF
 %endif
 mega_fdoff  db 0                    ; 1: switched off for the session
 mega_fdfail db 0                    ; fallbacks in a row

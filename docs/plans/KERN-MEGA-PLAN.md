@@ -12922,3 +12922,27 @@ AX BX CX DX SI DI BP DS ES (a string instruction's count, source and
 destination), and the sixteen bytes at CS:IP. Under QEMU, line 5 reads `F3
 90 FA FC` at SeaBIOS's F000:8A2A, `pause` in a spin-wait, so the dump is
 reading the right place.
+
+**Sixth field reading (owner, 2026-10-30)**: line 4, the interrupted
+registers, `AX FE06 BX 0000 CX 0000 DX 02FE SI 0001 DI AC85 BP 1EF5 DS E71E
+ES 00B6`. Line 5, the bytes at 1254:09AA: `FE 3F FE 3F FE 3F FE 3F FE 3F FB
+3F F6 1F D8 0F`.
+
+**1254:09AA is DATA, not code**: as words it is 3FFE x5, 3FFB, 1FF6, 0FD8,
+a falling table such as an amplitude or volume curve. `FE 3F` is FE /7,
+undefined on a 286, so the CPU takes #UD there, vector 06h. Line 2's stack
+is the SAME in three readings (SS 0EE0, SP 1EEC, `02F0 1002 01B4 C400 03AC
+0100 6000 0000`), so nothing is pushing. That fits vector 06h's handler
+being a bare return: the fault, the return to the same byte, the fault
+again, at full speed. A real-mode exception clears IF, and IRET puts it
+back exactly at 09AA, so every IRQ0 lands there, which is why every sample
+reads 09AA. `CX` = 0 rules out the earlier `rep` reading. The stack reads as
+two far returns: 1002:02F0, then C400:01B4. C400 is inside C000-C7FF, the
+VGA BIOS's 32 KB (the Victory's Paradise), or another option ROM there.
+Which far call or jump got from there to 1254:09AA, through which vector,
+is still not known.
+
+**Lines 6 and 7**: the IVT's own cells for vectors 06 0D 10 13 15 1C 40
+(segment, offset: seven, since eight runs past column 79), and the eight
+bytes before each of the two far returns at [SP] and [SP+4], which are the
+calls themselves.
