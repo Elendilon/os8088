@@ -43,8 +43,13 @@
 %define OS88REAL_INC
 
 ; OS88REAL_LIST name, w1, w2, ... - the list (NUL-ended) and its bank, both
-; in the image, so the bank travels into the bracket's copy with the words
-%macro OS88REAL_LIST 2+
+; in the image, so the bank travels into the bracket's copy with the words.
+; `2-*` and NOT `2+`: a greedy last parameter took "w1, w2" as ONE, so %0 was
+; 2 whatever the list and the bank was one word long - the second word's
+; bank was the first word ITSELF, and os88real_prep wrote a real segment
+; into it at the door (MEGA-VIDEO-REALMODE-PLAN W4: tests/megarmb/megarmbs.asm,
+; the first list of two)
+%macro OS88REAL_LIST 2-*
 %1:
  %rep %0 - 1
     dw %2

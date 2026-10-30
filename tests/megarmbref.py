@@ -123,7 +123,8 @@ def parse(lines):
 # twin's offset being `.mega`'s own
 TWINS = (("apic_xm_caps", "rms_xcaps"), ("apic_xm_copy", "rms_xcopy"),
          ("apic_drv_pkg_call", "rms_drvx"), ("apic_drv_call_at", "rms_drva"),
-         ("rmk_rseq", "rms_rseq"))
+         ("rmk_rseq", "rms_rseq"), ("rmk_sstr", "rms_sstr"),
+         ("rmk_spk", "rms_spk"))       # (W4: the stream and the speaker)
 
 
 def megaoff():

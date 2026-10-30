@@ -47,6 +47,9 @@ record each in its bss), and what is asserted:
   between its first and its last ramp: the DMA never stopped across ten
   switches.
 
+--box86 runs the legs on 86Box's 286-hma (an SB 2.0, the bracket by the
+286's RESET), read off the package's bss: 86Box has no E9 and no capture.
+
 THE FAILING CASES (docs/WRITING-TESTS.md 1) are in MEGA-VIDEO-REALMODE-PLAN's
 W4 entry, each a one-line break of the kernel that takes this row red.
 """
@@ -96,7 +99,7 @@ def resoff():
 
 def parse(res):
     out = {"fin": res[0], "per": u32(res, 4), "hn": u16(res, 8),
-           "hif": u16(res, 10)}
+           "hif": u16(res, 10), "rsel": u16(res, 12)}
     for k, c in enumerate(LEGS):
         r = res[16 + k * LEG_SZ:16 + (k + 1) * LEG_SZ]
         out[c] = dict(cf=r[0], why=r[1], feat=r[2], ran=r[3], err=u16(r, 4),
@@ -250,6 +253,28 @@ def capture(path):
          "last close (%.1f s, %d phase breaks)" % (secs, br))
 
 
+def drv_words(box, rsel):
+    """((the ring's selector, its base), (sbl_rseg, its base), (the extctl
+    segment, its base)): SOUND.DRV found by its header in drv_tab"""
+    import os88drvsym
+    sym = os88drvsym.symbols("sound.bin")
+    tab = box.sym("drv_tab")
+    for i in range(8):
+        seg = u16(box.read(tab + i * 16 + 2, 2))
+        if not seg:
+            continue
+        base = box.sel_base(seg) if seg & 4 else seg << 4
+        h = box.read(base, 4)
+        if h[0:2] == b"O8" and h[3] == 1:       # DRVC_SOUND
+            rs = u16(box.read(base + sym["sbl_rseg"], 2))
+            xs = u16(box.read(base + sym["sbl_extctl"] + 2, 2))
+
+            def b_(s):
+                return box.sel_base(s) if s & 4 else s << 4
+            return (rsel, b_(rsel)), (rs, b_(rs)), (xs, b_(xs))
+    return None
+
+
 def bochs(a):
     import os88bochs
     import os88sym
@@ -265,7 +290,7 @@ def bochs(a):
                                                      "kernel.map"))
     rtick = off["fsx_rtick"]
     roff = resoff()
-    lines, res, after = [], None, None
+    lines, res, after, words = [], None, None, None
     try:
         if not box.wait_for("kern_mega:", 240):
             raise RuntimeError("no kern_mega line in 240s")
@@ -289,6 +314,7 @@ def bochs(a):
             after = box.reads([(KSEG * 16 + TBL, TLEN), ("fsx_rwhy", 1),
                                ("fsx_rmode", 1), ("fsx_task", 1),
                                ("fsx_rsvc", 2)])
+            words = drv_words(box, u16(res, 12))
     finally:
         box.stop()
     print("vidrmbsnd: %.0fs under Bochs" % (time.time() - t0))
@@ -312,6 +338,14 @@ def bochs(a):
              % (why[0], ft[0]))
         want(u16(svc) == 0, "the service area's claim is given back "
              "([fsx_rsvc] %04x)" % u16(svc))
+    if words:
+        ring, rs, xs = words
+        print("   SOUND.DRV after: [sbl_rseg] %04x, [sbl_extctl+2] %04x, the "
+              "ring's claim %04x at %06x" % (rs[0], xs[0], ring[0], ring[1]))
+        want(all(w[0] & 4 and w[1] == ring[1] for w in (rs, xs)),
+             "SOUND.DRV's ring words SELECTORS of the ring's claim again "
+             "(W's stream stored paragraphs inside, and the return renamed "
+             "them: no real-mode segment outlives the bracket)")
     print("\n   the card's capture")
     capture(os.path.join(out, "sb.wav"))
     if a.keep or FAILS:
@@ -322,11 +356,147 @@ def bochs(a):
     return 1 if FAILS else 0
 
 
+def mr_setup(b):
+    """MR BIOS 1.65 from a fresh CMOS: both floppies 3.5" 1.44MB
+    (tests/hma286.py's sequence)"""
+    def row(r):
+        return bytes.fromhex(b.cmd("text")["chars"][r]).decode("cp437")
+    b.wait_text("Press Any Key", 20000)
+    b.tap("return")
+    b.cmd("step 1500")
+    for _ in range(4):
+        b.tap("right")
+        b.cmd("step 300")
+    b.tap("down")
+    b.cmd("step 300")
+    for r in (10, 11):
+        n = 0
+        while "1.4" not in row(r) and n < 8:
+            b.tap("space")
+            b.cmd("step 300")
+            n += 1
+        b.tap("down")
+        b.cmd("step 300")
+    b.tap("esc")
+    b.cmd("step 500")
+    b.tap("f10")
+
+
+def box86(a):
+    """the same legs on 86Box's 286 (vm/286-hma: the owner's mr286 with a
+    Sound Blaster 2.0, DSP 2.01) - the bracket by the RESET way down, with
+    the card playing across it. No capture (86Box writes none) and no E9:
+    the verdicts are read off the package's bss"""
+    import subprocess
+    import os88box
+    import os88geom as G
+    import os88sym
+    B = os.path.join(ROOT, "build")
+    for f in ("mega.img", "megak/kernel.map", "megarun.o88", "megarmbs.o88",
+              "megarmbs.bin"):
+        if not os.path.exists(os.path.join(B, f)):
+            sys.exit("vidrmbsnd: build/%s is not built - `make mega megarun`"
+                     % f)
+    tmp = tempfile.mkdtemp(prefix="vidrmbsnd286")
+    img = os.path.join(tmp, "mega.img")
+    shutil.copy(os.path.join(B, "mega.img"), img)
+    cfg = os.path.join(tmp, "SYSTEM.CFG")       # SOUND.DRV wanted (bit 0)
+    with open(cfg, "wb") as fh:
+        fh.write(b"O88CFG\0\0" + (3).to_bytes(2, "little") + b"DW" +
+                 bytes([1, 2]) + (1).to_bytes(2, "little") + b"\0\0")
+    fat = os.path.join(ROOT, "tools", "os88fat.py")
+    subprocess.run([sys.executable, fat, "del", img, "SYSTEM.CFG"],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run([sys.executable, fat, "add", img, cfg], check=True,
+                   stdout=subprocess.DEVNULL)
+    stage = os.path.join(tmp, "stage")
+    os.makedirs(stage)
+    files = []
+    for src, dst in (("megarun.o88", "0RUN.O88"),
+                     ("megarmbs.o88", "MEGARMBS.O88")):
+        shutil.copy(os.path.join(B, src), os.path.join(stage, dst))
+        files.append(os.path.join(stage, dst))
+    bimg = os.path.join(tmp, "megab.img")
+    subprocess.run([sys.executable, os.path.join(ROOT, "tools", "os88disk.py"),
+                    "-o", bimg, "--size", "1440"] + files, check=True,
+                   stdout=subprocess.DEVNULL)
+    hd = os.path.join(tmp, "hd.img")             # (the profile's IDE disk:
+    with open(hd, "wb") as fh:                   # blank, so A: boots)
+        fh.truncate(63 * 16 * 65 * 512)
+    b = os88box.launch(a.vm, name="vidrmbsnd286%d" % os.getpid(), hold=True,
+                       fresh=True, a=img, b=bimg, c=hd, temp=not a.keep,
+                       turbo=True, sets=("Sound.sndcard=sb2.0",))
+    off, sect, equ = os88sym._parse_map(os.path.join(B, "megak",
+                                                     "kernel.map"))
+    rtick = off["fsx_rtick"]
+    roff = resoff()
+    res, after = None, None
+    t0 = time.time()
+    try:
+        mr_setup(b)
+        b.kernel_up(guest_ms=120000)
+        b.until(lambda: b.byte("mega_on"), "protected mode", 30000, 250)
+        b.ui_done(cap_ms=10000)
+        b.to(592, 105)
+        b.click(2)
+        b.ui_done(limit_ms=20000)
+        b.to(160, 127)
+        b.click(2)
+
+        def sptr():
+            raw = b.memr(b.sym("inst_tab"), G.INST_MAX * G.I_RECSZ)
+            for i in range(G.INST_MAX):
+                r = raw[i * G.I_RECSZ:(i + 1) * G.I_RECSZ]
+                nm = r[G.I_NAME:G.I_NAME + 16].split(b"\0")[0]
+                if r[G.I_STATE] == 1 and nm == NAME.encode():
+                    return u16(r, G.I_SPTR)
+            return None
+        b.until(lambda: sptr() is not None, "%s to start" % NAME, 60000, 200)
+        base = b.lin(sptr())
+        b.until(lambda: b.memr(base + roff, 1)[0] == 1, "%s's legs" % NAME,
+                600000, 500)
+        res = b.memr(base + roff, 16 + len(LEGS) * LEG_SZ)
+        b.ui_done(limit_ms=20000, lock=False)
+        after = (b.byte("fsx_rwhy"), b.byte("fsx_rmode"), b.byte("fsx_task"),
+                 u16(b.memr(equ["LOW_SEG"] * 16 + off["fsx_rsvc"], 2)))
+    except SystemExit as e:
+        want(False, "the machine stopped answering or a step missed: %s" % e)
+    finally:
+        b.quit(remove=not a.keep)
+    print("vidrmbsnd: %.0fs under 86Box's %s" % (time.time() - t0, a.vm))
+    if res is None:
+        want(False, "%s's result block read" % NAME)
+    else:
+        r = parse(res)
+        for c in LEGS:
+            d = r[c]
+            print("   %s cf %d why %d feat %02x ran %d err %04x st %04x t %d "
+                  "c %d x %s" % (c, d["cf"], d["why"], d["feat"], d["ran"],
+                                 d["err"], d["st"], d["t"], d["c"],
+                                 " ".join("%04x" % v for v in d["x"])))
+        want(r["fin"] == 1, "%s ran every leg" % NAME)
+        judge(r, rtick)
+    if after:
+        why, rm, ft, svc = after
+        want(why == 0xFF and rm == 0 and ft == 0xFF and svc == 0,
+             "after: [fsx_rwhy] %02x, [fsx_rmode] %d, no bracket up, "
+             "[fsx_rsvc] %04x" % (why, rm, svc))
+    if a.keep:
+        print("vidrmbsnd: kept %s" % tmp)
+    else:
+        shutil.rmtree(tmp, ignore_errors=True)
+    print("vidrmbsnd: %s" % ("FAIL - %d" % len(FAILS) if FAILS else "ok"))
+    return 1 if FAILS else 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--keep", action="store_true")
+    ap.add_argument("--box86", action="store_true",
+                    help="86Box's 286 (--vm) with an SB 2.0: the reset way")
+    ap.add_argument("--vm", default="286-hma")
     a = ap.parse_args()
-    return bochs(a)
+    return box86(a) if a.box86 else bochs(a)
 
 
 if __name__ == "__main__":

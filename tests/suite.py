@@ -16910,6 +16910,18 @@ SOAK = [
         needs=("86box",),
         wants=("build/mega.img", "build/megarmbe.o88", "build/megarmbe.bin",
                "build/ems.bin")),
+    Row("vidrmbsnd286", "soak", py("tests/vidrmbsnd.py", "--box86"), 20.0,
+        "SPEC.md 53.2.3, MEGA-VIDEO-REALMODE-PLAN W4: vidrmbsnd's legs on "
+        "86Box's 286-hma, the owner's mr286 with a Sound Blaster 2.0 (DSP "
+        "2.01) - the real-mode bracket by the RESET way down with the card "
+        "playing across it, every leg's bytes a tick against the control's, "
+        "the watchdog, the speaker's twin; read off the package's bss (no "
+        "E9, no capture). Red with fsx_rdownf not handing the opened line "
+        "to [mega_rmask]: mega_r286's mask compare misses, re-initialises "
+        "the 8259 and every real-mode leg plays nothing. 20s is 9 measured",
+        needs=("86box",),
+        wants=("build/mega.img", "build/megarun.o88", "build/megarmbs.o88",
+               "build/megarmbs.bin")),
     Row("megaxmove", "soak", py("tests/megaxmove.py"), 25.0,
         "SPEC.md 50.6.10, docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md MC3: on "
         "kern_mega an OSAPI_XMEM_ALLOC block MOVES and is read back through "

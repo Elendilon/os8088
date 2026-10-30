@@ -2025,7 +2025,12 @@ fsx_rdownf:
     mov ax, [mega_vsw+2]
     mov [k_vsa], ax
 .nvs:
-    call fsx_rsnddn             ; SOUND.DRV low, its lines open (W4)
+    call fsx_rsnddn             ; SOUND.DRV low, its lines open (W4) -
+    mov [mega_rmask], bx        ; and THE MASKS mega_r286 COMPARES A 286'S
+                                ; RESET AGAINST with them: left at the lines
+                                ; mega_rmaskf said, the compare missed, the
+                                ; 8259 was re-initialised and the card's line
+                                ; shut for the bracket (vm/286-hma, W4)
     mov word [ss:fsx_rstko], rms_stick ; ...and the tick's call to its DSV_TICK
     mov al, [mega_imr1]
     or al, bl

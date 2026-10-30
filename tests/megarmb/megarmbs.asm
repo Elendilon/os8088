@@ -105,27 +105,35 @@ ms_tick:
     push di
     push bp
     push es
-    mov ax, (MS_RL + 1024) / 1024   ; the ring and its words, conventional
-    mov cx, ax                      ; and all of it page-safe (the DMA door)
-    call OSAPI_MEM_CLAIM_DMA
+    mov bx, ms_ring2                ; TWO rings: the streams protected mode
+    call ms_ringc                   ; opens play ms_ring, the ones a bracket
+    jc .nomem                       ; opens ms_ring2 - so a stream opened
+    mov [ms_rsel], dx               ; inside stores a segment the drop never
+    mov bx, ms_ring                 ; made, and the return must find its
+    call ms_ringc                   ; claim by its base (mega_p2d)
     jc .nomem
-    mov [ms_ring], dx
-    mov es, dx                      ; the sawtooth, and the words zero
-    xor di, di
-    xor ax, ax
-    mov cx, MS_RL
-    cld
-.fill:
-    stosb
-    inc al
-    loop .fill
-    xor ax, ax
-    stosw
-    stosw
     mov si, ms_list
     mov di, ms_list_bank
-    call os88real_prep              ; the ring's real segment, banked
+    call os88real_prep              ; the rings' real segments, banked
+    mov si, ms_s_rings              ; (E9: the two claims, and the banks)
+    call ms_say
+    mov ax, [ms_ring]
+    call ms_hex4
+    mov al, ' '
+    call ms_out1
+    mov ax, [ms_ring2]
+    call ms_hex4
+    mov al, ' '
+    call ms_out1
+    mov ax, [ms_list_bank]
+    call ms_hex4
+    mov al, ' '
+    call ms_out1
+    mov ax, [ms_list_bank+2]
+    call ms_hex4
+    call ms_nl
     ; --- Z: the CONTROL - protected mode alone, before any bracket -------
+    mov word [ms_rp], ms_ring
     mov al, 10
     call ms_rec
     mov di, [ms_cur]
@@ -138,6 +146,7 @@ ms_tick:
 .oz:
     call ms_rep
     ; --- PLAY: opened inside, carried out, in, out, in and closed ---------
+    mov word [ms_rp], ms_ring2
     mov al, 0
     mov word [ms_body], ms_b_open
     call ms_leg
@@ -152,6 +161,7 @@ ms_tick:
     mov word [ms_body], ms_b_close
     call ms_leg
     ; --- LIVE: opened in protected mode, carried in, out and closed ------
+    mov word [ms_rp], ms_ring
     mov al, 5
     call ms_rec
     call ms_open
@@ -174,6 +184,7 @@ ms_tick:
     call ms_close
     call ms_rep
     ; --- the watchdog, and the speaker --------------------------------------
+    mov word [ms_rp], ms_ring2
     mov al, 8
     mov word [ms_body], ms_b_wd
     call ms_leg
@@ -193,6 +204,32 @@ ms_tick:
     pop cx
     pop bx
     pop ax
+    ret
+
+; ms_ringc - BX = a ring word: a conventional, page-safe claim of the ring
+; and its words, filled with the sawtooth. out DX the claim, CF
+ms_ringc:
+    mov ax, (MS_RL + 1024) / 1024   ; the ring and its words, conventional
+    mov cx, ax                      ; and all of it page-safe (the DMA door)
+    push bx
+    call OSAPI_MEM_CLAIM_DMA
+    pop bx
+    jc .o
+    mov [bx], dx
+    mov es, dx                      ; the sawtooth, and the words zero
+    xor di, di
+    xor ax, ax
+    mov cx, MS_RL
+    cld
+.fill:
+    stosb
+    inc al
+    loop .fill
+    xor ax, ax
+    stosw
+    stosw
+    clc
+.o:
     ret
 
 ; ms_rec - AL = the leg's index: [ms_cur] its record, clean, the letter kept
@@ -449,7 +486,8 @@ ms_open:
     mov ah, MS_OPEN
     mov dx, MS_RATE
     xor si, si
-    mov di, [ms_ring]
+    mov bx, [ms_rp]
+    mov di, [bx]
     mov cx, MS_RL
     push es
     mov es, di                      ; the words: a ring ahead, before the
@@ -523,7 +561,10 @@ ms_play:
 ; total one ring past it. Clobbers AX, DX, DI
 ms_feed:
     push es
-    mov es, [ms_ring]
+    push bx
+    mov bx, [ms_rp]
+    mov es, [bx]
+    pop bx
     mov ax, [es:MS_RL + SND_EXT_CONS]
     mov dx, ax
     sub dx, [ms_lastc]
@@ -654,9 +695,11 @@ ms_hex2:
 
 %include "os88real.inc"
 
-    OS88REAL_LIST ms_list, ms_ring  ; the ring's claim word
+    OS88REAL_LIST ms_list, ms_ring, ms_ring2 ; the rings' claim words
 
 ms_ring     dw 0
+ms_ring2    dw 0
+ms_rp       dw ms_ring              ; the stream's ring word
 ms_k        dw 0                    ; S: the samples a period...
 ms_kc       dw 0                    ; ...counting down to the chain
 ms_chain    dw 0, 0                 ; ...the chain
@@ -671,6 +714,7 @@ ms_ttl:     db 'MegaRMB sound', 0
 ms_name0:   db 'MEGARMBS: ', 0
 ms_s_start: db 'start', 0
 ms_s_done:  db 'done', 0
+ms_s_rings: db 'rings ', 0
 ms_s_cf:    db ' cf ', 0
 ms_s_why:   db ' why ', 0
 ms_s_feat:  db ' feat ', 0
@@ -692,6 +736,7 @@ ms_win      equ ms_res + 2
 ms_per      equ ms_res + 4          ; dd: S's rate periods, by the hook
 ms_hn       equ ms_res + 8          ; S's hook calls...
 ms_hif      equ ms_res + 10         ; ...at IF = 1
+ms_rsel     equ ms_res + 12         ; the ring's claim, its selector
 ms_legs     equ ms_res + 16         ; P Q L M K O I J W S Z: LEG_SZ each
 ms_cur      equ ms_legs + LEGS * LEG_SZ
 ms_body     equ ms_cur + 2
