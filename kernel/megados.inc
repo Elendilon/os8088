@@ -1307,7 +1307,7 @@ mega_dosgo:
     inc bx
     loop .nmpad
 .nmd:
-    mov ax, (KERNEL_SEG << 4) + mega_dname; ...and into the header
+    mov ax, (KERNEL_SEG << 4) + mega_dname ; ...and into the header
     call mega_xsrc0
     mov ax, mpk_s_name - mpk_stub
     call mega_dpdst
@@ -1331,8 +1331,8 @@ mega_dosgo:
     or ax, [mega_dpbase+2]
     jz .noanchor
     push es
-    mov ax, MEGA_SEL_WIN
-    mov es, ax
+    push word MEGA_SEL_WIN
+    pop es
     mov word [es:0], MPK_ANCHOR1
     mov word [es:2], MPK_ANCHOR2
     mov ax, [mega_dpbase]
@@ -1430,7 +1430,7 @@ mega_dstubup:
     call mega_dpdst
     mov cx, (mpk_stub_end - mpk_stub + 1) & 0xFFFE
     call KERNEL_SEG:mega_lincopyf
-    mov ax, (KERNEL_SEG << 4) + mega_gdtr; ...its GDTR and IDTR, THIS boot's: the
+    mov ax, (KERNEL_SEG << 4) + mega_gdtr ; ...its GDTR and IDTR, THIS boot's: the
     call mega_xsrc0
                                     ; tables move with the machine since
                                     ; KERN-MEGA-MEMORY-PLAN MC2, so the stub
@@ -1488,9 +1488,7 @@ mega_dhcfill:
     mov cl, 0x92
     call mega_hdesc
     pop ax                          ; 28 the text page: the stage's own
-    mov dx, ax                      ; segment, which is B000 or B800
-    shl ax, 4
-    shr dx, 12
+    call mega_p2lin                 ; segment, which is B000 or B800
     mov bx, MPS_HC + 0x28
     call mega_hdesc
     mov ax, [mega_dsum]

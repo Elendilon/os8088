@@ -2169,8 +2169,8 @@ MEGA_FKGAP  equ 55                  ; ticks (3 s) before another may begin
 MEGA_FKVEC  equ 0x38F9              ; vectors 0 3 4 5 6 7 0B 0C 0D: the ones a
                                     ; program's own instruction raises
 mega_fkill:
-    mov ax, MEGA_SEL_KDATA
-    mov ds, ax
+    push word MEGA_SEL_KDATA
+    pop ds
     mov byte [mega_n0], 0           ; a reported fault never finishes a step of
                                     ; mega_null0's: none is pending after it
     mov ax, LOW_SEG
@@ -3468,29 +3468,17 @@ mega_backf:
     popf
     retf
 mega_sldsegf:
-    pushf
-    cmp byte [ss:mega_pm], 0
-    je .rm
-    push dx
-    push di
-    mov dx, ax
-    shl ax, 4
-    shr dx, 12                      ; DX:AX = its base
-    mov di, MEGA_SEL_SLD
-    call mega_gdtaim
-    pop di
-    pop dx
-.rm:
-    popf
+    push di                         ; mega_kaimf with DI = SLD, which is the
+    mov di, MEGA_SEL_SLD            ; whole of it: the same real-mode answer,
+    call COLD_SEG:mega_kaimf        ; the same aim, FLAGS and DX kept by it
+    pop di                          ; (kernel size pass 15, mega_vbaimf's call)
     retf
 ; mega_gdtaim - DI = a GDT scratch selector, DX:AX = a base -> that entry a
 ; 64KB data descriptor there, AX = the selector. Clobbers DX
 mega_gdtaim:
     push es
-    push ax
-    mov ax, MEGA_SEL_WIN            ; the GDT itself, as data
-    mov es, ax
-    pop ax
+    push word MEGA_SEL_WIN          ; the GDT itself, as data (protected
+    pop es                          ; mode, so a 286's push)
     pushf                           ; one descriptor, written whole: an ISR
     cli                             ; that reloads this selector mid-write
     mov word [es:di], 0xFFFF        ; (its push/pop of DS) would read half of
@@ -4337,8 +4325,8 @@ mega_ivt_sync:
 .build:
     push ds                         ; the copy, for next time
     pop es
-    mov ax, MEGA_SEL_LOW0
-    mov ds, ax
+    push word MEGA_SEL_LOW0
+    pop ds
     mov si, 0x08 * 4
     mov di, mega_ivtsh
     mov cx, 16
@@ -4354,8 +4342,8 @@ mega_ivt_sync:
     rep movsw
     push ss                         ; (any data selector but LOW0, for ES -
     pop es                          ; DS is put right from it below)
-    mov ax, MEGA_SEL_KDATA
-    mov ds, ax
+    push word MEGA_SEL_KDATA
+    pop ds
     mov ax, MEGA_SEL_IDT            ; ...and the gates - from IRQ2: IRQ0 and
     mov es, ax                      ; IRQ1 are the kernel's own here (sch_isr,
     mov bx, 0x22                    ; kbm_isr), and their IVT cells hold the
@@ -5892,10 +5880,8 @@ mega_xmrunf:
     push dx
     sub dx, MEGA_XPOOL >> 16
     jc .notp                        ; below the pool
-    mov cl, 10
-    shr ax, cl
-    mov cl, 6
-    shl dx, cl
+    shr ax, 10                      ; (protected mode: a 286's shifts)
+    shl dx, 6
     or ax, dx                       ; AX = its KB from the pool's base
     pop dx
     inc byte [sch_lock]             ; the scan to the MX_SEL store: the
@@ -8831,10 +8817,8 @@ mx_dfree:
     mov ax, [ss:si+MX_OFF]
     add ax, [ss:si+MX_KB]
     call mx_kblin                   ; DX:AX = its end
-    push ax
-    mov ax, MEGA_SEL_LDTD
-    mov es, ax
-    pop ax
+    push word MEGA_SEL_LDTD
+    pop es
     mov di, MEGA_LDT_FREE0 * 8
 .d:
     cmp byte [es:di+5], 0
@@ -9240,10 +9224,8 @@ MX_KDRV     equ 0xFD                ; ...and for a DRIVER'S IMAGE (drv_hi_move):
 mega_ldt_alloc:
     push di
     push es
-    push ax
-    mov ax, MEGA_SEL_LDTD
-    mov es, ax
-    pop ax
+    push word MEGA_SEL_LDTD
+    pop es
     mov di, MEGA_LDT_FREE0 * 8
     pushf
     cli                             ; the scan and the claim are one step
@@ -9278,10 +9260,8 @@ mega_ldt_alloc:
 mega_ldt_alloc2:
     push di
     push es
-    push ax
-    mov ax, MEGA_SEL_LDTD
-    mov es, ax
-    pop ax
+    push word MEGA_SEL_LDTD
+    pop es
     mov di, MEGA_LDT_FREE0 * 8
     pushf
     cli
@@ -9374,10 +9354,8 @@ mega_ldt_free:
     and di, 0xFFF8
     cmp di, MEGA_LDT_FREE0 * 8
     jb .no
-    push ax
-    mov ax, MEGA_SEL_LDTD
-    mov es, ax
-    pop ax
+    push word MEGA_SEL_LDTD
+    pop es
     pushf
     cli
     mov word [es:di], 0
@@ -10282,15 +10260,9 @@ mega_layoutf:
     pop ax
     retf
 .lin:                               ; AX = KB from 1MB -> DX:AX = its linear
-    push cx
-    mov dx, ax
-    mov cl, 10
-    shl ax, cl
-    mov cl, 6
-    shr dx, cl
-    add dx, 0x10
-    pop cx
-    ret
+    call mega_kbc                   ; (a 286's: the CPU test is behind us,
+    add dx, 0x10                    ; and this routine shifts by immediates
+    ret                             ; already)
 
 ; -----------------------------------------------------------------------------
 ; mx_compactf - FAR (OSAPI_MEM_REGROW's .hpack): PACK THE POOL'S MOVABLE BLOCKS
@@ -10625,14 +10597,10 @@ mega_bparaf:
     mov cx, ax
     shl cx, 4                       ; CX = bytes
     mov ax, si
-    mov dx, ax
-    shl ax, 4
-    shr dx, 12
+    call mega_p2lin
     call mega_xsrcset
     mov ax, di
-    mov dx, ax
-    shl ax, 4
-    shr dx, 12
+    call mega_p2lin
     mov [mega_xdst], ax
     mov [mega_xdst+2], dx
     or bp, bp
@@ -10666,8 +10634,8 @@ mx_lcopy:
     call KERNEL_SEG:mega_xdescf
     push ds
     push es
-    mov ax, MEGA_SEL_XA
-    mov ds, ax
+    push word MEGA_SEL_XA
+    pop ds
     mov ax, MEGA_SEL_XB
     mov es, ax
     shr cx, 1
@@ -10962,6 +10930,14 @@ mx_xcut:
 mx_kblin:
     call mega_kblin                 ; (megados.inc: the same section)
     add dx, MEGA_XPOOL >> 16
+    ret
+
+; mega_p2lin - AX = a real-mode paragraph -> DX:AX = its linear address.
+; Nine `.mega` sites wrote it out (kernel size pass 15). Clobbers nothing else
+mega_p2lin:
+    mov dx, ax
+    shl ax, 4
+    shr dx, 12
     ret
 
 section .cold                   ; (KERN-MEGA-SEGMENTS-PLAN: back from .mega)
@@ -11902,9 +11878,7 @@ mega_rgnconv:
 .f:
     mov cx, [ss:si+MC_PARA]
     mov ax, [ss:si+MC_SEG]
-    mov dx, ax
-    shl ax, 4
-    shr dx, 12
+    call mega_p2lin
     clc
 .o:
     pop si
@@ -12060,9 +12034,7 @@ mega_segf:
     push di
     mov si, ax                      ; SI = the window to re-aim, or 0
     mov ax, dx
-    mov dx, ax
-    shl ax, 4
-    shr dx, 12                      ; DX:AX = the paragraph's linear address
+    call mega_p2lin                 ; DX:AX = the paragraph's linear address
     dec cx                          ; the limit (0 - 1 = 64KB)
     call mega_segown                ; BL = the caller's owner byte
     call mega_wfind                 ; DI = a window of the caller's
@@ -12203,10 +12175,8 @@ mega_segown:
 mega_wfind:
     push si
     push es
-    push ax
-    mov ax, MEGA_SEL_LDTD
-    mov es, ax
-    pop ax
+    push word MEGA_SEL_LDTD
+    pop es
     mov si, mega_wtab
 .l:
     mov di, [ss:si]
@@ -12272,10 +12242,8 @@ mega_wset:
     add sp, 2                       ; (the match: not wanted)
     push es
     push di
-    push ax
-    mov ax, MEGA_SEL_LDTD
-    mov es, ax
-    pop ax
+    push word MEGA_SEL_LDTD
+    pop es
     mov di, si
     and di, 0xFFF8
     pushf
@@ -12542,8 +12510,8 @@ mega_segaim:
     mov bx, [ss:bx]                 ; the window
     and bx, 0xFFF8
     push es
-    mov ax, MEGA_SEL_LDTD
-    mov es, ax
+    push word MEGA_SEL_LDTD
+    pop es
     pushf
     cli
     mov [es:bx], cx
@@ -12657,10 +12625,8 @@ mx_inblk:
 mega_dfind:
     push di
     push es
-    push ax
-    mov ax, MEGA_SEL_LDTD
-    mov es, ax
-    pop ax
+    push word MEGA_SEL_LDTD
+    pop es
     mov di, MEGA_LDT_FREE0 * 8
 .l:
     push ax
@@ -12744,9 +12710,7 @@ mega_mpix:
 ; else
 mega_mpbase:
     mov ax, [ss:si+MC_SEG]
-    mov dx, ax
-    shl ax, 4
-    shr dx, 12
+    call mega_p2lin
     mov cx, [ss:si+MC_PARA]
     cmp cx, 0x1000
     jb .l
@@ -12796,10 +12760,8 @@ mega_mpsyncf:
     or di, di
     jz .o
     call mega_mpbase
-    push ax
-    mov ax, MEGA_SEL_LDTD
-    mov es, ax
-    pop ax
+    push word MEGA_SEL_LDTD
+    pop es
     and di, 0xFFF8
     pushf
     cli
@@ -12865,13 +12827,9 @@ mega_mpmovef:
     mov bp, bx
     sar bp, 12
     shl bx, 4                       ; BP:BX = the move in bytes, signed
-    mov dx, ax
-    shl ax, 4
-    shr dx, 12                      ; DL:AX = the old base
-    push ax
-    mov ax, MEGA_SEL_LDTD
-    mov es, ax
-    pop ax
+    call mega_p2lin                 ; DL:AX = the old base
+    push word MEGA_SEL_LDTD
+    pop es
     mov di, MEGA_LDT_FREE0 * 8
     pushf
     cli
@@ -12979,9 +12937,7 @@ mega_useg:
     jmp short .o
 .new:
     mov bx, ax
-    mov dx, ax
-    shl ax, 4
-    shr dx, 12                      ; DX:AX = its base
+    call mega_p2lin                 ; DX:AX = its base
     mov cx, 0xFFFF
     push bx
     mov bl, 0x92
@@ -13252,13 +13208,9 @@ mega_cdfree:
     push dx
     push di
     push es
-    mov dx, ax
-    shl ax, 4
-    shr dx, 12                      ; DL:AX = the base
-    push ax
-    mov ax, MEGA_SEL_LDTD
-    mov es, ax
-    pop ax
+    call mega_p2lin                 ; DL:AX = the base
+    push word MEGA_SEL_LDTD
+    pop es
     mov di, MEGA_LDT_FREE0 * 8
 .d:
     cmp byte [es:di+5], 0
@@ -13407,8 +13359,8 @@ mega_pmtail:
                                     ; guard) and would swallow every key
 
     ; --- the IVT keeps the BIOS's own tick and keyboard, for a reflection ----
-    mov ax, MEGA_SEL_LOW0
-    mov es, ax
+    push word MEGA_SEL_LOW0
+    pop es
     mov ax, [mega_old08]
     mov [es:0x08*4], ax
     mov ax, [mega_old08+2]
