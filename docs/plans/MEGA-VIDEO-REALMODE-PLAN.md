@@ -1,7 +1,8 @@
 # MEGA-VIDEO-REALMODE-PLAN - the Video Player's bracket in real mode under kern_mega
 
-**Status: PLAN. W0 (the census) is DONE (2026-10-29); W1-W6 are not
-started and nothing is built.** The plan was first written against
+**Status: PLAN. W0 (the census) is DONE (2026-10-29); W1 (the drop and
+the return) is BUILT and its gates pass (2026-10-30, section 4's W1 entry);
+W2-W6 are not started.** The plan was first written against
 `4d3d0943` from source and documents only. **W0 measured it again on
 `df2e1fbf`**, and section 7 is that census: every `PKG_MEGA` block of the
 player classified and assembled, the bracket's real API whitelist walked off
@@ -683,22 +684,149 @@ deduplicated union below, plus `test-full`.
   one of kern_mega with its map, and static call graphs over the listings.
   It replaced this file's 3.1.1 and 3.7 with measured tables, answered 5.1.4
   (section 3.1.3), and found what section 5.2 asks the owner before W1.
-* **W1. The drop and return with an empty bracket.** `FSXF_REAL` with an
-  entry proc that only loops on `[ticks]` and the hook - **a test package
-  that says `OS88_HIGH`, so the region's low copy is in W1 and not later**:
-  no entry proc above 1MB can be called in real mode (section 7.4). W1
-  also carries the module's load into conventional memory, step 6's words
-  (`[k_seg0]`, the video words, `CPU_F_PM`) and the tick. Gates:
-  * new row `megarmb` (Bochs): hook periods against PIT counts are exact
-    (`tests/vidkern.py`'s arithmetic), `[ticks]` and 40:6C agree after,
-    the desktop and mouse come back, the IDT is rebuilt, and the region's
-    bss written inside the bracket reads back after it;
-  * `megarmb286` (86Box `vm/286-victory`, the reset path);
-  * existing `megapiclose` (with `PICLOSE=1`, edges lost on the way out),
-    `megaxmove`, `vidkern`.
-  Break on purpose: skip the forced `mega_ivt_sync`, and leave `[k_seg0]`
-  a selector (`fsx_mode`'s `vid_setmode` then writes the wrong BIOS data
-  area), and the row goes red.
+* **W1. The drop and return with an empty bracket - BUILT 2026-10-30, its
+  two gates green.** SPEC.md 53.2.3 is the contract (written before the
+  code); `kernel/fsx.inc`'s `%ifdef KERN_MEGA` tail is the code, with
+  `mega_down` / `mega_rland` / `mega_up` made routines both drops share
+  (`kernel/megados.inc`, `kernel/mega.inc`).
+
+  **What was built.** `FSXF_REAL` = 8, CX bit 3 of `OSAPI_FSX_RUN`, in both
+  SDK and kernel (`apps/os88api.inc`, `kernel/fsx.inc`), the ABI lock
+  updated with no bump (a new bit every older kernel refuses as undefined).
+  Every kernel strips it at the door (`and cl, ~FSXF_REAL`); kern_mega banks
+  the asked flags in SI first and, in protected mode, acts:
+  * **`fsx_rprepf`** (`.mega`, at the door after every other test, so
+    nothing can refuse after the claim): refuses with `FSXF_KEEPWORKER`,
+    with a `TF_SERVICE` task alive, with EXTD.DRV loaded, and when an
+    `OS88_HIGH` region (base >= 1MB off its descriptor) gets no
+    conventional claim of `I_SIZE` - owned by the instance's slot, so a
+    teardown frees what an exit did not. A conventional region runs where
+    it is.
+  * **`fsx_rcopyf`** (`.mega`): the whole region DOWN at the freeze's arm,
+    with IF = 1 - frozen, no other task can write it, and the rate not yet
+    armed, so no hook can - and back UP at the exit, IF = 1 again, after
+    the rate is off.
+  * **`fsx_rcall`** (`.text`) in place of `wm_pkgcall`: `fsx_rdownf`
+    (`.mega`: the masks a service reflection's through `mega_rmaskf`'s new
+    `.nv` entry, `mega_vrm`'s two words undone, IVT 20h = `fsx_rtick`,
+    EXTD.DRV's 16 slots pointed at `fsx_rgone`, `[k_seg0]` = 0, `CPU_F_PM`
+    cleared, and every word `mega_vfixall` made a selector banked and made
+    a segment by `mega_vwalk`), then `mega_down` with `[mega_drop]` = 2 -
+    CR0 on a 386, the shutdown-0Ah reset on a 286, `mega_r286` doing its
+    mask compare and `mega_pic_pm` / `mega_kdrain` as for a reflection -
+    landing at **`fsx_rland`**, the entry far-called at the real paragraph's
+    `PKG_DISP`, then `mega_a20`, `mega_up`, `sch_fast_off` and
+    **`fsx_rupf`** (`.mega`: the FORCED `mega_ivt_sync`, the masks, every
+    word back from the bank, the copy up, the claim freed).
+  * **`fsx_rtick`** (`.text`): `sch_isr`'s three arms with no scheduler -
+    `[sch_subs]`; under `FSXF_RATE` the accumulator and the hook with
+    `sch_rhook`'s busy and SS rules; under `FSXF_FASTTICK` the countdown; a
+    tick chains `[mega_old08]`, the ROM's own handler, and bumps `[ticks]`.
+
+  **Decisions, and why** (where the plan above was ambiguous or W1 found it
+  wrong):
+  1. **The real-mode half is RESIDENT in `.text`, not a module.** A module
+     is read from the SYSTEM disk; read at every bracket it is a disk swap at
+     every Play on a one-floppy machine, which fails docs/plans/completed/
+     ONDEMAND-PLAN.md 1's test, and kept loaded for the session it is
+     conventional memory either way. W1's real-mode code is ~240 bytes,
+     smaller than a module's row, thunks and conventional load arm. **W2
+     decides the table separately**: its two 1,241-byte images are the part
+     that might want one - or none, generated at the drop into a heap claim
+     (3.1.1's alternative), which needs no disk at all.
+  2. **`FSXF_REAL` combines with ANY flag**, not "only with `FSXF_RATE`"
+     (3.1): the tick does the plain and the sub-tick arms too for ~10 bytes,
+     and a generic flag (5.1.5) should not dictate the clock.
+  3. **No relocation proc is called for the region's copy** (3.1 step 5
+     said call it). A region above 1MB HAS none recorded -
+     `osapi_mem_movable_x` refuses the declaration there - and the copy is
+     not a move: the window's copy is the one that stands again at the
+     exit. So the contract says it (SPEC.md 53.2.3): inside, take your own
+     segment from CS; a word banked before the call holds a selector. The
+     player's `[vp_self]` is W5's to set inside its entry proc.
+  4. **IVT 20h is restored by the forced `mega_ivt_sync`, not by hand**: the
+     sync rebuilds the gates AND writes IVT 20h-27h back as the copy of
+     08h-0Fh, so the tick's vector is gone the moment the gates are right -
+     and skipping the sync is the break that leaves it there.
+  5. **`mega_dprime` is not called** (3.1's "mega_dwake's tail" named it):
+     it primes the lines the DOS trip's two ICW1s cost. The bracket issues
+     no ICW1 and keeps a reflection's masks, so there is nothing to prime -
+     and a 286's reset that does re-initialise the 8259 is `mega_r286`'s
+     mask compare, as on every reflection.
+  6. **The A20 proof is `mega_a20` itself, MOVED from `.cold` to `.text`**
+     (118 bytes with a far entry for `mega_gatef`, -112 in `.cold`): the GDT
+     is in extended memory, so the line must be proved open in real mode,
+     before `lgdt`.
+  7. **`snd_tick` does not run in the bracket** (`SOUND.DRV`'s image is
+     above 1MB): W4's, with the low copy.
+  8. **The protected-mode state is `.lowbss`**, not `.bss`: only `.mega`
+     reads it (through SS), so it stays out of the kernel segment the
+     `tests/megaseg.txt` ratchet guards.
+  9. **The hook may run in protected mode BEFORE the entry proc**, on the
+     window's copy, between the rate's arm and the drop: §53.2.2's "a no-op
+     until ready" already covers it, and the contract says so.
+
+  **What W0's census missed** (7.2 says `FSX_MODE` is AS-IS once the video
+  words are segments): `fsx_mode`, `fsx_caps` and `wm_content` far-call
+  EXTD.DRV's entry block (`EXTCALL`) whatever the machine, and unloaded
+  every slot names `.cold`'s `mod_gone` through a PROTECTED-MODE selector -
+  a wild segment in real mode. The first build HUNG inside leg B's
+  `OSAPI_FSX_MODE`, at 10B8:2D64. Hence `fsx_rgone` and the fourth refusal.
+  **W2 must look for this shape in every run-as-is cell: a far call through
+  a kernel slot table** (module blocks, `dkv`, `thv`) is as much a selector
+  as a data word is.
+
+  **Bytes** (`tools/kernsize.py` on all three, against `df2e1fbf`+W0's
+  `1ca43598`): kern_big **+3** (`.text`), kern_small **+3** (`.text`),
+  nothing else on either. kern_mega `.text` **+422**, `.bss` +0, `.cold`
+  **-112**, `.lowbss` **+74**, `.mega` **+518** (its scratch +10); the
+  kernel segment's ratchet **+419** to 4,800 (`tests/megaseg.txt` says what
+  each part is). The plan's 150-400 resident estimate is exceeded because
+  the tick, the landing and the A20 proof are resident rather than in a
+  module (decision 1) - 422 conventional bytes for W1's whole real-mode half.
+
+  **Gates, and what they showed** (each run twice or more, green):
+  * **`megarmb`** (Bochs, a 386, 36-38 s): `tests/megarmb`'s MEGARMB
+    (`OS88_HIGH`, region at FD8400h, its copy at 12A0) and MEGARMBL (a
+    conventional region, run in place at 9F40). Per package: R refused, A
+    and B taken; stopped INSIDE A, CR0.PE 0, `[k_seg0]` 0, `[cpu_feat]` 09
+    (no `CPU_F_PM`), VSEG's words A000/B000/B800/F000, vid_tab's VGA row
+    A000, IVT 20h `0060:fsx_rtick`; the hook handed **1,200 periods in 75
+    ticks, 16.0000 exactly against 65536/4096**, 40:6C 75 with `[ticks]` 75
+    (and 36/36 in B), 1,068 calls with up to 3 periods handed to one (the
+    skip path); the bss mark read back; B's `FSI_SEG` A000; `[ticks]` -
+    40:6C equal before and after; after, IVT 20h-27h the copy of 08h-0Fh,
+    `[mega_ivtsh]` the IVT's, the IDT's IRQ gates byte for byte as before,
+    the pointer moving.
+  * **`megarmb286`** (86Box `vm/286-victory`, the reset path, ~8 s): the
+    same assertions off the packages' bss, plus **exactly one CPU reset at
+    `mega_down`'s `int 3` per taken bracket (4 for 4) and none for the
+    return**; nothing charged to a loaded image after the boot (the boot's
+    own two completed #GPs at `1118:140F`/`:1428`, a write through ES =
+    0060h, are there on the base tree too and are not this wave's). On the
+    286 the same 1,200 periods came as 836 calls, up to 8 to one.
+  * **Broken on purpose**, each red and each put back:
+    * the forced `mega_ivt_sync` skipped: red on "IVT 20h-27h is the copy of
+      08h-0Fh" (`fsx_rtick` left on IRQ0's real-mode vector, which the next
+      reflection would take);
+    * `[k_seg0]` left `MEGA_SEL_LOW0`: red on the inside look (`0008`).
+      **The plan's predicted symptom does not show**: on VGA mode 13h
+      `fsx_mode` reaches `vid_cga_equip`, which writes only when 40:10 says
+      mono, so the wrong-segment read lands on 40:90 and changes nothing.
+      The row reads the word itself;
+    * no copy back: MEGARMB's counts, mark and `FSI_SEG` all read 0 (red on
+      4, 5 and 6), MEGARMBL untouched;
+    * EXTD.DRV's slots left on `mod_gone`'s selector: MEGARMB hangs in leg
+      B (the row reports the hang);
+    * on the 286 row, `[mega_drop]` left 0: the reset lands as a
+      reflection's, a #GP at `0010:0514` and no bracket - red.
+  * **Existing rows W1 can reach**, for the final pass (not run here):
+    `megapiclose` (its reflections' way back is `mega_up` now, and the DOS
+    trip's way down `mega_down` / `mega_rland`), `megaxmove`, `vidkern`
+    (kern_big's `fsx_run` door), `megatbl` and `megasweep` (`mega_vfixall`
+    is a walk now), `megadosp` / `megakbtrip` / `megahiber` and the hibernate
+    rows (`mega_dosgo_lo`, `mega_hbgor`), `megacurdisk` (`mega_rmaskf`), and
+    the megaport `vid*` rows, whose bracket door changed by the strip.
 * **W2. The table.** The API swap and the twelve run-as-is cells, the
   `SEG`, `MOUSE` and `FSX_WAIT` twins, and the `FSXF_REAL` contract in §53
   (bracket flag, PIC at 20h, no IVT 08h-0Fh writes, real segments only,
@@ -1031,7 +1159,7 @@ mode's alone.
 
 | cell | kern_mega body | where the bracket calls it | real mode |
 |---|---|---|---|
-| `FSX_MODE` | `fsx_mode`, `.text` | `vp_main` (`video.asm:15143`) | AS-IS once the video words are segments: it reads `fsx_mtab`'s rows and `vid_setmode` loads `[k_seg0]` |
+| `FSX_MODE` | `fsx_mode`, `.text` | `vp_main` (`video.asm:15143`) | AS-IS once the video words are segments: it reads `fsx_mtab`'s rows and `vid_setmode` loads `[k_seg0]` - **and (W1) once EXTD.DRV's slots are a real-mode `mod_gone`: it far-calls them (`EXTCALL EXT_FSX`), as `fsx_caps` and `wm_content` do, and hung there in W1's first build** |
 | `FSX_SURF` | `fsx_surf`, `.text` | `vp_main` (`:15126`), in-window | AS-IS |
 | `FSX_PAGE` | `fsx_page`, `.text` | `vp_hpg2` (`:20084`) | AS-IS (its wait is ports) |
 | `VIDEO` | `osapi_video`, `.text` | `vp_main`, `vp_dinfo`, `vp_video` | AS-IS |

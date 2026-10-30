@@ -16766,6 +16766,40 @@ SOAK = [
         needs=("bochs", "nasm"),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
                "build/megahole.o88", "build/megaown.o88")),
+    Row("megarmb", "soak", py("tests/megarmb.py"), 45.0,
+        "SPEC.md 53.2.3, docs/plans/MEGA-VIDEO-REALMODE-PLAN.md W1: kern_mega's "
+        "REAL-MODE BRACKET (FSXF_REAL) under Bochs, the 386's CR0 way down. "
+        "tests/megarmb's MEGARMB (OS88_HIGH: its region above 1MB, so the "
+        "bracket runs a COPY below) and MEGARMBL (a conventional region) each "
+        "run FSXF_REAL with KEEPWORKER (refused), with FSXF_RATE at 291 Hz and "
+        "a hook that skips, and alone with OSAPI_FSX_MODE inside. Stopped "
+        "INSIDE: CR0.PE = 0, [k_seg0] 0, CPU_F_PM clear, VSEG's and vid_tab's "
+        "words the segments, IVT 20h fsx_rtick; the hook's periods against "
+        "[ticks] 65536/4096 exactly and 40:6C with them, the bss written "
+        "inside read back, FSI_SEG A000h; after, IVT 20h-27h the copy of "
+        "08h-0Fh, the IDT's IRQ gates as before, the pointer moving. Red with "
+        "the forced mega_ivt_sync skipped (IVT 20h left on fsx_rtick), with "
+        "[k_seg0] left a selector, with no copy back (MEGARMB's counts all "
+        "0) and with EXTD.DRV's slots left on mod_gone's selector (a hang in "
+        "OSAPI_FSX_MODE). 45s is 36-38 measured",
+        needs=("bochs", "nasm"),
+        wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
+               "build/megarmb.o88", "build/megarmbl.o88")),
+    Row("megarmb286", "soak", py("tests/megarmb286.py"), 15.0,
+        "SPEC.md 53.2.3, docs/plans/MEGA-VIDEO-REALMODE-PLAN.md W1: the same "
+        "real-mode bracket on 86Box's 286-victory, which can only leave "
+        "protected mode by the CMOS shutdown-0Ah RESET through mega_r286. "
+        "Both packages' legs off their bss (no E9 there): R refused, A and B "
+        "taken, real mode inside with step 3's words real, a copy of the "
+        "high region run, periods exact, 40:6C with [ticks], the bss read "
+        "back, FSI_SEG A000h; EXACTLY one reset at mega_down's int 3 per "
+        "taken bracket (4) and none for the return; the IVT and the pointer "
+        "back, nothing charged to a loaded image after the boot. Red with "
+        "[mega_drop] left 0 (the reset lands as a reflection: a fault and no "
+        "bracket). 15s is 8 measured",
+        needs=("86box",),
+        wants=("build/mega.img", "build/megarun.o88", "build/megarmb.o88",
+               "build/megarmbl.o88")),
     Row("megaxmove", "soak", py("tests/megaxmove.py"), 25.0,
         "SPEC.md 50.6.10, docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md MC3: on "
         "kern_mega an OSAPI_XMEM_ALLOC block MOVES and is read back through "
