@@ -1783,9 +1783,7 @@ fmv_sync_x:
 %ifdef FM_MSEL
     call fm_mzero               ; ...and a multi-selection was of the folder
 %endif                          ; that went: its indices name the ROOT now
-    push si
-    call fm_settitle0
-    pop si
+    call fm_settitle0           ; (SI is kretc_di's to restore - no bank)
 .out:
     jmp kretc_di
 
@@ -6522,7 +6520,8 @@ fm_hasdot:
 ; -----------------------------------------------------------------------------
 ; fm_edit_commit - Enter in the editor: do whatever was armed (SPEC.md 22)
 ; in:  [fm_vp] published; gfx lock held, UI task - dskw_*'s required context
-; out: nothing (all registers preserved); the verdict is said as a toast
+; out: nothing; the verdict is said as a toast
+; clobbers: AX..DI, flags (its one caller, fm_editkey, banks them)
 ;
 ; Every dskw_* resolves its name in [dsk_cwd], which is whichever window last
 ; navigated - so the sync is not a nicety: without it a New Folder typed in
@@ -6541,8 +6540,8 @@ fm_hasdot:
 ; armed, NOT from FS_SEL now: an 8.3 display name is a legal dskw_name83
 ; input (SPEC.md 19), and it cannot go stale under us the way an index can.
 ; -----------------------------------------------------------------------------
-fm_edit_commit:
-    call kentc_di
+fm_edit_commit:                 ; (no frame: fm_editkey, its one caller, banks
+                                ; AX..DI round it - kernel size pass 15)
     mov di, [fm_vp]
     mov al, [di+FS_EDIT]
     cmp al, FM_ESAVE            ; the Save chooser's box: its own answer,
@@ -6634,8 +6633,7 @@ fm_edit_commit:
     mov al, FDH_COMMIT          ; posted, not acted on: the chooser is the
     call fdlg_hook              ; window this key is about to draw (38.6)
 .done:
-    call fm_edit_end
-    jmp kretc_di
+    jmp fm_edit_end             ; ...whose frame and `ret` are ours too
 
     ; FORMAT IS PAST THE EXIT (kernel size pass 11): in line it put the Save
     ; box's `je .save` out of a short jump's reach.
@@ -7310,15 +7308,16 @@ fm_edit_seed:
 ; -----------------------------------------------------------------------------
 ; fm_extkeep - no extension typed? keep the one it had (SPEC.md 22.10)
 ; in:  fm_ebuf/fm_elen = the typed name, fm_onam = the old one
-; out: nothing (all registers preserved); fm_ebuf/fm_elen may grow
+; out: nothing; fm_ebuf/fm_elen may grow
+; clobbers: AX, BX, SI, DI, flags
 ;
 ; Only when the user typed no '.' at all. Typing one - including a trailing
 ; '.' with nothing after it - is how the extension is changed or dropped, so
 ; theirs always wins. Bounded at 12, and a name with no room for an extension
 ; is left as typed for dskw_name83 to judge.
 ; -----------------------------------------------------------------------------
-fm_extkeep:
-    call kentc_di
+fm_extkeep:                     ; (no frame: fm_edit_commit reloads SI and
+                                ; DI after it and reads nothing else - pass 15)
     call fm_hasdot
     jc .out                     ; the user typed one: theirs wins
     mov si, fm_onam
@@ -7347,7 +7346,7 @@ fm_extkeep:
     mov byte [di], 0
     mov [fm_elen], bl
 .out:
-    jmp kretc_di
+    ret
 
 ; -----------------------------------------------------------------------------
 ; fm_edit_end - leave the editor (internal; also the "cancel" path)
@@ -7522,43 +7521,21 @@ fm_repaint:
 ; fmv_get_icon stages the entry from THIS window's cache (SPEC.md 22.1); an
 ; all-zero entry (the 32 words OR to 0) falls back to built-in ico_app16.
 ; -----------------------------------------------------------------------------
-; fm_icon_blank - is this staged icon body all zeros? (SPEC.md 25)
-; in:  SI -> a 64-byte icon body
-; out: ZF = 1 if all 32 words OR to zero, i.e. nothing earned an icon and the
-;      built-in ico_app16 is the answer
-; clobbers: nothing.  The three pops do not touch flags, so the answer rides
-;      out over them
-;
-; THE RULE LIVED IN TWO PLACES: here and fdlg.inc's fdlg_icon, each with its
-; own copy of the comment.  Both are `.cold`, so the call is near.
-;
-; It costs one near call and ret plus two extra push/pop pairs over the
-; inline loop it replaces - call it ~95 clocks, ~20 us on a 4.77 MHz 8088 -
-; against a 32-iteration `or ax,[si]` walk of ~960 and then a 16x16 icon
-; blit.  (The finding said "~35 cycles" for the call alone; adverse-R3
-; measured that shape at ~52, and the pushes are the larger half anyway.)
-; -----------------------------------------------------------------------------
-fm_icon_blank:
-    call kentc_di
-    xor ax, ax
-    mov cx, 32
-.orw:
-    or ax, [si]
-    inc si
-    inc si
-    loop .orw
-    or ax, ax                   ; `loop` leaves the flags alone but `inc si`
-    jmp kretc_di                ; does not, so the verdict is re-derived here
-
-; -----------------------------------------------------------------------------
 fm_draw_icon16:
     push ax                     ; NOT kentc_di: once a row on the scroll-paint
     push bx                     ; path (fmv_copy_in's reason)
     push cx
     push si
     call fmv_get_icon           ; SI -> staged 64-byte icon body
-    call fm_icon_blank          ; ZF=1 = the 32 words OR to 0
-    jz .noicon
+    xor ax, ax                  ; --- IS IT ALL ZEROS? (SPEC.md 25) The 32
+    mov bx, 62                  ; words OR'd, last first, SI and CX left as
+.orw:                           ; draw16 wants them: BX is ours to spend. It
+    or ax, [si+bx]              ; was fm_icon_blank, a framed routine with
+    dec bx                      ; this one caller (kernel size pass 15, -9,
+    dec bx                      ; and the call, frame and two `inc si` a word
+    jns .orw                    ; fewer clocks)
+    or ax, ax                   ; ZF=1 = nothing earned an icon: the built-in
+    jz .noicon                  ; ico_app16 is the answer
     call KERNEL_SEG:cw_icon_draw16 ; body-only table entry (SPEC.md 25)
     jmp .done
 .noicon:

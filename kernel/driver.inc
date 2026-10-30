@@ -3255,38 +3255,6 @@ drv_cp_class_x:
     pop bx
     ret
 
-; -----------------------------------------------------------------------------
-; drv_svc_clear - forget an unloaded driver's services (module internal)
-; in:  nothing
-; out: nothing (all registers preserved)
-; -----------------------------------------------------------------------------
-drv_svc_clear:
-    push ax
-    push cx
-    push di
-    push es
-    push ds
-    pop es
-    call drv_cls_fp_x
-    jc .out
-    mov word [di+2], 0          ; the segment half: dispatch disarmed
-    call drv_cls_idx            ; AL is still the class: drv_cls_fp_x banks AX
-    shl di, 1                   ; and drv_cls_idx writes DI alone
-    mov word [di+drv_owner], 0
-    call drv_cls_svc_x
-    jc .out                     ; DRVC_POINT: no table to clear (drv_cls_svc)
-    mov cx, DSV_SIZE            ; the table alone: the 16-byte staged sink
-    xor al, al                  ; name this once also cleared is gone, and
-                                ; drv_cfg now sits right behind drv_svc
-    cld
-    rep stosb
-.out:
-    pop es
-    pop di
-    pop cx
-    pop ax
-    ret
-
 
 ; --- the volume plumbing moved to drvvol.inc (SPEC.md 51.0) -----------------
 ; drv_mounted, drv_vol_bank/_back and drv_find are NOT driver code: mod.inc
@@ -3520,8 +3488,11 @@ drv_load_at:
 ; -----------------------------------------------------------------------------
 ; drv_check - validate a loaded driver image (module internal)
 ; in:  BX = row ptr with DRVR_SEG live, BP = the bytes that arrived
-; out: CF = 0 and [bx+DRVR_ENT] filled; CF = 1 malformed
-; clobbers: AX, SI, flags
+; out: CF = 0 and [bx+DRVR_ENT] filled; CF = 1 malformed - and ES = the image
+;      either way, which drv_bss, drv_hi and the attach half's HMA placement
+;      all take it in (kernel size pass 15: no bank, -3; drv_load_at, the one
+;      caller, read it in ES already and its kretc_es restores the caller's)
+; clobbers: AX, SI, ES, flags
 ;
 ; ld_check_hdr's tests, on a driver - and it is now literally them: the
 ; magic, the version, the link word and the dispatcher pair are ld_hdr_ok
@@ -3535,7 +3506,6 @@ drv_load_at:
 ; [es:si+n] is a byte shorter than [es:n] for every one of these fields.
 ; -----------------------------------------------------------------------------
 drv_check:
-    push es
     mov es, [bx+DRVR_SEG]
     xor si, si
     mov al, DRV_VER
@@ -3559,11 +3529,10 @@ drv_check:
     cmp ax, [es:si+DRV_H_IMG]               ; ...and the entry is inside the
     jae .bad                                ; image
     mov [bx+DRVR_ENT], ax                   ; banked: an unload must not be
-    pop es                                  ; steerable by a driver that has
+                                            ; steerable by a driver that has
     clc                                     ; since scribbled on its own
     ret                                     ; header
 .bad:
-    pop es
     stc
     ret
 
@@ -3571,11 +3540,12 @@ drv_check:
 ; drv_bss - zero the bss the file did not carry, inside the claim the
 ;           directory already sized for it (module internal; SPEC.md 51.1.2,
 ;           docs/plans/O88-COMPRESSION-PLAN.md 12.6)
-; in:  BX = the row, with DRVR_SEG and DRVR_KB live; BP = the file's bytes
+; in:  BX = the row, with DRVR_SEG and DRVR_KB live, ES = its image (as
+;      drv_check leaves it); BP = the file's bytes
 ; out: CF = 0 and the bss is zeroed. CF = 1 - `image + bss` does not fit the
 ;      claim, so NOTHING has been zeroed; the row still names the claim the
 ;      caller's .badfree will release
-; clobbers: nothing (every register is banked)
+; clobbers: AX, CX, SI, DI, flags
 ;
 ; IT NO LONGER RESIZES ANYTHING, and that is the change. It used to zero into
 ; a claim padded by a DRV_BSS_KB of 4 and hand the remainder back with a
@@ -3622,16 +3592,9 @@ drv_hma_door:
 
 %endif
 
-drv_bss:
-    call kentc_di               ; KENT: push ax..di
-
-
-
-
-
-    push es
-    mov es, [bx+DRVR_SEG]
-    mov al, [es:DRV_H_BSSP]
+drv_bss:                        ; (ES = the image, from drv_check; no frame -
+    mov al, [es:DRV_H_BSSP]     ; drv_load_at carries only BX and ES past it
+                                ; to the attach - kernel size pass 15, -11)
     xor ah, ah
     mov cl, 4
     shl ax, cl                  ; AX = the bss in BYTES, at most 4,080
@@ -3658,12 +3621,10 @@ drv_bss:
                                 ; and CF = 0 from the `xor al, al` above:
                                 ; neither `cld` nor a string op writes it
 .out:
-    pop es
-    jmp kretc_di                ; `pop` leaves the flags alone, so the answer
-                                ; set above survives the whole unwind
+    ret
 .nofit:
     stc
-    jmp short .out
+    ret
 
 section .modc                   ; IMAGE CODE (see VGC_FORCE's banner below):
                                 ; the macro emits nothing here; each expansion
@@ -4145,18 +4106,35 @@ drv_release:
                                 ; its way back out, and it was visible: the
                                 ; drive zone left the desktop the moment the
                                 ; cable was ticked
+    push di                     ; (the owner slot, for the store below)
     call drv_cls_fp_x           ; CLSCF: a loaded row's class - every class has an fptr
                                 ; AL survives drv_cls_idx, which writes DI
     mov word [di+2], 0          ; alone. (The OFFSET half is left as it is:
                                 ; with HMA_DRV drv_publish writes it ahead of
                                 ; the segment on every load, so nothing reads
                                 ; it while the segment is 0)
-    call drv_svc_clear         ; ...and drv_cls_fp_x, which banks AX
+    pop di                      ; --- what was drv_svc_clear, written at its
+    mov word [di+drv_owner], 0  ; one call (kernel size pass 15, -19): the
+    call drv_cls_svc_x          ; owner, then the service table, in that
+    jc .nosvc                   ; order. DRVC_POINT has no table to clear
+    push ax                     ; AL is the class still (below), and CX and ES
+    push cx                     ; are the caller's
+    push es
+    push ds
+    pop es
+    mov cx, DSV_SIZE            ; the table alone: the 16-byte staged sink
+    xor al, al                  ; name this once also cleared is gone, and
+    cld                         ; drv_cfg now sits right behind drv_svc
+    rep stosb
+    pop es
+    pop cx
+    pop ax
+.nosvc:
     call cp_drv_gone_x            ; a page this driver owned is on screen no
                                 ; longer, and [cp_sel] must not name it
                                 ; (SPEC.md 31.9)
                                 ; A VOLUME BELONGS TO A CLASS, and AL still
-                                ; holds it, drv_svc_clear and cp_drv_gone_x
+                                ; holds it, the table clear above and cp_drv_gone_x
                                 ; both banking AX. dsk_vol_drop_drv takes it
                                 ; and drops only THAT class's rows, or
                                 ; unticking the network driver would unmount
