@@ -57188,15 +57188,15 @@ Distinct package icons demandable at once, measured over the shipped images:
 most `ASSOC_NAPP` composed bodies. (This paragraph said 26 and 29 when the
 tree shipped fewer programs; the figure grows with every program written, which
 is why the store is sized by what one whole `ASSOC.DAT` can declare rather
-than by today's count.) `ICO_NROW` is **60** on `kern_big` - 60 x 82 = 4,920
-bytes plus §54.7.6.2's capture, 5,107 of a 5KB claim, so a full `ASSOC.DAT`
-(`ASC_NAPP` = 55) is absorbed whole with rows to spare - and 24 on
-`kern_small`, which SPEC.md 51.0 leaves no driver-backed volume and fewer
+than by today's count.) **That premise did not hold and §25.9.6 retires it**:
+the store is a 5KB first claim that GROWS to 20KB, so it holds what the
+machine has met rather than what one file can declare. `kern_small` keeps a
+fixed 24 rows, SPEC.md 51.0 leaving it no driver-backed volume and fewer
 packages.
 
-`ASC_NAPP` is 55: that is a VOLUME's question, and it is the most rows that
-fit 5KB with 64 extension rows beside them (§54.7.1). It was 32 and the 720KB
-apps disk held exactly 32 packages, so the cap was already binding there.
+`ASC_NAPP` is 90: that is a VOLUME's question, and it is the most rows that
+fit 8KB with 64 extension rows beside them (§54.7.7). It was 55 at 5KB, and
+32 before that, when the 720KB apps disk held exactly 32 packages.
 
 #### 25.9.3 What it replaced, and what `kern_small` pays instead
 
@@ -57271,6 +57271,62 @@ than a redraw — the absorbed rows go with it — so `ico_need` clears
 one three-sector re-read at the next mount rather than a sector per package.
 The rank stays `MEM_PG_TRIV` regardless: what is lost is still recoverable
 without asking the user for anything.
+
+#### 25.9.6 The store GROWS, a kilobyte at a time
+
+A fixed 60 rows was outgrown by the shipped disks themselves. A standard
+install of the two 1.44MB disks puts **50 distinct packages** on a hard disk,
+and the store holds a row per package PLUS a row per composed document body
+(§25.9: one per association slot, and one more whenever a slot's glyph
+changes) - so it filled, and `ico_add`'s *full* answer is §25's generic icon.
+The document types were the ones that lost, because they are composed last:
+only when a folder holding documents is browsed. An install of everything not
+retired needs ~64 package rows and ~22 document rows.
+
+**What a full store looked like in the field.** *"Icons go missing on the
+hard disk - `.IMG` first, and INSTALL.O88 - and come back after a restart."*
+A `*.IMG` takes its diskette picture (§18.101.6) in the DOCUMENT pass, which
+every listing harvests last, so it is the first body to find the store full;
+INSTALL.O88 sits at the root, a folder browsed late. The restart is the store
+starting empty. And the count is easy to reach: the size is half the key, so
+a floppy carrying a DIFFERENT BUILD of programs already on the hard disk
+takes a second row for each. `tests/icohd.py` is that machine - an install,
+a reboot from C:, ten re-sized packages and a `.IMG` on B: - and the tree
+before this section stops at 60 rows with three packages and the `.IMG` on
+the generic icon.
+
+So `ico_add`, finding the store full, calls **`ico_grow`**, which takes the
+claim up one kilobyte with `mem_regrow` (§50.3) and works out the rows the new
+claim holds into `[ico_max]`. The first claim is still `ICO_KB` = 5 and still
+60 rows (the capture moved, below, into bytes the rounding already had), and the ceiling `ICO_KBMAX` = 20 is 247 rows:
+a row number is a byte and 0xFE/0xFF are `ICO_R_FOLDER` and `ICO_R_NONE`.
+A machine with a few programs pays for a few, and nothing that names a row
+changes - a row's OFFSET never moves inside the claim, only the claim's base
+can, and `[ico_seg]` is the one word every reader takes it from.
+
+**Why the grow cannot disturb its callers.** `ico_add` is reached from the
+harvest and from `asc_seed`'s walk of an `ASSOC.DAT` claim, both of which hold
+OTHER claims' segments across it. `mem_regrow` compacts nothing and sheds only
+blocks ranked strictly below the claimant, and the store is `MEM_PG_TRIV`, the
+cheapest rank there is - so a grow sheds nothing, moves nothing but the store,
+and on a heap with no room simply refuses, which is today's generic icon.
+
+**The capture (§54.7.6.2) moved to the HEAD of the claim** to make that true:
+it lived in the KB rounding past the last row, which is exactly where a grow
+adds rows. `ICO_CAP` is 0, `ICO_RBASE` = 188 is row 0, and `ico_rowoff`,
+`ico_scan` and the flush's own row walk (`ascw.inc`) add it. The first claim
+loses no row to it: (5,120 - 188) / 82 is still 60.
+
+**A shed resets it.** `ico_demote` zeroes `[ico_seg]` and the count word as
+before; the next `ico_need` claims `ICO_KB` again and writes `[ico_max]` and
+`[ico_kb]` as one word, so a store that comes back is a first claim and not
+the size the last one had reached.
+
+`kern_small` keeps a FIXED 24-row store and none of this: it has no
+associations (§54.0) and a diet on which no byte goes to growing it - it
+builds BYTE-IDENTICAL. Cost on `kern_big`, measured against the tree before:
+**79 bytes**, `.text` +2 (`[ico_max]`, `[ico_kb]`) and `.cold` +77 -
+resident, no rung crossed.
 
 ### 26.8 Desktop shortcuts
 
@@ -69610,8 +69666,8 @@ tone path enters `spk_gate_on` below the PWM half.
 ### 34.5 Sound Blaster — back, as a driver
 
 Retired once, and no longer: `drivers/sound/sb.inc` is the DSP scan, the
-stream verbs, the auto-init/single-cycle strategy gate and the deferred IRQ
-discovery, all of it inside `SOUND.DRV` rather than the kernel (§51.4). What
+stream verbs, the auto-init/single-cycle strategy gate and the IRQ
+discovery (at the attach, once a load: §34.5.7), all of it inside `SOUND.DRV` rather than the kernel (§51.4). What
 changed in the move is where its memory comes from — a **heap claim**
 (`OSAPI_MEM_CLAIM_DMA_HI`), not a pinned segment, which is why the 64KB
 DMA-page rule had to become something the allocator answers (§50.3) rather
@@ -70137,21 +70193,27 @@ reads the end of the stream as the end of the song.
   or into a driver in RAM. An unused line's vector is the BIOS's own dummy
   handler in its ROM, and nothing in os8088 hooks IRQ 5, so a hooked vector
   is a claim. It is read at discovery, when the candidates' vectors have
-  been put back.
+  been put back - at the driver's attach since §34.5.7.
 
-**Refused** means `sbl_f_irqdisc` answers "no usable card" for that winner
-on every path - the firing probe, the SB16 mixer's read-back and a PicoMEM's
-configured line - so the stream open fails with error 4. A package then
-takes its no-card path (the Audio Player and XTMP3 the speaker or the
-Covox, §86.21), the FM chip stays usable (it needs no IRQ), and the first
-refusal of a session raises the toast `IRQ 5 is the hard disk's` (24
-characters, §59.10). The cure is the card's jumper: IRQ 7 is the first
-candidate. A card on any other line is untouched, and so is every AT.
+**Refused** means `sbl_f_irqdisc` answers "no usable line" (`[sbl_irq]` =
+0FFh) for that winner on every path - the firing probe, the SB16 mixer's
+read-back and a PicoMEM's configured line - and **`sbl_attach` then refuses
+the DSP tier** as `DRVE_HW` (§34.5.7): no stream verb is published and
+`SND_RT_SB` is not set, so a package takes its no-card path (the Audio
+Player and XTMP3 the speaker or the Covox, §86.21), the OPL2 attaches alone
+(it needs no IRQ), and a Control Panel that turns the Sound Blaster tier on
+reports the refusal as it reports any other. **It says nothing**: the
+machine boots working, on FM, and the owner's rule is that a boot which
+changes something but works does not toast - there are boot toasts enough
+(it raised `IRQ 5 is the hard disk's` at the first open it refused until
+§34.5.7). The cure is the card's jumper: IRQ 7 is the first candidate. A
+card on any other line is untouched, and so is every AT.
 
-It cost `SOUND.DRV` 84 bytes of image (11,823 to 11,907), inside its 12 KB claim. `tests/sbirq5.py` (the
-`sbirq5` row) holds it: refused on an 8088 with a hooked IRQ 5, accepted on
-an unhooked one, on a 286 and a 386, and on IRQ 7; with the refusal broken,
-2 checks fail.
+It cost `SOUND.DRV` 84 bytes of image (11,823 to 11,907), inside its 12 KB
+claim, and since §34.5.7 none of it is resident. `tests/sbirq5.py` (the
+`sbirq5` row) holds it: refused (and silent) on an 8088 with a hooked IRQ 5,
+accepted on an unhooked one, on a 286 and a 386, and on IRQ 7; with the
+refusal broken, 2 checks fail.
 
 #### 34.5.6.1 ...and the disk that never hooks it: an ST11 on IRQ 5 (2026-10-26)
 
@@ -70180,6 +70242,51 @@ refusal would take the sound from. Whether a real ST11 drives the line
 while disabled is not known here. **The cure is the card's line**, as in
 34.5.6: `vm/pc5150`, `vm/viddemo-cga` and `vm/viddemo-herc`, the three
 profiles here with an ST11 and an SB 2.0, put the card on IRQ 7.
+
+#### 34.5.7 Found once a load: the scan and the discovery are attach-only (2026-10-30)
+
+**The Sound Blaster's reset scan, its IRQ discovery and the SB16's 16-bit
+channel test run ONCE, at `DRVV_ATTACH`** (`sbl_find`), and are laid out
+past `snd_keepmix` with the other attach-only code (§34.15.1, `SBL_ONCE` in
+`sb.inc`), so none of them is resident once the attach has answered. Until
+then the discovery waited for the first stream open (it was "deferred to
+first use") and the scan re-ran at every `DRVV_TIER` "on", which kept
+`sbl_f_irqdisc`, §34.5.6's IRQ 5 test, the four candidate stubs, their
+tables, `sbl_f_probe`, `sbl_dsp_rd` and `sbl_hdma_find` in RAM for the whole
+session on every machine - 820 bytes, for questions whose answers
+cannot change until the driver is reloaded.
+
+- **What is settled**: `[sbl_base]`, the DSP version and `[sbl_auto]`,
+  `[sbl_irq]` (0FFh = no usable line) and `[sbl_hdma]`. They sit OUTSIDE
+  `sbl_state_init`'s cleared run, so a tier change keeps them.
+- **`sbl_attach`** - the attach's second half and all of `DRVV_TIER`'s "on" -
+  refuses `DRVE_HW` with no base or no usable line, resets the DSP at the
+  settled base (a card that stopped answering is refused as the scan would
+  have refused it), and **hooks `sbl_isr` on the settled line** (`sbl_hook`).
+  `sbl_detach`'s `sbl_unhook` takes it off again. So the vector is held while
+  the DSP tier is up, from the attach, where it used to be from the first
+  open; nothing else hooks the candidates (§34.5.6), and the ISR's spurious
+  leg already answers an IRQ 7 that arrives with no stream.
+- **A discovery that confirms nothing** now refuses the DSP tier for the
+  load, where it used to refuse each open with error 4 and ask again at the
+  next. The OPL2 still attaches. It is retried once inside the discovery, as
+  before.
+- **The attach runs with interrupts on** - the F2h wait needs the tick, and
+  `pm_wait`'s header has the measurement that `drv_boot` calls the attach
+  with IF = 1; a mid-session load is a task's call like any other.
+- **`DRVV_HWINFO` now knows the line** whenever a card attached, so the
+  `BLASTER=` a DOS program is given carries `I` (§96.17.1).
+- **`snd_entry`'s attach body (`snd_attach`) moved below `snd_keepmix` with
+  them**: it runs once, before the shrink. `DRVV_READY` answers from a
+  five-byte `snd_ready` above it.
+
+| build | no mixer (`snd_keep`) | a mixer (`snd_keepmix`) | image |
+|---|---|---|---|
+| shipped (PicoMEM) | 7,501 → **6,681** (-820) | 11,046 → **10,226** (-820) | 12,085 → 12,026 |
+| `NOPICOMEM=1` | 7,295 → **6,501** (-794) | 10,840 → **10,046** (-794) | 11,575 → 11,516 |
+
+`tests/sbirq5.py` and `tests/picomem.py` cut the discovery and `sbl_hook` out
+of `sb.inc` as they ship; `tests/unit/t_sndonce.py` holds the layout.
 ### 34.6 Recording and staging — back, as a driver
 
 Went with §34.5 and came back with it. Verb 7 grants out of the driver's
@@ -70555,7 +70662,7 @@ DSP is off after every reset, so a first attach never meets this. A SECOND
 `pm_init` in one session does: SOUND.DRV's detach leaves the DSP on, so
 re-ticking the driver or a hibernate's detach and reload, and VIDSND's
 reconfigure, would take 220h from CMS. Found by the card's own firmware
-under `tools/picomem` (docs/plans/PICOMEM-EMU-PLAN.md 6.1). The model in
+under `tools/picomem` (docs/plans/completed/PICOMEM-EMU-PLAN.md 6.1). The model in
 `tests/picomem.py` had answered PORTUSED there, and the fix needed no
 assumption about which firmware is on the card: off-then-walk is right on
 every version. It costs 7 bytes, and on a first attach it is a no-op
@@ -71884,9 +71991,12 @@ has answered:
   one-time chip init, `mpu_probe` and its three helpers with `os88_pin`,
   `cvx_probe` and the `snd_upnm` it falls into, the PicoMEM's bring-up and
   undo (`pm_init`, `pm_cmd`, `pm_wait`, `pm_undo`) and `mix_probe`. They run
-  inside `DRVV_ATTACH` and never again, on EVERY machine. **The Sound Blaster
-  probe is not among them**: `DRVV_TIER` re-runs `sbl_attach` all session, so
-  `sb.inc` stays whole.
+  inside `DRVV_ATTACH` and never again, on EVERY machine. **So, since
+  §34.5.7, are the Sound Blaster's scan, IRQ discovery and 16-bit channel
+  test** (`sb.inc`'s `SBL_ONCE`, through `sbl_find`) **and the attach body
+  itself** (`snd_attach`): `DRVV_TIER` re-runs `sbl_attach`, but that only
+  resets the DSP at the base the scan settled and hooks the line the
+  discovery settled - it asks the hardware nothing new.
 - **the mixer verbs (7–9), the speaker icon (10, 12) and the volume popup
   (11)**, dead on every machine whose attach found no readable mixer: the PC
   speaker, an AdLib alone, a Covox, an MPU-401, a Sound Blaster older than the
@@ -71906,11 +72016,16 @@ claim to it before the tier and `DRVV_READY` calls (§51.1.3):
 
 | build | no mixer (`snd_keep`) | a mixer (`snd_keepmix`) |
 |---|---|---|
-| shipped (PicoMEM in) | 6,579 bytes: **11KB → 7KB**, 589 under the rung | 10,124: **11KB → 10KB**, 116 under |
-| `NOPICOMEM=1` | 6,373: 11KB → 7KB | 9,918: 11KB → 10KB |
+| shipped (PicoMEM in) | 6,681 bytes: **12KB → 7KB** | 10,226: **12KB → 10KB** |
+| `NOPICOMEM=1` | 6,501: 12KB → 7KB | 10,046: 12KB → 10KB |
+
+(Measured 2026-10-30, after §34.5.7; the table first carried 6,579 and
+10,124 against an 11,151-byte image, and the image had grown to 7,501 and
+11,046 kept by the time §34.5.7 took the Sound Blaster's attach-only half.)
 
 The attach-only bodies are defined as macros (`MPU_ONCE`, `CVX_ONCE`,
-`PM_ONCE`, `MIX_ONCE`) and expanded where their files put them unless
+`PM_ONCE`, `MIX_ONCE`, and `sb.inc`'s `SBL_ONCE`, which SOUND.DRV alone
+includes and so expands unconditionally) and expanded where their files put them unless
 `SND_SPLIT` is defined - which SOUND.DRV does, expanding them past
 `snd_keepmix` - so `picomem.inc`'s other includers (`tests/picomem/`,
 `tests/vidbench/vidsnd.asm`) assemble exactly as before.
@@ -105755,7 +105870,7 @@ choices in it are the load-bearing ones:
 
 - **`assoc_app_of`, not `asc_slot_of` — find, never create.** A slot only
   matters if some extension points at it, and the kernel's table is
-  `ASSOC_NAPP` = **16** rows against a disk that may cache 55. Creating a
+  `ASSOC_NAPP` = **16** rows against a disk that may cache 90. Creating a
   slot per package would evict the associations this exists to serve.
 - **After `asc_merge_ext`**, so a package that *declares* its extensions
   (§54.6) has already been given its slot and is found here like anything
@@ -106125,16 +106240,18 @@ floppy every package's first sector is on a track of its own, so a
 re-read of twenty headers would miss §18.95's cache for all but the last
 few, at ~400 ms a call.
 
-So the harvest keeps them, **in the store's own claim**: 60 rows of 82 bytes
-are 4,920 bytes of a 5,120-byte claim, and the capture is the tail:
+So the harvest keeps them, **in the store's own claim**, at its HEAD - it was
+the tail, in the KB rounding past row 59, until §25.9.6 made the store grow
+off its end:
 
 | offset | |
 |---|---|
-| `ICO_CAP` = `ICO_NROW * ICO_ROW` | `ICO_CAP_MAX` = 11 records of `ICO_CAP_RSZ` = 17 bytes: the store row the record is for, then the header's association block verbatim (count, then 5 x 3 extension bytes) |
+| `ICO_CAP` = 0 | `ICO_CAP_MAX` = 11 records of `ICO_CAP_RSZ` = 17 bytes: the store row the record is for, then the header's association block verbatim (count, then 5 x 3 extension bytes) |
 
 (It was an 11-byte row array and eleven 16-byte records after it until kernel
 size pass 13: one stride makes a record one `mul` and its row one `stosb`,
-and 187 bytes fit the same 200 the array and its pad took.)
+and 187 bytes fit the same 200 the array and its pad took. Row 0 is
+`ICO_RBASE` = 188, the record area rounded even.)
 
 How many records are held is **`[ico_capn]`**, a resident byte right behind
 `[ico_n]`. The store that empties the store is a word store that empties the
@@ -106292,6 +106409,41 @@ system disk still 347 of 354 clusters.
   step 7 writes nothing.
 - **The file lands where the FAT allocator puts it** (§54.7.5's last
   paragraph).
+
+### 54.7.7 The reader's claim is the FILE'S size, and the cap is the largest file
+
+`asc_use` used to claim `ASC_KB` whatever the volume held, so a floppy with
+three programs read a 1KB file into a 5KB claim, and the cap that claim set -
+`ASC_NAPP` 55 - was what a busy volume ran into. An install of everything not
+retired puts about **64 packages on one hard-disk volume** (counted off the
+live-media payload, §80.6), which is nine past it, and every package past the
+cap is harvested the slow way at every mount: a sector read apiece, ~400 ms
+of `int 13h` each on the target machine.
+
+So the two questions are separated. **The claim is the file's own size**,
+rounded to a kilobyte: the root walk runs FIRST, finds the file's sector
+count, and only then claims `(sectors + 1) / 2` KB. A file is written with
+exactly its used rows (§54.7.6.4), so a sparse disk's cache costs a sparse
+disk's claim. **`ASC_KB` is now the LARGEST file a build writes and reads** -
+8KB, which holds `ASC_NAPP` = **90** app rows and `ASC_NEXT` = 64 extension
+rows (90 x 88 + 16 + 64 x 4 = 8,192). A file past it is refused rather than
+read, exactly as before, and every other test on the bytes is unchanged: the
+counts must fit the bytes actually read, which now are the claim.
+
+**The one claim still sized from the cap is the flush's** (`FORMAT.DRV`,
+§54.7.6.4): an old-file buffer and a new-file buffer of `ASC_KB` each, now
+~18KB of transient work claim where it was ~12KB. It is held only for the
+flush and freed before it returns; sizing it from the counts is the follow-on
+if a busy heap starts refusing flushes.
+
+It cost **13 bytes of `.cold`**, resident: the claim moved below the root
+walk and takes its size from the sector count. `kern_small` has no
+`ASSOC.DAT` and is byte-identical.
+
+**An older kernel refuses a file past its own `ASC_KB`**, so a 90-row cache
+on a disk taken back to one is no cache at all there - slow and correct, the
+same answer as a missing file - and a file of 55 rows or fewer reads the same
+on both.
 
 ### 54.8 Accepting the document: five apps, and the three traps between them
 
@@ -179086,13 +179238,16 @@ of zero, so no `BLASTER=` is written at all. A variable naming a card that is
 not there sends a program to reset a DSP that will never answer — a hang,
 where its absence is a fallback. That is §96.15.1's argument one device along.
 
-#### 96.17.1 The IRQ is usually not known, and that is the driver's design
+#### 96.17.1 The IRQ is known since the attach, and omitted when it is not
 
-`sbl_irq` starts at `0FFh` and the Sound Blaster driver **defers IRQ discovery
-to first use** (§34.5): the line is learned by provoking an interrupt during
-the first stream, not by probing at attach. So a machine that has booted and
-not yet played a sound genuinely does not know which line its card is on —
-which is the *common* case at the moment a DOS program is launched.
+**Since §34.5.7 the Sound Blaster driver discovers its line at the attach**,
+so `[sbl_irq]` names it whenever the DSP tier is up and a DOS program's
+`BLASTER=` carries `I`. Until then the discovery was deferred to the first
+stream, and a machine that had booted and not yet played a sound genuinely did
+not know which line its card was on - the *common* case at the moment a DOS
+program is launched, and the reason the rule below was written. It still
+binds: `DRVV_HWINFO` answers the base of a card whose tier was refused (no
+usable line, §34.5.6), and `[sbl_irq]` is `0FFh` there.
 
 `BLASTER=` therefore carries the `I` field **only when there is one to carry**,
 and omits it otherwise. A variable naming the wrong line sends a program to
@@ -179102,7 +179257,9 @@ own the guess. That is §96.15.1's argument for the third time in this section,
 and it keeps arriving at the same answer: **a confident wrong number is worse
 than a missing one.**
 
-**The alternative was considered and not taken.** `DRVV_HWINFO` could call the
+**The alternative was considered and not taken** (and §34.5.7 has since made
+it moot, the discovery being an attach-only routine that is not resident when
+the question is asked). `DRVV_HWINFO` could call the
 driver's own `sbl_f_irqdisc` and force the discovery, since it is asked exactly
 once and the driver is about to be unloaded anyway. It is refused because that
 routine is reached from inside a stream open with the ring already sized, hooks

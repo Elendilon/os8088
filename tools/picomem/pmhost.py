@@ -1,6 +1,6 @@
 """pmhost.py - drive libpmhost (a PicoMEM running its own firmware) from Python.
 
-docs/plans/PICOMEM-EMU-PLAN.md wave 0. This is the ctypes face of
+docs/plans/completed/PICOMEM-EMU-PLAN.md wave 0. This is the ctypes face of
 tools/picomem/shim/pmhost.h, and the instrument a host-side test uses to talk
 to the card with no emulator at all: every port read, port write and memory
 cycle goes to the firmware's own code, and card time moves only when this

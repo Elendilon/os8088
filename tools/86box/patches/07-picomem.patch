@@ -17,7 +17,7 @@ bridge) reaches 86Box's network through a companion NIC, net_01_card =
 picomem_ne2k, which network.c starts like any card.
 tools/os88box.py resolves lib and copies sd_image like a disk.
 
-docs/plans/PICOMEM-EMU-PLAN.md section 5.1.
+docs/plans/completed/PICOMEM-EMU-PLAN.md section 5.1.
 
 diff --git a/src/device/CMakeLists.txt b/src/device/CMakeLists.txt
 index 4526b6c..b67d080 100644
@@ -56,7 +56,7 @@ index 0000000..cb2775d
 + *          no library refuses to start the device and says why.
 + *
 + *          os8088 patch 07 (tools/86box/patches/07-picomem.patch);
-+ *          docs/plans/PICOMEM-EMU-PLAN.md section 5.1.
++ *          docs/plans/completed/PICOMEM-EMU-PLAN.md section 5.1.
 + *
 + * Authors: os8088 contributors
 + *

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""THE PICOMEM, IN 86BOX, RUNNING ITS OWN FIRMWARE (docs/plans/PICOMEM-EMU-PLAN.md).
+"""THE PICOMEM, IN 86BOX, RUNNING ITS OWN FIRMWARE (docs/plans/completed/PICOMEM-EMU-PLAN.md).
 
     make pmboxtest && tools/picomem/build.sh && python3 tests/pmbox.py [--keep DIR]
 

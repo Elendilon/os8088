@@ -1,6 +1,8 @@
 # PicoMEM under an emulator: the card's own firmware, run beside the CPU
 
-> **ALL TEN WAVES ARE BUILT (sections 6.1-6.9, and section 8's rows).**
+> **COMPLETED - ALL TEN WAVES ARE BUILT (sections 6.1-6.9, and section 8's
+> rows), merged to `elendilon` on 2026-10-29.** This is now the design record;
+> docs/TESTING.md's *The PicoMEM* is how to use it.
 > What is not: the 2.x `.uf2` for the iron (6.7), and `os8088-pm114`'s
 > diagnostic commits, which no leg needed. Branch
 > `picomem-emulator`, cut from `elendilon` on 2026-10-29. This began as an

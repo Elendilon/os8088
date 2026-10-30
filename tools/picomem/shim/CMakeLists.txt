@@ -1,5 +1,5 @@
 # libpmhost - the PicoMEM firmware's own device code, built for the host.
-# docs/plans/PICOMEM-EMU-PLAN.md section 4. Driven by ../build.sh, which
+# docs/plans/completed/PICOMEM-EMU-PLAN.md section 4. Driven by ../build.sh, which
 # passes FW (the patched firmware tree) and BOARD (v1 or v2).
 #
 # What is compiled is the firmware's: its command dispatcher and main loop

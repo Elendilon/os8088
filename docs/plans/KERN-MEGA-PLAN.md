@@ -44,7 +44,7 @@ entry that owns it once work starts.
 - [x] **USBMOUSE.DRV's PicoMEM path** - the card's real-mode `int 33h`
   0060h is captured inside the IRQ reflection and replayed in protected
   mode. 14.117. Untested on a real PicoMEM - but run against the card's
-  own firmware in 86Box (docs/plans/PICOMEM-EMU-PLAN.md wave 7, `soak -k
+  own firmware in 86Box (docs/plans/completed/PICOMEM-EMU-PLAN.md wave 7, `soak -k
   pmbox`): the pointer moves, and stays put with the capture taken out.
 - [x] **REDLINE** ships on kern_mega's system disks. 14.118.
 
@@ -12629,3 +12629,490 @@ reading for the bar) loaded the option ROM's real-mode segment into ES in
 protected mode as an identity selector, which MC7 removed. It runs in the
 reflection's REAL-MODE half now, just before the ROM's handler, where C800h is
 a segment. The shipped kernel never had it.
+
+### 14.125 The empty-drive freeze is in the native path's motor SPIN-UP: an instrument for it (2026-10-29) - FIX ON TEST
+
+**Where it stops, from the owner's description** (14.31 and 14.35's
+freeze, which still happens during installs, drive switching and the file
+manager). On kern_big an empty drive buzzes at once and the call is over in
+about a third of a second. On kern_mega the drive LIGHTS first, sits lit for
+half a second to a second, and only then buzzes. **The freeze is always in
+the lit, silent stretch**; a call that reaches the buzz always completes,
+and so does the next empty drive after it. That stretch is `mega_fdgo` (14.6,
+kernel/mega.inc) between the DOR write that starts the motor and the
+RECALIBRATE, which is the buzz. Inside it, the only thing that is not a
+bounded loop of a few hundred milliseconds at worst (`mm_fdout`'s 65,536
+polls, `mega_fdms_wait`) is the spin-up wait, `mega_fdtk`. **It `hlt`s until
+`[ticks]` has advanced by the motor-start time, and it has no other bound.**
+So the machine stops there if IRQ0 stops being delivered or counted. That
+covers IRQ0 masked, an in-service bit at or above IRQ0 never EOI'd, IF
+clear, or `sch_isr` not reaching `inc word [ticks]`. It also stops there if
+the CPU never leaves the `hlt`. A dead mouse fits the first two:
+an IRQ0 in service and never ended blocks every lower line, IRQ4 included.
+kern_big never takes this path, because the BIOS does the whole call in
+real mode. It spins rather than halts, and it counts the
+spin-up in its own loop rather than in our tick.
+
+Nothing in the code says which of those it is, and 14.35 says it is a STATE
+left by earlier use (first thing after a boot the same install works). So
+**this is an instrument, not a fix**.
+
+**`MEGADIAG=1`'s floppy strip** (`make megadiag`, build/megadiag/mega.img).
+`mega_fdtk` and `mega_fdirq`, the native path's two waits, paint one line
+under the menu bar from inside the loop, through `cw_font_run` with the gfx
+mutex banked and forced, as KFZTRACE's strip does. The spin-up paints
+before EVERY `hlt`, so a machine that never wakes shows the state it went to
+sleep in. **Wiggling the mouse** wakes the `hlt` on IRQ4, if IRQ4 is alive,
+and each wake repaints. The line, left to right:
+
+| field | what it is | what it answers |
+|---|---|---|
+| `k`/`q` + 2 hex | the spin-up (`k`) or the 765's IRQ (`q`), then `[mega_fdstep]` (with `k`, the step the PREVIOUS call ended on) | which wait |
+| `n` | passes of the loop; with `k`, each is a wake from `hlt` | does anything wake it |
+| `t` | `[ticks]`, which the wait counts | `n` moving and `t` frozen: IRQs arrive and the tick does not count |
+| `b` | 40:6C, which `mega_t08` (the chain) keeps | is the chain running |
+| `c` | PIT channel 0's count, latched | does the PIT run |
+| `p` | channel 0 reloads seen since the wait began | an IRQ-free clock |
+| `f` | FLAGS of the waiting code | bit 9 (`0200h`) is IF |
+| `m` `i` `r` | the master 8259's IMR, ISR, IRR | `i01` with `r01` is IRQ0 in service and never EOI'd; `m` bit 0 is IRQ0 masked |
+| `e` `g` | 40:3E, 40:3F | calibrated/IRQ6 flag, motors |
+| `j` `v` | reflections taken INSIDE a native call this boot, and the last one's vector (added in the second round, below) | did an option ROM's IRQ land in a wait |
+| `s` `d` | the 765's MSR and the DIR | `d80` is the change line |
+| `x` | waits RESCUED this boot | below |
+
+**A rescue**: a wait whose `[ticks]` has not moved while 400 channel-0
+reloads went by (with `k`, 400 wakes) is ended as if it had run out. The
+spin-up then carries on and the IRQ wait falls back to the BIOS. A run that
+would have frozen therefore goes on with `x` above zero, and the line the
+rescue painted stays up. 400 is about eleven seconds of an idle PIT; with
+`k` and a dead tick, it is a few seconds of wiggling.
+
+**What to bring back**: a photograph of the strip on the frozen machine,
+first without touching anything, then after a few seconds of moving the
+mouse. If it did not freeze, a photograph of the line after the empty-drive
+access, with `x`.
+
+Shipped kern_mega is **byte-identical** (every byte is inside
+`%ifdef MEGA_DIAG`; `kernel.bin` compared at one commit), and kern_big and
+kern_small do not assemble `mega.inc`'s native path. Exercised under QEMU on
+the diagnostic disk with A: ejected: the strip repaints through both waits
+(`k08 ... e00g01oEE s80d80 x00`: uncalibrated, the change line up, a
+fallback at step 5) and the machine goes on. QEMU's empty B: never reaches
+the native path, and no emulator here freezes, so neither the rescue nor the
+freeze has been seen.
+
+**One defect found on the way, NOT fixed, because it changes what the field
+measures**: the reset probe is dead on the native path. `mega_fd13` sets
+`[mega_fdbusy]` = 1 BEFORE it calls `mega_fdgo`, and `mega_fdgo`'s first act,
+`mm_fdrprobe` (CL = 1), returns at once when `[mega_fdbusy]` is set. That
+test was added (item 19) for the REFLECTED IRQ in the middle of our own
+transfer, and it has silenced the probe's other caller ever since. So a 765
+that a reflected call's 286 reset has re-initialised reaches the native path
+with its four reset interrupts unsensed and every head believed to be at
+cylinder 0. That is the "state left by earlier use" 14.35 asks for. It is
+not obviously THIS freeze, because an unsensed reset should cost a
+two-second IRQ timeout and a fallback rather than a hang. It is the first
+thing to fix once the strip has said what the freeze is.
+
+**Second round (owner, 2026-10-29).** The diagnostic disk installed almost
+fifty times without a freeze. The plain kern_mega then froze on its first
+install. The owner also sees it more often **after FTPD or after playing a
+video**. On the Victory both of those run through the PicoMEM: its network
+card and its Sound Blaster both deliver their IRQs through the card's option
+ROM. So a PicoMEM IRQ is a REFLECTION, and on a 286 that is a CPU reset
+through the BIOS's reset path (14.31 counted 61 a second while a video
+played). That is the one state those two programs leave behind which an
+install does not: a card with interrupts still coming.
+
+**Where that meets the freeze.** A reflected `int 13h` never has an IRQ
+reflection inside it: the IRQ runs inside the BIOS call, which is real mode
+already, and `mega_rmaskf` leaves option-ROM lines open for exactly that.
+The native path is different. It waits with IF on, deliberately (the pointer
+and the sound must not stop), and its spin-up wait is about a second of it.
+**That is the one place in the kernel where a PicoMEM IRQ becomes a CPU
+reset from the middle of a call that is driving the 765.** The reset path is
+the one that re-initialises the 8259 (14.64) and has reset the 765 behind
+our back (`mega_fdrprobe`). And `mega_r286`'s reset probe is skipped while
+`[mega_fdbusy]` is set: item 19 added that test for exactly this case and
+then gave it no answer. This is a hypothesis with a mechanism, not a
+finding. Why the reset would HANG there, rather than cost a two-second
+timeout, is not known. And the diagnostic build passing fifty times does
+not by itself say that the strip's timing hid it: those runs may not have
+had FTPD or a video before them.
+
+**Two disks, one question each:**
+
+- **`make megadiag`** now carries `j` and `v`: every reflection `mega_svc`
+  takes while `[mega_fdbusy]` is set, and the last one's vector. They
+  replace `o` (40:40, which is FFh throughout a native call). The run to
+  take: FTPD or a video, then the install. `j` above zero means the
+  hypothesis' event happened, freeze or not.
+- **`make megafdmask`** (`MEGAFDMASK=1`) is the plain kern_mega with that
+  event made impossible. `mega_fdmskon` masks every line whose gate is a
+  reflecting stub (`mega_irv`, the same test `mega_rmaskf` makes) across
+  the native call. It clears only the bits it set, after the call. An edge
+  that arrives while masked is latched by the 8259, so the IRQ is late by
+  at most the call and not lost. The A/B against the plain disk: FTPD or a
+  video, then install, several times on each.
+
+Shipped kern_mega is byte-identical with both. Both disks booted under QEMU
+and opened an empty A: through the native path (no option ROM there, so `j`
+stays 0 and the mask is empty, which is all an emulator here can show).
+`t_buildmatrix`'s `megafdmask` row keeps the arm assembling.
+
+
+**First field reading (owner, 2026-10-29, the Victory, diagnostic disk at
+f5dad967)**: install from a mounted image froze on its empty-drive check,
+and moving the mouse changed nothing. The strip read `q33 n0001 t0C1E
+b685A cF0B6 p0000 f0213 m18i00r00 e00g01j00v00 s81dFF x00`. **The native
+path is not where it stops**:
+
+- `q33`: the last native wait was the IRQ wait after the recalibrate had
+  succeeded. Step 33h is where the change line is still up, so
+  `mega_fdgo` seeks to cylinder 1. `s81` is drive A seeking and `dFF` the
+  change line: an empty drive, as expected.
+- `n0001`: the loop made one pass and painted once. A CPU still spinning
+  there repaints at every tick or every 4,096 passes, a few milliseconds.
+  So the seek's IRQ came, the wait ended, and the native path fell back to
+  the BIOS by design. The strip paints only in native waits, so nothing
+  after that point could update it.
+- `f0213` (IF on), `i00 r00` (nothing in service or pending): no stuck
+  8259. `j00`: no PicoMEM reflection landed in the wait, which tells
+  against the second round's hypothesis.
+- `m18`: IRQ3 and IRQ4 are masked, so the serial mouse is dead for the
+  length of the call. That is the "mouse never recovers", not a separate
+  fault.
+
+The owner's own observation agrees: the single head move happened (the
+native recalibrate and seek) and the BIOS's buzz, its own head test, did
+not. **So the freeze is inside the reflected BIOS `int 13h` that follows
+the native fallback**: on a 286, a CPU reset through the Victory's BIOS
+into real mode, the BIOS's call, and back. kern_big makes the same BIOS
+call in plain real mode and never freezes.
+
+**The second instrument: five stage marks** (`mega_fdmkf`, MEGADIAG only).
+Five 8x8 blocks under the strip, written straight into the VGA frame
+buffer: by `A000h` in real mode, and by `[vid_seg]`'s selector in protected
+mode (`A000h` is NOT an identity selector since MC7.4; the first build
+took #GP there). Only a floppy `int 13h` reflection marks them:
+
+| block | lit when |
+|---|---|
+| 1 | leaving protected mode (2-5 blacked out first) |
+| 2 | in real mode after the reset (`mega_svc_lo.rmc`) |
+| 3 | entering the BIOS's `int 13h` |
+| 4 | the BIOS returned |
+| 5 | protected mode again (`mega_svc_back`) |
+
+The last white block is the last stage reached: 1 means the reset never
+came back, 3 the BIOS never returned, and 5 means the reflection finished
+and the freeze is after it. QEMU (a 386, so the CR0 route) lights all five
+on an ejected A:.
+
+**Second field reading (owner, 2026-10-29): it is the BIOS call that never
+returns, and it has a repro.** Play one particular video, then touch the
+empty drive, and it freezes every time. The strip read as before (`q33
+n0001 ... s81dFF`), and the marks read **1, 2 and 3 white, 4 and 5 black**:
+the reflection left protected mode, the 286's reset came back into real
+mode, the BIOS's `int 13h` was entered, and **it never returned**. So the
+Victory's own diskette code hangs on the empty drive, but only after a
+video, and only under kern_mega.
+
+The players' own port writes do not explain it (channel 2 and port 61h are
+the profiling build's alone). What a video leaves behind is the open
+question, and the next instrument asks the BIOS where it is.
+
+**The third instrument: the BIOS-call sampler** (`mega_fdson`/`mega_fdsamp`,
+MEGADIAG only). While a floppy reflection is in the BIOS, real mode's IRQ0
+vector (IVT 20h, the BIOS's handler as `mega_enter` copied it) points at
+`mega_fdsamp`. It prints one line at rows 56-63, white on black in its own
+16-glyph hex font (the kernel's glyph table is not reachable from real mode),
+then chains to the BIOS's own handler. The line holds the tick count, the
+interrupted CS:IP and FLAGS, 40:3E/3F/40/41, the master IMR/ISR/IRR, and the
+765's MSR and DIR. A frozen BIOS with ticks running keeps repainting it, so
+CS:IP names the loop: F000 the system BIOS, C800-EFFF an option ROM such as
+the PicoMEM's. A frozen count means IRQ0 stopped too, and the last sample
+shows where. QEMU: one tick in SeaBIOS's call at F000:8A2A, ISR 01 (inside
+the tick, as expected), and the machine goes on.
+
+**Third field reading, and the CAUSE (owner, 2026-10-29)**: any video played
+through the PicoMEM 1.x's Sound Blaster, then the empty drive, freezes every
+time. The sampler kept painting (count `2A` then `52`, so ticks run, IF on)
+and read, both times:
+
+    cnt  CS   IP   FLAGS 3E 3F 40 41 IMR ISR IRR MSR DIR
+    2A  1254 09AA  0217  80 00 FD 00  98  01  00  80  7F
+
+The CPU sits at **1254:09AA**, which is not the BIOS (F000) and not an
+option ROM. It is a **protected-mode selector run as a real-mode segment**:
+bit 2 is TI, and `(S >> 2) | 4 = 1254h` is the LDT code alias of a DRIVER
+IMAGE at segment 4940h. `3E` = 80h says the seek's IRQ6 had arrived, so the
+BIOS's own wait would have ended; something called out of the BIOS's call
+never came back. `IMR 98` has IRQ5 OPEN, and the PicoMEM's line is IRQ5.
+
+**The mechanism.** 14.73 made `mega_rmaskf` leave an option ROM's line OPEN
+for a SERVICE reflection, so the PicoMEM's multiplexer keeps running during
+a reflected BIOS call. After a video the card still has Sound Blaster work
+queued. Its ROM services that in real mode, inside the BIOS's floppy call,
+and raises its SB's IRQ the way SPEC.md 34.10.1 says it does: a SOFTWARE
+`int 8+n`, here `int 0Dh`. IVT 0Dh is SOUND.DRV's handler, hooked from
+protected mode as a CODE SELECTOR, and real mode jumped to it as a segment.
+`mega_capon` exists for exactly this. It swaps every IVT entry for IRQ2-7
+that names kernel or driver code for a capture stub, and `mega_replay`
+delivers what was caught through the IDT once back. But it ran for an IRQ
+REFLECTION only, and 14.73 opened the line for SERVICES without bringing it
+along. The empty drive is what makes it likely: an empty-drive BIOS call
+runs for seconds, a normal read for milliseconds. It hangs rather than
+crashing outright because the bytes at 1254:09AA happen to form a loop.
+`int 33h` was exposed the same way: the card's USB mouse reports would have
+reached USBMOUSE.DRV's protected-mode handler in real mode too.
+
+**FIXED**: a SERVICE reflection now catches as well (`[mega_capsw]`). It
+takes the SOFTWARE vectors 0Ah-0Fh and `int 33h` only. The hardware vectors
+22h-27h stay as they are, so the kernel's own mouse ISR keeps running in
+real mode during a BIOS call, as `mega_rmaskf` intends. `mega_capoff` puts
+back exactly what was taken, and `mega_svc_back` replays the catch for a
+service as it already did for an IRQ. All of it runs in the real-mode
+window, so it is low: **+22 bytes** of kern_mega's low segment
+(tests/megaseg.txt 4,381 -> 4,403). kern_big and kern_small are untouched,
+since mega.inc is not in them.
+
+Verified: QEMU boots the fixed kern_mega and an empty A: still falls back to
+the BIOS and returns. QEMU has no PicoMEM, so the freeze itself is the
+Victory's to confirm: video through the PicoMEM SB, then the empty drive.
+
+**Fourth field reading (owner, 2026-10-30): the capture fix did NOT end it.**
+On a8705278, a video and then the empty drive froze the same way, with the
+sampler again at **1254:09AA** (`72 1254 09AA 0217 80 00 B5 00 98 01 00 80
+7F`). The selector reading stands, but the door is not one of the vectors
+`mega_capon` takes (0Ah-0Fh, 22h-27h, 33h). The likelier one is a vector
+the BIOS's diskette code calls itself, `int 15h` AH=90h/91h above all, or
+one a ROM chains to. The capture stays: it closes a real hole of the same
+kind, which pmbox's mega leg (the card's own firmware, all checks green)
+shows breaks nothing. The next disk asks the machine which vector it is.
+
+**The sampler's two new lines** (still MEGADIAG only): line 2 (rows 64-71)
+is the interrupted SS, the SP above the IRQ's frame and the eight words
+there, the looping code's own stack, whose return addresses name its
+caller. Line 3 (rows 72-79) is every IVT vector whose SEGMENT is the
+interrupted CS, up to twelve: the door real mode came in by. Under QEMU,
+whose loop is SeaBIOS's own, line 3 lists F000's vectors 00-0B, as it
+should.
+
+**Fifth field reading (owner, 2026-10-30)**: line 1 `55 1254 09AA 0217 80
+00 D2 00 98 01 00 80 7F` (as before). Line 2: SS 0EE0, SP 1EEC, then `02F0
+1002 01B4 C400 03AC 0100 6000 0000`. Line 3: `27 01 02 03 04 05 06 07 08 09
+0A 0E` and a stray `B` past the end.
+
+What it says, as far as it goes:
+
+- Line 3 has TWELVE vectors whose segment is 1254h, CPU exception vectors
+  01-07 among them, which nothing hooks. It changed between paints (the `B`
+  is a longer earlier line's tail, and `27` before `01` cannot be one
+  ascending scan of a constant table). So the IVT is being WRITTEN while the
+  machine sits there. With line 1's IP never moving, that is the shape of a
+  `rep movs`/`rep stos`, which an interrupt resumes at the same IP, running
+  over low memory.
+- Line 2's `01B4 C400` reads as a far return to C400:01B4, an option ROM's
+  address: plausibly the PicoMEM's ROM calling the code it is caught in.
+
+Not yet known: what the instruction at 1254:09AA is, and what it is copying
+or filling. The sampler's lines 4 and 5 ask exactly that: the interrupted
+AX BX CX DX SI DI BP DS ES (a string instruction's count, source and
+destination), and the sixteen bytes at CS:IP. Under QEMU, line 5 reads `F3
+90 FA FC` at SeaBIOS's F000:8A2A, `pause` in a spin-wait, so the dump is
+reading the right place.
+
+**Sixth field reading (owner, 2026-10-30)**: line 4, the interrupted
+registers, `AX FE06 BX 0000 CX 0000 DX 02FE SI 0001 DI AC85 BP 1EF5 DS E71E
+ES 00B6`. Line 5, the bytes at 1254:09AA: `FE 3F FE 3F FE 3F FE 3F FE 3F FB
+3F F6 1F D8 0F`.
+
+**1254:09AA is DATA, not code**: as words it is 3FFE x5, 3FFB, 1FF6, 0FD8,
+a falling table such as an amplitude or volume curve. `FE 3F` is FE /7,
+undefined on a 286, so the CPU takes #UD there, vector 06h. Line 2's stack
+is the SAME in three readings (SS 0EE0, SP 1EEC, `02F0 1002 01B4 C400 03AC
+0100 6000 0000`), so nothing is pushing. That fits vector 06h's handler
+being a bare return: the fault, the return to the same byte, the fault
+again, at full speed. A real-mode exception clears IF, and IRET puts it
+back exactly at 09AA, so every IRQ0 lands there, which is why every sample
+reads 09AA. `CX` = 0 rules out the earlier `rep` reading. The stack reads as
+two far returns: 1002:02F0, then C400:01B4. C400 is inside C000-C7FF, the
+VGA BIOS's 32 KB (the Victory's Paradise), or another option ROM there.
+Which far call or jump got from there to 1254:09AA, through which vector,
+is still not known.
+
+**Lines 6 and 7**: the IVT's own cells for vectors 06 0D 10 13 15 1C 40
+(segment, offset: seven, since eight runs past column 79), and the eight
+bytes before each of the two far returns at [SP] and [SP+4], which are the
+calls themselves.
+
+**Seventh field reading (owner, 2026-10-30)**: line 6, the IVT cells:
+06 C000:0ECD, 0D F000:D265, 10 F000:E2C3, 13 F000:E987, 15 F000:D265, 1C
+C000:0ECD, **40 8FB8:3297**. Line 7: the bytes before both "returns" are
+zeros and a font glyph (`7C C6 C6 C6 7C`), so neither was a call site. Line
+2 is stale stack, not a chain.
+
+**Two corrections to the sixth reading**: no vector points at 1254. Line 3
+was STALE: when nothing matches, the line is empty, `mega_fdhex` draws
+nothing, and the previous sample's line stays on the glass (a defect of
+the instrument). And the chain is not through C400.
+
+**What it points at instead**: on an AT with a fixed disk the BIOS's `int
+13h` hands a FLOPPY request to `int 40h`, the diskette service, and here
+that vector is **RAM**: 8FB8:3297, about 575 KB up. Nothing in os8088
+writes vector 40h (searched: the kernel, the drivers, the packages), and
+the PicoMEM's BIOS (FreddyVRetro/ISA-PicoMEM's pmbios.asm) hooks 13h, 41h
+and 46h but not 40h. So the handler is the machine's own, or an option
+ROM's, installed at boot in RAM that the BIOS should have taken off the top
+(40:13). The owner's question is the right one: kern_big uses all of the
+640K and never breaks it, so either kern_big never writes there (it is
+above `int 12h`'s figure) and something on kern_mega does, or the vector
+itself changed during the session.
+
+**Line 8** answers that: 40:13 (`int 12h`'s KB), the kernel's `[mem_top]`,
+`int 40h` as `mega_enter` found it before the switch, `int 40h` now, and
+twelve bytes at it (still code, or overwritten). QEMU reads `027F` (639 KB)
+and `9FC0`.
+
+**Eighth field reading (owner, 2026-10-30)**, line 8: 40:13 = 027F (639 KB),
+`[mem_top]` = 9FC0, `int 40h` at `mega_enter` F000:D265 and **now
+F000:D265**. The bytes there are `50 1E 52 B8 0B FF BA 20 00 EE ...`, the
+BIOS's unexpected-interrupt handler (it reads the 8259's ISR). So `int 40h`
+is ROM and never moved. And this BIOS's `int 13h` (F000:E987) does its own
+diskette work: it does not chain to 40h. But line 6, painted in the SAME
+tick, read 40 = 8FB8:3297, and vectors 06/0D/10 differ between the sixth
+and eighth photos in a way no real IVT does: real vector values (F000:D265,
+C000:0ECD, 8FB8:3297) turn up in the wrong slots. QEMU verifies line 6
+against memory. **So the IVT is being REWRITTEN while the machine sits
+frozen**, by something that can write between two CPU reads a few
+microseconds apart.
+
+**Emulation (vm/at286-picomem1, the card's own firmware)**: kern_mega with
+SOUND.DRV, pmbox's SBTEST tone through the card's Sound Blaster. Across the
+tone exactly two vectors change, 0Fh and 27h, to 11AC:0981 (SOUND.DRV's
+IRQ7, a real segment, as designed), and nothing in the 6 s after. So the
+card's sound path corrupts nothing THERE. That machine's `int 13h` is the
+card's hook (D000:2FAF) and its `int 40h` the BIOS's (F000:EC59), not the
+Victory's arrangement.
+
+**Lines 9-10**: `mega_enter` copies the whole IVT; the sampler prints every
+vector that differs from that copy, `nn ssss oooo`, six a line, twelve at
+most. The vectors kern_mega moves on purpose (IRQ0-7 in 08h-0Fh and
+20h-27h, 15h, 33h) are the expected entries. QEMU's lines match its memory
+dump.
+
+**Ninth field reading (owner, 2026-10-30) - THE CAUSE.** Line 10 reads
+`27 1294 0981`: real-mode IRQ7's vector, the cell the 8259 delivers to while
+the BIOS's floppy call runs, holds **SOUND.DRV's IRQ7 ISR as an LDT
+SELECTOR**. 0981 is the offset emulation reads at `11AC:0981`; 1294 is
+TI = 1, a selector. `mega_ivt_sync`'s `.fixrow` turns a selector back into a
+segment only when the image is below 1MB, leaving it in place otherwise on
+the stated assumption that the line is masked across a reflection. It is
+masked (line 1, IMR = 98h). But **the 8259 delivers IR7's vector for a
+SPURIOUS interrupt whatever IMR says**, and the empty drive's BIOS call is
+the longest window kern_mega ever spends in real mode with IF on. Real
+mode runs `1294:0981` as a segment, which is the garbage `1254:09AA` the
+first readings stopped in. The variant with the tick count stuck at 01 and
+CS:IP in the ROM is the same jump taken with IF = 0. The service capture
+above did not cover it, because it skipped the hardware pair 22h-27h to
+keep the kernel's mouse ISRs (0060:3643, 0060:3635) live.
+
+It explains the three things the readings left open:
+- **Video first**: the Video Player pushes SOUND.DRV's image above 1MB,
+  which is what leaves the selector behind.
+- **The light before the buzz**: the drive light is on while the BIOS waits
+  for the motor, which is when the spurious edge lands.
+- **Not kern_big**: kern_big's drivers live at real segments, so no IVT cell
+  there is ever a selector.
+
+**The fix**: a service reflection's `mega_capon` takes the hardware pair
+too, but only the cells holding an LDT selector at or above
+`MEGA_LDT_FREE0`, real mode's unreachable ones. Each gets `mega_cap2`'s
+stub, and what it catches is replayed through the IDT gate, the same handler
+a spurious IRQ7 in protected mode reaches. The kernel's own ISRs, the ROMs'
+and a driver at a real segment stay live. `mega_capoff` restores all twelve
+cells. +14 bytes low (tests/megaseg.txt). `pmbox` (the card's own firmware
+on vm/at286-picomem1) passes. The slave's IR15 (77h) has the same exposure
+and is NOT covered: no reading has shown it.
+
+**Tenth field reading (owner, 2026-10-30): the fix holds and the machine
+now REBOOTS.** IVT 27h reads `0060:4948`, `mega_cap2`'s IRQ7 stub, so the
+stray reaches nothing now. But the sampler stops after two ticks at
+F000:CEBC, inside the BIOS's floppy routine, with IMR 98, ISR 01 (the tick
+itself) and IF on. The stage marks never reach 4, and the screen sits until
+POST clears it. That is the variant an earlier reading had with the count
+stuck at 01, so it predates the fix; the stray was the first of two. The
+stack line's odd SP is task 0's own (`STK0_TOP` is odd), not corruption.
+
+What it is not, from emulation (vm/at286-picomem1, the card's own firmware):
+- REPLAYING a stray: a build that marks IRQ7 caught on every service
+  reflection ran the whole of `pmbox` clean.
+- The card's SB used and then an empty drive: SBTEST's tone then an empty
+  A:, and the Video Player playing 08-WILLY.V88 off a card-served C: then an
+  empty B:, both answer "No os8088 disk" and run on.
+
+The emulated card never makes the stray, so the rest needs the iron. The
+PicoMEM ROM's IRQ5 handler (pmbios.asm `PM_Int`) runs the card's PC
+commands - port writes, memory copies, the 8237's channel registers - and
+skips forwarding an SB IRQ whose line is masked (`SkipInt`, status
+DISABLED). kern_mega masks IRQ7 across the call and kern_big does not.
+
+**The instrument: a post-mortem.** For the length of a sampled floppy call,
+MEGADIAG arms CMOS shutdown code 0Ah with 40:67 at `mega_fdpm`. A CPU reset
+inside the call (a triple fault, the 8042's reset line, a jump to FFFF:0)
+then skips POST and lands in `mega_fdpm`, which halts. Its line 11 (rows
+144-151) reads, in order:
+- `EEEE`
+- the card's IRQ5 handler's ways IN and OUT, counted by a shim at IVT 25h
+  (`mega_fd5sh`). In greater than out means the reset came from inside the
+  card's handler.
+- the capture stubs' hits, and the lines they caught
+- the ticks sampled
+- IMR, ISR, IRR
+- the FDC's MSR
+- 40:3E-41
+- IVT 25h and 27h
+
+A forced reset in the call, on the emulated 286, landed there and drew it.
+
+**Eleventh field reading (owner, 2026-10-30): NO post-mortem.** The shim
+was in (25h = 0060:520C), the picture was the tenth's - two ticks, F000:CEBC,
+IF on, a delay loop counting - and no `EEEE` line, so no CPU reset inside
+the call. IRQ0 simply stops being taken: the CPU sits with IF off somewhere.
+So the shim now DRAWS its counts too (`mega_fd5ln`, line 12, rows 152-159:
+`5555`, ins, outs, capture hits and lines, IMR ISR IRR, MSR) at each way in
+and out of the card's handler. A freeze inside the card's handler then
+reads ins > outs on the glass, with no reset needed. The emulated card
+raised no IRQ5 inside a call, so the line has not been seen drawn there.
+
+**Twelfth field reading, and a CORRECTION: readings ten to twelve are the
+instrument's own freeze.** The twelfth photo froze without a video, with no
+`5555` line. Its picture was the tenth's: two ticks, the BIOS's PIT-reading
+delay routine at F000:CEA4. The same build, on vm/at286-picomem1 with an
+empty B:, froze too:
+- the tick stopped;
+- the CPU sat in the BIOS's `int 06h` (invalid opcode) handler with IF off,
+  returning to 0060:5530, inside `mega_fdsamp`'s line-6 loop;
+- 0060:5500-5535 held line text, hex nibbles with 10h between them.
+
+**Lines 9-10 (58547c59) wrote six `nn ssss oooo` entries, 78 bytes, into
+the 64-byte `mega_fdsbuf`**. That overran `mega_fdsvec` and its FFh
+terminator, so the NEXT tick's line 6 ran off the end, writing the vectors
+it read over the sampler's own code. Every MEGADIAG floppy call whose IVT
+diff had five entries or more froze on its second tick.
+
+That accounts for:
+- every "count 02" photo;
+- the count-01 variant of the ninth;
+- the tenth's reboot;
+- the twelfth's freeze with no video.
+
+The ninth reading's data is still good: tick one drew it before anything
+was overrun. And the IRQ7 cause stands on readings that predate lines 9-10:
+the CPU in garbage at 1254:09AA = SOUND.DRV's 0981 + 29h. `mega_fdsbuf` is
+96 bytes now and `mega_fd5buf` 56 (the 6666 line is 46). The same
+empty-B: run then samples six ticks and answers "No os8088 disk (B:)".
+
+**So the shipped kern_mega with 3455b173's fix has NOT been shown to fail.**
+The tenth reading's reboot came off the diag disk.

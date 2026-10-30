@@ -217,7 +217,7 @@ index 0000000..1111111
 +
 +    - I/O: the card answers a port no other device claims, and hears EVERY
 +      write, which is how a 1.x learns a Sound Blaster transfer: it snoops
-+      the PC's writes to the 8237 (docs/plans/PICOMEM-EMU-PLAN.md 2).
++      the PC's writes to the 8237 (docs/plans/completed/PICOMEM-EMU-PLAN.md 2).
 +    - Memory: one window, D0000-EFFFF by default, where its BIOS ROM, its
 +      shared RAM and its EMS frame live; a block the card does not decode
 +      reads FFh.

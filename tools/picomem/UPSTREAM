@@ -1,4 +1,4 @@
-# The PicoMEM firmware libpmhost is built from (docs/plans/PICOMEM-EMU-PLAN.md
+# The PicoMEM firmware libpmhost is built from (docs/plans/completed/PICOMEM-EMU-PLAN.md
 # section 4.1). Edit and re-run build.sh to move it; re-cut patches/fw/
 # against the new pin first (tools/martypc/README.md's rule: a patch is cut
 # against the pin PLUS every earlier patch).

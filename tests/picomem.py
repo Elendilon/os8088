@@ -381,21 +381,26 @@ def leg_ne(tmp):
 # leg sb - the attach and the IRQ
 # =============================================================================
 def sbslice(tmp):
-    """sb.inc's candidate tables and sbl_f_irqdisc, cut out as they ship."""
+    """sb.inc's candidate tables, sbl_f_irqdisc (with sbl_irq5_taken) and
+    sbl_attach's sbl_hook (with sbl_cell), cut out as they ship: the tables
+    to SBL_DSC_N, each routine to the next ; ==== banner."""
     src = open(os.path.join(ROOT, "drivers", "sound", "sb.inc")).read().splitlines()
-    out, take = [], False
+    out, take = [], None
     for line in src:
-        if line.startswith("sbl_dsc_irqn:") or line.startswith("sbl_f_irqdisc:"):
-            take = True
-        if take:
-            out.append(line)
-            if line.startswith("SBL_DSC_N"):
-                take = False
-            elif out and out[0] != line and line.startswith("; ====") and \
-                    any(l.startswith("sbl_f_irqdisc:") for l in out):
-                out.pop()
-                take = False
-    assert any(l.startswith("sbl_f_irqdisc:") for l in out), "slice lost"
+        if take is None and (line.startswith("sbl_dsc_irqn:") or
+                             line.startswith("sbl_f_irqdisc:") or
+                             line.startswith("sbl_hook:")):
+            take = line
+        if take is None:
+            continue
+        if line.startswith("; ====") and line != take:
+            take = None
+            continue
+        out.append(line)
+        if line.startswith("SBL_DSC_N"):
+            take = None
+    for need in ("sbl_f_irqdisc:", "sbl_hook:", "sbl_cell:", "SBL_DSC_N"):
+        assert any(l.startswith(need) for l in out), "slice lost " + need
     with open(os.path.join(tmp, "sbslice.inc"), "w") as f:
         f.write("\n".join(out) + "\n")
 

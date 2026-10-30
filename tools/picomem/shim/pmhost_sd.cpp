@@ -4,7 +4,7 @@
  * which calls sd_disk_*: on the iron those are lib/FatFs_SPI's glue.c over
  * an SPI driver. Here they read and write 512-byte sectors of one file, so
  * FatFS, config.txt and the /FLOPPY and /HDD images are all the firmware's
- * own code paths over a card the test built (docs/plans/PICOMEM-EMU-PLAN.md
+ * own code paths over a card the test built (docs/plans/completed/PICOMEM-EMU-PLAN.md
  * 4.5). No image = no card, which the firmware handles as a card that is
  * not inserted.
  *
