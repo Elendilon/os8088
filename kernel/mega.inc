@@ -8156,110 +8156,18 @@ mega_xdesc:
     pop es
     ret
 
-; mega_mdesc - DX:AX = a 24-bit base -> MEGA_SEL_CODE, `.mega`'s CODE
-; descriptor, there, its limit `.mega`'s own last byte, and MEGA_SEL_PSCR at
-; the scratch past it. Clobbers nothing
-mega_mdesc:
-    push bx
-    mov bx, MEGA_SEL_CODE
-    call mega_xdesc
-    push es
-    push di
-    mov di, MEGA_SEL_WIN
-    mov es, di
-    mov di, MEGA_SEL_CODE
-    mov word [es:di], MEGA_SIZE - 1
-    mov byte [es:di+5], 0x9A        ; present, ring 0, code, readable
-    pop di
-    pop es
-    push ax                         ; ...and the park's scratch, past its end
-    push dx
-    add ax, MEGA_SCR_OFF
-    adc dx, 0
-    mov bx, MEGA_SEL_PSCR
-    call mega_xdesc
-    pop dx
-    pop ax
-    pop bx
-    ret
-
 ; mega_lincopy - CX bytes (even, 2..65534) from linear [mega_xsrc] to linear
 ; [mega_xdst], DS = KDATA. Clobbers AX BX CX DX SI DI; DS and ES preserved.
 ; The body is `.mega`'s (mx_lcopyf, KERN-MEGA-PLAN 14.49): these four bytes
-; are what `.text` keeps, for mega_coldup and HIBER.DRV's near callers
+; are what `.text` keeps, for HIBER.DRV's near caller (hiber.inc's BP call)
 mega_lincopy:
     call MEGA_SEL_CODE:mx_lcopyf
     ret
 
-; mega_hilin - DX:AX = `.mega`'s linear base above 1MB: `.cold`'s, at its
-; rung's distance, as in the ladder (MEGA_HI_LIN until KERN-MEGA-MEMORY-PLAN
-; MC2 made the fixed area move with the machine). Clobbers nothing else
-mega_hilin:
-    mov ax, [mega_coldlin]
-    mov dx, [mega_coldlin+2]
-    add ax, (COLD_PARA * 16) & 0xFFFF
-    adc dx, (COLD_PARA * 16) >> 16
-    ret
-
-; -----------------------------------------------------------------------------
-; mega_coldup - `.cold` and `.mega` above 1MB, and their rungs to the heap. In
-; mega_enter, with the real tables loaded and nothing executing in either
-; (mega_enter is .text, called from kmain's .text). CF = 1 and nothing moved
-; when the machine has too little extended memory for it - and `.mega` then
-; runs from its own rung, which stays: MEGA_SEL_CODE is written either way,
-; and BEFORE anything can far-call it (KERN-MEGA-SEGMENTS-PLAN 3.3)
-; -----------------------------------------------------------------------------
+; mega_coldup - the switch's door into mega_coldupf (`.cold`, below), from
+; mega_enter: CF = 1 nothing moved
 mega_coldup:
-    mov ax, (MEGA_RAM << 4) & 0xFFFF ; `.mega` where the boot put it...
-    mov dx, MEGA_RAM >> 12
-    call mega_mdesc
-    cmp byte [mega_codehi], 0       ; mega_layoutf: no room at the top
-    je .no
-    mov word [mega_xsrc], (COLD_RAM << 4) & 0xFFFF
-    mov word [mega_xsrc+2], COLD_RAM >> 12
-    mov ax, [mega_coldlin]
-    mov dx, [mega_coldlin+2]
-    mov [mega_xdst], ax
-    mov [mega_xdst+2], dx
-    mov cx, (COLD_SIZE + 1) & 0xFFFE
-    call mega_lincopy
-    mov word [mega_xsrc], (MEGA_RAM << 4) & 0xFFFF ; ...and `.mega`, a copy of
-    mov word [mega_xsrc+2], MEGA_RAM >> 12 ; its own: the two can pass 64KB
-    call mega_hilin                 ; DX:AX = where it goes
-    mov [mega_xdst], ax
-    mov [mega_xdst+2], dx
-    mov cx, (MEGA_SIZE + 1) & 0xFFFE
-    call mega_lincopy
-    call mega_hilin                 ; ...whose descriptor follows it up
-    call mega_mdesc
-    ; --- the descriptor: COLD_SEG:COLD_VSTART is the copy's first byte -----
-    push es
-    mov ax, MEGA_SEL_WIN
-    mov es, ax
-    mov di, COLD_SEG & 0xFFF8
-    mov ax, [mega_coldlin]
-    mov dx, [mega_coldlin+2]
-    sub ax, COLD_VSTART & 0xFFFF
-    sbb dx, COLD_VSTART >> 16
-    mov [es:di+2], ax
-    mov [es:di+4], dl
-    pop es
-    ; --- ...and the rung: the decoder's buffers to its bottom, the floor
-    ; onto it - [rom_vgabw] is both (mem_floor_ax, ROM-PLAN 3.4.2)
-    mov ax, COLD_RAM
-    call COLD_SEG:mega_vbaimf
-%if VGABUF_PARA
-    test byte [vid_avail], VID_A_VGA
-    jz .floor
-    add ax, VGABUF_PARA
-.floor:
-%endif
-    mov [mem_base], ax
-    mov byte [mega_coldhi], 1
-    clc
-    ret
-.no:
-    stc
+    call COLD_SEG:mega_coldupf
     ret
 
 ; -----------------------------------------------------------------------------
@@ -10054,18 +9962,126 @@ mega_gatef:
     call KERNEL_SEG:cw_toast_show
     pop es
     mov ax, MEGA_RAM                ; ...and `.mega`'s rung to the heap
-    call COLD_SEG:mega_vbaimf
-%if VGABUF_PARA
-    test byte [vid_avail], VID_A_VGA
-    jz .mfloor
-    add ax, VGABUF_PARA
-.mfloor:
-%endif
-    mov [mem_base], ax
+    call mega_rung
     mov byte [mega_mfree], 1
     stc
 .go:
     retf
+
+; mega_rung - AX = the paragraph of a rung that is dead (`.cold`'s or
+; `.mega`'s) -> the planar decoder's buffers to its bottom and the heap floor
+; onto them: [rom_vgabw] is both (mem_floor_ax, ROM-PLAN 3.4.2). Clobbers AX
+mega_rung:
+    call COLD_SEG:mega_vbaimf
+%if VGABUF_PARA
+    test byte [vid_avail], VID_A_VGA
+    jz .floor
+    add ax, VGABUF_PARA
+.floor:
+%endif
+    mov [mem_base], ax
+    ret
+
+; mega_mdesc - DX:AX = a 24-bit base -> MEGA_SEL_CODE, `.mega`'s CODE
+; descriptor, there, its limit `.mega`'s own last byte, and MEGA_SEL_PSCR at
+; the scratch past it. Clobbers nothing
+mega_mdesc:
+    push bx
+    mov bx, MEGA_SEL_CODE
+    call KERNEL_SEG:mega_xdescf
+    push es
+    push di
+    mov di, MEGA_SEL_WIN
+    mov es, di
+    mov di, MEGA_SEL_CODE
+    mov word [es:di], MEGA_SIZE - 1
+    mov byte [es:di+5], 0x9A        ; present, ring 0, code, readable
+    pop di
+    pop es
+    push ax                         ; ...and the park's scratch, past its end
+    push dx
+    add ax, MEGA_SCR_OFF
+    adc dx, 0
+    mov bx, MEGA_SEL_PSCR
+    call KERNEL_SEG:mega_xdescf
+    pop dx
+    pop ax
+    pop bx
+    ret
+
+; mega_hilin - DX:AX = `.mega`'s linear base above 1MB: `.cold`'s, at its
+; rung's distance, as in the ladder (MEGA_HI_LIN until KERN-MEGA-MEMORY-PLAN
+; MC2 made the fixed area move with the machine). Clobbers nothing else
+mega_hilin:
+    mov ax, [mega_coldlin]
+    mov dx, [mega_coldlin+2]
+    add ax, (COLD_PARA * 16) & 0xFFFF
+    adc dx, (COLD_PARA * 16) >> 16
+    ret
+
+; -----------------------------------------------------------------------------
+; mega_coldupf - FAR, from mega_enter's door (mega_coldup, `.text`): `.cold`
+; and `.mega` above 1MB, and their rungs to the heap. In protected mode with
+; the real tables loaded and interrupts and NMI off, `.cold` still where the
+; boot put it and its GDT entry the identity. CF = 1 and nothing moved when
+; the machine has too little extended memory for it - and `.mega` then runs
+; from its own rung, which stays: MEGA_SEL_CODE is written either way, and
+; BEFORE anything can far-call it (KERN-MEGA-SEGMENTS-PLAN 3.3).
+;
+; IT RUNS IN THE `.cold` IT COPIES, which is sound for three reasons that are
+; the whole argument (kern_mega size pass 1 moved it out of `.text`): the copy
+; is a snapshot of bytes nothing writes until this returns; re-basing COLD_SEG
+; changes no CS already loaded - the processor keeps the old base until a far
+; transfer reloads CS - so the instructions after it still come off the old
+; rung, which is not heap until [mem_base] says so and nothing claims before
+; this returns; and every far transfer after it (mega_vbaimf's call and retf,
+; this routine's own retf to the door) lands at the SAME offset of an
+; identical copy
+; -----------------------------------------------------------------------------
+mega_coldupf:
+    mov ax, (MEGA_RAM << 4) & 0xFFFF ; `.mega` where the boot put it...
+    mov dx, MEGA_RAM >> 12
+    call mega_mdesc
+    cmp byte [mega_codehi], 0       ; mega_layoutf: no room at the top
+    je .no
+    mov word [mega_xsrc], (COLD_RAM << 4) & 0xFFFF
+    mov word [mega_xsrc+2], COLD_RAM >> 12
+    mov ax, [mega_coldlin]
+    mov dx, [mega_coldlin+2]
+    mov [mega_xdst], ax
+    mov [mega_xdst+2], dx
+    mov cx, (COLD_SIZE + 1) & 0xFFFE
+    call MEGA_SEL_CODE:mx_lcopyf
+    mov word [mega_xsrc], (MEGA_RAM << 4) & 0xFFFF ; ...and `.mega`, a copy of
+    mov word [mega_xsrc+2], MEGA_RAM >> 12 ; its own: the two can pass 64KB
+    call mega_hilin                 ; DX:AX = where it goes
+    mov [mega_xdst], ax
+    mov [mega_xdst+2], dx
+    mov cx, (MEGA_SIZE + 1) & 0xFFFE
+    call MEGA_SEL_CODE:mx_lcopyf
+    call mega_hilin                 ; ...whose descriptor follows it up
+    call mega_mdesc
+    ; --- the descriptor: COLD_SEG:COLD_VSTART is the copy's first byte -----
+    push es
+    mov ax, MEGA_SEL_WIN
+    mov es, ax
+    mov di, COLD_SEG & 0xFFF8
+    mov ax, [mega_coldlin]
+    mov dx, [mega_coldlin+2]
+    sub ax, COLD_VSTART & 0xFFFF
+    sbb dx, COLD_VSTART >> 16
+    mov [es:di+2], ax
+    mov [es:di+4], dl
+    pop es
+    mov ax, COLD_RAM                ; ...and the rung to the heap
+    call mega_rung
+    mov byte [mega_coldhi], 1
+    clc
+    retf
+.no:
+    stc
+    retf
+
 
 ; mega_tasks_ok - CF = 0 when every task but the running one is the KERNEL'S
 ; (no instance, not a driver's service worker). A package's worker suspended
