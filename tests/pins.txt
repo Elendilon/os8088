@@ -295,6 +295,11 @@ C apps/video/video.asm vp_xsclm          # one chunk's staging into the XMS hold
 C apps/video/video.asm vp_dbnc           # the bounce of a ring above 1MB, held for
                                          # the length of one play (the reader
                                          # copies through it), freed with the ring
+C apps/video/video.asm vp_dbclm          # the kern_mega arm's claim that bounce is
+                                         # carved from at the gap's offset (vp_dbnc
+                                         # is a sub of it): held for the length of
+                                         # one play (the reader copies through it),
+                                         # freed with the ring
 C apps/video/video.asm @vp_rhtry         # a play's ring ABOVE 1MB (OSAPI_MEM_HUGE):
                                          # no conventional heap at all while the
                                          # play's session holds it
