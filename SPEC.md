@@ -104203,7 +104203,19 @@ real-mode arms - measured against W1**: kern_big and kern_small
 less the door's `jc`), `.mega` **+252** (the reasons, the swap and its list),
 `.lowbss` +4 (the VESA hook's bank), `.bss` +0, and **no conventional byte
 for the table** - the bank is the park's scratch above 1MB.
-`tests/megarmbref.py` (Bochs) is W2's gate.
+`tests/megarmbref.py` (Bochs) is W2's gate. **W3 - the list, the walk,
+the service area and the low drivers - measured against W2** (the kern_mega
+map; `cmp` of both shipped kernels' `kernel.bin` and `kernel.sys` at one
+commit): kern_big and kern_small **byte-identical**; kern_mega `.text` **+0**
+and `.bss` +0 (the door's list fetch is `.mega`'s, reaching
+`inst_vol_enter` through `mega_tcall`), `.cold` **+444** (`fsx_rwalkf`, which
+calls the file layer near), `.mega` **+2,723** - the twins 2,016 of it,
+assembled there and copied into the service area per real-mode bracket, the
+protected-mode door, drop and return 707 - and `.lowbss` +4. **No
+conventional byte at rest**: a real-mode bracket claims its service area
+(3 KB for a contiguous file, 4 KB at `FSXL_RUNS`) and each low driver's
+copy (HDD.DRV 4 KB) for its own length. `tests/vidrmb.py` is W3's gate
+(rows `vidrmbfrag`, `vidrmbhdd`, `vidrmb286`).
 
 **EXTD.DRV's slots are the one kernel word the plan's census missed.**
 `OSAPI_FSX_MODE`, `OSAPI_WM_CONTENT` and `OSAPI_FSX_CAPS` far-call EXTD.DRV's

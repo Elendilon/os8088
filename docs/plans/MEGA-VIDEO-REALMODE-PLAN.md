@@ -2,7 +2,9 @@
 
 **Status: PLAN. W0 (the census) is DONE (2026-10-29); W1 (the drop and
 the return) and W2 (the table and the fallback) are BUILT and their gates
-pass (2026-10-30, section 4's entries); W3-W7 are not started.** The plan was first written against
+pass (2026-10-30, section 4's entries); W3 (the extent reader, the low
+drivers, the XMEM twins) is BUILT and its gates pass (2026-10-30); W4-W7
+are not started.** The plan was first written against
 `4d3d0943` from source and documents only. **W0 measured it again on
 `df2e1fbf`**, and section 7 is that census: every `PKG_MEGA` block of the
 player classified and assembled, the bracket's real API whitelist walked off
@@ -933,7 +935,11 @@ deduplicated union below, plus `test-full`.
   | `FSXR_EXTD` | the extended desktop (two displays): EXTD.DRV's entry slots far-called by `OSAPI_FSX_MODE`, `OSAPI_FSX_CAPS`, `OSAPI_WM_CONTENT` | **W7** - real-mode targets (twins of the EXTF verbs the three cells reach, or a low copy of the module's image for the bracket), and a fullscreen play on EITHER display (the owner, 2026-10-30: the player supports both) |
   | `FSXR_SVC` | a driver's worker alive (a network driver's, a sound stream's task) | **W7** - the bracket would starve it; either the driver is told (a verb, as `DSV_RMODE`) or its worker's work is run from the real-mode tick |
   | `FSXR_SERIAL` | a SERIAL.DRV lease open (§115) | **W7** - the leased UART's capture (`SERFP+SER_IRQ`) from a low copy of the module, or the ISR skipping the leased row in a real-mode bracket with the module told |
-  | `FSXR_ROOM` | a full conventional heap and an `OS88_HIGH` region | **W3/W5 in part** (the player's ring goes conventional, so its own sizing leaves the room, 5.2 item 4), and the HMA placement of 5.3.3 later |
+  | `FSXR_ROOM` | a full conventional heap and an `OS88_HIGH` region - or no room for W3's service area | **W5 in part** (the player's ring goes conventional, so its own sizing leaves the room, 5.2 item 4), and the HMA placement of 5.3.3 later |
+  | `FSXR_DRV` | a listed driver the bracket does not carry: `DRVC_SOUND` | **W4** (SOUND.DRV low, `DSV_RMODE`) |
+  | `FSXR_DROOM` | no room for a driver's low copy | **W5 in part**, with `FSXR_ROOM` |
+  | `FSXR_FRAG` | a file past `FSXL_RUNS` runs | - (a copy plays; protected mode serves it meanwhile) |
+  | `FSXR_VOL` | an FS-driver, redirected or image volume | **PERMANENT** (5.3 item 2): the info card's line |
   | `FSXR_KEEP` | none: the package's own combination | - |
 
   **Bytes** (the kern_mega map against W1's `321199e6`, both at one commit
@@ -994,21 +1000,146 @@ deduplicated union below, plus `test-full`.
   `OSAPI_FSX_WAIT` (`vidvga4`, `vidmodex`, `vidplayvga`, `vidpage`, the
   game ports); `t_api_abi` (fast, already green: the table's bytes are
   unchanged); and `vidclose` and `vidxipbanktier`, which the plan named.
-* **W3. The extent reader, the low HDD.DRV and EMS.DRV, and the XMEM
-  twins.** A silent play. The `READ_SEQ` twin serves `DVK_BIOS` volumes by
-  `int 13h` and `DVK_DRV` block volumes through the low driver's `DSV_BLK`
-  (HDD.DRV's rungs 0 and 1 - rung 1's PIO is kept, section 5.2); what it
-  cannot serve refuses (section 7.5). The XMEM twins have no compaction.
-  Gates:
-  * `vidplayvga`, `vidvga4`, `vidmodex`, `vidxipbank`, `vidxiphd` and
-    `vidpage`, through the real-mode bracket: holds equal to the reference
-    decode;
-  * a new `vidrmbfrag` (a fragmented file walked to the cap, and refused
-    past it);
-  * `vidxiphd` on an `HDD=` C: (BIOS rung 0 under QEMU, `TESTHD=`), and a
-    rung-1 play on `vm/286-video` (its on-board IDE) that must stay at
-    14.73's 25 fps.
-  Break on purpose: an extent off by one sector shows as a hold mismatch.
+* **W3. The extent reader, the low drivers and the XMEM twins - BUILT
+  2026-10-30, its three gates green.** SPEC.md 53.2.3 is the contract
+  (rewritten before the code: the LIST, four reasons, the twins); the code
+  is `kernel/fsx.inc`'s KERN_MEGA tail (`fsx_rlist`, `fsx_rwalkf`,
+  `fsx_rsvcf`, `fsx_rdrvf`, `fsx_rcopyf`, `fsx_rfree`, the `rms_*` twins).
+
+  **What was built.**
+  * **THE LIST.** With `FSXF_REAL` the caller's **BP** names `FSXL_FILE`
+    (a NUL 8.3 name its `READ_SEQ` will read) and `FSXL_DRV` (a class its
+    `DRV_CALL` will reach) entries; BP = 0 is no list, and every real-mode
+    kernel keeps BP. BP because every other register is spoken for by
+    `FSXF_RATE` and the window; read off fsx_run's frame under the X stub,
+    so `.text` pays nothing.
+  * **THE WALK** (5.1.4's switch point, decided): at the door, in protected
+    mode, in the caller's own folder (`inst_vol_enter`, through
+    `mega_tcall`, only when there is a list), each file stat'ed and its chain
+    walked (`fsx_rwalkf`, `.cold`: `dskw_stat_x`, `dsk_clus2lba_x`,
+    `dsk_next_clus_x`) into RUNS - a `DVK_BIOS` unit's ABSOLUTE sectors (the
+    partition's base added, every run's end checked against CHS's reach) or
+    a `DRVC_DISK` volume's own. Into the PARK'S SCRATCH, so a fallback takes
+    nothing; 224 runs and 4 files (`FSXL_RUNS`, `FSXL_NMAX`). A stat or chain
+    that fails is the file's `FERR_*`, answered by the twin - what protected
+    mode would say - not a fallback. The first fill stays inside the bracket,
+    as W0 found it.
+  * **THE SERVICE AREA**: the twins' code (2,016 bytes) is assembled in
+    `.mega` between `; ovlchk: real mode` markers and COPIED, with the rows
+    and runs behind it, into a conventional claim of the instance's for the
+    bracket - 3 KB for a contiguous file, 4 KB at the cap - run at a
+    paragraph whose x 16 is the claim's base less `rms_lo`, so `.mega`'s own
+    offsets are the twins'. No conventional byte at rest and no disk read.
+    `fsx_rkeepm` points five cells at it.
+  * **THE TWINS.** `OSAPI_FILE_READ_SEQ` (`rms_rseq`): the runs by `int 13h`
+    with `dsk_xfer`'s bounds (track or cylinder as the kernel's own reads,
+    the 64KB page with a sector bounced through `dsk_secbuf`, the floppy's
+    EOT, retries, then a sector at a time), or a `DRVC_DISK` volume through
+    the LOW copy's `DSV_BLK`; the cursor comes back a seek (`FSEQ_OFF` on,
+    the rest zero). `OSAPI_XMEM_COPY` (`rms_xcopy`): the token through
+    `mx_tab` (W0's finding: nothing moves a block while no protected-mode
+    code runs, so no pin), A20 proved by `mega_a20f`, the bytes by LOADALL on
+    a 286 (`apps/os88la.inc`, 16 KB a borrow) and a loaded base on a 386
+    (`apps/os88ub.inc`, 2 KB a chunk) - kern_big XMEM.DRV's own transports,
+    included rather than copied. `OSAPI_XMEM_CAPS`. `OSAPI_DRV_CALL` and
+    `_AT` (`rms_drvx`, `rms_drva`): a class carried low, at its paragraph,
+    through `DSV_PKGCALL`.
+  * **THE LOW DRIVERS** (`fsx_rdrvf`): `DRVC_DISK` (asked by a stream on its
+    volume, or listed) and `DRVC_EMS` (listed) - a conventional claim, image
+    and bss copied down at the freeze's arm and up at the exit with the
+    region; a conventional image runs where it is. HDD.DRV's rung 1 keeps its
+    native PIO, and **`HDV_ARM` works in the bracket** (refused under
+    `CPU_F_PM`): vidrmbhdd reads 32 KB straight into XMS through the twin.
+  * Four reasons, one test each: `FSXR_VOL` (6), `FSXR_FRAG` (7), `FSXR_DRV`
+    (8), `FSXR_DROOM` (9); `FSXR_ROOM` covers the service area too.
+
+  **Decisions, and why**:
+  1. **The twins are `.mega` copied per bracket, not resident `.text`**
+     (W1's choice for its 422 bytes) - these are 2,016 and only a real-mode
+     bracket wants them; `.text` is conventional memory on every kern_mega
+     machine for ever and is the kernel segment `tests/megaseg.txt` guards.
+     A module would be a system-disk read at every Play (W1's decision 1).
+     The copy costs a claim, which FSXR_ROOM already covers.
+  2. **`READ_AT`, `XMEM_ALLOC` and `XMEM_FREE` stay refused** (7.2 offered
+     "TWIN without compaction, or the split moves out"): an allocator in real
+     mode is a second one to keep in step with `mx_alloc`'s tokens and
+     floor, for the player's one call site at the first fill. **W5 moves
+     `vp_lysplit`'s and `vp_xfree`'s claims to the door.**
+  3. **`FSXR_VOL` is PERMANENT** (5.3 item 2: FS-driver and redirected
+     volumes play in protected mode, with the info card's line), and so is
+     a mounted image's; RAMDISK.DRV is a FILE class (`DRVC_FILE2`), not the
+     block class 5.2 item 3 assumed, so it is among them.
+  4. **`DRVC_SOUND` falls back (`FSXR_DRV`)** until W4 carries it; EMS is
+     carried by the same code as HDD.DRV and **untested** here - no emulator
+     in the tree gives kern_mega an EMS board.
+  5. **No new XMS twin translation pin**: the copy reads `mx_tab` live, so a
+     token is right however far its block moved before the door.
+
+  **Defects found on the way** (two of them W1's, latent until W3 stood a
+  second claim next to the region's copy):
+  * W1's copy LENGTH rounded with `and cl, 0FEh / jnz`: a region of 7FFh
+    bytes - any size ending FFh - copied 64 KB, over the next claim;
+  * W1's copy CLAIM rounded `(I_SIZE + 1023) >> 10, jnc` - the shift's carry,
+    not the add's - so MEGARMBF's 2 KB region claimed 64 KB, and
+    megarmbref's leg M was green ON that defect (the filled heap could not
+    give 64 KB). Fixed in `fsx_rlowclaim`; M now gives MEGARMBF a ~61 KB
+    region, since a kernel claim still reaches the ~51 KB under a package's
+    floor that the package's own fill cannot;
+  * `mega_lincopy` spends AX..DI: the per-driver copy loop kept them.
+
+  **Bytes** (the kern_mega map against W2; `cmp` of kern_big's and
+  kern_small's `kernel.bin` and `kernel.sys` at one commit): **kern_big and
+  kern_small BYTE-IDENTICAL**; kern_mega `.text` **+0**, `.bss` +0, `.cold`
+  **+444**, `.mega` **+2,723** (2,016 the twins), `.lowbss` +4; the
+  kernel-segment ratchet unchanged at 4,869. Per real-mode bracket: the
+  service area's claim (3-4 KB) and HDD.DRV's copy (4 KB) when its volume is
+  read. **`tools/kernsize.py` measures kern_mega**: `--build build/megak`
+  (it detects the tree and adds `-DKERN_BIG -DKERN_MEGA -DKERN_KNOB`) or
+  those three defines by hand; a plain run measures `build/`, which is
+  kern_big. No failure to re-assemble reproduced on this tree.
+
+  **Gates** (`tests/vidrmb.py` with MEGARMBX, `tests/megarmb/megarmbx.asm`;
+  each run three times or more, green): **`vidrmbfrag`** (Bochs booted off
+  C:, no driver: C: the BIOS's volume, 37-41 s), **`vidrmbhdd`** (Bochs with
+  HDD.DRV: C: its DRVC_DISK volume, rung 1, 41-43 s), **`vidrmb286`**
+  (86Box's 286-victory: the reset way down, XMEM by LOADALL, 6-7 s). Every
+  leg checks every dword in the buffer, back through the COPY twin, and once
+  more in protected mode after the bracket: RMBXC.DAT (197,608 bytes) in
+  its own folder, RMBXB.DAT (100,000) on a B: floppy, FRAGA.DAT walked to the
+  cap (224 single-sector runs, real mode) and FRAGB.DAT one past it
+  (`FSXR_FRAG`, protected, bytes right); `FSXR_DRV` for DRVC_SOUND; HDV_ARM
+  (with HDD.DRV: the whole map, every dword in XMS; without: no driver);
+  inside, FERR_NAME for an unlisted name and FERR_NOENT for a listed
+  missing one, READ_AT and XMEM_ALLOC refused, XMEM_CAPS equal, the COPY
+  twin reading what protected mode wrote; after, the table, every claim and
+  HDD.DRV's image back. W1's `megarmb` and `megarmb286` and W2's
+  `megarmbref` re-run green (their packages pass BP = 0; megarmbref expects
+  the five new far jumps).
+
+  **Broken on purpose**, each red and put back:
+  * every extent one sector late (`fsx_rwalkf`): C, B and F wrong in every
+    dword (49,402 / 25,000 / 28,648), G right (protected mode);
+  * the COPY twin's token translation a dword off: the round trip through
+    the twin stayed GREEN - it is self-consistent - which is why the
+    protected-mode re-read and N's read of what protected mode wrote were
+    added; with them C, B, F and N are red.
+
+  **Existing rows W3 can reach**, for the final pass (not run here):
+  `megarmb`, `megarmb286`, `megarmbref` (run here, green); every row that
+  boots kern_mega and opens an fsx bracket or touches `fsx_rprepf` /
+  `fsx_rcopyf` (the megaport `vid*` rows - `vidvga4`, `vidmodex`,
+  `vidplayvga`, `vidpage`, `vidclose`, `vidxipbank`, `vidxiphd` - whose
+  packages do not ask `FSXF_REAL` yet, so they reach only the door's
+  unchanged path); `megahddtick` and `megainst` (HDD.DRV's image is copied
+  low and up again only in a real-mode bracket, but its row is read);
+  `megaxmove` (`mx_tab` is read by the twins); `cswrite`, `stkbalance` and
+  the ovlchk gate (fast, green).
+
+  **What W4 and W5 inherit**: the list is how SOUND.DRV is asked for
+  (FSXL_DRV DRVC_SOUND lifts `FSXR_DRV` once carried, with `DSV_RMODE`); the
+  player passes its .V88 (and a layer file) as FSXL_FILE, its buffers'
+  words through `apps/os88real.inc`, `FSXL_DRV DRVC_DISK` for HDV_ARM, and
+  moves its XMEM_ALLOC/FREE out of the bracket.
 * **W4. SOUND.DRV low.** The `SND_STREAM` and `FSX_SPK` twins (the latter
   writing IVT 20h), `DSV_RMODE` for a stream opened in protected mode and
   carried in (Live's F), and the audit that `DSV_TICK` between brackets
@@ -1081,7 +1212,7 @@ deduplicated union below, plus `test-full`.
     far-calls `SERFP + SER_IRQ` for the leased UART on every interrupt. A
     low copy of the module, or the ISR leaving the leased row to a
     real-mode capture the module is told about.
-  * **`FSXR_ROOM`** is W3/W5's in part (the conventional ring sized to leave
+  * **`FSXR_ROOM`** is W5's in part (the conventional ring sized to leave
     the region's copy room) and 5.3.3's HMA idea after.
   Gates: `megarmbref`'s S, E and L arms turn from FALLBACK to TAKEN as each
   lifts (the row's asserts change in the same diff), plus the two-display
