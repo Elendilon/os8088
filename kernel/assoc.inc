@@ -64,6 +64,8 @@ ASSOC_FLUSH  equ 0xF0           ; [assoc_dapp]: 0xF0 + a volume = flush that
                                 ; volume's ASSOC.DAT (SPEC.md 54.7.6). DVOL_MAX
                                 ; is 8, so 0xF0..0xF7, and nothing else at or
                                 ; above 0xF0 is ever posted but 0xFF
+ASC_DROPMAX  equ 8              ; dropped extensions a merge remembers
+                                ; (SPEC.md 54.2.3)
 ASSOC_DECLMAX equ 5             ; extensions one header block can declare
                                 ; (SPEC.md 54.6) - the block is 16 bytes: a
                                 ; count and five 3-byte extensions
@@ -391,6 +393,8 @@ assoc_find:
     and al, ASSOC_IX
     cmp al, ASSOC_NAPP          ; a corrupt index names no app: CF=1 is below,
     cmc                         ; so the complement is the refusal
+    jc .out
+    call assoc_touch            ; ...and a hit is a USE (SPEC.md 54.2.3)
 .out:
     pop dx
     pop cx
@@ -483,8 +487,24 @@ assoc_app_of:
     mov cx, (ASSOC_NAPP << 8) | 8
     mov dx, 8
     call assoc_scan
+    jc .out
+    call assoc_touch            ; a hit is a USE (SPEC.md 54.2.3)
+.out:
     pop dx
     pop cx
+    pop bx
+    ret
+
+; assoc_touch - slot AL was USED this generation (SPEC.md 54.2.3). Every
+; register kept; CF = 0 out, which is what every caller's hit arm answers
+assoc_touch:
+    push bx
+    mov bl, al
+    xor bh, bh                  ; (CF = 0, and nothing below writes a flag)
+    push ax
+    mov al, [assoc_gen]
+    mov [assoc_age+bx], al
+    pop ax
     pop bx
     ret
 
@@ -685,6 +705,8 @@ section .cold
 ; -----------------------------------------------------------------------------
 assoc_note_app_x:
     call kentc_di               ; KENT: push ax..di
+    mov byte [assoc_evok], 1    ; a program IN THE LISTING is demand: a full
+                                ; table may evict for it (SPEC.md 54.2.3)
     mov dh, [assoc_hflags]      ; DH = the header's flags, banked once: every
                                 ; callee below preserves DX
     call assoc_stem_of          ; DI -> assoc_stemb. The entry in SI is not
@@ -726,6 +748,7 @@ assoc_note_app_x:
     call assoc_img_glyph        ; shipped or reduced (SPEC.md 54.3.2); ES =
                                 ; LOW_SEG, per SPEC.md 2.1
 .out:
+    mov byte [assoc_evok], 0
     jmp kretc_di
 
 ; -----------------------------------------------------------------------------
@@ -774,6 +797,11 @@ assoc_hflags: resb 1            ; the header flags of the package the harvest
                                 ; re-stages the directory entry over dsk_ent
 assoc_extb:  resb 3             ; one staged extension (assoc_ext_of)
 assoc_stemb: resb 8             ; one staged stem (assoc_stem_of)
+asc_drops:   resb ASC_DROPMAX * 3   ; ...those extensions (SPEC.md 54.2.3)
+assoc_age:   resb ASSOC_NAPP    ; each slot's [assoc_gen] when last USED
+                                ; (SPEC.md 54.2.3): what eviction ranks by.
+                                ; Unset at boot, which only mis-ranks a slot
+                                ; until its first touch
 %if assoc_stemb - assoc_extb != 3
   %error "osapi_assoc_set stages its extension and its stem as ONE 11-byte copy into assoc_extb"
 %endif
@@ -785,6 +813,24 @@ section .text
 assoc_dapp:  db 0xFF            ; the app slot to open it with, 0xFF = none
 assoc_argp:  db 0               ; 1 = a document is waiting to be claimed by
                                 ; the next OSAPI_ARG_FILE (SPEC.md 54.5)
+; EVICTION (SPEC.md 54.2.3). Initialised here and not in .bss for
+; assoc_dapp's reason: these are read before anything has written them.
+assoc_gen:   db 0               ; the generation: +1 per mount and per open
+assoc_evok:  db 0               ; non-zero = a full table may EVICT to make
+                                ; room: only DEMAND sets it - a declaring
+                                ; program in the listing, a running program's
+                                ; claim, and the merge's demanded rows
+assoc_evd:   db 0               ; an eviction happened: the next asc_use
+                                ; re-reads its volume's ASSOC.DAT, stamped or
+                                ; not, so what was evicted can be re-learned
+asc_lcnt:    dw 0               ; the mount's entry count, for asc_use to mark
+                                ; the rows this LISTING's documents want; 0 =
+                                ; no listing (every other caller)
+asc_wdoc:    db 0               ; non-zero = mark [assoc_doc]'s extension too
+                                ; (the unknown-extension search, 54.4.3)
+asc_dropn:   db 0               ; extensions the last merge DROPPED for want
+                                ; of a slot, held in asc_drops; past
+                                ; ASC_DROPMAX it reads "any unanswered one"
 
 section .cold                   ; ...and back to cold code
 
@@ -1042,7 +1088,9 @@ assoc_tryext:
     xor ax, ax
     call assoc_go               ; the volume's root
     jc .out
-    call asc_use_x
+    mov byte [assoc_evd], 1     ; READ IT AGAIN, stamped or not: a merge that
+    mov byte [asc_wdoc], 1      ; found the table full dropped rows, and this
+    call asc_use_x              ; one is wanted - may evict for (54.2.3)
     mov si, assoc_doc
     jmp assoc_slot_of
 .out:
@@ -1246,8 +1294,13 @@ assoc_run_x:
 
     push es
 
+    inc byte [assoc_gen]        ; an OPEN is a generation (SPEC.md 54.2.3)
     mov al, [assoc_dapp]
     mov byte [assoc_dapp], 0xFF ; consume before running, not after
+    cmp al, ASSOC_NAPP
+    jae .nouse
+    call assoc_touch            ; the program it opens is in use NOW
+.nouse:
     push ax
     cmp al, ASSOC_FLUSH         ; NOT A DOCUMENT AT ALL (SPEC.md 54.7.6.3): a
     jb .doc                     ; harvest or a search learned something this
@@ -1584,6 +1637,8 @@ osapi_assoc_set_x:
                                 ; assoc_extb in .bss, which is asserted there
 
     mov si, assoc_stemb         ; the app slot: reuse this program's own if
+    mov byte [assoc_evok], 1    ; (a RUNNING program's claim is demand:
+                                ; SPEC.md 54.2.3)
     call assoc_app_get          ; it already has one, so a program claiming
     jc .full                    ; four extensions takes one slot and not four
     mov dl, al                  ; DL = the app slot from here down
@@ -1618,6 +1673,7 @@ osapi_assoc_set_x:
     clc                         ; running here, so none is left out
 .full:
 .out:
+    mov byte [assoc_evok], 0    ; (`mov` writes no flag)
     jmp kretfc_di
 
 ; -----------------------------------------------------------------------------
@@ -1658,6 +1714,7 @@ osapi_assoc_set_x:
 ; out: CF=0 and BX = the row with the extension written in; CF=1 = full
 assoc_ext_new:
     push cx
+.scan:
     mov bx, assoc_ext
     mov cx, ASSOC_NEXT
 .row:
@@ -1665,7 +1722,11 @@ assoc_ext_new:
     je .take
     add bx, 4
     loop .row
-    stc
+    cmp byte [assoc_evok], 0    ; FULL: only demand may evict (SPEC.md
+    stc                         ; 54.2.3) - `stc` writes no ZF
+    je .out
+    call assoc_evict            ; a PROGRAM goes, and its rows with it -
+    jnc .scan                   ; again until one is free or none may go
     jmp short .out
 .take:
     push di                     ; disk.inc's counted copy (SPEC.md 4), which
@@ -1692,6 +1753,17 @@ assoc_ext_new:
 ; 0 gets a slot that still reads as free - so the next program to take it
 ; must not wear that picture.
 assoc_app_new:
+    call assoc_app_free
+    jnc .ret
+    cmp byte [assoc_evok], 0    ; FULL: only demand may evict (SPEC.md
+    stc                         ; 54.2.3) - `stc` writes no ZF
+    je .ret
+    call assoc_evict
+    jnc assoc_app_free          ; a slot is free now: take it (a tail jump)
+.ret:
+    ret
+
+assoc_app_free:
     push bx
     push cx
     push si
@@ -1717,7 +1789,7 @@ assoc_app_new:
     mov [di], ah                ; AH is 0: AL counted the slots up from
     inc di                      ; `xor ax, ax`, and assoc_glyph_di keeps AX
     loop .zap
-    clc
+    call assoc_touch            ; born USED (CF = 0 out)
 .out:
     pop di
     pop si
@@ -1740,11 +1812,91 @@ assoc_app_get:
     jc assoc_app_new            ; (a tail jump: its CF is the answer)
     ret
 
-; assoc_self_glyph - reduce the CALLING package's own embedded icon into an
-; app slot. in: DL = the slot, ES = the caller's segment (the X stub put it
-; there). Does nothing if the caller ships no icon - the document then draws
-; the bare page, which is honest.
-; (Written at its one call site, osapi_assoc_set, since size pass 9.)
+; -----------------------------------------------------------------------------
+; assoc_evict - free the least-recently-used app slot (SPEC.md 54.2.3)
+; out: CF=0 = one is free; CF=1 = none may go. All registers preserved.
+;
+; A candidate is a DECLARED slot (never a built-in), not used this generation
+; ([assoc_age] = [assoc_gen]: the mount or open in progress is using it), not
+; the pending open ([assoc_dapp]), and not named by a STICKY extension row -
+; a runtime claim lives in RAM only and would be lost, not re-learned, so the
+; walk first stamps every such slot as used now. Of
+; those, the one with the oldest age goes: its stem, its hints and every
+; extension row naming it, and every window's document icons are told
+; (fmv_icostale_but, the window being filled excepted - its pass 4b is still
+; to run). [assoc_evd] makes the next asc_use re-read its ASSOC.DAT, which is
+; how a folder whose program was evicted gets it back.
+; -----------------------------------------------------------------------------
+assoc_evict:
+    call kentc_di               ; KENT: push ax..di
+    mov si, assoc_ext           ; A STICKY ROW PINS ITS SLOT: stamped as used
+    mov cx, ASSOC_NEXT          ; now, which the walk below then skips
+    mov al, [assoc_gen]
+.pin:
+    mov bl, [si+3]
+    cmp byte [si], 0
+    je .pn
+    xor bl, ASSOC_STICKY        ; < 0x80 now <=> it was sticky
+    js .pn
+    xor bh, bh
+    mov [assoc_age+bx], al
+.pn:
+    add si, 4
+    loop .pin
+    mov si, assoc_stem + ASSOC_NDEF * 8
+    mov bx, ASSOC_NDEF
+    mov dx, 0x00FF              ; DL = the victim (0xFF = none), DH = its age
+.s:
+    cmp byte [si], 0
+    je .n                       ; a free slot: nothing to evict
+    cmp bl, [assoc_dapp]
+    je .n
+    mov al, [assoc_gen]
+    sub al, [assoc_age+bx]      ; how many generations ago (mod 256)
+    jz .n                       ; ...none: in use right now
+    cmp al, dh
+    jbe .n                      ; not older than the best so far
+    mov dh, al                  ; DH = its age, DL = the slot
+    mov dl, bl
+.n:
+    add si, 8
+    inc bx
+    cmp bl, ASSOC_NAPP
+    jb .s
+    cmp dl, 0xFF
+    stc
+    je .out                     ; `stc` writes no ZF
+    mov bl, dl                  ; BH is 0 still
+    mov byte [assoc_drv+bx], 0xFF
+    mov si, bx
+    shl bx, 1
+    mov word [assoc_clus+bx], 0
+    mov cl, 3
+    shl si, cl
+    mov byte [assoc_stem+si], 0 ; FREE: SPEC.md 54's no-flags rule
+    mov si, assoc_ext           ; ...and every extension it answered
+    mov cx, ASSOC_NEXT
+.e:
+    mov al, [si+3]
+    and al, ASSOC_IX
+    cmp al, dl
+    jne .en
+    mov byte [si], 0
+.en:
+    add si, 4
+    loop .e
+    call assoc_evicted
+    clc
+.out:
+    jmp kretc_di             ; (pops alone: CF rides through)
+
+; assoc_evicted - the shared tail of both evictions: the next asc_use reads
+; its file again, and every window but the one being filled re-resolves its
+; document icons. Clobbers AX
+assoc_evicted:
+    mov byte [assoc_evd], 1
+    mov ax, [dsk_dseg]
+    jmp fmv_icostale_but
 
 ; asc_use_out - asc_use_x's two refusals share this one near jump: -3.  A global
 ; rather than a `.local` for the reason its placement forces - it sits after the
@@ -1839,8 +1991,14 @@ asc_use_x:
     mov al, [disk_drive]
     cmp al, [asc_vol]
     jne .load
+    cmp byte [assoc_evd], 0     ; ...AND NOTHING WAS EVICTED since (SPEC.md
+    jne .load                   ; 54.2.3): an evicted program is re-learned
+                                ; from the file, so it is read again
     cmp byte [ico_n], 0         ; ...AND THE STORE STILL HOLDS IT (SPEC.md
-    jne asc_use_out             ; 54.7.4). The stamp used to mean "the claim
+    je .load                    ; 54.7.4)...
+    call asc_dropck             ; ...AND NO DOCUMENT HERE WANTS WHAT THE LAST
+    jnc asc_use_out             ; MERGE DROPPED (SPEC.md 54.2.3). The stamp
+                                ; used to mean "the claim
                                 ; holds this volume's cache" and the claim was
                                 ; ours to keep; it means "this volume's bodies
                                 ; are in the STORE" now, and the store is
@@ -1855,6 +2013,8 @@ asc_use_x:
                                 ; (SPEC.md 50.6), and this IS that refusal
 .load:
     mov [asc_vol], al
+    mov byte [assoc_evd], 0
+    mov byte [asc_dropn], 0     ; this merge says afresh what it drops
     xor ax, ax
     mov [asc_n], ax             ; ...and it holds nothing until proven.
                                 ; NO CLAIM YET: it is sized from the file
@@ -1905,7 +2065,7 @@ asc_use_x:
     shr dx, cl                  ; a shift by a non-zero CL sets ZF on its
     jnz .rffound                ; result, so it IS the `or dx, dx` (-2)
 .rfno:                          ; (a trampoline too: .out is out of short
-    jmp short .out              ; reach of the two refusals above)
+    jmp .out                    ; reach of the two refusals above)
 .rfnext:
     add di, 32
     loop .rfent
@@ -1995,6 +2155,7 @@ asc_use_x:
                                 ; at .out zeroes both counts, and every lookup
                                 ; already answers an empty cache with a miss
 .parse:
+    call asc_demand             ; which rows the listing's documents want
     call asc_merge_ext          ; the declarations this volume knows about...
     call asc_seed               ; ...and WHERE each of them is (SPEC.md 54.7.1),
                                 ; what it LOOKS like (54.7.3) and its BODY into
@@ -2007,6 +2168,8 @@ asc_use_x:
                                 ; at the top is the gate - so the reduce is
                                 ; paid where a floppy is already turning
 .out:                           ; THE CLAIM IS A FILE BUFFER (SPEC.md 54.7.4):
+    mov word [asc_lcnt], 0      ; (the demand is one call's, 54.2.3)
+    mov byte [asc_wdoc], 0
     mov dx, [asc_seg]           ; give it back - ASC_DROP, inlined (its one
     or dx, dx                   ; caller, size pass 9; AX, BX and DX are
     jz .dropped                 ; kentc_di's to restore). Idempotent, and it
@@ -2198,11 +2361,12 @@ asc_row_take:
 ; -----------------------------------------------------------------------------
 asc_merge_ext:
     call kentc_di               ; KENT: push ax..di
-
-
-
-
-
+    mov byte [assoc_evok], 1    ; TWO PASSES (SPEC.md 54.2.3): the rows the
+    call .pass                  ; listing DEMANDS first, which may evict...
+    mov byte [assoc_evok], 0    ; ...then every row, which may only fill a
+    call .pass                  ; free slot - so a merge cannot churn what
+    jmp kretc_di                ; other windows are showing
+.pass:
     mov cx, [asc_ne]
     jcxz .out
     mov ax, [asc_n]             ; the ext rows begin past the app rows - the
@@ -2212,7 +2376,13 @@ asc_merge_ext:
     mov di, ax
 .row:
     push cx
-    mov al, [es:di+3]           ; the app row it names
+    mov al, [es:di+3]           ; the app row it names, and bit 7 = DEMANDED
+    test al, al                 ; (asc_demand)
+    js .dem
+    cmp byte [assoc_evok], 0
+    jne .next                   ; the demand pass takes demanded rows alone
+.dem:
+    and al, 0x7F
     cmp al, [asc_n]
     jae .next
     ; THE KERNEL APP SLOT FOR THAT CACHE ROW, created if the stem is new
@@ -2228,7 +2398,10 @@ asc_merge_ext:
     call asc_stem_in            ; stage its stem into the kernel
     call assoc_app_get          ; AL = the slot; a full table leaves AL alone
     pop di                      ; and CF set (a pop writes no flag)
-    jc .next
+    jnc .slot
+    call asc_drop_rec           ; FULL: remember what was left out
+    jmp short .next
+.slot:
     mov dl, al
     mov si, di                  ; the row is the SOURCE, and the row pointer
     push di                     ; is banked across the take
@@ -2239,7 +2412,161 @@ asc_merge_ext:
     add di, 4
     loop .row
 .out:
+    ret
+
+; -----------------------------------------------------------------------------
+; asc_demand - mark the cache's extension rows something WANTS (SPEC.md
+;              54.2.3): bit 7 of a row's app byte, which asc_merge_ext's
+;              first pass takes, evicting if it must
+; in:  ES = the claim, counts validated; [asc_lcnt] = the listing being
+;      mounted (0 = none), [asc_wdoc] = the double-clicked document's too
+; out: nothing (all registers preserved)
+;
+; A row is wanted when a DOCUMENT in the listing carries its extension: that
+; is what pass 4b is about to draw, and a program's slot is the only way its
+; documents get their icon. ASC_NAPP < 128, so bit 7 is free.
+; -----------------------------------------------------------------------------
+asc_demand:
+    call kentc_di               ; KENT: push ax..di
+    cmp byte [asc_wdoc], 0
+    je .list
+    mov si, assoc_doc
+    call asc_dem_name
+.list:
+    mov bx, asc_dem_name
+    call asc_docs
     jmp kretc_di
+
+; asc_docs - call BX with SI -> each DOCUMENT of the listing [asc_lcnt] is
+; mounting (type 0, dsk_docpass's test), until it answers CF=1, which is then
+; the answer; CF=0 = it never did. Clobbers what BX does, and SI and the flags
+asc_docs:
+    push dx
+    xor dx, dx
+.e:
+    cmp dx, [asc_lcnt]
+    jae .out                    ; (`jae` is CF = 0)
+    push es
+    call dsk_get_dir_dx         ; SI -> dsk_ent (ES is spent there)
+    pop es
+    cmp word [si+16], 0
+    jne .n
+    push bx
+    call bx
+    pop bx
+    jc .out
+.n:
+    inc dx
+    jmp short .e
+.out:
+    pop dx
+    ret
+
+; asc_dropck - CF=1 = a document in the listing has no slot for its
+; extension and the last merge DROPPED that extension (or dropped more than
+; it could list), so the file is worth reading again. Every register kept
+asc_dropck:
+    cmp byte [asc_dropn], 0
+    je .ret                     ; nothing dropped (CF = 0 from the compare)
+    call kentc_di               ; KENT: push ax..di
+    mov bx, .one
+    call asc_docs
+    jmp kretc_di
+.ret:
+    ret
+.one:
+    call assoc_slot_of          ; ANSWERED already: not this one
+    jnc .no
+    call assoc_ext_of           ; DI -> assoc_extb (it has one: slot_of did)
+    mov cl, [asc_dropn]
+    cmp cl, ASC_DROPMAX
+    ja .yes                     ; overflowed: any unanswered one will do
+    mov bx, asc_drops
+    xor ch, ch
+.d:
+    mov si, assoc_extb
+    mov di, bx
+    push cx
+    mov cx, 3
+    push es
+    push ds
+    pop es
+    cld
+    repe cmpsb
+    pop es
+    pop cx
+    je .yes
+    add bx, 3
+    loop .d
+.no:
+    clc
+    ret
+.yes:
+    stc
+    ret
+
+; asc_drop_rec - the merge could not give ES:DI's extension row a slot:
+; keep its extension for asc_dropck. Every register kept
+asc_drop_rec:
+    push ax
+    push cx
+    push si
+    push di
+    mov al, [asc_dropn]
+    cmp al, ASC_DROPMAX
+    jae .over
+    mov ah, 3
+    mul ah
+    add ax, asc_drops
+    mov si, di                  ; ES:SI = the row's three bytes
+    mov di, ax
+    mov cx, 3
+.c:
+    mov al, [es:si]
+    mov [di], al
+    inc si
+    inc di
+    loop .c
+.over:
+    cmp byte [asc_dropn], ASC_DROPMAX
+    ja .out                     ; overflowed already: stays there
+    inc byte [asc_dropn]
+.out:
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; asc_dem_name - mark the rows naming the extension of the staged name at SI.
+; Clobbers AX, BX, CX, DI and the flags; SI and DX kept
+asc_dem_name:
+    push si
+    call assoc_ext_of           ; DI -> assoc_extb; CF = 1: no extension
+    jc .out
+    mov ax, [asc_n]
+    mov bl, ASC_ROW
+    mul bl
+    add ax, ASC_HDR
+    mov bx, ax                  ; ES:BX walks the extension rows
+    mov cx, [asc_ne]
+    jcxz .out
+.r:
+    mov si, assoc_extb
+    mov di, bx
+    push cx
+    mov cx, 3
+    cld
+    repe cmpsb                  ; DS:SI the extension, ES:DI the row
+    pop cx
+    jne .n
+    or byte [es:bx+3], 0x80
+.n:
+    add bx, 4
+    loop .r
+.out:
+    pop si
+    ret
 
 ; asc_stem_in - a cache row's stem at ES:SI into assoc_stemb, and SI -> it
 ; there (the kernel lookups read through DS). Clobbers AL, CX and DI. The

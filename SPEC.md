@@ -104955,7 +104955,8 @@ eleven slots and 24 extensions past the built-ins. The raise is 20 bytes a slot
 and 4 an extension, **114 resident bytes** on `kern_big` measured (§54.7.6.5).
 The 32/64 one full `ASSOC.DAT` could declare was built and REFUSED at 562
 bytes. A full table still drops a declaring program's association for the rest
-of the session, as it did at 12/24 - but no shipped set reaches 16/32, and
+of the session, as it did at 12/24 (until §54.2.3: it evicts now) - but no
+shipped set reaches 16/32, and
 448 more resident bytes on every machine is the wrong price for headroom
 nothing has asked for yet. **Every stride is a power of two** so
 the lookup the harvest does once per listed file is a shift through CL rather
@@ -105034,6 +105035,70 @@ slot"* - the only way a slot is taken, so a flush stops reading the headers
 of plain packages that merely held one. **0 bytes**: the two calls are the
 same size.
 
+
+### 54.2.3 A full table EVICTS - on demand, least recently used
+
+§54.2's 16 / 32 was sized to the standard install exactly, and that is
+what it measured: the two 1.44MB disks fill all sixteen program slots, an
+install of everything not retired wants 22 and 39 extensions, and the
+program met after the table filled was dropped for the session.
+docs/plans/completed/ASSOC-SLOTS-PLAN.md weighed raising the table again
+against this; the table now EVICTS instead.
+
+**Who may evict.** Only DEMAND sets `[assoc_evok]`: a declaring program in
+the listing being mounted (`assoc_note_app`), a running program's claim
+(`OSAPI_ASSOC_SET`), and the rows of the volume's `ASSOC.DAT` that the
+listing's own documents want (below). A plain merge of a volume's cache
+fills free slots only, exactly as before, so mounting one volume cannot
+take slots another window's documents are drawn from.
+
+**Which slot goes.** Each slot carries the generation it was last USED in
+(`assoc_age`). `[assoc_gen]` ticks once per mount and once per document
+open; a use is any hit in `assoc_find` or `assoc_app_of` and every slot
+made. The victim is the declared slot (never one of the `ASSOC_NDEF`
+built-ins) with the oldest age, skipping one used this generation, the
+pending open (`[assoc_dapp]`), and any slot a STICKY extension row names -
+a runtime claim lives in RAM only, so evicting it would lose it rather
+than defer it; the walk stamps those slots as used before it ranks. A full
+EXTENSION table evicts a program too, whose rows go with it, until a row is
+free or nothing may go.
+
+**What eviction costs the slot's documents is a re-learn, not a loss.** It
+clears the slot's stem, hints and every extension row naming it, tells every
+window but the one being filled to re-resolve its document icons
+(`fmv_icostale_but`), and sets `[assoc_evd]`, so the next `asc_use` reads
+its volume's `ASSOC.DAT` again even though the volume is stamped.
+
+**The demand merge.** At a mount, `asc_use` is handed the listing
+(`[asc_lcnt]`), and `asc_demand` marks every extension row of the cache that
+a DOCUMENT in the listing carries - bit 7 of the row's app byte, which
+`ASC_NAPP` < 128 leaves free. `asc_merge_ext` then runs twice: the marked
+rows with eviction allowed, then every row filling free slots only. The
+unknown-extension search (§54.4.3) marks `[assoc_doc]`'s extension the same
+way and forces the re-read. This is what brings an evicted program back for
+a folder that holds its documents and not the program - a MEDIA folder
+after the programs' own folders pushed it out.
+
+**The dropped list.** A store hit makes no slot (§54.2.2), so a declaring
+program answered from the icon store has a slot only if a merge gave it
+one, and a stamped volume does not merge again. Re-reading the file on
+every document with no slot would charge ~400 ms of `int 13h` to every
+mount of a folder holding a `.DAT` nothing claims. So a merge that could
+not give a row a slot remembers its extension (`asc_drops`, up to
+`ASC_DROPMAX` = 8, past which it reads "any"), and a stamped mount
+re-reads only when a document in the listing has no slot AND its extension
+is one the last merge dropped.
+
+**Within one generation nothing is evicted**, so a SINGLE listing with
+more declaring programs than the eleven non-built-in slots still loses the
+rest for that listing - the table bounds one folder, no longer the session.
+
+Cost on `kern_big`, measured against the tree before: **620 resident
+bytes** - `.cold` +562, `.bss` +40 (the ages and the dropped list), `.text`
++18. `kern_small` has no associations (§54.0) and is byte-identical.
+`tests/assocevict.py` is the gate: eighteen declaring programs in three
+folders and a fourth of documents alone, red at the second folder with
+either the eviction or the demand marking taken out.
 ### 54.3 The icon: a page frame with the program's glyph inset
 
 The document page is a 16×16 dog-eared page — the second icon in this kernel

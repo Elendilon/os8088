@@ -1,9 +1,17 @@
 # ASSOC-SLOTS-PLAN — the resident association slots as a cache over `ASSOC.DAT`
 
-**OPEN. Nothing in this file is built.** It is the third of three answers to
-one report — *"I'm losing assoc icons on a hard drive, with a standard
-two-disk 1.44MB install"* — and the only one that is a design rather than a
-constant. The other two shipped on the `icons` branch:
+**BUILT - SPEC.md 54.2.3 is the contract and this file is the design record
+behind it.** §2.2 was taken with option 1 (a sticky row pins its slot), and
+the build found two things the plan did not price: a store hit makes no slot
+(SPEC.md 54.2.2), so eviction alone left a declaring program answered from
+the icon store with no way back - hence the DEMAND MERGE and the DROPPED
+LIST - and the bill came to **620 resident bytes** measured, against the
+80-150 ESTIMATED in §2.2. That is more than §2.1's 32/64 raise (~544), and
+the trade is stated in SPEC.md 54.2.3. §3 item 3 (the capture's eleven
+records) is still open.
+
+It was the third of three answers to one report - *"I'm losing assoc icons
+on a hard drive, with a standard two-disk 1.44MB install"*. The other two:
 
 - **The icon store grows** (SPEC.md 25.9.6): 5KB first claim, a kilobyte at a
   time up to 20KB / 247 rows, through `mem_regrow`. That was the reported
