@@ -661,7 +661,8 @@ rc_ontimer:
     call rc_poll
     cmp byte [rc_st], RC_REC
     jne .end
-    call rc_draw_status             ; the live count
+    call rc_draw_status             ; the live count (clobbers BX)
+    mov bx, [rc_win]
     mov ax, RC_PUMP
     call OSAPI_WM_TIMER
     jmp rc_pop6

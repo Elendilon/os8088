@@ -206,6 +206,10 @@ C apps/realdmg/rwaot.inc rw_abseg        # a precompiled package's cluster bounc
                                          # a claim of its own only when a cluster
                                          # passes 16KB: claimed and freed inside
                                          # rw_acopy's call, the file read's target
+D apps/recorder/recorder.asm rc_rseg    # the take's external RECORD ring, page-
+                                         # safe: the card DMAs INTO it for the
+                                         # take, freed at the stream's close
+                                         # (SPEC.md 34.6.5, 35)
 C apps/recorder/recorder.asm @rc_do_play # the speaker play buffer, held for one
                                          # PCM_EXCL play and freed on every way out
                                          # of the call
