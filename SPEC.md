@@ -70812,7 +70812,13 @@ that loads ES with the package's own data selector on entry
 (`[cs:os88spk_dsel]`, banked by `os88spk_go`) and writes every word of state
 through ES. Reads stay through CS, which a code alias allows. `os88spk_go`
 patches both copies' immediates, asks `OSAPI_CPU_INFO`, and in protected
-mode opens with AL = 2 and the protected-mode copy. **436 bytes of every
+mode opens with AL = 2 and the protected-mode copy. **kern_mega's REAL-MODE bracket** (§53.2.3) is the
+third case: `OSAPI_CPU_INFO` answers real mode there, so the library takes
+the real-mode copy and asks AL = 0 - which that bracket refuses with AX = 1,
+IRQ0 being IVT 20h and not 08h there - and the ARM's library then asks AL =
+2 with the real-mode copy's ISR, the door writing IVT 20h (98.3.24). The
+shipped library, which no kern_mega real-mode bracket ever runs, is
+unchanged. **436 bytes of every
 package that plays through it** (Audio, Tracker, MIDIRack and the Video
 Player), and not a cycle on kern_big: the real-mode copy is unchanged.
 
@@ -201799,6 +201805,81 @@ CS. Pointed at part 0 it fails, naming 40-odd stores. `tests/megavidv2.py`
 (`megavidv2`) is the player on kern_mega under Bochs with `MEGATRAP=1`:
 each layout's clip played, stepped round the box and played again in place,
 with no trap line and the two tails the same picture.
+
+#### 98.3.24 kern_mega's bracket in REAL MODE (MEGA-VIDEO-REALMODE-PLAN W5, 2026-10-30)
+
+**The kern_mega arm asks `FSXF_REAL` (§53.2.3) for every play that real
+mode serves as well as protected mode does, and the protected-mode bracket
+of 98.3.18.16-98.3.22.7 for the rest.** The shipped build is unchanged: it
+is a real-mode player on every kernel it can run on, and kern_mega's bracket
+is the arm's. A play the real-mode bracket takes runs exactly as on
+kern_big - `int 13h` native, the rate hook inside the read, no reflection -
+and the dual bracket (MEGA-VIDEO-REALMODE-PLAN 5.3) is what decides.
+
+**The door** (`vp_rdoor`, at `vp_srun`'s `OSAPI_FSX_RUN`, in protected
+mode). The PLAYER's reasons are tested first, one test each, and any that
+holds keeps the play in protected mode:
+
+| reason | why real mode is not asked |
+|---|---|
+| LIVE | a Live session's bracket (98.3.10): its ring, its hold and its resident files are read in place through selector runs on the desktop, and the coordinator's ruling keeps Live in protected mode |
+| SPEAKER, IN PLACE | the PC speaker or the Covox (98.3.15) with an XMS bank protected mode would read in place - the owner's ruling (MEGA-VIDEO-REALMODE-PLAN 5.3 ruling 1): real mode refuses that read under the speaker's clock and copies each chunk down, 375 ticks against 182 on `vm/286` |
+| VERSION 2, IN PLACE | a version 2 file (98.3.23) with an XMS bank: the block decoder has no yield site, so real mode copies the bank down too (5.3 ruling 1) |
+| RESIDENT | a resident play (98.1.7): its cursors are paragraph OFFSETS into the block under protected mode and segments in real mode, and a cursor carried between them would mean something else |
+| HIGH RING | the ring above 1MB (98.3.18.17), which a real-mode bracket cannot address |
+| SPLIT | a file's first session while its layer's pool split is still owed (98.1.9.2): the split frees and claims XMS on verdicts taken INSIDE the bracket, and `OSAPI_XMEM_ALLOC` / `_FREE` are refused there (§53.2.3). The next session takes real mode |
+| MOVED | the XMS bank's block is not where its token names (the pool compacted it): real mode reads a bank at its token's address, on kern_mega as on kern_big, so the block must be there |
+| HIGH CLAIM | a claim of the session's has no real-mode segment (`SEG_REAL` refused: above 1MB) - `os88real_prep`'s CF = 1 |
+
+Otherwise the door asks `FSXF_REAL` with **the LIST**: `FSXL_FILE` and the
+open file's name, the layer's file's when the session reads one,
+`FSXL_DRV DRVC_DISK` (HDD.DRV's low copy, and with it `HDV_ARM`'s read
+straight into XMS), `FSXL_DRV DRVC_SOUND` when the session plays through a
+card, and `FSXL_DRV DRVC_EMS` for an EMS bank. It also takes **two claims
+the bracket cannot**: a seek's key-entry scratch (`[vp_kekb]` KB, when the
+file has keys), and the card's ring when the session has audio, a card and
+none held yet (Unmute inside the full screen, 98.3.17) - both given back
+after the bracket. Then `os88real_prep` over the player's segment words:
+every claim's base (`vp_smtab`), the ring and the layer's segment, the card's
+ring, the EMS frame, the seek's scratch. The KERNEL's answer comes back in
+SI (`FSXR_*`): it may still run the bracket in protected mode, for a reason
+of its own (§53.2.3's table) - a stream on a file-driver volume
+(`FSXR_VOL`) is the common one.
+
+**Inside** (`vp_main`, when `OSAPI_CPU_INFO` answers real mode under the
+arm): the words swapped for their real segments (`os88real_swap`),
+`[vp_self]` = CS (the bracket runs a COPY of the region, §53.2.3),
+`[vp_pm]` = 0 - so every runtime-dual arm takes the shipped arithmetic -
+`vp_addr`'s protected-mode head unpatched (`vp_rhpat`) and the block
+decoder's far pointers made again (`vp_bset`) on its real segment. On the
+way out, before the entry returns, all of it back - and the block decoder's
+pointers made again in protected mode after `OSAPI_FSX_RUN` returns.
+
+**The calls real mode cannot serve leave the bracket**:
+- a seek's claim for its key entry is the door's scratch (`vp_skdue`);
+- Mute closes the card's stream and keeps its ring (`vp_sndoff`), and
+  Unmute uses the ring it kept or the door's (`vp_sndprep`) - the ring is
+  given back after the bracket when the play went out muted;
+- the frame in the box (`vp_sesspic`: `OSAPI_MEM_CLAIM_HI`, the poster's
+  drawing) is made after `OSAPI_FSX_RUN` returns, where the desktop's
+  repaint needs it;
+- an XMS failure's `vp_xfree` inside answers CF = 1 from the kernel: the
+  play drops the bank as ever and the block is given back when the
+  instance's are (its owner is the instance).
+
+**The speaker in a real-mode bracket** (34.11.1.1): the speaker library's
+`os88spk_go` (and `os88spk_stop`'s owed tick) asks `OSAPI_FSX_SPK` AL = 0;
+kern_mega's real-mode twin refuses that with AX = 1, and the ARM's library
+asks again with AL = 2 and its REAL-MODE ISR, the door writing IVT 20h and
+answering the chain. The shipped library never meets that refusal.
+
+**The info card's ninth line** (the arm's alone, below line 7) says which
+bracket the last play took and why: `Real mode`, or `Protected: ` and the
+reason - the player's (`Live`, `speaker, in place`, `v2, in place`,
+`resident`, `ring above 1MB`, `layer split`, `bank moved`, `claim above
+1MB`) or the kernel's (`its volume`, `fragmented`, `a driver's worker`,
+`the extended desktop`, `a serial lease`, `no low memory`, `a driver`).
+A card whose buttons are inside it shows its first eight lines, as before.
 
 ### 98.4 The window: the Preview (wave 6)
 
