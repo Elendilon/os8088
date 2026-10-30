@@ -5091,12 +5091,7 @@ gfx_unlock:
 gfx_scroll:
     GFXAUDIT_HOOK
     call cur_unlazy              ; off the clip list (SPEC.md 11.3): 7.1.4
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kent_di                ; the same six words (kernel size pass 15)
     GFXDENTERR                  ; a blit cannot take a sub-rect (SPEC.md 11.3),
                                 ; so it goes onto the display holding its top
                                 ; left - and the two edge tests below then
