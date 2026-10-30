@@ -16910,6 +16910,24 @@ SOAK = [
         needs=("86box",),
         wants=("build/mega.img", "build/megarmbe.o88", "build/megarmbe.bin",
                "build/ems.bin")),
+    Row("vidrmbplay", "soak", py("tests/vidrmbplay.py"), 120.0,
+        "SPEC.md 98.3.24, MEGA-VIDEO-REALMODE-PLAN W5: WHICH bracket the "
+        "Video Player's kern_mega arm plays in, read two ways that do not "
+        "lean on each other - the kernel's [fsx_rmode] polled through the "
+        "play and the player's [vp_rwhy] after it (the info card's ninth "
+        "line). Four Bochs at once: a speaker play at 1MB REAL, its speaker "
+        "chain the real-mode door's KERNEL_SEG:fsx_rtick; a hold read in "
+        "place under the speaker at 16MB PROTECTED with VPR_SPK (ruling 1); "
+        "the same hold through an SB16 REAL (a 386's loaded base, the yield "
+        "sites live); a Live clip taken to the full screen PROTECTED with "
+        "VPR_LIVE - every frame drawn, no FAULT or CLOSED. Red with the W5 "
+        "player of 02a5f114 (--pkg/--map: the shaper part far-called "
+        "through a protected-mode code alias, spk and held hang) and with "
+        "vp_rdoor's FSXF_REAL taken out ([vp_rwhy] reads 00h either way - "
+        "the [fsx_rmode] poll is what goes red). 120s is 92 measured",
+        needs=("bochs", "ffmpeg"),
+        wants=("build/mega.img", "build/megak/apps/video.o88",
+               "build/megak/kernel.map")),
     Row("vidrmbsnd286", "soak", py("tests/vidrmbsnd.py", "--box86"), 20.0,
         "SPEC.md 53.2.3, MEGA-VIDEO-REALMODE-PLAN W4: vidrmbsnd's legs on "
         "86Box's 286-hma, the owner's mr286 with a Sound Blaster 2.0 (DSP "
