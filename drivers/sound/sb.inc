@@ -8,16 +8,16 @@
 ;
 ; Detection (far, behind the SDRV_PROBE FARSHIM): reset scan over the base
 ; list with a bounded poll budget per base, DSP version via E1h, auto-init
-; strategy gate at DSP >= 2.00. IRQ discovery is DEFERRED TO FIRST USE
-; (SPEC.md 34.5), two tiers: a DSP >= 4.00 reads the line straight from
+; strategy gate at DSP >= 2.00. All of it, and the IRQ discovery, runs ONCE
+; at the driver's attach and is not resident after it (SBL_ONCE, SPEC.md
+; 34.5.7). The discovery has two tiers: a DSP >= 4.00 reads the line straight from
 ; CT1745 mixer register 80h (deterministic, nothing fired); older DSPs hook
 ; candidates {7,5,3,2} onto the .text stubs below, F2h triggers an 8-bit
 ; IRQ, and the candidate that fires is accepted (retried once; 2xEh bit 7
 ; is NOT a confirm - it means "response byte waiting" and F2h queues none
-; outside QEMU); the losers are unhooked, and the winner is hooked
-; mouse_init-style (save old
-; vector, install while masked, unmask) onto sbl_isr, staying hooked until
-; snd_unhook.
+; outside QEMU); every candidate is unhooked again, and sbl_attach hooks the
+; winner mouse_init-style (save old vector, install while masked, unmask)
+; onto sbl_isr, staying hooked until sbl_unhook.
 ;
 ; sbl_isr (mou_isr discipline: IF=0 throughout, DS=KERNEL_SEG, no BIOS,
 ; never sti, own EOI): the spurious-IRQ-7 guard first - the interrupt is
@@ -223,20 +223,8 @@ SBL_POLLS    equ 4096           ; DSP handshake poll budget (bounded even
                                 ; from ISR context: ~4-8ms of ISA reads)
 
 ; --- detection tables (.text data - far code reads them through DS) ----------
-sbl_bases:                      ; the pinned scan order (SPEC.md 34.2)
-    dw 0x220, 0x240, 0x210, 0x230, 0x250, 0x260, 0
 
 sbl_hpage:    db 0x8B, 0x89, 0x8A   ; DMA 5/6/7's page registers (34.5.5)
-sbl_dsc_irqn: db 7, 5, 3, 2     ; IRQ candidates, pinned order (SPEC.md 34.5)
-sbl_dsc_mbit: db 0x80, 0x20, 0x08, 0x04     ; 8259 mask bits
-sbl_dsc_t:                      ; per candidate, in the same order: the IVT
-    dw 0x3C, sbl_stub7, 0       ; byte offset (int 0Fh/0Dh/0Bh/0Ah), then a
-    dw 0x34, sbl_stub5, 0       ; FAR POINTER that sbl_f_irqdisc's .swap
-    dw 0x2C, sbl_stub3, 0       ; exchanges with the vector: the stub goes
-    dw 0x28, sbl_stub2, 0       ; in and the old vector lands here, and the
-SBL_DSC_N    equ 4              ; second swap puts both back. The segment
-                                ; words are stamped with our CS first
-
 ; =============================================================================
 ; DSP handshake primitives (.text - ISR-adjacent, SPEC.md 34.7). Every poll
 ; carries a timeout (SPEC.md 34.5, binding).
@@ -271,34 +259,6 @@ sbl_dsp_wr:
     pop dx
     pop cx
     pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; sbl_dsp_rd - read one byte from the DSP
-; in:       [sbl_base] set
-; out:      CF = 0, AL = byte; CF = 1 nothing arrived (timeout, AL trash)
-; clobbers: nothing else (flags)
-; -----------------------------------------------------------------------------
-sbl_dsp_rd:
-    push cx
-    push dx
-    mov dx, [sbl_base]
-    add dx, 0x0E                ; 2xEh: read-buffer status
-    mov cx, SBL_POLLS
-.poll:
-    in al, dx
-    test al, 0x80               ; bit 7 set = data available
-    jnz .ok
-    loop .poll
-    stc
-    jmp .out
-.ok:
-    sub dx, 4                   ; 2xAh: read data
-    in al, dx
-    clc
-.out:
-    pop dx
-    pop cx
     ret
 
 ; =============================================================================
@@ -1064,60 +1024,6 @@ sbl_isr:
     jmp short .eoij             ; own lag; the card never waits for it
 
 ; =============================================================================
-; The IRQ-discovery candidate stubs (.text - interrupt handlers, so SPEC.md
-; 33 bars them from far even though discovery itself is cold). Each records
-; its candidate index in sbl_dsc_fired ONLY after the 2xEh bit-7 read
-; confirms the DSP asserted the line. A confirm-failed interrupt is still
-; a real one when the 8259 holds its in-service bit - the candidates are
-; force-unmasked for the window, so an unrelated device on 2/3/5 can fire
-; - and gets an EOI; only line 7 can be truly spurious, decided by the
-; OCW3 0Bh in-service read exactly as in sbl_isr (SPEC.md 34.5).
-; =============================================================================
-sbl_stub7:
-    push ax
-    mov al, 0
-    jmp short sbl_stub_c
-sbl_stub5:
-    push ax
-    mov al, 1
-    jmp short sbl_stub_c
-sbl_stub3:
-    push ax
-    mov al, 2
-    jmp short sbl_stub_c
-sbl_stub2:
-    push ax
-    mov al, 3
-sbl_stub_c:
-    push dx
-    push ds
-    mov ah, al                  ; AH = candidate index (AL becomes scratch)
-    SBL_DSCS dx, dl             ; DS = ours, like sbl_isr's
-    or ah, ah                   ; candidate 0 (IRQ 7) first proves it is not
-    jnz .accept                 ; the 8259's spurious-IRQ-7 artifact:
-    mov al, 0x0B                ; OCW3 - the next 0x20 read returns the
-    out 0x20, al                ; in-service register
-    in al, 0x20
-    test al, 0x80               ; ISR bit 7 clear = spurious: no ack, no
-    jz .out                     ; EOI, no record (sbl_isr's split, 34.5)
-.accept:
-    mov dx, [sbl_base]          ; accept-on-fire: 2xEh is read as the SB-
-    add dx, 0x0E                ; side ACK and nothing else - its bit 7
-    in al, dx                   ; means "response byte waiting" and F2h
-                                ; queues none on real DSPs or 86Box
-                                ; (SPEC.md 34.5 - the QEMU-only 0xAA is
-                                ; why a bit-7 "confirm" once shipped)
-    mov [sbl_dsc_fired], ah     ; the discovery loop reads this
-    mov al, 0x20                ; a stray from an unrelated device on
-    out 0x20, al                ; 2/3/5 still needs its EOI either way,
-                                ; or its whole priority level wedges
-.out:
-    pop ds
-    pop dx
-    pop ax
-    iret
-
-; =============================================================================
 ; The staging-grant allocator (SPEC.md 34.6): first-fit over the SND_SEG
 ; pool, occupancy derived from the records (the package-pool idiom), every
 ; grant stamped with the owning instance and force-freed at teardown.
@@ -1447,12 +1353,13 @@ sbl_hcheck:
 ;           here: a ring only, the SB16's 4KB half or the SB Pro's doubled
 ;           byte rate, a 16-bit ring's base even
 ; out:      AL = 0 ok with AH = handle, else AX = 1 busy / 2 rate / 4 no
-;           sink or no IRQ found / 6 no task slot / 7 bad grant or ring;
+;           sink (the dispatcher's: no card attached) / 6 no task slot / 7
+;           bad grant or ring;
 ;           CF mirrors the error
 ; clobbers: nothing else (flags)
 ;
-; First use runs IRQ discovery (sbl_irq_disc, far) and hooks sbl_isr onto
-; the winner. The record publishes act=1 before the refill task spawns,
+; sbl_isr is already on the line: sbl_attach hooked it (SPEC.md 34.5.7). The
+; record publishes act=1 before the refill task spawns,
 ; so neither the tick nor the ISR can see a half-built stream (the
 ; publish-last idiom) - but sbl_expect arms BEFORE sbl_hw_start, the
 ; same order sbl_refill's resume uses: the first block IRQ can beat the
@@ -1521,8 +1428,8 @@ sbl_v_open:
     jb .e2n                      ; SB16) nor high-speed (90h, SB Pro): err 2,
     mov bp, 2*SBL_HALF          ; never a clamp. WHICH of the two is not
                                 ; decided here - both use the 4KB half, and
-                                ; .irqok reads the version back. BP IS THE
-                                ; HALF WIDTH UNTIL .irqok COMMITS IT: a TEMP,
+                                ; .irqchk reads the version back. BP IS THE
+                                ; HALF WIDTH UNTIL .irqchk COMMITS IT: a TEMP,
                                 ; because the busy refusal above must not
                                 ; disturb a live stream's [sbl_half], and a
                                 ; register because the kernel banks BP round
@@ -1544,13 +1451,11 @@ sbl_v_open:
     pop cx
     jmp short .grantok
 .e7x:                           ; the refusals' trampolines, within short
-    jmp .e7                     ; reach of every test above and of the IRQ
-.e1n:                           ; discovery's below: the real exits are at
+    jmp .e7                     ; reach of every test above and of the
+.e1n:                           ; ones below: the real exits are at
     jmp .e1                     ; the far end, where sbl_v_open_in shares
 .e2n:                           ; them
     jmp .e2
-.e4n:
-    jmp .e4
 .pool:
     call sbl_grant_chk          ; the range must sit in the caller's grant;
     jc .e7x                     ; out AX = bytes to the grant's end (BX is
@@ -1573,12 +1478,6 @@ sbl_v_open:
     jb .e7x                     ; the WIDE half when the rate widened it)
     mov [sbl_rmask], dx         ; RL-1: the ring mask
 .irqchk:
-    cmp byte [sbl_irq], 0xFF    ; IRQ discovery, deferred to first use
-    jne .irqok                  ; (SPEC.md 34.5)
-    call sbl_f_irqdisc           ; far orchestration; hooks the winner
-    or al, al
-    jz .e4n                      ; no candidate confirmed: no usable card
-.irqok:
     mov ax, bp                  ; commit the half width, then DERIVE the
     mov [sbl_half], ax          ; regime from it and [sbl_verhi] - the two
     mov word [sbl_wide], 0      ; facts the rate gate already checked. Past
@@ -1816,9 +1715,6 @@ sbl_v_open:
 .e2:
     mov al, 2
     jmp short .err
-.e4:
-    mov al, 4
-    jmp short .err
 .e8:
     mov al, 8                   ; no page-safe 8KB for the double buffer
     jmp short .err              ; (SPEC.md 34.5.2) - verb 7's "no space"
@@ -1842,8 +1738,8 @@ sbl_v_open:
 ;           SI = grant offset, CX = capture capacity in bytes (> 0, inside
 ;           the caller's grant)
 ; out:      AL = 0 ok with AH = handle, else AX = 1 busy (half-duplex: any
-;           open stream, or an exclusive clip) / 2 rate / 4 no sink or no
-;           IRQ found / 6 no task slot / 7 bad grant / 8 no page-safe 8KB
+;           open stream, or an exclusive clip) / 2 rate / 4 no sink (the
+;           dispatcher's) / 6 no task slot / 7 bad grant / 8 no page-safe 8KB
 ;           for the record ring; CF mirrors the error
 ; clobbers: nothing else (flags)
 ;
@@ -1855,8 +1751,9 @@ sbl_v_open:
 ; captured to [DI:SI+RL+SND_EXT_CONS]. A single-cycle DSP, or a ring whose
 ; span crosses a 64KB page, answers 7.
 ;
-; The mirror of sbl_v_open: same record, direction = in, the same deferred
-; IRQ discovery, the same publish-then-pace order (act = 1 before the
+; The mirror of sbl_v_open: same record, direction = in, sbl_isr already on
+; the line (sbl_attach hooked it, SPEC.md 34.5.7), the same publish-then-pace
+; order (act = 1 before the
 ; drain task spawns, sbl_expect armed BEFORE sbl_hw_start_in for the
 ; same first-IRQ race). sbl_total holds the capture CAPACITY; the drain
 ; task advances sbl_consumed as ring halves land in the grant, so verb 3
@@ -1894,7 +1791,7 @@ sbl_v_open_in:
     jc .e7                      ; grant; out AX = bytes to the grant's end.
                                 ; BX is still the rate (see above)
     mov [sbl_str_max], ax
-    jmp short .disc
+    jmp short .rate
 .e7:
     jmp sbl_v_open.e7
 .ext:                           ; AN EXTERNAL RECORD RING (SPEC.md 34.6.4):
@@ -1928,13 +1825,8 @@ sbl_v_open_in:
 %if SND_OPENF_BLKSH - SND_OPENF_RLSH != 2
   %error "verb 4 reads the block code two bits above the size code"
 %endif
-.disc:
-    cmp byte [sbl_irq], 0xFF    ; IRQ discovery, deferred to first use
-    jne .irqok                  ; (SPEC.md 34.5)
-    call sbl_f_irqdisc           ; far orchestration; hooks the winner
-    or al, al
-    jz sbl_v_open.e4            ; no candidate confirmed: no usable card
-.irqok:
+.rate:                          ; (sbl_isr is on the line already:
+                                ; sbl_attach hooked it, SPEC.md 34.5.7)
     mov ax, 0x4240              ; TC = 256 - 1,000,000/rate (SPEC.md 34.5)
     mov dx, 0x000F
     div bx                      ; AX = 1e6/rate (66..250 by the range check)
@@ -3090,8 +2982,8 @@ sbl_release_inst:
 SBL_WANT   equ SBL_DMASZ / 1024
 
 ; -----------------------------------------------------------------------------
-; sbl_attach - find a card
-; in:  nothing
+; sbl_attach - bring the card sbl_find found up as the DSP tier
+; in:  nothing (DRVV_ATTACH after sbl_find, or DRVV_TIER's "on")
 ; out: CF = 0 attached; CF = 1 and AL = DRVE_HW (no card) or DRVE_TWICE -
 ;      and in either case NOTHING is hooked and NOTHING is held (SPEC.md 51.2)
 ; clobbers: AX (flags)
@@ -3102,6 +2994,16 @@ SBL_WANT   equ SBL_DMASZ / 1024
 ; it. A double-buffered stream claims it at open and frees it at close, so an
 ; idle card costs the heap its image and not a byte more, and DRVE_MEM moved to
 ; where memory is actually wanted: verb 0 and verb 4 answer 8.
+;
+; IT SCANS NOTHING EITHER: the six-base scan and the IRQ discovery ran once,
+; in sbl_find, at the driver's attach (SBL_ONCE). What a tier change re-does
+; is the DSP reset at the base that scan settled, then the hook on the line
+; the discovery settled. A card that has stopped answering is refused as
+; DRVE_HW, as the scan would have refused it - and so is a card with NO usable
+; line (none confirmed, or IRQ 5 refused on an XT, 34.5.6): the DSP tier is
+; then not published, the OPL2 still is, and a Control Panel that turns the
+; tier on reports the refusal as it reports any other. No toast: the machine
+; boots working, on FM.
 ; -----------------------------------------------------------------------------
 sbl_attach:
     cmp byte [sbl_up], 0
@@ -3112,99 +3014,30 @@ sbl_attach:
                                 ; reset and before the first port write, so a
                                 ; live stream, the hooked vector and the running
                                 ; DSP are all exactly as they were
-    call sbl_state_init         ; before any port write: a reload starts clean
-    call sbl_f_probe            ; the reset scan + E1h version gate
-    or al, al
-    jz .nohw
+    cmp word [sbl_base], 0
+    je .nohw                    ; sbl_find found no card at the attach...
+    cmp byte [sbl_irq], 0xFF
+    je .nohw                    ; ...or no line it can use (SPEC.md 34.5.6)
+    call sbl_state_init         ; before any port write: a re-attach starts clean
+    push cx
+    xor cx, cx                  ; 65536 polls: the scan's slow-DSP allowance
+    call sbl_f_reset
+    pop cx
+    jc .nohw
     mov ax, [sbl_base]          ; the block IRQ's ACK port: 2xEh, and 2xFh
     add ax, 0x0E                ; only while a 16-bit stream plays (SPEC.md
     mov [sbl_ackp], ax          ; 34.5.5). EVEN, so that is bit 0
+    call sbl_hook               ; sbl_isr on the line sbl_find settled
     mov byte [sbl_up], 1        ; publish LAST (SPEC.md 29.2): the stream
     clc                         ; verbs test this and nothing else
-    jmp short .out
+    ret
 .nohw:
     mov al, DRVE_HW
     stc
-    jmp short .out
+    ret
 .twice:
     mov al, DRVE_TWICE
     stc
-.out:                           ; (no saves: sbl_state_init and sbl_f_probe
-    ret                         ; keep every register but AX)
-
-; -----------------------------------------------------------------------------
-; sbl_hdma_find - an SB16's 16-bit DMA channel, IF ONE CAN BE PROGRAMMED
-;                 (SPEC.md 34.5.5)
-; in:  a DSP 4.xx attached ([sbl_base])
-; out: CF = 0 and [sbl_hdma] = 5, 6 or 7; CF = 1 and [sbl_hdma] = 0
-; clobbers: nothing (flags)
-;
-; Two facts, both asked of the hardware. CT1745 mixer register 81h names the
-; card's DMA channels (bits 5-7 = 5-7), and an SB16 jumpered with none of
-; them high has no 16-bit path here. Then the second 8237 itself: the
-; channel is masked and its address register written and read back, because
-; an SB16 in an XT's 8-bit slot reports DMA 5 and there is no controller at
-; C0h-DFh to answer - the bus floats FFh. The register is the channel's own,
-; masked and reprogrammed at every start, so the pattern left in it is
-; harmless.
-; -----------------------------------------------------------------------------
-sbl_hdma_find:
-    push ax
-    push cx
-    push dx
-    mov byte [sbl_hdma], 0
-    mov dx, [sbl_base]
-    add dx, 4
-    mov al, 0x81
-    pushf
-    cli
-    out dx, al
-    inc dx
-    in al, dx                   ; bits 5-7: DMA 5, 6, 7
-    popf
-    mov cl, 5
-    shr al, cl
-    jz .no                      ; no high channel at all
-    mov ah, 4
-.bit:                           ; the lowest one named
-    inc ah
-    shr al, 1
-    jnc .bit
-    mov al, ah
-    and al, 3
-    mov cl, al                  ; CL = its index on the second 8237
-    or al, 4
-    mov dl, cl
-    mov dh, 0
-    shl dx, 1
-    shl dx, 1
-    add dx, 0xC0                ; C4h/C8h/CCh: its address register
-    pushf
-    cli
-    out 0xD4, al                ; masked
-    out 0xD8, al                ; flip-flop clear
-    mov al, 0x5A
-    out dx, al
-    mov al, 0xA5
-    out dx, al
-    out 0xD8, al
-    in al, dx
-    mov ch, al                  ; CH = the low byte read back...
-    in al, dx                   ; ...AL = the high
-    popf
-    cmp ch, 0x5A
-    jne .no
-    cmp al, 0xA5
-    jne .no
-    mov [sbl_hdma], ah
-    clc
-    jmp short .out
-.no:
-    stc
-.out:
-    pop dx
-    pop cx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -3550,28 +3383,17 @@ sbl_unhook:
     push ax
     push bx
     push cx
-    push dx
     push es
     cmp byte [sbl_hooked], 0
     je .out
-    mov cl, [sbl_irq]           ; mask the line first: no IRQ mid-teardown
-    mov ah, 1
-    shl ah, cl
+    call sbl_cell               ; mask the line first: no IRQ mid-teardown
     in al, 0x21
-    or al, ah
+    or al, ch
     out 0x21, al
     mov cx, 2000                ; DSP reset - the probe's own routine, the
     call sbl_f_reset            ; scan's per-base budget (~10ms of ISA reads)
-    mov al, [sbl_irq]           ; restore the saved vector
-    add al, 8                   ; IRQ n -> int 8+n
-    mov ah, 0
-    shl ax, 1
-    shl ax, 1
-    mov bx, ax
-    xor ax, ax
-    mov es, ax
-    pushf
-    cli
+    pushf                       ; restore the saved vector (ES:BX still
+    cli                         ; sbl_cell's: sbl_f_reset keeps both)
     mov ax, [sbl_oldvec]
     mov [es:bx], ax
     mov ax, [sbl_oldvec+2]
@@ -3580,7 +3402,6 @@ sbl_unhook:
     mov byte [sbl_hooked], 0
 .out:
     pop es
-    pop dx
     pop cx
     pop bx
     pop ax
@@ -3589,10 +3410,10 @@ sbl_unhook:
 ; -----------------------------------------------------------------------------
 ; sbl_state_init - store the module's .bss before the services publish
 ;
-; in:       nothing (called from sbl_attach; the probe that fills sbl_base and
-;           the version runs AFTER this)
-; out:      sbl_zb..sbl_ze zeroed, then [sbl_irq] / [sbl_dsc_fired] /
-;           [sbl_str_inst] = 0xFF and [sbl_half] = SBL_HALF
+; in:       nothing (called from sbl_attach)
+; out:      sbl_zb..sbl_ze zeroed, then [sbl_str_inst] = 0xFF and
+;           [sbl_half] = SBL_HALF. NOT the card's facts - [sbl_base], the
+;           version, [sbl_irq] - which sbl_find settles once a load
 ; clobbers: nothing (flags)
 ;
 ; ONE FILL over the run SBL_STATE lays out for it, rather than a store per
@@ -3608,8 +3429,6 @@ sbl_state_init:
     xor ax, ax
     call snd_fill
     dec ax                      ; AL = 0xFF
-    mov [sbl_irq], al           ; discovery deferred to first use (34.5)
-    mov [sbl_dsc_fired], al
     mov [sbl_str_inst], al
     mov word [sbl_half], SBL_HALF
     pop di
@@ -3618,11 +3437,311 @@ sbl_state_init:
     ret
 
 ; =============================================================================
-; Detection and IRQ discovery. Kernel-resident ancestry: these were far
-; code behind FARSHIMs with KCALL'd DSP handshakes; in the driver they are
-; ordinary near calls in the image's own segment, DS = the driver, and the
-; tables above and all sbl_ state are plain [addr] reads.
+; The DSP reset (the scan's, sbl_unhook's and a tier change's)
 ; =============================================================================
+
+; -----------------------------------------------------------------------------
+; sbl_f_reset - reset the DSP at [sbl_base] and wait for 0AAh (far-local)
+;
+; in:       [sbl_base], CX = poll budget (0 = 65536)
+; out:      CF = 0 a DSP answered; CF = 1 nothing there
+; clobbers: AL, CX (flags)
+; -----------------------------------------------------------------------------
+sbl_f_reset:
+    push dx
+    mov dx, [sbl_base]
+    add dx, 6                   ; 2x6h: reset
+    mov al, 1
+    out dx, al
+    push cx
+    add dx, 8                   ; hold >= 3us: 8 ISA reads of 2xEh
+    mov cx, 8
+.dly:
+    in al, dx
+    loop .dly
+    sub dx, 8
+    pop cx
+    xor al, al
+    out dx, al
+    add dx, 8                   ; 2xEh: data-available status
+.poll:
+    in al, dx
+    test al, 0x80
+    jz .next
+    sub dx, 4                   ; 2xAh: read the identity byte
+    in al, dx
+    add dx, 4
+    cmp al, 0xAA
+    je .yes
+.next:
+    loop .poll
+    stc
+    jmp .ret
+.yes:
+    clc
+.ret:
+    pop dx
+    ret                         ; near: called from sbl_f_probe (same CS)
+
+
+; =============================================================================
+; The line's hook (SPEC.md 34.5). Discovery ran at the attach (sbl_f_irqdisc,
+; SBL_ONCE); this puts sbl_isr on the line it found, at every sbl_attach.
+; =============================================================================
+
+; -----------------------------------------------------------------------------
+; sbl_hook - put sbl_isr on [sbl_irq] (mouse_init order: mask, save the old
+;            vector and install, unmask). It stays until sbl_unhook.
+; in:       [sbl_irq] a line, [sbl_hooked] = 0
+; clobbers: nothing
+; -----------------------------------------------------------------------------
+sbl_hook:
+    push ax
+    push bx
+    push cx
+    push es
+    call sbl_cell
+    in al, 0x21                 ; mask...
+    or al, ch
+    out 0x21, al
+    pushf                       ; ...save the old vector + install sbl_isr
+    cli
+    mov ax, sbl_isr
+    xchg ax, [es:bx]
+    mov [sbl_oldvec], ax
+    mov ax, cs                  ; sbl_isr lives in this driver's segment
+    xchg ax, [es:bx+2]
+    mov [sbl_oldvec+2], ax
+    popf
+    mov byte [sbl_hooked], 1
+    not ch                      ; ...and unmask
+    in al, 0x21
+    and al, ch
+    out 0x21, al
+    pop es
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; sbl_cell - ES = 0, BX = [sbl_irq]'s IVT cell, CH = its 8259 mask bit
+; clobbers: CL (flags) - sbl_hook's and sbl_unhook's one computation
+; -----------------------------------------------------------------------------
+sbl_cell:
+    xor bx, bx
+    mov es, bx
+    mov cl, [sbl_irq]
+    mov ch, 1
+    shl ch, cl
+    mov bl, cl
+    add bl, 8                   ; IRQ n -> int 8+n
+    shl bx, 1
+    shl bx, 1
+    ret
+
+
+; =============================================================================
+; SBL_ONCE - THE SOUND BLASTER'S ATTACH-ONLY HALF (SPEC.md 34.5, 34.15.1):
+; the reset scan, the IRQ discovery with its IRQ 5 test, the candidate stubs
+; and their tables. sound.asm expands it past snd_keepmix through sbl_find,
+; once a load, so none of it is resident after the attach. A tier change
+; re-uses what it settled ([sbl_base], the version, [sbl_irq]) - whether a
+; card is in the machine, and on which line, cannot change until a reload.
+; =============================================================================
+%macro SBL_ONCE 0
+
+sbl_bases:                      ; the pinned scan order (SPEC.md 34.2)
+    dw 0x220, 0x240, 0x210, 0x230, 0x250, 0x260, 0
+
+sbl_dsc_irqn: db 7, 5, 3, 2     ; IRQ candidates, pinned order (SPEC.md 34.5)
+sbl_dsc_t:                      ; per candidate, in the same order: the IVT
+    dw 0x3C, sbl_stub7, 0       ; byte offset (int 0Fh/0Dh/0Bh/0Ah), then a
+    dw 0x34, sbl_stub5, 0       ; FAR POINTER that sbl_f_irqdisc's .swap
+    dw 0x2C, sbl_stub3, 0       ; exchanges with the vector: the stub goes
+    dw 0x28, sbl_stub2, 0       ; in and the old vector lands here, and the
+SBL_DSC_N    equ 4              ; second swap puts both back. The segment
+                                ; words are stamped with our CS first
+
+
+; =============================================================================
+; The IRQ-discovery candidate stubs (.text - interrupt handlers, so SPEC.md
+; 33 bars them from far even though discovery itself is cold). Each records
+; its candidate index in sbl_dsc_fired ONLY after the 2xEh bit-7 read
+; confirms the DSP asserted the line. A confirm-failed interrupt is still
+; a real one when the 8259 holds its in-service bit - the candidates are
+; force-unmasked for the window, so an unrelated device on 2/3/5 can fire
+; - and gets an EOI; only line 7 can be truly spurious, decided by the
+; OCW3 0Bh in-service read exactly as in sbl_isr (SPEC.md 34.5).
+; =============================================================================
+sbl_stub7:
+    push ax
+    mov al, 0
+    jmp short sbl_stub_c
+sbl_stub5:
+    push ax
+    mov al, 1
+    jmp short sbl_stub_c
+sbl_stub3:
+    push ax
+    mov al, 2
+    jmp short sbl_stub_c
+sbl_stub2:
+    push ax
+    mov al, 3
+sbl_stub_c:
+    push dx
+    push ds
+    mov ah, al                  ; AH = candidate index (AL becomes scratch)
+    SBL_DSCS dx, dl             ; DS = ours, like sbl_isr's
+    or ah, ah                   ; candidate 0 (IRQ 7) first proves it is not
+    jnz .accept                 ; the 8259's spurious-IRQ-7 artifact:
+    mov al, 0x0B                ; OCW3 - the next 0x20 read returns the
+    out 0x20, al                ; in-service register
+    in al, 0x20
+    test al, 0x80               ; ISR bit 7 clear = spurious: no ack, no
+    jz .out                     ; EOI, no record (sbl_isr's split, 34.5)
+.accept:
+    mov dx, [sbl_base]          ; accept-on-fire: 2xEh is read as the SB-
+    add dx, 0x0E                ; side ACK and nothing else - its bit 7
+    in al, dx                   ; means "response byte waiting" and F2h
+                                ; queues none on real DSPs or 86Box
+                                ; (SPEC.md 34.5 - the QEMU-only 0xAA is
+                                ; why a bit-7 "confirm" once shipped)
+    mov [sbl_dsc_fired], ah     ; the discovery loop reads this
+    mov al, 0x20                ; a stray from an unrelated device on
+    out 0x20, al                ; 2/3/5 still needs its EOI either way,
+                                ; or its whole priority level wedges
+.out:
+    pop ds
+    pop dx
+    pop ax
+    iret
+
+
+; -----------------------------------------------------------------------------
+; sbl_find - the reset scan, then the IRQ discovery (DRVV_ATTACH only)
+; out: [sbl_base] (0 = none), the version, [sbl_auto], [sbl_irq] (0FFh = no
+;      usable line), [sbl_hdma]; clobbers: AX (flags)
+; -----------------------------------------------------------------------------
+sbl_find:
+    call sbl_f_probe
+    or al, al
+    jz .ret
+    call sbl_f_irqdisc
+    cmp byte [sbl_verhi], 4     ; a DSP 4.xx: its 16-bit channel too
+    jb .ret                     ; (SPEC.md 34.5.5)
+    call sbl_hdma_find
+.ret:
+    ret
+
+; -----------------------------------------------------------------------------
+; sbl_hdma_find - an SB16's 16-bit DMA channel, IF ONE CAN BE PROGRAMMED
+;                 (SPEC.md 34.5.5)
+; in:  a DSP 4.xx found ([sbl_base]) - sbl_find asks, once a load, and
+;      snd_sb_pub reads [sbl_hdma] at every tier-on
+; out: CF = 0 and [sbl_hdma] = 5, 6 or 7; CF = 1 and [sbl_hdma] = 0
+; clobbers: nothing (flags)
+;
+; Two facts, both asked of the hardware. CT1745 mixer register 81h names the
+; card's DMA channels (bits 5-7 = 5-7), and an SB16 jumpered with none of
+; them high has no 16-bit path here. Then the second 8237 itself: the
+; channel is masked and its address register written and read back, because
+; an SB16 in an XT's 8-bit slot reports DMA 5 and there is no controller at
+; C0h-DFh to answer - the bus floats FFh. The register is the channel's own,
+; masked and reprogrammed at every start, so the pattern left in it is
+; harmless.
+; -----------------------------------------------------------------------------
+sbl_hdma_find:
+    push ax
+    push cx
+    push dx
+    mov byte [sbl_hdma], 0
+    mov dx, [sbl_base]
+    add dx, 4
+    mov al, 0x81
+    pushf
+    cli
+    out dx, al
+    inc dx
+    in al, dx                   ; bits 5-7: DMA 5, 6, 7
+    popf
+    mov cl, 5
+    shr al, cl
+    jz .no                      ; no high channel at all
+    mov ah, 4
+.bit:                           ; the lowest one named
+    inc ah
+    shr al, 1
+    jnc .bit
+    mov al, ah
+    and al, 3
+    mov cl, al                  ; CL = its index on the second 8237
+    or al, 4
+    mov dl, cl
+    mov dh, 0
+    shl dx, 1
+    shl dx, 1
+    add dx, 0xC0                ; C4h/C8h/CCh: its address register
+    pushf
+    cli
+    out 0xD4, al                ; masked
+    out 0xD8, al                ; flip-flop clear
+    mov al, 0x5A
+    out dx, al
+    mov al, 0xA5
+    out dx, al
+    out 0xD8, al
+    in al, dx
+    mov ch, al                  ; CH = the low byte read back...
+    in al, dx                   ; ...AL = the high
+    popf
+    cmp ch, 0x5A
+    jne .no
+    cmp al, 0xA5
+    jne .no
+    mov [sbl_hdma], ah
+    clc
+    jmp short .out
+.no:
+    stc
+.out:
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+sbl_dsc_fired: db 0             ; discovery: confirmed candidate index
+sbl_dsc_mask: db 0              ; discovery: saved 8259 mask
+
+; -----------------------------------------------------------------------------
+; sbl_dsp_rd - read one byte from the DSP (the scan's E1h answer is the only
+;              byte this driver reads, so it is attach-only too)
+; in:       [sbl_base] set
+; out:      CF = 0, AL = byte; CF = 1 nothing arrived (timeout, AL trash)
+; clobbers: nothing else (flags)
+; -----------------------------------------------------------------------------
+sbl_dsp_rd:
+    push cx
+    push dx
+    mov dx, [sbl_base]
+    add dx, 0x0E                ; 2xEh: read-buffer status
+    mov cx, SBL_POLLS
+.poll:
+    in al, dx
+    test al, 0x80               ; bit 7 set = data available
+    jnz .ok
+    loop .poll
+    stc
+    jmp .out
+.ok:
+    sub dx, 4                   ; 2xAh: read data
+    in al, dx
+    clc
+.out:
+    pop dx
+    pop cx
+    ret
 
 
 ; -----------------------------------------------------------------------------
@@ -3702,57 +3821,20 @@ sbl_f_probe:
     ret                         ; near: .fartext is retired here
 
 ; -----------------------------------------------------------------------------
-; sbl_f_reset - reset the DSP at [sbl_base] and wait for 0AAh (far-local)
-;
-; in:       [sbl_base], CX = poll budget (0 = 65536)
-; out:      CF = 0 a DSP answered; CF = 1 nothing there
-; clobbers: AL, CX (flags)
-; -----------------------------------------------------------------------------
-sbl_f_reset:
-    push dx
-    mov dx, [sbl_base]
-    add dx, 6                   ; 2x6h: reset
-    mov al, 1
-    out dx, al
-    push cx
-    add dx, 8                   ; hold >= 3us: 8 ISA reads of 2xEh
-    mov cx, 8
-.dly:
-    in al, dx
-    loop .dly
-    sub dx, 8
-    pop cx
-    xor al, al
-    out dx, al
-    add dx, 8                   ; 2xEh: data-available status
-.poll:
-    in al, dx
-    test al, 0x80
-    jz .next
-    sub dx, 4                   ; 2xAh: read the identity byte
-    in al, dx
-    add dx, 4
-    cmp al, 0xAA
-    je .yes
-.next:
-    loop .poll
-    stc
-    jmp .ret
-.yes:
-    clc
-.ret:
-    pop dx
-    ret                         ; near: called from sbl_f_probe (same CS)
-
-; -----------------------------------------------------------------------------
 ; sbl_f_irqdisc - IRQ discovery orchestration (far body; SPEC.md 34.5)
 ;
-; in:       nothing (task context, IF = 1 - the wait needs live ticks)
-; out:      AL = 1 - [sbl_irq] set, sbl_isr hooked on the winner
-;           (mouse_init order: saved old vector, installed while masked,
-;           unmasked) and staying hooked until snd_unhook; AL = 0 no
-;           candidate confirmed (retried once)
+; in:       nothing (DRVV_ATTACH, by way of sbl_find: IF = 1 and the tick
+;           live - the wait needs it, and pm_wait's header has the
+;           measurement that it is)
+; out:      AL = 1 - [sbl_irq] = the line; AL = 0 - [sbl_irq] = 0FFh, no
+;           candidate confirmed (retried once) or IRQ 5 refused (34.5.6).
+;           NOTHING is left hooked: sbl_attach hooks the line
 ; clobbers: nothing else (flags)
+;
+; ATTACH-ONLY (SBL_ONCE, past snd_keepmix): it ran at the first stream open
+; until 2026-10-30, which kept it - and the IRQ 5 test, the stubs and the
+; candidate tables - resident on every machine for the life of the session.
+; Run once a load, its answer is a fact a tier change re-uses.
 ;
 ; Hook all four candidates onto the .text stubs, open their mask bits,
 ; issue F2h (trigger-8-bit-IRQ, supported by every DSP), and wait ~3 ticks
@@ -3839,43 +3921,12 @@ sbl_f_irqdisc:
     call sbl_irq5_taken         ; REFUSED (SPEC.md 34.5.6): the card would
     jc .taken                   ; play one block and fall silent
 .free:
-    mov [sbl_irq], al
-    add al, 8                   ; SI = (IRQ + 8) * 4: its IVT cell
-    cbw
-    shl ax, 1
-    shl ax, 1
-    mov si, ax
-    mov ah, [sbl_dsc_mbit+bx]   ; mouse_init order: mask...
-    in al, 0x21
-    or al, ah
-    out 0x21, al
-    pushf                       ; ...save the old vector + install sbl_isr
-    cli
-    mov ax, [es:si]
-    mov [sbl_oldvec], ax
-    mov ax, [es:si+2]
-    mov [sbl_oldvec+2], ax
-    mov word [es:si], sbl_isr
-    mov word [es:si+2], cs      ; sbl_isr lives in this driver's segment
-    popf
-    mov byte [sbl_hooked], 1
-    mov ah, [sbl_dsc_mbit+bx]   ; ...and unmask
-    not ah
-    in al, 0x21
-    and al, ah
-    out 0x21, al
-    mov al, 1
-    jmp .out
-.taken:
-    cmp byte [sbl_irq5x], 0     ; said once a session, not at every open
-    jne .none
-    mov byte [sbl_irq5x], 1
-    push ds
-    pop es
-    mov si, sbl_irq5msg
-    xor cx, cx
-    call OSAPI_TOAST
-.none:
+    mov [sbl_irq], al           ; the line: sbl_attach hooks it, and a tier
+    mov al, 1                   ; change re-uses it
+    jmp short .out
+.taken:                         ; (no toast: sbl_attach refuses the DSP
+.none:                          ; tier and the OPL2 attaches - 34.5.6)
+    mov byte [sbl_irq], 0xFF    ; no usable line, for the session
     xor al, al
 .out:
     pop es
@@ -3934,7 +3985,9 @@ sbl_irq5_taken:
     pop ax
     ret
 
-sbl_irq5msg: db 'IRQ 5 is the hard disk', 0x27, 's', 0   ; 24 characters
+; =============================================================================
+%endmacro
+
 
 ; =============================================================================
 ; state (SPEC.md 34.7) - stored by sbl_state_init at attach, before the
@@ -3955,20 +4008,21 @@ sbl_irq5msg: db 'IRQ 5 is the hard disk', 0x27, 's', 0   ; 24 characters
 ; [sbl_clip] (the kernel's half of the clip exclusion) among them.
 ; =============================================================================
 %macro SBL_STATE 0
-sbl_zb:                         ; --- cleared at every attach ----------------
+                                ; --- settled ONCE a load by sbl_find ---------
 sbl_base:     dw 0              ; DSP base port (220h..260h), 0 = none
 sbl_verhi:    db 0              ; DSP version from E1h: major
 sbl_verlo:    db 0              ;   minor
 sbl_auto:     db 0              ; 1 = auto-init strategy (DSP >= 2.00, 34.5)
-sbl_irq:      db 0              ; discovered IRQ line, 0xFF = not yet
+sbl_irq:      db 0              ; discovered IRQ line, 0xFF = none usable
+sbl_hdma:     db 0              ; the SB16's 16-bit DMA channel (5..7), 0 =
+                                ; none or no second 8237 (sbl_hdma_find)
+sbl_zb:                         ; --- cleared at every attach ----------------
 sbl_drqmask:  db 0              ; 4 = keep DMA channel 1 MASKED at every
                                 ; start: it races at bus speed while the DSP
                                 ; plays (a PicoMEM 1.x on a 286, whose card
                                 ; copies without it - picomem.inc's
                                 ; pm_runaway sets it). OR'd into the unmask
 sbl_hooked:   db 0              ; sbl_isr installed on [sbl_irq]'s vector
-sbl_irq5x:    db 0              ; the IRQ 5 refusal has been said (34.5.6)
-sbl_dsc_fired: db 0             ; discovery: confirmed candidate index
 sbl_expect:   db 0              ; a block IRQ is legitimate (SPEC.md 34.5)
 sbl_under:    dw 0              ; underrun-pause count (debug, cumulative)
 
@@ -4029,8 +4083,6 @@ sbl_fmt:      db 0              ;   the open stream's SND_FMT_* bits: 0 for
                                 ;   every stream verb 11 did not shape
 sbl_nfmt:     db 0              ; verb 11's held format, for...
 sbl_nfinst:   db 0              ; ...this instance's next verb 0
-sbl_hdma:     db 0              ; the SB16's 16-bit DMA channel (5..7), 0 =
-                                ; none or no second 8237 (sbl_hdma_find)
 sbl_prime:    db 0              ; 1 = the SB Pro stereo primer's IRQ is owed
 sbl_pst:      db 0              ; 1 = mixer 0Eh holds our stereo bits...
 sbl_m0e:      db 0              ; ...and this is the byte to put back
@@ -4042,7 +4094,6 @@ sbl_ze:                         ; --- end of the attach-time clear -----------
 %endif
 
 sbl_oldvec:   dw 0, 0           ; the winner's saved vector (off, seg)
-sbl_dsc_mask: db 0              ; discovery: saved 8259 mask
 sbl_rseg:     dw 0              ;   the ring's segment for sbl_ring_phys
 sbl_extctl:   dw 0, 0           ;   external: the control words (off, seg)
 sbl_xpage:    db 0              ;   the auto-init DMA cycle hw_start

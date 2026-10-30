@@ -265,6 +265,18 @@ FAST = [
         "int 19h they existed to read it at, and passed. m.sym() follows the "
         "slide; a deliberate unslid use is a line in tests/coldsym.txt. "
         "VERIFIED TO FAIL on the three rows' old forms"),
+    Row("bochssleep", "fast", py("tests/unit/t_bochssleep.py"), 1.5,
+        "NO ROW THAT RUNS UNDER BOCHS PACES ITS SCENARIO IN HOST SECONDS. "
+        "Bochs's guest clock is its instruction count capped at real time "
+        "(docs/BOCHS.md, *The clock*), so a Bochs short of CPU - four to a "
+        "core in the soak's Bochs lane - runs fewer guest seconds a host "
+        "second, and a time.sleep() between two inputs holds less of the "
+        "guest: megavidv2's second Space landed before the first frame. "
+        "Every time.sleep in the script of a row needing Bochs must be a "
+        "poll's interval (inside a while, or a `for _` that can break), a "
+        "literal under 0.1 s, or marked `# host: <why>`; a scenario step is "
+        "Box.guest_sleep / os88marty.guest_sleep / pace. VERIFIED TO FAIL "
+        "on the tree before it (45 sites, 38 of them scenario steps)"),
     Row("retired", "fast", py("tests/unit/t_retired.py"), 0.3,
         "every package under apps/ ships, or apps/RETIRED.txt says why not "
         "(SPEC.md 20.16). CLAUDE.md's Layout section states the invariant - "
@@ -5958,6 +5970,25 @@ SOAK = [
         "taken off the list this row reproduces exactly that (DRVE_HW)",
         needs=("marty", "nasm"), serial=True, timeout=300,
         wants=("build/emstest.img",)),
+    Row("emscard", "soak", py("tests/ems.py", "--leg", "card"), 60.0,
+        "SPEC.md 107.2 against a REAL PicoMEM 1.x's EMS: the card's own "
+        "firmware in 86Box (docs/plans/completed/PICOMEM-EMU-PLAN.md wave 5, "
+        "vm/xt-picomem1). A first boot lets the card's BIOS map the machine "
+        "and save PICOMEM.CFG; EMS is set on THAT (288h, E000h - the card's "
+        "BIOS is at D000h) and every check of ems's board leg holds at the "
+        "card's 256 pages. Broken on purpose (EMS set on a config whose map "
+        "is not the machine's), the BIOS's Memory change check turns EMS off "
+        "and EMS.DRV says DRVE_HW",
+        needs=("86box", "pmhost"), serial=True, timeout=400,
+        wants=("build/emstest.img",)),
+    Row("emscard2", "soak", py("tests/ems.py", "--leg", "card2"), 75.0,
+        "emscard's checks on a PicoMEM 2.x (vm/xt-picomem2, our firmware "
+        "built PICOMEM_20, docs/plans/completed/PICOMEM-EMU-PLAN.md wave 6): its EMS "
+        "lives in the RP2350's mapped PSRAM, an EMS page register write "
+        "moving a RAM_Offset_Table entry, where the 1.x's goes through SPI - "
+        "and EMS.DRV finds it at 288h/E000h with 256 pages all the same",
+        needs=("86box", "pmhost"), serial=True, timeout=400,
+        wants=("build/emstest.img",)),
     Row("videms", "soak", py("tests/videms.py"), 70.0,
         "SPEC.md 98.3.18.6-7: VIDEO.O88'S BANK IN EXPANDED MEMORY, decoded IN "
         "PLACE (the ring is the board's slots, the conventional ring 2), on MartyPC's "
@@ -7054,6 +7085,34 @@ SOAK = [
         "(name, size) because it is the only identity available without a "
         "SECTOR READ - keying on either half alone over-merges and shows up "
         "here as too few rows.",
+        needs=("marty",), wants=("build/os8088-360.img", "build/apps360.img")),
+
+    Row("icohd", "soak", py("tests/icohd.py"), 95.0,
+        "THE FIELD REPORT, END TO END (SPEC.md 25.9.6): a hard disk "
+        "installed from the system + apps pair lost icons - *.IMG first, "
+        "and INSTALL.O88. A real install on MartyPC's XT-IDE machine, a "
+        "reboot from C:, and a scratch B: of ten shipped packages padded by "
+        "16 bytes (another build of the same programs: same names, new "
+        "sizes, so new keys), XTMP3 and a BACKUP.IMG. Every live entry of "
+        "every folder on both is asked whether it references ICO_R_NONE. "
+        "The tree before the grow stops at 60 rows with MINES, SOLITAIR, "
+        "TELNET and BACKUP.IMG generic; with it the store takes a sixth KB "
+        "and nothing is, and the row also fails if the scenario stops "
+        "overflowing a first claim.",
+        needs=("marty",), wants=("build/os8088-720.img", "build/apps720.img")),
+
+    Row("icogrow", "soak", py("tests/icogrow.py"), 20.0,
+        "THE ICON STORE GROWS (SPEC.md 25.9.6). A fixed 60-row store was "
+        "outgrown by a standard install of the two 1.44MB disks, and a full "
+        "store answers the generic icon. ico_add now grows the claim a KB at "
+        "a time with mem_regrow. The row makes the store FULL by writing "
+        "[ico_max] down to the rows held, then opens a second volume whose "
+        "packages the first lacked: at ICO_KBMAX (the negative control, same "
+        "boot) they stay on the generic icon and the store does not move; at "
+        "ICO_KB the store grows a KB, [ico_max] is re-derived, every new "
+        "reference names a real row, and row 0's key and body are "
+        "byte-identical at the new base - the capture-at-the-head layout "
+        "(ICO_RBASE) keeping a row's offset fixed across a move.",
         needs=("marty",), wants=("build/os8088-360.img", "build/apps360.img")),
 
     Row("ascabsorb", "soak", py("tests/ascabsorb.py"), 20.0,
@@ -8350,9 +8409,10 @@ SOAK = [
         "uses NO SYSTEM.CFG deliberately - 51.3.1's boot sniff mounts the "
         "driver on a machine with a card and no configuration at all, which "
         "is the common case an earlier revision of 96.16 got wrong. The "
-        "visible half is BLASTER=, and its IRQ field is ABSENT on purpose: "
-        "discovery is deferred to first use, so naming a line here is naming "
-        "the wrong one.",
+        "visible half is BLASTER=, and its IRQ field names the card's line, "
+        "IRQ 7: the driver discovers it at its attach (SPEC.md 34.5.7), so it "
+        "is known before any sound has played - it was ABSENT while discovery "
+        "waited for the first stream.",
         needs=("marty",), serial=True,
         wants=("build/dossnd360.img",)),
     Row("dosirq", "soak", py("tests/dosirq.py"), 20.0,
@@ -15712,6 +15772,21 @@ SOAK = [
         "every lap, thirteen of them. The mirror copied from the wrong bytes "
         "takes it red at 36 of 39 holds",
         needs=("qemu", "nasm")),
+    Row("vidxipbanktier", "soak", py("tests/vidxip.py", "--arm",
+                                     "banktier"), 110.0,
+        "SPEC.md 98.3.18.18: the TWO TIERS beside the bank in place - a "
+        "VP_TTEST build that switches tier every three chunks wherever both "
+        "can take it, the bank capped at 6, so a SEAM is copied and read "
+        "every few chunks against the reference decode (20 seams and 27 of "
+        "41 chunks straight into the conventional tier, 39 holds, 0 wrong). "
+        "With vp_tseam's copy taken out the play wedges at a hold",
+        needs=("qemu", "nasm")),
+    Row("vidxipbanktiersnd", "soak", py("tests/vidxip.py", "--arm",
+                                        "banktiersnd"), 110.0,
+        "SPEC.md 98.3.18.18: vidxipbanktier with QEMU's SB16 and a clip with "
+        "sound - the audio cursor reading its chunks through the tier table "
+        "too",
+        needs=("qemu", "nasm")),
     Row("vidxipbankbig", "soak", py("tests/vidxip.py", "--arm", "bankbig"),
         70.0,
         "SPEC.md 98.3.18.13: the bank in place for a BIGSP file (98.1.4.1), "
@@ -16656,6 +16731,17 @@ SOAK = [
         needs=("bochs",),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
                "build/megak/apps/video.o88")),
+    Row("megavidtier", "soak", py("tests/megavidtier.py"), 80.0,
+        "SPEC.md 98.3.18.18, 98.3.15.2: the two tiers on kern_mega - the "
+        "arm assembled VP_TTEST=3 (and its speaker shaper a part) under "
+        "Bochs at 2MB, vidxip's 1.3 MB bank clip played full screen to its "
+        "end: every frame drawn, no FAULT, the tier on, 13 seams and 16 "
+        "chunks straight into a conventional slot read through the ring's "
+        "selectors. Red with vp_tseam's copy taken out: a #GP at frame 150. "
+        "80s is 59 measured",
+        needs=("bochs", "nasm"),
+        wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
+               "build/vblk.bin", "build/vblkpm.bin")),
     Row("megavidv2", "soak", py("tests/megavidv2.py"), 140.0,
         "SPEC.md 98.3.23.2: a VERSION 2 video played on kern_mega through "
         "the block decoder's PROTECTED-MODE part with NO #GP fixup. "
@@ -18339,7 +18425,8 @@ SOAK = [
         "card there never plays one block and falls silent. sbl_f_irqdisc "
         "and sbl_irq5_taken, cut out of sb.inc as they ship (picomem.py's "
         "sbslice), run under unicorn on an SB16 whose mixer names the line: "
-        "refused with one toast on an 8088, once a session; accepted on IRQ 5 "
+        "refused SILENTLY on an 8088 (sbl_attach then refuses the DSP tier "
+        "and the OPL2 attaches alone, SPEC.md 34.5.7); accepted on IRQ 5 "
         "when the vector is the BIOS's own dummy and on a 286 or 386 (the negative "
         "controls), and on IRQ 7 beside a taken 5. With the refusal broken "
         "(sbl_irq5_taken always CF=0) 2 checks FAIL",
@@ -18373,6 +18460,84 @@ SOAK = [
         "mistakes as port numbers, and E's verified start must need more "
         "than one start and keep the stream in the ring",
         needs=("nasm", "unicorn")),
+    Row("pmlib", "soak", py("tests/picomem.py", "sbfw", "vsfw", "sb2fw"), 3.0,
+        "docs/plans/completed/PICOMEM-EMU-PLAN.md wave 0: picomem's sb and vs legs - "
+        "SOUND.DRV's PicoMEM attach and VIDSND's reconfigure, as they ship, "
+        "under unicorn - with the card's ports answered by the card's OWN "
+        "FIRMWARE (pm1x-pr, compiled for the host by tools/picomem/build.sh) "
+        "instead of picomem's Python model; the 8237, 8259 and port B stay "
+        "modelled, being the motherboard's. The card is booted and its IRQ "
+        "detected as its BIOS does at POST. Broken on purpose: the driver's "
+        "skip of the card's own line taken out offers [7, 5] and FAILS 2 "
+        "checks, the firmware's refusal still steering the SB to 5. It found "
+        "the firmware MOVING an active DSP onto CMS's ports at 220h, which "
+        "the model's PORTUSED hid; pm_init now switches the DSP off before "
+        "the walk (SPEC.md 34.10.2), and without that the vsfw CMS case "
+        "FAILS 3 checks, CMS's 224h reading FFh. sb2fw (wave 6): the 2.x "
+        "build (libpmhost-v2) with IRQ 3, 5 and 7 jumpered takes SOUND.DRV's "
+        "sequence and moves a DSP transfer by REAL DMA, a DRQ a byte, ending "
+        "on IRQ 5's own line; with only 7 jumpered it ends through the "
+        "multiplexer on 7 and FAILS 2 checks",
+        needs=("nasm", "unicorn", "pmhost")),
+    Row("pmbox", "soak", py("tests/pmbox.py"), 170.0,
+        "docs/plans/completed/PICOMEM-EMU-PLAN.md waves 1-7: the PicoMEM in 86Box "
+        "(vm/xt-picomem1, tools/86box/patches/07-picomem.patch) running ITS "
+        "OWN FIRMWARE (libpmhost), three boots. snd: the BIOS detects the "
+        "card's IRQ, SOUND.DRV attaches in SPEC.md 34.10's order (78h 0 "
+        "first, 34.10.2), PMDMA's four ways of programming channel 1 all copy "
+        "from the right address through the 1.x's virtual DMA, and SBTEST's "
+        "1 kHz square plays 2 s out of the card's own DAC (OS88_PMWAV). fdd: "
+        "on a ONE-drive XT, B: is the card's image off its microSD through "
+        "its int 13h (SPEC.md 18.97.6), and Restart is a warm reset that "
+        "re-runs the card's BIOS (18.100.1). hdd: os8088 boots off a hard "
+        "disk the card serves with A: empty (52.10.16). net: ETHER.DRV finds "
+        "the card's NE2000 at 300h (72.2) and DHCP binds 10.0.2.15 through "
+        "its Wi-Fi bridge, here 86Box's slirp. mouse: on vm/xt-picomem1-usbm, "
+        "with no 86Box mouse at all, the card's USB mouse (86Box's pointer as "
+        "HID reports) reaches USBMOUSE.DRV's PicoMEM backend through the "
+        "card's IRQ and int 33h AX=0060h (SPEC.md 9.12.7) and os88ui opens "
+        "A: by double-click. mega: KERN_MEGA on vm/at286-picomem1, the card "
+        "its only mouse - the card's int 33h caught in kern_mega's IRQ "
+        "reflection and replayed (KERN-MEGA-PLAN 14.117) drives os88ui, and "
+        "SBTEST's tone plays through reflected multiplexer IRQs; with "
+        "mega_capon's int 33h capture skipped the pointer is stuck and 3 "
+        "checks FAIL. Broken on purpose, OS88_PMHOST_NOSNOOP=1: "
+        "PMDMA's auto-init stream never ends and the tone never plays - 4 "
+        "FAILS; USBMOUSE.DRV built in the old order (enable before the int 33h "
+        "hook) with a report already waiting, the boot never reaches the "
+        "desktop - FIELD-NOTES 66's freeze, reproduced",
+        needs=("86box", "pmhost"), serial=True,
+        wants=("build/pmsys360.img", "build/pmboxb360.img", "build/pmhd.img",
+               "build/apps360.img", "build/mega.img")),
+    Row("pmmarty", "soak", py("tests/pmmarty.py"), 50.0,
+        "docs/plans/completed/PICOMEM-EMU-PLAN.md wave 8: the PicoMEM's own firmware "
+        "(libpmhost) as a MartyPC card (tools/martypc/patches/17-picomem.patch), "
+        "on a 4.77 MHz 5150: os8088_5150_herc_pm1_gla (a 1.x on IRQ 5) and "
+        "_pm2_gla (a 2.x, IRQ 7 and DRQ 1, as 5150 #2's). On each the card's "
+        "BIOS runs its POST, SOUND.DRV attaches in SPEC.md 34.10's order, "
+        "SBTEST's 1 kHz tone plays 2 s out of the card's DAC - by the 1.x's "
+        "virtual DMA, the 8088 copying every block, and by the 2.x's real DMA "
+        "- and pm_runaway (34.10.5) never masks channel 1 against the card's "
+        "own pacing. Broken on purpose, OS88_PMHOST_NOSNOOP=1: the 1.x plays "
+        "nothing and its tone checks FAIL; the 2.x, with no snoop to lose, "
+        "plays on",
+        needs=("marty", "pmhost"), serial=True,
+        wants=("build/pmsys360.img", "build/pmboxb360.img")),
+    Row("pmbox2", "soak", py("tests/pmbox.py", "--board", "2"), 160.0,
+        "docs/plans/completed/PICOMEM-EMU-PLAN.md wave 6: pmbox's legs on a PicoMEM 2.x "
+        "(vm/xt-picomem2 and its -1fd/-usbm twins: OUR firmware, pm1x-pr, "
+        "built PICOMEM_20 - the first run of it as a 2.x anywhere - IRQ 7 "
+        "jumpered and DRQ 1, as the field 2.x). SOUND.DRV's attach is "
+        "accepted with the SB on unjumpered IRQ 5 (the multiplexer carries "
+        "it), and SBTEST's 1 kHz tone plays 2 s by the 2.x's REAL DMA from "
+        "86Box's 8237; B: on the card, Restart, the hard-disk boot, the "
+        "NE2000 and the USB mouse as on the 1.x. PMDMA is left out: it asks "
+        "the 1.x's VIRTUAL DMA where it copied. Broken on purpose, the "
+        "card's DMA jumper on 3 while SOUND.DRV programs 1: the tone is 0.01 s "
+        "and 2 checks FAIL",
+        needs=("86box", "pmhost"), serial=True,
+        wants=("build/pmsys360.img", "build/pmboxb360.img", "build/pmhd.img",
+               "build/apps360.img")),
     Row("xmla", "soak", py("tests/xmla.py"), 2.0,
         "SPEC.md 41.13: XMEM.DRV's LOADALL transport, without a 286 - xm_bios, "
         "xm_lcopy, xm_lend, xm_lainit and xm_ltrip cut out of xmem.asm with "

@@ -359,7 +359,7 @@ def main():
         box.ui_done("the card")
         box.key("Return")
         box.ui_done("the card's OK", secs=120)
-        time.sleep(2)
+        box.guest_sleep(2)              # GUEST seconds (Box.guest_sleep)
         box.ui_done("the dialog", secs=120)
         box.key(*(["BackSpace"] * 12))
         box.type("OUT.BMP")

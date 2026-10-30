@@ -288,8 +288,13 @@ def machine_config(machine, mega=False, images=()):
     if not mega:
         # THE MOUSE the name asks for (the 386's profile carries a PS/2 one)
         # and the XT's RAM; kern_mega's machine keeps its profile's own
+        # A profile whose PicoMEM carries the USB mouse (vm/xt-picomem1-usbm)
+        # has NO 86Box mouse: the card reads 86Box's pointer itself, and a
+        # mouse device would take every movement first.
+        order, secs = ob.read_cfg(ob.find_cfg(profile))
+        usbm = dict(secs.get("PicoMEM #1", [])).get("usb_mouse") == "1"
         sets.append(("Input devices", "mouse_type",
-                     "ps2" if "_ps2" in n else "msserial"))
+                     "none" if usbm else "ps2" if "_ps2" in n else "msserial"))
         if "_ps2" in n:         # ...and NO UART, as QEMU's `-serial none`:
             sets += [("Ports (COM & LPT)", "serial1_enabled", "0"),  # the
                      ("Ports (COM & LPT)", "serial2_enabled", "0")]  # aux

@@ -72,7 +72,7 @@ def menu(box, dy):
         time.sleep(0.04)
         left -= 30
     box.xd("mousemove_relative", "--", 0, left)
-    time.sleep(0.5)
+    box.guest_sleep(0.5)                # the hold, in GUEST time
     box.xd("mouseup", 1)
 
 

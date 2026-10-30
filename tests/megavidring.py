@@ -143,7 +143,7 @@ def run(leg, disk, out, display, sy):
             box.xd("key", "f")              # full screen, paused...
             box.until(lambda: bad() or box.in_fsx(), "the full screen", 60,
                       poll=1.0)
-            time.sleep(3)
+            box.guest_sleep(3)          # GUEST seconds (Box.guest_sleep)
         box.xd("key", "space")              # ...and played (in the window
         box.until(lambda: bad() or box.pkg_read(        # where it can be)
             "Video", "vp_played", 1, VMAP)[0], "the play to end", 240,

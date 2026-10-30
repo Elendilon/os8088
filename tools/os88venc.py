@@ -285,7 +285,22 @@ PROFILES = {
     # fell 83 ms behind at most against 55 and 0 at 3.75 and read smoother on
     # the Victory, and the whole frame's share has been 123-126% on every
     # profiled play with no harm (SPEC.md 98.3.22.1)
+    # MEGA_DISK 0.88 (2026-10-29, SPEC.md 98.2.3.8): two plays' timed reads
+    # replayed through this curve at each frame's MEASURED share - Catch My
+    # Heart and Sonic 2 on the Victory - reproduce kern_big's dry frame
+    # within 2% of 519,000 (1371 against 1312, 737 against 733), and
+    # kern_mega's only at 475,000 and 455,000: 0.915 and 0.877, the worse
+    # taken. A reflected int 13h is a CPU reset, and the card's block
+    # interrupts are reflections too
+    # XRD 0.159 (2026-10-29, SPEC.md 98.2.3.9): the in-place reader's own
+    # ms a KB past the copy up. Catch My Heart's timed reads on kern_big,
+    # replayed through this curve at each frame's measured share, ran the
+    # bank dry within 2% of where the machine did only with 0.345 ms a KB
+    # charged on every chunk - the copy is 0.186 of it (xup, placed at the
+    # gap), so this is the rest: the bounce, the mirror, the reader's loop.
+    # The copy is skipped by the two tiers (98.3.18.18) and this is not
     "286-picomem1": dict(disk=519000, avg=2.25, peak=5.4, owe=1.6, speed=4.5,
+                         mega_disk=0.88, xrd=0.159,
                          ring=8, xcopy=0.345, lcopy_us=1.966,
                          cyc_us=CYC_US_286PVGA8, **XPLAY_VICTORY,
                          **PLAY_VICTORY,
@@ -545,6 +560,13 @@ CHOICE_HELP = {
                "of CPU, 65% of it on average - Mode X, the whole picture "
                "and 48 KB frames",
         "lossless": "No budget: every change kept, whatever it costs",
+    },
+    "kernel": {
+        "big": "kern_big, the real-mode kernel: the profile's disk as "
+               "measured (the default)",
+        "mega": "kern_mega, the 286's protected-mode kernel: every disk "
+                "read is a CPU reset, so the disk is the profile's own "
+                "share slower where it has measured one",
     },
     "aim": {
         "asked": "Encode what was asked for, nothing more (the default)",
@@ -893,7 +915,7 @@ def implied(preset=None, pixfmt=None, profile="5150-st225", live=None,
 # its story the day that default moved. What a preset, a format or a
 # profile implied is stored as the value it came to, and so is the
 # speaker style's three numbers. It is ~160 bytes (os88vid.OPTS_ZDICT).
-OPTS_VERSION = 49
+OPTS_VERSION = 50
 # what is the encode's plumbing rather than how the file was made
 OPTS_SKIP = ("src", "out", "help", "progress", "quiet", "preview_png",
              "profiles", "posters_only")
@@ -928,7 +950,7 @@ OPTS_FINGERPRINT = {1: "06108fff43ef1307", 2: "496cc97e70197133",
                     43: "ec2917558c23907f", 44: "1baaf8c2dacb6f7b",
                     45: "9f36a470662f10ba", 46: "bdf38e4e169941ba",
                     47: "5de4b2ffebe0a64f", 48: "ba9e5d3fb742014e",
-                    49: "238b11ab4d51b177"}
+                    49: "238b11ab4d51b177", 50: "a2712f22a376dcac"}
 LAG_MS = "50-100"       # --lag's default (98.2.1.1.3), the owner's (2026-10-16):
                         # a RANGE, searched for each burst, where it was one
                         # number tuned by hand. Its top is the 100 ms that
@@ -1133,6 +1155,8 @@ MIGRATIONS = {
     # and dithered its edges
     48: [("added", "colour_mix", "all"), ("added", "colour_clip", None),
          ("added", "edge_solid", 0.0)],
+    # 50: --kernel (98.2.3.8) - a file made before it was made for kern_big
+    49: [("added", "kernel", "big")],
 }
 
 
@@ -1447,6 +1471,11 @@ def audio_block(afmt, rate):
     return half
 
 
+TIERS = True            # THE PLAYER'S TWO TIERS (98.3.18.18): in place, a
+                        # chunk read with the reader close behind the picture
+                        # skips the copy up (_drate). A file is made for the
+                        # player that has them; one without them plays it a
+                        # copy short in the stretches the bank has drained
 AHEAD_SLACK = 0.10      # ...and Auto's (98.2.1.3): the share under the
                         # profile's disk an in-step stream must still fit
                         # at, or the file carries its sound ahead. T69 read
@@ -4867,8 +4896,11 @@ class Encoder:
             through borrows - `xbor_n` a frame (the super-packet and record
             headers, the record, the sound) and one more every `xyield`
             record bytes (vdec.inc's yields) - each `xbor_us`. The bank's
-            copy UP is the reader's, on the disk (set_bank), on EVERY
-            chunk: the ring is the bank's slots.
+            copy UP is the reader's, on the disk (set_bank), on every chunk
+            the BANK takes: one read with every live chunk in the
+            conventional ring is not copied (the two tiers, 98.3.18.18,
+            _drate). The borrows stay charged on every frame, which over-
+            prices a record in the conventional ring a little
           - "copy" (98.3.18.2's FIFO: a play the in-place paths refuse,
             on any tier - before 98.3.18.14 every 386 play, which is why
             the 486's profile said so): a banked record is copied DOWN inside
@@ -4908,7 +4940,7 @@ class Encoder:
         anything (set_bank's test)"""
         return bool(self.bank) and self.disk.level > self.reserve
 
-    def set_bank(self, bank, pre, xcopy=0.0):
+    def set_bank(self, bank, pre, xcopy=0.0, xrd=0.0):
         """THE XMS BANK (SPEC.md 98.3.18.2): `bank` bytes ahead of the ring,
         so the disk bucket is that much deeper, and `pre` of them filled
         before the first frame (98.3.18.3), so it starts that much fuller.
@@ -4935,15 +4967,26 @@ class Encoder:
                 raise vid.V88Error("the bank's copies leave the disk %d bytes "
                                    "a second, and the sound is %d"
                                    % (self.drate / self.dslow, self.abps))
+        # THE READER'S OWN COST IN PLACE (`xrd`, 98.2.3.9): what a play's
+        # reader spends a KB past the copy - measured off the machine, not
+        # priced - charged on every chunk in place, tier or not
+        self.dread = 1.0 + (xrd or 0.0) / 1000.0 * self.drate / 1024
 
     def _drate(self):
         """The disk's rate this frame: the profile's, less the bank's copies
-        while the bank holds anything (set_bank)"""
-        if self.bank and self.dslow != 1.0 and \
-                (getattr(self, "xmode", None) == "inplace" or
-                 self.disk.level > self.reserve):
-            return self.drate0 / self.dslow     # (in place: every chunk
-        return self.drate0                      # goes up through the bank)
+        while the bank holds anything (set_bank). IN PLACE too, since the
+        player's two tiers (SPEC.md 98.3.18.18): a chunk read while every
+        live chunk fits the conventional ring goes there with no copy up, so
+        the copy is the reader's only while the bucket is past the ring's
+        reserve - where, before them, every chunk went up through the bank"""
+        if not self.bank:
+            return self.drate0
+        inplace = getattr(self, "xmode", None) == "inplace"
+        x = getattr(self, "dread", 1.0) - 1.0 if inplace else 0.0
+        if self.dslow != 1.0 and ((inplace and not TIERS) or
+                                  self.disk.level > self.reserve):
+            x += self.dslow - 1.0
+        return self.drate0 / (1.0 + x)
 
     def begin(self):
         """A frame starts (_begin), and where the LAG SCHEDULE runs (fgrid:
@@ -9932,6 +9975,12 @@ def _encode(a, keep, tick, readers):
             pdef.get("frame_cap", "32")
     if a.live and prof["avg"] is not None:
         prof["avg"] = LIVE_AVG          # (the decode and the blit: 98.2.7)
+    # KERN_MEGA'S DISK (98.2.3.8): the profile's own rate, scaled by what
+    # the machine measured under kern_mega at the same share - before an
+    # explicit --disk, which is the rate on whichever kernel it names
+    if getattr(a, "kernel", "big") == "mega" and prof.get("disk") and \
+            prof.get("mega_disk"):
+        prof["disk"] = round(prof["disk"] * prof["mega_disk"])
     for k in ("disk", "avg", "peak", "owe", "reserve"):
         if getattr(a, k) is not None and getattr(a, k) != "auto":
             prof[k] = getattr(a, k)
@@ -10629,7 +10678,8 @@ def _encode(a, keep, tick, readers):
         bank = int(a.bank * 1024)
         pre = bank if a.prefill == "all" else \
             min(bank, int(float(a.prefill or BANK_PREFILL) * prof["disk"]))
-        enc.set_bank(bank, pre, prof.get("xup", prof.get("xcopy")) or 0.0)
+        enc.set_bank(bank, pre, prof.get("xup", prof.get("xcopy")) or 0.0,
+                     prof.get("xrd") or 0.0)
     elif a.prefill:
         raise vid.V88Error("--prefill fills a --bank, and there is none")
     # THE LAG (98.2.1.1.2): --lag ms, in frames. Only calls that come faster
@@ -12442,6 +12492,12 @@ def parser():
                          "frame is fitted to (--profiles says what each is)")
     ap.add_argument("--disk", type=float, help="the profile's bytes a "
                     "second, overridden")
+    ap.add_argument("--kernel", choices=("big", "mega"), default="big",
+                    help="the kernel it will play under: mega is kern_mega, "
+                         "whose every disk read is a CPU reset on a 286, "
+                         "and on a profile that has measured it the disk is "
+                         "that much slower (mega_disk, SPEC.md 98.2.3.8); "
+                         "a file made for mega plays on kern_big too")
     ap.add_argument("--avg", type=avg_arg, default="auto",
                     help="...its average CPU share, or AUTO (the default): the per-frame ceiling's on a profile whose disk curve already prices the reader, the profile's own share on one without (98.2.1.5)")
     ap.add_argument("--peak", type=float, help="...its per-frame ceiling")
