@@ -7332,10 +7332,58 @@ mega_fdsoff:
 ; handler (in > out) or outside it
 mega_fd5sh:
     inc word [cs:mega_fd5in]
+    call mega_fd5ln
     pushf
     call far [cs:mega_fd5old]
     inc word [cs:mega_fd5out]
+    call mega_fd5ln
     iret
+
+; mega_fd5ln - line 12 (rows 152-159), drawn by the shim at each way in and
+; out of the card's handler, so a FREEZE inside it is on the glass without a
+; reset: 5555, ins, outs, the capture stubs' hits and lines, then IMR ISR
+; IRR and the FDC's MSR as they are now. Real mode, IF = 0; every register
+; kept
+mega_fd5ln:
+    pusha
+    push ds
+    push es
+    mov ax, KERNEL_SEG
+    mov ds, ax
+    mov es, ax
+    cld
+    mov di, mega_fd5buf
+    mov ax, 0x5555
+    call mega_fdsamp.hw
+    mov ax, [mega_fd5in]
+    call mega_fdsamp.hw
+    mov ax, [mega_fd5out]
+    call mega_fdsamp.hw
+    mov ax, [mega_fdcapn]
+    call mega_fdsamp.hw
+    mov al, [mega_irqpend]
+    call mega_fdsamp.hb
+    in al, 0x21
+    call mega_fdsamp.hb
+    mov al, 0x0B
+    out 0x20, al
+    in al, 0x20
+    call mega_fdsamp.hb
+    mov al, 0x0A
+    out 0x20, al
+    in al, 0x20
+    call mega_fdsamp.hb
+    mov dx, MEGA_FD_MSR
+    in al, dx
+    call mega_fdsamp.hb
+    mov byte [di], 0xFE
+    mov si, mega_fd5buf
+    mov di, 152 * 80
+    call mega_fdhex
+    pop es
+    pop ds
+    popa
+    ret
 
 ; mega_fdpm - where a CPU RESET inside a sampled floppy call lands (40:67,
 ; CMOS shutdown 0Ah, armed by mega_fdson), instead of POST: real mode, every
@@ -7911,6 +7959,7 @@ mega_fd5old dw 0, 0                 ; the card's IRQ5, while shimmed
 mega_fd5in  dw 0                    ; ...the shim's ways in
 mega_fd5out dw 0                    ; ...and out
 mega_fdcapn dw 0                    ; the capture stubs' hits
+mega_fd5buf times 40 db 0           ; mega_fd5ln's line
 mega_fdsn   db 0                    ; ticks sampled this boot
 mega_fdvs   times 7 db 0            ; the VGA registers mega_fdvon banked
 mega_fdsbuf times 64 db 0           ; a line, as glyph numbers

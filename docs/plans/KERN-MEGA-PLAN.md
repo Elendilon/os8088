@@ -13075,3 +13075,13 @@ then skips POST and lands in `mega_fdpm`, which halts. Its line 11 (rows
 - IVT 25h and 27h
 
 A forced reset in the call, on the emulated 286, landed there and drew it.
+
+**Eleventh field reading (owner, 2026-10-30): NO post-mortem.** The shim
+was in (25h = 0060:520C), the picture was the tenth's - two ticks, F000:CEBC,
+IF on, a delay loop counting - and no `EEEE` line, so no CPU reset inside
+the call. IRQ0 simply stops being taken: the CPU sits with IF off somewhere.
+So the shim now DRAWS its counts too (`mega_fd5ln`, line 12, rows 152-159:
+`5555`, ins, outs, capture hits and lines, IMR ISR IRR, MSR) at each way in
+and out of the card's handler. A freeze inside the card's handler then
+reads ins > outs on the glass, with no reset needed. The emulated card
+raised no IRQ5 inside a call, so the line has not been seen drawn there.
