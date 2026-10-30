@@ -16566,6 +16566,20 @@ SOAK = [
         "pairs against 286. 25s is 12-17 measured alone, 23 in a lane",
         needs=("86box",),
         wants=("build/mega.img",)),
+    Row("megafdnat", "soak", py("tests/megafdnat.py"), 35.0,
+        "docs/plans/KERN-MEGA-PLAN.md 10 M2: kern_mega's NATIVE floppy path "
+        "on 86Box's 286 (vm/286-mega), the one emulator here that takes the "
+        "286 RESET path - Bochs and QEMU are 386s - so the .mega 765 byte "
+        "level and mega_r286's real-mode mega_fdrprobe run together, which "
+        "megacurdisk (native path off) does not. A 120KB Copy and Paste B: "
+        "-> A: with the path on: no fallback ([mega_fdoff] 0, [mega_fdfail] "
+        "0), the reset path ran but not once a call (2 resets against a "
+        "ceiling of 20), byte for byte, no exception charged to an image. "
+        "Red with --break (mm_fdout stc/ret at its copy above 1MB): 8 "
+        "fallbacks, the path off, 48 resets - while the copy still succeeds "
+        "through the BIOS. 35s is 18-29 measured (kern_mega size pass 1)",
+        needs=("86box",),
+        wants=("build/mega.img",)),
     Row("megasweep", "soak", py("tests/megasweep.py"), 120.0,
         "KERN-MEGA-MEMORY-PLAN MC7: every package the shipped disks carry "
         "OPENS under kern_mega (Bochs, 16MB, the kern_mega arm where one is "

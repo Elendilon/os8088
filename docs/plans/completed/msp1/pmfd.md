@@ -175,3 +175,16 @@ passed; `tools/stkbalance.py kernel/mega.inc` 0 unbalanced at base and tip.
 ## DEFECTS FOUND
 
 None.
+
+## Coordinator's addendum: the 286 reset path, run
+
+This note's equivalence for the `.text` copy of `MEGA_FDIO` was a reading,
+"no emulator here runs that path". 86Box does, and the coordinator ran it:
+`tests/megafdnat.py` (soak row `megafdnat`) boots `build/mega.img` on
+`vm/286-mega` with the native path ON and copies 120KB B: -> A:, so the
+`.mega` byte level and `mega_r286`'s real-mode `mega_fdrprobe` run together.
+Green at the base and at this branch's merged tip (no fallbacks, 2 to 4
+resets during the copy, byte for byte); red with `--break` (8 fallbacks,
+the path off, 48 resets). What it still does not reach is `mega_fdrprobe`'s
+SEEN branch - a 765 the BIOS reset behind the kernel's back - which nothing
+here forces; that branch stays verified by reading.
