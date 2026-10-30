@@ -371,8 +371,22 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; and a plain `mov` everywhere else. KPARA - AX = the real paragraph of the
 ; segment in AX (a K scratch's base on kern_mega, AX itself elsewhere), for
 ; arithmetic on a register KSEG loaded (KERN-MEGA-MEMORY-PLAN MC7.6)
+; IN DISKOPS.DRV (`.modl`, fifty of the tree's fifty-four sites) the slot and
+; the segment-register load are a NEAR helper's, ksg_<sreg>_<slot> at the
+; image's end (below, before modl_end): the site is `push ax / mov ax, src /
+; call / pop ax`, eight bytes or so against seventeen, and the helper keeps DI
+; and FLAGS as the inline form does (kern_mega size pass 1). A combination no
+; helper exists for is an undefined label at assembly - add its row there
 %macro KSEG 3
 %ifdef KERN_MEGA
+ %ifidni __?SECT?__, [section .modl]
+    push ax
+  %ifnidni %2, ax
+    mov ax, %2
+  %endif
+    call ksg_ %+ %1 %+ _ %+ %3
+    pop ax
+ %else
     push ax
     push di
     mov ax, %2
@@ -381,6 +395,7 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
     mov %1, ax
     pop di
     pop ax
+ %endif
 %else
     mov %1, %2
 %endif
@@ -8385,6 +8400,9 @@ OVL_SIZE equ ovl_end - $$     ; `$$` is 0 here: `.ovl` has a vstart of its
 %endif
 %endif
 %if ((OVL_SIZE + 511) / 512) * 512 > FAT_PARA * 16 + DSK_WIN_BYTES
+%ifdef KERN_MEGA
+%error "kern_mega: the boot overlay's window half has outgrown the FAT window plus dsk_secbuf - a diagnostic knob that grows `.ovl` wants its define in kernel/dskwin.inc's kern_mega DSK_OVLPAD test; otherwise see SPEC.md 2.1.2 and 2.5.3"
+%endif
 %error "the boot overlay's window half has outgrown the FAT window plus dsk_secbuf - see SPEC.md 2.1.2 and 2.5.3. Move a body to the blob (`.ovl`, SPEC.md 2.5.3.2) or out of the boot path"
 %endif
 
@@ -8507,6 +8525,41 @@ modf_end:
 MODF_SIZE equ modf_end - $$
 
 section .modl
+%ifdef KERN_MEGA
+; KSEG's near helpers for this image (the macro above): ES or DS = a selector
+; over the REAL paragraph in AX through scratch slot <slot>, mega_kaimf's
+; answer. Each row sets DI to its slot and joins its register's tail; DI and
+; FLAGS kept (mega_kaimf keeps FLAGS), AX clobbered - the site saves it
+%macro KSG_ROW 2
+ksg_%1_%2:
+    push di
+    mov di, %2
+    jmp short ksg_%1_MEGA_SEL_K5.go
+%endmacro
+    KSG_ROW es, MEGA_SEL_K0
+    KSG_ROW es, MEGA_SEL_K1
+    KSG_ROW es, MEGA_SEL_K3
+    KSG_ROW es, MEGA_SEL_K4
+ksg_es_MEGA_SEL_K5:
+    push di
+    mov di, MEGA_SEL_K5
+.go:
+    call COLD_SEG:mega_kaimf
+    mov es, ax
+    pop di
+    ret
+    KSG_ROW ds, MEGA_SEL_K0
+    KSG_ROW ds, MEGA_SEL_K1
+    KSG_ROW ds, MEGA_SEL_K4
+ksg_ds_MEGA_SEL_K5:
+    push di
+    mov di, MEGA_SEL_K5
+.go:
+    call COLD_SEG:mega_kaimf
+    mov ds, ax
+    pop di
+    ret
+%endif
 modl_end:
 MODL_SIZE equ modl_end - $$
 

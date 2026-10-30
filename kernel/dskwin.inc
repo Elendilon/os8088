@@ -72,7 +72,24 @@ DSK_ICO_SIZE equ 64              ; harvested icon slot stride (SPEC.md 19)
 ; the listing ALTOGETHER, on both kernels: there is one machine-wide store and
 ; a listing owns a reference byte per entry and nothing else. DSK_ICO_SIZE is
 ; still the width of one body, in the store.
-%ifdef KERN_KNOB
+%ifdef KERN_MEGA
+ ; kern_mega IS A KERN_KNOB BUILD BY CONSTRUCTION (the Makefile does not exempt
+ ; it from guard 1), and that alone used to buy it the knob pad below - 1,024
+ ; bytes of `.lowbss`, which on kern_mega is CONVENTIONAL MEMORY FOR EVER,
+ ; for an overlay that does not need them: kern_mega's own `.ovl` is 5,109 and
+ ; rounds to the 5,120 the window holds unpadded, and so do MEGATRAP, MEGADIAG,
+ ; MEGAFDMASK, PICLOSE=1/2, FONTSLOW and every other arm of
+ ; tests/unit/t_buildmatrix.py assembled with KERN_MEGA=1 - EXCEPT the five
+ ; diagnostics named here, which grow `.ovl` past it (measured on kern_mega,
+ ; kern_mega size pass 1: BOOTMARK 5,272, MOUDIAG/MOUROUND 5,182, SNDSNIFF=sb
+ ; 5,205, FDDABSENT 5,146, and FONT= bakes a face into it). A knob that joins
+ ; them fails kernel.asm's `.ovl` guard by name; add its define to this test
+ %if %isdef(BOOT_MARK) || %isdef(MOU_DIAG) || %isdef(SND_SNIFF_SB) || %isdef(FDD_FORCE_ABSENT) || %isdef(BAKED_FONT)
+DSK_OVLPAD   equ 1024
+ %else
+DSK_OVLPAD   equ 0
+ %endif
+%elifdef KERN_KNOB
 DSK_OVLPAD   equ 1024           ; **AND THE NEXT THING HAS JOINED `.ovl`: A
                                  ; DIAGNOSTIC KNOB.**
                                  ;
