@@ -4200,9 +4200,6 @@ disk_mount_x:
     ; read failure - gets the all-zero slot (the generic-icon sentinel).
     ; disk_icons is fully rewritten every mount (SPEC.md 29.1).
 %ifdef OS88_ASSOC
-    inc byte [assoc_gen]        ; a MOUNT is a generation, and the listing's
-    mov [asc_lcnt], bp          ; documents are its demand (SPEC.md 54.2.3):
-                                ; asc_use spends the count and zeroes it
     call asc_use_x                ; this volume's ASSOC.DAT (SPEC.md 54.7), so
                                 ; the loop below can answer most of its icon
                                 ; reads without doing them

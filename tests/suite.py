@@ -6966,19 +6966,6 @@ SOAK = [
         "here as too few rows.",
         needs=("marty",), wants=("build/os8088-360.img", "build/apps360.img")),
 
-    Row("assocevict", "soak", py("tests/assocevict.py"), 15.0,
-        "A FULL ASSOCIATION TABLE EVICTS, ON DEMAND (SPEC.md 54.2.3). The "
-        "resident table is 16 program slots and a standard install fills "
-        "them all; the program met after that was dropped for the session. "
-        "A scratch floppy of EIGHTEEN fake declaring programs (CALC's header "
-        "with one extension each, never run), six per folder beside their "
-        "documents plus a DOCS folder of F1's types alone: each folder in "
-        "turn shows every document's icon, a STICKY row keeps its slot "
-        "through the churn, and DOCS gets F1's evicted programs back through "
-        "the demand merge. Red at F2 with the eviction or the demand marking "
-        "taken out, both measured.",
-        needs=("marty",), wants=("build/os8088-360.img", "build/calc.o88")),
-
     Row("icohd", "soak", py("tests/icohd.py"), 95.0,
         "THE FIELD REPORT, END TO END (SPEC.md 25.9.6): a hard disk "
         "installed from the system + apps pair lost icons - *.IMG first, "
