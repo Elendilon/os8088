@@ -2569,7 +2569,10 @@ sbl_tick:
     cmp byte [sbl_str_state], SBL_ST_PLAY
     jne .out
 %ifdef PICOMEM
-    call pm_runaway             ; a channel 1 racing at bus speed: mask it
+    cmp byte [pm_up], 0         ; only a card pm_init configured: pm_runaway
+    je .nopm                    ; is in the PicoMEM's run, which a machine
+    call pm_runaway             ; without one hands back (SPEC.md 34.15.1).
+.nopm:                          ; A channel 1 racing at bus speed: mask it
 %endif                          ; (SPEC.md 34.10.5)
     dec word [sbl_wd]
     jnz .out

@@ -1004,7 +1004,17 @@ snd_pkg:
     cmp bl, SNDV_MIXICON_THEME
     ja .bad
     cmp bl, SNDV_MIXINFO
-    jb .go
+    jae .mix
+    cmp bl, SNDV_MIDINFO        ; ...and EVERY MPU-401 verb when there is no
+    jb .go                      ; interface: its bodies are past snd_keeppm
+    cmp bl, SNDV_MIDCLOSE       ; and the kernel may have dropped them too
+    ja .go                      ; (SPEC.md 34.15.1). The answer they gave
+    cmp word [mpu_base], 0      ; themselves, word for word
+    jne .go
+    mov ax, SNDE_NOMIDI
+    stc
+    ret
+.mix:
     cmp byte [mix_kind], 0      ; EVERY mixer verb is refused HERE when there
     je .nomix                   ; is no mixer, before its body is reached:
 .go:                            ; the body is past snd_keep and the kernel
@@ -1292,16 +1302,32 @@ mix_kind:   db 0                ; 0 = no mixer: 1/2/3 the CT1335/1345/1745.
                                 ; below snd_keep exists (SPEC.md 34.15.1)
 
 ; =============================================================================
-; snd_keep - THE END OF WHAT A MACHINE WITH NO MIXER KEEPS (SPEC.md 34.15.1).
-; Everything below is the hardware mixer and the menu bar's volume popup, code
-; first and its state last, and is reached ONLY through snd_pkg's verbs 7..12
-; and snd_detach - both of which test [mix_kind] above before they call in.
-; With no mixer the attach writes this offset into the header's DRV_H_KEEP and
-; the kernel shrinks the claim to it. Neither this state nor the mixer's below
-; is the file's trailing zero run any more - the attach-only code past
-; snd_keepmix is - so both ship on the disk as zeros.
+; snd_keep - THE END OF WHAT A MACHINE WITH NOTHING BUT THE TIERS KEEPS
+; (SPEC.md 34.15.1). Below it are FOUR runs, and the attach keeps the image up
+; to the end of the LAST one it found a user for, writing that offset into
+; the header's DRV_H_KEEP (the kernel shrinks the claim to it):
+;
+;   snd_keep:    [the PicoMEM's: pm_runaway, pm_tick]       - [pm_base]
+;   snd_keeppm:  [the MPU-401's: mpu_put, mpu_hush, verbs]  - [mpu_base]
+;   snd_keepmpu: [the mixer and the volume popup, + state]  - [mix_kind]
+;   snd_keepmix: [attach-only]                              - nobody
+;
+; Each is reached only behind its own test in the runs above it: sbl_tick
+; asks [pm_up] (and DSV_TICK is pm_tick only when pm_tickpub saw [pm_base]),
+; snd_pkg refuses the MPU verbs without [mpu_base] and mpu_detach reaches
+; mpu_hush only with [mpu_own], and the mixer's doors test [mix_kind] or rest
+; on a cap only it grants. A run kept for a later one's sake costs nothing
+; that was not kept before, so no machine keeps more than it did with two.
+; None of this is the file's trailing zero run - the attach-only code past
+; snd_keepmix is - so the state below ships on the disk as zeros.
 ; =============================================================================
 snd_keep:
+%ifdef PICOMEM
+PM_RES                          ; picomem.inc
+%endif
+snd_keeppm:
+MPU_RES                         ; mpu.inc
+snd_keepmpu:
 %include "volume.inc"           ; the loaded driver's quick-volume popup
 %include "mixer.inc"            ; hardware mixer verbs (SPEC.md 34.15)
 SBL_PRO                         ; sb.inc: an SB Pro stereo stream's mixer
@@ -1456,9 +1482,17 @@ snd_attach:
     je .nohw
     mov ax, snd_keepmix         ; WHAT THIS MACHINE KEEPS (SPEC.md 34.15.1):
     cmp byte [mix_kind], 0      ; never the attach-only code past snd_keepmix,
-    jne .keep                   ; and with NO MIXER nothing past snd_keep
-    mov ax, snd_keep            ; either - the mixer verbs and the volume
-.keep:                          ; popup. The kernel shrinks the claim to it.
+    jne .keep                   ; and of the three runs below it, everything
+    mov ax, snd_keepmpu         ; up to the last one this machine has a user
+    cmp word [mpu_base], 0      ; for - a mixer, an MPU-401, a PicoMEM - or
+    jne .keep                   ; none of them. The kernel shrinks the claim
+%ifdef PICOMEM                  ; to it
+    mov ax, snd_keeppm
+    cmp word [pm_base], 0
+    jne .keep
+%endif
+    mov ax, snd_keep
+.keep:
     mov [DRV_H_KEEP], ax        ; Settled HERE and only here: mix_probe runs
                                 ; at attach alone, so a tier change cannot
                                 ; bring a mixer into existence

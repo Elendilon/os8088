@@ -70300,7 +70300,8 @@ the merge, the shipped build keeps **6,863** with no mixer and **10,408** with
 one (`tests/unit/t_sndonce.py`) - +182 over the table, all of it §34.6.4's,
 and the mixer case's 182 crossed the KB back to 11. §34.6.5 is what took it
 back: 6,392 and **9,937**, 7KB and 10KB. Kernel size pass 15 took them to
-**6,106 and 9,551** - **6KB** and 10KB (§34.15.1).
+**5,797 and 8,622** - **6KB** and **9KB** - and split the no-mixer case by
+the hardware found (§34.15.1).
 
 `tests/sbirq5.py` and `tests/picomem.py` cut the discovery and `sbl_hook` out
 of `sb.inc` as they ship; `tests/unit/t_sndonce.py` holds the layout.
@@ -72056,17 +72057,23 @@ default clock and every toast lost the gap to it. The icon uses the menu
 bar's live background and ink, including Dark and Color themes: the kernel
 passes `thm_rpair`'s pair to verb 12 (`SNDV_MIXICON_THEME`), and a theme
 repaint invalidates its cache. On a 1bpp display the driver stages the
-bitmap in screen polarity, inverting it for Dark with the popup's existing
-scratch. Verb 10 stays in the driver for an older kernel; this kernel calls
+bitmap in screen polarity, inverting it for Dark IN PLACE and back again
+around the blit (it borrowed the popup's slider band until kernel size pass
+15 moved that band into the popup's claim). Verb 10 stays in the driver for an older kernel; this kernel calls
 12 alone, so a sound driver built before the themed verb shows no speaker
 rather than costing every kernel the fallback. SOUND.DRV rounds to 11KB of
 image plus state on the heap; `DRVM_IMG_SND` is 11. **That is the IMAGE**: loaded,
-the driver holds 10KB with a mixer and 7KB without, the attach-only code -
+the driver holds 9KB with a mixer and 6KB without, the attach-only code -
 and with no mixer the mixer verbs and this popup too - having been handed
-back after the attach (§34.15.1). The popup claims only
-its adapter-sized save-under while open: up to 8KB on VGA/EGA and 2KB on
-the mono adapters. VESA uses the same depth-based formula: 15KB at 8bpp or
-30KB at 16bpp (§120.4).
+back after the attach (§34.15.1). The popup claims only while open: its
+adapter-sized save-under AND, at the claim's foot, the slider's 968-byte
+1bpp band (176 x 44) - which until kernel size pass 15 was resident in the
+image on every mixer machine. Up to 9KB on VGA/EGA and 3KB on the mono
+adapters; VESA uses the same depth-based formula, 16KB at 8bpp or 31KB at
+16bpp (§120.4) - the band is one KB more than the save-under alone on each.
+`apps/os88gfx.inc`'s `GFXE_BAND_SEG` is what lets the band live there: an
+opt-in that writes every band byte through ES and copies each glyph's rows
+out of the font first (§5.12), ~+4,000 cycles a slider redraw.
 Its hit range is tested before
 the Date/Time cell, without changing application menu indices. The icon is
 cached independently, invalidated when the bar is overwritten or capabilities
@@ -72122,8 +72129,9 @@ https://www.phatcode.net/res/243/files/sbhwpg.pdf .
 
 ### 34.15.1 What a machine cannot run leaves the claim
 
-SOUND.DRV is 11,369 bytes (11,151 when this was written) and two runs of it
-are dead weight once its attach has answered:
+SOUND.DRV is 10,460 bytes (11,151 when this was written) and four runs of
+it are dead weight once its attach has answered - one on every machine, and
+three on every machine without the hardware each one drives:
 
 - **the attach-only code** - `opl_probe` and `opl_kind_probe`, `opl_init`'s
   one-time chip init, `mpu_probe` and its three helpers with `os88_pin`,
@@ -72140,37 +72148,62 @@ are dead weight once its attach has answered:
   speaker, an AdLib alone, a Covox, an MPU-401, a Sound Blaster older than the
   CT1335. The kernel never shows the speaker there (`SND_CAP_MIXER` is clear)
   and Mixer is told `SNDE_NOMIX`.
+- **the MPU-401's output** (`mpu_put`, `mpu_hush` and verbs 2–5's bodies),
+  dead wherever `mpu_probe` found no interface - nearly every machine.
+- **the PicoMEM's keep-alive and race check** (`pm_runaway`, `pm_tick`),
+  dead wherever `pm_init` found no card.
 
-So the image is laid out to give them back, with two ends:
+So the image is laid out to give them back. **The rule (kernel size pass
+15): the middle runs are ordered, and a machine keeps the image up to the
+end of the LAST one it has a user for** - each run is reached only behind
+its own test in the runs above it, and a run kept for a later one's sake is
+code that machine kept before:
 
 ```
-[header][the tiers][their state][mix_kind] snd_keep: [mixer][popup][their state] snd_keepmix: [attach-only]
+[header][the tiers][their state][mix_kind]
+  snd_keep:    [PicoMEM: pm_runaway, pm_tick]          kept with [pm_base]
+  snd_keeppm:  [MPU-401: mpu_put, mpu_hush, verbs]     kept with [mpu_base]
+  snd_keepmpu: [mixer][popup][SBL_PRO][their state]    kept with [mix_kind]
+  snd_keepmix: [attach-only]                           never kept
 ```
 
-The attach - the one place `mix_probe` runs, so a tier change cannot bring a
-mixer into existence - writes `snd_keepmix` into the header's `DRV_H_KEEP`,
-or `snd_keep` when `[mix_kind]` is 0, and the kernel shrinks the image's
-claim to it before the tier and `DRVV_READY` calls (§51.1.3):
+The attach - the one place `mix_probe`, `mpu_probe` and `pm_init` run, so a
+tier change cannot bring any of them into existence - writes the offset into
+the header's `DRV_H_KEEP`, and the kernel shrinks the image's claim to it
+before the tier and `DRVV_READY` calls (§51.1.3):
 
-| build | no mixer (`snd_keep`) | a mixer (`snd_keepmix`) | image |
-|---|---|---|---|
-| shipped (PicoMEM in) | 6,106 bytes: **12KB → 6KB** | 9,551: **12KB → 10KB** | 11,369 |
-| `NOPICOMEM=1` | 5,949: 11KB → 6KB | 9,394: 11KB → 10KB | 10,864 |
+| build | the tiers alone (`snd_keep`) | + a PicoMEM (`snd_keeppm`) | + an MPU-401 (`snd_keepmpu`) | a mixer (`snd_keepmix`) | image |
+|---|---|---|---|---|---|
+| shipped (PicoMEM in) | 5,797: **11KB → 6KB** | 5,913: 6KB | 6,098: 6KB | 8,622: **11KB → 9KB** | 10,460: 11KB |
+| `NOPICOMEM=1` | 5,756: 10KB → 6KB | (no run) | 5,941: 6KB | 8,465: 9KB | 9,945: 10KB |
 
-(Measured at kernel size pass 15, 2026-10-30, against 6,392 / 9,937 /
-11,737 and `NOPICOMEM=1`'s 6,209 / 9,754 / 11,224 before it -
+(Measured at kernel size pass 15, 2026-10-30, against two runs of 6,392 /
+9,937 in an 11,737-byte image, and `NOPICOMEM=1`'s 6,209 / 9,754 / 11,224 -
 docs/plans/completed/ksp15/snd.md. The table first carried 6,579 and
-10,124 against an 11,151-byte image; §34.5.7 measured 6,681 and 10,226.)
+10,124 against an 11,151-byte image; §34.5.7 measured 6,681 and 10,226.
+The mixer's run lost the popup's 968-byte slider band to the popup's own
+claim, §34.15.) No machine keeps more than it did with two runs: a mixer
+machine keeps everything below `snd_keepmix` as before, and one with an
+MPU-401 and no mixer keeps the PicoMEM's 116 bytes it would have kept anyway.
 
 The attach-only bodies are defined as macros (`MPU_ONCE`, `CVX_ONCE`,
 `PM_ONCE`, `MIX_ONCE`, and `sb.inc`'s `SBL_ONCE`, which SOUND.DRV alone
 includes and so expands unconditionally) and expanded where their files put them unless
 `SND_SPLIT` is defined - which SOUND.DRV does, expanding them past
 `snd_keepmix` - so `picomem.inc`'s other includers (`tests/picomem/`,
-`tests/vidbench/vidsnd.asm`) assemble exactly as before.
+`tests/vidbench/vidsnd.asm`) assemble exactly as before. The two device
+runs are the same shape: `PM_RES` and `MPU_RES`, expanded in place without
+`SND_SPLIT` (and then `pm_runaway` asks `[pm_up]` itself and each MPU verb
+`[mpu_base]`, as they always did) and in their runs with it.
 
-**Nothing kept is ever reached into what was handed back.** `snd_pkg`
-refuses verbs 7–12 with `SNDE_NOMIX` when `[mix_kind]` is 0 (verb 11's CF = 1
+**Nothing kept is ever reached into what was handed back.** The device runs
+first: `sbl_tick` asks `[pm_up]` before `pm_runaway` (a compare it used to
+make a call later, so a machine without the card pays fewer cycles in IRQ0
+than before), `pm_tickpub` publishes `pm_tick` only with `[pm_base]`, `snd_pkg`
+refuses verbs 2–5 with `SNDE_NOMIDI` - their own answer - without
+`[mpu_base]`, and `mpu_detach` (resident) reaches `mpu_hush` only with
+`[mpu_own]`, which only a successful `SNDV_MIDOPEN` sets. Then the mixer:
+`snd_pkg` refuses verbs 7–12 with `SNDE_NOMIX` when `[mix_kind]` is 0 (verb 11's CF = 1
 is then "not on the speaker", which is true), and `snd_detach` tests it
 before `mix_detach` - which is why `mix_kind` is the core's byte and not
 `MIX_STATE`'s, and why the verbs themselves no longer test it. The THIRD door
@@ -72185,7 +72218,8 @@ guard is the caps word, read once at attach, and not a test at the call -
 that touches the CT1345 is handed back with the rest of the mixer on a
 machine without one, and `sbl_hw_start` and `sbl_stop_stream` are the doors
 `t_sndonce` names. Below
-`snd_keepmix` only `snd_entry` names a label past it. Both rules are layout
+`snd_keepmix` only `snd_entry` names a label past it, and no run names a
+label in a LATER run outside the doors above. Both rules are layout
 rules that assemble cleanly when broken, so `tests/unit/t_sndonce.py` reads
 them off the assembler's listing; its first run found `snd_detach` calling
 `opl_tmrst`, a ten-byte helper that had sat between the probes and moved with

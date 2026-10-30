@@ -506,9 +506,19 @@ PM_RACE      equ 32             ; bytes in ~100 bus cycles: a racing channel
 PM_RACEN     equ 100            ; ...and the bus cycles between the two reads
 PM_RCHK      equ 18             ; ...asked on this many ticks a stream: a second
 
+; --- PM_RES: RESIDENT ONLY ON A MACHINE WITH THE CARD (SPEC.md 34.15.1) -------
+; pm_runaway and pm_tick. Expanded HERE unless SND_SPLIT is set; SOUND.DRV
+; expands PM_RES in its own run, between snd_keep and snd_keeppm, which the
+; attach keeps only when pm_init found a card ([pm_base]). pm_tick is reached
+; only through DSV_TICK, which pm_tickpub publishes on that same test, and
+; pm_runaway only from sbl_tick, which asks [pm_up] first in SOUND.DRV (a
+; package that includes this file asks it inside, as it always did).
+%macro PM_RES 0
 pm_runaway:
+%ifndef SND_SPLIT
     cmp byte [pm_up], 0
     je .ret
+%endif
     cmp byte [sbl_drqmask], 0
     jne .ret
     cmp byte [pm_rchk], 0
@@ -607,6 +617,13 @@ pm_tick:
     jmp sbl_tick                ; the Sound Blaster's own duties, which ask
                                 ; [sbl_str_act] first and so cost a compare
                                 ; on a machine whose DSP tier is off
+%endif                          ; PM_CORE
+%endmacro
+%ifndef SND_SPLIT
+    PM_RES
+%endif
+
+%ifndef PM_CORE
 
 ; -----------------------------------------------------------------------------
 ; pm_tickpub - DSV_TICK is pm_tick on a card pm_init found; SI = the table
