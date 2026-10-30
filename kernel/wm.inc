@@ -575,11 +575,7 @@ section .text
 ; DX IS A FIFTH: the display's own bottom, which is the floor for a window
 ; that will not fit the desktop band at all (SPEC.md 11.93).
 wm_fit:
-    push ax
-    push cx
-    push dx
-    push si
-    push di
+    call kent_di                ; AX..DI: BX is the record, kept anyway
 %ifdef DOCK_OPT
     mov ax, [vid_band_x0]       ; x0 - off a left-hand strip (SPEC.md 30.5)
     mov cx, [vid_band_xe]       ; xe - ...and a right-hand one
@@ -593,13 +589,11 @@ wm_fit:
 %ifdef KERN_BIG
     EXTCALL EXT_FITBOX          ; ...unless the window is on another display
 %endif
-    push cx                     ; w = min(w, xe - x0)
-    sub cx, ax
-    cmp [bx+W_W], cx
-    jle .wok
-    mov [bx+W_W], cx
-.wok:
-    pop cx
+    sub cx, ax                  ; w = min(w, xe - x0) - and CX STAYS the band's
+    cmp [bx+W_W], cx            ; WIDTH from here on: nothing below reads xe,
+    jle .wok                    ; and wm_min_floor wants the width anyway
+    mov [bx+W_W], cx            ; (kernel size pass 15: the push/pop and the
+.wok:                           ; second `sub` it paid for, -4)
     push di                     ; h = min(h, ye - y0) - and ONE PIXEL SHORT,
     sub di, si                  ; because the drop shadow lives on row y+h and
     dec di                      ; wm_dock_clear tests y+h with `jae`. Clamping
@@ -632,11 +626,13 @@ wm_fit:
     mov [bx+W_H], di            ; still too tall: now it really is the screen
 .hfit:
     pop di
-    push dx                     ; ...AND THE FLOOR LAST, SO IT WINS (SPEC.md
-    sub cx, ax                  ; 11.100.2). HERE and not below the position
+                                ; ...AND THE FLOOR LAST, SO IT WINS (SPEC.md
+                                ; 11.100.2). HERE and not below the position
     sub dx, si                  ; clamps, so the origin is settled against the
-    call wm_min_floor           ; size the window really ends up with.
-    pop dx                      ; The height cap is the display's own bottom
+    call wm_min_floor           ; size the window really ends up with. DX is
+                                ; not read again, so it is not banked round it
+                                ; (kernel size pass 15). The height cap is the
+                                ; display's own bottom
                                 ; less the TOP OF THE BAND rather than less
                                 ; W_Y, and that is what makes it provable: a
                                 ; frame that big can only start at y0, and the
@@ -658,24 +654,22 @@ wm_fit:
                                 ; both clamps, never before: it moves left,
                                 ; which only stays legal once the right edge
                                 ; has been dealt with
-    push di                     ; y = min(y, ye - h - 1), floor y0 - the same
-    sub di, [bx+W_H]            ; pixel, for the same reason
-    dec di
-    cmp [bx+W_Y], di
-    jle .yok
+    sub di, [bx+W_H]            ; y = min(y, ye - h - 1), floor y0 - the same
+    dec di                      ; pixel, for the same reason. DI's last use, so
+    cmp [bx+W_Y], di            ; spent rather than banked: kret_di puts the
+    jle .yok                    ; caller's back
     mov [bx+W_Y], di
 .yok:
-    pop di
     cmp [bx+W_Y], si
     jge .out
     mov [bx+W_Y], si
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop ax
-    ret
+    jmp kret_di                 ; (kernel size pass 15: kent_di and this ladder,
+                                ; -5 for ~100 clocks, once per placement)
+    db 0                        ; PARITY, never executed or read (kernel size
+                                ; pass 15): wm_fit came out 13 bytes shorter,
+                                ; and an odd hole here would put wm_db_r/_b's
+                                ; words, and wm_paint_all, at an odd shift
 
 %ifdef KERN_BIG
 ; -----------------------------------------------------------------------------
@@ -2846,11 +2840,7 @@ wm_cpy4:
 
 wm_rz_paint:
     KFZ 17                      ; every GEOMETRY change funnels here
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+    call kent_di                ; (kernel size pass 15: the ladder's frame)
 %ifndef REDRAWFULL
     call wm_rz_precover         ; SPEC.md 11.96.16.2, and BEFORE either branch
 %endif                          ; below puts a pixel anywhere
@@ -2902,7 +2892,7 @@ wm_rz_paint:
 .dmg:                           ; --- otherwise: the union, through the damage
     call wm_paint_dmg           ; repaint
 .out:
-    jmp kret_si
+    jmp kret_di
 
 ; -----------------------------------------------------------------------------
 ; The zoom bank: the rect a zoomed window goes back to (SPEC.md 11.95).
@@ -2980,10 +2970,7 @@ ZR_SIZE equ 8
 ; -----------------------------------------------------------------------------
 wm_zoom:
     KFZ 16                      ; the zoom/unzoom itself (SPEC.md 11.98)
-    push ax
-    push cx
-    push dx
-    push si
+    call kent_di                ; (kernel size pass 15: the ladder's frame)
 %ifdef DOCK_OPT
     mov ax, [vid_band_x0]       ; the standard state: x = the band's left
     mov cx, [vid_band_xe]       ; edge, and w = all of the band (SPEC 39.2,
@@ -3136,11 +3123,7 @@ wm_zoom:
     call wm_resize_nb           ; ...and this is the half it can (the bank is
                                 ; ours, above)
 .out:
-    pop si
-    pop dx
-    pop cx
-    pop ax
-    ret
+    jmp kret_di
 
 ; -----------------------------------------------------------------------------
 ; wm_zoom_slot - SI -> this window's entry in the zoom bank
@@ -3792,18 +3775,14 @@ wm_hide:
     jmp wm_lk_tail
 
 wm_hide_b:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-%ifdef REDRAWFULL
+    call kent_di                ; (kernel size pass 15: DI banked with the rest,
+%ifdef REDRAWFULL               ; so the cache take below may spend it)
     call wm_su_drop             ; the reference build (SPEC.md 11.96.5)
 %else
-    push di                     ; MINIMIZING IS NOT COVERING (SPEC.md 11.96.1)
+                                ; MINIMIZING IS NOT COVERING (SPEC.md 11.96.1)
     mov di, bx                  ; and this used to DROP the cache for that
     call wm_su_take             ; reason. Taking one is strictly safer than
-    pop di                      ; either dropping or keeping: it is banked
+                                ; either dropping or keeping: it is banked
                                 ; HERE, at the last moment the window's pixels
                                 ; are correct and still on the glass, so no
                                 ; older cache can survive a hide and a restore
@@ -3836,7 +3815,7 @@ wm_hide_b:
 .pd:                            ; wm_top
 %endif
     call wm_paint_dmg
-    jmp kret_si
+    jmp kret_di
 
 ; -----------------------------------------------------------------------------
 ; wm_fs_drop - release the fullscreen latch if BX holds it (module internal)
@@ -4161,10 +4140,7 @@ wm_snap_far:
 ; with the display beside it rather than a screen edge.
 ; -----------------------------------------------------------------------------
 wm_flush_ck:
-    push ax
-    push cx
-    push dx
-    push di
+    call kent_di                ; (kernel size pass 15: the ladder's frame)
     mov di, ax                  ; DI = the candidate x, DX = its width
     mov dx, cx
     call wm_disp_xw             ; AX = ITS DISPLAY's first column, CX = its
@@ -4178,11 +4154,7 @@ wm_flush_ck:
 .no:
     clc
 .out:
-    pop di
-    pop dx
-    pop cx
-    pop ax
-    ret
+    jmp kret_di
 
 ; -----------------------------------------------------------------------------
 ; wm_snap_ax - snap a candidate frame x for a WF_SNAP window
@@ -5925,11 +5897,7 @@ wm_obscured:
     test byte [bx+W_FLAGS], 2   ; on screen at all? Everything a hidden window
     jz .gone                    ; would draw lands on somebody else's window or
                                 ; on the desktop, and nothing ever erases it
-    push ax
-    push cx
-    push dx
-    push si
-    push di
+    call kent_di                ; wm_fit's frame (kernel size pass 15)
     call wm_zabove              ; SI -> the first entry above us, CX = how many
     jc .clear                   ; not in the z-order: nothing can be over us
 .scan:
@@ -5955,7 +5923,7 @@ wm_obscured:
     clc
 .out:
 %endif
-    jmp wm_fit.out              ; the same pops, in the same order
+    jmp kret_di                 ; the same pops, in the same order
 .gone:                          ; above the pushes, so nothing to unwind
     stc
     ret
@@ -6234,10 +6202,7 @@ wm_clip_set:
 ; means "not covered", i.e. draw it. Skipping on a maybe would lose pixels.
 ; -----------------------------------------------------------------------------
 wm_covered:
-    push ax
-    push cx
-    push dx
-    push si
+    call kent_di                ; (kernel size pass 15: the ladder's frame)
     call wm_seed_frame          ; the frame plus the 1px drop shadow, which
     call wm_clip_occl           ; wm_draw_win draws. (No clear first: the seed
                                 ; sets [wm_clip_n] itself)
@@ -6248,7 +6213,7 @@ wm_covered:
     call wm_clip_clear
     clc
 .out:
-    jmp wm_zoom.out             ; the same pops, in the same order
+    jmp kret_di
 
 ; -----------------------------------------------------------------------------
 ; wm_clip_seed - internal: arm the list with one rect and nothing subtracted
@@ -6796,12 +6761,8 @@ wm_clip_subr:                   ; ...and the walk, from those four words
 ; them and find (by construction) that they do not touch the occluder.
 ; -----------------------------------------------------------------------------
 wm_clip_split:
-    push ax
-    push bx
-    push cx
-    push dx
-    push di
-    mov di, wm_cl_rx1           ; the rect is about to be overwritten: bank it
+    call kent_di                ; (kernel size pass 15: SI banked with the rest,
+    mov di, wm_cl_rx1           ; so the slot copy below may spend it)           ; the rect is about to be overwritten: bank it
     call wm_cpy4                ; (SI -> it; wm_cl_r* are x1,y1,x2,y2 in order)
 
     dec word [wm_clip_n]        ; drop it: the last rect moves into its slot
@@ -6810,11 +6771,9 @@ wm_clip_split:
     shl bx, 1
     shl bx, 1
     add bx, wm_clip_tab         ; BX -> the last rect
-    push si
     mov di, si
     mov si, bx
     call wm_cpy4
-    pop si
 
     mov ax, [wm_cl_rx1]         ; above: full width, r.y1 .. o.y1-1
     mov bx, [wm_cl_ry1]
@@ -6848,12 +6807,7 @@ wm_clip_split:
     mov cx, [wm_cl_rx2]
     call wm_clip_add            ; ...whose CF is the answer, as each jc
 .full:                          ; above already carried it
-    pop di
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_di
 
 ; -----------------------------------------------------------------------------
 ; wm_clip_add - internal: append a fragment to the list if it is non-empty
@@ -8453,10 +8407,7 @@ wm_band:
     stc                         ; the reference build does not do this, and
     ret                         ; says so rather than half-doing it
 %else
-    push ax
-    push bx
-    push cx
-    push si
+    call kent_di                ; (kernel size pass 15)
     cmp al, 3
     ja .no
     cmp cx, 255
@@ -8484,8 +8435,7 @@ wm_band:
     call wm_su_drop             ; ...and changed, whatever is banked is laid
     clc                         ; out for a different set of fragments
 .ok:                            ; (`je` arrives with CF = 0 already)
-    pop si
-    jmp kret_cx
+    jmp kret_di
 .no:
     stc
     jmp short .ok
@@ -9058,11 +9008,7 @@ wm_su_owed:
 ; covered case has to be answered HERE.
 ; -----------------------------------------------------------------------------
 wm_chrome_clip:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+    call kent_di                ; (kernel size pass 15: DI, the input, kept too)
     call wm_clip_clear
     mov bx, di
     call wm_obscured
@@ -9104,7 +9050,7 @@ wm_chrome_clip:
                                 ; here is one a background painter would have
                                 ; skipped, and here it is one this pass owes
 .out:
-    jmp kret_si                 ; (`pop` writes no flags, so the answer above
+    jmp kret_di                 ; (`pop` writes no flags, so the answer above
                                 ; survives to the caller's branch)
 
 ; -----------------------------------------------------------------------------
@@ -10866,12 +10812,7 @@ wm_draw_shadow:
 
 wm_draw_win:
     KFZ 24                      ; one window's frame and content
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kent_di                ; (kernel size pass 15)
     mov di, bx                  ; DI = window ptr for the duration
 %ifndef REDRAWFULL
     mov byte [wm_su_bok], 0     ; no band has been put back in THIS draw yet

@@ -1929,10 +1929,7 @@ ui_drag:
 ; -----------------------------------------------------------------------------
 %ifndef NODRAGCACHE
 ui_drag_phase:
-    push ax
-    push bx
-    push cx
-    push si
+    call kent_di                ; (kernel size pass 15)
     mov si, bx
     mov cx, [si + W_X]          ; the drop as the clamps left it, banked - x
                                 ; ALONE, because x alone is what moves below
@@ -1975,8 +1972,7 @@ ui_drag_phase:
                                 ; CX, which is why the bank survives the call
 %endif
 .out:
-    pop si
-    jmp kret_cx
+    jmp kret_di
 
 %endif
 
@@ -2094,15 +2090,16 @@ ui_grow:
                                 ; kernel is about to take 7px off is not a
                                 ; negotiation. wm_snap_win below stays the
                                 ; backstop for one that answers with its own
-    push cx                     ; SPEC.md 11.90.3: the rect BEFORE it changes,
-    lea si, [bx + W_X]          ; because the repaint at the bottom has to tell
-    mov di, ui_rzx              ; a pure SHRINK from anything else - and the
-    mov cx, 4                   ; record is rewritten between here and there by
-    push ds                     ; wm_dock_snap, wm_land_fit and wm_snap_win,
-    pop es                      ; any of which can move the origin. W_X..W_H
-    cld                         ; into ui_rzx..ui_rzh, four words (the %if
-    rep movsw                   ; under the .bss); SI and DI are dead here
-    pop cx
+    mov di, ui_rzx              ; SPEC.md 11.90.3: the rect BEFORE it changes,
+    call wm_bank4               ; because the repaint at the bottom has to tell
+                                ; a pure SHRINK from anything else - and the
+                                ; record is rewritten between here and there by
+                                ; wm_dock_snap, wm_land_fit and wm_snap_win,
+                                ; any of which can move the origin. W_X..W_H
+                                ; into ui_rzx..ui_rzh, four words (the %if
+                                ; under the .bss), through wm.inc's banker,
+                                ; which keeps CX and SI (kernel size pass 15:
+                                ; -10, for the call and its pushes)
     call wm_ask_size            ; the window gets a say BEFORE the record
     mov [bx + W_W], cx          ; changes (SPEC.md 11.1): it answers with the
     mov [bx + W_H], dx          ; size it will take, per axis, and by then

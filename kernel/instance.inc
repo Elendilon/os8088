@@ -1234,10 +1234,7 @@ inst_fhome_idx:
 ; know it.
 ; -----------------------------------------------------------------------------
 inst_set_name_x:
-    push ax
-    push cx
-    push si
-    push di
+    call kent_di                ; (kernel size pass 15)
     add di, I_NAME
     mov byte [di+15], 0         ; the terminator FIRST, so a 16-byte source
     mov cx, 15                  ; with no room for a NUL still terminates
@@ -1250,11 +1247,7 @@ inst_set_name_x:
     mov [di], al
     inc di
     loop .copy
-    pop di
-    pop si
-    pop cx
-    pop ax
-    ret
+    jmp kret_di
 
 ; -----------------------------------------------------------------------------
 ; inst_bind_win - attach a window to a record and claim wm_owner

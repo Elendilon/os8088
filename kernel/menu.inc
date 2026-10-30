@@ -681,12 +681,8 @@ menu_relayout:
 ; Close Window is already an item of its own File menu (SPEC.md 12.3).
 ; -----------------------------------------------------------------------------
 menu_ab_cell:
-    push ax
-    push bx
-    push cx
-    push si
-    push di
-    push es
+    call kent_di                ; (kernel size pass 15: kent_di and ES, popped
+    push es                     ; ahead of kret_di)
     xor ax, ax                  ; AX is wm_about_get's to fill below
     mov [menu_abcell], ax
     mov bx, [menu_win]
@@ -704,9 +700,10 @@ menu_ab_cell:
     call menu_ab_cat
     mov byte [di], 0
     pop di
-
-    mov bx, [menu_win]          ; --- the items: About if it is offered, then
-    call wm_about_get           ; Close, which every application gets (12.7)
+                                ; --- the items: About if it is offered, then
+    call wm_about_get           ; Close, which every application gets (12.7):
+                                ; BX is still [menu_win] - neither copy, menu_es
+                                ; nor KES touches it (kernel size pass 15)
     xor bx, bx                  ; BX = Close's index
     or ax, ax
     jz .noab
@@ -742,9 +739,7 @@ menu_ab_cell:
     inc word [menu_nbar]
 .out:
     pop es
-    pop di
-    pop si
-    jmp kret_cx
+    jmp kret_di
 
 ; -----------------------------------------------------------------------------
 ; menu_ab_cat - append a NUL string to a buffer (internal to menu_ab_cell)
