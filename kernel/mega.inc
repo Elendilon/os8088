@@ -8227,8 +8227,9 @@ MX_NBLK     equ 96                  ; entries (KERN-MEGA-PLAN 14.49): every
                                     ; Scribe, the Video Player, Paint,
                                     ; Sheet, Tracker, Note Pad, TexPad,
                                     ; Calculator), where 24 ran out; a full
-                                    ; INST_MAX of twelve is ~60. 8 bytes of
-                                    ; LOW_SEG each, none of the segment
+                                    ; INST_MAX of twelve is ~60. MX_BLKSZ
+                                    ; (10) bytes of LOW_SEG each, none of the
+                                    ; segment
 
 ; mega_xminit - the pool behind the cells, from mega_enter
 section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
@@ -9888,16 +9889,6 @@ mx_relallf:
 ; every entry is far and reached from .cold, and its .text helpers through
 ; their four-byte far doors
 section .cold
-; mega_claimhf - FAR (osapi_mem_claim / _hi, `.cold`): A CLAIM ABOVE 1MB for a
-; package whose header says OS88_HIGHMEM (KERN-MEGA-PLAN 13.6, decision 14.8).
-; in:  AX = KB, ES = the caller. out: CF = 0, DX = a DATA selector whose
-;      descriptor covers exactly those AX KB of a pool block owned 0A0h | slot;
-;      CF = 1 not taken here - not protected mode, not a package, no OS88_HIGHMEM
-;      in its header, 0 or more than 64KB, or no room or no LDT entry - and the
-;      caller goes on to the conventional heap exactly as before. The selector
-;      lives in the block's MX_SEL (OSAPI_XMEM_SEL's word), so mx_free and the
-;      instance's teardown (mx_relinst) give it back with the block. AX and
-;      every other register kept
 ; -----------------------------------------------------------------------------
 ; mega_gatef - FAR, in REAL MODE from mega_enter (.cold is still conventional
 ; then, and this is reached on an 8088 too, so it is 8086 code): WHETHER THE
@@ -11010,6 +11001,16 @@ mx_kblin:
     ret
 
 section .cold                   ; (KERN-MEGA-SEGMENTS-PLAN: back from .mega)
+; mega_claimhf - FAR (osapi_mem_claim / _hi, `.cold`): A CLAIM ABOVE 1MB for a
+; package whose header says OS88_HIGHMEM (KERN-MEGA-PLAN 13.6, decision 14.8).
+; in:  AX = KB, ES = the caller. out: CF = 0, DX = a DATA selector whose
+;      descriptor covers exactly those AX KB of a pool block owned 0A0h | slot;
+;      CF = 1 not taken here - not protected mode, not a package, no OS88_HIGHMEM
+;      in its header, 0 or more than 64KB, or no room or no LDT entry - and the
+;      caller goes on to the conventional heap exactly as before. The selector
+;      lives in the block's MX_SEL (OSAPI_XMEM_SEL's word), so mx_free and the
+;      instance's teardown (mx_relinst) give it back with the block. AX and
+;      every other register kept
 mega_claimhf:
     push ax
     push bx
@@ -13634,8 +13635,9 @@ mx_tab_end  equ mx_tab + MX_NBLK * MX_BLKSZ ; 14.49): in LOW_SEG beside mem_tab,
                                     ; kernel segment. Zeroed by mega_xminit:
                                     ; .lowbss is not zero at boot
 mega_pm     resb 1                  ; 1 = protected mode, for .cold (KDATAR_C):
-                                    ; .lowbss is zeroed, which is the right
-                                    ; answer before mega_enter
+                                    ; .lowbss is NOT zeroed, so kmain stores
+                                    ; the 0 that is the answer before
+                                    ; mega_enter, beside [mega_seg0]
 mega_ldte   resw 1                  ; [mega_ldtend] where any DS reads it: the
 mega_ldtl   resw 1                  ; allocator scans' end, and that less one
                                     ; entry (mega_layoutf, MC7's step 6)
