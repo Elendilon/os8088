@@ -7208,7 +7208,9 @@ mega_fdmkf:
 ; ISR, IRR, the 765's MSR, the DIR. Line 2 (rows 64-71): the interrupted
 ; SS, the SP above the IRQ's frame and the eight words there. Line 3 (rows
 ; 72-79): every IVT vector whose segment is the interrupted CS, up to
-; twelve - the door real mode came in by. mega_fdson / mega_fdsoff are NEAR, real
+; twelve - the door real mode came in by. Line 4 (rows 80-87): the
+; interrupted AX BX CX DX SI DI BP DS ES. Line 5 (rows 88-95): the sixteen
+; bytes at CS:IP. mega_fdson / mega_fdsoff are NEAR, real
 ; mode, IF = 0, DS = KERNEL_SEG; they preserve every register
 ; -----------------------------------------------------------------------------
 mega_fdson:
@@ -7359,6 +7361,39 @@ mega_fdsamp:                        ; IRQ0 in real mode, inside the BIOS
     mov byte [di], 0xFE
     mov si, mega_fdsbuf
     mov di, 72 * 80
+    call mega_fdhex
+    ; --- line 4 (rows 80-87): the interrupted AX BX CX DX SI DI BP DS ES -
+    ; a string instruction's count, source and destination, if that is what
+    ; holds the CPU at one IP
+    push ds
+    pop es
+    mov di, mega_fdsbuf
+    mov si, 16                      ; [bp+16] AX ... down to [bp+0] ES
+.reg:
+    mov ax, [bp+si]
+    call .hw
+    dec si
+    dec si
+    jns .reg
+    mov byte [di], 0xFE
+    mov si, mega_fdsbuf
+    mov di, 80 * 80
+    call mega_fdhex
+    ; --- line 5 (rows 88-95): the sixteen bytes at CS:IP, to disassemble
+    push ds
+    pop es
+    mov di, mega_fdsbuf
+    push ds
+    lds si, [bp+18]                 ; DS:SI = the interrupted CS:IP
+    mov cx, 16
+.code:
+    lodsb
+    call .hb
+    loop .code
+    pop ds
+    mov byte [di], 0xFE
+    mov si, mega_fdsbuf
+    mov di, 88 * 80
     call mega_fdhex
     pop es
     pop ds

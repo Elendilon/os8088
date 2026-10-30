@@ -12898,3 +12898,27 @@ caller. Line 3 (rows 72-79) is every IVT vector whose SEGMENT is the
 interrupted CS, up to twelve: the door real mode came in by. Under QEMU,
 whose loop is SeaBIOS's own, line 3 lists F000's vectors 00-0B, as it
 should.
+
+**Fifth field reading (owner, 2026-10-30)**: line 1 `55 1254 09AA 0217 80
+00 D2 00 98 01 00 80 7F` (as before). Line 2: SS 0EE0, SP 1EEC, then `02F0
+1002 01B4 C400 03AC 0100 6000 0000`. Line 3: `27 01 02 03 04 05 06 07 08 09
+0A 0E` and a stray `B` past the end.
+
+What it says, as far as it goes:
+
+- Line 3 has TWELVE vectors whose segment is 1254h, CPU exception vectors
+  01-07 among them, which nothing hooks. It changed between paints (the `B`
+  is a longer earlier line's tail, and `27` before `01` cannot be one
+  ascending scan of a constant table). So the IVT is being WRITTEN while the
+  machine sits there. With line 1's IP never moving, that is the shape of a
+  `rep movs`/`rep stos`, which an interrupt resumes at the same IP, running
+  over low memory.
+- Line 2's `01B4 C400` reads as a far return to C400:01B4, an option ROM's
+  address: plausibly the PicoMEM's ROM calling the code it is caught in.
+
+Not yet known: what the instruction at 1254:09AA is, and what it is copying
+or filling. The sampler's lines 4 and 5 ask exactly that: the interrupted
+AX BX CX DX SI DI BP DS ES (a string instruction's count, source and
+destination), and the sixteen bytes at CS:IP. Under QEMU, line 5 reads `F3
+90 FA FC` at SeaBIOS's F000:8A2A, `pause` in a spin-wait, so the dump is
+reading the right place.
