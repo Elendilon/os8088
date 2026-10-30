@@ -12880,3 +12880,21 @@ since mega.inc is not in them.
 Verified: QEMU boots the fixed kern_mega and an empty A: still falls back to
 the BIOS and returns. QEMU has no PicoMEM, so the freeze itself is the
 Victory's to confirm: video through the PicoMEM SB, then the empty drive.
+
+**Fourth field reading (owner, 2026-10-30): the capture fix did NOT end it.**
+On a8705278, a video and then the empty drive froze the same way, with the
+sampler again at **1254:09AA** (`72 1254 09AA 0217 80 00 B5 00 98 01 00 80
+7F`). The selector reading stands, but the door is not one of the vectors
+`mega_capon` takes (0Ah-0Fh, 22h-27h, 33h). The likelier one is a vector
+the BIOS's diskette code calls itself, `int 15h` AH=90h/91h above all, or
+one a ROM chains to. The capture stays: it closes a real hole of the same
+kind, which pmbox's mega leg (the card's own firmware, all checks green)
+shows breaks nothing. The next disk asks the machine which vector it is.
+
+**The sampler's two new lines** (still MEGADIAG only): line 2 (rows 64-71)
+is the interrupted SS, the SP above the IRQ's frame and the eight words
+there, the looping code's own stack, whose return addresses name its
+caller. Line 3 (rows 72-79) is every IVT vector whose SEGMENT is the
+interrupted CS, up to twelve: the door real mode came in by. Under QEMU,
+whose loop is SeaBIOS's own, line 3 lists F000's vectors 00-0B, as it
+should.

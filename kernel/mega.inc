@@ -7205,7 +7205,10 @@ mega_fdmkf:
 ; BIOS that never returns is still sampled on every tick - the line says
 ; WHERE it is, and its count says whether ticks still come. Fields, spaces
 ; between: count, CS, IP, FLAGS, 40:3E 40:3F 40:40 40:41, the master IMR,
-; ISR, IRR, the 765's MSR, the DIR. mega_fdson / mega_fdsoff are NEAR, real
+; ISR, IRR, the 765's MSR, the DIR. Line 2 (rows 64-71): the interrupted
+; SS, the SP above the IRQ's frame and the eight words there. Line 3 (rows
+; 72-79): every IVT vector whose segment is the interrupted CS, up to
+; twelve - the door real mode came in by. mega_fdson / mega_fdsoff are NEAR, real
 ; mode, IF = 0, DS = KERNEL_SEG; they preserve every register
 ; -----------------------------------------------------------------------------
 mega_fdson:
@@ -7304,6 +7307,58 @@ mega_fdsamp:                        ; IRQ0 in real mode, inside the BIOS
     mov byte [di], 0xFE             ; the end
     mov si, mega_fdsbuf
     mov di, 56 * 80                 ; row 56, column 0
+    call mega_fdhex
+    ; --- line 2 (rows 64-71): the interrupted SS and SP, then the eight
+    ; words above the IRQ's frame - the looping code's own stack, whose
+    ; return addresses say who called into it
+    push ds
+    pop es
+    mov di, mega_fdsbuf
+    mov ax, ss
+    call .hw
+    lea ax, [bp+24]
+    call .hw
+    mov cx, 8
+    lea si, [bp+24]
+.stk:
+    mov ax, [ss:si]
+    call .hw
+    inc si
+    inc si
+    loop .stk
+    mov byte [di], 0xFE
+    mov si, mega_fdsbuf
+    mov di, 64 * 80
+    call mega_fdhex
+    ; --- line 3 (rows 72-79): every IVT vector whose SEGMENT is the
+    ; interrupted CS - the door real mode came through - up to twelve
+    push ds
+    pop es
+    mov di, mega_fdsbuf
+    mov dx, [bp+20]                 ; the interrupted CS
+    push ds
+    xor ax, ax
+    mov ds, ax
+    xor si, si
+    mov cx, 256
+    mov bl, 12
+.ivt:
+    cmp [si+2], dx
+    jne .ivn
+    mov ax, si
+    shr ax, 1
+    shr ax, 1                       ; the vector number
+    call .hb
+    dec bl
+    jz .ivd
+.ivn:
+    add si, 4
+    loop .ivt
+.ivd:
+    pop ds
+    mov byte [di], 0xFE
+    mov si, mega_fdsbuf
+    mov di, 72 * 80
     call mega_fdhex
     pop es
     pop ds
@@ -7486,7 +7541,7 @@ mega_fdsold dw 0, 0                 ; the BIOS's IRQ0, while sampled
 mega_fdson_ db 0                    ; 1: the sampler is installed
 mega_fdsn   db 0                    ; ticks sampled this boot
 mega_fdvs   times 7 db 0            ; the VGA registers mega_fdvon banked
-mega_fdsbuf times 48 db 0           ; the line, as glyph numbers
+mega_fdsbuf times 64 db 0           ; a line, as glyph numbers
 %endif
 mega_fdoff  db 0                    ; 1: switched off for the session
 mega_fdfail db 0                    ; fallbacks in a row
