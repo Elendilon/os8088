@@ -1910,39 +1910,36 @@ asc_use_x:
     add di, 32
     loop .rfent
     jmp short .rfsec
-.noclaim:                       ; the claim refused, with the cluster and the
-    pop dx                      ; sectors still banked: off the frame, and the
-    pop ax                      ; same "no cache" as every refusal here
-    jmp short .rfno
 .rffound:
     cmp dx, ASC_KB*2            ; ...and it must FIT (SPEC.md 54.7.1). Every
     ja .out                     ; byte off a disk is hostile (SPEC.md 18.2):
                                 ; ASC_KB is the LARGEST file this build
                                 ; writes, and anything past it is refused
                                 ; rather than read
-    push ax                     ; the first cluster...
-    push dx                     ; ...and the sectors dsk_read_chain is about
-                                ; to fill: the ONLY bound on what the rows
-                                ; below may say
+    xchg ax, si                 ; SI = the first cluster, CX = the sectors
+    mov cx, dx                  ; dsk_read_chain is about to fill - the ONLY
+                                ; bound on what the rows below may say. HELD
+                                ; IN REGISTERS, not pushed: mem_claim keeps
+                                ; every register but DX, mem_movable all of
+                                ; them, so a refusal needs no frame to unwind
+                                ; (kernel size pass 15)
     mov ax, dx                  ; THE CLAIM IS THE FILE'S SIZE (SPEC.md
     inc ax                      ; 54.7.7), not the largest a file may be: a
     shr ax, 1                   ; disk of a few programs reads a 1KB cache
     mov bx, MEM_K_ASC           ; into 1KB. DX <= ASC_KB*2, so AX >= 1
     call mem_claim_x
-    jc .noclaim                 ; refused: tier 2, every lookup misses
+    jc .rfno                    ; refused: tier 2, every lookup misses
     mov [asc_seg], dx
+    mov es, dx                  ; ES:BX = the claim for the read
     mov ax, asc_reloc           ; ...and MOVABLE (SPEC.md 66.5.6), a
     call mem_movable_x          ; WITHIN-CALL requirement: dsk_read_chain
                                 ; reaches the sector cache's own claims and
                                 ; those can compact (SPEC.md 18.95). BX is
                                 ; still MEM_K_ASC, mem_claim preserving it
-    pop dx
-    pop ax                      ; the cluster back for the read
-    push dx
-    mov es, [asc_seg]
-    xor bx, bx
+    xchg ax, si                 ; the cluster back for the read...
+    mov dx, cx                  ; ...and the sectors, which dsk_read_chain
+    xor bx, bx                  ; keeps (it clobbers AL alone)
     call dsk_read_chain_x         ; ES:BX = the claim
-    pop dx                      ; (pop leaves CF alone)
     jc .out
     mov es, [asc_seg]
     mov si, asc_s_magic         ; 'OS88AC' AND THE VERSION BYTE - the
@@ -2471,7 +2468,8 @@ asc_reloc:
 asc_reloc   equ mem_rr_none
 %endif
 
-asc_seg:  dw 0                  ; the claim, 0 = none (refused, or not yet)
+                                ; (asc_seg, the claim, is memory.inc's
+                                ; mem_rr_lone: kernel size pass 15)
 asc_n:    dw 0                  ; app rows in it, 0 = no usable cache
 asc_ne:   dw 0                  ; ...and association rows
 asc_vol:  db 0xFF               ; whose cache it holds, 0xFF = nobody's

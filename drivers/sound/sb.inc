@@ -234,10 +234,9 @@ sbl_dsp_wr:
     loop .poll
     stc
     jmp .out
-.ok:
+.ok:                            ; (CF = 0: the TEST cleared it)
     mov al, ah
     out dx, al                  ; 2xCh is also the write port
-    clc
 .out:
     pop dx
     pop cx
@@ -550,6 +549,15 @@ sbl_hdma_auto:
     pop ax
     ret
 
+; --- SBL_PRO: MIXER-ONLY (SPEC.md 34.15.1) ------------------------------
+; An SB Pro stereo stream's open and close: the only code in this file that
+; touches the CT1345, and reached only through a stream verb 11 accepted as
+; stereo - which it does only against SND_CAP_STEREO, which snd_sb_pub gives
+; a DSP 3.xx only with [mix_kind] = 2. So it lives in the MIXER's run (sound.asm
+; expands it after mixer.inc, between snd_keep and snd_keepmix) and a machine
+; with no mixer hands it back with the rest. sbl_hw_start and sbl_stop_stream
+; are its two doors, and t_sndonce names them.
+%macro SBL_PRO 0
 ; -----------------------------------------------------------------------------
 ; sbl_pro_st - an SB Pro STEREO stream's two preliminaries (SPEC.md 34.5.5)
 ; in:  the TC already sent; [sbl_xoff]/[sbl_xpage] = the cycle; IF = 1, and
@@ -606,6 +614,20 @@ sbl_pro_st:
     pop bx
     pop ax
     ret
+
+; sbl_pro_end - mixer 0Eh back to the byte sbl_pro_st found, at an SB Pro
+; stereo stream's close (sbl_stop_stream, behind [sbl_pst]). Clobbers AX
+sbl_pro_end:
+    mov byte [sbl_pst], 0
+    mov ah, 0x0E
+    mov al, [sbl_m0e]
+    pushf                       ; (an index/data pair: the volume popup's
+    cli                         ; writes must not land between the two)
+    call mix_wr
+    popf
+    ret
+sbl_m0e:      db 0              ; mixer 0Eh as sbl_pro_st found it
+%endmacro
 
 ; sbl_dsp_wr3 - AL, then BL, then BH, to the DSP: a command and its 16-bit
 ; operand low byte first. Every register preserved (flags not)
@@ -1001,10 +1023,9 @@ sbl_grant_alloc:
 .claim:
     mov [sbl_gr_off+bx], si
     mov [sbl_gr_size+bx], cx
-    mov al, dh
-    mov ah, 0
-    mov [sbl_gr_inst+bx], ax    ; word store keeps the record scannable whole
-    mov word [sbl_gr_act+bx], 1
+    mov al, dh                  ; in use, and whose: the owner in the low
+    mov ah, 1                   ; byte, 1 in the high so the word is never 0
+    mov [sbl_gr_act+bx], ax     ; (the kernel's own 0xFF included)
     popf
     pop ax                      ; discard the saved SI: the grant offset is
     clc                         ; the output (AX is dead on CF = 0)
@@ -1053,7 +1074,7 @@ sbl_grant_find:
     je .next
     cmp [sbl_gr_off+bx], si
     jne .next
-    cmp [sbl_gr_inst+bx], dh
+    cmp [sbl_gr_act+bx], dh
     jne .next
     clc
     ret
@@ -1088,7 +1109,7 @@ sbl_grant_chk:
 .g:
     cmp word [sbl_gr_act+bx], 0
     je .next
-    cmp [sbl_gr_inst+bx], dh
+    cmp [sbl_gr_act+bx], dh
     jne .next
     mov di, [sbl_gr_off+bx]
     cmp si, di
@@ -1202,12 +1223,9 @@ sbl_v_fmt:
 ; -----------------------------------------------------------------------------
 sbl_v_busy:
     mov [sbl_clip], dl          ; what the kernel is about to do...
-    xor ax, ax
-    cmp byte [sbl_str_act], 0   ; ...and what we already are
-    je .out
-    inc ax
-.out:
-    clc
+    mov al, [sbl_str_act]       ; ...and what we already are: the byte is
+    cbw                         ; 0 or 1 (every store to it is one of the
+    clc                         ; two), so it IS the answer
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1236,11 +1254,10 @@ sbl_hcheck:
     cmp byte [sbl_str_act], 1
     jne .st
     cmp ah, [sbl_gen]
-    jne .st
-    clc
-    ret
+    je .r                       ; (an EQUAL compare leaves CF = 0)
 .st:
     stc
+.r:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1527,32 +1544,22 @@ sbl_v_open:
     dec ax
     mov [sbl_xcnt], ax          ; 2 halves - 1
 .dset:
-    mov [sbl_str_off], si       ; the stream record (not yet published)
-    mov [sbl_total], cx
+    mov [sbl_total], cx         ; the stream record (not yet published)
     call OSAPI_CPU_INFO         ; AH = the flags: under CPU_F_PM the line is
     and ah, CPU_F_PM            ; masked across every BIOS call, so the
     mov [sbl_dpm], ah           ; block IRQ may read the 8237 (34.5.2.2)
     xor ax, ax
     mov [sbl_dpos], ax          ; the chip starts at the ring's offset 0
-    mov [sbl_fed], ax
-    mov [sbl_consumed], ax
     mov [sbl_play], al
     mov [sbl_valid], ax         ; both halves
-    mov [sbl_paused], al
-    mov [sbl_str_dir], al       ; an OUTPUT stream (SPEC.md 34.6)
-    mov [sbl_str_state], al     ; SBL_ST_PLAY
-%ifdef PICOMEM
-    mov byte [pm_rchk], PM_RCHK ; pm_runaway asks again (SPEC.md 34.10.5)
-%endif
-    mov al, [sbl_oflags]        ; commit the ring flag into the record
-    and al, SND_OPENF_RING      ; (SPEC.md 34.5; sbl_rmask was set above)
-    mov [sbl_ring_on], al
-    inc byte [sbl_gen]
-    mov byte [sbl_str_act], 1   ; PUBLISH, on both paths, before anything
-                                ; acts: nothing can act on a published record
-                                ; yet - the ISR and the tick both wait on
-                                ; sbl_expect, armed only at .start, and no
-                                ; caller holds the new handle
+    mov ah, [sbl_oflags]        ; commit the ring flag into the record
+    and ah, SND_OPENF_RING      ; (SPEC.md 34.5; sbl_rmask was set above)
+    call sbl_rec                ; AL = 0: an OUTPUT stream (SPEC.md 34.6) -
+                                ; and PUBLISHED, on both paths, before
+                                ; anything acts: nothing can act on a
+                                ; published record yet - the ISR and the tick
+                                ; both wait on sbl_expect, armed only at
+                                ; .start, and no caller holds the new handle
     cmp byte [sbl_direct], 0    ; DIRECT: nothing to prime and nobody to
     jne .start                  ; pace - verb 0's CX >= one half is already
                                 ; the first block, and verb 1 is the rest
@@ -1706,26 +1713,38 @@ sbl_v_open_in:
     mov word [sbl_direct], 0x0101   ; DIRECT and EXTERNAL: sbl_unpin frees
                                 ; nothing, sbl_v_pause answers 7 (a record
                                 ; stream), and the ISR's input leg counts
-    mov [sbl_str_off], si       ; the stream record (not yet published)
-    xor ax, ax
-    mov [sbl_fed], ax
-    mov [sbl_consumed], ax      ; = bytes captured, free-running
-    mov [sbl_paused], al
-    mov [sbl_ring_on], al       ; input has no ring mode (SPEC.md 34.5)
-    mov [sbl_str_state], al     ; SBL_ST_PLAY
-%ifdef PICOMEM
-    mov byte [pm_rchk], PM_RCHK ; pm_runaway asks again (SPEC.md 34.10.5)
-%endif
-    inc ax
-    mov [sbl_str_dir], al       ; an INPUT stream (SPEC.md 34.6)
-    inc byte [sbl_gen]
-    mov [sbl_str_act], al       ; publish; there is no pace to keep - the
-                                ; reader owns the ring (SPEC.md 34.6.4)
+    mov ax, 1                   ; an INPUT stream (SPEC.md 34.6), and input
+    call sbl_rec                ; has no ring mode (SPEC.md 34.5); consumed
+                                ; = bytes captured, free-running. PUBLISHED;
+                                ; there is no pace to keep - the reader owns
+                                ; the ring (SPEC.md 34.6.4)
     mov byte [sbl_expect], 1    ; arm BEFORE the hardware starts - the
     call sbl_hw_start_in        ; sbl_v_open first-IRQ order, same race
     jmp sbl_v_open.opened       ; out: AH = handle, AL = 0
 .e7:
     jmp sbl_v_open.e7
+
+; -----------------------------------------------------------------------------
+; sbl_rec - the stream record both opens share, then PUBLISHED (act = 1, a
+;           new generation) - the store every open makes last
+; in:  AL = sbl_str_dir (0 output, 1 input), AH = sbl_ring_on, SI = the
+;      stream's offset; out: nothing; clobbers AX (flags)
+; -----------------------------------------------------------------------------
+sbl_rec:
+    mov [sbl_str_off], si
+    mov [sbl_str_dir], al
+    mov [sbl_ring_on], ah
+    xor ax, ax
+    mov [sbl_fed], ax
+    mov [sbl_consumed], ax
+    mov [sbl_paused], al
+    mov [sbl_str_state], al     ; SBL_ST_PLAY
+%ifdef PICOMEM
+    mov byte [pm_rchk], PM_RCHK ; pm_runaway asks again (SPEC.md 34.10.5)
+%endif
+    inc byte [sbl_gen]
+    mov byte [sbl_str_act], 1   ; PUBLISH
+    ret
 
 ; -----------------------------------------------------------------------------
 ; sbl_v_feed - verb 1: extend a progressively staged stream (SPEC.md 20.3)
@@ -1791,8 +1810,7 @@ sbl_v_feed:
     call sbl_resume             ; D4h (SPEC.md 34.5)
 .ok:
     popf
-    xor ax, ax
-    clc
+    xor ax, ax                  ; (CF = 0)
     ret
 .e7:
     popf
@@ -1801,6 +1819,7 @@ sbl_v_feed:
     ret
 .stale:
     popf
+.stale0:                        ; (sbl_v_close's, which holds no window)
     mov ax, 0xFFFF
     stc
     ret
@@ -1852,14 +1871,9 @@ sbl_v_pause:
 ; -----------------------------------------------------------------------------
 sbl_v_close:
     call sbl_hcheck
-    jc .stale
+    jc sbl_v_feed.stale0
     call sbl_stop_stream
-    xor ax, ax
-    clc
-    ret
-.stale:
-    mov ax, 0xFFFF
-    stc
+    xor ax, ax                  ; (CF = 0)
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1919,14 +1933,8 @@ sbl_stop_stream:
     mov [sbl_str_act], al       ; handles are stale from here
     popf
     cmp byte [sbl_pst], 0       ; an SB Pro stereo stream: mixer 0Eh back to
-    je .nopst                   ; the byte it held (SPEC.md 34.5.5)
-    mov [sbl_pst], al
-    mov ah, 0x0E
-    mov al, [sbl_m0e]
-    pushf                       ; (an index/data pair: the volume popup's
-    cli                         ; writes must not land between the two)
-    call mix_wr
-    popf
+    je .nopst                   ; the byte it held (SPEC.md 34.5.5) - in the
+    call sbl_pro_end            ; mixer's run, which [sbl_pst] proves is here
 .nopst:
     call sbl_unpin              ; the pool movable again, or the buffer freed
     cmp byte [sbl_hisp], 0
@@ -2141,58 +2149,7 @@ sbl_dleft:
 ; a parked .bss word could be overwritten by the next caller's wrapper
 ; while this caller sat preempted right here, and the rep movsb below
 ; would then WRITE into the wrong package's segment.
-; -----------------------------------------------------------------------------
-sbl_v_read:
-    push cx
-    push dx
-    push si
-    push di
-    push es
-    jcxz .ok                    ; nothing to copy is trivially fine
-    call sbl_grant_chk          ; range-check the SOURCE
-    jc .e7
-    mov es, bx                  ; ES:DI = the caller's destination, in the
-                                ; segment the slot wrapper threaded in BX -
-                                ; the staging copy IS the v3 boundary
-                                ; (SPEC.md 20.3/34.6; a package's DI is an
-                                ; offset in its OWN segment, never the
-                                ; kernel's)
-    cld
-.copy:                          ; IN CHUNKS, THE POOL SEGMENT RE-DERIVED PER
-    jcxz .ok                    ; CHUNK UNDER IF=0 (SPEC.md 66.5.5): the pool
-    mov ax, SBL_DCHUNK          ; is movable and this runs on the CALLER's
-    cmp cx, ax                  ; task, which the compactor's park handshake
-    jae .csz                    ; never asks - a worker preempted mid-copy
-    mov ax, cx                  ; would resume through a stale segment. A
-.csz:                           ; chunk cannot be preempted; between chunks
-    sub cx, ax                  ; the word is read again, and a compaction is
-    pushf                       ; atomic against this task (sch_lock)
-    cli
-    push cx
-    mov cx, ax
-    push ds
-    mov ds, [sbl_poolseg]       ; DS:SI = the grant source, in the POOL claim
-    SBL_MOVS                    ; pool:SI -> caller DI
-    pop ds
-    pop cx
-    popf
-    jmp .copy
-.ok:
-    xor ax, ax
-    clc
-    jmp .out
-.e7:
-    mov ax, 7
-    stc
-.out:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    ret
-
-; -----------------------------------------------------------------------------
+;
 ; sbl_v_stage - verb 6: copy caller data into a grant (SPEC.md 34.6)
 ;
 ; in:       SI = source offset in the CALLER's segment (BX, threaded
@@ -2212,40 +2169,68 @@ sbl_v_read:
 ; mid-stage into.
 ; -----------------------------------------------------------------------------
 sbl_v_stage:
+    mov bp, 1                   ; BP = 1: the pool is the DESTINATION. BP is
+    jmp short sbl_v_rw          ; ours: the kernel banks it round every
+                                ; driver call, and sbl_stream_op spent it
+sbl_v_read:
+    xor bp, bp                  ; BP = 0: the pool is the SOURCE
+; sbl_v_rw - verbs 5 and 6 are one body: the range check is on the pool's
+; side (SI for a read, DI for a stage) and the copy runs the other way.
+; DX is not touched, so it is not saved
+sbl_v_rw:
     push cx
-    push dx
     push si
     push di
     push es
-    jcxz sbl_v_read.ok          ; nothing to copy is trivially fine
+    jcxz .ok                    ; nothing to copy is trivially fine
     push si
-    mov si, di                  ; range-check the DESTINATION
+    or bp, bp
+    jz .chk                     ; a read range-checks the SOURCE...
+    mov si, di                  ; ...a stage the DESTINATION
+.chk:
     call sbl_grant_chk
     pop si
-    jc sbl_v_read.e7
+    jc .e7
     cld
-.copy:                          ; chunked exactly as sbl_v_read: the pool is
-    jcxz sbl_v_read.ok          ; movable and this is the caller's task
-    mov ax, SBL_DCHUNK          ; (SPEC.md 66.5.5)
-    cmp cx, ax
-    jae .csz
-    mov ax, cx
-.csz:
-    sub cx, ax
-    pushf
+.copy:                          ; IN CHUNKS, THE POOL SEGMENT RE-DERIVED PER
+    jcxz .ok                    ; CHUNK UNDER IF=0 (SPEC.md 66.5.5): the pool
+    mov ax, SBL_DCHUNK          ; is movable and this runs on the CALLER's
+    cmp cx, ax                  ; task, which the compactor's park handshake
+    jae .csz                    ; never asks - a worker preempted mid-copy
+    mov ax, cx                  ; would resume through a stale segment. A
+.csz:                           ; chunk cannot be preempted; between chunks
+    sub cx, ax                  ; the word is read again, and a compaction is
+    pushf                       ; atomic against this task (sch_lock)
     cli
-    mov es, [sbl_poolseg]       ; ES:DI = the grant, in the POOL claim -
-                                ; re-derived per chunk, with DS still ours
     push cx
     mov cx, ax
-    push ds
-    mov ds, bx                  ; the caller's segment (slot wrapper, BX):
-    SBL_MOVS                    ; the source pointer lives THERE since v3
-    pop ds                      ; callerseg:SI -> pool:DI
+    mov es, [sbl_poolseg]       ; a stage: ES:DI = the grant, in the POOL
+    push ds                     ; claim, and DS:SI the caller's (the segment
+    mov ds, bx                  ; the slot wrapper threaded in BX - the
+    or bp, bp                   ; staging copy IS the v3 boundary, SPEC.md
+    jnz .go                     ; 20.3/34.6) - a read, the two exchanged:
+    push ds                     ; DS:SI the pool, ES:DI the caller's own
+    push es                     ; segment (a package's DI is an offset in
+    pop ds                      ; its OWN segment, never the kernel's)
+    pop es
+.go:
+    SBL_MOVS
+    pop ds
     pop cx
     popf
-    jmp .copy                   ; (the exits are sbl_v_read's: the same five
-                                ; saves, the same two answers)
+    jmp .copy
+.ok:
+    xor ax, ax                  ; (CF = 0)
+    jmp short .out
+.e7:
+    mov ax, 7
+    stc
+.out:
+    pop es
+    pop di
+    pop si
+    pop cx
+    ret
 
 ; -----------------------------------------------------------------------------
 ; sbl_v_grant - verb 7: staging-pool grants (SPEC.md 20.3/34.6)
@@ -2290,7 +2275,7 @@ sbl_v_grant:
     popf
     call sbl_pool_put           ; ...and the pool itself if that was the last
     xor ax, ax                  ; grant. OUTSIDE the window: this frees
-    clc                         ; through the kernel, which takes its own
+                                ; through the kernel, which takes its own
     jmp .out
 .e7f:
     popf
@@ -2298,8 +2283,7 @@ sbl_v_grant:
 .alloc:
     call sbl_grant_alloc        ; with (force-freed at teardown, 34.3)
     jc .err                     ; AX already 7/8
-    xor ax, ax
-    clc
+    xor ax, ax                  ; (CF = 0)
     jmp .out
 .e7:
     mov ax, 7
@@ -2585,7 +2569,10 @@ sbl_tick:
     cmp byte [sbl_str_state], SBL_ST_PLAY
     jne .out
 %ifdef PICOMEM
-    call pm_runaway             ; a channel 1 racing at bus speed: mask it
+    cmp byte [pm_up], 0         ; only a card pm_init configured: pm_runaway
+    je .nopm                    ; is in the PicoMEM's run, which a machine
+    call pm_runaway             ; without one hands back (SPEC.md 34.15.1).
+.nopm:                          ; A channel 1 racing at bus speed: mask it
 %endif                          ; (SPEC.md 34.10.5)
     dec word [sbl_wd]
     jnz .out
@@ -2623,7 +2610,7 @@ sbl_release_inst:
 .g:
     cmp word [sbl_gr_act+bx], 0
     je .next
-    cmp [sbl_gr_inst+bx], al
+    cmp [sbl_gr_act+bx], al
     jne .next
     mov word [sbl_gr_act+bx], 0
 .next:
@@ -2754,9 +2741,7 @@ sbl_dma_get:
     pop dx
     pop cx
     pop ax
-    ret
-.ok:
-    clc
+.ok:                            ; (CF = 0: `jne` after a compare with 0)
     ret
 
 ; sbl_dma_put - free the double buffer if it is held. Clobbers nothing.
@@ -3084,9 +3069,6 @@ sbl_unhook:
     cmp byte [sbl_hooked], 0
     je .out
     call sbl_cell               ; mask the line first: no IRQ mid-teardown
-    in al, 0x21
-    or al, ch
-    out 0x21, al
     mov cx, 2000                ; DSP reset - the probe's own routine, the
     call sbl_f_reset            ; scan's per-base budget (~10ms of ISA reads)
     pushf                       ; restore the saved vector (ES:BX still
@@ -3169,13 +3151,10 @@ sbl_f_reset:
     in al, dx
     add dx, 4
     cmp al, 0xAA
-    je .yes
+    je .ret                     ; (an EQUAL compare: CF = 0)
 .next:
     loop .poll
     stc
-    jmp .ret
-.yes:
-    clc
 .ret:
     pop dx
     ret                         ; near: called from sbl_f_probe (same CS)
@@ -3197,10 +3176,7 @@ sbl_hook:
     push bx
     push cx
     push es
-    call sbl_cell
-    in al, 0x21                 ; mask...
-    or al, ch
-    out 0x21, al
+    call sbl_cell               ; mask...
     pushf                       ; ...save the old vector + install sbl_isr
     cli
     mov ax, sbl_isr
@@ -3222,8 +3198,9 @@ sbl_hook:
     ret
 
 ; -----------------------------------------------------------------------------
-; sbl_cell - ES = 0, BX = [sbl_irq]'s IVT cell, CH = its 8259 mask bit
-; clobbers: CL (flags) - sbl_hook's and sbl_unhook's one computation
+; sbl_cell - ES = 0, BX = [sbl_irq]'s IVT cell, CH = its 8259 mask bit, and
+; the line MASKED at the 8259 - the first thing both its callers do with it
+; clobbers: AL, CL (flags) - sbl_hook's and sbl_unhook's one computation
 ; -----------------------------------------------------------------------------
 sbl_cell:
     xor bx, bx
@@ -3235,6 +3212,9 @@ sbl_cell:
     add bl, 8                   ; IRQ n -> int 8+n
     shl bx, 1
     shl bx, 1
+    in al, 0x21
+    or al, ch
+    out 0x21, al
     ret
 
 
@@ -3780,10 +3760,13 @@ sbl_fmt:      db 0              ;   the open stream's SND_FMT_* bits: 0 for
 sbl_nfmt:     db 0              ; verb 11's held format, for...
 sbl_nfinst:   db 0              ; ...this instance's next verb 0
 sbl_prime:    db 0              ; 1 = the SB Pro stereo primer's IRQ is owed
-sbl_pst:      db 0              ; 1 = mixer 0Eh holds our stereo bits...
-sbl_m0e:      db 0              ; ...and this is the byte to put back
+sbl_pst:      db 0              ; 1 = mixer 0Eh holds our stereo bits
+                                ; (and sbl_m0e, in SBL_PRO, the byte to put back)
 sbl_ackp:     dw 0              ; the block IRQ's ACK port (sbl_attach)
-sbl_gr_act:   times SBL_GMAX dw 0   ; grants in use (occupancy IS these)
+sbl_gr_act:   times SBL_GMAX dw 0   ; grants in use (occupancy IS these): 0
+                                ; free, else 100h + the owning instance - a
+                                ; byte compare against the low half is the
+                                ; owner test, behind the word's own
 sbl_ze:                         ; --- end of the attach-time clear -----------
 %if sbl_ext - sbl_direct != 1 || sbl_hisp - sbl_wide != 1
   %error "sbl_v_open clears sbl_direct/sbl_ext and sbl_wide/sbl_hisp as words"
@@ -3826,6 +3809,6 @@ sbl_clip:     db 0              ; 1 = the kernel says a PCM_EXCL clip owns
                                 ; that can see both tiers
 
 sbl_gr_off:   times SBL_GMAX dw 0     ; staging grants (SPEC.md 34.6): offset,
-sbl_gr_size:  times SBL_GMAX dw 0     ;   size in bytes,
-sbl_gr_inst:  times SBL_GMAX dw 0     ;   owning instance (low byte)
+sbl_gr_size:  times SBL_GMAX dw 0     ;   size in bytes (the owner is in
+                                      ;   sbl_gr_act's low byte)
 %endmacro

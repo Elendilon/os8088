@@ -1791,12 +1791,11 @@ SBSTAMP := $(BUILD)/.sbpkg$(if $(SBDRAGOFF),-off$(SBDRAGOFF))$(if $(SBRATE),-r$(
 # **LZ4 IS THE DEFAULT AND SHIPS** (SPEC.md 20.13.5). It was a knob for one
 # cycle, tested in the field on the 360KB set, and it is now what every
 # shipped floppy carries - so `make` alone builds the compressed disks and
-# `make PKGZ=` builds the uncompressed ones. LZB is NOT shipped: it is ten
-# points better on ratio and four times slower to expand, and until somebody
-# has that trade measured on a 5150 the machine takes the fast one. Its knob
-# stays, on both sides (`make PKGZ=lzb COMPRESS=lzb`, or `zset ZFMT=lzb`),
-# because the whole point of a second format is that it can be added on top
-# later without the disk layout moving.
+# `make PKGZ=` builds the uncompressed ones. LZ4 is the DEFAULT format; LZB
+# (ten points better on ratio, four times slower to expand) ships too, for the
+# twenty package builds `LZBPKGS` names (SPEC.md 20.13.5), so the kernel keeps
+# both decoders. `make PKGZ=lzb COMPRESS=lzb` (or `zset ZFMT=lzb`) packs
+# everything with it.
 #
 # THE KERNEL HAS TO CARRY THE FORMAT, so pair it: `make PKGZ=lzb COMPRESS=lzb`.
 # PKGZ alone with the default kernel gives an apps disk of packages that will
@@ -2845,8 +2844,11 @@ endif
 # KERN_SMALL ALONE raises no alarm: it is the SHIPPED small-machine kernel
 # (SPEC.md 24.5.7), which `all` builds in its own sub-make, so the banner's
 # "rebuild with a plain make before cutting a release" would be wrong on every
-# plain `make`. Any other knob beside it still names both.
-ifneq ($(filter-out KERN_SMALL=%,$(KNOBS)),)
+# plain `make`. Any other knob beside it still names both. KERN_MEGA ALONE
+# is the same since it stopped being a knob build (KERN-MEGA-PLAN 14.126):
+# `make mega` is a normal build with a budget of its own, and the banner
+# fired on every one.
+ifneq ($(filter-out KERN_SMALL=% KERN_MEGA=%,$(KNOBS)),)
 	@echo "  *** BUILT WITH A KNOB: $(KNOBS)"
 	@echo "  *** It boots that way on every machine. Rebuild with a plain   ***"
 	@echo "  *** \`make\` before testing detection or cutting a release.      ***"
