@@ -41,6 +41,15 @@ FSX_RATE_MIN    equ 2048        ; the fastest divisor it takes: 582 Hz
 FSXF_REAL       equ 8           ; ...bit 3 (SPEC.md 53.2.3): the bracket in REAL
                                 ; mode on kern_mega - every other kernel takes
                                 ; the bit and strips it at the door
+; ...and its ANSWER, in SI on the way out (SPEC.md 53.2.3; mirrored in
+; apps/os88api.inc): real mode, or why the bracket ran in protected mode.
+; One test each at the door, in this order, so each lifts by itself
+FSXR_REAL       equ 0
+FSXR_KEEP       equ 1               ; FSXF_KEEPWORKER
+FSXR_SVC        equ 2               ; a TF_SERVICE task alive
+FSXR_EXTD       equ 3               ; EXTD.DRV loaded
+FSXR_SERIAL     equ 4               ; a SERIAL.DRV lease open
+FSXR_ROOM       equ 5               ; no conventional room for the copy
 SCH_RATE        equ FSXF_RATE + 1 ; [sch_fast]'s value while FSXF_RATE is armed:
                                 ; 5, outside sch_fast_on's 2..4 and not 0.
                                 ; fsx_run DERIVES it, and FSX_SUBTICK, from
@@ -271,8 +280,10 @@ fsx_run:
     cmp byte [ss:mega_pm], 0    ; door, so nothing below can refuse after the
     je .nreal                   ; claim is taken. In real mode already (a
     call MEGA_SEL_CODE:fsx_rprepf ; machine kern_mega could not switch) the
-    jc .fail                    ; bit is ignored, as on every other kernel
-.nreal:
+.nreal:                         ; bit is ignored, as on every other kernel.
+                                ; It never REFUSES (53.2.3): [fsx_rwhy] is
+                                ; FSXR_REAL and the bracket real, or the
+                                ; reason and the bracket goes on as today's
 %endif
     call fpg_finish             ; **NO KERNEL CHROME SURVIVES INTO A BRACKET**
                                 ; (SPEC.md 12.8.5.2). fpg_arm refuses once
@@ -504,6 +515,18 @@ fsx_run:
                                 ; The bracket WAS the user. CF is not read:
                                 ; the screen cannot be dark here, because
                                 ; entering a bracket took the input that lit it
+%ifdef KERN_MEGA
+    mov al, 0xFF                ; FSXF_REAL's ANSWER in the caller's SI
+    xchg al, [fsx_rwhy]         ; (SPEC.md 53.2.3), and the byte at rest
+    cmp al, 0xFF                ; again: FFh = not asked here, SI kept
+    je .nwhy
+    cbw                         ; (FSXR_* < 80h: AH = 0)
+    pop di                      ; kent_di's frame: [DI][SI]...
+    pop dx                      ; the caller's SI, answered instead (DX is
+    push ax                     ; kret_di's to pop back)
+    push di
+.nwhy:
+%endif
     clc
 .out:
     jmp kret_di
@@ -897,9 +920,14 @@ fsx_wait:
 %ifdef KERN_BIG
     cmp word [spk_seg], 0       ; ...EXCEPT under a sample ISR (SPEC.md
     je .fy                      ; 34.11): a yield spends its switch at IF = 0,
-    hlt                         ; and a loop of them loses the samples that
-    jmp short .fc               ; land there. hlt waits with IF = 1, and the
-.fy:                            ; rate period's own entry still switches
+.fh:                            ; and a loop of them loses the samples that
+    hlt                         ; land there. hlt waits with IF = 1, and the
+    jmp short .fc               ; rate period's own entry still switches
+.fy:
+ %ifdef KERN_MEGA
+    cmp byte [fsx_rmode], 0     ; ...and in a REAL-MODE bracket (SPEC.md
+    jne .fh                     ; 53.2.3), which has no scheduler to yield to:
+ %endif                         ; fsx_rtick counts [sch_subs] all the same
 %endif
     call task_yield             ; so the time we do not use is the worker's
 .fc:
@@ -1229,6 +1257,9 @@ fsx_rent    dw 0                ; across the drop: a 286's reset keeps no
 fsx_rmode   db 0                ; 1 = this bracket is a real-mode one. `.text`
                                 ; and not `.bss`: it is read on every bracket
                                 ; and must rest at 0 (SPEC.md 12.8.5.1)
+fsx_rwhy    db 0xFF             ; ...FSXR_*, the door's answer to FSXF_REAL,
+                                ; for the caller's SI at the foot; FFh at rest
+                                ; (not asked, or a kernel in real mode)
 
 ; fsx_rgone - mod_gone's answer, in REAL mode: EXTD.DRV's entry slots while a
 ; real-mode bracket runs. Unloaded, every slot names `.cold`'s mod_gone through
@@ -1369,19 +1400,30 @@ cpu 8086
 section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
 cpu 286
 ; -----------------------------------------------------------------------------
-; fsx_rprepf - FAR, fsx_run's door: the real-mode bracket's refusals and its
+; fsx_rprepf - FAR, fsx_run's door: the real-mode bracket's REASONS and its
 ; claim. in: PM, DS = KDATA, DI = the instance record, SI = the flags as
-; asked. out: CF = 1 refused and nothing taken; CF = 0 and [fsx_rmode] = 1,
-; [fsx_rseg] the paragraph the entry will run at and - when the region is
-; above 1MB - a conventional claim for its copy, both linears and the length
-; banked. Every register kept
+; asked. out: [fsx_rwhy] = FSXR_REAL, [fsx_rmode] = 1, [fsx_rseg] the
+; paragraph the entry will run at and - when the region is above 1MB - a
+; conventional claim for its copy, both linears and the length banked; or
+; [fsx_rwhy] = the first FSXR_* reason that holds and NOTHING taken: the
+; bracket goes on in protected mode (SPEC.md 53.2.3 - a fallback, never a
+; refusal, for a state the user is in). ONE TEST A REASON, in FSXR_*'s
+; order, so lifting one (MEGA-VIDEO-REALMODE-PLAN's owed list) deletes its
+; three lines and nothing else. Every register kept
 ; -----------------------------------------------------------------------------
 fsx_rprepf:
+    push ax                     ; AL = the reason, as each test is reached
+    mov al, FSXR_KEEP
     test si, FSXF_KEEPWORKER    ; one task runs in real mode: nothing to keep
-    jnz .no0
+    jnz .out
+    mov al, FSXR_EXTD
     cmp word [mod_tab + MOD_EXT * MODR_SIZE + MODR_SEG], 0
-    jne .no0                    ; ...nor can EXTD.DRV's image, above 1MB, be
+    jne .out                    ; EXTD.DRV's image, above 1MB, cannot be
                                 ; called (the extended desktop's second display)
+    mov al, FSXR_SERIAL
+    cmp word [ser_row], 0xFFFF  ; a SERIAL.DRV lease: the pointer's ISR far-
+    jne .out                    ; calls the module for the leased UART (SERFP)
+    mov al, FSXR_SVC
     pusha
     mov word [ss:fsx_rlow], 0   ; (`.lowbss` is not zeroed: .no reads it)
     mov bx, sch_tasks           ; ...and a driver's worker would never run
@@ -1394,6 +1436,9 @@ fsx_rprepf:
 .tn:
     add bx, T_SIZE
     loop .t
+    popa                        ; (AL the reason again, for every exit below)
+    mov al, FSXR_ROOM
+    pusha
     mov ax, [di+I_SPTR]
     call mega_selbase           ; DX:AX = the region's base
     jc .no
@@ -1435,8 +1480,8 @@ fsx_rprepf:
     mov [fsx_rseg], ax
     mov byte [fsx_rmode], 1
     popa
-    clc
-    retf
+    mov al, FSXR_REAL
+    jmp short .out
 .no:
     cmp word [ss:fsx_rlow], 0      ; (the claim's own base could not be read:
     je .no1                     ; it goes back)
@@ -1446,8 +1491,9 @@ fsx_rprepf:
     mov word [ss:fsx_rlow], 0
 .no1:
     popa
-.no0:
-    stc
+.out:
+    mov [fsx_rwhy], al
+    pop ax
     retf
 
 ; -----------------------------------------------------------------------------
@@ -1489,6 +1535,7 @@ fsx_rcopyf:
 ; VSEG's four and the video and font layer's (banked, mega_vwalk), [k_seg0]
 ; and CPU_F_PM (SPEC.md 53.2.3 step 3). Every register kept
 ; -----------------------------------------------------------------------------
+%define FSX_RKEEPN (fsx_rkeep_end - fsx_rkeep) ; fsx_rkeep's bytes
 fsx_rdownf:
     pusha
     push es
@@ -1529,9 +1576,80 @@ fsx_rdownf:
     mov si, fsx_rbank
     mov ax, fsx_rvdn
     call mega_vwalk
+%ifdef VID_EXT
+    mov ax, [vx_ep]             ; the VESA desktop's hook: VESA.DRV's code
+    mov [ss:fsx_rvxep], ax      ; half above 1MB, a selector real mode cannot
+    mov ax, [vx_ep+2]           ; follow - vx_null's `.text` answer for the
+    mov [ss:fsx_rvxep+2], ax    ; bracket (it draws nothing; no cell the
+    mov word [vx_ep], vx_null   ; table keeps reaches the hook, so this is the
+    mov word [vx_ep+2], KERNEL_SEG ; far slot's insurance, W1's EXTD lesson)
+%endif
+    ; THE TABLE (SPEC.md 53.2.3): banked whole in the park's scratch, then
+    ; every byte `stc`, a `retf` before each kept run and at the end, the
+    ; kept runs copied back and each twin a far jump - fsx_rkeep's list,
+    ; walked DOWN, so a `retf` written into a kept run's last byte by the run
+    ; above it is overwritten when that run is copied back
+    mov ax, MEGA_SEL_PSCR
+    mov es, ax
+    mov si, osapi_table
+    xor di, di
+    mov cx, OSAPI_TABLE_LEN
+    rep movsb
+    push ds
+    pop es                      ; ES = KDATA: the table's writable alias
+    mov di, osapi_table
+    mov cx, OSAPI_TABLE_LEN
+    mov al, 0xF9                ; stc
+    rep stosb
+    mov byte [osapi_table_end - 1], 0xCB ; retf
+    mov bx, FSX_RKEEPN          ; the list's bytes, walked down
+.keep:
+    sub bx, 6                   ; (BX = the row's offset in the list)
+    mov di, [cs:fsx_rkeep+bx]   ; the run's first cell
+    mov byte [di-1], 0xCB       ; ...the slide above it stops here
+    mov cx, [cs:fsx_rkeep+bx+2] ; its bytes, from the bank
+    mov si, di
+    sub si, osapi_table
+    push ds
+    mov ax, MEGA_SEL_PSCR
+    mov ds, ax
+    rep movsb
+    pop ds
+    mov ax, [cs:fsx_rkeep+bx+4] ; a TWIN: `jmp far KERNEL_SEG:twin` over the
+    or ax, ax                   ; cell's first five
+    jz .kn
+    mov di, [cs:fsx_rkeep+bx]
+    mov byte [di], 0xEA
+    mov [di+1], ax
+    mov word [di+3], KERNEL_SEG
+.kn:
+    or bx, bx
+    jnz .keep
     pop es
     popa
     retf
+
+; fsx_rkeep - THE REAL-MODE TABLE'S LIST (SPEC.md 53.2.3,
+; MEGA-VIDEO-REALMODE-PLAN 7.2): {dw first cell, dw bytes kept, dw twin}, in
+; table order, every run a pair of labels in the table itself (kernel.asm's
+; rmk_*) so a run is exactly its cells. Bytes 0 and a twin: the cell is a far
+; jump to a `.text` body. Everything not listed answers CF = 1
+fsx_rkeep:
+    dw rmk_1, rmk_1e - rmk_1, 0     ; OSAPI_WM_CONTENT
+    dw rmk_2, rmk_2e - rmk_2, 0     ; OSAPI_GET_TICKS, _SET_COLOR, _MOUSE
+    dw rmk_3, rmk_3e - rmk_3, 0     ; OSAPI_SND_CAPS
+    dw rmk_4, rmk_4e - rmk_4, 0     ; OSAPI_VIDEO
+    dw rmk_5, rmk_5e - rmk_5, 0     ; OSAPI_CPU_INFO
+    dw rmk_6, rmk_6e - rmk_6, 0     ; OSAPI_FONT_GLYPHS
+    dw rmk_7, rmk_7e - rmk_7, 0     ; OSAPI_FSX_MODE, _FSX_WAIT
+    dw rmk_8, rmk_8e - rmk_8, 0     ; OSAPI_KEY_DOWN, _FSX_SURF
+    dw rmk_9, rmk_9e - rmk_9, 0     ; OSAPI_WM_WAKE
+    dw rmk_10, rmk_10e - rmk_10, 0  ; OSAPI_FSX_PAGE
+    dw rmk_seg, 0, osapi_segr       ; OSAPI_SEG: the twin
+fsx_rkeep_end:
+%if OSAPI_TABLE_LEN > MPS_SIZE
+ %error "the real-mode bracket banks the API table in the park's scratch: MPS_SIZE must hold OSAPI_TABLE_LEN"
+%endif
 
 ; fsx_rvdn - mega_vwalk's step down: [DI] banked at [SI], SI on, and an LDT
 ; selector of the allocator's (mega_useg's over a frame buffer or a ROM,
@@ -1590,6 +1708,22 @@ fsx_rupf:
                                 ; copy of 08h-0Fh - which is what takes the
                                 ; real-mode tick off IRQ0's real-mode vector
                                 ; before the next reflection could take it
+    push ds                     ; THE TABLE back, whole, from the bank -
+    pop es                      ; before IF = 1, so no protected-mode caller
+    mov di, osapi_table         ; ever meets the real-mode one
+    xor si, si
+    mov cx, OSAPI_TABLE_LEN
+    push ds
+    mov ax, MEGA_SEL_PSCR
+    mov ds, ax
+    rep movsb
+    pop ds
+%ifdef VID_EXT
+    mov ax, [ss:fsx_rvxep]      ; ...and the VESA hook
+    mov [vx_ep], ax
+    mov ax, [ss:fsx_rvxep+2]
+    mov [vx_ep+2], ax
+%endif
     mov al, [mega_imr1]
     out 0x21, al
     mov al, [mega_imr2]
@@ -1638,5 +1772,8 @@ fsx_rlow    resw 1              ; ...the copy's claim (its data selector), 0
                                 ; = none: the region runs where it is
 fsx_rown    resw 1              ; ...and its owner, the instance's slot
 fsx_rexfp   resw 2              ; EXTD.DRV's slots' far pointer, mod_gone's
+%ifdef VID_EXT
+fsx_rvxep   resw 2              ; ...and [vx_ep], the VESA desktop's hook
+%endif
 section .text
 %endif

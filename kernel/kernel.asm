@@ -2309,11 +2309,14 @@ apic_wm_front:                    ; DOCK.DRV's door (SPEC.md 30.4)
     OSAPI_RSLOT wm_front           ; 0x0088
 
 apic_wm_content:                  ; cw_wm_content's door (kernel size pass 13)
+rmk_1:            ; (a real-mode bracket keeps it: fsx_rkeep)
     OSAPI_SLOT wm_content         ; 0x008E
+rmk_1e:           ; (a real-mode bracket keeps it: fsx_rkeep)
     OSAPI_SLOT wm_obscured        ; 0x0096
 apic_task_yield:
     OSAPI_SLOT task_yield         ; 0x009E
     OSAPI_SLOT task_sleep         ; 0x00A6
+rmk_2:            ; (a real-mode bracket keeps it: fsx_rkeep)
     OSAPI_ICELL 5                 ; 0x00AE
     mov ax, [cs:ticks]
     OSAPI_IEND
@@ -2322,12 +2325,15 @@ apic_osapi_set_color:
     MEGA_ICW gfx_color, al
     OSAPI_IEND
     OSAPI_SLOT osapi_mouse        ; 0x00B8
+rmk_2e:           ; (a real-mode bracket keeps it: fsx_rkeep)
     OSAPI_ICELL 5                 ; 0x00C0
     MEGA_ICW osapi_seed, ax
     OSAPI_IEND
     OSAPI_SLOT osapi_rand         ; 0x00C5
+rmk_3:            ; (a real-mode bracket keeps it: fsx_rkeep)
     OSAPI_RSLOT osapi_snd_caps     ; 0x00CD - sound (SPEC.md 34): what the PC
 apic_osapi_snd_tone:
+rmk_3e:           ; (a real-mode bracket keeps it: fsx_rkeep)
     OSAPI_SLOT osapi_snd_tone     ; 0x00D3   speaker can do, a tone, and a
     OSAPI_SLOT osapi_snd_play     ; 0x00DB   clip out of the caller's buffer
     OSAPI_XCELL osapi_snd_fm_x        ; 0x00E3 - FM verbs (SPEC.md 34.2). X: a
@@ -2366,7 +2372,9 @@ apic_wm_grow_paint:
     OSAPI_JCELL api_fdlg_open     ; 0x0124 - the Standard File dialog
                                   ;          (SPEC.md 38.6): N, for the
                                   ;          default name
+rmk_4:            ; (a real-mode bracket keeps it: fsx_rkeep)
     OSAPI_SLOT osapi_video        ; 0x0127 - runtime screen geometry (39.2)
+rmk_4e:           ; (a real-mode bracket keeps it: fsx_rkeep)
     OSAPI_RXCELL inst_pkg_spawn     ; 0x012F - worker tasks (SPEC.md 20.6): X,
                                   ;          the ownership fence needs to
                                   ;          know which segment is calling
@@ -2376,10 +2384,12 @@ apic_wm_clip_clear:
     OSAPI_SLOT wm_clip_clear      ; 0x0145
 apic_wm_clip_test:
     OSAPI_SLOT wm_clip_test       ; 0x014D
+rmk_5:            ; (a real-mode bracket keeps it: fsx_rkeep)
     OSAPI_ICELL 5                 ; 0x0155 - CPU tiers and memory above 1MB
     mov ax, [cs:cpu_tier]
     OSAPI_IEND
 apic_xm_caps:
+rmk_5e:           ; (a real-mode bracket keeps it: fsx_rkeep)
     OSAPI_RSLOT xm_caps            ; 0x015A   (SPEC.md 41): each body already
 apic_xm_alloc:
     OSAPI_RSLOT xm_alloc           ; 0x0160   answers its SPEC.md 20.3 contract
@@ -2468,12 +2478,14 @@ apic_wm_onmouseup:
     OSAPI_RCXCELL mmf_osapi_mem_free ; 0x01AA   X, same fence as the spawn
 apic_osapi_mem_avail:
     OSAPI_RCSLOT mmf_osapi_mem_avail ; 0x01B0
+rmk_6:            ; (a real-mode bracket keeps it: fsx_rkeep)
     OSAPI_RSLOT osapi_font_glyphs  ; 0x01B6 - the kernel's 8x8 glyph table
                                   ;          (SPEC.md 6): out DX:SI = the
                                   ;          table (it lives in LOW_SEG now -
                                   ;          the one-time amendment at the
                                   ;          body below), AL = first code,
                                   ;          AH = last, CX = bytes per glyph
+rmk_6e:           ; (a real-mode bracket keeps it: fsx_rkeep)
     OSAPI_ICELL 5                 ; 0x01BC - install the resize negotiator
                                   ;          (SPEC.md 11.1): BX = win, AX =
                                   ;          near proc. The other half of
@@ -2658,6 +2670,7 @@ apic_wm_snap:
                                   ;          inst_pkg_spawn's identity test on
                                   ;          the caller's DS. Does NOT return
                                   ;          until the app's proc does
+rmk_7:            ; (a real-mode bracket keeps it: fsx_rkeep)
     OSAPI_RSLOT fsx_mode           ; 0x023B - a foreign mode + its FSI info
                                   ;          block (SPEC.md 53.4): AL = FSXM
                                   ;          id, ES:DI = the caller's buffer
@@ -2669,6 +2682,7 @@ apic_wm_snap:
                                   ;          the body answers CF = 1. The line
                                   ;          is apps/os88gfx.inc's GFXE_LINE
                                   ;          now, committed through gfx_blit1
+rmk_7e:           ; (a real-mode bracket keeps it: fsx_rkeep)
     OSAPI_RCSLOT osapi_arg_file_x  ; 0x0249 - the document this instance was
                                   ;          launched to open (SPEC.md 54.5):
                                   ;          out CF=1 none; CF=0 with SI = its
@@ -2990,6 +3004,7 @@ apic_fpg_stepb:
                                   ;          Answers about BIOS-transport rows
                                   ;          alone: a driver's own rows are
                                   ;          the driver's to recognise
+rmk_8:            ; (a real-mode bracket keeps it: fsx_rkeep)
     OSAPI_SLOT kbd_down           ; 0x02FC - AL = a make scancode. out CF = 1
                                   ;          that key is DOWN right now, CF = 0
                                   ;          it is up; every register kept.
@@ -3022,6 +3037,7 @@ apic_fpg_stepb:
                                   ;          hard-code - and the second
                                   ;          display's own origin when the
                                   ;          bracket is over there
+rmk_8e:           ; (a real-mode bracket keeps it: fsx_rkeep)
     OSAPI_RCXCELL osapi_mem_movable_x ; 0x030C - X: DX = a claim of yours, AX = a
                                   ;          near proc in YOUR segment (0 pins
                                   ;          it again). out CF = 1 = no such
@@ -3205,6 +3221,7 @@ apic_drv_pkg_call:
                                   ;          merge and look for a duplicate)
 apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ; 66.4.3): the cell IS the shim, so no cw_
+rmk_9:            ; (a real-mode bracket keeps it: fsx_rkeep)
     OSAPI_SLOT wm_wake            ; 0x034F - BX = a window of yours: post an
                                   ;          EVT_WAKE for it (SPEC.md 74.1).
                                   ;          Any context - ISR- and worker-
@@ -3215,6 +3232,7 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          posted. The UI task pops it and
                                   ;          calls the handler below WITHOUT
                                   ;          the gfx lock
+rmk_9e:           ; (a real-mode bracket keeps it: fsx_rkeep)
     OSAPI_ICELL 5                 ; 0x0357 - BX = window, AX = a near proc in
                                   ;          YOUR segment (0 clears it): the
                                   ;          WAKE handler. Called SI = your
@@ -3457,6 +3475,7 @@ api_gfx_blitp:                    ; (named: SPEC.md 5.4.3.6's walk far-calls it)
                                   ;          - the collision CLAUDE.md asks to
                                   ;          be checked by hand, caught by the
                                   ;          merge and then by t_api_abi
+rmk_10:           ; (a real-mode bracket keeps it: fsx_rkeep)
     OSAPI_SLOT fsx_page           ; 0x03C5 - AL = a page index; shows it, and
                                   ;          waits for the retrace that latches
                                   ;          it. Bracket-only, exclusive task
@@ -3469,6 +3488,7 @@ api_gfx_blitp:                    ; (named: SPEC.md 5.4.3.6's walk far-calls it)
                                   ;          3B8h that does nothing until 3BFh
                                   ;          allows it, and neither is
                                   ;          derivable from the info block
+rmk_10e:          ; (a real-mode bracket keeps it: fsx_rkeep)
     OSAPI_RSLOT wm_noanim          ; 0x03CD - BX = a window of yours, between
                                   ;          OSAPI_WM_CREATE and
                                   ;          OSAPI_WM_SHOW: it does NOT zoom
@@ -4017,6 +4037,7 @@ apic_thm_desk:                    ; (cw_thm_desk's door, size pass 13)
                                   ;          CF=1 none; CF=0 with DX:SI the NUL
                                   ;          text, valid in the entry proc.
                                   ;          kern_small refuses
+rmk_seg:          ; (a real-mode bracket keeps it: fsx_rkeep)
     OSAPI_RCXCELL osapi_seg       ; 0x04E3 - BL = a SEG_* verb: a segment's or
                                   ;          selector's linear base, its real
                                   ;          segment, a window over physical
@@ -5910,6 +5931,14 @@ osapi_seg:                      ; (api_rxc's far body: DS = KDATA)
     call MEGA_SEL_CODE:mega_segf ; (`.mega`: KERN-MEGA-SEGMENTS-PLAN)
     retf
 .rm:
+    jmp KERNEL_SEG:osapi_segr   ; real mode's answers are `.text`'s on
+section .text                   ; kern_mega: they are the TWIN a real-mode
+                                ; bracket's table jumps to (SPEC.md 53.2.3),
+                                ; and `.cold` is above 1MB there. Registers
+                                ; alone - no DS is read - so the far frame
+                                ; either caller built is the one its retf
+                                ; returns through
+osapi_segr:
 %endif
     cmp bl, SEG_SUB
     je .sub

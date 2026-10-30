@@ -74,4 +74,14 @@
 #             reads a GDT above 1MB, i.e. in real mode, where `.cold` is not.
 #             The protected-mode halves (fsx_rprepf, fsx_rcopyf, fsx_rdownf,
 #             fsx_rupf, mega_vwalk) are `.mega` and their state `.lowbss`
-4800
+# 2026-10-30: +69, to 4,869, MEGA-VIDEO-REALMODE-PLAN W2 (SPEC.md 53.2.3) -
+#             what the real-mode TABLE offers has to run in real mode, so
+#             low: osapi_segr (40), OSAPI_SEG's real-mode arm MOVED out of
+#             `.cold` (where it is now a 5-byte far jump to it) to be the
+#             table's TWIN; the real-mode arms of OSAPI_FSX_WAIT (7: hlt, no
+#             scheduler) and OSAPI_MOUSE (7: no keyboard pointer, whose menu
+#             path is `.cold`); fsx_run's foot putting FSXF_REAL's answer in
+#             the caller's SI (15) and its byte (1), less the door's `jc`
+#             (-2). The table's swap itself, its list and its bank are `.mega`
+#             and the park's scratch - nothing of them is in this segment
+4869

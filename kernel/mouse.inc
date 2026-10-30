@@ -1668,6 +1668,10 @@ osapi_mouse:
     pop ax
     jmp short .live
 .poll:
+%ifdef KERN_MEGA
+    cmp byte [fsx_rmode], 0         ; a REAL-MODE bracket (SPEC.md 53.2.3):
+    jne .live                       ; the keyboard pointer's menu path is
+%endif                              ; `.cold`, above 1MB - the words alone
 %else
     jne .live
 %endif
