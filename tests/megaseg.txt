@@ -60,4 +60,18 @@
 #             own int 09h calls in REAL mode, so the key-state map sees a key
 #             a reflection took. It runs at KERNEL_SEG:offset with no switch,
 #             so it has to be low; the IVT installs are `.mega`
-4381
+# 2026-10-30: +419, to 4,800, MEGA-VIDEO-REALMODE-PLAN W1 (SPEC.md 53.2.3) -
+#             the real-mode bracket's REAL-MODE half, which has to be low:
+#             fsx_rland (67, mega_down's landing, the entry's far call and the
+#             way back), fsx_rtick (127, IRQ0 while the bracket runs - IVT 20h
+#             holds it), fsx_rcall's protected-mode head (31) and its nine
+#             bytes of state, fsx_run's door (~50), fsx_rgone (2, mod_gone's
+#             answer for EXTD.DRV's slots in real mode); mega_rland (11, the drop's
+#             landing switch) and mega_up's call and ret (4, the reflection's
+#             way back made a routine both share); and mega_a20 with its
+#             three helpers (118 with the far entry), MOVED here from `.cold`
+#             (-112 there): the A20 line must be proved open before `lgdt`
+#             reads a GDT above 1MB, i.e. in real mode, where `.cold` is not.
+#             The protected-mode halves (fsx_rprepf, fsx_rcopyf, fsx_rdownf,
+#             fsx_rupf, mega_vwalk) are `.mega` and their state `.lowbss`
+4800

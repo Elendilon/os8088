@@ -38,6 +38,9 @@ FSXF_RATE       equ 4           ; ...bit 2 (SPEC.md 53.2.2, kern_big): IRQ0 at
                                 ; on every one. [ticks] stays exact by an
                                 ; accumulator
 FSX_RATE_MIN    equ 2048        ; the fastest divisor it takes: 582 Hz
+FSXF_REAL       equ 8           ; ...bit 3 (SPEC.md 53.2.3): the bracket in REAL
+                                ; mode on kern_mega - every other kernel takes
+                                ; the bit and strips it at the door
 SCH_RATE        equ FSXF_RATE + 1 ; [sch_fast]'s value while FSXF_RATE is armed:
                                 ; 5, outside sch_fast_on's 2..4 and not 0.
                                 ; fsx_run DERIVES it, and FSX_SUBTICK, from
@@ -188,6 +191,14 @@ fsx_run:
                                 ; to the last non-local label, so moving it
                                 ; above would silently retarget another
                                 ; routine's `.fail`
+%ifdef KERN_MEGA
+    mov si, cx                  ; the flags as ASKED, FSXF_REAL among them:
+%endif                          ; SI is nobody's until the release loop below
+    and cl, ~FSXF_REAL & 0xFF   ; EVERY kernel takes FSXF_REAL (SPEC.md 53.2.3)
+                                ; and strips it here, so the tests below see
+                                ; the flags they always saw: kern_big and
+                                ; kern_small are in real mode already, and
+                                ; kern_mega acts on SI's copy after the fence
 %ifdef KERN_BIG
     cmp cl, FSXF_FASTTICK + FSXF_RATE ; 6: CL >= 8 is an undefined bit, and 6
     jae .fail                   ; and 7 are FASTTICK WITH RATE, which refuses
@@ -254,6 +265,15 @@ fsx_run:
     jae .fail                   ; image+bss (DX is the fence's scratch, dead
 .nohook:                        ; here)
 %endif
+%ifdef KERN_MEGA
+    test si, FSXF_REAL          ; THE REAL-MODE BRACKET (SPEC.md 53.2.3): its
+    jz .nreal                   ; refusals and its claim, the LAST test at the
+    cmp byte [ss:mega_pm], 0    ; door, so nothing below can refuse after the
+    je .nreal                   ; claim is taken. In real mode already (a
+    call MEGA_SEL_CODE:fsx_rprepf ; machine kern_mega could not switch) the
+    jc .fail                    ; bit is ignored, as on every other kernel
+.nreal:
+%endif
     call fpg_finish             ; **NO KERNEL CHROME SURVIVES INTO A BRACKET**
                                 ; (SPEC.md 12.8.5.2). fpg_arm refuses once
                                 ; [fsx_task] is set, but a read earlier in this
@@ -288,6 +308,15 @@ fsx_run:
 .nokeep:                        ; keeping nothing is not an error
 
     mov [fsx_task], dx          ; arm the freeze (SPEC.md 53.2): both bytes
+%ifdef KERN_MEGA
+    cmp byte [fsx_rmode], 0     ; ...and a real-mode bracket's REGION COPY
+    je .nrcp                    ; DOWN, here and nowhere earlier: frozen, no
+    push ax                     ; other task can write the region, and with
+    xor ax, ax                  ; the rate not yet armed no hook can either -
+    call MEGA_SEL_CODE:fsx_rcopyf ; at IF = 1 (AL = 0: down), so no period
+    pop ax                      ; is lost to a 63KB copy (SPEC.md 53.2.3)
+.nrcp:
+%endif
 %ifdef KBD_DIAG
     push ax                     ; KBDDIAG=1 (SPEC.md 9.8.1): the bracket's
     mov al, 'E'                 ; edge, with its flags, AFTER the arm so the
@@ -385,7 +414,15 @@ fsx_run:
     push bp                     ; the app owns the machine from here to its
     mov si, bx                  ; ret: wm_pkgcall's contract, record in SI,
     mov bp, ax                  ; offset in BP (SPEC.md 53.1)
+%ifdef KERN_MEGA
+    cmp byte [fsx_rmode], 0     ; ...or the same call in REAL MODE (SPEC.md
+    je .pmcall                  ; 53.2.3): out of protected mode, the call,
+    call fsx_rcall              ; and back
+    jmp short .called
+.pmcall:
+%endif
     call wm_pkgcall
+.called:
     pop bp
 .restore:                       ; FSX_RESTORE - one path home, SPEC.md 53.6,
                                 ; ordered (its header, below, is the order)
@@ -1162,3 +1199,444 @@ fsx_wdisp: resb 1               ; the display the running bracket's window is
 %endif
 
 section .text
+
+%ifdef KERN_MEGA
+; =============================================================================
+; THE REAL-MODE BRACKET (SPEC.md 53.2.3, docs/plans/MEGA-VIDEO-REALMODE-PLAN.md
+; W1): FSXF_REAL on kern_mega in protected mode. fsx_run's door takes the
+; claim (fsx_rprepf), the freeze's arm copies the region down (fsx_rcopyf),
+; and its entry call is fsx_rcall - out of protected mode once, the package's
+; proc in real mode with fsx_rtick on IRQ0, and back once.
+;
+; WHERE IT LIVES, and why it is not a module (the plan's W1 decision): every
+; instruction real mode runs is here in `.text`, the one part of kern_mega
+; that is conventional memory in both modes - `.cold`, `.mega`, the drivers
+; and the modules are above 1MB once the switch is done. The protected-mode
+; halves are `.mega`'s. A module read at every bracket would be a disk read
+; from the SYSTEM disk at every Play, which on a one-floppy machine is a swap
+; (ONDEMAND-PLAN 1's test fails), and W1's real-mode half is smaller than a
+; module's own row, thunks and load arm. W2's API table is the part that
+; might want one; it is W2's to decide.
+; =============================================================================
+
+fsx_rdisp   dw PKG_DISP         ; THE ENTRY's far pointer: the dispatcher of
+fsx_rseg    dw 0                ; ...the REAL paragraph the region runs at -
+                                ; its copy, or its own when conventional.
+                                ; fsx_rtick calls the hook through it too
+fsx_rwin    dw 0                ; the window (SI) and the entry (BP), banked
+fsx_rent    dw 0                ; across the drop: a 286's reset keeps no
+                                ; register
+fsx_rmode   db 0                ; 1 = this bracket is a real-mode one. `.text`
+                                ; and not `.bss`: it is read on every bracket
+                                ; and must rest at 0 (SPEC.md 12.8.5.1)
+
+; fsx_rgone - mod_gone's answer, in REAL mode: EXTD.DRV's entry slots while a
+; real-mode bracket runs. Unloaded, every slot names `.cold`'s mod_gone through
+; a protected-mode selector, and fsx_mode, wm_content and fsx_caps far-call
+; one whatever the machine (EXTCALL EXT_FSX: CF = 1 is the one-display
+; answer). In real mode that selector is a wild segment, so fsx_rdownf points
+; the block here and fsx_rupf puts it back (MEGA-VIDEO-REALMODE-PLAN W1)
+fsx_rgone:
+    stc
+    retf
+
+; -----------------------------------------------------------------------------
+; fsx_rcall - wm_pkgcall's call, in real mode
+; in:  PM, SI = the window, BP = the entry, DS = KDATA; the bracket armed and
+;      [fsx_rmode] = 1 (the claim taken, the region copied down)
+; out: the entry proc has run; protected mode again, every word, mask and
+;      vector back, the region copied back up and the claim freed. DS and ES
+;      and FLAGS as they came; every other register may have changed, as
+;      across wm_pkgcall
+; -----------------------------------------------------------------------------
+cpu 286
+fsx_rcall:
+    pushf
+    push ds
+    push es
+    cli                         ; ...to the entry proc's own sti below
+    mov [fsx_rwin], si
+    mov [fsx_rent], bp
+    call MEGA_SEL_CODE:fsx_rdownf ; the masks, IVT 20h, the words real
+    push ds
+    pop es                      ; ES writable across the switch (a 386 keeps
+                                ; a segment's ATTRIBUTES: mega_svc_lo's note)
+    mov al, 0x8D                ; NMI off across the switch
+    out 0x70, al
+    mov byte [mega_drop], 2     ; ...landing at fsx_rland
+    jmp mega_down               ; (CR0 on a 386, the reset on a 286)
+fsx_rland:                      ; REAL MODE, IF = 0, the stack as it was
+    ; STKBALANCE-OK: mega_down's landing, never called - reached by a jump from mega_rland, after mega_r286 put a 286's stack back from [mega_rss]; it ends at fsx_rcall's own ret, on the frame fsx_rcall built before the drop
+    mov ax, KERNEL_SEG
+    mov ds, ax
+    mov es, ax
+    mov byte [mega_drop], 0     ; the next reset is a reflection's again
+    mov [k_dsel], ax            ; KDS in real mode: the mouse ISR's, the cells'
+    mov ax, ss                  ; LOW_SEG: the selector IS the segment
+    mov ss, ax
+    lidt [mega_rmidtr]
+    mov al, 0x0D                ; NMI on (index 0Dh, read-only), once the IVT
+    out 0x70, al                ; is the table again
+    mov si, [fsx_rwin]
+    mov bp, [fsx_rent]
+    push ds
+    mov ds, [fsx_rseg]          ; DS = CS = the real paragraph, ES = KERNEL_SEG,
+    sti                         ; SI = the window: wm_pkgcall's environment
+    call far [cs:fsx_rdisp]
+    cli
+    pop ds
+    call mega_a20               ; A20 PROVED OPEN before the GDT is read: a
+                                ; BIOS the package called may have shut it
+    call mega_up                ; protected mode: DS = ES = KDATA
+    call sch_fast_off           ; the rate OFF first: no hook may run in
+                                ; protected mode on the window's copy, which
+                                ; is stale until the copy back (fsx_restore
+                                ; calls it again, a no-op then)
+    call MEGA_SEL_CODE:fsx_rupf ; ...and everything fsx_rdownf did, undone
+    pop es
+    pop ds
+    popf
+    ret
+
+; -----------------------------------------------------------------------------
+; fsx_rtick - IRQ0 in the real-mode bracket (IVT 20h, the 8259 at its
+; protected-mode base): sch_isr's three arms with no scheduler. Every entry
+; counts [sch_subs]; a TICK chains the ROM's own handler (40:6C, the floppy
+; motor, the EOI) and bumps [ticks]; a period that is no tick sends its own
+; EOI; under FSXF_RATE the hook runs after either, under sch_rhook's skip
+; rules - the previous call still out, or SS not LOW_SEG (a ROM service's
+; private stack). snd_tick does NOT run: SOUND.DRV's image is above 1MB.
+; -----------------------------------------------------------------------------
+fsx_rtick:
+    pusha
+    push ds
+    push es
+    mov ax, KERNEL_SEG
+    mov ds, ax
+    inc word [sch_subs]         ; fsx_wait's frame clock (SPEC.md 53.5.1)
+    mov al, [sch_fast]
+    cmp al, SCH_RATE
+    je .rate
+    or al, al
+    jz .tick                    ; no sub-tick: every entry is a tick
+    dec byte [sch_fcnt]         ; FSXF_FASTTICK: every Nth
+    jnz .eoi
+    mov [sch_fcnt], al
+.tick:
+    pushf                       ; the ROM's IRQ0: 40:6C and its EOI
+    call far [mega_old08]
+    inc word [ticks]
+    cmp byte [sch_fast], SCH_RATE
+    je .hook                    ; a rate entry that carried is a period too
+    jmp short .out
+.rate:
+    inc word [sch_rpend]        ; a period, owed to the hook
+    mov ax, [sch_rdiv]
+    add [sch_racc], ax          ; the accumulator's carry is a TICK, so
+    jc .tick                    ; [ticks] and 40:6C stay exact (53.2.2)
+    mov al, 0x20
+    out 0x20, al
+.hook:
+    cmp byte [sch_rbusy], 0     ; the last call is still out (it sti'd)
+    jne .out
+    mov ax, ss
+    cmp ax, LOW_SEG             ; a ROM service on a stack of its own
+    jne .out
+    inc byte [sch_rbusy]
+    xor ax, ax
+    xchg ax, [sch_rpend]        ; AX = the periods owed, and none after
+    mov si, [fsx_rwin]
+    mov bp, [sch_rbp]
+    push ds
+    pop es                      ; ES = KERNEL_SEG
+    push ds
+    mov ds, [fsx_rseg]
+    call far [cs:fsx_rdisp]
+    pop ds
+    cli                         ; the hook may have sti'd
+    dec byte [sch_rbusy]
+    jmp short .out
+.eoi:
+    mov al, 0x20
+    out 0x20, al
+.out:
+    pop es
+    pop ds
+    popa
+    iret
+cpu 8086
+
+section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
+cpu 286
+; -----------------------------------------------------------------------------
+; fsx_rprepf - FAR, fsx_run's door: the real-mode bracket's refusals and its
+; claim. in: PM, DS = KDATA, DI = the instance record, SI = the flags as
+; asked. out: CF = 1 refused and nothing taken; CF = 0 and [fsx_rmode] = 1,
+; [fsx_rseg] the paragraph the entry will run at and - when the region is
+; above 1MB - a conventional claim for its copy, both linears and the length
+; banked. Every register kept
+; -----------------------------------------------------------------------------
+fsx_rprepf:
+    test si, FSXF_KEEPWORKER    ; one task runs in real mode: nothing to keep
+    jnz .no0
+    cmp word [mod_tab + MOD_EXT * MODR_SIZE + MODR_SEG], 0
+    jne .no0                    ; ...nor can EXTD.DRV's image, above 1MB, be
+                                ; called (the extended desktop's second display)
+    pusha
+    mov word [ss:fsx_rlow], 0   ; (`.lowbss` is not zeroed: .no reads it)
+    mov bx, sch_tasks           ; ...and a driver's worker would never run
+    mov cx, MAX_TASKS
+.t:
+    cmp byte [bx+T_STATE], 0
+    je .tn
+    test byte [bx+T_FLAGS], TF_SERVICE
+    jnz .no
+.tn:
+    add bx, T_SIZE
+    loop .t
+    mov ax, [di+I_SPTR]
+    call mega_selbase           ; DX:AX = the region's base
+    jc .no
+    cmp dx, 0x10
+    jb .para                    ; conventional: it runs where it is
+    mov [ss:fsx_rhi], ax           ; ABOVE 1MB (OS88_HIGH): a copy, low
+    mov [ss:fsx_rhi+2], dx
+    mov ax, [di+I_SIZE]         ; image + bss, FFFFh for a whole 64KB
+    mov cx, ax
+    inc cx
+    and cl, 0xFE                ; the copy moves words (mega_imghif's sum)
+    jnz .len
+    mov cx, 0xFFFE              ; a 64KB region: mega_lincopy's ceiling
+.len:
+    mov [ss:fsx_rlen], cx
+    add ax, 1023                ; ...in whole KB, the claim's unit
+    mov cl, 10
+    shr ax, cl
+    jnc .kb
+    mov ax, 64
+.kb:
+    mov bx, di
+    sub bx, inst_tab
+    mov cl, 5
+    shr bx, cl                  ; BX = the slot: the claim is the instance's,
+    mov [ss:fsx_rown], bx          ; so a teardown frees what an exit did not
+    call COLD_SEG:mmf_mem_claim ; DX = its data selector
+    jc .no
+    mov [ss:fsx_rlow], dx
+    mov ax, dx
+    call mega_selbase           ; DX:AX = the copy's base, below 1MB
+    jc .no
+    mov [ss:fsx_rlo], ax
+    mov [ss:fsx_rlo+2], dx
+.para:
+    shr ax, 4                   ; DX:AX (< 1MB, paragraph-aligned) -> the
+    shl dx, 12                  ; paragraph
+    or ax, dx
+    mov [fsx_rseg], ax
+    mov byte [fsx_rmode], 1
+    popa
+    clc
+    retf
+.no:
+    cmp word [ss:fsx_rlow], 0      ; (the claim's own base could not be read:
+    je .no1                     ; it goes back)
+    mov dx, [ss:fsx_rlow]
+    mov bx, [ss:fsx_rown]
+    call COLD_SEG:mmf_mem_free
+    mov word [ss:fsx_rlow], 0
+.no1:
+    popa
+.no0:
+    stc
+    retf
+
+; -----------------------------------------------------------------------------
+; fsx_rcopyf - FAR: AL = 0 the region DOWN into its copy, 1 back UP. Nothing
+; when the region is conventional ([ss:fsx_rlow] = 0). PM, DS = KDATA, any IF
+; (fsx_run's copy runs at IF = 1, under sch_lock as every mega_lincopy does).
+; Every register kept
+; -----------------------------------------------------------------------------
+fsx_rcopyf:
+    cmp word [ss:fsx_rlow], 0
+    je .out
+    pusha
+    mov si, fsx_rhi
+    mov di, fsx_rlo
+    or al, al
+    jz .d
+    xchg si, di
+.d:
+    mov ax, [ss:si]
+    mov [mega_xsrc], ax
+    mov ax, [ss:si+2]
+    mov [mega_xsrc+2], ax
+    mov ax, [ss:di]
+    mov [mega_xdst], ax
+    mov ax, [ss:di+2]
+    mov [mega_xdst+2], ax
+    mov cx, [ss:fsx_rlen]
+    inc byte [sch_lock]
+    call KERNEL_SEG:mega_lincopyf
+    dec byte [sch_lock]
+    popa
+.out:
+    retf
+
+; -----------------------------------------------------------------------------
+; fsx_rdownf - FAR, the last of protected mode before the drop (IF = 0, DS =
+; KDATA): the 8259's masks a service reflection's, IVT 20h the real-mode
+; tick, and every word real mode will read as a segment made one again -
+; VSEG's four and the video and font layer's (banked, mega_vwalk), [k_seg0]
+; and CPU_F_PM (SPEC.md 53.2.3 step 3). Every register kept
+; -----------------------------------------------------------------------------
+fsx_rdownf:
+    pusha
+    push es
+    in al, 0x21                 ; the masks the return puts back, and what
+    mov [mega_imr1], al         ; mega_r286 compares a 286's reset against
+    in al, 0xA1
+    mov [mega_imr2], al
+    mov byte [mega_irqr], 0     ; (a service's masks, not an IRQ's)
+    mov bx, 0x3FB8
+    call MEGA_SEL_CODE:mega_rmaskf.nv ; BX = the lines to shut, [mega_rmask]
+    xor ax, ax                  ; ...and mega_vrm's two words, if it made
+    xchg ax, [mega_vsw]         ; them segments for the pointer: put back,
+    or ax, ax                   ; since the walk below banks and converts
+    jz .nvs                     ; all of them
+    mov [vid_seg], ax
+    mov ax, [mega_vsw+2]
+    mov [k_vsa], ax
+.nvs:
+    mov al, [mega_imr1]
+    or al, bl
+    out 0x21, al
+    mov al, [mega_imr2]
+    or al, bh
+    out 0xA1, al
+    mov ax, MEGA_SEL_LOW0       ; IRQ0 in real mode: the PIC stays at 20h, so
+    mov es, ax                  ; it is IVT 20h's - fsx_rupf's forced sync
+    mov word [es:MEGA_PIC_BASE*4], fsx_rtick   ; puts the ROM's back
+    mov word [es:MEGA_PIC_BASE*4+2], KERNEL_SEG
+    mov ax, [EXFP]              ; EXTD.DRV's slots, every one mod_gone's (the
+    mov [ss:fsx_rexfp], ax      ; door refused a loaded image): fsx_rgone's
+    mov ax, [EXFP+2]            ; for the bracket, the one far pointer banked
+    mov [ss:fsx_rexfp+2], ax
+    mov ax, fsx_rgone
+    mov dx, KERNEL_SEG
+    call fsx_rexfill
+    mov word [k_seg0], 0        ; low memory is segment 0 again (MEGA_SEG0)
+    and byte [cpu_feat], ~CPU_F_PM & 0xFF ; OSAPI_CPU_INFO answers real mode
+    mov si, fsx_rbank
+    mov ax, fsx_rvdn
+    call mega_vwalk
+    pop es
+    popa
+    retf
+
+; fsx_rvdn - mega_vwalk's step down: [DI] banked at [SI], SI on, and an LDT
+; selector of the allocator's (mega_useg's over a frame buffer or a ROM,
+; mega_p2d's over a claim) made the real segment with its base - the test
+; mega_ivt_sync's .fixrow makes. Anything else stays: a segment vfixall left
+; alone, a 0. A base above 1MB has no segment (FFFFh) and stays a selector,
+; which no frame buffer and no glyph table of a real-mode bracket is
+fsx_rvdn:
+    mov ax, [di]
+    mov [ss:si], ax             ; (the bank is `.lowbss`: SS)
+    inc si
+    inc si
+    mov dx, ax
+    and dl, 7
+    cmp dl, 4
+    jne .k
+    cmp ax, MEGA_LDT_FREE0 * 8
+    jb .k
+    call KERNEL_SEG:mega_s2segf
+    cmp ax, 0xFFFF
+    je .k
+    mov [di], ax
+.k:
+    ret
+
+; fsx_rexfill - every EXFP slot := DX:AX. Clobbers CX, DI
+fsx_rexfill:
+    mov di, EXFP
+    mov cx, EXT_NENT
+.l:
+    mov [di], ax
+    mov [di+2], dx
+    add di, 4
+    loop .l
+    ret
+
+; fsx_rvup - ...and its step back: the bank's word into [DI]
+fsx_rvup:
+    mov ax, [ss:si]
+    inc si
+    inc si
+    mov [di], ax
+    ret
+
+; -----------------------------------------------------------------------------
+; fsx_rupf - FAR, the first of protected mode after the return (IF = 0, DS =
+; KDATA, the rate already off): fsx_rdownf undone in reverse, then the region
+; copied back UP with interrupts on and its claim freed. Every register kept
+; -----------------------------------------------------------------------------
+fsx_rupf:
+    pusha
+    push es
+    not word [mega_ivtsh]       ; THE FORCED SYNC (mega_dwake's): the gates
+    call mega_ivt_sync          ; rebuilt from the IVT whatever the shadow
+                                ; says, and IVT 20h-27h written back as the
+                                ; copy of 08h-0Fh - which is what takes the
+                                ; real-mode tick off IRQ0's real-mode vector
+                                ; before the next reflection could take it
+    mov al, [mega_imr1]
+    out 0x21, al
+    mov al, [mega_imr2]
+    out 0xA1, al
+    mov word [k_seg0], MEGA_SEL_LOW0
+    or byte [cpu_feat], CPU_F_PM
+    mov ax, [ss:fsx_rexfp]      ; EXTD.DRV's slots back to mod_gone's
+    mov dx, [ss:fsx_rexfp+2]
+    call fsx_rexfill
+    mov si, fsx_rbank
+    mov ax, fsx_rvup
+    call mega_vwalk
+    mov byte [fsx_rmode], 0
+    sti                         ; the copy back at IF = 1: no other task runs
+    mov al, 1                   ; (frozen) and the rate is off, so nothing
+    call MEGA_SEL_CODE:fsx_rcopyf ; in protected mode writes the window's
+                                ; copy meanwhile
+    mov dx, [ss:fsx_rlow]
+    or dx, dx
+    jz .nofree
+    mov bx, [ss:fsx_rown]
+    call COLD_SEG:mmf_mem_free
+    mov word [ss:fsx_rlow], 0
+.nofree:
+    pop es
+    popa
+    retf
+cpu 8086
+
+section .lowbss                 ; PROTECTED-MODE STATE, so out of the kernel
+                                ; segment (tests/megaseg.txt): only `.mega`
+                                ; reads it, through SS
+; the bank fsx_rvdn fills and fsx_rvup empties: mega_vwalk's words, in its
+; order - VSEG's four, vid_tab's column, the live block's three, each
+; context's three, the full-screen rows, the glyph table (and the band)
+%ifdef BANDCOMP
+FSX_RBN     equ 4 + (vid_tab_end - vid_tab) / VID_REC + 3 + 3 * VID_NDISP_MAX + FSXM_COUNT + 2
+%else
+FSX_RBN     equ 4 + (vid_tab_end - vid_tab) / VID_REC + 3 + 3 * VID_NDISP_MAX + FSXM_COUNT + 1
+%endif
+fsx_rbank   resw FSX_RBN
+fsx_rhi     resw 2              ; the region's linear base, above 1MB
+fsx_rlo     resw 2              ; ...its copy's, below
+fsx_rlen    resw 1              ; ...the bytes copied, even
+fsx_rlow    resw 1              ; ...the copy's claim (its data selector), 0
+                                ; = none: the region runs where it is
+fsx_rown    resw 1              ; ...and its owner, the instance's slot
+fsx_rexfp   resw 2              ; EXTD.DRV's slots' far pointer, mod_gone's
+section .text
+%endif
