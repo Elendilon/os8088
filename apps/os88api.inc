@@ -601,7 +601,9 @@ SND_CAP_TONE     equ 01h
 SND_CAP_FM       equ 02h
 SND_CAP_PCM_BG   equ 04h
 SND_CAP_PCM_EXCL equ 08h
-SND_CAP_PCM_IN   equ 10h
+SND_CAP_PCM_IN   equ 10h         ; verb 4 records: a DSP >= 2.00, captured
+                                 ; into YOUR ring (SND_OPENF_EXT, SPEC.md
+                                 ; 34.6.4) - the only record stream there is
 SND_CAP_PCM_HI   equ 20h         ; PCM_BG takes rates ABOVE 22,222 Hz - an SB
                                  ; Pro or SB16 (DSP >= 3.00). Without it verb
                                  ; 0 answers 2 for any such rate, so do not offer
@@ -699,7 +701,7 @@ SND_OPENF_EXT    equ 2           ; ...an EXTERNAL ring (SPEC.md 34.5.3), with
                                  ; free-running mod 65536, so you feed without
                                  ; a call; verb 1 is only needed to RESUME an
                                  ; underrun, and verb 9 still answers exactly.
-                                 ; VERB 4 TAKES IT TOO (SPEC.md 34.6.4): a
+                                 ; VERB 4 REQUIRES IT (SPEC.md 34.6.4): a
                                  ; RECORD ring at DI:SI, the same claim, RL
                                  ; and block codes (RING is implied; CX and
                                  ; the grant are not read - pass CX = 0, which
@@ -709,8 +711,10 @@ SND_OPENF_EXT    equ 2           ; ...an EXTERNAL ring (SPEC.md 34.5.3), with
                                  ; captured, free-running, to [...+
                                  ; SND_EXT_CONS], zeroed at the open. No
                                  ; drain, no grant, NO OVERRUN PAUSE: you
-                                 ; judge your own lag. 7 on a single-cycle
-                                 ; DSP or a ring across a 64KB page
+                                 ; judge your own lag. 7 without the flag (the
+                                 ; grant-and-drain record stream is gone), on
+                                 ; a single-cycle DSP or a ring across a 64KB
+                                 ; page
                                  ; KEEP THAT CLAIM STILL while the card
                                  ; is armed on it: undeclared, or pinned with
                                  ; OSAPI_MEM_MOVABLE AX = 0 from verb 0 until

@@ -286,8 +286,11 @@ snd_sb_pub:
     call pm_tickpub             ; ...which ends in sbl_tick (SPEC.md 34.10.6)
 %endif
     mov word [si+DSV_NAME], snd_s_sb
-    or word [si+DSV_CAPS], SND_CAP_PCM_BG | SND_CAP_PCM_IN | SND_CAP_EXTBLK
-    cmp byte [sbl_verhi], 3
+    or word [si+DSV_CAPS], SND_CAP_PCM_BG | SND_CAP_EXTBLK
+    cmp byte [sbl_auto], 0      ; a record stream is an auto-init capture
+    je .out                     ; into the caller's ring (SPEC.md 34.6.4): a
+    or word [si+DSV_CAPS], SND_CAP_PCM_IN   ; DSP 1.x has no 2Ch, and is
+    cmp byte [sbl_verhi], 3     ; below 3.00 anyway
     jb .out
     or word [si+DSV_CAPS], SND_CAP_PCM_HI
     cmp byte [sbl_verhi], 4     ; ...and a DSP 4.xx, whose ADPCM4 is a

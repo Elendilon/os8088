@@ -70297,7 +70297,9 @@ Those figures are the commit's. The tree they landed on also carries §34.6.4's
 external rings (WaveRack, which reached `main` while this was on the
 integration branch), whose ISR arm and verb 4 path are resident: measured on
 the merge, the shipped build keeps **6,863** with no mixer and **10,408** with
-one (`tests/unit/t_sndonce.py`) - +182 over the table, all of it §34.6.4's.
+one (`tests/unit/t_sndonce.py`) - +182 over the table, all of it §34.6.4's,
+and the mixer case's 182 crossed the KB back to 11. §34.6.5 is what took it
+back: 6,421 and **9,966**, 7KB and 10KB.
 
 `tests/sbirq5.py` and `tests/picomem.py` cut the discovery and `sbl_hook` out
 of `sb.inc` as they ship; `tests/unit/t_sndonce.py` holds the layout.
@@ -70305,11 +70307,13 @@ of `sb.inc` as they ship; `tests/unit/t_sndonce.py` holds the layout.
 
 Went with §34.5 and came back with it. Verb 7 grants out of the driver's
 staging pool, verb 6 stages into a grant and verb 5 reads back out of one,
-and verb 4 opens an input stream that the drain task fills.
+and verb 4 opens an input stream - since §34.6.5, ONLY into the caller's own
+ring (§34.6.4). The input stream that recorded into a grant through a drain
+task is gone; what is below about grants is the staging half.
 
 **The pool is the driver's, so its size is not a constant an app may assume.**
 The Sound Blaster's is 20,480 bytes.
-An app that needs a big grant asks in TIERS and records into what it got;
+An app that needs a big grant asks in TIERS and keeps a take in what it got;
 `apps/recorder` is the reference for that, and the reason it works on a machine
 whose driver claimed less than it hoped for.
 
@@ -70469,8 +70473,9 @@ other way, and it is opened the same way.
   section reads verb 4's CX as the capture capacity and refuses 0 with 7, so
   the caller finds out by refusal rather than by recording into a grant it
   does not hold.
-- The rate range, half-duplex, the busy and clip refusals, IRQ discovery and
-  the error codes are verb 4's, unchanged.
+- The rate range, half-duplex, the busy and clip refusals and the error
+  codes are verb 4's. (IRQ discovery was too when this was written; §34.5.7
+  moved it to the attach.)
 - **Refusals of its own, both 7**: a single-cycle DSP (`[sbl_auto]` = 0 - the
   ISR re-arms a single-cycle capture per half, which an in-place ring does
   not carry), and a ring whose physical span crosses a 64KB page
@@ -70510,6 +70515,55 @@ and in `sbl_hw_start_in`, and one test in the ISR's input leg. `apps/os88api.inc
 `SND_OPENF_EXT`; the change is comment-only to the ABI fingerprint, so
 `tools/abilock.py` records nothing and neither `DRV_VER` nor `PKG_FMT` moves.
 `tests/sndcap.py` (`soak -k sndcap`, MartyPC's DSP 2.01) is the gate.
+
+#### 34.6.5 One record path: the external ring, and the drain stream retired
+
+§34.6.4 added the external ring BESIDE the stream that recorded into a grant,
+and the pair cost the driver a KB of every mixer machine's heap: §34.5.7 had
+just taken `snd_keepmix` to 10,226 bytes - a 10KB claim with 14 to spare -
+and §34.6.4's 182 took it to 10,408, which rounds to 11KB (§51.1.3 rounds the
+keep up). So the record half is ONE path now, and it is the external ring.
+
+**Why that one.** It is the only one that can take a recording longer than
+the pool (a grant is 20KB at most, 1.9 s at 11,025 Hz) and the only one that
+survives the UI task being away - the drain was a kernel task a disk transfer
+stops for ~400 ms against a 372 ms ring. What it gives up is the DSP 1.x
+(an SB 1.0/1.5): the external ring is auto-init capture (`2Ch`), and the
+1.x's single-cycle `24h` re-arm from the ISR goes with the drain. **SB 2.0
+(DSP 2.01) records**, and every card after it. **A PicoMEM 1.x records on
+neither path and never did**: its firmware (ISA-PicoMEM `sbdsp.cpp`, at the
+`tools/picomem/UPSTREAM` pin) answers DSP 2.01, raises an IRQ for `24h`
+without a DMA transfer, and logs `2Ch` as an unknown command - so the stream
+opens and the watchdog ends it, exactly as before this section.
+
+**The contract.** Verb 4 without `SND_OPENF_EXT` answers **7** and opens
+nothing, and so does a DSP 1.x. `SND_CAP_PCM_IN` is published only where the
+DSP is auto-init (`[sbl_auto]`), so a package greys its Record rather than
+taking the 7. Everything else about verb 4 is §34.6.4's. An `.o88` built
+before this that records into a grant is refused with 7 - it runs and says
+so - which is why neither `PKG_FMT` nor `DRV_VER` moved.
+
+**What went.** The drain task (`sbl_drain_task`, `sbl_drain`,
+`sbl_drain_half`), the single-cycle record arm (`sbl_arm_rec` - `sbl_arm_half`
+keeps the body, its mode and command as immediates now), the ISR's
+half-swap input leg (the input leg IS the external count), the grant branch
+of verb 4, `[sbl_drain_h]` and `SBL_RING`'s carve of the 8KB DMA buffer - a
+record stream claims no DMA buffer at all. `sbl_worker`'s `call si` went
+with the second worker: `sbl_refill_task` IS the loop.
+
+| measured, shipped build (PicoMEM in) | before | after |
+|---|---|---|
+| `snd_keep` (no mixer) | 6,863 → 7KB | **6,421 → 7KB** |
+| `snd_keepmix` (a mixer) | 10,408 → **11KB** | **9,966 → 10KB** |
+| `sbl_v_open_in` | 293 | 215 |
+| `sbl_isr` | 420 | 366 |
+| `sbl_hw_start_in` | 95 | 58 |
+
+**RECORDER moved onto it** (§35): a 16KB ring of its own, pumped into its
+grant by its window's timer (§13.9), so Play, the waveform and Demo read the
+grant exactly as they did. `tests/sndcap.py` asserts the grant form's 7 and
+the cap; `tests/recorder.py` that the take grows with nothing clicked and
+the ring is freed at Stop.
 
 ### 34.7 State, boot gate, teardown
 
@@ -72158,6 +72212,17 @@ Three things about it are worth knowing:
   click runs `rc_poll`, which reads verb 3 and retires finished or
   watchdog-stopped streams. On QEMU no input IRQ ever arrives, so a recording
   always lands on the watchdog path and says so honestly.
+- **It records into a ring of its own** (§34.6.5, the only record stream
+  there is): a 17KB `OSAPI_MEM_CLAIM_DMA_HI` claim - a 16KB ring, 2 s at
+  8 kHz, and its two words - opened as verb 4's external ring with 512-byte
+  blocks. Its window's timer (§13.9) fires every 2 ticks and `rc_pump` copies
+  what the card has captured into the grant through `rc_pbuf` and verb 6,
+  so the take ends up where Play, the strip and Demo always read it. The card
+  lapping the ring - the UI task away over 2 s - stops the take as
+  `REC STOPPED (OVERRUN)`; the grant filling, as `REC STOPPED (FULL)`; the
+  ring is freed at every close. It needs a DSP 2.00 or later, and REC greys
+  on anything less because the driver no longer publishes `SND_CAP_PCM_IN`
+  there.
 - **It was written to stay useful with no card** - DEMO stages a built-in
   400→800→400 Hz sweep and PLAY falls back to PCM_EXCL speaker chunks through
   `os88pcm_play` (§34.4) - **and §35.2 is why that no longer holds**: the
@@ -72166,7 +72231,8 @@ Three things about it are worth knowing:
   §34.6's `AX = 4` exists to make.
 
 Teardown needs nothing from the app: `snd_release_inst` (§34.3) force-closes
-any live stream and frees the grant.
+any live stream - before the instance's claims, the ring among them, are
+freed - and frees the grant.
 
 ### 35.1 IT NO LONGER SHIPS — built by `all`, carried by no floppy
 
