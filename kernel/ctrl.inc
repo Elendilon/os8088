@@ -4551,7 +4551,7 @@ cp_vid_click:
     call cxf_sync               ; Extend: EXTD.DRV FIRST (SPEC.md 39.19.6)
     jc .mref                    ; refused, and [vid_dmode] is Single again
     call vid_disp_init           ; (vid_disp_relayout's three, written out:
-    call COLD_SEG:desk_rowcalc_x ; it was a resident far body this image
+    call wm_rowcalc              ; it was a resident far body this image
     call wm_refit                ; alone called - kernel size pass 13; the
                                  ; first and last are this image's own now)
     call cxf_sync               ; Single: the image goes AFTER the collapse

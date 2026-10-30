@@ -1114,8 +1114,8 @@ section .text
                                 ; adapter may not be the edge it was on
                                 ; (SPEC.md 30.5.1)
 %endif
-    call COLD_SEG:desk_rowcalc_x ; 4. the two things vid_apply does not own
-    call %3 %+ _refit
+    call %3 %+ _rowcalc         ; 4. the two things vid_apply does not own
+    call %3 %+ _refit           ; (desk.inc's DESK_ROWCALC: this image's own)
 %ifdef KERN_BIG
     push ax                     ; ...and the THEME, which can be a fact about
     mov al, [thm_kind]          ; the adapter: SPEC.md 76.12's Color theme is
@@ -2251,7 +2251,7 @@ vid_span_one:
 ; -----------------------------------------------------------------------------
 ; (THE BODY IS CTRL.DRV's since kernel size pass 13: the Display page was its
 ; one caller, and it now makes the three calls itself - ctrl.inc, the
-; arrangement's click - through its CPXK hop, with desk_rowcalc_x far)
+; arrangement's click - through its CPXK hop, with its own wm_rowcalc)
 
 ; -----------------------------------------------------------------------------
 ; vid_desk_union - the desktop spans every display (SPEC.md 39.16)

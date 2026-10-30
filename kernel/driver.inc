@@ -5868,6 +5868,14 @@ WM_REFIT bvw, BSWK
 DOCK_APPLY bdk, BSWK, BSWC, bvw
 %endif
 EXF_SYNC bxf, BSWC              ; ...and EXTD.DRV's sync (extmod.inc)
+%ifdef COLD_SLIDE               ; ...and the desktop grid's (desk.inc): the
+bvw_rowcalc:                    ; geometry from `.cfx` (cfx_grid, kernel.asm),
+    call CFX_RAM:cfx_grid       ; which costs this blob nothing, and the
+    BSWC desk_reflow            ; reflow - desk_rowcalc's two halves, in its
+    ret                         ; order
+%else
+DESK_ROWCALC bvw, BSWC          ; (kern_mega: no `.cfx`, and blob to spare)
+%endif
 KGO_PAIR bvs
 %endif
 DRV_TITLES bdt                  ; the rows' names, for drv_boot_x's 'Loading
