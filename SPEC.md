@@ -70287,6 +70287,19 @@ cannot change until the driver is reloaded.
 
 `tests/sbirq5.py` and `tests/picomem.py` cut the discovery and `sbl_hook` out
 of `sb.inc` as they ship; `tests/unit/t_sndonce.py` holds the layout.
+
+**On kern_mega the line is hooked in REAL MODE**, at the boot's attach and
+before `mega_enter`, so the vector holds the image's PARAGRAPH - and when
+`drv_hiboot_f` then moves an `OS88_DRV_HIGHOK` image above 1MB,
+`mem_region_reloc` is asked about the image's SELECTOR and never matched it:
+the IRQ stayed on the freed claim and the first block IRQ of a protected-mode
+stream ran whatever had been claimed there (a `kern_mega FAULT`,
+`vidrmbsnd`'s first leg). `drv_hi_move` now re-points every hardware vector
+(08h-0Fh, 70h-77h) naming the image's paragraph at the pair's CODE half
+before the reloc rebuilds the gates (`drv_hi_ivt`, KERN-MEGA-PLAN 14.128;
+kern_mega `.cold` +70, kern_big and kern_small byte-identical). And
+`SNDV_RMODE`'s door (AL = 2, §53.2.3) no longer runs the discovery it used
+to run for a real-mode bracket: that is `SBL_ONCE`'s now and not resident.
 ### 34.6 Recording and staging — back, as a driver
 
 Went with §34.5 and came back with it. Verb 7 grants out of the driver's

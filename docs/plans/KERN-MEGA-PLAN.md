@@ -13175,3 +13175,25 @@ one by the player's own ruling - in-place reads under the speaker (SPEC.md
 `os88spk_init` writes its own code there and takes 39 completed #GP fixups
 at the play's start, which is not new.
 
+### 14.128 A Sound Blaster hooked at the boot's attach stayed on the freed claim (2026-10-30) - FIXED
+
+Found merging elendilon (SPEC.md 34.5.7: the Sound Blaster's scan and IRQ
+discovery became the ATTACH's) into the real-mode bracket's branch:
+`vidrmbsnd`'s first leg - a plain protected-mode stream, before any bracket -
+took a `kern_mega FAULT` at its first block IRQ, and the same tree with the
+pre-merge SOUND.DRV was green. The discovery used to wait for the first
+stream, which on kern_mega was opened in protected mode after the switch,
+so the vector it wrote held the image's CODE selector. Now it is written at
+the boot's attach, in REAL MODE, and holds the image's PARAGRAPH;
+`drv_hiboot_f` then moves the `OS88_DRV_HIGHOK` image above 1MB, and
+`mem_region_reloc`, asked about the image's selector, never matches the
+paragraph: IVT 0Dh read 9D00:08CA after the move, the freed claim, and the
+gate built from it ran somebody else's memory. `drv_hi_ivt` (from
+`drv_hi_move`, before the reloc) re-points every hardware vector naming the
+image's paragraph at the pair's code half; the reloc's own
+`mega_ivt_syncf` then rebuilds the gates. kern_mega `.cold` +70, kern_big and
+kern_small byte-identical. `vidrmbsnd` green; red without it. Any driver
+that hooks a line at a real-mode attach and may move high is covered, not
+only SOUND.DRV - and it matters on the owner's Victory, whose PicoMEM is a
+Sound Blaster. SNDV_RMODE's door no longer calls the discovery (it is
+`SBL_ONCE`'s, not resident after the attach).
