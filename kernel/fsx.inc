@@ -1348,7 +1348,10 @@ fsx_rland:                      ; REAL MODE, IF = 0, the stack as it was
 ; motor, the EOI) and bumps [ticks]; a period that is no tick sends its own
 ; EOI; under FSXF_RATE the hook runs after either, under sch_rhook's skip
 ; rules - the previous call still out, or SS not LOW_SEG (a ROM service's
-; private stack). snd_tick does NOT run: SOUND.DRV's image is above 1MB.
+; private stack) - at IF = 1 under the speaker's sample ISR, as sch_rhook. A
+; tick runs SOUND.DRV's DSV_TICK through its low copy (W4: rms_stick, which
+; answers at once when the list carried no sound driver); snd_tick's tone
+; expiry does not run.
 ; -----------------------------------------------------------------------------
 fsx_rtick:
     pusha
@@ -1369,6 +1372,9 @@ fsx_rtick:
     pushf                       ; the ROM's IRQ0: 40:6C and its EOI
     call far [mega_old08]
     inc word [ticks]
+    mov ax, LOW_SEG             ; the stream's watchdog (W4): fsx_rstko is
+    mov es, ax                  ; the service area's rms_stick, beside
+    call far [es:fsx_rstko]     ; [fsx_rmsseg], its paragraph. DS kept
     cmp byte [sch_fast], SCH_RATE
     je .hook                    ; a rate entry that carried is a period too
     jmp short .out
@@ -1380,6 +1386,10 @@ fsx_rtick:
     mov al, 0x20
     out 0x20, al
 .hook:
+    cmp word [spk_seg], 0       ; UNDER A SAMPLE ISR the hook runs at IF = 1
+    je .if0                     ; (sch_rhook's rule): the next IRQ0 is a
+    sti                         ; sample, and one held here is lost (W4)
+.if0:
     cmp byte [sch_rbusy], 0     ; the last call is still out (it sti'd)
     jne .out
     mov ax, ss
@@ -1505,9 +1515,8 @@ fsx_rprepf:
     mov [fsx_rseg], ax
     call fsx_rsvcf              ; THE SERVICE AREA (W3), FSXR_ROOM's too
     jc .no
-    call fsx_rdrvf              ; ...and the drivers' low copies
-    mov al, FSXR_DROOM          ; (mov leaves CF)
-    jc .why
+    call fsx_rdrvf              ; ...and the drivers' low copies: AL =
+    jc .why                     ; FSXR_DROOM or (W4) FSXR_DRV
     mov byte [fsx_rmode], 1
     popa
     mov al, FSXR_REAL
@@ -1677,7 +1686,10 @@ fsx_rlist:
     mov ah, 2
     cmp al, DRVC_EMS
     je .dm
-    mov ah, FSXR_DRV            ; any other: not carried (W4: the sound's)
+    mov ah, 4
+    cmp al, DRVC_SOUND          ; (W4)
+    je .dm
+    mov ah, FSXR_DRV            ; any other: not carried
     jmp short .no
 .dm:
     push ds
@@ -1756,21 +1768,31 @@ fsx_rsvcf:
     ret
 
 ; -----------------------------------------------------------------------------
-; fsx_rdrvf - THE LOW DRIVERS (W3): each class the list asked for (rms_dmsk:
-; DRVC_DISK, DRVC_EMS) whose driver is loaded gets a row in the service area -
-; its DSV_BLK and DSV_PKGCALL, and the REAL paragraph it runs at: its own when
-; its image is conventional, else a conventional claim's, the image and bss
-; copied down at the freeze's arm and back up at the exit (fsx_rcopyf).
-; CF = 1: no room (FSXR_DROOM). PM, DS = KDATA. Clobbers AX, BX, CX, DX, SI,
-; DI, BP
+; fsx_rdrvf - THE LOW DRIVERS (W3, W4): each class the list asked for (rms_dmsk:
+; DRVC_DISK, DRVC_EMS, DRVC_SOUND) whose driver is loaded gets a row in the
+; service area - its DSV_BLK and DSV_PKGCALL (SOUND: its DSV_TICK and
+; DSV_STREAM too), and the REAL paragraph it runs at: its own when its image
+; is conventional, else a conventional claim's, the image and bss copied down
+; and back up (fsx_rcopyf; SOUND's at the drop and the return, fsx_rsndf).
+; SOUND's paragraph must be a multiple of 20h - SBL_DSCS derives DS = CS
+; only there - and its SNDV_RMODE words must each have a real segment.
+; CF = 1: AL = FSXR_DROOM no room, FSXR_DRV a word with no segment. PM, DS =
+; KDATA. Clobbers AX, BX, CX, DX, SI, DI, BP
 ; -----------------------------------------------------------------------------
 fsx_rdrvf:
     push es
     mov es, [ss:fsx_rsvc]
     mov bp, rms_drv - rms_lo    ; ES:BP = the row
-    mov bl, DRVC_DISK
-    mov bh, 1                   ; ...its mask bit
+    mov bh, 1                   ; ...its class's mask bit
 .c:
+    mov bl, DRVC_DISK
+    cmp bh, 1
+    je .k
+    mov bl, DRVC_EMS
+    cmp bh, 2
+    je .k
+    mov bl, DRVC_SOUND
+.k:
     test [es:rms_dmsk - rms_lo], bh
     jz .nx
     mov al, bl
@@ -1782,6 +1804,7 @@ fsx_rdrvf:
     or dx, dx
     jz .nx
     mov [es:bp+RMD_CLS], bl
+    mov [es:bp+RMD_SEL], dx
     mov word [es:bp+RMD_DSP], PKG_DISP
     mov ax, [drv_fptr7]         ; DRVC_EMS: its door in drv_fptr7's offset
     cmp bl, DRVC_EMS            ; half, and no service table
@@ -1793,6 +1816,10 @@ fsx_rdrvf:
     jc .nx
     mov ax, [di+DSV_BLK]
     mov [es:bp+RMD_BLK], ax
+    mov ax, [di+DSV_TICK]       ; (a disk driver's are 0: never read)
+    mov [es:bp+RMD_TICK], ax
+    mov ax, [di+DSV_STREAM]
+    mov [es:bp+RMD_STR], ax
     mov ax, [di+DSV_PKGCALL]
 .pk:
     mov [es:bp+RMD_PKG], ax
@@ -1819,7 +1846,7 @@ fsx_rdrvf:
     push bx
     call fsx_rlowclaim          ; DX = the claim, AX:CX its base
     pop bx
-    jc .o
+    jc .room
     mov [es:bp+RMD_CL], dx
     mov [es:bp+RMD_LO], cx
     mov [es:bp+RMD_LO+2], ax
@@ -1830,15 +1857,78 @@ fsx_rdrvf:
     shl dx, 12
     or ax, dx
     mov [es:bp+RMD_SEG], ax
+    cmp bl, DRVC_SOUND
+    jne .nx
+    test al, 0x1F               ; SBL_DSCS: DS = CS only on a 512-byte
+    jnz .room                   ; boundary (W4)
+    call fsx_rsndq              ; ...and its words (CF = 1: AL = FSXR_DRV)
+    jc .o
 .nx:
     add bp, RMD_SIZE
     shl bh, 1
-    mov bl, DRVC_EMS
-    cmp bh, 2
-    je .c
+    cmp bh, 8
+    jb .c
     clc
 .o:
     pop es
+    ret
+.room:
+    mov al, FSXR_DROOM
+    stc
+    jmp short .o
+
+; fsx_rsndq - the sound row's SNDV_RMODE list (W4), asked of the driver
+; (AL = 0, which answers the list and leaves protected mode's 8237 rule as it
+; is) into the service area, and each word asked whether it HAS a real
+; segment - a selector above 1MB has none, and a stream that is not handed
+; one cannot play in the bracket. ES = the service area, ES:BP the row. CF =
+; 1 and AL = FSXR_DRV a word with none, or a list longer than RMS_SNMAX.
+; Clobbers AX, CX, SI, DI
+fsx_rsndq:
+    push bx
+    push dx
+    push bp
+    push es
+    push ds
+    pop es                      ; ES = KDATA: the verb is the kernel's alone
+    mov bx, DRVC_SOUND * 256 + SNDV_RMODE
+    xor al, al
+    mov bp, drv_pkg_call_x
+    call KERNEL_SEG:mega_tcall  ; SI = the list in its segment, CX = count
+    pop es
+    pop bp
+    jc .no
+    cmp cx, RMS_SNMAX
+    ja .no
+    mov [es:rms_sn - rms_lo], cx
+    mov di, rms_soff - rms_lo
+    cld
+    mov dx, [es:bp+RMD_SEL]
+.w:
+    jcxz .ok
+    push ds
+    mov ds, dx
+    lodsw                       ; the word's offset
+    mov bx, ax
+    mov ax, [bx]                ; ...and what it holds now
+    pop ds
+    mov [es:di], bx
+    inc di
+    inc di
+    call KERNEL_SEG:mega_s2segf ; AX = its segment, FFFFh none
+    cmp ax, 0xFFFF
+    je .no
+    dec cx
+    jmp short .w
+.ok:
+    clc
+    jmp short .o
+.no:
+    mov al, FSXR_DRV
+    stc
+.o:
+    pop dx
+    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1857,21 +1947,16 @@ fsx_rcopyf:
     mov si, fsx_rhi
     mov di, fsx_rlo
     mov cx, [ss:fsx_rlen]
-    call .one
+    call fsx_rcp1
 .nr:
     mov bx, [ss:fsx_rsvc]
     or bx, bx
     jz .o
     mov es, bx
     mov bx, rms_drv - rms_lo
-    mov dx, RMD_N
+    mov dx, RMD_NA              ; (not SOUND's: fsx_rsndf, at IF = 0)
 .d:
-    cmp word [es:bx+RMD_CL], 0
-    je .dn
-    lea si, [bx+RMD_HI]
-    lea di, [bx+RMD_LO]
-    mov cx, [es:bx+RMD_LEN]
-    call .one
+    call fsx_rcprow
 .dn:
     add bx, RMD_SIZE
     dec dx
@@ -1880,7 +1965,18 @@ fsx_rcopyf:
     pop es
     popa
     retf
-.one:                           ; ES:SI the high linear, ES:DI the low, CX
+; fsx_rcprow - ES:BX = a driver's row: its image copied, AL the way (0
+; down), when it has a copy. Clobbers CX, SI, DI
+fsx_rcprow:
+    cmp word [es:bx+RMD_CL], 0
+    je .o
+    lea si, [bx+RMD_HI]
+    lea di, [bx+RMD_LO]
+    mov cx, [es:bx+RMD_LEN]
+    call fsx_rcp1
+.o:
+    ret
+fsx_rcp1:                       ; ES:SI the high linear, ES:DI the low, CX
     or al, al                   ; bytes, AL the way
     jz .dw
     xchg si, di
@@ -1927,6 +2023,8 @@ fsx_rdownf:
     mov ax, [mega_vsw+2]
     mov [k_vsa], ax
 .nvs:
+    call fsx_rsnddn             ; SOUND.DRV low, its lines open (W4)
+    mov word [ss:fsx_rstko], rms_stick ; ...and the tick's call to its DSV_TICK
     mov al, [mega_imr1]
     or al, bl
     out 0x21, al
@@ -2014,6 +2112,188 @@ fsx_rdownf:
     popa
     retf
 
+; -----------------------------------------------------------------------------
+; fsx_rsnddn - SOUND.DRV INTO THE BRACKET (W4, SPEC.md 53.2.3), at the drop:
+; IF = 0, PM, DS = KDATA. The driver told (SNDV_RMODE, AL = 1); each word of
+; its list banked and made the real segment with its base; its image copied
+; down (the card plays on: a block IRQ between a copy at IF = 1 and the drop
+; would be counted into the image that stops running); and every IVT cell
+; 08h-0Fh / 70h-77h naming its image banked and pointed at the copy - a
+; master line's twin at 20h + n too, where the 8259 delivers it - its line
+; taken out of BX, the lines the drop shuts. Nothing with no sound row.
+; in/out BX = the lines to shut (mega_rmaskf's). Every other register kept
+; -----------------------------------------------------------------------------
+fsx_rsnddn:
+    pusha
+    push es
+    mov es, [ss:fsx_rsvc]
+    mov bp, rms_drv - rms_lo + RMD_SND
+    cmp byte [es:bp+RMD_CLS], 0
+    je .o
+    mov al, 1
+    call fsx_rsndv              ; the 8237 rule, real mode's
+    mov cx, [es:rms_sn - rms_lo]
+    xor si, si
+.w:
+    jcxz .wd
+    mov di, [es:rms_soff - rms_lo + si]
+    push ds
+    mov ds, [es:bp+RMD_SEL]
+    mov ax, [di]
+    mov [es:rms_sbank - rms_lo + si], ax
+    call KERNEL_SEG:mega_s2segf ; AX = its segment (the door saw one)
+    inc ax
+    jz .ws                      ; FFFFh: none - 0, which the return renames
+    dec ax                      ; back from the bank like any other
+.ws:
+    mov [di], ax
+    pop ds
+    mov [es:rms_sconv - rms_lo + si], ax
+    inc si
+    inc si
+    dec cx
+    jmp short .w
+.wd:
+    xor al, al
+    xchg bx, bp
+    call fsx_rcprow             ; the image down (a conventional one: none)
+    xchg bx, bp
+    push ds
+    mov ax, MEGA_SEL_LOW0
+    mov ds, ax
+    mov dx, [es:bp+RMD_SEL]
+    sub dx, 8                   ; the CODE half: what its vectors name
+    mov di, rms_svec - rms_lo
+    mov si, 0x08 * 4
+    mov cx, 1                   ; the cell's 8259 bit, master then slave
+.v:
+    cmp [si+2], dx
+    jne .vn
+    cmp di, rms_svec - rms_lo + RMV_N * 6
+    jae .vn
+    mov [es:di], si
+    mov ax, [si]
+    mov [es:di+2], ax
+    mov [es:di+4], dx
+    add di, 6
+    mov ax, [es:bp+RMD_SEG]
+    mov [si+2], ax
+    cmp si, 0x10 * 4
+    jae .op
+    push word [si]              ; a master line: IRQ n is vector 20h + n here
+    pop word [si + (MEGA_PIC_BASE - 8) * 4]
+    mov [si + (MEGA_PIC_BASE - 8) * 4 + 2], ax
+.op:
+    mov ax, cx
+    cmp si, 0x0A * 4            ; IRQ 2 on an AT is the slave's IRQ 9, whose
+    jne .o9                     ; ROM handler raises int 0Ah: open both
+    or ah, 2
+.o9:
+    or [es:rms_sline - rms_lo], ax
+    not ax
+    push bp
+    mov bp, sp
+    and [ss:bp+14], ax          ; pusha's BX, under BP, DS and ES
+    pop bp
+.vn:
+    add si, 4
+    shl cx, 1
+    cmp si, 0x10 * 4
+    jne .vs
+    mov si, 0x70 * 4
+.vs:
+    cmp si, 0x78 * 4
+    jb .v
+    pop ds
+.o:
+    pop es
+    popa
+    ret
+
+; fsx_rsndv - SNDV_RMODE with AL = the way (1 into the bracket, 0 out), to
+; the sound row's driver at its protected-mode image. ES:BP = the row, DS =
+; KDATA. Clobbers AX, BX, CX, SI, DI
+fsx_rsndv:
+    push bp
+    push es
+    push ds
+    pop es                      ; ES = KDATA: the verb is the kernel's alone
+    mov bx, DRVC_SOUND * 256 + SNDV_RMODE
+    mov bp, drv_pkg_call_x
+    call KERNEL_SEG:mega_tcall
+    pop es
+    pop bp
+    ret
+
+; -----------------------------------------------------------------------------
+; fsx_rsndup - ...AND OUT, at the return: IF = 0, PM, DS = KDATA, before the
+; forced sync. The IVT cells put back; the image copied up; each word that
+; still holds what the drop wrote given its selector back, and a word the
+; bracket WROTE - a stream opened inside stores real segments - the selector
+; of the claim based at that paragraph (mega_p2d), 0 when none is; the driver
+; told (AL = 0). So no real-mode segment outlives the bracket and a stream
+; opened in either mode plays on in the other. Every register kept
+; -----------------------------------------------------------------------------
+fsx_rsndup:
+    pusha
+    push es
+    mov es, [ss:fsx_rsvc]
+    mov bp, rms_drv - rms_lo + RMD_SND
+    cmp byte [es:bp+RMD_CLS], 0
+    je .o
+    push ds
+    mov ax, MEGA_SEL_LOW0
+    mov ds, ax
+    mov di, rms_svec - rms_lo
+    mov cx, RMV_N
+.v:
+    mov si, [es:di]
+    or si, si
+    jz .vn
+    mov ax, [es:di+2]
+    mov [si], ax
+    mov ax, [es:di+4]
+    mov [si+2], ax
+.vn:
+    add di, 6
+    loop .v
+    pop ds
+    mov al, 1
+    xchg bx, bp
+    call fsx_rcprow             ; the image up
+    xchg bx, bp
+    mov cx, [es:rms_sn - rms_lo]
+    xor si, si
+.w:
+    jcxz .wd
+    mov di, [es:rms_soff - rms_lo + si]
+    push ds
+    mov ds, [es:bp+RMD_SEL]
+    mov dx, [di]
+    mov ax, [es:rms_sbank - rms_lo + si]
+    cmp dx, [es:rms_sconv - rms_lo + si]
+    je .wr                      ; untouched: its selector back
+    xor ax, ax
+    or dx, dx
+    jz .wr
+    call mega_p2d               ; DX = the selector of the claim based there
+    jc .wr
+    xchg ax, dx
+.wr:
+    mov [di], ax
+    pop ds
+    inc si
+    inc si
+    dec cx
+    jmp short .w
+.wd:
+    xor al, al
+    call fsx_rsndv              ; the 8237 rule, protected mode's
+.o:
+    pop es
+    popa
+    ret
+
 ; fsx_rkeep - THE REAL-MODE TABLE'S LIST (SPEC.md 53.2.3,
 ; MEGA-VIDEO-REALMODE-PLAN 7.2): {dw first cell, dw bytes kept, dw twin}, in
 ; table order, every run a pair of labels in the table itself (kernel.asm's
@@ -2042,6 +2322,8 @@ fsx_rkeepm:
     dw apic_drv_pkg_call, rms_drvx      ; OSAPI_DRV_CALL (ES = your DS)
     dw apic_drv_call_at, rms_drva       ; OSAPI_DRV_CALL_AT (ES as it is)
     dw rmk_rseq, rms_rseq               ; OSAPI_FILE_READ_SEQ
+    dw rmk_sstr, rms_sstr               ; OSAPI_SND_STREAM (W4)
+    dw rmk_spk, rms_spk                 ; OSAPI_FSX_SPK (W4)
 fsx_rkeepm_end:
 %if OSAPI_TABLE_LEN > MPS_SIZE
  %error "the real-mode bracket banks the API table in the park's scratch: MPS_SIZE must hold OSAPI_TABLE_LEN"
@@ -2098,6 +2380,7 @@ fsx_rvup:
 fsx_rupf:
     pusha
     push es
+    call fsx_rsndup             ; SOUND.DRV back up, its cells first (W4)
     not word [mega_ivtsh]       ; THE FORCED SYNC (mega_dwake's): the gates
     call mega_ivt_sync          ; rebuilt from the IVT whatever the shadow
                                 ; says, and IVT 20h-27h written back as the
@@ -2189,8 +2472,18 @@ RMD_CL      equ 10              ; (protected mode's) dw the copy's claim, 0 =
 RMD_HI      equ 12              ; it runs where it is; dd its image's base
 RMD_LO      equ 16              ; ...dd the copy's
 RMD_LEN     equ 20              ; ...dw the bytes, even
-RMD_SIZE    equ 22
-RMD_N       equ 2               ; DRVC_DISK's row, then DRVC_EMS's
+RMD_TICK    equ 22              ; DRVC_SOUND (W4): dw its DSV_TICK...
+RMD_STR     equ 24              ; ...dw its DSV_STREAM...
+RMD_SEL     equ 26              ; ...dw (protected mode's) its data selector
+RMD_SIZE    equ 28
+RMD_N       equ 3               ; DRVC_DISK's row, DRVC_EMS's, DRVC_SOUND's
+RMD_NA      equ 2               ; ...the first RMD_NA copied at the freeze's
+                                ; arm; SOUND's at the drop, at IF = 0 (W4)
+RMD_SND     equ 2 * RMD_SIZE    ; ...the sound row's offset in rms_drv
+RMS_SNMAX   equ 4               ; SNDV_RMODE's words the kernel renames
+SNDV_RMODE  equ 13              ; drivers/sound/sndpkg.inc, held equal by
+                                ; tests/unit/t_mirror.py
+RMV_N       equ 2               ; the IVT cells naming SOUND.DRV it redirects
 %if RMS_NAME + 13 > RMS_ERR || FSV_DMSK != FSV_NSTR + 1
   %error "a stream row's name is 13 bytes; fsx_rsvcf moves FSV_NSTR and FSV_DMSK as one word"
 %endif
@@ -2413,6 +2706,13 @@ rms_tier    db 0                ; [cpu_tier]
 rms_la      db 0                ; 1: la_capture has run in this bracket
             db 0
 rms_drv:    times RMD_N * RMD_SIZE db 0 ; the low drivers (fsx_rdrvf)
+rms_sn      dw 0                ; SOUND.DRV (W4): SNDV_RMODE's words, how many
+rms_soff    times RMS_SNMAX dw 0 ; ...their offsets in its segment
+rms_sbank   times RMS_SNMAX dw 0 ; ...the selectors they held at the drop
+rms_sconv   times RMS_SNMAX dw 0 ; ...and the segments the drop made them
+rms_svec    times RMV_N * 3 dw 0 ; the IVT cells naming it: {the cell's
+                                ; offset (0 none), its offset, its selector}
+rms_sline   dw 0                ; ...and the 8259 lines they are (slave high)
 rms_src     dd 0                ; a copy's two linear ends
 rms_dst     dd 0
 rms_rrow    dw 0                ; READ_SEQ: the stream's row
@@ -3150,6 +3450,170 @@ rms_drvb:
     pop ds
     pop bp
     ret
+
+; -----------------------------------------------------------------------------
+; THE SOUND DRIVER'S TWINS (W4, SPEC.md 53.2.3): its row is rms_drv's third,
+; written by fsx_rdrvf when the list carried DRVC_SOUND, and all zero when it
+; did not - so every one of these asks its row and nothing else.
+; -----------------------------------------------------------------------------
+; rms_stick - FAR, from fsx_rtick's tick (IF = 0, DS = KERNEL_SEG): snd_tick's
+; DSV_TICK half, through the low copy - DS = it, ES = KERNEL_SEG, as
+; drv_svc_call hands it. DS kept; every other register spent (fsx_rtick
+; banked them)
+rms_stick:
+    mov di, rms_drv + RMD_SND
+    mov bp, [cs:di+RMD_TICK]
+    or bp, bp
+    jz .o
+    push ds
+    pop es
+    call .t
+.o:
+    retf
+.t:
+    push bp
+    push ds
+    push di
+    jmp rms_drvb.c
+
+; rms_sstr - OSAPI_SND_STREAM's TWIN (an X cell: the twin is entered with the
+; caller's DS): osapi_snd_stream's registers - BX the caller's segment for
+; verbs 5 and 6 and the RATE for 0 and 4, DH the bracket's instance, DX the
+; answer on verbs 3 and 9 and kept on every other - to the low copy's
+; DSV_STREAM. No sound row: AX = 4, CF = 1, "no streaming sink"
+rms_sstr:
+    push bx
+    push bp
+    push es
+    mov bx, ds                  ; the caller's segment (verbs 5 and 6)
+    cmp al, 3
+    je .st
+    cmp al, 9                   ; (verb 9 answers in DX as verb 3 does)
+    je .st
+    push dx
+    cmp al, 0
+    je .rate
+    cmp al, 4
+    jne .go
+.rate:
+    mov bx, dx                  ; the open verbs: BX the rate, DH the slot
+.go:
+    call .svc
+    pop dx
+.pops:
+    pop es
+    pop bp
+    pop bx
+    retf
+.st:
+    call .svc                   ; DX is the answer: nothing banks it
+    jmp short .pops
+.svc:
+    mov dh, [cs:rms_slot]
+    mov bp, KERNEL_SEG
+    mov es, bp
+    push bp
+    push ds
+    push di
+    mov di, rms_drv + RMD_SND
+    mov bp, [cs:di+RMD_STR]
+    or bp, bp
+    jnz rms_drvb.c
+    pop di
+    pop ds
+    pop bp
+    mov ax, 4                   ; no streaming sink, in the stream verbs'
+    stc                         ; own vocabulary
+    ret
+
+; rms_spk - OSAPI_FSX_SPK's TWIN: AL = 2 OPEN WITH THE VECTOR - osapi_fsx_spk's
+; arbitration and trim, then IVT 20h (IRQ0 here: the 8259 at its protected-
+; mode base) := BX:SI, CX:DX = the chain, the real-mode tick. AL = 1 CLOSE,
+; spk_off's: IVT 20h the tick, channel 0 at the bracket's rate, channel 2
+; idle. AL = 0 - the caller writing IVT 08h - REFUSED, AX = 1, as protected
+; mode refuses it; a tone sounding refuses AX = 3 (its silencing may reach
+; the card's driver through `.cold`). IF = 0 by the caller, as the door
+; demands. Out: AX = K; BX, DX spent; CF
+rms_spk:
+    push ds
+    push ax
+    mov ax, KERNEL_SEG
+    mov ds, ax
+    pop ax
+    cmp al, 1
+    je .close
+    cmp al, 2
+    mov ax, 1                   ; SPK_E_NOTRATE: AL = 0 here, or no rate
+    jne .err
+    cmp byte [sch_fast], SCH_RATE
+    jne .err
+    mov al, 3                   ; SPK_E_BUSY
+    cmp byte [snd_pcm_busy], 0
+    jne .err
+    cmp byte [snd_town_act], 0
+    jne .err
+    mov [spk_seg], bx           ; the open flag, and the ISR's segment
+    mov word [snd_ch2mode], 0x0102 ; channel 2 the ISR's (mode 2, busy 1)
+    mov [spk_n], dx
+    mov al, 0x90                ; spk_pwm_on: ch2 mode 0, lobyte...
+    out 0x43, al
+    in al, 0x61                 ; ...gate and speaker on, the rest kept
+    or al, 0x03
+    out 0x61, al
+    mov ax, [sch_rdiv]          ; the bracket's divisor, banked for the close
+    mov [spk_rdsv], ax
+    push bx
+    mov bx, dx
+    xor dx, dx
+    div bx                      ; AX = K, DX = the remainder: the period is
+    sub [sch_rdiv], dx          ; K x N exactly
+    pop bx
+    push es
+    xor dx, dx
+    mov es, dx
+    mov [es:MEGA_PIC_BASE*4], si ; IRQ0's vector, in real mode
+    mov [es:MEGA_PIC_BASE*4+2], bx
+    pop es
+    mov cx, KERNEL_SEG          ; ...and the chain: the real-mode tick
+    mov dx, fsx_rtick
+    clc
+    pop ds
+    retf
+.err:
+    stc
+    pop ds
+    retf
+.close:
+    cmp word [spk_seg], 1       ; CF = 1: nothing open
+    jb .cd
+    pushf
+    cli
+    push es
+    xor ax, ax
+    mov [spk_seg], ax
+    mov es, ax
+    mov word [es:MEGA_PIC_BASE*4], fsx_rtick
+    mov word [es:MEGA_PIC_BASE*4+2], KERNEL_SEG
+    pop es
+    mov ax, [spk_rdsv]          ; channel 0 at the bracket's rate (sch_pit0)
+    mov [sch_rdiv], ax
+    push ax
+    mov al, 0x34
+    out 0x43, al
+    pop ax
+    out 0x40, al
+    mov al, ah
+    out 0x40, al
+    in al, 0x61                 ; ...and channel 2 idle (spk_pcm_idle's ports
+    and al, 0xFC                ; and record: no stream verb 8, which is a
+    out 0x61, al                ; call into the driver)
+    mov al, 0xB6
+    out 0x43, al
+    mov word [snd_ch2mode], 0
+    popf
+.cd:
+    pop ds
+    retf
 align 16
 rms_hi:
 ; ovlchk: end real mode
@@ -3178,7 +3642,11 @@ fsx_rlow    resw 1              ; ...the copy's claim (its data selector), 0
 fsx_rown    resw 1              ; ...and its owner, the instance's slot
 fsx_rexfp   resw 2              ; EXTD.DRV's slots' far pointer, mod_gone's
 fsx_rsvc    resw 1              ; the SERVICE AREA's claim (W3), 0 = none -
+fsx_rstko   resw 1              ; ...rms_stick, the tick's far call (W4)...
 fsx_rmsseg  resw 1              ; ...and the paragraph its twins run at
+%if fsx_rmsseg - fsx_rstko != 2
+ %error "fsx_rtick's far call is the dword fsx_rstko:fsx_rmsseg"
+%endif
 %ifdef VID_EXT
 fsx_rvxep   resw 2              ; ...and [vx_ep], the VESA desktop's hook
 %endif

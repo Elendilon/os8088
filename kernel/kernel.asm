@@ -2340,6 +2340,7 @@ rmk_3e:           ; (a real-mode bracket keeps it: fsx_rkeep)
                                   ;          patch-load's 11 bytes are the
                                   ;          caller's, and only live while a
                                   ;          sound DRIVER is loaded (51.4)
+rmk_sstr:          ; (a real-mode bracket's twin: fsx_rkeepm)
     OSAPI_XCELL osapi_snd_stream    ; 0x00EA - PCM_BG streams (SPEC.md 34.5),
                                   ;          likewise the driver's. Both
                                   ;          answer CF=1 with no driver, which
@@ -3828,6 +3829,7 @@ rmk_rseq:         ; (a real-mode bracket's twin: fsx_rkeepm)
                                   ;          re-seeded from the name when
                                   ;          anything remounted or wrote.
                                   ;          kern_big; the small door refuses
+rmk_spk:           ; (a real-mode bracket's twin: fsx_rkeepm)
     OSAPI_RSLOT osapi_fsx_spk     ; 0x045B - THE SPEAKER AT A SAMPLE RATE
                                   ;          (SPEC.md 34.11), inside your own
                                   ;          FSXF_RATE bracket: AL = 0 open

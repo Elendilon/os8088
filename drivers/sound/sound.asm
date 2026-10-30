@@ -1140,6 +1140,8 @@ opl_defpat:
 ; out: per verb; CF=1 AX=0 for a verb we do not know
 ; =============================================================================
 snd_pkg:
+    cmp bl, SNDV_RMODE          ; (ahead of the mixer's gate: it is no mixer
+    je snd_rmode                ; verb, and a machine without one has it)
     cmp bl, SNDV_MIXICON_THEME
     ja .bad
     cmp bl, SNDV_MIXINFO
@@ -1166,6 +1168,26 @@ snd_ptab:                       ; by verb number (sndpkg.inc)
 %if SNDV_IDENT != 0 || SNDV_OPLW != 1 || SNDV_MIDINFO != 2 || SNDV_MIDOPEN != 3 || SNDV_MIDW != 4 || SNDV_MIDCLOSE != 5 || SNDV_DACINFO != 6
   %error "snd_ptab is indexed by the SNDV_* numbers"
 %endif
+; snd_rmode - SNDV_RMODE (sndpkg.inc, SPEC.md 53.2.3): the kernel carries
+; this image into kern_mega's real-mode bracket (AL = 1) and back (AL = 0).
+; The 8237 rule follows the mode - the block ISR may read the DMA count only
+; where its line is masked across BIOS calls, which protected mode's
+; reflections do and the bracket's native int 13h does not - and the kernel
+; is handed the words that hold a SEGMENT, which it renames both ways.
+; Nothing else of the driver knows which mode it runs in
+snd_rmode:
+    mov si, es                  ; the kernel's (KERNEL_SEG, or MEGA_SEL_KDATA
+    cmp si, 0x60                ; in protected mode), as SNDV_MIXPOP asks
+    ja snd_pkg.bad
+    xor al, 1
+    mov [sbl_dpm], al           ; 1 back in protected mode, 0 in the bracket
+    mov si, snd_rmlist
+    mov cx, (snd_rmlist_end - snd_rmlist) / 2
+    clc
+    ret
+snd_rmlist:
+    dw sbl_rseg, sbl_extctl + 2, sbl_poolseg, sbl_seg
+snd_rmlist_end:
 snd_ident:
     mov ax, SND_SIG
     clc

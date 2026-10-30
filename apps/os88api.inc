@@ -769,7 +769,12 @@ SND_EXT_TAB      equ 16          ; os88spk.inc's PWM table, written by its
                                  ; SI = your ISR's offset - the kernel points
                                  ; IRQ0's GATE at BX:SI and answers AX = K and
                                  ; CX:DX = the chain; you program channel 0.
-                                 ; Your ISR must write nothing through CS
+                                 ; Your ISR must write nothing through CS.
+                                 ; ...and kern_mega's REAL-MODE bracket
+                                 ; (53.2.3, FSXF_REAL), where AL = 0 refuses
+                                 ; too: there AL = 2 points IVT 20h - IRQ0,
+                                 ; the 8259 at its protected-mode base - at
+                                 ; BX:SI, and your ISR runs in real mode
 SPK_E_NOTRATE    equ 1           ; not in a FSXF_RATE bracket (and always,
                                  ; on kern_small)
 SPK_E_BUSY       equ 3           ; open already, or a clip plays
@@ -6583,7 +6588,8 @@ FSXR_FRAG       equ 7           ; ...protected: the listed streams need more
                                 ; there are more than FSXL_NMAX of them
 FSXR_DRV        equ 8           ; ...protected: a listed driver class the
                                 ; real-mode bracket cannot carry (it carries
-                                ; DRVC_DISK and DRVC_EMS)
+                                ; DRVC_DISK, DRVC_EMS and DRVC_SOUND), or a
+                                ; SOUND.DRV segment word above 1MB
 FSXR_DROOM      equ 9           ; ...protected: no conventional room for a
                                 ; driver's low copy
 ; FSXF_REAL's LIST (SPEC.md 53.2.3): BP = 0, or the offset in your DS of
@@ -6596,7 +6602,8 @@ FSXL_FILE       equ 1           ; db FSXL_FILE, 'NAME.EXT', 0: a file your
                                 ; THIS name, in your folder - walked into an
                                 ; extent list at the door
 FSXL_DRV        equ 2           ; db FSXL_DRV, DRVC_*: a driver your
-                                ; OSAPI_DRV_CALL will reach inside (a stream
+                                ; OSAPI_DRV_CALL will reach inside - and
+                                ; DRVC_SOUND for OSAPI_SND_STREAM (a stream
                                 ; on a DRVC_DISK volume asks for its own)
 FSXL_NMAX       equ 4           ; ...files a list may name
 FSXL_RUNS       equ 224         ; ...contiguous runs, all its files together

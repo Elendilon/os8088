@@ -84,4 +84,12 @@
 #             the caller's SI (15) and its byte (1), less the door's `jc`
 #             (-2). The table's swap itself, its list and its bank are `.mega`
 #             and the park's scratch - nothing of them is in this segment
-4869
+# 2026-10-30: +18, to 4,887, MEGA-VIDEO-REALMODE-PLAN W4 (SPEC.md 53.2.3) -
+#             fsx_rtick, IRQ0 in the real-mode bracket, so low: its tick's
+#             far call to SOUND.DRV's DSV_TICK through the service area (10:
+#             `call far [es:fsx_rstko]`, the dword beside [fsx_rmsseg] in
+#             `.lowbss`) and sch_rhook's rule that the hook runs at IF = 1
+#             under the speaker's sample ISR (8). The twins, the low copy and
+#             the renaming are `.mega`, and the twins' copy is the service
+#             area's claim
+4887

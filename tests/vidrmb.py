@@ -25,7 +25,7 @@ asserted of each (a record per leg in its bss):
      CAP: real mode, every byte
   G  FRAGB.DAT, one run more: FSXR_FRAG, the bracket in PROTECTED mode, and
      every byte still right (the fallback reads as today's)
-  D  RMBXB.DAT with FSXL_DRV DRVC_SOUND: FSXR_DRV (W4 owes the sound driver)
+  D  RMBXB.DAT with FSXL_DRV DRVC_NET: FSXR_DRV (W4 carries DRVC_SOUND)
   A  HDV_ARM through the OSAPI_DRV_CALL twin: with --hdd, HDD.DRV armed to
      the XMS block's CURRENT base, RMBXC.DAT's first 32 KB read, disarmed -
      every sector's bit in the map and every dword right in XMS (zeroed
@@ -206,7 +206,7 @@ def judge(r, hdd):
     read_leg("F", "FRAGA.DAT", 0, False, "%d runs, the cap" % FSXL_RUNS)
     read_leg("G", "FRAGB.DAT", 7, True, "%d runs, past it: FSXR_FRAG"
              % (FSXL_RUNS + 1))
-    read_leg("D", "RMBXB.DAT", 8, True, "FSXL_DRV DRVC_SOUND: FSXR_DRV")
+    read_leg("D", "RMBXB.DAT", 8, True, "FSXL_DRV DRVC_NET: FSXR_DRV")
     a = r.get("A", {})
     want(a.get("cf") == 0 and a.get("why") == 0 and a.get("ran") == 1,
          "A: real mode (SI %s)" % a.get("why"))

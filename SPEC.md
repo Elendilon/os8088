@@ -104012,7 +104012,7 @@ at the door, so that each can be lifted by itself:
 | `FSXR_ROOM` | 5 | the region is above 1MB (`OS88_HIGH`) and the heap has no conventional claim for its copy - or, since W3, none for the bracket's SERVICE AREA (below) | sometimes - owed in part (MEGA-VIDEO-REALMODE-PLAN 5.3.3: the HMA) |
 | `FSXR_VOL` | 6 | a stream the LIST names is on a volume real mode cannot read: a redirected or file-driver volume (NET.DRV's share, CDROM.DRV, HTTPFS.DRV, RAMDISK.DRV), a mounted image, or a sector past CHS's reach | no - a PERMANENT protected-mode case (MEGA-VIDEO-REALMODE-PLAN 5.3 item 2), said on the info card |
 | `FSXR_FRAG` | 7 | the LIST's files need more than `FSXL_RUNS` (224) contiguous runs between them, or there are more than `FSXL_NMAX` (4) of them | rarely - a badly fragmented disk; a copy plays |
-| `FSXR_DRV` | 8 | the LIST names a driver class the bracket does not carry low (it carries `DRVC_DISK` and `DRVC_EMS`) | YES for `DRVC_SOUND` - owed (W4) |
+| `FSXR_DRV` | 8 | the LIST names a driver class the bracket does not carry low (it carries `DRVC_DISK`, `DRVC_EMS` and, since W4, `DRVC_SOUND`) - or SOUND.DRV holds a segment word with no real-mode segment (above 1MB) | no - every class a play reaches is carried |
 | `FSXR_DROOM` | 9 | no conventional claim for a driver's low copy | sometimes - owed with `FSXR_ROOM` |
 
 **THE LIST (W3).** With `FSXF_REAL`, **BP = 0 or the offset in the
@@ -104080,15 +104080,20 @@ package's (MEGA-VIDEO-REALMODE-PLAN 7.4).
 every IRQ0 counts `[sch_subs]` (§53.5.1's frame clock); under `FSXF_RATE`
 the accumulator decides a tick exactly as §53.2.2's does and every entry
 calls the hook, under the same three skip rules - the previous call has not
-returned, or SS is not `LOW_SEG` (a ROM service on a stack of its own); under
+returned, or SS is not `LOW_SEG` (a ROM service on a stack of its own) - and,
+as `sch_rhook` does, with IF = 1 while the speaker's sample ISR owns IRQ0
+(§34.11: the next IRQ0 is a sample, and one held at IF = 0 is lost); under
 `FSXF_FASTTICK` every Nth entry is a tick; with neither, every entry is. A
 tick chains the ROM's own IRQ0 handler, which keeps 40:6C and sends the EOI,
 and bumps `[ticks]`, so the two agree across the bracket to the tick; a
 period that is no tick sends its own EOI. There is no task switch, because
 there is one task. **So the hook runs INSIDE whatever the entry proc is
 doing, a BIOS call included** - kern_big's behaviour, which a protected-mode
-bracket can only approximate after the call. `snd_tick` does not run (a
-mounted `SOUND.DRV` image is above 1MB): its tick waits for the exit.
+bracket can only approximate after the call. A tick also runs SOUND.DRV's
+`DSV_TICK` - the stream's watchdog - through its LOW copy when the list
+carried the driver (W4, below), with DS = the copy and ES = `KERNEL_SEG` as
+`snd_tick` calls it; the tone tier's expiry, `snd_tick`'s other half, waits
+for the exit (a tone is not the bracket's: the speaker is the door's).
 
 **What the package must do** (binding):
 - **Every segment it uses inside is a REAL one.** Its own are: CS and DS.
@@ -104112,7 +104117,9 @@ mounted `SOUND.DRV` image is above 1MB): its tick waits for the exit.
   base, 20h, as it does through every reflection - re-basing it would cost
   the edges an ICW1 loses (KERN-MEGA-PLAN 14.62) - so IRQ n is vector 20h + n
   there and the kernel's tick holds 20h. A package that takes an IRQ goes
-  through the kernel's door for it.
+  through the kernel's door for it: the speaker's sample ISR through
+  `OSAPI_FSX_SPK` AL = 2 (the twin below writes IVT 20h), a sound card's
+  line through SOUND.DRV, whose vector the kernel redirects (W4, below).
 - **The calls - the real-mode TABLE.** The kernel's `.text` is conventional
   memory and runs in real mode; `.cold`, `.mega`, every driver image and
   every module are above 1MB and do not. So for the bracket the API table
@@ -104164,12 +104171,68 @@ mounted `SOUND.DRV` image is above 1MB): its tick waits for the exit.
     - `OSAPI_DRV_CALL` and `OSAPI_DRV_CALL_AT`: a class the door carried low
       is called at its real paragraph through its `DSV_PKGCALL` (`DRVC_EMS`
       handed the caller's slot in BH, as in protected mode); any other class
-      answers CF = 1 AX = 0, as for no driver.
+      answers CF = 1 AX = 0, as for no driver;
+    - `OSAPI_SND_STREAM` (W4): `osapi_snd_stream`'s contract to the low
+      SOUND.DRV's `DSV_STREAM` - BX the caller's segment for verbs 5 and 6
+      and the rate for 0 and 4, DH the bracket's instance, DX the answer on
+      verbs 3 and 9 and kept on every other, DS = the copy, ES =
+      `KERNEL_SEG`. No streaming sink carried: AX = 4, CF = 1, as with no
+      driver. A real segment is the only kind there is, so kern_mega's
+      above-1MB test of an external ring has nothing to ask;
+    - `OSAPI_FSX_SPK` (W4): AL = 2 is the door that writes the vector, as in
+      protected mode (§34.11.1.1), and the vector it writes is IVT 20h - BX:SI
+      the ISR, CX:DX on the way out the chain, `KERNEL_SEG:fsx_rtick`; the
+      channel 2 arbitration, the divisor's trim, `[spk_n]` and the close are
+      `osapi_fsx_spk`'s and `spk_off`'s. AL = 1 closes (IVT 20h the tick
+      again). AL = 0, the real-mode contract in which the CALLER writes IVT
+      08h, is REFUSED with AX = 1 as protected mode refuses it - IRQ0 is
+      vector 20h here, so the caller's write would never be taken - and a
+      tone sounding refuses AX = 3 (silencing one may reach the card, through
+      `.cold`). **The owner's rule stands**: a speaker play that is faster in
+      protected mode (182 ticks against 375 on `vm/286`) chooses that
+      bracket, MEGA-VIDEO-REALMODE-PLAN 5.3 ruling 1; this twin is for the
+      play that chose real mode.
   `OSAPI_FILE_READ_AT`, `OSAPI_XMEM_ALLOC` and `OSAPI_XMEM_FREE` stay
   REFUSED: an allocator in real mode would be a second one to keep in step
   with `mx_alloc`'s tokens for one call site, so the Video Player's split
-  claims move to its door (W5). W4 adds the sound stream and the speaker
-  door, and until then those cells refuse.
+  claims move to its door (W5).
+
+  **THE SOUND DRIVER (W4).** `FSXL_DRV DRVC_SOUND` carries SOUND.DRV low as
+  W3 carries HDD.DRV - a conventional claim of image + bss, checked to be on
+  a 512-byte boundary so that `SBL_DSCS` derives DS = CS there (otherwise
+  `FSXR_DROOM`) - with three differences, because the card is LIVE across
+  both switches: a stream may be playing when the bracket opens (Live's F)
+  and still be playing when it closes. **(1) The copy is made at the DROP
+  and undone at the RETURN, with IF = 0**, not at the freeze's arm with
+  IF = 1: a block IRQ between a copy and the switch would count a block
+  into the image that is about to stop running. **(2) The driver's own
+  segment words are renamed** by the kernel, both ways, off a list the
+  driver hands it: `SNDV_RMODE` (13, `drivers/sound/sndpkg.inc` - what the
+  plan calls `DSV_RMODE`; a `DSV_PKGCALL` verb rather than a service slot,
+  so `DSV_SIZE` and every kernel's copied tables stay where they are), AL =
+  1 at the drop and 0 at the return, the kernel's alone (ES at or below 60h,
+  `SNDV_MIXPOP`'s test), answers SI = the offset in the driver's segment of
+  a list of word offsets and CX = its count - SOUND.DRV's are the ring's
+  segment, an external ring's control-word segment, the staging pool and
+  the double buffer. At the drop each word is banked and made the real
+  segment with its base; at the return a word still holding what the drop
+  wrote gets its selector back, and a word the bracket WROTE - a stream
+  OPENED inside, which stores real segments - gets the selector of the claim
+  based at that paragraph (`mega_p2d`), so **a stream opened in either mode
+  plays on in the other** and no real-mode segment survives the bracket
+  (none at all being a word naming no claim: 0). The same verb flips the
+  8237 rule (§34.5.2.2: the block ISR reads the DMA count only where its
+  line is masked across BIOS calls, which is protected mode's reflections
+  and not the bracket's native `int 13h`). **(3) The card's line is
+  redirected**: every IVT cell 08h-0Fh naming the driver's image is banked
+  and pointed at the low copy, and so is its twin at 20h + n, where the
+  8259 delivers it - so the line reaches the ISR whether it arrives as the
+  hardware IRQ or as a PicoMEM's software `int` - and the line is left open
+  in the masks; the return puts the cells back before the forced sync. The
+  tick runs `DSV_TICK` (above). **Between brackets `DSV_TICK` reads no
+  segment of a stream** - `sbl_tick` is the watchdog's counter and the
+  PicoMEM's port test - so the words above are the whole of what a
+  real-mode segment could reach, and the return renames every one of them.
 
   **How the swap is made** (MEGA-VIDEO-REALMODE-PLAN W2's decision): neither
   a module nor a second resident image. At the drop, in protected mode, the

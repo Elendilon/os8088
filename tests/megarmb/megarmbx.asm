@@ -23,7 +23,8 @@
 ;   F  FRAGA.DAT in B:\ - FSXL_RUNS runs exactly, one sector each: real mode
 ;   G  FRAGB.DAT in B:\ - one run more: FSXR_FRAG, the same reads in
 ;      protected mode, the bytes the same
-;   D  RMBXB.DAT with FSXL_DRV DRVC_SOUND: FSXR_DRV, protected mode
+;   D  RMBXB.DAT with FSXL_DRV DRVC_NET: FSXR_DRV, protected mode (W4
+;      carries DRVC_SOUND, so the class no bracket carries is the NIC's)
 ;   A  HDD.DRV's read STRAIGHT INTO XMS (HDV_ARM, SPEC.md 52.1.4) through the
 ;      OSAPI_DRV_CALL twin: RMBXC.DAT's first 32 KB armed to the XMS block's
 ;      CURRENT base (OSAPI_XMEM_SEL's window, OSAPI_SEG's SEG_LIN), read,
@@ -712,7 +713,7 @@ mx_lc:      db FSXL_FILE, 'RMBXC.DAT', 0, FSXL_FILE, 'MISSING.DAT', 0, FSXL_END
 mx_lb:      db FSXL_FILE, 'RMBXB.DAT', 0, FSXL_END
 mx_lf:      db FSXL_FILE, 'FRAGA.DAT', 0, FSXL_END
 mx_lg:      db FSXL_FILE, 'FRAGB.DAT', 0, FSXL_END
-mx_ld:      db FSXL_FILE, 'RMBXB.DAT', 0, FSXL_DRV, DRVC_SOUND, FSXL_END
+mx_ld:      db FSXL_FILE, 'RMBXB.DAT', 0, FSXL_DRV, DRVC_NET, FSXL_END
 mx_la:      db FSXL_FILE, 'RMBXC.DAT', 0, FSXL_DRV, DRVC_DISK, FSXL_END
 mx_n_c:     db 'RMBXC.DAT', 0
 mx_n_b:     db 'RMBXB.DAT', 0
