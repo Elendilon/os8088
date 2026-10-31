@@ -46746,6 +46746,22 @@ art beside the package. `op_seg` is NOT gated, though it answers 0 for every
 row of such a table: it is a published entry point (the C SDK's thunk calls
 it), and refusing to assemble a call to it is not this gate's decision.
 
+##### 20.12.9.6 The reads are ONE file operation, and `OP_NO_FSOP`
+
+`op_load` reads the carve 32KB a take and an `OP_XMS` span through its own
+staging buffer, and `op_fetch` a lazy part the same way, so the file widget's
+bar filled once a take (§12.8.3). Each is now ONE `OSAPI_FS_OP` (§12.8.10),
+through `op_asop`: `op_load` begins once sizing has the packed run and the
+span in sectors - short by each read's head slack, so the bar clamps full a
+moment early - and `op_fetch` with its read's `[op_cap]` exactly. A package
+already inside a wider operation of its own (PixelStein's entry proc) has the
+begin refused as nesting, and `op_asop` ends only an operation its own begin
+opened, so the package's stands. It costs every includer with a carve or a
+fetch 53 to 60 bytes of image (XTMP3 +56, measured), and **every such package
+then needs Wire level 7** (§92.2). `%define OP_NO_FSOP` before
+`apps/os88parts.inc` assembles the reads as they were: WireFleet does, its
+image and bss being at `APP_MAX_SIZE` with three bytes to spare.
+
 #### 20.12.10 A LOADER hands its identity to one of its own parts
 
 A parted package's image is the thing the kernel launches, and everything else
@@ -176074,6 +176090,13 @@ a short file that looks whole is worse than no file. The half genuinely lost
 is the redirector's `FSV_COPY` fast path, which applies to a remote-to-remote
 pair — not something a DOS program inside an fsx bracket has.
 
+**Each file streamed is ONE file operation** (§12.8.10), twice its size off
+`dsh_nth`'s entry, so at the windowed prompt the file widget keeps one bar
+for it rather than filling once a chunk; the plain arm of `TYPE` is one for
+the file's size. The core names no `OSAPI_*` cell (§96.4), so it goes
+through a door, `DBE_FSOP` - the 25th - which `kern_dos` answers with a
+refusal: it has no menu bar. Inside a bracket the begin is refused anyway.
+
 **`OSAPI_FILE_COPY` is still the right door for a package with a heap**, which
 is every windowed caller including wave 7's prompt; it is simply not reachable
 from inside a bracket, and that is a property of the bracket rather than of
@@ -185248,6 +185271,11 @@ into the image it was about to jump into. (§20.12.7.4.1's shadow now puts
 the packed length back on a drop, so the row read afterwards is right too;
 the copy stays, because it is taken before anything can move the row.)
 
+**The launch is one file operation** (§12.8.10): `dsl_entry` begins it with
+parts 0 and 1's packed lengths and ends it at its one exit, so the carve and
+the core's fetch are one bar - the parts library's own begins, inside it,
+are refused as nesting (§20.12.9.6).
+
 **MEASURED, on `os8088_5150_cga_gla`**: the program is handed **585 KB above
 its PSP** against 431 windowed, the exit code comes back through §96.41's
 mailbox, and the machine restarts into a desktop. `tests/kdhand.py` is that
@@ -190563,7 +190591,10 @@ stream and the shadow land. **And the masters are fetched only when they,
 their packed stream and the shadow all fit the largest run** — kept
 masters with the shadow refused would be a game that cannot open, for the
 sake of textures. Both are the LOADER's (freed at the re-home), so part 0
-does not pay for them. **Part 1 or part 2 refused,
+does not pay for them. **The launch is one file operation**
+(§12.8.10): `pxl_entry` begins it with parts 0, 3 and 4's packed lengths -
+an over-estimate on a machine refused the masters, where the bar ends short
+- and ends it at its one exit. **Part 1 or part 2 refused,
 or the art claim, puts the game on the Flat rung** (97.3) — and so does a
 generation the part cannot hold, for that backend's phase class alone
 (`px_genbad`; a Mode change to a class that fits retries); **the sprite
@@ -229031,7 +229062,10 @@ wake handler before the load and dropped when it returns, whatever it
 answered. Their tables and strings stay in the image, which they read
 through DS; their calls into the image are the dialog part's `ICALL`
 (§124.13). A load costs one more read of `WIN16.O88`; the segment gets
-the loader's code back for the stories after S12.
+the loader's code back for the stories after S12. The program's read and
+the face's fetch after it are ONE file operation (§12.8.10): `w16_load`
+begins it at the size probe, with the probe's KB plus the smallest face's
+packed length, and `w16_wake` ends it whichever way the load went.
 
 #### 124.18.8 The gate
 

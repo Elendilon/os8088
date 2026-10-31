@@ -1570,7 +1570,10 @@ Either says its new state (`rw_lossyt`) and the next draw is whole.
   size probe (a read with no room answers the KB it needs, unpacked, with a
   compressed file's slack), claims that, reads, and then checks the bytes
   that came in: **whole 16KB banks, 32KB to 256KB**, refused in a toast
-  otherwise. One game a window: another opens in another.
+  otherwise. One game a window: another opens in another. The reads are
+  ONE file operation (SPEC.md 12.8.10), begun at the probe with the ROM's
+  bytes and ended at `rw_load`'s one exit, so a bank-cache load's 64 bank
+  reads are one bar.
 - **The worker** owns the machine. It counts BIOS ticks into frames owed, 840
   of 256 a tick (59.7275 Hz against 18.2065), at most eight behind, and
   reads the clock again after every frame - so it sleeps only when nothing
