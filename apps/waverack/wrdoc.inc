@@ -89,6 +89,8 @@ wo_new:
 ; wo_empty - wo_new without the title (an Open sets its own at once: two
 ; captions for one open would be 34 rows for nothing). clobbers as wo_new
 wo_empty:
+    mov al, WRO_SCAN                ; (a scan's bar with it: SPEC.md 12.8.10)
+    call wr_opend
     mov byte [we_busy], 0           ; a scan or a refinement: abandoned
     mov dx, [wo_ioseg]
     call wo_free

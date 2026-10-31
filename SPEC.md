@@ -207744,7 +207744,9 @@ of its own, in 32 KB chunks with `OSAPI_FILE_READ_AT` (a chunk that size is a
 multiple of every legal cluster; `OSAPI_FILE_READ` is not for a file this
 big) - from the folder MIDIRack was LAUNCHED from, recorded at entry, since
 adding songs through the Open dialog moves the instance's folder - and is
-kept until the window closes. Its index stays in it; nothing is copied. Its
+kept until the window closes. The read is one `OSAPI_FS_OP` operation of
+the bank's KB (§12.8.10), one bar where it filled once a chunk. Its index
+stays in it; nothing is copied. Its
 presence and size are read at entry for nothing: a 16-byte `OSAPI_FILE_READ`
 answers `FERR_BIG` with the KB it needs from the directory entry, before a
 byte of data. **It ships UNWRAPPED** - `READ_AT` delivers a file raw.
@@ -224761,8 +224763,12 @@ whole MP3** into a hold:
 
 The load is `MD_LOAD`, state **Loading NN%** (`X3ST_LOAD`): a pass of the
 window's timer reads chunks until about 110 ms have gone, so Stop is
-answered between passes. Then the ladder or the job starts as it would
-have. From then on aplook.inc's gulps are copies: its read is `AP_RSEQ`, which the
+answered between passes. The load is one `OSAPI_FS_OP` operation of the
+file's size (§12.8.10), so the file widget keeps ONE bar for it, parked on
+the menu bar between passes, where it blinked once a chunk; the load's end,
+Stop and a failed read end it (`x3_opend`, behind a byte naming the site, so
+the hold's end never ends a Decode first's). Then the ladder or the job
+starts as it would have. From then on aplook.inc's gulps are copies: its read is `AP_RSEQ`, which the
 Audio Player leaves `os88_rseq` (AUDIO.O88 is byte-identical) and XTMP3
 makes `x3_rseq`, a copy out of the hold for the held file and the disk for
 anything else (a finished WAV, `x3_readat`'s header and fingerprint reads).
@@ -224821,7 +224827,10 @@ percentage, the elapsed wall time and the measured speed (`0.31x`), and once
 the job has measured itself for `XC_ESTT` = 182 ticks (10 s), `About mm:ss
 left`. It redraws at most once a second (`XC_DRAWT` = 18 ticks) and only
 the characters that changed; the LCD's clock, the bar and the status move
-with it. **Cancel** (Esc or the button) is answered within one granule batch,
+with it. The job is one `OSAPI_FS_OP` operation too (§12.8.10): the WAV's
+estimate (`[x3c_need]`, so the bar ends a little short) plus the source
+when no hold has it, ended by `x3c_teardown`, which every way out takes.
+**Cancel** (Esc or the button) is answered within one granule batch,
 measured 0.22 s from the key to Ready, and deletes this job's temporary file
 and nothing else. A full disk, a write error, a volume that left or a source
 that changed stops the job with its reason (`The disk is full`, `Cannot
@@ -226158,7 +226167,10 @@ re-blits the byte column it left from the band, and draws the line again.
   block in one of four inner loops (8/16-bit x mono/stereo, a 16-bit sample
   read as its high byte, no multiply) and storing each block as it ends; the
   status bar says `Scanning 45%` while it runs and the open's note, or
-  `Ready`, when it is done. Stop, Escape and another Open abandon it, and
+  `Ready`, when it is done. It is one `OSAPI_FS_OP` operation of the
+  source's data bytes (§12.8.10), so the file widget keeps one parked bar
+  rather than one a gulp, ended by `we_scandone` or by `wo_empty`. Stop,
+  Escape and another Open abandon it, and
   the document with it (`Open cancelled`). A read that delivers nothing
   short of the source's frames (a chain shorter than its entry, a disk
   swapped) refuses the document with `Cannot read the file` rather than
@@ -226960,7 +226972,12 @@ delivery offers no conversion on save.
   the next tick - the first write CREATES `WRSAVE.$$$` with
   `OSAPI_FILE_WRITE` (16 KB, a whole number of clusters), every later one
   appends with `OSAPI_FILE_WRITE_SEQ` (§18.4.9) and its token, committed
-  every call. The status bar says `Saving 45%`; Stop and Escape cancel
+  every call. The status bar says `Saving 45%`, and the save is one
+  `OSAPI_FS_OP` operation (§12.8.10) of twice the data plus the header, one
+  parked bar where the widget blinked every tick, ended in `ws_end` - after
+  which a rebase's rescan opens its own. A save cannot start during a scan
+  (`we_ready`), and the two ends ask a site byte, `[wr_fsop]`, so neither
+  ends the other's; Stop and Escape cancel
   (`Save cancelled`). While it writes the state is BUSY (§123.6): Play,
   Record, the edits, New, Open and the other saves grey (`Still saving`),
   a refinement waits, and the view, the cursor and the selection stay live

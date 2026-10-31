@@ -2785,6 +2785,9 @@ WRB_SIZE0   equ 240 + WR_NB * 10 + WF_NKEYS * 2 + WD_BANDSZ
     WRV wx_tmp, WO_NPC * WP_SIZE    ; the list being built
     ; --- the save (wrsave.inc) --------------------------------------------------
     WRV ws_busy, 1                  ; 1 = a save is writing (state BUSY)
+    WRV wr_fsop, 1                  ; OSAPI_FS_OP's owner, WRO_* (0 none;
+                                    ; outside wo_zero0..1 - wo_empty must
+                                    ; not forget a save's)
     WRV ws_mode, 1                  ; WSM_*
     WRV ws_made, 1                  ; WRSAVE.$$$ exists
     WRV ws_padded, 1                ; the pad byte is decided
