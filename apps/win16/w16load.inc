@@ -364,13 +364,11 @@ w16_layout:
     mov [w16_rtab], bp              ; then the kept resource table (w16res.inc)
     ICALL w16_rlayout
     add bp, ax
-    mov ax, bp
-    add ax, 63                      ; KB, rounded up
-    mov cl, 6
-    shr ax, cl
-    push ax
-    call OSAPI_MEM_CLAIM
-    pop cx                          ; CX = KB
+    mov ax, bp                      ; PARAGRAPHS (SPEC.md 50.3.7): the image
+    xor cx, cx                      ; pays the heap's granule, not a whole KB
+    mov bl, MEMP_CLAIM
+    call OSAPI_MEM_P
+    xchg ax, cx                     ; CX = the paragraphs GRANTED
     jnc .got
     mov si, w16_r_mem
     pop bp
@@ -378,9 +376,7 @@ w16_layout:
     ret
 .got:
     mov [w16_pseg], dx
-    mov ax, cx                      ; the top: base + KB * 64
-    mov cl, 6
-    shl ax, cl
+    mov ax, cx                      ; the top: base + what was granted
     add ax, dx
     mov [w16_ptop], ax
     ; zero the claim, 4KB at a time (BSS, the heap and the stack are zero)

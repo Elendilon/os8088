@@ -98,11 +98,13 @@ w16_census:
     add ax, 15
     and ax, 0xFFF0
     mov [w16c_obase], ax
-    add ax, W16C_END + 1023
+    add ax, W16C_END + 15
     rcr ax, 1                       ; (the carry is bit 16: a census of 64KB
-    mov cl, 9                       ; of code still sizes right)
-    shr ax, cl                      ; AX = KB
-    call OSAPI_MEM_CLAIM            ; DX = the block
+    mov cl, 3                       ; of code still sizes right)
+    shr ax, cl                      ; AX = PARAGRAPHS (SPEC.md 50.3.7)
+    xor cx, cx
+    mov bl, MEMP_CLAIM
+    call OSAPI_MEM_P                ; DX = the block
     jnc .claimed
     mov si, w16_r_mem
     jmp .refuse
