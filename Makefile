@@ -2332,7 +2332,7 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm \
         xt-weave 386-weave xt-weave-256 \
         loom loomdisk \
         lemmings lemmingsdisk lemmings-data lembench xt-lemmings 386-lemmings \
-        checkdocs test-fast test-full test-soak clean clean-cc clean-marty distclean
+        checkdocs test-fast test-full test-soak clean clean-cc clean-marty clean-watcom distclean
 
 # `all` deliberately does NOT build anything under tests/ (see the bench block
 # below). The testing apps are on-demand only: `make bench`.
@@ -7341,7 +7341,7 @@ $(BUILD)/wirechat.o88: $(BUILD)/wirechat.bin tools/os88pkg.py $(PKGZSTAMP) $(PKG
 # strings have to name.
 # --- DOS (SPEC.md 96) --------------------------------------------------------
 $(BUILD)/dos.bin: apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
-                  apps/dos/dosc.inc apps/dos/dosnetabi.inc \
+                  apps/dos/dosc.inc apps/dos/dosw16.inc apps/dos/dosnetabi.inc \
                   apps/os88api.inc apps/dos/doscall.inc \
                       apps/dos/doscents.inc apps/os88ui.inc \
                   apps/os88line.inc apps/os88sock.inc \
@@ -7435,7 +7435,7 @@ $(shell mkdir -p $(BUILD); \
 
 $(BUILD)/kerndos.bin: kerndos/kdos.asm $(KERNDOS_INC) $(KERNEL_INC) \
                       apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
-                      apps/dos/dosc.inc apps/dos/dosnetabi.inc \
+                      apps/dos/dosc.inc apps/dos/dosw16.inc apps/dos/dosnetabi.inc \
                       apps/os88api.inc apps/dos/doscall.inc \
                       apps/dos/doscents.inc apps/os88ui.inc apps/os88line.inc \
                       apps/os88sock.inc apps/os88con.inc apps/os88cp437.inc \
@@ -7453,7 +7453,7 @@ $(BUILD)/kerndos.bin: kerndos/kdos.asm $(KERNDOS_INC) $(KERNEL_INC) \
 # and the Memory page's `Load DOS in the HMA` picks; nothing else builds it.
 $(BUILD)/kerndosl.bin: kerndos/kdos.asm $(KERNDOS_INC) $(KERNEL_INC) \
                        apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
-                       apps/dos/dosc.inc apps/dos/dosnetabi.inc \
+                       apps/dos/dosc.inc apps/dos/dosw16.inc apps/dos/dosnetabi.inc \
                        apps/os88api.inc apps/dos/doscall.inc \
                        apps/dos/doscents.inc apps/os88ui.inc apps/os88line.inc \
                        apps/os88sock.inc apps/os88con.inc apps/os88cp437.inc \
@@ -7465,12 +7465,19 @@ $(BUILD)/kerndosl.bin: kerndos/kdos.asm $(KERNDOS_INC) $(KERNEL_INC) \
 	        -I apps/dos/ -I drivers/net/ -o $@ kerndos/kdos.asm
 	@echo "kerndosl: $(call FILESIZE,$@) bytes (kern_mega's low kern_dos)"
 
+# A Windows program double-clicked hands itself to WIN16.O88 (SPEC.md
+# 124.18.1, apps/dos/dosw16.inc) on the two kernels whose disks carry WIN16:
+# kern_small has no OSAPI_WM_TIMER and kern_mega refuses it (124.1), so
+# their DOS.O88 stays without the forward. Each builds into a tree of its
+# own, so the arm needs no stamp.
+DOSW16DEF := $(if $(KERN_MEGA)$(KERN_SMALL),,-DDOS_WIN16)
+
 # ...and the package that carries it. -DDOSKPART is 18 bytes of part table and
 # nothing else: the standard's 800-byte body is NOT emitted, because this part
 # is never read by op_load - the handoff walks its bytes into extents and the
 # stub reads them with int 13h (docs/plans/KERN-DOS-PLAN.md §4.1.1).
 $(BUILD)/dosp.bin: apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
-                   apps/dos/dosc.inc apps/dos/dosnetabi.inc \
+                   apps/dos/dosc.inc apps/dos/dosw16.inc apps/dos/dosnetabi.inc \
                    apps/os88api.inc apps/dos/doscall.inc \
                       apps/dos/doscents.inc apps/os88ui.inc \
                    apps/os88line.inc apps/os88sock.inc \
@@ -7480,7 +7487,7 @@ $(BUILD)/dosp.bin: apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
                    drivers/net/netpkg.inc $(DOSNETSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/dos/ -I drivers/net/ \
 	        -I kerndos/ $(if $(DOSNETCARD),-DDOSNET_CARD) -DDOSKPART -DDOS_EXTCORE \
-	        $(if $(KERN_MEGA),-DDOS_MEGA) \
+	        $(if $(KERN_MEGA),-DDOS_MEGA) $(DOSW16DEF) \
 	        -o $@ apps/dos/dos.asm
 
 # --- THE CORE, ON ITS OWN (SPEC.md 96.44) -----------------------------------
@@ -7490,7 +7497,7 @@ $(BUILD)/dosp.bin: apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
 # build - the two hosts each carry the other half and would never notice.
 # `all` builds it, because a check nobody runs is a check that rots.
 $(BUILD)/doscore.bin: apps/dos/doscore.asm apps/dos/dos.asm apps/dos/dosh.inc \
-                      apps/dos/dosc.inc apps/dos/dosnet.inc \
+                      apps/dos/dosc.inc apps/dos/dosw16.inc apps/dos/dosnet.inc \
                       apps/dos/dosnetabi.inc apps/os88api.inc apps/dos/doscall.inc \
                       apps/dos/doscents.inc \
                       apps/os88ui.inc apps/os88line.inc apps/os88sock.inc \
@@ -16576,12 +16583,34 @@ MEDIAARGS360 := $(BUILD)/midirack.o88 $(BUILD)/xtmp3.o88 \
                 $(addprefix MEDIA:,$(MEDIA_DISK_DATA) $(XTMP3MP3_360)) \
                 $(LOGOVIDARG) $(MIDISONGARGS)
 
+# WIN16 (SPEC.md 124.18.1): a WIN16\ folder - the package, its GPL-2 COPYING
+# and its README.TXT, apps/apple2's footing - and SYSTEM\APPDATA\WIN16, the
+# Windows directory a program's WIN.INI and .INI files are kept in (124.14),
+# BUILT because WIN16 never makes it. On the 1.44MB and 1.2MB apps disks,
+# more720 (the 720KB machine's second), emu360 (programs of another system,
+# at its root, 24.6's rule), the everything set and the live media. NOT in $(APPSARGS) itself: that list
+# feeds kern_mega's apps disks, where WIN16 refuses (124.1).
+# The two documents ride as WIN16.TXT and COPYING.W16, the names The Wire
+# gives APPLE2's (APPLE2.TXT, COPYING.A2): emu360 is a category disk with its
+# programs at the ROOT (24.6), where a README.TXT is the system's and a
+# COPYING is C64's and APPLE2's under EMUFULL. One pair of names everywhere.
+WIN16SHIP := $(BUILD)/win16.o88 $(BUILD)/win16/WIN16.TXT $(BUILD)/win16/COPYING.W16
+WIN16ARGS := $(addprefix WIN16:,$(WIN16SHIP))
+WIN16FOLDER := --folder SYSTEM/APPDATA/WIN16
+$(BUILD)/win16/WIN16.TXT: apps/win16/README.TXT
+	@mkdir -p $(@D)
+	cp $< $@
+$(BUILD)/win16/COPYING.W16: apps/win16/COPYING
+	@mkdir -p $(@D)
+	cp $< $@
+
 # The 1.44MB and 1.2MB apps disks are $(APPSARGS) plus XTMP3's demo songs,
 # which differ between the two (XTMP3MP3's note has the clusters). Spliced in
 # ahead of $(APPDATAFOLDER), $(APPSARGS720)'s way: argparse stops collecting
 # positionals at an option that takes a value, so the folder stays last.
 APPSARGS144 := $(filter-out $(APPDATAFOLDER),$(APPSARGS)) \
-               $(addprefix MEDIA:,$(XTMP3MP3)) $(APPDATAFOLDER)
+               $(addprefix MEDIA:,$(XTMP3MP3)) $(WIN16ARGS) \
+               $(APPDATAFOLDER) $(WIN16FOLDER)
 # ...AND THE 1.2MB DISK LEAVES XTMP3 AND ITS SONGS OFF (SPEC.md 24.6.1's rule,
 # dated 2026-10-23, the 720KB disk's decision of 2026-10-22 one geometry along):
 # Browser 1.6c grew 67 clusters and apps120.img needed 2399 of 2371. The player
@@ -16590,11 +16619,11 @@ APPSARGS144 := $(filter-out $(APPDATAFOLDER),$(APPSARGS)) \
 # together, as the 720KB disk's are.
 APPS120 := $(filter-out $(BUILD)/xtmp3.o88,$(APPS))
 APPSARGS120 := $(filter-out $(APPDATAFOLDER) APPS:$(BUILD)/xtmp3.o88,$(APPSARGS)) \
-               $(APPDATAFOLDER)
-$(APPSIMG): $(APPS) $(XTMP3MP3) $(LOGOVID) tools/os88disk.py
+               $(WIN16ARGS) $(APPDATAFOLDER) $(WIN16FOLDER)
+$(APPSIMG): $(APPS) $(XTMP3MP3) $(LOGOVID) $(WIN16SHIP) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(APPSARGS144)
 
-$(APPSIMG120): $(APPS120) $(LOGOVID) tools/os88disk.py
+$(APPSIMG120): $(APPS120) $(LOGOVID) $(WIN16SHIP) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1200 $(APPSARGS120)
 
 # kern_mega's APPS DISKS (KERN-MEGA-PLAN 14.66): $(APPSARGS) with the
@@ -16649,8 +16678,8 @@ MOREARGS720 := APPS:$(BUILD)/pixel.o88 APPS:$(BUILD)/midirack.o88 \
                $(addprefix GAMES:,$(RDG_SHIP) $(DM_SHIP)) \
                MEDIA:$(RDG_DEMO) $(LOGOVIDARG) \
                $(addprefix MEDIA/MIDI:,$(MORE720_SONGS)) \
-               $(PX_GALLERY_360) $(APPDATAFOLDER)
-$(MOREIMG720): $(MORE720) tools/os88disk.py
+               $(PX_GALLERY_360) $(WIN16ARGS) $(APPDATAFOLDER) $(WIN16FOLDER)
+$(MOREIMG720): $(MORE720) $(WIN16SHIP) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 720 $(MOREARGS720)
 
 $(APPSIMG360): $(APPS360) tools/os88disk.py
@@ -16892,9 +16921,9 @@ $(BUILD)/emu/COPYING: apps/apple2/COPYING apps/c64/COPYING tools/os88lz.py $(PKG
 	   cat apps/apple2/COPYING; } > $@.plain
 	$(if $(PKGZ),python3 tools/os88lz.py --wrap $@ --fmt $(PKGZ) $@.plain && rm -f $@.plain,mv $@.plain $@)
 
-$(EMUIMG360): $(EMU360) $(EMUSTAMP) tools/os88disk.py
+$(EMUIMG360): $(EMU360) $(EMUSTAMP) $(WIN16SHIP) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(EMUOPTS360) $(EMUARGS360) \
-		$(MEDIAFOLDER) $(APPDATAFOLDER)
+		$(WIN16SHIP) $(MEDIAFOLDER) $(APPDATAFOLDER) $(WIN16FOLDER)
 	@python3 tools/os88disk.py --verify $@
 	$(if $(EMUFULL),,@echo "emu360: RealDMG only - C64, APPLE2 and RunCPM join it on request: make emufull")
 
@@ -17077,7 +17106,7 @@ ALLAPPSFILES := $(N1942LIVE) $(APPS) $(CORE_SYSONLY) $(BUILD)/frotz.o88 \
                 apps/apple2/README.TXT apps/apple2/COPYING \
                 $(RDG_SHIP) $(RDG_DEMO) \
                 $(WEAVEDISK) $(WEAVELOOM) $(LOOMSRCS) \
-                $(RUNCPMDISK)
+                $(RUNCPMDISK) $(WIN16SHIP)
 # These images use the RunCPM master disk, but not the separate CP/M
 # software collection used by runcpmdisk. Do not fetch that unused payload.
 ALLAPPS := $(ALLAPPSFILES) $(PX_SAMPLES_360) $(BUILD)/runcpm-src.stamp tools/getruncpm.py
@@ -17105,6 +17134,7 @@ ALLAPPSARGS := $(addprefix APPS:,$(APPS_TOOLS) $(CORE_SYSONLY) \
                                    apps/apple2/COPYING) \
                $(addprefix WEAVE:,$(WEAVEDISK)) \
                $(addprefix LOOM:,$(WEAVELOOM) $(LOOMSRCS)) \
+               $(WIN16ARGS) \
                $(APPSYSARGS) \
                $(addprefix SYSTEM/DOS:,$(APPS_DOS) $(APPS_DOSCZ))
 
@@ -17118,7 +17148,7 @@ allapps: $(ALLAPPSLIST) $(ALLAPPSLIST120)
 define ALLAPPSSETRULE
 python3 tools/os88allapps.py --size $(2) --prefix $(1) --list $@ \
     --runcpm $(RUNCPMDIR) --runcpm-slots $(RUNCPMSLOTS) --dir-slots LOOM=32 \
-    --folder DOCS $(APPDATAFOLDER) \
+    --folder DOCS $(APPDATAFOLDER) $(WIN16FOLDER) \
     --collection APPS --collection GAMES --collection MEDIA \
     $(ALLAPPSARGS) $(PX_GALLERY_360)
 endef
@@ -17309,7 +17339,7 @@ LIVEARGS := $(DRIVERS) $(LIVEREST)
 # no third).
 LIVEDIRS := $(sort $(foreach a,$(LIVEARGS), \
                      $(if $(findstring :,$a),$(firstword $(subst :, ,$a)))) \
-                   DOCS AUTOSTRT RUNCPM/A SYSTEM/APPDATA STORIES/SAVES \
+                   DOCS AUTOSTRT RUNCPM/A SYSTEM/APPDATA SYSTEM/APPDATA/WIN16 STORIES/SAVES \
                    $(foreach d,$(shell python3 tools/getcpmsw.py --slots hdd 2>/dev/null), \
                      $(if $(findstring /,$d),RUNCPM/$(firstword $(subst =, ,$d)))) \
                    $(sort $(foreach a,$(shell python3 tools/getstories.py \
@@ -17429,7 +17459,7 @@ $(USBIMG) $(EMUUSBIMG): $(BUILD)/mbr.bin $(BUILD)/boothd.bin $(KERNFILE) \
 		--mbr $(LIVEKDIR)/mbr.bin --boot $(LIVEKDIR)/boothd.bin \
 		--kernel $(LIVEKDIR)/$(KERNNAME) \
 		--deep-folders --dir-slots RUNCPM/A/0=$(RUNCPMSLOTS) $$gslot \
-		--folder DOCS $(APPDATAFOLDER) $(AUTOFOLDER) $(LIVESTORYDIRS) $(STIKNOTESOPT) \
+		--folder DOCS $(APPDATAFOLDER) $(WIN16FOLDER) $(AUTOFOLDER) $(LIVESTORYDIRS) $(STIKNOTESOPT) \
 		$(LIVEDRVS) $(filter-out $(LIVENOTOOLS),$(LIVEREST)) $$sel $$gsel $$zsel $(CPMSW) $(STORIES)
 	@python3 tools/os88disk.py --verify-hdd $@
 	@$(if $(LIVESUB),true,cp -f $(BUILD)/livepayload.txt $@.payload)
@@ -18886,6 +18916,11 @@ pentium: $(IMG) $(APPSIMG)
 # them - build/apple2-rom/APPLE2.ROM - is an output and goes, so a rebuild
 # still re-checks every SHA-256 and re-assembles the part.
 #
+# ...and build/watcom by the same test: Open Watcom, the compiler WIN16's
+# Windows 3.x test programs are built with (SPEC.md 124,
+# tools/setup-watcom.sh), is a ~150 MB FETCH of a pinned release.
+# `clean-watcom` is the escape hatch.
+#
 # ...and build/gbtest and build/rgbds, the Game Boy's, by the same test: the
 # test ROMs tools/getgbtest.py fetches at pinned SHA-256s and the assembler
 # tools/gbclock.py builds from a pinned clone. Thrown away, the rgbds rows
@@ -18893,6 +18928,7 @@ pentium: $(IMG) $(APPSIMG)
 clean:
 	find $(BUILD) -mindepth 1 -maxdepth 1 ! -name martypc ! -name cc \
 		! -name apple2-rom ! -name nasm3 ! -name gbtest ! -name rgbds \
+		! -name watcom \
 		-exec rm -rf {} + 2>/dev/null || true
 	@rm -f $(BUILD)/apple2-rom/APPLE2.ROM
 
@@ -18910,7 +18946,164 @@ clean-nasm3:
 clean-gb:
 	rm -rf $(BUILD)/gbtest $(BUILD)/rgbds
 
-distclean: clean clean-marty clean-cc clean-nasm3 clean-gb
+clean-watcom:
+	rm -rf $(BUILD)/watcom
+
+distclean: clean clean-marty clean-cc clean-nasm3 clean-gb clean-watcom
+
+# --- WIN16: Windows 3.x programs (SPEC.md 124, docs/plans/WIN16-PLAN.md) ------
+# ON DEMAND and never in `all`: nothing here ships yet, and both targets read
+# things this tree does not carry.
+#
+# `make win16census WIN3X=<dir>` runs tools/os88ne.py over every .EXE, .DLL,
+# .DRV and .FON under a directory of the user's Windows files - what each
+# imports, its resources, and the CPU it needs by recursive descent (SPEC.md
+# 124.4). Microsoft's files are never in this tree, so WIN3X is required;
+# the win16-reference skill's win16ref/samples/ is one such directory.
+#
+# `make win16fixtures` builds the Win16 TEST programs into $(BUILD)/win16/
+# (WIN16-PLAN.md D10): tests/win16/tiny16.asm with nasm, and tests/win16/*.c
+# with Open Watcom (-0: 8086 code; -bt=windows -l=windows: a Windows NE).
+# The compiler is fetched by tools/setup-watcom.sh into build/watcom/ the
+# first time, ~150 MB at a pinned SHA-256, which is why this is on demand.
+# The bitmaps bitmap.rc binds are generated (tests/win16/mkbmp.py), never
+# committed. tests/unit/t_win16ne.py reads the result when it is there. A
+# fixture with a tests/win16/<name>.wlk is linked by wlink with those options
+# (FPX's 16KB local heap: signal() brings stdio in, and Windows 3.0 refused
+# it with the default 1KB - "Not enough memory to allocate file structures").
+WIN16FIX := MSGBOX WINDOW MENU DIALOG MODELESS PROFILE INIFILE BITMAP FPU FPX PUMP GDICARD ICONS WRITER
+WIN16SRC := $(wildcard tests/win16/*.c tests/win16/*.h tests/win16/*.rc tests/win16/*.wlk) \
+            tests/win16/mkbmp.py
+
+win16census:
+	@test -n "$(WIN3X)" || { echo "win16census: say where the Windows files are: make win16census WIN3X=<dir>"; exit 2; }
+	python3 -I tools/os88ne.py --dir "$(WIN3X)"
+
+win16fixtures: $(BUILD)/win16/TINY16.EXE $(BUILD)/win16/.watcom
+
+$(BUILD)/win16/TINY16.EXE: tests/win16/tiny16.asm
+	@mkdir -p $(@D)
+	$(NASM) -f bin -w+error -o $@ $<
+
+$(BUILD)/win16/.watcom: $(WIN16SRC) tools/setup-watcom.sh
+	@mkdir -p $(@D)
+	tools/setup-watcom.sh --build-dir $(abspath $(BUILD)) >/dev/null
+	python3 tests/win16/mkbmp.py $(@D)
+	@cd $(@D) && eval "$$($(CURDIR)/tools/setup-watcom.sh --build-dir $(abspath $(BUILD)) --env)" && \
+	for p in $(WIN16FIX); do \
+	  l=$$(echo $$p | tr A-Z a-z); \
+	  if [ -f $(CURDIR)/tests/win16/$$l.wlk ]; then \
+	    wcl -q -c -0 -bt=windows -i=$(CURDIR)/tests/win16 -fo=$$l.obj \
+	        $(CURDIR)/tests/win16/$$l.c >/dev/null && \
+	    wlink op q system windows $$(cat $(CURDIR)/tests/win16/$$l.wlk) \
+	        file $$l.obj name $$p.EXE >/dev/null || exit 1; \
+	  else \
+	    wcl -q -0 -bt=windows -l=windows -i=$(CURDIR)/tests/win16 -fo=$$l.obj \
+	        -fe=$$p.EXE $(CURDIR)/tests/win16/$$l.c >/dev/null || exit 1; \
+	  fi; \
+	  if [ -f $(CURDIR)/tests/win16/$$l.rc ]; then \
+	    wrc -q -bt=windows -30 -r -i=$(CURDIR)/tests/win16 -i=. -fo=$$l.res \
+	        $(CURDIR)/tests/win16/$$l.rc && wrc -q -bt=windows -30 $$l.res $$p.EXE || exit 1; \
+	  fi; \
+	done
+	@touch $@
+	@echo "win16fixtures: TINY16 $(WIN16FIX) built into $(BUILD)/win16/"
+
+# `make win16` builds the layer itself, apps/win16/ (SPEC.md 124.2): a
+# `local` package in apps/RETIRED.txt until S12 decides its payload, so no
+# shipped image carries it yet and `all` does not build it.
+WIN16ASM := $(wildcard apps/win16/*.asm apps/win16/*.inc)
+
+$(BUILD)/win16.bin: $(WIN16ASM) apps/os88api.inc apps/os88parts.inc apps/os88partsbody.inc apps/os88data.inc \
+                    apps/os88ui.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/win16/ -o $@ apps/win16/win16.asm
+	@echo "win16:  $(call FILESIZE,$@) bytes"
+
+# The System font, one part a display (SPEC.md 124.7.1): tools/w16font.py
+# builds each face from its committed art in apps/win16/fonts/, and they ride
+# in WIN16.O88 as lazy compressed parts in W16P_* order.
+W16FACES := $(BUILD)/win16/sys16.bin $(BUILD)/win16/sys12.bin $(BUILD)/win16/sys08.bin
+
+$(BUILD)/win16/sys%.bin: apps/win16/fonts/sys%.txt tools/w16font.py
+	@mkdir -p $(@D)
+	python3 tools/w16font.py build $< $@
+
+# ...and part 3 is the dialog manager and the controls (SPEC.md 124.13):
+# win16.asm assembles them after the image in `section .w16dlg vstart=0`, and
+# tools/os88ovl.py cuts them off at the image size the header records, Sheet's
+# and Word's way, into a part of their own segment, far-called both ways.
+# Part 4 is the 8087 emulator (SPEC.md 124.5.1), assembled after it in
+# `section .w16fp` and cut at its W16X87EM mark as Sheet's macro module is.
+# Part 5 is the loader and the census (SPEC.md 124.18.7), `section .w16ld`
+# after that, cut at its W16LOADR mark.
+# Part 6 is WIN16's own system icons (SPEC.md 124.18.4): tools/w16icon.py
+# builds them from the committed art in apps/win16/icons/.
+$(BUILD)/win16/icons.bin: $(wildcard apps/win16/icons/*.txt) tools/w16icon.py
+	@mkdir -p $(@D)
+	python3 tools/w16icon.py build $@
+
+$(BUILD)/win16.o88: $(BUILD)/win16.bin $(W16FACES) $(BUILD)/win16/icons.bin \
+                    tools/os88pkg.py tools/os88ovl.py \
+                    $(PKGZSTAMP)
+	@mkdir -p $(BUILD)/win16
+	python3 tools/os88ovl.py $(BUILD)/win16.bin -o $(BUILD)/win16/w16dlg.bin \
+		--trim $(BUILD)/win16/win16.trim.bin \
+		--second $(BUILD)/win16/w16fp.bin --mark W16X87EM \
+		--second $(BUILD)/win16/w16ld.bin --mark W16LOADR
+	$(OS88PKG) $(BUILD)/win16/win16.trim.bin -o $@ \
+		$(addprefix --part ,$(W16FACES)) --part $(BUILD)/win16/w16dlg.bin \
+		--part $(BUILD)/win16/w16fp.bin --part $(BUILD)/win16/w16ld.bin \
+		--part $(BUILD)/win16/icons.bin --part-compress lz4
+
+win16: $(BUILD)/win16.o88
+
+# `make win16test` is S2's gate disk (WIN16-PLAN.md S2): a 1.44MB B: with
+# WIN16.O88, the TINY16 variants, whatever `make win16fixtures` has built,
+# SYSTEM/APPDATA/WIN16, the Windows directory a program's profiles are kept
+# in (SPEC.md 124.14), and DOS.O88 in the ROOT beside the programs, so the
+# association's rung 2 (the document's own folder, SPEC.md 54.4.2) finds it
+# before the system disk's. Since S12 that DOS.O88 is the SHIPPED one
+# (124.18.1), copied here so the rows keep the name they were written with.
+$(BUILD)/win16/DOS.O88: $(BUILD)/kdos/DOS.O88
+	@mkdir -p $(@D)
+	cp $< $@
+
+WIN16TINY := TINY16 TINY186 TINYUNK
+$(BUILD)/win16/TINY186.EXE: tests/win16/tiny16.asm
+	@mkdir -p $(@D)
+	$(NASM) -f bin -w+error -DT16_186 -o $@ $<
+$(BUILD)/win16/TINYUNK.EXE: tests/win16/tiny16.asm
+	@mkdir -p $(@D)
+	$(NASM) -f bin -w+error -DT16_UNKNOWN -o $@ $<
+
+$(BUILD)/win16test.img: $(BUILD)/win16.o88 $(BUILD)/win16/DOS.O88 \
+                        $(addprefix $(BUILD)/win16/,$(addsuffix .EXE,$(WIN16TINY))) \
+                        tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/win16.o88 \
+	    $(BUILD)/win16/DOS.O88 \
+	    $(sort $(addprefix $(BUILD)/win16/,$(addsuffix .EXE,$(WIN16TINY))) \
+	           $(wildcard $(BUILD)/win16/*.EXE)) \
+	    $(APPDATAFOLDER) --folder SYSTEM/APPDATA/WIN16
+
+win16test: $(BUILD)/win16test.img
+	@echo "win16test: build/win16test.img - boot it as B: with"
+	@echo "           make test TESTAPPS=build/win16test.img"
+
+# `make win16disk WIN3X=<dir>` (SPEC.md 124.18.1): YOUR Windows programs on a
+# floppy in all four geometries - WIN16\, SYSTEM\APPDATA\WIN16 and the NE
+# programs found directly in <dir>, as many as each geometry holds, with
+# PROGRAMS.TXT saying which went on and why each other one did not
+# (tools/w16disk.py). Phony: <dir> is outside the tree and make cannot see it
+# change, so every run reads it again. Microsoft's files never enter the tree.
+W16DISKS := 1440:w16prog 1200:w16prog120 720:w16prog720 360:w16prog360
+win16disk: $(WIN16SHIP) tools/w16disk.py tools/os88disk.py
+	@test -n "$(WIN3X)" || { echo "win16disk: say where the Windows programs are: make win16disk WIN3X=<dir>"; exit 2; }
+	@set -e; for g in $(W16DISKS); do \
+	    python3 tools/w16disk.py --dir "$(WIN3X)" --size $${g%%:*} \
+	        -o $(BUILD)/$${g#*:}.img --win16 $(WIN16SHIP); \
+	done
+
+.PHONY: win16census win16fixtures win16 win16test win16disk
 
 # Standalone 1942: committed artwork, compiled into adapter-native banks.
 N1942ART = apps/1942/art/sprites.json apps/1942/art/sea.idx apps/1942/art/reef.idx apps/1942/art/port.idx apps/1942/palette.json

@@ -123,3 +123,9 @@ apps/taskmgr/taskmgr.asm 1      # the Task Manager telling the truth about
     # (SPEC.md 28.4.15), and `make mega` puts that build in SYSTEM/. What the
     # shipped copy keeps is one more [tm_pm] test (a system block above 1MB
     # files under System>1MB), a few bytes and no marker
+apps/win16/win16.asm 1          # WIN16 REFUSING TO START (SPEC.md 124.1,
+    # WIN16-PLAN.md D6): w16_pmcheck's `test ah, CPU_F_PM`. The layer runs a
+    # Windows program's real-mode code with its own segment arithmetic, so
+    # kern_mega refuses it outright, in WIN16's words rather than
+    # os88mega.inc's (whose toast names a MEGA apps disk WIN16 has no arm on).
+    # A correctness refusal and ~30 bytes, not kern_mega work

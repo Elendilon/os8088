@@ -2161,6 +2161,47 @@ FAST = [
         "adopter passed `stkapps`), and the COUNTED rows ask for an exact "
         "number: Video seeded two broken jumps into one shared epilogue and "
         "the walker reported ONE, both ending at the same `ret`"),
+    Row("win16ne", "fast", py("tests/unit/t_win16ne.py"), 0.3,
+        "WIN16's census (tools/os88ne.py, SPEC.md 124.4) gives the CPU verdict "
+        "S2's loader refuses on, and it must come from code REACHED by "
+        "recursive descent: an 8088 running a 186 program does not fault, it "
+        "mis-executes (0x60-0x6F alias the Jcc, 0x0F is pop cs). "
+        "tests/win16/tiny16.asm is assembled in five variants with one right "
+        "answer each - 186-looking data behind a jmp (8086, and a linear sweep "
+        "over the same bytes still says 186: the negative control), a reached "
+        "push imm8 (186), a prologued procedure nothing calls (186), x87 with "
+        "OS fixups, and Open Watcom's guarded smsw probe (still 8086). Then "
+        "every prefix and some noise must not raise, and, when present, the "
+        "Open Watcom fixtures (`make win16fixtures`) and the reference "
+        "programs (the win16-reference skill) must give the plan's verdicts"),
+    Row("w16fp", "fast", py("tests/unit/t_w16fp.py"), 1.5,
+        "WIN16's 8087 emulator (SPEC.md 124.5.1, part W16P_FPU) under unicorn "
+        "against EXACT arithmetic: apps/win16/w16fp.inc assembled alone and "
+        "fed the int 34h-3Dh the loader leaves where a program's x87 was, "
+        "each result compared bit for bit and flag for flag with a fractions "
+        "model that rounds once, to the precision, range and mode of where "
+        "the answer goes - 600 seeded cases over every form and rounding "
+        "mode, ties, double rounding on a store, overflow, gradual "
+        "underflow, signed zeros, infinities and NaNs. Then the unmasked "
+        "exception's far call with WIN87EM's code, the stack's overflow and "
+        "underflow, int 3Ch's segment byte, __FPMATH's functions, and every "
+        "instruction tools/os88ne.py can name: the ones that END a program "
+        "must be exactly X87_EMU_LACKS, so the census's report about a "
+        "program is the emulator's own answer",
+        needs=("nasm", "unicorn")),
+    Row("w16cens", "fast", py("tests/unit/t_w16cens.py"), 1.0,
+        "WIN16's IN-GUEST census (SPEC.md 124.4.1, apps/win16/w16cens.inc) "
+        "against tools/os88ne.py's: the whole of WIN16 assembled and run under "
+        "unicorn, its own w16_census called on each program in build/win16/ "
+        "the way the loader calls it - segments relocated, OS fixups patched "
+        "for an 8088 - and the bytes its walk reached, read out of its "
+        "bitmap, must be the host's instructions and switch tables exactly, "
+        "segment by segment, with the same verdict. It failed on S9's "
+        "finding (WIN16-PLAN S11): an opcode with a modrm AND an immediate "
+        "was walked short, so FPU.EXE read as 386 code. Its programs are "
+        "`make win16fixtures`'s, which `make clean` removes, so it needs them "
+        "rather than failing a clean tree's `make` on its own SKIP",
+        needs=("nasm", "unicorn", "win16fixtures")),
 ]
 
 # --------------------------------------------------------------------------
@@ -2286,6 +2327,14 @@ FULL = [
         "and a stale line for a package that declares. FULL and not fast "
         "because the owner asked for it there; host-side, 2s measured",
         needs=()),
+    Row("w16censall", "full", py("tests/unit/t_w16cens.py", "--all"), 3.5,
+        "w16cens over EVERY program under win16ref/samples/ as well - the "
+        "whole of Windows 3.0's directory (CLOCK and REVERSI, S11's stock-8088 "
+        "programs, among them), Windows 3.1's CALC and WINMINE and WinMine "
+        "2.6-2.9: 43 programs, the guest's walk byte-identical to the host's "
+        "and every verdict the same. Full and not fast for its 3 s; it runs "
+        "only where the win16-reference skill has put the samples",
+        needs=("nasm", "unicorn", "win16samples")),
     Row("sysfree", "full", py("tests/unit/t_sysfree.py"), 0.2,
         "at the owner's word: every SYSTEM disk keeps room for what the "
         "system saves on it - 5 KB on a disk of 512-byte clusters, 10 KB on "
@@ -16369,6 +16418,103 @@ SOAK = [
         needs=("qemu", "mtools"), serial=True, timeout=600,
         wants=("build/os8088.img", "build/apps.img", "build/syscheck.o88",
                "build/mbr.bin", "build/boothd.bin")),
+    Row("win16mines", "soak", py("tests/win16mines.py"), 60.0,
+        "SPEC.md 124.15, WIN16-PLAN S8: Windows 3.1's Minesweeper (W31MINE, "
+        "Microsoft's, in build/win16/ only where the win16-reference skill "
+        "put it - never in this tree) played on WIN16 under QEMU off a B: the "
+        "row writes itself. The board is READ out of the program's DGROUP, "
+        "so every click is aimed at a cell the row knows: a right-click "
+        "flags and two more clear it, every safe cell clicked is a WIN (Enter "
+        "takes the name dialog and Best Times), F2 and a mine after a safe "
+        "first click is a LOSS that WIN16 survives, and the close box leaves "
+        "SYSTEM\\APPDATA\\WIN16\\WINMINE.INI on B: with the won game's Time1",
+        needs=("qemu", "mtools", "nasm", "win16samples"), timeout=600,
+        wants=("build/os8088.img", "build/win16.o88",
+               "build/win16/DOS.O88")),
+    Row("win16fpu", "soak", py("tests/win16fpu.py"), 60.0,
+        "SPEC.md 124.5, WIN16-PLAN S9 with a COPROCESSOR (QEMU's): FPU.EXE "
+        "and FPX.EXE (`make win16fixtures`) on WIN16's native path - the "
+        "sites left x87, __FPMATH WIN16's, an unmasked 1/0 travelling IRQ "
+        "13, int 2 and the next int 3Dh into the program's own "
+        "signal(SIGFPE) handler. Each MessageBox's text is read off the "
+        "program's stack and must be what Windows 3.0 showed for the same "
+        "file (win16ref/ref/w30-fix-fpu.png, w30-fix-fpx.png)",
+        needs=("qemu", "mtools", "nasm", "win16fixtures"), timeout=600,
+        wants=("build/os8088.img", "build/win16.o88",
+               "build/win16/DOS.O88")),
+    Row("win16calc", "soak", py("tests/win16calc.py"), 150.0,
+        "SPEC.md 124.16, WIN16-PLAN S10: Windows 3.0's and 3.1's Calculator "
+        "(CALC.EXE, W31CALC.EXE - Microsoft's, in build/win16/ only where the "
+        "win16-reference skill put them) under QEMU. Note Pad types 12+3= "
+        "and copies it, and Calculator's Edit > Paste keys it in; then "
+        "Standard's 2.01-2= (0.00 - KB Q72540, which both reference "
+        "machines show), Scientific's 2 y 10 = and the Statistics Box's "
+        "Ave of 5 and 7. Every display is read through Calculator's own "
+        "Edit > Copy off the kernel's clipboard, sign column and all, as "
+        "Windows 3.1 pastes it",
+        needs=("qemu", "mtools", "nasm", "win16samples"), timeout=600,
+        wants=("build/os8088.img", "build/win16.o88",
+               "build/win16/DOS.O88", "build/notepad.o88")),
+    Row("win16fpuxt", "soak", py("tests/win16fpu.py", "--marty"), 300.0,
+        "WIN16-PLAN S9 WITHOUT a coprocessor: the same programs on a stock "
+        "5150's 8088, each swept by WIN16's census first and passed (S11 "
+        "moved this leg off a V20 when it fixed that census), every OS fixup "
+        "an int 34h-3Dh and part W16P_FPU fetched (read off w16_fpm, not "
+        "assumed), and the same answers Windows 3.0 gave on hardware with one",
+        needs=("marty", "nasm", "win16fixtures"), serial=True, timeout=1800,
+        wants=("build/os8088-360.img", "build/win16.o88",
+               "build/win16/DOS.O88")),
+    Row("win16cpu", "soak", py("tests/win16cpu.py"), 40.0,
+        "SPEC.md 124.17, WIN16-PLAN S11 on a 386 (QEMU): Windows 3.0's "
+        "CALC, CLOCK and REVERSI and Windows 3.1's Calculator (Microsoft's, "
+        "in build/win16/ only where the win16-reference skill put them) each "
+        "launched to its message loop - the 'Running' line, not W16S_RUN, "
+        "which is set before the load - with its window up, then closed",
+        needs=("qemu", "mtools", "nasm", "win16samples"), timeout=600,
+        wants=("build/os8088.img", "build/win16.o88",
+               "build/win16/DOS.O88")),
+    Row("win16cpuxt", "soak", py("tests/win16cpu.py", "--marty"), 420.0,
+        "WIN16-PLAN S11, the CPU floor on the glass: a stock 5150's 8088 "
+        "runs Windows 3.0's three 8086 accessories, each swept by WIN16's "
+        "own census first (SPEC.md 124.4.1), and refuses Windows 3.1's "
+        "Calculator - 80186 code - with SPEC.md 124.4's sentence; a 5150 "
+        "with a NEC V20 runs it. It PRINTS each launch's cost on the XT, "
+        "census included, which is S11's reading",
+        needs=("marty", "nasm", "win16samples"), serial=True, timeout=2400,
+        wants=("build/os8088-360.img", "build/win16.o88",
+               "build/win16/DOS.O88")),
+    Row("win16minesxt", "soak", py("tests/win16mines.py", "--marty"), 240.0,
+        "WIN16-PLAN S8 on the XT: a 5150's 8088 must REFUSE W31MINE - an "
+        "80186 program - with SPEC.md 124.4's sentence in WIN16's own window "
+        "(an 8088 does not fault on 186 code, it mis-executes it), and the "
+        "same 5150 with a NEC V20 and Hercules must play a game to a win. "
+        "It PRINTS the XT's cost - the launch, and each reveal from the "
+        "click to the UI's next idle - which is S8's frame-cost reading",
+        needs=("marty", "nasm", "win16samples"), serial=True, timeout=1800,
+        wants=("build/os8088-360.img", "build/win16.o88",
+               "build/win16/DOS.O88")),
+    Row("win16desk", "soak", py("tests/win16desk.py"), 120.0,
+        "SPEC.md 124.18, WIN16-PLAN S12 under QEMU, off a B: laid out as "
+        "shipped (WIN16\\ in a folder, no DOS.O88 - the system disk's hands "
+        "each NE on): ICONS' DrawIcon, MessageBox and SS_ICON icons found on "
+        "the glass pixel for pixel from their art, its instance named ICONS, "
+        "its close box giving back every heap claim; WRITERA and WRITERB "
+        "holding WIN.INI at once and both keys in it after; MENU and a second "
+        "program (WINMINE.EXE where the win16-reference skill put it) at once "
+        "beside Paint; MENU refusing WM_CLOSE and ended by End Task's Proceed; "
+        "mem_tab the pre-launch one at the end",
+        needs=("qemu", "mtools", "nasm", "win16fixtures"), timeout=900,
+        wants=("build/os8088.img", "build/win16.o88", "build/paint.o88",
+               "build/win16/WIN16.TXT", "build/win16/COPYING.W16")),
+    Row("win16hiber", "soak", py("tests/win16hiber.py"), 120.0,
+        "SPEC.md 124.18.6, WIN16-PLAN S12: tests/hibernate.py's --sum clean "
+        "pass with a Windows program open - MENU.EXE through the shipped "
+        "DOS.O88 forward off an XT-IDE disk's root, hibernated from the System "
+        "menu, resumed at the same segment still running, then PLAYED ON: F3's "
+        "MessageBox up and answered, and its close box freeing WIN16. MartyPC",
+        needs=("marty", "nasm", "win16fixtures"), serial=True, timeout=1800,
+        wants=("build/kernel.sys", "build/win16.o88", "build/kdos/DOS.O88",
+               "build/hiber.drv")),
     Row("atkey", "soak", py("tests/atkey.py"), 70.0,
         "WHAT ONE ARTFULTYPE KEYSTROKE COSTS on a 4.77MHz 8088, in guest "
         "cycles off at_onkey's entry to its return. Nothing in this tree had "

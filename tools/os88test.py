@@ -401,6 +401,15 @@ def capabilities():
     # one outcome a probed capability exists to prevent.
     if os.path.exists(os88build.at("build/wire360.img")):
         caps.add("wiredisk")
+    # Microsoft's Windows programs, which WIN16's rows play (SPEC.md 124.15)
+    # and which this tree never carries: the win16-reference skill puts them
+    # in build/win16/ on a box that has them, and every other box SKIPS.
+    if os.path.exists(os88build.at("build/win16/W31MINE.EXE")):
+        caps.add("win16samples")
+    # ...and the Open Watcom fixtures (`make win16fixtures`, on demand: it
+    # fetches a compiler), whose FPX.EXE is the newest of them
+    if os.path.exists(os88build.at("build/win16/FPX.EXE")):
+        caps.add("win16fixtures")
     # `skiesdiag` WANTED ONE OF THESE and got `wants=` instead, which is the
     # note worth leaving. It opens a PRIVATE TREE (a -DCSDIAG build of a
     # package that ships without it), nothing in the suite built one, and the
