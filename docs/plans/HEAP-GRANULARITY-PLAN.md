@@ -1,7 +1,10 @@
 # HEAP-GRANULARITY-PLAN — claims finer than a kilobyte
 
-**STATUS: RESEARCH, NOTHING BUILT. Revision 2**, after the owner's review of
-revision 1 (section 9 records what changed and why). Every figure marked *measured*
+**STATUS: BUILT on `heap-size` at a 512-byte granule, the 256-byte class built
+as a knob and not shipped; section 10 is what was built, against this plan.**
+The sections before it are Revision 2 of the research, after the owner's
+review of revision 1 (section 9 records what changed and why), and are kept as
+the design record. Every figure marked *measured*
 was taken on `heap-size` cut from `elendilon` at `3cf34ee` (2026-10-31),
 host-side, off `build/`. Every figure marked *estimated* is arithmetic.
 
@@ -579,3 +582,59 @@ in the body:
 
 `cmz_kb` was re-read: it is a one-byte overrun sentinel for the whole-file
 read, inflated to a KB by the arithmetic (section 1.3).
+
+## 10. What was built
+
+Owner's decisions on revision 2: build it, ship 512 first, `OSAPI_MEM_P`
+reports the granule, kern_small does what is practical (it ships 512 like
+kern_big), keep the resident cost near 80-150 bytes.
+
+| wave | what | where |
+|---|---|---|
+| 1 | `MEM_GRAN` = 32; the KB doors shift once into `mem_claim_x.gran`, which rounds and refuses; `mem_claim_1`/`mem_compact` take paragraphs; kernel paragraph doors `mem_claimp_x/_hi_x/_dma_x`; kern_mega's `mem_hiclaims` rounds UP | SPEC.md 50.2.1 |
+| 2 | package regions `roundup512(image+bss)` exactly; driver images to 512 (`DRVR_PARA`, `mem_bytes_gp_x`, `mem_regrowp` for KEEP, `os88drv.py`'s `DRV_RUNG`, `DRV_VER` 11 -> 12); FAT window, read-ahead, dirw, ASSOC.DAT cache exact; modules carry their bss as zeros in the file and claim image+bss (pads, fit-asserts and kern_small's zeroing deleted) | SPEC.md 50.2.1, 51.1.2, 2.8.1 |
+| 3 | `OSAPI_MEM_P` (0x04E9): claim/claim_hi with the DMA head in CX and `MEMP_CPU`, regrow, avail with CX = the granule; C SDK `os88_mem_claim_p`/`_regrow_p`/`_largest_p`/`os88_mem_gran`; the C `.OVL` load; the parts standard end to end in paragraphs (The Wire's fence gains level 7 for the cell) | SPEC.md 50.3.7, 20.12.14, 92.2 |
+| 4 | the Control Panel's Drivers column counts half-KB (`~10.5K`); the Task Manager (exact figures, fraction cells) - see its own commit | SPEC.md 31.6.2, 28.4 |
+| 5 | the DISK class (`MC_DISK`, the scan's fourth bump, `mem_hifit`, `mem_cp_dest`) under `MEM_ALIGN_CLASS`, built by `MEMGRAN=16` only; gates `t_heapgran` (fast) and `memp` (soak) | SPEC.md 50.2.1.1 |
+
+**Resident bytes**, measured against the base of this work (`kernsize`
+sections): kern_big `.text` +6 `.cold` +130 = **+136**; kern_small `.text` +6
+`.cold` +111 = **+117** (the module change took 22 back). kern_mega `.cold`
++99. The class code is not in any of them; `MEMGRAN=16` adds 136 to `.cold`.
+
+**Measured on MartyPC** (5150, 360KB disks, kern_big): Calculator's region
+5.5K (6K before), Note Pad's 19.5K (20K), the FAT window 4.5K (5K); every base
+and size a whole number of 32 paragraphs; `memp`'s eleven checks pass and the
+256-byte knob boots with every base aligned.
+
+**Where it differs from the plan above:**
+
+- **No `SK_HEAPP`**: `OSAPI_MEM_P`'s avail answers in paragraphs, so the
+  heap's exact figures come from the door and the snapshot rather than a new
+  `osapi_sys_kb` word.
+- **Image claims round to 512 on every granule** (`mem_bytes_gp_x`, the
+  driver KEEP), and `os88drv.py`'s rung is a constant `DRV_RUNG` = 512 rather
+  than the granule: an image is a top-down DISK claim, and on a finer granule
+  the difference would only be a hole above it (section 2.1's finding).
+- **Modules took design (A)**, bss as zeros in the file, at zero resident
+  bytes and minus kern_small's zeroing code - cheaper than section 2.3's word
+  per row.
+- **`OSAPI_MEM_P`'s verbs**: bit 0 the direction, bit 1 `MEMP_CPU`, so REGROW
+  is 4 and AVAIL 5 (renumbered before release).
+- **The compressor's claim is unchanged** (`cmz_kb`): it is a deliberate
+  one-byte sentinel for the whole-file read, its KB word is shared with the
+  Compress path's region sizing, and the claim lives for one operation inside
+  an on-demand module. Spelling it as `claim(U + 1)` is worth doing the next
+  time DISKOPS is touched.
+- **A defect this work shipped and fixed**: wave 1's granule mask was `and
+  al`, so every claim that was a multiple of 4KB was refused as zero for one
+  commit; `memp` checks 8 and 9 are the gate, seen red with it put back. And
+  wave 2 had broken `make mega` (a short jump out of range in `disk.inc`),
+  fixed in the module wave.
+- **The boot blob is full to the byte** (6,655 of 6,656): the driver KEEP
+  rounding lost its carry test to fit. The word is the driver's own, not a
+  disk's.
+
+**Still open:** the 256-byte question is a measurement (`gran256`, section 6
+item 6): no package asks for `MEMP_CPU` yet, so on the knob build every claim
+is still a 512 multiple and there are no holes to measure until one does.
