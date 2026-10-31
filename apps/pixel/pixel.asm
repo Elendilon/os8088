@@ -4539,7 +4539,7 @@ px_fidx     equ px_cur + PXR_FIDX
     PXVAR px_erows, 2               ; ...the rows it will count
     PXVAR px_eop, 1                 ; the operation running
     PXVAR px_eredo, 1               ; ...it is undo's flip again
-    PXVAR px_ewkb, 2                ; ...its work claim's KB
+    PXVAR px_ewpara, 2              ; ...its work claim's paragraphs
     PXVAR px_edkb2, 2               ; ...its destination's
     PXVAR px_dirty, 1               ; the picture has unsaved edits
     PXVAR px_udirty, 1              ; UNDO: the other half's dirt...

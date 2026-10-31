@@ -1069,10 +1069,10 @@ vp_open:
     mov cl, 9
     shl ax, cl
     mov [vp_clb], ax                ; ...and bytes
-    mov ax, bx
-    inc ax
-    shr ax, 1                       ; ...in KB, for one cluster's claim
-    call vp_mclaim
+    mov ax, bx                      ; ...in PARAGRAPHS, for one cluster's
+    mov cl, 5                       ; claim (SPEC.md 50.3.7): a one-sector
+    shl ax, cl                      ; cluster is one granule and not a KB
+    call vp_mclp
     jc .mem
     mov [vp_tmp], dx
     mov es, dx
@@ -2416,7 +2416,7 @@ vp_loadkey:
     mov bx, ax
     call vp_pfree
     call vp_psize                   ; THE PICTURE, from the TOP: it is held
-    call vp_mclhi                   ; while the window is open, and from the
+    call vp_mclhip                  ; while the window is open, and from the
                                     ; bottom it lay under a resident block,
                                     ; which could then never move down past
                                     ; it (98.1.7.4). No room for a picture:
@@ -2691,11 +2691,11 @@ vp_thpic:
     mov ax, [vp_pseg]               ; WHERE IT GOES: the poster, or a claim
     cmp byte [vp_thhv], 0           ; of its own to halve from
     je .dst
-    mov ax, [vp_thu]
-    add ax, 1023
-    mov cl, 10
-    shr ax, cl
-    call vp_mclaim
+    mov ax, [vp_thu]                ; (a word of bytes: no carry out of
+    add ax, 15                      ; the +15 at the sizes vp_thrb allows)
+    mov cl, 4
+    shr ax, cl                      ; ...in PARAGRAPHS (SPEC.md 50.3.7)
+    call vp_mclp
     jc .no1
     mov ax, dx
 .dst:
@@ -2957,10 +2957,11 @@ vp_pevload:
     mov cx, PEV_LEN
     mul cx
     mov [vp_pevb], ax
-    add ax, 1023                    ; its own claim, whole KB
-    mov cl, 10
+    add ax, 15                      ; its own claim, in PARAGRAPHS (SPEC.md
+    rcr ax, 1                       ; 50.3.7) - the carry back in as bit 15
+    mov cl, 3
     shr ax, cl
-    call vp_mclaim
+    call vp_mclp
     jc .mem
     mov [vp_pevseg], dx
     mov cx, [vp_pevb]               ; ...and the read's, a cluster either side
@@ -3276,12 +3277,12 @@ vp_kent:
 ; (98.1.6: the claim bounds a write the lists were not checked for) and
 ; halved into [vp_pseg] - twice for a canvas bigger than CGA's. CF=1 not
 vp_kpic:
-    mov ax, 64
+    mov ax, 64 * 64                 ; (in PARAGRAPHS: vp_mclp, 50.3.7)
     cmp byte [vp_planar], 0
     je .kc
-    call vp_plshd                   ; planes: the last one's base + 64 KB
+    call vp_plshp                   ; planes: the last one's base + 64 KB
 .kc:
-    call vp_mclaim
+    call vp_mclp
     jc .no
     mov [vp_kshd], dx
 %ifdef PKG_MEGA
@@ -3505,7 +3506,7 @@ vp_sesspic:
     cmp word [vp_pseg], 0
     jne .have
     call vp_psize
-    call vp_mclhi                   ; (from the top, as vp_loadkey's is)
+    call vp_mclhip                  ; (from the top, as vp_loadkey's is)
     jc .out
     mov [vp_pseg], dx
 .have:
@@ -3528,8 +3529,9 @@ vp_sesspic:
     pop ax
     ret
 
-; vp_psize - AX = the picture's claim at the layout's scale, KB: the canvas,
-; or its first half (a quarter is the second pass, in place)
+; vp_psize - AX = the picture's claim at the layout's scale, in PARAGRAPHS
+; (vp_mclhip's, SPEC.md 50.3.7): the canvas, or its first half (a quarter is
+; the second pass, in place)
 vp_psize:
     push cx
     push dx
@@ -3550,7 +3552,7 @@ vp_psize:
     shr cx, 1
 .sz:
     mul cx
-    call vp_bkb
+    call vp_bpara
     cmp word [vp_thn], 0            ; ...or a DESKTOP POSTER's (98.1.3.11),
     je .r                           ; whichever is more: packed two pixels
     push ax                         ; a byte at the scale, and a byte more a
@@ -3571,7 +3573,7 @@ vp_psize:
     div word [vp_ps]
     pop cx
     mul cx
-    call vp_bkb
+    call vp_bpara
     pop cx
     cmp ax, cx
     jae .r
@@ -3581,13 +3583,14 @@ vp_psize:
     pop cx
     ret
 
-; vp_bkb - DX:AX bytes -> AX KB, rounded up. Clobbers CX, DX
-vp_bkb:
-    add ax, 1023
+; vp_bpara - DX:AX bytes -> AX PARAGRAPHS, rounded up: a picture, under 1
+; MB by far, so DX<<12 fits a word. Clobbers CX, DX
+vp_bpara:
+    add ax, 15
     adc dx, 0
-    mov cl, 10
+    mov cl, 4
     shr ax, cl
-    mov cl, 6
+    mov cl, 12
     shl dx, cl
     or ax, dx
     ret
@@ -3776,13 +3779,14 @@ vp_cmono:
 ; built once (vp_tquad, 512 calls). It was 2,700 cycles a cell a poster
 ; row, 4.6 s for an 80 x 25 canvas on a 5150, all of it in the three
 ; routines this replaced. The tables are a 2 KB scratch claim, freed at the
-; end; refused, the poster is black
+; end; refused, the poster is black. 1.5 KB of claim, the granule's
 VP_TQ0      equ 0                   ; the scratch: half 0's quadrants, a word
 VP_TQ1      equ 512                 ; a code (L, R); half 1's;
 VP_TLUM     equ 1024                ; the sixteen lumas;
 VP_TLB      equ 1040                ; a half-row's lumas, L and R a cell;
 VP_TKEY     equ 1024 + 16 + 160     ; and the cell whose lumas were last
-VP_TSCRKB   equ 2
+VP_TSCRP    equ OS88_BYTES_PARA(VP_TKEY + 2)  ; the scratch, in PARAGRAPHS:
+                                    ; 1,202 bytes is three granules, not 2 KB
 vp_tmono:
     push ax
     push bx
@@ -3792,8 +3796,8 @@ vp_tmono:
     push di
     push bp
     push es
-    mov ax, VP_TSCRKB
-    call vp_mclaim
+    mov ax, VP_TSCRP
+    call vp_mclp
     jnc .have
     mov ax, [vp_pwb]                ; NO ROOM: the poster black
     mul word [vp_ph]
@@ -4811,15 +4815,19 @@ vp_v8mono:
 ; spacing and 64 KB past the last one's base, so a 16-bit write from any
 ; plane is inside the claim (98.1.6)
 vp_plshd:
+    call vp_plshp
     push cx
-    mov ax, [vp_plsp]
-    mov cx, ax
-    shl ax, 1
-    add ax, cx                      ; 3 x plsp paragraphs
-    add ax, 4096 + 63               ; + 64 KB, rounded up to a KB
-    mov cl, 6
+    add ax, 63                      ; ...rounded up to a KB, the session's
+    mov cl, 6                       ; unit (vp_sstart's keeper)
     shr ax, cl
     pop cx
+    ret
+; vp_plshp - the same in PARAGRAPHS, for vp_kpic's claim (SPEC.md 50.3.7)
+vp_plshp:
+    mov ax, [vp_plsp]
+    shl ax, 1
+    add ax, [vp_plsp]               ; 3 x plsp paragraphs
+    add ax, 4096                    ; + 64 KB
     ret
 
 ; vp_v4dims - AX = a VGA4 poster's bytes a row at [vp_ps], CX = its rows:
@@ -10187,13 +10195,15 @@ vp_rload:
     cmp word [vp_rblk], 0
     jne .have
     mov bx, vp_bk                   ; ASKED FIRST, both blocks at once: a
-    call vp_bkkb                    ; refused claim sheds the caches for
-    mov cx, ax                      ; nothing (98.1.7.1)
-    cmp byte [vp_audio], 0
-    je .ask
+    call vp_bkpara                  ; refused claim sheds the caches for
+    mov cx, ax                      ; nothing (98.1.7.1). In PARAGRAPHS
+    cmp byte [vp_audio], 0          ; (SPEC.md 50.3.7), the sum saturating:
+    je .ask                         ; a megabyte fits no heap anyway
     mov bx, vp_abk
-    call vp_bkkb
+    call vp_bkpara
     add cx, ax
+    jnc .ask
+    mov cx, 0xFFFF
 .ask:
     mov ax, cx
     call vp_fits
@@ -10263,11 +10273,9 @@ vp_rmove:
 .go:
     push bx
     mov bx, di
-    call vp_bkkb                    ; AX = the claim's KB
-    pop bx
-    mov cl, 6
-    shl ax, cl
-    mov cx, ax                      ; CX = its paragraphs
+    call vp_bkpara                  ; AX = the claim's paragraphs, asked:
+    pop bx                          ; every word derived from the block is
+    mov cx, ax                      ; inside what it asked for
     sub dx, bx                      ; DX = the delta
 .w:
     lodsw
@@ -10295,9 +10303,9 @@ vp_ldblk:
     push si
     push di
     push es
-    call vp_bkkb
-    mov [vp_ldkb], ax
-    call vp_mclaim
+    call vp_bkpara                  ; in PARAGRAPHS (SPEC.md 50.3.7), and
+    call vp_mclp                    ; [vp_ldpara] what was GRANTED - its top
+    mov [vp_ldpara], ax             ; is where the read below ends
     jnc .got
     mov word [vp_msg], vp_s_mem
     jmp .err
@@ -10310,10 +10318,8 @@ vp_ldblk:
     jmp .ok
 .rd1:
     call vp_bkrd                    ; DI:CX = the read, whole clusters -
-    mov ax, [vp_ldkb]               ; which vp_bkkb has put inside the claim
-    mov dx, 64
-    mul dx
-    add ax, [vp_ldseg]              ; AX = the claim's end, a paragraph
+    mov ax, [vp_ldpara]             ; which vp_bkpara has put inside the
+    add ax, [vp_ldseg]              ; claim. AX = the claim's end, a paragraph
     push ax
     mov ax, cx                      ; DI:CX >> 4 = the read in paragraphs
     mov dx, di
@@ -10388,10 +10394,12 @@ vp_ldblk:
     pop bx
     ret
 
-; vp_bkkb - BX = a block's fields: AX = the KB its claim takes - the
-; unpacked bytes and a cluster, two when STORED (read in whole clusters from
-; the one under its start). Clobbers nothing else
-vp_bkkb:
+; vp_bkpara - BX = a block's fields: AX = the PARAGRAPHS its claim takes
+; (SPEC.md 50.3.7) - the unpacked bytes and a cluster, two when STORED (read
+; in whole clusters from the one under its start). A megabyte or more, which
+; no heap holds, is 0xFFFF: vp_fits refuses it and a claim of it is refused.
+; Clobbers nothing else
+vp_bkpara:
     push cx
     push dx
     mov ax, [bx+BK_UNPACKED]
@@ -10417,16 +10425,22 @@ vp_bkkb:
 .pkd:
     pop di
 .kb:
-    add ax, 1023
+    add ax, 15
     adc dx, 0
-    mov cl, 10
+    cmp dx, 16
+    jae .big
+    mov cl, 4
     shr ax, cl
-    mov cl, 6
+    mov cl, 12
     shl dx, cl
     or ax, dx
+.out:
     pop dx
     pop cx
     ret
+.big:
+    mov ax, 0xFFFF
+    jmp short .out
 
 ; vp_bkrd - BX = a PACKED block's fields: DI:CX = its read - from the
 ; cluster under its start, in whole clusters, which is what vp_rdat reads.
@@ -10453,9 +10467,10 @@ vp_bkrd:
     pop ax
     ret
 
-; vp_fits - AX = the KB the blocks take: does the machine have them, in the
-; one run a claim is served from? The deliverable - caches shed and the heap
-; compacted, OSAPI_MEM_AVAIL - so a claim of that many is SERVED. CF=1 no:
+; vp_fits - AX = the PARAGRAPHS the blocks take: does the machine have them,
+; in the one run a claim is served from? The deliverable - caches shed and
+; the heap compacted, MEMP_AVAIL (SPEC.md 50.3.7) - so a claim of that many
+; is SERVED. CF=1 no:
 ; [vp_msg] = "Needs n KB of memory, m KB free" (vp_mbuf), nothing claimed
 ; and nothing shed. Preserves all
 vp_fits:
@@ -10466,10 +10481,18 @@ vp_fits:
     push si
     push di
     push es
-    mov cx, ax
-    call vp_mavail                  ; AX = the largest a claim is served
-    cmp cx, ax
+    xchg ax, dx                     ; DX = the need, which MEMP_AVAIL keeps
+    mov bl, MEMP_AVAIL
+    call OSAPI_MEM_P                ; AX = the largest a claim is served
+    cmp dx, ax
     jbe .yes
+    mov cl, 6                       ; ...and the sentence in KB: what is free
+    shr ax, cl                      ; in whole ones, what is needed rounded
+    add dx, 63                      ; up (the carry back in as bit 15)
+    rcr dx, 1
+    dec cx
+    shr dx, cl
+    mov cx, dx
     push ds
     pop es
     mov di, vp_mbuf                 ; the line: filled, NUL at its end, so
@@ -23646,6 +23669,36 @@ vp_mclhi:                           ; OSAPI_MEM_CLAIM_HI
     call OSAPI_MEM_CLAIM_HI
 %endif
     ret
+; vp_mclp / vp_mclhip - OSAPI_MEM_P's claim, from the bottom / the TOP: AX =
+; PARAGRAPHS -> CF=0 DX = the claim, AX = the paragraphs GRANTED (SPEC.md
+; 50.3.7). For a claim whose size is a byte count, which pays the heap's
+; granule here and not a whole KB. CONVENTIONAL on kern_mega as vp_mclaim's
+; are: MEMP_CONV there, a head-less claim being the pool's otherwise. Every
+; other register kept
+; (two calls and not a jump into a shared tail: tests/unit/t_pins.py sees a
+; thunk as a call that returns DX, and so sees every claim made through these)
+vp_mclhip:
+    push bx
+    mov bl, MEMP_CLAIM_HI
+    call vp_mclpb
+    pop bx
+    ret
+vp_mclp:
+    push bx
+    mov bl, MEMP_CLAIM
+    call vp_mclpb
+    pop bx
+    ret
+vp_mclpb:
+    push cx
+%ifdef PKG_MEGA
+    mov cx, MEMP_CONV
+%else
+    xor cx, cx
+%endif
+    call OSAPI_MEM_P
+    pop cx
+    ret
 vp_mmov:                            ; OSAPI_MEM_MOVABLE
     call OSAPI_MEM_MOVABLE
     ret
@@ -25306,8 +25359,8 @@ vp_tqf        equ vp_tqo + 2        ; first code and last (a word's two
 vp_tql        equ vp_tqf + 1        ; bytes, written as one) - and its
 vp_tscr       equ vp_tql + 1        ; scratch claim
 vp_tx         equ vp_tscr + 2       ; vp_pbar's: the thumb's x
-vp_ldkb       equ vp_tx + 2         ; vp_ldblk's claim, KB, and segment
-vp_ldseg      equ vp_ldkb + 2       ; (vp_sstart's, between brackets)...
+vp_ldpara     equ vp_tx + 2         ; vp_ldblk's claim, paragraphs, and segment
+vp_ldseg      equ vp_ldpara + 2       ; (vp_sstart's, between brackets)...
 vp_lsin       equ vp_ldseg + 2      ; ...vp_ldstored's start in its cluster
 vp_lsrem      equ vp_lsin + 2       ; and the bytes still to read or move
 vp_etseg      equ vp_lsrem + 4      ; vp_erate's segment (vp_open's)

@@ -286,14 +286,16 @@ def leg_conv(out):
         box.until(lambda: bad_lines(box) or
                   x.st()["md"] not in (MD_IDLE, MD_CHECK, MD_LOAD),
                   "Auto's decision", 240, poll=0.5)
-        hb, hw, hk = x.w("x3h_base"), x.w("x3h_win"), x.w("x3h_ckb")
+        # x3h_cpara: the hold's PARAGRAPHS, as granted (SPEC.md 50.3.7)
+        hb, hw, hp = x.w("x3h_base"), x.w("x3h_win"), x.w("x3h_cpara")
         want(x.b("x3h_kind") == X3HK_CONV and x.b("x3h_on") == 1 and
              hb and above(box, hb), "%s: the file held whole in a "
              "CONVENTIONAL claim of %d KB, an LDT selector above 1MB "
-             "(%04X at %06X)" % (leg, hk, hb, box.sel_base(hb) if hb else 0))
+             "(%04X at %06X)" % (leg, hp // 64, hb,
+                                 box.sel_base(hb) if hb else 0))
         hbase = box.sel_base(hb) if hb else 0
         wb = box.sel_base(hw) if hw & 4 else 0
-        want(hw and hw != hb and hbase <= wb < hbase + hk * 1024,
+        want(hw and hw != hb and hbase <= wb < hbase + hp * 16,
              "%s: x3h_at's window %04X based inside the hold (+%X)"
              % (leg, hw, wb - hbase))
         common(leg, box, x)

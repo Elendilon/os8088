@@ -17088,16 +17088,18 @@ sc_pictkeep:
     mul word [si+IMG_H]             ; DX:AX = the bytes it actually occupies.
     or dx, dx                       ; img_setgeom already proved this fits a
     jnz .no                         ; word, so a high half means something is
-    add ax, 1023                    ; wrong rather than merely large
+    add ax, 15                      ; wrong rather than merely large
     jc .no
-    mov cl, 10
-    shr ax, cl                      ; ...in kilobytes, rounded up
-    or ax, ax
-    jnz .kbok
-    inc ax
+    mov cl, 4
+    shr ax, cl                      ; ...in PARAGRAPHS, rounded up (SPEC.md
+    jnz .kbok                       ; 50.3.7): the picture keeps half a KB
+    inc ax                          ; less of the scratch on average
 .kbok:
     mov dx, [sc_picseg]
-    call OSAPI_MEM_REGROW           ; a shrink: in place, DX unchanged
+    push bx
+    mov bl, MEMP_REGROW
+    call OSAPI_MEM_P                ; a shrink: in place, DX unchanged
+    pop bx                          ; (BX is the slot; pop keeps CF)
     jc .no
     mov word [sc_picseg], 0         ; the picture's now - not pictload's to free
     mov cl, 3

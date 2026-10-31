@@ -265,23 +265,19 @@ w16_garena:
     inc si
     jmp short .slot
 .free:
-    mov ax, bx                      ; KB = ceil(paragraphs / 64)
-    add ax, 63
-    mov cl, 6
-    shr ax, cl
-    cmp ax, W16_ARENAKB
-    jae .kb
-    mov ax, W16_ARENAKB
+    mov ax, bx                      ; the block's paragraphs, or the arena's
+    cmp ax, W16_ARENAKB * 64        ; least - in PARAGRAPHS (SPEC.md 50.3.7),
+    jae .kb                         ; so a block past it pays the heap's
+    mov ax, W16_ARENAKB * 64        ; granule and not a whole KB
 .kb:
-    push ax
-    call OSAPI_MEM_CLAIM            ; DX = the segment
-    pop cx
-    jc .no
+    push bx
+    xor cx, cx
+    mov bl, MEMP_CLAIM
+    call OSAPI_MEM_P                ; DX = the segment, AX = GRANTED: the
+    pop bx                          ; arena is all of it, the granule's slack
+    jc .no                          ; one more free block's worth
     mov [w16_arena + si], dx
     mov es, dx
-    mov ax, cx
-    mov cl, 6
-    shl ax, cl                      ; paragraphs
     mov [es:GH_SIZE], ax
     mov byte [es:GH_FLAGS], 0
     mov word [es:GH_MAGIC], GH_SIG
@@ -723,15 +719,12 @@ w16k_gcompact:
     inc si
     jmp short .arena
 .claims:
-    call OSAPI_MEM_AVAIL            ; AX = the largest free run, KB
-    cmp ax, 1023
-    jbe .kb
-    mov ax, 1023
-.kb:
+    push bx
     push cx
-    mov cl, 6
-    shl ax, cl
-    pop cx
+    mov bl, MEMP_AVAIL
+    call OSAPI_MEM_P                ; AX = the largest claim, in PARAGRAPHS -
+    pop cx                          ; what w16_garena is now given to the
+    pop bx                          ; paragraph (SPEC.md 50.3.7)
     cmp ax, cx
     jbe .have
     mov cx, ax

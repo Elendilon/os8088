@@ -4591,7 +4591,7 @@ os88ui_radhit:
 ;                               ; read after a pick and to set before a paint
 ;       dw 0                    ; OS88UI_DR_WIN: your window ptr, once created
 ;       db 0, 0FFh              ; OS88UI_DR_OPEN, OS88UI_DR_HOT: the control's
-;       dw 0, 0                 ; OS88UI_DR_SEG, OS88UI_DR_KB: the banked
+;       dw 0, 0                 ; OS88UI_DR_SEG, OS88UI_DR_PARA: the banked
 ;                               ; pixels under an open list
 ;       dw 0                    ; OS88UI_DR_TOP: where the open list starts
 ;       dw 0                    ; OS88UI_DR_DIS: set from the painter's
@@ -4664,7 +4664,7 @@ OS88UI_DR_WIN   equ 14
 OS88UI_DR_OPEN  equ 16
 OS88UI_DR_HOT   equ 17
 OS88UI_DR_SEG   equ 18          ; the banked pixels under the open list, or 0
-OS88UI_DR_KB    equ 20          ; ...and the claim's size, to give back
+OS88UI_DR_PARA  equ 20          ; ...and the claim's paragraphs, as granted
 OS88UI_DR_TOP   equ 22          ; the OPEN list's first row, screen (13.14.2):
                                 ; the row under the box, or higher where a long
                                 ; list would not fit the window below it
@@ -4929,17 +4929,19 @@ os88ui_drbank:
     mov bx, 1                   ; a packed display, whose save is its
 .planes:                        ; pixels (SPEC.md 120.5): DH AS IT COMES
     mul bx                      ; DX:AX - 16 x a list on a 1024-wide
-    add ax, 1023                ; display passes 64KB, and a claim sized
+    add ax, 15                  ; display passes 64KB, and a claim sized
     adc dx, 0                   ; off AX alone is what the kernel then
-    mov cl, 10                  ; writes past
-    shr ax, cl
-    mov cl, 6
+    mov cl, 4                   ; writes past. In PARAGRAPHS (SPEC.md
+    shr ax, cl                  ; 50.3.7): a bank is a byte count, so it
+    mov cl, 12                  ; pays the heap's granule and not a KB
     shl dx, cl
-    add ax, dx                  ; AX = KB, rounded up (ZF = none)
+    add ax, dx                  ; AX = paragraphs, rounded up (ZF = none)
     jz .none
-    mov [ds:bp+OS88UI_DR_KB], ax
-    call OSAPI_MEM_CLAIM
+    xor cx, cx
+    mov bl, MEMP_CLAIM
+    call OSAPI_MEM_P
     jc .none
+    mov [ds:bp+OS88UI_DR_PARA], ax
     mov [ds:bp+OS88UI_DR_SEG], dx
     mov es, dx
     xor di, di
@@ -5020,7 +5022,7 @@ os88ui_drfree:
     mov dx, [ds:bp+OS88UI_DR_SEG]
     or dx, dx
     jz .out
-    mov ax, [ds:bp+OS88UI_DR_KB]
+    mov ax, [ds:bp+OS88UI_DR_PARA]
     call OSAPI_MEM_FREE
     mov word [ds:bp+OS88UI_DR_SEG], 0
 .out:
@@ -5365,7 +5367,7 @@ os88ui_drclose:
 ;       db 0            ; (pad)
 ;       dw 0,0,0,0      ; OS88UI_MN_MRECT: the open panel. The control's
 ;       dw 0,0,0,0      ; OS88UI_MN_ABOX:  the pressed title's own box
-;       dw 0, 0         ; OS88UI_MN_SEG, MN_KB: the bank...
+;       dw 0, 0         ; OS88UI_MN_SEG, MN_PARA: the bank...
 ;       dw 0,0,0,0      ; OS88UI_MN_BRECT: ...and the rect it holds
 ;       dw my_barbuf    ; OS88UI_MN_BBUF: scratch for a truncated bar
 ;       dw 0            ; OS88UI_MN_CHK: near ptr to your item-state hook, or
@@ -5405,7 +5407,7 @@ OS88UI_MN_CKW    equ 5           ; and on the 8px glyph row, os88ui_chk's size
 OS88UI_MN_MRECT  equ 20
 OS88UI_MN_ABOX   equ 28
 OS88UI_MN_SEG    equ 36
-OS88UI_MN_KB     equ 38
+OS88UI_MN_PARA   equ 38          ; ...and the claim's paragraphs, as granted
 OS88UI_MN_BRECT  equ 40          ; 4 words: the rect actually BANKED - the
                                  ; panel grown by its shadow and clamped,
                                  ; written on the way down so the way back
@@ -6166,17 +6168,19 @@ os88ui_mnbank:
     mov bx, 1                   ; a packed display, whose save is its
 .planes:                        ; pixels (SPEC.md 120.5): DH AS IT COMES
     mul bx                      ; DX:AX - 16 x a list on a 1024-wide
-    add ax, 1023                ; display passes 64KB, and a claim sized
+    add ax, 15                  ; display passes 64KB, and a claim sized
     adc dx, 0                   ; off AX alone is what the kernel then
-    mov cl, 10                  ; writes past
-    shr ax, cl
-    mov cl, 6
+    mov cl, 4                   ; writes past. In PARAGRAPHS (SPEC.md
+    shr ax, cl                  ; 50.3.7), as os88ui_drsave's bank
+    mov cl, 12
     shl dx, cl
-    add ax, dx                  ; AX = KB, rounded up (ZF = none)
+    add ax, dx                  ; AX = paragraphs, rounded up (ZF = none)
     jz .no
-    mov [ds:bp+OS88UI_MN_KB], ax
-    call OSAPI_MEM_CLAIM            ; out CF=0, DX = base segment
+    xor cx, cx
+    mov bl, MEMP_CLAIM
+    call OSAPI_MEM_P                ; out CF=0, DX = base segment
     jc .no
+    mov [ds:bp+OS88UI_MN_PARA], ax
     mov [ds:bp+OS88UI_MN_SEG], dx
     mov es, dx
     xor di, di
@@ -6189,7 +6193,7 @@ os88ui_mnbank:
     push ds                                    ; none: hand it straight back,
     pop es                                     ; with ES off it first (14.53)
     mov dx, [ds:bp+OS88UI_MN_SEG]
-    mov ax, [ds:bp+OS88UI_MN_KB]
+    mov ax, [ds:bp+OS88UI_MN_PARA]
     call OSAPI_MEM_FREE
 .no:
     mov word [ds:bp+OS88UI_MN_SEG], 0
@@ -6210,7 +6214,7 @@ os88ui_mnfree:
     mov dx, [ds:bp+OS88UI_MN_SEG]
     or dx, dx
     jz .out
-    mov ax, [ds:bp+OS88UI_MN_KB]
+    mov ax, [ds:bp+OS88UI_MN_PARA]
     call OSAPI_MEM_FREE
     mov word [ds:bp+OS88UI_MN_SEG], 0
 .out:
@@ -6242,7 +6246,7 @@ os88ui_mnback:
     pop es                          ; the caller's ES before the free, for
                                     ; os88ui_drback's reason (14.53)
     mov dx, [ds:bp+OS88UI_MN_SEG]
-    mov ax, [ds:bp+OS88UI_MN_KB]
+    mov ax, [ds:bp+OS88UI_MN_PARA]
     call OSAPI_MEM_FREE             ; before the picked item runs (SPEC.md
     mov word [ds:bp+OS88UI_MN_SEG], 0          ; 12.4): whatever it claims gets a heap
                                     ; this menu has already left

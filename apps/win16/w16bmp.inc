@@ -96,15 +96,19 @@ w16_bmnew:
     cmp ax, W16_BMMAX
     ja .no
     mov cx, ax
-    add ax, 1023
-    jc .no
+    add ax, 15                      ; PARAGRAPHS (SPEC.md 50.3.7): the
+    jc .no                          ; bitmap's bytes to the heap's granule
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    push bx
     push cx
-    mov cl, 10
-    shr ax, cl                      ; KB
+    xor cx, cx
+    mov bl, MEMP_CLAIM
+    call OSAPI_MEM_P
     pop cx
-    push ax
-    call OSAPI_MEM_CLAIM
-    pop ax
+    pop bx
     jc .no
     mov [w16b_seg + bx], dx
     mov es, dx                      ; black: CBLACK in both halves

@@ -30037,7 +30037,7 @@ is the closed control on its own for this reason: its ground, its frame, the
 arrow cell and the pick's caption, drawn again after a successful restore. A
 press only ever reaches a live control, so it draws in the live pen.
 
-The record grew by two words (`OS88UI_DR_SEG`, `OS88UI_DR_KB`) and
+The record grew by two words (`OS88UI_DR_SEG`, `OS88UI_DR_PARA`, the claim's paragraphs since SPEC.md 50.3.7) and
 `OS88UI_DR_SIZE` is 22 — **appended**, so every offset a caller already reads
 is unmoved, and a declaration that was not grown with it overlaps the next
 one rather than failing to assemble. `tests/skiesui.py` reads the two
@@ -194150,7 +194150,7 @@ Right with "No seeking".
 on a volume whose clusters are past 1 KB, with one read of the header's
 second sector. A key's read is then its record and less than a sector
 either side on every volume, `VP_KMAXREC` binds on all of them, and
-`vp_spankb`, `vp_bkkb`, `vp_bkrd` and `vp_ldstored` size what `vp_rdat`
+`vp_spankb`, `vp_bkpara`, `vp_bkrd` and `vp_ldstored` size what `vp_rdat`
 reads by the same granule. The STREAM is unchanged - `READ_SEQ` reads whole
 clusters from the one under its start, and `[vp_clb]` stays what positions
 it. On `kern_small`, or an older kernel, the granule is the cluster and

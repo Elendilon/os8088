@@ -1280,15 +1280,16 @@ sc_rpclaim:
     or dx, dx
     jnz .no
     mov [sc_rpcap], ax
-    add ax, 1023
-    jc .no
-    mov cl, 10
+    add ax, 15                      ; in PARAGRAPHS (SPEC.md 50.3.7): the
+    jc .no                          ; picture is a byte count
+    mov cl, 4
     shr ax, cl
-    or ax, ax
     jnz .kbok
-    mov ax, 1
+    inc ax                          ; (never 0: a claim of nothing refuses)
 .kbok:
-    call OSAPI_MEM_CLAIM            ; out DX = the base segment
+    xor cx, cx
+    mov bl, MEMP_CLAIM
+    call OSAPI_MEM_P                ; out DX = the base segment
     jc .no
     mov [sc_rpseg], dx
     clc
