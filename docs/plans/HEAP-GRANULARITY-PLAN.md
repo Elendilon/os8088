@@ -467,6 +467,29 @@ the process MEM column and the RAM/HEAP pair, so it takes the formatter and
 the glyphs and nothing else. The draw is two more calls per fractional figure,
 ~1.5 ms on the XT, on a page that repaints numbers once a second in chunks.
 
+**BUILT, with two departures** (SPEC.md 28.4.7 is the contract now):
+
+- **Rows 100K-999K with a fraction keep it, and drop the `K`** - `100½` in
+  four cells - instead of rounding to the nearest KB. Item 4's cumulative
+  rounding cannot close the sums: `IVT+BIOS` is 1½K on every machine and
+  System is over 100K on every kern_big, so with System printed as a whole
+  KB the rows add to `n.5` against a whole-KB total whatever the rounding
+  rule. Exact everywhere below 1000K needs no rounding at all, and every sum
+  on both pages closes to the paragraph. The summary line's `nnn/nnnK` pairs
+  are the one place a figure rounds (no cell for a fraction in three digits),
+  and they round so the RAM and HEAP free halves are one number.
+- **No `SK_HEAPP`.** The heap's size is derived: `MEMP_AVAIL`'s free total
+  plus every non-cache claim, the claim snapshot and the avail call taken in
+  one `pushf`/`cli` window so the two describe one moment, and checked
+  against `SK_HEAP`'s whole KB (`MEMP_AVAIL` answers 0 inside a compaction).
+  A paragraph `SK_HEAPP` would make it exact by construction instead.
+
+The carried unit is a figure in two halves - paragraphs below 1MB, KB above
+- rather than paragraphs alone, because a group's blocks above 1MB on
+kern_mega or a store-backed kern_big can be megabytes and a word of
+paragraphs stops at 1MB. Cost: `TASKMGR.O88` +380 bytes of image and +74 of
+bss; the small arm +397 and +202, 192 of that the claim snapshot it reads now.
+
 ### 5.3 Other displays
 
 - **Control Panel drivers column** (`ctrl.inc`, `(~34K)` from the build-time

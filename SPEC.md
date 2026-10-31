@@ -45477,7 +45477,10 @@ it is a scan of the claim table per instance, which is not what the window
 protects and has no business running with interrupts off. The kernel fills
 it because the owner-word rule is the kernel's (§50.2) — a package's claims
 are stamped with the segment it runs in and a built-in's with its slot — and
-a reader outside cannot be expected to know which.
+a reader outside cannot be expected to know which. **It is whole KB,
+truncated**, which was exact while claims were; since §50.2.1's granule the
+Task Manager no longer reads it, and sums the claim snapshot in paragraphs by
+the same owner-word rule instead (§28.4.7).
 
 **`claim_snapshot` takes no `cli`, and that is not an oversight.** A claim is
 published by a single word store (`MC_SEG` last), so a record is either
@@ -63072,7 +63075,8 @@ own above the second map and read as *its* label.
   `KERN_SIZE` is a whole number of KB, as it is today (99,328 bytes). On a
   machine with no VGA the floor is one 512-byte `VGABUF` rung lower (§39.22),
   so the cases swap. Since every claim is a whole number of KB
-  (§50.3), that last 512 bytes cannot be claimed by anything. The rounded-down
+  (§50.3), that last 512 bytes cannot be claimed by anything. *(Withdrawn:
+  §50.2.1's 512-byte granule made it claimable, and §28.4.7 prints it.)* The rounded-down
   figure is therefore the true claimable size, and the 512 bytes are lost.
   System's `TM_KERN_KB` rounds up, which can also absorb half a KB.
 - Row 1 (System): legend square 50% gray, the kernel's band; ADDR `0600`
@@ -63727,7 +63731,9 @@ total, `.text` −22, and the two figures on the RAM line become the same word
 plus a constant: **`RAM used` is `SK_KERN + SK_CLAIM`, `HEAP claimed` is
 `SK_CLAIM`**, so they cannot come to disagree about what *claimed* means.
 (§28.4.7 has since replaced `SK_KERN` in that sum with *total − heap*, which
-is the kernel plus the 2K `IVT+Pad` row below it.)
+is the kernel plus the 2K `IVT+Pad` row below it - and since the granule,
+§28.4.7 sums both halves of the line off the claim records in paragraphs,
+`SK_CLAIM` being whole KB truncated.)
 
 **The first fix was the view's** and covered half the line: the memory view's
 claimed half subtracted the purgeables with `tm_hsplit` and the RAM half went
@@ -64108,65 +64114,142 @@ somewhere else. Measured red with the two arms reverted at **3 claim rows for
 4 live records** — short by exactly the ring — while the probe it prints on a
 miss found `DrvImg` on screen and the ring's row absent.
 
-### 28.4.7 `IVT+Pad` — a constant 2K row, so every total closes in whole KB
+### 28.4.7 Every figure is PARAGRAPHS, printed exact to the quarter-KB, and the totals close
 
-**IVT + System + heap size = total RAM, in whole KB, on both pages.** The
-process page (the only page the small build has, §28.12) used to show
-`RAM used` as `SK_KERN + SK_CLAIM` beside `HEAP claimed/size`, and RAM's free
-half came out one or two KB over the heap's. Two things were missing:
+**IVT+BIOS + System + every program = RAM used, and RAM used + AVAIL = RAM's
+total, to the paragraph, on both pages.** That identity is what this section
+is for; the history below is what it cost to get it.
 
-- **The 1.5K below `KERNEL_SEG`:** the IVT, the BIOS data area and the page
-  at 0500. It is neither the kernel's nor the heap's, and only the memory view
-  had a row for it.
-- **The rounding:** the kernel ends on a 512-byte boundary, so on any
-  machine exactly one of the kernel and the heap is an odd half-KB. Which one
-  depends on the build and, on kern_big, on whether the machine has VGA (a
-  machine without VGA gets back the 512-byte VGA buffer). `SK_KERN` rounds the
-  half up and `SK_HEAP` rounds it down.
+**The whole-KB design it replaces.** The process page used to show `RAM used`
+as `SK_KERN + SK_CLAIM` beside `HEAP claimed/size`, and the free halves came
+out a KB or two apart: the 1.5K below `KERNEL_SEG` (the IVT, the BIOS data
+area and the page at 0500) was in no row, and the kernel and the heap were
+`OSAPI_SYS_KB` figures rounded opposite ways. While **claims were whole KB**,
+the cure was a constant `IVT+Pad` row of **2K** - the 1.5K plus the odd
+half-KB the kernel's 512-aligned floor left, which no whole-KB claim could
+reach - and every figure was a whole KB.
 
-**Claims are whole KB** (`mem_claim` takes KB), so a heap of 67.5K can only
-ever hold 67K of claims. The whole-KB `SK_HEAP` is therefore the usable heap
-exactly, and the odd half-KB is dead memory whichever side it lands on. The
-one exception is a re-homed program's trimmed carve (§20.12.10.5, kern_big),
-which can end below a KB boundary; it stays rounded down, as before.
+**The granule ended that** (§50.2.1). A claim is a whole number of 512-byte
+granules, so the half-KB at the heap's edge is claimable, and half of all
+regions, driver images and caches are an odd half-KB (Calculator's region is
+5.5K, the FAT window 4.5K). Every KB figure the page read - `SK_HEAP`,
+`SK_CLAIM`, `SK_KCLAIM`, `SSI_KB` - is TRUNCATED, so a 19.5K region read 20K
+on the process page (`SSI_SIZE` rounded up) and 19K on the memory page (the
+claim truncated), a 512-byte claim read as `-` and its group was not drawn at
+all, and the two free figures disagreed by a KB again. *If we're not accurate
+we lose the ability to see what is going on* - the owner's words.
 
-So the Task Manager shows:
+**So the page carries PARAGRAPHS and converts once, at print** (`tm_csnap`,
+`apps/taskmgr`):
 
-| row | figure |
+- **One moment.** `OSAPI_CLAIM_SNAPSHOT` and `OSAPI_MEM_P`'s `MEMP_AVAIL`
+  (§50.3.7) are taken inside ONE `pushf`/`cli`, and the sums below with them,
+  so no task switch can put a claim between the table and the free figure and
+  no paint reads a half-summed row. The window is the snapshot's 32 records,
+  a slot scan each and `MEMP_AVAIL`'s own walk, which already runs with
+  interrupts off.
+- **Whose.** Every claim that is not a cache (§28.4.1) is summed into the
+  instance it bills - `tm_cslot`: an instance slot while it lives (a
+  package's region, a built-in's claim), or a live package's own segment (its
+  data claims, §50.3) - or into System's `[tm_kclp]` when it bills none. The
+  memory page's `tm_cgidof` asks `tm_cslot` the same question before it tells
+  the drivers and the kernel apart, so **a package prints the same figure on
+  the process page and at its group on the memory page by construction**.
+  The process page no longer reads `SSI_SIZE` or `SSI_KB` at all; a region
+  above 1MB on kern_mega is the pool block `80h | slot` (`tm_slotxkb`),
+  filed as `tm_xgidof` files it.
+- **The heap's size is derived**, there being no published paragraph figure
+  for it: `MEMP_AVAIL`'s total free is the heap less every claim that is not
+  a cache, so the heap is that plus the claims just summed. It must agree with
+  `SK_HEAP`, which is the same span truncated to KB; inside a compaction,
+  where `MEMP_AVAIL` answers 0 (§66.3 rule 3), it does not, and `SK_HEAP`'s
+  whole KB stands in for that one sample. A paragraph `SK_HEAPP` in the kernel
+  would make this exact by construction rather than by the one-moment window,
+  and is not needed while that window holds.
+- **System** is the total less the heap less `IVT+BIOS`, the kernel's whole
+  span (`[tm_sysp]`), plus `[tm_kclp]` on the process page and the
+  non-program groups on the memory page. **`IVT+BIOS` is `KERNEL_SEG`
+  paragraphs** (`TM_LOWP`, 1.5K) plus the BIOS's extended data area
+  (§28.4.8): `1½K` on a machine without one. The half-KB `TM_LOWKB` added is
+  retired with the argument that justified it.
+- **Above 1MB is KB**, as the pool counts it (§41, §28.4.8), so a figure is
+  two halves - paragraphs below 1MB, KB above - and the formatter adds them.
+  One word of paragraphs holds all of conventional memory; it could not hold
+  a group's megabytes above it, which is why the KB half is not folded in.
+
+**The formatter, `tm_pfig`: four cells, as before, and exact below 1000K.**
+
+| value | prints |
 |---|---|
-| `IVT+Pad` (now `IVT+BIOS`, §28.4.8) | **2K**: the 1.5K plus the odd half-KB, and the BIOS's extended data area when it states one |
-| System | total − `SK_HEAP` − `IVT+BIOS`: the kernel in whole KB, rounded **down** |
-| heap size | `SK_HEAP` |
-| RAM used | total − `SK_HEAP` + `SK_CLAIM` |
+| 0 | `   -` — nothing at all, and only nothing |
+| 0.5K | `  ½K` |
+| 2.5K | ` 2½K` |
+| 19.5K | `19½K` |
+| 99.5K | `99½K` |
+| 100K | `100K` |
+| 100.5K | `100½` — the fraction takes the `K`'s cell |
+| 1000K and up | MB, as before: `0.9M` for 1000K (tenths, truncated), ` 12M` past 10MB - only a figure with RAM above 1MB in it gets there, and that half is whole KB |
 
-`IVT+Pad` is a **constant** row on both pages, above System (`tm_s_lowrow`
-on the process page, `tm_s_low` on the memory view), and `tm_sysk` is the one
-place the System figure is computed. On the memory view, Code+data takes the
-same half-KB as System (`SK_IMG − (SK_KERN − System)`), so the three buffer
-rows still sum to the System row. With that:
+**The fraction is a glyph the font does not have.** The system font is ASCII
+32–126 (§6), so the package carries three 8×8 cells of its own - `¼`, `½`,
+`¾`, 24 bytes - and a composed row carries the byte 1, 2 or 3 (`TM_FQ1`..3:
+the quarters, `(paragraphs mod 64) / 16`) where one goes. `tm_frun` is the
+one place the page letters a list row or a caption line: a string with no
+such byte is ONE `font_run`, exactly as before, and one with a fraction is up
+to three opaque pieces left to right - `font_run` of what precedes it,
+`OSAPI_GFX_BLIT1` of the cell, and on round the loop for the rest. The cell
+is stored in SCREEN polarity, the ground lit and the glyph clear, which is
+what a set bit means on VGA with the default blit pen and on a 1bpp adapter
+by the mono rule (§25.6), so one table serves all three adapters, nothing is
+filled first and no pixel is written twice (§6.1). The chunked row's check
+words hash the byte like any other, so a figure gaining or losing its half
+re-letters its chunk. `¼` and `¾` are reachable only on a 256-byte granule
+(guard 6b refuses one today); they cost 16 bytes to carry from the start.
 
-- `RAM total − HEAP size` = `RAM used − HEAP claimed`, so the two free figures
-  agree exactly;
-- IVT+Pad + System + every program row = RAM used, so the rows partition the
-  bar.
+**Dropping the `K` for 100K–999K with a fraction is the decision that makes
+the totals close,** and it reverses the plan this was built from
+(docs/plans/HEAP-GRANULARITY-PLAN.md 5.2), which rounded those to the
+nearest whole KB and proposed cumulative rounding to close the sums. That
+cannot work: `IVT+BIOS` is 1½K on every machine and System is over 100K on
+every kern_big, so with System rounded to a whole KB no choice of rounding
+makes `IVT+BIOS + System + programs` equal a whole-KB used figure - the half
+has nowhere to go. Exact everywhere below 1000K closes every sum with no
+rounding at all, and the column's other rows say what the unit is.
 
-**No half-KB figure is shown anywhere, and no kernel byte changed**: every
-term was already in `OSAPI_SYS_KB`'s block. A half-KB display was weighed
-and dropped. With whole-KB claims, the only figures that could ever carry a
-half were the kernel and the heap size, and putting the half into a constant
-row removes it from both.
+**The summary line's pairs are the one place a figure ROUNDS**, because
+`RAM nnn/nnnK  HEAP nnn/nnnK` is the line's 27 cells exactly (§28.5.3) and a
+three-digit field has no cell for a fraction. They round so they cannot
+disagree with each other: HEAP is the claimed and the heap size each to the
+nearest KB (a half up), and RAM's used half is the total less the heap plus
+the claimed **as printed** - so RAM's free half and HEAP's are one number
+however the halves fall, and RAM's used half is within half a KB of the
+rows. The exact figures are the rows' and `AVAIL`'s (§28.4.10). kern_big
+with a store and kern_mega keep their MB pairs (§28.4.8), off the same
+paragraphs rounded.
 
-The process page draws `TM_PROWS` = `TM_ROWS` + 1 rows: row 0 is
-`IVT+Pad`, row 1 System, and instances from row 2. `TM_ROWS` still sizes the
-per-row data (`tm_rcyc`, `tm_pct`), whose index 0 is System.
+Measured on a 5150/CGA under MartyPC, kern_big, the Calculator and the Task
+Manager open, the memory page collapsed: `IVT+BIOS 1½K`, `System 96½K`,
+`Programs 19½K` (`CALCULATOR 5½K`, `TaskMgr 14K`) - 117½K, which is the
+paragraph sum - over `AVAIL 522½` and `MAX RUN 522½`, 640K between them, and
+the line above reading `RAM 118/640K  HEAP 24/546K`. The process page of the
+same machine reads `CALCULATOR 5½K` beside it.
 
-**On a screen too short for every row, the process page folds `IVT+Pad` into
-System.** That means a CGA, whose two columns hold exactly the 13 rows the
-list had before. `tm_pshort` compares the columns' capacity with `TM_PROWS`;
-when short, the list starts at System and System shows its figure plus the
-2K, so the totals still close and no program row is pushed off the bottom.
-That push-off is the loss §28.1.2 fixed, and `tmcol2` is the gate for it. The
-memory view never folds: it lists no free slots, so it has the room.
+**The rows on a short screen.** The process page draws `TM_PROWS` =
+`TM_ROWS` + 1 rows: row 0 is `IVT+BIOS`, row 1 System, and instances from
+row 2; `TM_ROWS` still sizes the per-row data (`tm_rcyc`, `tm_pct`), whose
+index 0 is System. **On a screen too short for every row, the process page
+folds `IVT+BIOS` into System** - a CGA, whose two columns hold exactly the
+13 rows the list had before. `tm_pshort` compares the columns' capacity with
+`TM_PROWS`; when short, the list starts at System and System shows its figure
+plus `IVT+BIOS`'s, so the totals still close and no program row is pushed off
+the bottom. That push-off is the loss §28.1.2 fixed, and `tmcol2` is the gate
+for it. The memory view never folds: it lists no free slots, so it has the
+room.
+
+**What it cost** (the package only; no kernel byte): `taskmgr.o88`'s image
+11,016 → 11,396 bytes and its bss 2,413 → 2,487; the small arm (§28.12)
+3,843 → 4,240 and 1,325 → 1,527, the 192 of that being `tm_claims`, which
+the small arm now carries (§28.12.1).
 
 ### 28.4.8 `IVT+BIOS`, and RAM above 1MB billed to what holds it
 
@@ -64180,16 +64263,17 @@ tables and `.cold` under the pool, and the pool blocks the kernel and its
 drivers own - was in RAM's used half and in no row, so the rows stopped
 summing to it.
 
-**`IVT+Pad` is now `IVT+BIOS`**, and its figure is `[tm_lowkb]`: 2K
-(`TM_LOWKB`, §28.4.7's 1.5K plus the half-KB) plus the extended data area
-when the BIOS **says where and how big it is**. `tm_ebda` takes the segment at
+**`IVT+Pad` is now `IVT+BIOS`**, and its figure is `[tm_lowp]`: 1.5K
+(`TM_LOWP`, `KERNEL_SEG` paragraphs - it was 2K while the half-KB at the
+heap's edge was dead memory, §28.4.7) plus the extended data area when the
+BIOS **says where and how big it is**. `tm_ebda` takes the segment at
 40:0Eh, accepts it only when it is exactly the top `int 12h` reports (KB x 64)
 and only when its first byte, the BIOS's own size in KB, reaches no further
 than 640K, and adds those KB to both the row and the total. Anything else
 counts 0: an area the BIOS does not describe is not guessed at. So base memory
 still closes: IVT+BIOS + System + heap size = total, and the row is no longer
 a constant on either page - `tm_s_lowrow` and `tm_s_low` carry the row up to
-its KB column and `tm_memcol_kb`/`tm_kcol` letter the figure.
+its KB column and `tm_pfig`/`tm_kcol` letter the figure (§28.4.7).
 
 **RAM above 1MB is accounted whenever the pool can say whose it is**:
 `tm_init` asks `OSAPI_XMEM_WALK` with CX = 0, which answers on kern_mega in
@@ -64206,10 +64290,10 @@ page:
 | figure | with `[tm_hion]` (both kernels) |
 |---|---|
 | RAM | conventional + `[tm_hitot]` (the BIOS's extended KB) in MB |
-| System | `tm_sysk` + `[tm_hisys]` - `[tm_hifix]` + `SK_KCLAIM` (+ `IVT+BIOS` and `[tm_hifix]` when folded, §28.4.14) |
+| System | `[tm_sysp]` + `[tm_kclp]` (paragraphs, §28.4.7) and `[tm_hisys]` - `[tm_hifix]` (KB) (+ `IVT+BIOS` and `[tm_hifix]` when folded, §28.4.14) |
 | System HMA (§28.4.14) | `[tm_hifix]`: the KB the kernel keeps outside the pool (under its base on kern_big, above its top on kern_mega, §50.6.9) plus kern_mega's HMA block - `System>1MB` on kern_mega |
-| memory view System SIZE | `tm_sysk` + every non-program group, its items naming every owner (§28.4.10); `IVT+BIOS` and `System HMA` are rows of their own beside it (§28.4.13, §28.4.14), so the rows still sum |
-| a program, both pages | its region and conventional claims, plus `tm_slotxkb`'s blocks above 1MB (its `OSAPI_XMEM_ALLOC` blocks, and on kern_mega its `OS88_HIGHMEM` claims) |
+| memory view System SIZE | `[tm_sysp]` + every non-program group, its items naming every owner (§28.4.10); `IVT+BIOS` and `System HMA` are rows of their own beside it (§28.4.13, §28.4.14), so the rows still sum |
+| a program, both pages | its region and conventional claims in paragraphs (`[tm_ikp]`, §28.4.7), plus `tm_slotxkb`'s blocks above 1MB (its `OSAPI_XMEM_ALLOC` blocks, and on kern_mega its `OS88_HIGHMEM` claims and a region placed there) |
 | the summary line, kern_mega in protected mode only | ONE pair, `Ram u.uu/t.ttM` - used (RAM's, as above) over total (conventional + `[tm_hitot]`) in MB to two decimals, truncated - and ONE bar (KERN-MEGA-PLAN 14.70.2) |
 
 RAM used is then IVT+BIOS + System + every program row. **On kern_mega
@@ -64220,7 +64304,7 @@ is where the heap a package could be handed is read. The line is `Ram` and
 one pair, and the XMS bar is not drawn - one bar, `[tm_xoff]` set at
 `tm_init` as on a machine with no store. **Everywhere else the split stays
 exactly as it was**: a conventional-only machine reads `RAM uuu/tttK` and
-`HEAP uuu/tttK` in whole KB, and kern_big with its store keeps RAM in MB to
+`HEAP uuu/tttK` in whole KB (rounded, §28.4.7), and kern_big with its store keeps RAM in MB to
 one decimal beside the conventional HEAP, because memory above 1MB there is a
 store a copy reaches and not memory a package runs in, and the memory view's
 `XMS` line is the pool.
@@ -64283,8 +64367,10 @@ was - the summary line, the map, and on kern_big with a store the `XMS` line
 and bar - and one line replaces the heap page's two captions:
 
 - `AVAIL nnnK  MAX RUN nnnK` (`TMC_AVL`, `TMM_AVL_Y`): free heap and the
-  largest single run, one `OSAPI_MEM_AVAIL`, which was the heap page's
-  fragmentation reading (its `FREE`/`MAX`) and keeps its argument. **On
+  largest single run, one `OSAPI_MEM_P` `MEMP_AVAIL` in PARAGRAPHS taken in
+  the same moment as the claim table (§28.4.7) and printed exact -
+  `AVAIL 522½` - which was the heap page's fragmentation reading (its
+  `FREE`/`MAX`) and keeps its argument. **On
   kern_mega in protected mode the pool above 1MB is in both figures**
   (KERN-MEGA-PLAN 14.70.3): an `OS88_HIGHMEM` package's region and claims go
   there, so AVAIL adds `OSAPI_XMEM_CAPS`'s free KB, and MAX RUN is the larger
@@ -64347,12 +64433,18 @@ view had that the tree would otherwise not.
 **DETAIL is for whoever is debugging, and the default view adds up.** With
 every group closed and DETAIL off, the SIZE column - IVT+BIOS, System, System
 HMA (§28.4.14), and each program - sums to Ram's used half, and that plus AVAIL is Ram's total: every figure
-is *what is in use that the user cannot have*. Purgeable is in none of them -
+is *what is in use that the user cannot have*. **To the paragraph**: every
+figure in the column and AVAIL is printed exact to the quarter-KB below
+1000K (§28.4.7), so the identity holds on the glass as well as in the page's
+state; it is the summary line's whole-KB `Ram` pair that rounds, by at most
+half a KB. Purgeable is in none of them -
 not in Ram's used half (§28.4.1), and counted AS available by AVAIL - so as a
 row it added up to nothing on the screen, which is why it went behind DETAIL
 with the 640K-1MB rows, which are not RAM at all. Measured on kern_big VGA
 with the Calculator open: `RAM 120/640K`, `System 102K` + `Programs 18K`,
-`AVAIL 520K`; DETAIL adds `Purgeable 116K`.
+`AVAIL 520K`; DETAIL adds `Purgeable 116K`. (That was whole KB, the IVT+BIOS
+row's 2K carrying the difference; §28.4.7 has the same reading to the
+half-KB.)
 
 System's items (`tm_sysitems`): `Code+data` (the kernel's span, no
 address), `Stacks` and `FAT snap`; then the `Kernel` group (its pool blocks
@@ -64593,7 +64685,7 @@ Both pages now list the same three system rows, in the same order:
 | row | page 1 (`tm_rows`) | page 2 (`tm_rows_mem`) |
 |---|---|---|
 | `IVT+BIOS` | logical row 0, as before | the list's first row, an item at column 0 with ADDR 0000 |
-| `System` | logical row 1: the kernel below 640K, its heap claims and its blocks in the POOL above 1MB, less the span below the pool - on kern_mega less every block above 1MB, which is `System>1MB`'s (§28.4.15) | the group: `tm_sysk` and every non-program group (`tm_systot`); its items are Code+data, Stacks, FAT snap, Kernel, the drivers and the built-ins |
+| `System` | logical row 1: the kernel below 640K, its heap claims and its blocks in the POOL above 1MB, less the span below the pool - on kern_mega less every block above 1MB, which is `System>1MB`'s (§28.4.15) | the group: `[tm_sysp]` and every non-program group (`tm_systot`); its items are Code+data, Stacks, FAT snap, Kernel, the drivers and the built-ins |
 | `System HMA` | after System's built-ins, so it closes System's indented rows: no state, no CPU, `[tm_hifix]` KB | a group at column 0 after System, `[tm_hifix]` KB, opening into §28.4.13's contents - its items one level in and each HMA driver a group one level in (`tm_grp1`; `tm_grp2` is gone) - and on kern_mega `Kernel` and every driver's pool blocks too (§28.4.15) |
 
 `System HMA` is drawn only when `[tm_hifix]` is non-zero - the system keeps
@@ -65571,7 +65663,7 @@ the pages themselves:
 
 | flag | off in `APP_SMALL` | what goes with it |
 |---|---|---|
-| `TMF_HEAP` | the heap page (§28.4), the memory page's groups since §28.4.10 | the per-claim rows and their `TYPE`/`TIER` decode, the groups and the two header switches, the 640K–1MB rows (`tm_romscan`), the `AVAIL` line (`tm_hsnap`'s `OSAPI_MEM_AVAIL` pair), the scroll bar (§13.10) and `TM_SHOWN`'s share of `tm_rowck` |
+| `TMF_HEAP` | the heap page (§28.4), the memory page's groups since §28.4.10 | the per-claim rows and their `TYPE`/`TIER` decode, the groups and the two header switches, the 640K–1MB rows (`tm_romscan`), the `AVAIL` line (`tm_csnap`'s `MEMP_AVAIL` pair - `tm_csnap` itself is every arm's, §28.4.7), the scroll bar (§13.10) and `TM_SHOWN`'s share of `tm_rowck` |
 | `TMF_MEM` | the memory view (§28) | the conventional-memory map, the XMS bar, the `NAME/ADDR/SIZE/HEAP` re-columning, the legend squares and their textures (the claim swatch beside the RAM line's HEAP pair among them; the pair itself stays) — and the whole of §28.6/§28.8/§28.11's quiet-page machinery, which exists for these two pages and for nothing else |
 
 **The ladder is ORDERED and the guard says so.** The heap page borrows the
@@ -65624,8 +65716,14 @@ the memory view takes with it a whole *layer* that the heap page merely used
 — `tm_quiet`'s three hashes, `TM_SLOW`'s pacing, `tm_promise`'s raise-cache
 repair, `tm_qpeek`, `tm_sumb`, the row cursor and the legend squares — and
 `tm_claims` with them, all 192 bytes of it, because the process list's own
-`MEM` column comes off the **instance** snapshot's `SSI_KB` and nothing left
-in the file reads `mem_tab`.
+`MEM` column came off the **instance** snapshot's `SSI_KB` and nothing left
+in the file read `mem_tab`. **That is withdrawn** (§28.4.7): `SSI_KB` is whole
+KB, truncated, and since the granule a region or a claim can be an odd
+half-KB, so the small arm's `MEM` column, its System row and its RAM/HEAP pair
+are summed off the claim records like the full arm's. `tm_claims` is on every
+arm again, and with it `tm_csnap`, `tm_cslot`, the formatter (`tm_pfig`) and
+the three fraction cells - and nothing else of the memory page: the small arm
+measures 4,240 + 1,527 = 5,767 against 3,843 + 1,325 = 5,168 before it.
 
 Three things fell out that are worth stating because they are otherwise
 silent:
