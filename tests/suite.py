@@ -16737,7 +16737,8 @@ SOAK = [
         "-> A: with the path on: no fallback ([mega_fdoff] 0, [mega_fdfail] "
         "0), the reset path ran but not once a call (2 resets against a "
         "ceiling of 20), byte for byte, no exception charged to an image. "
-        "Red with --break (mm_fdout stc/ret at its copy above 1MB): 8 "
+        "Red with --break (mm_fdout a jmp to mega_fdlj, the time-out's exit, "
+        "at its copy above 1MB - kern_mega size pass 2; it was stc/ret): 8 "
         "fallbacks, the path off, 48 resets - while the copy still succeeds "
         "through the BIOS. 35s is 18-29 measured (kern_mega size pass 1)",
         needs=("86box",),

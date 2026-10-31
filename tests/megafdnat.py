@@ -26,8 +26,8 @@ with Copy and Paste - a native READ and a native WRITE of 240 sectors:
   3. A:'s BIG.DAT is B:'s byte for byte;
   4. nothing charged an exception to a loaded image.
 
-THE FAILING CASE (docs/WRITING-TESTS.md 1): --break plants `stc / ret` at
-the head of `.mega`'s mm_fdout - at its copy ABOVE 1MB, where it runs once
+THE FAILING CASE (docs/WRITING-TESTS.md 1): --break plants `jmp mega_fdlj`
+(the time-out's own exit) at the head of `.mega`'s mm_fdout - at its copy ABOVE 1MB, where it runs once
 mega_enter has moved `.mega` - so every native command byte times out. The
 row goes red on 1 and 2 (8 fallbacks, the path off, 48 resets) while the
 copy itself still succeeds through the BIOS, which is exactly why 3 alone
@@ -94,10 +94,15 @@ def main():
     copied = False
     try:
         if A.brk:
+            # A TIME-OUT, as the code takes one: inside mega_fdgo mm_fdout's
+            # failure is mega_fdlj (kern_mega size pass 2), and its callers
+            # no longer test CF, so `stc / ret` would no longer be one
             a = mega_lin(b, "mm_fdout")
-            b.cmd("memw 0x%X F9" % a)               # stc
-            b.cmd("memw 0x%X C3" % (a + 1))         # ret
-            print("   --break: mm_fdout at 0x%X is stc / ret" % a)
+            rel = (CZ.S("mega_fdlj") - (CZ.S("mm_fdout") + 3)) & 0xFFFF
+            b.cmd("memw 0x%X E9" % a)               # jmp near mega_fdlj
+            b.cmd("memw 0x%X %02X" % (a + 1, rel & 0xFF))
+            b.cmd("memw 0x%X %02X" % (a + 2, rel >> 8))
+            print("   --break: mm_fdout at 0x%X is jmp mega_fdlj" % a)
         want(CZ.rb(b, S("mega_fdoff")) == 0,
              "1. the native floppy path is on after boot")
         slota, _ = CZ.disk_window(b, "A")
