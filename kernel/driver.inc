@@ -6134,13 +6134,14 @@ cp_vgc_force:                   ; SPEC.md 39.28: THE ONE COPY, in the settings
 section .modcb                  ; the writer's file buffer is the module's
 cpc_buf:    resb CFG_FBUF       ; own BSS (docs/plans/MODULE-SELFCONTAIN-PLAN.md
                                 ; 3): cpc_ser fills it whole before a byte of it
-                                ; is written, so it wants no zeroing, and it
-                                ; costs the image nothing (kernel size pass 8).
-                                ; ES = CS reaches it. On kern_big too, where a
-                                ; desktop gesture loads the settings CORE alone:
-                                ; mod_need claims the WHOLE image for MOD_SETS
-                                ; as well, so this tail is inside that claim on
-                                ; either load (SPEC.md 2.8.7)
+                                ; is written. Zeros at the file's end (kernel.asm
+                                ; 's MODB_TAIL), so the claim holds it with no
+                                ; figure in the kernel. ES = CS reaches it. On
+                                ; kern_big too, where a desktop gesture loads
+                                ; the settings CORE alone: mod_need claims the
+                                ; WHOLE image for MOD_SETS as well, so this tail
+                                ; is inside that claim on either load (SPEC.md
+                                ; 2.8.7), though that read stops short of it
 section .modc
 
 ; =============================================================================

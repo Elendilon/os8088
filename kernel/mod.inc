@@ -111,11 +111,14 @@ MOD_H_STAMP equ 6               ; word: this kernel's LAYOUT, which the build
                                 ; wrong variables. It is the section sizes
                                 ; summed, which no two configurations of one
                                 ; commit have ever shared
-MOD_H_IMG   equ 8               ; word: image size = the file's whole size
+MOD_H_IMG   equ 8               ; word: image size = the file's whole size,
+                                ; the bss's zeros included (kernel.asm's
+                                ; MODB_TAIL) - and so the claim's
 MOD_H_NENT  equ 10              ; word: entries that follow
 MOD_H_ENT   equ 12              ; word[]: entry offsets, in this image
 MOD_VER     equ 5
-MOD_MAX_KB  equ 16              ; the biggest module image we will claim
+MOD_MAX_KB  equ 16              ; the biggest module image we will claim,
+                                ; image + bss: mod_need bounds the BYTES
 
 ; The layout stamp (SPEC.md 2.8.2). Forward references to the section sizes,
 ; which is legal in a `dw` and is how MODC_SIZE already reaches its own end
@@ -431,12 +434,16 @@ mod_need:
 %endif                          ; offset the module is called at - never the
                                 ; file's size, which a short file would shrink
 
-    call mem_bytes_kb_x         ; -> whole KB. The size is well under 64KB,
-    cmp ax, MOD_MAX_KB          ; so this cannot carry out
-    ja .fail
+    cmp ax, MOD_MAX_KB * 1024   ; the bound FIRST, on the bytes: the round-up
+    ja .fail                    ; below carries for a size near 64KB
+    call mem_bytes_gp_x         ; -> paragraphs, whole granules (SPEC.md
+                                ; 50.2.1): the FILE, whose last bytes are the
+                                ; module's bss as zeros (kernel.asm's
+                                ; MODB_TAIL), so this claim holds image and bss
+                                ; with no figure of either in the kernel
     push bx
     mov bx, MEM_K_MOD
-    call mem_claim_hi_x                   ; a module's base IS its CS, so it can never
+    call mem_claimp_hi_x        ; a module's base IS its CS, so it can never
     pop bx                      ; move: top down, like a package's region
     jc .fail
     mov [bx+MODR_SEG], dx
@@ -498,38 +505,11 @@ mod_need:
     jc .freefail
 %endif
 
-%ifdef MOD_BSS
-    ; --- the claim's TAIL is the module's own bss, and it starts zeroed -----
-    ; mem_bytes_kb_x rounded the claim up to whole KB, so everything between
-    ; the image's end and the claim's end is memory this module owns for as
-    ; long as it is loaded and nothing else can see
-    ; (docs/plans/MODULE-SELFCONTAIN-PLAN.md 3.3). What the heap left there is
-    ; whatever the last holder wrote, so it is zeroed HERE rather than in each
-    ; module's arm entry: one place cannot be forgotten by the next module,
-    ; and a module that reads uninitialised state fails silently.
-    ;
-    ; BP is still the image's byte size and [bx+MODR_SEG] the claim, both
-    ; already live. The claim is at most MOD_MAX_KB so the KB->bytes shift
-    ; cannot carry.
-    ; NOTHING IS BANKED HERE, and that is not an oversight: mod_need's own
-    ; prologue pushed AX/CX/DI/ES and `mod_check` above is documented to
-    ; clobber all four, so they are dead at this point and the eight bytes of
-    ; push/pop would buy nothing.
-    mov es, [bx+MODR_SEG]
-    mov di, bp                  ; from the image's end...
-    mov ax, bp
-    call mem_bytes_kb_x         ; ...to the claim's: the SAME rounding that
-    mov cl, 10                  ; sized it thirty lines up, so the two cannot
-    shl ax, cl                  ; disagree. AX <= MOD_MAX_KB, so <<10 cannot
-    sub ax, bp                  ; carry
-    mov cx, ax
-    xor al, al
-    cld
-    rep stosb                   ; ~650 bytes worst case, about 1.2 ms on a
-                                ; 4.77 MHz 8088 against a load that is already
-                                ; one or more int 13h at ~400 ms each
-%endif                          ; MOD_BSS: kern_big declares no module bss, so
-                                ; it carries none of the above
+    ; NO ZEROING HERE: a module's bss is zeros in its own file (kernel.asm's
+    ; MODB_TAIL), so the read above - or the ROM's copy, the same bytes -
+    ; delivered them on this load, and every load is a read. It was 22
+    ; bytes of kern_small's `.cold` that zeroed from the image's end to the
+    ; claim's KB-rounded one (docs/plans/MODULE-SELFCONTAIN-PLAN.md 3.5)
 
     call drv_vol_back           ; preserves CF - and the success path FALLS
                                 ; INTO the answer below
@@ -763,10 +743,11 @@ mod_hi:
     mov ax, MODC_SIZE           ; bytes into a claim of the WHOLE image's
 .whole:                         ; (mod_need's .whole): its bss tail, cpc_buf,
 %endif                          ; is past what was read and inside the pair
-    call mem_bytes_kb_x         ; the claim, as mod_need sized it
-    mov cl, 10
-    shl ax, cl
-    xchg ax, cx                 ; CX = its bytes
+    inc ax                      ; the IMAGE, its bss's zeros included
+    and al, 0FEh                ; (kernel.asm's MODB_TAIL), to the even count
+    xchg ax, cx                 ; mega_modhif copies: CX = its bytes. Not the
+                                ; claim's granule: past the file is nothing
+                                ; the module owns
     mov ax, [bx+MODR_SEG]
     push ax
     call MEGA_SEL_CODE:mega_modhif ; AX = the pair's code selector

@@ -1029,12 +1029,11 @@ asw_move:
 
 asw_s_name: db 'ASSOC.DAT', 0   ; the write's name (read through CS, staged)
 
-; THE SCRATCH IS IN THE IMAGE, as zeros, and not in a nobits `.modfb`: the
-; claim is the image's size rounded up to a KB (mod_need), and a nobits tail
-; is a CLIFF - the image growing past a KB boundary takes the room away all at
-; once (MODULE-SELFCONTAIN-PLAN 3.2). Forty-odd zero bytes cost the compressed
-; file a few bytes and remove the cliff. Written before it is read: the entry
-; and asw_begin set every cell.
+; THE SCRATCH IS IN THE IMAGE, as zeros. Since MODULE-SELFCONTAIN-PLAN 3.5
+; that is what a nobits `.modfb` would emit too (kernel.asm's MODB_TAIL puts a
+; module's bss at its file's end), so the choice is only where the labels sit.
+; Forty-odd zero bytes cost the compressed file a few bytes. Written before it
+; is read: the entry and asw_begin set every cell.
 asw_v:                            ; ASV's base: every cell below is a d8
 asw_vol:    db 0
 asw_mode:   db 0

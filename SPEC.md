@@ -1782,6 +1782,21 @@ in the tree.
 - A module's **data does not move**. It stays in `.text`, reached through DS
   exactly as cold code's data is, which is what spares this mechanism §31.9's
   string-staging question entirely.
+- **A module's own bss is ZEROS AT THE END OF ITS FILE** (kernel.asm's
+  `MODB_TAIL`; MODULE-SELFCONTAIN-PLAN 3.5). Its labels are in a `nobits`
+  section declared `vstart=` the image's own length, so they are the offsets
+  of those zeros, and `MOD_H_IMG`, the module map and the directory size are
+  all image + bss. `mod_need` claims the FILE through the paragraph door, to
+  the granule (§50.2.1; the `MOD_MAX_KB` bound is taken on the bytes, before
+  the round-up), so the claim holds the bss with no figure of it in the
+  kernel, and the read - or the ROM's copy (§2.10.5) - delivers it zeroed on
+  every load. A packed module pays a handful of disk bytes for the zeros; a
+  plain one (`kern_big`'s `CTRL.DRV`, §2.8.7) pays them in full. It replaced
+  a bss that lived in the slack of a claim rounded up to whole KB: five
+  fit-asserts, two dead-zone pads carrying an image one byte past a KB
+  boundary, and `kern_small`'s 22 bytes of `.cold` that zeroed the tail,
+  all deleted - a 512-byte granule halves that slack, and `HIBER.DRV`'s 594
+  bytes of bss could never have fitted it.
 
 #### 2.8.2 Two stamps, because one cannot answer
 
@@ -2049,17 +2064,12 @@ out of the resident, boot-stamped `cp_s_nodrv`), the Date/Time field table
 page's figure buffer and three scratch bytes (folded into `cp_sbuf`, whose
 one-user argument they already shared), the arrow triangles' half-width
 tables (computed now: row r's width is r, or 3 − r), and `CTRL.DRV`'s own
-`SYSTEM.CFG` file buffer, which is the image's `.modcb` BSS rather than
-`times` bytes (MODULE-SELFCONTAIN-PLAN 3; it fits the claim's KB rounding and
-kernel.asm asserts so). **An image that ends fewer than its bss's bytes short
-of a KB boundary is padded one byte PAST it** (kernel.asm's `MODC_UNPAD`
-`times`, `CTRL.DRV` only): the slack is then a whole KB, the claim is the one
-the bss needed anyway, and no resident byte is spent - where
-MODULE-SELFCONTAIN-PLAN 3.2's named fallback, a word per module in `mod_tab`,
-is 8 of them. The pad is zero bytes outside that zone, so every build that
-already fitted is byte-identical; it exists because `ANIMOFF=1` takes 124
-bytes of panel out and landed `CTRL.DRV` at 12,193 + 141 against a 12,288
-claim, refusing the knob build on §110's branch. What moved is page *body* text, whose only readers are the `cp_*_paint` bodies
+`SYSTEM.CFG` file buffer, which is the image's `.modcb` BSS (MODULE-SELFCONTAIN-PLAN
+3; §2.8.1's last rule: zeros at the end of the file, which is what puts it in
+the claim). It sat in the claim's KB rounding until the granule went to 512
+bytes (§50.2.1), with a `MODC_UNPAD` pad carrying an image that ended within
+its bss of a KB boundary one byte past it - both gone with the rounding they
+worked around. What moved is page *body* text, whose only readers are the `cp_*_paint` bodies
 and their click ladders — every one inside the image, entered only through
 `call far [CPFP+…]` after `mod_need` succeeded. **The module-cannot-load path
 reads none of them**: `cp_open_x` is `.cold` and letters `cp_s_noload` /
@@ -2107,7 +2117,7 @@ first.**
 |---|---|---:|
 | `.modc` | the header and the SETTINGS CORE: `modc_e_sc` and the `sc_m_*` gestures (§26.8.7), the SYSTEM.CFG writer (`CFG_DATA`/`CFG_SAVE cpc`, `cp_cfg_save`), `cp_flush_x`, `cp_flush_cfg`, `cp_toast`/`sc_m_say`, and the image's epilogue ladder | `MODS_SIZE` = 2,838 bytes, 6 sectors (with main's Color presets, at the `elendilon -> main` merge; kernel size pass 12 had it at 2,615, and 2,650 before) |
 | `.modu` | the panel: every page, `cp_flush_close_x`'s RTC half, `clockw.inc` and shutdown (§12.3.2) | the rest, 12,502 in all (`MODC_SIZE`) |
-| `.modcb` | the writer's file buffer, `cpc_buf` (`CFG_FBUF`, 163 bytes): BSS, in the claim's KB rounding and not in the file | — |
+| `.modcb` | the writer's file buffer, `cpc_buf` (`CFG_FBUF`, 164 bytes): BSS, as zeros at the file's end (§2.8.1) | 164 |
 
 `.modu` is `follows=.modc vfollows=.modc align=1`, so the two halves are
 one image at one set of offsets, and the panel reaches the core with a near
@@ -2127,7 +2137,9 @@ that row:
   called at, never the file's own size - and sets `[dskw_trunc]` for one
   read. The claim is the whole image's because the core's buffer is
   `.modcb`, the image's bss, which sits past the panel half: a core-sized
-  claim would put it in somebody else's heap. It was `times` zeros in the
+  claim would put it in somebody else's heap. The core-only read stops short
+  of the bss's zeros, so on this load `cpc_buf` is NOT zeroed - and needs not
+  be, `cpc_ser` filling it before a byte is written. It was `times` zeros in the
   core until the second size pass - 131 bytes read off the disk on every
   gesture to hold nothing; the claim is bigger for the gesture's few
   seconds, and the core is one sector shorter (+1 resident byte of `.cold`);
@@ -57555,8 +57567,9 @@ read: it went to nobody.
 
 - **The writer is `CTRL.DRV`'s.** `sc_m_ser` composes settings, rows, pins
   and footer in a claim of its own, PINNED, for the length of the write.
-  `CTRL.DRV`'s bss is only the slack in its own KB rounding (kernel.asm's
-  `MODC_BSS` assertion), and a buffer the write is reading must not be moved
+  `CTRL.DRV`'s bss is the `SYSTEM.CFG` buffer alone (kernel.asm's
+  `MODC_BSS`, §2.8.1) and the rows would be two KB more of every `CTRL.DRV`
+  claim, and a buffer the write is reading must not be moved
   by a compaction the write itself triggers. With no room to compose them,
   the write is REFUSED rather than made without them, because a file without
   the trailer deletes every shortcut at the next boot. `[cp_wdirty]` keeps
@@ -73610,8 +73623,8 @@ role one block plays):
 
 On kern_small, where the dialog's code is `FDLG.DRV` (§38.0), every row but
 `fdlg_win`, `fdlg_blk`, `fdlg_ttl` (the caption `fm_kinit` adopts) and
-`fdlg_name` is the IMAGE's bss - `.moddb`, in the claim's KB rounding, zeroed
-by `mod_need` with the rest of it and read `[cs:x]` (kernel size pass 13: 16
+`fdlg_name` is the IMAGE's bss - `.moddb`, zeros at the end of the file
+(§2.8.1), read in zeroed with it and read `[cs:x]` (kernel size pass 13: 16
 resident bytes). `fdlg_open` writes every one of them before anything reads
 it, and `fdlg_reap_x` drops the image only once no chooser is up.
 
@@ -156012,9 +156025,12 @@ three places, the keyboard drain and `drv_publish`'s exact-length copy are
 the rest.) The module is `HIBER.DRV` on
 every system disk, fourth in `mod_tab`: a 5,499-byte image (4,823 on the disk,
 packed) whose scratch - the DOS handoff's 561-byte record copy and the pointer
-buffer, 592 bytes - is `nobits` `.modhb` in the tail of the claim's KB
-rounding, so the whole of it is a **6KB** claim (it was 6,662 bytes of image
-and 7KB before the module's first size pass). The resume stub is ~450 bytes of
+buffer, 592 bytes - is `nobits` `.modhb`, which lay in the tail of the
+claim's KB rounding when this was written, so the whole of it was a **6KB**
+claim (it was 6,662 bytes of image and 7KB before the module's first size
+pass; since §2.8.1's module-bss rule it is zeros at the file's end, 7,079 +
+594 bytes and a 7,680-byte claim at the 512-byte granule, where the KB
+rounding and its dead-zone pad had made it 8KB). The resume stub is ~450 bytes of
 it, its one message included. **Carrying the HMA's pool** (§87.4 step 3b, §87.6
 step 0b) is **0 resident bytes** on either kernel, +270 of the module's image
 and 2 of its bss — inside the 7KB claim kernel size pass 13 had already

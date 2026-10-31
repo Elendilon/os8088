@@ -1205,7 +1205,7 @@ fdlg_name:  resb FD_NAMEMAX+1   ; the answer, and the Save box between edits
 
 ; ...and the rest is ONE DIALOG'S STATE, which only the dialog's own code reads
 ; - so on kern_small, where that code is FDLG.DRV, it is the IMAGE's bss
-; (`.moddb`, in the claim's KB rounding: MODULE-SELFCONTAIN-PLAN 3.2) and every
+; (`.moddb`, zeros at the file's end: MODULE-SELFCONTAIN-PLAN 3.5) and every
 ; access is FDV()'s `[cs:x]` (kernel size pass 13, -16 resident there). It is
 ; scratch, not PENDING state (3.4): fdlg_open writes every byte of it before
 ; anything reads it - fdlg_gdis aside, whose first read is answered by the
