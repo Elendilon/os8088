@@ -82,19 +82,29 @@ x3h_begin:
     je .now
     cmp bx, X3H_CAPKB
     ja .now
-    push bx
-    call OSAPI_MEM_AVAIL            ; AX = the largest run, BX = all, KB
-    pop cx                          ; CX = ours
-    cmp ax, cx
+    mov ax, [x3h_size]              ; ...and in PARAGRAPHS from here (SPEC.md
+    mov dx, [x3h_size+2]            ; 50.3.7): the conventional hold is a
+    add ax, 15                      ; byte count, so it pays the heap's
+    adc dx, 0                       ; granule and not a whole KB. Under
+    mov cl, 4                       ; X3H_CAPKB, so DX<<12 fits a word
+    shr ax, cl
+    mov cl, 12
+    shl dx, cl
+    or dx, ax                       ; DX = ours, which MEMP_AVAIL keeps
+    mov bl, MEMP_AVAIL
+    call OSAPI_MEM_P                ; AX = the largest claim, BX = all, paras
+    cmp ax, dx
     jb .now
-    sub bx, cx
+    sub bx, dx
     jb .now
-    cmp bx, X3H_MARGKB
+    cmp bx, X3H_MARGKB * 64
     jb .now
-    mov ax, cx
-    mov [x3h_ckb], cx               ; (its KB: a read's capacity stays in it;
-    call OSAPI_MEM_CLAIM            ; banked first - the claim spends CX)
-    jc .now
+    xchg ax, dx
+    xor cx, cx
+    mov bl, MEMP_CLAIM
+    call OSAPI_MEM_P                ; AX = the paragraphs GRANTED: a read's
+    jc .now                         ; capacity, the granule's slack ours
+    mov [x3h_cpara], ax
     mov [x3h_base], dx
     mov byte [x3h_kind], X3HK_CONV
     call x3_ldecl                   ; MOVABLE (x3_rmove), pinned per read
@@ -203,13 +213,13 @@ x3h_read1:
     mov cx, 32768
     cmp byte [x3h_kind], X3HK_CONV  ; a conventional hold's last chunk: no
     jne .cx                         ; more capacity than the claim has left
-    push ax                         ; (a KB multiple: whole sectors fit it)
-    push dx
-    mov si, [x3h_ckb]               ; its bytes = KB x 1024, less the have
-    mov ax, si
-    mov cl, 10
+    push ax                         ; (a granule multiple: whole sectors fit
+    push dx                         ; it)
+    mov si, [x3h_cpara]             ; its bytes = paragraphs x 16, less the
+    mov ax, si                      ; have
+    mov cl, 4
     shl ax, cl
-    mov cl, 6
+    mov cl, 12
     shr si, cl
     mov dx, si
     sub ax, [x3h_have]
