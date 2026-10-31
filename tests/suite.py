@@ -17314,7 +17314,7 @@ SOAK = [
         "cached. 60s is 25 measured with the cache warm",
         needs=("86box", "pmhost"), serial=True,
         wants=("build/mega.img", "build/megarun.o88", "build/megarmbs.o88",
-               "build/megarmbs.bin", "build/picomem/v1/libpmhost-v1.so")),
+               "build/megarmbs.bin")),
     Row("megaxmove", "soak", py("tests/megaxmove.py"), 25.0,
         "SPEC.md 50.6.10, docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md MC3: on "
         "kern_mega an OSAPI_XMEM_ALLOC block MOVES and is read back through "
