@@ -576,7 +576,7 @@ rd_extkb:   dw RD_EXTMINKB      ; the geometry rd_geom derives from [rd_kb]:
 rd_extb:    dw RD_EXTMINKB * 1024   ; the extent in KB and in bytes...
 rd_extpara: dw RD_EXTMINKB * 64     ; ...in paragraphs, for a conventional
 rd_next:    dw 0                ; store...and how many there are
-rd_ctabkb:  dw 0                ; ...and what the table costs
+rd_ctabp:   dw 0                ; ...and what the table costs, in paragraphs
 
 ; --- the volume --------------------------------------------------------------
 rd_vol:     db 0xFF             ; the volume index we registered, FF = none

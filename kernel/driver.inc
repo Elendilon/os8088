@@ -1616,19 +1616,25 @@ DRVM_HDD     equ DRVM_IMG_HDD ; the hard disk claims NOTHING while doing its
                                 ; - and SPEC.md 22.6 retired the donation, so
                                 ; a mounted partition costs this driver a row
                                 ; of its own bss and not a byte of heap
-DRVM_ETH     equ DRVM_IMG_ETH + 17*2      ; THE RING POOL at its top rung, not
+DRVM_ETH     equ DRVM_IMG_ETH + 33        ; THE RING POOL at its top rung, not
                                 ; one ring per socket (SPEC.md 72.21): the bulk
                                 ; pair plus three lean ones is 16,896 bytes
                                 ; where a pair per slot was 36,864 (13,824
                                 ; until the send ring held a window, 72.4.3).
                                 ; sk_claim is a ladder down to SK_RXCAP0 and
-                                ; this is its top
-DRVM_RAM     equ (DRVM_IMG_RAM + (7 + 8)*2) | DRVM_PLUS
-                                ; RD_TABMAXKB (the directory AND the chain
+                                ; this is its top - 33 HALVES, not 34, since
+                                ; sk_try claims it in paragraphs (SPEC.md
+                                ; 50.3.7): 16.5KB is a whole number of
+                                ; granules and the KB door's 17 was not it
+DRVM_RAM     equ (DRVM_IMG_RAM + 13 + 8*2) | DRVM_PLUS
+                                ; RD_TABMAXB (the directory AND the chain
                                 ; table, one claim since SPEC.md 62.9.13.1 -
                                 ; the 2,304-byte directory left the image for
                                 ; it, so a loaded idle driver is 6K and a
-                                ; mounted one is priced with its rows here) +
+                                ; mounted one is priced with its rows here;
+                                ; 6,400 bytes, 13 halves since rd_claimp asks
+                                ; in paragraphs, SPEC.md 50.3.7, where the KB
+                                ; door's RD_TABMAXKB was 7KB) +
                                 ; RD_EXTMAXKB (the bounce, which the extended
                                 ; store lends as its image block). The two
                                 ; paths are exclusive - conventional takes an

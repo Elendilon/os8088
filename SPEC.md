@@ -68011,8 +68011,8 @@ function*:
 |---|---|---|
 | Sound | ~23 | 7 image + 16 (`SBL_PLAYKB`): a player's 16KB ring, which the card reads in place (§34.5.2). It was 35 — image + the 8KB double buffer + the pool's 20KB ceiling, a worst case no shipped program reaches. Recording holds 31 (a 16KB grant + the 8KB capture buffer); an idle card holds its image alone |
 | Hard Drive | ~4 | 4 image, and no heap claim at all — §22.6 retired the 4 × 6KB listing claims, and §52.13 took the Control Panel page out of the image |
-| Ethernet | ~34 | 17 image + 17, the socket RING POOL at its top rung (§72.21: the bulk pair and three lean ones, 16,896 bytes since §72.4.3's send window, where a pair per slot was 36,864) |
-| Ram Disk | ~21+ | 6 image + 7 directory and chain table, one claim taken at Mount (`RD_TABMAXKB`, §62.9.13.1) + 8 bounce (`RD_EXTMAXKB`). Loaded with nothing mounted it holds the 6 alone |
+| Ethernet | ~33.5 | 17 image + 16.5, the socket RING POOL at its top rung (§72.21: the bulk pair and three lean ones, 16,896 bytes since §72.4.3's send window, where a pair per slot was 36,864), claimed in paragraphs (§50.3.7) where a KB door took 17 |
+| Ram Disk | ~20+ | 5.5 image + 6.5 directory and chain table, one claim taken at Mount (`RD_TABMAXB`, 6,400 bytes, §62.9.13.1; claimed in paragraphs, §50.3.7, where a KB door took 7) + 8 bounce (`RD_EXTMAXKB`). Loaded with nothing mounted it holds the image alone |
 | os88net | ~5 | 5 image, and no heap claim at all |
 
 Four rules decide what goes in that column, and each of them was a real
@@ -70623,11 +70623,20 @@ are byte-identical to the figures above.
 §34.6.2's tiers were right about the pool having manners and wrong about the
 size: the first tier was always 20KB, so a Tracker playing an 8KB ring held a
 20KB pool and a 16KB one held 4KB it never touched. Now the **first grant
-decides** — its size in whole KB, at least `SBL_POOLMIN` (4) so a small first
-grant leaves room for a scratch one beside it — and a later grant that does
-not fit **grows** the pool (`sbl_pool_grow`, `OSAPI_MEM_REGROW`) by the whole
-grant, up to `SBL_POOLKB` (20), which is now the pool's ceiling rather than
-its opening bid. A grant bigger than the ceiling is 7, as before.
+decides** — its size in paragraphs, at least `SBL_POOLMIN` (4) KB so a small
+first grant leaves room for a scratch one beside it — and a later grant that
+does not fit **grows** the pool (`sbl_pool_grow`, `OSAPI_MEM_P`'s
+`MEMP_REGROW`) by the whole grant, up to `SBL_POOLKB` (20), which is now the
+pool's ceiling rather than its opening bid. A grant bigger than the ceiling
+is 7, as before.
+
+**The pool is claimed through `OSAPI_MEM_P`** (§50.3.7), because a grant is a
+package's byte count: it was whole KB, and a KB door held up to a KB more than
+the grant where the heap's granule holds up to 512 bytes. `[sbl_poolsz]` is
+what was GRANTED, so the granule's slack is the pool's. The page-safe head is
+the ask in paragraphs; the slack past it is page-safe too with nothing to say
+so, because the base is 512-aligned (the DISK class) and a 64KB page edge the
+ask does not reach is at least a granule further on.
 
 Growth never happens with a stream open — a direct stream is playing out of
 that very claim and a double-buffered one has a worker copying from it — so
@@ -97369,6 +97378,13 @@ which the KB answer is now the shift of).
 caller's to use: a package that asked for 300 paragraphs has 320, and the 20
 are its own, exactly as a module's slack was before §50.2.1 — but asked for
 rather than trusted to the rounding.
+
+**On kern_mega a claim WITH A HEAD is taken from the bottom**, as
+`OSAPI_MEM_CLAIM_DMA_HI`'s is (§50.3.2, KERN-MEGA-PLAN 14.55): a head names a
+chip's 64KB page, so the claim is a DMA ring held only while it plays, and
+`MEMP_CLAIM_HI` with CX ≠ 0 is that door in paragraphs — `SOUND.DRV`'s staging
+pool is the caller. Bit 15 of CX is not a head. kern_big and kern_small take
+`_HI` from the top either way.
 
 **On kern_mega it offers the pool first, as the KB doors do.** An
 `OS88_HIGHMEM` package's claim of 64KB or less with no DMA head goes to
@@ -134928,7 +134944,8 @@ itself is still what can refuse, and the caption is still what reports it.
 
 The pool was claimed at attach and held to detach: 6KB at the floor, 11KB on
 an NE1000 (§72.13.3's card ceiling puts it at the middle rung) and 17KB on an
-NE2000, for the whole session, on a machine where nothing ever opened a
+NE2000 - 10.5KB and 16.5KB since `sk_try` claims through `OSAPI_MEM_P`
+(§50.3.7), the pool being 10,752 and 16,896 bytes - for the whole session, on a machine where nothing ever opened a
 socket. **Nothing outside a socket reads a ring** - ARP, ICMP, DHCP and DNS
 run on the driver's own frame buffers - so that heap bought nothing until a
 package connected. It is now SOUND.DRV's shape: claimed when asked for,
@@ -134960,7 +134977,8 @@ released when the kernel's teardown says the instance has gone.
   heap under DOS's arena and hung the machine; the raw verbs never claim now,
   which is what keeps a running DOS program's arena still. `sk_try` never asks for
   more than the largest free run (`sk_lrun`, read once per claim), but that
-  is not a first-fit bound: `OSAPI_MEM_AVAIL`'s run is the one a compaction
+  is not a first-fit bound: `OSAPI_MEM_P`'s `MEMP_AVAIL` run (paragraphs,
+  the unit `sk_try` claims in) is the one a compaction
   and a shed would leave, so a rung under it can still move the heap. What
   the bound buys is that a rung the heap cannot serve at all is never asked
   for, since a refused claim has compacted and shed every cache on its way

@@ -27,7 +27,7 @@
 ; -----------------------------------------------------------------------------
 ; rd_geom - the extent size, count and table size for [rd_kb]
 ; in:  [rd_kb]
-; out: [rd_extkb], [rd_extb], [rd_extpara], [rd_next], [rd_ctabkb]
+; out: [rd_extkb], [rd_extb], [rd_extpara], [rd_next], [rd_ctabp]
 ; clobbers: flags
 ;
 ; THE SMALLEST EXTENT THAT FITS, doubling until the count is inside the table -
@@ -68,11 +68,11 @@ rd_geom:
     shl ax, cl                  ; ...and bytes, 8KB, so a word holds it
     mov [rd_extb], ax
     mov ax, [rd_next]           ; the table: two bytes an entry, AFTER the
-    shl ax, 1                   ; directory (SPEC.md 62.9.13.1), rounded to KB
-    add ax, RD_DIRB + 1023
-    mov cl, 10
-    shr ax, cl
-    mov [rd_ctabkb], ax
+    shl ax, 1                   ; directory (SPEC.md 62.9.13.1), rounded to
+    add ax, RD_DIRB + 15        ; the PARAGRAPH (SPEC.md 50.3.7) - it is a
+    mov cl, 4                   ; byte count held for as long as the volume
+    shr ax, cl                  ; is mounted, 2,432 bytes for the default
+    mov [rd_ctabp], ax          ; 64KB disk, which a KB door held as 3KB
     pop dx
     pop cx
     pop bx
@@ -107,9 +107,9 @@ rd_store_get:
     push dx
     push si
     call rd_geom
-    mov ax, [rd_ctabkb]
+    mov ax, [rd_ctabp]
     mov bx, rd_dtab
-    call rd_claim
+    call rd_claimp
     jc .no
     cmp byte [rd_loc], RDL_XMS
     je .xms
@@ -159,14 +159,33 @@ rd_store_get:
 
 ; -----------------------------------------------------------------------------
 ; rd_claim - AX KB of heap, its segment into the word at BX, and MOVABLE
+; rd_claimp - the same, AX in PARAGRAPHS (SPEC.md 50.3.7)
 ; out: CF = 0 claimed; CF = 1 refused and the word is untouched
 ; clobbers: AX, DX, flags
 ;
 ; Every claim the store makes is declared movable with rd_reloc as its proc
 ; (SPEC.md 66.5.10), so it is one routine and not three spellings of it.
+;
+; TWO DOORS, because two of the three sizes are whole KB and one is not. The
+; arena is [rd_kb], the USER's number in RD_STEPKB steps, and the bounce is
+; one extent, a power-of-two KB; but the chain table is a BYTE count, and a KB
+; door rounded it as much as 512 bytes further than the heap's granule does. The arena stays on the KB door on purpose: it is the one size here a
+; setting decides, and a [rd_kb] of 1,024 or more would wrap a paragraph
+; count to a plausible small one - which the clamp refuses today, and which
+; is not a property a sixteen-bit shift should be left resting on.
 ; -----------------------------------------------------------------------------
+rd_claimp:
+    push bx
+    push cx
+    xor cx, cx                  ; no DMA head, and no MEMP_CPU: at a 512
+    mov bl, MEMP_CLAIM          ; granule every base is aligned anyway, and
+    call OSAPI_MEM_P            ; the DISK class is the safe default
+    pop cx
+    pop bx
+    jmp short rd_claim.got
 rd_claim:
     call OSAPI_MEM_CLAIM
+.got:
     jc .out
     mov [bx], dx
     mov ax, rd_reloc
