@@ -1531,24 +1531,26 @@ mx_shedf:
     push dx
     push si
     push di
+    push es
     pushf
     cli
     call mem_rank_bh            ; AL = the rank a cache must be below
-    xor di, di                  ; DI = the cheapest so far, 0 = none
+    MXT_ESR cx                  ; ES = the tables' tail (kern_mega size
+    xor di, di                  ; pass 2). DI = the cheapest so far, 0 = none
     mov si, mx_tab
 .scan:
-    cmp word [ss:si+MX_KB], 0
+    cmp word [es:si+MX_KB], 0
     je .n
-    cmp byte [ss:si+MX_OWN], MX_KOWN
+    cmp byte [es:si+MX_OWN], MX_KOWN
     jne .n
-    test byte [ss:si+MX_FL], MX_FPURGE
+    test byte [es:si+MX_FL], MX_FPURGE
     jz .n
-    mov dl, [ss:si+MX_AUX+1]    ; its level
+    mov dl, [es:si+MX_AUX+1]    ; its level
     cmp dl, al
     jae .n                      ; at or above the best so far
     cmp word [dsk_fatd0], 0xFFFF
     je .take                    ; nothing is dirty anywhere
-    mov bx, [ss:si+MX_SEL]
+    mov bx, [es:si+MX_SEL]
     cmp bx, [dsk_fatseg]
     je .n                       ; ...and this is the window it is dirty in
 .take:
@@ -1560,9 +1562,9 @@ mx_shedf:
     jb .scan
     or di, di
     jz .none
-    mov bx, [ss:di+MX_AUX]
-    call mem_pg_forget          ; the owner first
-    mov ax, [ss:di+MX_OFF]      ; DX:AX = the block's linear base
+    mov bx, [es:di+MX_AUX]
+    call mem_pg_forget          ; the owner first (every register kept)
+    mov ax, [es:di+MX_OFF]      ; DX:AX = the block's linear base
     mov dx, ax
     mov cl, 10
     shl ax, cl
@@ -1574,6 +1576,7 @@ mx_shedf:
 .none:
     popf
     cmp di, 1                   ; CF = 1 exactly when nothing went
+    pop es
     pop di
     pop si
     pop dx
@@ -4378,7 +4381,10 @@ mem_val:
     div bx
     shl ax, 1
     xchg ax, bx
-    mov ax, [ss:bx+mem_sel]
+    push es                     ; mem_sel: the tables' tail (kern_mega size
+    MXT_ESR ax                  ; pass 2)
+    mov ax, [es:bx+mem_sel]
+    pop es
     pop dx
     pop bx
 .o:

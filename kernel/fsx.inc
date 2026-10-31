@@ -1707,12 +1707,18 @@ fsx_rlist:
 ; -----------------------------------------------------------------------------
 fsx_rsvcf:
     push es
+    push bp
     mov ax, MEGA_SEL_PSCR
     mov es, ax
     mov ax, [es:FSX_RSV+FSV_NRUN]
     mov cx, RMR_SIZE
     mul cx
-    add ax, rms_runs - rms_lo   ; the claim's bytes: code, rows, runs
+    add ax, rms_runs - rms_lo   ; the claim's bytes: code, rows, runs...
+    push ax
+    xor bp, bp
+    call fsx_rxrows             ; ...and the bracket's pool rows (CX bytes)
+    pop ax
+    add ax, cx
     xor dx, dx
     cmp word [ser_row], 0xFFFF  ; ...and a SERIAL.DRV lease's ring after
     je .nser                    ; them (W7, fsx_rserdn), at an even offset
@@ -1771,6 +1777,14 @@ fsx_rsvcf:
     mov ax, [FSX_RSV+FSV_NSTR]  ; AL the count, AH the mask
     pop ds
     mov [es:rms_nstr - rms_lo], ax
+    inc bp                      ; ...the pool rows after the runs, where DI
+    call fsx_rxrows             ; is, for rms_xchk
+    cmp word [xm_kb], 0         ; ...and OSAPI_XMEM_CAPS's answer, for
+    je .nxc                     ; rms_xcaps
+    call mx_caps
+    mov [es:rms_xkb - rms_lo], ax
+    mov [es:rms_xbl - rms_lo], bl
+.nxc:
     mov al, [ss:fsx_rown]
     mov [es:rms_slot - rms_lo], al
     mov al, [cpu_tier]
@@ -1787,7 +1801,57 @@ fsx_rsvcf:
 .nf:
     clc
 .o:
+    pop bp
     pop es
+    ret
+
+; fsx_rxrows - THE BRACKET'S POOL ROWS (kern_mega size pass 2): mx_tab is in
+; the tables' tail above 1MB, which real mode cannot read, so rms_xchk reads
+; a copy of what it needs - {MX_AUX, MX_KB, MX_OFF} of every live entry the
+; bracket's instance owns ([ss:fsx_rown]), in the table's order. BP = 0:
+; CX = their bytes only; else ES:DI = where they go in the service area ->
+; written there, rms_xrow and rms_xend aimed at them, DI past them. PM,
+; DS = KDATA. Clobbers AX, BX, CX, SI
+RMX_AUX     equ 0
+RMX_KB      equ 2
+RMX_OFF     equ 4
+RMX_SIZE    equ 6
+fsx_rxrows:
+    or bp, bp
+    jz .c
+    lea ax, [di + rms_lo]       ; (the twins' offsets: CS x 16 is the
+    mov [es:rms_xrow - rms_lo], ax ; claim's base less rms_lo)
+.c:
+    xor cx, cx
+    mov bl, [ss:fsx_rown]
+    push ds
+    push word MEGA_SEL_MXT
+    pop ds
+    mov si, mx_tab
+.l:
+    cmp [si+MX_OWN], bl
+    jne .n
+    cmp word [si+MX_KB], 0
+    je .n
+    add cx, RMX_SIZE
+    or bp, bp
+    jz .n
+    mov ax, [si+MX_AUX]
+    stosw
+    mov ax, [si+MX_KB]
+    stosw
+    mov ax, [si+MX_OFF]
+    stosw
+.n:
+    add si, MX_BLKSZ
+    cmp si, mx_tab_end
+    jb .l
+    pop ds
+    or bp, bp
+    jz .o
+    lea ax, [di + rms_lo]
+    mov [es:rms_xend - rms_lo], ax
+.o:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2930,8 +2994,9 @@ cpu 286
 ; table's cells far-jump to [fsx_rmsseg]:twin - a CS whose x 16 is the claim's
 ; base less rms_lo, so every label below is the twin's own offset there. Their
 ; data is in the same copy, read through CS: and written with DS = CS; the
-; kernel's through KERNEL_SEG (a real segment in the bracket) and mx_tab
-; through SS (LOW_SEG). WHY NOT RESIDENT `.text`: these are ~1.6 KB that a
+; kernel's through KERNEL_SEG (a real segment in the bracket), and the pool's
+; table as fsx_rsvcf copied what of it they need (mx_tab itself is above 1MB,
+; in the tables' tail). WHY NOT RESIDENT `.text`: these are ~1.6 KB that a
 ; machine needs only inside a real-mode bracket, and `.text` is conventional
 ; memory on every kern_mega machine for ever; a module would be a system-disk
 ; read at every Play (W1's decision 1). Copied out of `.mega` they cost the
@@ -2955,6 +3020,11 @@ rms_sconv   times RMS_SNMAX dw 0 ; ...and the segments the drop made them
 rms_svec    times RMV_N * 3 dw 0 ; the IVT cells naming it: {the cell's
                                 ; offset (0 none), its offset, its selector}
 rms_sline   dw 0                ; ...and the 8259 lines they are (slave high)
+rms_xkb     dw 0                ; mx_caps's answer at the drop (rms_xcaps)
+rms_xbl     db 0
+            db 0
+rms_xrow    dw 0                ; the bracket's own pool blocks, copied at
+rms_xend    dw 0                ; the drop (fsx_rxrows): first row, past last
 rms_src     dd 0                ; a copy's two linear ends
 rms_dst     dd 0
 rms_rrow    dw 0                ; READ_SEQ: the stream's row
@@ -3333,12 +3403,12 @@ rms_xfer:
     ret
 
 ; -----------------------------------------------------------------------------
-; rms_xcaps - OSAPI_XMEM_CAPS's TWIN: mx_caps's answer off mx_tab, which no
-; code changes in a real-mode bracket. out AX = KB free, DX:CX the pool's
-; base, BL free entries
+; rms_xcaps - OSAPI_XMEM_CAPS's TWIN: mx_caps's answer, which fsx_rsvcf took
+; in protected mode (rms_xkb, rms_xbl) - mx_tab is above 1MB, and no code
+; changes it in a real-mode bracket. out AX = KB free, DX:CX the pool's base,
+; BL free entries
 ; -----------------------------------------------------------------------------
 rms_xcaps:
-    push si
     push ds
     push word KERNEL_SEG
     pop ds
@@ -3350,31 +3420,19 @@ rms_xcaps:
     mov bl, XM_MAX_BLKS
     jmp short .o
 .p:
-    xor bl, bl
-    mov si, mx_tab
-.scan:
-    test byte [ss:si+MX_FL], MX_FPURGE
-    jnz .free                   ; (a cache: a claim sheds it)
-    sub ax, [ss:si+MX_KB]
-    cmp word [ss:si+MX_KB], 0
-    jne .next
-.free:
-    inc bl
-.next:
-    add si, MX_BLKSZ
-    cmp si, mx_tab_end
-    jb .scan
-    mov dx, MEGA_XPOOL >> 16
-    xor cx, cx                  ; (CF = 0)
-.o:
+    mov ax, [cs:rms_xkb]        ; mx_caps's answer, taken by fsx_rsvcf in
+    mov bl, [cs:rms_xbl]        ; protected mode: the table is above 1MB
+    mov dx, MEGA_XPOOL >> 16    ; now (the tables' tail, kern_mega size
+    xor cx, cx                  ; pass 2) and no code changes it in a
+.o:                             ; real-mode bracket. (CF = 0)
     pop ds
-    pop si
     retf
 
 ; -----------------------------------------------------------------------------
 ; rms_xcopy - OSAPI_XMEM_COPY's TWIN: ES:SI the conventional end, DX:AX the
 ; extended end - a TOKEN and an offset (SPEC.md 50.6.10), translated by
-; mx_tab to where the block is NOW, which nothing changes in a real-mode
+; the pool's rows (fsx_rxrows) to where the block is NOW, which nothing
+; changes in a real-mode
 ; bracket - CX bytes (even, <= 32768), DI 0 out / 1 in. Moved by LOADALL on a
 ; 286 and by a loaded base on a 386, in kern_big's XMEM.DRV's pieces (16 KB /
 ; 2 KB, interrupts open between them), with A20 proved first. out CF = 0;
@@ -3477,22 +3535,19 @@ rms_xchk:
     or ax, dx
     add di, ax                  ; ...DI its end
     jc .no
-    mov si, mx_tab
-.scan:
-    cmp [ss:si+MX_OWN], bl
-    jne .next
-    cmp word [ss:si+MX_KB], 0
-    je .next
-    mov cx, [ss:si+MX_AUX]      ; a package's block is named by its TOKEN
+    mov si, [rms_xrow]          ; the bracket's own blocks, as fsx_rsvcf
+.scan:                          ; copied them: {MX_AUX, MX_KB, MX_OFF} of
+    cmp si, [rms_xend]          ; every live entry BL ([rms_slot]) owns, in
+    jae .no                     ; the table's order (RMX_*)
+    mov cx, [si+RMX_AUX]        ; a package's block is named by its TOKEN
     cmp cx, ax
     ja .next
-    add cx, [ss:si+MX_KB]
+    add cx, [si+RMX_KB]
     cmp cx, di
     jae .found
 .next:
-    add si, MX_BLKSZ
-    cmp si, mx_tab_end
-    jb .scan
+    add si, RMX_SIZE
+    jmp short .scan
 .no:
     pop dx
     pop ax
@@ -3501,8 +3556,8 @@ rms_xchk:
 .found:
     pop dx
     pop ax
-    mov cx, [ss:si+MX_AUX]      ; KB the name is above the block, signed
-    sub cx, [ss:si+MX_OFF]
+    mov cx, [si+RMX_AUX]        ; KB the name is above the block, signed
+    sub cx, [si+RMX_OFF]
     mov di, cx
     shl cx, 10
     sar di, 6                   ; DI:CX = bytes

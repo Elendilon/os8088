@@ -3903,7 +3903,13 @@ hbm_xplan:
     add di, MPK_CPYSZ           ; so KERNEL.SYS's bytes, as a boot makes them
     mov si, mx_tab
 .mx:
-    mov ax, [ss:si+MX_KB]          ; every block the pool has given out, the
+    push ds                     ; the entry, through DS for two reads: ES is
+    mov ax, MEGA_SEL_MXT        ; the list's, and the pool's table is the
+    mov ds, ax                  ; tables' tail (kern_mega size pass 2)
+    mov ax, [si+MX_KB]
+    mov bx, [si+MX_OFF]
+    pop ds
+                                ; every block the pool has given out, the
     or ax, ax                   ; kernel's own among them (track 1's modules
     jz .next                    ; and caches: hbm_wake flushes the caches),
                                 ; the HMA's too since it is pool (MC4)
@@ -3916,7 +3922,7 @@ hbm_xplan:
     mov [es:di+10], dx
     add [mega_hbxl], ax
     adc [mega_hbxl + 2], dx
-    mov ax, [ss:si+MX_OFF]
+    mov ax, bx
     mov dx, ax
     mov cl, 10
     shl ax, cl

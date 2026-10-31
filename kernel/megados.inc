@@ -303,12 +303,14 @@ mega_dosclaimf:
     mov word [mega_mxflr], MEGA_HMA_KB ; THE HMA IS kern_dos's FOR THE TRIP
     mov word [mega_dhkb], 0         ; (MC4): neither claim may land in it,
     mov bp, MEGA_HMA_KB             ; and what stands there now is saved
+    push es                         ; (the pool's table: the tables' tail)
+    MXT_ES
     mov si, mx_tab                  ; with the park - 64KB more of it.
 .hma:                               ; Nothing new can stand there before
-    mov ax, [ss:si+MX_KB]           ; the snapshot: the floor keeps every
+    mov ax, [es:si+MX_KB]           ; the snapshot: the floor keeps every
     or ax, ax                       ; placement and pack above it. BP = the
     jz .hman                        ; HMA's KB still free, which the arena
-    mov bx, [ss:si+MX_OFF]          ; cannot have either
+    mov bx, [es:si+MX_OFF]          ; cannot have either
     cmp bx, MEGA_HMA_KB
     jae .hman
     mov word [mega_dhkb], MEGA_HMA_KB
@@ -323,6 +325,7 @@ mega_dosclaimf:
     add si, MX_BLKSZ
     cmp si, mx_tab_end
     jb .hma
+    pop es
     mov [mega_dhfree], bp
     call COLD_SEG:dsk_rah_dropf     ; the read-ahead store's KB to the park
     xor ax, ax                      ; first (it is re-taken at the next mount)
@@ -408,10 +411,13 @@ mega_dosclaimf:
     push cx                         ; moves (KERN-MEGA-MEMORY-PLAN MC3)
     push dx
     push si
+    push es
+    MXT_ES
     call mx_find                    ; SI = its entry
     jc .ap
-    or byte [ss:si+MX_FL], MX_FPIN
+    or byte [es:si+MX_FL], MX_FPIN
 .ap:
+    pop es
     pop si
     pop dx
     pop cx
@@ -845,12 +851,14 @@ mega_dosparkf:
     mov dx, [mega_coldlin+2]
     call mega_dreg_add
 .nocold:
+    push es                         ; (the pool's table: the tables' tail;
+    MXT_ES                          ; mega_dreg_* bank their own ES)
     mov si, mx_tab                  ; every block the pool has given out,
 .mx:                                ; less the park and the arena
-    mov ax, [ss:si+MX_KB]
+    mov ax, [es:si+MX_KB]
     or ax, ax
     jz .mxn
-    mov di, [ss:si+MX_OFF]          ; ...ABOVE THE HMA: what stands in it is
+    mov di, [es:si+MX_OFF]          ; ...ABOVE THE HMA: what stands in it is
     cmp di, MEGA_HMA_KB             ; kern_dos's during the trip and the
     jae .mxa                        ; HMA copy's after (MC4), so a block
     add ax, di                      ; across its end is summed from 1MB+64K
@@ -877,6 +885,7 @@ mega_dosparkf:
     add si, MX_BLKSZ
     cmp si, mx_tab_end
     jb .mx
+    pop es
 
     ; --- the table bytes the lines miss, banked, and a copy each back -------
     mov ax, MPK_MAGIC               ; the header's list and the bank, so a
