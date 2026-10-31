@@ -54,8 +54,9 @@ C64's:
      anything has been clicked;
   7. AND THE FIRST WAKE FETCHED THE OVERLAY OUT OF THE PACKAGE (APPLE2-SPEC
      15.5.1): a2_ovl_res is 1, part 1's row says OP_FETCHED, its zkb names a
-     claim of exactly ceil(len / 1KB) in mem_tab - op_fetch shrinks the read
-     window to the part - and the module's bytes in that claim are
+     claim of exactly `len` rounded to the heap's granule in mem_tab -
+     op_fetch shrinks the read window to the part through MEMP_REGROW
+     (SPEC.md 50.3.7) - and the module's bytes in that claim are
      build/APPLE2.OVL's, every one of them (cc_ovbind writes the resident
      image's vectors, never the module's).
 
@@ -86,6 +87,7 @@ import os88geom
 import dispcp
 import os88fixture
 from os88map import Syms                                    # noqa: E402
+from os88drv import MEM_GRAN                                 # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MACHINE = sys.argv[1] if len(sys.argv) > 1 else "os8088_5150_herc_gla_144"
@@ -378,9 +380,9 @@ def run():
         for i in range(MEM_MAX):
             if u16(raw, i * MC_SIZE) == oseg:
                 oclaim = u16(raw, i * MC_SIZE + 2)
-        want_kb = -(-len(ovl) // 1024)
+        want_p = ((len(ovl) + 15) // 16 + MEM_GRAN - 1) // MEM_GRAN * MEM_GRAN
         say("a2_ovl_res %d; part 1 flags 0x%02X, segment %04X, claim %s "
-            "paragraphs (want %d)" % (res, oflag, oseg, oclaim, want_kb * 64))
+            "paragraphs (want %d)" % (res, oflag, oseg, oclaim, want_p))
         if res != 1 or not oflag & E["OP_FETCHED"] or not oseg:
             fails.append(
                 "the overlay was not fetched by the first wake (a2_ovl_res %d, "
@@ -389,12 +391,12 @@ def run():
                 "menu command refuses `Unable to load commands.` without it"
                 % (res, oflag, oseg))
         else:
-            if oclaim != want_kb * 64:
+            if oclaim != want_p:
                 fails.append(
                     "the overlay's claim at %04X is %s paragraphs and the "
                     "module is %d bytes - op_fetch shrinks its read window to "
-                    "the part, so it should be %dKB" % (oseg, oclaim,
-                                                       len(ovl), want_kb))
+                    "the part, to the granule, so it should be %d paragraphs"
+                    % (oseg, oclaim, len(ovl), want_p))
             got = bytes(m.read(oseg << 4, len(ovl)))
             if got != ovl:
                 fails.append(

@@ -52,6 +52,7 @@ import os88parts
 import os88pkg
 import heapmap
 from os88pkg import PKG_FMT
+from os88drv import MEM_GRAN
 import dispcp
 
 KIND_PKG = 0x80         # kernel/instance.inc - a package instance
@@ -99,13 +100,14 @@ _eager = [r for r in ROWS if r[2] and not (r[1] & 8)]      # filed, not LAZY
 KEEP = (_eager[-1][2] - _eager[0][2]) * 32 + (_eager[-1][3] + 15) // 16
 # ...and where the carve ENDED before the kernel cut it: op_claim reads from
 # the cluster at or below part 0, rounds slack + run up to a cluster, and
-# claims that in whole KB (20.12.2) - so on the 360KB disk's 1KB clusters
-# the claim carries a margin past the asset that this figure names.
+# claims that through OSAPI_MEM_P, to the granule (20.12.2, 50.3.7) - so on
+# the 360KB disk's 1KB clusters the claim carries a margin past the asset
+# that this figure names.
 CLB = 1024 if GEOM == "360" else 512
 _slack = (_eager[0][2] * 512) % CLB
 _bend = (_eager[-1][2] - _eager[0][2]) * 512 + _eager[-1][3]
 _cap = (_slack + _bend + CLB - 1) // CLB * CLB
-CARVE_PARA = (_cap + 1023) // 1024 * 64
+CARVE_PARA = (_cap // 16 + MEM_GRAN - 1) // MEM_GRAN * MEM_GRAN
 say("build: the carve's last part ends %d paragraphs past the program "
     "(the keep); the claim was %d paragraphs from a %d-byte head slack"
     % (KEEP, CARVE_PARA, _slack))

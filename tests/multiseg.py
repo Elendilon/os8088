@@ -289,7 +289,7 @@ with os88marty.launch(SYS_IMG, apps=APPS_IMG, machine=MACHINE, boot=False) as m:
     if segs[SCRATCH] and lin(segs[SCRATCH]) < max(lin(v) for v in segs[:SCRATCH]):
         fails.append(
             "the scratch part landed at %04X, below the filed parts %r. It "
-            "belongs AFTER the carved run in the one claim - op_runkb is the "
+            "belongs AFTER the carved run in the one claim - op_runp is the "
             "offset that puts it there (SPEC.md 20.12.4)"
             % (segs[SCRATCH], segs[:SCRATCH]))
 

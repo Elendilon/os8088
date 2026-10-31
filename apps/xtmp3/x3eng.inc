@@ -4499,10 +4499,28 @@ x3_curkb:
 .p:
     add ax, X3_REGIONKB
 %ifdef X3_PARTS
-    add ax, [op_kb]                 ; the eager carve: FRONT and ART
+    call x3_addcarve                ; the eager carve: FRONT and ART
 %endif
     pop bx
     ret
+
+%ifdef X3_PARTS
+; x3_addcarve - AX += the eager carve in KB, rounded up: the parts standard
+; totals it in PARAGRAPHS ([op_np], SPEC.md 50.3.7) and every figure here is
+; KB, as OSAPI_MEM_AVAIL answers. keeps the rest
+x3_addcarve:
+    push cx
+    push dx
+    mov dx, [op_np]
+    add dx, 63                      ; ...the carry back in as a 17th bit
+    rcr dx, 1
+    mov cl, 5
+    shr dx, cl
+    add ax, dx
+    pop dx
+    pop cx
+    ret
+%endif
 
 ; =============================================================================
 ; CALIBRATION AND THE LADDER (SPEC.md 121.5)
@@ -5379,7 +5397,7 @@ x3_haskb:
     mov ax, [x3_free0]
     add ax, X3_REGIONKB
 %ifdef X3_PARTS
-    add ax, [op_kb]
+    call x3_addcarve
 %endif
 .o:
     ret
