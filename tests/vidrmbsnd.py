@@ -294,9 +294,10 @@ def bochs(a):
     rtick = off["fsx_rtick"]
     roff = resoff()
     lines, res, after, words = [], None, None, None
+    lines = []
     try:
-        if not box.wait_for("kern_mega:", 240):
-            raise RuntimeError("no kern_mega line in 240s")
+        if not box.wait_pm(240):
+            raise RuntimeError("kern_mega never reached protected mode")
         box.up()
         tbl0, = box.reads([(KSEG * 16 + TBL, TLEN)])
         box.megarun()
@@ -309,7 +310,9 @@ def bochs(a):
         else:
             want(False, "%s finished its legs in 400s" % NAME)
         box.guest_sleep(1)
-        lines = box.lines()
+        lines = box.said()          # (the kernel's own FAULT/CLOSED off
+                                    # its state: a shipped kern_mega
+                                    # writes nothing to E9)
         if not box.fault():
             base = box.pkg_base(NAME)
             res = box.read(base + roff, 16 + len(LEGS) * LEG_SZ)
@@ -320,6 +323,7 @@ def bochs(a):
             words = drv_words(box, u16(res, 12))
     finally:
         box.stop()
+    lines += [l for l in box.faults() if l not in lines]
     print("vidrmbsnd: %.0fs under Bochs" % (time.time() - t0))
     for l in lines:
         if l.startswith((NAME, "kern_mega FAULT", "kern_mega CLOSED")):
