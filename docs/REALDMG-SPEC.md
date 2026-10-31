@@ -907,6 +907,12 @@ it**, and the file is written from there and read back there
   and the RAM part is a multiple of 8KB, so each `OSAPI_FILE_APPEND` starts
   on a cluster - its rule - on any volume whose clusters are 8KB or less,
   and the record, last, may be any length. 34, 42 or 66KB.
+- **One bar** (SPEC.md 12.8.10). `rw_stop` begins the save's three
+  transfers, or the load's, as one `OSAPI_FS_OP` of 8000h + the RAM part +
+  the record. The load's size probe moves nothing, so one total serves both.
+  `rw_strun`, which every save and load ends in, replay's included, ends it.
+  In the window the bar fills once where it filled three times; in full
+  screen nothing changes, because the widget does not show there.
 
 **The state block comes back by a WHITELIST** (`rdg_sttab`): the registers,
 the interrupt and HALT state, the MBC's banks and modes, the frame count,
