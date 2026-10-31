@@ -334,11 +334,10 @@ fsx_run:
 %ifdef KERN_MEGA
     cmp byte [fsx_rmode], 0     ; ...and a real-mode bracket's REGION COPY
     je .nrcp                    ; DOWN, here and nowhere earlier: frozen, no
-    push ax                     ; other task can write the region, and with
-    xor ax, ax                  ; the rate not yet armed no hook can either -
-    call MEGA_SEL_CODE:fsx_rcopyf ; at IF = 1 (AL = 0: down), so no period
-    pop ax                      ; is lost to a 63KB copy (SPEC.md 53.2.3)
-.nrcp:
+                                ; other task can write the region, and with
+                                ; the rate not yet armed no hook can either -
+    call MEGA_SEL_CODE:fsx_rcopydf ; at IF = 1 (fsx_rcopyf's AL = 0: down), so
+.nrcp:                          ; no period is lost to a 63KB copy (53.2.3)
 %endif
 %ifdef KBD_DIAG
     push ax                     ; KBDDIAG=1 (SPEC.md 9.8.1): the bracket's
@@ -2001,10 +2000,16 @@ fsx_rsndq:
 ; fsx_rcopyf - FAR: AL = 0 the region DOWN into its copy, and each low
 ; driver's image into its, 1 all of them back UP. Nothing for one that runs
 ; where it is. PM, DS = KDATA, any IF (fsx_run's copy runs at IF = 1, under
-; sch_lock as every mega_lincopy does). Every register kept
+; sch_lock as every mega_lincopy does). Every register kept. fsx_rcopydf is
+; the AL = 0 call with AX kept, for fsx_run (kern_mega size pass 2)
 ; -----------------------------------------------------------------------------
+fsx_rcopydf:
+    pusha
+    xor ax, ax
+    jmp short fsx_rcopyf.go
 fsx_rcopyf:
     pusha
+.go:
     push es
     push ss
     pop es
