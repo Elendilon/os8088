@@ -1085,10 +1085,25 @@ class Box(object):
 
     def until(self, cond, what, secs=60.0, poll=0.1):
         """Poll COND() (which reads the guest) until true; RuntimeError
-        naming WHAT after SECS host seconds - a BACKSTOP: the guest runs at
-        real time at most (`clock: sync=slowdown`), so a loaded box makes it
-        tighter, never looser."""
-        end = time.time() + secs
+        naming WHAT once SECS GUEST seconds have run without it.
+
+        IT WAS SECS HOST SECONDS, and that is the failure the soak keeps
+        reporting as contention: the guest runs at real time AT MOST
+        (`clock: sync=slowdown`), so with four Bochs to a core a 60-second
+        wait handed the machine a fraction of 60 guest seconds and a row
+        that passes alone timed out under load (megamod's `wide` leg). The
+        guest clock is read (`ptime`, one stop, free to the guest) only once
+        the host deadline has passed, so a wait that succeeds in time costs
+        nothing extra; past it, the wait goes on while the guest is still
+        short of SECS of its own. guest_sleep's backstop - 10x real time plus
+        30 s - names a machine that stopped running."""
+        t0 = time.time()
+        end = t0 + secs
+        back = t0 + 30 + 10 * secs
+        try:
+            g0 = self.ptime()
+        except (RuntimeError, OSError):
+            g0 = None               # (no clock to read: host seconds alone)
         while True:
             v = cond()
             if v:
@@ -1097,8 +1112,21 @@ class Box(object):
             if f:                   # a FATAL fault ends every wait: the
                 raise RuntimeError(  # machine is stopped on its screen
                     "os88bochs: %s while waiting for %s" % (f, what))
-            if time.time() > end:
-                raise RuntimeError("os88bochs: no %s in %.0fs" % (what, secs))
+            now = time.time()
+            if now > end:
+                ran = None
+                if g0 is not None:
+                    try:
+                        ran = (self.ptime() - g0) / float(self.ips)
+                    except (RuntimeError, OSError):
+                        pass
+                if ran is None or ran >= secs or now > back:
+                    raise RuntimeError(
+                        "os88bochs: no %s in %.0fs%s" % (
+                            what, secs, "" if ran is None else
+                            " (%.1f guest seconds in %.0f host)"
+                            % (ran, now - t0)))
+                end = now + min(poll * 20, 2.0)     # look again shortly
             time.sleep(poll)
 
     # ---- WHAT kern_mega USED TO SAY ON E9, read out of its STATE instead.
