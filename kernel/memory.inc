@@ -5409,6 +5409,54 @@ osapi_mem_regrow_x:
 ; one is refused here and goes through OSAPI_MEM_REGROW.
 ; -----------------------------------------------------------------------------
 osapi_mem_p:
+%ifdef KERN_MEGA
+    ; THE POOL FIRST, as the KB doors do (KERN-MEGA-PLAN 13.6): an
+    ; OS88_HIGHMEM package's claim of 64KB or less goes above 1MB where it
+    ; can, and mega_claimhf answers CF = 1 for every caller and every claim it
+    ; does not take - so this arm only ADDS the pool, never removes the
+    ; paragraph door. The pool counts in KB, so a pool claim is granted the
+    ; KB that covers it: conventional memory is what the granule is for. A
+    ; DMA head stays conventional, as it does through the KB doors.
+    cmp bl, MEMP_AVAIL
+    jae .gen
+    cmp bl, MEMP_REGROW
+    je .mreg
+    jcxz .mpool
+    jmp short .gen
+.mpool:
+    push ax
+    call .kb                    ; AX = the KB that covers it
+    call COLD_SEG:mega_claimhf
+    jc .mno
+    add sp, 2
+.mkb:
+    push cx                     ; AX = the granted, in paragraphs again
+    mov cl, 6
+    shl ax, cl
+    pop cx
+    clc
+    retf
+.mno:
+    pop ax
+    jmp short .gen
+.mreg:
+    MEGA_ISHI dx                ; a POOL block: OSAPI_MEM_REGROW's own arm
+    jc .gen                     ; resizes it (or moves it down), in KB
+    push ax
+    call .kb
+    call COLD_SEG:osapi_mem_regrow_x
+    jc .mno
+    add sp, 2
+    jmp short .mkb
+.kb:
+    push cx
+    add ax, 63
+    mov cl, 6
+    shr ax, cl
+    pop cx
+    ret
+.gen:
+%endif
     cmp bl, MEMP_AVAIL
     jae .avail
     add ax, MEM_GRAN - 1        ; THE ANSWER IS WHAT WAS GRANTED: the door
