@@ -61,6 +61,7 @@ SOURCES = [
     "drivers/net/netpkg.inc",
     "drivers/ramdisk/rdabi.inc",
     "drivers/httpfs/hfidx.inc",
+    "kernel/memory.inc",            # MEM_GRAN, for a claim in paragraphs
 ]
 
 # row -> (the DRVM_ constant, the DRVM_IMG_ term, the built image). The ORDER
@@ -225,7 +226,15 @@ def main():
     # --- 3. ...and every claim term is the driver's own constant ------------
     # Each expression is re-derived from the source that TAKES the claim, so a
     # pool that doubles or a ring that grows fails here rather than on screen.
-    ceil_kb = lambda n: 2 * ((n + 1023) // 1024)    # a KB claim, in HALVES
+    # A claim whose size is a BYTE count is taken in PARAGRAPHS (OSAPI_MEM_P,
+    # SPEC.md 50.3.7), which the heap rounds to its granule and not to a KB:
+    # n bytes, granted to MEM_GRAN paragraphs, in halves rounded up (a 256-
+    # byte granule's odd quarter is still a half the column has to show). It
+    # was ceil(n / 1024) * 2 while those claims went through a KB door, and
+    # that read the Ethernet pool's 16,896 bytes as 34 halves where the heap
+    # grants 33
+    gran = 16 * s["MEM_GRAN"]
+    ceil_gran = lambda n: (((n + gran - 1) // gran) * gran + 511) // 512
     want = {
         "DRVM_SND": s["DRVM_IMG_SND"]                       # its image...
                     + 2 * s["SBL_PLAYKB"],                  # ...and the ring a
@@ -243,11 +252,11 @@ def main():
         # handles cost 18KB. NET_SOCKS must NOT appear here - if it comes back,
         # the weld is back.
         "DRVM_ETH": s["DRVM_IMG_ETH"]
-                    + ceil_kb(s["SK_RXMAX"] + s["SK_TXMAX"]          # the bulk pair
+                    + ceil_gran(s["SK_RXMAX"] + s["SK_TXMAX"]        # the bulk pair
                               + s["SK_NLEAN"] * (s["SK_LEANRX"]      # ...and the lean
                                                  + s["SK_LEANTX"])), # ones beside it
         "DRVM_RAM": (s["DRVM_IMG_RAM"]
-                     + 2 * s["RD_TABMAXKB"]                 # the chain table
+                     + ceil_gran(s["RD_TABMAXB"])           # the chain table
                      + 2 * s["RD_EXTMAXKB"]) | plus,        # ...and the bounce
         "DRVM_NET": s["DRVM_IMG_NET"],                      # no heap claim at all
         # ...and nor does the absolute mouse: it hooks no vector, owns no port

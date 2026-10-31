@@ -4455,7 +4455,7 @@ $(BUILD)/hdd.hma.bin: drivers/hdd/hdd.asm apps/os88ui.inc drivers/hdd/hddabi.inc
 	$(NASM) -f bin -w+error $(DRVDEF) -DDRV_ORG=$(DRV_HMA_ORG) -I drivers/hdd/ \
 		--before "[map symbols $(BUILD)/hdd.hma.map]" \
 		-I drivers/ -I apps/ -I $(BUILD) \
-		-DHDTOOL_KB=$$(( ( $(call FILESIZE,$(BUILD)/hddtool.bin) + 1023 ) / 1024 )) \
+		-DHDTOOL_PARA=$$(( ( $(call FILESIZE,$(BUILD)/hddtool.bin) + 15 ) / 16 )) \
 		-o $@ drivers/hdd/hdd.asm
 	@touch $(BUILD)/hdd.hma.map     # (the same: sound.hma.bin's note)
 $(BUILD)/net.hma.bin: drivers/net/net.asm drivers/net/netui.inc \
@@ -4527,8 +4527,9 @@ $(BUILD)/hddtool.bin: drivers/hdd/hddtool.asm apps/os88ui.inc drivers/hdd/hddabi
 $(BUILD)/hddtool.drv: $(BUILD)/hddtool.bin tools/os88drv.py $(PKGZSTAMP)
 	$(OS88DRV) $(BUILD)/hddtool.bin -o $@
 
-# -DHDTOOL_KB is the claim HDD.DRV makes for the tool, and it is injected the
-# way boot.asm is told KERNEL_SECTORS: there is no file-size slot in the API,
+# -DHDTOOL_PARA is the claim HDD.DRV makes for the tool, in PARAGRAPHS
+# (SPEC.md 50.3.7, so the granule and not a whole KB is what rounds it), and
+# it is injected the way boot.asm is told KERNEL_SECTORS: there is no file-size slot in the API,
 # so a driver cannot ask how big a file is before it reads one. It is a
 # CEILING - a bigger tool on the disk is refused by OSAPI_FILE_READ before any
 # data moves, and a smaller one leaves the tail unread.
@@ -4538,7 +4539,7 @@ $(BUILD)/hdd.bin: drivers/hdd/hdd.asm apps/os88ui.inc drivers/hdd/hddabi.inc dri
                   drivers/os88drv.inc apps/os88api.inc \
                   $(BUILD)/hddtool.bin | $(BUILD)
 	$(NASM) -f bin -w+error $(DRVDEF) -I drivers/hdd/ -I drivers/ -I apps/ -I $(BUILD) \
-		-DHDTOOL_KB=$$(( ( $(call FILESIZE,$(BUILD)/hddtool.bin) + 1023 ) / 1024 )) \
+		-DHDTOOL_PARA=$$(( ( $(call FILESIZE,$(BUILD)/hddtool.bin) + 15 ) / 16 )) \
 		-o $@ $<
 	@echo "hdd:    $(call FILESIZE,$@) bytes"
 
@@ -4628,13 +4629,13 @@ $(BUILD)/cdrom.drv: $(BUILD)/cdrom.bin tools/os88drv.py $(PKGZSTAMP)
 # HTTPFS.DRV - SPEC.md 122: a read-only volume served over HTTP, through the
 # socket verbs ETHER.DRV and the cable answer (drivers/net/netpkg.inc).
 # Its Control Panel page is HTTPPAGE.DRV, RAMPAGE.DRV's shape (SPEC.md 122.5):
-# built FIRST, because -DHFPAGE_KB is the claim HTTPFS.DRV makes for it, off
+# built FIRST, because -DHFPAGE_PARA is the claim HTTPFS.DRV makes for it, off
 # the IMAGE - a ceiling, the transparent read expanding the 'CZ' file into it.
 #
 # HFDIAG=1 builds BOTH images with the read log (SPEC.md 122.2.1,
 # drivers/httpfs/hfdiag.inc): the last four reads, drawn on the page where
 # the status lines were - the instrument for a server this tree cannot reach.
-# Both, because the page is what draws it and -DHFPAGE_KB is cut from that
+# Both, because the page is what draws it and -DHFPAGE_PARA is cut from that
 # page. HFTRACE=1 is the verb ring (httpfs.asm), the driver alone. Neither
 # reaches a kernel byte, so they carry the drive's own stamp and are exempt
 # from -DKERN_KNOB - VPDIAG's shape: flipping either rebuilds these four files
@@ -4668,7 +4669,7 @@ $(BUILD)/httppage.drv: $(BUILD)/httppage.bin tools/os88drv.py $(PKGZSTAMP)
 $(BUILD)/httpfs.bin: $(HTTPFS_SRC) drivers/os88drv.inc apps/os88api.inc \
                      drivers/httpfs/hfdiag.inc $(BUILD)/httppage.bin | $(BUILD)
 	$(NASM) -f bin -w+error $(HFDEF) -I drivers/httpfs/ -I drivers/net/ -I drivers/ -I apps/ \
-	        -DHFPAGE_KB=$$(( ( $(call FILESIZE,$(BUILD)/httppage.bin) + 1023 ) / 1024 )) \
+	        -DHFPAGE_PARA=$$(( ( $(call FILESIZE,$(BUILD)/httppage.bin) + 15 ) / 16 )) \
 	        -o $@ $<
 	@echo "httpfs: $(call FILESIZE,$@) bytes"
 
@@ -4710,8 +4711,8 @@ $(shell mkdir -p $(BUILD); \
                                touch $(RDSTAMP); })
 
 # RAMPAGE.DRV is the RAM disk's OTHER half (SPEC.md 62.9.9), and it is built
-# FIRST for hddtool.bin's reason: -DRAMPAGE_KB is the claim RAMDISK.DRV makes
-# for it, injected the way boot.asm is told KERNEL_SECTORS, because there is no
+# FIRST for hddtool.bin's reason: -DRAMPAGE_PARA is the claim RAMDISK.DRV
+# makes for it, in paragraphs (SPEC.md 50.3.7), injected the way boot.asm is told KERNEL_SECTORS, because there is no
 # file-size slot in the API and a driver cannot ask how big a file is before it
 # reads one. It is a CEILING - a bigger page on the disk is refused by
 # OSAPI_FILE_READ before any data moves, and a smaller one leaves the tail
@@ -4751,7 +4752,7 @@ $(BUILD)/rampage.bin: drivers/ramdisk/rampage.asm drivers/ramdisk/rdabi.inc \
 # Since SPEC.md 20.13.3.1 a compressed driver IS a 'CZ' file and
 # OSAPI_FILE_READ is the transparent read (20.14.3): the page arrives
 # EXPANDED into a claim the ramdisk.bin rule below cuts from the IMAGE
-# (-DRAMPAGE_KB off rampage.bin), and rd_page_check runs against the image.
+# (-DRAMPAGE_PARA off rampage.bin), and rd_page_check runs against the image.
 # HDDTOOL.DRV is the same class and went the same way (20.13.5.1);
 # tests/unit/t_drvovl.py is the rule for the class, read off the drivers'
 # own source, and tests/rdup.py drives the page.
@@ -4767,7 +4768,7 @@ $(BUILD)/ramdisk.bin: drivers/ramdisk/ramdisk.asm drivers/ramdisk/rdabi.inc \
                       $(BUILD)/rampage.bin | $(BUILD)
 	$(NASM) -f bin -w+error $(RDSEEDDEF) -I drivers/ramdisk/ -I drivers/ \
 	        -I apps/ -I $(BUILD)/ \
-	        -DRAMPAGE_KB=$$(( ( $(call FILESIZE,$(BUILD)/rampage.bin) + 1023 ) / 1024 )) \
+	        -DRAMPAGE_PARA=$$(( ( $(call FILESIZE,$(BUILD)/rampage.bin) + 15 ) / 16 )) \
 	        -o $@ $<
 	@echo "ramdisk: $(call FILESIZE,$@) bytes"
 
