@@ -124983,7 +124983,11 @@ row of the board's screen for the duration and nothing after it.
 The counter is updated **per committed chunk and not per subpacket**: a chunk
 is 4 KB and a subpacket is 1 KB or less, so per-subpacket updating would spend
 a status line's worth of drawing four times for every one that told the user
-anything new.
+anything new. **The menu bar's file widget is one bar a FILE** (§12.8.10):
+`tz_dlgdone` asks `OSAPI_FS_OP` for the ZFILE's size once the destination is
+chosen (ending any operation a raced last commit left open first), and
+`tz_wake` ends it at the first commit or `TZ_DONE` found with the receiver
+out of `ZR_DATA`; windowed only, since a bracket never shows the widget.
 
 **When the transfer ends the terminal is back and the host's text resumes** —
 the buffer was never touched, so putting it back is the repaint the takeover
@@ -126484,7 +126488,11 @@ a representable speed are available; otherwise the value is `Calculating...`
 or `--`. The timer refreshes the visible progress at a bounded cadence rather
 than repainting for every byte. Completed transfers show
 `Download complete.` and 100% only when the HTTP body was completely received
-and the stream was closed successfully.
+and the stream was closed successfully. With a validated `Content-Length` the
+disk side is ONE file operation too (§12.8.10): the wake's first write asks
+`OSAPI_FS_OP` for that total, so the menu bar's widget is one parked bar across
+the per-cluster writes instead of a blink a cluster, and `br_dl_close_stream`,
+which every way a download stops goes through, ends it.
 
 There is no Pause button in 1.6b: neither the socket driver nor the Browser's
 transfer state provides a safe pause contract. The active control is Cancel;
@@ -126641,6 +126649,10 @@ the existing DRVC_EMS ownership rules, and the page remains usable without
 EMS. Save As streams an EMS-backed source from those windows in cluster-aligned
 chunks of at most 32 KiB; a destination volume with larger clusters reports a
 write failure rather than copying through a second whole-page RAM buffer.
+Those chunks are ONE file operation (§12.8.10), the source's length asked of
+`OSAPI_FS_OP` first, so the bar fills once rather than once a chunk; the
+answer is kept and only a begin that was taken is ended, because a download
+(§71.20.1) may already own the Browser's one operation.
 
 Parsing may finish before the response closes, but layout and drawing remain
 deferred until the final body or a terminal transfer condition. The UI does not
@@ -136708,6 +136720,13 @@ stage is a heap claim and the plain door puts our own segment in ES over it:
 keeps `fd_stage`: its rows are composed in our segment.
 
 What it costs: `ftpd.o88`'s image **+46 bytes** (14,670 -> 14,716).
+
+**A RETR's reads are ONE file operation** (§12.8.10): `fd_do_rdchk` asks
+`OSAPI_FS_OP` for the size `OSAPI_FILE_FIND` gave, so the console's menu bar
+keeps one parked bar across the chunk-a-wake reads, and `fd_wake` ends it
+once `[fd_lmore]` says the last chunk is read, or on any wake after the
+worker has dropped the RETR. A STOR asks nothing: the server parses no
+`ALLO`, so no size is known before the last byte.
 
 #### 77.51.1 ...and the 32 KB stage MOVES (NO-PINNING A3)
 
@@ -169785,7 +169804,11 @@ entries done; the `NNK of MMK` beside it is the transfer, and it is a dword
 because an archive is the first body this client reads that may pass 64KB
 (92.13). Both come from `[wr_pnum]` and `[wr_ptot]`, which the sidecar chain
 fills from `WC_NSIDE` and the archive from its header — one composer, two
-counts of different things.
+counts of different things. **The menu bar's file widget shows the tree as ONE
+operation** (§12.8.10): `wr_arcbase` asks `OSAPI_FS_OP` for the header's
+`WA_TOTAL`, the bytes every entry's writes move, so its bar stays parked
+across the per-entry wakes rather than blinking once an entry; `wr_arcend`
+and `wr_abandon` end it, unconditionally, being the archive chain's two ends.
 
 **AND ONE THING THIS SECTION ASSUMED THAT IS NOT TRUE, WHICH IS NOW FIXED IN
 THE KERNEL**: `OSAPI_FILE_FIND` had no arm for a redirected volume, so on a
@@ -208779,6 +208802,14 @@ unpacked file; the ring is then that buffer, presented to the worker 32 KB
 at a time, and the header is parsed from it. A wrapped file whose unpacked
 size does not fit is refused (`too big to unpack`).
 
+**The pump's reads are ONE operation** (§12.8.10): `px_opbegin`, between
+`px_pumpinit` and the first slot, asks `OSAPI_FS_OP` for the file's size less
+the cluster the stream starts in, so the file widget keeps one bar parked on
+the menu bar across the lock-free wakes instead of coming up and going down
+once a slot. `px_finish` and `px_open`'s refusal end it, unconditionally,
+since PiXEL has one operation at a time; a file read whole (`CZ`, above)
+asks nothing.
+
 **Progress** is the status bar's NAME field, `Opening 42%` (rows emitted over
 rows wanted), redrawn as its one run only when the number changes and at
 most once a tick. **The canvas fills as rows arrive**: the worker wakes the
@@ -210837,7 +210868,9 @@ disk, a write-protected one or Esc leaves the old file as it was and no half
 file under the user's name** - `Disk full: not saved`, `Disk is
 write-protected`, `Not saved: disk error`, `Not saved`. A saved picture takes
 its new name, folder and format in the record, the title and the folder
-list.
+list. The writes are ONE operation (§12.8.10): `pu_start` asks `OSAPI_FS_OP`
+for the file's size, exact for BMP and PIX and the raw master (w x h) for
+PNG, GIF and PCX, and `pu_fin` ends it however the save ended.
 
 | format | what is written |
 |---|---|
@@ -223026,7 +223059,12 @@ and the list ends with a 0 kind. **The sum** is a Fletcher-style pair over
 `s2 = (s2 + s1) mod 65536`, both starting at 0. It is position-sensitive,
 costs two adds a byte on an 8088, and is not a defence against anyone - its
 one job is to say a file is not the one this release wrote. Every file is
-compared as stored, so nothing is decompressed to check a sum.
+compared as stored, so nothing is decompressed to check a sum. The pass
+that sums them is ONE file operation (§12.8.10): it reads a chunk a
+lock-free wake, so it asks `OSAPI_FS_OP` for `SC_MANKB` KB - the manifest's
+size, rounded up - when it starts, and ends it when the manifest is done or
+the scan ends (Stop, a volume that will not stand), so the menu bar's file
+widget is one parked bar for it rather than a blink a chunk.
 
 The files are the ones every kern_big system-disk geometry carries: the
 manifest describes all four (`KERNEL.SYS` is byte-identical across them). So
