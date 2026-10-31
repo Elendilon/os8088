@@ -548,7 +548,7 @@ mega_idt_build:
     ret
 
 ; the far doors: mega_idt_gatef for `.mega`'s rebuilds (mega_ivt_sync,
-; mega_m33go), mega_irqromc for `.text`'s mega_irqromf
+; mega_m33go), mega_irqromc for megados.inc's mega_drom_scan
 mega_idt_gatef:
     call mega_idt_gate
     retf
@@ -762,9 +762,6 @@ mega_irv:
 ; because that code is protected-mode code. What it caught is replayed through
 ; the IDT once we are back (mega_replay)
 section .text                   ; (KERN-MEGA-SEGMENTS-PLAN: back from .mega)
-mega_irqromf:                       ; mega_irqrom for a KERNEL_SEG far caller
-    call COLD_SEG:mega_irqromc       ; (megados.inc's mega_drom_scan, which
-    retf                            ; could name mega_irqromc itself)
 mega_capon:
     pusha
     push es
