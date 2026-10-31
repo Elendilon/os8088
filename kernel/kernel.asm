@@ -9302,12 +9302,15 @@ SK_MEGA_KB equ SK_R(SK_CUM4) - SK_R(SK_CUM4 - MEGA_PARA * 16) ; rungs when they
 %endif
 ;
 ; 6b. ...and so is every claim in it, which is what a package region rides
-;     on now that it is a claim rather than a pool slot: mem_claim rounds to
-;     whole KB, so every base it hands out is HEAP_SEG + n*64 paragraphs.
-;     MEM_PARA_KB is that 64; if it ever stopped being a multiple of 32 an
-;     int 13h read of a package image could straddle a 64KB DMA boundary and
-;     the symptom would be "Disk error" on the LARGE packages only.
-%if MEM_PARA_KB % 32
+;     on now that it is a claim rather than a pool slot: mem_claim rounds
+;     every size to MEM_GRAN paragraphs (SPEC.md 50.2.1), so every base it
+;     hands out is the floor, the top or a claim edge - HEAP_SEG + n*MEM_GRAN
+;     paragraphs. If the granule ever stopped being a multiple of 32 an int
+;     13h read of a package image could straddle a 64KB DMA boundary and the
+;     symptom would be "Disk error" on the LARGE packages only. A finer
+;     granule needs SPEC.md 50.2.1's DISK class first, which aligns the base
+;     itself rather than inheriting it from the size
+%if MEM_GRAN % 32
 %error "a heap claim is not 512-byte aligned - a package image is read into one"
 %endif
 ; 4b. (retired, SPEC.md 2.9.14) the boot overlay had to EXIST, because an

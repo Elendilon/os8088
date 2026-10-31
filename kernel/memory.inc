@@ -438,6 +438,14 @@ MEM_P_RAHB  equ MEM_PG_HIGH<<8 | 0x03   ; kern_mega's read-ahead LANDING
 %endif
 
 MEM_PARA_KB equ 64              ; paragraphs per KB
+MEM_GRAN    equ 32              ; THE GRANULE (SPEC.md 50.2.1): every claim's
+                                ; size, in paragraphs, is a multiple of this -
+                                ; 512 bytes. It was a whole KB, by way of the
+                                ; KB doors' shift, and that is still all the
+                                ; KB doors can ask for; the paragraph doors
+                                ; (mem_claimp_*, OSAPI_MEM_P) ask for less. A
+                                ; power of two, at most 256 (`and al`), and a
+                                ; multiple of 32 while guard 6b stands
 
 ; --- osapi_claim_snapshot's buffer, API slot 0x0216 (SPEC.md 20.9) ----------------
 ; The three fields of a claim record that mean anything outside this module.
@@ -879,10 +887,23 @@ mem_claim_x:
                                 ; top-down claim could ever reach
 .nodma:
     xor si, si                  ; no 64KB page rule on either plain door
-.go:
+.go:                            ; AX = KB, from every KB door
+    push ax                     ; ...and it comes back as it went in
+    cmp ax, 1024                ; 1MB and more asked for: refused BEFORE the
+    jae .big                    ; shift, whose CF is the LAST bit out alone -
+    push cx                     ; bit 10 - so 2048KB was 0 paragraphs, CF=0
+    mov cl, 6
+    shl ax, cl                  ; KB -> paragraphs, the heap's own unit
+    pop cx
+.gran:                          ; AX = PARAGRAPHS from here (SPEC.md 50.2.1):
+    add ax, MEM_GRAN - 1        ; ...rounded up to the granule ONCE, here,
+    jc .big                     ; for every door, so mem_claim_1 and
+    and al, -MEM_GRAN           ; mem_compact see a whole number of granules
+    jz .big                     ; and nothing else does the rounding. 0 asks
+.retry:                         ; for nothing and gets nothing
 %ifdef OS88_COMPACT
     cmp byte [mem_cp_busy], 0   ; INSIDE A COMPACTION - a relocation proc that
-    jne .busy                   ; claimed (SPEC.md 66.3 rule 3 forbids it) -
+    jne .big                    ; claimed (SPEC.md 66.3 rule 3 forbids it) -
                                 ; the map is mid-walk and first fit would hand
                                 ; it the very run the walk is about to copy
                                 ; the next block onto. Refuse, and refuse the
@@ -894,7 +915,7 @@ mem_claim_x:
     jnc .out                    ; 50.6.2). A cache loses to anything that is
 %ifdef OS88_COMPACT
     cmp byte [sch_cur], 0       ; ...BUT ONLY THE UI TASK COMPACTS OR SHEDS
-    jne .busy                   ; (SPEC.md 66.3.1). Any other caller gets first
+    jne .big                    ; (SPEC.md 66.3.1). Any other caller gets first
                                 ; fit and nothing more: a compaction run from
                                 ; another task's stack could move a claim the
                                 ; UI task holds in a register while it is
@@ -906,7 +927,7 @@ mem_claim_x:
                                 ; never a wrong pixel - and a driver verb that
                                 ; claims from a worker, which is first fit
     call mem_compact            ; not one, and a package load loses to nothing
-    jnc .go                     ; - so both are on mem_claim_hi's path too.
+    jnc .retry                  ; - so both are on mem_claim_hi's path too.
 %endif                          ; ...and on kern_small it is SHED AND RETRY,
                                 ; which is what this loop was before SPEC.md
                                 ; 66.4 and is the whole of what SPEC.md 66.0
@@ -914,7 +935,7 @@ mem_claim_x:
                                 ; in priority order, and a barrier stays where
                                 ; it is
     call mem_shed_one           ; Compaction goes FIRST because a shed can
-    jnc .go                     ; destroy MEM_P_DIRW, priced at "a long
+    jnc .retry                  ; destroy MEM_P_DIRW, priced at "a long
                                 ; operation getting much longer" - seconds of
                                 ; int 13h on the field machine - where a
                                 ; compaction is a memcpy in tenths of a
@@ -927,14 +948,61 @@ mem_claim_x:
                                 ; every movable claim against the one below
                                 ; it - so the next call finds no movers and
                                 ; answers CF = 1 (SPEC.md 66.4) - which is
-%ifdef OS88_COMPACT             ; already set as it falls through here
-.busy:
+                                ; already set as it falls through here
+.big:
     stc
-%endif
 .out:
+    pop ax
     pop di
     pop si
     ret
+
+; -----------------------------------------------------------------------------
+; mem_claimp_x / mem_claimp_hi_x / mem_claimp_dma_x - the same doors with AX
+; in PARAGRAPHS (and the DMA head in CX, in paragraphs too), for a caller whose
+; size is a BYTE count (SPEC.md 50.2.1): the loader's region, a driver or
+; module image, the disk caches. They join the KB doors' tail after its shift,
+; so the granule is rounded in one place for both. Contract as mem_claim_x:
+; out CF = 0 and DX = the base, AX preserved, everything else preserved.
+; -----------------------------------------------------------------------------
+mem_claimp_hi_x:
+    push si
+    push di
+    mov di, MC_DMA_HI           ; a CS: top-down, like mem_claim_hi_x
+    jmp short mem_claimp_x.nod
+mem_claimp_x:
+%ifdef KERN_MEGA
+    cmp byte [ss:mega_pm], 0    ; kern_mega in protected mode: the plain door
+    je .low                     ; is where a kernel cache goes to the POOL
+    push ax                     ; (mem_claim_x's own arm, which counts in KB),
+    push cx                     ; so a paragraph count is handed to it as the
+    add ax, 63                  ; KB that covers it. The pool is above 1MB:
+    mov cl, 6                   ; the half-KB it rounds is not conventional
+    shr ax, cl                  ; memory anybody else wanted
+    pop cx
+    call mem_claim_x
+    pop ax
+    ret
+.low:
+%endif
+    push si
+    push di
+    xor di, di
+.nod:
+    xor si, si
+.pgo:
+    push ax                     ; mem_claim_x.out pops it
+    jmp short mem_claim_x.gran
+mem_claimp_dma_x:
+    push si
+    push di
+    xor di, di
+    mov si, cx                  ; the head, already paragraphs
+    jmp short mem_claimp_x.pgo
+%ifndef KERN_SMALL
+    nop                         ; PARITY PAD, never executed: dsk_xfer,
+%endif                          ; dsk_runcap and dsk_next_clus_x sit past this
+                                ; in `.cold` (tests/unit/t_hotpar.py)
 
 ; the scan-and-publish itself; mem_claim above is the retry loop around it
 ;
@@ -967,14 +1035,13 @@ mem_claim_1:
                                 ; was a word of .bss, [mem_dir], read three
                                 ; times at five bytes a test (size pass 9)
 
-    cmp ax, 1024                ; (the ceiling the scan may not pass is
-                                ; [mem_top] for every claim there is now -
-                                ; SPEC.md 50.6.1 - so it is read where it is
-                                ; used instead of being staged here)
-    jae .fail0                  ; 1MB and more asked for: refused BEFORE the
-    mov cl, 6                   ; shift, whose CF is the LAST bit out alone -
-    shl ax, cl                  ; bit 10 - so 2048KB was 0 paragraphs, CF=0.
-    jz .fail0                   ; AX = paragraphs wanted; 0KB is 0 of them
+                                ; AX = PARAGRAPHS, a whole number of
+                                ; granules and not zero: mem_claim_x.gran is
+                                ; the one place that rounds and refuses a
+                                ; silly size (SPEC.md 50.2.1). (The ceiling
+                                ; the scan may not pass is [mem_top] for every
+                                ; claim there is now - SPEC.md 50.6.1 - so it
+                                ; is read where it is used)
     cmp si, 0x1000              ; ...and a head bigger than a 64KB page can
     ja .fail0                   ; never sit inside one (SI is still the head
                                 ; [mem_dma] was stored from: a register
@@ -3566,9 +3633,11 @@ mem_hiclaims:
     mov ax, [ss:si+MC_PARA]
     cmp ax, 0x1000
     ja .n
-    mov cl, 6
-    shr ax, cl                  ; AX = its KB
-    jz .n
+    add ax, 63                  ; AX = the KB that HOLDS it, rounded UP: a
+    mov cl, 6                   ; claim is a granule and not a KB (SPEC.md
+    shr ax, cl                  ; 50.2.1), and the copy below moves all of
+                                ; MC_PARA - a KB rounded down was a pool block
+                                ; the copy ran off the end of
     call COLD_SEG:mega_claimhf    ; DX = a selector over a pool block
     jc .n
     mov bx, [ss:si+MC_SEG]      ; BX = the old segment
@@ -3744,7 +3813,7 @@ mem_reloc_call:
 
 ; -----------------------------------------------------------------------------
 ; mem_compact - close the data arena's holes (SPEC.md 66.4)
-; in:  AX = the KB the pending claim needs (0 = compact whatever the size, and
+; in:  AX = the PARAGRAPHS the pending claim needs (0 = compact whatever the size, and
 ;           DISSOLVE NOTHING - see mem_cp_drop and SPEC.md 66.10.1)
 ;      BX = the owner it is being compacted FOR, read only when AX is non-zero:
 ;           its high byte is the rank a cache has to be cheaper than before
@@ -3784,10 +3853,9 @@ mem_compact:
                                 ; and the walk's own map would move under it
                                 ; (SPEC.md 66.3 rule 3 forbids it; this is what
                                 ; makes the forbidden thing bounded)
-    mov cl, 6
-    shl ax, cl                  ; KB -> paragraphs; 0 stays 0
-    jc .none0                   ; more than a megabyte: nothing to do here
-    mov di, ax                  ; DI = what the caller needs
+    mov di, ax                  ; DI = what the caller needs, in PARAGRAPHS
+                                ; (mem_claim_x.gran rounded it - SPEC.md
+                                ; 50.2.1); 0 = compact whatever the size
     or di, di                   ; ...and the rank a drop is judged against
     jz .rank                    ; (SPEC.md 66.10.1), WHICH WITH NO PENDING
                                 ; CLAIM IS THE CALLER'S AND NOT DERIVABLE

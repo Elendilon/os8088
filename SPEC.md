@@ -96728,7 +96728,7 @@ instruction; `tests/tgplay.py` (soak `tgplay`, `--ref` for the cycles) and
 
 Everything above the kernel, in one map the kernel owns.
 `HEAP_SEG` (§2/§3) to the top of conventional memory as int 12h reports it;
-KB-granular, segment-aligned blocks; a record per live claim; and one rule
+blocks in 512-byte GRANULES (§50.2.1), segment-aligned; a record per live claim; and one rule
 that makes the whole thing worth having — **a claim is taken when it is
 used and released when it is not**.
 
@@ -96847,6 +96847,54 @@ made from the UI task in practice, but `mem_free_owner` runs on a dying
 package's own worker task inside `inst_task_die` (§29.4), so the two really
 can meet.
 
+### 50.2.1 The granule: `MEM_GRAN`, and the doors that can ask for less than a KB
+
+**Every claim's size is a whole number of `MEM_GRAN` paragraphs, and
+`MEM_GRAN` is 32 — 512 bytes** (`kernel/memory.inc`). The record already
+counted in paragraphs (`MC_PARA`); what was KB was only the DOOR. Every claim
+used to be a whole KB because every door took AX = KB and shifted it, and the
+cost of that was paid by everyone whose size is really a BYTE count: a
+package's region (image + bss, already rounded to 512 for the read) rounded
+again to a KB, a driver or module image the same, a nine-sector disk cache
+claimed as five KB, and — on a kernel whose floor sits on a half-KB, which is
+where `kern_big`'s is today — the last 512 bytes of the heap, which no
+whole-KB claim could ever reach from either end. Measured over the tree when
+this landed: 515 bytes of rounding per open package on average against 272 at
+the granule, 546 per driver against ~280 (docs/plans/HEAP-GRANULARITY-PLAN.md
+section 2).
+
+The rule has three parts:
+
+1. **One place rounds.** `mem_claim_x.gran` takes PARAGRAPHS, adds
+   `MEM_GRAN - 1`, masks, and refuses zero and anything that carries; the KB
+   doors shift into it and the paragraph doors jump into it. `mem_claim_1` and
+   `mem_compact` therefore only ever see a whole number of granules, and
+   nothing else in the allocator rounds.
+2. **The KB doors are unchanged** — `OSAPI_MEM_CLAIM` and its four siblings,
+   `OSAPI_MEM_REGROW`, `OSAPI_MEM_AVAIL` — for every `.o88` already built. A
+   whole KB is a whole number of granules, so a KB claim is exactly what it was.
+   What they cannot do is ask for less, which is what the paragraph doors are
+   for: `mem_claimp_x`, `mem_claimp_hi_x` and `mem_claimp_dma_x` inside the
+   kernel (AX, and the DMA head in CX, in paragraphs; otherwise mem_claim_x's
+   contract), and `OSAPI_MEM_P` for a package (docs/plans/HEAP-GRANULARITY-PLAN.md section 3.2).
+3. **Alignment is inherited from the size, and only while `MEM_GRAN` is a
+   multiple of 32.** Every base the scan tries is the floor (512-aligned,
+   `mem_floor_ax`), the top (whole KB), a claim edge, or a 64KB page edge — so
+   while every size is a multiple of 512 bytes every base is too, and §1's
+   int 13h rule holds for every claim with no code at all. Guard 6b
+   (`kernel/kernel.asm`) is `%if MEM_GRAN % 32` and fails the build otherwise.
+   A finer granule would need the alignment ASKED for — a DISK class whose base
+   is bumped to 512 the way a DMA head is bumped off a page — and that is
+   designed and not built (docs/plans/HEAP-GRANULARITY-PLAN.md section 3.1
+   item 8). Until it is, **a claim's base being 512-aligned is a property every
+   caller may rely on**, and three packages do (`ty_open`, `px_dmaclaim`, the
+   Audio ring).
+
+On `kern_mega` in protected mode the plain paragraph door hands its count to
+`mem_claim_x` as the KB that covers it, because that door is where a kernel
+cache goes to the pool above 1MB and the pool counts in KB; the half-KB it
+rounds is not conventional memory anybody else wanted.
+
 ### 50.3 The API (§20.3 slots)
 
 ```
@@ -96871,7 +96919,8 @@ movable can be relocated, through its proc, before the call returns.
 and `mem_own`'s BX are both banked), and refuses inside a relocation proc
 (§66.3 rule 3) as well as for a block that is not the caller's.
 
-**The heap's unit is the kilobyte**, so a caller starting from a byte count
+**The KB doors' unit is the kilobyte** — the heap's own is the granule
+(§50.2.1) — so a caller of one starting from a byte count
 rounds up first, and `mem_bytes_kb` (kernel-internal, near, `.text`) is that
 round-up: in AX = bytes, out AX = kilobytes, **at least 1**, CX and everything
 else preserved. The floor is not decoration — a claim of 0 KB gets no memory
