@@ -96876,7 +96876,7 @@ The rule has three parts:
    What they cannot do is ask for less, which is what the paragraph doors are
    for: `mem_claimp_x`, `mem_claimp_hi_x` and `mem_claimp_dma_x` inside the
    kernel (AX, and the DMA head in CX, in paragraphs; otherwise mem_claim_x's
-   contract), and `OSAPI_MEM_P` for a package (docs/plans/HEAP-GRANULARITY-PLAN.md section 3.2).
+   contract), and §50.3.7's `OSAPI_MEM_P` for a package.
 3. **Alignment is inherited from the size, and only while `MEM_GRAN` is a
    multiple of 32.** Every base the scan tries is the floor (512-aligned,
    `mem_floor_ax`), the top (whole KB), a claim edge, or a 64KB page edge — so
@@ -97125,6 +97125,49 @@ it moves, so a compaction moves them too. A conventional region's go with
 its claim (`mega_mpfreef`, data and code alike) and move with it
 (`mega_mpmovef`). Any context. The cost is docs/plans/KERN-MEGA-PLAN.md
 14.44.
+
+### 50.3.7 `OSAPI_MEM_P` — the heap in paragraphs, for a size that is a byte count
+
+```
+OSAPI_MEM_P   0x04E9, X     BL = the verb (MEMP_*), ES = the caller (X stub)
+  MEMP_CLAIM    0   AX = paragraphs, CX = the page-safe HEAD in paragraphs
+  MEMP_CLAIM_HI 1       (0 = none) -> CF=0, DX = the base, AX = the paragraphs
+                        GRANTED. _HI from the top, as OSAPI_MEM_CLAIM_HI
+  MEMP_REGROW   2   DX = your claim, AX = paragraphs -> as OSAPI_MEM_REGROW,
+                        AX = the paragraphs granted
+  MEMP_AVAIL    3   -> AX = the largest claim you can have, BX = the total,
+                        in paragraphs, at your floor as OSAPI_MEM_AVAIL;
+                        CX = MEM_GRAN, the granule in paragraphs
+  CF=1 refused; every register not named is preserved
+```
+
+The KB doors cannot ask for less than a KB (§50.2.1), so a package whose size
+is a BYTE count — a story file, a document, a part, a catalog, a C overlay —
+has been paying half a KB a claim on average to use them. This is the door
+such a package should use, and it is the one a package written from now on
+should reach for whatever its size, because it is the one whose answer does
+not depend on what the granule is: it says what it granted and what the
+granule is. Freeing (`OSAPI_MEM_FREE`), declaring movable
+(`OSAPI_MEM_MOVABLE`) and every other claim verb take a claim from either door
+alike — the record is the same record.
+
+**One cell and four verbs where the KB doors are five cells.** A head of 0 IS
+the plain claim, so the DMA variants fold into the claim verbs: the head is
+always CX and the verb's bit 0 is only the direction. That is what keeps the
+cell to one rare cell's six bytes and its body to a dispatch onto the bodies
+the KB doors already use — `mem_claimp_sd` (the paragraph door, §50.2.1),
+`mem_regrowp` and `mem_avail_lvl_p` (the paragraph half of the avail walk,
+which the KB answer is now the shift of).
+
+**The answer is what was granted** because the granule rounding is the
+caller's to use: a package that asked for 300 paragraphs has 320, and the 20
+are its own, exactly as a module's slack was before §50.2.1 — but asked for
+rather than trusted to the rounding.
+
+It is the **conventional** heap on every kernel. On kern_mega an
+`OS88_HIGHMEM` package's claim through the KB doors may be a pool block above
+1MB, which has no `mem_tab` record, so `MEMP_REGROW` refuses one and
+`OSAPI_MEM_REGROW` is the door for it.
 
 ### 50.3.2 …and the top-down doors a driver never had
 

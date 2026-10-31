@@ -4134,7 +4134,14 @@ rmk_seg:          ; (a real-mode bracket keeps it: fsx_rkeep)
                                   ;          (KERN-MEGA-MEMORY-PLAN MC7). Every
                                   ;          real-mode kernel answers what the
                                   ;          caller's own arithmetic would
-osapi_table_end:                  ; 0x04E9 today (0x04E3 before OSAPI_SEG,
+    OSAPI_RCXCELL osapi_mem_p     ; 0x04E9 - X: BL = a MEMP_* verb: the
+                                  ;          claim heap in PARAGRAPHS (SPEC.md
+                                  ;          50.3.7) - a claim either way up,
+                                  ;          a regrow and the free figures,
+                                  ;          each answering what was granted
+                                  ;          and the granule
+osapi_table_end:                  ; 0x04EF today (0x04E9 before OSAPI_MEM_P,
+                                  ; 0x04E3 before OSAPI_SEG,
                                   ; 0x04DD before OSAPI_ARG_TEXT,
                                   ; 0x04D7 before OSAPI_IMG_NAME,
                                   ; 0x04D1 before OSAPI_MEM_SUBSEG,
@@ -4176,8 +4183,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 44*8 + 11*7 + 116*6 + 6*3 + 6 + 12*5 + 4*6 + 8
-%error "os8088 API jump table must be exactly 0x04D9 bytes: 44 SLOT (8), 11 XCELL (7), 116 rare (6), 6 JCELL (3), 1 FCELL (6), 17 ICELL (12 of 5, 4 of 6 - OSAPI_WM_ONWHEEL's for parity, SPEC.md 13.18 - 1 of 8 - OSAPI_THM_SET, SPEC.md 76.14.14)"
+%if OSAPI_TABLE_LEN != 44*8 + 11*7 + 117*6 + 6*3 + 6 + 12*5 + 4*6 + 8
+%error "os8088 API jump table must be exactly 0x04DF bytes: 44 SLOT (8), 11 XCELL (7), 117 rare (6), 6 JCELL (3), 1 FCELL (6), 17 ICELL (12 of 5, 4 of 6 - OSAPI_WM_ONWHEEL's for parity, SPEC.md 13.18 - 1 of 8 - OSAPI_THM_SET, SPEC.md 76.14.14)"
 %endif
 
 %ifdef KERN_MEGA

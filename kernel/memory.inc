@@ -438,6 +438,10 @@ MEM_P_RAHB  equ MEM_PG_HIGH<<8 | 0x03   ; kern_mega's read-ahead LANDING
 %endif
 
 MEM_PARA_KB equ 64              ; paragraphs per KB
+MEMP_CLAIM    equ 0             ; OSAPI_MEM_P's verbs, in BL (SPEC.md 50.3.7):
+MEMP_CLAIM_HI equ 1             ; bit 0 of a claim is the direction
+MEMP_REGROW   equ 2
+MEMP_AVAIL    equ 3
 MEM_GRAN    equ 32              ; THE GRANULE (SPEC.md 50.2.1): every claim's
                                 ; size, in paragraphs, is a multiple of this -
                                 ; 512 bytes. It was a whole KB, by way of the
@@ -998,6 +1002,10 @@ mem_claimp_dma_x:
     push di
     xor di, di
     mov si, cx                  ; the head, already paragraphs
+    jmp short mem_claimp_x.pgo
+mem_claimp_sd:                  ; ...and SI = the head, DI = the direction as
+    push si                     ; the caller staged them (OSAPI_MEM_P, which
+    push di                     ; decodes both out of its verb)
     jmp short mem_claimp_x.pgo
 
 ; the scan-and-publish itself; mem_claim above is the retry loop around it
@@ -4723,6 +4731,14 @@ mem_avail_x:
 mem_avail_lvl_x:                  ; as free, because mem_claim sheds them all.
                                 ; AL = the caller's own level otherwise, and
                                 ; only caches BELOW it count (SPEC.md 50.6.4)
+    call mem_avail_lvl_p        ; ...in KB, which is the paragraph answer below
+    push cx                     ; ROUNDED DOWN: a claim of the answer must
+    mov cl, 6                   ; always fit. OSAPI_MEM_P's avail takes the
+    shr ax, cl                  ; paragraphs themselves (SPEC.md 50.3.7),
+    shr bx, cl                  ; which are a whole number of granules already:
+    pop cx                      ; every edge a run is measured between is
+    ret                         ; the floor, the top or a claim's
+mem_avail_lvl_p:                ; AX/BX in PARAGRAPHS, otherwise the same
     push cx                     ; ...and, on the kernel with the walk, the DX,
 %ifdef OS88_COMPACT             ; SI and DI mem_cp_both's walk below spends;
     push dx                     ; on the one without, the SI of its own .tot
@@ -4825,9 +4841,6 @@ mem_avail_lvl_x:                  ; as free, because mem_claim sheds them all.
 
 %endif
     popf
-    mov cl, 6                   ; paragraphs -> KB, rounded DOWN: a claim of
-    shr ax, cl                  ; the answer must always fit
-    shr bx, cl
 .out:
 %ifdef OS88_COMPACT
     pop di
@@ -5280,6 +5293,69 @@ osapi_mem_regrow_x:
     call mem_regrow
 .out:
     pop bx                      ; pop leaves CF and DX alone
+    retf
+
+; -----------------------------------------------------------------------------
+; osapi_mem_p - OSAPI_MEM_P (0x04E9, SPEC.md 50.3.7): the claim heap counted
+;               in PARAGRAPHS, for a caller whose size is a byte count
+; in:  BL = MEMP_CLAIM (0, bottom up) or MEMP_CLAIM_HI (1, top down):
+;           AX = paragraphs, CX = the 64KB-page-safe HEAD in paragraphs, 0 =
+;           none -> CF=0, DX = the base, AX = the paragraphs GRANTED (the
+;           request rounded up to the granule: the slack is the caller's)
+;      BL = MEMP_REGROW (2): DX = your claim, AX = paragraphs -> as
+;           OSAPI_MEM_REGROW, AX = the paragraphs granted
+;      BL = MEMP_AVAIL (3), or anything past it: out AX = the largest claim
+;           you can have and BX = the total, in paragraphs, as OSAPI_MEM_AVAIL
+;           at the caller's floor; CX = MEM_GRAN, the granule every size is
+;           rounded to
+;      ES = the caller's segment (the X stub), the same fence as every claim
+; out: CF=1 refused. Every register not named is preserved
+;
+; ONE CELL AND FOUR VERBS where the KB doors are five cells, because the KB
+; doors are what every .o88 built so far calls and these are what a package
+; written from now on should. A verb is a register a cell need not cost (SPEC.md
+; 20.3), and the DMA variants fold in: a head of 0 IS the plain claim, so the
+; head is always CX and only the direction is the verb's bit 0.
+;
+; It is the CONVENTIONAL heap on every kernel: on kern_mega a pool block (an
+; OS88_HIGHMEM claim through the KB doors) is not in mem_tab, so a regrow of
+; one is refused here and goes through OSAPI_MEM_REGROW.
+; -----------------------------------------------------------------------------
+osapi_mem_p:
+    cmp bl, MEMP_AVAIL
+    jae .avail
+    add ax, MEM_GRAN - 1        ; THE ANSWER IS WHAT WAS GRANTED: the door
+    and ax, -MEM_GRAN           ; rounds to the same granule, so rounding here
+                                ; first changes nothing it does and is the
+                                ; figure handed back. A carry masks to 0,
+                                ; which the door refuses
+    push bx
+    push si
+    push di
+    cmp bl, MEMP_REGROW
+    je .regrow
+    mov si, cx                  ; SI = the head
+    mov di, bx
+    and di, 1                   ; bit 0 -> MC_DMA_HI, the top-down door
+    ror di, 1
+    call mem_own                ; BX = the owner ES names
+    jc .out
+    call mem_claimp_sd
+    jmp short .out
+.regrow:
+    call mem_own
+    jc .out
+    call mem_regrowp
+.out:
+    pop di                      ; pop leaves CF and DX alone
+    pop si
+    pop bx
+    retf
+.avail:
+    mov bh, MEM_LVL_TOP         ; an ordinary claim's rank, net of THIS TASK's
+    call mem_rank_bh            ; floor - mmf_osapi_mem_avail's question
+    call mem_avail_lvl_p
+    mov cx, MEM_GRAN
     retf
 
 ; -----------------------------------------------------------------------------

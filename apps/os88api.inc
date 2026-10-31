@@ -2254,6 +2254,39 @@ SEG_BWIN    equ 6
 SEG_AIM     equ 7
 SEG_AT      equ 8
 
+; OSAPI_MEM_P - THE CLAIM HEAP IN PARAGRAPHS (SPEC.md 50.2.1, 50.3.7). Every
+; claim is rounded to the heap's GRANULE - 512 bytes today, and the door says
+; what it is - so a package whose size is a BYTE count should ask here rather
+; than rounding up to a whole KB for the KB doors above, which can never ask
+; for less than a KB: half a granule a claim on average is what that costs.
+; OS88_BYTES_PARA turns a byte count into the paragraphs to ask for. The KB
+; doors stay for every package built against them; a claim from either is
+; freed with OSAPI_MEM_FREE and made movable with OSAPI_MEM_MOVABLE.
+%define OSAPI_MEM_P         KERNEL_SEG:0x04E9   ; X: BL = the verb:
+                                 ; MEMP_CLAIM / MEMP_CLAIM_HI  AX = paragraphs,
+                                 ;          CX = the 64KB-page-safe HEAD in
+                                 ;          paragraphs (0 = none) -> CF=0,
+                                 ;          DX = the base, AX = the paragraphs
+                                 ;          GRANTED (the slack is yours).
+                                 ;          _HI claims from the TOP, as
+                                 ;          OSAPI_MEM_CLAIM_HI does
+                                 ; MEMP_REGROW  DX = your claim, AX = the new
+                                 ;          paragraphs -> as OSAPI_MEM_REGROW,
+                                 ;          AX = the paragraphs granted
+                                 ; MEMP_AVAIL  -> AX = the largest claim you
+                                 ;          can have, BX = the total, in
+                                 ;          paragraphs, at your floor as
+                                 ;          OSAPI_MEM_AVAIL; CX = the GRANULE
+                                 ;          in paragraphs
+                                 ; CF=1 refused. Every register not named is
+                                 ; kept. The CONVENTIONAL heap: on kern_mega
+                                 ; a pool block is resized by OSAPI_MEM_REGROW
+MEMP_CLAIM    equ 0
+MEMP_CLAIM_HI equ 1
+MEMP_REGROW   equ 2
+MEMP_AVAIL    equ 3
+%define OS88_BYTES_PARA(n) (((n) + 15) / 16)   ; bytes -> paragraphs to ask for
+
 ; OSAPI_IMG_NAME - WHICH driver or module an image is (KERN-MEGA-PLAN 14.70.3).
 ; A class names a driver only when it has one, and a module's header names
 ; nothing, so the Task Manager could list a `DrvImg` or a `ModImg` and not say

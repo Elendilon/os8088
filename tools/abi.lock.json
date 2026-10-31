@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "d2af41bcf7c469dda9ff98524beaaa98fe6210fa0fc07304e2b757879ca7f8d8",
+  "fingerprint": "f9e0348a06fb379d3f9e5ed3cec4f89fd5e7f5ea11811762f24bd638f79edf82",
   "version": 12
  },
  "PKG_FMT": {
-  "fingerprint": "bad7ca53637b5d0ac98d9a96709226f609e0466fcd1d24fe0be09e58884259f8",
+  "fingerprint": "16a8f939e12d80c10c28eb1e2a8d63ac99bf6ea297f39b469686e50de7197a8f",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -1316,6 +1316,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "DRV_VER 11 -> 12: the heap's granule is 512 bytes (SPEC.md 50.2.1), so a driver's claim is its file rounded to 512 and os88drv.py's strip rung moved from the KB to the granule; a driver stripped to a KB rung can be refused .nofit by the new kernel",
+   "to": 12
+  },
+  {
+   "fingerprint": "16a8f939e12d80c10c28eb1e2a8d63ac99bf6ea297f39b469686e50de7197a8f",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_MEM_P appended at 0x04E9 (SPEC.md 50.3.7): the claim heap in paragraphs. An append: every package built before still runs",
+   "to": 10
+  },
+  {
+   "fingerprint": "f9e0348a06fb379d3f9e5ed3cec4f89fd5e7f5ea11811762f24bd638f79edf82",
+   "from": 12,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_MEM_P appended at 0x04E9 (SPEC.md 50.3.7): the claim heap in paragraphs. An append: every package built before still runs",
    "to": 12
   }
  ]
