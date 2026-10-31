@@ -1014,6 +1014,18 @@ class Box(object):
             self._map = kmap(self.build)
         return self._map[name]
 
+    def tail(self, name):
+        """The LINEAR address of a table in kern_mega's TABLES' TAIL
+        (os88sym.TAIL: mx_tab, mem_sel, mega_wtab, mega_ustab) - above 1MB
+        since kern_mega size pass 2, where this machine's tables are, so it
+        is read off the guest (os88sym.tail) and is not a label."""
+        sys.path.insert(0, os.path.join(ROOT, "tools"))
+        import os88sym
+        path = os.path.join(self.build or os.path.join(ROOT, "build"),
+                            "megak", "kernel.map")
+        return os88sym.tail(name, self.read, self.sym,
+                            os88sym._parse_map(path)[2])
+
     def ptime(self):
         """Bochs's instruction clock, read in one stop of the guest."""
         m = re.findall(r"ptime: (\d+)", self.dbg(["ptime"]))

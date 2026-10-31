@@ -156300,7 +156300,8 @@ kern_big does.
 that the section can be APPENDED after it (§18.4.4). The section is a
 512-byte head — `'HIBX'`, the run count, the section's bytes, and each run's
 linear base and length — and then the runs: **run 0** is the GDT, the LDT,
-the IDT and the tables' tail past it (`mega_wtab` and `mega_ustab`, kern_mega
+the IDT and the tables' tail past it (`mega_ustab`, `mega_wtab`, `mem_sel` and
+`mx_tab`, kern_mega
 size pass 2) as one range (`[mega_tbllin]`, `[mega_ldtend]` +
 `MEGA_TBL_TAIL` long since §50.6.9,
 which a restore requires exactly - an image from before it, or from a machine

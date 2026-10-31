@@ -72,8 +72,10 @@ Video Player and RealDMG (their `PKG_MEGA` arms run instead).
 - Performance: a #GP a write through CS (Sheet's macro module, PiXEL's PXSW
   sites, Word's and Scribe's undo, RealDMG), `drv_fs_call`'s 512-byte
   bounce, the Sound Blaster's IRQ discovery trapping on segment 0.
-- MC9, what still goes low (DMA rings above 1MB, BIGSP, `mx_tab`):
-  KERN-MEGA-MEMORY-PLAN section 5, deferred.
+- MC9, what still goes low (DMA rings above 1MB, BIGSP): KERN-MEGA-MEMORY-PLAN
+  section 5, deferred. (`mx_tab` went above 1MB in kern_mega size pass 2, with
+  `mem_sel`, `mega_wtab` and `mega_ustab`: the tables' tail past the IDT,
+  `MEGA_SEL_MXT`, docs/plans/completed/msp2/pmmem.md.)
 - Field: the Victory's 640K-1MB Task Manager rows (14.70.3), T69/LASTX on the
   PicoMEM (14.73; works on 86Box), the PicoMEM's IRQ reflections (in 86Box
   with the card's own firmware they carry its Sound Blaster and its mouse:

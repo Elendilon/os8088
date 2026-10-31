@@ -203,12 +203,13 @@ MEGA_BDA        equ 0x0040          ; an identity selector, and the BDA
     mov es, %1
 %endmacro
 
-; MXT_ESPOP - `pop es` for a routine that banked its caller's ES and may have
-; FREED that very selector meanwhile (OSAPI_MEM_FREE with ES still on the
+; MXT_ESPOP - just BEFORE the `pop es` of a routine that banked its caller's
+; ES and may have FREED that very selector meanwhile (OSAPI_MEM_FREE with ES still on the
 ; claim - PiXEL's Blur and Sepia): a descriptor no longer readable comes back
 ; as the NULL selector instead of a #GP at the pop that mega_gpfix's .stale
 ; arm would turn into the same NULL a trap later (KERN-MEGA-PLAN 14.46).
-; Every register but ES and the flags kept
+; Every register and the stack kept, ZF spent (the `pop es` is the caller's
+; own line, so the stack balance reads)
 %macro MXT_ESPOP 0
     push bp
     mov bp, sp
@@ -217,7 +218,6 @@ MEGA_BDA        equ 0x0040          ; an identity selector, and the BDA
     mov word [bp+2], 0
 %%k:
     pop bp
-    pop es
 %endmacro
 
 
@@ -5492,21 +5492,22 @@ mega_hugef:
     MXT_ES                          ; (the caller's ES is banked: .o)
     call mega_mxat                  ; DI = the block's entry
     mov [es:di+MX_SEL], bp
-    or byte [es:di+MX_FL], MX_FHUGE
     mov dx, bp
     mov cx, 8
+    mov al, MX_FHUGE                ; the flags, ONE store (AX is banked)
     cmp si, 0x8000
     jne .n32
-    or byte [es:di+MX_FL], MX_FH32
+    mov al, MX_FHUGE | MX_FH32
     jmp short .met
 .n32:
     cmp si, 0x4000
     jne .ok
-    or byte [es:di+MX_FL], MX_FH16
+    mov al, MX_FHUGE | MX_FH16
 .met:
     mov bp, sp
     mov word [ss:bp+8], 0           ; the caller's BX: 0, the ask was met
 .ok:
+    or [es:di+MX_FL], al
     clc
     jmp short .out
 .full:
@@ -8197,8 +8198,8 @@ MX_NBLK     equ 96                  ; entries (KERN-MEGA-PLAN 14.49): every
                                     ; Sheet, Tracker, Note Pad, TexPad,
                                     ; Calculator), where 24 ran out; a full
                                     ; INST_MAX of twelve is ~60. MX_BLKSZ
-                                    ; (10) bytes of LOW_SEG each, none of the
-                                    ; segment
+                                    ; (10) bytes each of the tables' tail,
+                                    ; above 1MB (kern_mega size pass 2)
 
 
 ; -----------------------------------------------------------------------------
@@ -8658,6 +8659,7 @@ mx_free:
     stc
 .out:
     MXT_ESPOP
+    pop es
     pop si
     pop dx
     pop cx
@@ -8680,6 +8682,7 @@ mx_relall:
     cmp si, mx_tab_end
     jb .scan
     MXT_ESPOP                       ; (the caller's, nulled if it went)
+    pop es
     push ds                         ; ...and the owner's OSAPI_SEG windows
     push word MEGA_SEL_MXT          ; (mega_segf, KERN-MEGA-MEMORY-PLAN MC7),
     pop ds                          ; through DS: ES stays the caller's for
@@ -11058,6 +11061,7 @@ mega_claimfreef:
     pop dx
 .o:
     MXT_ESPOP
+    pop es
     pop si
     pop bx
     pop ax
