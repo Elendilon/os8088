@@ -1087,15 +1087,7 @@ fpg_stepb:
 ; epilogues, where the flags are a body's answer in flight.
 ; -----------------------------------------------------------------------------
 fpg_end:
-%ifdef FPG_OPS
-    push ax                     ; the phase's scale is banked for an
-    mov ax, 0                   ; operation's next phase (flags untouched:
-    xchg ax, [fpg_total]        ; the epilogues carry a body's CF)
-    mov [fpg_opt], ax
-    pop ax
-%else
     mov word [fpg_total], 0     ; no scale: fpg_step and fpg_stepb stop, and
-%endif
     retf                        ; fpg_busy may hatch the trough again
 
 ; -----------------------------------------------------------------------------
@@ -1148,16 +1140,20 @@ fpg_end:
 ; and the flags preserved.
 fpg_opbegin:
     pushf
+    push ax
 %ifdef FPG_PARK
     cmp byte [fpg_pown], 0FFh   ; a package's operation is the scale on the
     jne .o                      ; bar: a kernel one inside it is not counted
 %endif
     and byte [fpg_on], ~FPG_OP & 0FFh
     call KERNEL_SEG:fpg_begin
-    cmp word [fpg_total], 0
-    je .o
+    mov ax, [fpg_total]         ; THE OPERATION'S SCALE, taken once: every
+    or ax, ax                   ; phase resumes it from [fpg_opt] and nothing
+    je .o                       ; rewrites it (fpg_end only zeroes the phase's)
+    mov [fpg_opt], ax
     or byte [fpg_on], FPG_OP
 .o:
+    pop ax
     popf
     retf
 
@@ -1168,7 +1164,7 @@ fpg_opbegin:
 ; widget PARKS on the bar between the caller's holds (fpg_finish) instead of
 ; coming down, so a load spread over timer callbacks is one bar, not one per
 ; chunk. out CF = 1 refused: another package holds it, or it could not arm.
-; Every register kept. UI task, from a callback, the lock held (fpg_stepb's
+; Every register kept. UI task, a callback or a wake, locked or not (the file calls' own rule; fpg_arm banks the cursor debt lock-free) (fpg_stepb's
 ; rule). The end only disowns it: the next gfx_unlock takes it down
 ; -----------------------------------------------------------------------------
 osapi_fs_op:
@@ -1188,8 +1184,10 @@ osapi_fs_op:
     jnz .begin
     cmp al, ah                  ; an end ends only the caller's own
     jne .no
-    mov byte [fpg_pown], 0FFh   ; CF = 0 off the compare; the next gfx_unlock
-    jmp short .out              ; takes the widget down
+    mov byte [fpg_pown], 0FFh   ; the next gfx_unlock takes the widget down,
+    and byte [fpg_on], ~FPG_OP & 0FFh  ; and no later phase in this hold
+    clc                         ; counts into the finished bar
+    jmp short .out
 .begin:
     cmp ah, 0FFh                ; held - by somebody else, or by the caller
     stc                         ; itself, which is NESTING and refused so that
@@ -1204,7 +1202,6 @@ osapi_fs_op:
 .out:
     pop ax
     ret
-    db 0                        ; PARITY, never executed: keeps ui_task even (t_hotpar)
 %endif
 
 fpg_opend:
