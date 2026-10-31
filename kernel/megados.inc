@@ -264,10 +264,6 @@ MPS_TKB     equ MPS_NAME + 12       ; conventional memory's KB, mapped: the
 MPS_SIZE    equ MPS_TKB + 2         ; (the three were `.text` cells until
                                     ; kern_mega size pass 2: conventional
                                     ; bytes for what one trip stages)
-mega_dsidt  dw 0                    ; mega_dsave's last row's offset - IDT gate
-                                    ; 20h in the tables' block, which follows
-                                    ; the LDT and so is the machine's (MC7's
-                                    ; step 6) - written by mega_tset
 mega_hbwk   dw 0, 0                 ; W5: where a hibernated image wakes -
                                     ; hbm_wake, HIBER.DRV's CS - stamped
                                     ; BEFORE its picture is taken
@@ -710,11 +706,11 @@ mega_kblin:
 ; (0 is W7's anchor, 6 is ODD's, written per use), K5 to LDTD (the sum stops
 ; short of XA and XB, which it moves itself, on a 64-byte line - the GDT's
 ; last, MEGA_GDT_SCR's placing) and IDT gates 20h-21h (mega_ivt_sync rebuilds
-; from 22h), whose place mega_tset writes into mega_dsidt: the IDT follows the
+; from 22h), whose place is [mega_ldtend] + 100h: the IDT follows the
 ; LDT, whose size is the machine's (MC7's step 6). {dw from the TABLES' base -
 ; [mega_tbllin], which moves with the machine since KERN-MEGA-MEMORY-PLAN
-; MC2 - dw bytes, dw at}; a `from` of 0 is [mega_dsidt]'s. In `.mega`, read
-; through CS (kern_mega size pass 2: it was 32 bytes of `.text`)
+; MC2 - dw bytes, dw at}; a `from` of 0 is [mega_ldtend] + 100h's. In
+; `.mega`, read through CS (kern_mega size pass 2: it was 32 bytes of `.text`)
 mega_dsave  dw 0x08, 0x28, MPK_SAVE + 0x08
             dw 0x38, 0x08, MPK_SAVE + 0x38
             dw MEGA_SEL_K5, 0x30, MPK_SAVE + 0x40
@@ -897,8 +893,9 @@ mega_dosparkf:
     mov ax, [cs:mega_dsave+si]      ; {from: the bank, to: the table}
     or ax, ax
     jnz .svf
-    mov ax, [mega_dsidt]
-.svf:
+    mov ax, [mega_ldtend]           ; mega_dsave's last row: IDT gate 20h in
+    add ax, 0x100                   ; the tables' block, which follows the LDT
+.svf:                               ; and so is the machine's (MC7's step 6)
     xor dx, dx
     add ax, [mega_tbllin]
     adc dx, [mega_tbllin+2]

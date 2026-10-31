@@ -10133,8 +10133,8 @@ section .cold
 ; ([mega_tblkb]: the GDT at DX:AX and the LDT on top of it, the IDT
 ; [mega_ldtend] in) -> every word the switch and the kernel read a table's
 ; place from aimed there: the bootstrap's window, GDTR, IDTR, [mega_tbllin],
-; [mega_ldtlin], the LDT's and the IDT's descriptors and the DOS park's IDT
-; line (mega_dsidt). Real mode. Clobbers nothing. Still `.cold` and not the
+; [mega_ldtlin], the LDT's and the IDT's descriptors (the DOS park's IDT
+; line is [mega_ldtend] + 100h, megados.inc). Real mode. Clobbers nothing. Still `.cold` and not the
 ; blob's, whose ceiling it would reach (docs/plans/completed/msp2/bootonce.md)
 ; -----------------------------------------------------------------------------
 mega_tset:
@@ -10157,8 +10157,6 @@ mega_tset:
     mov [ss:mega_ldtl], ax          ; boot-blob caller (mega_wrprobe) runs on
     add ax, 7                       ; the loader's stack, not LOW_SEG
     mov [mega_ldtd], ax             ; ...its limit, the allocator's last byte
-    add ax, 0x101
-    mov [mega_dsidt], ax            ; the park's line of gates 20h-21h
     pop ax
     add ax, [mega_ldtend]           ; the IDT, past the LDT's last entry
     adc dx, 0
