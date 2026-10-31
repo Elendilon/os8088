@@ -9151,6 +9151,18 @@ $(BUILD)/heapfrag.o88: $(BUILD)/heapfrag.bin tools/os88pkg.py
 $(BUILD)/heapfrag.img: $(BUILD)/heapfrag.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/heapfrag.o88
 
+# MEMP, the heap granule's gate package (SPEC.md 50.2.1, 50.3.7): every verb of
+# OSAPI_MEM_P, and the KB door at 4KB and 16KB, from its entry proc, with the
+# verdicts in its bss for tests/memp.py. On its own 360KB image, at the root.
+$(BUILD)/memp.bin: tests/memp/memp.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/memp/memp.asm
+
+$(BUILD)/memp.o88: $(BUILD)/memp.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/memp.bin -o $@
+
+$(BUILD)/memp360.img: $(BUILD)/memp.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/memp.o88
+
 # ...and the 360KB twin, which is the one that gets used: every 5150 machine
 # config in tools/martypc has 360KB drives, and a 1.44MB image mounted in one
 # does not error - the Disk window opens HIDDEN and the run reports that the

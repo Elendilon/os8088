@@ -9196,6 +9196,15 @@ SOAK = [
         "program at all.",
         needs=("marty",), serial=True,
         wants=("build/doslnk360.img", "build/dosargs360.img")),
+    Row("memp", "soak", py("tests/memp.py"), 30.0,
+        "the heap's granule and OSAPI_MEM_P on the machine (SPEC.md 50.2.1, "
+        "50.3.7): tests/memp's eleven verdicts out of its bss - every verb, "
+        "the granule it reports, alignment, a DMA head, the KB door at 4KB "
+        "and 16KB, and the heap the same size once everything is back. RED "
+        "with the granule mask as `and al` (checks 8 and 9: 4KB is 256 "
+        "paragraphs, low byte 0), the defect this row was written after",
+        needs=("marty",), serial=True,
+        wants=("build/memp360.img",)),
     Row("heapcheck", "soak", py("tests/heapcheck.py"), 40.0,
         "Drive tests/heapfrag and read its verdict out of the guest (SPEC.md"
         "66.8). 60s is 42.8 MEASURED after SPEC.md 66.4.3 added the region "
