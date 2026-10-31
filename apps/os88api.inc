@@ -2292,6 +2292,10 @@ MEMP_CLAIM_HI equ 1
 MEMP_CPU      equ 2
 MEMP_REGROW   equ 4
 MEMP_AVAIL    equ 5
+MEMP_KPARTS   equ 6              ; -> AX = the kernel's resident FAT window,
+                                 ; BX = its background task stacks, CX = task
+                                 ; 0's stack, in BYTES: the three fixed parts
+                                 ; OSAPI_SYS_KB reports in whole KB
 MEMP_CONV     equ 0x8000         ; CX for a claim verb: NO head, and stay
                                  ; CONVENTIONAL on kern_mega - a block that is
                                  ; or will be a CS, or one a real-mode path

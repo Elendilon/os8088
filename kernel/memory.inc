@@ -450,6 +450,7 @@ MEMP_CLAIM_HI equ 1             ; bit 0 of a claim is the direction, and
 MEMP_CPU      equ 2             ; bit 1 says no int 13h will land in it, so
 MEMP_REGROW   equ 4             ; its base need not be 512-aligned (a DISK
 MEMP_AVAIL    equ 5             ; claim's is, SPEC.md 50.2.1.1)
+MEMP_KPARTS   equ 6             ; ...and the kernel's three fixed parts, exact
 MEMP_CONV     equ 0x8000        ; ...and in CX: stay conventional on kern_mega
 %ifndef MEM_GRAN                ; (MEMGRAN=16 builds the 256-byte knob,
 MEM_GRAN    equ 32              ; SPEC.md 50.2.1.1)
@@ -5513,15 +5514,26 @@ osapi_mem_p:
     pop bx
     retf
 .avail:
+    cmp bl, MEMP_KPARTS         ; THE KERNEL'S OWN FIXED PARTS, in BYTES
+    je .kparts                  ; (SPEC.md 50.3.7, 28.4.7): osapi_sys_kb's
+                                ; are whole KB, rounded cumulatively so they
+                                ; sum, which showed a 4.5 KB FAT window as 5
     mov bh, MEM_LVL_TOP         ; an ordinary claim's rank, net of THIS TASK's
     call mem_rank_bh            ; floor - mmf_osapi_mem_avail's question
     call mem_avail_lvl_p
     mov cx, MEM_GRAN
     retf
-    nop                         ; PARITY PAD, never executed: the hot `.cold`
-                                ; routines past this (dsk_xfer, dsk_runcap,
-                                ; dsk_next_clus_x) keep their measured parity
-                                ; across MEMP_CONV's mask (tests/unit/t_hotpar.py)
+.kparts:
+    mov ax, SKB_FAT             ; the resident FAT window (18.8)...
+    mov bx, SKB_STK             ; ...the background task slices...
+    mov cx, SKB_STK0            ; ...and task 0's stack. Build constants: the
+    retf                        ; image row is the kernel less these, and it
+                                ; is the only one that moves at run time.
+                                ; (Fifteen bytes, which is what took the
+                                ; parity pad MEMP_CONV's mask needed: the hot
+                                ; `.cold` routines past this - dsk_xfer,
+                                ; dsk_runcap, dsk_next_clus_x - keep their
+                                ; measured parity, tests/unit/t_hotpar.py)
 
 ; -----------------------------------------------------------------------------
 ; osapi_mem_movable - in: DX = the claim, AX = your relocation proc (0 pins it

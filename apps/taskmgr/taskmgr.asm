@@ -5593,9 +5593,9 @@ tm_gfig:
 ;      inside System's (KERN-MEGA-PLAN 14.70.3)
 ; out: nothing (all registers preserved)
 ;
-; The parts are the kernel's own ladder (SPEC.md 20.9) and between them they
-; are the System row's conventional figure: Code+data takes the half-KB
-; IVT+BIOS gave up (SPEC.md 28.4.7). What the system keeps above 1MB is
+; The parts are the kernel's own, EXACT (OSAPI_MEM_P's MEMP_KPARTS, SPEC.md
+; 28.4.7) and between them they are the System row's conventional figure:
+; Code+data is the span less the other two, to the paragraph. What the system keeps above 1MB is
 ; System HMA's (tm_hmagrp, SPEC.md 28.4.14).
 ; -----------------------------------------------------------------------------
 tm_sysitems:
@@ -5605,12 +5605,19 @@ tm_sysitems:
     push dx
     push si
     push di
-    xor bx, bx                  ; no square unless a row says otherwise
-    mov ax, [tm_kb+SK_BUF]      ; Code+data: the kernel's code and tables -
-    mov cl, 6                   ; the exact span less the buffers' whole KB,
-    shl ax, cl                  ; so it takes whatever half the span has and
-    neg ax                      ; the three still sum to System's own figure
-    add ax, [tm_sysp]           ; to the paragraph (28.4.7). It starts at
+    mov bl, MEMP_KPARTS         ; THE KERNEL'S FIXED PARTS, EXACT (SPEC.md
+    call OSAPI_MEM_P            ; 28.4.7, 50.3.7): AX = the FAT window, BX +
+    add bx, cx                  ; CX the stacks, in BYTES. osapi_sys_kb's are
+    mov cl, 4                   ; whole KB rounded so they sum, which showed
+    shr ax, cl                  ; kern_big's 4.5 KB FAT window as 5 and its
+    shr bx, cl                  ; 2.75 KB of stacks as 3
+    push ax                     ; (the FAT window's paragraphs...)
+    push bx                     ; (...and the stacks')
+    add ax, bx
+    neg ax                      ; Code+data: the kernel's code and tables -
+    add ax, [tm_sysp]           ; the exact span less those two, so the three
+    mov word [tm_fhk], 0        ; sum to System's own figure to the paragraph
+    xor bx, bx                  ; and each is its own size. It starts at
     mov si, tm_s_bimg           ; KERNEL_SEG, and gives its ADDR column up to
     mov cx, 0FFFFh              ; its name, which is nine characters - a
     call tm_item                ; separator and an address would leave eight
@@ -5618,12 +5625,11 @@ tm_sysitems:
                                 ; own row wears the gray)
     mov bx, tm_pat_buf          ; the stacks and the FAT window: the part of
     mov si, tm_s_bstk           ; the kernel that is scratch, banded on the
-    mov ax, [tm_kb+SK_STK]      ; map in its own texture - whole KB, the
-    add ax, [tm_kb+SK_STK0]     ; kernel's own ladder (SPEC.md 20.9)
-    call tm_itemk
+    pop ax                      ; map in its own texture
+    call tm_item
     mov si, tm_s_bfat
-    mov ax, [tm_kb+SK_FAT]
-    call tm_itemk
+    pop ax
+    call tm_item
 
     ; --- the OWNERS: Kernel, each driver, each built-in ------------------------
     xor bx, bx

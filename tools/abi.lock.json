@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "871c0e5f66c40f6120e3a0215585a4e3899a121e4c94627cd0f3d2ca2b8bec1e",
+  "fingerprint": "5223b416e13f5840512f1ebcdd49c61d2f7c480c016980b308b03fa4f9d6e72d",
   "version": 12
  },
  "PKG_FMT": {
-  "fingerprint": "319afd98b6651e2dbd50488abca951e4249404729ecccbd19dd1cc8f2ec552c5",
+  "fingerprint": "10a838bdc12d31771a7cda9536b781acd4df08ea095fe77d49b26544bacd298f",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -1372,6 +1372,20 @@
    "from": 12,
    "guard": "DRV_VER",
    "reason": "MEMP_CONV (CX bit 15) added to OSAPI_MEM_P's claim verbs: stay conventional on kern_mega. A new value in a free bit; nothing built before changes",
+   "to": 12
+  },
+  {
+   "fingerprint": "10a838bdc12d31771a7cda9536b781acd4df08ea095fe77d49b26544bacd298f",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "MEMP_KPARTS (OSAPI_MEM_P verb 6) appended: the kernel's resident FAT window and its two stack terms in bytes (SPEC.md 50.3.7, 28.4.7); nothing built before changes",
+   "to": 10
+  },
+  {
+   "fingerprint": "5223b416e13f5840512f1ebcdd49c61d2f7c480c016980b308b03fa4f9d6e72d",
+   "from": 12,
+   "guard": "DRV_VER",
+   "reason": "MEMP_KPARTS (OSAPI_MEM_P verb 6) appended: the kernel's resident FAT window and its two stack terms in bytes (SPEC.md 50.3.7, 28.4.7); nothing built before changes",
    "to": 12
   }
  ]

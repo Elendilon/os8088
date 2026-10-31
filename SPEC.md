@@ -64292,6 +64292,17 @@ words hash the byte like any other, so a figure gaining or losing its half
 re-letters its chunk. `¼` and `¾` are reachable only on a 256-byte granule
 (guard 6b refuses one today); they cost 16 bytes to carry from the start.
 
+**The kernel's own parts are exact too.** `Code+data`, `Stacks` and `FAT snap`
+came off `osapi_sys_kb`, whose kernel parts are whole KB rounded so they sum
+(§20.9) - which showed kern_big's 4.5 KB FAT window as `5K`, the same window
+the heap's `FatWin` claims show as `4.5K`, and its 3.25 KB of stacks as `3K`.
+They come off `OSAPI_MEM_P`'s `MEMP_KPARTS` now (§50.3.7, fifteen resident
+bytes): the FAT window and the stacks in bytes, both build constants, and
+`Code+data` the kernel's exact span less them, so it is the one row that moves
+with the VGA rung or a slid `.cold`. kern_big on a CGA: `84¾K`, `3¼K`,
+`4.5K`. `osapi_sys_kb` keeps its KB words: DOS's `SK_KERN + SK_HEAP` identity
+rests on their rounding.
+
 **The half is `.5` in ONE cell, not a `½`** (the tables above write it `.5`,
 which on the glass is a single character): the ROM font's own baseline dot,
 two by two in columns 0-1 of rows 5-6, a blank column, and a `5` condensed to
@@ -97374,6 +97385,9 @@ OSAPI_MEM_P   0x04E9, X     BL = the verb (MEMP_*), ES = the caller (X stub)
                         in paragraphs, at your floor as OSAPI_MEM_AVAIL;
                         CX = MEM_GRAN, the granule in paragraphs
   CF=1 refused; every register not named is preserved
+  MEMP_KPARTS   6   -> AX = the kernel's resident FAT window, BX = its
+                        background task stacks, CX = task 0's stack, in BYTES -
+                        the three fixed parts OSAPI_SYS_KB reports in whole KB
 ```
 
 The KB doors cannot ask for less than a KB (§50.2.1), so a package whose size
