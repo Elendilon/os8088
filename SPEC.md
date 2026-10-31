@@ -194125,7 +194125,7 @@ Right with "No seeking".
 on a volume whose clusters are past 1 KB, with one read of the header's
 second sector. A key's read is then its record and less than a sector
 either side on every volume, `VP_KMAXREC` binds on all of them, and
-`vp_spankb`, `vp_bkkb`, `vp_bkrd` and `vp_ldstored` size what `vp_rdat`
+`vp_spankb`, `vp_bkpara`, `vp_bkrd` and `vp_ldstored` size what `vp_rdat`
 reads by the same granule. The STREAM is unchanged - `READ_SEQ` reads whole
 clusters from the one under its start, and `[vp_clb]` stays what positions
 it. On `kern_small`, or an older kernel, the granule is the cluster and
