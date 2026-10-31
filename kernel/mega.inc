@@ -6177,6 +6177,8 @@ mega_fd13:
     mov ax, MEGA_BDA                ; ES = the BIOS's data for everything below
     mov es, ax                      ; (the caller's ES is its BUFFER)
     inc byte [sch_lock]             ; nothing switches under the 765
+    mov cl, 1                       ; reset by a reflected service? Asked
+    call mm_fdrprobe                ; BEFORE the busy flag, which it obeys
     mov byte [mega_fdbusy], 1
 %ifdef MEGA_FDMASK
     call mega_fdmskon               ; MEGAFDMASK=1: no reflection in here
@@ -6427,8 +6429,6 @@ mega_fdjudge:
 ; protected. Clobbers AX BX CX DX SI DI
 mega_fdgo:
     mov [mega_fdsp], sp             ; where mega_fdlj returns from
-    mov cl, 1
-    call mm_fdrprobe              ; reset by a reflected service? recalibrate
     mov cl, [mega_fdd]
     mov byte [es:0x40], 0xFF        ; no motor-off while we work
     in al, 0x21
@@ -6742,7 +6742,7 @@ mega_fdseek:
 ; Seen: the rest are sensed, every drive is marked uncalibrated in 40:3E (the
 ; BIOS's own record, which it then also obeys) and its motor off in 40:3F,
 ; and [mega_fdrst + CL] counts it for mega_tell (MEGADIAG=1, 14.65).
-; in:  CL = 0 from mega_r286 (real mode), 1 from mega_fdgo; ES = the BDA
+; in:  CL = 0 from mega_r286 (real mode), 1 from mega_fd13; ES = the BDA
 ; out: CF = 1 it had been reset. Preserves everything else
 ; -----------------------------------------------------------------------------
 %1 %+ fdrprobe:
