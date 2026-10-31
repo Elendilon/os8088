@@ -1575,6 +1575,9 @@ DRV_CALLMAX equ DRV_MAX
 ; here (SPEC.md 1): a driver that grows a kilobyte is otherwise a number on
 ; screen that quietly stops being true.
 ; =============================================================================
+; EVERY FIGURE HERE IS IN HALF-KB (SPEC.md 31.6.2, 50.2.1): a driver's image
+; is claimed to the heap's 512-byte granule, so a whole KB was a figure up to
+; half a KB high, and the column prints `~34.5K` where the half is real.
 DRVM_PLUS    equ 0x8000         ; "...and the store you size on its own page",
                                 ; drawn as a '+'. The RAM disk's alone: its
                                 ; arena is [rd_kb], which is the USER's number
@@ -1582,25 +1585,25 @@ DRVM_PLUS    equ 0x8000         ; "...and the store you size on its own page",
                                 ; RD_MAXKB is 16,384 - a column showing that
                                 ; would be arithmetic rather than advice
 
-DRVM_IMG_SND equ 11             ; ceil(build/sound.drv   / 1024) - t_drvmem
+DRVM_IMG_SND equ 21             ; ceil(build/sound.drv / 512) - t_drvmem
                                 ; (as LOADED it holds less: DRV_H_KEEP hands
                                 ; the tail back, with a mixer or without -
                                 ; SPEC.md 34.15.1)
-DRVM_IMG_HDD equ 4              ; ceil(build/hdd.drv     / 1024)   checks
-DRVM_IMG_ETH equ 17             ; ceil(build/ether.drv   / 1024)   every one
-DRVM_IMG_RAM equ 6              ; ceil(build/ramdisk.drv / 1024)   of these
-DRVM_IMG_NET equ 5              ; ceil(build/net.drv     / 1024) - FIVE
+DRVM_IMG_HDD equ 8              ; ceil(build/hdd.drv / 512)   checks
+DRVM_IMG_ETH equ 34             ; ceil(build/ether.drv / 512)   every one
+DRVM_IMG_RAM equ 11              ; ceil(build/ramdisk.drv / 512)   of these
+DRVM_IMG_NET equ 9              ; ceil(build/net.drv / 512) - 4.5K
                                 ; since SPEC.md 62.11.3's size pass, the
                                 ; Wire's desktop icon (drivers/wirezone.inc,
                                 ; SPEC.md 26.7) included
-DRVM_IMG_VMM equ 1              ; ceil(build/vmmouse.drv / 1024)
-DRVM_IMG_USBM equ 2             ; ceil(build/usbmouse.drv / 1024)
-DRVM_IMG_EMS equ 1              ; ceil(build/ems.drv / 1024)
-DRVM_IMG_CD  equ 9              ; ceil(build/cdrom.drv / 1024)
-DRVM_IMG_HTTP equ 6             ; ceil(build/httpfs.drv / 1024)
-DRVM_IMG_VESA equ 8             ; ceil(build/vesa.drv / 1024)
+DRVM_IMG_VMM equ 1              ; ceil(build/vmmouse.drv / 512)
+DRVM_IMG_USBM equ 3             ; ceil(build/usbmouse.drv / 512)
+DRVM_IMG_EMS equ 2              ; ceil(build/ems.drv / 512)
+DRVM_IMG_CD  equ 18              ; ceil(build/cdrom.drv / 512)
+DRVM_IMG_HTTP equ 11             ; ceil(build/httpfs.drv / 512)
+DRVM_IMG_VESA equ 16             ; ceil(build/vesa.drv / 512)
 
-DRVM_SND     equ DRVM_IMG_SND + 16        ; SBL_PLAYKB: what it holds PLAYING -
+DRVM_SND     equ DRVM_IMG_SND + 16*2      ; SBL_PLAYKB: what it holds PLAYING -
                                 ; a 16KB ring the card reads in place, and no
                                 ; double buffer (SPEC.md 34.5.2). It was
                                 ; image + 8 + 20, the worst case no shipped
@@ -1613,14 +1616,14 @@ DRVM_HDD     equ DRVM_IMG_HDD ; the hard disk claims NOTHING while doing its
                                 ; - and SPEC.md 22.6 retired the donation, so
                                 ; a mounted partition costs this driver a row
                                 ; of its own bss and not a byte of heap
-DRVM_ETH     equ DRVM_IMG_ETH + 17        ; THE RING POOL at its top rung, not
+DRVM_ETH     equ DRVM_IMG_ETH + 17*2      ; THE RING POOL at its top rung, not
                                 ; one ring per socket (SPEC.md 72.21): the bulk
                                 ; pair plus three lean ones is 16,896 bytes
                                 ; where a pair per slot was 36,864 (13,824
                                 ; until the send ring held a window, 72.4.3).
                                 ; sk_claim is a ladder down to SK_RXCAP0 and
                                 ; this is its top
-DRVM_RAM     equ (DRVM_IMG_RAM + 7 + 8) | DRVM_PLUS
+DRVM_RAM     equ (DRVM_IMG_RAM + (7 + 8)*2) | DRVM_PLUS
                                 ; RD_TABMAXKB (the directory AND the chain
                                 ; table, one claim since SPEC.md 62.9.13.1 -
                                 ; the 2,304-byte directory left the image for
@@ -1639,7 +1642,7 @@ DRVM_VESA    equ DRVM_IMG_VESA  ; VESA.DRV claims nothing: its probe buffers,
                                 ; are bss, inside the image
 DRVM_EMS     equ DRVM_IMG_EMS   ; EMS.DRV claims nothing: its tables are its
                                 ; bss, and the board's memory is not the heap's
-DRVM_HTTP    equ DRVM_IMG_HTTP + 16 ; HTTPFS.DRV: its image, and the index it
+DRVM_HTTP    equ DRVM_IMG_HTTP + 16*2 ; HTTPFS.DRV: its image, and the index it
                                 ; holds while a drive is mounted - HF_MAXREC
                                 ; records at most, one 16 KB claim (121.3)
 DRVM_CD      equ DRVM_IMG_CD    ; CDROM.DRV claims nothing: its sector
@@ -1704,7 +1707,9 @@ section .text
 ; literal safe, and it is the half a package could never have had.
 DRVM_CEIL_DISK equ 4            ; MIRRORED in apps/os88api.inc - t_mirror
 DRVM_CEIL_NET  equ 34           ; ...ditto
-%if DRVM_CEIL_DISK != DRVM_HDD || DRVM_CEIL_NET != DRVM_ETH
+%if DRVM_CEIL_DISK != (DRVM_HDD + 1) / 2 || DRVM_CEIL_NET != (DRVM_ETH + 1) / 2
+                                ; (the ceilings are KB, drv_memk half-KB:
+                                ; a ceiling is rounded UP)
   %error "a class ceiling has drifted from drv_memk - apps/os88api.inc too"
 %endif
 

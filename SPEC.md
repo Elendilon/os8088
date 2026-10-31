@@ -3799,7 +3799,7 @@ The design record is docs/plans/HMA-PLAN.md 5.
 - **`drv_hma_try`** is the last step of `drv_load`, after `drv_check` and
   `drv_bss` and before a byte of the driver has run: `[rom_mfp]` ROMF_HPLACE
   hashes the image, finds its table, allocates, copies, READS BACK, relocates
-  in the HMA and answers the segment. Then the row names it, `DRVR_KB` is 0,
+  in the HMA and answers the segment. Then the row names it, `DRVR_PARA` is 0,
   `DRVR_DISP`/`DRVR_ENT` are offsets from `DRV_HMA_ORG`, and the claim is
   freed. A driver with no table, a pool with no room or a copy that does not
   read back leaves the claim exactly as `drv_load` filled it.
@@ -67819,8 +67819,10 @@ a load that fails into a longer string than the one it replaces.
 ### 31.6.2 The memory column — what a driver costs to run
 
 Each row carries a third thing beside its name and its reason: **roughly the
-memory that driver holds while it is doing its job**, in KB, right of the name
-on the name's own line.
+memory that driver holds while it is doing its job**, in KB to the HALF — a
+driver's image is claimed to the heap's 512-byte granule (§50.2.1), so
+`drv_memk` counts half-KB and the column prints `~10.5K` where the half is
+real — right of the name on the name's own line.
 
 ```
 [x] Sound                              (~23K)
@@ -67857,7 +67859,7 @@ Four rules decide what goes in that column, and each of them was a real
 choice:
 
 1. **The image counts.** A driver's image is a heap claim like any other
-   (`DRVR_KB`), it is the largest single term for the Ethernet card, and a
+   (`DRVR_PARA`), it is the largest single term for the Ethernet card, and a
    figure that left it out would be wrong by 17KB on the row where the user
    most needs it right.
 2. **Memory a driver takes only while being CONFIGURED does not.** The hard
@@ -98902,11 +98904,12 @@ bump**.
 
 The kernel (`DRV_ATTACH`'s `%1_att`, kern_big's three expansions: the boot
 blob, CTRL.DRV and HIBER.DRV) reads it after the publish and before
-`DRVV_TIER` and `DRVV_READY`, rounds it up to a KB and, when that is smaller
-than `DRVR_KB`, calls `mem_regrow` through the image's own hop into `.cold` -
-**zero resident bytes** - and stores the new KB in `DRVR_KB`, which is what
+`DRVV_TIER` and `DRVV_READY`, rounds it up to 512 bytes (§50.2.1: it was a
+KB) and, when that is smaller than `DRVR_PARA`, calls `mem_regrowp` through
+the image's own hop into `.cold` - **zero resident bytes** - and stores the
+new paragraphs in `DRVR_PARA`, which is what
 the Drivers page weighs. A refusal leaves the claim as it was. It is skipped
-when `DRVR_KB` is 0 (an image in the HMA or above 1MB, which no claim holds),
+when `DRVR_PARA` is 0 (an image in the HMA or above 1MB, which no claim holds),
 and kern_small, which loads no driver that writes it, does not assemble it.
 
 The rules for the driver are the ones for any memory it gives away: put what
@@ -98916,7 +98919,7 @@ it be guarded by a byte BEFORE the offset.
 #### 51.1.3.1 ...and in the HMA's pool, the driver cuts its own block
 
 A driver placed in the HMA's pool (§2.10.8) holds no claim, so the kernel's
-shrink above passes it by (`DRVR_KB` 0) - and SOUND.DRV kept all 11,924
+shrink above passes it by (`DRVR_PARA` 0) - and SOUND.DRV kept all 11,924
 bytes up there where the heap gave back 4.5KB of them. The pool is the
 TAIL's, so the cut is too: `OSAPI_MEM_HMA` with AX = `MEMHMA_KEEP` (8000h) |
 bytes reaches `ROMF_HCLAIM` unchanged (the kernel passes AX through as CX),
@@ -181761,8 +181764,10 @@ figure being `drv_memk`'s) masked bit 15 off again immediately.
 purpose: to reach `jcxz` and set `CF`. **The answer is its own predicate**, so
 the whole tail is `cmp ax, 1`: `CF=1` exactly when `AX=0`, and `AX=0` exactly
 when no row of the class is loaded, because `drv_load` writes `DRVR_SEG` and
-`DRVR_KB` together and a driver image is never under a kilobyte (its own
-`cmp ax, DRV_HDR_SZ` / `jb .bad`). **Four bytes where eight stood, and one
+`DRVR_PARA` together and a driver image is never under a kilobyte as
+reported — the image is ROUNDED UP to the KB before it is summed, because
+`EMS.DRV` and `SERIAL.DRV` are under one and truncated they would answer
+"not loaded" (§50.2.1). **Four bytes where eight stood, and one
 fewer register in the contract** — on both builds, the `kern_small` stub
 losing its `xor cx,cx` with it.
 
@@ -181772,8 +181777,10 @@ anybody* — and it answered the same way twice in two passes.
 #### 51.12.2 The plain form weighs the HEAP, not `drv_memk`
 
 The plain form answers what the class's loaded rows are **holding right now**,
-summed off `mem_tab`: for each loaded row, `DRVR_KB` — the KB `drv_load`
-claimed for the image — plus `mem_owned_kb` of that row's `DRVR_SEG`. Two
+summed off `mem_tab`: for each loaded row, `DRVR_PARA` — the paragraphs
+`drv_load` claimed for the image, rounded up to a KB — plus that row's
+`DRVR_SEG`'s own claims, summed with it in paragraphs before the one shift
+(`mem_owned_kba`). Two
 lookups, no probe, and nothing that can drift. **Nothing in this slot reads
 `drv_memk` any more** — the form that did is §51.12.1's constant now.
 
@@ -181796,7 +181803,7 @@ if this class went away now*, which is the only question this slot is asked. `DR
 
 **The two records are found by the ownership rule and not by a list.** A
 driver's image is owned by `MEM_K_DRV`, so it is named by its own base rather
-than by anything class-specific — hence `DRVR_KB`. Everything the driver then
+than by anything class-specific — hence `DRVR_PARA`. Everything the driver then
 claims for *itself* carries that base as its **owner word**, because
 `mem_own`'s last act is `mov bx, es` (§50.2). `mem_owned_kb` is exactly that
 sum and already existed, so this costs no second copy of the scan.

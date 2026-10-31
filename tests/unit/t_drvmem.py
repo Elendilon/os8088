@@ -137,8 +137,9 @@ def evaluate(expr, known):
 
 
 def kb(n):
-    """Bytes -> whole KB, the way drv_load rounds a driver image up."""
-    return int(math.ceil(n / 1024.0))
+    """Bytes -> HALF-KB, the way drv_load rounds a driver image up (SPEC.md
+    50.2.1: an image is claimed to 512 bytes, and drv_memk counts halves)."""
+    return int(math.ceil(n / 512.0))
 
 
 def main():
@@ -206,13 +207,13 @@ def main():
                % title, "os88drv.py takes only whole paragraphs of trailing "
                "zeros; anything else and drv_bss restores the wrong bytes")
         want = kb(len(blob) + blob[31] * 16)
-        eq(s.get(img), want, "%s: %s is ceil((%s + its bss) / 1024)"
+        eq(s.get(img), want, "%s: %s is ceil((%s + its bss) / 512)"
            % (title, img, drv),
-           "a driver's image IS a heap claim (drv_load rounds the file up to KB "
+           "a driver's image IS a heap claim (drv_load rounds the file up to 512 "
            "and claims that), so the column is wrong by the difference the "
            "moment the driver grows - and nothing else in the tree compares "
            "these two numbers")
-        check(want <= s.get("DRV_MAX_KB", 40),
+        check(want <= 2 * s.get("DRV_MAX_KB", 40),
               "%s: %s fits DRV_MAX_KB" % (title, drv),
               "drv_load refuses an image over DRV_MAX_KB, so this driver no "
               "longer loads at all - the column is the least of it",
@@ -224,10 +225,10 @@ def main():
     # --- 3. ...and every claim term is the driver's own constant ------------
     # Each expression is re-derived from the source that TAKES the claim, so a
     # pool that doubles or a ring that grows fails here rather than on screen.
-    ceil_kb = lambda n: (n + 1023) // 1024
+    ceil_kb = lambda n: 2 * ((n + 1023) // 1024)    # a KB claim, in HALVES
     want = {
         "DRVM_SND": s["DRVM_IMG_SND"]                       # its image...
-                    + s["SBL_PLAYKB"],                      # ...and the ring a
+                    + 2 * s["SBL_PLAYKB"],                  # ...and the ring a
                                                             # player's pool is
         # NO CLAIM AT ALL. This was `+ HD_MAXVOL * HDD_LISTKB`, a 6KB listing
         # buffer per mounted volume, and SPEC.md 22.6 retired the donation -
@@ -246,8 +247,8 @@ def main():
                               + s["SK_NLEAN"] * (s["SK_LEANRX"]      # ...and the lean
                                                  + s["SK_LEANTX"])), # ones beside it
         "DRVM_RAM": (s["DRVM_IMG_RAM"]
-                     + s["RD_TABMAXKB"]                     # the chain table
-                     + s["RD_EXTMAXKB"]) | plus,            # ...and the bounce
+                     + 2 * s["RD_TABMAXKB"]                 # the chain table
+                     + 2 * s["RD_EXTMAXKB"]) | plus,        # ...and the bounce
         "DRVM_NET": s["DRVM_IMG_NET"],                      # no heap claim at all
         # ...and nor does the absolute mouse: it hooks no vector, owns no port
         # and keeps no buffer, so the image IS the whole footprint
@@ -270,7 +271,7 @@ def main():
         "DRVM_CD": s["DRVM_IMG_CD"],
         # HTTPFS.DRV (SPEC.md 122): its image, and the index it holds while
         # a drive is mounted - the largest HF_MAXREC allows, one claim
-        "DRVM_HTTP": s["DRVM_IMG_HTTP"] + s["HF_IDXKB"],
+        "DRVM_HTTP": s["DRVM_IMG_HTTP"] + 2 * s["HF_IDXKB"],
         # ...nor does VESA.DRV (SPEC.md 120): its probe buffers, mode table
         # and the arrow's save-under are bss, inside the image
         "DRVM_VESA": s["DRVM_IMG_VESA"],
@@ -286,7 +287,7 @@ def main():
     for title, total, _img, _drv in ROWS:
         v = s.get(total, 0)
         check(0 < (v & ~plus) < 10000,
-              "%s: %s is a plausible number of KB" % (title, total),
+              "%s: %s is a plausible number of half-KB" % (title, total),
               "the figure is drawn as decimal digits with the top bit masked "
               "off (cp_drv_memstr); a five-digit one runs the column into the "
               "scroll arrows and a zero one draws nothing at all",
@@ -345,6 +346,8 @@ def main():
         for (title, memk, _img, _drv), cls in zip(ROWS, klass):
             if cls == want_cls:
                 total += s.get(memk, 0) & ~plus
+        total = (total + 1) // 2        # drv_memk is half-KB; a ceiling is
+                                        # KB, rounded UP
         for where, src in (("kernel/driver.inc", dsrc),
                            ("apps/os88api.inc", asrc)):
             m = re.search(r"^%s\s+equ\s+(\d+)" % ceil, src, re.M)

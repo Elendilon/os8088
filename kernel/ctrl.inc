@@ -6397,7 +6397,8 @@ CP_DMKX   equ 160             ; the 'K' cell's LEFT edge, pane-relative. 160 and
 CP_DMGAP  equ 8               ; the least air between the longest driver name
                               ; and the column's first glyph, below which
                               ; cp_drv_mempar takes the brackets off
-CP_DMMAX  equ 12              ; cp_dmbuf: '(~' + 5 digits + 'K+)' + NUL is 11
+CP_DMMAX  equ 14              ; cp_dmbuf: '(~' + 5 digits + '.5K+)' + NUL
+                              ; is 13 (the half: SPEC.md 31.6.2, 50.2.1)
 %if CP_DMKX + 8 * 3 > CP_DSX1
   %error "the driver memory column runs into the scroll arrows: 'K', '+' and ')'"
 %endif
@@ -6488,6 +6489,10 @@ cp_drv_mempar:
     jz .next                    ; a row with no figure at all
     mov si, 10
     xor cx, cx
+    shr ax, 1                   ; HALF-KB (SPEC.md 31.6.2): whole KB, and a
+    jnc .dig                    ; '.5' is two more cells
+    inc cx
+    inc cx
 .dig:
     xor dx, dx
     div si
@@ -6540,7 +6545,9 @@ cp_drv_memstr:
 .tilde:
     mov byte [di], '~'          ; SPEC.md 31.6.2: the figure is the SHAPE of
     inc di                      ; the cost and not a reading
-    mov bx, 10
+    shr ax, 1                   ; ...counted in HALF-KB, because an image is
+    sbb si, si                  ; claimed to 512 bytes (50.2.1): SI = -1 for
+    mov bx, 10                  ; a half, which is a '.5' before the 'K'
     xor cx, cx
 .dv:
     xor dx, dx
@@ -6555,6 +6562,12 @@ cp_drv_memstr:
     mov [di], al
     inc di
     loop .em
+    or si, si
+    jz .whole
+    mov word [di], '.5'
+    inc di
+    inc di
+.whole:
     mov byte [di], 'K'
     inc di
     mov cx, di
