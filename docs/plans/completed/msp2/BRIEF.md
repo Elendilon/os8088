@@ -108,8 +108,10 @@ msp1/BRIEF.md section 1 binds, with these changes:
   (msp1/e9gate.md) - check `MEGA_E9` before assuming a string ships.
 * **Hot paths** as msp1/BRIEF section 1, cycle-neutral or faster, count in
   the note; `hotpar` (fast tier) stays green.
-* **The 286 reset path** runs on neither QEMU nor Bochs: equivalence by
-  reading only, said explicitly.
+* **The 286 reset path** runs on neither QEMU nor Bochs - but it runs on
+  86Box (docs/86BOX.md, `vm/286-mega`), which the coordinator built
+  mid-pass on the owner's word: prove equivalence by reading, and NAME the
+  86Box check; the coordinator runs those after the merge.
 
 ## 2. Method
 

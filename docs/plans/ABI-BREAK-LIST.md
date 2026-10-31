@@ -217,8 +217,24 @@ the natural moment to tidy them.
 
 ## 10. Rows from kern_mega size pass 2's agents
 
-*(The coordinator folds each msp2 agent's WANTS AN ABI BREAK in here at the
-merge, under the kind it belongs to.)*
+Folded in at the merge from each agent's *WANTS AN ABI BREAK*
+(`docs/plans/completed/msp2/<agent>.md`). megados and bootonce found none
+(everything they touched is kernel-internal and versioned with the kernel).
+Ids carry the kind's letter and a `2` so they cannot collide with the audit's.
+
+| id | what changes | who it breaks | what it buys | source | status |
+|---|---|---|---|---|---|
+| **L3** (corroborated) | pmcore priced the same row from the other end: retire `mega_gpfix`, `mega_gpw`, `mega_null0`/`mega_db` **and** `mega_strcal`/`mega_strfix` and `mega_tramp`, with `PKG_FMT`/`DRV_VER` refusing a pre-flag-day image on kern_mega only (HDDTOOL's code-alias `rep movsb` is why `DRV_VER` goes too) | as L3, kern_mega only | **~1,400 `.mega` + ~60 `.text`** ESTIMATED from the `mega_gpfix`..`mega_strfix` span (the trampoline and the string-restart state are the `.text` part), and the 286 string-restart calibration with it | msp2/pmcore.md | **proposed** - one row with L3; L3's "up to ~1,190" is the narrower span |
+| **T2** (corroborated) | the hot cell's two `nop`s (88 `.text`) and the one FJ cell's four | - | - | msp2/pmfd.md | **recorded, not proposed**, as T2 |
+| **T2-2** | the ten `MEGA_ICW` inline setter cells made ordinary SLOTs (or one indexed getter/setter cell) - on kern_mega each jumps to an 11-byte stub because a store through CS is illegal there | every package (rebuild); kern_big loses its 52-cycle inline `OSAPI_SET_COLOR` | **~-80 `.text` on kern_mega** (conventional), +0 kern_big, ESTIMATED; a speed trade against the XT | msp2/pmfd.md | **proposed, a trade** - the XT's cycles against kern_mega's conventional bytes |
+| **R2-1** | a raw `int 13h` into a buffer above 1MB refused (AH = 09h, as the 8237 would), deleting `mega_hibnc` | any package reading a disk raw into `OSAPI_MEM_HUGE`/XMEM memory; `tests/megaxm`'s `i13` step is the only one known | **-223 `.mega`** (MEASURED span at msp2's tip) | msp2/pmfd.md | **proposed** |
+| **R2-2** | `OSAPI_SEG`'s SEG_AIM stack stated as a worst-case number (a driver caller's chain, 16 + the cell) instead of "~40 bytes" | nothing | a checkable contract | msp2/pmmem.md | **proposed - wording only, no bump** (an `abilock.py --update` if the SDK prose moves) |
+| **R2-3** | `OSAPI_SEG`'s 32 window rows (`MEGA_WTN`, SPEC.md 50.6.11) raised to 64 - since msp2 the rows are above 1MB, so the count costs pool and no conventional byte | nothing that fits in 32; a contract number | ~128 bytes of pool; eases C64's and RealDMG's window refusals | msp2/pmmem.md | **proposed** - a clarified contract rather than a moved one, could ride any bump |
+| **R2-4** | `OSAPI_FSX_SPK`'s two open verbs (AL = 0 real mode, AL = 2 protected) as one, the DOOR always writing IRQ0's vector | every package using `apps/os88spk.inc` (rebuild) | ~-15 `.text` kern_mega, a few bytes kern_big, the library's real-mode vector write in each package; mostly a cleaner contract | msp2/shared.md | **proposed** |
+| **R2-5** | `FSXF_REAL`'s answer returned in a register the door already uses (or a query slot), not by `fsx_run` rewriting the caller's `kent_di` frame | the packages that set `FSXF_REAL` (the Video Player's PM arms) | ~-10 `.text` kern_mega | msp2/shared.md | **proposed, low** |
+| **R2-6** | heap claims named by HANDLE, not by segment value - deletes `MEGA_ISHI`'s dual paths in `OSAPI_MEM_FREE`, `REGROW`, `MOVABLE` and the P cell | every package that claims memory, the C SDK | **several hundred `.cold` bytes on kern_mega** (the forks measure +48, +97, +42, +88, +47 in their routines) | msp2/shared.md | **recorded** - a design question larger than a flag day row; pairs with C1 |
+| **P2-1** | a module header word holding the image's DATA selector, so CSDO is `mov ds, [cs:MOD_H_DSEL]` - a read through CS, legal on a code alias | the module header (`MOD_VER`, `tools/os88mod.py`, every module - all built with the kernel, so no shipped package) | ~0 bytes, **~5x faster at every CSDO site** in every module on kern_mega | msp2/modcsdo.md | **proposed** - kernel-private (a module is versioned with its kernel), so it needs no `PKG_FMT` flag day at all |
+| **F2-1** | a call filter in the packed formats: `E8 rel16` stored as its absolute target before LZ, so near calls repeat and pack | the `'CZ'` container's decoder on every kernel, every packed package, driver and module (SPEC.md 20.13) | an unmeasured share of every call-heavy packed file; it is what made modcsdo refuse a near door per module (-611 image, +433 packed) | msp2/modcsdo.md | **proposed, unmeasured** - wants a host-side experiment over the shipped files first |
 
 ## 11. Defects and stale text found by the audit (none is an ABI change)
 
