@@ -77,3 +77,12 @@ local      lemmings    # SPEC.md 116. DEVELOPERS ONLY, by the owner's decision
                        # stories (fetched the same way) do ride the live media.
                        # `make lemmings` / `make lemmingsdisk` build it standalone,
                        # `make xt-lemmings` / `make 386-lemmings` boot it in 86Box.
+
+construction tithe   # SPEC.md 125. TITHE is at WAVE 1a - the renderer, with no
+                     # game behind it: no rules, no cards, no AI and no front
+                     # menu to launch it from. SPEC.md 125.9 is the wave table
+                     # and it ships at WAVE 6, on the floppies and the live
+                     # media together. `make tithedisk` is its own disk until
+                     # then. THIS LINE COMES OUT when it ships, and the gate is
+                     # what makes that happen: putting it on a disk with this
+                     # line standing FAILS.

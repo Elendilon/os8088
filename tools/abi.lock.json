@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "d2af41bcf7c469dda9ff98524beaaa98fe6210fa0fc07304e2b757879ca7f8d8",
+  "fingerprint": "bbd75dfe9bb9fa36f438abb7e377a2efcb4070b6be37a975e3c6ebda9e443385",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "bad7ca53637b5d0ac98d9a96709226f609e0466fcd1d24fe0be09e58884259f8",
+  "fingerprint": "6e575c9b7e9ce7fd4c9ee9d92c3192431cb05f154eb30253ad5d857fa07139cc",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -1309,6 +1309,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "SPEC.md 53.2.3 W4: OSAPI_FSX_SPK AL = 2 in kern_mega's real-mode bracket, FSXR_DRV and FSXL_DRV carry DRVC_SOUND - comments, no cell moved",
+   "to": 11
+  },
+  {
+   "fingerprint": "6e575c9b7e9ce7fd4c9ee9d92c3192431cb05f154eb30253ad5d857fa07139cc",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "os88api.inc: OSAPI_WM_SNAP8's comment says the snap is best-effort and a BLIT1 user must derive its own aligned x (TITHE, SPEC.md 125); a comment, no cell moved",
+   "to": 10
+  },
+  {
+   "fingerprint": "bbd75dfe9bb9fa36f438abb7e377a2efcb4070b6be37a975e3c6ebda9e443385",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "os88api.inc: OSAPI_WM_SNAP8's comment says the snap is best-effort and a BLIT1 user must derive its own aligned x (TITHE, SPEC.md 125); a comment, no cell moved",
    "to": 11
   }
  ]
