@@ -11,8 +11,8 @@ question before they attach, and none of them can answer it about a machine
 whose card is absent), and it is also exactly the shape that goes quietly
 wrong.  Both of its terms drift on their own:
 
-  * THE IMAGE.  A driver's image is a heap claim like any other (`DRVR_KB` is
-    `ceil(file size / 1024)`), and it is the biggest single term on the row a
+  * THE IMAGE.  A driver's image is a heap claim like any other (`DRVR_PARA` is
+    the file size to the heap's 512-byte granule, in paragraphs), and it is the biggest single term on the row a
     256KB machine most needs to be right about - ETHER.DRV is 16KB of the 52
     its row claims.  A commit that adds a feature to a driver moves that
     number and touches nothing in the kernel.  There is no linker here

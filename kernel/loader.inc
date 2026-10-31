@@ -1190,12 +1190,14 @@ ld_alloc:
                                 ; entry offset into the dispatcher below,
                                 ; and loader_run is UI-task-only and one
                                 ; load at a time (SPEC.md 21)
-    call mem_bytes_kb_x         ; the region is a heap claim now (SPEC.md
-                                ; 20.1/50.3), so it rounds to whole KB rather
-                                ; than to the 512 bytes int 13h needs - which
-                                ; mem_claim's own granularity then guarantees
+    mov cl, 4                   ; the region is a heap claim (SPEC.md
+    shr ax, cl                  ; 20.1/50.3) of EXACTLY the 512 bytes int 13h
+                                ; needs, in paragraphs: the granule is 512
+                                ; (SPEC.md 50.2.1), so the claim is the size
+                                ; asked for to the byte. It was rounded on to
+                                ; a whole KB - 515 bytes a launch on average
     call ld_slot                ; BX = the owner word: this record's slot
-    call mem_claim_hi_x ; from the TOP down, away from the data claims
+    call mem_claimp_hi_x        ; from the TOP down, away from the data claims
     jc .nodrv                   ; growing up from the bottom (SPEC.md 50.3)
     mov [ld_base], dx
 %ifdef KERN_BIG
@@ -1213,18 +1215,16 @@ ld_alloc:
                                 ; launch takes (SPEC.md 20.12.10)
 %endif
     shl ax, cl                  ; I_SIZE is bytes, and it is what the region
-                                ; occupies now, not what the file needed.
-                                ; **CL IS STILL 10**, set by mem_bytes_kb_x
-                                ; and documented as one of its outputs BECAUSE
-                                ; of this line. That rests on TWO DOCUMENTED
-                                ; CONTRACTS either side of it:
-                                ; ld_slot preserves CX (it pushes it - and its
-                                ; header says "clobbers: nothing else") and
-                                ; mem_claim_hi_x "clobbers: DX (an output) and
-                                ; the flags - every other register preserved",
-                                ; which holds through mem_compact's far calls
-                                ; into package relocation procs. The `jc`
-                                ; between them jumps AWAY, not through.
+                                ; occupies now: the paragraphs asked for, back
+                                ; to bytes. **CL IS STILL 4**, set above, which
+                                ; rests on TWO DOCUMENTED CONTRACTS either side
+                                ; of it: ld_slot preserves CX (it pushes it -
+                                ; and its header says "clobbers: nothing
+                                ; else") and mem_claimp_hi_x "clobbers: DX (an
+                                ; output) and the flags - every other register
+                                ; preserved", which holds through mem_compact's
+                                ; far calls into package relocation procs. The
+                                ; `jc` between them jumps AWAY, not through.
                                 ; WHAT A WRONG SHIFT COSTS: [ld_need] becomes
                                 ; I_SIZE, and I_SIZE is the bound in two
                                 ; OWNERSHIP FENCES - fsx.inc's "an entry inside
@@ -1233,16 +1233,13 @@ ld_alloc:
                                 ; path. Too large a value widens a security
                                 ; fence, silently. Loosen either contract and
                                 ; this line has to come back.
-    sbb ax, 0                   ; ...and SATURATED: a region over 63KB is a
-                                ; 64KB claim, and 64 << 10 is 0 in a word,
-                                ; which is what I_SIZE says for a BUILT-IN
-                                ; (inst_icon_ptr, inst_sweep_seg). The bit
-                                ; the shift pushed out is in CF, so a 64KB
-                                ; region reads 0xFFFF and every smaller one
-                                ; is untouched (SPEC.md 20.1.1). Both fences
-                                ; test `< I_SIZE`, so this refuses offset
-                                ; 0xFFFF alone, which image + bss <= 0xFE00
-                                ; already does
+                                ; NO SATURATION any more: the value is
+                                ; roundup512(image + bss) <= APP_MAX_SIZE =
+                                ; 0xFE00, and the granule divides 512, so the
+                                ; claim is that and the shift cannot carry. It
+                                ; was a whole KB, and 64 << 10 is 0 in a word,
+                                ; which is what `sbb ax, 0` was for (SPEC.md
+                                ; 20.1.1)
     mov [ld_need], ax
     clc                         ; `shl ax, cl` above WRITES CF, and this
     ret                         ; routine's answer is CF - it was the caller's

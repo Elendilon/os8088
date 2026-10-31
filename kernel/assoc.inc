@@ -1926,18 +1926,22 @@ asc_use_x:
                                 ; ASC_KB is the LARGEST file this build
                                 ; writes, and anything past it is refused
                                 ; rather than read
-    xchg ax, si                 ; SI = the first cluster, CX = the sectors
-    mov cx, dx                  ; dsk_read_chain is about to fill - the ONLY
-                                ; bound on what the rows below may say. HELD
-                                ; IN REGISTERS, not pushed: mem_claim keeps
-                                ; every register but DX, mem_movable all of
-                                ; them, so a refusal needs no frame to unwind
-                                ; (kernel size pass 15)
+    xchg ax, si                 ; SI = the first cluster
     mov ax, dx                  ; THE CLAIM IS THE FILE'S SIZE (SPEC.md
-    inc ax                      ; 54.7.7), not the largest a file may be: a
-    shr ax, 1                   ; disk of a few programs reads a 1KB cache
-    mov bx, MEM_K_ASC           ; into 1KB. DX <= ASC_KB*2, so AX >= 1
-    call mem_claim_x
+    mov cl, 5                   ; 54.7.7), not the largest a file may be: a
+    shl ax, cl                  ; disk of a few programs reads a 1KB cache
+                                ; into 1KB - in PARAGRAPHS now, the sectors
+                                ; exactly, where a KB door paid 512 bytes for
+                                ; an odd count (SPEC.md 50.2.1). DX <=
+                                ; ASC_KB*2, so AX >= 32
+    mov cx, dx                  ; CX = the sectors dsk_read_chain is about to
+                                ; fill - the ONLY bound on what the rows below
+                                ; may say. HELD IN REGISTERS, not pushed:
+                                ; mem_claim keeps every register but DX,
+                                ; mem_movable all of them, so a refusal needs
+                                ; no frame to unwind (kernel size pass 15)
+    mov bx, MEM_K_ASC
+    call mem_claimp_x
     jc .rfno                    ; refused: tier 2, every lookup misses
     mov [asc_seg], dx
     mov es, dx                  ; ES:BX = the claim for the read

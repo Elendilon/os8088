@@ -1174,7 +1174,7 @@ FAST = [
         "the attach-only code always handed back, and the mixer verbs and "
         "the volume popup too with no mixer: 11K -> 7K without, 11K -> 10K "
         "with. Two legs: the Covox 5150 (no card, so no mixer) must hold "
-        "ceil(snd_keep/1K) in DRVR_KB AND the mem_tab record with the Covox "
+        "snd_keep to the 512-byte granule in DRVR_PARA AND the mem_tab record with the Covox "
         "tier still up; the Sound Blaster 5150 (a mixer) ceil(snd_keepmix/"
         "1K). Red at 11K on both with either the driver's store or %1_att's "
         "mem_regrow taken out, and red at 7K on the SB leg with snd_keep "

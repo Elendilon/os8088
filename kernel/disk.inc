@@ -5788,8 +5788,10 @@ dsk_fatw_claim:
                                 ; volume 1 carried owner FC25, so a shed would
                                 ; have zeroed volume 5's record and left B:
                                 ; naming freed memory (tests/fatwpin.py)
-    mov ax, (DSK_FAT_SECS*512 + 1023) / 1024
-    call mem_claim_x              ; out: DX = the segment; CF=1 = refused
+    mov ax, DSK_FAT_SECS * 32   ; ...in PARAGRAPHS, the sectors exactly: nine
+    call mem_claimp_x           ; of them are 4.5KB, which a KB door made five
+                                ; (SPEC.md 50.2.1). out: DX = the segment;
+                                ; CF=1 = refused
     jc .none
                                 ; NOT mem_movable. mem_can_move refuses a
                                 ; purgeable cache outright (SPEC.md 50.6.1), so
@@ -7064,11 +7066,14 @@ dsk_rah_want:
                                 ; memory is really there (below)
     mul cx                      ; AX = n*9, CX being the 9 the divide left
                                 ; there and nothing between having touched it
-    inc ax
-    shr ax, 1                   ; ...and KB = ceil(n * 4.5), a chunk being
-                                ; 4,608 bytes. Exact at 14: (126+1)>>1 = 63
+    mov cl, 5
+    shl ax, cl                  ; ...and PARAGRAPHS = n * 288, a chunk being
+                                ; 4,608 bytes - exact, where the KB door took
+                                ; ceil(n * 4.5) KB and an odd n paid 512 bytes
+                                ; for it (SPEC.md 50.2.1). CX is spent: nothing
+                                ; below reads the 9
     mov bx, MEM_P_DIRW          ; NO 64KB PAGE HEAD (§18.95.7). It used to
-    call mem_claim_x            ; claim the WHOLE block as one, so that
+    call mem_claimp_x           ; claim the WHOLE block as one, so that
     pop ax                      ; dsk_runcap never split a fill - and that is
     jc .out                     ; an OPTIMISATION and not a rule: dsk_runcap
                                 ; caps a run at the page boundary and dsk_xfer
@@ -7178,10 +7183,10 @@ dsk_rah_land:
     push bx
     push cx
     push dx
-    mov ax, (DSK_RAH_SECS * 512 + 1023) / 1024
-    mov cx, ax                  ; ...all of it inside one 64KB page
-    mov bx, MEM_P_RAHB
-    call mem_claim_dma_x
+    mov ax, DSK_RAH_SECS * 32   ; the sectors in PARAGRAPHS, exactly - nine
+    mov cx, ax                  ; are 4.5KB, which a KB door made five (SPEC.md
+    mov bx, MEM_P_RAHB          ; 50.2.1) - all of it inside one 64KB page
+    call mem_claimp_dma_x
     jc .out
     mov [dsk_rah_bnc], dx
 .out:

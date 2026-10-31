@@ -394,6 +394,7 @@ kd_spent:         resb 1        ; **AND WHETHER THE ARENA IS STILL OURS TO
 
 section .text
 ; in: AX = KB, BX = owner (ignored); out CF=0 and DX = the segment
+; (mem_claimp_x: AX in PARAGRAPHS, disk.inc's caches - SPEC.md 50.2.1)
 ;
 ; **A CLAIM AFTER THE HANDOVER IS A CLAIM ON THE PROGRAM** (SPEC.md
 ; 96.44.11.3). This allocator hands out `[kd_top] - size` and lowers the
@@ -402,13 +403,21 @@ section .text
 ; Before the handover that is the point; after it, `[kd_top]` is the window's
 ; TOP rather than a frontier, and lowering it again re-sells memory the
 ; program is already using.
+mem_claimp_x:
+    push ax
+    jmp short mem_claim_x.p
 mem_claim_x:
     push ax
-    cmp byte [kd_spent], 0
-    jne .no
     mov cl, 6
     shl ax, cl                  ; KB -> paragraphs
     jc .no
+.p:
+    add ax, 31                  ; ...a whole number of 512-byte granules, as
+    and ax, -32                 ; the kernel's own allocator rounds (SPEC.md
+    jz .no                      ; 50.2.1): a base off [kd_top] stays 512-
+                                ; aligned, which the read-ahead's int 13h needs
+    cmp byte [kd_spent], 0
+    jne .no
     mov dx, [kd_top]
     sub dx, ax
     jc .no

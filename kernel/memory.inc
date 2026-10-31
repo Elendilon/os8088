@@ -898,7 +898,7 @@ mem_claim_x:
 .gran:                          ; AX = PARAGRAPHS from here (SPEC.md 50.2.1):
     add ax, MEM_GRAN - 1        ; ...rounded up to the granule ONCE, here,
     jc .big                     ; for every door, so mem_claim_1 and
-    and al, -MEM_GRAN           ; mem_compact see a whole number of granules
+    and ax, -MEM_GRAN           ; mem_compact see a whole number of granules
     jz .big                     ; and nothing else does the rounding. 0 asks
 .retry:                         ; for nothing and gets nothing
 %ifdef OS88_COMPACT
@@ -999,10 +999,6 @@ mem_claimp_dma_x:
     xor di, di
     mov si, cx                  ; the head, already paragraphs
     jmp short mem_claimp_x.pgo
-%ifndef KERN_SMALL
-    nop                         ; PARITY PAD, never executed: dsk_xfer,
-%endif                          ; dsk_runcap and dsk_next_clus_x sit past this
-                                ; in `.cold` (tests/unit/t_hotpar.py)
 
 ; the scan-and-publish itself; mem_claim above is the retry loop around it
 ;
@@ -4387,21 +4383,33 @@ mem_regrow:
     ret
 .conv:
 %endif
+    stc                         ; CF = 1: AX is KB
+    jmp short mem_regrowp.e     ; (a `mov cl, imm8` swallowing the clc would
+mem_regrowp:                    ; be a byte less and would push the caller a
+    clc                         ; CL it never had). mem_regrowp: AX in
+.e:                             ; PARAGRAPHS (SPEC.md 50.2.1), CF = 0. Its
+                                ; callers are the driver KEEP and OSAPI_MEM_P,
+                                ; neither of which names a kern_mega POOL
+                                ; block, so it may start below that arm
     push ax                     ; (no BX: nothing here writes it - every
     push cx                     ; callee banks its own - which is a byte under
     push si                     ; the kretc_cx ladder it left through until
     push di                     ; size pass 10)
-    pushf
+    pushf                       ; (no push, pushf or cli writes CF)
     cli
+    jnc .para
+    mov cl, 6
+    shl ax, cl                  ; AX = paragraphs wanted
+    jc .fail
+.para:
+    add ax, MEM_GRAN - 1        ; ...a whole number of granules, and 0 asks
+    jc .fail                    ; for nothing (the `or ax, ax / jz` that sat
+    and ax, -MEM_GRAN           ; before the shift is this jz now)
+    jz .fail
 %ifdef OS88_COMPACT
     cmp byte [mem_cp_busy], 0   ; not from inside a relocation proc either
     jne .fail                   ; (SPEC.md 66.3 rule 3): path 3 would claim
 %endif                          ; ...and kern_small has no walk to be inside
-    or ax, ax
-    jz .fail
-    mov cl, 6
-    shl ax, cl                  ; AX = paragraphs wanted
-    jc .fail
 
     call mem_find_own           ; it must be a base, and yours
     jc .fail
@@ -4869,11 +4877,13 @@ mem_avail_lvl_x:                  ; as free, because mem_claim sheds them all.
 ; resident bytes for a segment crossing to the segment it was already in.
 ; -----------------------------------------------------------------------------
 mem_owned_kb:
-    push cx                     ; mem_sum_kb's frame, so its tail below is this
-    push dx                     ; routine's too: DX the paragraphs, AX the
-    push si                     ; total they are added to - 0, and `cwd` off
-    xor ax, ax                  ; that 0 is the byte-short zero of DX
-    cwd
+    xor ax, ax                  ; no paragraphs of its own to add
+mem_owned_kba:                  ; ...or AX = PARAGRAPHS to add to the sum
+    push cx                     ; before the one shift - osapi_drv_classk_x's
+    push dx                     ; image, which is a granule and not a KB
+    push si                     ; (SPEC.md 50.2.1). mem_sum_kb's frame, so its
+    xchg ax, dx                 ; tail below is this routine's too: DX the
+    xor ax, ax                  ; paragraphs, AX the KB total they go into
     mov si, MEM_FIRST
 .scan:
     call mem_next
@@ -6076,6 +6086,21 @@ section .cold                   ; COLD_SEG (SPEC.md 2.6)
 ;     ld_check_hdr, so it is at least 512. **A NEW CALLER MUST PROVE THE SAME
 ;     OR USE mem_bytes_kb**: 0 KB is a claim with nowhere to put anything.
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; mem_bytes_gp_x - BYTES -> PARAGRAPHS, rounded up to a whole number of
+;                  granules (SPEC.md 50.2.1): the size a paragraph door claims
+; in:       AX = bytes, at most 0x10000 - MEM_GRAN*16 (the caller bounds it:
+;           the round-up carries past that and answers a small number)
+; out:      AX = paragraphs, a multiple of MEM_GRAN;  CL = 4
+; clobbers: CL, and the flags
+; -----------------------------------------------------------------------------
+mem_bytes_gp_x:
+    add ax, MEM_GRAN * 16 - 1
+    and ax, -(MEM_GRAN * 16)
+    mov cl, 4
+    shr ax, cl
+    ret
+
 mem_bytes_kb_x:
     dec ax                      ; ceil(n / 1024) = (n - 1) / 1024 + 1 for any
     mov cl, 10                  ; n >= 1, and NEVER CARRIES: `add ax, 1023`

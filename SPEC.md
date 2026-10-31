@@ -98740,13 +98740,16 @@ extra `int 13h` per driver on every boot (PERFORMANCE.md: ~400 ms a call, so
 seconds on the target machine). §51.1.2 is what is done instead: the two are
 made the same number at BUILD time, where both are known.
 
-### 51.1.2 The strip stops at the KB rung, so the directory's size already covers the bss
+### 51.1.2 The strip stops at the granule rung, so the directory's size already covers the bss
 
 The size the directory reports is what §20.13.3.1's read expands into the
 claim — the driver's image — and the size the driver *needs* is `image + bss`,
 a byte inside that image and so unknown when the claim is made. **The answer
 is to make the two the same number**: `tools/os88drv.py` strips a driver's
-trailing zero run only as far as the KB boundary its footprint needs, so the
+trailing zero run only as far as the GRANULE boundary its footprint needs
+(512 bytes, §50.2.1 — it was the KB, and moving it was `DRV_VER` 11 → 12,
+because a driver stripped to a KB rung is short of its bss in a 512-byte
+claim and `drv_bss` refuses it), so the
 claim `drv_load` makes from the directory covers the bss by construction and
 nothing is padded, shrunk, grown or moved. `drv_bss` zeroes and does no more.
 

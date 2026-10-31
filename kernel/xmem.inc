@@ -133,7 +133,7 @@ xm_row:
                                 ; kernel's other DRVC_OVL record - already
                                 ; does exactly this
     dw xm_fname, xm_fname       ; DRVR_FILE, DRVR_TITLE
-    dw 0, 0                     ; DRVR_KB, DRVR_ENT
+    dw 0, 0                     ; DRVR_PARA, DRVR_ENT
     db DRVC_OVL                 ; DRVR_CLASS - not a class the kernel knows
     db 0                        ; DRVR_WANT - xm_sniff is the only writer, and
                                 ; no settings file can reach it

@@ -212,7 +212,7 @@ ss_row:
     dw PKG_DISP, 0              ; DRVR_DISP, DRVR_SEG: together the far
                                 ; pointer drv_call reaches the image through
     dw ss_fname, ss_fname       ; DRVR_FILE, DRVR_TITLE
-    dw 0, 0                     ; DRVR_KB, DRVR_ENT
+    dw 0, 0                     ; DRVR_PARA, DRVR_ENT
     db DRVC_OVL                 ; DRVR_CLASS - not a class the kernel knows
     db 0                        ; DRVR_WANT - no settings file can reach it
     db DRVE_OK                  ; DRVR_ERR - and NO DRVR_PAD byte after it, for
