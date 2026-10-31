@@ -2549,28 +2549,29 @@ px_head:
 .flat:                              ; packed: the whole file, expanded
     mov ax, [px_fsize]
     mov dx, [px_fsize + 2]
-    add ax, 1023
-    adc dx, 0
-    mov cx, 10
-.kb:
+    add ax, 15                      ; in PARAGRAPHS (SPEC.md 50.3.7): the
+    adc dx, 0                       ; file is a byte count, and a whole KB
+    mov cx, 4                       ; of it would be half a granule more on
+.kb:                                ; average, held for the whole decode
     shr dx, 1
     rcr ax, 1
     loop .kb
     or dx, dx
     jnz .big
-    cmp ax, 0xFFFF - 2
+    cmp ax, 0xFFFF - 64
     jae .big
     push ax
-    inc ax                          ; a KB spare - and none for alignment:
-    call OSAPI_MEM_CLAIM            ; guard 6b's bases are 512-aligned
-    pop ax                          ; already (px_dmaclaim)
+    add ax, 64                      ; a KB spare - and none for alignment:
+    mov bl, MEMP_CLAIM              ; guard 6b's bases are 512-aligned
+    call OSAPI_MEM_P                ; already (px_dmaclaim). CX is 0, the
+    pop ax                          ; loop's
     jc .big
     mov [px_flatraw], dx
     mov [px_flatseg], dx
     push es
     mov es, dx
     xor bx, bx
-    mov cx, 10                      ; DX:CX = the capacity in bytes
+    mov cx, 4                       ; DX:CX = the capacity in bytes
     xor dx, dx
 .cap:
     shl ax, 1
@@ -4502,8 +4503,8 @@ px_fidx     equ px_cur + PXR_FIDX
     PXVAR px_anbg, 1                ; the background index (106.18's)
     PXVAR px_anflg, 1               ; ANF_* below
     PXVAR px_anseg, 2               ; THE ANIMATION's claim: the global
-    PXVAR px_ankb, 2                ; table, then the backup (disposal 3)
-    PXVAR px_anneed, 2              ; ...the KB a frame asked it to grow to
+    PXVAR px_anpara, 2              ; table, then the backup (disposal 3), in paragraphs
+    PXVAR px_anneed, 2              ; ...the paragraphs a frame asked it to grow to
     PXVAR px_sbase, 4               ; THE STREAM'S BASE: a PNG inside an ICO
                                     ; (106.25), a GIF's next frame...
     PXVAR px_rdrop, 2               ; ...and its cluster's bytes before it
