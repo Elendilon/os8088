@@ -30037,7 +30037,7 @@ is the closed control on its own for this reason: its ground, its frame, the
 arrow cell and the pick's caption, drawn again after a successful restore. A
 press only ever reaches a live control, so it draws in the live pen.
 
-The record grew by two words (`OS88UI_DR_SEG`, `OS88UI_DR_KB`) and
+The record grew by two words (`OS88UI_DR_SEG`, `OS88UI_DR_PARA`, the claim's paragraphs since SPEC.md 50.3.7) and
 `OS88UI_DR_SIZE` is 22 — **appended**, so every offset a caller already reads
 is unmoved, and a declaration that was not grown with it overlaps the next
 one rather than failing to assemble. `tests/skiesui.py` reads the two

@@ -118,7 +118,7 @@ cs_drop:    dw 0, 0, 0, 0           ; OS88UI_DR_RECT, filled by cs_geom
             dw 0                    ; OS88UI_DR_SEL
             dw 0                    ; OS88UI_DR_WIN
             db 0, 0FFh              ; OS88UI_DR_OPEN, OS88UI_DR_HOT
-            dw 0, 0                 ; OS88UI_DR_SEG, OS88UI_DR_KB
+            dw 0, 0                 ; OS88UI_DR_SEG, OS88UI_DR_PARA
             dw 0                    ; OS88UI_DR_TOP
             dw 0                    ; OS88UI_DR_DIS
 %if ($ - cs_drop) != OS88UI_DR_SIZE
@@ -134,7 +134,7 @@ cs_tgt:     dw 0, 0, 0, 0           ; OS88UI_DR_RECT, filled by cs_geom
             dw 0                    ; OS88UI_DR_SEL
             dw 0                    ; OS88UI_DR_WIN
             db 0, 0FFh              ; OS88UI_DR_OPEN, OS88UI_DR_HOT
-            dw 0, 0                 ; OS88UI_DR_SEG, OS88UI_DR_KB
+            dw 0, 0                 ; OS88UI_DR_SEG, OS88UI_DR_PARA
             dw 0                    ; OS88UI_DR_TOP
             dw 0                    ; OS88UI_DR_DIS
 %if ($ - cs_tgt) != OS88UI_DR_SIZE
