@@ -265,8 +265,8 @@ def bochs(a):
     roff = resoff()
     lines, res, after, moved, hd0, hd1 = [], None, None, False, None, None
     try:
-        if not box.wait_for("kern_mega:", 240):
-            raise RuntimeError("no kern_mega line in 240s")
+        if not box.wait_pm(240):
+            raise RuntimeError("kern_mega never reached protected mode in 240s")
         box.up()
         tbl0, = box.reads([(KSEG * 16 + TBL, TLEN)])
         hd0 = hdd_head(box)
@@ -289,7 +289,8 @@ def bochs(a):
         else:
             want(False, "%s finished its legs in 400s" % NAME)
         box.guest_sleep(1)
-        lines = box.lines()
+        lines = box.lines() + box.faults()   # (MEGA_E9: the kernel
+                                            # says nothing on E9)
         if not box.fault():
             base = box.pkg_base(NAME)
             res = box.read(base + roff, 16 + len(LEGS) * LEG_SZ)

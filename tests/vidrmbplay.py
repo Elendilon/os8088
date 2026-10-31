@@ -78,9 +78,7 @@ def run(leg, disk, out, display):
                         display=display, sb=sb, cfg=1 if sb else None)
 
     def bad():
-        return [ln for ln in box.lines()
-                if ln.startswith("kern_mega FAULT")
-                or ln.startswith("kern_mega CLOSED")]
+        return box.faults()             # (MEGA_E9: off the kernel's state)
 
     def vb(label, n=1):
         return box.pkg_read("Video", label, n, VMAP)
@@ -90,7 +88,7 @@ def run(leg, disk, out, display):
         return b[0] | b[1] << 8
 
     try:
-        if not box.wait_for("kern_mega: protected mode", 300):
+        if not box.wait_pm(300):
             return "%s: kern_mega never reached protected mode" % leg
         rmode = box.sym("fsx_rmode")
         rtick = box.sym("fsx_rtick") - KSEG * 16

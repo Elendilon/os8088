@@ -138,8 +138,8 @@ def main():
     bases = {}
     after = None
     try:
-        if not box.wait_for("kern_mega:", 240):
-            raise RuntimeError("no kern_mega line in 240s")
+        if not box.wait_pm(240):
+            raise RuntimeError("kern_mega never reached protected mode in 240s")
         box.up()
         g0, idt = gates(box)
         box.megarun()
@@ -163,7 +163,8 @@ def main():
             if box.fault():
                 break
         box.guest_sleep(1)
-        lines = box.lines()
+        lines = box.lines() + box.faults()   # (MEGA_E9: the kernel
+                                            # says nothing on E9)
         if not FAILS:                   # (a hang has no desktop to read)
             box.ui_done("the desktop after the brackets", lock=False)
             g1, _ = gates(box)

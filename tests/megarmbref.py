@@ -180,8 +180,8 @@ def main():
     lines, look, after, moved, msseg = [], None, None, False, 0
     ext = None
     try:
-        if not box.wait_for("kern_mega:", 240):
-            raise RuntimeError("no kern_mega line in 240s")
+        if not box.wait_pm(240):
+            raise RuntimeError("kern_mega never reached protected mode in 240s")
         box.up()
         ext = box.sym("mod_tab") + eq["MOD_EXT"] * eq["MODR_SIZE"] \
             + eq["MODR_SEG"]
@@ -229,7 +229,8 @@ def main():
         else:
             want(False, "%s finished its legs in 300s" % NAME)
         box.guest_sleep(1)
-        lines = box.lines()
+        lines = box.lines() + box.faults()   # (MEGA_E9: the kernel
+                                            # says nothing on E9)
         if not FAILS and not box.fault():
             box.ui_done("the desktop after the brackets", lock=False)
             after = box.reads([(KSEG * 16 + TBL, TLEN), (tf, 1), (ext, 2),
