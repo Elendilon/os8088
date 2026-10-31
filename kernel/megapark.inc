@@ -131,10 +131,8 @@ mpk_stub:
     pop ds
     MPK_SUMLINES
     pop ds
-    push ax
-    push bx
+    push ax                         ; (BX is MPK_SUMLINES's: SP's, below)
     call .pit
-    pop bx
     pop ax
     mov bx, sp
     inc word [bx+2]
@@ -175,10 +173,8 @@ mpk_stub:
 .rst:
     mov ax, bp
     mov dx, si
-    mov cl, 10
-    shr ax, cl
-    mov cl, 6
-    shl dx, cl
+    shr ax, 10
+    shl dx, 6
     or ax, dx
     mov cx, [MPK_C_PKB]
     sub cx, ax
@@ -187,9 +183,7 @@ mpk_stub:
     jb .last                        ; 32KB and the last on P, which is any
     mov cx, 32                      ; whole KB
 .last:
-    xchg ch, cl                     ; KB -> bytes
-    shl cx, 1
-    shl cx, 1
+    shl cx, 10                      ; KB -> bytes
     mov ax, bp
     and ax, 0x7FFF
     sub cx, ax                      ; (bp's own place in its 32KB, which is 0
