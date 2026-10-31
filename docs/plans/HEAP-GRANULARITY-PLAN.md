@@ -1,7 +1,7 @@
 # HEAP-GRANULARITY-PLAN — claims finer than a kilobyte
 
 **STATUS: RESEARCH, NOTHING BUILT. Revision 2**, after the owner's review of
-revision 1 (§9 records what changed and why). Every figure marked *measured*
+revision 1 (section 9 records what changed and why). Every figure marked *measured*
 was taken on `heap-size` cut from `elendilon` at `3cf34ee` (2026-10-31),
 host-side, off `build/`. Every figure marked *estimated* is arithmetic.
 
@@ -25,7 +25,7 @@ recommend?
    512 to 256 later is then a constant and an alignment rule, not an ABI. The
    311 package call sites only gain if they can express a size finer than a KB,
    and that door is how they do. Most of them get it from three shared files
-   (§3.3).
+   (section 3.3).
 3. **Alignment and size granularity are two different properties, and today one
    is a side effect of the other.** The Hard Rule needs every int 13h target
    **base** to be 512-aligned. It does not need every **size** to be. Claims
@@ -33,22 +33,22 @@ recommend?
    drivers, modules, the disk caches, and every claim through today's KB
    doors, which packages already rely on) and **CPU** (base `MEM_GRAN`-aligned:
    everything a CPU only touches). Two of the three alignment asserts in
-   packages (§1.2) exist only because nothing stated this distinction.
+   packages (section 1.2) exist only because nothing stated this distinction.
 4. **Recommendation: build the machinery for 256 and ship it at 512 first.**
    The alignment bump is written once, assembled out while `MEM_GRAN` = 512
    (where every base is aligned by construction), and kept assembling by a
    `MEMGRAN=256` knob. Flip the default after a field measurement of 256-byte
-   holes (§2.6). The step to 256 is real for CPU claims (~128 bytes each). For
+   holes (section 2.6). The step to 256 is real for CPU claims (~128 bytes each). For
    top-down disk images it turns rounding into a hole above the image, which is
    the trap `tools/os88drv.py` already measured once (14,336 bytes stranded).
 5. **What it buys at 512: ~3–5 KB of heap in an ordinary session, for ~100–150
-   resident bytes** (*estimated*, §2.5 and §4). The largest single kernel item
+   resident bytes** (*estimated*, section 2.5 and section 4). The largest single kernel item
    is the heap's own tail. On today's kern_big the floor is 96.5 KB, so the top
    512 bytes of every machine's heap can never be claimed (*measured*: `HEAP
    0x1820`).
 6. **The Task Manager stays four characters wide and becomes EXACT up to 99½K**
    with a private ¼ ½ ¾ glyph set, blitted in place of one cell. Totals close
-   by cumulative rounding (§5).
+   by cumulative rounding (section 5).
 
 ## 1. Where the KB lives today
 
@@ -56,12 +56,12 @@ recommend?
 
 | site | what it does | under `MEM_GRAN` |
 |---|---|---|
-| `mem_claim_1` `memory.inc:970-977` | `cmp ax,1024 / shl ax,6`: KB to paragraphs, the one door every claim reaches | takes **paragraphs** and rounds up to `MEM_GRAN` itself (§3.1) |
+| `mem_claim_1` `memory.inc:970-977` | `cmp ax,1024 / shl ax,6`: KB to paragraphs, the one door every claim reaches | takes **paragraphs** and rounds up to `MEM_GRAN` itself (section 3.1) |
 | `mem_claim_dma_x` `:822` | DMA head, KB to paragraphs | the paragraph door takes the head in paragraphs. Heads are stored in paragraphs already (`MC_DMA`) |
 | `mem_compact` `:3787` | the pending claim's KB to paragraphs | follows `mem_claim_1` |
 | `mem_regrow` `:4334` | the new KB to paragraphs | paragraph door, and the KB door shifts |
 | `mem_avail` `:4752` | paragraphs to KB, **rounded down** | the KB door keeps rounding down, because "claim what AVAIL said" must always fit. The paragraph door answers exact paragraphs |
-| `mem_sum_kb` / `mem_owned_kb` `:4803-4873` | sum paragraphs, then one `shr 6` | readers move to paragraphs (§5) |
+| `mem_sum_kb` / `mem_owned_kb` `:4803-4873` | sum paragraphs, then one `shr 6` | readers move to paragraphs (section 5) |
 | `osapi_sys_kb` `SK_HEAP` `:5749` | `(top-base) >> 6`, truncated | append `SK_HEAPP` in paragraphs. `SK_HEAP` stays so that `apps/dos/dos.asm:8128`'s `SK_KERN + SK_HEAP` identity keeps cancelling |
 | `mem_bytes_kb` `:5972`, `mem_bytes_kb_x` `:6011` | bytes to KB, rounded up | become bytes to paragraphs (`add 15 / shr 4`). The granule rounding happens in the claim, once |
 | `mem_hiclaims` `:3566-3571` (kern_mega) | `MC_PARA >> 6` to the KB the pool claim gets, **truncating**, while the copy after it moves all of `MC_PARA` | **a latent defect a finer unit exposes**: a 1.5K claim would get a 1K pool block and the copy would overrun it. Needs `add ax,63` first, 3 bytes, kern_mega only |
@@ -179,7 +179,7 @@ unreliable on kern_small.
 
 Over 25 `.DRV` files, image + `DRV_H_BSSP` *(measured)*: 13,660 at 1K (mean
 546), 7,004 at 512, 3,676 at 256. Examples: ETHER 1,008, FORMAT 901, HTTPFS
-945, RAMDISK 924 at 1K. The same top-down caveat as §2.1 applies at 256.
+945, RAMDISK 924 at 1K. The same top-down caveat as section 2.1 applies at 256.
 
 **The strip rule is the coupling to fix, not something to move in lockstep.**
 `os88drv.py:166-168` strips trailing zeros down to the 1024 rung, and
@@ -223,7 +223,7 @@ At 512 *(measured, slack = claim − image)*:
 | FILECP (small) | 1,821 | 76 | 227, fits | 2,048 | 2,048 |
 | FDLG (small) | 1,587 | 16 | 461, fits | 1,536 | 1,792* |
 
-\* Modules are DISK class, so at 256 a top-down module image follows §2.1's
+\* Modules are DISK class, so at 256 a top-down module image follows section 2.1's
 caveat. HIBER's unpadded image is *estimated* at the size its pad was added to.
 
 ### 2.4 The heap's tail
@@ -268,7 +268,7 @@ claims live (parts, a document, a C overlay, a story, a catalog):
 |---|---:|---:|
 | the heap tail (when the floor is on a half) | 512 | 0 |
 | FAT window + read-ahead | 1,024 | 0 |
-| 3 package regions | ~730 | ~450, **only if** the holes above them get filled (§2.1) |
+| 3 package regions | ~730 | ~450, **only if** the holes above them get filled (section 2.1) |
 | 2 drivers | ~540 | ~260, same condition |
 | 8 data claims via the paragraph door | ~2,050 | ~1,020 |
 | **total** | **~4.9 KB** | **~1–1.7 KB more** |
@@ -304,11 +304,11 @@ kernel. `tools/heapmap.py` already reads holes off a running machine. A
    direction. The 64 KB saturation needs a re-check: 0x1000 paragraphs << 4
    is 0 with CF set, as before.
 4. **Loader**: claims `roundup_G(max(img + bss, roundup512(fsize)))` as DISK.
-5. **Driver loader**: sized from the file under §2.2's no-strip rule.
+5. **Driver loader**: sized from the file under section 2.2's no-strip rule.
    `DRVR_KB` becomes `DRVR_PARA` (or half-KB), and `osapi_drv_classk_x`
    converts for its KB answer. The Control Panel's driver column is the place
-   that gains a `.5` (§5.3).
-6. **Modules**: §2.3's exact size; pads and fit-asserts deleted.
+   that gains a `.5` (section 5.3).
+6. **Modules**: section 2.3's exact size; pads and fit-asserts deleted.
 7. **Caches**: FAT window, read-ahead and dirw ask in paragraphs. Their steal
    thresholds (`DSK_FATW_MINK`) follow.
 8. **`MEM_ALIGN_CLASS`**, assembled only when `MEM_GRAN` < 32:
@@ -321,7 +321,7 @@ kernel. `tools/heapmap.py` already reads holes off a running machine. A
      un-aligns a DISK claim.
 9. **Reporting**: `SK_HEAPP` appended to `osapi_sys_kb` (`SYSKB_SIZE` 20 →
    22, an append).
-10. **kern_mega**: the `mem_hiclaims` ceiling (§1.1).
+10. **kern_mega**: the `mem_hiclaims` ceiling (section 1.1).
 
 ### 3.2 The new public door
 
@@ -349,14 +349,14 @@ door ships so that callers are already correct when the granule moves.
 - **`PKG_FMT`: no bump.** The new cell is an append. Today's KB doors keep
   their contract (now written down: DISK class). `tools/abilock.py --update`
   records the fingerprint move.
-- **`DRV_VER`: one bump** (§2.2).
+- **`DRV_VER`: one bump** (section 2.2).
 - **The three shared files** move to the paragraph door, and every package that
   includes them gains at its next build with no per-package work, the same way
   `os88ui_glyph`'s change reached sixteen carriers (CTRL-GLYPH-PLAN):
   `os88partsbody.inc` (its `zkb` part-table field stays KB; a part scratch is
   claimed as `zkb << 6` paragraphs, which is exact), `crt0.asm`, and `os88.h`
   (new `os88_mem_claim_p(paras)` and an `OS88_BYTES_PARA(n)` macro beside the
-  KB calls). Then the per-package byte sites in §2.5, one at a time, each
+  KB calls). Then the per-package byte sites in section 2.5, one at a time, each
   deciding DISK or CPU.
 - **SDK macros** in `os88api.inc`: `OS88_CLAIM_BYTES` / `OS88_CLAIM_BYTES_DISK`
   so a package site is one line.
@@ -374,7 +374,7 @@ These sections change:
 - 20.9: `SK_HEAPP`.
 - 2.1.1: the rule restated as a property of DISK claims.
 - The five places that say "every claim is whole KB": around SPEC.md 51604,
-  9828, 36278 and 103502, plus §2.1.1's own text at 362.
+  9828, 36278 and 103502, plus section 2.1.1's own text at 362.
 
 ## 4. The kernel byte cost (*estimated*: measure the SPAN, never the rung)
 
@@ -392,8 +392,8 @@ These sections change:
 | kern_mega `mem_hiclaims` ceiling | +3 | |
 
 Nearly all of this is `.cold`, which is resident. Against it, at 512: ~3–5 KB
-of heap back in an ordinary session (§2.6). This is runtime heap, which
-`kernsize` will not show, so the gates have to read the heap (§6). In the
+of heap back in an ordinary session (section 2.6). This is runtime heap, which
+`kernsize` will not show, so the gates have to read the heap (section 6). In the
 banner's terms: **N ≈ 100 resident bytes buys M ≈ 30–50× N of heap in normal
 use.** At 256, the further ~40 bytes buy ~1–1.7 KB *if* the holes fill.
 
@@ -434,7 +434,7 @@ So the target is exact, not merely plausible.
    seam cut (`FONT_SEAM_A/B`). The Task Manager carries three 8×8 1bpp cells,
    24 bytes, and draws a figure as up to three opaque pieces: `font_run`
    of the digits, `OSAPI_GFX_BLIT1` of the fraction cell with its ground in
-   the same pass (nothing drawn twice, §6.1's rule kept), and `font_run` of
+   the same pass (nothing drawn twice, SPEC.md 6.1's rule kept), and `font_run` of
    the `K`. A figure with no fraction is still one `font_run`. At 512 only `½`
    is ever reached. `¼`/`¾` are for 256 and cost 16 bytes to carry from the
    start.
@@ -508,7 +508,7 @@ is now its DISK claim's contract.
    Programs = RAM used exactly.
 5. **Driver no-strip A/B**: a `.DRV` stripped to the 1K rung is refused
    `.nofit` on the new kernel. That is the reason for `DRV_VER`.
-6. **`gran256`** (soak, the measurement of §2.6): a fixed session on both
+6. **`gran256`** (soak, the measurement of section 2.6): a fixed session on both
    kernels at `MEMGRAN=256` and 512, reporting stranded hole bytes and the
    largest free run. It decides the default, and stays as the regression
    row once it has.
@@ -538,7 +538,7 @@ contract change before the code that depends on it:
 5. **`MEM_ALIGN_CLASS` and the `MEMGRAN=256` knob**, with `gran256` measuring
    the holes. Flip the default only on that measurement.
 
-Then the per-package byte sites (§2.5), as each package is next touched. Each
+Then the per-package byte sites (section 2.5), as each package is next touched. Each
 one decides DISK or CPU, which turns the alignment those packages rely on from
 an accident into a declaration.
 
@@ -548,7 +548,7 @@ Open questions for the owner:
   should it also answer `MEM_GRAN` so a package can see the granule? That
   costs ~3 bytes, and is useful for a caller that packs several things into one
   claim.
-- 256 on kern_small: with no compactor, the holes of §2.1 never close. Should
+- 256 on kern_small: with no compactor, the holes of section 2.1 never close. Should
   kern_small keep `MEM_GRAN` = 512 even when kern_big moves? The constant can
   differ per build. The class code is the same.
 
@@ -569,13 +569,13 @@ package doors left in KB, modules left on the KB, 256 refused, and
 `cmz_kb` called a defect. The owner's review corrected four points, each now
 in the body:
 
-- KB doors alone mean the 311 package sites never benefit (§2.5, §3.2).
+- KB doors alone mean the 311 package sites never benefit (section 2.5, section 3.2).
 - 256 is a superset of 512 if alignment is asked for rather than inherited.
-  It needs a class, not a refusal (§1.2, §3.1.8). The top-down hole (§2.1) is
-  what the measurement in §2.6 has to settle.
+  It needs a class, not a refusal (section 1.2, section 3.1.8). The top-down hole (section 2.1) is
+  what the measurement in section 2.6 has to settle.
 - Modules use the slack because their claim is sized from the image, not
-  because they need KB granularity (§2.3).
-- The Task Manager can carry its own fraction glyphs (§5.2).
+  because they need KB granularity (section 2.3).
+- The Task Manager can carry its own fraction glyphs (section 5.2).
 
 `cmz_kb` was re-read: it is a one-byte overrun sentinel for the whole-file
-read, inflated to a KB by the arithmetic (§1.3).
+read, inflated to a KB by the arithmetic (section 1.3).
