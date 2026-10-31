@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "b62460fe361da3c32898239955a711db5dd8e84fde6f89244f5d2e183ce87fd5",
+  "fingerprint": "05e55039b1d31dc37e92e9d29174f934858c32e94a7ada6b0efa301c5c17a516",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "924e8282068fdb30a6a4384fb4258b202f5b96f76d965e82088afc8c43185c2c",
+  "fingerprint": "04d7ae3c529e60b6c1f08bd1e79859f2e9b12875edfd8ce48acd853ca1835ddd",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -1323,6 +1323,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "OSAPI_FS_OP (0x04E9) added at the END of the table: a package-owned file-progress operation that parks between lock holds (SPEC.md 12.8). Nothing built before can stop running, so PKG_FMT stays",
+   "to": 11
+  },
+  {
+   "fingerprint": "04d7ae3c529e60b6c1f08bd1e79859f2e9b12875edfd8ce48acd853ca1835ddd",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_FS_OP's note: writes count, nesting and a foreign end are refused, the lock is not required - a contract clarified, nothing built before stops running",
+   "to": 10
+  },
+  {
+   "fingerprint": "05e55039b1d31dc37e92e9d29174f934858c32e94a7ada6b0efa301c5c17a516",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_FS_OP's note: writes count, nesting and a foreign end are refused, the lock is not required - a contract clarified, nothing built before stops running",
    "to": 11
   }
  ]

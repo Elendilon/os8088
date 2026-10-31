@@ -354,6 +354,10 @@ fpg_begin:
     cmp al, 0FFh                ; operation counts its own reads and nobody
     je .res                     ; else's: another's phase leaves the trough
     call inst_caller            ; unscaled, so it hatches the remainder
+    cmp dh, 0FFh                ; (the kernel's own phase is owner 0FEh's)
+    jne .who
+    dec dh
+.who:
     cmp dh, al
     jne .out
 .res:
@@ -1171,21 +1175,26 @@ osapi_fs_op:
     push ax
     push dx
     call inst_caller
-    mov al, dh                  ; AL = the caller
+    mov al, dh                  ; AL = the caller...
     pop dx
-    mov ah, 0FFh
-    cmp al, [fpg_pown]
-    je .mine
-    cmp ah, [fpg_pown]          ; CF = 0: equal
-    stc
-    jne .out                    ; somebody else's operation
-.mine:
-    mov [fpg_pown], ah          ; free while it re-arms (fpg_opbegin refuses
-    push cx                     ; under an owner)
-    or cx, dx
+    cmp al, 0FFh                ; ...and the KERNEL, or a driver asked as the
+    jne .who                    ; machine, is owner 0FEh: it parks like a
+    dec ax                      ; package and nothing closes it but its end
+.who:
+    mov ah, [fpg_pown]
+    push cx
+    or cx, dx                   ; ZF = 0 bytes: the end
     pop cx
-    jz .out                     ; 0: over. CF = 0 off the `or`
-    call KERNEL_SEG:fpg_opbegin
+    jnz .begin
+    cmp al, ah                  ; an end ends only the caller's own
+    jne .no
+    mov byte [fpg_pown], 0FFh   ; CF = 0 off the compare; the next gfx_unlock
+    jmp short .out              ; takes the widget down
+.begin:
+    cmp ah, 0FFh                ; held - by somebody else, or by the caller
+    stc                         ; itself, which is NESTING and refused so that
+    jne .out                    ; a library inside a wider operation leaves it
+    call KERNEL_SEG:fpg_opbegin ; alone (and ends only what it opened)
     test byte [fpg_on], FPG_OP  ; CF = 0
     jz .no
     mov [fpg_pown], al

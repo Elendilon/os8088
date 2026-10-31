@@ -27424,6 +27424,100 @@ is left. The rule for a caller is the one §59.5 already states — a toast is a
 verdict, not a status line — and the three that broke it say what they are
 doing only while the bar cannot (§42.15, §22.22.6, WEAVE-SPEC §11.3).
 
+#### 12.8.8 An OPERATION is one bar, however many phases it takes
+
+**kern_big only** (`FPG_OPS`, `kernel.asm`); kern_small assembles §12.8.3
+unchanged. A phase re-scales the trough (§12.8.3), and that was right for
+everything this section was first written for. It is wrong for an operation a
+user sees as ONE thing that the file layer does in many calls: a file-manager
+copy is `dskw_read_seq` + `dskw_write_seq` per 64 KB chunk, so a 700 KB copy
+filled the bar about twenty-two times, with the whole trough hatched between
+each pair.
+
+`fpg_opbegin` (far, `DX:CX` = the bytes the WHOLE operation will move, every
+phase counted - a copy reads AND writes, so twice the file) scales the trough
+once and sets `FPG_OP` (bit 3 of `[fpg_on]`). Until `fpg_opend` or the
+unlock:
+
+- **`fpg_end` banks the phase's scale** in `[fpg_opt]` as it zeroes
+  `[fpg_total]`, still writing no flag.
+- **`fpg_begin` resumes it** rather than re-scaling. `fpg_step`, the hot
+  path in `dsk_xfer`, is untouched.
+- **Between phases `[fpg_total]` is 0, as before**, so metadata sectors are
+  not counted and the bar cannot run ahead of the data.
+- **The hatch covers the UNLIT REMAINDER only** (`fpg_rem`). The filled part
+  stays, and the next phase puts the remainder back to white with one fill.
+- **`fpg_paint`'s repair** draws the extent and then the hatch, disjoint.
+  Outside an operation `fpg_rem` zeroes the extent as it hatches the whole
+  trough, so nothing is drawn twice there either.
+- **`fpg_finish` clears the whole byte** and with it the operation, so there
+  is still no bracket to forget. `fcp_xfer` is the first caller: one
+  operation per file, twice the source's size.
+- **`fpg_opbegin` refuses while any operation is owned** (`[fpg_pown]` not
+  0FFh, §12.8.9), so a kernel operation inside a package's is not a second
+  scale.
+
+#### 12.8.9 …and a PARKED widget outlives the hold, for its owner
+
+**kern_big only** (`FPG_PARK`). §12.8.8 lives inside one gfx-lock hold. A
+package that loads one chunk per `W_ONTIMER` - the Video Player's hold,
+spread out so *"the loading has half the machine and the desktop the other
+half"* - is a hold per chunk, so the widget went up and came down once per
+chunk: hundreds of blinks for one thing the user asked for.
+
+An operation with an **owner** (`[fpg_pown]`: an instance index, or 0FEh for
+the kernel and a driver asked as the machine) **parks** at `gfx_unlock`
+instead of coming down:
+
+- **What stays and what goes.** `[fpg_on]` keeps `FPG_SHOWN | FPG_OP`, and
+  its pixels, origin and trough stay. The armed bit, the cursor debt (paid)
+  and `[fpg_warm]` go.
+- **Parked is not armed, and that is the whole safety argument.**
+  `mou_apply`'s three tests, `fpg_busy` and `fpg_arm` ask the armed BIT
+  (`FPG_ARMED`, a `test` the length of the `cmp` it replaces). So the arrow
+  moves and the busy pointer is off on a desktop that is live. §12.8.4's
+  two-painter case cannot arise: nothing draws the parked widget except
+  `menu_furniture`'s repair and the next owner phase, both under the lock.
+- **A parked widget keeps its cells.** `fpg_vis` accepts `1 | FPG_OP`, so
+  `menu_bar_text` still reserves `FPG_CELLS`, and a toast still outranks it
+  (§12.8.7). It is shown again at the owner's next phase.
+- **`fpg_arm` arms a parked widget where it stands.** It does not reset the
+  origin or the trough, and every refusal still applies: the splash, a
+  bracket, another task's lock, a fullscreen window. So a phase inside the
+  Video Player's own fsx bracket draws nothing.
+- **Only the owner's phases count.** A phase whose `inst_caller` is not the
+  owner (0FFh counting as 0FEh) leaves the trough unscaled, and its remainder
+  hatches. A Disk-window copy during a package's load is busy, not progress
+  on the load.
+- **Ending.** The owner's end, or its instance closing (a check in
+  `toast_owner_gone`, which both teardown sites already call), only disowns
+  the widget. The next `gfx_unlock` takes it down.
+
+#### 12.8.10 `OSAPI_FS_OP` (slot 0x04E9)
+
+`DX:CX` = the bytes one operation of the caller's will move, READS AND
+WRITES BOTH COUNTED; `DX:CX` = 0 is its end. `CF = 1` refused in each of
+these cases:
+
+- another owner holds the widget;
+- **the caller already has one open** - nesting is refused, so a library
+  (`apps/os88partsbody.inc`) inside a package's wider operation leaves it
+  alone;
+- the widget could not arm;
+- an end of an operation the caller does not own;
+- kern_small, whose cell is `OSAPI_XREFUSE`.
+
+It is advisory: refused, the transfers work and report as §12.8.3 always
+made them. A caller ends only what its own begin opened. UI task, from a
+callback or a wake, locked or not - the file calls' own rule, because
+`fpg_arm` already arms lock-free (§12.8.4's debt) and a lock-free arm comes
+down, or parks, at the next `gfx_unlock` as it always has. Every register
+kept. `os88_fs_op(hi, lo)` is the C SDK's spelling. A shipped package that
+calls it needs Wire level 7 (§92.2). The adoption survey, site by site, is
+docs/plans/FS-OP-ADOPTION.md, and the cost is
+docs/reports/TOAST-QUEUE-OP-PROGRESS-COST-2026-10-31.md: kern_big pays
+§12.8.8 and §12.8.9 together at about 240 bytes, kern_small 6.
+
 ### 12.9 The bar is one composition, and only what changed is drawn
 
 **Only the cells that changed may put pixels on the bar.** The menu bar
@@ -109386,6 +109480,32 @@ it is that a cell which changed when the strip arrived must change again when
 it leaves. The **menus** are held to the byte across all three captures, since
 nothing there is live.
 
+### 59.11 A different raiser's toast QUEUES
+
+**kern_big only** (`TOAST_Q`). One buffer meant the last caller won. On
+kern_mega with RLAPPLY autostarting, `Chipset settings applied` overwrote
+`Entered protected mode` while it was still staged. There is now one queued
+slot (`toast_qbuf`/`toast_qttl`/`toast_qinst`, flag `[toast_qwant]` in
+`.text`):
+
+- **A different raiser waits.** A `toast_show` while a toast is up or staged
+  goes into the queued slot when it comes from a **different** raiser. The
+  latest message wins the slot.
+- **The same raiser still replaces its own**, so `Encoding...` -> `Saved X`
+  stays one message.
+- **`toast_pass` promotes it** at the edge that retires the current one:
+  the expiry or a `toast_kill`. The strip goes up in the same composition
+  that takes the old one down.
+- **A retire** still kills the current toast, and also drops the caller's
+  own queued one.
+- **`toast_owner_gone`** drops a closing instance's queued message.
+- **The loader's `.abort` re-home** (§19.2.1) covers the queued slot as well
+  as the current one.
+
+The queued message waits out the current toast's whole life. Behind
+kern_mega's 146-tick toast that is about eight seconds; shortening the
+current one when something queues is priced and not built.
+
 ## 60. cpudet.inc — the CPU tier
 
 **Which CPU is this?** Two published bytes and two routines, and that is
@@ -168829,6 +168949,7 @@ the true sentence for it too. The rows are `WIRE_CELL_LEVELS` in
 | 4 | 0x04A5 | the level-3 Wire, v1.0.20261020 (its table ends at 0x04A5): PiXEL calls `OSAPI_GFX_BLITD` (0x04AB, §120), 1942 `OSAPI_MEM_CODESEL` (0x04B9) and PIXELSTEIN 3D and Skies `OSAPI_MEM_SUBSEG` (0x04D1) | v1.0.20261025 |
 | 5 | 0x04D7 | the level-4 Wire, v1.0.20261025 (its table ends at 0x04D7): the Task Manager calls `OSAPI_IMG_NAME` (0x04D7) and INSTALL `OSAPI_ARG_TEXT` (0x04DD) | v1.0.20261026 |
 | 6 | 0x04E3 | the level-5 Wire, v1.0.20261026 (its table ends at 0x04E3): `OSAPI_SEG` (0x04E3, §50.6.11) is called by every package carrying the parts library (`apps/os88partsbody.inc`), by PiXEL, PIXELSTEIN 3D, REDLINE and the Tracker | the release after v1.0.20261026 |
+| 7 | 0x04E9 | the level-6 Wire (its table ends at 0x04E9): `OSAPI_FS_OP` (0x04E9, §12.8.10) is called by every package that reports one operation as one bar (docs/plans/FS-OP-ADOPTION.md), the parts library among them | the release that ships `OSAPI_FS_OP` |
 
 **A row's cell is the table end of the OLDEST kernel the level fences, not
 of the last release.** Two releases share `PKG_FMT` 10 and both Wires are
