@@ -1925,52 +1925,48 @@ section .modu    follows=.modc vfollows=.modc align=1 valign=1
                                 ; `.modu` (tools/os88ovlchk.py), because on a
                                 ; core-only load it is not there
 %ifdef OS88_DRIVERS
-section .modcb   nobits vfollows=.modu ; CTRL.DRV's own scratch: the SYSTEM.CFG
-                                ; writer's file buffer (driver.inc, CFG_DATA
-                                ; cpc). NOT zeroed - MOD_BSS stays kern_small's
-                                ; FCP_MOD alone - because its one user fills it
-                                ; before it reads it (kernel size pass 8)
+section .modcb   nobits vstart=MODC_IMG ; CTRL.DRV's own scratch: the
+                                ; SYSTEM.CFG writer's file buffer (driver.inc,
+                                ; CFG_DATA cpc), at the image's end and NOT
+                                ; vfollows: the image ENDS in zeros of this
+                                ; section's length (MODB_TAIL, far below), so
+                                ; its end is past them (MODULE-SELFCONTAIN-PLAN
+                                ; 3.5)
 %endif
 section .modf    start=MODF_START vstart=0
 section .modl    start=MODL_START vstart=0
 %ifdef KERN_BIG
 section .modh    start=MODH_START vstart=0
-section .modhb   nobits vfollows=.modh ; HIBER.DRV's own scratch: the DOS
+section .modhb   nobits vstart=MODH_IMG ; HIBER.DRV's own scratch: the DOS
                                 ; handoff's record copy and the pointer file's
-                                ; buffer (hiber.inc). NOT zeroed, `.modcb`'s
-                                ; terms: every cell is written before it is read
+                                ; buffer (hiber.inc)
 %endif
 %ifdef FCP_MOD
-  %define MOD_BSS 1             ; ...and THIS is what mod_need's zeroing hangs
-                                ; off: a build with no module bss has nothing
-                                ; to zero and must not carry the code. FDLG.DRV
-                                ; declares the second (`.moddb`, kernel size
-                                ; pass 13) and FDLG_MOD is kern_small's exactly
-                                ; as FCP_MOD is, so one condition covers both;
-                                ; widen it if a module ever declares one alone.
-%ifndef FDLG_MOD
- %error "MOD_BSS hangs off FCP_MOD and FDLG.DRV's .moddb needs it: they are one build's"
-%endif
 section .modp    start=MODP_START vstart=0
-; ...AND ITS OWN BSS (docs/plans/MODULE-SELFCONTAIN-PLAN.md 3.1). A module runs
-; from a heap claim and mod_need sizes that claim in whole KB
-; (mem_bytes_kb_x), so every image already owns memory past its own end for
-; exactly as long as it is loaded - and a module's scratch can live THERE
-; instead of in the kernel's `.bss`, where it is resident whether the feature
-; has ever been opened or not.
+; ...AND ITS OWN BSS (docs/plans/MODULE-SELFCONTAIN-PLAN.md 3.1, 3.5). A
+; module's scratch lives in the module's own heap claim rather than in the
+; kernel's `.bss`, where it would be resident whether the feature has ever
+; been opened or not - and what puts it in the claim is the FILE: each image
+; ENDS in zeros exactly as long as its bss (MODB_TAIL, below the module
+; sizes), so the directory size is image + bss, mod_need claims that to the
+; granule like any other file, and the read itself delivers the zeros on
+; every load. The kernel carries no bss figure, no zeroing and no rounding
+; argument; the module packs ('CZ', SPEC.md 20.13.5) to a handful of bytes
+; for them.
 ;
-; `nobits`, so not one byte of it reaches the floppy; `vfollows`, so its
-; labels are offsets from the same claim base the image's are and `[cs:x]`
-; reaches them. What may live here is SCRATCH and not PENDING state
+; `nobits` with `vstart=` the image's own length, so its labels are the
+; offsets of THOSE zeros - the same claim base the image's are, reached by
+; `[cs:x]`. Not `vfollows`, which would start it after the zeros instead.
+; What may live here is SCRATCH and not PENDING state
 ; (MODULE-SELFCONTAIN-PLAN 3.4): anything that has to outlive mod_drop - the
 ; clipboard's own selection - stays in the kernel.
-section .modpb   nobits vfollows=.modp
+section .modpb   nobits vstart=MODP_IMG
 %endif
 %ifdef FDLG_MOD
 section .modd    start=MODD_START vstart=0
-section .moddb   nobits vfollows=.modd ; FDLG.DRV's own scratch: one dialog's
-                                ; state (fdlg.inc), zeroed by mod_need with the
-                                ; rest of the claim's tail (kernel size pass 13)
+section .moddb   nobits vstart=MODD_IMG ; FDLG.DRV's own scratch: one dialog's
+                                ; state (fdlg.inc), zeros in the file
+                                ; (kernel size pass 13)
 %endif
 %ifdef DOCK_OPT
 section .modk    start=MODK_START vstart=0
@@ -1979,11 +1975,10 @@ section .modk    start=MODK_START vstart=0
 section .modx    start=MODX_START vstart=0
 section .modw    start=MODW_START vstart=0
 section .modj    start=MODJ_START vstart=0  ; DESK.DRV (SPEC.md 11.103.10)
-section .modwb   nobits vfollows=.modw ; WIN95.DRV's own scratch: one title
-                                ; bar's band and caption, the sticky menu's
-                                ; last pointer (winmod.inc). NOT zeroed,
-                                ; `.modcb`'s terms: every cell is written
-                                ; before it is read (kernel size pass 12)
+section .modwb   nobits vstart=MODW_IMG ; WIN95.DRV's own scratch: one
+                                ; title bar's band and caption, the sticky
+                                ; menu's last pointer (winmod.inc, kernel size
+                                ; pass 12)
 section .modn    start=MODN_START vstart=0  ; STIKMENU.DRV (SPEC.md 110.12)
 %endif
 section .mods    start=MODSER_START vstart=0 ; SERIAL.DRV (SPEC.md 115)
@@ -8623,16 +8618,35 @@ MODSER_START equ MODN_START + MODN_SIZE   ; serial follows the big desktop modul
 %endif
 MODMAP_START equ MODSER_START + SER_IMAGE_SIZE
 
+; MODB_TAIL img, bss - A MODULE'S BSS IS ZEROS IN ITS OWN FILE
+; (MODULE-SELFCONTAIN-PLAN 3.5). Emitted as the image's LAST bytes: `img` is
+; the image's length before them, which is the `vstart=` its nobits bss
+; section was declared with at the top of the file, so every bss label is
+; the offset of one of these zeros; `bss` is that section's length, measured
+; ABOVE this line because `times` wants its count known when it is read.
+; The image's end label then follows, so MOD_H_IMG, the module map's size and
+; the directory size are all image + bss - and mod_need's claim, the FILE to
+; the granule, holds the bss with no figure of its own in the kernel, and no
+; rounding argument to make. It replaces a nobits tail that lived in the KB
+; rounding of a claim sized from the image alone: an image that grew to
+; within its bss of a KB boundary had no room left (the dead-zone pads
+; this deleted), and a 512-byte granule halved the slack outright.
+%macro MODB_TAIL 2
+%1 equ $ - $$
+    times %2 db 0
+%endmacro
+
 %ifdef KERN_BIG
 section .modx
 modx_end:
 MODX_SIZE equ modx_end - $$
-section .modw
-modw_end:
-MODW_SIZE equ modw_end - $$
 section .modwb
 modwb_end:
 MODW_BSS equ modwb_end - $$
+section .modw
+    MODB_TAIL MODW_IMG, MODW_BSS
+modw_end:
+MODW_SIZE equ modw_end - $$
 %if MODW_SIZE > MOD_MAX_KB*1024
   %error "WIN95.DRV exceeds its maximum claim"
 %endif
@@ -8641,9 +8655,6 @@ modj_end:
 MODJ_SIZE equ modj_end - $$
 %if MODJ_SIZE > MOD_MAX_KB*1024
   %error "DESK.DRV exceeds its maximum claim"
-%endif
-%if MODW_SIZE + MODW_BSS > ((MODW_SIZE + 1023) / 1024) * 1024
-  %error "WIN95.DRV's bss (wn_tmp, wn_cap) does not fit its claim's KB rounding - see MODULE-SELFCONTAIN-PLAN 3.2"
 %endif
 section .modn
 modn_end:
@@ -8662,35 +8673,22 @@ MODK_SIZE equ modk_end - $$
 %endif
 
 %ifdef OS88_DRIVERS
-section .modcb                  ; ABOVE `.modu`'s end and not with the other
-modcb_end:                      ; bss ends below: the pad two blocks down is a
-MODC_BSS equ modcb_end - $$     ; `times`, whose count must be known when it
-%endif                          ; is read
+section .modcb
+modcb_end:
+MODC_BSS equ modcb_end - $$
+%endif
 
 section .modc
 mods_end:
 MODS_SIZE equ mods_end - $$     ; the settings core: CTRL.DRV's first bytes
 section .modu
 %ifdef OS88_DRIVERS
-                                ; THE DEAD ZONE (MODULE-SELFCONTAIN-PLAN 3.2):
-MODC_UNPAD equ MODS_SIZE + ($ - $$) ; an image that ends fewer than MODC_BSS
-                                ; bytes short of a KB boundary has no room for
-                                ; its bss in the claim mod_need makes, which
-                                ; is the image's own KB rounding. The pad
-                                ; carries the image ONE BYTE PAST that
-                                ; boundary, so the claim is the next KB - the
-                                ; claim the bss needs anyway - for no resident
-                                ; byte, where the plan's named fallback is 8 of
-                                ; them. Zero bytes outside the zone, so a build
-                                ; that fits is byte-identical; it is what keeps
-                                ; ANIMOFF=1
-                                ; assembling, whose fewer bytes of panel land
-                                ; CTRL.DRV inside the zone (SPEC.md 2.8) - the
-                                ; case main's size pass 10 met with a pad for
-                                ; that knob alone; this one is the general
-                                ; form of the same answer
-    times (MODC_UNPAD + MODC_BSS > ((MODC_UNPAD + 1023) / 1024) * 1024) * (((MODC_UNPAD + 1023) / 1024) * 1024 + 1 - MODC_UNPAD) db 0
-%endif
+MODC_IMG equ MODS_SIZE + ($ - $$) ; MODB_TAIL's shape BY HAND: `.modu`
+    times MODC_BSS db 0         ; vfollows the core, so the image's length is
+%endif                          ; both halves and not this section's own $$.
+                                ; The settings core's claim is MODC_SIZE, so
+                                ; cpc_buf is inside it on that load too
+                                ; (SPEC.md 2.8.7), though the read stops short
 modc_end:
 MODU_SIZE equ modc_end - $$     ; ...the panel behind it...
 MODC_SIZE equ MODS_SIZE + MODU_SIZE ; ...and the WHOLE image: align=1 on both
@@ -8740,53 +8738,33 @@ modl_end:
 MODL_SIZE equ modl_end - $$
 
 %ifdef KERN_BIG
-section .modh
-%ifdef DOSR_MARK
-; DOSRMARK=1's trace (kernel/hbmark.inc, staged through hbstub.inc) is ~290
-; bytes of the IMAGE, and the bss below has to fit the KB rounding of the
-; claim the image sizes (MODULE-SELFCONTAIN-PLAN 3.2): the shipped image
-; leaves it 63 bytes of slack, so the knob overran it by 227 and the kernel
-; refused to assemble. The knob pads its own image to ONE byte past a KB
-; boundary instead, which leaves 1,023 bytes of rounding whatever either
-; side grows to - a disk-only cost, and only on a build that ships nowhere.
-    align 1024, db 0
-    db 0
-%endif
 section .modhb
 modhb_end:
 MODH_BSS equ modhb_end - $$
 section .modh
-MODH_UNPAD equ $ - $$           ; THE DEAD ZONE, `.modu`'s pad below and for its
-                                ; reason (MODULE-SELFCONTAIN-PLAN 3.2): an image
-                                ; ending fewer than MODH_BSS bytes short of a KB
-                                ; boundary is carried one byte past it, so the
-                                ; claim is the next KB - which the bss needs
-                                ; anyway. Zero bytes outside the zone. It is in
-                                ; the zone since kernel size pass 13 put the
-                                ; attach half of a driver load in this image
-                                ; (driver.inc's DRV_ATTACH hdl): 6 KB -> 7 KB
-                                ; of claim while HIBER.DRV is loaded
-    times (MODH_UNPAD + MODH_BSS > ((MODH_UNPAD + 1023) / 1024) * 1024) * (((MODH_UNPAD + 1023) / 1024) * 1024 + 1 - MODH_UNPAD) db 0
+    MODB_TAIL MODH_IMG, MODH_BSS
 modh_end:
 MODH_SIZE equ modh_end - $$
 %endif
 
 %ifdef FCP_MOD
-section .modp
-modp_end:
-MODP_SIZE equ modp_end - $$
 section .modpb
 modpb_end:
 MODP_BSS equ modpb_end - $$
+section .modp
+    MODB_TAIL MODP_IMG, MODP_BSS
+modp_end:
+MODP_SIZE equ modp_end - $$
 %endif
 
 %ifdef FDLG_MOD
-section .modd
-modd_end:
-MODD_SIZE equ modd_end - $$
 section .moddb
 moddb_end:
 MODD_BSS equ moddb_end - $$
+section .modd
+    MODB_TAIL MODD_IMG, MODD_BSS
+modd_end:
+MODD_SIZE equ modd_end - $$
 %endif
 
 ; ...and each of them has to fit the claim mod_need makes for it. MOD_MAX_KB
@@ -8796,11 +8774,6 @@ MODD_BSS equ moddb_end - $$
 ; This is where that gets said, while the number is still a constant.
 %if MODC_SIZE > MOD_MAX_KB*1024
 %error "the ctrl module is over MOD_MAX_KB - mod_need would refuse it at run time"
-%endif
-%ifdef OS88_DRIVERS
- %if MODC_SIZE + MODC_BSS > ((MODC_SIZE + 1023) / 1024) * 1024
-%error "CTRL.DRV's bss (the SYSTEM.CFG writer's buffer) does not fit its claim's KB rounding - see MODULE-SELFCONTAIN-PLAN 3.2"
- %endif
 %endif
 %if MODF_SIZE > MOD_MAX_KB*1024
 %error "the format module is over MOD_MAX_KB - mod_need would refuse it at run time"
@@ -8812,32 +8785,15 @@ MODD_BSS equ moddb_end - $$
  %if MODH_SIZE > MOD_MAX_KB*1024
 %error "the hibernate module is over MOD_MAX_KB - mod_need would refuse it at run time"
  %endif
- %if MODH_SIZE + MODH_BSS > ((MODH_SIZE + 1023) / 1024) * 1024
-%error "HIBER.DRV's bss (the DOS record and the pointer buffer) does not fit its claim's KB rounding - see MODULE-SELFCONTAIN-PLAN 3.2"
- %endif
 %endif
 %ifdef FCP_MOD
  %if MODP_SIZE > MOD_MAX_KB*1024
 %error "the Cut/Copy/Paste module is over MOD_MAX_KB - mod_need would refuse it at run time"
  %endif
-; ...and its bss has to fit inside the KB ROUNDING of that same claim, which
-; is what makes it cost no heap at all (MODULE-SELFCONTAIN-PLAN 3.2). The risk
-; is a CLIFF and not a slope - an image that grows past a KB boundary loses
-; the room all at once - so it is asserted here, in the file that grew, rather
-; than discovered as a module scribbling on whatever follows its claim.
-; If this ever fires, MODULE-SELFCONTAIN-PLAN 3.2 names the fallback: a word
-; per module in mod_tab, added to AX before mem_bytes_kb_x, for 12 resident
-; bytes on kern_small. Do that WHEN it fires and not before.
- %if MODP_SIZE + MODP_BSS > ((MODP_SIZE + 1023) / 1024) * 1024
-%error "FILECP.DRV's bss does not fit its claim's KB rounding - see MODULE-SELFCONTAIN-PLAN 3.2"
- %endif
 %endif
 %ifdef FDLG_MOD
  %if MODD_SIZE > MOD_MAX_KB*1024
 %error "the file dialog module is over MOD_MAX_KB - mod_need would refuse it at run time"
- %endif
- %if MODD_SIZE + MODD_BSS > ((MODD_SIZE + 1023) / 1024) * 1024
-%error "FDLG.DRV's bss does not fit its claim's KB rounding - see MODULE-SELFCONTAIN-PLAN 3.2"
  %endif
 %endif
 

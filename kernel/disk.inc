@@ -6986,7 +6986,10 @@ dsk_rah_want:
     cmp word [dsk_rah_bnc], 0
     jne .out
     call dsk_rah_land
-    jmp short .out
+    jmp short .lo               ; ...whose `jne .out` is taken, the store being
+                                ; held: `.out` itself is past a short jump's
+                                ; reach since the claim went to paragraphs
+                                ; (SPEC.md 50.2.1), and this costs no byte
 .hgone:                         ; ...OR THE STORE WAS: mx_shedf's forget
     mov byte [dsk_rah_hi], 0    ; zeroes the word and nothing else, so the
     mov bx, MEM_P_RAHB          ; landing stood low with nothing to land for

@@ -2092,8 +2092,8 @@ fcp_made:   resb 1              ; 1 = fcp_xfer has CREATED the destination, so
 ; whole life is inside one copy operation, fcp_fin drops the image at the end
 ; of every one, and a suspended paste still holds the image while the user
 ; reads the overwrite question - so there is no moment when any of it is
-; wanted and FILECP.DRV is out. mod_need zeroes the claim's tail, so it starts
-; zeroed exactly as `.bss` did. The descent stack went first; the scalars
+; wanted and FILECP.DRV is out. It is zeros at the end of the FILE (kernel.asm's
+; MODB_TAIL), so every load reads it in zeroed, exactly as `.bss` started. The descent stack went first; the scalars
 ; below followed in kernel size pass 13, through FCV(), once 6.4.1's failure
 ; had a cause: the four fcp_go* doors were RESIDENT and read fcp_dcwd,
 ; fcp_fsclus and fcp_fdclus through DS, and fm_paste_res reads [fcp_err]

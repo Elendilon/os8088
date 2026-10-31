@@ -5580,13 +5580,12 @@ hbm_s_off:  db 13, 10, 'os8088 has hibernated.', 13, 10, 13, 10
 KGO_PAIR hbg
 
 ; --- THE IMAGE'S OWN BSS (docs/plans/MODULE-SELFCONTAIN-PLAN.md 3.1) --------
-; `nobits`, in the tail of the module's own claim: mod_need rounds the claim up
-; to whole KB and kernel.asm asserts this fits that rounding, so none of it is
-; on the floppy and none of it costs heap. **NOT ZEROED** - MOD_BSS is
-; kern_small's alone - so every cell here is written before it is read, and
-; the one flag that was relying on the image's zero (hbm_dosheld) is cleared
-; at hbm_dosrun's head. Read and written through `cs:` like the image's data:
-; the section follows `.modh` in the same claim. SCRATCH only, never state
+; `nobits`, at the image's own end: the image ends in zeros this long
+; (kernel.asm's MODB_TAIL), so the file - and the claim mod_need makes from it
+; - holds it, and the read delivers it zeroed. Packed, the zeros cost the
+; floppy a few bytes. Every cell is written before it is read anyway, and the
+; one flag that once relied on the image's zero (hbm_dosheld) is cleared at
+; hbm_dosrun's head. Read and written through `cs:` like the image's data. SCRATCH only, never state
 ; that has to outlive a mod_drop (MODULE-SELFCONTAIN-PLAN 3.4) - the ptrbuf
 ; carries the wake address from hbm_ask to hbm_res, and the module is never
 ; dropped between those two (hb_mode stays RESUME, not GONE).

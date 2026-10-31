@@ -1547,9 +1547,10 @@ sc_m_del:
 ; is none" the ask set.
 ;
 ; A CLAIM OF ITS OWN, PINNED, for the length of the write: CTRL.DRV's bss is
-; the slack in its own KB rounding (kernel.asm's MODC_BSS assertion) and two
-; KB of rows do not fit there, and a buffer the write is reading must not be
-; moved by a compaction the write itself triggers. sc_m_serx gives it back.
+; the SYSTEM.CFG buffer alone (kernel.asm's MODC_BSS), two KB of rows would be
+; two KB more of every CTRL.DRV claim, and a buffer the write is reading must
+; not be moved by a compaction the write itself triggers. sc_m_serx gives it
+; back.
 ; -----------------------------------------------------------------------------
 sc_m_ser:
     CSDO mov word [CSEG sc_tseg], 0
@@ -2062,9 +2063,11 @@ as_bootc:                       ; (call COLD_SEG: from kmain, after mega_enter)
 
 section .modc                   ; ...and the image's own scratch, IN the
 sc_mz       db 0                ; image: a module may write its own bytes
-sc_px       dw 0                ; (MODULE-SELFCONTAIN-PLAN), and its bss is
-sc_py       dw 0                ; only the slack in its KB rounding, which
-sc_ex       db 0                ; the settings buffer already spends
+sc_px       dw 0                ; (MODULE-SELFCONTAIN-PLAN), and its bss
+sc_py       dw 0                ; (`.modcb`) lies past the panel half, which
+sc_ex       db 0                ; a desktop gesture's core-only read stops
+                                ; short of - the claim covers it, the read
+                                ; does not zero it
 sc_best     dw 0                ; sc_m_cell: the point, the zone it leaves
 sc_bc       db 0                ; out, the nearest distance so far and its
                                 ; cell; sc_m_ser's claim and the rows it holds
