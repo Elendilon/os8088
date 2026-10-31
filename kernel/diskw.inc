@@ -2378,7 +2378,7 @@ dskw_czexp:
     mov ax, [dskw_czseg]        ; kern_mega: a real paragraph, maybe off the
     cmp byte [dskw_hi], 0       ; grid - a selector for it; above 1MB the
     jne .czhi                   ; caller's selector is already the answer
-    call KERNEL_SEG:mega_oddsegf
+    call COLD_SEG:mega_oddsegc
 .czhi:
     mov es, ax
     pop ax
@@ -2623,7 +2623,7 @@ dskw_hiseg:
     jae .sel                    ; kernel's own segments are on the identity
 .gdt:                           ; grid that the real-segment arm walks
     push ax
-    call KERNEL_SEG:mega_s2segf
+    call COLD_SEG:mega_s2segc
     cmp ax, 0xFFFF              ; mega_s2seg's answer for a base past 1MB
     jne .lo
     pop ax

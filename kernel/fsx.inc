@@ -334,11 +334,10 @@ fsx_run:
 %ifdef KERN_MEGA
     cmp byte [fsx_rmode], 0     ; ...and a real-mode bracket's REGION COPY
     je .nrcp                    ; DOWN, here and nowhere earlier: frozen, no
-    push ax                     ; other task can write the region, and with
-    xor ax, ax                  ; the rate not yet armed no hook can either -
-    call MEGA_SEL_CODE:fsx_rcopyf ; at IF = 1 (AL = 0: down), so no period
-    pop ax                      ; is lost to a 63KB copy (SPEC.md 53.2.3)
-.nrcp:
+                                ; other task can write the region, and with
+                                ; the rate not yet armed no hook can either -
+    call MEGA_SEL_CODE:fsx_rcopydf ; at IF = 1 (fsx_rcopyf's AL = 0: down), so
+.nrcp:                          ; no period is lost to a 63KB copy (53.2.3)
 %endif
 %ifdef KBD_DIAG
     push ax                     ; KBDDIAG=1 (SPEC.md 9.8.1): the bracket's
@@ -1729,8 +1728,11 @@ fsx_rsvcf:
 .nser:
     mov [ss:fsx_rserb], dx
     xor dx, dx                  ; ...and THE GLYPH TABLE'S COPY last, when it
-    MEGA_ISHI word [font_seg]   ; is above 1MB (MEM_K_FONT, KERN-MEGA-PLAN
-    jc .nfnt                    ; 14.120/14.131): no real segment reaches it
+    push ax                     ; is above 1MB (MEM_K_FONT, KERN-MEGA-PLAN
+    mov ax, [font_seg]          ; 14.120/14.131): no real segment reaches it
+    call MEGA_SEL_CODE:mega_ishif ; (MEGA_ISHI less its real-mode test:
+    pop ax                      ; `.mega` runs in protected mode alone)
+    jc .nfnt
     inc ax                      ; there, so the bracket reads it here
     and al, 0xFE                ; (at an even offset: rep movsw)
     mov dx, ax
@@ -1978,7 +1980,7 @@ fsx_rsndq:
     mov [es:di], bx
     inc di
     inc di
-    call KERNEL_SEG:mega_s2segf ; AX = its segment, FFFFh none
+    call COLD_SEG:mega_s2segc ; AX = its segment, FFFFh none
     cmp ax, 0xFFFF
     je .no
     dec cx
@@ -1998,10 +2000,16 @@ fsx_rsndq:
 ; fsx_rcopyf - FAR: AL = 0 the region DOWN into its copy, and each low
 ; driver's image into its, 1 all of them back UP. Nothing for one that runs
 ; where it is. PM, DS = KDATA, any IF (fsx_run's copy runs at IF = 1, under
-; sch_lock as every mega_lincopy does). Every register kept
+; sch_lock as every mega_lincopy does). Every register kept. fsx_rcopydf is
+; the AL = 0 call with AX kept, for fsx_run (kern_mega size pass 2)
 ; -----------------------------------------------------------------------------
+fsx_rcopydf:
+    pusha
+    xor ax, ax
+    jmp short fsx_rcopyf.go
 fsx_rcopyf:
     pusha
+.go:
     push es
     push ss
     pop es
@@ -2056,7 +2064,7 @@ fsx_rcp1:                       ; ES:SI the high linear, ES:DI the low, CX
     mov ax, [es:di+2]
     mov [mega_xdst+2], ax
     inc byte [sch_lock]
-    call KERNEL_SEG:mega_lincopyf
+    call mx_lcopy               ; (`.mega` too: near, not the door)
     dec byte [sch_lock]
     popa
     ret
@@ -2227,7 +2235,7 @@ fsx_rsnddn:
     mov ds, [es:bp+RMD_SEL]
     mov ax, [di]
     mov [es:rms_sbank - rms_lo + si], ax
-    call KERNEL_SEG:mega_s2segf ; AX = its segment (the door saw one)
+    call COLD_SEG:mega_s2segc ; AX = its segment (the door saw one)
     inc ax
     jz .ws                      ; FFFFh: none - 0, which the return renames
     dec ax                      ; back from the bank like any other
@@ -2432,7 +2440,7 @@ fsx_rvdn:
     jne .k
     cmp ax, MEGA_LDT_FREE0 * 8
     jb .k
-    call KERNEL_SEG:mega_s2segf
+    call COLD_SEG:mega_s2segc
     cmp ax, 0xFFFF
     je .k
     mov [di], ax

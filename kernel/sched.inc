@@ -642,10 +642,10 @@ sched_stop:
     push di
     push es
 
-    xor ax, ax
 %ifdef KERN_MEGA
-    MEGA_SEG0 es                  ; segment 0 is the NULL selector
-%else
+    MEGA_SEG0 es                  ; segment 0 is the NULL selector (no zero:
+%else                           ; AX is written before it is read)
+    xor ax, ax
     mov es, ax
 %endif
     mov si, sch_old08           ; the saved vector, word by word, onto 0:20h

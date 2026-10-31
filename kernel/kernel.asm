@@ -415,9 +415,9 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 %endmacro
 %macro KPARA 0
 %ifdef KERN_MEGA
-    call KERNEL_SEG:mega_s2segf
-%endif
-%endmacro
+    call COLD_SEG:mega_s2segc   ; the body, not mega_s2segf's `.text` door
+%endif                          ; (kern_mega size pass 2; a `.cold` site
+%endmacro                       ; writes `push cs / call mega_s2segc` itself)
 
 ; DSKW_LD sreg, mem - a file door's segment word ([dskw_seg], [dskw_wseg])
 ; into a segment register: the selector itself on the selector arm, and on
@@ -679,6 +679,23 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
     push word %%back
     push word %2
     MEGA_CSELTOP
+    push word %1
+    retf
+%%back:
+ cpu 8086
+%endmacro
+; MEGA_PCALLC off, seg - MEGA_PCALL for a `.cold` site, whose CSELTOP is the
+; near mem_cselc (memory.inc) rather than twenty-five bytes inline (kern_mega
+; size pass 2). The same frame and the same registers reach the callee
+%macro MEGA_PCALLC 2
+ %ifnidni __?SECT?__, [section .cold]
+  %error "MEGA_PCALLC outside .cold"
+ %endif
+ cpu 286
+    push cs
+    push word %%back
+    push word %2
+    call mem_cselc
     push word %1
     retf
 %%back:

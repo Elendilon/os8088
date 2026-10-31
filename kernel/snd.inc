@@ -1089,14 +1089,9 @@ osapi_fsx_spk:
     jne spk_off.err             ; there is the real-mode contract, refused
     call .open                  ; as before so an older library falls back
     jc .pmo
-    push ax                     ; IRQ0's gate: the caller's ISR, its CODE
-    mov ax, [spk_seg]           ; selector BX banked in [spk_seg] by .open
-    call MEGA_SEL_CODE:spk_gate0f
-    pop ax
-    mov cx, KERNEL_SEG          ; ...and the chain: the kernel's IRQ0, the
-    mov dx, sch_isr             ; gate's own target before (KERNEL_SEG is a
-.pmo:                           ; code selector there)
-    ret
+    call MEGA_SEL_CODE:spk_gate0f ; IRQ0's gate: the caller's ISR, its CODE
+.pmo:                           ; selector BX banked in [spk_seg] by .open,
+    ret                         ; and CX:DX the chain (spk_gate0f, `.mega`)
 .rm:
 .open:
 %endif
@@ -1172,9 +1167,11 @@ section .text
 section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
 ; -----------------------------------------------------------------------------
 ; spk_gate0f / spk_gate0kf - FAR, protected mode: IRQ0's IDT gate (20h) to
-; AX:SI (the speaker door's open, osapi_fsx_spk) / back to the kernel's own
-; sch_isr (spk_off). Every register kept (kern_mega size pass 1: the two
-; writes were inline in .text)
+; [spk_seg]:SI (the speaker door's open, osapi_fsx_spk), with CX:DX = the
+; chain it hands back, the kernel's own IRQ0 (KERNEL_SEG:sch_isr - a code
+; selector there) / back to that sch_isr (spk_off). spk_gate0kf keeps every
+; register, spk_gate0f all but CX and DX (kern_mega size pass 1: the two
+; writes were inline in .text; pass 2: and the open's tail with them)
 ; -----------------------------------------------------------------------------
 spk_gate0kf:
     push ax
@@ -1186,7 +1183,12 @@ spk_gate0kf:
     pop ax
     retf
 spk_gate0f:
+    push ax
+    mov ax, [spk_seg]
     call spk_gate0
+    pop ax
+    mov cx, KERNEL_SEG
+    mov dx, sch_isr
     retf
 spk_gate0:
     push es
