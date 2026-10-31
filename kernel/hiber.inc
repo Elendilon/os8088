@@ -3880,7 +3880,7 @@ hbm_xplan:
     mov ax, [mega_tbllin + 2]   ; is not in it: a code selector,
     mov [es:di+6], ax
     mov ax, [mega_ldtend]       ; ...its bytes: the GDT with the LDT on it,
-    add ax, MEGA_IDT_SIZE       ; and the IDT (MC7's step 6)
+    add ax, MEGA_TBL_TAIL       ; the IDT (MC7's step 6) and the tail past it
     mov [es:di+8], ax
     mov word [es:di+10], 0
     add ax, 512
@@ -4163,7 +4163,7 @@ hbm_xruns:
     cmp [es:si+6], ax
     jne .no
     mov ax, [mega_ldtend]       ; ...and its size, this machine's (MC7's
-    add ax, MEGA_IDT_SIZE       ; step 6): an image of other tables is
+    add ax, MEGA_TBL_TAIL       ; step 6): an image of other tables is
     cmp [es:si+8], ax           ; refused, before MC7 or not
     jne .no
     cmp word [es:si+10], 0

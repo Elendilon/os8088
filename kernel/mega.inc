@@ -8066,6 +8066,37 @@ MEGA_XPOOL  equ 0x100000            ; the pool: from 1MB up to the fixed
                                     ; and ~50KB of padding sat under it)
 MEGA_SCR_OFF equ (MEGA_SIZE + 15) & ~15 ; ...its offset from `.mega`'s base
 
+; THE TABLES' TAIL (kern_mega size pass 2): what only protected mode reads,
+; kept OUT of conventional memory - in the tables' block, past the IDT's last
+; gate, so it is wherever the GDT is (above 1MB, or mega_tlowf's claim on a
+; machine too small for that) and is carried by everything that already
+; carries the block: mega_layoutf sizes it in, a hibernate's run 0 copies it
+; (hbm_xplan; hbm_wake's size test agrees) and the DOS park sums it with the
+; IDT's last lines (mega_dsave). Reached through MEGA_SEL_MXT, a GDT data
+; selector of exactly MEGA_MXT_SIZE bytes in the padding before the
+; scratches, which mega_mxtinit aims and zeroes once at the switch, before
+; anything reads a row. Its tables were 160 bytes of `.lowbss` -
+; conventional memory on every kern_mega machine for ever, a refused one's
+; included - and were never zeroed by anything (mega_wtab), so a BIOS that
+; left that RAM dirty handed OSAPI_SEG rows that named someone's selector.
+MEGA_USTN   equ 8                   ; mega_useg's selectors over real segments
+mega_ustab  equ 0                   ; at or above A000h: {segment, selector}
+mega_ustab_end equ mega_ustab + MEGA_USTN * 4 ; a row, 0 a free one
+MEGA_WTN    equ 32                  ; OSAPI_SEG's windows (mega_segf): a row
+mega_wtab   equ mega_ustab_end      ; each, the selector, its owner byte and
+mega_wtab_end equ mega_wtab + MEGA_WTN * 4 ; BOUND; 0 a free row (MC7)
+MEGA_MXT_SIZE equ (mega_wtab_end + 63) & ~63 ; whole 64-byte lines: the
+                                    ; park sums lines (mega_dsave)
+MEGA_MXT_LINES equ MEGA_MXT_SIZE / 64
+MEGA_TBL_TAIL equ MEGA_IDT_SIZE + MEGA_MXT_SIZE ; the block past the LDT
+MEGA_SEL_MXT equ (MEGA_GDT_SCR - 3) * 8 ; data, base past the IDT: the tail
+%if MEGA_GDT_SCR - 3 < MEGA_GDT_ID
+  %error "MEGA_SEL_MXT has no padding entry to sit in"
+%endif
+%if MEGA_IDT_SIZE % 64
+  %error "the tables' tail must start on a 64-byte line (mega_dsave sums lines)"
+%endif
+
 ; mega_xdesc - BX = a GDT selector, DX:AX = a 24-bit base -> a 64KB data
 ; descriptor there. Clobbers nothing
 mega_xdesc:
@@ -8583,21 +8614,24 @@ mx_relall:
     add si, MX_BLKSZ
     cmp si, mx_tab_end
     jb .scan
-    mov si, mega_wtab               ; ...and the owner's OSAPI_SEG windows
-.w:                                 ; (mega_segf, KERN-MEGA-MEMORY-PLAN MC7)
-    cmp word [ss:si], 0
+    push ds                         ; ...and the owner's OSAPI_SEG windows
+    push word MEGA_SEL_MXT          ; (mega_segf, KERN-MEGA-MEMORY-PLAN MC7),
+    pop ds                          ; through DS: ES stays the caller's for
+    mov si, mega_wtab               ; mega_ldt_free's 14.46 test
+.w:
+    cmp word [si], 0
     je .wn
-    cmp [ss:si+2], al
+    cmp [si+2], al
     jne .wn
     push ax
-    mov ax, [ss:si]
-    call mega_ldt_free
-    pop ax
-    mov word [ss:si], 0
+    mov ax, [si]
+    call mega_ldt_free              ; (which empties this row too: every
+    pop ax                          ; row's selector is the allocator's)
 .wn:
     add si, 4
     cmp si, mega_wtab_end
     jb .w
+    pop ds
     popf
     pop si
     ret
@@ -9244,13 +9278,15 @@ mega_ldt_free:
     mov word [es:di+6], 0
     popf
     push si                         ; ...and a WINDOW naming it is no longer
-    mov si, mega_wtab               ; one: a block's free takes a window
-.wt:                                ; based in it (mega_cdfree, mx_dfree),
-    mov di, [ss:si]                 ; and its owner's end must not free the
-    xor di, ax                      ; entry again once it is somebody else's
+    push word MEGA_SEL_MXT          ; one: a block's free takes a window
+    pop es                          ; based in it (mega_cdfree, mx_dfree),
+    mov si, mega_wtab               ; and its owner's end must not free the
+.wt:                                ; entry again once it is somebody else's
+    mov di, [es:si]
+    xor di, ax
     and di, 0xFFF8
     jnz .wn
-    mov word [ss:si], 0
+    mov word [es:si], 0
 .wn:
     add si, 4
     cmp si, mega_wtab_end
@@ -10214,7 +10250,7 @@ mega_layoutf:
     mov [mega_ldtn], ax             ; DOS park sums lines), then the IDT
     shl ax, 3
     mov [mega_ldtend], ax
-    add ax, MEGA_IDT_SIZE + 1023
+    add ax, MEGA_TBL_TAIL + 1023      ; (and the tail, past the IDT)
     shr ax, 10
     mov [mega_tblkb], ax
     pop ax
@@ -12107,9 +12143,8 @@ mega_segf:
     jc .fo                          ; not a window: a block's goes with it
     push ax
     mov ax, dx
-    call mega_ldt_free
+    call mega_ldt_free              ; (its row too: mega_ldt_free's walk)
     pop ax
-    mov word [ss:di], 0
 .fo:
     pop di
     clc
@@ -12140,17 +12175,20 @@ mega_segown:
 ; owner's window already over exactly that, or 0. Clobbers nothing else
 mega_wfind:
     push si
+    push ds
     push es
     push word MEGA_SEL_LDTD
     pop es
+    push word MEGA_SEL_MXT
+    pop ds
     mov si, mega_wtab
 .l:
-    mov di, [ss:si]
+    mov di, [si]
     or di, di
     jz .n
-    cmp [ss:si+2], bl
+    cmp [si+2], bl
     jne .n
-    cmp byte [ss:si+3], 0           ; a BOUND window (SEG_BWIN) is its
+    cmp byte [si+3], 0              ; a BOUND window (SEG_BWIN) is its
     jne .n                          ; owner's alone to aim
     and di, 0xFFF8
     cmp [es:di+2], ax
@@ -12159,7 +12197,7 @@ mega_wfind:
     jne .n
     cmp [es:di], cx
     jne .n
-    mov di, [ss:si]                 ; the selector
+    mov di, [si]                    ; the selector
     jmp short .o
 .n:
     add si, 4
@@ -12168,6 +12206,7 @@ mega_wfind:
     xor di, di
 .o:
     pop es
+    pop ds
     pop si
     ret
 
@@ -12175,7 +12214,7 @@ mega_wfind:
 ; caller's window to re-aim (0 = none), DI = a match (0 = none) -> CF = 0 and
 ; AX = the selector: SI re-aimed when it is the owner's window; else the
 ; match; else a new entry and a row of mega_wtab. CF = 1, AX = 1 no LDT
-; entry or no row. Clobbers DI, SI
+; entry or no row. Clobbers DI, SI and BH
 ;
 ; THE CALLER'S OWN WINDOW FIRST, the match only when it named none. The match
 ; came first, and a re-aim that landed exactly where ANOTHER of the caller's
@@ -12194,7 +12233,11 @@ mega_wset:
     call mega_wslot                 ; DI = SI's row
     pop dx
     jc .nown
-    cmp [ss:di+2], bl
+    push ds
+    push word MEGA_SEL_MXT
+    pop ds
+    cmp [di+2], bl
+    pop ds
     je .own                         ; the caller's own: re-aim it
 .nown:
     pop di
@@ -12224,43 +12267,56 @@ mega_wset:
     clc
     ret
 .new:
+    mov bh, 0                       ; not bound (BX: the callers' to keep)
+                                    ; ...and on into mega_wnew
+
+; mega_wnew - DX:AX = a base, CX = a limit, BL = the owner, BH = 1 BOUND or
+; 0 -> CF = 0 and AX = a FRESH data selector there, recorded in a free row of
+; mega_wtab; CF = 1, AX = 1 no row or no LDT entry. Clobbers SI. mega_wset's
+; tail and mega_segbw's: one body for the two (kern_mega size pass 2)
+mega_wnew:
+    push es
+    push word MEGA_SEL_MXT
+    pop es
     mov si, mega_wtab               ; a free row first...
 .r:
-    cmp word [ss:si], 0
+    cmp word [es:si], 0
     je .rf
     add si, 4
     cmp si, mega_wtab_end
     jb .r
+.none:
     mov ax, 1                       ; none
     stc
-    ret
+    jmp short .o
 .rf:
     push bx
     mov bl, 0x92
     call mega_ldt_alloc             ; ...then the entry
     pop bx
-    jnc .ok
-    mov ax, 1
-    ret
-.ok:
-    mov [ss:si], ax
-    mov [ss:si+2], bl
-    mov byte [ss:si+3], 0           ; not bound
-    clc
+    jc .none
+    mov [es:si], ax
+    mov [es:si+2], bx               ; the owner and BOUND (CF = 0, kept)
+.o:
+    pop es
     ret
 
-; mega_wslot - DX = a selector -> CF = 0 and DI = its row in mega_wtab;
-; CF = 1 it is no window. Clobbers nothing else
+; mega_wslot - DX = a selector -> CF = 0 and DI = its row in mega_wtab (read
+; it through MEGA_SEL_MXT); CF = 1 it is no window. Clobbers nothing else
 mega_wslot:
+    push ds
+    push word MEGA_SEL_MXT
+    pop ds
     mov di, mega_wtab
 .l:
-    cmp [ss:di], dx
+    cmp [di], dx
     je .o                           ; (CF = 0)
     add di, 4
     cmp di, mega_wtab_end
     jb .l
     stc
 .o:
+    pop ds
     ret
 
 ; mega_blkof - DX:AX = a linear address -> CF = 0, DI:SI = the base of the
@@ -12391,23 +12447,9 @@ mega_segbw:
     or byte [ss:bx+MX_FL], MX_FWIN
 .nofl:
     call mega_segown                ; BL = the caller's owner
-    mov si, mega_wtab               ; a free row...
-.r:
-    cmp word [ss:si], 0
-    je .rf
-    add si, 4
-    cmp si, mega_wtab_end
-    jb .r
-    jmp short .none
-.rf:
-    push bx
-    mov bl, 0x92
-    call mega_ldt_alloc             ; ...and a FRESH entry, never a match:
-    pop bx                          ; re-aiming it must move nobody else's
-    jc .none
-    mov [ss:si], ax
-    mov [ss:si+2], bl
-    mov byte [ss:si+3], 1           ; BOUND
+    mov bh, 1                       ; BOUND: a free row and a FRESH entry,
+    call mega_wnew                  ; never a match - re-aiming it must move
+    jc .no                          ; nobody else's (AX = 1 none)
     mov dx, ax
     pop di
     pop si
@@ -12416,8 +12458,6 @@ mega_segbw:
     pop ax
     clc
     retf
-.none:
-    mov ax, 1
 .no:
     pop di
     pop si
@@ -12444,22 +12484,29 @@ mega_segaim:
     push di
     push ax                         ; [the offset's low word]
     push dx
-    call mega_wslot                 ; DI = its row
-    jc .not
-    cmp byte [ss:di+3], 0
+    call mega_segown                ; BL = the caller's owner (ES its DS)
+    push es                         ; ES = the tables' tail until the write
+    mov ax, MEGA_SEL_MXT            ; (kern_mega size pass 2), the caller's
+    mov es, ax                      ; back off the stack at the end
+    mov di, mega_wtab               ; DX's row: mega_wslot's walk, written
+.ws:                                ; here so the rate hook's verb pays no
+    cmp [es:di], dx                 ; call for it - and the segment load the
+    je .wf                          ; tail costs is paid back with the cycles
+    add di, 4                       ; to spare (the call, a `mov`, and a
+    cmp di, mega_wtab_end           ; push/pop of CX round mega_selbase,
+    jb .ws                          ; which keeps CX)
+    jmp short .not
+.wf:
+    cmp byte [es:di+3], 0
     je .not                         ; not bound
-    mov si, di
-    call mega_segown                ; BL = the caller's owner
-    cmp [ss:si+2], bl
+    cmp [es:di+2], bl
     jne .not
     mov ax, dx
-    push cx
     call mega_selbase               ; DX:AX = where it is aimed now...
-    pop cx
     call mega_blkof                 ; ...DI:SI = its block, DX:AX = the end
     jc .not
     mov bx, sp
-    add si, [ss:bx+2]               ; the base + the offset (CX:[bx+2])
+    add si, [ss:bx+4]               ; the base + the offset (CX:[bx+4])
     adc di, cx
     jc .past
     sub ax, si
@@ -12473,9 +12520,8 @@ mega_segaim:
     dec ax
     mov cx, ax
 .lim:
-    mov bx, [ss:bx]                 ; the window
+    mov bx, [ss:bx+2]               ; the window
     and bx, 0xFFF8
-    push es
     push word MEGA_SEL_LDTD
     pop es
     pushf
@@ -12501,6 +12547,7 @@ mega_segaim:
 .not:
     mov ax, 4
 .no:
+    pop es
     pop dx
     add sp, 2
     pop di
@@ -12891,11 +12938,14 @@ mega_useg:
     push cx
     push dx
     push si
+    push ds
+    push word MEGA_SEL_MXT
+    pop ds
     mov si, mega_ustab
 .l:
-    cmp [ss:si], ax
+    cmp [si], ax
     je .hit
-    cmp word [ss:si], 0
+    cmp word [si], 0
     je .new
     add si, 4
     cmp si, mega_ustab_end
@@ -12911,17 +12961,18 @@ mega_useg:
     call mega_ldt_alloc
     pop bx
     jc .no
-    mov [ss:si], bx
-    mov [ss:si+2], ax
+    mov [si], bx
+    mov [si+2], ax
     clc
     jmp short .o
 .no:
     mov ax, bx
     jmp short .o
 .hit:
-    mov ax, [ss:si+2]
+    mov ax, [si+2]
     clc
 .o:
+    pop ds
     pop si
     pop dx
     pop cx
@@ -12960,20 +13011,43 @@ mega_vfixall:
     push ax
     push cx
     push di
+    mov ax, mega_vword              ; VSEG's four are at or above A000h, so
+    call mega_vwalk                 ; mega_vword makes each mega_useg's
+    pop di                          ; (mega_ustab empty: mega_mxtinit's)
+    pop cx
+    pop ax
+    ret
+
+; mega_mxtinit - at the switch (mega_pmtail, first): MEGA_SEL_MXT aimed at
+; the tables' tail, past the IDT's last gate in the block [mega_tbllin] names
+; (MEGA_MXT_SIZE), and the tail zeroed - every row of mega_ustab and
+; mega_wtab free. A hibernate's resume puts its image's tail back over it
+; afterwards with the rest of the block (hbm_xruns), descriptor and all.
+; Clobbers AX CX DI
+mega_mxtinit:
+    push dx
     push es
-    push ss
+    mov ax, [mega_ldtend]
+    xor dx, dx
+    add ax, MEGA_IDT_SIZE
+    add ax, [mega_tbllin]           ; DX:AX = the tail's linear base
+    adc dx, [mega_tbllin+2]
+    push word MEGA_SEL_WIN          ; the GDT as data
     pop es
-    mov di, mega_ustab              ; (`.lowbss` is not zeroed at boot)
-    mov cx, MEGA_USTN * 2
+    mov di, MEGA_SEL_MXT
+    mov word [es:di], MEGA_MXT_SIZE - 1 ; (bytes 6-7: 0, as the GDT's build
+    mov [es:di+2], ax               ; left every padding entry)
+    mov [es:di+4], dl
+    mov byte [es:di+5], 0x92        ; present, ring 0, data, writable
+    push word MEGA_SEL_MXT
+    pop es
+    xor di, di
+    mov cx, MEGA_MXT_SIZE / 2
     xor ax, ax
     cld
     rep stosw
     pop es
-    mov ax, mega_vword              ; VSEG's four are at or above A000h, so
-    call mega_vwalk                 ; mega_vword makes each mega_useg's
-    pop di
-    pop cx
-    pop ax
+    pop dx
     ret
 
 ; mega_vwalk - AX = a STEP, a `.mega` near proc called with DI = each word
@@ -13151,15 +13225,18 @@ mega_cdin:
 mega_iswin:
     push si
     push di
+    push ds
+    push word MEGA_SEL_MXT
+    pop ds
     mov si, mega_wtab
 .l:
-    mov di, [ss:si]
+    mov di, [si]
     or di, di
     jz .n
     xor di, ax
     and di, 0xFFF8
     jnz .n
-    cmp byte [ss:si+3], 0
+    cmp byte [si+3], 0
     je .y                           ; (CF = 0)
 .n:
     add si, 4
@@ -13167,6 +13244,7 @@ mega_iswin:
     jb .l
     stc
 .y:
+    pop ds
     pop di
     pop si
     ret
@@ -13315,6 +13393,7 @@ section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
 ; ROM's halves in the ISR chains, the IVT kept for a reflection, the 8259,
 ; and the string-restart measurement. FAR, from mega_enter
 mega_pmtail:
+    call mega_mxtinit               ; the tables' tail, before any row is read
     call mega_frames_fix
     call mega_xminit                ; the XMEM pool behind the cells
     call mega_mpall                 ; ...and every claim's pair (MC7.4)
@@ -13554,16 +13633,10 @@ mega_fkslot resb 1                  ; ...and slot + 1, 0 = none being closed
 mega_fkn    resb 1                  ; faults in it (0 = none ever)
 mega_fktm   resb 1                  ; 1 = its toast is owed
 mega_seg0   resw 1                  ; MEGA_SEG0's word for code outside .text
-MEGA_USTN   equ 8                   ; mega_useg's selectors over real segments
-mega_ustab  resw MEGA_USTN * 2      ; at or above A000h: {segment, selector}
-mega_ustab_end equ mega_ustab + MEGA_USTN * 4 ; a row, 0 a free one
 MEGA_MSELN  equ 32                  ; mem_tab's MEM_MAX (memory.inc checks)
 mem_sel     resw MEGA_MSELN         ; a conventional claim's DATA selector,
                                     ; by mem_tab index, 0 = none (its CODE
                                     ; half is - 8): KERN-MEGA-MEMORY-PLAN MC7.4
-MEGA_WTN    equ 32                  ; OSAPI_SEG's windows (mega_segf): a row
-mega_wtab   resb MEGA_WTN * 4       ; each, the selector and its owner byte,
-mega_wtab_end equ mega_wtab + MEGA_WTN * 4 ; 0 a free row (KERN-MEGA-MEMORY-PLAN MC7)
 mx_tab      resb MX_NBLK * MX_BLKSZ ; THE POOL'S BLOCK TABLE (KERN-MEGA-PLAN
 mx_tab_end  equ mx_tab + MX_NBLK * MX_BLKSZ ; 14.49): in LOW_SEG beside mem_tab,
                                     ; read through SS (SPEC.md 2.1: SS is
