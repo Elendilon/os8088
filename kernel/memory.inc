@@ -3165,10 +3165,10 @@ mem_region_reloc:
     pop es                      ; ES = LOW_SEG: the menu bar and the claim map
     call mem_rr_walk
 %ifdef OS88_DRIVERS
-    xor ax, ax
 %ifdef KERN_MEGA
-    MEGA_SEG0 es                  ; segment 0 is the NULL selector
-%else
+    MEGA_SEG0 es                  ; segment 0 is the NULL selector (no zero:
+%else                           ; mem_rr_walk's lodsw writes AX first)
+    xor ax, ax
     mov es, ax                  ; ES = 0: the hardware IRQ vectors, the fourth
 %endif
     call mem_rr_walk            ; address space and the only one outside this

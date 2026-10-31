@@ -4607,10 +4607,10 @@ section .modc                   ; **THE MACROS BELOW ARE IMAGE CODE, AND THIS
     int 0x10                    ; else leaves AL as it was, and is left alone
     cmp al, 0x1A
     jne %%out
-    xor ax, ax                  ; DS = 0: the BIOS's records at 0:487h..489h
 %ifdef KERN_MEGA
-    MEGA_SEG0 ds                  ; segment 0 is the NULL selector
-%else
+    MEGA_SEG0 ds                  ; segment 0 is the NULL selector (no zero:
+%else                           ; AX is reloaded below before it is read)
+    xor ax, ax                  ; DS = 0: the BIOS's records at 0:487h..489h
     mov ds, ax                  ; need no prefix, and nothing below reads the
 %endif
     pushf                       ; kernel's own (kernel size pass 12)
@@ -6237,7 +6237,7 @@ cpc_fdtest:
     mov si, dx                  ; SI = the claim, for the free
 %ifdef KERN_MEGA
     mov ax, dx                  ; kern_mega: the page arithmetic below is on
-    call KERNEL_SEG:mega_s2segf ; the claim's real PARAGRAPH (a selector in
+    call COLD_SEG:mega_s2segc ; the claim's real PARAGRAPH (a selector in
     cmp ax, 0xFFFF              ; protected mode), and every segment register
     je .free                    ; is loaded through a scratch selector
     mov dx, ax                  ; (KSEG, KERN-MEGA-MEMORY-PLAN MC7.6)

@@ -1468,10 +1468,10 @@ mouse_unhook:
     mov ax, 0x0100              ; IER = 0: no more UART interrupts
     call mou_pall
 
-    xor ax, ax
 %ifdef KERN_MEGA
-    MEGA_SEG0 es                  ; segment 0 is the NULL selector
-%else
+    MEGA_SEG0 es                  ; segment 0 is the NULL selector (and no
+%else                           ; zero: AX is written before it is read)
+    xor ax, ax
     mov es, ax
 %endif
     xor bx, bx
@@ -1632,10 +1632,10 @@ osapi_mouse:
     mov di, 2
 .row:
     mov si, [di+mou_ivecs]
-    xor ax, ax
 %ifdef KERN_MEGA
-    MEGA_SEG0 es                  ; segment 0 is the NULL selector
-%else
+    MEGA_SEG0 es                  ; segment 0 is the NULL selector (and no
+%else                           ; zero: AX is popped or reloaded below)
+    xor ax, ax
     mov es, ax
 %endif
     mov cx, cs
@@ -2571,13 +2571,14 @@ kbm_pass:
 ; ScrollLock test, kbm_ui's ScrollLock level and kbm_isr's keypad-5 test each
 ; banked a segment register to reach this byte. kbm_ui takes the bit itself
 ; as its level (0 or 10h - [kbm_slast] is only ever compared with it).
-; out: AL = KB_FLAG; AH = 0; every other register preserved, flags clobbered
+; out: AL = KB_FLAG; AH = 0 (kern_mega: AH is kept - none of the three reads
+;      it); every other register preserved, flags clobbered
 kbm_shf:
     push ds
-    xor ax, ax                  ; segment 0, LINEAR offset: 0040:0017 is
 %ifdef KERN_MEGA
-    MEGA_SEG0 ds                  ; segment 0 is the NULL selector
-%else
+    MEGA_SEG0 ds                  ; segment 0 is the NULL selector (AH is
+%else                           ; then the caller's: no caller reads it)
+    xor ax, ax                  ; segment 0, LINEAR offset: 0040:0017 is
     mov ds, ax                  ; 0000:0417 (a byte shorter than mov ax, 40h).
 %endif
     mov al, [0x417]             ; NOT 0x17 with segment 0: that reads the
@@ -3322,10 +3323,10 @@ kbd_ovflow:
     push ax
     push bx
     push es
-    xor ax, ax                  ; segment 0, LINEAR offsets: 0040:001A is
 %ifdef KERN_MEGA
-    MEGA_SEG0 es                  ; segment 0 is the NULL selector
-%else
+    MEGA_SEG0 es                  ; segment 0 is the NULL selector (AX is
+%else                           ; loaded below before it is read)
+    xor ax, ax                  ; segment 0, LINEAR offsets: 0040:001A is
     mov es, ax                  ; 0000:041A (size pass 9, a byte shorter). The
 %endif
     mov ax, [es:0x41A]          ; head - where the reader is - and the

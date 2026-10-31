@@ -1028,12 +1028,12 @@ ld_run_body_x:
     mov cx, es
 %ifdef KERN_MEGA
     xchg ax, cx                 ; (the region is its pair's DATA selector in
-    call KERNEL_SEG:mega_s2segf ; protected mode, KERN-MEGA-MEMORY-PLAN MC7.4:
+    call COLD_SEG:mega_s2segc   ; protected mode, KERN-MEGA-MEMORY-PLAN MC7.4:
     xchg ax, cx                 ; its real segment, a conventional claim's)
 %endif
     add ax, cx                  ; ...is where the body's segment starts
 %ifdef KERN_MEGA
-    call KERNEL_SEG:mega_oddsegf ; off the identity grid: a selector for it
+    call COLD_SEG:mega_oddsegc  ; off the identity grid: a selector for it
 %endif
     pop cx
     sub cx, bx                  ; the body's length

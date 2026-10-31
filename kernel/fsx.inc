@@ -1978,7 +1978,7 @@ fsx_rsndq:
     mov [es:di], bx
     inc di
     inc di
-    call KERNEL_SEG:mega_s2segf ; AX = its segment, FFFFh none
+    call COLD_SEG:mega_s2segc ; AX = its segment, FFFFh none
     cmp ax, 0xFFFF
     je .no
     dec cx
@@ -2056,7 +2056,7 @@ fsx_rcp1:                       ; ES:SI the high linear, ES:DI the low, CX
     mov ax, [es:di+2]
     mov [mega_xdst+2], ax
     inc byte [sch_lock]
-    call KERNEL_SEG:mega_lincopyf
+    call mx_lcopy               ; (`.mega` too: near, not the door)
     dec byte [sch_lock]
     popa
     ret
@@ -2227,7 +2227,7 @@ fsx_rsnddn:
     mov ds, [es:bp+RMD_SEL]
     mov ax, [di]
     mov [es:rms_sbank - rms_lo + si], ax
-    call KERNEL_SEG:mega_s2segf ; AX = its segment (the door saw one)
+    call COLD_SEG:mega_s2segc ; AX = its segment (the door saw one)
     inc ax
     jz .ws                      ; FFFFh: none - 0, which the return renames
     dec ax                      ; back from the bank like any other
@@ -2432,7 +2432,7 @@ fsx_rvdn:
     jne .k
     cmp ax, MEGA_LDT_FREE0 * 8
     jb .k
-    call KERNEL_SEG:mega_s2segf
+    call COLD_SEG:mega_s2segc
     cmp ax, 0xFFFF
     je .k
     mov [di], ax

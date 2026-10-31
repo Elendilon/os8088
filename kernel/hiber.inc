@@ -4555,10 +4555,10 @@ hbm_wake:
     inc bx
     jz .clkdone                 ; 0xFFFFFFFF: the clock above is current
     push es
-    xor bx, bx
 %ifdef KERN_MEGA
     MEGA_SEG0 es                ; (segment 0 is the NULL selector there)
 %else
+    xor bx, bx
     mov es, bx
 %endif
     mov bx, [es:0x046C]         ; the ROM's own tick, now
@@ -4992,7 +4992,7 @@ hbm_wake:
     MEGA_ISHI word [font_seg]   ; a POOL block is the heap copy too: kern_mega
     mov ax, [font_seg]          ; moves it above 1MB at the switch (KERN-MEGA-
     jnc .fcopy                  ; PLAN 14.120), where s2seg reads FFFF
-    call KERNEL_SEG:mega_s2segf ; a selector there: the paragraph it names
+    call COLD_SEG:mega_s2segc ; a selector there: the paragraph it names
 %else                           ; (MC7), which is what tells the two apart
     mov ax, [font_seg]
 %endif

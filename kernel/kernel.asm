@@ -415,9 +415,9 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 %endmacro
 %macro KPARA 0
 %ifdef KERN_MEGA
-    call KERNEL_SEG:mega_s2segf
-%endif
-%endmacro
+    call COLD_SEG:mega_s2segc   ; the body, not mega_s2segf's `.text` door
+%endif                          ; (kern_mega size pass 2; a `.cold` site
+%endmacro                       ; writes `push cs / call mega_s2segc` itself)
 
 ; DSKW_LD sreg, mem - a file door's segment word ([dskw_seg], [dskw_wseg])
 ; into a segment register: the selector itself on the selector arm, and on
