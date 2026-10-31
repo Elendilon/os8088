@@ -506,7 +506,6 @@ srl_release:
     pop ax
     stc
     retf
-    CSDO_DOOR csd_mods
 mods_ser_end:
 SER_IMAGE_SIZE equ mods_ser_end - $$
 section .text
