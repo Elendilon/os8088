@@ -74,6 +74,8 @@ FPG_SHOWN  equ 4                ; [fpg_on]: its pixels are on the bar (SPEC.md
                                 ; 12.8.7). Bit 0 is "armed", bit 1 the cursor
                                 ; debt (12.8.4); every reader that asks "non-
                                 ; zero?" means armed, and still gets that
+FPG_OP     equ 8                ; [fpg_on]: an OPERATION scale is held, so a
+                                ; phase's fpg_begin RESUMES it (fpg_opbegin)
 FPG_WARM   equ 3                ; sectors of disk work inside ONE lock hold
                                 ; before the widget appears at all (12.8.3).
                                 ; Its unit is the only honest one available -
@@ -338,6 +340,17 @@ fpg_begin:
     push cx
     push dx
     push si
+    test byte [fpg_on], FPG_OP  ; an operation scale is held: this phase
+    jz .scale                   ; resumes it rather than re-scaling
+    mov ax, [fpg_opt]
+    mov [fpg_total], ax
+    cmp byte [fpg_pat], 0       ; the remainder is hatched: back to white
+    je .out
+    call fpg_gbare
+    dw fpg_clear
+    mov byte [fpg_pat], 0
+    jmp short .out
+.scale:
     xor ax, ax                  ; no scale until one is computed below, so a
     mov [fpg_total], ax         ; refusal cannot leave the PREVIOUS phase's
                                 ; divisor counting this one's sectors. AX has
@@ -789,16 +802,23 @@ fpg_paint:
     mov dl, FPG_BOX_Y + FPG_BOX_H - 1
     call gfx_frame
 
-    cmp byte [fpg_pat], 0       ; --- and whatever the trough was showing
-    jne fpg_hatch
-    mov si, [fpg_px]            ; SI = the extent to restore...
+    mov al, [fpg_pat]           ; --- and whatever the trough was showing:
+    push ax                     ; the lit extent, then the hatch (over the
+    mov si, [fpg_px]            ; REMAINDER under an operation scale, the
+                                ; whole trough otherwise, where fpg_rem has
+                                ; zeroed the extent). SI = the extent...
     xor ax, ax                  ; ...and the bar is "at 0" for the duration, so
     mov [fpg_pat], ax           ; the strip fpg_lit lights below is the whole
                                 ; of it. One word store again ([fpg_px]'s high
                                 ; byte is a permanent zero), and fpg_lit's own
                                 ; `mov [fpg_px], si` puts the extent back
     or si, si
-    jnz fpg_lit
+    jz .nolit
+    call fpg_lit
+.nolit:
+    pop ax
+    or al, al
+    jnz fpg_hatch
     ret
 
 ; -----------------------------------------------------------------------------
@@ -834,11 +854,11 @@ fpg_lit:
 ; -----------------------------------------------------------------------------
 fpg_hatch:
     mov byte [fpg_pat], 1
-    call fpg_tin
+    call fpg_rem
     jmp gfx_fill_gray
 
 fpg_clear:                      ; the state is fpg_begin's, so this is pixels
-    call fpg_tin
+    call fpg_rem
     call thm_bg                
     jmp gfx_fill
 
@@ -847,6 +867,18 @@ fpg_clear:                      ; the state is fpg_begin's, so this is pixels
 ; out: AX = x1, BX = y1, CX = x2, DX = y2, all inclusive - gfx_fill's argument
 ; clobbers: AX, BX, CX, DX
 ; -----------------------------------------------------------------------------
+; fpg_rem - the trough's UNLIT part under an operation scale, else all of
+; it (and then the extent is no longer on the glass, so it reads 0)
+fpg_rem:
+    call fpg_tin
+    test byte [fpg_on], FPG_OP
+    jz .all
+    add ax, [fpg_px]
+    ret
+.all:
+    mov word [fpg_px], 0
+    ret
+
 fpg_tin:
     call fpg_boxr
     inc ax
@@ -1008,7 +1040,11 @@ fpg_stepb:
 ; epilogues, where the flags are a body's answer in flight.
 ; -----------------------------------------------------------------------------
 fpg_end:
-    mov word [fpg_total], 0     ; no scale: fpg_step and fpg_stepb stop, and
+    push ax                     ; the phase's scale is banked for an
+    mov ax, 0                   ; operation's next phase (flags untouched:
+    xchg ax, [fpg_total]        ; the epilogues carry a body's CF)
+    mov [fpg_opt], ax
+    pop ax
     retf                        ; fpg_busy may hatch the trough again
 
 ; -----------------------------------------------------------------------------
@@ -1053,6 +1089,29 @@ fpg_end:
 ; icon's top and bottom and the box frame, which live ABOVE and BELOW the
 ; glyph rows: those are ours to clean up, and they are two thin fills.
 ; -----------------------------------------------------------------------------
+; fpg_opbegin - in: DX:CX = the bytes the whole OPERATION will move, every
+; phase counted (a copy reads AND writes: twice the file). Every fpg_begin
+; until fpg_opend or the unlock resumes this scale instead of re-scaling,
+; and the gaps between phases hatch the unlit remainder. Far, all registers
+; and the flags preserved.
+fpg_opbegin:
+    pushf
+    and byte [fpg_on], ~FPG_OP & 0FFh
+    call KERNEL_SEG:fpg_begin
+    cmp word [fpg_total], 0
+    je .o
+    or byte [fpg_on], FPG_OP
+.o:
+    popf
+    retf
+
+fpg_opend:
+    pushf
+    and byte [fpg_on], ~FPG_OP & 0FFh
+    popf
+    retf
+    db 0                        ; PARITY: keeps ui_task even (t_hotpar)
+
 fpg_finish:
     pushf
     FPG_BARON                   ; SPEC.md 7.4.3, as at fpg_begin
@@ -1191,6 +1250,7 @@ fpg_done    dw 0                ; units stepped so far
 fpg_total   dw 0                ; ...out of this many. **0 = no scale**, and
                                 ; that is fpg_step's and fpg_stepb's gate as
                                 ; well as the divisor they guard (12.8.3)
+fpg_opt     dw 0                ; the operation's scale, between phases
 fpg_frac    dw 0                ; fpg_stepb's carry: bytes reported that have
                                 ; not yet made a whole unit (SPEC.md 12.8.1)
 
