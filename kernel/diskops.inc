@@ -851,7 +851,7 @@ clo_read1:
 clo_kpara:
     push ax
     mov ax, dx
-    call KERNEL_SEG:mega_s2segf
+    call COLD_SEG:mega_s2segc
     cmp ax, 0xFFFF
     je .hi
     xchg dx, ax
@@ -2336,7 +2336,7 @@ clo_span:
     push dx                     ; kern_mega: the buffer's K5 slides onto
     xchg dx, ax                 ; itself, DX paragraphs (DL is the
     mov ax, es                  ; direction, kept)
-    call KERNEL_SEG:mega_slidef
+    call COLD_SEG:mega_slidec
     pop dx
 %else
     mov bx, es                  ; ...and an 8086 has no `add reg, sreg`. BX is

@@ -830,7 +830,7 @@ cmz_sslide:
     shr dx, cl
     mov ax, ds
 %ifdef KERN_MEGA
-    call KERNEL_SEG:mega_slidef ; kern_mega: K0 slides onto itself
+    call COLD_SEG:mega_slidec ; kern_mega: K0 slides onto itself
 %else
     add ax, dx
 %endif
@@ -908,7 +908,7 @@ cmz_oslide:
 %ifdef KERN_MEGA
     push dx                     ; kern_mega: K1 slides onto itself
     mov dx, 0x0400
-    call KERNEL_SEG:mega_slidef
+    call COLD_SEG:mega_slidec
     pop dx
 %else
     add ax, 0x0400
@@ -2148,7 +2148,7 @@ cmz_upkg:
     rep movsb                   ; the prefix, verbatim - and this leaves SI on
     pop ax                      ; the compressed body, which is where the
 %ifdef KERN_MEGA                ; decoder wants it - off the identity grid on
-    call KERNEL_SEG:mega_oddsegf ; kern_mega, so a selector for exactly that
+    call COLD_SEG:mega_oddsegc ; kern_mega, so a selector for exactly that
 %endif                          ; paragraph, as the loader's (ld_run_body)
     mov es, ax
     xor di, di                  ; lz_decomp_x REQUIRES this zero, and says why

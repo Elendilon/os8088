@@ -415,7 +415,7 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 %endmacro
 %macro KPARA 0
 %ifdef KERN_MEGA
-    call COLD_SEG:mega_s2segc   ; the body, not mega_s2segf's `.text` door
+    call COLD_SEG:mega_s2segc   ; (kern_mega: the far body)
 %endif                          ; (kern_mega size pass 2; a `.cold` site
 %endmacro                       ; writes `push cs / call mega_s2segc` itself)
 

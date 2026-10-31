@@ -8622,7 +8622,7 @@ table is a segment-register load, so nothing else changes; a ROM pointer or
 a baked face's `LOW_SEG` is no claim and is left alone, and a refused pool
 claim leaves the copy where it was. The resume's step 4a reads a POOL
 selector as the heap copy and refills it in place (`MEGA_ISHI`): asked
-through `mega_s2segf` a block above 1MB reads FFFFh, which the ROM test
+through `mega_s2segc` a block above 1MB reads FFFFh, which the ROM test
 would take for a ROM and swap for the slow table, stranding the block.
 **Cost: kern_mega only** - `.cold` +7 bytes (above 1MB on that kernel),
 HIBER.DRV +20; kern_big and kern_small byte-identical. `tests/megafont.py`
@@ -98720,7 +98720,7 @@ was - by a selector - and not by its segment:
   its offset, would carry past the selector's 64KB goes onto the segment arm
   at the buffer's real paragraph (`dskw_tolo`), every segment register that
   arm loads going through a scratch selector. The LZ decoder slides by
-  descriptor (`mega_slidef`), a match 64KB behind the output through
+  descriptor (`mega_slidec`), a match 64KB behind the output through
   `MEGA_SEL_BACK`, and a match source that may slide never re-aims the
   input's `MEGA_SEL_SLD`.
 - **A kernel module that does PARAGRAPH arithmetic keeps it** (MC7.6):
@@ -98730,7 +98730,7 @@ was - by a selector - and not by its segment:
   every segment register through a scratch of its own STREAM, `KSEG sreg,
   paragraph, MEGA_SEL_Kn` (six, `MEGA_SEL_K0`-`K5`), so one stream's aim
   never moves another's; a slide re-aims the stream's own scratch
-  (`mega_slidef`, signed). A scratch the image hands the file doors is
+  (`mega_slidec`, signed). A scratch the image hands the file doors is
   turned back into its paragraph there (`dskw_hiseg`'s GDT arm), so a write
   past 64KB walks the segment arm as it does on kern_big. A scratch is
   aimed with interrupts off, so an ISR that reloads one never reads half a

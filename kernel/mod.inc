@@ -697,7 +697,7 @@ mod_check:                      ; (BX is never written here - no bank,
 ;
 ; MOD_HIOK is the census, and since KERN-MEGA-PLAN 14.47 it is EVERY module.
 ; What kept four of them low was a buffer of the image's own handed to the
-; file layer, which normalised ES and converted it with mega_s2segf - FFFF
+; file layer, which normalised ES and converted it with mega_s2segc - FFFF
 ; above 1MB. Item 77 taught the file layer exactly that case (dskw_hiseg: the
 ; selector is kept and the OFFSET moves, a sector at a time through the
 ; scratch), and the disk layer bounces any LDT selector through dsk_secbuf
