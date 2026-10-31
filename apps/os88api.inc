@@ -2270,6 +2270,10 @@ SEG_AT      equ 8
                                  ;          GRANTED (the slack is yours).
                                  ;          _HI claims from the TOP, as
                                  ;          OSAPI_MEM_CLAIM_HI does
+                                 ;          | MEMP_CPU: no int 13h will
+                                 ;          land in it, so its base need not
+                                 ;          be 512-aligned (SPEC.md 50.2.1.1)
+                                 ;          - leave it off for a disk buffer
                                  ; MEMP_REGROW  DX = your claim, AX = the new
                                  ;          paragraphs -> as OSAPI_MEM_REGROW,
                                  ;          AX = the paragraphs granted
@@ -2283,8 +2287,9 @@ SEG_AT      equ 8
                                  ; a pool block is resized by OSAPI_MEM_REGROW
 MEMP_CLAIM    equ 0
 MEMP_CLAIM_HI equ 1
-MEMP_REGROW   equ 2
-MEMP_AVAIL    equ 3
+MEMP_CPU      equ 2
+MEMP_REGROW   equ 4
+MEMP_AVAIL    equ 5
 %define OS88_BYTES_PARA(n) (((n) + 15) / 16)   ; bytes -> paragraphs to ask for
 
 ; OSAPI_IMG_NAME - WHICH driver or module an image is (KERN-MEGA-PLAN 14.70.3).

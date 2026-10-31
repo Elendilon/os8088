@@ -96895,6 +96895,35 @@ On `kern_mega` in protected mode the plain paragraph door hands its count to
 cache goes to the pool above 1MB and the pool counts in KB; the half-KB it
 rounds is not conventional memory anybody else wanted.
 
+#### 50.2.1.1 The DISK class, and the 256-byte granule it would allow
+
+Alignment and size granularity are two properties, and part 3 above is a
+statement that today the first is a side effect of the second. Below 512 bytes
+it cannot be, so a claim says which it needs. **`MC_DISK`** (bit 14 of
+`MC_DMA`, beside the door bit and above any head, which is at most `0x1000`)
+marks a claim whose base an `int 13h` may land on, and the scan gives it a
+fourth bump beside the overlap and the page: a candidate off a 512-byte
+boundary moves UP to the next one going up, DOWN to the one below coming down
+— monotonic, so the scan still terminates. `mem_hifit` skips an unaligned
+candidate for a DISK claim being regrown, and `mem_cp_dest` rounds a DISK
+claim's destination toward its own base, so a compaction never un-aligns one.
+
+Every KB door is DISK (a package built before §50.2.1 may rely on the base),
+and so is every kernel paragraph door — they claim images and caches.
+`OSAPI_MEM_P`'s claim verbs are DISK unless `MEMP_CPU` says no `int 13h` will
+land in the block. An IMAGE's claim is rounded to 512 bytes on every granule
+(`mem_bytes_gp_x`): its file is stripped to that rung (§51.1.2), and a
+top-down DISK claim's finer slack would only be a hole above it.
+
+**None of this is assembled at `MEM_GRAN` = 32**, where every base is aligned
+by construction: `MEM_ALIGN_CLASS` exists only below it, and `MEMGRAN=16` is
+the Makefile knob that builds it — a MEASUREMENT build, not a shipped one,
+because what 256 bytes is worth depends on how often a small CPU claim fills
+the 256-byte holes a DISK claim leaves, and that is a question for a running
+machine (docs/plans/HEAP-GRANULARITY-PLAN.md section 2.6). Its known gap:
+`mem_avail`'s compaction plan does not model the alignment bump, so on that
+build it may over-report by up to 256 bytes a DISK claim.
+
 ### 50.3 The API (§20.3 slots)
 
 ```
@@ -97133,9 +97162,11 @@ OSAPI_MEM_P   0x04E9, X     BL = the verb (MEMP_*), ES = the caller (X stub)
   MEMP_CLAIM    0   AX = paragraphs, CX = the page-safe HEAD in paragraphs
   MEMP_CLAIM_HI 1       (0 = none) -> CF=0, DX = the base, AX = the paragraphs
                         GRANTED. _HI from the top, as OSAPI_MEM_CLAIM_HI
-  MEMP_REGROW   2   DX = your claim, AX = paragraphs -> as OSAPI_MEM_REGROW,
+    | MEMP_CPU  2       no int 13h lands in it: its base need not be
+                        512-aligned (§50.2.1.1; every base is, at 512)
+  MEMP_REGROW   4   DX = your claim, AX = paragraphs -> as OSAPI_MEM_REGROW,
                         AX = the paragraphs granted
-  MEMP_AVAIL    3   -> AX = the largest claim you can have, BX = the total,
+  MEMP_AVAIL    5   -> AX = the largest claim you can have, BX = the total,
                         in paragraphs, at your floor as OSAPI_MEM_AVAIL;
                         CX = MEM_GRAN, the granule in paragraphs
   CF=1 refused; every register not named is preserved
@@ -97153,7 +97184,7 @@ alike — the record is the same record.
 
 **One cell and four verbs where the KB doors are five cells.** A head of 0 IS
 the plain claim, so the DMA variants fold into the claim verbs: the head is
-always CX and the verb's bit 0 is only the direction. That is what keeps the
+always CX, the verb's bit 0 is the direction and bit 1 the alignment class. That is what keeps the
 cell to one rare cell's six bytes and its body to a dispatch onto the bodies
 the KB doors already use — `mem_claimp_sd` (the paragraph door, §50.2.1),
 `mem_regrowp` and `mem_avail_lvl_p` (the paragraph half of the avail walk,

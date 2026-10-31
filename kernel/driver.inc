@@ -3705,11 +3705,12 @@ section .modc                   ; IMAGE CODE (see VGC_FORCE's banner below):
 %ifdef KERN_BIG
     mov es, [bx+DRVR_SEG]       ; ...THEN GIVE BACK THE TAIL IT DISOWNED
     mov ax, [es:DRV_H_KEEP]     ; (SPEC.md 51.1.3): SOUND.DRV's attach-only
-    add ax, MEM_GRAN * 16 - 1   ; code, 11KB becoming 10 - and with no mixer
-    and ax, -(MEM_GRAN * 16)    ; its popup too, 7. Before tier and READY, so
+    add ax, 511                 ; code, 11KB becoming 10 - and with no mixer
+    and ax, -512                ; its popup too, 7. Before tier and READY, so
     mov cl, 4                   ; no verb after the attach is ever sent to a
     shr ax, cl                  ; driver holding more than it said it needs -
-                                ; to the GRANULE (SPEC.md 50.2.1), not the KB.
+                                ; to the 512-byte rung an image is claimed in
+                                ; (SPEC.md 50.2.1, mem_bytes_gp_x), not the KB.
                                 ; NO CARRY TEST: the word is the driver's own,
                                 ; written by its attach - it is not read off
                                 ; a disk - and the BOOT BLOB this expands into

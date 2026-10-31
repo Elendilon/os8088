@@ -46,8 +46,9 @@ HDR = 32
 BSS_MAX_PARA = 255
 MAGIC = 0x384F                  # 'O','8'
 DRV_VER = 12  # 4 until the API table moved, 7 until 34.11, 9 until 62.9.19, 11 until 50.2.1 (SPEC.md 20.2.0)
-MEM_GRAN = 32                   # kernel/memory.inc: the heap's granule in
-                                # paragraphs (SPEC.md 50.2.1) - the strip rung
+DRV_RUNG = 512                  # the strip rung: kernel/memory.inc's
+                                # mem_bytes_gp_x claims an image to 512 bytes
+                                # on every granule (SPEC.md 50.2.1)
 MAX_SIZE = 40 * 1024            # DRV_MAX_KB in kernel/driver.inc
 # 0x40 is NOT a kernel driver class: it is a driver's own loadable half
 # (OS88_OVERLAY, SPEC.md 52.11), stamped by this tool because the header, the
@@ -166,12 +167,12 @@ def main() -> int:
     # the stripping was written: it was measured against an UNCOMPRESSED disk,
     # where 6,722 bytes of trailing zeros were 6,722 bytes of floppy.
     #
-    # THE RUNG IS THE HEAP'S GRANULE (SPEC.md 50.2.1), not a KB: the kernel
-    # claims the directory's size rounded up to MEM_GRAN paragraphs, so a
-    # strip below the granule rung is a claim short of its bss and drv_bss
-    # refuses it (.nofit). A KB rung against a 512-byte claim is exactly that,
-    # which is why the granule moving to 512 was a DRV_VER bump.
-    gran = MEM_GRAN * 16
+    # THE RUNG IS 512 BYTES (SPEC.md 50.2.1), not a KB: the kernel claims the
+    # directory's size rounded up to 512 (mem_bytes_gp_x), so a strip below
+    # that rung is a claim short of its bss and drv_bss refuses it (.nofit).
+    # A KB rung against a 512-byte claim is exactly that, which is why the
+    # move was a DRV_VER bump.
+    gran = DRV_RUNG
     rung = -(-len(data) // gran) * gran         # the driver's real footprint,
     if keep <= rung - gran:                     # rounded up to the granule
         keep = rung - gran + 1                  # the least that reaches it

@@ -151,7 +151,14 @@ MC_SIZE  equ 10
 %endmacro
 %endif
 MC_DMA_HI   equ 0x8000          ; MC_DMA bit 15: the top-down door
-MC_DMA_HEAD equ 0x7FFF          ; ...and the mask every reader of the head takes
+MC_DISK     equ 0x4000          ; ...bit 14: the DISK class (SPEC.md 50.2.1.1),
+                                ; a base an int 13h may land on and so kept
+                                ; 512-aligned - set and read only on a build
+                                ; whose granule is finer than that
+MC_DMA_HEAD equ 0x3FFF          ; ...and the mask every reader of the head
+                                ; takes: a head is at most 0x1000 (mem_claim_1
+                                ; refuses more), so bits 14 and 15 are free by
+                                ; a check and not by hope
 
                                 ; kernel tags (SPEC.md 50.2). 0xFF01 was the
                                 ; menu save-under's until SPEC.md 12.4.2 made
@@ -439,10 +446,26 @@ MEM_P_RAHB  equ MEM_PG_HIGH<<8 | 0x03   ; kern_mega's read-ahead LANDING
 
 MEM_PARA_KB equ 64              ; paragraphs per KB
 MEMP_CLAIM    equ 0             ; OSAPI_MEM_P's verbs, in BL (SPEC.md 50.3.7):
-MEMP_CLAIM_HI equ 1             ; bit 0 of a claim is the direction
-MEMP_REGROW   equ 2
-MEMP_AVAIL    equ 3
-MEM_GRAN    equ 32              ; THE GRANULE (SPEC.md 50.2.1): every claim's
+MEMP_CLAIM_HI equ 1             ; bit 0 of a claim is the direction, and
+MEMP_CPU      equ 2             ; bit 1 says no int 13h will land in it, so
+MEMP_REGROW   equ 4             ; its base need not be 512-aligned (a DISK
+MEMP_AVAIL    equ 5             ; claim's is, SPEC.md 50.2.1.1)
+%ifndef MEM_GRAN                ; (MEMGRAN=16 builds the 256-byte knob,
+MEM_GRAN    equ 32              ; SPEC.md 50.2.1.1)
+%endif
+%if MEM_GRAN < 32               ; ...and a granule finer than 512 bytes cannot
+ %define MEM_ALIGN_CLASS 1      ; inherit a base's alignment from its size, so
+%endif                          ; it ASKS for it: the DISK class below
+; MEM_DIR - ZF clear = this claim goes TOP-DOWN. BP is the door word, 0 or
+; MC_DMA_HI, and with the DISK class it carries MC_DISK too
+%macro MEM_DIR 0
+%ifdef MEM_ALIGN_CLASS
+    test bp, MC_DMA_HI
+%else
+    or bp, bp
+%endif
+%endmacro
+                                ; THE GRANULE (SPEC.md 50.2.1): every claim's
                                 ; size, in paragraphs, is a multiple of this -
                                 ; 512 bytes. It was a whole KB, by way of the
                                 ; KB doors' shift, and that is still all the
@@ -892,6 +915,9 @@ mem_claim_x:
 .nodma:
     xor si, si                  ; no 64KB page rule on either plain door
 .go:                            ; AX = KB, from every KB door
+%ifdef MEM_ALIGN_CLASS
+    or di, MC_DISK              ; ...each of which is DISK class: a package
+%endif                          ; built before 50.2.1 may rely on the base
     push ax                     ; ...and it comes back as it went in
     cmp ax, 1024                ; 1MB and more asked for: refused BEFORE the
     jae .big                    ; shift, whose CF is the LAST bit out alone -
@@ -993,6 +1019,9 @@ mem_claimp_x:
     push di
     xor di, di
 .nod:
+%ifdef MEM_ALIGN_CLASS
+    or di, MC_DISK              ; the kernel's own paragraph doors are DISK:
+%endif                          ; images, caches - every one an int 13h target
     xor si, si
 .pgo:
     push ax                     ; mem_claim_x.out pops it
@@ -1000,7 +1029,11 @@ mem_claimp_x:
 mem_claimp_dma_x:
     push si
     push di
+%ifdef MEM_ALIGN_CLASS
+    mov di, MC_DISK
+%else
     xor di, di
+%endif
     mov si, cx                  ; the head, already paragraphs
     jmp short mem_claimp_x.pgo
 mem_claimp_sd:                  ; ...and SI = the head, DI = the direction as
@@ -1073,7 +1106,7 @@ mem_claim_1:
     or di, di                   ; refusing early costs nothing and keeps the
     jz .fail0                   ; scan simple
 
-    or bp, bp
+    MEM_DIR
     jnz .hi
     mov dx, [mem_base]          ; DX = candidate base
     jmp short .retry
@@ -1093,6 +1126,21 @@ mem_claim_1:
     cmp dx, [mem_base]
     jb .fail0
 .retry:
+%ifdef MEM_ALIGN_CLASS
+    test bp, MC_DISK            ; THE DISK CLASS (SPEC.md 50.2.1.1): a fourth
+    jz .algok                   ; bump, beside the overlap and the page - a
+    test dl, 31                 ; candidate off a 512-byte boundary goes UP to
+    jz .algok                   ; the next one, or DOWN to the one below it,
+    MEM_DIR                     ; monotonic like the other two, so the scan
+    jnz .adn                    ; still terminates
+    add dx, 31
+    jc .fail0
+.adn:
+    and dl, 0xE0
+    cmp dx, [mem_base]
+    jb .fail0
+.algok:
+%endif
     cmp word [mem_dma], 0       ; the 64KB DMA-page test, when one was asked
     je .fit                     ; for (CX is dead here - .fit rebuilds it)
     mov cx, dx
@@ -1104,7 +1152,7 @@ mem_claim_1:
     and cx, 0xF000              ; can work is the next page's floor...
     add cx, 0x1000
     jc .fail0                   ; ...past 1MB, so there is no next page
-    or bp, bp
+    MEM_DIR
     jz .dmago
     sub cx, [mem_dma]           ; ...and going DOWN, the highest base in THIS
     cmp cx, [mem_base]          ; page whose head still fits. Below the heap
@@ -1129,7 +1177,7 @@ mem_claim_1:
     add cx, [ss:si+MC_PARA]        ; CX = this claim's end
     cmp cx, dx
     jbe .nover                  ; claim ends at/before our start: ditto
-    or bp, bp
+    MEM_DIR
     jnz .down
     mov dx, cx                  ; overlap: restart just past this claim...
     jmp .retry
@@ -1631,6 +1679,13 @@ mem_hifit:
     ja .step
     call mem_runfree
     jc .step
+%ifdef MEM_ALIGN_CLASS
+    cmp byte [mem_dsk], 0       ; a DISK claim moving (SPEC.md 50.2.1.1): an
+    je .anyb                    ; unaligned candidate is skipped rather than
+    test cl, 31                 ; bumped - this only has to reject, as the
+    jnz .step                   ; page test below does
+.anyb:
+%endif
     mov di, cx                  ; mem_dmaok, inlined: a constrained block may
     and di, 0x0FFF              ; not straddle a 64KB page here any more than
     add di, [mem_dma]           ; at its first claim. DI (the run's end) is
@@ -2684,6 +2739,26 @@ mem_cp_dest:
 .stay:
     mov di, [ss:si+MC_SEG]      ; the bump has nowhere legal to go: leave it
 .out:
+%ifdef MEM_ALIGN_CLASS
+    test byte [ss:si+MC_DMA+1], MC_DISK >> 8
+    jz .aok                     ; THE DISK CLASS (SPEC.md 50.2.1.1): a DISK
+    test di, 31                 ; claim's destination stays 512-aligned, and
+    jz .aok                     ; it rounds TOWARD the claim's own base - up
+    cmp byte [mem_cp_msk], 0    ; going up, down coming down - so it agrees
+    jne .adn                    ; with the walk's rule that a destination
+    add di, 31                  ; never moves the wrong way; one that would
+    and di, -32                 ; pass the base is "leave it", as above
+    cmp di, [ss:si+MC_SEG]
+    jbe .aok
+    jmp short .astay
+.adn:
+    and di, -32
+    cmp di, [ss:si+MC_SEG]
+    jae .aok
+.astay:
+    mov di, [ss:si+MC_SEG]
+.aok:
+%endif
     pop cx
     ret
 
@@ -3632,7 +3707,7 @@ mem_hiclaims:
     jne .n
     cmp word [ss:si+MC_RLOC], 0
     je .n                       ; pinned: whatever names it, it said so
-    test word [ss:si+MC_DMA], 0x7FFF
+    test word [ss:si+MC_DMA], MC_DMA_HEAD
     jnz .n                      ; a DMA head: the 8237's, conventional
     mov ax, [ss:si+MC_PARA]
     cmp ax, 0x1000
@@ -4444,6 +4519,13 @@ mem_regrowp:                    ; be a byte less and would push the caller a
 .move:                          ; 3. the highest block that will take it
                                 ; the constraint this block was GRANTED under
     mov di, [ss:si+MC_DMA]         ; travels with it: mem_hifit rejects a base
+%ifdef MEM_ALIGN_CLASS
+    mov byte [mem_dsk], 0       ; (...and the DISK class travels too, in a
+    test di, MC_DISK            ; byte of its own because [mem_dma] is summed;
+    jz .ndsk                    ; the whole op is IF=0, so a byte of .bss is
+    inc byte [mem_dsk]          ; this window's alone)
+.ndsk:
+%endif
     and di, MC_DMA_HEAD         ; whose head would straddle, exactly as the
     mov [mem_dma], di           ;
                                 ; first claim did. DI is dead here - it held
@@ -4452,6 +4534,9 @@ mem_regrowp:                    ; be a byte less and would push the caller a
                                 ; care - the rule is on the HEAD, so a shrink
                                 ; and an extend upward both keep it
     call mem_hifit              ; CX = its base
+%ifdef MEM_ALIGN_CLASS
+    mov byte [mem_dsk], 0       ; (mov writes no flag)
+%endif
     mov word [mem_dma], 0       ; a transient, and this window is the only
                                 ; place it may be set (the whole op is IF=0).
                                 ; A mov writes no flag: CF is mem_hifit's
@@ -5302,9 +5387,11 @@ osapi_mem_regrow_x:
 ;           AX = paragraphs, CX = the 64KB-page-safe HEAD in paragraphs, 0 =
 ;           none -> CF=0, DX = the base, AX = the paragraphs GRANTED (the
 ;           request rounded up to the granule: the slack is the caller's)
-;      BL = MEMP_REGROW (2): DX = your claim, AX = paragraphs -> as
+;           | MEMP_CPU (2): no int 13h lands in it, so its base need not be
+;           512-aligned - on a granule of 512 every base is anyway
+;      BL = MEMP_REGROW (4): DX = your claim, AX = paragraphs -> as
 ;           OSAPI_MEM_REGROW, AX = the paragraphs granted
-;      BL = MEMP_AVAIL (3), or anything past it: out AX = the largest claim
+;      BL = MEMP_AVAIL (5), or anything past it: out AX = the largest claim
 ;           you can have and BX = the total, in paragraphs, as OSAPI_MEM_AVAIL
 ;           at the caller's floor; CX = MEM_GRAN, the granule every size is
 ;           rounded to
@@ -5338,6 +5425,12 @@ osapi_mem_p:
     mov di, bx
     and di, 1                   ; bit 0 -> MC_DMA_HI, the top-down door
     ror di, 1
+%ifdef MEM_ALIGN_CLASS
+    test bl, MEMP_CPU           ; ...and DISK unless the caller says no int
+    jnz .cpu                    ; 13h will land in it
+    or di, MC_DISK
+.cpu:
+%endif
     call mem_own                ; BX = the owner ES names
     jc .out
     call mem_claimp_sd
@@ -5982,6 +6075,9 @@ section .bss
                                   ; (mem_dir, the claim's DIRECTION, was a word
                                   ; here until size pass 9 - it lives in BP for
                                   ; the length of mem_claim_1, the one reader)
+%ifdef MEM_ALIGN_CLASS
+mem_dsk:  resb 1                  ; mem_hifit's DISK class, staged as [mem_dma]
+%endif                            ; is (SPEC.md 50.2.1.1)
 mem_dma:  resw 1                  ; mem_claim_dma's head, in paragraphs,
                                   ; for the same reason: 0 = no page constraint
 mem_base: resw 1                  ; first heap paragraph = HEAP_SEG
@@ -6163,16 +6259,23 @@ section .cold                   ; COLD_SEG (SPEC.md 2.6)
 ;     OR USE mem_bytes_kb**: 0 KB is a claim with nowhere to put anything.
 ; -----------------------------------------------------------------------------
 ; -----------------------------------------------------------------------------
-; mem_bytes_gp_x - BYTES -> PARAGRAPHS, rounded up to a whole number of
-;                  granules (SPEC.md 50.2.1): the size a paragraph door claims
-; in:       AX = bytes, at most 0x10000 - MEM_GRAN*16 (the caller bounds it:
-;           the round-up carries past that and answers a small number)
-; out:      AX = paragraphs, a multiple of MEM_GRAN;  CL = 4
+; mem_bytes_gp_x - BYTES -> PARAGRAPHS, rounded up to a whole SECTOR: the size
+;                  a paragraph door claims for an IMAGE read off a disk
+;                  (SPEC.md 50.2.1)
+; in:       AX = bytes, at most 0xFE00 (the caller bounds it: the round-up
+;           carries past that and answers a small number)
+; out:      AX = paragraphs, a multiple of 32;  CL = 4
 ; clobbers: CL, and the flags
+;
+; 512 AND NOT THE GRANULE, on purpose: an image's file is stripped to a 512
+; rung (tools/os88drv.py), so it is the size that covers its bss whatever the
+; granule is, and an image is a top-down DISK claim (50.2.1.1) whose base is
+; 512-aligned - on a finer granule the difference would only be a hole above
+; it. At MEM_GRAN = 32 the two are the same number.
 ; -----------------------------------------------------------------------------
 mem_bytes_gp_x:
-    add ax, MEM_GRAN * 16 - 1
-    and ax, -(MEM_GRAN * 16)
+    add ax, 511
+    and ax, -512
     mov cl, 4
     shr ax, cl
     ret

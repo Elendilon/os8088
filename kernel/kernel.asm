@@ -9317,8 +9317,12 @@ SK_MEGA_KB equ SK_R(SK_CUM4) - SK_R(SK_CUM4 - MEGA_PARA * 16) ; rungs when they
 ;     symptom would be "Disk error" on the LARGE packages only. A finer
 ;     granule needs SPEC.md 50.2.1's DISK class first, which aligns the base
 ;     itself rather than inheriting it from the size
-%if MEM_GRAN % 32
-%error "a heap claim is not 512-byte aligned - a package image is read into one"
+%ifndef MEM_ALIGN_CLASS
+ %if MEM_GRAN % 32
+ %error "a heap claim is not 512-byte aligned - a package image is read into one"
+ %endif
+%elif MEM_GRAN & (MEM_GRAN - 1)
+ %error "MEM_GRAN must be a power of two: the granule mask is `and ax, -MEM_GRAN`"
 %endif
 ; 4b. (retired, SPEC.md 2.9.14) the boot overlay had to EXIST, because an
 ;    empty `.ovl` sent every blob call OVL_AT bytes into the padding between
