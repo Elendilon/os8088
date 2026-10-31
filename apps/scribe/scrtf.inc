@@ -687,7 +687,7 @@ sc_isrtfimg:
 sc_rtfparse:
     mov [sc_dfsize], ax
     mov byte [sc_dtrunc], 0
-    mov ax, SC_MAXKB
+    mov ax, SC_MAXKB * 64
     call sc_resize
     jc .no
     mov word [sc_len], 0

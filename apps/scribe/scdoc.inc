@@ -1436,13 +1436,13 @@ sc_docparse:
     mov [sc_dccp], ax
     mov byte [sc_dtrunc], 1
 .fits:
-    mov ax, [sc_dccp]
-    add ax, 1023
+    mov ax, [sc_dccp]               ; <= SC_MAXKB * 1024: no carry
+    add ax, 15
     push cx
-    mov cl, 10
-    shr ax, cl
+    mov cl, 4
+    shr ax, cl                      ; the text's paragraphs...
     pop cx
-    inc ax
+    add ax, 64                      ; ...and a kilobyte to type into
     call sc_resize
     jc .no
     mov word [sc_papn], 1           ; a fresh dictionary: entry 0 is Normal
