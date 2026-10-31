@@ -1090,7 +1090,7 @@ dk_about:
     pop si
     pop cx
     ret
-dks_about:  db 'Desk Clock - 9 faces', 0
+dks_about:  db 'Desk Clock by jggonz', 0
 
 ; dk_menulive - the items as the state stands: the toggles ticked, the face
 ; and the size marked, Snooze and Dismiss greyed when nothing rings (SPEC.md
