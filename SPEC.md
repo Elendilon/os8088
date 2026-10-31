@@ -40384,6 +40384,13 @@ under it. The machine freezes for as long as the pass takes — 2,880 sectors is
 over a minute on the field machine — and §12.8's progress widget is armed with
 the pass's byte count, so the freeze has a bar on it.
 
+**On `kern_big` the whole clone is ONE operation** (§12.8.10): `clo_opgo`
+opens it at the first pass with `CL_TOT` × 1KB (every sector read once and
+written once) and `clo_free` ends it, so a cross-drive clone or a Write Img
+fills one bar instead of one a pass, and a same-drive clone's bar PARKS on the
+menu bar across its swap prompts. The kernel owns it as 0FEh, and every
+outcome reaches `clo_free` - the verdict, an error, Esc, a closed window.
+
 **Cancel is at every prompt and nowhere else**, which is what "at any point
 input is required" means on a machine that cannot interrupt an `int 13h`.
 Esc at `CLS_PICK`, `CLS_SRC`, `CLS_TGT`, `CLS_SAME` or `CLS_NOSRC` ends the
@@ -53798,6 +53805,12 @@ refusal - is that section's.
    three to the join when that marker is there. It also makes a clone and a
    join mutually exclusive, which they must be - one `[clo_seg]` - and the
    refusal is the one a second clone already gets.
+4. **One bar for the whole join** (`kern_big`, §12.8.10). Part 1's header
+   names the total, and `cmz_jloop` opens an operation of twice it - written
+   once, read once from parts that are no bigger, so it ends a little short
+   - which parks on the menu bar at each prompt; `cmz_jexit` ends it on every
+   way out. While it is live `cmz_rearm` steps nothing, every read and write
+   having counted itself already. `[cmz_jop]` is in the saved state block.
 
 **What the resident half is**: the menu row and its string, a third label on
 the `Compress`/`Uncompress` body, and two more answers from `CLV_SAVED` and
@@ -112255,6 +112268,11 @@ down. An image is useless until it is whole and Load refuses a short one
 (above), so HELD's one loss is nothing. `RAMDISK.DRV` does not ship on
 `kern_small` (§62.9.15), so it needs no fallback.
 
+**A Preserve or a Load is one bar** (§12.8.10): `rd_iop_go` opens an operation
+of the store's bytes and the two 4KB blocks once the size is known, and
+`rd_img_out`, both verbs' one exit, ends it - one bar where a 288KB store
+filled nine.
+
 #### 62.9.13 Ticking the row no longer mounts anything
 
 `DRVV_READY` used to claim the arena, seed it and call `OSAPI_VOL_ADD` +
@@ -156143,6 +156161,11 @@ list: 12 bytes and then 8 a run in its one sector is **`HBX_HMAX` = 62**, run
 0 among them, where `mx_tab` holds 96 blocks — past it run 0's bytes, which
 start at the head's byte 512, would overwrite the list's tail and the image
 would be written and refuse its own resume.
+
+**The write is one bar** (§12.8.8): `hbm_wrimg` opens an in-hold operation of
+exactly what it writes - the conventional chunks, chunk 0 a second time, the
+section in whole chunks and the pointer - so the ~20 appends fill the widget
+once. The lock is held to the end, so the unlock is the end.
 
 **The conventional picture is written a chunk a call, and only its first
 cluster through segment 0** (`hbm_xwconv`, KERN-MEGA-PLAN 14.46). Segment 0 is
@@ -222609,6 +222632,13 @@ disk and send `HDI_APPS`), `HDG_DONE` (3).
 whatever `hd_iact_ok` refuses, forces *erase* over a slot with nothing to
 keep (§52.10.15), and then runs `hd_inst_step` from `HII_ARMED`: the confirm is the
 wizard's Confirm page, not a second click.
+
+**Each disk is one bar** (§12.8.10). `hd_iop_go` opens an operation of the
+source's USED clusters × 1KB a sector (`OSAPI_VOL_STAT`; read once, written
+once, so an over-estimate that ends a little short) before the first file of
+each phase, and `hd_inst_step`'s one exit ends it, so the system disk and the
+apps disk each fill the widget once instead of twice a file. `DRVU_CALL` asks
+as the machine, so the kernel owns it (0FEh) and `[hd_iop]` says it is ours.
 
 **A run waiting on its apps disk pins the tool**:
 `HDT_BUSY` answers busy at `HII_SYSDONE`, so neither a Control Panel close nor
