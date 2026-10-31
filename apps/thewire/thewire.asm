@@ -2647,11 +2647,13 @@ wr_fetchnext:
     call wr_sputn                       ; the 8.3 name, hostile-safe
     mov byte [di], 0
 .claim:
-    mov ax, [wr_flen]                   ; --- one claim, the EXACT size, and
-    add ax, 1023                        ; never 0 KB: both arms above refuse a
-    mov cl, 10                          ; zero length (wr_catck for the .O88,
-    shr ax, cl                          ; .toobig for a sidecar)
-    call OSAPI_MEM_CLAIM
+    mov ax, [wr_flen]                   ; --- one claim, the EXACT size in
+    add ax, 15                          ; PARAGRAPHS (SPEC.md 50.3.7), and
+    mov cl, 4                           ; never 0: both arms above refuse a
+    shr ax, cl                          ; zero length (wr_catck for the .O88,
+    xor cx, cx                          ; .toobig for a sidecar), and both cap
+    mov bl, MEMP_CLAIM                  ; it at WIRE_FILEMAX, so the add has
+    call OSAPI_MEM_P                    ; no carry
     jc .nomem
     mov [wr_fseg], dx
     call wr_fmov                        ; ...and it MOVES (wr_reloc)
@@ -2833,20 +2835,23 @@ wr_refresh:
     mov [wr_nodrv], bl
     or bl, bl
     jnz .say
-    mov ax, WIRE_CATMAX / 1024          ; the transfer wants the whole ceiling
+    mov ax, WIRE_CATMAX / 16            ; the transfer wants the whole ceiling
     mov dx, [wr_catseg]                 ; again: the first time a claim, and
-    or dx, dx                           ; every time after a REGROW of the one
-    jz .new                             ; the last catalog was shrunk to - which
-    call OSAPI_MEM_REGROW               ; may MOVE it, so DX is the answer
-    jnc .full
+    mov bl, MEMP_REGROW                 ; every time after a REGROW of the one
+    or dx, dx                           ; the last catalog was shrunk to - which
+    jz .new                             ; may MOVE it, so DX is the answer. All
+    call OSAPI_MEM_P                    ; three through OSAPI_MEM_P, in
+    jnc .full                           ; paragraphs (SPEC.md 50.3.7)
     mov dx, [wr_catseg]                 ; (the slot names no DX on a refusal)
-    mov ch, [wr_catkb]                  ; **A REFUSED GROW IS NOT A REFUSED
-    shl ch, 1                           ; REFRESH**: the claim is untouched at
-    shl ch, 1                           ; its old base and holds a catalog as
-    xor cl, cl                          ; big as the last one, so the fetch
+    mov ax, [wr_catpara]                ; **A REFUSED GROW IS NOT A REFUSED
+    mov cl, 4                           ; REFRESH**: the claim is untouched at
+    shl ax, cl                          ; its old base and holds a catalog as
+    xchg ax, cx                         ; big as the last one, so the fetch
     jmp short .go                       ; goes into what is there, capped at it
 .new:                                   ; - the heap the window held before the
-    call OSAPI_MEM_CLAIM                ; shrink is the only thing it lacks
+    xor cx, cx                          ; shrink is the only thing it lacks
+    mov bl, MEMP_CLAIM
+    call OSAPI_MEM_P
     jc .nomem
 .full:
     mov [wr_catseg], dx
@@ -2854,7 +2859,7 @@ wr_refresh:
     call OSAPI_MEM_MOVABLE              ; for as long as the window is open,
                                         ; and a regrow keeps the declaration
                                         ; (SPEC.md 50.3.1)
-    mov byte [wr_catkb], WIRE_CATMAX / 1024
+    mov word [wr_catpara], WIRE_CATMAX / 16
     mov cx, WIRE_CATMAX
 .go:
     mov ax, dx
@@ -2952,12 +2957,13 @@ wr_onwake:
     call wr_catck
     jc .catbad
     mov ax, [wr_catlen]                 ; THE CLAIM GOES BACK DOWN TO THE
-    add ax, 1023                        ; CATALOG (SPEC.md 92.2): it was made
-    mov cl, 10                          ; at WIRE_CATMAX because the size was
+    add ax, 15                          ; CATALOG (SPEC.md 92.2): it was made
+    mov cl, 4                           ; at WIRE_CATMAX because the size was
     shr ax, cl                          ; not known, and every byte past the
-    mov dx, [wr_catseg]                 ; last KB is idle until a Refresh asks
-    mov [wr_catkb], al                  ; for it back. A shrink is in place,
-    call OSAPI_MEM_REGROW               ; always, so DX does not move
+    mov dx, [wr_catseg]                 ; last granule is idle until a Refresh
+    mov bl, MEMP_REGROW                 ; asks for it back. A shrink is in
+    call OSAPI_MEM_P                    ; place, always, so DX does not move;
+    mov [wr_catpara], ax                ; AX is what it holds now (50.3.7)
     jmp short .catok
 .catbad:
     mov word [wr_msg], wr_s_badcat
@@ -3713,10 +3719,7 @@ wr_dvname   equ os88_image_end + WR_B7 + 36         ; word: the folder name
                                                     ; wr_dive is looking for,
                                                     ; banked past a file cell
                                                     ; that owns SI
-wr_catkb    equ os88_image_end + WR_B7 + 11         ; byte: the KB the catalog
-                                                    ; claim holds now (wr_onwake
-                                                    ; shrinks it, wr_refresh
-                                                    ; grows it back)
+                                                    ; +11 FREE (was wr_catkb)
 wr_anb      equ os88_image_end + WR_B7 + 38         ; 13: one path slot, copied
                                                     ; and TERMINATED. SPEC.md
                                                     ; 92.13's twelve-character
@@ -3732,4 +3735,8 @@ wr_apiece   equ os88_image_end + WR_B7 + 52         ; byte: ...and how many of
                                                     ; clears both with one word
 wr_abrem    equ os88_image_end + WR_B7 + 54         ; dword: the big entry's
                                                     ; bytes not yet stored
-WR_BSS      equ WR_B7 + 58
+wr_catpara  equ os88_image_end + WR_B7 + 58         ; word: the paragraphs the
+                                                    ; catalog claim holds now
+                                                    ; (wr_onwake shrinks it,
+                                                    ; wr_refresh grows it back)
+WR_BSS      equ WR_B7 + 60
