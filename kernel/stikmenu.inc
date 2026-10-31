@@ -195,8 +195,10 @@ smn_track:
     push di
     push bp
     push es
-    CSDO mov [CSEG stm_cellx], bx
-    CSDO mov byte [CSEG stm_ak], AK_NONE
+    CSDO_ON
+    mov [CSEG stm_cellx], bx
+    mov byte [CSEG stm_ak], AK_NONE
+    CSDO_OFF
     call stm_scan               ; STIKAPPS\ on the boot volume and the fixed
     call stm_census             ; disks; then who is running
     call stm_layout
@@ -375,10 +377,12 @@ stm_take:
     mov al, [cs:stm_n]
     call stm_ent                ; CS:DI = the next entry
     mov al, [cs:stm_vol]
-    CSDO mov [CSEG di+STE_VOL], al
-    CSDO mov byte [CSEG di+STE_RUN], 0
+    CSDO_ON
+    mov [CSEG di+STE_VOL], al
+    mov byte [CSEG di+STE_RUN], 0
     mov ax, [cs:stm_find+16]
-    CSDO mov [CSEG di+STE_CLUS], ax
+    mov [CSEG di+STE_CLUS], ax
+    CSDO_OFF
     push si
     push di
     push es                     ; the 8.3 name: image to image
@@ -412,11 +416,14 @@ stm_take:
 
 ; stm_cpy - CX bytes from ES:SI to CS:DI; SI, DI past them. clobbers AL, CX
 stm_cpy:
+    CSDO_ON                     ; (DS = the image for the whole copy)
+.c:
     mov al, [es:si]
-    CSDO mov [CSEG di], al
+    mov [CSEG di], al
     inc si
     inc di
-    loop stm_cpy
+    loop .c
+    CSDO_OFF
     ret
 
 ; stm_dup - CF = 1 when stm_find's name is already listed. clobbers AX, CX,
@@ -549,8 +556,10 @@ stm_census:
     call stm_ent
     call stm_find_inst          ; CF = 0: BX = its instance record
     jc .n
-    CSDO mov byte [CSEG di+STE_RUN], 1
-    CSDO inc byte [CSEG stm_nrun]
+    CSDO_ON
+    mov byte [CSEG di+STE_RUN], 1
+    inc byte [CSEG stm_nrun]
+    CSDO_OFF
 .n:
     inc dx
     jmp short .e
@@ -665,12 +674,14 @@ stm_layout:
     jae .wok
     mov dl, al
 .wok:
-    CSDO mov [CSEG stm_stride], dl
+    CSDO_ON
+    mov [CSEG stm_stride], dl
     mov dh, 0
-    CSDO mov [CSEG stm_stridew], dx
+    mov [CSEG stm_stridew], dx
     mov cl, 3
     shl dx, cl
-    CSDO mov [CSEG stm_w], dx
+    mov [CSEG stm_w], dx
+    CSDO_OFF
     ; --- x: under the title, on the byte grid, inside the primary --------------
     mov ax, [cs:stm_cellx]
     and al, 0xF8
@@ -687,10 +698,12 @@ stm_layout:
 .xpos:
     and al, 0xF8
 .xok:
-    CSDO mov [CSEG stm_x1], ax
+    CSDO_ON
+    mov [CSEG stm_x1], ax
     add ax, dx
     dec ax
-    CSDO mov [CSEG stm_x2], ax
+    mov [CSEG stm_x2], ax
+    CSDO_OFF
     ; --- how many apps fit: the screen, and one segment of save-under -------
     mov si, [cs:stm_ly]
     xor bx, bx                  ; BX = every row but the apps'
@@ -726,8 +739,10 @@ stm_layout:
     ja .page                    ; more than fit: a pager, and a page
     cmp ah, STM_PGMAX
     ja .page
-    CSDO mov [CSEG stm_shown], ah ; all of them, and no pager
-    CSDO mov byte [CSEG stm_paged], 0
+    CSDO_ON
+    mov [CSEG stm_shown], ah    ; all of them, and no pager
+    mov byte [CSEG stm_paged], 0
+    CSDO_OFF
     jmp short .nok
 .page:
     xchg ax, bx                 ; the rows again, less the pager's
@@ -746,14 +761,18 @@ stm_layout:
     jnz .pone
     inc ax                      ; never a page of none
 .pone:
-    CSDO mov [CSEG stm_shown], al
-    CSDO mov byte [CSEG stm_paged], 1
+    CSDO_ON
+    mov [CSEG stm_shown], al
+    mov byte [CSEG stm_paged], 1
+    CSDO_OFF
 .nok:
-    CSDO mov byte [CSEG stm_top], 0
+    CSDO_ON
+    mov byte [CSEG stm_top], 0
     ; --- the slabs, top down --------------------------------------------------
     mov di, stm_sl
     mov dx, MBAR_H              ; DX = the next slab's y
-    CSDO mov [CSEG stm_y1], dx
+    mov [CSEG stm_y1], dx
+    CSDO_OFF
     mov ax, SK_HEAD
     call stm_addsl
     mov ax, SK_RULE
@@ -788,8 +807,10 @@ stm_layout:
     jne .arr
     mov al, SF_DIS              ; nothing to arrange or hide
 .arr:
-    CSDO mov [CSEG stm_iflag], al
-    CSDO mov [CSEG stm_sflag], al
+    CSDO_ON
+    mov [CSEG stm_iflag], al
+    mov [CSEG stm_sflag], al
+    CSDO_OFF
     mov ax, SK_ITEM | (IT_ARR << 8)
     call stm_addsl
     mov al, [cs:stm_iflag]
@@ -804,12 +825,14 @@ stm_layout:
     mov ax, SK_HINT
     call stm_addsl
     dec dx
-    CSDO mov [CSEG stm_y2], dx
+    CSDO_ON
+    mov [CSEG stm_y2], dx
     xchg ax, di
     sub ax, stm_sl
     mov cl, SL_SIZE
     div cl
-    CSDO mov [CSEG stm_nsl], al
+    mov [CSEG stm_nsl], al
+    CSDO_OFF
     ret
 
 ; stm_len - SI = an image string: DL = max(DL, its length). clobbers AH, SI
@@ -831,10 +854,12 @@ stm_len:
 ; stm_addsl - AL = SK_*, AH = its param, [stm_sflag] its flags (cleared
 ; here), DI = the slab, DX = its y: write it, DI and DX past it. clobbers AX, BX
 stm_addsl:
-    CSDO mov [CSEG di+SL_KIND], ax ; SL_KIND, then SL_PARAM
+    CSDO_ON
+    mov [CSEG di+SL_KIND], ax   ; SL_KIND, then SL_PARAM
     mov bl, 0
-    CSDO xchg bl, [CSEG stm_sflag]
-    CSDO mov [CSEG di+SL_FLAGS], bl
+    xchg bl, [CSEG stm_sflag]
+    mov [CSEG di+SL_FLAGS], bl
+    CSDO_OFF
     mov bx, [cs:stm_ly]
     mov ah, 0
     cmp al, SK_PAGE
@@ -843,8 +868,10 @@ stm_addsl:
 .ht:
     add bx, ax
     mov al, [cs:bx+LY_HT]
-    CSDO mov [CSEG di+SL_H], al
-    CSDO mov [CSEG di+SL_Y], dx
+    CSDO_ON
+    mov [CSEG di+SL_H], al
+    mov [CSEG di+SL_Y], dx
+    CSDO_OFF
     add dx, ax
     add di, SL_SIZE
     ret
@@ -871,7 +898,8 @@ stm_open:
     sub ax, bx
     add ax, 2                   ; span -> count, and the misalignment byte
     mul word [vid_planes_w]     ; AX = the bytes ONE ROW saves, every plane
-    CSDO mov [CSEG stm_rowb], ax
+    CSDO_ON
+    mov [CSEG stm_rowb], ax
     xchg bx, ax
     mov ax, STM_SAVEMAX
     xor dx, dx
@@ -879,7 +907,8 @@ stm_open:
     mov cx, [cs:stm_y2]
     sub cx, [cs:stm_y1]
     add cx, 2                   ; CX = the rows, the shadow's included
-    CSDO mov [CSEG stm_rows], cx
+    mov [CSEG stm_rows], cx
+    CSDO_OFF
     cmp cx, ax
     ja .two
     xchg ax, cx                 ; one segment holds the lot
@@ -940,8 +969,10 @@ stm_open:
     ; other theme gets the pair on VGA; and on a 1bpp adapter, where no pen
     ; is asked, the band is inverted when the theme's ink is a dark colour.
     mov ax, [gfx_b1ink]         ; gfx_b1ink, then gfx_b1pap
-    CSDO mov [CSEG stm_pens], ax
-    CSDO mov byte [CSEG stm_pol], 0
+    CSDO_ON
+    mov [CSEG stm_pens], ax
+    mov byte [CSEG stm_pol], 0
+    CSDO_OFF
     mov al, [thm_inkc]
     cmp byte [vid_planes], 1
     je .mono
@@ -1155,10 +1186,12 @@ stm_slab:
     je .pol
     mov cx, [cs:stm_bn]         ; highlighted: invert INSIDE the frame
     mov di, stm_band
+    CSDO_ON
 .inv:
-    CSDO not byte [CSEG di]
+    not byte [CSEG di]
     inc di
     loop .inv
+    CSDO_OFF
     call stm_frame
 .pol:
     push word [gfx_b1ink]       ; (gfx_b1ink, gfx_b1pap)
@@ -1176,10 +1209,12 @@ stm_slab:
     jz .blit
     mov cx, [cs:stm_bn]
     mov di, stm_band
+    CSDO_ON
 .pl:
-    CSDO xor [CSEG di], al
+    xor [CSEG di], al
     inc di
     loop .pl
+    CSDO_OFF
 .blit:
     mov dl, [cs:bx+SL_H]
     mov dh, 0
@@ -1207,11 +1242,13 @@ stm_frame:
     mov ch, 0
     mov di, stm_band
     mov si, [cs:stm_stridew]
+    CSDO_ON
 .r:
-    CSDO or byte [CSEG di], 0x80
+    or byte [CSEG di], 0x80
     add di, si
-    CSDO or byte [CSEG di-1], 0x01
+    or byte [CSEG di-1], 0x01
     loop .r
+    CSDO_OFF
     ret
 
 ; --- the composers: CS:BX = the slab, CS:SI = the layout, ES = CS, the band
@@ -1292,8 +1329,10 @@ stm_c_page:
     mov ah, 0
     div byte [cs:stm_shown]
     call stm_num
-    CSDO mov byte [CSEG di], ')'
-    CSDO mov byte [CSEG di+1], 0
+    CSDO_ON
+    mov byte [CSEG di], ')'
+    mov byte [CSEG di+1], 0
+    CSDO_OFF
     pop di
     mov si, stm_cnt
     xor dl, dl
@@ -1302,6 +1341,7 @@ stm_c_page:
 ; stm_num - AL (0..99) as one or two digits at CS:DI; DI past them.
 ; clobbers AX
 stm_num:
+    CSDO_ON
     mov ah, 0
     push cx
     mov cl, 10
@@ -1310,12 +1350,13 @@ stm_num:
     or al, al
     jz .u
     add al, '0'
-    CSDO mov [CSEG di], al
+    mov [CSEG di], al
     inc di
 .u:
     add ah, '0'
-    CSDO mov [CSEG di], ah
+    mov [CSEG di], ah
     inc di
+    CSDO_OFF
     ret
 
 stm_c_item:
@@ -1381,6 +1422,7 @@ stm_c_app:
     add ax, stm_pics
     xchg si, ax
     mov dh, 32                  ; source rows left
+    CSDO_ON                     ; (DS = the image for the whole picture)
 .pic:
     mov cx, 4
 .pb:
@@ -1389,7 +1431,7 @@ stm_c_app:
     jz .p1
     or al, [cs:si+4]
 .p1:
-    CSDO or [CSEG di], al
+    or [CSEG di], al
     inc si
     inc di
     loop .pb
@@ -1403,6 +1445,7 @@ stm_c_app:
 .p2:
     or dh, dh
     jnz .pic
+    CSDO_OFF
     ; the name (bold) and the description, at byte 6
     mov si, [cs:stm_ly]
     mov al, [cs:si+LY_NAME]
@@ -1431,12 +1474,14 @@ stm_c_app:
     push di
     mov si, stm_tick            ; the tick: 8x8, 2-px strokes, which a 1bpp
     mov cx, 8                   ; adapter keeps (SPEC.md 13.16.2.1)
+    CSDO_ON
 .tk:
     mov al, [cs:si]
-    CSDO or [CSEG di], al
+    or [CSEG di], al
     inc si
     add di, [cs:stm_stridew]
     loop .tk
+    CSDO_OFF
     pop di
     inc di                      ; a cell's gap, then 'On'
     inc di
@@ -1467,21 +1512,23 @@ stm_c_app:
 ; top and bottom rows from x+1 to x+38 (corners open, so it reads rounded at
 ; this size), the two sides between. clobbers AX, DX, DI
 stm_box:
-    CSDO mov byte [CSEG di], 0x7F
-    CSDO mov word [CSEG di+1], 0xFFFF
-    CSDO mov word [CSEG di+3], 0xFEFF
+    CSDO_ON
+    mov byte [CSEG di], 0x7F
+    mov word [CSEG di+1], 0xFFFF
+    mov word [CSEG di+3], 0xFEFF
     dec dx
     dec dx
 .s:
     add di, [cs:stm_stridew]
-    CSDO or byte [CSEG di], 0x80
-    CSDO or byte [CSEG di+4], 0x01
+    or byte [CSEG di], 0x80
+    or byte [CSEG di+4], 0x01
     dec dx
     jnz .s
     add di, [cs:stm_stridew]
-    CSDO mov byte [CSEG di], 0x7F
-    CSDO mov word [CSEG di+1], 0xFFFF
-    CSDO mov word [CSEG di+3], 0xFEFF
+    mov byte [CSEG di], 0x7F
+    mov word [CSEG di+1], 0xFFFF
+    mov word [CSEG di+3], 0xFEFF
+    CSDO_OFF
     ret
 
 ; stm_at - DI = the band offset of row AL, byte AH. clobbers AX
@@ -1553,6 +1600,7 @@ stm_text:
     jz .m
     mov dh, 0xAA
 .m:
+    CSDO_ON                     ; (DS = the image for the glyph's 8 rows)
     mov cx, 8
 .r:
     mov al, [es:bx]
@@ -1563,7 +1611,7 @@ stm_text:
     or al, ah
 .nb:
     and al, dh
-    CSDO or [CSEG di], al
+    or [CSEG di], al
     test byte [cs:stm_sty], STY_GREY
     jz .ng
     not dh                      ; 0xAA <-> 0x55
@@ -1571,6 +1619,7 @@ stm_text:
     inc bx
     add di, [cs:stm_stridew]
     loop .r
+    CSDO_OFF
     pop di
     pop cx
     inc di
@@ -1607,14 +1656,17 @@ stm_count:
 
 ; stm_cat - append the image's string at SI to DI (no NUL). clobbers AL, SI
 stm_cat:
+    CSDO_ON
+.c:
     mov al, [cs:si]
     or al, al
     jz .r
-    CSDO mov [CSEG di], al
+    mov [CSEG di], al
     inc si
     inc di
-    jmp short stm_cat
+    jmp short .c
 .r:
+    CSDO_OFF
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1638,15 +1690,19 @@ stm_cat:
 ; clobbers: AX, BX, CX, DX, SI
 ; -----------------------------------------------------------------------------
 stm_loop:
-    CSDO mov word [CSEG stm_sel], 0xFFFF
-    CSDO mov word [CSEG stm_lastx], 0xFFFF ; nowhere: the first pass tracks
+    CSDO_ON
+    mov word [CSEG stm_sel], 0xFFFF
+    mov word [CSEG stm_lastx], 0xFFFF ; nowhere: the first pass tracks
     xor ax, ax
-    CSDO mov [CSEG stm_stk], al
-    CSDO mov [CSEG stm_stky], al
+    mov [CSEG stm_stk], al
+    mov [CSEG stm_stky], al
+    CSDO_OFF
     test byte [mouse_btn], 1
     jnz .arrow
-    CSDO inc byte [CSEG stm_stk] ; released already: wait for the click
-    CSDO inc byte [CSEG stm_stky] ; ...and drain it when the menu closes
+    CSDO_ON
+    inc byte [CSEG stm_stk]     ; released already: wait for the click
+    inc byte [CSEG stm_stky]    ; ...and drain it when the menu closes
+    CSDO_OFF
 .arrow:
     SMK cur_unlazy              ; any deferred hide spent, then the arrow
     SMK cursor_show             ; drawn where the pointer is
@@ -1666,8 +1722,10 @@ stm_loop:
     cmp dx, [cs:stm_lasty]
     je .same
 .moved:
-    CSDO mov [CSEG stm_lastx], cx
-    CSDO mov [CSEG stm_lasty], dx
+    CSDO_ON
+    mov [CSEG stm_lastx], cx
+    mov [CSEG stm_lasty], dx
+    CSDO_OFF
     SMK cursor_hide             ; the arrow off before any slab is blitted
     call stm_hit
     cmp ax, [cs:stm_sel]
@@ -1695,8 +1753,10 @@ stm_loop:
     SMK cursor_hide
     call stm_turn
     SMK cursor_show
-    CSDO mov byte [CSEG stm_stk], 1 ; ...a click away, and drained like the
-    CSDO mov byte [CSEG stm_stky], 1 ; stay-up click when the menu closes
+    CSDO_ON
+    mov byte [CSEG stm_stk], 1  ; ...a click away, and drained like the
+    mov byte [CSEG stm_stky], 1 ; stay-up click when the menu closes
+    CSDO_OFF
     jmp .poll
 .close:
     SMK cursor_hide             ; down again: the restore and gfx_unlock do
@@ -2116,9 +2176,11 @@ stm_a_arr:
     call KERNEL_SEG:cw_gfx_lock
     mov ax, [vid_band_xe]
     sub ax, STM_ARR_R
-    CSDO mov [CSEG stm_ax], ax   ; this column's right edge
-    CSDO mov [CSEG stm_axl], ax  ; ...and its leftmost frame so far
-    CSDO mov word [CSEG stm_ay], STM_ARR_T
+    CSDO_ON
+    mov [CSEG stm_ax], ax       ; this column's right edge
+    mov [CSEG stm_axl], ax      ; ...and its leftmost frame so far
+    mov word [CSEG stm_ay], STM_ARR_T
+    CSDO_OFF
     mov bx, wm_wins
     mov cx, MAX_WIN
 .w:
@@ -2132,9 +2194,11 @@ stm_a_arr:
     je .fits                    ; taller than the band: first in a column
     mov ax, [cs:stm_axl]        ; a new column, left of this one
     sub ax, STM_ARR_G
-    CSDO mov [CSEG stm_ax], ax
-    CSDO mov [CSEG stm_axl], ax
-    CSDO mov word [CSEG stm_ay], STM_ARR_T
+    CSDO_ON
+    mov [CSEG stm_ax], ax
+    mov [CSEG stm_axl], ax
+    mov word [CSEG stm_ay], STM_ARR_T
+    CSDO_OFF
 .fits:
     mov ax, [cs:stm_ax]
     sub ax, [bx+W_W]

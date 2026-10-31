@@ -4121,8 +4121,10 @@ cp_vid_vxlabel:
     call .dec                   ; B
     jmp short .end
 .auto:
-    CSDO mov word [CSEG di], 'au'
-    CSDO mov word [CSEG di+2], 'to'
+    CSDO_ON
+    mov word [CSEG di], 'au'
+    mov word [CSEG di+2], 'to'
+    CSDO_OFF
     add di, 4
 .end:                           ; ...padded with spaces to the LONGEST label,
     cmp di, cp_vvesa_buf + 16   ; so a shorter one erases the longer one it

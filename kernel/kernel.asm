@@ -492,13 +492,126 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
  %endif
 %endmacro
 %macro CSDO 1+
+ %ifdef CSDO_OPEN
+  %error "CSDO inside CSDO_ON: DS is the image's already - drop the CSDO"
+ %endif
  %ifdef KERN_MEGA
-    push ds
-    call KERNEL_SEG:mega_dsimg  ; DS = the image's data segment (mega.inc)
+    CSDO_ENTER                  ; DS = the image's data segment (mega.inc)
     %1
     pop ds
  %else
     %1
+ %endif
+%endmacro
+; CSDOF insn - CSDO with the far call INLINE, never the image's door: for a
+; site on a per-byte or per-position path, where the door's near call and
+; return would be a cycle cost (kern_mega size pass 2)
+%macro CSDOF 1+
+ %ifdef CSDO_OPEN
+  %error "CSDOF inside CSDO_ON: DS is the image's already - drop the CSDOF"
+ %endif
+ %ifdef KERN_MEGA
+    push ds
+    call KERNEL_SEG:mega_dsimg
+    %1
+    pop ds
+ %else
+    %1
+ %endif
+%endmacro
+; CSDO_ON ... CSDO_OFF - CSDO for a RUN of instructions: DS = the image ONCE
+; for all of them, and the caller's DS back at the end - one `push ds`, one
+; door and one `pop ds` where a CSDO a line would spend that per line, seven
+; bytes and a far call each (kern_mega size pass 2). Nothing at all on every
+; other build, where `[CSEG x]` is `[cs:x]` and needs no DS. Between the two,
+; on kern_mega, DS is the IMAGE: so the run must be STRAIGHT-LINE (no label,
+; jump, call, return, int or string instruction) and every memory operand
+; must name its segment - [CSEG x], [cs:x], [es:x], [ss:x] or a BP base -
+; which tests/unit/t_cswrite.py checks, because a plain `[x]` in the run
+; assembles cleanly on every build and is wrong only on kern_mega. FLAGS are
+; kept across both ends, CSDO's promise; SP is one word lower inside, so a
+; `mov [CSEG x], sp` in a run is CSDO_SP's trap (below). Not nestable
+%macro CSDO_ON 0
+ %ifdef CSDO_OPEN
+  %error "CSDO_ON inside CSDO_ON"
+ %endif
+ %define CSDO_OPEN
+ %ifdef KERN_MEGA
+    CSDO_ENTER
+ %endif
+%endmacro
+%macro CSDO_OFF 0
+ %ifndef CSDO_OPEN
+  %error "CSDO_OFF with no CSDO_ON"
+ %endif
+ %undef CSDO_OPEN
+ %ifdef KERN_MEGA
+    pop ds
+ %endif
+%endmacro
+; CSDO_ENTER - `push ds` and DS = the calling image's data segment
+; (mega_dsimg), the head of CSDO and CSDO_ON on kern_mega, spelt three ways by
+; the section it is in (kern_mega size pass 2):
+;   * an image with a SWAP door (CSDO_SDOOR): `call csd_<image>`, THREE bytes
+;     - the door pushes DS UNDER its own return, so the `pop ds` after the
+;     instruction finds it, then sets DS through mega_dsimg. 22 bytes a door,
+;     paid back by the sixteenth site;
+;   * an image with a plain door (CSDO_DOOR, six bytes): `push ds / call
+;     csd_<image>`, four, for an image with too few sites for a swap door;
+;   * anywhere else, `push ds / call KERNEL_SEG:mega_dsimg`, six.
+; mega_dsimg reads the CS off the door's far call - the image's own - exactly
+; as off a site's. Every register and FLAGS kept, as before. The doors sit at
+; each image's end (kernel.asm, by each end label; serial.inc for SERIAL.DRV)
+%macro CSDO_ENTER 0
+ %ifidni __?SECT?__, [section .modl]
+    call csd_modl
+ %elifidni __?SECT?__, [section .modn]
+    call csd_modn
+ %elifidni __?SECT?__, [section .modf]
+    call csd_modf
+ %elifidni __?SECT?__, [section .modh]
+    call csd_modh
+ %elifidni __?SECT?__, [section .modc]
+    call csd_modc
+ %elifidni __?SECT?__, [section .modu]
+    call csd_modc               ; (.modu follows .modc in CTRL.DRV's one CS,
+                                ; and the door is in the SETTINGS CORE, which
+                                ; is loaded on either load - SPEC.md 2.8.7)
+ %elifidni __?SECT?__, [section .mods]
+    push ds
+    call csd_mods
+ %elifidni __?SECT?__, [section .modk]
+    push ds
+    call csd_modk
+ %elifidni __?SECT?__, [section .modw]
+    push ds
+    call csd_modw
+ %else
+    push ds
+    call KERNEL_SEG:mega_dsimg
+ %endif
+%endmacro
+%macro CSDO_DOOR 1
+ %ifdef KERN_MEGA
+%1:
+    call KERNEL_SEG:mega_dsimg
+    ret
+ %endif
+%endmacro
+%macro CSDO_SDOOR 1
+ %ifdef KERN_MEGA
+%1:                             ; SS:SP -> the site's return
+    push ds
+    push bp
+    mov bp, sp                  ; [bp+2] = DS, [bp+4] = the return...
+    push ax
+    mov ax, [bp+4]
+    xchg ax, [bp+2]
+    mov [bp+4], ax              ; ...swapped: the return, then DS under it
+    pop ax                      ; (mov and xchg write no flag)
+    pop bp
+    call KERNEL_SEG:mega_dsimg
+    ret
  %endif
 %endmacro
 ; CSDO_SP var - bank SP in the image's variable VAR: `CSDO mov [CSEG var], sp`
@@ -507,12 +620,14 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; `ret`s into the call that was made after the bank, which on a join's refusal
 ; looped toasting for ever (KERN-MEGA-PLAN 14.84). Flags kept, CSDO's promise.
 %macro CSDO_SP 1
-    CSDO mov [CSEG %1], sp      ; kern_mega: SP - 2, CSDO's push under it...
+    CSDO_ON
+    mov [CSEG %1], sp           ; kern_mega: SP - 2, CSDO_ON's push under it...
  %ifdef KERN_MEGA
     pushf
-    CSDO add word [CSEG %1], 2  ; ...so the frame is two above
+    add word [CSEG %1], 2       ; ...so the frame is two above
     popf
  %endif
+    CSDO_OFF
 %endmacro
 ; KDATAR_M reg - KDATAR_C's twin for an on-demand MODULE (.mod*): the kernel's
 ; DATA segment, KERNEL_SEG in real mode and the data alias once mega_enter has
@@ -8651,6 +8766,7 @@ section .modwb
 modwb_end:
 MODW_BSS equ modwb_end - $$
 section .modw
+    CSDO_DOOR csd_modw
     MODB_TAIL MODW_IMG, MODW_BSS
 modw_end:
 MODW_SIZE equ modw_end - $$
@@ -8664,6 +8780,7 @@ MODJ_SIZE equ modj_end - $$
   %error "DESK.DRV exceeds its maximum claim"
 %endif
 section .modn
+    CSDO_SDOOR csd_modn
 modn_end:
 MODN_SIZE equ modn_end - $$
 %if MODN_SIZE > MOD_MAX_KB*1024
@@ -8672,6 +8789,7 @@ MODN_SIZE equ modn_end - $$
 %endif
 %ifdef DOCK_OPT
 section .modk
+    CSDO_DOOR csd_modk
 modk_end:
 MODK_SIZE equ modk_end - $$
 %if MODK_SIZE > MOD_MAX_KB*1024
@@ -8686,6 +8804,7 @@ MODC_BSS equ modcb_end - $$
 %endif
 
 section .modc
+    CSDO_SDOOR csd_modc          ; (the settings core's: .modu's sites use it)
 mods_end:
 MODS_SIZE equ mods_end - $$     ; the settings core: CTRL.DRV's first bytes
 section .modu
@@ -8702,6 +8821,7 @@ MODC_SIZE equ MODS_SIZE + MODU_SIZE ; ...and the WHOLE image: align=1 on both
                                 ; ends of `.modu`, so there is no pad between
 
 section .modf
+    CSDO_SDOOR csd_modf
 modf_end:
 MODF_SIZE equ modf_end - $$
 
@@ -8741,6 +8861,7 @@ ksg_ds_MEGA_SEL_K5:
     pop di
     ret
 %endif
+    CSDO_SDOOR csd_modl
 modl_end:
 MODL_SIZE equ modl_end - $$
 
@@ -8749,6 +8870,7 @@ section .modhb
 modhb_end:
 MODH_BSS equ modhb_end - $$
 section .modh
+    CSDO_SDOOR csd_modh
     MODB_TAIL MODH_IMG, MODH_BSS
 modh_end:
 MODH_SIZE equ modh_end - $$

@@ -1321,10 +1321,12 @@ sc_m_row:
 ; the way, it packs round whatever lands next to it.
 ; -----------------------------------------------------------------------------
 sc_m_cell:
-    CSDO mov [CSEG sc_px], cx
-    CSDO mov [CSEG sc_py], dx
-    CSDO mov [CSEG sc_ex], bl
-    CSDO mov word [CSEG sc_best], 0xFFFF
+    CSDO_ON
+    mov [CSEG sc_px], cx
+    mov [CSEG sc_py], dx
+    mov [CSEG sc_ex], bl
+    mov word [CSEG sc_best], 0xFFFF
+    CSDO_OFF
     xor bx, bx                  ; BL = the cell
 .cell:
     cmp bl, [desk_ncell]
@@ -1355,8 +1357,10 @@ sc_m_cell:
     add ax, dx
     cmp ax, [cs:sc_best]
     jae .next
-    CSDO mov [CSEG sc_best], ax
-    CSDO mov [CSEG sc_bc], bl
+    CSDO_ON
+    mov [CSEG sc_best], ax
+    mov [CSEG sc_bc], bl
+    CSDO_OFF
 .next:
     inc bx
     jmp .cell                   ; (short where it reaches: kern_mega's CSDO

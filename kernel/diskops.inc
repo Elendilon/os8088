@@ -3043,8 +3043,10 @@ clo_unmnt:
 ; through clo_mount's own exit
 ; -----------------------------------------------------------------------------
 clo_umount:
-    CSDO mov [CSEG clo_mvol], al
-    CSDO mov [CSEG clo_mseg], es
+    CSDO_ON
+    mov [CSEG clo_mvol], al
+    mov [CSEG clo_mseg], es
+    CSDO_OFF
     mov [mem_pinimg], es        ; clo_unmnt's pin, for the eject
 .drop:                          ; (clo_unmnt's: both cells already stored)
     call clo_mdrop

@@ -300,17 +300,19 @@ wn_title:
     mov cx, 80
 .cut:
     push di
+    CSDO_ON
     mov di, wn_cap              ; copy at most CX characters into our own
 .cp:                            ; buffer: the owner's string is not ours to
     mov al, [es:si]             ; terminate early
     or al, al
     jz .cpend
-    CSDO mov [CSEG di], al
+    mov [CSEG di], al
     inc si
     inc di
     loop .cp
 .cpend:
-    CSDO mov byte [CSEG di], 0
+    mov byte [CSEG di], 0
+    CSDO_OFF
     pop di
     PUSH_CSDATA
     pop es
@@ -476,10 +478,12 @@ wn_blit:
     loop .sh
 .put:
     pop cx
-    CSDO mov [CSEG di], ah
-    CSDO mov [CSEG di+1], al
+    CSDO_ON
+    mov [CSEG di], ah
+    mov [CSEG di+1], al
     mov ax, bp
-    CSDO mov [CSEG di+2], ah     ; (RCR filled BP from bit 15 down)
+    mov [CSEG di+2], ah         ; (RCR filled BP from bit 15 down)
+    CSDO_OFF
     inc si
     inc si
     add di, 3
@@ -698,8 +702,10 @@ wn_stick:
 .stick:
     WNK cur_unlazy              ; the arrow: any deferred hide spent, then
     WNK cursor_show             ; drawn at the pointer, which the ISR will not
-    CSDO mov [CSEG wn_lastx], cx ; move while we hold the lock
-    CSDO mov [CSEG wn_lasty], dx
+    CSDO_ON
+    mov [CSEG wn_lastx], cx     ; move while we hold the lock
+    mov [CSEG wn_lasty], dx
+    CSDO_OFF
 
     ; --- UP: wait for the next click ------------------------------------------
 .wait:
@@ -818,8 +824,10 @@ wn_track:
     cmp dx, [cs:wn_lasty]
     je .out
 .moved:
-    CSDO mov [CSEG wn_lastx], cx
-    CSDO mov [CSEG wn_lasty], dx
+    CSDO_ON
+    mov [CSEG wn_lastx], cx
+    mov [CSEG wn_lasty], dx
+    CSDO_OFF
     WNK cursor_hide
     WNK menu_hover              ; AX = the item under it, 0xFFFF none
     call wn_sel
