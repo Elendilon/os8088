@@ -157,13 +157,32 @@ mega_dxkb   dw 0
 mega_dpbase dw 0, 0                 ; the park, 0 = none
 mega_dsum   dw 0, 0                 ; s1, s2 at the snapshot
 mega_dpkb   dw 0                    ; KB of conventional memory it holds
+%ifdef MEGA_DIAG
 mega_dout   dw 0                    ; ms out (the copy and the sum)...
+%endif
 %if mega_dxkb - mega_dxbase != KDL_XKB - KDL_XBASE || mega_dpbase - mega_dxbase != KDL_PBASE - KDL_XBASE || mega_dsum - mega_dxbase != KDL_PSUM - KDL_XBASE || mega_dpkb - mega_dxbase != KDL_PKB - KDL_XBASE || KDL_PLOW - KDL_XBASE != 16
  %error "mega_dosgo copies mega_dxbase .. mega_dpkb into KDL_XBASE .. KDL_PKB as one run"
 %endif
-%if mega_dsum - mega_dpbase != MPK_C_PSUM - MPK_C_PBASE || mega_dpkb - mega_dpbase != MPK_C_PKB - MPK_C_PBASE || mega_dout - mega_dpbase != MPK_C_POUT - MPK_C_PBASE || MPK_C_PACC - MPK_C_PBASE != 12
+%if mega_dsum - mega_dpbase != MPK_C_PSUM - MPK_C_PBASE || mega_dpkb - mega_dpbase != MPK_C_PKB - MPK_C_PBASE || MPK_C_POUT - MPK_C_PBASE != 10 || MPK_C_PACC - MPK_C_PBASE != 12
  %error "mega_dhcfill copies mega_dpbase .. mega_dout into MPK_C_PBASE .. MPK_C_POUT as one run"
 %endif
+%ifdef MEGA_DIAG
+ %if mega_dout - mega_dpbase != MPK_C_POUT - MPK_C_PBASE
+  %error "mega_dhcfill copies mega_dout into MPK_C_POUT with the rest"
+ %endif
+MEGA_DHCRUN equ (MPK_C_PACC - MPK_C_PBASE) / 2 ; PBASE .. POUT, in words
+%else
+MEGA_DHCRUN equ (MPK_C_POUT - MPK_C_PBASE) / 2 ; ...and no POUT to send: the
+                                    ; trip's times are MEGADIAG=1's alone
+%endif
+; MEGA_DPITCK - the trip's PIT accounting, MEGADIAG=1's alone: its ms out and
+; ms back are the menu bar's DOSP line and nothing else reads them (kern_mega
+; size pass 2; the stub's half is megapark.inc's)
+%macro MEGA_DPITCK 0
+ %ifdef MEGA_DIAG
+    call mega_dpitck
+ %endif
+%endmacro
 mega_dss    dw 0                    ; the snapshot's stack: mega_dwake's
 mega_dsp    dw 0
 mega_dimr1  db 0                    ; the 8259's masks at the snapshot
@@ -188,7 +207,9 @@ mega_dback  dw 0                    ; ...and back (the stub's sum and copy):
                                     ; mega_dtell's alone, so MEGADIAG=1's
                                     ; (kern_mega size pass 2)
 %endif
+%ifdef MEGA_DIAG
 mega_dpit   dw 0, 0, 0              ; PIT ch0's last count, and clocks since
+%endif
 mega_parkcap dw 0xFFFF              ; KB: THE TEST'S CAP ON THE PARK. A 1MB AT
                                     ; is a pool of ~190KB; Bochs is 16MB, so
                                     ; `os88bochs.py dbg "setpmem <linear> 2
@@ -425,6 +446,7 @@ mega_dosfreef:
     popa
     retf
 
+%ifdef MEGA_DIAG
 ; mega_dpitck - PIT channel 0's count since the last call, added to
 ; [mega_dpit+2] as 32 bits. Called often enough (a 32KB chunk at most) that
 ; the counter cannot wrap twice between two of them. Clobbers AX, BX
@@ -441,6 +463,7 @@ mega_dpitck:
     add [mega_dpit+2], bx
     adc word [mega_dpit+4], 0
     ret
+%endif
 
 ; mega_dreg_add - a region onto the list: DX:AX linear, CX:BX lines
 mega_dreg_add:
@@ -730,9 +753,11 @@ mega_dosparkf:
     call mega_d8042get              ; ...and the 8042's command byte, which a
                                     ; DOS program may leave with the keyboard
                                     ; switched off (KERN-MEGA-PLAN 54.3)
+%ifdef MEGA_DIAG
     mov word [mega_dpit+2], 0
     mov word [mega_dpit+4], 0
     call mega_dpitck
+%endif
 
     call mega_dacc                  ; the tables' accessed bits, set first
     ; --- THE RUNS, re-counted at the snapshot ----------------------------------
@@ -1009,7 +1034,7 @@ mega_dosparkf:
     push bp
     push cx
     call mx_lcopy
-    call mega_dpitck
+    MEGA_DPITCK
     pop cx
     pop bp
     pop si
@@ -1061,7 +1086,7 @@ mega_dosparkf:
     push si
     push bp
     call mx_lcopy
-    call mega_dpitck
+    MEGA_DPITCK
     pop bp
     pop si
     pop cx
@@ -1082,6 +1107,7 @@ mega_dosparkf:
     call mega_dsumall               ; DX:AX = s2:s1
     mov [mega_dsum], ax
     mov [mega_dsum+2], dx
+%ifdef MEGA_DIAG
     call mega_dpitck
     mov ax, [mega_dpit+2]           ; mode 2: one count a clock
     mov dx, [mega_dpit+4]
@@ -1094,6 +1120,7 @@ mega_dosparkf:
     mov ax, 0xFFFF
 .tout:
     mov [mega_dout], ax
+%endif
 %ifdef MEGA_E9
     mov si, mega_m_park             ; "kern_mega: parked kkkK at pppppp sum
     call mm_puts                  ;  ssss:ssss" on port E9 (KERN-MEGA-DOS-
@@ -1239,9 +1266,11 @@ mega_dsumall:
     pop ds
     MPK_SUMLINES
     pop ds
+%ifdef MEGA_DIAG
     push ax                         ; (BX is MPK_SUMLINES's: SP's, below)
     call mega_dpitck
     pop ax
+%endif
     mov bx, sp
     inc word [ss:bx+2]              ; the next 64KB
     jmp short .chunk
@@ -1490,7 +1519,7 @@ mega_dstubup:
 ; mega_dhcfill - THE HEADER'S GDT AND CELLS, staged in the scratch (MPS_HC)
 ; and copied up
 ; in:  AX = the wake (a `.mega` offset); ES = the text page (28h);
-;      [mega_dpbase], [mega_dsum], [mega_dpkb], [mega_dout]
+;      [mega_dpbase], [mega_dsum], [mega_dpkb], and [mega_dout] (MEGADIAG=1)
 ; Clobbers AX BX CX DX SI; DI and ES kept
 ; -----------------------------------------------------------------------------
 mega_dhcfill:
@@ -1516,7 +1545,7 @@ mega_dhcfill:
     call mega_hdesc
     mov si, mega_dpbase             ; PBASE, PSUM, PKB and POUT, the cells'
     mov di, MPS_HC + MPK_C_PBASE - MPK_GDT ; own order
-    mov cx, (MPK_C_PACC - MPK_C_PBASE) / 2
+    mov cx, MEGA_DHCRUN
     rep movsw
     mov si, mega_gdtr               ; the kernel's own GDTR and IDTR
     mov di, MPS_HC + MPK_C_KGDTR - MPK_GDT
@@ -1610,7 +1639,7 @@ mega_dropr:
 ; -----------------------------------------------------------------------------
 ; mega_dwake - THE SESSION IS BACK (PM, entered by the park stub's far jump
 ;              with the real GDTR and IDTR loaded, IF = 0, NMI off).
-; in:  BX = ms out, CX = ms back
+; in:  BX = ms out, CX = ms back (MEGADIAG=1: the stub times nothing else)
 ; The stack the snapshot banked, the 8259 at 20h with its parked masks, NMI
 ; on, the IDT's IRQ gates rebuilt from the restored IVT, and out through
 ; mega_dosparkf's own epilogue with AL = 1.
@@ -1625,8 +1654,8 @@ mega_dwake:
     mov ss, [mega_dss]
     mov sp, [mega_dsp]
     lmsw [mega_dmsw]                ; the MSW the session parked with
-    mov [mega_dout], bx
 %ifdef MEGA_DIAG
+    mov [mega_dout], bx
     mov [mega_dback], cx
 %endif
     push es                         ; W7's anchor goes: the session is home
@@ -2050,12 +2079,7 @@ mega_wrprobe:
     jae .try
     retf
 .try:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    pusha
     push es
     push bp
     mov bp, sp
@@ -2192,7 +2216,6 @@ cpu 286
     smsw ax
     or al, 1
     lmsw ax
-cpu 8086
     sub si, MPK_GDT                 ; SI:DI = the park, as the stub takes it
     sbb di, 0
     xchg si, di
@@ -2205,12 +2228,7 @@ cpu 8086
     mov sp, bp
     pop bp
     pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
+    popa
     retf
 .kbw:                               ; the 8042's input buffer empty, or give up
     push cx
@@ -2222,9 +2240,8 @@ cpu 8086
     pop cx
     ret
 .mv:                                ; int 15h AH=87h: CX words between linear
-    push si                         ; DX:AX and the buffer at [bp-64], BL = 0
-    push di                         ; there to here, 1 here to there. CF
-    push es
+    pusha                           ; DX:AX and the buffer at [bp-64], BL = 0
+    push es                         ; there to here, 1 here to there. CF
     push cx
     push ss
     pop es
@@ -2252,10 +2269,8 @@ cpu 8086
 .dst:
     mov ax, ss
     mov dx, ax
-    mov cl, 4
-    shl ax, cl
-    mov cl, 12
-    shr dx, cl
+    shl ax, 4
+    shr dx, 12
     lea cx, [bp-64]
     add ax, cx
     adc dx, 0
@@ -2268,9 +2283,10 @@ cpu 8086
     mov ah, 0x87
     int 0x15
     pop es
-    pop di
-    pop si
+    popa
     ret
+cpu 8086                        ; (the 286 code above is past the tier
+                                ; test; the loader's check runs on an 8088)
 section .cold                   ; ...and back to the loader's check
 
 ; -----------------------------------------------------------------------------
