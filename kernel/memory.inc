@@ -5480,17 +5480,18 @@ osapi_mem_p:
     and di, 1                   ; bit 0 -> MC_DMA_HI, the top-down door
     ror di, 1
 %ifdef KERN_MEGA
-    test cx, 0x7FFF             ; ...EXCEPT A RING, as mem_claim_dma_hi_x
-    jz .mtop                    ; (KERN-MEGA-PLAN 14.55, SPEC.md 50.3.2): a
+    jcxz .mtop                  ; ...EXCEPT A RING, as mem_claim_dma_hi_x
+                                ; (KERN-MEGA-PLAN 14.55, SPEC.md 50.3.2): a
     xor di, di                  ; HEAD is a chip's 64KB page, held only while
 .mtop:                          ; it plays, so on kern_mega it goes BOTTOM-UP
                                 ; - SOUND.DRV's staging pool is the one that
                                 ; asks here, and the KB door took it low. A
                                 ; claim with no head keeps the top: a carve,
                                 ; an overlay, an index - a block that is or
-                                ; may become a CS. Bit 15 is MEMP_CONV ("no
-                                ; head, stay conventional"), not a head, so
-                                ; the test leaves it out
+                                ; may become a CS. Bit 15, MEMP_CONV, is off
+                                ; CX already (the `and ch` above), so a
+                                ; conventional request is not taken for a
+                                ; head
 %endif
 %ifdef MEM_ALIGN_CLASS
     test bl, MEMP_CPU           ; ...and DISK unless the caller says no int
