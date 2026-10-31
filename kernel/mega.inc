@@ -319,22 +319,48 @@ mega_enter:
 ; identical copy (mega_coldupf's own note)
 section .cold
 mega_enterf:
-    mov dx, [ss:mega_gwhy]          ; whether it can be made at all, as the
-    cmp dx, 1                       ; boot blob found it (mega_gateb; every
-    ja .refuse                      ; refusal `.cold`'s - KERN-MEGA-PLAN 14.45)
-    push dx
-    call KERNEL_SEG:mega_a20f       ; ...and A20 proved open AGAIN, at the
-    pop cx                          ; moment it is relied on: the desktop's
-    mov dx, mega_ta20               ; first paint ran in between
-    jc .refuse
-    jcxz .room                      ; (0: the tables are aimed above 1MB)
+    mov si, [ss:mega_gwhy]          ; whether it can be made at all, as the
+    mov dx, si                      ; boot blob found it (mega_gateb; every
+    cmp si, 1                       ; refusal `.cold`'s - KERN-MEGA-PLAN 14.45)
+    ja .refuse
+
+    ; --- every task but the running one the KERNEL'S (no instance, not a
+    ; driver's service worker). A package's worker suspended in real mode
+    ; holds real-mode code segments in its stack - the frame's CS and every
+    ; far return into the package beneath it - and nothing can find those to
+    ; convert them, so the switch is refused instead. Only AUTOSTART (SPEC.md
+    ; 26.10.5) can launch one before mega_enter, and on kern_mega it runs
+    ; after it (kmain_hic)
+    mov bx, sch_tasks
+    xor cx, cx
+    mov dx, mega_ttask
+.t:
+    cmp byte [bx+T_STATE], 0
+    je .n
+    cmp cl, [sch_cur]
+    je .n
+    cmp byte [bx+T_INST], 0xFF
+    jne .refuse
+    test byte [bx+T_FLAGS], TF_SERVICE
+    jnz .refuse
+.n:
+    add bx, T_SIZE
+    inc cx
+    cmp cx, MAX_TASKS
+    jb .t
+    call KERNEL_SEG:mega_a20f       ; A20 open and proved, HERE, at the moment
+    mov dx, mega_ta20               ; it is relied on, and before the low
+    jc .refuse                      ; tables' claim (asked LAST: a claim made
+                                    ; before a refusal would be left behind)
+    or si, si                       ; (0: the tables are aimed above 1MB)
+    jz .room
 
     ; --- THE TABLES IN CONVENTIONAL MEMORY, for a machine whose extended
     ; memory cannot hold them (KERN-MEGA-PLAN 14.1 answer 16, 14.17): 82KB,
     ; no minimum beyond FITTING. [mega_tblkb] claimed top-down and pinned
     ; (MEM_K_MTBL), laid out exactly as above 1MB - the GDT at its base, the
     ; LDT on it, the IDT after. No pool and `.cold` stays low: mega_xminit and
-    ; mega_coldup already refuse a machine this small. It was mega_tlowf's,
+    ; mega_coldupf already refuse a machine this small. It was mega_tlowf's,
     ; far-called from the gate (kern_mega size pass 2)
     push bx
     push bp
@@ -9865,61 +9891,30 @@ mx_relallf:
 ; their four-byte far doors
 section .cold
 ; -----------------------------------------------------------------------------
-; mega_gateb - FAR, from kmain_o, its last call (BLOBCALL): WHETHER THE SWITCH
-; CAN BE MADE - a 286, no package task to convert, A20 open and proved, and
-; room for the tables - asked IN THE BOOT BLOB, which mem_unblob gives back,
-; and the answer left in [mega_gwhy] for mega_enterf: 0 go on (the tables
-; aimed above 1MB), 1 go on with the tables in conventional memory - a CLAIM,
-; so mega_enterf makes it, after A20 is proved again, which is the order the
-; gate always had - else the refusal's toast line. It was `.cold`'s
-; mega_gatef with mega_tasks_ok beside it - resident for the session, above
-; 1MB once the switch is made and in CONVENTIONAL memory for ever on a
-; machine that refuses it, for code that runs once; kern_mega size pass 2
-; moved them here as one body, mega_tasks_ok having had this one caller. The
-; refusal itself - the toast, `.mega`'s rung to the heap - is still made by
-; mega_enterf at the switch's own moment, so the user sees what they saw. Why
-; the verdict cannot go stale between here and the switch is
-; docs/plans/completed/msp2/bootonce.md's: the CPU is the CPU, nothing kmain
-; runs after kmain_o starts a task, the tables' claim is still made at the
-; switch, and A20 is proved again there. Reached on an 8088 too, so 8086 code up to the
-; tier test. Clobbers AX BX CX DX (kmain_o's last call: all dead)
+; mega_gateb - FAR, from kmain_o, its last call (BLOBCALL): the half of the
+; switch's gate that has NO SIDE EFFECT a refusal would have to undo, asked
+; IN THE BOOT BLOB, which mem_unblob gives back - whether the CPU is a 286,
+; and where the tables go (mega_layoutf, a pure function of the BIOS's
+; answer) - with the tables aimed when they go above 1MB, which is stores to
+; words only real mode never reads. The answer is left in [mega_gwhy] for
+; mega_enterf: 0 go on, the tables aimed above 1MB; 1 go on, the tables to
+; be CLAIMED in conventional memory; else the refusal's toast line. Every
+; check with an effect - the task test, A20 opened and proved, the low
+; tables' claim - and the refusal itself (the toast, `.mega`'s rung to the
+; heap) are mega_enterf's, at the switch's own moment and in the order
+; mega_gatef had them, so the user sees what they saw (kern_mega size pass
+; 2, docs/plans/completed/msp2/bootonce.md). Reached on an 8088 too, so 8086
+; code up to the tier test. Clobbers AX DX (kmain_o's last call: all dead)
 ; -----------------------------------------------------------------------------
 section .lowbss                 ; (SS-addressed: not the 64KB window's)
-mega_gwhy   resw 1                  ; mega_gateb's verdict: 0 or the refusal
+mega_gwhy   resw 1                  ; mega_gateb's verdict: 0 or 1 go on, else
+                                    ; the refusal's line
 section .boot2
 mega_gateb:
     cmp byte [cpu_tier], CPU_286
     mov dx, mega_t86                ; (MOV keeps the flags)
     jb mega_gwset                   ; an 8088 or 8086: no protected mode at all
 
-    ; --- every task but the running one the KERNEL'S (no instance, not a
-    ; driver's service worker). A package's worker suspended in real mode
-    ; holds real-mode code segments in its stack - the frame's CS and every
-    ; far return into the package beneath it - and nothing can find those to
-    ; convert them, so the switch is refused instead. Only AUTOSTART (SPEC.md
-    ; 26.10.5) can launch one before mega_enter, and on kern_mega it runs
-    ; after it (kmain_hic)
-    mov bx, sch_tasks
-    xor cx, cx
-    mov dx, mega_ttask
-.t:
-    cmp byte [bx+T_STATE], 0
-    je .n
-    cmp cl, [sch_cur]
-    je .n
-    cmp byte [bx+T_INST], 0xFF
-    jne mega_gwset
-    test byte [bx+T_FLAGS], TF_SERVICE
-    jnz mega_gwset
-.n:
-    add bx, T_SIZE
-    inc cx
-    cmp cx, MAX_TASKS
-    jb .t
-
-    call KERNEL_SEG:mega_a20f       ; (the tables' room is asked LAST: a claim
-    mov dx, mega_ta20               ; made before a refusal would be left
-    jc mega_gwset                   ; behind by it)
     call COLD_SEG:mega_layoutf      ; the tables at the TOP of extended
     mov dx, 1                       ; memory (KERN-MEGA-MEMORY-PLAN MC2) - or
     jc mega_gwset                   ; 1: in conventional memory, which

@@ -5709,13 +5709,12 @@ kmain_o:
 %endif
 %endif
 %ifdef KERN_MEGA
-    BLOBCALL mega_gateb         ; ...and WHETHER kmain's mega_enter can switch
-                                ; (kern_mega size pass 2): the tier, the
-                                ; tasks, A20 and the tables' room, asked here
-                                ; so the code that asks is given back with the
-                                ; blob. LAST, as near the switch as the blob
-                                ; reaches: drv_boot_x's service workers and
-                                ; vx_boot_x's display are both behind it
+    BLOBCALL mega_gateb         ; ...and the half of kmain's mega_enter that
+                                ; has no side effect (kern_mega size pass 2):
+                                ; the tier and where the tables go, asked
+                                ; here so the code that asks is given back
+                                ; with the blob. LAST, as near the switch as
+                                ; the blob reaches
 %endif
 
     retf

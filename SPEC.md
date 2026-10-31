@@ -98500,8 +98500,8 @@ the probe must find the parked anchor before any other state is known, and
 the same arithmetic on the same BIOS answer finds it. `mega_tset` writes
 every word that names the tables (`mega_gdtr`, `mega_idtr`, `mega_ldtlin`,
 `mega_tbllin`, the bootstrap window, the LDT and IDT descriptors) from one
-base, for the top-of-RAM block and for the conventional one alike (`mega_gateb`
-claims it in the boot blob, kern_mega size pass 2; it was `mega_tlowf`);
+base, for the top-of-RAM block and for the conventional one `mega_enterf`
+claims alike (it was `mega_tlowf`'s until kern_mega size pass 2);
 the parked stub's GDTR/IDTR copy is patched from the same two variables at
 staging (`mega_dstubup`). `.cold`'s descriptor base is `[mega_coldlin]` less
 `COLD_VSTART`.
