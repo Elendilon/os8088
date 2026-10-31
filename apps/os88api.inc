@@ -2291,6 +2291,8 @@ MEMP_CLAIM_HI equ 1
 MEMP_CPU      equ 2
 MEMP_REGROW   equ 4
 MEMP_AVAIL    equ 5
+MEMP_CONV     equ 0x8000            ; in CX: no head, and stay CONVENTIONAL on
+                                    ; kern_mega (a DMA head is <= 0x1000)
 %define OS88_BYTES_PARA(n) (((n) + 15) / 16)   ; bytes -> paragraphs to ask for
 
 ; OSAPI_IMG_NAME - WHICH driver or module an image is (KERN-MEGA-PLAN 14.70.3).

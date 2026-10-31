@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "aa2a9ba164eb0151402dfffb9e0bd22c1a91b605ebd785d21609a9b4549d3f2f",
+  "fingerprint": "51f3f37b332527d235a6e20f8d7fb60c47709f6c02a3860d24afd7cbc6041f98",
   "version": 12
  },
  "PKG_FMT": {
-  "fingerprint": "289dfcefbd092b5345e13f94c6ed5716447770d156a3d360800a8cef111247d9",
+  "fingerprint": "a468f17249a726bd68fbacfcb05922183589ac70dcaeaa3d352d71edae77ff00",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -1358,6 +1358,20 @@
    "from": 12,
    "guard": "DRV_VER",
    "reason": "OSAPI_MEM_P's contract comment: on kern_mega it offers the pool first, as the KB doors do (SPEC.md 50.3.7); nothing built before changes",
+   "to": 12
+  },
+  {
+   "fingerprint": "a468f17249a726bd68fbacfcb05922183589ac70dcaeaa3d352d71edae77ff00",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "MEMP_CONV: an OSAPI_MEM_P CX flag (no head, stay conventional on kern_mega); every package built before still runs",
+   "to": 10
+  },
+  {
+   "fingerprint": "51f3f37b332527d235a6e20f8d7fb60c47709f6c02a3860d24afd7cbc6041f98",
+   "from": 12,
+   "guard": "DRV_VER",
+   "reason": "MEMP_CONV: an OSAPI_MEM_P CX flag (no head, stay conventional on kern_mega); every package built before still runs",
    "to": 12
   }
  ]
