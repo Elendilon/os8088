@@ -3660,10 +3660,7 @@ mem_hicaches_f:
     mov si, dsk_rah_seg         ; landing below and copies up (dsk_rah_wanthi,
     mov bx, MEM_P_DIRW          ; KERN-MEGA-PLAN 13.3). mega_pmtail's
     call .one                   ; dsk_rah_redof re-solved it by paragraph
-    push ax
-    mov ax, [dsk_rah_seg]       ; before mem_xlatf, which freed nothing
-    call mem_ishiax
-    pop ax
+    MEGA_ISHI [dsk_rah_seg]     ; before mem_xlatf, which freed nothing
     jc .rdone
     mov byte [dsk_rah_hi], 1
     call dsk_rah_land           ; (refused: the store serves what it holds
@@ -3704,7 +3701,7 @@ mem_hicaches_f:
     mov dx, [si]
     or dx, dx
     jz .done
-    call mem_ishidx
+    MEGA_ISHI dx
     jnc .done                   ; already above 1MB
     push si
     push bx
@@ -3808,15 +3805,15 @@ mem_hiclaims:
     rep movsw
     pop ds                      ; DS = the driver
     push ax
-    KDATAR_CA
+    KDATAR_C ax
     mov es, ax                  ; ES = the kernel's, as every callback has it
     pop ax
     mov ax, ds
-    MEGA_PCALLC PKG_DISP, ax    ; its proc: BX the old base, DX the new
+    MEGA_PCALL PKG_DISP, ax     ; its proc: BX the old base, DX the new
     popf
     pop es
     pop si
-    KDATAR_CA
+    KDATAR_C ax
     mov ds, ax
     push bx
     mov dx, bx                  ; ...and the conventional claim goes back
