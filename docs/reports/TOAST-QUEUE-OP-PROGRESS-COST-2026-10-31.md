@@ -178,17 +178,59 @@ opened it (`inst_caller`, as toasts do):
   `toast_owner_gone`).
 - A second package asking while one is parked is refused (CF = 1).
 
-The API would be two cells at the end of the table, for example
-`OSAPI_FS_OPBEGIN` (`DX:CX` = bytes) and `OSAPI_FS_OPEND`. That is an
-addition, so no `PKG_FMT` bump (SPEC.md 20.2.0.1). kern_small gets
-`stc`/`retf` cells: it parks nothing and shows what it shows today.
+### 4.1 Built (third commit): `OSAPI_FS_OP`, one cell
 
-**ESTIMATED, not built:** about 150-220 resident bytes on kern_big on top of
-section 2. The two cells are 6 bytes each (SPEC.md 20.3), and the rest is the
-park and resume, the three gates above and the owner hook. kern_small would
-pay about 12 bytes for the two refusing cells. The real cost is the review of
-SPEC.md 12.8.3 and 12.8.4: a parked widget is a bar tenant that outlives a
-freeze, which 12.8.3 was written to rule out.
+One slot, `OSAPI_FS_OP` at `0x04E9`, as a rare cell (6 bytes).
+`DX:CX` = the bytes the operation will move, and `DX:CX` = 0 ends it, so
+ending needs no flag at all. `PKG_FMT` stays 10, because the cell is added at
+the end of the table (`tools/abi.lock.json` records why). The kernel side is
+behind `FPG_PARK`, defined under `KERN_BIG` in `kernel.asm`.
+
+- **The call.** `osapi_fs_op` records the caller (`inst_caller`) as
+  `[fpg_pown]` and runs section 2's `fpg_opbegin`. It refuses with CF = 1 if
+  another package holds the widget, or if the widget could not arm.
+- **Parking.** At every `gfx_unlock`, `fpg_finish` checks `[fpg_pown]`. If a
+  package's operation is live, the widget parks instead of coming down:
+  - `[fpg_on]` keeps only `FPG_SHOWN | FPG_OP`.
+  - The cursor debt is paid and the warm-up count is cleared.
+  - The pixels, origin and trough stay on the bar.
+- **Parked means not armed.** The three `mou_apply` tests and `fpg_busy` and
+  `fpg_arm`'s entry ask the ARMED bit (`FPG_ARMED`, a `test` the same length
+  as the `cmp` it replaces). So the arrow moves normally and the busy pointer
+  is off while parked.
+- **Showing.** `fpg_vis` accepts `1 | FPG_OP`. A parked widget keeps its menu
+  cells, `menu_furniture` repaints it, and a toast still outranks it.
+- **Unparking.** `fpg_arm` arms a parked widget where it stands, without
+  resetting the origin or the trough. Every refusal still applies: the
+  splash, a bracket, another task's lock, a fullscreen window.
+- **Only the owner's reads count.** `fpg_begin` resumes the scale only for a
+  phase whose `inst_caller` is the owner. Anyone else's phase leaves the
+  trough unscaled, so its remainder hatches. A kernel `fpg_opbegin` (the copy
+  loop) refuses while a package owns the widget.
+- **Ending.** The end call, or the owner closing (a check in
+  `toast_owner_gone`, which both teardown sites already call), only disowns
+  the widget. The next `gfx_unlock` takes it down.
+
+| MEASURED | kern_big | kern_small |
+|---|---|---|
+| the `OSAPI_FS_OP` cell | +6 | +6 (an `OSAPI_XREFUSE`) |
+| parking, `.text`, incl. a 1-byte PARITY pad for `ui_task` | +122 | 0 |
+| `.bss` | 0 | 0 |
+| **total on top of sections 1-2** | **128** | **6** |
+
+So kern_big is **.text +350, .bss +28, .cold +48 = 426 bytes** with all three
+changes, and kern_small is +6. kern_big's image rung crosses
+(91 -> 92 steps; 3,072 bytes of `KERN_BUDGET` spare). The unparked variant is
+one line: comment out `%define FPG_PARK 1` in `kernel.asm`. That gives
+section 2 plus a refusing cell, `.text` +106 over the first commit's figure
+(+100 for section 2, +6 for the cell), and no rung crossed.
+
+**No package calls it yet.** The Video Player is the consumer, with
+`OSAPI_FS_OP` at the start of the hold load and its end (or the close). Two
+things come before that. First, a shipped package calling `0x04E9` is a new
+Wire API level (SPEC.md 92 and `tools/os88wire.py`'s level table). Second,
+the parked widget has to be seen on a slow machine, which this session has
+not done.
 
 ## What was not done
 
@@ -196,7 +238,7 @@ freeze, which 12.8.3 was written to rule out.
   MartyPC to be seen at all, because QEMU finishes the copy inside one frame.
   The kern_mega + RLAPPLY case needs Bochs or 86Box (docs/BOCHS.md,
   docs/86BOX.md).
-- No SPEC.md section was rewritten. If either change is kept, SPEC.md 59.3 and
-  12.8.3 change before the code does.
+- No SPEC.md section was rewritten. If any of this is kept, SPEC.md 59.3,
+  12.8.3, 12.8.4 and the API table change before the code does.
 - The soak rows that cover these are `toastbar`, `toastfpg`, `fpgcold`,
   `fpgnotch`, `curdisk` and `rltune`. None of them has been run.

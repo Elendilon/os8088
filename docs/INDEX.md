@@ -167,6 +167,7 @@ Read first: [§18 disk.inc — floppy I/O (BIOS int 13h) + the FAT driver](../SP
 | `0x02F6` | `OSAPI_VOL_AT` | DL = an int 13h drive number, BX:CX = a partition's 32-bit base LBA (BX = the high word)... |
 | `0x02D9` | `OSAPI_FS_ENT` | ES:SI -> a DSK_DE_SIZE-byte staged SPEC.md 19.1 entry in YOUR OWN segment: name at 0 (NUL-terminated 8.3), type at 16 (0 file / 1 package / 2 folder... |
 | `0x02DF` | `OSAPI_FS_PROG` | AX = bytes moved SINCE YOUR LAST REPORT - a running total would advance the bar by the whole file every call... |
+| `0x04E9` | `OSAPI_FS_OP` | DX:CX = the bytes ONE operation of yours will move - a load the user waits for, spread over many chunks and many callbacks; 0 = it is over... |
 | `0x0328` | `OSAPI_VOL_SYS` | out BL = the volume this machine BOOTED from - A: on a floppy machine, the installed partition on one that boots from its hard disk... |
 | `0x01C1` | `OSAPI_FILE_HERE` | out DX = YOUR instance's current directory (0 = the root), BL = its drive. No disk I/O. |
 | `0x01C7` | `OSAPI_FILE_GOTO` | in DX = a cluster from OSAPI_FILE_HERE, BL = its drive; moves YOUR instance there... |

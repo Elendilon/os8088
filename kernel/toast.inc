@@ -689,6 +689,12 @@ toast_owner_gone:
                                 ; toast_show from another task
     push ax
     call inst_idx               ; AL = this record's instance index. NO "is
+%ifdef FPG_PARK
+    cmp al, [fpg_pown]          ; ...and a parked progress widget of its own
+    jne .np                     ; (SPEC.md 12.8): disowned, so the next
+    mov byte [fpg_pown], 0FFh   ; gfx_unlock takes it down
+.np:
+%endif
 %ifdef TOAST_Q
     cmp al, [toast_qinst]       ; (its queued message first)
     jne .nq

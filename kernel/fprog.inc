@@ -233,7 +233,11 @@ fpg_bare:
 ;           instructions (kernel size pass 14)
 ; -----------------------------------------------------------------------------
 fpg_vis:
+%ifdef FPG_PARK
+    test byte [fpg_on], 1 | FPG_OP  ; armed, or PARKED (CF = 0 either way)
+%else
     test byte [fpg_on], 1       ; armed? (CF = 0 either way)
+%endif
     jz .r
     call toast_up               ; CF = 1 a toast outranks it...
     cmc                         ; ...so CF = 1 the widget may show
@@ -345,6 +349,17 @@ fpg_begin:
 %ifdef FPG_OPS
     test byte [fpg_on], FPG_OP  ; an operation scale is held: this phase
     jz .scale                   ; resumes it rather than re-scaling
+%ifdef FPG_PARK
+    mov al, [fpg_pown]          ; ...when it is the OWNER's phase. A package's
+    cmp al, 0FFh                ; operation counts its own reads and nobody
+    je .res                     ; else's: another's phase leaves the trough
+    call inst_caller            ; unscaled, so it hatches the remainder
+    cmp dh, al
+    jne .out
+.res:
+    call fpg_arm                ; a parked widget is armed where it stands -
+    jc .out                     ; or refused (a bracket, a fullscreen window)
+%endif
     mov ax, [fpg_opt]
     mov [fpg_total], ax
     cmp byte [fpg_pat], 0       ; the remainder is hatched: back to white
@@ -468,7 +483,7 @@ fpg_busy:
     push cx
     push dx
     push si
-    cmp byte [fpg_on], 0
+    FPG_ARMED
     jne .armed
     cmp cx, FPG_WARM            ; --- not yet: has the machine been at the disk
     jae .now                    ; long enough to be worth saying so? A CALL
@@ -545,7 +560,7 @@ fpg_busy:
 ; screen in between two of its own file operations.
 ; -----------------------------------------------------------------------------
 fpg_arm:
-    cmp byte [fpg_on], 0
+    FPG_ARMED
     jne .yes
     cmp word [spl_live], 0      ; boot: the splash owns screen and mode -
     jne .no                     ; and, the byte after it, [blk_on]:
@@ -627,6 +642,10 @@ fpg_arm:
     sub ax, FPG_W               ; MENU_CLK_HX - that one is the VGA reference.
     cmp ax, FPG_MINX            ; IN THE ACCUMULATOR, whose load and store are
     jl .no                      ; 3 bytes where BX's are 4; the `sub` and `cmp`
+%ifdef FPG_PARK
+    cmp byte [fpg_on], 0        ; PARKED (SPEC.md 12.8): its pixels, origin
+    jne .unpark                 ; and trough are still on the bar - arm it
+%endif                          ; where it stands
     mov [fpg_x0], ax            ; are 3 either way. SIGNED, so the one test
                                 ; also catches a screen narrower than the
                                 ; widget wrapping the sub
@@ -641,8 +660,13 @@ fpg_arm:
                                 ; it in the accumulator forms is shorter than
                                 ; four immediates: A2/A3+disp16 are 3 where
                                 ; `mov byte [mem],imm` is 5 and `mov word` 6
+%ifdef FPG_PARK
+.unpark:
+    or byte [fpg_on], 1         ; armed, keeping a parked widget's bits
+%else
     inc ax
     mov [fpg_on], al            ; ...and the payload is written BEFORE the flag
+%endif
                                 ; that publishes it, which is the kernel's own
                                 ; discipline. Nothing DRAWS in between, and no
                                 ; cross-task reader of [fpg_on] (mou_apply,
@@ -1120,6 +1144,10 @@ fpg_end:
 ; and the flags preserved.
 fpg_opbegin:
     pushf
+%ifdef FPG_PARK
+    cmp byte [fpg_pown], 0FFh   ; a package's operation is the scale on the
+    jne .o                      ; bar: a kernel one inside it is not counted
+%endif
     and byte [fpg_on], ~FPG_OP & 0FFh
     call KERNEL_SEG:fpg_begin
     cmp word [fpg_total], 0
@@ -1128,6 +1156,47 @@ fpg_opbegin:
 .o:
     popf
     retf
+
+%ifdef FPG_PARK
+; -----------------------------------------------------------------------------
+; osapi_fs_op - OSAPI_FS_OP (0x04E9). in DX:CX = the bytes ONE operation of the
+; caller's will move however many lock holds it takes; 0 = it is over. The
+; widget PARKS on the bar between the caller's holds (fpg_finish) instead of
+; coming down, so a load spread over timer callbacks is one bar, not one per
+; chunk. out CF = 1 refused: another package holds it, or it could not arm.
+; Every register kept. UI task, from a callback, the lock held (fpg_stepb's
+; rule). The end only disowns it: the next gfx_unlock takes it down
+; -----------------------------------------------------------------------------
+osapi_fs_op:
+    push ax
+    push dx
+    call inst_caller
+    mov al, dh                  ; AL = the caller
+    pop dx
+    mov ah, 0FFh
+    cmp al, [fpg_pown]
+    je .mine
+    cmp ah, [fpg_pown]          ; CF = 0: equal
+    stc
+    jne .out                    ; somebody else's operation
+.mine:
+    mov [fpg_pown], ah          ; free while it re-arms (fpg_opbegin refuses
+    push cx                     ; under an owner)
+    or cx, dx
+    pop cx
+    jz .out                     ; 0: over. CF = 0 off the `or`
+    call KERNEL_SEG:fpg_opbegin
+    test byte [fpg_on], FPG_OP  ; CF = 0
+    jz .no
+    mov [fpg_pown], al
+    jmp short .out
+.no:
+    stc
+.out:
+    pop ax
+    ret
+    db 0                        ; PARITY, never executed: keeps ui_task even (t_hotpar)
+%endif
 
 fpg_opend:
     pushf
@@ -1145,6 +1214,15 @@ fpg_finish:
     push dx
     push si                     ; (SI only so that fpg_step's epilogue, which
                                 ; pops these five, is this routine's too)
+%ifdef FPG_PARK
+    mov al, [fpg_on]            ; a PACKAGE'S operation is live: the widget
+    cmp byte [fpg_pown], 0FFh   ; PARKS rather than coming down - pixels,
+    je .tear                    ; origin and trough stay; armed, the debt and
+    and byte [fpg_on], FPG_SHOWN | FPG_OP  ; the warm-up go, so the mouse
+    mov byte [fpg_warm], 0      ; ISR and the busy pointer see a live desk
+    jmp short .debt
+.tear:
+%endif
     xor ax, ax                  ; **ONE INSTRUCTION BANKS AND CLEARS BOTH**,
     xchg ax, [fpg_on]           ; because [fpg_on] and [fpg_warm] are declared
                                 ; adjacent and are always cleared together: the
@@ -1186,6 +1264,9 @@ fpg_finish:
                                 ; clipped teardown leaves the box on the bar
                                 ; for good with [fpg_on] already 0
     pop ax                      ; fpg_arm's banked cursor debt
+%ifdef FPG_PARK
+.debt:
+%endif
 
     test al, 2                  ; ...and fpg_arm's arrow comes back (SPEC.md
     jz .out                     ; 12.8.4), LAST: the save-under has to be taken
@@ -1275,6 +1356,9 @@ fpg_total   dw 0                ; ...out of this many. **0 = no scale**, and
                                 ; that is fpg_step's and fpg_stepb's gate as
                                 ; well as the divisor they guard (12.8.3)
 %ifdef FPG_OPS
+%ifdef FPG_PARK
+fpg_pown    db 0FFh             ; the instance whose operation is parked
+%endif
 fpg_opt     dw 0                ; the operation's scale, between phases
 %endif
 fpg_frac    dw 0                ; fpg_stepb's carry: bytes reported that have

@@ -1070,6 +1070,17 @@ DRV_HMA_SEG equ 0xF000
 %ifdef KERN_BIG
   %define TOAST_Q 1
   %define FPG_OPS 1
+  %define FPG_PARK 1             ; ...and a PACKAGE'S operation, which
+%endif                            ; outlives a lock hold (OSAPI_FS_OP). Take
+                                  ; this line out for the unparked variant
+; FPG_ARMED - "is the widget ARMED?", ZF = 0 yes. A parked widget (FPG_PARK)
+; keeps its FPG_SHOWN and FPG_OP bits with bit 0 clear, so the test is the
+; bit; without parking every set bit implies bit 0, and the byte compare is
+; what has always been assembled
+%ifdef FPG_PARK
+  %define FPG_ARMED test byte [fpg_on], 1
+%else
+  %define FPG_ARMED cmp byte [fpg_on], 0
 %endif
 
 ; KBD_I15 - SPEC.md 9.7.2: the scancode from the AT BIOS's own int 15h AH=4Fh
@@ -4146,7 +4157,18 @@ rmk_seg:          ; (a real-mode bracket keeps it: fsx_rkeep)
                                   ;          (KERN-MEGA-MEMORY-PLAN MC7). Every
                                   ;          real-mode kernel answers what the
                                   ;          caller's own arithmetic would
-osapi_table_end:                  ; 0x04E9 today (0x04E3 before OSAPI_SEG,
+%ifdef FPG_PARK
+    OSAPI_RSLOT osapi_fs_op           ; 0x04E9 - DX:CX = the bytes ONE operation
+                                  ;          of yours will move, every chunk
+                                  ;          and every lock hold of it; 0 =
+                                  ;          it is over. CF=1 refused (another
+                                  ;          package holds the widget, or it
+                                  ;          could not arm). SPEC.md 12.8.
+%else
+    OSAPI_XREFUSE                 ; 0x04E9 - OSAPI_FS_OP, refused here
+%endif
+osapi_table_end:                  ; 0x04EF today (0x04E9 before OSAPI_FS_OP,
+                                  ; 0x04E3 before OSAPI_SEG,
                                   ; 0x04DD before OSAPI_ARG_TEXT,
                                   ; 0x04D7 before OSAPI_IMG_NAME,
                                   ; 0x04D1 before OSAPI_MEM_SUBSEG,
@@ -4188,8 +4210,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 44*8 + 11*7 + 116*6 + 6*3 + 6 + 12*5 + 4*6 + 8
-%error "os8088 API jump table must be exactly 0x04D9 bytes: 44 SLOT (8), 11 XCELL (7), 116 rare (6), 6 JCELL (3), 1 FCELL (6), 17 ICELL (12 of 5, 4 of 6 - OSAPI_WM_ONWHEEL's for parity, SPEC.md 13.18 - 1 of 8 - OSAPI_THM_SET, SPEC.md 76.14.14)"
+%if OSAPI_TABLE_LEN != 44*8 + 11*7 + 117*6 + 6*3 + 6 + 12*5 + 4*6 + 8
+%error "os8088 API jump table must be exactly 0x04DF bytes: 44 SLOT (8), 11 XCELL (7), 117 rare (6, OSAPI_FS_OP an XREFUSE ICELL of the same 6 where FPG_PARK is off), 6 JCELL (3), 1 FCELL (6), 17 ICELL (12 of 5, 4 of 6 - OSAPI_WM_ONWHEEL's for parity, SPEC.md 13.18 - 1 of 8 - OSAPI_THM_SET, SPEC.md 76.14.14)"
 %endif
 
 %ifdef KERN_MEGA

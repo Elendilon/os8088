@@ -2377,6 +2377,22 @@ SEG_AT      equ 8
                                  ; (SPEC.md 18), and you must NEVER take it.
                                  ; Preserves every register and the flags
 
+%define OSAPI_FS_OP         KERNEL_SEG:0x04E9   ; DX:CX = the bytes ONE
+                                 ; operation of yours will move - a load the
+                                 ; user waits for, spread over many chunks and
+                                 ; many callbacks; 0 = it is over. The file
+                                 ; widget keeps ONE bar for it, PARKED on the
+                                 ; menu bar between your callbacks, and counts
+                                 ; your file reads into it (not anybody
+                                 ; else's). Closing ends it for you.
+                                 ; out CF=1 = refused: another package holds
+                                 ; the widget, it could not arm (a bracket, a
+                                 ; fullscreen window), or kern_small, which
+                                 ; has none. Advisory: refused, the reads
+                                 ; still work and report as they always did.
+                                 ; UI task, from a callback (SPEC.md 12.8).
+                                 ; Every register kept
+
 ; --- a driver's settings, inside SYSTEM.CFG (SPEC.md 51.9) ------------------
 ; A DRIVER's slot, fenced like the four above. The kernel carries DRV_BLOB_SZ
 ; opaque bytes to disk and back with the rest of the Control Panel; it never
