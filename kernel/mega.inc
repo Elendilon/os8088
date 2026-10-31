@@ -5083,11 +5083,9 @@ mega_bhex2:
 .n:
     push ax
     and al, 15
-    add al, '0'
-    cmp al, '9'
-    jbe .o
-    add al, 7
-.o:
+    cmp al, 10                      ; 0-9 -> '0'-'9', 10-15 -> 'A'-'F'
+    sbb al, 0x69
+    das
     stosb
     pop ax
     ret
@@ -5245,127 +5243,120 @@ mega_vrm:
     ret
 
 mega_hibnc:
+    xor bx, bx                      ; ES:BX = the landing: the read-ahead's
+    mov di, DSK_RAH_SECS << 8       ; nine sectors...
     mov ax, [dsk_rah_bnc]
-    xor bx, bx
-    mov cl, DSK_RAH_SECS
     or ax, ax
     jnz .have
-    mov ax, ss                      ; LOW_SEG: one sector at a time
-    mov bx, dsk_secbuf
-    mov cl, 1
+    mov ax, ss                      ; ...or LOW_SEG's dsk_secbuf, one sector
+    mov bx, dsk_secbuf              ; at a time
+    mov di, 1 << 8
 .have:
-    mov [mega_hbseg], ax
-    mov [mega_hboff], bx
-    mov [mega_hbcap], cl
-    mov al, [ss:bp+18]              ; AL = the caller's sectors
-    mov [mega_hbleft], al
-    mov byte [mega_hbdone], 0
-    mov ax, [ss:bp+12]              ; BX
-    mov [mega_hbsi], ax
-    mov ax, [ss:bp+16]              ; CX
-    mov [mega_hbcx], ax
-    mov al, [ss:bp+15]              ; DH, the head: a run is carried across
-    mov [mega_hbdh], al             ; heads and cylinders here (.adv)
+    mov es, ax
+    mov ax, [ss:bp+18]              ; DI = the cap (high) and the caller's
+    xor ah, ah                      ; sectors left (low)
+    or di, ax
+    mov si, [ss:bp+12]              ; SI = where in the caller's buffer
+    mov cx, [ss:bp+16]              ; CX = the CHS the run is asked with
+    mov dx, [ss:bp+14]              ; DL = the drive, DH = the head: a run is
+                                    ; carried across heads and cylinders here
+                                    ; (.adv). A nested int 13h keeps all of
+                                    ; these, ES:BX the landing included, and
+                                    ; .copy keeps them too
 .run:
-    mov al, [mega_hbleft]
+    mov ax, di                      ; AL = left, AH = the cap
     or al, al
     jz .ok
-    cmp al, [mega_hbcap]
+    cmp al, ah
     jbe .n
-    mov al, [mega_hbcap]
+    mov al, ah
 .n:
-    mov ah, [disk_spt]              ; ...and stops at its TRACK's end: the
-    mov cl, [mega_hbcx]             ; caller's run may cross a head - a fixed
-    and cl, 0x3F                    ; disk's goes to the cylinder's end
-    sub ah, cl                      ; (SPEC.md 18.91.5), a floppy's too
+    mov ah, cl                      ; ...and stops at its TRACK's end: the
+    and ah, 0x3F                    ; caller's run may cross a head - a fixed
+    neg ah                          ; disk's goes to the cylinder's end
+    add ah, [disk_spt]              ; (SPEC.md 18.91.5), a floppy's too
     inc ah                          ; (18.91.1) - and the ROM carried that in
     jle .nk                         ; one call, which a chunk at a time must
     cmp al, ah                      ; do itself. AH = the track's sectors
     jbe .nk                         ; left, by the geometry the caller's CHS
     mov al, ah                      ; was made with ([disk_spt]); a sector
 .nk:                                ; past it leaves the old cap alone
-    mov [mega_hbn], al
     cmp byte [ss:bp+19], 3
     jne .xfer
-    xor ax, ax                      ; a write: the caller's run down first
-    call .copy
+    call .copy                      ; a write: the caller's run down first
 .xfer:
-    push bp
     mov ah, [ss:bp+19]
-    mov al, [mega_hbn]
-    mov cx, [mega_hbcx]
-    mov dl, [ss:bp+14]
-    mov dh, [mega_hbdh]
-    mov bx, [mega_hboff]
-    mov es, [mega_hbseg]
+    push ax                         ; [this run's sectors]
+    push bp
     int 0x13                        ; native or reflected, the landing low
     pop bp
     jc .err
-    cmp byte [ss:bp+19], 2
+    pop ax                          ; AL = this run's sectors, AH = the call
+    cmp ah, 2
     jne .adv
-    mov al, 1                       ; a read: the run up after
-    call .copy
+    call .copy                      ; a read: the run up after
 .adv:
-    mov al, [mega_hbn]
-    sub [mega_hbleft], al
-    add [mega_hbdone], al
-    mov cx, [mega_hbcx]             ; THE NEXT CHS: the sector on, and past
-    mov ah, cl                      ; the track's end (where .n stopped the
-    and ah, 0x3F                    ; run) sector 1 of the next head, and
-    add ah, al                      ; past the last head the next cylinder -
-    and cl, 0xC0                    ; it was `add CL, AL`, which asked a
-    cmp ah, [disk_spt]              ; ROM for sector 18 of a 17-sector track
-    jbe .samet                      ; and was the field's "Disk error"
-    mov ah, 1                       ; opening a file off the hard disk into
-    inc byte [mega_hbdh]            ; a claim above 1MB (KERN-MEGA-PLAN
-    mov al, [mega_hbdh]             ; 14.20)
-    cmp al, [disk_heads]
-    jb .samet
-    mov byte [mega_hbdh], 0
+    xor ah, ah
+    sub di, ax                      ; (the cap stays: AL <= the sectors left)
+    mov ah, cl                      ; THE NEXT CHS: the sector on, and past
+    and ah, 0x3F                    ; the track's end (where .n stopped the
+    add ah, al                      ; run) sector 1 of the next head, and
+    and cl, 0xC0                    ; past the last head the next cylinder -
+    cmp ah, [disk_spt]              ; it was `add CL, AL`, which asked a
+    jbe .samet                      ; ROM for sector 18 of a 17-sector track
+    mov ah, 1                       ; and was the field's "Disk error"
+    inc dh                          ; opening a file off the hard disk into
+    cmp dh, [disk_heads]            ; a claim above 1MB (KERN-MEGA-PLAN
+    jb .samet                       ; 14.20)
+    mov dh, 0
     inc ch
     jnz .samet
     add cl, 0x40                    ; (cylinder bits 8-9 in CL's top)
 .samet:
     or cl, ah
-    mov [mega_hbcx], cx
-    mov ah, [mega_hbn]
+    mov ah, al
     xor al, al                      ; AX = sectors x 256...
     shl ax, 1                       ; ...x 2 = bytes
-    add [mega_hbsi], ax
+    add si, ax
     jmp .run
 .ok:
     xor ah, ah
     and byte [ss:bp+26], 0xFE
     jmp short .ans
 .err:
+    pop cx                          ; (this run's sectors: not moved)
     or byte [ss:bp+26], 1
 .ans:
-    mov al, [mega_hbdone]
+    mov al, [ss:bp+18]              ; AL = the sectors moved: the caller's
+    mov cx, di                      ; less those left
+    sub al, cl
     mov [ss:bp+18], ax
     retf
-; AL = 0 the caller's buffer to the low one, 1 back. Clobbers AX, CX, SI, DI,
-; DX, BX, ES; DS kept
+; AL = the run's sectors; [ss:bp+19] = 3 the caller's buffer to the low one,
+; else back. Preserves every register
 .copy:
+    pusha
     push ds
-    mov ch, [mega_hbn]              ; CX = sectors x 256 words
+    push es
+    mov ch, al                      ; CX = sectors x 256 words
     xor cl, cl
-    mov si, [mega_hbsi]
-    mov di, [mega_hboff]
-    mov bx, [mega_hbseg]
-    mov dx, [ss:bp+0]               ; the caller's selector
-    or al, al
-    jnz .back
-    mov es, bx
-    mov ds, dx
+    mov di, bx
+    mov dx, es                      ; DX = the landing
+    mov bx, [ss:bp+0]               ; BX = the caller's selector
+    cmp byte [ss:bp+19], 3
+    jne .back
+    mov ds, bx                      ; (ES is the landing already)
     jmp short .mv
 .back:
     xchg si, di
-    mov es, dx
-    mov ds, bx
+    mov es, bx
+    mov ds, dx
 .mv:
     cld
     rep movsw
+    pop es
     pop ds
+    popa
     ret
 
 ; -----------------------------------------------------------------------------
@@ -6057,13 +6048,11 @@ mega_fd13:
     mov dx, [ss:bp+14]              ; DL = drive, DH = head
     test dx, 0xFEFE                 ; each 0 or 1
     jnz .no
-    mov [mega_fdd], dl
-    mov [mega_fdh], dh
+    mov [mega_fdd], dx              ; (mega_fdh follows it)
     mov cx, [ss:bp+16]              ; CH = cylinder, CL = sector (a floppy's
     test cl, 0xC0                   ; cylinder has no bits 9:8)
     jnz .no
-    mov [mega_fdc], ch
-    mov [mega_fds], cl
+    mov [mega_fds], cx              ; (mega_fdc follows it)
     cmp byte [mega_fdx], 0          ; only dsk_xfer's own transfers: the EOT
     je .no                          ; in dsk_dpt is ITS volume's, and a run
                                     ; across a head with a wrong one reads the
@@ -6158,18 +6147,14 @@ mega_fd13:
 .said:
     pop cx
 %endif
+    and byte [ss:bp+26], 0xFE       ; CF in the caller's FLAGS
     mov al, [mega_fdn]
     or ah, ah
-    jz .ok
+    jz .ok                          ; (CF = 0 on both paths: or, xor, or)
     xor al, al                      ; write protected: nothing moved
+    or byte [ss:bp+26], 1
 .ok:
     mov [ss:bp+18], ax
-    and byte [ss:bp+26], 0xFE       ; CF in the caller's FLAGS
-    or ah, ah
-    jz .done
-    or byte [ss:bp+26], 1
-.done:
-    clc
     ret
 .fall:
 %ifdef MEGA_E9
@@ -6367,6 +6352,7 @@ mega_fdjudge:
 ; out: CF = 1 fall back to the BIOS; CF = 0 and AH = 0 done, or 03h write
 ; protected. Clobbers AX BX CX DX SI DI
 mega_fdgo:
+    mov [mega_fdsp], sp             ; where mega_fdlj returns from
     mov cl, 1
     call mm_fdrprobe              ; reset by a reflected service? recalibrate
     mov cl, [mega_fdd]
@@ -6399,9 +6385,9 @@ mega_fdgo:
     jnz .spun
     mov al, [dsk_dpt+10]            ; motor start, 1/8 s
     xor ah, ah
-    imul ax, ax, 9
-    add ax, 3
-    shr ax, 2                       ; ...in ticks: 125 / 55 ~ 9 / 4
+    imul cx, ax, 9
+    add cx, 3
+    shr cx, 2                       ; ...in ticks: 125 / 55 ~ 9 / 4
     call mega_fdtk
 .spun:
     mov byte [mega_fdstep], 1
@@ -6423,14 +6409,11 @@ mega_fdgo:
     mov byte [mega_fdstep], 2
     mov al, 0x03                    ; SPECIFY, from the parameter table
     call mm_fdout
-    jc .fall
     mov al, [dsk_dpt+0]
     call mm_fdout
-    jc .fall
     mov al, [dsk_dpt+1]
     and al, 0xFE                    ; DMA, not PIO
     call mm_fdout
-    jc .fall
     mov byte [mega_fdstep], 3
     ; --- recalibrate if the BIOS's reset left this drive needing it ---------
     mov cl, [mega_fdd]
@@ -6448,17 +6431,13 @@ mega_fdgo:
     and byte [es:0x3E], 0x7F
     mov al, 0x07
     call mm_fdout
-    jc .fall
     mov al, [mega_fdd]
     call mm_fdout
-    jc .fall
     mov byte [mega_fdstep], 0x31
     call mega_fdirq
-    jc .fall
     mov byte [mega_fdstep], 0x32
     call mm_fdsense
     mov [mega_fdres], ax
-    jc .fall
     mov byte [mega_fdstep], 0x33
     test al, 0x10                   ; ST0 EC: track 0 not reached yet
     jz .calok
@@ -6532,41 +6511,30 @@ mega_fdgo:
     mov al, 0xC5
 .cm:
     call mm_fdout
-    jc .fall
-    mov al, [mega_fdh]
-    shl al, 2
-    or al, [mega_fdd]
+    mov ax, [mega_fdd]              ; AL = the drive, AH = the head:
+    shl ah, 2                       ; the 765's HD US byte
+    or al, ah
     call mm_fdout
-    jc .fall
     mov al, [mega_fdc]
     call mm_fdout
-    jc .fall
     mov al, [mega_fdh]
     call mm_fdout
-    jc .fall
     mov al, [mega_fds]
     call mm_fdout
-    jc .fall
     mov al, 2                       ; 512 bytes
     call mm_fdout
-    jc .fall
     mov al, [dsk_dpt+4]             ; EOT: dsk_xfer wrote the volume's spt
     call mm_fdout
-    jc .fall
     mov al, [dsk_dpt+5]
     call mm_fdout
-    jc .fall
     mov al, [dsk_dpt+6]
     call mm_fdout
-    jc .fall
     call mega_fdirq
-    jc .fall
     mov byte [mega_fdstep], 7
     mov di, mega_fdres              ; the seven result bytes
     mov cx, 7
 .res:
     call mm_fdin
-    jc .fall
     mov [di], al
     inc di
     loop .res
@@ -6576,45 +6544,55 @@ mega_fdgo:
     jz .good
     test byte [mega_fdres+1], 0x02  ; ST1 NW: write protected - a fact, not
     jz .fall                        ; a failure to fall back on
-    mov ah, 0x03
-    clc
+    mov ah, 0x03                    ; (CF = 0: the test)
     ret
 .good:
-    xor ah, ah
-    clc
+    xor ah, ah                      ; (CF = 0)
     ret
 .fall:
     stc
     ret
 
 ; mega_fdseek - SEEK drive [mega_fdd], head [mega_fdh], to PHYSICAL cylinder
-; BL, and check it got there. CF = 1 it did not. Clobbers AX
+; BL, and check it got there. CF = 1 it did not (a controller that never
+; answers is mega_fdgo's failure at once, mega_fdlj). Clobbers AX
 mega_fdseek:
     and byte [es:0x3E], 0x7F
     mov al, 0x0F
     call mm_fdout
-    jc .x
-    mov al, [mega_fdh]
-    shl al, 2
-    or al, [mega_fdd]
+    mov ax, [mega_fdd]              ; AL = the drive, AH = the head:
+    shl ah, 2                       ; the 765's HD US byte
+    or al, ah
     call mm_fdout
-    jc .x
     mov al, bl
     call mm_fdout
-    jc .x
     call mega_fdirq
-    jc .x
     mov byte [mega_fdstep], 5
     call mm_fdsense               ; AL = ST0, AH = PCN
-    jc .x
-    test al, 0xC0
-    jnz .no
-    cmp ah, bl
-    je .x                           ; (ZF: CF is clear from the cmp)
-.no:
-    stc
-.x:
+    and al, 0xC0                    ; CF = 1 unless ST0 says done AND the
+    xor ah, bl                      ; cylinder is BL: neg sets CF for any
+    or al, ah                       ; bit left
+    neg al
     ret
+
+; A TIME-OUT IN THE BYTE LEVEL, per copy: in `.mega`'s, while mega_fdgo is
+; running, it is mega_fdgo's own failure (mega_fdlj); `.text`'s is called in
+; real mode by mega_r286 and returns CF = 1 as it always did. Both leave CF
+; as they found it
+%macro mm_fdtmo 0                   ; fdout's: CF = 1 out
+    cmp byte [mega_fdbusy], 1       ; (CF = 1 only when it is 0, so a failure
+    jnb mega_fdlj                   ; not inside mega_fdgo is CF = 1)
+%endmacro
+%macro mega_fdtmo 0
+    stc
+%endmacro
+%macro mm_fdtmi 0                   ; fdin's: CF = 1 in, CF = 1 out
+    test byte [mega_fdbusy], 1
+    jnz mega_fdlj
+    stc
+%endmacro
+%macro mega_fdtmi 0
+%endmacro
 
 ; THE 765's BYTE LEVEL and the reset probe, twice from one body: mega_r286
 ; probes in REAL mode, so `.text` keeps a copy (mega_*), and the native path
@@ -6635,7 +6613,7 @@ mega_fdseek:
     je .go                          ; (CF = 0: equal)
     loop .w
     pop ax
-    stc
+    %1 %+ fdtmo                     ; CF = 1, or (mm_) mega_fdlj
     jmp short .x
 .go:
     pop ax
@@ -6656,6 +6634,7 @@ mega_fdseek:
     cmp al, 0xC0                    ; RQM, and DIO = to the CPU
     je .go                          ; (CF = 0: equal)
     loop .w                         ; (CF = 1: AL is below C0h here)
+    %1 %+ fdtmi                     ; CF = 1 still, or (mm_) mega_fdlj
     jmp short .x
 .go:
     inc dx
@@ -6737,14 +6716,25 @@ mega_fdseek:
 
 %endmacro
     MEGA_FDIO mm_
+; mega_fdlj - a FAILURE inside mega_fdgo, at any depth: the stack as it was
+; at mega_fdgo's entry ([mega_fdsp]) and CF = 1, so the `ret` IS mega_fdgo's
+; (fall back to the BIOS). mm_fdout and mm_fdin come here on a time-out while
+; [mega_fdbusy] is set, and mega_fdirq on its own - so neither mega_fdgo nor
+; mega_fdseek tests CF after any of them, which is a `jc` fewer per command
+; byte. Whatever was pushed below that is abandoned: mega_fdgo clobbers AX..DI
+mega_fdlj:
+    mov sp, [mega_fdsp]
+    jmp mega_fdgo.fall              ; (stc / ret: the parity of the waits and
+                                    ; of everything after them, at 7 bytes)
 section .text                   ; (KERN-MEGA-SEGMENTS-PLAN: back from .mega)
     MEGA_FDIO mega_
 section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
-; wait for IRQ6 (40:3E bit 7), at most two seconds, halting between - CF = 1
-; it never came. Clears the flag
-mega_fdirq:
-    push ax
-    push bx
+; wait for IRQ6 (40:3E bit 7), at most two seconds, spinning - and when it
+; never came, mega_fdgo's failure (mega_fdlj). Clears the flag. Clobbers AX
+; (no caller holds it across: each loads AL straight after)
+mega_fdirq:                         ; STKBALANCE-OK: a time-out abandons the
+    push bx                         ; stack on purpose - mega_fdlj puts SP
+                                    ; back to mega_fdgo's entry
     mov bx, [ticks]
 %ifdef MEGA_DIAG
     call mega_fdgini                ; MEGADIAG=1's floppy strip (14.125)
@@ -6755,28 +6745,21 @@ mega_fdirq:
     mov ax, [ticks]                 ; both times during a native track WRITE
     sub ax, bx                      ; - the 8237 reading RAM under a halted
     cmp ax, 37                      ; CPU, which the BIOS's own spin never
-    ja .to                          ; does - and ten 1MB copies through the
+    ja mega_fdlj                    ; does - and ten 1MB copies through the
 %ifdef MEGA_DIAG                    ; BIOS raised none (KERN-MEGA-PLAN 10.3)
     mov al, 'q'
     call mega_fdgstep               ; CF = 1: [ticks] never moved, rescued
-    jc .to
+    jc mega_fdlj
 %endif
     jmp short .l
-.to:
-    stc
-    jmp short .x
 .ok:
     and byte [es:0x3E], 0x7F        ; (CF = 0)
-.x:
     pop bx
-    pop ax
     ret
 
-; AX ticks of nothing, halting
+; CX ticks of nothing, halting. Clobbers AX
 mega_fdtk:
     push bx
-    push cx
-    mov cx, ax
     mov bx, [ticks]
 %ifdef MEGA_DIAG
     call mega_fdgini                ; MEGADIAG=1's floppy strip (14.125): the
@@ -6794,7 +6777,6 @@ mega_fdtk:
     hlt
     jmp short .l
 .x:
-    pop cx
     pop bx
     ret
 
@@ -7981,10 +7963,10 @@ mega_fdfail db 0                    ; fallbacks in a row
 mega_fdpend db 0                    ; 1: a fallback awaits the BIOS's verdict
 mega_fdop   db 0                    ; 02h / 03h
 mega_fdn    db 0                    ; sectors
-mega_fdd    db 0                    ; drive
-mega_fdh    db 0                    ; head
-mega_fdc    db 0                    ; cylinder (logical)
-mega_fds    db 0                    ; sector
+mega_fdd    db 0                    ; drive, and (one word store) ...
+mega_fdh    db 0                    ; ...the head
+mega_fds    db 0                    ; sector, and (one word store) ...
+mega_fdc    db 0                    ; ...the cylinder (logical)
 mega_fdms   db 0                    ; 40:90's byte for the drive
 mega_fdlin  dw 0, 0                 ; the buffer's 24-bit address
 mega_fdcnt  dw 0                    ; bytes - 1
@@ -8017,18 +7999,9 @@ mega_rmask  dw 0x3FB8               ; the OR masks the last service reflection
 mega_vsw    dw 0, 0                 ; [vid_seg] and [k_vsa] as SELECTORS while
                                     ; a reflection holds them as segments
                                     ; (mega_vrm), 0 when none does
-mega_hbseg  dw 0                   ; mega_hibnc's: the low buffer's segment,
-mega_hboff  dw 0                    ; ...its offset, its sectors,
-mega_hbcap  db 0
-mega_hbleft db 0                    ; ...the caller's sectors left and done,
-mega_hbdone db 0
-mega_hbn    db 0                    ; ...this run's,
-mega_hbsi   dw 0                    ; ...where in the caller's buffer it is,
-mega_hbcx   dw 0                    ; ...and the CX the run is asked with
-mega_hbdh   db 0                    ; ...and the head (DH)
+mega_fdsp   dw 0                    ; SP at mega_fdgo's entry (mega_fdlj)
 mega_fdcmos db 0xFF                 ; CMOS byte 10h, once read
 mega_fdx    db 0                    ; 1 while dsk_xfer's int 13h is in flight
-mega_fddir  db 0                    ; the CCR read: bit 7 the change line
 %ifdef MEGA_FDMASK
 mega_fdmadd dw 0                    ; the IRQ lines mega_fdmskon shut
 %endif
@@ -13508,6 +13481,9 @@ section .text
 section .bss
 mega_nmi61  resb 1                  ; port 61h at the last latched NMI
 mega_fdbusy resb 1                  ; mega_fdgo is running
+mega_fddir  resb 1                  ; the CCR read: bit 7 the change line (here
+                                    ; and not in .text's state for the parity
+                                    ; of the .text after it: written before read)
 mega_irqr   resb 1                  ; mega_svc is reflecting an IRQ
 mega_nmin   resb 1                  ; ...how many, saturating at the cap's use
 %ifdef MEGA_DIAG                    ; the menu bar's field readings (14.65)
