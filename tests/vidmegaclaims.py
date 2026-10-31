@@ -137,8 +137,10 @@ def main():
                     "--file", "CATCH.V88=" + v88],
                    check=True, stdout=subprocess.DEVNULL)
     sy = vsyms()
-    off, _, _ = os88sym._parse_map(os.path.join(B, "megak", "kernel.map"))
-    low = 0x0EA0 * 16
+    off, _, equ = os88sym._parse_map(os.path.join(B, "megak", "kernel.map"))
+    low = equ["LOW_SEG"] * 16       # the map's own equate: a literal here
+                                    # went stale when kern_mega size pass 1
+                                    # moved LOW_SEG, and read no claims at all
     m = M.launch(os.path.join(B, "mega.img"), cimg=vhd, label="vidmegaclaims",
                  machine="os8088_xt_vga")
     b = m.b
