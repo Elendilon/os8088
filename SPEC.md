@@ -64223,6 +64223,17 @@ we lose the ability to see what is going on* - the owner's words.
   no paint reads a half-summed row. The window is the snapshot's 32 records,
   a slot scan each and `MEMP_AVAIL`'s own walk, which already runs with
   interrupts off.
+- **The walk is not taken every interval.** `MEMP_AVAIL` is ~49,000 cycles
+  with interrupts off on an 8088 (measured under MartyPC with two packages
+  open), longer than a serial mouse byte takes at 1200 baud (~8.3 ms), so
+  each one is a chance to overrun the 8250 and lose a byte of a mouse packet.
+  The first build walked on every sample as well as at the memory page's
+  paint - five windows per four intervals where the page had one - and
+  `heapscrl` caught it as scroll-bar presses misread (3 of 8 parallel runs
+  red, 8 of 8 green once fixed). So the heap's size is BANKED: the memory
+  page's paint (`tm_csnap`) walks as the heap page always did, and a sample
+  (`tm_csums`) takes the snapshot and the sums alone, ~9,000 cycles, walking
+  only when `SK_HEAP` no longer agrees with the banked size.
 - **Whose.** Every claim that is not a cache (§28.4.1) is summed into the
   instance it bills - `tm_cslot`: an instance slot while it lives (a
   package's region, a built-in's claim), or a live package's own segment (its
@@ -64322,8 +64333,8 @@ for it. The memory view never folds: it lists no free slots, so it has the
 room.
 
 **What it cost** (the package only; no kernel byte): `taskmgr.o88`'s image
-11,016 → 11,396 bytes and its bss 2,413 → 2,487; the small arm (§28.12)
-3,843 → 4,240 and 1,325 → 1,527, the 192 of that being `tm_claims`, which
+11,016 → 11,439 bytes and its bss 2,413 → 2,487; the small arm (§28.12)
+3,843 → 4,283 and 1,325 → 1,527, the 192 of that being `tm_claims`, which
 the small arm now carries (§28.12.1).
 
 ### 28.4.8 `IVT+BIOS`, and RAM above 1MB billed to what holds it
@@ -65798,7 +65809,7 @@ half-KB, so the small arm's `MEM` column, its System row and its RAM/HEAP pair
 are summed off the claim records like the full arm's. `tm_claims` is on every
 arm again, and with it `tm_csnap`, `tm_cslot`, the formatter (`tm_pfig`) and
 the three fraction cells - and nothing else of the memory page: the small arm
-measures 4,240 + 1,527 = 5,767 against 3,843 + 1,325 = 5,168 before it.
+measures 4,283 + 1,527 = 5,810 against 3,843 + 1,325 = 5,168 before it.
 
 Three things fell out that are worth stating because they are otherwise
 silent:

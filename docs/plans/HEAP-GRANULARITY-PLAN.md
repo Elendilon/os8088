@@ -490,8 +490,8 @@ the glyphs and nothing else. The draw is two more calls per fractional figure,
 The carried unit is a figure in two halves - paragraphs below 1MB, KB above
 - rather than paragraphs alone, because a group's blocks above 1MB on
 kern_mega or a store-backed kern_big can be megabytes and a word of
-paragraphs stops at 1MB. Cost: `TASKMGR.O88` +380 bytes of image and +74 of
-bss; the small arm +397 and +202, 192 of that the claim snapshot it reads now.
+paragraphs stops at 1MB. Cost: `TASKMGR.O88` +423 bytes of image and +74 of
+bss; the small arm +440 and +202, 192 of that the claim snapshot it reads now.
 
 ### 5.3 Other displays
 

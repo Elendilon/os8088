@@ -2273,7 +2273,7 @@ tm_sample:
     ; bytes (SPEC.md 50.2.1) half of every claim's rows can be a half-KB the
     ; KB figures drop - which put the two pages a KB apart over the same
     ; package and RAM's free half a KB off AVAIL
-    call tm_csnap               ; [tm_usedp] and every paragraph figure
+    call tm_csums               ; [tm_usedp] and every paragraph figure
     mov ax, [tm_usedp]
     call tm_kround              ; the bar is pixels: whole KB is plenty
     mov cx, [tm_totkb]          ; barw = usedK*TM_GW/totalK (all KB)
@@ -2324,6 +2324,13 @@ tm_sample:
 ; stands in for one sample - short by the half at most, never by the heap.
 ; -----------------------------------------------------------------------------
 tm_csnap:
+    push bp
+    mov bp, 1                   ; BP = 1: ask MEMP_AVAIL, whatever the cache
+    jmp short tm_csums.go
+tm_csums:                       ; ...the SAMPLE's: the claim table and the
+    push bp                     ; sums, and MEMP_AVAIL only when the heap's
+    xor bp, bp                  ; size is due again (below)
+.go:
     push ax
     push bx
     push cx
@@ -2342,12 +2349,22 @@ tm_csnap:
     mov [tm_kclp], ax           ; ...System's too
     mov di, tm_claims
     TM_CLAIM_SNAPSHOT
+    or bp, bp                   ; THE SAMPLE DOES NOT WALK THE HEAP. MEMP_AVAIL
+    jnz .avail                  ; is ~49,000 cycles with interrupts off on an
+    mov ax, [tm_heapp]          ; 8088 (mem_avail's own cli, measured under
+    mov cl, 6                   ; MartyPC) - longer than a byte takes at 1200
+    shr ax, cl                  ; baud, so every one is a chance to lose a
+    cmp ax, [tm_kb+SK_HEAP]     ; serial mouse byte. The paint of the memory
+    je .sums                    ; page asks it as tm_hsnap always did; the
+.avail:                         ; sample asks only when the heap's size has
+    inc bp                      ; moved under the figure banked (BP = 1 now)
     mov bl, MEMP_AVAIL
     call OSAPI_MEM_P            ; AX = the largest run, BX = free, both
 %ifdef TMF_HEAP                 ; paragraphs at our floor (SPEC.md 50.3.7)
     mov [tm_maxrun], ax
     mov [tm_avl], bx
 %endif
+.sums:
     xor dx, dx                  ; DX = every claim that is not a cache
     mov si, tm_claims
 .c:
@@ -2377,8 +2394,11 @@ tm_csnap:
     jb .c
     popf
     mov [tm_clmp], dx
-    add bx, dx                  ; BX = the heap: free + claimed
     mov cl, 6
+    mov ax, [tm_heapp]          ; (no walk: the size banked, which agrees)
+    or bp, bp
+    jz .heaped
+    add bx, dx                  ; BX = the heap: free + claimed
     mov ax, bx
     shr ax, cl
     cmp ax, [tm_kb+SK_HEAP]     ; ...if it agrees with the kernel's whole KB
@@ -2387,6 +2407,9 @@ tm_csnap:
     shl bx, cl                  ; by at most the half, for one sample
 .heap:
     mov [tm_heapp], bx
+    mov ax, bx
+.heaped:
+    xchg ax, bx
     mov ax, [tm_totkb]          ; System = the total less the heap and less
     shl ax, cl                  ; IVT+BIOS: the kernel's whole span, image,
     sub ax, bx                  ; buffers and stacks
@@ -2395,7 +2418,15 @@ tm_csnap:
     add ax, [tm_lowp]           ; ...and RAM's used half is everything that
     add ax, dx                  ; is not the free heap: IVT+BIOS + System +
     mov [tm_usedp], ax          ; every claim that is not a cache
-    jmp tm_pop_edsdcba
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    pop bp
+    ret
 
 ; -----------------------------------------------------------------------------
 ; tm_cslot - which live INSTANCE does a claim bill? (SPEC.md 50.2/50.3)
