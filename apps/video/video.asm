@@ -5311,7 +5311,7 @@ vp_xopen:
     inc ax                          ; the first chunk on the next tick
     mov [vp_xon], al
     mov bx, [vp_win]
-    call OSAPI_WM_TIMER
+    call vp_xopbeg                  ; the timer, and the load's ONE bar
 .out:
     call vp_lyxopen                 ; ...and THE LAYER's, from what is left
     pop es                          ; (98.1.9)
@@ -6006,7 +6006,7 @@ vp_xfree:
     je .z
     push ax
     push dx
-    mov byte [vp_xon], 0
+    call vp_xoff                    ; (and a hold dropped mid-load, its bar)
 %ifdef PKG_MEGA
     mov word [vp_xrun], 0           ; (the run goes with the block, and
     mov word [vp_xbw], 0            ; the bound window with it)
@@ -6295,7 +6295,7 @@ vp_xput:
     pop cx
     cmp cx, VP_CHUNK                ; a short chunk is the file's end
     je .out
-    mov byte [vp_xfull], 1
+    call vp_xdone
     jmp short .out
 .popo:
     pop cx
@@ -6494,7 +6494,7 @@ vp_xstep:
 .end:
     cmp cx, VP_CHUNK
     je .free
-    mov byte [vp_xfull], 1          ; a short chunk: the file's end
+    call vp_xdone                   ; a short chunk: the file's end
 .free:
     pop dx
     jmp short .fr
@@ -10172,6 +10172,46 @@ vp_lruns:
 .ret:
     ret
 
+; THE PLAYER'S FILE OPERATIONS (SPEC.md 12.8.10): ONE bar for the hold's
+; whole load, PARKED on the menu bar between the timer's chunks instead of a
+; blink a chunk, and one for vp_rload's two blocks. Out of line, so the hot
+; routines that end the hold's move by an even count (rdiffhot.txt).
+; vp_xopbeg - BX = the window: its timer armed (AX ticks), and the hold's
+; operation begun at [vp_xcap] - the card's own "of" (vp_xsay), a KB over the
+; file, so the bar ends a hair short. Its reads count whoever asks: the
+; timer's (vp_xstep), and a windowed play's that vp_xput keeps; a fill inside
+; the bracket is not counted (no widget arms there), so after a play the bar
+; trails the card. Refused, nothing changes. Clobbers CX, DX (vp_xopen's)
+vp_xopbeg:
+    call OSAPI_WM_TIMER
+    push cx
+    push dx
+    mov cx, [vp_xcap]
+    mov dx, [vp_xcap+2]
+    jmp short vp_opend.go
+; vp_xdone - the hold has all of the file: [vp_xfull], and its bar over
+vp_xdone:
+    mov byte [vp_xfull], 1
+    jmp short vp_opend
+; vp_xoff - the hold or bank let go (vp_xfree): [vp_xon] 0, and the bar over
+vp_xoff:
+    mov byte [vp_xon], 0
+; vp_opend - this player's operation over. NO OWNED FLAG, and none is
+; needed: an end of an operation the kernel did not see us begin is refused
+; (a bank's, a refused begin), and the two never overlap - a RESIDENT file
+; takes no hold (vp_xopen), so vp_rload's is the instance's only one while it
+; lives. The flags go; every register kept
+vp_opend:
+    push cx
+    push dx
+    xor cx, cx
+    xor dx, dx
+.go:
+    call OSAPI_FS_OP
+    pop dx
+    pop cx
+    ret
+
 ; -----------------------------------------------------------------------------
 ; vp_rload - a RESIDENT file's blocks (98.1.7) in memory: the rendition's
 ; picture block and the audio block, each read so its clusters END at the
@@ -10198,6 +10238,21 @@ vp_rload:
     mov ax, cx
     call vp_fits
     jc .out
+    mov cx, [vp_bk+BK_PACKED]       ; ONE OPERATION, both blocks' reads
+    mov dx, [vp_bk+BK_PACKED+2]     ; (SPEC.md 12.8.10): one bar, not one a
+    cmp byte [vp_audio], 0          ; block. The packed bytes - a read is
+    je .op                          ; whole clusters, so it fills a hair
+    add cx, [vp_abk+BK_PACKED]      ; early and clamps. Ended here on every
+    adc dx, [vp_abk+BK_PACKED+2]    ; way out, before any bracket; refused,
+.op:                                ; the plain load
+    call OSAPI_FS_OP
+    jc .ld
+    call .ld
+    pushf                           ; (the load's CF)
+    call vp_opend
+    popf
+    ret
+.ld:
     mov bx, vp_bk
     call vp_ldblk
     jc .out

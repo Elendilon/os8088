@@ -193659,6 +193659,10 @@ decide[s] what is acceptable."*
   with the numbers, "Needs 727 KB of memory, 415 KB free", in the window,
   and nothing is claimed. A claim that fails sheds the disk caches on its
   way down (66.4.3), so asking first is what keeps a refusal free.
+- **The load is ONE file operation** (§12.8.10): both blocks' packed bytes,
+  begun once the fit is yes and ended on every way out of `vp_rload`, before
+  the bracket - so the widget fills once and not once a block or a piece.
+  +39 bytes.
 - **An older player refuses such a file cleanly**: its `vp_pbk` has the old
   bounds, so the header is refused as it is read.
 
@@ -201416,6 +201420,14 @@ as it was read.
 
 **The card's line 6**, until a play's figures take it: `Into XMS: 384 of
 2345 KB` while loading, `Held in XMS: 2344 KB` when it is all there.
+
+**The load is ONE file operation** (§12.8.10, `vp_xopbeg`): begun with the
+first chunk's timer at `[vp_xcap]`, the card's own "of", so the menu bar's
+widget is one bar PARKED between the ticks rather than a blink a chunk, and
+it moves with line 6. `vp_xdone` (the short read) and `vp_xoff` (any drop,
+another file's open, the close) end it. The widget does not arm inside a
+bracket, so what `vp_xlag` and `vp_xput` fill there is on the card and not
+on the bar, which resumes behind it after the play. +35 bytes.
 
 **All of it is on the UI task** - the timer, the bracket's main loop, a
 callback - which is where §41.8 allows the copy. On a 286 the copy is
