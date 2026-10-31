@@ -274,6 +274,14 @@ def main():
                  "state %d %r - the timer's pump is not running (cap %d)"
                  % (grown, p.rb("rc_st"), msg(), p.rw("rc_cap")))
         ui.menu_pick("Sound", "Stop")
+        # ...ON THE GUEST'S CLOCK: the Stop lands a moment after the menu
+        # closes (the pick returns when the menu is gone, not when the
+        # handler has run), and an immediate read was the host's race
+        try:
+            M.until(m, lambda _: p.rb("rc_st") == RC_IDLE, "the Stop",
+                    guest=5)
+        except M.MartyError:
+            pass                        # ...the check below says what it saw
         if p.rb("rc_st") != RC_IDLE:
             fail("5: Stop left state %d (%r)" % (p.rb("rc_st"), msg()))
         after = sorted((c.seg, c.para) for c in every(heapmap.Map(m, heap))
