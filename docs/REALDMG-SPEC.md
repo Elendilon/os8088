@@ -836,6 +836,12 @@ es, bp` with BP the recompiler's claim + 1000h.
   is the arm's alone (on every kernel the shipped build runs on a segment
   IS its code selector), and `tests/megapkg.txt` has no RealDMG line. The
   precompiled build (20.14) refused already.
+- **The arm's title bar reads `(Un)RealDMG` under `CPU_F_PM`**: a
+  protected-mode machine is not "real" any more, and the window says it
+  knows. `rw_entry` reads `OSAPI_CPU_INFO` before `OSAPI_WM_CREATE` and
+  points the template's `WT_TITLE` at `rw_unttl`, `(Un)` laid immediately
+  before `rw_ttl`'s `RealDMG` so the two share one string; the app menu
+  keeps `RealDMG`. +12 bytes of the arm, the shipped build byte-identical.
 - **The arm asks `OSAPI_SEG` instead** (`rw_sub` = `SEG_SUB`, `rw_subc` =
   `SEG_SUBC` for code), which a real-mode kernel answers with the very sum,
   so the arm on one is the old arithmetic and `rw_mreloc`'s procs still put

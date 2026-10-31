@@ -496,6 +496,14 @@ rw_entry:
 %else
 .nodoc:
 %endif
+%ifdef PKG_MEGA
+    call OSAPI_CPU_INFO             ; kern_mega's arm: under CPU_F_PM the
+    and ah, CPU_F_PM                ;   cartridge's banks are addressed in
+    mov [rw_pm], ah                 ;   place above 1MB (rwbank.inc,
+    jz .real                        ;   REALDMG-SPEC 10.3.1) - and it is
+    mov word [rw_tpl+WT_TITLE], rw_unttl  ;   not real mode any more, so the
+.real:                              ;   title bar owns up: (Un)RealDMG
+%endif
     mov si, rw_tpl
     call OSAPI_WM_CREATE            ; BX = the window
     jc .refused
@@ -508,11 +516,6 @@ rw_entry:
     OS88_REGION_MOVABLE rw_reloc
     mov [rw_dsel], ds               ; (our data, for code entered with DS
                                     ;   not ours: rw_dscanhk)
-%ifdef PKG_MEGA
-    call OSAPI_CPU_INFO             ; kern_mega's arm: under CPU_F_PM the
-    and ah, CPU_F_PM                ;   cartridge's banks are addressed in
-    mov [rw_pm], ah                 ;   place above 1MB (rwbank.inc,
-%endif                              ;   REALDMG-SPEC 10.3.1)
     mov si, rw_menus
     call OSAPI_MENU_SET
     mov si, rw_about
@@ -4817,6 +4820,9 @@ RW_MW           equ MENU_MAXCH      ; glyphs an item, its mark and key with it
     db 0
 %endmacro
 
+%ifdef PKG_MEGA
+rw_unttl:       db '(Un)'           ; the title under CPU_F_PM runs on into
+%endif                              ;   rw_ttl's: '(Un)RealDMG'
 rw_ttl:         db 'RealDMG', 0
 rw_m_mach:      db 'Machine', 0
 rw_i_mach:      dw rw_it_load + 1, rw_it_reset + 1, rw_it_pause + 1, rw_it_fs

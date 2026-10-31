@@ -139,7 +139,7 @@ def main():
     after = None
     try:
         if not box.wait_pm(240):
-            raise RuntimeError("kern_mega never reached protected mode")
+            raise RuntimeError("kern_mega never reached protected mode in 240s")
         box.up()
         g0, idt = gates(box)
         box.megarun()
@@ -163,9 +163,8 @@ def main():
             if box.fault():
                 break
         box.guest_sleep(1)
-        lines = box.said()          # (the kernel's own FAULT/CLOSED off
-                                    # its state: a shipped kern_mega
-                                    # writes nothing to E9)
+        lines = box.lines() + box.faults()   # (MEGA_E9: the kernel
+                                            # says nothing on E9)
         if not FAILS:                   # (a hang has no desktop to read)
             box.ui_done("the desktop after the brackets", lock=False)
             g1, _ = gates(box)
@@ -181,7 +180,6 @@ def main():
                 print("   (pointer: %s)" % e)
     finally:
         box.stop()
-    lines += [l for l in box.faults() if l not in lines]
     print("megarmb: %.0fs under Bochs" % (time.time() - t0))
     for l in lines:
         if l.startswith(("MEGARMB", "kern_mega FAULT", "kern_mega CLOSED")):

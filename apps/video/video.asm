@@ -15177,7 +15177,11 @@ vp_keyat:
     mov [vp_kat_i], ax
     mov word [vp_kat_n], 24
     mov ax, [vp_kekb]               ; (it reads entries and nothing else)
-    call vp_mclaim
+%ifdef PKG_MEGA
+    call vp_rskclm                  ; (a real-mode bracket claims nothing:
+%else                               ; the door's scratch, as vp_skdue's own
+    call vp_mclaim                  ; entry read takes - 98.3.24)
+%endif
     jc .fail
     mov [vp_rdseg], dx
 .l:

@@ -179,10 +179,9 @@ def main():
     box = os88bochs.Box(out, [os.path.join(ROOT, PKG)])
     lines, look, after, moved, msseg = [], None, None, False, 0
     ext = None
-    lines = []
     try:
         if not box.wait_pm(240):
-            raise RuntimeError("kern_mega never reached protected mode")
+            raise RuntimeError("kern_mega never reached protected mode in 240s")
         box.up()
         ext = box.sym("mod_tab") + eq["MOD_EXT"] * eq["MODR_SIZE"] \
             + eq["MODR_SEG"]
@@ -230,9 +229,8 @@ def main():
         else:
             want(False, "%s finished its legs in 300s" % NAME)
         box.guest_sleep(1)
-        lines = box.said()          # (the kernel's own FAULT/CLOSED off
-                                    # its state: a shipped kern_mega
-                                    # writes nothing to E9)
+        lines = box.lines() + box.faults()   # (MEGA_E9: the kernel
+                                            # says nothing on E9)
         if not FAILS and not box.fault():
             box.ui_done("the desktop after the brackets", lock=False)
             after = box.reads([(KSEG * 16 + TBL, TLEN), (tf, 1), (ext, 2),
@@ -248,7 +246,6 @@ def main():
                 print("   (pointer: %s)" % e)
     finally:
         box.stop()
-    lines += [l for l in box.faults() if l not in lines]
     print("megarmbref: %.0fs under Bochs" % (time.time() - t0))
     for l in lines:
         if l.startswith((NAME, "kern_mega FAULT", "kern_mega CLOSED")):

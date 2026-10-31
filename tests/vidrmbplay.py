@@ -78,8 +78,7 @@ def run(leg, disk, out, display):
                         display=display, sb=sb, cfg=1 if sb else None)
 
     def bad():
-        return box.faults()         # (off the kernel's state: a shipped
-                                    # kern_mega writes nothing to E9)
+        return box.faults()             # (MEGA_E9: off the kernel's state)
 
     def vb(label, n=1):
         return box.pkg_read("Video", label, n, VMAP)

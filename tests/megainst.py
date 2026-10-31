@@ -146,21 +146,15 @@ def main():
         box.up()
         box.megarun()
         at(P["P_WELCOME"], "on launch", 120.0)
-        # MEGARUN'S LAST WAKE FIRST. It starts the next .O88 of the CURRENT
-        # directory every 5 guest seconds, and an Erase install moves that
-        # directory into C:'s new SYSTEM\ - so a wake that landed after the
-        # copy began started TASKMGR, THEWIRE and CDRACK over INSTALL, and
-        # the Enter that should have gone on from the log opened CDRack
-        # (OSAPI_PKG_START's caller, at a breakpoint, was MEGARUN). Whether
-        # it did was a race of guest seconds that c6f805ea's timings lost.
-        # `MEGARUN: done` is the package's own line: the folder exhausted.
-        try:
-            box.until(lambda: any(l.startswith("MEGARUN: done")
-                                  for l in box.lines()),
-                      "MEGARUN's done line", 60)
-        except RuntimeError as e:
-            raise Fail("%s: %r" % (e, [l for l in box.lines()
-                                       if l.startswith("MEGARUN")]))
+        # MEGARUN's folder walk FINISHED before anything changes C:: it
+        # starts a package every five seconds off a FILE_FIND ordinal, and
+        # once the install has erased C: and written the system, its stale
+        # folder lists SYSTEM\'s and it starts the Task Manager and the
+        # rest, which take the focus the wizard's Enter is for (a layout
+        # race: the kernel's size decides which cluster the folder was)
+        wait(lambda: any(ln.startswith("MEGARUN: done")
+                         for ln in box.lines()), "MEGARUN's folder to end",
+             60.0)
         enter()
         at(P["P_DRIVE"], "after Welcome: the driver and the drives")
         enter()                         # THE CROSSING THAT FAULTED: the

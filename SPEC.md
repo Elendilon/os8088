@@ -202351,7 +202351,10 @@ owner's Victory),
 straight into XMS), `FSXL_DRV DRVC_SOUND` when the session plays through a
 card, and `FSXL_DRV DRVC_EMS` for an EMS bank. It also takes **two claims
 the bracket cannot**: a seek's key-entry scratch (`[vp_kekb]` KB, when the
-file has keys), and the card's ring when the session has audio, a card and
+file has keys - which the key SEARCH, `vp_keyat`, reads its entries through
+as well as the seek's own read: it claimed one of its own, which a
+real-mode bracket refuses, and every seek in the full screen came to
+nothing, `mega-vidfskeysvga4`), and the card's ring when the session has audio, a card and
 none held yet (Unmute inside the full screen, 98.3.17) - on the speaker,
 its ring and, for a clip made for a card, the shaper's part (98.3.15.2) -
 both given back after the bracket. Then `os88real_prep` over the player's
