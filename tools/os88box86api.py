@@ -1460,8 +1460,11 @@ def _with_cfg(a, bits):
     """A copy of A: whose SYSTEM.CFG wants the drivers in BITS - the file
     tools/os88bochs.Box writes (`--cfg`), so the two backends boot the same
     disk. The copy lives until the process exits (86Box copies it again)."""
-    d = tempfile.mkdtemp(prefix="o88cfg-", dir=os.path.join(
-        ROOT, "build", "86box", "inst"))
+    base = os.path.join(ROOT, "build", "86box", "inst")
+    os.makedirs(base, exist_ok=True)    # (launch makes it too, but later:
+    d = tempfile.mkdtemp(prefix="o88cfg-", dir=base)   # a fresh box's first
+                                        # 86Box row failed here unless
+                                        # another had launched before it)
     atexit.register(shutil.rmtree, d, True)
     out = os.path.join(d, os.path.basename(a))
     shutil.copyfile(a, out)

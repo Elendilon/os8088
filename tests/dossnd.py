@@ -36,7 +36,11 @@ import os88marty                                               # noqa: E402
 SYS = "build/os8088-360.img"
 SND = "build/dossnd360.img"
 MACHINE = "os8088_5150_herc_sb_gla"      # ...the only kind with a card in it
-CARD_IRQ = 7                              # ...on IRQ 7 (os8088_machines.toml)
+# THE CARD'S LINE IS THE MACHINE'S: MartyPC's Sound Blaster is on IRQ 7
+# (os8088_machines.toml), and Bochs's SB16 - the card mega-dossnd runs this row
+# against - on its default 5 (tools/os88bochs.py's `sb16:` line names none).
+# The discovery found 5 there, which is right; a literal 7 failed it.
+CARD_IRQ = {"marty": 7, "bochs": 5}.get(os88marty.emulator(), 7)
 
 
 def fail(msg):

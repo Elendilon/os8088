@@ -1158,9 +1158,13 @@ vp_open:
     jc .nk
     call vp_rdpal                   ; VGA8's palette, and its luma
     jc .nk
-    mov byte [vp_loaded], 1
     call vp_canplay
     call vp_xopen                   ; a streamed file into XMS, if it fits
+    mov byte [vp_loaded], 1         ; LAST, once vp_ok and the hold are
+                                    ; decided: nothing above reads it, and a
+                                    ; reader outside the task (a debugger, a
+                                    ; gate polling guest memory) that sees 1
+                                    ; then sees the open's whole answer
     jmp short .free
 .nk:
     mov word [vp_nkeys], 0          ; not loaded: no key to seek or show

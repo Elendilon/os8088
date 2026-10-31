@@ -258,13 +258,30 @@ def main():
                  % (p.rb("rc_st"), msg()))
         if not p.rw("rc_rseg"):
             fail("5: recording with no ring claimed")
-        M.guest_sleep(m, 0.5)           # 4,000 bytes: under the smallest
-        grown = p.rw("rc_len")          # grant tier (RC_D_LEN), so not FULL
+        # EXACTLY 0.5 guest seconds, run by the server and read paused: 4,000
+        # bytes, under the smallest grant tier (RC_D_LEN), so not FULL. It
+        # was guest_sleep, which polls the guest's clock every 20 ms of HOST
+        # time and reads after it - so a host that preempted this process
+        # overshot by whatever the guest ran meanwhile, and on a loaded box
+        # that was a whole extra second (8,192 bytes, 'the pump is not
+        # running', and a pass when the same row ran alone)
+        m.pause()
+        m.advance(cycles=int(0.5 * M.GUEST_HZ))
+        grown = p.rw("rc_len")
+        m.run()
         if not 1500 <= grown <= 6000 or p.rb("rc_st") != RC_REC:
             fail("5: 0.5 s of recording with nothing clicked took %d bytes, "
                  "state %d %r - the timer's pump is not running (cap %d)"
                  % (grown, p.rb("rc_st"), msg(), p.rw("rc_cap")))
         ui.menu_pick("Sound", "Stop")
+        # ...ON THE GUEST'S CLOCK: the Stop lands a moment after the menu
+        # closes (the pick returns when the menu is gone, not when the
+        # handler has run), and an immediate read was the host's race
+        try:
+            M.until(m, lambda _: p.rb("rc_st") == RC_IDLE, "the Stop",
+                    guest=5)
+        except M.MartyError:
+            pass                        # ...the check below says what it saw
         if p.rb("rc_st") != RC_IDLE:
             fail("5: Stop left state %d (%r)" % (p.rb("rc_st"), msg()))
         after = sorted((c.seg, c.para) for c in every(heapmap.Map(m, heap))

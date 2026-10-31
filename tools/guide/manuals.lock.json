@@ -888,9 +888,9 @@
   "sources": [
    "apps/realdmg"
   ],
-  "stamped": "e88b5c64",
-  "strings": "42ae6414f253a209",
-  "why": "two toasts reworded (Cache: for the next game; REALDMG: needs more XMS); the page already says both, written in the same commits, so unchanged"
+  "stamped": "ce861766",
+  "strings": "c112221783311c2f",
+  "why": "91816de9 only changes the kern_mega arm's window title to (Un)RealDMG under protected mode; the page describes no window title and its kern_mega lines (memory above 1MB, PRE refused) are unchanged"
  },
  "REDLINE_O88": {
   "sources": [
