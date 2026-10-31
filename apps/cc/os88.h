@@ -1245,6 +1245,17 @@ unsigned os88_seg_para(unsigned seg);
 unsigned os88_seg_sub(unsigned seg, unsigned para, unsigned len);
 unsigned os88_mem_largest_kb(void);
 unsigned os88_mem_total_kb(void);
+/* ...and the same heap counted in PARAGRAPHS (SPEC.md 50.3.7). Every claim is
+ * rounded to the heap's granule - os88_mem_gran() paragraphs, 512 bytes
+ * today - so the KB calls above can never ask for less than a KB, and a size
+ * that is really a byte count pays half a granule more on average through
+ * them. OS88_BYTES_PARA(n) is the paragraphs to ask for n bytes. A claim
+ * from either is freed by os88_mem_free and declared by os88_mem_movable. */
+#define OS88_BYTES_PARA(n) (((n) + 15) >> 4)
+unsigned os88_mem_claim_p(unsigned paras);       /* 0 = refused */
+unsigned os88_mem_regrow_p(unsigned seg, unsigned paras); /* as _regrow */
+unsigned os88_mem_largest_p(void);
+unsigned os88_mem_gran(void);
 
 /* --- letting the compactor MOVE a claim (SPEC.md 66) ----------------------
  * A claim is born PINNED, and a pinned claim sitting in the middle of the
