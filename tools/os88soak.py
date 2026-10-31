@@ -927,8 +927,10 @@ def _frozen_targets(a):
         names = set(_selected(a))
         arts = sorted({f for r in suite.rows() if r.name in names
                        for f in getattr(r, "wants", ())})
+        fix = any("win16fixtures" in r.needs for r in suite.rows()
+                  if r.name in names)
     except Exception:                                       # noqa: BLE001
-        arts = []
+        arts, fix = [], False
     # THE SHIPPED SET IS NAMED rather than asked for as `all`, because `all`
     # ends in `checkdocs` and `test-fast` - gates, not artefacts, and ones
     # that would run against the tree for no reason and fail it for somebody
@@ -955,6 +957,16 @@ def _frozen_targets(a):
                 "network360.img", "games360.img", "emu360.img", "util360.img",
                 "more720.img", "small360.img", "small720.img")
     shipped = imgs + ("wire.o88",)
+    # THE WIN16 FIXTURES, where this box has opted in. `win16fixtures` is a
+    # CAPABILITY and not a `wants=`, because building it fetches a compiler
+    # (tools/setup-watcom.sh) and a box that never asked must SKIP rather than
+    # reach the network. So the tree builds them exactly when the shared
+    # build/ already has - the stamp `make win16fixtures` leaves - and Watcom
+    # itself is shared into the tree (os88build.SHARED), so this is a
+    # compile and never a fetch. Without it `check` granted the capability
+    # off build/ and the rows SKIPPED off the tree.
+    if fix and os.path.exists(os.path.join(ROOT, "build", "win16", ".watcom")):
+        shipped += ("win16fixtures",)
     return shipped + tuple(a[len("build/"):] for a in arts
                            if a.startswith("build/"))
 
