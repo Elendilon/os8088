@@ -584,9 +584,9 @@
   "sources": [
    "apps/install"
   ],
-  "stamped": "dccaad5b6",
-  "strings": "5dfa863f9bc6c17e",
-  "why": "checked against #313's network install, the startup check and the slot list's Empty, No Room; the page covers them"
+  "stamped": "e88b5c64",
+  "strings": "2b391919e4c9218d",
+  "why": "only OS88VER.TXT changed (20261026 -> 20261030 release notes); the page names no release or its notes, so unchanged"
  },
  "INTRO_MID": {
   "sources": [],
@@ -888,9 +888,9 @@
   "sources": [
    "apps/realdmg"
   ],
-  "stamped": "5734441e",
-  "strings": "6477c968484e9734",
-  "why": "Shift+F2 Steady pacing added to Making a game faster and the Screen table; the copy and fill marking, renderer and draw-pacing changes are below the page's detail"
+  "stamped": "e88b5c64",
+  "strings": "42ae6414f253a209",
+  "why": "two toasts reworded (Cache: for the next game; REALDMG: needs more XMS); the page already says both, written in the same commits, so unchanged"
  },
  "REDLINE_O88": {
   "sources": [
@@ -1232,9 +1232,9 @@
   "sources": [
    "apps/video"
   ],
-  "stamped": "7feb6f7f",
-  "strings": "e12854274eb7881d",
-  "why": "merge of protected-mode into elendilon: both sides' strings (version 2's Needs the block decoder, the XMS-in-place-under-protected-mode card lines) checked against the page; the block decoder's second assembly for protected mode adds no string and is below the page's level; unchanged"
+  "stamped": "e88b5c64",
+  "strings": "38f69d0a3ba07d6b",
+  "why": "string diff from 6b05fb4e (the old stamp 7feb6f7f was squashed away; 6b05fb4e matches its fingerprint): only vcold.asm's info-card ninth line, built into the kern_mega arm alone (MEGAAPPDIR), which no released disk carries; the page describes the shipped player, so unchanged"
  },
  "VMMOUSE_DRV": {
   "sources": [
