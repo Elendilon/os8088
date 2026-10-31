@@ -100,10 +100,10 @@ filled.
 
 | | kern_big | kern_small |
 |---|---|---|
-| `.text` (fprog, incl. a 1-byte PARITY pad for `ui_task`, t_hotpar) | +102 | +102 |
+| `.text` (fprog) | +100 | +102 |
 | `.cold` (the copy site, which is `.cold` on kern_big) | +25 | 0 |
 | `FILECP.DRV` on disk (the copy site, which is a module on kern_small) | n/a | +14 |
-| **resident total** | **127** | **102** |
+| **resident total** | **125** | **102** |
 
 Drawing cost per chunk boundary: one `gfx_fill_gray` over the remainder at the
 first metadata sector, and one `gfx_fill` to put it back. That is a few
@@ -117,14 +117,78 @@ Part 2).
   tree, that walk is `int 13h` calls, each about 400 ms on a floppy.
   One-folder multi-select is cheaper, because the Disk window's listing
   already holds the sizes. Not priced.
-- **Packages and DOS.** A windowed DOS program that reads a file in `int 21h`
-  chunks is still many phases. Publishing `fpg_opbegin`/`fpg_opend` as
-  `OSAPI_*` slots would cost a cell each (SPEC.md 20.3), and adding them is an
-  ABI decision (SPEC.md 20.2.0.1).
+- **Packages.** See section 4: the case that matters spans more than one
+  lock hold, which this prototype cannot.
 - **The icon-swap alternative** (a second glyph while metadata is being
   written) would cost about 56 bytes of icon data, plus a two-pass masked
   `icon_draw` at every phase edge. That is more resident bytes and more
   drawing calls than the dithered remainder.
+
+## 3. kern_small takes neither (second commit on the branch)
+
+Both prototypes are now kern_big's alone. `kernel.asm` defines `TOAST_Q` and
+`FPG_OPS` under `%ifdef KERN_BIG`, and `toast.inc`, `fprog.inc`, `loader.inc`
+and `filecp.inc` keep the original code in the other arm. Checked: kern_small's
+`kernel.bin` and `kernel-full.bin` are **byte-identical** to `c844ccc`, and
+`FILECP.DRV` is back to 1,821 bytes. kern_big is unchanged by the gating:
+`.text` +222, `.bss` +28, `.cold` +48 against the base: the two tables
+above added together, **298 resident bytes**. The kern_small columns above
+are what it *would* have paid. (The first commit needed a 1-byte PARITY pad
+to keep `ui_task` even for `t_hotpar`. The restructured `fpg_paint` arm is
+one byte shorter, so the pad is gone.)
+
+## 4. Packages: the Video Player's case spans lock holds
+
+The Video Player loads its hold **one chunk per `W_ONTIMER` callback**
+(`vp_ontimer` -> `vp_xstep`, `apps/video/video.asm`), and re-arms the timer
+"so the loading has half the machine and the desktop the other half". Each
+callback is a separate `gfx_lock` hold. The widget's chrome belongs to a hold
+(SPEC.md 12.8.3: `fpg_finish` runs from `gfx_unlock`), so it goes up and comes
+down once per chunk. That is the blinking. An operation scale that lives
+inside one hold, as `fpg_opbegin` does, cannot fix it: the chrome is gone
+before the next chunk starts.
+
+For that, an operation has to outlive the hold, and the chrome with it. Three
+things currently assume the opposite, and each has to change:
+
+- **The mouse ISR defers while `[fpg_on]` is set** (`mou_apply`, SPEC.md
+  12.8.4), and `fpg_arm` turns on the busy pointer (SPEC.md 7.5.3). Left as
+  they are, a parked widget would freeze the arrow and show it busy for the
+  whole load, on a desktop that is meant to be live. So a parked widget needs
+  `[fpg_on]` = 0 with its state banked elsewhere. The pixels can stay on the
+  bar, because the arrow crossing the bar is ordinary save-under work.
+- **`menu_bar_text` reserves `FPG_CELLS` only while `[fpg_on]` is set.** A
+  parked widget needs the same reservation, or the next recomposition (a
+  clock minute, a change of active window) letters over it.
+  `menu_furniture`'s repair (`fpg_paint`) also has to fire for a parked
+  widget.
+- **Foreign modes and fullscreen windows.** `fpg_arm` refuses those, but a
+  parked widget's next hold can be inside an fsx bracket: the Video Player
+  plays fullscreen, and `vp_xlag` loads behind the play. `fpg_vis` would need
+  the same refusals, or a resumed phase draws onto the foreign mode.
+
+Ownership comes with it. The parked operation belongs to the instance that
+opened it (`inst_caller`, as toasts do):
+
+- Only that instance's phases resume its scale.
+- A phase from anyone else, such as a Disk-window copy during the load, would
+  not count. The parked bar would hatch its remainder for the length of that
+  other freeze.
+- Closing the instance ends the operation (an `fpg_owner_gone` beside
+  `toast_owner_gone`).
+- A second package asking while one is parked is refused (CF = 1).
+
+The API would be two cells at the end of the table, for example
+`OSAPI_FS_OPBEGIN` (`DX:CX` = bytes) and `OSAPI_FS_OPEND`. That is an
+addition, so no `PKG_FMT` bump (SPEC.md 20.2.0.1). kern_small gets
+`stc`/`retf` cells: it parks nothing and shows what it shows today.
+
+**ESTIMATED, not built:** about 150-220 resident bytes on kern_big on top of
+section 2. The two cells are 6 bytes each (SPEC.md 20.3), and the rest is the
+park and resume, the three gates above and the owner hook. kern_small would
+pay about 12 bytes for the two refusing cells. The real cost is the review of
+SPEC.md 12.8.3 and 12.8.4: a parked widget is a bar tenant that outlives a
+freeze, which 12.8.3 was written to rule out.
 
 ## What was not done
 

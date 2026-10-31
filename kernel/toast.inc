@@ -134,7 +134,9 @@ toast_want:  db 0               ; staged by toast_show, not yet put up
 %if (toast_on - toast_dirty) != 1 || (toast_want - toast_dirty) != 2
   %error "toast.inc: the three flag bytes are stored and tested in PAIRS as words - dirty+on at [toast_dirty], on+want at [toast_on] - so they must stay adjacent in that order. Reorder them and every one of those sites writes or tests the wrong byte, silently"
 %endif
+%ifdef TOAST_Q
 toast_qwant: db 0               ; a message waits in toast_qbuf
+%endif
 toast_inst:  db 0FFh            ; the raiser's instance slot (0FFh = kernel)
 toast_die:   dw 0               ; the tick it expires at
 toast_ttl:   dw TOAST_TICKS     ; ...and how long it was asked for
@@ -210,6 +212,7 @@ toast_show:
                                 ; BIT 15 IS THE WHOLE TEST, so it is asked of
                                 ; CH: same predicate as `cmp cx,0x7FFF / jbe`
                                 ; at every value including both boundaries
+%ifdef TOAST_Q
     push cx                     ; the TTL, until the destination is known
     call inst_caller            ; DH = who is asking (SPEC.md 19.2.1)
     mov bx, toast_buf           ; TOAST QUEUE: a DIFFERENT raiser's message
@@ -220,18 +223,30 @@ toast_show:
     mov bx, toast_qbuf          ; message and not two
 .dst:
     mov di, bx
+%else
+    mov [toast_ttl], cx
+    mov di, toast_buf
+%endif
     mov cx, TOAST_MAX
+%ifdef TOAST_Q
 %if TOAST_SCAN != 256
   %error "toast.inc: the scan bound is counted in DL from 0, which is 256"
 %endif
     mov dl, 0                   ; DL counts 256 down; DH is the raiser
+%else
+    mov dx, TOAST_SCAN
+%endif
 .cp:
     es lodsb                    ; the same instruction files.inc:2050 uses in
                                 ; the same role, and it is why the `cld` above
                                 ; is not optional
     or al, al
     jz .end
+%ifdef TOAST_Q
     dec dl                      ; the OTHER bound: CX counts characters KEPT,
+%else
+    dec dx                      ; the OTHER bound: CX counts characters KEPT,
+%endif
     jz .end                     ; so a string that never offers a printable
                                 ; byte or a NUL - and every byte from a
                                 ; package is hostile - would spin this loop
@@ -245,30 +260,43 @@ toast_show:
     loop .cp
 .end:
     mov byte [di], 0
+%ifdef TOAST_Q
     pop cx                      ; the TTL
     cmp di, bx
+%else
+    cmp di, toast_buf
+%endif
     je .kill                    ; nothing sayable: this is a retire
+%ifdef TOAST_Q
     cmp bx, toast_buf
     jne .queue
     mov [toast_ttl], cx
     mov [toast_inst], dh        ; so a closing app takes its own message
+%else
+    call inst_caller            ; DH = who is asking (SPEC.md 19.2.1), so a
+    mov [toast_inst], dh        ; closing app takes its own message with it
+%endif
     mov byte [toast_want], 1
     popf
     call toast_now              ; ...and if the caller can be shown to hold
     jmp short .out              ; the lock, it reaches the glass NOW rather
                                 ; than on the next idle pass (SPEC.md 59.4)
+%ifdef TOAST_Q
 .queue:
     mov [toast_qttl], cx
     mov [toast_qinst], dh
     mov byte [toast_qwant], 1
     popf
     jmp short .out
+%endif
 .kill:
     call toast_kill             ; preserves the flags, so the popf below is
+%ifdef TOAST_Q
     cmp dh, [toast_qinst]       ; ...and the raiser's own QUEUED message goes
     jne .kq                     ; too, or retiring would pop it up
     mov byte [toast_qwant], 0
 .kq:
+%endif
     popf                        ; still the caller's
 .out:
     clc                         ; ONE `clc`: nothing here refuses today, and
@@ -533,7 +561,11 @@ toast_pass:
     or ah, ah                   ; %if beside them pins, read in ONE load where
     jnz .up                     ; it was two compares against memory (kernel
     or al, al                   ; size pass 10: 3 bytes)
+%ifdef TOAST_Q
     jz .q  
+%else
+    jz .chk
+%endif
     mov ax, [ticks]
     sub ax, [toast_die]
     js .chk                     ; MODULAR arithmetic between two free-running
@@ -542,9 +574,11 @@ toast_pass:
                                 ; 45.15's stamp compare. A `jg` honours OF
                                 ; and would hold a toast across the wrap
     mov word [toast_dirty], 0x0001  ; dirty = 1, on = 0, in one store...
+%ifdef TOAST_Q
 .q:
     call toast_promote          ; the queued message, if any, goes up in
     jc .up                      ; the same composition that retires this one
+%endif
 .chk:                           ; ...and FALLS INTO the test, where it used to
                                 ; step over `.up` with a `jmp short`. `.up` is
                                 ; at the foot of the routine now
@@ -587,6 +621,7 @@ toast_pass:
 ; inst_free's teardown) and one is inside toast_show's cli window; the pixels
 ; go back on toast_pass's next look, which is a tick away at worst.
 ; -----------------------------------------------------------------------------
+%ifdef TOAST_Q
 ; toast_promote - the queued message becomes the staged one. CF = 1 when it
 ; did. Clobbers AX (toast_pass banks it).
 toast_promote:
@@ -622,6 +657,7 @@ toast_promote:
     clc
     ret
 
+%endif
 toast_kill:
     pushf
     cli                         ; check-then-act: a task switch between the
@@ -653,10 +689,12 @@ toast_owner_gone:
                                 ; toast_show from another task
     push ax
     call inst_idx               ; AL = this record's instance index. NO "is
+%ifdef TOAST_Q
     cmp al, [toast_qinst]       ; (its queued message first)
     jne .nq
     mov byte [toast_qwant], 0
 .nq:
+%endif
     cmp al, [toast_inst]        ; anything up?" test first: toast_kill opens
     jne .out                    ; with exactly that test (`cmp word
     call toast_kill             ; [toast_on], 0`, one word over the pair) and
@@ -676,9 +714,11 @@ toast_owner_gone:
 
 section .bss
 
+%ifdef TOAST_Q
 toast_qbuf:  resb TOAST_MAX + 1 ; the QUEUED message (toast_qwant)
 toast_qttl:  resw 1
 toast_qinst: resb 1
+%endif
 toast_buf:   resb TOAST_MAX + 1 ; the staged message. .bss because it is read
                                 ; only while [toast_on] is set, and .bss is
                                 ; off the image rung

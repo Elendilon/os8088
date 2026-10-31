@@ -1060,6 +1060,18 @@ DRV_HMA_SEG equ 0xF000
   %endif
 %endif
 
+; TOAST_Q and FPG_OPS are kern_big's, for the same file-order reason (loader,
+; filecp and fprog all test them). TOAST_Q: a toast from a different raiser
+; QUEUES behind the one up (SPEC.md 59) instead of replacing it. FPG_OPS: an
+; OPERATION scale for the file-progress widget, so a copy is one bar and not
+; one per chunk (SPEC.md 12.8). kern_small has neither: it is the machine with
+; the fewest raisers and the smallest files, and both arms assemble it
+; byte for byte as before (docs/reports/TOAST-QUEUE-OP-PROGRESS-COST-2026-10-31.md)
+%ifdef KERN_BIG
+  %define TOAST_Q 1
+  %define FPG_OPS 1
+%endif
+
 ; KBD_I15 - SPEC.md 9.7.2: the scancode from the AT BIOS's own int 15h AH=4Fh
 ; intercept, where the ROM's configuration table says its int 09h calls it,
 ; instead of kbm_isr peeking port 60h. kern_big's (and so kern_emu's and
