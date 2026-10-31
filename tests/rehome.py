@@ -52,7 +52,7 @@ import os88parts
 import os88pkg
 import heapmap
 from os88pkg import PKG_FMT
-from os88drv import MEM_GRAN
+from os88geom import MEM_GRAN
 import dispcp
 
 KIND_PKG = 0x80         # kernel/instance.inc - a package instance

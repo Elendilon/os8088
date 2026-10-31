@@ -76,7 +76,7 @@ S_FILEMAX = 64512
 S_SCMAX = 32                            # sidecars a record (8 before v1.0.20261002.1)
 S_DESCN, S_DESCW = 5, 28
 S_WF_DISK, S_WF_PIC, S_WF_NEW, S_WF_FLOPPY, S_WF_ARC = 1, 2, 4, 8, 16
-S_PKGFMT_OFF, S_NEEDW_OFF, S_LEVEL = 252, 253, 6   # WC_PKGFMT, WC_NEEDW, WIRE_LEVEL
+S_PKGFMT_OFF, S_NEEDW_OFF, S_LEVEL = 252, 253, 7   # WC_PKGFMT, WC_NEEDW, WIRE_LEVEL
 S_PKGFMT = 10                           # SPEC.md 20.2's format byte
 S_ARCMAX = 0x100000                 # WIRE_ARCMAX, the archive's own ceiling
 
@@ -1730,8 +1730,18 @@ def fence(tmp, mod):
     if os.path.exists(pix):
         lvl, top = mod.cell_level([open(pix, "rb").read()])
         if top is not None and top >= 0x04E3:
-            eq(lvl, 6, "PiXEL's OSAPI_SEG (0x04E3) needs a level-6 Wire",
-               "WIRE_CELL_LEVELS has no row for v1.0.20261026's table end")
+            check(lvl is not None and lvl >= 6,
+                  "PiXEL's OSAPI_SEG (0x04E3) needs at least a level-6 Wire",
+                  "WIRE_CELL_LEVELS has no row for v1.0.20261026's table end",
+                  got=lvl, want=">= 6")
+    # LEVEL 7: OSAPI_MEM_P (0x04E9, SPEC.md 50.3.7) is past the level-6
+    # Wire's table, and the parts library claims through it (SPEC.md
+    # 20.12.14) - so a parted package is level 7, and PiXEL is one
+    if os.path.exists(pix):
+        lvl, top = mod.cell_level([open(pix, "rb").read()])
+        if top is not None and top >= 0x04E9:
+            eq(lvl, 7, "PiXEL's OSAPI_MEM_P (0x04E9) needs a level-7 Wire",
+               "WIRE_CELL_LEVELS has no row for the level-6 Wire's table end")
 
     pub = os.path.join(tmp, "fpkg")
     os.makedirs(pub, exist_ok=True)

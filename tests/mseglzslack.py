@@ -75,7 +75,7 @@ import os88sym                                               # noqa: E402
 import os88geom                                              # noqa: E402
 import dispcp                                                # noqa: E402
 import msegsym                                               # noqa: E402
-from os88drv import MEM_GRAN                                 # noqa: E402
+from os88geom import MEM_GRAN                                 # noqa: E402
 
 ARGS = [a for a in sys.argv[1:] if a != "--plain"]
 PLAIN = len(ARGS) != len(sys.argv) - 1

@@ -87,7 +87,7 @@ import os88geom
 import dispcp
 import os88fixture
 from os88map import Syms                                    # noqa: E402
-from os88drv import MEM_GRAN                                 # noqa: E402
+from os88geom import MEM_GRAN                                 # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MACHINE = sys.argv[1] if len(sys.argv) > 1 else "os8088_5150_herc_gla_144"

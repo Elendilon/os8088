@@ -346,6 +346,9 @@ _MIRROR = {
     "MC_DMA_HI": ("kernel/memory.inc", 0x8000),
     "MC_DMA_HEAD": ("kernel/memory.inc", 0x3FFF),
     "MC_DISK": ("kernel/memory.inc", 0x4000),
+    # ...and the heap's GRANULE, in paragraphs (SPEC.md 50.2.1): every claim's
+    # size is a multiple of it. MEMGRAN=16 is a knob build, not an arm
+    "MEM_GRAN": ("kernel/memory.inc", 32),
     "MC_SIZE": ("kernel/memory.inc", 10),
     # ...and the one OWNER WORD a host script has to spell, because it is the
     # only tag that is not a segment: a loaded driver's IMAGE. Its own claims
