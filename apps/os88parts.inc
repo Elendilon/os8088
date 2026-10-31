@@ -140,7 +140,7 @@ OP_SELF       equ 256           ; **AN ASSEMBLER-ONLY FLAG, never in the file**
                                 ; OP_LAZY row it says THE PACKAGE READS THIS
                                 ; PART ITSELF (OSAPI_FILE_READ_AT off op_row's
                                 ; `off`), so the standard carries no op_fetch,
-                                ; op_drop, op_lazyok or op_lazykb for it - a
+                                ; op_drop, op_lazyok or op_lazyp for it - a
                                 ; table whose every lazy row says so assembles
                                 ; none of them (SPEC.md 20.12.9.1). Clear Skies'
                                 ; loader is the shape: its streams part is only
@@ -231,7 +231,7 @@ OP_CHUNK      equ 32768         ; bytes a read moves at a time: a multiple of
 %assign OP_HAS_FETCH 0              ; ...and either of them: a lazy row the
                                     ; STANDARD fetches rather than one marked
                                     ; OP_SELF, which is what earns op_fetch,
-                                    ; op_drop, op_lazyok and op_lazykb (SPEC.md
+                                    ; op_drop, op_lazyok and op_lazyp (SPEC.md
                                     ; 20.12.9.1). OP_HAS_LAZY still says there
                                     ; is a lazy row at all, which op_size steps
                                     ; over and op_seg answers 0 for
@@ -259,6 +259,9 @@ op_t_n:
     %endif
     %if ((%2) & OP_ZERO) && ((%3) < 1)
         %error "OP_ZERO with no KB: a scratch part of nothing is not a part"
+    %endif
+    %if ((%2) & OP_ZERO) && ((%3) >= 1024)
+        %error "OP_ZERO of 1,024 KB or more: op_size totals the carve in PARAGRAPHS, a word of which is 1MB, and no conventional heap holds that much anyway"
     %endif
     %if !((%2) & OP_ZERO) && ((%3) != 0)
         %error "a KB on a FILE-BACKED part: the carve is contiguous, so a part that wants scratch beside it declares a second, OP_ZERO part"
@@ -389,9 +392,9 @@ op_zshadow:
 ; keeps up to whichever of them ENDS highest. That is the program alone for
 ; a carve whose only other rows are lazy (DOS.O88, Clear Skies), part 1 for
 ; Word, the asset for tests/rehome and the scratch for Pixelstein, and what
-; it returns to the heap is the read's margin past it - R's extra sector, the
-; run rounded to clusters and the claim rounded to a KB - which nothing ever
-; reads. A loader that has put something of its OWN past its parts (no
+; it returns to the heap is the read's margin past it - R's extra sector and
+; the run rounded to clusters (and the claim rounded to a KB, until the carve
+; was claimed through OSAPI_MEM_P) - which nothing ever reads. A loader that has put something of its OWN past its parts (no
 ; loader in the tree does) cannot use this and writes the call itself.
 ;
 ; AN INDEX AND NOT A SEGMENT, and the walk in PARAGRAPHS INTO THE CARVE
@@ -473,7 +476,13 @@ op_zshadow:
 op_name     equ OP_BSS_AT + 0       ; the file we came out of, NUL-term
 op_first    equ OP_BSS_AT + 13      ; the carved run's first sector
 op_secs     equ OP_BSS_AT + 15      ; ...its length in sectors, 0 = none
-op_kb       equ OP_BSS_AT + 17      ; ...in KB
+op_np       equ OP_BSS_AT + 17      ; ...the total GRANTED, in PARAGRAPHS:
+                                    ; the run plus whichever scratch the
+                                    ; machine allowed (SPEC.md 50.3.7). It was
+                                    ; op_kb, in KB, and the rename is so that a
+                                    ; package reading the old word fails to
+                                    ; assemble rather than reading a figure 64
+                                    ; times what it expects
 op_bendh    equ OP_BSS_AT + 19      ; op_bend's HIGH word. It was op_bytes,
                                     ; the run in a word of bytes, which is
                                     ; what held the carve under 64KB; the
@@ -486,9 +495,11 @@ op_slack    equ OP_BSS_AT + 27      ; ...how far the run is past it
 op_cap      equ OP_BSS_AT + 29      ; the capacity that read asks for, in
                                     ; PARAGRAPHS (SPEC.md 20.12.11)
 op_base     equ OP_BSS_AT + 31      ; the claim it lands in
-op_reqkb    equ OP_BSS_AT + 33      ; the run plus the REQUIRED scratch...
-op_allkb    equ OP_BSS_AT + 35      ; ...and plus the optional too
-op_runkb    equ OP_BSS_AT + 37      ; KB from the base to the scratch area
+op_reqp     equ OP_BSS_AT + 33      ; the run plus the REQUIRED scratch...
+op_allp     equ OP_BSS_AT + 35      ; ...and plus the optional too
+op_runp     equ OP_BSS_AT + 37      ; ...and from the base to the scratch
+                                    ; area: all three in PARAGRAPHS, each
+                                    ; renamed from its _kb for op_np's reason
 op_optok    equ OP_BSS_AT + 39      ; byte: were the optional parts
                                          ; granted? A package that greys a row
                                          ; reads this rather than testing
@@ -501,7 +512,8 @@ op_xmson    equ OP_BSS_AT + 40      ; byte: is there a store to put the
                                          ; those parts between two totals
 op_xoff     equ OP_BSS_AT + 41      ; the XMS span's first sector...
 op_xsecs    equ OP_BSS_AT + 43      ; ...its length in sectors...
-op_xmskb    equ OP_BSS_AT + 45      ; ...and the KB it wants up there
+op_xmskb    equ OP_BSS_AT + 45      ; ...and the KB it wants up there - KB
+                                    ; still, as OSAPI_XMEM_ALLOC counts
 op_xlin     equ OP_BSS_AT + 47      ; the one block it all landed in (32)
 op_xcur     equ OP_BSS_AT + 51      ; ...and where the climb is up to (32),
                                          ; which is a SECOND word and not a

@@ -45865,8 +45865,9 @@ That is the whole of it. Everything else a package needs was already
 published, and the table in docs/plans/completed/O88-MULTISEG-PLAN.md §4.1 is the mapping,
 row by row: `OSAPI_FILE_READ_AT` for the bytes (read as `OSAPI_FILE_READ_SEQ`
 through `os88_rseq` since §18.4.8.1, with `READ_AT` the small kernel's answer), `OSAPI_FILE_DFREE` for the
-cluster size the alignment needs, `OSAPI_MEM_AVAIL` to size, `OSAPI_MEM_CLAIM`
-and `_HI` to claim (both legal from the entry proc), `OSAPI_XMEM_ALLOC` and
+cluster size the alignment needs, `OSAPI_MEM_P` to size and to claim -
+`MEMP_AVAIL`, `MEMP_CLAIM` and `_HI`, in paragraphs since §20.12.14 (legal
+from the entry proc, as the KB doors it replaced were), `OSAPI_XMEM_ALLOC` and
 `_COPY` for a part above 1MB, `OSAPI_TOAST` to refuse in the package's own
 words, and `mem_free_rec` returning every claim at teardown because a
 package's claims already carry `I_SPTR`.
@@ -46017,7 +46018,7 @@ carve exists to be. `os88pkg.py` and the `OS88_PART` macro both refuse the
 combination.
 
 **A refused launch does not disturb the heap.** The standard asks
-`OSAPI_MEM_AVAIL` and claims only what it can have, rather than trying a claim
+`MEMP_AVAIL` and claims only what it can have, rather than trying a claim
 and letting `mem_claim` shed every purgeable cache before refusing it
 (§50.6.2). Measured: the claim table across a refused launch is byte-for-byte
 what it was, and a refusal moves **9 sectors against a successful launch's
@@ -46073,7 +46074,8 @@ instead. `tests/msegxms.py` is the row that says otherwise.
 
 #### 20.12.4.1 …and a lazy ASSET may be fetched from the CEILING (`OP_WANT_ASSETHI`)
 
-`op_fetch` claims through the low door (`OSAPI_MEM_CLAIM_DMA`, CX = 0), which
+`op_fetch` claims through the low door (`OSAPI_MEM_P`'s `MEMP_CLAIM`, CX = 0;
+it was `OSAPI_MEM_CLAIM_DMA` with CX = 0 until §20.12.14), which
 is right for a code part: it is fetched for a job, dropped after it, and a
 compaction may slide it. A lazy `OP_ASSET` row a package HOLDS - data it
 keeps for the window's life and gives back only under pressure - is the
@@ -46083,16 +46085,18 @@ after it lands above it, so when it is given back its room is a hole UNDER
 them and the claim it was given back for still has to compact around them.
 
 `%define OP_WANT_ASSETHI` before `os88parts.inc` makes `op_fetch` claim a
-lazy `OP_ASSET` row through `OSAPI_MEM_CLAIM_DMA_HI` with CX = 0 - top-down
-on every kernel, `kern_mega` included (§50.3.2) - and every other row as
+lazy `OP_ASSET` row through `MEMP_CLAIM_HI` with CX = 0 - top-down
+and conventional on every kernel, `kern_mega` included (§50.3.7) - and every other row as
 before. Nothing else differs: the read lands R paragraphs up the claim and
 expands onto its base as it always did, and the shrink to `len` takes the
 tail, which for a ceiling claim is the top - so a part whose claim was
-rounded up leaves at most a KB free between it and the claim above it. The
+rounded up leaves at most a granule free between it and the claim above it
+(it was a KB). The
 block is still born pinned; a package that declares it movable has it packed
 by §66.4.1's DESCENDING pass, towards the ceiling. Opt-in, and a package that
-does not define it assembles byte for byte as before (13 bytes of `op_fetch`
-when it does). PiXEL's face pictures are the one user (§106.16.1).
+does not define it assembles byte for byte as before (6 bytes of `op_fetch`
+when it does - the verb's bit 0 is the direction, so the arm is one `inc bx`
+where the KB doors' was a second far call, 13). PiXEL's face pictures are the one user (§106.16.1).
 
 #### 20.12.5 Identity is unchanged (binding)
 
@@ -46254,7 +46258,7 @@ making each of them solve it again, differently.
 fetched and the SEGMENT afterwards, which is the order `op_fetch` reads them
 in — it takes the length, does the read, expands, and only then banks the
 segment over it. Nothing else in the row moves: `len` is the unpacked length
-as it is on every other row, which is what `op_lazykb` sizes the claim from
+as it is on every other row, which is what `op_lazyp` sizes the claim from
 and what `op_size` would refuse against.
 
 **The stream is read R paragraphs UP its own claim**, **`R =
@@ -46272,7 +46276,7 @@ stream. Rounding the difference to a *paragraph* fixed that and broke the
 other rule: R is where a **disk read** lands, every disk-visible base is
 512-byte aligned, and a read starting mid-sector straddled a 64KB physical
 page the first time a fetch landed across one (Pixelstein's art masters,
-`FERR_IO`, §88.10.4.1). `op_lazykb` prices the fetch as R plus the read of the
+`FERR_IO`, §88.10.4.1). `op_lazyp` prices the fetch as R plus the read of the
 packed part, so `op_fetch`'s claim, `op_lazyok`'s answer and a package's own
 precheck are one figure.
 
@@ -46282,8 +46286,9 @@ own bytes are the head slack plus R up the claim — and the output starting at
 the base sits the slack *further* below them than the R that `in_place_margin`
 was measured against, which is only more room: a writer that never overtakes a
 reader `len − packed` ahead never overtakes one further ahead. Once it has
-expanded, `op_fetch` shrinks the claim in place through `OSAPI_MEM_REGROW`
-(§50.3.1) to **`len` rounded up to a KB**, banks the claim's own base as the
+expanded, `op_fetch` shrinks the claim in place through `MEMP_REGROW`
+(§50.3.1, §50.3.7) to **`len` rounded up to the granule** (a KB through
+`OSAPI_MEM_REGROW` until §20.12.14), banks the claim's own base as the
 part's segment, and `op_drop` frees that word as it stands — a plain lazy row
 still banks the part past its slack, and `op_drop` still takes the slack off
 that one. **What a fetched compressed part costs the session is therefore its
@@ -46377,7 +46382,7 @@ shipped its own fix for a cycle - `op_zrseg`, which rounded the READ up to a
 rounding plus the read. **Both are withdrawn** in favour of the standard's
 own answer, which reached `main` first and covers every caller:
 
-- **The claim.** `op_lazykb` prices a compressed row as R plus the packed read
+- **The claim.** `op_lazyp` prices a compressed row as R plus the packed read
   in whole clusters (§20.12.7.4), so `op_fetch`'s claim, `op_lazyok`'s answer
   and a package's own precheck are one figure - which is all `op_zkb`
   existed to make true - and `op_fetch` gives back what only the expansion
@@ -46406,8 +46411,8 @@ to find the claim it had to free.
 **It is moved down and shrunk now, the compressed arm's lesson without a
 decoder.** After the read, a plain row with a non-zero slack is copied DOWN onto
 the claim's base - one `rep movsw`/`rep movsb`, safe over the overlap because the
-writer is always below the reader - and then takes the same `OSAPI_MEM_REGROW`
-shrink to `len` rounded to a KB that a compressed row takes. So the banked word
+writer is always below the reader - and then takes the same `MEMP_REGROW`
+shrink to `len` rounded to the granule that a compressed row takes. So the banked word
 is the claim's base on EVERY row, and `op_drop` frees it as it stands: the
 backwards slack arithmetic is deleted, which pays for most of the copy. On a
 floppy whose clusters are one sector the slack is zero and the arm is a shift
@@ -46417,11 +46422,11 @@ and a branch.
 (`tests/multiseg/mseg.asm`, 3,080 -> 3,099 before its padding); no shipped
 package fetches one, so nothing that ships pays it (§20.12.9.1 gives each
 kind of lazy row its own arm). What it buys is **the cluster**: on a
-32KB-cluster volume a fetched plain part keeps `len` rounded to a KB instead of
+32KB-cluster volume a fetched plain part keeps `len` rounded to the granule instead of
 `slack + len` rounded to a cluster - up to ~31.5KB of heap a part for as long as
 it is held. `tests/mseglzslack.py --plain` is the gate: MSEG's plain lazy part 6
 on an 8KB-cluster disk, a claim BEGINS at `op_seg`'s answer and is the part's
-own KB, MSEG's three checks pass on the moved bytes, and the drop leaves the
+own length to the granule, MSEG's three checks pass on the moved bytes, and the drop leaves the
 claim table as it was.
 
 #### 20.12.9 The standard takes only what the table asks for
@@ -46500,7 +46505,7 @@ rather than before it.
 Clear Skies' loader declares `csw.z` as a lazy part only to have `os88pkg.py`
 place it outside the carve and hand it a sector: the PROGRAM reads each stream
 with `OSAPI_FILE_READ_AT` off that sector (§88.10.7), and nothing ever calls
-`op_fetch`. The table could not say so, so `OP_HAS_LAZY` assembled `op_lazykb`,
+`op_fetch`. The table could not say so, so `OP_HAS_LAZY` assembled `op_lazykb` (now `op_lazyp`),
 `op_lazyok`, `op_fetch`, `op_drop` and their strings into an image that is
 freed at the re-home - ~650 bytes, a fifth of the loader.
 
@@ -46514,7 +46519,7 @@ row. The derived flags then split three ways, each from the rows like the rest
 | flag | set by | what it earns |
 |---|---|---|
 | `OP_HAS_LAZY` | any `OP_LAZY` row | `op_size` stepping over it, `op_seg` answering 0 for it |
-| `OP_HAS_FETCH` | an `OP_LAZY` row without `OP_SELF` | `op_lazykb`, `op_lazyok`, `op_fetch`, `op_drop` - and the C SDK's three lazy thunks |
+| `OP_HAS_FETCH` | an `OP_LAZY` row without `OP_SELF` | `op_lazyp`, `op_lazyok`, `op_fetch`, `op_drop` - and the C SDK's three lazy thunks |
 | `OP_HAS_ZLAZY` | ...that is also `OP_COMP` | the expansion, the shadow (§20.12.7.4.1), `OP_SPENT` |
 | `OP_HAS_PLAZY` | ...that is not | the move down (§20.12.7.4.4) |
 
@@ -46767,8 +46772,8 @@ the carve holds the other parts too, and they are not the region.
 
 ##### 20.12.10.5 The carve is re-owned to the SLOT, TRIMMED at both ends, and may not be freed by its old base
 
-The parts carve is claimed by the **loader**, through `OSAPI_MEM_CLAIM_HI`
-(§20.12.10.8), so its `MC_OWN` is the loader's segment — which is about to stop
+The parts carve is claimed by the **loader**, top-down through `OSAPI_MEM_P`'s
+`MEMP_CLAIM_HI` (§20.12.10.8, §20.12.14), so its `MC_OWN` is the loader's segment — which is about to stop
 existing. Left alone it is either freed out from under the running program
 (the teardown sweeps by segment) or leaked for the session. `mem_reown_x`
 re-stamps it, and every other claim on that owner word, to the instance
@@ -46829,12 +46834,12 @@ only the loader has. What stands past the program's `image + bss` in the
 carve is not one thing. In two of the five re-homing loaders it is the parts
 standard's read margin and nothing else - the extra sector `R` carries
 (§20.12.7), the packed run rounded up to whole clusters, the claim rounded up
-to a KB - MEASURED at the re-home on a 1KB-cluster volume as **`DOS.O88`
+to a KB (to the granule since §20.12.14, so less of it now) - MEASURED at the re-home on a 1KB-cluster volume as **`DOS.O88`
 1,360 bytes, Clear Skies 783**. In the other three it is the program's own
 parts, which it goes on reading: Word's part 1 is assembled at `WD_P1ORG`,
 directly above part 0's `image + bss` (§68.10); Pixelstein's scalers' scratch
 and byte textures are `OP_ZERO` rows in the same carve, past the read margin
-at `op_runkb` (§97.9); `tests/rehome`'s asset is part 1. Every one of the five
+at `op_runp` (§97.9); `tests/rehome`'s asset is part 1. Every one of the five
 handed the slot the same `AX`, `image + bss`, so the kernel had no word that
 told the first kind from the second: a trim to `AX` was built and **`wdparts`
 went red on it** ("the region's claim holds part 1 too" - 3,712 paragraphs
@@ -47064,7 +47069,7 @@ LAZY, because eager would make the art a reason to refuse the launch.
 
 | word | was | now |
 |---|---|---|
-| `op_cap` | the read's capacity in bytes | in **paragraphs** — `op_read`'s `DI` counts paragraphs, so its chunk loop needs no 32-bit counter, and `op_runkb` is `(R + cap + 63) >> 6` |
+| `op_cap` | the read's capacity in bytes | in **paragraphs** — `op_read`'s `DI` counts paragraphs, so its chunk loop needs no 32-bit counter, and `op_runp` is `R + cap` (it was `op_runkb`, `(R + cap + 63) >> 6`, until §20.12.14) |
 | `op_rpara` (R) | `(op_ubytes − op_bytes + 512 + 15) >> 4` | `(op_usecs − op_secs + 1) << 5` — the same figure from the two sector counts, so `op_bytes` and `op_ubytes` are no longer needed |
 | `op_bend` | 16 bits | 32 bits, its high word `op_bendh` in **`op_bytes`'s old slot**, so no offset in the bss chain moves and `apps/cc/crt0.asm` is untouched |
 | `op_want` | 16 bits | 32 bits, its high word being the slot `op_tail` left unnamed (§20.12.7.3) |
@@ -47201,7 +47206,7 @@ call into an `OP_SEG` part - so the door is OPT-IN:
   in which the package holds a part's segment across something that can
   claim: a file call into it, an fsx bracket.
 - **op_fetch does not declare.** §66.3 rule 5's ordering: declare after the
-  part is in place and its segment banked. `OSAPI_MEM_REGROW` keeps a
+  part is in place and its segment banked. `MEMP_REGROW` keeps a
   declaration and `op_drop`'s free ends it.
 - **What the package asserts by defining `OP_ONMOVE`**, and nothing can check
   it: no copy of the segment survives a call that can claim except in words
@@ -47356,6 +47361,63 @@ of a load whose every chunk is a disk read, and three bytes of `OP_BSS`
 WireFleet, which sat at `APP_MAX_SIZE` with 46 bytes of slack, is the
 package that decided the shape: a `SEG_LIN` + `SEG_WIN` walker was 48 bytes,
 bound windows 164, and `op_at` is 21.
+
+##### 20.12.14 The standard counts in PARAGRAPHS (`OSAPI_MEM_P`)
+
+**Every quantity the standard claims is a byte or sector count, and the KB
+doors could only ask for whole KB** — so the carve carried up to a KB the run
+never touched, a fetched part kept `len` rounded to a KB, and the 512 bytes of
+the heap a KB door can never reach from either end were out of every part's
+reach too (§50.2.1). `OSAPI_MEM_P` (§50.3.7) claims to the granule, and the
+standard now uses it for every claim it makes in conventional memory. **The
+arithmetic is converted to paragraphs END TO END rather than at the door**,
+because a total in one unit compared or subtracted against a figure in the
+other is the bug this change would otherwise hide:
+
+| quantity | was | now |
+|---|---|---|
+| the two totals, `op_size` | `op_reqkb`/`op_allkb`: the run `ceil(sectors / 2)` KB, a scratch row `zkb` KB | `op_reqp`/`op_allp`: the run `sectors << 5`, a scratch row `zkb << 6` — both exact |
+| the granted total, `op_load` | `op_kb`, against `OSAPI_MEM_AVAIL`'s KB | `op_np`, against `MEMP_AVAIL`'s paragraphs — a whole number of granules, so a request fits exactly when its own rounding does |
+| the run's share of the carve, `op_claim` | `op_runkb`, `(R + cap + 63) >> 6` | `op_runp`, `R + cap` — a whole number of SECTORS (the cap is clusters, R is sectors), so the scratch still starts 512-aligned |
+| the granted scratch | `op_kb − ceil(usecs / 2)` KB | `op_np − (usecs << 5)` |
+| where a scratch row starts, `op_seg` | `(op_runkb + Σ zkb) << 6` | `op_runp + (Σ zkb << 6)` |
+| the carve's claim | `OSAPI_MEM_CLAIM_DMA_HI`, CX = 0, KB | `MEMP_CLAIM_HI`, CX = 0, paragraphs |
+| what a lazy fetch costs | `op_lazykb`, the read rounded up to KB | `op_lazyp`, the read in paragraphs — renamed, so a package still asking in KB fails to ASSEMBLE rather than comparing a figure 64 times too big |
+| the fetch's claim and its shrink | `OSAPI_MEM_CLAIM_DMA` (`_HI` for `OP_WANT_ASSETHI`), `OSAPI_MEM_REGROW` to `ceil(len / 1024)` KB | `MEMP_CLAIM` (`_HI`), `MEMP_REGROW` to `ceil(len / 16)` paragraphs |
+| the `OP_XMS` climb's staging buffer | `OSAPI_MEM_CLAIM`, `ceil(cap / 1024)` KB | `MEMP_CLAIM`, `cap >> 4` — conventional on every kernel, as a buffer a disk read lands in should be |
+
+**The part TABLE is unchanged** — `zkb` is still KB on the disk and in the
+macro, so no `.o88` built before reads differently and `os88pkg.py` is
+untouched. What the macro gains is a refusal: `OS88_PART` refuses an `OP_ZERO`
+row of 1,024 KB or more, because `zkb << 6` must fit the word `op_size` totals
+in, and no conventional heap holds a megabyte anyway — which is what lets the
+scratch arm shift with no carry test of its own.
+
+**Three things stay KB, each on purpose.** `op_xmskb` is `OSAPI_XMEM_ALLOC`'s
+unit. `op_hilift` (`OP_WANT_HIFETCH`) keeps `OSAPI_MEM_CLAIM`, because what it
+wants IS the plain door's pool block above 1MB on kern_mega, which
+`OSAPI_MEM_P`, the conventional heap, cannot give, and the pool counts in KB
+anyway. And the conventional-ness of every other claim is preserved exactly:
+the carve and a fetch were the DMA doors with no head precisely so that they
+stayed conventional on kern_mega for an `OS88_HIGHMEM` package
+(KERN-MEGA-PLAN 14.12), and `OSAPI_MEM_P` is conventional on every kernel.
+
+**Its consumers moved with it.** `op_kb` became `op_np` and XTMP3's working-set
+figure rounds it back to KB in one place (`x3_addcarve`); Pixelstein, 1942 and
+WireFleet priced fetches with `op_lazykb` against `OSAPI_MEM_AVAIL`, and ask
+`op_lazyp` against `MEMP_AVAIL` now, with their own KB constants
+(`PXL_SHKB`, the 13KB ring, the 8KB margin) times 64.
+
+**What it cost is package code, and it went DOWN** on nearly every package
+(measured `.bin` against the same tree before the change, the C ones built
+by SmallerC): `dosload` 2,326 → 2,317, `csload` 1,623 → 1,620, `wdload`
+1,619 → 1,616, `scload` 1,603 → 1,600, PiXEL 40,926 → 40,916, the Video
+Player 60,091 → 60,085, Sheet 135,732 → 135,728, `c64` 32,344 → 32,340,
+`apple2` 34,466 → 34,456, `cword` 51,404 → 51,398. A table with an `OP_ZERO`
+row pays its shift — `pxstein` 3,143 → 3,149, RealDMG 37,822 → 37,824 — and
+XTMP3 its conversion back to KB, 45,168 → 45,179. WireFleet, at
+`APP_MAX_SIZE` with 3 bytes of slack, is byte-for-byte the size it was. No
+kernel byte.
 
 #### 20.13.1 What stays in the clear, and why it is the whole design
 
@@ -224974,7 +225036,7 @@ makes and SOUND.DRV's claims made on its behalf. The engine plans to
 `X3_CEILKB` = 390 KB (399,360 bytes). It is reported live in Status:
 Advanced (`Peak 385K`). **`X3S_PEAK` is measured, not summed**
 (`x3_memck`): the region (`X3_REGIONKB`, the image and bss rounded up,
-58), the eager carve (`op_kb` = 37) and the fall in the heap's free total since launch, sampled after every
+58), the eager carve (`op_np`, 37 KB of it) and the fall in the heap's free total since launch, sampled after every
 claim and kept at its highest. Being the heap's own total, it counts what
 SOUND.DRV claims per stream and anything another task claims meanwhile. A
 conversion zeroes it at its start, so it is that job's peak.

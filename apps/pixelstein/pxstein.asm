@@ -251,12 +251,13 @@ pxl_entry:
     jz .noart                       ; nothing
     mov al, PX_PART_ART             ; ...AND ONLY WHEN THE MASTERS' FETCH AND
     call op_row                     ; THE PROGRAM'S SHADOW AFTER IT both fit
-    call op_lazykb                  ; the largest run (review, wave 6): the
+    call op_lazyp                   ; the largest run (review, wave 6): the
     jc .noart                       ; masters kept and the shadow refused
-    add ax, PXL_SHKB                ; would be a game that cannot open, for
-    mov dx, ax                      ; the sake of textures. op_lazykb is the
-    call OSAPI_MEM_AVAIL            ; claim op_fetch will make, R and all;
-    cmp ax, dx                      ; DX, since the answer is AX and BX
+    add ax, PXL_SHKB * 64           ; would be a game that cannot open, for
+    mov dx, ax                      ; the sake of textures. op_lazyp is the
+    mov bl, MEMP_AVAIL              ; claim op_fetch will make, R and all, in
+    call OSAPI_MEM_P                ; PARAGRAPHS as MEMP_AVAIL answers (SPEC.md
+    cmp ax, dx                      ; 50.3.7); DX, since the answer is AX and BX
     jb .noart
     call pxl_art                    ; AX = the expanded masters, or 0
     mov [pxl_aseg], ax
