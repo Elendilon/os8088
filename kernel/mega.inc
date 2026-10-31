@@ -245,6 +245,9 @@ mega_sds    dw 0                    ; them, as the BIOS was given them, the
 mega_res    dw 0                    ; vector, the tick it started on and the
 mega_rds    dw 0                    ; IMRs it masked
 mega_t0     dw 0
+%if mega_sds - mega_ses != 2 || mega_rds - mega_res != 2
+ %error "mega_svc_back walks ES and DS as +0 and +2 of these pairs"
+%endif
 mega_vbsel  dw VGABUF_SEG           ; what vga_blit_prow loads for the planar
                                     ; decoder's buffer: [rom_vgabw] in real
                                     ; mode, MEGA_SEL_VB once mega_vbaimf has
@@ -587,13 +590,11 @@ mega_idt_gate:
     sub si, MEGA_PIC_BASE - 8       ; 20h-27h are IRQ0-7: IVT 08h-0Fh
 .ivt:
     push es
-    push ax
-    mov ax, MEGA_SEL_LOW0
-    mov es, ax
+    push word MEGA_SEL_LOW0
+    pop es
     shl si, 2
     mov dx, [es:si]                 ; DX = offset
     mov cx, [es:si+2]               ; CX = segment
-    pop ax
     pop es
     cmp cx, KERNEL_SEG
     je .put
@@ -655,13 +656,13 @@ mega_idt_gate:
     je .put
     mov dx, mega_eoi1               ; IRQ0-7 the ROM owned
 .put:
-    mov ax, dx                      ; an INTERRUPT gate (IF off), DPL 0
-    stosw
-    mov ax, cx
+    xchg ax, dx                     ; an INTERRUPT gate (IF off), DPL 0 (DX
+    stosw                           ; and CX are this routine's to clobber)
+    xchg ax, cx
     stosw
     mov ax, 0x8600
     stosw
-    xor ax, ax
+    cbw                             ; (AL = 0: AX = 0)
     stosw
     ret
 
@@ -689,19 +690,15 @@ mega_irqrom:
     cmp cx, 0xF000                  ; IRQ9 at the BIOS's redirect...
     jb .rng
     push es
-    push ax
-    mov ax, MEGA_SEL_LOW0
-    mov es, ax
-    mov ax, [es:0x0A*4+2]           ; ...to an option ROM's int 0Ah?
-    cmp ax, 0xC000
+    push word MEGA_SEL_LOW0
+    pop es
+    cmp word [es:0x0A*4+2], 0xC000  ; ...to an option ROM's int 0Ah?
     jb .no2
-    cmp ax, 0xF000
+    cmp word [es:0x0A*4+2], 0xF000
     jae .no2
-    pop ax
     pop es
     jmp short .yes
 .no2:
-    pop ax
     pop es
     jmp short .no
 .notr:
@@ -774,12 +771,14 @@ mega_capon:
     xor ax, ax
     mov es, ax
     mov [mega_irqpend], al
+    mov al, [mega_capsw]            ; (AH = 0: BP below is the byte)
+    push ax
     mov si, mega_capsave
     xor bp, bp                      ; (every cell a stub)
     mov bx, 0x0A*4                  ; IRQ2's software vector...
     call .pair
-    mov bp, [mega_capsw]            ; ...and its hardware one - a SERVICE's
-    and bp, 0xFF                    ; takes only the cells real mode cannot
+    pop bp                          ; ...and its hardware one - a SERVICE's
+                                    ; takes only the cells real mode cannot
     mov bx, 0x22*4                  ; reach at all, an LDT selector left by
     call .pair                      ; mega_ivt_sync (KERN-MEGA-PLAN 14.125)
     mov ax, [es:0x33*4]             ; ...and int 33h, when it names a driver
@@ -826,46 +825,41 @@ mega_capon:
     mov word [es:bx+2], KERNEL_SEG
 .k:
     add bx, 4
-    add di, 6
+    add di, 5
     loop .e
     ret
-mega_capoff:
-    pusha
+mega_capoff:                        ; (the BIOS has returned and its FLAGS
+    pusha                           ; are in the frame: DF is ours to clear)
     push es
     xor ax, ax
     mov es, ax
-    mov si, mega_capsave
-    mov bx, 0x0A*4
-    call .pair
-    mov bx, 0x22*4
-    call .pair
-    mov ax, [mega_c33sv]            ; int 33h as it was
-    mov [es:0x33*4], ax
-    mov ax, [mega_c33sv+2]
-    mov [es:0x33*4+2], ax
+    cld
+    mov si, mega_capsave            ; the twelve cells as they were...
+    mov di, 0x0A*4
+    mov cx, 6*2
+    rep movsw
+    mov di, 0x22*4
+    mov cl, 6*2
+    rep movsw
+    mov di, 0x33*4                  ; ...and int 33h, mega_c33sv being next
+    movsw
+    movsw
     pop es
     popa
     ret
-.pair:
-    mov cx, 6
-.e:
-    mov ax, [si]
-    mov dx, [si+2]
-    mov [es:bx], ax
-    mov [es:bx+2], dx
-    add si, 4
-    add bx, 4
-    loop .e
-    ret
-mega_cap2:                          ; six bytes a line: IRQ n -> bit n
+mega_cap2:                          ; five bytes a line: IRQ n -> bit n
 %assign mega_q 2
 %rep 6
     push ax
     mov al, 1 << mega_q
-    jmp near mega_capc
-  %assign mega_q mega_q + 1
+    jmp short mega_capc             ; (the last is a jump to the next byte:
+  %assign mega_q mega_q + 1         ; every line the same length)
 %endrep
 mega_capc:
+    ; STKBALANCE-OK: entered by a jump from a mega_cap2 stub, which pushed the AX popped here
+%if mega_capc - mega_cap2 != 6*5
+ %error "mega_capon steps mega_cap2 five bytes a line"
+%endif
     or [cs:mega_irqpend], al        ; real mode: code is memory
 %ifdef MEGA_DIAG
     inc word [cs:mega_fdcapn]       ; (the post-mortem's count, 14.125)
@@ -888,6 +882,9 @@ mega_cap33:
     iret
 mega_capsave times 12 dd 0
 mega_c33sv  dw 0, 0                 ; int 33h across a reflection
+%if mega_c33sv - mega_capsave != 12*4
+ %error "mega_capoff copies mega_capsave and mega_c33sv as one run"
+%endif
 mega_m33x   dw 0                    ; ...the reports it caught: dx, dy summed,
 mega_m33y   dw 0
 mega_m33b   dw 0                    ; the last buttons,
@@ -983,13 +980,19 @@ mega_m33go:
 ; re-initialised it during a reset (mega_r286). Never per reflection: ICW1
 ; resets the edge latches (mega_svc). The IMR the 8259 forgets is kept
 ; -----------------------------------------------------------------------------
+; mega_pic_at - the same with AH = the base (megados.inc's mega_dropr could
+; put the BIOS's 08h back with it). AL clobbered, AH = the base out - so
+; mega_pic_pm returns AH = MEGA_PIC_BASE (no caller holds AH across it)
+; -----------------------------------------------------------------------------
 section .text                   ; (KERN-MEGA-SEGMENTS-PLAN: back from .mega)
 mega_pic_pm:
+    mov ah, MEGA_PIC_BASE
+mega_pic_at:
     in al, 0x21
     push ax
     mov al, 0x11                    ; ICW1: edge, cascade, ICW4
     out 0x20, al
-    mov al, MEGA_PIC_BASE           ; ICW2: the base
+    mov al, ah                      ; ICW2: the base
     out 0x21, al
     mov al, 0x04                    ; ICW3: the slave on IRQ2
     out 0x21, al
@@ -1470,13 +1473,9 @@ mega_k09:
     jne .noreset
     cmp bl, 0x53
     jne .noreset
-    mov word [0x72], 0x1234
-    call mm_kbw
-    mov al, 0xFE
-    out 0x64, al
-.hang:
-    hlt
-    jmp .hang
+    push ds                         ; (mega_svc's int 19h tail, ES = the
+    pop es                          ; BDA: no CMOS shutdown byte here, the
+    jmp mega_svc.warm               ; ROM's Ctrl-Alt-Del clears none)
 .noreset:
     mov si, bx                      ; SI = the key, for the tables
     cmp bl, 0x3B                    ; F1-F10: 3B-44
@@ -1671,19 +1670,14 @@ mega_i16:
     mov bx, MEGA_BDA
     mov ds, bx
     mov si, ax                      ; SI's high byte = the function
-    cmp ah, 0x00
-    je .get
-    cmp ah, 0x10
-    je .get
-    cmp ah, 0x01
+    mov bl, ah                      ; 00h-02h and their 10h-12h twins as
+    and bl, 0xEF                    ; one: bit 4 is the only one they differ
+    cmp bl, 0x01                    ; in, and nothing else lands on 0-2
     je .peek
-    cmp ah, 0x11
-    je .peek
-    cmp ah, 0x02
+    jb .get
+    cmp bl, 0x02
     je .shift
-    cmp ah, 0x12
-    je .shift
-    cmp ah, 0x05
+    cmp ah, 0x05                    ; (05h only - 15h is no function here)
     je .put
     jmp .out
 .get:
@@ -2802,7 +2796,8 @@ mega_svc:
     out 0x71, al
     push MEGA_BDA                   ; ...but a WARM one: 1234h at 40:72 skips
     pop es                          ; the RAM test, as Ctrl-Alt-Del does. This
-    mov word [es:0x72], 0x1234      ; is Restart's way out (dsk_fdd_park_x)
+.warm:                              ; is Restart's way out (dsk_fdd_park_x),
+    mov word [es:0x72], 0x1234      ; and mega_k09's Ctrl-Alt-Del's
     call mm_kbw
     mov al, 0xFE
     out 0x64, al
@@ -2955,16 +2950,17 @@ cpu 286
 .r286:                              ; REAL MODE, THE 286's WAY: reset the CPU.
     mov [mega_rss], ss              ; lmsw cannot clear PE, so the BIOS is told
     mov [mega_rsp], sp              ; where to come back to - 40:67, with CMOS
-    push es                         ; shutdown code 0Ah, "jump there, no POST,
-    mov ax, MEGA_BDA                ; no EOI" - and the CPU is triple-faulted.
-    mov es, ax                      ; RAM, the A20 gate and every device keep
+    push word MEGA_BDA              ; shutdown code 0Ah, "jump there, no POST,
+    pop es                          ; no EOI" - and the CPU is triple-faulted.
+                                    ; RAM, the A20 gate and every device keep
+                                    ; (ES is not kept: the reset loses it, and
+                                    ; .go takes the caller's from the frame)
     mov word [es:0x67], mega_r286   ; their state; the CPU loses its registers,
     mov word [es:0x69], KERNEL_SEG  ; GDTR, IDTR and LDTR, which is why the way
 %ifdef MEGA_DIAG                    ; back reloads all three. The floppy's
     mov ax, [es:0x3E]               ; 40:3E/3F, for mega_r286 to compare
     mov [mega_fdpre], ax            ; (MEGADIAG=1's RST line)
 %endif
-    pop es
     mov al, 0x8F                    ; NMI off, CMOS index 0Fh
     out 0x70, al
     mov al, 0x0A
@@ -2975,7 +2971,8 @@ cpu 286
     hlt
     jmp .rhang
 .rm:
-    lidt [cs:mega_rmidtr]
+    lidt [mega_rmidtr]              ; (DS: KDATA's cached base, 0x600, on the
+                                    ; 386's way; KERNEL_SEG on mega_r286's)
     mov al, 0x0D                    ; ...and on again under the real IVT (the
     out 0x70, al                    ; 286's way has mega_r286's already: twice)
 .rmc:
@@ -3038,20 +3035,20 @@ cpu 286
 %endif
     mov al, [mega_rv]               ; real mode: code is memory again
     mov [.intop+1], al
-    mov byte [.stiop], 0xFB         ; sti: a service runs with IF on...
-    mov byte [mega_capsw], 1        ; A SERVICE CATCHES TOO (KERN-MEGA-PLAN
-    cmp byte [mega_irqr], 0         ; 14.125): mega_rmaskf leaves an option
-    je .svcap                       ; ROM's line OPEN for the call (14.73),
-    mov byte [mega_capsw], 0        ; so a PicoMEM's multiplexer runs in it and
-    call mega_capon                 ; raises its Sound Blaster's IRQ as a
-    mov byte [.stiop], 0x90         ; software int 8+n - whose IVT entry is
-%ifdef MEGA_DIAG                    ; SOUND.DRV's protected-mode handler,
-    call mega_pmpre                 ; which real mode ran as SEGMENT 1254h
-%endif                              ; and never left. An IRQ: kernel lines
-    jmp short .go0                  ; caught, not run, and an ISR entered with
-.svcap:                             ; IF off. A service: only the SOFTWARE
-    call mega_capon                 ; vectors and int 33h - the hardware ones
-.go0:                               ; keep the mouse's real-mode ISR live
+    mov ax, 0xFB01                  ; sti: a service runs with IF on...
+    cmp byte [mega_irqr], 0         ; A SERVICE CATCHES TOO (KERN-MEGA-PLAN
+    je .svcap                       ; 14.125): mega_rmaskf leaves an option
+    mov ax, 0x9000                  ; ROM's line OPEN for the call (14.73),
+.svcap:                             ; so a PicoMEM's multiplexer runs in it and
+    mov [mega_capsw], al            ; raises its Sound Blaster's IRQ as a
+    mov [.stiop], ah                ; software int 8+n - whose IVT entry is
+    call mega_capon                 ; SOUND.DRV's protected-mode handler,
+%ifdef MEGA_DIAG                    ; which real mode ran as SEGMENT 1254h
+    or al, al                       ; and never left. An IRQ: kernel lines
+    jnz .go0                        ; caught, not run, and an ISR entered with
+    call mega_pmpre                 ; IF off. A service: only the SOFTWARE
+.go0:                               ; vectors and int 33h - the hardware ones
+%endif                              ; keep the mouse's real-mode ISR live
 %ifdef MEGA_DIAG
     mov al, 3                       ; mark 3: into the BIOS
     call KERNEL_SEG:mega_fdmkf
@@ -3222,24 +3219,21 @@ mega_svc_back:
     mov [es:0xF6], ax
 %endif
     call mega_rfclk                 ; the IRQ0s the ROM took meanwhile
-    mov ax, [ss:bp+0]               ; ES back: its own selector if the BIOS
-    cmp ax, [mega_res]              ; left it alone, and a selector for the
-    jne .esnew                      ; real segment it handed back if it did
-    mov ax, [mega_ses]              ; not (mega_rseg)
-    jmp short .esput
-.esnew:
+    xor si, si                      ; ES, then DS, back: its own selector if
+.sr:                                ; the BIOS left it alone, and a selector
+    mov ax, [ss:bp+si]              ; for the real segment it handed back if
+    cmp ax, [mega_res+si]           ; it did not (mega_rseg). The frame's ES
+    jne .srnew                      ; and DS are +0 and +2, and so are
+    mov ax, [mega_ses+si]           ; mega_ses/mega_sds against mega_res/
+    jmp short .srput                ; mega_rds
+.srnew:
     call mega_rseg
-.esput:
-    mov [ss:bp+0], ax
-    mov ax, [ss:bp+2]
-    cmp ax, [mega_rds]
-    jne .dsnew
-    mov ax, [mega_sds]
-    jmp short .dsput
-.dsnew:
-    call mega_rseg
-.dsput:
-    mov [ss:bp+2], ax
+.srput:
+    mov [ss:bp+si], ax
+    inc si
+    inc si
+    cmp si, 4
+    jb .sr
     cmp byte [mega_irqr], 0         ; an IRQ: the interrupted code's flags
     jne .irqx                       ; are its own, not the ROM's answer
     mov ax, [ss:bp+20]              ; the BIOS's arithmetic flags into the
@@ -3373,12 +3367,12 @@ mega_r286:
     or byte [mega_tellq], 0x82      ; 2: say it; 80h: said for this boot
 .fdsame:
 %endif
-    push es                         ; ...and the controller itself: reset on
-    mov ax, MEGA_BDA                ; the way here, with nobody told?
-    mov es, ax
-    mov cl, 0
-    call mega_fdrprobe
-    pop es
+    push word MEGA_BDA              ; ...and the controller itself: reset on
+    pop es                          ; the way here, with nobody told? (ES is
+    mov cl, 0                       ; the reset's undefined value either way:
+    call mega_fdrprobe              ; nothing after this reads it - .go pops
+                                    ; the frame's, fsx_rland and mega_dropr
+                                    ; load their own)
     mov al, 0x8F
     out 0x70, al
     xor al, al
@@ -3452,7 +3446,6 @@ mega_slidec:
     push cx
     push dx
     push di
-    push es
     mov di, MEGA_SEL_SLD            ; the scratch it lands on: SLD, but an LZ
     cmp ax, MEGA_SEL_K0             ; MATCH's source slides onto its own, BACK
     jb .sld                         ; - SLD is the decoder's INPUT, which the
@@ -3467,21 +3460,8 @@ mega_slidec:
     sar bx, 12
     add ax, cx
     adc dx, bx                      ; DX:AX = the base, slid
-    push ax
-    mov ax, MEGA_SEL_WIN            ; the GDT itself, as data
-    mov es, ax
-    pop ax
-    pushf
-    cli                             ; (mega_gdtaim's reason)
-    mov word [es:di], 0xFFFF
-    mov [es:di+2], ax
-    mov dh, 0x92
-    mov [es:di+4], dx
-    mov word [es:di+6], 0
-    popf
-    mov ax, di
-    pop es
-    pop di
+    call mega_gdtaim                ; AX = DI aimed there (ES kept by it, and
+    pop di                          ; by mega_selbasef)
     pop dx
     pop cx
     pop bx
@@ -3602,25 +3582,10 @@ mega_oddsegc:
     test al, 7
     jz .grid
 .odd:
-    push di
-    push es
-    push dx
-    mov dx, ax
-    shl ax, 4                       ; base 15:0...
-    shr dx, 12                      ; ...and 23:16
-    mov dh, 0x92
-    mov di, MEGA_SEL_WIN            ; the GDT itself, as data
-    mov es, di
-    mov di, MEGA_SEL_ODD
-    cli                             ; one descriptor, written whole (mega_gdtaim's
-    mov word [es:di], 0xFFFF        ; reason): the entry's FLAGS come back at
-    mov [es:di+2], ax               ; .grid's popf
-    mov [es:di+4], dx
-    mov word [es:di+6], 0
-    pop dx
-    mov ax, MEGA_SEL_ODD
-    pop es
-    pop di
+    push di                         ; mega_kaimf with DI = ODD, as
+    mov di, MEGA_SEL_ODD            ; mega_sldsegf is with SLD: the base off
+    call COLD_SEG:mega_kaimf        ; the paragraph, the entry written whole,
+    pop di                          ; AX = ODD, DX and FLAGS kept
 .grid:
     popf
     retf
