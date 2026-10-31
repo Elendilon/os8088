@@ -314,7 +314,7 @@ lz_at:
 %ifdef KERN_MEGA
     push dx                     ; kern_mega: in protected mode EVERY selector
     mov dx, 0x0800              ; slides by its descriptor, not by arithmetic
-    call COLD_SEG:mega_slidec   ; (mega_slidef: the sum in real mode)
+    call COLD_SEG:mega_slidec   ; (the sum in real mode)
     pop dx
 %else
     add ax, 0x0800              ; 32KB is 2,048 paragraphs
@@ -385,7 +385,7 @@ lz_cross:
     mov ax, ds                  ; ...and so did the source: 64KB on is 4,096
 %ifdef KERN_MEGA
     push dx                     ; paragraphs (a descriptor's, in protected
-    mov dx, 0x1000              ; mode: mega_slidef)
+    mov dx, 0x1000              ; mode: mega_slidec)
     call COLD_SEG:mega_slidec
     pop dx
 %else

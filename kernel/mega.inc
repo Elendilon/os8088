@@ -136,7 +136,7 @@ MEGA_SEL_BACK   equ (MEGA_GDT_SCR + 6) * 8  ; data, base moved per use: an LZ
                                     ; match's source 64KB behind the output,
                                     ; whose ES is MEGA_SEL_ODD and whose input
                                     ; DS is MEGA_SEL_SLD (mega_backf, lz.inc).
-                                    ; K0..BACK ASCEND: mega_slidef slides any
+                                    ; K0..BACK ASCEND: mega_slidec slides any
                                     ; of them onto itself by that range
 MEGA_SEL_PSCR   equ (MEGA_GDT_SCR + 7) * 8  ; data, 64KB: THE PARK'S SCRATCH,
                                     ; the tail of `.mega`'s rung at
@@ -149,7 +149,7 @@ MEGA_SEL_CODE   equ (MEGA_GDT_SCR + 8) * 8  ; `.mega`'s CS. NOT the identity of
                                     ; based there would be handed a CODE
                                     ; selector (KERN-MEGA-SEGMENTS-PLAN 3.1)
 MEGA_SEL_SLD    equ (MEGA_GDT_SCR + 9) * 8  ; data, base moved per use:
-                                    ; mega_slidef's scratch
+                                    ; mega_slidec's scratch
 MEGA_SEL_LDTD   equ (MEGA_GDT_SCR + 10) * 8 ; data, base [mega_ldtlin]: the LDT,
                                     ; for the allocator
 MEGA_SEL_XA     equ (MEGA_GDT_SCR + 11) * 8 ; scratch: a linear copy's source
@@ -165,7 +165,7 @@ MEGA_SEL_WIN    equ 0x20            ; data, a WINDOW whose base is moved to
                                     ; reach a table above 1MB
 MEGA_SEL_ODD    equ 0x30            ; data, base moved per use: a selector for
                                     ; a segment OFF the 8-paragraph grid
-                                    ; (mega_oddsegf)
+                                    ; (mega_oddsegc)
 MEGA_SEL_IDT    equ 0x38            ; data, base the IDT's: the IDT, for
                                     ; mega_ivt_sync's rebuilt gates
 MEGA_SEL_BCODE  equ 0x28            ; code, base COLD_SEG x 16: the
@@ -3481,7 +3481,7 @@ mega_r286:
     jmp mega_svc_lo.rm              ; the same reset, a different landing
 
 ; -----------------------------------------------------------------------------
-; mega_slidef - FAR: AX = a data selector, DX = paragraphs -> AX = a data
+; mega_slidec - FAR: AX = a data selector, DX = paragraphs -> AX = a data
 ; selector for the same memory DX x 16 bytes on. An identity selector by
 ; addition; anything else - an LDT window above 1MB, a package placed high -
 ; through MEGA_SEL_SLD, whose base is moved per use (lz.inc's source slide,
@@ -3489,9 +3489,6 @@ mega_r286:
 ; a task switch that reloads DS mid-decode on another task's slide would read
 ; the other base. Flags kept
 ; -----------------------------------------------------------------------------
-mega_slidef:                        ; the door: the body is `.cold`'s
-    call COLD_SEG:mega_slidec        ; (kern_mega size pass 1)
-    retf
 
 ; -----------------------------------------------------------------------------
 ; mega_backf - FAR: AX = a data selector or segment -> AX = one for the same
@@ -3631,7 +3628,7 @@ mega_kaimf:
 section .text
 
 ; -----------------------------------------------------------------------------
-; mega_oddsegf - a selector for ANY paragraph (far; KERN-MEGA-PLAN 3.1)
+; mega_oddsegc - a selector for ANY paragraph (far; KERN-MEGA-PLAN 3.1)
 ; in:  AX = a real-mode segment. out: AX = a data selector with that base -
 ;      itself when it is on the identity grid, MEGA_SEL_ODD with its base
 ;      moved when it is not. Everything else preserved, FLAGS included. In
@@ -3642,9 +3639,6 @@ section .text
 ; package's prefix is 64 bytes, so its body starts 4 paragraphs along, and
 ; lz_decomp_x wants DI = 0).
 ; -----------------------------------------------------------------------------
-mega_oddsegf:                       ; the door: the body is `.cold`'s
-    call COLD_SEG:mega_oddsegc       ; (kern_mega size pass 1)
-    retf
 section .cold
 mega_oddsegc:
     pushf
@@ -4909,16 +4903,8 @@ mega_p2d:
     pop bx
     ret
 
-; mega_s2segf - mega_s2segc for a KERNEL_SEG far caller: AX = a selector in, the
-; real-mode segment with its base out, everything else preserved. retf.
-section .text                   ; (KERN-MEGA-SEGMENTS-PLAN: back from .mega)
-mega_s2segf:                        ; the door: the body is `.cold`'s
-    call COLD_SEG:mega_s2segc        ; (kern_mega size pass 1)
-    retf
-
 section .cold
-; mega_s2segc - FAR (`.cold`; `.mega` calls it directly, everything else
-; through mega_s2segf): AX = a selector -> AX = the real-mode segment with the
+; mega_s2segc - FAR (`.cold`; every caller names it directly): AX = a selector -> AX = the real-mode segment with the
 ; same base. READ OFF
 ; THE DESCRIPTOR rather than assumed: an identity selector's base is N x 16 by
 ; construction, but GDT entries 1-7 are the kernel's own and MEGA_SEL_ODD's
@@ -4928,7 +4914,7 @@ section .cold
 ; segment and comes back as 0xFFFF, which no BIOS transfer can land on.
 mega_s2segc:
     cmp byte [ss:mega_pm], 0        ; REAL MODE: AX is a segment already
-    je .ret                         ; (mega_oddsegf's note)
+    je .ret                         ; (mega_oddsegc's note)
     or ax, ax
     jz .ret                         ; the null selector: 0, as it was
     test al, 4
@@ -5270,7 +5256,7 @@ mega_vrm:
     cmp byte [vid_ndisp], 1
     ja .no
     mov ax, [vid_seg]
-    call KERNEL_SEG:mega_s2segf     ; AX = the segment with its base...
+    call COLD_SEG:mega_s2segc     ; AX = the segment with its base...
     cmp ax, 0xFFFF                  ; ...or none, above 1MB
     je .no
     push word [vid_seg]
@@ -8068,7 +8054,7 @@ mega_fdmadd dw 0                    ; the IRQ lines mega_fdmskon shut
 ;     with no change (12.2's table).
 ;
 ; THE TWO SCRATCH DESCRIPTORS are MEGA_SEL_XA and MEGA_SEL_XB, the GDT's last
-; two entries. They are written through MEGA_SEL_WIN, as mega_oddsegf writes
+; two entries. They are written through MEGA_SEL_WIN, as mega_oddsegc writes
 ; its own, and are only ever held for the length of one copy under the
 ; switch lock.
 ; =============================================================================
@@ -10311,7 +10297,7 @@ mx_compactf:
 ; Player's ring, 14.41), and a package's is cut every 64KB anyway, with its
 ; windows half-moved between pieces and FSXF_RATE's hook - the only code that
 ; could read them - held off until the last piece (mx_cpflags says why that is
-; all of it). mega_slidef's GDT scratch is
+; all of it). mega_slidec's GDT scratch is
 ; rebased at the end: only a TASK loads it, and no other task runs under the
 ; [sch_lock] mx_alloc holds. Clobbers AX BX CX DX SI ES
 MX_CPRISE   equ 1                   ; mx_cpmove's [bp+4]: the block goes UP -
@@ -10444,7 +10430,7 @@ mx_cpmove:
     jz .h1
     dec byte [sch_rbusy]            ; every window whole again: the hook
 .h1:                                ; runs at the next period, owed them all
-    mov ax, MEGA_SEL_WIN            ; --- mega_slidef's scratch, the GDT's --
+    mov ax, MEGA_SEL_WIN            ; --- mega_slidec's scratch, the GDT's --
     mov es, ax
     mov si, MEGA_SEL_SLD
     lea cx, [si+8]
