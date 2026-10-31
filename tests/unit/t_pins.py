@@ -152,7 +152,11 @@ def memp_verb(lines, i):
         m = MEMP_VERB.search(c)
         if m:
             v = m.group(1)
-            return "ask" if ("AVAIL" in v or "REGROW" in v) else "claim"
+            # a CLAIM only by name (MEMP_CLAIM, MEMP_CLAIM_HI, either with
+            # MEMP_CPU): every other verb asks or resizes, and a verb added
+            # later is a question until it is named here - MEMP_KPARTS was
+            # read as a claim when this tested for AVAIL and REGROW instead
+            return "claim" if "MEMP_CLAIM" in v else "ask"
         if re.search(r"\b(?:xor|sub)\s+(?:bx\s*,\s*bx|bl\s*,\s*bl)\b", c):
             return "claim"
         if LABEL.match(lines[j]) and not lines[j].lstrip().startswith("."):
