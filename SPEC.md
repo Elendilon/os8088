@@ -181967,9 +181967,12 @@ anybody* — and it answered the same way twice in two passes.
 
 The plain form answers what the class's loaded rows are **holding right now**,
 summed off `mem_tab`: for each loaded row, `DRVR_PARA` — the paragraphs
-`drv_load` claimed for the image, rounded up to a KB — plus that row's
-`DRVR_SEG`'s own claims, summed with it in paragraphs before the one shift
-(`mem_owned_kba`). Two
+`drv_load` claimed for the image — plus that row's `DRVR_SEG`'s own claims,
+summed with it in paragraphs before the one shift (`mem_owned_kba`), with 63
+added first so each row's total is ROUNDED UP to a KB: a class under one is
+then never `0` - which this slot's own predicate reads as "not loaded" - and a
+cost is quoted on its safe side (`tests/dosest.py` asserts the same ceiling of
+what `mem_tab` holds). Two
 lookups, no probe, and nothing that can drift. **Nothing in this slot reads
 `drv_memk` any more** — the form that did is §51.12.1's constant now.
 

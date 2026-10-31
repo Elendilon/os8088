@@ -220,6 +220,16 @@ def run():
                 "runs, and toasts why if it cannot" % st)
 
         # --- 4. the standard's answer, and the package's use of it ---------
+        # ...ONCE THE FIRST WAKE'S FETCH IS OVER. op_fetch points [op_base]
+        # at the lazy part's own claim for the length of its read and puts it
+        # back after (os88partsbody.inc's op_read reuse), so a sample taken
+        # while the overlay is in flight reads the OVERLAY's segment as the
+        # carve - the soak caught exactly that, part 1's 30A0 in place of the
+        # carve's base. a2_ovl_res is 0 until the fetch has answered either way
+        os88marty.until(m, lambda _: u16(m.read((seg << 4)
+                                                + A2.sym("_a2_ovl_res"), 2)),
+                        "the first wake's overlay fetch to answer",
+                        limit=60.0, guest=30.0)
         pseg = u16(m.read((seg << 4) + A2.sym("op_base"), 2))
         slack = u16(m.read((seg << 4) + A2.sym("op_slack"), 2))
         want = (pseg + slack // 16) & 0xFFFF
@@ -255,7 +265,8 @@ def run():
             cs, cp = u16(raw, i * MC_SIZE), u16(raw, i * MC_SIZE + 2)
             if cs:
                 claims[cs] = cp
-        keep = -(-(slack + A2_ROM_KEEP) // 1024) * 64
+        keep = -(-(slack + A2_ROM_KEEP) // 512) * 32    # to the GRANULE:
+                                        # os88_mem_regrow_p (SPEC.md 50.3.7)
         say("claims: carve %04X is %s paragraphs (want %d), RAM %04X is %s "
             "(want %d)" % (pseg, claims.get(pseg), keep, ramseg,
                            claims.get(ramseg), A2_RAMKB * 64))

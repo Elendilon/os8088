@@ -167,7 +167,12 @@ def main():
                 continue
             if own == snd or (own == os88geom.MEM_K_DRV and base == snd):
                 para += sz
-        held = para >> 6
+        held = (para + 63) >> 6         # ROUNDED UP: osapi_drv_classk adds 63
+                                        # to the image before its one shift of
+                                        # image + claims (SPEC.md 51.12.2) - so
+                                        # a class under a KB is never 0K, which
+                                        # is 'not loaded' - and that is this
+                                        # total's ceiling exactly
         if not held:
             fail("SOUND.DRV is at %04X and the claim table has nothing owned "
                  "by it or based there - either the driver is gone or this "
