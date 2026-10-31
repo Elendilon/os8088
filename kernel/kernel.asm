@@ -5822,6 +5822,14 @@ kmain_o:
                                 ; so still no resident byte
 %endif
 %endif
+%ifdef KERN_MEGA
+    BLOBCALL mega_gateb         ; ...and the half of kmain's mega_enter that
+                                ; has no side effect (kern_mega size pass 2):
+                                ; the tier and where the tables go, asked
+                                ; here so the code that asks is given back
+                                ; with the blob. LAST, as near the switch as
+                                ; the blob reaches
+%endif
 
     retf
 %ifdef BOOT_MARK
