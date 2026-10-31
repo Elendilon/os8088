@@ -174,7 +174,9 @@ def quiet(tm, tries=12):
 # tm_fcell), as the ink lands on the glass - the package stores their
 # complement, a set bit in its band being the lit GROUND
 FRACS = {bytes([0x42, 0xC4, 0x48, 0x50, 0x2A, 0x4E, 0x02, 0x02]): "\u00bc",
-         bytes([0x42, 0xC4, 0x48, 0x50, 0x2C, 0x42, 0x04, 0x0E]): "\u00bd",
+         bytes([0x1F, 0x18, 0x1E, 0x03, 0x03, 0xDB, 0xCE, 0x00]): "\u00bd",
+         # (the HALF is '.5' in one cell since the owner's look - the token
+         # stays \u00bd, which is what QUARTERS and AVAIL_RE read)
          bytes([0xE2, 0x64, 0x28, 0xD0, 0x2A, 0x4E, 0x02, 0x02]): "\u00be"}
 QUARTERS = {"K": 0, "\u00bc": 1, "\u00bd": 2, "\u00be": 3}
 AVAIL_RE = "AVAIL (\\d+)([K\u00bc\u00bd\u00be])"
