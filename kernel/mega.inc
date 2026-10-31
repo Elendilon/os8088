@@ -590,13 +590,11 @@ mega_idt_gate:
     sub si, MEGA_PIC_BASE - 8       ; 20h-27h are IRQ0-7: IVT 08h-0Fh
 .ivt:
     push es
-    push ax
-    mov ax, MEGA_SEL_LOW0
-    mov es, ax
+    push word MEGA_SEL_LOW0
+    pop es
     shl si, 2
     mov dx, [es:si]                 ; DX = offset
     mov cx, [es:si+2]               ; CX = segment
-    pop ax
     pop es
     cmp cx, KERNEL_SEG
     je .put
@@ -658,13 +656,13 @@ mega_idt_gate:
     je .put
     mov dx, mega_eoi1               ; IRQ0-7 the ROM owned
 .put:
-    mov ax, dx                      ; an INTERRUPT gate (IF off), DPL 0
-    stosw
-    mov ax, cx
+    xchg ax, dx                     ; an INTERRUPT gate (IF off), DPL 0 (DX
+    stosw                           ; and CX are this routine's to clobber)
+    xchg ax, cx
     stosw
     mov ax, 0x8600
     stosw
-    xor ax, ax
+    cbw                             ; (AL = 0: AX = 0)
     stosw
     ret
 
@@ -692,19 +690,15 @@ mega_irqrom:
     cmp cx, 0xF000                  ; IRQ9 at the BIOS's redirect...
     jb .rng
     push es
-    push ax
-    mov ax, MEGA_SEL_LOW0
-    mov es, ax
-    mov ax, [es:0x0A*4+2]           ; ...to an option ROM's int 0Ah?
-    cmp ax, 0xC000
+    push word MEGA_SEL_LOW0
+    pop es
+    cmp word [es:0x0A*4+2], 0xC000  ; ...to an option ROM's int 0Ah?
     jb .no2
-    cmp ax, 0xF000
+    cmp word [es:0x0A*4+2], 0xF000
     jae .no2
-    pop ax
     pop es
     jmp short .yes
 .no2:
-    pop ax
     pop es
     jmp short .no
 .notr:
@@ -3452,7 +3446,6 @@ mega_slidec:
     push cx
     push dx
     push di
-    push es
     mov di, MEGA_SEL_SLD            ; the scratch it lands on: SLD, but an LZ
     cmp ax, MEGA_SEL_K0             ; MATCH's source slides onto its own, BACK
     jb .sld                         ; - SLD is the decoder's INPUT, which the
@@ -3467,21 +3460,8 @@ mega_slidec:
     sar bx, 12
     add ax, cx
     adc dx, bx                      ; DX:AX = the base, slid
-    push ax
-    mov ax, MEGA_SEL_WIN            ; the GDT itself, as data
-    mov es, ax
-    pop ax
-    pushf
-    cli                             ; (mega_gdtaim's reason)
-    mov word [es:di], 0xFFFF
-    mov [es:di+2], ax
-    mov dh, 0x92
-    mov [es:di+4], dx
-    mov word [es:di+6], 0
-    popf
-    mov ax, di
-    pop es
-    pop di
+    call mega_gdtaim                ; AX = DI aimed there (ES kept by it, and
+    pop di                          ; by mega_selbasef)
     pop dx
     pop cx
     pop bx
@@ -3602,25 +3582,10 @@ mega_oddsegc:
     test al, 7
     jz .grid
 .odd:
-    push di
-    push es
-    push dx
-    mov dx, ax
-    shl ax, 4                       ; base 15:0...
-    shr dx, 12                      ; ...and 23:16
-    mov dh, 0x92
-    mov di, MEGA_SEL_WIN            ; the GDT itself, as data
-    mov es, di
-    mov di, MEGA_SEL_ODD
-    cli                             ; one descriptor, written whole (mega_gdtaim's
-    mov word [es:di], 0xFFFF        ; reason): the entry's FLAGS come back at
-    mov [es:di+2], ax               ; .grid's popf
-    mov [es:di+4], dx
-    mov word [es:di+6], 0
-    pop dx
-    mov ax, MEGA_SEL_ODD
-    pop es
-    pop di
+    push di                         ; mega_kaimf with DI = ODD, as
+    mov di, MEGA_SEL_ODD            ; mega_sldsegf is with SLD: the base off
+    call COLD_SEG:mega_kaimf        ; the paragraph, the entry written whole,
+    pop di                          ; AX = ODD, DX and FLAGS kept
 .grid:
     popf
     retf
