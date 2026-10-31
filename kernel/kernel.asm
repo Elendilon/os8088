@@ -4157,6 +4157,8 @@ rmk_seg:          ; (a real-mode bracket keeps it: fsx_rkeep)
                                   ;          (KERN-MEGA-MEMORY-PLAN MC7). Every
                                   ;          real-mode kernel answers what the
                                   ;          caller's own arithmetic would
+apic_fs_op:                       ; (the cell's own address, for the kernel's
+                                  ; modules: the clone, the join - SPEC.md 12.8.10)
 %ifdef FPG_PARK
     OSAPI_RSLOT osapi_fs_op           ; 0x04E9 - DX:CX = the bytes ONE operation
                                   ;          of yours will move, every chunk
