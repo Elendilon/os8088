@@ -214,7 +214,7 @@ MR_FILEMAX  equ 63                  ; KB: the largest file taken whole
     MRB mr_arg_vol
     MRW mr_msg                      ; status line 3
     MRW mr_fseg                     ; the song's claim
-    MRW mr_fkb                      ; ...its size in KB
+    MRW mr_fpara                    ; ...its size in paragraphs (granted)
     MRW mr_fsize                    ; the song's bytes
     MRB mr_loaded                   ; a song is in the claim...
     MRB mr_lidx                     ; ...this playlist entry

@@ -881,10 +881,10 @@ rw_load0:
     mov dx, [rw_jitseg]
     call OSAPI_MEM_FREE
     mov word [rw_jitseg], 0
-    call rw_jpkb                    ; the claim WITH the recompiler's part,
-    add ax, 64 + 16                 ;   read again into its new tail: the
+    call rw_jppara                  ; the claim WITH the recompiler's part,
+    add ax, (64 + 16) * 64          ;   read again into its new tail: the
     mov byte [rw_hmask], 7          ;   64 + 16 this was left the part past
-    call OSAPI_MEM_CLAIM            ;   the claim's end and its pointers at
+    call rw_pclaim                  ;   the claim's end and its pointers at
     jc .nojit                       ;   the old place, and the slots were
     mov bx, 1000h + 400h            ;   claimed over it - a 1MB cartridge
     RW_JSEGS                        ;   hung on its first frame, or ran the
@@ -1388,26 +1388,26 @@ rw_jitget:                          ; (CF = 1: none, a game running too)
 %ifdef PKG_MEGA
     call rw_jtx                     ; kern_mega's arm: the table above 1MB,
     jc .conv                        ;   the claim the cache and the part
-    call rw_jpkb                    ;   alone (16.2.5)
-    add ax, 64
+    call rw_jppara                  ;   alone (16.2.5)
+    add ax, 64 * 64
     mov byte [rw_hmask], JIT_HMMAX
-    call OSAPI_MEM_CLAIM
+    call rw_pclaim
     mov bx, 1000h
     jnc .got
     jmp short .r
 .conv:
 %endif
-    call rw_jpkb                    ; AX = the recompiler's own KB, its part
-    push ax                         ;   read into the claim's tail (16.9)
-    add ax, 64 + JIT_HASHN * 8 / 1024 ; the cache and its block table: 64KB
-    mov byte [rw_hmask], JIT_HMMAX  ;   of table, a quarter of the slot
-    call OSAPI_MEM_CLAIM            ;   fights 16KB's has (REALDMG-SPEC
-    pop ax                          ;   16.3: Kirby's Dream Land 330 -> 266
-    mov bx, 1000h + JIT_HASHN / 2   ;   ticks, the CPU alone) - or 16KB
-    jnc .got
-    add ax, 64 + 16
+    call rw_jppara                  ; AX = the recompiler's own paragraphs,
+    push ax                         ;   its part read into the claim's tail
+    add ax, (64 + JIT_HASHN * 8 / 1024) * 64 ; (16.9). The cache and its
+    mov byte [rw_hmask], JIT_HMMAX  ;   block table: 64KB of table, a
+    call rw_pclaim                  ;   quarter of the slot fights 16KB's
+    pop ax                          ;   has (REALDMG-SPEC 16.3: Kirby's
+    mov bx, 1000h + JIT_HASHN / 2   ;   Dream Land 330 -> 266 ticks, the CPU
+    jnc .got                        ;   alone) - or 16KB
+    add ax, (64 + 16) * 64
     mov byte [rw_hmask], 7
-    call OSAPI_MEM_CLAIM            ; DX = its segment (the state block
+    call rw_pclaim                  ; DX = its segment (the state block
     mov bx, 1000h + 400h            ;   names it: rw_mreloc, rwmove.inc)
     jc .r
 .got:
@@ -1469,15 +1469,29 @@ rw_jtx:
     ret
 %endif
 
-; rw_jpkb - AX = the KB the recompiler's part takes in its claim: its
-; expanded length, and a sector over for the stream read beneath its end
-rw_jpkb:
+; rw_jppara - AX = the PARAGRAPHS the recompiler's part takes in its claim:
+; its expanded length, and a sector over for the stream read beneath its end.
+; Paragraphs rather than KB (SPEC.md 50.3.7): the part is a byte count, and
+; the claim it ends is held for as long as the recompiler is
+rw_jppara:
     mov ax, [op_table + OP_T_ROWS + RWJ_PART * OP_ROW + OP_R_LEN]
-    add ax, 1023 + 512
-    mov al, ah
-    xor ah, ah
-    shr al, 1
-    shr al, 1
+    add ax, 512 + 15
+    rcr ax, 1                       ; (a carry comes back in as bit 15)
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    ret
+
+; rw_pclaim - OSAPI_MEM_P's bottom-up claim of AX paragraphs, no DMA head:
+; out CF, DX = the base, AX = the paragraphs granted; BX and CX kept
+rw_pclaim:
+    push bx
+    push cx
+    xor cx, cx
+    mov bl, MEMP_CLAIM
+    call OSAPI_MEM_P
+    pop cx
+    pop bx
     ret
 
 ; rw_jpart - BX = a segment in the recompiler's claim: the recompiler read

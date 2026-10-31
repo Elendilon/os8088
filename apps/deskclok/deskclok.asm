@@ -212,7 +212,9 @@ KSC_PGDN    equ 0x51
     DKV dk_cst, 2               ; ...its stride and plane
     DKV dk_cps, 2
     DKV dk_cgnd, 8              ; ...the ground it was composed on
-    DKV dk_ckb, 1               ; ...the KB held
+    DKV dk_cfree, 1             ; (FREE: was dk_ckb - the layout from here
+                                ; on is tools/os88stik.py's, so the word
+                                ; that replaced it is at the end, dk_cpara)
     DKV dk_cok, 1               ; ...it is the face as it stands
     DKV dk_cnp, 1               ; ...its planes
     DKV dk_cpar, 1              ; ...its ground's parity
@@ -342,6 +344,7 @@ KSC_PGDN    equ 0x51
     DKV dk_wox, 2               ; ...its content's origin on the glass
     DKV dk_woy, 2
     DKV dk_tent, 12             ; a gallery tile's entry, made (dk_tileent)
+    DKV dk_cpara, 2             ; the face cache's paragraphs held (granted)
 dk_fset       equ dk_swin
 dk_falm       equ dk_awin
 DKW_WIN     equ 0

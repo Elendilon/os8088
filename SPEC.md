@@ -60069,7 +60069,7 @@ that is not the fix:
   about the file, and must keep saying so.
 
 So the read is always attempted, and the *error* is what learns the
-difference: on `FERR_BIG`, `[np_capkb]` against `NP_MAXKB` says which
+difference: on `FERR_BIG`, `[np_cappara]` against `NP_MAXKB * 64` says which
 sentence is true. At the ceiling the file really is too big for this
 application; short of it, what refused was the heap, and the toast is
 **"No memory"** — the string `np_stghold` already uses for the same cause one
@@ -171081,7 +171081,7 @@ was a defect once:
   takes `.want`'s `stc` arm meanwhile and draws no frame at all.
 - **The arena's refusal says so.** Both used to say *Window too small.*, and
   for the arena that is the wrong advice: a bigger window asks
-  `dd_bdkb_calc` for more and refuses harder. `[dd_nomem]` is set on
+  `dd_bdpara_calc` for more and refuses harder. `[dd_nomem]` is set on
   `dd_fit_claim`'s arm and cleared on `dd_layout`'s, and `dd_draw_toosmall`
   letters *Not enough memory.* on it.
 

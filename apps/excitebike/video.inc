@@ -520,12 +520,15 @@ xb_partget:
     jc .free
     mov cx, [si+OP_R_LEN]
     mov ax, cx
-    add ax, 1023
+    add ax, 15
     rcr ax, 1
     push cx
-    mov cl, 9
-    shr ax, cl                      ; KB the part keeps
-    call OSAPI_MEM_REGROW           ; a shrink: in place, DX unchanged
+    push bx
+    mov cl, 3
+    shr ax, cl                      ; PARAGRAPHS the part keeps (SPEC.md
+    mov bl, MEMP_REGROW             ; 50.3.7) - the claim was the DMA door's,
+    call OSAPI_MEM_P                ; so conventional on every kernel, and a
+    pop bx                          ; shrink: in place, DX unchanged
     pop cx
     clc
     ret

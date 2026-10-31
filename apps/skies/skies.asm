@@ -1152,10 +1152,11 @@ cs_wldget:
     div bx
     mul bx
     mov [cs_wgcap], ax
-    add ax, 1023                    ; ...and in KB, for the claim
-    mov cl, 10
-    shr ax, cl
-    call OSAPI_MEM_CLAIM            ; DX = the buffer
+    mov cl, 4                       ; ...and in PARAGRAPHS for the claim
+    shr ax, cl                      ; (SPEC.md 50.3.7): a 512-byte cluster
+    xor cx, cx                      ; volume's odd sector no longer rounds a
+    mov bl, MEMP_CLAIM              ; whole KB
+    call OSAPI_MEM_P                ; DX = the buffer
     jc .no
     mov [cs_wgseg], dx
 
