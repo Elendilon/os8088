@@ -47,6 +47,11 @@ granule; packed = the file on the system disk.
 | SERIAL.DRV | 1,021 -> **1,000** (-21) | 1,024 -> 1,024 | 879 -> 875 (-4) |
 | **total** | **-1,029** | -512 | -71 |
 
+**After merging `mega-size-2`** (pmcore, megados, pmmem; `68e5bb10`) the
+branch's modules read the same but for HIBER.DRV, 11,365 bytes (megados and
+pmmem changed it too; its claim stays 11,776); `make -j1 mega` and `make -j1`
+(fast tier, 68 passed) green on the merged tree.
+
 The claim column is a granule column, which is a rung by another name: the
 bytes are the image column.
 
