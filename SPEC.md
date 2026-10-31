@@ -98607,7 +98607,9 @@ every machine.
 On kern_mega in protected mode (`mega_segf`, `.mega`):
 
 - A **window** is a descriptor the caller owns, recorded in `mega_wtab` (32
-  rows of selector and owner byte, `.lowbss`): the instance's slot, or
+  rows of selector and owner byte, in the tables' TAIL past the IDT and
+  reached through `MEGA_SEL_MXT` - `.lowbss` until kern_mega size pass 2,
+  `kernel/mega.inc`'s `MEGA_MXT_SIZE`): the instance's slot, or
   `0C0h | row` for a driver, or FFh for neither. The owner's end frees it
   (`mx_relall`, which an instance's teardown and a driver's release already
   run), `SEG_FREE` sooner. Re-aiming one is the `OSAPI_XMEM_SEL` rule: a
@@ -156297,8 +156299,10 @@ kern_big does.
 0, rounded up to a whole 32KB (`HBX_CHUNK`, a multiple of every cluster) so
 that the section can be APPENDED after it (§18.4.4). The section is a
 512-byte head — `'HIBX'`, the run count, the section's bytes, and each run's
-linear base and length — and then the runs: **run 0** is the GDT, the LDT and
-the IDT as one range (`[mega_tbllin]`, `MEGA_TBL_SIZE` long since §50.6.9,
+linear base and length — and then the runs: **run 0** is the GDT, the LDT,
+the IDT and the tables' tail past it (`mega_wtab` and `mega_ustab`, kern_mega
+size pass 2) as one range (`[mega_tbllin]`, `[mega_ldtend]` +
+`MEGA_TBL_TAIL` long since §50.6.9,
 which a restore requires exactly - an image from before it, or from a machine
 whose RAM puts the tables elsewhere, is refused; `.cold`'s copy is not in it, being a
 code selector whose bytes are `KERNEL.SYS`'s), and every `mx_tab` block in
