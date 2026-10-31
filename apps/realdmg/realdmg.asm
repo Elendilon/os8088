@@ -4983,13 +4983,15 @@ rw_s_noram:     db 'REALDMG: no room for RAM', 0
 rw_s_nosave:    db 'REALDMG: save failed', 0
 
 rw_ablines:
-    dw rw_ab1, rw_ab2, rw_ab3, rw_ab4, rw_ab5, rw_ab7, 0
+    dw rw_ab1, rw_ab2, rw_ab3, rw_ab8, rw_ab9, rw_ab3, rw_ab4, rw_ab5, rw_ab7, 0
 rw_ab1:         db 'RealDMG', 0
 rw_ab2:         db 'a Game Boy for os8088', 0
 rw_ab3:         db 0
 rw_ab4:         db 'Keys: Machine >', 0     ; (they are the user's now)
 rw_ab5:         db 'Controls...', 0
 rw_ab7:         db 'F1 = speed', 0
+rw_ab8:         db 'Contributed by', 0
+rw_ab9:         db 'Elendilon', 0
 
 %include "rdgdefs.inc"
 %define RDG_CSEL                            ; (rw_csel: REALDMG-SPEC 16.2.4)

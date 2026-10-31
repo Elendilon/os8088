@@ -527,10 +527,13 @@ SC_BTROW    equ 56 + 72 + 104 + 104 + 48 + 4 * 8
     OS88UI_BTNREC sc_btrec, sc_rects, sc_btlbl, sc_bflags, SC_NB, sc_place
 
 sc_ablines:
-    dw sc_ab1, sc_ab2, sc_ab3, 0
+    dw sc_ab1, sc_ab2, sc_ab3, sc_abz, sc_abc, sc_abn, 0
 sc_ab1:     db 'System Check for os8088', 0
 sc_ab2:     db 'Release build ', BUILD_STR, 0
 sc_ab3:     db 'Is it all one release?', 0
+sc_abz:     db 0
+sc_abc:     db 'Contributed by', 0
+sc_abn:     db 'Jorge Gonzalez', 0
 
 %include "syscheck/scan.inc"
 %include "syscheck/ui.inc"
