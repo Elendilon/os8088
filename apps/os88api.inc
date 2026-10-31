@@ -2285,12 +2285,18 @@ SEG_AT      equ 8
                                  ; CF=1 refused. Every register not named is
                                  ; kept. On kern_mega an OS88_HIGHMEM claim
                                  ; with no head goes above 1MB where it can,
-                                 ; granted the KB that covers it
+                                 ; granted the KB that covers it - unless CX
+                                 ; is MEMP_CONV, which keeps it conventional
 MEMP_CLAIM    equ 0
 MEMP_CLAIM_HI equ 1
 MEMP_CPU      equ 2
 MEMP_REGROW   equ 4
 MEMP_AVAIL    equ 5
+MEMP_CONV     equ 0x8000         ; CX for a claim verb: NO head, and stay
+                                 ; CONVENTIONAL on kern_mega - a block that is
+                                 ; or will be a CS, or one a real-mode path
+                                 ; names. Plain CX = 0 may go above 1MB there
+                                 ; for an OS88_HIGHMEM package
 %define OS88_BYTES_PARA(n) (((n) + 15) / 16)   ; bytes -> paragraphs to ask for
 
 ; OSAPI_IMG_NAME - WHICH driver or module an image is (KERN-MEGA-PLAN 14.70.3).

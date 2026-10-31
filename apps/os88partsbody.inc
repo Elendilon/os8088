@@ -686,7 +686,7 @@ op_claim:
     ; carve head slack. The hole SURVIVED a posted compaction, which is an
     ; open question and not this routine's - SPEC.md 20.12.10.8.1 has the
     ; three measurements and the repro.
-    xor cx, cx                  ; THE PARAGRAPH DOOR, TOP-DOWN, WITH NO HEAD
+    mov cx, MEMP_CONV           ; THE PARAGRAPH DOOR, TOP-DOWN, WITH NO HEAD
     mov bl, MEMP_CLAIM_HI       ; (SPEC.md 50.3.7): the claim to the granule
     call OSAPI_MEM_P            ; and not to a KB - the run is a sector count
     jc .no                      ; and the scratch whole KB, so a KB claim
@@ -1088,7 +1088,7 @@ op_xload:
     mov [op_xcap], ax
     mov cl, 4                   ; ...in PARAGRAPHS, exact: whole clusters are
     shr ax, cl                  ; whole sectors, so OSAPI_MEM_P's granule
-    xor cx, cx                  ; rounding adds nothing to it where the KB
+    mov cx, MEMP_CONV           ; rounding adds nothing to it where the KB
     mov bl, MEMP_CLAIM          ; door rounded a 512-byte cluster's buffer up
     call OSAPI_MEM_P            ; to 1KB. CONVENTIONAL on every kernel, as a
     jc .free                    ; buffer a disk read lands in should be
@@ -1751,7 +1751,7 @@ op_fetch:
     jb .nomem
     xchg ax, bx                 ; AX = the paragraphs, BL = MEMP_CLAIM (0):
     xor bx, bx                  ; OSAPI_MEM_P, CONVENTIONAL on every kernel
-    xor cx, cx                  ; whatever the header says, as the fetch
+    mov cx, MEMP_CONV           ; whatever the header says, as the fetch
 %ifdef OP_WANT_ASSETHI          ; below adds paragraphs to the base - which
     cmp byte [si+OP_R_KIND], OP_ASSET   ; is why it was the DMA door with no
     jne .lodoor                 ; head and not OSAPI_MEM_CLAIM. A LAZY ASSET

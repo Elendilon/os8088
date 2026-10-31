@@ -1688,16 +1688,18 @@ def archive_refusals(tmp, mod):
 def fence(tmp, mod):
     """A package calling a cell an older kernel lacks needs a level-3 Wire.
 
-    build/notepad.o88 far-calls OSAPI_WM_ONWHEEL (0x0499) and build/hello.o88
-    calls nothing past 0x046D, so they are the two sides of the line.
+    build/wirechat.o88 far-calls OSAPI_WM_ONWHEEL (0x0499) and nothing newer,
+    and build/hello.o88 calls nothing past 0x046D, so they are the two sides of
+    the line. (It was Note Pad until Note Pad's document moved onto
+    OSAPI_MEM_P, 0x04E9, which made it a level-7 package - SPEC.md 50.3.7.)
     """
-    note = os.path.join(BUILD, "notepad.o88")
+    note = os.path.join(BUILD, "wirechat.o88")
     if not os.path.exists(note):
-        check(False, "no build/notepad.o88", "the fence needs a package that "
+        check(False, "no build/wirechat.o88", "the fence needs a package that "
               "calls a cell past 0x046D; run `make`")
         return
     lvl, top = mod.cell_level([open(note, "rb").read()])
-    eq(lvl, 3, "Notepad's wheel call needs a level-3 Wire",
+    eq(lvl, 3, "WireChat's wheel call needs a level-3 Wire",
        "it far-calls 0x0499, which v1.0.20261014's kernel does not have")
     lvl, _ = mod.cell_level([open(os.path.join(BUILD, "hello.o88"), "rb").read()])
     eq(lvl, 0, "Hello calls nothing past 0x046D")
@@ -1745,7 +1747,7 @@ def fence(tmp, mod):
 
     pub = os.path.join(tmp, "fpkg")
     os.makedirs(pub, exist_ok=True)
-    for stem, src in (("NOTE", "notepad.o88"), ("HELLO", "hello.o88")):
+    for stem, src in (("NOTE", "wirechat.o88"), ("HELLO", "hello.o88")):
         open(os.path.join(pub, stem + ".O88"), "wb").write(
             open(os.path.join(BUILD, src), "rb").read())
 

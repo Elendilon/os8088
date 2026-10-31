@@ -1220,7 +1220,9 @@ cc_ovneed:
     mov cl, 4                       ; will not divide a section-relative label,
     shr ax, cl                      ; and a build that fails on arithmetic is a
                                     ; worse trade than four instructions
-    xor cx, cx                      ; no DMA head, and the paragraph door
+    mov cx, MEMP_CONV               ; no DMA head, CONVENTIONAL on kern_mega
+                                    ; (a module whose base is a CS), and the
+                                    ; paragraph door
     mov bl, MEMP_CLAIM_HI           ; (SPEC.md 50.3.7): the claim is the module
     call OSAPI_MEM_P                ; to the heap's granule, where the KB door
     mov di, ax                      ; took it to a whole KB. DI = the paragraphs

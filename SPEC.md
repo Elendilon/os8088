@@ -97376,7 +97376,14 @@ rather than trusted to the rounding.
 pool counts in KB, and conventional memory is what the granule is for - and a
 regrow of a pool block goes to `OSAPI_MEM_REGROW`'s own arm. Every claim the
 pool declines takes the paragraph door, so the arm only adds the pool and
-never removes the granule.
+never removes the granule. **`MEMP_CONV`** (`0x8000`, in CX: bit 15, where a
+head is at most `0x1000`) is the caller saying it must stay CONVENTIONAL - a
+block that is or will be a CS, or one a real-mode path names. It is the old
+idiom of a DMA door with no head kept explicit: the parts' carve, their
+fetches and their XMS staging, and the C runtime's overlay, used that door for
+exactly this, and the first build of this arm sent them above 1MB, where a
+code part faulted as data (`pxmega`, an invalid opcode in PiXEL's decoder).
+Every kernel masks the bit off before CX is a head.
 
 ### 50.3.2 …and the top-down doors a driver never had
 

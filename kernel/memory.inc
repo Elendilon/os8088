@@ -450,6 +450,7 @@ MEMP_CLAIM_HI equ 1             ; bit 0 of a claim is the direction, and
 MEMP_CPU      equ 2             ; bit 1 says no int 13h will land in it, so
 MEMP_REGROW   equ 4             ; its base need not be 512-aligned (a DISK
 MEMP_AVAIL    equ 5             ; claim's is, SPEC.md 50.2.1.1)
+MEMP_CONV     equ 0x8000        ; ...and in CX: stay conventional on kern_mega
 %ifndef MEM_GRAN                ; (MEMGRAN=16 builds the 256-byte knob,
 MEM_GRAN    equ 32              ; SPEC.md 50.2.1.1)
 %endif
@@ -5420,8 +5421,13 @@ osapi_mem_p:
     jae .gen
     cmp bl, MEMP_REGROW
     je .mreg
-    jcxz .mpool
-    jmp short .gen
+    jcxz .mpool                 ; ...and CX = MEMP_CONV (bit 15, no head) is
+    jmp short .gen              ; a caller that must stay CONVENTIONAL: the
+                                ; block is or will be a CS, or a real-mode
+                                ; path names it - the parts' carve and their
+                                ; fetches, the C overlay. Those used the DMA
+                                ; door with no head for exactly that, and this
+                                ; is that idiom kept
 .mpool:
     push ax
     call .kb                    ; AX = the KB that covers it
@@ -5468,7 +5474,8 @@ osapi_mem_p:
     push di
     cmp bl, MEMP_REGROW
     je .regrow
-    mov si, cx                  ; SI = the head
+    and ch, 0x7F                ; MEMP_CONV off: it only steers kern_mega's
+    mov si, cx                  ; arm above. SI = the head
     mov di, bx
     and di, 1                   ; bit 0 -> MC_DMA_HI, the top-down door
     ror di, 1
@@ -5497,6 +5504,10 @@ osapi_mem_p:
     call mem_avail_lvl_p
     mov cx, MEM_GRAN
     retf
+    nop                         ; PARITY PAD, never executed: the hot `.cold`
+                                ; routines past this (dsk_xfer, dsk_runcap,
+                                ; dsk_next_clus_x) keep their measured parity
+                                ; across MEMP_CONV's mask (tests/unit/t_hotpar.py)
 
 ; -----------------------------------------------------------------------------
 ; osapi_mem_movable - in: DX = the claim, AX = your relocation proc (0 pins it
