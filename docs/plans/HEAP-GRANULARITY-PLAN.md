@@ -658,6 +658,32 @@ and size a whole number of 32 paragraphs; `memp`'s eleven checks pass and the
   rounding lost its carry test to fit. The word is the driver's own, not a
   disk's.
 
+**The sweeps** (owner: "go for the rest of the unconverted packages and
+drivers"). Every byte-sized claim in the tree is on `OSAPI_MEM_P` now:
+
+- **Packages, first sweep**: Frotz, Word, Scribe, Note Pad, TeXPad,
+  ArtfulType, The Wire, the Browser's download, RealDMG, Skies, Pixel,
+  Excitebike, Desk Clock, MIDIRack, Dot Delirium, the C64/Apple II/RunCPM
+  loaders.
+- **Packages, second**: ModPlug, Tracker, XTMP3, the Video Player, WaveRack,
+  WIN16, Pixel's editor and master, Scribe's pictures, and `os88ui.inc`'s
+  save-under banks (so every package that includes it).
+- **Drivers**: SOUND's staging pool and volume panel, ETHER's socket pool
+  (16,896 bytes: 16.5K where the KB door took 17, and the Control Panel's
+  figure with it), the RAM disk's tables, and the HDDTOOL, RAMPAGE and
+  HTTPPAGE page images.
+
+Each kept its fixed-KB claims, multi-KB grow steps and "largest free run"
+policies on the KB doors, and the agents' reports name every one.
+
+**`MEMP_CONV`** (CX bit 15) came out of the first soak pass: the parts'
+carve, their fetches and the C overlay had used a DMA door with no head to
+stay conventional on kern_mega, and `OSAPI_MEM_P`'s pool arm sent them above
+1MB, where PiXEL's code part faulted as data (`pxmega`, `megapixel`,
+`megapixelship`). With it all three pass. The same pass found `t_pins` blind
+to `OSAPI_MEM_P` (270 claim sites seen, 321 now) and `t_wire` using Note
+Pad, a level-7 package now, as its level-3 sample.
+
 **Still open:** the 256-byte question is a measurement (`gran256`, section 6
 item 6): no package asks for `MEMP_CPU` yet, so on the knob build every claim
 is still a 512 multiple and there are no holes to measure until one does.
