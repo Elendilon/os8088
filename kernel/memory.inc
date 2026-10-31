@@ -5404,9 +5404,8 @@ osapi_mem_regrow_x:
 ; 20.3), and the DMA variants fold in: a head of 0 IS the plain claim, so the
 ; head is always CX and only the direction is the verb's bit 0.
 ;
-; It is the CONVENTIONAL heap on every kernel: on kern_mega a pool block (an
-; OS88_HIGHMEM claim through the KB doors) is not in mem_tab, so a regrow of
-; one is refused here and goes through OSAPI_MEM_REGROW.
+; On kern_mega the arm below offers the POOL first, as the KB doors do; a
+; claim it declines is the conventional heap's.
 ; -----------------------------------------------------------------------------
 osapi_mem_p:
 %ifdef KERN_MEGA

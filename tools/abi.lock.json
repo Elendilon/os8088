@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "de0a39799866e38ec7bb48bdace847cc264bb1bed93fb4db8a3a13676d1dba57",
+  "fingerprint": "aa2a9ba164eb0151402dfffb9e0bd22c1a91b605ebd785d21609a9b4549d3f2f",
   "version": 12
  },
  "PKG_FMT": {
-  "fingerprint": "2c5fbae2b82a8b736dbbeaa0c5ff9a575215addee9e9bc0f422aeedea3a1d9ed",
+  "fingerprint": "289dfcefbd092b5345e13f94c6ed5716447770d156a3d360800a8cef111247d9",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -1344,6 +1344,20 @@
    "from": 12,
    "guard": "DRV_VER",
    "reason": "OSAPI_MEM_P's verbs renumbered before release: MEMP_CPU (bit 1 of a claim, SPEC.md 50.2.1.1) moved REGROW to 4 and AVAIL to 5; the cell is new on this branch and nothing outside it was built against the old numbers",
+   "to": 12
+  },
+  {
+   "fingerprint": "289dfcefbd092b5345e13f94c6ed5716447770d156a3d360800a8cef111247d9",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_MEM_P's contract comment: on kern_mega it offers the pool first, as the KB doors do (SPEC.md 50.3.7); nothing built before changes",
+   "to": 10
+  },
+  {
+   "fingerprint": "aa2a9ba164eb0151402dfffb9e0bd22c1a91b605ebd785d21609a9b4549d3f2f",
+   "from": 12,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_MEM_P's contract comment: on kern_mega it offers the pool first, as the KB doors do (SPEC.md 50.3.7); nothing built before changes",
    "to": 12
   }
  ]

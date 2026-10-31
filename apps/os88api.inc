@@ -2283,8 +2283,9 @@ SEG_AT      equ 8
                                  ;          OSAPI_MEM_AVAIL; CX = the GRANULE
                                  ;          in paragraphs
                                  ; CF=1 refused. Every register not named is
-                                 ; kept. The CONVENTIONAL heap: on kern_mega
-                                 ; a pool block is resized by OSAPI_MEM_REGROW
+                                 ; kept. On kern_mega an OS88_HIGHMEM claim
+                                 ; with no head goes above 1MB where it can,
+                                 ; granted the KB that covers it
 MEMP_CLAIM    equ 0
 MEMP_CLAIM_HI equ 1
 MEMP_CPU      equ 2

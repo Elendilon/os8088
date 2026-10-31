@@ -97370,10 +97370,13 @@ caller's to use: a package that asked for 300 paragraphs has 320, and the 20
 are its own, exactly as a module's slack was before §50.2.1 — but asked for
 rather than trusted to the rounding.
 
-It is the **conventional** heap on every kernel. On kern_mega an
-`OS88_HIGHMEM` package's claim through the KB doors may be a pool block above
-1MB, which has no `mem_tab` record, so `MEMP_REGROW` refuses one and
-`OSAPI_MEM_REGROW` is the door for it.
+**On kern_mega it offers the pool first, as the KB doors do.** An
+`OS88_HIGHMEM` package's claim of 64KB or less with no DMA head goes to
+`mega_claimhf` above 1MB where it can, granted as the KB that covers it - the
+pool counts in KB, and conventional memory is what the granule is for - and a
+regrow of a pool block goes to `OSAPI_MEM_REGROW`'s own arm. Every claim the
+pool declines takes the paragraph door, so the arm only adds the pool and
+never removes the granule.
 
 ### 50.3.2 …and the top-down doors a driver never had
 
