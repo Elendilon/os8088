@@ -64277,8 +64277,8 @@ we lose the ability to see what is going on* - the owner's words.
 | 1000K and up | MB, as before: `0.9M` for 1000K (tenths, truncated), ` 12M` past 10MB - only a figure with RAM above 1MB in it gets there, and that half is whole KB |
 
 **The fraction is a glyph the font does not have.** The system font is ASCII
-32–126 (§6), so the package carries three 8×8 cells of its own - `¼`, `.5`,
-`¾`, 24 bytes - and a composed row carries the byte 1, 2 or 3 (`TM_FQ1`..3:
+32–126 (§6), so the package carries three 8×8 cells of its own - `¼`, a
+HALF, `¾`, 24 bytes - and a composed row carries the byte 1, 2 or 3 (`TM_FQ1`..3:
 the quarters, `(paragraphs mod 64) / 16`) where one goes. `tm_frun` is the
 one place the page letters a list row or a caption line: a string with no
 such byte is ONE `font_run`, exactly as before, and one with a fraction is up
@@ -64291,6 +64291,15 @@ filled first and no pixel is written twice (§6.1). The chunked row's check
 words hash the byte like any other, so a figure gaining or losing its half
 re-letters its chunk. `¼` and `¾` are reachable only on a 256-byte granule
 (guard 6b refuses one today); they cost 16 bytes to carry from the start.
+
+**The half is `.5` in ONE cell, not a `½`** (the tables above write it `.5`,
+which on the glass is a single character): the ROM font's own baseline dot,
+two by two in columns 0-1 of rows 5-6, a blank column, and a `5` condensed to
+columns 3-7 with the ROM's two-pixel verticals, ink in rows 0-6 as the
+digits beside it have. The first cell was a `½` with each figure three pixels
+wide beside a slash, and the owner found it hard to read next to the bold
+ROM digits; `96.5K` reads as a decimal at a glance on CGA and on VGA alike.
+The quarters keep the stacked form, which only a 256-byte granule reaches.
 
 **Dropping the `K` for 100K–999K with a fraction is the decision that makes
 the totals close,** and it reverses the plan this was built from

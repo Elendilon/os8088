@@ -684,6 +684,12 @@ stay conventional on kern_mega, and `OSAPI_MEM_P`'s pool arm sent them above
 to `OSAPI_MEM_P` (270 claim sites seen, 321 now) and `t_wire` using Note
 Pad, a level-7 package now, as its level-3 sample.
 
+**The half cell is `.5`, not `½`** (owner, after the first build): the
+three-pixel `½` was hard to read beside the bold ROM digits, so the cell is the
+ROM font's baseline dot and a `5` condensed to five columns, in one 8×8 cell -
+`96.5K`, `AVAIL 522.5`. Same width, same draw path; only the bitmap moved.
+The quarters keep the stacked form, reachable only on a 256-byte granule.
+
 **Still open:** the 256-byte question is a measurement (`gran256`, section 6
 item 6): no package asks for `MEMP_CPU` yet, so on the knob build every claim
 is still a 512 multiple and there are no holes to measure until one does.
