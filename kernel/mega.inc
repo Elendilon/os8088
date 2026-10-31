@@ -299,31 +299,59 @@ mega_r15:
 ;           register but AX, CX, DX, SI, DI and the segment registers kept
 ; -----------------------------------------------------------------------------
 mega_enter:
-    call COLD_SEG:mega_enterf       ; the switch itself: boot-once code, so
-    jc .x                           ; `.cold`'s, whose rung the heap takes
-    call mega_coldup                ; M3: `.cold` and `.mega` above 1MB, their
-                                    ; rungs to the heap - FIRST, because
-                                    ; everything after it is `.mega`'s - and
-                                    ; from HERE, `.text`, with nothing running
-                                    ; in the `.cold` it moves
-    call MEGA_SEL_CODE:mega_pmtail  ; (KERN-MEGA-SEGMENTS-PLAN 3.2)
-.x:
-    ret
+    call COLD_SEG:mega_enterf       ; the switch itself, the copy up and the
+    ret                             ; tail: boot-once code, so `.cold`'s,
+                                    ; whose rung the heap takes. A NEAR entry
+                                    ; still, for kmain and for the rows that
+                                    ; break here and read the return off SS:SP
 
 ; mega_enterf - mega_enter's body, FAR (kern_mega size pass 1: it was `.text`,
 ; conventional memory for ever, for code that runs once). Entered in REAL
-; mode from KERNEL_SEG; CF = 1 back in real mode exactly as it came in (a
-; refusal), else CF = 0 in PROTECTED mode with the real tables loaded - the
-; far return then pops CS = 0x0060, GDT entry 12, the kernel's identity code
-; selector. The bootstrap's CS, MEGA_SEL_BCODE, is based at COLD_SEG for it
+; mode from KERNEL_SEG; back in real mode exactly as it came in (a refusal),
+; or in PROTECTED mode with the real tables loaded, `.cold` and `.mega` above
+; 1MB and mega_pmtail run - the far return then pops CS = 0x0060, GDT entry
+; 12, the kernel's identity code selector. The bootstrap's CS,
+; MEGA_SEL_BCODE, is based at COLD_SEG for it. The copy up and the tail were
+; mega_enter's, in `.text`, behind a door of their own (kern_mega size pass
+; 2): mega_coldupf runs in the `.cold` it copies by an argument that covers
+; its caller's frame too - the far return into this body pops COLD_SEG,
+; whose descriptor it has just re-based, and lands at the same offset of an
+; identical copy (mega_coldupf's own note)
 section .cold
 mega_enterf:
     mov dx, [ss:mega_gwhy]          ; whether it can be made at all, as the
-    or dx, dx                       ; boot blob found it (mega_gateb, every
-    jnz .refuse                     ; refusal `.cold`'s - KERN-MEGA-PLAN 14.45)
+    cmp dx, 1                       ; boot blob found it (mega_gateb; every
+    ja .refuse                      ; refusal `.cold`'s - KERN-MEGA-PLAN 14.45)
+    push dx
     call KERNEL_SEG:mega_a20f       ; ...and A20 proved open AGAIN, at the
-    mov dx, mega_ta20               ; moment it is relied on: the desktop's
-    jnc .room                       ; first paint ran in between
+    pop cx                          ; moment it is relied on: the desktop's
+    mov dx, mega_ta20               ; first paint ran in between
+    jc .refuse
+    jcxz .room                      ; (0: the tables are aimed above 1MB)
+
+    ; --- THE TABLES IN CONVENTIONAL MEMORY, for a machine whose extended
+    ; memory cannot hold them (KERN-MEGA-PLAN 14.1 answer 16, 14.17): 82KB,
+    ; no minimum beyond FITTING. [mega_tblkb] claimed top-down and pinned
+    ; (MEM_K_MTBL), laid out exactly as above 1MB - the GDT at its base, the
+    ; LDT on it, the IDT after. No pool and `.cold` stays low: mega_xminit and
+    ; mega_coldup already refuse a machine this small. It was mega_tlowf's,
+    ; far-called from the gate (kern_mega size pass 2)
+    push bx
+    push bp
+    mov ax, [mega_tblkb]            ; (mega_layoutf sized it, refusing)
+    mov bx, MEM_K_MTBL
+    mov bp, mem_claim_hi_x          ; TOP-DOWN, pinned
+    call COLD_SEG:wm_cbd            ; DX = the block
+    pop bp
+    pop bx
+    jc .tmem                        ; (no room: nothing changed)
+    mov ax, dx                      ; DX:AX = its linear base
+    shl ax, 4
+    shr dx, 12
+    COLDCALL mega_tset
+    jmp short .room
+.tmem:
+    mov dx, mega_tmem
 .refuse:                            ; WHY ON THE GLASS (a field run that stays
 %ifdef MEGA_E9                      ; in real mode must not look like one that
     mov si, mega_mrm                ; never tried): "kern_mega: " and the
@@ -343,8 +371,7 @@ mega_enterf:
     mov ax, MEGA_RAM                ; ...and `.mega`'s rung to the heap: real
     call mega_rung                  ; mode can never run what is on it
     mov byte [mega_mfree], 1        ; (KERN-MEGA-SEGMENTS-PLAN 3.3)
-    stc
-    retf                            ; (CF = 1)
+    retf                            ; (nothing reads CF: mega_enter returns)
 .room:
     cli
 %ifdef MEGA_DIAG
@@ -540,7 +567,11 @@ mega_enterf:
     pop es
     mov ax, [rom_vgabw]             ; the decoder's buffer, wherever it is,
     call COLD_SEG:mega_vbaimf       ; through MEGA_SEL_VB from here on
-    clc
+    COLDCALL mega_coldupf           ; M3: `.cold` and `.mega` above 1MB, their
+                                    ; rungs to the heap - FIRST, because
+                                    ; everything after it is `.mega`'s (its
+                                    ; CF, "nothing moved", was never read)
+    call MEGA_SEL_CODE:mega_pmtail  ; (KERN-MEGA-SEGMENTS-PLAN 3.2)
     retf                            ; ...to mega_enter, as 0x0060:IP
 
 ; -----------------------------------------------------------------------------
@@ -8116,12 +8147,6 @@ mega_lincopy:
     call MEGA_SEL_CODE:mx_lcopyf
     ret
 
-; mega_coldup - the switch's door into mega_coldupf (`.cold`, below), from
-; mega_enter: CF = 1 nothing moved
-mega_coldup:
-    call COLD_SEG:mega_coldupf
-    ret
-
 ; -----------------------------------------------------------------------------
 ; THE XMEM POOL'S SERVICES - XMEM.DRV's XMV_* table, in the kernel. The block
 ; table, the first-fit walk, the 1KB granularity and every error code are
@@ -9843,19 +9868,21 @@ section .cold
 ; mega_gateb - FAR, from kmain_o, its last call (BLOBCALL): WHETHER THE SWITCH
 ; CAN BE MADE - a 286, no package task to convert, A20 open and proved, and
 ; room for the tables - asked IN THE BOOT BLOB, which mem_unblob gives back,
-; and the answer left in [mega_gwhy] for mega_enterf: 0 go on, else the
-; refusal's toast line. It was `.cold`'s mega_gatef with mega_tasks_ok and
-; mega_tlowf beside it - resident for the session, above 1MB once the switch
-; is made and in CONVENTIONAL memory for ever on a machine that refuses it,
-; for code that runs once; kern_mega size pass 2 moved them here as one body,
-; each having had this one caller (mega_tset stays `.cold`'s). The
+; and the answer left in [mega_gwhy] for mega_enterf: 0 go on (the tables
+; aimed above 1MB), 1 go on with the tables in conventional memory - a CLAIM,
+; so mega_enterf makes it, after A20 is proved again, which is the order the
+; gate always had - else the refusal's toast line. It was `.cold`'s
+; mega_gatef with mega_tasks_ok beside it - resident for the session, above
+; 1MB once the switch is made and in CONVENTIONAL memory for ever on a
+; machine that refuses it, for code that runs once; kern_mega size pass 2
+; moved them here as one body, mega_tasks_ok having had this one caller. The
 ; refusal itself - the toast, `.mega`'s rung to the heap - is still made by
 ; mega_enterf at the switch's own moment, so the user sees what they saw. Why
 ; the verdict cannot go stale between here and the switch is
 ; docs/plans/completed/msp2/bootonce.md's: the CPU is the CPU, nothing kmain
-; runs after kmain_o starts a task, the tables' claim is pinned, and A20 is
-; proved again at the switch. Reached on an 8088 too, so 8086 code up to the
-; tier test. Clobbers AX BX CX DX BP (kmain_o's last call: all dead)
+; runs after kmain_o starts a task, the tables' claim is still made at the
+; switch, and A20 is proved again there. Reached on an 8088 too, so 8086 code up to the
+; tier test. Clobbers AX BX CX DX (kmain_o's last call: all dead)
 ; -----------------------------------------------------------------------------
 section .lowbss                 ; (SS-addressed: not the 64KB window's)
 mega_gwhy   resw 1                  ; mega_gateb's verdict: 0 or the refusal
@@ -9894,33 +9921,13 @@ mega_gateb:
     mov dx, mega_ta20               ; made before a refusal would be left
     jc mega_gwset                   ; behind by it)
     call COLD_SEG:mega_layoutf      ; the tables at the TOP of extended
-    mov ax, [mega_tbllin]           ; memory (KERN-MEGA-MEMORY-PLAN MC2)...
+    mov dx, 1                       ; memory (KERN-MEGA-MEMORY-PLAN MC2) - or
+    jc mega_gwset                   ; 1: in conventional memory, which
+                                    ; mega_enterf claims (MOV keeps the flags)
+    mov ax, [mega_tbllin]
     mov dx, [mega_tbllin+2]
-    jnc .tset                       ; (MOV keeps the flags)
-; .tlowf - the other arm (it was mega_tlowf, `.cold`'s, FAR): kern_mega's
-; three tables in CONVENTIONAL memory, for a machine whose extended memory
-; cannot hold them (KERN-MEGA-PLAN 14.1 answer 16, 14.17) - 82KB, no minimum
-; beyond FITTING (answer 16). [mega_tblkb] claimed top-down and pinned
-; (MEM_K_MTBL), laid out exactly as above 1MB - the GDT at its base, the LDT
-; on it, the IDT after. No pool and `.cold` stays low: mega_xminit and
-; mega_coldup already refuse a machine this small. Claimed in the blob,
-; before mem_unblob: TOP-DOWN and pinned, so the compaction mem_unblob makes
-; packs the movable claims down under it and never moves it
-.tlowf:
-    mov ax, [mega_tblkb]            ; (mega_layoutf sized it, refusing)
-    mov bx, MEM_K_MTBL
-    mov bp, mem_claim_hi_x          ; TOP-DOWN, pinned
-    call COLD_SEG:wm_cbd            ; DX = the block
-    jc .tmem                        ; (the heap had no room: nothing changed)
-    mov ax, dx                      ; DX:AX = its linear base
-    shl ax, 4
-    shr dx, 12
-.tset:
-    call COLD_SEG:mega_tset         ; every word the switch reads aimed
+    call COLD_SEG:mega_tset         ; every word the switch reads aimed there
     xor dx, dx                      ; GO ON
-    jmp short mega_gwset
-.tmem:
-    mov dx, mega_tmem
 mega_gwset:
     mov [ss:mega_gwhy], dx
     retf
@@ -9978,7 +9985,7 @@ mega_hilin:
     ret
 
 ; -----------------------------------------------------------------------------
-; mega_coldupf - FAR, from mega_enter's door (mega_coldup, `.text`): `.cold`
+; mega_coldupf - FAR, from mega_enterf (COLDCALL, protected mode): `.cold`
 ; and `.mega` above 1MB, and their rungs to the heap. In protected mode with
 ; the real tables loaded and interrupts and NMI off, `.cold` still where the
 ; boot put it and its GDT entry the identity. CF = 1 and nothing moved when
@@ -10128,14 +10135,14 @@ mega_a20f:                          ; (the door's far entry, from mega_gateb
 section .cold
 
 ; -----------------------------------------------------------------------------
-; mega_tset - FAR, from mega_gateb in the boot blob (it was near, from the
-; gate and mega_tlowf, both `.cold`'s): DX:AX = where the tables' block goes
+; mega_tset - FAR, from mega_gateb in the boot blob and mega_enterf (it was
+; near, from the gate and mega_tlowf, both `.cold`'s): DX:AX = where the tables' block goes
 ; ([mega_tblkb]: the GDT at DX:AX and the LDT on top of it, the IDT
 ; [mega_ldtend] in) -> every word the switch and the kernel read a table's
 ; place from aimed there: the bootstrap's window, GDTR, IDTR, [mega_tbllin],
 ; [mega_ldtlin], the LDT's and the IDT's descriptors and the DOS park's IDT
 ; line (mega_dsidt). Real mode. Clobbers nothing. Still `.cold` and not the
-; blob's, which it would nearly fill (docs/plans/completed/msp2/bootonce.md)
+; blob's, whose ceiling it would reach (docs/plans/completed/msp2/bootonce.md)
 ; -----------------------------------------------------------------------------
 mega_tset:
     push ax
