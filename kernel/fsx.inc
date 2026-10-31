@@ -1729,8 +1729,11 @@ fsx_rsvcf:
 .nser:
     mov [ss:fsx_rserb], dx
     xor dx, dx                  ; ...and THE GLYPH TABLE'S COPY last, when it
-    MEGA_ISHI word [font_seg]   ; is above 1MB (MEM_K_FONT, KERN-MEGA-PLAN
-    jc .nfnt                    ; 14.120/14.131): no real segment reaches it
+    push ax                     ; is above 1MB (MEM_K_FONT, KERN-MEGA-PLAN
+    mov ax, [font_seg]          ; 14.120/14.131): no real segment reaches it
+    call MEGA_SEL_CODE:mega_ishif ; (MEGA_ISHI less its real-mode test:
+    pop ax                      ; `.mega` runs in protected mode alone)
+    jc .nfnt
     inc ax                      ; there, so the bracket reads it here
     and al, 0xFE                ; (at an even offset: rep movsw)
     mov dx, ax

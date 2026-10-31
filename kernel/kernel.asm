@@ -587,6 +587,23 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 %%back:
  cpu 8086
 %endmacro
+; MEGA_PCALLC off, seg - MEGA_PCALL for a `.cold` site, whose CSELTOP is the
+; near mem_cselc (memory.inc) rather than twenty-five bytes inline (kern_mega
+; size pass 2). The same frame and the same registers reach the callee
+%macro MEGA_PCALLC 2
+ %ifnidni __?SECT?__, [section .cold]
+  %error "MEGA_PCALLC outside .cold"
+ %endif
+ cpu 286
+    push cs
+    push word %%back
+    push word %2
+    call mem_cselc
+    push word %1
+    retf
+%%back:
+ cpu 8086
+%endmacro
 ; MEGA_ICWB field - the body of a five-byte INLINE cell that installs a
 ; handler: `mov [byte cs:bx+field], ax`, BX = the window, AX = the proc. The
 ; same shape as MEGA_ICW one step along: kern_mega jumps to a stub that does

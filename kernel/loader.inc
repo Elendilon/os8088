@@ -248,7 +248,10 @@ ld_unreserve:
     jz .out
     call mem_free_owner_x
 %ifdef KERN_MEGA
-    MEGA_ISHI [ld_base]         ; a region placed ABOVE 1MB (ld_hi): its
+    push ax
+    mov ax, [ld_base]           ; a region placed ABOVE 1MB (ld_hi): its
+    call mem_ishiax
+    pop ax
     jc .lo                      ; pair and pool block
     push ax
     push dx
@@ -1363,7 +1366,7 @@ ld_start:
     call COLD_SEG:mega_pcin_n   ; kern_mega's CATCH: a fault in the entry
                                 ; proc comes back here as a refusal, CF = 1
                                 ; (KERN-MEGA-PLAN 14.42, mega_fkill)
-    MEGA_PCALL [es:ld_fp], [es:ld_base] ; the CODE alias (kernel/mega.inc)
+    MEGA_PCALLC [es:ld_fp], [es:ld_base] ; the CODE alias (kernel/mega.inc)
 ..@mega_pcret_l:
     call COLD_SEG:mega_pcout_n  ; (needs no DS: the frame names the task)
 %else
@@ -1689,7 +1692,7 @@ ld_start:
                                 ; and must not go with it. AX is still
                                 ; [ld_rehome]: both calls preserve it
 %ifdef KERN_MEGA
-    MEGA_ISHI dx                ; A LOADER PLACED ABOVE 1MB (ld_hi) is a pool
+    call mem_ishidx             ; A LOADER PLACED ABOVE 1MB (ld_hi) is a pool
     jc .rhlo                    ; block and a code/data pair, not a mem_tab
     push ax                     ; record: mem_free_x would find nothing, the
     mov ax, dx                  ; carry was never read, and the block and two
@@ -2176,7 +2179,7 @@ osapi_pkg_rehome_x:
     or dx, dx                   ; a segment of 0 is the heap's own "no claim"
     jz .no                      ; and can never be a part's base
 %ifdef KERN_MEGA
-    MEGA_ISHI dx                ; kern_mega: a pool selector (an OS88_HIGHMEM
+    call mem_ishidx             ; kern_mega: a pool selector (an OS88_HIGHMEM
     jnc .no                     ; claim) has no code half and no heap record,
 %endif                          ; and the re-home runs code at its base
     mov [ld_rehome], dx

@@ -809,7 +809,9 @@ mod_hiboot:
     mov ax, [bx+MODR_SEG]
     or ax, ax
     jz .n
-    MEGA_ISHI ax
+    push ax
+    call mem_ishiax
+    pop ax
     jnc .n                      ; already above 1MB
     mov es, ax                  ; (its conventional pair's data half)
     mov bp, [es:MOD_H_IMG]      ; ...the image's bytes, as the read had them
@@ -878,7 +880,7 @@ mod_free_row:
     xor dx, dx                  ; forming the id, and READ-AND-CLEAR is one
     xchg dx, [bx+MODR_SEG]      ; instruction on the 8086 - DX comes out the
 %ifdef KERN_MEGA
-    MEGA_ISHI dx                ; ABOVE 1MB (mod_hi): a selector, whose
+    call mem_ishidx             ; ABOVE 1MB (mod_hi): a selector, whose
     jc .conv                    ; block and pair go back to the pool - and
     xchg ax, dx                 ; DESK.DRV's library selector with them
     call MEGA_SEL_CODE:mega_hifreef
