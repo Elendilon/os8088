@@ -834,8 +834,8 @@ mega_dosparkf:
     mov ax, [mega_ldtend]
     add ax, 0x28 * 8
     call .tbl
-    mov bx, 17
-    mov ax, [mega_ldtend]
+    mov bx, 17 + MEGA_MXT_LINES    ; ...to its end, and the tables' tail
+    mov ax, [mega_ldtend]           ; past it (mega.inc's MEGA_SEL_MXT)
     add ax, 0x78 * 8
     call .tbl
     cmp byte [mega_coldhi], 0       ; `.cold` and `.mega`, above 1MB: one
