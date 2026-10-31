@@ -23675,13 +23675,20 @@ vp_mclhi:                           ; OSAPI_MEM_CLAIM_HI
 ; granule here and not a whole KB. CONVENTIONAL on kern_mega as vp_mclaim's
 ; are: MEMP_CONV there, a head-less claim being the pool's otherwise. Every
 ; other register kept
+; (two calls and not a jump into a shared tail: tests/unit/t_pins.py sees a
+; thunk as a call that returns DX, and so sees every claim made through these)
 vp_mclhip:
     push bx
     mov bl, MEMP_CLAIM_HI
-    jmp short vp_mclpb
+    call vp_mclpb
+    pop bx
+    ret
 vp_mclp:
     push bx
     mov bl, MEMP_CLAIM
+    call vp_mclpb
+    pop bx
+    ret
 vp_mclpb:
     push cx
 %ifdef PKG_MEGA
@@ -23691,7 +23698,6 @@ vp_mclpb:
 %endif
     call OSAPI_MEM_P
     pop cx
-    pop bx
     ret
 vp_mmov:                            ; OSAPI_MEM_MOVABLE
     call OSAPI_MEM_MOVABLE

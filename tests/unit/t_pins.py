@@ -167,8 +167,26 @@ API_CLAIM = re.compile(r"\bcall\s+(?:far\s+)?OSAPI_MEM_(?:CLAIM|CLAIM_DMA|"
                        r"CLAIM_HI|CLAIM_DMA_HI|HUGE)\b")
 K_CLAIM = re.compile(r"\b(?:call\s+(?:far\s+)?(?:COLD_SEG:)?|[A-Z_]+\s+)"
                      r"(?:mem_claim|mem_claim_x|mem_claim_hi_x|mem_claim_dma_x|"
-                     r"mem_claim_dma_hi_x|mmf_mem_claim)\b"
+                     r"mem_claim_dma_hi_x|mmf_mem_claim|mem_claimp_x|"
+                     r"mem_claimp_hi_x|mem_claimp_dma_x)\b"
                      r"|\bmov\s+bp\s*,\s*mem_claim\w*\b")
+# OSAPI_MEM_P (SPEC.md 50.3.7) is ONE cell and four verbs, so its call is a
+# claim only when the verb is: the nearest `mov bl, MEMP_*` above it says
+# which (a regrow keeps its record, as OSAPI_MEM_REGROW's does, and AVAIL
+# claims nothing). Looked for through a label, since a thunk's entry sets BL
+# and falls into the shared call (vp_mclp -> vp_mclpb)
+API_MEMP = re.compile(r"\bcall\s+(?:far\s+)?OSAPI_MEM_P\b")
+MEMP_VERB = re.compile(r"\bmov\s+bl\s*,\s*(MEMP_\w+)")
+
+
+def memp_claim(L, i):
+    for j in range(i - 1, max(-1, i - 16), -1):
+        m = MEMP_VERB.search(asm_code(L[j]))
+        if m:
+            return m.group(1) in ("MEMP_CLAIM", "MEMP_CLAIM_HI")
+    return True                 # no verb in sight: count it, loudly
+
+
 OP_LOAD = re.compile(r"\bcall\s+op_load\b")
 OP_FETCH = re.compile(r"\bcall\s+op_fetch\b")
 API_DECL = re.compile(r"\bcall\s+(?:far\s+)?OSAPI_MEM_MOVABLE\b")
@@ -255,7 +273,7 @@ class Unit(object):
                 for i, c in hot(L):
                     r = routine(L, i)
                     if r not in self.cwrap or r in out or \
-                            not self._is_claim_line(c, self.cwrap):
+                            not self._is_claim_line(c, self.cwrap, L, i):
                         continue
                     m = CALL.match(c)
                     t = self._tag(L, i) or (m and out.get(m.group(1)))
@@ -284,13 +302,15 @@ class Unit(object):
                     cur = None
         return out
 
-    def _is_claim_line(self, c, wraps):
+    def _is_claim_line(self, c, wraps, L=None, i=None):
         if API_CLAIM.search(c) or (self.kernel and K_CLAIM.search(c)):
             return True
+        if API_MEMP.search(c):
+            return L is None or memp_claim(L, i)
         m = CALL.match(c)
         return bool(m and m.group(1) in wraps)
 
-    def _is_decl_line(self, c, wraps):
+    def _is_decl_line(self, c, wraps, L=None, i=None):
         if API_DECL.search(c) or (self.kernel and K_DECL.search(c)):
             return True
         m = CALL.match(c)
@@ -306,7 +326,7 @@ class Unit(object):
             for f in self.asm:
                 L = self.lines_of[f]
                 for i, c in hot(L):
-                    if not test(c, wraps):
+                    if not test(c, wraps, L, i):
                         continue
                     r = routine(L, i)
                     if r == "?" or r in wraps:
@@ -352,6 +372,7 @@ class Unit(object):
                 return True
             c = asm_code(L[j])
             if DX_WRITE.search(c) or API_CLAIM.search(c) or OP_FETCH.search(c) \
+                    or API_MEMP.search(c) \
                     or (self.kernel and K_CLAIM.search(c)):
                 return False        # a claim writes DX too
             if c.strip():
@@ -372,7 +393,7 @@ class Unit(object):
                     out.append(Site(f, i + 1, "op:carve", routine(L, i), "carve"))
                     continue
                 fetch = self.parts is not None and OP_FETCH.search(c)
-                if not (fetch or self._is_claim_line(c, self.cwrap)):
+                if not (fetch or self._is_claim_line(c, self.cwrap, L, i)):
                     continue
                 r = routine(L, i)
                 if r in self.cwrap and not CALL.match(c):
@@ -414,7 +435,7 @@ class Unit(object):
                 s.stores = nxt.stores
         cwraps = self._c_wrappers()
         call = re.compile(r"([A-Za-z_][\w\.\->\[\]]*)\s*=\s*(?:os88_mem_(?:claim|"
-                          r"huge)|%s)\s*\(" % "|".join(sorted(cwraps) or ["$^"]))
+                          r"claim_p|huge)|%s)\s*\(" % "|".join(sorted(cwraps) or ["$^"]))
         for f in self.c:
             if self.only is not None and f not in self.only:
                 continue
@@ -438,7 +459,7 @@ class Unit(object):
         To a fixpoint, so a wrapper of a wrapper is seen through too."""
         wraps = set()
         while True:
-            pat = re.compile(r"([A-Za-z_]\w*)\s*=\s*(?:os88_mem_(?:claim|huge)%s)"
+            pat = re.compile(r"([A-Za-z_]\w*)\s*=\s*(?:os88_mem_(?:claim|claim_p|huge)%s)"
                              r"\s*\(" % "".join("|" + w for w in sorted(wraps)))
             new = set()
             for f in self.c:
@@ -518,7 +539,8 @@ class Unit(object):
                 if "dx" in held and self._is_decl_line(c, self.dwrap):
                     if not self._ax_zero(L, j - 1):
                         direct = True
-                if self._is_claim_line(c, self.cwrap) or OP_FETCH.search(c):
+                if self._is_claim_line(c, self.cwrap, L, j - 1) or \
+                        OP_FETCH.search(c):
                     m = CALL.match(c)
                     if word is None and m and m.group(1) in self.cwrap:
                         chain = j   # a wrapper that takes this DX on: the
@@ -729,7 +751,7 @@ class Site(object):
 
 
 # --- the C vocabulary ----------------------------------------------------------
-C_CLAIM = re.compile(r"([A-Za-z_][\w\.\->\[\]]*)\s*=\s*os88_mem_(?:claim|huge)"
+C_CLAIM = re.compile(r"([A-Za-z_][\w\.\->\[\]]*)\s*=\s*os88_mem_(?:claim|claim_p|huge)"
                      r"\s*\(")
 C_DECL = re.compile(r"\bos88_mem_movable\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)")
 C_FUNC = re.compile(r"^[A-Za-z_][\w\s\*]*?\b([A-Za-z_]\w*)\s*\([^;]*$")
