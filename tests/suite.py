@@ -1398,6 +1398,13 @@ FAST = [
         "planar body that forgot its VIDEXT would program the VGA's ports on "
         "a packed mode and draw nothing anyone could diagnose",
         needs=()),
+    Row("heapgran", "fast", py("tests/unit/t_heapgran.py"), 0.2,
+        "the heap's image rung (SPEC.md 50.2.1, 51.1.2): mem_bytes_gp_x's "
+        "512 and os88drv.py's DRV_RUNG are one number written twice, and "
+        "every built driver's image + bss fits its file rounded to it - "
+        "FAST as THE BOUNDARY (docs/WRITING-TESTS.md 2.1): a tool and the "
+        "kernel edited apart, and a driver stripped below its claim does "
+        "not fail the build, it fails to LOAD (.nofit) on the machine"),
     Row("drvmem", "fast", py("tests/unit/t_drvmem.py"), 0.1,
         "the Drivers page's memory column (SPEC.md 31.6.2) re-derived: every "
         "image term against the .drv this build made, every claim term against "
