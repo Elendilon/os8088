@@ -217,8 +217,16 @@ skipped, `hotpar` ok), `tools/stkbalance.py kernel/mega.inc`,
   KERN-MEGA-PLAN 14 describes (*"reset by a reflected service? recalibrate"*,
   and `mega_fdrst`'s *"at mega_r286, and at mega_fdgo"*) has returned CF = 0
   without touching the 765 on every transfer. The real-mode probe in
-  `mega_r286` (CL = 0) is what has been running. Not fixed (behaviour);
-  WANTS THE OWNER has the two ways out.
+  `mega_r286` (CL = 0) is what has been running. Not fixed here (behaviour);
+  WANTS THE OWNER has the two ways out. **The coordinator made it LIVE** at
+  the merge, on the owner's deferral: the call moved into `mega_fd13`, after
+  `inc byte [sch_lock]` and before the busy flag is set, ES = the BDA and
+  IF = 0 there as the probe needs (it polls the 765, it waits on no IRQ).
+  0 bytes; one SENSE INTERRUPT STATUS per native transfer, which an idle
+  765 answers 80h - microseconds against a transfer's ~400 ms. Deleting it
+  would have saved ~73 `.mega` and left a 386 (the CR0 route, which never
+  passes `mega_r286`) with no protection against the end-stop seek the probe
+  exists for. 86Box `megafdnat` (green and `--break` red) is its check.
 * `mega_fdirq`'s header said *"halting between"*; the loop SPINS (it has,
   since the Victory 286's parity NMIs - the comment inside says so). Header
   corrected.
