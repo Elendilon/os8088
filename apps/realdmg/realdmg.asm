@@ -791,6 +791,11 @@ rw_load:
     inc byte [rw_mhold]
     call rw_mpin
     call rw_load0
+    xor cx, cx                      ; ...and the load's one operation over,
+    mov dx, cx                      ;   if it was ours (SPEC.md 12.8.10): an
+    call OSAPI_FS_OP                ;   end we do not own is refused, so no
+                                    ;   flag - every way out of rw_load0 is
+                                    ;   this one
     dec byte [rw_mhold]
     jmp rw_mfree
 rw_load0:
@@ -816,6 +821,13 @@ rw_load0:
     jb .notrom
 .sized:
     mov [rw_romkb], dx
+    push dx                         ; ONE OPERATION for the cartridge's reads
+    mov ax, 1024                    ;   (SPEC.md 12.8.10): the bank cache's
+    mul dx                          ;   64 bank reads of a 1MB cart were 64
+    xchg ax, cx                     ;   fills. DX:CX = the ROM's bytes, which
+    call OSAPI_FS_OP                ;   leaves out the recompiler's part and
+    pop dx                          ;   the code images: an UNDER-estimate,
+                                    ;   so the bar clamps full a moment early
 %ifdef RDG_AOT
 %ifdef PKG_MEGA
     cmp byte [rw_pm], 0             ; KERN_MEGA'S ARM UNDER CPU_F_PM (REALDMG-

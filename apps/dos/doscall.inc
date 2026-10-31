@@ -63,7 +63,7 @@ CORE_ORG    equ 0x0080
 ; CORE alone spends, both hosts read, and whose slack is one number in one
 ; place. Measured at the wave, with the assertion in `apps/dos/doscore.asm`.
 %ifndef DOS_MEGA
-CORE_MAX    equ 15408            ; +512 for SPEC.md 96.7.2's stack swap and
+CORE_MAX    equ 15456            ; +512 for SPEC.md 96.7.2's stack swap and
                                 ; 96.12.5's name truncation, which are 214
                                 ; bytes between them against 89 of slack. The
                                 ; two are the Playroom's whole report: a gate
@@ -94,8 +94,11 @@ CORE_MAX    equ 15408            ; +512 for SPEC.md 96.7.2's stack swap and
                                 ; dos_psp_make aiming PSP:5 at it), which the
                                 ; HMA run had and the PSP:0050 gate never
                                 ; served: 15,391 used
+                                ; +48 for SPEC.md 12.8.10's one bar, the
+                                ; DBE_FSOP door and COPY's and TYPE's use of
+                                ; it (50 bytes against 10 of slack): 15,448
 %else                           ; **kern_mega's core is 67 bytes longer**:
-CORE_MAX    equ 16064            ; SPEC.md 96.15.4's extended-to-extended
+CORE_MAX    equ 16096            ; SPEC.md 96.15.4's extended-to-extended
 %endif                          ; move (dos_xms_move's `.bothx`), 15,409 used.
                                 ; +80, kept a multiple of 16, and paid ONLY by
                                 ; kern_mega's DOS.O88 - both of its hosts
@@ -113,6 +116,8 @@ CORE_MAX    equ 16064            ; SPEC.md 96.15.4's extended-to-extended
                                 ; XMS surface - 0Ch-0Fh, 08h's largest block,
                                 ; 0Bh's handle bounds (SPEC.md 96.15.4): the
                                 ; two met at the merge, 16,027 used
+                                ; +32 for the DBE_FSOP door and its two
+                                ; users (SPEC.md 12.8.10): 16,095
 ; ...and the core's bss sits directly above its code, at the same offset in
 ; every host, which is what SPEC.md 96.44.2 requires of every `DBSS` cell.
 ; --- THE CORE'S BLOCK IS A BUDGET, NOT A SUM (SPEC.md 96.44.2) --------------
@@ -123,9 +128,9 @@ CORE_MAX    equ 16064            ; SPEC.md 96.15.4's extended-to-extended
 ; core cell is spent out of.
 %ifndef CORE_BSS_SIZE               ; `-DCORE_BSS_SIZE=n` is how the budget is
  %ifndef DOS_MEGA                   ; probed: bisect on it and the assertion
-CORE_BSS_SIZE equ 3509              ; below names the exact figure
+CORE_BSS_SIZE equ 3511              ; below names the exact figure
  %else                              ; kern_mega's +2 is `dos_hslot`, the HMA
-CORE_BSS_SIZE equ 3513              ; host's slot maker (KERN-MEGA-DOS-PLAN
+CORE_BSS_SIZE equ 3515              ; host's slot maker (KERN-MEGA-DOS-PLAN
                                     ; 10.5 defect 4), and +2 again for
                                     ; DHK_XUNP, the child's EXEPACK hook
                                     ; (SPEC.md 96.40.9.1) - DHK_NENT 7 -> 8
@@ -150,8 +155,10 @@ CORE_BSS_SIZE equ 3513              ; host's slot maker (KERN-MEGA-DOS-PLAN
                                     ;         pair (+18), and 4 of the padding
                                     ;         the rows around them want
                                     ;       0 slack
+                                    ;      +2 DBE_FSOP, dos_bevec's 25th
+                                    ;         door (SPEC.md 12.8.10)
                                     ;   ----- -------------------------------
-                                    ;   3,507
+                                    ;   3,509
 
 ; ...and the core's bss sits directly above its code, at the same address in
 ; every host, which is what SPEC.md 96.44.2 requires of every `DBSS` cell.

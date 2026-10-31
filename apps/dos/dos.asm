@@ -5284,7 +5284,12 @@ DBE_WSEQ    equ 46                  ; SI = name, ES:BX = bytes, CX = count
                                     ; (0 = commit the held stream), AL =
                                     ; WSEQF_*, DI = the token in and out
                                     ; (SPEC.md 18.4.9)
-DBE_NENT    equ 24
+DBE_FSOP    equ 48                  ; DX:CX = one operation's bytes, 0 = its
+                                    ; end (OSAPI_FS_OP, SPEC.md 12.8.10). A
+                                    ; host with no file widget refuses it -
+                                    ; kern_dos does - and it is advisory, so
+                                    ; the caller reads no answer
+DBE_NENT    equ 25
 
 ; --- THE HOST'S HOOKS (SPEC.md 96.44.3) -------------------------------------
 ; Where the CORE would otherwise have to know which host it is in. Each is a
@@ -5471,6 +5476,11 @@ dos_be_wseq:
     jmp dos_be_go
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+dos_be_fsop:
+    mov word [dos_betgt], DBE_FSOP
+    jmp dos_be_go
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 dos_be_xcopy:
     mov word [dos_betgt], DBE_XCOPY
 %endif                              ; DOS_EXTCORE
@@ -5650,6 +5660,10 @@ dos_k_vstat:
 
 dos_k_wrat:
     call OSAPI_FILE_WRITE_AT
+    ret
+
+dos_k_fsop:
+    call OSAPI_FS_OP
     ret
 
 dos_k_rseq:                         ; SPEC.md 18.4.8.1: READ_AT's registers
@@ -5880,7 +5894,7 @@ dos_betab:
     dw dos_k_append, dos_k_delete, dos_k_dfree, dos_k_mkdir, dos_k_rmdir
     dw dos_k_xcaps, dos_k_xalloc, dos_k_xfree, dos_k_xcopy, dos_k_rename
     dw dos_k_copy, dos_k_move, dos_k_path, dos_k_vstat, dos_k_wrat
-    dw dos_k_here, dos_k_vkind, dos_k_rseq, dos_k_wseq
+    dw dos_k_here, dos_k_vkind, dos_k_rseq, dos_k_wseq, dos_k_fsop
 
 %endif                              ; KD_BACKEND
 %ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
