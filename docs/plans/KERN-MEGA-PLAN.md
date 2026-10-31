@@ -13221,3 +13221,163 @@ proved by the watchdog's `8042 edge lost` line and the watchdog keeps no
 count, so its two PICLOSE trees are built with `MEGADIAG=1` as well.
 86Box's fault log (`OS88_FAULTLOG`, docs/86BOX.md) never read E9 and is
 untouched. The record is `docs/plans/completed/msp1/e9gate.md`.
+### 14.128 A SEG_SUB answered with its owner's own WINDOW (2026-10-30) - FIXED
+
+The Video Player's arm (MEGA-VIDEO-REALMODE-PLAN W5) had its player CLOSED by
+a #GP in `vd_n_p3`'s plane copy, at `vp_sstop` -> `vp_after` -> `vp_kpic` ->
+`vp_decram`, with DS = ES = 12F4h - once its cold part was registered
+movable, 3 runs of 3 on `megavidv2`'s modex leg; and in another arrangement a
+72-pixel tail on lin320. Pinned dummy claims of 1 KB and 2 KB triggered
+neither, and a compaction moving a stale selector was the first theory and
+WRONG: `mega_cdfree` and `mx_dfree` already pass windows by (14.80). What the
+movable claim changed was the ORDER the LDT was handed out in.
+
+`OSAPI_SEG`'s `SEG_SUB` reuses a descriptor of the same base, reach and type
+(`mega_dfind`), and it did not ask whether that descriptor was a `mega_wtab`
+row. The player's `SEG_AT` window `[vp_wk]` was left aimed at a base that a
+new key shadow's second plane began at, `SEG_SUB` answered 12F4h as
+`vp_spl[1]`, and the next re-aim of the window for a record's read moved the
+plane under the decoder - so the copy from plane to plane read and wrote the
+same selector. `mega_dfind` refuses a window now, bound or not (SPEC.md
+50.6.11): **+16 bytes of `.mega`** (12 of code and the section's alignment;
+14 left in its rung), kern_big and kern_small byte-identical. With the check
+taken out the modex leg goes red at `back to the card` again; with it, the
+movable part runs all three layouts green, so the part is movable again
+(SPEC.md 98.3.24.1). Any package holding a `SEG_AT` window beside `SEG_SUB`
+claims had the same exposure - the parts' `op_at`/`op_seg` among them.
+
+### 14.129 The Video Player's arm refused its ring as a NINTH claim (2026-10-30) - FIXED
+
+The owner's Victory 286 (4 MB, a Paradise VGA, C: through the PicoMEM's
+option-ROM int 13h) played NO video on the f56a048f pair: Catch My Heart
+opened and showed its first frame, and Play said "Not enough memory to play
+it" - with 474K free in one conventional run and the player holding the
+whole of XMS for its bank ("Into XMS: 0 of 0 KB"). Reproduced on 86Box's
+4 MB mr286 with the owner's file cut to 31MB on an IDE C: and with a
+Catch-shaped file of its own. 471fc07f fails identically, so it is not
+SPEC.md 98.3.24.2's held room.
+
+The refusal is `vp_sstart`'s `.memf` at the RING's claim, after all four of
+its doors: 416K asked with 466.5K free in one run. It was not memory: the
+arm held EIGHT claims at that moment - the block decoder part, the cold
+part (98.3.24.1, which made it eight), the speaker shaper's part, the
+palette events, the poster, the keeper, a record buffer and the text's
+second save - and `MEM_OWNER_MAX` was 8 (SPEC.md 50), so the ring was the
+owner's ninth claim and `mem_claim_1` refused it before looking at the heap.
+98.3.24.2's held room was a ninth too and was refused silently, which is why
+it changed nothing on this machine.
+
+**`MEM_OWNER_MAX` is 12 on kern_mega** (`kernel/memory.inc`, one immediate:
+kern_mega +0 bytes, kern_big and kern_small byte-identical). The table is
+`MEM_MAX`'s and unchanged, and the cap still lands on whoever causes it; 12
+is the arm's eight, the ring, the held room, the door's seek scratch and an
+Unmute's ring. Gate: `tests/vidmegaclaims.py` (86Box, 4 MB mr286, a BIOS
+C:): Space takes the screen, the player holds 10 claims in the play, it
+ends by itself; red (4) with the cap at 8. The play itself is a PROTECTED
+one by the player's own ruling - in-place reads under the speaker (SPEC.md
+98.3.24) - as it was before the arm had a real-mode bracket; its
+`os88spk_init` writes its own code there and takes 39 completed #GP fixups
+at the play's start, which is not new.
+
+### 14.130 A Sound Blaster hooked at the boot's attach stayed on the freed claim (2026-10-30) - FIXED
+
+Found merging elendilon (SPEC.md 34.5.7: the Sound Blaster's scan and IRQ
+discovery became the ATTACH's) into the real-mode bracket's branch:
+`vidrmbsnd`'s first leg - a plain protected-mode stream, before any bracket -
+took a `kern_mega FAULT` at its first block IRQ, and the same tree with the
+pre-merge SOUND.DRV was green. The discovery used to wait for the first
+stream, which on kern_mega was opened in protected mode after the switch,
+so the vector it wrote held the image's CODE selector. Now it is written at
+the boot's attach, in REAL MODE, and holds the image's PARAGRAPH;
+`drv_hiboot_f` then moves the `OS88_DRV_HIGHOK` image above 1MB, and
+`mem_region_reloc`, asked about the image's selector, never matches the
+paragraph: IVT 0Dh read 9D00:08CA after the move, the freed claim, and the
+gate built from it ran somebody else's memory. `drv_hi_ivt` (from
+`drv_hi_move`, before the reloc) re-points every hardware vector naming the
+image's paragraph at the pair's code half; the reloc's own
+`mega_ivt_syncf` then rebuilds the gates. kern_mega `.cold` +70, kern_big and
+kern_small byte-identical. `vidrmbsnd` green; red without it. Any driver
+that hooks a line at a real-mode attach and may move high is covered, not
+only SOUND.DRV - and it matters on the owner's Victory, whose PicoMEM is a
+Sound Blaster. SNDV_RMODE's door no longer calls the discovery (it is
+`SBL_ONCE`'s, not resident after the attach).
+
+### 14.131 A slow option ROM's glyph table was out of the bracket's reach (2026-10-30) - FIXED
+
+The owner's Victory 286, 9abdcaae: from the second play on, the Video
+Player's full-screen "Buffering" line was noise in the right colour, on a
+dark box that was right. The Paradise's option ROM times slow, so
+`font_init` COPIES the glyph table into `MEM_K_FONT`, and kern_mega moves the
+copy above 1MB at the switch (14.120). In a real-mode bracket
+`fsx_rvdn` cannot rename a pool selector (`mega_s2segf` answers FFFFh), so
+`[font_seg]` stayed a selector and the `OSAPI_FONT_GLYPHS` twin handed the
+player `11B4:0000`, a paragraph of nothing. 86Box does not slow a ROM, so
+`FONTSLOW=1` is the instrument, and with it the FIRST play was noise as
+well; the field's first play may have run in a protected-mode bracket
+instead, which reads the copy by its selector (not confirmed). Fixed at the
+door: `fsx_rsvcf` takes 760 bytes more in the service area when the table
+is in the pool and copies it there, and the drop names it (`[fsx_rmsseg]`,
+`rms_lo` + `[fsx_rfont]`) after `mega_vwalk` banks the selector; the return
+puts `[font_base]` back and the walk puts `[font_seg]`. kern_mega `.mega`
++96 and `.lowbss` +4, the segment +0; kern_big and kern_small
+byte-identical. SPEC.md 53.2.3
+step 3. Gate `vidrmbtwice` (2), red with the copy left out.
+
+### 14.132 A short file name ended the bracket's list before its sound driver (2026-10-30) - FIXED, FIELD-VERIFIED
+
+`07-Miku.V88` played SILENT on the Victory every time, between files that
+had sound. `vp_rmklist` wrote `FSXL_FILE` and then all 13 bytes of
+`vp_name`; the kernel's `fsx_rlist` reads the name to its NUL and takes the
+byte after as the next entry - for a name of 11 characters, the padding's
+0, `FSXL_END`. `FSXL_DRV DRVC_SOUND` was never read, the service area had no
+sound row, and the stream's open answered AX = 4, "no streaming sink". A
+12-character name filled the field exactly, which is why `09-Catch.V88`
+sounded. The player now writes the name to its NUL (SPEC.md 98.3.24); a
+package-only change, and the owner ran it on the live 9abdcaae kern_mega:
+Miku and the other short names have sound. Gate `vidrmbtwice` (1, 3) on
+`CATCH.V88`, nine characters, red with the 13-byte copy.
+
+### 14.133 A play's first second was the file's head, played as sound (2026-10-30) - FIXED
+
+Every real-mode play of the owner's Catch opened on static. Its key leads
+are APART (98.1.8.1), so `vp_spos` - run on the desktop, in protected mode -
+reads the start key's lead into the ring's slot 1 by its SELECTOR, which
+with the bank in place (`[vp_einp]` 2) is XMS above 1MB; `vp_lstage` then
+ran in the bracket and took `[vp_lpar]` as paragraphs past the ring's real
+segment, so the lead it staged was the ring's 17th byte on: the file's head
+(captured: file offset ~6,000, frames 0-5 of noise), and once the lead was
+read as a slot instead, zeros - the conventional ring is not where the
+selector pointed. It was first fixed by staging the lead at the DOOR, in
+protected mode; the owner then heard the same opening on kern_big, and the
+root cause was the player's own and older (SPEC.md 98.1.8.2): the lead was
+staged a session late, after reads into the same ring. `vp_lnow` stages it
+the moment `vp_spos` has read it, in the mode that read it, which fixes both
+kernels and makes the door's call redundant - it is gone. Measured on 86Box
+with the real 09-Catch: the card's output is the file's sound from byte 0,
+71,163 distinct samples in order (it was 5,160 of static first). Gate
+`vidrmbtwice` (3), red with `vp_lnow`'s staging out, on both kernels.
+
+The two things this entry first left open - kern_big's own opening and a
+play from a key starting a frame late - are 14.134.
+
+### 14.134 kern_big's opening static and the frame a play from key 0 lost (2026-10-30) - FIXED
+
+Both were the shipped player's, so both kernels had them (SPEC.md 98.1.8.2).
+kern_big's Catch My Heart opened on 2,073 distinct samples of 00/01: the
+start key's lead, read at `[vp_kbkb]` KB past the key, lost its last 420
+bytes to the reader's two-tier table before `vp_lstage` copied it out at
+the session's start (a 1 MB kern_big loses the last 142 of this row's clip
+the same way). Root-caused by stepping the guest a millisecond at a time
+over the lead's tail: its bytes changed every ~29 ms under the reader's
+`int 13h` into the ring (CS 9F80, DS the ring). `vp_lnow` stages it where
+it is read. And a play from key 0 at frame 0 began a frame late, because a
+key's lead is frames *k* + 1 .. *k* + *A*: the start's lead's first frame is
+now staged before it and the clock anchored on frame 0 (`[vp_lpre]`), so
+frame 0's sound plays under frame 0's picture. The shipped `video.o88`
+changes (48,357 bytes); kern_big and kern_small are byte-identical, and so
+is the kern_mega kernel. `vidrmbtwice` runs a kern_big leg now (1 MB, the
+shipped player) beside the kern_mega one, and asserts on both that the
+capture is the file's sound from byte 0 and whole and that frame 1 is drawn
+at least 0.6 of a frame after the card opens (57-60 ms; 15-18 before).
+Red, both legs: `vp_lnow`'s staging out (the contiguity, 5,332 of 10,945),
+its frame-0 piece out (the start, sample 914, and the 17 ms).

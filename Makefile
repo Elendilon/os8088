@@ -2304,7 +2304,7 @@ KERNEL_SRC := kernel/kernel.asm
 # perfectly, never reached the disk, and the only symptom was os88sym refusing
 # a map that described "a DIFFERENT kernel".
 KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm \
-              drivers/thmpal/thmrows.inc
+              drivers/thmpal/thmrows.inc apps/os88la.inc apps/os88ub.inc
 
 .PHONY: stkdiag kbddiag small emu mega kernsplit all run run-640 run-720 run-120 debug test test-snd xt xt-640 pc5150 xt-mfm xt-cga \
         xt-hercules xt-ega xt-multimon 286 286-525 386sx 386 386-xms 386-ps2 xt-sound xt-sound-1.44 xt-midirack 386-midirack xt-covox xt-wire \
@@ -6950,7 +6950,7 @@ $(shell mkdir -p $(BUILD); \
         [ -f $(VPSTAMP) ] || { rm -f $(BUILD)/.vplayer-* \
                                       $(BUILD)/video.bin $(BUILD)/video.o88; \
                                 touch $(VPSTAMP); })
-$(BUILD)/video.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/video/vfx.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc \
+$(BUILD)/video.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/video/vfx.inc apps/video/vprof.inc apps/video/vcold.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc \
                     apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc \
                     apps/os88parts.inc apps/os88partsbody.inc apps/video/vblk.inc apps/os88mega.inc $(VPSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error $(STKLST) -I apps/ $(VPDEF) -o $@ apps/video/video.asm
@@ -13432,7 +13432,7 @@ videnchd: $(VIDENC_BASE) $(BUILD)/vidbench.o88 $(BUILD)/viddisk.o88 \
 # `make 486-video` boots it in 86Box.
 VID486_CYLS ?= 250
 VID486CLIPS ?=
-$(BUILD)/videodiag.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/video/vfx.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc apps/os88parts.inc apps/os88partsbody.inc apps/video/vblk.inc apps/os88mega.inc | $(BUILD)
+$(BUILD)/videodiag.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/video/vfx.inc apps/video/vprof.inc apps/video/vcold.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc apps/os88parts.inc apps/os88partsbody.inc apps/video/vblk.inc apps/os88mega.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -DVP_DIAG -o $@ apps/video/video.asm
 $(BUILD)/videodiag.o88: $(BUILD)/videodiag.bin $(BUILD)/vblk.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/videodiag.bin -o $@ $(VBLKPARTS)
@@ -13441,7 +13441,7 @@ $(BUILD)/videodiag.o88: $(BUILD)/videodiag.bin $(BUILD)/vblk.bin tools/os88pkg.p
 # super-packet was found, saved in the profile for tools/os88vfit.py --reads
 # to hold against the file. Its room is the layer's and the speaker's info
 # lines, which a card's play of a file with no layer does not draw
-$(BUILD)/videordlog.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/video/vfx.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc apps/os88parts.inc apps/os88partsbody.inc apps/video/vblk.inc apps/os88mega.inc | $(BUILD)
+$(BUILD)/videordlog.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/video/vfx.inc apps/video/vprof.inc apps/video/vcold.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc apps/os88parts.inc apps/os88partsbody.inc apps/video/vblk.inc apps/os88mega.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -DVP_DIAG -DVP_RDLOG -o $@ apps/video/video.asm
 $(BUILD)/videordlog.o88: $(BUILD)/videordlog.bin $(BUILD)/vblk.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/videordlog.bin -o $@ $(VBLKPARTS)
@@ -14717,6 +14717,54 @@ $(BUILD)/megaxm.bin: tests/megaxm/megaxm.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megaxm/megaxm.asm
 $(BUILD)/megaxm.o88: $(BUILD)/megaxm.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/megaxm.bin -o $@
+# MEGARMB (tests/megarmb): kern_mega's REAL-MODE BRACKET from a package
+# (SPEC.md 53.2.3, MEGA-VIDEO-REALMODE-PLAN W1) - OS88_HIGH, so its region is
+# above 1MB and the bracket runs a copy; MEGARMBL is the same source with a
+# conventional region. tests/megarmb.py (Bochs) and megarmb286.py (86Box)
+$(BUILD)/megarmb.bin: tests/megarmb/megarmb.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megarmb/megarmb.asm
+$(BUILD)/megarmb.o88: $(BUILD)/megarmb.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/megarmb.bin -o $@
+$(BUILD)/megarmbl.bin: tests/megarmb/megarmb.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -DMB_LOW -o $@ tests/megarmb/megarmb.asm
+$(BUILD)/megarmbl.o88: $(BUILD)/megarmbl.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/megarmbl.bin -o $@
+# MEGARMBF (tests/megarmb/megarmbf.asm): the real-mode bracket's FALLBACK and
+# its TABLE (SPEC.md 53.2.3, MEGA-VIDEO-REALMODE-PLAN W2) - tests/megarmbref.py
+$(BUILD)/megarmbf.bin: tests/megarmb/megarmbf.asm apps/os88api.inc apps/os88real.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megarmb/megarmbf.asm
+$(BUILD)/megarmbf.o88: $(BUILD)/megarmbf.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/megarmbf.bin -o $@
+# MEGARMBD (tests/megarmb/megarmbd.asm): a real-mode bracket on an EXTENDED
+# DESKTOP, a mode set on either display (SPEC.md 53.2.3, MEGA-VIDEO-REALMODE-
+# PLAN W7) - tests/megarmbext.py, on 86Box's two-card vm/286-mega-multimon
+$(BUILD)/megarmbd.bin: tests/megarmb/megarmbd.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megarmb/megarmbd.asm
+$(BUILD)/megarmbd.o88: $(BUILD)/megarmbd.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/megarmbd.bin -o $@
+# MEGARMBX (tests/megarmb/megarmbx.asm): what a real-mode bracket READS - the
+# extent list's OSAPI_FILE_READ_SEQ, the XMEM_COPY twin, OSAPI_DRV_CALL into a
+# low HDD.DRV (SPEC.md 53.2.3, MEGA-VIDEO-REALMODE-PLAN W3) - tests/vidrmb.py
+$(BUILD)/megarmbx.bin: tests/megarmb/megarmbx.asm apps/os88api.inc apps/os88real.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megarmb/megarmbx.asm
+$(BUILD)/megarmbx.o88: $(BUILD)/megarmbx.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/megarmbx.bin -o $@
+# MEGARMBS (tests/megarmb/megarmbs.asm): the SOUND side of a real-mode
+# bracket - SOUND.DRV low, a stream through the OSAPI_SND_STREAM twin carried
+# across the bracket both ways, the watchdog DSV_TICK fires, the speaker
+# door's twin (SPEC.md 53.2.3, MEGA-VIDEO-REALMODE-PLAN W4) - tests/vidrmbsnd.py
+$(BUILD)/megarmbs.bin: tests/megarmb/megarmbs.asm apps/os88api.inc apps/os88real.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megarmb/megarmbs.asm
+$(BUILD)/megarmbs.o88: $(BUILD)/megarmbs.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/megarmbs.bin -o $@
+# MEGARMBE (tests/megarmb/megarmbe.asm): EMS.DRV through a real-mode bracket -
+# allocated and mapped on both sides of it, the frame written and read in real
+# mode, the driver's state across the copy down and back up (SPEC.md 53.2.3,
+# 107; MEGA-VIDEO-REALMODE-PLAN W3) - tests/vidrmbems.py on vm/286-mega-ems
+$(BUILD)/megarmbe.bin: tests/megarmb/megarmbe.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megarmb/megarmbe.asm
+$(BUILD)/megarmbe.o88: $(BUILD)/megarmbe.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/megarmbe.bin -o $@
 # MEGAHUGE (tests/megahuge): ONE CLAIM FOR ALL OF IT (KERN-MEGA-MEMORY-PLAN
 # MC5) - OSAPI_MEM_HUGE's query, a claim of its answer bridged across the
 # pool and the heap, a pattern through every window, the free, the query again
@@ -14837,7 +14885,10 @@ $(BUILD)/megalowb.bin: tests/megaown/megaown.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -DMO_LOWBIG -o $@ tests/megaown/megaown.asm
 $(BUILD)/megalowb.o88: $(BUILD)/megalowb.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/megalowb.bin -o $@
-megarun: $(BUILD)/megarun.o88 $(BUILD)/megaxm.o88 $(BUILD)/megahib.o88 $(BUILD)/mega.img
+megarun: $(BUILD)/megarun.o88 $(BUILD)/megaxm.o88 $(BUILD)/megahib.o88 $(BUILD)/megarmb.o88 \
+        $(BUILD)/megarmbl.o88 $(BUILD)/megarmbf.o88 $(BUILD)/megarmbx.o88 $(BUILD)/megarmbs.o88 \
+        $(BUILD)/megarmbe.o88 $(BUILD)/megarmbd.o88 \
+        $(BUILD)/mega.img
 .PHONY: megarun
 
 # `make megatrap` - kern_mega with MEGATRAP=1, as a whole tree of its own in
@@ -14917,7 +14968,7 @@ MEGASYSOPTARGS = $(addprefix SYSTEM:,$(call MEGASUB,$(SYSOPTIONAL)))
 MEGACOREARGS = $(addprefix APPS:,$(call MEGASUB,$(CORE_TOOLS))) \
                $(addprefix GAMES:,$(call MEGASUB,$(CORE_GAMES)))
 
-$(MEGAAPPDIR)/video.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/video/vfx.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc \
+$(MEGAAPPDIR)/video.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/video/vfx.inc apps/video/vprof.inc apps/video/vcold.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc \
                          apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc \
                          apps/os88parts.inc apps/os88partsbody.inc apps/video/vblk.inc apps/os88mega.inc $(VPSTAMP) | $(BUILD)
 	@mkdir -p $(MEGAAPPDIR)
@@ -14926,8 +14977,16 @@ $(MEGAAPPDIR)/video.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vos
 $(MEGAAPPDIR)/vfx.bin: apps/video/vfx.asm apps/video/vfx.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc | $(BUILD)
 	@mkdir -p $(MEGAAPPDIR)
 	$(NASM) -f bin -w+error -I apps/ -DPKG_MEGA -o $@ apps/video/vfx.asm
-$(MEGAAPPDIR)/video.o88: $(MEGAAPPDIR)/video.bin $(BUILD)/vblk.bin $(BUILD)/vblkpm.bin $(MEGAAPPDIR)/vfx.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(MEGAAPPDIR)/video.bin -o $@ --part $(BUILD)/vblk.bin --part $(BUILD)/vblkpm.bin --part $(MEGAAPPDIR)/vfx.bin
+# THE COLD PART (SPEC.md 98.3.24.1): part 3, LINKED to the player it ships in -
+# tools/os88plink.py reads the names it takes out of the map the player's own
+# assembly wrote ($(STKLST)), so it is rebuilt with the player and with its
+# defines ($(VPDEF): a diag player's part carries the profile)
+$(MEGAAPPDIR)/vclink.inc: $(MEGAAPPDIR)/video.bin apps/video/vcold.asm tools/os88plink.py
+	python3 tools/os88plink.py $(MEGAAPPDIR)/video.bin $(MEGAAPPDIR)/video.map apps/video/vcold.asm $(VPDEF) -o $@
+$(MEGAAPPDIR)/vcold.bin: apps/video/vcold.asm apps/video/vcold.inc apps/video/vprof.inc $(MEGAAPPDIR)/vclink.inc apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I $(MEGAAPPDIR)/ $(VPDEF) -DPKG_MEGA -o $@ apps/video/vcold.asm
+$(MEGAAPPDIR)/video.o88: $(MEGAAPPDIR)/video.bin $(BUILD)/vblk.bin $(BUILD)/vblkpm.bin $(MEGAAPPDIR)/vfx.bin $(MEGAAPPDIR)/vcold.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(MEGAAPPDIR)/video.bin -o $@ --part $(BUILD)/vblk.bin --part $(BUILD)/vblkpm.bin --part $(MEGAAPPDIR)/vfx.bin --part $(MEGAAPPDIR)/vcold.bin
 
 $(MEGAAPPDIR)/audio.bin: apps/audio/audio.asm $(AUDIO_SRC) apps/os88mega.inc | $(BUILD)
 	@mkdir -p $(MEGAAPPDIR)

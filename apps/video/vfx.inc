@@ -22,9 +22,15 @@
 ;      VFXV_LEVEL os88spkfx_level's: DS:SI a span, CX its length, ES the
 ;                 family. out AL its peak
 ;      VFXV_EMIT  os88spkfx_emit's: DS:SI -> ES:DI, CX samples
+;      VFXV_BIND  the two segments the part keeps of the mode it was set up in
+;                 (SPEC.md 98.3.24): BX = the part's own DATA segment (what
+;                 its writing copies go through), DX = os88spk_rseg - after
+;                 a mode change, so a real-mode bracket's play shapes through
+;                 real segments and the desktop's through selectors again.
+;                 The shaper's state is kept; every register kept
 ; =============================================================================
 VFX_SIGVAL  equ 0x5846              ; 'FX'
-VFX_ABIVER  equ 1
+VFX_ABIVER  equ 2
 VFX_SIG     equ 0
 VFX_ABI     equ 2
 VFX_NVEC    equ 3
@@ -32,7 +38,8 @@ VFX_VEC     equ 4
 VFXV_INIT   equ 0
 VFXV_LEVEL  equ 1
 VFXV_EMIT   equ 2
-VFXV_N      equ 3
+VFXV_BIND   equ 3
+VFXV_N      equ 4
 
 VFX_NLEV    equ 11                  ; os88spkfx_t.inc's SPKFX_NLEV (the part
                                     ; asserts it): the family's rows

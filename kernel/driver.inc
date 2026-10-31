@@ -4243,6 +4243,7 @@ drv_hi_move:
     push bx
     push bp
     mov dx, ax
+    call drv_hi_ivt             ; (the vectors a real-mode attach hooked)
     mov bx, es                  ; every holder: the old segment -> the pair
     mov bp, mem_region_reloc
     call KERNEL_SEG:cw_mem_disp
@@ -4260,6 +4261,53 @@ drv_hi_move:
     pop dx
     pop cx
     pop ax
+    ret
+
+; drv_hi_ivt - DX = the pair's DATA selector, ES = the image (a conventional
+; claim): every hardware IRQ vector (08h-0Fh, 70h-77h) naming the image's
+; PARAGRAPH re-pointed at the pair's CODE half (DX - 8). A driver that hooks
+; its line at a REAL-MODE attach - the boot's, before mega_enter: SOUND.DRV
+; since its IRQ is the attach's (SPEC.md 34.5.7) - wrote that paragraph, and
+; mem_region_reloc, which is asked about the SELECTOR, never matches it: the
+; vector stayed on the freed claim and the card's first block IRQ ran there
+; (KERN-MEGA-PLAN 14.130). The reloc's own mega_ivt_syncf then rebuilds the
+; gates. Every register kept
+drv_hi_ivt:
+    push ax
+    push cx
+    push si
+    push es
+    push dx
+    mov ax, es
+    call MEGA_SEL_CODE:mega_selbasef ; DX:AX = its base, below 1MB
+    mov cl, 4
+    shr ax, cl
+    mov cl, 12
+    shl dx, cl
+    or ax, dx                   ; AX = its paragraph
+    pop dx
+    push dx
+    sub dx, 8                   ; DX = the CODE half
+    MEGA_SEG0 es
+    mov si, 0x08 * 4 + 2
+    call .w
+    mov si, 0x70 * 4 + 2
+    call .w
+    pop dx
+    pop es
+    pop si
+    pop cx
+    pop ax
+    ret
+.w:
+    mov cx, 8
+.l:
+    cmp [es:si], ax
+    jne .n
+    mov [es:si], dx
+.n:
+    add si, 4
+    loop .l
     ret
 
 ; -----------------------------------------------------------------------------

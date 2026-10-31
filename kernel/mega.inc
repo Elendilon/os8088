@@ -3080,6 +3080,17 @@ cpu 286
     call KERNEL_SEG:mega_fdmkf
 %endif
     call mega_capoff                ; both kinds caught something now
+    call mega_up                    ; protected mode, every table and selector
+    jmp MEGA_SEL_CODE:mega_svc_back ; ...and the rest is protected mode's
+
+; mega_up - BACK INTO PROTECTED MODE from real mode, on either CPU: the
+; reflection's way back (above) and the real-mode bracket's (fsx_rland,
+; SPEC.md 53.2.3). In: real mode, IF = 0, DS = KERNEL_SEG. Out: protected
+; mode, DS = ES = KDATA, [k_dsel] = KDATA, SS reloaded, NMI on; clobbers AX.
+; A NEAR call across the switch: CS's base is KERNEL_SEG x 16 in both modes,
+; so the `ret` lands on the same bytes. It is two bytes of stack under a
+; reflection's frame, and AFTER the BIOS returned - never the deep point
+mega_up:
     mov al, 0x8D                    ; NMI off until the selectors are back: the
     out 0x70, al                    ; PM IDTR in real mode reads gates as IVT
     lgdt [mega_gdtr]                ; all three again: a 286's reset cleared
@@ -3107,7 +3118,7 @@ cpu 286
     mov ss, ax
     mov al, 0x0D                    ; ...and NMI on: every register a gate
     out 0x70, al                    ; needs is a selector again
-    jmp MEGA_SEL_CODE:mega_svc_back ; ...and the rest is protected mode's
+    ret
 section .mega
 mega_svc_back:
     ; STKBALANCE-OK: mega_svc's back half - entered by a far jump on the frame its
@@ -3393,9 +3404,9 @@ mega_r286:
     out 0xA1, al
     call mega_kdrain                ; ...and what the two ICW1s stranded in
 .picok:                             ; the 8042 (KERN-MEGA-PLAN 14.62)
-    cmp byte [mega_drop], 0         ; THE DOS PARK's way down (megados.inc):
-    jne mega_dropr                  ; the same reset, a different landing
-    jmp mega_svc_lo.rm
+    cmp byte [mega_drop], 0         ; THE DOS PARK's way down (megados.inc)
+    jne mega_rland                  ; and the real-mode bracket's (fsx.inc):
+    jmp mega_svc_lo.rm              ; the same reset, a different landing
 
 ; -----------------------------------------------------------------------------
 ; mega_slidef - FAR: AX = a data selector, DX = paragraphs -> AX = a data
@@ -5130,7 +5141,8 @@ mega_rmaskf:
     mov bx, 0x3FB8
     cmp byte [ss:bp+20], 0x10
     je .out
-    cmp byte [mou_seen], 0
+.nv:                                ; (far, BX = 3FB8h: the real-mode bracket's
+    cmp byte [mou_seen], 0          ; entry, which has no vector - fsx_rdownf)
     je .out
     push es
     mov ax, MEGA_SEL_LOW0
@@ -9823,7 +9835,7 @@ mega_gatef:
     call mega_tasks_ok              ; nothing suspended in real mode that the
     mov dx, mega_ttask              ; switch cannot convert
     jc .refuse
-    call mega_a20                   ; (the tables' room is asked LAST: a claim
+    call KERNEL_SEG:mega_a20f       ; (the tables' room is asked LAST: a claim
     mov dx, mega_ta20               ; made before a refusal would be left
     jc .refuse                      ; behind by it)
     COLDCALL mega_layoutf           ; the tables at the TOP of extended
@@ -10006,6 +10018,10 @@ mega_tasks_ok:
     stc
     ret
 
+section .text                   ; REAL MODE ONLY, and called from both the
+                                ; switch's door (.cold, low then) and the real-
+                                ; mode bracket's way back (fsx_rland, SPEC.md
+                                ; 53.2.3), which has no `.cold` to reach
 ; -----------------------------------------------------------------------------
 ; mega_a20 - open the A20 line and prove it (CF = 1 it will not open)
 ; Port 92h first, which every AT-class chipset since the PS/2 has; then the
@@ -10083,6 +10099,10 @@ mega_a20t:                          ; CF = 1 the gate is SHUT. Complement
 .open:
     clc
     ret
+mega_a20f:                          ; (the door's far entry, from mega_gatef)
+    call mega_a20
+    retf
+section .cold
 
 ; -----------------------------------------------------------------------------
 ; mega_tlowf - FAR, in REAL MODE from mega_enter (.cold is still conventional
@@ -12587,6 +12607,13 @@ mega_dfind:
     jne .n
     cmp [es:di], cx
     jne .n
+    push dx                         ; ...AND NO WINDOW (SPEC.md 50.6.11): a
+    push di                         ; window is its owner's to re-aim, and
+    lea dx, [di+4]                  ; one left over this very base answered
+    call mega_wslot                 ; as a SUB moved that SUB at its next
+    pop di                          ; aim (KERN-MEGA-PLAN 14.128)
+    pop dx
+    jnc .n
     lea ax, [di+4]
     clc
     jmp short .o
@@ -12942,59 +12969,73 @@ mega_vfixall:
     cld
     rep stosw
     pop es
-    mov ax, VGA_SEG
-    call mega_useg
-    mov [k_vsa], ax
-    mov ax, 0xB000
-    call mega_useg
-    mov [k_vsb], ax
-    mov ax, 0xB800
-    call mega_useg
-    mov [k_vsc], ax
-    mov ax, 0xF000
-    call mega_useg
-    mov [k_vsf], ax
+    mov ax, mega_vword              ; VSEG's four are at or above A000h, so
+    call mega_vwalk                 ; mega_vword makes each mega_useg's
+    pop di
+    pop cx
+    pop ax
+    ret
+
+; mega_vwalk - AX = a STEP, a `.mega` near proc called with DI = each word
+; that names a video or font SEGMENT, in a fixed order: VSEG's four, vid_tab's
+; column, the live block's three, each display context's three, the
+; full-screen modes' rows, the glyph table's (and the band's). mega_vfixall's
+; step makes them selectors at the switch; the real-mode bracket's banks them
+; and makes them segments again, and puts the bank back (fsx.inc, SPEC.md
+; 53.2.3) - so the bracket's bank is exactly as long as this walk, and
+; fsx.inc's FSX_RBN counts it. Clobbers AX CX DI; the step may use SI and DX
+mega_vwalk:
+    push bx
+    mov bx, ax
+    mov di, k_vsa
+    mov cx, 4
+.v:
+    call bx
+    inc di
+    inc di
+    loop .v
+%if k_vsf - k_vsa != 6
+ %error "mega_vwalk steps VSEG's four words as one run"
+%endif
 %ifdef GFX_VGA
     mov di, vid_tab
 %else
     mov di, vid_tab + VID_REC       ; (row 0 is no row on a build with no
 %endif                              ; VGA renderer: viddet.inc)
 .t:
-    call mega_vword
+    call bx
     add di, VID_REC
     cmp di, vid_tab_end
     jb .t
     mov di, vid_seg
-    call mega_vword
+    call bx
     mov di, vid_rseg
-    call mega_vword
+    call bx
     mov di, vid_tseg
-    call mega_vword
+    call bx
     mov di, vid_ctx
     mov cx, VID_NDISP_MAX
 .c:
-    call mega_vword
+    call bx
     add di, vid_rseg - vid_seg
-    call mega_vword
+    call bx
     add di, vid_tseg - vid_rseg
-    call mega_vword
+    call bx
     add di, VID_CTX_SZ - (vid_tseg - vid_seg)
     loop .c
     mov di, fsx_mtab
     mov cx, FSXM_COUNT
 .f:
-    call mega_vword
+    call bx
     add di, FSXR_SIZE
     loop .f
     mov di, font_seg
-    call mega_vword
+    call bx
 %ifdef BANDCOMP
     mov di, bnd_seg
-    call mega_vword
+    call bx
 %endif
-    pop di
-    pop cx
-    pop ax
+    pop bx
     ret
 
 %ifdef VID_EXT

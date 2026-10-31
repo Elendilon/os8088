@@ -54,7 +54,11 @@ MEM_MAX  equ 32                 ; claim records; more than this and a claim
                                 ; records; a region is a claim now (SPEC.md
                                 ; 20.1), so twelve instances can hold twelve
                                 ; of these before anything asks for data
-MEM_OWNER_MAX equ 8             ; ...and no one owner may hold more than this
+%ifdef KERN_MEGA
+MEM_OWNER_MAX equ 12            ; (kern_mega: SPEC.md 50's twelve - the Video
+%else                           ; Player's kern_mega arm holds eight before a
+MEM_OWNER_MAX equ 8             ; play's ring, KERN-MEGA-PLAN 14.129)
+%endif                          ; ...and no one owner may hold more than this
                                 ; many. It does NOT shrink the table - the
                                 ; table is sized by what the machine can hold,
                                 ; not by the cap - and that is not what it is

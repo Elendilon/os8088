@@ -786,7 +786,12 @@ SND_EXT_TAB      equ 16          ; os88spk.inc's PWM table, written by its
                                  ; SI = your ISR's offset - the kernel points
                                  ; IRQ0's GATE at BX:SI and answers AX = K and
                                  ; CX:DX = the chain; you program channel 0.
-                                 ; Your ISR must write nothing through CS
+                                 ; Your ISR must write nothing through CS.
+                                 ; ...and kern_mega's REAL-MODE bracket
+                                 ; (53.2.3, FSXF_REAL), where AL = 0 refuses
+                                 ; too: there AL = 2 points IVT 20h - IRQ0,
+                                 ; the 8259 at its protected-mode base - at
+                                 ; BX:SI, and your ISR runs in real mode
 SPK_E_NOTRATE    equ 1           ; not in a FSXF_RATE bracket (and always,
                                  ; on kern_small)
 SPK_E_BUSY       equ 3           ; open already, or a clip plays
@@ -5062,6 +5067,7 @@ OS88_BSS_SIZE equ 0
                                                 ; FSXF_FASTTICK - SPEC.md
                                                 ; 53.2.1; bit 2 = FSXF_RATE,
                                                 ; with DX and DI - 53.2.2;
+                                                ; bit 3 = FSXF_REAL - 53.2.3;
                                                 ; all others of CL must be
                                                 ; 0, or it refuses) and CH
                                                 ; = THE DISPLAY: 0 your
@@ -5085,7 +5091,10 @@ OS88_BSS_SIZE equ 0
                                                 ; W_ONKEY's environment, near
                                                 ; ret), and on its return
                                                 ; restores the desktop whole.
-                                                ; Out CF=1 refused. Inside:
+                                                ; Out CF=1 refused; CF=0 with
+                                                ; FSXF_REAL, SI = FSXR_* (pass
+                                                ; SI = 0 in; BP = 0 or your
+                                                ; FSXL_ list). Inside:
                                                 ; poll int 16h for keys and
                                                 ; OSAPI_MOUSE for the mouse -
                                                 ; no events are dispatched;
@@ -6557,6 +6566,64 @@ FSXF_RATE       equ 4           ; OSAPI_FSX_RUN CX bit 2 (SPEC.md 53.2.2,
                                 ; it a no-op until you are ready. Not with
                                 ; FSXF_FASTTICK. [ticks] keeps its rate
 FSX_RATE_MIN    equ 2048        ; ...the fastest divisor: 582 Hz
+FSXF_REAL       equ 8           ; OSAPI_FSX_RUN CX bit 3 (SPEC.md 53.2.3): on
+                                ; kern_mega in protected mode, run the WHOLE
+                                ; bracket in REAL MODE - one drop at the entry,
+                                ; one return at the exit - instead of one
+                                ; reflection per BIOS call. Every kernel takes
+                                ; the bit and the others ignore it. Inside,
+                                ; DS = CS = a REAL paragraph that may be a
+                                ; COPY of your region (take your segment from
+                                ; CS, never from a word banked before the
+                                ; call), the copy is written back at the exit,
+                                ; IRQ n is vector 20h + n (write no IVT 08h-
+                                ; 0Fh or 20h-27h cell), and only the cells
+                                ; 53.2.3 lists run - any other cell answers
+                                ; CF = 1. Pass SI = FSXR_REAL: on CF = 0 SI is
+                                ; the ANSWER, FSXR_REAL it ran in real mode or
+                                ; the reason it ran in PROTECTED mode instead
+                                ; - kern_mega never refuses the bit, it falls
+                                ; back, and a kernel in real mode keeps SI.
+                                ; Inside, OSAPI_CPU_INFO's CPU_F_PM says the
+                                ; same. apps/os88real.inc renames your claims
+FSXR_REAL       equ 0           ; ...SI out: the bracket ran in real mode
+FSXR_KEEP       equ 1           ; ...protected: FSXF_KEEPWORKER was asked
+FSXR_SVC        equ 2           ; (RETIRED, never answered: a driver's
+FSXR_EXTD       equ 3           ; worker, the extended desktop and a
+FSXR_SERIAL     equ 4           ; SERIAL.DRV lease are all real since W7)
+FSXR_ROOM       equ 5           ; ...protected: no conventional room for the
+                                ; copy of an OS88_HIGH region, or for the
+                                ; bracket's service area (W3: its twins and
+                                ; the extent lists, ~2-3 KB)
+FSXR_VOL        equ 6           ; ...protected: a listed stream is on a
+                                ; volume real mode cannot read - a redirected
+                                ; or file-driver volume (a network share, the
+                                ; CD-ROM, HTTP, a RAM disk), a mounted image,
+                                ; or a sector past CHS's reach
+FSXR_FRAG       equ 7           ; ...protected: the listed streams need more
+                                ; than FSXL_RUNS runs (a fragmented file), or
+                                ; there are more than FSXL_NMAX of them
+FSXR_DRV        equ 8           ; ...protected: a listed driver class the
+                                ; real-mode bracket cannot carry (it carries
+                                ; DRVC_DISK, DRVC_EMS and DRVC_SOUND), or a
+                                ; SOUND.DRV segment word above 1MB
+FSXR_DROOM      equ 9           ; ...protected: no conventional room for a
+                                ; driver's low copy
+; FSXF_REAL's LIST (SPEC.md 53.2.3): BP = 0, or the offset in your DS of
+; entries naming what the bracket will read, so the kernel can make it
+; readable in real mode before it leaves protected mode. Ignored by every
+; kernel in real mode (BP is kept, as by every cell)
+FSXL_END        equ 0           ; ...the list's end (any other byte ends it)
+FSXL_FILE       equ 1           ; db FSXL_FILE, 'NAME.EXT', 0: a file your
+                                ; OSAPI_FILE_READ_SEQ will read inside, by
+                                ; THIS name, in your folder - walked into an
+                                ; extent list at the door
+FSXL_DRV        equ 2           ; db FSXL_DRV, DRVC_*: a driver your
+                                ; OSAPI_DRV_CALL will reach inside - and
+                                ; DRVC_SOUND for OSAPI_SND_STREAM (a stream
+                                ; on a DRVC_DISK volume asks for its own)
+FSXL_NMAX       equ 4           ; ...files a list may name
+FSXL_RUNS       equ 224         ; ...contiguous runs, all its files together
 FSX_SUBTICK     equ 3           ; ...and this is the divider, so with FASTTICK
                                 ; armed FSXW_FRAME returns 3 x 18.2065 = 54.6
                                 ; times a second. A constant, not a

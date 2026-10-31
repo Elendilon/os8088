@@ -1377,6 +1377,14 @@ mega_dosgo:
     jmp KERNEL_SEG:mega_dosgo_lo    ; ...and down, from below 1MB
 section .text                   ; the drop itself (KERN-MEGA-SEGMENTS-PLAN 3.6)
 mega_dosgo_lo:
+    mov byte [mega_drop], 1         ; the DOS park's landing, mega_dropr
+; mega_down - OUT OF PROTECTED MODE FOR GOOD (until the caller's own way
+; back), on either CPU, landing at mega_rland in real mode with IF = 0 and
+; the stack as it was: [mega_drop] names the landing - 1 the DOS park's
+; mega_dropr, 2 the real-mode bracket's fsx_rland (SPEC.md 53.2.3). PM, DS =
+; KDATA, a writable ES, IF = 0, NMI off for a 386 (the 286's reset sets it).
+; Jumped to, never called
+mega_down:
     cmp byte [cpu_tier], CPU_386
     jb .r286
 cpu 386
@@ -1385,11 +1393,10 @@ cpu 386
     mov cr0, eax
 cpu 286
     db 0xEA
-    dw mega_dropr, KERNEL_SEG
+    dw mega_rland, KERNEL_SEG
 .r286:                              ; ...and the 286's (W2): the reset
-    mov byte [mega_drop], 1         ; mega_svc.r286 takes, landing in
-    mov [mega_rss], ss              ; mega_r286, whose foot sends a drop here
-    mov [mega_rsp], sp
+    mov [mega_rss], ss              ; mega_svc.r286 takes, landing in
+    mov [mega_rsp], sp              ; mega_r286, whose foot sends a drop here
     push word MEGA_BDA
     pop es
     mov word [es:0x67], mega_r286
@@ -1525,6 +1532,12 @@ mega_dhcfill:
 ; kernel staged - hbm_handover's last instruction, with no kernel left to run.
 ; -----------------------------------------------------------------------------
 section .text                   ; (KERN-MEGA-SEGMENTS-PLAN: back from .mega)
+; mega_rland - where mega_down lands, REAL MODE on either CPU: [mega_drop]
+; picks the landing. Through CS, which is KERNEL_SEG here on both ways down
+mega_rland:
+    cmp byte [cs:mega_drop], 2
+    jne mega_dropr
+    jmp fsx_rland
 mega_dropr:
     cli
     mov ax, KERNEL_SEG
