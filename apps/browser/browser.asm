@@ -5525,6 +5525,13 @@ br_claim:
     pop ax
     call OSAPI_MEM_CLAIM
     jmp short br_pageunpin
+br_claimp:                          ; ...and OSAPI_MEM_P's claim verbs, BL
+    push ax                         ; and CX the caller's (SPEC.md 50.3.7)
+    xor ax, ax
+    call br_pagepin
+    pop ax
+    call OSAPI_MEM_P
+    jmp short br_pageunpin
 br_regrow:
     push ax
     xor ax, ax

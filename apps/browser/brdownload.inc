@@ -787,8 +787,12 @@ br_dl_claim:
     mov ax, [br_dl_needkb]
     call br_dl_memroom
     jc .bad
-    mov ax, [br_dl_needkb]
-    call br_claim
+    mov ax, [br_dl_clustersz]       ; the claim is the cluster ITSELF, in
+    mov cl, 4                       ; PARAGRAPHS (SPEC.md 50.3.7): a 512-byte
+    shr ax, cl                      ; cluster no longer holds a whole KB. The
+    xor cx, cx                      ; reserve check above stays in KB, which
+    mov bl, MEMP_CLAIM              ; only rounds it the cautious way
+    call br_claimp
     jc .bad
     mov [br_dl_bufseg], dx
     call br_movable                 ; it MOVES (NO-PINNING A3): br_reloc names
