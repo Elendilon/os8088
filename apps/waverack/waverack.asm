@@ -2628,10 +2628,13 @@ wr_s_mono:   db '  Mono', 0
 wr_s_stereo: db ' Stereo', 0
 
 wr_ablines:
-    dw wr_ab1, wr_ab2, wr_ab3, 0
+    dw wr_ab1, wr_ab2, wr_ab3, wr_abz, wr_abc, wr_abn, 0
 wr_ab1:     db 'WaveRack for os8088', 0
 wr_ab2:     db 'records, plays and', 0
 wr_ab3:     db 'edits WAV sound', 0
+wr_abz:     db 0
+wr_abc:     db 'Contributed by', 0
+wr_abn:     db 'Jorge Gonzalez', 0
 
 %define WRART_DATA
 %include "wrart.inc"

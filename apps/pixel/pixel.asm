@@ -3938,12 +3938,13 @@ px_mfold:
     dw 0
 
 ; --- About (SPEC.md 12.7): the app-name cell's item, not a Help menu -------------
-px_ablines: dw px_ab1, px_ab2, px_ab3, px_ab0, px_ab4, 0
+px_ablines: dw px_ab1, px_ab2, px_ab3, px_ab0, px_ab4, px_ab5, 0
 px_ab1:     db 'PiXEL', 0
 px_ab2:     db 'An image viewer and editor', 0
 px_ab3:     db 'for VGA, CGA and Hercules', 0
 px_ab0:     db 0
-px_ab4:     db 'Part of os8088', 0
+px_ab4:     db 'Contributed by', 0
+px_ab5:     db 'Jorge Gonzalez', 0
 
 ; --- the words the window says ---------------------------------------------------
 px_s_empty: db 'Open a picture  (Ctrl+O)', 0

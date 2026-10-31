@@ -92,6 +92,8 @@ rl_entry:
     call OSAPI_WM_ONWHEEL           ; the pane under the pointer
     mov si, rl_intro
     call bl_sline
+    mov si, rl_credit
+    call bl_sline
     mov si, rl_hint
     call bl_sline
     mov si, rl_hint2
@@ -435,6 +437,8 @@ rl_repaint:
 ; Inventory values are labelled by their sources, rather than "installed" guesses.
 rl_facts:
     mov si, rl_intro
+    call bl_sline
+    mov si, rl_credit
     call bl_sline
     mov si, rl_l_canvas
     mov ax, [rl_canvas_h]
@@ -1060,6 +1064,7 @@ OS88_MENUSET rl_menus, rl_title, rl_cmd
     OS88_MENU rl_menu, rl_menuitems, 6
 OS88_MENUSET_END rl_menus
 rl_intro: db 'REDLINE 1.0  //  CPU + GRAPHICS PERFORMANCE LAB', 0
+rl_credit: db 'Contributed by Jorge Gonzalez and Elendilon', 0
 rl_hint: db 'U Summary  D Detailed  C Compare  R Run  S Save  H Chipset  Q Quit', 0
 rl_hint2: db '3 runs averaged; 3 graphics tiers. F1: report help.', 0
 rl_running: db 'REDLINE: probing hardware and measuring fixed workloads...', 0
