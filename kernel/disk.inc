@@ -6976,8 +6976,11 @@ dsk_rah_want:
     push cx
     push dx
 %ifdef DIRW_ONE
-    jmp short .out              ; DIRW1=1: never claim, so every read is
-%endif                          ; exactly the sectors asked for (SPEC.md 18.95)
+    jmp .out                    ; DIRW1=1: never claim, so every read is
+%endif                          ; exactly the sectors asked for (SPEC.md 18.95);
+                                ; NOT `short`: kern_mega's arm below puts
+                                ; .out past a short jump's reach, and nasm
+                                ; still picks the short form where it fits
 %ifdef KERN_MEGA
     cmp byte [dsk_rah_hi], 0    ; the store above 1MB is held: only its
     je .lo                      ; landing can have been shed, and a mount is
