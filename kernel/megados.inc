@@ -1586,14 +1586,8 @@ mega_dropr:
     mov al, 0xFF
     out 0x21, al
     out 0xA1, al
-    mov al, 0x11                    ; ICW1
-    out 0x20, al
-    mov al, 0x08                    ; ICW2: the BIOS's base
-    out 0x21, al
-    mov al, 0x04
-    out 0x21, al
-    mov al, 0x01
-    out 0x21, al
+    mov ah, 0x08                    ; ICW1-ICW4, the BIOS's base (the IMR it
+    call mega_pic_at                ; puts back is the FFh just written)
     mov al, [mega_dkm1]
     out 0x21, al
     mov al, [mega_dkm2]
