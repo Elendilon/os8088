@@ -58424,7 +58424,8 @@ kern_mega walks `\AUTOSTRT` LAST in `kmain`, after `mega_enter` and after
 the boot's drivers and caches go above 1MB (docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md
 MC8). From the blob it ran in real mode, so every package it started was
 loaded into conventional memory whatever its header said, and one with a
-worker made `mega_tasks_ok` refuse protected mode for the session. The walk
+worker made the switch's task check (`mega_tasks_ok` then, `mega_gateb`'s
+loop since kern_mega size pass 2) refuse protected mode for the session. The walk
 is one macro body, `AS_WALK`: `as_boot` in the blob on every other kernel
 (unchanged), `as_bootc` in `.cold` on kern_mega - written with no data and no
 CS idiom there (the folder name and the skip toast are immediate stores, the
@@ -98499,7 +98500,8 @@ the probe must find the parked anchor before any other state is known, and
 the same arithmetic on the same BIOS answer finds it. `mega_tset` writes
 every word that names the tables (`mega_gdtr`, `mega_idtr`, `mega_ldtlin`,
 `mega_tbllin`, the bootstrap window, the LDT and IDT descriptors) from one
-base, for the top-of-RAM block and for `mega_tlowf`'s conventional one alike;
+base, for the top-of-RAM block and for the conventional one alike (`mega_gateb`
+claims it in the boot blob, kern_mega size pass 2; it was `mega_tlowf`);
 the parked stub's GDTR/IDTR copy is patched from the same two variables at
 staging (`mega_dstubup`). `.cold`'s descriptor base is `[mega_coldlin]` less
 `COLD_VSTART`.

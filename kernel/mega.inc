@@ -318,8 +318,32 @@ mega_enter:
 ; selector. The bootstrap's CS, MEGA_SEL_BCODE, is based at COLD_SEG for it
 section .cold
 mega_enterf:
-    call COLD_SEG:mega_gatef        ; whether it can be made at all - `.cold`,
-    jnc .room                       ; as every refusal is (KERN-MEGA-PLAN 14.45)
+    mov dx, [ss:mega_gwhy]          ; whether it can be made at all, as the
+    or dx, dx                       ; boot blob found it (mega_gateb, every
+    jnz .refuse                     ; refusal `.cold`'s - KERN-MEGA-PLAN 14.45)
+    call KERNEL_SEG:mega_a20f       ; ...and A20 proved open AGAIN, at the
+    mov dx, mega_ta20               ; moment it is relied on: the desktop's
+    jnc .room                       ; first paint ran in between
+.refuse:                            ; WHY ON THE GLASS (a field run that stays
+%ifdef MEGA_E9                      ; in real mode must not look like one that
+    mov si, mega_mrm                ; never tried): "kern_mega: " and the
+    call KERNEL_SEG:mega_putsf      ; toast's own line
+    mov si, dx
+    call KERNEL_SEG:mega_putsf
+    mov al, 10
+    out 0xE9, al
+%endif
+    push es
+    push ds
+    pop es
+    mov si, dx
+    mov cx, 146
+    call KERNEL_SEG:cw_toast_show
+    pop es
+    mov ax, MEGA_RAM                ; ...and `.mega`'s rung to the heap: real
+    call mega_rung                  ; mode can never run what is on it
+    mov byte [mega_mfree], 1        ; (KERN-MEGA-SEGMENTS-PLAN 3.3)
+    stc
     retf                            ; (CF = 1)
 .room:
     cli
@@ -9816,60 +9840,91 @@ mx_relallf:
 ; their four-byte far doors
 section .cold
 ; -----------------------------------------------------------------------------
-; mega_gatef - FAR, in REAL MODE from mega_enter (.cold is still conventional
-; then, and this is reached on an 8088 too, so it is 8086 code): WHETHER THE
-; SWITCH CAN BE MADE - a 286, no package task to convert, A20 open and
-; proved, and room for the tables. Every refusal says so on the debug port and
-; on the GLASS (a field run that stays in real mode must not look like one
-; that never tried), and gives `.mega`'s rung to the heap: real mode can never
-; run what is on it (KERN-MEGA-SEGMENTS-PLAN 3.3). The decoder's buffers drop
-; to its bottom and the floor onto them, as mega_coldup does for both rungs.
-; All of it is `.cold` and not the 64KB segment, being run once, low, before
-; anything is in protected mode (KERN-MEGA-PLAN 14.45).
-; out: CF = 0 go on; CF = 1 refused. Clobbers AX CX DX SI
+; mega_gateb - FAR, from kmain_o, its last call (BLOBCALL): WHETHER THE SWITCH
+; CAN BE MADE - a 286, no package task to convert, A20 open and proved, and
+; room for the tables - asked IN THE BOOT BLOB, which mem_unblob gives back,
+; and the answer left in [mega_gwhy] for mega_enterf: 0 go on, else the
+; refusal's toast line. It was `.cold`'s mega_gatef with mega_tasks_ok and
+; mega_tlowf beside it - resident for the session, above 1MB once the switch
+; is made and in CONVENTIONAL memory for ever on a machine that refuses it,
+; for code that runs once; kern_mega size pass 2 moved them here as one body,
+; each having had this one caller (mega_tset stays `.cold`'s). The
+; refusal itself - the toast, `.mega`'s rung to the heap - is still made by
+; mega_enterf at the switch's own moment, so the user sees what they saw. Why
+; the verdict cannot go stale between here and the switch is
+; docs/plans/completed/msp2/bootonce.md's: the CPU is the CPU, nothing kmain
+; runs after kmain_o starts a task, the tables' claim is pinned, and A20 is
+; proved again at the switch. Reached on an 8088 too, so 8086 code up to the
+; tier test. Clobbers AX BX CX DX BP (kmain_o's last call: all dead)
 ; -----------------------------------------------------------------------------
-mega_gatef:
+section .lowbss                 ; (SS-addressed: not the 64KB window's)
+mega_gwhy   resw 1                  ; mega_gateb's verdict: 0 or the refusal
+section .boot2
+mega_gateb:
     cmp byte [cpu_tier], CPU_286
     mov dx, mega_t86                ; (MOV keeps the flags)
-    jb .refuse                      ; an 8088 or 8086: no protected mode at all
-    call mega_tasks_ok              ; nothing suspended in real mode that the
-    mov dx, mega_ttask              ; switch cannot convert
-    jc .refuse
+    jb mega_gwset                   ; an 8088 or 8086: no protected mode at all
+
+    ; --- every task but the running one the KERNEL'S (no instance, not a
+    ; driver's service worker). A package's worker suspended in real mode
+    ; holds real-mode code segments in its stack - the frame's CS and every
+    ; far return into the package beneath it - and nothing can find those to
+    ; convert them, so the switch is refused instead. Only AUTOSTART (SPEC.md
+    ; 26.10.5) can launch one before mega_enter, and on kern_mega it runs
+    ; after it (kmain_hic)
+    mov bx, sch_tasks
+    xor cx, cx
+    mov dx, mega_ttask
+.t:
+    cmp byte [bx+T_STATE], 0
+    je .n
+    cmp cl, [sch_cur]
+    je .n
+    cmp byte [bx+T_INST], 0xFF
+    jne mega_gwset
+    test byte [bx+T_FLAGS], TF_SERVICE
+    jnz mega_gwset
+.n:
+    add bx, T_SIZE
+    inc cx
+    cmp cx, MAX_TASKS
+    jb .t
+
     call KERNEL_SEG:mega_a20f       ; (the tables' room is asked LAST: a claim
     mov dx, mega_ta20               ; made before a refusal would be left
-    jc .refuse                      ; behind by it)
-    COLDCALL mega_layoutf           ; the tables at the TOP of extended
-    jc .tlow                        ; memory (KERN-MEGA-MEMORY-PLAN MC2)...
-    mov ax, [mega_tbllin]
+    jc mega_gwset                   ; behind by it)
+    call COLD_SEG:mega_layoutf      ; the tables at the TOP of extended
+    mov ax, [mega_tbllin]           ; memory (KERN-MEGA-MEMORY-PLAN MC2)...
     mov dx, [mega_tbllin+2]
-    call mega_tset
-    jmp short .go
-.tlow:
-    call COLD_SEG:mega_tlowf        ; ...or 82KB of conventional memory: no
-    mov dx, mega_tmem               ; minimum beyond FITTING (answer 16)
-    jnc .go
-.refuse:
-%ifdef MEGA_E9
-    mov si, mega_mrm                ; "kern_mega: " and the toast's own line
-    call KERNEL_SEG:mega_putsf
-    mov si, dx
-    call KERNEL_SEG:mega_putsf
-    mov al, 10
-    out 0xE9, al
-%endif
-    push es
-    push ds
-    pop es
-    mov si, dx
-    mov cx, 146
-    call KERNEL_SEG:cw_toast_show
-    pop es
-    mov ax, MEGA_RAM                ; ...and `.mega`'s rung to the heap
-    call mega_rung
-    mov byte [mega_mfree], 1
-    stc
-.go:
+    jnc .tset                       ; (MOV keeps the flags)
+; .tlowf - the other arm (it was mega_tlowf, `.cold`'s, FAR): kern_mega's
+; three tables in CONVENTIONAL memory, for a machine whose extended memory
+; cannot hold them (KERN-MEGA-PLAN 14.1 answer 16, 14.17) - 82KB, no minimum
+; beyond FITTING (answer 16). [mega_tblkb] claimed top-down and pinned
+; (MEM_K_MTBL), laid out exactly as above 1MB - the GDT at its base, the LDT
+; on it, the IDT after. No pool and `.cold` stays low: mega_xminit and
+; mega_coldup already refuse a machine this small. Claimed in the blob,
+; before mem_unblob: TOP-DOWN and pinned, so the compaction mem_unblob makes
+; packs the movable claims down under it and never moves it
+.tlowf:
+    mov ax, [mega_tblkb]            ; (mega_layoutf sized it, refusing)
+    mov bx, MEM_K_MTBL
+    mov bp, mem_claim_hi_x          ; TOP-DOWN, pinned
+    call COLD_SEG:wm_cbd            ; DX = the block
+    jc .tmem                        ; (the heap had no room: nothing changed)
+    mov ax, dx                      ; DX:AX = its linear base
+    shl ax, 4
+    shr dx, 12
+.tset:
+    call COLD_SEG:mega_tset         ; every word the switch reads aimed
+    xor dx, dx                      ; GO ON
+    jmp short mega_gwset
+.tmem:
+    mov dx, mega_tmem
+mega_gwset:
+    mov [ss:mega_gwhy], dx
     retf
+section .cold
 
 ; mega_rung - AX = the paragraph of a rung that is dead (`.cold`'s or
 ; `.mega`'s) -> the planar decoder's buffers to its bottom and the heap floor
@@ -9986,38 +10041,6 @@ mega_coldupf:
     retf
 
 
-; mega_tasks_ok - CF = 0 when every task but the running one is the KERNEL'S
-; (no instance, not a driver's service worker). A package's worker suspended
-; in real mode holds real-mode code segments in its stack - the frame's CS and
-; every far return into the package beneath it - and nothing can find those to
-; convert them, so the switch is refused instead. Only AUTOSTART (SPEC.md
-; 26.10.5) can launch one before mega_enter. Clobbers CX, flags.
-mega_tasks_ok:
-    push bx
-    mov bx, sch_tasks
-    xor cx, cx
-.t:
-    cmp byte [bx+T_STATE], 0
-    je .n
-    cmp cl, [sch_cur]
-    je .n
-    cmp byte [bx+T_INST], 0xFF
-    jne .no
-    test byte [bx+T_FLAGS], TF_SERVICE
-    jnz .no
-.n:
-    add bx, T_SIZE
-    inc cx
-    cmp cx, MAX_TASKS
-    jb .t
-    pop bx                          ; CF = 0 from the compare (CX < MAX_TASKS
-    clc                             ; failed), said outright
-    ret
-.no:
-    pop bx
-    stc
-    ret
-
 section .text                   ; REAL MODE ONLY, and called from both the
                                 ; switch's door (.cold, low then) and the real-
                                 ; mode bracket's way back (fsx_rland, SPEC.md
@@ -10099,51 +10122,20 @@ mega_a20t:                          ; CF = 1 the gate is SHUT. Complement
 .open:
     clc
     ret
-mega_a20f:                          ; (the door's far entry, from mega_gatef)
-    call mega_a20
+mega_a20f:                          ; (the door's far entry, from mega_gateb
+    call mega_a20                   ; and mega_enterf)
     retf
 section .cold
 
 ; -----------------------------------------------------------------------------
-; mega_tlowf - FAR, in REAL MODE from mega_enter (.cold is still conventional
-; then): kern_mega's three tables in CONVENTIONAL memory, for a machine whose
-; extended memory cannot hold them (KERN-MEGA-PLAN 14.1 answer 16, 14.17).
-; [mega_tblkb] claimed top-down and pinned (MEM_K_MTBL), laid out exactly as
-; above 1MB - the GDT at its base, the LDT on it, the IDT after - and every base
-; the switch reads (the bootstrap's window, GDTR, IDTR, the LDT's descriptor
-; and its alias, the IDT's alias) aimed at it. No pool and `.cold` stays low:
-; mega_xminit and mega_coldup already refuse a machine this small.
-; out: CF = 0 placed; CF = 1 the heap had no room for it, nothing changed
-; -----------------------------------------------------------------------------
-mega_tlowf:
-    push ax
-    push bx
-    push dx
-    push bp
-    mov ax, [mega_tblkb]            ; (mega_layoutf sized it, refusing)
-    mov bx, MEM_K_MTBL
-    mov bp, mem_claim_hi_x          ; TOP-DOWN, pinned
-    call COLD_SEG:wm_cbd            ; DX = the block
-    jc .out
-    mov ax, dx                      ; DX:AX = its linear base
-    shl ax, 4
-    shr dx, 12
-    call mega_tset
-    clc
-.out:
-    pop bp
-    pop dx
-    pop bx
-    pop ax
-    retf
-
-; -----------------------------------------------------------------------------
-; mega_tset - DX:AX = where the tables' block goes ([mega_tblkb]: the GDT at
-; DX:AX and the LDT on top of it, the IDT [mega_ldtend] in) -> every word the
-; switch and the kernel read a table's place from aimed there: the
-; bootstrap's window, GDTR, IDTR, [mega_tbllin], [mega_ldtlin], the LDT's and
-; the IDT's descriptors and the DOS park's IDT line (mega_dsidt). Real mode
-; (mega_gatef, before the switch). Clobbers nothing
+; mega_tset - FAR, from mega_gateb in the boot blob (it was near, from the
+; gate and mega_tlowf, both `.cold`'s): DX:AX = where the tables' block goes
+; ([mega_tblkb]: the GDT at DX:AX and the LDT on top of it, the IDT
+; [mega_ldtend] in) -> every word the switch and the kernel read a table's
+; place from aimed there: the bootstrap's window, GDTR, IDTR, [mega_tbllin],
+; [mega_ldtlin], the LDT's and the IDT's descriptors and the DOS park's IDT
+; line (mega_dsidt). Real mode. Clobbers nothing. Still `.cold` and not the
+; blob's, which it would nearly fill (docs/plans/completed/msp2/bootonce.md)
 ; -----------------------------------------------------------------------------
 mega_tset:
     push ax
@@ -10176,7 +10168,7 @@ mega_tset:
     mov [mega_idtd+4], dl
     pop dx
     pop ax
-    ret
+    retf
 
 ; -----------------------------------------------------------------------------
 ; mega_layoutf - FAR, real or protected mode: WHERE kern_mega's fixed area
