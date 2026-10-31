@@ -64256,7 +64256,7 @@ we lose the ability to see what is going on* - the owner's words.
   span (`[tm_sysp]`), plus `[tm_kclp]` on the process page and the
   non-program groups on the memory page. **`IVT+BIOS` is `KERNEL_SEG`
   paragraphs** (`TM_LOWP`, 1.5K) plus the BIOS's extended data area
-  (§28.4.8): `1½K` on a machine without one. The half-KB `TM_LOWKB` added is
+  (§28.4.8): `1.5K` on a machine without one. The half-KB `TM_LOWKB` added is
   retired with the argument that justified it.
 - **Above 1MB is KB**, as the pool counts it (§41, §28.4.8), so a figure is
   two halves - paragraphs below 1MB, KB above - and the formatter adds them.
@@ -64268,16 +64268,16 @@ we lose the ability to see what is going on* - the owner's words.
 | value | prints |
 |---|---|
 | 0 | `   -` — nothing at all, and only nothing |
-| 0.5K | `  ½K` |
-| 2.5K | ` 2½K` |
-| 19.5K | `19½K` |
-| 99.5K | `99½K` |
+| 0.5K | `  .5K` |
+| 2.5K | ` 2.5K` |
+| 19.5K | `19.5K` |
+| 99.5K | `99.5K` |
 | 100K | `100K` |
-| 100.5K | `100½` — the fraction takes the `K`'s cell |
+| 100.5K | `100.5` — the fraction takes the `K`'s cell |
 | 1000K and up | MB, as before: `0.9M` for 1000K (tenths, truncated), ` 12M` past 10MB - only a figure with RAM above 1MB in it gets there, and that half is whole KB |
 
 **The fraction is a glyph the font does not have.** The system font is ASCII
-32–126 (§6), so the package carries three 8×8 cells of its own - `¼`, `½`,
+32–126 (§6), so the package carries three 8×8 cells of its own - `¼`, `.5`,
 `¾`, 24 bytes - and a composed row carries the byte 1, 2 or 3 (`TM_FQ1`..3:
 the quarters, `(paragraphs mod 64) / 16`) where one goes. `tm_frun` is the
 one place the page letters a list row or a caption line: a string with no
@@ -64296,7 +64296,7 @@ re-letters its chunk. `¼` and `¾` are reachable only on a 256-byte granule
 the totals close,** and it reverses the plan this was built from
 (docs/plans/HEAP-GRANULARITY-PLAN.md 5.2), which rounded those to the
 nearest whole KB and proposed cumulative rounding to close the sums. That
-cannot work: `IVT+BIOS` is 1½K on every machine and System is over 100K on
+cannot work: `IVT+BIOS` is 1.5K on every machine and System is over 100K on
 every kern_big, so with System rounded to a whole KB no choice of rounding
 makes `IVT+BIOS + System + programs` equal a whole-KB used figure - the half
 has nowhere to go. Exact everywhere below 1000K closes every sum with no
@@ -64314,11 +64314,11 @@ with a store and kern_mega keep their MB pairs (§28.4.8), off the same
 paragraphs rounded.
 
 Measured on a 5150/CGA under MartyPC, kern_big, the Calculator and the Task
-Manager open, the memory page collapsed: `IVT+BIOS 1½K`, `System 96½K`,
-`Programs 19½K` (`CALCULATOR 5½K`, `TaskMgr 14K`) - 117½K, which is the
-paragraph sum - over `AVAIL 522½` and `MAX RUN 522½`, 640K between them, and
+Manager open, the memory page collapsed: `IVT+BIOS 1.5K`, `System 96.5K`,
+`Programs 19.5K` (`CALCULATOR 5.5K`, `TaskMgr 14K`) - 117.5K, which is the
+paragraph sum - over `AVAIL 522.5` and `MAX RUN 522.5`, 640K between them, and
 the line above reading `RAM 118/640K  HEAP 24/546K`. The process page of the
-same machine reads `CALCULATOR 5½K` beside it.
+same machine reads `CALCULATOR 5.5K` beside it.
 
 **The rows on a short screen.** The process page draws `TM_PROWS` =
 `TM_ROWS` + 1 rows: row 0 is `IVT+BIOS`, row 1 System, and instances from
@@ -64455,7 +64455,7 @@ and bar - and one line replaces the heap page's two captions:
 - `AVAIL nnnK  MAX RUN nnnK` (`TMC_AVL`, `TMM_AVL_Y`): free heap and the
   largest single run, one `OSAPI_MEM_P` `MEMP_AVAIL` in PARAGRAPHS taken in
   the same moment as the claim table (§28.4.7) and printed exact -
-  `AVAIL 522½` - which was the heap page's fragmentation reading (its
+  `AVAIL 522.5` - which was the heap page's fragmentation reading (its
   `FREE`/`MAX`) and keeps its argument. **On
   kern_mega in protected mode the pool above 1MB is in both figures**
   (KERN-MEGA-PLAN 14.70.3): an `OS88_HIGHMEM` package's region and claims go

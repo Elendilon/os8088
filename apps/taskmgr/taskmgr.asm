@@ -1354,9 +1354,13 @@ tm_s_dash4: db '   -', 0
   %error "taskmgr: the free slot's row is no longer exactly one row long"
 %endif
 
-; The FRACTION cells (tm_frun): 1/4, 1/2 and 3/4 in the font's own 8x8 grid -
-; the numerator in the top-left three columns, the denominator in the
-; bottom-right three, a slash between - written as the GLYPH below and stored
+; The FRACTION cells (tm_frun): 1/4, .5 and 3/4 in the font's own 8x8 grid -
+; 1/4 and 3/4 the numerator in the top-left three columns, the denominator in
+; the bottom-right three, a slash between; the HALF is '.5' in one cell
+; instead - the ROM font's own baseline dot (two by two, columns 0-1, rows
+; 5-6), a blank column, and a 5 condensed to five columns with the ROM's
+; two-pixel verticals, because a 1/2 at three pixels a figure read as a
+; smudge beside the bold ROM digits - written as the GLYPH below and stored
 ; as its complement, because a set bit in a band is LIT and the glyph is ink
 ; on the lit ground (SPEC.md 28.4.7). 24 bytes; 1/4 and 3/4 are only ever
 ; reached on a 256-byte granule, and carrying them from the start is 16 bytes.
@@ -1367,7 +1371,7 @@ tm_s_dash4: db '   -', 0
   %endrep
 %endmacro
 tm_fcell:   TM_FC 042h, 0C4h, 048h, 050h, 02Ah, 04Eh, 002h, 002h   ; 1/4
-            TM_FC 042h, 0C4h, 048h, 050h, 02Ch, 042h, 004h, 00Eh   ; 1/2
+            TM_FC 01Fh, 018h, 01Eh, 003h, 003h, 0DBh, 0CEh, 000h   ; .5
             TM_FC 0E2h, 064h, 028h, 0D0h, 02Ah, 04Eh, 002h, 002h   ; 3/4
 %if TM_FQ1 != 1 || TM_FQ2 != 2 || TM_FQ3 != 3
   %error "taskmgr: tm_frun indexes tm_fcell by the fraction byte less one"
