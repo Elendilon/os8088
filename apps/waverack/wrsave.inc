@@ -832,12 +832,16 @@ ws_rebase:
     mov al, [wo_sh]
     mov [di+WS_SH], al
     call we_envsize                 ; CL = the block shift, BX = blocks, AX
-    mov [di+WS_BS], cl              ; = KB
+    mov [di+WS_BS], cl              ; = paragraphs
     mov [di+WS_NBLK], bx
     pop bx                          ; BX = its index
     or ax, ax
     jz .noenv
-    call OSAPI_MEM_CLAIM
+    push bx
+    xor cx, cx
+    mov bl, MEMP_CLAIM
+    call OSAPI_MEM_P
+    pop bx                          ; (pop keeps CF)
     jnc .env
     call wo_new                     ; no room for its envelope: nothing to
     mov byte [ws_rb], 2             ; show it with - and ws_finish must not

@@ -237,8 +237,9 @@ we_clamp:
 
 ; -----------------------------------------------------------------------------
 ; we_envsize - the envelope for [wo_frames] (SPEC.md 123.5)
-; out: CL = the block shift, BX = the blocks, AX = the claim in KB (0: an
-;      empty sound, no claim). clobbers CH, DX
+; out: CL = the block shift, BX = the blocks, AX = the claim in PARAGRAPHS
+;      (OSAPI_MEM_P's, SPEC.md 50.3.7; 0: an empty sound, no claim).
+;      clobbers CH, DX
 ; -----------------------------------------------------------------------------
 we_envsize:
     mov cl, 4
@@ -276,11 +277,11 @@ we_envsize:
     jne .kb
     shl ax, 1
 .kb:
-    add ax, 1023
-    mov al, ah                      ; >> 10
-    shr al, 1
-    shr al, 1
-    xor ah, ah
+    add ax, 15                      ; <= 8 KB of bytes: >> 4 to paragraphs,
+    shr ax, 1                       ; no carry
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
     ret
 .more:
     pop dx
