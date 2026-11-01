@@ -699,9 +699,15 @@ cartridge in one claim, and no bank is ever fetched (`rw_xplan`,
   piece at a time, REBASING its windows (the selectors are the same ones
   after), with the package's rate hook held off; and under `CPU_F_PM` a move
   of any claim is a REBASE that calls no
-  relocation proc at all (MC7, 10.3.4); in real mode the carve's walk
-  (`rw_partsmv`) leaves a word with bit 2 set alone (a heap segment is a
-  multiple of 32; an LDT selector never is).
+  relocation proc at all (MC7, 10.3.4). The carve's walk (`rw_partsmv`)
+  leaves a word with bit 2 set alone ONLY under `CPU_F_PM` (`[rw_pm]`), in
+  kern_mega's arm: it read *a heap segment is a multiple of 32* everywhere
+  until the core's segment stopped being one - a part starts on a PARAGRAPH
+  since SPEC.md 20.12.2.1, so `rdg_coreseg` (part 0, 7336 on the 720KB
+  disk) has bit 2 set, the walk took it for a selector, and after a
+  compaction the core's far vectors still named the old place and the
+  cartridge stopped (`rdgmove`'s carve leg, `rdgclose`'s MOVE). The shipped
+  build has no selectors and no test.
 - **MEASURED** (Bochs 2.7, 16MB, kern_mega with `MEGATRAP=1`, the attract
   of each, 40 s): Kirby's Dream Land (256KB, 16 banks) and Looney Tunes
   (1MB, 64 banks) in place, `[rw_nmiss]` 0, the second cache segment and
