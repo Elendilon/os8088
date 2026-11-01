@@ -46049,38 +46049,102 @@ package's claims already carry `I_SPTR`.
 
 #### 20.12.2 The file layout, and the alignment that decides it
 
-Parts follow the image, **each starting on a 512-byte boundary**, in the
-order the table declares them. `os88pkg.py` lays them out and fills the
-table's `off` and `len` — the assembler cannot know a separately assembled
-module's length.
+Parts follow the image, **each starting on a 16-byte PARAGRAPH of the file**,
+in the order the table declares them, and the table's `off` counts those
+paragraphs. `os88pkg.py` lays them out and fills the table's `off` and `len`
+— the assembler cannot know a separately assembled module's length. It was a
+512-byte sector until docs/plans/PART-PACKING-PLAN.md, which is §20.12.2.1.
 
-**512, and the reason is `dskw_read_at`'s preconditions** (§18.4.4): the
-offset and the capacity of a read must each be a whole number of CLUSTERS,
-and a cluster is 512 bytes to 32KB — a power of two, capped at 64 sectors by
-BPB rule 4. **A file cannot be laid out to satisfy that**, because the volume
-it will sit on is not known when it is packed, and aligning to the worst case
-would pad every part by up to 32KB.
+**The alignment is decided by `dskw_read_at`'s preconditions** (§18.4.4): the
+offset and the capacity of a read must each be a whole number of CLUSTERS (of
+SECTORS on `kern_big`, §18.4.4.2), and a cluster is 512 bytes to 32KB — a
+power of two, capped at 64 sectors by BPB rule 4. **A file cannot be laid out
+to satisfy that**, because the volume it will sit on is not known when it is
+packed, and aligning to the worst case would pad every part by up to 32KB.
 
 So the package reads a **cluster-aligned window that covers the run** and
 lets the head slack fall where it lands:
 
 ```
     clb    = OSAPI_FILE_DFREE's sectors-per-cluster x 512
-    start  = the first part's file offset          (a multiple of 512)
+    start  = the first part's file offset          (off x 16)
     base   = start - (start mod clb)               (cluster-aligned)
-    slack  = start - base                          (a multiple of 512)
+    slack  = start - base                          (a multiple of 16)
 ```
 
-`slack` is a multiple of 512 and therefore of 16, and a heap claim is
-paragraph-aligned — so **the slack costs a segment adjustment and nothing
-else**. Part *i*'s base segment is `claim + (slack + off_i - start) / 16`,
-exact on every volume, with no copy and no second buffer. On a 1.44MB floppy
-the cluster is 512 bytes and the slack is zero.
+`slack` is a multiple of 16, and a heap claim is paragraph-aligned — so **the
+slack costs a segment adjustment and nothing else**. Part *i*'s base segment
+is `claim + (slack + off_i×16 - start) / 16`, exact on every volume, with no
+copy and no second buffer. That is the ONE property the layout has to keep,
+and a paragraph keeps it as exactly as a sector did; nothing coarser is needed
+anywhere. Every address the standard hands out is still a segment with offset
+zero.
+
+**What a paragraph does change is that a part is no longer on a SECTOR.** A
+package that reads a part for itself with `OSAPI_FILE_READ_AT` must start the
+read at the sector (on `kern_small`, the cluster) at or below `off × 16` and
+step over the head slack it lands past — which is `op_self`'s arithmetic
+(§20.12.9.1) and the standard's own, and which a private reader that read
+"at the part's own sector" did not need before. `tests/unit/t_partoff.py`
+(fast) fails the build on a literal sector shift applied to an `OP_R_OFF`
+outside the standard, because that is how a missed reader would ship: a
+package that assembles cleanly and reads the wrong bytes. A reader converts
+with `OP_GSH` (4, the granule's shift) and its complement `16 - OP_GSH`.
 
 **Reads are 32,768 bytes at a time**, which is a multiple of every legal
 cluster size and safely inside one segment's 64KB. The final chunk is short
 and that is the contract: `dskw_read_at` clamps the take to what is left of
 the file and answers 0 next time.
+
+##### 20.12.2.1 Why 16 and not 512, and not 1 (docs/plans/PART-PACKING-PLAN.md)
+
+**512 cost up to 511 bytes of `0xE5` a part**, ~256 on average, and the last
+part is never padded: measured over the seventeen shipped disks it was
+**41,937 bytes in 62 parted files and 51 clusters**, 7 KB of them across the
+nine 360KB disks. A 513-byte part took 1,024 bytes of file. At 16 a part pads
+by 0 to 15 bytes, and the layout gives back 50 of the 51 clusters byte
+packing would.
+
+**1 is refused, on one cluster.** A byte layout breaks the property above:
+every plain part in a carve would have to MOVE, `op_unpack`'s pointers would
+become segment:offset pairs, and `op_seg` would lose its fast path — for one
+cluster across all seventeen disks.
+
+**The table says which by its MAGIC**: `O88PARTP`, where a 512 table says
+`O88PARTS`. Not the byte at +9, which is the compression format and is
+handed straight to `OSAPI_DECOMP` by eight sites. A magic costs no
+instruction, and a tool that knows only the old one finds no table and
+refuses rather than misreading.
+
+- **It is the only layout.** Every package is rebuilt from the tree and the
+  standard assembles `O88PARTP` alone; `os88pkg.py` refuses to pack an
+  `O88PARTS` table, which can only be a package assembled against a standard
+  older than this section.
+- **The host tools still READ `O88PARTS`** (`tools/os88parts.py`,
+  `os88pkg.part_table`), so a file packed before keeps decoding.
+- **An old package keeps working**: its reader is assembled into it, so an
+  `O88PARTS` file carries its own 512 reader and a new one carries the new
+  pair. **`PKG_FMT` does not move**: the kernel learns flags bit 2 and the
+  link word (§20.12.1, §20.13.8) and neither changes meaning, and the
+  loader's step 6 reads `roundup512(image)` — or `roundup512(link)` packed —
+  into a region sized for it whichever layout follows, so the tail of the
+  image's last sector holds a part's first bytes where it held `0xE5`, and
+  step 7 zeroes the bss over them either way.
+- **The one KERNEL-side reader is `HIBER.DRV`**, an on-demand module (§2.8),
+  which reads DOS's two parts for the DOS hand-off — and the record that
+  names them moved `KDH1` → `KDH2` with the unit (§96.40.1), so a `DOS.O88`
+  and a `HIBER.DRV` from different trees refuse the hand-off rather than
+  misread it. `kern_dos`'s own reader of part 3 (§96.40.9.1) is package-side.
+- **The carve's CLAIM shrinks with the file**: the unpacked layout steps by
+  `roundup16(len)` where it stepped by `roundup512(len)`.
+- **R is still a SECTOR.** `op_claim`'s lift for a compressed carve and
+  `op_zrpara`'s for a lazy part are where a disk read lands, so each is
+  rounded up to 512 bytes (CLAUDE.md: every disk-visible base is 512-aligned);
+  the carve's R carries one PARAGRAPH of telescoping slack where it carried a
+  sector (§20.12.7.1).
+- **The image's own packing** (§20.13.8's fixed point) moves the parts by a
+  whole number of PARAGRAPHS, so a pack is declined only when it saves no
+  paragraph of file.
 
 #### 20.12.3 The table lives in the IMAGE, and that is the design
 
@@ -46102,10 +46166,10 @@ kernel has already read and already bounds by the time the entry proc runs.
   association block.
 
 ```
-    +0   8   'O88PARTS'
+    +0   8   'O88PARTP'  ('O88PARTS' before §20.12.2.1: off in 512-byte units)
     +8   1   count
-    +9   1   reserved, 0
-    +10      count x 8: db kind, db flags, dw off (512-byte units),
+    +9   1   the compression format (§20.12.7), written by the packer
+    +10      count x 8: db kind, db flags, dw off (16-byte PARAGRAPHS),
              dw len (bytes), dw zkb (KB of zero-filled scratch - the author's,
              non-zero only on an OP_ZERO row; off and len are the packer's)
 ```
@@ -46349,23 +46413,27 @@ the rows in order — expanding a compressed row, moving a plain one down —
 so the claim ends up holding the **unpacked** layout.
 
 ```
-    R = paragraph_round(unpacked_total − packed_total + OP_MARGIN)
+    R = sector_round(unpacked_total − packed_total + 16 + OP_MARGIN)
 ```
+
+(Both totals in whole paragraphs, each row at `roundup16`; the extra 16 is
+the telescoping slack the next paragraph explains, and the rounding to a
+SECTOR is because R is where a disk read lands, §20.12.2.1.)
 
 **The gap never closes.** At the top of row *i* the write pointer is at
 `Σlen` and the read pointer at `R + Σpacked`, both over the rows already
 done, so the gap is `R − Σ(len − packed)` — smallest at the **last** row, and
 `OP_MARGIN` there by construction. Inside one row the decoder's own measured
 margin bounds the dip, and `os88pkg.py` refuses a part needing more than
-`OP_MARGIN`. Both pointers step by a multiple of 512, so the walk is paragraph
+`OP_MARGIN`. Both pointers step by a multiple of 16, so the walk is paragraph
 arithmetic and nothing in it can carry past a segment.
 
 **`op_seg` answers the unpacked layout too.** Its fast path reads the *disk's*
 layout — part *i* sits where its own sectors sit — and that is exactly what
 compressing one breaks, so when any row carries `OP_COMP` it walks the table
-accumulating `roundup512(len)` instead. **The two agree when nothing is
-compressed**, because the packer lays part *i* at `roundup512(len)` past part
-*i−1*, so the sum *is* `(off − first) × 512` — which is why the fast path
+accumulating `roundup16(len)` instead. **The two agree when nothing is
+compressed**, because the packer lays part *i* at `roundup16(len)` past part
+*i−1*, so the sum *is* `(off − first) × 16` — which is why the fast path
 stays and why a package with no compressed part is unchanged to the
 instruction.
 
@@ -46373,7 +46441,7 @@ instruction.
 
 **Nothing in the kernel**, like every other part flag: `op_unpack` is SDK
 source and only a package with a compressed row assembles a use of it. On the
-disk it costs one `roundup512` of padding per part, exactly as a plain part
+disk it costs one `roundup16` of padding per part, exactly as a plain part
 does. At load it costs the decode — ~50.6 cycles an output byte for LZ4 on the
 target machine (PERFORMANCE.md) — plus a `rep movsb` down for each *plain* row
 that shares the carve with a compressed one.
@@ -46590,9 +46658,11 @@ the claim's base - one `rep movsw`/`rep movsb`, safe over the overlap because th
 writer is always below the reader - and then takes the same `MEMP_REGROW`
 shrink to `len` rounded to the granule that a compressed row takes. So the banked word
 is the claim's base on EVERY row, and `op_drop` frees it as it stands: the
-backwards slack arithmetic is deleted, which pays for most of the copy. On a
-floppy whose clusters are one sector the slack is zero and the arm is a shift
-and a branch.
+backwards slack arithmetic is deleted, which pays for most of the copy. Since
+§20.12.2.1 the slack is non-zero on EVERY volume - on a floppy of one-sector
+clusters it is the part's place in its sector, up to 496 bytes - so the copy
+runs on most fetches of a plain lazy part; at ~8.5 clocks a byte it is under a
+millisecond there against the ~400 ms read it follows.
 
 **What it costs**: **+19 bytes** of the standard in a table with a plain lazy row
 (`tests/multiseg/mseg.asm`, 3,080 -> 3,099 before its padding); no shipped
@@ -46789,7 +46859,8 @@ goes 42,497 -> 41,473 bytes**: the loader is the image the parts are laid out
 behind, and 2,102 bytes was five sectors where 1,456 is three, so every part
 starts 1,024 bytes earlier in the file. The loader is freed at the re-home, so
 that is disk and transient RAM, and the program never knew - it is told the
-streams' sector (`CSH_SEC`) out of the row rather than computing it.
+streams' place (`CSH_SEC`, a PARAGRAPH since §20.12.2.1: `CSH_PARA`) out
+of the row rather than computing it.
 
 ##### 20.12.9.2 `OP_NO_LAZYOK`, for a loader that fetches without asking
 
@@ -185010,12 +185081,12 @@ it, so `mem_rr_tab` patches it like every other such word — §96.40.8.
 
 | off | | |
 |---|---|---|
-| 0 | `dd` | `'KDH1'` |
+| 0 | `dd` | `'KDH2'` (`'KDH1'` named the part in SECTORS, before §20.12.2.1) |
 | 4 | `db` | the volume `DOS.O88` is on |
 | 5 | `db` | 0 |
 | 6 | `dw` | its folder's first cluster, 0 = the root |
 | 8 | `db[13]` | its 8.3 name, NUL-terminated |
-| 21 | `dw` | the part's first file **sector** (`OP_R_OFF`) |
+| 21 | `dw` | the part's first file **paragraph** (`OP_R_OFF`, copied as it lies) |
 | 23 | `dd` | its packed bytes |
 | 27 | `dd` | ...and its unpacked bytes |
 | 31 | `db[512]` | the launch block, verbatim |
@@ -185100,7 +185171,13 @@ fragmented to hand over.
    hibernate writes an image and can only write one to a fixed disk while this
    reads a part of a package — and on the machine §9 of
    docs/plans/KERN-DOS-PLAN.md is about, that package is on a floppy by
-   definition. The walk skips `KDH_POFF` sectors and takes `ceil(PLEN/512)`.
+   definition. The walk skips `KDH_COFF >> 5` sectors - the sector the CORE's
+   stream starts in, the core being the lower of the two parts - and takes
+   `ceil((head + (KDH_POFF - KDH_COFF) + ceil(PLEN/16)) / 32)` of them, where
+   `head = KDH_COFF & 31` is the core's place in its first sector, in
+   paragraphs. Every term is paragraphs and fits a word, so nothing is
+   multiplied into bytes; the stub is handed `head` as `KDS_CHEAD` and
+   `head + POFF - COFF` as `KDS_CDELTA` (§96.44.5.4).
 4. **The panel, the drivers, the lock, text mode** — §87.5 step 3's order.
 5. **The staging area**, which is the **text framebuffer**: the one RAM a
    conventional-memory image does not cover. The stub goes at `HS_CODE`, the
@@ -185472,7 +185549,10 @@ program whose format `kd_xunp` does not recognise - an unknown variant, a
 header that does not add up - would otherwise take 14.23's floor raise and
 run at 566 KB. Instead the HMA kern_dos becomes the LOW one (96.40.9.2): it
 is already in real mode with its own file layer, so it reads part 3 of
-`DOS.O88` itself (DOS stages its row at `KDL_L3OFF`/`KDL_L3ZB` and the
+`DOS.O88` itself (DOS stages its row at `KDL_L3OFF`/`KDL_L3ZB` - a
+paragraph, so `kd_tolow` skips `L3OFF >> 5` sectors, reads
+`ceil(((L3OFF & 31) + ceil(ZB/16)) / 32)` and finds the stream `L3OFF & 31`
+paragraphs into what it read (§20.12.2) - and the
 kernel stages the file's cluster and volume at `KDL_O88CL`/`KDL_O88V`),
 expands it into a staging window in the arena, and then - touching no stack,
 because the copy-down overwrites the HMA arm's own FAT snapshot, mount
@@ -186432,8 +186512,8 @@ kernel is gone has two streams to expand rather than one. Everything that
 makes that cheap is a property the part format already had.
 
 **ONE extent list covers both.** `tools/os88pkg.py` lays parts out in table
-order, each starting on a sector, so the core's packed bytes are immediately
-followed by `kern_dos`'s. `hbm_dosrun` takes the range from `KDH_COFF` to the
+order, each starting on a paragraph (§20.12.2), so the core's packed bytes are
+followed by `kern_dos`'s within 15 bytes. `hbm_dosrun` takes the range from `KDH_COFF` to the
 end of `KDH_PLEN` — the difference of the two offsets DOS posted, plus
 `kern_dos`'s own sectors — so nothing in the kernel knows the adjacency as a
 fact, and a layout that ever put something between the two would read that
@@ -186444,14 +186524,21 @@ The record grows four fields and the stage three:
 
 | | |
 |---|---|
-| `KDH_COFF` 547, `KDH_CPLEN` 549, `KDH_CULEN` 553, `KDH_CORG` 557 | the core part's sector, packed and unpacked lengths, and `CORE_ORG` |
-| `KDS_CPLEN` 0x043A, `KDS_CDELTA` 0x043E, `KDS_CORG` 0x0440 | ...and what the stub reads them as |
+| `KDH_COFF` 547, `KDH_CPLEN` 549, `KDH_CULEN` 553, `KDH_CORG` 557 | the core part's paragraph, packed and unpacked lengths, and `CORE_ORG` |
+| `KDS_CPLEN` 0x043A, `KDS_CDELTA` 0x043E, `KDS_CORG` 0x0440, `KDS_CHEAD` 0x044E | ...and what the stub reads them as |
 
 They go on the END of the record, so `KDH_LB`'s offset does not move: the
 launch block is 512 of the 559 and every field before it is one an earlier
 wave published. `KDS_CDELTA` is how far into the run `kern_dos`'s own stream
-begins, in **paragraphs** — the parts are 512-aligned, so a sector is 32 of
-them and the conversion is exact. `KDH_CULEN` is carried and never read, for
+begins, in **paragraphs** — and since §20.12.2.1 the run no longer begins
+WITH the core's stream: the read starts on the sector the core starts in, so
+`KDS_CHEAD` (`KDH_COFF & 31`) is where the core's stream is and `KDS_CDELTA`
+is that plus `KDH_POFF - KDH_COFF`. Both are exact because a part starts on a
+paragraph, and both are staged by `HIBER.DRV` from the two offsets DOS posted,
+which is why the record's magic moved `KDH1` → `KDH2` with the unit: a
+`DOS.O88` and a `HIBER.DRV` from different trees refuse the hand-off
+(`hbm_dosrun`'s magic test) rather than read one stream sixteen times too
+far. `KDH_CULEN` is carried and never read, for
 `KDH_ULEN`'s reason: `kds_expand` takes a byte count and runs to the end of
 the stream.
 
