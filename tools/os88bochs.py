@@ -1152,8 +1152,9 @@ class Box(object):
     # true only while the KERNEL is in conventional memory: in a DOS trip
     # that RAM is kern_dos's, so every read checks a constant of the image
     # first (`home`).
-    _HOME = ("mega_tmem", b"real mode: no room for kern_mega's tables")
-    # ...a toast's text in .text (mega.inc), never written: at its address
+    _HOME = ("mega_s_kbdos", b"Use this disk's DOS.O88")
+    # ...a refusal's text in .text (megados.inc's mega_pkgok), never
+    # written: at its address
     # while the kernel is resident, kern_dos's bytes while it is parked
 
     def _home_span(self):

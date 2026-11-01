@@ -103,6 +103,16 @@ images (CSDO runs); **abilist** `docs/plans/ABI-BREAK-LIST.md`.
    `.text` (the four reason strings); the visible difference is that the
    refusal toast is raised before `drv_notice_x`, so a Control Panel toast
    on the same boot would replace it.
+   **TAKEN** (owner: yes; `msp2-bootonce2`), by a route with no visible
+   difference at all: three of the four reasons are decided at the switch,
+   after the blob is gone, so the lines moved into `.mega`, whose RUNG is
+   still conventional when `mega_enterf` refuses and is freed only after
+   `toast_show` has copied the line (`; ovlchk: rung data`, offsets only).
+   `.text` -124, `.mega` +128, `.cold` +3, `MEGA_RESIDENT` -512. Verified
+   on Bochs: a refusal forced by poking `[mega_gwhy]` at `mega_enterf` ends
+   on a real-mode desktop with the toast in the menu bar (bootonce.md TAKEN
+   4). It also found that every refusal line is over the 24-character cap
+   and always was (bootonce.md DEFECTS FOUND) - a rewording is the owner's.
 3. **A near door in every module** (modcsdo): -611 bytes of images (heap
    while loaded) for +433 bytes of packed files on the system disk; modcsdo
    chose the disk.

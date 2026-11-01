@@ -108,6 +108,42 @@ assemble none of it.
    +3.** `[mega_ldtend]` is written only by `mega_layoutf`, a pure function,
    so the value is the one that was stored.
 
+4. **The four refusal lines out of conventional `.text`** (the owner's
+   answer to WANTS THE OWNER, taken on `msp2-bootonce2` after the merge).
+   `mega_t86`, `mega_tmem`, `mega_ta20`, `mega_ttask` moved from `.text`
+   into `.mega`, bracketed `; ovlchk: rung data`. **They are NOT staged
+   from the blob, and that is deliberate**: only the tier test is decided
+   in the blob - the task test, A20 and the low tables' claim are decided at
+   the switch, after the blob is gone, so three of the four lines must
+   still exist then. They do: when `mega_enterf` refuses, `.mega`'s RUNG is
+   still in conventional memory at `MEGA_RAM` (the refusal is what gives it
+   to the heap, via `mega_rung`, AFTER `toast_show` has copied the line), so
+   the refusal reads the line through `ES = MEGA_RAM`. On a machine that
+   switches, the lines go above 1MB with the rest of `.mega` and are never
+   read. So **the toast is raised at exactly the moment and in the order it
+   always was** - the owner's condition holds trivially, and the
+   `drv_notice_x` ordering question does not arise. MEGA_E9 builds print
+   the line through `DS = MEGA_RAM`. Measured against `mega-size-2` at
+   `03abb371`: **`.text` -124 conventional (the 127 bytes of strings, less
+   alignment), `.cold` +3, `.mega` +128 (127 + its tail padding), `.boot2`
+   0, `KERN_SIZE` -512, `MEGA_RESIDENT` 63,488 -> 62,976 (-512: the
+   conventional footprint crossed a rung down)**; kern_big, kern_small and
+   kern_emu assemble byte-identical. `tools/os88ovlchk.py` learns the
+   marker: a label inside it leaves the `.mega`-data-through-CS rule, and
+   may be named ONLY as an offset load (`mov reg, label`) - 4 labels.
+   `tools/os88bochs.py`'s `_HOME` (the "kernel is in conventional memory"
+   probe every Bochs row uses) read `mega_tmem` in `.text`; it reads
+   `mega_s_kbdos` ("Use this disk's DOS.O88", megados.inc, `.text`,
+   unconditional) instead.
+   **Verified on Bochs** (the one emulator check this item was allowed): a
+   breakpoint on `mega_enterf`, `[mega_gwhy]` poked to `mega_ta20`'s offset
+   in the rung, run on: `[mega_on]` 0, `[mega_mfree]` 1, `[toast_on]` 1,
+   `toast_buf` = `real mode: A20 will not `, and the screenshot shows the
+   toast in the menu bar over a real-mode desktop
+   (`/tmp/msp2/bootonce/refuse-toast.png`; the probe is
+   `/tmp/msp2/bootonce/probe/refuse.py`). The truncation is the 24-character
+   cap and is NOT new - see DEFECTS FOUND.
+
 Docs: SPEC.md (two sentences naming `mega_tasks_ok`/`mega_tlowf`) and
 docs/HEAP-CLAIMS.md's `MEM_K_MTBL` row now name `mega_gateb`/`mega_enterf`.
 No hot path changed (`hotpar` green); `.text` moved by -16, then -2, both
@@ -153,21 +189,17 @@ even.
   `.text` - a loss on a refused machine, where `.cold` stays conventional.
   See DEFERRED for the one shape that might pay.
 * **The refusal toast posted from the blob** (would move the four reason
-  strings, 117 `.text` bytes, into the blob): `toast_show` copies its line,
-  so the strings could be blob data - but the toast would then be staged
-  before `drv_notice_x`, whose Control Panel can post a toast of its own and
-  would replace it, where today the refusal's replaces that one. A visible
-  ordering change in a corner; not taken without the owner.
+  strings into the blob): the owner said yes, but three of the four reasons
+  are decided at the switch, after the blob is gone, and moving those checks
+  into the blob is the ordering and blob-ceiling problem above. TAKEN 4
+  reaches the same -124 conventional by the `.mega` rung instead, with no
+  change in when the toast appears.
 
 ## DEFERRED
 
 Estimates, labelled; pass 3's list.
 
-1. **The refusal strings, ~117 `.text` (estimate)**: either the toast staged
-   in the blob (WANTS THE OWNER below), or composed into `toast_buf` by the
-   blob with `toast_want` left clear and armed by `mega_enterf` (needs a
-   look at `toast_arm`'s TTL stamping) - about -117 conventional, +~20
-   `.boot2`, +~8 `.cold`.
+1. *(taken - TAKEN 4.)*
 2. **`mega_bgdt` written by the blob into the low `.mega` rung's scratch**
    (`MEGA_RAM:MEGA_SCR_OFF`, conventional and untouched until `mega_coldupf`
    gives the rung to the heap), with a bootstrap data entry to read it:
@@ -191,11 +223,14 @@ Estimates, labelled; pass 3's list.
 
 ## WANTS THE OWNER
 
-* **May the refusal toast be staged from the boot blob?** It would let the
-  four reason strings (117 conventional `.text` bytes) be given back with
-  the blob. Visible difference: a refusal and a Control Panel toast raised
-  by `drv_notice_x` on the same boot would show the other one first. The
-  text and the moment the user first sees it are otherwise unchanged.
+* ~~May the refusal toast be staged from the boot blob?~~ **Answered yes,
+  and TAKEN** (TAKEN 4) by a route that changes nothing visible: the lines
+  live in `.mega`'s rung and are read before it is freed. Verified on
+  Bochs with a forced refusal; the toast is on the glass.
+* **The four refusal lines are over the 24-character toast cap** (DEFECTS
+  FOUND): rewording them is a visible change and the owner's call -
+  e.g. `No PM: 8086-class CPU`, `No PM: no table room`,
+  `No PM: A20 will not open`, `No PM: an older task` (all <= 24).
 
 ## WANTS AN ABI BREAK
 
@@ -259,5 +294,11 @@ Bochs (`tests/megaport.txt` / suite `mega*`):
 * `mega_enter`'s header says it keeps BX; `mega_enterf`'s `.room` path has
   always clobbered BX (`.gdt`'s loop, `mega_idt_build`). Nothing reads BX
   after it in `kmain`; the comment is wrong, not the code. Left as it was.
+* **Every kern_mega refusal toast is truncated, and was before this pass**:
+  `TOAST_MAX` is 24 and the lines are 25-41 characters - `real mode: no
+  room for kern_mega's tables` shows as `real mode: no room for k`, A20's as
+  `real mode: A20 will not `. `tests/unit/t_toast.py` (SPEC.md 59.10) does
+  not see them because the line reaches `toast_show` through DX -> SI in
+  `mega_enterf`'s shared tail. Not fixed here (WANTS THE OWNER).
 * Not a defect in the tree, but worth knowing: `BOOTMARK=1 MEGADIAG=1` on
   kern_mega is the tightest blob in the tree and nothing assembles it.
