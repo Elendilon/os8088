@@ -7092,6 +7092,21 @@ SOAK = [
         "not 15, on 4Eh, 3Dh and 3Bh alike.",
         needs=("marty",), serial=True,
         wants=("build/dosdrv360.img", "build/dosdrvsys.img")),
+    Row("dosdfsel", "soak", py("tests/dosdfsel.py"), 10.0,
+        "AH=36h ANSWERS FOR THE DRIVE AH=0Eh JUST SELECTED (SPEC.md 96.27.2). "
+        "Prince of Persia's INSTALL.EXE selects C:, asks AH=36h about C:, and "
+        "was answered with the FLOPPY it had read its file list off - 106 "
+        "free clusters of 1KB, 'Not enough space on destination disk' about "
+        "a hard disk with 31MB free - because since 96.48 a select moves only "
+        "the program and AH=36h carries no name to mount by. "
+        "tests/dostrap/dfsel.asm is the installer's shape with no commercial "
+        "software: standing on B:, select A: and ask as 0 and as 1, select B: "
+        "back and ask. Every answer is checked against an independent FAT "
+        "reader over the image it is about, and the two floppies cannot "
+        "share a free count; CUR says only AH=0Eh moved the program. Red "
+        "before the fix: L2 and L3 answer the probe disk's figures.",
+        needs=("marty",), serial=True,
+        wants=("build/dosdfsel360.img", "build/os8088-360.img")),
     Row("dosregs", "soak", py("tests/dosregs.py"), 20.0,
         "DOES INT 21h GIVE BACK EVERY REGISTER IT DOES NOT ANSWER IN? "
         "(SPEC.md 96.7.1.2). ONE BINARY RUNS ON BOTH - tests/dostrap/regs.asm "

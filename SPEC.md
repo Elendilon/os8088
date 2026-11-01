@@ -181579,18 +181579,96 @@ All four come from one `OSAPI_VOL_STAT` (§18.4.6), which answers in exactly
 these four registers because this call is the one that asks: DOS forwards
 them to the program unchanged and composes nothing.
 
-**The drive the program is not standing on costs a mount**, and DOS already
-owns that: `dos_drv_sel` switches, mounts, and puts itself back if the mount
-refuses (§96.6.1). So `AH=36h` on another drive is select, ask, select back —
-and the trace above is why that path is rare enough not to matter: a program
-that wants to know about a drive selects it first.
+**The drive asked about is where the MACHINE goes, and the program goes
+nowhere** (§96.27.2). This paragraph used to say that `AH=36h` on another
+drive was *select, ask, select back* through `dos_drv_sel` — which was right
+while a select mounted, and stopped being right at §96.48, which is the
+defect the next section is about. What it does now is `dos_fh_stand`: the
+machine onto that drive, in that drive's folder, and `[dos_vol]` untouched.
+So there is no home drive to bank and no way back to get wrong — the `BH`
+banking this paragraph once described (read back *after* the free count had
+been loaded into `BX`, so the trip home went to whichever drive the count's
+high byte named) is deleted with the round trip it served.
 
 Nothing lands in memory at all: DOS gives this call nowhere to put a buffer,
-and the slot needs none — which is also what put right DOS's own return
-trip. It banked the home drive in `BH` and read it back *after* loading the
-free count into `BX`, so an `AH=36h` about a drive the program was not standing
-on came home to whichever drive the free count's high byte named; it is banked
-in `DI` now, which nothing on the path touches.
+and the slot needs none.
+
+#### 96.27.2 …and it asked about what was MOUNTED, not about the drive
+
+The owner's report: asked to install to `C:\PRINCE`, the installer now says
+*"Not enough space on destination disk"*, and C: has 31MB free. §96.27 had
+made the same installer get past *"Invalid drive letter"*, so this was the
+next refusal down the same path — and it came in with §96.48, which made
+`AH=0Eh` move the PROGRAM and leave the mount to the next NAME. `AH=36h`
+carries no name. Its `cmp al, bh / je .dfask` skipped the select when the
+program was already logically on the drive asked about, and that is now the
+case on every installer's path: select C:, ask about C:. `OSAPI_VOL_STAT`
+answers for the volume the machine is STANDING on (§18.4.6), and the machine
+was still standing on the floppy the installer had just read its file list
+off.
+
+**Found by the method and not by reading** (docs/DOS-DEBUGGING.md): the
+installer driven to its destination prompt on `os8088_xt_hdd_720` with the
+owner's 720KB disk in B: and a 32MB XT-IDE VHD as C:, `INT 21h` watched from
+the host (`tools/os88intmon.py`, return registers banked), and the same
+keystrokes under a real IBM DOS 3.30 booted off its own floppy with the same
+two disks. Three calls, one call site each, the code segment a constant
+`13CDh` apart on the two machines:
+
+| call site | call | IBM DOS 3.30 | this DOS, before | this DOS, after |
+|---|---|---|---|---|
+| `+0:0061` | `AH=0Eh DL=02` | `AL=05` | `AL=03` | `AL=03` |
+| `+0:0065` | `AH=19h` | `AL=02` — on C: | `AL=02` — on C: | `AL=02` |
+| `+0:0038` | `AH=36h DL=03` | `AX=0004 BX=3E45 CX=0200 DX=3E47` | **`AX=0002 BX=006A CX=0200 DX=02C9`** | `AX=0004 BX=3DF6 CX=0200 DX=3E47` |
+
+`02C9h` is 713 and `006Ah` is 106: *"106 of 713 cluster(s) free"* is what
+`tools/os88fat.py ls` says of the Prince floppy, two sectors a cluster —
+B:'s figures, word for word, about a call that named C:. After the fix the
+total is C:'s own `3E47h` on both machines; the free count differs by the
+os8088 install on our VHD, which the reference VHD (`--noboot`) does not
+carry. The `AL` of the select differs and is not the subject: IBM DOS counts
+`LASTDRIVE`'s five letters and this DOS the three volumes it has (§96.6.1).
+With the fix the installer goes on to `AH=3Bh "\"`, `AH=3Bh "PRINCE"`
+(code 3) and asks *"Do you want to make the directory?"* — the same three
+calls, at the same sites, that IBM DOS makes. Answered `y`, it copies the
+disk and says *"Prince of Persia" has been installed*: `DIR` in `C:\PRINCE`
+lists all 31 files at the floppy's own sizes (`INSTALL.EXE` deletes itself)
+with 31,860,736 bytes free.
+
+**The fix is `dos_fh_stand`, which already existed for exactly this**: the
+machine onto drive DL in that drive's banked folder, a compare when it is
+already there, `CF=1` when the volume cannot be reached — which is the
+`AX=FFFFh` arm, unchanged. It is the right primitive and not merely a
+working one: under a real DOS `AH=36h` changes no drive, and `dos_fh_stand`
+moves the machine without moving `[dos_vol]`, so where the program stands
+after the call is where it stood before. The select-ask-select-back is
+gone, and with it `.dfhome` and the home-drive banking: **the core image
+is 38 bytes SMALLER** (`build/doscore.bin` 15,398 → 15,360), `.bss` is
+unchanged (no cell added, `CORE_BSS_SIZE` untouched) and `kern_dos`'s
+image (`build/kerndos.bin`) is byte-identical — the call is the core's,
+joined to both hosts (§96.44).
+
+**`DFREE.COM` could not have caught it** and that is worth saying, because it
+is the probe written for this call: it asks drives 0 to 4 by NUMBER and
+never selects, and a number that is not the program's drive took the old
+code through `dos_drv_sel`, which in those days still mounted. The defect
+needs the installer's shape — select, then ask about where you now are — so
+`tests/dostrap/dfsel.asm` is that shape with no commercial software in it:
+standing on B:, select A: and ask as `0` and as `1`, select B: back and ask
+by number, printing the four registers and `AH=19h` after each. The same
+binary under IBM DOS 3.30, A: its own system floppy:
+
+```
+L1 D=2 AX=0002 BX=0161 CX=0200 DX=0162 CUR=2    B:, before any select
+L2 D=1 AX=0002 BX=0009 CX=0200 DX=0162 CUR=1    A:'s: 9 free of 354
+L3 D=1 AX=0002 BX=0009 CX=0200 DX=0162 CUR=1
+L4 D=2 AX=0002 BX=0161 CX=0200 DX=0162 CUR=2
+```
+
+`tests/dosdfsel.py` is the row and checks every line against an independent
+FAT reader over the image that line is about; before the fix L2 and L3
+answer `AX=0002 BX=0161 CX=0200 DX=0162`, the probe disk's own figures, for
+a question about the system disk.
 
 ### 51.11 Drivers, out of the way (`OSAPI_DRV_SUSPEND`)
 
