@@ -1032,14 +1032,19 @@ def inspect(machine):
         summ = lines()
         text = '\n'.join(t for _, t in summ)
         cpu = sym_str(ui, p, 'rl_cpuname')
+        brand = p.data('rl_brand', 48).split(b'\0')[0].decode('latin1').strip()
+        cpu = brand or cpu                          # CPUID's name where it gave one
         adapter = {0: 'VGA', 1: 'Hercules', 2: 'CGA', 3: 'EGA'}[p.word('rl_video') & 255]
         assert ('Processor               ' + cpu) in text, (cpu, text)
         assert ('Adapter                 ' + adapter) in text, text
         assert sum(1 for a, _ in summ if a == 1) == 5, 'five headers on Summary'
         print('  Summary: %s, %s, %d lines' % (cpu, adapter, len(summ)), flush=True)
         irq = page(6, lambda: R.key(ui, 'Digit7'))
-        assert any(t.split()[:3] == ['0', 'System', 'timer'] and 'os8088 kernel' in t
-                   for _, t in irq), irq
+        if os.environ.get('OS88_MEGA'):             # kern_mega: no IVT to read,
+            assert any('not read in protected mode' in t for _, t in irq), irq
+        else:                                       # ...and the page says so
+            assert any(t.split()[:3] == ['0', 'System', 'timer'] and 'os8088 kernel' in t
+                       for _, t in irq), irq
         dev = page(7, lambda: R.key(ui, 'ArrowRight'))
         assert any('REDLINE' in t and 'program' in t for _, t in dev), dev
         mem = page(2, lambda: press(9 + 2))         # the Memory button
