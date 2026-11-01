@@ -27436,6 +27436,129 @@ is left. The rule for a caller is the one §59.5 already states — a toast is a
 verdict, not a status line — and the three that broke it say what they are
 doing only while the bar cannot (§42.15, §22.22.6, WEAVE-SPEC §11.3).
 
+#### 12.8.8 An OPERATION is one bar, however many phases it takes
+
+**kern_big only** (`FPG_OPS`, `kernel.asm`); kern_small assembles §12.8.3
+unchanged. A phase re-scales the trough (§12.8.3), and that was right for
+everything this section was first written for. It is wrong for an operation a
+user sees as ONE thing that the file layer does in many calls: a file-manager
+copy is `dskw_read_seq` + `dskw_write_seq` per 64 KB chunk, so a 700 KB copy
+filled the bar about twenty-two times, with the whole trough hatched between
+each pair.
+
+`fpg_opbegin` (far, `DX:CX` = the bytes the WHOLE operation will move, every
+phase counted - a copy reads AND writes, so twice the file) scales the trough
+once and sets `FPG_OP` (bit 3 of `[fpg_on]`). Until `fpg_opend` or the
+unlock:
+
+- **`fpg_end` banks the phase's scale** in `[fpg_opt]` as it zeroes
+  `[fpg_total]`, still writing no flag.
+- **`fpg_begin` resumes it** rather than re-scaling. `fpg_step`, the hot
+  path in `dsk_xfer`, is untouched.
+- **Between phases `[fpg_total]` is 0, as before**, so metadata sectors are
+  not counted and the bar cannot run ahead of the data.
+- **There is no hatch under an operation** (`fpg_busy`). The gaps between
+  phases - a FAT flush, a directory commit - last a frame or two, so the
+  remainder hatched there read as a flash and not as information (the
+  field's report). The bar holds its extent across them. The first build
+  hatched the unlit remainder; it was taken out, with its code.
+- **Every transfer path steps the bar.** `dsk_xfer`'s driver arm (a DVK_DRV
+  volume - HDD.DRV's C:) moves its run in one `drv_blk_call_x` and never
+  reached `.notch`, so it now steps the run itself. A redirected volume's
+  `OSAPI_FILE_READ_AT` (what a copy's `READ_SEQ` reads with) opens a phase
+  around `FSV_READAT`, without which `[fpg_total]` stayed 0 and the driver's
+  `OSAPI_FS_PROG` reports were thrown away. RAMDISK.DRV reports its writes
+  and its READ_AT now, as NET.DRV, HTTPFS.DRV and CDROM.DRV already did.
+  Before these, a floppy-to-C: copy on an HDD.DRV machine stopped at half
+  the bar, and so did a copy onto or off a RAM disk. `tests/fpgop.py` is the
+  gate, on all four paths.
+- **A read-ahead FILL is not counted under kern_big** (`[dsk_rah_busy]` at
+  `.count`), which reverses 12.8.2's *"left alone deliberately"*: the fill
+  reads the track's speculative tail as well, and the caller's own sectors
+  are stepped again when the cache serves them, so a run of small files
+  counted its reads up to twice. Against one operation's scale that is not
+  invisible: an install's bar filled at 74-88% of the job. Each served
+  sector is now counted once, when it reaches its caller.
+- **Nor is the FAT or the root directory** (`dsk_fpgdata`: a run starting
+  below `[dsk_datalba]`, on both the int 13h and the driver arm). An
+  operation's phases carry the volume's own bookkeeping - the free-cluster
+  search, an overwritten file's chain freed, FAT window loads - and how much
+  depends on the volume's HISTORY, not on the operation: on a 20MB ST-225
+  three installs old, an upgrade counted 2,201 steps against a 1,530 scale
+  and filled the bar at 69% of the copy, where a fresh volume took 1,502.
+  Counting the data area alone, both come to the installer's own estimate -
+  HDDTOOL.DRV's `hd_iop_go`, the source's used sectors read once and
+  written once - within 2%, and the bar fills at 98-100% of the job on
+  either. The field reported this one, and found it: the fresh disks the
+  rows install onto cannot show it.
+- **`fpg_finish` clears the whole byte** and with it the operation, so there
+  is still no bracket to forget. `fcp_xfer` is the first caller: one
+  operation per file, twice the source's size.
+- **`fpg_opbegin` refuses while any operation is owned** (`[fpg_pown]` not
+  0FFh, §12.8.9), so a kernel operation inside a package's is not a second
+  scale.
+
+#### 12.8.9 …and a PARKED widget outlives the hold, for its owner
+
+**kern_big only** (`FPG_PARK`). §12.8.8 lives inside one gfx-lock hold. A
+package that loads one chunk per `W_ONTIMER` - the Video Player's hold,
+spread out so *"the loading has half the machine and the desktop the other
+half"* - is a hold per chunk, so the widget went up and came down once per
+chunk: hundreds of blinks for one thing the user asked for.
+
+An operation with an **owner** (`[fpg_pown]`: an instance index, or 0FEh for
+the kernel and a driver asked as the machine) **parks** at `gfx_unlock`
+instead of coming down:
+
+- **What stays and what goes.** `[fpg_on]` keeps `FPG_SHOWN | FPG_OP`, and
+  its pixels, origin and trough stay. The armed bit, the cursor debt (paid)
+  and `[fpg_warm]` go.
+- **Parked is not armed, and that is the whole safety argument.**
+  `mou_apply`'s three tests, `fpg_busy` and `fpg_arm` ask the armed BIT
+  (`FPG_ARMED`, a `test` the length of the `cmp` it replaces). So the arrow
+  moves and the busy pointer is off on a desktop that is live. §12.8.4's
+  two-painter case cannot arise: nothing draws the parked widget except
+  `menu_furniture`'s repair and the next owner phase, both under the lock.
+- **A parked widget keeps its cells.** `fpg_vis` accepts `1 | FPG_OP`, so
+  `menu_bar_text` still reserves `FPG_CELLS`, and a toast still outranks it
+  (§12.8.7). It is shown again at the owner's next phase.
+- **`fpg_arm` arms a parked widget where it stands.** It does not reset the
+  origin or the trough, and every refusal still applies: the splash, a
+  bracket, another task's lock, a fullscreen window. So a phase inside the
+  Video Player's own fsx bracket draws nothing.
+- **Only the owner's phases count.** A phase whose `inst_caller` is not the
+  owner (0FFh counting as 0FEh) leaves the trough unscaled, and its remainder
+  hatches. A Disk-window copy during a package's load is busy, not progress
+  on the load.
+- **Ending.** The owner's end, or its instance closing (a check in
+  `toast_owner_gone`, which both teardown sites already call), only disowns
+  the widget. The next `gfx_unlock` takes it down.
+
+#### 12.8.10 `OSAPI_FS_OP` (slot 0x04EF)
+
+`DX:CX` = the bytes one operation of the caller's will move, READS AND
+WRITES BOTH COUNTED; `DX:CX` = 0 is its end. `CF = 1` refused in each of
+these cases:
+
+- another owner holds the widget;
+- **the caller already has one open** - nesting is refused, so a library
+  (`apps/os88partsbody.inc`) inside a package's wider operation leaves it
+  alone;
+- the widget could not arm;
+- an end of an operation the caller does not own;
+- kern_small, whose cell is `OSAPI_XREFUSE`.
+
+It is advisory: refused, the transfers work and report as §12.8.3 always
+made them. A caller ends only what its own begin opened. UI task, from a
+callback or a wake, locked or not - the file calls' own rule, because
+`fpg_arm` already arms lock-free (§12.8.4's debt) and a lock-free arm comes
+down, or parks, at the next `gfx_unlock` as it always has. Every register
+kept. `os88_fs_op(hi, lo)` is the C SDK's spelling. A shipped package that
+calls it needs Wire level 7 (§92.2). The adoption survey, site by site, is
+docs/plans/FS-OP-ADOPTION.md, and the cost is
+docs/reports/TOAST-QUEUE-OP-PROGRESS-COST-2026-10-31.md: kern_big pays
+§12.8.8 and §12.8.9 together at about 240 bytes, kern_small 6.
+
 ### 12.9 The bar is one composition, and only what changed is drawn
 
 **Only the cells that changed may put pixels on the bar.** The menu bar
@@ -40302,6 +40425,13 @@ under it. The machine freezes for as long as the pass takes — 2,880 sectors is
 over a minute on the field machine — and §12.8's progress widget is armed with
 the pass's byte count, so the freeze has a bar on it.
 
+**On `kern_big` the whole clone is ONE operation** (§12.8.10): `clo_opgo`
+opens it at the first pass with `CL_TOT` × 1KB (every sector read once and
+written once) and `clo_free` ends it, so a cross-drive clone or a Write Img
+fills one bar instead of one a pass, and a same-drive clone's bar PARKS on the
+menu bar across its swap prompts. The kernel owns it as 0FEh, and every
+outcome reaches `clo_free` - the verdict, an error, Esc, a closed window.
+
 **Cancel is at every prompt and nowhere else**, which is what "at any point
 input is required" means on a machine that cannot interrupt an `int 13h`.
 Esc at `CLS_PICK`, `CLS_SRC`, `CLS_TGT`, `CLS_SAME` or `CLS_NOSRC` ends the
@@ -43520,8 +43650,9 @@ kern_mega's doors follow them, moved up past `main`'s cells at the two
 113th - 1,223 bytes - then `OSAPI_IMG_NAME` (§28.4.12) at `0x04D7` a 114th
 and `OSAPI_ARG_TEXT` (§26.10.7) at `0x04DD` a 115th, 1,235 bytes, and
 `OSAPI_SEG` (§50.6.11) at `0x04E3` a 116th, **1,241 bytes**, which
-is what `kernel.asm`'s length guard asserts from the counts.
-`osapi_table_end` is `0x04E9`.
+was what `kernel.asm`'s length guard asserted from the counts;
+`OSAPI_MEM_P` (§50.3.7) at `0x04E9` is a 117th and `OSAPI_FS_OP` (§12.8.10)
+at `0x04EF` a 118th, **1,253 bytes**, and `osapi_table_end` is `0x04F5`.
 Those counts are the tree it landed on, not a contract; `t_api_abi` prints
 the span it walked.
 
@@ -46671,6 +46802,22 @@ and that is what puts its packed image on 48 sectors (24,539 bytes) and the
 art beside the package. `op_seg` is NOT gated, though it answers 0 for every
 row of such a table: it is a published entry point (the C SDK's thunk calls
 it), and refusing to assemble a call to it is not this gate's decision.
+
+##### 20.12.9.6 The reads are ONE file operation, and `OP_NO_FSOP`
+
+`op_load` reads the carve 32KB a take and an `OP_XMS` span through its own
+staging buffer, and `op_fetch` a lazy part the same way, so the file widget's
+bar filled once a take (§12.8.3). Each is now ONE `OSAPI_FS_OP` (§12.8.10),
+through `op_asop`: `op_load` begins once sizing has the packed run and the
+span in sectors - short by each read's head slack, so the bar clamps full a
+moment early - and `op_fetch` with its read's `[op_cap]` exactly. A package
+already inside a wider operation of its own (PixelStein's entry proc) has the
+begin refused as nesting, and `op_asop` ends only an operation its own begin
+opened, so the package's stands. It costs every includer with a carve or a
+fetch 53 to 60 bytes of image (XTMP3 +56, measured), and **every such package
+then needs Wire level 7** (§92.2). `%define OP_NO_FSOP` before
+`apps/os88parts.inc` assembles the reads as they were: WireFleet does, its
+image and bss being at `APP_MAX_SIZE` with three bytes to spare.
 
 #### 20.12.10 A LOADER hands its identity to one of its own parts
 
@@ -53765,6 +53912,12 @@ refusal - is that section's.
    three to the join when that marker is there. It also makes a clone and a
    join mutually exclusive, which they must be - one `[clo_seg]` - and the
    refusal is the one a second clone already gets.
+4. **One bar for the whole join** (`kern_big`, §12.8.10). Part 1's header
+   names the total, and `cmz_jloop` opens an operation of twice it - written
+   once, read once from parts that are no bigger, so it ends a little short
+   - which parks on the menu bar at each prompt; `cmz_jexit` ends it on every
+   way out. While it is live `cmz_rearm` steps nothing, every read and write
+   having counted itself already. `[cmz_jop]` is in the saved state block.
 
 **What the resident half is**: the menu row and its string, a third label on
 the `Compress`/`Uncompress` body, and two more answers from `CLV_SAVED` and
@@ -109752,6 +109905,32 @@ it is that a cell which changed when the strip arrived must change again when
 it leaves. The **menus** are held to the byte across all three captures, since
 nothing there is live.
 
+### 59.11 A different raiser's toast QUEUES
+
+**kern_big only** (`TOAST_Q`). One buffer meant the last caller won. On
+kern_mega with RLAPPLY autostarting, `Chipset settings applied` overwrote
+`Entered protected mode` while it was still staged. There is now one queued
+slot (`toast_qbuf`/`toast_qttl`/`toast_qinst`, flag `[toast_qwant]` in
+`.text`):
+
+- **A different raiser waits.** A `toast_show` while a toast is up or staged
+  goes into the queued slot when it comes from a **different** raiser. The
+  latest message wins the slot.
+- **The same raiser still replaces its own**, so `Encoding...` -> `Saved X`
+  stays one message.
+- **`toast_pass` promotes it** at the edge that retires the current one:
+  the expiry or a `toast_kill`. The strip goes up in the same composition
+  that takes the old one down.
+- **A retire** still kills the current toast, and also drops the caller's
+  own queued one.
+- **`toast_owner_gone`** drops a closing instance's queued message.
+- **The loader's `.abort` re-home** (§19.2.1) covers the queued slot as well
+  as the current one.
+
+The queued message waits out the current toast's whole life. Behind
+kern_mega's 146-tick toast that is about eight seconds; shortening the
+current one when something queues is priced and not built.
+
 ## 60. cpudet.inc — the CPU tier
 
 **Which CPU is this?** Two published bytes and two routines, and that is
@@ -112484,6 +112663,11 @@ a chain that grew each time. They are one `OSAPI_FILE_WRITE_SEQ` stream with
 down. An image is useless until it is whole and Load refuses a short one
 (above), so HELD's one loss is nothing. `RAMDISK.DRV` does not ship on
 `kern_small` (§62.9.15), so it needs no fallback.
+
+**A Preserve or a Load is one bar** (§12.8.10): `rd_iop_go` opens an operation
+of the store's bytes and the two 4KB blocks once the size is known, and
+`rd_img_out`, both verbs' one exit, ends it - one bar where a 288KB store
+filled nine.
 
 #### 62.9.13 Ticking the row no longer mounts anything
 
@@ -125229,7 +125413,11 @@ row of the board's screen for the duration and nothing after it.
 The counter is updated **per committed chunk and not per subpacket**: a chunk
 is 4 KB and a subpacket is 1 KB or less, so per-subpacket updating would spend
 a status line's worth of drawing four times for every one that told the user
-anything new.
+anything new. **The menu bar's file widget is one bar a FILE** (§12.8.10):
+`tz_dlgdone` asks `OSAPI_FS_OP` for the ZFILE's size once the destination is
+chosen (ending any operation a raced last commit left open first), and
+`tz_wake` ends it at the first commit or `TZ_DONE` found with the receiver
+out of `ZR_DATA`; windowed only, since a bracket never shows the widget.
 
 **When the transfer ends the terminal is back and the host's text resumes** —
 the buffer was never touched, so putting it back is the repaint the takeover
@@ -126730,7 +126918,11 @@ a representable speed are available; otherwise the value is `Calculating...`
 or `--`. The timer refreshes the visible progress at a bounded cadence rather
 than repainting for every byte. Completed transfers show
 `Download complete.` and 100% only when the HTTP body was completely received
-and the stream was closed successfully.
+and the stream was closed successfully. With a validated `Content-Length` the
+disk side is ONE file operation too (§12.8.10): the wake's first write asks
+`OSAPI_FS_OP` for that total, so the menu bar's widget is one parked bar across
+the per-cluster writes instead of a blink a cluster, and `br_dl_close_stream`,
+which every way a download stops goes through, ends it.
 
 There is no Pause button in 1.6b: neither the socket driver nor the Browser's
 transfer state provides a safe pause contract. The active control is Cancel;
@@ -126887,6 +127079,10 @@ the existing DRVC_EMS ownership rules, and the page remains usable without
 EMS. Save As streams an EMS-backed source from those windows in cluster-aligned
 chunks of at most 32 KiB; a destination volume with larger clusters reports a
 write failure rather than copying through a second whole-page RAM buffer.
+Those chunks are ONE file operation (§12.8.10), the source's length asked of
+`OSAPI_FS_OP` first, so the bar fills once rather than once a chunk; the
+answer is kept and only a begin that was taken is ended, because a download
+(§71.20.1) may already own the Browser's one operation.
 
 Parsing may finish before the response closes, but layout and drawing remain
 deferred until the final body or a terminal transfer condition. The UI does not
@@ -136956,6 +137152,13 @@ stage is a heap claim and the plain door puts our own segment in ES over it:
 keeps `fd_stage`: its rows are composed in our segment.
 
 What it costs: `ftpd.o88`'s image **+46 bytes** (14,670 -> 14,716).
+
+**A RETR's reads are ONE file operation** (§12.8.10): `fd_do_rdchk` asks
+`OSAPI_FS_OP` for the size `OSAPI_FILE_FIND` gave, so the console's menu bar
+keeps one parked bar across the chunk-a-wake reads, and `fd_wake` ends it
+once `[fd_lmore]` says the last chunk is read, or on any wake after the
+worker has dropped the RETR. A STOR asks nothing: the server parses no
+`ALLO`, so no size is known before the last byte.
 
 #### 77.51.1 ...and the 32 KB stage MOVES (NO-PINNING A3)
 
@@ -156363,6 +156566,11 @@ list: 12 bytes and then 8 a run in its one sector is **`HBX_HMAX` = 62**, run
 start at the head's byte 512, would overwrite the list's tail and the image
 would be written and refuse its own resume.
 
+**The write is one bar** (§12.8.8): `hbm_wrimg` opens an in-hold operation of
+exactly what it writes - the conventional chunks, chunk 0 a second time, the
+section in whole chunks and the pointer - so the ~20 appends fill the widget
+once. The lock is held to the end, so the unlock is the end.
+
 **The conventional picture is written a chunk a call, and only its first
 cluster through segment 0** (`hbm_xwconv`, KERN-MEGA-PLAN 14.46). Segment 0 is
 the NULL selector, which protected mode turns into `MEGA_SEL_LOW0` one
@@ -169203,7 +169411,7 @@ the true sentence for it too. The rows are `WIRE_CELL_LEVELS` in
 | 4 | 0x04A5 | the level-3 Wire, v1.0.20261020 (its table ends at 0x04A5): PiXEL calls `OSAPI_GFX_BLITD` (0x04AB, §120), 1942 `OSAPI_MEM_CODESEL` (0x04B9) and PIXELSTEIN 3D and Skies `OSAPI_MEM_SUBSEG` (0x04D1) | v1.0.20261025 |
 | 5 | 0x04D7 | the level-4 Wire, v1.0.20261025 (its table ends at 0x04D7): the Task Manager calls `OSAPI_IMG_NAME` (0x04D7) and INSTALL `OSAPI_ARG_TEXT` (0x04DD) | v1.0.20261026 |
 | 6 | 0x04E3 | the level-5 Wire, v1.0.20261026 (its table ends at 0x04E3): `OSAPI_SEG` (0x04E3, §50.6.11) is called by every package carrying the parts library (`apps/os88partsbody.inc`), by PiXEL, PIXELSTEIN 3D, REDLINE and the Tracker | the release after v1.0.20261026 |
-| 7 | 0x04E9 | the level-6 Wire (its table ends at 0x04E9): `OSAPI_MEM_P` (0x04E9, §50.3.7) is called by every package carrying the parts library (§20.12.14) and the C runtime's overlay load (`apps/cc/crt0.asm`) | the release that ships §50.2.1 |
+| 7 | 0x04E9 | the level-6 Wire (its table ends at 0x04E9): `OSAPI_MEM_P` (0x04E9, §50.3.7) is called by every package carrying the parts library (§20.12.14) and the C runtime's overlay load (`apps/cc/crt0.asm`), and `OSAPI_FS_OP` (0x04EF, §12.8.10) by every package that reports one operation as one bar (docs/plans/FS-OP-ADOPTION.md), the parts library among them | the release that ships §50.2.1 |
 
 **A row's cell is the table end of the OLDEST kernel the level fences, not
 of the last release.** Two releases share `PKG_FMT` 10 and both Wires are
@@ -170039,7 +170247,11 @@ entries done; the `NNK of MMK` beside it is the transfer, and it is a dword
 because an archive is the first body this client reads that may pass 64KB
 (92.13). Both come from `[wr_pnum]` and `[wr_ptot]`, which the sidecar chain
 fills from `WC_NSIDE` and the archive from its header — one composer, two
-counts of different things.
+counts of different things. **The menu bar's file widget shows the tree as ONE
+operation** (§12.8.10): `wr_arcbase` asks `OSAPI_FS_OP` for the header's
+`WA_TOTAL`, the bytes every entry's writes move, so its bar stays parked
+across the per-entry wakes rather than blinking once an entry; `wr_arcend`
+and `wr_abandon` end it, unconditionally, being the archive chain's two ends.
 
 **AND ONE THING THIS SECTION ASSUMED THAT IS NOT TRUE, WHICH IS NOW FIXED IN
 THE KERNEL**: `OSAPI_FILE_FIND` had no arm for a redirected volume, so on a
@@ -176304,6 +176516,13 @@ purpose**: a destination that was created and then failed is deleted, because
 a short file that looks whole is worse than no file. The half genuinely lost
 is the redirector's `FSV_COPY` fast path, which applies to a remote-to-remote
 pair — not something a DOS program inside an fsx bracket has.
+
+**Each file streamed is ONE file operation** (§12.8.10), twice its size off
+`dsh_nth`'s entry, so at the windowed prompt the file widget keeps one bar
+for it rather than filling once a chunk; the plain arm of `TYPE` is one for
+the file's size. The core names no `OSAPI_*` cell (§96.4), so it goes
+through a door, `DBE_FSOP` - the 25th - which `kern_dos` answers with a
+refusal: it has no menu bar. Inside a bracket the begin is refused anyway.
 
 **`OSAPI_FILE_COPY` is still the right door for a package with a heap**, which
 is every windowed caller including wave 7's prompt; it is simply not reachable
@@ -185486,6 +185705,11 @@ into the image it was about to jump into. (§20.12.7.4.1's shadow now puts
 the packed length back on a drop, so the row read afterwards is right too;
 the copy stays, because it is taken before anything can move the row.)
 
+**The launch is one file operation** (§12.8.10): `dsl_entry` begins it with
+parts 0 and 1's packed lengths and ends it at its one exit, so the carve and
+the core's fetch are one bar - the parts library's own begins, inside it,
+are refused as nesting (§20.12.9.6).
+
 **MEASURED, on `os8088_5150_cga_gla`**: the program is handed **585 KB above
 its PSP** against 431 windowed, the exit code comes back through §96.41's
 mailbox, and the machine restarts into a desktop. `tests/kdhand.py` is that
@@ -190801,7 +191025,10 @@ stream and the shadow land. **And the masters are fetched only when they,
 their packed stream and the shadow all fit the largest run** — kept
 masters with the shadow refused would be a game that cannot open, for the
 sake of textures. Both are the LOADER's (freed at the re-home), so part 0
-does not pay for them. **Part 1 or part 2 refused,
+does not pay for them. **The launch is one file operation**
+(§12.8.10): `pxl_entry` begins it with parts 0, 3 and 4's packed lengths -
+an over-estimate on a machine refused the masters, where the bar ends short
+- and ends it at its one exit. **Part 1 or part 2 refused,
 or the art claim, puts the game on the Flat rung** (97.3) — and so does a
 generation the part cannot hold, for that backend's phase class alone
 (`px_genbad`; a Mode change to a class that fits retries); **the sprite
@@ -193920,6 +194147,10 @@ decide[s] what is acceptable."*
   with the numbers, "Needs 727 KB of memory, 415 KB free", in the window,
   and nothing is claimed. A claim that fails sheds the disk caches on its
   way down (66.4.3), so asking first is what keeps a refusal free.
+- **The load is ONE file operation** (§12.8.10): both blocks' packed bytes,
+  begun once the fit is yes and ended on every way out of `vp_rload`, before
+  the bracket - so the widget fills once and not once a block or a piece.
+  +39 bytes.
 - **An older player refuses such a file cleanly**: its `vp_pbk` has the old
   bounds, so the header is refused as it is read.
 
@@ -201718,6 +201949,14 @@ as it was read.
 **The card's line 6**, until a play's figures take it: `Into XMS: 384 of
 2345 KB` while loading, `Held in XMS: 2344 KB` when it is all there.
 
+**The load is ONE file operation** (§12.8.10, `vp_xopbeg`): begun with the
+first chunk's timer at `[vp_xcap]`, the card's own "of", so the menu bar's
+widget is one bar PARKED between the ticks rather than a blink a chunk, and
+it moves with line 6. `vp_xdone` (the short read) and `vp_xoff` (any drop,
+another file's open, the close) end it. The widget does not arm inside a
+bracket, so what `vp_xlag` and `vp_xput` fill there is on the card and not
+on the bar, which resumes behind it after the play. +35 bytes.
+
 **All of it is on the UI task** - the timer, the bracket's main loop, a
 callback - which is where §41.8 allows the copy. On a 286 the copy is
 `int 15h AH=87h` with interrupts off for its 32 KB; the rate hook waits that
@@ -208045,7 +208284,9 @@ of its own, in 32 KB chunks with `OSAPI_FILE_READ_AT` (a chunk that size is a
 multiple of every legal cluster; `OSAPI_FILE_READ` is not for a file this
 big) - from the folder MIDIRack was LAUNCHED from, recorded at entry, since
 adding songs through the Open dialog moves the instance's folder - and is
-kept until the window closes. Its index stays in it; nothing is copied. Its
+kept until the window closes. The read is one `OSAPI_FS_OP` operation of
+the bank's KB (§12.8.10), one bar where it filled once a chunk. Its index
+stays in it; nothing is copied. Its
 presence and size are read at entry for nothing: a 16-byte `OSAPI_FILE_READ`
 answers `FERR_BIG` with the KB it needs from the directory entry, before a
 byte of data. **It ships UNWRAPPED** - `READ_AT` delivers a file raw.
@@ -209065,6 +209306,14 @@ with `OSAPI_FILE_READ`, which expands it, into one claim the size of the
 unpacked file; the ring is then that buffer, presented to the worker 32 KB
 at a time, and the header is parsed from it. A wrapped file whose unpacked
 size does not fit is refused (`too big to unpack`).
+
+**The pump's reads are ONE operation** (§12.8.10): `px_opbegin`, between
+`px_pumpinit` and the first slot, asks `OSAPI_FS_OP` for the file's size less
+the cluster the stream starts in, so the file widget keeps one bar parked on
+the menu bar across the lock-free wakes instead of coming up and going down
+once a slot. `px_finish` and `px_open`'s refusal end it, unconditionally,
+since PiXEL has one operation at a time; a file read whole (`CZ`, above)
+asks nothing.
 
 **Progress** is the status bar's NAME field, `Opening 42%` (rows emitted over
 rows wanted), redrawn as its one run only when the number changes and at
@@ -211124,7 +211373,9 @@ disk, a write-protected one or Esc leaves the old file as it was and no half
 file under the user's name** - `Disk full: not saved`, `Disk is
 write-protected`, `Not saved: disk error`, `Not saved`. A saved picture takes
 its new name, folder and format in the record, the title and the folder
-list.
+list. The writes are ONE operation (§12.8.10): `pu_start` asks `OSAPI_FS_OP`
+for the file's size, exact for BMP and PIX and the raw master (w x h) for
+PNG, GIF and PCX, and `pu_fin` ends it however the save ended.
 
 | format | what is written |
 |---|---|
@@ -222833,6 +223084,13 @@ whatever `hd_iact_ok` refuses, forces *erase* over a slot with nothing to
 keep (§52.10.15), and then runs `hd_inst_step` from `HII_ARMED`: the confirm is the
 wizard's Confirm page, not a second click.
 
+**Each disk is one bar** (§12.8.10). `hd_iop_go` opens an operation of the
+source's USED clusters × 1KB a sector (`OSAPI_VOL_STAT`; read once, written
+once, so an over-estimate that ends a little short) before the first file of
+each phase, and `hd_inst_step`'s one exit ends it, so the system disk and the
+apps disk each fill the widget once instead of twice a file. `DRVU_CALL` asks
+as the machine, so the kernel owns it (0FEh) and `[hd_iop]` says it is ours.
+
 **A run waiting on its apps disk pins the tool**:
 `HDT_BUSY` answers busy at `HII_SYSDONE`, so neither a Control Panel close nor
 `DRVU_DONE` can free the image under a run that still holds `ASSOC.DAT`'s
@@ -223313,7 +223571,12 @@ and the list ends with a 0 kind. **The sum** is a Fletcher-style pair over
 `s2 = (s2 + s1) mod 65536`, both starting at 0. It is position-sensitive,
 costs two adds a byte on an 8088, and is not a defence against anyone - its
 one job is to say a file is not the one this release wrote. Every file is
-compared as stored, so nothing is decompressed to check a sum.
+compared as stored, so nothing is decompressed to check a sum. The pass
+that sums them is ONE file operation (§12.8.10): it reads a chunk a
+lock-free wake, so it asks `OSAPI_FS_OP` for `SC_MANKB` KB - the manifest's
+size, rounded up - when it starts, and ends it when the manifest is done or
+the scan ends (Stop, a volume that will not stand), so the menu bar's file
+widget is one parked bar for it rather than a blink a chunk.
 
 The files are the ones every kern_big system-disk geometry carries: the
 manifest describes all four (`KERNEL.SYS` is byte-identical across them). So
@@ -225062,8 +225325,12 @@ whole MP3** into a hold:
 
 The load is `MD_LOAD`, state **Loading NN%** (`X3ST_LOAD`): a pass of the
 window's timer reads chunks until about 110 ms have gone, so Stop is
-answered between passes. Then the ladder or the job starts as it would
-have. From then on aplook.inc's gulps are copies: its read is `AP_RSEQ`, which the
+answered between passes. The load is one `OSAPI_FS_OP` operation of the
+file's size (§12.8.10), so the file widget keeps ONE bar for it, parked on
+the menu bar between passes, where it blinked once a chunk; the load's end,
+Stop and a failed read end it (`x3_opend`, behind a byte naming the site, so
+the hold's end never ends a Decode first's). Then the ladder or the job
+starts as it would have. From then on aplook.inc's gulps are copies: its read is `AP_RSEQ`, which the
 Audio Player leaves `os88_rseq` (AUDIO.O88 is byte-identical) and XTMP3
 makes `x3_rseq`, a copy out of the hold for the held file and the disk for
 anything else (a finished WAV, `x3_readat`'s header and fingerprint reads).
@@ -225122,7 +225389,10 @@ percentage, the elapsed wall time and the measured speed (`0.31x`), and once
 the job has measured itself for `XC_ESTT` = 182 ticks (10 s), `About mm:ss
 left`. It redraws at most once a second (`XC_DRAWT` = 18 ticks) and only
 the characters that changed; the LCD's clock, the bar and the status move
-with it. **Cancel** (Esc or the button) is answered within one granule batch,
+with it. The job is one `OSAPI_FS_OP` operation too (§12.8.10): the WAV's
+estimate (`[x3c_need]`, so the bar ends a little short) plus the source
+when no hold has it, ended by `x3c_teardown`, which every way out takes.
+**Cancel** (Esc or the button) is answered within one granule batch,
 measured 0.22 s from the key to Ready, and deletes this job's temporary file
 and nothing else. A full disk, a write error, a volume that left or a source
 that changed stops the job with its reason (`The disk is full`, `Cannot
@@ -226459,7 +226729,10 @@ re-blits the byte column it left from the band, and draws the line again.
   block in one of four inner loops (8/16-bit x mono/stereo, a 16-bit sample
   read as its high byte, no multiply) and storing each block as it ends; the
   status bar says `Scanning 45%` while it runs and the open's note, or
-  `Ready`, when it is done. Stop, Escape and another Open abandon it, and
+  `Ready`, when it is done. It is one `OSAPI_FS_OP` operation of the
+  source's data bytes (§12.8.10), so the file widget keeps one parked bar
+  rather than one a gulp, ended by `we_scandone` or by `wo_empty`. Stop,
+  Escape and another Open abandon it, and
   the document with it (`Open cancelled`). A read that delivers nothing
   short of the source's frames (a chain shorter than its entry, a disk
   swapped) refuses the document with `Cannot read the file` rather than
@@ -227261,7 +227534,12 @@ delivery offers no conversion on save.
   the next tick - the first write CREATES `WRSAVE.$$$` with
   `OSAPI_FILE_WRITE` (16 KB, a whole number of clusters), every later one
   appends with `OSAPI_FILE_WRITE_SEQ` (§18.4.9) and its token, committed
-  every call. The status bar says `Saving 45%`; Stop and Escape cancel
+  every call. The status bar says `Saving 45%`, and the save is one
+  `OSAPI_FS_OP` operation (§12.8.10) of twice the data plus the header, one
+  parked bar where the widget blinked every tick, ended in `ws_end` - after
+  which a rebase's rescan opens its own. A save cannot start during a scan
+  (`we_ready`), and the two ends ask a site byte, `[wr_fsop]`, so neither
+  ends the other's; Stop and Escape cancel
   (`Save cancelled`). While it writes the state is BUSY (§123.6): Play,
   Record, the edits, New, Open and the other saves grey (`Still saving`),
   a refinement waits, and the view, the cursor and the selection stay live
@@ -229265,7 +229543,10 @@ wake handler before the load and dropped when it returns, whatever it
 answered. Their tables and strings stay in the image, which they read
 through DS; their calls into the image are the dialog part's `ICALL`
 (§124.13). A load costs one more read of `WIN16.O88`; the segment gets
-the loader's code back for the stories after S12.
+the loader's code back for the stories after S12. The program's read and
+the face's fetch after it are ONE file operation (§12.8.10): `w16_load`
+begins it at the size probe, with the probe's KB plus the smallest face's
+packed length, and `w16_wake` ends it whichever way the load went.
 
 #### 124.18.8 The gate
 

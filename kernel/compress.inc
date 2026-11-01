@@ -1077,6 +1077,14 @@ cmz_rearm:
     push ax
     push cx
     push dx
+%ifdef FPG_OPS
+    test byte [fpg_on], FPG_OP  ; ...UNLESS AN OPERATION IS LIVE (SPEC.md
+    jnz .out                    ; 12.8.8): every read and write already resumed
+                                ; its one scale and counted itself into it, so
+                                ; re-stepping [cmz_done] here would count the
+                                ; writes twice. A rejoin's own (cmz_jloop) is
+                                ; that case, and so is a package's
+%endif
     mov cx, [cs:cmz_utot]
     mov dx, [cs:cmz_utot+2]
     call KERNEL_SEG:fpg_begin
@@ -2457,6 +2465,16 @@ cmz_jloop:
     call cmz_jhname
     call cmz_jname              ; that name is free, and so is the temporary
 .named:
+%ifdef FPG_PARK
+    mov cx, [cs:cmz_jtot]       ; THE REJOIN IS ONE OPERATION (SPEC.md
+    mov dx, [cs:cmz_jtot+2]     ; 12.8.10): one bar from part 1 to the verdict,
+    shl cx, 1                   ; PARKED across every 'Put SET.002 in A:'
+    rcl dx, 1                   ; instead of rescaling per part. Twice the
+    call KERNEL_SEG:apic_fs_op  ; original: it is written once and the parts
+    jc .noop                    ; read once, and a part is no bigger than what
+    CSDO mov byte [CSEG cmz_jop], 1 ; it rebuilds, so an OVER-estimate that
+.noop:                          ; ends a little short. Owned as 0FEh, so only
+%endif                          ; cmz_jexit's end ends it: [cmz_jop] says ours
     call cmz_rearm
     call cmz_jat
 .same:                          ; --- the same set, and it starts where the
@@ -2635,6 +2653,16 @@ cmz_jerr:
 cmz_jexit:
     pushf
     push ax
+%ifdef FPG_PARK
+    cmp byte [cs:cmz_jop], 0    ; the rejoin's operation, if it opened one
+    je .noop                    ; (cmz_jloop) - every way out of a join comes
+    push dx                     ; here: the verdict, a refusal, Esc and an
+    xor cx, cx                  ; abandoned prompt (cmz_jdisp's .abort)
+    xor dx, dx
+    call KERNEL_SEG:apic_fs_op
+    pop dx
+.noop:
+%endif
 %ifdef KERN_BIG
     cmp byte [cs:cmz_jto], 1
     jne .keep
@@ -2819,6 +2847,9 @@ cmz_jclaim:
     xor ax, ax
     CSDO_ON
     mov [CSEG cmz_jwrote], al
+%ifdef FPG_PARK
+    mov [CSEG cmz_jop], al      ; no operation yet (cmz_jloop)
+%endif
     mov [CSEG cmz_jretry], ax
     CSDO_OFF
     PUSH_CSDATA                     ; ES = CS for two runs of stosw (DF = 0: the
@@ -3794,6 +3825,10 @@ cmz_jid:    dd 0                ; ...and the set's ID. A part's header bytes
                                 ; with one `repe cmpsw` (asserted below)
 cmz_jsel:   times 13 db 0       ; the selection's name - a part's
 cmz_jnam:   times 13 db 0       ; the result's
+%ifdef FPG_PARK
+cmz_jop:    db 0, 0             ; (a pad byte for parity) 1 = cmz_jloop's OSAPI_FS_OP is ours to end:
+                                ; in the state block, so a paused join keeps it
+%endif
 CMZ_JSTL    equ $ - cmz_jst
 cmz_jretry: dw 0                ; the part Enter said is in: a miss of it is news
 cmz_jext:   dw 0                ; where fm_onam's three digits are

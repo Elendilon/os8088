@@ -1507,7 +1507,11 @@ dsk_xfer:
 %endif                          ; kind, and it is OS88_DRIVERS's (SPEC.md
                                 ; 62.9.2.3, 51.0.2)
     call dsk_geom_pick          ; [dsk_base] and [dsk_cylmax] for this volume
+%if %isdef(KERN_MEGA) && %isdef(FPG_OPS)
+    jmp .sector                 ; (the driver arm's bar, below, pushed it past
+%else                           ; a short jump on kern_mega alone)
     jmp short .sector
+%endif
 .jbadvol:
     pop bx
 %ifdef OS88_DRIVERS
@@ -1544,6 +1548,10 @@ dsk_xfer:
 %else                           ; SI is the low one. The LBA itself is dead on
     xor di, di                  ; this path, which is why DI is no longer
 %endif                          ; banked across the lookup that clobbers it
+%ifdef FPG_OPS
+    push cx                     ; the run, for the file bar below...
+    push si                     ; ...and where it starts (dsk_fpgdata)
+%endif
     CURXFER_ON                  ; **AND THE DRIVER'S TRANSFER TOO** (SPEC.md
                                 ; 7.4.1.1). Not the ROM, so the "CPU parked on
                                 ; IRQ6" half of 15.3.8 does not apply and the
@@ -1570,7 +1578,23 @@ dsk_xfer:
 .drvret:
 %endif
     CURXFER_OFF                 ; ...and CF is the driver's answer, which `mov`
-    jnc .success                ; leaves alone
+%ifdef FPG_OPS                  ; leaves alone
+    pop di                      ; the run's LBA - DI is dead here
+    pop cx                      ; (`pop` writes no flag)
+    jc .drverr
+    cmp word [fpg_total], 0     ; **A DRIVER'S SECTORS COUNT TOO** (SPEC.md
+    je .success                 ; 12.8.8): a DVK_DRV volume - HDD.DRV's C: -
+    call dsk_fpgdata            ; (its data sectors, as .count's)
+    jc .success
+.drvnotch:                      ; leaves before .notch ever runs, so a copy
+    mov bp, fpg_step            ; onto one counted its reads and not one of
+    call ct_cw_mem_disp         ; its writes and ended at half the bar. Per
+    loop .drvnotch              ; sector, as .notch steps: fpg_step clamps
+    jmp short .success          ; at the total and preserves everything
+.drverr:
+%else
+    jnc .success
+%endif
     mov [dsk_ioerr], al         ; the driver reports int 13h's status byte,
 %endif                          ; (.jbadvol falls into .jfail on kern_small)
 .jfail:                         ; ...AND the two range refusals in .sector, at
@@ -2030,6 +2054,21 @@ dsk_xfer:
     jne .notch                  ; 18.91.6): with neither bar live - the
     cmp word [fpg_total], 0     ; splash gone (SPLCALL's own test) and no
     je .notched                 ; scale armed (fpg_step's) - every pass below
+%ifdef FPG_OPS
+    cmp byte [dsk_rah_busy], 0  ; ...AND NOT FOR A READ-AHEAD FILL (SPEC.md
+    jne .notched                ; 12.8.2): it reads the track's speculative
+                                ; tail too, and the caller's own sectors are
+                                ; stepped again when the cache serves them -
+                                ; so a run of small files counted twice and a
+                                ; whole-operation bar (12.8.8) hit 100% early
+    call dsk_fpgdata            ; ...NOR THE FAT OR THE ROOT DIRECTORY: on a
+    jc .notched                 ; volume whose free space is scattered, the
+                                ; free-cluster search and the freeing of an
+                                ; overwritten file's chain are FAT traffic
+                                ; inside every write's phase - 2,201 steps
+                                ; against a 1,530 scale on a disk three
+                                ; installs old, where a fresh one took 1,502
+%endif
                                 ; is two calls answering "not armed": 5.2% of
                                 ; a bracketed 32 KB read on an XT, measured
                                 ; (DISK-CPU-PLAN 7.4). CX is left holding the
@@ -2298,6 +2337,22 @@ dsk_xfer:
                                 ; are 3 bytes shorter, and dsk_runcap and
                                 ; dsk_next_clus_x keep an EVEN shift
                                 ; (t_hotpar.py)
+
+
+
+%ifdef FPG_OPS
+; dsk_fpgdata - CF = 1 when the run at volume LBA DI is the FAT or the root
+; directory, which a file operation's bar does not count (SPEC.md 12.8.8):
+; dsk_dbg_class's own boundary, [dsk_datalba]. Everything else preserved
+dsk_fpgdata:
+%ifdef OS88_BIGVOL
+    cmp word [dsk_lbahi], 1     ; past the first 64K sectors is data: CF = 0
+    jnc .r                      ; there (no FAT is that far in)
+%endif
+    cmp di, [dsk_datalba]       ; CF = 1: below the data area
+.r:
+    ret
+%endif
 
 ; dsk_img_swap - disk_drive/disk_spt/disk_heads <-> the first five bytes of
 ; the image claim at DX. CF preserved - mov, xchg, push, pop, dec and jns

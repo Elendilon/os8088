@@ -117,7 +117,8 @@ WIRE_LEVEL  equ 7               ; what THIS reader installs (SPEC.md 92.2):
                                 ; 0x046D too, 4 = one at or past 0x04A5
                                 ; too, 5 = one at or past 0x04D7 too, 6 =
                                 ; one at or past 0x04E3 (OSAPI_SEG) too, 7 =
-                                ; one at or past 0x04E9 (OSAPI_MEM_P) too
+                                ; one at or past 0x04E9 (OSAPI_MEM_P, and
+                                ; OSAPI_FS_OP at 0x04EF) too
                                 ; (92.2's cell fence: the level is
                                 ; this kernel's API table generation, and
                                 ; tools/os88wire.py's WIRE_CELL_LEVELS is

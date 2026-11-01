@@ -920,7 +920,8 @@ hd_inst_step:
     call hd_ia_rel
     mov byte [hd_iw_st], HII_IDLE   ; [hd_imsg] already names what went wrong
 .out:
-    pop ax
+    call hd_iop_end             ; THE DISK'S ONE BAR ENDS (hd_iop_go), on
+    pop ax                      ; every way out of either phase
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1014,6 +1015,7 @@ hd_inst_sys:
                                 ; that is true of the failure paths too
     call hd_isrc_ck             ; ...and IS THERE A SYSTEM DISK TO COPY? Asked
     jc .nosys                   ; here, one line above the format, because
+    call hd_iop_go              ; (the copy of it is ONE bar: hd_iop_go)
     mov si, hd_s_lsrc
     mov al, [hd_isrcdrv]
     call hd_ilog_d
@@ -1176,6 +1178,7 @@ hd_inst_apps:
     mov si, hd_s_lafnd
     mov al, [hd_isrcdrv]
     call hd_ilog_d
+    call hd_iop_go              ; this disk is ONE bar, as the system's was
     call hd_icopy_tree
     jc .failed
     call hd_ivol_back           ; NO commit here: the system phase already
@@ -1682,6 +1685,59 @@ hd_idst:
     xor dx, dx
     call OSAPI_FILE_GOTO_Q      ; QUIET (SPEC.md 19.2.2)
     jmp os88_r_bp
+
+; -----------------------------------------------------------------------------
+; hd_iop_go / hd_iop_end - one disk's copy is ONE operation (SPEC.md 12.8.10)
+;
+; A phase is a file's read or write, so a 360KB disk of thirty files filled the
+; bar sixty times. OSAPI_FS_OP keeps one bar for the disk instead. The total
+; is the source's USED clusters x 1KB a sector - read once, written once -
+; off OSAPI_VOL_STAT, so no walk is paid to learn it: an OVER-estimate (a
+; part-cluster tail, ASSOC.DAT and an IMG stand-in are counted and not
+; copied), so the bar ends a little short and never runs ahead. Asked as the
+; MACHINE (in_tool's DRVU_CALL), so the kernel owns it as 0FEh and nothing but
+; hd_iop_end ends it: hd_inst_step's one exit is that, so a failure, a swap
+; prompt and Done all end it, and a second disk in the same step ends the
+; first's here before it begins. Advisory: refused, every file is its own bar
+; as before. hd_iop_go stands on the source's root (hd_isrc); both keep every
+; register, and hd_iop_end the flags
+; -----------------------------------------------------------------------------
+hd_iop_go:
+    call os88_ent
+    call hd_iop_end
+    call hd_isrc                ; where VOL_STAT answers for
+    jc .out
+    call OSAPI_VOL_STAT         ; AX = sectors a cluster, BX = free, DX = all
+    jc .out
+    sub dx, bx
+    mul dx                      ; DX:AX = the used sectors
+    mov cx, 10                  ; ...x 1024
+.x:
+    shl ax, 1
+    rcl dx, 1
+    loop .x
+    xchg cx, ax                 ; DX:CX
+    call OSAPI_FS_OP
+    jc .out
+    mov byte [hd_iop], 1
+.out:
+    jmp os88_r_bp
+
+hd_iop_end:
+    pushf
+    cmp byte [hd_iop], 0
+    je .r
+    push cx
+    push dx
+    xor cx, cx
+    xor dx, dx
+    call OSAPI_FS_OP
+    mov byte [hd_iop], 0
+    pop dx
+    pop cx
+.r:
+    popf
+    ret
 
 ; -----------------------------------------------------------------------------
 ; hd_icopy_tree - the source volume's tree, folders and folders inside them
@@ -3697,6 +3753,7 @@ hd_isrcdrv:   db 0              ; the drive the COPY reads from, which is the
 hd_iafound:   db 0              ; hd_iapps_find: an APPS folder has been seen
 hd_iappsc:    dw 0              ; ...and its first cluster, for the descent
 hd_iheld:     db 0              ; 1 = this install HOLDS the ASSOC.DAT writer
+hd_iop:       db 0, 0           ; (a pad byte: nothing after moves odd) 1 = hd_iop_go's OSAPI_FS_OP is ours to end
 hd_isrcx:     db 0xFF           ; HDI_GO's NAMED source, 0xFF = none (117.10.5)
 hd_iautod:    db 0xFF           ; the auto-detected apps drive, 0xFF = none.
                                 ; .text with a real initialiser: -f bin

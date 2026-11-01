@@ -1515,6 +1515,15 @@ ld_start:
                                 ; window, on a launch that is being abandoned)
                                 ; and ld_unreserve banks it anyway; AX and CX
                                 ; survive, ld_slot banking CX itself
+%ifdef TOAST_Q
+    cmp bl, [toast_qinst]       ; a QUEUED message of the package's is
+    jne .unq                    ; re-homed the same way
+    cmp byte [toast_qwant], 0
+    je .unq
+    mov byte [toast_qinst], 0xFF
+    mov byte [ld_said], 1
+.unq:
+%endif
     cmp bl, [toast_inst]
     jne .unsaid
     cmp word [toast_on], 0      ; toast_kill's own test: on OR staged

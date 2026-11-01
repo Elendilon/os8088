@@ -614,6 +614,7 @@ rd_rcur:    times FSEQ_SIZE db 0 ; ...and the Load's READ_SEQ cursor (SPEC.md
 rd_wseg:    dw 0                ; the metadata block's buffer...
 rd_wown:    db 0                ; ...and whether it is ours to free
 rd_badcode: db 0                ; rd_meta_check's verdict
+rd_iop:     db 0, 0             ; (a pad byte: nothing after moves odd) 1 = rd_iop_go's OSAPI_FS_OP is ours to end
 rd_bdrv:    db 0                ; where the caller was standing, banked across
 rd_bcwd:    dw 0                ; a visit to the image's folder
 rd_dlgmode: db 0                ; FDLG_OPEN / FDLG_SAVE, across the dialog

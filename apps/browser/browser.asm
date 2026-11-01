@@ -6751,6 +6751,12 @@ br_savesourceems:
     push si
     push di
     push es
+    mov cx, [br_srclen]             ; ONE BAR FOR THE SAVE (SPEC.md 12.8.10):
+    mov dx, [br_srclen_hi]          ; a chunk a call, so the bar filled once
+    call OSAPI_FS_OP                ; per 32 KB. Its answer is KEPT (on the
+    sbb ax, ax                      ; stack, 0 = ours): a download may own
+    push ax                         ; the Browser's one operation, and this
+                                    ; must not end that one
     call OSAPI_FILE_DFREE
     jc .fail
     cmp bx, 64
@@ -6855,6 +6861,14 @@ br_savesourceems:
 .fail:
     stc
 .out:
+    pop dx                          ; the begin's answer
+    pushf
+    or dx, dx
+    jnz .notours
+    xor cx, cx                      ; DX:CX = 0: the end of ours
+    call OSAPI_FS_OP
+.notours:
+    popf
     pop es
     pop di
     pop si

@@ -98,6 +98,24 @@ op_load:
     jc .toobig
 .sized:
 %endif
+    ; --- ONE OPERATION for every read below (SPEC.md 12.8.10) --------------
+    ; The carve is read 32KB a take and the XMS span through its own staging
+    ; buffer, so the file widget filled once a take; op_asop makes it one bar.
+    ; The total is the packed run plus the span in whole sectors, which is
+    ; SHORT by the head slack of each read (under a cluster): the bar clamps
+    ; full a moment early rather than ending short. Sizing has ceilings that
+    ; keep it in a word of paragraphs: under 1,920 + 128 sectors (op_size).
+%ifndef OP_NO_FSOP
+    mov ax, [op_secs]
+%if OP_HAS_XMS
+    add ax, [op_xsecs]
+%endif
+    mov cl, 5
+    shl ax, cl                  ; sectors -> paragraphs
+    mov bx, .body
+    jmp op_asop                 ; ...whose ret is op_load's
+.body:
+%endif
     mov ax, [op_allp]
     or ax, [op_reqp]
 %if OP_HAS_XMS
@@ -1488,6 +1506,46 @@ op_say:
     call OSAPI_TOAST
     stc
     ret
+
+; -----------------------------------------------------------------------------
+; op_asop - run the near routine at BX as ONE file operation (SPEC.md 12.8.10)
+; in:  AX = the paragraphs it will read, 0 = none; BX = the routine
+; out: the routine's flags (CF); clobbers BX, CX, DX and whatever it does
+;
+; ADVISORY, AND IT ENDS ONLY WHAT IT BEGAN. A package already inside a wider
+; operation of its own (PixelStein's and WireFleet's entry procs) is refused
+; the begin as NESTING, and then this must not end it - so the begin's CF is
+; banked and asked, and a 0 total begins nothing: DX:CX = 0 is an END, and
+; would end the package's. Every exit of the routine is its one `ret`
+;
+; `%define OP_NO_FSOP` before os88parts.inc leaves it out, and the two reads
+; back on plain calls, for a package with no room for it (WireFleet, at
+; APP_MAX_SIZE to the byte) - and a package so built needs no Wire level 7
+; on the library's account (SPEC.md 20.12.9.6)
+; -----------------------------------------------------------------------------
+%ifndef OP_NO_FSOP
+op_asop:
+    or ax, ax
+    jz .bare
+    mov cx, 16
+    mul cx
+    xchg ax, cx                 ; DX:CX = the bytes
+    call OSAPI_FS_OP            ; CF = 0: ours to end
+    pushf
+    call bx
+    pop bx                      ; the begin's flags; the routine's CF stands
+    pushf
+    shr bl, 1                   ; CF = the begin was refused
+    jc .kept
+    xor cx, cx
+    mov dx, cx
+    call OSAPI_FS_OP            ; the end
+.kept:
+    popf
+    ret
+.bare:
+    jmp bx
+%endif                              ; OP_NO_FSOP
 %endif                              ; OP_HAS_CARVE || OP_HAS_FETCH
 
 %if OP_HAS_READ
@@ -1822,7 +1880,13 @@ op_fetch:
     add [op_rdseg], ax
 .plainrd:
 %endif
+%ifdef OP_NO_FSOP
     call op_read
+%else
+    mov ax, [op_cap]            ; ONE OPERATION for the part's 32KB takes,
+    mov bx, op_read             ; [op_cap] paragraphs exactly (op_asop,
+    call op_asop                ; SPEC.md 12.8.10)
+%endif
     pop dx
     mov [op_rdseg], dx
     pop dx

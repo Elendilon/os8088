@@ -6919,6 +6919,18 @@ SOAK = [
         "windows in EMPTY; fcp_room forced to yes runs the create in FULL. "
         "Measured 66s.",
         needs=("marty",)),
+    Row("fpgop", "soak", py("tests/fpgop.py"), 70.0,
+        "A FILE COPY IS ONE BAR AND IT REACHES FULL (SPEC.md 12.8.8). 120KB "
+        "B: -> C: by Copy/Paste on os8088_xt_hdd, twice: booted off a floppy "
+        "so C: is HDD.DRV's (DVK_DRV, drv_blk_call_x) and off the VHD so C: "
+        "is the kernel's; then 40KB onto a RAM disk and off it again (a "
+        "REDIRECTED volume both ways). Asserts [fpg_done] reaches [fpg_opt], "
+        "the trough's 62 pixels lit, ONE fpg_opbegin and no hatch inside it. "
+        "VERIFIED TO FAIL: dsk_xfer's driver arm stepping nothing reads 241 "
+        "of 480 units - the half bar the field reported; without the "
+        "READ_AT phase and RAMDISK.DRV's reports, 90 of 160 both ways. "
+        "Measured 52s.",
+        needs=("marty",)),
     Row("kdhdd", "soak", py("tests/kdhdd.py"), 30.0,
         "THE FIXED DISK IS A VOLUME UNDER kern_dos, AND A PROGRAM READS ITS "
         "OWN DRIVE (SPEC.md 96.46). Two defects with one instrument: the "

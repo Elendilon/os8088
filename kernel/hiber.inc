@@ -1887,6 +1887,25 @@ hbm_wrimg:
 %ifdef KERN_MEGA
     test byte [cpu_feat], CPU_F_PM
     jz .rsz
+%ifdef FPG_OPS
+    ; ONE BAR FOR THE WHOLE IMAGE (SPEC.md 12.8.8): it is ~20 appends here and
+    ; each filled the bar. EXACT: the conventional chunks, chunk 0 twice (it is
+    ; written for its size and then put right with two write-ats, hbm_xwconv),
+    ; the extended section in the whole chunks hbm_xwrite flushes, and the
+    ; pointer. In-hold: the lock is held to the end, and nothing ends it but
+    ; the unlock - which a hibernate never reaches and a refusal does
+    call hbm_xconv              ; DX:AX = the conventional chunks
+    mov cx, [mega_hbxl]         ; + the section (hbm_xplan), whole chunks
+    mov bx, [mega_hbxl + 2]
+    add cx, HBX_CHUNK - 1
+    adc bx, 0
+    and cx, -HBX_CHUNK
+    add cx, ax
+    adc dx, bx
+    add cx, HBX_CHUNK + HBP_SIZE    ; + chunk 0's second write + the pointer
+    adc dx, 0
+    call KERNEL_SEG:fpg_opbegin
+%endif
     call hbm_xconv              ; ...in whole chunks, so the section appends,
     call hbm_xwconv             ; and a chunk a call (below)
     jmp short .rwrote

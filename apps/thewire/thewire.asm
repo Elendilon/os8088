@@ -2694,6 +2694,7 @@ wr_fetchnext:
 ; surprise than a folder with two of three files in it. The cell says which.
 wr_abandon:
     push ax
+    call wr_opend                       ; an archive's one bar (wr_arcbase)
     cmp byte [wr_state], WS_PAUSE       ; **A PAUSED WORKER IS STILL IN FLIGHT**
     jne .st                             ; and the predicate reads that as a
     inc byte [wr_gen]                   ; range: an archive abandoned at an
@@ -2706,6 +2707,20 @@ wr_abandon:
     call wr_freefile
     call wr_dend
     pop ax
+    ret
+
+; --- wr_opend - an archive's OSAPI_FS_OP ends (SPEC.md 12.8.10) -------------
+; Unconditional: only wr_arcbase begins one, and an end the Wire does not own
+; is refused, so a flat chain's failure costs a refused call and no byte.
+; Every register kept
+wr_opend:
+    push cx
+    push dx
+    xor cx, cx
+    xor dx, dx
+    call OSAPI_FS_OP
+    pop dx
+    pop cx
     ret
 
 ; --- wr_freefile - give the transfer claim back ------------------------------

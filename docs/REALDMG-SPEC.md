@@ -907,6 +907,12 @@ it**, and the file is written from there and read back there
   and the RAM part is a multiple of 8KB, so each `OSAPI_FILE_APPEND` starts
   on a cluster - its rule - on any volume whose clusters are 8KB or less,
   and the record, last, may be any length. 34, 42 or 66KB.
+- **One bar** (SPEC.md 12.8.10). `rw_stop` begins the save's three
+  transfers, or the load's, as one `OSAPI_FS_OP` of 8000h + the RAM part +
+  the record. The load's size probe moves nothing, so one total serves both.
+  `rw_strun`, which every save and load ends in, replay's included, ends it.
+  In the window the bar fills once where it filled three times; in full
+  screen nothing changes, because the widget does not show there.
 
 **The state block comes back by a WHITELIST** (`rdg_sttab`): the registers,
 the interrupt and HALT state, the MBC's banks and modes, the frame count,
@@ -1570,7 +1576,10 @@ Either says its new state (`rw_lossyt`) and the next draw is whole.
   size probe (a read with no room answers the KB it needs, unpacked, with a
   compressed file's slack), claims that, reads, and then checks the bytes
   that came in: **whole 16KB banks, 32KB to 256KB**, refused in a toast
-  otherwise. One game a window: another opens in another.
+  otherwise. One game a window: another opens in another. The reads are
+  ONE file operation (SPEC.md 12.8.10), begun at the probe with the ROM's
+  bytes and ended at `rw_load`'s one exit, so a bank-cache load's 64 bank
+  reads are one bar.
 - **The worker** owns the machine. It counts BIOS ticks into frames owed, 840
   of 256 a tick (59.7275 Hz against 18.2065), at most eight behind, and
   reads the clock again after every frame - so it sleeps only when nothing

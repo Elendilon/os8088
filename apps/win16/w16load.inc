@@ -112,7 +112,13 @@ w16_load:
     jmp .refuse0
 .fits:
     mov bp, dx                      ; BP = KB
-    mov ax, dx
+    mov ax, 1024                    ; ONE OPERATION for the program's read and
+    mul dx                          ;   the face's fetch after it (SPEC.md
+    add ax, [op_table + OP_T_ROWS + W16P_SYS08 * OP_ROW + OP_R_ZKB]
+    adc dx, 0                       ;   12.8.10): the probe's KB plus the
+    xchg ax, cx                     ;   SMALLEST face's packed length, an
+    call OSAPI_FS_OP                ;   under-estimate that clamps full early.
+    mov ax, bp                      ;   w16_wake ends it, whichever way this goes
     call OSAPI_MEM_CLAIM
     jnc .claimed
     mov si, w16_r_mem

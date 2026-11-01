@@ -4216,7 +4216,7 @@ mou_apply:
 %endif
     cmp byte [gfx_lock_flag], 0
     jne .dirty
-    cmp byte [fpg_on], 0        ; ...OR AN UNLOCKED PAINTER IS UP (SPEC.md
+    FPG_ARMED                   ; ...OR AN UNLOCKED PAINTER IS UP (SPEC.md
                                 ; 12.8.4). The progress widget is the one
                                 ; painter in the machine that draws with the
                                 ; lock FREE, and free is the one state this ISR
@@ -4245,7 +4245,7 @@ mou_apply:
 .redraw:
 %ifdef GFXAUDIT
     inc word [gfx_aud_mv]       ; the control: how many draws there were AT ALL
-    cmp byte [fpg_on], 0        ; **THE GATE** (SPEC.md 12.8.4): a draw here
+    FPG_ARMED                   ; **THE GATE** (SPEC.md 12.8.4): a draw here
     je .nogate                  ; with the widget up is the defect itself -
                                 ; unreachable on a kernel that has the compare
                                 ; above, and one per packet on one that does not
@@ -4263,7 +4263,7 @@ mou_apply:
 .norace:                        ; at the door
 %endif
 %ifndef NOCURDISK
-    cmp byte [fpg_on], 0        ; **AND IT MAY NOT LAND ON THE WIDGET** (SPEC.md
+    FPG_ARMED                   ; **AND IT MAY NOT LAND ON THE WIDGET** (SPEC.md
     je .go                      ; 7.4.2). Reachable only from the int 13h path
                                 ; above - the ordinary gates already sent an
                                 ; armed widget to .dirty - and it replaces that

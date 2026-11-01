@@ -34,6 +34,9 @@ X3HK_NONE   equ 0
 X3HK_XMS    equ 1
 X3HK_CONV   equ 2
 
+X3OP_HOLD   equ 1                   ; [x3_fsop]: whose OSAPI_FS_OP is open -
+X3OP_CONV   equ 2                   ; the hold's or a Decode First's
+
 ; -----------------------------------------------------------------------------
 ; x3h_begin - the current track, open, about to calibrate or convert. out:
 ; CF = 0 go on now (held already, or nothing to hold: it streams); CF = 1 a
@@ -109,6 +112,10 @@ x3h_begin:
     mov byte [x3h_kind], X3HK_CONV
     call x3_ldecl                   ; MOVABLE (x3_rmove), pinned per read
 .go:
+    mov cx, [x3h_size]              ; ONE BAR for the load (SPEC.md 12.8.10):
+    mov dx, [x3h_size+2]            ; the file, read once - exact - parked on
+    mov al, X3OP_HOLD               ; the menu bar between the timer passes
+    call x3_opbeg                   ; rather than one blink a chunk
     call x3h_keyset
     xor ax, ax
     mov [x3h_have], ax
@@ -181,6 +188,8 @@ x3h_tick:
 .fail:
     call x3h_free
 .done:
+    mov al, X3OP_HOLD               ; the file in (or given up): the bar's
+    call x3_opend                   ; operation over
     mov byte [x3_st+X3S_PCT], 100
     jmp x3l_start                   ; the track's ladder (or job), as x3_go
 
@@ -490,6 +499,8 @@ x3h_keyset:
 x3h_free:
     push ax
     push dx
+    mov al, X3OP_HOLD               ; a load cut short (Stop, a failed read,
+    call x3_opend                   ; another track) ends its bar too
     mov al, [x3h_kind]
     mov byte [x3h_kind], X3HK_NONE
     mov byte [x3h_on], 0
@@ -507,4 +518,32 @@ x3h_free:
 .o:
     pop dx
     pop ax
+    ret
+
+; x3_opbeg - AL = the site (X3OP_*), DX:CX = the bytes its operation moves:
+; OSAPI_FS_OP begun, and [x3_fsop] = AL only when it was TAKEN (SPEC.md
+; 12.8.10: refused, the I/O goes on and reports as it always did). keeps all
+x3_opbeg:
+    call OSAPI_FS_OP
+    jc .r
+    mov [x3_fsop], al
+.r:
+    ret
+
+; x3_opend - AL = the site: its operation ended if its own begin opened it.
+; The SITE is asked and not just the instance, because the kernel cannot
+; tell our two apart and x3_plan frees the hold (x3h_free) INSIDE a Decode
+; First's x3c_start. keeps all but flags
+x3_opend:
+    cmp [x3_fsop], al
+    jne .r
+    mov byte [x3_fsop], 0
+    push cx
+    push dx
+    xor cx, cx
+    xor dx, dx
+    call OSAPI_FS_OP
+    pop dx
+    pop cx
+.r:
     ret
