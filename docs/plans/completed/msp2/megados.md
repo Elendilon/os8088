@@ -182,3 +182,16 @@ hibernate image are kernel-internal and versioned with it).
 * The brief's commit `ead16c61` left `docs/INDEX.md` stale, so `make` failed
   at `checkdocs` on a fresh worktree; regenerated here (and again after the
   pmcore merge).
+
+## COORDINATOR, AT THE MERGE
+
+* `mega_down`'s 286 arm entering `mega_svc_lo.r286` put both resets on ONE
+  fault address, and `tests/megarmb286.py` counts a bracket's drop by that
+  address ("exactly one reset at mega_down's int 3 per taken bracket") - it
+  failed with `no mega_down.hang`. The drop now enters at `.r286c` with
+  CF = 1 and the shared body ends `jc .rdown`, `.rdown` being the drop's own
+  `int 3`; the reflection's entry is `clc`. +8 `.text` on this item's -39,
+  so -31 net; `tests/megaseg.txt` 3,359. `megarmb286`, `vidrmb286`,
+  `vidrmbsnd286`, `megafdnat`, `hma286` (86Box) and `megarmb`, `megadosp`,
+  `megapiclose`, `megakbtrip`, `mega-dosirq` green after it.
+

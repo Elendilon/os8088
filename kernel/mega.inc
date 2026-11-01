@@ -3060,6 +3060,8 @@ cpu 286
     db 0xEA                         ; jmp far KERNEL_SEG:.rm - reloads CS as a
     dw .rm, KERNEL_SEG              ; real-mode segment, the same base
 .r286:                              ; REAL MODE, THE 286's WAY: reset the CPU.
+    clc                             ; (a reflection's; megados's mega_down
+.r286c:                             ; enters at .r286c with CF = 1)
     mov [mega_rss], ss              ; lmsw cannot clear PE, so the BIOS is told
     mov [mega_rsp], sp              ; where to come back to - 40:67, with CMOS
     push word MEGA_BDA              ; shutdown code 0Ah, "jump there, no POST,
@@ -3078,10 +3080,15 @@ cpu 286
     mov al, 0x0A
     out 0x71, al
     lidt [mega_nullidt]             ; an IDT with no room in it, then a fault:
+    jc .rdown                       ; (nothing above touches CF)
     int 3                           ; nothing can be delivered, the 286 shuts
 .rhang:                             ; down, and the AT's logic resets it
     hlt
     jmp .rhang
+.rdown:
+    int 3                           ; mega_down's drop: its OWN fault address,
+    jmp .rhang                      ; so a reset log tells a drop from a
+                                    ; reflection (tests/megarmb286.py)
 .rm:
     lidt [mega_rmidtr]              ; (DS: KDATA's cached base, 0x600, on the
                                     ; 386's way; KERNEL_SEG on mega_r286's)

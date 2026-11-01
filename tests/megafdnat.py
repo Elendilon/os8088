@@ -94,15 +94,21 @@ def main():
     copied = False
     try:
         if A.brk:
-            # A TIME-OUT, as the code takes one: inside mega_fdgo mm_fdout's
-            # failure is mega_fdlj (kern_mega size pass 2), and its callers
-            # no longer test CF, so `stc / ret` would no longer be one
+            # A TIME-OUT, as the code takes one (mm_fdtmo): inside mega_fdgo
+            # ([mega_fdbusy] set) mm_fdout's failure is mega_fdlj (kern_mega
+            # size pass 2), and outside it - mega_fd13's reset probe, asked
+            # before the flag - CF = 1. An unconditional jump would longjmp
+            # out of the probe to a stale [mega_fdsp]
             a = mega_lin(b, "mm_fdout")
-            rel = (CZ.S("mega_fdlj") - (CZ.S("mm_fdout") + 3)) & 0xFFFF
-            b.cmd("memw 0x%X E9" % a)               # jmp near mega_fdlj
-            b.cmd("memw 0x%X %02X" % (a + 1, rel & 0xFF))
-            b.cmd("memw 0x%X %02X" % (a + 2, rel >> 8))
-            print("   --break: mm_fdout at 0x%X is jmp mega_fdlj" % a)
+            fb = CZ.S("mega_fdbusy")
+            rel = (CZ.S("mega_fdlj") - (CZ.S("mm_fdout") + 10)) & 0xFFFF
+            code = [0x80, 0x3E, fb & 0xFF, fb >> 8, 0x01,  # cmp [busy], 1
+                    0x72, 0x03,                            # jb .out
+                    0xE9, rel & 0xFF, rel >> 8,            # jmp mega_fdlj
+                    0xF9, 0xC3]                            # .out: stc / ret
+            for i, x in enumerate(code):
+                b.cmd("memw 0x%X %02X" % (a + i, x))
+            print("   --break: mm_fdout at 0x%X times out every byte" % a)
         want(CZ.rb(b, S("mega_fdoff")) == 0,
              "1. the native floppy path is on after boot")
         slota, _ = CZ.disk_window(b, "A")

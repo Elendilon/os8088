@@ -1462,7 +1462,8 @@ cpu 286
     db 0xEA
     dw mega_rland, KERNEL_SEG
 .r286:                              ; ...and the 286's (W2): the reset
-    jmp mega_svc_lo.r286            ; mega_svc takes, landing in mega_r286,
+    stc                             ; (CF = 1: the drop's own int 3)
+    jmp mega_svc_lo.r286c           ; mega_svc takes, landing in mega_r286,
                                     ; whose foot sends a drop here. The same
                                     ; body: SS:SP banked, 40:67 and shutdown
                                     ; code 0Ah, the null IDT and a fault (kern_mega
