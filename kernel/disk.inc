@@ -3354,8 +3354,8 @@ dsk_vol_del:
     jmp short .out
 .free:
     mov byte [bx+DV_KIND], DVK_FREE
-    mov byte [bx+DV_FLAGS], 0
-    mov byte [bx+DV_LBL], 0
+    mov [bx+DV_FLAGS], ah       ; AH = 0: the `jz` that got here (pass 16)
+    mov [bx+DV_LBL], ah
     call desk_reflow              ; ...and its cell goes back: the zones after
                                   ; it pack up into it (SPEC.md 26.9)
     call dsk_fatw_drop          ; AL is still the index; it also puts the
@@ -9257,11 +9257,12 @@ ico_need:
 ; holds row numbers into what just went, which is `fmv_icostale`'s business.
 ; -----------------------------------------------------------------------------
 ico_demote:
-    mov word [ico_seg], 0       ; NEITHER A FRAME NOR A `pushf` HERE - see the
-%ifdef OS88_ASSOC
-    mov word [ico_n], 0         ; header: `mem_pg_forget` has banked the lot.
-%else                           ; (A WORD: [ico_capn] goes with the store,
-    mov byte [ico_n], 0         ; SPEC.md 54.7.6.2)
+    xor ax, ax                  ; NEITHER A FRAME NOR A `pushf` HERE - see the
+    mov [ico_seg], ax           ; header: `mem_pg_forget` has banked the lot,
+%ifdef OS88_ASSOC               ; AX included (fmv_icostale's own contract)
+    mov [ico_n], ax             ; (A WORD: [ico_capn] goes with the store,
+%else                           ; SPEC.md 54.7.6.2)
+    mov [ico_n], al
 %endif
     jmp fmv_icostale            ; already. And `fmv_icostale` ENDS IN A `ret`
                                 ; whose caller is this routine's caller, so it
