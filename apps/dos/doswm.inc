@@ -48,7 +48,8 @@
 ; =============================================================================
 
 %ifdef DVW
-
+%ifndef DVW_SPLIT                   ; the part's, whole (doswabi.inc)
+%ifndef DVW_PART                    ; ...whose own cells doswp.asm lays out
 dwm_own     equ dos_hbss + DOS_B_DWM + 0    ; the buttons the program has
 dwm_last    equ dwm_own + 1                 ; the live mask at the last read
 dwm_wasf    equ dwm_own + 2                 ; 1 = in front at the sample before
@@ -56,6 +57,7 @@ dwm_frnt    equ dwm_own + 3                 ; 1 = in front (and shown) now
 dwm_tick    equ dwm_own + 4                 ; word: the tick of that sample
 dwm_bx      equ dwm_own + 6                 ; word: the band's left...
 dwm_by      equ dwm_own + 8                 ; word: ...and top, on the screen
+%endif
 
 ; -----------------------------------------------------------------------------
 ; dwm_start - bind the window's two mouse hooks (dvw_runprog, worker)
@@ -71,8 +73,8 @@ dwm_start:
     push es
     push ax
     xor ax, ax
-    mov [dwm_own], ax               ; dwm_own and dwm_last...
-    mov [dwm_wasf], ax              ; ...and both samples "behind"
+    mov [PS dwm_own], ax               ; dwm_own and dwm_last...
+    mov [PS dwm_wasf], ax              ; ...and both samples "behind"
     mov [dos_m33dv], ax
                                     ; ([dos_m33hk] is dos_hook_vectors' to
                                     ; clear now, for every run, SPEC.md
@@ -82,11 +84,11 @@ dwm_start:
     mov es, ax
     mov ax, [es:0x6C]
     dec ax                          ; a tick that is not now: the first read
-    mov [dwm_tick], ax              ; samples
+    mov [PS dwm_tick], ax              ; samples
     pop ax
     pop es
-    mov word [dos_hkv + DHK_MOUSE], dwm_mouse
-    mov word [dos_hkv + DHK_TXT], dwm_txt
+    mov word [dos_hkv + DHK_MOUSE], HENT(dwm_mouse)
+    mov word [dos_hkv + DHK_TXT], HENT(dwm_txt)
     ret
 
 dwm_stop:
@@ -108,9 +110,8 @@ dwm_stop:
 ; -----------------------------------------------------------------------------
 dwm_kick:
     push ds
-    push cs
-    pop ds
-    call dos_m33_evt
+    HOSTDS
+    HCALL dos_m33_evt
     pop ds
     ret
 
@@ -124,14 +125,14 @@ dwm_txt:
     stc
     ret
 .desk:
-    jmp dos_hk_txt
+    HJMP dos_hk_txt
 
 ; --- dwm_desk - CF=0 = a run IN THE WINDOW, CF=1 = no run or the full screen -
 ; [dvw_run] set and [dvw_fs] clear; both hooks' first question
 dwm_desk:
     cmp byte [dvw_run], 1
     jb .r                           ; no run: CF=1
-    cmp byte [dvw_fs], 1            ; CF=1 when NOT on the full screen...
+    cmp byte [PS dvw_fs], 1            ; CF=1 when NOT on the full screen...
     cmc                             ; ...and the other way up
 .r:
     ret
@@ -164,7 +165,7 @@ dwm_desk:
 dwm_mouse:
     call dwm_desk
     jnc .win
-    jmp dos_hk_mouse                ; the full screen: the bracket's scale
+    HJMP dos_hk_mouse                ; the full screen: the bracket's scale
 .win:
     push ax
     push si
@@ -173,23 +174,23 @@ dwm_mouse:
     mov es, ax
     mov ax, [es:0x6C]               ; the BIOS tick, low word
     pop es
-    cmp ax, [dwm_tick]
+    cmp ax, [PS dwm_tick]
     je .cached
-    mov [dwm_tick], ax
+    mov [PS dwm_tick], ax
     call dwm_sample
 .cached:
     call OSAPI_MOUSE                ; CX = x, DX = y, AL = the buttons
     and al, 3
-    mov bx, [dwm_wasf]              ; BL = in front at the sample before, BH
+    mov bx, [PS dwm_wasf]              ; BL = in front at the sample before, BH
     and bh, bl                      ; = now (0 when hidden, dwm_sample): both
     neg bh                          ; BH = FF ours, 00 NOT OURS
     mov bl, al                      ; BL = the live mask
     xchg ax, cx                     ; AX = the pointer's x...
-    sub ax, [dwm_bx]                ; ...IN the band
+    sub ax, [PS dwm_bx]                ; ...IN the band
     mov si, [dos_concols]
     call dwm_clamp                  ; into 0..cols*8-1, which is <= M33_VW-1
     xchg ax, dx                     ; DX = x, AX = the y in the band
-    sub ax, [dwm_by]
+    sub ax, [PS dwm_by]
     mov si, [dos_conrows]
     call dwm_clamp                  ; ...into the rows shown
     mov si, [con_vtop]              ; ...from the first buffer row shown
@@ -202,15 +203,15 @@ dwm_mouse:
 .ycap:
     xchg ax, dx                     ; DX = y, AX = x
     xchg ax, cx                     ; CX = x
-    mov ah, [dwm_last]
-    mov [dwm_last], bl
+    mov ah, [PS dwm_last]
+    mov [PS dwm_last], bl
     not ah
     and ah, bl                      ; AH = the buttons gone DOWN since then...
     and ah, bh                      ; ...that are the window's
-    mov al, [dwm_own]
+    mov al, [PS dwm_own]
     and al, bl                      ; a release lets go wherever it happens
     or al, ah
-    mov [dwm_own], al
+    mov [PS dwm_own], al
     cbw                             ; AH = 0: AL is two bits
     xchg ax, bx
     pop si
@@ -226,13 +227,13 @@ dwm_mouse:
 ; centring margin over [dos_concols] cells, and DOS_BARH down.
 ; -----------------------------------------------------------------------------
 dwm_sample:
-    mov al, [dwm_frnt]
-    mov [dwm_wasf], al
+    mov al, [PS dwm_frnt]
+    mov [PS dwm_wasf], al
     mov bx, [dos_win]
     call OSAPI_WM_GEOM              ; CX = the content width; CF = hidden
     sbb al, al
     inc al                          ; AL = 1 visible, 0 hidden
-    mov [dwm_frnt], al
+    mov [PS dwm_frnt], al
     mov ax, [dos_concols]
     shl ax, 1
     shl ax, 1
@@ -245,13 +246,13 @@ dwm_sample:
     and cx, 0xFFF8
     call OSAPI_WM_CONTENT           ; AX = content left, DX = its top
     add ax, cx
-    mov [dwm_bx], ax
+    mov [PS dwm_bx], ax
     add dx, DOS_BARH
-    mov [dwm_by], dx
+    mov [PS dwm_by], dx
     call OSAPI_WM_TOP               ; BX = the frontmost window
     cmp bx, [dos_win]
     je .front
-    mov byte [dwm_frnt], 0
+    mov byte [PS dwm_frnt], 0
 .front:
     ret
 
@@ -280,4 +281,5 @@ dwm_clamp:
 .out:
     ret
 
+%endif                              ; DVW_SPLIT
 %endif                              ; DVW

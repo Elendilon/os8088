@@ -27,6 +27,10 @@
 ; table makes that a second back end; direct calls would make it a rewrite
 ; of every file function.
 ; =============================================================================
+%ifdef DOSP_MAP                     ; THE FIRST PASS OF THE WINDOWED PART'S
+[map all DOSP_MAP]                  ; BUILD (SPEC.md 96.54.9): the host's map is
+%endif                              ; what the part names the host by, and what
+                                    ; tools/os88dvwexp.py checks it against
 
 %include "os88api.inc"
 %include "doscall.inc"              ; **EARLY, AND IT HAS TO BE** (SPEC.md

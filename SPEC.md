@@ -189559,6 +189559,118 @@ Packed, against the parts at the start of the pass: the host 23,796 -> 23,785,
 the core 13,691 -> 13,672, kern_dos unchanged; and in RAM the host's image
 48,668 -> 48,585 and kern_dos's 31,889 -> 31,841, the 48 of `CORE_MAX` in each.
 
+#### 96.54.9 The window is a PART, read at the first Run in Window (`apps/dos/doswp.asm`)
+
+**A DOS window that never runs a program in the window holds none of this
+section's code.** On kern_big and kern_emu - the `-DDOSKPART` host, the one
+`DOS.O88` ships as - the layer of 96.54 to 96.54.7 (`dosw.inc`, `doswm.inc`)
+is an `OP_ASSET | OP_COMP | OP_LAZY | OP_SELF` part of `DOS.O88` the re-homed
+host reads with `op_self` (DOS-PARTS-PLAN 1.1) into a claim of its own,
+`DOS_PART_DVW`, the row the loader copies after the network part's
+(`DSLH_DVWROW`). It is docs/plans/DOS-PARTS-PLAN.md section 2's option C', the
+MECHANICAL translation, by the owner's decision of 2026-11-01:
+docs/plans/DOS-WINDOWED-PART-PLAN.md is the native design that was costed and
+not taken, and its section 4 is the speed this one gives up.
+
+**THE BOUNDARY IS WRITTEN ONCE, BY OWNER, AND CHECKED** (`apps/dos/doswabi.inc`).
+Every reference the two files make across the line between the HOST (the
+console, the core, the doors, the instance's region) and the LAYER is
+spelled with a macro chosen by who owns the symbol: `HCALL`/`HJMP` a host
+routine, `HICALL` the posted door's target, `HREF` a host cell from an
+interrupt (two sites, both IF = 0), `HOSTDS`/`HOSTES` a `push cs / pop` that
+meant the host, `PARTDS`/`PARTES`/`PARTCS` one that meant the layer, `PS` a
+layer cell reached while DS is the host's, `PADDR()` a layer label used as an
+offset in the layer and `HENT()` one the host or the kernel ENTERS (its
+resident stub). Three shapes assemble from the one source:
+
+- **INLINE** - every macro its identity. `build/dos.bin`, the `DOSTRACE`
+  build, kern_small's plain `dos.o88` and any host built `-DDVW_NOSPLIT` are
+  this shape, byte for byte the layer before the macros: **the identity
+  gate**, which held for all seven assembly shapes when the macros went in
+  (plain, `DOSNET_CARD`, `DOSTRACE`, and the parted host on kern_big,
+  kern_small and kern_mega), so the rewrite changed spelling and nothing else.
+- **the split HOST** (`DVW_SPLIT`, defined for `-DDOSKPART` wherever `DVW` is)
+  - only the RESIDENT pieces of `dosw.inc`, the worker's loop and the door
+  table, plus `apps/dos/doswr.inc`'s stubs, thunks, fetch and pin.
+- **the PART** (`DVW_PART`, `apps/dos/doswp.asm`) - everything else, org 0,
+  against the host's symbols out of the host's own map: the host is assembled
+  first with `[map all]` (`-DDOSP_MAP`), `tools/os88dvwexp.py exp` turns the
+  names the part uses into `$(BUILD)/doswexp.inc`, and the part assembles
+  against that - a two-pass build in which the dependency runs one way.
+
+`tools/os88dvwexp.py check` runs on the host's map at every build and
+REFUSES, before the part is assembled, any form the macros do not cover: a
+near call or jump into the host, a `cs:` operand naming a host cell, a layer
+cell with no segment, a bare `push cs` or `mov x, cs`, a layer label used as a
+number, and every string instruction and register-indirect branch nobody has
+looked at (`; DVWCHK-OK:` marks one somebody has, with the reason). On the
+sources before the macros it reports **211 sites**; on the macroized ones,
+none. A host's cell is a symbol its map places in a section, or an absolute
+one named in lower case - the core's cells are `equ`s at fixed offsets above
+its code (`dos_dstk`), and `DHK_SNAP`, an offset INTO a table, is a number.
+
+**OWNERSHIP** (`apps/dos/doswcell.inc` is the layer's list, laid out as zeros
+at the end of the part's image). A cell is the HOST's when host code reads or
+writes it while the part may be absent: `dvw_want` (the menu's ask),
+`dvw_run`/`dvw_go` (every host path tests the first; the resident worker reads
+the second), `dvw_done`, `dvw_spawn` (the worker is for ever, so its flag must
+outlive a dropped part), `dvw_dirty` (`dos_hk_tty` sets it on every INT 21h
+character), `dvw_cap`, `dvw_rtgt` (the posted door's target, read by the
+host's `HICALL` thunk through its own CS) and `dvw_pseg`, the part's segment.
+Everything else is the part's, so an interrupt path that read `[cs:dvw_*]`
+inline reads the same bytes in the part with no change at all - 111 of the
+layer's 119 `cs:` operands - and the two that named host cells are `HREF`s.
+
+**DS IS THE HOST'S IN THE PART** wherever the part touches host data or calls
+the kernel, and that is not a style: an `OSAPI_*` cell names its caller by DS
+(SPEC.md 20.3's X stub), so `OSAPI_MEM_FREE` of the arena, `OSAPI_TASK_SPAWN`
+and the `OSAPI_WM_*` calls all answer exactly as inline.
+
+**THE CROSSINGS.** Into the part: a fixed table of four-byte entries at
+offset 0 (`DVWE_*`), eight `call body / retf` and two jump entries, reached
+from six-byte host stubs whose segment word is PATCHED with the part's
+segment at the fetch and at every move (`dvw_patch`; Tracker's immediates,
+`apps/tracker/trkplay.inc`, are the precedent, and no stub can be mid-flight:
+the part moves only between runs). The door stubs and `DHK_SNAP` reach theirs
+by a far JUMP, so `dvw_post` sees the stub's return and `dvw_fin` the core's
+exactly as inline, and `dvw_post` goes back with a far jump to a host `ret`
+(`DVW_POSTRET`). Out of the part: `call far [cs:dvwx_<name>]` through a dword
+per host routine (`DVW_HOSTCALLS`, 28 of them) onto a four-byte host thunk
+`call <name> / retf`; `dvw_hbind` writes the host's segment into all of them
+at the head of every `dvw_start`, the one entry that runs first in a run.
+
+**THE LIFECYCLE.**
+
+- **Fetched at the first Run in Window** of a window, in `dos_run` beside the
+  network part's claim and before the arena is sized, so the 128KB arena is
+  placed with the part already in the heap. It is idempotent on the
+  compaction wake. The claim is shrunk to the part's own KB (`OSAPI_MEM_REGROW`,
+  `op_self` having claimed for its read slack too).
+- **A refused fetch REFUSES THE RUN**, in the window: `DER_DVWP`, *"Run in
+  Window could not load DOS.O88's window part."* - no RAM, or the disk
+  `DOS.O88` came from is out of its drive. It does not fall back to the
+  bracket: a user who asked for a window and was given the whole screen has
+  not been told why. Today's no-WORKER fallback to the bracket stays.
+- **Pinned while a program runs in it**, from just before `dvw_start` to the
+  run's end: IVT 08h, 10h, 13h and 16h, the worker's interrupted frames and
+  the program's own interrupted CS:IP all name its segment then.
+- **Movable between runs**, declared after `dvw_wake` has RETURNED to the
+  host stub (`dvw_relax`) and never inside it - `dvw_wake` calls host routines
+  that claim (`dos_drv_back` remounts drivers), and a compaction there would
+  move code that is on the stack. The relocation proc writes `[dvw_pseg]` and
+  re-patches the stubs; nothing else names the part between runs.
+- **Dropped when the same window starts a run on the full screen** (the
+  bracket or the whole machine), whose arena is everything; the next windowed
+  Run fetches it again.
+- **Freed with the window**, by the kernel, as every claim of an instance is.
+
+**WHERE IT IS NOT A PART.** kern_mega has no windowed layer at all (96.54's
+`DVW` is `%ifndef DOS_MEGA`). kern_small's disks carry no `DOS.O88` (24.5),
+and its plain `dos.o88` - like `build/dos.bin` and the `DOSTRACE` build, which
+have no loader to hand them a row - keeps the layer INLINE, the identity
+shape, from the same source: 96.23.11's network has the same three shapes for
+the same reason. kern_dos is the bracket and never had it.
+
 ## 97. PIXELSTEIN 3D — a raycast shooter in a foreign mode (`apps/pixelstein/`)
 
 A first-person shooter in the shape of the 1992 one: a 64×64 grid of cells,
