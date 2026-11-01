@@ -47355,7 +47355,18 @@ into the carve - and the kernel is asked for the segment at the end of it:
   the same one every time it is asked, moving with the carve and freed with
   it. **`op_cseg`** asks `SEG_SUBC` for a carve part, so its code half is
   `OS88_CODESEL`'s `- 8` as for any claim; a fetched lazy part is a claim of
-  its own and is that already. A refusal (no LDT entry) is 0, "not there".
+  its own and is that already. A refusal (no LDT entry) is 0, "not there" -
+  which a package that knows its part is there does not test, and a use of
+  the null selector is not a fault: kern_mega's `mega_null0` completes it as
+  segment 0, the interrupt vector table. So `op_load`'s last step,
+  `op_subpre`, asks `op_seg` for every part and REFUSES THE LAUNCH (`Not
+  enough memory`) when a part placed in the carve comes back 0 against its
+  `OP_SUBV_RAW` answer; every later ask is the same window asked again - the
+  carve's base and end never change - which the kernel answers from the
+  entry it made. +50 bytes of every package with a carve (44 the routine, 6
+  the call, its `jc` and a parity pad), the walk a few far calls at load.
+  `op_cseg`'s pairs are not asked ahead: a far call through 0 loads CS,
+  which IS a #GP the kernel closes the package for.
 - **`OP_SUBV_RAW`** in `[op_subv]` makes `op_seg` answer the PARAGRAPHS into
   the carve plus one (0 stays "not there") for a caller doing arithmetic on
   the LAYOUT: `op_scrub`, a loader's own checks and `OS88_REHOME`, which
@@ -98746,7 +98757,14 @@ On kern_mega in protected mode (`mega_segf`, `.mega`):
   in `vd_n_p3` (MEGA-VIDEO-REALMODE-PLAN W5, KERN-MEGA-PLAN 14.128).
 - Refusals: CF = 1, AX = 1 when no LDT entry or no `mega_wtab` row is free,
   2 for the null selector, 3 not in a block (`SEG_SUBC`, `SEG_BWIN`), 4 not a
-  bound window of the caller's and 5 past its block's end (`SEG_AIM`).
+  bound window of the caller's and 5 past its block's end (`SEG_AIM`). Every
+  register but AX is kept, so a refused `SEG_SUB` still holds the caller's
+  own DX. **A wrapper never turns a refusal into DX = 0 "so a use faults"**:
+  it does not - `mega_null0` completes an access through the null selector
+  in DS or ES as segment 0, so the use reads or writes the interrupt vector
+  table. Take the refusal on the carry, or, where nothing can be unwound,
+  keep the caller's DX, which confines the damage to the caller's own claim
+  (Paint's `pt_subwin`, Pixel's `PXSUB`, RealDMG's bank 0).
 
 Cost: every kernel `.text` +6 (the cell); `.cold` +40 on kern_big, +39 on
 kern_small (the real-mode body and its parity pad); kern_mega `.cold` +68,

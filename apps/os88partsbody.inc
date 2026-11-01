@@ -195,6 +195,8 @@ op_load:
     call op_scrub               ; ...and the scratch, which cost no disk
     jc .nomem                   ; (no window to zero it through: op_at)
 %endif
+    call op_subpre              ; ...and every part's segment ASKED, once,
+    jc .nomem                   ; here where a refusal has a way out (op_sub)
 %if OP_HAS_XMS
     cmp byte [op_xmson], 0
     je .done
@@ -222,6 +224,9 @@ op_load:
 .ioerr:
     mov si, op_s_read
     jmp op_say
+    nop                         ; (never run: op_subpre's call and its jc are
+                                ; five bytes, and every package's code after
+                                ; this keeps the parity it had)
 %else
     ; GATED (SPEC.md 20.12.9): EVERY ROW IS LAZY, so there is no carve to size,
     ; claim or read - the name above is the whole of the load, and op_size,
@@ -1425,7 +1430,14 @@ op_seg:
 ; paragraphs to one names some other descriptor (KERN-MEGA-MEMORY-PLAN MC7),
 ; bases a SUB selector at that paragraph - the same one every time it is
 ; asked, moving with the carve and freed with it. A refusal (no LDT entry) is
-; 0, op_seg's "not there".
+; 0, op_seg's "not there" - which a caller that knows its part IS there does
+; not test, and a use of the null selector does not fault: kern_mega's
+; mega_null0 completes it as segment 0, the interrupt vector table. So
+; op_load asks every part once (op_subpre) and refuses the launch there;
+; after that each ask is the same window asked again - the carve's base and
+; end never change, a move rebasing the descriptor with it - which the kernel
+; answers from the entry it made. op_cseg's pairs are not asked ahead: a far
+; call through 0 loads CS, which is a #GP the kernel closes the package for.
 ; -----------------------------------------------------------------------------
 op_sub:
     test byte [op_subv], OP_SUBV_RAW
@@ -1448,6 +1460,36 @@ op_sub:
     pop dx
     pop cx
     pop bx
+    ret
+
+; op_subpre - op_load's last step: op_seg asked for every part, each part in
+; the carve's answer checked against its RAW one (op_subv) - a part placed
+; there whose segment comes back 0 was refused (op_sub). out: CF=1 one was;
+; clobbers AX, CX, DX, flags. A real-mode kernel answers every one
+op_subpre:
+    xor cx, cx                  ; CL = the part
+.p:
+    cmp cl, [op_t_n]
+    jae .ok
+    mov al, cl
+    mov byte [op_subv], OP_SUBV_RAW
+    call op_seg                 ; AX = paragraphs + 1, 0 = not in the carve
+    mov byte [op_subv], 0
+    xchg ax, dx
+    mov al, cl
+    call op_seg                 ; AX = its segment, 0 = not there
+    or dx, dx
+    jz .n
+    or ax, ax
+    jz .no
+.n:
+    inc cx
+    jmp short .p
+.ok:
+    clc
+    ret
+.no:
+    stc
     ret
 %endif
 
