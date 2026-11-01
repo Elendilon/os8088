@@ -135,12 +135,12 @@ def main():
     # os88pkg.py refused --compress beside parts then, so whatever was the
     # IMAGE shipped raw and 96.40.3 measured that at +932 ms a launch.
     n = tbl[at + PARTS_HDR - 2]
-    if n != 5:
+    if n != 6:
         fail("the table declares %d part(s); DOS.O88 is a loader image with "
-             "FIVE - DOS, the INT 21h core, kern_dos (SPEC.md 96.44.5), "
-             "HELP's text and the network (SPEC.md 96.23.11), the last two "
-             "read by the host itself with op_self "
-             "(docs/plans/DOS-PARTS-PLAN.md 1.1)" % n)
+             "SIX - DOS, the INT 21h core, kern_dos (SPEC.md 96.44.5), "
+             "HELP's text, the network (SPEC.md 96.23.11) and the windowed "
+             "layer (SPEC.md 96.54.9), the last three read by the host itself "
+             "with op_self (docs/plans/DOS-PARTS-PLAN.md 1.1)" % n)
     def row(idx):
         _k, pflags, poff, plen, pzkb = struct.unpack_from(
             "<BBHHH", tbl, at + PARTS_HDR + PART_ROW * idx)

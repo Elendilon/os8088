@@ -72,10 +72,10 @@ class Dos(object):
         return dosmap.lin(self.m, dosmap.instance(self.m))
 
     def b(self, name):
-        return self.m.read(self.base() + self.dm[name], 1)[0]
+        return dosmap.cellread(self.m, self.dm, self.base(), name, 1)[0]
 
     def w(self, name):
-        return int.from_bytes(self.m.read(self.base() + self.dm[name], 2),
+        return int.from_bytes(dosmap.cellread(self.m, self.dm, self.base(), name, 2),
                               "little")
 
     def rows(self):
@@ -233,7 +233,8 @@ def hpage(disk):
         got = live_lines(m, dos, "DWDIRECT ", 4)
         if b"D\x07W\x07D\x07I\x07R" in m.read(0xB0000, 0x8000):
             fail("the program's text is in page 0 - the desktop's pixels")
-        crtc = int.from_bytes(m.read(dos.base() + dos.dm["dvw_xblk"] +
+        crtc = int.from_bytes(m.read(dosmap.cell(m, dos.dm, dos.base(),
+                                                 "dvw_xblk") +
                                      XB_VID + 0x1A, 2), "little")
         if crtc != 0x3B4:
             fail("the program was told a CRTC at %04X - on a lone Hercules "

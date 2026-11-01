@@ -56,10 +56,10 @@ class Dos(object):
         return dosmap.lin(self.m, dosmap.instance(self.m, self.slot))
 
     def b(self, name):
-        return self.m.read(self.base() + self.dm[name], 1)[0]
+        return dosmap.cellread(self.m, self.dm, self.base(), name, 1)[0]
 
     def w(self, name):
-        return int.from_bytes(self.m.read(self.base() + self.dm[name], 2),
+        return int.from_bytes(dosmap.cellread(self.m, self.dm, self.base(), name, 2),
                               "little")
 
     def rows(self):

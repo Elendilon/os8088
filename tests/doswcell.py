@@ -80,7 +80,7 @@ class Dos(object):
         return self.base() + self.dm[name]
 
     def b(self, name):
-        return self.m.read(self.addr(name), 1)[0]
+        return dosmap.cellread(self.m, self.dm, self.base(), name, 1)[0]
 
     def psp(self, off):
         psp = int.from_bytes(self.m.read(self.addr("dos_ldpsp"), 2), "little")

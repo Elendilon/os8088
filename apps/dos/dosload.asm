@@ -77,6 +77,11 @@ DOS_PART_HELP equ 4             ; 96.40.9.2), which nothing here reads either
 DOS_PART_HELP equ 3             ; ...and HELP's text, which the HOST reads
 DOS_PART_NET  equ 4             ; with op_self (DOS-PARTS-PLAN 1.1) - and the
 %endif                          ; NETWORK, the same way (SPEC.md 96.23.11)
+; --- DOS_PART_DVW: the windowed layer (SPEC.md 96.54.9) ---------------------
+%ifndef DOS_MEGA                ; ...and the WINDOW, the same way again: the
+DOS_PART_DVW  equ DOS_PART_NET + 1  ; layer of SPEC.md 96.54, read at the first
+%endif                          ; Run in Window. kern_mega's DOS has none
+; --- end DOS_PART_DVW ---------------------------------------------------------
 
 ; --- the handoff, at the head of the DOS's bss (SPEC.md 20.12.10.2) ---------
 ; ONE PACKAGE, TWO SOURCES: `apps/dos/dos.asm` declares these and this file is
@@ -105,6 +110,11 @@ DSLH_HLPROW  equ DSLH_SIZE      ; kind byte the stream's format
 %ifndef DOS_MEGA
 DSLH_NETROW  equ DSLH_HLPROW + OP_ROW   ; ...and the network part's after it
 %endif                                  ; (SPEC.md 96.23.11), the same shape
+; --- DSLH_DVWROW --------------------------------------------------------------
+%ifndef DOS_MEGA
+DSLH_DVWROW  equ DSLH_NETROW + OP_ROW   ; ...and the window's (SPEC.md 96.54.9)
+%endif
+; --- end DSLH_DVWROW ----------------------------------------------------------
 
 LD_H_IMG    equ 8               ; ...and the two header fields this file reads
 LD_H_BSS    equ 10              ; them at, which are the FORMAT's and not ours
@@ -449,6 +459,14 @@ dsl_pmok:
     mov al, [op_table + OP_T_FMT]   ; kind byte the format the same way
     mov [es:di - OP_ROW], al
 %endif
+; --- DOS_PART_DVW's row ------------------------------------------------------
+%ifndef DOS_MEGA
+    mov al, DOS_PART_DVW            ; ...and the WINDOW's after that (SPEC.md
+    call dsl_row                    ; 96.54.9), DI there again, the same way
+    mov al, [op_table + OP_T_FMT]
+    mov [es:di - OP_ROW], al
+%endif
+; --- end DOS_PART_DVW's row ---------------------------------------------------
                                     ; where the core goes, and only this image
                                     ; knows where either one sits in the file.
                                     ; Out of the stash and not the table: the
@@ -483,7 +501,7 @@ dsl_pmok:
 
 ; --- the table, and the standard's own code after it (SPEC.md 20.12.3) ------
 %ifndef DOS_MEGA
-    OS88_PARTS_BEGIN 5
+    OS88_PARTS_BEGIN 6              ; (5 + DOS_PART_DVW, SPEC.md 96.54.9)
 %else
     OS88_PARTS_BEGIN 5
 %endif
@@ -530,6 +548,15 @@ dsl_pmok:
                                     ;   when a run will publish a packet driver
                                     ;   (SPEC.md 96.23.11). kern_mega's has none
 %endif
+; --- DOS_PART_DVW ------------------------------------------------------------
+%ifndef DOS_MEGA
+      OS88_PART OP_ASSET, OP_COMP | OP_LAZY | OP_SELF
+                                    ; 5 DOS's WINDOWED LAYER (SPEC.md 96.54.9),
+                                    ;   read by the host's op_self into a claim
+                                    ;   of its own at the first Run in Window.
+                                    ;   kern_mega's has none
+%endif
+; --- end DOS_PART_DVW ---------------------------------------------------------
     OS88_PARTS_END
 
     OS88_BSS OP_BSS + DSL_BSS

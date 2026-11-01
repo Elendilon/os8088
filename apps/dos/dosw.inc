@@ -606,6 +606,7 @@ dvw_betab:
 ; out: CF=1 no worker could be had, and the caller takes the bracket instead
 ; -----------------------------------------------------------------------------
 dvw_start:
+    DVW_HBIND                       ; the host's segment, first (doswabi.inc)
     push ax
     push bx
     call OSAPI_GFX_LOCK             ; OSAPI_TASK_SPAWN wants it held
