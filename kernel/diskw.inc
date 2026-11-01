@@ -3042,6 +3042,12 @@ dskw_read_at_x:
                                 ; everywhere else
     mov [dwr_sz], cx            ; the size, as the FAT arm stores it, so a
     mov [dwr_sz+2], dx          ; READ_SEQ cursor carries it here too
+%ifdef FPG_OPS
+    mov cx, [dwr_cap]           ; A PHASE, as the FAT arm's read_chain arms
+    xor dx, dx                  ; one (SPEC.md 12.8.8): without it [fpg_total]
+    call ct_fpg_begin           ; stays 0 and the driver's OSAPI_FS_PROG
+%endif                          ; reports fall on the floor, so a copy OFF a
+                                ; redirected volume counted only its writes
     mov bx, [dwr_buf]           ; AX is still the handle
     mov dx, es                  ; DX:BX = the buffer, ES being the caller's
     mov cx, [dwr_cap]           ; and DX not carrying it into the driver
@@ -3049,6 +3055,9 @@ dskw_read_at_x:
     mov di, [dwr_off+2]         ; free to answer 0 for "at or past the end"
     mov bp, FSV_READAT
     call drv_fs_call              ; -> DX:AX = the bytes delivered
+%ifdef FPG_OPS
+    call ct_fpg_end             ; (flags and registers kept)
+%endif
     jmp short .out              ; CF and DX:AX are already the answer
 %else                           ; ...and on kern_small the jump OVER the
     jmp short .fatat            ; answers is all there is: 15 cycles where

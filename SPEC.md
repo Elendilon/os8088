@@ -27445,11 +27445,21 @@ unlock:
   path in `dsk_xfer`, is untouched.
 - **Between phases `[fpg_total]` is 0, as before**, so metadata sectors are
   not counted and the bar cannot run ahead of the data.
-- **The hatch covers the UNLIT REMAINDER only** (`fpg_rem`). The filled part
-  stays, and the next phase puts the remainder back to white with one fill.
-- **`fpg_paint`'s repair** draws the extent and then the hatch, disjoint.
-  Outside an operation `fpg_rem` zeroes the extent as it hatches the whole
-  trough, so nothing is drawn twice there either.
+- **There is no hatch under an operation** (`fpg_busy`). The gaps between
+  phases - a FAT flush, a directory commit - last a frame or two, so the
+  remainder hatched there read as a flash and not as information (the
+  field's report). The bar holds its extent across them. The first build
+  hatched the unlit remainder; it was taken out, with its code.
+- **Every transfer path steps the bar.** `dsk_xfer`'s driver arm (a DVK_DRV
+  volume - HDD.DRV's C:) moves its run in one `drv_blk_call_x` and never
+  reached `.notch`, so it now steps the run itself. A redirected volume's
+  `OSAPI_FILE_READ_AT` (what a copy's `READ_SEQ` reads with) opens a phase
+  around `FSV_READAT`, without which `[fpg_total]` stayed 0 and the driver's
+  `OSAPI_FS_PROG` reports were thrown away. RAMDISK.DRV reports its writes
+  and its READ_AT now, as NET.DRV, HTTPFS.DRV and CDROM.DRV already did.
+  Before these, a floppy-to-C: copy on an HDD.DRV machine stopped at half
+  the bar, and so did a copy onto or off a RAM disk. `tests/fpgop.py` is the
+  gate, on all four paths.
 - **`fpg_finish` clears the whole byte** and with it the operation, so there
   is still no bracket to forget. `fcp_xfer` is the first caller: one
   operation per file, twice the source's size.

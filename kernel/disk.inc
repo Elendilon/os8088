@@ -1507,7 +1507,11 @@ dsk_xfer:
 %endif                          ; kind, and it is OS88_DRIVERS's (SPEC.md
                                 ; 62.9.2.3, 51.0.2)
     call dsk_geom_pick          ; [dsk_base] and [dsk_cylmax] for this volume
+%if %isdef(KERN_MEGA) && %isdef(FPG_OPS)
+    jmp .sector                 ; (the driver arm's bar, below, pushed it past
+%else                           ; a short jump on kern_mega alone)
     jmp short .sector
+%endif
 .jbadvol:
     pop bx
 %ifdef OS88_DRIVERS
@@ -1544,6 +1548,9 @@ dsk_xfer:
 %else                           ; SI is the low one. The LBA itself is dead on
     xor di, di                  ; this path, which is why DI is no longer
 %endif                          ; banked across the lookup that clobbers it
+%ifdef FPG_OPS
+    push cx                     ; the run, for the file bar below
+%endif
     CURXFER_ON                  ; **AND THE DRIVER'S TRANSFER TOO** (SPEC.md
                                 ; 7.4.1.1). Not the ROM, so the "CPU parked on
                                 ; IRQ6" half of 15.3.8 does not apply and the
@@ -1570,7 +1577,21 @@ dsk_xfer:
 .drvret:
 %endif
     CURXFER_OFF                 ; ...and CF is the driver's answer, which `mov`
-    jnc .success                ; leaves alone
+%ifdef FPG_OPS                  ; leaves alone
+    pop cx                      ; (`pop` writes no flag)
+    jc .drverr
+    cmp word [fpg_total], 0     ; **A DRIVER'S SECTORS COUNT TOO** (SPEC.md
+    je .success                 ; 12.8.8): a DVK_DRV volume - HDD.DRV's C: -
+.drvnotch:                      ; leaves before .notch ever runs, so a copy
+    mov bp, fpg_step            ; onto one counted its reads and not one of
+    call ct_cw_mem_disp         ; its writes and ended at half the bar. Per
+    loop .drvnotch              ; sector, as .notch steps: fpg_step clamps
+    jmp short .success          ; at the total and preserves everything
+    nop                         ; PARITY, never executed (t_hotpar)
+.drverr:
+%else
+    jnc .success
+%endif
     mov [dsk_ioerr], al         ; the driver reports int 13h's status byte,
 %endif                          ; (.jbadvol falls into .jfail on kern_small)
 .jfail:                         ; ...AND the two range refusals in .sector, at

@@ -364,14 +364,9 @@ fpg_begin:
     call fpg_arm                ; a parked widget is armed where it stands -
     jc .out                     ; or refused (a bracket, a fullscreen window)
 %endif
-    mov ax, [fpg_opt]
-    mov [fpg_total], ax
-    cmp byte [fpg_pat], 0       ; the remainder is hatched: back to white
-    je .out
-    call fpg_gbare
-    dw fpg_clear
-    mov byte [fpg_pat], 0
-    jmp short .out
+    mov ax, [fpg_opt]           ; (the trough is never hatched under an
+    mov [fpg_total], ax         ; operation - fpg_busy - so it has nothing
+    jmp short .out              ; to put back)
 .scale:
 %endif
     xor ax, ax                  ; no scale until one is computed below, so a
@@ -538,6 +533,12 @@ fpg_busy:
     jne .out                    ; a phase with a scale owns the trough
     cmp byte [fpg_pat], 0
     jne .out                    ; ...and the hatch is already on it
+%ifdef FPG_OPS
+    test byte [fpg_on], FPG_OP  ; ...and NEVER under an operation (SPEC.md
+    jnz .out                    ; 12.8.8): its gaps - a FAT flush, a directory
+%endif                          ; commit - last a frame or two, so a hatch
+                                ; there was a flash and not information, and
+                                ; the bar simply holds its extent across them
     call fpg_bare               ; (through no region, SPEC.md 12.8.6)
     dw fpg_hatch
 .out:                           ; ...and fpg_begin's exit, too - see there
@@ -834,17 +835,6 @@ fpg_paint:
     mov dl, FPG_BOX_Y + FPG_BOX_H - 1
     call gfx_frame
 
-%ifdef FPG_OPS
-    mov si, [fpg_px]            ; --- and whatever the trough was showing:
-    mov word [fpg_px], 0        ; the lit extent, then the hatch - over the
-    or si, si                   ; REMAINDER under an operation scale, the
-    jz .nolit                   ; whole trough otherwise (where fpg_rem has
-    call fpg_lit                ; zeroed the extent already). fpg_lit lights
-.nolit:                         ; from 0 to SI and adopts SI
-    cmp byte [fpg_pat], 0
-    jne fpg_hatch
-    ret
-%else
     cmp byte [fpg_pat], 0       ; --- and whatever the trough was showing
     jne fpg_hatch
     mov si, [fpg_px]            ; SI = the extent to restore...
@@ -856,7 +846,6 @@ fpg_paint:
     or si, si
     jnz fpg_lit
     ret
-%endif
 
 ; -----------------------------------------------------------------------------
 ; fpg_lit - light the trough from the OLD extent ([fpg_px]) to SI, and adopt
@@ -891,19 +880,11 @@ fpg_lit:
 ; -----------------------------------------------------------------------------
 fpg_hatch:
     mov byte [fpg_pat], 1
-%ifdef FPG_OPS
-    call fpg_rem
-%else
     call fpg_tin
-%endif
     jmp gfx_fill_gray
 
 fpg_clear:                      ; the state is fpg_begin's, so this is pixels
-%ifdef FPG_OPS
-    call fpg_rem
-%else
     call fpg_tin
-%endif
     call thm_bg                
     jmp gfx_fill
 
@@ -912,20 +893,6 @@ fpg_clear:                      ; the state is fpg_begin's, so this is pixels
 ; out: AX = x1, BX = y1, CX = x2, DX = y2, all inclusive - gfx_fill's argument
 ; clobbers: AX, BX, CX, DX
 ; -----------------------------------------------------------------------------
-%ifdef FPG_OPS
-; fpg_rem - the trough's UNLIT part under an operation scale, else all of
-; it (and then the extent is no longer on the glass, so it reads 0)
-fpg_rem:
-    call fpg_tin
-    test byte [fpg_on], FPG_OP
-    jz .all
-    add ax, [fpg_px]
-    ret
-.all:
-    mov word [fpg_px], 0
-    ret
-
-%endif
 fpg_tin:
     call fpg_boxr
     inc ax
