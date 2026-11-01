@@ -1,7 +1,7 @@
 # OSAPI_FS_OP adoption: where one operation should be one bar
 
-**PLAN. Nothing in it is built.** The mechanism is on branch
-`toast-n-progress`. Its costs are in
+**BUILT on branch `toast-n-progress` (2026-11-01), except the rows listed
+under *Not taken* below.** The mechanism is SPEC.md 12.8.8-12.8.10. Its costs are in
 `docs/reports/TOAST-QUEUE-OP-PROGRESS-COST-2026-10-31.md`. This file is the
 survey of every place that could use it, taken 2026-10-31 by reading the tree.
 No row has been measured or driven.
@@ -20,7 +20,41 @@ callbacks. Two shapes benefit:
 Inside an fsx bracket or behind a fullscreen window the widget never shows,
 so there is no effect there.
 
-## Kernel follow-ups the survey found (before any adoption)
+## What was built, and what was not
+
+Every STRONG and WORTHWHILE row below is adopted, and so are the MARGINAL
+rows B1 (Browser downloads), F1 (FTPD RETR) and R3 (RealDMG state), because
+each cost a few bytes. The six follow-ups are built: writes count, the lock
+is not required, nesting is refused, a kernel owner (0FEh), the driver case
+(it resolves to the kernel owner, because `OSAPI_DRV_USE`'s DRVU_CALL clears
+the stamp), and `os88_fs_op()`.
+
+**Not taken:**
+
+- **V2**, the Video Player's paused bank: a parked bar during a pause
+  misleads.
+- **F1's STOR half**: FTPD parses no ALLO, so it knows no size.
+- **L1**, Loom: there is no total without four FILE_FIND walks.
+- **WireFleet's half of PX**: it is 3 bytes under APP_MAX_SIZE, so it defines
+  `OP_NO_FSOP`.
+- **K6**, Compress/Uncompress: it needs a scale its phases do not count
+  against.
+- **K8**, Paste of a set: deferred by the owner.
+
+**Two known gaps:**
+
+- **The Video Player's in-bracket hold fill is not counted.** The widget does
+  not arm there, so after a play the bar trails the player's own card.
+- **Every kernel or driver operation shares owner 0FEh.** While a same-drive
+  clone or a rejoin is parked at a prompt, other kernel file work counts into
+  its bar.
+
+**A shipped package that calls 0x04E9 needs Wire level 7.** Because the parts
+library calls it, that means every package with a carve or a lazy fetch.
+Those are declared in the website's `data/wire.json`, not in this tree, and
+`OP_NO_FSOP` is how a package stays below level 7.
+
+## Kernel follow-ups the survey found (all built)
 
 1. **Fix the SDK note.** `apps/os88api.inc` says the bar counts "your file
    reads". **Writes count too.** The write paths call `fpg_begin` and

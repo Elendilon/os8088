@@ -3753,7 +3753,7 @@ hd_isrcdrv:   db 0              ; the drive the COPY reads from, which is the
 hd_iafound:   db 0              ; hd_iapps_find: an APPS folder has been seen
 hd_iappsc:    dw 0              ; ...and its first cluster, for the descent
 hd_iheld:     db 0              ; 1 = this install HOLDS the ASSOC.DAT writer
-hd_iop:       db 0              ; 1 = hd_iop_go's OSAPI_FS_OP is ours to end
+hd_iop:       db 0, 0           ; (a pad byte: nothing after moves odd) 1 = hd_iop_go's OSAPI_FS_OP is ours to end
 hd_isrcx:     db 0xFF           ; HDI_GO's NAMED source, 0xFF = none (117.10.5)
 hd_iautod:    db 0xFF           ; the auto-detected apps drive, 0xFF = none.
                                 ; .text with a real initialiser: -f bin

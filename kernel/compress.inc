@@ -3768,7 +3768,7 @@ cmz_jid:    dd 0                ; ...and the set's ID. A part's header bytes
 cmz_jsel:   times 13 db 0       ; the selection's name - a part's
 cmz_jnam:   times 13 db 0       ; the result's
 %ifdef FPG_PARK
-cmz_jop:    db 0                ; 1 = cmz_jloop's OSAPI_FS_OP is ours to end:
+cmz_jop:    db 0, 0             ; (a pad byte for parity) 1 = cmz_jloop's OSAPI_FS_OP is ours to end:
                                 ; in the state block, so a paused join keeps it
 %endif
 CMZ_JSTL    equ $ - cmz_jst
