@@ -457,7 +457,9 @@ fsx_run:
 %ifdef KERN_BIG
     call spk_off                ; a speaker ring the app left open (SPEC.md
                                 ; 34.11): channel 2 idle and channel 0 at the
-                                ; bracket's rate, before the rate itself goes
+                                ; bracket's rate, before the rate itself goes.
+                                ; A REAL-MODE bracket's is closed already, in
+                                ; fsx_rcall, whose rate goes off before this
 %endif
     call sch_fast_off           ; the sub-tick goes back FIRST (SPEC.md 53.2.1):
                                 ; everything below this runs on the ordinary
@@ -1330,6 +1332,17 @@ fsx_rland:                      ; REAL MODE, IF = 0, the stack as it was
     call mega_a20               ; A20 PROVED OPEN before the GDT is read: a
                                 ; BIOS the package called may have shut it
     call mega_up                ; protected mode: DS = ES = KDATA
+    cmp word [spk_seg], 0       ; A SPEAKER RING LEFT OPEN (SPEC.md 34.11) is
+    je .nspk                    ; closed HERE, before the rate goes off - the
+    in al, 0x61                 ; twin's close (rms_spk) less its two writes
+    and al, 0xFC                ; that cannot matter: IVT 20h is put back by
+    out 0x61, al                ; fsx_rupf's forced sync, and channel 0 by
+    mov al, 0xB6                ; sch_fast_off below. fsx_restore's spk_off
+    out 0x43, al                ; used to close it AFTER that, reloading
+    xor ax, ax                  ; channel 0 with [spk_rdsv] - the bracket's
+    mov [spk_seg], ax           ; divisor - once [sch_fast] was already 0, so
+    mov [snd_ch2mode], ax       ; the desktop ran at the bracket's rate with
+.nspk:                          ; every IRQ0 a tick. Channel 2 idle, IF = 0
     call sch_fast_off           ; the rate OFF first: no hook may run in
                                 ; protected mode on the window's copy, which
                                 ; is stale until the copy back (fsx_restore
@@ -1344,9 +1357,10 @@ fsx_rland:                      ; REAL MODE, IF = 0, the stack as it was
 ; fsx_rtick - IRQ0 in the real-mode bracket (IVT 20h, the 8259 at its
 ; protected-mode base): sch_isr's three arms with no scheduler. Every entry
 ; counts [sch_subs]; a TICK chains the ROM's own handler (40:6C, the floppy
-; motor, the EOI) and bumps [ticks]; a period that is no tick sends its own
-; EOI; under FSXF_RATE the hook runs after either, under sch_rhook's skip
-; rules - the previous call still out, or SS not LOW_SEG (a ROM service's
+; motor, the EOI) on sch_chstack as sch_isr does (SPEC.md 8.5, 8.5.1) and
+; bumps [ticks]; a period that is no tick sends its own EOI; under FSXF_RATE
+; the hook runs after either, under sch_rhook's skip rules - the previous call
+; still out, the ROM's chain under us, or SS not LOW_SEG (a ROM service's
 ; private stack) - at IF = 1 under the speaker's sample ISR, as sch_rhook. A
 ; tick runs SOUND.DRV's DSV_TICK through its low copy (W4: rms_stick, which
 ; answers at once when the list carried no sound driver); snd_tick's tone
@@ -1368,8 +1382,29 @@ fsx_rtick:
     jnz .eoi
     mov [sch_fcnt], al
 .tick:
+%ifndef NO_CHAINPRIV
+    cmp byte [sch_chbusy], 0    ; THE ROM's CHAIN ON sch_chstack, as sch_isr's
+    jne .tskip                  ; (SPEC.md 8.5): SS is LOW_SEG here too, so the
+    mov ax, ss                  ; swap is SP alone. Nested (8.5.1) - a sample
+    cmp ax, LOW_SEG             ; ISR chaining us inside the ROM's sti - it
+    jne .tplain                 ; skips the chain and the driver's tick, which
+    inc byte [sch_chbusy]       ; do not fit there, and the hook refuses on
+    mov [sch_chsave], sp        ; the same flag. A ROM service's own stack
+    mov sp, sch_chstack + SCH_CHSTK ; chains in place
     pushf                       ; the ROM's IRQ0: 40:6C and its EOI
     call far [mega_old08]
+    mov sp, [sch_chsave]
+    dec byte [sch_chbusy]
+    jmp short .tchd
+.tskip:
+    inc word [sch_chskip]
+    inc word [ticks]
+    jmp short .eoi
+.tplain:
+%endif
+    pushf                       ; the ROM's IRQ0: 40:6C and its EOI
+    call far [mega_old08]
+.tchd:
     inc word [ticks]
     mov ax, LOW_SEG             ; the stream's watchdog (W4): fsx_rstko is
     mov es, ax                  ; the service area's rms_stick, beside
@@ -1389,7 +1424,11 @@ fsx_rtick:
     je .if0                     ; (sch_rhook's rule): the next IRQ0 is a
     sti                         ; sample, and one held here is lost (W4)
 .if0:
-    cmp byte [sch_rbusy], 0     ; the last call is still out (it sti'd)
+%ifndef NO_CHAINPRIV
+    cmp word [sch_chbusy], 0    ; the last call is still out (it sti'd), or
+%else                           ; the ROM's chain is under us on sch_chstack
+    cmp byte [sch_rbusy], 0     ; ([sch_chbusy] and [sch_rbusy] as ONE word,
+%endif                          ; sch_rhook's test and its %error)
     jne .out
     mov ax, ss
     cmp ax, LOW_SEG             ; a ROM service on a stack of its own
@@ -1448,6 +1487,8 @@ fsx_rprepf:
     xor ax, ax                  ; (`.lowbss` is not zeroed: .no reads these)
     mov [ss:fsx_rlow], ax
     mov [ss:fsx_rsvc], ax
+    call fsx_rmvck              ; AL = 0: the caller's movable claims' bases,
+                                ; before the first claim the door makes
     mov bp, sp                  ; THE LIST (W3), the caller's DS:BP - under
     mov es, [bp+38]             ; pusha, our AX and far return, kent_di's six,
     mov bp, [bp+40]             ; the X stub's return and its ES - walked in
@@ -1504,6 +1545,10 @@ fsx_rprepf:
     jc .why                     ; FSXR_DROOM or (W4) FSXR_DRV
     call fsx_rextf              ; ...and EXTD.DRV's (W7): AL = FSXR_DROOM
     jc .why
+    mov al, 1                   ; ...and NOTHING OF THE CALLER'S MOVED under
+    call fsx_rmvck              ; them: os88real_prep banked its real
+    mov al, FSXR_ROOM           ; segments at the door, and no proc is told
+    jc .why                     ; of a protected-mode move (53.2.3)
     mov byte [fsx_rmode], 1
     popa
     mov al, FSXR_REAL
@@ -1518,6 +1563,77 @@ fsx_rprepf:
     mov [fsx_rwhy], al
     pop ax
     retf
+
+; fsx_rmvck - THE BANK'S GUARD (SPEC.md 53.2.3): the base of every MOVABLE
+; claim the instance DI owns, in mem_tab's order, into the park's scratch at
+; FSX_RMV (AL = 0, its slot into [fsx_rown]), or compared with it (AL = 1,
+; that slot's: CF = 1 one moved, went or came - or there were more than the
+; snapshot holds, which cannot be vouched for and so counts as a move). The
+; door's own claims may compact, and a package's os88real_prep bank is a
+; snapshot of real segments no protected-mode move tells anyone about - so a
+; move falls the bracket back to protected mode rather than handing real mode
+; a stale segment. Every register kept
+FSX_RMV     equ FSX_RSV + 4         ; dw 2 x the count; the bases after it
+FSX_RMVN    equ (MPS_SIZE - FSX_RMV - 2) / 2 ; ...as many as the scratch holds
+%if FSX_RMVN < 8
+ %error "fsx_rmvck's snapshot is the park's scratch past the list: MPS_SIZE leaves it room for fewer than 8 claims"
+%endif
+fsx_rmvck:
+    pusha
+    push es
+    mov bx, [ss:fsx_rown]       ; AL = 1: the slot the snapshot banked
+    or al, al
+    jnz .sl
+    mov bx, di                  ; AL = 0: DI's slot (fsx_rprepf's own
+    sub bx, inst_tab            ; derivation, which stores it there again)
+    mov cl, 5
+    shr bx, cl
+    mov [ss:fsx_rown], bx
+.sl:
+    mov dx, MEGA_SEL_PSCR
+    mov es, dx
+    mov di, FSX_RMV + 2
+    mov si, mem_tab
+    mov cx, MEM_MAX
+.l:
+    cmp [ss:si+MC_OWN], bx      ; the caller's...
+    jne .n
+    cmp word [ss:si+MC_RLOC], 0 ; ...and movable (a pinned one cannot move)
+    je .n
+    cmp di, FSX_RMV + 2 + 2 * FSX_RMVN
+    jae .bad
+    mov dx, [ss:si+MC_SEG]
+    or al, al
+    jnz .c
+    mov [es:di], dx
+    jmp short .a
+.c:
+    cmp [es:di], dx
+    jne .bad
+.a:
+    inc di
+    inc di
+.n:
+    add si, MC_SIZE
+    loop .l
+    sub di, FSX_RMV + 2         ; DI = 2 x the count
+    or al, al
+    jnz .cc
+    mov [es:FSX_RMV], di
+    jmp short .o                ; (CF = 0 from the sub)
+.cc:
+    cmp [es:FSX_RMV], di
+    je .o                       ; (CF = 0: equal)
+.bad:
+    or al, al                   ; a snapshot that overflowed is one the
+    jnz .st                     ; compare must fail: an odd count is none
+    mov word [es:FSX_RMV], 1    ; it can reach
+.st:
+    stc
+.o:
+    pop es
+    popa
+    ret
 
 ; fsx_rlowclaim - AX = bytes -> CF = 0 and DX = a conventional claim of that
 ; many (whole KB) owned by [ss:fsx_rown], AX:CX = its linear base (below
@@ -2536,6 +2652,11 @@ fsx_rexfill:
 ; above 1MB or not) copied into the service area and srl_seg:srl_buf aimed at
 ; the copy, and the leased line left open when its real-mode vector is the
 ; kernel's - mega_rmaskf's own test for the mouse's. Nothing with no lease.
+; THE BRACKET PACKAGE'S OWN lease (fsx_rserb = 1) rides the region's copy and
+; not a copy of its own, so bytes the protected-mode ISR writes to the high
+; ring between the arm's copy down and this drop, or between fsx_rserup and
+; the copy up passing the ring, are lost: a known limit, no shipped caller
+; holds one (SPEC.md 53.2.3's serial lease paragraph).
 ; in/out BX = the lines to shut. Every other register kept
 ; -----------------------------------------------------------------------------
 %if MOD_HIOK & (1 << MOD_SER)
