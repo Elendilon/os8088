@@ -896,9 +896,9 @@
   "sources": [
    "apps/redline"
   ],
-  "stamped": "d511fdd4",
-  "strings": "613189b6ce818efd",
-  "why": "the benchmark's progress panel clears to the window edge: no stray glyph; text unchanged"
+  "stamped": "1b555f02",
+  "strings": "4f8e15c5f39d9498",
+  "why": "the Inspect tab (SPEC.md 103.7): a section with its eight pages, buttons and keys; I and H in the key table; Inspect in the Bench menu; INSPECTn.TXT in Files"
  },
  "RLAPPLY_O88": {
   "sources": [
