@@ -27448,8 +27448,8 @@ each pair.
 
 `fpg_opbegin` (far, `DX:CX` = the bytes the WHOLE operation will move, every
 phase counted - a copy reads AND writes, so twice the file) scales the trough
-once and sets `FPG_OP` (bit 3 of `[fpg_on]`). Until `fpg_opend` or the
-unlock:
+once and sets `FPG_OP` (bit 3 of `[fpg_on]`). Until the end clears it
+(`fcp_xfer`'s `fcp_opend`, `OSAPI_FS_OP`'s end) or the unlock:
 
 - **`fpg_end` banks the phase's scale** in `[fpg_opt]` as it zeroes
   `[fpg_total]`, still writing no flag.
@@ -27495,7 +27495,7 @@ unlock:
   is still no bracket to forget. `fcp_xfer` is the first caller: one
   operation per file, twice the source's size.
 - **`fpg_opbegin` refuses while any operation is owned** (`[fpg_pown]` not
-  0FFh, §12.8.9), so a kernel operation inside a package's is not a second
+  `FPG_NOWN` = 0FEh, §12.8.9), so a kernel operation inside a package's is not a second
   scale.
 
 #### 12.8.9 …and a PARKED widget outlives the hold, for its owner
@@ -27506,8 +27506,9 @@ spread out so *"the loading has half the machine and the desktop the other
 half"* - is a hold per chunk, so the widget went up and came down once per
 chunk: hundreds of blinks for one thing the user asked for.
 
-An operation with an **owner** (`[fpg_pown]`: an instance index, or 0FEh for
-the kernel and a driver asked as the machine) **parks** at `gfx_unlock`
+An operation with an **owner** (`[fpg_pown]`: an instance index, or 0FFh -
+`inst_caller`'s own answer - for the kernel and a driver asked as the machine;
+`FPG_NOWN` = 0FEh is none) **parks** at `gfx_unlock`
 instead of coming down:
 
 - **What stays and what goes.** `[fpg_on]` keeps `FPG_SHOWN | FPG_OP`, and

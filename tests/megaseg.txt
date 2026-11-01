@@ -140,4 +140,14 @@
 # 2026-11-01: to 3,357, mega_parkcap (a debugger's cap) MEGADIAG=1 only
 # 2026-11-01: to 3,231, bootonce2: the four refusal strings into `.mega`,
 #             read at a refusal through `.mega`'s low copy (-124 `.text`)
-3231
+# 2026-11-01: +19, to 3,250, kernel size pass 16 (ops) - 1dea2435 put +78
+#             in `.text` and no line here (the gate read 3,309): fsx_rtick's
+#             ROM chain on sch_chstack (SPEC.md 8.5) is IRQ0 in the REAL-MODE
+#             bracket, so it has to be low, and is +19 once its two arms share
+#             one call and the task's SP rides in BX (-9). The rest of the 78
+#             was protected-mode code and went to `.mega`: the speaker ring's
+#             close (fsx_rland -> fsx_rupf's head), fsx_rcall's banking of SI
+#             and BP and its NMI-off/[mega_drop] stores (-> fsx_rdownf), and
+#             fsx_run's FSXF_REAL test (-> fsx_rprepf's head); fsx_rcall
+#             tail-jumps wm_pkgcall for a protected-mode bracket (-2)
+3250

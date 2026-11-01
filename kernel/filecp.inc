@@ -1895,7 +1895,11 @@ fcp_xfer:
     stc                         ; (SPEC.md 22.5.2). It preserves AX and the
 .out:                           ; flags, the FERR_* being on its way out
 %ifdef FPG_OPS
-    call KERNEL_SEG:fpg_opend   ; flags kept: CF is the answer
+fcp_opend:                      ; (a label for tests/fpgop.py's trace)
+    ; STKBALANCE-OK: a label inside fcp_xfer, never called - reached by falling from .out, so its pop es / ret are fcp_xfer's own push es and return
+    pushf                       ; flags kept: CF is the answer
+    and byte [fpg_on], ~FPG_OP & 0FFh ; ...and the operation's scale ends
+    popf                        ; (fpg_opend was this, far: size pass 16)
 %endif
     pop es
     ret

@@ -1516,14 +1516,14 @@ ld_start:
                                 ; and ld_unreserve banks it anyway; AX and CX
                                 ; survive, ld_slot banking CX itself
 %ifdef TOAST_Q
-    cmp bl, [toast_qinst]       ; a QUEUED message of the package's is
-    jne .unq                    ; re-homed the same way
-    cmp byte [toast_qwant], 0
-    je .unq
-    mov byte [toast_qinst], 0xFF
-    mov byte [ld_said], 1
-.unq:
-%endif
+    mov si, toast_qinst         ; a QUEUED message of the package's is
+    mov al, [toast_qwant]       ; re-homed the same way - the two messages
+    call .rehtoast              ; are records of one shape (toast.inc), so
+    mov si, toast_inst          ; one body asks each (kernel size pass 16)
+    mov ax, [toast_on]          ; toast_kill's own test: on OR staged
+    or al, ah
+    call .rehtoast
+%else
     cmp bl, [toast_inst]
     jne .unsaid
     cmp word [toast_on], 0      ; toast_kill's own test: on OR staged
@@ -1531,10 +1531,22 @@ ld_start:
     mov byte [toast_inst], 0xFF
     mov byte [ld_said], 1
 .unsaid:
+%endif
     call ld_unreserve           ; the region, and anything the entry proc
                                 ; claimed before it declared itself broken
     mov al, LD_EABORT
     ret
+%ifdef TOAST_Q
+.rehtoast:                      ; SI = a message's raiser byte, AL = 0 when
+    cmp bl, [si]                ; it is not live: the reserved slot's live
+    jne .rht                    ; message re-homed to the kernel, and said.
+    or al, al                   ; SI and AX are dead after (ld_unreserve
+    jz .rht                     ; banks what it needs)
+    mov byte [si], 0xFF
+    mov byte [ld_said], 1
+.rht:
+    ret
+%endif
 
 %ifndef KERN_SMALL
 .rehome:

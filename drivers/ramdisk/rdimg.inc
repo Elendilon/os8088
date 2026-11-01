@@ -704,7 +704,7 @@ rd_load:
 ; is EXACT - the store's bytes plus the two 4KB blocks still to move (a Load's
 ; first read of the metadata is before its size is known, and is its own) -
 ; and every byte of it is a read or a write, never both. The kernel owns it
-; as 0FEh (the Control Panel asks as the machine), so only rd_iop_end ends it,
+; as 0FFh (the Control Panel asks as the machine), so only rd_iop_end ends it,
 ; and rd_img_out is both verbs' one exit. [rd_iop] says ours: a refusal (a
 ; clone's bar parked on the menu bar, say) must not end somebody else's.
 ; Advisory. rd_iop_go keeps every register; rd_iop_end keeps them and the flags

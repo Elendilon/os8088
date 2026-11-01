@@ -3050,7 +3050,9 @@ dskw_read_at_x:
                                 ; redirected volume counted only its writes
     mov bx, [dwr_buf]           ; AX is still the handle
     mov dx, es                  ; DX:BX = the buffer, ES being the caller's
-    mov cx, [dwr_cap]           ; and DX not carrying it into the driver
+%ifndef FPG_OPS                 ; (FPG_OPS: CX is [dwr_cap] already, which
+    mov cx, [dwr_cap]           ; fpg_begin keeps) and DX not carrying it
+%endif                          ; into the driver
     mov si, [dwr_off]           ; DI:SI = the 32-bit offset, and a driver is
     mov di, [dwr_off+2]         ; free to answer 0 for "at or past the end"
     mov bp, FSV_READAT

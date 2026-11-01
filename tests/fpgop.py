@@ -14,7 +14,7 @@ disk two different ways:
   bios  booted off the VHD, so C: is the kernel's own boot partition
 
 Each arm also asserts ONE fpg_opbegin (one operation, not one per chunk) and
-no fpg_hatch between it and its fpg_opend - the gaps between chunks (a FAT flush, a directory
+no fpg_hatch between it and its fcp_opend (fcp_xfer's end of it) - the gaps between chunks (a FAT flush, a directory
 commit) last a frame or two, so a hatch there was a flash and not
 information.
 
@@ -56,7 +56,7 @@ def arm(kind):
         F.select(ui, F.NAME, src)
         ui.menu_pick("Edit", "Copy")
         ui.open_drive("C")
-        with M.bp_trace(m, "fpg_opbegin", "fpg_opend", "fpg_hatch", cap=2000) as tr:
+        with M.bp_trace(m, "fpg_opbegin", "fcp_opend", "fpg_hatch", cap=2000) as tr:
             ui.menu_pick("Edit", "Paste")
             M.until(m, lambda mm: mm.read(mm.sym("fcp_busy"), 1)[0] == 0,
                     "the paste to finish", guest=240.0, poll=0.05)
@@ -72,7 +72,7 @@ def arm(kind):
     late = 0
     if begins:
         i = names.index("fpg_opbegin")
-        j = names.index("fpg_opend", i) if "fpg_opend" in names[i:] else len(names)
+        j = names.index("fcp_opend", i) if "fcp_opend" in names[i:] else len(names)
         late = names[i:j].count("fpg_hatch")
     print("fpgop: %s: %d of %d units, %d of %d pixels, %d operation(s), "
           "%d hatch(es) inside it, fcp_err %d"
@@ -98,7 +98,7 @@ def paste(ui, src, name, dst):
     dw = ui.open_drive(dst[0])
     if dst[2:]:                         # a folder: opened IN that drive's
         ui.open(dst[3:], win=dw)        # window, which need not be the front
-    with M.bp_trace(m, "fpg_opbegin", "fpg_opend", "fpg_hatch", cap=2000) as tr:
+    with M.bp_trace(m, "fpg_opbegin", "fcp_opend", "fpg_hatch", cap=2000) as tr:
         ui.menu_pick("Edit", "Paste")
         M.until(m, lambda mm: mm.read(mm.sym("fcp_busy"), 1)[0] == 0,
                 "the paste to finish", guest=240.0, poll=0.05)
@@ -114,7 +114,7 @@ def judge(kind, opt, done, px, err, names):
     late = 0
     if begins:
         i = names.index("fpg_opbegin")
-        j = names.index("fpg_opend", i) if "fpg_opend" in names[i:] else len(names)
+        j = names.index("fcp_opend", i) if "fcp_opend" in names[i:] else len(names)
         late = names[i:j].count("fpg_hatch")
     print("fpgop: %s: %d of %d units, %d of %d pixels, %d operation(s), "
           "%d hatch(es) inside it, fcp_err %d"
