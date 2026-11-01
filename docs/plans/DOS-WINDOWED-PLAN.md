@@ -1,22 +1,11 @@
 # Live DOS in a window, several at once — a TopView/DESQview shape for `DOS.O88`
 
-**Status: WAVES 1, 3, 4 AND 6 ARE BUILT, WAVE 2'S SPEED HALF AND WAVE 5'S MEMORY HALF (SPEC.md 96.54,
-96.54.1, 96.54.2; `apps/dos/dosw.inc`; rows `doswlive`, `doswfs`,
-`doswtwo`); waves 2, 4, the rest of 5 and 6 are not.** §5.6 is built as a
-fixed 128 KB for a window with no limit of the user's, rather than from the
-`.EXE` header: the arena is claimed before the file is read, and two windows
-running at once is the measured result (`doswtwo`, +20 image +2 bss). The owner settled §4.3's default: `Run` stays the full screen, because
-the only thing a window can detect is a graphics mode set (§10.4). §10 is what wave 1 found, and it changes
-two of the decisions below. The rest of this file is still the plan as it
-was written: the original status line read *"PLAN, nothing built."* This document is the investigation the brief
-asked for: capture the TEXT output of a DOS program **while it runs** and show
-it in a DOS window, with **several DOS windows each running a different
-program at the same time** — what TopView (1984) and DESQview (1985) did on
-the same 8088. It pins the design, estimates every byte, and says what the
-estimates rest on. Every figure marked **MEASURED** was taken on the tree this
-branch was cut from (`elendilon` at `b1e4085`, 2026-11-01); every other figure
-is an **ESTIMATE** against a named comparable and must be re-taken by the wave
-that builds it.
+**Status: EVERY WAVE IS BUILT (SPEC.md 96.54 and 96.54.1-7; `apps/dos/dosw.inc`
+and `doswm.inc`; rows `doswlive`, `doswfs`, `doswtwo`, `doswspin`, `doswcap`,
+`doswcell`, `doswmouse`), with two deliberate exceptions stated where they
+belong: §7.1 (one host, many sessions) is not taken, and the lone Hercules's
+second page (§7.2) is not switched on - §10.6 says why. §10 onward is what
+was built and measured; the sections before it are the plan as written.**
 
 SPEC.md 96 is the contract for the DOS that exists. This plan changes none of
 it yet; the SPEC section for the windowed run is written by wave 1, before the
@@ -285,7 +274,7 @@ for exactly this.
 whole rows because output arrives once, after the verb; a live program that
 updates a clock in one corner will repaint that row ~18 times a second. It is
 its own measured change (`disp*` and the Telnet rows assert against the band)
-and is wave 2's, not a rider on wave 1. **Built: §10.6.**
+and is wave 2's, not a rider on wave 1. **Built: §10.7.**
 
 ### 3.6 Input
 
@@ -714,9 +703,9 @@ exchange loop - §3.2's estimate of ~1.6% was off by ten times, because the
 loop tested a mode byte on every word. Two blocks and `rep movsw` take it to
 **88.8%** (SPEC.md 96.54.3) for +36 image and +242 bss. The vector set was
 not narrowed: a vector outside it would carry a program's hook into every
-other task. The band's span-narrowed paint (§3.5) is §10.6.
+other task. The band's span-narrowed paint (§3.5) is §10.7.
 
-## 10.6 Band paint, as built - the span, not the row
+## 10.7 Band paint, as built - the span, not the row
 
 **MEASURED**, by `doswcell` on MartyPC: one cell changed by a live program -
 `int 10h AH=09h` in place, or a teletype digit and a backspace - cost the band
@@ -758,6 +747,24 @@ Works' own:
    reading only the load module is with an agent.
 
 `doswcap` is the gate (25 s, red with the detector off). +940 image, +57 bss.
+
+## 10.8 Wave 5, as built — INT 33h in a window
+
+SPEC.md 96.54.4. The pointer is translated to the band: column x 8 and row x
+8 from the band's top-left and `[con_vtop]`, clamped, buttons live only for a
+press whose down edge was read over the band with the window in front at that
+sample and the one before (so the raising click is the desktop's). It is two
+host hooks (`DHK_MOUSE`, `DHK_TXT` refusing) in `apps/dos/doswm.inc`, bound
+for the run; the full screen keeps the bracket's scale. **The band is sampled
+once a BIOS tick**: asking `WM_GEOM`/`WM_CONTENT`/`WM_TOP` on every read
+measured 143 polls a second against 428, and per tick it is 361-367. It found
+two defects: an `0Ch` handler never ran for a program waiting on a key in its
+window (it sleeps through the ticks with its world out), mended by splitting
+the core's dispatch into `dos_m33_evt` and calling it as the worker wakes;
+and `[dos_m33hk]` is never cleared, which `dwm_start` mends for the window
+and which still loses a second BRACKETED run's handler. **+400 image, +10
+bss**, the core +20 (7 of code, 13 of alignment; `CORE_MAX` +16), against the
+~200 / ~10 costed in section 6. `doswmouse` is the gate, 26.5 s, red two ways.
 
 ## 9. What would kill it
 

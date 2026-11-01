@@ -40,11 +40,12 @@
 ; through the very routine the bracket uses, on its own stack. 96.4.1.1's
 ; test decides which: `DBE_HERE` and `DBE_VKIND` are table reads and stay.
 ;
-; WHAT IS NOT HERE YET (the plan's waves 2-5): the virtual video BIOS
-; answers the teletype, cursor, write, read, scroll and string calls and
-; IGNORES a graphics mode set; Alt+Enter does not move a live program to the
-; full screen; a program that writes B800 directly shows nothing in the
-; window (DOS-WINDOWED-PLAN 4); INT 33h reports desktop coordinates.
+; WHAT IS NOT HERE: a lone Hercules's second page is never switched on for a
+; capture (96.54.6); a program that reprograms the desktop card's 6845 itself
+; is not repaired (96.54.7); and the vector set is not narrowed, so a window
+; costs a CPU-bound program ~12% (96.54.3). The mouse is doswm.inc's
+; (96.54.4), Alt+Enter and the shunt dvw_fsmain's (96.54.1), captures and
+; TopView dvw_capt's (96.54.5-6).
 ; =============================================================================
 
 %ifdef DVW
@@ -353,6 +354,7 @@ dvw_nap:
     mov ss, [cs:dvw_nss]
     mov sp, [cs:dvw_nsp]
 .back:
+    call dwm_kick               ; the mouse ticks it slept through (96.54.4)
     pop ax
     popf
     ret
@@ -637,6 +639,7 @@ dvw_runprog:
     mov [dos_vw], ax
     mov [dos_vh], bx
     call dos_m33_wall
+    call dwm_start                  ; ...and the window's own (96.54.4)
     call dos_build_psp
     push ds                         ; the posting doors
     pop es
@@ -741,6 +744,7 @@ dvw_fin:                            ; DHK_SNAP, from dos_prog_done
     call dvw_xout
     sti
     mov word [dos_hkv + DHK_SNAP], dos_snap
+    call dwm_stop                   ; the bracket's INT 33h hooks (96.54.4)
     call dos_be_bind
     cmp byte [dvw_cmode], DVWC_SEG  ; the capture card dark again, as the
     jne .nocard                     ; kernel's Single mode leaves it

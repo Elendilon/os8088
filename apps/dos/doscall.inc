@@ -107,6 +107,17 @@ CORE_MAX    equ 15472            ; +512 for SPEC.md 96.7.2's stack swap and
                                 ; nothing. dos_ldrd sits after dos_cpm's
                                 ; `align 16` for that reason: in front of it
                                 ; the same code cost 112
+                                ; +16 for SPEC.md 96.54.4's dos_m33_evt, the
+                                ; tick's event dispatch made a proc a window's
+                                ; worker calls as it wakes: 7 bytes (+4 the
+                                ; split, +3 its DOSC_E slot) and 13 of
+                                ; dos_cpm's paragraph alignment, which the
+                                ; slot pushed over a boundary: 15,430 used
+                                ; ...and the two met at the merge at 15,475,
+                                ; three over - and over by 15,472's three
+                                ; was a 34KB rung for kern_dos. dos_m33_evt
+                                ; testing BL where it copied it to SI first
+                                ; took four back: CORE_MAX stays 15,472
 %else                           ; **kern_mega's core is 67 bytes longer**:
 CORE_MAX    equ 16128            ; SPEC.md 96.15.4's extended-to-extended
 %endif                          ; move (dos_xms_move's `.bothx`), 15,409 used.

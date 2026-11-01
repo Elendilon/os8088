@@ -6000,6 +6000,7 @@ dos_betab:
     dw dos_k_here, dos_k_vkind, dos_k_rseq, dos_k_wseq
 
 %include "dosw.inc"                 ; the live window (SPEC.md 96.54)
+%include "doswm.inc"                ; ...and its mouse (SPEC.md 96.54.4)
 %endif                              ; KD_BACKEND
 %ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 
@@ -11927,17 +11928,33 @@ dos_m33_tick:
                                     ; second has installed no handler and
                                     ; polls nothing, and the tick is the only
                                     ; thing left that can move its pointer
+    call dos_m33_evt
+    pop ds
+    pop ax
+    iret
+
+; -----------------------------------------------------------------------------
+; dos_m33_evt - the event handler's dispatch, without the tick around it
+; in:  DS = ours; out: every register and the flags but IF preserved
+;
+; A PROC OF ITS OWN BECAUSE A WINDOW HAS A SECOND CALLER (SPEC.md 96.54.4):
+; a program in its window that waits on a key spends its ticks ASLEEP with
+; its world out, so IRQ0 lands on the desktop's vector and `dos_m33_tick`
+; never runs - the windowed host calls this as its worker wakes instead. The
+; host side is the same contract as the tick's: on the program's stack, with
+; the program's world in.
+; -----------------------------------------------------------------------------
+dos_m33_evt:
     cmp word [dos_m33h+2], 0        ; no handler: two instructions a tick
-    je .out0
+    je .ret0
     cmp byte [dos_m33bsy], 0        ; a callback that ran long enough to be
     je .call                        ; interrupted by the next tick
-.out0:                              ; AN EPILOGUE OF ITS OWN, three bytes: the
-    pop ds                          ; tick with no handler is the common one,
-    pop ax                          ; and the far `.out` cost it a `jcc +3 /
-    iret                            ; jmp near` every 55 ms (SPEC.md 96.7.3)
-.call:
+.ret0:                              ; a `ret` HERE and not a jump to the one
+    ret                             ; below: that is past a short jcc's reach,
+.call:                              ; which on an 8086 is five bytes, not two
     mov byte [dos_m33bsy], 1
 
+    push ax
     push bx
     push cx
     push dx
@@ -11961,9 +11978,10 @@ dos_m33_tick:
 .moved:
     or al, 1
 .nomove:
-    mov ah, [dos_m33lb]
-    mov si, bx                      ; SI = the live mask, AH = the last one
-    test si, 1
+    mov ah, [dos_m33lb]             ; BL = the live mask, AH = the last one
+    test bl, 1                      ; (BL and not a copy in SI: four bytes,
+                                    ; which kept the core in CORE_MAX at the
+                                    ; merge of SPEC.md 96.8.2 and 96.54.4)
     jz .lup
     test ah, 1
     jnz .rbtn
@@ -11974,7 +11992,7 @@ dos_m33_tick:
     jz .rbtn
     or al, 4                        ; left UP
 .rbtn:
-    test si, 2
+    test bl, 2
     jz .rup
     test ah, 2
     jnz .evdone
@@ -12034,11 +12052,9 @@ dos_m33_tick:
     pop dx
     pop cx
     pop bx
-    mov byte [dos_m33bsy], 0
-.out:
-    pop ds
     pop ax
-    iret
+    mov byte [dos_m33bsy], 0
+    ret
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
@@ -19084,6 +19100,7 @@ table from DVOL_MAX (SPEC.md 96.44.2.1)"
     HBSS DOS_B_DVWS,  7         ; dvw_scroll's window
     HBSS DOS_B_DVWX,  DVW_XB_SIZE   ; the program's vectors and BDA...
     HBSS DOS_B_DVWD,  DVW_XB_SIZE   ; ...and the desktop's, while it runs
+    HBSS DOS_B_DWM,   10        ; INT 33h in the window (doswm.inc)
 dvw_want    equ dos_hbss + DOS_B_DVWF + 0   ; Run in Window was asked for
 dvw_run     equ dvw_want + 1    ; a program is on the worker
 dvw_go      equ dvw_want + 2    ; ...UI -> worker: start it

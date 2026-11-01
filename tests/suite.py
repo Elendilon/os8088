@@ -8872,6 +8872,20 @@ SOAK = [
         "the caret's old underline above all - is red. Red with "
         "con_rows_owed calling con_row. Measured 27s on MartyPC",
         needs=("marty",), serial=True, wants=("build/os8088-360.img",)),
+    Row("doswmouse", "soak", py("tests/doswmouse.py"), 30.0,
+        "INT 33h FOR A DOS PROGRAM IN ITS WINDOW (SPEC.md 96.54.4, "
+        "docs/plans/DOS-WINDOWED-PLAN.md wave 5). The probe "
+        "(tests/dostrap/mwin.asm, on a scratch B: the row builds) polls 03h "
+        "and 05h and has an 0Ch handler, on a Hercules whose band is offset "
+        "40,20 into a 720x348 desktop: the pointer on two band cells reads "
+        "column*8/row*8 through 03h and the handler, no text cursor is drawn, "
+        "a click is 03h's button and 05h's press at the cell, off the band it "
+        "clamps and a press there is refused, the click that raises the "
+        "window is the desktop's, and Alt+Enter's full screen keeps the "
+        "bracket's scale. Red with dwm_start's hook stores removed, and red "
+        "with dvw_nap's dwm_kick removed (the handler never runs for a "
+        "program asleep in int 16h). Measured 26.5s on MartyPC",
+        needs=("marty",), serial=True, wants=("build/os8088-360.img",)),
     Row("doswlive", "soak", py("tests/doswlive.py"), 15.0,
         "A DOS PROGRAM RUNNING LIVE IN ITS WINDOW (SPEC.md 96.54, "
         "docs/plans/DOS-WINDOWED-PLAN.md wave 1). Program > Run in Window puts "

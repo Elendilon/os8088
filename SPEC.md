@@ -188343,6 +188343,111 @@ DOS window's region is 278 bytes larger. `doswspin` holds the ratio at an
 85% floor, between the two readings, so the old loop fails it.
 
 
+#### 96.54.4 INT 33h in a window: the band is the program's screen
+
+A program in its window sees an 80x25 mode-3 screen that is the console band,
+so its mouse is on THAT screen and not on the desktop: **column x 8 and row x
+8 of INT 33h's 640x200**, measured from the band's top-left and from
+`[con_vtop]`, the first buffer row the band shows — the units every text-mode
+driver reports in. The bracket's translation (§96.10, the desktop's pointer
+scaled by `[dos_vw]`/`[dos_vh]`) is right for a program that owns the glass
+and wrong on both axes for one in a window: on a Hercules the band starts 40
+pixels in and 58 down, and a scale cannot be an offset.
+
+**It is two host hooks** (§96.44.3). Every answer the core gives — `03h`,
+`05h`/`06h` and their positions, `0Bh`'s mickeys (derived from the position,
+§96.10.2), the `07h`/`08h` window (§96.10.7) and the `0Ch` event handler —
+is computed downstream of `DHK_MOUSE`, so translating that one read
+translates every function and they cannot disagree. `dwm_start`
+(`apps/dos/doswm.inc`, from `dvw_runprog`) binds `DHK_MOUSE` and `DHK_TXT`
+for the run and `dwm_stop` (from `dvw_fin`) gives the bracket's back. Each
+hook also reads `[dvw_run]` and `[dvw_fs]` itself, so **on the full screen
+(§96.54.1) the bracket's own hooks answer**, with `[dos_vw]`/`[dos_vh]` as
+`dvw_runprog` set them — the same whole-screen translation a bracketed run
+gets, which `tests/doswmouse.py` asserts.
+
+The contract, all of it in `dwm_mouse`:
+
+- **Position.** `x = px - band_x`, clamped to `0..cols*8-1`; `y = py - band_y`,
+  clamped to `0..rows*8-1`, plus `[con_vtop]*8`; both then held inside
+  639/199. A pointer off the band reads as the nearest band edge, as a driver
+  clamps to the screen.
+- **The band is ASKED FOR, never remembered — once a tick.**
+  `[dos_conx]`/`[dos_cony]` are written at a paint, and a moved window calls
+  no paint proc (§11.96.12), so a quiet program in a dragged window would read
+  the old origin for ever. The origin is `OSAPI_WM_CONTENT` plus
+  `dos_con_geom`'s own centring margin over `OSAPI_WM_GEOM`'s width — the same
+  arithmetic, which is the one thing the two must keep in step — and the cell
+  COUNTS are the paint's, which only a resize changes and a resize repaints.
+  Asked on every read it was the whole cost: with `GEOM`, `CONTENT` and
+  `WM_TOP` on each read a poll of `03h` and `05h` ran **143 times a guest
+  second against 428** on the bracket's hooks, ~8,000 cycles a read. So
+  `dwm_sample` takes all three when the BIOS tick at `0040:006C` has moved
+  since the last read and a read inside a tick costs `OSAPI_MOUSE` and
+  arithmetic: an origin up to one tick late during a drag, which the arrow
+  is too. All are lock-free readers, legal from INT 33h on the program's
+  stack and from IRQ0.
+- **Buttons: the press must be the window's.** A button is reported down iff
+  its DOWN EDGE was read with the pointer over the band and the window shown
+  and frontmost (`OSAPI_WM_TOP`) at this sample AND the one before; it then
+  stays down until it is released, wherever the pointer has gone. That is
+  DESQview's "the foreground window's" made exact: samples are taken only by
+  reads, so the first read after a press always has as its previous sample
+  one taken BEFORE the press, and the click that RAISES the window from
+  behind another is the desktop's however long the program went without
+  asking. A press begun on the bar and dragged in is not a press, and a drag
+  that leaves the band keeps its button and clamps. The price: a window
+  brought forward by other means while its program read nothing has its first
+  click after that swallowed too.
+- **No text cursor.** In the window the pointer is the desktop's own arrow,
+  so `DHK_TXT` refuses (§96.10.5.1's windowed case). `dos_fsi` OUTLIVES the
+  bracket that filled it, so a window run after a bracketed one answered the
+  stale record and the core drew its cursor into `B800` — on a CGA desktop the
+  desktop's own framebuffer. The hook refuses and FORGETS the cell the core
+  believes it drew (`[dos_m33dv]` = 0), and `dwm_start` forgets it too, before
+  `dos_hook_vectors`' `dos_m33_hidden` can wipe it.
+
+**Two things were broken underneath and are mended here.**
+
+1. **The event handler never ran for a program that waits on a key.** The
+   tick that dispatches it is `dos_m33_tick` in the PROGRAM's table, and a
+   program in its window that waits on `int 16h` sleeps through its ticks in
+   `dvw_nap` with its world OUT — so IRQ0 lands on the desktop's vector and
+   the dispatch never happens. That is Microsoft Works' whole mouse (§96.10.4).
+   The dispatch is a proc of its own now, `dos_m33_evt`, called by the tick
+   and — as `dwm_kick` — by `dvw_nap` as the worker wakes with the world back
+   in, on the caller's stack: every wake is where the tick it slept through
+   would have been, and the dispatch's own last-seen state means nothing is
+   reported twice. `[dos_m33bsy]` still guards the callback against itself.
+2. **`[dos_m33hk]` is set and never cleared**: `dos_m33_arm` hooks IRQ0 once
+   and then trusts the flag, so after one run that installed a handler the
+   next run's `0Ch` hooked nothing. `dwm_start` clears it, because the
+   window's table is primed from the desktop's, which has no hook. **The
+   bracket has the same defect and this does not mend it**: a bracket's exit
+   restores the whole IVT and leaves the flag at 1, so a second bracketed run
+   of a program that installs a handler gets no callbacks. Clearing the flag
+   in `dos_hook_vectors` would mend both for five core bytes; it is left for
+   a change that can carry its own gate.
+
+**Cost, measured**: the windowed host's image **+400** bytes and bss **+10**
+(41,458 → 41,858 and 10,145 → 10,155; `doswm.inc` is ~390 of it and three
+`call`s the rest), `DOS.O88` on the disk +321. The core is **+20**
+(15,410 → 15,430): **7** bytes of code — the split into `dos_m33_evt`, +4,
+and its `DOSC_E` slot, +3 — and 13 of `dos_cpm`'s paragraph alignment the
+slot pushed over a boundary; `CORE_MAX` 15,424 → 15,440, so `kern_dos`'s
+image is +16, the hole both hosts reserve. kern_mega's core is 16,057 →
+16,061 of its 16,064. The speed, on MartyPC's 4.77 MHz 8088 with a probe
+that polls `03h` and `05h` and nothing else: **361-367 polls a guest second
+in the window against 428 on the bracket's hooks there and 417-419 in the
+bracket** — ~1,000 cycles more per read, the per-tick sample and the tick's
+own dispatch, which now runs, included. `tests/doswmouse.py` is the gate: two
+band cells through `03h` and the event handler, no cursor drawn, a click
+through `03h` and `05h`, the clamp and a refused press on the bar, the
+raising click refused and the next one counted, and the full screen's scale.
+It is red with `dwm_start`'s two hook stores taken out (`03h says (123,45),
+the cell is (99,21)`) and red with `dvw_nap`'s `call dwm_kick` taken out (the
+handler called once, at the pointer's position before the move).
+
 ### 96.55 `AH=62h` answers the running program's PSP, and XCOPY parsed its tail out of junk
 
 IBM DOS 3.30's own `XCOPY.EXE` refused every command line under this DOS -
