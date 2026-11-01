@@ -137,4 +137,5 @@
 #             bytes that give the drop its own int 3 (`.rdown`), so a
 #             reset log tells a bracket's drop from a reflection
 #             (tests/megarmb286.py). Both run across the drop, in .text
-3359
+# 2026-11-01: to 3,357, mega_parkcap (a debugger's cap) MEGADIAG=1 only
+3357

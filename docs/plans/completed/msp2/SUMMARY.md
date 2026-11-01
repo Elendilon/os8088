@@ -98,14 +98,16 @@ images (CSDO runs); **abilist** `docs/plans/ABI-BREAK-LIST.md`.
 ## WANTS THE OWNER
 
 1. **`mega_parkcap`** (megados): a park-size cap only a debugger writes and
-   no row names - MEGADIAG=1 or delete (~11 bytes).
+   no row names. **Owner: gate it** - it is `MEGADIAG=1` only now: -2
+   `.text` and ~9 bytes of `.mega` content (inside the section's padding);
+   `tests/megaseg.txt` 3,357.
 2. **The refusal toast staged from the blob** (bootonce): -117 conventional
    `.text` (the four reason strings); the visible difference is that the
    refusal toast is raised before `drv_notice_x`, so a Control Panel toast
    on the same boot would replace it.
 3. **A near door in every module** (modcsdo): -611 bytes of images (heap
    while loaded) for +433 bytes of packed files on the system disk; modcsdo
-   chose the disk.
+   chose the disk **Owner: the smaller disk files, as built.**
 4. **`mega_k09`'s function-key ladders as a table** (pmcore, refused): ~-22
    `.mega` for ~5 cycles on every function-key interrupt.
 

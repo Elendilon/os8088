@@ -210,11 +210,13 @@ mega_dback  dw 0                    ; ...and back (the stub's sum and copy):
 %ifdef MEGA_DIAG
 mega_dpit   dw 0, 0, 0              ; PIT ch0's last count, and clocks since
 %endif
+%ifdef MEGA_DIAG                    ; (MEGADIAG=1 only: a debugger's knob)
 mega_parkcap dw 0xFFFF              ; KB: THE TEST'S CAP ON THE PARK. A 1MB AT
                                     ; is a pool of ~190KB; Bochs is 16MB, so
                                     ; `os88bochs.py dbg "setpmem <linear> 2
                                     ; 0x00C0"` makes it the 1MB machine (12.1
                                     ; item 5). Nothing in the kernel writes it
+%endif
 HS_STAGE_PARA equ 0x400             ; the 16KB a stage is (HS_STACK's top)
 mega_dmsw   dw 0                    ; the MSW at the snapshot
 mega_dparked db 0                   ; 1 from the snapshot to the drop: hbm_down
@@ -332,10 +334,12 @@ mega_dosclaimf:
     mov [mega_dxkb], ax
     mov ax, [mem_top]
     shr ax, 6                       ; paragraphs -> KB
+%ifdef MEGA_DIAG
     cmp ax, [mega_parkcap]
     jbe .want
     mov ax, [mega_parkcap]
 .want:
+%endif
     mov [mega_dpkb], ax
     mov byte [mega_drmode], 0
     call mega_dmapb                 ; AX = KB in use: THE RUNS, if they fit
