@@ -5827,11 +5827,12 @@ dsk_fatw_claim:
     call dsk_fatw_slota
     jc .out
     or word [bx], -1            ; nothing resident in it yet
-    add bx, DVOL_MAX*2
-    push bx
+    lea si, [bx+DVOL_MAX*2]     ; SI = the claim's word: kentc_di banked SI
+                                ; and mem_claimp_x keeps it, so it needs no
+                                ; push of its own across BX's reuse below
 %ifdef FATW_NONE
-    stc                         ; the knob: every heap window refused, so the
-    jmp short .none             ; whole machine runs on the pin and the
+    xor dx, dx                  ; the knob: every heap window refused, so the
+    jmp short .keep             ; whole machine runs on the pin and the
 %endif                          ; ping-pong is what a test sees (18.8.3)
     mov bx, MEM_P_FATW          ; ONE OWNER PER VOLUME (SPEC.md 18.8.4): the
     add bl, al                  ; range's base plus the index, which is what
@@ -5846,8 +5847,14 @@ dsk_fatw_claim:
     mov ax, DSK_FAT_SECS * 32   ; ...in PARAGRAPHS, the sectors exactly: nine
     call mem_claimp_x           ; of them are 4.5KB, which a KB door made five
                                 ; (SPEC.md 50.2.1). out: DX = the segment;
-                                ; CF=1 = refused
-    jc .none
+                                ; CF=1 = refused - and then 0 is the word's
+    jnc .keep                   ; "no window", the refusal's DX not being 0
+    cwd                         ; on every path: AX, which the claim keeps,
+.keep:                          ; is the size and positive, so DX = 0 (kernel
+                                ; size pass 16, -8)
+%if DSK_FAT_SECS * 32 > 0x7FFF
+  %error "dsk_fatw_claim's cwd needs the claim's paragraph count positive"
+%endif
                                 ; NOT mem_movable. mem_can_move refuses a
                                 ; purgeable cache outright (SPEC.md 50.6.1), so
                                 ; a relocation proc here was dead code the
@@ -5858,12 +5865,7 @@ dsk_fatw_claim:
                                 ; boot volume takes the PIN rather than a
                                 ; claim, so there is no first bottom-up claim
                                 ; of the boot to wall the arena's floor in
-    pop bx
-    mov [bx], dx
-    jmp short .out
-.none:
-    pop bx
-    mov word [bx], 0
+    mov [si], dx
 .out:
     jmp kretc_di
 
