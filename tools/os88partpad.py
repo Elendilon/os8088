@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""os88partpad.py - what the parts standard's 512-byte alignment costs a disk.
+"""os88partpad.py - what the parts standard's alignment costs a disk.
 
-docs/plans/PART-PACKING-PLAN.md's instrument. Every part of a parted `.O88`
-(SPEC.md 20.12.2) starts on a 512-byte boundary of the file, so between the
-end of the image's stored bytes and part 0, and between each part's STORED
-bytes (the packed length on an OP_COMP row) and the next part, there is
-padding the packer fills with 0xE5. This walks every FAT12/16 image named,
-recursively, finds every file whose image carries an O88PARTS table, and
-reports per file:
+docs/plans/completed/PART-PACKING-PLAN.md's instrument. Every part of a parted
+`.O88` (SPEC.md 20.12.2) starts on a granule of the file - a 16-byte
+paragraph, or a 512-byte sector in a file packed before SPEC.md 20.12.2.1 -
+so between the end of the image's stored bytes and part 0, and between each
+part's STORED bytes (the packed length on an OP_COMP row) and the next part,
+there is padding the packer fills with 0xE5. This walks every FAT12/16 image
+named, recursively, finds every file whose image carries a part table (either
+magic), and reports per file:
 
   pad     bytes of padding the file carries (the last part is never padded)
   tight   the file's length with every part laid back to back (PACKED) or

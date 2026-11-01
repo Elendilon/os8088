@@ -46053,7 +46053,7 @@ Parts follow the image, **each starting on a 16-byte PARAGRAPH of the file**,
 in the order the table declares them, and the table's `off` counts those
 paragraphs. `os88pkg.py` lays them out and fills the table's `off` and `len`
 — the assembler cannot know a separately assembled module's length. It was a
-512-byte sector until docs/plans/PART-PACKING-PLAN.md, which is §20.12.2.1.
+512-byte sector until docs/plans/completed/PART-PACKING-PLAN.md, which is §20.12.2.1.
 
 **The alignment is decided by `dskw_read_at`'s preconditions** (§18.4.4): the
 offset and the capacity of a read must each be a whole number of CLUSTERS (of
@@ -46096,14 +46096,20 @@ cluster size and safely inside one segment's 64KB. The final chunk is short
 and that is the contract: `dskw_read_at` clamps the take to what is left of
 the file and answers 0 next time.
 
-##### 20.12.2.1 Why 16 and not 512, and not 1 (docs/plans/PART-PACKING-PLAN.md)
+##### 20.12.2.1 Why 16 and not 512, and not 1 (docs/plans/completed/PART-PACKING-PLAN.md)
 
 **512 cost up to 511 bytes of `0xE5` a part**, ~256 on average, and the last
 part is never padded: measured over the seventeen shipped disks it was
 **41,937 bytes in 62 parted files and 51 clusters**, 7 KB of them across the
 nine 360KB disks. A 513-byte part took 1,024 bytes of file. At 16 a part pads
 by 0 to 15 bytes, and the layout gives back 50 of the 51 clusters byte
-packing would.
+packing would. **Measured at adoption** (docs/plans/completed/PART-PACKING-PLAN.md
+section 8): **47,968 bytes and 68 clusters** on the seventeen shipped disks, 14
+of them across the nine 360KB disks; **0 resident kernel bytes** on every
+build; `HIBER.DRV` +32; a package's loader image -15 to +26 (MIDIRack's and
+RealDMG's sector readers grew, everything that only shifts `off` is the same
+size); `DOS.O88`'s launch off the 360KB system disk ~0.3 s shorter on
+MartyPC's 5150.
 
 **1 is refused, on one cluster.** A byte layout breaks the property above:
 every plain part in a carve would have to MOVE, `op_unpack`'s pointers would

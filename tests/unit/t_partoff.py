@@ -7,7 +7,7 @@ A PART STARTS ON A PARAGRAPH (SPEC.md 20.12.2): a row's `off` counts 16-byte
 units, and it counted 512-byte sectors until SPEC.md 20.12.2.1. The standard
 converts it with `OP_GSH` (apps/os88parts.inc) - but six reader sites lived
 OUTSIDE the standard (RealDMG three, MIDIRack, Excitebike, Clear Skies's
-program, docs/plans/PART-PACKING-PLAN.md 3.4), each doing its own
+program, docs/plans/completed/PART-PACKING-PLAN.md 3.4), each doing its own
 `mov cl, 9 / shl ax, cl / mov cl, 7 / shr dx, cl`. A site that is missed when
 the unit moves ASSEMBLES CLEANLY and reads the wrong bytes - 32 times too far
 into the file - and fails only on the one machine that reaches it, as a

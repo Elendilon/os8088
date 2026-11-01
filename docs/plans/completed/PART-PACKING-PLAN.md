@@ -1,6 +1,8 @@
 # PART-PACKING-PLAN - a part should not start on a 512-byte sector
 
-**STUDY, with a prototype. Nothing is adopted.** The owner's ask: *"Each part
+**ADOPTED - the 16-byte granule is the standard's only layout (SPEC.md
+20.12.2, 20.12.2.1); section 8 is what the adoption measured and found.**
+The study below is kept as it was written. The owner's ask: *"Each part
 starts on a 512-byte sector inside an .O88. If this is still the case, we need
 to see if we can fix that, so we're not wasting multiple KB inside each packed
 parted .o88 with many parts. ... I don't care if we have to READ a few bytes we
@@ -333,3 +335,111 @@ Testing):
   standard, switchable by `-DOP_PARA`; byte-identical without it.
 - `tools/os88pkg.py`, `tools/os88parts.py` - the packer and the host reader,
   for either magic.
+
+## 8. The adoption, measured (M, on `dos-windowed` at `ac4eda02` + this work)
+
+The owner adopted section 6's recommendation as the ONLY layout - no switch
+left behind - in one change: the standard, the packer and host readers, every
+private reader, `kdxpack.inc`, `HIBER.DRV`'s hand-off (`KDH1` -> `KDH2`),
+`gbaot.py`, `os88wire.py`, the tests, and a fast-tier gate. Every figure here
+was taken at ONE build number (the "before" tree built at the same commit
+count, `OS88_BUILDNUM` pinned where a later commit had moved it), so no
+difference below is the About box's.
+
+### 8.1 Disk - the seventeen shipped images
+
+| disk | cluster | parted files | their bytes before -> after | saved | free clusters before -> after | back |
+|---|---:|---:|---|---:|---|---:|
+| `os8088.img` | 512 | 4 | 173,929 -> 171,545 | 2,384 | 1557 -> 1561 | **4** |
+| `os8088-120.img` | 512 | 4 | 173,929 -> 171,545 | 2,384 | 1081 -> 1085 | **4** |
+| `os8088-720.img` | 1024 | 4 | 173,929 -> 171,545 | 2,384 | 52 -> 54 | **2** |
+| `os8088-360.img` | 512 | 1 | 52,302 -> 50,910 | 1,392 | 30 -> 32 | **2** |
+| `apps.img` | 512 | 12 | 713,061 -> 703,221 | 9,840 | 110 -> 129 | **19** |
+| `apps120.img` | 512 | 11 | 615,958 -> 607,254 | 8,704 | 121 -> 138 | **17** |
+| `apps720.img` | 1024 | 7 | 339,009 -> 335,969 | 3,040 | 24 -> 26 | **2** |
+| `apps360.img` | 1024 | 3 | 127,522 -> 126,258 | 1,264 | 27 -> 28 | **1** |
+| `media360.img` | 1024 | 2 | 127,554 -> 126,018 | 1,536 | 24 -> 25 | **1** |
+| `office360.img` | 1024 | 3 | 244,186 -> 240,666 | 3,520 | 18 -> 23 | **5** |
+| `network360.img` | 1024 | 1 | 34,591 -> 34,367 | 224 | 253 -> 253 | 0 |
+| `games360.img` | 1024 | 4 | 185,512 -> 183,880 | 1,632 | 66 -> 67 | **1** |
+| `emu360.img` | 1024 | 2 | 117,557 -> 114,693 | 2,864 | 209 -> 212 | **3** |
+| `util360.img` | 1024 | 1 | 39,198 -> 38,910 | 288 | 271 -> 272 | **1** |
+| `more720.img` | 1024 | 5 | 307,400 -> 301,336 | 6,064 | 38 -> 44 | **6** |
+| `small360.img` | 1024 | 1 | 46,905 -> 46,681 | 224 | 16 -> 16 | 0 |
+| `small720.img` | 2048 | 1 | 46,905 -> 46,681 | 224 | 177 -> 177 | 0 |
+| **all seventeen** | | **62** | | **47,968** | | **68** |
+| **the nine 360KB** | | | | **12,944** | | **14 (13 KB)** |
+
+More than section 1's 51 because the tree moved on under the study: DOS.O88
+carries five parts now (the network and HELP parts), and the free-cluster
+column is the whole disk, so it includes `HIBER.DRV`'s +24 file bytes on the
+four system disks (which cost no cluster). Per file, the largest:
+`1942.O88` -3,680 (on demand), `PIXEL.O88` -2,640, `WIN16.O88` -2,368,
+`DOS.O88` -1,392, `XTMP3.O88` -1,136, `SCRIBE.O88` -784, `PXSTEIN.O88` -688,
+`SKIES.O88` -560, `REALDMG.O88` -496, `VIDEO.O88` -480, `SHEET.O88` -464,
+`WORD.O88` -416, `MIDIRACK.O88` -400. `tools/os88partpad.py` over the new
+disks reports 2,084 bytes of padding left in 97 parted files (the mega and
+test images included), against 47,942 in 66 before.
+
+### 8.2 Bytes
+
+- **Kernel resident: 0 on every build.** `build/kernel.bin` is byte-identical
+  at one build number; `kern_small` `KERN_SIZE` 59,904 before and after;
+  `make budget-check` passes all four kernels. The hand-off code is `.modh`.
+- **`HIBER.DRV`: image 7,722 -> 7,754 (+32), file 6,142 -> 6,166** - the
+  paragraph walk, `KDS_CHEAD` staged, and the stub's core segment sum. An
+  on-demand module (SPEC.md 2.8), so none of it is resident.
+- **Package images** (the bytes a launch reads and holds):
+
+  | image | before -> after | |
+  |---|---|---:|
+  | `dosload`, `csload` (SKIES), `pxstein` loader, `scload`, `wdload`, `xtmp3` | -15 each | the asop total's `mov cl, 5 / shl` gone with the granule |
+  | `dosp` (DOS's part 0) | 50,531 -> 50,533 | +2 |
+  | `midirack` | 37,470 -> 37,496 | **+26**: `mra_load` reads at the sector below (8.3) |
+  | `realdmg` | 38,050 -> 38,054 | **+4**: `rw_jpart`, the same (8.3) |
+  | 1942, BROWSER, DRMARCO, PIXEL, REDLINE, SHEET, SKIES' program, VIDEO, WIN16, WIREFLET | +0 | same encodings, magic byte only |
+
+- **The default build's non-parted outputs are unchanged**: built at the
+  baseline's build number, every `.bin`, `.drv` and `.o88` that is not a
+  parted package (or a part of one) is byte-identical - except `SYSCHECK`,
+  whose generated manifest carries `HIBER.DRV`'s size and checksum.
+
+### 8.3 What the study got wrong, and the reader it missed
+
+- **"Private row readers: the same shift -> `OP_GSH`, E: 0 bytes each" was
+  half true.** Four of the six only convert `off` to a byte offset and then
+  read from the CLUSTER at or below (rwaot.inc's two, Excitebike, Clear
+  Skies' program), so for them it is the shift. Two - **MIDIRack's
+  `mra_load` and RealDMG's `rw_jpart`** - read with `OSAPI_FILE_READ_AT` at
+  the part's own SECTOR (READ_AT takes sectors on kern_big, SPEC.md 18.4.4.2),
+  which a paragraph part is not on: converted with the shift alone they would
+  have been refused `FERR_NAME` on every machine. Each now starts at the
+  sector at or below and steps over the head, and R is cut as
+  `roundup512(len - packed - head)` so the claim is no bigger than before.
+- **`op_load`'s file-operation total** (`op_asop`, SPEC.md 12.8.10) shifted
+  `op_secs` by 5 as sectors -> paragraphs; at a paragraph granule that is 32
+  times the bar's total. The prototype missed it because the bar clamps.
+- **`os88pkg.py`'s OP_XMS span bound** compared granules with 128; it is 64KB
+  of granules now.
+- **`tests/multiseg.py`'s slack assertion** is derived from the table rather
+  than written down as 512, and still refuses a zero slack on the 360KB disk.
+
+### 8.4 Time (MartyPC, `os8088_5150_cga`'s GLaBIOS twin, guest cycles)
+
+| launch | before | after |
+|---|---:|---:|
+| `A:\APPS\DOS.O88` off `os8088-360.img` | 8.702 s, 8.669 s | 8.419 s, 8.306 s |
+| `B:\SHEET.O88` off `office360.img` | 20.303 s | 20.324 s |
+
+DOS.O88's launch is ~0.32 s (3.7%) shorter - it is three sectors shorter on
+a one-sector-cluster disk; SHEET's is unchanged to the noise. The click-to-
+window span is read off the guest's cycle counter around one `os88ui.open`.
+
+### 8.5 The rows the adoption needs
+
+Section 6.1's list, unchanged, run once as the deduplicated union after the
+last batch: `multiseg`, `mseg*`, `rehome*`, `pkg*`, `c64part`, `apple2part`,
+`kdpart`, `dos*`, `kd*`, `megadosp`, `megadosroom`, `hibernate*`,
+`win16hiber`, `rdg*`, `midirack*`, `excitebike*`, `skies`, `drmariofront`,
+`pxsdisk`, `xtmp3move`, `sheetmove`, `vidplay` - and `partoff`, the new fast
+row. `kdpart` is host-only and passes; the rest were not run in this change.

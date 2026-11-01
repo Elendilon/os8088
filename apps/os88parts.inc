@@ -197,7 +197,7 @@ OP_SECMAX     equ 1920          ; the carve's ceiling in sectors, packed AND
                                 ; Mirrored by os88pkg.py (t_lzfmt checks)
 
 ; --- THE GRANULE a part's `off` counts in (SPEC.md 20.12.2, 20.12.2.1) ------
-; A 16-byte PARAGRAPH. It was a 512-byte sector until docs/plans/
+; A 16-byte PARAGRAPH. It was a 512-byte sector until docs/plans/completed/
 ; PART-PACKING-PLAN.md, which is up to 511 bytes of 0xE5 a part on the disk;
 ; the head slack a cluster-aligned read leaves is a multiple of 16 either way,
 ; which is all a segment adjustment needs, so every address the standard
