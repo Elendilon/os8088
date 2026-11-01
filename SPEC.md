@@ -188574,7 +188574,7 @@ and no kernel byte.
 program whose own idea of the screen is cached across Alt+Enter — it goes on
 writing the capture card on the full screen. A lone Hercules is 96.54.6.1.
 
-##### 96.54.6.1 A lone Hercules: its own second page
+##### 96.54.6.1 A lone Hercules: its own second page, WATCHED
 
 A Hercules has 64KB in two 32KB pages and the second one is at B8000 -
 where a CGA lives, which is the whole of why `vid_setmode` leaves `3BFh`
@@ -188582,24 +188582,51 @@ bit 1 clear (§39.6): with it set, a CGA in the same machine and the
 Hercules would both answer for those addresses. So when `dvw_cdetect` finds
 NOTHING usable at B800 under a Hercules (it floats, or it mirrors B000), it
 writes `3BFh` = 3 and runs the same test again: the page decoded, RAM that
-reads back, and B000 unmoved by it. If that holds, the page is the capture
+reads back, and B000 unmoved by it. If that holds the page is taken
 (`[dvw_chp]` = 1); if not, `3BFh` goes back to 1 and there is none. The CGA
 case is tested FIRST, so the bit is only ever turned on where nothing else
 can answer there.
 
-Page 0 stays what is SHOWN - `3B8h` bit 7 is never set - so the program's
-screen is RAM nobody displays, read every fourth tick exactly like a CGA's.
-Three things differ: the program is told `0040:0063` = 3B4h with mode 3,
+**The page is WATCHED, not captured** (`DVWC_HP`). The first build made it a
+capture like 96.54.6's - int 10h to the ROM, every row compared each pass -
+and that broke every ordinary program on the machine: a lone Hercules's
+windowed runs all took the capture path, the band stopped showing BIOS
+output (`doswlive`, `doswfs`, `doswcell`, `dosbigtail` all red), and a
+spinning program lost 1.9 of its 88 points to the pass. So int 10h stays the
+window's own (exact, 96.54), and the page is a DETECTOR: only a program that
+writes video memory itself can change it. The page is seeded with the console
+and its 25 row sums taken (`dvw_hpsum`); each fourth tick `dvw_cpace` sums
+ONE row, in rotation, inside the tick, and wakes the UI task only when that
+row moved. The first move PROMOTES the window (`[dvw_hprow]` = FFh): from
+then on every row is summed each pass and a row that moved is copied into
+the console (`dvw_hprw`). Measured with `doswspin`: 87.6% of the bracket's
+speed with the page watched, 88.3% with it refused - 0.6 points for a
+detector that never sleeps.
+
+Page 0 stays what is SHOWN - `3B8h` bit 7 is never set. Three things differ
+from a CGA's capture: the program is told `0040:0063` = 3B4h with mode 3,
 because a CGA's `3DAh` reads FFh on this machine and a retrace wait on it
 never ends, while the Hercules' own `3BAh` moves; the decode is turned on
-again at each `dvw_xin` (`dvw_hpage`), since a mode set or an unblank in
-the desktop's slice puts `3BFh` back to 1; and `dvw_cblank` turns it off at
-the run's end. `3B8h` is written with the desktop's own 0Ah after every
-`3BFh` change - MartyPC's model latches the decode there, and it is what
-96.54.7's guard writes anyway. `tests/doswcap.py` legs 3 and 4 are the gate
-(B800 floating before, captured during, floating again after), and the
-whole row passes on 86Box as well (`OS88_EMU=86box`), whose Hercules maps
-B8000 only while `3BFh` bit 1 is set, as the card does.
+again at each `dvw_xin` (`dvw_hpage`) - not on the full screen, where the
+card is in TEXT and 3B8h = 0Ah would be graphics - since a mode set or an
+unblank in the desktop's slice puts `3BFh` back to 1; and `3BFh` goes back to
+1 at the run's end. `3B8h` is written with the desktop's own 0Ah after every
+`3BFh` change: MartyPC's model latches the decode there, and it is what
+96.54.7's guard writes anyway.
+
+**The end of a run** is torn down by `dvw_wake` and not by `dvw_fin`: the
+wake that hears `[dvw_done]` has just taken the run's LAST pass, so a capture
+loses nothing written in its final ticks, and only then is the page's decode
+turned off, the other card blanked and `[dvw_cmode]` cleared. A run that
+ended on the FULL SCREEN clears `[dvw_cmode]` at once in `dvw_fin`: its
+console is the glass `dos_snap` just took, and a pass would copy a stale
+card over it - which is what `doswfs` leg 7 caught.
+
+`tests/doswcap.py` legs 3 and 4 are the gate (B800 floating before, the
+probe promoted by a direct writer and int 10h still ours, a live row in the
+band, B800 floating again after), and the whole row passes on 86Box as well
+(`OS88_EMU=86box`), whose Hercules maps B8000 only while `3BFh` bit 1 is
+set, as the card does. **+336 bytes of image and +1 of bss.**
 
 #### 96.54.7 A program may write the desktop card's ports — the guard
 

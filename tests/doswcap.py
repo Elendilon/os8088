@@ -16,9 +16,10 @@ it (DVWC_SEG):
 On `os8088_5150_herc_gla` - a LONE Hercules - nothing answers at B800
 until 3BFh bit 1 turns the card's own second page on, so the capture is that
 page (SPEC.md 96.54.6.1):
-  3  DWDIRECT runs there: [dvw_chp] 1, [dvw_cseg] B800, its lines in the
-     band while it runs and not in page 0 (B000, the desktop's pixels), and
-     the program told a status port that moves (0040:0063 = 3B4h)
+  3  DWDIRECT runs there: [dvw_cmode] DVWC_HP on B800 with int 10h still
+     the window's own, the one-row probe promoted by the direct writes, its
+     lines in the band while it runs and not in page 0 (B000, the desktop's
+     pixels), and a status port that moves (0040:0063 = 3B4h)
   4  it ends, and the page's decode is OFF again: B800 reads FFh, as
      vid_setmode leaves it
 
@@ -50,7 +51,7 @@ import os88ui                                                  # noqa: E402
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 SYS = os.path.join(ROOT, "build", "os8088-360.img")
-DVWC_TV, DVWC_SEG = 1, 2
+DVWC_TV, DVWC_SEG, DVWC_HP = 1, 2, 3
 XB_VID = (2 + 4 + 0x30 * 2) * 2 + 2     # dosw.inc's DVW_XB_VID
 
 
@@ -205,11 +206,30 @@ def hpage(disk):
         dos = windowed(ui, "DWDIRECT")
 
         # --- 3: its own page 1 ---------------------------------------------
-        if dos.b("dvw_cmode") != DVWC_SEG or dos.w("dvw_cseg") != 0xB800 \
+        if dos.b("dvw_cmode") != DVWC_HP or dos.w("dvw_cseg") != 0xB800 \
                 or dos.b("dvw_chp") != 1:
-            fail("a lone Hercules should capture its own page 1 ([dvw_cmode] "
+            fail("a lone Hercules should WATCH its own page 1 ([dvw_cmode] "
                  "%d, [dvw_cseg] %04X, [dvw_chp] %d)"
                  % (dos.b("dvw_cmode"), dos.w("dvw_cseg"), dos.b("dvw_chp")))
+        if dos.b("dos_inbr"):
+            fail("int 10h went to the ROM on a lone Hercules - it stays the "
+                 "window's own there, and only a direct writer touches page 1")
+        if not until(m, lambda: dos.b("dvw_hprow") == 0xFF,
+                     "the probe's promotion", 30):
+            fail("a direct writer ran for 30 guest seconds and the one-row "
+                 "probe never found page 1 moved ([dvw_hprow] %02X)"
+                 % dos.b("dvw_hprow"))
+        # rows 0..15 cycle A..P; a letter that moves is a live capture and
+        # not the console the bracketed run left behind
+        c0 = dos.pword(0x103)
+        if not until(m, lambda: dos.pword(0x103) >= c0 + 3, "three lines", 20):
+            fail("DWDIRECT stopped writing")
+        row = (dos.pword(0x103) - 1) & 15
+        want = "DWDIRECT %s" % chr(ord("A") + row)
+        if not until(m, lambda: dos.rows()[row].startswith(want),
+                     "row %d live" % row, 10):
+            fail("page 1's row %d holds the program's %r and the band shows "
+                 "%r" % (row, want, dos.rows()[row]))
         got = live_lines(m, dos, "DWDIRECT ", 4)
         if b"D\x07W\x07D\x07I\x07R" in m.read(0xB0000, 0x8000):
             fail("the program's text is in page 0 - the desktop's pixels")

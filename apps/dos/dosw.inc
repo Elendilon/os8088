@@ -52,6 +52,7 @@
 
 DVWC_TV     equ 1               ; [dvw_cmode]: TopView's buffer is con_scr
 DVWC_SEG    equ 2               ; ...the other card's text RAM is captured
+DVWC_HP     equ 3               ; ...a lone Hercules's page 1 is WATCHED
 DVWC_EVERY  equ 3               ; a capture pass every 4th tick (mask)
 
 DVW_GAP     equ 96              ; the IRQ0 stub's frames go this far below the
@@ -157,6 +158,8 @@ dvw_xin:                        ; IF = 0; preserves everything
     pop dx
     pop bx
     mov byte [cs:dvw_in], 1
+    cmp byte [cs:dvw_fs], 0     ; (not on the full screen: the card is in
+    jne .r                      ; TEXT there, and 3B8h = 0Ah is graphics)
     cmp byte [cs:dvw_chp], 0    ; A LONE HERCULES'S PAGE 1 (96.54.6.1): its
     je .r                       ; decode allowed again, a mode set or an
     push ax                     ; unblank having put 3BFh back to 1 while
@@ -703,18 +706,22 @@ dvw_runprog:
     mov byte [dvw_cmode], 0
     call dvw_cdetect                ; **A SCREEN THE WINDOW CAN READ**
     jc .nocap                       ; (96.54.6): the other card's text RAM
-    mov byte [dvw_cmode], DVWC_SEG
+    mov al, DVWC_HP                 ; A LONE HERCULES'S PAGE 1 (96.54.6.1) is
+    cmp byte [dvw_chp], 0           ; WATCHED, int 10h staying ours: mode 3
+    jne .crtc                       ; at B800, the status port its own 3BAh
+    mov al, DVWC_SEG                ; (a CGA's 3DAh reads FFh there)
     mov byte [dos_inbr], 1          ; DOS's teletype is the ROM's: one truth
-    cmp byte [dvw_chp], 0           ; a lone Hercules's page 1: mode 3 at
-    jne .crtc                       ; B800, the STATUS port its own 3BAh
-    cmp word [dvw_cseg], 0xB000     ; (a CGA's 3DAh reads FFh there, and a
-    jne .seed                       ; retrace wait on it never ends)
+    cmp word [dvw_cseg], 0xB000
+    jne .seed
     mov byte [dvw_xblk + DVW_XB_VID], 7         ; mode 7 at B000, its CRTC
 .crtc:
     mov word [dvw_xblk + DVW_XB_VID + 0x1A], 0x03B4
+    cmp al, DVWC_HP
+    je .copy
 .seed:
     call dvw_cprog                  ; its 6845 RUNNING, or a snow-avoiding
-                                    ; writer waits for a retrace for ever
+.copy:                              ; writer waits for a retrace for ever
+    mov [dvw_cmode], al
     push ds                         ; the console onto it, so the program's
     push es                         ; screen continues the session the way
     mov es, [dvw_cseg]              ; the bracket's seed does (96.34.4)
@@ -724,6 +731,19 @@ dvw_runprog:
     rep movsw
     pop es
     pop ds
+    cmp byte [dvw_cmode], DVWC_HP   ; ...and the page's row sums taken, so
+    jne .nocap                      ; the probe knows what it seeded
+    mov byte [dvw_hprow], 0
+    xor bx, bx
+.hsum:
+    call dvw_hpsum
+    push bx
+    shl bx, 1
+    mov [dvw_sums + bx], dx
+    pop bx
+    inc bx
+    cmp bx, CON_ROWS
+    jb .hsum
 .nocap:
     xor ax, ax
     mov es, ax
@@ -763,17 +783,17 @@ dvw_fin:                            ; DHK_SNAP, from dos_prog_done
     cmp byte [dvw_fs], 0            ; ENDED ON THE FULL SCREEN: its last
     je .notfs                       ; screen is the console's, exactly as a
     call dos_snap                   ; bracketed run's (96.34) - with the world
-.notfs:                             ; still in, the BDA is the program's
+    mov byte [dvw_cmode], 0         ; still in, the BDA is the program's - and
+.notfs:                             ; NO capture pass may copy a stale card
+                                    ; over it (the card's is torn down by
+                                    ; dvw_wake, after the run's LAST pass)
     cli
     call dvw_xout
     sti
     mov word [dos_hkv + DHK_SNAP], dos_snap
     call dwm_stop                   ; the bracket's INT 33h hooks (96.54.4)
     call dos_be_bind
-    cmp byte [dvw_cmode], DVWC_SEG  ; the capture card dark again, as the
-    jne .nocard                     ; kernel's Single mode leaves it
-    call dvw_cblank
-.nocard:
+
     ret
 
 ; the video block a mode-3 screen leaves in 0040:0049..0066, then 0084..0089
@@ -1353,6 +1373,18 @@ dvw_wake:
     je .r
     mov byte [dvw_done], 0
     mov byte [dvw_run], 0
+    cmp byte [dvw_chp], 0           ; THE CAPTURE TORN DOWN, its last pass
+    je .nopage                      ; taken above: a Hercules's page 1 has
+    mov al, 1                       ; its decode off again, as vid_setmode
+    call dvw_hpage                  ; leaves it (the page was never shown)...
+    mov byte [dvw_chp], 0
+.nopage:
+    cmp word [dvw_cseg], 0          ; ...the other card dark again, as the
+    je .nocard                      ; kernel's Single mode leaves it
+    call dvw_cblank
+    mov word [dvw_cseg], 0
+.nocard:
+    mov byte [dvw_cmode], 0
     mov byte [dos_inbr], 0          ; a capture's teletype was the ROM's
     mov byte [dos_state], DST_RAN   ; the bracket's own tail (dos_run .ran
     mov dx, [dos_arena]             ; through .out), which the post skipped
@@ -1590,8 +1622,48 @@ dvw_cpace:
     inc byte [cs:dvw_ctick]
     test byte [cs:dvw_ctick], DVWC_EVERY
     jnz .r
-    mov byte [cs:dvw_dirty], 1      ; the paint post below is the pass's door
+    cmp byte [cs:dvw_cmode], DVWC_HP    ; **A PAGE NOBODY HAS WRITTEN IS
+    jne .post                       ; PROBED HERE** (96.54.6.1), one row, and
+    cmp byte [cs:dvw_hprow], 0xFF   ; the UI task is woken only when it moved
+    je .post                        ; - posting the pass to look was 1.9 of a
+    cmp byte [cs:dvw_fs], 0         ; (and not while the full screen or a
+    jne .r                          ; freeze owns the console: dvw_capt
+    cmp byte [cs:dvw_frz], 0        ; would not look either)
+    jne .r
+    push ax                         ; spinning program's 88 points
+    push bx
+    push cx
+    push dx
+    push si
+    pushf
+    cld
+    mov bl, [cs:dvw_hprow]
+    xor bh, bh
+    call dvw_hpsum
+    shl bx, 1
+    cmp [cs:dvw_sums + bx], dx
+    jne .moved
+    shr bx, 1                       ; unmoved: the next row, next time
+    inc bx
+    cmp bl, CON_ROWS
+    jb .nx
+    xor bl, bl
+.nx:
+    mov [cs:dvw_hprow], bl
+    jmp short .pend
+.moved:
+    mov byte [cs:dvw_dirty], 1      ; (popf below is the CALLER's flags)
+.pend:
+    popf
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
 .r:
+    ret
+.post:
+    mov byte [cs:dvw_dirty], 1      ; the paint post below is the pass's door
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1739,11 +1811,6 @@ dvw_cprog:
 dvw_cblank:
     push ax
     push dx
-    cmp byte [cs:dvw_chp], 0        ; a Hercules's page 1: its decode off
-    je .card                        ; again, as vid_setmode leaves it - the
-    mov al, 1                       ; page itself was never shown
-    call dvw_hpage
-.card:
     mov dx, 0x3D8
     mov al, 0x21
     cmp word [cs:dvw_cseg], 0xB000
@@ -1847,19 +1914,15 @@ dvw_capt:
     xor bx, bx                      ; BX = the row
     cmp byte [dvw_cmode], DVWC_SEG
     je .seg
+    cmp byte [dvw_cmode], DVWC_HP
+    je .hp
 .sum:                               ; --- TopView: a sum per row -----------
     mov si, bx
     mov ax, CON_COLS * 2
     mul si
     mov si, ax
     add si, con_scr
-    xor dx, dx
-    mov cx, CON_COLS
-.add:
-    lodsw
-    add dx, ax
-    rol dx, 1                       ; order matters: a swap is a change
-    loop .add
+    call dvw_rsum
     mov si, bx
     shl si, 1
     cmp [dvw_sums + si], dx
@@ -1870,7 +1933,24 @@ dvw_capt:
     inc bx
     cmp bx, CON_ROWS
     jb .sum
-    jmp short .done
+    jmp .hpend
+.hp:                                ; --- a lone Hercules's page 1 --------
+    mov al, [dvw_hprow]             ; (96.54.6.1): ONE row a pass while
+    cmp al, 0xFF                    ; nothing has written it - int 10h is
+    je .hpall                       ; ours, so only a DIRECT writer can -
+    mov bl, al                      ; and every row once one has (the
+    call dvw_hprw                   ; tick's probe has already advanced
+    ; past every unmoved row, so the one it stopped on is the one that moved)
+    jnc .hpend
+    mov byte [dvw_hprow], 0xFF
+    jmp short .hpend
+.hpall:
+    call dvw_hprw
+    inc bx
+    cmp bx, CON_ROWS
+    jb .hpall
+.hpend:
+    jmp .done
 .seg:                               ; --- the other card: copy what moved --
     push ds
     mov ax, CON_COLS * 2
@@ -1929,6 +2009,52 @@ dvw_capt:
     pop bx
     pop ax
 .r:
+    ret
+
+; dvw_rsum - DX = the sum of the row at DS:SI, order-sensitive (a swap is a
+; change); SI past it. Clobbers AX, CX
+dvw_rsum:
+    xor dx, dx
+    mov cx, CON_COLS
+.add:
+    lodsw
+    add dx, ax
+    rol dx, 1
+    loop .add
+    ret
+
+; dvw_hpsum - DX = the sum of page 1's row BX, SI its offset there.
+; Clobbers AX, CX
+dvw_hpsum:
+    push ds
+    mov ax, CON_COLS * 2
+    mul bx
+    mov si, ax
+    mov ds, [cs:dvw_cseg]
+    call dvw_rsum
+    pop ds
+    sub si, CON_COLS * 2
+    ret
+
+; dvw_hprw - page 1's row BX: CF=1 it moved, and it is copied into the
+; console and marked. Keeps BX; clobbers AX, CX, DX, SI, DI
+dvw_hprw:
+    call dvw_hpsum
+    mov di, bx
+    shl di, 1
+    cmp [dvw_sums + di], dx
+    je .same                        ; (CF = 0)
+    mov [dvw_sums + di], dx
+    mov di, si
+    add di, con_scr
+    push ds
+    mov ds, [cs:dvw_cseg]
+    mov cx, CON_COLS
+    rep movsw
+    pop ds
+    call con_mark
+    stc
+.same:
     ret
 
 ; --- dvw_onclose - OSAPI_WM_ONCLOSE: a running program is stopped, not kept --

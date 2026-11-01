@@ -4,8 +4,8 @@
 and `doswm.inc`; rows `doswlive`, `doswfs`, `doswtwo`, `doswspin`, `doswcap`,
 `doswcell`, `doswmouse`), with one deliberate exception stated where it
 belongs: §7.1 (one host, many sessions) is not taken. The lone Hercules's
-second page (§7.2) IS switched on now - SPEC.md 96.54.6.1, +78 bytes, checked
-on MartyPC and 86Box alike. §10 onward is what was built and measured; the
+second page (§7.2) IS switched on now - SPEC.md 96.54.6.1, +336 bytes, as a
+DETECTOR rather than a capture, checked on MartyPC and 86Box alike. §10 onward is what was built and measured; the
 sections before it are the plan as written.**
 
 SPEC.md 96 is the contract for the DOS that exists. This plan changes none of
@@ -729,13 +729,17 @@ anything else, decided at every run from published facts (RAM, not an alias
 of the desktop's framebuffer, desktop not extended onto it). The lone
 Hercules's second page was NOT enabled in this wave: it means writing `3BFh`
 under a kernel that keeps the bit clear on purpose. **It is now** (SPEC.md
-96.54.6.1, +78 bytes): the bit is kept clear only because a CGA would answer
+96.54.6.1, +336 bytes): the bit is kept clear only because a CGA would answer
 at B800 too, and the CGA case is tested first, so it is turned on only where
 nothing else can. What this wave read as "MartyPC decodes B800 onto B000"
 was MartyPC latching its decode on a `3B8h` write and nowhere else, so
 `dvw_hpage` writes the desktop's own 0Ah there after each `3BFh` change;
 86Box maps B8000 straight off `3BFh`, as the card does, and passes the row
-too.
+too. The first build made the page a CAPTURE like the CGA's and broke every
+BIOS-output program on a lone Hercules - the capture path displaces the
+exact virtual int 10h - so it is WATCHED instead: int 10h stays ours, one row
+of the page is summed per pass inside the tick, and the first direct write
+promotes the window to a full per-row copy. 0.6 points of `doswspin`.
 
 **Microsoft Works 1.05 runs live in a window** on the owner's arrangement
 (Hercules desktop + CGA), and it took three findings to get there, all three

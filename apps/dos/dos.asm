@@ -19018,7 +19018,7 @@ DVOL_CAP in apps/dos/doscall.inc, which every host reads, and NEVER size the \
 table from DVOL_MAX (SPEC.md 96.44.2.1)"
 %endif
 %ifdef DVW                          ; --- the live window (SPEC.md 96.54) ---
-    HBSS DOS_B_DVWF,  23        ; the flag bytes below, in order
+    HBSS DOS_B_DVWF,  24        ; the flag bytes below, in order
     HBSS DOS_B_DVWC,  4         ; the capture's segment, and our CS for FFh
     HBSS DOS_B_DVWSM, 50        ; TopView's row sums, CON_ROWS words (96.54.5:
                                 ; os88con.inc comes later, so dosw.inc asserts)
@@ -19051,9 +19051,10 @@ dvw_fsreq   equ dvw_want + 15   ; ...asked for: Alt+Enter, or a graphics mode
 dvw_frz     equ dvw_want + 16   ; FROZEN in the window (96.54.1)
 dvw_parked  equ dvw_want + 17   ; ...and the worker has stopped for it
 dvw_gfx     equ dvw_want + 18   ; it set a graphics mode: no way back
-dvw_cmode   equ dvw_want + 19   ; 0, DVWC_TV or DVWC_SEG (96.54.5-6)
+dvw_cmode   equ dvw_want + 19   ; 0, DVWC_TV, _SEG or _HP (96.54.5-6.1)
 dvw_ctick   equ dvw_want + 20   ; ...and the capture's tick count
 dvw_dkind   equ dvw_want + 21   ; the desktop's VID_* kind (96.54.7)
+dvw_hprow   equ dvw_want + 22   ; DVWC_HP's probe row, FFh once promoted
 dvw_cseg    equ dos_hbss + DOS_B_DVWC       ; word: B800h or B000h
 dvw_csview  equ dvw_cseg + 2                ; word: our CS, as TopView saw it
 dvw_sums    equ dos_hbss + DOS_B_DVWSM
