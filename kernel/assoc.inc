@@ -233,9 +233,7 @@ assoc_stage:
 ; the answer survives the unwind.
 ; -----------------------------------------------------------------------------
 asc_inkck:
-    push ax
-    push cx
-    push si
+    call kentc_di               ; (kernel size pass 16: the frame is the ladder's)
     xor ax, ax
 .w:
     or ax, [es:si]
@@ -243,10 +241,7 @@ asc_inkck:
     inc si
     loop .w
     or ax, ax
-    pop si
-    pop cx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; assoc_glyph_di - where an app slot's 8x8 glyph lives (SPEC.md 54.3)
@@ -561,10 +556,7 @@ assoc_reduce:
 ; resolved would un-resolve it (54.7.3's rule).
 ; -----------------------------------------------------------------------------
 assoc_glyph_take:
-    push ax
-    push cx
-    push si
-    push di
+    call kentc_di
     mov cx, 4                   ; NEITHER LOOP IS THIS ROUTINE'S OWN: the
     call asc_inkck              ; blank test is asc_inkck above and the copy
     stc                         ; is SPEC.md 20.2's staging idiom, which is
@@ -573,11 +565,7 @@ assoc_glyph_take:
                                 ; Both advance SI and this routine banks it
     clc                         ; anyway
 .out:
-    pop di
-    pop si
-    pop cx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; assoc_img_glyph - a slot's glyph out of a package IMAGE (SPEC.md 54.3.2)
@@ -619,12 +607,8 @@ assoc_img_glyph:
 ; placeholder - the SPEC.md 50 degradation rule, applied to an icon.
 ; -----------------------------------------------------------------------------
 assoc_compose:
-    push ax
-    push bx
-    push cx
-    push si
-    push di
-    push es
+    call kentc_bp               ; the ladder's frame, and kretc_es its end
+    push es                     ; (kernel size pass 16)
     push ds
     pop es                      ; ES = DS = KERNEL_SEG for the frame copy
     mov bl, al                  ; bank the slot: the .inset loop below spends AX
@@ -657,10 +641,7 @@ assoc_compose:
     scasw                       ; rewrites those)
     dec bh
     jnz .inset
-    pop es
-    pop di
-    pop si
-    jmp kretc_cx
+    jmp kretc_es
 
 ; assoc_docicon - a document icon for one directory entry (SPEC.md 54.3) - is
 ; written in disk.inc's dsk_docpass, its one caller, since kernel size pass 14;
@@ -976,7 +957,7 @@ assoc_tryfold:
                                 ; own frame rather than kept in a spare
                                 ; register, because there is not one
     call assoc_try              ; ...and its CF is this routine's answer too
-    jmp short .out
+    SKIPDL1                     ; over the stc, DL being popped (pass 16)
 .no:
     stc
 .out:
@@ -1143,11 +1124,7 @@ assoc_sweep:
 ; by name - which is what frees .found to spend it on the hint.
 ; -----------------------------------------------------------------------------
 assoc_locate:
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    call kentc_di               ; AX is a clobber, so the ladder may restore it
     mov bl, al                  ; assoc_fname, inlined: assoc_fnb =
     xor bh, bh                  ; '<STEM>.O88', the stem space-padded to 8 so
     call assoc_glyph_di         ; the copy stops at the first space. The stem
@@ -1224,15 +1201,10 @@ assoc_locate:
                                 ; on purpose, so a stale cached cluster for
                                 ; THIS program loses to where it really is
     clc                         ; explicit, not inherited: the helper's last
+.out:
+    jmp kretc_di
                                 ; store leaves CF as the `shl` left it, which
                                 ; is an accident of the table's size
-.out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
 
 ; -----------------------------------------------------------------------------
 ; assoc_run - open the pending document (SPEC.md 54.4)
@@ -2280,10 +2252,7 @@ asc_stem_in:
 ; would DOWNGRADE a slot the seed had already resolved.
 ; -----------------------------------------------------------------------------
 asc_gly_pair:
-    push ax
-    push cx
-    push si
-    push di
+    call kentc_di
     call assoc_glyph_di         ; DI -> the slot's glyph
     add si, ASC_ROWGLY - ASC_ROWICO
     call assoc_glyph_take
@@ -2301,11 +2270,7 @@ asc_gly_pair:
     jz .out                     ; leave the glyph alone rather than blanking
     call assoc_reduce           ; one another volume resolved
 .out:
-    pop di
-    pop si
-    pop cx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; asc_take - spend a store hit: the program's location and its glyph
@@ -2332,13 +2297,9 @@ asc_gly_pair:
 ; per package for a body it already had.
 ; -----------------------------------------------------------------------------
 asc_take_x:
-    push ax
-    push bx
-    push cx
-    push si
-    push di
+    call kentc_bp
     push es
-    push ax                     ; the store row: assoc_stem_of answers in DI
+    push ax
     call assoc_stem_of          ; and assoc_app_of in AL, so it cannot stay
     call assoc_app_di           ; where it is
                                 ; AL = the slot, CF=1 = no association, so
@@ -2362,10 +2323,7 @@ asc_take_x:
     mov si, di                  ; ROW IS THE CACHE ROW'S LAYOUT, so the shipped
     call asc_gly_pair           ; glyph and its reduce fallback are one walker
 .done:                          ; (SPEC.md 54.3.2) and not a second copy here
-    pop es
-    pop di
-    pop si
-    jmp kretc_cx
+    jmp kretc_es
 
 ; -----------------------------------------------------------------------------
 ; asc_post - post a flush of volume AL's ASSOC.DAT (SPEC.md 54.7.6.3)

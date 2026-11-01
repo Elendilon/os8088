@@ -415,7 +415,7 @@ ld_hdr_size:
 ; in:  ES:SI -> 32 readable header bytes; [ld_fsz] = the file's byte count
 ; out: CF = 0 and [ld_img]/[ld_bss]/[ld_ent] filled, or CF = 1 and
 ;      AL = LD_EBAD / LD_EBIG / LD_EVER
-; clobbers: AX, DX
+; clobbers: AX, CX, DX
 ;
 ; ES:SI AND NOT DS:SI, which is what drv_check and mod_check have always
 ; taken. It used to read through DS alone, so both callers STAGED 32 bytes
@@ -520,16 +520,16 @@ ld_check_hdr:
     ; this is where the flags byte is already in hand and both callers of this
     ; routine want them. AX is spent by now and DX is documented as clobbered.
     mov al, [es:si+LD_H_FLAGS]
-    shr al, 1                               ; bits 3 and 4, as a number: 0 =
-    shr al, 1                               ; plain, 1 = LZ4, 3 = LZB - and 2,
-    shr al, 1                               ; bit 4 without bit 3, is not a
-    and al, LD_CFMT_KEEP                    ; thing os88pkg.py writes; it reads
-    mov [ld_cfmt], al                       ; (CX is a caller's, so no `shr
-                                            ; al, cl`)
+    mov cl, 3                               ; bits 3 and 4, as a number: 0 =
+    shr al, cl                              ; plain, 1 = LZ4, 3 = LZB - and 2,
+    and al, LD_CFMT_KEEP                    ; bit 4 without bit 3, is not a
+    mov [ld_cfmt], al                       ; thing os88pkg.py writes; it reads
                                             ; as LZB and the decoder refuses
                                             ; the plain bytes it is then given,
                                             ; which is a refusal by the right
-                                            ; route
+                                            ; route. CX IS SPENT on the count:
+                                            ; none of the three callers reads
+                                            ; it after (kernel size pass 16)
 .out:
     ret
 
@@ -763,8 +763,7 @@ ld_run_name_x:
     call ld_lname_cp            ; ...and AX - the cluster `.peek` takes from
                                 ; the register - is one of the four it banks
     jmp ld_run_body_x.peek      ; joins the pipeline exactly where the index
-.fail:                          ; resolver leaves it - [ld_fsz] and [ld_clus]
-    ret                         ; are the rest of what step 1 produces
+.fail equ ld_owed.no   ; its neighbour's ret (kernel size pass 16)
 
 ; -----------------------------------------------------------------------------
 ; ld_res_name - fill [ld_fsz]/[ld_clus] from a name (module internal)

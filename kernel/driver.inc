@@ -1909,9 +1909,7 @@ drv_cls_idx:
 ; is not enough, because drv_publish arms a slot only after DRVV_ATTACH
 ; returns and a worker spawned from inside attach would outlive a refusal.
 drv_pub_seg:
-    push ax
-    push cx
-    push di
+    call kentc_di
     mov al, 1
 .scan:
     call drv_cls_fp_x           ; (AX survives it)
@@ -1927,10 +1925,7 @@ drv_pub_seg:
     jbe .scan
     stc
 .out:
-    pop di
-    pop cx
-    pop ax
-    ret
+    jmp kretc_di
 
 drv_owns_seg_x:
     push ax
@@ -3222,10 +3217,7 @@ osapi_drv_dlg_x:                ; THE BODY IS CTRL.DRV's, modc_e_dlg (ctrl.inc,
 ; throw that away.
 ; -----------------------------------------------------------------------------
 drv_dlg_done_x:
-    push ax
-    push bx
-    push si
-    push bp
+    call kentc_bp
     mov bx, [drv_dlg_row]
     or bx, bx
     jz .out
@@ -3240,11 +3232,7 @@ drv_dlg_done_x:
     mov word [drv_dlg_row], 0
     call drv_call               ; BX = the row, BP = its near proc; AL, DX:CX
 .out:                           ; and ES:DI are the page's own arguments
-    pop bp
-    pop si
-    pop bx
-    pop ax
-    ret
+    jmp kretc_bp
 %else
 osapi_drv_dlg_x:                ; the cell exists, the body does not
     stc
@@ -3651,7 +3639,7 @@ drv_bss:                        ; (ES = the image, from drv_check; no frame -
     call mem_bytes_gp_x         ; -> the granules of image + bss (at most
                                 ; DRV_MAX_KB + 4,080 bytes: no carry)
     cmp ax, [bx+DRVR_PARA]      ; THE ONE BOUND TEST, and it is about a byte
-    ja .nofit                   ; read off a disk. os88drv.py leaves enough of
+    ja drv_check.bad            ; read off a disk. os88drv.py leaves enough of
                                 ; the trailing zero run in the image that the
                                 ; directory's own size already covers the bss
                                 ; (SPEC.md 51.1.2), so a driver this tree
@@ -3669,9 +3657,6 @@ drv_bss:                        ; (ES = the image, from drv_check; no frame -
                                 ; and CF = 0 from the `xor al, al` above:
                                 ; neither `cld` nor a string op writes it
 .out:
-    ret
-.nofit:
-    stc
     ret
 
 section .modc                   ; IMAGE CODE (see VGC_FORCE's banner below):

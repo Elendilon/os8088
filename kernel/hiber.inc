@@ -573,10 +573,8 @@ HB_XMIN_KB equ (MPK_HDR + 512 + 1023) / 1024
 %endif                          ; the header and the section's head, beside
                                 ; the tables' [mega_tblkb] (MC7's step 6)
 hb_ok_x:
-    push bx
-    push cx                     ; ...and these two, for the reason above
-    push dx
-    COLDCALL hb_pick_x          ; the volume a hibernate would go to
+    call kentc_di               ; AX too - a clobber, so the ladder may keep
+    COLDCALL hb_pick_x          ; it - and kretfc_di is the far end (pass 16)
     mov bx, menu_s_hibernh      ; ...none: '(no disk)'. A `mov` writes no
     jc .set                     ; flag, so the string can be chosen first
 %ifdef VID_EXT
@@ -601,10 +599,7 @@ hb_ok_x:
     mov bx, menu_s_hiberxm      ; (size pass 10: the reason no longer goes
 .set:                           ; through AL and back, -10)
     mov [menu_items_logo + 8], bx   ; item 4 of the System menu
-    pop dx
-    pop cx
-    pop bx
-    retf
+    jmp kretfc_di
 
 ; --- far entries for the module (SPEC.md 2.6): cold bodies that end in a near
 ; --- ret, reached from a segment of their own. Four bytes each.
@@ -672,11 +667,9 @@ hbf_kinit:
 ; toast names it the way the Control Panel's does, out of the same table.
 hbf_open:
     call hbf_need
-    jc .no
+    jc hbf_perform.toast        ; in reach without the relay (pass 16)
     call far [HBFP + HBE_OPEN*4]
     retf
-.no:
-    jmp short hbf_perform.toast ; the toast and the retf, hbf_perform's
 
 hbf_nodisk:
     push ax

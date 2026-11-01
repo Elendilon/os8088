@@ -156,6 +156,10 @@ FDE_TOP     equ 4
   %macro FDRET 0
     retf
   %endmacro
+  %macro FDXJ 1                 ; FDX as a TAIL call: the hop and a return here
+    FDX %1
+    ret
+  %endmacro
 %else
   %define FDV(x) [x]            ; ...and resident `.bss` on kern_big
   %macro FDBODY 1
@@ -172,6 +176,9 @@ FDE_TOP     equ 4
   %endmacro
   %macro FDRET 0
     ret
+  %endmacro
+  %macro FDXJ 1                 ; ...and a plain jump where FDX is near
+    jmp %1                      ; (kernel size pass 16)
   %endmacro
 %endif
 ; ...and FDENT, always written `FDENT kentc_di`, whose epilogue is
@@ -861,8 +868,7 @@ fdlg_bank:
 ; FD_NAMEMAX). AX clobbered; CX = FD_NAMEMAX less what was copied
 fdlg_cpy:
     mov cx, FD_NAMEMAX
-    FDX fm_ncpy
-    ret
+    FDXJ fm_ncpy
 
 ; fdlg_tsel - stage the chooser's selection's name as the answer
 ; in:  BX = the chooser's block
