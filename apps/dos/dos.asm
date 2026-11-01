@@ -6086,6 +6086,15 @@ dos_err_line:
     shl ax, 1
     mov bx, ax
     mov si, [dos_errs + bx]
+%ifdef DVW
+    cmp byte [dos_err], DER_FIT     ; **A WINDOW'S 128K IS NOT THE MACHINE**
+    jne .notw                       ; (SPEC.md 96.54.2): the default cap was
+    mov bx, [dvw_cap]               ; in force when the cap differs from the
+    cmp bx, [dos_memkb]             ; user's own word, and "shut down the OS"
+    je .notw                        ; is the bracket's way out, not this one's
+    mov si, dos_e_wfit
+.notw:
+%endif
     cmp byte [dos_err], DER_FSX     ; the unsupported-function case borrows the
     jne .out                        ; refusal line and stamps the number, so
     call dos_fmt_fn                 ; "it asked for AH=3Dh" is on the glass
@@ -11365,6 +11374,9 @@ dos_e_badexe: db 'Its .EXE header is malformed.', 0
 dos_e_reset: db 'The machine was restarted while it ran.', 0
 %endif
 dos_e_fit:   db 'Not enough RAM - try Setup, "Shut down the OS".', 0
+%ifdef DVW
+dos_e_wfit:  db 'Too big for a window', 0x27, 's 128K - raise Setup', 0x27, 's Memory limit.', 0
+%endif
                                     ; **IT SAID DOS 3.30'S OWN WORDS**,
                                     ; `Program too big to fit in memory.`,
                                     ; measured at COMMAND.COM offset 2436 -
@@ -18996,7 +19008,10 @@ DVOL_CAP in apps/dos/doscall.inc, which every host reads, and NEVER size the \
 table from DVOL_MAX (SPEC.md 96.44.2.1)"
 %endif
 %ifdef DVW                          ; --- the live window (SPEC.md 96.54) ---
-    HBSS DOS_B_DVWF,  20        ; the flag bytes below, in order
+    HBSS DOS_B_DVWF,  23        ; the flag bytes below, in order
+    HBSS DOS_B_DVWC,  4         ; the capture's segment, and our CS for FFh
+    HBSS DOS_B_DVWSM, 50        ; TopView's row sums, CON_ROWS words (96.54.5:
+                                ; os88con.inc comes later, so dosw.inc asserts)
     HBSS DOS_B_DVWW,  16        ; eight words: LOW_SEG, two stacks, AX, a nap,
                                 ; and this run's arena cap
     HBSS DOS_B_DVWK8, 4         ; the kernel's int 08h, far
@@ -19024,6 +19039,12 @@ dvw_fsreq   equ dvw_want + 15   ; ...asked for: Alt+Enter, or a graphics mode
 dvw_frz     equ dvw_want + 16   ; FROZEN in the window (96.54.1)
 dvw_parked  equ dvw_want + 17   ; ...and the worker has stopped for it
 dvw_gfx     equ dvw_want + 18   ; it set a graphics mode: no way back
+dvw_cmode   equ dvw_want + 19   ; 0, DVWC_TV or DVWC_SEG (96.54.5-6)
+dvw_ctick   equ dvw_want + 20   ; ...and the capture's tick count
+dvw_dkind   equ dvw_want + 21   ; the desktop's VID_* kind (96.54.7)
+dvw_cseg    equ dos_hbss + DOS_B_DVWC       ; word: B800h or B000h
+dvw_csview  equ dvw_cseg + 2                ; word: our CS, as TopView saw it
+dvw_sums    equ dos_hbss + DOS_B_DVWSM
 dvw_cap     equ dvw_lss + 14    ; word: this run's arena cap (96.54.2)
 dvw_lss     equ dos_hbss + DOS_B_DVWW + 0
 dvw_fss     equ dvw_lss + 2
@@ -19158,6 +19179,11 @@ DOS_BSS_SIZE equ HB
                                     ; attribute a zeroed bss leaves is black
                                     ; on black
 %include "os88con.inc"
+%ifdef DVW
+%if CON_ROWS * 2 != 50
+ %error "dos.asm reserves 50 bytes for dvw_sums - one word a CON_ROWS row"
+%endif
+%endif
 %else
 CON_BSS     equ 0                   ; ...and the carrier's own arithmetic still
                                     ; adds it, so it has a value rather than an

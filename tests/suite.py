@@ -8793,6 +8793,20 @@ SOAK = [
         "because typing goes through `settle` and the motor has always "
         "stopped by the second one, so `burst <= n` was 1 <= 1 for ever",
         needs=("marty",), wants=("build/doscom360.img",)),
+    Row("doswcap", "soak", py("tests/doswcap.py"), 30.0,
+        "A PROGRAM THAT WRITES THE SCREEN ITSELF, LIVE IN A DOS WINDOW "
+        "(SPEC.md 96.54.5, 96.54.6). Two machines, because the halves are "
+        "about two kinds of machine. On os8088_5150_both_gla_mono - a "
+        "Hercules desktop with a CGA beside it, the owner's 5150 - the CGA's "
+        "B800 is RAM nobody shows and a windowed run CAPTURES it: "
+        "tests/dostrap/dwdirect.asm (Works' shape: AH=0Fh, then direct "
+        "writes) has its lines in the band while it runs and none in the "
+        "desktop's B000. On os8088_5150_herc_gla, whose B800 is the desktop's "
+        "B000 again, the capture is REFUSED, and tests/dostrap/dwtv.asm asks "
+        "TopView's AH=FEh, is given the window's own buffer, and its lines "
+        "reach the band both marked by AH=FFh and found by the row sums. Red "
+        "with the detector forced off. Measured 25s on MartyPC",
+        needs=("marty",), serial=True, wants=("build/os8088-360.img",)),
     Row("doswspin", "soak", py("tests/doswspin.py"), 20.0,
         "HOW FAST A PROGRAM RUNS IN A DOS WINDOW (SPEC.md 96.54.3). The probe "
         "(tests/dostrap/dwspin.asm) counts as fast as it can and never "

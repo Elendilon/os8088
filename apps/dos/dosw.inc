@@ -49,6 +49,10 @@
 
 %ifdef DVW
 
+DVWC_TV     equ 1               ; [dvw_cmode]: TopView's buffer is con_scr
+DVWC_SEG    equ 2               ; ...the other card's text RAM is captured
+DVWC_EVERY  equ 3               ; a capture pass every 4th tick (mask)
+
 DVW_GAP     equ 96              ; the IRQ0 stub's frames go this far below the
                                 ; gate's own frame top ([dos_dstk]), so a
                                 ; program-side tick never lands on a gate
@@ -169,6 +173,60 @@ dvw_xout:                       ; IF = 0; preserves everything
     pop dx
     pop bx
     mov byte [cs:dvw_in], 0
+    call dvw_vguard
+.r:
+    ret
+
+; -----------------------------------------------------------------------------
+; dvw_vguard - put the DESKTOP card's mode register back (SPEC.md 96.54.7)
+; in:  IF = 0, the world out; out: every register preserved
+;
+; **A PROGRAM MAY WRITE A CARD'S PORTS, AND AN 8086 CANNOT STOP IT.** Measured
+; with Microsoft Works: its blink setting writes the same byte to BOTH mode
+; registers, 3B8h and 3D8h, and to the attribute controller at 3C0h - so on
+; a Hercules desktop bit 1 drops, the card falls to TEXT, and the desktop's
+; graphics framebuffer is shown as characters until something sets a mode.
+; Works touches no 6845 register, so the mode register is the whole repair,
+; and it is written each time the world goes out: one OUT on a Hercules or a
+; CGA, three on a planar card, against a register the program may have
+; written in the slice that just ended. A clobber shows for at most a tick.
+; Never on the full screen, where the card is the program's.
+; -----------------------------------------------------------------------------
+dvw_vguard:
+    cmp byte [cs:dvw_fs], 0
+    jne .r
+    push ax
+    push dx
+    mov al, [cs:dvw_dkind]
+    cmp al, VID_HERC
+    je .herc
+    cmp al, VID_CGA
+    je .cga
+    cmp al, VID_VGA
+    je .planar
+    cmp al, VID_EGA
+    jne .out                        ; VESA: its own driver's business
+.planar:
+    mov dx, 0x3DA                   ; reset the AC's flip-flop to INDEX
+    in al, dx
+    mov dx, 0x3C0
+    mov al, 0x30                    ; register 10h, palette address source on
+    out dx, al
+    mov al, 0x01                    ; mode control: graphics, no blink - mode
+    out dx, al                      ; 12h's and mode 10h's alike
+    jmp short .out
+.herc:
+    mov dx, 0x3B8
+    mov al, 0x0A                    ; graphics, page 0, video on: what
+    out dx, al                      ; vid_unblank_kind writes
+    jmp short .out
+.cga:
+    mov dx, 0x3D8
+    mov al, [cs:dvw_xdsk + DVW_XB_VID + 0x1C]  ; 0040:0065, the DESKTOP'S
+    out dx, al                      ; 3D8h as its mode set left it
+.out:
+    pop dx
+    pop ax
 .r:
     ret
 
@@ -194,6 +252,7 @@ dvw_irq0:
     push ax                     ; 1 = this frame moved off a foreign stack
     mov ax, [cs:dvw_tax]
     call dvw_xout               ; the desktop's world, sch_isr back at 08h
+    call dvw_cpace              ; a capture is owed its pass (96.54.6)
     cmp byte [cs:dvw_dirty], 0
     je .clean
     mov byte [cs:dvw_dirty], 0  ; **THE PAINT IS POSTED FROM HERE**: once a
@@ -260,6 +319,7 @@ dvw_nap:
 .go:
     push ax
     call dvw_xout
+    call dvw_cpace
     push ds
     push cs
     pop ds
@@ -510,6 +570,12 @@ dvw_start:
     mov byte [dvw_spawn], 1
     OS88_WORKER_RESTARTABLE_NOKEEP dvw_worker   ; its loop's top is a clean
 .have:                              ; place to begin again: the state is here
+    cmp byte [dos_page], DOS_PAGE_MAIN  ; **THE BAND IS THE MAIN PAGE'S**:
+    je .onmain                      ; a run started from Setup (the Memory
+    mov byte [dos_page], DOS_PAGE_MAIN  ; limit is there) would draw it over
+    mov bx, [dos_win]               ; that page's fields. dos_swap wants the
+    call dos_swap                   ; lock, which is held here
+.onmain:
     mov byte [dvw_kill], 0
     mov byte [dvw_closeq], 0
     mov byte [dvw_fs], 0
@@ -599,6 +665,39 @@ dvw_runprog:
     mov ah, al
     mov al, [con_cx]
     mov [dvw_xblk + DVW_XB_VID + 7], ax     ; 0040:0050, page 0
+    mov [dvw_csview], cs            ; TopView's answer, and its update's test
+    push ax
+    push bx
+    push cx
+    push dx
+    call OSAPI_VIDEO                ; DL = the desktop's kind, for dvw_vguard
+    mov [dvw_dkind], dl
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    mov byte [dvw_cmode], 0
+    call dvw_cdetect                ; **A SCREEN THE WINDOW CAN READ**
+    jc .nocap                       ; (96.54.6): the other card's text RAM
+    mov byte [dvw_cmode], DVWC_SEG
+    mov byte [dos_inbr], 1          ; DOS's teletype is the ROM's: one truth
+    cmp word [dvw_cseg], 0xB000
+    jne .seed
+    mov byte [dvw_xblk + DVW_XB_VID], 7         ; mode 7 at B000, its CRTC
+    mov word [dvw_xblk + DVW_XB_VID + 0x1A], 0x03B4
+.seed:
+    call dvw_cprog                  ; its 6845 RUNNING, or a snow-avoiding
+                                    ; writer waits for a retrace for ever
+    push ds                         ; the console onto it, so the program's
+    push es                         ; screen continues the session the way
+    mov es, [dvw_cseg]              ; the bracket's seed does (96.34.4)
+    mov si, con_scr
+    xor di, di
+    mov cx, CON_SCRSZ / 2
+    rep movsw
+    pop es
+    pop ds
+.nocap:
     xor ax, ax
     mov es, ax
     mov ax, [es:0x08 * 4]
@@ -643,6 +742,10 @@ dvw_fin:                            ; DHK_SNAP, from dos_prog_done
     sti
     mov word [dos_hkv + DHK_SNAP], dos_snap
     call dos_be_bind
+    cmp byte [dvw_cmode], DVWC_SEG  ; the capture card dark again, as the
+    jne .nocard                     ; kernel's Single mode leaves it
+    call dvw_cblank
+.nocard:
     ret
 
 ; the video block a mode-3 screen leaves in 0040:0049..0066, then 0084..0089
@@ -669,9 +772,21 @@ dvw_bdat:
 ; -----------------------------------------------------------------------------
 dvw_int10:
     sti
+    cmp ah, 0xFE                    ; **TOPVIEW'S PAIR** (SPEC.md 96.54.5),
+    jae .tv                         ; in every mode: a program asks once
     cmp byte [cs:dvw_fs], 0         ; **FULL SCREEN** (SPEC.md 96.54.1): the
     jne .pass                       ; machine's own BIOS, on the machine's
-    push ds                         ; own screen
+    cmp byte [cs:dvw_cmode], DVWC_SEG   ; ...and the CAPTURE's (96.54.6): the
+    jne .virt                       ; ROM writes the other card's text RAM,
+    or ah, ah                       ; which the window copies - all but a mode
+    jnz .pass                       ; set, which on a mono primary programs
+    call dvw_cmset                  ; the WRONG CARD (39.19.4)
+    jnc .cmdone
+    jmp .shunt
+.cmdone:
+    iret
+.virt:
+    push ds
     push cs
     pop ds
     cmp ah, 0x0E
@@ -793,6 +908,7 @@ dvw_int10:
 .gfx:
     pop ax                          ; **A GRAPHICS MODE IS THE ONE THING THE
     pop ds                          ; WINDOW CAN SEE COMING** (SPEC.md
+.shunt:
     call dvw_shunt                  ; 96.54.1): to the full screen first, then
     jnc .pass                       ; the mode set, so not a pixel of it lands
     iret                            ; anywhere else. Refused: no mode set
@@ -814,6 +930,29 @@ dvw_int10:
     pop ax
 .rom:
     jmp far [cs:dvw_xdsk + DVW_XB_V10]  ; the ROM's, the world being in
+
+.tv:                                ; FEh: ES:DI = the buffer the program
+    jne .tvupd                      ; meant to write -> the one it SHOULD.
+    cmp byte [cs:dvw_fs], 0         ; On the full screen and in a capture
+    jne .tvsame                     ; that IS the screen, so ES:DI comes back
+    cmp byte [cs:dvw_cmode], DVWC_SEG   ; as it went, which is also what it
+    je .tvsame                      ; reads with no multitasker at all
+    mov byte [cs:dvw_cmode], DVWC_TV
+    push cs                         ; ...in the window it is the console's
+    pop es                          ; own cells, already text VRAM's layout
+    mov di, con_scr                 ; (96.34): writes land where the band
+.tvsame:                            ; is drawn from, and the row sums find
+    iret                            ; them
+.tvupd:                             ; FFh: ES:DI, CX cells changed
+    cmp byte [cs:dvw_cmode], DVWC_TV
+    jne .tvsame
+    push ax
+    mov ax, es
+    cmp ax, [cs:dvw_csview]         ; ...ours: CS, banked at the run's start
+    pop ax
+    jne .tvsame
+    call dvw_tvmark
+    iret
 
 .str:
     call dvw_str
@@ -1178,6 +1317,7 @@ dvw_wake:
     call dvw_fsenter
 .nofs:
     call dvw_serve
+    call dvw_capt                   ; what the program wrote itself (96.54.5-6)
     call OSAPI_GFX_LOCK
     call dos_con_draw
     call OSAPI_GFX_UNLOCK
@@ -1185,6 +1325,7 @@ dvw_wake:
     je .r
     mov byte [dvw_done], 0
     mov byte [dvw_run], 0
+    mov byte [dos_inbr], 0          ; a capture's teletype was the ROM's
     mov byte [dos_state], DST_RAN   ; the bracket's own tail (dos_run .ran
     mov dx, [dos_arena]             ; through .out), which the post skipped
     or dx, dx
@@ -1373,7 +1514,11 @@ dvw_fsmain:
     call dvw_xout                   ; nothing can take an interrupt through a
     sti                             ; half-swapped table
 .out:
-    mov byte [dos_inbr], 0
+    mov byte [dos_inbr], 0          ; ...the console's teletype again, unless
+    cmp byte [dvw_cmode], DVWC_SEG  ; the window is a capture, where the ROM's
+    jne .inbr                       ; is the only one (96.54.6)
+    mov byte [dos_inbr], 1
+.inbr:
     mov byte [dvw_fs], 0
     call con_markall                ; the band is owed whole on the way back
     jmp short .ret
@@ -1387,6 +1532,354 @@ dvw_fsmain:
     pop cx
     pop bx
     pop ax
+    ret
+
+;
+; =============================================================================
+; WHAT THE PROGRAM WRITES ITSELF (SPEC.md 96.54.5, 96.54.6)
+; =============================================================================
+; Two ways a window can see a screen it did not draw through its own BIOS:
+;
+;   DVWC_TV   TopView's int 10h AH=FEh - the program ASKS where to write, and
+;             is told con_scr. Its writes land in the band's own cells; a
+;             row sum per row finds the ones that changed, and AH=FFh marks
+;             them at once for a program that says so.
+;   DVWC_SEG  the OTHER CARD'S text RAM: on a desktop with a second card that
+;             is not part of it, that card's B800 or B000 is RAM nobody
+;             shows. The program is told mode 3 or 7 to match and writes
+;             there - directly or through the ROM - and the window copies
+;             the rows that differ. Microsoft Works is the program this is
+;             for: it asks the mode and then writes the screen itself.
+;
+; A pass runs on the UI task from dvw_wake, every fourth tick the program
+; holds the CPU or sleeps (dvw_cpace), and never on the full screen or a
+; frozen program, whose console is the captured glass.
+
+; --- dvw_cpace - post the pass, every DVWC_EVERY+1 ticks (any context) -------
+dvw_cpace:
+    cmp byte [cs:dvw_cmode], 0
+    je .r
+    inc byte [cs:dvw_ctick]
+    test byte [cs:dvw_ctick], DVWC_EVERY
+    jnz .r
+    mov byte [cs:dvw_dirty], 1      ; the paint post below is the pass's door
+.r:
+    ret
+
+; -----------------------------------------------------------------------------
+; dvw_cdetect - is there a screen to capture? (worker, IF = 0, world OUT)
+; out: CF=0 and [dvw_cseg] = B800h or B000h; CF=1 none. Every register kept
+;
+; THE CANDIDATE is the card the desktop is NOT on: B800 under a Hercules,
+; B000 under anything else. It must be RAM (a pattern reads back), it must not
+; be the desktop's own framebuffer seen twice (the pattern leaves the other
+; segment's word alone - MartyPC's lone Hercules decodes B800 onto B000, and a
+; capture there would read the desktop's pixels and let the program write
+; them), and the desktop must not be EXTENDED onto that card (OSAPI_FSX_CAPS
+; with BX = 2 asks about display 1, and CF = 1 is "there is none", SPEC.md
+; 53.1.2) - in Extend, that RAM is the second monitor's desktop.
+; -----------------------------------------------------------------------------
+dvw_cdetect:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push ds
+    call OSAPI_VIDEO                ; DL = the primary's kind
+    mov si, 0xB800                  ; under a Hercules, the CGA's
+    mov cx, 0xB000
+    cmp dl, VID_HERC
+    je .cand
+    xchg si, cx                     ; under the rest, the mono card's
+.cand:
+    mov bx, 2
+    call OSAPI_FSX_CAPS             ; CF = 0: a second display IS desktop
+    jnc .no
+    mov ds, cx                      ; the OTHER segment's word, which a
+    mov dx, [0]                     ; mirror would move
+    mov ds, si
+    mov bx, [0]                     ; ...and the candidate's own, kept
+    mov word [0], 0x5AA5
+    cmp word [0], 0x5AA5
+    jne .back
+    mov word [0], 0xA55A
+    cmp word [0], 0xA55A
+    jne .back
+    mov ds, cx
+    cmp [0], dx                     ; unmoved: two memories, not one
+    mov ds, si
+    mov [0], bx
+    jne .no
+    push cs
+    pop ds
+    mov [dvw_cseg], si
+    pop ds
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
+.back:
+    mov [0], bx
+.no:
+    pop ds
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; dvw_cprog / dvw_cblank - the capture card's 6845, up for text and back dark
+;
+; **A CARD NOBODY PROGRAMMED HAS NO RETRACE** - MEASURED with Microsoft Works:
+; its screen writer waits for the CGA's status port (3DAh) to show a retrace
+; before EVERY character, the snow-avoidance loop of the period, and on a
+; second card that Single mode only BLANKS (vid_blank_kind writes the mode
+; register and nothing else, SPEC.md 39.19) the 6845 was never given a
+; timing: the bits never move and Works waited for ever with nothing drawn.
+; So the capture programs the card for 80x25 text and turns its video on -
+; the second monitor shows the program too, which is the period's own look -
+; and dvw_cblank turns the video off again at the run's end, the one bit the
+; kernel's blank writes. Its 6845 is left timed for text: Extend's bring-up is
+; a full mode set (vid_disp_init), so nothing reads the old timing again.
+; -----------------------------------------------------------------------------
+dvw_crtc_cga:   db 0x71, 0x50, 0x5A, 0x0A, 0x1F, 0x06, 0x19, 0x1C
+                db 0x02, 0x07, 0x06, 0x07, 0x00, 0x00, 0x00, 0x00
+dvw_crtc_mono:  db 0x61, 0x50, 0x52, 0x0F, 0x19, 0x06, 0x19, 0x19
+                db 0x02, 0x0D, 0x0B, 0x0C, 0x00, 0x00, 0x00, 0x00
+dvw_cprog:
+    push ax
+    push cx
+    push dx
+    push si
+    mov si, dvw_crtc_cga
+    mov dx, 0x3D8
+    mov al, 0x21                    ; text, 80 columns, video OFF while timed
+    cmp word [cs:dvw_cseg], 0xB000
+    jne .mode
+    mov si, dvw_crtc_mono
+    mov dx, 0x3B8
+    mov al, 0x20                    ; mono text, video off (3BFh stays 1:
+.mode:                              ; graphics ALLOWED is not graphics ON)
+    out dx, al
+    push ax
+    sub dx, 4                       ; 3D4h / 3B4h
+    xor ah, ah                      ; AH = the register
+    mov cx, 16
+.reg:
+    mov al, ah
+    out dx, al
+    inc dx
+    mov al, [cs:si]
+    out dx, al
+    dec dx
+    inc si
+    inc ah
+    loop .reg
+    pop ax
+    add dx, 4
+    or al, 0x08                     ; ...and the video ON
+    out dx, al
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+dvw_cblank:
+    push ax
+    push dx
+    mov dx, 0x3D8
+    mov al, 0x21
+    cmp word [cs:dvw_cseg], 0xB000
+    jne .out
+    mov dx, 0x3B8
+    mov al, 0x20
+.out:
+    out dx, al                      ; video OFF, the one bit vid_blank_kind's
+    pop dx                          ; own blank clears
+    pop ax
+    ret
+
+; --- dvw_cmset - int 10h AH=00h inside a capture (program context, world in) -
+; A TEXT mode clears the captured screen and homes the cursor, and is NOT
+; passed to the ROM: on a mono primary the ROM's mode set is equipment-driven
+; and programs the desktop's own card (SPEC.md 39.19.4). CF=1 a graphics mode,
+; which the caller shunts to the full screen like any other.
+dvw_cmset:
+    push ax
+    and al, 0x7F
+    cmp al, 3
+    jbe .text
+    cmp al, 7
+    je .text
+    pop ax
+    stc
+    ret
+.text:
+    push cx
+    push di
+    push es
+    mov es, [cs:dvw_cseg]
+    xor di, di
+    mov ax, 0x0720
+    mov cx, CON_SCRSZ / 2
+    cld
+    rep stosw
+    mov ax, 0x40
+    mov es, ax
+    mov word [es:0x50], 0           ; page 0's cursor home
+    pop es
+    pop di
+    pop cx
+    pop ax
+    clc
+    ret
+
+; --- dvw_tvmark - TopView AH=FFh: ES:DI, CX cells changed in con_scr ---------
+dvw_tvmark:
+    push ax
+    push bx
+    push cx
+    push dx
+    push ds
+    push cs
+    pop ds
+    mov ax, di
+    sub ax, con_scr
+    jb .out
+    shr ax, 1                       ; the first cell
+    jcxz .out
+    mov bx, ax
+    add bx, cx
+    dec bx                          ; ...and the last
+    cmp bx, CON_SCRSZ / 2 - 1
+    jbe .have
+    mov bx, CON_SCRSZ / 2 - 1
+.have:
+    cmp ax, bx
+    ja .out
+    call con_markcells
+    mov byte [dvw_dirty], 1
+.out:
+    pop ds
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dvw_capt - one capture pass (dvw_wake: UI task, lock free)
+; -----------------------------------------------------------------------------
+dvw_capt:
+    cmp byte [dvw_cmode], 0
+    je .r
+    cmp byte [dvw_fs], 0            ; the full screen owns the glass, and a
+    jne .r                          ; FROZEN program's console is its capture
+    cmp byte [dvw_frz], 0
+    jne .r
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    cld
+    push ds
+    pop es
+    xor bx, bx                      ; BX = the row
+    cmp byte [dvw_cmode], DVWC_SEG
+    je .seg
+.sum:                               ; --- TopView: a sum per row -----------
+    mov si, bx
+    mov ax, CON_COLS * 2
+    mul si
+    mov si, ax
+    add si, con_scr
+    xor dx, dx
+    mov cx, CON_COLS
+.add:
+    lodsw
+    add dx, ax
+    rol dx, 1                       ; order matters: a swap is a change
+    loop .add
+    mov si, bx
+    shl si, 1
+    cmp [dvw_sums + si], dx
+    je .snext
+    mov [dvw_sums + si], dx
+    call con_mark
+.snext:
+    inc bx
+    cmp bx, CON_ROWS
+    jb .sum
+    jmp short .done
+.seg:                               ; --- the other card: copy what moved --
+    push ds
+    mov ax, CON_COLS * 2
+    mul bx
+    mov si, ax                      ; DS:SI the card's row...
+    mov di, ax
+    add di, con_scr                 ; ...ES:DI ours
+    mov ds, [cs:dvw_cseg]
+    mov cx, CON_COLS
+    push si
+    push di
+    repe cmpsw
+    pop di
+    pop si
+    je .same
+    mov cx, CON_COLS
+    rep movsw
+    pop ds
+    call con_mark
+    jmp short .gnext
+.same:
+    pop ds
+.gnext:
+    inc bx
+    cmp bx, CON_ROWS
+    jb .seg
+    mov ax, [dvw_xblk + DVW_XB_VID + 7]     ; the program's cursor, its BDA
+    xor dh, dh                              ; being in the block while the
+    mov dl, al                              ; world is out
+    cmp dl, CON_COLS - 1
+    jbe .cx
+    mov dl, CON_COLS - 1
+.cx:
+    mov al, ah
+    xor ah, ah
+    cmp al, CON_ROWS - 1
+    jbe .cy
+    mov al, CON_ROWS - 1
+.cy:
+    cmp dx, [con_cx]
+    jne .mv
+    cmp ax, [con_cy]
+    je .done
+.mv:
+    call con_markcur
+    mov [con_cx], dx
+    mov [con_cy], ax
+    mov byte [con_pwrap], 0
+    call con_markcur
+.done:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.r:
     ret
 
 ; --- dvw_onclose - OSAPI_WM_ONCLOSE: a running program is stopped, not kept --

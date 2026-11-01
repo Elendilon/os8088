@@ -188184,6 +188184,12 @@ memory size, defaulted, overridden by the program's own settings.
 **+20 bytes of image and +2 of bss**, measured. `tests/doswtwo.py` runs two
 windows at once and is red with the cap removed: the second claim fails.
 
+**A program the cap is too small for says so in the window's own terms**:
+`DER_FIT` after a run that used the default (`[dvw_cap]` differs from the
+user's `[dos_memkb]`) reads *"Too big for a window's 128K - raise Setup's
+Memory limit."*, where the bracket's sentence names "Shut down the OS", which
+is no way out for a window. Microsoft Works is the first program it met.
+
 #### 96.54.3 What a window costs a running program, and the exchange as copies
 
 **A program in a window runs at 88.8% of its bracketed speed**, measured by
@@ -188267,6 +188273,102 @@ gone. IBM DOS 3.30 answers seven `OK` lines (`P62`/`P51` at `10C3`, `C62`/`C51`
 at the child's `1100`, `R62` at `10C3` again, `EXEC=0000`). `soak -k 'dospsp'`
 is the row; with the handler taken out it reads `BX=5A5A ... BAD` on every
 line and fails.
+
+#### 96.54.5 TopView's buffer — a program that ASKS where to write
+
+TopView published the escape hatch DESQview, Windows' DOS box and OS/2 all
+honoured afterwards: `int 10h AH=FEh` with `ES:DI` the video buffer a program
+meant to write answers with the buffer it SHOULD write, and `AH=FFh` with
+`ES:DI` and `CX` cells says which part changed. A program that asks writes
+"directly to the screen" and still runs in a window.
+
+In a window (not on the full screen, not inside a capture, 96.54.6) `AH=FEh`
+answers **`con_scr` itself** — the console's cells are text VRAM's own layout
+(96.34) — and sets `[dvw_cmode]` = `DVWC_TV`. No buffer is added. `AH=FFh`
+marks the cells' rows at once (`dvw_tvmark`, only for an `ES` that is ours).
+For a program that never calls `AH=FFh`, `dvw_capt` sums each row on the
+UI task every fourth tick (`dvw_cpace`: the tick of `dvw_irq0` or `dvw_nap`,
+whichever the program is in) and marks a row whose sum moved — 50 bytes of
+sums, and the sum rotates so that two swapped cells are a change.
+
+On the full screen or inside a capture, `AH=FEh` returns `ES:DI` unchanged —
+which is also what a program reads on a machine with no multitasker at all.
+
+#### 96.54.6 The OTHER card's text RAM — Works, live in a window
+
+**A program that writes the screen itself can be captured on exactly one kind
+of machine: one with a second display card the desktop is not using.** Its
+text RAM is memory nobody shows. Under a Hercules desktop that is the CGA's
+`B800`; under a VGA, EGA or CGA one it is a mono card's `B000`. The owner's
+5150 — Hercules primary, CGA beside it — is that machine.
+
+`dvw_cdetect` decides it at the start of every windowed run, from published
+facts only:
+
+- the candidate segment holds RAM (two patterns read back, and the word is
+  restored);
+- it is not the desktop's own framebuffer seen twice: the OTHER segment's word
+  does not move — MartyPC's lone Hercules decodes `B800` onto `B000`, and a
+  capture there would read the desktop's pixels and let the program write
+  them, so it is refused;
+- the desktop is not EXTENDED onto that card: `OSAPI_FSX_CAPS` with `BX` = 2
+  asks about display 1 and answers CF = 1 when there is none (§53.1.2). In
+  Extend, that RAM is the second monitor's desktop.
+
+Then `[dvw_cmode]` = `DVWC_SEG`: the program is told mode 3 (or 7 at `B000`,
+with its CRTC), the console is copied onto the card so the session continues
+there, and `int 10h` passes to the ROM — **except `AH=00h`**: a text mode is
+cleared and homed by us (`dvw_cmset`), because on a mono primary the ROM's
+mode set is equipment-driven and programs the desktop's own card (§39.19.4);
+a graphics mode is shunted to the full screen like any other (96.54.1). DOS's
+teletype goes to the ROM too (`[dos_inbr]`), so the card's RAM is the one
+truth. Every fourth tick `dvw_capt` compares each of the 25 rows with the
+console (`repe cmpsw`), copies the rows that moved and takes the cursor from
+the program's BDA.
+
+**The card has to be RUNNING**, and that was found with Works too: its screen
+writer waits for a retrace before every character, and a second card that
+Single mode only BLANKS has a 6845 nobody programmed, so the status bits
+never moved and Works waited for ever with nothing drawn. `dvw_cprog` times
+the capture card's 6845 for 80x25 text and turns its video on at the run's
+start - the second monitor shows the program as well - and `dvw_cblank`
+turns the video off at its end.
+
+**Measured**: Microsoft Works 1.05 runs LIVE in a DOS window on
+`os8088_5150_both_gla_mono` (Hercules desktop, CGA beside it) with a Memory
+limit of 400 KB - its New dialog, then a word-processor document - with the
+desktop intact around it (that took 96.54.7's guard as well).
+`tests/doswcap.py` is the gate, red with the detector forced off. Waves 4 and
+6 together with 96.54.7 cost **+940 bytes of image and +57 of bss**, no core
+and no kernel byte.
+
+**What it does not reach**: a lone Hercules with no colour card (its second
+page would be RAM nobody shows, but enabling it means writing `3BFh` under a
+kernel that keeps that bit clear on purpose — not done); a desktop extended
+onto the second card; and a program whose own idea of the screen is cached
+across Alt+Enter — it goes on writing the capture card on the full screen.
+
+#### 96.54.7 A program may write the desktop card's ports — the guard
+
+An 8086 cannot trap an `OUT`, and a program of the period writes a card's
+ports as readily as its memory. **Microsoft Works is the measured case**: its
+blink setting (`WORKS.EXE` file offset 594Ch) writes one byte to BOTH mode
+registers, `3B8h` and `3D8h`, and to the attribute controller at `3C0h`. On a
+Hercules desktop bit 1 of `3B8h` drops, the card falls to TEXT, and the
+desktop's graphics framebuffer is displayed as characters — which is what
+every early Works-in-a-window screenshot showed, on the lone Hercules and on
+the Hercules + CGA alike.
+
+Works writes no 6845 register, so the mode register is the whole repair, and
+`dvw_vguard` writes it every time the instance's world goes out (`dvw_xout`):
+`0Ah` on a Hercules (graphics, page 0, video on — what `vid_unblank_kind`
+writes), the desktop's own `3D8h` on a CGA (its BDA `0040:0065`, out of the
+desktop's half of the exchange), and the attribute controller's mode control
+on a VGA or EGA (`01h`, mode 12h's and mode 10h's). One `OUT`, or three on a
+planar card, per tick the program held; a clobber shows for at most that
+tick. It is skipped on the full screen, where the card is the program's, and
+on a VESA desktop, whose renderer is a driver's. **What it does not repair**
+is a program that reprograms the 6845 itself; none met so far does.
 
 ## 97. PIXELSTEIN 3D — a raycast shooter in a foreign mode (`apps/pixelstein/`)
 

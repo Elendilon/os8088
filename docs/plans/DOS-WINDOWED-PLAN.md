@@ -1,6 +1,6 @@
 # Live DOS in a window, several at once — a TopView/DESQview shape for `DOS.O88`
 
-**Status: WAVES 1 AND 3 ARE BUILT, AND WAVE 5'S MEMORY HALF (SPEC.md 96.54,
+**Status: WAVES 1, 3, 4 AND 6 ARE BUILT, WAVE 2'S SPEED HALF AND WAVE 5'S MEMORY HALF (SPEC.md 96.54,
 96.54.1, 96.54.2; `apps/dos/dosw.inc`; rows `doswlive`, `doswfs`,
 `doswtwo`); waves 2, 4, the rest of 5 and 6 are not.** §5.6 is built as a
 fixed 128 KB for a window with no limit of the user's, rather than from the
@@ -716,6 +716,36 @@ loop tested a mode byte on every word. Two blocks and `rep movsw` take it to
 not narrowed: a vector outside it would carry a program's hook into every
 other task. The band's span-narrowed paint (§3.5) is still open, and is a
 paint cost rather than a CPU-share one.
+
+## 10.6 Waves 4 and 6, as built — and Works, live
+
+**Built**: TopView's `AH=FEh`/`FFh` answered with the window's own cells and
+row sums (SPEC.md 96.54.5), and the CAPTURE of a second card's text RAM
+(96.54.6) - which turned out to be the general form of §7.2: the RAM nobody
+shows is the other card's, `B800` under a Hercules desktop and `B000` under
+anything else, decided at every run from published facts (RAM, not an alias
+of the desktop's framebuffer, desktop not extended onto it). The lone
+Hercules's second page is NOT enabled: it means writing `3BFh` under a kernel
+that keeps the bit clear on purpose, and MartyPC decodes `B800` onto `B000`
+there anyway, so the alias test refuses it.
+
+**Microsoft Works 1.05 runs live in a window** on the owner's arrangement
+(Hercules desktop + CGA), and it took three findings to get there, all three
+Works' own:
+
+1. its screen writer waits for a CGA retrace before every character, and a
+   card Single mode only blanks has no retrace - so the capture programs the
+   card's 6845 (`dvw_cprog`);
+2. its blink setting writes `3B8h`, `3D8h` and `3C0h` at once, dropping a
+   Hercules desktop to text - so the desktop card's mode register is put back
+   every time the program's world goes out (`dvw_vguard`, 96.54.7); that is
+   also what every early Works screenshot here was;
+3. the DOS `.EXE` loader reads the WHOLE FILE (319 KB) where DOS reads the
+   load module (2.8 KB), so the window's 128 KB refused it - the Memory limit
+   is the way round today, the refusal now says so in the window's terms, and
+   reading only the load module is with an agent.
+
+`doswcap` is the gate (25 s, red with the detector off). +940 image, +57 bss.
 
 ## 9. What would kill it
 
