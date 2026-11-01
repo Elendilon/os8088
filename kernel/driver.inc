@@ -3615,7 +3615,7 @@ drv_bss:                        ; (ES = the image, from drv_check; no frame -
     call mem_bytes_gp_x         ; -> the granules of image + bss (at most
                                 ; DRV_MAX_KB + 4,080 bytes: no carry)
     cmp ax, [bx+DRVR_PARA]      ; THE ONE BOUND TEST, and it is about a byte
-    ja .nofit                   ; read off a disk. os88drv.py leaves enough of
+    ja drv_check.bad            ; read off a disk. os88drv.py leaves enough of
                                 ; the trailing zero run in the image that the
                                 ; directory's own size already covers the bss
                                 ; (SPEC.md 51.1.2), so a driver this tree
@@ -3633,9 +3633,6 @@ drv_bss:                        ; (ES = the image, from drv_check; no frame -
                                 ; and CF = 0 from the `xor al, al` above:
                                 ; neither `cld` nor a string op writes it
 .out:
-    ret
-.nofit:
-    stc
     ret
 
 section .modc                   ; IMAGE CODE (see VGC_FORCE's banner below):

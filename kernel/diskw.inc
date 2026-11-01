@@ -2724,11 +2724,8 @@ dskw_size32:
     adc dx, 0
 .whole:
     or dx, dx                   ; (`or` clears CF: the answer below)
-    jnz .over
+    jnz dskw_nbody.out          ; ...a stc / ret, shared (kernel size pass 16)
     mov [dskw_rem], ax
-    ret
-.over:
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
