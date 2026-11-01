@@ -1,8 +1,11 @@
 # Live DOS in a window, several at once — a TopView/DESQview shape for `DOS.O88`
 
-**Status: WAVES 1 AND 3 ARE BUILT (SPEC.md 96.54 and 96.54.1,
-`apps/dos/dosw.inc`, rows `doswlive` and `doswfs`); waves 2, 4, 5 and 6 are
-not.** The owner settled §4.3's default: `Run` stays the full screen, because
+**Status: WAVES 1 AND 3 ARE BUILT, AND WAVE 5'S MEMORY HALF (SPEC.md 96.54,
+96.54.1, 96.54.2; `apps/dos/dosw.inc`; rows `doswlive`, `doswfs`,
+`doswtwo`); waves 2, 4, the rest of 5 and 6 are not.** §5.6 is built as a
+fixed 128 KB for a window with no limit of the user's, rather than from the
+`.EXE` header: the arena is claimed before the file is read, and two windows
+running at once is the measured result (`doswtwo`, +20 image +2 bss). The owner settled §4.3's default: `Run` stays the full screen, because
 the only thing a window can detect is a graphics mode set (§10.4). §10 is what wave 1 found, and it changes
 two of the decisions below. The rest of this file is still the plan as it
 was written: the original status line read *"PLAN, nothing built."* This document is the investigation the brief

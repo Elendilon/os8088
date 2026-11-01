@@ -108,6 +108,12 @@
   %define DVW                       ; host on kern_big; kern_mega has none
  %endif                             ; (KERN-MEGA-DOS-PLAN 2.1) and kern_dos
 %endif                              ; is the bracket itself
+%ifdef DVW
+ %define DOS_ACAP dvw_cap           ; dos_run's arena cap (SPEC.md 96.54.2)
+DVW_DEFKB   equ 128                 ; ...a window's, when the user set none
+%else
+ %define DOS_ACAP dos_memkb
+%endif
 %include "dosicon.inc"          ; the icon, the association block and the
                                 ; document glyph, shared with dosload.asm
 %endif                              ; KD_BACKEND
@@ -1465,12 +1471,25 @@ dos_run:
                                     ; the wake it is a no-op: [dos_drvout]
 %ifdef DVW
 .kept:
+    ; **A WINDOW IS NOT THE WHOLE MACHINE** (SPEC.md 96.54.2): with no limit
+    ; of the user's, a run in the window is given DVW_DEFKB and not
+    ; everything, or a second DOS window has nothing left to run in. Set on
+    ; every pass, the compaction wake's included; the bracket's run is
+    ; unchanged, its cap being the user's own word as before.
+    mov ax, [dos_memkb]
+    cmp byte [dvw_want], 0
+    je .capset
+    or ax, ax
+    jnz .capset
+    mov ax, DVW_DEFKB
+.capset:
+    mov [dvw_cap], ax
 %endif
     cmp byte [dos_cpw], 0
     jne .ask                        ; on the wake the heap IS packed, so plain
                                     ; avail is exact and posting again is how a
                                     ; program spins (SPEC.md 66.4.3.2)
-    cmp word [dos_memkb], 0
+    cmp word [DOS_ACAP], 0
     je .unmount                     ; NO CAP: we want the maximum, so the
                                     ; question is only whether a pass adds any
     push bx                         ; ...A CAP, and the cheaper road: a program
@@ -1478,7 +1497,7 @@ dos_run:
     pop bx                          ; 300K free needs no compaction and no
                                     ; silence. Net of the floor, like every
                                     ; AVAIL on this task from .sized on
-    cmp ax, [dos_memkb]
+    cmp ax, [DOS_ACAP]
     jae .ask                        ; it fits: claim it and ask nothing more
 .unmount:
     push bx
@@ -1490,13 +1509,13 @@ dos_run:
     xor ah, ah                      ; THE SAME LEVEL, or the two are answers to
     call OSAPI_MEM_COMPACT          ; different questions (SPEC.md 66.4.3.2) -
     pop bx                          ; AH = MEMC_WHATIF
-    cmp word [dos_memkb], 0
+    cmp word [DOS_ACAP], 0
     jne .capmax
     cmp ax, [dos_akb]               ; no cap: does a pass add anything at all?
     jbe .ask                        ; no - claim what is there
     jmp short .post
 .capmax:
-    cmp ax, [dos_memkb]             ; a cap: could a pass even fill it?
+    cmp ax, [DOS_ACAP]             ; a cap: could a pass even fill it?
     jb .lift                        ; no, and nothing else will either - CF is
                                     ; set, and .lift keeps it
 .post:
@@ -1524,7 +1543,7 @@ dos_run:
                                     ; compaction would recover (SPEC.md 50.6.3,
                                     ; 66.10.3). Nothing to compute, nothing to
                                     ; probe, and BX is an OUTPUT here
-    mov dx, [dos_memkb]             ; ...and the user's own cap, if there is
+    mov dx, [DOS_ACAP]             ; ...and the user's own cap, if there is
     or dx, dx                       ; one. 0 is "as much as the machine will
     jz .cap                         ; give", which is what a double click gets
     cmp ax, dx
@@ -18987,7 +19006,8 @@ table from DVOL_MAX (SPEC.md 96.44.2.1)"
 %endif
 %ifdef DVW                          ; --- the live window (SPEC.md 96.54) ---
     HBSS DOS_B_DVWF,  20        ; the flag bytes below, in order
-    HBSS DOS_B_DVWW,  14        ; seven words: LOW_SEG, two stacks, AX, a nap
+    HBSS DOS_B_DVWW,  16        ; eight words: LOW_SEG, two stacks, AX, a nap,
+                                ; and this run's arena cap
     HBSS DOS_B_DVWK8, 4         ; the kernel's int 08h, far
     HBSS DOS_B_DVWR,  22        ; a posted door: its target, ten registers
     HBSS DOS_B_DVWQ,  32        ; the window's keys, sixteen
@@ -19012,6 +19032,7 @@ dvw_fsreq   equ dvw_want + 15   ; ...asked for: Alt+Enter, or a graphics mode
 dvw_frz     equ dvw_want + 16   ; FROZEN in the window (96.54.1)
 dvw_parked  equ dvw_want + 17   ; ...and the worker has stopped for it
 dvw_gfx     equ dvw_want + 18   ; it set a graphics mode: no way back
+dvw_cap     equ dvw_lss + 14    ; word: this run's arena cap (96.54.2)
 dvw_lss     equ dos_hbss + DOS_B_DVWW + 0
 dvw_fss     equ dvw_lss + 2
 dvw_fsp     equ dvw_lss + 4

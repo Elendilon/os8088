@@ -8764,6 +8764,18 @@ SOAK = [
         "because typing goes through `settle` and the motor has always "
         "stopped by the second one, so `burst <= n` was 1 <= 1 for ever",
         needs=("marty",), wants=("build/doscom360.img",)),
+    Row("doswtwo", "soak", py("tests/doswtwo.py"), 25.0,
+        "TWO DOS WINDOWS, EACH RUNNING ITS OWN PROGRAM, AT ONCE (SPEC.md "
+        "96.54.2). Each DOS window is its own instance with its own worker, "
+        "so two windowed runs are two pre-empted tasks - and what kept it "
+        "from working was memory: a window was given the whole arena, as the "
+        "bracket is. Two double-clicks open two DOS windows on "
+        "tests/dostrap/dwfs.asm (a probe that counts its own lines and never "
+        "yields); Run in Window in both; both count across the same guest "
+        "time; each was given the window's 128 KB; and `q` into one window "
+        "ends that program while the other counts on. Red with the cap "
+        "removed: the second claim fails. Measured 21.9s on MartyPC",
+        needs=("marty",), serial=True, wants=("build/os8088-360.img",)),
     Row("doswfs", "soak", py("tests/doswfs.py"), 30.0,
         "A LIVE DOS PROGRAM BETWEEN ITS WINDOW AND THE FULL SCREEN (SPEC.md "
         "96.54.1, docs/plans/DOS-WINDOWED-PLAN.md wave 3). The probe "

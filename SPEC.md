@@ -188040,8 +188040,7 @@ byte-identical, and so is every kernel. Each exchange walks 121 words — about
 **What it does not do**, each a later wave of the plan: a program writing
 `B800` directly shows nothing in the window, and on a CGA
 desktop it writes over the desktop's pixels; INT 33h answers in desktop
-coordinates; the program is given the whole arena (`[dos_memkb]` caps it),
-and the sound driver is NOT unmounted for it.
+coordinates; and the sound driver is NOT unmounted for it.
 
 #### 96.54.1 Alt+Enter moves a LIVE program, and a graphics mode moves it by itself
 
@@ -188086,6 +188085,25 @@ is the choice a user makes for a program known to print.
 **Cost**, measured against wave 1: the windowed host's image **+528** and bss
 **+6**; `DOS.O88` on the disk +512. No core byte and no kernel byte.
 `tests/doswfs.py` is the gate, and it is red with the shunt removed.
+
+#### 96.54.2 A window is given 128 KB, not the machine
+
+`Run` sizes the arena from `OSAPI_MEM_AVAIL` — everything — because the
+bracket IS the whole machine (§96.3, §96.35). A program in a window is not,
+and a second DOS window would find nothing left to run in. So a run in the
+window, with no Memory limit of the user's, is given **`DVW_DEFKB` = 128 KB**:
+a `.COM` is 64 KB by construction, and a command-line utility of the period
+fits in a fraction of the rest. The user's limit (§96.25, the setup page and a
+shortcut's memory block) still wins whenever it is set, in both directions,
+and the bracket's run is untouched.
+
+It is one word, `[dvw_cap]`, computed where `dos_run`'s sizing starts — on the
+compaction wake as well, since that re-enters the same code — and read where
+`[dos_memkb]` was (`DOS_ACAP`). DESQview's shape was the same: a per-program
+memory size, defaulted, overridden by the program's own settings.
+
+**+20 bytes of image and +2 of bss**, measured. `tests/doswtwo.py` runs two
+windows at once and is red with the cap removed: the second claim fails.
 
 ## 97. PIXELSTEIN 3D — a raycast shooter in a foreign mode (`apps/pixelstein/`)
 
