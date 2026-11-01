@@ -728,7 +728,14 @@ FAST = [
         "offset the engine aimed at, and identical to an uninterrupted "
         "decode; and XT Standard decoded first to a hard disk, the WAV "
         "byte-exact to tools/x3simxt.py, played on the card with no decoder "
-        "resident and seeked directly",
+        "resident and seeked directly. On a FIXED-SPEED guest (-icount, "
+        "os88qemu.icount; OS88_QEMU_ICOUNT=0 is the A/B), because Auto and "
+        "the slow window are timings: a 512-byte kernel growth put the "
+        "decode worker's stack in the 4 KB page of the .vga rung's code, "
+        "QEMU's TCG took every push through its self-modifying-code slow "
+        "path, and Auto played holdconv at Quarter on identical guest work. "
+        "The card follows the guest's clock on `qemuvt` when the tree has "
+        "one, and on a stock QEMU as before",
         needs=("qemu", "nasm", "mtools", "numpy"), serial=True, timeout=900,
         wants=("build/xtmp3.o88", "build/xtmp3.bin", "build/os8088.img",
                "build/mixercfg/SYSTEM.CFG", "build/mbr.bin",
