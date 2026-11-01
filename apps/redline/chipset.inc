@@ -100,7 +100,8 @@ cs_lend:    dw 0                    ; ...and its last cell
 ; --- the controls -------------------------------------------------------------
 ; The foot: REDLINE's own button record (ui.inc), relabelled by cs_tabset
 cs_tlabels: dw cs_b_tune, cs_b_keep, cs_b_rep, ru_quit, cs_b_tune, cs_b_tune
-cs_actions: db 'tksqxxbh'           ; the eight buttons' keys on this tab
+cs_actions: db 'tksqxxbih'          ; the buttons' keys on this tab: the
+            db '12345678'           ; sub-pages are parked here (ri_geom)
 cs_b_tune:  db 'Tune', 0
 cs_b_keep:  db 'Apply on boot', 0
 cs_b_rep:   db 'Save report', 0
@@ -178,6 +179,9 @@ cs_tabset:                          ; AL = the tab
     or al, al
     jz .labels
     mov si, cs_tlabels
+    cmp al, RU_TINSP
+    jne .labels
+    mov si, ri_flabels
 .labels:
     mov di, ru_buttonlabels
     mov cx, 6
@@ -189,6 +193,11 @@ cs_tabset:                          ; AL = the tab
     call cs_drclose                 ; an open list goes with the tab (the whole
     cmp byte [cs_tab], 0            ; window repaints after, so CF is moot)
     je .out
+    cmp byte [cs_tab], RU_TINSP
+    jne .tune
+    call ri_enter                   ; the Inspect tab probes on first entry
+    jmp short .out
+.tune:
     mov ax, [rl_win]
     mov [cs_drop + OS88UI_DR_WIN], ax
     mov [cs_tgt + OS88UI_DR_WIN], ax
@@ -669,42 +678,8 @@ cs_tabkey:
     je .report
     cmp dl, 'Q'
     je .quit
-    call ru_clip                    ; the rest scroll the pane
-    jc .out
-    call ru_geometry
-    mov bx, cs_pane
-    mov cx, ax                      ; CL = ascii, CH = scan code
-    mov ax, [bx + SP_TOP]
-    cmp ch, 0x51
-    je .pgdn
-    cmp ch, 0x49
-    je .pgup
-    cmp ch, 0x50
-    je .down
-    cmp ch, 0x48
-    je .up
-    cmp ch, 0x4F
-    je .end
-    cmp ch, 0x47
-    jne .out
-    xor ax, ax
-    jmp short .go
-.pgdn:
-    add ax, [bx + SP_VIS]
-    jmp short .go
-.pgup:
-    sub ax, [bx + SP_VIS]
-    jmp short .go
-.down:
-    inc ax
-    jmp short .go
-.up:
-    dec ax
-    jmp short .go
-.end:
-    mov ax, CS_LINES                ; ru_spto clamps to the last full page
-.go:
-    call ru_spto
+    mov bx, cs_pane                 ; the rest scroll the pane
+    call ru_spkey
     jmp short .out
 .write:
     mov al, dl

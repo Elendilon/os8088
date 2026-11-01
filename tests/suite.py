@@ -4593,6 +4593,30 @@ SOAK = [
         "CHIPSET1/2.TXT without the help, the pane scrolls, Benchmark restores the foot, "
         "Quit closes REDLINE",
         needs=("marty", "nasm"), wants=("build/redline360.img", "build/os8088-360.img")),
+    Row("redlineinspcga", "soak", py("tests/redline.py", "--inspect", "os8088_redline_pc_gla"), 9.0,
+        "REDLINE's Inspect tab on cga (SPEC.md 103.7), by its buttons and keys: the tab "
+        "fetches its module (a lazy part of REDLINE.O88) and probes once, Summary names "
+        "the CPU and the adapter the machine has, IRQ 0's vector is the kernel's, the "
+        "programs list holds REDLINE, a sub-page button and 1-8/Right move pages with "
+        "one latch on the strip, Memory draws its bars and the BIOS ROM, Save report "
+        "writes INSPECT1.TXT with all eight pages and no padding, Quit closes REDLINE",
+        needs=("marty", "nasm"), wants=("build/redline360.img", "build/os8088-360.img")),
+    Row("redlineinspherc", "soak", py("tests/redline.py", "--inspect", "os8088_redline_herc_gla"), 9.0,
+        "REDLINE's Inspect tab on herc (SPEC.md 103.7), by its buttons and keys: the tab "
+        "fetches its module (a lazy part of REDLINE.O88) and probes once, Summary names "
+        "the CPU and the adapter the machine has, IRQ 0's vector is the kernel's, the "
+        "programs list holds REDLINE, a sub-page button and 1-8/Right move pages with "
+        "one latch on the strip, Memory draws its bars and the BIOS ROM, Save report "
+        "writes INSPECT1.TXT with all eight pages and no padding, Quit closes REDLINE",
+        needs=("marty", "nasm"), wants=("build/redline360.img", "build/os8088-360.img")),
+    Row("redlineinspvga", "soak", py("tests/redline.py", "--inspect", "os8088_redline_vga_gla"), 13.0,
+        "REDLINE's Inspect tab on vga (SPEC.md 103.7), by its buttons and keys: the tab "
+        "fetches its module (a lazy part of REDLINE.O88) and probes once, Summary names "
+        "the CPU and the adapter the machine has, IRQ 0's vector is the kernel's, the "
+        "programs list holds REDLINE, a sub-page button and 1-8/Right move pages with "
+        "one latch on the strip, Memory draws its bars and the BIOS ROM, Save report "
+        "writes INSPECT1.TXT with all eight pages and no padding, Quit closes REDLINE",
+        needs=("marty", "nasm"), wants=("build/redline360.img", "build/os8088-360.img")),
     Row("rltune", "soak", py("tests/rltune.py"), 81.0,
         "REDLINE's chipset write path in the OS on QEMU's AT (SPEC.md 103.6.3-103.6.5): "
         "on the Tune tab an FE3600 nothing detects is picked, Target Mfg spec and Tune "

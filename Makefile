@@ -19451,11 +19451,17 @@ xt-isotron-ega: $(IMG360) $(BUILD)/isotron360.img
 # REDLINE native CPU/graphics performance lab (SPEC.md 103).
 .PHONY: redline redlinedisk redline-profile
 redline: $(BUILD)/redline.o88
-$(BUILD)/redline.bin: apps/redline/redline.asm apps/redline/detect.inc apps/redline/workloads.inc apps/redline/ui.inc apps/redline/csrows.inc apps/redline/csfe.inc apps/redline/csknob.inc apps/redline/csapply.inc apps/redline/csweep.inc apps/redline/chipset.inc apps/os88data.inc apps/os88link.inc apps/redline/baseline.inc apps/redline/baseline-herc.inc apps/redline/baseline-vga.inc apps/os88api.inc apps/os88ui.inc tests/benchlib.inc | $(BUILD)
+$(BUILD)/redline.bin: apps/redline/redline.asm apps/redline/detect.inc apps/redline/workloads.inc apps/redline/ui.inc apps/redline/csrows.inc apps/redline/csfe.inc apps/redline/csknob.inc apps/redline/csapply.inc apps/redline/csweep.inc apps/redline/chipset.inc apps/redline/inspect.inc apps/redline/inspmod.inc apps/os88parts.inc apps/os88partsbody.inc apps/os88data.inc apps/os88link.inc apps/redline/baseline.inc apps/redline/baseline-herc.inc apps/redline/baseline-vga.inc apps/os88api.inc apps/os88ui.inc tests/benchlib.inc | $(BUILD)
 	python3 tools/benchlint.py apps/redline/redline.asm
 	$(NASM) -f bin -w+error -I apps/ -I tests/ -l $(BUILD)/redline.lst -o $@ apps/redline/redline.asm
-$(BUILD)/redline.o88: $(BUILD)/redline.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $< -o $@
+# REDLINE.O88 IS A PARTED PACKAGE (SPEC.md 103.7.2): os88ovl.py cuts .modi -
+# the Inspect tab's module - off the end at the image size the header
+# records, Sheet's way, and it rides as the package's part 0, lazy and
+# compressed
+$(BUILD)/redline.o88: $(BUILD)/redline.bin tools/os88ovl.py tools/os88pkg.py $(PKGZSTAMP)
+	python3 tools/os88ovl.py $(BUILD)/redline.bin -o $(BUILD)/redline.insp.bin \
+		--trim $(BUILD)/redline.trim.bin
+	$(OS88PKG) $(BUILD)/redline.trim.bin -o $@ --part $(BUILD)/redline.insp.bin
 redlinedisk: $(BUILD)/redline.img $(BUILD)/redline720.img $(BUILD)/redline120.img $(BUILD)/redline360.img
 $(BUILD)/redline.img: $(BUILD)/redline.o88 apps/redline/README.TXT tools/os88disk.py
 	python3 tools/os88disk.py --size 1440 -o $@ $< apps/redline/README.TXT
