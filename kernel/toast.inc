@@ -439,10 +439,11 @@ toast_arm:
     mov ax, [ticks]
     add ax, [toast_ttl]
     mov [toast_die], ax
-    mov word [toast_dirty], 0x0100  ; dirty = 0, on = 1, in one store - and
-                                    ; still AFTER [toast_die], so no pass can
-                                    ; see on=1 beside a stale expiry
-    mov byte [menu_bdirty], 1   ; **AND THE MENUS SEGMENT IS OWED A LOOK**
+    mov ax, 0x0100              ; dirty = 0, on = 1, in one store - and
+    mov [toast_dirty], ax       ; still AFTER [toast_die], so no pass can
+                                ; see on=1 beside a stale expiry; AH is the
+                                ; 1 below (kernel size pass 16, -1)
+    mov [menu_bdirty], ah       ; **AND THE MENUS SEGMENT IS OWED A LOOK**
                                 ; (SPEC.md 59.9): the strip's first choice of
                                 ; home is the gap that segment's last menu
                                 ; leaves, and menu_bar_text - the only thing
@@ -651,7 +652,9 @@ toast_kill:
                                 ; some OTHER task staged in the gap
     cmp word [toast_on], 0      ; "on OR want", as one word over the pair
     je .out
-    mov word [toast_on], 0      ; ...and both cleared as one
+    and word [toast_on], 0      ; ...and both cleared as one (`and`: a byte
+                                ; under `mov`, the flags dead before popf -
+                                ; kernel size pass 16)
     mov byte [toast_dirty], 1
 .out:
     popf

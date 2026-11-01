@@ -389,7 +389,9 @@ lnk_open:
     pop ax
 .walk:
     call sc_walk
-    mov word [lnk_argo], 0      ; SPENT OR NOT, it dies with the launch
+    and word [lnk_argo], 0      ; SPENT OR NOT, it dies with the launch (`and`:
+                                ; a byte under `mov`, flags dead before the
+                                ; `add sp` - kernel size pass 16)
 .pop:
     add sp, LNK_SIZE
 .done:

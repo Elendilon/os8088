@@ -637,8 +637,8 @@ db_paint:
                                 ; it skips up to eleven passes of this body on
                                 ; the commonest damage shape (SPEC.md 30.3.1's
                                 ; own example, a window closing in one corner)
-    mov word [di], 0
-.znext:
+    and word [di], 0            ; (`and`: a byte under `mov`, and the add
+.znext:                         ; below writes the flags - kernel size pass 16)
     add ax, DOCK_STEP
     inc di
     inc di
@@ -1123,16 +1123,16 @@ db_hit:
 %endif
     xor di, di                  ; empty or dying: no tile here
 .in:
+%ifdef DOCK_OPT
+    SKIPF1                      ; CF = 0 over .miss's stc - test al, imm8 reads
+.miss:                          ; AL and writes no register - and both into the
+    stc                         ; ONE exit (kernel size pass 16, -2)
+%else
     clc                         ; ...and falls into the exit the miss jumps to
+%endif
 .out:
     pop bx
     ret
-%ifdef DOCK_OPT
-.miss:
-    stc
-    pop bx
-    ret
-%endif
 
 ; -----------------------------------------------------------------------------
 ; db_click - hit-test a click against the strip (SPEC.md 30)
@@ -1205,12 +1205,12 @@ db_click:
 
 .consumed:                      ; --- THE SHARED TAIL. db_rclick jumps in
     stc                         ; HERE and at `.miss`, and both push
-    jmp .out                    ; ax,bx,cx,dx,di in that order - which is now
+    SKIPAL1                     ; ax,bx,cx,dx,di in that order - which is now
 .miss:                          ; this label's CONTRACT, enforced by nothing
-    clc                         ; but the comment at both ends. `jmp`, never
-.out:                           ; `jmp short`: a body that outgrows the rel8
-    pop di                      ; range then costs a byte instead of an error
-    jmp kret_dx
+    clc                         ; but the comment at both ends. SKIPAL1 is
+.out:                           ; mov al, imm8 over the clc - CF stays 1, and
+    pop di                      ; AL is kret_dx's to put back (kernel size
+    jmp kret_dx                 ; pass 16, -1 against a jump)
 
 ; -----------------------------------------------------------------------------
 ; db_rclick - right-press on the strip: a tile's context menu (SPEC.md 30.2)

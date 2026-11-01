@@ -445,14 +445,17 @@ blk_set:
     push cx                     ; the %else arm below names no CX, and blk_one
                                 ; tail-jumps into vid_bk, which banks ax/es/dx
                                 ; and never writes it
-    xor ch, ch                  ; NO `push di`: this routine's body never names
+                                ; NO `push di`: this routine's body never names
                                 ; DI either, and the bank was a leftover from
                                 ; before 25448be converted this site off
                                 ; vid_ctx_ptr (whose DI IS an output).
     call COLD_SEG:ssf_set       ; the ANIMATION first (SPEC.md 79.1). CF = 1
-    jc .walk                    ; is every refusal, and gates every card from
-                                ; display 0 exactly as this file always did.
-    inc ch                      ; CF = 0 IS NOT "NOTHING TO GATE" (SPEC.md
+    sbb ch, ch                  ; is every refusal, and gates every card from
+                                ; display 0 exactly as this file always did:
+                                ; CH = 0FFh there and 0 on CF = 0, and the
+    inc ch                      ; inc makes it 0 and 1 (kernel size pass 16,
+                                ; -2 against `xor` and a branch).
+                                ; CF = 0 IS NOT "NOTHING TO GATE" (SPEC.md
                                 ; 79.1.1). The overlay has the PRIMARY and is
                                 ; drawing on it, so display 0's signal must
                                 ; stay on - but the saver sizes itself from

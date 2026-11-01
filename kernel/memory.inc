@@ -1233,7 +1233,7 @@ mem_claim_1:
     pop ax
     jmp short .mpok
 .mpno:
-    mov word [ss:si+MC_SEG], 0
+    and word [ss:si+MC_SEG], 0  ; (`and`, flags dead - pass 16)
     jmp short .fail
 .mpok:
 %endif
@@ -1437,7 +1437,7 @@ mem_shed_one:
     MEM_MP mem_mpfree
     xchg si, di
 %endif
-    mov word [ss:di+MC_SEG], 0
+    and word [ss:di+MC_SEG], 0  ; (`and`, flags dead - pass 16)
 .none:
     popf
     cmp di, 1                   ; CF = 1 exactly when nothing was takeable
@@ -1490,7 +1490,7 @@ mem_pg_forget:
     shl cx, 1                   ; a word per entry (see the header: there is
     add cx, [si+PGO_BASE]       ; no stride column because there is nothing
     mov si, cx                  ; for it to be)
-    mov word [si], 0            ; resident - and dsk_fat_window believing that
+    and word [si], 0            ; resident - and dsk_fat_window believing that
     jmp short .out              ; returns WITHOUT loading, so the reads and
 .fatw:                          ; writes after it land in whatever claim owns
     call dsk_fatw_demote        ; those paragraphs now. So the disk layer is
@@ -1778,10 +1778,9 @@ mem_hifit:
     jmp short .cand
 .done:
     mov cx, si
-    or si, si                   ; CF = 0...
-    jnz .out
-    stc                         ; ...or nothing that big was free
-.out:
+    cmp si, 1                   ; CF = 1 exactly when SI = 0: nothing that big
+                                ; was free (kernel size pass 16, -2 against
+                                ; `or`, a branch and `stc`)
     pop si
     pop di
     pop bx
@@ -3043,7 +3042,7 @@ mem_cp_walk:
     call mem_pg_forget          ; order, for its reason - and BX, the FILL
     pop bx                      ; POINT, does not move
     MEM_MP mem_mpfree
-    mov word [ss:si+MC_SEG], 0
+    and word [ss:si+MC_SEG], 0  ; (`and`, flags dead - pass 16)
 .count2:
     inc dx
     jmp short .next             ; ...through .stay's own jmp: .loop is out of
@@ -3223,11 +3222,12 @@ mem_rr_none equ mem_rr_walk.done ; the relocation proc of a claim whose word
 ; the image survives untouched and only SEGMENT words are ever wrong.
 ; -----------------------------------------------------------------------------
 mem_region_reloc:
-    push ax
-    push cx
-    push si
-    push di
-    push es
+    call kent_bp                ; = push ax/bx/cx/dx/si/di/bp, and ES: the
+    push es                     ; ladder's whole run, so the worker block's
+                                ; own DX/BP bank and the later `push bx` went
+                                ; with the five pushes and six pops (kernel
+                                ; size pass 16, -10; per region MOVE, beside a
+                                ; rep movsw of up to 64KB)
     cld                         ; mem_rr_walk reads its rows with `lodsw`
     mov si, mem_rr_tab
     push ds
@@ -3260,7 +3260,6 @@ mem_region_reloc:
     ; no longer exists and DX is the only thing that finds it. Moving this
     ; above the walk would silently stop finding anything.
     ;
-    push bx
     mov bx, dx
     call inst_of_seg            ; DI = the live KIND_PKG record at the new base
     jc .nowk
@@ -3285,10 +3284,8 @@ mem_region_reloc:
     ; task_exit releases the INSTANCE record with the task. The slice keeps
     ; its 0xCC fill and its SCH_MAGIC canary - properties of a slice already
     ; cut, and the high-water mark tools/stkwater.py reads stays the deepest
-    ; this worker has ever been. AX, CX, SI, DI and ES are this routine's own
-    ; bank's; DX and BP are pushed here, and the flags ride the pushf.
-    push dx
-    push bp
+    ; this worker has ever been. Every register is this routine's own
+    ; bank's (the ladder's), and the flags ride the pushf.
     pushf
     cli                         ; the frame below is what sch_switch resumes
                                 ; from, so it is built whole or not at all
@@ -3320,16 +3317,8 @@ mem_region_reloc:
     cld                         ; cannot reach it
     call sch_frame              ; ...and the same twelve words task_spawn
     popf                        ; writes, from the same body
-    pop bp
-    pop dx
 .nowk:
-    pop bx
-    pop es
-    pop di
-    pop si
-    pop cx
-    pop ax
-    ret
+    jmp kret_es
 
 ; --- THE TWELVE HOLDERS, AS ROWS (SPEC.md 66.6) ------------------------------
 ; `dw base, db count, db stride`, in three groups by the segment they live in.
@@ -4464,7 +4453,7 @@ mem_free_x:
     call mem_find_own
     jc .busy
     MEM_MP mem_mpfree
-    mov word [ss:si+MC_SEG], 0     ; the record IS the allocator (SPEC.md 50.3)
+    and word [ss:si+MC_SEG], 0     ; the record IS the allocator (SPEC.md 50.3)
 .ok:                            ; ...and mem_movable_x's two exits, below, are
     popf                        ; these: the same fence under the same IF = 0
     SKIPF2                      ; window, writing a different word. test ax,
@@ -4736,7 +4725,7 @@ mem_free_owner_x:
     cmp [ss:si+MC_OWN], bx
     jne .scan
     MEM_MP mem_mpfree
-    mov word [ss:si+MC_SEG], 0
+    and word [ss:si+MC_SEG], 0  ; (`and`, flags dead - pass 16)
     jmp short .scan
 .done:
     popf
@@ -5751,7 +5740,7 @@ osapi_mem_compact_x:
     call mem_avail_lvl_x        ; ...AT THE CALLER'S LEVEL (SPEC.md 66.4.3.2):
                                 ; the what-if and the claim beside it must be
                                 ; answers to the same question
-    mov word [mem_cp_self], 0   ; ...and for this walk alone
+    and word [mem_cp_self], 0   ; ...and for this walk alone
     popf
     retf
 .post:

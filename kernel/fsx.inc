@@ -3035,8 +3035,8 @@ fsx_rwalkf:
 .walk:
     mov ax, [es:FSX_RSV+FSV_NRUN]
     mov [es:di+RMS_RUN], ax
-    mov word [es:di+RMS_NRUN], 0
-.lp:
+    and word [es:di+RMS_NRUN], 0 ; (`and`: a byte under `mov`, the `or`
+.lp:                            ; below writes the flags - kernel size pass 16)
     mov ax, [bp+FSW_REM]
     or ax, [bp+FSW_REM+2]
     jz .ok
