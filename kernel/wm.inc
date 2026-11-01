@@ -2277,30 +2277,8 @@ wm_close_req:
 ; clears it too, so a slot that died between the request and this pass cannot
 ; be closed through a pointer that now means a different window.
 ; -----------------------------------------------------------------------------
-wm_close_pass:                  ; (its ONE caller, ui_task, has asked
-                                ; [wm_clreq] already - the compare that was
-                                ; here as well went, kernel size pass 16)
-    push bx
-    call gfx_lock               ; ...AND THE REQUEST IS SPENT UNDER THE LOCK,
-    mov bx, [wm_clreq]          ; not before it. wm_destroy cancels a request
-    or bx, bx                   ; naming the window it is freeing and runs with
-    jz .done                    ; the lock held, so taking the word before the
-    mov word [wm_clreq], 0      ; wait left exactly the interval that guard was
-                                ; written to cover: a request read here, the
-                                ; window destroyed while this pass waited, and
-                                ; the cancellation written into a word this
-                                ; pass had already emptied
-    test byte [bx+W_FLAGS], 1   ; still a live record? A minimized window is
-    jz .done                    ; closable, so this is bit 0 and not bit 1
-    mov word [bx+W_ONCL], 0     ; retire the negotiator: the request IS its
-                                ; answer (see wm_close_req) - wm_onclose's
-                                ; store, written here (kernel size pass 14),
-                                ; as an immediate so AX need not be banked
-    call app_close_win          ; (which preserves every register)
-.done:
-    call gfx_unlock
-    pop bx
-    ret
+; (WRITTEN IN ui_task's .chk_close step, its one call: kernel size pass 16.
+; BX is dead there, so nothing is banked)
 
 ; -----------------------------------------------------------------------------
 ; wm_wkh_slot - SI -> this window's wake handler word (module internal)
