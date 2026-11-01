@@ -63,7 +63,7 @@ CORE_ORG    equ 0x0080
 ; CORE alone spends, both hosts read, and whose slack is one number in one
 ; place. Measured at the wave, with the assertion in `apps/dos/doscore.asm`.
 %ifndef DOS_MEGA
-CORE_MAX    equ 15424            ; +512 for SPEC.md 96.7.2's stack swap and
+CORE_MAX    equ 15472            ; +512 for SPEC.md 96.7.2's stack swap and
                                 ; 96.12.5's name truncation, which are 214
                                 ; bytes between them against 89 of slack. The
                                 ; two are the Playroom's whole report: a gate
@@ -97,8 +97,18 @@ CORE_MAX    equ 15424            ; +512 for SPEC.md 96.7.2's stack swap and
                                 ; +16 for SPEC.md 96.55's AH=62h/51h, the
                                 ; call XCOPY.EXE takes its PSP from: 12 bytes
                                 ; against 10 of slack, 15,410 used
+                                ; +48 for SPEC.md 96.8.2: an .EXE is read as
+                                ; far as its LOAD MODULE and no further, which
+                                ; DOS does and the whole-file read did not
+                                ; (Works 1.05: a 319KB file, a 2.8KB image).
+                                ; +99 against 52 of slack, 15,471 used - and
+                                ; +48 is exactly what kern_dos's 33KB rung
+                                ; had left (49), so its DOS program pays
+                                ; nothing. dos_ldrd sits after dos_cpm's
+                                ; `align 16` for that reason: in front of it
+                                ; the same code cost 112
 %else                           ; **kern_mega's core is 67 bytes longer**:
-CORE_MAX    equ 16064            ; SPEC.md 96.15.4's extended-to-extended
+CORE_MAX    equ 16128            ; SPEC.md 96.15.4's extended-to-extended
 %endif                          ; move (dos_xms_move's `.bothx`), 15,409 used.
                                 ; +80, kept a multiple of 16, and paid ONLY by
                                 ; kern_mega's DOS.O88 - both of its hosts
@@ -116,6 +126,8 @@ CORE_MAX    equ 16064            ; SPEC.md 96.15.4's extended-to-extended
                                 ; XMS surface - 0Ch-0Fh, 08h's largest block,
                                 ; 0Bh's handle bounds (SPEC.md 96.15.4): the
                                 ; two met at the merge, 16,027 used
+                                ; +64 for SPEC.md 96.8.2's load-module read,
+                                ; +91 here against 37 of slack: 16,118 used
 ; ...and the core's bss sits directly above its code, at the same offset in
 ; every host, which is what SPEC.md 96.44.2 requires of every `DBSS` cell.
 ; --- THE CORE'S BLOCK IS A BUDGET, NOT A SUM (SPEC.md 96.44.2) --------------

@@ -7289,6 +7289,22 @@ SOAK = [
         "with the handler taken out every line reads BX=5A5A BAD.",
         needs=("marty",), serial=True,
         wants=("build/dospsp360.img",)),
+    Row("dosbigtail", "soak", py("tests/dosbigtail.py"), 15.0,
+        "AN .EXE IS READ AS FAR AS ITS LOAD MODULE (SPEC.md 96.8.2). DOS "
+        "loads an MZ file's header + image and leaves the rest of the file "
+        "on the disk; os8088's DOS read the WHOLE FILE, so Works 1.05 - a "
+        "319,483-byte WORKS.EXE with a 2,791-byte image - wanted ~312 KB of "
+        "arena and a DOS window's 128 KB refused it `Not enough RAM`. "
+        "tests/dostrap/bigtail.asm is a 3,000-byte module (a partial last "
+        "page, one relocation) that the row appends 200 KB of patterned "
+        "payload to at run time, never committed; it is run in the bracket "
+        "once, then in a 128 KB window, where it must start, find its "
+        "relocation applied and read its own payload back through "
+        "AH=3Dh/42h/3Fh at three offsets. VERIFIED TO FAIL with dos_load "
+        "sent straight to its whole-file arm: [dos_err] 7 (DER_FIT) and "
+        "`Not enough RAM` in the window after the bracket's run of the same "
+        "file said `Arena: 459KB`. 12s measured.",
+        needs=("marty",), serial=True),
     Row("dosren", "soak", py("tests/dosren.py"), 30.0,
         "AH=56h RENAMES WHERE IT STANDS (SPEC.md 96.31). The table is a "
         "MEASUREMENT OF IBM DOS 3.30 by the same binary "
