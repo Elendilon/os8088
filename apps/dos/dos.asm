@@ -103,6 +103,11 @@
                                         ; the document glyph after THAT
                                         ; (SPEC.md 54.3.2)
 
+%ifndef KD_BACKEND                  ; **A DOS PROGRAM IN ITS WINDOW, LIVE**
+ %ifndef DOS_MEGA                   ; (dosw.inc, SPEC.md 96.54): the windowed
+  %define DVW                       ; host on kern_big; kern_mega has none
+ %endif                             ; (KERN-MEGA-DOS-PLAN 2.1) and kern_dos
+%endif                              ; is the bracket itself
 %include "dosicon.inc"          ; the icon, the association block and the
                                 ; document glyph, shared with dosload.asm
 %endif                              ; KD_BACKEND
@@ -993,6 +998,11 @@ dos_entry:
                                     ; attribute is still a zeroed bss's
 %endif
 
+%ifdef DVW
+    mov bx, [dos_win]               ; a running program is stopped by a close,
+    mov ax, dvw_onclose             ; not orphaned behind a hidden window
+    call OSAPI_WM_ONCLOSE           ; (SPEC.md 96.54)
+%endif
     mov bx, [dos_win]               ; **NAMED, not whatever the last call left
     mov ax, dos_wake                ; in BX.** The slot takes BX = the window
     call OSAPI_WM_ONWAKE            ; and AX = the handler, and this used to
@@ -1120,6 +1130,13 @@ dos_entry:
 ; does nothing, rather than launching the program twice.
 ; -----------------------------------------------------------------------------
 dos_wake:
+%ifdef DVW
+    cmp byte [dvw_run], 0           ; A PROGRAM ON THE WORKER (SPEC.md 96.54):
+    je .nodvw                       ; its doors, its paint and its end are
+    call dvw_wake                   ; all this wake is for, and nothing else
+    jmp .out                        ; may start while it runs
+.nodvw:
+%endif
 %ifndef KD_BACKEND                  ; 96.43: the console is the window's
     cmp byte [dos_pkgq], 0          ; **A `.O88` TYPED AT THE PROMPT** (SPEC.md
     je .nopkg                       ; 96.33.17): OSAPI_PKG_START wants the gfx
@@ -1360,6 +1377,10 @@ dos_run:
     ; HERE, before the arena is claimed and before a driver is unmounted: what
     ; follows posts a teardown and RETURNS, so every byte this routine would
     ; otherwise have spent is a byte the handoff would have to give back.
+%ifdef DVW
+    cmp byte [dvw_want], 0          ; a run in the window never takes the
+    jne .notwhole                   ; whole machine (SPEC.md 96.54)
+%endif
     cmp byte [dos_keepc], DOS_MEM_WHOLE
     jne .notwhole
     call dos_handoff
@@ -1425,6 +1446,10 @@ dos_run:
     ; the hole reachable is that a package cannot compact the heap it is
     ; standing in: OSAPI_MEM_COMPACT's post records the wish and RETURNS, and the
     ; pass runs at ui_task's step 0 with nothing held (SPEC.md 66.4.3).
+%ifdef DVW
+    cmp byte [dvw_want], 0          ; ...BUT NOT FOR THE WINDOW (SPEC.md
+    jne .kept                       ; 96.54): the desktop goes on running
+%endif                              ; and its sound driver with it
     call dos_drv_take               ; THE DRIVERS OUT FIRST, on every arm and
                                     ; before any claim: it is what CREATES the
                                     ; hole the no-cap arm sizes into, and the
@@ -1438,6 +1463,9 @@ dos_run:
                                     ; dos_drv_back, which .out does on every
                                     ; path but the posted one (96.35.5). On
                                     ; the wake it is a no-op: [dos_drvout]
+%ifdef DVW
+.kept:
+%endif
     cmp byte [dos_cpw], 0
     jne .ask                        ; on the wake the heap IS packed, so plain
                                     ; avail is exact and posting again is how a
@@ -1576,6 +1604,15 @@ dos_run:
                                     ; Only DX and the flags are spent
 %endif
 
+%ifdef DVW
+    cmp byte [dvw_want], 0          ; **RUN IN THE WINDOW** (SPEC.md 96.54):
+    je .bracket                     ; the worker takes it from here, and
+    mov byte [dvw_want], 0          ; dvw_wake pays this routine's tail when
+    call dvw_start                  ; the program ends. No worker - the task
+    jc .bracket                     ; table full - and the full screen still
+    jmp .outq                       ; works, so that is what it gets
+.bracket:
+%endif
     call OSAPI_GFX_LOCK             ; ...and only NOW, because fsx_run wants it
     mov ax, dos_fsx_main            ; held and nothing above this may pay for it
     mov bx, [dos_win]
@@ -1618,6 +1655,9 @@ dos_run:
     mov [dos_err], al
     mov byte [dos_state], DST_ERR
 .out:
+%ifdef DVW
+    mov byte [dvw_want], 0          ; a run that never reached the bracket
+%endif                              ; does not leave the next one windowed
     mov byte [dos_cpw], 0           ; THE REAL EXIT, so the next launch in this
                                     ; instance sizes from the start again
 %ifndef KD_BACKEND
@@ -5773,6 +5813,9 @@ dos_hk_tty:
                                     ; DIR row and TYPE of the prompt's
                                     ; (KERN-MEGA-PLAN 14.54)
     call con_write
+%ifdef DVW
+    mov byte [cs:dvw_dirty], 1      ; the worker's tick posts the paint
+%endif
                                     ; IT DRAWS NOTHING HERE: a verb that
                                     ; printed a directory would take the gfx
                                     ; lock per character. dos_con_run spends
@@ -5882,6 +5925,7 @@ dos_betab:
     dw dos_k_copy, dos_k_move, dos_k_path, dos_k_vstat, dos_k_wrat
     dw dos_k_here, dos_k_vkind, dos_k_rseq, dos_k_wseq
 
+%include "dosw.inc"                 ; the live window (SPEC.md 96.54)
 %endif                              ; KD_BACKEND
 %ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 
@@ -8947,6 +8991,14 @@ dos_key:
     ; box either. CF = 1 from here means it was ours.
     call dos_abdismiss
     jc .done
+%ifdef DVW
+    cmp byte [dvw_run], 0           ; **A RUNNING PROGRAM OWNS THE KEYS**
+    je .nodvw                       ; (SPEC.md 96.54): into its ring, which
+    call dvw_kput                   ; its INT 16h drains
+    stc
+    jmp .done
+.nodvw:
+%endif
 %ifndef KD_BACKEND                  ; 96.43: the console is the window's
     ; --- ALT+ENTER IS FULL SCREEN, ABOVE EVERYTHING (SPEC.md 96.33.5.1) -----
     ; AX = 0x1C00 is the kernel's synthesised keystroke (SPEC.md 9.7.1) - no
@@ -9403,6 +9455,15 @@ dos_oncmd:
     push ax
     push bx
     mov bx, si
+%ifdef DVW
+    cmp byte [dvw_run], 0           ; nothing on this menu while a program
+    jne .out                        ; is running in the window
+    cmp al, 3
+    jne .notw
+    mov byte [dvw_want], 1          ; 'Run in Window': 'Run', on the worker
+    xor al, al
+.notw:
+%endif
     or al, al
     jnz .notrun
     call dos_defocus                ; ...the caret too, exactly as the BUTTON
@@ -9521,6 +9582,10 @@ dos_path_args:
 dos_go:
     push ax
     push bx
+%ifdef DVW
+    cmp byte [dvw_run], 0           ; one program a window (SPEC.md 96.54)
+    jne .out
+%endif
     cmp byte [dos_path], 0
     je .out                         ; the internal interface: not yet ours
     call dos_path_args              ; **AND THE BOX MAY HOLD ARGUMENTS** (SPEC.md
@@ -11018,11 +11083,19 @@ dos_tpl:
 
     ; --- THE MENU (SPEC.md 12.2), which this package has never had ---------
     OS88_MENUSET dos_menus, dos_ttl, dos_oncmd
+%ifdef DVW
+        OS88_MENU dos_m_prog, dos_items_prog, 4
+%else
         OS88_MENU dos_m_prog, dos_items_prog, 3
+%endif
     OS88_MENUSET_END dos_menus
 
 dos_m_prog: db 'Program', 0
 dos_items_prog: dw dos_l_run, dos_l_tset, dos_l_full
+%ifdef DVW
+                dw dos_l_wrun
+dos_l_wrun: db 'Run in Window', 0   ; SPEC.md 96.54
+%endif
 
 dos_ttl:    db 'DOS', 0
 dos_l_args: db 'Arguments:', 0
@@ -18899,6 +18972,55 @@ whether it uses the cells or not"
  %error "this host reaches more drives than dos_dvcwd has room for - raise \
 DVOL_CAP in apps/dos/doscall.inc, which every host reads, and NEVER size the \
 table from DVOL_MAX (SPEC.md 96.44.2.1)"
+%endif
+%ifdef DVW                          ; --- the live window (SPEC.md 96.54) ---
+    HBSS DOS_B_DVWF,  14        ; the flag bytes below, in order
+    HBSS DOS_B_DVWW,  14        ; seven words: LOW_SEG, two stacks, AX, a nap
+    HBSS DOS_B_DVWK8, 4         ; the kernel's int 08h, far
+    HBSS DOS_B_DVWR,  22        ; a posted door: its target, ten registers
+    HBSS DOS_B_DVWQ,  32        ; the window's keys, sixteen
+    HBSS DOS_B_DVWS,  7         ; dvw_scroll's window
+    HBSS DOS_B_DVWX,  DVW_XB_SIZE   ; the exchanged vectors and BDA
+dvw_want    equ dos_hbss + DOS_B_DVWF + 0   ; Run in Window was asked for
+dvw_run     equ dvw_want + 1    ; a program is on the worker
+dvw_go      equ dvw_want + 2    ; ...UI -> worker: start it
+dvw_done    equ dvw_want + 3    ; ...worker -> UI: it ended
+dvw_kill    equ dvw_want + 4    ; the window is closing: stop it
+dvw_in      equ dvw_want + 5    ; the instance's world is in the IVT
+dvw_spawn   equ dvw_want + 6    ; the worker exists (it is for ever)
+dvw_rq      equ dvw_want + 7    ; a door: 1 posted, 2 served, 0 done
+dvw_dirty   equ dvw_want + 8    ; the console owes the band a paint
+dvw_xop     equ dvw_want + 9    ; dvw_walk: 0 exchange, 1 copy
+dvw_poll    equ dvw_want + 10   ; empty AH=01h polls, for the yield
+dvw_kh      equ dvw_want + 11   ; the key ring's head...
+dvw_kt      equ dvw_want + 12   ; ...and tail
+dvw_closeq  equ dvw_want + 13   ; a refused close, owed when the run ends
+dvw_lss     equ dos_hbss + DOS_B_DVWW + 0
+dvw_fss     equ dvw_lss + 2
+dvw_fsp     equ dvw_lss + 4
+dvw_nss     equ dvw_lss + 6
+dvw_nsp     equ dvw_lss + 8
+dvw_tax     equ dvw_lss + 10
+dvw_narg    equ dvw_lss + 12
+dvw_k08     equ dos_hbss + DOS_B_DVWK8
+dvw_rtgt    equ dos_hbss + DOS_B_DVWR
+dvw_r_ax    equ dvw_rtgt + 2
+dvw_r_bx    equ dvw_rtgt + 4
+dvw_r_cx    equ dvw_rtgt + 6
+dvw_r_dx    equ dvw_rtgt + 8
+dvw_r_si    equ dvw_rtgt + 10
+dvw_r_di    equ dvw_rtgt + 12
+dvw_r_bp    equ dvw_rtgt + 14
+dvw_r_es    equ dvw_rtgt + 16
+dvw_r_ds    equ dvw_rtgt + 18
+dvw_r_fl    equ dvw_rtgt + 20
+dvw_kq      equ dos_hbss + DOS_B_DVWQ
+dvw_sc_t    equ dos_hbss + DOS_B_DVWS   ; CL left, CH top
+dvw_sc_b    equ dvw_sc_t + 2            ; DL right, DH bottom
+dvw_sc_a    equ dvw_sc_t + 4
+dvw_sc_up   equ dvw_sc_t + 5
+dvw_sc_n    equ dvw_sc_t + 6
+dvw_xblk    equ dos_hbss + DOS_B_DVWX
 %endif
 %ifdef DOS_CORE_INLINE
 DOS_BSS_SIZE equ CORE_BSS_SIZE + HB ; the core's cells are in here too

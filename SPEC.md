@@ -187956,6 +187956,86 @@ It costs **823 bytes** of `kern_dos`'s image (34,780 -> 35,603) and fits
 `KD_IMG_KB`'s existing 35 KB with 237 to spare, so the program under
 `kern_dos` loses no memory to it. The numbers are in the table above.
 
+### 96.54 A program in its window, live — `Program > Run in Window` (`apps/dos/dosw.inc`)
+
+**Wave 1 of docs/plans/DOS-WINDOWED-PLAN.md, and it is OPT-IN.** `Run`,
+a double-click and the prompt still take §96.2's bracket. `Program > Run in
+Window` runs the same program on the instance's **worker** (§20.6) instead,
+so the scheduler pre-empts it like any other task: what it prints through
+INT 21h or the video BIOS reaches the console band as it is printed, and the
+desktop — other DOS windows included — goes on running. Each DOS window is
+its own instance, so several run at once, each with its own worker.
+
+**No kernel byte.** It rests on SPEC.md 8.1.2.2 — only IRQ0 enters
+`sch_switch` — and on one invariant the package keeps: **the instance's world
+is in the IVT exactly while its own task holds the CPU.**
+
+- **The world** is IVT 00h, 08h–09h and 10h–3Fh, and the BDA's memory-size
+  word, its video block (`0040:0049`–`0066`) and `0040:0084`–`0089`.
+  `dvw_walk` EXCHANGES those runs with a 242-byte block in the instance's
+  bss; an exchange is its own inverse, so in and out cannot drift. The block
+  is primed from the desktop's table, then the DOS block (§96.5.2's table),
+  a virtual video BIOS (10h), a virtual keyboard BIOS (16h), a refusing
+  disk BIOS (13h) and IVT 08h are written into the program's side, and the
+  video block says mode 3, 80x25.
+- **IVT 08h is `dvw_irq0`.** It moves a foreign `SS` (the program's or a
+  child's) onto the worker's `LOW_SEG` slice, `DVW_GAP` (96) bytes below the
+  gate's frame top `[dos_dstk]`; exchanges the world out; posts the band's
+  paint if anything was printed; and far-calls the kernel's own int 08h,
+  which may switch tasks. Resuming the task irets into the stub, which
+  exchanges the world back and returns to the program's stack.
+- **Every voluntary way off the CPU** — a posted door's wait, a key wait — is
+  `dvw_nap`, which exchanges out around `OSAPI_TASK_SLEEP`/`YIELD`.
+
+**08h and 09h are exchanged, not refused.** A program that hooks either with
+`AH=25h` and chains sees its handler run on every IRQ in its own slices and
+in nobody else's. A program that does not chain 08h stops the machine.
+
+**Files are the UI task's** (§20.6 rule 7). The windowed run binds
+`dvw_betab` into `dos_bevec`: every door but `DBE_HERE` and `DBE_VKIND`
+(table reads, §96.4.1.1) is a stub that POSTS its registers and waits; the
+window's wake handler runs the same `dos_k_*` on its own stack. The handshake
+byte has three states — 1 posted, 2 served, 0 done — because a closing window
+may only cancel a request the UI task has not started.
+
+**The end is DHK_SNAP's.** `dos_prog_done` calls the host's snapshot hook
+before `dos_restore_machine`; the windowed run binds `dvw_fin` there, which
+exchanges the world out, rebinds the doors and returns past the restore — a
+whole-IVT and BDA rewind is right for a bracket and would rewind a live
+desktop. The core and `kern_dos` are byte-identical.
+
+**Keys and idle.** While a program runs, the window's keys go into a
+sixteen-key ring that the virtual INT 16h drains. `AH=00h` with nothing
+typed sleeps a tick, and so does every eighth empty `AH=01h`. It was a
+YIELD, and that was measured wrong: with nothing else ready a yield returns
+at once, so a program waiting for a key spent its whole slice exchanging its
+world in and out — every sample of the CPU landed in `dvw_walk`.
+
+**Closing the window stops the program, and the close is REFUSED to do it**
+(§75.1's own pattern). `dvw_onclose` sets a kill byte and answers CF=1. A
+tick in program code rewrites the interrupted `CS:IP` to
+`mov ax, 4CFFh / int 21h`; a program waiting in INT 21h's own key read hears
+it in the virtual `AH=01h` instead, the gate's stack being where `dvw_irq0`
+never sees a foreign `SS`. Either way it leaves through DOS's own terminate,
+so its files are swept (§96.52), and `dvw_wake` — which ends every run on the
+UI task — calls `OSAPI_WM_CLOSE` last. **Letting the close through was
+measured wrong**: the worker reached `OSAPI_TASK_ALIVE` the moment the
+program had gone, freed the region while the UI task was still inside
+`dvw_wake`, and the machine ran off into the heap with the tick stopped.
+
+**What it costs** (measured against the tree before it): the windowed host's
+image +2,345 bytes and its bss +335, so a DOS window's region is 2,560 bytes
+larger; `DOS.O88` on the disk +2,048. The core part and `kern_dos` are
+byte-identical, and so is every kernel. Each exchange walks 121 words — about
+2 ms on a 4.77 MHz 8088 (ESTIMATE), twice per tick an instance holds.
+
+**What wave 1 does not do**, each a later wave of the plan: a graphics mode
+set is ignored; `Alt+Enter` does not move a live program to the full screen;
+a program writing `B800` directly shows nothing in the window, and on a CGA
+desktop it writes over the desktop's pixels; INT 33h answers in desktop
+coordinates; the program is given the whole arena (`[dos_memkb]` caps it),
+and the sound driver is NOT unmounted for it.
+
 ## 97. PIXELSTEIN 3D — a raycast shooter in a foreign mode (`apps/pixelstein/`)
 
 A first-person shooter in the shape of the 1992 one: a 64×64 grid of cells,

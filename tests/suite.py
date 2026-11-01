@@ -8764,6 +8764,19 @@ SOAK = [
         "because typing goes through `settle` and the motor has always "
         "stopped by the second one, so `burst <= n` was 1 <= 1 for ever",
         needs=("marty",), wants=("build/doscom360.img",)),
+    Row("doswlive", "soak", py("tests/doswlive.py"), 15.0,
+        "A DOS PROGRAM RUNNING LIVE IN ITS WINDOW (SPEC.md 96.54, "
+        "docs/plans/DOS-WINDOWED-PLAN.md wave 1). Program > Run in Window puts "
+        "the program on the DOS instance's worker instead of in the bracket, "
+        "and the probe (tests/dostrap/dwtick.asm, assembled into a scratch "
+        "360KB B: by the row itself) WAITS BY SPINNING on the BIOS tick, so "
+        "every leg that needs the rest of the machine is a statement about "
+        "pre-emption: lines arrive in the band while it runs, through INT 21h "
+        "and the video BIOS both; another window comes to the front and it "
+        "keeps printing; the window's key is its INT 21h AH=08h answer and "
+        "so its exit code; and IVT 08h is the kernel's again afterwards, "
+        "the instance's world exchanged back out. Measured 11.6s on MartyPC",
+        needs=("marty",), serial=True, wants=("build/os8088-360.img",)),
     Row("doscon", "soak", py("tests/doscon.py"), 40.0,
         "DOS'S CONSOLE, AND THE PROMPT IN IT (SPEC.md 96.33). The band "
         "below the top bar carried three lines of status text and now carries "

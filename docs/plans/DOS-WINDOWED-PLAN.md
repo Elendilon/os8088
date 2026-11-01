@@ -1,6 +1,9 @@
 # Live DOS in a window, several at once — a TopView/DESQview shape for `DOS.O88`
 
-**Status: PLAN, nothing built.** This document is the investigation the brief
+**Status: WAVE 1 IS BUILT (SPEC.md 96.54, `apps/dos/dosw.inc`, row
+`doswlive`); waves 2-6 are not.** §10 is what wave 1 found, and it changes
+two of the decisions below. The rest of this file is still the plan as it
+was written: the original status line read *"PLAN, nothing built."* This document is the investigation the brief
 asked for: capture the TEXT output of a DOS program **while it runs** and show
 it in a DOS window, with **several DOS windows each running a different
 program at the same time** — what TopView (1984) and DESQview (1985) did on
@@ -597,6 +600,73 @@ pointer and a window drag are still ISR-paced (SPEC.md 8.1.2), and each probe
 gets ~half of what it gets alone.
 
 ---
+
+## 10. Wave 1, as built — and what it found
+
+**Built and green**: Program > Run in Window (opt-in; Run, a double-click and
+the prompt still take the bracket). `tests/doswlive.py` drives a probe that
+WAITS BY SPINNING on the BIOS tick, so every leg is a statement about
+pre-emption: lines arrive in the band while it runs, through INT 21h and the
+video BIOS both; another window comes to the front and it keeps printing; the
+window's key is its INT 21h `AH=08h` answer; IVT 08h is the kernel's again
+afterwards (sampled twelve times - one read passed with the exchange-out
+deliberately removed, because the stub swaps the world back around every tick
+it catches); and closing the window mid-run stops the program and leaves the
+machine ticking with the whole IVT as it was. 14.9 s on MartyPC.
+
+**MEASURED cost**, against `b1e4085`: the windowed host's image **+2,345**
+and bss **+335**, so a DOS window's region is **2,560 bytes** larger;
+`DOS.O88` on the disk **+2,048**. The core part (`doscore.bin`) and
+`kern_dos` (`kerndos.bin`) are **byte-identical**, and so is every kernel
+(`kernsize[big]` +0). §6.2's estimate was ~1,780 + ~230: the virtual video
+BIOS and the 22 posting stubs (110 bytes + a 48-byte table) are what it
+under-counted.
+
+### 10.1 Two decisions changed
+
+- **IVT 08h and 09h are EXCHANGED, not refused** (§3.7 said refuse). The
+  exchange already puts the instance's IVT 08h in place, so a program's own
+  `AH=25h` hook of 08h or 09h is simply part of its world: it runs on every
+  IRQ in the program's own slices and in nobody else's, and chains back into
+  `dvw_irq0`. The exchanged set is 00h, 08h-09h and 10h-3Fh plus the BDA's
+  memory word, video block and EGA rows - **121 words, about 2 ms each way on
+  the 8088 (ESTIMATE)**, against §3.2's 47 words and 0.45 ms. Narrowing it is
+  wave 2's (most of 10h-1Fh never changes).
+- **The close is REFUSED and finished by the package** (SPEC.md 75.1's
+  pattern). Letting it through hid the window and left the worker to free the
+  region at its next `OSAPI_TASK_ALIVE`, which it reached while the UI task
+  was still inside the wake handler ending the run: the region was freed
+  under it and the machine ran into the heap with the tick stopped - measured,
+  with Works and with the probe alike. The end of a run now belongs to the UI
+  task, which asks for the close last.
+
+### 10.2 Three things found on the way
+
+- **A YIELD IS NOT IDLE.** Every eighth empty `AH=01h` yielded, per §3.6. With
+  nothing else ready a yield returns at once, so a program waiting for a key
+  spent its slice exchanging its world in and out: **every CPU sample landed
+  in `dvw_walk`**. It sleeps a tick now.
+- **The kill could not reach a program waiting for a key**: INT 21h's own key
+  read polls the virtual 16h from the GATE's stack, where `dvw_irq0` never
+  sees a foreign `SS`. The poll hears the kill itself now.
+- **The Makefile did not list `dosw.inc`**, so edits to it rebuilt nothing,
+  and the row ran yesterday's DOS against a symbol map of today's - which
+  failed at leg 1 on an EMPTY band (a one-byte shift of every bss cell) and
+  read exactly like a parity bug in DOS. The five DOS rules list it now.
+
+### 10.3 The census, program by program
+
+| program | what it does with the screen and the machine | in a window today |
+|---|---|---|
+| `tests/dostrap/dwtick.asm` | INT 21h and int 10h teletype; spins on 0040:006C | **live** |
+| IBM DOS 3.30 `XCOPY.EXE` (the owner's disk 1) | INT 21h only | **the same output as the bracket**, which is `Invalid parameter` in BOTH: a DOS defect that predates this work (the core has no `AH=37h`, which DOS 3.3 utilities ask for the switch character - a suspicion, not yet a trace). Typed bare, `XCOPY` is the shell's own verb and IBM's never runs |
+| **Microsoft Works 1.05** (the owner's disk) | reads the mode with `int 10h AH=0Fh`, then writes the screen ITSELF at B800 (mode 3) or B000 (mode 7); hooks 08h, 09h, 1Bh and 24h with `AH=25h`, chaining; installs an INT 33h event handler; checks `int 16h AX=55FEh` for a cooperating keyboard driver and hooks 09h only when none answers | **runs, cannot be seen.** It asks our mode, gets 3, and writes B800 directly - which on MartyPC's Hercules reads back as B000, so it wrote over the desktop's framebuffer. Its 08h and 09h hooks are contained by the exchange and closing the window stops it cleanly. **It is a wave-3 program**: Alt+Enter to the full screen live, frozen with its last screen when it comes back |
+
+**So Works is not a first target for the live window** and cannot become one
+on any adapter: it is a direct writer by construction, and §4's table is the
+whole answer. What it IS is the best target for wave 3, the live Alt+Enter -
+and for §7.2's capture on a machine where B800 is RAM nobody shows (a lone
+Hercules with page 1 enabled, or the owner's 5150, where B800 is the CGA's).
 
 ## 9. What would kill it
 
