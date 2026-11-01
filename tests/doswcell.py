@@ -252,7 +252,9 @@ def run(disk, machine, report):
         repaint(m, dos)
         os88marty.pace(m, 0.5)
         c = m.fbuf()
-        pk = band_diff(b, c, 0, 0, w // 8, h // 8)
+        # below the menu bar only: its clock ticks on its own, and a minute
+        # turning between the two captures is 31 pixels that are not the cell
+        pk = band_diff(b, c, 0, y0, w // 8, (h - y0) // 8 + 1)
         if not pk or pk[0] != 64:
             fail("a solid cell poked at row 20 column 70 came back from the "
                  "forced repaint as %r, not 64 pixels in one cell" % (pk,))
