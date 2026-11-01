@@ -1549,7 +1549,7 @@ dsk_xfer:
     xor di, di                  ; this path, which is why DI is no longer
 %endif                          ; banked across the lookup that clobbers it
 %ifdef FPG_OPS
-    push cx                     ; the run, for the file bar below
+    push cx                     ; the run, for the file bar below...
 %endif
     CURXFER_ON                  ; **AND THE DRIVER'S TRANSFER TOO** (SPEC.md
                                 ; 7.4.1.1). Not the ROM, so the "CPU parked on
@@ -1587,7 +1587,6 @@ dsk_xfer:
     call ct_cw_mem_disp         ; its writes and ended at half the bar. Per
     loop .drvnotch              ; sector, as .notch steps: fpg_step clamps
     jmp short .success          ; at the total and preserves everything
-    nop                         ; PARITY, never executed (t_hotpar)
 .drverr:
 %else
     jnc .success
@@ -2051,6 +2050,14 @@ dsk_xfer:
     jne .notch                  ; 18.91.6): with neither bar live - the
     cmp word [fpg_total], 0     ; splash gone (SPLCALL's own test) and no
     je .notched                 ; scale armed (fpg_step's) - every pass below
+%ifdef FPG_OPS
+    cmp byte [dsk_rah_busy], 0  ; ...AND NOT FOR A READ-AHEAD FILL (SPEC.md
+    jne .notched                ; 12.8.2): it reads the track's speculative
+                                ; tail too, and the caller's own sectors are
+                                ; stepped again when the cache serves them -
+                                ; so a run of small files counted twice and a
+                                ; whole-operation bar (12.8.8) hit 100% early
+%endif
                                 ; is two calls answering "not armed": 5.2% of
                                 ; a bracketed 32 KB read on an XT, measured
                                 ; (DISK-CPU-PLAN 7.4). CX is left holding the
@@ -2319,6 +2326,8 @@ dsk_xfer:
                                 ; are 3 bytes shorter, and dsk_runcap and
                                 ; dsk_next_clus_x keep an EVEN shift
                                 ; (t_hotpar.py)
+
+
 
 ; dsk_img_swap - disk_drive/disk_spt/disk_heads <-> the first five bytes of
 ; the image claim at DX. CF preserved - mov, xchg, push, pop, dec and jns

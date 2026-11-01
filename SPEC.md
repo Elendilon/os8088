@@ -27460,6 +27460,19 @@ unlock:
   Before these, a floppy-to-C: copy on an HDD.DRV machine stopped at half
   the bar, and so did a copy onto or off a RAM disk. `tests/fpgop.py` is the
   gate, on all four paths.
+- **A read-ahead FILL is not counted under kern_big** (`[dsk_rah_busy]` at
+  `.count`), which reverses 12.8.2's *"left alone deliberately"*: the fill
+  reads the track's speculative tail as well, and the caller's own sectors
+  are stepped again when the cache serves them, so a run of small files
+  counted its reads up to twice. Against one operation's scale that is not
+  invisible: an install's bar filled at 74-88% of the job. Each served
+  sector is now counted once, when it reaches its caller.
+- **The installer's estimate** (HDDTOOL.DRV `hd_iop_go`) is the source's
+  used sectors read once and written once, plus an eighth. The kernel counts
+  what it moves, and an install also writes each file's directory entries
+  and rounds each file up to the hard disk's larger cluster: 106-115% of the
+  bare count on `tests/install.py`'s three installs, so the eighth lands the
+  bar at 94-98% of the job.
 - **`fpg_finish` clears the whole byte** and with it the operation, so there
   is still no bracket to forget. `fcp_xfer` is the first caller: one
   operation per file, twice the source's size.
