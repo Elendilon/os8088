@@ -644,7 +644,7 @@ ss_open:
     ret
 
 ; -----------------------------------------------------------------------------
-; ss_start_x - the idle period ran out (SPEC.md 79.1)
+; ss_start_x - the idle period ran out (SPEC.md 79.1): ssf_set's .start arm
 ; in:  nothing; NO GFX LOCK HELD - this takes it
 ; out: CF = 0 the overlay has the screen; CF = 1 blank the signal instead
 ; clobbers: AX, flags
@@ -664,40 +664,7 @@ ss_open:
 ; is exactly what this feature exists to prevent, so it is worth naming the
 ; cause: not the saver's drawing, but a disk read taken without the lock.
 ; -----------------------------------------------------------------------------
-ss_start_x:
-    cmp byte [ss_modes], 0
-    stc                         ; the refusal, set BEFORE the branch so that
-    je .out                     ; the two ways out share one `ret`. `stc`
-                                ; writes no ZF, so the compare still reads
-    ; ...AND A WINDOW THAT ASKED FOR QUIET IS A REFUSAL TOO (SPEC.md 79.10):
-    ; blank instead. WF_QUIET, set through OSAPI_WM_QUIET by a program working
-    ; in the background - FTPD while it serves. A session draws on the UI task
-    ; a frame a pass, and that is the task such a program's disk half runs on;
-    ; a gated signal costs nothing. A free record is all zeros (wm_destroy),
-    ; so the walk needs no used-bit test, and it runs once a SESSION, not once
-    ; a frame. Written here and not as ss_quiet, its one caller, and walked by
-    ; the POINTER against its end rather than by a count, so the `jb` that
-    ; keeps going is also the CF = 0 that falls out (kernel size pass 12)
-    push bx
-    mov bx, wm_wins + W_FLAGS + 1
-.q:
-    test byte [bx], WF_QUIET >> 8
-    stc                         ; `stc` writes no ZF: the test still reads
-    jnz .qx
-    add bx, WIN_SIZE
-    cmp bx, wm_wins + W_FLAGS + 1 + MAX_WIN * WIN_SIZE
-    jb .q                       ; ...and falling out of it is CF = 0
-.qx:
-    pop bx
-    jc .out
-    call ct_cw_gfx_lock
-    mov al, SSV_START
-    call ss_open
-    pushf                       ; the verdict, banked across the unlock, whose
-    call ct_cw_gfx_unlock           ; contract is "clobbers: flags"
-    popf
-.out:
-    ret
+; (ssf_set's .start below - written into its one caller, kernel size pass 16)
 
 ; -----------------------------------------------------------------------------
 ; ss_cfg_x - open the settings window (SPEC.md 79.7)
@@ -856,39 +823,11 @@ ss_post_x:                      ; NO `push ax`: nothing in this routine writes
 ; pass's worth of drawing and nothing inside it may still believe the overlay
 ; owns the screen.
 ; -----------------------------------------------------------------------------
-ss_set_x:
-    or al, al
-    jz .lit
-    call ss_start_x
-    jc .no                      ; nothing loaded, so nothing to hide
-    call KERNEL_SEG:cw_cursor_hide
-    mov al, 1                   ; ...and a byte store through AL is three
-    mov [blk_sv], al            ; bytes where an immediate one is six
-    clc
-    ret
-.lit:
-    cmp byte [blk_sv], 0
-    je .blank                   ; the signal was gated: blk_set un-gates it
-    mov [blk_sv], al            ; AL is still the 0 that brought us here
-    call ss_stop_x
-    call KERNEL_SEG:cw_cursor_show
-    clc
-    ret
-.blank:
-    call ss_mins2idle           ; the BLANKER's wake still re-derives the
-                                ; period: Test with zero modes ticked parked
-                                ; 1 in [ss_idle], ss_start_x refused so the
-                                ; session never began, and nothing ever put
-                                ; the derived period back - the screen
-                                ; re-blanked every tick until Ok or Cancel
-                                ; landed on a machine going dark under the
-                                ; pointer. Idempotent on every ordinary
-                                ; blanker wake, and it ends a blanker-Test
-                                ; exactly the way sv_do_stop ends a saver's
-.no:
-    stc
-    ret
-
+; ss_set_x WAS ITS OWN ROUTINE, ssf_set's one callee, and ss_start_x was
+; ss_set_x's: kernel size pass 16 wrote both into the far entry below (-8 of
+; .cold - two calls, three rets and the CF answer each made for the next one to
+; test). The arms are the same; what changed is that every refusal now lands
+; on ONE `stc` and every success on ONE `clc`, beside the entry's own pop.
 ; --- the far entries (SPEC.md 2.6) -------------------------------------------
 ; `retf` pops CS:IP and touches no flag, so the CF each body answers in comes
 ; back through it unchanged - mod.inc's modf_* pair for the same reason.
@@ -896,10 +835,69 @@ ss_set_x:
 ; ssf_frame HAS NO BODY OF ITS OWN. SSV_FRAME/STOP/BUSY preserve every
 ; register (SPEC.md 79.3), which is the overlay's obligation and costs the
 ; kernel nothing, so the verb IS the routine.
-ssf_set:        push ax
-                call ss_set_x
-                pop ax          ; `pop` touches no flag: the CF survives it
-                retf
+ssf_set:
+    push ax
+    or al, al
+    jnz .start
+    cmp byte [blk_sv], 0
+    jne .stop                   ; the signal was gated: blk_set un-gates it
+    call ss_mins2idle           ; the BLANKER's wake still re-derives the
+                                ; period: Test with zero modes ticked parked
+                                ; 1 in [ss_idle], .start refused so the
+                                ; session never began, and nothing ever put
+                                ; the derived period back - the screen
+                                ; re-blanked every tick until Ok or Cancel
+                                ; landed on a machine going dark under the
+                                ; pointer. Idempotent on every ordinary
+                                ; blanker wake, and it ends a blanker-Test
+                                ; exactly the way sv_do_stop ends a saver's
+    jmp short .no
+.stop:
+    mov [blk_sv], al            ; AL is still the 0 that brought us here
+    call ss_stop_x
+    call KERNEL_SEG:cw_cursor_show
+    jmp short .ok
+.start:                         ; --- ss_start_x, above -----------------------
+    cmp byte [ss_modes], 0      ; no mode ticked: blank the signal instead
+    je .no
+    ; ...AND A WINDOW THAT ASKED FOR QUIET IS A REFUSAL TOO (SPEC.md 79.10):
+    ; blank instead. WF_QUIET, set through OSAPI_WM_QUIET by a program working
+    ; in the background - FTPD while it serves. A session draws on the UI task
+    ; a frame a pass, and that is the task such a program's disk half runs on;
+    ; a gated signal costs nothing. A free record is all zeros (wm_destroy),
+    ; so the walk needs no used-bit test, and it runs once a SESSION, not once
+    ; a frame. Written here and not as ss_quiet, its one caller, and walked by
+    ; the POINTER against its end rather than by a count, so the `jb` that
+    ; keeps going is also the CF = 0 that falls out (kernel size pass 12)
+    push bx
+    mov bx, wm_wins + W_FLAGS + 1
+.q:
+    test byte [bx], WF_QUIET >> 8
+    stc                         ; `stc` writes no ZF: the test still reads
+    jnz .qx
+    add bx, WIN_SIZE
+    cmp bx, wm_wins + W_FLAGS + 1 + MAX_WIN * WIN_SIZE
+    jb .q                       ; ...and falling out of it is CF = 0
+.qx:
+    pop bx
+    jc .no
+    call ct_cw_gfx_lock
+    mov al, SSV_START
+    call ss_open
+    pushf                       ; the verdict, banked across the unlock, whose
+    call ct_cw_gfx_unlock       ; contract is "clobbers: flags"
+    popf
+    jc .no                      ; nothing loaded, so nothing to hide
+    call KERNEL_SEG:cw_cursor_hide
+    mov al, 1                   ; ...and a byte store through AL is three
+    mov [blk_sv], al            ; bytes where an immediate one is six
+.ok:
+    clc
+    SKIPAL1                     ; mov al, imm8 over .no's stc: CF stays 0, and
+.no:                            ; AL is the pushed AX's to put back
+    stc
+    pop ax                      ; `pop` touches no flag: the CF survives it
+    retf
 ssf_frame:      cmp byte [blk_sv], 0    ; blk_pass's gate, on this side of the
                 je .none                ; boundary (see .up there)
                 push ax

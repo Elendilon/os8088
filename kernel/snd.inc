@@ -320,20 +320,15 @@ snd_tone_req:
                                 ; priority, DH the instance: one word
                                 ; (adjacent - the %if under the .bss)
     mov [snd_town_exp], cx
-    mov byte [snd_town_act], 1
-    mov byte [snd_ch2mode], 1
+    mov al, 1                   ; one immediate for both bytes (AL is the
+    mov [snd_town_act], al      ; generation's below - kernel size pass 16, -2)
+    mov [snd_ch2mode], al
 .granted:                       ; ...and a release updates the record too
     inc byte [snd_gen]          ; (34.3): the generation, which is AL, the
     mov al, [snd_gen]           ; answer to both
     popf
-    clc
-    jmp short .out
-
-.off:                           ; --- tone off: release the channel ----------
-    call snd_town_off
-    jmp short .granted          ; same window close, same CF=0 answer, same
-                                ; AL = the generation
-
+    SKIPF2                      ; CF = 0 over .refuse's popf/stc (kernel size
+                                ; pass 16: -2 against clc and a jump)
 .refuse:
     popf
     stc
@@ -343,6 +338,11 @@ snd_tone_req:
     pop cx
     pop bx
     ret
+
+.off:                           ; --- tone off: release the channel ----------
+    call snd_town_off
+    jmp short .granted          ; same window close, same CF=0 answer, same
+                                ; AL = the generation
 
 ; -----------------------------------------------------------------------------
 ; snd_town_off - silence the owning tone and free the channel (internal)
