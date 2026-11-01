@@ -176905,6 +176905,30 @@ of it seek**. HELP's measured 985 ms (DOS-PARTS-PLAN 1.1) is the same shape.
 It is paid at every open, because `Return` frees the part - a second open in
 the session reads it again.
 
+###### 96.32.2.3.1 …and the figure it draws owes back the wall it is
+
+The page's arena figure (§96.36.3) is `OSAPI_MEM_COMPACT`'s what-if, asked
+FROM the part - so it is asked with the part's claim standing, and that claim
+is PINNED (above). The what-if excuses the caller's region and its MOVABLE
+claims and nothing else, so a pinned claim is a WALL to the plan: whatever
+lies under it - the directory window's neighbours, the icon store and a
+window's raise cache, which the claim's floor sheds - is out of the largest
+run. `dos_run` drops the part before it claims (§96.32.2.3), so the program is
+handed the heap WITHOUT the wall, and the page under-promised by it: measured
+on the 360KB system disk, the page said **453K/485K and the launch took
+468K/500K** - the part's 3K and the 12K of purgeable caches under it at
+`22E0`, low in the heap where a bottom-up claim lands. §96.25.1's promise is
+that those two agree.
+
+So `dos_sp_get` prices the wall when it fetches: the what-if at
+`DOS_PG_FLOOR` once before the claim and once after, the difference (never
+below zero) banked in `[dos_spwall]`, and `dos_mem_arena` adds it to every
+reading on arm 0 (and the window's figure, which starts from the same
+what-if). The figure stays LIVE - each paint still asks the what-if -
+and the correction is the one term the what-if cannot see. It is re-priced at
+every fetch, which is every open of the page. 32 bytes of host image and 2 of
+bss; kern_mega's and the inline build's page have no part and no term.
+
 ###### 96.32.2.4 …and `Run in a window` is a box on it
 
 A check box at the LEFT of the furniture row, beside `Save Shortcut`, says

@@ -7753,6 +7753,9 @@ dos_mem_arena:
                                     ; what-if reads its level from AL rather
                                     ; than from the task's floor the way
                                     ; OSAPI_MEM_AVAIL does
+%ifdef DOS_SETPART
+    add ax, [dos_spwall]            ; ...PLUS what the page's own code walls
+%endif                              ; off while it is held (SPEC.md 96.32.2.3.1)
     call dos_cache_give             ; ...PLUS what the dial hands back out of
     add ax, cx                      ; the cache, which is the one term the
 %ifdef DVW
@@ -11713,10 +11716,21 @@ dos_sp_get:
     push di
     push bp
     push es
+    mov ax, DOS_PG_FLOOR            ; THE WALL IT IS, PRICED (SPEC.md
+    call OSAPI_MEM_COMPACT          ; 96.32.2.3.1): the what-if before the
+    push ax                         ; claim, against the one after it below
     mov si, dos_setrow
     xor ah, ah                      ; no floor: the code and nothing else
     call dos_pself                  ; DX = the claim, CX = the part's length
+    pop cx                          ; CX = the what-if with no part held
     jc .no
+    mov ax, DOS_PG_FLOOR            ; ...and with it: a PINNED claim, so the
+    call OSAPI_MEM_COMPACT          ; plan packs around it and whatever lies
+    sub cx, ax                      ; under it is out of the arena. dos_run
+    jae .wall                       ; drops it first, so the page owes the
+    xor cx, cx                      ; program the difference back - which
+.wall:                              ; dos_mem_arena adds to every reading
+    mov [dos_spwall], cx
     mov es, dx                      ; ...and the way back, into its head
     mov word [es:SPH_HOST], dos_sp_bounce
     mov [es:SPH_HOST+2], cs
@@ -11989,6 +12003,7 @@ DOS_BTREC_SZ equ 18              ; **A MIRROR OF os88ui.inc's OS88UI_BT_SIZE**,
     HBSS DOS_B_SPDOOR, 4         ; the Setup part's door, 0:claim - its
                                  ; segment word 0 = not held (96.32.2.3)
     HBSS DOS_B_SPTGT, 2          ; ...and the host routine its bouncer calls
+    HBSS DOS_B_SPWALL, 2         ; ...and the KB its claim walls off (96.32.2.3.1)
 %endif
 %ifdef DOS_MEGA
     HBSS DOS_B_MHMA,  DOS_MCKSZ  ; ...and Load DOS in the HMA (96.40.9.2)
@@ -17496,6 +17511,7 @@ dos_mwin equ dos_hbss + DOS_B_MWIN   ; ...and Run in a window (96.32.2.4)
 %ifdef DOS_SETPART
 dos_spdoor equ dos_hbss + DOS_B_SPDOOR   ; dword: the Setup part's door
 dos_sp_tgt equ dos_hbss + DOS_B_SPTGT    ; word: ...and its bouncer's target
+dos_spwall equ dos_hbss + DOS_B_SPWALL  ; word: ...and the KB it walls off
 %endif
 %ifdef DOS_MEGA
 dos_mhma equ dos_hbss + DOS_B_MHMA   ; ...and kern_mega's HMA box (96.40.9.2)
