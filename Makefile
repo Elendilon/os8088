@@ -7350,7 +7350,7 @@ $(BUILD)/wirechat.o88: $(BUILD)/wirechat.bin tools/os88pkg.py $(PKGZSTAMP) $(PKG
 # strings have to name.
 # --- DOS (SPEC.md 96) --------------------------------------------------------
 $(BUILD)/dos.bin: apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
-                  apps/dos/doshelp.asm apps/dos/dosc.inc apps/dos/dosw.inc apps/dos/doswm.inc apps/dos/dosw16.inc apps/dos/dosnetabi.inc \
+                  apps/dos/doshelp.asm apps/dos/dosc.inc apps/dos/dosw.inc apps/dos/doswm.inc apps/dos/dosw16.inc apps/dos/dosnetabi.inc apps/dos/dospktabi.inc apps/dos/dospkt.inc \
                   apps/os88api.inc apps/dos/doscall.inc \
                       apps/dos/doscents.inc apps/os88ui.inc \
                   apps/os88line.inc apps/os88sock.inc \
@@ -7444,7 +7444,7 @@ $(shell mkdir -p $(BUILD); \
 
 $(BUILD)/kerndos.bin: kerndos/kdos.asm $(KERNDOS_INC) $(KERNEL_INC) \
                       apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
-                      apps/dos/dosc.inc apps/dos/dosw.inc apps/dos/doswm.inc apps/dos/dosw16.inc apps/dos/dosnetabi.inc \
+                      apps/dos/dosc.inc apps/dos/dosw.inc apps/dos/doswm.inc apps/dos/dosw16.inc apps/dos/dosnetabi.inc apps/dos/dospktabi.inc apps/dos/dospkt.inc \
                       apps/os88api.inc apps/dos/doscall.inc \
                       apps/dos/doscents.inc apps/os88ui.inc apps/os88line.inc \
                       apps/os88sock.inc apps/os88con.inc apps/os88cp437.inc \
@@ -7462,7 +7462,7 @@ $(BUILD)/kerndos.bin: kerndos/kdos.asm $(KERNDOS_INC) $(KERNEL_INC) \
 # and the Memory page's `Load DOS in the HMA` picks; nothing else builds it.
 $(BUILD)/kerndosl.bin: kerndos/kdos.asm $(KERNDOS_INC) $(KERNEL_INC) \
                        apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
-                       apps/dos/dosc.inc apps/dos/dosw.inc apps/dos/doswm.inc apps/dos/dosw16.inc apps/dos/dosnetabi.inc \
+                       apps/dos/dosc.inc apps/dos/dosw.inc apps/dos/doswm.inc apps/dos/dosw16.inc apps/dos/dosnetabi.inc apps/dos/dospktabi.inc apps/dos/dospkt.inc \
                        apps/os88api.inc apps/dos/doscall.inc \
                        apps/dos/doscents.inc apps/os88ui.inc apps/os88line.inc \
                        apps/os88sock.inc apps/os88con.inc apps/os88cp437.inc \
@@ -7487,7 +7487,7 @@ DOSW16DEF := $(if $(KERN_MEGA)$(KERN_SMALL),,-DDOS_WIN16)
 # stub reads them with int 13h (docs/plans/KERN-DOS-PLAN.md §4.1.1).
 $(BUILD)/dosp.bin: apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
                    apps/dos/doshelp.asm apps/os88pself.inc \
-                   apps/dos/dosc.inc apps/dos/dosw.inc apps/dos/doswm.inc apps/dos/dosw16.inc apps/dos/dosnetabi.inc \
+                   apps/dos/dosc.inc apps/dos/dosw.inc apps/dos/doswm.inc apps/dos/dosw16.inc apps/dos/dosnetabi.inc apps/dos/dospktabi.inc apps/dos/dospkt.inc \
                    apps/os88api.inc apps/dos/doscall.inc \
                       apps/dos/doscents.inc apps/os88ui.inc \
                    apps/os88line.inc apps/os88sock.inc \
@@ -7508,7 +7508,7 @@ $(BUILD)/dosp.bin: apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
 # `all` builds it, because a check nobody runs is a check that rots.
 $(BUILD)/doscore.bin: apps/dos/doscore.asm apps/dos/dos.asm apps/dos/dosh.inc apps/dos/doshelp.asm \
                       apps/dos/dosc.inc apps/dos/dosw.inc apps/dos/doswm.inc apps/dos/dosw16.inc apps/dos/dosnet.inc \
-                      apps/dos/dosnetabi.inc apps/os88api.inc apps/dos/doscall.inc \
+                      apps/dos/dosnetabi.inc apps/dos/dospktabi.inc apps/dos/dospkt.inc apps/os88api.inc apps/dos/doscall.inc \
                       apps/dos/doscents.inc \
                       apps/os88ui.inc apps/os88line.inc apps/os88sock.inc \
                       apps/os88con.inc apps/os88cp437.inc \
@@ -7531,13 +7531,15 @@ $(BUILD)/doscore.bin: apps/dos/doscore.asm apps/dos/dos.asm apps/dos/dosh.inc ap
 $(BUILD)/kdos/DOS.O88: $(BUILD)/dosload.bin $(BUILD)/dosp.bin \
                        $(BUILD)/doscore.bin $(BUILD)/kerndos.bin tools/os88pkg.py \
                        $(if $(KERN_MEGA),$(BUILD)/kerndosl.bin) \
-                       $(BUILD)/doshelp.bin $(PKGZSTAMP)
+                       $(BUILD)/doshelp.bin $(if $(KERN_MEGA),,$(BUILD)/dosnetp.bin) \
+                       $(PKGZSTAMP)
 	@mkdir -p $(BUILD)/kdos
 	$(OS88PKG) $(BUILD)/dosload.bin -o $@ \
 		--part $(BUILD)/dosp.bin --part $(BUILD)/doscore.bin \
 		--part $(BUILD)/kerndos.bin \
 		$(if $(KERN_MEGA),--part $(BUILD)/kerndosl.bin) \
-		--part $(BUILD)/doshelp.bin --part-compress lz4
+		--part $(BUILD)/doshelp.bin \
+		$(if $(KERN_MEGA),,--part $(BUILD)/dosnetp.bin) --part-compress lz4
 	@echo "kdos: $(call FILESIZE,$@) bytes of DOS.O88 with kern_dos in it"
 
 # HELP's text as a part of its own (docs/plans/DOS-PARTS-PLAN.md 1.1): the
@@ -7545,6 +7547,19 @@ $(BUILD)/kdos/DOS.O88: $(BUILD)/dosload.bin $(BUILD)/dosp.bin \
 # so not one of its bytes is resident in a DOS window that never asks
 $(BUILD)/doshelp.bin: apps/dos/doshelp.asm | $(BUILD)
 	$(NASM) -f bin -w+error -o $@ apps/dos/doshelp.asm
+
+# ...and the NETWORK as a part (SPEC.md 96.23.11): the packet driver and the
+# cable translation, read by the host's op_self into the head of the network
+# claim only when a run will publish a packet driver - so a DOS window that
+# never runs a program on a wire never holds a byte of them. kern_mega's
+# DOS.O88 carries none (every launch there is the whole machine), so the part
+# is not built into it.
+$(BUILD)/dosnetp.bin: apps/dos/dosnetp.asm apps/dos/dospkt.inc apps/dos/dosnet.inc \
+                      apps/dos/dospktabi.inc apps/dos/dosnetabi.inc \
+                      apps/os88api.inc drivers/net/netpkg.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/dos/ -I drivers/net/ \
+	        -o $@ apps/dos/dosnetp.asm
+	@echo "dosnetp: $(call FILESIZE,$@) bytes of DOS's network part"
 
 $(BUILD)/dosload.bin: apps/dos/dosload.asm apps/dos/dosicon.inc \
                       apps/os88api.inc apps/dos/doscall.inc \

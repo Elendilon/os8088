@@ -77,7 +77,8 @@ def _map(src, defines, incs):
             os.unlink(f)
         except OSError:
             pass
-    if "os88_image_end" not in out and "start" not in out:
+    if "os88_image_end" not in out and "start" not in out \
+            and "pn_door" not in out:
         sys.exit("dosmap: %s's map looks empty" % src)
     _CACHE[key] = out
     return out
@@ -145,6 +146,56 @@ def package(*defines, shipped=True):
                 ("apps", os.path.join("apps", "dos"),
                  os.path.join("drivers", "net"),
                  "kerndos"))          # -DDOSKPART's launch block (96.40)
+
+
+def netpart():
+    """Every label and equate in DOS's NETWORK PART (apps/dos/dosnetp.asm,
+    SPEC.md 96.23.11), as an offset in the network CLAIM - which is
+    `[dos_pkt_bseg]` in the host's map. The packet driver's own cells
+    (`dos_pkt_raw`, `dos_pkt_stats`, ...) and the translation's rows
+    (`dn_lsn`, `dn_flows`, ...) live there on a shipped DOS.O88, so a row
+    reads them as `(bseg << 4) + netpart()[name]` and not out of the host."""
+    return _map(os.path.join(ROOT, "apps", "dos", "dosnetp.asm"), [],
+                ("apps", os.path.join("apps", "dos"),
+                 os.path.join("drivers", "net")))
+
+
+def network_rerun(m, mouse, settle, dm, who):
+    """Tick DOS's `Network` box and Run again - QEMU rows (eth.Qemu).
+
+    **A DOUBLE CLICK HAS NO PACKET DRIVER since SPEC.md 96.36.7.4**: a fresh
+    window starts with Network CLEARED (the owner's: "if they want network,
+    they have to go ask for it"), so the association open that every network
+    row starts with runs the probe with no interface at all. This is what a
+    user does about it - let the program out, open the page, tick the box,
+    Run - and the row's own assertions then read the SECOND run. DOSPKT.COM
+    prints READY and holds on int 16h whether or not it found a driver, so
+    READY is the first run's end either way."""
+    import os88qemu
+
+    def seg():
+        try:
+            return instance(m)
+        except RuntimeError:
+            return None
+    os88qemu.acted(m, lambda: b"READY" in m.read(0xB8000, 4000)[::2],
+                   secs=60, what="%s: the first run's READY" % who,
+                   poll=0.25)
+    m.hmp("sendkey ret")
+    os88qemu.acted(m, lambda: seg() is not None, secs=30,
+                   what="%s: the DOS window" % who, poll=0.5)
+    settle(m)
+    mouse.click(*centre(m, seg(), dm, "dos_erect"))
+    settle(m)
+    x1, y1 = rect(m, seg(), dm, "dos_mnet")[:2]
+    mouse.click(x1 + 4, y1 + 5)
+    settle(m)
+    if not m.read(lin(m, seg(), dm["dos_mnet"] + dm["OS88UI_CK_ON"]), 1)[0]:
+        raise RuntimeError("%s: a press on the Network box did not tick it "
+                           "(SPEC.md 96.36.7)" % who)
+    mouse.click(*centre(m, seg(), dm, "dos_trect"))
+    settle(m)
+    mouse.click(*centre(m, seg(), dm, "dos_rrect"))
 
 
 def kerndos():

@@ -75,7 +75,8 @@ DOS_PART_KDL  equ 3             ; ...and kern_mega's LOW kern_dos (SPEC.md
 DOS_PART_HELP equ 4             ; 96.40.9.2), which nothing here reads either
 %else
 DOS_PART_HELP equ 3             ; ...and HELP's text, which the HOST reads
-%endif                          ; with op_self (DOS-PARTS-PLAN 1.1)
+DOS_PART_NET  equ 4             ; with op_self (DOS-PARTS-PLAN 1.1) - and the
+%endif                          ; NETWORK, the same way (SPEC.md 96.23.11)
 
 ; --- the handoff, at the head of the DOS's bss (SPEC.md 20.12.10.2) ---------
 ; ONE PACKAGE, TWO SOURCES: `apps/dos/dos.asm` declares these and this file is
@@ -101,6 +102,9 @@ DSLH_HLPROW  equ DSLH_W16K + 1  ; row by the copy that left DI there - and
 %else                           ; HELP's row LAST (DOS-PARTS-PLAN 1.1), its
 DSLH_HLPROW  equ DSLH_SIZE      ; kind byte the stream's format
 %endif
+%ifndef DOS_MEGA
+DSLH_NETROW  equ DSLH_HLPROW + OP_ROW   ; ...and the network part's after it
+%endif                                  ; (SPEC.md 96.23.11), the same shape
 
 LD_H_IMG    equ 8               ; ...and the two header fields this file reads
 LD_H_BSS    equ 10              ; them at, which are the FORMAT's and not ours
@@ -439,6 +443,12 @@ dsl_pmok:
     mov al, [op_table + OP_T_FMT]   ; always OP_ASSET, overwritten with the
     mov [es:di - OP_ROW], al        ; FORMAT op_self is told, so the format
                                     ; costs the host no byte of its own
+%ifndef DOS_MEGA
+    mov al, DOS_PART_NET            ; ...and the NETWORK part's, straight after
+    call dsl_row                    ; it (DI is there: SPEC.md 96.23.11), its
+    mov al, [op_table + OP_T_FMT]   ; kind byte the format the same way
+    mov [es:di - OP_ROW], al
+%endif
                                     ; where the core goes, and only this image
                                     ; knows where either one sits in the file.
                                     ; Out of the stash and not the table: the
@@ -473,7 +483,7 @@ dsl_pmok:
 
 ; --- the table, and the standard's own code after it (SPEC.md 20.12.3) ------
 %ifndef DOS_MEGA
-    OS88_PARTS_BEGIN 4
+    OS88_PARTS_BEGIN 5
 %else
     OS88_PARTS_BEGIN 5
 %endif
@@ -511,7 +521,15 @@ dsl_pmok:
       OS88_PART OP_ASSET, OP_COMP | OP_LAZY | OP_SELF
                                     ; 3 (4 on kern_mega) HELP's text, read by
                                     ;   the re-homed host's op_self when HELP
-                                    ;   is typed (DOS-PARTS-PLAN 1.1)
+                                    ; is typed (DOS-PARTS-PLAN 1.1)
+%ifndef DOS_MEGA
+      OS88_PART OP_ASSET, OP_COMP | OP_LAZY | OP_SELF
+                                    ; 4 DOS's NETWORK - the packet driver and
+                                    ;   the cable translation - read by the
+                                    ;   host's op_self into the network claim
+                                    ;   when a run will publish a packet driver
+                                    ;   (SPEC.md 96.23.11). kern_mega's has none
+%endif
     OS88_PARTS_END
 
     OS88_BSS OP_BSS + DSL_BSS

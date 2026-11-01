@@ -1,8 +1,10 @@
 # DOS-PARTS-PLAN - what in DOS.O88 a program that does not use it should not pay for
 
 **Status: a design study. Section 4 is BUILT (the flash-free variant, 4.6);
-section 1.1's shared part reader, with HELP as its first consumer, is built
-on this branch as evidence; nothing else here is.** Written on branch
+section 1.1's shared part reader, with HELP as its first consumer, is built;
+section 3's NETWORK PART is BUILT (SPEC.md 96.23.11, measured below in 6) and
+the Memory page's `Network` box starts cleared (SPEC.md 96.36.7.4); the
+windowed layer (2) is not.** Written on branch
 `dos-windowed` at 2026-11-01. Every figure is marked **M** (measured on this
 tree, method below) or **E** (estimated, with what it was estimated from). An
 **E** is a promise to measure, not a fact.
@@ -658,8 +660,20 @@ Revisit when:
 
 1. **DONE** (4.6). Section 4, the loader's NE arm (~1 day, E). Gate: the six `win16*` rows
    plus a new prompt/`.LNK` leg.
-2. `dos_pfetch` + the network part (~2-3 days, E): ~4.3 KB a wire-less
-   instance. Gate: `dospkt`, `doscable`, `dosnetarena`.
+2. **BUILT** (SPEC.md 96.23.11): the network part. **-4,363 bytes** of every
+   DOS instance (M: host image 47,520 -> 43,227, bss 7,309 -> 7,239), the
+   plan's ~4.3 KB E confirmed. Part 4, 4,480 bytes raw and 3,662 packed;
+   `DOS.O88` +1,009 bytes on disk (M - the part's own sectors cost more than
+   the +134 E, which priced compression alone). It took `op_self` with a KB
+   FLOOR (`AH`, +8 bytes) rather than a second reader, so the code and the
+   buffers are ONE claim, and a shared `dos_pself` that HELP now uses too.
+   The pin is the bracket's (from `dos_pkt_start`, bucket C), not a
+   relocation proc that re-aims vectors a client may have copied. kern_mega
+   carries no network at all (every launch there is the whole machine, so it
+   was unreachable): -4,714 bytes there. The first networked run's read is
+   ~1 s on a 5150, ESTIMATED from HELP's measured 985 ms - no emulator here
+   with a wire was used to time it. Gate: `dospkt`, `doscable`, `dosxlat`,
+   `dosnetarena`, all four adapted to the cleared default.
 3. HELP as a lazy asset: BUILT as evidence (1.1), -519 bytes M with the
    reader in it. Gate: `dosopen`, `dosconcga`, `dosaltenter`.
 4. The windowed layer as a far part, option C (~4-5 days, E): ~5.0 KB a

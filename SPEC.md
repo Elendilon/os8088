@@ -183139,7 +183139,8 @@ card behind it are three kilobytes spent on an interface `dos_pkt_start` can
 never publish. `dos_pkt_want` asks `dos_spmask`, which is the same routine the
 sweep is given, so the box cannot mean one thing to the figure and another to
 the claim. The **cable** is `DRVC_FILE` (§62.9) and has no box, so that route
-is unaffected and still claims `PKB_XLKB`.
+is unaffected and still claims `PKB_XLKB`. *(Since §96.36.7.4 the box gates the
+cable too: cleared, neither route claims.)*
 
 #### 96.23.7.2 The buffers are MOVABLE, and pinned again for the handle's life
 
@@ -183184,6 +183185,11 @@ sides: movable for the whole of `dos_run`'s pass, which is where the 39.5KB
 is, and pinned for the handle's lifetime, which is where the danger is.
 `dos_pkt_rloc` preserves the flags, because both of `dos_pkt_claim`'s arms end
 in a deliberate `clc`/`stc`.
+
+*Where the family is a part (§96.23.11) the claim holds its CODE as well,
+and the program's vector and `INT 08h` point into it from `dos_pkt_start` on
+— so there it is pinned for the whole bracket instead of per handle, which
+covers the stack's case too.*
 
 #### 96.23.8 `send_pkt` copies nothing — the client's buffer goes straight down
 
@@ -183284,6 +183290,118 @@ bit) and nothing here needs it: every ordinary mTCP application uses mode 3,
 and only a *sniffer* wants more. Recorded as a limitation rather than left to
 be discovered, because the refusal is the honest path (§47) and the warning it
 produces is not a fault.
+
+#### 96.23.11 The packet driver and the translation are a PART, read when a run wants a wire
+
+Everything in §96.23 and §96.26 that runs only once a wire is found — the
+gate, the handle table, the poll, the up-call, the tick, and the whole of
+`dosnet.inc` — is **part 4 of `DOS.O88`** on kern_big and kern_emu, an
+`OP_ASSET | OP_COMP | OP_LAZY | OP_SELF` row the loader copies into the
+host's bss beside HELP's (`DSLH_NETROW`, after `DSLH_HLPROW`, its kind byte
+the stream's format) and the re-homed host reads with the shared reader
+`op_self` (docs/plans/DOS-PARTS-PLAN.md §1.1). A DOS window that never runs
+a program on a wire never holds a byte of it. What stays resident is what
+DECIDES and what CLAIMS: `dos_pkt_want`, `dos_pkt_bufs`, `dos_pkt_reloc`,
+`dos_pkt_rloc`, and four far doors.
+
+**ONE claim holds the code AND the buffers.** `op_self` takes a floor (`AH`,
+the least KB its claim must be), so the part expands into the head of the
+claim §96.23.7 already made rather than into a second one — the eight owner
+claims (`MEM_OWNER_MAX`) are not spent on it, and `[dos_pkt_bseg]` still
+names the one block. The layout, every offset an assembly constant of the
+part (`apps/dos/dosnetp.asm`):
+
+    0                 the part's image: the door entry, the gate, the tick,
+                      dosnet.inc, and its constant strings
+    PN_STATE_AT       the packet driver's own cells (dos_pkt_htab, _stats,
+                      _mac, _cvec ... - PN_STATE bytes), which were HBSS
+    PN_BUF            §96.23.7's buffers, PKB_* rebased by PN_BUF
+
+`PN_STATE_AT` is the image's own length (its tail is 16-aligned, so the row's
+`len` IS it), and the host sizes the claim from the row at run time:
+`len + PN_STATE + PKB_CARDB` or `+ PKB_XLB`, rounded up to a KB, and zeroes
+everything past `len` itself (the reason §96.23.7 zeroes is unchanged, and a
+claim `op_self` expanded into holds the stream's tail). `CS = DS` = the claim
+in every part routine, so the gate's `push cs / pop ds` and the vector's
+`mov [es:si+2], cs` are right as written, and `dosnet.inc`'s `DN_DOOR` reads
+the claim out of the claim. Two things it reached in the host it is now
+HANDED at the init door: `[net_cls]` (copied — the part's own cell) and the
+environment rows `dn_lsn_init` reads for `OS88LISTEN=` (their segment and
+offset; the rows stay the core's, read through `ES`).
+
+**The doors.** The host far-calls `claim:0` with `AL` = the door, through a
+dword whose segment word IS `[dos_pkt_bseg]` — so the relocation proc still
+writes one word. `PN_D_INIT` (`AH` the route, `BL` the class, `DX:SI` the
+environment), `PN_D_START` (`dos_pkt_start`), `PN_D_POLL` (`DHK_POLL`, only
+while `[dos_pkt_bseg]` is nonzero — every `INT 21h` of a networked run pays
+one far call) and `PN_D_SHUT` (`dn_shut`, then `dos_pkt_rawdrop`; the host
+frees the claim). Each door first writes `CS` into the part's own
+`[dos_pkt_bseg]`, so a claim that moved since the last door reads itself.
+
+**The pin moves to `dos_pkt_start`, for the BRACKET, and that is a
+narrowing of §96.23.7.2 with a reason.** The claim is movable from
+`dos_pkt_bufs` to `dos_pkt_start`, which covers `dos_run`'s compaction pass —
+the whole of what §96.23.7.2's 39.5KB was about. From `dos_pkt_start` the
+program's vector and `INT 08h` point INTO the claim, and a client may have
+copied either (a chained `INT 08h` keeps our address in the program's own
+memory), so no relocation proc can re-aim them. It is pinned from there to
+the free: `tests/pins.txt`'s bucket C, *an fsx bracket*. The per-handle
+`dos_pkt_rloc` calls in `dos_pkt_claim` and `dos_pkt_rawdrop` go, because
+the bracket's pin covers the handle's. Init is not a hazard either way: the
+claim is born pinned and is declared movable only after `PN_D_INIT`
+returns, so no compaction can move code that is running.
+
+**It is read only when the run will publish an interface.** `dos_pkt_bufs`
+reads nothing when `dos_pkt_want` says no wire or the box is cleared
+(§96.36.7.4), and nothing on a run that will never call `dos_pkt_start` at
+all: a run in the window (§96.54 publishes no packet driver), and the
+whole-machine arm (`kern_dos` has none, §96.43). `dos_run` calls
+`dos_mem_fix` in front of it so that the arm it tests is the arm that runs.
+
+**Where it is not a part, and why each.** kern_mega's `DOS.O88` carries
+NO network at all: every launch there is the whole machine (`dos_mem_fix`,
+KERN-MEGA-DOS-PLAN 12.1 item 1), so `dos_pkt_start` is unreachable and the
+family was code that could only claim 3KB and free it again — a claim is a
+data selector there, so the part would have needed `OSAPI_SEG`'s code alias
+to run at all, for nothing. `dos_pkt_want` answers *no wire* on that build.
+`kern_dos` never had it (§96.43). kern_small's disks carry no `DOS.O88`
+(§24.5). A build with no part table — `build/dos.o88`, the DOSTRACE build —
+keeps the family INLINE, the shape this section replaces, because it has no
+loader to hand it a row; `apps/dos/dospkt.inc` is the one source both shapes
+assemble.
+
+**What it costs a networked run**: `op_self`'s read, once per run that finds
+a wire (the claim is freed with the bracket, as §96.23.7's always was), and
+one far call more on each `INT 21h` of that run (`DHK_POLL`'s door, 8 more
+bytes of the program's stack for the length of the poll). The read is
+**ESTIMATED at ~1 s on a 5150** from HELP's MEASURED one (DOS-PARTS-PLAN
+1.1: 985 ms for two `int 13h` and 9 sectors off the 360KB system disk, 544 ms
+of it seek): the network part is 3,662 bytes packed, one `READ_AT` of ~9
+sectors from the same file two sectors further on, and its LZ4 decode is
+~4.5 KB of output (~40 ms at the boot decoder's measured 40 cycles a byte,
+§2.9.13; `OSAPI_DECOMP` is the bounded one and slower, so call it under 0.1 s).
+It is not measured: MartyPC has no NIC, and the cable route it CAN host
+(`doscable`'s partner) was not taken for one number.
+
+**Measured** (kern_big's shipped flags, `build/dosp.bin`'s header, the tree
+this landed on):
+
+| | before | after | delta |
+|---|---:|---:|---:|
+| host image (part 0) | 47,520 | 43,227 | -4,293 |
+| host bss | 7,309 | 7,239 | -70 |
+| **RAM per DOS instance** (image + bss) | 54,829 | 50,466 | **-4,363** |
+| the network part (part 4), raw / packed | - | 4,480 / 3,662 | |
+| the network claim, card route (was 3 KB) | 3 KB | 7 KB | +4 KB, only while a networked run is up |
+| `DOS.O88` on disk | 50,781 | 51,790 | +1,009 (a part's own sectors, and part 0 packs 3,295 smaller) |
+| loader (`dosload.bin`, transient) | 2,809 | 2,831 | +22 |
+| `doscore.bin`, kern_dos (both kern_mega images too) | | | byte-identical |
+| kern_mega host (image + bss) | 50,955 | 46,241 | -4,714 (no part: no network) |
+
+A window that runs no networked program - which since §96.36.7.4 is every
+window whose user did not tick `Network` - is 4,363 bytes smaller and claims
+nothing for the network at all; one that does pays about what it did, the
+code having moved from the region into the claim.
 
 #### 72.22.5 `ethsock.inc` has two hosts, and only one can reach these
 
@@ -183906,6 +184024,29 @@ with one chance to be wrong, and the prose described the caller rather than
 reading it.** §96.49.5's `cw_clk_snapshot` is the same failure — a routine
 documented as doing the thing, whose body was a bare `retf` — and both were
 invisible because the number they produced was plausible.
+
+##### 96.36.7.4 …and `Network` starts UNTICKED, and it gates the cable too
+
+The owner's decision: *"If they want network, they have to go ask for it."*
+`dos_fld_init` sets `Network` CLEARED for a new window, where it was TICKED,
+so a double click unmounts the card for the run (the program gets
+`DRVM_CEIL_NET`'s worth more arena, §96.36.7) and publishes no packet driver.
+
+**And the box now gates BOTH routes.** It was a request about `DRVC_NET`
+alone, and the cable — `DRVC_FILE`, which also serves a volume and is never
+unmounted for this — took no notice of it (§96.23.7.1). Cleared now means
+*no packet driver*, on either wire: `dos_pkt_want` answers CF=1 before it
+asks `net_find`, so neither the claim nor the part (§96.23.11) is ever read.
+On the cable the box still unmounts nothing — there is nothing of that class
+to give back, and the figure moves by the buffers alone.
+
+**A saved choice is kept, because the `.LNK` stores it.** §96.25.2.1's boxes
+byte records `LNK_BX_NONET` = *cleared*, so a shortcut saved with `Network`
+ticked carries the bit clear and opens ticked, exactly as before. What
+changes is a shortcut that carries no boxes byte at all — a 12-byte memory
+block written before §96.25.2.1 — which takes `dos_fld_init`'s default, now
+cleared. There is no other persisted form of the box: DOS keeps no settings
+file in `SYSTEM/APPDATA` (§19.9), and the box is per window.
 
 #### 96.36.8 Arm 1's box: the pointer is not free on a 4.77 MHz machine
 

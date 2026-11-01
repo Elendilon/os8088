@@ -1399,7 +1399,6 @@ dvw_wake:
     mov word [dos_arena], 0
 .na:
     mov byte [dos_cpw], 0
-    call dn_shut
     call dos_pkt_shut
     call dos_drv_back
     call dos_cache_free

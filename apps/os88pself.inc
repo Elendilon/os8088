@@ -16,11 +16,16 @@
 ;
 ; in:  DS:SI -> the row (OP_ROW bytes, wherever the package holds a copy),
 ;      DS:DI -> the file's NUL-terminated name, AL = the stream's format
-;      (OSAPI_LZ_*, the table's OP_T_FMT). The instance STANDS in the file's
+;      (OSAPI_LZ_*, the table's OP_T_FMT), AH = the least KB the claim must
+;      be (0 = what the read needs): a caller that keeps working space past
+;      the part - DOS's network part and its buffers, SPEC.md 96.23.11 - asks
+;      for one claim of the whole rather than spending a second. The instance
+;      STANDS in the file's
 ;      folder: every file cell resolves there (SPEC.md 19.2.1). UI task only
 ;      (a read and a claim, SPEC.md 20.6 rule 7).
 ; out: CF=0, DX = a claim of the CALLER'S (OSAPI_MEM_FREE it), the part's
-;      `len` bytes at DX:0, CX = len. CF=1 = not had, and nothing is held.
+;      `len` bytes at DX:0 and the rest of the claim UNDEFINED (the stream's
+;      tail is in it), CX = len. CF=1 = not had, and nothing is held.
 ; clobbers: AX, BX, SI, DI, ES, BP, flags
 ;
 ; THE ARITHMETIC IS op_fetch's (SPEC.md 20.12.7.4), with one difference that
@@ -91,7 +96,11 @@ op_self:
     rcr ax, 1                   ; (the carry back in)
     mov al, ah
     xor ah, ah
-    shr ax, 1                   ; AX = KB, rounded up
+    shr ax, 1                   ; AX = KB, rounded up - under 65, so AH = 0
+    cmp al, [bp+1]              ; ...and never under the caller's floor (AH,
+    jae .kb                     ; banked with the format; [bp] is SS's, and
+    mov al, [bp+1]              ; so is this frame)
+.kb:
     call OSAPI_MEM_CLAIM        ; DX = the claim
     jc .no6
     push dx                     ; [bp-8]
