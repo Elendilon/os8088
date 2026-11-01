@@ -3096,16 +3096,19 @@ dsk_vol_slot_x:
     cmp bl, DVOL_MAX
     jae .bad
     mov bh, 0
-    shl bx, 1
-    shl bx, 1
-    shl bx, 1
-    shl bx, 1                   ; * DV_SIZE (16)
+    push cx                     ; x DV_SIZE (16) through CL: two bytes under
+    mov cl, 4                   ; four `shl bx, 1` (kernel size pass 16)
+    shl bx, cl
+    pop cx
     add bx, dsk_vtab            ; CF = 0: an address inside the table, so
     ret                         ; the add cannot carry
 .bad:
     xor bx, bx
     stc
     ret
+%if DV_SIZE != 16
+  %error "dsk_vol_slot_x multiplies by DV_SIZE as a shift of 4"
+%endif
 
 %ifndef KD_BUILD                ; **NO DRIVER-BACKED VOLUME UNDER kern_dos**
                                 ; (SPEC.md 96.44.9). A `DVK_DRV` volume's

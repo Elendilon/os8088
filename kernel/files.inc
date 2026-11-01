@@ -740,8 +740,8 @@ fmv_copy_in:
     ; and a copy from segment 0 reads the INTERRUPT VECTOR TABLE and draws it
     ; as file names.
     push es
-    mov ax, ds
-    mov es, ax
+    push ds                     ; (AX is zeroed below: kernel size pass 16)
+    pop es
     push di
     shr cx, 1
     xor ax, ax
