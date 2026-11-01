@@ -1204,7 +1204,7 @@ task_exit:
 ;           clobber nothing. Every call site already tolerated the list:
 ;           sch_isr holds a full frame, sch_switch's .pick pushes DX and BX,
 ;           task_exit banks the record pointer in DI first, task_cycles and
-;           task_debit push BX/CX/SI.
+;           inst_charge (task_debit's body) push BX/CX/SI.
 ;
 ; WHAT THE MOVE COSTS, said out loud. On the charging arm it is exactly
 ; neutral - the same five instructions, relocated from .cohere, which every
@@ -1293,56 +1293,9 @@ task_cycles:
     pop bx
     ret
 
-; -----------------------------------------------------------------------------
-; task_debit - close a task_cycles stamp: return the cycles elapsed since it
-;              and REMOVE them from the running task's counter
-;
-; Move, not copy (SPEC.md 8.1): the caller adds the amount to some other
-; counter (an instance's I_CYC, SPEC.md 29), so the two together still
-; partition one total. Nesting works for free - an inner debit lowers the
-; outer pair's end reading by exactly the inner amount, so the outer stretch
-; is credited only with what it did itself.
-;
-; A negative difference is forced to 0 and nothing is subtracted: sch_account
-; can hand back a slightly backwards timestamp when its pending-IRQ
-; disambiguation guesses the wrong side of a counter reload, and an unclamped
-; borrow would wrap the caller's 32-bit counter to just under 2^32 (seen in
-; practice as a package's tally jumping backwards by ~0.6 tick).
-;
-; in:       DX:AX = stamp from task_cycles, taken on THIS task
-; out:      DX:AX = elapsed cycles (0 if the counter regressed), already
-;           subtracted from sch_cycles[sch_cur]
-; clobbers: nothing else (flags)
-; -----------------------------------------------------------------------------
-task_debit:
-    push bx
-    push cx
-    push si
-    push di
-    push bp
-    mov bp, ax                  ; BP:DI = the start stamp - sch_account
-    mov di, dx                  ; clobbers AX/BX/CX/DX/SI, but not BP/DI
-    pushf
-    cli
-    call sch_account            ; ...which hands back SI = the slot's offset
-    mov ax, [si+sch_cycles]
-    mov dx, [si+sch_cycles+2]
-    sub ax, bp                  ; DX:AX = now - start
-    sbb dx, di
-    test dx, dx                 ; counter regressed: report nothing and leave
-    jns .take                   ; the task's tally alone - by taking ZERO off
-    xor ax, ax                  ; it, which is the same store with none of the
-    cwd                         ; branches (AX = 0, so DX = 0)
-.take:
-    sub [si+sch_cycles], ax     ; ...and off the task's tally it comes
-    sbb [si+sch_cycles+2], dx
-    popf
-    pop bp
-    pop di
-    pop si
-    pop cx
-    pop bx
-    ret
+; (task_debit, which closed a task_cycles stamp and MOVED the cycles off the
+; running task's counter, is written into its one caller, inst_charge in
+; instance.inc - kernel size pass 16)
 
 ; -----------------------------------------------------------------------------
 ; cp_schset - sched_mode_set, select the scheduling mode (SPEC.md 8.2)

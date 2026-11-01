@@ -1655,14 +1655,13 @@ menu_popup:
                                 ; menu is unchanged unless the left is ALSO
                                 ; held, when it stays up until both are let go
     call menu_pull              ; AX = item index, or 0xFFFF
-    cmp ax, 0xFFFF
-    je .none
-    clc
     jmp short .out
 .none:
     mov ax, 0xFFFF
-    stc
 .out:
+    cmp ax, 0xFFFF              ; CF = 1 below it, so the complement is the
+    cmc                         ; answer: 1 = nothing chosen (kernel size pass
+                                ; 16, -3: one test for both ways here)
     jmp short menu_track.out    ; pop does not touch the flags, and the five
                                 ; pops are menu_track's, in its order
 
@@ -2065,13 +2064,10 @@ menu_drop:
     pop bx
     ret
 
-%ifndef KERN_BIG                ; (kern_big's is in wm.inc, above wm_hit_ttl_b)
-menu_dropd  db 0                ; a pull-down is on the screen (SPEC.md 9.6.3).
-                                ; In .text with a real initialiser rather than
-                                ; in .bss, for fdlg_win's reason: -f bin zeroes
-                                ; nothing and this is read on the machine's
-                                ; very first arrow key
-%endif
+; (menu_dropd - a pull-down is on the screen, SPEC.md 9.6.3 - is defined in
+; wm.inc above wm_hit_ttl_b on kern_big and in ui.inc after ui_task on
+; kern_small: each place is where the byte keeps that build's hot routines
+; at their measured parity, kernel size pass 16 moving kern_small's)
 
 ; -----------------------------------------------------------------------------
 ; menu_kbnav - the keyboard mouse steps a dropped menu by ITEM (SPEC.md 9.6.3)

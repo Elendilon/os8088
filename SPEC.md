@@ -4311,7 +4311,7 @@ canvas blank is 211 (PERFORMANCE.md Set 32): the pixels barely enter it.
 
 - the row base is `gfx_rowbase` once at the top of the row, not once a run;
 - §39.4's reduction is one `gfx_inktab` read, and the 50% dither's phase is
-  the row's own `AA`/`55` byte — `sw_parity`'s answer, computed with it;
+  the row's own `AA`/`55` byte — `sw_ink.dither`'s answer (`sw_parity`'s until kernel size pass 16), computed with it;
 - the screen clip is `sw_span`'s own two compares;
 - and what is left is what a horizontal run actually costs: **two masked bytes
   and a `rep stosb`**.
@@ -4386,7 +4386,7 @@ Five things are load-bearing:
   and not Hercules: MartyPC's MDA aperture is offset (−16, +2) from the guest
   origin, so a comparison in guest coordinates there is sampling the wrong
   pixels — 15,054 differ, and it looks exactly like a reduction bug.)
-- **The dither bit is `parity XOR 1`**, not `parity`: `sw_parity`'s `0xAA` has
+- **The dither bit is `parity XOR 1`**, not `parity`: `sw_ink.dither`'s `0xAA` has
   its bit SET at x = 0 of an even row and bit 7 is the leftmost pixel. Getting
   it the other way round inverts every dithered pixel and nothing else, which
   is 20,532 differing pixels and looks like a much deeper bug than it is.
@@ -6667,7 +6667,7 @@ Two things are load-bearing:
   the write-back needing `[gfx_ls_cseg]` anyway — but it is load-bearing now
   rather than incidental, because the mono walk points ES at the framebuffer
   and the slow path leaves it wherever `gfx_pixel` did.
-- **The ink is resolved once, above the loop** (`gfx_ls_ink`), so
+- **The ink is resolved once, above the loop** (`gfx_ls_ink`'s three instructions, written at the pass head since kernel size pass 16), so
   `gfx_lstep_mono` no longer computes it. One pen for the batch is not a
   restriction worth removing: a caller with two pens has two batches, and two
   arrivals is still not eight.
@@ -12404,7 +12404,8 @@ cheaper than the reasoning needed to remove it safely.
   - `task_cycles` — out DX:AX = `sch_cycles[sch_cur]` with the pending
     slice folded in (`pushf`/`cli`, sch_account, read **at the SI that call
     hands back**, `popf`).
-  - `task_debit` — in DX:AX = a stamp from `task_cycles` **taken on this
+  - the debit (`task_debit` until kernel size pass 16, which wrote it into
+    its one caller, `inst_charge`) — in DX:AX = a stamp from `task_cycles` **taken on this
     task**; out DX:AX = the cycles elapsed since it, *subtracted* from
     `sch_cycles[sch_cur]` in the same cli window. Move, not copy: the
     caller adds the amount to another counter, so the two still partition
@@ -12669,7 +12670,7 @@ watchdog hits; and a task that dies clears it for its successor.
 
 **PLACEMENT (safety-critical).** Both routines must sit **outside** the
 `sch_isr` → `sch_switch` → `sch_resume` fall-through run — put them right
-after `task_debit` and before `sch_isr`. A routine dropped between `sch_isr`
+after `task_cycles` and before `sch_isr`. A routine dropped between `sch_isr`
 and `sch_switch` sends every unlocked tick through its `ret` with no return
 address on the stack: an instant boot-killer. `task_exit`'s explicit `jmp`
 into `sch_switch` is the only sanctioned way to reach the run from outside.
@@ -18137,7 +18138,7 @@ Frame drawing (paint-all does this before calling W_PAINT):
 | `wm_hide`      | in BX = win ptr: clear visible, then `wm_paint_dmg` over the rect it vacated (§11.91) |
 | `wm_front`     | in BX = win ptr: raise to front of z-order and repaint what that changed — nothing at all if it was already frontmost, one title bar if nothing was covering it, otherwise the window (§11.90) |
 | `wm_paint_dmg` | in AX,BX,CX,DX = an inclusive damage rect (may hang off the screen; empty = chrome only): repaint the desktop, the drive zones, the chrome and every window the rect reaches, plus every window those reach. Caller holds the gfx lock; all registers preserved. §11.91. |
-| `wm_paint_chrome` | the dock and the menu bar and nothing else, for a change that revealed no pixels. Declines to `wm_paint_dmg` over the dock strip when a window hangs over it. Caller holds the gfx lock. |
+| `wm_paint_chrome` | the dock and the menu bar and nothing else, for a change that revealed no pixels (since kernel size pass 16 written into its one caller, `wm_paint_dmg`'s chrome arm, rather than a routine of its own). Declines to `wm_paint_dmg` over the dock strip when a window hangs over it. Caller holds the gfx lock. |
 | `wm_covered`   | in BX = win ptr; out CF=1 = every pixel of its **frame** rect (drop shadow included) is covered by visible windows above it, so a back-to-front painter may skip it entirely — **W_PAINT included**. Overflow of the 16-rect list answers "not covered". Leaves the clip list disarmed. Caller holds the gfx lock. §11.91. |
 | `wm_win_rect`  | in SI = win ptr; out AX,BX,CX,DX = its occupied rect, inclusive, drop shadow included (WF_FULL: no shadow). Clobbers only those four. |
 | `wm_top`       | out BX = frontmost visible window ptr, 0 if none. Takes no lock, touches no VRAM and reads only `wm_zord`, so a **worker task** may call it — which is what API slot 0x01EC (§20.3) is for: a package is told when it *gains* the front (`W_ONCLICK`, `W_PAINT`) and never when it loses it, and `W_FLAGS` bit 1 answers *visible*, which a covered window still is. apps/arkanoid pauses on it (§44.8) — together with `menu_owner` (§12.6), which answers the other half: a click on the bare desktop changes the active application without touching `wm_zord`, so this routine correctly reports that nothing moved. |
@@ -24891,7 +24892,7 @@ follow either way:
 - **The lock is HELD across the wait**, which is `ui_drag`'s `.linger` verbatim
   and for its reason: an XOR overlay is on the screen, and a background painter
   drawing under it would leave the erase inverting pixels it never drew.
-  `wm_an_pace` `task_yield`s rather than spinning, so the sound worker and the
+  `wm_anim`'s frame wait (`wm_an_pace` until kernel size pass 16) `task_yield`s rather than spinning, so the sound worker and the
   scheduler live through it.
 - **No adapter wants a different frame count.** VGA's rows are ~3.4x cheaper
   (5150 #2's `GFX_FILL 64x64`, 53 µs a row against mono's ~182) and its windows
@@ -69444,7 +69445,7 @@ register contracts, reached through the `[vid_mono]` dispatch at each public
 entry (§39.5). **There is no `sw_xor_rect`**: an outline has one
 decomposition (§5's `gfx_xor_strips`) and it reaches this renderer through
 `gfx_xor_fill`'s own dispatch, one strip at a time. `sw_xfer` is the save/restore worker;
-`sw_ink`/`sw_col`/`sw_parity`/`sw_patcol`/`sw_plane_op` are its internals.
+`sw_ink`/`sw_col`/`sw_patcol`/`sw_plane_op` are its internals.
 
 **Concurrency.** Every routine here runs with the gfx lock held (§1.6), so
 `vga12`'s rect scratch needs no interrupt guard. The cursor does not come
@@ -138821,7 +138822,7 @@ differed by 176 pixels — which reads exactly like a renderer that changed.
    thing distinguishing a jellyfish from a fish on two adapters of three
    (§39.4), cannot arrive through `OSAPI_GFX_BLIT1_PEN`. It is composed into
    the band instead, and it has to be the *kernel's own* dither or the two
-   would disagree wherever they met: `sw_parity` lays `0xAA` on an even screen
+   would disagree wherever they met: `sw_ink.dither` lays `0xAA` on an even screen
    row and `0x55` on an odd one, bit 7 leftmost, so a pixel is lit when
    (x + y) is even. A band starts on the byte grid, so its rows take that mask
    unshifted, and the two bytes being each other's complement means one XOR

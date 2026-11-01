@@ -2504,6 +2504,16 @@ UI_LOC_N equ 2
 ; stores out now - kernel size pass 14. The contract above is unchanged: one
 ; word store and one bump, drained by ui_task step 3 with nothing held.)
 ui_pcmd:    dw 0                ; posted CMD_*, 0 = none (see above)
+%ifndef KERN_BIG                ; (kern_big's is in wm.inc, above wm_hit_ttl_b)
+menu_dropd  db 0                ; a pull-down is on the screen (SPEC.md 9.6.3).
+                                ; In .text with a real initialiser rather than
+                                ; in .bss, for fdlg_win's reason: -f bin zeroes
+                                ; nothing and this is read on the machine's
+                                ; very first arrow key. HERE, after ui_task,
+                                ; and not at menu_drop's foot (kernel size pass
+                                ; 16): the byte moved puts kern_small's ui_task
+                                ; back on its measured parity with no pad
+%endif
 
 ; =============================================================================
 ; The Task Manager, which lives on the system disk (SPEC.md 28)
@@ -2765,8 +2775,8 @@ ui_tm_sysdir:
     jc .no
     test al, 0x10               ; a subdirectory, not a file of that name
     jz .no
-    mov ax, bx                  ; its first cluster
-    or ax, ax
+    xchg ax, bx                 ; its first cluster (BX is dead: the caller
+    or ax, ax                   ; reloads it - kernel size pass 16, -1)
     jz .no                      ; 0 is the root: a directory entry naming it
     mov dl, [dsk_bootvol]       ; would be a loop, not a folder.
                                 ;
