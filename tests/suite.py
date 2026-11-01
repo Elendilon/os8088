@@ -16475,6 +16475,21 @@ SOAK = [
         "out of each package's own bss through its map.",
         needs=("marty",), serial=True, timeout=600,
         wants=("build/apps360.img", "build/timer.o88", "build/bounce.o88")),
+    Row("fsckdisk", "soak", py("tests/fsckdisk.py"), 25.0,
+        "SPEC.md 118.14: SYSTEM CHECK'S DISK TASKS, on MartyPC's 5150 off a "
+        "copy of util360.img in B: - SYSCHECK.O88 and FSCHECK.DRV side by "
+        "side, the case the engine ships beside its package for. Seven FAT "
+        "faults planted (a lost chain, a chain longer and one shorter than "
+        "its size, a cross-link, a chain into a free cluster, a wrong '..', "
+        "two FAT copies that differ): Check the disk must name each and write "
+        "nothing; Check and repair must leave a disk an INDEPENDENT FAT "
+        "reader finds clean but for the cross-link, the lost chains saved as "
+        "FILEnnnn.CHK. Then a fragmented copy is defragmented: no movable "
+        "file left in pieces, every file's bytes unchanged, both FAT copies "
+        "equal.",
+        needs=("marty",), serial=True, timeout=600,
+        wants=("build/os8088-360.img", "build/util360.img",
+               "build/syscheck.o88", "build/fscheck.drv")),
     Row("syscheck", "soak", py("tests/syscheck.py"), 20.0,
         "SPEC.md 118: SYSTEM CHECK on an upgraded install. A hard-disk image "
         "of the system disk's own files is planted with one of every "

@@ -24,7 +24,9 @@
 ; file in SYSTEM\ beside the kernel it describes.
 ;
 ; Files: scan.inc is the nine checks as a state machine, ui.inc the layout
-; and every drawing call, out.inc the report and Clean Up. Label prefix sc_.
+; and every drawing call, out.inc the report and Clean Up, choose.inc the
+; drive and task chooser, disk.inc the disk tasks - Check the disk, repair it,
+; defragment it (SPEC.md 118.14), which drive FSCHECK.DRV. Label prefix sc_.
 ; =============================================================================
 
 %include "os88api.inc"
@@ -117,6 +119,9 @@ SC_BUFSZ    equ 8192                ; sc_buf: chunks, ASSOC.DAT (<= 5,112), cfg
 ; out: BX = window ptr, CF clear (CF set = abort, from wm_create)
 ; -----------------------------------------------------------------------------
 sc_entry:
+    call OSAPI_FILE_HERE            ; the folder we were launched from, where
+    mov [sc_ldx], dx                ; FSCHECK.DRV sits beside us (118.14.1)
+    mov [sc_lbl], bl
     mov si, sc_tpl
     call OSAPI_WM_CREATE
     jc sc_ret
@@ -133,6 +138,8 @@ sc_entry:
     call OSAPI_ABOUT_SET
     mov ax, sc_onwake
     call OSAPI_WM_ONWAKE
+    mov ax, sc_onclose              ; a disk task ends properly however the
+    call OSAPI_WM_ONCLOSE           ; window goes (SPEC.md 118.14.6)
     xchg ax, bx                     ; AX = the window
     mov bx, sc_btrec
     mov si, sc_onup                 ; W_ONMOUSEUP: a button fires
@@ -178,6 +185,15 @@ sc_onwake:
 .out:
     pop bp
     pop si
+    ret
+
+; sc_onclose - the close negotiator: a disk task's engine is told it is over
+; (its FAT flushed, the Disk windows told), then the close goes ahead
+sc_onclose:
+    push si
+    call sc_dfinish
+    pop si
+    clc
     ret
 
 ; sc_kick - post the next wake; a refused post is retried from the next
@@ -272,6 +288,25 @@ sc_onkey:
     je .go
     cmp al, 0x1B
     je .cesc
+    cmp al, 9                       ; Tab or T: the next task (118.14)
+    je .tnext
+    cmp dl, 'T'
+    je .tnext
+    cmp al, '1'
+    jb .notask
+    cmp al, '1' + SC_NTASK
+    jae .notask
+    sub al, '1'
+    jmp sc_tmove
+.tnext:
+    mov al, [sc_task]
+    inc ax
+    cmp al, SC_NTASK
+    jb .tset
+    xor al, al
+.tset:
+    jmp sc_tmove
+.notask:
     mov al, [sc_vsel]
     cmp ah, 0x48
     je .vup
@@ -539,6 +574,7 @@ sc_abn:     db 'Jorge Gonzalez', 0
 %include "syscheck/ui.inc"
 %include "syscheck/out.inc"
 %include "syscheck/choose.inc"
+%include "syscheck/disk.inc"
 %include "syscheck_man.inc"         ; the release manifest (SPEC.md 118.2)
 %include "os88rseq.inc"
 
@@ -581,6 +617,14 @@ sc_abn:     db 'Jorge Gonzalez', 0
     OS88_ABYTE sc_bpp               ; the display's bits per pixel
     OS88_ABYTE sc_compact           ; the short layout (CGA)
     OS88_ABYTE sc_choose            ; the drive chooser is up (118.13)
+    OS88_ABYTE sc_task              ; ...and what it will do (TASK_*, 118.14)
+    OS88_ABYTE sc_dsub              ; a disk task: 0 to start, 1 stepping
+    OS88_ABYTE sc_dphase            ; ...the engine's phase the path line names
+    OS88_ABYTE sc_lbl               ; the folder we were launched from
+    OS88_AWORD sc_ldx
+    OS88_AWORD sc_fseg              ; FSCHECK.DRV, read beside us (0 = not yet)
+    OS88_AWORD sc_wseg              ; the engine's workspace (0 = none)
+    OS88_AWORD sc_wkb               ; ...and its KB
     OS88_ABYTE sc_isboot            ; the drive being checked is the boot one
     OS88_ABYTE sc_nflop             ; floppy drives, by int 11h
     OS88_ABYTE sc_nvol              ; the chooser's rows...

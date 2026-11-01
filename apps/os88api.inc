@@ -2452,6 +2452,69 @@ MEMP_CONV     equ 0x8000         ; CX for a claim verb: NO head, and stay
                                  ; file calls' own rule). SPEC.md 12.8.10.
                                  ; Every register kept
 
+%define OSAPI_VOL_CHECK     KERNEL_SEG:0x04F5   ; CHECK, REPAIR OR DEFRAGMENT
+                                 ; the FAT volume you stand on (SPEC.md
+                                 ; 118.14): AL = FSK_* verb, ES = FSCHECK.DRV's
+                                 ; image as YOU read it into a claim of your
+                                 ; own, DX = your workspace (a claim from
+                                 ; OSAPI_MEM_CLAIM_DMA, all of it page-safe),
+                                 ; AH = FSKM_* and CX = its KB for FSK_BEGIN.
+                                 ; out CF=0 AX = the answer, CF=1 AX = FSKE_*.
+                                 ; Every other register kept. UI task, no gfx
+                                 ; lock - a file slot. kern_small and kern_mega
+                                 ; refuse (AX = 1); an image from another build
+                                 ; is FSKE_IMAGE. The kernel keeps NOTHING
+                                 ; between calls: both segments are yours.
+OSAPI_FSK_SIZE      equ 0        ; out AX = the workspace's KB
+OSAPI_FSK_BEGIN     equ 1        ; AH = FSKM_*, CX = the workspace's KB
+OSAPI_FSK_STEP      equ 2        ; out AX = FSKS_*
+OSAPI_FSK_END       equ 3        ; flush and tell the Disk windows
+FSKM_FIX            equ 1        ; repair as it goes (118.14.4)
+FSKM_DEFRAG         equ 2        ; defragment after a clean check (118.14.5)
+FSKS_MORE           equ 0
+FSKS_FIND           equ 1        ; a finding is in FSW_F*
+FSKS_DONE           equ 2
+FSKE_NOTHERE        equ 1
+FSKE_IMAGE          equ 2
+FSKE_NOFAT          equ 3
+FSKE_IO             equ 4
+FSKE_CHANGED        equ 5
+FSKE_SMALL          equ 6
+FSKE_WPROT          equ 7
+FSKE_ARG            equ 8
+; the workspace's record (SPEC.md 118.14.2)
+FSW_PHASE   equ 0
+FSW_MODE    equ 1
+FSW_FAT16   equ 2
+FSW_SPC     equ 3
+FSW_DONE    equ 4
+FSW_TOTAL   equ 6
+FSW_NCLUS   equ 8
+FSW_FREE    equ 10
+FSW_BAD     equ 12
+FSW_USED    equ 14
+FSW_FILES   equ 16
+FSW_DIRS    equ 18
+FSW_LOST    equ 20
+FSW_LOSTC   equ 22
+FSW_XLINK   equ 24
+FSW_FRAG    equ 26
+FSW_ERRS    equ 28
+FSW_FIXED   equ 30
+FSW_MOVED   equ 32
+FSW_STUCK   equ 34
+FSW_FATDF   equ 36
+FSW_CBYTES  equ 38
+FSW_FROW    equ 48
+FSW_FSEV    equ 49
+FSW_FCODE   equ 50
+FSW_FFIX    equ 51
+FSW_FA      equ 52
+FSW_FB      equ 56
+FSW_FPATH   equ 64
+FSKP_DEFRAG equ 6
+FSKP_DONE   equ 7
+
 ; --- a driver's settings, inside SYSTEM.CFG (SPEC.md 51.9) ------------------
 ; A DRIVER's slot, fenced like the four above. The kernel carries DRV_BLOB_SZ
 ; opaque bytes to disk and back with the rest of the Control Panel; it never

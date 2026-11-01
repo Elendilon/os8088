@@ -2631,6 +2631,12 @@ else
 BIGMODS = $(KMODDIR)/hiber.drv $(KMODDIR)/dock.drv $(KMODDIR)/extd.drv \
           $(KMODDIR)/win95.drv $(KMODDIR)/desk.drv $(KMODDIR)/stikmenu.drv
 endif
+# FSCHECK.DRV (SPEC.md 118.14.1) is cut beside them and is NOT in $(DRIVERS):
+# it is no mod_tab row and the kernel never loads it - System Check does, from
+# the folder SYSCHECK.O88 sits in - so it ships where $(SYSTOOLS) does and on
+# util360's root beside it, and never on the 360KB system disk, which has no
+# room for it. It is kern_big's alone, as System Check is.
+FSCKMOD = $(BUILD)/fscheck.drv
 KMODARGS = -m 0=$(BUILD)/ctrl.drv -m 1=$(BUILD)/format.drv \
            -m 2=$(BUILD)/diskops.drv
 # ...and kern_small's FIFTH and SIXTH, Cut/Copy/Paste (SPEC.md 22.3, MOD_FCP)
@@ -2652,7 +2658,8 @@ KMODARGS += -m 5=$(BUILD)/serial.drv
 else
 KMODARGS += -m 3=$(BUILD)/hiber.drv -m 4=$(BUILD)/dock.drv -m 5=$(BUILD)/extd.drv \
             -m 6=$(BUILD)/win95.drv -m 7=$(BUILD)/desk.drv \
-            -m 8=$(BUILD)/stikmenu.drv -m 9=$(BUILD)/serial.drv
+            -m 8=$(BUILD)/stikmenu.drv -m 9=$(BUILD)/serial.drv \
+            -m 10=$(BUILD)/fscheck.drv
 endif
 # ...AND THE MODULES ARE 'CZ' FILES ON THE DISK (SPEC.md 2.8, 20.13.5), by
 # the route a driver took: mod_need sizes its claim from the directory hint
@@ -2869,7 +2876,7 @@ endif
 # a second recipe would run os88mod.py a second time, and GNU make would run
 # it once PER TARGET for a multi-target rule, which is the classic way to get
 # a file written twice and a race with -j.
-$(KMODS) $(BIGMODS): $(BUILD)/kernel.bin ;
+$(KMODS) $(BIGMODS) $(FSCKMOD): $(BUILD)/kernel.bin ;
 
 # The boot sector needs to know how many sectors to read, so we measure the
 # kernel at build time and assemble the count in. Reading exactly what exists
@@ -3517,7 +3524,7 @@ STIKARGS := $(addprefix STIKAPPS:,$(STIKAPPS))
 # not into $(SYSAPPSARGS)'s gate disks, not onto an apps disk, and not onto
 # kern_small's or kern_emu's images, neither of which installs to a hard disk
 # (the browser's live image filters it back out, LIVENOTOOLS below).
-SYSTOOLS := $(BUILD)/syscheck.o88
+SYSTOOLS := $(BUILD)/syscheck.o88 $(FSCKMOD)
 SYSTOOLSARGS := $(addprefix SYSTEM:,$(SYSTOOLS))
 # ...EXCEPT THE 360KB SYSTEM DISK (SPEC.md 24.3.1.7, the owner's of
 # 2026-10-22): there it rides util360.img, and an install from the 360KB pair
@@ -4058,7 +4065,7 @@ $(BUILD)/syscheck_man.inc: $(KERNFILE) $(DRIVERS360) $(SYS360OMITDRV) $(SYSAPPS)
 
 $(BUILD)/syscheck.bin: apps/syscheck/syscheck.asm apps/syscheck/scan.inc \
                        apps/syscheck/ui.inc apps/syscheck/out.inc \
-                       apps/syscheck/choose.inc \
+                       apps/syscheck/choose.inc apps/syscheck/disk.inc \
                        apps/os88api.inc apps/os88ui.inc apps/os88dec.inc \
                        apps/os88rseq.inc $(BUILDINC) $(BUILD)/syscheck_man.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I $(BUILD)/ -o $@ apps/syscheck/syscheck.asm
@@ -16862,9 +16869,10 @@ $(GAMESIMG360): $(GAMES360) tools/os88disk.py
 # double-click on a machine it is not for. OS88NET.COM left apps360.img for
 # this disk; OS88CZ.COM had never fitted that one.
 UTIL_PKGS := $(BUILD)/syscheck.o88 $(BUILD)/redline.o88 $(BUILD)/taskmgr.o88
+UTIL_FSCK := $(FSCKMOD)
 UTIL_DOS := $(APPS_DOS) $(APPS_DOSCZ)
-UTIL360 := $(UTIL_PKGS) $(UTIL_DOS)
-UTILARGS360 := $(UTIL_PKGS) \
+UTIL360 := $(UTIL_PKGS) $(UTIL_FSCK) $(UTIL_DOS)
+UTILARGS360 := $(UTIL_PKGS) $(UTIL_FSCK) \
                $(addprefix SYSTEM/DOS:,$(UTIL_DOS)) \
                $(MEDIAFOLDER) $(APPDATAFOLDER)
 

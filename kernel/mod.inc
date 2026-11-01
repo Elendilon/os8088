@@ -53,6 +53,14 @@ MOD_NIMG    equ 10              ; BIG: hibernate, resident file operations,
                                 ; the optional Dock, EXTD.DRV, WIN95.DRV,
                                 ; DESK.DRV and STIKMENU.DRV
 %endif
+; FSCHECK.DRV (SPEC.md 118.14.1) is an image os88mod.py cuts and NO row: the
+; package that uses it loads it, so it takes the id after every image's.
+%ifdef OS88_FSCKIMG
+MOD_FSCK    equ MOD_NIMG
+MOD_NFSCK   equ 1
+%else
+MOD_NFSCK   equ 0
+%endif
 ; MOD_NIMG is the IMAGES os88mod.py cuts out; MOD_MAX the ROWS. They differ by
 ; one row that is not an image of its own: MOD_SETS, CTRL.DRV's first
 ; MODS_SIZE bytes - the settings core a desktop gesture loads instead of the

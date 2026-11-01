@@ -101,6 +101,11 @@ sc_step:
     call sc_scan_end
     jmp short .out
 .go:
+    cmp byte [sc_task], TASK_REL
+    je .rel
+    call sc_dstep                   ; a disk task (disk.inc, SPEC.md 118.14)
+    jmp short .out
+.rel:
     mov bl, [sc_pass]
     xor bh, bh
     shl bx, 1
@@ -1408,6 +1413,7 @@ sc_hadd:
 ;               go home, and say so
 ; =============================================================================
 sc_scan_end:
+    call sc_dfinish                 ; a disk task's engine ends (118.14.6)
     call sc_opend                   ; (Stop, or a refusal, inside P_MAN)
     mov dx, [sc_homedx]
     mov bl, [sc_homebl]

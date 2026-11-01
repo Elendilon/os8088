@@ -46,6 +46,47 @@ mockups are [docs/syscheck/design/](../syscheck/design/).
   CGA have been LOOKED AT on MartyPC (a clean system disk, every row OK) but
   no row drives a planted disk on them yet.*
 
+### Disk tasks: check, repair, defragment (SPEC.md 118.14)
+
+- [x] **Contract:** SPEC.md 118.14 pins the chooser's four tasks, the nine
+  disk rows, `OSAPI_VOL_CHECK`, the workspace record, every finding's code
+  and numbers, what repair repairs and in what write order, the
+  defragmenter's rules, and the per-volume write generation.
+- [x] **Engine:** as a maintainer I get `FSCHECK.DRV`, the checker and
+  defragmenter as kernel code (`kernel/fsck.inc`), cut out by
+  `tools/os88mod.py` and **loaded by the package from beside it**, not by
+  `mod_need` - so it ships at util360's root next to `SYSCHECK.O88`, and in
+  `SYSTEM\` on the larger kern_big disks, and never on the 360KB system disk.
+  101 resident bytes, no rung crossed.
+- [x] **Choose the task:** as a user the chooser asks what to do as well as
+  which drive - Release files (the nine checks), Check the disk, Check and
+  repair the disk, Defragment the disk - with Tab, 1-4 or a click, and it
+  fits CGA's short card.
+- [x] **Check the disk:** as a user I am told about FAT copies that differ,
+  wrong `.`/`..` entries, entries that are not entries, chains that leave
+  the disk or run into free or bad clusters, files whose chain and size
+  disagree, cross-links and lost clusters, plus free space and
+  fragmentation - and nothing is written.
+- [x] **Repair it:** as a user *Check and repair* fixes all of those but a
+  cross-link, in an order that never leaves a file naming a free cluster,
+  saves lost chains as `FILEnnnn.CHK`, and shows each repaired finding as
+  `(fixed)`.
+- [x] **Defragment it:** as a user *Defragment the disk* (after a clean
+  check) makes every movable file one piece and packs files towards the
+  start, through free space only, leaving folders, hidden and system files
+  and disk images where they are.
+- [ ] **Safety:** as a user a save onto the disk mid-run, or a swapped
+  floppy, ends the run with *The disk changed - scan again* instead of
+  working from a stale picture. *Built (SPEC.md 118.14.6: the per-volume
+  write generation, the volume signature); no row writes mid-run yet.*
+- [x] **Acceptance:** `fsckdisk` (soak, MartyPC) plants seven faults on a
+  copy of util360.img, checks, repairs and defragments it, and holds every
+  result to an independent FAT reader. Looked at on CGA and VGA.
+- [ ] **Hard disk:** a FAT16 hard-disk partition checked, repaired and
+  defragmented on a period machine. *The engine's FAT16 arms are the
+  kernel's own FAT routines and are assembled, but no row drives a FAT16
+  volume yet.*
+
 ## Existing facilities and boundaries
 
 - **The scan is wake slices on the UI task** (`OSAPI_WM_ONWAKE`, SPEC.md
@@ -58,9 +99,13 @@ mockups are [docs/syscheck/design/](../syscheck/design/).
   hidden + system file and cannot list one (SPEC.md 19.7.1), which is why
   drivers are checked against a manifest and a retired list rather than
   discovered.
-- **No new kernel facility.** The one thing a slot would add - the running
-  kernel's build - is answered by construction instead (SPEC.md 118.1.1),
-  so the feature costs no resident byte.
+- **No new kernel facility for the release checks.** The one thing a slot
+  would add - the running kernel's build - is answered by construction
+  instead (SPEC.md 118.1.1), so those cost no resident byte. **The disk
+  tasks are the exception, and have to be**: a package has no sector read or
+  write and must not be given one (SPEC.md 96.5.2.2), so they add one cell,
+  `OSAPI_VOL_CHECK`, and an engine image the package loads (SPEC.md
+  118.14.1).
 
 ## Verification discipline
 

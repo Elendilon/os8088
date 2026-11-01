@@ -753,6 +753,19 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
  %endif
 %endif
 
+; OS88_FSCK - the disk checker and defragmenter's kernel half (SPEC.md
+; 118.14): OSAPI_VOL_CHECK's stub, the per-volume write generation
+; [dsk_wgen] that disk_write_x bumps, and FSCHECK.DRV's image, which the
+; PACKAGE loads (it is no mod_tab row). Every kern_big build carries the image
+; so the module map is the same shape on kern_big, kern_emu and kern_mega;
+; kern_mega's cell refuses, its segments being selectors.
+%ifdef KERN_BIG
+ %define OS88_FSCKIMG 1         ; the image: kern_mega's is a refusing stub
+ %ifndef KERN_MEGA
+  %define OS88_FSCK 1
+ %endif
+%endif
+
 ; BANDCOMP - the 1bpp band composer (SPEC.md 5.9), and since SPEC.md 5.9.6 it
 ; is a KNOB again rather than kern_big's default. `make BAND=1` compiles it in
 ; and puts wm_draw_title's interior on ONE composed blit; the default build
@@ -2119,6 +2132,9 @@ section .modwb   nobits vstart=MODW_IMG ; WIN95.DRV's own scratch: one
 section .modn    start=MODN_START vstart=0  ; STIKMENU.DRV (SPEC.md 110.12)
 %endif
 section .mods    start=MODSER_START vstart=0 ; SERIAL.DRV (SPEC.md 115)
+%ifdef OS88_FSCKIMG
+section .modfs   start=MODFS_START vstart=0 ; FSCHECK.DRV (SPEC.md 118.14)
+%endif
 section .modmap  start=MODMAP_START vstart=0
 section .text
 
@@ -4290,7 +4306,17 @@ apic_fs_op:                       ; (the cell's own address, for the kernel's
 %else
     OSAPI_XREFUSE                 ; 0x04EF - OSAPI_FS_OP, refused here
 %endif
-osapi_table_end:                  ; 0x04F5 today (0x04EF before OSAPI_FS_OP,
+%ifdef OS88_FSCK
+    OSAPI_RSLOT osapi_vol_check   ; 0x04F5 - CHECK, REPAIR OR DEFRAGMENT the
+                                  ;          volume you stand on (SPEC.md
+                                  ;          118.14.2): AL = FSK_* verb, ES =
+                                  ;          FSCHECK.DRV's image as YOU loaded
+                                  ;          it, DX = your workspace claim
+%else
+    OSAPI_XREFUSE                 ; 0x04F5 - OSAPI_VOL_CHECK, refused here
+%endif
+osapi_table_end:                  ; 0x04FB today (0x04F5 before OSAPI_VOL_CHECK,
+                                  ; 0x04EF before OSAPI_FS_OP,
                                   ; 0x04E9 before OSAPI_MEM_P,
                                   ; 0x04E3 before OSAPI_SEG,
                                   ; 0x04DD before OSAPI_ARG_TEXT,
@@ -4334,8 +4360,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 44*8 + 11*7 + 118*6 + 6*3 + 6 + 12*5 + 4*6 + 8
-%error "os8088 API jump table must be exactly 0x04E5 bytes: 44 SLOT (8), 11 XCELL (7), 118 rare (6, OSAPI_FS_OP an XREFUSE ICELL of the same 6 where FPG_PARK is off), 6 JCELL (3), 1 FCELL (6), 17 ICELL (12 of 5, 4 of 6 - OSAPI_WM_ONWHEEL's for parity, SPEC.md 13.18 - 1 of 8 - OSAPI_THM_SET, SPEC.md 76.14.14)"
+%if OSAPI_TABLE_LEN != 44*8 + 11*7 + 119*6 + 6*3 + 6 + 12*5 + 4*6 + 8
+%error "os8088 API jump table must be exactly 0x04EB bytes: 44 SLOT (8), 11 XCELL (7), 119 rare (6, OSAPI_FS_OP and OSAPI_VOL_CHECK XREFUSE ICELLs of the same 6 where they are off), 6 JCELL (3), 1 FCELL (6), 17 ICELL (12 of 5, 4 of 6 - OSAPI_WM_ONWHEEL's for parity, SPEC.md 13.18 - 1 of 8 - OSAPI_THM_SET, SPEC.md 76.14.14)"
 %endif
 
 %ifdef KERN_MEGA
@@ -7119,6 +7145,8 @@ EXT_PHASE   equ 15              ; ui_drag_phase's arm, UNGATED: registers kept
 %include "stikmenu.inc"           ; STIKMENU.DRV, the Sticky Apps menu (110.12)
                                   ; (SPEC.md 39.19.6) - kern_big only
 %include "serial.inc"             ; SERIAL.DRV, desktop UART lease (115)
+%include "fsck.inc"               ; FSCHECK.DRV, the disk checker and
+                                  ; defragmenter System Check loads (118.14)
 %include "ctrl.inc"
 %include "desksc.inc"           ; desktop shortcuts (SPEC.md 26.8): empty
                                 ; unless OS88_SHORTCUTS (kern_big). AFTER
@@ -8805,7 +8833,12 @@ MODJ_START   equ MODW_START + MODW_SIZE   ; DESK.DRV (SPEC.md 11.103.10) and
 MODN_START   equ MODJ_START + MODJ_SIZE   ; STIKMENU.DRV (SPEC.md 110.12) are
 MODSER_START equ MODN_START + MODN_SIZE   ; serial follows the big desktop modules
 %endif
+%ifdef OS88_FSCKIMG
+MODFS_START  equ MODSER_START + SER_IMAGE_SIZE ; FSCHECK.DRV: an image and NO
+MODMAP_START equ MODFS_START + MODFS_SIZE      ; mod_tab row (SPEC.md 118.14.1)
+%else
 MODMAP_START equ MODSER_START + SER_IMAGE_SIZE
+%endif
 
 ; MODB_TAIL img, bss - A MODULE'S BSS IS ZEROS IN ITS OWN FILE
 ; (MODULE-SELFCONTAIN-PLAN 3.5). Emitted as the image's LAST bytes: `img` is
@@ -9000,7 +9033,7 @@ MODD_SIZE equ modd_end - $$
 section .modmap
 mod_map:
     db 'O8MM'
-    db MOD_NIMG                 ; rows below - IMAGES, so MOD_SETS (CTRL.DRV's
+    db MOD_NIMG + MOD_NFSCK     ; rows below - IMAGES, so MOD_SETS (CTRL.DRV's
                                 ; own first bytes, SPEC.md 2.8.7) is not one
     db 0
     dd MODC_START, MODC_SIZE
@@ -9039,6 +9072,10 @@ mod_map:
 %endif
     dd MODSER_START, SER_IMAGE_SIZE
     dw SER_NENT
+%ifdef OS88_FSCKIMG
+    dd MODFS_START, MODFS_SIZE  ; FSCHECK.DRV, LAST: the package loads it, so
+    dw FSK_NENT                 ; its id is past every mod_tab row's (118.14.1)
+%endif
     dd MODMAP_START             ; ...where the table began, and
     dw 0x384F                   ; the last two bytes of the file
 modmap_end:

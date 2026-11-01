@@ -98,6 +98,15 @@ sc_act_report:
     mov al, bl
     call sc_two
     call sc_otxt
+    mov di, sc_txt                  ; "Task: Check the disk" (SPEC.md 118.14)
+    mov si, sc_o_task
+    call sc_scpy
+    mov bl, [sc_task]
+    xor bh, bh
+    shl bx, 1
+    mov si, [sc_tnames+bx]
+    call sc_scpy
+    call sc_otxt
     call sc_cnttext
     call sc_otxt
     mov di, sc_txt                  ; "Result: 3 broken, 7 warnings"
@@ -136,7 +145,7 @@ sc_act_report:
     push ax
     mov bx, ax
     shl bx, 1
-    mov si, [sc_rnames+bx]
+    call sc_rname
     mov di, sc_txt
     call sc_scpy
     call sc_padto28
@@ -417,6 +426,7 @@ sc_o_hd:       db ' hard disk', 0
 sc_o_fl:       db ' floppy', 0
 sc_o_checked:  db ', checked ', 0
 sc_o_result:   db 'Result: ', 0
+sc_o_task:     db 'Task: ', 0
 sc_o_findings: db 'Findings', 0
 sc_o_nofind:   db 'No findings', 0
 sc_o_brk:      db 'BROKEN   ', 0

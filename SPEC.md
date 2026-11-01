@@ -224004,7 +224004,9 @@ driver or kernel is to install again (§52.10.15), which those findings say.
 ### 118.9 Limits
 
 - **It cannot read the volume boot record**: a package has no sector read.
-  `BOOTHD.SYS` is checked because §52.10.16 writes the VBR from it.
+  `BOOTHD.SYS` is checked because §52.10.16 writes the VBR from it. The disk
+  tasks (§118.14) are not an exception: they read sectors through
+  `FSCHECK.DRV`, which is kernel code, never through the package.
 - **It cannot list hidden files** (§118.3), so an unknown driver is not found.
 - **It cannot name the running kernel's build** (§118.1.1).
 - It runs on `kern_small`'s machines badly or not at all - `READ_AT`'s
@@ -224019,7 +224021,9 @@ packages out of the 35 recipes `SYSAPPSARGS` reaches. So `SYSTEM\` on the
 720KB, 1.44MB and 1.2MB kern_big system disks and on the live media, which is
 where an install takes it from (§52.10.4 step 3). **At 360KB it is the root of
 `util360.img` instead** (§24.3.1.7), so an install from the 360KB pair does not
-carry it. Not the apps disks, `kern_small`'s or `kern_emu`'s
+carry it. **`FSCHECK.DRV` goes everywhere it goes and nowhere else**
+(§118.14.1): it is in `$(SYSTOOLS)` beside it and at util360's root beside
+it, never on the 360KB system disk. Not the apps disks, `kern_small`'s or `kern_emu`'s
 (§118.9). It is opened like any program, from `C:\SYSTEM` in the Disk window.
 
 ### 118.11 The tests
@@ -224027,6 +224031,7 @@ carry it. Not the apps disks, `kern_small`'s or `kern_emu`'s
 | row | tier | what |
 |---|---|---|
 | `t_sysman` | fast | the manifest against every built system disk: each entry present with its size and sum; `SYSCHECK.O88` itself absent from it |
+| `fsckdisk` | soak | §118.14 on MartyPC: a copy of `util360.img` in B: with seven FAT faults planted, checked (each named, nothing written), repaired (an independent FAT reader then finds only the cross-link, and three `FILEnnnn.CHK`), and a fragmented copy defragmented (no movable file in pieces, every file's bytes unchanged, both FAT copies equal) |
 | `syscheck` | soak | a hard-disk image built from the system disks with a planted package of another format, a retired package, `KPAD.TMP`, a duplicated program, a stale `ASSOC.DAT` row and an orphaned hibernation image, booted from C:; one Scan press checks the drive the chooser offers (C:), the report names each finding, and Clean Up removes exactly §118.8's |
 
 ### 118.12 What it costs, measured
@@ -224074,6 +224079,273 @@ manifest describes the release, not the drive (§118.1.1), so a hard disk
 installed from this release compares clean whether or not the machine booted
 from it; the progress heading says which it is (`Checking C: - hard disk,
 the boot volume`).
+
+### 118.14 Check the disk, repair it, defragment it (`FSCHECK.DRV`)
+
+The chooser (§118.13) asks two things: **which drive**, and **what to do
+with it**. Four tasks, one marked `>`, chosen with Tab or `T` (forward), a
+click, or the keys `1` to `4`:
+
+| task | reads | writes |
+|---|---|---|
+| **Release files** | §118.1's nine checks | Clean Up, when asked (§118.8) |
+| **Check the disk** | the FAT, every folder and every chain | nothing |
+| **Check and repair the disk** | the same | §118.14.4's repairs, as it goes |
+| **Defragment the disk** | the same, then every file | moves files (§118.14.5) |
+
+*Release files* is the default and is §118.1 unchanged. The other three are
+a **CHKDSK** and a **defragmenter** for the chosen FAT12 or FAT16 volume -
+a floppy, a hard-disk partition, a RAM disk - and they swap the Checks card's
+nine rows for nine of their own:
+
+| row | what it reports |
+|---|---|
+| File allocation table | the two FAT copies against each other, sector by sector |
+| Folders | `.` and `..` entries that name the wrong folder; entries that are not entries; folders that point off the disk; folders nested past `FSK_MAXDEP` |
+| File chains | a chain that leaves the disk, runs into a free or bad cluster, or is shorter or longer than the file's size says |
+| Cross-linked files | a cluster two chains both claim |
+| Lost clusters | allocated clusters no file or folder reaches, counted in chains |
+| Free space | free, used and bad space (a Note) |
+| Fragmentation | how many files are in more than one piece (a Note) |
+| Defragment | what the defragmenter did, or why it did not run |
+| Repairs | how many repairs *Check and repair* made, or that none was asked for |
+
+Save Report (§118.7) writes these rows and their findings the same way, and
+its header names the task (`Task: Check the disk`). Clean Up is greyed for
+the three disk tasks: *Check and repair* is their Clean Up. **A finding that
+was repaired is shown as a Note ending `(fixed)`**, so the rows and the
+`Result:` line count only what is still wrong; the Repairs row's Note says
+how many repairs were made.
+
+#### 118.14.1 Why it is a kernel module, and why it is not on the system disk
+
+A package has no sector read or write (§118.9) and must not be given one:
+the public disk surface is file- and volume-level on purpose (§96.5.2.2),
+and a raw write underneath the kernel's FAT window, read-ahead cache,
+directory listings and stream cursors has no safe answer. So the checker is
+**kernel code**: `kernel/fsck.inc`, prefix `fsk_`, assembled with the kernel
+as a module image (§2.8) and cut out by `tools/os88mod.py` as
+`FSCHECK.DRV`. It reaches the FAT through the kernel's own `dsk_next_clus_x`,
+`dskw_setfat` and `dskw_flush_x`, so the FAT window and both copies stay
+the kernel's to keep coherent; every sector it writes goes through
+`disk_write_x`, so the read-ahead cache is invalidated by the one rule it
+already has (§18.95).
+
+**It is not a `mod_tab` row and `mod_need` never loads it.** `mod_need`
+reads a module from the boot volume and only there, and the 360KB system
+disk has no room for it (§24.3.1.7). It ships **beside `SYSCHECK.O88`** -
+at the root of `util360.img`, in `SYSTEM\` on the other kern_big system
+disks and the live media - and **the package loads it**: System Check reads
+`FSCHECK.DRV` from the folder it was launched from into a claim of its own,
+and hands that segment to the kernel on every call. The kernel keeps **no
+state between calls**: the image and the workspace are the package's, so
+they go when the package goes, and a package that dies mid-check leaves
+nothing behind in the kernel.
+
+**It still carries this kernel's layout**, and the kernel checks it on every
+call: the image's first four words must be `mod_hdrt`'s (magic, `MOD_VER`,
+build, `MOD_STAMP`) with id `MOD_FSCK`. A `FSCHECK.DRV` from another build
+is refused (`FSKE_IMAGE`) and System Check greys the three disk tasks with
+the reason. It is the same guarantee §2.8.2 gives every module, asked where
+the image is rather than where `mod_need` would have found it.
+
+#### 118.14.2 `OSAPI_VOL_CHECK` (`KERNEL_SEG:0x04F5`)
+
+**UI-task context only, no gfx lock held**, like every file slot. **V**: the
+call stands the machine in the caller's folder first (§19.2.1), and the
+volume it checks is **the one the caller stands on** - System Check goes to
+the chosen drive's root with `OSAPI_FILE_GOTO_QM` before it begins.
+
+    in:  AL = verb, ES = the image's segment (FSCHECK.DRV at offset 0),
+         DX = the workspace's segment
+    out: CF = 0, AX = the verb's answer; CF = 1, AX = FSKE_*
+
+| verb | AL | does | answers |
+|---|---|---|---|
+| `FSK_SIZE` | 0 | measures the volume (DX is not read) | AX = KB the workspace needs |
+| `FSK_BEGIN` | 1 | AH = `FSKM_*`; zeroes the workspace and starts | AX = 0 |
+| `FSK_STEP` | 2 | one bounded piece of work | `FSKS_MORE` 0, `FSKS_FIND` 1 (a finding is in the workspace), `FSKS_DONE` 2 |
+| `FSK_END` | 3 | flushes, tells the Disk windows, ends | AX = 0; cannot fail |
+
+`FSKM_FIX` = 1 repairs as it goes; `FSKM_DEFRAG` = 2 defragments after a
+clean check (`FIX` and `DEFRAG` together is refused, `FSKE_ARG`).
+`FSKE_*`: 1 not here (kern_small, kern_mega - the cell is §20.3's
+`OSAPI_XREFUSE`), 2 `FSKE_IMAGE`, 3 `FSKE_NOFAT` (no volume, or a
+redirected one, §62.9), 4 `FSKE_IO`, 5 `FSKE_CHANGED` (§118.14.6),
+6 `FSKE_SMALL` (the workspace is smaller than `FSK_SIZE` said), 7
+`FSKE_WPROT`, 8 `FSKE_ARG`. After `FSKS_DONE` or any `FSKE_*` from a step,
+the caller ends with `FSK_END`.
+
+**The workspace** is a claim of the caller's, from `OSAPI_MEM_CLAIM_DMA`
+with the whole block page-safe (CX = AX): the engine reads and writes
+sectors straight into it, and a transfer that crosses a 64KB physical
+boundary is int 13h's error 09h (§1). Its first 256 bytes are the record
+the package reads; the rest is the engine's.
+
+| offset | | |
+|---|---|---|
+| `FSW_PHASE` 0 | db | `FSKP_*`: 1 FAT copies, 2 folders, 3 FAT scan, 4 lost chains, 5 FAT copy repair, 6 defragment, 7 done |
+| `FSW_MODE` 1 | db | the `FSKM_*` it began with |
+| `FSW_FAT16` 2 | db | 0 FAT12, 1 FAT16 |
+| `FSW_SPC` 3 | db | sectors per cluster |
+| `FSW_DONE` 4, `FSW_TOTAL` 6 | dw | the phase's progress, DONE of TOTAL |
+| `FSW_NCLUS` 8 | dw | data clusters on the volume |
+| `FSW_FREE` 10, `FSW_BAD` 12, `FSW_USED` 14 | dw | clusters free, marked bad, reached by a file or folder |
+| `FSW_FILES` 16, `FSW_DIRS` 18 | dw | files and folders seen |
+| `FSW_LOST` 20, `FSW_LOSTC` 22 | dw | lost clusters, and the chains they form |
+| `FSW_XLINK` 24 | dw | cross-linked files |
+| `FSW_FRAG` 26 | dw | files in more than one piece |
+| `FSW_ERRS` 28 | dw | Broken findings |
+| `FSW_FIXED` 30 | dw | repairs made |
+| `FSW_MOVED` 32, `FSW_STUCK` 34 | dw | files the defragmenter moved, and files it left in pieces |
+| `FSW_FATDF` 36 | dw | FAT sectors whose two copies differ |
+| `FSW_CBYTES` 38 | dw | bytes per cluster |
+| `FSW_FROW` 48 | db | a finding's row (the table above, 0-8) |
+| `FSW_FSEV` 49 | db | its severity, §118.1's `SV_*` |
+| `FSW_FCODE` 50 | db | its `FSKF_*` (§118.14.3) |
+| `FSW_FFIX` 51 | db | 1 = it was repaired |
+| `FSW_FA` 52, `FSW_FB` 56 | dd | its two numbers |
+| `FSW_FPATH` 64 | 80 | its path, `\FOLDER\FILE.EXT`, NUL; empty for the volume |
+
+The package composes the words: a finding is a code and two numbers, so the
+kernel carries no English for it and the report says what the window says.
+
+#### 118.14.3 The findings
+
+| `FSKF_*` | row | severity | A, B |
+|---|---|---|---|
+| 1 `FATDIFF` | 0 | Warning | sectors that differ, the FAT's sectors |
+| 2 `DOT` | 1 | Warning | the cluster it named, the one it should |
+| 3 `BADENT` | 1 | Warning | the entry's index in its folder |
+| 4 `DIRBAD` | 1 | Broken | the cluster the folder names |
+| 5 `DEEP` | 1 | Note | the depth |
+| 6 `OFFDISK` | 2 | Broken | the cluster, its place in the chain |
+| 7 `INFREE` | 2 | Broken | the cluster, its place in the chain |
+| 8 `INBAD` | 2 | Broken | the cluster, its place in the chain |
+| 9 `LONG` | 2 | Warning | clusters the chain has, clusters the size needs |
+| 10 `SHORT` | 2 | Broken | the size in bytes, the bytes the chain holds |
+| 11 `XLINK` | 3 | Broken | the shared cluster, its place in the chain |
+| 12 `LOST` | 4 | Warning | lost clusters, chains |
+| 13 `SAVED` | 4 | Note | the clusters saved, the `FILEnnnn.CHK` number |
+| 14 `FREED` | 4 | Note | lost clusters freed |
+| 15 `SPACE` | 5 | Note | free KB, total KB |
+| 16 `BADCL` | 5 | Note | bad clusters |
+| 17 `FRAGS` | 6 | Note | files in pieces, files |
+| 18 `MOVED` | 7 | Note | files moved, files left in pieces |
+| 19 `SKIPDEF` | 7 | Warning | Broken findings that stopped it |
+| 20 `NOTDEF` | 7 | Note | - (the task did not ask) |
+
+A cross-linked file is named as the SECOND chain to claim the cluster: the
+walk keeps one bit per cluster, and naming the first owner would take a word
+per cluster - 128KB on a large FAT16 volume. DOS's CHKDSK names both; this
+one says which cluster, which is where the user starts.
+
+#### 118.14.4 What repair repairs, and in what order
+
+**Every repair leaves the disk consistent if the machine stops between any
+two writes**, by the same rule as §18.4's commit order: the worst a power
+cut can leave is LOST CLUSTERS, which the next check finds, never a file
+naming a cluster that is free.
+
+| finding | repair |
+|---|---|
+| `DOT` | the entry is rewritten to name the right folder |
+| `OFFDISK`, `INFREE`, `INBAD` | the chain ends at its last good cluster (an end mark there), and the size is cut to what that chain holds; a file whose FIRST cluster is bad keeps its entry with no chain and size 0 |
+| `LONG` | the chain is cut to what the size needs and the rest freed - the size is believed over the chain |
+| `SHORT` | the size is cut to what the chain holds - the chain is believed over the size |
+| `LOST` | each chain is ended properly and saved as `\FILEnnnn.CHK` in the root, numbered past any already there, sized to its clusters; with no free root entry the chain is freed instead; lost clusters that form a loop with no head are freed |
+| `FATDIFF` | the first copy is written over the second, after every other repair (the kernel reads the first, §18.8) |
+
+Not repaired: a cross-link (which file owns the cluster is the user's call -
+copy both files off and delete them), `BADENT`, `DIRBAD` and `DEEP`. A
+folder is never truncated: a repair that would cut a folder's chain is
+reported and left.
+
+Writes that shorten a chain write the ENTRY first and the FAT second, so a
+stop between them leaves clusters lost rather than named; writes that save a
+lost chain write the FAT first and the entry second, for the same reason.
+
+#### 118.14.5 The defragmenter
+
+**It runs only after a check that found nothing Broken**; otherwise its row
+says `SKIPDEF` with the count, and the user runs *Check and repair* first.
+It moves FILES, never folders, and never:
+
+- a file with the hidden or the system attribute - `KERNEL.SYS`,
+  `BOOTHD.SYS` and every driver among them, which a boot sector or a ROM
+  may find by where it is;
+- a `*.IMG`: a mounted disk image is read through extents taken when it was
+  mounted (§18.101), and so is a hibernation image (§87);
+- an empty file.
+
+**Two passes, both through free space only.** Pass 1 takes every file in
+more than one piece and moves it to the LOWEST free run that holds it
+whole; a file with no such run is counted in `FSW_STUCK`. Pass 2 takes every
+file that is in one piece and moves it to the lowest free run that holds it
+and lies wholly BELOW where it is now; it repeats while it moved something,
+three times at most. So files pack towards the start of the disk, and free
+space gathers at its end, as far as unmovable files and folders allow.
+
+**A move never overwrites a cluster anything is using**, so it needs no
+journal:
+
+1. copy the data into the free run, a buffer at a time - one `FSK_STEP`
+   each, so the desktop stays live;
+2. write the new chain's FAT entries and flush both copies;
+3. rewrite the file's entry to start at the new run;
+4. free the old chain and flush.
+
+A stop after 2 leaves the new run LOST; after 3, the old one. Every move
+adds 2 to `[dsk_mgen]`, so a `READ_SEQ` cursor on the moved file walks again
+from its name (§18.4.8).
+
+#### 118.14.6 Nothing else may write while it runs
+
+A check is many calls apart, and between them the desktop is live: the user
+can save a file onto the volume being checked. So the kernel keeps a
+**write generation per volume**, `dsk_wgen` (`DVOL_MAX` bytes of `.bss`),
+which `disk_write_x` bumps for `[disk_drive]` on every sector written. The
+engine records it at the end of each step and compares it at the start of
+the next, with the volume index, its cluster count and `[dsk_sigcur]`
+(§18.8.2); any difference ends the run with `FSKE_CHANGED`, and System Check
+says *The disk changed during the check - scan again*. The engine's own
+writes refresh the record, so they do not trip it. A pending `WRITE_SEQ`
+hold on the volume is committed at `FSK_BEGIN` (`dws_gate`); a stream that
+writes after that moves the generation like any other writer.
+
+A move in progress has written only into free clusters when it is
+interrupted this way, so stopping there is safe: the copy is simply never
+linked. Stop (System Check's button) ends the run at the next step, which is
+always between two of §118.14.5's writes.
+
+#### 118.14.7 What it costs
+
+**Resident, measured: 101 bytes on kern_big and kern_emu**, no rung
+crossed - `.text` 72 (the 6-byte cell and the 66-byte stub that checks the
+header), `.cold` 17 (`fsk_cnear`'s 3 and the 14 that bump `[dsk_wgen]` in
+`disk_write_x`) and `.bss` 12 (`fsk_fp`'s 4 and `dsk_wgen`'s `DVOL_MAX`).
+kern_small carries none of it - the cell is an `OSAPI_XREFUSE` - and
+kern_mega carries the refusing cell and a 19-byte image that refuses too,
+so the module map has one shape on every kern_big build.
+
+**Not resident**: the engine is `FSCHECK.DRV`, a 4,872-byte image (4,177
+packed on disk), read by System Check the first time a disk task is chosen
+and freed with the window; the workspace is `FSK_SIZE`'s figure - 10KB on a
+360KB floppy and up to 26KB on a FAT16 volume of 65,524 clusters (two
+bitmaps of one bit a cluster, a 512-byte folder sector, an 8KB copy buffer
+and the record). System Check itself grew 2,633 bytes of image and 41 of
+bss for the chooser's tasks and the words of every finding (14,827 ->
+17,460, 23,885 -> 23,926).
+
+**What a run costs, measured on MartyPC's 4.77MHz 5150 with a 360KB floppy**
+(`tests/fsckdisk.py`): *Check the disk* is 5 seconds; *Check and repair*
+of the seven planted faults the same; *Defragment* moving 4 files of up to
+seven clusters, 13 seconds.
+
+**Limits**: FAT12 and FAT16 only, as the kernel; a folder deeper than
+`FSK_MAXDEP` = 16 is reported and not entered; a path longer than 79
+characters is cut at the front in a finding; `.` and `..` are checked
+only in a folder's first two entries.
 
 ## 119. CDROM.DRV — CD-ROM data and audio (`drivers/cdrom/`, `apps/cdrack/`)
 
