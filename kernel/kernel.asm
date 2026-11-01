@@ -8427,6 +8427,14 @@ SPL_RES_SIZE equ spw_resident_end - $$
 %endif
 
 section .lowbss
+resb ($-$$) % 2                 ; TASK 0's STACK SITS ON THIS END (STK0_BOT =
+                                ; KLOW_SIZE), so the end is kept EVEN: an odd
+                                ; .lowbss put every push of the UI task on an
+                                ; odd address - two bus cycles a word on a
+                                ; 16-bit bus, and a canary at STK0_BOT that
+                                ; straddles. kern_mega's was 0x15C1 for its
+                                ; whole life. `alignb` spelled out, as
+                                ; sch_stacks' and mou_pstack's are
 kernel_low_end:
 KLOW_SIZE equ kernel_low_end - $$
 
@@ -9545,6 +9553,9 @@ section .text
 section .lowbss
 %if ($ - $$) != KLOW_SIZE
   %error "something landed in .lowbss below kernel_low_end - KLOW_SIZE and LOW_PARA under-report it"
+%endif
+%if (STK0_BOT % 2) || (STK0_TOP % 2) || (STK0_SIZE % 2)
+  %error "task 0's stack must be WORD-aligned (STK0_BOT, STK0_TOP and STK0_SIZE all even): the UI task pushes words there and a word canary is seeded at STK0_BOT. The pad before kernel_low_end is what keeps it so - do not delete it"
 %endif
 section .vgabuf
 %if ($ - $$) != KVGABUF_SIZE

@@ -6452,6 +6452,9 @@ vid_rowtab  resw VID_ROWTAB     ; viddet.inc's row table, declared HERE so the
 mou_pstack  resb MOU_PSTK       ; the mouse ISR's own stack (MOUPRIV_ENTER).
                                 ; .lowbss and not .bss: SS is LOW_SEG for every
                                 ; task and the swap moves SP alone
+%if ((mou_pstack - $$) % 2) || (MOU_PSTK % 2)
+  %error "mou_pstack must be WORD-aligned with an EVEN size: the ISR runs on it with SP = mou_pstack + MOU_PSTK, so either odd puts every push on an odd address. The pad above is what guarantees it"
+%endif
 %ifdef VID_ROWTAB_MOU
 %if mou_pstack - vid_rowtab != VID_ROWTAB * 2
   %error "vid_rowtab must lie directly under mou_pstack: a packed display's arrow runs on into it (SPEC.md 120.3.3)"
