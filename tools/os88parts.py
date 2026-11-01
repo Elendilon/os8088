@@ -97,6 +97,13 @@ def off(name):
 # --- the part TABLE, decoded out of a package image --------------------------
 
 MAGIC = b"O88PARTS"
+MAGIC_PARA = b"O88PARTP"    # `off` in paragraphs (docs/plans/PART-PACKING-PLAN.md)
+
+
+def gran(image):
+    """The granule a table's `off` counts in: 512, or 16 under OP_PARA."""
+    at = table_at(image)
+    return 16 if at is not None and image[at:at + 8] == MAGIC_PARA else 512
 
 
 def table_at(image):
@@ -107,10 +114,13 @@ def table_at(image):
     nothing to compute (SPEC.md 20.12.3). Two tables is as bad as none, and
     os88pkg.py refuses that at pack time.
     """
-    at = image.find(MAGIC)
-    if at < 0 or image.find(MAGIC, at + 1) >= 0:
+    hits = [a for m in (MAGIC, MAGIC_PARA)
+            for a in (image.find(m), image.find(m, image.find(m) + 1))
+            if a >= 0]
+    hits = sorted(set(hits))
+    if len(hits) != 1:
         return None
-    return at
+    return hits[0]
 
 
 def _u16(b, i):
@@ -200,7 +210,8 @@ def part_bytes(raw, i):
     row = image_rows(raw)[i]
     if not row["off"]:
         raise ValueError("part %d has no file bytes (a scratch row)" % i)
-    at = row["off"] * 512
+    import os88pkg as _p
+    at = row["off"] * gran(_p.image_unwrap(raw))
     if not row["flags"] & EQU["OP_COMP"]:
         return raw[at:at + row["len"]]
     import os88lz
