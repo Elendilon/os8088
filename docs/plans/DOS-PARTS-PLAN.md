@@ -403,6 +403,26 @@ target. Its value is bracket runs (+5 KB of arena, ~1% of a 640 KB machine's
 worth a high-risk rewrite of a layer that just shipped, D is the fallback and
 B is not one.
 
+### 2.1 The windowed layer, natively a part
+
+**The owner's direction on this section: not C' - the layer reconceived as a
+part from what it does at run time, best for speed and size.** The study is
+its own file, docs/plans/DOS-WINDOWED-PART-PLAN.md; its answer in brief:
+
+- the part owns all of the windowed run's state and is entered through a
+  jump table; the host keeps 15 bytes of bss, ~554 bytes of thunks, door
+  stubs, the worker's host half and a 31-byte register-transparent bouncer
+  for the COLD calls out (E);
+- the console stays in the host, and the part carries its own copy of the
+  per-character teletype routines from the same source (391 bytes, M), so
+  **no per-character or per-tick path crosses a segment**;
+- RAM saved per instance never run windowed **~4.1 KB (E)**, the same as C'
+  re-costed on this tree; a 5 KB claim while windowed; `DOS.O88` ~+1.25 KB;
+- measured with two throwaway prototypes on MartyPC: a crossing on the
+  virtual `int 10h` costs **~111 cycles** (C' is +4.3% on a glyph and
+  +14.5% on `AH=09h`), and the native design's one change to that path,
+  loading the host's DS from a part cell, costs **+0** (M).
+
 ## 3. Census of the rest (host image 48,668, core 15,430; all M)
 
 | component | bytes | who needs it | could be lazy? trigger | verdict |
