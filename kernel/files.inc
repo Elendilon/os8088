@@ -4600,7 +4600,7 @@ pth_leaf:
     call pth_lastsep
     mov si, ax
     inc si                      ; the byte after the last separator - or,
-    jmp short .out              ; with none, the whole buffer is the name
+    SKIPAX2                     ; over the xor, AX being popped (pass 16)
 .none:
     xor si, si
 .out:

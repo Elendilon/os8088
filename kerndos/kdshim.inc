@@ -54,6 +54,12 @@
 %macro SKIPCX2 0
     db 0xB9
 %endmacro
+%macro SKIPBL1 0
+    db 0xB3
+%endmacro
+%macro SKIPAX2 0
+    db 0xB8
+%endmacro
 
 ; The loading screen is stage 2's and there is none here: kern_dos is JUMPED
 ; INTO by SPEC.md 87.5's stub, not booted (KERN-DOS-PLAN 4.2), so every

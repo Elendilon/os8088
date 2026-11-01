@@ -2495,6 +2495,12 @@ dbg_reg_at:                     ; 0060:000E - THE DEBUG REGISTRY (SPEC.md 57)
 %macro SKIPCX2 0                ; mov cx, imm16 over two bytes: CX, no flag
     db 0xB9
 %endmacro
+%macro SKIPBL1 0                ; mov bl, imm8 over one byte: BL, no flag
+    db 0xB3                     ; (kernel size pass 16)
+%endmacro
+%macro SKIPAX2 0                ; mov ax, imm16 over two bytes: AX, no flag
+    db 0xB8
+%endmacro
 
 osapi_table:
 apic_gfx_lock:

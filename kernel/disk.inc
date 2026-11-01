@@ -1039,12 +1039,12 @@ dsk_bpb_bank:                   ; (no frame: disk_mount_x carries nothing
     mov bl, [disk_drive]        ; [disk_drive]'s row in the BPB bank: none at
     xor bh, bh                  ; an index >= DVOL_MAX. BX = the index, AX
     cmp bx, DVOL_MAX            ; its DSK_BPB_SZ-byte slot in dsk_bpbv, and
-%ifdef KERN_BIG                 ; ES:CX:DF set for the `rep movsw` either way.
-    cmc                         ; (kern_big spends a byte here, ON PURPOSE:
-    jc .no                      ; it puts dsk_xfer, its per-sector path and
-%else                           ; the FAT walk back on the word parity pass
-    jae .no                     ; 12 found them at; kern_small's are there
-%endif                          ; without it. docs/plans/completed/ksp12/xfile.md)
+    jae .no                     ; ES:CX:DF set for the `rep movsw` either way.
+                                ; (kern_big's `cmc / jc` parity byte here,
+                                ; ksp12/xfile.md's, went in kernel size pass
+                                ; 16: assoc_tryfold's SKIPDL1 is the odd byte
+                                ; that keeps dsk_xfer and the FAT walk where
+                                ; they were measured)
     mov al, DSK_BPB_SZ          ; (it was dsk_bpb_slot, kernel size pass 12)
     mul bl                      ; index * DSK_BPB_SZ (AX = AL*BL; DX untouched)
     add ax, dsk_bpbv            ; CF = 0: the slot is inside the segment,
@@ -6266,7 +6266,7 @@ dsk_dirw_next_x:
     clc
 %endif
     inc word [dsk_wsec]         ; (`inc` leaves CF alone)
-    jmp short .out
+    SKIPBL1                     ; over the stc, BL being popped (pass 16)
 .end:
     stc
 .out:

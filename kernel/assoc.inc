@@ -957,7 +957,7 @@ assoc_tryfold:
                                 ; own frame rather than kept in a spare
                                 ; register, because there is not one
     call assoc_try              ; ...and its CF is this routine's answer too
-    jmp short .out
+    SKIPDL1                     ; over the stc, DL being popped (pass 16)
 .no:
     stc
 .out:
