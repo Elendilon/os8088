@@ -916,6 +916,10 @@ op_unpack:
     push si
     test byte [si+OP_R_FLAG], OP_COMP
     jz .plain
+%if OP_HAS_ZFILL
+    test byte [si+OP_R_FLAG], OP_ZFILL
+    jnz .zfill                  ; two streams and the zeros round them
+%endif
 
     call op_unpto               ; ES = the landing, BX = the stream
     mov cx, [si+OP_R_ZKB]       ; --- expand it ------------------------------
@@ -936,6 +940,7 @@ op_unpack:
     xor bx, bx                  ; contract (SPEC.md 20.13.3). BX:DX is the
                                 ; 32-bit expected output and a part is 16 bits
     call OSAPI_DECOMP           ; by os88pkg.py, so the high word is zero
+.zjoin:                         ; ...and an OP_ZFILL row leaves through here
     pop ds
     push ds
     pop es
@@ -987,6 +992,106 @@ op_unpack:
     pop bp
     mov si, op_s_zbad
     jmp op_say
+%if OP_HAS_ZFILL
+
+; --- an OP_ZFILL row: TWO streams, and zeros round them (SPEC.md 20.12.7.5) --
+; The stored part is a head and two streams, and every byte of the row the two
+; do not write is ZERO - so a bss, or a hole the package fills itself, costs
+; neither the disk nor a decoder writing it out one match at a time:
+;
+;     +0 S1   bytes the first stream writes, at the row's offset 0
+;     +2 P1   ...its packed length
+;     +4 B    where the second one starts writing: a multiple of 16, >= S1
+;     +6 S2   bytes it writes
+;     +8      stream 1, then stream 2 (zkb - 8 - P1 bytes)
+;
+; TWO and not one, because DOS.O88's part 0 is the shape it is for: a header,
+; then the core's 18,910-byte slot, then the program, then its bss - so the
+; zeros are a HOLE and a TAIL, and a row that could only drop a tail would
+; still ship and decode the hole (SPEC.md 96.44.17). The second stream needs
+; a window of its own: OSAPI_DECOMP takes DI = 0, so it lands on a paragraph.
+;
+; THE HEAD IS FILE DATA, so what it says is held to the row before a byte is
+; written: B and S2 inside `len`, S1 at or below B. OSAPI_DECOMP never writes
+; past what it is told, so those three are what keep every write inside the
+; row. P1 is not checked - a wrong one is a wrong READ, which the decoder
+; refuses. Where stream 2 may begin without the fill under it overrunning its
+; input is os88pkg.py's to prove (B + P2 <= len, SPEC.md 20.12.7.5).
+;
+; IT LEAVES BY THE PLAIN STREAM'S OWN EXIT (.zjoin), with the stack that path
+; has there and CF its answer.
+.zfill:
+    call op_unpto               ; ES = the landing, BX = the stream
+    push ds                     ; [bp+8] ours
+    push bp                     ; [bp+6] the landing's paragraph
+    mov ax, [si+OP_R_LEN]
+    mov cx, [si+OP_R_ZKB]
+    mov dl, [op_table + OP_T_FMT]
+    mov ds, bx
+    xor si, si                  ; DS:SI = the head
+    mov bx, [si+4]              ; BX = B
+    sub ax, bx
+    jb .zbad                    ; B past the row
+    sub ax, [si+6]
+    jb .zbad                    ; S2 past what is left of it
+    cmp bx, [si]
+    jb .zbad                    ; S1 past B
+    sub cx, [si+2]
+    sub cx, 8                   ; CX = P2
+    push ax                     ; [bp+4] the TAIL: len - B - S2
+    push dx                     ; [bp+2] the format, in DL
+    push cx                     ; [bp]   P2
+    mov bp, sp
+    mov dx, [si]
+    mov cx, [si+2]
+    call .zdec                  ; stream 1, at the row's base
+    jc .zout
+    xor si, si
+    mov cx, [si+4]
+    sub cx, di
+    call .zero                  ; [S1, B) is zero
+    mov ax, [si+4]              ; ...and stream 2 lands at B, through the
+    mov cl, 4                   ; landing's window aimed there: OSAPI_DECOMP
+    shr ax, cl                  ; takes DI = 0, so it starts on a paragraph
+    add ax, [bp+6]
+    push ds
+    mov ds, [bp+8]              ; op_atb wants OUR DS
+    call op_atb                 ; AX = the window (BX, DX gone)
+    pop ds
+    mov es, ax
+    mov dx, [si+6]
+    mov si, [si+2]
+    add si, 8                   ; stream 2 follows the head and stream 1
+    mov cx, [bp]
+    call .zdec1
+    jc .zout
+    mov cx, [bp+4]
+    call .zero                  ; [B + S2, len) is zero, and CF = 0
+.zout:
+    pop ax
+    pop ax
+    pop ax
+.zbad:
+    pop bp
+    jmp .zjoin
+; .zdec: CX packed bytes at DS:8 -> DX bytes at ES:0; .zdec1 takes SI as given
+.zdec:
+    mov si, 8
+.zdec1:
+    mov al, [bp+2]
+    xor di, di
+    xor bx, bx
+    call OSAPI_DECOMP           ; DS, ES and BP come back (SPEC.md 20.13.3)
+    ret
+; .zero: CX zero bytes at ES:DI, in words; CF = 0. Clobbers AX, CX, DI
+.zero:
+    xor ax, ax
+    shr cx, 1
+    rep stosw
+    adc cx, cx                  ; ...the odd byte, and CF = 0 after it
+    rep stosb
+    ret
+%endif
 
 ; op_unpto - ES = op_unpack's landing (BP) and BX = its stream ([op_zsrc]),
 ; each through a window of its own. Clobbers AX, BX, DX, flags
