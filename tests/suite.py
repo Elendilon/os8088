@@ -12612,8 +12612,8 @@ SOAK = [
         "Hide All hides the widget and Show All brings it back; Arrange puts "
         "it at W_X = 7 mod 8 at the column's top; picking the RUNNING row "
         "closes it through app_close_win, so its own negotiator removes its "
-        "Sticky App row. A second boot with six more (one-sector card stubs) "
-        "PAGES: a pager row, a release on it turns the page and the panel "
+        "Sticky App row. A second boot with six more (one-sector card stubs), "
+        "nine on the disk, lists STM_MAX (eight) and PAGES: a pager row, a release on it turns the page and the panel "
         "stays up. Read out of the module's own image (mod_tab's row + "
         "os88sym's offsets), not out of pixels.",
         needs=("marty", "mtools"), timeout=900,
