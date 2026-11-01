@@ -1324,21 +1324,21 @@ te_inschar:
     pop ax
     ret
 
-te_delchar:
-    push ax
+te_delchar:                         ; ...whose tail IS te_inschar's: the
+    push ax                         ; whole-gap fill, the row mark, the pops
     push bx
     push cx
     push dx
     push si
     or ax, ax
-    jz .out
+    jz te_inschar.out
     mov si, ax
     call te_here
     mov bx, ax
     mov cx, CON_COLS
     sub cx, [con_cx]
     cmp si, cx
-    jae .whole
+    jae te_inschar.whole
     sub cx, si
     mov ax, bx
     add ax, si
@@ -1349,21 +1349,7 @@ te_delchar:
     sub ax, si                      ; the blanks arrive at the RIGHT
     mov cx, si
     call con_fillcells
-    jmp short .mark
-.whole:
-    mov ax, bx
-    call con_fillcells
-.mark:
-    mov bx, [con_cy]                 ; **THE WHOLE ROW**: con_cmove moved the
-    call con_mark                    ; tail and marks nothing, and con_fillcells
-                                    ; marks only the cells it filled (96.33.12)
-.out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp short te_inschar.mark
 
 ; =============================================================================
 ; THE ZMODEM HANDOVER (SPEC.md 70.9.6 -> SPEC.md 70.11)

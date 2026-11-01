@@ -64,7 +64,8 @@
 ;                                            drops the last)
 ;   con_mark / con_markall / con_markcur     the dirty-ROW bitmap
 ;   con_rows_owed                            draw what is owed, and clear it
-;   con_row / con_compose / con_emit         one row: buffer -> band -> glass
+;   con_rowspan / con_compose / con_emit     one row's span: buffer ->
+;                                            band -> glass
 ;   con_font                                 the 256 CP437 glyphs, once
 ;
 ; ...and two opt-ins: `%define CON_TTY` adds the teletype half (con_write,
@@ -153,24 +154,15 @@ con_bit:
     ret
 
 ; --- con_mark - BX = a row that must be redrawn ------------------------------
+; A whole row is columns 0..79, and widening any span to 0..79 IS 0..79, so
+; this is con_marks over the whole width: THE SPAN MOVES WITH THE BIT
+; (96.33.12) inside its one `cli`, and con_takerow reads the two together.
+; The row may be one past the end (the cursor may sit there): con_marks
+; refuses it.
 con_mark:
-    push ax
-    push bx
     push cx
-    cmp bx, CON_ROWS
-    jae .out                        ; the cursor may sit one past the end
-    pushf
-    cli                             ; THE SPAN MOVES WITH THE BIT (96.33.12),
-    mov byte [con_dc0 + bx], 0      ; and con_takerow reads the two together.
-    mov byte [con_dc1 + bx], CON_COLS - 1   ; a whole row is columns 0..79
-    call con_bit
-    or [con_drb + bx], al
-    popf
-.out:
-    pop cx
-    pop bx
-    pop ax
-    ret
+    mov cx, (CON_COLS - 1) << 8     ; CL = 0, CH = 79
+    jmp short con_mk1
 
 ; --- con_markc - BX = a row, CL = ONE column of it (SPEC.md 96.33.12) --------
 ; The bitmap names a ROW because a band repaint is priced per CALL (~756 us of
@@ -187,6 +179,7 @@ con_mark:
 con_markc:
     push cx
     mov ch, cl                      ; one column is a span of one
+con_mk1:
     call con_marks
     pop cx
     ret
@@ -477,15 +470,11 @@ con_curmove:
     pop bx
     pop ax
     ret
-.mk:
-    cmp ax, 0xFFFF
-    je .mkr
-    mov cl, al
+.mk:                                ; FFFF needs no test: it is row 255,
+    mov cl, al                      ; which con_marks refuses as off the end
     mov bl, ah
     xor bh, bh
-    call con_markc
-.mkr:
-    ret
+    jmp con_markc
 
 ; -----------------------------------------------------------------------------
 ; con_scrollpaint - spend [con_scrl] as a BLIT rather than as eighteen runs
@@ -577,57 +566,37 @@ con_scrollpaint:
 ; font_run fallback produced could not offer.
 ; =============================================================================
 
-; --- con_row - BX = a buffer row: compose it WHOLE, then put it down --------
-con_row:
-    push ax
-    push cx
-    xor ax, ax
-    mov cx, [con_vcols]
-    call con_rowc
-    pop cx
-    pop ax
-    ret
-
-; --- con_rowspan - BX = a row con_takerow just took: only its SPAN ----------
-; [con_tkc0]..[con_tkc1], cut to the visible box. A span that is not one (the
-; last column before the first) is a marker that set a bit without a span,
-; and the honest answer to that is the whole row (SPEC.md 96.33.12).
+; --- con_rowspan - BX = a row con_takerow just took: compose and put down
+; ONLY ITS SPAN - [con_tkc0]..[con_tkc1], cut to the visible box. A span that
+; is not one (the last column before the first) is a marker that set a bit
+; without a span, and the honest answer to that is the whole row (SPEC.md
+; 96.33.12). The box it hands con_compose/con_emit is never EMPTY: the first
+; column is inside [con_vcols] and the last at or after it, so con_compose's
+; `dec cl` cannot wrap.
 con_rowspan:
-    push ax
-    push cx
-    mov al, [con_tkc0]
-    mov cl, [con_tkc1]
-    xor ah, ah
-    xor ch, ch
-    cmp cx, ax
-    jb .whole
-    cmp ax, [con_vcols]
-    jae .out                        ; wholly right of a narrow window
-    inc cx                          ; CX = one past the last column...
-    cmp cx, [con_vcols]
-    jbe .cut
-    mov cx, [con_vcols]              ; ...cut to what is on view
-.cut:
-    sub cx, ax                      ; CX = how many columns
-    call con_rowc
-    jmp short .out
-.whole:
-    call con_row
-.out:
-    pop cx
-    pop ax
-    ret
-
-; --- con_rowc - BX = a row, AX = its first column, CX = how many ------------
-con_rowc:
     push ax
     push bx
     push cx
     push dx
     push si
     push di
-    jcxz .done                      ; a zero-width box draws nothing - and
-                                    ; con_compose's `dec cl` would wrap
+    mov ax, [con_tkc0]              ; AL = the first column, AH = the last
+    mov cl, ah
+    mov ch, 0
+    mov ah, ch
+    cmp cx, ax
+    jae .span
+    xor ax, ax                      ; not a span: the WHOLE row, 0..255 cut
+    mov cl, 0xFF                    ; to the box below
+.span:
+    cmp ax, [con_vcols]
+    jae .done                       ; wholly right of a narrow window
+    inc cx                          ; CX = one past the last column...
+    cmp cx, [con_vcols]
+    jbe .cut
+    mov cx, [con_vcols]              ; ...cut to what is on view
+.cut:
+    sub cx, ax                      ; CX = how many columns, AX the first
     cmp bx, [con_vtop]
     jb .done                        ; above the visible window on a short one
     call con_compose
@@ -855,10 +824,8 @@ con_emit:
 .live:
     cmp byte [con_mono], 0
     je .runs
-    mov ax, di                      ; ONE band, ONE blit, no runs (70.8.4)
-    mov cx, bp
-    sub cx, di
-    call con_blitrun
+    mov ax, di                      ; ONE band, ONE blit, no runs (70.8.4):
+    call con_blitrun                ; CX is still the span's count
     jmp short .out
 .runs:                              ; DI = the run's first column
 .run:
@@ -1292,22 +1259,15 @@ con_markcells:
     push bx
     push cx
     push dx
-    push si
-    mov si, bx
-    xor dx, dx
-    mov cx, CON_COLS
-    div cx                          ; AX = the first row, DL its column
-    push ax
-    push dx
-    mov ax, si
-    xor dx, dx
-    div cx                          ; AX = the last row, DL its column
-    mov ch, dl                      ; CH = the last row's last column
-    mov si, ax                      ; SI = the last row
-    pop dx
-    pop bx                          ; BX = the first row
-    mov cl, dl                      ; CL = its first column
-    cmp bx, si
+    mov dl, CON_COLS                ; **A BYTE DIVIDE**: both cells are below
+    div dl                          ; CON_CELLS (con_fillcells cut them), so
+    xchg ax, bx                     ; the row fits AL. BL = the first row, BH
+    div dl                          ; its column; AL = the last row, AH its
+    mov cl, bh                      ; CL = the first row's first column
+    mov ch, ah                      ; CH = the last row's last column
+    mov dl, al                      ; DL = the last row
+    xor bh, bh                      ; BX = the first row
+    cmp bl, dl
     je .one
     push cx
     mov ch, CON_COLS - 1
@@ -1315,7 +1275,7 @@ con_markcells:
     pop cx
 .mid:
     inc bx
-    cmp bx, si
+    cmp bl, dl
     jae .last
     call con_mark                   ; every row between, whole
     jmp short .mid
@@ -1323,7 +1283,6 @@ con_markcells:
     xor cl, cl                      ; the last row, up to its column
 .one:
     call con_marks
-    pop si
     pop dx
     pop cx
     pop bx
