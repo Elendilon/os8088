@@ -5911,7 +5911,8 @@ kmain:
     mov sp, STK0_TOP            ; the image, so a stack offset stays small and
     sti                         ; the kernel's own 64KB window stays for code
 %ifdef KERN_MEGA
-    mov word [ss:mega_seg0], 0  ; ...and low memory is segment 0 (MEGA_SEG0)
+    and word [ss:mega_seg0], 0  ; ...and low memory is segment 0 (MEGA_SEG0)
+                                ; (`and`, flags dead: a byte under `mov`)
     mov byte [ss:mega_pm], 0    ; real mode, for .cold's KDATAR_C (mega.inc):
 %endif                          ; nothing promises .lowbss is zero at boot
     cld

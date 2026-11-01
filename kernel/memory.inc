@@ -3546,12 +3546,11 @@ mem_hitag:
     cmp bx, MEM_P_WSAVE
     jb .no
     cmp bx, MEM_P_WSAVE + MAX_WIN
-    jb .yes
-.no:
-    stc
-    ret
+    jae .no
 .yes:
-    clc
+    SKIPF1                      ; CF = 0 over .no's stc, one ret for both
+.no:                            ; (kernel size pass 16, -1)
+    stc
     ret
 
 ;-----------------------------------------------------------------------------

@@ -331,7 +331,13 @@ blk_pass:
     ret
 
 .act:
-    mov byte [blk_act], 0       ; consumed BEFORE it is acted on: a packet
+%ifdef KERN_BIG
+    dec byte [blk_act]          ; 1 -> 0: mouse.inc's two writers store 1 and
+                                ; nothing else, and the dec is one instruction
+                                ; as the store was (kernel size pass 16, -1;
+%else                           ; kern_small keeps the store, for its hot
+    mov byte [blk_act], 0       ; parity). Consumed BEFORE it is acted on: a packet
+%endif
     call blk_wake               ; landing inside this window simply sets it
     jnc .out                    ; again, and the worst a lost edge can cost is
                                 ; one more pass. The press that woke the screen
@@ -345,7 +351,9 @@ blk_pass:
                                 ; ftpd's, mid-transfer, first among them -
                                 ; was deaf for the rest of its life
 %ifdef KERN_BIG
-    mov word [mou_whl], 0       ; ...and a WHEEL notch is dropped with it: one
+    and word [mou_whl], 0       ; ...and a WHEEL notch is dropped with it: one
+                                ; (`and`: a byte under `mov`, the flags dead -
+                                ; evq_drain writes them below)
 %endif                          ; a poll or a later byte added beside the wake
                                 ; would scroll the window a pass later, unseen
                                 ; (SPEC.md 64.2; ui_task's arm drops the rest)
@@ -475,8 +483,9 @@ blk_set:
                                 ; (vid_disp_init, 39.19.2)
 .walk:
     mov cl, [vid_ndisp]
-    cmp ch, cl                  ; A WHILE, WHERE THIS WAS A DO-WHILE. The
-    jae .pop                    ; old form rested on [vid_ndisp] never being
+    jmp short .test             ; A WHILE, WHERE THIS WAS A DO-WHILE - entered
+                                ; at its test (kernel size pass 16, -2). The
+                                ; old form rested on [vid_ndisp] never being
                                 ; 0; the animation arm above starts at 1, so
                                 ; a ONE-display machine running the saver
                                 ; must do nothing at all rather than hand
@@ -485,8 +494,9 @@ blk_set:
     mov al, ch
     call vid_kind_of            ; vid_kind_of banks its own (`push di / call
     call blk_one                ; vid_ctx_ptr / ... / pop di`), and blk_one
-    inc ch                      ; reaches only vid_bk and vid_ac_pal,
-    cmp ch, cl                  ; neither of which writes DI
+    inc ch                      ; reaches only vid_bk, which never writes DI
+.test:
+    cmp ch, cl
     jb .d                       ; ...and it counts UP and not down: a
                                 ; `dec cl` from 0 would run 255 more passes
                                 ; handing vid_kind_of an out-of-range display
