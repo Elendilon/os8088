@@ -1332,17 +1332,8 @@ fsx_rland:                      ; REAL MODE, IF = 0, the stack as it was
     call mega_a20               ; A20 PROVED OPEN before the GDT is read: a
                                 ; BIOS the package called may have shut it
     call mega_up                ; protected mode: DS = ES = KDATA
-    cmp word [spk_seg], 0       ; A SPEAKER RING LEFT OPEN (SPEC.md 34.11) is
-    je .nspk                    ; closed HERE, before the rate goes off - the
-    in al, 0x61                 ; twin's close (rms_spk) less its two writes
-    and al, 0xFC                ; that cannot matter: IVT 20h is put back by
-    out 0x61, al                ; fsx_rupf's forced sync, and channel 0 by
-    mov al, 0xB6                ; sch_fast_off below. fsx_restore's spk_off
-    out 0x43, al                ; used to close it AFTER that, reloading
-    xor ax, ax                  ; channel 0 with [spk_rdsv] - the bracket's
-    mov [spk_seg], ax           ; divisor - once [sch_fast] was already 0, so
-    mov [snd_ch2mode], ax       ; the desktop ran at the bracket's rate with
-.nspk:                          ; every IRQ0 a tick. Channel 2 idle, IF = 0
+    call MEGA_SEL_CODE:fsx_rspkf ; a speaker ring left open, closed BEFORE
+                                ; the rate goes off (fsx_rspkf, `.mega`)
     call sch_fast_off           ; the rate OFF first: no hook may run in
                                 ; protected mode on the window's copy, which
                                 ; is stale until the copy back (fsx_restore
@@ -2787,6 +2778,31 @@ fsx_rvup:
     inc si
     mov [di], ax
     ret
+
+; -----------------------------------------------------------------------------
+; fsx_rspkf - FAR, protected mode after the return (IF = 0, DS = KDATA, the
+; rate still on): A SPEAKER RING LEFT OPEN (SPEC.md 34.11) is closed here,
+; before fsx_rland turns the rate off - the twin's close (rms_spk) less its
+; two writes that cannot matter: IVT 20h is put back by fsx_rupf's forced
+; sync, and channel 0 by sch_fast_off after this. fsx_restore's spk_off used
+; to close it AFTER that, reloading channel 0 with [spk_rdsv] - the bracket's
+; divisor - once [sch_fast] was already 0, so the desktop ran at the
+; bracket's rate with every IRQ0 a tick. Protected mode only, so in `.mega`
+; and not the kernel segment (tests/megaseg.txt). Clobbers AX
+; -----------------------------------------------------------------------------
+fsx_rspkf:
+    cmp word [spk_seg], 0
+    je .out
+    in al, 0x61                 ; channel 2 idle, the speaker off
+    and al, 0xFC
+    out 0x61, al
+    mov al, 0xB6
+    out 0x43, al
+    xor ax, ax
+    mov [spk_seg], ax
+    mov [snd_ch2mode], ax
+.out:
+    retf
 
 ; -----------------------------------------------------------------------------
 ; fsx_rupf - FAR, the first of protected mode after the return (IF = 0, DS =
