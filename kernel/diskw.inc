@@ -780,9 +780,7 @@ dskw_mkbody:
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
 dskw_zerobuf:
-    push ax
-    push cx
-    push di
+    call kentc_bp
     push es
     push ss
     pop es
@@ -791,11 +789,7 @@ dskw_zerobuf:
     xor ax, ax
     cld
     rep stosw
-    pop es
-    pop di
-    pop cx
-    pop ax
-    ret
+    jmp kretc_es
 
 ; -----------------------------------------------------------------------------
 ; dskw_dotents - build a new directory's first sector in dsk_secbuf
@@ -948,8 +942,7 @@ dskw_fdir:
     jmp dskw_rdata.corrupt      ; AX = FERR_IO, CF = 1
 .prot:
     jmp dskw_wbody.prot         ; AX = FERR_PROT, CF = 1
-.out:
-    ret
+.out equ dskw_rmbody_n83.out   ; its neighbour's ret (kernel size pass 16)
 
 ; -----------------------------------------------------------------------------
 ; dskw_relold - the shared TAIL of the three bodies that replace or remove an
@@ -1610,8 +1603,10 @@ dskw_wbody:
 .rollback:
     call dskw_refat             ; drop the half-built chain: invalidate the
     stc                         ; FAT window. It keeps AX, the error
+.rbret:                         ; (dskw_wdata's nothing-to-write exit, pass 16)
     ret
 
+dskw_wdata:
 ; -----------------------------------------------------------------------------
 ; dskw_wdata - allocate the chain and write the bytes into it
 ; in:  [dskw_rem] = sectors, [dskw_tail] = bytes in a partial final sector,
@@ -1649,7 +1644,6 @@ dskw_wbody:
 ; half-built chain is rolled back by dskw_refat and nothing that was not
 ; written needs unwriting.
 ; -----------------------------------------------------------------------------
-dskw_wdata:
     xor ax, ax                  ; AX is this routine's OUTPUT and never its
     mov [dskw_first], ax        ; input - the contract above says so - so the
     mov [dskw_prev], ax         ; four stores are the accumulator's: 15 bytes
@@ -1664,9 +1658,7 @@ dskw_wdata:
     mov [dskw_czsrc], ax        ; the run moves [dskw_src] itself, so the
 %endif                          ; stamp reads the header from here (14.27)
     cmp word [dskw_rem], 0
-    jne .go
-    ret                         ; an empty file owns no clusters at all, and
-                                ; CF = 0 out of the compare with 0
+    je dskw_wbody.rbret         ; nothing to write: CF = 0, out of the compare
 .go:
     mov bp, .clus               ; dskw_xclus's continuation: where it goes
                                 ; for the next cluster (see dskw_rdata)
@@ -1791,9 +1783,7 @@ dskw_runadd:
 ; and the FAT window both go through disk_read, not through here).
 ; -----------------------------------------------------------------------------
 dskw_flushrun:
-    push ax
-    push bx
-    push cx
+    call kentc_bp
     push es
     mov cx, [dskw_rlen]
     jcxz .out
@@ -1838,11 +1828,7 @@ dskw_flushrun:
 .out:
     clc                         ; the answer first, then ONE pop ladder: a
 .pop:                           ; `pop` writes no flag
-    pop es
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_es
 
 ; -----------------------------------------------------------------------------
 ; dskw_clba_inc - the data walk's cursor, one sector on, in 32 bits
@@ -1881,10 +1867,9 @@ dskw_last_p:
     cmp word [dskw_tail], 0
     je .no
     cmp ax, ax                  ; ZF=1
-    jmp short .out
+    ret
 .no:
     or ax, 1                    ; ZF=0
-.out:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1922,8 +1907,7 @@ dskw_rbody:
     test byte [dskw_raw+DSK_R_ATTR], 0x18
     jz .isfile
     jmp dskw_wbody.prot         ; a volume label or a subdirectory: FERR_PROT
-.out:
-    ret
+.out equ dskw_runadd.out   ; its neighbour's ret (kernel size pass 16)
 .isfile:
     call dskw_czknow                ; **AND IF THE DIRECTORY DID NOT SAY, ASK
                                     ; THE FILE** (SPEC.md 20.14.6). The hint is
@@ -2180,8 +2164,8 @@ dskw_rbody:
     jmp .isfile                         ; to trust: the file's own header is
                                         ; the only thing that can say, and
                                         ; dskw_czknow asks it
-.fsfail:
-    ret                         ; CF = 1 and AX = FERR_* from dskw_fsstat
+.fsfail equ dskw_rbody.ret   ; CF = 1 and AX = FERR_* from dskw_fsstat:
+                                ; its neighbour's ret (kernel size pass 16)
 .fsdata:                        ; the widget's scale is BYTES (SPEC.md 12.8.1)
                                 ; and fpg_begin above was handed them: a
                                 ; redirected volume has no sectors to give it,
@@ -2378,7 +2362,7 @@ dskw_czexp:
     mov ax, [dskw_czseg]        ; kern_mega: a real paragraph, maybe off the
     cmp byte [dskw_hi], 0       ; grid - a selector for it; above 1MB the
     jne .czhi                   ; caller's selector is already the answer
-    call KERNEL_SEG:mega_oddsegf
+    call COLD_SEG:mega_oddsegc
 .czhi:
     mov es, ax
     pop ax
@@ -2623,7 +2607,7 @@ dskw_hiseg:
     jae .sel                    ; kernel's own segments are on the identity
 .gdt:                           ; grid that the real-segment arm walks
     push ax
-    call KERNEL_SEG:mega_s2segf
+    call COLD_SEG:mega_s2segc
     cmp ax, 0xFFFF              ; mega_s2seg's answer for a base past 1MB
     jne .lo
     pop ax
@@ -2738,11 +2722,8 @@ dskw_size32:
     adc dx, 0
 .whole:
     or dx, dx                   ; (`or` clears CF: the answer below)
-    jnz .over
+    jnz dskw_nbody.out          ; ...a stc / ret, shared (kernel size pass 16)
     mov [dskw_rem], ax
-    ret
-.over:
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2771,8 +2752,7 @@ dskw_dbody_n83:                 ; dskw_n83 already filled (dskw_rmtree)
     jz .live
 .protj:                         ; (dskw_nbody's refusal jumps here too)
     jmp dskw_wbody.prot         ; read-only, hidden, system, label or dir:
-.out:                           ; FERR_PROT
-    ret
+.out equ dskw_norm.hi   ; its neighbour's ret (kernel size pass 16)
 .live:
     mov ax, [dskw_raw+DSK_R_CLUS]
     mov [dskw_oldclus], ax
@@ -3042,13 +3022,24 @@ dskw_read_at_x:
                                 ; everywhere else
     mov [dwr_sz], cx            ; the size, as the FAT arm stores it, so a
     mov [dwr_sz+2], dx          ; READ_SEQ cursor carries it here too
+%ifdef FPG_OPS
+    mov cx, [dwr_cap]           ; A PHASE, as the FAT arm's read_chain arms
+    xor dx, dx                  ; one (SPEC.md 12.8.8): without it [fpg_total]
+    call ct_fpg_begin           ; stays 0 and the driver's OSAPI_FS_PROG
+%endif                          ; reports fall on the floor, so a copy OFF a
+                                ; redirected volume counted only its writes
     mov bx, [dwr_buf]           ; AX is still the handle
     mov dx, es                  ; DX:BX = the buffer, ES being the caller's
-    mov cx, [dwr_cap]           ; and DX not carrying it into the driver
+%ifndef FPG_OPS                 ; (FPG_OPS: CX is [dwr_cap] already, which
+    mov cx, [dwr_cap]           ; fpg_begin keeps) and DX not carrying it
+%endif                          ; into the driver
     mov si, [dwr_off]           ; DI:SI = the 32-bit offset, and a driver is
     mov di, [dwr_off+2]         ; free to answer 0 for "at or past the end"
     mov bp, FSV_READAT
     call drv_fs_call              ; -> DX:AX = the bytes delivered
+%ifdef FPG_OPS
+    call ct_fpg_end             ; (flags and registers kept)
+%endif
     jmp short .out              ; CF and DX:AX are already the answer
 %else                           ; ...and on kern_small the jump OVER the
     jmp short .fatat            ; answers is all there is: 15 cycles where
@@ -3522,8 +3513,9 @@ dws_commit:
     pop ax
     popf
     jmp dskw_find.out           ; ES, DI, SI, DX, CX, BX - its pop run (size
-.none:                          ; pass 13); a `pop` writes no flag, so popf's
-    ret                         ; CF rides through
+                                ; pass 13); a `pop` writes no flag, so popf's
+                                ; CF rides through
+.none equ dws_ours.no   ; its neighbour's ret (kernel size pass 16)
 
 ; dws_ours - ZF=1: a hold is pending on [disk_drive] and no WRITE_SEQ call is
 ; running (the word is [dws_hold] = 1 with [dws_flg] = 0 beside it); .vol

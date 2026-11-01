@@ -2416,9 +2416,9 @@ void *os88_main(void)
      * regrow being in paragraphs (SPEC.md 50.3.7). The claim's BASE is the
      * carve's and not the part's (a run starts on a cluster boundary, SPEC.md
      * 20.12.2), so the size kept is the head slack plus the main ROM. A
-     * refusal leaves the claim as it was, which is only the old cost - and
-     * is what a kern_mega pool block answers, MEMP_REGROW being the
-     * conventional heap's. */
+     * refusal leaves the claim as it was, which is only the old cost. A
+     * kern_mega pool block is resized too (OSAPI_MEM_P's MEMP_REGROW arm
+     * takes one, to the KB). */
     os88_mem_regrow_p(a2_opbase,
                       os88_seg_para(a2_m.romseg) - os88_seg_para(a2_opbase)
                       + ((A2_ROM_KEEP + 15u) >> 4));

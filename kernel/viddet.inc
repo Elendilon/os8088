@@ -359,16 +359,16 @@ vid_planes_w dw 4               ; the same, where a word is wanted. A planar
 vid_6845    db 0x35, 0x2D, 0x2E, 0x07, 0x5B, 0x02
             db 0x57, 0x57, 0x02, 0x03, 0x00, 0x00
 
-; ...and R0..R11 for MDA 80x25 TEXT, which vid_mono_text needs for the same
+; ...and R0..R11 for MDA 80x25 TEXT, which vid_text's .mono needs for the same
 ; reason: on a machine whose int 10h belongs to a VGA there is no BIOS call
 ; that will program THIS card (SPEC.md 39.20). IBM's own mode 7 values, with
 ; one deliberate difference - R10 = 0x20 is bit 5, CURSOR OFF, because
 ; neither caller wants one. The fsx bracket hides it with int 10h and on this
 ; class of machine that int 10h talks to the other card; the reboot path is
 ; only ever taken when a VGA is present, so nothing will print here.
-%ifdef GFX_VGA                  ; vid_mono_text's alone, and on a kernel with no
-                                ; VGA that routine is `clc / ret` (kernel size
-                                ; pass 13, -12 on kern_small)
+%ifdef GFX_VGA                  ; vid_text's .mono alone, and a kernel with no
+                                ; VGA assembles no .mono at all (kernel size
+                                ; passes 13 and 16)
 vid_6845t   db 0x61, 0x50, 0x52, 0x0F, 0x19, 0x06
             db 0x19, 0x19, 0x02, 0x0D, 0x20, 0x00
 %endif
@@ -1045,7 +1045,7 @@ vid_depth_set:
 ;           callers are mode sets that reload everything they use immediately
 ;           afterwards, and this is an out-loop on a 4.77MHz machine.
 ;
-; Factored out of vid_setmode when vid_mono_text needed the identical loop with
+; Factored out of vid_setmode when vid_text's mono arm needed the identical loop with
 ; a different table (SPEC.md 39.20). Two tables and one loop rather than two of
 ; each, for gfxbench's reason: the second copy is the one that does not get the
 ; fix. It leaves DX = 0x3B4 - AND BOTH CALLERS RELY on DH = 3 there since size
@@ -1300,10 +1300,10 @@ vid_setmode:
     mov dl, VGA_GC & 0xFF       ; 3CEh after 3C4h: DH is 3 already
     mov ax, 0x0001              ; GC1  Enable Set/Reset: none, so the CPU byte
     out dx, ax                  ;      is the data
-    mov ax, 0x0003              ; GC3  Data Rotate/Function: replace, no rotate
-    out dx, ax
-    mov ax, 0x0005              ; GC5  Mode: write mode 0
-    out dx, ax
+    mov al, 0x03                ; GC3  Data Rotate/Function: replace, no rotate
+    out dx, ax                  ;      (AH is still GC1's 0: `out` moves no AX,
+    mov al, 0x05                ;      so AL alone - two bytes each, not three,
+    out dx, ax                  ;      kernel size pass 16) GC5  Mode: write mode 0
     mov ax, 0xFF08              ; GC8  Bit Mask: every bit ours
     out dx, ax
     VSEG ax, VGA_SEG             ; ...and CX is the count .wipego settled
@@ -1527,8 +1527,7 @@ section .text
 ; itself by a flag - so the only way to program the mono card on such a
 ; machine is to program the mono card.
 ;
-; vid_mono_text is that, and it answers CF = 1 for "done, do not call int 10h
-; at all". The blank and the graphics lock-out below stay in front of both
+; .mono below is that, and it does not call int 10h at all. The blank and the graphics lock-out below stay in front of both
 ; paths: they are this card's registers either way, and the ROM's mode 7
 ; reprograms the 6845 with video live otherwise.
 ; -----------------------------------------------------------------------------
@@ -1548,9 +1547,11 @@ vid_text:
     out dx, al                  ; 7 set below reprograms the 6845 with video
     mov dl, 0xBF                ; live otherwise. Then lock graphics back out
     out dx, al                  ; (AL is still 0) and let mode 7 re-enable.
-    call vid_mono_text          ; ...unless int 10h would land on a VGA, in
-    jc .out                     ; which case that call has just done it here
-    mov ax, 0x0007
+    mov ax, 0x0007              ; the ROM's mode 7...
+%ifdef GFX_VGA
+    test byte [vid_avail], VID_A_VGA ; ...unless int 10h would land on a VGA
+    jnz .mono                   ; (`mov` sets no flag, so the test may follow
+%endif                          ; it): then the card is programmed by hand
     jmp short .go
 .colour:
     call vid_cga_equip          ; 39.19.4 ONE ROUTINE ALONG: the ROM's mode set
@@ -1575,6 +1576,36 @@ vid_text:
 .out:
     jmp vid_pop8                ; the shared epilogue - and so this routine's
                                 ; push list is vid_setmode's. See vid_pop8.
+%ifdef GFX_VGA
+; .mono - put the REAL mono card into 80x25 text, when int 10h cannot (SPEC.md
+; 39.20). It was vid_mono_text, a routine of its own in vidsel.inc with this
+; one caller, until kernel size pass 16 wrote it in here: the eight pushes
+; above already bank everything it spends, so its own six pushes, six pops,
+; its CF answer and the caller's test of it went (-20 on kern_big). The one
+; case is A VGA IN THE MACHINE: a lone MDA, a lone Hercules or Hercules+CGA has
+; an int 10h owned by the motherboard ROM, whose mode 7 IS this card, and takes
+; the ROM's path above having had nothing touched. It does NOT update
+; 40:49/40:63 - those describe the card int 10h drives, which here is the VGA;
+; vid_reboot (vidsel.inc) is where the other card is given something the BIOS
+; can honestly print on. The blank and the graphics lock-out above stay in
+; front of both paths: they are this card's registers either way.
+.mono:
+    mov si, vid_6845t           ; MDA 80x25, cursor off (above)
+    call vid_6845_prog
+    VSEG ax, VID_HERC_SEG        ; and clear the page, which the ROM's mode set
+    mov es, ax                  ; would have done: what is in there is a
+    xor di, di                  ; 720x348 graphics desktop, and read as
+    mov ax, 0x0720              ; characters it is noise. Space on attribute 7
+    mov cx, 2000
+    cld
+    rep stosw
+    mov dl, 0xB8                ; high-res text, video ON, blink on - IBM's own
+                                ; (3B8h: vid_6845_prog leaves DX at 3B4h, and
+                                ; rep stosw moves no DX)
+    mov al, 0x29                ; mode 7 value, and the last write for the same
+    out dx, al                  ; reason vid_setmode's is (39.6): onto a page
+    jmp short .out              ; that is already blank - and NO int 10h at all
+%endif
 
 ; -----------------------------------------------------------------------------
 ; gfx_rowbase - byte offset of the first byte of a scan line (SPEC.md 39.3)

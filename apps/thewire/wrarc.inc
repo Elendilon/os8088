@@ -556,6 +556,15 @@ wr_arcbase:
     call OSAPI_FILE_HERE            ; DX = the folder, BL = the drive
     mov [wr_bclus], dx
     mov [wr_bdrv], bl
+    mov cx, [wr_ahdr + WA_TOTAL]    ; --- ONE BAR FOR THE TREE (SPEC.md
+    mov dx, [wr_ahdr + WA_TOTAL + 2] ; 12.8.10): an entry is written a wake,
+    call OSAPI_FS_OP                ; so the widget blinked once per entry.
+                                    ; WA_TOTAL is every entry unpacked, which
+                                    ; is exactly what the writes move. Not
+                                    ; kept: wr_arcend and wr_abandon end it
+                                    ; whatever it answered (an end the Wire
+                                    ; does not own is refused), and a close
+                                    ; ends it in the kernel
     mov byte [wr_state], WS_BODY    ; ...and the worker may carry on
     clc
     ret
@@ -768,6 +777,7 @@ wr_apathn:
 ; -----------------------------------------------------------------------------
 wr_arcend:
     call wr_sv                          ; AX..DI and ES, given back by the ret
+    call wr_opend                       ; the tree has landed: its bar is done
     inc byte [wr_gen]
     call wr_hclose
     mov byte [wr_state], WS_DONE

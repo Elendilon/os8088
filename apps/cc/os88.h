@@ -1427,6 +1427,16 @@ int os88_clip_size(void);                            /* -1 = empty */
  * text is COPIED, so it may be scratch. Any context, worker included. */
 int os88_toast(const char *text, int ticks);
 
+/* --- one operation, one progress bar (SPEC.md 12.8.10) -----------------
+ * Tell the file widget that the reads and writes that follow are ONE thing
+ * the user is waiting for: bytes_hi:bytes_lo = every byte it will move (a
+ * read and then a write of a file is twice its size). The menu bar keeps one
+ * bar for it, parked between your callbacks; 0, 0 ends it. 0 = taken, -1 =
+ * refused (another program holds it, you already have one open, it could not
+ * show, or kern_small) - advisory, your I/O works either way. End only an
+ * operation your own begin returned 0 for. UI task. */
+int os88_fs_op(unsigned bytes_hi, unsigned bytes_lo);
+
 /* --- the runtime's own helpers -------------------------------------------
  * There is no C library here (SPEC.md 73.9: no printf family - it is
  * thousands of bytes for the one conversion a program wanted). These six are

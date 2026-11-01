@@ -2694,6 +2694,7 @@ wr_fetchnext:
 ; surprise than a folder with two of three files in it. The cell says which.
 wr_abandon:
     push ax
+    call wr_opend                       ; an archive's one bar (wr_arcbase)
     cmp byte [wr_state], WS_PAUSE       ; **A PAUSED WORKER IS STILL IN FLIGHT**
     jne .st                             ; and the predicate reads that as a
     inc byte [wr_gen]                   ; range: an archive abandoned at an
@@ -2706,6 +2707,20 @@ wr_abandon:
     call wr_freefile
     call wr_dend
     pop ax
+    ret
+
+; --- wr_opend - an archive's OSAPI_FS_OP ends (SPEC.md 12.8.10) -------------
+; Unconditional: only wr_arcbase begins one, and an end the Wire does not own
+; is refused, so a flat chain's failure costs a refused call and no byte.
+; Every register kept
+wr_opend:
+    push cx
+    push dx
+    xor cx, cx
+    xor dx, dx
+    call OSAPI_FS_OP
+    pop dx
+    pop cx
     ret
 
 ; --- wr_freefile - give the transfer claim back ------------------------------
@@ -2963,8 +2978,9 @@ wr_onwake:
     mov dx, [wr_catseg]                 ; last granule is idle until a Refresh
     mov bl, MEMP_REGROW                 ; asks for it back. A shrink is in
     call OSAPI_MEM_P                    ; place, always, so DX does not move;
-    mov [wr_catpara], ax                ; AX is what it holds now (50.3.7)
-    jmp short .catok
+    jc .catok                           ; (refused: AX is the REQUEST, and the
+    mov [wr_catpara], ax                ; claim holds what it did) AX is what
+    jmp short .catok                    ; it holds now (50.3.7)
 .catbad:
     mov word [wr_msg], wr_s_badcat
 .catok:

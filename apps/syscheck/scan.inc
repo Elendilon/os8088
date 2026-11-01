@@ -264,6 +264,14 @@ sc_p_init:
     or word [sc_dirty], SYD_HEAD | SYD_SYS
     mov word [sc_mp], sc_man
     mov word [sc_mi], 0
+    mov dx, SC_MANKB >> 6           ; ONE BAR FOR P_MAN (SPEC.md 12.8.10): it
+    mov cx, (SC_MANKB & 63) << 10   ; reads a chunk a lock-free wake, so the
+    call OSAPI_FS_OP                ; widget blinked per chunk. SC_MANKB x 1024
+                                    ; is the manifest's KB rounded up, so a
+                                    ; volume missing files ends short. Not
+                                    ; kept: sc_p_man and sc_scan_end end it
+                                    ; unconditionally (an end not ours is
+                                    ; refused), and a close ends it too
     xor ax, ax
     mov dx, (1 << SC_KERN) | (1 << SC_DRV) | (1 << SC_REL)
     mov cl, P_MAN
@@ -278,6 +286,7 @@ sc_p_man:
     mov si, [sc_mp]
     cmp byte [si], 0
     jne .entry
+    call sc_opend                   ; the manifest is summed: its bar is done
     mov ax, (1 << SC_KERN) | (1 << SC_DRV)
     mov dx, (1 << SC_LEFT) | (1 << SC_REL)
     mov cl, P_LEFT
@@ -1399,6 +1408,7 @@ sc_hadd:
 ;               go home, and say so
 ; =============================================================================
 sc_scan_end:
+    call sc_opend                   ; (Stop, or a refusal, inside P_MAN)
     mov dx, [sc_homedx]
     mov bl, [sc_homebl]
     call OSAPI_FILE_GOTO_QM
@@ -1445,6 +1455,13 @@ sc_scan_end:
 .owed:
     mov word [sc_dirty], 0xFFFF     ; heading, counts, buttons, status, list
     mov word [sc_drows], 0xFFFF
+    ret
+
+; sc_opend - P_MAN's OSAPI_FS_OP ends (SPEC.md 12.8.10). Clobbers CX, DX
+sc_opend:
+    xor cx, cx
+    xor dx, dx
+    call OSAPI_FS_OP
     ret
 
 ; sc_setprog - the bar's target, AX = 0..1000

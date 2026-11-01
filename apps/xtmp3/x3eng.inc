@@ -5817,6 +5817,7 @@ X3_FPSZ     equ 12                  ; a fingerprint: size, two CRC-32s
     X3B x3_lamask, 2                ; refill mark (x3_lasize)...
     X3B x3_lalw, 2
     X3B x3_rdmax, 2                 ; aplook's gulp cap (AP_RD_CHUNK)
+    X3B x3_fsop, 2                  ; OSAPI_FS_OP's owner, X3OP_* (0 none) - a WORD, so nothing after it moves by an odd amount
     X3B x3h_kind, 1                 ; THE HOLD (x3hold.inc): none, XMS, conv
     X3B x3h_on, 1                   ; ...whole
     X3B x3h_base, 4                 ; ...its XMS base, or its segment

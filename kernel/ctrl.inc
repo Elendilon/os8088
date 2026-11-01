@@ -769,14 +769,9 @@ CPV_FCLX  equ CPV_FCX + 18                  ; 128: label left, CP_PLX's gap
 ; user has been working off it - and what it is not is the SYSTEM disk
 ; (drv_cfg_save asks dskw_stat for KERNEL.SYS, SPEC.md 51.5.1). `need disk`
 ; reads as an empty drive and sends the reader to look at the light.
-cp_s_dsdsk: db 'Not Saved: No Sys in '
-cp_s_dsdrv: db 'A:', 0          ; the letter, stamped (SPEC.md 52.10.3): the
-                                ; system volume is not A: on a machine booted
-                                ; from a hard disk, and a message that names
-                                ; the wrong drive is worse than one that names
-                                ; none. This is the only string in the kernel
-                                ; that needs it, and dsk_bootltr's second
-                                ; store exists for it
+; The line itself is CTRL.DRV's, beside cp_flush_x (kernel size pass 16):
+; its letter is copied in from [cp_s_nodrv], which dsk_bootltr stamps and
+; which stays resident for the panel's OPEN refusal below.
 ; ...and the other two verdicts, `Settings Saved` and `Not saved: disk error`,
 ; are CTRL.DRV's own lines beside cp_flush_x, which is the only thing that
 ; says any of the three. SUCCESS gets a message of its own - a save is a thing
@@ -806,7 +801,7 @@ cp_s_dsdrv: db 'A:', 0          ; the letter, stamped (SPEC.md 52.10.3): the
 ; with 27 in it (docs/KERNEL-MEMORY.md), so this is also the affordable
 ; answer, and it is the right one first.
 cp_s_noload: db 'Needs Sys Disk '
-cp_s_nodrv:  db 'A:', 0         ; stamped beside cp_s_dsdrv, same rule
+cp_s_nodrv:  db 'A:', 0         ; stamped by dsk_bootltr (SPEC.md 52.10.3)
 cp_opentab: dw 0, cp_s_noload
 CP_NOPEN  equ 2
 
@@ -4121,8 +4116,10 @@ cp_vid_vxlabel:
     call .dec                   ; B
     jmp short .end
 .auto:
-    CSDO mov word [CSEG di], 'au'
-    CSDO mov word [CSEG di+2], 'to'
+    CSDO_ON
+    mov word [CSEG di], 'au'
+    mov word [CSEG di+2], 'to'
+    CSDO_OFF
     add di, 4
 .end:                           ; ...padded with spaces to the LONGEST label,
     cmp di, cp_vvesa_buf + 16   ; so a shorter one erases the longer one it
@@ -5382,14 +5379,18 @@ cp_flush_x:
                                 ; saving Auto and saying 'Settings Saved'
 .verdict:
 %endif
-    mov si, cp_s_dsdsk          ; [cp_dsave] = 1, no system disk: RESIDENT,
-    push ds                     ; because its drive letter is stamped by the
-    pop es                      ; mount (disk.inc) - every other line is
-    cmp bl, 1                   ; this image's own, out through ES = CS. The
-    je .tell                    ; save's verdicts were a resident word table
-    PUSH_CSDATA                     ; and three resident lines for a message only
-    pop es                      ; this image ever says (kernel size pass 9)
-    mov bh, 0                   ; 0 or 2: the verdict IS the table's offset -
+    PUSH_CSDATA                 ; every line is this image's, out through
+    pop es                      ; ES = CS. The save's verdicts were a
+                                ; resident word table and three resident
+                                ; lines for a message only this image ever
+                                ; says (kernel size pass 9)
+    cmp bl, 1                   ; [cp_dsave] = 1, no system disk: its drive
+    jne .tab                    ; letter copied in from the resident
+    mov al, [cp_s_nodrv]        ; [cp_s_nodrv], which the mount stamps
+    CSDO mov [CSEG cp_s_dsdrv], al ; (disk.inc, SPEC.md 52.10.3; the line was
+    mov bl, 4                   ; resident for it until kernel size pass 16)
+.tab:
+    mov bh, 0                   ; 0, 2 or 4: the verdict IS the table's offset -
     mov si, [cs:bx+cp_dsvt]     ; a POINTER to image data, read `cs:` (SPEC.md
                                 ; 2.8.6, cp_fdnop's shape)
 .tell:
@@ -5398,9 +5399,14 @@ cp_flush_x:
     pop es
     pop si
     jmp kretm_cx
-cp_dsvt:    dw cp_s_dsok, cp_s_dserr       ; [cp_dsave] = 0 and 2, read `cs:`
+cp_dsvt:    dw cp_s_dsok, cp_s_dserr, cp_s_dsdsk ; [cp_dsave] = 0, 2 and 1, read `cs:`
 cp_s_dsok:  db 'Settings Saved', 0
 cp_s_dserr: db 'Not saved: disk error', 0
+cp_s_dsdsk: db 'Not Saved: No Sys in '
+cp_s_dsdrv: db 'A:', 0          ; the letter, copied in above: the system
+                                ; volume is not A: on a machine booted from a
+                                ; hard disk, and a message that names the
+                                ; wrong drive is worse than one that names none
 
 ; -----------------------------------------------------------------------------
 ; cp_flush_cfg - [cp_wdirty]'s half of cp_flush_close_x, and the SETTINGS
@@ -7601,8 +7607,11 @@ kretm_cx:         pop cx
                   pop bx
                   pop ax
                   ret
-section .modu
 
+; -----------------------------------------------------------------------------
+; cp_stage - an image string at CS:SI into cp_sbuf; out: SI = cp_sbuf. The
+; CORE's (kernel size pass 16), so cpc_save's two filenames stage through it
+; too: the file API reads a name through DS
 ; -----------------------------------------------------------------------------
 cp_stage:
     push ax
@@ -7625,6 +7634,7 @@ cp_stage:
     pop cx
     pop ax
     ret
+section .modu
 
 
 section .cold                   ; far entries: the resident thunks in

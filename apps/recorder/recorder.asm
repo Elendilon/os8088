@@ -143,6 +143,7 @@ RC_RL       equ 4096 << RC_RCODE    ; at RC_RATE - the UI task may be away that
                                     ; long (a menu held down) before it laps us
 RC_RKB      equ RC_RL/1024 + 1      ; the ring and its two words, one claim
 RC_BLKSH    equ 2                   ; the card's block: 2,048 >> 2 = 512 bytes
+RC_RBLK     equ 2048 >> RC_BLKSH    ; ...as bytes (SPEC.md 34.6.4: SBL_RHALF >>)
 RC_PUMP     equ 2                   ; ticks between copies: ~880 bytes at 8 kHz
 RC_CHUNK    equ 250                 ; demo synth/stage chunk (divides RC_D_LEN/2,
                                     ; so the sweep turns on a chunk boundary).
@@ -248,11 +249,14 @@ rc_paint:
     call rc_org
     call rc_poll
     call rc_draw_all
+rc_card:                            ; (rc_ontimer's take-end repaint too)
     cmp byte [rc_abon], 0           ; ...and the About card LAST, over the
     je rc_pop6                      ; face it is opaque about (SPEC.md 20.5.1)
-    mov si, rc_ablines              ; (SI is the window no longer: the pops
-    call os88ui_about_d             ; put it back. _d: this paint's region is
-    jmp rc_pop6                     ; already armed)
+    mov bx, [rc_win]                ; the window: rc_draw_all left BX at
+    mov si, rc_ablines              ; rc_s_line2, which the card used to be
+    call os88ui_about_d             ; handed as one. SI is the window no
+    jmp rc_pop6                     ; longer either: the pops put it back.
+                                    ; _d: this paint's region is armed
 
 ; -----------------------------------------------------------------------------
 ; rc_org - stash the window's content origin in [rc_ox]/[rc_oy]
@@ -463,8 +467,19 @@ rc_cmd:
 ; path - the two ways of asking for the same four transitions have to leave
 ; the same pixels behind. Unlike rc_paint's, this content is NOT already
 ; white: the previous state's waveform and labels are still under us.
+;
+; NOTHING ARMS A REGION FOR IT: the kernel draws a menu command's handler
+; unclipped (ui.inc's .oncmd calls AM_ONCMD straight from the lock), and a
+; click arms none either (SPEC.md 11.3) - so a window that another sits
+; over would be white-filled THROUGH it. It arms its own, as rc_ontimer does,
+; over [rc_win] (the rc_do_* routines took SI): CF = 1 is not one pixel
+; showing, and then nothing is drawn - the exposure's W_PAINT draws the face.
+; Re-arming under rc_ontimer's region rebuilds the same one.
 ; -----------------------------------------------------------------------------
 rc_repaint:
+    mov bx, [rc_win]
+    call OSAPI_WM_CLIP_SET          ; CF = 1: wholly covered, and disarmed
+    jc .r
     mov al, CWHITE
     call OSAPI_SET_COLOR
     mov ax, [rc_ox]
@@ -475,6 +490,8 @@ rc_repaint:
     add dx, RC_CONT_H-1
     call OSAPI_GFX_FILL
     jmp rc_draw_all
+.r:
+    ret
 
 ; -----------------------------------------------------------------------------
 ; rc_poll - read STREAM verb 3 and retire state changes (SPEC.md 34.3: the
@@ -578,7 +595,12 @@ rc_rfree:
 ;      (never past [rc_cap]); preserves all registers
 ;
 ; The ring's count is free-running (SPEC.md 34.6.4), so captured - taken is
-; what waits, mod 65,536. The copy goes through rc_pbuf because verb 6 stages
+; what waits, mod 65,536 - and at most RL less ONE BLOCK of it is whole: the
+; count moves a block at a time and the DMA is meanwhile writing the block
+; after it, which is the oldest block of the RL bytes before the count. The
+; count is re-read per chunk, so the copy below never trails it by more than
+; one 256-byte chunk against a 512-byte block (64 ms at 8 kHz).
+; The copy goes through rc_pbuf because verb 6 stages
 ; from OUR segment: up to 256 bytes a call, never across the ring's end.
 ; -----------------------------------------------------------------------------
 rc_pump:
@@ -591,8 +613,10 @@ rc_pump:
     mov es, [rc_rseg]
     mov ax, [es:RC_RL+SND_EXT_CONS] ; bytes captured, free-running
     sub ax, [rc_len]                ; ...not yet taken
-    cmp ax, RC_RL
-    ja .over                        ; more than the ring holds: overwritten
+    cmp ax, RC_RL - RC_RBLK         ; the card is filling the block AFTER
+    ja .over                        ; the count, which is the oldest RC_RBLK
+                                    ; of the RL before it: more waiting than
+                                    ; RL less one block is torn already
     mov cx, [rc_cap]
     sub cx, [rc_len]                ; the room left in the grant
     cmp ax, cx
@@ -647,6 +671,16 @@ rc_pump:
 ; in:  SI = window ptr; gfx lock held. out: nothing; preserves all registers
 ; One-shot, so it re-arms itself while the take goes on; when rc_poll has
 ; ended it the whole face is redrawn - the strip, the buttons, the message.
+;
+; A TIMER ARRIVES WITH NO CLIP REGION (SPEC.md 11.3, 13.9), so this arms its
+; own before any pixel: without it a covered or minimised Recorder lettered
+; its status lines over whatever was on top ~9 times a second, and the take's
+; end put a white fill the size of its content there. Not visible (CF = 1)
+; draws nothing - the exposure's W_PAINT draws the face - but the pump has
+; already run and the timer is still re-armed: the take goes on regardless.
+; The region dies at the kernel's unlock, so there is nothing to release.
+; The About card (rc_abon) is honoured as rc_paint honours it: no status is
+; lettered over it, and the take-end repaint puts it back up LAST.
 ; -----------------------------------------------------------------------------
 rc_ontimer:
     push ax
@@ -658,17 +692,26 @@ rc_ontimer:
     cmp byte [rc_st], RC_REC
     jne rc_pop6
     call rc_org                     ; (BX = SI)
-    call rc_poll
-    cmp byte [rc_st], RC_REC
+    call rc_poll                    ; (preserves all: BX is still the window)
+    call OSAPI_WM_CLIP_SET          ; CF = 1: not one pixel shows
+    sbb di, di                      ; DI = -1 draw nothing (no drawer below
+    cmp byte [rc_st], RC_REC        ; touches DI before it is read)
     jne .end
+    or di, di
+    jnz .arm                        ; hidden: pump only
+    cmp byte [rc_abon], 0
+    jne .arm                        ; the card is up: it covers the status
     call rc_draw_status             ; the live count (clobbers BX)
+.arm:
     mov bx, [rc_win]
     mov ax, RC_PUMP
     call OSAPI_WM_TIMER
     jmp rc_pop6
 .end:
-    call rc_repaint
-    jmp rc_pop6
+    or di, di
+    jnz rc_pop6                     ; hidden: the exposure repaints it all
+    call rc_repaint                 ; the face as the take left it...
+    jmp rc_card                     ; ...and the card over it, if it is up
 
 ; -----------------------------------------------------------------------------
 ; rc_grant - ensure the capture/staging grant exists, as big as we can get

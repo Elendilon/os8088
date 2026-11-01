@@ -195,8 +195,8 @@ LZ_CHK      equ 0x8000          ; the checkpoint while the tail is further:
 lz_decomp_x:
     test al, al                 ; the published door: AL bit 7 says AH is the
     js .big                     ; input's high byte (an older kernel refuses
-    mov ah, 0                   ; the bit as an unknown format); without it,
-.big:                           ; under 64KB as it was
+    cbw                         ; the bit as an unknown format); without it,
+.big:                           ; under 64KB as it was (AL < 80h: cbw is mov ah, 0)
     and al, ~LZ_BIG & 0xFF
 lz_decomp_big:
     push ds                     ; both segments are the caller's and both come
@@ -345,7 +345,7 @@ lz_at:
 %ifdef KERN_MEGA
     push dx                     ; kern_mega: in protected mode EVERY selector
     mov dx, 0x0800              ; slides by its descriptor, not by arithmetic
-    call KERNEL_SEG:mega_slidef ; (mega_slidef: the sum in real mode)
+    call COLD_SEG:mega_slidec   ; (the sum in real mode)
     pop dx
 %else
     add ax, 0x0800              ; 32KB is 2,048 paragraphs
@@ -416,8 +416,8 @@ lz_cross:
     mov ax, ds                  ; ...and so did the source: 64KB on is 4,096
 %ifdef KERN_MEGA
     push dx                     ; paragraphs (a descriptor's, in protected
-    mov dx, 0x1000              ; mode: mega_slidef)
-    call KERNEL_SEG:mega_slidef
+    mov dx, 0x1000              ; mode: mega_slidec)
+    call COLD_SEG:mega_slidec
     pop dx
 %else
     add ax, 0x1000              ; paragraphs
@@ -434,11 +434,11 @@ lz_cross:
 lz_dbump:
     mov ax, es
 %ifdef KERN_MEGA
-    call KERNEL_SEG:mega_s2segf ; kern_mega: ES is a selector - the segment it
+    call COLD_SEG:mega_s2segc   ; kern_mega: ES is a selector - the segment it
     cmp ax, 0xFFFF              ; stands for, 64KB on, and a selector for THAT,
     je .stay                    ; which may be the scratch one (mega.inc). A
     add ax, 0x1000              ; base above 1MB has no segment and keeps ES:
-    call KERNEL_SEG:mega_oddsegf ; the entry let exactly 64KB in, and its last
+    call COLD_SEG:mega_oddsegc  ; the entry let exactly 64KB in, and its last
     mov es, ax                  ; byte is what wraps DI here
 .stay:
     inc byte [bp+LZ_F_BUMP]

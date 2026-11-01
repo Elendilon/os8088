@@ -972,8 +972,8 @@ desk_zones_paint_x:
     call desk_cbit
     test [bx+desk_cdirty], ah
     jz .n
-    not ah
-    and [bx+desk_cdirty], ah
+    xor [bx+desk_cdirty], ah    ; ...known SET, so xor clears exactly it (kernel
+                                ; size pass 16: -2 against `not` and `and`)
     mov ax, si
     call desk_cell_rect
     mov word [wm_dmg_stwin], 1  ; NOTHING WAS UNCOVERED - no window moved
@@ -1006,8 +1006,9 @@ desk_zones_paint_x:
 desk_cell_xy:
     push bx
     push cx
-    xor ah, ah
-    cwd                         ; (AX < 8000h: DX = 0)
+    cbw                         ; AL is a CELL, < desk_ncell <= DSL_SLOT, so
+    cwd                         ; cbw zero-extends it (kernel size pass 16, -1)
+                                ; (AX < 8000h: DX = 0)
     div word [desk_rows]        ; AX = column, DX = row within it
     mov cx, dx
     mov bx, DESK_PX
@@ -1359,11 +1360,10 @@ desk_hit:
     jb .n
     cmp dx, si                  ; the last compare leaves CF = 0 on a hit
     jb .n
-    xchg ax, bp                 ; AL = the zone
-    ret
-.miss:
-    stc
-    xchg ax, bp                 ; AX = 0xFFFF
+    SKIPF1                      ; ...and test al, imm8 over .miss's stc keeps
+.miss:                          ; it so, into the ONE tail (kernel size pass
+    stc                         ; 16, -1)
+    xchg ax, bp                 ; AL = the zone; on a miss AX = 0xFFFF
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2275,8 +2275,8 @@ osapi_desk_item_x:
     mov bx, es
     cmp bx, [desk_svc_seg]
     jne .no                     ; not yours, or there is none
-    mov word [desk_svc_seg], 0
-    call desk_reflow            ; its cell is posted, and what flows after it
+    and word [desk_svc_seg], 0  ; (`and`: a byte under `mov`, flags dead -
+    call desk_reflow            ; kernel size pass 16)            ; its cell is posted, and what flows after it
     jmp short .ok               ; packs up into it
 
     ; --- a package: a LINK, CTRL.DRV's (SPEC.md 26.8.7) ----------------------

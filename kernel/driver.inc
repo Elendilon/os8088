@@ -1301,9 +1301,33 @@ drv_svcix:   db 0*DRV_SVCH+1, 1*DRV_SVCH+1, 0, 2*DRV_SVCH+1
 %endif
 %endif
 
-drv_cfgname: db 'SYSTEM.CFG', 0
-drv_sysname: db 'KERNEL.SYS', 0 ; what makes a disk THE system disk (19.6): the
-                                ; settings are written beside it or not at all
+; SYSTEM.CFG's and KERNEL.SYS's NAMES are not resident (kernel size pass
+; 16): the file API reads a name through DS, so each image STAGES its own copy
+; into cp_sbuf - CTRL.DRV through cp_stage (cpc_cfgname, cpc_sysname) and the
+; boot through CFGN_STAGE below, in `.cfx` where there is one.
+;
+; CFGN_STAGE <label>, <ret|retf> - 'SYSTEM.CFG' into cp_sbuf; out: SI =
+; cp_sbuf. DS = KERNEL_SEG; every other register and DF kept, flags not. The
+; name is read `cs:`, so it is the expanding image's own
+%macro CFGN_STAGE 2
+%1:
+    push ax
+    push di
+    mov si, %%s
+    mov di, cp_sbuf
+%%c:
+    mov al, [cs:si]
+    inc si
+    mov [di], al
+    inc di
+    or al, al
+    jnz %%c
+    pop di
+    pop ax
+    mov si, cp_sbuf
+    %2
+%%s: db 'SYSTEM.CFG', 0
+%endmacro
 
 drv_tab:
     dw PKG_DISP, 0              ; row 0: the sound driver (SPEC.md 34/51.4)
@@ -1885,9 +1909,7 @@ drv_cls_idx:
 ; is not enough, because drv_publish arms a slot only after DRVV_ATTACH
 ; returns and a worker spawned from inside attach would outlive a refusal.
 drv_pub_seg:
-    push ax
-    push cx
-    push di
+    call kentc_di
     mov al, 1
 .scan:
     call drv_cls_fp_x           ; (AX survives it)
@@ -1903,10 +1925,7 @@ drv_pub_seg:
     jbe .scan
     stc
 .out:
-    pop di
-    pop cx
-    pop ax
-    ret
+    jmp kretc_di
 
 drv_owns_seg_x:
     push ax
@@ -2429,7 +2448,7 @@ drv_svc_call_x:
     mov ds, [es:drv_fseg]       ; things it was handed through
     call wm_nest_pushd          ; SPEC.md 66.6.3
 %ifdef KERN_MEGA
-    MEGA_PCALL [es:drv_fptr], [es:drv_fseg] ; the CODE alias (kernel/mega.inc)
+    MEGA_PCALLC [es:drv_fptr], [es:drv_fseg] ; the CODE alias (kernel/mega.inc)
 %else
     call far [es:drv_fptr]
 %endif
@@ -2488,7 +2507,7 @@ drv_blk_call_x:
     mov ds, [es:drv_blkseg]
     call wm_nest_pushd          ; SPEC.md 66.6.3
 %ifdef KERN_MEGA
-    MEGA_PCALL [es:drv_blkfp], [es:drv_blkseg] ; the CODE alias (mega.inc)
+    MEGA_PCALLC [es:drv_blkfp], [es:drv_blkseg] ; the CODE alias (mega.inc)
 %else
     call far [es:drv_blkfp]
 %endif
@@ -3198,10 +3217,7 @@ osapi_drv_dlg_x:                ; THE BODY IS CTRL.DRV's, modc_e_dlg (ctrl.inc,
 ; throw that away.
 ; -----------------------------------------------------------------------------
 drv_dlg_done_x:
-    push ax
-    push bx
-    push si
-    push bp
+    call kentc_bp
     mov bx, [drv_dlg_row]
     or bx, bx
     jz .out
@@ -3216,11 +3232,7 @@ drv_dlg_done_x:
     mov word [drv_dlg_row], 0
     call drv_call               ; BX = the row, BP = its near proc; AL, DX:CX
 .out:                           ; and ES:DI are the page's own arguments
-    pop bp
-    pop si
-    pop bx
-    pop ax
-    ret
+    jmp kretc_bp
 %else
 osapi_drv_dlg_x:                ; the cell exists, the body does not
     stc
@@ -3627,7 +3639,7 @@ drv_bss:                        ; (ES = the image, from drv_check; no frame -
     call mem_bytes_gp_x         ; -> the granules of image + bss (at most
                                 ; DRV_MAX_KB + 4,080 bytes: no carry)
     cmp ax, [bx+DRVR_PARA]      ; THE ONE BOUND TEST, and it is about a byte
-    ja .nofit                   ; read off a disk. os88drv.py leaves enough of
+    ja drv_check.bad            ; read off a disk. os88drv.py leaves enough of
                                 ; the trailing zero run in the image that the
                                 ; directory's own size already covers the bss
                                 ; (SPEC.md 51.1.2), so a driver this tree
@@ -3645,9 +3657,6 @@ drv_bss:                        ; (ES = the image, from drv_check; no frame -
                                 ; and CF = 0 from the `xor al, al` above:
                                 ; neither `cld` nor a string op writes it
 .out:
-    ret
-.nofit:
-    stc
     ret
 
 section .modc                   ; IMAGE CODE (see VGC_FORCE's banner below):
@@ -4150,18 +4159,14 @@ drv_release:
     mov word [di+drv_owner], 0  ; one call (kernel size pass 15, -19): the
     call drv_cls_svc_x          ; owner, then the service table, in that
     jc .nosvc                   ; order. DRVC_POINT has no table to clear
-    push ax                     ; AL is the class still (below), and CX and ES
-    push cx                     ; are the caller's
-    push es
-    push ds
-    pop es
-    mov cx, DSV_SIZE            ; the table alone: the 16-byte staged sink
-    xor al, al                  ; name this once also cleared is gone, and
-    cld                         ; drv_cfg now sits right behind drv_svc
-    rep stosb
-    pop es
-    pop cx
-    pop ax
+    push cx                     ; CX is the caller's, and AL the class still
+    mov cx, DSV_SIZE / 2        ; (below): the table alone, a word at a time
+    call dsk_ent_zero.zero      ; through DS:DI - disk.inc's loop, which
+    pop cx                      ; touches DI, CX and nothing else, so AX and
+                                ; ES need no bank (kernel size pass 16, -8).
+                                ; The 16-byte staged sink name this once also
+                                ; cleared is gone, and drv_cfg now sits right
+                                ; behind drv_svc
 .nosvc:
     call cp_drv_gone_x            ; a page this driver owned is on screen no
                                 ; longer, and [cp_sel] must not name it
@@ -4210,7 +4215,7 @@ drv_release:
                                 ; that is where it ran - CF = 0 then, which
                                 ; leaves no claim to free
 %ifdef KERN_MEGA
-    MEGA_ISHI dx                ; an image ABOVE 1MB (drv_hi): its pool block
+    call mem_ishidx             ; an image ABOVE 1MB (drv_hi): its pool block
     jc .lowimg                  ; and its selector pair go back, there being
                                 ; no claim
     xchg ax, dx
@@ -4368,7 +4373,7 @@ drv_hiboot_f:
     mov dx, [bx+DRVR_SEG]
     or dx, dx
     jz .n
-    MEGA_ISHI dx
+    call mem_ishidx
     jnc .n                      ; already above 1MB
     cmp word [bx+DRVR_PARA], 0
     je .n                       ; not a heap claim
@@ -4550,13 +4555,11 @@ drv_cfg_macros:                 ; NOT CALLED, and not a routine: it ENDS
 ; which is why one macro serves both: every kernel reference is unchanged and
 ; only the parser's OWN tables need `cs:`.
 ;
-; THE THREE THINGS THAT STAY, and each is a rule rather than an oversight:
+; THE TWO THINGS THAT STAY, and each is a rule rather than an oversight (the
+; two filenames are STAGED by each image since kernel size pass 16):
 ;   * `drv_cfg`, the settings struct - osapi_drv_cfg hands a driver its blob
 ;     out of it at any moment in the session (SPEC.md 51.9), so it is live
 ;     state and not scaffolding;
-;   * `drv_cfgname` and `drv_sysname` - dskw_read, dskw_stat and dskw_write_sys
-;     each read a filename through DS, so a name in an image is a filename read
-;     out of the kernel at the image's offset;
 ;   * the far entries below, four bytes each, because a call out of an image is
 ;     a far call.
 ;
@@ -4607,10 +4610,10 @@ section .modc                   ; **THE MACROS BELOW ARE IMAGE CODE, AND THIS
     int 0x10                    ; else leaves AL as it was, and is left alone
     cmp al, 0x1A
     jne %%out
-    xor ax, ax                  ; DS = 0: the BIOS's records at 0:487h..489h
 %ifdef KERN_MEGA
-    MEGA_SEG0 ds                  ; segment 0 is the NULL selector
-%else
+    MEGA_SEG0 ds                  ; segment 0 is the NULL selector (no zero:
+%else                           ; AX is reloaded below before it is read)
+    xor ax, ax                  ; DS = 0: the BIOS's records at 0:487h..489h
     mov ds, ax                  ; need no prefix, and nothing below reads the
 %endif
     pushf                       ; kernel's own (kernel size pass 12)
@@ -5041,8 +5044,11 @@ section .modc                   ; **THE MACROS BELOW ARE IMAGE CODE, AND THIS
     mov bx, %1 %+ _buf          ; the read takes ES:BX, which is what makes
     mov cx, CFG_FBUF            ; that free rather than awkward
     xor dx, dx
-    mov si, drv_cfgname         ; ...but the NAME is read through DS, so it is
-                                ; one of the two things that stay resident
+%ifdef COLD_SLIDE               ; ...but the NAME is read through DS, so it is
+    call CFX_RAM:cfx_cfgname    ; STAGED, into cp_sbuf: the copy is in `.cfx`
+%else                           ; where there is one (kernel size pass 16),
+    call %1 %+ _cfgname         ; this image's own where there is not
+%endif
 %ifdef OS88_SHORTCUTS
     call ovl_sc_load            ; a file with SHORTCUTS after its terminator
     jnc %%have                  ; is read whole into their claim and its head
@@ -5196,8 +5202,8 @@ section .modc                   ; **THE MACROS BELOW ARE IMAGE CODE, AND THIS
                                 ; 52.10.3) - and must not move them (51.5.2)
     call COLD_SEG:drvf_drv_mounted
     jc %%nodisk
-    mov si, drv_sysname         ; through DS: a filename always is
-    call COLD_SEG:dwf_dskw_stat ; the disk in A: is not guaranteed to be ours
+    CPSTAGE %1 %+ _sysname      ; through DS: a filename always is, so it
+    call COLD_SEG:dwf_dskw_stat ; is staged (kernel size pass 16) ; the disk in A: is not guaranteed to be ours
     jc %%notsys
 
     call %1 %+ _fdtest          ; a Cylinder the machine cannot do goes back
@@ -5214,7 +5220,7 @@ section .modc                   ; **THE MACROS BELOW ARE IMAGE CODE, AND THIS
     jc %%nomem                  ; ES:BX is a claim holding these settings AND
 %endif                          ; their trailer (SPEC.md 26.8.6)
     xor dx, dx                  ; DX:CX = the count; a settings file is bytes
-    mov si, drv_cfgname
+    CPSTAGE %1 %+ _cfgname      ; (cp_stage keeps ES:BX, CX and DX)
     call COLD_SEG:dwf_dskw_write_sys
                                 ; _sys: SYSTEM.CFG is hidden + system, so it
                                 ; is neither listed nor deletable, and only
@@ -5286,6 +5292,9 @@ CFG_DATA   ovc
 ovc_buf     equ BOOT2_PAD       ; .boot2 is vstart 0: its end IS this offset
 CFG_SHARED ovc
 CFG_BOOT   ovc
+%ifndef COLD_SLIDE
+CFGN_STAGE ovc_cfgname, ret     ; (.cfx's cfx_cfgname on kern_big and kern_emu)
+%endif
 
 ; -----------------------------------------------------------------------------
 ; ovl_cfg_load - the entry drv_boot reaches through SPLCALL (SPEC.md 2.5.1)
@@ -6138,6 +6147,9 @@ CFG_DATA   cpc
 CFG_MAP    cpc
 CFG_SHARED cpc
 CFG_SAVE   cpc
+CPS cpc_sysname, 'KERNEL.SYS'   ; what makes a disk THE system disk (19.6): the
+                                ; settings are written beside it or not at all
+CPS cpc_cfgname, 'SYSTEM.CFG'
 %ifdef KERN_BIG
 cp_vgc_force:                   ; SPEC.md 39.28: THE ONE COPY, in the settings
     VGC_FORCE                   ; core - SC_OP_VGC at boot (drv_boot_x) and
@@ -6237,7 +6249,7 @@ cpc_fdtest:
     mov si, dx                  ; SI = the claim, for the free
 %ifdef KERN_MEGA
     mov ax, dx                  ; kern_mega: the page arithmetic below is on
-    call KERNEL_SEG:mega_s2segf ; the claim's real PARAGRAPH (a selector in
+    call COLD_SEG:mega_s2segc ; the claim's real PARAGRAPH (a selector in
     cmp ax, 0xFFFF              ; protected mode), and every segment register
     je .free                    ; is loaded through a scratch selector
     mov dx, ax                  ; (KSEG, KERN-MEGA-MEMORY-PLAN MC7.6)

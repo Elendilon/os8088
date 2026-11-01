@@ -139,8 +139,7 @@ app_about_center_x:
     sub cx, ax
     shr cx, 1                   ; centering offset
     add cx, [bx+W_X]
-    inc cx                      ; content left = W_X + 1
-    mov ax, (CWHITE << 8) | CBLACK  ; AL = ink, AH = the content's own ground:
-    jmp ct_cw_font_run                        ; W_PAINT arrives white-filled (6.6.5)
+    inc cx                      ; ...and fm_brun is the black-on-white run,
+    jmp fm_brun                 ; spelled once (kernel size pass 16)
 
 section .text

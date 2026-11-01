@@ -1368,7 +1368,7 @@ inst_win_owner:
 ; drives the repaint or the event - nearly always the UI task, which owns no
 ; instance. Without this, every task-less app - About, Disk, and every
 ; loaded package that owns no worker (SPEC.md 20.6) - would read 0%
-; forever while its cost showed up as kernel time. task_debit moves the
+; forever while its cost showed up as kernel time. The debit below moves the
 ; cycles instead of copying them, so instance rows and task rows still add
 ; up to one total (SPEC.md 8.1/28).
 ;
@@ -1377,12 +1377,52 @@ inst_win_owner:
 ; under that same lock before its record is freed (SPEC.md 29.2), so the
 ; record named by wm_owner stays live for the whole charged stretch.
 ; -----------------------------------------------------------------------------
+; THE DEBIT is task_debit's body, written here at its one call (kernel size
+; pass 16, -4): close the stamp, return the cycles elapsed since it and REMOVE
+; them from the running task's counter. Move, not copy (SPEC.md 8.1): they are
+; added to the instance's I_CYC, so the two together still partition one
+; total. Nesting works for free - an inner debit lowers the outer pair's end
+; reading by exactly the inner amount, so the outer stretch is credited only
+; with what it did itself.
+;
+; A negative difference is forced to 0 and nothing is subtracted: sch_account
+; can hand back a slightly backwards timestamp when its pending-IRQ
+; disambiguation guesses the wrong side of a counter reload, and an unclamped
+; borrow would wrap the caller's 32-bit counter to just under 2^32 (seen in
+; practice as a package's tally jumping backwards by ~0.6 tick).
+; -----------------------------------------------------------------------------
 inst_charge:
     push ax
     push dx
-    call task_debit             ; DX:AX = elapsed, taken off the task
-    add [di+I_CYC], ax
+    push bx
+    push cx
+    push si
+    push di
+    push bp
+    mov bp, ax                  ; BP:DI = the start stamp - sch_account
+    mov di, dx                  ; clobbers AX/BX/CX/DX/SI, but not BP/DI
+    pushf
+    cli
+    call sch_account            ; ...which hands back SI = the slot's offset
+    mov ax, [si+sch_cycles]
+    mov dx, [si+sch_cycles+2]
+    sub ax, bp                  ; DX:AX = now - start
+    sbb dx, di
+    test dx, dx                 ; counter regressed: report nothing and leave
+    jns .take                   ; the task's tally alone - by taking ZERO off
+    xor ax, ax                  ; it, which is the same store with none of the
+    cwd                         ; branches (AX = 0, so DX = 0)
+.take:
+    sub [si+sch_cycles], ax     ; ...and off the task's tally it comes
+    sbb [si+sch_cycles+2], dx
+    popf
+    pop bp
+    pop di                      ; DI = the instance record again
+    add [di+I_CYC], ax          ; ...and onto the instance's
     adc [di+I_CYC+2], dx
+    pop si
+    pop cx
+    pop bx
     pop dx
     pop ax
     ret
@@ -1533,9 +1573,11 @@ app_launch:
     mov [ds:bp+I_ICON], ax
     push si
     mov si, [si+KD_NAME]
-    mov di, bp
-    push ds                     ; the kernel's own strings: this was
-    pop es                      ; inst_set_name, ES = DS around the ES-taking
+    mov di, bp                  ; ES = DS already: .tpl set it for the
+                                ; template copy and wm_create preserves it
+                                ; (kernel size pass 16, -2). The kernel's own
+                                ; strings: this was inst_set_name, ES = DS
+                                ; around the ES-taking
     call inst_set_name_x        ; body, and app_launch was its one caller.
     pop si                      ; ES is app_launch's to restore (kret_es), and
                                 ; the body preserves DI, so it is still BP
@@ -1605,9 +1647,12 @@ app_close_win:
     jc .hide
     cmp byte [di+I_STATE], 1
     jne .hide                   ; already dying: re-hide, idempotent
+    mov byte [di+I_STATE], 2    ; dying: lock-held readers skip it from here -
+                                ; and for a TASKED instance it is the die flag
+                                ; (SPEC.md 14/29), set ahead of the test so
+                                ; both arms share it (kernel size pass 16, -4)
     cmp byte [di+I_TASK], 0xFF
-    jne .tasked
-    mov byte [di+I_STATE], 2    ; dying: lock-held readers skip it from here
+    jne .hide
     call toast_owner_gone       ; ITS OLD MESSAGE GOES FIRST, before anything
                                 ; below can raise a NEW one (SPEC.md 59.6).
                                 ; cp_flush_close writes SYSTEM.CFG and says
@@ -1666,8 +1711,6 @@ app_close_win:
 %endif                          ; widget (SPEC.md 11.103.10)
     mov byte [di+I_STATE], 0    ; record (and any package region) free
     jmp .out
-.tasked:
-    mov byte [di+I_STATE], 2    ; the die flag (SPEC.md 14/29)
 .hide:
     call wm_hide                ; instant visual feedback + repaint
 .refused:

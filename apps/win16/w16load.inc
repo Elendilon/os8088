@@ -112,7 +112,13 @@ w16_load:
     jmp .refuse0
 .fits:
     mov bp, dx                      ; BP = KB
-    mov ax, dx
+    mov ax, 1024                    ; ONE OPERATION for the program's read and
+    mul dx                          ;   the face's fetch after it (SPEC.md
+    add ax, [op_table + OP_T_ROWS + W16P_SYS08 * OP_ROW + OP_R_ZKB]
+    adc dx, 0                       ;   12.8.10): the probe's KB plus the
+    xchg ax, cx                     ;   SMALLEST face's packed length, an
+    call OSAPI_FS_OP                ;   under-estimate that clamps full early.
+    mov ax, bp                      ;   w16_wake ends it, whichever way this goes
     call OSAPI_MEM_CLAIM
     jnc .claimed
     mov si, w16_r_mem
@@ -352,6 +358,7 @@ w16_layout:
     shr ax, 1
     shr ax, 1                       ; (CX is 0 after one shift)
     add bp, ax
+    jc .nomem                       ; 64 segments of 64KB wrap 16 bits
     add di, 8
     inc bx
     inc bx
@@ -361,15 +368,18 @@ w16_layout:
     jb .seg
     mov [w16_psp], bp               ; then the PSP-shaped block, 16 paragraphs
     add bp, 16
+    jc .nomem
     mov [w16_rtab], bp              ; then the kept resource table (w16res.inc)
     ICALL w16_rlayout
     add bp, ax
+    jc .nomem
     mov ax, bp                      ; PARAGRAPHS (SPEC.md 50.3.7): the image
     xor cx, cx                      ; pays the heap's granule, not a whole KB
     mov bl, MEMP_CLAIM
     call OSAPI_MEM_P
     xchg ax, cx                     ; CX = the paragraphs GRANTED
     jnc .got
+.nomem:
     mov si, w16_r_mem
     pop bp
     stc
@@ -1012,10 +1022,10 @@ w16_site:
     clc
     ret
 .far:
+    call w16_site4                  ; four bytes, where w16_inrange checked
+    jc .bad                         ;   the first two
     mov [es:di], ax
-    mov [es:di + 2], dx
-    clc
-    ret
+    jmp short .far2
 .off:
     mov [es:di], ax
     clc
@@ -1044,9 +1054,24 @@ w16_site:
     clc
     ret
 .afar:
+    call w16_site4
+    jc .bad
     add [es:di], ax
+.far2:
     mov [es:di + 2], dx
     clc
+    ret
+
+; w16_site4 - CF=1 if a far pointer at DI runs past segment [w16_rseg]:
+; DI <= length - 4, 0 (64KB) giving FFFC. A segment shorter than 4 bytes is
+; a paragraph of its claim, so its far pointer still lands in its own padding.
+w16_site4:
+    push bx
+    mov bx, [w16_rseg]
+    mov bx, [w16_slen + bx]
+    sub bx, 4
+    cmp bx, di
+    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1147,6 +1172,10 @@ w16_prologs:
     mov bx, si
     add si, [es:bx + NE_ENTTAB]
 .bundle:
+    mov ax, si                      ; the count and the indicator inside the
+    inc ax                          ;   file, as w16c_ents bounds them
+    cmp ax, [w16_fend]
+    jae .done
     xor cx, cx
     mov cl, [es:si]                 ; count
     jcxz .done
@@ -1159,8 +1188,14 @@ w16_prologs:
     mov ax, 3                       ; constants: 3 bytes each, nothing to do
     mul cx
     add si, ax
+    jc .done
     jmp short .bundle
 .entries:
+    mov ax, si                      ; the whole entry inside the file
+    add ax, 5
+    jc .done
+    cmp ax, [w16_fend]
+    ja .done
     mov al, [es:si]                 ; flags
     cmp dl, 0xFF
     je .mov
@@ -1283,9 +1318,17 @@ w16_frame:
     mov [w16_scratch], ax           ; the entry's CS
     mov ax, [es:si + NE_SP]
     or ax, ax
-    jnz .sp
+    jnz .spck
     mov ax, [w16_dgsize]            ; static data + stack = DGROUP - the heap
     sub ax, [es:si + NE_HEAP]
+    jmp short .sp
+.spck:
+    mov dx, [w16_dgsize]            ; the header's SP must be inside DGROUP:
+    dec dx                          ;   SP - 1 <= size - 1, 0 (64KB) being
+    dec ax                          ;   FFFF on both sides
+    cmp ax, dx
+    ja .bad
+    inc ax
 .sp:
     and al, 0xFE
     or ax, ax

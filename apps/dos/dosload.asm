@@ -370,8 +370,20 @@ dsl_pmok:
     call dsl_w16
     pop es
     pop si
-    jc .no                          ; posted: refused, and SILENT (21.5.4)
+    jnc .notne                      ; posted: refused, and SILENT (21.5.4) -
+    ret                             ; CF = 1, and BEFORE the launch's bar
+.notne:                             ; begins, so .out has no flags to pop
 %endif
+    ; ONE OPERATION FOR THE LAUNCH (SPEC.md 12.8.10): the DOS's carve and the
+    ; core's fetch, their PACKED lengths - what is read - as one bar. op_load's
+    ; and op_fetch's own begins are refused as nesting; the flags ride the
+    ; stack to .out, the one exit, which ends only what this began
+    mov cx, [op_table + OP_T_ROWS + DOS_PART_PKG * OP_ROW + OP_R_ZKB]
+    xor dx, dx
+    add cx, [op_table + OP_T_ROWS + DOS_PART_CORE * OP_ROW + OP_R_ZKB]
+    adc dx, dx
+    call OSAPI_FS_OP                ; CF = 0: ours to end; SI and ES kept
+    pushf
     call op_load                    ; sizes first and reads nothing if it will
     jc .no                          ; not fit (20.12); a toast has said why
 
@@ -443,10 +455,21 @@ dsl_pmok:
     jc .no
     xor bx, bx                      ; NO WINDOW: ours is the region that is
     clc                             ; about to be freed (SPEC.md 20.12.10.6)
-    ret
+    jmp short .out
 .no:
     stc                             ; ...and the kernel tears down what exists.
-    ret                             ; op_load has already said why in a toast
+                                    ; op_load has already said why in a toast
+.out:
+    pop ax                          ; the begin's flags; ours stand
+    pushf
+    shr al, 1                       ; CF = the begin was refused
+    jc .kept
+    xor cx, cx
+    mov dx, cx
+    call OSAPI_FS_OP                ; the end
+.kept:
+    popf
+    ret
 
 ; --- the table, and the standard's own code after it (SPEC.md 20.12.3) ------
 %ifndef DOS_MEGA

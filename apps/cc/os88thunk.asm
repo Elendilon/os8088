@@ -2428,6 +2428,21 @@ _os88_toast:
     ret
 %endif
 
+; int os88_fs_op(unsigned hi, unsigned lo) - DX:CX = the bytes one operation
+; will move, 0:0 its end (OSAPI_FS_OP, SPEC.md 12.8.10). 0 / -1 refused
+CC_GATE _os88_fs_op
+%ifdef CC_U__os88_fs_op
+_os88_fs_op:
+    push bp
+    mov bp, sp
+    mov dx, [bp+4]
+    mov cx, [bp+6]
+    call OSAPI_FS_OP
+    sbb ax, ax                      ; CF -> 0 / -1
+    pop bp
+    ret
+%endif
+
 ; =============================================================================
 ; THE RUNTIME'S OWN HELPERS
 ;

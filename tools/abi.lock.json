@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "1856b9d089e85c15f36b8f12c390202c5177763177f1ab240a9c66c523f4e0e2",
+  "fingerprint": "1aafaaaae7f263d601e655097de0099de7fe11c9245799673e3a0952feea5152",
   "version": 12
  },
  "PKG_FMT": {
-  "fingerprint": "90871e6e9345e2bb73c7d1b38d37b9e11afd6747ac3964d65a4a6d63d048b965",
+  "fingerprint": "e99924eff56554ad5f91607134365e92b8562f5cd257e1b010e7f5caf7bbaf59",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -1389,31 +1389,45 @@
    "to": 12
   },
   {
-   "fingerprint": "fb23da0c500cbc68df2cc10ce6e891f306ff6ecd0f3e73008375936a10f9a795",
+   "fingerprint": "5c94f8709a6113277a3ab8ecbae3a50eac760ac62ecdbd3795a51add7b9e0ed3",
    "from": 10,
    "guard": "PKG_FMT",
-   "reason": "OSAPI_DECOMP accepts a FILTERED stream (SPEC.md 20.13.9): a leading 0xFFFF escape, then the plain stream, near-call operands made absolute. Contract widened, nothing re-contracted: every package, driver and module built before still runs; a filtered file on an older kernel is refused by its tail test, never misread. No bump.",
+   "reason": "OSAPI_FS_OP moved to 0x04EF at the toast-n-progress -> elendilon merge: elendilon had appended OSAPI_MEM_P at 0x04E9 first. Both are appends to a table no release has shipped; every package built before still runs",
    "to": 10
   },
   {
-   "fingerprint": "37d4e1e854ffe853f61f58e18deb061a72294473e8ffa8c810833ae02de13119",
+   "fingerprint": "c99d40ca2f5f1300b2248b6e017e273104027131becbb9725e8f33cfa52a000a",
    "from": 12,
    "guard": "DRV_VER",
-   "reason": "OSAPI_DECOMP accepts a FILTERED stream (SPEC.md 20.13.9): a leading 0xFFFF escape, then the plain stream, near-call operands made absolute. Contract widened, nothing re-contracted: every package, driver and module built before still runs; a filtered file on an older kernel is refused by its tail test, never misread. No bump.",
+   "reason": "OSAPI_FS_OP moved to 0x04EF at the toast-n-progress -> elendilon merge: elendilon had appended OSAPI_MEM_P at 0x04E9 first. Both are appends to a table no release has shipped; every package built before still runs",
    "to": 12
   },
   {
-   "fingerprint": "90871e6e9345e2bb73c7d1b38d37b9e11afd6747ac3964d65a4a6d63d048b965",
+   "fingerprint": "2f4376cd8be289c1eeae2bb85f6f464f9c1b2f067e85cd3d4c56461755494bc7",
    "from": 10,
    "guard": "PKG_FMT",
-   "reason": "OSAPI_PKG_START: the document arm, called from an entry proc, POSTS (SPEC.md 21.5.4) - a contract added for a context that was not allowed before; every cell, offset and header unchanged, so PKG_FMT stands",
+   "reason": "OSAPI_MEM_P contract clarified at the code-review merge: CX is kept (the kernel no longer masks MEMP_CONV in place) and a refused claim/regrow returns AX = the request rounded to the granule. Every package built before still runs; no bump.",
    "to": 10
   },
   {
-   "fingerprint": "1856b9d089e85c15f36b8f12c390202c5177763177f1ab240a9c66c523f4e0e2",
+   "fingerprint": "0748b366414ba23dbd8ddf8ad78e06df4aaecfa57e2985f45402721d4b2db9f2",
    "from": 12,
    "guard": "DRV_VER",
-   "reason": "OSAPI_PKG_START: the document arm, called from an entry proc, POSTS (SPEC.md 21.5.4) - a contract added for a context that was not allowed before; every cell, offset and header unchanged, so PKG_FMT stands",
+   "reason": "OSAPI_MEM_P contract clarified at the code-review merge: CX is kept (the kernel no longer masks MEMP_CONV in place) and a refused claim/regrow returns AX = the request rounded to the granule. Every package built before still runs; no bump.",
+   "to": 12
+  },
+  {
+   "fingerprint": "e99924eff56554ad5f91607134365e92b8562f5cd257e1b010e7f5caf7bbaf59",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "merge elendilon into dos-windowed: OSAPI_PKG_START's posted form (SPEC.md 21.5.4) beside elendilon's own SDK changes",
+   "to": 10
+  },
+  {
+   "fingerprint": "1aafaaaae7f263d601e655097de0099de7fe11c9245799673e3a0952feea5152",
+   "from": 12,
+   "guard": "DRV_VER",
+   "reason": "merge elendilon into dos-windowed: OSAPI_PKG_START's posted form (SPEC.md 21.5.4) beside elendilon's own SDK changes",
    "to": 12
   }
  ]

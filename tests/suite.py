@@ -728,7 +728,14 @@ FAST = [
         "offset the engine aimed at, and identical to an uninterrupted "
         "decode; and XT Standard decoded first to a hard disk, the WAV "
         "byte-exact to tools/x3simxt.py, played on the card with no decoder "
-        "resident and seeked directly",
+        "resident and seeked directly. On a FIXED-SPEED guest (-icount, "
+        "os88qemu.icount; OS88_QEMU_ICOUNT=0 is the A/B), because Auto and "
+        "the slow window are timings: a 512-byte kernel growth put the "
+        "decode worker's stack in the 4 KB page of the .vga rung's code, "
+        "QEMU's TCG took every push through its self-modifying-code slow "
+        "path, and Auto played holdconv at Quarter on identical guest work. "
+        "The card follows the guest's clock on `qemuvt` when the tree has "
+        "one, and on a stock QEMU as before",
         needs=("qemu", "nasm", "mtools", "numpy"), serial=True, timeout=900,
         wants=("build/xtmp3.o88", "build/xtmp3.bin", "build/os8088.img",
                "build/mixercfg/SYSTEM.CFG", "build/mbr.bin",
@@ -4593,6 +4600,30 @@ SOAK = [
         "CHIPSET1/2.TXT without the help, the pane scrolls, Benchmark restores the foot, "
         "Quit closes REDLINE",
         needs=("marty", "nasm"), wants=("build/redline360.img", "build/os8088-360.img")),
+    Row("redlineinspcga", "soak", py("tests/redline.py", "--inspect", "os8088_redline_pc_gla"), 9.0,
+        "REDLINE's Inspect tab on cga (SPEC.md 103.7), by its buttons and keys: the tab "
+        "fetches its module (a lazy part of REDLINE.O88) and probes once, Summary names "
+        "the CPU and the adapter the machine has, IRQ 0's vector is the kernel's, the "
+        "programs list holds REDLINE, a sub-page button and 1-8/Right move pages with "
+        "one latch on the strip, Memory draws its bars and the BIOS ROM, Save report "
+        "writes INSPECT1.TXT with all eight pages and no padding, Quit closes REDLINE",
+        needs=("marty", "nasm"), wants=("build/redline360.img", "build/os8088-360.img")),
+    Row("redlineinspherc", "soak", py("tests/redline.py", "--inspect", "os8088_redline_herc_gla"), 9.0,
+        "REDLINE's Inspect tab on herc (SPEC.md 103.7), by its buttons and keys: the tab "
+        "fetches its module (a lazy part of REDLINE.O88) and probes once, Summary names "
+        "the CPU and the adapter the machine has, IRQ 0's vector is the kernel's, the "
+        "programs list holds REDLINE, a sub-page button and 1-8/Right move pages with "
+        "one latch on the strip, Memory draws its bars and the BIOS ROM, Save report "
+        "writes INSPECT1.TXT with all eight pages and no padding, Quit closes REDLINE",
+        needs=("marty", "nasm"), wants=("build/redline360.img", "build/os8088-360.img")),
+    Row("redlineinspvga", "soak", py("tests/redline.py", "--inspect", "os8088_redline_vga_gla"), 13.0,
+        "REDLINE's Inspect tab on vga (SPEC.md 103.7), by its buttons and keys: the tab "
+        "fetches its module (a lazy part of REDLINE.O88) and probes once, Summary names "
+        "the CPU and the adapter the machine has, IRQ 0's vector is the kernel's, the "
+        "programs list holds REDLINE, a sub-page button and 1-8/Right move pages with "
+        "one latch on the strip, Memory draws its bars and the BIOS ROM, Save report "
+        "writes INSPECT1.TXT with all eight pages and no padding, Quit closes REDLINE",
+        needs=("marty", "nasm"), wants=("build/redline360.img", "build/os8088-360.img")),
     Row("rltune", "soak", py("tests/rltune.py"), 81.0,
         "REDLINE's chipset write path in the OS on QEMU's AT (SPEC.md 103.6.3-103.6.5): "
         "on the Tune tab an FE3600 nothing detects is picked, Target Mfg spec and Tune "
@@ -6918,6 +6949,18 @@ SOAK = [
         "nothing on C:). VERIFIED TO FAIL: the early-out removed reads four "
         "windows in EMPTY; fcp_room forced to yes runs the create in FULL. "
         "Measured 66s.",
+        needs=("marty",)),
+    Row("fpgop", "soak", py("tests/fpgop.py"), 70.0,
+        "A FILE COPY IS ONE BAR AND IT REACHES FULL (SPEC.md 12.8.8). 120KB "
+        "B: -> C: by Copy/Paste on os8088_xt_hdd, twice: booted off a floppy "
+        "so C: is HDD.DRV's (DVK_DRV, drv_blk_call_x) and off the VHD so C: "
+        "is the kernel's; then 40KB onto a RAM disk and off it again (a "
+        "REDIRECTED volume both ways). Asserts [fpg_done] reaches [fpg_opt], "
+        "the trough's 62 pixels lit, ONE fpg_opbegin and no hatch inside it. "
+        "VERIFIED TO FAIL: dsk_xfer's driver arm stepping nothing reads 241 "
+        "of 480 units - the half bar the field reported; without the "
+        "READ_AT phase and RAMDISK.DRV's reports, 90 of 160 both ways. "
+        "Measured 52s.",
         needs=("marty",)),
     Row("kdhdd", "soak", py("tests/kdhdd.py"), 30.0,
         "THE FIXED DISK IS A VOLUME UNDER kern_dos, AND A PROGRAM READS ITS "
@@ -12728,8 +12771,8 @@ SOAK = [
         "Hide All hides the widget and Show All brings it back; Arrange puts "
         "it at W_X = 7 mod 8 at the column's top; picking the RUNNING row "
         "closes it through app_close_win, so its own negotiator removes its "
-        "Sticky App row. A second boot with six more (one-sector card stubs) "
-        "PAGES: a pager row, a release on it turns the page and the panel "
+        "Sticky App row. A second boot with six more (one-sector card stubs), "
+        "nine on the disk, lists STM_MAX (eight) and PAGES: a pager row, a release on it turns the page and the panel "
         "stays up. Read out of the module's own image (mod_tab's row + "
         "os88sym's offsets), not out of pixels.",
         needs=("marty", "mtools"), timeout=900,
@@ -14273,6 +14316,18 @@ SOAK = [
                                   "herc"), 72.0,
         "SPEC.md 98.4: vidpreview on the Hercules 5150, a Hercules-layout "
         "clip - the poster on Hercules' own desktop framebuffer",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidpreroll", "soak", py("tests/vidpreroll.py"), 20.0,
+        "SPEC.md 98.2.9.3: a ONE-BIT play from the start begins at KEY 0 "
+        "when the encoder held a pre-roll. A Hercules clip of noise over "
+        "every pixel under the tight profile, key 0 frames in: the play "
+        "from the start is based at key 0's frame + 1 from the key's record "
+        "and its first hold shows the first picture WHOLE, then it plays to "
+        "the end; and vidplay's clip, key 0 at frame 0 and poster key 1, "
+        "still starts at the first record. Broken on purpose (vp_spos's "
+        "one-bit pre-roll test taken out) it FAILS: based at 0, the paint "
+        "shown",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidprevshd", "soak", py("tests/vidpreview.py", "--layout", "cga",
@@ -16886,7 +16941,8 @@ SOAK = [
         "-> A: with the path on: no fallback ([mega_fdoff] 0, [mega_fdfail] "
         "0), the reset path ran but not once a call (2 resets against a "
         "ceiling of 20), byte for byte, no exception charged to an image. "
-        "Red with --break (mm_fdout stc/ret at its copy above 1MB): 8 "
+        "Red with --break (mm_fdout a jmp to mega_fdlj, the time-out's exit, "
+        "at its copy above 1MB - kern_mega size pass 2; it was stc/ret): 8 "
         "fallbacks, the path off, 48 resets - while the copy still succeeds "
         "through the BIOS. 35s is 18-29 measured (kern_mega size pass 1)",
         needs=("86box",),

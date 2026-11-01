@@ -297,6 +297,14 @@ INCLUDES = [
      "yours and a cursor whose offset differs is re-seeded, so a seek needs "
      "nothing; the small kernel's `FERR_NAME` is retried as `READ_AT`. Zero "
      "the cursor with `os88_rseq_new` whenever the FILE changes."),
+    ("os88wseq.inc", "18.4.9.4",
+     "An APPEND OF ANY SIZE: `os88_wseq_open` (a name, a stream record of "
+     "`WSEQ_SIZE` and a buffer of yours) creates the file empty, "
+     "`os88_wseq_put` takes ES:SI and any count as often as you like, and "
+     "`os88_wseq_close` writes the tail. It buffers into whole clusters for "
+     "`OSAPI_FILE_WRITE_SEQ` - which, like `OSAPI_FILE_APPEND`, refuses a "
+     "chunk that is not one - and falls back to `OSAPI_FILE_APPEND` on the "
+     "small kernel. The read side is os88rseq.inc."),
     ("os88data.inc", "19.9.1",
      "SYSTEM\\APPDATA on your own volume: `od_read` and `od_write`, which walk "
      "there with `OSAPI_FILE_GOTO_QM` (never the display remount), bank the "

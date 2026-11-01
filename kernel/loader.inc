@@ -248,7 +248,10 @@ ld_unreserve:
     jz .out
     call mem_free_owner_x
 %ifdef KERN_MEGA
-    MEGA_ISHI [ld_base]         ; a region placed ABOVE 1MB (ld_hi): its
+    push ax
+    mov ax, [ld_base]           ; a region placed ABOVE 1MB (ld_hi): its
+    call mem_ishiax
+    pop ax
     jc .lo                      ; pair and pool block
     push ax
     push dx
@@ -412,7 +415,7 @@ ld_hdr_size:
 ; in:  ES:SI -> 32 readable header bytes; [ld_fsz] = the file's byte count
 ; out: CF = 0 and [ld_img]/[ld_bss]/[ld_ent] filled, or CF = 1 and
 ;      AL = LD_EBAD / LD_EBIG / LD_EVER
-; clobbers: AX, DX
+; clobbers: AX, CX, DX
 ;
 ; ES:SI AND NOT DS:SI, which is what drv_check and mod_check have always
 ; taken. It used to read through DS alone, so both callers STAGED 32 bytes
@@ -517,16 +520,16 @@ ld_check_hdr:
     ; this is where the flags byte is already in hand and both callers of this
     ; routine want them. AX is spent by now and DX is documented as clobbered.
     mov al, [es:si+LD_H_FLAGS]
-    shr al, 1                               ; bits 3 and 4, as a number: 0 =
-    shr al, 1                               ; plain, 1 = LZ4, 3 = LZB - and 2,
-    shr al, 1                               ; bit 4 without bit 3, is not a
-    and al, LD_CFMT_KEEP                    ; thing os88pkg.py writes; it reads
-    mov [ld_cfmt], al                       ; (CX is a caller's, so no `shr
-                                            ; al, cl`)
+    mov cl, 3                               ; bits 3 and 4, as a number: 0 =
+    shr al, cl                              ; plain, 1 = LZ4, 3 = LZB - and 2,
+    and al, LD_CFMT_KEEP                    ; bit 4 without bit 3, is not a
+    mov [ld_cfmt], al                       ; thing os88pkg.py writes; it reads
                                             ; as LZB and the decoder refuses
                                             ; the plain bytes it is then given,
                                             ; which is a refusal by the right
-                                            ; route
+                                            ; route. CX IS SPENT on the count:
+                                            ; none of the three callers reads
+                                            ; it after (kernel size pass 16)
 .out:
     ret
 
@@ -760,8 +763,7 @@ ld_run_name_x:
     call ld_lname_cp            ; ...and AX - the cluster `.peek` takes from
                                 ; the register - is one of the four it banks
     jmp ld_run_body_x.peek      ; joins the pipeline exactly where the index
-.fail:                          ; resolver leaves it - [ld_fsz] and [ld_clus]
-    ret                         ; are the rest of what step 1 produces
+.fail equ ld_owed.no   ; its neighbour's ret (kernel size pass 16)
 
 ; -----------------------------------------------------------------------------
 ; ld_res_name - fill [ld_fsz]/[ld_clus] from a name (module internal)
@@ -1028,12 +1030,12 @@ ld_run_body_x:
     mov cx, es
 %ifdef KERN_MEGA
     xchg ax, cx                 ; (the region is its pair's DATA selector in
-    call KERNEL_SEG:mega_s2segf ; protected mode, KERN-MEGA-MEMORY-PLAN MC7.4:
+    call COLD_SEG:mega_s2segc   ; protected mode, KERN-MEGA-MEMORY-PLAN MC7.4:
     xchg ax, cx                 ; its real segment, a conventional claim's)
 %endif
     add ax, cx                  ; ...is where the body's segment starts
 %ifdef KERN_MEGA
-    call KERNEL_SEG:mega_oddsegf ; off the identity grid: a selector for it
+    call COLD_SEG:mega_oddsegc  ; off the identity grid: a selector for it
 %endif
     pop cx
     sub cx, bx                  ; the body's length
@@ -1363,7 +1365,7 @@ ld_start:
     call COLD_SEG:mega_pcin_n   ; kern_mega's CATCH: a fault in the entry
                                 ; proc comes back here as a refusal, CF = 1
                                 ; (KERN-MEGA-PLAN 14.42, mega_fkill)
-    MEGA_PCALL [es:ld_fp], [es:ld_base] ; the CODE alias (kernel/mega.inc)
+    MEGA_PCALLC [es:ld_fp], [es:ld_base] ; the CODE alias (kernel/mega.inc)
 ..@mega_pcret_l:
     call COLD_SEG:mega_pcout_n  ; (needs no DS: the frame names the task)
 %else
@@ -1512,6 +1514,15 @@ ld_start:
                                 ; window, on a launch that is being abandoned)
                                 ; and ld_unreserve banks it anyway; AX and CX
                                 ; survive, ld_slot banking CX itself
+%ifdef TOAST_Q
+    mov si, toast_qinst         ; a QUEUED message of the package's is
+    mov al, [toast_qwant]       ; re-homed the same way - the two messages
+    call .rehtoast              ; are records of one shape (toast.inc), so
+    mov si, toast_inst          ; one body asks each (kernel size pass 16)
+    mov ax, [toast_on]          ; toast_kill's own test: on OR staged
+    or al, ah
+    call .rehtoast
+%else
     cmp bl, [toast_inst]
     jne .unsaid
     cmp word [toast_on], 0      ; toast_kill's own test: on OR staged
@@ -1519,10 +1530,22 @@ ld_start:
     mov byte [toast_inst], 0xFF
     mov byte [ld_said], 1
 .unsaid:
+%endif
     call ld_unreserve           ; the region, and anything the entry proc
                                 ; claimed before it declared itself broken
     mov al, LD_EABORT
     ret
+%ifdef TOAST_Q
+.rehtoast:                      ; SI = a message's raiser byte, AL = 0 when
+    cmp bl, [si]                ; it is not live: the reserved slot's live
+    jne .rht                    ; message re-homed to the kernel, and said.
+    or al, al                   ; SI and AX are dead after (ld_unreserve
+    jz .rht                     ; banks what it needs)
+    mov byte [si], 0xFF
+    mov byte [ld_said], 1
+.rht:
+    ret
+%endif
 
 %ifndef KERN_SMALL
 .rehome:
@@ -1689,7 +1712,7 @@ ld_start:
                                 ; and must not go with it. AX is still
                                 ; [ld_rehome]: both calls preserve it
 %ifdef KERN_MEGA
-    MEGA_ISHI dx                ; A LOADER PLACED ABOVE 1MB (ld_hi) is a pool
+    call mem_ishidx             ; A LOADER PLACED ABOVE 1MB (ld_hi) is a pool
     jc .rhlo                    ; block and a code/data pair, not a mem_tab
     push ax                     ; record: mem_free_x would find nothing, the
     mov ax, dx                  ; carry was never read, and the block and two
@@ -2189,7 +2212,7 @@ osapi_pkg_rehome_x:
     or dx, dx                   ; a segment of 0 is the heap's own "no claim"
     jz .no                      ; and can never be a part's base
 %ifdef KERN_MEGA
-    MEGA_ISHI dx                ; kern_mega: a pool selector (an OS88_HIGHMEM
+    call mem_ishidx             ; kern_mega: a pool selector (an OS88_HIGHMEM
     jnc .no                     ; claim) has no code half and no heap record,
 %endif                          ; and the re-home runs code at its base
     mov [ld_rehome], dx

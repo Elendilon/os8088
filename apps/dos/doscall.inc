@@ -63,7 +63,7 @@ CORE_ORG    equ 0x0080
 ; CORE alone spends, both hosts read, and whose slack is one number in one
 ; place. Measured at the wave, with the assertion in `apps/dos/doscore.asm`.
 %ifndef DOS_MEGA
-CORE_MAX    equ 15392            ; +512 for SPEC.md 96.7.2's stack swap and
+CORE_MAX    equ 15440            ; +512 for SPEC.md 96.7.2's stack swap and
                                 ; 96.12.5's name truncation, which are 214
                                 ; bytes between them against 89 of slack. The
                                 ; two are the Playroom's whole report: a gate
@@ -143,8 +143,12 @@ CORE_MAX    equ 15392            ; +512 for SPEC.md 96.7.2's stack swap and
                                 ; dropped word a `pop` (4): 15,430 -> 15,388
                                 ; used. kern_mega's core falls with it,
                                 ; 16,080 -> 16,038 used of 16,048
+                                ; +48 for SPEC.md 12.8.10's one bar, the
+                                ; DBE_FSOP door and COPY's and TYPE's use of
+                                ; it (50 bytes against 10 of slack): 15,448 on its own tree; with this branch's
+                                ; size pass beside it, 15,436
 %else                           ; **kern_mega's core is 67 bytes longer**:
-CORE_MAX    equ 16048            ; SPEC.md 96.15.4's extended-to-extended
+CORE_MAX    equ 16096            ; SPEC.md 96.15.4's extended-to-extended
 %endif                          ; move (dos_xms_move's `.bothx`), 15,409 used.
                                 ; +80, kept a multiple of 16, and paid ONLY by
                                 ; kern_mega's DOS.O88 - both of its hosts
@@ -164,6 +168,10 @@ CORE_MAX    equ 16048            ; SPEC.md 96.15.4's extended-to-extended
                                 ; two met at the merge, 16,027 used
                                 ; +64 for SPEC.md 96.8.2's load-module read,
                                 ; +91 here against 37 of slack: 16,118 used
+                                ; +32 for the DBE_FSOP door and its two
+                                ; users (SPEC.md 12.8.10): 16,095
+                                ; ...and with the windowed-DOS size pass
+                                ; beside it at the merge, 16,088 used
 ; ...and the core's bss sits directly above its code, at the same offset in
 ; every host, which is what SPEC.md 96.44.2 requires of every `DBSS` cell.
 ; --- THE CORE'S BLOCK IS A BUDGET, NOT A SUM (SPEC.md 96.44.2) --------------
@@ -174,9 +182,9 @@ CORE_MAX    equ 16048            ; SPEC.md 96.15.4's extended-to-extended
 ; core cell is spent out of.
 %ifndef CORE_BSS_SIZE               ; `-DCORE_BSS_SIZE=n` is how the budget is
  %ifndef DOS_MEGA                   ; probed: bisect on it and the assertion
-CORE_BSS_SIZE equ 3509              ; below names the exact figure
+CORE_BSS_SIZE equ 3511              ; below names the exact figure
  %else                              ; kern_mega's +2 is `dos_hslot`, the HMA
-CORE_BSS_SIZE equ 3513              ; host's slot maker (KERN-MEGA-DOS-PLAN
+CORE_BSS_SIZE equ 3515              ; host's slot maker (KERN-MEGA-DOS-PLAN
                                     ; 10.5 defect 4), and +2 again for
                                     ; DHK_XUNP, the child's EXEPACK hook
                                     ; (SPEC.md 96.40.9.1) - DHK_NENT 7 -> 8
@@ -201,8 +209,10 @@ CORE_BSS_SIZE equ 3513              ; host's slot maker (KERN-MEGA-DOS-PLAN
                                     ;         pair (+18), and 4 of the padding
                                     ;         the rows around them want
                                     ;       0 slack
+                                    ;      +2 DBE_FSOP, dos_bevec's 25th
+                                    ;         door (SPEC.md 12.8.10)
                                     ;   ----- -------------------------------
-                                    ;   3,507
+                                    ;   3,509
 
 ; ...and the core's bss sits directly above its code, at the same address in
 ; every host, which is what SPEC.md 96.44.2 requires of every `DBSS` cell.

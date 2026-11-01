@@ -1082,7 +1082,10 @@ wt_halt:
     mov byte [wt_sopen], 0          ; the worker feeds no more...
 .drain:
     cmp byte [wt_mixing], 0         ; ...and is out of its pass (bounded: it
-    jne .drain                      ; re-checks wt_sopen first, SPEC.md 45.2)
+    je .drained                     ; re-checks wt_sopen first, SPEC.md 45.2)
+    call OSAPI_TASK_YIELD           ; the pass is the WORKER's to finish:
+    jmp short .drain                ; hand it the CPU (wt_topupn, wc_own)
+.drained:
     cmp byte [wt_ended], 0
     jne .close
     call wt_poll                    ; the worker parked: the count is ours
@@ -1722,14 +1725,26 @@ wt_hire:
     mov byte [wt_wk], 1
     ; ...AND IT MAY BE RESTARTED (SPEC.md 66.6.2): its whole state is in
     ; statics, and it parks only in OSAPI_TASK_ALIVE / OSAPI_TASK_SLEEP at
-    ; the top of its loop, so a restart there loses nothing
+    ; the top of its loop, so a restart there loses nothing. The declaration
+    ; is PERMANENT, not a window round ALIVE: mem_frameless reads it at PLAN
+    ; time, and a window would make OSAPI_MEM_AVAIL_MAX read low for a heap
+    ; the compactor could empty (docs/plans/REGION-SELF-COMPACT-PLAN.md 8.2)
     OS88_WORKER_RESTARTABLE_NOKEEP wt_worker
 .ok:
     clc
 .out:
     ret
 
+; wt_worker - the restart lands HERE, so the head clears the two pass flags:
+; a restart can only come at a park point, and none is inside wt_feed or
+; wc_feed (neither takes the gfx lock or calls ALIVE), so both are 0 there
+; today - but a pass that ever gains one would leave its flag stuck at 1 and
+; wt_halt's drain, wt_topupn and wc_own waiting on a pass that is gone.
+; Clearing them is exactly true at the head (Tracker's [trk_inrend], 45.3.2)
 wt_worker:
+    xor ax, ax
+    mov [wt_mixing], al
+    mov [wc_mixing], al
 .loop:
     mov bx, [wr_win]
     call OSAPI_TASK_ALIVE           ; (dies here when the window closes)

@@ -759,8 +759,14 @@ w16_wake:
     jne .out
     mov byte [w16_state], W16S_RUN
     call w16_ldin                   ; CF=1: refused, [w16_l1]/[w16_l2] say why
-    jc .refused
+    jc .end
     call w16_facein                 ; the System font for this display
+.end:
+    pushf                           ; w16_load's one operation over (SPEC.md
+    xor cx, cx                      ;   12.8.10): an end we do not own is
+    mov dx, cx                      ;   refused, so a load refused before its
+    call OSAPI_FS_OP                ;   begin needs no flag
+    popf
     jnc .run
 .refused:
     mov byte [w16_state], W16S_REFUSED

@@ -1325,8 +1325,9 @@ rw_hyload:
 .pe:
     pop dx
 .free:
-    mov ax, [rw_hybase]
-    call OSAPI_XMEM_FREE
+    mov ax, [rw_hybase]             ; DX:AX = the base: on .pe and after
+    mov dx, [rw_hybase + 2]         ;   rw_apart DX holds a selector, and a
+    call OSAPI_XMEM_FREE            ;   refused free orphaned the block
     xor ax, ax
     mov [rw_hybase], ax
     mov [rw_hybase + 2], ax

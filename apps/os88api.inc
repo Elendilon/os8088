@@ -2295,8 +2295,10 @@ SEG_AT      equ 8
                                  ;          paragraphs, at your floor as
                                  ;          OSAPI_MEM_AVAIL; CX = the GRANULE
                                  ;          in paragraphs
-                                 ; CF=1 refused. Every register not named is
-                                 ; kept. On kern_mega an OS88_HIGHMEM claim
+                                 ; CF=1 refused, and a CLAIM or REGROW verb's
+                                 ; AX is then the request rounded up to the
+                                 ; granule. Every register not named is kept,
+                                 ; CX included. On kern_mega an OS88_HIGHMEM claim
                                  ; with no head goes above 1MB where it can,
                                  ; granted the KB that covers it - unless CX
                                  ; is MEMP_CONV, which keeps it conventional
@@ -2438,6 +2440,30 @@ MEMP_CONV     equ 0x8000         ; CX for a claim verb: NO head, and stay
                                  ; held, which it is inside any file operation
                                  ; (SPEC.md 18), and you must NEVER take it.
                                  ; Preserves every register and the flags
+
+%define OSAPI_FS_OP         KERNEL_SEG:0x04EF   ; DX:CX = the bytes ONE
+                                 ; operation of yours will move - a load, a
+                                 ; save, a download the user waits for, over
+                                 ; many chunks and many callbacks. READS AND
+                                 ; WRITES BOTH COUNT, so a read-then-write of a
+                                 ; file is twice its size. 0 = it is over.
+                                 ; The file widget keeps ONE bar for it,
+                                 ; PARKED on the menu bar between your
+                                 ; callbacks, and counts your transfers into
+                                 ; it (not anybody else's). Closing ends it.
+                                 ; out CF=1 = refused: another package holds
+                                 ; the widget, YOU ALREADY HAVE ONE OPEN
+                                 ; (nesting is refused, so a library inside a
+                                 ; wider operation of yours leaves it alone),
+                                 ; it could not arm (a bracket, a fullscreen
+                                 ; window), or kern_small, which has none.
+                                 ; Advisory: refused, your I/O still works and
+                                 ; reports as it always did. END ONLY WHAT
+                                 ; YOUR OWN BEGIN OPENED (CF=0): an end you do
+                                 ; not own is refused too. UI task (a
+                                 ; callback or a wake, locked or not - the
+                                 ; file calls' own rule). SPEC.md 12.8.10.
+                                 ; Every register kept
 
 ; --- a driver's settings, inside SYSTEM.CFG (SPEC.md 51.9) ------------------
 ; A DRIVER's slot, fenced like the four above. The kernel carries DRV_BLOB_SZ

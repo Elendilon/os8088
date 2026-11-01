@@ -255,9 +255,9 @@
   "sources": [
    "kernel/ctrl.inc"
   ],
-  "stamped": "603832f2",
-  "strings": "2d063e04ea0308f5",
-  "why": "the Display page's Vesa row: named for the screen, clicked again to step through the card's screens, Set Primary applies (SPEC.md 120.6); the rest of the page reads as before"
+  "stamped": "1b5a0fd9",
+  "strings": "5a8f150309d151bc",
+  "why": "kernel size pass 16: ctrl.inc's changes are internal - the save's no-system-disk line moved into CTRL.DRV with its text unchanged, and SYSTEM.CFG/KERNEL.SYS are staged into cp_sbuf; nothing a user reads changed"
  },
  "CWORD": {
   "sources": [],
@@ -896,9 +896,9 @@
   "sources": [
    "apps/redline"
   ],
-  "stamped": "d511fdd4",
-  "strings": "613189b6ce818efd",
-  "why": "the benchmark's progress panel clears to the window edge: no stray glyph; text unchanged"
+  "stamped": "1b555f02",
+  "strings": "4f8e15c5f39d9498",
+  "why": "the Inspect tab (SPEC.md 103.7): a section with its eight pages, buttons and keys; I and H in the key table; Inspect in the Bench menu; INSPECTn.TXT in Files"
  },
  "RLAPPLY_O88": {
   "sources": [
@@ -1224,9 +1224,9 @@
    "kernel/vidext.inc",
    "kernel/ctrl.inc"
   ],
-  "stamped": "603832f2",
-  "strings": "85e31060566354fb",
-  "why": "new page for VESA.DRV (SPEC.md 120): what it does, how it is loaded, choosing a screen, what it does not offer"
+  "stamped": "1b5a0fd9",
+  "strings": "287b8f561883cf80",
+  "why": "kernel size pass 16: ctrl.inc's changes are internal - the save's no-system-disk line moved into CTRL.DRV with its text unchanged, and SYSTEM.CFG/KERNEL.SYS are staged into cp_sbuf; nothing a user reads changed"
  },
  "VIDEO_O88": {
   "sources": [

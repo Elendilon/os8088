@@ -572,7 +572,7 @@ dvw_betab:
     dw .append, .delete, .dfree, .mkdir, .rmdir
     dw .xcaps, .xalloc, .xfree, .xcopy, .rename
     dw .copy, .move, .path, .vstat, .wrat
-    dw dos_k_here, dos_k_vkind, .rseq, .wseq
+    dw dos_k_here, dos_k_vkind, .rseq, .wseq, .fsop
 .goto:   DVWP dos_k_goto
 .read:   DVWP dos_k_read
 .find:   DVWP dos_k_find
@@ -595,7 +595,8 @@ dvw_betab:
 .wrat:   DVWP dos_k_wrat
 .rseq:   DVWP dos_k_rseq
 .wseq:   DVWP dos_k_wseq
-%if ($ - dvw_betab) != DBE_NENT * 2 + 22 * 5
+.fsop:   DVWP dos_k_fsop         ; the operation's bar draws: the UI task's
+%if ($ - dvw_betab) != DBE_NENT * 2 + 23 * 5
  %error "dvw_betab has drifted from DBE_NENT: every door in dos_betab needs a slot here, in the same order"
 %endif
 

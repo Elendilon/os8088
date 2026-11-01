@@ -379,6 +379,10 @@ vp_entry:
 %ifdef PKG_MEGA
     mov [vp_self], ds               ; (VP_OWNB's: what DS is, as a selector
                                     ; under CPU_F_PM - KERN-MEGA-PLAN 14.16)
+    call vp_wmk                     ; SEG_AT's three windows, made before
+    jnc .wok                        ; anything is claimed (CF = 1: no LDT
+    ret                             ; entry, and a toast has said so)
+.wok:
 %else
     OS88_MEGA_REFUSE                ; (protected mode: the arm's, 14.66)
 %endif
@@ -3288,6 +3292,7 @@ vp_kpic:
 %ifdef PKG_MEGA
     mov di, vp_spl                  ; (its planes, protected mode's)
     call vp_plmk
+    jc .free                        ; (no LDT entry: not decoded)
 %endif
     mov es, dx
     call vp_zero
@@ -5319,7 +5324,7 @@ vp_xopen:
     inc ax                          ; the first chunk on the next tick
     mov [vp_xon], al
     mov bx, [vp_win]
-    call OSAPI_WM_TIMER
+    call vp_xopbeg                  ; the timer, and the load's ONE bar
 .out:
     call vp_lyxopen                 ; ...and THE LAYER's, from what is left
     pop es                          ; (98.1.9)
@@ -5486,7 +5491,9 @@ vp_lycarve:
     call vp_sub                     ; layer's slots its - KERN-MEGA-MEMORY-
     mov [vp_lyseg], dx              ; PLAN MC7)
     pop dx
+    jc .nsel
     call vp_lymk
+    jc .nsel
 %else
     add ax, dx
     mov [vp_lyseg], ax
@@ -5525,6 +5532,17 @@ vp_lycarve:
     inc bx
 .l2:
     ret
+%ifdef PKG_MEGA
+.nsel:                              ; NO LDT ENTRY for the layer's slots: none
+    xor ax, ax                      ; placed after all, K the ring's again
+    mov [vp_lyb], al                ; (nothing is read yet) and the card's
+    mov [vp_lyseg], ax              ; 'no room' (vp_lyopen) - never a slot
+    mov [vp_lycmp], ax              ; read through what vp_sub kept
+    mov ax, [vp_lyk0]
+    mov [vp_k], ax
+    mov [vp_kr], ax
+    jmp short .x
+%endif
 
 ; vp_lyown - IN PLACE (vp_lycarve): the layer's own claim, AFTER the ring -
 ; whose claim is a key's, the stream being read in the board, the bank or
@@ -5567,9 +5585,16 @@ vp_lyown:
     mov word [vp_lysht], 0
 %ifdef PKG_MEGA
     call vp_lymk                    ; (its slots' selectors: MC7)
+    jnc .x
+    mov dx, [vp_lyseg]              ; (none: no LDT entry - the claim back,
+    call vp_mfree                   ; and the card's 'no room')
+    mov word [vp_lyseg], 0
 %endif
 .x:
     jmp vp_ld4
+%ifdef PKG_MEGA
+    nop                             ; (never run: what follows at its parity)
+%endif
 
 ; vp_lyunc - THE FLIP GIVEN BACK (98.1.9.4): the layer not read after all -
 ; the CPU's verdict or the disk's - so its slots are the ring's again, K as
@@ -6014,7 +6039,7 @@ vp_xfree:
     je .z
     push ax
     push dx
-    mov byte [vp_xon], 0
+    call vp_xoff                    ; (and a hold dropped mid-load, its bar)
 %ifdef PKG_MEGA
     mov word [vp_xrun], 0           ; (the run goes with the block, and
     mov word [vp_xbw], 0            ; the bound window with it)
@@ -6303,7 +6328,7 @@ vp_xput:
     pop cx
     cmp cx, VP_CHUNK                ; a short chunk is the file's end
     je .out
-    mov byte [vp_xfull], 1
+    call vp_xdone
     jmp short .out
 .popo:
     pop cx
@@ -6502,7 +6527,7 @@ vp_xstep:
 .end:
     cmp cx, VP_CHUNK
     je .free
-    mov byte [vp_xfull], 1          ; a short chunk: the file's end
+    call vp_xdone                   ; a short chunk: the file's end
 .free:
     pop dx
     jmp short .fr
@@ -8091,6 +8116,9 @@ vp_xgpad:
 ; vp_xgal - DX = a claim, AX = the low word of the XMS address its start
 ; copies against: DX moved up into the claim's slack so that (DX x 16 - AX)
 ; mod 2G = G. Clobbers AX
+; - or, protected mode with no LDT entry for the moved one (vp_sub's CF),
+; DX as it was: the claim unaligned, which is what one claimed without its
+; slack plays through anyway (vp_xgpad's callers)
 vp_xgal:
     push bx
     push cx
@@ -10180,6 +10208,46 @@ vp_lruns:
 .ret:
     ret
 
+; THE PLAYER'S FILE OPERATIONS (SPEC.md 12.8.10): ONE bar for the hold's
+; whole load, PARKED on the menu bar between the timer's chunks instead of a
+; blink a chunk, and one for vp_rload's two blocks. Out of line, so the hot
+; routines that end the hold's move by an even count (rdiffhot.txt).
+; vp_xopbeg - BX = the window: its timer armed (AX ticks), and the hold's
+; operation begun at [vp_xcap] - the card's own "of" (vp_xsay), a KB over the
+; file, so the bar ends a hair short. Its reads count whoever asks: the
+; timer's (vp_xstep), and a windowed play's that vp_xput keeps; a fill inside
+; the bracket is not counted (no widget arms there), so after a play the bar
+; trails the card. Refused, nothing changes. Clobbers CX, DX (vp_xopen's)
+vp_xopbeg:
+    call OSAPI_WM_TIMER
+    push cx
+    push dx
+    mov cx, [vp_xcap]
+    mov dx, [vp_xcap+2]
+    jmp short vp_opend.go
+; vp_xdone - the hold has all of the file: [vp_xfull], and its bar over
+vp_xdone:
+    mov byte [vp_xfull], 1
+    jmp short vp_opend
+; vp_xoff - the hold or bank let go (vp_xfree): [vp_xon] 0, and the bar over
+vp_xoff:
+    mov byte [vp_xon], 0
+; vp_opend - this player's operation over. NO OWNED FLAG, and none is
+; needed: an end of an operation the kernel did not see us begin is refused
+; (a bank's, a refused begin), and the two never overlap - a RESIDENT file
+; takes no hold (vp_xopen), so vp_rload's is the instance's only one while it
+; lives. The flags go; every register kept
+vp_opend:
+    push cx
+    push dx
+    xor cx, cx
+    xor dx, dx
+.go:
+    call OSAPI_FS_OP
+    pop dx
+    pop cx
+    ret
+
 ; -----------------------------------------------------------------------------
 ; vp_rload - a RESIDENT file's blocks (98.1.7) in memory: the rendition's
 ; picture block and the audio block, each read so its clusters END at the
@@ -10208,6 +10276,21 @@ vp_rload:
     mov ax, cx
     call vp_fits
     jc .out
+    mov cx, [vp_bk+BK_PACKED]       ; ONE OPERATION, both blocks' reads
+    mov dx, [vp_bk+BK_PACKED+2]     ; (SPEC.md 12.8.10): one bar, not one a
+    cmp byte [vp_audio], 0          ; block. The packed bytes - a read is
+    je .op                          ; whole clusters, so it fills a hair
+    add cx, [vp_abk+BK_PACKED]      ; early and clamps. Ended here on every
+    adc dx, [vp_abk+BK_PACKED+2]    ; way out, before any bracket; refused,
+.op:                                ; the plain load
+    call OSAPI_FS_OP
+    jc .ld
+    call .ld
+    pushf                           ; (the load's CF)
+    call vp_opend
+    popf
+    ret
+.ld:
     mov bx, vp_bk
     call vp_ldblk
     jc .out
@@ -10313,8 +10396,14 @@ vp_ldblk:
     mov [vp_ldseg], dx
     cmp byte [bx+BK_PACK], 0        ; STORED: in pieces, straight into place
     jne .rd1
+%ifdef PKG_MEGA
+    mov word [vp_msg], vp_s_io      ; (vp_ldstored's own reason over it: no
+    call vp_ldstored                ; LDT entry)
+    jc .free
+%else
     call vp_ldstored
     jc .io
+%endif
     jmp .ok
 .rd1:
     call vp_bkrd                    ; DI:CX = the read, whole clusters -
@@ -10338,6 +10427,7 @@ vp_ldblk:
     call vp_sub
     xchg ax, dx
     pop dx
+    jc .nosel
 %endif
     mov [vp_rdseg], ax
     mov ax, [bx+BK_OFF]
@@ -10354,6 +10444,7 @@ vp_ldblk:
     call vp_sub
     mov [vp_rdseg], dx
     pop dx
+    jc .nosel
 %else
     add [vp_rdseg], ax
 %endif
@@ -10378,6 +10469,12 @@ vp_ldblk:
 .io:
     mov word [vp_msg], vp_s_io
     jmp short .free
+%ifdef PKG_MEGA
+.nosel:                             ; (vp_sub refused: no LDT entry)
+    mov word [vp_msg], vp_s_mem
+    jmp short .free
+    nop                             ; (never run: what follows at its parity)
+%endif
 .bad:
     mov word [vp_msg], vp_s_bad
 .free:
@@ -10532,7 +10629,8 @@ vp_fits:
 ; docs/plans/NAV-COST-PLAN.md's sweep) - then the whole moved down by the
 ; start's place in its cluster, a forward copy (the source is above the
 ; destination) stepped 32 KB at a time across the segments. Any size under
-; 1 MB (98.1.7.1). CF=1 the disk failed. Clobbers AX, CX, DX, SI, DI
+; 1 MB (98.1.7.1). CF=1 the disk failed - or, protected mode, a piece's
+; vp_sub was refused, [vp_msg] vp_s_mem. Clobbers AX, CX, DX, SI, DI
 vp_ldstored:
     push bx
     push bp
@@ -10567,6 +10665,7 @@ vp_ldstored:
     mov [vp_rdseg], dx
     pop dx
     pop ax
+    jc .nosel
 %else
     mov [vp_rdseg], bp
 %endif
@@ -10613,6 +10712,7 @@ vp_ldstored:
     mov ax, dx                      ; vp_sub, the same for both ends - MC7)
     mov dx, [vp_ldseg]
     call vp_sub
+    jc .mvno
     mov es, dx
     mov ds, dx
     pop dx
@@ -10635,6 +10735,17 @@ vp_ldstored:
     pop bp
     pop bx
     ret
+%ifdef PKG_MEGA
+.mvno:                              ; NO LDT ENTRY (vp_sub): DS back first
+    pop dx
+    pop si
+    pop ds
+.nosel:
+    mov word [vp_msg], vp_s_mem     ; (vp_ldblk's reason, over its I/O one)
+    stc
+    jmp short .out
+    nop                             ; (never run: what follows at its parity)
+%endif
 
 ; vp_rwalk - the loaded block's records: counted, each checked, and where
 ; the seam and frame L+1 are noted - and, where this session decodes into
@@ -11396,9 +11507,9 @@ vp_sstart:
     jnz .k0sel
     cmp byte [vp_flip], 2           ; (PAGE-AHEAD starts at key 0 too: its
     je .k0sel                       ; hidden page is preloaded, 98.3.8.3)
-    cmp byte [vp_pixfmt], PF_VGA8
-    jb .k0ok
-.k0sel:
+.k0sel:                             ; (EVERY format's: a one-bit play needs
+                                    ; key 0's frame to know if the encoder
+                                    ; held a PRE-ROLL, 98.2.9 - vp_spos)
     cmp word [vp_nkeys], 0
     je .k0ok
     cmp ax, [vp_kload]
@@ -11539,6 +11650,8 @@ vp_sstart:
     mov di, vp_kpl
     call vp_plmk
     pop di
+    jc .memf                        ; (no LDT entry: the play refused)
+    nop                             ; (the play's routines' parity)
 %endif
     cmp byte [vp_own], 0            ; (AGAINST ITS OWN PAGE: no copy of the
     jne .nopv                       ; last record - VIDEO-SEEN-PLAN 3b)
@@ -11583,7 +11696,9 @@ vp_sstart:
     or ax, ax
     jnz .rkc
     cmp byte [vp_pixfmt], PF_VGA8
-    jb .tor
+    jae .rkc
+    cmp word [vp_ke+KE_K], 0        ; (one bit: key 0 past a PRE-ROLL only,
+    je .tor                         ; as vp_spos)
 .rkc:
     cmp ax, [vp_kload]
     jne .tor
@@ -12467,8 +12582,18 @@ vp_spos:
     cmp byte [vp_flip], 2           ; ...and for page-ahead, whose key 0
     je .kpick                       ; carries the hidden page PRELOADED
     cmp byte [vp_pixfmt], PF_VGA8   ; key 0 too for colour: its frame 0 may
-    jb .tos                         ; be too big for one record, and the key
-.kpick:                             ; is the whole picture
+    jae .kpick                      ; be too big for one record, and the key
+    cmp word [vp_ke+KE_K], 0        ; is the whole picture - and for ONE BIT
+    je .tos                         ; when the encoder held a PRE-ROLL
+.kpick:                             ; (98.2.9): key 0 past frame 0 means the
+                                    ; records before it are the first
+                                    ; picture PAINTED IN, cut by the budgets,
+                                    ; and starting at them showed it (the
+                                    ; owner's Hercules BrainRot, 2026-11-01).
+                                    ; At frame 0 the first record IS the
+                                    ; picture: no key read, as before. (A
+                                    ; KE_K of another key's: the vp_kload
+                                    ; test below sends it to .start)
     cmp ax, [vp_kload]
     jne .tos
     mov [vp_rdseg], dx
@@ -14100,11 +14225,51 @@ vp_atn:
     pop ax
     ret
 
+; vp_wmk - the entry proc's FIRST step in this arm: vp_wrd, vp_wk and vp_wn
+; made, each a SEG_AT window over our own segment. A FIRST creation is the
+; only SEG_AT that can fail - no LDT entry free is CF = 0 and DX = 0 from
+; kern_mega, the NULL selector, and an access through that does not fault:
+; mega_null0 completes it as segment 0, the interrupt vector table - while a
+; re-aim of a window that exists cannot. So with all three made here, no
+; vp_at or vp_atn site can be handed 0 and none of them tests for it. Every
+; real-mode kernel refuses the verb and vp_at's sum is DS, never 0.
+; out: CF = 0; CF = 1, the launch refused with a toast. AX, BX, CX, DX, SI
+; clobbered
+vp_wmk:
+    mov bx, vp_wrd
+.l:
+    mov dx, ds
+    xor ax, ax
+    call vp_at
+    or dx, dx
+    jz .no
+    inc bx
+    inc bx
+    cmp bx, vp_wn + 2
+    jb .l
+    clc
+    ret
+.no:
+    push es
+    push ds
+    pop es
+    mov si, vp_s_nowin
+    xor cx, cx
+    call OSAPI_TOAST
+    pop es
+    stc
+    ret
+vp_s_nowin: db 'No LDT entry free', 0
+.e:
+    times ((.e - vp_wmk) & 1) nop   ; (what follows keeps its parity)
+
 ; vp_sub - DX = a claim of ours or a selector in one, AX = paragraphs: DX =
 ; a data selector based there, to the claim's end or 64 KB (SEG_SUB: asked
 ; again it answers the same one, and it moves and goes with the claim) - the
-; sum on a real-mode kernel; 0 when no LDT entry is free, so a use faults
-; rather than writing somewhere else. Every other register kept
+; sum on a real-mode kernel. CF = 1 no LDT entry free, DX KEPT - never 0: an
+; access through the null selector does not fault, kern_mega's mega_null0
+; completes it as segment 0, the interrupt vector table - and every caller
+; takes its own refusal on the carry. Every other register kept
 vp_sub:
     push ax
     push bx
@@ -14112,16 +14277,14 @@ vp_sub:
     xor cx, cx
     mov bl, SEG_SUB
     call OSAPI_SEG
-    jnc .r
-    xor dx, dx
-.r:
     pop cx
     pop bx
     pop ax
     ret
 
 ; vp_subtab - DX = a claim's slot 0, CX = slots (1 or more), DI -> CX words:
-; each slot's vp_sub, 32 KB apart. Every register kept
+; each slot's vp_sub, 32 KB apart. CF = 1 one was refused (vp_sub's; the
+; table not whole). Every register kept
 vp_subtab:
     push ax
     push cx
@@ -14133,24 +14296,29 @@ vp_subtab:
     call vp_sub
     mov [di], dx
     pop dx
+    jc .x
     inc di
     inc di
     add ax, VP_SLOTP
     loop .s
+    clc
+.x:
     pop di
     pop dx
     pop cx
     pop ax
     ret
+    nop                             ; (never run: what follows at its parity)
 
 ; vp_rsmk - DX = [vp_ring], just set (vp_spos): IN PROTECTED MODE its slots
 ; in [vp_rsel], one vp_sub each from the ring's start to its claim's end
 ; ([vp_rclm], [vp_rckb] KB), [vp_rgob] where the ring starts in that claim (THE
 ; GAP), a BIGSP file's bound window [vp_rbw] once a claim, and vp_addr
 ; patched to vp_paddr. Nothing in real mode, where the slots are sums. CF=1:
-; a BIGSP ring read through its slots (not in place, not resident) that the
-; kernel gave no such window - its records would run off their slots'
-; (vp_pmbigq's case, on the ring). Every register kept
+; a slot the kernel gave no selector (no LDT entry), or a BIGSP ring read
+; through its slots (not in place, not resident) that the kernel gave no
+; such window - its records would run off their slots' (vp_pmbigq's case,
+; on the ring). Every register kept
 vp_rsmk:
     cmp byte [vp_pm], 0
     je .r
@@ -14195,6 +14363,7 @@ vp_rsmk:
     jcxz .o
     mov di, vp_rsel
     call vp_subtab
+    jc .x                           ; (a slot refused: no play - vp_spos)
     cmp word [vp_rbw], 0            ; A RECORD PAST ITS SLOT'S WINDOW -
                                     ; BIGSP's, to 63.5 KB from any sector
                                     ; of a slot, or a seam's key (vp_pmbig)
@@ -14228,6 +14397,7 @@ vp_rsmk:
     pop ax
 .r:
     ret
+    nop                             ; (never run: what follows at its parity)
 
 ; vp_rslot - AX = a slot of the ring's claim, counted from the ring's start
 ; -> AX = its segment: [vp_ring] + 2,048 paragraphs a slot, or in protected
@@ -14315,8 +14485,9 @@ vp_pmbig:
     nop                             ; (never run: the parity, as above)
 
 ; vp_lymk - [vp_lyseg] and [vp_lyns] just set: IN PROTECTED MODE the layer's
-; slots and its mirror in [vp_lysel], and its bank's bounce after them. Every
-; register kept
+; slots and its mirror in [vp_lysel], and its bank's bounce after them. CF=1
+; one was refused (no LDT entry): the layer cannot be read. Every register
+; kept
 vp_lymk:
     cmp byte [vp_pm], 0
     je .r
@@ -14329,6 +14500,7 @@ vp_lymk:
     inc cx                          ; (the mirror)
     mov di, vp_lysel
     call vp_subtab
+    jc .o
     cmp byte [vp_lybnc], 0
     je .o
     mov ax, [vp_lymkb]
@@ -14350,9 +14522,9 @@ vp_lymk:
 .r:
     ret
 
-; vp_plmk - DX = a planar image just claimed, DI -> three words: IN
-; PROTECTED MODE its planes 1-3, [vp_plsp] paragraphs apart. Every register
-; kept
+; vp_plmk - DX = a planar image just claimed (or 0, none), DI -> three
+; words: IN PROTECTED MODE its planes 1-3, [vp_plsp] paragraphs apart (0 for
+; none). CF=1 one was refused (no LDT entry). Every register kept
 vp_plmk:
     cmp byte [vp_pm], 0
     je .r
@@ -14366,12 +14538,17 @@ vp_plmk:
 .p:
     add ax, [vp_plsp]
     push dx
+    or dx, dx                       ; (no image: its planes 0, CF = 0)
+    jz .s
     call vp_sub
+.s:
     mov [di], dx
     pop dx
+    jc .x
     inc di
     inc di
     loop .p
+.x:
     pop di
     pop cx
     pop ax

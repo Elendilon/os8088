@@ -98,6 +98,24 @@ op_load:
     jc .toobig
 .sized:
 %endif
+    ; --- ONE OPERATION for every read below (SPEC.md 12.8.10) --------------
+    ; The carve is read 32KB a take and the XMS span through its own staging
+    ; buffer, so the file widget filled once a take; op_asop makes it one bar.
+    ; The total is the packed run plus the span in whole sectors, which is
+    ; SHORT by the head slack of each read (under a cluster): the bar clamps
+    ; full a moment early rather than ending short. Sizing has ceilings that
+    ; keep it in a word of paragraphs: under 1,920 + 128 sectors (op_size).
+%ifndef OP_NO_FSOP
+    mov ax, [op_secs]
+%if OP_HAS_XMS
+    add ax, [op_xsecs]
+%endif
+    mov cl, 5
+    shl ax, cl                  ; sectors -> paragraphs
+    mov bx, .body
+    jmp op_asop                 ; ...whose ret is op_load's
+.body:
+%endif
     mov ax, [op_allp]
     or ax, [op_reqp]
 %if OP_HAS_XMS
@@ -193,7 +211,10 @@ op_load:
 .zero:
 %if OP_HAS_ZERO
     call op_scrub               ; ...and the scratch, which cost no disk
+    jc .nomem                   ; (no window to zero it through: op_at)
 %endif
+    call op_subpre              ; ...and every part's segment ASKED, once,
+    jc .nomem                   ; here where a refusal has a way out (op_sub)
 %if OP_HAS_XMS
     cmp byte [op_xmson], 0
     je .done
@@ -221,6 +242,9 @@ op_load:
 .ioerr:
     mov si, op_s_read
     jmp op_say
+    nop                         ; (never run: op_subpre's call and its jc are
+                                ; five bytes, and every package's code after
+                                ; this keeps the parity it had)
 %else
     ; GATED (SPEC.md 20.12.9): EVERY ROW IS LAZY, so there is no carve to size,
     ; claim or read - the name above is the whole of the load, and op_size,
@@ -762,6 +786,7 @@ op_read:
     mov cx, ax                  ; ...and this chunk in bytes, for the read
     mov ax, bp
     call op_atb
+    jc .pc                      ; (no window: op_at - CF survives the pop)
     mov es, ax                  ; ES = BP paragraphs up the claim
     xor bx, bx
     mov si, op_name
@@ -771,6 +796,7 @@ op_read:
     mov di, op_rcur             ; one FAT link a chunk, not a walk from the
     call os88_rseq              ; front (SPEC.md 18.4.8.1): out DX:AX = the
     pop di                      ; bytes delivered
+.pc:
     pop cx
     jc .fail
     mov bx, ax
@@ -835,9 +861,16 @@ op_read:
 ; pointers at once, op_unpack's landing and its stream. A window is aimed at
 ; RAM and not tied to the claim, which is safe because every claim this
 ; walks is PINNED while it runs: op_movable comes after the load, and a
-; fetch's claim is its own until the fetch returns. No LDT entry free is the
-; null selector, which the load through it refuses with a fault rather than
-; writing anywhere at all.
+; fetch's claim is its own until the fetch returns.
+;
+; NO LDT ENTRY FREE IS CF=0 AND DX=0 from the kernel, the NULL selector, and
+; it is REFUSED here with CF=1 and AX = 0 (the window word is 0 then too,
+; which is what it held: only a NEW window can fail, a re-aim cannot). It
+; used to be returned as the segment, on the belief that a load through it
+; faults and writes nothing - and it does not: kern_mega's mega_null0 RUNS an
+; access through a null DS or ES as segment 0, so the read, the expansion or
+; the scrub through it landed in the interrupt vector table. Every real-mode
+; kernel's sum is never 0, so CF=0 there always.
 ; -----------------------------------------------------------------------------
 op_atb:
     mov dx, [op_base]
@@ -855,6 +888,7 @@ op_at:
 .made:
     mov [bx], dx
     xchg ax, dx
+    cmp ax, 1                   ; CF = 1 exactly when AX = 0: no LDT entry
     pop cx
     ret
 %endif                              ; OP_HAS_READ
@@ -922,6 +956,7 @@ op_unpack:
 %endif
 
     call op_unpto               ; ES = the landing, BX = the stream
+    jc .refuse                  ; (no window: op_at)
     mov cx, [si+OP_R_ZKB]       ; --- expand it ------------------------------
     mov dx, [si+OP_R_LEN]
     push ds
@@ -951,6 +986,7 @@ op_unpack:
     jmp short .step
 .plain:                         ; --- or move it down, which is the same walk -
     call op_unpto               ; ES = the landing, BX = the stream
+    jc .refuse
     mov cx, [si+OP_R_LEN]
     push ds
     mov ds, bx
@@ -1094,16 +1130,19 @@ op_unpack:
 %endif
 
 ; op_unpto - ES = op_unpack's landing (BP) and BX = its stream ([op_zsrc]),
-; each through a window of its own. Clobbers AX, BX, DX, flags
+; each through a window of its own; CF=1 = no window (op_at). Clobbers AX,
+; BX, DX, flags, and ES only when CF=0
 op_unpto:
     mov ax, bp
     call op_atb
+    jc .r
     mov es, ax
     mov ax, [op_zsrc]
     mov dx, [op_base]
     mov bx, op_wb
     call op_at
     mov bx, ax
+.r:
     ret
 %endif                              ; OP_HAS_COMP
 %if OP_HAS_XMS
@@ -1514,7 +1553,14 @@ op_seg:
 ; paragraphs to one names some other descriptor (KERN-MEGA-MEMORY-PLAN MC7),
 ; bases a SUB selector at that paragraph - the same one every time it is
 ; asked, moving with the carve and freed with it. A refusal (no LDT entry) is
-; 0, op_seg's "not there".
+; 0, op_seg's "not there" - which a caller that knows its part IS there does
+; not test, and a use of the null selector does not fault: kern_mega's
+; mega_null0 completes it as segment 0, the interrupt vector table. So
+; op_load asks every part once (op_subpre) and refuses the launch there;
+; after that each ask is the same window asked again - the carve's base and
+; end never change, a move rebasing the descriptor with it - which the kernel
+; answers from the entry it made. op_cseg's pairs are not asked ahead: a far
+; call through 0 loads CS, which is a #GP the kernel closes the package for.
 ; -----------------------------------------------------------------------------
 op_sub:
     test byte [op_subv], OP_SUBV_RAW
@@ -1537,6 +1583,36 @@ op_sub:
     pop dx
     pop cx
     pop bx
+    ret
+
+; op_subpre - op_load's last step: op_seg asked for every part, each part in
+; the carve's answer checked against its RAW one (op_subv) - a part placed
+; there whose segment comes back 0 was refused (op_sub). out: CF=1 one was;
+; clobbers AX, CX, DX, flags. A real-mode kernel answers every one
+op_subpre:
+    xor cx, cx                  ; CL = the part
+.p:
+    cmp cl, [op_t_n]
+    jae .ok
+    mov al, cl
+    mov byte [op_subv], OP_SUBV_RAW
+    call op_seg                 ; AX = paragraphs + 1, 0 = not in the carve
+    mov byte [op_subv], 0
+    xchg ax, dx
+    mov al, cl
+    call op_seg                 ; AX = its segment, 0 = not there
+    or dx, dx
+    jz .n
+    or ax, ax
+    jz .no
+.n:
+    inc cx
+    jmp short .p
+.ok:
+    clc
+    ret
+.no:
+    stc
     ret
 %endif
 
@@ -1593,6 +1669,46 @@ op_say:
     call OSAPI_TOAST
     stc
     ret
+
+; -----------------------------------------------------------------------------
+; op_asop - run the near routine at BX as ONE file operation (SPEC.md 12.8.10)
+; in:  AX = the paragraphs it will read, 0 = none; BX = the routine
+; out: the routine's flags (CF); clobbers BX, CX, DX and whatever it does
+;
+; ADVISORY, AND IT ENDS ONLY WHAT IT BEGAN. A package already inside a wider
+; operation of its own (PixelStein's and WireFleet's entry procs) is refused
+; the begin as NESTING, and then this must not end it - so the begin's CF is
+; banked and asked, and a 0 total begins nothing: DX:CX = 0 is an END, and
+; would end the package's. Every exit of the routine is its one `ret`
+;
+; `%define OP_NO_FSOP` before os88parts.inc leaves it out, and the two reads
+; back on plain calls, for a package with no room for it (WireFleet, at
+; APP_MAX_SIZE to the byte) - and a package so built needs no Wire level 7
+; on the library's account (SPEC.md 20.12.9.6)
+; -----------------------------------------------------------------------------
+%ifndef OP_NO_FSOP
+op_asop:
+    or ax, ax
+    jz .bare
+    mov cx, 16
+    mul cx
+    xchg ax, cx                 ; DX:CX = the bytes
+    call OSAPI_FS_OP            ; CF = 0: ours to end
+    pushf
+    call bx
+    pop bx                      ; the begin's flags; the routine's CF stands
+    pushf
+    shr bl, 1                   ; CF = the begin was refused
+    jc .kept
+    xor cx, cx
+    mov dx, cx
+    call OSAPI_FS_OP            ; the end
+.kept:
+    popf
+    ret
+.bare:
+    jmp bx
+%endif                              ; OP_NO_FSOP
 %endif                              ; OP_HAS_CARVE || OP_HAS_FETCH
 
 %if OP_HAS_READ
@@ -1720,16 +1836,12 @@ op_lazyp:
 .para:                          ; claim's base, which is where op_fetch
                                 ; expands it (88.10.4.1), ends inside it
 %endif
+    db 0xA8                     ; test al, imm8: CF = 0, and the stc is its
+.no:                            ; operand - one tail for both answers, four
+    stc                         ; bytes, which pay for op_at's null test
     pop dx
     pop cx
     pop bx
-    clc
-    ret
-.no:
-    pop dx
-    pop cx
-    pop bx
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1783,18 +1895,13 @@ op_lazyok:
     cmp ax, bx                  ; it by construction, and this refuses every
     jb .no                      ; time the heap holds more than one free block
 .yes:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    clc
-    ret
+    db 0xA8                     ; test al, imm8: CF = 0 over the stc (op_lazyp)
 .no:
+    stc
     pop si
     pop dx
     pop cx
     pop bx
-    stc
     ret
 %endif                              ; OP_NO_LAZYOK
 
@@ -1927,7 +2034,13 @@ op_fetch:
     add [op_rdseg], ax
 .plainrd:
 %endif
+%ifdef OP_NO_FSOP
     call op_read
+%else
+    mov ax, [op_cap]            ; ONE OPERATION for the part's 32KB takes,
+    mov bx, op_read             ; [op_cap] paragraphs exactly (op_asop,
+    call op_asop                ; SPEC.md 12.8.10)
+%endif
     pop dx
     mov [op_rdseg], dx
     pop dx
@@ -1965,6 +2078,7 @@ op_fetch:
     add di, ax                  ; DI = where the stream's own bytes were read
     mov ax, di                  ; (DX is still the claim: op_at's block, and
     call op_ata                 ; op_read has finished with op_wa)
+    jc .zw                      ; (no window: op_at - the stack is .zw's)
     mov di, ax                  ; ...as a segment, through a window
     mov cx, [si+OP_R_ZKB]       ; CX = the PACKED length, while it is still
     mov ax, [si+OP_R_LEN]       ; there - one more store and it is a segment
@@ -1982,6 +2096,7 @@ op_fetch:
     xor di, di
     call OSAPI_DECOMP
     pop ds                      ; ...and none of these three touches CF
+.zw:
     pop si                      ; the row
     pop dx                      ; the claim
     jc .zbad
@@ -2016,6 +2131,7 @@ op_fetch:
     push dx
     call op_ata                 ; AX = the slack's paragraphs up the claim
     pop dx
+    jc .ioerr                   ; (no window: op_at - and the claim goes)
     mov cx, [si+OP_R_LEN]       ; read BEFORE DS moves
     push ds
     push si
@@ -2408,7 +2524,7 @@ op_zrpara:
 
 ; -----------------------------------------------------------------------------
 ; op_scrub - zero every scratch part that was granted
-; in:  the claim made; out: nothing
+; in:  the claim made; out: CF=0; CF=1 = op_at had no window to zero through
 ; clobbers: AX, BX, CX, DX, SI, DI, ES, flags
 ;
 ; NO DISK IS READ HERE and that is the whole of what a scratch part is: a
@@ -2451,6 +2567,7 @@ op_scrub:
     push cx
     mov ax, bp
     call op_atb
+    jc .nowin
     mov es, ax                  ; ES = BP, through a window
     pop cx
     mov ax, cx                  ; CX KB -> words, THROUGH AX: the count and
@@ -2473,6 +2590,16 @@ op_scrub:
 .done:
     push ds
     pop es
+    clc
+    ret
+.nowin:
+    pop cx
+    pop dx
+    pop bp
+    pop bx
+    push ds
+    pop es
+    stc
     ret
 %endif                              ; OP_HAS_ZERO
 
