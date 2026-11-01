@@ -249,15 +249,22 @@ C apps/dos/dosload.asm op:DOS_PART_CORE  # the core, fetched, copied into place
 C apps/dos/dosload.asm @dsl_w16         # one cluster to read a document's MZ/NE
                                          # header (SPEC.md 124.3.1), claimed and
                                          # freed inside dsl_w16, before op_load
-C apps/os88pself.inc @op_self           # op_self hands its claim to the CALLER
+X apps/os88pself.inc @op_self           # op_self hands its claim to the CALLER
                                          # pinned, because the part is still
                                          # being read into it: HELP prints and
                                          # frees it inside the one HELP command
                                          # (dosc.inc), and DOS's network claim
                                          # is declared movable by dos_pkt_rloc
                                          # once PN_D_INIT returns (SPEC.md
-                                         # 96.23.11) - claimed and handed over
-                                         # inside one op_self call
+                                         # 96.23.11). DOS's SETUP part keeps it
+                                         # pinned from Setup's open to its
+                                         # Return or the next dos_run (SPEC.md
+                                         # 96.32.2.3): it is CODE, far-called,
+                                         # with its own return addresses on the
+                                         # stack across os88ui's save-under
+                                         # claim, so a move would return into
+                                         # the old block - a wall only while
+                                         # the page is up
 C apps/wirefleet/wfsound.inc op:WF_P_SFX # the samples part, fetched and dropped
                                          # inside wf_pcm_open's one call
 C apps/c64/c64kbd.c ovl_clip_service:seg # Copy's staging, claimed and freed

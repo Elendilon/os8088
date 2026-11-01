@@ -176742,6 +176742,116 @@ The row was free. The title's 8-pixel text runs 6..13 from the content top and
 a `DOS_FLDH` box runs 3..16, so the two share a line with three pixels either
 side and `DOS_BODYY`'s 24 is untouched. Nothing below moved.
 
+###### 96.32.2.3 …and the page's code is a PART, read when Setup opens
+
+Everything that DRAWS, LAYS OUT or ANSWERS A PRESS on the Setup page - the
+two columns, the furniture row, the memory block's placers, `dos_paint_mem`,
+`dos_click_mem`, `dos_mem_row`, the check-box and radio placers - and the
+`.LNK` WRITER behind `Save Shortcut` (`dos_sav_go`, `dos_lnk_build` and its
+five helpers, the 76-byte header template) is **part 5 of `DOS.O88`** on
+kern_big and kern_emu (`DOS_PART_SETUP`): an `OP_ASSET | OP_COMP | OP_LAZY |
+OP_SELF` row the loader copies into the host's bss after the network's
+(`DSLH_SETROW`, its kind byte the stream's format), read by the shared
+`op_self` (docs/plans/DOS-PARTS-PLAN.md 1.1) when the user opens Setup and
+freed when they leave it. A DOS window whose user never opens Setup never
+holds a byte of it. The source is ONE file, `apps/dos/dosset.inc`.
+
+**What stays resident is everything a LAUNCH reads**, the owner's line: *"we
+need [the `.lnk` parser] on every launch of a .lnk, and we don't want to put
+that behind extra part loading."* So `dos_lnk_open`/`dos_lnk_parse` and the
+rest of the reader, every setting's VALUE (the radio's, the dial's and the
+boxes' records, `[dos_memkb]`, the limit field's block), and everything
+`dos_run` asks - `dos_mem_fix`, `dos_mem_whole`, `dos_mem_take`,
+`dos_mem_arena`, `dos_spmask`, `dos_pkt_want`, the cache bracket - stay in the
+host. So do the strings the page draws, which `os88ui`'s records and
+`font_run` read through `DS`, and `dos_sav_done`, the Save dialog's completion,
+which the kernel dispatches through the package header and so must be a host
+offset.
+
+**The part is far code with the host's `DS`.** It is assembled inside
+`apps/dos/dos.asm`'s own assembly, in a section of its own (`vstart=0`), so
+every host DATA name it uses is the host's offset and needs nothing; the
+Makefile assembles `dos.asm` a second time with `-DDOS_SETEMIT`, checks that
+the first part of that output is `build/dosp.bin` to the byte, and cuts the
+part off the end. Its host CALLS cannot be near, so each is a three-byte
+`call` to a part-local stub that stores the target in `[dos_sp_tgt]` and
+far-calls the host's five-byte bouncer, `call [dos_sp_tgt] / retf` -
+register- and flag-transparent, so every routine keeps its contract as
+written. A near call from the part into the host would assemble silently
+and jump into the claim at the host's offset, so **`tools/dossetchk.py`
+disassembles the part's code and fails the build on any near branch that
+leaves it**. The host enters the part through ONE far door at its offset 0
+(`SPD_PAINT`, `SPD_PLACE`, `SPD_CLICK`, `SPD_ROW`, `SPD_SAVE` in `AL`), and
+through one resident routine, `dos_spdo`, that fetches first if the part is
+not held.
+
+**It is PINNED while it is held**, and that is the one claim of the three
+`op_self` consumers that is: the part's own return addresses are on the
+stack across `os88ui`'s save-under claim and every other kernel call it
+makes, and a moved code block returns into wherever it used to be. It is
+held only between Setup opening and `Return` (or the next `dos_run`, which
+frees it so the program's arena and the posted compaction do not meet a wall:
+a repaint of the page after such a run reads it again).
+
+**A refusal is survivable**: Setup does not open and `Cannot open Setup`
+goes on the menu bar's toast; a paint that cannot have it paints the main
+page instead.
+
+kern_mega's `DOS.O88` keeps the page INLINE, as a build with no part table
+does (`build/dos.o88`, the DOSTRACE build): its host lives above 1MB
+(`OS88_HIGH`, §96.29.1), so the page's bytes cost no conventional memory
+there, and a claim is a data selector whose code alias the page would have to
+ask for. One source assembles both shapes.
+
+**Measured** (kern_big's shipped flags, `build/dosp.bin`'s header, on
+`dos-windowed` at ac4eda02 and after):
+
+| | before | after | delta |
+|---|---:|---:|---:|
+| host image (part 0) | 43,292 | 41,520 | -1,772 |
+| host bss | 7,239 | 7,265 | +26 (the row 8, the door 4, the target 2, §96.32.2.4's box 12) |
+| **RAM per DOS instance** (image + bss) | 50,531 | 48,785 | **-1,746** |
+| ...of which resident glue (`dos_sp_bounce` 5, `dos_sp_get` 67, `dos_sp_drop` 18, `dos_spdo` 10, the toast's 12) | | | +112 |
+| ...and §96.32.2.4's box, resident (image 73, bss 12) | | | +85 |
+| the Setup part (part 5), raw / packed | - | 2,320 / 1,914 | 2,244 of it code |
+| `DOS.O88` on disk | 52,302 | 53,114 | +812 (four sectors of part; part 0 packs smaller) |
+| loader (`dosload.bin`, transient) | 2,979 | 3,001 | +22 |
+| `doscore.bin`, kern_dos | | | byte-identical |
+| kern_mega host (inline) | 46,299 | 46,304 | +5 (the template's CS copy) |
+| `build/dos.o88` (inline, no part table) | 52,988 | 53,202 | +214 (the box, all of it resident there) |
+
+**What opening Setup costs** (MartyPC's 4.77 MHz machines, the 360KB system
+disk, `DOS.O88` in `A:\APPS`; cycles from `dos_sp_get`'s entry to its
+`ret`): **1,181 ms** on the CGA 5150, 1,062 on the Hercules 5150, 1,013 on
+the VGA XT - two `int 13h`, 7 sectors, two seeks over 68 cylinders, **544 ms
+of it seek**. HELP's measured 985 ms (DOS-PARTS-PLAN 1.1) is the same shape.
+It is paid at every open, because `Return` frees the part - a second open in
+the session reads it again.
+
+###### 96.32.2.4 …and `Run in a window` is a box on it
+
+A check box at the LEFT of the furniture row, beside `Save Shortcut`, says
+where `Run` puts the program: **cleared** (the default) is §96.2's bracket,
+**ticked** is the window (§96.54). It sets the same request `Program > Run
+in Window` sets - `[dvw_want]`, at the top of `dos_run`, on both passes of a
+compaction wake - so the windowed run is reached through `dos_run` exactly as
+the menu item reaches it, whatever started the run: the bar's `Run`, Enter,
+the menu's `Run`, a double click on a `.LNK` saved with the box ticked. The
+menu item stays, for one run.
+
+It is a request about the FULL-SCREEN arms and it greys with arm 1: a window
+cannot shut the OS down, so under `Shut down the OS` the box is drawn in the
+disabled pen, a press on it does nothing, and `dos_run` ignores it. Ticked
+under arm 0 it greys `Hard drives` and `Network` instead, because a run in the
+window unmounts no driver and publishes no packet driver (§96.54), and the
+arena figure is the window's: what the what-if and the dial answer, capped at
+the limit or `DVW_DEFKB` (§96.54.2), with no driver term.
+
+**The shortcut carries it** in §96.25.2.1's boxes byte as `LNK_BX_WIN`
+(0x20), SET = ticked: an older link has the bit clear, which is the box's
+default, so it reads as it was saved. kern_mega has no windowed run and
+neither draws nor writes the box, and ignores the bit.
+
 ##### 96.32.3 What an association fills in, and what it still does
 
 | opened as | what is populated | does it run |
@@ -182099,11 +182209,12 @@ padding. Both directions still read:
 
 **Each bit is set when its box has moved OFF its default** — `LNK_BX_NOHDD`
 (0x01) and `LNK_BX_NONET` (0x02) for an unticked driver box, `LNK_BX_NOMOU`
-(0x04) for a ticked mouse box — so a zero byte is the page exactly as a
+(0x04) for a ticked mouse box, and since §96.32.2.4 `LNK_BX_WIN` (0x20) for
+a ticked `Run in a window` — so a zero byte is the page exactly as a
 double click opens it, and the one-byte and absent forms mean the same thing.
 The byte is hostile input like every other one in the file, and it cannot do
-harm: each bit becomes a 0 or a 1 in its record's `OS88UI_CK_ON`, the other
-five are ignored, and a box in either state is one the page can draw.
+harm: each bit becomes a 0 or a 1 in its record's `OS88UI_CK_ON`, the bits
+a build has no box for are ignored, and a box in either state is one the page can draw.
 
 **A box is carried whatever the arm.** The mouse box belongs to arm 1 and is
 greyed under arm 0 (§96.36.9), and `dos_mem_fix` may demote a link's arm 1 on

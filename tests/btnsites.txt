@@ -41,8 +41,12 @@
 
 # --- packages ---------------------------------------------------------------
 15 apps/sheet/sheet.asm            # seven dialog engines, a record each
-4 apps/dos/dos.asm                 # the bar's two and the Setup page's two,
-                                   # one record repointed per page
+2 apps/dos/dos.asm                 # the bar's two, one record repointed per
+                                   # page...
+1 apps/dos/dosset.inc              # ...and the Setup page's pair, which is the
+                                   # Setup PART's (SPEC.md 96.32.2.3): its stub
+                                   # is the one call site, the two draws in
+                                   # dos_paint_furn going through it
 1 apps/ftpd/ftpd.asm               # Start/Stop, Setup, Done - one shared body (fd_btn_draw)
 2 apps/word/word.asm               # staged N=1: entries in its own WDD list
 2 apps/scribe/scribe.asm           # Word's shape, same lineage

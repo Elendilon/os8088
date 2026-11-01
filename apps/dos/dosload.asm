@@ -76,7 +76,13 @@ DOS_PART_HELP equ 4             ; 96.40.9.2), which nothing here reads either
 %else
 DOS_PART_HELP equ 3             ; ...and HELP's text, which the HOST reads
 DOS_PART_NET  equ 4             ; with op_self (DOS-PARTS-PLAN 1.1) - and the
-%endif                          ; NETWORK, the same way (SPEC.md 96.23.11)
+                                ; NETWORK, the same way (SPEC.md 96.23.11)
+; --- the Setup page's part, APPENDED (SPEC.md 96.32.2.3) -------------------
+DOS_PART_SETUP equ 5            ; ...and the SETUP PAGE's code, the same way
+                                ; again: read when Setup opens. kern_mega's
+                                ; DOS.O88 keeps the page inline (its host is
+                                ; above 1MB), so it has no such row
+%endif
 
 ; --- the handoff, at the head of the DOS's bss (SPEC.md 20.12.10.2) ---------
 ; ONE PACKAGE, TWO SOURCES: `apps/dos/dos.asm` declares these and this file is
@@ -104,7 +110,9 @@ DSLH_HLPROW  equ DSLH_SIZE      ; kind byte the stream's format
 %endif
 %ifndef DOS_MEGA
 DSLH_NETROW  equ DSLH_HLPROW + OP_ROW   ; ...and the network part's after it
-%endif                                  ; (SPEC.md 96.23.11), the same shape
+                                        ; (SPEC.md 96.23.11), the same shape
+DSLH_SETROW  equ DSLH_NETROW + OP_ROW   ; ...and the Setup page's after THAT
+%endif                                  ; (SPEC.md 96.32.2.3)
 
 LD_H_IMG    equ 8               ; ...and the two header fields this file reads
 LD_H_BSS    equ 10              ; them at, which are the FORMAT's and not ours
@@ -448,6 +456,11 @@ dsl_pmok:
     call dsl_row                    ; it (DI is there: SPEC.md 96.23.11), its
     mov al, [op_table + OP_T_FMT]   ; kind byte the format the same way
     mov [es:di - OP_ROW], al
+    ; --- the Setup page's row, straight after (SPEC.md 96.32.2.3) ----------
+    mov al, DOS_PART_SETUP          ; DI is there again, and the kind byte is
+    call dsl_row                    ; the format as for the two before it
+    mov al, [op_table + OP_T_FMT]
+    mov [es:di - OP_ROW], al
 %endif
                                     ; where the core goes, and only this image
                                     ; knows where either one sits in the file.
@@ -483,7 +496,7 @@ dsl_pmok:
 
 ; --- the table, and the standard's own code after it (SPEC.md 20.12.3) ------
 %ifndef DOS_MEGA
-    OS88_PARTS_BEGIN 5
+    OS88_PARTS_BEGIN 6              ; ...the sixth being the Setup page's
 %else
     OS88_PARTS_BEGIN 5
 %endif
@@ -529,6 +542,14 @@ dsl_pmok:
                                     ;   host's op_self into the network claim
                                     ;   when a run will publish a packet driver
                                     ;   (SPEC.md 96.23.11). kern_mega's has none
+; --- the Setup page's part (SPEC.md 96.32.2.3) ------------------------------
+      OS88_PART OP_ASSET, OP_COMP | OP_LAZY | OP_SELF
+                                    ; 5 the SETUP PAGE's code - its painters,
+                                    ;   placers and press handlers and the
+                                    ;   .LNK writer - read by the host's
+                                    ;   op_self when Setup opens and freed
+                                    ;   when it closes. kern_mega's has none:
+                                    ;   its page is inline
 %endif
     OS88_PARTS_END
 

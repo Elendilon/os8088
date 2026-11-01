@@ -131,6 +131,58 @@
   %define DOS_NETANY
  %endif
 %endif
+; --- ...AND WHERE THE SETUP PAGE LIVES (SPEC.md 96.32.2.3) -------------------
+; TWO SHAPES and one source (apps/dos/dosset.inc): DOS_SETPART on kern_big's
+; and kern_emu's DOS.O88 - the page's code is PART 5, read by op_self when
+; Setup opens - and inline everywhere else: kern_mega's (its host is above
+; 1MB, so the bytes cost no conventional memory) and a build with no part
+; table. DOS_SETEMIT is the Makefile's second assembly, which appends it.
+%ifndef KD_BACKEND
+ %ifdef DOSKPART
+  %ifndef DOS_MEGA
+   %define DOS_SETPART
+  %endif
+ %endif
+%endif
+%ifdef DOS_SETEMIT
+ %ifndef DOS_SETPART
+  %error "DOS_SETEMIT appends the Setup PART: it needs -DDOSKPART and not -DDOS_MEGA"
+ %endif
+%endif
+SPD_PAINT   equ 0                   ; the Setup part's doors (dosset.inc's
+SPD_PLACE   equ 1                   ; sp_door, AL): its body and furniture,
+SPD_CLICK   equ 2                   ; dos_place's Setup half, a press, the
+SPD_ROW     equ 3                   ; arena row alone, and Save Shortcut
+SPD_SAVE    equ 4
+SPH_HOST    equ 4                   ; ...and where in its head the host's
+                                    ; bouncer goes, a far pointer
+DOS_MWINW   equ 15                  ; `Run in a window`, in cells (96.32.2.4)
+; THE DOORS' BODIES, written once: the part's sp_door runs them, and where
+; the page is inline the host's call sites ARE them - so a build with no part
+; pays no dispatcher (dosset.inc)
+%macro SPB_PAINT 0
+    push bx                         ; the body, then the furniture every
+    call dos_paint_set              ; setup page shares (SPEC.md 96.32.2)
+    pop bx
+    call dos_paint_furn
+%endmacro
+%macro SPB_PLACE 0
+    call dos_furn_rects             ; Save Shortcut, Return and the box...
+    call dos_cmd_place              ; ...the command box on the title row...
+    call dos_fld_place              ; ...the arguments box...
+    call dos_senv_place             ; ...every environment row under it...
+    call dos_mfld_place             ; ...and the memory block's two
+    call dos_mrad_place
+%endmacro
+%macro SPB_CLICK 1                  ; %1 = where to go once a control took it
+%ifdef DVW
+    call sp_wck                     ; `Run in a window` (96.32.2.4)...
+    jnc %1
+%endif
+    call dos_click_mem              ; ...the memory block's field and radio
+    jnc %1                          ; CF=1 = none of those, so it is the
+    call dos_fld_hit                ; arguments box or an environment row
+%endmacro
 %ifdef DVW
  %define DOS_ACAP dvw_cap           ; dos_run's arena cap (SPEC.md 96.54.2)
 DVW_DEFKB   equ 128                 ; ...a window's, when the user set none
@@ -491,6 +543,9 @@ LNK_BX_NOHMA equ 0x08               ; ...and kern_mega's `Load DOS in the HMA`
 LNK_BX_SAVE equ 0x10                ; ...and its `Save the session to disk`
                                     ; (96.40.9.3), UNticked by default, so set
                                     ; = TICKED
+LNK_BX_WIN  equ 0x20                ; ...and `Run in a window` (96.32.2.4),
+                                    ; UNticked by default, so set = TICKED and
+                                    ; an older link reads the default
 LNK_MAX     equ 512                 ; what one may be, read or written
 
 ; --- THE PAGES (SPEC.md 96.32.2) ---------------------------------------------
@@ -1393,6 +1448,28 @@ dos_run:
     push si
     push di
     push es
+%ifdef DOS_SETPART
+    call dos_sp_drop                ; **THE SETUP PAGE'S CODE GOES FIRST**
+%endif                              ; (SPEC.md 96.32.2.3): it is a PINNED claim,
+                                    ; and the program's arena and the posted
+                                    ; pass below should meet no wall. A page
+                                    ; still up reads it again at its repaint
+%ifdef DVW
+    ; --- `Run in a window`, THE BOX (SPEC.md 96.32.2.4) ----------------------
+    ; The same request the menu item makes, made HERE so that every way into a
+    ; run - the bar, Enter, the menu's `Run`, a .LNK saved with it ticked -
+    ; reaches it, and on BOTH passes of a compaction wake: dvw_want is read
+    ; below this line four times before it is spent. Arm 1 ignores the box: a
+    ; window cannot shut the OS down. dos_mem_fix first, so a link's arm 1
+    ; that this machine demotes is arm 0 and gets its window.
+    call dos_mem_fix
+    cmp byte [dos_keepc], DOS_MEM_WHOLE
+    je .nobox
+    cmp byte [dos_mwin + OS88UI_CK_ON], 0
+    je .nobox
+    mov byte [dvw_want], 1
+.nobox:
+%endif
 
     mov dx, [dos_dir]               ; ...stand where the file is (SPEC.md 19.2.1
     mov bl, [dos_vol]               ; put us there already, but a quiet GOTO is
@@ -6112,13 +6189,18 @@ dos_paint:
                                     ; of them after a resize (SPEC.md 96.32)
     cmp byte [dos_page], DOS_PAGE_MAIN
     je .mainpage
-    mov bx, si                      ; --- a SETUP page: its body, then the
-    push bx                         ;     furniture every one of them shares
-    call dos_paint_set              ; ...and there is only the one now
-    pop bx
-    call dos_paint_furn
-    jmp .card                       ; ...and the About card over it, which is
-.mainpage:                          ; the window's and not the page's
+    mov bx, si                      ; --- a SETUP page
+%ifdef DOS_SETPART
+    mov al, SPD_PAINT               ; (the PART's, SPEC.md 96.32.2.3)
+    call dos_spdo
+    jnc .card                       ; ...and the About card over it, which is
+                                    ; the window's and not the page's
+    mov byte [dos_page], DOS_PAGE_MAIN  ; **A PAGE WHOSE CODE CANNOT BE HAD
+%else                               ; IS THE MAIN PAGE** - the toast said why
+    SPB_PAINT
+    jmp .card
+%endif
+.mainpage:
 
     cmp byte [dos_state], DST_READY  ; THE RE-KICK (SPEC.md 74.1): the kernel
     jne .nokick                      ; keeps at most one queued wake per window,
@@ -6978,75 +7060,6 @@ dos_keeph:
     ret
 
 ; -----------------------------------------------------------------------------
-; dos_sav_go - the Save Shortcut button was pressed
-; in:  BX = the window
-;
-; The kernel's Standard File dialog in SAVE mode (SPEC.md 38), with the
-; completion proc below. The DEFAULT NAME is the program's own with .LNK on
-; it, because that is what the user would type.
-; -----------------------------------------------------------------------------
-dos_sav_go:
-    push ax
-    push cx
-    push si
-    push di
-    call dos_lnk_build              ; **BUILT BEFORE THE DIALOG OPENS**, and
-    jc .out                         ; that is not an ordering preference: the
-    mov [dos_lend], cx              ; dialog NAVIGATES, so by the time its
-                                    ; completion runs the instance stands
-                                    ; wherever the user went - and the link's
-                                    ; WORKING_DIR would be that folder rather
-                                    ; than the program's. It read `\` before
-                                    ; this moved
-    call dos_sav_dfl                ; dos_wname = `NAME.LNK`
-    mov bx, [dos_win]               ; **BX IS THE WINDOW WE WANT TO HEAR BACK
-                                    ; ABOUT**, and leaving it out is a dialog
-                                    ; given a garbage pointer - which opens,
-                                    ; closes on Enter, and writes nothing
-    mov si, dos_wname
-    mov di, dos_sav_done
-    mov al, FDLG_SAVE
-    call OSAPI_FILE_DLG             ; CF=1 = one is already up, or no room -
-.out:                               ; and a refusal needs no report: the user
-    pop di                          ; pressed a button and nothing happened,
-    pop si                          ; which is what a busy dialog looks like
-    pop cx
-    pop ax
-    ret
-
-; --- dos_sav_dfl - `NAME.LNK` from dos_name, into dos_sbuf ------------------
-dos_sav_dfl:
-    push ax
-    push cx
-    push si
-    push di
-    mov si, dos_name
-    mov di, dos_wname
-    mov cx, 8
-.c:
-    mov al, [si]
-    or al, al
-    jz .ext
-    cmp al, '.'
-    je .ext
-    mov [di], al
-    inc si
-    inc di
-    dec cx
-    jnz .c
-.ext:
-    mov byte [di+0], '.'
-    mov byte [di+1], 'L'
-    mov byte [di+2], 'N'
-    mov byte [di+3], 'K'
-    mov byte [di+4], 0
-    pop di
-    pop si
-    pop cx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
 ; dos_sav_done - the dialog's completion (SPEC.md 38.6)
 ; in:  AL = the mode it ran in, SI = OUR window ptr, DI = the chosen name IN
 ;      KERNEL_SEG (ES points there); UI task, gfx lock HELD, the dialog window
@@ -7105,533 +7118,13 @@ dos_sav_done:
                                     ; ours and nothing else will put it back
     jmp dos_hpop_7                  ; the host's shared epilogue (96.54.8)
 
-; -----------------------------------------------------------------------------
-; -----------------------------------------------------------------------------
-; dos_paint_furn - the setup area's title and its bottom row (SPEC.md 96.32.2)
-; in:  BX = the window, gfx lock held (every painter has it)
-; out: nothing; every register preserved
-;
-; ONE ROUTINE FOR EVERY SETUP PAGE, which is the point: `<`, `>`, Save Shortcut
-; and Return are in the same place whatever is above them, so the pointer does
-; not have to hunt and a third page costs a string rather than a layout. The
-; TITLE is what says which page is up - a page that looked the same as its
-; neighbour but behaved differently would be the worst of the three shapes.
-; -----------------------------------------------------------------------------
-dos_paint_furn:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bx
-    call OSAPI_WM_CONTENT           ; AX = content left, DX = content top
-    mov bx, ax
-    add bx, DOS_SETPAD
-    add dx, DOS_TITY
-    mov si, dos_l_tset              ; THE page's name, there being one
-    mov ax, (CWHITE << 8) | CBLACK
-    mov cx, bx
-    call OSAPI_FONT_RUN
-    pop bx
-
-    push bx                         ; ...and THE COMMAND, beside it (SPEC.md
-    call dos_cmd_place              ; 96.32.2.2): the same box the main page's
-    mov si, dos_pln                 ; bar carries, on the row that names the
-    call os88line_draw              ; page, because what every option below
-    pop bx                          ; applies to is the command
-
-    call dos_furn_rects             ; the two rects, both from one arithmetic
-    push bx
-    mov bx, dos_btrec
-    mov al, DOS_BT_SAV
-    call os88ui_btn
-    mov al, DOS_BT_RET
-    call os88ui_btn
-    pop bx
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; -----------------------------------------------------------------------------
-; dos_furn_rects - the bottom row's two buttons (SPEC.md 96.32.2)
-; in:  BX = the window
-; out: dos_srect and dos_trect filled; every register preserved
-;
-; dos_bar_rects' shape one page down, and for its reason: the two words are
-; RIGHT-anchored, and both share a row
-; whose y comes from the content BOX rather than a constant - so the row sits
-; on the bottom of a CGA window and of a VGA one without a per-adapter number.
-; -----------------------------------------------------------------------------
-dos_furn_rects:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    mov si, dos_btrec               ; the Setup page's pair, aimed here for
-    mov word [si+OS88UI_BT_RECTS], dos_trect
-    mov word [si+OS88UI_BT_LABELS], dos_bt_setl
-    mov word [si+OS88UI_BT_N], 2    ; dos_bar_rects' reason
-    call OSAPI_WM_GEOM              ; CX = content width, DX = its height
-    jc .out
-    mov di, cx
-    sub dx, DOS_BTNH + DOS_FURNB    ; DX = the row's top, from the BOTTOM
-    push dx
-    call OSAPI_WM_CONTENT           ; AX = content left, DX = content top
-    pop cx
-    add dx, cx                      ; ...and now it is a screen row
-    mov bx, dx
-    add bx, DOS_BTNH - 1            ; BX = its last line, rects being inclusive
-
-    mov si, dos_trect               ; --- 'Return', right-anchored ---
-    mov cx, ax
-    add cx, di
-    sub cx, DOS_SETPAD + DOS_RETW
-    mov [si+0], cx
-    mov [si+2], dx
-    mov [si+6], bx
-    push cx
-    add cx, DOS_RETW - 1
-    mov [si+4], cx
-    pop cx
-    mov si, dos_srect               ; --- ...and 'Save Shortcut' beside it ---
-    sub cx, DOS_BARGAP + DOS_SAVW
-    mov [si+0], cx
-    mov [si+2], dx
-    mov [si+6], bx
-    add cx, DOS_SAVW - 1
-    mov [si+4], cx
-.out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; dos_paint_set - the Setup page's body (SPEC.md 96.32.2)
-; in:  BX = the window, gfx lock held
-; out: CF=0; every register preserved
-;
-; TWO HALVES. The left is what a RUN needs - the arguments and one environment
-; row - and the right is §96.25's memory block, which used to be a page and is
-; three lines and a control. The env box here IS Environment's first row: one
-; buffer, two rects, so there is no mirroring to keep in step and no way for
-; the user to type into the one nothing reads.
-; -----------------------------------------------------------------------------
-dos_paint_set:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bx
-    call OSAPI_WM_CONTENT           ; AX = content left, DX = content top
-    mov cx, ax
-    add cx, DOS_SETPAD
-    add dx, DOS_BODYY
-    mov ax, (CWHITE << 8) | CBLACK
-    push dx
-    mov si, dos_l_args
-    call OSAPI_FONT_RUN             ; 'Arguments:'
-    pop dx
-    push dx
-    add dx, DOS_SLBL2
-    mov ax, (CWHITE << 8) | CBLACK
-    mov si, dos_l_envb
-    call OSAPI_FONT_RUN             ; 'Environment'
-    pop dx
-    pop bx
-
-    push bx                         ; ...and the two boxes under them
-    call dos_fld_place
-    mov si, dos_ln
-    call os88line_draw
-    pop bx
-    push bx                         ; ...and EVERY environment row under it
-    xor cx, cx                      ; (SPEC.md 96.32.2.1), where there used to
-.erow:                              ; be one and a page button to reach the
-    push cx                         ; other three
-    call dos_erow
-    call os88line_draw
-    pop cx
-    inc cx
-    cmp cx, DOS_ENVN
-    jb .erow
-    pop bx
-
-    call dos_paint_mem              ; ...and the right half, which is §96.25's
-                                    ; block drawn at an origin of its own
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    clc
-    ret
-
-; -----------------------------------------------------------------------------
-; dos_mck_place - the three check boxes and the drop-down's figures, put where
-;                 the window is now (SPEC.md 96.36.7)
-; in:  BX = the window; every register preserved
-;
-; ONE PLACER FOR ALL THREE, because they share an origin and a width and are
-; recomputed on every paint and every click for dos_mfld_place's reason. It
-; also reads the two CLASS FIGURES - what the hard disks and the network are
-; holding - and banks them, because the label prints one and dos_mem_arena
-; adds the same one, and two reads could answer differently across a driver
-; being unloaded between them (SPEC.md 47 rule 5).
-; -----------------------------------------------------------------------------
-dos_mck_place:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di                         ; dos_mem_num2 patches THROUGH DI, and the
-                                    ; click path banks nothing in it any more -
-                                    ; but the contract says every register, and
-                                    ; a placer that quietly kept one would be
-                                    ; the next silent defect of exactly this
-                                    ; shape (SPEC.md 96.36.4)
-    call dos_mem_org
-    mov al, DRVC_DISK               ; WHAT EACH CLASS IS HOLDING, once
-    call dos_classk                 ; (SPEC.md 51.12)
-    mov [dos_mhkb], ax
-    mov al, DRVC_NET
-    call dos_classk
-    mov [dos_mnkb], ax
-    mov al, DRVC_SOUND              ; ...AND THE ONE WITH NO BOX (SPEC.md
-    call dos_classk                 ; 96.36.7.2): dos_drv_take unmounts the
-    mov [dos_msnk], ax              ; sound driver on EVERY arm and the user is
-                                    ; never asked, because a DOS program cannot
-                                    ; reach it - so it is a term in the figure
-                                    ; and not a control
-
-    ; --- ...AND THE CAPTIONS, WHICH ARE THE OTHER QUESTION (SPEC.md 51.12.1) -
-    ; `(Up to NNK)` is about the CLASS and not about this machine's state, so
-    ; it is a BUILD-TIME constant and the answer is the same on every machine.
-    ; Fed the figures above it read `(Up to  0K)` on a machine with nothing of
-    ; that class mounted - a true number that reads exactly like a page whose
-    ; arithmetic has broken, and the state DOS is MOST often opened in,
-    ; since a user shutting the OS down for a DOS program tends not to have a
-    ; hard disk or a card in the first place.
-    mov ax, DRVM_CEIL_DISK          ; ...and the ceiling is a CONSTANT and not
-    mov di, dos_mhddk               ; a call (SPEC.md 51.12.1): the slot used
-    call dos_mem_num2               ; to walk a table of build-time figures to
-    mov ax, DRVM_CEIL_NET           ; add them up, and the SDK carries the sum
-    mov di, dos_mnetk               ; that walk was producing
-    call dos_mem_num2
-    mov si, dos_mhdd                ; ...then the three rects, one pitch apart
-    mov ax, dos_l_mhdd
-    mov dx, DOS_MHDDY
-    call dos_mck1
-    mov si, dos_mnet
-    mov ax, dos_l_mnet
-    mov dx, DOS_MNETY
-    call dos_mck1
-    mov si, dos_mmou
-    mov ax, dos_l_mmou
-    mov dx, DOS_MMOUY
-    call dos_mck1
-%ifdef DOS_MEGA
-    mov si, dos_mhma
-    mov ax, dos_l_mhma
-    mov dx, DOS_MHMAY
-    call dos_mck1
-    mov si, dos_msav
-    mov ax, dos_l_msav
-    mov dx, DOS_MSAVY
-    call dos_mck1
+; --- THE SETUP PAGE, INLINE (SPEC.md 96.32.2.3) -------------------------------
+; Where the page is a PART (DOS_SETPART) this file names none of it: the
+; -DDOS_SETEMIT assembly includes dosset.inc at the END, in a section of its
+; own, and the Makefile cuts it off. Everywhere else it is here, as it was.
+%ifndef DOS_SETPART
+%include "dosset.inc"
 %endif
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; dos_classk - one class's KB, with the refusal folded into the figure
-; in:  AL = a DRVC_*
-; out: AX = the KB, 0 where the slot refused; clobbers flags
-;
-; Three call sites wanted the same two instructions after the slot. There
-; used to be a third instruction and two more sites: the slot's answer once
-; carried `DRVM_PLUS` in bit 15 and once had a CEILING form, and both went
-; when it stopped quoting drv_memk (SPEC.md 51.12.2, 51.12.1) - what it
-; weighs now is the heap, in plain kilobytes.
-dos_classk:
-    call OSAPI_DRV_CLASSK
-    jnc .ok
-    xor ax, ax                      ; CF = nothing of that class - the figure
-.ok:                                ; is 0 and not whatever AX was left as
-    ret
-
-; dos_mck1 - one box's rect and label (internal)
-; in:  SI = the record, AX = its label, DX = the row offset from [dos_my]
-; out: nothing; AX, DX and SI preserved
-dos_mck1:
-    push ax
-    push cx
-    push dx
-    mov [si+OS88UI_CK_LABEL], ax
-    mov cx, [dos_mx]
-    add cx, DOS_MSUBX
-    mov [si+OS88UI_CK_RECT+0], cx
-    add cx, OS88UI_CKBOX + OS88UI_CKGAP + 8 * DOS_MCKW
-    dec cx                          ; ...x2 INCLUSIVE, os88ui_rad's rule
-    mov [si+OS88UI_CK_RECT+4], cx
-    add dx, [dos_my]
-    mov [si+OS88UI_CK_RECT+2], dx
-    add dx, OS88UI_CKBOX
-    dec dx
-    mov [si+OS88UI_CK_RECT+6], dx
-    pop dx
-    pop cx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; dos_mck_di - DI = OS88UI_DIS when the box at BX names a class nothing has
-;              mounted (SPEC.md 47 rule 5, 96.36.7)
-; in:  BX = dos_mhdd or dos_mnet
-; out: DI; every other register preserved
-;
-; **GREY A FACT.** A box that would unmount a driver the machine has not got
-; is offering to give back memory nobody is holding, and OSAPI_DRV_CLASSK's CF
-; is that fact - banked in the figure by dos_mck_place, so this is a compare
-; and not a second call. The box is forced ON with it: an unticked box means
-; "take it out" and there is nothing to take out, so an off box would be
-; describing an action rather than a state.
-; -----------------------------------------------------------------------------
-dos_mck_di:
-    push ax
-    mov di, OS88UI_DIS              ; **AND A SUBSECTION BELONGS TO ITS ARM**
-    cmp bx, dos_mmou                ; (SPEC.md 96.36.9): a box whose arm is not
-    jne .arm0                       ; the pick cannot be used, so it is greyed
-%ifdef DOS_MEGA
-    xor di, di                      ; ...BUT kern_mega's page draws no radio
-    jmp short .out                  ; (KERN-MEGA-DOS-PLAN 12.1 item 1): every
-                                    ; launch is the whole machine and
-                                    ; KDLF_NOMOUSE is honoured on it, while
-                                    ; [dos_keepc] stays arm 0 for the drivers'
-                                    ; rows - so the arm test greyed this box for
-                                    ; good (KERN-MEGA-PLAN 14.43's finding)
-%endif
-    cmp byte [dos_keepc], DOS_MEM_WHOLE ; - and a press on it falls through to
-    jne .out                        ; the radio, which picks that arm
-    xor di, di                      ; (96.36.4). Two clicks, and the first one
-    jmp short .out                  ; says what the second will mean
-.arm0:
-    cmp byte [dos_keepc], DOS_MEM_IN
-    jne .out
-    xor di, di                      ; **AND LIVE WHATEVER IS MOUNTED** (SPEC.md
-.out:                               ; 96.36.7.1). It used to grey a box whose
-    pop ax                          ; class had nothing loaded, and force it
-    ret                             ; ON, on the ground that an unticked box
-                                    ; would describe an action rather than a
-                                    ; state. That reads the box as a REPORT
-                                    ; about this machine, and it is a REQUEST
-                                    ; about the program: `include these if
-                                    ; available`. A .LNK outlives the setup it
-                                    ; was saved under, so a machine with no
-                                    ; card is exactly when the user needs to
-                                    ; be able to say what they want on the
-                                    ; machine that has one.
-                                    ;
-                                    ; The arithmetic needs nothing: the figure
-                                    ; a clear box adds is the class's own, and
-                                    ; a class with nothing loaded reports ZERO
-                                    ; - so an empty class moves the estimate by
-                                    ; 0 whichever way its box is set, which is
-                                    ; the only honest answer about the machine
-                                    ; in front of you. `Up to` in the label is
-                                    ; what says the tick is about another one
-
-; -----------------------------------------------------------------------------
-; dos_mck_hit - test the box at BX against the banked press, if it is live
-; in:  BX = one of the three records; [dos_mpx]/[dos_mpy] = the point
-; out: CF = 0 it was HIT AND TOGGLED (the box redrew itself), CF = 1 it was
-;      not ours - greyed, or the point is elsewhere
-;
-; It reloads the point rather than taking it in CX/DX because that is the one
-; thing every caller here gets wrong: `dos_mck_di` answers in DI and
-; `os88ui_drpress` zeroes it, so a point banked in a register does not survive
-; the control before this one (SPEC.md 96.36.4).
-; -----------------------------------------------------------------------------
-dos_mck_hit:
-    push cx
-    push dx
-    push di
-    call dos_mck_di
-    or di, di
-    pop di
-    jnz .no                     ; greyed: nothing to give, and the press
-    mov cx, [dos_mpx]           ; belongs to the arm under it (SPEC.md 96.36.9)
-    mov dx, [dos_mpy]
-    call os88ui_chkhit
-    jmp short .out
-.no:
-    stc
-.out:
-    pop dx
-    pop cx
-    ret
-
-; -----------------------------------------------------------------------------
-; dos_drop_place - the disk cache's box, and WHICH LIST IS IN IT (96.36.6)
-; in:  BX = the window; every register preserved
-;
-; **THE LIST IS THE ARM'S**, and the pick is remembered per arm: arm 1 has the
-; whole rung ladder because `kd_giveback` sheds one at a time, and arm 0 has
-; Auto and Off because the kernel's claim is taken at a mount and is either
-; standing or shed. Swapping the list without swapping the pick would leave
-; SEL indexing past the short one, which draws a caption out of whatever
-; follows the table.
-; -----------------------------------------------------------------------------
-dos_drop_place:
-    push ax
-    push cx
-    push dx
-    push si
-    call dos_mem_org
-    mov si, dos_mdr
-    mov word [si+OS88UI_DR_WIN], bx
-    mov word [si+OS88UI_DR_ITEMS], dos_ca_items     ; ONE LIST ON BOTH ARMS
-    mov word [si+OS88UI_DR_N], DOS_CA_N             ; (96.36.6): since SPEC.md
-                                    ; 18.95.8 arm 0 can hold a WIDTH too, so
-                                    ; there is nothing to swap, nothing to park
-                                    ; and no second length to clamp against
-    mov ax, [dos_mx]
-    add ax, DOS_MCACX
-    mov [si+OS88UI_DR_RECT+0], ax
-    add ax, DOS_MCACW
-    dec ax
-    mov [si+OS88UI_DR_RECT+4], ax
-    mov dx, [dos_my]
-    add dx, DOS_MCACY
-    mov [si+OS88UI_DR_RECT+2], dx
-    add dx, DOS_MCACH
-    dec dx
-    mov [si+OS88UI_DR_RECT+6], dx
-    pop si
-    pop dx
-    pop cx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; dos_mfld_place - put the memory limit field where the window is now
-; in:  BX = the window; every register preserved
-;
-; dos_fld_place's shape and for its reason: os88line's rect is in SCREEN
-; coordinates, so a banked one puts the caret one drag behind.
-; -----------------------------------------------------------------------------
-dos_mfld_place:
-    push ax
-    push cx
-    push dx
-    push si
-    call dos_mem_org                ; the BLOCK's origin (SPEC.md 96.32.2),
-    mov ax, [dos_mx]                ; never the content edge
-    mov dx, [dos_my]
-    mov si, dos_mln
-    mov cx, ax
-    add cx, DOS_MSUBX + DOS_MFLDX   ; ...indented into arm 0's subsection
-    mov [si+LN_X1], cx
-    add cx, DOS_MFLDW
-    mov [si+LN_X2], cx
-    mov cx, dx
-    add cx, DOS_MFLDY
-    mov [si+LN_Y1], cx
-    add cx, DOS_FLDH
-    mov [si+LN_Y2], cx
-    pop si
-    pop dx
-    pop cx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; dos_mrad_place - put the radio group's record where the window is now
-; in:  BX = the window; every register preserved
-;
-; The RECT IS THE WHOLE CLICKABLE AREA - every ring, gap and label of every
-; arm - which is os88ui_rad's own contract, so a press on the words counts and
-; the row is worked out by dividing the press's y by the pitch. Recomputed
-; from the content origin on every paint and every click for dos_fld_place's
-; reason: the rect is in SCREEN coordinates and a window moves.
-;
-; THE OTHER FOUR FIELDS ARE SET HERE TOO, not once at entry, for the same
-; reason the rect is: this runs before every paint and before every click, so
-; a record filled in one place cannot disagree with itself. The exception is
-; OS88UI_RD_SEL, which IS [dos_keepc] (SPEC.md 96.36) and is the user's.
-;
-; DOS_MEM_WHOLE's greying is DI's bit 2 and comes from dos_mem_whole - one
-; predicate, three consumers (SPEC.md 47 rule 4), of which this is the one
-; that makes the ring and the label dither.
-; -----------------------------------------------------------------------------
-dos_mrad_place:
-    push ax
-    push cx
-    push dx
-    push si
-    push di
-    call dos_mem_org                ; the BLOCK's origin, as above
-    mov ax, [dos_mx]
-    mov dx, [dos_my]
-    xor di, di
-    call dos_mem_whole              ; CF = 1: the third arm cannot be picked.
-    jnc .live                       ; **IT ANSWERS IN SI**, so it is asked
-    mov di, 1 << DOS_MEM_WHOLE      ; BEFORE the record is pointed at and not
-.live:                              ; after - the reason it returns and the
-    mov si, dos_mrad                ; record live in the same register, and
-                                    ; the wrong order writes the rect into the
-                                    ; LABEL and draws the group at 0,0
-    mov word [si+OS88UI_RD_ITEMS], dos_mem_items
-    mov word [si+OS88UI_RD_N], DOS_MEM_N
-    mov word [si+OS88UI_RD_PITCH], DOS_MRADP
-    mov [si+OS88UI_RD_DIS], di
-    mov cx, ax
-    mov [si+0], cx
-    add cx, OS88UI_RDBOX + OS88UI_RDGAP + 8 * DOS_MEMI_N
-    mov [si+4], cx                  ; ...x2 INCLUSIVE, so the longest label's
-    dec word [si+4]                 ; last cell is inside and the next is not
-    mov cx, dx
-    add cx, DOS_MRADY
-    mov [si+2], cx
-    mov cx, dx                      ; **AND y2 IS NOT y1 + N*PITCH** (SPEC.md
-    add cx, DOS_MRADB               ; 96.36.4): two rows of the pitch would
-    dec cx                          ; reach past the block, and os88ui_radhit
-    mov [si+6], cx                  ; tests the rect FIRST and divides
-                                    ; afterwards. It used to stop one line
-                                    ; above the disk cache's box, which was
-                                    ; below it; the dial is at the TOP now
-                                    ; (96.36.6.3) so there is nothing left to
-                                    ; stop short of and this is simply the
-                                    ; block's own last line. It still has to
-                                    ; clear arm 1's band MIDDLE - y1 + pitch +
-                                    ; pitch/2 - which is what every kd* row
-                                    ; clicks that arm at
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop ax
-    ret
-
 ; -----------------------------------------------------------------------------
 ; dos_mem_whole - may the program have the WHOLE machine? (SPEC.md 96.36.1)
 ; out: CF = 1 it may not, and SI = the reason to put on the glass
@@ -8170,38 +7663,6 @@ dos_mem_fix:
     ret
 
 ; -----------------------------------------------------------------------------
-; dos_mem_row - redraw the arena line alone, after a control has moved it
-; in:  BX = the window; the gfx lock is held. Every register preserved
-;
-; ONE ROW AND NOT THE BLOCK (PERFORMANCE.md's first rule): a check box redraws
-; its own mark and a drop-down its own caption, so the only other pixels that
-; changed are these eleven cells - and the line is an opaque font_run, so it
-; needs no ground laid under it (SPEC.md 13.14.6).
-; -----------------------------------------------------------------------------
-dos_mem_row:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    call dos_mem_arena
-    mov di, dos_marn
-    call dos_mem_num
-    mov bx, [dos_mx]
-    mov dx, [dos_my]
-    add dx, DOS_MARNY
-    mov si, dos_l_marn
-    call dos_line
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
 ; dos_mem_arena - THE ONE FIGURE, as the controls under it stand (96.36.3)
 ; out: AX = the KB this page's settings would hand the program; flags
 ;
@@ -8254,6 +7715,16 @@ dos_mem_arena:
                                     ; OSAPI_MEM_AVAIL does
     call dos_cache_give             ; ...PLUS what the dial hands back out of
     add ax, cx                      ; the cache, which is the one term the
+%ifdef DVW
+    cmp byte [dos_mwin + OS88UI_CK_ON], 0   ; **A WINDOW'S FIGURE** (SPEC.md
+    je .full                        ; 96.32.2.4): no driver comes out for it
+    mov cx, [dos_memkb]             ; and no packet driver is published, so
+    or cx, cx                       ; none of the terms below applies - only
+    jnz .capcx                      ; the cap, which is the user's or
+    mov cl, DVW_DEFKB               ; DVW_DEFKB (96.54.2). CH is 0 already
+    jmp short .capcx
+.full:
+%endif
                                     ; what-if cannot see: it was asked at a
                                     ; floor that counts the window as KEPT, and
                                     ; the dial is about to narrow it. Auto
@@ -8351,6 +7822,7 @@ dos_mem_arena:
 .cap:
     mov cx, [dos_memkb]             ; ...and the user's own ceiling, which is
     jcxz .out                       ; the one term that is neither estimate nor
+.capcx:
     cmp ax, cx                      ; measurement: it is a decision
     jbe .out
     mov ax, cx
@@ -8495,204 +7967,6 @@ dos_cache_give:
     pop dx                          ; what held it down and this cannot lift
     pop bx                          ; them (SPEC.md 18.95.8)
     pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; dos_paint_mem - the memory page (SPEC.md 96.25)
-; in:  BX = the window; the gfx lock is held, as every W_PAINT's is
-;
-; NO GROUND FILL (SPEC.md 13.14.6), dos_paint_env's reason exactly: every line
-; is an opaque font_run, an os88line or a control that draws its own ground.
-; -----------------------------------------------------------------------------
-; -----------------------------------------------------------------------------
-; dos_mem_org - the memory block's top-left, into [dos_mx]/[dos_my]
-; in:  BX = the window; every register preserved
-;
-; **IT IS THE SETUP PAGE'S RIGHT HALF NOW** (SPEC.md 96.32.2), and this is the
-; whole of what moving it cost: the block already painted from a banked origin
-; because the heading, the figures, the field and the check box all had to
-; agree on one, so giving that origin a different answer moves the lot. The
-; two placers ask for it rather than computing from the content edge, which is
-; what they did when the block had a page to itself.
-; -----------------------------------------------------------------------------
-dos_mem_org:
-    push ax
-    push cx
-    push dx
-    call OSAPI_WM_GEOM              ; CX = content width
-    jc .out
-    shr cx, 1                       ; ...and the block lives in the right half
-    push cx
-    call OSAPI_WM_CONTENT           ; AX = content left, DX = content top
-    pop cx
-    add ax, cx
-    add ax, DOS_SETPAD
-    mov [dos_mx], ax
-    add dx, DOS_BODYY
-    mov [dos_my], dx
-.out:
-    pop dx
-    pop cx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-dos_paint_mem:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    call dos_mem_org                ; [dos_mx]/[dos_my] = the block's top-left
-
-    ; **THE FIGURES BEFORE THE FIGURE THEY ARE TERMS OF** (SPEC.md 96.36.3.1).
-    ; dos_mck_place reads the three class words the arena is a sum of, and it
-    ; DRAWS NOTHING - it is rects and literals - so it sat two blocks below,
-    ; where the boxes it places are. That made the FIRST paint of a fresh
-    ; window compute the arena from the bss zeros the loader left, so the
-    ; sound term was missing from it and from nothing else; the next recompute
-    ; - a click, the dial, a keystroke - had them, and the figure moved with
-    ; the user having changed nothing. Reported from the field as `433K, then
-    ; 467K after going back in`.
-    push bx
-    call dos_mck_place              ; all three boxes, and their figures
-    pop bx
-
-    push bx                         ; **THE ARENA, AND IT IS ONE LINE NOW**
-    call dos_mem_arena              ; (SPEC.md 96.36.3): AX = the estimate this
-    mov di, dos_marn                ; page's own controls add up to, patched
-    call dos_mem_num                ; into the run it is drawn as
-    mov bx, [dos_mx]
-    mov dx, [dos_my]
-    add dx, DOS_MARNY
-    mov si, dos_l_marn
-    call dos_line
-    pop bx
-
-    push bx                         ; ...and the choice itself, FIRST of the
-%ifdef DOS_MEGA
-    mov bx, [dos_mx]                ; **ON kern_mega THERE IS NO CHOICE**
-    mov dx, [dos_my]                ; (KERN-MEGA-DOS-PLAN 12.1 item 1): one
-    add dx, DOS_MRADY               ; line saying what will happen, where the
-    mov si, dos_l_mpark             ; radio stood, and no control to click
-    call dos_line
-%else
-    call dos_mrad_place             ; controls because its subsections are the
-    mov bx, dos_mrad                ; ground the rest of them stand on
-    xor di, di
-    call os88ui_rad
-%endif
-    pop bx
-
-    ; --- ARM 0's subsection: the two drivers, and the limit ------------------
-    push bx                         ; ...placed at the top, with the figures
-    mov bx, dos_mhdd
-    call dos_mck_di                 ; DI = OS88UI_DIS when this one is dead
-    call os88ui_chk
-    mov bx, dos_mnet
-    call dos_mck_di
-    call os88ui_chk
-    pop bx
-
-    ; --- the limit: its box, its label and its unit, all three together -----
-    ; **AND ALL THREE GREY WITH THE ARM** (SPEC.md 96.36.10.2). It is arm 0's
-    ; control exactly as the two driver boxes above it are, and the click path
-    ; has always known that - `.notck` refuses the press on any other arm and
-    ; lets it fall through to the radio - but the DRAWING did not, so the field
-    ; sat there black and typeable on an arm that ignores it. 47 rule 2 is why
-    ; the three are one bracket: half a control greyed is worse than none.
-    push bx
-    mov byte [dos_mln+LN_DIS], 0
-    cmp byte [dos_keepc], DOS_MEM_IN
-    je .lim
-    mov byte [dos_mln+LN_DIS], 1    ; the frame takes the pen below instead of
-    stc                             ; forcing black, and no caret is drawn
-    call OSAPI_GFX_PEN
-.lim:
-    call dos_mfld_place             ; THE BOX FIRST, because it is the only one
-    mov si, dos_mln                 ; of the three that reads [gfx_color] - the
-    call os88line_draw              ; other two are opaque font_run pairs with
-    mov bx, [dos_mx]                ; their colours in AL/AH, and take their
-    add bx, DOS_MSUBX               ; grey from [gfx_dis] alone (font_ink)
-    mov dx, [dos_my]
-    add dx, DOS_MFLDY + 3
-    mov si, dos_l_meml
-    call dos_line
-    mov bx, [dos_mx]                ; ...and the UNIT, hard against the box
-    add bx, DOS_MSUBX + DOS_MFLDX + DOS_MFLDW + DOS_MFLDKX
-    mov dx, [dos_my]
-    add dx, DOS_MFLDY + 3
-    mov si, dos_l_memk
-    call dos_line
-    clc                             ; ...and the pen back at once, whichever
-    call OSAPI_GFX_PEN              ; arm it was: the lock is held for the
-    pop bx                          ; whole page and whatever paints next
-                                    ; would inherit it (the `.why` caption
-                                    ; below states the same rule)
-
-    ; --- ARM 1's: the mouse box, OR why the arm cannot be picked -------------
-    ; ONE ROW, TWO THINGS, and they never want it at once (SPEC.md 96.36.8):
-    ; an arm that is greyed is not offering its option either.
-    push bx
-    call dos_mem_whole              ; (SPEC.md 47 rule 3): consumer two of the
-    jc .why                         ; one predicate
-    mov bx, dos_mmou
-    call dos_mck_di                 ; greyed while arm 0 is the pick (96.36.9)
-    call os88ui_chk
-%ifdef DOS_MEGA
-    mov bx, dos_mhma                ; ...and kern_mega's HMA box, which has no
-    xor di, di                      ; arm to belong to and nothing to grey on:
-    call os88ui_chk                 ; this DOS.O88 runs only in protected mode,
-                                    ; where both kern_dos images can run
-    call dos_msav_di                ; ...and the save box, greyed where no
-    mov bx, dos_msav                ; fixed disk could hold the image
-    call os88ui_chk                 ; (SPEC.md 47: a fact, hb_pick's)
-%endif
-    jmp short .nowhy
-.why:
-    mov bx, [dos_mx]                ; a caption explaining a control that is
-    add bx, DOS_MSUBX               ; not disabled is noise, so this is drawn
-    mov dx, [dos_my]                ; only when the arm really is
-    add dx, DOS_MMOUY + 3
-    stc                             ; **IN THE DISABLED PEN** (SPEC.md 47 rule
-    call OSAPI_GFX_PEN              ; 2, 96.36.1): it belongs to the row above
-    call dos_line                   ; it. Drawn solid it is the HEAVIEST text
-    clc                             ; on the block and sits at the labels' own
-    call OSAPI_GFX_PEN              ; indent, so it reads as a THIRD arm that
-.nowhy:                             ; is live - which is rule 2's confusion one
-    pop bx                          ; level out. And the pen goes back at once:
-                                    ; gfx_unlock clears the flag but the lock
-                                    ; is held for the whole page, so whatever
-                                    ; paints after this would inherit it
-
-    ; --- ...and the disk cache, which belongs to neither ---------------------
-    push bx
-    mov bx, [dos_mx]
-    mov dx, [dos_my]
-    add dx, DOS_MCACY + 3
-    mov si, dos_l_memc
-    call dos_line
-    pop bx
-    push bx
-    call dos_drop_place             ; the list is the ARM's (SPEC.md 96.36.6)
-    mov bx, dos_mdr
-    xor di, di
-    call os88ui_drop
-    pop bx
-
-    pop di                          ; **NO PAGE BUTTON HERE.** The setup area's
-                                    ; furniture - the title, the arrows, Save
-                                    ; Shortcut and Return - is drawn once by
-                                    ; dos_paint_furn for whichever page is up,
-                                    ; so a page draws only its own body
-                                    ; (SPEC.md 96.32.2)
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    clc
     ret
 
 ; in:  AX = 0..65535, DI -> five bytes inside a literal; clobbers nothing
@@ -8845,290 +8119,6 @@ dos_mem_put:
     ret
 
 ; -----------------------------------------------------------------------------
-; dos_click_mem - a press on the memory page
-; in:  BX = the window, CX = x, DX = y
-; -----------------------------------------------------------------------------
-dos_click_mem:
-    push ax
-    push si
-    push di
-    mov [dos_mpx], cx               ; **THE POINT GOES IN THE IMAGE AND NOT IN
-    mov [dos_mpy], dx               ; A REGISTER** (SPEC.md 96.36.4): five
-                                    ; controls are tested with it now, and two
-                                    ; of the library calls between them do not
-                                    ; preserve DI
-
-    ; --- THE DROP-DOWN FIRST, and then the boxes (SPEC.md 96.36.4) ----------
-    ; A pitch here is a SUBSECTION, so the radio's own rect covers everything
-    ; between the two headings - which is where the boxes are. The order is
-    ; the fix and not a hack: os88ui's controls all answer "was this mine",
-    ; so the INNERMOST one asks first and whatever no control claims falls
-    ; through to the arm it is standing in.
-    push bx
-    call dos_drop_place
-    mov bx, dos_mdr
-    call os88ui_drpress             ; AH = 1 SPENT here, AL = the new pick or
-    pop bx                          ; 0FFh, CF = 1 the save-under was REFUSED
-    jc .repaint                     ; **A PICK IS AL, AND ONLY AL** (SPEC.md
-                                    ; 13.14.1). CF=1 is one case and it is not
-                                    ; this one - the bank was refused, so the
-                                    ; write-back never happened and the whole
-                                    ; half is owed; `wd_drrep` states the same
-                                    ; rule in as many words. And AH=1 means
-                                    ; SPENT, which an OPENING press is too. So
-                                    ; the pick is AL != 0FFh and nothing else:
-    cmp al, 0FFh                    ; testing CF or AH reads a pick as an open
-    je .nopick                      ; and leaves the figure above STANDING at
-    call dos_mem_row                ; the last value - which is what shipped,
-                                    ; and which the field reported as `changing
-                                    ; the disk cache does not change the
-                                    ; estimate` (96.36.6.2). The BOX repaints
-                                    ; either way - os88ui_drbox runs on the
-                                    ; CF=0 path - so the caption and the
-                                    ; caption's consequence disagreed, which is
-                                    ; the shape that reads as a dead control
-.nopick:
-    or ah, ah
-    jz .boxes
-    call dos_defocus
-    jmp .out
-.boxes:
-    push bx                         ; ...then the three check boxes, of which
-    call dos_mck_place              ; only the arm's own are live
-    mov bx, dos_mhdd
-    call dos_mck_hit                ; a greyed box is not offered, which is
-    jnc .ckhit                      ; SPEC.md 47 rule 6 - and here it means the
-    mov bx, dos_mnet                ; press belongs to the ARM under it
-    call dos_mck_hit
-    jnc .ckhit
-    call dos_mem_whole              ; arm 1's box is not offered while the arm
-    jc .notck                       ; itself is greyed - the row is carrying
-    mov bx, dos_mmou                ; the REASON there (96.36.8)
-    call dos_mck_hit
-%ifdef DOS_MEGA
-    jnc .ckhit
-    push cx                         ; ...and the HMA box (96.40.9.2), live
-    push dx                         ; whenever the page is
-    mov bx, dos_mhma
-    mov cx, [dos_mpx]
-    mov dx, [dos_mpy]
-    call os88ui_chkhit
-    jnc .hmahit
-    push di
-    call dos_msav_di                ; ...and the save box, not offered greyed
-    or di, di                       ; (47 rule 6)
-    pop di
-    stc
-    jnz .hmahit
-    mov bx, dos_msav
-    call os88ui_chkhit
-.hmahit:
-    pop dx
-    pop cx
-%endif
-    jc .notck
-.ckhit:
-    pop bx                          ; the box redrew itself, but the ARENA row
-    call dos_mem_row                ; above it has just moved (96.36.3)
-    jmp short .out
-.notck:
-    pop bx
-    cmp byte [dos_keepc], DOS_MEM_IN
-    jne .notfld                     ; ...THEN THE LIMIT, which is arm 0's own
-                                    ; (SPEC.md 96.36.9) and is INSIDE the
-                                    ; radio's rect like the boxes above it -
-                                    ; so it asks before the arm does, or a
-                                    ; press on it picks the arm it is already
-                                    ; in and never reaches the caret
-    call dos_mfld_place
-    mov si, dos_mln
-    mov cx, [dos_mpx]
-    mov dx, [dos_mpy]
-    call os88line_hit
-    jc .notfld
-    call dos_defocus_but            ; ...and a field keeping the caret while
-    cmp byte [si+LN_FOCUS], 0       ; another control is worked is a caret the
-    jne .move                       ; user cannot account for
-    mov byte [si+LN_FOCUS], 1
-    call os88line_draw
-    jmp short .out
-.move:
-    mov cx, [dos_mpx]
-    mov dx, [dos_mpy]
-    call dos_caret_to               ; ...and the BAR follows it (96.32.4)
-    jmp short .out
-
-.notfld:
-    mov cx, [dos_mpx]
-    mov dx, [dos_mpy]
-%ifdef DOS_MEGA
-    jmp short .away                 ; no radio on kern_mega (12.1 item 1), so
-                                    ; nothing here took it: REFUSE it, or the
-                                    ; arguments box and the environment rows
-                                    ; beside this block never see a press
-                                    ; (KERN-MEGA-PLAN 14.77)
-%endif
-    call dos_mrad_place             ; ...AND THE ARM LAST, which is what
-    push bx                         ; anything inside a subsection that no
-    mov bx, dos_mrad                ; control of its own claimed belongs to.
-    call os88ui_radhit              ; os88ui_radhit takes the point in CX/DX,
-    pop bx                          ; moves the record's own SEL word and
-    jc .away                        ; redraws THE TWO DOTS that changed - not
-    jz .repaint                     ; the group and not the page (13.17.4).
-    call dos_defocus                ; **TEST ZF BEFORE ANYTHING ELSE IS
-    jmp short .out                  ; CALLED**: dos_defocus clobbers the flags,
-                                    ; and reading its answer instead of
-                                    ; radhit's is a pick that moves and a block
-                                    ; that does not repaint. A greyed arm is
-                                    ; swallowed here (CF=0, ZF=0), which is
-                                    ; SPEC.md 47 rule 6: the control already
-                                    ; said why. **A REAL CHANGE REPAINTS THE
-                                    ; BLOCK**, because the two subsections
-                                    ; under it and the cache's own LIST are
-                                    ; the arm's (96.36.6)
-.repaint:
-    call dos_defocus
-    call dos_paint_mem              ; the whole right half, under the lock the
-    jmp short .out                  ; handler already holds
-.away:
-    ; The POINT is still in CX/DX for dos_fld_hit, which tests the two boxes
-    ; beside this block with it - and os88ui_radhit DOES carry os88ui_bhit's
-    ; "every register preserved", which the check box it replaced did not, so
-    ; the point survives a miss without being banked first.
-    pop di                          ; **IT REFUSES WHAT IT DID NOT USE** now
-    pop si                          ; (SPEC.md 96.32.2): this block shares the
-    pop ax                          ; Setup page with two more boxes, so a
-    stc                             ; click outside its own two controls is
-    ret                             ; theirs to test - where it used to be the
-                                    ; whole page and could defocus on sight
-.out:
-    pop di
-    pop si
-    pop ax
-    clc
-    ret
-
-; -----------------------------------------------------------------------------
-; dos_fld_place - put the arguments field where the window is now
-; in:  BX = the window; out: nothing, every register preserved
-;
-; The rect is recomputed from the CONTENT origin on every paint rather than
-; banked, because a window moves and os88line's rect is in SCREEN coordinates
-; (its LN_X1 comment says so). Banking it would put the caret one drag behind.
-; -----------------------------------------------------------------------------
-dos_fld_place:
-    mov si, dos_ln
-    push dx
-    mov dx, DOS_SFLD1
-    call dos_setbox
-    pop dx
-    ret
-
-; -----------------------------------------------------------------------------
-; dos_cmd_place - the COMMAND box, on the Setup page's TITLE row (SPEC.md
-;                 96.32.2.2)
-; in:  BX = the window
-; out: dos_pln's rect; SI is clobbered, every other register preserved
-;
-; **IT IS THE SAME BLOCK the main page's top bar places** (96.32.1) and not a
-; second one: one `os88line` record, one buffer, so the two rects are two VIEWS
-; of the command and there is nothing to mirror. `dos_senv_place` makes the
-; same trade one control along, and for the same reason - whichever page is up
-; placed it last, which is exactly what a hit test wants.
-;
-; It sits beside the page's own name rather than in either column, because the
-; command is what all the setup below APPLIES to: it is the header, not a
-; field. So it spans everything the name does not.
-; -----------------------------------------------------------------------------
-dos_cmd_place:
-    push ax
-    push cx
-    push dx
-    call OSAPI_WM_GEOM              ; CX = content width
-    jc .out
-    push cx
-    call OSAPI_WM_CONTENT           ; AX = content left, DX = content top
-    pop cx
-    mov si, dos_pln
-    add cx, ax                      ; CX = the content's RIGHT edge, before AX
-    add ax, DOS_CMDX                ; is spent on the left one
-    mov [si+LN_X1], ax
-    sub cx, DOS_SETPAD + 1
-    mov [si+LN_X2], cx
-    add dx, DOS_CMDY
-    mov [si+LN_Y1], dx
-    add dx, DOS_FLDH
-    mov [si+LN_Y2], dx
-.out:
-    pop dx
-    pop cx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; dos_senv_place - ...and the environment box beside it, on the SAME page
-; in:  BX = the window; every register preserved
-;
-; IT IS Environment's FIRST ROW (SPEC.md 96.32.2) - dos_eln, not a block of
-; its own - so the two rects address one buffer and there is nothing to
-; mirror. dos_erow places the same block for the other page, and whichever
-; page is up placed it last, which is exactly what a hit test wants.
-; -----------------------------------------------------------------------------
-dos_senv_place:
-    push cx
-    push si
-    xor cx, cx
-.row:
-    call dos_erow
-    inc cx
-    cmp cx, DOS_ENVN
-    jb .row
-    pop si
-    pop cx
-    ret
-
-; -----------------------------------------------------------------------------
-; dos_setbox - put the block at SI in the Setup page's LEFT column, DX rows
-;              down from the body top
-; in:  BX = the window, SI = an os88line block, DX = the row offset
-; out: the block's rect; SI and every other register preserved
-;
-; THE COLUMN IS HALF THE CONTENT and the content is 640 or 720, so a box here
-; is 304 or 344 px - 38 or 43 cells - against the 256 it had when the whole
-; window was 288 wide. Computed rather than a constant for that reason: the
-; number that was right for one window is wrong for all three.
-; -----------------------------------------------------------------------------
-dos_setbox:
-    push ax
-    push cx
-    push dx
-    push di
-    mov di, dx                      ; DI = the row offset, across the calls
-    call OSAPI_WM_GEOM              ; CX = content width
-    jc .out
-    shr cx, 1                       ; ...the left half of it
-    sub cx, DOS_SETPAD * 2
-    push cx
-    call OSAPI_WM_CONTENT           ; AX = content left, DX = content top
-    pop cx
-    mov ax, ax
-    add ax, DOS_SETPAD
-    mov [si+LN_X1], ax
-    add ax, cx
-    mov [si+LN_X2], ax
-    add dx, DOS_BODYY
-    add dx, di
-    mov [si+LN_Y1], dx
-    add dx, DOS_FLDH
-    mov [si+LN_Y2], dx
-.out:
-    pop di
-    pop dx
-    pop cx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
 ; dos_key - W_ONKEY. The field owns a keystroke it can use; everything else
 ; comes back here (os88line_key's CF is that split).
 ; in:  AL = ascii, AH = scan, SI = the window
@@ -9235,7 +8225,12 @@ dos_key:
     cmp si, dos_mln                  ; ...AND THE LIMIT MOVES THE FIGURE ABOVE
     jne .done                        ; IT (SPEC.md 96.36.10). Every other field
     call dos_mem_parse               ; on this page redraws itself and nothing
-    call dos_mem_row                 ; else; this one is a TERM of the arena
+%ifdef DOS_SETPART                  ; else; this one is a TERM of the arena
+    mov al, SPD_ROW
+    call dos_spdo
+%else
+    call dos_mem_row
+%endif
                                      ; row, and its value was reaching
                                      ; [dos_memkb] only at dos_mem_take, whose
                                      ; four callers are all leaving the page or
@@ -9343,9 +8338,12 @@ dos_click:
 
     ; --- THE SETUP PAGE: its own controls, the buttons having had the press --
 .setup:
-    call dos_click_mem              ; the memory block's field and its radio
-    jnc .out                        ; CF=1 = none of those, so it is the
-    call dos_fld_hit                ; arguments box or an environment row
+%ifdef DOS_SETPART
+    mov al, SPD_CLICK               ; every control the page has, the
+    call dos_spdo                   ; part's (SPEC.md 96.32.2.3)
+%else
+    SPB_CLICK .out
+%endif
     jmp .out
 
     ; --- one field, hit-tested ----------------------------------------------
@@ -9451,6 +8449,10 @@ dos_onup:
     cmp al, DOS_BT_ENV
     jne .run
     call dos_defocus                ; the caret does not follow us off the page
+%ifdef DOS_SETPART
+    call dos_sp_get                 ; **THE PAGE'S CODE, READ NOW** (SPEC.md
+    jc .out                         ; 96.32.2.3) - or not opened, and the
+%endif                              ; menu bar says why
     mov byte [dos_page], DOS_PAGE_SET
     call dos_swap
     jmp short .out
@@ -9469,11 +8471,19 @@ dos_onup:
                                     ; typed, silently
     mov byte [dos_page], DOS_PAGE_MAIN
     call dos_swap
+%ifdef DOS_SETPART
+    call dos_sp_drop                ; ...and the page's code goes back with
+%endif                              ; it (SPEC.md 96.32.2.3)
     jmp short .out
 .sav:
     call dos_defocus                ; ...as Run does, and for its reason
     call dos_mem_take               ; ...and the shortcut carries what is in
-    call dos_sav_go                 ; the boxes NOW, for the same reason
+%ifdef DOS_SETPART                 ; the boxes NOW, for the same reason -
+    mov al, SPD_SAVE                ; the writer being the Setup part's
+    call dos_spdo
+%else
+    call dos_sav_go
+%endif
 .out:
     pop di
     pop si
@@ -9642,6 +8652,10 @@ dos_oncmd:
     jne .full
 .env:
     call dos_defocus                ; 'Environment', which is the bar's other
+%ifdef DOS_SETPART
+    call dos_sp_get                 ; ...and the bar's own read (96.32.2.3)
+    jc .out
+%endif
     mov byte [dos_page], DOS_PAGE_SET
     mov bx, [dos_win]
     call dos_swap
@@ -9789,63 +8803,6 @@ dos_go:
     ret
 
 ; -----------------------------------------------------------------------------
-; dos_fld_hit - the Setup page's two left-column boxes (SPEC.md 96.32.2)
-; in:  BX = the window, CX/DX = the point, the rects already placed
-; out: nothing; every register preserved
-;
-; The memory block's own two controls have had their turn before this is
-; reached, so a click that is not in either of these is a click on the page
-; background - and the caret goes out, because a caret on a page the user has
-; clicked away from is one they cannot account for.
-; -----------------------------------------------------------------------------
-dos_fld_hit:
-    push cx
-    push si
-    push di
-    push bp
-    mov si, dos_pln                 ; THE COMMAND BOX FIRST (SPEC.md 96.32.2.2):
-    call os88line_hit               ; it is on this page too now, and it is the
-    jnc .take                       ; one every option below is about
-    mov si, dos_ln
-    call os88line_hit               ; preserves CX and DX, so every test below
-    jnc .take                       ; gets the same point
-    ; **AND EVERY ENVIRONMENT ROW** (SPEC.md 96.32.2.1) - `dos_click_env`'s
-    ; loop, moved here now that there is no second page for it to live on.
-    ; `dos_erow` spends CX on the row index, so the point is banked across it
-    ; exactly as that routine's own caller used to bank it.
-    mov di, cx
-    mov bp, dx
-    xor cx, cx
-.erow:
-    push cx
-    call dos_erow
-    mov cx, di
-    mov dx, bp
-    call os88line_hit
-    pop cx
-    jnc .take
-    inc cx
-    cmp cx, DOS_ENVN
-    jb .erow
-    call dos_defocus
-    jmp short .out
-.take:
-    cmp byte [si+LN_FOCUS], 0
-    jne .move                       ; already ours: just move the caret
-    call dos_defocus
-    mov byte [si+LN_FOCUS], 1
-    call os88line_draw
-    jmp short .out
-.move:
-    call dos_caret_to               ; ...and the BAR follows it (96.32.4)
-.out:
-    pop bp
-    pop di
-    pop si
-    pop cx
-    ret
-
-; -----------------------------------------------------------------------------
 ; dos_place - put every control of the page that is up where the window is now
 ; in:  BX = the window; every register preserved
 ;
@@ -9871,12 +8828,14 @@ dos_place:
     call dos_bar_rects              ; the path box and the bar's two buttons
     jmp short .out
 .setup:
-    call dos_furn_rects             ; Save Shortcut and Return
-    call dos_cmd_place              ; ...the command box on the title row...
-    call dos_fld_place              ; ...the arguments box...
-    call dos_senv_place             ; ...every environment row under it...
-    call dos_mfld_place             ; ...and the memory block's two
-    call dos_mrad_place
+%ifdef DOS_SETPART
+    mov al, SPD_PLACE               ; Save Shortcut and Return, the command
+    call dos_spdo                   ; box, the arguments and environment
+                                    ; boxes and the memory block's two - the
+                                    ; Setup part's to place (96.32.2.3)
+%else
+    SPB_PLACE
+%endif
 .out:
     pop di
     pop si
@@ -9957,6 +8916,9 @@ dos_fld_init:
                                     ; network, they have to go ask for it") -
                                     ; and the other two TICKED: a tick is
     mov byte [dos_mmou + OS88UI_CK_ON], 0   ; "leave it as it is" on the two
+%ifdef DVW
+    mov byte [dos_mwin + OS88UI_CK_ON], 0   ; (and Run in a window CLEARED:
+%endif                                      ; the bracket is the default, 96.32.2.4)
 %ifdef DOS_MEGA
     mov byte [dos_mhma + OS88UI_CK_ON], 1   ; (and kern_dos in the HMA, which
                                             ; is the arena kern_mega shipped)
@@ -9973,29 +8935,6 @@ dos_fld_init:
     pop bx
     pop ax
     ret
-
-; -----------------------------------------------------------------------------
-; dos_erow - the Nth environment row's block and its rect
-; in:  CX = the row (0..DOS_ENVN-1), BX = the window
-; out: SI = its os88line block, rect filled in; CX preserved
-; -----------------------------------------------------------------------------
-dos_erow:
-    push ax
-    push cx
-    push dx
-    mov ax, DOS_LNSZ
-    mul cx                          ; DX:AX, and DX is banked - the high half
-    mov si, dos_eln                 ; a row index lands there is nobody's
-    add si, ax
-    mov ax, DOS_EROWH               ; **THE LEFT COLUMN, NOT THE WHOLE WIDTH**
-    mul cx                          ; (SPEC.md 96.32.2.1). The rows had the
-    add ax, DOS_SFLD2               ; window to themselves on a page of their
-    mov dx, ax                      ; own; they sit under the first one in
-    call dos_setbox                 ; Setup's left column now - which is the
-    pop dx                          ; SAME width row 0 has always had there,
-    pop cx                          ; `os88line` scrolling a 48-char buffer
-    pop ax                          ; through a ~37-cell box either way, so
-    ret                             ; nothing narrowed
 
 ; -----------------------------------------------------------------------------
 ; dos_lnk_open - was this instance handed a .LNK? If so, BECOME what it names
@@ -10118,315 +9057,6 @@ dos_fld_reload:
     pop cx
     pop bx
     ret
-
-; -----------------------------------------------------------------------------
-; dos_lnk_build - this instance's state as a Shell Link, into dos_lbuf
-; out: CX = its length; CF=1 = it does not fit LNK_MAX
-;
-; THE HEADER IS 76 BYTES AND ALMOST ALL OF IT IS LEGALLY ZERO - three
-; FILETIMEs, the file size, the icon index, the hotkey and three reserved
-; fields. What is not zero is the size dword, the fixed CLSID, LinkFlags and
-; ShowCommand, so the template below IS the header and nothing is patched.
-;
-; Each StringData entry is a 2-byte CHARACTER COUNT then the characters, NOT
-; NUL-terminated. Count is characters rather than bytes, which are the same
-; thing here only because IsUnicode is clear.
-; -----------------------------------------------------------------------------
-dos_lnk_build:
-    push ax
-    push bx
-    push dx
-    push si
-    push di
-    push es
-    push ds
-    pop es
-    mov di, dos_lbuf
-    mov si, dos_lnk_hdr
-    mov cx, LNK_HDR
-    cld
-    rep movsb
-
-    call dos_lnk_wdir               ; WORKING_DIR: the folder we came from
-    jc .no
-    call dos_lnk_rel                ; RELATIVE_PATH: `.\` and the 8.3 name
-    jc .no
-    mov si, dos_args                ; COMMAND_LINE_ARGUMENTS
-    call dos_lnk_str
-    jc .no
-    call dos_lnk_env                ; ...and ours, in an ExtraData block
-    jc .no
-    call dos_lnk_mem                ; ...and the memory settings, in a SECOND
-    jc .no                          ; one (SPEC.md 96.25.2)
-    xor ax, ax                      ; the terminal block: any value below 4
-    stosw
-    stosw
-    mov cx, di
-    sub cx, dos_lbuf
-    clc
-    jmp short .out
-.no:
-    stc
-.out:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop bx
-    pop ax
-    ret
-
-; --- dos_lnk_str - SI = a NUL string -> a counted StringData at ES:DI --------
-; out: DI advanced; CF=1 = it would pass LNK_MAX and nothing was written
-dos_lnk_str:
-    push ax
-    push cx
-    push si
-    mov ax, si
-    xor cx, cx
-.len:
-    cmp byte [si], 0
-    je .got
-    inc si
-    inc cx
-    jmp short .len
-.got:
-    mov si, ax                      ; ...back to the start
-    mov ax, di
-    sub ax, dos_lbuf
-    add ax, cx
-    inc ax
-    inc ax
-    cmp ax, LNK_MAX
-    ja .no
-    mov ax, cx
-    stosw                           ; the character count...
-    jcxz .done
-    rep movsb                       ; ...and the characters, no NUL
-.done:
-    pop si
-    pop cx
-    pop ax
-    clc
-    ret
-.no:
-    pop si
-    pop cx
-    pop ax
-    stc
-    ret
-
-; --- dos_lnk_wdir - the launch folder, as a StringData ----------------------
-; **DI IS AN OUTPUT AND MUST NOT BE RESTORED.** dos_lnk_str advances it past
-; the entry it wrote, and an earlier version of this banked DI across the
-; whole routine - so the working directory was written and then OVERWRITTEN by
-; the next string, and every field in the file came out one place early.
-dos_lnk_wdir:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    ; **STAND WHERE THE PROGRAM IS, FIRST** - dos_path_make's own opening, and
-    ; for the same reason: `OSAPI_FILE_PATH` answers for where the MACHINE is
-    ; standing (SPEC.md 96.48), which a program that has walked away with
-    ; AH=3Bh or AH=0Eh has moved. `dos_sav_go` already orders the build before
-    ; the dialog, so the DIALOG's navigation cannot reach this; the program is
-    ; the other mover, and until 96.21.2.1 it could only ever write a wrong
-    ; FOLDER - under a drive letter it is a wrong folder stated confidently.
-    mov dx, [dos_dir]
-    mov bl, [dos_vol]
-    call dos_be_goto
-    jc .bare
-    push di                         ; ...only across the CALL that needs it as
-    mov di, dos_pbuf + 2            ; a destination of its own - and TWO ALONG,
-    mov cx, DOS_PBUF - 2            ; because the drive goes in front of it
-                                    ; (SPEC.md 96.21.2.1)
-    call OSAPI_FILE_PATH            ; ES is the caller's DS: an X cell sets it
-    pop di
-    jnc .drv
-.bare:
-    mov byte [dos_pbuf+2], '\'      ; a refusal is not fatal - `\` is a folder
-    mov byte [dos_pbuf+3], 0        ; and the link still resolves from it
-.drv:
-    ; **AND THE DRIVE, WHICH OSAPI_FILE_PATH DOES NOT ANSWER** (SPEC.md
-    ; 19.2.4: OSAPI_FILE_HERE answers that question, so the path slot does
-    ; not). Without it a shortcut says `\PRINCE` and resolves against
-    ; whichever volume it was READ from, which is right exactly as often as
-    ; the link and its program are on one disk.
-    mov al, [dos_vol]               ; the box's own volume, which is the one
-    add al, 'A'                     ; dos_run resolves the program on
-    mov [dos_pbuf+0], al
-    mov byte [dos_pbuf+1], ':'
-    mov si, dos_pbuf
-    call dos_lnk_str                ; ...and DI comes out ADVANCED
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; --- dos_lnk_rel - `.\NAME.EXT`, which is BOTH spellings --------------------
-; Windows wants a link-relative path and so do we, and `.\` satisfies each.
-dos_lnk_rel:
-    push ax
-    push cx
-    push si
-    push bx
-    mov bx, dos_sbuf
-    mov byte [bx], '.'
-    mov byte [bx+1], '\'
-    inc bx
-    inc bx
-    mov si, dos_name
-.c:
-    mov al, [si]
-    mov [bx], al
-    inc si
-    inc bx
-    or al, al
-    jnz .c
-    mov si, dos_sbuf
-    call dos_lnk_str
-    pop bx
-    pop si
-    pop cx
-    pop ax
-    ret
-
-; --- dos_lnk_env - the four rows, in an ExtraData block ---------------------
-; {size, signature, data}: size counts ITSELF and the signature, so an
-; unknown-signature reader steps over the whole thing with one add - which is
-; what makes a private block legal rather than a squat.
-dos_lnk_env:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    mov dx, di                      ; bank where the size goes
-    add di, 8                       ; ...and step over it and the signature
-    mov bx, dos_ebuf
-    mov cx, DOS_ENVN
-.row:
-    push cx
-    mov si, bx
-    cmp byte [si], 0
-    je .next
-    mov ax, di
-    sub ax, dos_lbuf
-    add ax, DOS_ENVBUF + 8
-    cmp ax, LNK_MAX
-    ja .no
-.cp:
-    mov al, [si]
-    stosb
-    inc si
-    or al, al
-    jnz .cp                         ; ...NUL and all: the block is a SET, and
-                                    ; a set's members are NUL-terminated
-.next:
-    pop cx
-    add bx, DOS_ENVBUF
-    loop .row
-    xor al, al
-    stosb                           ; ...and the bare NUL that ends the set
-    mov ax, di                      ; now the size, over the hole banked above
-    sub ax, dx
-    push di
-    mov di, dx
-    stosw
-    xor ax, ax
-    stosw                           ; ...a dword, and 512 never needs the top
-    mov ax, LNK_EXTSIG & 0xFFFF
-    stosw
-    mov ax, LNK_EXTSIG >> 16
-    stosw
-    pop di                          ; ...back to the END of the block
-    clc
-    jmp short .out
-.no:
-    pop cx
-    stc
-.out:
-    pop si                          ; **DI IS NOT RESTORED**, for dos_lnk_wdir's
-    pop dx                          ; reason: it is an OUTPUT. Banking it here
-    pop cx                          ; left the block written and then
-    pop bx                          ; OVERWRITTEN by the terminal marker, which
-    pop ax                          ; presents as a link with no environment
-    ret
-
-; --- dos_lnk_mem - the memory settings, in an ExtraData block of their own --
-; A SECOND BLOCK and not two more fields on the first (SPEC.md 96.25.2): that
-; one ends in a bare NUL after a variable number of rows, so anything appended
-; to it sits at an offset that depends on what the user typed. Here the two
-; fields are at a fixed offset inside a fixed-size block, and a reader that
-; does not know the signature steps over it with one add - which is what
-; ExtraData is specified for.
-dos_lnk_mem:
-    push ax
-    mov ax, di
-    sub ax, dos_lbuf
-    add ax, LNK_EXT2SZ
-    cmp ax, LNK_MAX
-    ja .no
-    mov ax, LNK_EXT2SZ              ; BlockSize, counting itself
-    stosw
-    xor ax, ax
-    stosw
-    mov ax, LNK_EXTSIG2 & 0xFFFF
-    stosw
-    mov ax, LNK_EXTSIG2 >> 16
-    stosw
-    mov ax, [dos_memkb]             ; the cap, 0 = as much as the machine gives
-    stosw
-    mov al, [dos_keepc]             ; ...the arm...
-    stosb
-    mov al, [dos_cache]             ; ...and the cache dial, WHICH TOOK THE
-    stosb                           ; PAD BYTE (SPEC.md 96.36.6): the signature
-                                    ; did not move, and a link written before
-                                    ; the dial existed reads a zero there -
-                                    ; which is Auto, the default a link
-                                    ; without one would have been saved with
-    ; **AND THE THREE BOXES** (SPEC.md 96.25.2.1). They are requests about
-    ; the program and not reports about this machine (96.36.7.1) - which is
-    ; the whole reason a shortcut has to carry them - and for as long as the
-    ; boxes have existed this block did not, so `Disable the mouse` came back
-    ; unticked from every shortcut that was saved with it ticked.
-    xor al, al
-    cmp byte [dos_mhdd + OS88UI_CK_ON], 0
-    jne .bnet
-    or al, LNK_BX_NOHDD
-.bnet:
-    cmp byte [dos_mnet + OS88UI_CK_ON], 0
-    jne .bmou
-    or al, LNK_BX_NONET
-.bmou:
-    cmp byte [dos_mmou + OS88UI_CK_ON], 0
-    je .bhma
-    or al, LNK_BX_NOMOU
-.bhma:
-%ifdef DOS_MEGA
-    cmp byte [dos_mhma + OS88UI_CK_ON], 0
-    jne .bsav
-    or al, LNK_BX_NOHMA
-.bsav:
-    cmp byte [dos_msav + OS88UI_CK_ON], 0
-    je .bput
-    or al, LNK_BX_SAVE
-%endif
-.bput:
-    xor ah, ah                      ; ...and the pad, zero
-    stosw
-    clc
-    jmp short .out
-.no:
-    stc
-.out:
-    pop ax
-    ret                             ; DI IS NOT RESTORED - it is an OUTPUT, for
-                                    ; dos_lnk_env's reason
 
 ; -----------------------------------------------------------------------------
 ; dos_lnk_parse - dos_lbuf holds CX bytes of a .LNK; take it apart
@@ -11015,6 +9645,14 @@ dos_lnk_boxes:
     shr al, 1
     shr al, 1
     mov [dos_mmou + OS88UI_CK_ON], al
+%ifdef DVW
+    mov al, ah                      ; Run in a window: set = TICKED
+    and al, LNK_BX_WIN              ; (SPEC.md 96.32.2.4)
+    jz .nowin
+    mov al, 1
+.nowin:
+    mov [dos_mwin + OS88UI_CK_ON], al
+%endif
 %ifdef DOS_MEGA
     mov al, ah                      ; the HMA: set = UNTICKED (96.40.9.2)
     and al, LNK_BX_NOHMA
@@ -11269,6 +9907,9 @@ dos_l_args: db 'Arguments:', 0
 dos_l_envb: db 'Environment:', 0    ; ...and the rows under it are NAME=VALUE,
                                     ; one to a line (SPEC.md 96.32.2.1)
 dos_l_retb: db 'Return', 0          ; --- the setup area's furniture (96.32.2)
+%ifdef DOS_SETPART
+dos_s_nosetp: db 'Cannot open '     ; the part's refusal (96.32.2.3), whose
+%endif                              ; last word is the page's own name
 dos_l_tset: db 'Setup', 0           ; ...and its name, which the title row
                                     ; shows and the bar's own button carries -
                                     ; one page, one word (SPEC.md 96.32.2.1)
@@ -11388,6 +10029,12 @@ DOS_MCKW    equ 24                  ; ...and kern_mega's save box, a cell more
 ; hands `kern_dos` a zero KDL_MOUBASE, which kdmouse.inc already reads as
 ; "no mouse: nothing is hooked and INT 33h answers the still pointer".
 dos_l_mmou: db 'Disable the mouse', 0
+%ifdef DVW
+dos_l_mwin: db 'Run in a window', 0 ; ...and the furniture row's (96.32.2.4)
+%if $ - dos_l_mwin - 1 != DOS_MWINW
+ %error "DOS_MWINW is the label's length in cells: it sizes the box's rect"
+%endif
+%endif
 
 ; --- the disk cache's two lists (SPEC.md 96.36.6) ---------------------------
 ; ARM 1's is the whole ladder, because `kd_giveback` sheds a rung at a time
@@ -11415,28 +10062,6 @@ dos_ca_runs:
     db 0                            ; Off
 dos_lnk_root: db '\', 0
 
-; --- the Shell Link header, 76 bytes, fixed (SPEC.md 96.21) ------------------
-dos_lnk_hdr:
-    dd 0x0000004C                   ; HeaderSize, and the format's own magic
-    db 0x01,0x14,0x02,0x00          ; LinkCLSID {00021401-0000-0000-
-    db 0x00,0x00, 0x00,0x00         ;            C000-000000000046}, in the
-    db 0xC0,0x00,0x00,0x00,0x00,0x00,0x00,0x46   ; mixed-endian GUID order
-    dd LNK_F_WDIR | LNK_F_RELP | LNK_F_ARGS      ; LinkFlags
-    dd 0                            ; FileAttributes
-    dd 0, 0                         ; CreationTime  - legally zero...
-    dd 0, 0                         ; AccessTime
-    dd 0, 0                         ; WriteTime
-    dd 0                            ; FileSize      - ...and so is this
-    dd 0                            ; IconIndex
-    dd 1                            ; ShowCommand = SW_SHOWNORMAL
-    dw 0                            ; HotKey
-    dw 0                            ; Reserved1
-    dd 0                            ; Reserved2
-    dd 0                            ; Reserved3
-DOS_LNK_HDRLEN equ $ - dos_lnk_hdr
-%if DOS_LNK_HDRLEN != LNK_HDR
- %error "the Shell Link header is 76 bytes and this template is not"
-%endif
 %endif                              ; KD_BACKEND
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
@@ -12956,6 +11581,9 @@ dos_hlprow  equ dos_hbss + DOS_B_HLPROW  ; HELP's text (DOS-PARTS-PLAN 1.1)
 %ifdef DOS_NETPART
 dos_netrow  equ dos_hbss + DOS_B_NETROW  ; ...and the network part's (96.23.11)
 %endif
+%ifdef DOS_SETPART
+dos_setrow  equ dos_hbss + DOS_B_SETROW  ; ...and the Setup page's (96.32.2.3)
+%endif
 %ifndef KD_BACKEND
 %include "os88pself.inc"            ; op_self, which reads it: the parts
                                     ; standard's OP_SELF read, opted into
@@ -12995,6 +11623,91 @@ dos_pself:
     popf
     mov dx, bp
     ret
+
+%ifdef DOS_SETPART
+; =============================================================================
+; THE SETUP PAGE'S HOST HALF (SPEC.md 96.32.2.3): the part is far code with
+; OUR DS, read when Setup opens and freed when it closes. This is all of it
+; that is resident - a bouncer, a fetch, a free and a door.
+; =============================================================================
+; dos_sp_bounce - the part's way back in: `call SPH(x)` stored x in
+; [dos_sp_tgt] and far-called here. Nothing is touched on the way, so the
+; routine's registers and FLAGS are the part's answer exactly.
+dos_sp_bounce:
+    call [dos_sp_tgt]
+    retf
+
+; -----------------------------------------------------------------------------
+; dos_sp_get - make sure the Setup part is held
+; out: CF = 0 it is; CF = 1 it could not be had, and the menu bar says so.
+;      Every register preserved
+;
+; **THE CLAIM STAYS PINNED** while it is held (SPEC.md 96.32.2.3): it is CODE,
+; and its own return addresses are on the stack across every kernel call it
+; makes - os88ui's save-under claim among them - so a block that moved would
+; be returned into where it used to be.
+; -----------------------------------------------------------------------------
+dos_sp_get:
+    cmp word [dos_spdoor+2], 0
+    jne .have                       ; (CF = 0 out of the compare's jne)
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
+    mov si, dos_setrow
+    xor ah, ah                      ; no floor: the code and nothing else
+    call dos_pself                  ; DX = the claim, CX = the part's length
+    jc .no
+    mov es, dx                      ; ...and the way back, into its head
+    mov word [es:SPH_HOST], dos_sp_bounce
+    mov [es:SPH_HOST+2], cs
+    mov [dos_spdoor+2], dx          ; the offset word is 0 for ever (bss)
+    jmp short .out
+.no:
+    push ds
+    pop es
+    mov si, dos_s_nosetp            ; `Cannot open Setup` (SPEC.md 47: a
+    xor cx, cx                      ; refusal says so where the user is)
+    call OSAPI_TOAST
+    stc
+.out:
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.have:
+    ret
+
+; dos_sp_drop - give the part back, if it is held. Every register preserved;
+; the flags are not
+dos_sp_drop:
+    push dx
+    xor dx, dx
+    xchg dx, [dos_spdoor+2]
+    or dx, dx
+    jz .out
+    call OSAPI_MEM_FREE
+.out:
+    pop dx
+    ret
+
+; dos_spdo - door AL of the Setup part (dosset.inc's sp_door), fetching it
+; first if it is not held. out: CF = 1 it could not be had and nothing ran
+dos_spdo:
+    call dos_sp_get
+    jc .r
+    call far [dos_spdoor]
+.r:
+    ret
+%endif                              ; DOS_SETPART
 %endif
 %endif
 
@@ -13117,6 +11830,9 @@ DOS_CBASE   equ os88_image_end
 %ifdef DOS_NETPART
     HBSS DOS_B_NETROW, 8         ; ...and the NETWORK part's after it (SPEC.md
 %endif                           ; 96.23.11), the same shape
+%ifdef DOS_SETPART
+    HBSS DOS_B_SETROW, 8         ; ...and the SETUP page's after THAT (SPEC.md
+%endif                           ; 96.32.2.3), the same shape again
     ; --- THE CONSOLE BAND (SPEC.md 96.32), four words dos_con_geom fills and
     ;     the console wave reads. Not banked "for one paint" like the line
     ;     above: they are the answer to a question about the WINDOW, so
@@ -13206,6 +11922,14 @@ DOS_BTREC_SZ equ 18              ; **A MIRROR OF os88ui.inc's OS88UI_BT_SIZE**,
     HBSS DOS_B_MHDD,  DOS_MCKSZ  ; the two driver boxes (SPEC.md 96.36.7):
     HBSS DOS_B_MNET,  DOS_MCKSZ  ; Hard Drives and Network, arm 0's
     HBSS DOS_B_MMOU,  DOS_MCKSZ  ; ...and Disable the mouse, arm 1's (96.36.8)
+%ifdef DVW
+    HBSS DOS_B_MWIN,  DOS_MCKSZ  ; ...and Run in a window, the furniture
+%endif                           ; row's (96.32.2.4)
+%ifdef DOS_SETPART
+    HBSS DOS_B_SPDOOR, 4         ; the Setup part's door, 0:claim - its
+                                 ; segment word 0 = not held (96.32.2.3)
+    HBSS DOS_B_SPTGT, 2          ; ...and the host routine its bouncer calls
+%endif
 %ifdef DOS_MEGA
     HBSS DOS_B_MHMA,  DOS_MCKSZ  ; ...and Load DOS in the HMA (96.40.9.2)
     HBSS DOS_B_MSAV,  DOS_MCKSZ  ; ...and Save the session to disk (96.40.9.3)
@@ -18688,6 +17412,13 @@ dos_mnet equ dos_hbss + DOS_B_MNET
 %endif
 %ifndef KD_BACKEND
 dos_mmou equ dos_hbss + DOS_B_MMOU   ; ...and the mouse's (96.36.8)
+%ifdef DVW
+dos_mwin equ dos_hbss + DOS_B_MWIN   ; ...and Run in a window (96.32.2.4)
+%endif
+%ifdef DOS_SETPART
+dos_spdoor equ dos_hbss + DOS_B_SPDOOR   ; dword: the Setup part's door
+dos_sp_tgt equ dos_hbss + DOS_B_SPTGT    ; word: ...and its bouncer's target
+%endif
 %ifdef DOS_MEGA
 dos_mhma equ dos_hbss + DOS_B_MHMA   ; ...and kern_mega's HMA box (96.40.9.2)
 dos_msav equ dos_hbss + DOS_B_MSAV   ; ...and its save box (96.40.9.3)
@@ -19002,4 +17733,15 @@ dos_pkt_xl equ dos_hbss + DOS_B_PKTXL
 ; comment.
 %ifdef DOSKPART
     times OS88_BSS_SIZE db 0
+%endif
+
+; --- THE SETUP PART, APPENDED (SPEC.md 96.32.2.3) ----------------------------
+; Only the Makefile's second assembly (-DDOS_SETEMIT) emits it, AFTER every
+; byte of the host above - so the host is the same bytes either way, which
+; tools/dossetchk.py checks before it cuts the part off. vstart=0: the part is
+; read into a claim of its own and runs at that claim's offset 0.
+%ifdef DOS_SETEMIT
+section .setp vstart=0 follows=.text align=16
+%include "dosset.inc"
+section .text
 %endif

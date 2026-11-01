@@ -4,7 +4,9 @@
 section 1.1's shared part reader, with HELP as its first consumer, is built;
 section 3's NETWORK PART is BUILT (SPEC.md 96.23.11, measured below in 6) and
 the Memory page's `Network` box starts cleared (SPEC.md 96.36.7.4); the
-windowed layer (2) is not.** Written on branch
+SETUP PAGE is a part too (SPEC.md 96.32.2.3, the owner's decision against
+section 3's "no, unless D" - measured in 6), with a `Run in a window` box on
+it (96.32.2.4); the windowed layer (2) is not.** Written on branch
 `dos-windowed` at 2026-11-01. Every figure is marked **M** (measured on this
 tree, method below) or **E** (estimated, with what it was estimated from). An
 **E** is a promise to measure, not a fact.
@@ -434,7 +436,7 @@ its own file, docs/plans/DOS-WINDOWED-PART-PLAN.md; its answer in brief:
 | HELP text `dos_h_text` (dosc.inc:1416) | 798 (609 packed) | the `HELP` command | yes, an `OP_ASSET` lazy row read by `dos_pfetch` into a transient claim, printed, freed | **do**: ~780 net once `dos_pfetch` exists, ~15 bytes of glue (E) |
 | Win16 hand-off `dosw16.inc` | 324 | an NE double-clicked, typed or reached through a `.LNK` | moved to the loader for the desktop case - section 4 | section 4 |
 | kern_dos hand-off (`dos_handoff`, `dos_wholeask`, ...) + `dos_kdh` bss | 367 + 561 bss | "Give DOS the whole machine" | the code yes; the record **no** - `dos_wake` reads `[dos_kdh+KDH_CODE]` on every wake to learn whether a handoff came home (dos.asm:1050-1060, 1182) | not worth it: the code alone is 367 |
-| Setup / Memory page | 1,719 | the Setup pages | only as D's second tenant; `dos_pkt_want` and `dos_mem_arena` are read by `dos_run` | no, unless D |
+| Setup / Memory page | 1,719 | the Setup pages | only as D's second tenant; `dos_pkt_want` and `dos_mem_arena` are read by `dos_run` | no, unless D - **OVERTAKEN: BUILT as part 5** (SPEC.md 96.32.2.3), as far code with the host's DS rather than a tenant of D's slot: the page's painters, placers and press handlers and the `.LNK` writer, -1,746 bytes M (6, item 5) |
 | `.LNK` parse/save (`dos_lnk_*`) | 1,256 | parse: every launch of a shortcut (`dos_lnk_open`, dos.asm:1075); save: Save Shortcut | parse must stay; save (~400 E) is too small | no |
 | driver suspend / BLASTER (`dos_drv_*`) | 266 | the bracket | too small | no |
 | error strings, About | 356, 160 | refusals, About | too small; a refusal must not need a disk | no |
@@ -699,6 +701,26 @@ Revisit when:
 4. The windowed layer as a far part, option C (~4-5 days, E): ~5.0 KB a
    never-windowed instance. Gate: the seven `dosw*` rows. Or D, or neither -
    the owner's decision on the risk.
+
+5. **BUILT** (SPEC.md 96.32.2.3), on the owner's word: the SETUP PAGE as
+   part 5 (kern_big, kern_emu), read when Setup opens and freed at `Return`.
+   Everything a launch reads stays resident - the `.LNK` reader, every
+   setting's value, `dos_mem_fix`/`_whole`/`_take`/`_arena` - and the `.LNK`
+   WRITER went with the page, being reachable only from its `Save Shortcut`.
+   **-1,746 bytes** of every DOS instance (M: host image 43,292 -> 41,520,
+   bss 7,239 -> 7,265), with section 2's D refused in passing: the part is
+   far code with the HOST's DS, assembled inside the host's own assembly in a
+   `vstart=0` section, so its data names are the host's and only its CALLS
+   need help - a stub per host routine and a 5-byte bouncer, and
+   `tools/dossetchk.py` failing the build on any near branch that leaves it.
+   It is PINNED while held (its return addresses sit on the stack across
+   kernel calls). Part 5 is 2,320 bytes raw and 1,914 packed; `DOS.O88`
+   +812. Opening Setup costs **1,013-1,181 ms** on MartyPC's 4.77 MHz
+   machines (M: two `int 13h`, 7 sectors, 544 ms of seek), every open. The
+   same change added SPEC.md 96.32.2.4's `Run in a window` box (85 resident
+   bytes of the figure above). kern_mega keeps the page inline - its host is
+   above 1MB. Gate: `doslnk`, `dosram`, `dosmem`, `dosest`, `dosenvfold`,
+   `kdpart`.
 
 Total for 2-4: **~10 KB per DOS instance that neither runs windowed nor
 touches a network** (E, from M spans), for ~+600 bytes of disk and no
