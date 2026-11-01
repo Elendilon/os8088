@@ -467,8 +467,19 @@ rc_cmd:
 ; path - the two ways of asking for the same four transitions have to leave
 ; the same pixels behind. Unlike rc_paint's, this content is NOT already
 ; white: the previous state's waveform and labels are still under us.
+;
+; NOTHING ARMS A REGION FOR IT: the kernel draws a menu command's handler
+; unclipped (ui.inc's .oncmd calls AM_ONCMD straight from the lock), and a
+; click arms none either (SPEC.md 11.3) - so a window that another sits
+; over would be white-filled THROUGH it. It arms its own, as rc_ontimer does,
+; over [rc_win] (the rc_do_* routines took SI): CF = 1 is not one pixel
+; showing, and then nothing is drawn - the exposure's W_PAINT draws the face.
+; Re-arming under rc_ontimer's region rebuilds the same one.
 ; -----------------------------------------------------------------------------
 rc_repaint:
+    mov bx, [rc_win]
+    call OSAPI_WM_CLIP_SET          ; CF = 1: wholly covered, and disarmed
+    jc .r
     mov al, CWHITE
     call OSAPI_SET_COLOR
     mov ax, [rc_ox]
@@ -479,6 +490,8 @@ rc_repaint:
     add dx, RC_CONT_H-1
     call OSAPI_GFX_FILL
     jmp rc_draw_all
+.r:
+    ret
 
 ; -----------------------------------------------------------------------------
 ; rc_poll - read STREAM verb 3 and retire state changes (SPEC.md 34.3: the

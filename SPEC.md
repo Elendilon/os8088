@@ -70729,8 +70729,13 @@ direct stream does - with `48h` set to the block and `2Ch`. The ISR's input
 leg tests `[sbl_ext]` first and, for such a stream, does exactly two things:
 adds the block to the free-running 16-bit count (`[sbl_consumed]`) and writes
 it to `[DI:SI + RL + SND_EXT_CONS]`. **There is no overrun pause**: the card
-never waits for the reader, which owns the ring and judges its own lag
-(count - what it has read > RL is an overrun it can name). Verb 3 answers
+never waits for the reader, which owns the ring and judges its own lag.
+The count moves a block at a time while the DMA is already writing the block
+AFTER the one it published - the oldest block of the RL bytes before the
+count - so only RL less one block of that span is whole: count - what it has
+read > RL - block is an overrun it can name (§35's Recorder, whose bound is
+`RL - RC_RBLK`), and a reader that waits for `> RL` copies up to a block of
+torn samples first. Verb 3 answers
 PLAYING with the same count; verb 9 answers verb 3's, as for every record
 stream; verbs 1 and 10 answer 7.
 

@@ -501,6 +501,7 @@ xb_partget:
     push dx                         ; through one of the standard's windows -
     call op_ata                     ; a sum on every real-mode kernel, a
     pop dx                          ; window on kern_mega (MC7)
+    jc .free                        ; (no LDT entry: the null window)
     xchg ax, bx                     ; BX = the stream's own segment
     push si
     push dx

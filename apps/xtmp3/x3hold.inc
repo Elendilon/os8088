@@ -107,6 +107,9 @@ x3h_begin:
     mov [x3h_cpara], ax
     mov [x3h_base], dx
     mov byte [x3h_kind], X3HK_CONV
+    xor ax, ax                      ; the window made NOW: a first creation is
+    call x3h_at                     ; the only SEG_AT that can fail (no LDT
+    jc .nowin                       ; entry), so no later re-aim tests CF
     call x3_ldecl                   ; MOVABLE (x3_rmove), pinned per read
 .go:
     call x3h_keyset
@@ -124,6 +127,8 @@ x3h_begin:
     call x3_memck
     stc
     ret
+.nowin:
+    call x3h_free                   ; no window: no hold, the track streams
 .now:
     clc
     ret
@@ -446,7 +451,10 @@ x3h_same:
 ; re-aimed there (KERN-MEGA-MEMORY-PLAN MC7); every real-mode kernel refuses
 ; the verb with every register kept and the sum is the answer. No 8086 has
 ; a conventional hold (x3h_open), so the XT never pays the call. Every
-; other register kept
+; other register kept. CF = 1 exactly when AX = 0: no LDT entry free, which
+; kern_mega answers with CF = 0 and the NULL selector - and an access through
+; that is completed as segment 0 (mega_null0), the interrupt vector table.
+; Only a NEW window can fail, and x3h_begin makes it before the hold is used
 x3h_at:
     push bx
     push cx
@@ -460,6 +468,7 @@ x3h_at:
 .w:
     mov [x3h_win], dx
     xchg ax, dx
+    cmp ax, 1                       ; CF = 1 exactly when AX = 0
     pop dx
     pop cx
     pop bx

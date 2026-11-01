@@ -379,6 +379,10 @@ vp_entry:
 %ifdef PKG_MEGA
     mov [vp_self], ds               ; (VP_OWNB's: what DS is, as a selector
                                     ; under CPU_F_PM - KERN-MEGA-PLAN 14.16)
+    call vp_wmk                     ; SEG_AT's three windows, made before
+    jnc .wok                        ; anything is claimed (CF = 1: no LDT
+    ret                             ; entry, and a toast has said so)
+.wok:
 %else
     OS88_MEGA_REFUSE                ; (protected mode: the arm's, 14.66)
 %endif
@@ -14111,6 +14115,44 @@ vp_atn:
     pop cx
     pop ax
     ret
+
+; vp_wmk - the entry proc's FIRST step in this arm: vp_wrd, vp_wk and vp_wn
+; made, each a SEG_AT window over our own segment. A FIRST creation is the
+; only SEG_AT that can fail - no LDT entry free is CF = 0 and DX = 0 from
+; kern_mega, the NULL selector, and an access through that does not fault:
+; mega_null0 completes it as segment 0, the interrupt vector table - while a
+; re-aim of a window that exists cannot. So with all three made here, no
+; vp_at or vp_atn site can be handed 0 and none of them tests for it. Every
+; real-mode kernel refuses the verb and vp_at's sum is DS, never 0.
+; out: CF = 0; CF = 1, the launch refused with a toast. AX, BX, CX, DX, SI
+; clobbered
+vp_wmk:
+    mov bx, vp_wrd
+.l:
+    mov dx, ds
+    xor ax, ax
+    call vp_at
+    or dx, dx
+    jz .no
+    inc bx
+    inc bx
+    cmp bx, vp_wn + 2
+    jb .l
+    clc
+    ret
+.no:
+    push es
+    push ds
+    pop es
+    mov si, vp_s_nowin
+    xor cx, cx
+    call OSAPI_TOAST
+    pop es
+    stc
+    ret
+vp_s_nowin: db 'No LDT entry free', 0
+.e:
+    times ((.e - vp_wmk) & 1) nop   ; (what follows keeps its parity)
 
 ; vp_sub - DX = a claim of ours or a selector in one, AX = paragraphs: DX =
 ; a data selector based there, to the claim's end or 64 KB (SEG_SUB: asked
