@@ -37390,6 +37390,34 @@ the host's own FAT reader and fsck-clean; the same STOR through the per-chunk
 build making at least 1.5 more disk writes a chunk; and a power cut mid-STOR
 leaving the file at exactly its last checkpoint.
 
+#### 18.4.9.4 `apps/os88wseq.inc` — an append of any size
+
+`OSAPI_FILE_APPEND` and `OSAPI_FILE_WRITE_SEQ` append at a **cluster
+boundary** and nowhere else: every chunk but the last must be a whole number
+of clusters, and a file whose size is not one is refused `FERR_NAME` (18.4.4,
+18.4.7.3). That is the walk's rule, and the kernel keeps it - a top-up of a
+part-filled cluster would need a sector read-modify-write and a walk at a
+sub-cluster offset on every machine for ever. What a program writing a
+report, a log or an export has is text of whatever length it has, and every
+one of them was going to buffer it the same way. `os88wseq.inc` is that
+buffering, written once and costing the kernel nothing - the write side of
+`os88rseq.inc` (18.4.8.1).
+
+| call | in | does |
+|---|---|---|
+| `os88_wseq_open` | SI = a NUL 8.3 name, DS:DI = a `WSEQ_SIZE`-byte stream, BX = a buffer in DS, CX = its size | creates the file EMPTY in the current directory (size 0 is a cluster multiple), and asks `OSAPI_VOL_STAT` for that volume's cluster ONCE - a FAT walk, ~105 ms on a 20 MB disk at 4.77 MHz (18.4.5), paid per stream and never per put. A buffer smaller than one cluster is refused `FERR_NAME` |
+| `os88_wseq_put` | DS:DI = the stream, ES:SI = any bytes, CX = any count (0 legal) | copies into the buffer; a full buffer writes the largest whole number of clusters it holds and moves the rest to its front - so a buffer that is itself a cluster multiple never moves a byte |
+| `os88_wseq_close` | DS:DI = the stream | writes what is buffered, any size: the last chunk is the one the slots let be short |
+
+Every call answers CF=0 or CF=1 with AX = `FERR_*`; a failed stream stays
+failed, every later call answering the same, and what reached the disk stays.
+The stream is PLAIN, not `WSEQF_HELD`: each chunk is committed, so nothing is
+held across the caller's callbacks. On `kern_small`, whose `WRITE_SEQ`
+answers `FERR_NAME`, each chunk goes to `OSAPI_FILE_APPEND` instead - the
+same rule and the same chunks, a lookup and a walk a call. UI task only:
+every call is a file slot (§20.6 rule 7). REDLINE's Inspect report (§103.7.3)
+is the first caller, through an 8 KB buffer.
+
 ### 18.4.10 The free-cluster search on FAT16 is a window at a time
 
 `dskw_alloc` hands out the first free cluster at or after `[dsk_rover]`,
@@ -207269,8 +207297,8 @@ manages the top-level lab. No resident kernel state or bytes are added.
 
 ### 103.6 The Tune tab: identify, report and tune the AT bus
 
-REDLINE's window carries a row of **tabs** across its top - **Benchmark**
-and **Tune** today, with room for Info and Test later - drawn as the shared
+REDLINE's window carries a row of **tabs** across its top - **Benchmark**,
+**Inspect** (103.7) and **Tune**, with room for Test later - drawn as the shared
 button (§13.8) with the tab in use LATCHED, and the version right of them.
 `Bench > Tune` and the key **H** reach the Tune tab and **B** the Benchmark
 one. The tab is drawn inside REDLINE's own window: it was a second window
@@ -207940,6 +207968,129 @@ assemble.
 after, on QEMU, and reads the toast and the window list each time.
 
 REDLINE's **Apply on boot** puts a link to it in the boot volume's `\AUTOSTRT` (§26.10.6), so it runs at every boot; holding Shift through the boot skips it, and deleting the link stops it for good.
+
+### 103.7 The Inspect tab: what the machine is
+
+REDLINE's third tab, drawn **between Benchmark and Tune**, is a CheckIt-style
+survey of the machine: what it is, what is in it and what os8088 made of it.
+`Bench > Inspect` and the key **I** reach it. It is named for the
+inspection a car gets between the dyno (Benchmark) and the tuning bench
+(Tune), and it reads where those two measure and write.
+
+Under the tabs a strip of **eight sub-page buttons**, the one shown latched,
+and under that one scrollable pane - the Tune tab's shape (103.6): lines
+composed once, padded to the pane's width and drawn opaque (§6.1), the
+shared scroll bar where they overflow. A line is one of three kinds, which
+is what makes the page something to read rather than a text dump:
+
+- a **section header**, inverted across the pane (white on blue on a
+  16-colour display, white on black on a 1bpp one);
+- a **label and its value**, the value in a column of its own, or a table row
+  under a header row of its own;
+- a **bar line**: a label and figure, a proportion bar between them (green on
+  colour, black on 1bpp) and the share as a percentage - the memory account
+  and the current volume's use.
+
+The foot is **Refresh** (R), **Save report** (S) and **Quit** (Q). The
+sub-pages are keys **1** to **8**, Left/Right and Tab step through them, and
+the paging keys and the wheel scroll the pane. A sub-page change composes
+that page and repaints the pane and two strip buttons; it never probes
+again (rule 1 of PERFORMANCE.md).
+
+#### 103.7.1 The pages, and where each fact comes from
+
+THE PROBE RUNS ONCE, on the first entry to the tab, and again on Refresh. It
+reuses the benchmark's own inventory (103.2: `rl_inventory`, the CPU class,
+CPUID, int 11h/12h, int 15h 88h/E820h) and the Tune tab's BIOS text scan,
+then reads the rest in this order: published slots first, the BIOS data
+area and the ROM as memory, then the few port reads an inventory needs.
+
+| page | what it shows | from |
+|---|---|---|
+| **Summary** | machine (model byte decoded, int 15h C0h's submodel), BIOS date and copyright text, CPU, coprocessor, clock, memory, display, drive and port counts, the kernel, boot time, date and time, programs running | everything below |
+| **CPU** | class, bus width and prefetch queue (808x/NEC/18x), CPUID vendor, name, family/model/stepping and signature, the EDX feature bits by name; clock and its source; the 286+ MSW and its PE bit, A20, HMA, unreal mode, protected mode; the coprocessor | 103.2's probe, `smsw`, `OSAPI_CPU_INFO`'s feature bits |
+| **Memory** | the conventional account as bars - kernel, FAT window and task stacks, claim heap, claimed, claimed by the kernel, free, largest run; extended (BIOS 88h), E820's usable RAM, the extended pool, the HMA, an AT BIOS's extended data area, EMS pages and frame; the **upper memory map** - the adapter's video memory, every option ROM from C000h with its size and whether its byte sum is zero, and the system BIOS | `OSAPI_SYS_KB`, `OSAPI_MEM_AVAIL`, `OSAPI_XMEM_CAPS`, `DRVC_EMS`'s `EMSV_CAPS`, the ROMs read as memory through `OSAPI_SEG`'s `SEG_WIN` |
+| **Video** | the primary display - adapter, resolution, colours, the dock's first row, its BIOS modes; **every display** (`OSAPI_FSX_CAPS` BX = n) and the fullscreen modes os8088 offers on each (§53's `FSXM_*`); the VGA BIOS's display combination (int 10h 1A00h) and the EGA BIOS's memory, monitor and switches (int 10h 12h/10h); the video ROM's size | `OSAPI_VIDEO`, `OSAPI_FSX_CAPS`, two register-only video BIOS queries on an EGA or VGA |
+| **Drives** | the BIOS's floppy and fixed-disk counts; every os8088 volume - removable or fixed, BIOS, a disk driver or a redirector, which one booted and which this instance stands on; that volume's cluster size, capacity and use as bars; the storage drivers loaded | int 11h, BDA 0040:0075, `OSAPI_VOL_KIND`, `OSAPI_VOL_SYS`, `OSAPI_VOL_STAT`, `OSAPI_DRV_CLASSK` |
+| **Ports** | COM1-4 from the BDA - base, 8250 or 16450+, the line's speed and format, and the modem lines the far end drives; LPT1-3 - base and printer status; the game port; the keyboard | BDA 0040:0000-000D and 0096h, the ports below |
+| **IRQ/DMA** | each 8259 line: its standard use (the XT's or the AT's), masked or enabled, its vector and whose it is - the BIOS ROM, an option ROM, the os8088 kernel, an os8088 driver or low memory; the second 8259 only where there is one; the 8237 channels' standard assignments | ports 21h/A1h read, the IVT read as memory |
+| **Devices** | sound - the speaker, the driver, its capability word by name, the FM chip, the MPU-401, a Covox, the mixer; the pointer; Ethernet; EMS; the clock and whether it is a hardware RTC; the equipment word decoded (initial video, the coprocessor switch, the game port bit) and the BIOS video mode; every driver and module image by name and size; the programs running | `OSAPI_SND_CAPS`, `OSAPI_SND_FM`, `DRVC_SOUND`'s info verbs, `OSAPI_DRV_CLASSK`, `OSAPI_CLAIM_SNAPSHOT` + `OSAPI_IMG_NAME`, `OSAPI_SYS_SNAPSHOT`, `OSAPI_CLK_GET`, `OSAPI_BOOT_TICKS` |
+
+The kernel is named as far as a package can tell it apart: protected mode
+(`CPU_F_PM`) is kern_mega, no `SND_CAP_PCM_EXCL` is kern_small, a loaded
+`VMMOUSE.DRV` is kern_emu, and otherwise kern_big. No slot names the
+running kernel's build (§118.1.1), so the page does not claim one.
+
+**103.2's rule binds the tab whole.** It reads; the only port WRITES are the
+ones a read cannot be made without, each named where it is made:
+
+- a UART's **divisor latch** is read with interrupts held off, LCR bit 7 set
+  for the two reads and the LCR put straight back;
+- its **scratch register** (base+7) is written twice and put back - a
+  16450 has one and an 8250 has not;
+- the int 15h C0h and int 10h queries pass registers only, and C0h's answer
+  is a real-mode ES:BX, so it is not asked under protected mode at all.
+
+**What it does NOT read, and says so on the page:**
+
+- **Drive geometry.** A package may not call int 13h beside the kernel
+  (§57.3 rule 5), AH=08h included.
+- **A 16550's FIFO.** The FCR is write-only; enabling it to find out would
+  drop a byte in flight on a port the mouse or a serial lease is using.
+- **Live DMA state.** The 8237's status register clears as it is read,
+  which a driver waiting on terminal count would miss.
+- **The CMOS.** Port 70h is the clock rung's (§37.90).
+- **The IVT under kern_mega.** It is not the table the CPU uses there.
+- **Which COM port the mouse is on, the RTC rung, a sound card's port, IRQ
+  and DMA.** No slot publishes them, and the debug registry is closed to
+  shipped packages (§57.3).
+
+#### 103.7.2 The module: a part of REDLINE.O88
+
+Redline's segment had 3.7 KB free when the tab was written, and the tab's
+probes, pages and text are ~13 KB. So they are a **lazy, compressed code part**
+of REDLINE.O88 (§20.12), Sheet's chart module's shape (82.16.12):
+`apps/redline/inspmod.inc` is `section .modi`, assembled with the package so
+that every package symbol it names is the package's own address, and
+`tools/os88ovl.py` cuts it off the image at the size the header records.
+
+- **It is fetched on the first entry to the tab** - out of REDLINE.O88 in the
+  instance's folder, which is the one it was launched from because REDLINE
+  never moves its instance (no file dialog, no GOTO), so PiXEL's home-and-back
+  bracket would be bytes for nothing - and kept for the session. Without it the pane says
+  `Inspect module not read`, and op_fetch has already said why.
+- **Its claim is MOVABLE between calls** (`op_movable`, `OP_ONMOVE` =
+  `ri_mreloc`) and **PINNED for the length of one** (`op_pin`), because a
+  CS on the stack is a segment no relocation proc can put right. The far
+  vector is rebuilt from `op_cseg` at every call.
+- **CS = the module, DS = the module's data** (`RIM_SELF`, stamped before
+  every call), and ES = the package on entry. It copies the package's facts
+  once per probe and never touches the package again.
+- **It never speaks, draws, claims or calls a file slot.** The
+  OSAPI_VOL_STAT and FILE_HERE answers, which are the CALLER's, and the
+  clock, which times resident code, are taken by the resident half
+  (`ri_pf`) and copied in with the rest.
+- **The lines are the module's** (80 a page, 72 cells). The resident painter
+  copies one line at a time into the front of `bl_out` - idle whenever a page
+  is painted, live only inside a save - because `OSAPI_FONT_RUN` reads the
+  caller's segment.
+
+Its verbs are `RIM_PROBE`, `RIM_COMPOSE` (page AH, out AX = lines) and
+`RIM_TEXT` (page AH turned into CR LF text IN PLACE in its lines - a line's
+text is never longer than its slot, so no second buffer - out AX = bytes). The part is
+about 20 KB in memory, most of it the lines and the state, and compresses to a
+fraction of that on the disk. The package's image + bss is **64,912 of
+APP_MAX_SIZE's 65,024**; anything more the tab wants goes in the module.
+
+#### 103.7.3 The report
+
+**Save report** writes every page, in order, into `INSPECT.TXT` numbered the
+way REDLINE's other reports are (`INSPECT1.TXT`, `INSPECT2.TXT`, the first
+free) in the instance's current directory, a blank line between pages,
+through `os88wseq.inc`'s stream (18.4.9.4) - an append of any size - with
+`bl_out` for its 8 KB buffer. The module turns each page into text in its
+own lines and the stream takes it from there, so a page is any length and
+nothing is claimed. A toast says the name, or `Report not saved`.
 
 ## 105. MIDIRack — a MIDI file player (`apps/midirack/`)
 
