@@ -138,4 +138,6 @@
 #             reset log tells a bracket's drop from a reflection
 #             (tests/megarmb286.py). Both run across the drop, in .text
 # 2026-11-01: to 3,357, mega_parkcap (a debugger's cap) MEGADIAG=1 only
-3357
+# 2026-11-01: to 3,231, bootonce2: the four refusal strings into `.mega`,
+#             read at a refusal through `.mega`'s low copy (-124 `.text`)
+3231

@@ -10,18 +10,18 @@ agent found are folded into `docs/plans/ABI-BREAK-LIST.md` section 10.
 
 | kern_mega | base `ead16c61` | tip | delta |
 |---|---:|---:|---:|
-| `.text` | 46,579 | 46,310 | **-269** |
+| `.text` | 46,579 | 46,182 | **-397** |
 | `.bss` | 5,427 | 5,428 | +1 |
 | `.lowbss` | 6,751 | 5,569 | **-1,182** |
 | `.vgabuf` | 336 | 336 | 0 |
-| **conventional, after the switch** | **59,093** | **57,643** | **-1,450** |
-| `.cold` (above 1MB) | 46,165 | 45,863 | -302 |
-| `.mega` (above 1MB) + scratch | 21,440 + 1,490 | 21,280 + 1,510 | -160 (+20) |
+| **conventional, after the switch** | **59,093** | **57,515** | **-1,578** |
+| `.cold` (above 1MB) | 46,165 | 45,866 | -299 |
+| `.mega` (above 1MB) + scratch | 21,440 + 1,490 | 21,408 + 1,510 | -32 (+20) |
 | `.boot2` (given back) | 6,709 | 6,739 | +30 |
 | `.ovl` | 5,118 | 5,118 | 0 |
-| **resident after the switch** (`MEGA_RESIDENT`) | **65,024** | **63,488** | **-1,536** (4,608 spare of 68,096) |
-| **`KERN_SIZE` at boot** | **134,656** | **132,608** | **-2,048** |
-| `.text`+`.bss` window | 52,006 | 51,738 | 13,798 left; `tests/megaseg.txt` 3,627 -> 3,359 |
+| **resident after the switch** (`MEGA_RESIDENT`) | **65,024** | **62,976** | **-2,048** (5,120 spare of 68,096) |
+| **`KERN_SIZE` at boot** | **134,656** | **132,096** | **-2,560** |
+| `.text`+`.bss` window | 52,006 | 51,610 | 13,926 left; `tests/megaseg.txt` 3,627 -> 3,231 |
 
 Module images on kern_mega (modcsdo, plus megados/pmmem in HIBER.DRV):
 CTRL -136, FORMAT -119, DISKOPS -346 (and the coordinator's door callers),
@@ -45,6 +45,9 @@ half in the blob (`mega_gateb`), -18 `.text`, -41 `.cold`, one more `.cold`
 rung; **pmfd** -12 `.text`, -160 `.mega`, the floppy's time-out as one
 longjmp (~75 clocks a transfer faster); **modcsdo** -1,029 bytes of module
 images (CSDO runs); **abilist** `docs/plans/ABI-BREAK-LIST.md`.
+
+(The tip is after the owner's answers: `mega_parkcap` gated and bootonce2's
+refusal strings moved into `.mega`, -124 `.text`.)
 
 ## WHAT THE MERGE ITSELF CHANGED
 
@@ -127,3 +130,9 @@ images (CSDO runs); **abilist** `docs/plans/ABI-BREAK-LIST.md`.
   `BOOTMARK=1 MEGADIAG=1`**, a pair no build-matrix row assembles.
 * A hibernate image from a kernel before this pass is refused at resume
   (run 0 grew by the tables' tail) - the cross-build rule, as designed.
+* **Every kern_mega refusal toast is TRUNCATED** (bootonce2, on the base
+  too): the toast holds 24 characters and the four lines are 25-41, so the
+  no-room one reads `real mode: no room for k`. `tests/unit/t_toast.py`
+  cannot see them (the string reaches `toast_show` through DX). Rewording is
+  the owner's: bootonce2 suggests `No PM: 8086-class CPU`, `No PM: no table
+  room`, `No PM: A20 will not open`, `No PM: an older task`.
