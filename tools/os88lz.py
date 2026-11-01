@@ -207,7 +207,7 @@ LZ4_SKIP = 256                  # a match this long is followed, not searched
                                 # taken to be this one a byte shorter
 
 
-def lz4_compress(src, depth=128, tail=True, parse="opt"):
+def lz4_compress(src, depth=512, tail=True, parse="opt"):
     """An OPTIMAL parse over hash chains - the cheapest LZ4 stream for the
     matches the chains find, priced in the format's real bytes.
 
