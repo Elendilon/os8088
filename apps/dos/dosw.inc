@@ -1362,7 +1362,15 @@ dvw_kpop:                           ; ZF = 1 empty, else AX = it, taken
 dvw_wake:
     cmp byte [dvw_fsreq], 0         ; Alt+Enter, or a graphics mode set
     je .nofs
-    call dvw_fsenter
+    call OSAPI_GFX_LOCK             ; THE FULL SCREEN, with the worker KEPT
+    mov ax, dvw_fsmain
+    mov bx, [dos_win]
+    mov cx, FSXF_KEEPWORKER         ; the program goes on running in there
+    call OSAPI_FSX_RUN
+    jnc .fsok
+    mov byte [dvw_fsreq], 0         ; refused: dvw_shunt hears no
+.fsok:
+    call OSAPI_GFX_UNLOCK
 .nofs:
     call dvw_serve
     call dvw_capt                   ; what the program wrote itself (96.54.5-6)
@@ -1398,9 +1406,10 @@ dvw_wake:
     call dos_pkt_shut
     call dos_drv_back
     call dos_cache_free
-    cmp byte [dvw_closeq], 0        ; the close dvw_onclose refused, now
-    je .said                        ; that nothing of the run is left
-    mov byte [dvw_closeq], 0
+    xor ax, ax                      ; the close dvw_onclose refused, now
+    xchg al, [dvw_closeq]           ; that nothing of the run is left
+    or al, al
+    jz .said
     mov bx, [dos_win]
     call OSAPI_WM_CLOSE             ; deferred to the next UI pass: return
     ret
@@ -1426,43 +1435,16 @@ dvw_shunt:
     call OSAPI_WM_WAKE              ; every pass, as dvw_post does
     call dvw_nap1
     cmp byte [dvw_fs], 0
-    jne .up
+    jne .up                         ; (CF = 0: nothing is below zero)
     cmp byte [dvw_kill], 0
     jne .no
     cmp byte [dvw_fsreq], 0
     jne .w
 .no:
-    pop ds
-    pop bx
     stc
-    ret
 .up:
     pop ds
     pop bx
-    clc
-    ret
-
-; -----------------------------------------------------------------------------
-; dvw_fsenter - the full screen, with the worker KEPT (dvw_wake, lock FREE)
-; -----------------------------------------------------------------------------
-dvw_fsenter:
-    push ax
-    push bx
-    push cx
-    call OSAPI_GFX_LOCK
-    mov ax, dvw_fsmain
-    mov bx, [dos_win]
-    mov cx, FSXF_KEEPWORKER         ; the program goes on running in here
-    call OSAPI_FSX_RUN
-    pushf
-    call OSAPI_GFX_UNLOCK
-    popf
-    jnc .ok
-    mov byte [dvw_fsreq], 0         ; refused: dvw_shunt hears no
-.ok:
-    pop cx
-    pop bx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1498,7 +1480,10 @@ dvw_fsmain:
     mov di, dos_fsi
     mov al, FSXM_TEXT80
     call OSAPI_FSX_MODE
-    jc .refused
+    jnc .on
+    mov byte [dvw_fsreq], 0         ; refused: dvw_shunt hears no
+    jmp .ret
+.on:
     mov ax, [dos_fsi + FSI_SEG]     ; ...and the window's screen onto it:
     mov [con_tseg], ax              ; dos_fsx_con's seed
     mov byte [con_tcur], 0xFF
@@ -1537,9 +1522,11 @@ dvw_fsmain:
     mov byte [dvw_frz], 0           ; ...and a FROZEN program thaws onto it
     sti
 .loop:
-    call dvw_serve
-    cmp byte [dvw_done], 0
+    call dvw_serve                  ; (a parking program may be waiting on a
+    cmp byte [dvw_done], 0          ; door to get there)
     jne .out                        ; it ended: dvw_fin has the screen
+    cmp byte [dvw_frz], 0           ; going back: no keys, only the park
+    jne .park
     call dos_fsx_ae
     jc .back
 .key:
@@ -1550,6 +1537,9 @@ dvw_fsmain:
     int 0x16
     call dvw_kput
     jmp short .key
+.park:
+    cmp byte [dvw_parked], 0
+    jne .parked
 .idle:
     mov al, FSXW_TICK
     call OSAPI_FSX_WAIT
@@ -1557,16 +1547,8 @@ dvw_fsmain:
 .back:
     cmp byte [dvw_gfx], 0
     jne .loop                       ; graphics: there is no text to bring back
-    mov byte [dvw_frz], 1
-.park:
-    call dvw_serve                  ; it may be waiting on a door to get there
-    cmp byte [dvw_done], 0
-    jne .out
-    cmp byte [dvw_parked], 0
-    jne .parked
-    mov al, FSXW_TICK
-    call OSAPI_FSX_WAIT
-    jmp short .park
+    mov byte [dvw_frz], 1           ; ...else park it, round the loop above
+    jmp short .loop
 .parked:
     cli                             ; the PROGRAM's BDA and screen, read with
     call dvw_xin                    ; its world swapped in for one copy and
@@ -1581,9 +1563,6 @@ dvw_fsmain:
 .inbr:
     mov byte [dvw_fs], 0
     call con_markall                ; the band is owed whole on the way back
-    jmp short .ret
-.refused:
-    mov byte [dvw_fsreq], 0
 .ret:
     pop es
     pop di
@@ -1626,10 +1605,10 @@ dvw_cpace:
     jne .post                       ; PROBED HERE** (96.54.6.1), one row, and
     cmp byte [cs:dvw_hprow], 0xFF   ; the UI task is woken only when it moved
     je .post                        ; - posting the pass to look was 1.9 of a
-    cmp byte [cs:dvw_fs], 0         ; (and not while the full screen or a
-    jne .r                          ; freeze owns the console: dvw_capt
-    cmp byte [cs:dvw_frz], 0        ; would not look either)
-    jne .r
+    cmp word [cs:dvw_fs], 0         ; (and not while the full screen or a
+    jne .r                          ; freeze owns the console - [dvw_frz] is
+                                    ; the byte after: dvw_capt would not look
+                                    ; either)
     push ax                         ; spinning program's 88 points
     push bx
     push cx
@@ -1652,7 +1631,7 @@ dvw_cpace:
     mov [cs:dvw_hprow], bl
     jmp short .pend
 .moved:
-    mov byte [cs:dvw_dirty], 1      ; (popf below is the CALLER's flags)
+    call .post                      ; (popf below is the CALLER's flags)
 .pend:
     popf
     pop si
@@ -1702,30 +1681,22 @@ dvw_cdetect:
     mov dx, [0]                     ; mirror would move
     mov ds, si
     mov bx, [0]                     ; ...and the candidate's own, kept
-    mov word [0], 0x5AA5
-    cmp word [0], 0x5AA5
+    mov ax, 0x5AA5
+    mov [0], ax
+    cmp [0], ax
     jne .back
-    mov word [0], 0xA55A
-    cmp word [0], 0xA55A
+    not ax                          ; A55Ah
+    mov [0], ax
+    cmp [0], ax
     jne .back
     mov ds, cx
     cmp [0], dx                     ; unmoved: two memories, not one
     mov ds, si
-    mov [0], bx
-    jne .miss
-    push cs
-    pop ds
-    mov [dvw_cseg], si
-    pop ds
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    clc
-    ret
 .back:
-    mov [0], bx
+    mov [0], bx                     ; (ZF = 0 from either jne)
+    jne .miss
+    mov [cs:dvw_cseg], si           ; (CF = 0: the compare found them equal)
+    jmp short .x
 .miss:
     push cs                         ; **NO CGA AT B800 UNDER A HERCULES: ITS
     pop ds                          ; OWN PAGE 1 IS** (96.54.6.1). 3BFh bit 1
@@ -1741,13 +1712,14 @@ dvw_cdetect:
     popf
     jnz .try
 .no:
+    stc
+.x:
     pop ds
     pop si
     pop dx
     pop cx
     pop bx
     pop ax
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1792,10 +1764,9 @@ dvw_cprog:
     mov al, ah
     out dx, al
     inc dx
-    mov al, [cs:si]
+    cs lodsb
     out dx, al
     dec dx
-    inc si
     inc ah
     loop .reg
     pop ax
@@ -1850,7 +1821,7 @@ dvw_cmset:
     rep stosw
     mov ax, 0x40
     mov es, ax
-    mov word [es:0x50], 0           ; page 0's cursor home
+    mov [es:0x50], cx               ; page 0's cursor home (CX = 0)
     pop es
     pop di
     pop cx
@@ -1897,10 +1868,9 @@ dvw_tvmark:
 dvw_capt:
     cmp byte [dvw_cmode], 0
     je .r
-    cmp byte [dvw_fs], 0            ; the full screen owns the glass, and a
+    cmp word [dvw_fs], 0            ; the full screen owns the glass, and a
     jne .r                          ; FROZEN program's console is its capture
-    cmp byte [dvw_frz], 0
-    jne .r
+                                    ; ([dvw_frz], the byte after)
     push ax
     push bx
     push cx
@@ -1912,22 +1882,16 @@ dvw_capt:
     push ds
     pop es
     xor bx, bx                      ; BX = the row
-    cmp byte [dvw_cmode], DVWC_SEG
+    mov al, [dvw_cmode]
+    cmp al, DVWC_SEG
     je .seg
-    cmp byte [dvw_cmode], DVWC_HP
+    cmp al, DVWC_HP
     je .hp
+    mov si, con_scr
 .sum:                               ; --- TopView: a sum per row -----------
-    mov si, bx
-    mov ax, CON_COLS * 2
-    mul si
-    mov si, ax
-    add si, con_scr
-    call dvw_rsum
-    mov si, bx
-    shl si, 1
-    cmp [dvw_sums + si], dx
+    call dvw_rsum                   ; (SI to the next row)
+    call dvw_sumst
     je .snext
-    mov [dvw_sums + si], dx
     call con_mark
 .snext:
     inc bx
@@ -1952,21 +1916,19 @@ dvw_capt:
 .hpend:
     jmp .done
 .seg:                               ; --- the other card: copy what moved --
+    xor si, si                      ; DS:SI the card's row...
+    mov di, con_scr                 ; ...ES:DI ours
+.segrow:
     push ds
-    mov ax, CON_COLS * 2
-    mul bx
-    mov si, ax                      ; DS:SI the card's row...
-    mov di, ax
-    add di, con_scr                 ; ...ES:DI ours
     mov ds, [cs:dvw_cseg]
     mov cx, CON_COLS
-    push si
-    push di
-    repe cmpsw
-    pop di
-    pop si
+    repe cmpsw                      ; equal to the end: both past the row
     je .same
-    mov cx, CON_COLS
+    dec si                          ; ...else the rest from the first word
+    dec si                          ; that differs, which leaves both past
+    dec di                          ; it too
+    dec di
+    inc cx
     rep movsw
     pop ds
     call con_mark
@@ -1976,7 +1938,7 @@ dvw_capt:
 .gnext:
     inc bx
     cmp bx, CON_ROWS
-    jb .seg
+    jb .segrow
     mov ax, [dvw_xblk + DVW_XB_VID + 7]     ; the program's cursor, its BDA
     xor dh, dh                              ; being in the block while the
     mov dl, al                              ; world is out
@@ -2036,15 +1998,23 @@ dvw_hpsum:
     sub si, CON_COLS * 2
     ret
 
+; dvw_sumst - DX = row BX's sum now: ZF=1 it is the one [dvw_sums] holds
+; (and CF=0), else it is stored there. Clobbers DI
+dvw_sumst:
+    mov di, bx
+    shl di, 1
+    cmp [dvw_sums + di], dx
+    je .r
+    mov [dvw_sums + di], dx         ; (ZF = 0 still)
+.r:
+    ret
+
 ; dvw_hprw - page 1's row BX: CF=1 it moved, and it is copied into the
 ; console and marked. Keeps BX; clobbers AX, CX, DX, SI, DI
 dvw_hprw:
     call dvw_hpsum
-    mov di, bx
-    shl di, 1
-    cmp [dvw_sums + di], dx
+    call dvw_sumst
     je .same                        ; (CF = 0)
-    mov [dvw_sums + di], dx
     mov di, si
     add di, con_scr
     push ds
@@ -2069,13 +2039,11 @@ dvw_hprw:
 ; anywhere else.
 dvw_onclose:
     cmp byte [dvw_run], 0
-    je .ok
+    je .ok                          ; (CF = 0)
     mov byte [dvw_kill], 1          ; the worker's next tick terminates it...
     mov byte [dvw_closeq], 1        ; ...and dvw_wake closes us afterwards
     stc
-    ret
 .ok:
-    clc
     ret
 
 %endif                              ; DVW

@@ -19047,8 +19047,9 @@ dvw_kh      equ dvw_want + 11   ; the key ring's head...
 dvw_kt      equ dvw_want + 12   ; ...and tail
 dvw_closeq  equ dvw_want + 13   ; a refused close, owed when the run ends
 dvw_fs      equ dvw_want + 14   ; the program is on the FULL SCREEN
-dvw_fsreq   equ dvw_want + 15   ; ...asked for: Alt+Enter, or a graphics mode
-dvw_frz     equ dvw_want + 16   ; FROZEN in the window (96.54.1)
+dvw_frz     equ dvw_want + 15   ; FROZEN in the window (96.54.1) - the byte
+                                ; after dvw_fs, so one word tests the pair
+dvw_fsreq   equ dvw_want + 16   ; ...asked for: Alt+Enter, or a graphics mode
 dvw_parked  equ dvw_want + 17   ; ...and the worker has stopped for it
 dvw_gfx     equ dvw_want + 18   ; it set a graphics mode: no way back
 dvw_cmode   equ dvw_want + 19   ; 0, DVWC_TV, _SEG or _HP (96.54.5-6.1)
