@@ -63,7 +63,7 @@ CORE_ORG    equ 0x0080
 ; CORE alone spends, both hosts read, and whose slack is one number in one
 ; place. Measured at the wave, with the assertion in `apps/dos/doscore.asm`.
 %ifndef DOS_MEGA
-CORE_MAX    equ 15472            ; +512 for SPEC.md 96.7.2's stack swap and
+CORE_MAX    equ 15440            ; +512 for SPEC.md 96.7.2's stack swap and
                                 ; 96.12.5's name truncation, which are 214
                                 ; bytes between them against 89 of slack. The
                                 ; two are the Playroom's whole report: a gate
@@ -118,8 +118,17 @@ CORE_MAX    equ 15472            ; +512 for SPEC.md 96.7.2's stack swap and
                                 ; was a 34KB rung for kern_dos. dos_m33_evt
                                 ; testing BL where it copied it to SI first
                                 ; took four back: CORE_MAX stays 15,472
+                                ; -32 for SPEC.md 96.54.8's SIZE PASS, which
+                                ; paid for the mouse hook's reset and kept
+                                ; 32: twenty adds and subs of 1 and 2 as
+                                ; inc/dec (19, the carry read by none of
+                                ; them), and ten shared epilogues into two
+                                ; OS88_POPLADDERs (25), less the reset's 5
+                                ; that dos_cpm's padding absorbed - 15,430
+                                ; used. kern_mega's core falls with it,
+                                ; 16,080 used of 16,096
 %else                           ; **kern_mega's core is 67 bytes longer**:
-CORE_MAX    equ 16128            ; SPEC.md 96.15.4's extended-to-extended
+CORE_MAX    equ 16096            ; SPEC.md 96.15.4's extended-to-extended
 %endif                          ; move (dos_xms_move's `.bothx`), 15,409 used.
                                 ; +80, kept a multiple of 16, and paid ONLY by
                                 ; kern_mega's DOS.O88 - both of its hosts

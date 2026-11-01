@@ -2,10 +2,11 @@
 
 **Status: EVERY WAVE IS BUILT (SPEC.md 96.54 and 96.54.1-7; `apps/dos/dosw.inc`
 and `doswm.inc`; rows `doswlive`, `doswfs`, `doswtwo`, `doswspin`, `doswcap`,
-`doswcell`, `doswmouse`), with two deliberate exceptions stated where they
-belong: §7.1 (one host, many sessions) is not taken, and the lone Hercules's
-second page (§7.2) is not switched on - §10.6 says why. §10 onward is what
-was built and measured; the sections before it are the plan as written.**
+`doswcell`, `doswmouse`), with one deliberate exception stated where it
+belongs: §7.1 (one host, many sessions) is not taken. The lone Hercules's
+second page (§7.2) IS switched on now - SPEC.md 96.54.6.1, +78 bytes, checked
+on MartyPC and 86Box alike. §10 onward is what was built and measured; the
+sections before it are the plan as written.**
 
 SPEC.md 96 is the contract for the DOS that exists. This plan changes none of
 it yet; the SPEC section for the windowed run is written by wave 1, before the
@@ -726,9 +727,15 @@ row sums (SPEC.md 96.54.5), and the CAPTURE of a second card's text RAM
 shows is the other card's, `B800` under a Hercules desktop and `B000` under
 anything else, decided at every run from published facts (RAM, not an alias
 of the desktop's framebuffer, desktop not extended onto it). The lone
-Hercules's second page is NOT enabled: it means writing `3BFh` under a kernel
-that keeps the bit clear on purpose, and MartyPC decodes `B800` onto `B000`
-there anyway, so the alias test refuses it.
+Hercules's second page was NOT enabled in this wave: it means writing `3BFh`
+under a kernel that keeps the bit clear on purpose. **It is now** (SPEC.md
+96.54.6.1, +78 bytes): the bit is kept clear only because a CGA would answer
+at B800 too, and the CGA case is tested first, so it is turned on only where
+nothing else can. What this wave read as "MartyPC decodes B800 onto B000"
+was MartyPC latching its decode on a `3B8h` write and nowhere else, so
+`dvw_hpage` writes the desktop's own 0Ah there after each `3BFh` change;
+86Box maps B8000 straight off `3BFh`, as the card does, and passes the row
+too.
 
 **Microsoft Works 1.05 runs live in a window** on the owner's arrangement
 (Hercules desktop + CGA), and it took three findings to get there, all three

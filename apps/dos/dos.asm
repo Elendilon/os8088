@@ -220,6 +220,9 @@ DOS_ENVP    equ 32                  ; 512 bytes of environment block. IT WAS
                                     ; number anybody may pick
 DOS_ENVMCB  equ 0                   ; para 0     : the environment's MCB
 DOS_ENVSEG  equ 1                   ; para 1     : the environment itself
+%if DOS_ENVSEG != 1
+ %error "an `inc ax` stands for `add ax, DOS_ENVSEG` (size pass, SPEC.md 96.54.8)"
+%endif
 DOS_PRGMCB  equ DOS_ENVSEG+DOS_ENVP ; para 9     : the program's MCB ('Z')
 DOS_PSPP    equ DOS_PRGMCB+1        ; para 10    : the PSP
 DOS_IMGP    equ DOS_PSPP+16         ; para 26    : the image, at PSP:0100
@@ -1738,14 +1741,7 @@ dos_run:
                                     ; ended, the drivers must stay out for the
                                     ; pass to have their space, and the window
                                     ; still says what it said (SPEC.md 96.35.1)
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp dos_hpop_7                  ; the host's shared epilogue (96.54.8)
 
 ; -----------------------------------------------------------------------------
 ; dos_repaint - the content, under a lock WE take
@@ -2508,6 +2504,16 @@ dos_hook_vectors:
     mov [es:bx+2], cs
     jmp short .hk
 .hkd:
+    mov byte [dos_m33hk], 0             ; **A FRESH TABLE HOOKS NOTHING YET**
+                                        ; (SPEC.md 96.54.8): dos_m33_arm hooks
+                                        ; IRQ0 once, on a program's first
+                                        ; 0Ch, and the flag outlived the run
+                                        ; that set it - so the NEXT run's
+                                        ; handler was never hooked, in the
+                                        ; bracket (whose restore puts the
+                                        ; whole IVT back) and in a window
+                                        ; alike. Cleared with the table it
+                                        ; describes
     call dos_m33_hidden                 ; **AND THE CURSOR STARTS AWAY**
                                         ; (SPEC.md 96.10.5): the show counter
                                         ; is -1, which is not the zero a bss
@@ -2813,14 +2819,7 @@ dos_build_psp:
     call dos_psp_make               ; ...which is a routine of its own, because
                                     ; AH=4Bh's child needs one too (SPEC.md
                                     ; 96.14) and it is not at the arena's base
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp dos_popa_7                  ; the shared epilogue (SPEC.md 96.54.8)
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
@@ -3027,7 +3026,7 @@ dos_psp_make:
     mov word [es:di-0x2C+0x38], 0xFFFF  ; the previous PSP: DOS 3 leaves
     mov word [es:di-0x2C+0x3A], 0xFFFF  ; FFFF:FFFF and a program may test for it
     mov ax, [dos_arena]
-    add ax, DOS_ENVSEG
+    inc ax
     mov [es:di-0x2C+0x2C], ax       ; ...and one environment, shared: a child
                                     ; inherits the parent's, which is the
                                     ; default AH=4Bh's block asks for with a 0
@@ -3067,10 +3066,12 @@ dos_psp_make:
 .small:
     mov cl, 4
     shl ax, cl
-    sub ax, 2
+    dec ax
+    dec ax
     mov bx, ax
 .sp:
-    sub bx, 2                       ; ...and the 0 word DOS pushes, which is
+    dec bx                          ; ...and the 0 word DOS pushes, which is
+    dec bx
     mov [dos_prgsp], bx             ; the offset half of that PSP:0000 return
     mov word [es:bx], 0
 .nostk:
@@ -3168,6 +3169,18 @@ dos_ldrd:
     jmp short dos_ldrd
 .ret:
     ret
+
+; -----------------------------------------------------------------------------
+; dos_popa_N / dos_popb_N - the core's two shared epilogues (SPEC.md 96.54.8,
+; os88api.inc's OS88_POPLADDER). Ten routines ended in the same seven or six
+; pops and a `ret`; each ends in a near jump here instead - three bytes for
+; eight or seven. Two ladders because the two shapes cannot share one: the
+; six-register routines push BX..ES and not AX, and their `ret` comes straight
+; after `pop bx`. A near jump costs no stack, so no slice is deeper for it.
+; Placed AFTER dos_cpm's `align 16`, where its bytes are not paid for twice.
+; -----------------------------------------------------------------------------
+    OS88_POPLADDER dos_popa, ax, bx, cx, dx, si, di, es
+    OS88_POPLADDER dos_popb, bx, cx, dx, si, di, es
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
@@ -3864,7 +3877,8 @@ DOS_T21_N equ ($ - .t21) / 2        ; ...or .bad for a function we lack
     pop es
     pop di
     pop si
-    add sp, 2                       ; BX is an ANSWER: drop the banked one
+    inc sp                          ; BX is an ANSWER: drop the banked one
+    inc sp
     mov [bp-8], dx                  ; ...and so is DX (SPEC.md 96.7.1)
     jmp .ok
 .dfbad:
@@ -3903,7 +3917,8 @@ DOS_T21_N equ ($ - .t21) / 2        ; ...or .bad for a function we lack
     mov word [es:di+DTA_ORD], 0     ; there: .fstep below wants the DTA's BASE,
     push si                         ; and a stosw/rep movsb pair would leave it
     push di                         ; fifteen bytes along - which reads the
-    add di, DTA_PAT                 ; ordinal out of the pattern
+    inc di                          ; ordinal out of the pattern
+    inc di
     mov si, dos_fname
     mov cx, 13                      ; the pattern lives in the DTA, so AH=4Fh
     cld                             ; needs no state of ours at all. DOS keeps
@@ -4010,7 +4025,8 @@ DOS_T21_N equ ($ - .t21) / 2        ; ...or .bad for a function we lack
     sub al, 32
 .pf_dup:
     sub al, 'A' - 1                 ; the FCB numbers A: as 1, not as 0
-    add si, 2
+    inc si
+    inc si
     cmp al, DVOL_MAX
     jbe .pf_drvset
     mov bh, 0xFF                    ; past the last drive - and the byte STILL
@@ -4873,7 +4889,8 @@ dos_terminate:
     mov ax, [cs:dos_psv_ss]
     mov ss, ax
     mov ax, [cs:dos_psv_sp]
-    sub ax, 2
+    dec ax
+    dec ax
     mov sp, ax
     sti
     push cs
@@ -5144,14 +5161,7 @@ dos_trace_dump:
                                     ; in the directory the program was
                                     ; launched from
 .nopart:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp dos_hpop_7                  ; the host's shared epilogue (96.54.8)
 %endif                              ; KD_BACKEND
 
 dos_trace:
@@ -6000,6 +6010,10 @@ dos_betab:
     dw dos_k_here, dos_k_vkind, dos_k_rseq, dos_k_wseq
 
 %include "dosw.inc"                 ; the live window (SPEC.md 96.54)
+; dos_hpop_N - the WINDOWED HOST's shared epilogue (SPEC.md 96.54.8): nine of
+; its routines ended in the same seven pops and a `ret`. The core has its own
+; two (dos_popa/dos_popb) - it is assembled apart and cannot name this one.
+    OS88_POPLADDER dos_hpop, ax, bx, cx, dx, si, di, es
 %include "doswm.inc"                ; ...and its mouse (SPEC.md 96.54.4)
 %endif                              ; KD_BACKEND
 %ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
@@ -6618,14 +6632,7 @@ dos_path_make:
     call .sync
     stc
 .out:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp dos_hpop_7                  ; the host's shared epilogue (96.54.8)
 
 ; --- .sync - the FIELD, re-measured from the text just written -------------
 ; **INSIDE THE PROC AND NOT BESIDE ONE CALLER** (SPEC.md 96.33.10.1).
@@ -6713,7 +6720,8 @@ dos_pt_body:
     cmp al, 26
     jae .no
     mov [dos_tvol], al
-    add si, 2
+    inc si
+    inc si
     jmp short .havevol
 .novol:
     mov al, [dos_vol]
@@ -7024,14 +7032,7 @@ dos_sav_done:
     mov si, [dos_win]
     call dos_paint                  ; the dialog's window was destroyed over
                                     ; ours and nothing else will put it back
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp dos_hpop_7                  ; the host's shared epilogue (96.54.8)
 
 ; -----------------------------------------------------------------------------
 ; -----------------------------------------------------------------------------
@@ -9968,14 +9969,7 @@ dos_lnk_open:
     jc .out
     call dos_fld_reload             ; the fields show what the link carried
 .out:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp dos_hpop_7                  ; the host's shared epilogue (96.54.8)
 
 ; --- dos_is_lnk - does the NUL 8.3 name at SI end in .LNK? ------------------
 ; out: CF=0 yes. Case-insensitive: a FAT name is upper case and this one came
@@ -10126,7 +10120,8 @@ dos_lnk_str:
     mov ax, di
     sub ax, dos_lbuf
     add ax, cx
-    add ax, 2
+    inc ax
+    inc ax
     cmp ax, LNK_MAX
     ja .no
     mov ax, cx
@@ -10739,7 +10734,8 @@ dos_lnk_takeb:
     cmp ax, 2
     jb .no
     mov cx, [dos_lbuf+si]
-    add si, 2
+    inc si
+    inc si
     mov bx, [dos_lend]
     sub bx, si
     cmp cx, bx
@@ -13552,6 +13548,9 @@ dos_fh_setup:
 ; DTAs, cannot tread on each other. DOS does exactly this, for exactly that.
 DTA_ORD     equ 0                   ; word: the kernel ordinal to ask next
 DTA_PAT     equ 2                   ; char[13]: the pattern, as it was given
+%if DTA_PAT != 2
+ %error "`inc di` twice stands for `add di, DTA_PAT` (size pass, SPEC.md 96.54.8)"
+%endif
 DTA_MASK    equ 15                  ; byte: the ATTRIBUTE MASK AH=4Eh was
                                     ; given, which DOS also keeps in the
                                     ; reserved head of the DTA. AH=4Fh needs
@@ -13606,7 +13605,8 @@ dos_find_step:
                                     ; not a file a DOS program can be shown
     mov di, [dos_dtasv]
     mov es, [dos_dtasvs]
-    add di, DTA_PAT
+    inc di
+    inc di
     mov si, dos_fent
     call dos_wild                   ; DS:SI the name, ES:DI the pattern
     mov cx, [dos_ford]
@@ -13659,13 +13659,7 @@ dos_find_step:
     mov al, 18
     stc
 .out:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp dos_popb_6                  ; the shared epilogue (SPEC.md 96.54.8)
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
@@ -13930,14 +13924,7 @@ dos_cd_go:
 .no:
     stc
 .out:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp dos_popa_7                  ; the shared epilogue (SPEC.md 96.54.8)
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
@@ -14085,14 +14072,7 @@ dos_drv_sel:
                                 ; what a real DOS does, AH=0Eh touching no
                                 ; drive at all
 .out:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp dos_popa_7                  ; the shared epilogue (SPEC.md 96.54.8)
 %endif                              ; DOS_EXTCORE
 
 ; =============================================================================
@@ -14456,14 +14436,7 @@ dos_time_set:
     mov [es:0x6E], di
     mov [dos_lasttl], si            ; ...and midnight is measured from here now
     mov [dos_lastth], di
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp dos_popa_7                  ; the shared epilogue (SPEC.md 96.54.8)
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
@@ -14604,13 +14577,7 @@ dos_exec_load:
 .err:
     stc
 .out:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp dos_popb_6                  ; the shared epilogue (SPEC.md 96.54.8)
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
@@ -14855,7 +14822,7 @@ dos_xms_ent:
     jmp .out
 .ver:
     mov ax, 0x0300                  ; XMS 3.0
-    mov bx, 0
+    xor bx, bx
     xor dx, dx                      ; ...and NO HMA: the high memory area is a
     jmp .out                        ; 286 addressing trick and this is an 8086
                                     ; contract (SPEC.md 96.15.2)
@@ -16702,14 +16669,7 @@ dos_drv_take:
 .sound:
     call dos_blaster_set
 .out:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp dos_hpop_7                  ; the host's shared epilogue (96.54.8)
 
 ; -----------------------------------------------------------------------------
 ; dos_drv_back - ...and back again
@@ -16738,14 +16698,7 @@ dos_drv_back:
                                     ; outlive the call that meant it
     call OSAPI_DRV_SUSPEND
     mov byte [dos_drvout], 0
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp dos_hpop_7                  ; the host's shared epilogue (96.54.8)
 
 ; -----------------------------------------------------------------------------
 ; dos_blaster_set - "BLASTER=A220 I5 D1 T4" from the record at SI
@@ -17106,13 +17059,7 @@ dos_fh_rdloop:
 .rerr:
     stc
 .rout:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp dos_popb_6                  ; the shared epilogue (SPEC.md 96.54.8)
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
@@ -17615,13 +17562,7 @@ dos_fh_wiloop:
 .ierr:
     stc
 .iout:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp dos_popb_6                  ; the shared epilogue (SPEC.md 96.54.8)
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
@@ -17690,13 +17631,7 @@ dos_fh_wrloop:
 .werr:
     stc
 .wout:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp dos_popb_6                  ; the shared epilogue (SPEC.md 96.54.8)
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
@@ -17931,7 +17866,8 @@ dos_fh_core:
     cmp byte [si+1], ':'            ; and goes in [dos_fdrv], where dos_fh_enter
     jne .nodrv                      ; picks it up. A LETTER IS NOT CHECKED HERE:
     mov al, [si]                    ; anything that is not a volume falls out of
-    add si, 2                       ; range and dos_fh_enter refuses it with the
+    inc si                          ; range and dos_fh_enter refuses it with the
+    inc si
     cmp al, 'a'                     ; code a real DOS gives, which is 3 and not
     jb .drvup                       ; 15 (measured - drvname.asm under IBM DOS
     cmp al, 'z'                     ; 3.30)
@@ -17948,7 +17884,8 @@ dos_fh_core:
     cmp byte [si+1], '/'
     jne .nodot
 .skip2:
-    add si, 2
+    inc si
+    inc si
 .nodot:
     mov byte [es:dos_fabs], 0       ; A LEADING SEPARATOR IS STRIPPED AND
     cmp byte [si], '\'              ; REMEMBERED (SPEC.md 96.12.2): "\" is the
@@ -18573,14 +18510,7 @@ dos_fh_flush:
     stc                             ; answers for a write that will not go
     ret
 .out:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp dos_popa_7                  ; the shared epilogue (SPEC.md 96.54.8)
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
@@ -19110,7 +19040,8 @@ dvw_in      equ dvw_want + 5    ; the instance's world is in the IVT
 dvw_spawn   equ dvw_want + 6    ; the worker exists (it is for ever)
 dvw_rq      equ dvw_want + 7    ; a door: 1 posted, 2 served, 0 done
 dvw_dirty   equ dvw_want + 8    ; the console owes the band a paint
-                                ; (+ 9 was dvw_walk's mode byte, 96.54.3)
+dvw_chp     equ dvw_want + 9    ; the capture is a lone Hercules's PAGE 1
+                                ; (96.54.6.1; + 9 was dvw_walk's, 96.54.3)
 dvw_poll    equ dvw_want + 10   ; empty AH=01h polls, for the yield
 dvw_kh      equ dvw_want + 11   ; the key ring's head...
 dvw_kt      equ dvw_want + 12   ; ...and tail

@@ -157,7 +157,28 @@ dvw_xin:                        ; IF = 0; preserves everything
     pop dx
     pop bx
     mov byte [cs:dvw_in], 1
+    cmp byte [cs:dvw_chp], 0    ; A LONE HERCULES'S PAGE 1 (96.54.6.1): its
+    je .r                       ; decode allowed again, a mode set or an
+    push ax                     ; unblank having put 3BFh back to 1 while
+    mov al, 3                   ; the world was out
+    call dvw_hpage
+    pop ax
 .r:
+    ret
+
+; dvw_hpage - 3BFh = AL, then 3B8h = the desktop's own 0Ah (96.54.6.1).
+; The mode register is written again because a card may latch its decode
+; there (MartyPC's re-derives its memory mask on 3B8h and nowhere else), and
+; 0Ah is what dvw_vguard writes anyway: graphics, page 0 SHOWN, video on.
+; Preserves all but AL and flags
+dvw_hpage:
+    push dx
+    mov dx, 0x3BF
+    out dx, al
+    mov dl, 0xB8
+    mov al, 0x0A
+    out dx, al
+    pop dx
     ret
 
 dvw_xout:                       ; IF = 0; preserves everything
@@ -684,9 +705,12 @@ dvw_runprog:
     jc .nocap                       ; (96.54.6): the other card's text RAM
     mov byte [dvw_cmode], DVWC_SEG
     mov byte [dos_inbr], 1          ; DOS's teletype is the ROM's: one truth
-    cmp word [dvw_cseg], 0xB000
-    jne .seed
+    cmp byte [dvw_chp], 0           ; a lone Hercules's page 1: mode 3 at
+    jne .crtc                       ; B800, the STATUS port its own 3BAh
+    cmp word [dvw_cseg], 0xB000     ; (a CGA's 3DAh reads FFh there, and a
+    jne .seed                       ; retrace wait on it never ends)
     mov byte [dvw_xblk + DVW_XB_VID], 7         ; mode 7 at B000, its CRTC
+.crtc:
     mov word [dvw_xblk + DVW_XB_VID + 0x1A], 0x03B4
 .seed:
     call dvw_cprog                  ; its 6845 RUNNING, or a snow-avoiding
@@ -1597,9 +1621,11 @@ dvw_cdetect:
     je .cand
     xchg si, cx                     ; under the rest, the mono card's
 .cand:
+    mov byte [dvw_chp], 0
     mov bx, 2
     call OSAPI_FSX_CAPS             ; CF = 0: a second display IS desktop
     jnc .no
+.try:
     mov ds, cx                      ; the OTHER segment's word, which a
     mov dx, [0]                     ; mirror would move
     mov ds, si
@@ -1614,7 +1640,7 @@ dvw_cdetect:
     cmp [0], dx                     ; unmoved: two memories, not one
     mov ds, si
     mov [0], bx
-    jne .no
+    jne .miss
     push cs
     pop ds
     mov [dvw_cseg], si
@@ -1628,6 +1654,20 @@ dvw_cdetect:
     ret
 .back:
     mov [0], bx
+.miss:
+    push cs                         ; **NO CGA AT B800 UNDER A HERCULES: ITS
+    pop ds                          ; OWN PAGE 1 IS** (96.54.6.1). 3BFh bit 1
+    cmp si, 0xB800                  ; turns the second 32KB's decode on, which
+    jne .no                         ; vid_setmode leaves off only because a
+    mov al, 3                       ; CGA would answer there too - and the
+    xor byte [dvw_chp], 1           ; test above says none does. Page 0 stays
+    jnz .page                       ; what is SHOWN; the same test then
+    mov al, 1                       ; decides, so a card that mirrors (or
+.page:                              ; lacks the page) is refused, the decode
+    pushf                           ; put back
+    call dvw_hpage
+    popf
+    jnz .try
 .no:
     pop ds
     pop si
@@ -1699,6 +1739,11 @@ dvw_cprog:
 dvw_cblank:
     push ax
     push dx
+    cmp byte [cs:dvw_chp], 0        ; a Hercules's page 1: its decode off
+    je .card                        ; again, as vid_setmode leaves it - the
+    mov al, 1                       ; page itself was never shown
+    call dvw_hpage
+.card:
     mov dx, 0x3D8
     mov al, 0x21
     cmp word [cs:dvw_cseg], 0xB000

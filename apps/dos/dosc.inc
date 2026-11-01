@@ -1555,14 +1555,7 @@ dos_fsx_con:
 .done:
     mov byte [dos_fsxup], 0         ; ...INSIDE the bracket, so fsx_restore's
     call con_markall                ; repaint finds DOS windowed and the
-    pop es                          ; whole band owed, and dos_con_draw is
-    pop di                          ; whole band owed
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp dos_hpop_7                  ; the host's shared epilogue (96.54.8)
 
 ; --- dos_fsx_ae - Alt+Enter, off the key-state map (SPEC.md 96.33.5.1) -------
 ; in:  nothing; out: CF=1 = a FRESH press, CF=0 = the same hold, or nothing
@@ -1675,14 +1668,7 @@ dos_fsx_owed:
     cmp bx, CON_ROWS
     jb .row
     call con_tx_cursor
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp dos_hpop_7                  ; the host's shared epilogue (96.54.8)
 
 ; =============================================================================
 ; THE PROGRAM'S LAST SCREEN (SPEC.md 96.34)

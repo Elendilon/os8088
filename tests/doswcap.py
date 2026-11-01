@@ -13,18 +13,26 @@ it (DVWC_SEG):
      framebuffer at B000
   2  `q` ends it with exit code 113
 
-On `os8088_5150_herc_gla` - a lone Hercules, which MartyPC decodes at B800
-as well as B000 - the capture is REFUSED (a capture there would read and let
-the program write the desktop's own pixels), and a TopView-aware program is
-the one that still works:
-  3  tests/dostrap/dwtv.asm asks int 10h AH=FEh and is given the window's own
+On `os8088_5150_herc_gla` - a LONE Hercules - nothing answers at B800
+until 3BFh bit 1 turns the card's own second page on, so the capture is that
+page (SPEC.md 96.54.6.1):
+  3  DWDIRECT runs there: [dvw_chp] 1, [dvw_cseg] B800, its lines in the
+     band while it runs and not in page 0 (B000, the desktop's pixels), and
+     the program told a status port that moves (0040:0063 = 3B4h)
+  4  it ends, and the page's decode is OFF again: B800 reads FFh, as
+     vid_setmode leaves it
+
+On `os8088_xt_vga` - mode 12h, where neither B000 nor B800 is memory -
+there is nothing to capture, and a TopView-aware program is the one that
+still works:
+  5  tests/dostrap/dwtv.asm asks int 10h AH=FEh and is given the window's own
      buffer (our segment); [dvw_cseg] is 0 - no capture was taken
-  4  its lines reach the band while it runs - the even ones with no AH=FFh,
+  6  its lines reach the band while it runs - the even ones with no AH=FFh,
      found by the row sums, the odd ones marked by AH=FFh
 
 **Break it on purpose** (docs/WRITING-TESTS.md 1): with dvw_cdetect forced to
 answer CF=1, leg 1 reads [dvw_cmode] 0 and no DWDIRECT line in the band; with
-the alias test removed, leg 3 reads a capture on the lone Hercules.
+`.miss`'s 3BFh retry taken out, leg 3 reads no capture on the lone Hercules.
 """
 
 import os
@@ -43,6 +51,7 @@ import os88ui                                                  # noqa: E402
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 SYS = os.path.join(ROOT, "build", "os8088-360.img")
 DVWC_TV, DVWC_SEG = 1, 2
+XB_VID = (2 + 4 + 0x30 * 2) * 2 + 2     # dosw.inc's DVW_XB_VID
 
 
 def fail(msg):
@@ -122,6 +131,7 @@ def main():
     try:
         disk = build(tmp, ["dwdirect", "dwtv"])
         capture(disk)
+        hpage(disk)
         topview(disk)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -169,8 +179,64 @@ def capture(disk):
         print("doswcap: 2 `q` ended it, exit code 113")
 
 
-def topview(disk):
+def windowed(ui, name):
+    m = ui.m
+    if not ui.path("B:/%s.COM" % name):
+        fail("could not launch %s.COM" % name)
+    dos = Dos(m)
+    os88marty.pace(m, 2)
+    m.type_text("q")
+    if not until(m, lambda: not dos.b("dos_inbr"), "the bracket down", 40):
+        fail("%s's bracketed run never came down after `q`" % name)
+    os88marty.settle(m)
+    ui.raise_window(ui.window("DOS"))
+    ui.menu_pick("Program", "Run in Window")
+    if not until(m, lambda: dos.b("dvw_run") == 1, "the windowed run", 20):
+        fail("Run in Window put nothing on the worker")
+    return dos
+
+
+def hpage(disk):
     with os88ui.boot(SYS, apps=disk, machine="os8088_5150_herc_gla") as ui:
+        m = ui.m
+        if m.read(0xB8000, 2) != b"\xff\xff":
+            fail("a lone Hercules decodes B800 before anything allowed it - "
+                 "this machine cannot show the page being turned on")
+        dos = windowed(ui, "DWDIRECT")
+
+        # --- 3: its own page 1 ---------------------------------------------
+        if dos.b("dvw_cmode") != DVWC_SEG or dos.w("dvw_cseg") != 0xB800 \
+                or dos.b("dvw_chp") != 1:
+            fail("a lone Hercules should capture its own page 1 ([dvw_cmode] "
+                 "%d, [dvw_cseg] %04X, [dvw_chp] %d)"
+                 % (dos.b("dvw_cmode"), dos.w("dvw_cseg"), dos.b("dvw_chp")))
+        got = live_lines(m, dos, "DWDIRECT ", 4)
+        if b"D\x07W\x07D\x07I\x07R" in m.read(0xB0000, 0x8000):
+            fail("the program's text is in page 0 - the desktop's pixels")
+        crtc = int.from_bytes(m.read(dos.base() + dos.dm["dvw_xblk"] +
+                                     XB_VID + 0x1A, 2), "little")
+        if crtc != 0x3B4:
+            fail("the program was told a CRTC at %04X - on a lone Hercules "
+                 "a CGA's 3DAh reads FFh and a retrace wait on it never ends; "
+                 "its own 3B4h is the one that moves" % crtc)
+        print("doswcap: 3 page 1 captured on a lone Hercules: %d DWDIRECT "
+              "lines in the band while it runs, page 0 untouched" % len(got))
+
+        # --- 4: it ends, and the decode is off again ---------------------------
+        m.type_text("q")
+        if not until(m, lambda: dos.b("dvw_run") == 0, "its end", 20):
+            fail("`q` did not end the captured program")
+        os88marty.settle(m)
+        if not any("exit code 113" in r for r in dos.rows()):
+            fail("no `exit code 113` in the band: %r" % dos.rows()[-4:])
+        if m.read(0xB8000, 2) != b"\xff\xff":
+            fail("the run ended and page 1's decode is still on (B800 reads "
+                 "%r) - 3BFh was not put back" % m.read(0xB8000, 2))
+        print("doswcap: 4 `q` ended it, and B800 floats again")
+
+
+def topview(disk):
+    with os88ui.boot(SYS, apps=disk, machine="os8088_xt_vga") as ui:
         m = ui.m
         if not ui.path("B:/DWTV.COM"):
             fail("could not launch DWTV.COM")
@@ -187,10 +253,10 @@ def topview(disk):
             fail("Run in Window put nothing on the worker")
         os88marty.pace(m, 0.5)
 
-        # --- 3: no capture here; TopView answers our buffer -----------------
+        # --- 5: no capture here; TopView answers our buffer -----------------
         if dos.w("dvw_cseg"):
-            fail("a capture was taken on a lone Hercules, whose B800 is the "
-                 "desktop's B000 again ([dvw_cseg] %04X)" % dos.w("dvw_cseg"))
+            fail("a capture was taken on a VGA in mode 12h, which has no text "
+                 "memory to take ([dvw_cseg] %04X)" % dos.w("dvw_cseg"))
         if dos.b("dvw_cmode") != DVWC_TV:
             fail("AH=FEh in a window should set DVWC_TV; [dvw_cmode] is %d"
                  % dos.b("dvw_cmode"))
@@ -199,10 +265,10 @@ def topview(disk):
             fail("AH=FEh answered %04X:%04X; the window's buffer is %04X:%04X"
                  % (dos.pword(0x105), dos.pword(0x107), dos.seg(),
                     dos.dm["con_scr"]))
-        print("doswcap: 3 no capture on a lone Hercules; AH=FEh answered the "
+        print("doswcap: 5 no capture on a VGA desktop; AH=FEh answered the "
               "window's own buffer")
 
-        # --- 4: its lines, both kinds -------------------------------------------
+        # --- 6: its lines, both kinds -------------------------------------------
         got = live_lines(m, dos, "DWTV ", 4)
         letters = set(r[5] for r in got if len(r) > 5)
         even = [c for c in letters if (ord(c) - ord("A")) % 2 == 0]
@@ -213,7 +279,7 @@ def topview(disk):
         m.type_text("q")
         if not until(m, lambda: dos.b("dvw_run") == 0, "its end", 20):
             fail("`q` did not end the TopView program")
-        print("doswcap: 4 its lines reached the band, marked (%s) and summed "
+        print("doswcap: 6 its lines reached the band, marked (%s) and summed "
               "(%s)" % ("".join(sorted(odd)), "".join(sorted(even))))
 
 

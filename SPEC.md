@@ -188570,11 +188570,36 @@ desktop intact around it (that took 96.54.7's guard as well).
 6 together with 96.54.7 cost **+940 bytes of image and +57 of bss**, no core
 and no kernel byte.
 
-**What it does not reach**: a lone Hercules with no colour card (its second
-page would be RAM nobody shows, but enabling it means writing `3BFh` under a
-kernel that keeps that bit clear on purpose — not done); a desktop extended
-onto the second card; and a program whose own idea of the screen is cached
-across Alt+Enter — it goes on writing the capture card on the full screen.
+**What it does not reach**: a desktop extended onto the second card, and a
+program whose own idea of the screen is cached across Alt+Enter — it goes on
+writing the capture card on the full screen. A lone Hercules is 96.54.6.1.
+
+##### 96.54.6.1 A lone Hercules: its own second page
+
+A Hercules has 64KB in two 32KB pages and the second one is at B8000 -
+where a CGA lives, which is the whole of why `vid_setmode` leaves `3BFh`
+bit 1 clear (§39.6): with it set, a CGA in the same machine and the
+Hercules would both answer for those addresses. So when `dvw_cdetect` finds
+NOTHING usable at B800 under a Hercules (it floats, or it mirrors B000), it
+writes `3BFh` = 3 and runs the same test again: the page decoded, RAM that
+reads back, and B000 unmoved by it. If that holds, the page is the capture
+(`[dvw_chp]` = 1); if not, `3BFh` goes back to 1 and there is none. The CGA
+case is tested FIRST, so the bit is only ever turned on where nothing else
+can answer there.
+
+Page 0 stays what is SHOWN - `3B8h` bit 7 is never set - so the program's
+screen is RAM nobody displays, read every fourth tick exactly like a CGA's.
+Three things differ: the program is told `0040:0063` = 3B4h with mode 3,
+because a CGA's `3DAh` reads FFh on this machine and a retrace wait on it
+never ends, while the Hercules' own `3BAh` moves; the decode is turned on
+again at each `dvw_xin` (`dvw_hpage`), since a mode set or an unblank in
+the desktop's slice puts `3BFh` back to 1; and `dvw_cblank` turns it off at
+the run's end. `3B8h` is written with the desktop's own 0Ah after every
+`3BFh` change - MartyPC's model latches the decode there, and it is what
+96.54.7's guard writes anyway. `tests/doswcap.py` legs 3 and 4 are the gate
+(B800 floating before, captured during, floating again after), and the
+whole row passes on 86Box as well (`OS88_EMU=86box`), whose Hercules maps
+B8000 only while `3BFh` bit 1 is set, as the card does.
 
 #### 96.54.7 A program may write the desktop card's ports — the guard
 
@@ -188597,6 +188622,39 @@ planar card, per tick the program held; a clobber shows for at most that
 tick. It is skipped on the full screen, where the card is the program's, and
 on a VESA desktop, whose renderer is a driver's. **What it does not repair**
 is a program that reprograms the 6845 itself; none met so far does.
+
+#### 96.54.8 The size pass, and the mouse hook every run reinstalls
+
+**The defect** (found by 96.54.4's work, fixed here): `dos_m33_arm` hooks IRQ0
+once, on a program's first INT 33h `0Ch`, and sets `[dos_m33hk]`, which nothing
+ever cleared. The bracket's restore puts the whole IVT back and a window's
+world is discarded with its run - so the NEXT program that installed an event
+handler found the flag set, hooked nothing, and its handler was never called.
+`dos_hook_vectors`, which builds every run's table, clears it now, five bytes
+of the core; the window's own clear (`dwm_start`) is gone.
+
+**The size pass that paid for it**, all in the DOS core:
+
+- nineteen `add`/`sub` of 1 or 2 became `inc`/`dec` - none has its carry read
+  before something else sets the flags, checked one by one, and `DOS_ENVSEG`
+  (1) and `DTA_PAT` (2) assert the values the `inc`s stand for. A twentieth,
+  the environment block's `add ax, DOS_ENVSEG`, stays: it builds a SEGMENT,
+  and `megagrid` (kern_mega's segment-step audit) knows that spelling and not
+  `inc`;
+- ten routines that ended in the same seven or six `pop`s and a `ret` end in a
+  near jump to one of two `OS88_POPLADDER`s (`dos_popa_7`, `dos_popb_6`) -
+  three bytes for eight or seven. Two ladders because the shapes cannot share
+  one: the six-register routines push `BX`..`ES` and not `AX`. A near jump
+  costs no stack. **25 bytes.**
+
+The WINDOWED HOST got its own ladder too (`dos_hpop_7`, nine routines -
+it is assembled apart from the core and cannot name the core's): **32 bytes**
+of `DOS.O88`'s image.
+
+The core went 15,471 -> **15,430**, the reset's five absorbed by
+`dos_cpm`'s padding, and `CORE_MAX` 15,472 -> **15,440**: 32 bytes back to
+every host, `kern_dos` included, whose 33 KB rung had kept a single byte.
+kern_mega's core is 16,080 of a `CORE_MAX` lowered 16,128 -> 16,096.
 
 ## 97. PIXELSTEIN 3D — a raycast shooter in a foreign mode (`apps/pixelstein/`)
 

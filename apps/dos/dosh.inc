@@ -78,7 +78,8 @@ dsh_tail:
     or al, 0x20
     cmp al, 'c'
     jne .noc
-    add si, 2
+    inc si
+    inc si
     call dsh_bank                   ; A CHILD SHELL'S DIRECTORY DIES WITH IT
     call dsh_run                    ; under DOS - `command /c cd \FOO` leaves
     push ax                         ; the caller exactly where it was - and
@@ -588,7 +589,8 @@ dsh_resolve:
     cmp byte [dsh_spec+1], ':'
     jne .nodir
     mov si, dsh_spec                ; "d:" is the whole folder part
-    add si, 2
+    inc si
+    inc si
 .havecut:
     push si                         ; SI is the leaf, and everything before it
     mov di, dsh_leaf                ; is the folder
@@ -2054,7 +2056,8 @@ dsh_ssort:
     xor bp, bp                      ; BP = i*2
 .outer:
     mov ax, bp
-    add ax, 2
+    inc ax
+    inc ax
     cmp ax, cx
     jae .out                        ; the last element has nothing to pick from
     mov di, bp                      ; DI = the smallest seen, as an index slot
@@ -2066,7 +2069,8 @@ dsh_ssort:
     jnc .innext                     ; not smaller: keep looking
     mov di, si
 .innext:
-    add si, 2
+    inc si
+    inc si
     jmp short .inner
 .place:
     cmp di, bp
@@ -2080,7 +2084,8 @@ dsh_ssort:
     mov [es:si], dx
     mov [es:bx], ax
 .next:
-    add bp, 2
+    inc bp
+    inc bp
     jmp short .outer
 .out:
     pop bp

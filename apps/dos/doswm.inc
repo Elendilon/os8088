@@ -80,11 +80,10 @@ dwm_start:
     pop ax
     pop es
     mov word [dos_m33dv], 0
-    mov byte [dos_m33hk], 0         ; IRQ0 is NOT hooked in this run's table:
-                                    ; the flag outlives the run that set it,
-                                    ; and the program's block is primed from
-                                    ; the desktop's, so a handler installed
-                                    ; after an earlier run's was never called
+                                    ; ([dos_m33hk] is dos_hook_vectors' to
+                                    ; clear now, for every run, SPEC.md
+                                    ; 96.54.8 - it was cleared here, for the
+                                    ; window's runs only)
     mov word [dos_hkv + DHK_MOUSE], dwm_mouse
     mov word [dos_hkv + DHK_TXT], dwm_txt
     ret
