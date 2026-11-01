@@ -16380,7 +16380,7 @@ APPS_DOS := $(BUILD)/os88net.com
 # one: that disk is at 352 of 354 clusters and this is five. Its decoder is
 # kernel/lz.inc, included as it is - one decoder, three hosts.
 APPS_DOSCZ := $(BUILD)/os88cz.com
-$(BUILD)/os88cz.com: dostools/os88cz.asm kernel/lz.inc | $(BUILD)
+$(BUILD)/os88cz.com: dostools/os88cz.asm kernel/lz.inc kernel/lzfilt.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I kernel/ -o $@ $<
 	@echo "os88cz.com:  $(call FILESIZE,$@) bytes - the split set on DOS"
 os88cz: $(BUILD)/os88cz.com

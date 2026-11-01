@@ -158,6 +158,13 @@ def main() -> int:
                          "whether the IMAGE is compressed - and both may be: "
                          "the image's packed length then rides the link word "
                          "(SPEC.md 20.13.8)")
+    ap.add_argument("--part-nofilter", metavar="ROW", dest="part_nofilter",
+                    type=int, action="append", default=[],
+                    help="never give OP_COMP row ROW the near-call filter "
+                         "(SPEC.md 20.13.9). Every compressed row takes it "
+                         "when it makes the stream shorter, because every "
+                         "decoder that reads a part knows it; this is the "
+                         "door for one that does not")
     ap.add_argument("--part", metavar="PART.bin", action="append", default=[],
                     help="append a part after the image, 512-aligned, and "
                          "fill its row in the package's own part table. One "
@@ -294,7 +301,8 @@ def main() -> int:
             if z is not None:
                 out = z
     else:
-        lay_out_parts(out, table, rows, args.part, args.part_compress)
+        lay_out_parts(out, table, rows, args.part, args.part_compress,
+                      args.part_nofilter)
         if zfmt:
             z = compress_parted(out, image, bss, flags, table, rows, zfmt,
                                 soft=zsoft)
@@ -414,7 +422,7 @@ def compress_image(out: bytearray, image: int, bss: int, flags: int,
     fid = os88lz.LZ4 if fmt == "lz4" else os88lz.LZB
     pre = clear_prefix(flags)
     body = bytes(out[pre:])
-    z = packer(body) if packer else os88lz.compress(body, fid)
+    z = packer(body) if packer else os88lz.compress(body, fid, filt=True)
     if z is None:
         return refuse("the packer made nothing smaller of this image")
     if os88lz.decompress(z, fid, len(body)) != body:
@@ -450,7 +458,8 @@ def compress_image(out: bytearray, image: int, bss: int, flags: int,
 
     new = bytearray(out[:pre]) + z
     new[3] = flags | PKG_COMP_BIT | (PKG_COMP_FMT if fid == os88lz.LZB else 0)
-    print(f"os88pkg: compressed {fmt}: image {image} -> file {packed} bytes "
+    print(f"os88pkg: compressed {fmt}"
+          f"{'+E8' if os88lz.is_filtered(z) else ''}: image {image} -> file {packed} bytes "
           f"({packed / image:.1%}), {pre} clear")
     return new
 
@@ -505,7 +514,7 @@ def compress_parted(out: bytearray, image: int, bss: int, flags: int,
         for o, poff in filed:
             struct.pack_into("<H", img, o, poff + delta)
         body = bytes(img[pre:])
-        z = os88lz.compress(body, fid)
+        z = os88lz.compress(body, fid, filt=True)
         if os88lz.decompress(z, fid, len(body)) != body:
             fail(f"{fmt} did not round-trip this image - tools/os88lz.py is "
                  "the reference the kernel copies, so this is a bug there")
@@ -625,7 +634,7 @@ def find_parts(a: bytes, image: int, flags: int):
     return at, n
 
 
-def compress_part(i: int, body: bytes, fmt: str):
+def compress_part(i: int, body: bytes, fmt: str, filt: bool = True):
     """(the stream, its length) for an OP_COMP row - or a hard refusal.
 
     STRICT, like --compress and unlike --compress-if: the flag is on a row the
@@ -635,11 +644,15 @@ def compress_part(i: int, body: bytes, fmt: str):
     through the reference decoder. It expands in place with no margin, as
     every stream does (SPEC.md 20.13.7), and that is asserted rather than
     measured.
+
+    `filt`: the near-call filter is taken when it makes the stream shorter
+    (SPEC.md 20.13.9). False only for a row whose reader has not learned the
+    filter - none today; `--part-nofilter` is the door for one.
     """
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import os88lz
     fid = os88lz.LZ4 if fmt == "lz4" else os88lz.LZB
-    z = os88lz.compress(body, fid)
+    z = os88lz.compress(body, fid, filt=filt)
     if os88lz.decompress(z, fid, len(body)) != body:
         fail(f"part {i}: {fmt} did not round-trip - tools/os88lz.py is the "
              "reference the kernel copies, so this is a bug there, not here")
@@ -650,13 +663,14 @@ def compress_part(i: int, body: bytes, fmt: str):
     if os88lz.in_place_margin(body, fid, packed=z):
         fail(f"part {i}: the stream needs an in-place margin, which a stream "
              "with a tail cannot (SPEC.md 20.13.7) - a bug in os88lz.py")
-    print(f"os88pkg: part {i} compressed {fmt}: {len(body)} -> {len(z)} bytes "
-          f"({len(z) / len(body):.1%})")
+    print(f"os88pkg: part {i} compressed {fmt}"
+          f"{'+E8' if os88lz.is_filtered(z) else ''}: {len(body)} -> "
+          f"{len(z)} bytes ({len(z) / len(body):.1%})")
     return z, len(z)
 
 
 def lay_out_parts(out: bytearray, table: int, rows: int, parts,
-                  part_fmt: str = "lz4") -> None:
+                  part_fmt: str = "lz4", nofilt=()) -> None:
     """Append each part 512-aligned and fill its row.
 
     THE ROWS AND THE PAYLOADS ARE NOT ONE LIST: a row with no file bytes
@@ -813,7 +827,8 @@ def lay_out_parts(out: bytearray, table: int, rows: int, parts,
         # does not pay is an error and not a line of output (SPEC.md 20.12.7).
         unpacked, packed = len(body), len(body)
         if pflags & OPF_COMP:
-            body, packed = compress_part(i, body, part_fmt)
+            body, packed = compress_part(i, body, part_fmt,
+                                         filt=i not in nofilt)
         # PADDING IS POISON, NOT ZERO. These are bytes no part declares and
         # nothing is meant to read, so a stub that strays into one - a length
         # rounded up to a sector, a run started a cluster early - has to

@@ -846,7 +846,10 @@ OSAPI_LZ_LZ4 equ 0
 OSAPI_LZ_LZB equ 1
 OSAPI_LZ_BIG equ 0x80            ; ...OR'd in: AH:CX is the length (20.13.3)
 %define OSAPI_DECOMP        KERNEL_SEG:0x03D3   ; DS:SI = the compressed bytes,
-                                 ; T word first (SPEC.md 20.13.7: every stream
+                                 ; T word first - or the word 0xFFFF and then
+                                 ; T, a FILTERED stream (SPEC.md 20.13.9),
+                                 ; which comes back unfiltered; a kernel that
+                                 ; predates it refuses one (20.13.7: every stream
                                  ; ends in T raw bytes, and needs NO in-place
                                  ; margin - a source read from exactly
                                  ; output - packed above its destination is

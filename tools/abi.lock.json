@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "5223b416e13f5840512f1ebcdd49c61d2f7c480c016980b308b03fa4f9d6e72d",
+  "fingerprint": "37d4e1e854ffe853f61f58e18deb061a72294473e8ffa8c810833ae02de13119",
   "version": 12
  },
  "PKG_FMT": {
-  "fingerprint": "10a838bdc12d31771a7cda9536b781acd4df08ea095fe77d49b26544bacd298f",
+  "fingerprint": "fb23da0c500cbc68df2cc10ce6e891f306ff6ecd0f3e73008375936a10f9a795",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -1386,6 +1386,20 @@
    "from": 12,
    "guard": "DRV_VER",
    "reason": "MEMP_KPARTS (OSAPI_MEM_P verb 6) appended: the kernel's resident FAT window and its two stack terms in bytes (SPEC.md 50.3.7, 28.4.7); nothing built before changes",
+   "to": 12
+  },
+  {
+   "fingerprint": "fb23da0c500cbc68df2cc10ce6e891f306ff6ecd0f3e73008375936a10f9a795",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_DECOMP accepts a FILTERED stream (SPEC.md 20.13.9): a leading 0xFFFF escape, then the plain stream, near-call operands made absolute. Contract widened, nothing re-contracted: every package, driver and module built before still runs; a filtered file on an older kernel is refused by its tail test, never misread. No bump.",
+   "to": 10
+  },
+  {
+   "fingerprint": "37d4e1e854ffe853f61f58e18deb061a72294473e8ffa8c810833ae02de13119",
+   "from": 12,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_DECOMP accepts a FILTERED stream (SPEC.md 20.13.9): a leading 0xFFFF escape, then the plain stream, near-call operands made absolute. Contract widened, nothing re-contracted: every package, driver and module built before still runs; a filtered file on an older kernel is refused by its tail test, never misread. No bump.",
    "to": 12
   }
  ]

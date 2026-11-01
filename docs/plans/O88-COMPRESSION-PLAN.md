@@ -2114,6 +2114,15 @@ tree the row passes on, not the one it was first read off:
   `make -j4` on a 4-core box took 61 s lazy and 62 and 85 s optimal, the
   spread being the box rather than the ~3 s a core the parse adds. Depth 512 would
   take another 935 bytes for another 8.5 s of CPU and was not taken.
+- **The near-call filter — TAKEN, as SPEC.md 20.13.9**, after
+  `docs/reports/DOS-PACKED-COST-2026-11-01.md` found 74% of a code stream's
+  LZ4 bytes to be literals and a `call rel16` to be the commonest reason.
+  It is a property of the STREAM (a leading `0xFFFF` escape that an older
+  kernel refuses as an over-long tail), so no container, format byte or
+  directory hint moved; `E8` alone, for `repne scasb`; +44 resident bytes on
+  every kernel; 225 clusters over the seventeen shipped images. KERNEL.SYS
+  stays plain (20.13.9.3) - 1,401 bytes against ~355 ms of boot and a full
+  blob.
 
 ## 14. Decisions still open before wave 1
 
