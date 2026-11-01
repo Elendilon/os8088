@@ -111,6 +111,9 @@
 %ifdef DVW
  %define DOS_ACAP dvw_cap           ; dos_run's arena cap (SPEC.md 96.54.2)
 DVW_DEFKB   equ 128                 ; ...a window's, when the user set none
+%if DVW_DEFKB > 255
+ %error "dos_run sets DVW_DEFKB with `mov al` (size pass, SPEC.md 96.54.8)"
+%endif
 %else
  %define DOS_ACAP dos_memkb
 %endif
@@ -1007,11 +1010,6 @@ dos_entry:
                                     ; attribute is still a zeroed bss's
 %endif
 
-%ifdef DVW
-    mov bx, [dos_win]               ; a running program is stopped by a close,
-    mov ax, dvw_onclose             ; not orphaned behind a hidden window
-    call OSAPI_WM_ONCLOSE           ; (SPEC.md 96.54)
-%endif
     mov bx, [dos_win]               ; **NAMED, not whatever the last call left
     mov ax, dos_wake                ; in BX.** The slot takes BX = the window
     call OSAPI_WM_ONWAKE            ; and AX = the handler, and this used to
@@ -1022,6 +1020,11 @@ dos_entry:
                                     ; nowhere - Run, Enter-re-run and the
                                     ; console's own launch all stuck at
                                     ; DST_READY with nothing to see
+%ifdef DVW
+    mov ax, dvw_onclose             ; a running program is stopped by a close,
+    call OSAPI_WM_ONCLOSE           ; not orphaned behind a hidden window
+%endif                              ; (SPEC.md 96.54). BX is still the window:
+                                    ; every slot preserves it
     mov si, dos_about
     call OSAPI_ABOUT_SET
 
@@ -1142,15 +1145,18 @@ dos_wake:
 %ifdef DVW
     cmp byte [dvw_run], 0           ; A PROGRAM ON THE WORKER (SPEC.md 96.54):
     je .nodvw                       ; its doors, its paint and its end are
-    call dvw_wake                   ; all this wake is for, and nothing else
-    jmp .out                        ; may start while it runs
+    jmp dvw_wake                    ; all this wake is for, and nothing else
+                                    ; may start while it runs. A TAIL CALL:
+                                    ; .out is a bare `ret` and nothing is
+                                    ; pushed above it (size pass, 96.54.8)
 .nodvw:
 %endif
 %ifndef KD_BACKEND                  ; 96.43: the console is the window's
     cmp byte [dos_pkgq], 0          ; **A `.O88` TYPED AT THE PROMPT** (SPEC.md
     je .nopkg                       ; 96.33.17): OSAPI_PKG_START wants the gfx
-    call dos_pkg_go                 ; lock FREE and W_ONKEY holds it, so the
-    jmp .out                        ; console posts and this is where it lands
+    jmp dos_pkg_go                  ; lock FREE and W_ONKEY holds it, so the
+                                    ; console posts and this is where it lands
+                                    ; (a tail call, for .out's bare `ret`)
                                     ; - the same place a DOS program's own
                                     ; launch is serviced, and for the same
                                     ; reason. It is tested FIRST and clears its
@@ -1456,9 +1462,21 @@ dos_run:
     ; standing in: OSAPI_MEM_COMPACT's post records the wish and RETURNS, and the
     ; pass runs at ui_task's step 0 with nothing held (SPEC.md 66.4.3).
 %ifdef DVW
-    cmp byte [dvw_want], 0          ; ...BUT NOT FOR THE WINDOW (SPEC.md
-    jne .kept                       ; 96.54): the desktop goes on running
-%endif                              ; and its sound driver with it
+    ; **A WINDOW IS NOT THE WHOLE MACHINE** (SPEC.md 96.54.2): with no limit
+    ; of the user's, a run in the window is given DVW_DEFKB and not
+    ; everything, or a second DOS window has nothing left to run in. Set on
+    ; every pass, the compaction wake's included; the bracket's run is
+    ; unchanged, its cap being the user's own word as before. AX rides
+    ; through dos_drv_take, which preserves every register.
+    mov ax, [dos_memkb]
+    cmp byte [dvw_want], 0          ; ...AND NO DRIVER COMES OUT FOR THE
+    je .take                        ; WINDOW (SPEC.md 96.54): the desktop goes
+    or ax, ax                       ; on running and its sound driver with it
+    jnz .kept
+    mov al, DVW_DEFKB               ; AX was 0, so AH already is
+    jmp short .kept
+.take:
+%endif
     call dos_drv_take               ; THE DRIVERS OUT FIRST, on every arm and
                                     ; before any claim: it is what CREATES the
                                     ; hole the no-cap arm sizes into, and the
@@ -1474,18 +1492,6 @@ dos_run:
                                     ; the wake it is a no-op: [dos_drvout]
 %ifdef DVW
 .kept:
-    ; **A WINDOW IS NOT THE WHOLE MACHINE** (SPEC.md 96.54.2): with no limit
-    ; of the user's, a run in the window is given DVW_DEFKB and not
-    ; everything, or a second DOS window has nothing left to run in. Set on
-    ; every pass, the compaction wake's included; the bracket's run is
-    ; unchanged, its cap being the user's own word as before.
-    mov ax, [dos_memkb]
-    cmp byte [dvw_want], 0
-    je .capset
-    or ax, ax
-    jnz .capset
-    mov ax, DVW_DEFKB
-.capset:
     mov [dvw_cap], ax
 %endif
     cmp byte [dos_cpw], 0
@@ -1627,13 +1633,13 @@ dos_run:
 %endif
 
 %ifdef DVW
-    cmp byte [dvw_want], 0          ; **RUN IN THE WINDOW** (SPEC.md 96.54):
-    je .bracket                     ; the worker takes it from here, and
-    mov byte [dvw_want], 0          ; dvw_wake pays this routine's tail when
-    call dvw_start                  ; the program ends. No worker - the task
-    jc .bracket                     ; table full - and the full screen still
-    jmp .outq                       ; works, so that is what it gets
-.bracket:
+    xor al, al                      ; **RUN IN THE WINDOW** (SPEC.md 96.54),
+    xchg al, [dvw_want]             ; read and spent in one: the worker takes
+    or al, al                       ; it from here, and dvw_wake pays this
+    jz .bracket                     ; routine's tail when the program ends.
+    call dvw_start                  ; No worker - the task table full - and
+    jnc .outq                       ; the full screen still works, so that is
+.bracket:                           ; what it gets. AX is spent: GFX_LOCK
 %endif
     call OSAPI_GFX_LOCK             ; ...and only NOW, because fsx_run wants it
     mov ax, dos_fsx_main            ; held and nothing above this may pay for it
@@ -1854,10 +1860,13 @@ dos_load:
     push bp
     push es
 
-    mov ax, [dos_ldpsp]             ; THE PROGRAM BEING LOADED, not the arena
-    add ax, 16                      ; (SPEC.md 96.14): a child from AH=4Bh is
-    mov es, ax                      ; loaded exactly this way into a block of
-                                    ; its own
+                                    ; THE PROGRAM BEING LOADED, not the arena
+                                    ; (SPEC.md 96.14): a child from AH=4Bh is
+                                    ; loaded exactly this way into a block of
+                                    ; its own. dos_ldrd's first chunk sets ES
+                                    ; to [dos_ldpsp]+16, DI being 0 - which is
+                                    ; the probe's buffer, dos_is_exe's ES:0 and
+                                    ; .whole's ES:BX, so it is not set here
     mov si, [dos_ldname]            ; THE NAME IS AN ARGUMENT TOO: AH=4Bh loads
                                     ; a file the running program named
     xor bx, bx                      ; ES:0 is every chunk's buffer, and BX
@@ -1893,9 +1902,8 @@ dos_load:
     ; fit in the arena this arm gives. `.read` answers the same code for a
     ; load module past the block, decided from the header before it reads.
     cmp ax, FERR_BIG
-    je .nofit
-    mov al, DER_READ
-    jmp short .err
+    mov al, DER_READ                ; (a `mov`: the flags are still the cmp's)
+    jne .err
 .nofit:
     mov al, DER_FIT
 .err:
@@ -1903,13 +1911,9 @@ dos_load:
 .out:
     pop es
     pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
-
+    jmp dos_popb_5                  ; DI..BX: the shared epilogue (96.54.8),
+                                    ; three bytes that put dos_cpm's `align 16`
+                                    ; a paragraph lower
 .whole:
     mov ax, [dos_ldpara]            ; the capacity is everything from the image
     sub ax, 16                      ; to the top of ITS block, in paragraphs...
@@ -2504,7 +2508,8 @@ dos_hook_vectors:
     mov [es:bx+2], cs
     jmp short .hk
 .hkd:
-    mov byte [dos_m33hk], 0             ; **A FRESH TABLE HOOKS NOTHING YET**
+    mov [dos_m33hk], al                 ; **A FRESH TABLE HOOKS NOTHING YET**
+                                        ; (AL = 0, the table's own end)
                                         ; (SPEC.md 96.54.8): dos_m33_arm hooks
                                         ; IRQ0 once, on a program's first
                                         ; 0Ch, and the flag outlived the run
@@ -2879,10 +2884,7 @@ dos_jft_sync:
     pop es
     pop di
     pop si
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp dos_popa_3                  ; the shared epilogue (96.54.8)
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
@@ -2912,7 +2914,7 @@ dos_psp_make:
                                     ; fields, in the same order as before)
     mov word [es:di+0x00], 0x20CD   ; INT 20h, so a .COM that plain `ret`s
                                     ; lands here and terminates
-    mov ax, [dos_ldpsp]
+    mov ax, es                      ; = [dos_ldpsp], a byte shorter
     add ax, [dos_ldpara]
     mov [es:0x02], ax               ; the paragraph past the block - mechanism 1
 
@@ -2967,7 +2969,7 @@ dos_psp_make:
 .cpmhi:
     sub ax, bx
     jc .cpmset                      ; borrowed back under 10000h: it fits
-    mov ax, [dos_ldpsp]             ; ...and otherwise the old field
+    mov ax, es                      ; ...and otherwise the old field
     add ax, 5
     sub ax, bx
 .cpmset:
@@ -3016,15 +3018,16 @@ dos_psp_make:
     rep stosb                       ; ...which leaves DI at 2Ch: the base for
                                     ; every store below, a byte shorter each
     mov word [es:di-0x2C+0x18], 0x0101  ; 0, 1: stdin and stdout, the console
-    mov byte [es:di-0x2C+0x1A], 0x01    ; 2: stderr, the same device
-    mov byte [es:di-0x2C+0x1B], 0x00    ; 3: AUX
+    mov word [es:di-0x2C+0x1A], 0x0001  ; 2: stderr, the same device, and
+                                        ; 3: AUX
     mov byte [es:di-0x2C+0x1C], 0x02    ; 4: PRN
     mov word [es:di-0x2C+0x32], 20      ; ...and its size and address, which is
     mov word [es:di-0x2C+0x34], 0x0018  ; how a program with more than twenty
     mov ax, [dos_ldpsp]                 ; files open finds the table that
     mov [es:di-0x2C+0x36], ax           ; replaced it
-    mov word [es:di-0x2C+0x38], 0xFFFF  ; the previous PSP: DOS 3 leaves
-    mov word [es:di-0x2C+0x3A], 0xFFFF  ; FFFF:FFFF and a program may test for it
+    mov ax, 0xFFFF                      ; the previous PSP: DOS 3 leaves
+    mov [es:di-0x2C+0x38], ax           ; FFFF:FFFF and a program may test for it
+    mov [es:di-0x2C+0x3A], ax
     mov ax, [dos_arena]
     inc ax
     mov [es:di-0x2C+0x2C], ax       ; ...and one environment, shared: a child
@@ -3066,9 +3069,9 @@ dos_psp_make:
 .small:
     mov cl, 4
     shl ax, cl
-    dec ax
-    dec ax
-    mov bx, ax
+    xchg ax, bx                     ; (AX is dead from here: one byte)
+    dec bx
+    dec bx
 .sp:
     dec bx                          ; ...and the 0 word DOS pushes, which is
     dec bx
@@ -3077,11 +3080,7 @@ dos_psp_make:
 .nostk:
     pop es
     pop di
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp dos_popa_4                  ; the shared epilogue (96.54.8)
 
 %ifdef DOS_MEGA
 ; dos_hvec - AX = a handler in this segment: DX:AX = the far address to
@@ -3134,7 +3133,9 @@ dos_cpm:
 ; -----------------------------------------------------------------------------
 ; dos_ldrd - paragraphs [DI, BP) of the program's file, to [dos_ldpsp]+16+DI
 ; in:  DI and BP whole sectors (DI <= BP), SI = the name, BX = 0
-; out: CF=0 and DI = BP, or the file's end; CF=1 with AX = FERR_*. ES spent
+; out: CF=0 and DI = BP, or the file's end; CF=1 with AX = FERR_*. ES = the
+;      last chunk's segment, [dos_ldpsp]+16+DI as it was - set before the read,
+;      so on CF=1 too, and dos_load relies on the first one's
 ;
 ; dos_load's (SPEC.md 96.8.2), in chunks of 32KB at most so a chunk lands in
 ; one segment; a file that ends early ends the loop, as the whole read's short
@@ -3151,9 +3152,8 @@ dos_ldrd:
     mov cx, 0x800
 .chunk:
     push cx
-    mov ax, [dos_ldpsp]             ; the buffer is ES:0 a chunk at a time, so
-    add ax, 16                      ; no offset binds past 64KB
-    add ax, di
+    lea ax, [di+16]                 ; the buffer is ES:0 a chunk at a time, so
+    add ax, [dos_ldpsp]             ; no offset binds past 64KB
     mov es, ax
     mov ax, 16
     mul cx
@@ -3856,12 +3856,10 @@ DOS_T21_N equ ($ - .t21) / 2        ; ...or .bad for a function we lack
     push si
     push di
     push es
-    or dl, dl
-    jnz .df1
-    mov dl, [dos_vol]               ; 0 = the drive the program is on
-    inc dl
+    sub dl, 1                       ; 1-based -> a volume index, and CF = it
+    jnc .df1                        ; was 0, the drive the program is on
+    mov dl, [dos_vol]
 .df1:
-    dec dl                          ; 1-based -> a volume index
     cmp dl, DVOL_MAX
     jae .dfbad                      ; past the array dos_fh_stand indexes
     call dos_fh_stand               ; THE MACHINE onto it (CF = not there)
@@ -3874,13 +3872,12 @@ DOS_T21_N equ ($ - .t21) / 2        ; ...or .bad for a function we lack
                                     ; END (96.4.1): the slot reads the FAT,
                                     ; which is disk work on the program's stack
     jc .dfbad
+    mov [bp-8], dx                  ; DX is an ANSWER (SPEC.md 96.7.1)...
     pop es
     pop di
     pop si
-    inc sp                          ; BX is an ANSWER: drop the banked one
-    inc sp
-    mov [bp-8], dx                  ; ...and so is DX (SPEC.md 96.7.1)
-    jmp .ok
+    pop dx                          ; ...and so is BX: drop the banked one
+    jmp .ok                         ; into DX, which .ok reloads from [bp-8]
 .dfbad:
     mov ax, 0xFFFF                  ; DOS's own "invalid drive", and a value a
     pop es                          ; program can test even when it ignores the
@@ -5898,13 +5895,14 @@ dos_hk_tty:
                                     ; (KERN-MEGA-PLAN 14.54)
     call con_write
 %ifdef DVW
-    mov byte [cs:dvw_dirty], 1      ; the worker's tick posts the paint
+    mov byte [dvw_dirty], 1         ; the worker's tick posts the paint (DS
+                                    ; is ours from the push above)
 %endif
                                     ; IT DRAWS NOTHING HERE: a verb that
                                     ; printed a directory would take the gfx
                                     ; lock per character. dos_con_run spends
                                     ; the marks once, after the verb returned
-    cmp byte [cs:dos_fsxup], 0      ; **FULL SCREEN STREAMS A LINE AT A TIME**
+    cmp byte [dos_fsxup], 0         ; **FULL SCREEN STREAMS A LINE AT A TIME**
     je .nofs                        ; (SPEC.md 96.33.11): there the same paint
     cmp al, 10                      ; is a rep movsw of eighty words, so the
     jne .nofs                       ; argument that forbids it in a window does
@@ -6164,19 +6162,19 @@ dos_err_line:
     xor ah, ah
     shl ax, 1
     mov bx, ax
-    mov si, [dos_errs + bx]
-%ifdef DVW
-    cmp byte [dos_err], DER_FIT     ; **A WINDOW'S 128K IS NOT THE MACHINE**
-    jne .notw                       ; (SPEC.md 96.54.2): the default cap was
-    mov bx, [dvw_cap]               ; in force when the cap differs from the
-    cmp bx, [dos_memkb]             ; user's own word, and "shut down the OS"
-    je .notw                        ; is the bracket's way out, not this one's
-    mov si, dos_e_wfit
-.notw:
-%endif
-    cmp byte [dos_err], DER_FSX     ; the unsupported-function case borrows the
-    jne .out                        ; refusal line and stamps the number, so
+    mov si, [dos_errs + bx]         ; AX = the code TWICE from here, AH = 0
+    cmp al, DER_FSX * 2             ; the unsupported-function case borrows the
+    jne .nofn                       ; refusal line and stamps the number, so
     call dos_fmt_fn                 ; "it asked for AH=3Dh" is on the glass
+.nofn:                              ; (AX preserved)
+%ifdef DVW
+    cmp al, DER_FIT * 2             ; **A WINDOW'S 128K IS NOT THE MACHINE**
+    jne .out                        ; (SPEC.md 96.54.2): the default cap was
+    mov ax, [dvw_cap]               ; in force when the cap differs from the
+    cmp ax, [dos_memkb]             ; user's own word, and "shut down the OS"
+    je .out                         ; is the bracket's way out, not this one's
+    mov si, dos_e_wfit
+%endif
 .out:
     pop bx
     pop ax
@@ -9082,18 +9080,14 @@ dos_key:
     cmp ax, KSC_ENTER << 8          ; its INT 16h drains - but ALT+ENTER is
     jne .dvkey                      ; the full screen (96.54.1), for a running
     mov byte [dvw_fsreq], 1         ; program and a frozen one alike, entered
-    push bx                         ; from the wake: the bracket wants the
-    mov bx, [dos_win]               ; lock free and this holds it
-    call OSAPI_WM_WAKE
-    pop bx
-    jmp short .dvtook
-.dvkey:
-    cmp byte [dvw_frz], 0           ; a frozen program takes no keys
+    call OSAPI_WM_WAKE              ; from the wake: the bracket wants the
+    jmp short .dvtook               ; lock free and this holds it. BX = SI =
+.dvkey:                             ; the window, since the entry's `mov bx,
+    cmp byte [dvw_frz], 0           ; si`. A frozen program takes no keys
     jne .dvtook
     call dvw_kput
 .dvtook:
-    stc
-    jmp .done
+    jmp .done                       ; CF=0, the key is consumed (.done's clc)
 .nodvw:
 %endif
 %ifndef KD_BACKEND                  ; 96.43: the console is the window's
@@ -9557,7 +9551,9 @@ dos_oncmd:
     jne .out                        ; is running in the window
     cmp al, 3
     jne .notw
-    mov byte [dvw_want], 1          ; 'Run in Window': 'Run', on the worker
+    inc byte [dvw_want]             ; 'Run in Window': 'Run', on the worker
+                                    ; (any non-zero is the ask; dos_run spends
+                                    ; it whole with an xchg)
     xor al, al
 .notw:
 %endif
@@ -12042,15 +12038,9 @@ dos_m33_evt:
                                     ; DS = OURS, which is the driver's own -
                                     ; a handler sets up its own from CS
 .nothing:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    mov byte [dos_m33bsy], 0
-    ret
+    mov byte [dos_m33bsy], 0        ; free BEFORE the pops: a tick landing in
+    jmp dos_popa_7                  ; them nests shallower than the callback
+                                    ; above already did (size pass, 96.54.8)
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 

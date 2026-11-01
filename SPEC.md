@@ -188683,6 +188683,47 @@ The core went 15,471 -> **15,430**, the reset's five absorbed by
 every host, `kern_dos` included, whose 33 KB rung had kept a single byte.
 kern_mega's core is 16,080 of a `CORE_MAX` lowered 16,128 -> 16,096.
 
+##### 96.54.8.1 The second pass: what a byte is worth on the disk
+
+The second size pass took `apps/dos/dos.asm`'s share of the windowed work
+against the PACKED parts (SPEC.md 20.12), and its finding is about the metric:
+**an LZ4 part rewards removing a UNIQUE byte and barely notices removing a
+REPEATED one**. A run of `pop`s, or a `mov bx, [dos_win]` / `call
+OSAPI_WM_WAKE` pair, is a cheap back-reference however many times it occurs,
+while the near jump or call that replaces it carries an address no other site
+shares. Measured on the host part: thirty more routines' epilogues onto
+`dos_hpop` take its image down 86 bytes and its packed size UP 58, and the
+nine `dos_hpop_7` jumps of 96.54.8 are worth 12 packed bytes the other way;
+a shared `dos_kick` for the three DST_READY wakes is -28 of image and +6 on
+the disk. Neither went in, so a further host ladder is a RAM trade and not a
+disk one. The CORE is the other case - it packs at 89%, `CORE_MAX` is a hole
+both hosts reserve, and `dos_cpm`'s `align 16` turns a few bytes in front of
+it into a paragraph - so its ladders stay.
+
+What went in, all behaviour-preserving:
+
+- the core, 15,430 -> **15,388** (`CORE_MAX` 15,440 -> **15,392**, kern_mega's
+  16,096 -> 16,048): `dos_load` takes ES from `dos_ldrd`'s first chunk, ends
+  in a `dos_popb` rung and picks its error with a `mov` under the compare's
+  flags; `dos_psp_make` reads the PSP out of ES and writes the JFT's `01 00`
+  and the `FFFF:FFFF` as words; `dos_hook_vectors` stores the `AL = 0` its
+  table ended on as 96.54.8's reset - 27 bytes in front of the `align 16`,
+  which falls two paragraphs - and behind it a `lea` in `dos_ldrd`,
+  `dos_m33_evt`'s tail onto `dos_popa` (the busy flag freed before the pops,
+  which a tick then nests under more shallowly than the callback already did)
+  and AH=36h's default drive as `sub dl, 1`;
+- the windowed host, -35 of code: `dos_wake` tail-jumps to `dvw_wake` and
+  `dos_pkg_go`; the close negotiator is installed after the wake handler on
+  the BX that slot left; `dos_key`'s Alt+Enter posts on the BX its entry set
+  and drops a `stc` that `.done`'s `clc` overwrote; `dos_run` decides the
+  window's cap and whether the drivers come out in one test, sets
+  `DVW_DEFKB` with `mov al`, and reads and spends `[dvw_want]` with one
+  `xchg`; `dos_err_line` tests AL, which already holds the code.
+
+Packed, against the parts at the start of the pass: the host 23,796 -> 23,785,
+the core 13,691 -> 13,672, kern_dos unchanged; and in RAM the host's image
+48,668 -> 48,585 and kern_dos's 31,889 -> 31,841, the 48 of `CORE_MAX` in each.
+
 ## 97. PIXELSTEIN 3D — a raycast shooter in a foreign mode (`apps/pixelstein/`)
 
 A first-person shooter in the shape of the 1992 one: a 64×64 grid of cells,
