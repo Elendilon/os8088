@@ -67,9 +67,6 @@ RL_RUNS equ 3
 rl_entry:
     call op_load                    ; FIRST (os88parts.inc rule 1): the name
                                     ; of the file the Inspect module is in
-    call OSAPI_FILE_HERE            ; ...and the folder it is in (ri_mfetch)
-    mov [ri_homedir], dx
-    mov [ri_homevol], bl
     mov si, rl_tpl
     call OSAPI_WM_CREATE
     jc .out
@@ -1064,6 +1061,7 @@ rl_blit4:
 %define OD_BOOTVOL                  ; REDLINE.CFG is RLAPPLY's (103.6.4)
 %include "os88data.inc"
 %include "os88link.inc"           ; Apply on boot's autostart link (26.10)
+%include "os88wseq.inc"           ; Inspect's report: an append of any size
 %include "redline/csrows.inc"
 %include "redline/csfe.inc"
 %include "redline/csknob.inc"
@@ -1307,7 +1305,6 @@ rl_facts_end:
     OS88_ABUF cs_lines, CS_LINES*CS_LW  ; the Chipset report (chipset.inc)
     OS88_ABUF cs_sw_ref, 1024           ; Tune's references (csweep.inc)
     OS88_ABUF cs_bt, 2*CS_BTW           ; the BIOS's text (chipset.inc)
-    OS88_ABUF ri_lbuf, RI_COLS + 2      ; a line of the Inspect module's
     OS88_ABUF ri_opbss, OP_BSS          ; the parts standard's own (20.12)
 ; ...then benchlib's, whose first buffer is the 512-aligned one int 13h moves
 ; (bl_out, the CR LF image bl_save writes). The workloads' three buffers

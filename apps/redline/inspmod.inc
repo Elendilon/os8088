@@ -32,8 +32,8 @@ RIM_ENTRY   equ 4                   ; dw the entry's offset
 RIM_SIGVAL  equ 'RI'
 RIM_PROBE   equ 0                   ; the verbs: probe everything,
 RIM_COMPOSE equ 1                   ; ...compose page AH, out AX = lines,
-RIM_TEXT    equ 2                   ; ...or as CR LF text appended to the
-                                    ; package's report claim (ri_totext)
+RIM_TEXT    equ 2                   ; ...or as CR LF text in place at
+                                    ; RIM_LINES, out AX = its bytes
 RIM_LINES   equ ri_lines            ; what the package draws from
 RIM_ATTR    equ ri_lattr
 RIM_LBAR    equ ri_lbar
@@ -80,7 +80,7 @@ rim_entry:
     cmp al, RIM_TEXT
     mov ax, [ri_mnl]
     jne .ok
-    call ri_totext
+    call ri_totext                  ; AX = the text's bytes
 .ok:
     clc
     jmp short .out
@@ -97,19 +97,18 @@ rim_entry:
     pop bx
     retf
 
-; ri_totext - the page just composed as text, appended at the package's
-; [ri_tseg]:[ri_toff] (its report claim, RI_RPTKB): each line with its
-; padding trimmed and CR LF, and a blank line after the page. A line that
-; would not fit is not written. [ri_toff] moves past it
+; ri_totext - the page just composed, turned into text IN PLACE at
+; ri_lines: each line with its padding trimmed and CR LF, and a blank line
+; after the page. A line's text is never longer than its slot (72 cells and
+; two bytes against RI_LW), so the writer never passes the reader and no
+; second buffer is needed. out AX = the bytes
 ri_totext:
-    mov es, [ri_pkg]
-    mov di, [es:ri_toff]
-    mov es, [es:ri_tseg]
+    push ds
+    pop es
+    mov di, ri_lines
     xor bx, bx
 .line:
     cmp bx, [ri_mnl]
-    jae .end
-    cmp di, RI_RPTKB * 1024 - RI_LW - 4
     jae .end
     mov ax, RI_LW
     mul bx
@@ -125,7 +124,7 @@ ri_totext:
 .eol:
     cmp di, dx
     je .crlf
-    cmp byte [es:di - 1], ' '
+    cmp byte [di - 1], ' '
     jne .crlf
     dec di
     jmp short .eol
@@ -137,8 +136,8 @@ ri_totext:
 .end:
     mov ax, 0x0A0D
     stosw
-    mov es, [ri_pkg]
-    mov [es:ri_toff], di
+    xchg ax, di
+    sub ax, ri_lines
     ret
 
 ri_comps:   dw ri_c_sum, ri_c_cpu, ri_c_mem, ri_c_vid, ri_c_drv, ri_c_port

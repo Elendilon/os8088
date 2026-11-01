@@ -37389,6 +37389,34 @@ the host's own FAT reader and fsck-clean; the same STOR through the per-chunk
 build making at least 1.5 more disk writes a chunk; and a power cut mid-STOR
 leaving the file at exactly its last checkpoint.
 
+#### 18.4.9.4 `apps/os88wseq.inc` — an append of any size
+
+`OSAPI_FILE_APPEND` and `OSAPI_FILE_WRITE_SEQ` append at a **cluster
+boundary** and nowhere else: every chunk but the last must be a whole number
+of clusters, and a file whose size is not one is refused `FERR_NAME` (18.4.4,
+18.4.7.3). That is the walk's rule, and the kernel keeps it - a top-up of a
+part-filled cluster would need a sector read-modify-write and a walk at a
+sub-cluster offset on every machine for ever. What a program writing a
+report, a log or an export has is text of whatever length it has, and every
+one of them was going to buffer it the same way. `os88wseq.inc` is that
+buffering, written once and costing the kernel nothing - the write side of
+`os88rseq.inc` (18.4.8.1).
+
+| call | in | does |
+|---|---|---|
+| `os88_wseq_open` | SI = a NUL 8.3 name, DS:DI = a `WSEQ_SIZE`-byte stream, BX = a buffer in DS, CX = its size | creates the file EMPTY in the current directory (size 0 is a cluster multiple), and asks `OSAPI_VOL_STAT` for that volume's cluster ONCE - a FAT walk, ~105 ms on a 20 MB disk at 4.77 MHz (18.4.5), paid per stream and never per put. A buffer smaller than one cluster is refused `FERR_NAME` |
+| `os88_wseq_put` | DS:DI = the stream, ES:SI = any bytes, CX = any count (0 legal) | copies into the buffer; a full buffer writes the largest whole number of clusters it holds and moves the rest to its front - so a buffer that is itself a cluster multiple never moves a byte |
+| `os88_wseq_close` | DS:DI = the stream | writes what is buffered, any size: the last chunk is the one the slots let be short |
+
+Every call answers CF=0 or CF=1 with AX = `FERR_*`; a failed stream stays
+failed, every later call answering the same, and what reached the disk stays.
+The stream is PLAIN, not `WSEQF_HELD`: each chunk is committed, so nothing is
+held across the caller's callbacks. On `kern_small`, whose `WRITE_SEQ`
+answers `FERR_NAME`, each chunk goes to `OSAPI_FILE_APPEND` instead - the
+same rule and the same chunks, a lookup and a walk a call. UI task only:
+every call is a file slot (§20.6 rule 7). REDLINE's Inspect report (§103.7.3)
+is the first caller, through an 8 KB buffer.
+
 ### 18.4.10 The free-cluster search on FAT16 is a window at a time
 
 `dskw_alloc` hands out the first free cluster at or after `[dsk_rover]`,
@@ -208000,8 +208028,9 @@ that every package symbol it names is the package's own address, and
 `tools/os88ovl.py` cuts it off the image at the size the header records.
 
 - **It is fetched on the first entry to the tab** - out of REDLINE.O88 in the
-  folder it was launched from, home and back by `OSAPI_FILE_GOTO_QM`
-  (PiXEL's bracket) - and kept for the session. Without it the pane says
+  instance's folder, which is the one it was launched from because REDLINE
+  never moves its instance (no file dialog, no GOTO), so PiXEL's home-and-back
+  bracket would be bytes for nothing - and kept for the session. Without it the pane says
   `Inspect module not read`, and op_fetch has already said why.
 - **Its claim is MOVABLE between calls** (`op_movable`, `OP_ONMOVE` =
   `ri_mreloc`) and **PINNED for the length of one** (`op_pin`), because a
@@ -208009,31 +208038,32 @@ that every package symbol it names is the package's own address, and
   vector is rebuilt from `op_cseg` at every call.
 - **CS = the module, DS = the module's data** (`RIM_SELF`, stamped before
   every call), and ES = the package on entry. It copies the package's facts
-  once per probe and never touches the package again, except to append a
-  page's text to the report's claim.
+  once per probe and never touches the package again.
 - **It never speaks, draws, claims or calls a file slot.** The
   OSAPI_VOL_STAT and FILE_HERE answers, which are the CALLER's, and the
   clock, which times resident code, are taken by the resident half
   (`ri_pf`) and copied in with the rest.
 - **The lines are the module's** (80 a page, 72 cells). The resident painter
-  copies one line at a time into a 74-byte buffer of its own, because
-  `OSAPI_FONT_RUN` reads the caller's segment.
+  copies one line at a time into the front of `bl_out` - idle whenever a page
+  is painted, live only inside a save - because `OSAPI_FONT_RUN` reads the
+  caller's segment.
 
 Its verbs are `RIM_PROBE`, `RIM_COMPOSE` (page AH, out AX = lines) and
-`RIM_TEXT` (page AH as CR LF text, appended to the report's claim). The part is
+`RIM_TEXT` (page AH turned into CR LF text IN PLACE in its lines - a line's
+text is never longer than its slot, so no second buffer - out AX = bytes). The part is
 about 20 KB in memory, most of it the lines and the state, and compresses to a
-fraction of that on the disk. The package's image + bss is **64,897 of
+fraction of that on the disk. The package's image + bss is **64,912 of
 APP_MAX_SIZE's 65,024**; anything more the tab wants goes in the module.
 
 #### 103.7.3 The report
 
 **Save report** writes every page, in order, into `INSPECT.TXT` numbered the
 way REDLINE's other reports are (`INSPECT1.TXT`, `INSPECT2.TXT`, the first
-free) in the instance's current directory, a blank line between pages, in
-ONE write: `OSAPI_FILE_APPEND` appends only at a cluster multiple, so the
-package claims `RI_RPTKB` (24 KB), the module appends each page's text to
-it, and the claim is written with `OSAPI_FILE_WRITE` and given back. A toast
-says the name, or `Report not saved`.
+free) in the instance's current directory, a blank line between pages,
+through `os88wseq.inc`'s stream (18.4.9.4) - an append of any size - with
+`bl_out` for its 8 KB buffer. The module turns each page into text in its
+own lines and the stream takes it from there, so a page is any length and
+nothing is claimed. A toast says the name, or `Report not saved`.
 
 ## 105. MIDIRack — a MIDI file player (`apps/midirack/`)
 

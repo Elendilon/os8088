@@ -230,37 +230,8 @@ cs_geom:
     push ax
     push bx
     push cx
-    push dx
-    push di
-    mov di, ru_rects
-    mov ax, [ru_x]
-    add ax, 8
-    mov bx, [ru_y]
-    add bx, [ru_foot]
-    add bx, 3
     mov cx, CS_NBTN
-.btn:
-    mov [di], ax
-    mov [di + 2], bx
-    mov dx, ax
-    add dx, CS_BTNW - 1
-    mov [di + 4], dx
-    mov dx, bx
-    add dx, 17
-    mov [di + 6], dx
-    add di, 8
-    add ax, CS_BTNW + 6
-    loop .btn
-    mov cx, 6 - CS_NBTN
-.park:
-    mov ax, 0x7FFF                  ; x1 > x2: os88ui_bhit never matches it
-    mov [di], ax
-    mov [di + 2], ax
-    xor ax, ax
-    mov [di + 4], ax
-    mov [di + 6], ax
-    add di, 8
-    loop .park
+    call ru_footlay
     mov ax, [ru_x]                  ; the Target drop-down
     add ax, CS_TGTDX
     mov [cs_tgt + 0], ax
@@ -281,8 +252,70 @@ cs_geom:
     mov [cs_drop + 2], ax
     add ax, 12
     mov [cs_drop + 6], ax
-    mov bx, cs_pane                 ; the pane: its bar on the frame's right,
-    mov ax, [ru_y]                  ; as Redline's other panes have it
+    mov bx, cs_pane
+    mov ax, CS_LINES
+    call ru_panelay
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; ru_footlay - CX = the foot buttons a tab uses (Tune's four, Inspect's
+; three): laid CS_BTNW wide along the foot, the rest of the six parked where
+; no press reaches. Preserves every register
+ru_footlay:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    mov di, ru_rects
+    mov ax, [ru_x]
+    add ax, 8
+    mov bx, [ru_y]
+    add bx, [ru_foot]
+    add bx, 3
+    push cx
+.btn:
+    mov [di], ax
+    mov [di + 2], bx
+    mov dx, ax
+    add dx, CS_BTNW - 1
+    mov [di + 4], dx
+    mov dx, bx
+    add dx, 17
+    mov [di + 6], dx
+    add di, 8
+    add ax, CS_BTNW + 6
+    loop .btn
+    pop ax
+    mov cx, 6
+    sub cx, ax
+.park:
+    mov ax, 0x7FFF                  ; x1 > x2: os88ui_bhit never matches it
+    mov [di], ax
+    mov [di + 2], ax
+    xor ax, ax
+    mov [di + 4], ax
+    mov [di + 6], ax
+    add di, 8
+    loop .park
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; ru_panelay - BX = a Tune- or Inspect-shaped pane, AX = its line count's
+; cap: the frame from y 42 to the foot, the bar on its right, the text on
+; the 8px grid from x 16, and how many lines it shows. Preserves all
+ru_panelay:
+    push ax
+    push cx
+    push dx
+    push ax                         ; the cap
+    mov ax, [ru_y]
     add ax, CS_PANEY
     mov [bx + SP_SB + 2], ax
     mov ax, [ru_foot]
@@ -321,16 +354,15 @@ cs_geom:
     div cx
     inc ax
 .vis:
-    cmp ax, CS_LINES
+    pop cx                          ; the cap
+    cmp ax, cx
     jbe .fit
-    mov ax, CS_LINES
+    mov ax, cx
 .fit:
     mov [bx + SP_VIS], ax
     call ru_spclamp
-    pop di
     pop dx
     pop cx
-    pop bx
     pop ax
     ret
 

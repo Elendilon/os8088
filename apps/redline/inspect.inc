@@ -31,13 +31,18 @@ RI_LW       equ 74                  ; bytes a line slot: 72 cells + NUL + 1
 RI_COLS     equ 72
 RI_SUBY     equ 22                  ; the sub-page strip, content-relative
 RI_SUBP     equ 74                  ; ...its pitch
-RI_PANEY    equ 42                  ; the pane's frame
-RI_TEXTX    equ 16                  ; its text, on the 8px grid
+RI_PANEY    equ CS_PANEY            ; the pane's frame (ru_panelay's)
+RI_TEXTX    equ CS_TEXTX            ; its text, on the 8px grid
 RI_VALC     equ 26                  ; the value column of a label line
 RI_BARC     equ 40                  ; a bar line: label cells 0..39,
 RI_BARN     equ 24                  ; ...the bar over 40..63,
 RI_FIGC     equ RI_BARC + RI_BARN   ; ...and its figure from 64
 
+ri_lbuf     equ bl_out              ; ONE LINE of the module's, as the painter
+                                    ; draws it: bl_out is idle whenever a page
+                                    ; is painted - live only inside a save
+                                    ; (rl_run's workloads overlay it too, and
+                                    ; no Inspect page is painted during a run)
 RIA_TEXT    equ 0
 RIA_HEAD    equ 1
 RIA_BAR     equ 2
@@ -49,11 +54,6 @@ ri_nl:      dw 0                    ; lines composed on this page
 ri_rname:   dw 0                    ; the report's name (bl_numname's)
 ri_mseg:    dw 0                    ; the module's DATA segment, 0 = not here
 ri_mfar:    dw 0, 0                 ; ...its entry, through its CODE selector
-ri_homedir: dw 0                    ; the folder REDLINE.O88 was launched from,
-ri_homevol: db 0                    ; which the module is read out of
-ri_mmoved:  db 0
-ri_wasdir:  dw 0
-ri_wasvol:  db 0
 
 ; WHAT THE RESIDENT HALF MEASURES FOR THE MODULE, which copies it whole on
 ; every probe: the clock (it times rl_mul, which is resident) and the volume
@@ -70,11 +70,10 @@ ri_pvtot:   dw 0                    ; ...clusters
 RI_PFSZ     equ $ - ri_pf
 
 ; The foot (cs_tabset copies these six over ru_buttonlabels)
-ri_flabels: dw ri_b_ref, ri_b_rep, ru_quit, ri_b_ref, ri_b_ref, ri_b_ref
+ri_flabels: dw ri_b_ref, cs_b_rep, ru_quit, ri_b_ref, ri_b_ref, ri_b_ref
 ri_actions: db 'rsqxxxbih'          ; the buttons' keys on this tab
             db '12345678'           ; ...and the sub-pages'
 ri_b_ref:   db 'Refresh', 0
-ri_b_rep:   db 'Save report', 0
 ri_p0:      db 'Summary', 0
 ri_p1:      db 'CPU', 0
 ri_p2:      db 'Memory', 0
@@ -296,9 +295,11 @@ ri_mcall:
     pop bx
     ret
 
-; ri_mfetch - the module here, read out of REDLINE.O88 in the folder it was
-; launched from (pixel.asm's px_pfetch: home and back by OSAPI_FILE_GOTO_QM,
-; which moves the instance and lists nothing). CF = 1 not to be had
+; ri_mfetch - the module here, read out of REDLINE.O88 (op_fetch reads by
+; name in the instance's folder). REDLINE never moves its instance - it has
+; no file dialog and no GOTO - so that folder is the one it was launched
+; from, and PiXEL's home-and-back bracket would be bytes for nothing. CF = 1
+; not to be had (op_fetch has said why)
 ri_mfetch:
     mov al, RI_MPART
     call op_seg
@@ -307,33 +308,8 @@ ri_mfetch:
     clc
     ret
 .fetch:
-    mov byte [ri_mmoved], 0
-    call OSAPI_FILE_HERE
-    mov [ri_wasdir], dx
-    mov [ri_wasvol], bl
-    cmp dx, [ri_homedir]
-    jne .go
-    cmp bl, [ri_homevol]
-    je .here
-.go:
-    mov dx, [ri_homedir]
-    mov bl, [ri_homevol]
-    call OSAPI_FILE_GOTO_QM
-    jc .out                         ; home is gone: no fetch at all
-    mov byte [ri_mmoved], 1
-.here:
     mov al, RI_MPART
-    call op_fetch
-    pushf
-    cmp byte [ri_mmoved], 0
-    je .back
-    mov dx, [ri_wasdir]
-    mov bl, [ri_wasvol]
-    call OSAPI_FILE_GOTO_QM
-.back:
-    popf
-.out:
-    ret
+    jmp op_fetch
 
 ; ri_mreloc - OP_ONMOVE (SPEC.md 20.12.12): the module moved, BX = was, DX
 ; = now. [ri_mseg] is the one word banked; ri_mcall rebuilds the far vector
@@ -391,35 +367,8 @@ ri_geom:
     push cx
     push dx
     push di
-    mov di, ru_rects
-    mov ax, [ru_x]
-    add ax, 8
-    mov bx, [ru_y]
-    add bx, [ru_foot]
-    add bx, 3
     mov cx, RI_NBTN
-.btn:
-    mov [di], ax
-    mov [di + 2], bx
-    mov dx, ax
-    add dx, CS_BTNW - 1
-    mov [di + 4], dx
-    mov dx, bx
-    add dx, 17
-    mov [di + 6], dx
-    add di, 8
-    add ax, CS_BTNW + 6
-    loop .btn
-    mov cx, 6 - RI_NBTN
-.park:
-    mov ax, 0x7FFF                  ; x1 > x2: os88ui_bhit never matches it
-    mov [di], ax
-    mov [di + 2], ax
-    xor ax, ax
-    mov [di + 4], ax
-    mov [di + 6], ax
-    add di, 8
-    loop .park
+    call ru_footlay                 ; the foot, Tune's way
     mov di, ru_rects + 9 * 8        ; past the three tabs: the strip
     mov ax, [ru_x]
     add ax, 8
@@ -438,59 +387,14 @@ ri_geom:
     add di, 8
     add ax, RI_SUBP
     loop .sub
-    mov bx, ri_pane                 ; the pane: cs_geom's arithmetic
-    mov ax, [ru_y]
-    add ax, RI_PANEY
-    mov [bx + SP_SB + 2], ax
-    mov ax, [ru_foot]
-    sub ax, 4
-    mov dx, ax                      ; DX = the frame's bottom, relative
-    add ax, [ru_y]
-    mov [bx + SP_SB + 6], ax
-    mov ax, [ru_w]
-    sub ax, 8
-    mov cx, ax
-    add ax, [ru_x]
-    mov [bx + SP_SB + 4], ax
-    sub ax, RU_SBW
-    mov [bx + SP_SB], ax
-    sub cx, RU_SBW + RI_TEXTX + 2   ; the text's cells: up to the bar
-    shr cx, 1
-    shr cx, 1
-    shr cx, 1
-    cmp cx, RI_COLS
-    jbe .cols
-    mov cx, RI_COLS
-.cols:
-    mov [bx + SP_COLS], cx
-    mov word [bx + SP_Y], RI_PANEY + 4
-    mov cx, 10
-    cmp byte [ru_small], 0
-    je .pitch
-    mov cx, 9                       ; a CGA's 200 rows: one clear scanline
-.pitch:
-    mov [bx + SP_PITCH], cx
-    sub dx, RI_PANEY + 4 + 9        ; a line fits when its cell ends above
-    mov ax, 1                       ; the frame's bottom rule
-    jl .vis
-    mov ax, dx
-    xor dx, dx
-    div cx
-    inc ax
-.vis:
-    cmp ax, RI_LINES
-    jbe .fit
+    mov bx, ri_pane                 ; the pane: Tune's geometry, its cap ours
     mov ax, RI_LINES
-.fit:
-    mov [bx + SP_VIS], ax
-    call ru_spclamp
-    push bx                         ; colour headers and bars where the
-    push si                         ; window's display has sixteen - and
-    mov bx, [rl_win]                ; SI is an OUTPUT of this slot, while
-    call OSAPI_WM_DISPLAY           ; every press reaches here holding the
-    pop si                          ; window in it (os88ui_btnclick)
-    pop bx
-    mov byte [ri_color], 0
+    call ru_panelay
+    push si                         ; colour headers and bars where the
+    mov bx, [rl_win]                ; window's display has sixteen - and SI
+    call OSAPI_WM_DISPLAY           ; is an OUTPUT of this slot, while every
+    pop si                          ; press reaches here holding the window in
+    mov byte [ri_color], 0          ; it (os88ui_btnclick)
     cmp dh, 4
     jb .mono
     mov byte [ri_color], 1
@@ -879,47 +783,44 @@ ri_tabkey:
     jmp ru_pop8
 
 ; ri_report - every page, in order, into INSPECTn.TXT (bl_numname's first
-; free), in ONE write: OSAPI_FILE_APPEND appends only at a cluster multiple,
-; so the module writes each page's text into one claim of RI_RPTKB and the
-; claim is written and given back. The page shown is composed again after.
-; CF = 1 nothing was written
-RI_RPTKB    equ 24                  ; eight pages' text; the module stops short
+; free), through os88wseq.inc's stream: an append of any size, buffered in
+; bl_out (free outside a save) and written in whole clusters. The module
+; turns each page into text in place, in its own lines, and the stream takes
+; it from there. The page shown is composed again after. CF = 1 not written
 ri_report:
     push ax
     push bx
     push cx
-    push dx
     push si
+    push di
     push es
     mov al, [ri_page]
     push ax
-    mov ax, RI_RPTKB
-    call OSAPI_MEM_CLAIM            ; DX = the report's claim
+    mov si, ri_s_file
+    call bl_numname
+    mov [ri_rname], si
+    mov di, ri_ws
+    mov bx, bl_out
+    mov cx, 8192
+    call os88_wseq_open
     jc .done
-    mov [ri_tseg], dx
-    mov word [ri_toff], 0
     xor cx, cx                      ; CL = the page
 .page:
     mov al, RIM_TEXT
     mov ah, cl
-    call ri_mcall                   ; appends at [ri_tseg]:[ri_toff]
-    jc .free
+    call ri_mcall                   ; AX = its text's bytes, in the module
+    jc .done
+    push cx
+    mov cx, ax
+    mov es, [ri_mseg]
+    mov si, RIM_LINES
+    call os88_wseq_put
+    pop cx
+    jc .done
     inc cx
     cmp cl, RI_NPAGE
     jb .page
-    mov si, ri_s_file
-    call bl_numname
-    mov [ri_rname], si
-    mov es, [ri_tseg]
-    xor bx, bx
-    mov cx, [ri_toff]
-    xor dx, dx
-    call OSAPI_FILE_WRITE
-.free:
-    pushf
-    mov dx, [ri_tseg]
-    call OSAPI_MEM_FREE
-    popf
+    call os88_wseq_close
 .done:
     pop ax
     pushf
@@ -927,14 +828,13 @@ ri_report:
     call ri_compose
     popf
     pop es
+    pop di
     pop si
-    pop dx
     pop cx
     pop bx
     pop ax
     ret
-ri_tseg:    dw 0                    ; the report's claim, while it is written
-ri_toff:    dw 0                    ; ...and how much of it is (the module's)
+ri_ws:      times WSEQ_SIZE db 0    ; the report's stream (os88wseq.inc)
 ri_s_file:  db 'INSPECT.TXT', 0
 ri_s_rptno: db 'Report not saved', 0
 
