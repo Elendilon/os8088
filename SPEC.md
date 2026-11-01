@@ -4097,7 +4097,7 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | `kernel/events.inc` | 8-byte event records (`EVT_MDOWN`/`MUP`/`RDOWN`, and `EVT_WAKE` — a package's own kick, §74.1), the system event ring queue, its two shared drains `evq_drain`/`evq_mup` (§10.3) and `evq_pending` (§13.4) |
 | `kernel/clock.inc`  | system clock (§37): the RTC ladder (§37.90 — MC146818 at 70h/71h, MM58167 and RP5C01 at 2C0h, int 1Ah last), the wall-clock date + time advanced from `[ticks]`, and formatting — prefix `clk_`. **Neither the field editor nor the RTC WRITE half is here**: `clk_fld_str`/`clk_fld_adj`/`clk_step` (§37.93) and the four rungs' writers (§37.94) are §37's code hosted in `CTRL.DRV`. What stays is the tick, the snapshot, the menu bar's formatter and the six port helpers **both** the boot overlay and that module need |
 | `kernel/clockw.inc` | §37's RTC **write** half (§37.94): `clk_rtc_write` and the four rungs' writers, `%include`d from `ctrl.inc`'s `.modc` so it ships in `CTRL.DRV` and is in RAM only while the Control Panel is open. Still `clk_`, still §37's contract — a file of its own so that `ctrl.inc` is not 600 lines of MC146818 |
-| `kernel/wm.inc`     | window records, z-order, frames, hit test, paint-all, `wm_owner` side table; `wm_runion`, `gfx_rect_isect`'s union twin (§5.11); the per-slot handler words `W_ABOUT`/`W_ONSZ`/`W_ONWK`/`W_ONCL`/`W_ONRC` and the rest of the record's per-slot tail (§11 — side tables until kernel size pass 4 folded them into the record), the wake post/dispatch `wm_wake`/`wm_wake_disp` (§74.1) and the close negotiation `wm_ask_close`/`wm_close_req`/`wm_close_pass` (§75.1/§75.2) |
+| `kernel/wm.inc`     | window records, z-order, frames, hit test, paint-all, `wm_owner` side table; `wm_runion`, `gfx_rect_isect`'s union twin (§5.11); the per-slot handler words `W_ABOUT`/`W_ONSZ`/`W_ONWK`/`W_ONCL`/`W_ONRC` and the rest of the record's per-slot tail (§11 — side tables until kernel size pass 4 folded them into the record), the wake post/dispatch `wm_wake`/`wm_wake_disp` (§74.1) and the close negotiation `wm_ask_close`/`wm_close_req`/`wm_close_pass` (§75.1/§75.2; `wm_close_pass` is written into `ui_task`'s ladder in `kernel/ui.inc` since kernel size pass 16, as are `ui_arm_chk`, `ui_timer_pass` and `mouse.inc`'s `cur_shape_pass`) |
 | `kernel/instance.inc` | instance table: records, kind descriptors, launch/close lifecycle (§29) |
 | `kernel/memory.inc` | the claim heap (§50): the map, `mem_claim`/`mem_free`/`mem_avail`, the teardown fence — prefix `mem_`; and `mem_bytes_kb`, the **bytes → whole-KB round-up every caller that sizes a claim from a byte count needs** (§50.3), which three `.text` sites each spelled out |
 | `kernel/menu.inc`   | menu bar (System menu + the active application's name and menus), runtime bar layout, pull-down tracking, Locator's own menu set (§12/§12.2/§12.3) |
@@ -4311,7 +4311,7 @@ canvas blank is 211 (PERFORMANCE.md Set 32): the pixels barely enter it.
 
 - the row base is `gfx_rowbase` once at the top of the row, not once a run;
 - §39.4's reduction is one `gfx_inktab` read, and the 50% dither's phase is
-  the row's own `AA`/`55` byte — `sw_parity`'s answer, computed with it;
+  the row's own `AA`/`55` byte — `sw_ink.dither`'s answer (`sw_parity`'s until kernel size pass 16), computed with it;
 - the screen clip is `sw_span`'s own two compares;
 - and what is left is what a horizontal run actually costs: **two masked bytes
   and a `rep stosb`**.
@@ -4386,7 +4386,7 @@ Five things are load-bearing:
   and not Hercules: MartyPC's MDA aperture is offset (−16, +2) from the guest
   origin, so a comparison in guest coordinates there is sampling the wrong
   pixels — 15,054 differ, and it looks exactly like a reduction bug.)
-- **The dither bit is `parity XOR 1`**, not `parity`: `sw_parity`'s `0xAA` has
+- **The dither bit is `parity XOR 1`**, not `parity`: `sw_ink.dither`'s `0xAA` has
   its bit SET at x = 0 of an even row and bit 7 is the leftmost pixel. Getting
   it the other way round inverts every dithered pixel and nothing else, which
   is 20,532 differing pixels and looks like a much deeper bug than it is.
@@ -6667,7 +6667,7 @@ Two things are load-bearing:
   the write-back needing `[gfx_ls_cseg]` anyway — but it is load-bearing now
   rather than incidental, because the mono walk points ES at the framebuffer
   and the slow path leaves it wherever `gfx_pixel` did.
-- **The ink is resolved once, above the loop** (`gfx_ls_ink`), so
+- **The ink is resolved once, above the loop** (`gfx_ls_ink`'s three instructions, written at the pass head since kernel size pass 16), so
   `gfx_lstep_mono` no longer computes it. One pen for the batch is not a
   restriction worth removing: a caller with two pens has two batches, and two
   arrivals is still not eight.
@@ -12404,7 +12404,8 @@ cheaper than the reasoning needed to remove it safely.
   - `task_cycles` — out DX:AX = `sch_cycles[sch_cur]` with the pending
     slice folded in (`pushf`/`cli`, sch_account, read **at the SI that call
     hands back**, `popf`).
-  - `task_debit` — in DX:AX = a stamp from `task_cycles` **taken on this
+  - the debit (`task_debit` until kernel size pass 16, which wrote it into
+    its one caller, `inst_charge`) — in DX:AX = a stamp from `task_cycles` **taken on this
     task**; out DX:AX = the cycles elapsed since it, *subtracted* from
     `sch_cycles[sch_cur]` in the same cli window. Move, not copy: the
     caller adds the amount to another counter, so the two still partition
@@ -12669,7 +12670,7 @@ watchdog hits; and a task that dies clears it for its successor.
 
 **PLACEMENT (safety-critical).** Both routines must sit **outside** the
 `sch_isr` → `sch_switch` → `sch_resume` fall-through run — put them right
-after `task_debit` and before `sch_isr`. A routine dropped between `sch_isr`
+after `task_cycles` and before `sch_isr`. A routine dropped between `sch_isr`
 and `sch_switch` sends every unlocked tick through its `ret` with no return
 address on the stack: an instant boot-killer. `task_exit`'s explicit `jmp`
 into `sch_switch` is the only sanctioned way to reach the run from outside.
@@ -12826,11 +12827,11 @@ by **every slice at once**, because any of them can be the one interrupted.
     cmp byte [sch_chbusy], 0    ; nested? then the chain is already on the ROM
     jne .chskip
     inc byte [sch_chbusy]
-    mov [sch_chsave], sp
-    mov sp, sch_chstack + SCH_CHSTK
+    mov bx, sp                  ; the task's SP, in a register: the ROM's
+    mov sp, sch_chstack + SCH_CHSTK ; int 08h is an ISR and keeps every one
     pushf                       ; chain: BIOS ticks its count and sends EOI
     call far [sch_old08]
-    mov sp, [sch_chsave]
+    mov sp, bx
     dec byte [sch_chbusy]
 ```
 
@@ -18137,7 +18138,7 @@ Frame drawing (paint-all does this before calling W_PAINT):
 | `wm_hide`      | in BX = win ptr: clear visible, then `wm_paint_dmg` over the rect it vacated (§11.91) |
 | `wm_front`     | in BX = win ptr: raise to front of z-order and repaint what that changed — nothing at all if it was already frontmost, one title bar if nothing was covering it, otherwise the window (§11.90) |
 | `wm_paint_dmg` | in AX,BX,CX,DX = an inclusive damage rect (may hang off the screen; empty = chrome only): repaint the desktop, the drive zones, the chrome and every window the rect reaches, plus every window those reach. Caller holds the gfx lock; all registers preserved. §11.91. |
-| `wm_paint_chrome` | the dock and the menu bar and nothing else, for a change that revealed no pixels. Declines to `wm_paint_dmg` over the dock strip when a window hangs over it. Caller holds the gfx lock. |
+| `wm_paint_chrome` | the dock and the menu bar and nothing else, for a change that revealed no pixels (since kernel size pass 16 written into its one caller, `wm_paint_dmg`'s chrome arm, rather than a routine of its own). Declines to `wm_paint_dmg` over the dock strip when a window hangs over it. Caller holds the gfx lock. |
 | `wm_covered`   | in BX = win ptr; out CF=1 = every pixel of its **frame** rect (drop shadow included) is covered by visible windows above it, so a back-to-front painter may skip it entirely — **W_PAINT included**. Overflow of the 16-rect list answers "not covered". Leaves the clip list disarmed. Caller holds the gfx lock. §11.91. |
 | `wm_win_rect`  | in SI = win ptr; out AX,BX,CX,DX = its occupied rect, inclusive, drop shadow included (WF_FULL: no shadow). Clobbers only those four. |
 | `wm_top`       | out BX = frontmost visible window ptr, 0 if none. Takes no lock, touches no VRAM and reads only `wm_zord`, so a **worker task** may call it — which is what API slot 0x01EC (§20.3) is for: a package is told when it *gains* the front (`W_ONCLICK`, `W_PAINT`) and never when it loses it, and `W_FLAGS` bit 1 answers *visible*, which a covered window still is. apps/arkanoid pauses on it (§44.8) — together with `menu_owner` (§12.6), which answers the other half: a click on the bare desktop changes the active application without touching `wm_zord`, so this routine correctly reports that nothing moved. |
@@ -24891,7 +24892,7 @@ follow either way:
 - **The lock is HELD across the wait**, which is `ui_drag`'s `.linger` verbatim
   and for its reason: an XOR overlay is on the screen, and a background painter
   drawing under it would leave the erase inverting pixels it never drew.
-  `wm_an_pace` `task_yield`s rather than spinning, so the sound worker and the
+  `wm_anim`'s frame wait (`wm_an_pace` until kernel size pass 16) `task_yield`s rather than spinning, so the sound worker and the
   scheduler live through it.
 - **No adapter wants a different frame count.** VGA's rows are ~3.4x cheaper
   (5150 #2's `GFX_FILL 64x64`, 53 µs a row against mono's ~182) and its windows
@@ -26371,9 +26372,9 @@ reason the `.close_box` branch of §13's ladder can take the lock itself.
 Three things about it are load-bearing.
 
 **The cell no longer depends on the About handler.** It used to exist only
-when `wm_about_get` answered non-zero, so most applications had a bare label
+when the window's About handler (`W_ABOUT`) was non-zero, so most applications had a bare label
 where the name is and no way at all to quit from the bar. Now `[menu_win]`
-being non-zero is the whole condition, and `wm_about_get` decides only
+being non-zero is the whole condition, and `W_ABOUT` decides only
 whether the cell has one item or two. `menu_abstr` — `'About '` + the name —
 is therefore built on **every** relayout rather than only in the About case,
 because the cell's *title* is `menu_abstr + MENU_ABPFX_LEN`, the same bytes
@@ -27448,8 +27449,8 @@ each pair.
 
 `fpg_opbegin` (far, `DX:CX` = the bytes the WHOLE operation will move, every
 phase counted - a copy reads AND writes, so twice the file) scales the trough
-once and sets `FPG_OP` (bit 3 of `[fpg_on]`). Until `fpg_opend` or the
-unlock:
+once and sets `FPG_OP` (bit 3 of `[fpg_on]`). Until the end clears it
+(`fcp_xfer`'s `fcp_opend`, `OSAPI_FS_OP`'s end) or the unlock:
 
 - **`fpg_end` banks the phase's scale** in `[fpg_opt]` as it zeroes
   `[fpg_total]`, still writing no flag.
@@ -27495,7 +27496,7 @@ unlock:
   is still no bracket to forget. `fcp_xfer` is the first caller: one
   operation per file, twice the source's size.
 - **`fpg_opbegin` refuses while any operation is owned** (`[fpg_pown]` not
-  0FFh, §12.8.9), so a kernel operation inside a package's is not a second
+  `FPG_NOWN` = 0FEh, §12.8.9), so a kernel operation inside a package's is not a second
   scale.
 
 #### 12.8.9 …and a PARKED widget outlives the hold, for its owner
@@ -27506,8 +27507,9 @@ spread out so *"the loading has half the machine and the desktop the other
 half"* - is a hold per chunk, so the widget went up and came down once per
 chunk: hundreds of blinks for one thing the user asked for.
 
-An operation with an **owner** (`[fpg_pown]`: an instance index, or 0FEh for
-the kernel and a driver asked as the machine) **parks** at `gfx_unlock`
+An operation with an **owner** (`[fpg_pown]`: an instance index, or 0FFh -
+`inst_caller`'s own answer - for the kernel and a driver asked as the machine;
+`FPG_NOWN` = 0FEh is none) **parks** at `gfx_unlock`
 instead of coming down:
 
 - **What stays and what goes.** `[fpg_on]` keeps `FPG_SHOWN | FPG_OP`, and
@@ -69455,7 +69457,7 @@ register contracts, reached through the `[vid_mono]` dispatch at each public
 entry (§39.5). **There is no `sw_xor_rect`**: an outline has one
 decomposition (§5's `gfx_xor_strips`) and it reaches this renderer through
 `gfx_xor_fill`'s own dispatch, one strip at a time. `sw_xfer` is the save/restore worker;
-`sw_ink`/`sw_col`/`sw_parity`/`sw_patcol`/`sw_plane_op` are its internals.
+`sw_ink`/`sw_col`/`sw_patcol`/`sw_plane_op` are its internals.
 
 **Concurrency.** Every routine here runs with the gfx lock held (§1.6), so
 `vga12`'s rect scratch needs no interrupt guard. The cursor does not come
@@ -78051,12 +78053,14 @@ until the flag was put back. A VGA BIOS keeps its own state and is not talked
 out of itself by a flag. So on this pairing the only way to program the mono
 card is **to program the mono card**.
 
-`vid_mono_text` is that, and its contract is a refusal as much as an action:
+`vid_text`'s mono arm (`.mono`) is that, and its contract is a refusal as
+much as an action. It was a routine of its own, `vid_mono_text`, answering in
+CF, until kernel size pass 16 wrote it into its one caller:
 
 | machine | answer |
 |---|---|
-| a VGA in it (`[vid_avail]` bit `VID_A_VGA`) | programs the 6845 from `vid_6845t`, clears B0000 to `0x0720`, 3B8h ← `0x29`, **CF = 1: do not call int 10h at all** |
-| anything else — lone MDA, lone Hercules, Hercules+CGA | **CF = 0**, having touched nothing: the ROM's mode 7 *is* this card |
+| a VGA in it (`[vid_avail]` bit `VID_A_VGA`) | programs the 6845 from `vid_6845t`, clears B0000 to `0x0720`, 3B8h ← `0x29`, **and does not call int 10h at all** |
+| anything else — lone MDA, lone Hercules, Hercules+CGA | **the ROM's mode 7**, having touched nothing: it *is* this card |
 
 Four things are load-bearing.
 
@@ -78545,7 +78549,7 @@ every register kept (§2.8.1) — and every call site is either behind a
 |---|---|---|---|
 | 0 | `EXT_EXTEND` — the Extend arm | `vid_disp_init` `.extend` | CF = 1 → `jc .single`, with AL/AH the two kinds `.single` wants: the arrangement is Single. This IS the refusal path |
 | 1 | `EXT_LAND` — `ui_drag_size` | `ui_drag`, `ui_grow` | the image answers CF **inverted** (1 = NOT moved) and `ui_drag` follows the call with `cmc`, so `mod_gone` reads "not moved" and the drag cache survives on one display. `ui_grow` ignores CF |
-| 2 | `EXT_STRADS` | `wm_snap_far` | CF = 1 is "not straddling" — the one-display answer |
+| 2 | `EXT_STRADS` | `wm_snap_far` (written into `wm_snap_w` since kernel size pass 16) | CF = 1 is "not straddling" — the one-display answer |
 | 3 | `EXT_APPLY` — straddle test + fit | `wm_apply_wh` | CF = 1 → its existing `jc .one` |
 | 4 | `EXT_FITBOX` | `wm_fit` | registers kept = the primary's box = the one-display answer |
 | 5 | `EXT_KINDNOW` — `wm_kind_now`'s arm | `wm_kind_now`, UNGATED (a create, fit or resize) | AL kept, and the caller loaded `[vid_kind]`: the primary's kind |
@@ -78573,7 +78577,7 @@ shim (§39.19.6.2).
 from `.text` into `.modx` ASSEMBLES — both sections have `vstart=0` — and runs
 into the wrong segment, so a routine that moved and a caller the sweep missed
 is exactly the defect nothing else would report. Broken on purpose both ways
-(`call wm_strads` from `wm_snap_far`, `call wm_fit` from inside the image) and
+(`call wm_strads` from `wm_snap_far` - `wm_snap_w`'s right-edge test - `call wm_fit` from inside the image) and
 refused both times, naming the line.
 
 ##### 39.19.6.1 Lifetime: pinned while extended, dropped on the way back to Single
@@ -100419,17 +100423,23 @@ routines and by nothing else. Both run with `CS` = their own image and `DS` =
 `KERNEL_SEG`, so **one macro serves both** — every kernel reference is
 unchanged and only the parser's own tables take `cs:`.
 
-**Three things stay resident, and each is a rule rather than an oversight:**
+**Two things stay resident, and each is a rule rather than an oversight:**
 
 - **`drv_cfg`, the settings struct.** `osapi_drv_cfg` hands a driver its blob
   out of it at any moment in the session (§51.9), so it is live state.
-- **`drv_cfgname` and `drv_sysname`.** `dskw_read`, `dskw_stat` and
-  `dskw_write_sys` each read a filename through `DS` — a name in an image is a
-  filename read out of the kernel at the image's offset.
 - **Three far entries**, twelve bytes: `drvf_drv_vol_bank`, `drvf_drv_vol_back`,
   `drvf_drv_mounted` (`drvf_ss_mins2idle` was a fourth until kernel size pass
   13: the boot's reader reaches `ss_mins2idle` through `wm_cbd`). A call out
   of an image is far.
+
+**The two FILENAMES are not resident** (kernel size pass 16). `dskw_read`,
+`dskw_stat` and `dskw_write_sys` each read a filename through `DS` — a name in
+an image is a filename read out of the kernel at the image's offset — so each
+image STAGES its own copy into the panel's `cp_sbuf` first: `CTRL.DRV` through
+`cp_stage` (now the settings core's), the boot's reader through `CFGN_STAGE`,
+expanded in `.cfx` where there is one (kern_big, kern_emu) and in the blob
+where there is not. Both names were 22 resident bytes kept for two moments in
+a session.
 
 **Written once, emitted twice.** `CFG_DATA` / `CFG_SHARED` / `CFG_BOOT` /
 `CFG_SAVE` are macros taking the image's label prefix, and the two
@@ -138839,7 +138849,7 @@ differed by 176 pixels — which reads exactly like a renderer that changed.
    thing distinguishing a jellyfish from a fish on two adapters of three
    (§39.4), cannot arrive through `OSAPI_GFX_BLIT1_PEN`. It is composed into
    the band instead, and it has to be the *kernel's own* dither or the two
-   would disagree wherever they met: `sw_parity` lays `0xAA` on an even screen
+   would disagree wherever they met: `sw_ink.dither` lays `0xAA` on an even screen
    row and `0x55` on an odd one, bit 7 leftmost, so a pixel is lit when
    (x + y) is even. A band starts on the byte grid, so its rows take that mask
    unshifted, and the two bytes being each other's complement means one XOR

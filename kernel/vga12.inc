@@ -1454,7 +1454,11 @@ gfx_points:
     and byte [gfx_pt_f], ~PT_OOB & 0xFF     ; ...and nothing off it seen yet
 %endif
     ; --- EVERYTHING THE LOOP NEEDS, resolved once, while DS is still ours ---
-    call gfx_ls_ink             ; [gfx_ln_ink] = 00 paper / FF ink / 01 dither
+    mov al, [gfx_color]         ; [gfx_ln_ink] = 00 paper / FF ink / 01
+    call gfx_ink                ; dither: [gfx_color] resolved to the 1bpp
+    mov [gfx_ln_ink], al        ; class once. AX is the box's to reload. This
+                                ; was gfx_ls_ink, its one call (kernel size
+                                ; pass 16, -4)
     mov bp, si                  ; SPEC.md 5.6.9.1: the box is RESOLVED for the
     mov dx, [es:bp+2]           ; FIRST point here, while DS is still ours, so
     mov si, [es:bp]             ; it cannot match whatever the last caller left
@@ -1572,14 +1576,6 @@ gfx_pt_row:
 ; seven it is not, stood beside it with no reader since the loops became one
 ; per ink class - the paper loop inverts the set mask it already has.)
 gfx_bitset: db 0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01
-
-; gfx_ls_ink - resolve [gfx_color] to the 1bpp class once (00 / FF / 01)
-; clobbers AX
-gfx_ls_ink:
-    mov al, [gfx_color]
-    call gfx_ink
-    mov [gfx_ln_ink], al
-    ret
 
 
 ; gfx_ls_addr IS GONE (SPEC.md 5.6.9.3). It resolved one point's byte

@@ -140,10 +140,17 @@
 # 2026-11-01: to 3,357, mega_parkcap (a debugger's cap) MEGADIAG=1 only
 # 2026-11-01: to 3,231, bootonce2: the four refusal strings into `.mega`,
 #             read at a refusal through `.mega`'s low copy (-124 `.text`)
-# 2026-11-01: +58, to 3,289, the review fixes (docs/reports/CODE-REVIEW-
-#             TWO-CYCLES-2026-11-01.md finding 1 and its lows): fsx_rtick
-#             chains the ROM's int 08h on sch_chstack as sch_isr does
-#             (SPEC.md 8.5) - it runs in REAL mode inside the bracket, so it
-#             is low by necessity. The speaker close that came with it runs
-#             in protected mode and is in `.mega` (fsx_rspkf)
-3289
+# 2026-11-01: +19, to 3,250, kernel size pass 16 (ops) - 1dea2435 put +78
+#             in `.text` and no line here (the gate read 3,309): fsx_rtick's
+#             ROM chain on sch_chstack (SPEC.md 8.5) is IRQ0 in the REAL-MODE
+#             bracket, so it has to be low, and is +19 once its two arms share
+#             one call and the task's SP rides in BX (-9). The rest of the 78
+#             was protected-mode code and went to `.mega`: the speaker ring's
+#             close (fsx_rland -> fsx_rupf's head), fsx_rcall's banking of SI
+#             and BP and its NMI-off/[mega_drop] stores (-> fsx_rdownf), and
+#             fsx_run's FSXF_REAL test (-> fsx_rprepf's head); fsx_rcall
+#             tail-jumps wm_pkgcall for a protected-mode bracket (-2)
+# 2026-11-01: elendilon's review fixes read 3,289 with the close in its own
+#             far routine (fsx_rspkf); at the merge of kernel size pass 16 the
+#             close is ops's inline one at fsx_rupf's head and fsx_rspkf goes
+3250

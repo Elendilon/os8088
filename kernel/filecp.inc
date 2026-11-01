@@ -1006,9 +1006,7 @@ fcp_step:
     mov al, FCPS_ASK            ; the buffer and the frames stay claimed:
     ret                         ; this is a pause, not an end
 .fail:
-    mov [fcp_err], al
-    mov al, FCPS_ERR
-    jmp fcp_stop                ; ...and the same here
+    jmp fcp_run2.seterr         ; fcp_run2's own three-instruction exit (pass 16)
 
 ; -----------------------------------------------------------------------------
 ; fcp_relink - move an entry inside ONE volume by moving its directory entry
@@ -1387,9 +1385,7 @@ fcp_mksub:
     mov al, [fcp_ddrv]
     mov bx, FF(FCP_FDST)        ; (BX is the output: the frame is not needed
     FCPX dsk_goto               ; again until fcp_step asks for it)
-    jnc .go
-    ret
-.go:
+    jc fcp_mkroot.out           ; ...its CF = 1 is the answer (pass 16)
     mov si, fcp_cname
 
 ; -----------------------------------------------------------------------------
@@ -1895,7 +1891,11 @@ fcp_xfer:
     stc                         ; (SPEC.md 22.5.2). It preserves AX and the
 .out:                           ; flags, the FERR_* being on its way out
 %ifdef FPG_OPS
-    call KERNEL_SEG:fpg_opend   ; flags kept: CF is the answer
+fcp_opend:                      ; (a label for tests/fpgop.py's trace)
+    ; STKBALANCE-OK: a label inside fcp_xfer, never called - reached by falling from .out, so its pop es / ret are fcp_xfer's own push es and return
+    pushf                       ; flags kept: CF is the answer
+    and byte [fpg_on], ~FPG_OP & 0FFh ; ...and the operation's scale ends
+    popf                        ; (fpg_opend was this, far: size pass 16)
 %endif
     pop es
     ret

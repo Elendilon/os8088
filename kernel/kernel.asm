@@ -2495,6 +2495,12 @@ dbg_reg_at:                     ; 0060:000E - THE DEBUG REGISTRY (SPEC.md 57)
 %macro SKIPCX2 0                ; mov cx, imm16 over two bytes: CX, no flag
     db 0xB9
 %endmacro
+%macro SKIPBL1 0                ; mov bl, imm8 over one byte: BL, no flag
+    db 0xB3                     ; (kernel size pass 16)
+%endmacro
+%macro SKIPAX2 0                ; mov ax, imm16 over two bytes: AX, no flag
+    db 0xB8
+%endmacro
 
 osapi_table:
 apic_gfx_lock:
@@ -4581,11 +4587,9 @@ api_rn:  ; STKBALANCE-OK: pops the rare cell's return address - it IS the target
                                 ; (was api_n: the N body, reached only by falling through from api_rn)
     push ds
     push si
-    push di
-    push es
-    call api_cpname             ; caller DS:SI -> KERNEL:api_name, <= 13 bytes
-    pop es                      ; the caller's ES back: it is the buffer
-    pop di                      ; and its DI, which the callee may need
+    call api_cpname             ; caller DS:SI -> KERNEL:api_name, <= 13 bytes;
+                                ; the caller's ES (the buffer) and DI (which
+                                ; the callee may need) come back from it
     KDS
                                 ; DS = KERNEL
     call inst_vol_enter         ; this instance's own folder (SPEC.md 19.2.1);
@@ -4619,17 +4623,15 @@ api_rn:  ; STKBALANCE-OK: pops the rare cell's return address - it IS the target
 api_fdlg_open:
     push ds
     push si
-    push di
-    push es
     or si, si
     jz .nodef                   ; "no default": the ZERO is the argument, so it
-    call api_cpname             ; must reach fdlg_open unstaged and unchanged
+    call api_cpname             ; must reach fdlg_open unstaged and unchanged -
+                                ; and the caller's ES (the buffer) and DI (an
+                                ; input: the completion proc's offset) come
+                                ; back from it
     mov si, api_name            ; a kernel offset, so it survives the DS switch
 .nodef:                         ; (SI is 0 already on the `jz` that brings it
 .go:                            ; here - kernel size pass 15, -4)
-    pop es                      ; the caller's ES back: it is the buffer
-    pop di                      ; and its DI, which fdlg_open needs as an
-                                ; input (the completion proc's offset)
     KDS
                                 ; DS = KERNEL
     call COLD_SEG:fdf_fdlg_open
@@ -4859,8 +4861,6 @@ api_file_write_sys:
 api_file_sysc:
     push ds
     push si
-    push di
-    push es
     push bx                     ; the caller's buffer offset: live, and
     mov bx, ds                  ; drv_owns_seg wants a register
     push ds                     ; ...AND THE CALLER'S DS IS KEPT, because
@@ -4875,8 +4875,7 @@ api_file_sysc:
     pop bx
     jc .refuse
     call api_cpname             ; caller DS:SI -> KERNEL:api_name, <= 13 bytes
-    pop es                      ; the caller's ES back: it is the buffer
-    pop di
+                                ; (ES - the buffer - and DI kept)
     KDS
                                 ; DS = KERNEL
                                 ; NO V (SPEC.md 19.2.1): the installer names
@@ -4884,17 +4883,14 @@ api_file_sysc:
                                 ; its own instance's folder put underneath it
     mov si, api_name
     call far [api_sysfp]        ; COLD_SEG:the verb the entry chose
+.out:
     pop si
     pop ds
     retf
 .refuse:                        ; DS is already KERNEL; unwind what is left
-    pop es
-    pop di
-    pop si
-    pop ds
     mov ax, FERR_PROT           ; the same answer DSKW_PROT gives a package
     stc                         ; that names a system file: it is protected,
-    retf                        ; and from out there that is the whole truth
+    jmp short .out              ; and from out there that is the whole truth
 %endif                          ; OS88_DRIVERS
 
 ; ...and the two-name case, which needs DI as well and so is written out
@@ -4904,7 +4900,7 @@ api_file_rename:
     push di
     push es
     push di                     ; bank the new-name pointer across the first
-    call api_cpname             ; copy, which needs DI itself - the old name,
+    call api_cpname0            ; copy, which needs DI itself - the old name,
                                 ; and ES = KERNEL for the second from here
     pop si                      ; SI = the caller's DI = the new name
     mov di, api_name2
@@ -5019,19 +5015,24 @@ ovw_mou_lockon:     call mou_lockon     ; ...and one for SPEC.md 9.11:
 ; (cw_clk_ns_put and cw_clk_tobcd went with them in kernel size pass 9: the
 ; port helpers are a copy in each image now, near-called - SPEC.md 37.94.)
 ; -----------------------------------------------------------------------------
-api_cpname:                     ; ...the same into KERNEL:api_name, which is
-    KES                         ; what four of the five callers want, and the
-                                ; three instructions they each wrote out ahead
+api_cpname:                     ; ...the same into KERNEL:api_name, and the
+    push es                     ; caller's ES and DI KEPT: three of the four
+    push di                     ; callers banked both around the call and put
+    call api_cpname0            ; them back on the next instruction, so the
+    pop di                      ; bank is here once (kernel size pass 16, -6).
+    pop es                      ; The fourth, the rename, wants ES = KERNEL
+    ret                         ; and DI spent for its second copy: cpname0
+api_cpname0:                    ; ...what that one wants, and the
+    KES                         ; three instructions it would write out ahead
     mov di, api_name            ; of it (ES = KERNEL on the way out)
 api_copyname:
     push ax                     ; AX and CX ONLY, and both are arguments the
     push cx                     ; caller is still carrying: AX is DX:AX's low
     cld                         ; half for READ_AT and AL for RMDIR, CX the
                                 ; byte count for WRITE/READ/APPEND. SI and DI
-                                ; are SPENT - all four call sites overwrite
-                                ; both on the instruction after the call, and
-                                ; all four already banked the caller's pair in
-                                ; their own prologue
+                                ; are SPENT - api_cpname banks DI for three of
+                                ; the four callers, and every one of them has
+                                ; banked SI in its own prologue
     mov cx, 13
 .c:
     lodsb
@@ -5358,6 +5359,17 @@ api_sysfp:  dw dwf_dskw_write_sys  ; which verb the shared fenced cell runs:
 %macro COLDCALL 1
 %ifnidn __?SECT?__, [section .cold]
   %error "COLDCALL outside .cold - CS is not COLD_SEG here; use call COLD_SEG:"
+%endif
+    push cs
+    call %1
+%endmacro
+; TEXTCALL - the same two instructions in `.text`, for a FAR entry there
+; called from `.text` (kernel size pass 16): CS is KERNEL_SEG (kern_mega's
+; code selector in protected mode, which is what its retf wants back), and
+; `push cs` + a near call is a byte under `call KERNEL_SEG:`
+%macro TEXTCALL 1
+%ifnidn __?SECT?__, [section .text]
+  %error "TEXTCALL outside .text - CS is not KERNEL_SEG here"
 %endif
     push cs
     call %1
@@ -5905,7 +5917,8 @@ kmain:
     mov sp, STK0_TOP            ; the image, so a stack offset stays small and
     sti                         ; the kernel's own 64KB window stays for code
 %ifdef KERN_MEGA
-    mov word [ss:mega_seg0], 0  ; ...and low memory is segment 0 (MEGA_SEG0)
+    and word [ss:mega_seg0], 0  ; ...and low memory is segment 0 (MEGA_SEG0)
+                                ; (`and`, flags dead: a byte under `mov`)
     mov byte [ss:mega_pm], 0    ; real mode, for .cold's KDATAR_C (mega.inc):
 %endif                          ; nothing promises .lowbss is zero at boot
     cld
@@ -6314,23 +6327,23 @@ osapi_img_name:                 ; (api_rsc's far body: DS = KDATA)
     jmp short .no
 %endif
 .mod:                           ; SI is the row's segment word either way, and
-    mov al, 1                   ; the name's pointer is the word after it in a
+    mov ch, 1                   ; the name's pointer is the word after it in a
     SKIPF2                      ; drv_tab row and a mod_tab row alike (asserted
                                 ; - and test ax, imm16 over the mov below keeps
-                                ; AL; the `or` in .c writes CF - pass 15)
+                                ; CH; the `or` in .c writes CF - pass 15)
 .drv:                           ; below), so one load serves both
-    mov al, 0
-.name:
-    mov si, [si+DRVR_FILE-DRVR_SEG]
+    mov ch, 0                   ; THE ANSWER IN CH, banked CX's high half, so
+.name:                          ; the copy is lodsb/stosb through AL (kernel
+    mov si, [si+DRVR_FILE-DRVR_SEG] ; size pass 16, -2)
     push di
+    cld
 .c:
-    mov cl, [si]
-    mov [es:di], cl
-    inc si
-    inc di
-    or cl, cl
+    lodsb
+    stosb
+    or al, al
     jnz .c
-    pop di                      ; (or: CF = 0)
+    pop di                      ; (or: CF = 0, and mov keeps it)
+    mov al, ch
 .out:
     pop si
     pop cx
@@ -6524,9 +6537,9 @@ osapi_file_here:
     push ax                     ; the reading is instance.inc's inst_where (DL
     call inst_where             ; = drive, AX = directory, the machine's own for
     mov bl, dl                  ; no instance), which banks BX - so BH is still
-    mov dx, ax                  ; the caller's here - and spends only DH, an
-    pop ax                      ; output
-    ret
+    xchg ax, dx                 ; the caller's here - and spends only DH, an
+    pop ax                      ; output. (`xchg`, a byte under `mov dx, ax`:
+    ret                         ; AX is the pushed one - kernel size pass 16)
 
 ; OSAPI_VOL_SYS (out BL = [dsk_bootvol], nothing else touched, flags
 ; included) is an INLINE cell (SPEC.md 20.3). [dsk_bootvol] is A: on a floppy
@@ -8661,6 +8674,9 @@ cfx_grid:
 ; cfx_ctxcap - vid_ctx_capture for the blob's bvs_disp_init (vidsel.inc's
 ; VID_CTXCAP), here for cfx_grid's reason
 VID_CTXCAP cfx_ctxcap, retf
+; cfx_cfgname - SYSTEM.CFG's name staged for the blob's ovc_load (driver.inc's
+; CFGN_STAGE), here for cfx_grid's reason (kernel size pass 16)
+CFGN_STAGE cfx_cfgname, retf
 %if cfx_grid - $$ < KVGABUF_SIZE
   %error "cfx_grid lies in the RAM `.vgabuf` shares with `.cfx`"
 %endif

@@ -2473,7 +2473,7 @@ cmz_jloop:
     call KERNEL_SEG:apic_fs_op  ; original: it is written once and the parts
     jc .noop                    ; read once, and a part is no bigger than what
     CSDO mov byte [CSEG cmz_jop], 1 ; it rebuilds, so an OVER-estimate that
-.noop:                          ; ends a little short. Owned as 0FEh, so only
+.noop:                          ; ends a little short. Owned as 0FFh, so only
 %endif                          ; cmz_jexit's end ends it: [cmz_jop] says ours
     call cmz_rearm
     call cmz_jat

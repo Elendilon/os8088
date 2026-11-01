@@ -189,8 +189,8 @@ LZ_CHK      equ 0x8000          ; the checkpoint while the tail is further:
 lz_decomp_x:
     test al, al                 ; the published door: AL bit 7 says AH is the
     js .big                     ; input's high byte (an older kernel refuses
-    mov ah, 0                   ; the bit as an unknown format); without it,
-.big:                           ; under 64KB as it was
+    cbw                         ; the bit as an unknown format); without it,
+.big:                           ; under 64KB as it was (AL < 80h: cbw is mov ah, 0)
     and al, ~LZ_BIG & 0xFF
 lz_decomp_big:
     push ds                     ; both segments are the caller's and both come

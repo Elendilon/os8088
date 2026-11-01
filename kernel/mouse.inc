@@ -3518,9 +3518,10 @@ kbm_poll0:
 ;      stated rather than tightened because SPEC.md 7.1.4.1 is what a routine
 ;      promising more than it keeps costs here.
 ; -----------------------------------------------------------------------------
-kbm_ui:
-    cmp byte [mou_ptr], 0
-    jne .out                    ; a machine with a mouse pays this compare
+kbm_ui:                         ; ui_task tests [mou_ptr] before calling
+                                ; (kernel size pass 16: the second compare
+                                ; that was here went, -8): a machine with a
+                                ; mouse pays that compare and not the call
     call kbm_shf                ; AL = the ScrollLock level, 0 or 10h: the bit
     and al, 0x10                ; itself, which is all [kbm_slast] is compared
                                 ; with (AX is this routine's to spend)
@@ -3541,7 +3542,7 @@ kbm_ui:
     call gfx_unlock
 .relax:
     cmp word [ui_ev + EV_TYPE], EVT_MDOWN
-    jne .p5                     ; .p5 and NOT .out: nothing to release is the
+    jne .p5                     ; .p5, the spend: nothing to release is the
     test byte [mouse_btn], 0x01 ; commonest pass there is, and it is exactly
     jz .p5                      ; the pass a fresh keypad-5 press arrives in
     and byte [mouse_btn], 0xFE  ; bit 1 is the right button's own latch, and is
@@ -3554,8 +3555,6 @@ kbm_ui:
                                 ; the release would be taken back by the very
                                 ; pass that made it (SPEC.md 9.6.4). A tail
                                 ; jump, for kbm_poll0's reason
-.out:
-    ret
 
 ; mou_evfill - stamp an event record at DS:SI and queue it
 ; in:  AX = EVT_*, SI -> an 8-byte record in DS, PRIVATE TO THE CALLER
@@ -3639,10 +3638,14 @@ kbd_dnmap   times KBD_MAPSZ db 0 ; ...and the bit per key. Zeroed again at the
 kbd_ovn     db 0                ; SPEC.md 9.8: beeps this overrun burst has
                                 ; already spent, reset when the buffer next
                                 ; reads empty
-kbd_ovb     db 0                ; ...and one the ISR has asked for and no pass
-                                ; has sounded yet. Both .text with a real
-                                ; initialiser for kbd_armed's reason - the ISR
-                                ; reads them on the machine's first keystroke
+                                ; (...and kbd_ovb, the one the ISR has asked
+                                ; for and no pass has sounded yet, is in
+                                ; ui.inc after ui_task: kernel size pass 16
+                                ; moved the byte to keep every hot routine
+                                ; between here and there at its parity.)
+                                ; .text with a real initialiser for
+                                ; kbd_armed's reason - the ISR reads it on
+                                ; the machine's first keystroke
 
 ; -----------------------------------------------------------------------------
 
@@ -5264,83 +5267,11 @@ cur_busy_on:
 ; [cur_shchk] covers the case the position compare cannot see - the pointer
 ; standing still while the window under it is raised, hidden, closed or
 ; dragged out from under it.
-cur_shape_pass:
-    ; THE "NOTHING MOVED" TEST IS ABOVE THE FRAME, and that is the whole of
-    ; SPEC.md 7.2.2. It used to sit below four pushes, so the pass that has
-    ; nothing to do - which is nearly every pass - paid 108 cycles of banking
-    ; to reach three compares. The UI ladder calls this 671 times a second on
-    ; an idle desktop: 300 cycles a pass, 4.2% of the machine, to answer no.
-    ;
-    ; One register is enough to ask, so one is what the fast path banks.
-    cmp byte [cur_shchk], 0
-    je .quiet                   ; ONE BYTE, and the UI ladder asks it too, so
-                                ; on a quiet pass this routine is not even
-                                ; called (SPEC.md 7.2.1.1)
-    push ax
-    push bx
-    push cx
-    push dx
-    mov byte [cur_shchk], 0
-    mov cx, [mouse_x]           ; straight into wm_hit's own registers (they
-    mov dx, [mouse_y]           ; went through AX/BX until size pass 9)
-    call wm_hit                 ; BX = the topmost visible window over the
-                                ; point (0 = none), AL = which part of it
-%ifdef KERN_BIG
-    cmp bx, [cur_hovw]          ; THE HOVER EDGE (SPEC.md 11.103.7): the same
-    je .hov                     ; answer, asked whether it CHANGED - one
-    push bx                     ; compare per pass, and only a change pays the
-    xchg bx, [cur_hovw]         ; far call: [cur_hovw] = the new window HERE,
-    call far [DKDFP + DKD_HOVER] ; so it is current with no image too, and
-    pop bx                      ; DESK.DRV's dkd_hover (SPEC.md 11.103.10)
-.hov:                           ; takes WF_HOVER off the OLD one (BX) and on
-                                ; the new, each a desk window's, with a wake to
-                                ; each. With no image the slot is mod_gone:
-                                ; no desk window exists, so nothing is hovered.
-                                ; CX is spent, AX is kept
-%endif
-    mov ah, CUR_ARROWSH
-    or bx, bx
-    jz .set                     ; the desktop, the dock and the menu bar are
-                                ; the kernel's, and the kernel points with an
-                                ; arrow
-    or al, al
-    jnz .set                    ; the title bar and its three boxes are the
-                                ; kernel's too, drawn by the kernel and
-                                ; clicked through the kernel - only a window's
-                                ; CONTENT is the application's to dress
-    mov ah, [bx + W_FLAGS + 1]  ; the high byte (SPEC.md 7.2.1), whose TOP bit
-    and ah, ~WF_HIBITS & 0xFF   ; the kernel's bits are NOT a shape (SPEC.md
-                                ; 11.99.2, 11.96.17) - WF_STALE, WF_NOANIM and
-                                ; WF_1BPP, named once in wm.inc so a fourth
-                                ; cannot be added to one mask and not this one
-.set:
-    cmp ah, [cur_shape]
-    je .out                     ; THE COMMON ANSWER, and the compare has to be
-                                ; HERE rather than only inside cur_shape_set:
-                                ; a pointer moving INSIDE the window it was
-                                ; already over would otherwise pay a
-                                ; gfx_lock/gfx_unlock pair per move for a
-                                ; shape that did not change - which is
-                                ; PERFORMANCE.md Part 9 Set 4's 21.8%, the
-                                ; single most expensive thing in this kernel,
-                                ; charged to every mouse move on every
-                                ; machine. It also leaves a window in which
-                                ; the arrow is off the glass, which is how it
-                                ; was caught: the no-regression A/B against a
-                                ; reference kernel found the pointer MISSING
-                                ; from 5 of 18 captured frames
-    mov al, ah
-    mov bp, cur_shape_set       ; cur_shape_set draws, so it needs the lock -
-    call ui_lcall               ; and this is a .yield caller, which holds
-                                ; none. ui_lcall is the lock/call/unlock
-                                ; triple in six bytes; BP is spent on it
-.out:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-.quiet:
-    ret
+; (WRITTEN IN ui_task's .chk_curs, its one call, by kernel size pass 16:
+; there AX..DX are dead, so the four banks went with the call and the ret,
+; and the "nothing moved" compare above the frame was the caller's too - 19
+; bytes, and a cheaper pass. The banner above and the comments in ui_task's
+; copy are the routine's.)
 
 ; -----------------------------------------------------------------------------
 ; cur_move - move the cursor to (AX, BX), writing every byte EXACTLY ONCE

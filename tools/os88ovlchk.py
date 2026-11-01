@@ -1524,7 +1524,8 @@ def main():
     # BLOBCALL is `push cs` + a near call: a FAR frame, so its target owns a
     # retf - and COLDCALL is the same two instructions inside `.cold`
     # (kernel.asm, docs/plans/ROM-PLAN.md 3.2), judged the same way
-    BLOBF = re.compile(r'\b(?:BLOBCALL|COLDCALL)\s+([A-Za-z_]\w*)')
+    # (TEXTCALL, the same in `.text`)
+    BLOBF = re.compile(r'\b(?:BLOBCALL|COLDCALL|TEXTCALL)\s+([A-Za-z_]\w*)')
     #
     # A LABEL IS COLLECTED AS A LIST OF EXTENTS, NOT AS ONE.  `%ifdef
     # KERN_BIG` / `%else` is the ordinary shape for a routine whose small-

@@ -287,12 +287,13 @@ fsx_run:
 .nohook:                        ; here)
 %endif
 %ifdef KERN_MEGA
-    test si, FSXF_REAL          ; THE REAL-MODE BRACKET (SPEC.md 53.2.3): its
-    jz .nreal                   ; refusals and its claim, the LAST test at the
-    cmp byte [ss:mega_pm], 0    ; door, so nothing below can refuse after the
-    je .nreal                   ; claim is taken. In real mode already (a
-    call MEGA_SEL_CODE:fsx_rprepf ; machine kern_mega could not switch) the
-.nreal:                         ; bit is ignored, as on every other kernel.
+    cmp byte [ss:mega_pm], 0    ; THE REAL-MODE BRACKET (SPEC.md 53.2.3): its
+    je .nreal                   ; refusals and its claim, the LAST test at the
+    call MEGA_SEL_CODE:fsx_rprepf ; door, so nothing below can refuse after the
+.nreal:                         ; claim is taken - when SI asks for it, which
+                                ; fsx_rprepf tests. In real mode already (a
+                                ; machine kern_mega could not switch) the
+                                ; bit is ignored, as on every other kernel.
                                 ; It never REFUSES (53.2.3): [fsx_rwhy] is
                                 ; FSXR_REAL and the bracket real, or the
                                 ; reason and the bracket goes on as today's
@@ -437,14 +438,10 @@ fsx_run:
     mov si, bx                  ; ret: wm_pkgcall's contract, record in SI,
     mov bp, ax                  ; offset in BP (SPEC.md 53.1)
 %ifdef KERN_MEGA
-    cmp byte [fsx_rmode], 0     ; ...or the same call in REAL MODE (SPEC.md
-    je .pmcall                  ; 53.2.3): out of protected mode, the call,
-    call fsx_rcall              ; and back
-    jmp short .called
-.pmcall:
-%endif
+    call fsx_rcall              ; ...or the same call in REAL MODE (SPEC.md
+%else                           ; 53.2.3), which fsx_rcall decides
     call wm_pkgcall
-.called:
+%endif
     pop bp
 .restore:                       ; FSX_RESTORE - one path home, SPEC.md 53.6,
                                 ; ordered (its header, below, is the order)
@@ -1285,7 +1282,8 @@ fsx_rgone:
     retf
 
 ; -----------------------------------------------------------------------------
-; fsx_rcall - wm_pkgcall's call, in real mode
+; fsx_rcall - wm_pkgcall's call, in real mode when [fsx_rmode] = 1 (and
+;      wm_pkgcall itself, jumped to, when it is 0)
 ; in:  PM, SI = the window, BP = the entry, DS = KDATA; the bracket armed and
 ;      [fsx_rmode] = 1 (the claim taken, the region copied down)
 ; out: the entry proc has run; protected mode again, every word, mask and
@@ -1295,19 +1293,21 @@ fsx_rgone:
 ; -----------------------------------------------------------------------------
 cpu 286
 fsx_rcall:
+    cmp byte [fsx_rmode], 0     ; a protected-mode bracket: wm_pkgcall's own
+    jne .real                   ; call, tail-jumped (kernel size pass 16:
+    jmp wm_pkgcall              ; the test was fsx_run's)
+.real:
     pushf
     push ds
     push es
     cli                         ; ...to the entry proc's own sti below
-    mov [fsx_rwin], si
-    mov [fsx_rent], bp
     call MEGA_SEL_CODE:fsx_rdownf ; the masks, IVT 20h, the words real
+                                ; mode reads, SI and BP banked, NMI off and
+                                ; [mega_drop] = 2 (kernel size pass 16: those
+                                ; were here, and are protected-mode stores)
     push ds
     pop es                      ; ES writable across the switch (a 386 keeps
                                 ; a segment's ATTRIBUTES: mega_svc_lo's note)
-    mov al, 0x8D                ; NMI off across the switch
-    out 0x70, al
-    mov byte [mega_drop], 2     ; ...landing at fsx_rland
     jmp mega_down               ; (CR0 on a 386, the reset on a 286)
 fsx_rland:                      ; REAL MODE, IF = 0, the stack as it was
     ; STKBALANCE-OK: mega_down's landing, never called - reached by a jump from mega_rland, after mega_r286 put a 286's stack back from [mega_rss]; it ends at fsx_rcall's own ret, on the frame fsx_rcall built before the drop
@@ -1332,8 +1332,6 @@ fsx_rland:                      ; REAL MODE, IF = 0, the stack as it was
     call mega_a20               ; A20 PROVED OPEN before the GDT is read: a
                                 ; BIOS the package called may have shut it
     call mega_up                ; protected mode: DS = ES = KDATA
-    call MEGA_SEL_CODE:fsx_rspkf ; a speaker ring left open, closed BEFORE
-                                ; the rate goes off (fsx_rspkf, `.mega`)
     call sch_fast_off           ; the rate OFF first: no hook may run in
                                 ; protected mode on the window's copy, which
                                 ; is stale until the copy back (fsx_restore
@@ -1374,28 +1372,22 @@ fsx_rtick:
     mov [sch_fcnt], al
 .tick:
 %ifndef NO_CHAINPRIV
-    cmp byte [sch_chbusy], 0    ; THE ROM's CHAIN ON sch_chstack, as sch_isr's
-    jne .tskip                  ; (SPEC.md 8.5): SS is LOW_SEG here too, so the
-    mov ax, ss                  ; swap is SP alone. Nested (8.5.1) - a sample
-    cmp ax, LOW_SEG             ; ISR chaining us inside the ROM's sti - it
-    jne .tplain                 ; skips the chain and the driver's tick, which
-    inc byte [sch_chbusy]       ; do not fit there, and the hook refuses on
-    mov [sch_chsave], sp        ; the same flag. A ROM service's own stack
-    mov sp, sch_chstack + SCH_CHSTK ; chains in place
-    pushf                       ; the ROM's IRQ0: 40:6C and its EOI
-    call far [mega_old08]
-    mov sp, [sch_chsave]
-    dec byte [sch_chbusy]
-    jmp short .tchd
-.tskip:
-    inc word [sch_chskip]
-    inc word [ticks]
-    jmp short .eoi
-.tplain:
+    mov bx, sp                  ; THE ROM's CHAIN ON sch_chstack, as sch_isr's
+    cmp byte [sch_chbusy], 0    ; (SPEC.md 8.5): SS is LOW_SEG here too, so the
+    jne .tskip                  ; swap is SP alone. Nested (8.5.1) - a sample
+    mov ax, ss                  ; ISR chaining us inside the ROM's sti - it
+    cmp ax, LOW_SEG             ; skips the chain and the driver's tick, which
+    jne .tplain                 ; do not fit there, and the hook refuses on
+    inc byte [sch_chbusy]       ; the same flag. A ROM service's own stack
+    mov sp, sch_chstack + SCH_CHSTK ; chains in place. The task's SP is in BX
+.tplain:                        ; (an ISR, the ROM's keeps every register):
+%endif                          ; one call for both arms, and on the plain
+    pushf                       ; one the restore and the clear below are
+    call far [mega_old08]       ; no-ops - [sch_chbusy] was 0 there (kernel
+%ifndef NO_CHAINPRIV            ; size pass 16, -9)
+    mov sp, bx
+    mov byte [sch_chbusy], 0
 %endif
-    pushf                       ; the ROM's IRQ0: 40:6C and its EOI
-    call far [mega_old08]
-.tchd:
     inc word [ticks]
     mov ax, LOW_SEG             ; the stream's watchdog (W4): fsx_rstko is
     mov es, ax                  ; the service area's rms_stick, beside
@@ -1438,6 +1430,11 @@ fsx_rtick:
     cli                         ; the hook may have sti'd
     dec byte [sch_rbusy]
     jmp short .out
+%ifndef NO_CHAINPRIV
+.tskip:                         ; a NESTED tick: no chain, no driver tick
+    inc word [sch_chskip]
+    inc word [ticks]            ; ...and falls into its own EOI
+%endif
 .eoi:
     mov al, 0x20
     out 0x20, al
@@ -1466,6 +1463,10 @@ cpu 286
 ; else. Every register kept
 ; -----------------------------------------------------------------------------
 fsx_rprepf:
+    test si, FSXF_REAL          ; not asked: nothing (the test was fsx_run's,
+    jnz .ask                    ; in `.text`: kernel size pass 16)
+    retf
+.ask:
     push ax                     ; AL = the reason, as each test is reached
     mov al, FSXR_KEEP
     test si, FSXF_KEEPWORKER    ; one task runs in real mode: nothing to keep
@@ -2250,6 +2251,8 @@ fsx_rcp1:                       ; ES:SI the high linear, ES:DI the low, CX
 %define FSX_RKEEPN (fsx_rkeep_end - fsx_rkeep) ; fsx_rkeep's bytes
 %define FSX_RKMN (fsx_rkeepm_end - fsx_rkeepm) ; ...and fsx_rkeepm's
 fsx_rdownf:
+    mov [fsx_rwin], si          ; fsx_rcall's window and entry, banked
+    mov [fsx_rent], bp          ; across the drop
     pusha
     push es
     in al, 0x21                 ; the masks the return puts back, and what
@@ -2373,6 +2376,9 @@ fsx_rdownf:
 .kn:
     or bx, bx
     jnz .keep
+    mov al, 0x8D                ; NMI off across the switch, LAST
+    out 0x70, al
+    mov byte [mega_drop], 2     ; ...landing at fsx_rland
     pop es
     popa
     retf
@@ -2780,31 +2786,6 @@ fsx_rvup:
     ret
 
 ; -----------------------------------------------------------------------------
-; fsx_rspkf - FAR, protected mode after the return (IF = 0, DS = KDATA, the
-; rate still on): A SPEAKER RING LEFT OPEN (SPEC.md 34.11) is closed here,
-; before fsx_rland turns the rate off - the twin's close (rms_spk) less its
-; two writes that cannot matter: IVT 20h is put back by fsx_rupf's forced
-; sync, and channel 0 by sch_fast_off after this. fsx_restore's spk_off used
-; to close it AFTER that, reloading channel 0 with [spk_rdsv] - the bracket's
-; divisor - once [sch_fast] was already 0, so the desktop ran at the
-; bracket's rate with every IRQ0 a tick. Protected mode only, so in `.mega`
-; and not the kernel segment (tests/megaseg.txt). Clobbers AX
-; -----------------------------------------------------------------------------
-fsx_rspkf:
-    cmp word [spk_seg], 0
-    je .out
-    in al, 0x61                 ; channel 2 idle, the speaker off
-    and al, 0xFC
-    out 0x61, al
-    mov al, 0xB6
-    out 0x43, al
-    xor ax, ax
-    mov [spk_seg], ax
-    mov [snd_ch2mode], ax
-.out:
-    retf
-
-; -----------------------------------------------------------------------------
 ; fsx_rupf - FAR, the first of protected mode after the return (IF = 0, DS =
 ; KDATA, the rate already off): fsx_rdownf undone in reverse, then the region
 ; copied back UP with interrupts on and its claim freed. Every register kept
@@ -2812,6 +2793,21 @@ fsx_rspkf:
 fsx_rupf:
     pusha
     push es
+    cmp word [spk_seg], 0       ; A SPEAKER RING LEFT OPEN (SPEC.md 34.11) is
+    je .nspk                    ; closed HERE, before fsx_restore's spk_off -
+    in al, 0x61                 ; the twin's close (rms_spk) less its two
+    and al, 0xFC                ; writes that cannot matter: IVT 20h is put
+    out 0x61, al                ; back by the forced sync below, and channel
+    mov al, 0xB6                ; 0 by sch_fast_off before this call. spk_off
+    out 0x43, al                ; used to close it AFTER that, reloading
+    xor ax, ax                  ; channel 0 with [spk_rdsv] - the bracket's
+    mov [spk_seg], ax           ; divisor - once [sch_fast] was already 0, so
+    mov [snd_ch2mode], ax       ; the desktop ran at the bracket's rate with
+.nspk:                          ; every IRQ0 a tick. Channel 2 idle, IF = 0.
+                                ; It was in fsx_rland's `.text`, before
+                                ; sch_fast_off - which writes channel 0 and
+                                ; reads neither word, so the order between
+                                ; the two is free (kernel size pass 16)
     call fsx_rsndup             ; SOUND.DRV back up, its cells first (W4)
     not word [mega_ivtsh]       ; THE FORCED SYNC (mega_dwake's): the gates
     call mega_ivt_sync          ; rebuilt from the IVT whatever the shadow
@@ -3039,8 +3035,8 @@ fsx_rwalkf:
 .walk:
     mov ax, [es:FSX_RSV+FSV_NRUN]
     mov [es:di+RMS_RUN], ax
-    mov word [es:di+RMS_NRUN], 0
-.lp:
+    and word [es:di+RMS_NRUN], 0 ; (`and`: a byte under `mov`, the `or`
+.lp:                            ; below writes the flags - kernel size pass 16)
     mov ax, [bp+FSW_REM]
     or ax, [bp+FSW_REM+2]
     jz .ok
