@@ -2119,7 +2119,8 @@ hd_icopy_one:
 ; By FIND rather than by a stat call, because there is no stat slot and
 ; because FIND is what already answers both questions: the 32-bit size (the
 ; listing's is clamped to a word) and the attribute that says whether this is
-; a system file (SPEC.md 19.7.1).
+; a system file (SPEC.md 19.7.1). The size is the ON-DISK one - hd_find_di
+; asks OSAPI_FILE_FIND_RAW - so it is what the raw copy below moves.
 ; -----------------------------------------------------------------------------
 hd_istat:
     call os88_ent
@@ -2549,12 +2550,21 @@ hd_ivbr_get:
     jmp os88_r_es
 
 ; -----------------------------------------------------------------------------
-; hd_ifind_cx / hd_find_di - OSAPI_FILE_FIND into one of OUR buffers
+; hd_ifind_cx / hd_find_di - OSAPI_FILE_FIND_RAW into one of OUR buffers
 ; in:  CX = the ordinal; DI = the buffer (hd_ifind_cx sets it to hd_ifind)
-; out: OSAPI_FILE_FIND's; DI = the buffer. ES is the kernel's again after
+; out: OSAPI_FILE_FIND_RAW's; DI = the buffer. ES is the kernel's again after
 ;
 ; FILE_FIND fills ES:DI and a callback arrives with ES = KERNEL_SEG, so every
 ; site set ES to us and put it back - five copies of six instructions.
+;
+; **THE _RAW CELL, because this module is a COPIER** (SPEC.md 20.14.3,
+; 117.4.1). The two cells are one walk into one record and differ in +18 alone:
+; FIND answers what a compressed file EXPANDS to, _RAW what it OCCUPIES. The
+; copy is OSAPI_FILE_READ_AT and moves the packed bytes, so hd_istat's +18 -
+; the log's per-file KB and its 'Copied n files, k KB' - must be the packed
+; length too, or the log reports README.TXT at 16 KB while 9 KB crosses. +18
+; has no other reader in this driver; the type at +14, the cluster at +16 and
+; bit 0 of +22 are the same on both cells. Zero bytes: both are a far call.
 ; -----------------------------------------------------------------------------
 hd_ifind_cx:
     mov di, hd_ifind
@@ -2562,7 +2572,7 @@ hd_find_di:
     push es
     push cs
     pop es
-    call OSAPI_FILE_FIND
+    call OSAPI_FILE_FIND_RAW
     pop es
     ret
 
