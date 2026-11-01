@@ -5008,8 +5008,7 @@ fm_docmd:
     jnc .out                    ; ...or it only put a PROMPT on the status
 .full:                          ; line, which is one line of text. CF = 1 is
     jmp fm_repaint             ; 11.3's granularity refusal, same as always
-.out:
-    ret
+.out equ fm_c_open.out   ; its neighbour's ret (kernel size pass 16)
 
 ; --- the command bodies ------------------------------------------------------
 ; Each is near-called by fm_docmd with the gfx lock held, may clobber
@@ -5247,8 +5246,7 @@ fm_c_format:                    ; File > Format Disk... (SPEC.md 22.12)
                                 ; AX alone and mod_need preserves the rest
     mov al, 6
     jmp fm_edit_arm
-.no:
-    ret
+.no equ fm_fmt_go.no   ; its neighbour's ret (kernel size pass 16)
 
 ; -----------------------------------------------------------------------------
 ; fm_fmt_go - probe the disk in the drive and ask (SPEC.md 22.12)
@@ -5472,8 +5470,9 @@ fm_cldrop:                      ; (fm_c_uncto's entry: AL and flags clobbered)
     cmp word [clo_seg], 0       ; ...and the image goes back HERE, because no
     jne .armed                  ; mode was armed and fm_edit_end will therefore
     jmp clo_drop               ; never be reached with one to drop it from
-.armed:                         ; (SPEC.md 2.8.3) - UNLESS a claim is live,
-    ret                         ; which is CERR_BUSY and means ANOTHER
+.armed equ fm_c_clone.no        ; ...its neighbour's ret (kernel size pass
+                                ; 16) - UNLESS a claim is live, which is
+                                ; CERR_BUSY and means ANOTHER
                                 ; window's mode 7 is armed and owns the image.
                                 ; Freeing it there leaves that prompt needing
                                 ; the system disk for its next status line
@@ -5968,8 +5967,7 @@ fm_c_up:                        ; Nav > Up One Folder
     xor si, si                  ; the parent cannot be named without the
 %endif                          ; grandparent's listing (SPEC.md 22)
     jmp fm_go
-.none:
-    ret
+.none equ fm_c_pasteno   ; its neighbour's ret (kernel size pass 16)
 
 fm_c_root:                      ; Nav > Root Folder
     xor ax, ax
@@ -8276,7 +8274,7 @@ fm_mset:
     xor ax, ax
 .l:
     cmp ax, [di+FS_N]
-    jae .out
+    jae fm_sel_bar.out          ; its `jmp kretc_di`, in reach (pass 16)
     call fm_mbit
     xor cl, cl                  ; CL = AX's bit in the TARGET...
     cmp ax, si
@@ -8295,13 +8293,11 @@ fm_mset:
 .n:
     inc ax
     jmp short .l
-.out:
-    jmp kretc_di
 
+fm_menter:
 ; fm_menter - enter the bitmap from a single selection: the focus becomes its
 ; first bit - its band is already on the glass, so nothing is drawn - and the
 ; Shift anchor. A no-op once a set is up
-fm_menter:
     call fm_many
     jnz .out
     push ax

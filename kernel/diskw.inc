@@ -942,8 +942,7 @@ dskw_fdir:
     jmp dskw_rdata.corrupt      ; AX = FERR_IO, CF = 1
 .prot:
     jmp dskw_wbody.prot         ; AX = FERR_PROT, CF = 1
-.out:
-    ret
+.out equ dskw_rmbody_n83.out   ; its neighbour's ret (kernel size pass 16)
 
 ; -----------------------------------------------------------------------------
 ; dskw_relold - the shared TAIL of the three bodies that replace or remove an
@@ -2166,8 +2165,8 @@ dskw_rbody:
     jmp .isfile                         ; to trust: the file's own header is
                                         ; the only thing that can say, and
                                         ; dskw_czknow asks it
-.fsfail:
-    ret                         ; CF = 1 and AX = FERR_* from dskw_fsstat
+.fsfail equ dskw_rbody.ret   ; CF = 1 and AX = FERR_* from dskw_fsstat:
+                                ; its neighbour's ret (kernel size pass 16)
 .fsdata:                        ; the widget's scale is BYTES (SPEC.md 12.8.1)
                                 ; and fpg_begin above was handed them: a
                                 ; redirected volume has no sectors to give it,
@@ -2754,8 +2753,7 @@ dskw_dbody_n83:                 ; dskw_n83 already filled (dskw_rmtree)
     jz .live
 .protj:                         ; (dskw_nbody's refusal jumps here too)
     jmp dskw_wbody.prot         ; read-only, hidden, system, label or dir:
-.out:                           ; FERR_PROT
-    ret
+.out equ dskw_norm.hi   ; its neighbour's ret (kernel size pass 16)
 .live:
     mov ax, [dskw_raw+DSK_R_CLUS]
     mov [dskw_oldclus], ax
@@ -3514,8 +3512,9 @@ dws_commit:
     pop ax
     popf
     jmp dskw_find.out           ; ES, DI, SI, DX, CX, BX - its pop run (size
-.none:                          ; pass 13); a `pop` writes no flag, so popf's
-    ret                         ; CF rides through
+                                ; pass 13); a `pop` writes no flag, so popf's
+                                ; CF rides through
+.none equ dws_ours.no   ; its neighbour's ret (kernel size pass 16)
 
 ; dws_ours - ZF=1: a hold is pending on [disk_drive] and no WRITE_SEQ call is
 ; running (the word is [dws_hold] = 1 with [dws_flg] = 0 beside it); .vol

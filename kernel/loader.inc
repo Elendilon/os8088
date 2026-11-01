@@ -763,8 +763,7 @@ ld_run_name_x:
     call ld_lname_cp            ; ...and AX - the cluster `.peek` takes from
                                 ; the register - is one of the four it banks
     jmp ld_run_body_x.peek      ; joins the pipeline exactly where the index
-.fail:                          ; resolver leaves it - [ld_fsz] and [ld_clus]
-    ret                         ; are the rest of what step 1 produces
+.fail equ ld_owed.no   ; its neighbour's ret (kernel size pass 16)
 
 ; -----------------------------------------------------------------------------
 ; ld_res_name - fill [ld_fsz]/[ld_clus] from a name (module internal)
