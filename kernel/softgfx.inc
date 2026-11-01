@@ -246,9 +246,10 @@ sw_rect_pl:
 .planes:                         ; all three cost every solid fill five
                                  ; instructions it threw away.
                                  ;
-                                 ; sw_ink.dither IS `call sw_parity /
-                                 ; mov byte [sw_altm],0xFF / ret`, the same two
-                                 ; instructions this arm spelled out. It costs
+                                 ; sw_ink.dither IS `mov byte [sw_altm],0xFF`
+                                 ; and the AA/55 store (sw_parity's body, one
+                                 ; call less since kernel size pass 16), the
+                                 ; same two steps this arm spelled out. It costs
                                  ; a near call and ret - 52.13 clocks measured
                                  ; (PERFORMANCE.md Part 2), not the ~35 this
                                  ; was first priced at - on a gray fill the
@@ -256,7 +257,7 @@ sw_rect_pl:
                                  ; 0.98%, once per fill and not per row.
                                  ; docs/plans/LAST-DROP-BYTES.md 7.6 refused +33% on
                                  ; this body; this is a thirtieth of that.
-                                 ; sw_parity clobbers AL and flags, and AX is
+                                 ; It clobbers AL and flags, and AX is
                                  ; dead here (gfx_rect_setup spent it and
                                  ; nothing has reloaded it) while the flags
                                  ; from the `cmp` are already consumed
@@ -315,7 +316,7 @@ sw_rect_pl:
 ; -----------------------------------------------------------------------------
 sw_spans:
     mov ax, [gfx_sp_y]
-    mov [gfx_ry1], ax                ; the first row: sw_parity's parity
+    mov [gfx_ry1], ax                ; the first row: sw_ink.dither's parity
     mov byte [sw_altm], 0
     call sw_ink                     ; [sw_pat], and [sw_altm] if it dithers
     mov ax, [vid_rseg]              ; one plane: [vid_mono] and [vid_planes]
@@ -351,21 +352,6 @@ sw_spans:
 %endif
 
 ; -----------------------------------------------------------------------------
-; sw_parity - internal: [sw_pat] = the 50% dither byte for the rect's top
-;             row, which the row loops then alternate through [sw_altm].
-; in:       [gfx_ry1] valid
-; clobbers: AL, flags
-; -----------------------------------------------------------------------------
-sw_parity:
-    mov al, 0xAA
-    test byte [gfx_ry1], 1
-    jz .set
-    mov al, 0x55
-.set:
-    mov [sw_pat], al
-    ret
-
-; -----------------------------------------------------------------------------
 ; sw_ink - internal: solid mode's byte pattern for the pass about to run
 ;
 ; VGA: the plane's own bit of [gfx_color], consumed LSB-first out of BL -
@@ -392,12 +378,15 @@ sw_ink:
     mov si, ax                  ; to hold the plane counter in. SI is dead
     mov al, [si + gfx_inktab]   ; between gfx_rect_setup and sw_plane_op, which
     cmp al, 1                   ; loads it itself
-    je .dither
-    mov [sw_pat], al
-    ret
-.dither:
-    call sw_parity              ; the AA/55 byte, and then alternate it
+    jne .set
+.dither:                        ; alternate it down the rows...
     mov byte [sw_altm], 0xFF
+    mov al, 0xAA                ; ...from the 50% dither byte for the rect's
+    test byte [gfx_ry1], 1      ; top row. This was sw_parity, its one call,
+    jz .set                     ; and it shares the solid arm's store
+    mov al, 0x55                ; (kernel size pass 16, -8)
+.set:
+    mov [sw_pat], al
     ret
 
 ; -----------------------------------------------------------------------------
@@ -619,7 +608,7 @@ sw_pbit:
     ret                         ; IS the answer for the two solid classes
 .dither:
     mov al, dh                  ; ...and a middle grey alternates with (x+y) -
-    xor al, 1                   ; INVERTED, because sw_parity's 0xAA has its
+    xor al, 1                   ; INVERTED, because sw_ink.dither's 0xAA has its
     ret                         ; bit SET at x=0 of an even row, and bit 7 is
                                 ; the leftmost pixel
 
@@ -653,7 +642,10 @@ sw_pairbuild:
     inc bl
     jnz .byte                   ; 256 entries: BL wraps to 0 after 255
 %ifdef GFX_PLANE
-    mov word [gfx_pairbuilt], 0x0001 ; built - and vga_p4built = 0, UNION: the
+    inc bx                      ; BX = 0 here (only BL ever moved, and it has
+    mov [gfx_pairbuilt], bx     ; wrapped), so this is the word 0x0001 in a
+                                ; byte less (kernel size pass 16). Built - and
+                                ; vga_p4built = 0, UNION: the
                                 ; pair tables overwrote it (one word store,
                                 ; the pair adjacent under vga12.inc's %error)
 %else

@@ -1116,15 +1116,6 @@ NR_SIZE equ 8
 ; that reads it (ui_drag's "did it move", wm_create's CF), and a bank is
 ; bookkeeping that no caller should have to make room for.
 ; -----------------------------------------------------------------------------
-%ifdef KERN_BIG
-wm_nat_bank_xy:                 ; SPEC.md 11.100.3 - see its header below: the
-    push word [bx+W_NATR+NR_H]  ; POSITION only - the whole bank is taken and
-    push word [bx+W_NATR+NR_W]  ; the SIZE put back as it was. Push, pop and
-    call wm_nat_bank            ; the bank write no flags
-    pop word [bx+W_NATR+NR_W]
-    pop word [bx+W_NATR+NR_H]
-    ret
-%endif
 wm_nat_bank:
     push di
     lea di, [bx+W_NATR]
@@ -1143,7 +1134,7 @@ wm_nat_bank:
 ; and 39.16.3's hole rule - are clamps: banking their output would make the
 ; clamp its own source, which is the one thing the bank exists to stop.
 ; -----------------------------------------------------------------------------
-; (wm_nat_bank_xy is an entry to wm_nat_bank now, above)
+; (wm_nat_bank_xy is written at its one call, in ui_drag - kernel size pass 16)
 
 ; -----------------------------------------------------------------------------
 ; wm_nat_take_wh - put the banked SIZE back, leaving the position where it is
@@ -2281,37 +2272,13 @@ wm_close_req:
 ; out: nothing (all registers preserved)
 ;
 ; fdlg_reap's shape: one compare per pass when nothing is pending, which is
-; nearly always. The request is cleared BEFORE the close, so nothing this
+; nearly always - and that compare is the CALLER's, in ui_task. The request is cleared BEFORE the close, so nothing this
 ; reaches can see a request that has already been spent - and wm_destroy
 ; clears it too, so a slot that died between the request and this pass cannot
 ; be closed through a pointer that now means a different window.
 ; -----------------------------------------------------------------------------
-wm_close_pass:
-    cmp word [wm_clreq], 0
-    je .out
-    push ax
-    push bx
-    call gfx_lock               ; ...AND THE REQUEST IS SPENT UNDER THE LOCK,
-    mov bx, [wm_clreq]          ; not before it. wm_destroy cancels a request
-    or bx, bx                   ; naming the window it is freeing and runs with
-    jz .done                    ; the lock held, so taking the word before the
-    mov word [wm_clreq], 0      ; wait left exactly the interval that guard was
-                                ; written to cover: a request read here, the
-                                ; window destroyed while this pass waited, and
-                                ; the cancellation written into a word this
-                                ; pass had already emptied
-    test byte [bx+W_FLAGS], 1   ; still a live record? A minimized window is
-    jz .done                    ; closable, so this is bit 0 and not bit 1
-    xor ax, ax                  ; retire the negotiator: the request IS its
-    mov [bx+W_ONCL], ax         ; answer (see wm_close_req) - wm_onclose's
-                                ; store, written here (kernel size pass 14)
-    call app_close_win
-.done:
-    call gfx_unlock
-    pop bx
-    pop ax
-.out:
-    ret
+; (WRITTEN IN ui_task's .chk_close step, its one call: kernel size pass 16.
+; BX is dead there, so nothing is banked)
 
 ; -----------------------------------------------------------------------------
 ; wm_wkh_slot - SI -> this window's wake handler word (module internal)
@@ -2423,36 +2390,8 @@ wm_wake_eaten:
 ; drag, resize, full-screen app or sound bracket has finished - which is here,
 ; and is why the wake is only ever DELAYED by one of those and never lost.
 ; -----------------------------------------------------------------------------
-wm_wake_redo:
-    cmp byte [wm_wkdef], 0
-    je  .out                    ; the whole cost on every other pass
-    push bx
-    push cx
-    mov byte [wm_wkdef], 0
-    mov bx, wm_wins
-    mov cx, MAX_WIN
-.l:
-    pushf                       ; the test and the clear are ONE decision, and
-    cli                         ; wm_wake runs on WORKERS (OSAPI_WM_WAKE): a
-    cmp byte [bx+W_WKQ], WKQ_EATEN ; switch between them lets one post a
-    je  .redo                   ; record and set WKQ_RING for this slot, and
-    popf                        ; the clear would then drop that record's flag
-    jmp short .n                ; on the floor and post a SECOND for it
-.redo:
-    mov byte [bx+W_WKQ], WKQ_NONE  ; ...so wm_wake below really posts
-    popf                            ; released BEFORE the call below, which
-                                    ; takes its own guard
-    call wm_wake
-    jnc .n
-    mov byte [bx+W_WKQ], WKQ_EATEN ; the ring was full: still owed, and the
-    mov byte [wm_wkdef], 1          ; next pass tries again
-.n:
-    add bx, WIN_SIZE
-    loop .l
-    pop cx
-    pop bx
-.out:
-    ret
+; (WRITTEN IN ui_task's .events step, its one call: kernel size pass 16.
+; BX and CX are dead there, so the banks went with the call and the ret)
 
 ; -----------------------------------------------------------------------------
 ; wm_wake_disp - dispatch one EVT_WAKE (SPEC.md 74.1); called by ui_task
@@ -3357,12 +3296,8 @@ wm_lk_take:
     mov al, 1
     ret
 
-wm_unlk:
-    or al, al
-    jz wm_unlk_out
-    jmp gfx_unlock             ; ...and the arrow comes back on finished
-wm_unlk_out:                    ; pixels, with the caches already clean
-    ret
+; (wm_unlk - give back what wm_lk took, AL as wm_lk answered - is written
+; into its one caller, wm_lk_tail below: kernel size pass 16, -4)
 
 ; -----------------------------------------------------------------------------
 ; osapi_wm_resize - OSAPI_WM_RESIZE's door (SPEC.md 11.1.2)
@@ -3388,8 +3323,11 @@ wm_show:
     push ax
     call wm_show_b
 wm_lk_tail:                     ; ...and osapi_wm_resize's
-    pop ax
-    call wm_unlk
+    pop ax                      ; AL as wm_lk answered: 1 = we took it
+    or al, al
+    jz .ours
+    call gfx_unlock             ; ...and the arrow comes back on finished
+.ours:                          ; pixels, with the caches already clean
     pop ax
     ret
 
@@ -4099,19 +4037,7 @@ wm_disp_xw:
 ; The seam veto stays for everything else, which is what it was added for: a
 ; window wholly on one display may not snap its way across the seam.
 ; -----------------------------------------------------------------------------
-wm_snap_far:
-%ifdef KERN_BIG
-    EXTCALL EXT_STRADS
-    jnc .union                  ; CF = 0 is "it straddles"
-%endif
-    call wm_disp_xw             ; AX = the display's x, CX = its width
-    add ax, cx
-    ret
-%ifdef KERN_BIG
-.union:
-    mov ax, [vid_w]             ; the whole desktop (39.2.1)
-    ret
-%endif
+; (written at its one call, wm_snap_w's right-edge test: kernel size pass 16)
 
 ; -----------------------------------------------------------------------------
 ; wm_flush_ck - would a frame at AX of width CX reach both screen edges?
@@ -4278,12 +4204,22 @@ wm_snap_w:
     mov ax, [bx+W_X]            ; growing could hand back an illegal one. It
     add ax, dx                  ; reads the SNAPPED x: wm_snap_win runs that
     push ax                     ; first, precisely so this test is the truth
-    call wm_snap_far            ; ...and it is THIS WINDOW'S DISPLAY's edge,
-    mov cx, ax                  ; not the extended desktop's, which is the far
+                                ; ...and it is THIS WINDOW'S DISPLAY's edge,
+                                ; not the extended desktop's, which is the far
                                 ; side of the other monitor (SPEC.md 11.95.2.1)
                                 ; - EXCEPT for a frame that already straddles,
                                 ; which is past that edge by definition
-                                ; (39.16.3.4)
+                                ; (39.16.3.4). CX = one past the last legal
+                                ; column: wm_snap_far, written at its one call
+                                ; and answering in CX (kernel size pass 16, -6)
+%ifdef KERN_BIG
+    EXTCALL EXT_STRADS          ; CF = 0 is "it straddles"...
+    mov cx, [vid_w]             ; ...and then it is the whole desktop (39.2.1)
+    jnc .far
+%endif
+    call wm_disp_xw             ; AX = the display's x, CX = its width
+    add cx, ax
+.far:
     pop ax
     cmp ax, cx
     pop cx                      ; (pops write no flags)
@@ -4956,6 +4892,10 @@ wm_dmg_shadowed:
 .no:
     CLC_OR_STC .yes             ; (kernel size pass 15: CF is the answer, the
     ret                         ; one caller's `jnc` the only reader)
+; (NOT written at its one call: inline, it pushes the mark loop's `jz .mnext`
+; and `je .mnext` out of short reach, and the two inverted pairs nasm makes
+; of them are a TAKEN jump on every visible window - kernel size pass 16
+; measured it at -2 bytes for +12 clocks a window, and left it here.)
 
 ; -----------------------------------------------------------------------------
 ; wm_dmg_stale - can any pixel of this window have gone stale?
@@ -5155,10 +5095,10 @@ wm_dmg_union:
 ; The dock strip is drawn UNDER windows (SPEC.md 30), which wm_dock_under
 ; owns: it puts back whatever window is sitting on the pixels it just drew,
 ; and does nothing at all when the strip did not change.
+;
+; (Written at its one call, in wm_paint_dmg's .chrome arm: kernel size pass
+; 16. The banner stays because the reasoning is the arm's.)
 ; -----------------------------------------------------------------------------
-wm_paint_chrome:
-    call wm_dock_under
-    jmp menu_draw_bar           ; tail call
 
 ; -----------------------------------------------------------------------------
 ; wm_paint_dmg - repaint only what a rectangle's worth of change touched
@@ -5319,9 +5259,10 @@ wm_paint_dmg:
 .chrome:
     cmp byte [wm_dmg_fs], 0     ; "nothing was uncovered but the chrome
     jne .out                    ; changed" - and under a fullscreen window
-    call wm_paint_chrome        ; the chrome is not on screen to change
-.out:
-    jmp kret_bp
+    call wm_dock_under          ; the chrome is not on screen to change.
+    call menu_draw_bar          ; Dock strip and bar: this was
+.out:                           ; wm_paint_chrome, its one call (kernel
+    jmp kret_bp                 ; size pass 16, -3)
 
 ; ...and the pass itself, which wm_dock_under borrows to put the windows back
 ; over a strip it has just redrawn.
@@ -5730,16 +5671,9 @@ wm_about_set:
     jmp menu_win_set.mine       ; the active application's bar changed: the
                                 ; same relayout and popf (kernel size pass 14)
 
-; -----------------------------------------------------------------------------
-; wm_about_get - a window's About handler offset, 0 = none (module internal
-;                to the bar: menu_relayout and ui_dispatch)
-; in:  BX = window ptr
-; out: AX = the offset wm_about_set registered, 0 = none
-; clobbers: flags only
-; -----------------------------------------------------------------------------
-wm_about_get:
-    mov ax, [bx+W_ABOUT]
-    ret
+; (wm_about_get, the one-instruction read of [bx+W_ABOUT], is gone: its two
+; callers, menu_ab_cell and ui_dispatch, read the word themselves - kernel
+; size pass 16, -4 and a call a read)
 
 ; -----------------------------------------------------------------------------
 ; wm_geom - a window's CONTENT size, and whether it is on screen (public;
@@ -6847,18 +6781,11 @@ wm_clip_add:
 ; A cell the region cuts is painted whole; the pixels outside are somebody
 ; else's and are painted again in this same pass, a few instructions later.
 ; -----------------------------------------------------------------------------
-wm_dw_cull:
-    cmp byte [wm_dmg_cullq], 0
-    je .out
-    pushf
-    push bx
-    mov byte [wm_dmg_cull], 1   ; BEFORE the arm: wm_clip_set reads it, and
-    mov bx, di                  ; a drop there would spend a cache wm_su_try
-    call wm_clip_set            ; has already answered from (11.96.4)
-    pop bx
-    popf
-.out:
-    ret
+; WRITTEN AT ITS ONE CALL, in wm_draw_win's .paint (kernel size pass 16):
+; there BX is reloaded from DI straight after and no flag is read, so the
+; pushf/push bx/pop bx/popf this banked went with the call and the ret - eight
+; bytes, and cheaper on every window of a damage pass, armed or not.
+; -----------------------------------------------------------------------------
 
 ; (wm_clip_ptr is gone: wm_clip_split and wm_clip_add scale the index
 ; themselves, three `shl r, 1` apiece)
@@ -10930,8 +10857,15 @@ wm_draw_win:
     cmp word [di+W_PAINT], 0
     je .growbox
 %ifndef REDRAWFULL
-    call wm_dw_cull             ; SPEC.md 11.3.3: inside wm_dmg_wins, W_PAINT
-%endif                          ; is confined to what nothing above will cover
+.cull:                          ; (a label and no byte: tools/deskclip.py marks
+                                ; a W_PAINT here, where wm_dw_cull was called)
+    cmp byte [wm_dmg_cullq], 0  ; SPEC.md 11.3.3: inside wm_dmg_wins, W_PAINT
+    je .nocull                  ; is confined to what nothing above will cover
+    mov byte [wm_dmg_cull], 1   ; (wm_dw_cull, above). BEFORE the arm:
+    mov bx, di                  ; wm_clip_set reads it, and a drop there would
+    call wm_clip_set            ; spend a cache wm_su_try has already
+.nocull:                        ; answered from (11.96.4)
+%endif
     mov bx, di                  ; the paint is the owning instance's CPU
     call inst_win_owner         ; time, not the painting task's (SPEC.md 8.1)
     push di
@@ -11323,22 +11257,22 @@ wm_anim:
     call kent_bp                ; = push ax/bx/cx/dx/si/di/bp
     mov word [wm_an_i], 1
 .frame:
-    call wm_an_deadline         ; ...sampled BEFORE the draw, so the drawing is
-                                ; absorbed by the wait and not added to it
-    call wm_an_lerp
-    call wm_an_xor              ; on
-    call wm_an_pace             ; ...held for a frame...
-    call wm_an_xor              ; ...and off again: XOR is its own inverse, so
-                                ; nothing underneath it was ever lost
-    inc word [wm_an_i]
-    cmp word [wm_an_i], WM_ANIM_N
-    jb .frame
-    jmp kret_bp
-
-; wm_an_lerp - wm_an_c = s + (d - s) * i / N, four coordinates at a time
-; N is not a power of two, so this is a real signed divide - and it cannot
-; overflow: |d - s| <= 720 and i < N, so the quotient is at most 600.
-wm_an_lerp:
+    ; THIS FRAME'S DEADLINE, now + WM_AN_FRAME, sampled at the TOP of the
+    ; frame, before the outline is drawn, so the drawing is ABSORBED by the
+    ; wait rather than added to it - which is what a tick wait did for free
+    ; and what a naive "wait this long after drawing" would lose. Held on the
+    ; STACK across the frame: it was wm_an_deadline and a .bss pair, and
+    ; that routine, wm_an_lerp and wm_an_pace are written here, their one
+    ; call each - every register is kent_bp's to spend, so none of the three
+    ; banks anything (kernel size pass 16)
+    call sch_pit_now            ; DX:AX = the PIT, extended
+    add ax, WM_AN_FRAME
+    adc dx, 0
+    push dx
+    push ax
+    ; wm_an_c = s + (d - s) * i / N, four coordinates at a time. N is not a
+    ; power of two, so this is a real signed divide - and it cannot overflow:
+    ; |d - s| <= 720 and i < N, so the quotient is at most 600.
     mov si, wm_an_s             ; SI walks the source; the destination is 8
     mov cx, 4                   ; past it and the current box 16 (wm_an_s,
 .c:                             ; _d and _c are adjacent - asserted at the foot)
@@ -11351,54 +11285,36 @@ wm_an_lerp:
     inc si
     inc si
     loop .c
-    ret
+    call wm_an_xor              ; on
+    ; ...HELD FOR A FRAME. ui_drag's .linger in shape and for its reason: the
+    ; lock is HELD across the wait, because an XOR overlay is on the screen
+    ; and a background painter drawing under it would leave the erase
+    ; inverting pixels it never drew. task_yield inside a lock hold is what
+    ; ui_drag already does there, and it is what keeps the sound worker and
+    ; the scheduler alive through this. THE COMPARE IS `js`, NOT `jb` - two
+    ; free-running counters, so the SIGN of the difference decides (SPEC.md
+    ; 45.15's rule, and sch_isr's wake scan is the same idiom).
+    mov bp, sp                  ; [ss:bp] = the deadline
+.w:
+    call task_yield
+    call sch_pit_now
+    sub ax, [bp]
+    sbb dx, [bp+2]
+    js .w
+    pop ax                      ; the deadline, spent
+    pop dx
+    call wm_an_xor              ; ...and off again: XOR is its own inverse, so
+                                ; nothing underneath it was ever lost
+    inc word [wm_an_i]
+    cmp word [wm_an_i], WM_ANIM_N
+    jb .frame
+    jmp kret_bp
 
 ; wm_an_xor - the outline, drawn or erased (one call does both)
 wm_an_xor:
     call rect_get               ; the rect -> AX..DX, four adjacent words
     dw wm_an_c
     jmp vga_xor_rect_vram
-
-; wm_an_deadline - bank "now + WM_AN_FRAME" as this frame's deadline
-; out: nothing; every register preserved
-;
-; Sampled at the TOP of the frame, before the outline is drawn, so the drawing
-; is ABSORBED by the wait rather than added to it - which is what a tick wait
-; did for free and what a naive "wait this long after drawing" would lose.
-wm_an_deadline:
-    push ax
-    push dx
-    call sch_pit_now
-    add ax, WM_AN_FRAME
-    adc dx, 0
-    mov [wm_an_dl], ax
-    mov [wm_an_dl+2], dx
-    pop dx
-    pop ax
-    ret
-
-; wm_an_pace - hold this frame until its deadline.
-; ui_drag's .linger in shape and for its reason: the lock is HELD across the
-; wait, because an XOR overlay is on the screen and a background painter
-; drawing under it would leave the erase inverting pixels it never drew.
-; task_yield inside a lock hold is what ui_drag already does there, and it is
-; what keeps the sound worker and the scheduler alive through this.
-;
-; THE COMPARE IS `js`, NOT `jb` - two free-running counters, so the SIGN of
-; the difference decides (SPEC.md 45.15's rule, and sch_isr's wake scan is the
-; same idiom). A magnitude compare reads a wrapped clock as "hours to go".
-wm_an_pace:
-    push ax
-    push dx
-.w:
-    call task_yield
-    call sch_pit_now
-    sub ax, [wm_an_dl]
-    sbb dx, [wm_an_dl+2]
-    js .w
-    pop dx
-    pop ax
-    ret
 
 ; THE ANIMATION'S CLOCK IS sched.inc's sch_pit_now (SPEC.md 34.1).  It was
 ; wm_an_pit here, and it was sch_account's latch with the accounting removed -
@@ -11926,7 +11842,6 @@ wm_an_s:    resw 4                  ; SPEC.md 11.99: where the zoom starts...
 wm_an_d:    resw 4                  ; ...where it ends...
 wm_an_c:    resw 4                  ; ...and the interpolated rect between
 wm_an_i:    resw 1                  ; which frame
-wm_an_dl:   resw 2                  ; ...and when it is due to end
 wm_an_armed: resb 1                 ; 1 = wm_an_s is a caller's, not a centre
 %endif
 section .text
@@ -11946,6 +11861,6 @@ RECT4 wm_su_x1, wm_su_y1, wm_su_x2, wm_su_y2
 RECT4 wm_cl_rx1, wm_cl_ry1, wm_cl_rx2, wm_cl_ry2
 %ifdef WM_ANIM
 %if wm_an_d - wm_an_s != 8 || wm_an_c - wm_an_s != 16
-  %error "wm_an_lerp reaches wm_an_d and wm_an_c as [si+8] and [si+16]"
+  %error "wm_anim's interpolation reaches wm_an_d and wm_an_c as [si+8] and [si+16]"
 %endif
 %endif
