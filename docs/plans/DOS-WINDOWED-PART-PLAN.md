@@ -1,6 +1,15 @@
 # DOS-WINDOWED-PART-PLAN - the windowed layer, natively a part
 
-**Status: a design study. Nothing here is built.** Two throwaway prototypes
+**Status: a RECORDED OPTION, not taken (owner, 2026-11-01).** Option C'
+(DOS-PARTS-PLAN §2's macro translation, ~+0.75 KB of disk against this
+design's ~+1.25 KB) is what gets built; the owner had hoped this one would
+come out about the same size, and since it did not, the speed loss of C'
+(+4.3% a teletype glyph, +14.5% an `AH=09h`, measured below) is accepted
+for now. **Reconsider this design if testing makes the virtual `int 10h`'s
+speed a concern** - the two cycle prototypes of section 9 were reverted and
+not kept as patches, so taking it up again starts from this document.
+
+**Originally: a design study. Nothing here is built.** Two throwaway prototypes
 were built to measure one question (section 9) and reverted; the tree this
 commit leaves is the tree it started from plus documents. Written on branch
 `dos-windowed` at 2026-11-01, against `74d6926f`. Every figure is **M**
