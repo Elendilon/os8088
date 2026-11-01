@@ -1285,7 +1285,8 @@ te_delline:
 ;
 ; The same two shapes one region smaller: the region is the cursor's row from
 ; [con_cx] to column 79 rather than the screen from [con_cy] to row 24, and
-; con_fillcells marks the one row that changed.
+; the row is marked WHOLE at the end: con_fillcells marks only the cells it
+; filled (SPEC.md 96.33.12) and the shifted tail changed too.
 ; -----------------------------------------------------------------------------
 te_inschar:
     push ax
@@ -1311,6 +1312,10 @@ te_inschar:
 .whole:
     mov ax, bx
     call con_fillcells
+.mark:
+    mov bx, [con_cy]                 ; **THE WHOLE ROW**: con_cmove moved the
+    call con_mark                    ; tail and marks nothing, and con_fillcells
+                                    ; marks only the cells it filled (96.33.12)
 .out:
     pop si
     pop dx
@@ -1344,10 +1349,14 @@ te_delchar:
     sub ax, si                      ; the blanks arrive at the RIGHT
     mov cx, si
     call con_fillcells
-    jmp short .out
+    jmp short .mark
 .whole:
     mov ax, bx
     call con_fillcells
+.mark:
+    mov bx, [con_cy]                 ; **THE WHOLE ROW**: con_cmove moved the
+    call con_mark                    ; tail and marks nothing, and con_fillcells
+                                    ; marks only the cells it filled (96.33.12)
 .out:
     pop si
     pop dx

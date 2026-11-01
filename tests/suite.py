@@ -8814,6 +8814,19 @@ SOAK = [
         "WINDOW brings the bracket up by itself - red with the shunt removed. "
         "Measured 28.7s on MartyPC",
         needs=("marty",), serial=True, wants=("build/os8088-360.img",)),
+    Row("doswcell", "soak", py("tests/doswcell.py"), 30.0,
+        "WHAT ONE CELL COSTS A LIVE DOS WINDOW'S BAND (SPEC.md 96.33.12). The "
+        "probe (tests/dostrap/dwcell.asm, on a scratch B: the row builds) runs "
+        "in its window and changes one cell at a time - int 10h AH=09h in "
+        "place, a clock's shape, then a teletype digit and a backspace, the "
+        "caret's - and every con_rows_owed pass is traced in guest cycles on "
+        "Hercules AND VGA: a one-row pass's median must be under 20,000 "
+        "cycles, which the whole row (81,013 Hercules, 85,596 VGA) cannot "
+        "meet. Then the incremental band is checked against a full repaint "
+        "forced from the host, to the pixel, so a span that missed a cell - "
+        "the caret's old underline above all - is red. Red with "
+        "con_rows_owed calling con_row. Measured 27s on MartyPC",
+        needs=("marty",), serial=True, wants=("build/os8088-360.img",)),
     Row("doswlive", "soak", py("tests/doswlive.py"), 15.0,
         "A DOS PROGRAM RUNNING LIVE IN ITS WINDOW (SPEC.md 96.54, "
         "docs/plans/DOS-WINDOWED-PLAN.md wave 1). Program > Run in Window puts "

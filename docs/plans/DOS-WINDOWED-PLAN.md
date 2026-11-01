@@ -285,7 +285,7 @@ for exactly this.
 whole rows because output arrives once, after the verb; a live program that
 updates a clock in one corner will repaint that row ~18 times a second. It is
 its own measured change (`disp*` and the Telnet rows assert against the band)
-and is wave 2's, not a rider on wave 1.
+and is wave 2's, not a rider on wave 1. **Built: §10.6.**
 
 ### 3.6 Input
 
@@ -714,8 +714,20 @@ exchange loop - §3.2's estimate of ~1.6% was off by ten times, because the
 loop tested a mode byte on every word. Two blocks and `rep movsw` take it to
 **88.8%** (SPEC.md 96.54.3) for +36 image and +242 bss. The vector set was
 not narrowed: a vector outside it would carry a program's hook into every
-other task. The band's span-narrowed paint (§3.5) is still open, and is a
-paint cost rather than a CPU-share one.
+other task. The band's span-narrowed paint (§3.5) is §10.6.
+
+## 10.6 Band paint, as built - the span, not the row
+
+**MEASURED**, by `doswcell` on MartyPC: one cell changed by a live program -
+`int 10h AH=09h` in place, or a teletype digit and a backspace - cost the band
+**81,013 guest cycles (17.0 ms) on Hercules and 85,596 (17.9 ms) on VGA** a
+pass, 47,027 of it composing eighty cells to change one. SPEC.md 96.33.12's
+span is honoured by the windowed renderer now (`con_rowspan`), the row walk
+skips clean bitmap bytes, and `con_markcells` marks cells rather than rows: the
+same pass is **11,305 (2.4 ms) and 12,429 (2.6 ms)**, the blit still one call.
+The caret is tracked by the renderer (`con_curmove`), because a span does not
+forgive a mover that marks one side - and building it found the caret had
+never been drawn at all (SPEC.md 96.33.12). +215 image and +2 bss of DOS.O88.
 
 ## 9. What would kill it
 

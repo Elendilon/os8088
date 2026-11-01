@@ -123374,16 +123374,18 @@ lettered a cell at a time is **1.8 seconds**. The row is composed instead:
 1. `con_band` is 80 bytes by 8 rows — **640 bytes**, one screen row's pixels,
    1bpp, bit 7 leftmost, exactly `OSAPI_GFX_BLIT1`'s band format with a stride
    of 80.
-2. For each of the row's eighty cells, the eight bytes of that character's
-   glyph are read out of `con_glyf` (§70.8.6) and stored one per band row at
-   the cell's byte column. That is eight byte stores a cell and no drawing
-   call at all.
+2. For each of the row's eighty cells — **or, for a row `con_rows_owed`
+   took, only the cells in its dirty span** (§96.33.12) — the eight bytes of
+   that character's glyph are read out of `con_glyf` (§70.8.6) and stored one
+   per band row at the cell's byte column. That is eight byte stores a cell
+   and no drawing call at all.
 3. The cursor, when `[con_cvis]` is set and the cursor is on this row, is
    **two lit scanlines in the cell's bottom two band rows**, OR'd in during
    composition. It is not a second paint and it never flashes: the cell goes
    from its old pixels to its final pixels in the band, and the band reaches
    the glass once.
-4. The row is then blitted **once per ATTRIBUTE RUN** — a maximal run of
+4. The row — the span, for a taken row — is then blitted **once per
+   ATTRIBUTE RUN** — a maximal run of
    adjacent cells sharing an attribute byte — with `OSAPI_GFX_BLIT1_PEN`
    (0x0393) set to that run's (ink, paper) and `OSAPI_GFX_BLIT1` (0x0320)
    given the run's byte column, its width in pixels and eight rows.
@@ -176917,11 +176919,60 @@ narrows it except `con_markc` on a row the take has just cleaned. Any new
 marker that sets a bit must set a span with it, and the safe default is the
 whole row.
 
-**THE WINDOWED RENDERER DELIBERATELY IGNORES IT, for now.** `con_emit`'s run
-scan would narrow the same way and the saving is real, but the band is what
-every `disp*` row and all five Telnet rows assert against and the fixed call
-cost is what dominates there — so that is a separate change with its own
-measurement, not a rider on this one.
+**THE WINDOWED RENDERER HONOURS IT TOO, since a live program made it worth
+it.** It was left whole-row at first on the argument that the fixed call cost
+dominates a band — and **measured, it does not**: on a 4.77 MHz 8088 (MartyPC,
+`tests/doswcell.py`) one cell changed by a live DOS program cost a
+`con_rows_owed` pass of **81,013 guest cycles (17.0 ms) on Hercules and 85,596
+(17.9 ms) on VGA**, of which composing the eighty cells was **47,027** (~590 a
+cell), the one 640-pixel blit **18,331** (24,112 on VGA) and the twenty-five
+`con_takerow`s ~15,600. A clock ticking in a corner is that, 18 times a
+second. Three changes take it to **11,305 (2.4 ms) on Hercules and 12,429
+(2.6 ms) on VGA** — 7.2x and 6.9x — with the blit one call either way:
+
+- **`con_rowspan` composes and blits `[con_tkc0]..[con_tkc1]` and nothing
+  else**, cut to `[con_vcols]`. `con_compose` and `con_emit` take the span in
+  `AX` (first column) and `CX` (count); the band stays column-indexed with its
+  stride of 80, so a span's x is `[con_px] + 8*first` and its width `8*count`
+  — both multiples of eight by construction, which is all §5.4.2 asks. A colour
+  row's run walk stops at the span's end; `con_row` is the whole row and is
+  still what a span that is not one (`dc0 > dc1`) gets. Compose is **1,629**
+  cycles for one cell and the blit **6,847**.
+- **`con_rows_owed` reads the bitmap before it takes it**: a byte's eight bits
+  are snapshotted without the `cli` and only a set one is passed to
+  `con_takerow`, a clean byte skipping eight rows. That is safe for
+  `con_takerow`'s own reason — a mark set after the read is not taken, so it
+  survives into the next pass — and it took the walk from ~15,600 to ~2,800.
+- **`con_markcells` marks the CELLS**, its first and last rows by their span
+  and the rows between whole, through `con_marks` (`con_markc`'s body for a run
+  of columns) — so `int 10h AH=09h` writing one digit in place, the clock's
+  shape, is one cell. A caller that MOVED cells it did not fill now marks them
+  itself: Telnet's `te_inschar`/`te_delchar` shift the tail of a row with
+  `con_cmove`, which marks nothing, so they mark the row whole.
+
+**AND THE CARET IS THE RENDERER'S TO TRACK.** The underline is composed into the
+band (§70.8.2), so under a span the cell a caret LEFT must be in some span or
+its underline stays on the glass. A whole-row renderer forgave a mover that
+marked one side only, since any mark on the row redrew it; a span does not, and
+`int 10h AH=13h`'s cursor restore marks neither. So `con_curmove`, at the head
+of every pass, compares where the caret is with `[con_lcur]` (where it was when
+the last pass began, `FFFF` none) and marks both cells when they differ. A move
+during a pass is seen by the next one. Two bytes of bss.
+
+**Building it found that the caret had never been drawn at all.** The underline
+code OR'd the two scanlines lit and then reloaded `AL` from the mask before the
+AND that is meant to clear them on an inverse cell — so a normal cell was lit
+and cleared again, an inverse one never touched, and every Telnet and DOS window
+has drawn no caret since the extraction. Nothing compared the glass with a
+repaint, so every row passed. `tests/doswcell.py` does now: after 48
+incremental updates it forces every row whole from the host and wants the band
+**identical to the pixel**, and wants the two scanlines under the caret lit -
+red with `con_rows_owed` calling `con_row` (67,869 cycles against a 20,000 budget), red
+with `con_curmove` removed (32 stale pixels under the caret's old cells) and red
+with the old `mov al, ch` back (0 of 8 lit).
+
+What it costs: **+215 bytes of `DOS.O88`'s image and +227 of Telnet's** (which
+carries the two `te_*` marks as well), **+2 bss each**, none of it resident.
 
 ##### 96.33.14 A launch from the console repaints the PATH BOX, not the window
 
