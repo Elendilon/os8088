@@ -2963,8 +2963,9 @@ wr_onwake:
     mov dx, [wr_catseg]                 ; last granule is idle until a Refresh
     mov bl, MEMP_REGROW                 ; asks for it back. A shrink is in
     call OSAPI_MEM_P                    ; place, always, so DX does not move;
-    mov [wr_catpara], ax                ; AX is what it holds now (50.3.7)
-    jmp short .catok
+    jc .catok                           ; (refused: AX is the REQUEST, and the
+    mov [wr_catpara], ax                ; claim holds what it did) AX is what
+    jmp short .catok                    ; it holds now (50.3.7)
 .catbad:
     mov word [wr_msg], wr_s_badcat
 .catok:

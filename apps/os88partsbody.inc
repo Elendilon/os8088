@@ -193,6 +193,7 @@ op_load:
 .zero:
 %if OP_HAS_ZERO
     call op_scrub               ; ...and the scratch, which cost no disk
+    jc .nomem                   ; (no window to zero it through: op_at)
 %endif
 %if OP_HAS_XMS
     cmp byte [op_xmson], 0
@@ -762,6 +763,7 @@ op_read:
     mov cx, ax                  ; ...and this chunk in bytes, for the read
     mov ax, bp
     call op_atb
+    jc .pc                      ; (no window: op_at - CF survives the pop)
     mov es, ax                  ; ES = BP paragraphs up the claim
     xor bx, bx
     mov si, op_name
@@ -771,6 +773,7 @@ op_read:
     mov di, op_rcur             ; one FAT link a chunk, not a walk from the
     call os88_rseq              ; front (SPEC.md 18.4.8.1): out DX:AX = the
     pop di                      ; bytes delivered
+.pc:
     pop cx
     jc .fail
     mov bx, ax
@@ -835,9 +838,16 @@ op_read:
 ; pointers at once, op_unpack's landing and its stream. A window is aimed at
 ; RAM and not tied to the claim, which is safe because every claim this
 ; walks is PINNED while it runs: op_movable comes after the load, and a
-; fetch's claim is its own until the fetch returns. No LDT entry free is the
-; null selector, which the load through it refuses with a fault rather than
-; writing anywhere at all.
+; fetch's claim is its own until the fetch returns.
+;
+; NO LDT ENTRY FREE IS CF=0 AND DX=0 from the kernel, the NULL selector, and
+; it is REFUSED here with CF=1 and AX = 0 (the window word is 0 then too,
+; which is what it held: only a NEW window can fail, a re-aim cannot). It
+; used to be returned as the segment, on the belief that a load through it
+; faults and writes nothing - and it does not: kern_mega's mega_null0 RUNS an
+; access through a null DS or ES as segment 0, so the read, the expansion or
+; the scrub through it landed in the interrupt vector table. Every real-mode
+; kernel's sum is never 0, so CF=0 there always.
 ; -----------------------------------------------------------------------------
 op_atb:
     mov dx, [op_base]
@@ -855,6 +865,7 @@ op_at:
 .made:
     mov [bx], dx
     xchg ax, dx
+    cmp ax, 1                   ; CF = 1 exactly when AX = 0: no LDT entry
     pop cx
     ret
 %endif                              ; OP_HAS_READ
@@ -918,6 +929,7 @@ op_unpack:
     jz .plain
 
     call op_unpto               ; ES = the landing, BX = the stream
+    jc .refuse                  ; (no window: op_at)
     mov cx, [si+OP_R_ZKB]       ; --- expand it ------------------------------
     mov dx, [si+OP_R_LEN]
     push ds
@@ -946,6 +958,7 @@ op_unpack:
     jmp short .step
 .plain:                         ; --- or move it down, which is the same walk -
     call op_unpto               ; ES = the landing, BX = the stream
+    jc .refuse
     mov cx, [si+OP_R_LEN]
     push ds
     mov ds, bx
@@ -989,16 +1002,19 @@ op_unpack:
     jmp op_say
 
 ; op_unpto - ES = op_unpack's landing (BP) and BX = its stream ([op_zsrc]),
-; each through a window of its own. Clobbers AX, BX, DX, flags
+; each through a window of its own; CF=1 = no window (op_at). Clobbers AX,
+; BX, DX, flags, and ES only when CF=0
 op_unpto:
     mov ax, bp
     call op_atb
+    jc .r
     mov es, ax
     mov ax, [op_zsrc]
     mov dx, [op_base]
     mov bx, op_wb
     call op_at
     mov bx, ax
+.r:
     ret
 %endif                              ; OP_HAS_COMP
 %if OP_HAS_XMS
@@ -1615,16 +1631,12 @@ op_lazyp:
 .para:                          ; claim's base, which is where op_fetch
                                 ; expands it (88.10.4.1), ends inside it
 %endif
+    db 0xA8                     ; test al, imm8: CF = 0, and the stc is its
+.no:                            ; operand - one tail for both answers, four
+    stc                         ; bytes, which pay for op_at's null test
     pop dx
     pop cx
     pop bx
-    clc
-    ret
-.no:
-    pop dx
-    pop cx
-    pop bx
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1678,18 +1690,13 @@ op_lazyok:
     cmp ax, bx                  ; it by construction, and this refuses every
     jb .no                      ; time the heap holds more than one free block
 .yes:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    clc
-    ret
+    db 0xA8                     ; test al, imm8: CF = 0 over the stc (op_lazyp)
 .no:
+    stc
     pop si
     pop dx
     pop cx
     pop bx
-    stc
     ret
 %endif                              ; OP_NO_LAZYOK
 
@@ -1860,6 +1867,7 @@ op_fetch:
     add di, ax                  ; DI = where the stream's own bytes were read
     mov ax, di                  ; (DX is still the claim: op_at's block, and
     call op_ata                 ; op_read has finished with op_wa)
+    jc .zw                      ; (no window: op_at - the stack is .zw's)
     mov di, ax                  ; ...as a segment, through a window
     mov cx, [si+OP_R_ZKB]       ; CX = the PACKED length, while it is still
     mov ax, [si+OP_R_LEN]       ; there - one more store and it is a segment
@@ -1877,6 +1885,7 @@ op_fetch:
     xor di, di
     call OSAPI_DECOMP
     pop ds                      ; ...and none of these three touches CF
+.zw:
     pop si                      ; the row
     pop dx                      ; the claim
     jc .zbad
@@ -1911,6 +1920,7 @@ op_fetch:
     push dx
     call op_ata                 ; AX = the slack's paragraphs up the claim
     pop dx
+    jc .ioerr                   ; (no window: op_at - and the claim goes)
     mov cx, [si+OP_R_LEN]       ; read BEFORE DS moves
     push ds
     push si
@@ -2303,7 +2313,7 @@ op_zrpara:
 
 ; -----------------------------------------------------------------------------
 ; op_scrub - zero every scratch part that was granted
-; in:  the claim made; out: nothing
+; in:  the claim made; out: CF=0; CF=1 = op_at had no window to zero through
 ; clobbers: AX, BX, CX, DX, SI, DI, ES, flags
 ;
 ; NO DISK IS READ HERE and that is the whole of what a scratch part is: a
@@ -2346,6 +2356,7 @@ op_scrub:
     push cx
     mov ax, bp
     call op_atb
+    jc .nowin
     mov es, ax                  ; ES = BP, through a window
     pop cx
     mov ax, cx                  ; CX KB -> words, THROUGH AX: the count and
@@ -2368,6 +2379,16 @@ op_scrub:
 .done:
     push ds
     pop es
+    clc
+    ret
+.nowin:
+    pop cx
+    pop dx
+    pop bp
+    pop bx
+    push ds
+    pop es
+    stc
     ret
 %endif                              ; OP_HAS_ZERO
 

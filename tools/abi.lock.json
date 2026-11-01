@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "5223b416e13f5840512f1ebcdd49c61d2f7c480c016980b308b03fa4f9d6e72d",
+  "fingerprint": "726ffd424c7b5cc94790f5965611df7847e5a4451aeda8035d2346e9d6480b9e",
   "version": 12
  },
  "PKG_FMT": {
-  "fingerprint": "10a838bdc12d31771a7cda9536b781acd4df08ea095fe77d49b26544bacd298f",
+  "fingerprint": "53fce4e6364dbba6ca3b2cd75f56efbf5371695c2159a708bfe64a47d8f4aafb",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -1386,6 +1386,20 @@
    "from": 12,
    "guard": "DRV_VER",
    "reason": "MEMP_KPARTS (OSAPI_MEM_P verb 6) appended: the kernel's resident FAT window and its two stack terms in bytes (SPEC.md 50.3.7, 28.4.7); nothing built before changes",
+   "to": 12
+  },
+  {
+   "fingerprint": "53fce4e6364dbba6ca3b2cd75f56efbf5371695c2159a708bfe64a47d8f4aafb",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_MEM_P contract clarified: CX is kept (the kernel no longer masks MEMP_CONV in place) and a refused claim/regrow returns AX = the request rounded to the granule. Every package built before still runs; no bump.",
+   "to": 10
+  },
+  {
+   "fingerprint": "726ffd424c7b5cc94790f5965611df7847e5a4451aeda8035d2346e9d6480b9e",
+   "from": 12,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_MEM_P contract clarified: CX is kept (the kernel no longer masks MEMP_CONV in place) and a refused claim/regrow returns AX = the request rounded to the granule. Every package built before still runs; no bump.",
    "to": 12
   }
  ]

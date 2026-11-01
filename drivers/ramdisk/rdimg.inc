@@ -659,7 +659,9 @@ rd_load:
 .chunk:
     jc .done
     call rd_blk_out             ; the DESTINATION, by the same arithmetic that
-    push bx                     ; answers where a run is readable
+    cmp byte [rd_xerr], 0       ; answers where a run is readable - and no
+    jne .nofile                 ; window for it (rd_at) is refused BEFORE the
+    push bx                     ; read lands anywhere
     mov es, bx
     xor bx, bx
     mov cx, [rd_ilen]

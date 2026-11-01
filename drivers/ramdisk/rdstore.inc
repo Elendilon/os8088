@@ -367,7 +367,14 @@ rd_ext_clear:
 ; and a sum on it names some other descriptor, so a window is re-aimed there
 ; instead (KERN-MEGA-MEMORY-PLAN MC7); every real-mode kernel refuses the
 ; verb with every register kept, and the sum is the answer. Two windows,
-; because a Preserve holds an extent's and a chunk's at once
+; because a Preserve holds an extent's and a chunk's at once.
+;
+; NO LDT ENTRY FREE is CF=0 and DX=0 from the kernel, and it is REFUSED: AX =
+; 0, [rd_xerr] raised (the one operation's verdict, SPEC.md 62.9.10.2) and
+; the window word left naming the old window. Every caller tests one or the
+; other BEFORE it touches the bytes, because kern_mega's mega_null0 runs an
+; access through a null DS or ES as SEGMENT 0 - the interrupt vector table.
+; A real-mode kernel's sum is never 0
 ; -----------------------------------------------------------------------------
 rd_at:
     push cx
@@ -381,7 +388,13 @@ rd_at:
     jnc .w
     add dx, ax                  ; refused: a real-mode kernel's sum
 .w:
+    or dx, dx
+    jnz .s
+    mov byte [rd_xerr], 1       ; no window: refused, loudly
+    jmp short .o
+.s:
     mov [bx], dx
+.o:
     xchg ax, dx
     pop dx
     pop cx
@@ -838,6 +851,8 @@ rd_io:
     mov [rd_io_n], cx
     mov ax, [rd_io_ext]
     call rd_ext_seg             ; AX = a segment holding this extent
+    or ax, ax                   ; ...or 0, refused with [rd_xerr] raised
+    jz .fin                     ; (rd_at), before a byte moves
     push ds
     push es
     mov si, [rd_io_o]
