@@ -712,6 +712,7 @@ def cmd_trace(a):
         if last is None:
             raise SystemExit("os88dosdbg: the program made no INT 21h call at all")
         total, wr, ring, psp = last
+        trseg = w16(sym["dos_trseg"])        # poll()'s was its own local
         nm = m.read(base + sym["dos_trnmi"], 1)[0]
         raw = bytes(m.read(base + sym["dos_trnm"], nm * 13))
         names = [raw[i * 13:(i + 1) * 13].split(b"\0")[0].decode("latin1")

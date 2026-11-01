@@ -7260,6 +7260,20 @@ SOAK = [
         "by TWO and leaves the name blank.",
         needs=("marty",), serial=True,
         wants=("build/dosfcb360.img",)),
+    Row("dospsp", "soak", py("tests/dospsp.py"), 10.0,
+        "AH=62h AND AH=51h ANSWER THE RUNNING PROGRAM'S PSP (SPEC.md "
+        "96.55). IBM DOS 3.30's own XCOPY.EXE asks 62h first and parses its "
+        "command tail out of the segment it is told; unanswered, the call "
+        "fell to the invalid-function arm, which leaves BX as the program "
+        "had it, and DOS sets no carry here for anyone to test - so XCOPY "
+        "read a tail out of junk and said `Invalid parameter` to every "
+        "command line. tests/dostrap/getpsp.asm needs no reference value (a "
+        ".COM's PSP is its CS): it loads BX with 5A5Ah, asks both calls, "
+        "EXECs itself so a CHILD asks (it must be told its own PSP), and asks "
+        "again after the child is gone. IBM DOS 3.30 prints seven OK lines; "
+        "with the handler taken out every line reads BX=5A5A BAD.",
+        needs=("marty",), serial=True,
+        wants=("build/dospsp360.img",)),
     Row("dosren", "soak", py("tests/dosren.py"), 30.0,
         "AH=56h RENAMES WHERE IT STANDS (SPEC.md 96.31). The table is a "
         "MEASUREMENT OF IBM DOS 3.30 by the same binary "
