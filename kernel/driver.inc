@@ -4150,18 +4150,14 @@ drv_release:
     mov word [di+drv_owner], 0  ; one call (kernel size pass 15, -19): the
     call drv_cls_svc_x          ; owner, then the service table, in that
     jc .nosvc                   ; order. DRVC_POINT has no table to clear
-    push ax                     ; AL is the class still (below), and CX and ES
-    push cx                     ; are the caller's
-    push es
-    push ds
-    pop es
-    mov cx, DSV_SIZE            ; the table alone: the 16-byte staged sink
-    xor al, al                  ; name this once also cleared is gone, and
-    cld                         ; drv_cfg now sits right behind drv_svc
-    rep stosb
-    pop es
-    pop cx
-    pop ax
+    push cx                     ; CX is the caller's, and AL the class still
+    mov cx, DSV_SIZE / 2        ; (below): the table alone, a word at a time
+    call dsk_ent_zero.zero      ; through DS:DI - disk.inc's loop, which
+    pop cx                      ; touches DI, CX and nothing else, so AX and
+                                ; ES need no bank (kernel size pass 16, -8).
+                                ; The 16-byte staged sink name this once also
+                                ; cleared is gone, and drv_cfg now sits right
+                                ; behind drv_svc
 .nosvc:
     call cp_drv_gone_x            ; a page this driver owned is on screen no
                                 ; longer, and [cp_sel] must not name it
