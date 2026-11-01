@@ -1108,7 +1108,8 @@ fpg_end:
 %ifdef FPG_OPS
 ; fpg_opbegin - in: DX:CX = the bytes the whole OPERATION will move, every
 ; phase counted (a copy reads AND writes: twice the file). Every fpg_begin
-; until fpg_opend or the unlock resumes this scale instead of re-scaling,
+; until the end clears FPG_OP (fcp_xfer's fcp_opend, osapi_fs_op's end) or
+; the unlock resumes this scale instead of re-scaling,
 ; and the gaps between phases hatch the unlit remainder. Far, all registers
 ; and the flags preserved.
 fpg_opbegin:
@@ -1174,12 +1175,6 @@ osapi_fs_op:
     pop ax
     ret
 %endif
-
-fpg_opend:
-    pushf
-    and byte [fpg_on], ~FPG_OP & 0FFh
-    popf
-    retf
 
 %endif
 fpg_finish:

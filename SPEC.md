@@ -27448,8 +27448,8 @@ each pair.
 
 `fpg_opbegin` (far, `DX:CX` = the bytes the WHOLE operation will move, every
 phase counted - a copy reads AND writes, so twice the file) scales the trough
-once and sets `FPG_OP` (bit 3 of `[fpg_on]`). Until `fpg_opend` or the
-unlock:
+once and sets `FPG_OP` (bit 3 of `[fpg_on]`). Until the end clears it
+(`fcp_xfer`'s `fcp_opend`, `OSAPI_FS_OP`'s end) or the unlock:
 
 - **`fpg_end` banks the phase's scale** in `[fpg_opt]` as it zeroes
   `[fpg_total]`, still writing no flag.
