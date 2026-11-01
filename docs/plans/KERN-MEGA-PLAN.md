@@ -9808,7 +9808,7 @@ were `RFL` and `Q`, which fire while a PicoMEM's Sound Blaster plays.
 | message on the glass | raised in | when | verdict |
 |---|---|---|---|
 | `Entered protected mode` | `mega_enter`'s tail (`mega_mtoast`, 8 s) | once, at boot, entering protected mode | **KEEP** - the owner's startup toast. It named the route back (`protected, 286 reset` / `protected, 386 CR0`) until the owner asked for wording true on any CPU; **MEGADIAG** keeps the route |
-| `real mode: 8086-class CPU`, `... no 82KB for kern_mega's tables`, `... A20 will not open`, `... a task predates it` | `mega_gatef` (`.cold`) | at boot, when kern_mega declines protected mode and runs as kern_big | **KEEP** - the machine is not what the disk says, and this is the only place it is said |
+| `No PM: 8086-class CPU`, `No PM: no table room`, `No PM: A20 will not open`, `No PM: an older task` (kern_mega size pass 2: the old `real mode: ...` lines were 25-41 characters and truncated at TOAST_MAX's 24) | `mega_gatef` (`.cold`) | at boot, when kern_mega declines protected mode and runs as kern_big | **KEEP** - the machine is not what the disk says, and this is the only place it is said |
 | `NAME vv at cccc:iiii` | `mega_fkdo` (14.42) | a package was closed because it faulted | **KEEP** - a program vanished; kern_big's equivalent is the stop screen |
 | ` kern_mega FAULT vv err eeee at cccc:iiii sp ssss - reboot ` | `mega_report` | a KERNEL fault: the machine stops | **KEEP** - the stop screen |
 | `Use this disk's DOS.O88` | `mega_pkgok` | kern_big's DOS.O88 started on kern_mega | **KEEP** - a refusal |
@@ -9822,7 +9822,7 @@ were `RFL` and `Q`, which fire while a PicoMEM's Sound Blaster plays.
 | `Q cc ss oo bb vv rr` | `mega_rfsec`, after RFL | the PicoMEM's request queue, the same second | **MEGADIAG** |
 | `DOSP kkkkK o tttt b tttt` | `mega_dwake` (`megados.inc`) | every return from a DOS park | **MEGADIAG** |
 | `FD BIOS ss s0s1s2 Dmm` | `mega_fdjudge` | the first native floppy fallback of a boot | **MEGADIAG** ("disk status") |
-| `native floppy off: BIOS from now` | `mega_fdjudge` | eight fallbacks in a row switched the native path off | **MEGADIAG** - its E9 line stays |
+| `Floppy: BIOS from now` (was `native floppy off: ...`, 32 characters) | `mega_fdjudge` | eight fallbacks in a row switched the native path off | **MEGADIAG** - its E9 line stays |
 | `H ssss:oooo bbbbbbbb rrr` | `hbm_d1why` (`kernel/hiber.inc`) | the DOS handoff record read back wrong | **MEGADIAG** - the shipped kern_mega says kern_big's `Not our handoff record` instead, so the refusal stays and only its hex goes |
 
 E9 (`out 0xE9`) is invisible on real hardware and is NOT a toast, so every

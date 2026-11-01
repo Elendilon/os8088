@@ -133,6 +133,19 @@ refusal strings moved into `.mega`, -124 `.text`.)
 * **Every kern_mega refusal toast is TRUNCATED** (bootonce2, on the base
   too): the toast holds 24 characters and the four lines are 25-41, so the
   no-room one reads `real mode: no room for k`. `tests/unit/t_toast.py`
-  cannot see them (the string reaches `toast_show` through DX). Rewording is
-  the owner's: bootonce2 suggests `No PM: 8086-class CPU`, `No PM: no table
-  room`, `No PM: A20 will not open`, `No PM: an older task`.
+  could not see them. **TAKEN on the owner's word**, as bootonce2 worded
+  them: `No PM: 8086-class CPU`, `No PM: no table room`, `No PM: A20 will
+  not open`, `No PM: an older task`; MEGADIAG's `native floppy off: BIOS
+  from now` (32) is `Floppy: BIOS from now`. **Why the gate missed them**:
+  its string pattern was `label: db` and these are `label db` - nasm makes
+  the colon optional. With it optional the gate finds exactly six, all in
+  `mega.inc` (the five above less `mega_t86`, plus two E9-only lines now
+  registered in `tests/toastlong.txt`); nothing else in the tree is over
+  24. It is a FAST-tier row and takes 1.7 s. **Its remaining blind spot**:
+  a string that reaches the toast through a memory word - `mega_t86` is
+  stored into `[mega_gwhy]` by the blob and loaded from there - is found by
+  neither pattern.
+* **The rerun after the owner's answers** (the Bochs harness's `_HOME`
+  probe moved, so every row): 131 rows, 128 ok; `mega-scsize` and
+  `mega-pkgmax` as before (pre-existing), `megamod` timed out a 60 s wait
+  under the width-4 lane and passed alone (273 s).

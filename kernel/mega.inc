@@ -8057,7 +8057,7 @@ mega_fdlin  dw 0, 0                 ; the buffer's 24-bit address
 mega_fdcnt  dw 0                    ; bytes - 1
 mega_fdres  times 7 db 0            ; ST0 ST1 ST2 C H R N
 %ifdef MEGA_DIAG                    ; MEGADIAG=1's two toasts (14.65)
-mega_tfdoff db "native floppy off: BIOS from now", 0
+mega_tfdoff db "Floppy: BIOS from now", 0
 mega_tfdfb  db "FD BIOS ss s0s1s2 Dmm", 0
 mega_fdtold db 0                    ; 1 = mega_tfdfb has been shown this boot
 mega_fdglab db " n t b c p f m.i.r e.g.j.v s.d.x" ; mega_fdgdraw's labels,
@@ -13399,10 +13399,10 @@ section .mega
 ; above 1MB with the rest of `.mega` and are never read. mega_gateb (the boot
 ; blob) and mega_enterf name them as offsets only, which os88ovlchk enforces
 ; ovlchk: rung data
-mega_t86    db "real mode: 8086-class CPU", 0
-mega_tmem   db "real mode: no room for kern_mega's tables", 0
-mega_ta20   db "real mode: A20 will not open", 0
-mega_ttask  db "real mode: a task predates it", 0
+mega_t86    db "No PM: 8086-class CPU", 0
+mega_tmem   db "No PM: no table room", 0
+mega_ta20   db "No PM: A20 will not open", 0
+mega_ttask  db "No PM: an older task", 0
 ; ovlchk: end rung data
                                 ; protected mode only from here
                                 ; (KERN-MEGA-SEGMENTS-PLAN)
