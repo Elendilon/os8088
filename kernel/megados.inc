@@ -1529,19 +1529,19 @@ mega_dstubup:
 ; -----------------------------------------------------------------------------
 ; mega_dhcfill - THE HEADER'S GDT AND CELLS, staged in the scratch (MPS_HC)
 ; and copied up
-; in:  AX = the wake (a `.mega` offset); ES = the text page (28h);
+; in:  AX = the wake (a `.mega` offset); [mega_dstg] = the text page's REAL
+;      segment (mega_dstgs: ES is only the SELECTOR over it since MC7, and
+;      a base built from that is selector x 16 - KERN-MEGA-PLAN 14.135);
 ;      [mega_dpbase], [mega_dsum], [mega_dpkb], and [mega_dout] (MEGADIAG=1)
 ; Clobbers AX BX CX DX SI; DI and ES kept
 ; -----------------------------------------------------------------------------
 mega_dhcfill:
     push di
     push es
-    mov bx, es                      ; BX = the text page, before ES moves
     push word MEGA_SEL_PSCR
     pop es
     mov [es:MPS_HC + MPK_C_WAKE - MPK_GDT], ax
     mov word [es:MPS_HC + MPK_C_WAKE - MPK_GDT + 2], MEGA_SEL_CODE ; `.mega`'s
-    push bx
     xor ax, ax                      ; 08 code and 10 data, at the block
     call mega_dpb
     mov bx, MPS_HC + 0x08
@@ -1550,8 +1550,8 @@ mega_dhcfill:
     mov bx, MPS_HC + 0x10
     mov cl, 0x92
     call mega_hdesc
-    pop ax                          ; 28 the text page: the stage's own
-    call mega_p2lin                 ; segment, which is B000 or B800
+    mov ax, [mega_dstg]             ; 28 the text page: B000h on a Hercules,
+    call mega_p2lin                 ; B800h otherwise - the REAL segment
     mov bx, MPS_HC + 0x28
     call mega_hdesc
     mov si, mega_dpbase             ; PBASE, PSUM, PKB and POUT, the cells'

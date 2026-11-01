@@ -332,8 +332,12 @@ mega_r15:
 ; in:       real mode, DS = ES = KERNEL_SEG, SS = LOW_SEG; called from kmain
 ;           immediately before `jmp ui_task`
 ; out:      protected mode with DS = ES = MEGA_SEL_KDATA, or - on a CPU or a
-;           machine M1 cannot drive - real mode exactly as it came in. Every
-;           register but AX, CX, DX, SI, DI and the segment registers kept
+;           machine M1 cannot drive - real mode exactly as it came in.
+;           EVERY general register is lost, BX and BP included (mega_enterf
+;           walks sch_tasks in BX and claims through BP), and the segment
+;           registers but SS: kmain keeps nothing across it but the AX it
+;           pushes (it said BX was kept, which it never was - KERN-MEGA-PLAN
+;           14.135)
 ; -----------------------------------------------------------------------------
 mega_enter:
     call COLD_SEG:mega_enterf       ; the switch itself, the copy up and the
@@ -5337,9 +5341,10 @@ mega_hibnc:
     mov cx, [ss:bp+16]              ; CX = the CHS the run is asked with
     mov dx, [ss:bp+14]              ; DL = the drive, DH = the head: a run is
                                     ; carried across heads and cylinders here
-                                    ; (.adv). A nested int 13h keeps all of
-                                    ; these, ES:BX the landing included, and
-                                    ; .copy keeps them too
+                                    ; (.adv). The int 13h is bracketed by
+                                    ; pusha/push es, so a ROM that spends
+                                    ; any of them costs nothing; .copy keeps
+                                    ; them too
 .run:
     mov ax, di                      ; AL = left, AH = the cap
     or al, al
@@ -5364,10 +5369,12 @@ mega_hibnc:
 .xfer:
     mov ah, [ss:bp+19]
     push ax                         ; [this run's sectors]
-    push bp
-    int 0x13                        ; native or reflected, the landing low
-    pop bp
-    jc .err
+    pusha                           ; the loop's state is in BX CX DX SI DI
+    push es                         ; and ES, so they are banked rather than
+    int 0x13                        ; trusted to the ROM (14.135); native or
+    pop es                          ; reflected, the landing low. AX's answer
+    popa                            ; is never read, CF is, and pop/popa
+    jc .err                         ; keep it
     pop ax                          ; AL = this run's sectors, AH = the call
     cmp ah, 2
     jne .adv
@@ -12192,12 +12199,26 @@ mega_segf:
     call mega_wslot                 ; DI = DX's row in mega_wtab
     jc .fo                          ; not a window: a block's goes with it
     push ax
+    push bx
+    call mega_segown                ; BL = the caller's owner byte: ANOTHER
+    push ds                         ; owner's window is refused, CF = 1 and
+    push word MEGA_SEL_MXT          ; nothing done - it was freed under its
+    pop ds                          ; owner, whose next load of it then
+    cmp [di+2], bl                  ; faulted (KERN-MEGA-PLAN 14.135)
+    pop ds
+    pop bx
+    jne .fno
     mov ax, dx
     call mega_ldt_free              ; (its row too: mega_ldt_free's walk)
     pop ax
 .fo:
     pop di
     clc
+    retf
+.fno:
+    pop ax
+    pop di
+    stc
     retf
 
 ; mega_segown - ES = the caller's DS -> BL = the owner a window is recorded
@@ -12287,8 +12308,11 @@ mega_wset:
     push word MEGA_SEL_MXT
     pop ds
     cmp [di+2], bl
-    pop ds
-    je .own                         ; the caller's own: re-aim it
+    jne .wx
+    cmp byte [di+3], 0              ; ...and UNBOUND: a SEG_BWIN window is
+.wx:                                ; SEG_AIM's to re-aim, inside its block,
+    pop ds                          ; and aimed outside it here it was freed
+    je .own                         ; and moved with no block (14.135)
 .nown:
     pop di
 .nm:
@@ -12500,8 +12524,13 @@ mega_segbw:
     pop ax
     or bx, bx
     jz .nofl
-    or byte [es:bx+MX_FL], MX_FWIN
-.nofl:
+    or byte [es:bx+MX_FL], MX_FWIN  ; STICKY for the block's life: SEG_FREE
+.nofl:                              ; and the owner's end leave it, and the
+                                    ; entry's next take clears it (mx_alloc's
+                                    ; MX_OWN/MX_FL word). What it costs once
+                                    ; the window is gone is a move with the
+                                    ; rate hook held off, which is the safe
+                                    ; side, so no walk is spent on it (14.135)
     pop es
     call mega_segown                ; BL = the caller's owner
     mov bh, 1                       ; BOUND: a free row and a FRESH entry,
@@ -12806,6 +12835,7 @@ mega_mpsyncf:
     mov [es:di-8+4], dl
     popf
 .o:
+    call mega_mpgap                 ; ...and what the change gave back
     pop es
     pop di
     pop dx
@@ -12813,6 +12843,63 @@ mega_mpsyncf:
     pop bx
     pop ax
     retf
+
+; mega_mpgap - record SI just shrank or moved its base (mega_mpsyncf) -> every
+; allocator descriptor based in the FREE runs either side of it is free: a
+; SUB, a SUBC pair or a bound window the package made past what it then gave
+; back. mega_mpfreef's mega_cdfree takes only what is inside the record, so
+; those outlived the claim they were cut from - never freed, and the next
+; claim placed there had a stranger's descriptor based in it, which that
+; claim's move then rebased and its free freed under the holder (KERN-MEGA-
+; PLAN 14.135). Nothing else is based in free heap: a window and a mega_useg
+; row are a physical segment's and mega_cdin leaves them, and every kernel
+; segment is a GDT entry the walk never reaches. DS = KDATA, IF = 0 (the
+; record's change). Clobbers nothing
+mega_mpgap:
+    pusha
+    mov ax, [ss:si+MC_SEG]          ; AX = the base
+    mov dx, ax
+    add dx, [ss:si+MC_PARA]         ; DX = the end
+    mov bx, [mem_base]              ; BX = the run below starts here...
+    mov cx, [mem_top]               ; CX = ...and the run above ends here,
+    mov di, mem_tab                 ; or at the nearest claim either side
+.l:
+    cmp di, si
+    je .n
+    mov bp, [ss:di+MC_SEG]
+    or bp, bp
+    jz .n
+    cmp bp, dx
+    jb .lo
+    cmp bp, cx                      ; a claim above: the nearest ends the run
+    jae .n
+    mov cx, bp
+    jmp short .n
+.lo:
+    add bp, [ss:di+MC_PARA]         ; a claim below: the highest end starts it
+    cmp bp, ax
+    ja .n
+    cmp bp, bx
+    jbe .n
+    mov bx, bp
+.n:
+    add di, MC_SIZE
+    cmp di, mem_tab + MEM_MAX * MC_SIZE
+    jb .l
+    sub cx, dx                      ; the run above, paragraphs
+    jbe .h
+    xchg ax, dx
+    call mega_cdfree                ; (AX = its paragraph, CX = its length)
+    xchg ax, dx
+.h:
+    mov cx, ax                      ; the run below
+    sub cx, bx
+    jbe .o
+    mov ax, bx
+    call mega_cdfree
+.o:
+    popa
+    ret
 
 ; mega_mpfreef - FAR: record SI is going -> its pair is free, and so is every
 ; other allocator DATA descriptor based in its block (OSAPI_SEG's SUBs, which
@@ -12914,14 +13001,19 @@ mega_mpall:
 ; parameter table at F000h, a buffer) -> AX = a selector for it: itself on
 ; the GDT's identity map, a claim's base its pair's data half, anything else
 ; mega_useg's selector over its 64KB (KERN-MEGA-MEMORY-PLAN MC7's step 6: the
-; identity map stops at `.cold`, so the segment alone loads nothing). AX
-; kept when there is none, and the load faults where it is. Clobbers nothing
-; else
+; identity map stops at `.cold`, so the segment alone loads nothing). AX = 0,
+; the null selector, when there is none. Clobbers nothing else
 mega_rseg:
-    cmp ax, MEGA_GDT_ID * 8
-    jae .u
+    or ax, ax
+    jz .r                           ; the null one
+    cmp ax, 8 * 8                   ; GDT entries 1-7 are the kernel's own
+    jb .u                           ; (LOW0, KDATA, the LDT, ODD ...) and no
+    cmp ax, KERNEL_SEG              ; identity, and KERNEL_SEG's and
+    je .u                           ; COLD_SEG's are CODE: segment 0030h or
+    cmp ax, COLD_SEG                ; 0060h handed back loaded a descriptor
+    jae .u                          ; with another base or no write (14.135)
     test al, 7
-    jz .r                           ; the identity map's (0 is the null one)
+    jz .r                           ; the identity map's
 .u:
     push dx
     mov dx, ax
@@ -12933,13 +13025,22 @@ mega_rseg:
     ret
 .nu:
     pop dx
-    jmp mega_useg
+    call mega_useg
+    jnc .r
+    xor ax, ax                      ; NONE (the table or the LDT full): the
+    ret                             ; NULL selector, which the frame's `pop es`
+                                    ; loads and a USE faults on, where the
+                                    ; segment itself was a #GP at the pop in
+                                    ; the reflection's own epilogue (14.135)
 
 ; mega_useg - AX = a real-mode segment at or above A000h (a frame buffer, a
 ; ROM) -> AX = the kernel's data selector over its 64KB, CF = 0: made the
 ; first time and the same one after (mega_ustab) - what the identity GDT used
 ; to answer for it before MC7.4 cut it. CF = 1, AX kept, when no LDT entry or
-; row is free. Clobbers nothing else
+; row is free. Clobbers nothing else. A row names a PHYSICAL segment, so its
+; selector is nobody's block's: mega_iswin answers it as a window, and a
+; claim's free or move that it happens to lie in (mega_rseg also brings a
+; segment inside a claim here) neither frees nor rebases it (14.135)
 mega_useg:
     push bx
     push cx
@@ -13228,14 +13329,28 @@ mega_cdin:
 ; PC 0008 the moment another package's claim was freed (KERN-MEGA-PLAN
 ; 14.80); rebasing it would have pointed it at the wrong bytes. A SUB, a
 ; SUBC pair and a BOUND window (SEG_BWIN) are the block's, and still go
-; with it
+; with it. A mega_ustab row's selector answers CF = 0 too
+%if mega_wtab != mega_ustab_end
+ %error "mega_iswin walks mega_ustab straight on into mega_wtab"
+%endif
 mega_iswin:
     push si
     push di
     push ds
     push word MEGA_SEL_MXT
     pop ds
-    mov si, mega_wtab
+    mov si, mega_ustab              ; mega_useg's rows first: a PHYSICAL
+.u:                                 ; segment's selector, its row's second
+    mov di, [si+2]                  ; word, which no block owns either
+    or di, di                       ; (KERN-MEGA-PLAN 14.135)
+    jz .un
+    xor di, ax
+    and di, 0xFFF8
+    jz .y                           ; (CF = 0: `and` clears it)
+.un:
+    add si, 4
+    cmp si, mega_ustab_end
+    jb .u                           ; ...and on into mega_wtab, which follows
 .l:
     mov di, [si]
     or di, di
