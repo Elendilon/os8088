@@ -1063,6 +1063,23 @@ dos_entry:
                                     ; (dos_handoff), which is after the launch
                                     ; that would have been eaten
 %endif
+%ifdef DOS_WIN16
+    mov si, dos_doc                 ; THE LOADER ASKED (SPEC.md 124.3.1):
+    cmp byte [si], 0                ; OSAPI_ARG_FILE is read-and-clear, so the
+    je .idle                        ; document is the locator it banked here -
+    mov dx, [si + 13]               ; name[0] = 0 for a launch with none - in
+    mov bl, [si + 15]               ; OUR segment, so the copy is DS to DS and
+    mov [dos_dir], dx               ; ES stays the kernel's
+    mov [dos_vol], bl
+    mov di, dos_name
+    mov cx, 13
+.cpd:
+    lodsb
+    mov [di], al
+    inc di
+    or al, al
+    loopnz .cpd
+%else
     call OSAPI_ARG_FILE             ; CF=1 = launched empty, the ordinary case
     jc .idle                        ; for every package and the COMMAND.COM
                                     ; door for this one (wave 7)
@@ -1077,6 +1094,7 @@ dos_entry:
     inc di
     or al, al
     loopnz .cp
+%endif
 
     call dos_lnk_open               ; A SHORTCUT names another program and
                                     ; carries its arguments (SPEC.md 96.21);
@@ -1323,9 +1341,12 @@ dos_wake:
     cmp byte [dos_state], DST_READY
     jne .out
 %ifdef DOS_WIN16
-    call dos_w16_try            ; SPEC.md 124.3: a WINDOWS program is WIN16's,
-    jc .out                     ; asked before anything is claimed or taken
-%endif                          ; out - and before arm 3's question, too
+    shr byte [dos_w16k], 1      ; THE LOADER READ THIS FILE and it is no NE
+    jc .w16no                   ; (SPEC.md 124.3.1): once, the launch's own
+    call dos_w16_try            ; wake. SPEC.md 124.3: a WINDOWS program is
+    jc .out                     ; WIN16's, asked before anything is claimed or
+.w16no:                         ; taken out - and before arm 3's question, too
+%endif
 %ifdef DOSKPART
     call dos_wholeask           ; SPEC.md 96.42: arm 3 with nothing to come
     jc .out                     ; back to asks FIRST, and the answer comes back
@@ -9963,6 +9984,9 @@ dos_lnk_open:
     mov cx, ax                      ; AX = bytes delivered
     call dos_lnk_parse              ; ...which rewrites dos_name on success
     jc .out
+%ifdef DOS_WIN16
+    mov byte [dos_w16k], 0          ; the loader read the LINK, not what it
+%endif                              ; names: the wake asks again (124.3.1)
     call dos_fld_reload             ; the fields show what the link carried
 .out:
     jmp dos_hpop_7                  ; the host's shared epilogue (96.54.8)
@@ -12866,6 +12890,10 @@ dos_trmove:
 %include "os88parts.inc"
 dos_kdrow   equ dos_hbss + DOS_B_KDROW   ; the HOST's block (SPEC.md 96.44.5)
 dos_corerow equ dos_hbss + DOS_B_COREROW
+%ifdef DOS_WIN16
+dos_doc     equ dos_hbss + DOS_B_DOC     ; the loader's hand-on (124.3.1)
+dos_w16k    equ dos_hbss + DOS_B_W16K
+%endif
 %ifdef DOS_MEGA
 dos_kdlrow  equ dos_hbss + DOS_B_KDLROW
 %endif
@@ -13081,6 +13109,10 @@ DOS_CBASE   equ os88_image_end
     HBSS DOS_B_KDLROW, 8         ; ...and kern_mega's LOW kern_dos, part 3,
                                  ; beside them (SPEC.md 96.40.9.2)
 %endif
+%ifdef DOS_WIN16                 ; ...and the DOCUMENT, after them (SPEC.md
+    HBSS DOS_B_DOC, 16           ; 124.3.1): the loader asked OSAPI_ARG_FILE,
+    HBSS DOS_B_W16K, 1           ; which is read-and-clear, so it is here or
+%endif                           ; nowhere - and 1 = it was read and is no NE
     ; --- THE CONSOLE BAND (SPEC.md 96.32), four words dos_con_geom fills and
     ;     the console wave reads. Not banked "for one paint" like the line
     ;     above: they are the answer to a question about the WINDOW, so

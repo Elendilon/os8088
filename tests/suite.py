@@ -16666,6 +16666,20 @@ SOAK = [
         needs=("marty", "nasm", "win16fixtures"), serial=True, timeout=1800,
         wants=("build/kernel.sys", "build/win16.o88", "build/kdos/DOS.O88",
                "build/hiber.drv")),
+    Row("win16nedos", "soak", py("tests/win16nedos.py"), 75.0,
+        "SPEC.md 124.3.1 and 21.5.4 on a 5150 (MartyPC, CGA): an NE "
+        "double-clicked is decided in DOS.O88's LOADER and POSTED to WIN16, "
+        "so the machine is stepped one frame at a time from the click to "
+        "WIN16's window and on no frame is DOS's window visible, no claim "
+        "the size of DOS's carve is ever taken and no toast follows; a plain "
+        "MZ still opens DOS, and an NE TYPED at its prompt still reaches "
+        "WIN16 through the host's own arm. TINY16.EXE is assembled here, so "
+        "it needs neither Microsoft's samples nor Watcom. Red on c714ec45 "
+        "(DOS's window at frame 261, a 55,328-byte carve)",
+        needs=("marty", "nasm"), timeout=600,
+        wants=("build/os8088-360.img", "build/win16.o88",
+               "build/win16/DOS.O88", "build/win16/TINY16.EXE",
+               "build/DOSHELLO.EXE", "build/dosp.bin")),
     Row("atkey", "soak", py("tests/atkey.py"), 70.0,
         "WHAT ONE ARTFULTYPE KEYSTROKE COSTS on a 4.77MHz 8088, in guest "
         "cycles off at_onkey's entry to its return. Nothing in this tree had "

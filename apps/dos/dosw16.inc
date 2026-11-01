@@ -15,6 +15,12 @@
 ; plain MZ, an LE or PE, a compressed file whose raw bytes are its wrapper -
 ; is DOS's, and the run goes on as it always did.
 ;
+; A DOUBLE-CLICK NO LONGER REACHES THIS (SPEC.md 124.3.1): the LOADER,
+; apps/dos/dosload.asm's dsl_w16, makes the same test before any of DOS is
+; read and posts an NE to WIN16, and the launch's first wake skips this when
+; the loader says it read the file and found no NE (`dos_w16k`). What is left
+; here is an NE TYPED at the prompt, named in Run, or reached through a .LNK.
+;
 ; WHAT IT COSTS A DOS PROGRAM is one READ_AT of the first cluster, which the
 ; load that follows reads again, and the FAT count OSAPI_FILE_DFREE makes
 ; (SPEC.md 18.4.5). A second read only follows the `40h` test, which a plain

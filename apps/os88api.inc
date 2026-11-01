@@ -1361,6 +1361,16 @@ VID_VESA  equ 4             ; a packed VESA display (SPEC.md 120): square
                                  ; the new window's first paint, and the entry
                                  ; proc it calls runs with the lock free like
                                  ; every other package's.
+                                 ;
+                                 ; **FROM YOUR ENTRY PROC, THE DOCUMENT ARM
+                                 ; POSTS** (SPEC.md 21.5.4): CF=0 means the
+                                 ; program opens the document once your launch
+                                 ; has unwound. Then REFUSE (CF=1): a launch
+                                 ; opened by a double-click says nothing and
+                                 ; repaints nothing for that refusal. One post
+                                 ; stands at a time, and the latest wins. Any
+                                 ; other form from an entry proc is not
+                                 ; allowed. kern_small: no documents (54.0).
 OSAPI_LD_EVER   equ 6            ; ...and the AL that means THAT FILE IS AN
                                  ; os8088 PACKAGE OF ANOTHER FORMAT (SPEC.md
                                  ; 20.2.0): built for an older or a newer

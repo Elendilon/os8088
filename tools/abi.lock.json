@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "37d4e1e854ffe853f61f58e18deb061a72294473e8ffa8c810833ae02de13119",
+  "fingerprint": "1856b9d089e85c15f36b8f12c390202c5177763177f1ab240a9c66c523f4e0e2",
   "version": 12
  },
  "PKG_FMT": {
-  "fingerprint": "fb23da0c500cbc68df2cc10ce6e891f306ff6ecd0f3e73008375936a10f9a795",
+  "fingerprint": "90871e6e9345e2bb73c7d1b38d37b9e11afd6747ac3964d65a4a6d63d048b965",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -1400,6 +1400,20 @@
    "from": 12,
    "guard": "DRV_VER",
    "reason": "OSAPI_DECOMP accepts a FILTERED stream (SPEC.md 20.13.9): a leading 0xFFFF escape, then the plain stream, near-call operands made absolute. Contract widened, nothing re-contracted: every package, driver and module built before still runs; a filtered file on an older kernel is refused by its tail test, never misread. No bump.",
+   "to": 12
+  },
+  {
+   "fingerprint": "90871e6e9345e2bb73c7d1b38d37b9e11afd6747ac3964d65a4a6d63d048b965",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_PKG_START: the document arm, called from an entry proc, POSTS (SPEC.md 21.5.4) - a contract added for a context that was not allowed before; every cell, offset and header unchanged, so PKG_FMT stands",
+   "to": 10
+  },
+  {
+   "fingerprint": "1856b9d089e85c15f36b8f12c390202c5177763177f1ab240a9c66c523f4e0e2",
+   "from": 12,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_PKG_START: the document arm, called from an entry proc, POSTS (SPEC.md 21.5.4) - a contract added for a context that was not allowed before; every cell, offset and header unchanged, so PKG_FMT stands",
    "to": 12
   }
  ]

@@ -49813,6 +49813,56 @@ call it. The seed therefore goes in front of both, and it is nearly free:
 `asc_use_x` is stamped by `[asc_vol]`, so a volume already loaded costs ONE
 COMPARE and the second call on a volume is not a disk read.
 
+#### 21.5.4 ...and from an ENTRY PROC, the document arm POSTS
+
+An entry proc may not START a package: `ld_start` holds the outer launch's
+`[ld_base]`, `[ld_img]` and `[ld_status]` across the far call into it, and a
+second `ld_start` would run on top of them. **On the document arm it may POST
+one**: called while a launch is in flight (`[ld_base]` names its region, which
+is true from step 5 to the end of step 9 and on no other path), the slot does
+not call `assoc_run` - it leaves the program's slot in `[assoc_dapp]` and the
+document in the locator block (§21.5.3.3), sets `[ui_post]` (§13.13) and
+answers `CF = 0, AX = 0`, *posted*. `ui_task`'s `.chk_assoc` spends it on its
+next pass (at most one tick later), exactly as it spends a double-click
+(§54.4): nothing new services it.
+
+```
+  from an entry proc, DX:CX = 0, ES:DI = a document:
+  out  CF = 0, AX = 0: POSTED. The program opens it once this launch unwinds
+       CF = 1, AL = LD_EBAD: nothing on this machine opens it (unchanged)
+```
+
+**THE ENTRY PROC THEN REFUSES, and the refusal is SILENT.** `assoc_run`
+finds `[assoc_dapp]` standing again after `ld_run_name` returns - it consumed
+the slot before the load, so only a post made during it can have put one
+back - and treats the refusal as a hand-on: no `ld_say_status` (so no `Load
+failed` toast), no `files_refresh` (so no whole-screen repaint, which
+`ld_owed` charges any other `LD_EABORT`), only `assoc_back`. The loader's
+abort path still sweeps the instance's windows and frees its region and
+every claim (§20.2), so nothing of the refusing package outlives it.
+
+**ONE SLOT, AND THE LATEST POST WINS.** `[assoc_dapp]` is a byte, as it is
+for a double-click: a second post from the same entry proc replaces the
+first, and a document double-click the user makes before `ui_task` comes
+round replaces it too - the rule two double-clicks queued behind a busy
+launch already live by. A post outside an entry proc does not exist: there
+`[ld_base]` is 0 and the slot runs the launch at once, as §21.5.3 says.
+
+**Only the association route is quiet.** The refusal is recognised in
+`assoc_run`, which is the only path that hands an entry proc a document
+(`OSAPI_ARG_FILE` is armed nowhere else, §54.5), so a package launched by
+index or by name that posts and refuses is reported like any refusal. The
+contract is *post, then return `CF = 1`*: an entry proc that posts and then
+opens a window has both programs started, and its own document wake skipped.
+Not on `kern_small`, which has no association (§54.0).
+
+**The consumer is DOS.O88's loader** (§124.3.1), which recognises a Windows
+program before any of DOS is read. **Cost: 22 resident bytes of `.cold` on
+kern_big and kern_emu, MEASURED by `tools/os88rdiff.py` against c714ec45**
+(10 in `ld_pkg_byname`, 12 in `assoc_run_x`), the same 22 of `.cold` on
+kern_mega (above 1MB there), and **none on kern_small**, whose
+`ld_pkg_byname` is a tail jump and which assembles byte-identical.
+
 #### 21.5.1 Why it is one cell and was briefly two
 
 It shipped as two — `OSAPI_PKG_START` here, taking an image, and
@@ -228818,6 +228868,37 @@ imported-names tables, `ne_align`, `ne_exetyp` = 2 and `ne_expver`.
   program, naming the import, when it is called;
 - a CPU the census rules out (§124.4);
 - a program larger than the heap can hold.
+
+#### 124.3.1 The double-click is decided in DOS.O88's LOADER *(shipped)*
+
+A Windows program double-clicked on the desktop never shows DOS. The
+association still names `DOS.O88` (`.EXE` is DOS's), but its IMAGE is the
+2 KB loader of §96.44.4, and on `kern_big` and `kern_emu` (`-DDOS_WIN16`,
+the Makefile's `DOSW16DEF`, now given to `dosload.asm` as well) its entry
+proc asks first, before `op_load` claims or reads anything:
+
+1. `OSAPI_ARG_FILE` - **read-and-clear**, so the loader banks the 16-byte
+   locator (§21.5.3) in its own bss;
+2. stands in the document's folder (`OSAPI_FILE_GOTO_QM`, having banked
+   `OSAPI_FILE_HERE`), reads the first cluster and, when `e_lfanew` lies
+   past it, the cluster holding it - the test of the handover rule above,
+   byte for byte;
+3. **an NE**: `OSAPI_PKG_START` with `WIN16.O88` and the document - from an
+   entry proc that is a POST (§21.5.4) - and the entry refuses. No carve, no
+   core, no window, no console: the 56 KB host and the 15 KB core are never
+   read and WIN16 starts with them still in the heap. The kernel says nothing
+   about the refusal;
+4. **anything else**: back to the package's folder and `op_load` as before.
+   The locator, and a byte saying *read, and no NE*, are copied into the
+   host's bss after the core's row (`DOS_B_DOC`, `DOS_B_W16K` - the same
+   hand-on as the rows of §96.44.4.2), so `dos_entry` reads them instead of
+   `OSAPI_ARG_FILE` and the launch's first wake skips `dos_w16_try`'s read:
+   **an ordinary `.EXE` pays one header read, as before, in the loader
+   instead of the host.** A `.LNK` clears the byte - the loader read the link,
+   not what it names.
+
+`dos_w16_try` stays in the host for the three routes the loader never sees:
+an NE typed at the prompt, named in Run, or reached through a `.LNK`.
 
 ### 124.4 The CPU census *(shipped: host side, and on the machine for S2)*
 

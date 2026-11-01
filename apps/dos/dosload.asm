@@ -91,6 +91,10 @@ DSLH_SIZE    equ OP_ROW * 2
 DSLH_KDLROW  equ OP_ROW * 2     ; ...and kern_mega's low kern_dos (96.40.9.2)
 DSLH_SIZE    equ OP_ROW * 3
 %endif
+%ifdef DOS_WIN16                ; ...and on the kernels that carry WIN16, the
+DSLH_DOC     equ DSLH_SIZE      ; DOCUMENT and its checked byte (SPEC.md
+DSLH_W16K    equ DSLH_DOC + 16  ; 124.3.1), written straight after the core's
+%endif                          ; row by the copy that left DI there
 
 LD_H_IMG    equ 8               ; ...and the two header fields this file reads
 LD_H_BSS    equ 10              ; them at, which are the FORMAT's and not ours
@@ -186,6 +190,139 @@ dsl_core:
 .no:
     stc
     ret
+%ifdef DOS_WIN16
+; -----------------------------------------------------------------------------
+; dsl_w16 - a Windows program, recognised before any of DOS is read
+;           (SPEC.md 124.3.1)
+; in:  ES = KERNEL_SEG (the entry contract); the instance stands where the
+;      package was launched from
+; out: CF=1 = it was an NE and WIN16.O88's launch is POSTED: refuse, and the
+;      kernel says nothing (SPEC.md 21.5.4). CF=0 = anything else: dsl_doc
+;      holds the document (or zeros) and dsl_w16k says whether it was read,
+;      and the instance stands where it stood
+; clobbers: AX, BX, CX, DX, SI, DI, ES, BP, flags
+;
+; THE TEST IS dosw16.inc's, BYTE FOR BYTE, one launch earlier: an MZ whose
+; relocation table starts at 40h or later carries e_lfanew at 3Ch, and a word
+; `NE` there is the new executable. The host keeps its own copy for an NE
+; typed at the prompt, named in Run or reached through a .LNK - the loader
+; sees the link, not the program - and this one costs the host nothing it did
+; not already pay: the read it makes is the read the host's wake no longer
+; makes (dsl_w16k), so an ordinary .EXE pays ONE header read either way.
+;
+; OSAPI_ARG_FILE IS READ-AND-CLEAR, which is why the document is banked here
+; and handed on into the host's bss beside the two rows: after this call the
+; kernel has nothing left for the host to ask.
+; -----------------------------------------------------------------------------
+dsl_w16:
+    call OSAPI_ARG_FILE             ; SI -> the name in KERNEL_SEG, DX:BL
+    jc .no                          ; launched empty: nothing to hand on
+    mov di, dsl_doc
+    mov cx, 13
+.cp:
+    mov al, [es:si]
+    mov [di], al
+    inc si
+    inc di
+    loop .cp
+    mov byte [dsl_doc + 12], 0
+    mov [dsl_doc + 13], dx
+    mov [dsl_doc + 15], bl
+    push ds
+    pop es                          ; ES is ours from here
+    push bx
+    push dx
+    call OSAPI_FILE_HERE            ; where the package was launched from:
+    mov [dsl_home], dx              ; op_load reads DOS.O88 by name THERE
+    mov [dsl_home + 2], bl
+    pop dx
+    pop bx
+    call OSAPI_FILE_GOTO_QM         ; stand where the document is
+    jc .home
+    call OSAPI_FILE_DFREE           ; BX = sectors per cluster: READ_AT wants
+    jc .home                        ; offset and capacity in whole clusters
+    cmp bx, 64
+    ja .home                        ; a 64KB cluster: no 16-bit CX names it
+    mov ax, bx
+    inc ax
+    shr ax, 1                       ; KB, at least one
+    call OSAPI_MEM_CLAIM            ; DX = the block
+    jc .home
+    mov bp, dx
+    mov cl, 9
+    shl bx, cl                      ; BX = the cluster in bytes
+    mov di, bx                      ; DI = it, for the second read
+    mov cx, bx                      ; --- the first cluster -------------------
+    mov es, bp
+    xor bx, bx
+    xor ax, ax
+    xor dx, dx
+    mov si, dsl_doc
+    call OSAPI_FILE_READ_AT         ; DX:AX = the bytes delivered
+    jc .free
+    mov byte [dsl_w16k], 1          ; READ: whatever it is, the host's wake
+    mov cx, ax                      ; need not read it again. CX = delivered
+    cmp ax, 0x40
+    jb .free
+    cmp word [es:0], 0x5A4D         ; 'MZ'
+    jne .free
+    cmp word [es:0x18], 0x40        ; ...with room for a new header's pointer
+    jb .free
+    cmp word [es:0x3E], 0           ; e_lfanew's high word: inside 64KB
+    jne .free
+    mov ax, [es:0x3C]
+    test al, 1                      ; even, so the word cannot straddle the
+    jnz .free                       ; cluster's end
+    mov dx, di
+    dec dx                          ; a power of two, so a mask
+    mov si, ax
+    and si, dx                      ; SI = e_lfanew within its cluster
+    not dx
+    and ax, dx                      ; AX = that cluster's own offset
+    jz .have                        ; the first: already here
+    push si                         ; --- ...or the one holding e_lfanew ----
+    mov cx, di
+    xor bx, bx
+    xor dx, dx
+    mov si, dsl_doc
+    call OSAPI_FILE_READ_AT
+    pop si
+    jc .free
+    mov cx, ax                      ; CX = delivered, as above
+.have:
+    lea ax, [si + 2]
+    cmp cx, ax                      ; delivered past the signature?
+    jb .free
+    cmp word [es:si], 0x454E        ; 'NE'
+    jne .free
+    mov dx, bp                      ; --- IT IS ONE ---------------------------
+    call OSAPI_MEM_FREE
+    push ds
+    pop es
+    mov si, dsl_w16pkg              ; WIN16's stem names the slot (124.3),
+    mov di, dsl_doc                 ; the program its document, DX:CX = 0:
+    xor cx, cx                      ; from an entry proc this is a POST, and
+    xor dx, dx                      ; the kernel launches it once this one
+    call OSAPI_PKG_START            ; has unwound (SPEC.md 21.5.4)
+    jnc .done                       ; CF=1: nothing opens it - DOS runs the
+    jmp short .home                 ; stub, as the host's own arm would
+.free:
+    mov dx, bp
+    call OSAPI_MEM_FREE
+.home:
+    mov dx, [dsl_home]              ; back where op_load will read DOS.O88
+    mov bl, [dsl_home + 2]
+    call OSAPI_FILE_GOTO_QM
+.no:
+    clc
+    ret
+.done:
+    stc
+    ret
+
+dsl_w16pkg: db 'WIN16.O88', 0
+%endif
+
 ; -----------------------------------------------------------------------------
 ; dsl_entry - the package entry proc (SPEC.md 20.2)
 ; in:  SI = the launched file's name in KERNEL_SEG, ES = KERNEL_SEG
@@ -215,6 +352,19 @@ dsl_entry:
     ret
 dsl_s_notpm: db "DOS.O88 is kern_mega's", 0
 dsl_pmok:
+%endif
+%ifdef DOS_WIN16
+    ; --- A WINDOWS PROGRAM IS WIN16'S, AND IT IS ASKED HERE (SPEC.md 124.3.1)
+    ; Before a sector of part 0 is read: an NE is POSTED to WIN16.O88 and
+    ; this launch refuses, so no carve is claimed, no window is made and
+    ; nothing of DOS is ever on the glass. Anything else comes back CF=0 with
+    ; the document banked for the host, and the launch goes on as it was.
+    push si
+    push es
+    call dsl_w16
+    pop es
+    pop si
+    jc .no                          ; posted: refused, and SILENT (21.5.4)
 %endif
     call op_load                    ; sizes first and reads nothing if it will
     jc .no                          ; not fit (20.12); a toast has said why
@@ -251,6 +401,13 @@ dsl_pmok:
     add di, DSLH_COREROW            ; **AND THE CORE'S**, because the stub reads
     mov si, dsl_crow                ; BOTH on the way to arm 3 (SPEC.md
     call dsl_cpy                    ; 96.44.5.4): kern_dos's image has a hole
+%ifdef DOS_WIN16
+    mov si, dsl_doc                 ; ...AND THE DOCUMENT, which dsl_w16 took
+    call dsl_cpy                    ; with OSAPI_ARG_FILE - read-and-clear, so
+    call dsl_cpy                    ; the host can no longer ask (SPEC.md
+    mov al, [si]                    ; 124.3.1): the 16-byte locator, name[0]
+    mov [es:di], al                 ; 0 = launched empty, then the byte that
+%endif                              ; says it was read and is no NE
 %ifdef DOS_MEGA
     mov di, [es:LD_H_IMG]
     add di, DSLH_KDLROW             ; ...and the LOW kern_dos's, which the DOS
@@ -321,4 +478,16 @@ dsl_pmok:
     OS88_IMAGE_END
 
 dsl_crow equ os88_image_end + OP_BSS    ; the CORE row, banked before the fetch
-DSL_BSS  equ OP_ROW                     ; that spends it
+%ifndef DOS_WIN16                       ; that spends it
+DSL_BSS  equ OP_ROW
+%else
+dsl_doc  equ dsl_crow + OP_ROW          ; the document's 16-byte locator, as
+                                        ; OSAPI_ARG_FILE answered (SPEC.md
+                                        ; 21.5.3) - zero when launched empty,
+                                        ; the kernel having zeroed this bss
+dsl_w16k equ dsl_doc + 16               ; ...1 = read, and it is no NE: the
+                                        ; host's wake need not read it again.
+                                        ; ADJACENT: the hand-on copies 17
+dsl_home equ dsl_w16k + 1               ; the folder we came from: dir, vol
+DSL_BSS  equ OP_ROW + 16 + 1 + 3
+%endif

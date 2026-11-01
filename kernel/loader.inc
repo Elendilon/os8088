@@ -1987,12 +1987,25 @@ ld_pkg_byname:
                                 ; caller stands, and the caller is the one who
                                 ; told us the document's own dir and volume
                                 ; anyway (both are banked above)
+    inc byte [ui_post]          ; ...and SAY SO (SPEC.md 13.13), which is the
+                                ; whole of the POSTED form (SPEC.md 21.5.4):
+    cmp [ld_base], ax           ; asked FROM AN ENTRY PROC - a launch is in
+    jne .posted                 ; flight, [ld_base] names its region - this
+                                ; must not re-enter ld_start under the outer
+                                ; launch's state. [assoc_dapp] above IS the
+                                ; post: ui_task's .chk_assoc spends it on its
+                                ; next pass, and assoc_run_x, seeing it stand
+                                ; when the entry proc refuses, says nothing
+                                ; and repaints nothing for that refusal. The
+                                ; over-set [ui_post] on the called arm costs
+                                ; one sweep of the posted flags (13.13)
     COLDCALL assoc_run_x        ; **CALLED, NOT POSTED**: this slot already
                                 ; requires the UI task with the gfx lock FREE
                                 ; (21.5), which is the context assoc_run
                                 ; wants - so there is nothing to defer to.
                                 ; FAR, because assoc_run far-returns, being
                                 ; ui.inc's own callee
+.posted:
     xor al, al                  ; it reported its own verdict to the user
     ret                         ; (ld_say_status) - 21.5.3's thinner answer
 .nodoc:

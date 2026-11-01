@@ -1322,6 +1322,11 @@ assoc_run_x:
                                 ; on, so no listing and no index (21.4)
     mov byte [assoc_argp], 0    ; a package launched later, by any route, must
                                 ; never inherit this document
+    cmp byte [assoc_dapp], 0xFF ; THE ENTRY PROC POSTED ANOTHER PROGRAM for
+    jne .fwd                    ; this document (SPEC.md 21.5.4) and refused:
+                                ; a hand-on, not a failure - no toast, and no
+                                ; repaint, the posted launch being the next
+                                ; thing on the glass
     call ld_say_status          ; record the verdict and SAY it (SPEC.md
                                 ; 59/22.9) - loader.inc's, `.cold` like this,
                                 ; so the call is near, and it preserves every
@@ -1349,6 +1354,9 @@ assoc_run_x:
 .lnk:                           ; package may now spend the document it was
     jmp short .out              ; handed - and a LINK's way out (SPEC.md
                                 ; 26.10.3), its slot word the one .out pops
+.fwd:                           ; the hand-on (21.5.4): the user's volume
+    call assoc_back             ; back, and nothing said. The post stands in
+    jmp short .out              ; [assoc_dapp] for ui_task's next pass
 .noassoc:
     push ax                     ; the word .out pops
     call assoc_back             ; no volume knows it: the package route's own
