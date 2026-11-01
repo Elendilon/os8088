@@ -667,11 +667,9 @@ hbf_kinit:
 ; toast names it the way the Control Panel's does, out of the same table.
 hbf_open:
     call hbf_need
-    jc .no
+    jc hbf_perform.toast        ; in reach without the relay (pass 16)
     call far [HBFP + HBE_OPEN*4]
     retf
-.no:
-    jmp short hbf_perform.toast ; the toast and the retf, hbf_perform's
 
 hbf_nodisk:
     push ax

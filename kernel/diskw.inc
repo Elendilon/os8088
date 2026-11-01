@@ -1907,8 +1907,7 @@ dskw_rbody:
     test byte [dskw_raw+DSK_R_ATTR], 0x18
     jz .isfile
     jmp dskw_wbody.prot         ; a volume label or a subdirectory: FERR_PROT
-.out:
-    ret
+.out equ dskw_runadd.out   ; its neighbour's ret (kernel size pass 16)
 .isfile:
     call dskw_czknow                ; **AND IF THE DIRECTORY DID NOT SAY, ASK
                                     ; THE FILE** (SPEC.md 20.14.6). The hint is

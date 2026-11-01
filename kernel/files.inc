@@ -5663,13 +5663,13 @@ fm_c_dlg:
     xor al, al                  ; one is the better answer here
     call fdlg_open_x            ; near - fdlg.inc is `.cold` too
     jmp fm_nw_none              ; ...and NOT ONE PIXEL of this window is
+.no equ fm_cloline.out          ; its neighbour's ret (kernel size pass 16)
+
+fm_img_done_x:
                                 ; owed: what changed is a modal dialog that
                                 ; drew itself, and a repaint would land on top
                                 ; of it (SPEC.md 22.13). NOTHING IS BANKED: a
                                 ; body may clobber anything (fm_docmd's note)
-.no:
-    ret
-
 ; -----------------------------------------------------------------------------
 ; fm_img_done - the file dialog answered (SPEC.md 18.99.8)
 ; in:  AL = 0 the OPEN form (Write Img) / 1 the SAVE form (Clone to an image,
@@ -5685,7 +5685,6 @@ fm_c_dlg:
 ; SAVEs apart by whether a claim is live. A cancelled dialog does not arrive
 ; here at all.
 ; -----------------------------------------------------------------------------
-fm_img_done_x:
     call kentc_di               ; KENT: push ax..di
 
 
