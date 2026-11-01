@@ -4574,13 +4574,11 @@ drv_cfg_macros:                 ; NOT CALLED, and not a routine: it ENDS
 ; which is why one macro serves both: every kernel reference is unchanged and
 ; only the parser's OWN tables need `cs:`.
 ;
-; THE THREE THINGS THAT STAY, and each is a rule rather than an oversight:
+; THE TWO THINGS THAT STAY, and each is a rule rather than an oversight (the
+; two filenames are STAGED by each image since kernel size pass 16):
 ;   * `drv_cfg`, the settings struct - osapi_drv_cfg hands a driver its blob
 ;     out of it at any moment in the session (SPEC.md 51.9), so it is live
 ;     state and not scaffolding;
-;   * `drv_cfgname` and `drv_sysname` - dskw_read, dskw_stat and dskw_write_sys
-;     each read a filename through DS, so a name in an image is a filename read
-;     out of the kernel at the image's offset;
 ;   * the far entries below, four bytes each, because a call out of an image is
 ;     a far call.
 ;
