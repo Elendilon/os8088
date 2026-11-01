@@ -374,6 +374,46 @@ the win16-reference skill's Microsoft samples, `win16samples`); `win16ne`
 `dosext`, `dosaltenter`, `doswlive`; `pkgrun` (the cell's called arm);
 and the association rows `assoc*`.
 
+### 4.7 Kept for later: a Windows program with NO DOS on the disk at all
+
+**Owner's decision, 2026-11-01: design 1 ships, and design 2 is RECORDED, not
+refused.** What design 2 buys that design 1 cannot is not the 0.55 s. Design
+1 still needs DOS.O88 on the disk to RECOGNISE the program, because it is
+DOS's loader that reads the header. Design 2 decides in the kernel, so a
+Windows program can start with no DOS.O88 present at all.
+
+That matters for a ONE-DISK 360KB machine. WIN16.O88 is 64,162 bytes and
+does not fit on the system disk. So today a user puts in the disk WIN16 lives
+on, and that disk must also hold the Windows program and DOS.O88 (50,577
+bytes, ~50 of 354 clusters), only so that something can read an NE header and
+hand it on. Taking DOS.O88 off that requirement is worth ~50 clusters on
+exactly the geometry that runs out first.
+
+**What it would take to be CLEAN** (the prototype was not): the mapping named
+nowhere in the kernel. That means an `ASSOC.DAT` row kind keyed on a
+SIGNATURE rather than an extension (a magic at an offset, or "MZ whose
+e_lfanew points at 'NE'"):
+- an `ASC_VER` bump;
+- a writer in `tools/os88disk.py`;
+- the harvest and the merge reading it, and the `t_*` readers updated.
+
+Measured +166 resident `.cold` for the sniff with hard-coded slots
+(prototype `d3443ad1` on this branch, reverted by `04c57525`), plus ~80-150
+estimated for the signature row. kern_small has no associations and would
+not carry it.
+
+**Why it may come back GENERALISED.** A signature-keyed association is not
+an NE feature. Any extension that names more than one program ("`.EXE`" is
+DOS's MZ, Windows' NE, and later perhaps OS/2's LE or a self-extracting
+archive's stub) has the same shape. The first time a second such type wants
+a launcher, the cost is shared. At that point the chain
+`DOS.O88 + WIN16.O88 + the program` becomes `WIN16.O88 + the program`.
+
+Revisit when:
+- a second content-sniffed type appears; or
+- the 360KB one-disk Windows case is wanted; or
+- design 1's +22 can be folded into it.
+
 ## 5. What it costs the loader and the kernel
 
 - **Kernel: 22 bytes of `.cold`**, section 4.6's post (kern_small none), and
