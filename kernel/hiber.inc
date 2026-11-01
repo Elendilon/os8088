@@ -98,6 +98,8 @@ HBX_HMAX    equ (512 - 12) / 8  ; the runs the section's head can list: 12
 
 %include "hbstage.inc"        ; SPEC.md 87.5's staging map, shared as SOURCE
                               ; with kerndos/kdresume.inc (SPEC.md 96.49)
+%include "lzfilt.inc"         ; kds_expand undoes the near-call filter
+                              ; (SPEC.md 20.13.9) with kernel/lz.inc's body
 %ifdef DOSR_MARK
   %include "hbmark.inc"       ; ...and the trace, which hbm_wake stamps 500
 %endif                        ; lines before hbstub.inc is included
@@ -5402,7 +5404,15 @@ kds_expand:
 kds_expand_at:                  ; ...or from DI (kern_mega's HMA image)
     add cx, si                  ; the stream's end...
     mov ax, [si]
-    add si, 2                   ; ...past the T word
+    add si, 2                   ; ...past the T word - OR THE FILTER'S ESCAPE
+    cmp ax, LZ_ESC              ; (SPEC.md 20.13.9): then the real T is the
+    pushf                       ; next word, and ZF is kept for the end
+    jne .t
+    mov ax, [si]
+    add si, 2
+.t:
+    push di                     ; ...with where the output starts, which the
+                                ; filter's offsets count from
     sub cx, ax                  ; ...and so where the raw tail begins: the ONLY
     mov [cs:HS_LBA], cx         ; source bound the loop tests
     mov [cs:HS_LEFT], ax        ; ...and how much of it there is
@@ -5466,6 +5476,11 @@ kds_expand_at:                  ; ...or from DI (kern_mega's HMA image)
 .tail:
     mov cx, [cs:HS_LEFT]        ; SI is standing on it
     rep movsb
+    pop bx                      ; the output's first offset
+    popf
+    jne .ret
+    LZ_UNE8 bx                  ; ...over ES:BX..DI (lzfilt.inc)
+.ret:
     ret
 
 kds_s_fail: db 13, 10, 'kern_dos could not be read off the disk.', 13, 10

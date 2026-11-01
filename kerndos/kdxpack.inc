@@ -692,8 +692,11 @@ kd_tolow:
 .ret:
     ret
 
+%include "lzfilt.inc"               ; kxl_dec undoes the near-call filter
+                                    ; (SPEC.md 20.13.9) with the kernel's body
 ; -----------------------------------------------------------------------------
-; kxl_dec - expand ONE os88lz LZ4 stream in place (SPEC.md 20.13.7)
+; kxl_dec - expand ONE os88lz LZ4 stream in place (SPEC.md 20.13.7), and
+;           undo the near-call filter if the stream carries it (20.13.9)
 ; in:  DS:SI = the stream (SI = 0), CX = its packed bytes, ES = the output
 ;      segment (DI starts 0); output below the stream in the window
 ; out: DI = the unpacked length. Clobbers AX, BX, CX, SI, DI, DS, BP, flags
@@ -711,8 +714,12 @@ kd_tolow:
 kxl_dec:
     xor di, di
     add cx, si                          ; the stream's end (SI = 0)
-    mov ax, [si]                        ; the T word...
-    add si, 2
+    lodsw                               ; the T word...
+    cmp ax, LZ_ESC                      ; ...or the FILTER'S ESCAPE (SPEC.md
+    pushf                               ; 20.13.9), kept for the end, and
+    jne .t                              ; the real T after it
+    lodsw
+.t:
     sub cx, ax                          ; ...and so where the raw tail begins
     mov [cs:kxl_tail], cx
     mov [cs:kxl_tlen], ax
@@ -770,6 +777,10 @@ kxl_dec:
 .tail:
     mov cx, [cs:kxl_tlen]               ; the raw tail, DS:SI standing on it
     rep movsb
+    popf
+    jne .ret
+    LZ_UNE8                             ; the output is ES:0..DI (lzfilt.inc)
+.ret:
     ret
 
 kxp_msg:    db 'Packed file is corrupt'

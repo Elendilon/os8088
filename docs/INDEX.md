@@ -150,7 +150,7 @@ Read first: [§18 disk.inc — floppy I/O (BIOS int 13h) + the FAT driver](../SP
 
 | slot | call | takes |
 |---|---|---|
-| `0x03D3` | `OSAPI_DECOMP` | DS:SI = the compressed bytes, T word first (SPEC.md 20.13.7: every stream ends in T raw bytes, and needs NO in-place margin... |
+| `0x03D3` | `OSAPI_DECOMP` | DS:SI = the compressed bytes, T word first - or the word 0xFFFF and then T, a FILTERED stream (SPEC.md 20.13.9), which comes back unfiltered... |
 | `0x0103` | `OSAPI_FILE_WRITE` | SI = NUL 8.3 name, ES:BX = bytes, DX:CX = count (0 = empty file); creates or REPLACES... |
 | `0x0109` | `OSAPI_FILE_READ` | SI = name, ES:BX = buffer, DX:CX = its capacity; out CF=0 and DX:AX = bytes read (the file's 32-bit size), else AX = FERR_*... |
 | `0x010F` | `OSAPI_FILE_DELETE` | SI = name; out CF=0 AX=0, else FERR_* |

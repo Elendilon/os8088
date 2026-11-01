@@ -216,7 +216,8 @@ def main() -> int:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import os88lz
         fid = os88lz.LZ4 if zfmt == "lz4" else os88lz.LZB
-        out, did = os88lz.cz_wrap(data, fid)
+        out, did = os88lz.cz_wrap(data, fid, filt=True)  # code: the
+                                    # near-call filter when it pays (SPEC.md 20.13.9)
         if not did:
             msg = (f"{zfmt} does not make this driver smaller. Ship it "
                    "uncompressed")

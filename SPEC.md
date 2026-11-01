@@ -47874,6 +47874,10 @@ refuses a kernel that is perfectly fine.
                    they are
 ```
 
+(A code stream may carry one more word in front, the near-call filter's
+escape `0xFFFF` - 20.13.9. It is consumed before anything is produced, like
+T, so everything below holds for it unchanged.)
+
 **The encoder cuts the symbols at the FIRST peak of `produced − consumed`
 and stores the rest raw.** `tools/os88lz.py`'s `_cut` is the rule, both host
 encoders and `kernel/compress.inc` go through it, and it is tracked exactly
@@ -48026,6 +48030,155 @@ The same is true of a length shorter than the clear prefix (accepted by the
 header test, and step 6a's stream length then wraps): the decoder's output
 bound keeps every write inside the region, as it does for a plain compressed
 file that short, and only the read above can pass it.
+
+#### 20.13.9 A stream may be FILTERED - the near-call escape
+
+**74% of a code stream's LZ4 bytes are LITERALS** (docs/reports/
+DOS-PACKED-COST-2026-11-01.md section 2), and the commonest reason a run of
+8086 code does not repeat is a `call rel16`: two calls to one routine are
+different bytes at every site, because the operand is the distance from the
+call and not the routine. The filter is xz's x86 BCJ cut down to the 8086 -
+before packing, every `E8` at an output position `p` with two bytes after it
+has its word operand made ABSOLUTE, `rel + p + 3` mod 64KB, and the operand is
+stepped over; after unpacking, the inverse takes `p + 3` back off. Every call
+to one routine is then the same three bytes, which is a match.
+
+**It is defined over the position in the UNPACKED STREAM**, so it needs no
+org on either side: a package's body starts at its clear prefix and a part or
+a module may be assembled anywhere, and a constant shift of every target is
+still one target. A data byte that happens to be `E8` is rewritten and
+rewritten back; the walk never inspects a byte it rewrote, so it visits the
+same positions both ways and is a bijection on ANY input - nothing in it can
+refuse, and nothing in it needs a bound but the last two bytes.
+
+**The filter is a property of the STREAM, not of a format** (20.13.7's
+layout, one word longer):
+
+```
+    +0     word    0xFFFF, LZ_ESC - this stream is filtered
+    +2     word    T, the tail's length
+    +4             the LZ symbols, then T raw bytes - as 20.13.7
+```
+
+So no container changed. The package header's eight flag bits are all
+spoken for, a part table carries one format byte for every row, and a `'CZ'`
+file's format byte and its directory hint (`5Ah`/`5Bh`, 20.14.1) say LZ4 or
+LZB; all four still say exactly that, and every reader that goes through the
+decoder - the package loader, the transparent `'CZ'` read (drivers, modules,
+overlays, files), `OSAPI_DECOMP` (parts), the Compress verb's Decompress and
+`OS88CZ.COM` - takes a filtered stream with no line of its own changed.
+
+**AN OLDER KERNEL REFUSES IT, AND THAT IS THE DESIGN.** `0xFFFF` read as T is
+a tail longer than any stream under 64KB, and `lz_decomp_x` refuses that
+before it writes a byte (20.13.4) - so a filtered package on a kernel that
+predates this is `Bad package`, a filtered driver or module does not load,
+and nothing ever runs scrambled code. The encoder never filters an output
+past `0xFFFF` bytes (`os88lz.FILT_MAX`), and a stream is shorter than its
+output or it is not compressed at all, so the escape is ALWAYS out of an old
+decoder's reach.
+
+**The encoder takes it per stream, and only when it makes the stream
+SHORTER** (`os88lz.compress(..., filt=True)` packs both ways and keeps the
+smaller, counting the escape's two bytes). The packers that pack CODE ask:
+`os88pkg.py` for an image and for every `OP_COMP` part, `os88drv.py` for a
+driver, `os88mod.py --wrap` for a module and `os88lz.py --wrap --filter` for
+a C overlay (73.14.1). Faces, the manual, the licence, `BEVERLY.MOD` and
+every other data file are wrapped without asking. `os88pkg.py
+--part-nofilter ROW` keeps one part plain, for a reader that has not learned
+the escape; nothing uses it today.
+
+##### 20.13.9.1 Why `E8` alone
+
+**One byte value is what `repne scasb` can look for**, at 15 cycles a byte on
+an 8088. Adding `E9` (`jmp rel16`) would need a second pass or a byte loop
+about three times slower, and measured over every compressed stream the
+build ships it is worth 9% more than `E8` alone:
+
+| filter | shipped streams that take it | bytes saved (whole set, deduplicated) |
+|---|---:|---:|
+| `E8` | 97 of 136 | 28,020 |
+| `E8` + `E9` | 99 of 136 | 30,588 |
+
+(Measured on this tree before the change, against the streams `os88pkg`,
+`os88drv` and `os88mod` were writing; a stream that does not pay keeps its
+plain form, so neither column can lose.)
+
+**What it bought, measured on the images `make` writes** (used clusters,
+before -> after): the 360KB set `os8088-360` 685 -> 674, `apps360` 332 ->
+326, `office360` 342 -> 336, `media360` 335 -> 332, `small360` 342 -> 339,
+`network360` 103 -> 101, `emu360` 147 -> 145, `util360` 73 -> 71,
+`games360` 291 -> 290; the 1.44MB pair `os8088` 1,283 -> 1,265 and `apps`
+2,782 -> 2,745. Over all seventeen shipped images, **114,457 bytes and 225
+clusters**. `DOS.O88`'s three parts go 23,461 / 13,672 / 11,855 -> 22,851 /
+13,188 / 11,681 (-1,268) and the file 51,791 -> 50,593, three sectors. As
+with every cluster figure (20.13.5), `make` prints the live ones and these
+are what the change was measured at.
+
+**The decode is the scan plus a few cycles per call.** Counted from the 8088
+timings, not measured: `repne scasb` 15 cycles a byte, and each hit `jne`,
+`scasw`, `sub [es:di-2], di`, `sub cx, 2` and the taken `ja` back, about 87
+cycles - at code's density of one `E8` in 50-60 bytes, **~16.5 cycles an
+output byte**, against LZ4's 50.6. It runs only on a stream that carries the
+escape. What it buys back is file bytes, and on a 360KB floppy a sector in a
+coalesced run is ~22 ms of rotation, ~43 us a byte, against the scan's ~3.5 us
+an output byte: the filter pays for itself in TIME only where it saves about
+one byte of stream in twelve of output, and **no shipped stream does** (DOS's
+core, the densest call traffic in the tree, saves 3.1%). So it is slower to
+launch, by roughly `3.5 us x image - 43 us x saved` - ~100 ms for DOS.O88's
+42,572-byte host image, which saves 1,099. **It is a DISK feature, taken on
+the owner's decision that the disk is what binds** - the 360KB geometry runs
+out first (24.6) - and the launch cost is stated here rather than
+discovered.
+
+##### 20.13.9.2 Who reads it
+
+`kernel/lzfilt.inc` is the inverse, ONE body for every reader of the stream
+format: `lz_decomp_x` (`kernel/lz.inc`), the hibernate stub's `kds_expand`
+(`kernel/hiber.inc`, which expands DOS.O88's core and kern_dos for a
+whole-machine run) and kern_dos's `kxl_dec` (`kerndos/kdxpack.inc`,
+kern_mega's low kern_dos). The two stubs take it for DOS.O88's parts 1-3, the
+three rows the report measured, so `--part-nofilter` is not needed for them.
+
+**In `lz_decomp_x` it runs after the arm has produced everything**, over
+`ES:0 .. DI`, which is what makes it safe in place: by then nothing reads the
+packed bytes any more. It needs no bound of its own - an output that crossed
+a segment is one the encoder never filters, and a hostile stream that set the
+escape anyway has its last segment's bytes rewritten, which is wrong bytes
+inside its own output and nothing outside it. The format byte in the frame
+carries the flag (`LZ_FILT`, a bit no caller can set: `AL` above `LZ_LZB` is
+refused at the door), so the dispatch tests the format as a BIT now.
+
+**Cost, measured**: `.cold` **+44 bytes** on kern_big (37,587 -> 37,631) and
+on kern_small (21,458 -> 21,502), resident, no rung crossed - 8 for the
+escape (`inc cx` twice rather than an `or`, which is a byte shorter and is
+what keeps `dsk_xfer`, `dsk_runcap` and `dsk_next_clus_x` at the parity
+`hotpar` measures), none for the dispatch (`test al` is `cmp al`'s length),
+36 for the inverse. kern_emu the same +44 (37,631). kern_mega **+47 of
+`.cold`, which it keeps ABOVE 1MB** - so 0 bytes of its conventional
+resident budget - the three extra being its `.esbad` arm pushing the
+entry's `jnz .early` out of short reach, which nasm relaxes to `jz` over a
+near `jmp`. HIBER.DRV, an on-demand module, grows 7,673 -> 7,722 for
+`kds_expand`'s copy, and kern_dos's HMA arm carries `kxl_dec`'s in its own
+image; neither is resident.
+
+##### 20.13.9.3 KERNEL.SYS is NOT filtered
+
+The boot blob's `kz_expand` is its own copy of the LZ4 arm and reads the
+classic block (20.13.7's exception), and the blob is full (kernel size pass
+16's record). The filter would take **1,401 bytes** off KERNEL.SYS's packed
+stream (74,168 -> 72,767, 3 sectors) and cost the boot **92,590 bytes of
+scan, ~320 ms** on a 4.77 MHz 8088 against ~75 ms of reading saved, plus a
+blob change and a new escape in a format with no T word. Refused on both
+counts; the kernel stream stays plain.
+
+##### 20.13.9.4 The format number does not move
+
+By 20.2.0.1's rule: every package, driver and module built before this runs
+on this kernel unchanged - none starts with the escape, because no encoder
+wrote one - and an older kernel handed a filtered one refuses it by the
+existing tail test, the correct outcome by the correct route. `PKG_FMT` and
+`DRV_VER` stay; the SDK's `OSAPI_DECOMP` comment names the escape, which
+moves the ABI lock's fingerprint and nothing else.
 
 ### 20.14 A COMPRESSED FILE — the kernel expands it on the way in
 
