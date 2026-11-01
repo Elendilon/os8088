@@ -472,9 +472,129 @@ mod_need:
     jc .freefail
     cmp ax, bp                  ; DX is 0 or the read would have refused
     jne .freefail
+    jmp short .check            ; the check is written in BELOW the answers
+                                ; and not here, where it would push every
+                                ; early refusal's `.fail` past a short jump
+.already:
+    clc
+    jmp short .out
+.badarm:
+    call mod_disarm             ; a half-armed block is the one state nothing
+                                ; downstream could survive - and it falls
+                                ; into the refusal every other check takes
+.freefail:
+    call mod_free_row           ; the claim goes back; nothing was armed
+.fail:
+%ifdef OS88_SHORTCUTS
+    mov byte [dskw_trunc], 0    ; a claim that failed never reached the read
+%endif                          ; that clears it, and every read after would cut
+    stc
+.back:                          ; ...and the SUCCESS path joins here, CF = 0:
+    call drv_vol_back           ; it keeps the flags (pushf .. popf), so one
+                                ; call answers both ways (kernel size pass 16)
+.out:
+    jmp kretc_es
 
-    call mod_check
-    jc .freefail
+.check:
+
+; -----------------------------------------------------------------------------
+; mod_check - validate a loaded image and arm its entry slots: WRITTEN IN HERE,
+; its one caller (kernel size pass 16, -9: the call, the CF answer and the test
+; of it, both rets; a refusal jumps to .freefail and a half-armed block
+; disarms on the way there, through .badarm)
+; in:  BX = the row with MODR_SEG live, BP = the bytes that arrived,
+;      DI = the module id mod_need was called with - which is checked against
+;      the header's own MOD_H_ID rather than derived back out of the row
+;      pointer, because mod_need already has it
+; out: mod_fp armed and on below; malformed - nothing armed - to .freefail
+; clobbers: AX, CX, DX, SI, DI, ES, flags
+;
+; ld_check_hdr's tests on a module, plus the one a package and a driver do not
+; need: **the build stamp**. A module carries no dispatcher, because the
+; kernel knows its entry offsets - it built them - and that is cheaper than
+; `call bp / retf` and also the hazard, since a module file from another
+; build would be far-called at offsets that have since moved. buildnum.py's
+; number changes on every commit (SPEC.md 14.2), so agreement here is by
+; construction and disagreement is refused rather than executed.
+; -----------------------------------------------------------------------------
+    mov es, [bx+MODR_SEG]       ; (BX is never written here - no bank,
+                                ; kernel size pass 15, -3)
+    mov ax, di                  ; the id mod_need was CALLED with - nine
+%ifdef OS88_SHORTCUTS
+    cmp al, MOD_SETS            ; ...whose image is CTRL.DRV's, cut short
+    jne .id
+    mov al, MOD_CTRL
+.id:
+%endif
+    mov [mod_hdrt + MOD_H_ID], al ; bytes of arithmetic recovered a number the
+    push di                     ; caller was holding. If DI were ever
+    mov si, mod_hdrt            ; clobbered on the way here the failure is a
+    xor di, di                  ; REFUSAL and not a wrong dispatch, which is
+    mov cx, 4                   ; the safe direction. The magic, the version,
+    cld                         ; the id, the BUILD and the layout STAMP
+    repe cmpsw                  ; (SPEC.md 2.8.2) in one compare against
+    pop di                      ; mod_hdrt; SI and CX are this routine's to
+    jne .freefail                    ; spend (the arming below reloads both)
+    mov ax, [es:MOD_H_IMG]
+    cmp ax, bp                  ; the image IS the file
+%ifdef OS88_SHORTCUTS
+    je .img
+    jb .freefail                     ; ...or, for the settings core alone, the
+    cmp di, MOD_SETS            ; file is LONGER than what was read
+    jne .freefail
+.img:
+%else
+    jne .freefail
+%endif
+
+    ; --- arm the slots. Every entry offset is checked against the image the
+    ; --- way ld_check_hdr checks a package's: inside the bytes that arrived,
+    ; --- and past the header, so a malformed table cannot aim a far call at
+    ; --- the header's own bytes or off the end of the claim.
+    call mod_fpr                ; DI = the block, CX = the KERNEL's count
+    cmp cx, [es:MOD_H_NENT]     ; ...which the header must equal exactly
+%ifdef OS88_SHORTCUTS
+    je .nent
+    ja .freefail                     ; ...or, for the settings core alone, be its
+    cmp di, SETFP               ; FIRST PART: CPE_SC is entry 0, so the one
+    jne .freefail                    ; slot arms from the header's first word
+.nent:
+%else
+    jne .freefail
+%endif
+    mov dx, cx
+    shl dx, 1
+    add dx, MOD_H_ENT           ; DX = the header's own end
+                                ; DI = &mod_fp[id], and BX is untouched - so
+                                ; the `pop bx / push bx` that used to put the
+                                ; row back goes with the id derivation
+    mov si, MOD_H_ENT           ; ...and CX is the count both sides agreed
+.arm:
+    es lodsw                    ; the entry table, one word a pass
+    cmp ax, dx
+    jb .badarm
+    cmp ax, bp
+    jae .badarm
+    mov [di], ax                ; offset...
+%ifdef KERN_MEGA
+    push ax                     ; kern_mega: the slot is a FAR CALL's, so it
+    mov ax, es                  ; holds the image's CODE half - its pair's
+    cmp byte [ss:mega_pm], 0    ; data selector less 8 (KERN-MEGA-MEMORY-PLAN
+    je .rmseg                   ; MC7.4) - safe to store rather than derive at
+    sub ax, 8                   ; every call, because a module image never
+.rmseg:                         ; moves (memory.inc pins MEM_K_MOD). In REAL
+                                ; MODE the segment, and mega_enter converts
+                                ; what the boot armed (mega_mods_fix)
+    mov [di+2], ax
+    pop ax
+%else
+    mov [di+2], es              ; ...and segment, which ES IS: it was loaded
+%endif
+                                ; from [bx+MODR_SEG] at the top of this
+                                ; routine and no segment register is written
+                                ; in between
+    add di, 4
+    loop .arm                   ; ...and the success path goes on below
 %ifdef KERN_MEGA
     call mod_hi                 ; ...and above 1MB, if it may go (13.5)
 %endif
@@ -491,6 +611,7 @@ mod_need:
     ; them). kern_small keeps the ROM's door below instead: it has no slide,
     ; and SPEC.md 39.27.4 spends nothing there
     call mod_cfix
+    clc                         ; (mod_cfix answers in no flag)
 %elifdef ROM_ADOPT
     ; A MODULE ON A ROM MACHINE (docs/plans/ROM-PLAN.md 3.4.4) far-calls
     ; `.cold` at COLD_RAM, the segment it was assembled against, and `.cold`
@@ -502,7 +623,9 @@ mod_need:
     ; nothing touched. ES and AX are dead here
     mov al, ROMF_FIX
     call far [rom_mfp]
-    jc .freefail
+    jc .freefail                ; ...and falls through with CF = 0
+%else
+    clc                         ; (mod_hi, kern_mega's, answers in no flag)
 %endif
 
     ; NO ZEROING HERE: a module's bss is zeros in its own file (kernel.asm's
@@ -511,23 +634,10 @@ mod_need:
     ; bytes of kern_small's `.cold` that zeroed from the image's end to the
     ; claim's KB-rounded one (docs/plans/MODULE-SELFCONTAIN-PLAN.md 3.5)
 
-    call drv_vol_back           ; preserves CF - and the success path FALLS
-                                ; INTO the answer below
-.already:
-.ok:
-    clc
-    jmp short .out
-.freefail:
-    call mod_free_row           ; the claim goes back; nothing was armed
-.fail:
-%ifdef OS88_SHORTCUTS
-    mov byte [dskw_trunc], 0    ; a claim that failed never reached the read
-%endif                          ; that clears it, and every read after would cut
-    call drv_vol_back           ; ...and this one no longer has to preserve
-    stc                         ; CF, which is weaker than what the old shape
-                                ; leaned on rather than stronger
-.out:
-    jmp kretc_es
+    jmp .back                   ; CF = 0: the volume back, and the success
+                                ; answer (short on every kernel but kern_mega,
+                                ; whose check carries the selector arm and
+                                ; mod_hi)
 
 ;
 %ifdef COLD_SLIDE
@@ -580,109 +690,6 @@ mod_cfix:
     ret
 %endif
 
-; -----------------------------------------------------------------------------
-; mod_check - validate a loaded image and arm its entry slots (module internal)
-; in:  BX = the row with MODR_SEG live, BP = the bytes that arrived,
-;      DI = the module id mod_need was called with - which is checked against
-;      the header's own MOD_H_ID rather than derived back out of the row
-;      pointer, because mod_need already has it
-; out: CF = 0 and mod_fp armed; CF = 1 malformed - and nothing armed
-; clobbers: AX, CX, DX, SI, DI, ES, flags
-;
-; ld_check_hdr's tests on a module, plus the one a package and a driver do not
-; need: **the build stamp**. A module carries no dispatcher, because the
-; kernel knows its entry offsets - it built them - and that is cheaper than
-; `call bp / retf` and also the hazard, since a module file from another
-; build would be far-called at offsets that have since moved. buildnum.py's
-; number changes on every commit (SPEC.md 14.2), so agreement here is by
-; construction and disagreement is refused rather than executed.
-; -----------------------------------------------------------------------------
-mod_check:                      ; (BX is never written here - no bank,
-    mov es, [bx+MODR_SEG]       ; kernel size pass 15, -3)
-    mov ax, di                  ; the id mod_need was CALLED with - nine
-%ifdef OS88_SHORTCUTS
-    cmp al, MOD_SETS            ; ...whose image is CTRL.DRV's, cut short
-    jne .id
-    mov al, MOD_CTRL
-.id:
-%endif
-    mov [mod_hdrt + MOD_H_ID], al ; bytes of arithmetic recovered a number the
-    push di                     ; caller was holding. If DI were ever
-    mov si, mod_hdrt            ; clobbered on the way here the failure is a
-    xor di, di                  ; REFUSAL and not a wrong dispatch, which is
-    mov cx, 4                   ; the safe direction. The magic, the version,
-    cld                         ; the id, the BUILD and the layout STAMP
-    repe cmpsw                  ; (SPEC.md 2.8.2) in one compare against
-    pop di                      ; mod_hdrt; SI and CX are this routine's to
-    jne .bad                    ; spend (the arming below reloads both)
-    mov ax, [es:MOD_H_IMG]
-    cmp ax, bp                  ; the image IS the file
-%ifdef OS88_SHORTCUTS
-    je .img
-    jb .bad                     ; ...or, for the settings core alone, the
-    cmp di, MOD_SETS            ; file is LONGER than what was read
-    jne .bad
-.img:
-%else
-    jne .bad
-%endif
-
-    ; --- arm the slots. Every entry offset is checked against the image the
-    ; --- way ld_check_hdr checks a package's: inside the bytes that arrived,
-    ; --- and past the header, so a malformed table cannot aim a far call at
-    ; --- the header's own bytes or off the end of the claim.
-    call mod_fpr                ; DI = the block, CX = the KERNEL's count
-    cmp cx, [es:MOD_H_NENT]     ; ...which the header must equal exactly
-%ifdef OS88_SHORTCUTS
-    je .nent
-    ja .bad                     ; ...or, for the settings core alone, be its
-    cmp di, SETFP               ; FIRST PART: CPE_SC is entry 0, so the one
-    jne .bad                    ; slot arms from the header's first word
-.nent:
-%else
-    jne .bad
-%endif
-    mov dx, cx
-    shl dx, 1
-    add dx, MOD_H_ENT           ; DX = the header's own end
-                                ; DI = &mod_fp[id], and BX is untouched - so
-                                ; the `pop bx / push bx` that used to put the
-                                ; row back goes with the id derivation
-    mov si, MOD_H_ENT           ; ...and CX is the count both sides agreed
-.arm:
-    es lodsw                    ; the entry table, one word a pass
-    cmp ax, dx
-    jb .badarm
-    cmp ax, bp
-    jae .badarm
-    mov [di], ax                ; offset...
-%ifdef KERN_MEGA
-    push ax                     ; kern_mega: the slot is a FAR CALL's, so it
-    mov ax, es                  ; holds the image's CODE half - its pair's
-    cmp byte [ss:mega_pm], 0    ; data selector less 8 (KERN-MEGA-MEMORY-PLAN
-    je .rmseg                   ; MC7.4) - safe to store rather than derive at
-    sub ax, 8                   ; every call, because a module image never
-.rmseg:                         ; moves (memory.inc pins MEM_K_MOD). In REAL
-                                ; MODE the segment, and mega_enter converts
-                                ; what the boot armed (mega_mods_fix)
-    mov [di+2], ax
-    pop ax
-%else
-    mov [di+2], es              ; ...and segment, which ES IS: it was loaded
-%endif
-                                ; from [bx+MODR_SEG] at the top of this
-                                ; routine and no segment register is written
-                                ; in between
-    add di, 4
-    loop .arm
-    clc
-    ret
-.badarm:
-    call mod_disarm             ; a half-armed block is the one state nothing
-.bad:                           ; downstream could survive - and it falls
-                                ; into the refusal every other check takes
-    stc
-    ret
 
 %ifdef KERN_MEGA
 ; -----------------------------------------------------------------------------

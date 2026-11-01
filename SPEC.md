@@ -78042,12 +78042,14 @@ until the flag was put back. A VGA BIOS keeps its own state and is not talked
 out of itself by a flag. So on this pairing the only way to program the mono
 card is **to program the mono card**.
 
-`vid_mono_text` is that, and its contract is a refusal as much as an action:
+`vid_text`'s mono arm (`.mono`) is that, and its contract is a refusal as
+much as an action. It was a routine of its own, `vid_mono_text`, answering in
+CF, until kernel size pass 16 wrote it into its one caller:
 
 | machine | answer |
 |---|---|
-| a VGA in it (`[vid_avail]` bit `VID_A_VGA`) | programs the 6845 from `vid_6845t`, clears B0000 to `0x0720`, 3B8h ← `0x29`, **CF = 1: do not call int 10h at all** |
-| anything else — lone MDA, lone Hercules, Hercules+CGA | **CF = 0**, having touched nothing: the ROM's mode 7 *is* this card |
+| a VGA in it (`[vid_avail]` bit `VID_A_VGA`) | programs the 6845 from `vid_6845t`, clears B0000 to `0x0720`, 3B8h ← `0x29`, **and does not call int 10h at all** |
+| anything else — lone MDA, lone Hercules, Hercules+CGA | **the ROM's mode 7**, having touched nothing: it *is* this card |
 
 Four things are load-bearing.
 

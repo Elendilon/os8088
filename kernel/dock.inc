@@ -637,8 +637,8 @@ db_paint:
                                 ; it skips up to eleven passes of this body on
                                 ; the commonest damage shape (SPEC.md 30.3.1's
                                 ; own example, a window closing in one corner)
-    mov word [di], 0
-.znext:
+    and word [di], 0            ; (`and`: a byte under `mov`, and the add
+.znext:                         ; below writes the flags - kernel size pass 16)
     add ax, DOCK_STEP
     inc di
     inc di
@@ -652,10 +652,10 @@ db_paint:
                                 ; iteration. BX costs no new push (db_paint
                                 ; already banks it) and every callee in this
                                 ; loop preserves it - db_key touches only AX,
-                                ; and db_px_tile, db_xor_ring,
-                                ; db_xor_body, db_erase_tile and
-                                ; db_draw_tile all `push bx` and leave
-                                ; through kret_dx / kret_si
+                                ; db_erase_tile and db_draw_tile `push bx`
+                                ; and leave through kret_dx / kret_si, and
+                                ; the three bodies written in below (the span,
+                                ; the ring, the body) bank it themselves
     xor cx, cx                  ; CX = instance index
 .tile:
     call db_key               ; AX = what this tile should look like, or 0
@@ -664,10 +664,16 @@ db_paint:
     je .next                    ; already drawn that way
     mov [bx], ax
     inc byte [dock_drew]        ; ...and cannot wrap - see `.full`
-    call db_px_tile           ; ...and this tile's columns join the painted
-                                ; span, wherever it stands - a tile outside the
-                                ; forced span still puts pixels down, so the
-                                ; span is the UNION of the two (SPEC.md 30.3.3)
+    push ax                     ; db_px_tile, written in (kernel size pass 16,
+    push bx                     ; -2): this tile's columns join the painted
+    push cx                     ; span, wherever it stands - a tile outside the
+    push dx                     ; forced span still puts pixels down, so the
+    call db_tile_rect           ; span is the UNION of the two (SPEC.md
+    call db_px_add              ; 30.3.3). All four banked: db_tile_rect eats
+    pop dx                      ; BX and DX, and DX carries the OLD key across
+    pop cx                      ; the `xor dx, ax` below; CX is the index, AX
+    pop bx                      ; the key, and db_px_add reads AX and CX only
+    pop ax
 
     xor ax, dx                  ; AX = what MOVED (SPEC.md 30.3), DX = the key
                                 ; it WAS. The diff lives in the ACCUMULATOR
@@ -683,11 +689,27 @@ db_paint:
 
     test al, DOCK_K_ACT         ; --- only the marks moved: the ICON IS NOT
     jz .mini                    ; TOUCHED, and neither is the frame or the
-    call db_xor_ring          ; white around them. Both marks are their own
-.mini:                          ; inverse, so putting one on and taking it off
-    test al, DOCK_K_MINI        ; are the same operation - which is the whole
-    jz .next                    ; reason the erase existed
-    call db_xor_body
+                                ; white around them. Both marks are their own
+                                ; inverse, so putting one on and taking it off
+                                ; are the same operation - which is the whole
+                                ; reason the erase existed.
+    push ax                     ; THE RING (db_xor_ring until kernel size pass
+    push bx                     ; 16, written in with the body below: -9): the
+    push cx                     ; active mark, the inner frame. AX, BX and CX
+    call db_mark_rect           ; banked - the diff is tested again at .mini -
+    call gfx_xor_rect           ; and DX not: the old key is dead on this path
+    pop cx
+    pop bx
+    pop ax
+.mini:
+    test al, DOCK_K_MINI
+    jz .next
+    push bx                     ; THE BODY: the minimized mark, the whole
+    push cx                     ; interior. AX and DX are dead from here to
+    call db_mark_rect           ; .tile's reload
+    call gfx_xor_fill
+    pop cx
+    pop bx
     jmp short .next
 
 .rebuild:
@@ -723,7 +745,7 @@ db_paint:
 
 ; -----------------------------------------------------------------------------
 ; db_px_add  - grow the painted span to cover x AX..CX as well (inclusive)
-; db_px_tile - ...and to cover tile CX's own columns
+; (db_px_tile, its tile's columns, is written into db_paint's one call site)
 ; out: nothing; every register preserved (db_px_add spends flags, which no
 ;      caller of it needs)
 ;
@@ -750,17 +772,6 @@ db_px_add:
 .out:
     ret
 
-db_px_tile:
-    push ax
-    push bx                     ; db_tile_rect eats BX and DX where
-    push cx                     ; db_tile_x ate only BX - and DX IS LIVE in
-    push dx                     ; db_paint's tile loop (it carries the old
-                                ; key across the `xor dx, ax`), so this push
-                                ; is not tidiness. CX is the instance index
-                                ; and AX a key.
-    call db_tile_rect         ; AX = its left edge, CX its right
-    call db_px_add            ; (which reads AX and CX only)
-    jmp kret_dx
 
 ; -----------------------------------------------------------------------------
 ; db_px_hit - does this rect overlap the strip db_paint just painted?
@@ -976,6 +987,8 @@ db_erase_tile:
 ; -----------------------------------------------------------------------------
 ; db_xor_ring - toggle tile CX's ACTIVE mark   (the inner frame)
 ; db_xor_body - toggle tile CX's MINIMIZED mark (the whole interior)
+; BOTH WRITTEN INTO db_paint's tile loop, their one caller each (kernel size
+; pass 16); what follows is why the two XORs are sound.
 ; in:  CX = instance index; gfx lock held by the caller
 ; out: nothing (all registers preserved)
 ;
@@ -988,24 +1001,6 @@ db_erase_tile:
 ; black under an inverted interior. XOR is right in both cases, which is why
 ; the minimized state needs no branch here.
 ; -----------------------------------------------------------------------------
-db_xor_ring:
-    push ax
-    push bx
-    push cx
-    push dx
-    call db_mark_rect
-    call gfx_xor_rect
-    jmp short db_xor_pop
-
-db_xor_body:
-    push ax
-    push bx
-    push cx
-    push dx
-    call db_mark_rect
-    call gfx_xor_fill
-db_xor_pop:                   ; ONE epilogue: the two routines differ in a
-    jmp kret_dx
 
 ; db_mark_rect - the tile interior both marks live in
 ; in:  CX = instance index
@@ -1128,16 +1123,16 @@ db_hit:
 %endif
     xor di, di                  ; empty or dying: no tile here
 .in:
+%ifdef DOCK_OPT
+    SKIPF1                      ; CF = 0 over .miss's stc - test al, imm8 reads
+.miss:                          ; AL and writes no register - and both into the
+    stc                         ; ONE exit (kernel size pass 16, -2)
+%else
     clc                         ; ...and falls into the exit the miss jumps to
+%endif
 .out:
     pop bx
     ret
-%ifdef DOCK_OPT
-.miss:
-    stc
-    pop bx
-    ret
-%endif
 
 ; -----------------------------------------------------------------------------
 ; db_click - hit-test a click against the strip (SPEC.md 30)
@@ -1210,12 +1205,12 @@ db_click:
 
 .consumed:                      ; --- THE SHARED TAIL. db_rclick jumps in
     stc                         ; HERE and at `.miss`, and both push
-    jmp .out                    ; ax,bx,cx,dx,di in that order - which is now
+    SKIPAL1                     ; ax,bx,cx,dx,di in that order - which is now
 .miss:                          ; this label's CONTRACT, enforced by nothing
-    clc                         ; but the comment at both ends. `jmp`, never
-.out:                           ; `jmp short`: a body that outgrows the rel8
-    pop di                      ; range then costs a byte instead of an error
-    jmp kret_dx
+    clc                         ; but the comment at both ends. SKIPAL1 is
+.out:                           ; mov al, imm8 over the clc - CF stays 1, and
+    pop di                      ; AL is kret_dx's to put back (kernel size
+    jmp kret_dx                 ; pass 16, -1 against a jump)
 
 ; -----------------------------------------------------------------------------
 ; db_rclick - right-press on the strip: a tile's context menu (SPEC.md 30.2)
