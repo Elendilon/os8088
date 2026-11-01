@@ -26371,9 +26371,9 @@ reason the `.close_box` branch of §13's ladder can take the lock itself.
 Three things about it are load-bearing.
 
 **The cell no longer depends on the About handler.** It used to exist only
-when `wm_about_get` answered non-zero, so most applications had a bare label
+when the window's About handler (`W_ABOUT`) was non-zero, so most applications had a bare label
 where the name is and no way at all to quit from the bar. Now `[menu_win]`
-being non-zero is the whole condition, and `wm_about_get` decides only
+being non-zero is the whole condition, and `W_ABOUT` decides only
 whether the cell has one item or two. `menu_abstr` — `'About '` + the name —
 is therefore built on **every** relayout rather than only in the About case,
 because the cell's *title* is `menu_abstr + MENU_ABPFX_LEN`, the same bytes

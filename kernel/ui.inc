@@ -1735,8 +1735,13 @@ ui_drag:
     cmc                         ; EXTD.DRV answers CF = 1 NOT moved, so
                                 ; mod_gone - no image, one display - reads as
                                 ; "not moved" here (SPEC.md 39.19.6)
-    pushf                       ; - CF = 1 if the size moved, which the drag
-                                ; cache may not survive.
+                                ; - CF = 1 if the size moved, which the drag
+                                ; cache may not survive. Read by the `jc`
+                                ; below and by nothing after it, so it is not
+                                ; banked across the cache (kernel size pass
+                                ; 16: the pushf/popf pair round it was dead,
+                                ; -2 - everything from the bank down sets its
+                                ; own flags before it reads one).
                                 ;
                                 ; KERN_BIG ONLY, and that is not a saving so
                                 ; much as an observation: nothing in a drag can
@@ -1777,14 +1782,16 @@ ui_drag:
                                 ; the pixels this is saving
 .nocache:
 %endif
-%ifdef KERN_BIG
-    popf
-%endif
 
                                 ; A DRAG IS ALLOWED TO CROSS THE SEAM (SPEC.md
 %ifdef KERN_BIG                 ; 39.16.1) and ui_drag_size above is what it
-    call wm_nat_bank_xy         ; costs when it does - ONE call now, where this
-%else                           ; site used to run a second clamp of its own
+    mov ax, [bx + W_X]          ; costs when it does - ONE bank now, where this
+    mov [bx + W_NATR + NR_X], ax    ; site used to run a second clamp of its
+    mov ax, [bx + W_Y]          ; own. It was wm_nat_bank_xy, this site's
+    mov [bx + W_NATR + NR_Y], ax    ; alone: the POSITION copied and the size
+                                ; left as banked, with AX and the flags dead
+                                ; here (kernel size pass 16, -7)
+%else
     call wm_nat_bank            ; (docs/plans/completed/WINDOW-SIZING-PLAN.md 12.1: three
 %endif                          ; mechanisms shared this job and each had its
                                 ; own defect).
@@ -2438,15 +2445,15 @@ ui_dispatch:
 .handler:
     mov si, bx                  ; the handler's contract: AL = item,
                                 ; AH = menu, SI = window, BX = the set
-    or dl, dl                   ; the name cell dispatches the About handler
-    jz .oncmd                   ; wm_about_set registered, not AM_ONCMD -
-    call wm_about_get           ; BX = [menu_win] still, which is the window
-    xchg cx, ax                 ; it wants (gfx_lock preserves it); AX = the
-    mov bx, [menu_set]          ; handler's offset in the owner's seg, and AX
-    jmp short .cbok             ; is reloaded below. BX may be 0 here (no menu
-                                ; set), so the set is never read on this arm
+    mov cx, [bx + W_ABOUT]      ; the About handler wm_about_set registered,
+    mov bx, [menu_set]          ; read off [menu_win] (gfx_lock preserves BX)
+    or dl, dl                   ; ahead of the test, which only decides
+    jnz .cbok                   ; whether the name cell's is the one called -
+                                ; not AM_ONCMD. It was wm_about_get, a
+                                ; one-instruction routine (kernel size pass
+                                ; 16, -7 here). BX may be 0 here (no menu
+                                ; set), so the set is never read on that arm
 .oncmd:
-    mov bx, [menu_set]
     push es                     ; the set is the OWNER's data (SPEC.md 12.2),
     mov di, si                  ; so AM_ONCMD is read through its segment -
     call wm_strseg              ; ES = the window's string/data segment. Only

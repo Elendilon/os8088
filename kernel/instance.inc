@@ -1533,9 +1533,11 @@ app_launch:
     mov [ds:bp+I_ICON], ax
     push si
     mov si, [si+KD_NAME]
-    mov di, bp
-    push ds                     ; the kernel's own strings: this was
-    pop es                      ; inst_set_name, ES = DS around the ES-taking
+    mov di, bp                  ; ES = DS already: .tpl set it for the
+                                ; template copy and wm_create preserves it
+                                ; (kernel size pass 16, -2). The kernel's own
+                                ; strings: this was inst_set_name, ES = DS
+                                ; around the ES-taking
     call inst_set_name_x        ; body, and app_launch was its one caller.
     pop si                      ; ES is app_launch's to restore (kret_es), and
                                 ; the body preserves DI, so it is still BP
@@ -1605,9 +1607,12 @@ app_close_win:
     jc .hide
     cmp byte [di+I_STATE], 1
     jne .hide                   ; already dying: re-hide, idempotent
+    mov byte [di+I_STATE], 2    ; dying: lock-held readers skip it from here -
+                                ; and for a TASKED instance it is the die flag
+                                ; (SPEC.md 14/29), set ahead of the test so
+                                ; both arms share it (kernel size pass 16, -4)
     cmp byte [di+I_TASK], 0xFF
-    jne .tasked
-    mov byte [di+I_STATE], 2    ; dying: lock-held readers skip it from here
+    jne .hide
     call toast_owner_gone       ; ITS OLD MESSAGE GOES FIRST, before anything
                                 ; below can raise a NEW one (SPEC.md 59.6).
                                 ; cp_flush_close writes SYSTEM.CFG and says
@@ -1666,8 +1671,6 @@ app_close_win:
 %endif                          ; widget (SPEC.md 11.103.10)
     mov byte [di+I_STATE], 0    ; record (and any package region) free
     jmp .out
-.tasked:
-    mov byte [di+I_STATE], 2    ; the die flag (SPEC.md 14/29)
 .hide:
     call wm_hide                ; instant visual feedback + repaint
 .refused:

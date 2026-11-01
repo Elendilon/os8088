@@ -659,7 +659,7 @@ menu_relayout:
 ; does and still clears the first menu by MENU_NAME_PAD - 6.
 ;
 ; **The cell no longer depends on the About handler.** It used to exist only
-; when wm_about_get answered non-zero, so most applications had a bare label
+; when the window's W_ABOUT was non-zero, so most applications had a bare label
 ; where their name is and no way at all to quit from the bar. Now the whole
 ; condition is that an application owns the bar, and the handler decides only
 ; whether the cell has one item or two: 'About <Name>' if there is one, and
@@ -682,7 +682,7 @@ menu_relayout:
 menu_ab_cell:
     call kent_di                ; (kernel size pass 15: kent_di and ES, popped
     push es                     ; ahead of kret_di)
-    xor ax, ax                  ; AX is wm_about_get's to fill below
+    xor ax, ax                  ; AX is W_ABOUT's to fill below
     mov [menu_abcell], ax
     mov bx, [menu_win]
     or bx, bx
@@ -700,9 +700,11 @@ menu_ab_cell:
     mov byte [di], 0
     pop di
                                 ; --- the items: About if it is offered, then
-    call wm_about_get           ; Close, which every application gets (12.7):
+    mov ax, [bx + W_ABOUT]      ; Close, which every application gets (12.7):
                                 ; BX is still [menu_win] - neither copy, menu_es
-                                ; nor KES touches it (kernel size pass 15)
+                                ; nor KES touches it (kernel size pass 15). The
+                                ; About handler's offset, 0 = none: this was
+                                ; wm_about_get (kernel size pass 16)
     xor bx, bx                  ; BX = Close's index
     or ax, ax
     jz .noab
@@ -1203,15 +1205,15 @@ menu_bt_raw:
     dec si
     mov dx, si
     add al, al                  ; SPEC.md 76.3: the STRIP, SAID rather than
-    jnc .pnorm                  ; inferred - AL is 0 or 80h, so CF = 1 is the
+                                ; inferred - AL is 0 or 80h, so CF = 1 is the
                                 ; inverted piece, and it rides in CF into
                                 ; menu_bemit: thm_rpair and thm_pair are a
                                 ; `mov` and an `xchg`, which write no flag
     call thm_rpair              ; INVERSE VIDEO, the one distinction that
-    jmp short .pgo              ; survives SPEC.md 39.4's reduction intact
-.pnorm:
-    call thm_pair
-.pgo:
+    jc .pgo                     ; survives SPEC.md 39.4's reduction intact -
+    xchg al, ah                 ; and thm_pair IS thm_rpair swapped, so the
+.pgo:                           ; normal piece is one xchg on it (kernel
+                                ; size pass 16, -3)
     call menu_bemit
     pop bx
     pop dx
@@ -1552,8 +1554,7 @@ menu_track:
     call menu_setup             ; the height clamp a bar menu never had: a
     xchg ax, cx                 ; package's set is not trusted for count any
                                 ; more than for width (SPEC.md 12.2/2.2)
-    call menu_widest            ; AX = widest item text, px (BX/CX in)
-    add ax, 16
+    call menu_widest            ; AX = the menu's width, px (BX/CX in)
     mov bx, [ss:si + MB_XL]        ; the pull-down hangs off the title's left
     mov dx, MBAR_H              ; it always hangs from the bar
     mov cl, 1                   ; the LEFT button keeps a bar menu open
@@ -1610,8 +1611,8 @@ menu_popup:
     ; --- width, and the left shift off the right edge ------------------------
     push cx                     ; the anchor: menu_widest wants CX = count
     mov cx, ax
-    call menu_widest            ; AX = widest item text, px (BX = the array)
-    add ax, 16                  ; AX = menu width, and stays there
+    call menu_widest            ; AX = the menu's width, px (BX = the
+                                ; array), and stays there
     pop cx                      ; CX = anchor x again
 
     mov bx, cx                  ; BX = candidate x1
@@ -1857,13 +1858,17 @@ menu_drop:
 .noclaim:
 
     ; --- save the pixels under the menu to the claimed buffer -----------------
-    mov ax, [menu_sseg]
-    or ax, ax
+    call rect_get               ; the rect -> AX..DX, four adjacent words -
+    dw menu_x1                  ; ONCE for the save, the fill and the frame
+                                ; (kernel size pass 16, -9): gfx_save, thm_bg,
+                                ; gfx_fill and thm_ink all preserve AX..DX,
+                                ; so the buffer test and the dock's latch
+                                ; below go through SI instead
+    mov si, [menu_sseg]
+    or si, si
     jz .nosave                  ; no buffer: the restore repaints instead
-    mov es, ax
+    mov es, si
     xor di, di
-    call rect_get               ; the rect -> AX..DX, four adjacent words
-    dw menu_x1
     call gfx_save
 .nosave:
 
@@ -1873,22 +1878,18 @@ menu_drop:
     ; menu is down and back at the release, before the restore - so a menu
     ; dropped over the open strip draws whole, and the refused-save repaint
     ; below goes round the strip again like everything else.
-    xor ax, ax                  ; AX is free: everything below reloads it
-    xchg ax, [gfx_hole]
-    push ax
-    xor ax, ax
-    xchg ax, [wm_clip_n]
-    push ax
+    xor si, si                  ; SI and not AX: AX..DX hold the rect
+    xchg si, [gfx_hole]
+    push si
+    xor si, si
+    xchg si, [wm_clip_n]
+    push si
 
 %endif
     ; --- draw the menu: the chrome's ground, its frame, items 8px in ---------
-    call thm_bg
-    call rect_get               ; the rect -> AX..DX, four adjacent words
-    dw menu_x1
+    call thm_bg                 ; AX..DX are still the rect (above)
     call gfx_fill
     call thm_ink
-    call rect_get               ; the rect -> AX..DX, four adjacent words
-    dw menu_x1
     call gfx_frame
 
     mov bx, [menu_iptr]
@@ -1996,13 +1997,13 @@ menu_drop:
     mov byte [menu_dropd], 0    ; the arrows are a pointer again (SPEC 9.6.3).
                                 ; The poll loop above has exactly this one way
                                 ; out, so no path can leave the flag standing
-    mov ax, [menu_sseg]         ; restore erases the menu and any highlight
-    or ax, ax
+    call rect_get               ; the rect -> AX..DX, for the restore and the
+    dw menu_x1                  ; repaint alike (kernel size pass 16, -4)
+    mov si, [menu_sseg]         ; restore erases the menu and any highlight
+    or si, si
     jz .repaint
-    mov es, ax
+    mov es, si
     xor si, si
-    call rect_get               ; the rect -> AX..DX, four adjacent words
-    dw menu_x1
     call gfx_restore
     jmp short .sel
 .repaint:                       ; no buffer: put back what the MENU covered,
@@ -2030,8 +2031,8 @@ menu_drop:
                                 ; is refused every time, so this WAS the
                                 ; normal path there and every menu after the
                                 ; first left its title inverted.
-    call rect_get               ; which is the rect it drew and nothing else -
-    dw menu_x1                  ; gfx_save captures exactly this, there is no
+                                ; AX..DX: the rect it drew and nothing else -
+                                ; gfx_save captures exactly this, there is no
                                 ; shadow outside it, and everything beyond it
                                 ; is still correct on screen (SPEC.md 11.91)
     call wm_paint_dmg
@@ -2237,12 +2238,13 @@ menu_hover:
     cmp ax, [menu_cnt]
     jae .none                   ; below the last cell (or on the frame)
     call menu_item_dis          ; a disabled item is not hoverable, which is
-    jc .none                    ; also what makes it unselectable: the whole
-    pop cx                      ; of the feature is this one call plus the
-    ret                         ; grey in menu_drop
+    jnc .out                    ; also what makes it unselectable: the whole
+                                ; of the feature is this one call plus the
+                                ; grey in menu_drop
 .none:
     mov ax, 0xFFFF
-    pop cx
+.out:                           ; ONE pop and return for both answers
+    pop cx                      ; (kernel size pass 16, -2)
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2359,7 +2361,8 @@ menu_trunc:
 ; -----------------------------------------------------------------------------
 ; menu_widest - widest item text in a menu, in pixels
 ; in:  BX = array of near pointers to NUL item strings, CX = item count
-; out: AX = max font_width over them (0 when CX = 0)
+; out: AX = the MENU's width: max font_width over them (0 when CX = 0) plus
+;      16 for the frame and padding, at most MENU_MAXW
 ; clobbers: nothing else
 ;
 ; Parameterized by the array rather than by a bar cell (which is what it took
@@ -2391,11 +2394,13 @@ menu_widest:
     loop .next
 .done:
     pop es
-    cmp dx, MENU_MAXW - 16      ; the clamp both callers need (above): the
-    jbe .clamped                ; save-under's width factor, bounded here
-    mov dx, MENU_MAXW - 16      ; once instead of at two call sites
-.clamped:
-    mov ax, dx
+    xchg ax, dx                 ; the answer into AX FIRST and clamped there
+    add ax, 16                  ; (kernel size pass 16: DX is popped below),
+    cmp ax, MENU_MAXW           ; and the 16px of frame and padding both
+    jbe .clamped                ; callers added are added HERE, -5 in all.
+    mov ax, MENU_MAXW           ; The clamp both callers need (above): the
+.clamped:                       ; save-under's width factor, bounded here
+                                ; once instead of at two call sites
     pop si
     pop dx
     pop cx

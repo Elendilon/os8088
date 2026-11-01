@@ -1116,15 +1116,6 @@ NR_SIZE equ 8
 ; that reads it (ui_drag's "did it move", wm_create's CF), and a bank is
 ; bookkeeping that no caller should have to make room for.
 ; -----------------------------------------------------------------------------
-%ifdef KERN_BIG
-wm_nat_bank_xy:                 ; SPEC.md 11.100.3 - see its header below: the
-    push word [bx+W_NATR+NR_H]  ; POSITION only - the whole bank is taken and
-    push word [bx+W_NATR+NR_W]  ; the SIZE put back as it was. Push, pop and
-    call wm_nat_bank            ; the bank write no flags
-    pop word [bx+W_NATR+NR_W]
-    pop word [bx+W_NATR+NR_H]
-    ret
-%endif
 wm_nat_bank:
     push di
     lea di, [bx+W_NATR]
@@ -1143,7 +1134,7 @@ wm_nat_bank:
 ; and 39.16.3's hole rule - are clamps: banking their output would make the
 ; clamp its own source, which is the one thing the bank exists to stop.
 ; -----------------------------------------------------------------------------
-; (wm_nat_bank_xy is an entry to wm_nat_bank now, above)
+; (wm_nat_bank_xy is written at its one call, in ui_drag - kernel size pass 16)
 
 ; -----------------------------------------------------------------------------
 ; wm_nat_take_wh - put the banked SIZE back, leaving the position where it is
@@ -5730,16 +5721,9 @@ wm_about_set:
     jmp menu_win_set.mine       ; the active application's bar changed: the
                                 ; same relayout and popf (kernel size pass 14)
 
-; -----------------------------------------------------------------------------
-; wm_about_get - a window's About handler offset, 0 = none (module internal
-;                to the bar: menu_relayout and ui_dispatch)
-; in:  BX = window ptr
-; out: AX = the offset wm_about_set registered, 0 = none
-; clobbers: flags only
-; -----------------------------------------------------------------------------
-wm_about_get:
-    mov ax, [bx+W_ABOUT]
-    ret
+; (wm_about_get, the one-instruction read of [bx+W_ABOUT], is gone: its two
+; callers, menu_ab_cell and ui_dispatch, read the word themselves - kernel
+; size pass 16, -4 and a call a read)
 
 ; -----------------------------------------------------------------------------
 ; wm_geom - a window's CONTENT size, and whether it is on screen (public;
