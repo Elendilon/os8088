@@ -8,8 +8,9 @@
 ; line every half second, alternately through INT 21h AH=09h and through the
 ; video BIOS's teletype (int 10h AH=0Eh), so both output paths reach the
 ; window, and counts them in the word at PSP:0103h, which the row reads
-; rather than the band (a band scrolls). Then it asks for a key through INT 21h AH=08h and exits with that
-; key as its exit code, which is how the row tells its keystroke arrived.
+; rather than the band (a band scrolls). Then it asks for a key through INT 21h AH=08h, prints what it got and
+; asks AGAIN, and exits with the second key as its exit code - which is how
+; the row tells its keystrokes arrived.
 ;
 ; It runs under a real IBM DOS 3.30 unchanged.
 ; =============================================================================
@@ -67,6 +68,12 @@ start:
     int 0x21
     mov ah, 0x08
     int 0x21
+    mov [s_got + 11], al            ; ...say what came, and ASK AGAIN: the
+    mov dx, s_got                   ; report this answers was a question that
+    mov ah, 0x09                    ; reached the glass only after a drag,
+    int 0x21                        ; printed by a program then waiting on
+    mov ah, 0x08                    ; its next key
+    int 0x21
     mov ah, 0x4C
     int 0x21
 
@@ -75,3 +82,4 @@ s_tick:  db 'DWTICK DOS '
 n:       db '0', 13, 10, '$'
 s_btick: db 'DWTICK BIOS', 13, 10, 0
 s_key:   db 'DWTICK PRESS A KEY', 13, 10, '$'
+s_got:   db 'DWTICK GOT ?', 13, 10, 'DWTICK AGAIN', 13, 10, '$'

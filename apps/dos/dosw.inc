@@ -233,7 +233,15 @@ dvw_nap:
     push ds
     push cs
     pop ds
-    sti
+    cmp byte [dvw_dirty], 0         ; **AND THE PAINT IS POSTED HERE TOO**:
+    je .clean                       ; dvw_irq0 posts it only when a tick lands
+    mov byte [dvw_dirty], 0         ; on the program, and a program that
+    push bx                         ; prints its question and then waits for
+    mov bx, [dos_win]               ; the answer spends every tick asleep in
+    call OSAPI_WM_WAKE              ; here - so its question reached the band
+    pop bx                          ; only when something else repainted the
+.clean:                             ; window (reported off Prince of Persia's
+    sti                             ; installer: "it updates after a drag")
     cmp word [dvw_narg], 0      ; read back through our own cell: the
     je .yield                   ; argument is on the other stack now
     mov ax, [dvw_narg]
@@ -257,10 +265,10 @@ dvw_nap:
 
 dvw_nap0:                       ; the two shapes every caller wants
     mov word [cs:dvw_narg], 0
-    jmp short dvw_nap
+    jmp dvw_nap
 dvw_nap1:
     mov word [cs:dvw_narg], 1
-    jmp short dvw_nap
+    jmp dvw_nap
 
 ; -----------------------------------------------------------------------------
 ; dvw_post - a door, run by the UI task (SPEC.md 20.6 rule 7)

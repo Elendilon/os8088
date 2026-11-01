@@ -188011,6 +188011,14 @@ YIELD, and that was measured wrong: with nothing else ready a yield returns
 at once, so a program waiting for a key spent its whole slice exchanging its
 world in and out — every sample of the CPU landed in `dvw_walk`.
 
+**The band's paint is posted from both places the instance leaves the CPU**
+— `dvw_irq0` and `dvw_nap`. It was the stub's alone, and a program that
+prints its question and then waits for the answer spends every tick asleep
+in `dvw_nap`, so the question reached the glass only when something else
+repainted the window: reported off Prince of Persia's installer (*"after the
+first input it only updates after dragging the DOS window"*), and
+`doswlive`'s leg 4 is that case, red without the post.
+
 **Closing the window stops the program, and the close is REFUSED to do it**
 (§75.1's own pattern). `dvw_onclose` sets a kill byte and answers CF=1. A
 tick in program code rewrites the interrupted `CS:IP` to

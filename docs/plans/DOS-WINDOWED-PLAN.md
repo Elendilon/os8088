@@ -649,6 +649,18 @@ under-counted.
 - **The kill could not reach a program waiting for a key**: INT 21h's own key
   read polls the virtual 16h from the GATE's stack, where `dvw_irq0` never
   sees a foreign `SS`. The poll hears the kill itself now.
+- **THE OWNER'S FIRST FIELD REPORT, off Prince of Persia's installer**:
+  *"after the first input it only updates after dragging the DOS window"*.
+  The paint was posted only by `dvw_irq0`, which runs only when a tick lands
+  on the program - and a program that prints its question and then waits
+  for the answer spends every tick asleep in `dvw_nap`. `dvw_nap` posts it
+  too now. `doswlive`'s probe asks a second question for exactly this, and
+  leg 4 reads `con_drb` - what a paint spends - while it waits: `0000c001`,
+  rows still owed, without the post.
+- **`kdarena` failed in the wave's soak and is PRE-EXISTING**:
+  `os88bisect classify` reads 3/3 failed at `b1e4085` on the same leg (the
+  program given 580 KB where the machine has room for 581). Every other
+  `dos*`/`kd*` row, 80 of 81, passed.
 - **The Makefile did not list `dosw.inc`**, so edits to it rebuilt nothing,
   and the row ran yesterday's DOS against a symbol map of today's - which
   failed at leg 1 on an EMPTY band (a one-byte shift of every bss cell) and

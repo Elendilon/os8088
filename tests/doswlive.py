@@ -15,7 +15,10 @@ the rest of the machine to run is a statement about pre-emption.
      through INT 21h AND through the video BIOS's teletype
   3  ...and the desktop is not frozen behind it: another window comes to
      the front while it ticks, and it goes on printing behind it
-  4  the key it waits for comes from the WINDOW's keys, and is its exit code
+  4  the key it waits for comes from the WINDOW's keys; what it prints next
+     is PAINTED while it waits for the second, with nothing else repainting
+     the window (the Prince of Persia installer report); and the second key
+     is its exit code
   5  ...and when it has gone, IVT 08h is the kernel's again and the DOS
      block is not in the table: the world was exchanged back out (96.54)
   6  a second run, closed WHILE IT SPINS: the window goes, the machine keeps
@@ -129,14 +132,14 @@ def run(disk):
                                     for r in (m.screen() or [])),
                      "the bracketed run's prompt", 60):
             fail("DWTICK.COM never asked for its key inside the bracket")
-        m.type_text("x")
+        m.type_text("xy")
         if not until(m, lambda: not dos.b("dos_inbr"), "the bracket down", 48):
             fail("the bracket never came down")
         os88marty.settle(m)
-        if not any("exit code 120" in r for r in dos.rows()):
+        if not any("exit code 121" in r for r in dos.rows()):
             fail("the bracketed run's exit line is not in the band: %r"
                  % dos.rows()[-4:])
-        print("doswlive: 1 the bracket ran it, exit code 120")
+        print("doswlive: 1 the bracket ran it, exit code 121")
 
         # --- 2: Run in Window, and lines arrive WHILE it runs ----------------
         w = ui.window("DOS")
@@ -186,14 +189,32 @@ def run(disk):
             fail("the band holds only one of the two output paths: %r" % got)
         ui.raise_window(ui.window("DOS"))
         m.type_text("q")
+        if not until(m, lambda: any("DWTICK AGAIN" in r for r in dos.rows()),
+                     "the second question", 30):
+            fail("the probe never asked its second question after 'q': %r"
+                 % dos.rows()[-4:])
+        # **AND IT REACHED THE GLASS WITHOUT ANYTHING ELSE REPAINTING** -
+        # the owner's report off Prince of Persia's installer: after the first
+        # answer the window "only updates after dragging it". A program that
+        # prints and then waits on a key spends every tick asleep, so the
+        # paint dvw_irq0 posts never came; dvw_nap posts it now. The marks are
+        # the witness: con_drb is what a paint SPENDS.
+        drb = lambda: m.read(dos.base() + dos.dm["con_drb"], 4)
+        if not until(m, lambda: drb() == b"\0\0\0\0", "the band painted",
+                     10):
+            fail("the second question is in the console and its rows are "
+                 "still marked dirty (%s) with the program waiting on a key: "
+                 "nobody posted the paint" % drb().hex())
+        m.type_text("z")
         if not until(m, lambda: dos.b("dvw_run") == 0, "the program's end",
                      30):
-            fail("the windowed program never ended after its key")
+            fail("the windowed program never ended after its second key")
         os88marty.settle(m)
-        if not any("exit code 113" in r for r in dos.rows()):
-            fail("exit code 113 ('q') is not in the band - the key did not "
+        if not any("exit code 122" in r for r in dos.rows()):
+            fail("exit code 122 ('z') is not in the band - the key did not "
                  "reach the program's INT 21h AH=08h: %r" % dos.rows()[-4:])
-        print("doswlive: 4 the window's 'q' was its exit code, 113")
+        print("doswlive: 4 its second question was painted while it waited, "
+              "and the window's 'z' was its exit code, 122")
 
         # --- 5: the world went back out --------------------------------------
         # SAMPLED, because a world left in is not a constant: the stub swaps
