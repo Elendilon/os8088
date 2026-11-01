@@ -142,7 +142,20 @@ deduplicated union of every agent's rows once on the merged tip with
 
 ### 7.1 The final pass
 
-(Filled in at the close.)
+- **The union, 159 rows, once, on the merged tip** (`tools/os88soak.py`,
+  run `20261101-093532`, `unicorn` installed and 86Box built first so the
+  PicoMEM and `megarmb286`/`megarmbext`/`megacurdisk` rows ran): **157 ok,
+  1 FAIL, 1 SKIP** in 17 minutes. The SKIP is `hmahiber` (wants QEMU 9.2).
+  The FAIL is `guidelock-full`: this pass's two pages (CTRL_DRV, VESA_DRV,
+  both through `ctrl.inc`, nothing a user reads changed) are restamped, and
+  the **24 others were already stale at the base** - their sources are
+  `apps/` packages no agent touched - and are left to their owners.
+- **`test-full`, once: 76 ok, 5 FAIL, 3 SKIP.** `image`, `pkg` and `sysman`
+  read images built before the record's own commits moved the build number,
+  and `docindex` was stale after the last merge; with `make` re-run and the
+  index regenerated, all four are ok. `guidelock-full` fails as above.
+- `make`, `make small`, `make emu` and `make mega` build at the tip (the
+  megaseg gate green); the fast tier is 68/68 with 2 skips.
 
 ## 8. METHOD LESSONS
 
