@@ -2689,13 +2689,13 @@ dsk_bootltr:
     ; (kernel size pass 5). Each target is still a LABEL on the letter byte
     ; inside its string, never an offset, for the reason above.
     mov [ui_s_nodisk_l], al     ; the Task Manager's notice (SPEC.md 28.3)
-    mov [cp_s_dsdrv], al        ; the Control Panel's save refusal (51.5.1)
 %ifndef OS88_DRIVERS
     mov [drv_e1_l], al          ; DRVE_DISK's 'A:' (kern_small's stub arm, 51.0;
 %endif                          ; with drivers it IS cp_s_nodrv, stamped below)
-    mov [cp_s_nodrv], al        ; ...and its OPEN refusal (SPEC.md 2.8.4), now
-                                ; that the panel's own code is a file on that
-                                ; same disk
+    mov [cp_s_nodrv], al        ; the Control Panel's OPEN refusal (SPEC.md
+                                ; 2.8.4) - the panel's own code is a file on
+                                ; that same disk - and its SAVE refusal
+                                ; (51.5.1), which CTRL.DRV copies it into
     mov [fm_s_swapnd], al       ; ...and the formatter's REFUSAL toast (2.8.5).
                                 ; Its swap PROMPT names the volume too, and is
                                 ; the one standalone 'A:' of the six - it is

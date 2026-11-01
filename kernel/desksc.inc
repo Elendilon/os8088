@@ -1753,8 +1753,7 @@ ovl_sc_load:
     push dx
     push si
     push di
-    push es
-    mov si, drv_cfgname
+    push es                     ; SI = the name, staged by the caller
     call COLD_SEG:dwf_dskw_stat ; DX:CX = its size
     jc ovl_sc_plain
     or dx, dx
@@ -1777,7 +1776,7 @@ ovl_sc_load:
     mov es, dx
     xor bx, bx
     mov cx, di
-    xor dx, dx                  ; SI is still drv_cfgname: dskw_stat and the
+    xor dx, dx                  ; SI is still the name: dskw_stat and the
                                 ; heap's entries all keep it
     call COLD_SEG:dwf_dskw_read ; AX = the bytes read
     jc ovl_sc_drop

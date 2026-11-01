@@ -100401,17 +100401,23 @@ routines and by nothing else. Both run with `CS` = their own image and `DS` =
 `KERNEL_SEG`, so **one macro serves both** — every kernel reference is
 unchanged and only the parser's own tables take `cs:`.
 
-**Three things stay resident, and each is a rule rather than an oversight:**
+**Two things stay resident, and each is a rule rather than an oversight:**
 
 - **`drv_cfg`, the settings struct.** `osapi_drv_cfg` hands a driver its blob
   out of it at any moment in the session (§51.9), so it is live state.
-- **`drv_cfgname` and `drv_sysname`.** `dskw_read`, `dskw_stat` and
-  `dskw_write_sys` each read a filename through `DS` — a name in an image is a
-  filename read out of the kernel at the image's offset.
 - **Three far entries**, twelve bytes: `drvf_drv_vol_bank`, `drvf_drv_vol_back`,
   `drvf_drv_mounted` (`drvf_ss_mins2idle` was a fourth until kernel size pass
   13: the boot's reader reaches `ss_mins2idle` through `wm_cbd`). A call out
   of an image is far.
+
+**The two FILENAMES are not resident** (kernel size pass 16). `dskw_read`,
+`dskw_stat` and `dskw_write_sys` each read a filename through `DS` — a name in
+an image is a filename read out of the kernel at the image's offset — so each
+image STAGES its own copy into the panel's `cp_sbuf` first: `CTRL.DRV` through
+`cp_stage` (now the settings core's), the boot's reader through `CFGN_STAGE`,
+expanded in `.cfx` where there is one (kern_big, kern_emu) and in the blob
+where there is not. Both names were 22 resident bytes kept for two moments in
+a session.
 
 **Written once, emitted twice.** `CFG_DATA` / `CFG_SHARED` / `CFG_BOOT` /
 `CFG_SAVE` are macros taking the image's label prefix, and the two
