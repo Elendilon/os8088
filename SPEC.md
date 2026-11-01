@@ -47262,6 +47262,17 @@ match 4), 1 = **LZB** (bit-oriented, aPLib-family). `tools/os88lz.py` is the
 reference implementation of both and `kernel/lz.inc` is the copy;
 `tests/unit/t_lzfmt.py` is what keeps that true.
 
+**The host's LZ4 parse is OPTIMAL, and that is an encoder fact and not a
+format one** (`os88lz.lz4_compress`): a backward shortest path over sequence
+starts, priced in the format's real bytes - the token, the 15/255 length
+extensions of both the literal run and the match, the two offset bytes - over
+the hash chains' longest match at every position, with MFLIMIT, LASTLITS and
+§20.13.7's raw tail unchanged. Every decoder in the tree reads it unchanged.
+It replaced a two-step lazy parse (still `parse="lazy"`, for the A/B) and
+took **9,794 bytes** off the 220 distinct streams a clean `make` packs - DOS.O88
+-107, `kernel.sys` -112, `1942.O88` -3,163 - for ~11 s more encoder CPU over
+the whole build.
+
 **The format version stays 3**, for §20.12's reason and in its words: an old
 kernel reads nothing that has moved, refuses the file through the guard it
 already has (`image != file size`), and that refusal is the correct outcome by

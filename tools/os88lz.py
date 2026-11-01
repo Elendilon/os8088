@@ -37,6 +37,7 @@ NO THIRD-PARTY IMPORTS, deliberately - `make` needs nasm and python3 and the
 plan is not going to be the thing that adds a pip install to the build.
 """
 import sys
+from collections import deque
 
 # --- format ids, as stored in a header's format field ------------------------
 LZ4, LZB = 0, 1
@@ -80,16 +81,24 @@ class Chains:
             self.head[k] = self.at
             self.at += 1
 
-    def find(self, pos, maxoff, maxlen, depth):
-        """longest match at pos: (length, offset), or (0, 0)."""
+    def find(self, pos, maxoff, maxlen, depth, seed=0, seed_off=0):
+        """longest match at pos: (length, offset), or (0, 0).
+
+        `seed` is a match already known to be there - the optimal parse hands
+        in the previous position's match one byte shorter, at the same offset
+        - so a candidate has to BEAT it, and the cheap reject below throws out
+        nearly every one with a single compare."""
         src = self.src
         limit = min(maxlen, len(src) - pos)
         if limit < self.minlen:
             return 0, 0
         self.insert_to(pos)
+        best_l, best_o = min(seed, limit), seed_off
+        if best_l >= limit:
+            return best_l, best_o
         lo = pos - maxoff
         c = self.prev[pos] - 1
-        best_l, best_o, k = 0, 0, 0
+        k = 0
         while c >= 0 and c > lo and k < depth:
             k += 1
             if src[c + best_l] == src[pos + best_l]:      # cheap reject
@@ -193,18 +202,150 @@ def _lz4_emit(out, lits, mlen, off):
             out.append(n)
 
 
-def lz4_compress(src, depth=128, tail=True):
-    """Hash chains with a two-step lazy parse.
+LZ4_SKIP = 256                  # a match this long is followed, not searched
+                                # inside: the next position's longest match is
+                                # taken to be this one a byte shorter
 
-    Lazy rather than a shortest-path DP because LZ4's literal run is carried in
-    the same token as the match, so the two are not separable and an exact
-    parse costs far more than the fraction of a percent it buys - measured
-    against the reference `lz4hc` at level 12 while this was written.
+
+def lz4_compress(src, depth=128, tail=True, parse="opt"):
+    """An OPTIMAL parse over hash chains - the cheapest LZ4 stream for the
+    matches the chains find, priced in the format's real bytes.
+
+    LZ4 carries a literal run and the match after it in ONE token, and a run
+    of 15 or more costs extension bytes (one more every 255), so the price of
+    a literal depends on how long its run already is and a forward
+    shortest-path over positions is not exact. A BACKWARD one over SEQUENCE
+    STARTS is: F[i], the cheapest encoding of src[i:] when a sequence begins
+    at i, is the cheaper of "all literals to the end" and
+
+        1 + k + litext(k) + G[i + k]          over every run length k >= 0
+
+    where G[j] is a match at j plus F after it. litext(k) is 0 below 15 and
+    1 + (k - 15) // 255 above, so k < 15 is fifteen lookups and the rest is
+    one quantity per position computed off the one 255 places on - a sliding
+    window minimum and a recurrence, which makes it exact for every run
+    length at O(1) a position. Every match length from 4 to the longest at
+    that offset is legal and costs the same two offset bytes, so G[j] tries
+    lengths 4..32 exactly and, past that, the longest and the last length of
+    each 255-step extension tier.
+
+    The two places it is not exact are the MATCH FINDER's, and both are for
+    time: each position's search is seeded with the previous position's match
+    a byte shorter (so a candidate must beat it, and the cheap reject throws
+    nearly all of them out), and inside a match longer than LZ4_SKIP the
+    search is not made at all - which took GBDEMO.GB, 32KB of mostly one
+    pattern, from 3.0 s to 0.2 s for 0 bytes and BEVERLY.MOD's 1.8 s to 1.3.
+
+    It replaced a two-step lazy parse whose docstring said an exact parse
+    "costs far more than the fraction of a percent it buys": it buys 0.3-0.8%
+    on code and ~1.3% on BEVERLY.MOD (docs/reports/DOS-PACKED-COST-2026-11-01.md
+    section 4 row 3) - 9,794 bytes over a clean `make`'s 220 streams - for
+    ~11 s more encoder CPU spread over make's jobs. SAME FORMAT, same
+    raw tail (SPEC.md 20.13.7, `_cut`), same MFLIMIT and LASTLITS rules, so
+    every decoder in the tree reads it unchanged. Deterministic: no hashing
+    of anything but the input, ties broken by position.
 
     `tail=False` is the CLASSIC block - no T word, the last sequence literals
     only - and exists for one caller: the boot blob's own decoder
-    (tools/os88kz.py, boot/boot2.asm kz_expand).
+    (tools/os88kz.py, boot/boot2.asm kz_expand). `parse="lazy"` is the old
+    encoder, for an A/B.
     """
+    if parse == "lazy":
+        return _lz4_lazy(src, depth, tail)
+    src = bytes(src)
+    n = len(src)
+    if n <= MFLIMIT:
+        return _lz4_lazy(src, depth, tail)       # one literal sequence either way
+    ch = Chains(src, MINMATCH)
+    lim = n - MFLIMIT
+    mend = n - LASTLITS
+    INF = 1 << 60
+    # the longest match at every legal start, each seeded by the one before
+    ml = [0] * n
+    mo = [0] * n
+    pl = po = 0
+    for i in range(lim):
+        mx = min(mend - i, LZ_MAXLEN)
+        if pl > LZ4_SKIP:
+            pl, po = min(pl - 1, mx), po
+        else:
+            pl, po = ch.find(i, 65535, mx, depth,
+                             pl - 1 if pl > MINMATCH else 0, po)
+        ml[i] = pl
+        mo[i] = po
+    F = [0] * (n + 1)           # cheapest from a sequence starting at i
+    D = [-1] * (n + 1)          # ...whose match starts at D[i]; -1 = literals
+    G = [INF] * (n + 1)         # a match at j, and everything after it
+    GL = [0] * (n + 1)          # ...of this length
+    H = [INF] * (n + 256)       # G[j] + j
+    Q = [INF] * (n + 256)       # min over j >= x of H[j] + (j - x) // 255
+    QA = [-1] * (n + 256)       # ...at this j
+    win = deque()               # sliding minimum of H over [x, x + 254]
+    F[n] = 1                    # the empty last-literals token
+    for i in range(n - 1, -1, -1):
+        L = ml[i] if i < lim else 0
+        if L:
+            top = L if L < 33 else 32
+            best, bl = INF, 0
+            for k in range(MINMATCH, top + 1):
+                c = F[i + k] if k < 19 else F[i + k] + 1
+                if c <= best:
+                    best, bl = c, k
+            if top < L:
+                t, e = 273, 1
+                while t < L:
+                    c = F[i + t] + e
+                    if c <= best:
+                        best, bl = c, t
+                    t += 255
+                    e += 1
+                c = F[i + L] + 1 + (L - 19) // 255
+                if c <= best:
+                    best, bl = c, L
+            G[i] = best + 2
+            GL[i] = bl
+            H[i] = best + 2 + i
+        x = i + 15
+        if x <= n:
+            hx = H[x]
+            while win and H[win[0]] >= hx:
+                win.popleft()
+            win.appendleft(x)
+            while win[-1] > x + 254:
+                win.pop()
+            wj = win[-1]
+            if Q[x + 255] + 1 < H[wj]:
+                Q[x], QA[x] = Q[x + 255] + 1, QA[x + 255]
+            else:
+                Q[x], QA[x] = H[wj], wj
+        rem = n - i
+        best = 1 + rem + (0 if rem < 15 else 1 + (rem - 15) // 255)
+        bd = -1
+        for j in range(i, min(i + 15, lim)):
+            c = 1 + (j - i) + G[j]
+            if c < best:
+                best, bd = c, j
+        if x <= n and QA[x] >= 0 and 2 - i + Q[x] < best:
+            best, bd = 2 - i + Q[x], QA[x]
+        F[i] = best
+        D[i] = bd
+    out = bytearray(2)
+    bounds = [(0, 2)]
+    i = 0
+    while D[i] >= 0:
+        j = D[i]
+        _lz4_emit(out, src[i:j], GL[j], mo[j])
+        i = j + GL[j]
+        bounds.append((i, len(out)))
+    _lz4_emit(out, src[i:n], 0, 0)
+    bounds.append((n, len(out)))
+    return _cut(src, out, bounds) if tail else bytes(out[2:])
+
+
+def _lz4_lazy(src, depth=128, tail=True):
+    """Hash chains with a two-step lazy parse - what the build shipped until
+    the optimal parse below replaced it, kept as `parse="lazy"` for the A/B
+    and for a caller that wants speed over the last 0.4%."""
     src = bytes(src)
     n = len(src)
     out = bytearray(2)
