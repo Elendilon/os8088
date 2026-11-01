@@ -8043,6 +8043,15 @@ $(BUILD)/dosdrvsys.img: $(BUILD)/os8088-360.img $(BUILD)/dosdrv/BONLY1.TXT \
 	cp $(BUILD)/os8088-360.img $@
 	python3 tools/os88fat.py add $@ $(BUILD)/dosdrv/AONLY.TXT
 
+# ...and AH=36h after a SELECT (SPEC.md 96.27.2): the probe alone on a 360KB
+# floppy in B:, so its free count is nothing like the system disk's in A: and
+# an answer about the wrong drive cannot pass for the right one.
+$(BUILD)/DFSEL.COM: tests/dostrap/dfsel.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/dfsel.asm
+
+$(BUILD)/dosdfsel360.img: $(BUILD)/DFSEL.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/DFSEL.COM
+
 # ...and the EXEC gate's PAIR (SPEC.md 96.14): a parent that shrinks itself
 # and runs the child, and a child that proves it was really loaded - it prints
 # the command tail out of its own PSP and reads PSP:0016 for a parent.
@@ -8226,6 +8235,7 @@ doscom: $(BUILD)/dostype360.img $(BUILD)/doscom360.img $(BUILD)/dosexe360.img $(
         $(BUILD)/dosirq360.img $(BUILD)/pathtest360.img \
         $(BUILD)/dosargs360.img $(BUILD)/doslnk360.img \
         $(BUILD)/dosdrv360.img $(BUILD)/dosdrvsys.img \
+        $(BUILD)/dosdfsel360.img \
         $(BUILD)/dosfcb360.img $(BUILD)/dosren360.img $(BUILD)/dossh360.img \
         $(BUILD)/dosshrink360.img $(BUILD)/doslong360.img \
         $(BUILD)/dosrange360.img $(BUILD)/irqgrab360.img

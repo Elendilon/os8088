@@ -3736,70 +3736,50 @@ DOS_T21_N equ ($ - .t21) / 2        ; ...or .bad for a function we lack
     ; here at all, so an installer read "one sector per cluster" and three
     ; stale registers. Prince of Persia's INSTALL selects C:, is told it is
     ; standing on C:, asks this, and prints "Invalid drive letter" (96.27.1).
+    ;
+    ; **AND IT ASKS ABOUT THE DRIVE, NOT ABOUT WHAT IS MOUNTED** (SPEC.md
+    ; 96.27.2). OSAPI_VOL_STAT answers for the volume the MACHINE stands on,
+    ; and since 96.48 `AH=0Eh` moves only the PROGRAM - the mount waits for
+    ; the next name. So the installer's select-C:-then-ask was answered with
+    ; the FLOPPY it had just read its source list off: 106 free clusters of
+    ; 1KB, "Not enough space on destination disk". `dos_fh_stand` puts the
+    ; machine on the drive asked about, in that drive's folder, and moves the
+    ; program nowhere - which is also what DOS does: AH=36h changes no drive.
     push bx
     push si
     push di
     push es
-    mov al, dl
-    or al, al
+    or dl, dl
     jnz .df1
-    mov al, [dos_vol]               ; 0 = the drive we are on
-    jmp short .dfv
+    mov dl, [dos_vol]               ; 0 = the drive the program is on
+    inc dl
 .df1:
-    dec al                          ; 1-based -> a volume index
-.dfv:
-    mov bh, [dos_vol]               ; where to come back to...
-    mov di, bx                      ; ...banked in DI's high byte, because BX
-                                    ; is about to be an ANSWER (the free
-                                    ; count), and .dfhome used to read the
-                                    ; home drive out of BH AFTER that load
-    cmp al, bh
-    je .dfask                       ; the common case by far: a program selects
-                                    ; the drive and then asks about it
-    mov dl, al
-    call dos_drv_sel                ; A REAL MOUNT, and dos_drv_sel is the one
-    cmp al, [dos_vol]               ; place that knows how to put itself back
-    jne .dfbad                      ; if the mount refuses
-.dfask:
+    dec dl                          ; 1-based -> a volume index
+    cmp dl, DVOL_MAX
+    jae .dfbad                      ; past the array dos_fh_stand indexes
+    call dos_fh_stand               ; THE MACHINE onto it (CF = not there)
+    jc .dfbad
     call dos_be_vstat               ; AX = sectors per cluster, BX = free
                                     ; clusters, CX = bytes per sector, DX =
                                     ; total clusters - AH=36h's own four, which
                                     ; is the slot's shape BECAUSE this is its
                                     ; caller (SPEC.md 18.4.6). THROUGH THE BACK
-                                    ; END (96.4.1): the slot mounts the volume
-                                    ; and reads its FAT, which is disk work on
-                                    ; the program's stack
-    jc .dfback
-    call .dfhome
+                                    ; END (96.4.1): the slot reads the FAT,
+                                    ; which is disk work on the program's stack
+    jc .dfbad
     pop es
     pop di
     pop si
     add sp, 2                       ; BX is an ANSWER: drop the banked one
     mov [bp-8], dx                  ; ...and so is DX (SPEC.md 96.7.1)
     jmp .ok
-.dfback:
-    call .dfhome
 .dfbad:
     mov ax, 0xFFFF                  ; DOS's own "invalid drive", and a value a
     pop es                          ; program can test even when it ignores the
     pop di                          ; flag - which for this call every program
     pop si                          ; does, DOS never setting CF here
-    add sp, 2
+    pop bx
     jmp .ok
-; --- .dfhome - back to the drive we were standing on, if we left it ---------
-; in: DI's high byte = that drive; preserves everything (dos_drv_sel does)
-.dfhome:
-    push ax
-    push dx
-    mov dx, di
-    mov dl, dh
-    cmp dl, [dos_vol]
-    je .dfh
-    call dos_drv_sel
-.dfh:
-    pop dx
-    pop ax
-    ret
 
 .setdta:
     mov [dos_dta], dx               ; AH=1Ah: DS:DX, and DS is the program's -
