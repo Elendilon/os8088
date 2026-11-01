@@ -293,6 +293,7 @@ dvw_nap:
     mov ss, [cs:dvw_nss]
     mov sp, [cs:dvw_nsp]
 .back:
+    call dwm_kick               ; the mouse ticks it slept through (96.54.4)
     pop ax
     popf
     ret
@@ -571,6 +572,7 @@ dvw_runprog:
     mov [dos_vw], ax
     mov [dos_vh], bx
     call dos_m33_wall
+    call dwm_start                  ; ...and the window's own (96.54.4)
     call dos_build_psp
     push ds                         ; the posting doors
     pop es
@@ -642,6 +644,7 @@ dvw_fin:                            ; DHK_SNAP, from dos_prog_done
     call dvw_xout
     sti
     mov word [dos_hkv + DHK_SNAP], dos_snap
+    call dwm_stop                   ; the bracket's INT 33h hooks (96.54.4)
     call dos_be_bind
     ret
 

@@ -717,6 +717,24 @@ not narrowed: a vector outside it would carry a program's hook into every
 other task. The band's span-narrowed paint (§3.5) is still open, and is a
 paint cost rather than a CPU-share one.
 
+## 10.6 Wave 5, as built — INT 33h in a window
+
+SPEC.md 96.54.4. The pointer is translated to the band: column x 8 and row x
+8 from the band's top-left and `[con_vtop]`, clamped, buttons live only for a
+press whose down edge was read over the band with the window in front at that
+sample and the one before (so the raising click is the desktop's). It is two
+host hooks (`DHK_MOUSE`, `DHK_TXT` refusing) in `apps/dos/doswm.inc`, bound
+for the run; the full screen keeps the bracket's scale. **The band is sampled
+once a BIOS tick**: asking `WM_GEOM`/`WM_CONTENT`/`WM_TOP` on every read
+measured 143 polls a second against 428, and per tick it is 361-367. It found
+two defects: an `0Ch` handler never ran for a program waiting on a key in its
+window (it sleeps through the ticks with its world out), mended by splitting
+the core's dispatch into `dos_m33_evt` and calling it as the worker wakes;
+and `[dos_m33hk]` is never cleared, which `dwm_start` mends for the window
+and which still loses a second BRACKETED run's handler. **+400 image, +10
+bss**, the core +20 (7 of code, 13 of alignment; `CORE_MAX` +16), against the
+~200 / ~10 costed in section 6. `doswmouse` is the gate, 26.5 s, red two ways.
+
 ## 9. What would kill it
 
 1. **Wave 0 finds a kernel path into `sch_switch` the package cannot wrap** —
