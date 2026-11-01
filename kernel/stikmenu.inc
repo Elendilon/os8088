@@ -162,23 +162,25 @@ STM_SAVEMAX equ 0xF000          ; the save-under's ceiling, bytes: inside one
 ; or more (VGA, EGA, Hercules) and COMPACT below that (CGA). Every row is
 ; relative to its own slab's first; every column is a BYTE of the band.
 LY_HT       equ 0               ; 6: the slab heights, by SK_*
-LY_HDR1     equ 6               ; the header's first line
-LY_HDR2     equ 7               ; ...and its second
-LY_ITEM     equ 8               ; an item's line
-LY_NONE     equ 9               ; 'No Sticky Apps found'
-LY_PIC      equ 10              ; the picture's first row
-LY_NAME     equ 11              ; the name
-LY_DESC     equ 12              ; the description
-LY_BTXT     equ 13              ; 'On' / 'Add'
-LY_BTOP     equ 14              ; the Add box's top row
-LY_BH       equ 15              ; ...and its rows
-LY_HINT     equ 16              ; the hint's line
-LY_PICX     equ 17              ; the picture's column (byte)
-LY_TXTX     equ 18              ; the name's and the description's
-LY_HDRX     equ 19              ; the header's, the hint's and NONE's
-LY_ITEMX    equ 20              ; the three items'
-LY_RFURN    equ 21              ; bytes right of the text: gap, On/Add, frame
-LY_SIZE     equ 22
+LY_REST     equ 6               ; every row but the Apps': HEAD, 3 RULEs,
+                                ; 3 ITEMs, HINT (STM_LY works it out)
+LY_HDR1     equ 7               ; the header's first line
+LY_HDR2     equ 8               ; ...and its second
+LY_ITEM     equ 9               ; an item's line
+LY_NONE     equ 10              ; 'No Sticky Apps found'
+LY_PIC      equ 11              ; the picture's first row
+LY_NAME     equ 12              ; the name
+LY_DESC     equ 13              ; the description
+LY_BTXT     equ 14              ; 'On' / 'Add'
+LY_BTOP     equ 15              ; the Add box's top row
+LY_BH       equ 16              ; ...and its rows
+LY_HINT     equ 17              ; the hint's line
+LY_PICX     equ 18              ; the picture's column (byte)
+LY_TXTX     equ 19              ; the name's and the description's
+LY_HDRX     equ 20              ; the header's, the hint's and NONE's
+LY_ITEMX    equ 21              ; the three items'
+LY_RFURN    equ 22              ; bytes right of the text: gap, On/Add, frame
+LY_SIZE     equ 23
 
 ; -----------------------------------------------------------------------------
 ; smn_track - the drop (SMN_TRACK), far: DS = KERNEL_SEG, the gfx lock held,
@@ -662,18 +664,7 @@ stm_layout:
     ; --- how many apps fit: the screen, and one segment of save-under -------
     mov si, [cs:stm_ly]
     xor bx, bx                  ; BX = every row but the apps'
-    mov bl, [cs:si+LY_HT+SK_HEAD]
-    xor ax, ax
-    mov al, [cs:si+LY_HT+SK_RULE]
-    add bx, ax
-    add bx, ax
-    add bx, ax                  ; three rules
-    mov al, [cs:si+LY_HT+SK_ITEM]
-    add bx, ax
-    add bx, ax
-    add bx, ax                  ; three items
-    mov al, [cs:si+LY_HT+SK_HINT]
-    add bx, ax
+    mov bl, [cs:si+LY_REST]
     mov ax, STM_SAVEMAX         ; the rows ONE segment of save-under holds,
     xor dx, dx                  ; less the shadow's...
     div word [cs:stm_rowb]
@@ -732,56 +723,51 @@ stm_layout:
     mov dx, MBAR_H              ; DX = the next slab's y
     mov [CSEG stm_y1], dx
     CSDO_OFF
+    xor cx, cx                  ; CH = the next slab's flags: none...
     mov ax, SK_HEAD
+    call stm_addsl              ; (which leaves AH = 0)
+    mov al, SK_RULE
     call stm_addsl
-    mov ax, SK_RULE
-    call stm_addsl
-    xor cx, cx
+    mov ch, SF_SEL              ; ...an App a pick, CL the slot
 .ap:
     cmp cl, [cs:stm_shown]
     jae .apd
     mov al, SK_APP
     mov ah, cl
-    CSDO mov byte [CSEG stm_sflag], SF_SEL
     call stm_addsl
     inc cx
     jmp short .ap
 .apd:
     cmp byte [cs:stm_paged], 0
     je .nopg
-    CSDO mov byte [CSEG stm_sflag], SF_SEL
-    mov ax, SK_PAGE
+    mov al, SK_PAGE             ; the pager a pick too
     call stm_addsl
 .nopg:
     cmp byte [cs:stm_n], 0
     jne .some
-    CSDO mov byte [CSEG stm_sflag], SF_DIS
-    mov ax, SK_NONE
+    mov ch, SF_DIS
+    mov al, SK_NONE
     call stm_addsl
 .some:
-    mov ax, SK_RULE
+    mov ch, 0
+    mov al, SK_RULE
     call stm_addsl
-    mov al, SF_SEL
+    mov ch, SF_SEL
     cmp byte [cs:stm_ndesk], 0
     jne .arr
-    mov al, SF_DIS              ; nothing to arrange or hide
+    mov ch, SF_DIS              ; nothing to arrange or hide
 .arr:
-    CSDO_ON
-    mov [CSEG stm_iflag], al
-    mov [CSEG stm_sflag], al
-    CSDO_OFF
     mov ax, SK_ITEM | (IT_ARR << 8)
     call stm_addsl
-    mov al, [cs:stm_iflag]
-    CSDO mov [CSEG stm_sflag], al
     mov ax, SK_ITEM | (IT_HIDE << 8)
     call stm_addsl
-    CSDO mov byte [CSEG stm_sflag], SF_SEL
+    mov ch, SF_SEL
     mov ax, SK_ITEM | (IT_MORE << 8)
     call stm_addsl
-    mov ax, SK_RULE
+    mov ch, 0
+    mov al, SK_RULE
     call stm_addsl
-    mov ax, SK_HINT
+    mov al, SK_HINT
     call stm_addsl
     dec dx
     CSDO_ON
@@ -810,14 +796,13 @@ stm_len:
 .r:
     ret
 
-; stm_addsl - AL = SK_*, AH = its param, [stm_sflag] its flags (cleared
-; here), DI = the slab, DX = its y: write it, DI and DX past it. clobbers AX, BX
+; stm_addsl - AL = SK_*, AH = its param, CH its SF_* flags, DI = the slab,
+; DX = its y: write it, DI and DX past it; AH = 0 on the way out.
+; clobbers AX, BX
 stm_addsl:
     CSDO_ON
     mov [CSEG di+SL_KIND], ax   ; SL_KIND, then SL_PARAM
-    mov bl, 0
-    xchg bl, [CSEG stm_sflag]
-    mov [CSEG di+SL_FLAGS], bl
+    mov [CSEG di+SL_FLAGS], ch
     CSDO_OFF
     mov bx, [cs:stm_ly]
     mov ah, 0
@@ -1684,11 +1669,9 @@ stm_hit:
     mov dx, [mouse_y]
     popf
     mov ax, 0xFFFF
-    mov bx, [cs:stm_x1]
-    cmp cx, bx
+    cmp cx, [cs:stm_x1]
     jbe .r                      ; the frame is not an item
-    mov bx, [cs:stm_x2]
-    cmp cx, bx
+    cmp cx, [cs:stm_x2]
     jae .r
     mov si, stm_sl
     xor bx, bx
@@ -2002,15 +1985,19 @@ smk_go:                         ; ovlchk: builds its own far frame
 ; App with the picture in row pairs, which on CGA's tall pixels is about
 ; square. (A third, TALL, gave VGA the mockup's air - a 56-row App - for 22
 ; bytes of table, 832 of band and a save-under that took two segments.)
-stm_lay_mid:                    ; Hercules, EGA
-    db 26, 7, 40, 12, 13, 16
+; STM_LY head, rule, app, item, hint, none - LY_HT's six, then LY_REST
+%macro STM_LY 6
+    db %1, %2, %3, %4, %5, %6, %1 + 3 * (%2) + 3 * (%4) + %5
+%endmacro
+stm_lay_mid:                    ; VGA, EGA, Hercules
+    STM_LY 26, 7, 40, 12, 13, 16
     db 4, 15, 2, 4
     db 4, 9, 23
     db 16, 11, 18
     db 2
     db 1, 6, 1, 2, 8
 stm_lay_comp:                   ; CGA: the picture in row pairs
-    db 20, 3, 20, 10, 11, 12
+    STM_LY 20, 3, 20, 10, 11, 12
     db 2, 11, 1, 2
     db 2, 2, 11
     db 6, 2, 16
@@ -2059,8 +2046,6 @@ stm_nrun:   db 0
 stm_ndesk:  db 0                ; ...and stm_nvis, the word stm_census writes
 stm_nvis:   db 0
 stm_nsl:    db 0
-stm_sflag:  db 0
-stm_iflag:  db 0
 stm_vol:    db 0
 stm_hi:     db 0
 stm_stk:    db 0
