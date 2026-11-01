@@ -626,7 +626,7 @@ dvw_start:
     mov [dvw_done], ax              ; done, kill
     mov [dvw_kh], ax                ; the key ring's head and tail
     mov [dvw_closeq], ax            ; closeq, fs
-    mov [dvw_fsreq], ax             ; fsreq, frz
+    mov [dvw_frz], ax               ; frz, fsreq
     mov [dvw_parked], ax            ; parked (0 between runs anyway), gfx
     mov ax, 0x0101
     mov [dvw_run], ax               ; run, then go - LAST, and one

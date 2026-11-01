@@ -32,7 +32,8 @@ eighty cells); the span measures 11,305 and 12,429 (SPEC.md 96.33.12).
      two scanlines must be lit, which equality alone cannot say.
 
 **Break it on purpose** (docs/WRITING-TESTS.md 1), all three done: with
-con_rows_owed calling con_row (the whole row) instead of con_rowspan, leg 1
+con_rows_owed painting the whole row instead of the dirty span (the old
+con_row; since the size pass, con_rowspan given columns 0..255), leg 1
 reads 67,869 cycles and fails the budget; with con_rows_owed's con_curmove
 removed, leg 3 finds 32 stale pixels under the caret's cells; with con_compose's
 old `mov al, ch` before the AND put back, the caret is 0 of 8 lit.
