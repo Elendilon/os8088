@@ -79,6 +79,7 @@ PSP fields that were zero here and are not zero under DOS, found that way.
 | `tests/dostrap/twoopen.asm` | is it the file, or is it the *second handle*? |
 | `tests/dostrap/diskcost.asm` | what one open and one read cost the DRIVE — the only SPEED probe |
 | `tests/dostrap/dfree.asm` | what `AH=36h` answers, for every drive letter |
+| `tests/dostrap/getpsp.asm` | does `AH=62h`/`51h` answer the RUNNING program's PSP, parent and child alike? (SPEC.md 96.55) |
 | `tests/dostrap/cx0.asm` | what `AH=40h` with `CX=0` does to a file's LENGTH (SPEC.md 96.11.6.2) |
 | `apps/dos/dos.asm`, `%ifdef DOSTRACE` | DOS's own ring — **not in any shipped build** |
 

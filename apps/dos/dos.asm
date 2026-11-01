@@ -3241,13 +3241,24 @@ dos_int21:
     mov bx, [.t21 + bx]
     xchg bx, [bp-10]
     ret
-.hifn:                              ; above the table: 68h and 6Ah (commit
-    cmp ah, 0x68                    ; and extended commit) are the only two,
+.hifn:                              ; above the table: 62h (get PSP), and 68h
+    cmp ah, 0x62                    ; and 6Ah (commit and extended commit)
+    je .getpsp                      ; are the only three,
+    cmp ah, 0x68
     je .hidsk                       ; and 69h between them is not a call this
     cmp ah, 0x6A                    ; DOS answers
     jne .bad
 .hidsk:
     jmp .dskreset
+.getpsp:
+    ; AH=62h, and AH=51h through the table: out BX = the RUNNING program's
+    ; PSP (SPEC.md 96.55). Unimplemented, it fell to .bad and BX came back
+    ; as whatever the program had in it - and DOS sets no carry for this
+    ; call, so nobody looks: IBM DOS 3.30's XCOPY.EXE stores BX as its PSP
+    ; segment, parses its command tail out of that, and prints "Invalid
+    ; parameter" for every command line it is given.
+    mov bx, [dos_ldpsp]
+    jmp .ok
 
 .term0:
     ; AH=00h IS `INT 20h` THROUGH THE OTHER DOOR, and its exit code is ZERO
@@ -3304,7 +3315,7 @@ dos_int21:
     dw .bad, .mkdir, .rmdir, .chdir, .create, .open, .close, .read   ; 38h
     dw .write, .unlink, .seek, .getattr, .ioctl, .bad, .bad, .getcwd   ; 40h
     dw .alloc, .free, .resize, .exec, .term, .retcode, .ff, .fn   ; 48h
-    dw .bad, .bad, .bad, .bad, .bad, .bad, .rename   ; 50h
+    dw .bad, .getpsp, .bad, .bad, .bad, .bad, .rename   ; 50h: 51h is 62h
 DOS_T21_N equ ($ - .t21) / 2        ; ...or .bad for a function we lack
 
 .getce:

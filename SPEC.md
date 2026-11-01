@@ -175345,7 +175345,8 @@ compares and forty-five *taken* branches before it was found, and `AH=2Ch`
 forty-one.
 
 It is a word table now, `00h`..`56h`, with `.bad` in every hole, and the two
-functions above it (`68h` and `6Ah`, both commits) are two compares. **`AH=02h`
+functions above it (`68h` and `6Ah`, both commits) are two compares - three
+since §96.55 put `62h`, get PSP, in front of them. **`AH=02h`
 and `AH=09h` are still tested first**, ahead of the lookup, because console
 output is the call a program makes most and the old list had them third and
 fourth: they are first and second now, and the handlers are placed straight
@@ -188133,6 +188134,61 @@ worth that.
 **Cost**: +36 bytes of image and **+242 of bss** (the second block), so a
 DOS window's region is 278 bytes larger. `doswspin` holds the ratio at an
 85% floor, between the two readings, so the old loop fails it.
+
+
+### 96.55 `AH=62h` answers the running program's PSP, and XCOPY parsed its tail out of junk
+
+IBM DOS 3.30's own `XCOPY.EXE` refused every command line under this DOS -
+`B:` then `XCOPY.EXE ANSI.SYS Y.SYS` printed `Invalid parameter`,
+`0 File(s) copied` and left with exit code 4, in the fullscreen bracket and
+in a window alike. The same binary copies the file under IBM DOS 3.30.
+
+**The suspicion was `AH=37h`, the switch character, and it was wrong**: XCOPY
+never makes that call (its image carries neither `B4 37` nor `B8 xx 37`). The
+two traces said what it is, per docs/DOS-DEBUGGING.md's method - the same
+program `EXEC`'d with the same tail by a ten-line wrapper under both DOSes,
+`tools/os88dosdbg.py ref` on the IBM side and `tools/os88intmon.py` on ours,
+aligned on the call site:
+
+| call site (`CS-PSP:IP`) | IBM DOS 3.30 | os8088 DOS, before |
+|---|---|---|
+| `+FB:1791` | `AH=30h` | `AH=30h` |
+| `+FB:17B3`..`17D3` | `2523h`, `3524h`, `2524h` | the same three |
+| `+FB:16A9` | `AX=6224h` -> `BX=10F2h` = XCOPY's PSP | `AX=6224h` -> `.bad`: CF=1, `AX=0001`, **`BX=037Fh`, the program's own leftover** |
+| `+FB:169A`, `16A4` | `AH=19h`, `AX=4702h` | the same two |
+| next | `AX=4700h`, `3B00h`, `3D00h`, ... the copy | `AH=40h` x4: `Invalid parameter`, then `AX=4C04h` |
+
+`+FB:16A5` is `mov ah, 62h / int 21h / mov [01AEh], bx / ret`. **Get PSP had no
+handler** - the table stopped at `56h` and `.hifn` knew `68h` and `6Ah` - so it
+fell to the invalid-function arm, and that arm is §96.22's shape for the fifth
+time: DOS sets no carry for `62h`, no caller tests one, and `BX`, the whole
+answer, came back as whatever the program last had in it. XCOPY banked
+`037Fh` as its PSP, read its command tail out of `037F:0080` - the low
+interrupt table and the BIOS data area's neighbourhood - and found nothing it
+could parse. The divergence is one call and 26 instructions after the
+program's entry; nothing after it on our side is a second defect.
+
+**`AH=51h` is the same call** (DOS 2's undocumented spelling, kept by every
+DOS since) and is answered by the same handler from its table slot, which was
+a `.bad` hole and costs nothing to fill. Both return `[dos_ldpsp]`, which is
+the RUNNING program: `dos_exec` points it at the child for the child's life
+and puts the parent's back on the way out, so a child is told its own PSP and
+the parent its own again afterwards - the probe asserts all three.
+
+**What it costs**: the core part **15,398 -> 15,410 bytes** (`cmp`/`je` in
+`.hifn` and a four-byte handler with its `jmp .ok`), against 10 bytes of
+slack, so `CORE_MAX` is **15,408 -> 15,424** - 16 bytes, kept a multiple of 16,
+which both hosts reserve (§96.44.2). `CORE_BSS_SIZE` does not move. kern_mega's
+`CORE_MAX` had 37 bytes spare and does not move either.
+
+**The gate is `tests/dostrap/getpsp.asm`**, which runs under a real DOS
+unchanged: a `.COM`'s PSP is its own `CS`, so it needs no reference value. It
+loads `BX` with `5A5Ah`, asks `62h` and `51h`, `EXEC`s itself with the tail
+` C` so the child asks both, and asks `62h` once more after the child has
+gone. IBM DOS 3.30 answers seven `OK` lines (`P62`/`P51` at `10C3`, `C62`/`C51`
+at the child's `1100`, `R62` at `10C3` again, `EXEC=0000`). `soak -k 'dospsp'`
+is the row; with the handler taken out it reads `BX=5A5A ... BAD` on every
+line and fails.
 
 ## 97. PIXELSTEIN 3D — a raycast shooter in a foreign mode (`apps/pixelstein/`)
 

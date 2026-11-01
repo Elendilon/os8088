@@ -63,7 +63,7 @@ CORE_ORG    equ 0x0080
 ; CORE alone spends, both hosts read, and whose slack is one number in one
 ; place. Measured at the wave, with the assertion in `apps/dos/doscore.asm`.
 %ifndef DOS_MEGA
-CORE_MAX    equ 15408            ; +512 for SPEC.md 96.7.2's stack swap and
+CORE_MAX    equ 15424            ; +512 for SPEC.md 96.7.2's stack swap and
                                 ; 96.12.5's name truncation, which are 214
                                 ; bytes between them against 89 of slack. The
                                 ; two are the Playroom's whole report: a gate
@@ -94,6 +94,9 @@ CORE_MAX    equ 15408            ; +512 for SPEC.md 96.7.2's stack swap and
                                 ; dos_psp_make aiming PSP:5 at it), which the
                                 ; HMA run had and the PSP:0050 gate never
                                 ; served: 15,391 used
+                                ; +16 for SPEC.md 96.55's AH=62h/51h, the
+                                ; call XCOPY.EXE takes its PSP from: 12 bytes
+                                ; against 10 of slack, 15,410 used
 %else                           ; **kern_mega's core is 67 bytes longer**:
 CORE_MAX    equ 16064            ; SPEC.md 96.15.4's extended-to-extended
 %endif                          ; move (dos_xms_move's `.bothx`), 15,409 used.

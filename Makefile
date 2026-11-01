@@ -8019,6 +8019,15 @@ $(BUILD)/PARSEFCB.COM: tests/dostrap/parsefcb.asm | $(BUILD)
 $(BUILD)/dosfcb360.img: $(BUILD)/PARSEFCB.COM tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/PARSEFCB.COM
 
+# ...and AH=62h's (SPEC.md 96.55): does DOS tell a program its OWN PSP,
+# parent and EXEC'd child alike? A .COM's PSP is its CS, so the probe needs no
+# fixture and nothing on the disk but itself.
+$(BUILD)/GETPSP.COM: tests/dostrap/getpsp.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/getpsp.asm
+
+$(BUILD)/dospsp360.img: $(BUILD)/GETPSP.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/GETPSP.COM
+
 # ...and the DRIVE-LETTER gate's PAIR (SPEC.md 96.6.2). It is a pair because
 # the question is cross-DRIVE: a letter in a name has to reach the other
 # floppy, so there has to be a file on each that is not on the other. The A:
@@ -8227,6 +8236,7 @@ doscom: $(BUILD)/dostype360.img $(BUILD)/doscom360.img $(BUILD)/dosexe360.img $(
         $(BUILD)/dosargs360.img $(BUILD)/doslnk360.img \
         $(BUILD)/dosdrv360.img $(BUILD)/dosdrvsys.img \
         $(BUILD)/dosfcb360.img $(BUILD)/dosren360.img $(BUILD)/dossh360.img \
+        $(BUILD)/dospsp360.img \
         $(BUILD)/dosshrink360.img $(BUILD)/doslong360.img \
         $(BUILD)/dosrange360.img $(BUILD)/irqgrab360.img
 
