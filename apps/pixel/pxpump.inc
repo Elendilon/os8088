@@ -543,9 +543,10 @@ px_rnext:
     pop bx
     pop ax
     ret
-    nop                             ; PARITY PAD, never executed (MC7's
-                                    ; odd count above: the routines below
-                                    ; keep their measured even shift)
+                                    ; (no PARITY PAD here since PXSUB lost its
+                                    ; refusal arm: four bytes, and the `jz
+                                    ; .end` above went short with them - seven
+                                    ; in all, which the pad's one evens out)
 
 ; =============================================================================
 ; THE SERVICES a decoder PART far-calls on the worker (SPEC.md 106.18). Each

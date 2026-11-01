@@ -1886,7 +1886,8 @@ x3c_start:
     xor cx, cx                      ; kern_mega a selector that moves with the
     call OSAPI_SEG                  ; ring's claim (KERN-MEGA-MEMORY-PLAN MC7)
     pop bx
-    mov [x3c_sseg], dx
+    jc .nomem                       ; (no LDT entry: DX kept, the RING's -
+    mov [x3c_sseg], dx              ; the stage never written over it)
     call x3c_tmpname                ; X3nnnnnn.TMP, free here
     jc .wrerr
     call x3c_hdr                    ; the header cluster at the stage's 0
@@ -1937,6 +1938,9 @@ x3c_start:
 .nomem:
     mov word [x3c_err], ap_s_nomem
     jmp short .fail
+    nop                             ; (never run: the stage's `jc .nomem`
+                                    ; above is five bytes, and what follows
+                                    ; keeps its even shift)
 .wrerr:
     mov word [x3c_err], x3c_s_cantw
     jmp short .fail

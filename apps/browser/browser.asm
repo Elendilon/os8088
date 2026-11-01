@@ -6195,7 +6195,11 @@ br_pfree:
 ; br_srcat - ES:SI = the source claim's byte DX:AX, normalized (SI < 16)
 ; clobbers AX, CX, DX. The sum on an 8088; on kern_mega the parser's bound
 ; window, aimed at the byte's paragraph - one kernel call a REMAP, which the
-; parser makes once per 32 KiB of source.
+; parser makes once per 32 KiB of source. CF=1 (kern_mega only) that window
+; could not be made, ES the claim: only the FIRST remap can be refused, a
+; re-aim of a window that exists never is, so br_srcmap takes it as the end
+; and br_srcptr, which follows a map, cannot meet it. CF=0 on an 8088: the
+; sum never carries
 br_srcat:
     mov si, ax
     and si, 0x000F
@@ -7674,6 +7678,9 @@ br_srcmap:
     mov ax, [br_srcpos]
     mov dx, [br_srcpos+2]
     call br_srcat                   ; ES:SI, segment-normalized (SI < 16)
+    jc .end                         ; (kern_mega, no LDT entry for the parser's
+                                    ; window: the page ends here, never parsed
+                                    ; out of the claim's start - br_bwaim's ES)
     mov [br_srcstart], si
     mov byte [br_winseam], 0
     mov word [br_srcwinlen], 0xC000

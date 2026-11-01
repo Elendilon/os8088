@@ -140,4 +140,10 @@
 # 2026-11-01: to 3,357, mega_parkcap (a debugger's cap) MEGADIAG=1 only
 # 2026-11-01: to 3,231, bootonce2: the four refusal strings into `.mega`,
 #             read at a refusal through `.mega`'s low copy (-124 `.text`)
-3231
+# 2026-11-01: +58, to 3,289, the review fixes (docs/reports/CODE-REVIEW-
+#             TWO-CYCLES-2026-11-01.md finding 1 and its lows): fsx_rtick
+#             chains the ROM's int 08h on sch_chstack as sch_isr does
+#             (SPEC.md 8.5) - it runs in REAL mode inside the bracket, so it
+#             is low by necessity. The speaker close that came with it runs
+#             in protected mode and is in `.mega` (fsx_rspkf)
+3289
