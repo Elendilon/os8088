@@ -827,8 +827,7 @@ fmv_get_dir:
     mul cx                      ; index <= DSK_NENT so DX is 0, and it is
     pop dx                      ; banked because this routine's contract is
     mov si, ax                  ; "clobbers SI"
-    mov di, dsk_ent
-    mov cx, DSK_DE_STRIDE
+    mov di, dsk_ent             ; CX is still DSK_DE_STRIDE: `mul` writes DX:AX
     call fmv_copy_in
     pop di
     pop cx
@@ -6922,10 +6921,8 @@ fm_dgdrop:
                                 ; drive, fail FERR_NODISK and look inert
     call fm_hit                 ; AX = directory index, CF=1 = not a row
     jc .have
-    push bx
-    call fmv_gdtype             ; SI -> the staged entry (SPEC.md 19)
-    pop bx
-    jb .have                    ; a file: into the window's folder
+    call fmv_gdtype             ; SI -> the staged entry (SPEC.md 19); BX is
+    jb .have                    ; fmv_get_dir's to keep (kernel size pass 16)
     mov bx, [si+18]             ; a folder (or '..'): into THAT one
 %ifdef FM_MSEL
     jne .have                   ; ('..' is never in a list: fm_armset's walk)

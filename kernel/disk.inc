@@ -3255,20 +3255,12 @@ dsk_vol_add:
     mov [bx+DV_SECS], cx
     mov byte [bx+DV_FLAGS], 1   ; shown on the desktop
     lea di, [bx+DV_LBL]         ; the label is INLINE, so this is the copy
-    mov cx, 7                   ; and there is nothing to point at
+    mov byte [di], 0            ; and there is nothing to point at
     or si, si
-    jz .named                   ; no label: desk_caprect derives 'Disk X'
-.copy:
-    mov ah, [es:si]
-    mov [di], ah
-    or ah, ah
-    jz .named
-    inc si
-    inc di
-    loop .copy
-.named:
-    mov byte [di], 0            ; (one terminator for all three ways here)
-.live:
+    jz .live                    ; no label: desk_caprect derives 'Disk X'
+    mov cx, 7                   ; ...else fm_ncpye, SPEC.md 4's counted copy
+    call fm_ncpye               ; with its source at ES:SI: at most 7 and the
+.live:                          ; NUL always (it was spelled here, pass 16)
     mov al, [dsk_vcls]          ; which CLASS serves this row - the fence
     mov [bx+DV_CLASS], al       ; matched the caller's segment against a
                                 ; publication slot and left the class here
@@ -8382,9 +8374,8 @@ dsk_up_x:
     cmp word [ss:dsk_secbuf + DSK_DE_SIZE], '..'   ; entry 1 is '..' by spec
     jne .bad
     mov ax, [ss:dsk_secbuf + DSK_DE_SIZE + DSK_R_CLUS]
-    cmp [dsk_maxclus], ax       ; 0 (the root) or a walkable cluster; a
-    jb .bad                     ; corrupt '..' must not become a cwd. Not
-    ret                         ; taken: maxclus >= AX, so CF=0 is the answer
+    cmp [dsk_maxclus], ax       ; ...and CF IS the answer, so a jb to .bad's
+    ret                         ; stc only said it again (kernel size pass 16)
 .bad:
     stc
     ret
@@ -9624,11 +9615,8 @@ section .cold
 ; out:      ico_keyb holds it; nothing else (all registers preserved)
 ; -----------------------------------------------------------------------------
 ico_key_of:
-    push ax
-    push cx
+    call kentc_di               ; nothing out: the ladder's frame (pass 16)
 %ifdef OS88_ASSOC
-    push si
-    push di
     mov ax, [si+20]             ; the size FIRST, while SI is still the entry
     mov [ico_keyb+ICO_R_SIZE], ax
     call assoc_stem_of          ; ...and SPEC.md 54.2's stem of its name, which
@@ -9640,10 +9628,7 @@ ico_key_of:
     mov si, di
     mov di, ico_keyb
     call dsk_ncopy8             ; DS:SI -> DS:DI, SPEC.md 4's counted copy
-    pop di
-    pop si
 %else
-    push di
     mov di, ico_keyb
     mov cx, 12                  ; the 8.3 name as 19.1 staged it, NUL-padded
     call dsk_ncopy              ; DS:SI -> DS:DI, THROUGH DS BOTH WAYS and not
@@ -9661,11 +9646,8 @@ ico_key_of:
                                 ; order wrong once doing it
     mov ax, [si+20]
     mov [ico_keyb+ICO_R_SIZE], ax
-    pop di
 %endif
-    pop cx
-    pop ax
-    ret
+    jmp kretc_di
 
 %ifdef OS88_ASSOC               ; kern_small composes no document icon at all
                                 ; (SPEC.md 54.0), so its only caller is out

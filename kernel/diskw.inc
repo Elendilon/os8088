@@ -780,9 +780,7 @@ dskw_mkbody:
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
 dskw_zerobuf:
-    push ax
-    push cx
-    push di
+    call kentc_bp
     push es
     push ss
     pop es
@@ -791,11 +789,7 @@ dskw_zerobuf:
     xor ax, ax
     cld
     rep stosw
-    pop es
-    pop di
-    pop cx
-    pop ax
-    ret
+    jmp kretc_es
 
 ; -----------------------------------------------------------------------------
 ; dskw_dotents - build a new directory's first sector in dsk_secbuf
@@ -1610,8 +1604,10 @@ dskw_wbody:
 .rollback:
     call dskw_refat             ; drop the half-built chain: invalidate the
     stc                         ; FAT window. It keeps AX, the error
+.rbret:                         ; (dskw_wdata's nothing-to-write exit, pass 16)
     ret
 
+dskw_wdata:
 ; -----------------------------------------------------------------------------
 ; dskw_wdata - allocate the chain and write the bytes into it
 ; in:  [dskw_rem] = sectors, [dskw_tail] = bytes in a partial final sector,
@@ -1649,7 +1645,6 @@ dskw_wbody:
 ; half-built chain is rolled back by dskw_refat and nothing that was not
 ; written needs unwriting.
 ; -----------------------------------------------------------------------------
-dskw_wdata:
     xor ax, ax                  ; AX is this routine's OUTPUT and never its
     mov [dskw_first], ax        ; input - the contract above says so - so the
     mov [dskw_prev], ax         ; four stores are the accumulator's: 15 bytes
@@ -1664,9 +1659,7 @@ dskw_wdata:
     mov [dskw_czsrc], ax        ; the run moves [dskw_src] itself, so the
 %endif                          ; stamp reads the header from here (14.27)
     cmp word [dskw_rem], 0
-    jne .go
-    ret                         ; an empty file owns no clusters at all, and
-                                ; CF = 0 out of the compare with 0
+    je dskw_wbody.rbret         ; nothing to write: CF = 0, out of the compare
 .go:
     mov bp, .clus               ; dskw_xclus's continuation: where it goes
                                 ; for the next cluster (see dskw_rdata)
@@ -1791,9 +1784,7 @@ dskw_runadd:
 ; and the FAT window both go through disk_read, not through here).
 ; -----------------------------------------------------------------------------
 dskw_flushrun:
-    push ax
-    push bx
-    push cx
+    call kentc_bp
     push es
     mov cx, [dskw_rlen]
     jcxz .out
@@ -1838,11 +1829,7 @@ dskw_flushrun:
 .out:
     clc                         ; the answer first, then ONE pop ladder: a
 .pop:                           ; `pop` writes no flag
-    pop es
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_es
 
 ; -----------------------------------------------------------------------------
 ; dskw_clba_inc - the data walk's cursor, one sector on, in 32 bits
@@ -1881,10 +1868,9 @@ dskw_last_p:
     cmp word [dskw_tail], 0
     je .no
     cmp ax, ax                  ; ZF=1
-    jmp short .out
+    ret
 .no:
     or ax, 1                    ; ZF=0
-.out:
     ret
 
 ; -----------------------------------------------------------------------------
