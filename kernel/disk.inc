@@ -8861,8 +8861,7 @@ dsk_docpass:                    ; `dsk_icopass`'s reason for having no
 .dp_next:
     inc dx
     jmp .dp
-.dp_done:
-    ret
+.dp_done equ dsk_icopass.ip_done   ; its neighbour's ret (kernel size pass 16)
 
 %ifdef OS88_IMG
 ; -----------------------------------------------------------------------------
