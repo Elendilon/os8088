@@ -1309,12 +1309,6 @@ assoc_run_x:
     call assoc_sweep            ; program for it - AL = that slot
     jc .noassoc
 .known:
-%ifdef ASSOC_W16SNIFF
-    cmp al, ASSOC_DOS           ; DESIGN 2's PROTOTYPE (docs/plans/DOS-PARTS-
-    jne .nosniff                ; PLAN.md 4.6) - assembled by nothing that
-    call assoc_nesniff          ; ships: the KERNEL reads the header of every
-.nosniff:                       ; document DOS would open and re-points an NE
-%endif                          ; at WIN16 before any package is read
     push ax
     call assoc_locate           ; AX = the program's index, and we are in its
     jc .nofile                  ; directory
@@ -1427,97 +1421,6 @@ assoc_run_x:
 .out:
     pop ax                      ; the extra word this routine banked itself...
     jmp kretfc_es               ; ...and then the canonical eight (kernel.asm)
-
-;
-%ifdef ASSOC_W16SNIFF
-; -----------------------------------------------------------------------------
-; assoc_nesniff - DESIGN 2's prototype (docs/plans/DOS-PARTS-PLAN.md 4.6),
-;                 LOST to the loader's own test and kept only to be measured
-; in:  AL = ASSOC_DOS, the document in assoc_dblk
-; out: AL = ASSOC_W16 when the document is an NE, else unchanged
-; clobbers: BX, CX, DX, SI, DI, BP, flags (assoc_run_x's KENT banked them)
-;
-; dosw16.inc's test in the kernel: stand where the document is (assoc_back,
-; quiet), claim a cluster, READ_AT the first one and the one holding
-; e_lfanew. The two slots are HARD-CODED - built-in rows 4 and 5 - which is
-; the half of the design this does not cost: saying "an NE opens with WIN16"
-; without naming either needs an ASSOC.DAT row kind keyed on a signature.
-; -----------------------------------------------------------------------------
-ASSOC_DOS equ 4
-ASSOC_W16 equ 5
-assoc_nesniff:
-    push ax
-    push es
-    call assoc_back             ; the document's own folder, quiet
-    mov al, [dsk_spc]
-    xor ah, ah
-    cmp ax, 64
-    ja .no
-    mov bp, ax
-    inc ax
-    shr ax, 1                   ; KB, at least one
-    mov bx, MEM_K_ASC
-    call mem_claim_x            ; DX = a cluster's worth
-    jc .no
-    mov cl, 9
-    shl bp, cl                  ; BP = the cluster in bytes
-    mov es, dx
-    push dx
-    mov cx, bp
-    xor bx, bx
-    xor ax, ax
-    xor dx, dx
-    mov si, assoc_doc
-    call dskw_read_at_x         ; DX:AX = delivered
-    jc .free
-    mov cx, ax
-    cmp ax, 0x40
-    jb .free
-    cmp word [es:0], 0x5A4D     ; 'MZ'
-    jne .free
-    cmp word [es:0x18], 0x40
-    jb .free
-    cmp word [es:0x3E], 0
-    jne .free
-    mov ax, [es:0x3C]
-    test al, 1
-    jnz .free
-    mov dx, bp
-    dec dx
-    mov di, ax
-    and di, dx                  ; DI = e_lfanew within its cluster
-    not dx
-    and ax, dx
-    jz .have
-    mov cx, bp
-    xor bx, bx
-    xor dx, dx
-    mov si, assoc_doc
-    call dskw_read_at_x
-    jc .free
-    mov cx, ax
-.have:
-    lea ax, [di + 2]
-    cmp cx, ax
-    jb .free
-    cmp word [es:di], 0x454E    ; 'NE'
-    jne .free
-    pop dx
-    mov bx, MEM_K_ASC
-    call mem_free_x
-    pop es
-    pop ax
-    mov al, ASSOC_W16
-    ret
-.free:
-    pop dx
-    mov bx, MEM_K_ASC
-    call mem_free_x
-.no:
-    pop es
-    pop ax
-    ret
-%endif
 
 ; -----------------------------------------------------------------------------
 ; assoc_handover - the window is up; tell the package to spend its document
