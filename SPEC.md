@@ -27467,12 +27467,18 @@ unlock:
   counted its reads up to twice. Against one operation's scale that is not
   invisible: an install's bar filled at 74-88% of the job. Each served
   sector is now counted once, when it reaches its caller.
-- **The installer's estimate** (HDDTOOL.DRV `hd_iop_go`) is the source's
-  used sectors read once and written once, plus an eighth. The kernel counts
-  what it moves, and an install also writes each file's directory entries
-  and rounds each file up to the hard disk's larger cluster: 106-115% of the
-  bare count on `tests/install.py`'s three installs, so the eighth lands the
-  bar at 94-98% of the job.
+- **Nor is the FAT or the root directory** (`dsk_fpgdata`: a run starting
+  below `[dsk_datalba]`, on both the int 13h and the driver arm). An
+  operation's phases carry the volume's own bookkeeping - the free-cluster
+  search, an overwritten file's chain freed, FAT window loads - and how much
+  depends on the volume's HISTORY, not on the operation: on a 20MB ST-225
+  three installs old, an upgrade counted 2,201 steps against a 1,530 scale
+  and filled the bar at 69% of the copy, where a fresh volume took 1,502.
+  Counting the data area alone, both come to the installer's own estimate -
+  HDDTOOL.DRV's `hd_iop_go`, the source's used sectors read once and
+  written once - within 2%, and the bar fills at 98-100% of the job on
+  either. The field reported this one, and found it: the fresh disks the
+  rows install onto cannot show it.
 - **`fpg_finish` clears the whole byte** and with it the operation, so there
   is still no bracket to forget. `fcp_xfer` is the first caller: one
   operation per file, twice the source's size.

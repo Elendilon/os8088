@@ -1710,17 +1710,8 @@ hd_iop_go:
     call OSAPI_VOL_STAT         ; AX = sectors a cluster, BX = free, DX = all
     jc .out
     sub dx, bx
-    mul dx                      ; DX:AX = the used sectors...
-    mov bx, ax                  ; ...and an EIGHTH more: the kernel counts
-    mov si, dx                  ; every sector it moves, and the copy also
-    mov cx, 3                   ; writes each file's directory entries and
-.e:                             ; the FAT, and rounds each file up to the
-    shr si, 1                   ; HARD DISK's cluster, which is the larger.
-    rcr bx, 1                   ; Measured 106-115% of the bare used count
-    loop .e                     ; on the three installs tests/install.py
-    add ax, bx                  ; makes; this lands each within a few
-    adc dx, si                  ; percent, and the bar reaches the end
-    mov cx, 10                  ; ...x 1024: read once and written once
+    mul dx                      ; DX:AX = the used sectors
+    mov cx, 10                  ; ...x 1024
 .x:
     shl ax, 1
     rcl dx, 1
