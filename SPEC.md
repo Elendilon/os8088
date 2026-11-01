@@ -26976,14 +26976,13 @@ as the user leaves it.
 the point it turns**: `fpg_finish` (the widget down and its cells given back,
 `[fpg_warm]` zeroed so the next freeze warms up from nothing) and, when the
 clock is worn, `cur_shape_set` back to `[cur_shprev]`. That is
-`STIKMENU.DRV`'s `stm_thaw`, which `stm_loadpics` falls into - so after the
-drop's load and scan and after each page turn's reads - with the pointer off
-the glass or owed a hide, `cur_shape_set`'s precondition (gfx_lock's promise
-at the drop, `stm_loop`'s own `cursor_hide` at a turn). The panel's
-`cur_unlazy` and `cursor_show` then put the ARROW up. It also makes a turn
-whose reads armed the clock balance: the clock's DOWN arm used to show the
-pointer underneath `stm_loop`'s hide, and its own show then took the refcount
-to +1 for the rest of the hold.
+`STIKMENU.DRV`'s `stm_thaw`, which `smn_track` calls once the drop's load
+and scan are done, with the pointer off the glass or owed a hide,
+`cur_shape_set`'s precondition (gfx_lock's promise). The panel's
+`cur_unlazy` and `cursor_show` then put the ARROW up. A page turn reads
+nothing since 110.12.2's pictures came in with the scan, so it has no
+freeze to end; when it did read, the thaw after it is also what balanced a
+clock its reads had armed.
 
 **`fpg_finish` stays callable from exactly the sites that say why** - this is
 the third, after `gfx_unlock` and `fsx_run` - and only at a point where the
@@ -217541,17 +217540,18 @@ IMAGE (`DRVC_IMG`), which is a floppy's contents. On each: its root quietly
 `dsk_find_x` by ordinal - stateless, so the header peeks between the calls
 cannot disturb it - and for each `.O88` its first sector (`dsk_peek_x`, 512
 bytes). It is LISTED when its magic is `'O8'`, bit 7 is set, the file holds
-the whole card and the card passes the menu's own check (`stm_cardok`: the
-validator's tests less "zeros after the NUL"). A NAME already listed is
-skipped, so the boot volume's copy wins over a hard disk's. **Up to
-`STM_MAX` = 64 are listed** - the owner wants many - and the machine's own
-place is banked round the whole walk (`drv_vol_bank`). An entry keeps its
-card's TEXT (96 bytes: the volume, the file, the program name, the name, the
-description and the first cluster); the 32x32 PICTURES are read again, out
-of each file's first sector, for the page on show only (`stm_loadpics`, at
-most `STM_PGMAX` = 8 of them) - on a floppy the scan's own reads are still in
-the track cache for the first page. 64 whole cards would not fit the
-module's 16 KB ceiling (`MOD_MAX_KB`); 64 entries do.
+the whole card, the card's magic and version are `'SA'`, 1, and its name is
+not empty. The rest of `stik_card_problem` is not ASKED but made harmless:
+the copy NUL-ends both fields whatever the file says, and `stm_text` letters
+an unprintable byte as a space - so a hostile card can letter garbage but
+cannot widen the panel past `STM_STRMAX`. A NAME already listed is skipped,
+so the boot volume's copy wins over a hard disk's. **Up to `STM_MAX` = 8 are
+listed** - the tree ships three - and the machine's own place is banked
+round the whole walk (`drv_vol_bank`). An entry is the WHOLE card bar its
+magic (220 bytes: the volume, the file, the program name, then the name, the
+description and the 32x32 picture in one copy, the card's own order), so
+the scan is the only disk work: a page turn reads nothing. Raising
+`STM_MAX` costs 220 bytes of the image an entry; nothing else changes.
 
 An App is **RUNNING** when a live package instance's `I_NAME` - its header's
 program name, the loader's copy - is the App's: `stik_single`'s test (§110.5.2)
@@ -217583,15 +217583,17 @@ the ROM 8x8 off `[font_seg]:[font_base]`; the Apps' names are BOLD (each row
 ORed with itself one pixel right); the tick is an 8x8 with 2-px strokes,
 which a 1bpp adapter keeps (§13.16.2.1).
 
-- **Three layouts**, by the primary's height (`[vid_ph]`), the widget's own
-  thresholds (§110.11): **TALL** at 400 rows or more (VGA) is the owner's
-  mockup - a 56-row App with the picture and the name-and-description block
-  both centred on its middle, the name and the description 18 rows apart,
-  18-row items, 11-row rules and two cells of margin; **MID** at 300-399
-  (Hercules, EGA) is a 40-row App with one cell of margin; **COMPACT** below
-  that (CGA's 200) is a 20-row App whose picture is its row PAIRS ORed, 16
-  rows, which on CGA's tall pixels is about square. Each layout carries its
-  own rows AND columns (`LY_*`), so the composers name no number.
+- **Two layouts**, by the primary's height (`[vid_ph]`): **MID** at 300 rows
+  or more (VGA, EGA, Hercules) is a 40-row App with the whole 32-row picture
+  and one cell of margin; **COMPACT** below that (CGA's 200) is a 20-row App
+  whose picture is its row PAIRS ORed, 16 rows, which on CGA's tall pixels is
+  about square. Each layout carries its own rows AND columns (`LY_*`), so
+  the composers name no number. One layout cannot serve both: MID's picture
+  is 32 CGA rows, 2.4 times too tall, and leaves room for two Apps there;
+  COMPACT's squashes the picture to half height on square pixels. A third,
+  **TALL** - the owner's mockup's air on VGA, a 56-row App - was taken out
+  in the module's size pass: 22 bytes of table, 832 of band, and a VGA panel
+  that needed its save-under in TWO segments, for margin alone.
 - **The width** is the widest name or description in cells plus the
   layout's furniture either side of it (the margin, the picture and the gap
   left of the text; the gap, the right column and the frame right of it),
@@ -217605,16 +217607,19 @@ which a 1bpp adapter keeps (§13.16.2.1).
   for the next click: its pictures are read, every App slot and the pager
   are recomposed, and nothing else is drawn, because every page has the same
   slots - a short last page's empty ones are the frame alone and no pick.
-  On VGA that is five a page, on Hercules and EGA five, on CGA four.
-- **The save-under is up to TWO parts**: the rows one segment holds
-  (`STM_SAVEMAX` = 61,440 bytes, so `gfx_save` cannot wrap) and the rest. A
-  paged VGA panel is 440 rows, ~80 KB, so it takes both; one smaller takes
-  one. Either refused, neither is kept and the close repaints.
-- **The save-under's first part is `menu_drop`'s** (§12.4.2): `[menu_sseg]`,
-  `MEM_P_MSAVE`, `menu_reloc`, sized from the rect - ~34 KB on VGA and ~4 KB
-  on CGA for one App - and its second, when there is one, the module's own
-  `MEM_K_MOD` claim, freed at the close. A part shed while the menu is down
-  makes the close a repaint, with `menu_drop`'s `[menu_bdirty]` care. An open dock's hole is put away while it is down
+  The panel's height is ALSO capped at what one segment of save-under holds
+  (below), so on VGA, whose save-under row is four planes, eight Apps page
+  at six; Hercules and CGA hold five.
+- **The save-under is ONE part, and it is `menu_drop`'s** (§12.4.2):
+  `[menu_sseg]`, `MEM_P_MSAVE`, `menu_reloc`, sized from the rect - ~35 KB
+  for three Apps on VGA, under 9 KB on Hercules and CGA - and never over
+  `STM_SAVEMAX` = 61,440 bytes, so `gfx_save` cannot wrap: `stm_layout` caps
+  the rows it lays out at that. Refused, or shed while the menu is down, the
+  close repaints, with `menu_drop`'s `[menu_bdirty]` care. There is no
+  shared save-under routine for the module to call: `menu_drop`'s claim,
+  save, restore and free are written inline in resident `.text`, and lifting
+  them into a routine both could call would spend resident bytes to save
+  temporary ones. An open dock's hole is put away while it is down
   (§30.6.1).
 - **The theme**: the band is composed 1 = ink and put in the pen's polarity -
   Bright and Windows keep the default pen and invert the band (the blit's
@@ -217667,7 +217672,7 @@ fallback, no `DESK.DRV`) is listed and toggled but not arranged or hidden.
 | kern_big | **+72** | **+8** | **+47** | image 272 (352), cold 78 (125) |
 | kern_emu | +72 | +8 | +47 | image **13** (93), cold 78 (125) |
 | kern_small | 0 | 0 | +8 | image 429 (429), cold 46 (54): the card's ladder step alone |
-| `STIKMENU.DRV` (on demand) | | | | 4,040 bytes on the disk ('CZ'), a 14,758-byte image - most of it the scratch (64 entries, a page of pictures, the band), zeros that pack to nothing and come back zero at every load - a 15 KB claim from the press to the act, beside the save-under |
+| `STIKMENU.DRV` (on demand) | | | | 3,609 bytes on the disk ('CZ'), a 7,888-byte image: 3,626 of code, 328 of tables and strings, and the scratch - 1,760 for 8 entries, 1,960 for the band - zeros that pack to nothing and come back zero at every load. An **8 KB** claim from the press to the act, beside the save-under. It was 14,780 and 15 KB before the size pass, which took `STM_MAX` 64 -> 8, the TALL layout, the second part of the save-under, the picture re-read and most of the card check |
 
 The `.text` is the title, the two set entries (one since §22.28.1 took the
 Disk window's back out, -6), `menu_track`'s test, `CMD_STIK`
@@ -217681,7 +217686,7 @@ room to save; §24.3.1.3 took Mines off that disk, and it is 346, 8 free.
 #### 110.12.6 What is not done
 
 - **Hercules is not looked at on the glass here**: QEMU cannot show it
-  (docs/HERCULES-TESTING.md). Its layout is TALL on 1bpp, the two halves
+  (docs/HERCULES-TESTING.md). Its layout is MID on 1bpp, the two halves
   CGA and VGA each check; a MartyPC or 86Box look is owed.
 - **One of the other Apps in the mockup** (Calculator) is not built: the
   menu lists what `STIKAPPS\` holds, so today it lists three - the Desk
@@ -217693,7 +217698,7 @@ room to save; §24.3.1.3 took Mines off that disk, and it is 346, 8 free.
   walk and one header peek per App. That is what makes a newly copied App
   appear with no refresh; on a floppy with MANY Apps it is a peek apiece
   (~400 ms each where the track cache misses), so the scan is the thing to
-  cache when a machine first carries dozens.
+  cache if `STM_MAX` is ever raised far past eight.
 
 `tests/stikmenu.py` is the row (soak): one boot of the VGA XT on the shipped
 360 KB system disk, the panel read out of the module's own image, and every
