@@ -176935,8 +176935,8 @@ second. Three changes take it to **11,305 (2.4 ms) on Hercules and 12,429
   `AX` (first column) and `CX` (count); the band stays column-indexed with its
   stride of 80, so a span's x is `[con_px] + 8*first` and its width `8*count`
   — both multiples of eight by construction, which is all §5.4.2 asks. A colour
-  row's run walk stops at the span's end; `con_row` is the whole row and is
-  still what a span that is not one (`dc0 > dc1`) gets. Compose is **1,629**
+  row's run walk stops at the span's end; a span that is not one
+  (`dc0 > dc1`) still gets the whole row, as columns 0..255 cut to the box. Compose is **1,629**
   cycles for one cell and the blit **6,847**.
 - **`con_rows_owed` reads the bitmap before it takes it**: a byte's eight bits
   are snapshotted without the `cli` and only a set one is passed to
@@ -176967,7 +176967,7 @@ has drawn no caret since the extraction. Nothing compared the glass with a
 repaint, so every row passed. `tests/doswcell.py` does now: after 48
 incremental updates it forces every row whole from the host and wants the band
 **identical to the pixel**, and wants the two scanlines under the caret lit -
-red with `con_rows_owed` calling `con_row` (67,869 cycles against a 20,000 budget), red
+red with `con_rows_owed` drawing every owed row whole (67,869 cycles against a 20,000 budget), red
 with `con_curmove` removed (32 stale pixels under the caret's old cells) and red
 with the old `mov al, ch` back (0 of 8 lit).
 

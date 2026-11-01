@@ -68,22 +68,23 @@ dwm_by      equ dwm_own + 8                 ; word: ...and top, on the screen
 ; clears.
 ; -----------------------------------------------------------------------------
 dwm_start:
-    mov word [dwm_own], 0           ; dwm_own and dwm_last...
-    mov word [dwm_wasf], 0          ; ...and both samples "behind"
     push es
     push ax
-    mov ax, 0x40
+    xor ax, ax
+    mov [dwm_own], ax               ; dwm_own and dwm_last...
+    mov [dwm_wasf], ax              ; ...and both samples "behind"
+    mov [dos_m33dv], ax
+                                    ; ([dos_m33hk] is dos_hook_vectors' to
+                                    ; clear now, for every run, SPEC.md
+                                    ; 96.54.8 - it was cleared here, for the
+                                    ; window's runs only)
+    mov al, 0x40                    ; AX = 0040h: AH is the 0 above
     mov es, ax
     mov ax, [es:0x6C]
     dec ax                          ; a tick that is not now: the first read
     mov [dwm_tick], ax              ; samples
     pop ax
     pop es
-    mov word [dos_m33dv], 0
-                                    ; ([dos_m33hk] is dos_hook_vectors' to
-                                    ; clear now, for every run, SPEC.md
-                                    ; 96.54.8 - it was cleared here, for the
-                                    ; window's runs only)
     mov word [dos_hkv + DHK_MOUSE], dwm_mouse
     mov word [dos_hkv + DHK_TXT], dwm_txt
     ret
@@ -117,15 +118,23 @@ dwm_kick:
 ; dwm_txt - DHK_TXT for a run in the window: none, and nothing left drawn
 ; -----------------------------------------------------------------------------
 dwm_txt:
-    cmp byte [dvw_run], 0
-    je .desk
-    cmp byte [dvw_fs], 0
-    jne .desk                       ; the full screen has the bracket's text
+    call dwm_desk
+    jc .desk                        ; the full screen has the bracket's text
     mov word [dos_m33dv], 0         ; screen, and the bracket's hook
     stc
     ret
 .desk:
     jmp dos_hk_txt
+
+; --- dwm_desk - CF=0 = a run IN THE WINDOW, CF=1 = no run or the full screen -
+; [dvw_run] set and [dvw_fs] clear; both hooks' first question
+dwm_desk:
+    cmp byte [dvw_run], 1
+    jb .r                           ; no run: CF=1
+    cmp byte [dvw_fs], 1            ; CF=1 when NOT on the full screen...
+    cmc                             ; ...and the other way up
+.r:
+    ret
 
 ; -----------------------------------------------------------------------------
 ; dwm_mouse - DHK_MOUSE for a run in the window
@@ -153,85 +162,57 @@ dwm_txt:
 ; program read nothing has its first click after that swallowed too.)
 ; -----------------------------------------------------------------------------
 dwm_mouse:
-    cmp byte [dvw_run], 0
-    je .desk
-    cmp byte [dvw_fs], 0
-    je .win
-.desk:
+    call dwm_desk
+    jnc .win
     jmp dos_hk_mouse                ; the full screen: the bracket's scale
 .win:
     push ax
     push si
-    push di
-    push bp
     push es
     mov ax, 0x40
     mov es, ax
     mov ax, [es:0x6C]               ; the BIOS tick, low word
+    pop es
     cmp ax, [dwm_tick]
     je .cached
     mov [dwm_tick], ax
     call dwm_sample
 .cached:
     call OSAPI_MOUSE                ; CX = x, DX = y, AL = the buttons
-    and ax, 3
-    mov bp, ax                      ; BP = the live mask; bit 7 = NOT OURS
-    mov al, [dwm_frnt]              ; in front at this sample AND the one
-    and al, [dwm_wasf]              ; before; not hidden (dwm_sample folds
-    jnz .elig                       ; that into dwm_frnt)
-    or bp, 0x80
-.elig:
-    mov si, cx
-    mov di, dx
-    sub si, [dwm_bx]                ; SI/DI = the pointer IN the band
-    sub di, [dwm_by]
-    mov cx, [dos_concols]
-    shl cx, 1
-    shl cx, 1
-    shl cx, 1
-    call dwm_clamp                  ; SI into 0..cols*8-1
-    xchg si, di
-    mov cx, [dos_conrows]
-    shl cx, 1
-    shl cx, 1
-    shl cx, 1
-    call dwm_clamp                  ; ...and the y into the rows shown
-    xchg si, di
-    mov ax, [con_vtop]              ; ...from the first buffer row shown
-    shl ax, 1
-    shl ax, 1
-    shl ax, 1
-    add di, ax
-    cmp di, M33_VH - 1
+    and al, 3
+    mov bx, [dwm_wasf]              ; BL = in front at the sample before, BH
+    and bh, bl                      ; = now (0 when hidden, dwm_sample): both
+    neg bh                          ; BH = FF ours, 00 NOT OURS
+    mov bl, al                      ; BL = the live mask
+    xchg ax, cx                     ; AX = the pointer's x...
+    sub ax, [dwm_bx]                ; ...IN the band
+    mov si, [dos_concols]
+    call dwm_clamp                  ; into 0..cols*8-1, which is <= M33_VW-1
+    xchg ax, dx                     ; DX = x, AX = the y in the band
+    sub ax, [dwm_by]
+    mov si, [dos_conrows]
+    call dwm_clamp                  ; ...into the rows shown
+    mov si, [con_vtop]              ; ...from the first buffer row shown
+    mov cl, 3
+    shl si, cl
+    add ax, si
+    cmp ax, M33_VH - 1
     jbe .ycap
-    mov di, M33_VH - 1
+    mov ax, M33_VH - 1
 .ycap:
-    cmp si, M33_VW - 1
-    jbe .xcap
-    mov si, M33_VW - 1
-.xcap:
-    mov ax, bp
-    mov bl, al
-    and bl, 3                       ; BL = the live mask
+    xchg ax, dx                     ; DX = y, AX = x
+    xchg ax, cx                     ; CX = x
     mov ah, [dwm_last]
     mov [dwm_last], bl
     not ah
-    and ah, bl                      ; AH = the buttons gone DOWN since then
-    test al, 0x80
-    jz .ours
-    xor ah, ah                      ; a press that is not the window's
-.ours:
+    and ah, bl                      ; AH = the buttons gone DOWN since then...
+    and ah, bh                      ; ...that are the window's
     mov al, [dwm_own]
     and al, bl                      ; a release lets go wherever it happens
     or al, ah
     mov [dwm_own], al
-    xor ah, ah
-    mov bx, ax
-    mov cx, si
-    mov dx, di
-    pop es
-    pop bp
-    pop di
+    cbw                             ; AH = 0: AL is two bits
+    xchg ax, bx
     pop si
     pop ax
     ret
@@ -275,21 +256,27 @@ dwm_sample:
     ret
 
 ; -----------------------------------------------------------------------------
-; dwm_clamp - SI (signed) into 0..CX-1; BP |= 80h when it had to move
+; dwm_clamp - AX (signed) into 0..SI*8-1; BH = 0 when it had to move
+; clobbers CL, SI. **NO X CAP FOLLOWS IT**: [dos_concols] is at most
+; DOS_CONCOLS (dos_con_geom), so the x it answers is at most M33_VW - 1
 ; -----------------------------------------------------------------------------
+%if DOS_CONCOLS * 8 > M33_VW
+%error "dwm_mouse relies on DOS_CONCOLS * 8 <= M33_VW: put its x cap back"
+%endif
 dwm_clamp:
-    or si, si
-    jns .lo
-    xor si, si
-    or bp, 0x80
-.lo:
-    cmp si, cx
+    mov cl, 3
+    shl si, cl                      ; SI = the cells, in pixels
+    or ax, ax
+    js .zero
+    cmp ax, si
     jb .out
-    mov si, cx
-    or bp, 0x80
-    dec si
-    jns .out
-    xor si, si                      ; no cells at all: the origin
+    mov ax, si
+    dec ax
+    jns .moved
+.zero:
+    xor ax, ax                      ; left of the band, or no cells at all
+.moved:
+    mov bh, 0
 .out:
     ret
 
