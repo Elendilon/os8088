@@ -2390,36 +2390,8 @@ wm_wake_eaten:
 ; drag, resize, full-screen app or sound bracket has finished - which is here,
 ; and is why the wake is only ever DELAYED by one of those and never lost.
 ; -----------------------------------------------------------------------------
-wm_wake_redo:
-    cmp byte [wm_wkdef], 0
-    je  .out                    ; the whole cost on every other pass
-    push bx
-    push cx
-    mov byte [wm_wkdef], 0
-    mov bx, wm_wins
-    mov cx, MAX_WIN
-.l:
-    pushf                       ; the test and the clear are ONE decision, and
-    cli                         ; wm_wake runs on WORKERS (OSAPI_WM_WAKE): a
-    cmp byte [bx+W_WKQ], WKQ_EATEN ; switch between them lets one post a
-    je  .redo                   ; record and set WKQ_RING for this slot, and
-    popf                        ; the clear would then drop that record's flag
-    jmp short .n                ; on the floor and post a SECOND for it
-.redo:
-    mov byte [bx+W_WKQ], WKQ_NONE  ; ...so wm_wake below really posts
-    popf                            ; released BEFORE the call below, which
-                                    ; takes its own guard
-    call wm_wake
-    jnc .n
-    mov byte [bx+W_WKQ], WKQ_EATEN ; the ring was full: still owed, and the
-    mov byte [wm_wkdef], 1          ; next pass tries again
-.n:
-    add bx, WIN_SIZE
-    loop .l
-    pop cx
-    pop bx
-.out:
-    ret
+; (WRITTEN IN ui_task's .events step, its one call: kernel size pass 16.
+; BX and CX are dead there, so the banks went with the call and the ret)
 
 ; -----------------------------------------------------------------------------
 ; wm_wake_disp - dispatch one EVT_WAKE (SPEC.md 74.1); called by ui_task

@@ -265,7 +265,31 @@ ui_task:
                                 ; screen is still in the ring here, and this
                                 ; is what drains it rather than letting it be
                                 ; dispatched at a window nobody could see
-    call wm_wake_redo           ; anything a drag, a resize, a full-screen app
+                                ; wm_wake_redo (wm.inc's banner), written HERE:
+    cmp byte [wm_wkdef], 0
+    je  .wr_done                ; the whole cost on every other pass
+    mov byte [wm_wkdef], 0
+    mov bx, wm_wins
+    mov cx, MAX_WIN
+.wr_l:
+    pushf                       ; the test and the clear are ONE decision, and
+    cli                         ; wm_wake runs on WORKERS (OSAPI_WM_WAKE): a
+    cmp byte [bx+W_WKQ], WKQ_EATEN ; switch between them lets one post a
+    je  .wr_redo                   ; record and set WKQ_RING for this slot, and
+    popf                        ; the clear would then drop that record's flag
+    jmp short .wr_n                ; on the floor and post a SECOND for it
+.wr_redo:
+    mov byte [bx+W_WKQ], WKQ_NONE  ; ...so wm_wake below really posts
+    popf                            ; released BEFORE the call below, which
+                                    ; takes its own guard
+    call wm_wake
+    jnc .wr_n
+    mov byte [bx+W_WKQ], WKQ_EATEN ; the ring was full: still owed, and the
+    mov byte [wm_wkdef], 1          ; next pass tries again
+.wr_n:
+    add bx, WIN_SIZE
+    loop .wr_l
+.wr_done:                       ; anything a drag, a resize, a full-screen app
                                 ; or a sound bracket ate goes back in the ring
                                 ; HERE (SPEC.md 74.1.1) - one byte compare on
                                 ; every pass that ate nothing, which is all of
@@ -2587,6 +2611,14 @@ UI_LOC_N equ 2
 ; stores out now - kernel size pass 14. The contract above is unchanged: one
 ; word store and one bump, drained by ui_task step 3 with nothing held.)
 ui_pcmd:    dw 0                ; posted CMD_*, 0 = none (see above)
+kbd_ovb     db 0                ; SPEC.md 9.8: a beep the keyboard ISR has
+                                ; asked for and no pass has sounded yet.
+                                ; .text with a real initialiser for
+                                ; kbd_armed's reason - the ISR reads it on the
+                                ; machine's first keystroke. HERE and not
+                                ; beside kbd_ovn in mouse.inc (kernel size pass
+                                ; 16): the byte moved puts mou_isr .. ui_task
+                                ; back at their measured parity with no pad
 %ifndef KERN_BIG                ; (kern_big's is in wm.inc, above wm_hit_ttl_b)
 menu_dropd  db 0                ; a pull-down is on the screen (SPEC.md 9.6.3).
                                 ; In .text with a real initialiser rather than

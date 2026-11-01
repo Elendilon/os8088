@@ -3518,9 +3518,10 @@ kbm_poll0:
 ;      stated rather than tightened because SPEC.md 7.1.4.1 is what a routine
 ;      promising more than it keeps costs here.
 ; -----------------------------------------------------------------------------
-kbm_ui:
-    cmp byte [mou_ptr], 0
-    jne .out                    ; a machine with a mouse pays this compare
+kbm_ui:                         ; ui_task tests [mou_ptr] before calling
+                                ; (kernel size pass 16: the second compare
+                                ; that was here went, -8): a machine with a
+                                ; mouse pays that compare and not the call
     call kbm_shf                ; AL = the ScrollLock level, 0 or 10h: the bit
     and al, 0x10                ; itself, which is all [kbm_slast] is compared
                                 ; with (AX is this routine's to spend)
@@ -3541,7 +3542,7 @@ kbm_ui:
     call gfx_unlock
 .relax:
     cmp word [ui_ev + EV_TYPE], EVT_MDOWN
-    jne .p5                     ; .p5 and NOT .out: nothing to release is the
+    jne .p5                     ; .p5, the spend: nothing to release is the
     test byte [mouse_btn], 0x01 ; commonest pass there is, and it is exactly
     jz .p5                      ; the pass a fresh keypad-5 press arrives in
     and byte [mouse_btn], 0xFE  ; bit 1 is the right button's own latch, and is
@@ -3554,8 +3555,6 @@ kbm_ui:
                                 ; the release would be taken back by the very
                                 ; pass that made it (SPEC.md 9.6.4). A tail
                                 ; jump, for kbm_poll0's reason
-.out:
-    ret
 
 ; mou_evfill - stamp an event record at DS:SI and queue it
 ; in:  AX = EVT_*, SI -> an 8-byte record in DS, PRIVATE TO THE CALLER
@@ -3639,10 +3638,14 @@ kbd_dnmap   times KBD_MAPSZ db 0 ; ...and the bit per key. Zeroed again at the
 kbd_ovn     db 0                ; SPEC.md 9.8: beeps this overrun burst has
                                 ; already spent, reset when the buffer next
                                 ; reads empty
-kbd_ovb     db 0                ; ...and one the ISR has asked for and no pass
-                                ; has sounded yet. Both .text with a real
-                                ; initialiser for kbd_armed's reason - the ISR
-                                ; reads them on the machine's first keystroke
+                                ; (...and kbd_ovb, the one the ISR has asked
+                                ; for and no pass has sounded yet, is in
+                                ; ui.inc after ui_task: kernel size pass 16
+                                ; moved the byte to keep every hot routine
+                                ; between here and there at its parity.)
+                                ; .text with a real initialiser for
+                                ; kbd_armed's reason - the ISR reads it on
+                                ; the machine's first keystroke
 
 ; -----------------------------------------------------------------------------
 
