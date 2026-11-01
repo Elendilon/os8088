@@ -178196,6 +178196,13 @@ original shape and is deferred behind the hibernate phase (§14), because a
 program that writes `B8000` directly has to be refused into full screen and
 that decision reads differently once `kern_dos` exists.
 
+**docs/plans/DOS-WINDOWED-PLAN.md is that design, PLANNED and not built**: the
+program on its instance's worker, its vectors and the BDA's video block
+exchanged in and out of the IVT by a stub in `DOS.O88` itself, so the kernel
+spends nothing; several DOS windows at once; and a `B800` writer taken full
+screen live and frozen in its window on the way back, decided by comparing
+the glass against `con_scr`.
+
 ##### 96.34.6 On a kern_mega trip: the same two halves, through a linear address
 
 On kern_mega every program runs on a `kern_dos` trip (96.40.9), and there
