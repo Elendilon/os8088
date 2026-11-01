@@ -2063,8 +2063,10 @@ w16g_setdib:
 
 ; w16_dibhdr - ES:SI = a BITMAPINFO (or BITMAPCOREINFO) -> [w16_dwid],
 ; [w16_dhgt], [w16_dbpp], [w16_dpal], [w16_dstride], and [w16_dmap] its
-; palette as os8088's colours (through the mono map on a 1bpp display).
-; CF=1: not 1 or 4 bits a pixel. Keeps all but AX, CX, DX.
+; palette as os8088's colours (through the mono map on a 1bpp display),
+; biClrUsed entries of it when that is fewer; CX = the offset past the
+; palette, where a packed DIB's bits start. CF=1: not 1 or 4 bits a pixel.
+; Keeps all but AX, CX, DX.
 w16_dibhdr:
     push bx
     push si
@@ -2091,6 +2093,15 @@ w16_dibhdr:
     cmp cl, 4
     jne .no
 .pal:
+    cmp di, 4                       ; an info header: biClrUsed, when it is
+    jne .clr                        ;   fewer than the depth's, is how many
+    mov ax, [es:si + 32]            ;   entries there are (0: all of them)
+    dec ax
+    cmp ax, bx
+    jae .clr
+    inc ax
+    mov bx, ax
+.clr:
     add si, [es:si]                 ; the entries follow the header
     xor di, di
 .pe:
@@ -2121,6 +2132,7 @@ w16_dibhdr:
     shl ax, 1
     shl ax, 1
     mov [w16_dstride], ax
+    mov cx, si
     clc
     jmp short .out
 .no:
