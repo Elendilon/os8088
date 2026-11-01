@@ -27,6 +27,10 @@
 ; table makes that a second back end; direct calls would make it a rewrite
 ; of every file function.
 ; =============================================================================
+%ifdef DOSP_MAP                     ; THE FIRST PASS OF THE WINDOWED PART'S
+[map all DOSP_MAP]                  ; BUILD (SPEC.md 96.54.9): the host's map is
+%endif                              ; what the part names the host by, and what
+                                    ; tools/os88dvwexp.py checks it against
 
 %include "os88api.inc"
 %include "doscall.inc"              ; **EARLY, AND IT HAS TO BE** (SPEC.md
@@ -183,6 +187,22 @@ DOS_MWINW   equ 15                  ; `Run in a window`, in cells (96.32.2.4)
     jnc %1                          ; CF=1 = none of those, so it is the
     call dos_fld_hit                ; arguments box or an environment row
 %endmacro
+; --- AND WHERE THE WINDOWED LAYER LIVES (SPEC.md 96.54.9) -------------------
+; The same three shapes: DVW_SPLIT is the parted host, whose layer is PART 5
+; of DOS.O88 (apps/dos/doswp.asm) and of which only doswr.inc's stubs and the
+; resident pieces of dosw.inc stay here; everything else - build/dos.bin,
+; DOSTRACE, kern_small's plain dos.o88, and -DDVW_NOSPLIT for an A/B - keeps
+; it INLINE, which is the identity shape of apps/dos/doswabi.inc's macros.
+%ifdef DVW
+ %ifdef DOSKPART
+  %ifndef DVW_NOSPLIT
+   %define DVW_SPLIT
+  %endif
+ %endif
+%endif
+%ifdef DVW
+%include "doswabi.inc"              ; ...and its macros, EARLY: HENT() names
+%endif                              ; the layer's entries from here on
 %ifdef DVW
  %define DOS_ACAP dvw_cap           ; dos_run's arena cap (SPEC.md 96.54.2)
 DVW_DEFKB   equ 128                 ; ...a window's, when the user set none
@@ -903,6 +923,9 @@ DER_HAND    equ 8                   ; ARM 3 WAS REFUSED, AND IT IS NEVER ABOUT
                                     ; does no sizing at all - it tears the
                                     ; kernel out and hands the program ~600K,
                                     ; so anything DOS could launch will launch
+%ifdef DVW_SPLIT                    ; kern_big's and kern_emu's only, so it
+DER_DVWP    equ 9                   ; shares DER_RESET's number: the windowed
+%endif                              ; part could not be had (SPEC.md 96.54.9)
 DER_RESET   equ 9                   ; kern_mega (DOS_MEGA's table only): the
                                     ; session came back from a warm reset
                                     ; (KERN-MEGA-DOS-PLAN 10.3.1, W7) and the
@@ -1099,7 +1122,7 @@ dos_entry:
                                     ; console's own launch all stuck at
                                     ; DST_READY with nothing to see
 %ifdef DVW
-    mov ax, dvw_onclose             ; a running program is stopped by a close,
+    mov ax, HENT(dvw_onclose)       ; a running program is stopped by a close,
     call OSAPI_WM_ONCLOSE           ; not orphaned behind a hidden window
 %endif                              ; (SPEC.md 96.54). BX is still the window:
                                     ; every slot preserves it
@@ -1241,7 +1264,7 @@ dos_wake:
 %ifdef DVW
     cmp byte [dvw_run], 0           ; A PROGRAM ON THE WORKER (SPEC.md 96.54):
     je .nodvw                       ; its doors, its paint and its end are
-    jmp dvw_wake                    ; all this wake is for, and nothing else
+    jmp HENT(dvw_wake)              ; all this wake is for, and nothing else
                                     ; may start while it runs. A TAIL CALL:
                                     ; .out is a bare `ret` and nothing is
                                     ; pushed above it (size pass, 96.54.8)
@@ -1507,6 +1530,16 @@ dos_run:
                                     ; compaction pass over a heap this block is
                                     ; already standing in, and pinned it
                                     ; stranded 39.5KB under itself
+%ifdef DVW_SPLIT
+    call dvw_pfetch                 ; **THE WINDOW'S PART** (SPEC.md 96.54.9),
+    jnc .dvwok                      ; here for the network's reason: before the
+    mov al, DER_DVWP                ; arena is sized, so it is placed with the
+    jmp .err                        ; part in the heap - and a REFUSED fetch
+.dvwok:                             ; refuses the run, in the window, rather
+                                    ; than handing the user the full screen
+                                    ; they did not ask for. A run on the full
+                                    ; screen drops the part instead
+%endif
 %endif
 .floor:
     call dos_mem_fix                ; ...and the ARM is the user's, once this
@@ -1762,8 +1795,14 @@ dos_run:
     xchg al, [dvw_want]             ; read and spent in one: the worker takes
     or al, al                       ; it from here, and dvw_wake pays this
     jz .bracket                     ; routine's tail when the program ends.
-    call dvw_start                  ; No worker - the task table full - and
+%ifdef DVW_SPLIT
+    call dvw_pin                    ; the IVT and the worker will name it
+%endif
+    call HENT(dvw_start)            ; No worker - the task table full - and
     jnc .outq                       ; the full screen still works, so that is
+%ifdef DVW_SPLIT
+    call dvw_relax                  ; (...and no run names the part after all)
+%endif
 .bracket:                           ; what it gets. AX is spent: GFX_LOCK
 %endif
     call OSAPI_GFX_LOCK             ; ...and only NOW, because fsx_run wants it
@@ -6158,6 +6197,7 @@ dos_betab:
     dw dos_k_here, dos_k_vkind, dos_k_rseq, dos_k_wseq, dos_k_fsop
 
 %include "dosw.inc"                 ; the live window (SPEC.md 96.54)
+%include "doswr.inc"                ; ...and, parted, its resident half (96.54.9)
 ; dos_hpop_N - the WINDOWED HOST's shared epilogue (SPEC.md 96.54.8): nine of
 ; its routines ended in the same seven pops and a `ret`. The core has its own
 ; two (dos_popa/dos_popb) - it is assembled apart and cannot name this one.
@@ -8137,7 +8177,13 @@ dos_key:
     ; box either. CF = 1 from here means it was ours.
     call dos_abdismiss
     jc .done
-%ifdef DVW
+%ifdef DVW_SPLIT
+    cmp byte [dvw_run], 0           ; **A RUNNING PROGRAM OWNS THE KEYS**, and
+    je .nodvw                       ; what it does with them - the ring, the
+    call hent_dvw_key               ; frozen test, Alt+Enter's post - is the
+    jmp .done                       ; PART's (SPEC.md 96.54.9): its cells
+.nodvw:                             ; decide it. CF=0 (.done's clc)
+%elifdef DVW
     cmp byte [dvw_run], 0           ; **A RUNNING PROGRAM OWNS THE KEYS**
     je .nodvw                       ; (SPEC.md 96.54): into its ring, which
     cmp ax, KSC_ENTER << 8          ; its INT 16h drains - but ALT+ENTER is
@@ -10124,6 +10170,9 @@ dos_errs:
 %ifdef DOS_MEGA
     dw dos_e_reset                  ; DER_RESET: kern_mega's W7
 %endif
+%ifdef DVW_SPLIT
+    dw dos_e_dvwp                   ; DER_DVWP (SPEC.md 96.54.9)
+%endif
 dos_e_goto:  db 'Its folder could not be opened.', 0
 dos_e_mem:   db 'Not enough memory.', 0
 dos_e_hand:  db 'A handover is already under way.', 0
@@ -10137,6 +10186,9 @@ dos_e_reset: db 'The machine was restarted while it ran.', 0
 dos_e_fit:   db 'Not enough RAM - try Setup, "Shut down the OS".', 0
 %ifdef DVW
 dos_e_wfit:  db 'Too big for a window', 0x27, 's 128K - raise Setup', 0x27, 's Memory limit.', 0
+%ifdef DVW_SPLIT
+dos_e_dvwp:  db 'Run in Window could not load its part of DOS.O88.', 0
+%endif
 %endif
                                     ; **IT SAID DOS 3.30'S OWN WORDS**,
                                     ; `Program too big to fit in memory.`,
@@ -11584,6 +11636,9 @@ dos_netrow  equ dos_hbss + DOS_B_NETROW  ; ...and the network part's (96.23.11)
 %ifdef DOS_SETPART
 dos_setrow  equ dos_hbss + DOS_B_SETROW  ; ...and the Setup page's (96.32.2.3)
 %endif
+%ifdef DVW_SPLIT
+dos_dvwrow  equ dos_hbss + DOS_B_DVWROW  ; ...and the window's (96.54.9)
+%endif
 %ifndef KD_BACKEND
 %include "os88pself.inc"            ; op_self, which reads it: the parts
                                     ; standard's OP_SELF read, opted into
@@ -11833,6 +11888,11 @@ DOS_CBASE   equ os88_image_end
 %ifdef DOS_SETPART
     HBSS DOS_B_SETROW, 8         ; ...and the SETUP page's after THAT (SPEC.md
 %endif                           ; 96.32.2.3), the same shape again
+; --- DOS_PART_DVW's row: the windowed layer (SPEC.md 96.54.9) --------------
+%ifdef DVW_SPLIT
+    HBSS DOS_B_DVWROW, 8         ; ...and the WINDOW's after that, the same
+%endif                           ; shape again (dosload.asm's DSLH_DVWROW)
+; --- end DOS_PART_DVW's row -------------------------------------------------
     ; --- THE CONSOLE BAND (SPEC.md 96.32), four words dos_con_geom fills and
     ;     the console wave reads. Not banked "for one paint" like the line
     ;     above: they are the answer to a question about the WINDOW, so
@@ -17014,7 +17074,25 @@ whether it uses the cells or not"
 DVOL_CAP in apps/dos/doscall.inc, which every host reads, and NEVER size the \
 table from DVOL_MAX (SPEC.md 96.44.2.1)"
 %endif
-%ifdef DVW                          ; --- the live window (SPEC.md 96.54) ---
+%ifdef DVW_SPLIT                    ; --- the live window, PARTED (96.54.9) ---
+    ; Only what host code reads while the part may be ABSENT: the rest is
+    ; the part's, laid out by apps/dos/doswcell.inc
+    HBSS DOS_B_DVWF,  6         ; want, run, go, done, spawn, dirty
+    HBSS DOS_B_DVWH,  6         ; three words: the arena cap, the posted
+                                ; door's target and the part's segment
+dvw_want    equ dos_hbss + DOS_B_DVWF + 0   ; Run in Window was asked for
+dvw_run     equ dvw_want + 1    ; a program is on the worker
+dvw_go      equ dvw_want + 2    ; ...UI -> worker: start it (run's PAIR)
+dvw_done    equ dvw_want + 3    ; ...worker -> UI: it ended
+dvw_spawn   equ dvw_want + 4    ; the worker exists, and outlives the part
+dvw_dirty   equ dvw_want + 5    ; the console owes the band a paint
+dvw_cap     equ dos_hbss + DOS_B_DVWH       ; word: this run's arena cap
+dvw_rtgt    equ dvw_cap + 2     ; word: a posted door (HICALL's thunk)
+dvw_pseg    equ dvw_cap + 4     ; word: the part's claim, 0 = not fetched
+%if dvw_go != dvw_run + 1
+ %error "dvw_start sets run and go with one word store"
+%endif
+%elifdef DVW                        ; --- the live window (SPEC.md 96.54) ---
     HBSS DOS_B_DVWF,  24        ; the flag bytes below, in order
     HBSS DOS_B_DVWC,  4         ; the capture's segment, and our CS for FFh
     HBSS DOS_B_DVWSM, 50        ; TopView's row sums, CON_ROWS words (96.54.5:

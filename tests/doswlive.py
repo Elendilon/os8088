@@ -70,7 +70,7 @@ class Dos(object):
         return dosmap.lin(self.m, dosmap.instance(self.m))
 
     def b(self, name):
-        return self.m.read(self.base() + self.dm[name], 1)[0]
+        return dosmap.cellread(self.m, self.dm, self.base(), name, 1)[0]
 
     def rows(self):
         scr = self.m.read(self.base() + self.dm["con_scr"], 80 * 25 * 2)

@@ -78,7 +78,7 @@ def _map(src, defines, incs):
         except OSError:
             pass
     if "os88_image_end" not in out and "start" not in out \
-            and "pn_door" not in out:
+            and "pn_door" not in out and "dvwp_entries" not in out:
         sys.exit("dosmap: %s's map looks empty" % src)
     _CACHE[key] = out
     return out
@@ -158,6 +158,41 @@ def netpart():
     return _map(os.path.join(ROOT, "apps", "dos", "dosnetp.asm"), [],
                 ("apps", os.path.join("apps", "dos"),
                  os.path.join("drivers", "net")))
+
+
+def windowpart():
+    """Every label in DOS's WINDOWED PART (apps/dos/doswp.asm, SPEC.md
+    96.54.9), as an offset in the part's CLAIM - which is `[dvw_pseg]` in the
+    host's map. The layer's own cells (`dvw_fs`, `dvw_cmode`, `dvw_xblk`,
+    the `dwm_*` ...) live there on a shipped DOS.O88; only the cells the host
+    reads while the part may be absent (`dvw_run`, `dvw_dirty`, `dvw_want`,
+    `dvw_pseg` ...) stay in the host. It assembles against the build's own
+    $(BUILD)/doswexp.inc, so build first. kern_mega has no windowed layer."""
+    if os.environ.get("OS88_MEGA"):
+        return {}
+    return _map(os.path.join(ROOT, "apps", "dos", "doswp.asm"), [],
+                ("apps", os.path.join("apps", "dos"), "build"))
+
+
+def cell(m, dm, base, name):
+    """The linear address of DOS cell NAME in a live instance whose host is at
+    linear BASE: the host's own when its map has it, else the windowed part's
+    (`[dvw_pseg]`, SPEC.md 96.54.9) - the INLINE layer (build/dos.o88) keeps
+    every cell in the host and answers from the first arm. None when the
+    cell is the part's and the part is not fetched (no Run in Window yet)."""
+    if name in dm:
+        return base + dm[name]
+    pseg = int.from_bytes(m.read(base + dm["dvw_pseg"], 2), "little")
+    if not pseg:
+        return None
+    return lin(m, pseg) + windowpart()[name]
+
+
+def cellread(m, dm, base, name, n):
+    """N bytes of cell NAME (`cell`); zeros while the part is not fetched,
+    which is every windowed flag's value with no run in a window"""
+    a = cell(m, dm, base, name)
+    return bytes(n) if a is None else m.read(a, n)
 
 
 def network_rerun(m, mouse, settle, dm, who):
