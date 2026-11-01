@@ -1837,72 +1837,95 @@ dos_is_exe:
 
 ; -----------------------------------------------------------------------------
 ; dos_load - read the program into the arena at PSP:0100
-; in:  [dos_ldpsp], [dos_ldpara], [dos_name]
-; out: CF=0 and [dos_imgsz] = the bytes; CF=1 with AL = a DER_*
+; in:  [dos_ldpsp], [dos_ldpara], [dos_ldname]
+; out: CF=0 ([dos_imgsz]/[dos_imghi] = the bytes, for a file read whole);
+;      CF=1 with AL = a DER_*
+;
+; **AN .EXE IS READ AS FAR AS ITS LOAD MODULE AND NO FURTHER** (SPEC.md
+; 96.8.2). The first granule says which kind of file this is; an `MZ` header
+; then says how many 512-byte pages its header + image take, and only those
+; are read - DOS's own rule, which leaves overlays and appended data on the
+; disk for the program to open itself. Anything else - a .COM, or a
+; COMPRESSED file, whose first bytes are the wrapper because DBE_RDAT is raw
+; (SPEC.md 20.14.3) - is read WHOLE, as it always was.
 ; -----------------------------------------------------------------------------
 dos_load:
     push bx
     push cx
     push dx
     push si
+    push di
+    push bp
     push es
 
     mov ax, [dos_ldpsp]             ; THE PROGRAM BEING LOADED, not the arena
     add ax, 16                      ; (SPEC.md 96.14): a child from AH=4Bh is
     mov es, ax                      ; loaded exactly this way into a block of
-    xor bx, bx                      ; its own, and everything below here would
-                                    ; otherwise be the first program's for ever
-    mov ax, [dos_ldpara]            ; the capacity is everything from the image
-    sub ax, 16                      ; to the top of ITS block, in paragraphs...
-    mov dx, 16
-    mul dx                          ; ...as a 32-bit byte count in DX:AX, which
-    mov cx, ax                      ; is what OSAPI_FILE_READ takes in DX:CX
+                                    ; its own
     mov si, [dos_ldname]            ; THE NAME IS AN ARGUMENT TOO: AH=4Bh loads
-                                    ; a file the running program named, and
-                                    ; [dos_name] is the one the DESKTOP did -
-                                    ; which made the first child a second copy
-                                    ; of its own parent
-    call dos_be_read                ; DX:AX = bytes read
-    jc .rerr
-
-    mov [dos_imgsz], ax             ; the WHOLE 32-bit size: an .EXE may be
-    mov [dos_imghi], dx             ; bigger than a segment and the .COM
-    pop es                          ; ceiling is the .COM path's business
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    clc
-    ret
+                                    ; a file the running program named
+    xor bx, bx                      ; ES:0 is every chunk's buffer, and BX
+    xor di, di                      ; stays 0 through every read below
+    mov bp, 32                      ; THE PROBE: the first SECTOR, which is
+    call dos_ldrd                   ; READ_AT's granule on kern_big and kern_dos
+    jc .whole                       ; (SPEC.md 18.4.4.2). kern_small's is a
+                                    ; CLUSTER and refuses it, and so reads the
+                                    ; file whole, as it always did. 32
+                                    ; paragraphs is under the smallest block
+                                    ; AH=4Bh gives a child (64), so the probe
+                                    ; needs no bound of its own
+    call dos_is_exe                 ; CF=1 = 'MZ' at ES:0
+    jnc .whole
+    mov ax, [es:MZ_CP]              ; header + image in 512-byte PAGES, the
+    dec ax                          ; last one partial or not: the bytes DOS
+    cmp ah, 7                       ; reads, rounded up to a sector - which is
+    jae .whole                      ; the granule, so no rounding is needed.
+    inc ax                          ; None at all, or past 896KB, is the whole
+    mov cl, 5                       ; read's and dos_exe_setup's to refuse
+    shl ax, cl                      ; ...in paragraphs. The slack is the
+    xchg ax, bp                     ; overlay's first bytes, inside the block
+    lea ax, [bp+16]                 ; DOES THE BLOCK HOLD THE PSP AND THE
+    cmp [dos_ldpara], ax            ; MODULE? Decided from the header, before
+    jb .nofit                       ; anything more is read
+    call dos_ldrd                   ; DI = 32: the probe's sector is in already
+    jnc .out                        ; CF=0 is the answer
 .rerr:
     ; --- "TOO BIG" IS NOT "COULD NOT BE READ" (SPEC.md 96.8.1) -------------
     ; `OSAPI_FILE_READ` answers `FERR_BIG` for a file larger than the buffer
     ; it was handed, and decides it FROM THE DIRECTORY ENTRY before any data
     ; I/O - so it is not a read that went wrong, it is a program that does not
-    ; fit in the arena this arm gives. Reported from the field about Battle
-    ; Chess: a 494KB `.EXE` double-clicked on a 445KB arena said *"It could
-    ; not be read."*, which names the disk for a fact about memory and tells
-    ; the user nothing they can act on.
-    ;
-    ; `dos_exe_setup` already has the OTHER half of this - `.nofit` answers
-    ; DER_FIT when image + MINALLOC + PSP overflows the block - and that arm
-    ; is only ever reached by a file small enough to have been READ first. A
-    ; program bigger than the whole arena never gets that far, which is why
-    ; the two look like different failures and are one.
+    ; fit in the arena this arm gives. `.read` answers the same code for a
+    ; load module past the block, decided from the header before it reads.
     cmp ax, FERR_BIG
     je .nofit
     mov al, DER_READ
-    jmp short .out
+    jmp short .err
 .nofit:
     mov al, DER_FIT
+.err:
+    stc
 .out:
     pop es
+    pop bp
+    pop di
     pop si
     pop dx
     pop cx
     pop bx
-    stc
     ret
+
+.whole:
+    mov ax, [dos_ldpara]            ; the capacity is everything from the image
+    sub ax, 16                      ; to the top of ITS block, in paragraphs...
+    mov dx, 16
+    mul dx                          ; ...as a 32-bit byte count in DX:AX, which
+    mov cx, ax                      ; is what OSAPI_FILE_READ takes in DX:CX
+    call dos_be_read                ; DX:AX = bytes read; BX is still 0
+    jc .rerr
+    mov [dos_imgsz], ax             ; the WHOLE 32-bit size: an .EXE may be
+    mov [dos_imghi], dx             ; bigger than a segment and the .COM
+    jmp short .out                  ; ceiling is the .COM path's business;
+                                    ; CF=0 is still the read's
 %endif                              ; DOS_EXTCORE
 
 
@@ -3104,6 +3127,47 @@ dos_cpm:
     pop ax
     pop bp
     retf 2
+%endif                              ; DOS_EXTCORE
+%ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
+
+; -----------------------------------------------------------------------------
+; dos_ldrd - paragraphs [DI, BP) of the program's file, to [dos_ldpsp]+16+DI
+; in:  DI and BP whole sectors (DI <= BP), SI = the name, BX = 0
+; out: CF=0 and DI = BP, or the file's end; CF=1 with AX = FERR_*. ES spent
+;
+; dos_load's (SPEC.md 96.8.2), in chunks of 32KB at most so a chunk lands in
+; one segment; a file that ends early ends the loop, as the whole read's short
+; file always has. The caller bounds BP by the block. It is a routine of its
+; own and not a local label so that it sits AFTER `dos_cpm`'s `align 16`: in
+; front of it, its bytes were paid for again in padding.
+; -----------------------------------------------------------------------------
+dos_ldrd:
+    mov cx, bp
+    sub cx, di                      ; CF=0: DI <= BP
+    jbe .ret
+    cmp ch, 8                       ; 2,048 paragraphs at most
+    jb .chunk
+    mov cx, 0x800
+.chunk:
+    push cx
+    mov ax, [dos_ldpsp]             ; the buffer is ES:0 a chunk at a time, so
+    add ax, 16                      ; no offset binds past 64KB
+    add ax, di
+    mov es, ax
+    mov ax, 16
+    mul cx
+    xchg ax, cx                     ; CX = the chunk in bytes, <= 32KB
+    mov ax, 16
+    mul di                          ; DX:AX = the file offset
+    call dos_be_rdat                ; DX:AX = delivered, 0 = at the end
+    pop cx
+    jc .ret
+    or ax, dx                       ; 0 delivered is the end, CF=0
+    jz .ret
+    add di, cx
+    jmp short dos_ldrd
+.ret:
+    ret
 %endif                              ; DOS_EXTCORE
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 

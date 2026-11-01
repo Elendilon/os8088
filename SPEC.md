@@ -178290,8 +178290,9 @@ known. The loader's order is **parse, relocate, move, enter**, and the middle
 two are the other way round from the obvious.
 
 The image has to end up **16 paragraphs past the PSP**, because that is where
-DOS puts one and a program is entitled to find it there. The file was read
-*whole*, header included, at exactly that address — so stripping the header
+DOS puts one and a program is entitled to find it there. The header and the
+image were read at exactly that address (the load module and not the file,
+§96.8.2) — so stripping the header
 means moving the image **down over it**, which destroys the relocation table
 living inside it.
 
@@ -178363,6 +178364,77 @@ Not enough RAM - try Setup, "Shut down the OS".
 A user told *too big to fit* closes the window. A user told where the room is
 opens Setup. Reported from the field as *"This doesn't tell us there was not
 enough ram"*.
+
+#### 96.8.2 An `.EXE` is read as far as its load module, and no further
+
+**What broke.** `dos_load` read the WHOLE FILE into the block - `DBE_READ`
+with the block as the capacity - and only then did `dos_exe_setup` find the
+image inside it. DOS does not do that. It reads the header, then the **load
+module**: `e_cp` pages, the last one `e_cblp` bytes long, less the header -
+and everything after it in the file stays on the disk. That is where a
+program keeps its overlays and appended data, and it opens its own file to
+read them. So a file larger than the block was refused (§96.8.1's
+`FERR_BIG`, now `Not enough RAM`) however small its image was.
+
+Microsoft Works 1.05 is the case it was reported on, and it is the extreme
+one: `WORKS.EXE` is **319,483 bytes** with a **512-byte header and a
+2,791-byte image** (`e_cp` 7, `e_cblp` 231, `e_minalloc` 65 paragraphs).
+DOS's own test is image + `MINALLOC` + PSP = **4,096 bytes**; ours wanted the
+file, **~312 KB of arena**. In a window's 128 KB (§96.54.2) it could not
+start, and on a full-screen run it read 312 KB off a floppy to use 3.
+
+**What it does now.** The first sector is read with `DBE_RDAT` at offset 0 -
+the PROBE - and it says which kind of file this is:
+
+- **`MZ`**: `e_cp` × 512 bytes are read, the header and the image rounded up
+  to a whole sector, in chunks of at most 32 KB at increasing offsets
+  (`dos_ldrd`), each into its own segment so no offset binds past 64 KB.
+  Whether the block holds the PSP and those pages is decided **from the
+  header, before anything more is read**, and answers `DER_FIT` as before.
+  `dos_exe_setup` is unchanged: the header and the relocation table are where
+  they always were, and the slack - at most 511 bytes of whatever follows the
+  module - lands inside the block just above the image, in memory the
+  program is handed uninitialised anyway.
+- **anything else** - a `.COM`, or a **compressed** file, whose first bytes
+  are the `CZ` wrapper because `READ_AT` is raw (§20.14.3) - is read whole
+  through `DBE_READ` exactly as before, which is what expands one. An `e_cp`
+  of 0, or one past 896 KB, goes the same way, and `dos_exe_setup` refuses it
+  with the words it always did.
+
+The granule is a **sector** and not a cluster. `READ_AT` takes a sector
+multiple on `kern_big` and on `kern_dos` (§18.4.4.2), and `e_cp` already
+counts 512-byte pages, so no rounding is needed at all. `kern_small`'s
+`READ_AT` wants a whole CLUSTER and refuses the probe with `FERR_NAME`, and so
+reads the file whole as it always did: the fix does not reach the 128 KB
+machine's floppies, and nothing there is worse than it was. The probe is 32
+paragraphs, under the smallest block `AH=4Bh` hands a child (64), so it needs
+no bound of its own. Both doors are the back end's (§96.4): the core still
+names no `OSAPI_*` file slot, and `kern_dos` runs the same code through
+`dskw_read_at_x`.
+
+**Children and overlays.** `AH=4Bh` loads through the same `dos_load`
+(§96.14), so a child gets the same rule. EXEPACK'd programs are untouched -
+their packed data and unpacker are inside the load module by definition, and
+`kd_xpack` reads the image `dos_exe_setup` placed. `AH=4B03h` is not
+implemented (§96.8).
+
+**What it cost.** **+99 bytes of core** (15,372 -> 15,471) against 52 of
+slack, so `CORE_MAX` went **15,424 -> 15,472**; kern_mega's core is +91
+(16,027 -> 16,118) and its `CORE_MAX` **16,064 -> 16,128**. `CORE_MAX` is a
+hole both hosts reserve (§96.44), and +48 is exactly what `kern_dos`'s
+33 KB image rung had left: **33,791 of 33,792**, so `KD_IMG_KB` is unchanged
+and a DOS program on the shut-down arm pays nothing. `dos_ldrd` is a routine
+of its own, placed after `dos_cpm`'s `align 16`, for that reason - as a local
+label of `dos_load`, in front of the alignment, the same code cost 112. What
+it costs at run time: every `.COM` pays one extra 512-byte read, the probe,
+before it is read whole; an `.EXE` with a tail reads its module and not its
+file.
+
+`tests/dosbigtail.py` is the row: `tests/dostrap/bigtail.asm` is a 3,000-byte
+module (a partial last page, one relocation) with 200 KB appended at test
+time, run in a 128 KB window, reading its own payload back through
+`AH=3Dh`/`42h`/`3Fh`. Without the load-module read it is refused `Not enough
+RAM` after the bracket's run of the same file has said `Arena: 459KB`.
 
 ### 96.9 The MCB chain is a real allocator, not a stub
 
