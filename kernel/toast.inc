@@ -575,9 +575,32 @@ toast_pass:
                                 ; and would hold a toast across the wrap
     mov word [toast_dirty], 0x0001  ; dirty = 1, on = 0, in one store...
 %ifdef TOAST_Q
-.q:
-    call toast_promote          ; the queued message, if any, goes up in
-    jc .up                      ; the same composition that retires this one
+.q:                             ; THE QUEUED MESSAGE, if any, goes up in the
+    pushf                       ; same composition that retires this one -
+    cli                         ; the staged record becomes it, whole (text,
+    mov al, 0                   ; TTL, raiser). toast_show from a worker
+    xchg al, [toast_qwant]      ; writes the slot, hence the cli. Taken and
+    or al, al                   ; cleared in one exchange, AL kept for the
+    jz .nq                      ; test past the popf. It was
+    push cx                     ; toast_promote, called from here alone
+    push si                     ; (kernel size pass 16: -8, and the pass
+    push di                     ; with nothing up no longer calls out)
+    push es
+    push ds
+    pop es
+    cld
+    mov si, toast_qbuf
+    mov di, toast_buf
+    mov cx, TOAST_RSIZE / 2
+    rep movsw
+    pop es
+    pop di
+    pop si
+    pop cx
+.nq:
+    popf
+    or al, al                   ; (AX is toast_pass's: banked at its head)
+    jnz .up
 %endif
 .chk:                           ; ...and FALLS INTO the test, where it used to
                                 ; step over `.up` with a `jmp short`. `.up` is
@@ -621,39 +644,6 @@ toast_pass:
 ; inst_free's teardown) and one is inside toast_show's cli window; the pixels
 ; go back on toast_pass's next look, which is a tick away at worst.
 ; -----------------------------------------------------------------------------
-%ifdef TOAST_Q
-; toast_promote - the queued message becomes the staged one. CF = 1 when it
-; did. Every register kept (it used to clobber AX; toast_pass banks it).
-toast_promote:
-    pushf
-    cli                         ; toast_show from a worker writes the slot
-    cmp byte [toast_qwant], 0
-    je .no
-    push cx
-    push si
-    push di
-    push es
-    push ds
-    pop es
-    cld
-    mov si, toast_qbuf
-    mov di, toast_buf
-    mov cx, TOAST_RSIZE         ; the WHOLE record: text, TTL and raiser
-    rep movsb
-    pop es
-    pop di
-    pop si
-    pop cx
-    mov byte [toast_qwant], 0
-    popf
-    stc
-    ret
-.no:
-    popf
-    clc
-    ret
-
-%endif
 toast_kill:
     pushf
     cli                         ; check-then-act: a task switch between the
@@ -718,7 +708,7 @@ section .bss
 
 %ifdef TOAST_Q
 ; TWO RECORDS OF ONE SHAPE - the text, its TTL, its raiser - so toast_show
-; fills either through BX and toast_promote moves one whole into the other
+; fills either through BX and toast_pass moves one whole into the other
 ; (kernel size pass 16). [toast_inst] is read only while a toast is up or
 ; staged, which writes it first, so .bss's lack of an initialiser is never
 ; seen (toast_owner_gone and ld_start each ask [toast_on] or toast_kill,
@@ -736,6 +726,9 @@ toast_inst:  resb 1             ; ...and the raiser's slot (0FFh = kernel)
 TOAST_RTTL  equ toast_ttl - toast_buf
 TOAST_RINST equ toast_inst - toast_buf
 TOAST_RSIZE equ toast_inst + 1 - toast_buf
+%if TOAST_RSIZE & 1
+  %error "toast.inc: toast_pass moves a record with rep movsw - keep TOAST_RSIZE even"
+%endif
 %if (toast_qttl - toast_qbuf) != TOAST_RTTL || (toast_qinst - toast_qbuf) != TOAST_RINST || (toast_buf - toast_qbuf) != TOAST_RSIZE
   %error "toast.inc: the queued and the staged message are two records of ONE shape (text, TTL, raiser), filled through one base register and promoted as one copy"
 %endif
