@@ -8994,7 +8994,19 @@ dos_key:
 %ifdef DVW
     cmp byte [dvw_run], 0           ; **A RUNNING PROGRAM OWNS THE KEYS**
     je .nodvw                       ; (SPEC.md 96.54): into its ring, which
-    call dvw_kput                   ; its INT 16h drains
+    cmp ax, KSC_ENTER << 8          ; its INT 16h drains - but ALT+ENTER is
+    jne .dvkey                      ; the full screen (96.54.1), for a running
+    mov byte [dvw_fsreq], 1         ; program and a frozen one alike, entered
+    push bx                         ; from the wake: the bracket wants the
+    mov bx, [dos_win]               ; lock free and this holds it
+    call OSAPI_WM_WAKE
+    pop bx
+    jmp short .dvtook
+.dvkey:
+    cmp byte [dvw_frz], 0           ; a frozen program takes no keys
+    jne .dvtook
+    call dvw_kput
+.dvtook:
     stc
     jmp .done
 .nodvw:
@@ -18974,7 +18986,7 @@ DVOL_CAP in apps/dos/doscall.inc, which every host reads, and NEVER size the \
 table from DVOL_MAX (SPEC.md 96.44.2.1)"
 %endif
 %ifdef DVW                          ; --- the live window (SPEC.md 96.54) ---
-    HBSS DOS_B_DVWF,  14        ; the flag bytes below, in order
+    HBSS DOS_B_DVWF,  20        ; the flag bytes below, in order
     HBSS DOS_B_DVWW,  14        ; seven words: LOW_SEG, two stacks, AX, a nap
     HBSS DOS_B_DVWK8, 4         ; the kernel's int 08h, far
     HBSS DOS_B_DVWR,  22        ; a posted door: its target, ten registers
@@ -18995,6 +19007,11 @@ dvw_poll    equ dvw_want + 10   ; empty AH=01h polls, for the yield
 dvw_kh      equ dvw_want + 11   ; the key ring's head...
 dvw_kt      equ dvw_want + 12   ; ...and tail
 dvw_closeq  equ dvw_want + 13   ; a refused close, owed when the run ends
+dvw_fs      equ dvw_want + 14   ; the program is on the FULL SCREEN
+dvw_fsreq   equ dvw_want + 15   ; ...asked for: Alt+Enter, or a graphics mode
+dvw_frz     equ dvw_want + 16   ; FROZEN in the window (96.54.1)
+dvw_parked  equ dvw_want + 17   ; ...and the worker has stopped for it
+dvw_gfx     equ dvw_want + 18   ; it set a graphics mode: no way back
 dvw_lss     equ dos_hbss + DOS_B_DVWW + 0
 dvw_fss     equ dvw_lss + 2
 dvw_fsp     equ dvw_lss + 4

@@ -8764,6 +8764,20 @@ SOAK = [
         "because typing goes through `settle` and the motor has always "
         "stopped by the second one, so `burst <= n` was 1 <= 1 for ever",
         needs=("marty",), wants=("build/doscom360.img",)),
+    Row("doswfs", "soak", py("tests/doswfs.py"), 30.0,
+        "A LIVE DOS PROGRAM BETWEEN ITS WINDOW AND THE FULL SCREEN (SPEC.md "
+        "96.54.1, docs/plans/DOS-WINDOWED-PLAN.md wave 3). The probe "
+        "(tests/dostrap/dwfs.asm, on a scratch B: the row builds) counts its "
+        "own lines at PSP:0103h, so running and frozen are read off the "
+        "program and not off a screen: Alt+Enter takes a windowed run to the "
+        "full screen STILL COUNTING; Alt+Enter brings it back FROZEN, the "
+        "count standing still and its last line captured into the band; "
+        "Alt+Enter thaws it; a graphics mode set reaches the glass and makes "
+        "the way back refuse; the run ends on the full screen with its last "
+        "screen and exit code in the console; and a graphics mode set IN THE "
+        "WINDOW brings the bracket up by itself - red with the shunt removed. "
+        "Measured 28.7s on MartyPC",
+        needs=("marty",), serial=True, wants=("build/os8088-360.img",)),
     Row("doswlive", "soak", py("tests/doswlive.py"), 15.0,
         "A DOS PROGRAM RUNNING LIVE IN ITS WINDOW (SPEC.md 96.54, "
         "docs/plans/DOS-WINDOWED-PLAN.md wave 1). Program > Run in Window puts "

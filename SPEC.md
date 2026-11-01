@@ -188037,12 +188037,55 @@ larger; `DOS.O88` on the disk +2,048. The core part and `kern_dos` are
 byte-identical, and so is every kernel. Each exchange walks 121 words — about
 2 ms on a 4.77 MHz 8088 (ESTIMATE), twice per tick an instance holds.
 
-**What wave 1 does not do**, each a later wave of the plan: a graphics mode
-set is ignored; `Alt+Enter` does not move a live program to the full screen;
-a program writing `B800` directly shows nothing in the window, and on a CGA
+**What it does not do**, each a later wave of the plan: a program writing
+`B800` directly shows nothing in the window, and on a CGA
 desktop it writes over the desktop's pixels; INT 33h answers in desktop
 coordinates; the program is given the whole arena (`[dos_memkb]` caps it),
 and the sound driver is NOT unmounted for it.
+
+#### 96.54.1 Alt+Enter moves a LIVE program, and a graphics mode moves it by itself
+
+**What can be detected decides the default, and only one thing can.** A
+graphics mode set has to come through the virtual `int 10h` — there is no
+other way to program the card on these adapters that a text-mode program
+reaches for — so the window sees it coming, at the instruction, before a
+pixel is drawn. A program that writes `B800` ITSELF cannot be seen at all:
+an 8086 has no MMU, and the write lands wherever `B800` is on that machine
+(DOS-WINDOWED-PLAN 4). Microsoft Works asks the mode with `AH=0Fh` and then
+writes the screen itself. **So `Run` stays the bracket**, and `Run in Window`
+is the choice a user makes for a program known to print.
+
+- **The shunt.** In the window, `AH=00h` with a mode that is not 0-3 or 7
+  posts a request (`dvw_shunt`) and waits; the UI task opens an
+  `OSAPI_FSX_RUN` bracket with **`FSXF_KEEPWORKER`**, so the program is never
+  stopped; the mode set then goes to the ROM. A refused bracket leaves the
+  mode unset.
+- **Alt+Enter** (the window's key, `KSC_ENTER << 8`) asks for the same
+  bracket for a running program.
+- **In the bracket** (`dvw_fsmain`): `FSXM_TEXT80`, the window's screen
+  painted onto it (`dos_fsx_owed`, the console's own renderer), the ROM's
+  cursor put where the window's is, and the machine's video block copied into
+  the program's half of the exchange — on a Hercules the window's mode-3 story
+  is wrong (mode 7, `B000`). From `[dvw_fs]` on, the virtual `int 10h` jumps to
+  the ROM and DOS's teletype is the ROM's (`[dos_inbr]`). The loop serves the
+  posted doors (the UI task is in here for the whole bracket), feeds the ROM's
+  keys into the program's ring, and polls Alt+Enter with `dos_fsx_ae`.
+- **Back to the window** is text modes only — a program that set a graphics
+  mode (`[dvw_gfx]`) has no text to bring. The program is **PARKED** first:
+  `[dvw_frz]`, and the loop waits for `[dvw_parked]`, which the worker sets in
+  `dvw_park` from either way off the CPU (`dvw_irq0`, `dvw_nap`), world out.
+  Then its BDA and screen are read with its world swapped in for one
+  `dos_snap` under `cli`, and it stays FROZEN in the window on the screen it
+  last drew — DESQview's shape for a program that draws its own screen. The
+  next Alt+Enter thaws it onto the full screen again. A frozen program takes
+  no keys; a close still stops it (`dvw_park` hears the kill).
+- **A program that ends on the full screen** leaves its last screen in the
+  console exactly as a bracketed run does: `dvw_fin` calls `dos_snap` while
+  the world is still in.
+
+**Cost**, measured against wave 1: the windowed host's image **+528** and bss
+**+6**; `DOS.O88` on the disk +512. No core byte and no kernel byte.
+`tests/doswfs.py` is the gate, and it is red with the shunt removed.
 
 ## 97. PIXELSTEIN 3D — a raycast shooter in a foreign mode (`apps/pixelstein/`)
 

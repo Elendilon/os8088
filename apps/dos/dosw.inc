@@ -183,6 +183,10 @@ dvw_irq0:
     pushf
     call far [cs:dvw_k08]       ; the kernel's own tick: it may switch away,
                                 ; and resuming this task irets HERE (IF = 0)
+    cmp byte [cs:dvw_frz], 0    ; **FROZEN** (SPEC.md 96.54.1): the world
+    je .live                    ; stays out and the task sleeps here until
+    call dvw_park               ; Alt+Enter thaws it or a close kills it
+.live:
     call dvw_xin
     mov [cs:dvw_tax], ax
     pop ax
@@ -250,6 +254,10 @@ dvw_nap:
 .yield:
     call OSAPI_TASK_YIELD
 .woke:
+    cmp byte [dvw_frz], 0       ; the other way off the CPU parks too, so a
+    je .nofrz                   ; program frozen inside a key wait or a
+    call dvw_park               ; posted door is held as surely as one in
+.nofrz:                         ; its own code
     cli
     pop ds
     call dvw_xin
@@ -269,6 +277,34 @@ dvw_nap0:                       ; the two shapes every caller wants
 dvw_nap1:
     mov word [cs:dvw_narg], 1
     jmp dvw_nap
+
+; -----------------------------------------------------------------------------
+; dvw_park - sleep, world OUT, while [dvw_frz] stands (SPEC.md 96.54.1)
+; in:  LOW_SEG stack, the world out; out: IF = 0, every register preserved
+; [dvw_parked] is what the UI task waits on before it reads the program's
+; screen, so nothing the program does can land between the read and the thaw.
+; -----------------------------------------------------------------------------
+dvw_park:
+    push ax
+    push ds
+    push cs
+    pop ds
+    mov byte [dvw_parked], 1
+    sti
+.p:
+    cmp byte [dvw_kill], 0          ; a close thaws it: the kill is heard on
+    jne .go                         ; the way back to the program
+    cmp byte [dvw_frz], 0
+    je .go
+    mov ax, 1
+    call OSAPI_TASK_SLEEP
+    jmp short .p
+.go:
+    cli
+    mov byte [dvw_parked], 0
+    pop ds
+    pop ax
+    ret
 
 ; -----------------------------------------------------------------------------
 ; dvw_post - a door, run by the UI task (SPEC.md 20.6 rule 7)
@@ -450,6 +486,10 @@ dvw_start:
 .have:                              ; place to begin again: the state is here
     mov byte [dvw_kill], 0
     mov byte [dvw_closeq], 0
+    mov byte [dvw_fs], 0
+    mov byte [dvw_fsreq], 0
+    mov byte [dvw_frz], 0
+    mov byte [dvw_gfx], 0
     mov byte [dvw_done], 0
     mov byte [dvw_kh], 0
     mov byte [dvw_kt], 0
@@ -564,6 +604,10 @@ dvw_fin:                            ; DHK_SNAP, from dos_prog_done
     ; STKBALANCE-OK: dvw_runprog's header - the `add` drops the return into
     ; the core, so the `ret` is dvw_runprog's own, at [dos_sv_sp]
     add sp, 2                       ; not back into the core (dvw_runprog)
+    cmp byte [dvw_fs], 0            ; ENDED ON THE FULL SCREEN: its last
+    je .notfs                       ; screen is the console's, exactly as a
+    call dos_snap                   ; bracketed run's (96.34) - with the world
+.notfs:                             ; still in, the BDA is the program's
     cli
     call dvw_xout
     sti
@@ -595,7 +639,9 @@ dvw_bdat:
 ; -----------------------------------------------------------------------------
 dvw_int10:
     sti
-    push ds
+    cmp byte [cs:dvw_fs], 0         ; **FULL SCREEN** (SPEC.md 96.54.1): the
+    jne .pass                       ; machine's own BIOS, on the machine's
+    push ds                         ; own screen
     push cs
     pop ds
     cmp ah, 0x0E
@@ -715,8 +761,29 @@ dvw_int10:
     mov byte [dvw_dirty], 1
     call dvw_bcur
 .gfx:
+    pop ax                          ; **A GRAPHICS MODE IS THE ONE THING THE
+    pop ds                          ; WINDOW CAN SEE COMING** (SPEC.md
+    call dvw_shunt                  ; 96.54.1): to the full screen first, then
+    jnc .pass                       ; the mode set, so not a pixel of it lands
+    iret                            ; anywhere else. Refused: no mode set
+.pass:
+    or ah, ah                       ; a mode set is remembered: a GRAPHICS
+    jnz .rom                        ; program may not come back to the window
+    push ax                         ; (there is no text to bring)
+    and al, 0x7F
+    mov ah, 1
+    cmp al, 3
+    jbe .txt
+    cmp al, 7
+    je .txt
+    jmp short .setg
+.txt:
+    xor ah, ah
+.setg:
+    mov [cs:dvw_gfx], ah
     pop ax
-    jmp .out
+.rom:
+    jmp far [cs:dvw_xblk + DVW_XB_V10]  ; the ROM's, the world being in
 
 .str:
     call dvw_str
@@ -1076,6 +1143,10 @@ dvw_kpop:                           ; ZF = 1 empty, else AX = it, taken
 ; dvw_wake - dos_wake's windowed arm: serve, paint, and finish
 ; -----------------------------------------------------------------------------
 dvw_wake:
+    cmp byte [dvw_fsreq], 0         ; Alt+Enter, or a graphics mode set
+    je .nofs
+    call dvw_fsenter
+.nofs:
     call dvw_serve
     call OSAPI_GFX_LOCK
     call dos_con_draw
@@ -1106,6 +1177,186 @@ dvw_wake:
     call dos_con_ended
     call dos_repaint
 .r:
+    ret
+
+; -----------------------------------------------------------------------------
+; dvw_shunt - ask for the full screen, and wait until it is up (worker side)
+; out: CF=0 the program is on the full screen; CF=1 it was refused, or the
+; window is closing. Any stack; every register preserved
+; -----------------------------------------------------------------------------
+dvw_shunt:
+    push bx
+    push ds
+    push cs
+    pop ds
+    mov byte [dvw_fsreq], 1
+.w:
+    mov bx, [dos_win]
+    call OSAPI_WM_WAKE              ; every pass, as dvw_post does
+    call dvw_nap1
+    cmp byte [dvw_fs], 0
+    jne .up
+    cmp byte [dvw_kill], 0
+    jne .no
+    cmp byte [dvw_fsreq], 0
+    jne .w
+.no:
+    pop ds
+    pop bx
+    stc
+    ret
+.up:
+    pop ds
+    pop bx
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
+; dvw_fsenter - the full screen, with the worker KEPT (dvw_wake, lock FREE)
+; -----------------------------------------------------------------------------
+dvw_fsenter:
+    push ax
+    push bx
+    push cx
+    call OSAPI_GFX_LOCK
+    mov ax, dvw_fsmain
+    mov bx, [dos_win]
+    mov cx, FSXF_KEEPWORKER         ; the program goes on running in here
+    call OSAPI_FSX_RUN
+    pushf
+    call OSAPI_GFX_UNLOCK
+    popf
+    jnc .ok
+    mov byte [dvw_fsreq], 0         ; refused: dvw_shunt hears no
+.ok:
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dvw_fsmain - the bracket's proc: the UI task's half of a live full screen
+;
+; **THE PROGRAM IS NOT STOPPED TO GET HERE.** The worker is FSXF_KEEPWORKER's,
+; so it runs straight through the mode set; the virtual video BIOS passes to
+; the ROM from the moment [dvw_fs] is set, and its keys come from the ROM's
+; buffer through this loop into the same ring the window fills. The doors are
+; served from here too - the UI task is inside this proc for the whole
+; bracket, so nothing else would.
+;
+; ALT+ENTER BACK is text modes only: a program that set a graphics mode has no
+; text to bring. Going back PARKS the program first ([dvw_frz], and waits for
+; [dvw_parked]), so its screen is read with nothing able to write it, and
+; leaves it frozen in the window on the screen it last drew - DESQview's
+; shape for a program that draws its own screen, which on an 8088 is the only
+; honest one (docs/plans/DOS-WINDOWED-PLAN.md 4).
+; -----------------------------------------------------------------------------
+dvw_fsmain:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov bx, [dos_win]
+    call OSAPI_FSX_CAPS             ; the DISPLAY's kind (dos_fsx's reason)
+    mov [con_tkind], dl
+    push ds
+    pop es
+    mov di, dos_fsi
+    mov al, FSXM_TEXT80
+    call OSAPI_FSX_MODE
+    jc .refused
+    mov ax, [dos_fsi + FSI_SEG]     ; ...and the window's screen onto it:
+    mov [con_tseg], ax              ; dos_fsx_con's seed
+    mov byte [con_tcur], 0xFF
+    call con_tx_ice
+    mov byte [con_thint], 0xFF
+    call con_markall
+    call dos_fsx_owed
+    mov dh, [con_cy]                ; the ROM's cursor where the window's is,
+    mov dl, [con_cx]                ; so the program's next teletype lands
+    cmp dl, CON_COLS - 1            ; under what it already wrote
+    jbe .cx
+    mov dl, CON_COLS - 1
+.cx:
+    xor bh, bh
+    mov ah, 0x02
+    int 0x10
+    cli                             ; **THE PROGRAM'S VIDEO BLOCK BECOMES THE
+    push ds                         ; MACHINE'S**: its ROM calls read the BDA,
+    push ds                         ; and the window's mode-3 story is wrong
+    pop es                          ; on a Hercules (mode 7 at B000). The
+    mov ax, 0x40                    ; world is out, so the block holds the
+    mov ds, ax                      ; program's half
+    mov si, 0x49
+    mov di, dvw_xblk + DVW_XB_VID
+    mov cx, 15
+    cld
+    rep movsw
+    mov si, 0x84
+    mov cx, 3
+    rep movsw
+    pop ds
+    mov byte [dos_aedn], 1          ; the Alt+Enter that brought us here is
+    mov byte [dos_inbr], 1          ; still held: SEEDED DOWN (96.33.5.1). And
+    mov byte [dvw_fs], 1            ; DOS's teletype goes to the ROM now
+    mov byte [dvw_fsreq], 0
+    mov byte [dvw_frz], 0           ; ...and a FROZEN program thaws onto it
+    sti
+.loop:
+    call dvw_serve
+    cmp byte [dvw_done], 0
+    jne .out                        ; it ended: dvw_fin has the screen
+    call dos_fsx_ae
+    jc .back
+.key:
+    mov ah, 1                       ; the ROM's keys, the world being out on
+    int 0x16                        ; this task, into the program's ring
+    jz .idle
+    xor ah, ah
+    int 0x16
+    call dvw_kput
+    jmp short .key
+.idle:
+    mov al, FSXW_TICK
+    call OSAPI_FSX_WAIT
+    jmp short .loop
+.back:
+    cmp byte [dvw_gfx], 0
+    jne .loop                       ; graphics: there is no text to bring back
+    mov byte [dvw_frz], 1
+.park:
+    call dvw_serve                  ; it may be waiting on a door to get there
+    cmp byte [dvw_done], 0
+    jne .out
+    cmp byte [dvw_parked], 0
+    jne .parked
+    mov al, FSXW_TICK
+    call OSAPI_FSX_WAIT
+    jmp short .park
+.parked:
+    cli                             ; the PROGRAM's BDA and screen, read with
+    call dvw_walk                   ; its world swapped in for one copy and
+    call dos_snap                   ; out again - dos_snap is memory only, so
+    call dvw_walk                   ; nothing can take an interrupt through a
+    sti                             ; half-swapped table
+.out:
+    mov byte [dos_inbr], 0
+    mov byte [dvw_fs], 0
+    call con_markall                ; the band is owed whole on the way back
+    jmp short .ret
+.refused:
+    mov byte [dvw_fsreq], 0
+.ret:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; --- dvw_onclose - OSAPI_WM_ONCLOSE: a running program is stopped, not kept --

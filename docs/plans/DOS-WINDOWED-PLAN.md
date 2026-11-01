@@ -1,7 +1,9 @@
 # Live DOS in a window, several at once — a TopView/DESQview shape for `DOS.O88`
 
-**Status: WAVE 1 IS BUILT (SPEC.md 96.54, `apps/dos/dosw.inc`, row
-`doswlive`); waves 2-6 are not.** §10 is what wave 1 found, and it changes
+**Status: WAVES 1 AND 3 ARE BUILT (SPEC.md 96.54 and 96.54.1,
+`apps/dos/dosw.inc`, rows `doswlive` and `doswfs`); waves 2, 4, 5 and 6 are
+not.** The owner settled §4.3's default: `Run` stays the full screen, because
+the only thing a window can detect is a graphics mode set (§10.4). §10 is what wave 1 found, and it changes
 two of the decisions below. The rest of this file is still the plan as it
 was written: the original status line read *"PLAN, nothing built."* This document is the investigation the brief
 asked for: capture the TEXT output of a DOS program **while it runs** and show
@@ -679,6 +681,27 @@ on any adapter: it is a direct writer by construction, and §4's table is the
 whole answer. What it IS is the best target for wave 3, the live Alt+Enter -
 and for §7.2's capture on a machine where B800 is RAM nobody shows (a lone
 Hercules with page 1 enabled, or the owner's 5150, where B800 is the CGA's).
+
+## 10.4 Wave 3, as built — the default, and the live full screen
+
+**The owner's question was whether a program's intent can be detected and
+shunted to the full screen; the answer splits exactly in two.** A graphics
+mode set CAN: it has to come through the virtual `int 10h`, so the window
+opens the bracket at that instruction, before a pixel is drawn, and the
+program never stops (`FSXF_KEEPWORKER`). A program writing the text screen
+ITSELF cannot be seen on an 8086 at all - Works is that program. So the
+default stays the bracket, as the owner directed for this case, and `Run in
+Window` is the choice for a program known to print.
+
+Built: the shunt; Alt+Enter both ways on a live program; back to the window
+FROZEN on its captured last screen (§4.2's shape, with no comparison needed:
+the freeze is unconditional, so nothing that draws its own screen is ever let
+loose in a window); a graphics program cannot come back; a program that ends
+on the full screen leaves its last screen in the console. **+528 image, +6
+bss** against wave 1, measured. `doswfs` drives all of it in 28.7 s and is red
+with the shunt removed. §4.2's glass comparison is therefore NOT built - it
+would let a well-behaved program come back running, which is wave 2's to
+decide once the virtual BIOS is complete.
 
 ## 9. What would kill it
 
