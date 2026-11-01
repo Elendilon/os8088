@@ -195,6 +195,26 @@ OP_SECMAX     equ 1920          ; the carve's ceiling in sectors, packed AND
                                 ; PARAGRAPHS in a word, and 1,920 sectors plus
                                 ; a 32KB cluster of slack is 65,503 of them.
                                 ; Mirrored by os88pkg.py (t_lzfmt checks)
+
+; --- THE GRANULE a part's `off` counts in (docs/plans/PART-PACKING-PLAN.md) --
+; 512 since SPEC.md 20.12.2, which is up to 511 bytes of 0xE5 a part on the
+; disk. `%define OP_PARA` before this include lays the parts out on 16-byte
+; PARAGRAPHS instead: the head slack a cluster-aligned read leaves is then a
+; multiple of 16 rather than of 512, which is still exactly what a segment
+; adjustment needs, so every address the standard hands out is still a
+; segment with offset 0 and nothing is copied that was not copied before. The
+; TABLE says which, by its magic ('O88PARTP'), so os88pkg.py lays it out to
+; match and a tool that knows only 'O88PARTS' refuses it rather than misread.
+; PROTOTYPE: off by default, so every package that does not ask is
+; byte-identical.
+%ifdef OP_PARA
+OP_GSH        equ 4             ; granule = 1 << OP_GSH bytes
+%else
+OP_GSH        equ 9
+%endif
+OP_GRAN       equ 1 << OP_GSH
+OP_GPSH       equ OP_GSH - 4    ; granules -> paragraphs
+OP_RUNMAX     equ OP_SECMAX << (9 - OP_GSH) ; the carve's ceiling, in granules
 OP_CHUNK      equ 32768         ; bytes a read moves at a time: a multiple of
                                 ; EVERY legal cluster size (512 bytes to 32KB,
                                 ; a power of two capped at 64 sectors by BPB
@@ -253,7 +273,11 @@ OP_CHUNK      equ 32768         ; bytes a read moves at a time: a multiple of
         %error "OS88_PARTS_BEGIN with no parts in it - drop the block and the flag"
     %endif
 op_table:
+%ifdef OP_PARA
+    db 'O88PARTP'               ; ...`off` in PARAGRAPHS (PART-PACKING-PLAN)
+%else
     db 'O88PARTS'
+%endif
 op_t_n:
     db %1                       ; the count, and THREE things check it: this
                                 ; macro's brackets count the rows, os88pkg.py
@@ -339,7 +363,7 @@ op_t_n:
     %endif
     db %1                       ; +0 kind
     db (%2) & 0xFF              ; +1 flags - OP_SELF is above the byte
-    dw 0                        ; +2 off, in 512-byte units - the packer's
+    dw 0                        ; +2 off, in OP_GRAN units - the packer's
     dw 0                        ; +4 len, in bytes           - the packer's
     dw %3                       ; +6 zkb, in KB              - yours
     %assign OS88_PART_N OS88_PART_N + 1

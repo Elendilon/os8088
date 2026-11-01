@@ -73,6 +73,10 @@ STK_CLASS_MAX = 4                            # ...and +15 is the STACK CLASS
                                              # the header version - and exactly
                                              # why this line had to move with it
 PARTS_MAGIC = b"O88PARTS"  # the part table's head, INSIDE the image (20.12.3)
+PARTS_MAGIC_PARA = b"O88PARTP"  # ...the same table with `off` in PARAGRAPHS:
+                                # the package assembled os88parts.inc with
+                                # OP_PARA (docs/plans/PART-PACKING-PLAN.md),
+                                # so its parts are laid on 16 bytes, not 512
 PARTS_HDR = 10             # magic(8) + count(1) + reserved(1)
 PART_ROW = 8               # kind(1) flags(1) off(2, 512-byte units)
                            # len(2) zkb(2)
@@ -611,11 +615,14 @@ def find_parts(a: bytes, image: int, flags: int):
     """
     if not flags & 4:
         return None, 0
+    global PART_ALIGN
     hits = []
-    at = a.find(PARTS_MAGIC, 0, image)
-    while at != -1:
-        hits.append(at)
-        at = a.find(PARTS_MAGIC, at + 1, image)
+    for magic, gran in ((PARTS_MAGIC, 512), (PARTS_MAGIC_PARA, 16)):
+        at = a.find(magic, 0, image)
+        while at != -1:
+            hits.append(at)
+            PART_ALIGN = gran
+            at = a.find(magic, at + 1, image)
     if not hits:
         fail("flags bit 2 is set but the image carries no 'O88PARTS' table. "
              "The flag and the table are one thing: the flag tells the KERNEL "
@@ -924,6 +931,9 @@ def lay_out_parts(out: bytearray, table: int, rows: int, parts,
         pad = (-len(out)) % PART_ALIGN
         out.extend(b"\xE5" * pad)
         off = table + PARTS_HDR + PART_ROW * i
+        if len(out) // PART_ALIGN > 0xFFFF:
+            fail(f"part {i} starts at byte {len(out)}, past what a word of "
+                 f"{PART_ALIGN}-byte granules can name")
         # `len` STAYS THE UNPACKED FIGURE. It is what op_size cuts the claim
         # from, so a machine that cannot fit the part is still told before a
         # sector is read - which is the third thing the whole parts design
@@ -950,7 +960,8 @@ def lay_out_parts(out: bytearray, table: int, rows: int, parts,
         return rows_[-1][2] + rows_[-1][3] - rows_[0][2] if rows_ else 0
     carve = [r for r in laid if not r[1] & OPF_LAZY]
     span = [r for r in laid if r[1] & OPF_XMS]
-    if extent(carve) >= OP_SECMAX:
+    runmax = OP_SECMAX * 512 // PART_ALIGN     # in the table's own granules
+    if extent(carve) >= runmax:
         fail(f"the carved run is {extent(carve)} sectors (parts "
              f"{carve[0][0]}..{carve[-1][0]}, OP_XMS rows included - they "
              "fall back into the carve on a machine with no store). op_size "
@@ -972,7 +983,7 @@ def lay_out_parts(out: bytearray, table: int, rows: int, parts,
             _, pf, po, pl, _ = struct.unpack_from("<BBHHH", out, off)
             if po and not pf & OPF_LAZY:
                 usecs += (pl + PART_ALIGN - 1) // PART_ALIGN
-        if usecs >= OP_SECMAX:
+        if usecs >= runmax:
             fail(f"the carve UNPACKS to {usecs} sectors. op_size refuses "
                  f"{OP_SECMAX} or more on that side too - the claim is cut from the "
                  "unpacked lengths, and compressing a part makes the file "

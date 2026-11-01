@@ -332,11 +332,11 @@ op_size:
     push ax
     push cx
     mov cx, [si+OP_R_LEN]
-    add cx, 511
+    add cx, OP_GRAN - 1
     jc .ovfx
     push ax
     mov ax, cx
-    mov cl, 9
+    mov cl, OP_GSH
     shr ax, cl
     mov cx, ax
     pop ax
@@ -359,9 +359,9 @@ op_size:
     push ax
 %if OP_HAS_COMP
     mov ax, [si+OP_R_LEN]       ; the UNPACKED total, which is what the CLAIM
-    add ax, 511                 ; is cut from - so a compressed row costs the
+    add ax, OP_GRAN - 1         ; is cut from - so a compressed row costs the
     jc .ovfd                    ; machine exactly what it would have cost
-    mov cl, 9                   ; uncompressed, and refusing still reads no
+    mov cl, OP_GSH              ; uncompressed, and refusing still reads no
     shr ax, cl                  ; disk at all (SPEC.md 20.12.7)
     add [op_usecs], ax
     jc .ovfd
@@ -387,10 +387,10 @@ op_size:
                                 ; parts` on a package that is entirely
                                 ; correct. Rows are laid out in increasing
                                 ; order, so the last one to reach here wins
-    add cx, 511                 ; the row's length is in BYTES; the run is
-    jc .ovfd                    ; measured in whole sectors, because that is
+    add cx, OP_GRAN - 1         ; the row's length is in BYTES; the run is
+    jc .ovfd                    ; measured in whole GRANULES, because that is
     mov ax, cx                  ; the granularity a part is laid out on
-    mov cl, 9
+    mov cl, OP_GSH
     shr ax, cl
     mov cx, ax
     pop ax
@@ -398,11 +398,11 @@ op_size:
     sub ax, bx                  ; sectors from the run's start...
     push cx
     push ax
-    mov cl, 7
+    mov cl, 16 - OP_GSH
     shr ax, cl
     mov [op_bendh], ax          ; ...as bytes, in 32 bits: the run may pass
     pop ax                      ; 64KB now, and the high half of n << 9 is
-    mov cl, 9                   ; n >> 7
+    mov cl, OP_GSH              ; n >> 7 (n << 4: n >> 12)
     shl ax, cl
     pop cx
     add [op_bend], ax           ; ...so this is (off - first) * 512 + packed
@@ -447,7 +447,7 @@ op_size:
 
 .run:
 %if OP_HAS_XMS
-    cmp word [op_xsecs], 128    ; the span is climbed through one WORD of
+    cmp word [op_xsecs], 128 << (9 - OP_GSH)    ; the span is climbed through one WORD of
     jae .bad                    ; bytes (op_xload: `shl ax, 9`), so it has the
                                 ; same 64KB ceiling the carve has below - 128
                                 ; sectors read as 0 there, and 180 as 26,624
@@ -458,7 +458,7 @@ op_size:
     sub dx, bx
     jbe .bad                    ; a run of nothing, out of rows that are filed
     mov [op_secs], dx
-    cmp dx, OP_SECMAX
+    cmp dx, OP_RUNMAX
     jae .bad                    ; THE CARVE MAY PASS 64KB (SPEC.md 20.12.11):
                                 ; op_cap counts PARAGRAPHS and op_want and
                                 ; op_bend are 32 bits, so what bounds it is R
@@ -483,15 +483,17 @@ op_size:
     ; above went with the gate.
 %if OP_HAS_COMP
     mov ax, [op_usecs]
-    cmp ax, OP_SECMAX
+    cmp ax, OP_RUNMAX
     jae .bad                    ; the carve's own ceiling, on the side that
                                 ; decides the claim rather than the read
 %else
     mov [op_usecs], dx          ; DX is still op_secs
     mov ax, dx
 %endif
-    mov cl, 5                   ; sectors -> paragraphs, exact: a sector is
+%if OP_GPSH
+    mov cl, OP_GPSH             ; sectors -> paragraphs, exact: a sector is
     shl ax, cl                  ; 32 of them, and OP_SECMAX's 1,920 fits
+%endif                          ; (a PARAGRAPH granule is one already)
     add [op_reqp], ax           ; the carve is never optional: it is one claim
     jc .bad                     ; and one read, and half of it is not a thing
 %if OP_HAS_OPT
@@ -544,9 +546,9 @@ op_claim:
     je .scratchonly             ; nothing to read: the claim is scratch alone
     mov ax, [op_first]          ; the run's first sector -> its byte offset,
     mov dx, ax                  ; in 32 bits: a 1MB file is 2,048 sectors, so
-    mov cl, 9                   ; sector * 512 does not fit a word. The high
+    mov cl, OP_GSH              ; sector * 512 does not fit a word. The high
     shl ax, cl                  ; half of (n << 9) is (n >> 7), which is two
-    mov cl, 7                   ; shifts rather than a 32-bit one the 8086
+    mov cl, 16 - OP_GSH         ; shifts rather than a 32-bit one the 8086
     shr dx, cl                  ; does not have
 
     mov bx, [op_clb]            ; slack = offset mod cluster bytes, and a
@@ -621,8 +623,13 @@ op_claim:
     mov ax, [op_usecs]          ; at the base, exactly as it always has
     sub ax, [op_secs]           ; (unpacked - packed) sectors, plus the one
     inc ax                      ; extra sector below, as paragraphs
-    mov cl, 5
+%if OP_GPSH
+    mov cl, OP_GPSH
     shl ax, cl
+%else
+    add ax, 31                  ; PARAGRAPH granules: R is where a DISK READ
+    and ax, 0FFE0h              ; lands, so it is still a whole SECTOR (every
+%endif                          ; disk-visible base is 512-aligned)
 %if OP_MARGIN
     add ax, ((OP_MARGIN + 511) >> 9) << 5   ; a SECTOR multiple, so R + the
 %endif                                      ; read below stays one too
@@ -665,8 +672,10 @@ op_claim:
     ; op_np less the run's own paragraphs - op_size put the run in both
     ; totals, and op_np is whichever of them the machine allowed.
     mov dx, [op_usecs]
-    mov cl, 5
+%if OP_GPSH
+    mov cl, OP_GPSH
     shl dx, cl                  ; DX = run sectors as paragraphs, op_size's
+%endif
     mov bx, [op_np]             ; figure - and op_size's is the UNPACKED one,
                                 ; which is what it put in both totals
     sub bx, dx                  ; BX = the granted scratch, in paragraphs
@@ -965,14 +974,14 @@ op_unpack:
     push si
     mov ax, [si+OP_R_LEN]
 .step:
-    add ax, 511                 ; both pointers step by whole SECTORS, which is
-    and ax, 0FE00h              ; the granularity a part is laid out on
+    add ax, OP_GRAN - 1         ; both pointers step by whole GRANULES, which
+    and ax, -OP_GRAN            ; is the granularity a part is laid out on
     mov cl, 4
     shr ax, cl                  ; ...as paragraphs
     add [op_zsrc], ax
     mov ax, [si+OP_R_LEN]       ; ...and the landing pointer by the UNPACKED
-    add ax, 511                 ; length, rounded the same way
-    and ax, 0FE00h
+    add ax, OP_GRAN - 1         ; length, rounded the same way
+    and ax, -OP_GRAN
     mov cl, 4
     shr ax, cl
     add bp, ax
@@ -1158,9 +1167,9 @@ op_xload:
     ; BEGIN on a cluster boundary and the span begins on a 512-byte one.
     mov ax, [op_xoff]
     mov dx, ax
-    mov cl, 9
+    mov cl, OP_GSH
     shl ax, cl
-    mov cl, 7
+    mov cl, 16 - OP_GSH
     shr dx, cl                  ; DX:AX = the span's byte offset, in 32 bits
     mov bx, [op_clb]
     dec bx
@@ -1172,7 +1181,7 @@ op_xload:
     mov [op_xrd+2], dx
 
     mov ax, [op_xsecs]          ; the span's bytes...
-    mov cl, 9
+    mov cl, OP_GSH
     shl ax, cl
     mov [op_xleft], ax          ; ...still to copy UP
     add ax, bx                  ; ...and to READ, with the slack in front
@@ -1307,10 +1316,10 @@ op_lin:
     jz .none
     sub bx, [op_xoff]           ; sectors into the span...
     mov ax, bx
-    mov cl, 9
+    mov cl, OP_GSH
     xor dx, dx
     shl ax, cl
-    mov cl, 7
+    mov cl, 16 - OP_GSH
     shr bx, cl
     mov dx, bx                  ; ...as a 32-bit byte offset
     add ax, [op_xlin]
@@ -1389,8 +1398,10 @@ op_seg:
 
     mov ax, bx                  ; --- a filed part: inside the carved run ----
     sub ax, [op_first]          ; sectors past the run's start...
-    mov cl, 5
+%if OP_GPSH
+    mov cl, OP_GPSH
     shl ax, cl                  ; ...and a sector is 32 paragraphs
+%endif
     mov dx, [op_slack]
     mov cl, 4
     shr dx, cl                  ; the head slack in paragraphs - exact, because
@@ -1432,8 +1443,8 @@ op_seg:
 .zwadd:
     push ax
     mov ax, [si+OP_R_LEN]       ; the UNPACKED length, rounded to a sector
-    add ax, 511
-    and ax, 0FE00h
+    add ax, OP_GRAN - 1
+    and ax, -OP_GRAN
     mov cl, 4
     shr ax, cl
     add dx, ax
@@ -1694,7 +1705,7 @@ op_lazyp:
     push cx
     push dx
     mov ax, [si+OP_R_OFF]       ; the part's byte offset, in 32 bits - though
-    mov cl, 9                   ; only the low half matters below, because the
+    mov cl, OP_GSH              ; only the low half matters below, because the
     shl ax, cl                  ; slack is an AND with a cluster mask
     mov bx, [op_clb]
     dec bx
@@ -1869,9 +1880,9 @@ op_fetch:
 
     mov ax, [si+OP_R_OFF]       ; --- where the read starts, and its slack ---
     mov dx, ax
-    mov cl, 9
+    mov cl, OP_GSH
     shl ax, cl
-    mov cl, 7
+    mov cl, 16 - OP_GSH
     shr dx, cl                  ; DX:AX = the part's byte offset, 32 bits
     mov bx, [op_clb]
     dec bx
