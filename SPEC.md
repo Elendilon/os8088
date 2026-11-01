@@ -208022,7 +208022,7 @@ that every package symbol it names is the package's own address, and
 Its verbs are `RIM_PROBE`, `RIM_COMPOSE` (page AH, out AX = lines) and
 `RIM_TEXT` (page AH as CR LF text, appended to the report's claim). The part is
 19.8 KB in memory, most of it the lines and the state, and compresses to a
-fraction of that on the disk. The package's image + bss is **64,875 of
+fraction of that on the disk. The package's image + bss is **64,897 of
 APP_MAX_SIZE's 65,024**; anything more the tab wants goes in the module.
 
 #### 103.7.3 The report
