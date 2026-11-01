@@ -418,16 +418,20 @@ mega_enterf:
 .refuse:                            ; WHY ON THE GLASS (a field run that stays
 %ifdef MEGA_E9                      ; in real mode must not look like one that
     mov si, mega_mrm                ; never tried): "kern_mega: " and the
-    call KERNEL_SEG:mega_putsf      ; toast's own line
+    call KERNEL_SEG:mega_putsf      ; toast's own line - `.mega`'s RUNG's,
+    push ds                         ; so through DS = MEGA_RAM for the port
+    mov si, MEGA_RAM
+    mov ds, si
     mov si, dx
     call KERNEL_SEG:mega_putsf
+    pop ds
     mov al, 10
     out 0xE9, al
 %endif
     push es
-    push ds
-    pop es
-    mov si, dx
+    mov si, MEGA_RAM                ; the line is in `.mega`'s rung, still
+    mov es, si                      ; below 1MB: toast_show COPIES it, and
+    mov si, dx                      ; mega_rung below is what makes it heap
     mov cx, 146
     call KERNEL_SEG:cw_toast_show
     pop es
@@ -13379,10 +13383,6 @@ mega_ldtd:                          ; the LDT's descriptor (GDT entry 3)
 %ifdef MEGA_E9
 mega_mrm    db "kern_mega: ", 0     ; ...the debug port's line is the toast's
 %endif
-mega_t86    db "real mode: 8086-class CPU", 0
-mega_tmem   db "real mode: no room for kern_mega's tables", 0
-mega_ta20   db "real mode: A20 will not open", 0
-mega_ttask  db "real mode: a task predates it", 0
 %ifdef MEGA_DIAG                    ; the field build names the way BACK
 mega_mtoast db "protected, 286 reset", 0
 mega_mtoast3 db "protected, 386 CR0", 0
@@ -13390,7 +13390,22 @@ mega_mtoast3 db "protected, 386 CR0", 0
 mega_mtoast db "Entered protected mode", 0 ; which is true on any CPU
 %endif
 
-section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
+section .mega
+; THE REFUSAL'S LINES (kern_mega size pass 2: they were `.text`, conventional
+; memory for ever, for a toast a machine shows at most once). `.mega`'s RUNG is
+; still below 1MB, at MEGA_RAM, when mega_enterf refuses - it is given to the
+; heap by the refusal itself, AFTER toast_show has copied the line - so the
+; toast reads them through ES = MEGA_RAM; on a machine that switches they go
+; above 1MB with the rest of `.mega` and are never read. mega_gateb (the boot
+; blob) and mega_enterf name them as offsets only, which os88ovlchk enforces
+; ovlchk: rung data
+mega_t86    db "real mode: 8086-class CPU", 0
+mega_tmem   db "real mode: no room for kern_mega's tables", 0
+mega_ta20   db "real mode: A20 will not open", 0
+mega_ttask  db "real mode: a task predates it", 0
+; ovlchk: end rung data
+                                ; protected mode only from here
+                                ; (KERN-MEGA-SEGMENTS-PLAN)
 ; mega_pmtail - the rest of the switch, once `.mega` is where MEGA_SEL_CODE
 ; says (mega_coldup): every task and module slot converted, the pool, the
 ; ROM's halves in the ISR chains, the IVT kept for a reflection, the 8259,
