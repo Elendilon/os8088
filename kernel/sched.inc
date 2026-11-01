@@ -2139,6 +2139,10 @@ sch_isr:
                                 ; - int 09h, a mouse gate frame, the floppy's
                                 ; completion - nests harmlessly, and the stack
                                 ; is sized for it
+    mov bx, sp                  ; the task's SP, in a register across the
+                                ; ROM (an ISR, it keeps every one) - it was
+                                ; [sch_chsave] (kernel size pass 16, fsx_rtick's
+                                ; shape: both arms share one chain below)
     mov ax, ss
     cmp ax, LOW_SEG             ; **ONLY ON A TASK STACK** (SPEC.md 8.5). SS is
     jne .chplain                ; LOW_SEG for every os8088 context, but not
@@ -2151,17 +2155,21 @@ sch_isr:
                                 ; ROMs do not hop; where one does, the chain
                                 ; runs in place as it did before 8.5
     inc byte [sch_chbusy]
-    mov [sch_chsave], sp
     mov sp, sch_chstack + SCH_CHSTK
+.chplain:                       ; (not a task stack: chain where we stand)
     pushf                       ; chain: BIOS ticks its count and sends EOI
     call far [sch_old08]
-    mov sp, [sch_chsave]        ; ...and the ROM's iret restored our IF=0 with
-    dec byte [sch_chbusy]       ; the flags the pushf banked, so this is back
-    jmp short .chained          ; inside the ISR's own contract
-.chplain:
-    pushf                       ; not a task stack: chain where we stand
-    call far [sch_old08]
-    jmp short .chained
+    mov sp, bx                  ; ...and the ROM's iret restored our IF=0 with
+    mov byte [sch_chbusy], 0    ; the flags the pushf banked, so this is back
+    jmp short .chained          ; inside the ISR's own contract. BOTH no-ops
+                                ; on the plain arm: SP never moved, and the
+                                ; flag was 0 at the test above (a nested IRQ0
+                                ; inside a ROM service's stack is plain too,
+                                ; and leaves it 0). Faster on the task-stack
+                                ; arm, the common one - SP by register, a
+                                ; store for the dec, one jump fewer; ~+3
+                                ; clocks on the plain arm (kernel size pass 16,
+                                ; -10)
 .chskip:
     inc word [sch_chskip]       ; the claim in SPEC.md 8.5.1 is a READING, not
                                 ; an argument: STKDIAG publishes this

@@ -10857,6 +10857,8 @@ wm_draw_win:
     cmp word [di+W_PAINT], 0
     je .growbox
 %ifndef REDRAWFULL
+.cull:                          ; (a label and no byte: tools/deskclip.py marks
+                                ; a W_PAINT here, where wm_dw_cull was called)
     cmp byte [wm_dmg_cullq], 0  ; SPEC.md 11.3.3: inside wm_dmg_wins, W_PAINT
     je .nocull                  ; is confined to what nothing above will cover
     mov byte [wm_dmg_cull], 1   ; (wm_dw_cull, above). BEFORE the arm:
