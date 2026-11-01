@@ -4,6 +4,10 @@ PRE-ROLL - SPEC.md 98.2.9 and 98.3.5.
 
     make && python3 tests/vidpreroll.py [--machine NAME]
 
+First, on the host: the ENCODER'S PREVIEW (tools/os88vencgui.py's
+preview_frames, through os88vid.first_shown) must start at the same key 0
+with the picture whole - it is the window's promise of what a play shows.
+
 The owner's Hercules encode of a clip whose first frame the budgets could not
 pay for in one period opened on that frame PAINTED IN: the encoder holds the
 first picture over silence and starts the keyframe grid at the first whole
@@ -23,6 +27,8 @@ scratch floppy, played full screen on MartyPC's Hercules 5150:
 
 Broken on purpose (vp_spos's one-bit test taken out, so a one-bit play from
 the start goes to the first record again) leg 1 FAILS: based at 0, no key.
+With os88vid.first_shown back on colour alone the preview FAILS: it starts
+at frame 0 with 3,703 bytes of the picture missing.
 """
 import argparse
 import os
@@ -88,6 +94,22 @@ def main():
         if not k0 or whole != keep[0].tobytes() or rp.g.name != "herc":
             sys.exit("vidpreroll: the clip has no pre-roll - it tests "
                      "nothing")
+        # THE ENCODER'S PREVIEW shows what the player does (98.2.9.3):
+        # its first frame key 0's, and the picture whole - on the host
+        import os88vencgui as G
+        pr, pfr = G.preview_frames(pre)
+        pf0 = pfr[0][0]
+        surf0 = None
+        for f, surf, rec, at, i in vid.v88_frames(vid.Reader(pre)):
+            if f == pf0:
+                surf0 = bytes(surf)
+                break
+        pdiff = sum(1 for x, y in zip(rp.g.canvas(surf0), whole) if x != y)
+        print("   the encoder's preview starts at frame %d (want %d), %d "
+              "bytes off the first picture" % (pf0, k0, pdiff))
+        if pf0 != k0 or pdiff:
+            bad.append("the encoder's preview starts at frame %d, %d bytes "
+                       "off the first picture - not key 0's" % (pf0, pdiff))
         plain = os.path.join(tmp, "PLAIN.V88")
         os.rename(vidplay.clip(tmp, "herc"), plain)
         rq = vid.Reader(plain)

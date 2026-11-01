@@ -198657,6 +198657,14 @@ based at frame 9 from key 0's record with its first hold the picture whole;
 vidplay's clip, key 0 at frame 0 and its poster key 1, must still start at
 the first record. With `vp_spos`'s test taken out, the first leg is based at 0.
 
+**The encoder's preview follows it** (`os88vid.first_shown`, which
+`preview_frames` and the guide's video both ask): it still started a one-bit
+file at the stream's first record, so the window showed the paint-in the
+player no longer does. The same row checks it on the host, before it boots:
+the preview's first frame must be key 0's and its picture the first picture
+whole. With `first_shown` back on colour alone, it starts at frame 0 and
+3,703 bytes of the picture are missing.
+
 #### 98.2.10 What a choice sets: the presets' own defaults, and the window shows them
 
 **`os88venc.implied()` is the one answer to "what does this choice set".** A
@@ -198776,9 +198784,10 @@ line is `os88vid.py title FILE "A title"`.
 CGA4, C160) starts at key 0 (98.2.9), past any pre-roll, so
 `preview_frames` starts there too (`os88vid.first_shown`). The owner's Spice
 & Wolf encode played whole and previewed half-painted, because the preview
-started at the stream's frame 0. A one-bit or composite play does start at
-frame 0 and shows the still picture being painted in, so its preview does
-too.
+started at the stream's frame 0. A one-bit or composite play used to start at
+frame 0 and show the still picture being painted in, and its preview did too;
+since 98.2.9.3 both start at key 0 in every format, and so does the guide's
+video of a file (`tools/guide/vidpreview.py`, the same function).
 
 `tests/vencguitest.py` legs 8 to 10 are the gates:
 - **Leg 8:** the steps come in order, the bar never moves back, and it
