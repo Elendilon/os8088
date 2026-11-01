@@ -255,6 +255,15 @@ FAST = [
         "repo', and was tests/kerndos.py's `-l /dev/null` on every soak, with "
         "eleven more sites one failed assembly away. The argument is gated "
         "and not the device, so it is caught at the edit"),
+    Row("partoff", "fast", py("tests/unit/t_partoff.py"), 0.4,
+        "NO PART OFFSET IS CONVERTED WITH A SECTOR SHIFT OUTSIDE THE "
+        "STANDARD. A part starts on a 16-byte PARAGRAPH (SPEC.md 20.12.2; it "
+        "was a 512-byte sector until 20.12.2.1), and six reader sites lived "
+        "outside apps/os88parts.inc - RealDMG, MIDIRack, Excitebike, Clear "
+        "Skies' program - each with its own `mov cl, 9 / shl`. A site missed "
+        "when the unit moved assembles cleanly and reads 32 times too far "
+        "into the file. Tracks the loaded VALUE, so a later unrelated shift "
+        "is not one; red on rw_jpart's old conversion put back"),
     Row("coldsym", "fast", py("tests/unit/t_coldsym.py"), 1.2,
         "NO SCRIPT RESOLVES A `.cold` LABEL THROUGH os88sym.linear(). On a "
         "machine with neither a VGA nor an EGA - MartyPC's default CGA among "

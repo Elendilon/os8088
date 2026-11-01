@@ -4088,7 +4088,7 @@ so images 2 to 4 are worth less than any slot.
 
 The images are read from the package's folder **in whole clusters**:
 `OSAPI_FILE_READ_AT` refuses an offset or a length that is not a cluster
-multiple, and a part starts on a 512-byte boundary, so `rw_acopy` reads a
+multiple, and a part starts on a 16-byte paragraph (SPEC.md 20.12.2), so `rw_acopy` reads a
 chunk of whole clusters at a time into a bounce (the frame buffers' claim,
 idle while a game loads) and copies out the part's own bytes. The first
 package read in place: a floppy's cluster is 512 bytes, so every emulator run

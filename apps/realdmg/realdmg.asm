@@ -1542,19 +1542,28 @@ rw_jpart:
     mov si, op_table + OP_T_ROWS + RWJ_PART * OP_ROW
     mov cx, [si + OP_R_ZKB]         ; CX = the packed bytes
     mov bx, [si + OP_R_LEN]         ; BX = what they expand to
-    sub bx, cx                      ; BX = R, a sector boundary: where the
-    jbe .no                         ;   stream is read, up from where it
-    add bx, 511                     ;   expands to
-    and bx, ~511
-    mov ax, [si + OP_R_OFF]         ; DX:AX = the part's byte offset
-    mov dx, ax
+    sub bx, cx                      ; BX = len - packed, which the stream
+    jbe .no                         ;   must start at least that far up
+    mov ax, [si + OP_R_OFF]         ; DX:AX = the part's byte offset: `off`
+    mov dx, ax                      ;   is PARAGRAPHS (SPEC.md 20.12.2)
     push cx
-    mov cl, 9
+    mov cl, OP_GSH
     shl ax, cl
-    mov cl, 7
+    mov cl, 16 - OP_GSH
     shr dx, cl
     pop cx
+    mov di, ax
+    and di, 511                     ; DI = its place in its SECTOR, where
+    sub ax, di                      ;   READ_AT starts (SPEC.md 18.4.4.2)
+    sub bx, di                      ; BX = R, a sector boundary: the read
+    jae .rpos                       ;   lands there and the stream DI past
+    xor bx, bx                      ;   it, still len - packed up from
+.rpos:                              ;   where it expands to - and the claim
+    add bx, 511                     ;   (rw_jppara) is no bigger than for a
+    and bx, ~511                    ;   part on a sector
     mov es, bp
+    push cx
+    add cx, di                      ; the slack and the stream must arrive
     push cx
     add cx, 511
     and cx, ~511                    ; whole sectors, the file ending inside
@@ -1562,10 +1571,12 @@ rw_jpart:
     mov si, op_name
     call OSAPI_FILE_READ_AT         ; DX:AX = the bytes delivered
     pop si                          ; SI = R
-    pop cx
-    jc .no
+    pop cx                          ; CX = slack + packed
+    jc .nop
     cmp ax, cx
+    pop cx                          ; CX = the packed bytes
     jb .no
+    add si, di                      ; SI = the stream
     mov al, [op_table + OP_T_FMT]
     xor ah, ah
     mov dx, [op_table + OP_T_ROWS + RWJ_PART * OP_ROW + OP_R_LEN]
@@ -1580,6 +1591,8 @@ rw_jpart:
     call rw_jdset
     clc
     jmp short .r
+.nop:
+    pop cx
 .no:
     stc
 .r:

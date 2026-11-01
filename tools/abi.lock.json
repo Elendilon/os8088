@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "1aafaaaae7f263d601e655097de0099de7fe11c9245799673e3a0952feea5152",
+  "fingerprint": "fd810f5016e92ba83cd2bc0f366b0f66bbe785a19ed50051699ab00468fa6ee8",
   "version": 12
  },
  "PKG_FMT": {
-  "fingerprint": "e99924eff56554ad5f91607134365e92b8562f5cd257e1b010e7f5caf7bbaf59",
+  "fingerprint": "8f5f61082310f57fedd43574826a6c8224b92cb50f008fac696e2e40942b1565",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -1428,6 +1428,20 @@
    "from": 12,
    "guard": "DRV_VER",
    "reason": "merge elendilon into dos-windowed: OSAPI_PKG_START's posted form (SPEC.md 21.5.4) beside elendilon's own SDK changes",
+   "to": 12
+  },
+  {
+   "fingerprint": "8f5f61082310f57fedd43574826a6c8224b92cb50f008fac696e2e40942b1565",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "KDH record KDH1 to KDH2, KDH_POFF and KDH_COFF in PARAGRAPHS (SPEC.md 20.12.2.1, 96.40.1): the DOS to HIBER.DRV hand-off record's unit moved with the part layout. No PKG_FMT bump: the loader runs every old package unchanged (flags bit 2 and the link word keep their meaning), an old O88PARTS package carries its own 512 reader, and a DOS.O88 and HIBER.DRV from different trees refuse the hand-off at the magic rather than misread it",
+   "to": 10
+  },
+  {
+   "fingerprint": "fd810f5016e92ba83cd2bc0f366b0f66bbe785a19ed50051699ab00468fa6ee8",
+   "from": 12,
+   "guard": "DRV_VER",
+   "reason": "KDH record KDH1 to KDH2, KDH_POFF and KDH_COFF in PARAGRAPHS (SPEC.md 20.12.2.1, 96.40.1): the DOS to HIBER.DRV hand-off record's unit moved with the part layout. No PKG_FMT bump: the loader runs every old package unchanged (flags bit 2 and the link word keep their meaning), an old O88PARTS package carries its own 512 reader, and a DOS.O88 and HIBER.DRV from different trees refuse the hand-off at the magic rather than misread it",
    "to": 12
   }
  ]

@@ -1125,11 +1125,11 @@ cs_wldget:
     sub ax, bx
     mov [cs_wglen], ax              ; ...and its packed length, to the next
 
-    mov ax, [cs_hand + CSH_SEC]     ; --- the stream's byte offset in the FILE,
-    mov dx, ax                      ;     32 bits: csw.z's sector x 512, whose
-    mov cl, 7                       ;     high half is the sector >> 7, plus
-    shr dx, cl                      ;     the stream's offset inside it
-    mov cl, 9
+    mov ax, [cs_hand + CSH_PARA]    ; --- the stream's byte offset in the FILE,
+    mov dx, ax                      ;     32 bits: csw.z's paragraph x 16,
+    mov cl, 12                      ;     whose high half is the paragraph
+    shr dx, cl                      ;     >> 12, plus the stream's offset
+    mov cl, 4                       ;     inside it (SPEC.md 20.12.2)
     shl ax, cl
     add ax, bx
     adc dx, 0
@@ -2755,7 +2755,7 @@ cs_tpl:
 ; registered to make that work.
 ; =============================================================================
 CSH_MAGIC  equ 0                ; word: 'CS' - the loader ran
-CSH_SEC    equ 2                ; word: the SECTOR csw.z begins at in our own
+CSH_PARA   equ 2                ; word: the PARAGRAPH csw.z begins at in our own
                                 ; file - every stream this program reads for
                                 ; itself, the art included (88.10.7)
 CSH_CLB    equ 4                ; word: this volume's bytes per cluster, which
