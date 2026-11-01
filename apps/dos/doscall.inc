@@ -63,7 +63,7 @@ CORE_ORG    equ 0x0080
 ; CORE alone spends, both hosts read, and whose slack is one number in one
 ; place. Measured at the wave, with the assertion in `apps/dos/doscore.asm`.
 %ifndef DOS_MEGA
-CORE_MAX    equ 15440            ; +512 for SPEC.md 96.7.2's stack swap and
+CORE_MAX    equ 15392            ; +512 for SPEC.md 96.7.2's stack swap and
                                 ; 96.12.5's name truncation, which are 214
                                 ; bytes between them against 89 of slack. The
                                 ; two are the Playroom's whole report: a gate
@@ -127,8 +127,24 @@ CORE_MAX    equ 15440            ; +512 for SPEC.md 96.7.2's stack swap and
                                 ; that dos_cpm's padding absorbed - 15,430
                                 ; used. kern_mega's core falls with it,
                                 ; 16,080 used of 16,096
+                                ; -48 for the windowed-DOS SIZE PASS's slice
+                                ; in dos.asm (SPEC.md 96.54.8.1): 27 bytes in
+                                ; front of dos_cpm's `align 16`, which falls
+                                ; two paragraphs (32) - dos_load's ES is
+                                ; dos_ldrd's first chunk's, its tail a popb
+                                ; rung and its error a `mov` under the cmp's
+                                ; flags; dos_psp_make reads the PSP out of ES
+                                ; and writes the JFT's 1, 0 and the FFFF:FFFF
+                                ; as words; the hook table's end stores the
+                                ; AL = 0 it ended on; two more popa rungs -
+                                ; and behind it dos_ldrd's segment a `lea`
+                                ; (1), dos_m33_evt's tail the popa ladder
+                                ; (5), AH=36h's default drive a `sub` and its
+                                ; dropped word a `pop` (4): 15,430 -> 15,388
+                                ; used. kern_mega's core falls with it,
+                                ; 16,080 -> 16,038 used of 16,048
 %else                           ; **kern_mega's core is 67 bytes longer**:
-CORE_MAX    equ 16096            ; SPEC.md 96.15.4's extended-to-extended
+CORE_MAX    equ 16048            ; SPEC.md 96.15.4's extended-to-extended
 %endif                          ; move (dos_xms_move's `.bothx`), 15,409 used.
                                 ; +80, kept a multiple of 16, and paid ONLY by
                                 ; kern_mega's DOS.O88 - both of its hosts
