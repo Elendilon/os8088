@@ -254,6 +254,15 @@ C apps/dos/dos.asm dos_arena             # a DOS program's arena: the program is
                                          # dos_run's call
 C apps/dos/dosload.asm op:DOS_PART_CORE  # the core, fetched, copied into place
                                          # and op_drop'ed inside one call
+C apps/os88pself.inc @op_self           # op_self hands its claim to the CALLER
+                                         # pinned, because the part is still
+                                         # being read into it: HELP prints and
+                                         # frees it inside the one HELP command
+                                         # (dosc.inc), and DOS's network claim
+                                         # is declared movable by dos_pkt_rloc
+                                         # once PN_D_INIT returns (SPEC.md
+                                         # 96.23.11) - claimed and handed over
+                                         # inside one op_self call
 C apps/wirefleet/wfsound.inc op:WF_P_SFX # the samples part, fetched and dropped
                                          # inside wf_pcm_open's one call
 C apps/c64/c64kbd.c ovl_clip_service:seg # Copy's staging, claimed and freed

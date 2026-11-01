@@ -707,26 +707,12 @@ dos_con_help:
     ; it went, read off our own file by op_self into a claim of its own,
     ; printed, freed. Our file is in OUR folder and the prompt stands in its
     ; own, so the instance goes there and back (dos_pkgwhere banked it).
-    call OSAPI_FILE_HERE            ; where the prompt stands
-    push bx
-    push dx
-    mov dx, [dos_pkgdir]
-    mov bl, [dos_pkgvol]
-    call OSAPI_FILE_GOTO_QM         ; where DOS.O88 is
-    jc .home
     mov si, dos_hlprow
-    mov di, dos_pkgname
-    mov al, [si+OP_R_KIND]          ; the FORMAT: dsl_entry wrote it there
-    call op_self                    ; DX = the claim, CX = the text's bytes
-.home:
-    mov bp, dx
-    pop dx
-    pop bx
-    pushf
-    call OSAPI_FILE_GOTO_QM         ; ...and back
-    popf
+    xor ah, ah                      ; no floor: the text and nothing else
+    call dos_pself                  ; DX = the claim, CX = the text's bytes
     jc .none
-    mov es, bp
+    mov bp, dx
+    mov es, dx
     xor si, si
 .c:
     mov al, [es:si]                 ; bounded by the row's length, not a NUL:
