@@ -74,6 +74,7 @@ PKG_MIRROR = {
     "OPF_ZERO": "OP_ZERO",
     "OPF_OPT": "OP_OPT",
     "OPF_LAZY": "OP_LAZY",
+    "OPF_ZFILL": "OP_ZFILL",
     "PK_SEG": "OP_SEG",
     "PK_ASSET": "OP_ASSET",
 }
@@ -203,7 +204,16 @@ def part_bytes(raw, i):
     if not row["flags"] & EQU["OP_COMP"]:
         return raw[at:at + row["len"]]
     import os88lz
-    return os88lz.decompress(raw[at:at + row["zkb"]], os88lz.LZ4, row["len"])
+    z = raw[at:at + row["zkb"]]
+    if row["flags"] & EQU["OP_ZFILL"]:
+        # SPEC.md 20.12.7.5: a head S1, P1, B, S2 and two streams, landing at
+        # 0 and at B, and every byte of the row they do not write is zero
+        s1, p1, b, s2 = (_u16(z, k) for k in (0, 2, 4, 6))
+        out = bytearray(row["len"])
+        out[:s1] = os88lz.decompress(z[8:8 + p1], os88lz.LZ4, s1)
+        out[b:b + s2] = os88lz.decompress(z[8 + p1:], os88lz.LZ4, s2)
+        return bytes(out)
+    return os88lz.decompress(z, os88lz.LZ4, row["len"])
 
 
 # --- and the same question asked of the harness ------------------------------

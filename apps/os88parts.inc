@@ -114,6 +114,14 @@ OP_COMP       equ 16            ; ...and the part is COMPRESSED on the disk
                                 ; claim, so a refusal still costs no disk -
                                 ; and `zkb`, which the macro already forbids
                                 ; on a file-backed row, carries the packed one
+OP_ZFILL      equ 64            ; ...and on an EAGER OP_COMP row, the part is
+                                ; stored as TWO streams with a head saying
+                                ; where each lands, and op_unpack ZEROES every
+                                ; byte of `len` they do not write (SPEC.md
+                                ; 20.12.7.5). os88pkg.py cuts them round the
+                                ; longest run of zeros and the trailing ones,
+                                ; so a bss or a reserved hole costs neither
+                                ; the disk nor a decoder writing it out
 OP_MARGIN     equ 0             ; what a compressed run needs ABOVE its
                                 ; unpacked bytes: NOTHING, since every stream
                                 ; ends in a raw tail (SPEC.md 20.13.7) - the
@@ -223,6 +231,8 @@ OP_CHUNK      equ 32768         ; bytes a read moves at a time: a multiple of
 %assign OP_HAS_PLAZY 0              ; ...a PLAIN lazy row op_fetch reads, which
                                     ; is what earns its move-down (SPEC.md
                                     ; 20.12.7.4.4) - ZLAZY's other half
+%assign OP_HAS_ZFILL 0              ; ...an OP_ZFILL row, which is what earns
+                                    ; op_unpack its zero fill (20.12.7.5)
 %assign OP_HAS_CARVE 0              ; ...and a row that is NOT lazy, which is
                                     ; what earns op_size, op_claim, op_unpack
                                     ; and op_load's whole body: a table of
@@ -294,6 +304,12 @@ op_t_n:
     %endif
     %if ((%2) & OP_COMP) && ((%2) & OP_XMS)
         %error "OP_COMP with OP_XMS: the span above 1MB is staged through a transient conventional buffer a chunk at a time, and a stream cannot be expanded a chunk at a time - the parts up there are stored plain"
+    %endif
+    %if ((%2) & OP_ZFILL) && (!((%2) & OP_COMP) || ((%2) & OP_LAZY))
+        %error "OP_ZFILL off an EAGER OP_COMP row: it is op_unpack's, and op_unpack expands the carve - a lazy row is op_fetch's, and a plain row has no stream to stop short"
+    %endif
+    %if ((%2) & OP_ZFILL)
+        %assign OP_HAS_ZFILL 1
     %endif
     %if ((%2) & OP_XMS)
         %assign OP_HAS_XMS 1

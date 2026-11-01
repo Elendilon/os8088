@@ -141,7 +141,8 @@ dsl_cpy:
 ; THE COPY IS ~41 ms on a 4.77MHz 8088 (`rep movsw` at 13.3 cycles a byte,
 ; PERFORMANCE.md Set 117.2) and it happens once, at a launch that is already
 ; reading 40KB off a floppy. The core's bss needs no zeroing: it is inside the
-; windowed DOS's own image, which ships those bytes as zeros.
+; windowed DOS's own image, and op_unpack has zero-filled the slot round the
+; part's two streams (OP_ZFILL, SPEC.md 96.44.17) - zeros it does not ship.
 ; -----------------------------------------------------------------------------
 dsl_core:
     mov al, DOS_PART_CORE
@@ -283,13 +284,16 @@ dsl_pmok:
 %else
     OS88_PARTS_BEGIN 4
 %endif
-      OS88_PART OP_SEG,   OP_COMP   ; 0 THE DOS: a whole .o88 image, its bss
-                                    ;   shipped inside it because the kernel
-                                    ;   does not zero a part (20.12.10).
-                                    ;   OP_COMP is the whole point of this
-                                    ;   file - 11,839 of those bytes are the
-                                    ;   bss, and a run of zeros is what LZ4 is
-                                    ;   best at
+      OS88_PART OP_SEG,   OP_COMP | OP_ZFILL
+                                    ; 0 THE DOS: a whole .o88 image, its bss
+                                    ;   inside it because the kernel does not
+                                    ;   zero a part (20.12.10). OP_COMP is
+                                    ;   the whole point of this file, and
+                                    ;   OP_ZFILL is what keeps the zeros OFF
+                                    ;   it: the core's slot and the bss are
+                                    ;   26,109 of these 55,316 bytes, and
+                                    ;   op_unpack fills them rather than
+                                    ;   decoding them (SPEC.md 96.44.17)
       OS88_PART OP_ASSET, OP_COMP | OP_LAZY
                                     ; 1 THE INT 21h CORE, lazy because it does
                                     ;   not belong in the carve - dsl_core

@@ -45965,6 +45965,7 @@ are the packer's. Flags are §20.12.4's, and a part with no file bytes has
 | `OP_OPT` | a part the package can do without: refused without refusing the launch |
 | `OP_LAZY` | not claimed and not read at load: `op_fetch` gets it when the package asks, `op_drop` gives it back |
 | `OP_COMP` | the part is COMPRESSED on the disk and expanded into the carve at load (§20.12.7) |
+| `OP_ZFILL` | on an eager `OP_COMP` row: two streams and the zeros round them FILLED, not shipped or decoded (§20.12.7.5) |
 | `OP_SELF` | on an `OP_LAZY` row only, and **never in the file**: the package reads this part for itself, so the standard carries no fetch code for it (§20.12.9.1) |
 
 **Every one of them is package code.** `OP_XMS` is `OSAPI_XMEM_ALLOC` with a
@@ -46443,6 +46444,66 @@ it is held. `tests/mseglzslack.py --plain` is the gate: MSEG's plain lazy part 6
 on an 8KB-cluster disk, a claim BEGINS at `op_seg`'s answer and is the part's
 own length to the granule, MSEG's three checks pass on the moved bytes, and the drop leaves the
 claim table as it was.
+
+##### 20.12.7.5 `OP_ZFILL` — a compressed part whose zeros are not shipped
+
+**An eager `OP_COMP` row may also carry `OP_ZFILL` (bit 6, 64)**, and then its
+stored bytes are not one stream but a head and **two** streams, and every byte
+of `len` the two do not write is **zero** — written by `op_unpack` with
+`rep stosw`, not decoded:
+
+| at | what |
+|---|---|
+| +0 | `S1`: bytes stream 1 writes, at the row's offset 0 |
+| +2 | `P1`: its packed length |
+| +4 | `B`: where stream 2 starts writing, a multiple of 16 and `>= S1` |
+| +6 | `S2`: bytes stream 2 writes |
+| +8 | stream 1, then stream 2 (`zkb − 8 − P1` bytes) |
+
+So `[S1, B)` is a zero **hole** and `[B + S2, len)` a zero **tail**.
+`os88pkg.py` cuts them: the tail is the row's trailing zeros, and `B` is the
+paragraph at or below the end of the longest run of zeros before it (with no
+such run the hole is empty, `B` is 16, and the row drops only its tail — a bss).
+`len` keeps meaning the UNPACKED row, so the claim, `op_seg`, the walk and
+`OS88_REHOME`'s keep figure are what they were to the byte: **the memory is
+identical, and so is every zero in it.** Only the disk and the decoder stop
+paying for them.
+
+**Why it exists is a cycle count and not a byte count.** A run of zeros is what
+LZ4 is best at on the disk — `DOS.O88`'s part 0 carried 26,189 of them for
+~100 packed bytes — but the decoder *writes* every one, as `rep movsb` match
+copies at ~17 clocks a byte on an 8088, against `rep stosw`'s ~7. That is ~55 ms
+of every launch (ESTIMATED from those two rates; §96.44.17 is the consumer).
+
+**Why two streams and not a prefix.** A row that could only drop a TAIL is half
+the size in `op_unpack`, and it misses the case it was for: `DOS.O88`'s program
+is a header, then the core's 18,910-byte slot at `CORE_ORG`, then its code, then
+its bss (§96.44.5) — the zeros are a hole *and* a tail. Two ROWS, each dropping a
+tail, were built first and measured worse: the head row's 82-byte stream takes a
+whole 512-byte sector of the file (rows start on sectors), so `DOS.O88` grew
+**51,791 → 52,303** where this leaves it at 51,791.
+
+**The head is FILE data and is held to the row before a byte is written**:
+`B <= len`, `S2 <= len − B`, `S1 <= B`. `OSAPI_DECOMP` never writes past what
+it is told, so those three keep every write inside the row; a wrong `P1` is a
+wrong READ, which the decoder refuses. **Stream 2 needs a window of its own**
+(`op_atb` at the landing plus `B/16`), because `OSAPI_DECOMP` takes `DI = 0` —
+which is also why `B` is a multiple of 16.
+
+**In place, as every stream is (§20.12.7.1).** The row's stored bytes land at
+least `len − zkb + 1` above its landing, so stream 2's input begins at or above
+`len − P2 + 1`; the hole's fill and stream 1 both end at `B`, so **`B + P2 <=
+len`** is what keeps them off it, and `os88pkg.py` refuses a row that breaks it.
+Stream 2's input then ends past `len`, beyond everything it writes, and each
+stream is a tailed stream needing no margin of its own (§20.13.7).
+
+**What it costs**: **152 bytes** of `op_unpack`, assembled only by a table with an
+`OP_ZFILL` row (`OP_HAS_ZFILL`, §20.12.9) — every other package is
+byte-identical, the one other change being a label. **No kernel byte, and no ABI**:
+the flag is in the package's own table, read by the package's own copy of the
+standard, and `tools/abilock.py` fingerprints neither. `tools/os88parts.py`'s
+`part_bytes` reads the format for host checks. Refused on a lazy row (it is
+`op_unpack`'s, and `op_fetch` expands a lazy one) and on a plain one (no stream).
 
 #### 20.12.9 The standard takes only what the table asks for
 
@@ -185674,7 +185735,7 @@ be a kilobyte.** Everything heavy becomes a part, and a part may be `OP_COMP`.
 | | | |
 |---|---|---|
 | **image** | `dosload.asm`, 1,812 bytes | raw; freed by `OSAPI_PKG_REHOME` |
-| **part 0** | DOS | `OP_SEG, OP_COMP` — its bss ships inside it |
+| **part 0** | DOS | `OP_SEG, OP_COMP` — its bss inside it (and, since §96.44.17, `OP_ZFILL`: filled, not shipped) |
 | **part 1** | `kern_dos` | `OP_ASSET, OP_LAZY`, packed by the Makefile |
 
 ##### 96.44.4.1 Part 1 is LAZY because the pair would be REFUSED
@@ -186692,6 +186753,50 @@ decoded by `con_font` on the pre-EGA path, round-tripped bit-identical by
 +10** with table and decoder parked in the ASCII hole the ROM copy
 overwrites. Neither is worth a mechanism in a shared include. Telnet's share
 would be the same 17.
+
+#### 96.44.17 Part 0's zeros are FILLED, not shipped (`OP_ZFILL`)
+
+Part 0 is the windowed DOS's whole image with its bss inside it (§96.44.4,
+§20.12.10.2), and **26,189 of its 55,316 bytes are zeros in two runs**: the
+core's slot at `CORE_ORG` (`times CORE_MAX + CORE_BSS_SIZE db 0`, 18,910 bytes)
+and the bss after the image (7,284). Packed they cost almost nothing - but the
+decoder WROTE every one, as LZ4 match copies, at every launch
+(`docs/reports/DOS-PACKED-COST-2026-11-01.md` §5 item 2).
+
+**The row is `OP_SEG, OP_COMP | OP_ZFILL` now** (§20.12.7.5), and nothing else
+moved: `dosp.bin` is byte-identical, still carries both runs (os88pkg.py's
+"a program part's bss ships inside it" rule still reads it), and the packer
+cuts them out. Stream 1 is the 119 bytes of header, icon, association block
+and glyph; stream 2 starts at **19,024**, the paragraph at or below the end of
+the slot (the 14 bytes of core bss above it ride in the stream); the hole and
+the bss are `rep stosw`. **The memory is the same to the byte** - the same
+claim, the same carve, the same keep figure, the same zeros where they were -
+and `dsl_core` still copies the core over the slot and still needs to zero
+nothing.
+
+| `DOS.O88` (kern_big) | before | after |
+|---|---:|---:|
+| part 0 packed | 23,461 | **23,364** |
+| bytes part 0's decoder writes | 55,316 | **29,127** |
+| bytes `rep stosw` fills | 0 | 26,189 |
+| the loader (raw image) | 2,319 | **2,471** |
+| the file | 51,791 | **51,791** |
+| kern_mega's loader | 2,395 | 2,547 |
+
+**What it buys is TIME and not disk.** ~26,000 bytes at ~17 clocks of match
+copy against ~7 of `rep stosw` is **~55 ms a launch** on a 4.77 MHz 8088
+(ESTIMATED from the two rates, not measured). On the disk the 97 packed bytes
+and the loader's 152 are both inside sector rounding, so **the file is the same
+51,791 bytes** - and the loader's slack in its last sector falls 241 -> 89
+(kern_mega's 165 -> 13), which the next loader byte past it spends as a whole
+sector.
+
+**`kern_dos`'s own slot is NOT taken.** Part 2 carries the same reservation
+(`kerndos/kdos.asm`, 19,021 zero bytes, 75 packed), but it is read by the
+hand-off stub (`kds_stub`, `kernel/hiber.inc`), not by the standard, so
+dropping it is a stub change and kernel bytes; and it is decoded only on the
+whole-machine arm, once, with the operating system already gone - a cost no
+desktop launch pays.
 
 ### 96.45 The mouse under `kern_dos`, and it was switched OFF rather than missing
 

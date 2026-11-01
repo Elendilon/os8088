@@ -85,7 +85,12 @@ OPF_FETCHED = 32                # RUNTIME ONLY (SPEC.md 20.12.7.4): op_fetch
                                 # arrived with it set would read as a part
                                 # already in memory. It is deliberately NOT in
                                 # OPF_ALL, which is what refuses it here.
-OPF_ALL = OPF_XMS | OPF_ZERO | OPF_OPT | OPF_LAZY | OPF_COMP
+OPF_ZFILL = 64                  # an EAGER OP_COMP row stored as TWO streams
+                                # and a head saying where each lands, every
+                                # byte they do not write being ZERO (SPEC.md
+                                # 20.12.7.5): op_unpack fills it and this tool
+                                # cuts the streams round the zeros
+OPF_ALL = OPF_XMS | OPF_ZERO | OPF_OPT | OPF_LAZY | OPF_COMP | OPF_ZFILL
 PART_FMT_AT = PARTS_HDR - 1     # the table's reserved byte, which is the
                                 # FORMAT the OP_COMP rows use (SPEC.md
                                 # 20.12.7). It is the package's own scope, so
@@ -634,7 +639,36 @@ def find_parts(a: bytes, image: int, flags: int):
     return at, n
 
 
-def compress_part(i: int, body: bytes, fmt: str, filt: bool = True):
+def zfill_cut(body: bytes):
+    """(S1, B, U) for an OP_ZFILL row (SPEC.md 20.12.7.5): stream 1 is
+    body[:S1], stream 2 is body[B:U], and everything else is zero.
+
+    U is where the trailing zeros start; B is the paragraph boundary at or
+    below the END of the longest run of zeros before it, and S1 where that
+    run starts - so the run is the HOLE and what follows U the TAIL. With no
+    run that crosses a paragraph the hole is empty and B is 16: the row still
+    drops its tail, which is the common case (a bss)."""
+    u = len(body.rstrip(b"\0"))
+    best, at = (0, 0, 0), 0
+    while at < u:
+        if body[at]:
+            at += 1
+            continue
+        end = at
+        while body[end] == 0:       # u ends on a non-zero byte, so this stops
+            end += 1
+        if end - at > best[0]:
+            best = (end - at, at, end)
+        at = end
+    b = best[2] // 16 * 16
+    if not best[0] or b <= best[1]:
+        b = 16                      # no hole worth a stream: the tail alone
+    s1 = len(body[:b].rstrip(b"\0"))
+    return max(1, s1), b, u
+
+
+def compress_part(i: int, body: bytes, fmt: str, filt: bool = True,
+                  zfill: bool = False):
     """(the stream, its length) for an OP_COMP row - or a hard refusal.
 
     STRICT, like --compress and unlike --compress-if: the flag is on a row the
@@ -652,6 +686,8 @@ def compress_part(i: int, body: bytes, fmt: str, filt: bool = True):
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import os88lz
     fid = os88lz.LZ4 if fmt == "lz4" else os88lz.LZB
+    if zfill:
+        return compress_zfill(i, body, fmt, fid, filt)
     z = os88lz.compress(body, fid, filt=filt)
     if os88lz.decompress(z, fid, len(body)) != body:
         fail(f"part {i}: {fmt} did not round-trip - tools/os88lz.py is the "
@@ -667,6 +703,50 @@ def compress_part(i: int, body: bytes, fmt: str, filt: bool = True):
           f"{'+E8' if os88lz.is_filtered(z) else ''}: {len(body)} -> "
           f"{len(z)} bytes ({len(z) / len(body):.1%})")
     return z, len(z)
+
+
+def compress_zfill(i: int, body: bytes, fmt: str, fid, filt: bool = False):
+    """An OP_ZFILL row's stored bytes (SPEC.md 20.12.7.5): the head
+    S1, P1, B, S2, then stream 1 (body[:S1], landing at 0) and stream 2
+    (body[B:B+S2], landing at B), every other byte of the row being zero."""
+    import os88lz
+    s1, b, u = zfill_cut(body)
+    if u <= b:
+        fail(f"part {i}: OP_ZFILL on {len(body)} bytes that end {len(body) - u} "
+             "zeros early leaves no second stream - take the flag off, a part "
+             "this small gains nothing from it (SPEC.md 20.12.7.5)")
+    zs = []
+    for piece in (body[:s1], body[b:u]):
+        # each stream lands at offset 0 of its own window, and the near-call
+        # filter counts positions from there on both sides (SPEC.md 20.13.9),
+        # so each takes it on its own merits
+        z = os88lz.compress(piece, fid, filt=filt)
+        if os88lz.decompress(z, fid, len(piece)) != piece:
+            fail(f"part {i}: {fmt} did not round-trip - tools/os88lz.py is "
+                 "the reference the kernel copies, so this is a bug there")
+        if os88lz.in_place_margin(piece, fid, packed=z):
+            fail(f"part {i}: a stream needs an in-place margin, which a "
+                 "stream with a tail cannot (SPEC.md 20.13.7) - a bug in "
+                 "os88lz.py")
+        zs.append(z)
+    # THE SECOND STREAM IS READ IN PLACE, from above where it is written: the
+    # carve puts this row's stored bytes at least len - zkb + 1 bytes above
+    # its landing (SPEC.md 20.12.7.1), so stream 2's input begins at or above
+    # len - P2 + 1. The hole's fill and stream 1 end at B, so B + P2 <= len
+    # is what keeps them off it - and stream 2's own input then ends past
+    # len, beyond everything it writes.
+    if b + len(zs[1]) > len(body):
+        fail(f"part {i}: OP_ZFILL's second stream lands at {b} and packs to "
+             f"{len(zs[1])}, past the row's {len(body)} - the fill below it "
+             "would overrun its own input (SPEC.md 20.12.7.5)")
+    out = (struct.pack("<HHHH", s1, len(zs[0]), b, u - b) + zs[0] + zs[1])
+    if len(out) >= len(body):
+        fail(f"part {i}: {fmt} makes it LARGER ({len(out)} vs {len(body)} "
+             "bytes). Take OP_COMP off the row")
+    print(f"os88pkg: part {i} compressed {fmt}: {len(body)} -> {len(out)} "
+          f"bytes ({len(out) / len(body):.1%}): streams of {s1} and {u - b} "
+          f"at 0 and {b}, and {len(body) - s1 - (u - b)} zero-filled")
+    return out, len(out)
 
 
 def lay_out_parts(out: bytearray, table: int, rows: int, parts,
@@ -737,6 +817,12 @@ def lay_out_parts(out: bytearray, table: int, rows: int, parts,
                  "one read the carve exists to be reads it anyway (SPEC.md "
                  "20.12.4)")
 
+        if pflags & OPF_ZFILL and (not pflags & OPF_COMP or
+                                   pflags & OPF_LAZY):
+            fail(f"part {i}: OP_ZFILL off an EAGER OP_COMP row. It is "
+                 "op_unpack's, which expands the carve: a plain row has no "
+                 "stream to cut and a lazy one is op_fetch's (SPEC.md "
+                 "20.12.7.5)")
         if pflags & OPF_COMP:
             if pflags & OPF_ZERO:
                 fail(f"part {i}: OP_COMP on a scratch part. There are no file "
@@ -828,7 +914,8 @@ def lay_out_parts(out: bytearray, table: int, rows: int, parts,
         unpacked, packed = len(body), len(body)
         if pflags & OPF_COMP:
             body, packed = compress_part(i, body, part_fmt,
-                                         filt=i not in nofilt)
+                                         filt=i not in nofilt,
+                                         zfill=bool(pflags & OPF_ZFILL))
         # PADDING IS POISON, NOT ZERO. These are bytes no part declares and
         # nothing is meant to read, so a stub that strays into one - a length
         # rounded up to a sector, a run started a cluster early - has to
@@ -901,7 +988,7 @@ def report_parts(out: bytes, table: int, rows: int, parts) -> None:
         what = "SEGMENT" if kind == PK_SEG else "ASSET  "
         tag = "".join(c for c, b in (("X", OPF_XMS), ("Z", OPF_ZERO),
                                      ("O", OPF_OPT), ("L", OPF_LAZY),
-                                     ("C", OPF_COMP))
+                                     ("C", OPF_COMP), ("F", OPF_ZFILL))
                       if pflags & b) or "-"
         if pflags & OPF_ZERO:
             print(f"os88pkg:   part {i} {what} {tag:4} scratch {pzkb}K, "
