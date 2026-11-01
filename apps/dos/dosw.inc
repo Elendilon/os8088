@@ -924,7 +924,8 @@ dvw_int10:
     push ax
     HCALL con_celloff
     mov di, ax
-    pop ax
+    mov bx, ax                      ; ...kept: the cursor does not move, so
+    pop ax                          ; .wmark needs no second crossing for it
 .wnext:
     cmp di, CON_SCRSZ
     jae .wmark
@@ -937,8 +938,8 @@ dvw_int10:
     inc di
     loop .wnext
 .wmark:
-    HCALL con_celloff
-    shr ax, 1                       ; the first cell...
+    xchg ax, bx                     ; (con_celloff's answer, above: SPEC.md
+    shr ax, 1                       ; 96.54.9) the first cell...
     shr di, 1
     dec di                          ; ...and the last one written
     mov bx, di
