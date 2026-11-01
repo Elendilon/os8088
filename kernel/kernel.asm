@@ -5362,6 +5362,17 @@ api_sysfp:  dw dwf_dskw_write_sys  ; which verb the shared fenced cell runs:
     push cs
     call %1
 %endmacro
+; TEXTCALL - the same two instructions in `.text`, for a FAR entry there
+; called from `.text` (kernel size pass 16): CS is KERNEL_SEG (kern_mega's
+; code selector in protected mode, which is what its retf wants back), and
+; `push cs` + a near call is a byte under `call KERNEL_SEG:`
+%macro TEXTCALL 1
+%ifnidn __?SECT?__, [section .text]
+  %error "TEXTCALL outside .text - CS is not KERNEL_SEG here"
+%endif
+    push cs
+    call %1
+%endmacro
 %macro COLDSEG_TO 1
 %ifnidn __?SECT?__, [section .cold]
   %error "COLDSEG_TO outside .cold - CS is not COLD_SEG here"

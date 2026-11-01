@@ -1695,7 +1695,7 @@ hd_idst:
 ; off OSAPI_VOL_STAT, so no walk is paid to learn it: an OVER-estimate (a
 ; part-cluster tail, ASSOC.DAT and an IMG stand-in are counted and not
 ; copied), so the bar ends a little short and never runs ahead. Asked as the
-; MACHINE (in_tool's DRVU_CALL), so the kernel owns it as 0FEh and nothing but
+; MACHINE (in_tool's DRVU_CALL), so the kernel owns it as 0FFh and nothing but
 ; hd_iop_end ends it: hd_inst_step's one exit is that, so a failure, a swap
 ; prompt and Done all end it, and a second disk in the same step ends the
 ; first's here before it begins. Advisory: refused, every file is its own bar

@@ -2240,7 +2240,7 @@ clo_move:
 ;            that parks on the menu bar across a same-drive clone's swap
 ;            prompts instead of filling once a pass. EXACT for a disk end,
 ;            one sector OVER for the target (LBA 0 is clo_fin's raw write,
-;            uncounted), and short of nothing. The kernel owns it as 0FEh,
+;            uncounted), and short of nothing. The kernel owns it as 0FFh,
 ;            so only an end ends it, and clo_free - which every outcome of
 ;            every clone reaches, Esc and a closed window included - is that
 ;            end. Called by every pass: past the first it is the caller's

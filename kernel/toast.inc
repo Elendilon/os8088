@@ -136,10 +136,13 @@ toast_want:  db 0               ; staged by toast_show, not yet put up
 %endif
 %ifdef TOAST_Q
 toast_qwant: db 0               ; a message waits in toast_qbuf
-%endif
+%else                           ; (TOAST_Q: both in the message's RECORD, .bss)
 toast_inst:  db 0FFh            ; the raiser's instance slot (0FFh = kernel)
+%endif
 toast_die:   dw 0               ; the tick it expires at
+%ifndef TOAST_Q
 toast_ttl:   dw TOAST_TICKS     ; ...and how long it was asked for
+%endif
 toast_scell: dw 0               ; the strip's first bar cell (toast_place),
 toast_scn:   dw 0               ; how many cells it takes, 0 = no strip,
 toast_scov:  db 0               ; and 1 = it is over the CLOCK and hides the
@@ -268,10 +271,10 @@ toast_show:
 %endif
     je .kill                    ; nothing sayable: this is a retire
 %ifdef TOAST_Q
+    mov [bx+TOAST_RTTL], cx     ; the RECORD's TTL and raiser, either slot's
+    mov [bx+TOAST_RINST], dh    ; (so a closing app takes its own message)
     cmp bx, toast_buf
     jne .queue
-    mov [toast_ttl], cx
-    mov [toast_inst], dh        ; so a closing app takes its own message
 %else
     call inst_caller            ; DH = who is asking (SPEC.md 19.2.1), so a
     mov [toast_inst], dh        ; closing app takes its own message with it
@@ -283,11 +286,8 @@ toast_show:
                                 ; than on the next idle pass (SPEC.md 59.4)
 %ifdef TOAST_Q
 .queue:
-    mov [toast_qttl], cx
-    mov [toast_qinst], dh
     mov byte [toast_qwant], 1
-    popf
-    jmp short .out
+    jmp short .kq               ; the popf below, and out
 %endif
 .kill:
     call toast_kill             ; preserves the flags, so the popf below is
@@ -623,7 +623,7 @@ toast_pass:
 ; -----------------------------------------------------------------------------
 %ifdef TOAST_Q
 ; toast_promote - the queued message becomes the staged one. CF = 1 when it
-; did. Clobbers AX (toast_pass banks it).
+; did. Every register kept (it used to clobber AX; toast_pass banks it).
 toast_promote:
     pushf
     cli                         ; toast_show from a worker writes the slot
@@ -638,16 +638,12 @@ toast_promote:
     cld
     mov si, toast_qbuf
     mov di, toast_buf
-    mov cx, TOAST_MAX + 1
+    mov cx, TOAST_RSIZE         ; the WHOLE record: text, TTL and raiser
     rep movsb
     pop es
     pop di
     pop si
     pop cx
-    mov ax, [toast_qttl]
-    mov [toast_ttl], ax
-    mov al, [toast_qinst]
-    mov [toast_inst], al
     mov byte [toast_qwant], 0
     popf
     stc
@@ -692,7 +688,7 @@ toast_owner_gone:
 %ifdef FPG_PARK
     cmp al, [fpg_pown]          ; ...and a parked progress widget of its own
     jne .np                     ; (SPEC.md 12.8): disowned, so the next
-    mov byte [fpg_pown], 0FFh   ; gfx_unlock takes it down
+    mov byte [fpg_pown], FPG_NOWN ; gfx_unlock takes it down
 .np:
 %endif
 %ifdef TOAST_Q
@@ -721,6 +717,12 @@ toast_owner_gone:
 section .bss
 
 %ifdef TOAST_Q
+; TWO RECORDS OF ONE SHAPE - the text, its TTL, its raiser - so toast_show
+; fills either through BX and toast_promote moves one whole into the other
+; (kernel size pass 16). [toast_inst] is read only while a toast is up or
+; staged, which writes it first, so .bss's lack of an initialiser is never
+; seen (toast_owner_gone and ld_start each ask [toast_on] or toast_kill,
+; which does, before acting on a match)
 toast_qbuf:  resb TOAST_MAX + 1 ; the QUEUED message (toast_qwant)
 toast_qttl:  resw 1
 toast_qinst: resb 1
@@ -728,5 +730,15 @@ toast_qinst: resb 1
 toast_buf:   resb TOAST_MAX + 1 ; the staged message. .bss because it is read
                                 ; only while [toast_on] is set, and .bss is
                                 ; off the image rung
+%ifdef TOAST_Q
+toast_ttl:   resw 1             ; ...how long it was asked for
+toast_inst:  resb 1             ; ...and the raiser's slot (0FFh = kernel)
+TOAST_RTTL  equ toast_ttl - toast_buf
+TOAST_RINST equ toast_inst - toast_buf
+TOAST_RSIZE equ toast_inst + 1 - toast_buf
+%if (toast_qttl - toast_qbuf) != TOAST_RTTL || (toast_qinst - toast_qbuf) != TOAST_RINST || (toast_buf - toast_qbuf) != TOAST_RSIZE
+  %error "toast.inc: the queued and the staged message are two records of ONE shape (text, TTL, raiser), filled through one base register and promoted as one copy"
+%endif
+%endif
 
 section .text
