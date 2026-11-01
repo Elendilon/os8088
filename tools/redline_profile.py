@@ -93,6 +93,9 @@ def workload_shape(root=ROOT):
         lo, hi = struct.unpack("<2H", data[-4:])
         mask = bytearray(len(data))
         for line in lst.read_text(errors="replace").splitlines():
+            if "section .modi" in line:
+                break                   # the Inspect module (SPEC.md 103.7.2):
+                                        # its own addresses, from 0, alias these
             m = lst_re.match(line)
             if not m:
                 continue

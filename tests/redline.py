@@ -541,7 +541,11 @@ rl_test_entry:
     jmp .halt
 '''.replace('TIER', str(tier))
             asm, binary = td / 'probe.asm', td / 'probe.bin'
-            asm.write_text(src + wrapper + '\ndw rl_test_entry\n' + '\n'.join('dw '+n for n in fields))
+            # redline.asm ENDS IN .modi, the Inspect module (SPEC.md 103.7.2):
+            # the probe is package code, so it goes back to .text, and the
+            # symbol words go after the module, at the file's end
+            asm.write_text(src + '\nsection .text\n' + wrapper + '\nsection .modi\n'
+                           + 'dw rl_test_entry\n' + '\n'.join('dw '+n for n in fields))
             subprocess.run(['nasm', '-f', 'bin', '-I', str(ROOT/'apps')+'/', '-I', str(ROOT/'tests')+'/',
                             '-o', str(binary), str(asm)], check=True, cwd=ROOT)
             blob = binary.read_bytes()
@@ -598,7 +602,9 @@ fail:
             bootbin = td / 'boot.bin'
             subprocess.run(['nasm', '-f', 'bin', '-o', str(bootbin), str(boot)], check=True)
             disk, dump = td / 'probe.img', td / 'probe.dump'
-            assert len(blob) <= 89*512, len(blob)  # the five reads above
+            # the five reads above: the package and the probe after it. The
+            # module past them is never called here and need not load
+            assert syms['entry'] + 256 <= 89*512, syms['entry']
             disk.write_bytes((bootbin.read_bytes()+blob).ljust(1440*1024, b'\0'))
             run = subprocess.run(['qemu-system-i386', '-machine', 'pc', '-cpu', cpu, '-m', str(ram),
                                   '-drive', 'file=%s,format=raw,if=floppy' % disk,
@@ -687,8 +693,8 @@ rl_nec_first: dw 0
     labels = ['rl_nec_entry', 'rl_nec_done', 'rl_nec_first', 'rl_cpuname']
     with tempfile.TemporaryDirectory() as td:
         asm, binary = Path(td)/'nec.asm', Path(td)/'nec.bin'
-        asm.write_text((ROOT/'apps/redline/redline.asm').read_text() + wrapper +
-                       '\n' + '\n'.join('dw '+n for n in labels))
+        asm.write_text((ROOT/'apps/redline/redline.asm').read_text() + '\nsection .text\n'
+                       + wrapper + '\nsection .modi\n' + '\n'.join('dw '+n for n in labels))
         subprocess.run(['nasm', '-f', 'bin', '-I', str(ROOT/'apps')+'/',
                         '-I', str(ROOT/'tests')+'/', '-o', str(binary), str(asm)],
                        check=True, cwd=ROOT)
