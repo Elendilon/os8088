@@ -4037,19 +4037,7 @@ wm_disp_xw:
 ; The seam veto stays for everything else, which is what it was added for: a
 ; window wholly on one display may not snap its way across the seam.
 ; -----------------------------------------------------------------------------
-wm_snap_far:
-%ifdef KERN_BIG
-    EXTCALL EXT_STRADS
-    jnc .union                  ; CF = 0 is "it straddles"
-%endif
-    call wm_disp_xw             ; AX = the display's x, CX = its width
-    add ax, cx
-    ret
-%ifdef KERN_BIG
-.union:
-    mov ax, [vid_w]             ; the whole desktop (39.2.1)
-    ret
-%endif
+; (written at its one call, wm_snap_w's right-edge test: kernel size pass 16)
 
 ; -----------------------------------------------------------------------------
 ; wm_flush_ck - would a frame at AX of width CX reach both screen edges?
@@ -4216,12 +4204,22 @@ wm_snap_w:
     mov ax, [bx+W_X]            ; growing could hand back an illegal one. It
     add ax, dx                  ; reads the SNAPPED x: wm_snap_win runs that
     push ax                     ; first, precisely so this test is the truth
-    call wm_snap_far            ; ...and it is THIS WINDOW'S DISPLAY's edge,
-    mov cx, ax                  ; not the extended desktop's, which is the far
+                                ; ...and it is THIS WINDOW'S DISPLAY's edge,
+                                ; not the extended desktop's, which is the far
                                 ; side of the other monitor (SPEC.md 11.95.2.1)
                                 ; - EXCEPT for a frame that already straddles,
                                 ; which is past that edge by definition
-                                ; (39.16.3.4)
+                                ; (39.16.3.4). CX = one past the last legal
+                                ; column: wm_snap_far, written at its one call
+                                ; and answering in CX (kernel size pass 16, -6)
+%ifdef KERN_BIG
+    EXTCALL EXT_STRADS          ; CF = 0 is "it straddles"...
+    mov cx, [vid_w]             ; ...and then it is the whole desktop (39.2.1)
+    jnc .far
+%endif
+    call wm_disp_xw             ; AX = the display's x, CX = its width
+    add cx, ax
+.far:
     pop ax
     cmp ax, cx
     pop cx                      ; (pops write no flags)

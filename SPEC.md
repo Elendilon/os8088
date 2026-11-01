@@ -78535,7 +78535,7 @@ every register kept (§2.8.1) — and every call site is either behind a
 |---|---|---|---|
 | 0 | `EXT_EXTEND` — the Extend arm | `vid_disp_init` `.extend` | CF = 1 → `jc .single`, with AL/AH the two kinds `.single` wants: the arrangement is Single. This IS the refusal path |
 | 1 | `EXT_LAND` — `ui_drag_size` | `ui_drag`, `ui_grow` | the image answers CF **inverted** (1 = NOT moved) and `ui_drag` follows the call with `cmc`, so `mod_gone` reads "not moved" and the drag cache survives on one display. `ui_grow` ignores CF |
-| 2 | `EXT_STRADS` | `wm_snap_far` | CF = 1 is "not straddling" — the one-display answer |
+| 2 | `EXT_STRADS` | `wm_snap_far` (written into `wm_snap_w` since kernel size pass 16) | CF = 1 is "not straddling" — the one-display answer |
 | 3 | `EXT_APPLY` — straddle test + fit | `wm_apply_wh` | CF = 1 → its existing `jc .one` |
 | 4 | `EXT_FITBOX` | `wm_fit` | registers kept = the primary's box = the one-display answer |
 | 5 | `EXT_KINDNOW` — `wm_kind_now`'s arm | `wm_kind_now`, UNGATED (a create, fit or resize) | AL kept, and the caller loaded `[vid_kind]`: the primary's kind |
@@ -78563,7 +78563,7 @@ shim (§39.19.6.2).
 from `.text` into `.modx` ASSEMBLES — both sections have `vstart=0` — and runs
 into the wrong segment, so a routine that moved and a caller the sweep missed
 is exactly the defect nothing else would report. Broken on purpose both ways
-(`call wm_strads` from `wm_snap_far`, `call wm_fit` from inside the image) and
+(`call wm_strads` from `wm_snap_far` - `wm_snap_w`'s right-edge test - `call wm_fit` from inside the image) and
 refused both times, naming the line.
 
 ##### 39.19.6.1 Lifetime: pinned while extended, dropped on the way back to Single
