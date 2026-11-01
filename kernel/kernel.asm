@@ -8661,6 +8661,9 @@ cfx_grid:
 ; cfx_ctxcap - vid_ctx_capture for the blob's bvs_disp_init (vidsel.inc's
 ; VID_CTXCAP), here for cfx_grid's reason
 VID_CTXCAP cfx_ctxcap, retf
+; cfx_cfgname - SYSTEM.CFG's name staged for the blob's ovc_load (driver.inc's
+; CFGN_STAGE), here for cfx_grid's reason (kernel size pass 16)
+CFGN_STAGE cfx_cfgname, retf
 %if cfx_grid - $$ < KVGABUF_SIZE
   %error "cfx_grid lies in the RAM `.vgabuf` shares with `.cfx`"
 %endif

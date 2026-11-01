@@ -7607,8 +7607,11 @@ kretm_cx:         pop cx
                   pop bx
                   pop ax
                   ret
-section .modu
 
+; -----------------------------------------------------------------------------
+; cp_stage - an image string at CS:SI into cp_sbuf; out: SI = cp_sbuf. The
+; CORE's (kernel size pass 16), so cpc_save's two filenames stage through it
+; too: the file API reads a name through DS
 ; -----------------------------------------------------------------------------
 cp_stage:
     push ax
@@ -7631,6 +7634,7 @@ cp_stage:
     pop cx
     pop ax
     ret
+section .modu
 
 
 section .cold                   ; far entries: the resident thunks in
