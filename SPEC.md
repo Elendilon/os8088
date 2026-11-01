@@ -189589,6 +189589,8 @@ resident stub). Three shapes assemble from the one source:
   gate**, which held for all seven assembly shapes when the macros went in
   (plain, `DOSNET_CARD`, `DOSTRACE`, and the parted host on kern_big,
   kern_small and kern_mega), so the rewrite changed spelling and nothing else.
+  The one change to the layer's CODE since - `AH=09h`'s second `con_celloff`,
+  below - was made after the gate, to both shapes alike.
 - **the split HOST** (`DVW_SPLIT`, defined for `-DDOSKPART` wherever `DVW` is)
   - only the RESIDENT pieces of `dosw.inc`, the worker's loop and the door
   table, plus `apps/dos/doswr.inc`'s stubs, thunks, fetch and pin.
@@ -189663,6 +189665,44 @@ at the head of every `dvw_start`, the one entry that runs first in a run.
   bracket or the whole machine), whose arena is everything; the next windowed
   Run fetches it again.
 - **Freed with the window**, by the kernel, as every claim of an instance is.
+
+**What it buys and costs, MEASURED** (kern_big's shipped flags against the
+tree before the macros; the cycles on MartyPC's `os8088_5150_herc_gla` with
+`tests/dostrap/dwcell.asm` in its window, a breakpoint trace from `dvw_int10`
+to its `.out`, DOS-WINDOWED-PART-PLAN 9's method, both trees measured the
+same way in the same session):
+
+| | inline (before) | parted | delta |
+|---|---:|---:|---:|
+| host image + bss, every DOS instance (`dosp.bin`) | 50,531 | 46,608 | **-3,923** |
+| ...the instance's region claim, read out of `mem_tab` | 50,544 | 46,608 | -3,936 |
+| the part's claim while a window has one | - | 5,120 (4,830 of image and cells) | |
+| RAM while a program runs in the window (region + part) | 50,544 | 51,728 | +1,184 |
+| `DOS.O88` on the disk | 52,302 | 53,883 | **+1,581** |
+| ...of which packed bytes: the host 19,115 -> 16,449, the part 3,707 | | | +1,041 |
+| `int 10h AH=09h` in place | 2,206-2,216 | 2,170-2,182 | **-1.7%** |
+| `int 10h AH=0Eh`, a glyph | 3,081-3,102 | 3,208-3,223 | **+4.2%** |
+| `int 10h AH=0Eh`, a backspace | 2,502-2,522 | 2,637-2,664 | +5.5% |
+| a CPU-bound program in its window (`doswspin`) | 88.8% | 88.6% | within the row's noise |
+| the first Run in Window's fetch, 360KB system disk | - | **1,075 ms** | 4 `int 13h`, 11 sectors, 2 seeks (456 ms of it) |
+
+**`AH=09h` got FASTER, and that is the one crossing taken out on purpose**:
+it asked `con_celloff` at its head and again at `.wmark` for the same answer -
+a write in place does not move the cursor - so the first answer is kept and
+the second call is gone, inline as well. A glyph is `con_write`'s one
+crossing (+~130 cycles, DOS-WINDOWED-PART-PLAN 9's prototype B to within
+three), which the native design would have avoided by carrying the console's
+teletype twice; the owner accepted it. INT 21h output never enters the layer
+and is unchanged. The disk figure is above the plan's ~0.75 KB estimate: the
+part is a separate stream (the host packs 2,666 smaller for 3,923 fewer raw
+bytes) and a part starts on a sector of its own.
+
+`tests/doswpart.py` is the claim's gate - no part for a window that only ran
+on the full screen; the first Run in Window's 5 KB claim, pinned for the run
+and movable through `dvw_preloc` after it; a full-screen run dropping it;
+HEAPFRAG's compaction MOVING another window's part and that window's next run
+working from where it went; and a hostile row refused with the sentence above.
+It is red with `dvw_preloc`'s re-patch taken out.
 
 **WHERE IT IS NOT A PART.** kern_mega has no windowed layer at all (96.54's
 `DVW` is `%ifndef DOS_MEGA`). kern_small's disks carry no `DOS.O88` (24.5),

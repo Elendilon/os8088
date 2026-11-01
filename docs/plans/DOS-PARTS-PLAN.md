@@ -346,6 +346,17 @@ saves RAM with no kernel byte. What has to change:
 | risk | **high**: 119 operands and ~45 call sites re-aimed by hand; `dvw_irq0` runs on a foreign SS inside `DVW_GAP` = 96 bytes (dosw.inc:58), so the bounce's extra frame must be counted against it; host relocation now has a second word to fix |
 | work | ~4-5 days with the audit, plus `doswlive`, `doswtwo`, `doswfs`, `doswmouse`, `doswcap`, `doswcell`, `doswspin` re-run |
 
+**BUILT, 2026-11-01, as option C' (SPEC.md 96.54.9 is the contract and
+its table the measurement).** Against the estimates below: -3,923 bytes of
+every DOS instance never run windowed (E ~4.1-5.0 KB), a 5 KB part claim
+while a window has one, DOS.O88 +1,581 bytes (E ~+0.75 KB: the part's own
+stream and its sectors), a glyph +4.2% and `AH=09h` 1.7% FASTER - the
+second `con_celloff` crossing was taken out, inline too - and the first Run
+in Window's fetch 1,075 ms on a 5150's floppy (E ~1 s). The macros are four
+more than this paragraph names (`HICALL`, `PARTDS`/`PARTES`/`PARTCS`,
+`HSEGTO`, `HENT`/`PADDR`); the checker found 211 sites on the sources before
+them, where this paragraph counted 164.
+
 **C', C done MECHANICALLY (costed, not built).** C's risk is that 164
 sites are re-aimed by hand; every one of them is decidable from symbol
 OWNERSHIP, which NASM already knows. So: a two-pass build - the host is

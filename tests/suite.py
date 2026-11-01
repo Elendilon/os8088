@@ -8888,6 +8888,21 @@ SOAK = [
         "ends that program while the other counts on. Red with the cap "
         "removed: the second claim fails. Measured 21.9s on MartyPC",
         needs=("marty",), serial=True, wants=("build/os8088-360.img",)),
+    Row("doswpart", "soak", py("tests/doswpart.py"), 60.0,
+        "THE WINDOWED DOS LAYER IS A PART, AND ITS CLAIM'S WHOLE LIFE "
+        "(SPEC.md 96.54.9). A window that only ran on the full screen holds "
+        "no part; the first Run in Window claims the part's KB, PINNED while "
+        "the program runs and movable through dvw_preloc after it; a second "
+        "window's part lands above, the first window's full-screen run drops "
+        "its own, HEAPFRAG's compaction slides the second down into the hole, "
+        "and the second window's next Run in Window runs from where it went "
+        "(the stubs reach it only through the segment dvw_preloc patched); a "
+        "hostile row makes op_self refuse, and the window says `Run in Window "
+        "could not load its part of DOS.O88.` with no run, no part and no "
+        "full screen. Red with dvw_preloc's re-patch taken out: leg 5 never "
+        "gets its program onto the worker",
+        needs=("marty",), serial=True,
+        wants=("build/os8088-360.img", "build/heapfrag.o88")),
     Row("doswfs", "soak", py("tests/doswfs.py"), 30.0,
         "A LIVE DOS PROGRAM BETWEEN ITS WINDOW AND THE FULL SCREEN (SPEC.md "
         "96.54.1, docs/plans/DOS-WINDOWED-PLAN.md wave 3). The probe "

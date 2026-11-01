@@ -14,9 +14,9 @@
 ; --- INTO the part: six-byte stubs, their segment word PATCHED --------------
 ; `call far PART:entry / ret` for a CALL entry, `jmp far PART:entry` (and a
 ; byte nobody reaches) for a JUMP one. The segment is written by dvw_patch at
-; the fetch - never while a run is in, which is the only time a stub can be
-; executing, so none is ever mid-flight (apps/tracker/trkplay.inc patches its
-; immediates on the same argument).
+; the fetch and by dvw_preloc at every move - never while a run is in, which
+; is the only time a stub can be executing, so none is ever mid-flight
+; (apps/tracker/trkplay.inc patches its immediates on the same argument).
 %macro DVWT 2
 hent_%1:
     db 0x9A                         ; call far
@@ -31,7 +31,7 @@ hent_%1:
 %endmacro
 dvw_stubs:
     DVWT dvw_start,   DVWE_START
-    DVWT dvw_wake,    DVWE_WAKE
+    DVWT dvw_wakef,   DVWE_WAKE     ; (hent_dvw_wake is the wrapper below)
     DVWT dvw_key,     DVWE_KEY
     DVWT dvw_onclosef, DVWE_ONCLOSE ; (...and hent_dvw_onclose)
     DVWT dwm_mouse,   DVWE_MOUSE
@@ -45,6 +45,14 @@ DVWT_N equ (dvw_stubs_end - dvw_stubs) / 6
 %if DVWT_N != DVWE_N
  %error "one host stub per part entry (doswabi.inc's DVWE_*)"
 %endif
+
+; hent_dvw_wake - dos_wake's tail, while a program runs: the part's wake,
+; and THEN the claim made movable if that wake ended the run. Never inside the
+; part's wake: it calls host routines that claim (dos_drv_back remounts the
+; drivers), and a compaction there would move code that is on the stack
+hent_dvw_wake:
+    call hent_dvw_wakef
+    jmp dvw_relax
 
 ; hent_dvw_onclose - OSAPI_WM_ONCLOSE's callback. With no program running the
 ; part may not even be fetched, and the close is simply allowed (CF = 0 off
@@ -74,13 +82,16 @@ dvwh_ret:                           ; DVW_POSTRET: dvw_post back to the core,
     ret                             ; which near-called a stub of OURS
 
 ; -----------------------------------------------------------------------------
-; dvw_pfetch - dos_run's: the part for a run in the window (SPEC.md 96.54.9)
+; dvw_pfetch - dos_run's: the part for a run in the window, or none for one
+; on the full screen (SPEC.md 96.54.9)
 ; in:  [dvw_want]; UI task, lock FREE
 ; out: CF=1 a run in the window whose part could not be had; every register
 ;      preserved
 ;
 ; Idempotent - dos_run comes back here on a compaction wake, and a window
-; that ran in the window before keeps its part between runs.
+; that ran in the window before keeps its part between runs. A run on the
+; FULL SCREEN drops it: that arena is OSAPI_MEM_AVAIL, everything, and a part
+; left standing would take its KB from the program.
 ; -----------------------------------------------------------------------------
 dvw_pfetch:
     push ax
@@ -92,7 +103,15 @@ dvw_pfetch:
     push bp
     push es
     cmp byte [dvw_want], 0
-    je .out                         ; (CF = 0)
+    jne .want
+    xor dx, dx                      ; --- the full screen: drop it ---------
+    xchg dx, [dvw_pseg]
+    or dx, dx
+    jz .out                         ; (CF = 0)
+    call OSAPI_MEM_FREE
+    clc
+    jmp short .out
+.want:
     cmp word [dvw_pseg], 0
     jne .out                        ; (CF = 0: had already)
     mov si, dos_dvwrow
@@ -107,8 +126,9 @@ dvw_pfetch:
     shr al, 1
     call OSAPI_MEM_REGROW
     mov [dvw_pseg], dx
-    call dvw_patch                  ; (born PINNED, and held so for the
-    clc                             ; window's life)
+    call dvw_patch
+    call dvw_relax                  ; movable until a program runs in it
+    clc
 .out:
     pop es
     pop bp
@@ -135,6 +155,41 @@ dvw_patch:
     pop di
     pop cx
     pop ax
+    ret
+
+; dvw_preloc - the part's claim has MOVED (SPEC.md 66.2): DX = where it is now,
+; DS = CS = ours. Nothing names it between runs but [dvw_pseg] and the stubs:
+; the world is out, the part's own copy of the host's segment is rewritten at
+; the next start, and dvw_patch keeps every register
+dvw_preloc:
+    mov [dvw_pseg], dx
+    jmp short dvw_patch
+
+; dvw_pin / dvw_relax - the claim pinned for a run (the IVT, the worker's
+; frames and the program's interrupted CS:IP name it), or movable again once
+; no run is in; both preserve every register and the flags
+dvw_pin:
+    pushf
+    push ax
+    xor ax, ax
+    jmp short dvw_rloc
+dvw_relax:
+    pushf
+    push ax
+    cmp byte [dvw_run], 0
+    jne dvw_rloc.out
+    mov ax, dvw_preloc
+dvw_rloc:
+    push dx
+    mov dx, [dvw_pseg]
+    or dx, dx
+    jz .nopart
+    call OSAPI_MEM_MOVABLE
+.nopart:
+    pop dx
+.out:
+    pop ax
+    popf
     ret
 
 %endif                              ; DVW_SPLIT

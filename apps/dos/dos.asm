@@ -868,6 +868,9 @@ DER_HAND    equ 8                   ; ARM 3 WAS REFUSED, AND IT IS NEVER ABOUT
                                     ; does no sizing at all - it tears the
                                     ; kernel out and hands the program ~600K,
                                     ; so anything DOS could launch will launch
+%ifdef DVW_SPLIT                    ; kern_big's and kern_emu's only, so it
+DER_DVWP    equ 9                   ; shares DER_RESET's number: the windowed
+%endif                              ; part could not be had (SPEC.md 96.54.9)
 DER_RESET   equ 9                   ; kern_mega (DOS_MEGA's table only): the
                                     ; session came back from a warm reset
                                     ; (KERN-MEGA-DOS-PLAN 10.3.1, W7) and the
@@ -1453,9 +1456,12 @@ dos_run:
 %ifdef DVW_SPLIT
     call dvw_pfetch                 ; **THE WINDOW'S PART** (SPEC.md 96.54.9),
     jnc .dvwok                      ; here for the network's reason: before the
-    mov al, DER_MEM                 ; arena is sized, so it is placed with the
-    jmp .err                        ; part in the heap
-.dvwok:
+    mov al, DER_DVWP                ; arena is sized, so it is placed with the
+    jmp .err                        ; part in the heap - and a REFUSED fetch
+.dvwok:                             ; refuses the run, in the window, rather
+                                    ; than handing the user the full screen
+                                    ; they did not ask for. A run on the full
+                                    ; screen drops the part instead
 %endif
 %endif
 .floor:
@@ -1712,8 +1718,14 @@ dos_run:
     xchg al, [dvw_want]             ; read and spent in one: the worker takes
     or al, al                       ; it from here, and dvw_wake pays this
     jz .bracket                     ; routine's tail when the program ends.
+%ifdef DVW_SPLIT
+    call dvw_pin                    ; the IVT and the worker will name it
+%endif
     call HENT(dvw_start)            ; No worker - the task table full - and
     jnc .outq                       ; the full screen still works, so that is
+%ifdef DVW_SPLIT
+    call dvw_relax                  ; (...and no run names the part after all)
+%endif
 .bracket:                           ; what it gets. AX is spent: GFX_LOCK
 %endif
     call OSAPI_GFX_LOCK             ; ...and only NOW, because fsx_run wants it
@@ -11533,6 +11545,9 @@ dos_errs:
 %ifdef DOS_MEGA
     dw dos_e_reset                  ; DER_RESET: kern_mega's W7
 %endif
+%ifdef DVW_SPLIT
+    dw dos_e_dvwp                   ; DER_DVWP (SPEC.md 96.54.9)
+%endif
 dos_e_goto:  db 'Its folder could not be opened.', 0
 dos_e_mem:   db 'Not enough memory.', 0
 dos_e_hand:  db 'A handover is already under way.', 0
@@ -11546,6 +11561,9 @@ dos_e_reset: db 'The machine was restarted while it ran.', 0
 dos_e_fit:   db 'Not enough RAM - try Setup, "Shut down the OS".', 0
 %ifdef DVW
 dos_e_wfit:  db 'Too big for a window', 0x27, 's 128K - raise Setup', 0x27, 's Memory limit.', 0
+%ifdef DVW_SPLIT
+dos_e_dvwp:  db 'Run in Window could not load its part of DOS.O88.', 0
+%endif
 %endif
                                     ; **IT SAID DOS 3.30'S OWN WORDS**,
                                     ; `Program too big to fit in memory.`,

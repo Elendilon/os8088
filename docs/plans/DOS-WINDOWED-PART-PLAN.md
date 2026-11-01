@@ -1,6 +1,9 @@
 # DOS-WINDOWED-PART-PLAN - the windowed layer, natively a part
 
-**Status: a RECORDED OPTION, not taken (owner, 2026-11-01).** Option C'
+**Status: a RECORDED OPTION, not taken (owner, 2026-11-01). C' is BUILT
+(SPEC.md 96.54.9), and its measured table is the baseline any revival of this
+design is weighed against: -3,923 bytes an instance, a glyph +4.2%, `AH=09h`
+-1.7%.** Option C'
 (DOS-PARTS-PLAN §2's macro translation, ~+0.75 KB of disk against this
 design's ~+1.25 KB) is what gets built; the owner had hoped this one would
 come out about the same size, and since it did not, the speed loss of C'
