@@ -697,9 +697,9 @@ wd_entry:
                                     ; times to catch up on the first count
     xor cx, cx                      ; both in PARAGRAPHS (SPEC.md 50.3.7):
     mov bl, MEMP_CLAIM              ; wd_resize grows them by a byte count,
-    mov ax, WD_KB0 * 64             ; and MEMP_REGROW resizes only a claim of
-    call OSAPI_MEM_P                ; this door's (on kern_mega the KB door's
-    jc .nomem                       ; may be a pool block above 1MB). The
+    mov ax, WD_KB0 * 64             ; which MEMP_REGROW takes as it stands
+    call OSAPI_MEM_P                ; (a kern_mega pool block too: the verb's
+    jc .nomem                       ; own arm resizes one, in KB). The
     mov [wd_dseg], dx               ; document, before anything else: an
                                     ; editor with nowhere to put the text is
                                     ; not a window worth opening, and the

@@ -4555,10 +4555,11 @@ mem_regrowp:                    ; be a byte less and would push the caller a
     pushf                       ; (no push, pushf or cli writes CF)
     cli
     jnc .para
-    mov cl, 6
-    shl ax, cl                  ; AX = paragraphs wanted
-    jc .fail
-.para:
+    cmp ax, 1024                ; 1MB and more refused BEFORE the shift, as
+    jae .fail                   ; mem_claim_x does: the shift's CF is the
+    mov cl, 6                   ; LAST bit out alone (bit 10), so 2049KB was
+    shl ax, cl                  ; 64 paragraphs, CF = 0 - a SHRINK to 1KB.
+.para:                          ; AX = paragraphs wanted
     add ax, MEM_GRAN - 1        ; ...a whole number of granules, and 0 asks
     jc .fail                    ; for nothing (the `or ax, ax / jz` that sat
     and ax, -MEM_GRAN           ; before the shift is this jz now)
@@ -5049,7 +5050,11 @@ mem_avail_lvl_p:                ; AX/BX in PARAGRAPHS, otherwise the same
 ; resident bytes for a segment crossing to the segment it was already in.
 ; -----------------------------------------------------------------------------
 mem_owned_kb:
-    xor ax, ax                  ; no paragraphs of its own to add
+    mov ax, 63                  ; no paragraphs of its own to add, and the
+                                ; sum ROUNDED UP to the KB: truncated, a
+                                ; 512-byte claim was 0 and a 19.5K region
+                                ; 19K (SPEC.md 28.4.7) - and osapi_drv_
+                                ; classk_x rounds its image up the same way
 mem_owned_kba:                  ; ...or AX = PARAGRAPHS to add to the sum
     push cx                     ; before the one shift - osapi_drv_classk_x's
     push dx                     ; image, which is a granule and not a KB
@@ -5086,8 +5091,13 @@ mem_sum_kb:
     push cx
     push dx
     push si
-    xor dx, dx
-    mov si, MEM_FIRST
+    mov dx, 63                  ; ROUNDED UP to the KB, as mem_owned_kb: the
+    mov si, MEM_FIRST           ; claims are whole granules, half of them an
+                                ; odd half-KB, and a truncated total called a
+                                ; lone 512-byte claim nothing at all. SK_HEAP
+                                ; stays (top - base) >> 6, TRUNCATED: the Task
+                                ; Manager's tm_csums checks its derived heap
+                                ; against exactly that
 .scan:
     call mem_next
     jc .done
@@ -5470,7 +5480,9 @@ osapi_mem_regrow_x:
 ;           at the caller's floor; CX = MEM_GRAN, the granule every size is
 ;           rounded to
 ;      ES = the caller's segment (the X stub), the same fence as every claim
-; out: CF=1 refused. Every register not named is preserved
+; out: CF=1 refused, and a CLAIM or REGROW verb's AX is then the request
+;      rounded up to the granule - what was asked for, as the door counts it.
+;      Every register not named is preserved, CX (MEMP_CONV and all) included
 ;
 ; ONE CELL AND FOUR VERBS where the KB doors are five cells, because the KB
 ; doors are what every .o88 built so far calls and these are what a package
@@ -5547,13 +5559,16 @@ osapi_mem_p:
     push di
     cmp bl, MEMP_REGROW
     je .regrow
-    and ch, 0x7F                ; MEMP_CONV off: it only steers kern_mega's
-    mov si, cx                  ; arm above. SI = the head
     mov di, bx
     and di, 1                   ; bit 0 -> MC_DMA_HI, the top-down door
     ror di, 1
+    mov si, cx                  ; SI = the head, with MEMP_CONV off: it only
+    and si, 0x7FFF              ; steers kern_mega's arm above, and the
+                                ; caller's CX is KEPT (it was masked in
+                                ; place, against "every register kept").
+                                ; ZF = no head
 %ifdef KERN_MEGA
-    jcxz .mtop                  ; ...EXCEPT A RING, as mem_claim_dma_hi_x
+    jz .mtop                    ; ...EXCEPT A RING, as mem_claim_dma_hi_x
                                 ; (KERN-MEGA-PLAN 14.55, SPEC.md 50.3.2): a
     xor di, di                  ; HEAD is a chip's 64KB page, held only while
 .mtop:                          ; it plays, so on kern_mega it goes BOTTOM-UP
@@ -5562,7 +5577,7 @@ osapi_mem_p:
                                 ; claim with no head keeps the top: a carve,
                                 ; an overlay, an index - a block that is or
                                 ; may become a CS. Bit 15, MEMP_CONV, is off
-                                ; CX already (the `and ch` above), so a
+                                ; SI already (the `and si` above), so a
                                 ; conventional request is not taken for a
                                 ; head
 %endif

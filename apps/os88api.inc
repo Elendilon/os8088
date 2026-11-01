@@ -2282,8 +2282,10 @@ SEG_AT      equ 8
                                  ;          paragraphs, at your floor as
                                  ;          OSAPI_MEM_AVAIL; CX = the GRANULE
                                  ;          in paragraphs
-                                 ; CF=1 refused. Every register not named is
-                                 ; kept. On kern_mega an OS88_HIGHMEM claim
+                                 ; CF=1 refused, and a CLAIM or REGROW verb's
+                                 ; AX is then the request rounded up to the
+                                 ; granule. Every register not named is kept,
+                                 ; CX included. On kern_mega an OS88_HIGHMEM claim
                                  ; with no head goes above 1MB where it can,
                                  ; granted the KB that covers it - unless CX
                                  ; is MEMP_CONV, which keeps it conventional

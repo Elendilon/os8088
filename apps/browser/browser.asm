@@ -5331,6 +5331,7 @@ br_srcems_ensure:
     mov dx, [br_srcseg]
     mov bx, br_awin
     call br_at                      ; DX = the sum, or kern_mega's window
+    jc .discard                     ; (no LDT entry: refused, not segment 0)
     mov ax, [br_emsseg]
     mov es, ax
     xor si, si
@@ -5805,6 +5806,7 @@ br_docems_ensure:
     mov dx, [br_docseg]
     mov bx, br_awin
     call br_at                      ; DX = the sum, or kern_mega's window
+    jc .discardnew                  ; (no LDT entry: refused, not segment 0)
     mov cx, [br_emscopycnt]
     xor si, si
     xor di, di
@@ -6113,13 +6115,16 @@ br_bwaim:
 
 ; br_at - DX = segment DX + AX paragraphs, through the window at [BX]
 ; in:  DX = a claim or the EMS frame, AX = paragraphs, BX -> a window word;
-;      out: DX. Every other register kept, flags clobbered.
+;      out: CF=0, DX; CF=1, DX = 0 - no LDT entry free (kern_mega only, and
+;      only for a NEW window: a re-aim cannot fail). Every other register kept.
 ; os88partsbody.inc's op_at, gated: an 8088 adds and makes no call. Under
 ; kern_mega OSAPI_SEG's SEG_AT re-aims the window at [BX] - 64KB of reach,
 ; good until the same window is aimed again, and NOT rebased with a claim, so
-; it is for a walk across which nothing claims. No LDT entry free is the null
-; selector, which the first access refuses with a fault rather than writing
-; anywhere at all.
+; it is for a walk across which nothing claims. No LDT entry free is CF=0 and
+; DX = 0 from the kernel, the NULL selector, and it is REFUSED here: an access
+; through it does not fault, kern_mega's mega_null0 completes it as segment 0,
+; so a copy through it would write the interrupt vector table. The real-mode
+; sum is never 0 and never carries.
 br_at:
     cmp byte [br_mega], 0
     jne .pm
@@ -6137,6 +6142,7 @@ br_at:
     add dx, ax                      ; refused: a real-mode answer after all
 .made:
     mov [bx], dx
+    cmp dx, 1                       ; CF = 1 exactly when DX = 0
     pop cx
     pop bx
     ret
@@ -7795,7 +7801,8 @@ br_srcems_map:
     mov dx, [br_emsseg]
     mov bx, br_ewin
     call br_at                      ; the frame + spoint/16 - a window on
-    mov es, dx                      ; kern_mega, whose frame is a selector
+    jc .bad                         ; kern_mega, whose frame is a selector
+    mov es, dx
     mov si, [br_spoint]
     and si, 0x000F
     jmp short .out

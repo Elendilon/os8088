@@ -13383,3 +13383,81 @@ capture is the file's sound from byte 0 and whole and that frame 1 is drawn
 at least 0.6 of a frame after the card opens (57-60 ms; 15-18 before).
 Red, both legs: `vp_lnow`'s staging out (the contiguity, 5,332 of 10,945),
 its frame-0 piece out (the start, sample 914, and the 17 ms).
+
+### 14.135 The code review's kern_mega findings: a park message to nowhere, a window anyone could free, and the BIOS's segments (2026-11-01) - FIXED, NOT YET RUN
+
+From docs/reports/CODE-REVIEW-TWO-CYCLES-2026-11-01.md, findings 4, 17 and 18
+and its kern_mega lows. Each was checked by reading the code before it was
+changed. Every change is in `.mega`; the cost is +160 bytes of it and nothing
+else (`.text`, `.cold`, `.bss`, `MEGA_RESIDENT` and `.mega`'s rung
+unchanged). kern_big and kern_small `kernel.bin` are byte-identical to the
+tree before.
+
+1. **`mega_dhcfill` built the park header's descriptor 28h out of ES**
+   (finding 4, REAL). Since MC7, ES there is the selector `hbm_stageseg`
+   returns, so the text page's base was selector x 16, and the park stub's
+   bad-sum line (and `DOSRMARK=1`'s trace) went to an arbitrary address
+   below 1MB. The user saw a silent wait for a key. 14.77 had fixed the same
+   mistake in `KDL_STAGE`. The descriptor is now built from `[mega_dstg]`,
+   which `mega_dstgs` has already set in `mega_dosgo`. The comment that said
+   "B000 or B800" for ES is corrected.
+2. **`SEG_FREE` freed any `mega_wtab` row** (finding 17, REAL): `.free`
+   asked `mega_wslot` and never `mega_segown`. A free of another owner's
+   window is now refused with CF = 1 and nothing done (SPEC.md 50.6.11's
+   table says so). Every shipped caller frees its own window with DS = its
+   own segment, so none of them is refused.
+3. **`mega_ustab`'s rows went stale, and a full table faulted the
+   reflection** (finding 18, REAL in both halves). `mega_rseg` brings
+   *any* segment that is not a claim's base to `mega_useg`, a segment
+   inside a claim included. `mega_cdin` excluded only `mega_wtab`'s
+   windows, so a claim's free (`mega_cdfree`) freed a row's selector while
+   the row still named it. That selector could then be handed to someone
+   else and handed back again for the old segment. A claim's move
+   (`mega_mpmovef`, `mx_desc`) rebased it, so the row mapped segment X to
+   X + the move. A row names a PHYSICAL segment, so `mega_iswin` now
+   answers CF = 0 for a ustab selector too, and none of the three walks
+   touches it. With the table full, `mega_rseg` used to return the raw
+   segment, and the reflection epilogue's `pop es` raised a #GP that
+   `.stale` reports, because the value is a GDT index. It now returns the
+   NULL selector, so the pop loads and a USE faults instead. The eight rows
+   are now permanent (they always were, in effect) and bounded; the table
+   was not grown.
+4. **The lows.**
+   - `mega_wset`'s `.own` re-aimed a BOUND window too (REAL): `SEG_WIN` or
+     `SEG_AT` naming a `SEG_BWIN` window aimed it outside its block, where
+     the block's free and move no longer saw it and `SEG_AIM` refused it.
+     A bound window is now not "the caller's to re-aim" there, and the
+     caller gets a window of its own.
+   - `mega_mpsyncf` left descriptors past a shrunk end live (REAL).
+     `mega_mpgap` now frees every allocator descriptor based in the free
+     runs either side of the record after a regrow or a re-home's trim:
+     one walk of `mem_tab` and two `mega_cdfree`s, with IF = 0 as the
+     callers already hold it. It does not need the old extent, because
+     nothing legitimate is based in free conventional heap (windows and
+     ustab rows are excluded by `mega_cdin`, and kernel segments are GDT
+     entries the walk does not reach).
+   - `MX_FWIN` never cleared: REAL, but BENIGN, and documented rather than
+     fixed. The flag is cleared at the entry's next take. While the block
+     lives after its last bound window, the flag only makes its moves hold
+     the rate hook off, which is the safe direction.
+   - `mega_rseg` took segments 0008h-0038h as identity selectors (REAL).
+     Those are GDT entries 1-7, the kernel's own, with other bases. It
+     also took KERNEL_SEG's and COLD_SEG's entries, which are CODE. These
+     go to `mega_p2d`/`mega_useg` now. `mega_oddsegc` has the same test
+     and was NOT changed: its callers pass paragraphs the kernel computed
+     (output buffers, windows, heap), and none of them points into the IVT.
+     That was read from the five call sites, not tested.
+   - `mega_hibnc` trusted the ROM with BX, CX, DX, SI, DI and ES across
+     `int 13h` (REAL as a dependency). They are now banked with
+     `pusha`/`push es` around the call. That costs 16 more bytes of the
+     calling stack and two of code. AX's answer was never read, and CF
+     survives the pops.
+   - `mega_enter`'s header said BX and BP were kept. It is a comment fix:
+     `mega_enterf` walks `sch_tasks` in BX, and kmain keeps nothing across
+     the call but the AX it pushes.
+
+Assembled: kern_mega, kern_big and kern_small kernels, in private trees
+against a HEAD worktree. Not yet run under an emulator (no Bochs in the
+container). The covering rows are `megadosp`, `megadosroom`, `megahiber`,
+`megaown`, `megarehome`, `megaxmove`, `megavidring`, `megatbl`, `brmega`,
+and megaport's `c64part` and `c64move` (14.80's windows).

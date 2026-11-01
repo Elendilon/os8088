@@ -64368,6 +64368,12 @@ claim truncated), a 512-byte claim read as `-` and its group was not drawn at
 all, and the two free figures disagreed by a KB again. *If we're not accurate
 we lose the ability to see what is going on* - the owner's words.
 
+(`SK_CLAIM`, `SK_KCLAIM` and `SSI_KB` are ROUNDED UP to the KB since the code
+review of 2026-11-01, as `osapi_drv_classk_x` always rounded a driver's
+image: a lone 512-byte claim is 1K and not nothing. `SK_HEAP` stays
+`(top - base) >> 6`, TRUNCATED, because `tm_csums` checks the heap it derives
+against exactly that figure. The page below reads none of the claim totals.)
+
 **So the page carries PARAGRAPHS and converts once, at print** (`tm_csnap`,
 `apps/taskmgr`):
 
@@ -70876,8 +70882,13 @@ direct stream does - with `48h` set to the block and `2Ch`. The ISR's input
 leg tests `[sbl_ext]` first and, for such a stream, does exactly two things:
 adds the block to the free-running 16-bit count (`[sbl_consumed]`) and writes
 it to `[DI:SI + RL + SND_EXT_CONS]`. **There is no overrun pause**: the card
-never waits for the reader, which owns the ring and judges its own lag
-(count - what it has read > RL is an overrun it can name). Verb 3 answers
+never waits for the reader, which owns the ring and judges its own lag.
+The count moves a block at a time while the DMA is already writing the block
+AFTER the one it published - the oldest block of the RL bytes before the
+count - so only RL less one block of that span is whole: count - what it has
+read > RL - block is an overrun it can name (§35's Recorder, whose bound is
+`RL - RC_RBLK`), and a reader that waits for `> RL` copies up to a block of
+torn samples first. Verb 3 answers
 PLAYING with the same count; verb 9 answers verb 3's, as for every record
 stream; verbs 1 and 10 answer 7.
 
@@ -72763,6 +72774,40 @@ while a grant can still be had (the tier turned on after Recorder opened).
 `tests/recorder.py` reaches it by clearing the bit in `[rc_caps]`. Making it
 reachable again is a feature (a take with no pool to stage it in), not a size
 change, so it is left as it was.
+
+### 35.3 The pump's timer draws inside a region, and the overrun bound is a block tighter
+
+Three defects from `docs/reports/CODE-REVIEW-TWO-CYCLES-2026-11-01.md`
+(findings 3 and 14), all in `rc_ontimer`/`rc_pump`, **+29 bytes of image**
+(3,357 -> 3,386; bss unchanged at 280):
+
+- **A timer arrives with no clip region** (§11.3, §13.9), and `rc_ontimer`
+  drew without one: a covered or minimised Recorder lettered its status lines
+  over whatever covered it ~9 times a second while recording, and the take's
+  end put a content-sized white fill there. It arms `OSAPI_WM_CLIP_SET`
+  after `rc_org` now, as `rc_abdismiss` and §111.3's Timer do; CF = 1 draws
+  nothing - the exposure's `W_PAINT` draws the face - while the pump still
+  runs and the timer is still re-armed. The region dies at the kernel's
+  unlock, so nothing releases it.
+- **The About card**: the same handler lettered the status over the card,
+  and the take-end repaint wiped it and left `[rc_abon]` set. The status is
+  not drawn while the card is up, and the take-end repaint ends in
+  `rc_paint`'s own card step, so the card goes back up LAST. That step was
+  itself wrong in `rc_paint`: `rc_draw_all` leaves BX at `rc_s_line2`, which
+  `os88ui_about_d` was handed as the window - it takes `[rc_win]` now.
+- **The overrun bound** was `waiting > RL`. §34.6.4's count moves a block at
+  a time while the DMA writes the block after it, which is the OLDEST block of
+  the RL bytes before the count, so only RL less one block (`RC_RBLK`, 512
+  bytes) is whole: up to a block of torn samples was copied into the take
+  with no OVERRUN. The bound is `RL - RC_RBLK` now, so the UI task may be
+  away ~1.94 s and not 2 before a take stops as `REC STOPPED (OVERRUN)`.
+  The count is re-read per 256-byte chunk, so the copy never trails a check
+  by more than one chunk against a 64 ms block.
+
+`tests/sbtest`'s `r` key opened verb 4 into a grant, which §34.6.5 refuses
+with 7; it opens Recorder's shape now - a 4KB `OSAPI_MEM_CLAIM_DMA_HI` ring
+with `SND_OPENF_EXT`, CX = 0 - and keeps a 6,000-byte grant beside it only
+so `f` still stages and verb 1 still answers an input stream with 7.
 
 ## 36. Piano — the fifth package (apps/piano/piano.asm)
 
@@ -98775,7 +98820,7 @@ verb:
 | `SEG_REAL` 1 | DX = a segment or selector | DX = a real-mode segment with the same base; CF = 1 none (above 1MB, off the 16-byte grid) |
 | `SEG_WIN` 2 | DX = a physical PARAGRAPH, CX = bytes (0 = 64KB), AX = a window of the caller's to re-aim, or 0 | DX = a data selector over it |
 | `SEG_SUB` 3 | DX = a segment or selector of the caller's, AX = a paragraph offset, CX = paragraphs (0 = to its end, 64KB at most) | DX = a data selector based there |
-| `SEG_FREE` 4 | DX = a window | given back |
+| `SEG_FREE` 4 | DX = a window | given back; on kern_mega CF = 1 and nothing done when it is another owner's window |
 | `SEG_SUBC` 5 | as `SEG_SUB` | DX = the DATA half of a code/data PAIR based there, the CODE half at DX - 8 |
 | `SEG_BWIN` 6 | DX = a selector of the caller's based in a claim or a pool block | DX = a new BOUND window over that block, aimed at that base |
 | `SEG_AIM` 7 | DX = a bound window, CX:AX = a BYTE offset into its block | DX = the same window re-aimed there, AX = 0; legal in an `FSXF_RATE` hook |
@@ -98815,7 +98860,11 @@ On kern_mega in protected mode (`mega_segf`, `.mega`):
 - A **BOUND window** (`SEG_BWIN`) is a fresh descriptor - never a match, so
   re-aiming it moves nobody else's - based in a claim or a pool block and
   recorded in `mega_wtab` under the caller, its row's byte 3 marking it
-  bound. **`SEG_AIM`** re-aims it to a 32-bit byte offset into the block,
+  bound; `SEG_WIN` and `SEG_AT` never re-aim one (named as the window to
+  re-aim, it is passed over and the caller gets a window of its own). A
+  SUB, SUBC pair or bound window left past a claim's end when a regrow or
+  a re-home's trim shrinks it is freed with the space (`mega_mpgap`,
+  KERN-MEGA-PLAN 14.135). **`SEG_AIM`** re-aims it to a 32-bit byte offset into the block,
   found afresh from the window's current base each call (so a move between
   two aims is followed), its reach 64KB or to the block's end, and is the
   ONE kernel call legal in an `FSXF_RATE` hook (§53.2.2): IF is never set,
@@ -98933,7 +98982,13 @@ was - by a selector - and not by its segment:
   `MEGA_LDT_FREE0 + 512` plus one entry per 16KB of extended memory, the
   IDT follows the LDT, and the block is `[mega_tblkb]` KB - 11 on a 1MB
   machine where it was 82. A real segment the BIOS hands back across a
-  reflection becomes a selector on the way out (`mega_rseg`).
+  reflection becomes a selector on the way out (`mega_rseg`): itself only
+  when it is an identity DATA entry (not 0008h-0038h, the kernel's own
+  entries, nor KERNEL_SEG's or COLD_SEG's code), a claim's base its pair's
+  data half, anything else a `mega_useg` row - a PHYSICAL segment's
+  selector, which no claim's free or move touches - and the NULL selector
+  when the table is full, so a use faults rather than the reflection's own
+  `pop es` (KERN-MEGA-PLAN 14.135).
 
 kern_big and kern_small are byte-identical; it is kern_mega's alone.
 
@@ -104885,7 +104940,7 @@ at the door, so that each can be lifted by itself:
 | `FSXR_SVC` | 2 | RETIRED by W7, never answered: a `TF_SERVICE` task (a driver's worker) alive is PARKED for the bracket (below) | - |
 | `FSXR_EXTD` | 3 | RETIRED by W7, never answered: a loaded EXTD.DRV (the extended desktop) runs from a LOW COPY (below), so a bracket on either display is real | - |
 | `FSXR_SERIAL` | 4 | RETIRED by W7, never answered: a SERIAL.DRV lease open is serviced in the bracket (below) | - |
-| `FSXR_ROOM` | 5 | the region is above 1MB (`OS88_HIGH`) and the heap has no conventional claim for its copy - or, since W3, none for the bracket's SERVICE AREA (below) | sometimes - owed in part (MEGA-VIDEO-REALMODE-PLAN 5.3.3: the HMA) |
+| `FSXR_ROOM` | 5 | the region is above 1MB (`OS88_HIGH`) and the heap has no conventional claim for its copy - or, since W3, none for the bracket's SERVICE AREA (below) - or the door's claims MOVED a movable claim of the caller's, under its `os88real_prep` bank (below) | sometimes - owed in part (MEGA-VIDEO-REALMODE-PLAN 5.3.3: the HMA) |
 | `FSXR_VOL` | 6 | a stream the LIST names is on a volume real mode cannot read: a redirected or file-driver volume (NET.DRV's share, CDROM.DRV, HTTPFS.DRV, RAMDISK.DRV), a mounted image, or a sector past CHS's reach | no - a PERMANENT protected-mode case (MEGA-VIDEO-REALMODE-PLAN 5.3 item 2), said on the info card |
 | `FSXR_FRAG` | 7 | the LIST's files need more than `FSXL_RUNS` (224) contiguous runs between them, or there are more than `FSXL_NMAX` (4) of them | rarely - a badly fragmented disk; a copy plays |
 | `FSXR_DRV` | 8 | the LIST names a driver class the bracket does not carry low (it carries `DRVC_DISK`, `DRVC_EMS` and, since W4, `DRVC_SOUND`) - or SOUND.DRV holds a segment word with no real-mode segment (above 1MB) | no - every class a play reaches is carried |
@@ -104923,6 +104978,19 @@ CF = 1 naming the word that has none, and `os88real_swap`, called first and
 last inside the entry proc, exchanges the list with the bank when - and only
 when - the bracket is a real-mode one. The kernel renames nothing of the
 package's (MEGA-VIDEO-REALMODE-PLAN 7.4).
+
+**The bank is a snapshot, so the door must not move what it banked.** The
+door's own claims - the region's copy, the service area, a driver's low copy,
+and whatever the list's remount claims - may compact the heap, and a MOVABLE
+claim of the caller's moves under the bank: in protected mode no relocation
+proc is told (the selector is re-based, §66.3), and nothing in real mode can
+ask again (`SEG_REAL` is the identity there). So the door snapshots the base
+of every movable claim the CALLER'S INSTANCE owns before its first claim and
+compares after its last: one that moved answers **`FSXR_ROOM`** - there was no
+conventional room without moving the package - and the bracket goes on in
+protected mode with nothing taken, where the bank is never read. No claim is
+pinned for it, and a door that compacted nothing of the caller's is exactly
+as before.
 
 **What the kernel does, on kern_mega**:
 1. at the door, after every other test: the reasons above, in that order -
@@ -105234,6 +105302,17 @@ Each was one test at the door and each test is gone:
   bracket and its line keeps making edges. The owner cannot call the lease
   inside the bracket (`OSAPI_SERIAL` is not a kept cell), so nothing but the
   ISR touches the copy.
+  **A known limit, with no shipped caller:** when the lease's owner is the
+  BRACKET PACKAGE ITSELF and its region is above 1MB, the ring rides the
+  region's own copy (`fsx_rserb` = 1) rather than a copy of its own, so the
+  region's two copies - down at the freeze's arm and up at the return, both
+  at IF = 1 (53.2.3's copy windows) - bracket two short windows in which the
+  protected-mode ISR writes the HIGH ring: bytes received between the
+  copy down and the drop, and between the restored `srl_seg` and the copy up
+  passing the ring, are lost. A conventional region runs where it is and
+  loses nothing. A package that wants a lossless line across the bracket
+  closes its lease before `OSAPI_FSX_RUN`, or holds it in a conventional
+  region.
 
 ### 53.3 Entry silences what it strands (binding)
 
@@ -227321,8 +227400,14 @@ take's frames equal to the card's own count.
   full`, `Cannot write the file`, or `Nothing was recorded` (L4).
 - **Resume says the room again**, DFREE's answer at Record less what the
   take has written since (L6).
-- **The data is always an even length** - the card counts whole 512-byte
-  blocks - so the RIFF pad byte (L8) never arises and is not written.
+- **An odd data length gets the RIFF pad byte** (L8). The card counts
+  whole 512-byte blocks, so a take that ends at Stop is always even; one
+  that ends at an OVERRUN stops at its last good chunk, and chunks are cut
+  at the live strip's columns, so it can be odd. `wc_wlast` then appends a
+  zero after the audio in the same write, and the patched header counts it
+  in `RIFF` (the file's bytes - 8, still) and not in `data`, as the save
+  writer's `ws_header` does. A take whose last write FAILED has no pad and
+  its `RIFF` says so - the header describes what is on the disk.
 
 **INPUT GAIN is digital, and says so.** No card SOUND.DRV drives exposes a
 capture gain (§34.15 never writes the recording route), so the slider is a

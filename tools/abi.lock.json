@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "c99d40ca2f5f1300b2248b6e017e273104027131becbb9725e8f33cfa52a000a",
+  "fingerprint": "0748b366414ba23dbd8ddf8ad78e06df4aaecfa57e2985f45402721d4b2db9f2",
   "version": 12
  },
  "PKG_FMT": {
-  "fingerprint": "5c94f8709a6113277a3ab8ecbae3a50eac760ac62ecdbd3795a51add7b9e0ed3",
+  "fingerprint": "2f4376cd8be289c1eeae2bb85f6f464f9c1b2f067e85cd3d4c56461755494bc7",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -1400,6 +1400,20 @@
    "from": 12,
    "guard": "DRV_VER",
    "reason": "OSAPI_FS_OP moved to 0x04EF at the toast-n-progress -> elendilon merge: elendilon had appended OSAPI_MEM_P at 0x04E9 first. Both are appends to a table no release has shipped; every package built before still runs",
+   "to": 12
+  },
+  {
+   "fingerprint": "2f4376cd8be289c1eeae2bb85f6f464f9c1b2f067e85cd3d4c56461755494bc7",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_MEM_P contract clarified at the code-review merge: CX is kept (the kernel no longer masks MEMP_CONV in place) and a refused claim/regrow returns AX = the request rounded to the granule. Every package built before still runs; no bump.",
+   "to": 10
+  },
+  {
+   "fingerprint": "0748b366414ba23dbd8ddf8ad78e06df4aaecfa57e2985f45402721d4b2db9f2",
+   "from": 12,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_MEM_P contract clarified at the code-review merge: CX is kept (the kernel no longer masks MEMP_CONV in place) and a refused claim/regrow returns AX = the request rounded to the granule. Every package built before still runs; no bump.",
    "to": 12
   }
  ]
