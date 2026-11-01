@@ -48114,21 +48114,23 @@ clusters**. `DOS.O88`'s three parts go 23,461 / 13,672 / 11,855 -> 22,851 /
 with every cluster figure (20.13.5), `make` prints the live ones and these
 are what the change was measured at.
 
-**The decode is the scan plus a few cycles per call.** Counted from the 8088
-timings, not measured: `repne scasb` 15 cycles a byte, and each hit `jne`,
-`scasw`, `sub [es:di-2], di`, `sub cx, 2` and the taken `ja` back, about 87
-cycles - at code's density of one `E8` in 50-60 bytes, **~16.5 cycles an
-output byte**, against LZ4's 50.6. It runs only on a stream that carries the
-escape. What it buys back is file bytes, and on a 360KB floppy a sector in a
-coalesced run is ~22 ms of rotation, ~43 us a byte, against the scan's ~3.5 us
-an output byte: the filter pays for itself in TIME only where it saves about
-one byte of stream in twelve of output, and **no shipped stream does** (DOS's
-core, the densest call traffic in the tree, saves 3.1%). So it is slower to
-launch, by roughly `3.5 us x image - 43 us x saved` - ~100 ms for DOS.O88's
-42,572-byte host image, which saves 1,099. **It is a DISK feature, taken on
-the owner's decision that the disk is what binds** - the 360KB geometry runs
-out first (24.6) - and the launch cost is stated here rather than
-discovered.
+**The decode is the scan plus a few cycles per call - MEASURED at 18.3
+cycles an output byte** on MartyPC's 4.77 MHz 5150, launching `NOTEPAD.O88`
+off the 360KB apps disk: 321,838 cycles from the filter's first instruction to
+`.fin` for 17,610 bytes and 646 `E8` sites, against 1,623,626 for that
+stream's LZ4 decode (92.2 a byte). That is `repne scasb`'s 15 a byte and ~89 a
+hit, which is what the 8088 timings predict (`jne`, `scasw`, `sub [es:di-2],
+di`, `sub cx, 2`, the taken `ja` and the next scan's start). It runs only on a
+stream that carries the escape. What it buys back is file bytes, and on a
+360KB floppy a sector in a coalesced run is ~22 ms of rotation, ~43 us a
+byte, against the scan's ~3.8 us an output byte: the filter pays for itself
+in TIME only where it saves about one byte of stream in eleven of output, and
+**no shipped stream does** (DOS's core, the densest call traffic in the tree,
+saves 3.1%). So a filtered launch is SLOWER, by roughly `3.8 us x image - 43
+us x saved`: Note Pad's +67 ms of filter buys back ~17 ms of read, +50 ms
+net. **It is a DISK feature, taken on the owner's decision that the disk is
+what binds** - the 360KB geometry runs out first (24.6) - and the launch cost
+is stated here rather than discovered.
 
 ##### 20.13.9.2 Who reads it
 
@@ -48167,7 +48169,7 @@ The boot blob's `kz_expand` is its own copy of the LZ4 arm and reads the
 classic block (20.13.7's exception), and the blob is full (kernel size pass
 16's record). The filter would take **1,401 bytes** off KERNEL.SYS's packed
 stream (74,168 -> 72,767, 3 sectors) and cost the boot **92,590 bytes of
-scan, ~320 ms** on a 4.77 MHz 8088 against ~75 ms of reading saved, plus a
+scan, ~355 ms** at the measured 18.3 cycles a byte, against ~75 ms of reading saved, plus a
 blob change and a new escape in a format with no T word. Refused on both
 counts; the kernel stream stays plain.
 

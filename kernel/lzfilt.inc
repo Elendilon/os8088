@@ -15,7 +15,9 @@
 ; WHY `E8` AND NOTHING ELSE. `repne scasb` looks for ONE byte value at 15
 ; cycles a byte on an 8088, and a second opcode (E9, `jmp rel16`) would need a
 ; second pass or a byte loop three times slower, for 9% more saving measured
-; over every shipped stream (SPEC.md 20.13.9.1).
+; over every shipped stream (SPEC.md 20.13.9.1). MEASURED on MartyPC's 5150:
+; 18.3 cycles an output byte, Note Pad's 17,610 bytes and 646 calls - the
+; scan's 15 and ~89 a hit.
 ;
 ; Safe to %include more than once: kernel/lz.inc includes it, and so do the
 ; two stubs' hosts.

@@ -2108,7 +2108,7 @@ tree the row passes on, not the one it was first read off:
   kernel refuses as an over-long tail), so no container, format byte or
   directory hint moved; `E8` alone, for `repne scasb`; +44 resident bytes on
   every kernel; 225 clusters over the seventeen shipped images. KERNEL.SYS
-  stays plain (20.13.9.3) - 1,401 bytes against ~320 ms of boot and a full
+  stays plain (20.13.9.3) - 1,401 bytes against ~355 ms of boot and a full
   blob.
 
 ## 14. Decisions still open before wave 1
