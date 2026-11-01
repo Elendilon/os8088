@@ -8764,6 +8764,16 @@ SOAK = [
         "because typing goes through `settle` and the motor has always "
         "stopped by the second one, so `burst <= n` was 1 <= 1 for ever",
         needs=("marty",), wants=("build/doscom360.img",)),
+    Row("doswspin", "soak", py("tests/doswspin.py"), 20.0,
+        "HOW FAST A PROGRAM RUNS IN A DOS WINDOW (SPEC.md 96.54.3). The probe "
+        "(tests/dostrap/dwspin.asm) counts as fast as it can and never "
+        "yields, so counts per GUEST second off MartyPC's cycle counter are "
+        "its share of the CPU: once in the bracket (the whole machine), once "
+        "in a window, ~13.5 guest seconds each. The ratio is held at an 85% "
+        "floor - 81.1% with the first build's word-at-a-time exchange (15.3% "
+        "of samples in that loop), 88.8% with two blocks and rep movsw - so "
+        "a dearer exchange fails it. Measured 16s on MartyPC",
+        needs=("marty",), serial=True, wants=("build/os8088-360.img",)),
     Row("doswtwo", "soak", py("tests/doswtwo.py"), 25.0,
         "TWO DOS WINDOWS, EACH RUNNING ITS OWN PROGRAM, AT ONCE (SPEC.md "
         "96.54.2). Each DOS window is its own instance with its own worker, "

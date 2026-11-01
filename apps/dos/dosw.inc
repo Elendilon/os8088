@@ -63,77 +63,94 @@ DVW_XB_VID  equ DVW_XB_BDA + 2  ; ...0040:0049..0066 (30), 0040:0084..0089 (6)
 DVW_XB_SIZE equ DVW_XB_VID + 36
 
 ; -----------------------------------------------------------------------------
-; dvw_walk - exchange (or, with [dvw_xop] = 1, COPY live -> block) the runs
-; in:  IF = 0 (the caller's cli); out: nothing; every register preserved
+; dvw_copy - one direction of one world: the runs, as `rep movsw`
+; in:  BX = a block (dvw_xblk, the program's; dvw_xdsk, the desktop's)
+;      DL = 0 GET (live -> block), 1 PUT (block -> live); IF = 0
+; out: nothing; every register preserved
 ;
-; Five runs, and the list is the contract: IVT 00h (divide - a C runtime hooks
+; Six runs, and the list is the contract: IVT 00h (divide - a C runtime hooks
 ; it), 08h-09h (the two IRQs a program may chain), 10h-3Fh (the BIOS services
 ; it is given virtual ones of, and the whole DOS block); then the BDA's memory
-; size word, its video block and its EGA rows. ONE routine for both directions
-; is what makes them impossible to get out of step: an exchange is its own
-; inverse.
+; size word, its video block and its EGA rows (0040:008Ah on is the AT's
+; floppy state, which is the kernel's).
+;
+; **TWO BLOCKS AND COPIES, NOT ONE BLOCK AND AN EXCHANGE** (SPEC.md 96.54.3).
+; It was one routine walking a word at a time - read, `xchg`, store, and a
+; test of a mode byte on every word - which an exchange needs, being its own
+; inverse. MEASURED: 15.3% of every sample of a windowed CPU-bound program
+; landed in that loop, and the program ran at 81.1% of its bracketed speed.
+; Two `rep movsw` per direction is the same 121 words at a fraction of the
+; clocks, for one more block of bss; IN takes the desktop's copy first and
+; OUT puts it back, so nothing the desktop holds can drift in between - no
+; desktop code runs while the world is in.
 ; -----------------------------------------------------------------------------
-dvw_walk:
+dvw_runs:
+    dw 0x0000, 0x00 * 4, 2          ; 00h
+    dw 0x0000, 0x08 * 4, 4          ; 08h, 09h
+    dw 0x0000, 0x10 * 4, 0x30 * 2   ; 10h..3Fh
+    dw 0x0040, 0x0013, 1            ; INT 12h's source (dos_hook_vectors')
+    dw 0x0040, 0x0049, 15           ; mode .. palette
+    dw 0x0040, 0x0084, 3            ; rows-1, char height, EGA info
+    dw 0, 0, 0
+dvw_copy:
     push ax
+    push bx
     push cx
     push si
     push di
+    push bp
     push ds
     push es
+    cld
+    mov bp, dvw_runs
+.r:
+    mov cx, [cs:bp + 4]
+    jcxz .done
+    mov ax, [cs:bp]
+    or dl, dl
+    jnz .put
+    mov ds, ax                      ; GET: DS:SI the live run, ES:DI ours
+    mov si, [cs:bp + 2]
+    push cs
+    pop es
+    mov di, bx
+    jmp short .mv
+.put:
+    mov es, ax                      ; PUT: DS:SI ours, ES:DI the live run
+    mov di, [cs:bp + 2]
     push cs
     pop ds
-    cld
-    mov si, dvw_xblk
-    xor ax, ax
-    mov es, ax
-    xor di, di                  ; 00h
-    mov cx, 2
-    call .run
-    mov di, 0x08 * 4            ; 08h, 09h
-    mov cx, 4
-    call .run
-    mov di, 0x10 * 4            ; 10h..3Fh
-    mov cx, 0x30 * 2
-    call .run
-    mov ax, 0x40
-    mov es, ax
-    mov di, 0x13                ; INT 12h's source, which dos_hook_vectors
-    mov cx, 1                   ; sets to the ARENA's top
-    call .run
-    mov di, 0x49                ; mode .. palette (30 bytes)
-    mov cx, 15
-    call .run
-    mov di, 0x84                ; rows-1, char height, EGA info (6 bytes):
-    mov cx, 3                   ; 008Ah onwards is the AT's floppy state
-    call .run
+    mov si, bx
+.mv:
+    add bx, cx
+    add bx, cx
+    rep movsw
+    add bp, 6
+    jmp short .r
+.done:
     pop es
     pop ds
+    pop bp
     pop di
     pop si
     pop cx
+    pop bx
     pop ax
-    ret
-.run:
-    mov ax, [es:di]
-    cmp byte [dvw_xop], 0
-    jne .cp
-    xchg ax, [si]
-    stosw
-    jmp short .nx
-.cp:
-    mov [si], ax
-    inc di
-    inc di
-.nx:
-    inc si
-    inc si
-    loop .run
     ret
 
 dvw_xin:                        ; IF = 0; preserves everything
     cmp byte [cs:dvw_in], 0
     jne .r
-    call dvw_walk
+    push bx
+    push dx
+    mov bx, dvw_xdsk            ; the desktop's world, kept...
+    xor dl, dl
+    call dvw_copy
+    mov bx, dvw_xblk            ; ...and the program's, put
+    inc dx
+    call dvw_copy
+    pop dx
+    pop bx
     mov byte [cs:dvw_in], 1
 .r:
     ret
@@ -141,7 +158,16 @@ dvw_xin:                        ; IF = 0; preserves everything
 dvw_xout:                       ; IF = 0; preserves everything
     cmp byte [cs:dvw_in], 0
     je .r
-    call dvw_walk
+    push bx
+    push dx
+    mov bx, dvw_xblk            ; the program's world, kept...
+    xor dl, dl
+    call dvw_copy
+    mov bx, dvw_xdsk            ; ...and the desktop's, put back
+    inc dx
+    call dvw_copy
+    pop dx
+    pop bx
     mov byte [cs:dvw_in], 0
 .r:
     ret
@@ -556,9 +582,13 @@ dvw_runprog:
     mov word [dos_hkv + DHK_SNAP], dvw_fin
     ; --- THE PROGRAM'S WORLD, PRIMED FROM THE DESKTOP'S ------------------------
     cli
-    mov byte [dvw_xop], 1
-    call dvw_walk                   ; the block = the live table, so every
-    mov byte [dvw_xop], 0           ; vector we do not own starts the same
+    push bx
+    push dx
+    mov bx, dvw_xblk                ; the program's block = the live table,
+    xor dl, dl                      ; so every vector we do not own starts
+    call dvw_copy                   ; the same
+    pop dx
+    pop bx
     push ds
     pop es
     mov si, dvw_bdat                ; ...and the video block a text mode's
@@ -631,7 +661,7 @@ dvw_bdat:
     dw 8                            ; 85 character height
     db 0, 0, 0                      ; 87..89 no EGA
 %if ($ - dvw_bdat) != 36
- %error "dvw_bdat must be exactly the 36 bytes dvw_walk exchanges"
+ %error "dvw_bdat must be exactly the 36 bytes dvw_copy moves"
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -783,7 +813,7 @@ dvw_int10:
     mov [cs:dvw_gfx], ah
     pop ax
 .rom:
-    jmp far [cs:dvw_xblk + DVW_XB_V10]  ; the ROM's, the world being in
+    jmp far [cs:dvw_xdsk + DVW_XB_V10]  ; the ROM's, the world being in
 
 .str:
     call dvw_str
@@ -1042,7 +1072,7 @@ dvw_int16:
 .none:
     iret
 .rom:
-    jmp far [cs:dvw_xblk + DVW_XB_V16]  ; the shift state is the machine's
+    jmp far [cs:dvw_xdsk + DVW_XB_V16]  ; the shift state is the machine's
 .get:
     call dvw_kpop
     jnz .got
@@ -1338,9 +1368,9 @@ dvw_fsmain:
     jmp short .park
 .parked:
     cli                             ; the PROGRAM's BDA and screen, read with
-    call dvw_walk                   ; its world swapped in for one copy and
+    call dvw_xin                    ; its world swapped in for one copy and
     call dos_snap                   ; out again - dos_snap is memory only, so
-    call dvw_walk                   ; nothing can take an interrupt through a
+    call dvw_xout                   ; nothing can take an interrupt through a
     sti                             ; half-swapped table
 .out:
     mov byte [dos_inbr], 0

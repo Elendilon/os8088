@@ -19012,7 +19012,8 @@ table from DVOL_MAX (SPEC.md 96.44.2.1)"
     HBSS DOS_B_DVWR,  22        ; a posted door: its target, ten registers
     HBSS DOS_B_DVWQ,  32        ; the window's keys, sixteen
     HBSS DOS_B_DVWS,  7         ; dvw_scroll's window
-    HBSS DOS_B_DVWX,  DVW_XB_SIZE   ; the exchanged vectors and BDA
+    HBSS DOS_B_DVWX,  DVW_XB_SIZE   ; the program's vectors and BDA...
+    HBSS DOS_B_DVWD,  DVW_XB_SIZE   ; ...and the desktop's, while it runs
 dvw_want    equ dos_hbss + DOS_B_DVWF + 0   ; Run in Window was asked for
 dvw_run     equ dvw_want + 1    ; a program is on the worker
 dvw_go      equ dvw_want + 2    ; ...UI -> worker: start it
@@ -19022,7 +19023,7 @@ dvw_in      equ dvw_want + 5    ; the instance's world is in the IVT
 dvw_spawn   equ dvw_want + 6    ; the worker exists (it is for ever)
 dvw_rq      equ dvw_want + 7    ; a door: 1 posted, 2 served, 0 done
 dvw_dirty   equ dvw_want + 8    ; the console owes the band a paint
-dvw_xop     equ dvw_want + 9    ; dvw_walk: 0 exchange, 1 copy
+                                ; (+ 9 was dvw_walk's mode byte, 96.54.3)
 dvw_poll    equ dvw_want + 10   ; empty AH=01h polls, for the yield
 dvw_kh      equ dvw_want + 11   ; the key ring's head...
 dvw_kt      equ dvw_want + 12   ; ...and tail
@@ -19059,6 +19060,7 @@ dvw_sc_a    equ dvw_sc_t + 4
 dvw_sc_up   equ dvw_sc_t + 5
 dvw_sc_n    equ dvw_sc_t + 6
 dvw_xblk    equ dos_hbss + DOS_B_DVWX
+dvw_xdsk    equ dos_hbss + DOS_B_DVWD
 %endif
 %ifdef DOS_CORE_INLINE
 DOS_BSS_SIZE equ CORE_BSS_SIZE + HB ; the core's cells are in here too

@@ -188105,6 +188105,35 @@ memory size, defaulted, overridden by the program's own settings.
 **+20 bytes of image and +2 of bss**, measured. `tests/doswtwo.py` runs two
 windows at once and is red with the cap removed: the second claim fails.
 
+#### 96.54.3 What a window costs a running program, and the exchange as copies
+
+**A program in a window runs at 88.8% of its bracketed speed**, measured by
+`tests/doswspin.py`: `tests/dostrap/dwspin.asm` counts as fast as it can and
+never yields, so counts per guest second (MartyPC's cycle counter) are its
+share of the CPU — 78,533 a second in the bracket, 69,711 in a window, each
+over 13.5 guest seconds.
+
+It was **81.1%**, and a sampled profile said where the rest went: 15.3% of
+300 samples landed in one loop, the per-tick world exchange of §96.54. That
+loop read a word, `xchg`ed it with the block, stored it, and tested a mode
+byte, 121 words each way, twice per tick the instance held. It is TWO blocks
+now — the program's world (`dvw_xblk`) and the desktop's (`dvw_xdsk`) — and
+each direction is two `rep movsw` passes over the same six runs (`dvw_copy`):
+IN keeps the desktop's copy then puts the program's, OUT keeps the program's
+then puts the desktop's back. No desktop code runs while the world is in, so
+the kept copy cannot drift. The ROM's own `int 10h`/`int 16h`, which the
+virtual BIOS passes to, are read out of the desktop's block.
+
+What is left is ~7% in the copies, ~3% in the kernel and ~1% in the ROM.
+**The vector set was NOT narrowed** to buy the copies' share: a vector
+outside it is global, so a program's `AH=25h` hook of one would run during
+every other task's slices and outlive the program. One more point is not
+worth that.
+
+**Cost**: +36 bytes of image and **+242 of bss** (the second block), so a
+DOS window's region is 278 bytes larger. `doswspin` holds the ratio at an
+85% floor, between the two readings, so the old loop fails it.
+
 ## 97. PIXELSTEIN 3D — a raycast shooter in a foreign mode (`apps/pixelstein/`)
 
 A first-person shooter in the shape of the 1992 one: a 64×64 grid of cells,

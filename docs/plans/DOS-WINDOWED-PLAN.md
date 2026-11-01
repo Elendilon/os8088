@@ -706,6 +706,17 @@ with the shunt removed. §4.2's glass comparison is therefore NOT built - it
 would let a well-behaved program come back running, which is wave 2's to
 decide once the virtual BIOS is complete.
 
+## 10.5 Wave 2's speed half, as built
+
+**MEASURED**, by `doswspin`: a CPU-bound program in a window ran at **81.1%**
+of its bracketed speed, and **15.3%** of a sampled profile was the per-tick
+exchange loop - §3.2's estimate of ~1.6% was off by ten times, because the
+loop tested a mode byte on every word. Two blocks and `rep movsw` take it to
+**88.8%** (SPEC.md 96.54.3) for +36 image and +242 bss. The vector set was
+not narrowed: a vector outside it would carry a program's hook into every
+other task. The band's span-narrowed paint (§3.5) is still open, and is a
+paint cost rather than a CPU-share one.
+
 ## 9. What would kill it
 
 1. **Wave 0 finds a kernel path into `sch_switch` the package cannot wrap** —
