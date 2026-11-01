@@ -8622,7 +8622,7 @@ table is a segment-register load, so nothing else changes; a ROM pointer or
 a baked face's `LOW_SEG` is no claim and is left alone, and a refused pool
 claim leaves the copy where it was. The resume's step 4a reads a POOL
 selector as the heap copy and refills it in place (`MEGA_ISHI`): asked
-through `mega_s2segf` a block above 1MB reads FFFFh, which the ROM test
+through `mega_s2segc` a block above 1MB reads FFFFh, which the ROM test
 would take for a ROM and swap for the slow table, stranding the block.
 **Cost: kern_mega only** - `.cold` +7 bytes (above 1MB on that kernel),
 HIBER.DRV +20; kern_big and kern_small byte-identical. `tests/megafont.py`
@@ -58424,7 +58424,8 @@ kern_mega walks `\AUTOSTRT` LAST in `kmain`, after `mega_enter` and after
 the boot's drivers and caches go above 1MB (docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md
 MC8). From the blob it ran in real mode, so every package it started was
 loaded into conventional memory whatever its header said, and one with a
-worker made `mega_tasks_ok` refuse protected mode for the session. The walk
+worker made the switch's task check (`mega_tasks_ok` then, `mega_gateb`'s
+loop since kern_mega size pass 2) refuse protected mode for the session. The walk
 is one macro body, `AS_WALK`: `as_boot` in the blob on every other kernel
 (unchanged), `as_bootc` in `.cold` on kern_mega - written with no data and no
 CS idiom there (the folder name and the skip toast are immediate stores, the
@@ -98533,7 +98534,8 @@ the probe must find the parked anchor before any other state is known, and
 the same arithmetic on the same BIOS answer finds it. `mega_tset` writes
 every word that names the tables (`mega_gdtr`, `mega_idtr`, `mega_ldtlin`,
 `mega_tbllin`, the bootstrap window, the LDT and IDT descriptors) from one
-base, for the top-of-RAM block and for `mega_tlowf`'s conventional one alike;
+base, for the top-of-RAM block and for the conventional one `mega_enterf`
+claims alike (it was `mega_tlowf`'s until kern_mega size pass 2);
 the parked stub's GDTR/IDTR copy is patched from the same two variables at
 staging (`mega_dstubup`). `.cold`'s descriptor base is `[mega_coldlin]` less
 `COLD_VSTART`.
@@ -98639,7 +98641,9 @@ every machine.
 On kern_mega in protected mode (`mega_segf`, `.mega`):
 
 - A **window** is a descriptor the caller owns, recorded in `mega_wtab` (32
-  rows of selector and owner byte, `.lowbss`): the instance's slot, or
+  rows of selector and owner byte, in the tables' TAIL past the IDT and
+  reached through `MEGA_SEL_MXT` - `.lowbss` until kern_mega size pass 2,
+  `kernel/mega.inc`'s `MEGA_MXT_SIZE`): the instance's slot, or
   `0C0h | row` for a driver, or FFh for neither. The owner's end frees it
   (`mx_relall`, which an instance's teardown and a driver's release already
   run), `SEG_FREE` sooner. Re-aiming one is the `OSAPI_XMEM_SEL` rule: a
@@ -98750,7 +98754,7 @@ was - by a selector - and not by its segment:
   its offset, would carry past the selector's 64KB goes onto the segment arm
   at the buffer's real paragraph (`dskw_tolo`), every segment register that
   arm loads going through a scratch selector. The LZ decoder slides by
-  descriptor (`mega_slidef`), a match 64KB behind the output through
+  descriptor (`mega_slidec`), a match 64KB behind the output through
   `MEGA_SEL_BACK`, and a match source that may slide never re-aims the
   input's `MEGA_SEL_SLD`.
 - **A kernel module that does PARAGRAPH arithmetic keeps it** (MC7.6):
@@ -98760,7 +98764,7 @@ was - by a selector - and not by its segment:
   every segment register through a scratch of its own STREAM, `KSEG sreg,
   paragraph, MEGA_SEL_Kn` (six, `MEGA_SEL_K0`-`K5`), so one stream's aim
   never moves another's; a slide re-aims the stream's own scratch
-  (`mega_slidef`, signed). A scratch the image hands the file doors is
+  (`mega_slidec`, signed). A scratch the image hands the file doors is
   turned back into its paragraph there (`dskw_hiseg`'s GDT arm), so a write
   past 64KB walks the segment arm as it does on kern_big. A scratch is
   aimed with interrupts off, so an ISR that reloads one never reads half a
@@ -156329,8 +156333,11 @@ kern_big does.
 0, rounded up to a whole 32KB (`HBX_CHUNK`, a multiple of every cluster) so
 that the section can be APPENDED after it (§18.4.4). The section is a
 512-byte head — `'HIBX'`, the run count, the section's bytes, and each run's
-linear base and length — and then the runs: **run 0** is the GDT, the LDT and
-the IDT as one range (`[mega_tbllin]`, `MEGA_TBL_SIZE` long since §50.6.9,
+linear base and length — and then the runs: **run 0** is the GDT, the LDT,
+the IDT and the tables' tail past it (`mega_ustab`, `mega_wtab`, `mem_sel` and
+`mx_tab`, kern_mega
+size pass 2) as one range (`[mega_tbllin]`, `[mega_ldtend]` +
+`MEGA_TBL_TAIL` long since §50.6.9,
 which a restore requires exactly - an image from before it, or from a machine
 whose RAM puts the tables elsewhere, is refused; `.cold`'s copy is not in it, being a
 code selector whose bytes are `KERNEL.SYS`'s), and every `mx_tab` block in

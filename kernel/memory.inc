@@ -128,10 +128,10 @@ MC_SIZE  equ 10
   %error "mega.inc's mem_sel has MEGA_MSELN slots, one per mem_tab record"
 %endif
 %macro MEM_MP 1                 ; SI = the record -> mega_mp*f's step for it,
-    cmp byte [mega_on], 0       ; in protected mode only (every register kept)
-    je %%n
-    call MEGA_SEL_CODE:%1
-%%n:
+    call %1                     ; in protected mode only (every register kept):
+%endmacro                       ; mem_mpfree/move/sync, `.cold`'s near tests
+%macro KDATAR_CA 0              ; KDATAR_C ax, through mem_kdatac's near body
+    call mem_kdatac             ; (kern_mega size pass 2)
 %endmacro
 %macro MEM_VAL 1                ; SI = a live record -> %1 = the value its
 %ifidni %1, ax                  ; holders hold: its DATA selector in protected
@@ -145,6 +145,9 @@ MC_SIZE  equ 10
 %endmacro
 %else
 %macro MEM_MP 1
+%endmacro
+%macro KDATAR_CA 0
+    KDATAR_C ax
 %endmacro
 %macro MEM_VAL 1
     mov %1, [ss:si+MC_SEG]
@@ -1428,7 +1431,7 @@ mem_shed_one:
                                 ; memory somebody else already holds
 %ifdef KERN_MEGA
     xchg si, di
-    MEM_MP mega_mpfreef
+    MEM_MP mem_mpfree
     xchg si, di
 %endif
     mov word [ss:di+MC_SEG], 0
@@ -1529,24 +1532,26 @@ mx_shedf:
     push dx
     push si
     push di
+    push es
     pushf
     cli
     call mem_rank_bh            ; AL = the rank a cache must be below
-    xor di, di                  ; DI = the cheapest so far, 0 = none
+    MXT_ESR cx                  ; ES = the tables' tail (kern_mega size
+    xor di, di                  ; pass 2). DI = the cheapest so far, 0 = none
     mov si, mx_tab
 .scan:
-    cmp word [ss:si+MX_KB], 0
+    cmp word [es:si+MX_KB], 0
     je .n
-    cmp byte [ss:si+MX_OWN], MX_KOWN
+    cmp byte [es:si+MX_OWN], MX_KOWN
     jne .n
-    test byte [ss:si+MX_FL], MX_FPURGE
+    test byte [es:si+MX_FL], MX_FPURGE
     jz .n
-    mov dl, [ss:si+MX_AUX+1]    ; its level
+    mov dl, [es:si+MX_AUX+1]    ; its level
     cmp dl, al
     jae .n                      ; at or above the best so far
     cmp word [dsk_fatd0], 0xFFFF
     je .take                    ; nothing is dirty anywhere
-    mov bx, [ss:si+MX_SEL]
+    mov bx, [es:si+MX_SEL]
     cmp bx, [dsk_fatseg]
     je .n                       ; ...and this is the window it is dirty in
 .take:
@@ -1558,9 +1563,9 @@ mx_shedf:
     jb .scan
     or di, di
     jz .none
-    mov bx, [ss:di+MX_AUX]
-    call mem_pg_forget          ; the owner first
-    mov ax, [ss:di+MX_OFF]      ; DX:AX = the block's linear base
+    mov bx, [es:di+MX_AUX]
+    call mem_pg_forget          ; the owner first (every register kept)
+    mov ax, [es:di+MX_OFF]      ; DX:AX = the block's linear base
     mov dx, ax
     mov cl, 10
     shl ax, cl
@@ -1572,6 +1577,7 @@ mx_shedf:
 .none:
     popf
     cmp di, 1                   ; CF = 1 exactly when nothing went
+    pop es
     pop di
     pop si
     pop dx
@@ -1579,6 +1585,69 @@ mx_shedf:
     pop bx
     pop ax
     retf
+
+; mem_ishidx / mem_ishiax - MEGA_ISHI dx / MEGA_ISHI ax for a `.cold` site, as a
+; NEAR call (kern_mega size pass 2: seventeen bytes inline, three here): CF = 0
+; the value is a POOL selector, CF = 1 anything else, every value in real
+; mode among them. mem_ishidx keeps every register; mem_ishiax clobbers AX
+; (mega_ishif's contract), so a site that needs AX banks it
+mem_ishidx:
+    push ax
+    mov ax, dx
+    call mem_ishiax
+    pop ax
+    ret
+mem_ishiax:
+    cmp byte [mega_on], 0
+    stc
+    je mem_mpfree.n
+    call MEGA_SEL_CODE:mega_ishif
+    ret
+
+; mem_cselc - MEGA_CSELTOP for MEGA_PCALLC (kernel.asm): the word UNDER the
+; return address, a 512-aligned DATA segment, becomes its CODE alias - in
+; protected mode, when it is an LDT selector; real mode and a GDT selector
+; leave it alone. Every register and FLAGS kept. Twenty-five bytes inline,
+; three here (kern_mega size pass 2)
+mem_cselc:
+    push bp
+    mov bp, sp
+    pushf
+    cmp byte [ss:mega_pm], 0    ; (.cold names no CS data: KDATAR_C's flag)
+    je .rm
+    test byte [ss:bp+4], 4
+    jz .rm
+    sub word [ss:bp+4], 8
+.rm:
+    popf
+    pop bp
+    ret
+
+; mem_kdatac - KDATAR_C ax as a near call: AX = the kernel's data segment, its
+; data alias in protected mode. FLAGS clobbered, as KDATAR_C's are
+mem_kdatac:
+    KDATAR_C ax
+    ret
+
+; mem_mpfree / mem_mpmove / mem_mpsync - MEM_MP's three steps (SI = the
+; record), in protected mode only: twelve bytes inline, three here. Every
+; register kept, as mega_mp*f keep them
+mem_mpmove:
+    cmp byte [mega_on], 0
+    je mem_mpfree.n
+    call MEGA_SEL_CODE:mega_mpmovef
+    ret
+mem_mpsync:
+    cmp byte [mega_on], 0
+    je mem_mpfree.n
+    call MEGA_SEL_CODE:mega_mpsyncf
+    ret
+mem_mpfree:
+    cmp byte [mega_on], 0
+    je .n
+    call MEGA_SEL_CODE:mega_mpfreef
+.n:
+    ret
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -2912,7 +2981,7 @@ mem_cp_walk:
     mov [ss:si+MC_SEG], di      ; the map follows the bytes...
 %ifdef KERN_MEGA
     xchg ax, bx                 ; ...and its pair and SUBs with them
-    MEM_MP mega_mpmovef         ; (KERN-MEGA-MEMORY-PLAN MC7.4)
+    MEM_MP mem_mpmove           ; (KERN-MEGA-MEMORY-PLAN MC7.4)
     xchg ax, bx
 %endif
     mov dx, di                  ; ...and the holder follows the map (BX = old
@@ -2971,7 +3040,7 @@ mem_cp_walk:
     mov bx, [ss:si+MC_OWN]      ; BEFORE the record goes - mem_shed_one's
     call mem_pg_forget          ; order, for its reason - and BX, the FILL
     pop bx                      ; POINT, does not move
-    MEM_MP mega_mpfreef
+    MEM_MP mem_mpfree
     mov word [ss:si+MC_SEG], 0
 .count2:
     inc dx
@@ -3166,10 +3235,10 @@ mem_region_reloc:
     pop es                      ; ES = LOW_SEG: the menu bar and the claim map
     call mem_rr_walk
 %ifdef OS88_DRIVERS
-    xor ax, ax
 %ifdef KERN_MEGA
-    MEGA_SEG0 es                  ; segment 0 is the NULL selector
-%else
+    MEGA_SEG0 es                  ; segment 0 is the NULL selector (no zero:
+%else                           ; mem_rr_walk's lodsw writes AX first)
+    xor ax, ax
     mov es, ax                  ; ES = 0: the hardware IRQ vectors, the fourth
 %endif
     call mem_rr_walk            ; address space and the only one outside this
@@ -3780,7 +3849,7 @@ mem_reloc_call:
                                 ; proc that used SI would have moved the fill
     push ds                     ; point onto a live block
     push es
-    KDATAR_C ax
+    KDATAR_CA
     mov es, ax                  ; wm_pkgcall's ES contract: the callback may
                                 ; read the kernel structures it always reads.
                                 ; NAMED and not `push cs`, which in .cold is
@@ -3874,7 +3943,7 @@ mem_reloc_call:
 %ifdef KERN_MEGA
     cmp ax, KERNEL_SEG          ; kern_mega: the KERNEL's proc runs under CS
     jne .mpkg                   ; 0x0060 with DS the data alias (0x0060 being
-    KDATAR_C ax                 ; code); a PACKAGE's with DS its pair's DATA
+    KDATAR_CA                   ; code); a PACKAGE's with DS its pair's DATA
     mov ds, ax                  ; selector and CS the CODE half below it
     jmp short .mgo              ; (KERN-MEGA-MEMORY-PLAN MC7.4). FLAGS are
 .mpkg:                          ; nobody's here
@@ -4313,7 +4382,10 @@ mem_val:
     div bx
     shl ax, 1
     xchg ax, bx
-    mov ax, [ss:bx+mem_sel]
+    push es                     ; mem_sel: the tables' tail (kern_mega size
+    MXT_ESR ax                  ; pass 2)
+    mov ax, [es:bx+mem_sel]
+    pop es
     pop dx
     pop bx
 .o:
@@ -4361,7 +4433,7 @@ mem_find_own:
 ; -----------------------------------------------------------------------------
 mem_free_x:
 %ifdef KERN_MEGA
-    MEGA_ISHI dx                ; a kernel cache mem_claim_x put above 1MB
+    call mem_ishidx             ; a kernel cache mem_claim_x put above 1MB
     jc .conv                    ; (item 84): its block and selector go back
     call mem_hitag
     jc .conv                    ; (not one of those tags: refused below, as
@@ -4382,7 +4454,7 @@ mem_free_x:
 %endif                          ; ...and kern_small has no walk to be inside
     call mem_find_own
     jc .busy
-    MEM_MP mega_mpfreef
+    MEM_MP mem_mpfree
     mov word [ss:si+MC_SEG], 0     ; the record IS the allocator (SPEC.md 50.3)
 .ok:                            ; ...and mem_movable_x's two exits, below, are
     popf                        ; these: the same fence under the same IF = 0
@@ -4460,7 +4532,7 @@ mem_movable_x:
 ; -----------------------------------------------------------------------------
 mem_regrow:
 %ifdef KERN_MEGA
-    MEGA_ISHI dx                ; ONE OF THE KERNEL'S POOL BLOCKS (mem_hitag,
+    call mem_ishidx             ; ONE OF THE KERNEL'S POOL BLOCKS (mem_hitag,
     jc .conv                    ; KERN-MEGA-PLAN 14.121): resized in the pool
     call mem_hitag              ; and its selector kept - the shortcuts' table
     jc .conv                    ; after the switch. Any other selector falls
@@ -4558,14 +4630,14 @@ mem_regrowp:                    ; be a byte less and would push the caller a
                                    ; already right - it never changed
 %ifdef KERN_MEGA
     xchg ax, dx                 ; protected mode: the pair and any SUB based
-    MEM_MP mega_mpmovef         ; in the OLD block follow the bytes (AX = the
+    MEM_MP mem_mpmove           ; in the OLD block follow the bytes (AX = the
     xchg ax, dx                 ; old base, MC7.4)
 %endif
     mov dx, cx                  ; ...and the caller is told where it went
 .set:                           ; (all three paths: the new length)
     mov [ss:si+MC_PARA], ax
 %ifdef KERN_MEGA
-    MEM_MP mega_mpsyncf         ; (its pair's window, MC7.4) - and in
+    MEM_MP mem_mpsync           ; (its pair's window, MC7.4) - and in
     cmp byte [mega_on], 0       ; protected mode the caller keeps the VALUE
     je .setr                    ; it named the claim by: a selector does not
     mov dx, [ss:mem_rgv]        ; change when its bytes move
@@ -4640,7 +4712,7 @@ mem_free_owner_x:
     jc .done
     cmp [ss:si+MC_OWN], bx
     jne .scan
-    MEM_MP mega_mpfreef
+    MEM_MP mem_mpfree
     mov word [ss:si+MC_SEG], 0
     jmp short .scan
 .done:
@@ -4718,7 +4790,7 @@ mem_reown_x:
                                 ; IS the free - it merges with whatever run
                                 ; stood above it the way any free does
 .wsync:
-    MEM_MP mega_mpsyncf         ; (its pair's window: MC7.4)
+    MEM_MP mem_mpsync           ; (its pair's window: MC7.4)
 %ifdef KERN_MEGA
     MEM_VAL [mega_rhval]         ; ...which is what the program is called now
 %endif
@@ -4752,7 +4824,7 @@ mem_free_rec_x:
 %ifdef KERN_MEGA
     push dx
     mov dx, [di+I_SPTR]         ; ...and a region ABOVE 1MB is no claim at
-    MEGA_ISHI dx                ; all: its pair and pool block go back
+    call mem_ishidx             ; all: its pair and pool block go back
     pop dx                      ; (KERN-MEGA-PLAN 13.3 step 4)
     jc .done
     push ax
@@ -5273,7 +5345,7 @@ mmf_osapi_mem_huge:
 ; -----------------------------------------------------------------------------
 mmf_osapi_mem_free:             ; (the cell's far entry, as mmf_osapi_mem_claim)
 %ifdef KERN_MEGA
-    MEGA_ISHI dx                ; a pool SELECTOR (mega_claimhf): its block
+    call mem_ishidx             ; a pool SELECTOR (mega_claimhf): its block
     jc .conv                    ; and the selector go back together
     call COLD_SEG:mega_claimfreef
     jc .r
@@ -5321,7 +5393,7 @@ mmf_osapi_mem_free:             ; (the cell's far entry, as mmf_osapi_mem_claim)
 ; -----------------------------------------------------------------------------
 osapi_mem_regrow_x:
 %ifdef KERN_MEGA
-    MEGA_ISHI dx                ; a pool SELECTOR (mega_claimhf, OS88_HIGHMEM):
+    call mem_ishidx             ; a pool SELECTOR (mega_claimhf, OS88_HIGHMEM):
     jc .conv                    ; resized in the pool, the selector kept...
     call COLD_SEG:mega_claimregrowf
     jc .move
@@ -5446,7 +5518,7 @@ osapi_mem_p:
     pop ax
     jmp short .gen
 .mreg:
-    MEGA_ISHI dx                ; a POOL block: OSAPI_MEM_REGROW's own arm
+    call mem_ishidx             ; a POOL block: OSAPI_MEM_REGROW's own arm
     jc .gen                     ; resizes it (or moves it down), in KB
     push ax
     call .kb
@@ -5553,7 +5625,7 @@ osapi_mem_movable_x:
     push dx
     test dl, 4                  ; kern_mega: a package declares its REGION
     jz .seg                     ; with DX = CS (OS88_REGION_MOVABLE), which
-    MEGA_ISHI dx                ; is its pair's CODE half: above 1MB a region
+    call mem_ishidx             ; is its pair's CODE half: above 1MB a region
     jnc .hi                     ; never moves (CF = 1, as a region's
     push ax                     ; declaration may always answer), and a
     mov ax, dx                  ; conventional one names the claim by its

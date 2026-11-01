@@ -1873,8 +1873,10 @@ hbm_wrimg:
 .rimg:                          ; includes the masks and the wake address
 %endif
     call hbm_psum               ; 5. THE PROGRAMS' SUM, taken here, the last
-    CSDO mov [CSEG hbm_psv], ax ;    instant before the write: nothing that
-    CSDO mov [CSEG hbm_psv + 2], dx ; runs from here touches a program's
+    CSDO_ON
+    mov [CSEG hbm_psv], ax      ;    instant before the write: nothing that
+    mov [CSEG hbm_psv + 2], dx  ; runs from here touches a program's
+    CSDO_OFF
                                 ;    memory, so the image holds what this
                                 ;    read (SPEC.md 87.4.1). Into this image,
                                 ;    so it is written with it
@@ -2813,9 +2815,11 @@ hbm_dosrun:
 .vkind:
     mov al, DVK_BIOS
 .vput:
-    CSDO mov [CSEG di], ax             ; kind, unit
-    CSDO mov [CSEG di+2], cx           ; ...base
-    CSDO mov [CSEG di+4], dx
+    CSDO_ON
+    mov [CSEG di], ax           ; kind, unit
+    mov [CSEG di+2], cx         ; ...base
+    mov [CSEG di+4], dx
+    CSDO_OFF
     add bx, DV_SIZE
     add bp, 4
     add di, KDL_VROW
@@ -2855,9 +2859,11 @@ hbm_dosrun:
     call hbm_cb                 ; 18.4), not out of the global listing: one
     jc .b3                      ; far call where find-then-stage was two, and
 %ifdef KERN_MEGA
-    CSDO mov [CSEG hbm_dosrec + KDH_LB + KDL_O88CL], bx    ; ...and WHERE DOS.O88 IS,
+    CSDO_ON
+    mov [CSEG hbm_dosrec + KDH_LB + KDL_O88CL], bx ; ...and WHERE DOS.O88 IS,
     mov al, [cs:hbm_dosrec + KDH_VOL]               ; for the HMA kern_dos to
-    CSDO mov [CSEG hbm_dosrec + KDH_LB + KDL_O88V], al     ; read part 3 off it on a
+    mov [CSEG hbm_dosrec + KDH_LB + KDL_O88V], al ; read part 3 off it on a
+    CSDO_OFF
                                         ; refused EXEPACK switch (96.40.9.1).
                                         ; CSDO, as step 3c's own writes are:
                                         ; each was a mega_gpw fixup until
@@ -3009,11 +3015,15 @@ hbm_dosrun:
 .snap:
     mov [mega_dsnap], ax
     mov [mega_dsnap+2], dx
-    CSDO mov [CSEG hbm_dosrec + KDH_LB + KDL_SNAPLIN], ax
-    CSDO mov [CSEG hbm_dosrec + KDH_LB + KDL_SNAPHI], dl
+    CSDO_ON
+    mov [CSEG hbm_dosrec + KDH_LB + KDL_SNAPLIN], ax
+    mov [CSEG hbm_dosrec + KDH_LB + KDL_SNAPHI], dl
+    CSDO_OFF
     call hbm_psum               ; THE PROGRAMS' SUM, as hbm_wrimg's step 5
-    CSDO mov [CSEG hbm_psv], ax ; takes it for an image: hbm_wake 3a checks
-    CSDO mov [CSEG hbm_psv + 2], dx ; it on this way home too, and without
+    CSDO_ON
+    mov [CSEG hbm_psv], ax      ; takes it for an image: hbm_wake 3a checks
+    mov [CSEG hbm_psv + 2], dx  ; it on this way home too, and without
+    CSDO_OFF
                                 ; it every trip compared against a stale
                                 ; figure and refused (KERN-MEGA-PLAN 14.22).
                                 ; Before the snapshot, so the park holds it
@@ -3479,8 +3489,10 @@ hbm_extat:
     xor di, di
     mov word [hb_nx], 0
     mov si, ax                  ; SI = the cluster in hand
-    CSDO mov [CSEG hbm_xskip], cx
-    CSDO mov [CSEG hbm_xtake], bx
+    CSDO_ON
+    mov [CSEG hbm_xskip], cx
+    mov [CSEG hbm_xtake], bx
+    CSDO_OFF
 .clus:
     mov al, [dsk_spc]
     xor ah, ah
@@ -3524,9 +3536,11 @@ hbm_extat:
 .grown:
     add ax, dx
     adc bx, 0
-    CSDO mov [CSEG hbm_nextlo], ax
-    CSDO mov [CSEG hbm_nexthi], bx
-    CSDO sub [CSEG hbm_xtake], dx
+    CSDO_ON
+    mov [CSEG hbm_nextlo], ax
+    mov [CSEG hbm_nexthi], bx
+    sub [CSEG hbm_xtake], dx
+    CSDO_OFF
     jz .done
 .next:
     mov ax, si
@@ -3880,7 +3894,7 @@ hbm_xplan:
     mov ax, [mega_tbllin + 2]   ; is not in it: a code selector,
     mov [es:di+6], ax
     mov ax, [mega_ldtend]       ; ...its bytes: the GDT with the LDT on it,
-    add ax, MEGA_IDT_SIZE       ; and the IDT (MC7's step 6)
+    add ax, MEGA_TBL_TAIL       ; the IDT (MC7's step 6) and the tail past it
     mov [es:di+8], ax
     mov word [es:di+10], 0
     add ax, 512
@@ -3889,7 +3903,13 @@ hbm_xplan:
     add di, MPK_CPYSZ           ; so KERNEL.SYS's bytes, as a boot makes them
     mov si, mx_tab
 .mx:
-    mov ax, [ss:si+MX_KB]          ; every block the pool has given out, the
+    push ds                     ; the entry, through DS for two reads: ES is
+    mov ax, MEGA_SEL_MXT        ; the list's, and the pool's table is the
+    mov ds, ax                  ; tables' tail (kern_mega size pass 2)
+    mov ax, [si+MX_KB]
+    mov bx, [si+MX_OFF]
+    pop ds
+                                ; every block the pool has given out, the
     or ax, ax                   ; kernel's own among them (track 1's modules
     jz .next                    ; and caches: hbm_wake flushes the caches),
                                 ; the HMA's too since it is pool (MC4)
@@ -3902,7 +3922,7 @@ hbm_xplan:
     mov [es:di+10], dx
     add [mega_hbxl], ax
     adc [mega_hbxl + 2], dx
-    mov ax, [ss:si+MX_OFF]
+    mov ax, bx
     mov dx, ax
     mov cl, 10
     shl ax, cl
@@ -4101,15 +4121,17 @@ hbm_xwrite:
     call .flush
     jc .fail
 .done:
-    CSDO mov byte [CSEG hbm_ptrfix + HBP_XFLG], 1
-    mov ax, [mega_dsum]
-    CSDO mov [CSEG hbm_ptrfix + HBP_XSUM], ax
-    mov ax, [mega_dsum + 2]
-    CSDO mov [CSEG hbm_ptrfix + HBP_XSUM + 2], ax
-    mov ax, [mega_hbxd]
-    CSDO mov [CSEG hbm_ptrfix + HBP_XLEN], ax
-    mov ax, [mega_hbxd + 2]
-    CSDO mov [CSEG hbm_ptrfix + HBP_XLEN + 2], ax
+    mov ax, [mega_dsum]         ; the four words read FIRST, through the
+    mov bx, [mega_dsum + 2]     ; kernel's DS, so one run stores all five
+    mov cx, [mega_hbxd]         ; (BX CX SI are this routine's to clobber)
+    mov si, [mega_hbxd + 2]
+    CSDO_ON
+    mov byte [CSEG hbm_ptrfix + HBP_XFLG], 1
+    mov [CSEG hbm_ptrfix + HBP_XSUM], ax
+    mov [CSEG hbm_ptrfix + HBP_XSUM + 2], bx
+    mov [CSEG hbm_ptrfix + HBP_XLEN], cx
+    mov [CSEG hbm_ptrfix + HBP_XLEN + 2], si
+    CSDO_OFF
     pop dx
     call hbm_xfree
     clc
@@ -4163,7 +4185,7 @@ hbm_xruns:
     cmp [es:si+6], ax
     jne .no
     mov ax, [mega_ldtend]       ; ...and its size, this machine's (MC7's
-    add ax, MEGA_IDT_SIZE       ; step 6): an image of other tables is
+    add ax, MEGA_TBL_TAIL       ; step 6): an image of other tables is
     cmp [es:si+8], ax           ; refused, before MC7 or not
     jne .no
     cmp word [es:si+10], 0
@@ -4284,7 +4306,8 @@ hbm_xres:
     mov cl, 7
     shl dx, cl
     or ax, dx
-    CSDO mov [CSEG hbm_mrs0], ax ; ...which is where the section's head is
+    CSDO_ON
+    mov [CSEG hbm_mrs0], ax     ; ...which is where the section's head is
     mov bx, [cs:hbm_ptrbuf + HBP_XLEN]
     mov dx, [cs:hbm_ptrbuf + HBP_XLEN + 2]
     mov cl, 9
@@ -4292,7 +4315,8 @@ hbm_xres:
     mov cl, 7
     shl dx, cl
     or bx, dx
-    CSDO mov [CSEG hbm_mrsn], bx
+    mov [CSEG hbm_mrsn], bx
+    CSDO_OFF
     add bx, ax                  ; BX = the file's sectors
     pop ax                      ; AX = the first cluster
     jc .bad1
@@ -4555,10 +4579,10 @@ hbm_wake:
     inc bx
     jz .clkdone                 ; 0xFFFFFFFF: the clock above is current
     push es
-    xor bx, bx
 %ifdef KERN_MEGA
     MEGA_SEG0 es                ; (segment 0 is the NULL selector there)
 %else
+    xor bx, bx
     mov es, bx
 %endif
     mov bx, [es:0x046C]         ; the ROM's own tick, now
@@ -4992,7 +5016,7 @@ hbm_wake:
     MEGA_ISHI word [font_seg]   ; a POOL block is the heap copy too: kern_mega
     mov ax, [font_seg]          ; moves it above 1MB at the switch (KERN-MEGA-
     jnc .fcopy                  ; PLAN 14.120), where s2seg reads FFFF
-    call KERNEL_SEG:mega_s2segf ; a selector there: the paragraph it names
+    call COLD_SEG:mega_s2segc ; a selector there: the paragraph it names
 %else                           ; (MC7), which is what tells the two apart
     mov ax, [font_seg]
 %endif

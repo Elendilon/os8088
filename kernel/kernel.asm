@@ -415,9 +415,9 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 %endmacro
 %macro KPARA 0
 %ifdef KERN_MEGA
-    call KERNEL_SEG:mega_s2segf
-%endif
-%endmacro
+    call COLD_SEG:mega_s2segc   ; (kern_mega: the far body)
+%endif                          ; (kern_mega size pass 2; a `.cold` site
+%endmacro                       ; writes `push cs / call mega_s2segc` itself)
 
 ; DSKW_LD sreg, mem - a file door's segment word ([dskw_seg], [dskw_wseg])
 ; into a segment register: the selector itself on the selector arm, and on
@@ -492,13 +492,108 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
  %endif
 %endmacro
 %macro CSDO 1+
+ %ifdef CSDO_OPEN
+  %error "CSDO inside CSDO_ON: DS is the image's already - drop the CSDO"
+ %endif
  %ifdef KERN_MEGA
-    push ds
-    call KERNEL_SEG:mega_dsimg  ; DS = the image's data segment (mega.inc)
+    CSDO_ENTER                  ; DS = the image's data segment (mega.inc)
     %1
     pop ds
  %else
     %1
+ %endif
+%endmacro
+; CSDOF insn - CSDO with the far call INLINE, never the image's door: for a
+; site on a per-byte or per-position path, where the door's near call and
+; return would be a cycle cost (kern_mega size pass 2)
+%macro CSDOF 1+
+ %ifdef CSDO_OPEN
+  %error "CSDOF inside CSDO_ON: DS is the image's already - drop the CSDOF"
+ %endif
+ %ifdef KERN_MEGA
+    push ds
+    call KERNEL_SEG:mega_dsimg
+    %1
+    pop ds
+ %else
+    %1
+ %endif
+%endmacro
+; CSDO_ON ... CSDO_OFF - CSDO for a RUN of instructions: DS = the image ONCE
+; for all of them, and the caller's DS back at the end - one `push ds`, one
+; mega_dsimg and one `pop ds` where a CSDO a line spends them per line, seven
+; bytes and a far call each (kern_mega size pass 2). Nothing at all on every
+; other build, where `[CSEG x]` is `[cs:x]` and needs no DS. Between the two,
+; on kern_mega, DS is the IMAGE: so the run is entered only at its CSDO_ON
+; and left only at its CSDO_OFF (a loop inside it is fine; no call, return,
+; int, string instruction or unbalanced push/pop) and every memory operand
+; must name its segment - [CSEG x], [cs:x], [es:x], [ss:x] or a BP base -
+; which tests/unit/t_cswrite.py checks, because a plain `[x]` in the run
+; assembles cleanly on every build and is wrong only on kern_mega. FLAGS are
+; kept across both ends, CSDO's promise; SP is one word lower inside, so a
+; `mov [CSEG x], sp` in a run is CSDO_SP's trap (below). Not nestable
+%macro CSDO_ON 0
+ %ifdef CSDO_OPEN
+  %error "CSDO_ON inside CSDO_ON"
+ %endif
+ %define CSDO_OPEN
+ %ifdef KERN_MEGA
+    CSDO_ENTER
+ %endif
+%endmacro
+%macro CSDO_OFF 0
+ %ifndef CSDO_OPEN
+  %error "CSDO_OFF with no CSDO_ON"
+ %endif
+ %undef CSDO_OPEN
+ %ifdef KERN_MEGA
+    pop ds
+ %endif
+%endmacro
+; CSDO_ENTER - `push ds` and DS = the calling image's data segment
+; (mega_dsimg): the head of CSDO and CSDO_ON on kern_mega. In CTRL.DRV
+; (`.modc`, and `.modu`, which follows it in the one CS) it is `call
+; csd_modc`, THREE bytes against six: a SWAP door (CSDO_SDOOR, 22 bytes, in
+; the settings core so that either load has it) pushes DS UNDER its own
+; return, so the `pop ds` after the instruction finds it, then sets DS through
+; mega_dsimg, which reads the CS off the door's far call - the image's own -
+; exactly as off a site's. Everywhere else it is `push ds / call
+; KERNEL_SEG:mega_dsimg`, as before. Every register and FLAGS kept; the door
+; is two bytes deeper on the stack than the inline form.
+; WHY ONLY CTRL.DRV (kern_mega size pass 2, measured): CTRL.DRV is the one
+; image shipped UNPACKED (the settings core is a partial read). Every other
+; module is a packed file, where the six bytes the far call spends are the
+; SAME six at every site and cost the packer next to nothing, while a near
+; call's displacement differs at every site and does not pack at all - doors
+; took DISKOPS.DRV's image 11,323 -> 11,074 and its FILE 9,575 -> 9,771,
+; STIKMENU.DRV's 15,308 -> 15,103 and 4,255 -> 4,377. Runs (CSDO_ON) shrink
+; both, so they are the lever there
+%macro CSDO_ENTER 0
+ %ifidni __?SECT?__, [section .modc]
+    call csd_modc
+ %elifidni __?SECT?__, [section .modu]
+    call csd_modc               ; (.modu follows .modc in CTRL.DRV's one CS,
+                                ; and the door is in the SETTINGS CORE, which
+                                ; is loaded on either load - SPEC.md 2.8.7)
+ %else
+    push ds
+    call KERNEL_SEG:mega_dsimg
+ %endif
+%endmacro
+%macro CSDO_SDOOR 1
+ %ifdef KERN_MEGA
+%1:                             ; SS:SP -> the site's return
+    push ds
+    push bp
+    mov bp, sp                  ; [bp+2] = DS, [bp+4] = the return...
+    push ax
+    mov ax, [bp+4]
+    xchg ax, [bp+2]
+    mov [bp+4], ax              ; ...swapped: the return, then DS under it
+    pop ax                      ; (mov and xchg write no flag)
+    pop bp
+    call KERNEL_SEG:mega_dsimg
+    ret
  %endif
 %endmacro
 ; CSDO_SP var - bank SP in the image's variable VAR: `CSDO mov [CSEG var], sp`
@@ -507,12 +602,14 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; `ret`s into the call that was made after the bank, which on a join's refusal
 ; looped toasting for ever (KERN-MEGA-PLAN 14.84). Flags kept, CSDO's promise.
 %macro CSDO_SP 1
-    CSDO mov [CSEG %1], sp      ; kern_mega: SP - 2, CSDO's push under it...
+    CSDO_ON
+    mov [CSEG %1], sp           ; kern_mega: SP - 2, CSDO_ON's push under it...
  %ifdef KERN_MEGA
     pushf
-    CSDO add word [CSEG %1], 2  ; ...so the frame is two above
+    add word [CSEG %1], 2       ; ...so the frame is two above
     popf
  %endif
+    CSDO_OFF
 %endmacro
 ; KDATAR_M reg - KDATAR_C's twin for an on-demand MODULE (.mod*): the kernel's
 ; DATA segment, KERNEL_SEG in real mode and the data alias once mega_enter has
@@ -582,6 +679,23 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
     push word %%back
     push word %2
     MEGA_CSELTOP
+    push word %1
+    retf
+%%back:
+ cpu 8086
+%endmacro
+; MEGA_PCALLC off, seg - MEGA_PCALL for a `.cold` site, whose CSELTOP is the
+; near mem_cselc (memory.inc) rather than twenty-five bytes inline (kern_mega
+; size pass 2). The same frame and the same registers reach the callee
+%macro MEGA_PCALLC 2
+ %ifnidni __?SECT?__, [section .cold]
+  %error "MEGA_PCALLC outside .cold"
+ %endif
+ cpu 286
+    push cs
+    push word %%back
+    push word %2
+    call mem_cselc
     push word %1
     retf
 %%back:
@@ -5708,6 +5822,14 @@ kmain_o:
                                 ; so still no resident byte
 %endif
 %endif
+%ifdef KERN_MEGA
+    BLOBCALL mega_gateb         ; ...and the half of kmain's mega_enter that
+                                ; has no side effect (kern_mega size pass 2):
+                                ; the tier and where the tables go, asked
+                                ; here so the code that asks is given back
+                                ; with the blob. LAST, as near the switch as
+                                ; the blob reaches
+%endif
 
     retf
 %ifdef BOOT_MARK
@@ -8686,6 +8808,7 @@ MODC_BSS equ modcb_end - $$
 %endif
 
 section .modc
+    CSDO_SDOOR csd_modc          ; (the settings core's: .modu's sites use it)
 mods_end:
 MODS_SIZE equ mods_end - $$     ; the settings core: CTRL.DRV's first bytes
 section .modu

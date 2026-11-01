@@ -72,8 +72,10 @@ Video Player and RealDMG (their `PKG_MEGA` arms run instead).
 - Performance: a #GP a write through CS (Sheet's macro module, PiXEL's PXSW
   sites, Word's and Scribe's undo, RealDMG), `drv_fs_call`'s 512-byte
   bounce, the Sound Blaster's IRQ discovery trapping on segment 0.
-- MC9, what still goes low (DMA rings above 1MB, BIGSP, `mx_tab`):
-  KERN-MEGA-MEMORY-PLAN section 5, deferred.
+- MC9, what still goes low (DMA rings above 1MB, BIGSP): KERN-MEGA-MEMORY-PLAN
+  section 5, deferred. (`mx_tab` went above 1MB in kern_mega size pass 2, with
+  `mem_sel`, `mega_wtab` and `mega_ustab`: the tables' tail past the IDT,
+  `MEGA_SEL_MXT`, docs/plans/completed/msp2/pmmem.md.)
 - Field: the Victory's 640K-1MB Task Manager rows (14.70.3), T69/LASTX on the
   PicoMEM (14.73; works on 86Box), the PicoMEM's IRQ reflections (in 86Box
   with the card's own firmware they carry its Sound Blaster and its mouse:
@@ -9806,7 +9808,7 @@ were `RFL` and `Q`, which fire while a PicoMEM's Sound Blaster plays.
 | message on the glass | raised in | when | verdict |
 |---|---|---|---|
 | `Entered protected mode` | `mega_enter`'s tail (`mega_mtoast`, 8 s) | once, at boot, entering protected mode | **KEEP** - the owner's startup toast. It named the route back (`protected, 286 reset` / `protected, 386 CR0`) until the owner asked for wording true on any CPU; **MEGADIAG** keeps the route |
-| `real mode: 8086-class CPU`, `... no 82KB for kern_mega's tables`, `... A20 will not open`, `... a task predates it` | `mega_gatef` (`.cold`) | at boot, when kern_mega declines protected mode and runs as kern_big | **KEEP** - the machine is not what the disk says, and this is the only place it is said |
+| `No PM: 8086-class CPU`, `No PM: no table room`, `No PM: A20 will not open`, `No PM: an older task` (kern_mega size pass 2: the old `real mode: ...` lines were 25-41 characters and truncated at TOAST_MAX's 24) | `mega_gatef` (`.cold`) | at boot, when kern_mega declines protected mode and runs as kern_big | **KEEP** - the machine is not what the disk says, and this is the only place it is said |
 | `NAME vv at cccc:iiii` | `mega_fkdo` (14.42) | a package was closed because it faulted | **KEEP** - a program vanished; kern_big's equivalent is the stop screen |
 | ` kern_mega FAULT vv err eeee at cccc:iiii sp ssss - reboot ` | `mega_report` | a KERNEL fault: the machine stops | **KEEP** - the stop screen |
 | `Use this disk's DOS.O88` | `mega_pkgok` | kern_big's DOS.O88 started on kern_mega | **KEEP** - a refusal |
@@ -9820,7 +9822,7 @@ were `RFL` and `Q`, which fire while a PicoMEM's Sound Blaster plays.
 | `Q cc ss oo bb vv rr` | `mega_rfsec`, after RFL | the PicoMEM's request queue, the same second | **MEGADIAG** |
 | `DOSP kkkkK o tttt b tttt` | `mega_dwake` (`megados.inc`) | every return from a DOS park | **MEGADIAG** |
 | `FD BIOS ss s0s1s2 Dmm` | `mega_fdjudge` | the first native floppy fallback of a boot | **MEGADIAG** ("disk status") |
-| `native floppy off: BIOS from now` | `mega_fdjudge` | eight fallbacks in a row switched the native path off | **MEGADIAG** - its E9 line stays |
+| `Floppy: BIOS from now` (was `native floppy off: ...`, 32 characters) | `mega_fdjudge` | eight fallbacks in a row switched the native path off | **MEGADIAG** - its E9 line stays |
 | `H ssss:oooo bbbbbbbb rrr` | `hbm_d1why` (`kernel/hiber.inc`) | the DOS handoff record read back wrong | **MEGADIAG** - the shipped kern_mega says kern_big's `Not our handoff record` instead, so the refusal stays and only its hex goes |
 
 E9 (`out 0xE9`) is invisible on real hardware and is NOT a toast, so every

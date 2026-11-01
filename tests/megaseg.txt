@@ -131,4 +131,13 @@
 # 2026-10-31: +506, to 3,627, mega-realmode-bracket squashed onto the recut
 #             elendilon: the real-mode fsx bracket's W1 (+419), W2 (+69) and
 #             W4 (+18) entries above, carried onto kern_mega size pass 1's 3,121
-3627
+# 2026-11-01: to 3,359, kern_mega size pass 2's merged tree (-268): the
+#             doors gone, the pool's tables above 1MB, megados's mega_down
+#             entering mega_svc_lo's 286 reset body (-39) - less the 8
+#             bytes that give the drop its own int 3 (`.rdown`), so a
+#             reset log tells a bracket's drop from a reflection
+#             (tests/megarmb286.py). Both run across the drop, in .text
+# 2026-11-01: to 3,357, mega_parkcap (a debugger's cap) MEGADIAG=1 only
+# 2026-11-01: to 3,231, bootonce2: the four refusal strings into `.mega`,
+#             read at a refusal through `.mega`'s low copy (-124 `.text`)
+3231

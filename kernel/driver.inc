@@ -2429,7 +2429,7 @@ drv_svc_call_x:
     mov ds, [es:drv_fseg]       ; things it was handed through
     call wm_nest_pushd          ; SPEC.md 66.6.3
 %ifdef KERN_MEGA
-    MEGA_PCALL [es:drv_fptr], [es:drv_fseg] ; the CODE alias (kernel/mega.inc)
+    MEGA_PCALLC [es:drv_fptr], [es:drv_fseg] ; the CODE alias (kernel/mega.inc)
 %else
     call far [es:drv_fptr]
 %endif
@@ -2488,7 +2488,7 @@ drv_blk_call_x:
     mov ds, [es:drv_blkseg]
     call wm_nest_pushd          ; SPEC.md 66.6.3
 %ifdef KERN_MEGA
-    MEGA_PCALL [es:drv_blkfp], [es:drv_blkseg] ; the CODE alias (mega.inc)
+    MEGA_PCALLC [es:drv_blkfp], [es:drv_blkseg] ; the CODE alias (mega.inc)
 %else
     call far [es:drv_blkfp]
 %endif
@@ -4210,7 +4210,7 @@ drv_release:
                                 ; that is where it ran - CF = 0 then, which
                                 ; leaves no claim to free
 %ifdef KERN_MEGA
-    MEGA_ISHI dx                ; an image ABOVE 1MB (drv_hi): its pool block
+    call mem_ishidx             ; an image ABOVE 1MB (drv_hi): its pool block
     jc .lowimg                  ; and its selector pair go back, there being
                                 ; no claim
     xchg ax, dx
@@ -4368,7 +4368,7 @@ drv_hiboot_f:
     mov dx, [bx+DRVR_SEG]
     or dx, dx
     jz .n
-    MEGA_ISHI dx
+    call mem_ishidx
     jnc .n                      ; already above 1MB
     cmp word [bx+DRVR_PARA], 0
     je .n                       ; not a heap claim
@@ -4607,10 +4607,10 @@ section .modc                   ; **THE MACROS BELOW ARE IMAGE CODE, AND THIS
     int 0x10                    ; else leaves AL as it was, and is left alone
     cmp al, 0x1A
     jne %%out
-    xor ax, ax                  ; DS = 0: the BIOS's records at 0:487h..489h
 %ifdef KERN_MEGA
-    MEGA_SEG0 ds                  ; segment 0 is the NULL selector
-%else
+    MEGA_SEG0 ds                  ; segment 0 is the NULL selector (no zero:
+%else                           ; AX is reloaded below before it is read)
+    xor ax, ax                  ; DS = 0: the BIOS's records at 0:487h..489h
     mov ds, ax                  ; need no prefix, and nothing below reads the
 %endif
     pushf                       ; kernel's own (kernel size pass 12)
@@ -6237,7 +6237,7 @@ cpc_fdtest:
     mov si, dx                  ; SI = the claim, for the free
 %ifdef KERN_MEGA
     mov ax, dx                  ; kern_mega: the page arithmetic below is on
-    call KERNEL_SEG:mega_s2segf ; the claim's real PARAGRAPH (a selector in
+    call COLD_SEG:mega_s2segc ; the claim's real PARAGRAPH (a selector in
     cmp ax, 0xFFFF              ; protected mode), and every segment register
     je .free                    ; is loaded through a scratch selector
     mov dx, ax                  ; (KSEG, KERN-MEGA-MEMORY-PLAN MC7.6)

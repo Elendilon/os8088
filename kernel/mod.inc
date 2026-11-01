@@ -697,7 +697,7 @@ mod_check:                      ; (BX is never written here - no bank,
 ;
 ; MOD_HIOK is the census, and since KERN-MEGA-PLAN 14.47 it is EVERY module.
 ; What kept four of them low was a buffer of the image's own handed to the
-; file layer, which normalised ES and converted it with mega_s2segf - FFFF
+; file layer, which normalised ES and converted it with mega_s2segc - FFFF
 ; above 1MB. Item 77 taught the file layer exactly that case (dskw_hiseg: the
 ; selector is kept and the OFFSET moves, a sector at a time through the
 ; scratch), and the disk layer bounces any LDT selector through dsk_secbuf
@@ -809,7 +809,9 @@ mod_hiboot:
     mov ax, [bx+MODR_SEG]
     or ax, ax
     jz .n
-    MEGA_ISHI ax
+    push ax
+    call mem_ishiax
+    pop ax
     jnc .n                      ; already above 1MB
     mov es, ax                  ; (its conventional pair's data half)
     mov bp, [es:MOD_H_IMG]      ; ...the image's bytes, as the read had them
@@ -878,7 +880,7 @@ mod_free_row:
     xor dx, dx                  ; forming the id, and READ-AND-CLEAR is one
     xchg dx, [bx+MODR_SEG]      ; instruction on the 8086 - DX comes out the
 %ifdef KERN_MEGA
-    MEGA_ISHI dx                ; ABOVE 1MB (mod_hi): a selector, whose
+    call mem_ishidx             ; ABOVE 1MB (mod_hi): a selector, whose
     jc .conv                    ; block and pair go back to the pool - and
     xchg ax, dx                 ; DESK.DRV's library selector with them
     call MEGA_SEL_CODE:mega_hifreef

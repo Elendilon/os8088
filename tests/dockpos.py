@@ -198,7 +198,7 @@ def setting(m, mo, kind, cfg, want_cfg=None):
         # the kernel's (an mx_tab owner of C0h and up, mega_ownerf)
         m.pause()
         try:
-            raw = m.read(m.sym("mx_tab"), eq["MX_NBLK"] * eq["MX_BLKSZ"])
+            raw = m.read(m.tail("mx_tab"), eq["MX_NBLK"] * eq["MX_BLKSZ"])
             at = m.lin(seg)
         finally:
             m.run()

@@ -259,7 +259,7 @@ with os88marty.launch(SYS_IMG, apps=APPS_IMG, machine=MACHINE, boot=False) as m:
             fails.append("the OP_XMS part did not go above 1MB on kern_mega: "
                          "op_seg %04X, ms_xwhere %r (want 0000, 'X')"
                          % (segs[XMS], xw))
-        mx = m.read(S("mx_tab"), 96 * 10)
+        mx = m.read(m.tail("mx_tab"), 96 * 10)
         mine = [(mx[k] | mx[k + 1] << 8, mx[k + 4]) for k in range(0, len(mx), 10)
                 if (mx[k + 2] | mx[k + 3] << 8) and mx[k + 4] < 0x80]
         say("pool blocks an instance owns: %r" % mine)

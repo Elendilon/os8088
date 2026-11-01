@@ -113,7 +113,7 @@ def claims(m, S):
         # kern_mega: a claim may be a POOL block above 1MB with no mem_tab
         # record at all, so the pool's own table is part of "the claims"
         # (kernel/mega.inc's mx_tab: MX_OFF, MX_KB, MX_OWN; 96 x 10 bytes)
-        mx = m.read(S("mx_tab"), 96 * 10)
+        mx = m.read(m.tail("mx_tab", DEFINES), 96 * 10)
         out += [("pool", mx[k] | mx[k + 1] << 8, mx[k + 2] | mx[k + 3] << 8,
                  mx[k + 4]) for k in range(0, len(mx), 10)
                 if mx[k + 2] | mx[k + 3] << 8]
