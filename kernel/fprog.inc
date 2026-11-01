@@ -565,8 +565,14 @@ fpg_busy:
 ; screen in between two of its own file operations.
 ; -----------------------------------------------------------------------------
 fpg_arm:
+%ifdef FPG_PARK
+    mov dl, [fpg_on]            ; armed? - and DL keeps the byte for the
+    test dl, 1                  ; parked test below (DX is a clobber; nothing
+    jne .yes                    ; between writes DL: kernel size pass 16)
+%else
     FPG_ARMED
     jne .yes
+%endif
     cmp word [spl_live], 0      ; boot: the splash owns screen and mode -
     jne .no                     ; and, the byte after it, [blk_on]:
                                 ; **THE DESKTOP IS NOT ON THE GLASS** (SPEC.md
@@ -648,7 +654,7 @@ fpg_arm:
     cmp ax, FPG_MINX            ; IN THE ACCUMULATOR, whose load and store are
     jl .no                      ; 3 bytes where BX's are 4; the `sub` and `cmp`
 %ifdef FPG_PARK
-    cmp byte [fpg_on], 0        ; PARKED (SPEC.md 12.8): its pixels, origin
+    or dl, dl                   ; PARKED (SPEC.md 12.8): its pixels, origin
     jne .unpark                 ; and trough are still on the bar - arm it
 %endif                          ; where it stands
     mov [fpg_x0], ax            ; are 3 either way. SIGNED, so the one test
@@ -1138,12 +1144,12 @@ osapi_fs_op:
     push ax
     push dx
     call inst_caller
-    mov al, dh                  ; AL = the caller - and the KERNEL, or a
+    xchg ax, dx                 ; AH = the caller - and the KERNEL, or a
     pop dx                      ; driver asked as the machine, is owner 0FFh:
                                 ; it parks like a package and nothing closes
-                                ; it but its end (none is FPG_NOWN, 0FEh)
-    mov ah, [fpg_pown]
-    push cx
+                                ; it but its end (none is FPG_NOWN, 0FEh).
+    mov al, [fpg_pown]          ; AL = the owner: the accumulator's forms
+    push cx                     ; for the load and the compare below
     or cx, dx                   ; ZF = 0 bytes: the end
     pop cx
     jnz .begin
@@ -1154,13 +1160,13 @@ osapi_fs_op:
     jmp short .out              ; hold counts into the finished bar (`and`
                                 ; clears CF: the answer)
 .begin:
-    cmp ah, FPG_NOWN            ; held - by somebody else, or by the caller
-    stc                         ; itself, which is NESTING and refused so that
-    jne .out                    ; a library inside a wider operation leaves it
+    cmp al, FPG_NOWN            ; held - by somebody else, or by the caller
+    jne .no                     ; itself, which is NESTING and refused so that
+                                ; a library inside a wider operation leaves it
     TEXTCALL fpg_opbegin        ; alone (and ends only what it opened)
     test byte [fpg_on], FPG_OP  ; CF = 0
     jz .no
-    mov [fpg_pown], al
+    mov [fpg_pown], ah
     jmp short .out
 .no:
     stc
