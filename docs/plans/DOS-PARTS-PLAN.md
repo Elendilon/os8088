@@ -1,7 +1,8 @@
 # DOS-PARTS-PLAN - what in DOS.O88 a program that does not use it should not pay for
 
 **Status: a design study. Section 4 is BUILT (the flash-free variant, 4.6);
-nothing else here is.** Written on branch
+section 1.1's shared part reader, with HELP as its first consumer, is built
+on this branch as evidence; nothing else here is.** Written on branch
 `dos-windowed` at 2026-11-01. Every figure is marked **M** (measured on this
 tree, method below) or **E** (estimated, with what it was estimated from). An
 **E** is a promise to measure, not a fact.
@@ -58,9 +59,234 @@ Read against SPEC.md 20.12.4 and apps/os88partsbody.inc:
   `OSAPI_DECOMP` in place (no margin is needed, SPEC.md 20.13.7). It already
   knows its own file (`dos_pkgwhere`, dos.asm:7637) and already holds rows the
   loader copied into its bss (`DSLH_*`, dosload.asm). **~100 resident bytes,
-  shared by every lazy part below** (E). Call it `dos_pfetch`.
+  shared by every lazy part below** (E). Call it `dos_pfetch`. *(Measured in
+  1.1: 191 bytes, built as the shared `op_self`, plus ~50 of DOS's own.)*
 - **Kernel bill: zero.** Every mechanism above is package code; SPEC.md
   20.12.4 measured `kernsize` byte-identical across all of them.
+
+### 1.1 The shared part reader, measured
+
+**Built far enough to measure, on this branch, as evidence; not merged.**
+The owner's ask was *"cost the small shared part reader, then we will decide
+how to part out."* Every figure below is **M** (built and measured on this
+tree with `kern_big`'s shipped flags, spans out of a `[map all]` of an
+assembly byte-identical to `build/dosp.bin`) or **E** (estimated, with what
+it was estimated from).
+
+**What was built.** `op_self`, in a new `apps/os88pself.inc`: ONE `OP_LAZY |
+OP_COMP` row, read off the package's own file and expanded into a claim of
+its own. The row, the file name and the stream format are ARGUMENTS
+(`DS:SI`, `DS:DI`, `AL`). It touches no `op_*` bss word, and there are two
+ways in: `%define OP_WANT_SELF` before `os88parts.inc` emits it from the
+standard's body, for a package with a table; a carrier with no table (DOS's
+re-homed host) `%include`s the file. The arithmetic is `op_fetch`'s
+(SPEC.md 20.12.7.4) with ONE simplification, which is what makes it small:
+everything lives in ONE segment. The read lands `R = roundup512(len -
+packed)` up the claim, and the stream is the head slack past that and
+expands down onto offset 0. So `ES:BX`, `DS:SI` and `ES:DI` are all the
+claim plus an offset: there are no paragraph sums and no `op_at` windows,
+and so nothing to do on kern_mega, where a selector plus an offset is still
+an address. The price is a ceiling: `R` plus the read must fit 64KB, and a
+row that does not is refused.
+
+What it checks on hostile disk data (the row came off the disk, inside our
+own image):
+
+- a cluster of 1-64 sectors, from `OSAPI_FILE_DFREE` asked on every call,
+  because kern_small's `READ_AT` still takes whole clusters (SPEC.md
+  18.4.4.2);
+- `len > packed`. `os88pkg.py` never writes anything else, so a row that
+  says otherwise is refused rather than left to wrap `R`;
+- every sum, carry-checked;
+- the read must DELIVER the slack plus the whole stream, so a truncated file
+  refuses;
+- `OSAPI_DECOMP` is told the exact output and the exact input, so it
+  refuses rather than writing past either.
+
+It frees the claim on every refusal and leaves nothing held.
+
+| | bytes |
+|---|---:|
+| `op_self`, the reader (span from `op_self` to the next label) | **191** (M) |
+| ...in a DOS-PRIVATE form (row, name and format hard-coded) | ~180 (E: the pushes, the frame and two `[bp+]` reloads it would not need) |
+| ...in a package that does NOT opt in | **0** (M: `midirack.bin` assembles byte-identical against the new body; the fast tier's every-includer rows are green) |
+| DOS's wrapper: stand in DOS.O88's folder (`dos_pkgdir`/`dos_pkgvol`, which `dos_pkgwhere` already banks), call, stand back | ~50 of `dos_con_help`'s 92 (M span: 33 bytes before the call, 17 after) |
+
+**Recommendation on placement: the shared library, as built.** A private
+copy would save ~11 bytes in DOS, and would cost every other package the
+chance to take the same 191. The tree already carries FOUR hand-written
+`OP_SELF` readers, each with its own arithmetic: MIDIRack's `mra_load`,
+Excitebike's `xb_partget`, RealDMG's `rw_aread`, and Clear Skies' stream
+reads. None of the four is converted here, and converting them would save no
+RAM. `mra_load` lives in an image tail that is laid over after entry and has
+80 bytes spare (M: the tail assertion fails with `op_self` in it).
+`xb_partget` and `rw_aread` read parts larger than one segment holds, through
+the standard's windows. So the library form is for this package and for the
+NEXT one.
+
+**The first consumer: HELP's text.** `dos_h_text` (798 bytes with its NUL)
+moved out of the host into `apps/dos/doshelp.asm`, together with its 16-line
+assertion. That one file is two things:
+
+- assembled on its own, it is part 3 of DOS.O88 (part 4 on kern_mega), a
+  lazy `OP_ASSET | OP_COMP | OP_LAZY | OP_SELF` row;
+- `%include`d, it is the inline text of the one build that has no loader
+  (`dos.bin`, built without `-DDOSKPART`).
+
+The loader copies the row into the host's bss, the same way it copies the
+core's. The new row is `DSLH_HLPROW`, last of the block, so no existing
+offset moves. The loader also writes the stream's FORMAT into the row's kind
+byte, which is always `OP_ASSET`, so the format costs the host no byte of its
+own.
+
+When HELP is typed, `dos_con_help`:
+
+1. stands in DOS.O88's folder;
+2. calls `op_self`;
+3. stands back where the prompt was;
+4. prints the claim with `con_write`, bounded by the row's length rather than
+   by a NUL, because the bytes came off a disk;
+5. frees the claim.
+
+A refusal prints `Cannot open HELP`, out of two strings the file already had.
+
+HELP is window-side and NOT in the core (SPEC.md 96.33.23), and `dosc.inc`
+is not in `kern_dos` at all (`%ifndef KD_BACKEND`). So the core slot that the
+hosts share with kern_dos is untouched, and `doscore.bin` is byte-identical
+(M).
+
+| | before (6a2b777c) | after | delta |
+|---|---:|---:|---:|
+| host image (`dosp.bin`, part 0) | 48,047 | 47,520 | **-527** (M) |
+| host bss | 7,301 | 7,309 | **+8** (M: the row) |
+| **RAM per DOS instance** | 55,348 | 54,829 | **-519** (M) |
+| ...of which the reader | | | +191 (M) |
+| ...of which HELP's own glue (`dos_con_help` 12 -> 92 bytes) | | | +80 (M) |
+| HELP's marginal saving once the reader is paid for | | | **-710** (M: -798 of text, +80 of glue, +8 of row) |
+| loader (`dosload.bin`, transient, freed at the re-home) | 2,779 + 133 bss | 2,809 + 133 | **+30** (M) |
+| `DOS.O88` on disk | 50,577 | 50,781 | **+204** (M: part 3 is 605 bytes packed, in a sector of its own) |
+| `doscore.bin` | 15,388 | 15,388 | byte-identical (M) |
+
+**What a HELP costs now** (M). Measured on MartyPC's `os8088_5150_cga_gla`,
+with the 360KB system disk, DOS.O88 in `A:\APPS` and the prompt on `A:\`; a
+breakpoint trace on `dos_con_help`'s labels, and `m.disk()` around it:
+
+| step | cycles | time on a 4.77 MHz 8088 |
+|---|---:|---:|
+| the fetch: stand there, `op_self`'s claim, read and decode | 4,699,626 | **985 ms** |
+| standing back | 2,159 | 0.5 ms |
+| printing the sixteen lines (the same `con_write` per byte as before) | 2,104,731 | **441 ms** |
+
+So HELP went from ~0.44 s to ~1.43 s: **two `int 13h` calls, 9 sectors, and
+two seeks over 68 cylinders, 544 ms of it seek.** SPEC.md 96.33.23.2 expected
+exactly this - *"an `int 13h` EVERY time and that is fine: HELP is typed once
+by somebody who does not know what to type"* - and now it is priced: one
+second on a floppy XT. That is the number that decides where else the reader
+is acceptable. It is not acceptable on a HOT path: a part that a Run needs
+should stay fetched once read, which is the network part's shape below and
+not HELP's.
+
+**Checked**:
+
+- HELP prints all sixteen lines and the prompt in the window (M: the trace
+  above, read out of `con_scr`).
+- HELP works **under the bracket** (M: Alt+Enter, `[fsx_cur]` = 0, HELP
+  typed, the sixteen lines read out of real text VRAM at B800).
+- `kern_dos` has no HELP: `dosc.inc` is `%ifndef KD_BACKEND`.
+- kern_small's and kern_mega's DOS.O88 assemble and pack (`make
+  BUILD=<private tree> KERN_SMALL=1`, and the same with `KERN_MEGA=1`, of
+  `kdos/DOS.O88`; the help part is 605 bytes packed on both). Neither was
+  booted.
+- `make`, with the fast tier: 68 passed, 0 failed.
+  `tests/unit/t_stkapps.py` needed the reader's teardown written as `add sp`
+  rather than `mov sp, bp`, which its walker does not model.
+
+#### 1.1.1 The readers that already exist, and why neither is this one
+
+*Does a part reader not already exist for reading out kern_dos?* Two exist,
+and the running host can call neither.
+
+- **HIBER.DRV's handoff path** (`kernel/hiber.inc`'s stub and `kds_expand`)
+  is the one that reads kern_dos and, on the whole-machine arm, the core. It
+  is ONE-WAY. The host writes the KDH record (`dos_handoff`: volume, folder,
+  name, and each part's first sector and two lengths). The kernel walks the
+  file into raw EXTENTS while the file layer is still alive. The stub then
+  reads those extents with `int 13h` and expands them with an UNBOUNDED
+  decoder, after the OS is gone. That is legitimate there, for the reason
+  SPEC.md 2.9.13 allows the kernel's own unbounded decoder, and it is not
+  allowed for disk data a package reads under a running OS. It is not a
+  package entry point and cannot become one. Nor can `op_self` replace it:
+  by the time it runs there is no file layer, no heap and no `OSAPI_*` cell
+  to call.
+- **The loader's `op_fetch`** reads the core on an ordinary launch, and it
+  is FREED at the re-home (SPEC.md 20.12.10), so the host cannot call it.
+  Giving the host its own copy is the ~750 resident bytes of section 1.
+
+So the reader is still needed. It CAN, however, replace the loader's fetch.
+Built as a scratch variant: `dsl_core` calls `op_self`, and the core and
+kern_dos rows are marked `OP_SELF`, so `OP_HAS_FETCH` goes false and
+`op_fetch`, `op_drop`, `op_lazyp`, the shadow and their strings leave the
+image. The loader goes **2,809 -> 2,430 bytes** on kern_big and **2,577 ->
+2,196** on kern_mega (M, both assembled; on kern_mega the low kern_dos row
+has to be marked too).
+
+What that buys is SMALL. The loader is transient, and on kern_big `DOS.O88`
+stays **50,781 bytes** (M), because the compressed loader already starts the
+parts at sector 5: no sector saved and no launch time. It is ~380 bytes of
+headroom in the one image section 4.6 already had to grow. So it is worth
+doing with the next loader change, and not on its own. It is NOT in this
+branch's loader: the variant was not booted, and it changes the launch path
+that every DOS row runs.
+
+#### 1.1.2 The next consumers, priced against the measured reader
+
+The reader's share is now FIXED: 191 bytes, plus ~50 of DOS's
+stand-there-and-back, paid ONCE by whichever consumer arrives first. HELP,
+as built, already pays it. Each later consumer adds only its own glue.
+
+| consumer | saves per instance (sections 2 and 3) | adds beyond the reader | net | time |
+|---|---:|---|---:|---|
+| HELP (built) | 798 | 80 of glue + 8 of row (M) | **-519** (M); -710 once the reader is paid | +0.98 s per HELP (M) |
+| network part (`dosnet.inc` + the packet driver) | ~4.3 KB (E) | ~150-250 (E): far doors at the ~9 host-to-part entry points (~6 bytes each); the vector and `dos_pkt_hook08` re-aimed by `dos_pkt_reloc` (~30); the row copy (+12 loader, +8 bss); and an `op_self` variant that expands INTO the buffers claim `dos_pkt_bufs` already makes (~15 bytes for an output-offset argument), so the code does not spend a second of the 8 owner claims | **~-4.0 KB** (E) on an instance with no wire; ~0 to +0.5 KB with one | ~1 s once per wired instance (E: HELP's two calls and seeks, plus ~6 coalesced sectors for ~3.5 KB packed) |
+| windowed layer, option C' | ~5.0 KB (E, section 2) | C''s own ~+285 bytes of resident thunks and ~+310 of part (E, section 2). The reader adds nothing beyond the shared 191 | **~-4.7 KB** (E) on an instance never windowed | ~1 s at the first Run in Window (E) |
+
+**Code run from the claim.** Both of those consumers, unlike HELP, EXECUTE
+what was read. `op_self` already gives the shape that needs: the part is
+assembled `org 0`, lands at the claim's offset 0, and is entered far at
+`claim:entry` with CS = DS = the claim, so its near offsets are right as
+assembled. Three things are the consumer's to solve, not the reader's:
+
+- the claim must be PINNED while a vector or the IRQ0 hook points into it
+  (`op_movable`'s shape, between runs);
+- kern_mega's claims are DATA selectors, so code there needs an executable
+  alias, which the reader does not make. The windowed layer is kern_big only
+  and never meets this. The network part does: its kern_mega arm either
+  stays resident or asks `OSAPI_SEG` for an alias (KERN-MEGA-PLAN's door);
+- `op_self` does not shrink its claim, which stays `R` plus the read. A part
+  that stays fetched wants a `MEMP_REGROW` like `op_fetch`'s `.keep`, ~14
+  bytes (E).
+
+**Recommendation.** Keep the reader in the shared library (`OP_WANT_SELF`,
+`os88pself.inc`) and adopt it with HELP as built: **-519 bytes of every DOS
+instance, +204 bytes of disk, one second per HELP on a 5150, and no kernel
+byte.** The reader's real customer is the network part, at ~4.0 KB net, and
+that part is now priced against a measured 191 bytes rather than an
+estimated ~100. The windowed layer stays section 2's risk decision; the
+reader does not move it. Fold the loader's `dsl_core` onto `op_self` at the
+next loader change.
+
+**Rows a real adoption must run.** None was run here except the one HELP
+measurement.
+
+- HELP: `dosopen` (it lists the verbs), `dosconcga` (the sixteen lines fit
+  CGA's band), `dosaltenter` (the bracket).
+- DOS's launch through the loader and the row hand-on: `dosexe`, `doscom`,
+  `doslnk`, `dosargs`, `dosmedia`, `dospkg`, `dosext`, `doswlive`, and
+  `win16nedos` (`DSLH_DOC` has not moved; the new row comes after it).
+- The rows that read the loader's block: `kerndos`, `kdos`, `dosbss`.
+- kern_mega: `megadosp`, `megadosroom`. kern_small: `small128`'s DOS leg.
+- For the loader variant, all of those; and `dospkt` and `doscable` once the
+  network part follows.
 
 ## 2. The windowed layer as a part - four shapes
 
@@ -434,7 +660,8 @@ Revisit when:
    plus a new prompt/`.LNK` leg.
 2. `dos_pfetch` + the network part (~2-3 days, E): ~4.3 KB a wire-less
    instance. Gate: `dospkt`, `doscable`, `dosnetarena`.
-3. HELP as a lazy asset (~0.5 day, E): ~780 bytes. Gate: the prompt's HELP leg.
+3. HELP as a lazy asset: BUILT as evidence (1.1), -519 bytes M with the
+   reader in it. Gate: `dosopen`, `dosconcga`, `dosaltenter`.
 4. The windowed layer as a far part, option C (~4-5 days, E): ~5.0 KB a
    never-windowed instance. Gate: the seven `dosw*` rows. Or D, or neither -
    the owner's decision on the risk.

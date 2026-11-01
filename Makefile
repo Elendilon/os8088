@@ -7350,7 +7350,7 @@ $(BUILD)/wirechat.o88: $(BUILD)/wirechat.bin tools/os88pkg.py $(PKGZSTAMP) $(PKG
 # strings have to name.
 # --- DOS (SPEC.md 96) --------------------------------------------------------
 $(BUILD)/dos.bin: apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
-                  apps/dos/dosc.inc apps/dos/dosw.inc apps/dos/doswm.inc apps/dos/dosw16.inc apps/dos/dosnetabi.inc \
+                  apps/dos/doshelp.asm apps/dos/dosc.inc apps/dos/dosw.inc apps/dos/doswm.inc apps/dos/dosw16.inc apps/dos/dosnetabi.inc \
                   apps/os88api.inc apps/dos/doscall.inc \
                       apps/dos/doscents.inc apps/os88ui.inc \
                   apps/os88line.inc apps/os88sock.inc \
@@ -7486,6 +7486,7 @@ DOSW16DEF := $(if $(KERN_MEGA)$(KERN_SMALL),,-DDOS_WIN16)
 # is never read by op_load - the handoff walks its bytes into extents and the
 # stub reads them with int 13h (docs/plans/KERN-DOS-PLAN.md §4.1.1).
 $(BUILD)/dosp.bin: apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
+                   apps/dos/doshelp.asm apps/os88pself.inc \
                    apps/dos/dosc.inc apps/dos/dosw.inc apps/dos/doswm.inc apps/dos/dosw16.inc apps/dos/dosnetabi.inc \
                    apps/os88api.inc apps/dos/doscall.inc \
                       apps/dos/doscents.inc apps/os88ui.inc \
@@ -7505,7 +7506,7 @@ $(BUILD)/dosp.bin: apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
 # or a core routine that still names a host symbol, fails here and in no other
 # build - the two hosts each carry the other half and would never notice.
 # `all` builds it, because a check nobody runs is a check that rots.
-$(BUILD)/doscore.bin: apps/dos/doscore.asm apps/dos/dos.asm apps/dos/dosh.inc \
+$(BUILD)/doscore.bin: apps/dos/doscore.asm apps/dos/dos.asm apps/dos/dosh.inc apps/dos/doshelp.asm \
                       apps/dos/dosc.inc apps/dos/dosw.inc apps/dos/doswm.inc apps/dos/dosw16.inc apps/dos/dosnet.inc \
                       apps/dos/dosnetabi.inc apps/os88api.inc apps/dos/doscall.inc \
                       apps/dos/doscents.inc \
@@ -7529,13 +7530,21 @@ $(BUILD)/doscore.bin: apps/dos/doscore.asm apps/dos/dos.asm apps/dos/dosh.inc \
 # OP_ASSET|OP_COMP|OP_LAZY, the pairing 20.12.7.4 had to unrefuse.
 $(BUILD)/kdos/DOS.O88: $(BUILD)/dosload.bin $(BUILD)/dosp.bin \
                        $(BUILD)/doscore.bin $(BUILD)/kerndos.bin tools/os88pkg.py \
-                       $(if $(KERN_MEGA),$(BUILD)/kerndosl.bin) $(PKGZSTAMP)
+                       $(if $(KERN_MEGA),$(BUILD)/kerndosl.bin) \
+                       $(BUILD)/doshelp.bin $(PKGZSTAMP)
 	@mkdir -p $(BUILD)/kdos
 	$(OS88PKG) $(BUILD)/dosload.bin -o $@ \
 		--part $(BUILD)/dosp.bin --part $(BUILD)/doscore.bin \
 		--part $(BUILD)/kerndos.bin \
-		$(if $(KERN_MEGA),--part $(BUILD)/kerndosl.bin) --part-compress lz4
+		$(if $(KERN_MEGA),--part $(BUILD)/kerndosl.bin) \
+		--part $(BUILD)/doshelp.bin --part-compress lz4
 	@echo "kdos: $(call FILESIZE,$@) bytes of DOS.O88 with kern_dos in it"
+
+# HELP's text as a part of its own (docs/plans/DOS-PARTS-PLAN.md 1.1): the
+# re-homed host reads it with op_self (apps/os88pself.inc) when HELP is typed,
+# so not one of its bytes is resident in a DOS window that never asks
+$(BUILD)/doshelp.bin: apps/dos/doshelp.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ apps/dos/doshelp.asm
 
 $(BUILD)/dosload.bin: apps/dos/dosload.asm apps/dos/dosicon.inc \
                       apps/os88api.inc apps/dos/doscall.inc \

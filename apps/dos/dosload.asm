@@ -72,7 +72,10 @@ DOS_PART_CORE equ 1             ; ...the INT 21h core, which goes INSIDE it
 DOS_PART_KD   equ 2             ; ...and kern_dos, which nothing here reads
 %ifdef DOS_MEGA
 DOS_PART_KDL  equ 3             ; ...and kern_mega's LOW kern_dos (SPEC.md
-%endif                          ; 96.40.9.2), which nothing here reads either
+DOS_PART_HELP equ 4             ; 96.40.9.2), which nothing here reads either
+%else
+DOS_PART_HELP equ 3             ; ...and HELP's text, which the HOST reads
+%endif                          ; with op_self (DOS-PARTS-PLAN 1.1)
 
 ; --- the handoff, at the head of the DOS's bss (SPEC.md 20.12.10.2) ---------
 ; ONE PACKAGE, TWO SOURCES: `apps/dos/dos.asm` declares these and this file is
@@ -94,7 +97,10 @@ DSLH_SIZE    equ OP_ROW * 3
 %ifdef DOS_WIN16                ; ...and on the kernels that carry WIN16, the
 DSLH_DOC     equ DSLH_SIZE      ; DOCUMENT and its checked byte (SPEC.md
 DSLH_W16K    equ DSLH_DOC + 16  ; 124.3.1), written straight after the core's
-%endif                          ; row by the copy that left DI there
+DSLH_HLPROW  equ DSLH_W16K + 1  ; row by the copy that left DI there - and
+%else                           ; HELP's row LAST (DOS-PARTS-PLAN 1.1), its
+DSLH_HLPROW  equ DSLH_SIZE      ; kind byte the stream's format
+%endif
 
 LD_H_IMG    equ 8               ; ...and the two header fields this file reads
 LD_H_BSS    equ 10              ; them at, which are the FORMAT's and not ours
@@ -414,6 +420,13 @@ dsl_pmok:
     mov al, DOS_PART_KDL            ; posts instead of part 2's when its HMA
     call dsl_row                    ; box is unticked (SPEC.md 96.40.9.2)
 %endif
+    mov di, [es:LD_H_IMG]
+    add di, DSLH_HLPROW             ; ...and HELP's text's row, which the host
+    mov al, DOS_PART_HELP           ; reads for itself after we are gone
+    call dsl_row                    ; (DOS-PARTS-PLAN 1.1) - its KIND byte,
+    mov al, [op_table + OP_T_FMT]   ; always OP_ASSET, overwritten with the
+    mov [es:di - OP_ROW], al        ; FORMAT op_self is told, so the format
+                                    ; costs the host no byte of its own
                                     ; where the core goes, and only this image
                                     ; knows where either one sits in the file.
                                     ; Out of the stash and not the table: the
@@ -437,9 +450,9 @@ dsl_pmok:
 
 ; --- the table, and the standard's own code after it (SPEC.md 20.12.3) ------
 %ifndef DOS_MEGA
-    OS88_PARTS_BEGIN 3
-%else
     OS88_PARTS_BEGIN 4
+%else
+    OS88_PARTS_BEGIN 5
 %endif
       OS88_PART OP_SEG,   OP_COMP | OP_ZFILL
                                     ; 0 THE DOS: a whole .o88 image, its bss
@@ -472,6 +485,10 @@ dsl_pmok:
                                     ; 3 kern_mega's LOW kern_dos (SPEC.md
                                     ;   96.40.9.2), part 2's twin at 0060:0000
 %endif
+      OS88_PART OP_ASSET, OP_COMP | OP_LAZY | OP_SELF
+                                    ; 3 (4 on kern_mega) HELP's text, read by
+                                    ;   the re-homed host's op_self when HELP
+                                    ;   is typed (DOS-PARTS-PLAN 1.1)
     OS88_PARTS_END
 
     OS88_BSS OP_BSS + DSL_BSS

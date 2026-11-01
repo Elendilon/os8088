@@ -2503,3 +2503,11 @@ op_s_spent: db 'That part was dropped', 0   ; ...and cannot come back: a
 %include "os88rseq.inc"         ; os88_rseq: op_read's and op_xload's READ_AT,
                                 ; on READ_SEQ's walk (SPEC.md 18.4.8.1)
 %endif
+
+%ifdef OP_WANT_SELF
+%include "os88pself.inc"        ; op_self: ONE compressed lazy row read and
+                                ; expanded by the package itself, for a fetch
+                                ; op_fetch cannot make (DOS-PARTS-PLAN 1.1).
+                                ; A DEFINE, for OP_WANT_READ's reason: what
+                                ; decides it is the program's calls
+%endif

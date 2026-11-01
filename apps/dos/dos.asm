@@ -12897,6 +12897,10 @@ dos_w16k    equ dos_hbss + DOS_B_W16K
 %ifdef DOS_MEGA
 dos_kdlrow  equ dos_hbss + DOS_B_KDLROW
 %endif
+dos_hlprow  equ dos_hbss + DOS_B_HLPROW  ; HELP's text (DOS-PARTS-PLAN 1.1)
+%ifndef KD_BACKEND
+%include "os88pself.inc"            ; op_self, which reads it: the parts
+%endif                              ; standard's OP_SELF read, opted into
 %endif
 
 %include "dosnetabi.inc"             ; the cable translation's numbers, EARLY
@@ -13113,6 +13117,10 @@ DOS_CBASE   equ os88_image_end
     HBSS DOS_B_DOC, 16           ; 124.3.1): the loader asked OSAPI_ARG_FILE,
     HBSS DOS_B_W16K, 1           ; which is read-and-clear, so it is here or
 %endif                           ; nowhere - and 1 = it was read and is no NE
+%ifdef DOSKPART
+    HBSS DOS_B_HLPROW, 8         ; ...and HELP's text's row, LAST of the
+%endif                           ; loader's block (DOS-PARTS-PLAN 1.1): its
+                                 ; kind byte carries the stream's format
     ; --- THE CONSOLE BAND (SPEC.md 96.32), four words dos_con_geom fills and
     ;     the console wave reads. Not banked "for one paint" like the line
     ;     above: they are the answer to a question about the WINDOW, so

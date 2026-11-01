@@ -178278,6 +178278,12 @@ nothing would say so on the adapter anybody tests on.
 
 ###### 96.33.23.2 …and why the text is NOT a part, YET
 
+**Costed and built as evidence on branch `dos-windowed`**
+(docs/plans/DOS-PARTS-PLAN.md 1.1): the shared reader this section waited
+for is `op_self` (`apps/os88pself.inc`, 191 bytes), and with it the text is a
+lazy part for -519 bytes of every DOS instance and ~1 s per HELP on a 5150.
+Until that lands, what follows is the contract.
+
 Putting the text in a part of `DOS.O88` and reading it on demand is the right
 shape for it — it would cost no resident byte, it could grow as verbs are
 added, and a pager it outgrew one screen into would cost RAM only while it

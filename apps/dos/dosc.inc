@@ -701,8 +701,53 @@ dos_con_open:
 ; of its own and two more hooks in `dos_con_key` that this does not spend.
 ; -----------------------------------------------------------------------------
 dos_con_help:
+%ifdef DOSKPART
+    ; **THE TEXT IS A PART AND IS READ NOW** (docs/plans/DOS-PARTS-PLAN.md
+    ; 1.1): an OP_ASSET row of DOS.O88 the loader copied into our bss before
+    ; it went, read off our own file by op_self into a claim of its own,
+    ; printed, freed. Our file is in OUR folder and the prompt stands in its
+    ; own, so the instance goes there and back (dos_pkgwhere banked it).
+    call OSAPI_FILE_HERE            ; where the prompt stands
+    push bx
+    push dx
+    mov dx, [dos_pkgdir]
+    mov bl, [dos_pkgvol]
+    call OSAPI_FILE_GOTO_QM         ; where DOS.O88 is
+    jc .home
+    mov si, dos_hlprow
+    mov di, dos_pkgname
+    mov al, [si+OP_R_KIND]          ; the FORMAT: dsl_entry wrote it there
+    call op_self                    ; DX = the claim, CX = the text's bytes
+.home:
+    mov bp, dx
+    pop dx
+    pop bx
+    pushf
+    call OSAPI_FILE_GOTO_QM         ; ...and back
+    popf
+    jc .none
+    mov es, bp
+    xor si, si
+.c:
+    mov al, [es:si]                 ; bounded by the row's length, not a NUL:
+    call con_write                  ; the bytes came off a disk
+    inc si
+    loop .c
+    mov dx, bp
+    call OSAPI_MEM_FREE
+    jmp short .said
+.none:
+    mov si, dos_s_nopkg             ; `Cannot open HELP`, out of two strings
+    call con_say                    ; this file already has
+    mov si, dos_c_help
+    call con_say
+    mov si, dos_c_crlf
+    call con_say
+.said:
+%else
     mov si, dos_h_text
     call con_say
+%endif
     call dos_prompt                 ; **IT OWES ONE** (96.33.17.1's rule, one
                                     ; verb along): dos_con_prog answers CF=0
                                     ; here and dos_con_run reads that as `it is
@@ -1405,34 +1450,10 @@ dos_c_help:  db 'HELP', 0          ; SPEC.md 96.33.23. DOS 3.3 has no HELP
                                    ; either - it arrived with DOS 5 - so the
                                    ; verb is free on OPEN's own ground
 
-; --- DHL - one help line, COUNTED (SPEC.md 96.33.23.1) ----------------------
-; The count emits nothing and is what makes the sixteen-line limit a BUILD
-; failure rather than a line that scrolls off a CGA in silence.
-%assign DH_LINES 0
-%macro DHL 1
-    db %1, 13, 10
-    %assign DH_LINES DH_LINES + 1
-%endmacro
-dos_h_text:
-    DHL 'CD [path]     Change directory. CD .. goes up, CD \A\B goes down.'
-    DHL 'COPY a b      Copy a file. Wildcards allowed.'
-    DHL 'DEL name      Delete a file. ERASE is the same.'
-    DHL 'DIR [/P][/W]  List this folder. /P pages it, /W is columns.'
-    DHL 'ECHO text     Print the text.'
-    DHL 'MD / RD name  Make or remove a directory. MKDIR/RMDIR the same.'
-    DHL 'MOVE a b      Move or rename a file.'
-    DHL 'OPEN file     Open a document with the program that claims it.'
-    DHL 'REM text      A note. Does nothing.'
-    DHL 'REN old new   Rename a file. RENAME is the same.'
-    DHL 'TYPE file     Print a text file.'
-    DHL 'VER           Say what this is.'
-    DHL 'XCOPY a b     Copy a folder and all under it.'
-    DHL 'A:            A drive letter on its own changes drive.'
-    DHL 'NAME [arg]    Run a program, or open a document with it.'
-    DHL "cmd > NUL     Hide what a command prints. No other target."
-    db 0
-%if DH_LINES > 16
-  %error "HELP is over SIXTEEN lines: CGA's band is 17 rows ([con_vrows], measured), and the prompt that follows takes one - so a seventeenth line scrolls the first off a machine nobody tests on. Cut a line, or give HELP a pager and the part 96.33.23.2 costs."
+%ifndef DOSKPART                    ; ...and the text itself: a PART of
+dos_h_text:                         ; DOS.O88 where a loader hands us its
+%include "doshelp.asm"              ; row (DOS-PARTS-PLAN 1.1), inline in
+    db 0                            ; the one build that has none
 %endif
 
 %ifdef DOS_MEGA
