@@ -1854,8 +1854,8 @@ OS88PKGB := python3 tools/os88pkg.py $(if $(PKGZ),--compress-if=$(PKGZBFMT))
 # stamp's name carries a checksum of it, so adding a name rebuilds the set.
 # TAKING ONE OFF does not rebuild that package (its rule no longer names the
 # stamp): `rm build/<pkg>.o88` once, by hand.
-LZBPKGS := artful audio browser calc chart gorillas telnet thewire wirechat cyclone dotdel missile sheet solitair \
-           tamegram tank texpad wireball smallapp/calc smallapp/tank
+LZBPKGS := artful audio browser calc chart gorillas telnet thewire wirechat cyclone dotdel missile sheet \
+           tank texpad wireball smallapp/calc smallapp/tank
 PKGZBSTAMP := $(BUILD)/.pkgzb$(if $(PKGZ),-$(PKGZ)-$(PKGZBFMT))-$(shell printf '%s' '$(LZBPKGS)' | cksum | cut -d' ' -f1)
 
 # ...AND A STAMP, for exactly SBSTAMP's reason one paragraph up: none of the
@@ -8682,8 +8682,8 @@ $(BUILD)/solitair.bin: apps/solitaire/solitaire.asm apps/os88api.inc | $(BUILD)
 	@echo "solitaire: $(call FILESIZE,$@) bytes"
 
 
-$(BUILD)/solitair.o88: $(BUILD)/solitair.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
-	$(OS88PKGB) $(BUILD)/solitair.bin -o $@
+$(BUILD)/solitair.o88: $(BUILD)/solitair.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/solitair.bin -o $@
 
 # Arkanoid, the ninth shipped package (SPEC.md 44): a brick-breaker whose game
 # loop is a WORKER TASK (SPEC.md 20.6) rather than a callback, because a ball
@@ -9140,8 +9140,8 @@ $(BUILD)/tamegram.bin: apps/tamegram/tamegram.asm apps/os88api.inc apps/os88ui.i
 	$(NASM) -f bin -w+error $(STKLST) -I apps/ -o $@ apps/tamegram/tamegram.asm
 	@echo "tamegram: $(call FILESIZE,$@) bytes"
 
-$(BUILD)/tamegram.o88: $(BUILD)/tamegram.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
-	$(OS88PKGB) $(BUILD)/tamegram.bin -o $@
+$(BUILD)/tamegram.o88: $(BUILD)/tamegram.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/tamegram.bin -o $@
 
 # FILETEST, the file-API gate package (SPEC.md 18.4/18.4.1): drives the file
 # slots end to end (write, read-back, replace, rename, delete, dfree and the

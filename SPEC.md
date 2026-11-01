@@ -47656,7 +47656,7 @@ and is what an A/B uses. The kernel needs no arranging to match, because
 §20.13.3's default format is LZ4 as well — which is the reason LZ4 is the one
 that got to be the default here rather than the better ratio.
 
-**LZB is built, and is not the default** - the twenty package builds below are the exception. It is ~10 points better on ratio and ~4×
+**LZB is built, and is not the default** - the eighteen package builds below are the exception. It is ~10 points better on ratio and ~4×
 slower to expand (§20.13.3), and on a 4.77 MHz 8088 that trade is a disk
 saving *once* against a launch cost *for ever* — two numbers on different
 clocks that do not reduce to one rate. Until somebody has measured the second
@@ -47664,9 +47664,9 @@ of them on a 5150 the machine takes the fast decoder. Both knobs stay on both
 sides (`make PKGZ=lzb COMPRESS=lzb`), and `tests/lzship.py --fmt lzb` builds
 and boots the whole set through it, so adding LZB later moves no layout.
 
-**TWENTY PACKAGE BUILDS SHIP LZB**: ArtfulType, Audio, Browser,
+**EIGHTEEN PACKAGE BUILDS SHIP LZB**: ArtfulType, Audio, Browser,
 Calculator (both arms), Chart,
-Cyclone, Dot Delirium, Gorillas, Missile, Sheet, Solitaire, TameGram, Tank
+Cyclone, Dot Delirium, Gorillas, Missile, Sheet, Tank
 (both arms), Telnet, TeXPad, The Wire, WireBall and WireChat - The Wire being the
 first on the system disk (`SYSTEM/`, 10 -> 9 clusters). Each
 rule packs through `$(OS88PKGB)` - `--compress-if=lzb` whenever `PKGZ` is set,
@@ -47679,7 +47679,9 @@ test for each one is that LZB saves it a cluster on the 360KB disks it rides**
 (Solitaire's APP_SMALL arm does not, and stays LZ4; Arkanoid did when it was
 chosen and stopped doing so when set C's code pass took its LZ4 file to 5,031
 bytes, 5 clusters either way - `lzbclust` caught it at the merge, and it went
-back to LZ4), and **Paint, Note Pad and
+back to LZ4; Solitaire and TameGram went back the same way when the optimal
+LZ4 parse and the near-call filter, §20.13.9, made their LZ4 files as short in
+clusters as LZB's), and **Paint, Note Pad and
 the Task Manager stay LZ4 whatever it would save them**: they open the common
 documents and have to stay quick. Every other package is LZ4.
 
