@@ -122,10 +122,10 @@ KDS_PLEN    equ 0x0430          ; dd the part's PACKED bytes
 KDS_ULEN    equ 0x0434          ; dd ...and what they expand to
 KDS_TSEG    equ 0x0438          ; dw where the packed stream is read
 ; --- AND THE CORE PART'S, because the stub expands TWICE (SPEC.md 96.44.5.4)
-; ONE extent list covers both: os88pkg.py lays parts out in table order and
-; 512-aligned, so the core's bytes are immediately followed by kern_dos's and
-; a single run reads the pair. KDS_CDELTA is how far into that run kern_dos's
-; stream begins, in PARAGRAPHS.
+; ONE extent list covers both: os88pkg.py lays parts out in table order, on
+; paragraphs, so the core's bytes are followed by kern_dos's and a single run
+; reads the pair. KDS_CDELTA is how far into that run kern_dos's stream
+; begins, in PARAGRAPHS, and KDS_CHEAD how far the core's does.
 KDS_CPLEN   equ 0x043A          ; dd the CORE part's packed bytes
 KDS_CDELTA  equ 0x043E          ; dw paragraphs from the run's base to
                                 ; kern_dos's own stream
@@ -135,6 +135,9 @@ KDS_KSEG    equ 0x044A          ; dw kern_mega: the stub's own pick of
 KDS_KORG    equ 0x044C          ; dw kern_dos's segment and origin, HMA or LOW
                                 ; (96.40.9.2) - above HS_TICK0's dword
 %endif
+KDS_CHEAD   equ 0x044E          ; dw ...and to the CORE's: the run starts on
+                                ; the sector the core starts in, and a part
+                                ; starts on a paragraph (SPEC.md 20.12.2)
 KDS_LB      equ 0x0500          ; db[512] the launch block, on HS_IVT's ground
 KDS_TMPSEG  equ 0x1000          ; 64KB up: above kern_dos's image, which starts
                                 ; at KD_SEG and is 46KB, so the stream and the
@@ -233,12 +236,12 @@ KDL_DPT_LEN equ 11              ; TABLE, the one field DOS.O88 cannot fill.
 
 ; --- the record a package posts (SPEC.md 96.40) -----------------------------
 ; MIRRORED in apps/os88api.inc, and t_mirror is the guard.
-KDH_MAGIC   equ 0               ; dd 'KDH1'
+KDH_MAGIC   equ 0               ; dd 'KDH2' ('KDH1' named parts in SECTORS)
 KDH_VOL     equ 4               ; db the volume DOS.O88 is on
 KDH_PAD     equ 5               ; db 0
 KDH_DIR     equ 6               ; dw its folder's first cluster, 0 = the root
 KDH_NAME    equ 8               ; db[13] its 8.3 name, NUL-terminated
-KDH_POFF    equ 21              ; dw the part's first file SECTOR
+KDH_POFF    equ 21              ; dw the part's first file PARAGRAPH
 KDH_PLEN    equ 23              ; dd its packed bytes
 KDH_ULEN    equ 27              ; dd ...and its unpacked bytes
 KDH_LB      equ 31              ; db[512] the launch block, verbatim
@@ -253,7 +256,7 @@ KDH_CODE    equ 545             ; dw the exit code the RESTORED kernel pokes in,
 ; They go on the END rather than beside KDH_POFF, so KDH_LB's offset does not
 ; move: the launch block is 512 of the 547 and every field before it is one a
 ; wave already published.
-KDH_COFF    equ 547             ; dw the CORE part's first file SECTOR
+KDH_COFF    equ 547             ; dw the CORE part's first file PARAGRAPH
 KDH_CPLEN   equ 549             ; dd its packed bytes
 KDH_CULEN   equ 553             ; dd ...and its unpacked bytes
 KDH_CORG    equ 557             ; dw where the core sits in kern_dos's
@@ -261,7 +264,7 @@ KDH_CORG    equ 557             ; dw where the core sits in kern_dos's
 KDH_AKB     equ 559             ; dw the ARENA the program was given, in KB,
                                 ; poked in beside KDH_CODE (SPEC.md 96.41.1)
 KDH_SIZE    equ 561
-KDH_SIG     equ 0x3148444B      ; 'KDH1', little-endian
+KDH_SIG     equ 0x3248444B      ; 'KDH2', little-endian (SPEC.md 96.40.1)
 KDH_NOCODE  equ 0xFFFF          ; ...and what KDH_CODE says until it has one
 
 ; --- the exit code's mailbox (SPEC.md 96.41) --------------------------------
@@ -1005,7 +1008,7 @@ hbm_toast:
 ; hbm_d1why - "Not our handoff record" as a field reading (KERN-MEGA-PLAN 10.3
 ; item 54.2): `H ssss:oooo bbbbbbbb rrr`, the pointer DOS.O88 posted, the
 ; first four bytes found there read DIRECTLY (no string op, nothing that can
-; fault - a good record reads 4B444831, 'KDH1'), and mega_strcal's REP MOVS
+; fault - a good record reads 4B444832, 'KDH2'), and mega_strcal's REP MOVS
 ; figures for SI, DI and CX. Built in hbm_dosrec, whose copy has just failed.
 ; TOAST_MAX is 24 and this is 24. DS = KERNEL. out: SI = the string. Clobbers
 ; AX, CX, DI, ES
@@ -2900,20 +2903,31 @@ hbm_dosrun:
     mov [hb_xseg], dx
     ; **ONE RUN COVERS BOTH PARTS** (SPEC.md 96.44.5.4). The core is part 1 and
     ; `kern_dos` is part 2; `os88pkg.py` lays parts out in TABLE ORDER, each
-    ; 512-aligned, so the core's packed bytes are immediately followed by
-    ; `kern_dos`'s and the extent list wanted is one range from KDH_COFF to the
-    ; end of KDH_PLEN. Nothing here knows that adjacency as a fact - it takes
-    ; the difference of the two offsets DOS.O88 posted, so a layout that ever
-    ; put something between them would read that something too and still hand
-    ; the stub the right two streams.
-    mov ax, [cs:hbm_dosrec + KDH_PLEN]  ; the PACKED bytes, as sectors: what
-    add ax, 511                         ; the stub reads is the stream and not
-    mov cl, 9                           ; what it expands to
+    ; on a PARAGRAPH (SPEC.md 20.12.2), so the core's packed bytes are
+    ; followed by `kern_dos`'s and the extent list wanted is one range from
+    ; the sector KDH_COFF is in to the end of KDH_PLEN. Nothing here knows that
+    ; adjacency as a fact - it takes the difference of the two offsets DOS.O88
+    ; posted, so a layout that ever put something between them would read that
+    ; something too and still hand the stub the right two streams. EVERY TERM
+    ; IS PARAGRAPHS, which a word holds for a 1MB file, so nothing is
+    ; multiplied into bytes on the way to the sector count.
+    mov ax, [cs:hbm_dosrec + KDH_PLEN]  ; the PACKED bytes, as paragraphs: what
+    add ax, 15                          ; the stub reads is the stream and not
+    rcr ax, 1                           ; what it expands to (the carry comes
+    mov cl, 3                           ; back in as bit 15)
     shr ax, cl
-    mov cx, [cs:hbm_dosrec + KDH_COFF]  ; CX = sectors to skip: the CORE's
-    mov bx, [cs:hbm_dosrec + KDH_POFF]  ; start, which is the lower of the two
-    sub bx, cx                          ; BX = the gap to kern_dos's stream...
-    add bx, ax                          ; ...plus kern_dos's own sectors
+    mov dx, [cs:hbm_dosrec + KDH_COFF]  ; DX = the CORE's paragraph, the lower
+    mov bx, [cs:hbm_dosrec + KDH_POFF]  ; of the two
+    sub bx, dx                          ; BX = the gap to kern_dos's stream...
+    add bx, ax                          ; ...plus kern_dos's own paragraphs...
+    mov ax, dx
+    and ax, 31
+    add bx, ax                          ; ...from the core's SECTOR's start
+    add bx, 31
+    mov cl, 5
+    shr bx, cl                          ; BX = sectors to take
+    shr dx, cl
+    mov cx, dx                          ; CX = sectors to skip
     pop ax                      ; DOS.O88's first cluster, from step 2
     call hbm_extat
     jc .b6
@@ -3140,12 +3154,15 @@ hbm_dosrun:
     rep movsw                       ; nothing over there reads one
     mov ax, [cs:hbm_dosrec + KDH_CORG]  ; **`cs:` THOUGH DS IS CS HERE**: the
     mov [es:KDS_CORG], ax               ; module's own data is CS-relative
-    mov ax, [cs:hbm_dosrec + KDH_POFF]  ; (SPEC.md 2.8.6) and os88ovlchk reads
-    sub ax, [cs:hbm_dosrec + KDH_COFF]  ; the instruction rather than the two
-    mov cl, 5                       ; lines of context that make it safe. The
-    shl ax, cl                      ; delta is exact: the parts are
-                                    ; 512-aligned, so a sector is 32 paragraphs
-    mov [es:KDS_CDELTA], ax
+    mov ax, [cs:hbm_dosrec + KDH_COFF]  ; (SPEC.md 2.8.6) and os88ovlchk reads
+    and ax, 31                      ; the instruction rather than the two
+    mov [es:KDS_CHEAD], ax          ; lines of context that make it safe. The
+    add ax, [cs:hbm_dosrec + KDH_POFF]  ; run starts on the SECTOR the core
+    sub ax, [cs:hbm_dosrec + KDH_COFF]  ; starts in, so the core's stream is
+    mov [es:KDS_CDELTA], ax         ; its place in that sector up the run and
+                                    ; kern_dos's that plus the gap - both in
+                                    ; paragraphs, exact because a part starts
+                                    ; on one (SPEC.md 20.12.2)
     mov si, hbm_dosrec + KDH_LB     ; ...and the launch block, verbatim
     mov di, KDS_LB
     mov cx, KDL_SIZE / 2
@@ -5351,8 +5368,10 @@ kds_stub:
     mov es, ax
 %endif
     mov cx, [KDS_CPLEN]
-    push ds
-    mov ds, [cs:KDS_TSEG]       ; the core's stream IS the run's own base
+    mov ax, [KDS_TSEG]          ; the core's stream is KDS_CHEAD paragraphs
+    add ax, [KDS_CHEAD]         ; up the run: its place in the sector the
+    push ds                     ; run began on (SPEC.md 96.44.5.4)
+    mov ds, ax
     xor si, si
 %ifndef KERN_MEGA
     call kds_expand

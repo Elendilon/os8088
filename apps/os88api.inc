@@ -6584,12 +6584,12 @@ WHEEL_STEPS equ 3                ; LINES of text one wheel notch scrolls
 ; than private because the alternative is a second copy of it in two places
 ; that cannot see each other, and tests/unit/t_mirror.py is what keeps this
 ; one honest against the kernel's.
-KDH_MAGIC   equ 0               ; dd 'KDH1'
+KDH_MAGIC   equ 0               ; dd 'KDH2' ('KDH1' named parts in SECTORS)
 KDH_VOL     equ 4               ; db the volume your package's FILE is on
 KDH_PAD     equ 5               ; db 0
 KDH_DIR     equ 6               ; dw its folder's first cluster, 0 = the root
 KDH_NAME    equ 8               ; db[13] its 8.3 name, NUL-terminated
-KDH_POFF    equ 21              ; dw the kern_dos part's first file SECTOR
+KDH_POFF    equ 21              ; dw the kern_dos part's first file PARAGRAPH
 KDH_PLEN    equ 23              ; dd its packed bytes
 KDH_ULEN    equ 27              ; dd ...and its unpacked bytes
 KDH_LB      equ 31              ; db[512] the launch block, verbatim
@@ -6597,7 +6597,7 @@ KDH_WIN     equ 543             ; dw the window to wake on the way back - the
                                 ; DOS.O88's, because only DOS.O88 knows it
 KDH_CODE    equ 545             ; dw the program's exit code, poked in by the
                                 ; RESTORED kernel, KDH_NOCODE until then
-KDH_COFF    equ 547             ; dw the CORE part's first file SECTOR - the
+KDH_COFF    equ 547             ; dw the CORE part's first file PARAGRAPH - the
 KDH_CPLEN   equ 549             ; dd its packed bytes, and its unpacked ones.
 KDH_CULEN   equ 553             ; kern_dos's image has a HOLE where the core
                                 ; goes, so the stub reads TWO parts (SPEC.md
@@ -6612,7 +6612,7 @@ KDH_AKB     equ 559             ; dw the ARENA the program was given, in KB.
                                 ; only way a package can know what its program
                                 ; actually got
 KDH_SIZE    equ 561
-KDH_SIG     equ 0x3148444B      ; 'KDH1', little-endian
+KDH_SIG     equ 0x3248444B      ; 'KDH2', little-endian (SPEC.md 96.40.1)
 KDH_NOCODE  equ 0xFFFF          ; ...and what KDH_CODE says until it has one
 %define OSAPI_BOOT_TICKS    KERNEL_SEG:0x0255   ; out AX = how long this machine
                                  ; took to boot, in SYSTEM TICKS (18.2065 Hz,

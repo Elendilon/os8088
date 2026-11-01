@@ -7785,7 +7785,7 @@ dos_handoff:
 %else
  %define DOS_KDR dos_kdrow
 %endif
-    mov ax, [DOS_KDR + OP_R_OFF]    ; the part's first file SECTOR, which is
+    mov ax, [DOS_KDR + OP_R_OFF]    ; the part's first file PARAGRAPH, which is
     mov [di+KDH_POFF], ax           ; what os88pkg.py wrote there
     mov ax, [DOS_KDR + OP_R_ZKB]    ; ...and on an OP_COMP row this word is the
     mov [di+KDH_PLEN], ax           ; PACKED length (SPEC.md 20.12.7)

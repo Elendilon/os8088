@@ -66,9 +66,7 @@ op_self:
     dec bx                      ; BX = bytes per cluster - 1: a mask
     mov ax, [si+OP_R_OFF]
     mov dx, ax
-%if OP_GSH != 9
-    mov cl, OP_GSH
-%endif
+    mov cl, OP_GSH              ; `off` is in PARAGRAPHS (SPEC.md 20.12.2)
     shl ax, cl
     mov cl, 16 - OP_GSH
     shr dx, cl                  ; DX:AX = the part's byte offset

@@ -182,8 +182,8 @@ def run():
         raise SystemExit("mseglazy: part %d of %s is not OP_LAZY (flags "
                          "0x%02X) - this row has nothing to measure"
                          % (LAZY, O88, row["flags"]))
-    say("part %d: sector %d, %d bytes, %d sectors"
-        % (LAZY, row["off"], row["len"], lazy_secs))
+    say("part %d: granule %d (file byte %d), %d bytes, %d sectors"
+        % (LAZY, row["off"], os88parts.byte_off(row), row["len"], lazy_secs))
 
     # Every read below is guest state (the window list, MSEG's bss, the
     # claim table, the sector count): the boot gates on the kernel's desktop
@@ -258,11 +258,11 @@ def run():
         first = word(m, seg, "op_first")
         run_secs = word(m, seg, "op_secs")
         end = first + run_secs
-        say("the carve is sectors %d..%d; part %d starts at %d"
+        say("the carve is granules %d..%d; part %d starts at %d"
             % (first, end - 1, LAZY, row["off"]))
         if end > row["off"]:
             fails.append(
-                "the carve runs to sector %d and part %d starts at %d, so the "
+                "the carve runs to granule %d and part %d starts at %d, so the "
                 "ONE READ the carve exists to be covered it. This is the "
                 "structural half of assertion 1 and the half that cannot be "
                 "faked: op_size must step over a lazy row, and os88pkg.py "

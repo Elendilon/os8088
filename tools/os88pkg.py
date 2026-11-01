@@ -6,7 +6,7 @@
 IN.bin is the package assembled at org 0 (the only assembly there is).
 
 **PARTS (SPEC.md 20.12).** `--part` appends a separately assembled binary
-after the image, 512-aligned, and fills in the row the package reserved for
+after the image on a 16-byte PARAGRAPH (SPEC.md 20.12.2), and fills in the row the package reserved for
 it in its OWN PART TABLE - which lives in the image, at a label the package
 named, found here by an eight-byte magic. The kernel never sees that table:
 all it learns is flags bit 2, which says the file is longer than the image on
@@ -72,16 +72,20 @@ STK_CLASS_MAX = 4                            # ...and +15 is the STACK CLASS
                                              # given a meaning without moving
                                              # the header version - and exactly
                                              # why this line had to move with it
-PARTS_MAGIC = b"O88PARTS"  # the part table's head, INSIDE the image (20.12.3)
-PARTS_MAGIC_PARA = b"O88PARTP"  # ...the same table with `off` in PARAGRAPHS:
-                                # the package assembled os88parts.inc with
-                                # OP_PARA (docs/plans/PART-PACKING-PLAN.md),
-                                # so its parts are laid on 16 bytes, not 512
-PARTS_HDR = 10             # magic(8) + count(1) + reserved(1)
-PART_ROW = 8               # kind(1) flags(1) off(2, 512-byte units)
+PARTS_MAGIC = b"O88PARTP"  # the part table's head, INSIDE the image (20.12.3),
+                           # with `off` in 16-byte PARAGRAPHS (20.12.2.1)
+PARTS_MAGIC_512 = b"O88PARTS"   # ...the table before SPEC.md 20.12.2.1, `off`
+                                # in 512-byte sectors. READ (part_table) so a
+                                # file packed before still decodes; never
+                                # PACKED - a package that carries it was
+                                # assembled against an older os88parts.inc
+PARTS_GRAN = {PARTS_MAGIC: 16, PARTS_MAGIC_512: 512}
+PARTS_HDR = 10             # magic(8) + count(1) + format(1)
+PART_ROW = 8               # kind(1) flags(1) off(2, 16-byte units)
                            # len(2) zkb(2)
-PART_ALIGN = 512           # every part starts on a 512-byte boundary in the
-                           # file - see the layout comment in main()
+PART_ALIGN = 16            # every part starts on a PARAGRAPH of the file
+                           # (SPEC.md 20.12.2) - see the layout comment in
+                           # main(). It was 512 until 20.12.2.1
 PK_SEG, PK_ASSET = 0, 1
 OPF_XMS, OPF_ZERO, OPF_OPT, OPF_LAZY, OPF_COMP = 1, 2, 4, 8, 16
 OPF_FETCHED = 32                # RUNTIME ONLY (SPEC.md 20.12.7.4): op_fetch
@@ -175,7 +179,7 @@ def main() -> int:
                          "decoder that reads a part knows it; this is the "
                          "door for one that does not")
     ap.add_argument("--part", metavar="PART.bin", action="append", default=[],
-                    help="append a part after the image, 512-aligned, and "
+                    help="append a part after the image, 16-aligned, and "
                          "fill its row in the package's own part table. One "
                          "per FILE-BACKED row, in table order; a row with no "
                          "file bytes (OP_ZERO) takes none (SPEC.md 20.12)")
@@ -303,7 +307,7 @@ def main() -> int:
     timage = out                            # where report_parts reads the table
     if table is None:
         if args.part:
-            fail("--part given but the image carries no 'O88PARTS' table - "
+            fail("--part given but the image carries no 'O88PARTP' table - "
                  "bracket one with OS88_PARTS_BEGIN (SPEC.md 20.12.3)")
         if zfmt:
             z = compress_image(out, image, bss, flags, zfmt, soft=zsoft)
@@ -482,7 +486,7 @@ def compress_parted(out: bytearray, image: int, bss: int, flags: int,
     where the parts can start - and their offsets live in the table INSIDE
     the image being packed, which is the circularity that kept this refused.
     It is a fixed point and not a paradox: only the TABLE's `off` words move,
-    every part moves by the same whole number of sectors, so the parts' bytes
+    every part moves by the same whole number of paragraphs, so the parts' bytes
     never change and a packed table differs from the last guess by a few
     bytes. So: guess the base off one pack, then pack again at each base
     until the packed image fits in front of it. The base only ever RISES, so
@@ -494,7 +498,7 @@ def compress_parted(out: bytearray, image: int, bss: int, flags: int,
     other package and which ld_hdr_ok lets through only beside flags bits 2
     AND 3. Everything else is compress_image's rule - the clear prefix, the
     format bits, the in-place margin and the region it must fit - and a
-    pack that saves no SECTOR is declined: the parts would not move, so the
+    pack that saves no PARAGRAPH is declined: the parts would not move, so the
     file would not shrink, and every launch would pay the decode for nothing.
     """
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -535,7 +539,7 @@ def compress_parted(out: bytearray, image: int, bss: int, flags: int,
     delta = (roundup(pre + len(z), PART_ALIGN) - base0) // PART_ALIGN
     if delta >= 0:
         return refuse(f"{fmt} packs this image to {pre + len(z)} bytes, which "
-                      f"still starts the parts at sector {base0 // PART_ALIGN}: "
+                      f"still starts the parts at paragraph {base0 // PART_ALIGN}: "
                       "the file would not shrink and every launch would pay "
                       "the decode")
     while True:
@@ -545,7 +549,7 @@ def compress_parted(out: bytearray, image: int, bss: int, flags: int,
             break
         delta += 1
         if delta >= 0:
-            return refuse(f"{fmt} saves no sector of this image once its "
+            return refuse(f"{fmt} saves no paragraph of this image once its "
                           "part table is packed with it")
     margin = os88lz.in_place_margin(body, fid, packed=z)
     if margin:
@@ -565,7 +569,7 @@ def compress_parted(out: bytearray, image: int, bss: int, flags: int,
     new.extend(b"\xE5" * (base - len(new)))       # padding is poison (above)
     new.extend(out[base0:])
     print(f"os88pkg: compressed {fmt}: image {image} -> {packed} bytes "
-          f"({packed / image:.1%}), {pre} clear; parts {-delta} sector(s) "
+          f"({packed / image:.1%}), {pre} clear; parts {-delta} paragraph(s) "
           f"earlier, file {len(out)} -> {len(new)}")
     return new, img
 
@@ -598,7 +602,7 @@ def image_unwrap(blob: bytes) -> bytes:
         # WITH PARTS the stream ends where the LINK word says (SPEC.md
         # 20.13.8), and what is returned is the IMAGE alone: the parts are
         # still read out of the FILE at the table's offsets, which name
-        # sectors of the packed file. The link word goes back to zero, so the
+        # paragraphs of the packed file. The link word goes back to zero, so the
         # header is a plain parted image's - which is what it describes now.
         end = struct.unpack_from("<H", blob, 4)[0]
         out[4:6] = b"\0\0"
@@ -606,6 +610,23 @@ def image_unwrap(blob: bytes) -> bytes:
 
 
 # --- parts (SPEC.md 20.12) ---------------------------------------------------
+def part_table(img: bytes, end: int = None):
+    """(offset of the part table in `img`, the granule its `off` counts in),
+    or (None, None) - for a READER. Either magic: 'O88PARTP' (16, SPEC.md
+    20.12.2) or 'O88PARTS' (512, a file packed before 20.12.2.1). Exactly one
+    table, as find_parts insists at pack time; two is as bad as none."""
+    end = len(img) if end is None else end
+    hits = []
+    for magic, gran in PARTS_GRAN.items():
+        at = img.find(magic, 0, end)
+        while at != -1:
+            hits.append((at, gran))
+            at = img.find(magic, at + 1, end)
+    if len(hits) != 1:
+        return None, None
+    return hits[0]
+
+
 def find_parts(a: bytes, image: int, flags: int):
     """Locate the package's own part table INSIDE the image.
 
@@ -615,21 +636,24 @@ def find_parts(a: bytes, image: int, flags: int):
     """
     if not flags & 4:
         return None, 0
-    global PART_ALIGN
+    if a.find(PARTS_MAGIC_512, 0, image) != -1:
+        fail("the image carries an 'O88PARTS' table - `off` in 512-byte "
+             "sectors, the layout before SPEC.md 20.12.2.1. This package was "
+             "assembled against an older apps/os88parts.inc, whose reader "
+             "expects that layout; rebuild it against the tree's, which lays "
+             "parts on paragraphs and says so with 'O88PARTP'")
     hits = []
-    for magic, gran in ((PARTS_MAGIC, 512), (PARTS_MAGIC_PARA, 16)):
-        at = a.find(magic, 0, image)
-        while at != -1:
-            hits.append(at)
-            PART_ALIGN = gran
-            at = a.find(magic, at + 1, image)
+    at = a.find(PARTS_MAGIC, 0, image)
+    while at != -1:
+        hits.append(at)
+        at = a.find(PARTS_MAGIC, at + 1, image)
     if not hits:
-        fail("flags bit 2 is set but the image carries no 'O88PARTS' table. "
+        fail("flags bit 2 is set but the image carries no 'O88PARTP' table. "
              "The flag and the table are one thing: the flag tells the KERNEL "
              "the file is longer than the image, and the table tells this "
              "tool where to write what it appends (SPEC.md 20.12)")
     if len(hits) > 1:
-        fail(f"the image carries {len(hits)} 'O88PARTS' magics, at "
+        fail(f"the image carries {len(hits)} 'O88PARTP' magics, at "
              f"{', '.join(hex(h) for h in hits)}. One package, one table - "
              "a second is either a copy or a literal that collided, and "
              "neither is safe to fill in")
@@ -758,7 +782,7 @@ def compress_zfill(i: int, body: bytes, fmt: str, fid, filt: bool = False):
 
 def lay_out_parts(out: bytearray, table: int, rows: int, parts,
                   part_fmt: str = "lz4", nofilt=()) -> None:
-    """Append each part 512-aligned and fill its row.
+    """Append each part on a paragraph (SPEC.md 20.12.2) and fill its row.
 
     THE ROWS AND THE PAYLOADS ARE NOT ONE LIST: a row with no file bytes
     (OP_ZERO) takes no --part, so the i'th --part is the i'th FILE-BACKED
@@ -870,7 +894,7 @@ def lay_out_parts(out: bytearray, table: int, rows: int, parts,
              "no file bytes takes none (SPEC.md 20.12)")
 
     it = iter(parts)
-    laid = []                   # (row, flags, first sector, sector count)
+    laid = []                   # (row, flags, first granule, granule count)
     for i, has_file in enumerate(filed):
         if not has_file:
             continue
@@ -925,7 +949,7 @@ def lay_out_parts(out: bytearray, table: int, rows: int, parts,
                                          zfill=bool(pflags & OPF_ZFILL))
         # PADDING IS POISON, NOT ZERO. These are bytes no part declares and
         # nothing is meant to read, so a stub that strays into one - a length
-        # rounded up to a sector, a run started a cluster early - has to
+        # rounded up to a granule, a run started a cluster early - has to
         # produce something a test can SEE. Zero padding makes every one of
         # those look exactly like a byte that was correctly zeroed.
         pad = (-len(out)) % PART_ALIGN
@@ -962,15 +986,15 @@ def lay_out_parts(out: bytearray, table: int, rows: int, parts,
     span = [r for r in laid if r[1] & OPF_XMS]
     runmax = OP_SECMAX * 512 // PART_ALIGN     # in the table's own granules
     if extent(carve) >= runmax:
-        fail(f"the carved run is {extent(carve)} sectors (parts "
+        fail(f"the carved run is {extent(carve)} paragraphs (parts "
              f"{carve[0][0]}..{carve[-1][0]}, OP_XMS rows included - they "
              "fall back into the carve on a machine with no store). op_size "
-             f"refuses {OP_SECMAX} or more: the carve plus a cluster has to "
+             f"refuses {runmax} or more ({OP_SECMAX} sectors): the carve plus a cluster has to "
              "fit one WORD of paragraphs (SPEC.md 20.12.11)")
-    if extent(span) >= 128:
-        fail(f"the OP_XMS span is {extent(span)} sectors (parts "
+    if extent(span) >= 65536 // PART_ALIGN:
+        fail(f"the OP_XMS span is {extent(span)} paragraphs (parts "
              f"{span[0][0]}..{span[-1][0]}). op_xload walks it in a WORD of "
-             "bytes, so 128 sectors is its ceiling too (SPEC.md 20.12.4)")
+             "bytes, so 64KB is its ceiling too (SPEC.md 20.12.4)")
 
     # ...AND THE UNPACKED CARVE IS BOUNDED THE SAME WAY, on the other side.
     # op_size cuts the CLAIM from the unpacked lengths and refuses OP_SECMAX
@@ -984,8 +1008,8 @@ def lay_out_parts(out: bytearray, table: int, rows: int, parts,
             if po and not pf & OPF_LAZY:
                 usecs += (pl + PART_ALIGN - 1) // PART_ALIGN
         if usecs >= runmax:
-            fail(f"the carve UNPACKS to {usecs} sectors. op_size refuses "
-                 f"{OP_SECMAX} or more on that side too - the claim is cut from the "
+            fail(f"the carve UNPACKS to {usecs} paragraphs. op_size refuses "
+                 f"{runmax} or more on that side too - the claim is cut from the "
                  "unpacked lengths, and compressing a part makes the file "
                  "smaller without making the memory smaller (SPEC.md 20.12.7)")
         out[table + PART_FMT_AT] = (0 if part_fmt == "lz4" else 1)
@@ -1005,11 +1029,11 @@ def report_parts(out: bytes, table: int, rows: int, parts) -> None:
             print(f"os88pkg:   part {i} {what} {tag:4} scratch {pzkb}K, "
                   f"no file bytes")
         elif pflags & OPF_COMP:
-            print(f"os88pkg:   part {i} {what} {tag:5} sector {poff} "
+            print(f"os88pkg:   part {i} {what} {tag:5} para {poff} "
                   f"len {plen} from {pzkb} packed  <- {parts[fi]}")
             fi += 1
         else:
-            print(f"os88pkg:   part {i} {what} {tag:4} sector {poff} "
+            print(f"os88pkg:   part {i} {what} {tag:4} para {poff} "
                   f"len {plen}  <- {parts[fi]}")
             fi += 1
 

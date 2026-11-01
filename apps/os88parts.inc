@@ -129,7 +129,7 @@ OP_MARGIN     equ 0             ; what a compressed run needs ABOVE its
                                 ; is written in terms of it and reads better
                                 ; with the term in than with it silently gone
 
-OP_ROW        equ 8             ; db kind, db flags, dw off (512-byte units),
+OP_ROW        equ 8             ; db kind, db flags, dw off (16-byte units),
 OP_R_KIND     equ 0             ; dw len, dw zkb - off and len are os88pkg.py's
 OP_R_FLAG     equ 1             ; and zkb is yours
 OP_R_OFF      equ 2
@@ -196,24 +196,21 @@ OP_SECMAX     equ 1920          ; the carve's ceiling in sectors, packed AND
                                 ; a 32KB cluster of slack is 65,503 of them.
                                 ; Mirrored by os88pkg.py (t_lzfmt checks)
 
-; --- THE GRANULE a part's `off` counts in (docs/plans/PART-PACKING-PLAN.md) --
-; 512 since SPEC.md 20.12.2, which is up to 511 bytes of 0xE5 a part on the
-; disk. `%define OP_PARA` before this include lays the parts out on 16-byte
-; PARAGRAPHS instead: the head slack a cluster-aligned read leaves is then a
-; multiple of 16 rather than of 512, which is still exactly what a segment
-; adjustment needs, so every address the standard hands out is still a
-; segment with offset 0 and nothing is copied that was not copied before. The
-; TABLE says which, by its magic ('O88PARTP'), so os88pkg.py lays it out to
-; match and a tool that knows only 'O88PARTS' refuses it rather than misread.
-; PROTOTYPE: off by default, so every package that does not ask is
-; byte-identical.
-%ifdef OP_PARA
-OP_GSH        equ 4             ; granule = 1 << OP_GSH bytes
-%else
-OP_GSH        equ 9
-%endif
+; --- THE GRANULE a part's `off` counts in (SPEC.md 20.12.2, 20.12.2.1) ------
+; A 16-byte PARAGRAPH. It was a 512-byte sector until docs/plans/
+; PART-PACKING-PLAN.md, which is up to 511 bytes of 0xE5 a part on the disk;
+; the head slack a cluster-aligned read leaves is a multiple of 16 either way,
+; which is all a segment adjustment needs, so every address the standard
+; hands out is still a segment with offset 0. The TABLE says so by its magic,
+; 'O88PARTP' ('O88PARTS' was the 512 table), so os88pkg.py lays it out to
+; match and a tool that knows only the old magic refuses rather than misread.
+;
+; A PACKAGE THAT READS A PART FOR ITSELF converts `off` with these and never
+; with a literal shift - tests/unit/t_partoff.py fails the build on one - and
+; starts its read at the sector (or cluster) AT OR BELOW off x 16, stepping
+; over the head slack: a part is no longer on a sector (op_self's arithmetic)
+OP_GSH        equ 4             ; granule = 1 << OP_GSH bytes = a paragraph
 OP_GRAN       equ 1 << OP_GSH
-OP_GPSH       equ OP_GSH - 4    ; granules -> paragraphs
 OP_RUNMAX     equ OP_SECMAX << (9 - OP_GSH) ; the carve's ceiling, in granules
 OP_CHUNK      equ 32768         ; bytes a read moves at a time: a multiple of
                                 ; EVERY legal cluster size (512 bytes to 32KB,
@@ -273,11 +270,7 @@ OP_CHUNK      equ 32768         ; bytes a read moves at a time: a multiple of
         %error "OS88_PARTS_BEGIN with no parts in it - drop the block and the flag"
     %endif
 op_table:
-%ifdef OP_PARA
-    db 'O88PARTP'               ; ...`off` in PARAGRAPHS (PART-PACKING-PLAN)
-%else
-    db 'O88PARTS'
-%endif
+    db 'O88PARTP'               ; `off` in PARAGRAPHS (SPEC.md 20.12.2.1)
 op_t_n:
     db %1                       ; the count, and THREE things check it: this
                                 ; macro's brackets count the rows, os88pkg.py
@@ -514,8 +507,8 @@ op_zshadow:
 ; moves and the whole chain follows, which is the only reason the standard
 ; needed no second version for C.
 op_name     equ OP_BSS_AT + 0       ; the file we came out of, NUL-term
-op_first    equ OP_BSS_AT + 13      ; the carved run's first sector
-op_secs     equ OP_BSS_AT + 15      ; ...its length in sectors, 0 = none
+op_first    equ OP_BSS_AT + 13      ; the carved run's first GRANULE (16 B)
+op_secs     equ OP_BSS_AT + 15      ; ...its length in granules, 0 = none
 op_np       equ OP_BSS_AT + 17      ; ...the total GRANTED, in PARAGRAPHS:
                                     ; the run plus whichever scratch the
                                     ; machine allowed (SPEC.md 50.3.7). It was
@@ -550,8 +543,8 @@ op_xmson    equ OP_BSS_AT + 40      ; byte: is there a store to put the
                                          ; OP_XMS parts in? Asked ONCE, before
                                          ; the sizing, because the answer moves
                                          ; those parts between two totals
-op_xoff     equ OP_BSS_AT + 41      ; the XMS span's first sector...
-op_xsecs    equ OP_BSS_AT + 43      ; ...its length in sectors...
+op_xoff     equ OP_BSS_AT + 41      ; the XMS span's first granule...
+op_xsecs    equ OP_BSS_AT + 43      ; ...its length in granules...
 op_xmskb    equ OP_BSS_AT + 45      ; ...and the KB it wants up there - KB
                                     ; still, as OSAPI_XMEM_ALLOC counts
 op_xlin     equ OP_BSS_AT + 47      ; the one block it all landed in (32)
@@ -590,7 +583,7 @@ op_zn       equ OP_BSS_AT + 73      ; byte: how many rows carry OP_COMP. ZERO
                                     ; what it took before, so a package with no
                                     ; compressed part is unchanged to the
                                     ; instruction (SPEC.md 20.12.7)
-op_usecs    equ OP_BSS_AT + 74      ; the run's UNPACKED length in sectors.
+op_usecs    equ OP_BSS_AT + 74      ; the run's UNPACKED length in granules.
                                     ; The claim is cut from this and the READ
                                     ; from op_secs, and the two are the same
                                     ; run measured at its two ends.

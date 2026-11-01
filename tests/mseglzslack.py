@@ -146,12 +146,12 @@ def run():
         0 if PLAIN else os88parts.EQU["OP_COMP"])
     img = open(os88build.at(APPS_IMG), "rb").read(512)
     clb = struct.unpack_from("<H", img, 11)[0] * img[13]
-    slack = (row["off"] * 512) & (clb - 1)
+    slack = os88parts.byte_off(row) & (clb - 1)
     # what MEMP_REGROW keeps: `len` in paragraphs, rounded to the granule
     kept_para = ((row["len"] + 15) // 16 + MEM_GRAN - 1) // MEM_GRAN * MEM_GRAN
-    say("part %d: sector %d, %d bytes unpacked, flags 0x%02X; clusters %d "
+    say("part %d: file byte %d, %d bytes unpacked, flags 0x%02X; clusters %d "
         "bytes, so the head slack is %d"
-        % (LAZY, row["off"], row["len"], row["flags"], clb, slack))
+        % (LAZY, os88parts.byte_off(row), row["len"], row["flags"], clb, slack))
 
     # --- 1. the fixture is what it says ----------------------------------
     if (row["flags"] & (want_flags | os88parts.EQU["OP_COMP"])) != want_flags:

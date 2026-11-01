@@ -272,8 +272,8 @@ def api_calls(blob):
     img = os88pkg.image_unwrap(blob)
     pieces = [img]
     if blob[3] & O88_F_PARTS:
-        at = img.find(os88pkg.PARTS_MAGIC)
-        if at != -1:
+        at, gran = os88pkg.part_table(img)   # either magic (SPEC.md 20.12.2)
+        if at is not None:
             n = img[at + os88pkg.PARTS_HDR - 2]
             fid = os88lz.LZ4 if img[at + os88pkg.PART_FMT_AT] == 0 else os88lz.LZB
             for i in range(n):
@@ -281,7 +281,7 @@ def api_calls(blob):
                     "<BBHHH", img, at + os88pkg.PARTS_HDR + os88pkg.PART_ROW * i)
                 if kind != os88pkg.PK_SEG or pfl & os88pkg.OPF_ZERO or not off:
                     continue
-                start = off * os88pkg.PART_ALIGN
+                start = off * gran
                 if pfl & os88pkg.OPF_COMP:
                     pieces.append(os88lz.decompress(blob[start:start + zkb],
                                                     fid, ulen))

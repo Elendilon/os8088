@@ -439,13 +439,13 @@ xb_partget:
     jc .no
     mov ax, [si+OP_R_OFF]
     mov dx, ax
-    mov cl, 9
+    mov cl, OP_GSH
     shl ax, cl
-    mov cl, 7
+    mov cl, 16 - OP_GSH
     shr dx, cl                      ; DX:AX = the part's byte offset
     mov bx, [op_clb]
     dec bx
-    and bx, ax                      ; BX = the head slack (a multiple of 512)
+    and bx, ax                      ; BX = the head slack (a multiple of 16)
     sub ax, bx
     sbb dx, 0
     mov [op_off], ax

@@ -587,10 +587,13 @@ kd_tolow:
                                         ; yet - the program this replaces is
                                         ; what we are abandoning)
 
-    ; part 3 begins at file SECTOR KDL_L3OFF: skip that many sectors into the
-    ; chain, which is (L3OFF / spc) whole clusters and (L3OFF mod spc) sectors
-    ; into the one it lands in - dskw_read_at's own arithmetic (18.4.4.2).
+    ; part 3 begins at file PARAGRAPH KDL_L3OFF (SPEC.md 20.12.2), so in the
+    ; sector L3OFF >> 5, (L3OFF & 31) paragraphs in: skip that many sectors
+    ; into the chain, which is (sectors / spc) whole clusters and (sectors mod
+    ; spc) into the one it lands in - dskw_read_at's own arithmetic (18.4.4.2)
     mov ax, [si+KDL_L3OFF]
+    mov cl, 5
+    shr ax, cl
     xor dx, dx
     mov bl, [dsk_spc]
     xor bh, bh
@@ -610,9 +613,15 @@ kd_tolow:
     mov [dsk_csk], dl                   ; sectors into the landed cluster
     push ax                             ; the landed cluster
 
-    mov ax, [si+KDL_L3ZB]               ; the packed bytes, as whole sectors
-    add ax, 511
-    mov cl, 9
+    mov ax, [si+KDL_L3ZB]               ; the packed bytes, as paragraphs...
+    add ax, 15
+    mov cl, 4
+    shr ax, cl
+    mov bx, [si+KDL_L3OFF]
+    and bx, 31                          ; ...past the stream's place in its
+    add ax, bx                          ; first sector...
+    add ax, 31
+    mov cl, 5
     shr ax, cl
     mov dx, ax                          ; DX = sectors to read
 
@@ -634,7 +643,10 @@ kd_tolow:
     ; --- expand it to the window's base -------------------------------------
     mov si, [kd_lbp]                    ; the packed length, out of the block
     mov cx, [si+KDL_L3ZB]               ; (DS is still KD_SEG here)
-    mov ds, [cs:kxl_strm]               ; DS:SI = the stream
+    mov ax, [si+KDL_L3OFF]
+    and ax, 31                          ; the stream is its place in its first
+    add ax, [cs:kxl_strm]               ; sector up what was read
+    mov ds, ax                          ; DS:SI = the stream
     xor si, si
     mov es, [cs:kxl_stg]                ; ES = the window's base
     call kxl_dec                        ; DI = the unpacked length (U)

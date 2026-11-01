@@ -15,7 +15,9 @@ Every step below is one the kernel's walk and the stub will repeat on the
 guest, and each has a way to be quietly wrong:
 
   1  the part table says where the part starts IN THE FILE - `OP_R_OFF` in
-     512-byte units, which is not bytes and not clusters;
+     16-byte PARAGRAPHS (SPEC.md 20.12.2), which is not bytes, not sectors
+     and not clusters: the walk takes the sector it is in and steps over the
+     head;
   2  the FAT chain says which CLUSTERS the file occupies, which are not
      contiguous and whose runs are what an extent list is;
   3  a cluster is `spc` sectors, so file sector N is the (N mod spc)'th sector
@@ -44,8 +46,7 @@ IMG = os.path.join(ROOT, "build", "os8088-360.img")
 KD = os.path.join(ROOT, "build", "kerndos.bin")
 CORE = os.path.join(ROOT, "build", "doscore.bin")
 DOSCALL = os.path.join(ROOT, "apps", "dos", "doscall.inc")
-PARTS_MAGIC = b"O88PARTS"
-PARTS_HDR = 10                  # magic(8) + count(1) + reserved(1)
+PARTS_HDR = 10                  # magic(8) + count(1) + format(1)
 PART_ROW = 8
 DOS_PART_CORE = 1               # loader image, 0 = DOS, 1 = the INT 21h
 DOS_PART_KD = 2                 # CORE (SPEC.md 96.44.5), 2 = kern_dos
@@ -126,9 +127,15 @@ def main():
     # so it is read out of image_unwrap's bytes; the sectors it names are the
     # FILE's, which is what every read below takes them from
     tbl = os88pkg.image_unwrap(blob)
-    at = tbl.find(PARTS_MAGIC, 0, image)
-    if at < 0:
-        fail("flags bit 2 is set and there is no 'O88PARTS' table in the image")
+    at, gran = os88pkg.part_table(tbl, image)
+    if at is None:
+        fail("flags bit 2 is set and there is no part table in the image")
+    if gran != 16:
+        fail("DOS.O88's part table is %r - `off` in %d-byte units. The "
+             "shipped package is laid out on PARAGRAPHS (SPEC.md 20.12.2) and "
+             "HIBER.DRV's KDH2 hand-off reads it so; a sector table here is a "
+             "DOS.O88 built against the old standard"
+             % (bytes(tbl[at:at + 8]), gran))
     # **kern_dos IS PART 1 AND THE IMAGE IS A LOADER** (SPEC.md 96.44.4). It
     # was part 0 of a package whose image was DOS itself until W9c, which
     # made the image `apps/dos/dosload.asm` and DOS part 0 - because
@@ -159,9 +166,9 @@ def main():
 
     coff, clen, czkb = row(DOS_PART_CORE)
     poff, plen, pzkb = row(DOS_PART_KD)
-    print("kdpart: 1/7 part %d is ASSET+COMP+LAZY at file sector %d, %d bytes "
-          "unpacked, %d packed" % (DOS_PART_KD, poff, plen, pzkb))
-    print("kdpart: 2/7 part %d (the CORE) at file sector %d, %d bytes "
+    print("kdpart: 1/7 part %d is ASSET+COMP+LAZY at file paragraph %d, %d "
+          "bytes unpacked, %d packed" % (DOS_PART_KD, poff, plen, pzkb))
+    print("kdpart: 2/7 part %d (the CORE) at file paragraph %d, %d bytes "
           "unpacked, %d packed" % (DOS_PART_CORE, coff, clen, czkb))
 
     # --- 2: the chain, as absolute LBA runs ----------------------------------
@@ -183,12 +190,17 @@ def main():
     for lba, cnt in runs:
         flat.extend(range(lba, lba + cnt))
 
+    # A PART STARTS ON A PARAGRAPH (SPEC.md 20.12.2), so what a reader takes
+    # is the SECTOR it starts in, (off & 31) paragraphs of head before its
+    # stream, and the sectors to the stream's end - kernel/hiber.inc's
+    # hbm_dosrun arithmetic, every term in paragraphs
     def walk(off, zkb, what):
-        need = -(-zkb // 512)
-        if off + need > len(flat):
+        sec, head = off >> 5, off & 31
+        need = (head + -(-zkb // 16) + 31) >> 5
+        if sec + need > len(flat):
             fail("%s wants file sectors %d..%d and the file has %d"
-                 % (what, off, off + need - 1, len(flat)))
-        want = flat[off:off + need]
+                 % (what, sec, sec + need - 1, len(flat)))
+        want = flat[sec:sec + need]
         ext, i = [], 0
         while i < len(want):
             j = i
@@ -207,7 +219,7 @@ def main():
     # --- 4: and the bytes ARE kern_dos ---------------------------------------
     got = b"".join(bytes(v.img[l * v.bps:(l + 1) * v.bps]) for l, _c in
                    [(s, 1) for s in want])
-    got = got[:pzkb]
+    got = got[(poff & 31) * 16:][:pzkb]
     try:
         out = os88lz.decompress(got, os88lz.LZ4, plen)
     except Exception as e:                                      # noqa: BLE001
@@ -234,7 +246,8 @@ def main():
     craw = open(CORE, "rb").read()
     try:
         cout = os88lz.decompress(
-            b"".join(bytes(v.img[l * v.bps:(l + 1) * v.bps]) for l in cwant)[:czkb],
+            b"".join(bytes(v.img[l * v.bps:(l + 1) * v.bps])
+                     for l in cwant)[(coff & 31) * 16:][:czkb],
             os88lz.LZ4, clen)
     except Exception as e:                                      # noqa: BLE001
         fail("the core part's sectors do not decompress: %s" % e)
@@ -242,20 +255,27 @@ def main():
         n = next((i for i, (a, b) in enumerate(zip(cout, craw)) if a != b), None)
         fail("the core part's bytes are not build/doscore.bin - they differ "
              "at offset %s of %d" % (n, len(craw)))
-    span = (poff - coff) + len(want)
-    bwant, bext = walk(coff, span * 512, "the combined run")
-    if bwant[:len(cwant)] != cwant or bwant[-len(want):] != want:
-        fail("the combined range %d..%d does not contain both parts' sectors "
-             "in order - hbm_dosrun's one walk would hand the stub the wrong "
-             "bytes" % (coff, coff + span - 1))
-    # KDS_CDELTA is paragraphs from the run's base to kern_dos's stream, and
-    # 512-aligned parts are what make it exact.
-    delta = (poff - coff) * 32
-    if delta * 16 + pzkb > span * 512:
+    # hbm_dosrun's ONE range: from the core's sector, (POFF - COFF) +
+    # ceil(PLEN/16) paragraphs past its head - and the stub is handed
+    # KDS_CHEAD = COFF & 31 and KDS_CDELTA = that + POFF - COFF
+    chead = coff & 31
+    delta = chead + (poff - coff)
+    bwant, bext = walk(coff, (poff - coff) * 16 + pzkb, "the combined run")
+    span = len(bwant)
+    run = b"".join(bytes(v.img[l * v.bps:(l + 1) * v.bps]) for l in bwant)
+    if delta * 16 + pzkb > len(run):
         fail("KDS_CDELTA would be %d paragraphs and the run is only %d bytes"
-             % (delta, span * 512))
+             % (delta, len(run)))
+    if (os88lz.decompress(run[chead * 16:][:czkb], os88lz.LZ4, clen) != craw
+            or os88lz.decompress(run[delta * 16:][:pzkb], os88lz.LZ4,
+                                 plen) != raw):
+        fail("the combined range from sector %d does not hand the stub both "
+             "streams at KDS_CHEAD %d and KDS_CDELTA %d paragraphs - "
+             "hbm_dosrun's one walk would hand the stub the wrong bytes"
+             % (coff >> 5, chead, delta))
     print("kdpart: 6/7 the pair is ONE range of %d sector(s) in %d extent(s), "
-          "kern_dos's stream %d paragraph(s) in" % (span, len(bext), delta))
+          "the core's stream %d and kern_dos's %d paragraph(s) in"
+          % (span, len(bext), chead, delta))
 
     # --- ...and kern_dos really does reserve the hole the core lands in -------
     # The stub expands kern_dos FIRST and the core over it, so what has to be
