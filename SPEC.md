@@ -223382,7 +223382,10 @@ engine's deepest, so it does one line's work and returns.
 step starts: `Copy buffer: 64 KB`; `System disk: drive A:`; `Formatting the
 partition` and `Mounted as C:`, or `Keeping the files on C:`; a folder as
 `NAME\`, two spaces in per level of the walk; a file as its name and its
-size in KB (rounded up) in a column — `kept` there for a kept setting
+size in KB (rounded up) in a column — the size it OCCUPIES, which is what the
+raw copy moves (§20.14.3: the engine lists with `OSAPI_FILE_FIND_RAW`, so a
+compressed file reads its packed length here and in the total, never what it
+expands to) — `kept` there for a kept setting
 (§52.10.15) and `left alone` for a system file the apps phase does not copy
 (§52.10.12); `Writing the boot sector`; `Writing the partition table`;
 `The disk starts os8088 now`; `Apps disk: drive B:`, or `No apps disk in a
