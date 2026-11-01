@@ -12827,11 +12827,11 @@ by **every slice at once**, because any of them can be the one interrupted.
     cmp byte [sch_chbusy], 0    ; nested? then the chain is already on the ROM
     jne .chskip
     inc byte [sch_chbusy]
-    mov [sch_chsave], sp
-    mov sp, sch_chstack + SCH_CHSTK
+    mov bx, sp                  ; the task's SP, in a register: the ROM's
+    mov sp, sch_chstack + SCH_CHSTK ; int 08h is an ISR and keeps every one
     pushf                       ; chain: BIOS ticks its count and sends EOI
     call far [sch_old08]
-    mov sp, [sch_chsave]
+    mov sp, bx
     dec byte [sch_chbusy]
 ```
 

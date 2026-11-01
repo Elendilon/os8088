@@ -2131,8 +2131,8 @@ sch_isr:
     cmp byte [sch_chbusy], 0    ; NESTED? (SPEC.md 8.5.1) The ROM sends its EOI
     jne .chskip                 ; and then stis, so a second IRQ0 can re-enter
                                 ; this ISR - and that one may not chain again
-                                ; on the private stack (sch_chsave is one
-                                ; word), and it is ALREADY on that stack, so
+                                ; on the private stack (the saved SP is one
+                                ; register), and it is ALREADY on that stack, so
                                 ; the switch below is refused for it too: a
                                 ; task record must never hold a private SP.
                                 ; Everything else that can land in that window
@@ -2877,8 +2877,7 @@ sch_dpcol:  resw 1                      ; the death panel's pen x (SPEC.md
                                         ; 8.8); its y is the constant SDP_Y
 sch_dphc:   resb 2                      ; one hex digit, as an ASCIIZ string
 %ifndef NO_CHAINPRIV
-sch_chsave: resw 1                      ; the task's SP across the chain...
-sch_chskip: resw 1                      ; ...how many chains a nested tick has
+sch_chskip: resw 1                      ; how many chains a nested tick has
                                         ; skipped (SPEC.md 8.5.1), so the
                                         ; "one transfer in 280" claim is a
                                         ; reading. STKDIAG publishes it.
@@ -2907,7 +2906,7 @@ fsx_task:   resb 1                      ; the fsx freeze (SPEC.md 53.2):
 fsx_worker: resb 1                      ; the kept worker's slot, 0xFF none
 %ifndef NO_CHAINPRIV
 sch_chbusy: resb 1                      ; non-zero while the ROM has the chain
-%endif                                  ; (8.5, sch_chsave above)
+%endif                                  ; (8.5, sch_chskip above)
 %ifdef KERN_BIG
 sch_rbusy:  resb 1                      ; FSXF_RATE's hook is running (53.2.2)
 %endif
