@@ -19046,6 +19046,9 @@ dvw_cmode   equ dvw_want + 19   ; 0, DVWC_TV, _SEG or _HP (96.54.5-6.1)
 dvw_ctick   equ dvw_want + 20   ; ...and the capture's tick count
 dvw_dkind   equ dvw_want + 21   ; the desktop's VID_* kind (96.54.7)
 dvw_hprow   equ dvw_want + 22   ; DVWC_HP's probe row, FFh once promoted
+%if dvw_kill != dvw_done + 1 || dvw_kt != dvw_kh + 1 || dvw_fs != dvw_closeq + 1 || dvw_frz != dvw_fsreq + 1 || dvw_gfx != dvw_parked + 1 || dvw_go != dvw_run + 1
+ %error "dvw_start (dosw.inc) clears these flags in word PAIRS: keep each pair adjacent"
+%endif
 dvw_cseg    equ dos_hbss + DOS_B_DVWC       ; word: B800h or B000h
 dvw_csview  equ dvw_cseg + 2                ; word: our CS, as TopView saw it
 dvw_sums    equ dos_hbss + DOS_B_DVWSM
