@@ -14140,6 +14140,18 @@ SOAK = [
         "clip - the poster on Hercules' own desktop framebuffer",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
+    Row("vidpreroll", "soak", py("tests/vidpreroll.py"), 20.0,
+        "SPEC.md 98.2.9.3: a ONE-BIT play from the start begins at KEY 0 "
+        "when the encoder held a pre-roll. A Hercules clip of noise over "
+        "every pixel under the tight profile, key 0 frames in: the play "
+        "from the start is based at key 0's frame + 1 from the key's record "
+        "and its first hold shows the first picture WHOLE, then it plays to "
+        "the end; and vidplay's clip, key 0 at frame 0 and poster key 1, "
+        "still starts at the first record. Broken on purpose (vp_spos's "
+        "one-bit pre-roll test taken out) it FAILS: based at 0, the paint "
+        "shown",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
     Row("vidprevshd", "soak", py("tests/vidpreview.py", "--layout", "cga",
                                  "--screen", "herc"), 70.0,
         "SPEC.md 98.3.2, 98.3.5: vidpreview's CGA clip on the Hercules "

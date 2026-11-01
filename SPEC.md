@@ -198541,9 +198541,10 @@ no longer. A file whose first frame fits is **byte-identical** to one made
 before this.
 - **A colour play** starts at key 0, past the pre-roll, so it never shows
   the paint-in, and its sound starts at the key's frame, past the silence.
-- **A mono play** starts at the stream's first record, so it shows the paint
-  of one still picture over those frames, in time with the silence. Before
-  this, the paint-in happened under the motion instead.
+- **A mono play** starts at key 0 too, since 98.2.9.3. It started at the
+  stream's first record, and so showed the paint of one still picture over
+  those frames, in time with the silence; before this, the paint-in happened
+  under the motion instead.
 - **A loop frame** (`--loop-from`) moves with the pre-roll, and a poster is
   still a keyframe index.
 - **A poster at another key no longer costs the start.** A colour play from
@@ -198625,6 +198626,44 @@ pre-roll is untouched by either, so it is byte-identical to one made before.
 `--preset modex --profile 286-speeddemon --flip`, key 0 at frame 2 and
 exactly its target. With `preroll` not charging, key 0 is at frame 1 and
 372 pixels short. Without the tone it never cut at all, so the tone stays.
+
+#### 98.2.9.3 A one-bit play starts past the pre-roll too (2026-11-01)
+
+**The owner's report was the first frames of a Hercules encode cut, the very
+first among them**, on a clip (`BrainRotHerc30.V88`, 296 x 348 MONO1 at 30
+fps) whose first picture is a full figure on white. The file was right: the
+encoder had cut frame 0 to its budgets and HELD it (98.2.9), so frames 0 and 1
+paint the picture in and key 0, at frame 2, is the picture whole. The player
+was the defect. Its three start tests - `vp_sstart` loading key 0's entry,
+the RESIDENT branch claiming the key's record and `vp_spos` picking where
+the session starts - sent a play from the start to key 0 only for colour
+(`PF_VGA8` and up) and page-ahead, so a one-bit or CGA play began at the
+stream's first record and drew the paint-in on the glass.
+
+**Now a play from the start of ANY format begins at key 0 when key 0 is past
+frame 0**, which is exactly when the encoder held a pre-roll: the records
+before it are the first picture being painted, over silence, and nothing of
+the source is skipped. **Key 0 at frame 0 keeps the first-record start**, so
+such a play draws what it drew before, from the same record, with no key
+read. What it costs that play is `vp_sstart` reading key 0's 16-byte entry
+when the poster is another key (one short read before the bracket, as a
+colour play has paid since 98.2.9), because the entry is how the player
+knows where key 0 is. **5 bytes of `video.bin` (60,147 -> 60,152) and no
+kernel byte.**
+
+`tests/vidpreroll.py` is the gate, on MartyPC's Hercules 5150: noise under
+the tight profile pre-rolls 8 frames, and the play from the start must be
+based at frame 9 from key 0's record with its first hold the picture whole;
+vidplay's clip, key 0 at frame 0 and its poster key 1, must still start at
+the first record. With `vp_spos`'s test taken out, the first leg is based at 0.
+
+**The encoder's preview follows it** (`os88vid.first_shown`, which
+`preview_frames` and the guide's video both ask): it still started a one-bit
+file at the stream's first record, so the window showed the paint-in the
+player no longer does. The same row checks it on the host, before it boots:
+the preview's first frame must be key 0's and its picture the first picture
+whole. With `first_shown` back on colour alone, it starts at frame 0 and
+3,703 bytes of the picture are missing.
 
 #### 98.2.10 What a choice sets: the presets' own defaults, and the window shows them
 
@@ -198745,9 +198784,10 @@ line is `os88vid.py title FILE "A title"`.
 CGA4, C160) starts at key 0 (98.2.9), past any pre-roll, so
 `preview_frames` starts there too (`os88vid.first_shown`). The owner's Spice
 & Wolf encode played whole and previewed half-painted, because the preview
-started at the stream's frame 0. A one-bit or composite play does start at
-frame 0 and shows the still picture being painted in, so its preview does
-too.
+started at the stream's frame 0. A one-bit or composite play used to start at
+frame 0 and show the still picture being painted in, and its preview did too;
+since 98.2.9.3 both start at key 0 in every format, and so does the guide's
+video of a file (`tools/guide/vidpreview.py`, the same function).
 
 `tests/vencguitest.py` legs 8 to 10 are the gates:
 - **Leg 8:** the steps come in order, the bar never moves back, and it

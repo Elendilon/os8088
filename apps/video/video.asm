@@ -11396,9 +11396,9 @@ vp_sstart:
     jnz .k0sel
     cmp byte [vp_flip], 2           ; (PAGE-AHEAD starts at key 0 too: its
     je .k0sel                       ; hidden page is preloaded, 98.3.8.3)
-    cmp byte [vp_pixfmt], PF_VGA8
-    jb .k0ok
-.k0sel:
+.k0sel:                             ; (EVERY format's: a one-bit play needs
+                                    ; key 0's frame to know if the encoder
+                                    ; held a PRE-ROLL, 98.2.9 - vp_spos)
     cmp word [vp_nkeys], 0
     je .k0ok
     cmp ax, [vp_kload]
@@ -11583,7 +11583,9 @@ vp_sstart:
     or ax, ax
     jnz .rkc
     cmp byte [vp_pixfmt], PF_VGA8
-    jb .tor
+    jae .rkc
+    cmp word [vp_ke+KE_K], 0        ; (one bit: key 0 past a PRE-ROLL only,
+    je .tor                         ; as vp_spos)
 .rkc:
     cmp ax, [vp_kload]
     jne .tor
@@ -12467,8 +12469,18 @@ vp_spos:
     cmp byte [vp_flip], 2           ; ...and for page-ahead, whose key 0
     je .kpick                       ; carries the hidden page PRELOADED
     cmp byte [vp_pixfmt], PF_VGA8   ; key 0 too for colour: its frame 0 may
-    jb .tos                         ; be too big for one record, and the key
-.kpick:                             ; is the whole picture
+    jae .kpick                      ; be too big for one record, and the key
+    cmp word [vp_ke+KE_K], 0        ; is the whole picture - and for ONE BIT
+    je .tos                         ; when the encoder held a PRE-ROLL
+.kpick:                             ; (98.2.9): key 0 past frame 0 means the
+                                    ; records before it are the first
+                                    ; picture PAINTED IN, cut by the budgets,
+                                    ; and starting at them showed it (the
+                                    ; owner's Hercules BrainRot, 2026-11-01).
+                                    ; At frame 0 the first record IS the
+                                    ; picture: no key read, as before. (A
+                                    ; KE_K of another key's: the vp_kload
+                                    ; test below sends it to .start)
     cmp ax, [vp_kload]
     jne .tos
     mov [vp_rdseg], dx
