@@ -1,6 +1,7 @@
 # DOS-PARTS-PLAN - what in DOS.O88 a program that does not use it should not pay for
 
-**Status: a design study. Nothing here is built.** Written on branch
+**Status: a design study. Section 4 is BUILT (the flash-free variant, 4.6);
+nothing else here is.** Written on branch
 `dos-windowed` at 2026-11-01. Every figure is marked **M** (measured on this
 tree, method below) or **E** (estimated, with what it was estimated from). An
 **E** is a promise to measure, not a fact.
@@ -117,6 +118,44 @@ saves RAM with no kernel byte. What has to change:
 | risk | **high**: 119 operands and ~45 call sites re-aimed by hand; `dvw_irq0` runs on a foreign SS inside `DVW_GAP` = 96 bytes (dosw.inc:58), so the bounce's extra frame must be counted against it; host relocation now has a second word to fix |
 | work | ~4-5 days with the audit, plus `doswlive`, `doswtwo`, `doswfs`, `doswmouse`, `doswcap`, `doswcell`, `doswspin` re-run |
 
+**C', C done MECHANICALLY (costed, not built).** C's risk is that 164
+sites are re-aimed by hand; every one of them is decidable from symbol
+OWNERSHIP, which NASM already knows. So: a two-pass build - the host is
+assembled first and its `[map]` becomes an `equ` file, so the part can name
+`con_*`/`dos_*` - and the two files are written once against four macros
+whose rule is the symbol's owner: `HCALL x` (a near call out), `HREF` (a
+`[cs:]` operand naming a host cell - the 8), `HOSTDS`/`HOSTES` (every `push
+cs / pop ds|es`, which after the move always meant the host - the ~12), and
+plain DS operands naming a PART cell rewritten to `[cs:]` (a byte each; C
+says most already are). A small host-side checker (`tools/`, at build time)
+refuses what no macro covers - an operand or `dw` naming a host symbol in any
+other form, `lea` of a host cell later used through another segment, a jump
+table - so the classifier's blind spots fail the build instead of the run.
+**The gate that makes it a translation rather than an audit**: with the
+macros' IDENTITY arm (`HCALL` = `call`, `HOSTDS` = `push cs / pop ds`) the
+host must assemble **byte-identical** to today's `dosp.bin`, which proves
+every site was found before any of them is changed. The far arm: `HCALL x`
+is `call far [cs:dvw_hx+4*n]` (5 bytes against 3) through a dword per host
+routine in the part, landing on a 4-byte resident thunk `call x / retf`;
+`HOSTDS` is `mov ds, [cs:dvw_host]` (5 against 2). Bytes, E from C's census:
+part **+~310** (45 sites x 2, ~30 dwords 120, 12 x 3, 8 `HREF`s ~64);
+resident **~+285** (30 thunks 120 + C's ~150 of entry stubs and `dvw_betab`
++ ~15 of `dos_reloc` re-aiming the ~30 segment words) against C's ~250 -
+so the saving per never-windowed instance stays **~5.0 KB**. Cycles, E: a
+far indirect call, the thunk's near call and `retf` are **~+110-130 a host
+call** on an 8088 (~25 us); `dvw_irq0`'s tick path names one host cell
+(`dos_dstk`) and calls no host routine, so it is **~+20-40 cycles a tick**,
+nothing measurable; the virtual `int 10h` makes **2-3 host calls a
+character** (`con_write`, `con_markcur`/`con_celloff`), **~+60-75 us
+against ~1.2 ms**, a **~5-6%** slower teletype - the one real price, and
+hand-written C could keep the same three routines as part-local copies
+where this cannot without a census of its own. Stack: +4 bytes per host-call
+depth against `DVW_GAP`'s 96 (the far frame and the thunk's near one). Risk:
+**medium** rather than high - the classifier is wrong LOUDLY (identity gate,
+checker) where a hand audit is wrong silently - with the residue being
+computed addresses, which the checker flags for a hand decision. Work: ~2
+days (macros, checker, gate) against C's 4-5, the same seven `dosw*` rows.
+
 **D. One overlay slot, shared with something exclusive per instance.**
 Same CS, so no `[cs:]` rewrite and no thunks - the doscore slot's own shape
 (apps/dos/doscall.inc's jump table, `doscents.inc`), plus a host-symbol
@@ -221,6 +260,8 @@ A window-less exit (CF=1 with no window) would leave nobody to call
 `PKG_START`; the flash-free version needs the kernel to POST a launch made
 from an entry proc (a `[ld_pending]`-shaped queue serviced by `ui_task`,
 ~30-60 bytes, E) and is **not** recommended against the zero-kernel rule.
+*(Superseded by 4.6: the owner asked for no flash, the queue already existed
+as `[assoc_dapp]`, and the post measured 22 bytes.)*
 
 | | |
 |---|---|
@@ -235,9 +276,108 @@ from an entry proc (a `[ld_pending]`-shaped queue serviced by `ui_task`,
 needs no fetch code in the host, and is the largest single saving in this
 document for the case it covers.
 
+### 4.6 BUILT, and measured against the kernel deciding instead
+
+The owner's ask was **no visible flash**, which 4's window-for-one-wake
+cannot give. Two designs were built far enough to measure; the first ships
+(commit 5cf63d75, SPEC.md 21.5.4 and 124.3.1), the second was prototyped
+(d3443ad1) and reverted (04c57525).
+
+**Design 1 - the loader decides, the kernel POSTS the launch.** `dsl_w16`
+in `apps/dos/dosload.asm` (under `-DDOS_WIN16`, which the dosload rule now
+gets from `$(DOSW16DEF)`) does 4's steps 1-2, then on an NE calls
+`OSAPI_PKG_START` with `WIN16.O88` and the document and REFUSES. The kernel
+half is a contract on an existing cell, not a new one: the document arm,
+called while `[ld_base]` is non-zero (from an entry proc), leaves the slot it
+already writes in `[assoc_dapp]` and returns instead of calling `assoc_run` -
+**`[assoc_dapp]` IS the queue**, the double-click's own, serviced by
+`ui_task`'s `.chk_assoc` on the next pass. `assoc_run_x`, finding it standing
+again after the load (it consumed it before), skips `ld_say_status` and
+`files_refresh` - the refusal is silent and repaints nothing. A second post
+replaces the first, which is the rule two queued double-clicks already
+have. Not NE: the locator and a *read, no NE* byte go into the host's bss
+after the core's row (`DOS_B_DOC`, `DOS_B_W16K`), `dos_entry` reads them
+instead of the spent `OSAPI_ARG_FILE`, and the first wake skips
+`dos_w16_try`; a `.LNK` clears the byte. The host's arm stays for the
+prompt, Run and `.LNK`.
+
+**Design 2 - the kernel decides which program opens the file.**
+`assoc_nesniff` in `assoc_run_x` at `.known`: when the slot is DOS's, stand
+in the document's folder (`assoc_back`), claim a cluster, `dskw_read_at_x`
+the header, and re-point an NE at WIN16's row. Built with the two slots
+HARD-CODED (rows 4 and 5); the version the brief asked for - the mapping
+named nowhere - needs an `ASSOC.DAT` row kind keyed on a signature
+(`ASC_VER` 3, a writer in `tools/os88disk.py`, the harvest and the merge
+reading it, `t_*` readers updated), which was not built. That is
+**~+80-150 more resident bytes (E**, from `asc_*`'s row-handling spans) and
+a format change. kern_small has no associations, so neither design reaches it.
+
+| | before (c714ec45) | design 1 (loader + post) | design 2 (kernel sniff, prototype) |
+|---|---:|---:|---:|
+| resident kernel bytes, kern_big / kern_emu | - | **+22** `.cold` (M, os88rdiff: 10 `ld_pkg_byname`, 12 `assoc_run_x`) | **+166** `.cold` (M) + ~80-150 for the signature row (E) |
+| kern_mega / kern_small | - | +22 `.cold`, above 1MB / **byte-identical** (M) | the same shape (E) / none |
+| loader (`dosload.bin`, ships RAW, transient) | 2,471 + 113 bss | 2,779 + 133 bss (**+308 / +20**, M) | unchanged |
+| host per DOS instance (`dosp.bin`) | 48,032 + 7,284 bss | 48,047 + 7,301 (**+15 / +17**, M) | unchanged |
+| `DOS.O88` on disk | 50,577 | **50,577** - the 512-byte padding took it (M) | 50,577; `KERNEL.SYS` +166 |
+| NE double-click to WIN16's window, 5150 CGA, 360KB B: (MartyPC) | 10.59 s, 10.79 s (two runs) | **6.13 s, 6.24 s** | **5.59 s** |
+| `int 13h` calls in that launch | 15 (19 in one run) | **10** | **9** |
+| DOS's window on the glass | frames 257-569, ~5 s | **never** (every frame stepped) | never |
+| DOS's 55,328-byte carve claimed | yes | **no** | no |
+| plain MZ (`DOSHELLO.EXE`): calls / sectors | 14 / 110 | 14 / 110 | 14 / 104 |
+| ...DOS's window up / program ended | 5.39 / 8.34 s | 5.84 / 8.58 s | 5.80 / 8.34 s |
+
+One run each per arm except where two are given, all `os8088_5150_cga_gla`
+with WIN16.O88, DOS.O88, TINY16.EXE and DOSHELLO.EXE on one 360KB B:; the
+base's two NE runs agreed to 0.2 s and its MZ runs to the frame. TINY16 on an
+8088 is WIN16's own refusal window, which is WIN16's window all the same.
+
+**What the ordinary `.EXE` pays.** Neither design adds an `int 13h` call:
+the header read moved, it did not multiply (design 1 moves the host's read
+into the loader; design 2's second read, the host's, came back without a
+call of its own). Both put that read IN FRONT of DOS's window, so the window
+is ~0.45 s later in both. Design 1's whole launch was **+0.23 s** later on
+this disk: one more seek (10 against 9, 68 cylinders against 60), because
+the loader reads the program between DOS.O88's image and its parts and the
+program's load then seeks back. It depends on where the two files sit, and
+it is the one number here that favours design 2.
+
+**Risks.** Design 1: a new contract on a published cell (SPEC.md 21.5.4,
+recorded with `tools/abilock.py`, no bump - the context was not allowed
+before); an entry proc that posts and then does NOT refuse starts both
+programs and skips its own document wake; the loader moves the instance to
+the document's folder and back (`OSAPI_FILE_GOTO_QM` twice) before
+`op_load`. Design 2: 166-300 bytes resident on every `kern_big` machine for
+ever, for a check one package's documents need; either a kernel that names
+`WIN16`/`DOS` or a format change to say it; the UI task reads the header of
+every `.COM` and `.EXE` the DOS row opens, kernel-side, and the host still
+carries its own copy of the test for the prompt.
+
+**Recommendation: design 1, as shipped.** It costs 22 resident bytes against
+166+, says nothing about WIN16 in the kernel, and gives the owner what was
+asked - no frame of DOS - with 4.5 s and five `int 13h` calls off every NE
+double-click on a 5150. Design 2 is ~0.55 s faster on the NE (it never reads
+DOS.O88's loader) and avoids the one extra seek; neither is worth 144+ bytes
+resident on every machine.
+
+**Rows.** New: **`win16nedos`** (soak, MartyPC, ~75 s; TINY16.EXE is
+assembled from `tests/win16/tiny16.asm`, so it needs neither Microsoft's
+samples nor Watcom): frame-stepped from the click, no window called DOS on
+any frame, no carve-sized claim, no toast; a plain MZ still opens DOS; an NE
+TYPED at its prompt still reaches WIN16 through the host's arm (the leg 4
+said no row had). **Red on c714ec45** (DOS's window at frame 261, carve
+55,328). To run in the final pass: `win16nedos`; `win16fpu`, `win16fpuxt`,
+`win16desk`, `win16hiber` (need `make win16fixtures`, Open Watcom);
+`win16mines`, `win16minesxt`, `win16calc`, `win16cpu`, `win16cpuxt` (need
+the win16-reference skill's Microsoft samples, `win16samples`); `win16ne`
+(fast); and DOS's launch rows that go through the loader and the hand-on:
+`dosexe`, `doscom`, `doslnk`, `dosopen`, `dosargs`, `dosmedia`, `dospkg`,
+`dosext`, `dosaltenter`, `doswlive`; `pkgrun` (the cell's called arm);
+and the association rows `assoc*`.
+
 ## 5. What it costs the loader and the kernel
 
-- **Kernel: zero** for everything recommended. `OP_SELF` rows, `OSAPI_FILE_READ_AT`,
+- **Kernel: 22 bytes of `.cold`**, section 4.6's post (kern_small none), and
+  zero for everything else recommended. `OP_SELF` rows, `OSAPI_FILE_READ_AT`,
   `OSAPI_DECOMP`, `OSAPI_MEM_P` and `OSAPI_MEM_MOVABLE` all exist; the only
   kernel options named (an in-place-only regrow, a posted launch from an entry
   proc) are refused above.
@@ -250,7 +390,7 @@ document for the case it covers.
 
 ## 6. Order of work
 
-1. Section 4, the loader's NE arm (~1 day, E). Gate: the six `win16*` rows
+1. **DONE** (4.6). Section 4, the loader's NE arm (~1 day, E). Gate: the six `win16*` rows
    plus a new prompt/`.LNK` leg.
 2. `dos_pfetch` + the network part (~2-3 days, E): ~4.3 KB a wire-less
    instance. Gate: `dospkt`, `doscable`, `dosnetarena`.
