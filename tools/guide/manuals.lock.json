@@ -476,9 +476,9 @@
    "kernel/fsck.inc",
    "apps/syscheck/disk.inc"
   ],
-  "stamped": "9e229576",
-  "strings": "08a186cbdbd91c30",
-  "why": "what it removes includes an unused COLDHMA.SYS (SPEC.md 118.8.3)"
+  "stamped": "7649165b",
+  "strings": "623cb2b108de6dbf",
+  "why": "checked against fsck.inc and disk.inc: the messages the page quotes are unchanged and it already names COLDHMA.SYS; the rewording touched none of its lines"
  },
  "FTPD_O88": {
   "sources": [
