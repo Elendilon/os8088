@@ -187666,8 +187666,19 @@ unconditional transfer.
 is the resident host's image + bss - so the windowed layer's worker loop
 (`dvw_worker`, an `OSAPI_TASK_SPAWN` entry) and its far stubs (`dvw_stubs`,
 whose `hent_dvw_fsmain` is an `OSAPI_FSX_RUN` proc) stay in the resident
-host, and so do the full-screen console's bracket entry and the 14 bytes of
-`dvw_*` cells the resident `dos_run` and `dos_wake` read.
+host, and so do the full-screen console's bracket entry (`dos_fsx_cone`, a
+bracketed jump to `dos_fsx_con`) and the 14 bytes of `dvw_*` cells the
+resident `dos_run` and `dos_wake` read.
+
+**The header says the RESIDENT host** - `image + bss` is the resident host's,
+so `I_SIZE` is too (§20.12.10.4) - and the file runs on past it with the tail.
+`os88pkg.py`'s rule that a program part ships its bss inside it refuses a part
+that stops SHORT of its own `image + bss`; one that runs longer is a tail, kept
+by the re-home's KEEP form (§20.12.10.5), which keeps to the end of the part.
+Measured where it landed, still one part: the resident host is 25,444 bytes
+(image 23,960 + bss 1,484) and the tail 19,611, `dosp.bin` 44,900 -> 45,067
+(+167: 20 brackets at 7 bytes and the paragraph pad), `DOS.O88` 52,667 ->
+52,748 and the 360KB disk's LZB copy 46,662 -> 46,758.
 
 ### 96.45 The mouse under `kern_dos`, and it was switched OFF rather than missing
 

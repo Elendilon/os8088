@@ -197,6 +197,9 @@ DOS_MWINW   equ 15                  ; `Run in a window`, in cells (96.32.2.4)
  %ifdef DOSKPART
   %ifndef DVW_NOSPLIT
    %define DVW_SPLIT
+   %ifndef DOS_NOWTAIL              ; ...and THAT host's window is the tail of
+    %define DOS_WTAIL               ; its region (DOS-HEADLESS-PLAN 4.4, SPEC.md
+   %endif                           ; 96.44.19); -DDOS_NOWTAIL is the A/B
   %endif
  %endif
 %endif
@@ -2480,6 +2483,22 @@ dos_movedown:
     ret
 %endif                              ; DOS_EXTCORE
 %ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
+%ifdef DOS_WTAIL
+; -----------------------------------------------------------------------------
+; dos_fsx_cone - Full Screen's fsx proc, RESIDENT (DOS-HEADLESS-PLAN 4.5)
+;
+; `dos_fsx_con` is the console's, so it is the tail's - and an OSAPI_FSX_RUN
+; proc above I_SIZE is REFUSED by the kernel's fence (inst_pkg_fence), I_SIZE
+; being the resident host's image + bss alone. So the slot is handed this,
+; which is below it, and the jump is bracketed like every other way into the
+; tail: a headless host never runs Full Screen, having no console to show.
+; -----------------------------------------------------------------------------
+dos_fsx_cone:
+    WIN_ONLY
+    jmp dos_fsx_con
+    WIN_END
+    ret
+%endif
 
 ; =============================================================================
 ; THE BRACKET (SPEC.md 96.2)
@@ -12046,18 +12065,22 @@ DOS_CBASE   equ os88_image_end
 %endmacro
 ; ...and a THIRD, for the window's tail (DOS-HEADLESS-PLAN 4.4): a row only
 ; the window reads, based past the tail's code at `dos_wbss` so that a host
-; with no tail holds none of it. Spelled as an offset from `dos_hbss` like an
-; HBSS row's, so every `dos_x equ dos_hbss + DOS_B_X` below reads the same
-; whichever macro declared it. With no tail it IS an HBSS row, in place.
+; with no tail holds none of it - its cell is `DOS_WB + DOS_B_X`. With no
+; tail it IS an HBSS row, in place, and DOS_WB is dos_hbss.
 %assign WB 0
 %macro WBSS 2
  %ifdef DOS_WTAIL
-    %1 equ (dos_wbss - dos_hbss) + WB
+    %1 equ WB
     %assign WB WB + %2
  %else
     HBSS %1, %2
  %endif
 %endmacro
+%ifdef DOS_WTAIL
+ %define DOS_WB dos_wbss           ; ...and the base a WBSS row's cell is at
+%else
+ %define DOS_WB dos_hbss
+%endif
 
 ; --- AND THE VERY FIRST ROW IS THE LOADER'S (SPEC.md 96.44.4) ---------------
 ; `apps/dos/dosload.asm` writes the `kern_dos` part's table row into the head
@@ -12113,19 +12136,19 @@ DOS_CBASE   equ os88_image_end
     ;     anything that wants them asks for them again rather than trusting a
     ;     paint to have run.
 %ifndef KD_BACKEND                  ; the window's own state (SPEC.md 96.43.2)
-    HBSS DOS_B_CONX,  2          ; the band's left in SCREEN px, 8-aligned
-    HBSS DOS_B_CONY,  2          ; ...its top, below the bar
-    HBSS DOS_B_CONCOLS, 2        ; ...and its size in CELLS: 80, and the rows
-    HBSS DOS_B_CONROWS, 2        ; are 25 or whatever the adapter allows
+    WBSS DOS_B_CONX,  2          ; the band's left in SCREEN px, 8-aligned
+    WBSS DOS_B_CONY,  2          ; ...its top, below the bar
+    WBSS DOS_B_CONCOLS, 2        ; ...and its size in CELLS: 80, and the rows
+    WBSS DOS_B_CONROWS, 2        ; are 25 or whatever the adapter allows
     ; --- THE TOP BAR (SPEC.md 96.32.1) --------------------------------------
-    HBSS DOS_B_PLN,   DOS_LNSZ   ; the path box's os88line block...
-    HBSS DOS_B_PATH,  DOS_PBUF   ; ...and its text, which is the only place
+    WBSS DOS_B_PLN,   DOS_LNSZ   ; the path box's os88line block...
+    WBSS DOS_B_PATH,  DOS_PBUF   ; ...and its text, which is the only place
                                  ; this DOS has ever held a PATH rather than
                                  ; a volume, a cluster and an 8.3 name
-    HBSS DOS_B_ERECT, 8          ; 'Environment' and 'Run', four words each
-    HBSS DOS_B_RRECT, 8
-    HBSS DOS_B_TVOL,  1          ; dos_path_take's scratch: the parsed volume
-    HBSS DOS_B_TNAME, 13         ; and name, held apart until the walk has
+    WBSS DOS_B_ERECT, 8          ; 'Environment' and 'Run', four words each
+    WBSS DOS_B_RRECT, 8
+    WBSS DOS_B_TVOL,  1          ; dos_path_take's scratch: the parsed volume
+    WBSS DOS_B_TNAME, 13         ; and name, held apart until the walk has
                                  ; agreed, so a typo cannot half-commit
 DOS_BTREC_SZ equ 18              ; **A MIRROR OF os88ui.inc's OS88UI_BT_SIZE**,
                                  ; and it has to be one: this block is laid
@@ -12136,26 +12159,26 @@ DOS_BTREC_SZ equ 18              ; **A MIRROR OF os88ui.inc's OS88UI_BT_SIZE**,
                                  ; which is the only thing that makes a second
                                  ; copy of a number safe
     ; --- THE SETUP AREA'S FURNITURE (SPEC.md 96.32.2), four words each -------
-    HBSS DOS_B_TRECT, 8          ; 'Return' and 'Save Shortcut', and they are
-    HBSS DOS_B_SRECT, 8          ; ADJACENT ON PURPOSE (SPEC.md 20.5.1.3): a
+    WBSS DOS_B_TRECT, 8          ; 'Return' and 'Save Shortcut', and they are
+    WBSS DOS_B_SRECT, 8          ; ADJACENT ON PURPOSE (SPEC.md 20.5.1.3): a
                                  ; button group's rects must be contiguous
                                  ; because os88ui_btnpress walks them, so this
                                  ; pair is the Setup page's group and the pair
                                  ; above is the bar's. dos_srect used to sit
                                  ; nine declarations further down
-    HBSS DOS_B_LNV,   2          ; the field's view and length as they were
-    HBSS DOS_B_LNL,   2          ; before a keystroke (os88line_edit's inputs)
-    HBSS DOS_B_LNC,   2          ; ...and its caret, which is the third of them
-    HBSS DOS_B_NCELL, 2          ; glyph cells the edits have redrawn...
-    HBSS DOS_B_NKEY,  2          ; ...over this many keystrokes
-    HBSS DOS_B_PAGE,  1          ; which page is up (DOS_PAGE_*)
-    HBSS DOS_B_BTREC, DOS_BTREC_SZ  ; the standard button record (20.5.1.4),
+    WBSS DOS_B_LNV,   2          ; the field's view and length as they were
+    WBSS DOS_B_LNL,   2          ; before a keystroke (os88line_edit's inputs)
+    WBSS DOS_B_LNC,   2          ; ...and its caret, which is the third of them
+    WBSS DOS_B_NCELL, 2          ; glyph cells the edits have redrawn...
+    WBSS DOS_B_NKEY,  2          ; ...over this many keystrokes
+    WBSS DOS_B_PAGE,  1          ; which page is up (DOS_PAGE_*)
+    WBSS DOS_B_BTREC, DOS_BTREC_SZ  ; the standard button record (20.5.1.4),
                                  ; REPOINTED per page by dos_place - one
                                  ; record, because only one page is ever up.
                                  ; DOS_B_SRECT is NOT here any more: it moved
                                  ; up beside DOS_B_TRECT, a button group's
                                  ; rects having to be contiguous
-    HBSS DOS_B_ABON,  1          ; the About card is up (SPEC.md 96.51)
+    WBSS DOS_B_ABON,  1          ; the About card is up (SPEC.md 96.51)
 %endif
     DBSS DOS_B_ERP,   2          ; the environment row being emitted
 %ifndef KD_BACKEND                  ; the window's own state (SPEC.md 96.43.2)
@@ -12165,17 +12188,17 @@ DOS_BTREC_SZ equ 18              ; **A MIRROR OF os88ui.inc's OS88UI_BT_SIZE**,
     DBSS DOS_B_CNAME, 14         ; one component of a link's working directory
     DBSS DOS_B_FBUF,  24         ; ...and OSAPI_FIND_SZ while it is looked up
 %ifndef KD_BACKEND                  ; the window's own state (SPEC.md 96.43.2)
-    HBSS DOS_B_WNAME, 14         ; ...and the name a Save dialog chose, which
+    WBSS DOS_B_WNAME, 14         ; ...and the name a Save dialog chose, which
                                  ; may NOT share dos_sbuf: the builder uses it
     HBSS DOS_B_LEND,  2          ; how many bytes of dos_lbuf are real
 %endif
     DBSS DOS_B_EBUF,  DOS_ENVN * DOS_ENVBUF   ; the environment rows...
 %ifndef KD_BACKEND                  ; the window's own state (SPEC.md 96.43.2)
-    HBSS DOS_B_ELN,   DOS_ENVN * DOS_LNSZ     ; ...and their field blocks
+    WBSS DOS_B_ELN,   DOS_ENVN * DOS_LNSZ     ; ...and their field blocks
 %endif
     DBSS DOS_B_ARGS,  DOS_ARGSZ  ; the user's arguments, NUL-terminated
     DBSS DOS_B_PBUF,  DOS_PBUF   ; ...and the program's own path, for the env
-    HBSS DOS_B_LN,    DOS_LNSZ  ; the arguments field's block (os88line.inc)
+    WBSS DOS_B_LN,    DOS_LNSZ  ; the arguments field's block (os88line.inc)
     DBSS DOS_B_HKV,   DHK_NENT * 2  ; **THE HOST'S HOOKS** (96.44.3): zero is
                                  ; "this host does not want it", which is what
                                  ; a zeroed bss already says
@@ -12221,12 +12244,12 @@ DOS_BTREC_SZ equ 18              ; **A MIRROR OF os88ui.inc's OS88UI_BT_SIZE**,
                                  ; this one collides with it
                                  ; used by the label AND by the arena figure,
                                  ; which must not disagree
-    HBSS DOS_B_MBUF,  DOS_MEMBUF ; the limit field's text...
-    HBSS DOS_B_MLN,   DOS_LNSZ   ; ...and its os88line block
-    HBSS DOS_B_MX,    2          ; the memory page's content origin, banked
-    HBSS DOS_B_MY,    2          ; for one paint
-    HBSS DOS_B_MSX,   2          ; ...and A PRESS's own x and y, banked for one
-    HBSS DOS_B_MSY,   2          ; click (SPEC.md 96.36.4). It used to ride in
+    WBSS DOS_B_MBUF,  DOS_MEMBUF ; the limit field's text...
+    WBSS DOS_B_MLN,   DOS_LNSZ   ; ...and its os88line block
+    WBSS DOS_B_MX,    2          ; the memory page's content origin, banked
+    WBSS DOS_B_MY,    2          ; for one paint
+    WBSS DOS_B_MSX,   2          ; ...and A PRESS's own x and y, banked for one
+    WBSS DOS_B_MSY,   2          ; click (SPEC.md 96.36.4). It used to ride in
                                  ; DI and BP, which worked while the only
                                  ; control on the block was os88ui_rad - every
                                  ; register preserved - and stopped working the
@@ -17599,59 +17622,59 @@ dos_prgsp   equ DOS_CBASE + DOS_B_PRGSP   ; word: the program's first SP
 dos_sv_ss   equ DOS_CBASE + DOS_B_SVSS    ; word: OUR stack, banked
 dos_sv_sp   equ DOS_CBASE + DOS_B_SVSP    ; word: ...across the far jump
 %ifndef KD_BACKEND
-dos_conx equ dos_hbss + DOS_B_CONX    ; the console band (SPEC.md
+dos_conx equ DOS_WB + DOS_B_CONX    ; the console band (SPEC.md
 %endif
 %ifndef KD_BACKEND
-dos_cony equ dos_hbss + DOS_B_CONY    ; 96.32): top-left in screen
+dos_cony equ DOS_WB + DOS_B_CONY    ; 96.32): top-left in screen
 %endif
 %ifndef KD_BACKEND
-dos_concols equ dos_hbss + DOS_B_CONCOLS ; pixels, size in CELLS, all
+dos_concols equ DOS_WB + DOS_B_CONCOLS ; pixels, size in CELLS, all
 %endif
 %ifndef KD_BACKEND
-dos_conrows equ dos_hbss + DOS_B_CONROWS ; four filled by dos_con_geom
+dos_conrows equ DOS_WB + DOS_B_CONROWS ; four filled by dos_con_geom
 %endif
 %ifndef KD_BACKEND
-dos_pln equ dos_hbss + DOS_B_PLN     ; the path box (SPEC.md 96.32.1)
+dos_pln equ DOS_WB + DOS_B_PLN     ; the path box (SPEC.md 96.32.1)
 %endif
 %ifndef KD_BACKEND
-dos_path equ dos_hbss + DOS_B_PATH    ; ...and its text
+dos_path equ DOS_WB + DOS_B_PATH    ; ...and its text
 %endif
 %ifndef KD_BACKEND
-dos_erect equ dos_hbss + DOS_B_ERECT   ; 'Environment' on the bar
+dos_erect equ DOS_WB + DOS_B_ERECT   ; 'Environment' on the bar
 %endif
 %ifndef KD_BACKEND
-dos_rrect equ dos_hbss + DOS_B_RRECT   ; ...and 'Run'
+dos_rrect equ DOS_WB + DOS_B_RRECT   ; ...and 'Run'
 %endif
 %ifndef KD_BACKEND
-dos_tvol equ dos_hbss + DOS_B_TVOL    ; dos_path_take's scratch pair
+dos_tvol equ DOS_WB + DOS_B_TVOL    ; dos_path_take's scratch pair
 %endif
 %ifndef KD_BACKEND
-dos_tname equ dos_hbss + DOS_B_TNAME
+dos_tname equ DOS_WB + DOS_B_TNAME
 %endif
 %ifndef KD_BACKEND
 %endif
 %ifndef KD_BACKEND
 %endif
 %ifndef KD_BACKEND
-dos_trect equ dos_hbss + DOS_B_TRECT   ; ...and 'Return'
+dos_trect equ DOS_WB + DOS_B_TRECT   ; ...and 'Return'
 %endif
 %ifndef KD_BACKEND
-dos_lnv equ dos_hbss + DOS_B_LNV     ; word: LN_VIEW before a key
+dos_lnv equ DOS_WB + DOS_B_LNV     ; word: LN_VIEW before a key
 %endif
 %ifndef KD_BACKEND
-dos_lnl equ dos_hbss + DOS_B_LNL     ; word: LN_LEN before a key
+dos_lnl equ DOS_WB + DOS_B_LNL     ; word: LN_LEN before a key
 %endif
 %ifndef KD_BACKEND
-dos_lnc equ dos_hbss + DOS_B_LNC     ; word: LN_CAR before a key
+dos_lnc equ DOS_WB + DOS_B_LNC     ; word: LN_CAR before a key
 %endif
 %ifndef KD_BACKEND
-dos_ncell equ dos_hbss + DOS_B_NCELL   ; word: cells the edits redrew
+dos_ncell equ DOS_WB + DOS_B_NCELL   ; word: cells the edits redrew
 %endif
 %ifndef KD_BACKEND
-dos_nkey equ dos_hbss + DOS_B_NKEY    ; word: ...over this many keys
+dos_nkey equ DOS_WB + DOS_B_NKEY    ; word: ...over this many keys
 %endif
 %ifndef KD_BACKEND
-dos_page equ dos_hbss + DOS_B_PAGE    ; byte: DOS_PAGE_*
+dos_page equ DOS_WB + DOS_B_PAGE    ; byte: DOS_PAGE_*
 %endif
 %ifndef KD_BACKEND
 ; --- the button groups' indices, PLUS ONE (os88ui_btn's convention) --------
@@ -17663,13 +17686,13 @@ DOS_BT_RUN equ 2
 DOS_BT_RET equ 1                       ; the Setup page: 'Return', then 'Save
 DOS_BT_SAV equ 2                       ; Shortcut' - a different page, so the
                                        ; numbers may repeat
-dos_btrec equ dos_hbss + DOS_B_BTREC   ; ...and the button group's record
+dos_btrec equ DOS_WB + DOS_B_BTREC   ; ...and the button group's record
 %endif
 %ifndef KD_BACKEND
-dos_srect equ dos_hbss + DOS_B_SRECT   ; ...and Save Shortcut's
+dos_srect equ DOS_WB + DOS_B_SRECT   ; ...and Save Shortcut's
 %endif
 %ifndef KD_BACKEND
-dos_abon equ dos_hbss + DOS_B_ABON    ; byte: the About card is up
+dos_abon equ DOS_WB + DOS_B_ABON    ; byte: the About card is up
 %endif
 dos_erp     equ DOS_CBASE + DOS_B_ERP     ; word: the row being emitted
 %ifndef KD_BACKEND
@@ -17681,21 +17704,21 @@ dos_sbuf equ dos_hbss + DOS_B_SBUF    ; `.\NAME.EXT` while building
 dos_cname   equ DOS_CBASE + DOS_B_CNAME   ; one path component
 dos_fbuf    equ DOS_CBASE + DOS_B_FBUF    ; OSAPI_FIND_SZ, for the walk
 %ifndef KD_BACKEND
-dos_wname equ dos_hbss + DOS_B_WNAME   ; ...the name to write it under
+dos_wname equ DOS_WB + DOS_B_WNAME   ; ...the name to write it under
 %endif
 %ifndef KD_BACKEND
 dos_lend equ dos_hbss + DOS_B_LEND    ; word: bytes of dos_lbuf read
 %endif
 dos_ebuf    equ DOS_CBASE + DOS_B_EBUF    ; the four environment rows
 %ifndef KD_BACKEND
-dos_eln equ dos_hbss + DOS_B_ELN     ; ...and their os88line blocks
+dos_eln equ DOS_WB + DOS_B_ELN     ; ...and their os88line blocks
 %endif
 dos_args    equ DOS_CBASE + DOS_B_ARGS    ; 128: the command tail the user
                                                ; typed, without its count or
                                                ; its 0Dh - both are DOS's
                                                ; framing and go on at the PSP
 dos_pbuf    equ DOS_CBASE + DOS_B_PBUF    ; the program's own path
-dos_ln equ dos_hbss + DOS_B_LN      ; the field's os88line block
+dos_ln equ DOS_WB + DOS_B_LN      ; the field's os88line block
 dos_hkv     equ DOS_CBASE + DOS_B_HKV     ; DHK_NENT words (96.44.3)
 dos_bevec   equ DOS_CBASE + DOS_B_BEVEC   ; DBE_NENT words (96.44.1)
 %ifdef DOSKPART
@@ -17753,22 +17776,22 @@ dos_mnkb equ dos_hbss + DOS_B_MNKB
 dos_msnk equ dos_hbss + DOS_B_MSNK   ; ...and the sound driver's (96.36.7.2)
 %endif
 %ifndef KD_BACKEND
-dos_mbuf equ dos_hbss + DOS_B_MBUF    ; the limit field's text
+dos_mbuf equ DOS_WB + DOS_B_MBUF    ; the limit field's text
 %endif
 %ifndef KD_BACKEND
-dos_mln equ dos_hbss + DOS_B_MLN     ; ...and its os88line block
+dos_mln equ DOS_WB + DOS_B_MLN     ; ...and its os88line block
 %endif
 %ifndef KD_BACKEND
-dos_mx equ dos_hbss + DOS_B_MX      ; word: this paint's content x
+dos_mx equ DOS_WB + DOS_B_MX      ; word: this paint's content x
 %endif
 %ifndef KD_BACKEND
-dos_my equ dos_hbss + DOS_B_MY      ; word: ...and its top
+dos_my equ DOS_WB + DOS_B_MY      ; word: ...and its top
 %endif
 %ifndef KD_BACKEND
-dos_mpx equ dos_hbss + DOS_B_MSX    ; word: a press's x, banked for one click
+dos_mpx equ DOS_WB + DOS_B_MSX    ; word: a press's x, banked for one click
 %endif
 %ifndef KD_BACKEND
-dos_mpy equ dos_hbss + DOS_B_MSY    ; word: ...and its y (SPEC.md 96.36.4)
+dos_mpy equ DOS_WB + DOS_B_MSY    ; word: ...and its y (SPEC.md 96.36.4)
 %endif
 dos_pic1    equ DOS_CBASE + DOS_B_PIC1    ; byte: the 8259 masks as found
 dos_pic2    equ DOS_CBASE + DOS_B_PIC2    ; byte:

@@ -1503,7 +1503,11 @@ dos_fsx:
                                     ; first keystroke, so this makes a leak cost
                                     ; a full screen not coming back instead
     mov byte [dos_fsxup], 1         ; ...BEFORE the bracket, so nothing between
+%ifdef DOS_WTAIL
+    mov ax, dos_fsx_cone            ; (the resident proc: the fence, 96.44.19)
+%else
     mov ax, dos_fsx_con             ; here and the mode set can reach a drawing
+%endif
     mov bx, si                      ; slot either
     xor cx, cx                      ; NO FSXF_KEEPWORKER: this DOS has no worker
     call OSAPI_FSX_RUN

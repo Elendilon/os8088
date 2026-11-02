@@ -7504,8 +7504,8 @@ $(BUILD)/dosp.bin: apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
 	        -o $@ apps/dos/dos.asm
 	$(if $(KERN_MEGA),,python3 tools/os88dvwexp.py check $(BUILD)/dosp.map)
 
-# ...and the WINDOW'S TAIL, CHECKED (docs/plans/DOS-HEADLESS-PLAN.md 4.4): the
-# same host with -DDOS_WTAIL puts everything that only SHOWS the window in a
+# ...and the WINDOW'S TAIL, CHECKED (docs/plans/DOS-HEADLESS-PLAN.md 4.4,
+# SPEC.md 96.44.19): this host puts everything that only SHOWS the window in a
 # section after the resident host, and tools/doswtail.py assembles it a second
 # time with that section moved up DOS_WSHIFT bytes - so any byte of the
 # resident host that moved with it is a reference into the tail, and outside a
@@ -7513,12 +7513,9 @@ $(BUILD)/dosp.bin: apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
 DOSPFLAGS = -f bin -w+error -I apps/ -I apps/dos/ -I drivers/net/ -I kerndos/ \
             $(if $(DOSNETCARD),-DDOSNET_CARD) -DDOSKPART -DDOS_EXTCORE \
             $(if $(KERN_MEGA),-DDOS_MEGA) $(DOSW16DEF)
-$(BUILD)/doswtail.ok: $(BUILD)/dosp.bin tools/doswtail.py
-	$(NASM) $(DOSPFLAGS) -DDOS_WTAIL -DDOSP_MAP=$(BUILD)/doswt.map \
-	        -o $(BUILD)/doswt.bin apps/dos/dos.asm
-	$(NASM) $(DOSPFLAGS) -DDOS_WTAIL -DDOS_WSHIFT=0x110 \
-	        -o $(BUILD)/doswts.bin apps/dos/dos.asm
-	python3 tools/doswtail.py check $(BUILD)/doswt.bin $(BUILD)/doswt.map \
+$(BUILD)/doswtail.stamp: $(BUILD)/dosp.bin tools/doswtail.py
+	$(NASM) $(DOSPFLAGS) -DDOS_WSHIFT=0x110 -o $(BUILD)/doswts.bin apps/dos/dos.asm
+	python3 tools/doswtail.py check $(BUILD)/dosp.bin $(BUILD)/dosp.map \
 	        $(BUILD)/doswts.bin
 	@rm -f $(BUILD)/doswts.bin
 	@touch $@
@@ -7587,7 +7584,7 @@ DOSPARTBINS = $(BUILD)/dosp.bin $(BUILD)/doscore.bin $(BUILD)/kerndos.bin \
               $(if $(KERN_MEGA),$(BUILD)/kerndosl.bin) $(BUILD)/doshelp.bin \
               $(if $(KERN_MEGA),,$(BUILD)/dosnetp.bin $(BUILD)/dossetp.bin $(BUILD)/doswp.bin)
 $(BUILD)/kdos/DOS.O88: $(BUILD)/dosload.bin $(DOSPARTBINS) tools/os88pkg.py $(PKGZSTAMP) \
-                      $(if $(KERN_MEGA),,$(BUILD)/doswtail.ok)
+                      $(if $(KERN_MEGA),,$(BUILD)/doswtail.stamp)
 	@mkdir -p $(BUILD)/kdos
 	$(OS88PKG) $(BUILD)/dosload.bin -o $@ $(addprefix --part ,$(DOSPARTBINS)) \
 		--part-compress lz4

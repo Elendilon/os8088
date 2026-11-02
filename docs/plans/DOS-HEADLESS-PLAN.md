@@ -506,6 +506,17 @@ DOS-PARTS-PLAN 1.1), and the windowed layer's resident half.
   Recorded in SPEC.md 96.44.19. The red row is SOAK and not fast, being
   about one package (docs/WRITING-TESTS.md 2.1); the every-build half is
   `make`'s own run of the checker.
+- [x] **W1, the layout** - the parted host on kern_big/kern_emu (`DVW_SPLIT`)
+  now ships as `[header + core slot][resident code][resident bss][window code]
+  [window bss]`, still one part. The resident host is **25,444 bytes** (image
+  23,960 + bss 1,484, so `I_SIZE`) and the tail **19,611**: `dosp.bin` 44,900
+  -> 45,067 (+167, M). 29 of `dos.asm`'s window rows moved to `WBSS` and the
+  console's 4.8 KB with them. Kept resident for the fence (4.5): the worker
+  loop and `dvw_stubs` (so `hent_dvw_fsmain`), and `dos_fsx_cone`, a
+  bracketed jump to Full Screen's `dos_fsx_con`, which the slot is handed
+  instead. `os88pkg.py` now refuses a program part SHORTER than its image +
+  bss rather than any other length. kern_mega, kern_small, `build/dos.bin` and
+  the core are byte-identical (`cmp`ed).
 
 Every wave is kern_big and kern_emu; kern_small and kern_mega assemble the
 one-part layout from the same source and must stay byte-identical to their
