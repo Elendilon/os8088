@@ -65,8 +65,8 @@ def one(machine, work, fails):
         fails.append("%s: no SYSCHECK.TXT on C:" % machine)
         return
     print(text)
-    if "Result: 7 broken, 6 warnings" not in text:
-        fails.append("%s: the report does not say 7 broken, 6 warnings"
+    if "Result: 7 broken, 7 warnings" not in text:
+        fails.append("%s: the report does not say 7 broken, 7 warnings"
                      % machine)
     lines = text.splitlines()
     for sev, path, word in S.EXPECT:

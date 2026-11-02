@@ -476,9 +476,9 @@
    "kernel/fsck.inc",
    "apps/syscheck/disk.inc"
   ],
-  "stamped": "cf5434c4",
-  "strings": "6ce26773f175e5f4",
-  "why": "it also serves Clean Up's driver removal, and decides itself what may go (SPEC.md 118.8.1, 118.8.2)"
+  "stamped": "9e229576",
+  "strings": "08a186cbdbd91c30",
+  "why": "what it removes includes an unused COLDHMA.SYS (SPEC.md 118.8.3)"
  },
  "FTPD_O88": {
   "sources": [
@@ -1073,9 +1073,9 @@
   "sources": [
    "apps/syscheck"
   ],
-  "stamped": "cf5434c4",
-  "strings": "cfc0da8b05182b69",
-  "why": "Clean Up's two questions: retired drivers and refused drivers through FSCHECK.DRV, what it leaves (SPEC.md 118.8.1, 118.8.2)"
+  "stamped": "9e229576",
+  "strings": "87ba51abb2228f96",
+  "why": "the second question names programs and COLDHMA.SYS (SPEC.md 118.8.3)"
  },
  "SYSTEM": {
   "sources": [],

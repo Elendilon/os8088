@@ -18,15 +18,17 @@ too (SPEC.md 118.8.2) while every driver and module it loads stays.
 
 THE PLANTED BREAKAGES, and the finding each must produce:
 
-  APPS\\OLDTIMER.O88   a package whose format byte is 8   Packages, broken
-  APPS\\JUNK.O88       not a package at all               Packages, broken
+  APPS\\OLDTIMER.O88   a package whose format byte is 8   Packages, broken, refused
+  APPS\\JUNK.O88       not a package at all               Packages, broken, refused
   APPS\\MODPLUG.O88    a retired program                  Retired, warning, removable
   APPS\\GAMES\\MINES.O88 the same program in two folders  Leftovers, warning
   KPAD.TMP            an install's pad                    Leftovers, warning, removable
   RAMDISK.DRV         driver version 9                    Drivers, broken, refused
   XMEM.DRV            the last driver version, packed     Drivers, broken, refused
   WIN95.DRV           a module from another build, packed Drivers, broken, refused
-                      (refused: Clean Up's SECOND question, SPEC.md 118.8.2)
+  COLDHMA.SYS         an HMA image of another release     Kernel, warning, refused
+                      (refused: Clean Up's SECOND question, SPEC.md 118.8.2,
+                      118.8.3)
   DEBUG.DRV           a retired driver                    Retired, warning, removable
                       (hidden + system: through FSCHECK.DRV, SPEC.md 118.8.1)
   EMS.DRV             deleted                             Release files, broken
@@ -122,6 +124,14 @@ def build_fixture(out, arg=None, geometry=None):
             img = bytearray(os88lz.cz_unwrap(open(d, "rb").read()))
             img[2] -= 1
             args.append(put("drv/XMEM.DRV", os88lz.cz_wrap(bytes(img), filt=True)[0]))
+        elif name == "COLDHMA.SYS":
+            # ...and an HMA image that is not this release's (SPEC.md
+            # 118.8.3): rom_id intact, one byte of the tail changed - what an
+            # install from a disk that stopped carrying it leaves behind
+            img = bytearray(open(d, "rb").read())
+            assert img[:8] == b"OS88ROM\0" and img[8] == 3
+            img[-1] ^= 0xFF
+            args.append(put("drv/COLDHMA.SYS", bytes(img)))
         elif name == "WIN95.DRV":
             # ...and a MODULE from another build (mod_check refuses it, SPEC.md
             # 2.8.2), packed as well. Not FORMAT.DRV: that one carries the
@@ -195,6 +205,7 @@ EXPECT = [                  # (severity, path, a word of the reason)
     ("BROKEN", r"C:\RAMDISK.DRV", "driver version 9"),
     ("BROKEN", r"C:\XMEM.DRV", "driver version 11, kernel takes 12"),
     ("BROKEN", r"C:\WIN95.DRV", "the kernel refuses it"),
+    ("WARNING", r"C:\COLDHMA.SYS", "HMA image"),
     ("BROKEN", r"C:\EMS.DRV", "missing"),
     ("WARNING", r"C:\KPAD.TMP", "install"),
     ("WARNING", r"C:\DEBUG.DRV", "retired"),
@@ -208,9 +219,11 @@ EXPECT = [                  # (severity, path, a word of the reason)
 ]
 REMOVED = ["::/KPAD.TMP", "::/APPS/MODPLUG.O88", "::/HIBERNAT.IMG",
            "::/DEBUG.DRV",          # hidden + system: FSK_DELSYS (118.8.1)
-           "::/RAMDISK.DRV", "::/XMEM.DRV", "::/WIN95.DRV"]   # (118.8.2)
+           "::/RAMDISK.DRV", "::/XMEM.DRV", "::/WIN95.DRV",   # (118.8.2)
+           "::/APPS/OLDTIMER.O88", "::/APPS/JUNK.O88",
+           "::/COLDHMA.SYS"]                                  # (118.8.3)
 KEPT = ["::/APPS/GAMES/MINES.O88", "::/APPS/MINES.O88",
-        "::/APPS/OLDTIMER.O88", "::/APPS/JUNK.O88",
+        "::/BOOTHD.SYS", "::/SYSTEM.CFG", "::/KERNEL.SYS",
         # what the kernel LOADS stays, whatever the second answer was
         "::/CTRL.DRV", "::/DISKOPS.DRV", "::/FORMAT.DRV", "::/SOUND.DRV",
         "::/HDD.DRV",
@@ -337,9 +350,9 @@ def drive(img, keep, work):
     done(1.5)
     click(*BTN_SCAN)                    # the chooser (SPEC.md 118.13) offers
     done(1.0)                           # C:, the boot hard disk: check it
-    text = save_until(img, "Result: 7 broken, 6 warnings")
+    text = save_until(img, "Result: 7 broken, 7 warnings")
     if text is None:
-        fails.append("the first report never said 7 broken, 6 warnings:\n%s"
+        fails.append("the first report never said 7 broken, 7 warnings:\n%s"
                      % report(img))
         text = report(img) or ""
     lines = text.splitlines()
@@ -364,16 +377,18 @@ def drive(img, keep, work):
     click(*ALERT_PROCEED)               # the second question (118.8.2)
     done(6.0)
     # RAMDISK.DRV and WIN95.DRV are release files, so they read as MISSING
-    # now - an install brings them back; XMEM.DRV is optional (118.2.3) and
-    # its absence is no finding at all
-    after = save_until(img, "Result: 6 broken, 1 warning")
+    # now - an install brings them back; XMEM.DRV and COLDHMA.SYS are
+    # optional (118.2.3) and their absence is no finding at all; and the two
+    # packages the loader refused are simply gone
+    after = save_until(img, "Result: 4 broken, 1 warning")
     if after is None:
-        fails.append("after Clean Up the report never said 6 broken, "
+        fails.append("after Clean Up the report never said 4 broken, "
                      "1 warning:\n%s" % report(img))
-    elif "XMEM.DRV" in after:
-        fails.append("after Clean Up the report still names XMEM.DRV")
-    elif "NOTEPAD.O88" in after:
-        fails.append("ASSOC.DAT still names NOTEPAD.O88 after Clean Up")
+    else:
+        for gone in ("XMEM.DRV", "COLDHMA.SYS", "OLDTIMER.O88", "JUNK.O88",
+                     "NOTEPAD.O88"):    # (NOTEPAD: ASSOC.DAT's stale row)
+            if gone in after:
+                fails.append("after Clean Up the report still names " + gone)
     if not keep:
         close()
     for p in REMOVED:

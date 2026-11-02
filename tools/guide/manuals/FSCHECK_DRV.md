@@ -52,7 +52,7 @@ task does not start:
 - Leave it where it is. Without it, System Check still checks a disk's
   release files, but the three disk tasks cannot start, and Clean Up
   leaves old drivers where they are.
-- It decides itself which drivers Clean Up may remove: only one on its own
-  list of drivers earlier releases shipped, or one this kernel would refuse
-  to load. It never removes the kernel or a driver or module the kernel
-  uses.
+- It decides itself which system files Clean Up may remove: a driver on
+  its own list of drivers earlier releases shipped, one this kernel would
+  refuse to load, or a `COLDHMA.SYS` the kernel is not using. It never
+  removes the kernel or a driver or module the kernel uses.

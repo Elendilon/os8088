@@ -2495,10 +2495,11 @@ OSAPI_FSK_DELSYS    equ 4        ; DX:SI -> a *.DRV name, ASCIIZ, in your
                                  ; dead itself (118.8.1, 118.8.2). AH = the
                                  ; form; no run needed, DX any segment
 FSKD_RETIRED        equ 0        ; a name on the image's own retired list
-FSKD_REFUSED        equ 1        ; a file this kernel would refuse to load as
-                                 ; a driver AND as a module; DI = a buffer
-                                 ; segment, CX = its KB, room for the file
-                                 ; EXPANDED (else FSKE_SMALL)
+FSKD_REFUSED        equ 1        ; a *.DRV this kernel would refuse to load as
+                                 ; a driver AND as a module, or a COLDHMA.SYS
+                                 ; .cold is not running from (118.8.3); DI =
+                                 ; a buffer segment, CX = its KB, room for the
+                                 ; file EXPANDED (else FSKE_SMALL)
 FSKM_FIX            equ 1        ; repair as it goes (118.14.4)
 FSKM_DEFRAG         equ 2        ; defragment after a clean check (118.14.5)
 FSKS_MORE           equ 0

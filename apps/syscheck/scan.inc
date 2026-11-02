@@ -438,6 +438,17 @@ sc_man_judge:
     or word [sc_dirty], SYD_SYS
     jmp sc_man_next
 .boot:
+    push si
+    add si, 10
+    mov di, sc_n_coldhma            ; THE HMA IMAGE (SPEC.md 2.10.7): not a
+    call sc_streq                   ; boot sector, and not this release's -
+    pop si                          ; Clean Up's second question (118.8.3)
+    jne .bootsec
+    mov si, sc_r_hmaold
+    mov ax, (SV_WARN << 8) | SC_KERN
+    call sc_manstale
+    jmp sc_man_next
+.bootsec:
     mov si, sc_r_bother
     mov ax, (SV_WARN << 8) | SC_KERN
     call sc_manaddf
@@ -927,7 +938,8 @@ sc_chkpkg:
     call OSAPI_FILE_READ_AT
     jnc .read
     mov si, sc_r_unread
-    jmp short .broken
+    xor bl, bl                      ; unreadable: the disk's, not the file's
+    jmp short .broken0
 .read:
     cmp ax, 3
     jb .damaged
@@ -946,9 +958,10 @@ sc_chkpkg:
     jmp short .broken
 .damaged:
     mov si, sc_r_damaged
-.broken:
+.broken:                            ; the loader refuses it: Clean Up's
+    mov bl, FL_STALE                ; second question (SPEC.md 118.8.3)
+.broken0:
     mov ax, (SV_BROKEN << 8) | SC_PKG
-    xor bl, bl
     mov dx, [sc_curfold]
     call sc_addf
 .named:
@@ -1833,6 +1846,7 @@ sc_n_assoc:   db 'ASSOC.DAT', 0
 sc_n_cfg:     db 'SYSTEM.CFG', 0
 sc_n_kpad:    db 'KPAD.TMP', 0
 sc_n_boothd:  db 'BOOTHD.SYS', 0
+sc_n_coldhma: db 'COLDHMA.SYS', 0
 sc_n_hptr:    db 'HIBERNAT.PTR', 0
 sc_n_himg:    db 'HIBERNAT.IMG', 0
 sc_x_o88:     db '.O88', 0
@@ -1859,6 +1873,7 @@ sc_r_kempty:   db 'empty - an install stopped part way', 0
 sc_r_kother:   db 'not this release', 39, 's - install again', 0
 sc_r_bmiss:    db 'missing - only an install reads it', 0
 sc_r_bother:   db 'not this release', 39, 's boot sector', 0
+sc_r_hmaold:   db 'not this release', 39, 's HMA image', 0
 sc_r_notboot:  db 'not one sector ending 55AA', 0
 sc_r_differs:  db 'differs from this release', 0
 sc_r_missing:  db 'missing - install again', 0

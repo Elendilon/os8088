@@ -383,3 +383,33 @@ now.
 After both answers the report is honest rather than tidy: `RAMDISK.DRV` and
 `WIN95.DRV` read as *missing - install again*, which they are, and the old
 `XMEM.DRV` is simply gone, being an optional file.
+
+### ...and programs that will not load, and an old COLDHMA.SYS
+
+The owner's install had two more files nothing would ever replace: an old
+`DOLDEL.O88` built for an earlier package format and no longer on the 360KB
+apps disk, and a `COLDHMA.SYS` the 360KB system disk stopped shipping. Both
+now go on Clean Up's second question, which reads *refused files* rather
+than *refused drivers*.
+
+A package is the easy half: it is a visible file, the scan has already read
+the header the loader would reject, and an ordinary delete does it. The
+associations are refreshed after, so a program that was removed does not
+come back as the next scan's finding.
+
+`COLDHMA.SYS` is the awkward one. It is hidden and system, so it has to go
+through the engine, and its header carries **no build key**: whether it fits
+this kernel is a hash over `.text` that only its own install routine takes.
+So the engine judges two facts it can check - the file is an HMA image, and
+`.cold` is not running from it this boot - and leaves "is it this
+release's" to System Check's manifest. Deleting a current one by mistake
+would cost a 286 heap until the next install, never a boot.
+
+**The bug that took the time** was eight bytes long. The new 11-byte name
+compare ended `inc si / inc di / loop`, and `inc` sets ZF - so after a FULL
+match the flags said *different*, and every `COLDHMA.SYS` was refused. It
+was found by having a temporary build write a checkpoint and a copy of the
+parsed name into kernel memory and reading both back off the running
+machine: the name was right, so the compare was wrong. The older
+retired-list loop has the same shape and is immune only because it ends in
+an unconditional jump.
