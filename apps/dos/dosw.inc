@@ -803,6 +803,15 @@ dvw_runprog:
     mov word [dos_hkv + DHK_SNAP], HENT(dvw_fin)
     ; --- THE PROGRAM'S WORLD, PRIMED FROM THE DESKTOP'S ------------------------
     cli
+    in al, 0x21                     ; **WHAT THE RUN MAY LEAVE BEHIND, AS IT
+    mov [dos_pic1], al              ; FOUND IT** (SPEC.md 96.54.12): the mask
+    push ds                         ; and the whole table, into the core's
+    xor si, si                      ; bracket cells - dvw_mend's, at the end.
+    mov ds, si                      ; ES is the host's (the door copy above)
+    mov di, dos_ivt
+    mov cx, 512
+    rep movsw   ; DVWCHK-OK: the live IVT (DS 0) -> the host's dos_ivt (ES)
+    pop ds
     mov bx, PADDR(dvw_xblk)                ; the program's block = the live table,
     mov dx, bx                      ; so every vector we do not own starts
     call dvw_copy                   ; the same (BX = DX: a GET alone)
@@ -911,11 +920,79 @@ dvw_fin:                            ; DHK_SNAP, from dos_prog_done
                                     ; dvw_wake, after the run's LAST pass)
     cli
     call dvw_xout
+    call dvw_mend                   ; ...and what the world never held
     sti
     mov word [dos_hkv + DHK_SNAP], dos_snap
     call dwm_stop                   ; the bracket's INT 33h hooks (96.54.4)
     HCALL dos_be_bind
 
+    ret
+
+; -----------------------------------------------------------------------------
+; dvw_mend - the machine state a run can leave OUTSIDE its world (SPEC.md
+; 96.54.12); in: DS = the host, IF = 0, the world out, dvw_runprog's bank in
+; dos_ivt and dos_pic1; out: every register preserved
+;
+; Galaxy Trek closed in the middle of a note left channel 0 at 32 times the
+; tick rate for the rest of the session (a slow machine, a 15 ms double-click,
+; every tick-timed wait short) - the exchange gives IVT 08h back and nothing
+; gives the PIT back. So: channel 0 the kernel's; every vector whose segment
+; lies in the arena - code that is about to be freed - its banked value; and
+; the mask the banked one's live levels, plus its bit for a level whose vector
+; went back. A vector the program did not leave in its own memory is not
+; touched, so a driver mounted meanwhile keeps its hook.
+; -----------------------------------------------------------------------------
+dvw_mend:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    push es
+    mov al, 0x34                    ; channel 0: mode 2, divisor 0 - the
+    out 0x43, al                    ; bytes dos_restore_machine writes (96.5.3)
+    xor ax, ax
+    out 0x40, al
+    out 0x40, al
+    mov es, ax
+    mov si, dos_ivt
+    xor di, di
+    xor bx, bx                      ; BL: the IRQ levels whose vector went back
+.v:
+    mov ax, [es:di + 2]
+    sub ax, [dos_arena]
+    cmp ax, [dos_apara]
+    jae .next                       ; not the program's memory: not ours
+    mov ax, [si]
+    mov [es:di], ax
+    mov ax, [si + 2]
+    mov [es:di + 2], ax
+    lea ax, [di - 0x08 * 4]
+    cmp ax, 8 * 4
+    jae .next                       ; not an IRQ's (08h-0Fh)
+    mov cl, 2
+    shr ax, cl
+    xchg ax, cx
+    mov al, 1
+    shl al, cl
+    or bl, al
+.next:
+    add si, 4
+    add di, 4
+    cmp di, 0x400
+    jb .v
+    mov ah, [dos_pic1]
+    and bl, ah                      ; put back and masked then: masked again
+    in al, 0x21
+    and al, ah                      ; live then: live again
+    or al, bl
+    out 0x21, al
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; the video block a mode-3 screen leaves in 0040:0049..0066, then 0084..0089
