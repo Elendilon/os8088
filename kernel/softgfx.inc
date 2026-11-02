@@ -1016,7 +1016,7 @@ sw_fill_pat:
 ;             row byte from gfx_patbuf by (y & 7):
 ;             dest = dest ^ ((dest ^ pat) & mask)
 ; in:       CL = mask, DI = top byte, ES = plane; vga_* rect scratch
-; clobbers: AX, BX, DI, flags (preserves SI and CX)
+; clobbers: AX, BX, BP, DI, flags (preserves SI and CX)
 ;
 ; A CONTRACT CHANGE, and there are exactly two callers, both in sw_fill_pat
 ; above (grepped over kernel/, apps/, drivers/, tools/, tests/). Neither reads
@@ -1024,13 +1024,16 @@ sw_fill_pat:
 ; instructions are `mov si,[gfx_rspan] / or si,si / jz .done` and then
 ; `mov di,[gfx_roff]`, and after the right column `dec si / jz .done /
 ; mov di,[gfx_roff] / inc di / mov bx,[gfx_ry1]` - DI and BX both written
-; before any read. SI IS live across the second call (that `dec si`), so its
-; pair stays; reloading it instead would cost 4 bytes to save 2. This is what
-; sw_col already does and documents.
+; before any read. SI IS live across the second call (that `dec si`), so the
+; row count is kept in BP, which neither caller reads until it loads it for
+; the interior. This is what sw_col already does and documents.
 ; -----------------------------------------------------------------------------
 sw_patcol:
-    push si
-    mov si, [gfx_rrows]
+    mov bp, [gfx_rrows]         ; BP counts, not SI (kernel size pass 17, -2):
+                                ; the caller writes BP only after both calls
+                                ; (`mov bp, [gfx_rrows]` for the interior),
+                                ; and gfx_nextrow touches DI alone, so SI's
+                                ; push/pop pair went
     mov bx, [gfx_ry1]
     and bx, 7
 .row:
@@ -1043,9 +1046,8 @@ sw_patcol:
     inc bx
     and bx, 7
     call gfx_nextrow
-    dec si
+    dec bp
     jnz .row
-    pop si
     ret
 
 

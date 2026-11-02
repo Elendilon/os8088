@@ -540,6 +540,11 @@ fsx_run:
     clc
 .out:
     jmp kret_di
+fsx_mfail:                      ; fsx_mode's refusal, HERE rather than behind a
+    stc                         ; `jmp short .tests` trampoline inside it: its
+    jmp short fsx_run.out       ; tests reach this backward in two bytes, and
+                                ; fsx_run's own exit is the kret_di it wants
+                                ; (kernel size pass 17, -3)
 
 ; -----------------------------------------------------------------------------
 ; fsx_restore - one path home (SPEC.md 53.6, order binding)
@@ -575,15 +580,10 @@ fsx_run:
 ; -----------------------------------------------------------------------------
 fsx_mode:
     call kent_di                ; = push ax/bx/cx/dx/si/di
-    jmp short .tests            ; the refusal trampoline, fsx_run's - and for
-.fail:                          ; the same reason: `.fail` is a NASM local and
-    stc                         ; must stay inside the routine that owns it
-    jmp .out
-.tests:
     call fsx_mine               ; a bracket, and ours (SPEC.md 53.1)
-    jne .fail
+    jne fsx_mfail
     cmp al, FSXM_COUNT
-    jae .fail
+    jae fsx_mfail
     mov bl, [vid_kind]          ; the caps bit - the same predicate the
 %ifdef KERN_BIG                 ; app's greying used (SPEC.md 47), and for
     mov ah, EXTF_KIND           ; THE DISPLAY THIS BRACKET IS ON rather than
@@ -600,7 +600,7 @@ fsx_mode:
     mov cl, al
     shr bx, cl                  ; ...the id's bit down to bit 0...
     shr bx, 1                   ; ...and into CF. TWO shifts, not one variable
-    jnc .fail                   ; one: `shr bx, cl` with CL = 0 leaves the
+    jnc fsx_mfail                   ; one: `shr bx, cl` with CL = 0 leaves the
                                 ; flags alone on an 8086, so the fixed shift
                                 ; is what actually sets CF. Do not fold them
 

@@ -1588,10 +1588,9 @@ gfx_bitset: db 0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01
 ; it is an EMPTY box, so the caller skips the pixel and re-resolves at the
 ; next one. Preserves every register.
 gfx_ls_box:
-    push ax
-    push cx
-    push di
-    CLIPQ
+    push ax                     ; (no DI bank, kernel size pass 17, -2: nothing
+    push cx                     ; here writes DI, and CLIPQ's gfx_clip_query
+    CLIPQ                       ; keeps every register)
     ; NO REGION: the box is the ACTIVE DISPLAY's own extent, in VIRTUAL space
     ; (SPEC.md 5.6.9.5) - which on display 0, and on every one-card machine,
     ; is the screen exactly as it always was.
@@ -1702,7 +1701,6 @@ gfx_ls_box:
     or byte [gfx_pt_f], PT_OOB
 %endif
 .out:
-    pop di
     pop cx
     pop ax
     ret
@@ -4012,11 +4010,10 @@ gfx_xor_rect_d:
     GFXDLEAVE
 .pops:                          ; (softgfx.inc's sw_xfer leaves through here:
     pop bp                      ; the same five registers, once a save or a
-    pop dx                      ; restore rather than once a primitive)
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_dx                 ; restore rather than once a primitive). The
+                                ; ladder's DX rung pops the other four
+                                ; (kernel size pass 17, -2: once an outline,
+                                ; a save or a restore, ~15 clocks)
 
 ; -----------------------------------------------------------------------------
 ; gfx_xor_strips - AN OUTLINE AS FOUR FILLED STRIPS, once (SPEC.md 5)

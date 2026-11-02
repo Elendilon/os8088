@@ -1790,8 +1790,10 @@ vid_disp_find:
 ; sentence applied one field further.
 ; -----------------------------------------------------------------------------
 vid_disp_planes:
-    push ax
-    push di
+    push ax                     ; (no DI bank, kernel size pass 17, -2: both
+                                ; callees keep it - vid_disp_of's
+                                ; vid_disp_find pushes its own, vid_kind_of
+                                ; brackets its vid_ctx_ptr)
     call vid_disp_of            ; AL = the display holding it...
     call vid_kind_of            ; ...and AL = that display's adapter
     mov cx, 1
@@ -1806,7 +1808,6 @@ vid_disp_planes:
     mov cx, [vx_bpp]            ; sized in packed bytes
 %endif
 .out:
-    pop di
     pop ax
     ret
 
