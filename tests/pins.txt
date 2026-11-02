@@ -101,14 +101,6 @@ N kernel/mega.inc MEM_K_MTBL             # kern_mega's descriptor tables (82KB o
                                          # opens a hole over it (NO-PINNING-PLAN
                                          # 5 #6). K3, deferred as niche (a 286
                                          # with under 192KB of extended memory)
-N kernel/stikmenu.inc MEM_K_MOD          # the Sticky Apps panel's SECOND save-
-                                         # under ([stm_sseg2]), held while the
-                                         # panel is open - a user wait. The first
-                                         # one is menu_drop's and moves
-                                         # (menu_reloc); this one has no proc, and
-                                         # it is tagged MEM_K_MOD though it is no
-                                         # module, so the runtime half would read
-                                         # it as one
 
 # --- drivers -------------------------------------------------------------------
 
