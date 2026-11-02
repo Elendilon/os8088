@@ -97,7 +97,7 @@ KERNEL_SEG  equ KD_SEG          ; ...and the kernel's own files call it this
 ; so the knob pays a kilobyte over the shipped rung exactly as it did.
 %ifndef KD_MEGA                 ; (kern_mega's arm is below this one)
 %ifdef DOSR_MARK                ; SPEC.md 96.49's resume trace is 542 bytes
-KD_IMG_KB   equ 34              ; and the shipped image has 133 of its rung
+KD_IMG_KB   equ 35              ; and the shipped image has 133 of its rung
 %else                           ; left: the KNOB pays the kilobyte, as a DOS
                                 ; program on a trace build, and no shipped one
 KD_IMG_KB   equ 34              ; 34 until SPEC.md 96.11.7's character devices
@@ -105,6 +105,8 @@ KD_IMG_KB   equ 34              ; 34 until SPEC.md 96.11.7's character devices
 ; **33 -> 34 FOR SPEC.md 96.56**, WordPerfect 4.1's FCB file calls: the core
 ; grew 527 bytes against the 133 left, MEASURED 34,266 of 34,816. The knob
 ; arm stays 34 and fits by 8 (34,808): its kilobyte is now the shipped one's.
+; **AND THE KNOB 34 -> 35 FOR SPEC.md 96.56.2**, Galaxy Trek's 14h/21h/24h:
+; CORE_MAX +144 against the knob's 8. The SHIPPED arm stays 34 - it had ~550.
 ; **kern_mega's kern_dos IS A KILOBYTE BIGGER, and only kern_mega's**
 ; (SPEC.md 96.15.4, docs/plans/completed/KERN-MEGA-DOS-PLAN.md 6, 12.1 item 4): the XMS
 ; door over the arena is 842 bytes of code and 98 of bss (kerndos/kdxms.inc),
