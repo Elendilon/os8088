@@ -7348,6 +7348,20 @@ SOAK = [
         "14h and 24h pointed back at .bad.",
         needs=("marty",),
         wants=("build/os8088-360.img",)),
+    Row("dosfcbwr", "soak", py("tests/dosfcbwr.py"), 40.0,
+        "THE REST OF THE FCB FAMILY ANSWERS WHAT IBM DOS 3.30 ANSWERS (SPEC.md "
+        "96.56.3). 96.56.1/96.56.2 left 15h, 22h, 17h, 23h and 12h at .bad's "
+        "AX=0001, which an FCB call reads as AL=01 - end of file, no more. "
+        "tests/dostrap/fcbwr.asm writes (15h/22h/28h, the size in the FCB), "
+        "renames by name and by pattern, sizes in records, walks a find with "
+        "12h, uses an EXTENDED FCB's attribute on find/make/open/delete, and "
+        "reads the PSP's two FCBs - parsed from `FOO.TXT Z:BAR` at the top "
+        "and copied from an EXEC's block in a child - plus 1Ah/2Fh's AX and "
+        "2Eh/54h. The table is that binary MEASURED under IBM DOS 3.30 "
+        "(`--ref` re-takes it). VERIFIED TO FAIL with the calls pointed back "
+        "at .bad.",
+        needs=("marty",),
+        wants=("build/os8088-360.img",)),
     Row("dosfcb", "soak", py("tests/dosfcb.py"), 20.0,
         "AH=29h PARSES A NAME INTO AN FCB, exactly as DOS does (SPEC.md "
         "96.28). THE CARRY IS THE ROW: unimplemented, the call fell to the "
