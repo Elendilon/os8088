@@ -1115,9 +1115,9 @@
   "sources": [
    "apps/taskmgr"
   ],
-  "stamped": "086f52d4",
+  "stamped": "e353077e",
   "strings": "cd3e0dc061f03cd1",
-  "why": "Memory page on the protected-mode build: System is the first 640K and System>1MB everything above (drivers included), the map shows the whole machine in two boxes, ADDR is a five-digit address above 1MB; IVT+BIOS and System HMA described as the rows they are"
+  "why": "Memory page: resting the pointer on the map lights the row that holds that memory (SPEC.md 28.4.16) - which row, System standing for its closed members, front window only, unlit rows; the open size checked against image+bss 14,514 (about 15K)"
  },
  "TELNET_O88": {
   "sources": [
