@@ -6866,6 +6866,17 @@ SOAK = [
         "answers first and the Goto dialog stays open",
         needs=("marty",),
         wants=("build/office360.img",)),
+    Row("doshead", "soak", py("tests/doshead.py"), 75.0,
+        "HEADLESS DOS (SPEC.md 96.44.20): a .LNK saved ShowCommand 7 runs its "
+        "program with no DOS window - the LOADER marks part 1, the window, "
+        "lazy, so the claim DOS runs in is part 0's length, the arena is the "
+        "window's ~19 KB larger, and the instance ends with the program in a "
+        "toast (`Exit 42: DOSHELLO.COM`). Two fresh boots on the 5150 CGA, the "
+        "same link with ShowCommand 7 and 1, and the windowed leg is the "
+        "control; each prints the guest seconds and int 13h calls to READY. "
+        "Red with the loader's flip taken out (OS88_DOSHEAD_SYS)",
+        needs=("marty",), serial=True,
+        wants=("build/DOSHELLO.COM",)),
     Row("doscom", "soak", py("tests/doscom.py"), 30.0,
         "THE DOS WAVE-1 GATE (SPEC.md 96): double-click a .COM in a Disk "
         "window and assert a real DOS program RAN - its own output on the "
@@ -8060,6 +8071,18 @@ SOAK = [
         wants=("build/kdos/DOS.O88", "build/DOSHELLO.COM", "build/kernel.sys",
                "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
                "build/ctrl.drv", "build/hdd.drv")),
+    Row("doswtail", "soak", py("tests/unit/t_doswtail.py"), 1.2,
+        "THE DOS WINDOW'S TAIL IS A GATE THAT GOES RED (docs/plans/"
+        "DOS-HEADLESS-PLAN.md 4.4). The parted host puts everything that only "
+        "shows the window in a section after the resident host, and a "
+        "headless launch never loads it - so a reference into it from the "
+        "resident host names FREE MEMORY, on the one path no windowed row "
+        "runs. Every `make` checks the host with tools/doswtail.py (the same "
+        "host assembled with the tail moved, and every resident byte that "
+        "moved with it outside a WIN_ONLY bracket fails); this row assembles "
+        "it with one bracket's test taken out - the first, then one in the "
+        "middle - and asserts the checker goes red each time. nasm only",
+        needs=("nasm",)),
     Row("dosbss", "soak", py("tests/unit/t_dosbss.py"), 1.7,
         "THE DOS CORE'S bss IS AT THE SAME OFFSETS IN EVERY HOST (SPEC.md "
         "96.44.2). docs/plans/KERN-DOS-PLAN.md 4.1.3 puts the INT 21h core in "

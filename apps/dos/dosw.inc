@@ -566,6 +566,7 @@ dvw_serve:
     PCALL dvw_post
     dw %1
 %endmacro
+WIN_CODE                            ; the window's (DOS-HEADLESS-PLAN 4.4)
 dvw_betab:
     dw .goto, .read, .find, .rdat, .write
     dw .append, .delete, .dfree, .mkdir, .rmdir
@@ -599,6 +600,7 @@ dvw_betab:
  %error "dvw_betab has drifted from DBE_NENT: every door in dos_betab needs a slot here, in the same order"
 %endif
 
+WIN_CODE_END
 %endif                              ; [R]
 %ifndef DVW_SPLIT                   ; --- [P] -------------------------------
 ; -----------------------------------------------------------------------------

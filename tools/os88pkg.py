@@ -926,9 +926,15 @@ def lay_out_parts(out: bytearray, table: int, rows: int, parts,
         # one shape it cannot help is a part that is compressed (its length
         # here is the UNPACKED figure, which is the one the rule is about, so
         # it works there too).
+        #
+        # A PART MAY RUN ON PAST ITS PROGRAM, and that is not this failure: a
+        # TAIL the program reaches for itself - DOS.O88's window when it rides
+        # in part 0 (SPEC.md 96.44.19) - is bytes after the image + bss, kept
+        # by the re-home's KEEP form and outside I_SIZE on purpose. Only a part
+        # that stops SHORT of its own image + bss is the unpadded one.
         if len(body) >= 12 and body[:2] == b"O8" and body[2] == PKG_FMT:
             pimg, pbss = struct.unpack_from("<HH", body, 8)
-            if pimg + pbss != len(body):
+            if pimg + pbss > len(body):
                 fail(f"part {i} is a v3 package image (SPEC.md 20.12.10) and "
                      f"its header says image {pimg} + bss {pbss} = "
                      f"{pimg + pbss}, but the file is {len(body)} bytes. A "

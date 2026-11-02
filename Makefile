@@ -7487,7 +7487,7 @@ DOSW16DEF := $(if $(KERN_MEGA)$(KERN_SMALL),,-DDOS_WIN16)
 # nothing else: the standard's 800-byte body is NOT emitted, because this part
 # is never read by op_load - the handoff walks its bytes into extents and the
 # stub reads them with int 13h (docs/plans/KERN-DOS-PLAN.md §4.1.1).
-$(BUILD)/dosp.bin: apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
+$(BUILD)/dospw.bin: apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
                    apps/dos/doshelp.asm apps/os88pself.inc apps/dos/dosset.inc \
                    apps/dos/dosc.inc apps/dos/dosw.inc apps/dos/doswm.inc apps/dos/doswabi.inc apps/dos/doswr.inc apps/dos/dosw16.inc apps/dos/dosnetabi.inc apps/dos/dospktabi.inc apps/dos/dospkt.inc \
                    apps/os88api.inc apps/dos/doscall.inc \
@@ -7503,6 +7503,35 @@ $(BUILD)/dosp.bin: apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
 	        $(if $(KERN_MEGA),-DDOS_MEGA) $(DOSW16DEF) -DDOSP_MAP=$(BUILD)/dosp.map \
 	        -o $@ apps/dos/dos.asm
 	$(if $(KERN_MEGA),,python3 tools/os88dvwexp.py check $(BUILD)/dosp.map)
+
+# ...cut into PART 0, the resident host - and on kern_mega, whose host has no
+# tail, the assembly IS part 0
+$(BUILD)/dosp.bin: $(BUILD)/dospw.bin tools/doswtail.py
+	$(if $(KERN_MEGA),cp $(BUILD)/dospw.bin $@,python3 tools/doswtail.py cut \
+	        $(BUILD)/dospw.bin $(BUILD)/dosp.map $@ $(BUILD)/doswin.bin)
+
+# ...THE WINDOW, as PART 1 of DOS.O88 (SPEC.md 96.44.19): the same assembly's
+# tail, cut off at `.wtext`'s first byte by the recipe above. Part 0 is the
+# resident host to the end of its bss and this follows it in the carve, so it
+# lands at CS:roundup16(part 0's length) - the offset it was assembled at -
+# and every call between the two stays near. kern_mega's host has no tail.
+$(BUILD)/doswin.bin: $(BUILD)/dosp.bin ;
+
+# ...and the WINDOW'S TAIL, CHECKED (docs/plans/DOS-HEADLESS-PLAN.md 4.4,
+# SPEC.md 96.44.19): this host puts everything that only SHOWS the window in a
+# section after the resident host, and tools/doswtail.py assembles it a second
+# time with that section moved up DOS_WSHIFT bytes - so any byte of the
+# resident host that moved with it is a reference into the tail, and outside a
+# WIN_ONLY bracket it FAILS the build. kern_mega's host has no tail.
+DOSPFLAGS = -f bin -w+error -I apps/ -I apps/dos/ -I drivers/net/ -I kerndos/ \
+            $(if $(DOSNETCARD),-DDOSNET_CARD) -DDOSKPART -DDOS_EXTCORE \
+            $(if $(KERN_MEGA),-DDOS_MEGA) $(DOSW16DEF)
+$(BUILD)/doswtail.stamp: $(BUILD)/dosp.bin tools/doswtail.py
+	$(NASM) $(DOSPFLAGS) -DDOS_WSHIFT=0x110 -o $(BUILD)/doswts.bin apps/dos/dos.asm
+	python3 tools/doswtail.py check $(BUILD)/dospw.bin $(BUILD)/dosp.map \
+	        $(BUILD)/doswts.bin
+	@rm -f $(BUILD)/doswts.bin
+	@touch $@
 
 # ...and the WINDOWED LAYER as a part (SPEC.md 96.54.9), the SECOND pass of a
 # two-pass build: the host above writes its map, the checker refuses any
@@ -7522,7 +7551,7 @@ $(BUILD)/doswp.bin: apps/dos/doswp.asm apps/dos/dosw.inc apps/dos/doswm.inc \
 # ...and the SETUP PAGE as a part (SPEC.md 96.32.2.3): the same assembly with
 # -DDOS_SETEMIT, which appends apps/dos/dosset.inc after every byte of the
 # host in a section of its own. tools/dossetchk.py checks that the host half
-# IS $(BUILD)/dosp.bin, that no near branch leaves the part (nasm resolves one
+# IS $(BUILD)/dospw.bin (both parts), that no near branch leaves the part (nasm resolves one
 # into the host silently), and cuts the part off. kern_mega's DOS.O88 keeps the
 # page inline, so this is not built into it.
 $(BUILD)/dossetp.bin: $(BUILD)/dosp.bin tools/dossetchk.py apps/dos/dos.asm \
@@ -7533,7 +7562,7 @@ $(BUILD)/dossetp.bin: $(BUILD)/dosp.bin tools/dossetchk.py apps/dos/dos.asm \
 	$(NASM) -f bin -w+error -I apps/ -I apps/dos/ -I drivers/net/ \
 	        -I kerndos/ $(if $(DOSNETCARD),-DDOSNET_CARD) -DDOSKPART -DDOS_EXTCORE \
 	        $(DOSW16DEF) -DDOS_SETEMIT -o $(BUILD)/dossetx.bin apps/dos/dos.asm
-	python3 tools/dossetchk.py $(BUILD)/dossetx.bin $(BUILD)/dosp.bin $@
+	python3 tools/dossetchk.py $(BUILD)/dossetx.bin $(BUILD)/dospw.bin $@
 	@rm -f $(BUILD)/dossetx.bin
 
 # --- THE CORE, ON ITS OWN (SPEC.md 96.44) -----------------------------------
@@ -7564,10 +7593,12 @@ $(BUILD)/doscore.bin: apps/dos/doscore.asm apps/dos/dos.asm apps/dos/dosh.inc ap
 # itself was it. The loader is 1,812 bytes and the two heavy pieces are parts,
 # both compressed: the windowed DOS as OP_SEG|OP_COMP and kern_dos as
 # OP_ASSET|OP_COMP|OP_LAZY, the pairing 20.12.7.4 had to unrefuse.
-DOSPARTBINS = $(BUILD)/dosp.bin $(BUILD)/doscore.bin $(BUILD)/kerndos.bin \
+DOSPARTBINS = $(BUILD)/dosp.bin $(if $(KERN_MEGA),,$(BUILD)/doswin.bin) \
+              $(BUILD)/doscore.bin $(BUILD)/kerndos.bin \
               $(if $(KERN_MEGA),$(BUILD)/kerndosl.bin) $(BUILD)/doshelp.bin \
               $(if $(KERN_MEGA),,$(BUILD)/dosnetp.bin $(BUILD)/dossetp.bin $(BUILD)/doswp.bin)
-$(BUILD)/kdos/DOS.O88: $(BUILD)/dosload.bin $(DOSPARTBINS) tools/os88pkg.py $(PKGZSTAMP)
+$(BUILD)/kdos/DOS.O88: $(BUILD)/dosload.bin $(DOSPARTBINS) tools/os88pkg.py $(PKGZSTAMP) \
+                      $(if $(KERN_MEGA),,$(BUILD)/doswtail.stamp)
 	@mkdir -p $(BUILD)/kdos
 	$(OS88PKG) $(BUILD)/dosload.bin -o $@ $(addprefix --part ,$(DOSPARTBINS)) \
 		--part-compress lz4

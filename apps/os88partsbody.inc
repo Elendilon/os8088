@@ -1055,8 +1055,8 @@ op_unpack:
 ; has there and CF its answer.
 .zfill:
     call op_unpto               ; ES = the landing, BX = the stream
-    push ds                     ; [bp+8] ours
-    push bp                     ; [bp+6] the landing's paragraph
+    push ds                     ; [bp+14] ours
+    push bp                     ; [bp+12] the landing's paragraph
     mov ax, [si+OP_R_LEN]
     mov cx, [si+OP_R_ZKB]
     mov dl, [op_table + OP_T_FMT]
@@ -1071,6 +1071,18 @@ op_unpack:
     jb .zbad                    ; S1 past B
     sub cx, [si+2]
     sub cx, 8                   ; CX = P2
+    ; **THE HEAD IS READ ONCE, HERE, AND BANKED.** It is the first eight
+    ; bytes of the PACKED row, and the row is expanded IN PLACE: stream 1's
+    ; output runs up from the landing and may pass the head - which the
+    ; in-place rule allows, the head being consumed before the stream it
+    ; heads. Read again after stream 1, as it was, the head of a row whose
+    ; landing sits close under its packed bytes is stream 1's own output: a
+    ; second ZFILL row in one carve is exactly that shape (DOS.O88's window,
+    ; SPEC.md 96.44.19), and it expanded stream 2 to the wrong length at the
+    ; wrong place and ran into the rubble.
+    push word [si+2]            ; [bp+10] P1
+    push word [si+6]            ; [bp+8]  S2
+    push bx                     ; [bp+6]  B
     push ax                     ; [bp+4] the TAIL: len - B - S2
     push dx                     ; [bp+2] the format, in DL
     push cx                     ; [bp]   P2
@@ -1079,21 +1091,20 @@ op_unpack:
     mov cx, [si+2]
     call .zdec                  ; stream 1, at the row's base
     jc .zout
-    xor si, si
-    mov cx, [si+4]
+    mov cx, [bp+6]
     sub cx, di
     call .zero                  ; [S1, B) is zero
-    mov ax, [si+4]              ; ...and stream 2 lands at B, through the
+    mov ax, [bp+6]              ; ...and stream 2 lands at B, through the
     mov cl, 4                   ; landing's window aimed there: OSAPI_DECOMP
     shr ax, cl                  ; takes DI = 0, so it starts on a paragraph
-    add ax, [bp+6]
+    add ax, [bp+12]
     push ds
-    mov ds, [bp+8]              ; op_atb wants OUR DS
+    mov ds, [bp+14]             ; op_atb wants OUR DS
     call op_atb                 ; AX = the window (BX, DX gone)
     pop ds
     mov es, ax
-    mov dx, [si+6]
-    mov si, [si+2]
+    mov dx, [bp+8]
+    mov si, [bp+10]
     add si, 8                   ; stream 2 follows the head and stream 1
     mov cx, [bp]
     call .zdec1
@@ -1101,9 +1112,7 @@ op_unpack:
     mov cx, [bp+4]
     call .zero                  ; [B + S2, len) is zero, and CF = 0
 .zout:
-    pop ax
-    pop ax
-    pop ax
+    lea sp, [bp+12]             ; the six words, CF kept (lea sets no flag)
 .zbad:
     pop bp
     jmp .zjoin

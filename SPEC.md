@@ -187629,6 +187629,184 @@ owner accepted that. Every 360KB test disk built from the system disk's file
 list (`$(SYSROOT360)`) carries the same build, so a row on one is a row on
 what ships.
 
+#### 96.44.19 The window is the TAIL of the region (docs/plans/DOS-HEADLESS-PLAN.md)
+
+**A DOS host that never shows its window need never hold it.** The window
+- the console and its face, the prompt, the controls, the line editor, the
+paint, the menus, the Setup page's glue and the windowed layer's resident
+stubs (§96.54.9) - is 19 KB of every DOS instance. In the parted host on
+kern_big and kern_emu (`DVW_SPLIT`) it is assembled into a section of its
+own, `.wtext`, placed after every byte of the resident host and its bss,
+with the window's own bss after IT:
+
+`[header][core slot][resident code][resident bss][window code][window bss]`
+
+`DOS_WTAIL` is that layout (`apps/dos/dos.asm`). kern_mega's host, kern_small's
+plain `dos.o88`, `build/dos.bin` and `kern_dos` assemble every macro of it to
+nothing and stay byte for byte what they were.
+
+**The boundary is a gate.** nasm resolves a near reference across a section
+without a word, and in a region with no tail the tail's addresses are some
+other claim's. So the resident host names the tail only inside a `WIN_ONLY`
+... `WIN_END` bracket, whose opening is the test itself - `cmp byte
+[dos_head], 0` / `jne` over the window's arm (`WIN_ONLYF` for an arm past a
+short jump, `WIN_ELSE` for a headless arm). `tools/doswtail.py` proves it
+without disassembling anything: it assembles the host a second time with the
+tail moved up `DOS_WSHIFT` bytes, so every byte of the resident host whose
+value depends on where the tail is - a branch, a memory operand, an
+immediate, a table entry - differs between the two, and any such byte
+outside a bracket fails `make`. `tests/unit/t_doswtail.py` (`soak -k
+doswtail`) assembles it with a bracket's test taken out and asserts the gate
+goes red. What the gate cannot see is a FALL-THROUGH across a section switch,
+so a routine either side of `WIN_CODE`/`WIN_CODE_END` ends in an
+unconditional transfer.
+
+**The window is PART 1 of `DOS.O88`**, cut off the same assembly at `.wtext`'s
+first byte (`tools/doswtail.py cut`, so `$(BUILD)/dospw.bin` is the whole and
+`dosp.bin`/`doswin.bin` its two halves). It is EAGER and adjacent to part 0,
+`OP_SEG | OP_COMP | OP_ZFILL`, so the parts standard lays it at
+`CS:roundup16(part 0's length)` - which is `.wtext`'s own address, the section
+being paragraph-aligned after the resident bss - and every call, jump and
+operand between the two halves is near and exactly as assembled. The re-home's
+KEEP form keeps the carve to part 1's end. The rest renumber, on kern_big and
+kern_emu only:
+
+| part | what | flags |
+|---:|---|---|
+| 0 | the resident host | `OP_SEG, OP_COMP, OP_ZFILL` |
+| 1 | **the window** | `OP_SEG, OP_COMP, OP_ZFILL` |
+| 2 | the INT 21h core (§96.44.5) | `OP_ASSET, OP_COMP, OP_LAZY` |
+| 3 | `kern_dos` | `OP_ASSET, OP_COMP, OP_LAZY` |
+| 4 | HELP's text | `OP_ASSET, OP_COMP, OP_LAZY, OP_SELF` |
+| 5 | the network (§96.23.11) | the same |
+| 6 | the Setup page (§96.32.2.3) | the same |
+| 7 | the windowed layer (§96.54.9) | the same |
+
+kern_mega's `DOS.O88` has no tail and keeps its five parts as they were (core
+1, `kern_dos` 2, the low `kern_dos` 3, HELP 4). Nothing outside the loader
+names a part by number: the host reads the rows the loader copies into its bss
+(`DSLH_*`), and the handoff stub reads the core's and `kern_dos`'s offsets out
+of the record DOS.O88 posts (§96.44.5.4) - the two are still adjacent, so it
+is still one extent run. `tests/kdpart.py` mirrors the two numbers.
+
+**A second `OP_ZFILL` row found a defect in the standard** (§20.12.7.5):
+`op_unpack` read the row's eight-byte stream head AGAIN after expanding stream
+1, and stream 1's output, running up from a landing close under its own packed
+bytes, had already overwritten it - so stream 2 was expanded to the wrong
+length at the wrong place and the launch ran into the rubble. Part 0's
+landing is far below its packed bytes, which is why one ZFILL row never met
+it. The head is now banked on the stack before stream 1. DOS.O88's loaders are
+the standard's only ZFILL users; kern_mega's is the same size, its bytes
+changed by the fix alone.
+
+**What the split costs a WINDOWED launch, MEASURED** on
+`os8088_5150_cga_gla`, the 360KB system disk (LZB, §96.44.18) built twice from
+one file list with only `DOS.O88` differing, a fresh boot, B: opened, the
+counters reset and `B:\DOSHELLO.COM` double-clicked: **14 `int 13h` calls to
+the DOS window and 18 to the program's `READY`, the same as before the split**
+(one run in five of either build reads one more, the harness's and not the
+package's), 113 sectors against 112, and `READY` at 11.90-12.04 guest seconds
+against 11.89-11.96 (five runs each) - inside the run-to-run spread. The two
+parts are one read, because they are one run of the carve. While the window
+is up nothing changed at all: the same instructions at the same CS, and the
+brackets are on entry, wake and run, never per character or per tick.
+`DOS.O88` grew 52,667 -> 53,212 bytes (lz4) and 46,662 -> 47,174 (the 360KB
+disk's LZB), 46 -> 47 one-KB clusters: the window's stream no longer shares the
+host's LZ context, a second ZFILL head, and eight bytes of row.
+
+**What stays resident although only a window uses it** (§20.12.10.4,
+`inst_pkg_fence`): an entry a FENCED slot names must be below `I_SIZE`, which
+is the resident host's image + bss - so the windowed layer's worker loop
+(`dvw_worker`, an `OSAPI_TASK_SPAWN` entry) and its far stubs (`dvw_stubs`,
+whose `hent_dvw_fsmain` is an `OSAPI_FSX_RUN` proc) stay in the resident
+host, and so do the full-screen console's bracket entry (`dos_fsx_cone`, a
+bracketed jump to `dos_fsx_con`) and the 14 bytes of `dvw_*` cells the
+resident `dos_run` and `dos_wake` read.
+
+**The header says the RESIDENT host** - `image + bss` is the resident host's,
+so `I_SIZE` is too (§20.12.10.4) - and the file runs on past it with the tail.
+`os88pkg.py`'s rule that a program part ships its bss inside it refuses a part
+that stops SHORT of its own `image + bss`; one that runs longer is a tail, kept
+by the re-home's KEEP form (§20.12.10.5), which keeps to the end of the part.
+Measured where it landed, still one part: the resident host is 25,444 bytes
+(image 23,960 + bss 1,484) and the tail 19,611, `dosp.bin` 44,900 -> 45,067
+(+167: 20 brackets at 7 bytes and the paragraph pad), `DOS.O88` 52,667 ->
+52,748 and the 360KB disk's LZB copy 46,662 -> 46,758.
+
+#### 96.44.20 HEADLESS: a shortcut that runs with no DOS window behind it
+
+**`Close when done`**, a check box on the Setup page beside `Run in a window`
+(§96.32.2.4), saves the shortcut with the Shell Link header's own
+**`ShowCommand` = 7** (`SW_SHOWMINNOACTIVE`, offset `0x3C`, §96.21) where DOS
+otherwise writes 1. A program launched through that `.LNK` runs with **no
+DOS window at all**: the region never holds part 1 (§96.44.19), so the
+program's arena is the window's size larger, and no compaction is needed to
+get it. kern_big and kern_emu only (`DOS_WTAIL`); kern_mega's DOS.O88 has no
+tail to leave out, and kern_small carries no DOS.O88.
+
+**The decision is the LOADER's, made before a sector of DOS is read.**
+`dsl_w16` already reads the document's first cluster to see whether it is an
+NE (§124.3.1); a cluster whose first dword is `0x4C`, whose CLSID begins
+`01 14` and whose `ShowCommand` dword is 7 sets `[dsl_head]`. `dsl_entry`
+then ORs `OP_LAZY` into part 1's row in its own table - the table is the
+loader image, per-instance RAM - so `op_size` sizes the carve from part 0
+alone, the carve's run ends at part 0, the re-home's KEEP form trims there,
+and the bar's total leaves part 1's packed bytes out. Last of the rows it
+copies into the host's bss, the loader writes the byte (`DSLH_HEAD`, the
+host's `[dos_head]`). An older `DOS.O88` ignores the field and runs the link
+windowed, which is the right way for an old host to be wrong; Windows would
+start the target minimised.
+
+**What a headless host does instead** (`dos_hwin`, `dos_hpaint`,
+`dos_fld_def`, `dos_hend`, all resident, all naming nothing of the tail):
+
+- a one-line window, `Starting NAME`, with no menu, no buttons, no console and
+  no About card: `OSAPI_FSX_RUN` and `OSAPI_WM_WAKE` are a window's (§53.1),
+  so the frame is the price of the bracket. Each pixel is drawn once - the
+  line by `OSAPI_FONT_RUN`, the ground beside and under it by two fills;
+- the settings' defaults without their field blocks, then the `.LNK` read as
+  ever (`dos_lnk_open`; its field reloads are bracketed out);
+- the run as ever - the bracket, or the whole machine with arm 3, whose
+  confirmation (§96.42) is the shortcut itself, the user having ticked both
+  boxes and saved;
+- INT 21h's character output is the ROM's teletype throughout (the console's
+  `DHK_TTY` and `DHK_SNAP` are not bound), and the program starts on a clean
+  text screen: there is no console to seed it with;
+- at the end, `dos_run`'s `.out` or `dos_wake`'s return from `kern_dos`, a
+  **toast** (§59) for a refusal or a non-zero exit code - words first, the
+  program's name last, so the 24 cells the bar shows lose the name and not
+  the reason: `Exit 3: PRINCE.EXE`, `No memory: PRINCE.EXE` - and then
+  `OSAPI_WM_CLOSE` on the instance's own window. Exit 0 says nothing.
+
+What it gives up is exactly the window's AFTER: the program's last screen,
+the exit line, a refusal's whole sentence, the prompt and Run again
+(docs/plans/DOS-HEADLESS-PLAN.md 2). A double-clicked `.COM` or `.EXE` with no
+shortcut stays windowed; the shortcut is where a user says the program draws
+its own screen and nothing it leaves is wanted.
+
+**The box.** It and `Run in a window` are exclusive - a run in a window is a
+window - so ticking one greys the other. It greys too for a Windows program
+(`[dos_hne]`, asked of the program DOS last named as the page opens through
+`dos_w16_isne`, the NE test `dos_w16_try` makes, now separable): a headless
+DOS would run only its MZ stub, the program being WIN16's. `dos_lnk_parse`
+reads the field back into the box, so a shortcut opened in a windowed DOS
+shows it ticked, and Save Shortcut keeps it.
+
+**What it buys, MEASURED** (`tests/doshead.py`, `soak -k doshead`: the 5150
+CGA, the shipped 360KB LZB system disk, `DOSHELLO.COM` behind two links that
+differ only in `ShowCommand`, each a fresh boot): the claim DOS runs in is
+**25,984 bytes against 45,680**, so the program's arena is **487 KB against
+467 (+20 KB)**, and the double-click reaches the program's `READY` in **13.5
+guest seconds against 15.9 (-2.4 s)** with **20 `int 13h` calls against 21**
+- the window's ~10 KB of packed stream is neither read nor decoded, no
+console is seeded and no window is painted. With the loader's flip taken out
+the same headless host reads 15.3 s and 467 KB: the read and decode of part
+1 are ~1.8 s of the 2.4. What it costs: the resident host is **+535 bytes**
+in every instance, windowed too (25,444 -> 25,979 + 3 of the loader's byte:
+the four routines and their strings, the box's record, the line), the
+loader +93 raw, and `DOS.O88` 53,212 -> 53,803 (lz4) and 47,174 -> 47,701
+(LZB, 47 clusters).
+
 ### 96.45 The mouse under `kern_dos`, and it was switched OFF rather than missing
 
 INT 33h has always been answered here (§96.10); what it answered with was a

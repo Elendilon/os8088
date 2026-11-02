@@ -47,7 +47,7 @@ DOS_W16_NE  equ 0x454E              ; 'NE', read as a word
 ;      that did not come from the prompt closes this window. CF=0 = run it
 ;      here. Preserves every register but the flags.
 ; -----------------------------------------------------------------------------
-dos_w16_try:
+dos_w16_isne:
     push ax
     push bx
     push cx
@@ -121,15 +121,41 @@ dos_w16_try:
     pop cx
     mov dx, di
     call OSAPI_MEM_FREE
-    jmp short .isne
+    stc                             ; IT IS ONE
+    jmp short .wout
 .free:
     pop cx
     mov dx, di
     call OSAPI_MEM_FREE
 .no:
     clc
-    jmp short .out
+.wout:
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
 
+; dos_w16_try - the same question, and an NE is POSTED to WIN16 (above)
+; dos_w16_isne - ...ONLY the question: CF = 1 an NE, nothing else changed.
+; The Setup page asks it, to grey `Close when done` (SPEC.md 96.44.20)
+dos_w16_try:
+    call dos_w16_isne
+    jc .isne0
+    ret
+.isne0:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
 .isne:                              ; --- IT IS ONE: WIN16's document --------
     mov si, dos_name                ; the 16-byte locator (SPEC.md 21.5.3),
     mov di, dos_pgdoc               ; folded, because the association tables
@@ -172,6 +198,9 @@ dos_w16_try:
     call OSAPI_GFX_UNLOCK
 .said:
     stc
+    jmp short .out
+.no:
+    clc
 .out:
     pop es
     pop bp

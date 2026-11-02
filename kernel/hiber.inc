@@ -2904,8 +2904,9 @@ hbm_dosrun:
     call hbm_cb                 ; DX = its segment
     jc .b5
     mov [hb_xseg], dx
-    ; **ONE RUN COVERS BOTH PARTS** (SPEC.md 96.44.5.4). The core is part 1 and
-    ; `kern_dos` is part 2; `os88pkg.py` lays parts out in TABLE ORDER, each
+    ; **ONE RUN COVERS BOTH PARTS** (SPEC.md 96.44.5.4). The core and
+    ; `kern_dos` are parts 2 and 3 (1 and 2 on kern_mega, whose DOS.O88 has no
+    ; window part, SPEC.md 96.44.19); `os88pkg.py` lays parts out in TABLE ORDER, each
     ; on a PARAGRAPH (SPEC.md 20.12.2), so the core's packed bytes are
     ; followed by `kern_dos`'s and the extent list wanted is one range from
     ; the sector KDH_COFF is in to the end of KDH_PLEN. Nothing here knows that
