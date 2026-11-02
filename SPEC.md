@@ -191030,6 +191030,10 @@ byte-identical. `DOS.O88` **54,658 -> 54,668** on the disk (lz4) and
 `tests/dostrap/dwmode.asm`, and it is measured red at each leg with its fix
 taken out.
 
+#### 96.54.12 Teletype output in the window: one mark a character, a paced scroll
+
+(DRAFT - being measured.)
+
 ## 97. PIXELSTEIN 3D — a raycast shooter in a foreign mode (`apps/pixelstein/`)
 
 A first-person shooter in the shape of the 1992 one: a 64×64 grid of cells,

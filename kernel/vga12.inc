@@ -5227,7 +5227,12 @@ vgas_bankcopy:                  ; (no DS bank, for the linear copy's reason)
     mov cx, [vgas_nb]
     push es
     pop ds
-    rep movsb
+    shr cx, 1                   ; **WORDS, AND THE ODD BYTE AFTER** (SPEC.md
+    rep movsw                   ; 96.54.12): an 8088's rep movsw is 25 clocks
+    rcl cx, 1                   ; a word where rep movsb is 17 a byte, 26% of
+    rep movsb                   ; the move - and a console band's scroll is
+                                ; 192 rows of it a line. Not the planar copy:
+                                ; there a byte READ is what loads the latches
     KDS
     sub di, [vgas_nb]           ; back to the row's own byte: rep movsb left DI
                                 ; nb past it, and the advance below is
@@ -5254,6 +5259,9 @@ vgas_bankcopy:                  ; (no DS bank, for the linear copy's reason)
     push es
     pop ds
     cld
+    shr cx, 1                   ; words and the odd byte, as the walk above
+    rep movsw
+    rcl cx, 1
     rep movsb
     KDS
     add bx, [vgas_step]
