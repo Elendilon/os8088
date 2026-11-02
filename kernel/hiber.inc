@@ -516,33 +516,30 @@ osapi_dos_handoff_x:
 ; -----------------------------------------------------------------------------
 hb_pick_x:
     push bx
-    push cx
-    mov cl, [dsk_bootvol]
+    mov bl, [dsk_bootvol]       ; BL IS THE COUNTER: it is dsk_vol_fixed_x's
+    call hb_pick1               ; own argument and that routine banks BX, so
+    jnc .out                    ; nothing copies it in (kernel size pass 17,
+    xor bx, bx                  ; -4: CL counted, with a bank of its own and
+.vol:                           ; a `mov bl, cl` every pass)
     call hb_pick1
     jnc .out
-    xor cx, cx
-.vol:
-    call hb_pick1
-    jnc .out
-    inc cx
-    cmp cx, DVOL_MAX
+    inc bx
+    cmp bl, DVOL_MAX
     jb .vol
     stc
 .out:
-    pop cx
     pop bx
     retf
 
-hb_pick1:                       ; is volume CL one? out: CF = 0 and AL = CL
-    mov bl, cl
+hb_pick1:                       ; is volume BL one? out: CF = 0 and AL = BL
     call dsk_vol_fixed_x        ; AL = 1 fixed, AH = the kind; CF = no row
     jc .no
     or al, al
     jz .no
     cmp ah, DVK_FILE
     je .no
-    mov al, cl
-    CLC_OR_STC .no              ; CF = 0 AL = CL, or (.no) CF = 1
+    mov al, bl
+    CLC_OR_STC .no              ; CF = 0 AL = BL, or (.no) CF = 1
     ret
 
 ; -----------------------------------------------------------------------------
