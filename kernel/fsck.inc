@@ -203,54 +203,47 @@ PF_WROTE    equ 8               ; something was written
 section .cold                   ; ALL OF IT `.cold`, so kern_mega's kernel
                                 ; segment carries none of it (megaseg.txt)
 osapi_vol_check:                ; OSAPI_RCSLOT's body: far-called, DS = KERNEL
-    push bp
     mov bp, inst_vol_enter      ; V: the caller's folder (SPEC.md 19.2.1),
-    call KERNEL_SEG:spw_near    ; a `.text` routine, through its one door
-    pop bp
+    call KERNEL_SEG:spw_near    ; a `.text` routine, through its one door.
+                                ; BP is api_rsc's to restore and an input to
+                                ; no rare cell (kernel size pass 17)
     push si
     push di
     push cx
-    cld
-    mov si, mod_hdrt
-    xor di, di
-    cmpsw                       ; MOD_H_MAGIC
+    mov byte [mod_hdrt + MOD_H_ID], MOD_FSCK ; mod_check's own compare: the
+    mov si, mod_hdrt            ; magic, MOD_VER with MOD_FSCK, the BUILD and
+    xor di, di                  ; the layout STAMP - mod_hdrt's four words,
+    mov cx, 4                   ; its id byte stamped per call as mod_check
+    cld                         ; stamps it (kernel size pass 17: two
+    repe cmpsw                  ; compares and a cmpsw were the same words)
+    pop cx
+    pop di
+    pop si                      ; (pop writes no flag)
     jne .bad
-    cmp word [es:MOD_H_VER], MOD_VER | (MOD_FSCK << 8)
-    jne .bad
-    mov si, mod_hdrt + MOD_H_BUILD
-    mov di, MOD_H_BUILD
-    mov cx, 2                   ; MOD_H_BUILD, MOD_H_STAMP
-    repe cmpsw
-    jne .bad
-    mov si, [es:MOD_H_ENT]
-    mov [fsk_fp], si
 %ifdef KERN_MEGA
     push ax                     ; THE CODE SELECTOR: a claim is a data/code
     push dx                     ; pair in protected mode, and its data half
     mov dx, es                  ; cannot be far-called. Real mode answers ES.
-    push bp                     ; (OSAPI_MEM_CODESEL's own body, through
-    mov bp, osapi_mem_codesel   ; spw_near: `.cold` names no segment of its
-    call KERNEL_SEG:spw_near    ; own - SPEC.md 2.10.2)
-    pop bp
-    mov [fsk_fp+2], ax
-    pop dx
-    pop ax
+    mov bp, osapi_mem_codesel   ; (OSAPI_MEM_CODESEL's own body, through
+    call KERNEL_SEG:spw_near    ; spw_near: `.cold` names no segment of its
+    pop dx                      ; own - SPEC.md 2.10.2)
+    xchg ax, bp                 ; BP = the selector
+    pop ax                      ; (neither writes a flag)
     jc .bad                     ; NO CODE HALF: a claim above 1MB is a data
                                 ; selector alone - the package asks OSAPI_SEG
                                 ; SEG_SUBC for a pair over it (118.14.8), and
                                 ; a far call through data would be a #GP
+ %define FSK_CSEG bp
 %else
-    mov [fsk_fp+2], es
+ %define FSK_CSEG es            ; ...where real mode's is ES itself
 %endif
-    pop cx
-    pop di
-    pop si
-    call far [fsk_fp]
-    retf
+    push FSK_CSEG               ; A FAR JUMP into the image, not a call: its
+    push word [es:MOD_H_ENT]    ; own retf returns to api_rsc, which this
+    retf                        ; body's would have reached next (kernel size
+                                ; pass 17: no [fsk_fp]). ONE push line for
+                                ; both arms, api_far's way: stkbalance reads
+                                ; the source and not the %ifdef
 .bad:
-    pop cx
-    pop di
-    pop si
     mov ax, FSKE_IMAGE
     stc
     retf
@@ -265,7 +258,6 @@ fsk_cnear:
     retf
 
 section .bss
-fsk_fp:     resd 1              ; osapi_vol_check's far pointer, per call
 fsk_cold:   resd 1              ; fsk_cnear where `.cold` IS, for this call
 fsk_ws:     resw 1              ; the workspace, for this call
 fsk_sp:     resw 1              ; ...and the stack fsk_die unwinds to
