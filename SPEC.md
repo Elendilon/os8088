@@ -65121,6 +65121,90 @@ Bochs at 4MB with SOUND, HDD and NET wanted it reads the page's own
 classification and the map's two frames, and is red on each of the three
 put back.
 
+### 28.4.16 The map's HOVER inverts the row a band stands for
+
+A band on the memory map is a texture and a frame, and the legend square
+beside a group's row is the only key from one to the other - at 4KB a pixel
+on a 640KB machine, with claims shoulder to shoulder, a matching game. So
+while the pointer is over a band, **the row of the group that band belongs to
+is lettered INVERTED**, white on black, and goes back when the pointer
+leaves. Full build only; the small build (§28.12) has no list and is
+byte-identical.
+
+**Which row.** `tm_hpick` runs the map's own arithmetic backwards: a band
+`[a, b]` KB is drawn from `tm_ramkb2x(a)` to `tm_ramkb2x(b)` and never
+narrower than a pixel, so it covers interior column `p` exactly when
+`a <= hi` and `b >= lo`, `lo` and `hi` being the first and last KB that scale
+to `p` (`tm_pxkb`, two divides) - then a compare per claim record. The LAST
+record covering `p` wins, as the last one drawn there does, and its group is
+the one `tm_classify` filed it under (`[tm_cgid]`), so the hover and the list
+cannot disagree about who holds a claim. No claim there and inside the
+kernel's gray span is **System**; free memory is nothing. A group listed
+INSIDE System - Kernel, a driver, a built-in - answers System while System
+is closed, that being the row that stands for it then; a block above 1MB
+that is no group's answers `System HMA`. On kern_mega the map's right part is
+hovered the same way off `[tm_xw]`/`[tm_xgid]` (§28.4.15). A group with no
+row on the screen - scrolled off, or `Purgeable` without DETAIL - lights
+nothing. Only while this is the front window (`OSAPI_WM_TOP`): a window lying
+over the map is not the map.
+
+**How it is noticed.** A window hears about the pointer only while a button
+is down (`W_ONDRAG`), so the worker POLLS: on the memory page it sleeps
+`TM_HOVT` = 3 ticks instead of `TM_INT` = 9 and samples on every third wake,
+so `tm_sample`'s interval and the graph's meaning are unchanged. A poll is
+`OSAPI_WM_TOP` and `OSAPI_MOUSE` with **no lock**, and when the pointer is
+where the last pick read it (`[tm_hmx]`/`[tm_hmy]`) that is all: the answer
+stands. A walk forgets the place (a claim may have come or gone under a
+still pointer), and so does losing the front.
+
+**A change is two XOR fills, not a walk.** The page's walk holds the gfx
+lock ~50 ms on a 5150 whether or not it draws anything (`TM_SLOW`'s
+measurement, §28.6), and a hand sweeping across the map changes the answer
+at nearly every poll - a walk per change would freeze the pointer for most
+of a second of sweeping. The row's screen place is already known
+(`[tm_rgid]`, the last walk's), and so is its origin (`[tm_cx]`/`[tm_cy]`:
+where that walk put it, a move being a repaint), so `tm_hover` takes the lock
+and inverts the old row's text band and the new one's
+(`OSAPI_GFX_XOR_FILL`, clipped like every fill here) - **either side of the
+legend square**, whose 8x8 a walk draws as the same frame and texture over
+either ground, so it is never touched.
+
+**The walk and the toggle agree** because each chunk's check word records
+which polarity is on the glass: `tm_row_draw` complements the hovered row's
+chunk hashes (`[tm_rinv]`), and `tm_hxor` complements the words it inverts,
+leaving a 0 - "draw me next time" - a 0. `[tm_hrow]` is the row that IS
+inverted, whoever inverted it, so a walk that runs between a poll and its
+toggle is undone and redone rather than doubled. A walk starts every screen
+row at "no group" (`[tm_rgid]` = FFh), so a row the list no longer reaches
+is never found - for a click (`tm_lclick`) as well as for the hover. The
+fraction cell (§28.4.7) is a 1bpp band whose colours a 1bpp adapter does not
+take from the pen (§5.4.2.2), so the hovered row's is composed as the cell's
+complement (`[tm_hcell]`) rather than asked of the pen.
+
+**What it cost**, measured at this change (`tests/tmhover.py` is the gate;
+the cycles are MartyPC's 4.77 MHz 8088 on VGA, Calculator and Task Manager
+open):
+
+| | before | after |
+|---|---|---|
+| `TASKMGR.O88` image / bss | 11,449 / 2,487 | 12,045 (+596) / 2,503 (+16) |
+| ...the file on disk (lz4) | 10,176 | 10,676 (+500) |
+| kern_mega's arm, image / bss | 11,841 / 2,617 | 12,529 (+688) / 2,633 (+16) |
+| a poll, pointer still | - | ~1,650 cycles, 0.35 ms, no lock |
+| a pick, pointer moved, on the map | - | ~8,200 cycles, 1.7 ms, no lock |
+| a change of row (two rows, four fills) | a walk, ~50 ms of lock + the two rows lettered | ~80,000 cycles, **16.8 ms**, ~15 of it in the lock |
+| the worker's share of an idle XT, memory page up, pointer still | 4.54% | 5.05% (**+0.5 points**), on the map or off it |
+
+The hover code itself (`tm_hover` to `tm_pxkb`) is 460 bytes; the rest is
+the walk's and the draw's polarity, the worker's poll and the inverted cell.
+**Nothing resident, on any kernel**; the small build is byte-identical. Of
+the toggle's 16.8 ms, ~3 ms are the lock and the clip region and ~3 ms the
+unlock's pointer redraw - the price of taking the lock at all - and each
+row's two fills are ~4 ms. The first build redrew each legend square with
+`tm_sq_pat` and refreshed the origin with `tm_view_begin` instead, and its
+toggle measured 143,400 cycles (30 ms); a still pointer re-ran the pick at
+every poll, +1.4 points idle where the cache makes it +0.5.
+
 ### 28.5 The summary lines sit at `TM_PEN`, so the pane has one inset
 
 The memory page's XMS line and the heap page's TOTAL, SPLIT and FRAG summaries
