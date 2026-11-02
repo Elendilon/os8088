@@ -63,7 +63,7 @@ CORE_ORG    equ 0x0080
 ; CORE alone spends, both hosts read, and whose slack is one number in one
 ; place. Measured at the wave, with the assertion in `apps/dos/doscore.asm`.
 %ifndef DOS_MEGA
-CORE_MAX    equ 16496            ; +512 for SPEC.md 96.7.2's stack swap and
+CORE_MAX    equ 16512            ; +512 for SPEC.md 96.7.2's stack swap and
                                 ; 96.12.5's name truncation, which are 214
                                 ; bytes between them against 89 of slack. The
                                 ; two are the Playroom's whole report: a gate
@@ -163,6 +163,10 @@ CORE_MAX    equ 16496            ; +512 for SPEC.md 96.7.2's stack swap and
                                 ; the extended FCB's attribute, the PSP's
                                 ; FCBs parsed and copied): 371 bytes against
                                 ; 9 of slack, 16,490 used
+                                ; +16 at the merge with main's WIN16 phase A,
+                                ; whose join box (dos_w16_join, SPEC.md
+                                ; 124.28.12) met the headless pass's
+                                ; dos_w16_isne: 3 bytes over, 16,499 used
 %else                           ; **kern_mega's core is 67 bytes longer**:
 CORE_MAX    equ 17152            ; SPEC.md 96.15.4's extended-to-extended
 %endif                          ; move (dos_xms_move's `.bothx`), 15,409 used.

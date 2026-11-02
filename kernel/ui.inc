@@ -861,24 +861,30 @@ ui_task:
     je .clr_done                ; HERE, with none of its code on the stack
                                 ; (SPEC.md 75.2) - wm_close_pass (wm.inc's
                                 ; banner), written here
+.cl_next:
     call gfx_lock               ; ...AND THE REQUEST IS SPENT UNDER THE LOCK,
-    mov bx, [wm_clreq]          ; not before it. wm_destroy cancels a request
-    or bx, bx                   ; naming the window it is freeing and runs with
-    jz .cl_done                    ; the lock held, so taking the word before the
-    mov word [wm_clreq], 0      ; wait left exactly the interval that guard was
-                                ; written to cover: a request read here, the
-                                ; window destroyed while this pass waited, and
-                                ; the cancellation written into a word this
-                                ; pass had already emptied
+    mov bx, wm_wins             ; not before it. wm_destroy cancels a request
+    mov ax, 1                   ; naming the slot it is freeing and runs with
+.cl_scan:                       ; the lock held, so taking the word before the
+    test [wm_clreq], ax         ; wait left exactly the interval that guard was
+    jnz .cl_slot                ; written to cover. A BIT A SLOT (SPEC.md
+    add bx, WIN_SIZE            ; 75.2.1), so any number of closes can wait:
+    shl ax, 1                   ; BX and its bit walk the slots together, the
+    jnz .cl_scan                ; lowest first
+    call gfx_unlock
+    jmp short .clr_done
+.cl_slot:
+    not ax
+    and [wm_clreq], ax          ; spent BEFORE the close
     test byte [bx+W_FLAGS], 1   ; still a live record? A minimized window is
-    jz .cl_done                    ; closable, so this is bit 0 and not bit 1
+    jz .cl_spent                ; closable, so this is bit 0 and not bit 1
     mov word [bx+W_ONCL], 0     ; retire the negotiator: the request IS its
                                 ; answer (see wm_close_req) - wm_onclose's
-                                ; store, written here (kernel size pass 14),
-                                ; as an immediate so AX need not be banked
+                                ; store, written here (kernel size pass 14)
     call app_close_win          ; (which preserves every register)
-.cl_done:
-    call gfx_unlock
+.cl_spent:
+    call gfx_unlock             ; the lock again for the next, so a burst of
+    jmp short .cl_next          ; closes does not hold it across all of them
 .clr_done:
     xor ax, ax                  ; deferred instance launch (posted by
     xchg al, [inst_launch]      ; lock-held handlers via inst_launch_post);

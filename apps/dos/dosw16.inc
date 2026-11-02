@@ -40,6 +40,11 @@
 
 DOS_W16_NE  equ 0x454E              ; 'NE', read as a word
 
+%include "win16/w16join.inc"        ; WIN16's join box (SPEC.md 124.28.12)
+%if SYS_SNAPSHOT_SIZE > 1024
+ %error "the snapshot no longer fits the 1KB cluster claim dos_w16_join uses"
+%endif
+
 ; -----------------------------------------------------------------------------
 ; dos_w16_try - hand a Windows program to WIN16.O88
 ; in:  [dos_dir]/[dos_vol]/[dos_name] = the program; UI task, lock NOT held
@@ -129,10 +134,9 @@ dos_w16_go:
     cmp word [es:si], DOS_W16_NE
     jne .free
     pop cx
-    mov dx, di
-    call OSAPI_MEM_FREE
     popf                            ; IT IS ONE - and only asked: say so
-    jc .said
+    jc .askd
+    push di                         ; the claim, kept: the snapshot's room
 .isne:                              ; --- IT IS ONE: WIN16's document --------
     mov si, dos_name                ; the 16-byte locator (SPEC.md 21.5.3),
     mov di, dos_pgdoc               ; folded, because the association tables
@@ -149,6 +153,13 @@ dos_w16_go:
     mov [dos_pgdoc + 13], ax
     mov al, [dos_vol]
     mov [dos_pgdoc + 15], al
+    pop es                          ; the claim
+    call dos_w16_join               ; CF=1: a running WIN16 took it
+    pushf
+    mov dx, es
+    call OSAPI_MEM_FREE
+    popf
+    jc .taken
     mov si, dos_w16_pkg             ; WIN16's stem names the slot (SPEC.md
     xor cx, cx                      ; 124.3): a built-in row, found wherever
     xor dx, dx                      ; the volume keeps it
@@ -157,6 +168,7 @@ dos_w16_go:
     mov di, dos_pgdoc
     call OSAPI_PKG_START
     jc .nop                         ; nothing opens it: DOS runs the stub
+.taken:
     mov byte [dos_state], DST_IDLE
     cmp byte [dos_fromcon], 0
     jne .con
@@ -173,6 +185,9 @@ dos_w16_go:
     call OSAPI_GFX_LOCK
     call dos_con_draw
     call OSAPI_GFX_UNLOCK
+.askd:
+    mov dx, di                      ; (only asked: the claim goes now)
+    call OSAPI_MEM_FREE
 .said:
     stc
     jmp short .out
@@ -189,4 +204,71 @@ dos_w16_go:
     jmp dos_hpop_7                  ; the host's shared epilogue (96.54.8)
 
 dos_w16_pkg: db 'WIN16.O88', 0
+
+; -----------------------------------------------------------------------------
+; dos_w16_join - give the program in [dos_pgdoc] to a WIN16 instance that is
+; already running one, as a task of it (SPEC.md 124.28.12): a live package
+; instance whose image carries the join box, signed and of this version,
+; that says a program runs and holds no locator, has the locator written
+; into it, its request byte set last and its window woken
+; in:  ES = a claim of at least 1KB, for OSAPI_SYS_SNAPSHOT
+; out: CF=1 taken; CF=0 start WIN16 as before. Preserves every register but
+;      the flags
+; -----------------------------------------------------------------------------
+dos_w16_join:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    xor di, di
+    call OSAPI_SYS_SNAPSHOT         ; BX = INST_MAX
+    mov cx, bx
+    mov bx, SS_INST
+.r:
+    cmp byte [es:bx + SSI_STATE], 1
+    jne .n
+    test byte [es:bx + SSI_KIND], KIND_PKG
+    jz .n
+    cmp word [es:bx + SSI_SIZE], W16J_AT + W16J_SIZE
+    jb .n                           ; a built-in (0), or too small to hold it
+    push es
+    mov es, [es:bx + SSI_SEG]
+    cmp word [es:W16J_AT + W16J_MAGIC], W16J_SIG
+    jne .p
+    cmp word [es:W16J_AT + W16J_VER], W16J_V1 + 256 ; ...and OK = 1
+    jne .p
+    cmp byte [es:W16J_AT + W16J_REQ], 0
+    jne .p                          ; one locator waits at a time
+    push cx
+    mov si, dos_pgdoc
+    mov di, W16J_AT + W16J_DOC
+    mov cx, 8
+    cld
+    rep movsw
+    pop cx
+    mov byte [es:W16J_AT + W16J_REQ], 1
+    push bx
+    mov bx, [es:W16J_AT + W16J_WIN]
+    call OSAPI_WM_WAKE
+    pop bx
+    jnc .took
+    mov byte [es:W16J_AT + W16J_REQ], 0 ; the ring is full: an instance
+.p:
+    pop es
+.n:
+    add bx, SSI_RECSZ
+    loop .r
+    clc
+    jmp short .out
+.took:
+    pop es
+    stc
+.out:
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
 
