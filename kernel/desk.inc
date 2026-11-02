@@ -1223,17 +1223,19 @@ desk_pm_body:
 ;                   and its box grown so every window over it is owed a repaint
 ;                   (11.91's per-window test) - the old answer, kept for those
 ; in:  AL = a zone desk_dmg_zones marked; the gfx lock held
-; out: nothing (all registers preserved)
+; out: nothing; keeps CX and DX, the two its one caller's loop reads after
+;      `call dx` (the zone counter and this routine's own address) - AX is
+;      reloaded from CL and BX is not read (kernel size pass 17)
 ; -----------------------------------------------------------------------------
 desk_zone_whole:
     call desk_draw_zone         ; (the box is read by the window pass, after)
-    push ax
-    push bx
     push cx
     push dx
     call desk_zone_rect
     call KERNEL_SEG:cw_wm_dmg_zadd
-    jmp kretc_dx
+    pop dx
+    pop cx
+    ret
 %endif
 
 ; -----------------------------------------------------------------------------

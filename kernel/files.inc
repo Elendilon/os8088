@@ -1536,9 +1536,8 @@ fmv_load:
     ; window read "0 files" until Refresh, measured on the 128KB machine by
     ; launching Gorillas over a GAMES window. Retried here, the listing lands.
     call fmv_fit
-    push ax
-    push dx
-    push bx
+    push dx                     ; (AX: dsk_dest_x keeps it - kernel size
+    push bx                     ; pass 17)
     mov dx, [di+FS_VSEG]        ; 0 = this window has NO store, and there is
     call dsk_dest_b0            ; no floor to fall back to any more: the
                                 ; mount goes quiet and the window paints
@@ -1546,7 +1545,6 @@ fmv_load:
                                 ; instead of a listing (13.5 commit 3)
     pop bx
     pop dx
-    pop ax
 
     call dsk_chdir_x              ; a remount with [dsk_keepcwd] raised
 
@@ -2534,7 +2532,23 @@ fm_open_body:
 ; there is exactly one thing the user could do about it.
 ; -----------------------------------------------------------------------------
 fm_choose:
-    call fm_find_view           ; already showing (AL, DX)?
+    push ax                     ; already showing (AL, DX)? THE WALK IS
+    push si                     ; WRITTEN HERE, its one caller's: it was
+    call fmv_ifirst             ; fm_find_view, and the call, its `ret` and
+    jc .seen                    ; its `jmp` to the pops went (kernel size
+.scan:                          ; pass 17). AL, DX and SI are fm_seed's below
+    mov di, [si+I_SPTR]
+    cmp al, [di+FS_DRV]
+    jne .next
+    cmp dx, [di+FS_CWD]
+    mov di, si                  ; the record, not the block: I_WIN and
+    je .seen                    ; I_FLAGS below (CF = 0: EQUAL; `mov` keeps it)
+.next:
+    call fmv_inext
+    jnc .scan                   ; ...and CF = 1 both ways out: the `jc` and
+.seen:                          ; the `jnc` falling through
+    pop si
+    pop ax
     jc .notopen
     call ct_cw_gfx_lock         ; front + un-minimize, exactly as app_launch's
 %ifdef WM_ANIM                  ; own at-cap path does (SPEC.md 29.4)
@@ -2555,7 +2569,34 @@ fm_choose:
     ret                             ; (the far shim cannot be jumped through)
 .inplace:
     call ct_cw_gfx_lock
-    call fm_front_win           ; BX = the frontmost visible one
+    ; BX = the frontmost VISIBLE file-manager window. "Is this a file-manager
+    ; window" is the W_MENUS test, not an instance walk: fm_kinit is the only
+    ; thing in the kernel that ever stores fm_menus, so the comparison is
+    ; exact and costs one word. Written here, its one caller's (it was
+    ; fm_front_win; CX is fm_count's and nothing below reads it - kernel size
+    ; pass 17)
+    push ax
+    push si
+    mov ch, 0
+    mov cl, [wm_zn]
+    mov si, wm_zord
+    add si, cx
+    jcxz .nofront
+.znext:
+    dec si                      ; front to back (SPEC.md 11)
+    mov al, [si]
+    call KERNEL_SEG:cw_wm_idx2ptr ; BX = window ptr
+    test byte [bx+W_FLAGS], 2   ; visible?
+    jz .zcont
+    cmp word [bx+W_MENUS], fm_menus
+    je .front                   ; CF = 0: the `cmp` was EQUAL
+.zcont:
+    loop .znext
+.nofront:
+    stc
+.front:
+    pop si
+    pop ax
     jc .unlock                  ; every window minimized: nothing to move
     call fm_vp_set
     call fmv_load               ; AL = drive, DX = cwd, DI = block
@@ -2570,34 +2611,6 @@ fm_choose:
     jmp ct_cw_gfx_unlock
 
 ; -----------------------------------------------------------------------------
-; fm_find_view - a live window already showing a directory
-; in:  AL = drive, DX = first cluster
-; out: CF = 0 and DI = its INSTANCE record; CF = 1 = none. AX/BX/CX/DX/SI
-;      preserved.
-; -----------------------------------------------------------------------------
-fm_find_view:
-    push ax
-    push si
-    call fmv_ifirst
-    jc .none
-.scan:
-    mov di, [si+I_SPTR]
-    cmp al, [di+FS_DRV]
-    jne .next
-    cmp dx, [di+FS_CWD]
-    jne .next
-    mov di, si                  ; the record, not the block: the caller wants
-    jmp short .out              ; I_WIN and I_FLAGS (CF = 0: EQUAL)
-.next:
-    call fmv_inext
-    jnc .scan
-.none:                          ; both ways here carry CF = 1 already: the
-.out:                           ; `jc` and the `jnc` falling through (kernel
-    pop si                      ; size pass 15: the stc went)
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
 ; fm_count - file-manager instances in use
 ; in:  nothing
 ; out: CX = the count; all other registers preserved
@@ -2606,11 +2619,9 @@ fm_find_view:
 ; existing window would silently drop the seed.
 ; -----------------------------------------------------------------------------
 fm_count:
-    push dx
     push si
     xor cx, cx
     mov si, inst_tab
-    mov dx, INST_MAX
 .scan:
     cmp byte [si+I_STATE], 0
     je .next
@@ -2618,52 +2629,15 @@ fm_count:
     jne .next
     inc cx
 .next:
-    add si, I_RECSZ
-    dec dx
-    jnz .scan
+    add si, I_RECSZ             ; bounded by the address, not a count in DX
+    cmp si, inst_tab + INST_MAX*I_RECSZ ; (kernel size pass 17)
+    jb .scan
                                 ; (the Standard File chooser is counted too,
                                 ; and need not be excused: while it is up
                                 ; it is MODAL, so the only route here is its
                                 ; own Open in New Window - which fm_newwin
                                 ; refuses first. SPEC.md 38.1)
     pop si
-    pop dx
-    ret
-
-; -----------------------------------------------------------------------------
-; fm_front_win - the frontmost VISIBLE file-manager window
-; in:  nothing
-; out: CF = 0 and BX = window ptr; CF = 1 = none. All else preserved.
-;
-; "Is this a file-manager window" is the W_MENUS test, not an instance walk:
-; fm_kinit is the only thing in the kernel that ever stores fm_menus, so the
-; comparison is exact and costs one word.
-; -----------------------------------------------------------------------------
-fm_front_win:
-    push ax
-    push cx
-    push si
-    mov ch, 0
-    mov cl, [wm_zn]
-    mov si, wm_zord
-    add si, cx
-    jcxz .none
-.next:
-    dec si                      ; front to back (SPEC.md 11)
-    mov al, [si]
-    call KERNEL_SEG:cw_wm_idx2ptr ; BX = window ptr
-    test byte [bx+W_FLAGS], 2   ; visible?
-    jz .cont
-    cmp word [bx+W_MENUS], fm_menus
-    je .out                     ; CF = 0: the `cmp` was EQUAL
-.cont:
-    loop .next
-.none:
-    stc
-.out:
-    pop si
-    pop cx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2707,7 +2681,7 @@ fm_bar_gate_x:
     or bx, bx
     jz .set                     ; Locator owns the bar: no window, no disk
     cmp word [bx+W_MENUS], fm_menus
-    jne .set                    ; not a Disk window (fm_front_win's test, and
+    jne .set                    ; not a Disk window (fm_choose's test, and
                                 ; exact for its reason - fm_kinit is the only
                                 ; thing that ever stores fm_menus)
     call ct_cw_inst_win_owner           ; DI = its instance record
@@ -3534,13 +3508,14 @@ fm_onclick_x:
     jc .clear
 %endif
 
-    push ax                     ; a press on a row may turn into a drag
-    push bx                     ; (SPEC.md 22.4), and only the pointer
+                                ; a press on a row may turn into a drag
+                                ; (SPEC.md 22.4), and only the pointer
     mov cx, [fm_pressx]         ; leaving the row decides which
     mov dx, [fm_pressy]
-    call fm_drag                ; CF=0 = it WAS a drag, already handled
-    pop bx
-    pop ax
+    call fm_drag                ; CF=0 = it WAS a drag, already handled. It
+                                ; banks AX..DI itself (the ladder), so AX and
+                                ; BX are not banked round it (kernel size
+                                ; pass 17)
     jnc .redraw                 ; ...except the repaint: a drop changes this
                                 ; window's own listing (a Cut left it) and
                                 ; may have armed the replace question
@@ -4106,12 +4081,6 @@ fm_onkey_x:
     jmp short .owed             ; (the scroll's .scr_move is above, so Enter
                                 ; no longer falls into it)
 
-.cut:
-    mov bx, FMC_CUT
-    jmp short .cmd
-.copy:
-    mov bx, FMC_COPY
-    jmp short .cmd
 .delete:
     call fm_delrep              ; stamp it, so the CONFIRMING press can tell
     mov bx, FMC_DELETE          ; itself from this one's typematic repeat -
@@ -4119,14 +4088,20 @@ fm_onkey_x:
                                 ; the same line asked for twice and the
                                 ; keystroke is only destructive at the answer
     jmp short .cmd
+.cut:                           ; THE THREE CLIPBOARD KEYS load BL and skip
+    mov bl, FMC_CUT             ; each other's load, and BH is cleared once
+    SKIPF2                      ; (kernel size pass 17: they were three
+.copy:                          ; `mov bx` and two `jmp short`)
+    mov bl, FMC_COPY
+    SKIPF2
 .paste:
-    mov bx, FMC_PASTE
+    mov bl, FMC_PASTE
+    mov bh, 0
 .cmd:
-    push si                     ; fm_docmd repaints and clobbers everything,
-    mov [fm_cmdwin], si         ; and SI is still the window pointer .redraw
-    call fm_docmd               ; wants (the .updir precedent)
-    pop si
-    jmp .out                    ; fm_docmd has already repainted
+    mov [fm_cmdwin], si         ; fm_docmd repaints and clobbers everything -
+    call fm_docmd               ; and .out is the ladder, which puts SI back,
+    jmp .out                    ; so it is not banked here (kernel size pass
+                                ; 17). fm_docmd has already repainted
 
 %ifdef FM_MSEL
 .selall:                        ; Ctrl+A (beside the ladder's other bodies, so
@@ -5867,21 +5842,20 @@ fm_c_paste:                     ; File > Paste - into THIS window's folder
     jmp short fm_c_pasteto
 
 fm_c_pastein:                   ; context menu > Paste Into - the folder the
-    push cx                     ; pointer is on, not the one we are in: the
-    push si                     ; acting window's selection, if it is a folder,
-    push di                     ; AL = its drive and BX = its first cluster.
+                                ; pointer is on, not the one we are in: the
+                                ; acting window's selection, if it is a folder,
+                                ; AL = its drive and BX = its first cluster.
     call fm_sel_ok              ; Type 3 (the parent link, SPEC.md 19.5)
-    cmc                         ; counts: pasting onto '..' pastes into the
-    jc .out                     ; folder above, which is what it looks like.
+    jnc fm_c_pasteno            ; counts: pasting onto '..' pastes into the
+                                ; folder above, which is what it looks like.
     call fmv_gdtype             ; (It was fm_selfold, kernel size pass 12: -4.)
-    jb .out                     ; 0xFFFF, no selection, fails fm_sel_ok; CF = 1
-    mov bx, [si+18]             ; from fmv_gdtype is not a folder; and CF = 0
-    mov al, [di+FS_DRV]         ; from its compare, which `mov` keeps
-.out:
-    pop di
-    pop si
-    pop cx
-    jc fm_c_pasteno             ; the selection is not a folder: a no-op
+    jb fm_c_pasteno             ; 0xFFFF, no selection, fails fm_sel_ok; CF = 1
+    mov bx, [si+18]             ; from fmv_gdtype is not a folder: a no-op.
+    mov al, [di+FS_DRV]         ; It banked CX, SI and DI, which no caller
+                                ; reads: fm_docmd reloads SI from
+                                ; [fm_cmdwin] and its neighbours (fm_c_paste)
+                                ; already leave DI and CX changed (kernel
+                                ; size pass 17)
 fm_c_pasteto:
     call fcp_paste              ; AL = FCPS_*; the operation may suspend on
     jmp fm_paste_res            ; an overwrite question (SPEC.md 22.3)
@@ -6487,12 +6461,14 @@ fm_editkey:
 ; -----------------------------------------------------------------------------
 ; fm_hasdot - does the name being typed already carry a '.'? (internal)
 ; in:  nothing
-; out: CF=1 if it does; all registers preserved
+; out: CF=1 if it does; clobbers SI. Both callers reload SI after it
+;      (fm_editkey's .text leaves through the ladder, fm_extkeep's own SI is
+;      a declared clobber) - so it is not banked (kernel size pass 17)
 ; -----------------------------------------------------------------------------
 fm_hasdot:
-    push si                     ; lodsb wants DF=0 (SPEC.md 1). It had a
-    mov si, fm_ebuf             ; second entry, fm_dotin, for the Standard
-    push ax                     ; File dialog's own name box - which is this
+    mov si, fm_ebuf             ; lodsb wants DF=0 (SPEC.md 1). It had a
+    push ax                     ; second entry, fm_dotin, for the Standard
+                                ; File dialog's own name box - which is this
                                 ; editor now (SPEC.md 38.5)
 .s:
     lodsb
@@ -6503,7 +6479,6 @@ fm_hasdot:
     stc
 .o:
     pop ax
-    pop si
     ret
 
 ; -----------------------------------------------------------------------------
@@ -6709,7 +6684,9 @@ FM_NAMEX    equ 120             ; a LIST row is an entry left of this, and
 ;      inside W_ONCLICK)
 ; out: CF=0 = it was a drag and the drop is handled - the caller must not
 ;      also treat the press as a click; CF=1 = the pointer never left the
-;      row, so it was an ordinary click and nothing was drawn
+;      row, so it was an ordinary click and nothing was drawn. Every other
+;      register preserved (kentc_di/kretc_di): fm_onclick_x relies on AX and
+;      BX coming back
 ;
 ; ui_drag's loop, with three differences. The lock is already held, so this
 ; never calls gfx_lock - it unlocks and re-locks around the yield exactly as
@@ -6842,17 +6819,17 @@ fm_dgabs:
 
 ; -----------------------------------------------------------------------------
 ; fm_dgmove - take the pointer's position as the outline's next one
-; out: nothing (all registers preserved)
+; out: nothing; clobbers AX. Its three calls (fm_drag twice, desksc.inc's
+;      sc_m_move through wm_cbd) each read AX next only after loading it -
+;      AX was banked here for none of them (kernel size pass 17)
 ; -----------------------------------------------------------------------------
 fm_dgmove:
-    push ax
     mov ax, [mouse_x]
     sub ax, 8
     mov [fm_dgx], ax
     mov ax, [mouse_y]
     sub ax, 4
     mov [fm_dgy], ax
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -6894,11 +6871,11 @@ fm_dgdrop:
 %else
     jz .out
 %endif
-    push cx                     ; is it a DISK window? fmv_winof goes the
-    push dx                     ; other way (block -> window), so the test is
-    call ct_cw_inst_win_owner         ; the instance that owns it
-    pop dx
-    pop cx
+                                ; is it a DISK window? fmv_winof goes the
+                                ; other way (block -> window), so the test is
+    call ct_cw_inst_win_owner   ; the instance that owns it - which clobbers
+                                ; DI alone, so CX and DX are not banked round
+                                ; it (kernel size pass 17)
     or di, di
     jz .out
     cmp byte [di+I_KIND], KIND_FILES
@@ -6961,12 +6938,11 @@ fm_dgdrop:
     mov byte [fcp_cbop], FCP_COPY   ; is in every file manager (SPEC.md 22.27)
 %endif
 .go:
-    push ax
-    push bx
+    push bx                     ; (AX: fm_vp_set writes DI and nothing else
     mov bx, [fm_dgwin]          ; the paste result is reported on the window
     call fm_vp_set              ; the drag STARTED in, which is where the
-    pop bx                      ; user is looking
-    pop ax
+    pop bx                      ; user is looking. AX it keeps - kernel size
+                                ; pass 17)
     call fcp_paste
     jmp fm_paste_res
 %ifdef OS88_SHORTCUTS
@@ -8532,7 +8508,7 @@ fm_status_only:
 ;   fm_scrollpaint  the list view moving by less than a windowful: one blit,
 ;                   the rows it exposed, the two selection bands and the
 ;                   thumb. Nothing else on the window is touched at all.
-;   fm_rows_only    the icon grid, and any jump longer than the view: the row
+;   .rows (here)    the icon grid, and any jump longer than the view: the row
 ;                   band is erased and redrawn, and the header, the buttons
 ;                   and the status line are still left alone.
 ;   fm_repaint      the fallback, when a clip region cuts the band - SPEC.md
@@ -8596,8 +8572,40 @@ fm_scroll_by:
     call fm_scrollpaint
     jnc .done
 .rows:
-    call fm_rows_only
-    jmp short .done
+    ; THE MIDDLE TIER - erase and redraw the row band, and NOTHING around it.
+    ; It was fm_rows_only, written here at its one call (kernel size pass 17:
+    ; its call, the `jmp` after it and its own two exits went, the exits
+    ; being this routine's .same and .no).
+    ;
+    ; It is fm_status_only's shape at the other end of the window: one rect,
+    ; tested WHOLE against any armed clip region (SPEC.md 11.3) because the
+    ; erase clips per pixel and the glyphs per cell, then filled and redrawn.
+    ; What it saves over fm_repaint is the header, both buttons and the status
+    ; line - about thirty glyph cells, and the flash of the whole content
+    ; going white to move a list. CF = 1 is a refusal: the caller repaints.
+    ;
+    ; It does NOT re-run fm_layout: fm_clamp_scroll has just written the
+    ; mirror every one of these reads, and re-deriving the rest from an
+    ; unchanged window record would answer with what is already there. Same
+    ; contract as fm_draw_rows, fm_sel_bar and fm_thumb.
+    cmp word [fm_fit], 0
+    je .same                    ; no row area: a scroll shows nowhere
+
+    mov bx, [fm_cy]             ; the row band: full content width (the bar
+    add bx, FM_ROW_Y0           ; is inside it and is redrawn with it), from
+    mov dx, [fm_cy]             ; the header's bottom to the status line's top
+    add dx, [fm_listb]
+    dec dx
+    call fm_cxrgt
+    jg .no                      ; degenerate content: nothing to draw into.
+                                ; The y span needs no test of its own - fit
+                                ; >= 1 puts fm_listb a row or more below 22
+    call ct_cw_wm_clip_test
+    jc .no
+
+    call fm_wfill
+    call fm_draw_rows
+    jmp short .same
 .no:
     stc
     SKIPAL1                     ; mov al, imm8 over the clc: no flag written,
@@ -8606,49 +8614,6 @@ fm_scroll_by:
 .done:
     jmp kretc_bp
                                 ; answer
-
-; -----------------------------------------------------------------------------
-; fm_rows_only - erase and redraw the row band, and NOTHING around it
-; in:  fm_layout already run for the acting window; gfx lock held
-; out: CF = 0 drawn; CF = 1 refused - the caller must fm_repaint
-; clobbers: AX, BX, CX, DX, SI, DI, BP (fm_scroll_by banked them)
-;
-; The middle tier. It is fm_status_only's shape at the other end of the
-; window: one rect, tested WHOLE against any armed clip region (SPEC.md 11.3)
-; because the erase clips per pixel and the glyphs per cell, then filled and
-; redrawn. What it saves over fm_repaint is the header, both buttons and the
-; status line - about thirty glyph cells, and the flash of the whole content
-; going white to move a list.
-;
-; It does NOT re-run fm_layout: fm_clamp_scroll has just written the mirror
-; every one of these reads, and re-deriving the rest from an unchanged window
-; record would answer with what is already there. Same contract as
-; fm_draw_rows, fm_sel_bar and fm_thumb.
-; -----------------------------------------------------------------------------
-fm_rows_only:
-    cmp word [fm_fit], 0
-    je .done                    ; no row area: a scroll shows nowhere
-
-    mov bx, [fm_cy]             ; the row band: full content width (the bar
-    add bx, FM_ROW_Y0           ; is inside it and is redrawn with it), from
-    mov dx, [fm_cy]             ; the header's bottom to the status line's top
-    add dx, [fm_listb]
-    dec dx
-    call fm_cxrgt
-    jg .refuse                  ; degenerate content: nothing to draw into.
-                                ; The y span needs no test of its own - fit
-                                ; >= 1 puts fm_listb a row or more below 22
-    call ct_cw_wm_clip_test
-    jc .refuse
-
-    call fm_wfill
-    call fm_draw_rows
-.done:
-    clc
-    ret
-.refuse:
-    stc
-    ret
 
 ; -----------------------------------------------------------------------------
 ; fm_scrollpaint - move the list view with one blit (SPEC.md 22.11.1)
