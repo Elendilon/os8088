@@ -343,9 +343,9 @@
   "sources": [
    "apps/dos"
   ],
-  "stamped": "e7ca16f80",
-  "strings": "efe62396ae4edb45",
-  "why": "S12: the shipped DOS.O88 forwards a Windows NE to WIN16 (SPEC 124.18.1); one sentence added"
+  "stamped": "c6fcd7cc",
+  "strings": "0579f1da3c099bb3",
+  "why": "described Run in Window as a mode (SPEC 96.54.10), Close when done, the window's automatic memory limit, TopView programs and close-stops-program; checked the rest of the page against the current program"
  },
  "DOTDEL_O88": {
   "sources": [

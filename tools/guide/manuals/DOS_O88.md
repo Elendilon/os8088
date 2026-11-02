@@ -71,6 +71,23 @@ the arena is the memory the program was given.
 
 ![OS88NET.COM run with no arguments. With no parallel port to use, it says so and ends.](shot:dos-ended){full}
 
+## Running in the window
+
+**Program > Run in Window** keeps programs on the desktop instead. While it
+is ticked (the menu shows `*Run in Window`), every program started from the
+prompt runs inside the console, one after another, and the prompt stays in
+the window between them. The rest of the desktop keeps working: you can
+move the window, open folders and use other programs while a text program
+runs. Choose the item again to go back to the whole screen. It is the same
+setting as **Run in a window** on the Setup page, and a shortcut saved with
+it ticked runs that way.
+
+A program that switches to a graphics mode takes the whole screen for as
+long as it draws there, and the window comes back when it returns to text.
+Programs written for TopView or DESQview, such as WordPerfect 4.1, draw into
+the window directly and run at close to their full-screen speed. Closing the
+window stops the program in it.
+
 To run the same program again, press `Enter` with nothing typed, or click
 **Run**.
 
@@ -153,8 +170,14 @@ you change them. With **Run in a window** ticked it is the window's share,
 **128KB+** while **Limit** is empty: a window starts at 128KB and grows by
 itself, in 16KB steps, for a program that needs more - WordPerfect 4.1 gets
 144KB. Type a Limit and the window is that size exactly, and a program too
-big for it is refused. With **Close when done** ticked the figure is a
-little larger, because a shortcut run that way leaves the window out.
+big for it is refused.
+
+**Close when done** is for shortcuts. A shortcut saved with it ticked runs
+its program with only a small `Starting` window behind it, and that window
+closes when the program ends; a message appears only if the program could
+not run or ended with an error. It cannot be ticked together with **Run in a
+window**, and it is greyed for a Windows program. With it ticked the memory
+figure is a little larger, because the console is left out.
 
 **Disk cache** decides how much of that memory DOS keeps for speeding up
 disk reads: **Auto**, **32K**, **18K**, **9K** or **Off (SLOW!)**. A program
@@ -209,6 +232,7 @@ the program itself always uses the default settings.
 | Run | `Enter` in the command box | Runs the program the command box names |
 | Setup | | Opens the Setup page |
 | Full Screen | `Alt+Enter` | Puts the console on the whole text screen |
+| Run in Window | | Runs programs from the prompt inside the window while ticked |
 
 ![The Program menu.](shot:dos-menu){right}
 

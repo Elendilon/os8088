@@ -494,9 +494,9 @@ N apps/waverack/wrsave.inc ws_oseg     # a save's output claim (16-32KB), held
 
 # --- WIN16 (SPEC.md 124) and DOS.O88's hand-off to it ------------------------
 
-C apps/dos/dosw16.inc @dos_w16_try       # the first two clusters of an .EXE,
+C apps/dos/dosw16.inc @dos_w16_go       # the first two clusters of an .EXE,
                                          # read to find an NE header and freed
-                                         # inside the one dos_w16_try call
+                                         # inside the one dos_w16_go call
 C apps/win16/w16load.inc w16_fseg        # the program's whole file, claimed and
                                          # freed inside one w16_load call
 C apps/win16/w16cens.inc w16c_cseg       # the CPU census's work block, claimed
