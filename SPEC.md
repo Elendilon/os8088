@@ -132809,10 +132809,11 @@ be torn by an interrupt between a read and a write.
 (`tools/kernsize.py`): the word is the one that held the pointer, and no rung
 is crossed, though kern_small's image rung has 1 byte left after it. The pass
 walks the records and their bits together, so it needs neither a division nor
-`wm_idx2ptr`, and its empty case is the compare `ui.inc` makes before calling
-it. `wm_destroy`'s clear is two bytes shorter than the pointer compare it
-replaced, which keeps `ui_task` and `wm_paint_all` where `t_hotpar` wants
-them.
+`wm_idx2ptr`. On elendilon's kernel the pass is written INTO `ui_task`'s
+`.chk_close` step (kernel size pass 16) rather than called, and its empty case
+is that step's own compare. The request's bit is 13 bytes longer than the
+pointer store it replaced, so a never-executed pad byte after `wm_close_req`
+keeps `ui_task` and `wm_paint_all` at the parity `t_hotpar` pins.
 
 **Rows:** `dispclose`, `dispclose-small` and `deskclose` close one window at
 a time through it; `win16desk` and S21's `win16tasks` (§124.28.11) close
@@ -231898,8 +231899,11 @@ proc asks first, before `op_load` claims or reads anything:
    `OSAPI_FILE_HERE`), reads the first cluster and, when `e_lfanew` lies
    past it, the cluster holding it - the test of the handover rule above,
    byte for byte;
-3. **an NE**: `OSAPI_PKG_START` with `WIN16.O88` and the document - from an
-   entry proc that is a POST (§21.5.4) - and the entry refuses. No carve, no
+3. **an NE**: first `w16j_give` (§124.28.12) - a WIN16 already running a
+   program takes it as a task, through the join box, and the entry refuses
+   - and only when none does, `OSAPI_PKG_START` with `WIN16.O88` and the
+   document - from an entry proc that is a POST (§21.5.4) - and the entry
+   refuses. No carve, no
    core, no window, no console: the 56 KB host and the 15 KB core are never
    read and WIN16 starts with them still in the heap. The kernel says nothing
    about the refusal;
@@ -233545,8 +233549,14 @@ through DS; their calls into the image are the dialog part's `ICALL`
 (§124.13). A load costs one more read of `WIN16.O88`; the segment gets
 the loader's code back for the stories after S12. The program's read and
 the face's fetch after it are ONE file operation (§12.8.10): `w16_load`
-begins it at the size probe, with the probe's KB plus the smallest face's
-packed length, and `w16_wake` ends it whichever way the load went.
+begins it once the NE tables are read (`w16l_opbegin`), sized as the bytes
+of every segment it reads at launch - each with bytes in the file that is
+not discardable code (§124.26.3) - plus, on the first program, the smallest
+face's packed length; `w16_wake` ends it whichever way the load went, and a
+later task's load (§124.28.5) ends at its own `w16_ldin` call. The tables
+and a library's segments are outside it, so it is an under-estimate that
+clamps full early; the whole file would be an over-estimate that never
+fills.
 
 #### 124.18.8 The gate
 
@@ -233989,8 +233999,8 @@ A forwarded call runs on the UI task's stack, as every import's handler does
 **`59h`, the extended error, is WIN16's own** *(S20 batch 6)*: AX = the code
 of the last call into WIN16's DOS that failed, the program's own `int 21h`
 or a KERNEL file call's (§124.21.3); BH = 8 (not found) for codes 2 and 3
-and 0Dh (unknown) otherwise, BL = 3, CH = 2. The core has no `59h` and one
-byte of `CORE_MAX` to spare, so the answer is kept where both paths pass:
+and 0Dh (unknown) otherwise, BL = 3, CH = 2. The core has no `59h` and next to
+no `CORE_MAX` to spare, so the answer is kept where both paths pass:
 `w16_dcall` records a failure, and a forwarded call enters the core's gate
 as an `int` (`pushf`, far call) and records CF before WIN16 `iret`s itself.
 Windows Help 3.0's runtime asks for it after `_lopen` fails on
@@ -235298,6 +235308,18 @@ the System font's, icon, system-library and emulator parts. A part is
 fetched into a claim of its own, copied into its block and dropped
 (`w16_pkeep`), as the DOS's parts always were, so it costs a claim only
 while it is read. The blocks go with the arenas when the program ends.
+
+**Every size here that is a byte count is claimed in PARAGRAPHS**
+(§50.3.7), whichever door it goes through: the program's claim and an
+arena through `OSAPI_MEM_P`'s `MEMP_CLAIM` - an arena's `GH_SIZE` is what
+was GRANTED, its floors 32 and 64 KB in paragraphs, `GlobalCompact`'s
+largest-claim figure `MEMP_AVAIL`'s - the NE tables through `MEMP_CLAIM`
+and `MEMP_REGROW`, and `GetDIBits`'s off-screen copy (`w16_fmseg`) the
+same; inside the heap, a later task's image, the thunks, the read cache and
+the loader's kept copy through `w16_kclaimp`, `w16_kclaim`'s paragraph
+entry. What stays in KB is what is a KB count already: a profile file's
+cache, whose sizes are a read's KB and a 2 KB growth step, and a part kept
+whole.
 
 A block of WIN16's starts on 512 bytes, as a claim does: a profile is read
 straight into its block, and every disk-visible base is aligned, since an
@@ -236609,9 +236631,19 @@ brings it, as every other Windows program (`make win16disk WIN3X=<dir>`).
 
 *As a user, a second Windows program I double-click opens beside the first,
 as it did on Windows.* Every desktop launch of a Windows program passes
-through `DOS.O88`: `.EXE` is DOS's extension, and `dos_w16_try` hands an NE
-on (§124.3). Before it starts a WIN16 instance, it looks for one that is
-running a program and gives the program to it instead.
+through `DOS.O88`: `.EXE` is DOS's extension. A double-click is decided in
+its LOADER (§124.3.1, `dsl_w16`), and an NE typed at the prompt, named in
+Run or reached through a `.LNK` in the host (`dos_w16_try`, §124.3). Before
+either starts a WIN16 instance, it looks for one that is running a program
+and gives the program to it instead.
+
+**Both routes call ONE routine**, `w16j_give` in
+`apps/win16/w16jgive.inc`, included as source by `apps/dos/dosload.asm` and
+`apps/dos/dosw16.inc` as the layout below is by both packages: the two
+places that recognise an NE cannot come to disagree about which instance
+takes it. It is handed the locator in `DS:SI` and, in `ES`, the cluster
+claim its caller already holds to read the header - at least 1KB, which
+`SYS_SNAPSHOT_SIZE` is asserted against where the routine is assembled.
 
 **The join box** is 24 bytes of WIN16's image at a pinned offset,
 `W16J_AT` = 96, directly after the header and the icon. Its layout is
@@ -236627,8 +236659,7 @@ running a program and gives the program to it instead.
 | +7 | byte | 0 |
 | +8 | 16 bytes | the program's locator, `OSAPI_ARG_FILE`'s shape (§21.5.3) |
 
-**DOS looks** with `OSAPI_SYS_SNAPSHOT`, into the cluster claim it already
-holds to read the header. A live package instance whose region is at least
+**DOS looks** with `OSAPI_SYS_SNAPSHOT`, into that claim. A live package instance whose region is at least
 `W16J_AT` + 24 bytes, whose box has the signature and version, says a
 program runs, and holds no locator, takes it. DOS writes the locator, sets
 the request byte, and wakes WIN16's window with `OSAPI_WM_WAKE`. If the

@@ -541,8 +541,9 @@ wm_init:
                                 ; EVERY window on its way out, handler or not,
                                 ; ui_rdown reads wm_onrc for every frontmost
                                 ; window a right press lands on (SPEC.md
-                                ; 13.11), and wm_close_pass reads [wm_clreq]
-                                ; on the machine's first UI pass
+                                ; 13.11), and ui_task's .chk_close (the close
+                                ; pass, written there) reads [wm_clreq] on
+                                ; the machine's first UI pass
     pop es
     pop di
     pop cx
@@ -11801,10 +11802,8 @@ wm_rz_oh:   resw 1              ; Not per-slot: it never outlives the call.
                                     ; this word for EVERY frontmost window a
                                     ; right press lands on, handler or not
 wm_clreq:   resw 1                  ; a bit per SLOT a package asked to have
-                                    ; closed (SPEC.md 75.2.1)
-                                    ; (SPEC.md 75.2), 0 = none. ONE, because the
-                                    ; request is spent on the next UI pass and
-                                    ; nothing can queue a second inside one
+                                    ; closed (SPEC.md 75.2, 75.2.1), 0 = none:
+                                    ; any number wait for the next UI pass
 wm_clask:   resw 1                  ; the window whose negotiator is running
                                     ; RIGHT NOW, 0 = none: the re-entry fence
 ;m_wkq:     resb MAX_WIN            ; per slot: WKQ_NONE / WKQ_RING (a record is

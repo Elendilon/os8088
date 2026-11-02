@@ -237,8 +237,9 @@ dsl_core:
 ;           (SPEC.md 124.3.1)
 ; in:  ES = KERNEL_SEG (the entry contract); the instance stands where the
 ;      package was launched from
-; out: CF=1 = it was an NE and WIN16.O88's launch is POSTED: refuse, and the
-;      kernel says nothing (SPEC.md 21.5.4). CF=0 = anything else: dsl_doc
+; out: CF=1 = it was an NE, and a running WIN16 took it (w16j_give, SPEC.md
+;      124.28.12) or WIN16.O88's launch is POSTED: refuse, and the kernel
+;      says nothing (SPEC.md 21.5.4). CF=0 = anything else: dsl_doc
 ;      holds the document (or zeros) and dsl_w16k says whether it was read,
 ;      and the instance stands where it stood
 ; clobbers: AX, BX, CX, DX, SI, DI, ES, BP, flags
@@ -367,8 +368,13 @@ dsl_w16:
     jb .free
     cmp word [es:si], 0x454E        ; 'NE'
     jne .free
-    mov dx, bp                      ; --- IT IS ONE ---------------------------
-    call OSAPI_MEM_FREE
+    mov si, dsl_doc                 ; --- IT IS ONE ---------------------------
+    call w16j_give                  ; a running WIN16 takes it (SPEC.md
+    pushf                           ;   124.28.12) - the host's own arm's
+    mov dx, bp                      ;   routine, in the claim this probe
+    call OSAPI_MEM_FREE             ;   already holds
+    popf
+    jc .done                        ; taken: refused, as silently as a post
     push ds
     pop es
     mov si, dsl_w16pkg              ; WIN16's stem names the slot (124.3),
@@ -393,6 +399,9 @@ dsl_w16:
     ret
 
 dsl_w16pkg: db 'WIN16.O88', 0
+
+%include "win16/w16join.inc"        ; the join box (SPEC.md 124.28.12)...
+%include "win16/w16jgive.inc"       ; ...and w16j_give, the host's own copy
 %endif
 
 ; -----------------------------------------------------------------------------

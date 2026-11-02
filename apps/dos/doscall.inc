@@ -164,9 +164,9 @@ CORE_MAX    equ 16512            ; +512 for SPEC.md 96.7.2's stack swap and
                                 ; FCBs parsed and copied): 371 bytes against
                                 ; 9 of slack, 16,490 used
                                 ; +16 at the merge with main's WIN16 phase A,
-                                ; whose join box (dos_w16_join, SPEC.md
-                                ; 124.28.12) met the headless pass's
-                                ; dos_w16_isne: 3 bytes over, 16,499 used
+                                ; whose write-back in place (.fwback, SPEC.md
+                                ; 96.11.6.4) met this arm's 16,490: 3 bytes
+                                ; over, 16,499 used
 %else                           ; **kern_mega's core is 67 bytes longer**:
 CORE_MAX    equ 17152            ; SPEC.md 96.15.4's extended-to-extended
 %endif                          ; move (dos_xms_move's `.bothx`), 15,409 used.

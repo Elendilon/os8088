@@ -295,7 +295,7 @@ section .w16dlg
                                 ;   segment's relocations (SPEC.md 124.20.1;
                                 ;   freed before the run)
     W16BSS w16_hpos, 2          ; ...the bytes of it in use
-    W16BSS w16_hkb, 2           ; ...and the KB claimed
+    W16BSS w16_htp, 2           ; ...and the paragraphs claimed
     W16BSS w16_rtoff, 2 * W16_MAXSEG    ; each segment's relocations in it
     W16BSS w16_cseg, 2          ; the cluster cache's claim (0 = none)
     W16BSS w16_csz, 2           ; ...its bytes
@@ -1514,12 +1514,24 @@ w16_facein:
 ; read straight into one, and every disk-visible base is aligned (an int 13h
 ; across 64 KB fails). The block's own handle is the word in the paragraph
 ; before it. out: CF=0 DX = the segment; CF=1 none. Keeps all but DX.
+;
+; w16_kclaimp - the same, AX = PARAGRAPHS (SPEC.md 50.3.7): a size that is a
+; byte count - the program's image, the NE tables, the library part - pays
+; the global heap's paragraph and not a whole KB. One body, the unit the
+; multiplier.
 ; -----------------------------------------------------------------------------
+w16_kclaimp:
+    push ax
+    push cx
+    push es
+    mov cx, 16
+    jmp short w16_kcl
 w16_kclaim:
     push ax
     push cx
     push es
     mov cx, 1024
+w16_kcl:
     mul cx                          ; DX:AX = bytes, and 512 to align in
     add ax, 512
     adc dx, 0
