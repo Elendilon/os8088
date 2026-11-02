@@ -187708,9 +187708,11 @@ nothing and stay byte for byte what they were.
 **The boundary is a gate.** nasm resolves a near reference across a section
 without a word, and in a region with no tail the tail's addresses are some
 other claim's. So the resident host names the tail only inside a `WIN_ONLY`
-... `WIN_END` bracket, whose opening is the test itself - `cmp byte
-[dos_head], 0` / `jne` over the window's arm (`WIN_ONLYF` for an arm past a
-short jump, `WIN_ELSE` for a headless arm). `tools/doswtail.py` proves it
+... `WIN_END` bracket, whose opening is the test itself - `call dos_hq` /
+`jne` over the window's arm (`WIN_ONLYF` for an arm past a short jump,
+`WIN_ELSE` for a headless arm), `dos_hq` being the one `cmp byte [dos_head],
+0` / `ret`: five bytes a bracket where the inline compare was seven, for a
+call and a return on paths that run once a launch. `tools/doswtail.py` proves it
 without disassembling anything: it assembles the host a second time with the
 tail moved up `DOS_WSHIFT` bytes, so every byte of the resident host whose
 value depends on where the tail is - a branch, a memory operand, an
@@ -187783,6 +187785,13 @@ host, and so do the full-screen console's bracket entry (`dos_fsx_cone`, a
 bracketed jump to `dos_fsx_con`) and the 14 bytes of `dvw_*` cells the
 resident `dos_run` and `dos_wake` read.
 
+**The exit report is the tail's** (DOS-HEADLESS-PLAN 1.2's X bucket):
+`dos_fmt_exit`, `dos_err_line` and the `DER_*` sentences have one caller, the
+console's `dos_con_ended`, and a headless host says its end in a toast of its
+own (§96.44.20) - so the 544 bytes the plan had left resident for a headless
+reuse that was not built are in part 1, and a headless region never holds
+them. A windowed region is the same size either way.
+
 **The header says the RESIDENT host** - `image + bss` is the resident host's,
 so `I_SIZE` is too (§20.12.10.4) - and the file runs on past it with the tail.
 `os88pkg.py`'s rule that a program part ships its bss inside it refuses a part
@@ -187817,13 +187826,15 @@ host's `[dos_head]`). An older `DOS.O88` ignores the field and runs the link
 windowed, which is the right way for an old host to be wrong; Windows would
 start the target minimised.
 
-**What a headless host does instead** (`dos_hwin`, `dos_hpaint`,
+**What a headless host does instead** (`dos_htpl`, `dos_hpaint`,
 `dos_fld_def`, `dos_hend`, all resident, all naming nothing of the tail):
 
 - a one-line window, `Starting NAME`, with no menu, no buttons, no console and
   no About card: `OSAPI_FSX_RUN` and `OSAPI_WM_WAKE` are a window's (§53.1),
   so the frame is the price of the bracket. Each pixel is drawn once - the
-  line by `OSAPI_FONT_RUN`, the ground beside and under it by two fills;
+  line by two `OSAPI_FONT_RUN`s, `Starting ` and the name on the grid it
+  leaves, the ground beside it by one fill (the content is the line's own
+  height);
 - the settings' defaults without their field blocks, then the `.LNK` read as
   ever (`dos_lnk_open`; its field reloads are bracketed out);
 - the run as ever - the bracket, or the whole machine with arm 3, whose
@@ -187861,11 +187872,31 @@ guest seconds against 15.9 (-2.4 s)** with **20 `int 13h` calls against 21**
 - the window's ~10 KB of packed stream is neither read nor decoded, no
 console is seeded and no window is painted. With the loader's flip taken out
 the same headless host reads 15.3 s and 467 KB: the read and decode of part
-1 are ~1.8 s of the 2.4. What it costs: the resident host is **+535 bytes**
-in every instance, windowed too (25,444 -> 25,979 + 3 of the loader's byte:
-the four routines and their strings, the box's record, the line), the
-loader +93 raw, and `DOS.O88` 53,212 -> 53,803 (lz4) and 47,174 -> 47,701
-(LZB, 47 clusters).
+1 are ~1.8 s of the 2.4. What it cost as first built: the resident host
+**+535 bytes** in every instance, windowed too (25,444 -> 25,979 + 3 of the
+loader's byte: the four routines and their strings, the box's record, the
+line), the loader +93 raw, and `DOS.O88` 53,212 -> 53,803 (lz4) and 47,174 ->
+47,701 (LZB, 47 clusters).
+
+**Its size pass** took the resident host 25,982 -> **25,216** bytes (-766) and
+the tail 19,688 -> 20,247, so a WINDOWED region is **207 bytes smaller** than
+it was (45,670 -> 45,463) and a headless one 766: 544 of it is the exit report
+moving into the tail (§96.44.19), and 222 is the headless work's own -
+`dos_hq` for every bracket's compare, the one-line window made by the same
+`OSAPI_WM_CREATE` as the window's with the template picked in a bracket,
+`dos_fld_def` called on both hosts in place of a copy in `dos_fld_init`, the
+paint as two opaque runs and one fill with no line buffer, the toast built in
+`dos_lbuf` (the `.LNK`'s, which a headless host is done with) by a
+`stosb` concatenator, the refusal forms as an offset table over seven strings
+where ten were walked, the two ends (`dos_endk`, `dos_endr`) as one bracket
+each over tail routines, the `Close when done` record and the NE byte in the
+tail's bss, and `dos_w16_isne` and `dos_w16_try` one body with the mode on the
+stack. The loader is 3,101 -> 3,087 (both forms' dword at 3Ch read once).
+`DOS.O88` 53,803 -> **53,675** (lz4) and 47,701 -> **47,604** (LZB, still 47
+clusters); what a headless launch reads of part 0 is 4,847 -> 4,288 packed
+bytes (lz4) and 4,348 -> 3,869 (LZB). kern_mega's host and loader, both
+`kern_dos` images and the plain `build/dos.bin` are byte-identical across it
+(`cmp`ed).
 
 ### 96.45 The mouse under `kern_dos`, and it was switched OFF rather than missing
 

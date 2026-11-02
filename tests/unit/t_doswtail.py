@@ -5,8 +5,8 @@
 
 Every `make` runs tools/doswtail.py over the shipped host: the resident host
 may name the window's tail - `.wtext`, everything that only SHOWS the window -
-only inside a WIN_ONLY bracket, whose opening is the `cmp byte [dos_head], 0`
-that a headless launch answers no to. A headless region does not hold the
+only inside a WIN_ONLY bracket, whose opening is the `call dos_hq` (its
+`cmp byte [dos_head], 0`) that a headless launch answers no to. A headless region does not hold the
 tail at all, so an unbracketed reference names FREE MEMORY: a `call
 con_write` runs whatever claim landed there and a `mov [con_cx], ax` writes
 into it. No windowed row can see that, because a windowed region has the

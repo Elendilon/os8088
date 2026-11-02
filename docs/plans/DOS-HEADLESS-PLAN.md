@@ -530,7 +530,7 @@ DOS-PARTS-PLAN 1.1), and the windowed layer's resident half.
   stream 1 had overwritten it - fixed in the standard (SPEC.md 96.44.19).
 - [x] **W3, headless** (SPEC.md 96.44.20) - the loader's `ShowCommand` test
   and the row flip, `[dos_head]`, the headless arms of entry, wake and run
-  (`dos_hwin`, `dos_fld_def`, `dos_hpaint`, `dos_hend`), the toast and the
+  (`dos_htpl`, `dos_fld_def`, `dos_hpaint`, `dos_hend`), the toast and the
   close; `Close when done` on the Setup page (exclusive with `Run in a
   window`, greyed for an NE through `dos_w16_isne`) and ShowCommand 7 in the
   `.LNK` writer; `dos_lnk_parse` reads it back. **M** on `doshead`: claim
@@ -540,6 +540,19 @@ DOS-PARTS-PLAN 1.1), and the windowed layer's resident half.
   -0.7 s: the window's read and decode are ~1.8 s of it (the flip-removed
   run), the rest is the console and paint a headless host never does. The
   host's own arms are **+535 resident bytes** against the plan's ~+250 (E).
+- [x] **Size pass** (SPEC.md 96.44.20's last paragraph): the resident host
+  25,982 -> **25,216** (-766) and the tail 19,688 -> 20,247, so a windowed
+  region is 207 bytes smaller and a headless one 766. 544 of it is the X
+  bucket (section 1.2) moving into the tail - section 2 left it resident for
+  a reuse W3 did not build, its toast having short forms of its own - and
+  222 the headless arms' own (the arms now cost **+316** against W2's
+  25,444 with X counted where it was, where W3 measured +538). Every
+  bracket's compare is one `dos_hq`. Loader 3,101 -> 3,087; `DOS.O88`
+  53,803 -> 53,675 (lz4) and 47,701 -> 47,604 (LZB, 47 clusters). The
+  windowed launch reads fewer packed bytes than before (part 0 + part 1,
+  16,188 -> 16,071 lz4) in the same one run, and pays ~15 near calls to
+  `dos_hq` on its once-a-launch paths. kern_mega, `kern_dos` and the plain
+  `build/dos.bin` are byte-identical (`cmp`ed).
 - [ ] **W4** (drop after load on the same layout) - not built: it needs a
   path from a live window to the headless arms plus a posted compaction to
   hand the freed tail to the arena, which is not cheap on this layout.

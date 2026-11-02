@@ -240,7 +240,9 @@ DVW_DEFKB   equ 128                 ; ...a window's, when the user set none
 ; across a section silently, and in a region with no tail the tail's address
 ; is somebody else's claim. So every reference from the resident host into
 ; the tail is spelled inside `WIN_ONLY` ... `WIN_END`, whose opening IS the
-; test (`cmp byte [dos_head], 0` / `jne`), and `tools/doswtail.py` assembles
+; test (`call dos_hq` / `jne`: dos_hq is the one `cmp byte [dos_head], 0`,
+; which spelled at every bracket was two bytes a bracket more for a call
+; and a ret on paths that run once a launch), and `tools/doswtail.py` assembles
 ; the host twice - the second time with the tail moved up by DOS_WSHIFT bytes
 ; - and FAILS THE BUILD on any byte of the resident host that moved with it
 ; outside such a bracket. A branch, a memory operand, an immediate and a
@@ -272,10 +274,10 @@ section .text
   %push dwonly                    ; is shown to go red (tests/unit/t_doswtail.py)
   %assign DOS_WBN DOS_WBN + 1
   %ifndef DOS_WBREAK
-    cmp byte [dos_head], 0          ; THE TEST IS THE BRACKET: the checker
+    call dos_hq                     ; THE TEST IS THE BRACKET: the checker
     jne short %$end                 ; reads its range off this jump
   %elif DOS_WBN != DOS_WBREAK
-    cmp byte [dos_head], 0
+    call dos_hq
     jne short %$end
   %endif
  %endmacro
@@ -283,11 +285,11 @@ section .text
   %push dwonly
   %assign DOS_WBN DOS_WBN + 1
   %ifndef DOS_WBREAK
-    cmp byte [dos_head], 0
+    call dos_hq
     je short %%in
     jmp near %$end
   %elif DOS_WBN != DOS_WBREAK
-    cmp byte [dos_head], 0
+    call dos_hq
     je short %%in
     jmp near %$end
   %endif
@@ -1124,14 +1126,16 @@ dos_entry:
     pop es
 %endif
 
-    WIN_ONLYF                       ; THE WINDOW (DOS-HEADLESS-PLAN 4.4): a
-                                    ; headless host makes a one-line one of
-                                    ; its own instead (dos_hwin)
+%ifdef DOS_WTAIL
+    mov si, dos_htpl                ; HEADLESS (SPEC.md 96.44.20): a one-line
+%endif                              ; window of its own, and no menu, no
+    WIN_ONLY                        ; buttons, no console (DOS-HEADLESS 4.4)
     mov si, dos_tpl                 ; THE TEMPLATE IS THE VGA/CGA SIZE and
-    call OSAPI_WM_CREATE            ; dos_pref is the rest (SPEC.md 96.32).
-    jc .out                         ; dos_size is GONE: it computed 90% of the
-    mov [dos_win], bx               ; desktop band with a mul and a div, and
-                                    ; the requirement is a COUNT of columns
+    WIN_END                         ; dos_pref is the rest (SPEC.md 96.32).
+    call OSAPI_WM_CREATE            ; dos_size is GONE: it computed 90% of the
+    jc .out                         ; desktop band with a mul and a div, and
+    mov [dos_win], bx               ; the requirement is a COUNT of columns
+    WIN_ONLYF                       ; THE WINDOW'S FURNITURE
     mov si, dos_menus               ; ...and the menu bar gains a Program menu
     call OSAPI_MENU_SET             ; (SPEC.md 96.32.3)
 
@@ -1149,11 +1153,6 @@ dos_entry:
     call os88ui_btninit             ; 20.5.1.3.3's cell now lets it write
     pop dx                          ; late. dos_click is OUR own click work
     mov bx, [dos_win]               ; and the library chains to it
-%ifdef DOS_WTAIL
-    WIN_ELSE                        ; HEADLESS (SPEC.md 96.44.20): one line,
-    call dos_hwin                   ; and no menu, no buttons, no console
-    jc .out
-%endif
     WIN_END
 
 %ifndef KD_BACKEND                  ; 96.43: the console is the window's
@@ -1223,6 +1222,9 @@ dos_entry:
                                     ; compaction that cannot reach the hole
                                     ; are the same number and different bugs
 
+%ifdef DOS_WTAIL
+    call dos_fld_def                ; the settings' defaults, on both hosts
+%endif
     WIN_ONLY
     call dos_keeph                  ; **KEEPH FIRST, THEN THE PREFERENCE.** On
     mov si, dos_pref                ; a CGA the dock's strip is the difference
@@ -1237,10 +1239,6 @@ dos_entry:
     call dos_con_start              ; ...AND THE CONSOLE (SPEC.md 96.33), before
                                     ; the first paint can read a screen whose
                                     ; attribute is still a zeroed bss's
-%endif
-%ifdef DOS_WTAIL
-    WIN_ELSE
-    call dos_fld_def                ; ...or only the settings' defaults
 %endif
     WIN_END
 
@@ -1536,26 +1534,16 @@ dos_wake:
     ; starts, so a line written there is about a launch that has not happened
     ; (SPEC.md 96.35.1). Before `dos_swap`, which is the repaint, for
     ; `dos_repaint`'s reason one arm over.
-    WIN_ONLY                        ; the exit line, the repaint and the full
-                                    ; screen are the console's
-    call dos_con_ended
-    mov bx, [dos_win]
+%ifdef DOS_WTAIL
+    jmp dos_endk                    ; the window's end (dos_endk_w), or the
+%else                               ; headless toast - a tail call: .out is ret
+    call dos_con_ended              ; the exit line, the repaint and the full
+    mov bx, [dos_win]               ; screen are the console's
     call dos_swap
     call dos_fsx_back               ; ...AND BACK INTO THE FULL SCREEN when the
-                                    ; command was typed there (SPEC.md
-                                    ; 96.33.16): the posted path leaves dos_run
-                                    ; by `.outq`, past its own call - so the
-                                    ; return is where [dos_fsxgo] is spent, or
-                                    ; it stood until some later WINDOWED exit
-                                    ; spent it and threw that console into the
-                                    ; full screen. kern_mega's trip (14.106) and
-                                    ; kern_big's shut-down arm alike (14.113)
-%ifdef DOS_WTAIL
-    WIN_ELSE
-    call dos_hend                   ; headless: a toast if it is news, and go
-%endif
-    WIN_END
+                                    ; command was typed there (dos_endk_w)
     jmp short .out
+%endif
 .nocode:
 %endif
     cmp byte [dos_state], DST_CPWAIT
@@ -2041,8 +2029,9 @@ dos_run:
                                     ; exactly as it skips the resume: the
                                     ; compaction is going to run and then come
                                     ; back through here
-    WIN_ONLY                        ; the console's account of the run, the
-                                    ; repaint and the full screen
+%ifdef DOS_WTAIL
+    call dos_endr                   ; the window's end (dos_endr_w), or the
+%else                               ; headless toast
 %ifndef KD_BACKEND                  ; 96.43: the console is the window's
     call dos_con_ended              ; ...and the console says what happened, which
                                     ; is where §96.32's three status lines went
@@ -2068,11 +2057,7 @@ dos_run:
                                     ; after dos_repaint so the window under it
                                     ; is right when the bracket next comes down
 %endif
-%ifdef DOS_WTAIL
-    WIN_ELSE
-    call dos_hend                   ; headless: a toast if it is news, and go
-%endif
-    WIN_END
+%endif                              ; DOS_WTAIL
 .outq:                              ; ...AND THE POSTED PATH, which reaches
                                     ; none of the above on purpose: nothing has
                                     ; ended, the drivers must stay out for the
@@ -2080,12 +2065,37 @@ dos_run:
                                     ; still says what it said (SPEC.md 96.35.1)
     jmp dos_hpop_7                  ; the host's shared epilogue (96.54.8)
 
+WIN_CODE                            ; the window's (DOS-HEADLESS-PLAN 4.4)
+%ifdef DOS_WTAIL
+; -----------------------------------------------------------------------------
+; dos_endk_w - dos_wake's end, the window's (dos_endk): the exit line, the
+; repaint, and BACK INTO THE FULL SCREEN when the command was typed there
+; (SPEC.md 96.33.16) - the posted path leaves dos_run by `.outq`, past its own
+; call, so the return is where [dos_fsxgo] is spent, or it stood until some
+; later WINDOWED exit spent it and threw that console into the full screen.
+; kern_mega's trip (14.106) and kern_big's shut-down arm alike (14.113)
+; -----------------------------------------------------------------------------
+dos_endk_w:
+    call dos_con_ended
+    mov bx, [dos_win]
+    call dos_swap
+    jmp dos_fsx_back
+
+; dos_endr_w - dos_run's end, the window's (dos_endr): the console's account
+; of the run, then dos_repaint - THE WINDOW DOES NOT REPAINT ITSELF, so every
+; FAILURE path would leave "Starting..." on the glass - and back into the full
+; screen, after the repaint so the window under it is right (dos_run's notes)
+dos_endr_w:
+    call dos_con_ended
+    call dos_repaint
+    jmp dos_fsx_back
+%endif
+
 ; -----------------------------------------------------------------------------
 ; dos_repaint - the content, under a lock WE take
 ; in:  nothing; the wake handler's context, gfx lock NOT held (SPEC.md 74.1)
 ; out: nothing; preserves all registers
 ; -----------------------------------------------------------------------------
-WIN_CODE                            ; the window's (DOS-HEADLESS-PLAN 4.4)
 dos_repaint:
     push ax
     push bx
@@ -2535,26 +2545,21 @@ dos_fsx_cone:
 ; runs in the bracket (or on the whole machine), and its end is a toast for a
 ; non-zero exit or a refusal, and the instance closing.
 ; =============================================================================
-; dos_hwin - the one-line window. out: CF=0 BX = [dos_win]; CF=1 none
-dos_hwin:
-    mov si, dos_htpl
-    call OSAPI_WM_CREATE
-    jc .r
-    mov [dos_win], bx
-.r:
-    ret
-
-; dos_fld_def - the settings dos_fld_init sets on a windowed host (its field
-; blocks are the tail's): the arm, the cache's dial and the Hard Drives box.
-; Everything else's default is the zero the bss already holds
+; dos_fld_def - the settings' defaults: the arm, the cache's dial and the
+; Hard Drives box. Everything else's default is the zero the bss already
+; holds. dos_entry calls it on BOTH hosts, before the window's dos_fld_init
+; (whose field blocks are the tail's) - one copy of the three stores
 dos_fld_def:
     mov word [dos_keepc], DOS_MEM_IN
     mov word [dos_cache], DOS_CA_AUTO
     mov byte [dos_mhdd + OS88UI_CK_ON], 1
     ret
 
-; dos_hpaint - W_PAINT: `Starting NAME` and the ground beside and under it,
-; each pixel once (SPEC.md 6.1). SI = the window, the gfx lock held
+; dos_hpaint - W_PAINT: `Starting NAME` and the ground beside it, each pixel
+; once (SPEC.md 6.1) - two opaque runs, the name's on the cell grid the first
+; leaves, and one fill to the right edge. The content is exactly the line's
+; height (dos_htpl), so there is no ground under it. SI = the window, the gfx
+; lock held
 dos_hpaint:
     push ax
     push bx
@@ -2562,107 +2567,91 @@ dos_hpaint:
     push dx
     push si
     push di
-    mov di, dos_htxt
-    mov si, dos_hs_start
-    call dos_hcat
-    mov si, dos_name
-    call dos_hcat
-    mov byte [di], 0
-    sub di, dos_htxt                ; DI = the line's cells
-    mov bx, [dos_win]
+    mov bx, si
+    call OSAPI_WM_GEOM              ; CX = the content's width
+    mov di, cx
     call OSAPI_WM_CONTENT           ; AX = left, DX = top
-    push ax
-    push dx
+    add di, ax
+    dec di                          ; DI = the right edge
     mov cx, ax
-    mov si, dos_htxt
+    mov si, dos_hs_start
     mov ax, (CWHITE << 8) | CBLACK
     call OSAPI_FONT_RUN
-    call OSAPI_WM_GEOM              ; CX = width, DX = height
-    pop bx                          ; BX = top
-    pop ax                          ; AX = left
-    jc .out
-    mov si, ax                      ; SI = left, for the second fill
-    push dx
-    add cx, ax
-    dec cx                          ; CX = the right edge
-    mov dx, di
-    shl dx, 1
-    shl dx, 1
-    shl dx, 1
-    add ax, dx                      ; AX = past the text
-    pop dx
-    add dx, bx
-    dec dx                          ; DX = the bottom edge
+    add cx, 8 * (dos_hs_end - dos_hs_start)
+    mov si, dos_name
+    call OSAPI_FONT_RUN
+    call OSAPI_FONT_WIDTH           ; AX = the name's pixels
+    add ax, cx                      ; AX = past the text
+    cmp ax, di
+    ja .out
     push ax
     mov al, CWHITE
     call OSAPI_SET_COLOR
     pop ax
-    cmp ax, cx
-    ja .under
-    push dx
-    mov dx, bx
-    add dx, 7                       ; ...beside the line,
-    call OSAPI_GFX_FILL
-    pop dx
-.under:
-    add bx, 8                       ; ...and under it
-    cmp bx, dx
-    ja .out
-    mov ax, si
-    call OSAPI_GFX_FILL
+    mov bx, dx                      ; BX = top
+    add dx, 7                       ; DX = the line's bottom
+    mov cx, di
+    call OSAPI_GFX_FILL             ; ...beside the line
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp dos_hpop_6                  ; the host's shared epilogue (96.54.8)
 
-; dos_hcat - append DS:SI's NUL string at DI, at most to the toast's width
+; dos_hcat - append DS:SI's NUL string at ES:DI = DS:DI, NUL included; DI is
+; left ON the NUL, so the next one overwrites it
 dos_hcat:
     lodsb
+    stosb
     or al, al
-    jz .r
-    cmp di, dos_htxt + DOS_HTXT - 1
-    jae .r
-    mov [di], al
-    inc di
-    jmp short dos_hcat
-.r:
+    jnz dos_hcat
+    dec di
     ret
 
+; dos_hq - ZF = 0 headless (DOS-HEADLESS-PLAN 4.4): every WIN_ONLY bracket's
+; test, and tools/doswtail.py finds the brackets by their calls to it
+dos_hq:
+    cmp byte [dos_head], 0
+    ret
+
+; dos_endk / dos_endr - a run is over, from dos_wake's side (the program came
+; back to a wake: the bracket's resume, kern_dos's return) and from dos_run's.
+; Each is one bracket: the window's own end is the tail's (dos_endk_w,
+; dos_endr_w), a headless host's is dos_hend, which both fall into
+dos_endk:
+    WIN_ONLY
+    jmp dos_endk_w
+    WIN_END
+dos_endr:
+    WIN_ONLY
+    jmp dos_endr_w
+    WIN_END
 ; dos_hend - a headless run is over: say so if it is worth saying, and go.
 ; A toast is COPIED by the kernel, so the instance may close while it is up
 ; (OSAPI_TOAST); OSAPI_WM_CLOSE is deferred to the next UI pass, so this
-; returns and draws nothing after it
+; returns and draws nothing after it. The line is built in dos_lbuf: the
+; .LNK's buffer, which a headless host is done with once dos_entry has read
+; the shortcut (a Save Shortcut is a window's)
 dos_hend:
     push ax
     push bx
     push cx
+    push dx
     push si
     push di
     push es
-    mov di, dos_htxt
+    push ds
+    pop es
+    mov di, dos_lbuf
     cmp byte [dos_state], DST_ERR
     jne .ran
-    mov al, [dos_err]               ; a refusal's short form, words FIRST so
-    mov si, dos_hers                ; the 24 cells the bar shows lose the name
-.w:                                 ; and not the reason
-    or al, al
-    jz .say
-    dec al
-.skip:
-    cmp byte [si], 0
-    je .past
-    inc si
-    jmp short .skip
-.past:
-    inc si
-    cmp byte [si], 0
-    jne .w
-    mov si, dos_hers                ; past the list: the first reads as well
-    jmp short .say                  ; as any (nothing sets one today)
+    xor bx, bx                      ; a refusal's short form, words FIRST so
+    mov bl, [dos_err]               ; the 24 cells the bar shows lose the name
+    cmp bl, DOS_HERN                ; and not the reason. Past the list: the
+    jb .ix                          ; first reads as well as any (nothing sets
+    xor bl, bl                      ; one today)
+.ix:
+    mov bl, [dos_hero + bx]
+    lea si, [dos_hers + bx]
+    call dos_hcat
+    jmp short .nm
 .ran:
     mov al, [dos_exit]
     or al, al
@@ -2670,72 +2659,64 @@ dos_hend:
     mov si, dos_hs_exit
     call dos_hcat                   ; (lodsb: AL is spent)
     mov al, [dos_exit]
-    xor ah, ah                      ; AX = the code, three digits at most
-    mov bl, 100
-    div bl                          ; AL = hundreds, AH = the rest
-    mov cl, al                      ; CL = a digit is out: no leading zeros
-    call .dig
-    mov al, ah
-    xor ah, ah
     mov bl, 10
-    div bl                          ; AL = tens, AH = units
-    or cl, al
-    call .dig
+    xor cx, cx
+    ; STKBALANCE-LOOP: one digit pushed a turn and the second loop pops them; the count is in CX
+.d:                                 ; the code's digits, least first, onto the
+    xor ah, ah                      ; stack - no leading zeros
+    div bl
+    push ax                         ; AH = the digit
+    inc cx
+    or al, al
+    jnz .d
+.e:
+    pop ax
     mov al, ah
-    mov cl, 1
-    call .dig
-    jmp short .nm
-.dig:
-    or cl, cl
-    jz .nod
     add al, '0'
-    mov [di], al
-    inc di
-.nod:
-    ret
-.say:
-    call dos_hcat
+    stosb
+    loop .e
 .nm:
     mov si, dos_hs_sep
     call dos_hcat
     mov si, dos_name
     call dos_hcat
-    mov byte [di], 0
-    push ds
-    pop es
-    mov si, dos_htxt
+    mov si, dos_lbuf
     xor cx, cx
     call OSAPI_TOAST
 .close:
     mov bx, [dos_win]
     call OSAPI_WM_CLOSE
-    pop es
-    pop di
-    pop si
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp dos_hpop_7                  ; the host's shared epilogue (96.54.8)
 
 dos_htpl:
     dw 0, MBAR_H, 8 * DOS_HTXT, 8 + TITLE_H + 1
-    dw dos_httl, dos_hpaint, 0, 0
-dos_httl:     db 'DOS', 0
-dos_hs_start: db 'Starting ', 0
+    dw dos_ttl, dos_hpaint, 0, 0
+dos_ttl:      db 'DOS', 0           ; ...the window's caption too: resident for
+                                    ; both templates, and the menu bar's head
+dos_hs_start: db 'Starting '
+dos_hs_end:   db 0
 dos_hs_exit:  db 'Exit ', 0
 dos_hs_sep:   db ': ', 0
-dos_hers:                           ; DER_* in order, each a toast's head
+dos_hero:                           ; DER_* in order: each one's short form,
+    db dos_her0 - dos_hers          ; a toast's head, as an offset into the
+    db dos_her1 - dos_hers          ; list - which holds each form ONCE
+    db dos_her2 - dos_hers
+    db dos_her3 - dos_hers
+    db dos_her4 - dos_hers          ; DER_FSX: the screen was in use
+    db dos_her5 - dos_hers          ; DER_EXE
+    db dos_her5 - dos_hers          ; DER_BADEXE
+    db dos_her1 - dos_hers          ; DER_FIT
+    db dos_her8 - dos_hers          ; DER_HAND
+    db dos_her4 - dos_hers          ; DER_DVWP
+DOS_HERN    equ $ - dos_hero
+dos_hers:
 dos_her0:     db 'No folder', 0
 dos_her1:     db 'No memory', 0
 dos_her2:     db 'Read error', 0
 dos_her3:     db 'Too large', 0
 dos_her4:     db 'Refused', 0
 dos_her5:     db 'Bad .EXE', 0
-dos_her6:     db 'Bad .EXE', 0
-dos_her7:     db 'No memory', 0
 dos_her8:     db 'Busy', 0
-dos_her9:     db 'Refused', 0
-              db 0                  ; ...and the list's end
 %endif
 
 ; =============================================================================
@@ -6711,8 +6692,12 @@ dos_paint:
 ; -----------------------------------------------------------------------------
 ; dos_fmt_exit - stamp the exit code into dos_l2_ran
 ; in:  nothing; out: SI = the line
+;
+; THE EXIT REPORT IS THE TAIL'S (DOS-HEADLESS-PLAN 1.2's X bucket): this,
+; dos_err_line and the DER_* sentences have one caller, the console's
+; dos_con_ended, and a headless host says its end in a toast of its own
+; (dos_hend) - so 544 bytes a headless region never ran are not in it
 ; -----------------------------------------------------------------------------
-WIN_CODE_END
 dos_fmt_exit:
     push ax
     push di
@@ -6810,7 +6795,6 @@ dos_hexd:
 ; lock and far-calls us with NO clip region armed (SPEC.md 11.3), so the widget
 ; arms one itself. dos_paint uses the other entry.
 ; -----------------------------------------------------------------------------
-WIN_CODE                            ; the window's (DOS-HEADLESS-PLAN 4.4)
 dos_about:
     push bx
     push si
@@ -7873,13 +7857,17 @@ dos_wholeask:
     pop si
     pop bx
     pop ax
-    jc .no                      ; REFUSED - one was already up and has been
-                                ; raised. Falling through to the launch there
-                                ; would run the program behind its own question
 %ifdef DOS_WTAIL
-    WIN_ELSE
-    jmp short .no
-%endif
+    jnc .hold                   ; CF = 1: REFUSED - one was already up and has
+    WIN_END                     ; been raised. Falling through to the launch
+.no:                            ; there would run the program behind its own
+    clc                         ; question. (A headless host lands here too:
+    ret                         ; its shortcut is the confirmation)
+.hold:
+    stc
+    ret
+%else                           ; (the same, in the order every other build
+    jc .no                      ; has always assembled it)
     WIN_END
 .hold:
     stc
@@ -7887,6 +7875,7 @@ dos_wholeask:
 .no:
     clc
     ret
+%endif
 
 ; dos_wholedone - the alert's answer. AL = 0 Cancel, 1 Proceed, or
 ;                 OS88UI_ACANCEL for a dismissal; the lock is NOT held
@@ -9098,12 +9087,15 @@ dos_fld_init:
     mov byte [si+LN_FOCUS], 0
     mov byte [dos_mbuf], 0
     mov word [dos_memkb], 0         ; 0 = as much as the machine will give,
-    mov word [dos_keepc], DOS_MEM_IN    ; which is what a double click gets.
+%ifndef DOS_WTAIL                   ; (DOS_WTAIL: dos_entry's dos_fld_def has
+    mov word [dos_keepc], DOS_MEM_IN    ; set these three on both hosts)
+                                    ; which is what a double click gets.
                                     ; A WORD: OS88UI_RD_SEL is one (96.36)
     mov word [dos_cache], DOS_CA_AUTO   ; ...and the cache's dial, the same way
                                     ; - one list on both arms (96.36.6), so
                                     ; there is no parked second pick
     mov byte [dos_mhdd + OS88UI_CK_ON], 1   ; ...and the three boxes, which are
+%endif
     mov byte [dos_mnet + OS88UI_CK_ON], 0   ; ...but NETWORK CLEARED (SPEC.md
                                     ; 96.36.7.4, the owner's: "if they want
                                     ; network, they have to go ask for it") -
@@ -9290,12 +9282,14 @@ dos_lnk_parse:
     cmp byte [dos_lbuf+5], 0x14     ; worth comparing to refuse a wrong file
     jne .no
 %ifdef DOS_WTAIL
-    xor al, al                      ; **ShowCommand = 7 IS CLOSE WHEN DONE**
-    cmp word [dos_lbuf+LNK_SHOW], LNK_SW_HEAD   ; (SPEC.md 96.44.20): the
-    jne .show                       ; header's own field, which the loader
-    inc ax                          ; reads too - SW_SHOWMINNOACTIVE, no window
-.show:
+    WIN_ONLY                        ; (the box is the tail's: a headless host
+    xor al, al                      ; already knows, the loader having read it)
+    cmp word [dos_lbuf+LNK_SHOW], LNK_SW_HEAD   ; **ShowCommand = 7 IS CLOSE
+    jne .show                       ; WHEN DONE** (SPEC.md 96.44.20): the
+    inc ax                          ; header's own field, which the loader
+.show:                              ; reads too - SW_SHOWMINNOACTIVE, no window
     mov [dos_mhead + OS88UI_CK_ON], al
+    WIN_END
 %endif
     mov ax, [dos_lbuf+20]           ; LinkFlags
     test ax, 0x03                   ; HasLinkTargetIDList | HasLinkInfo
@@ -10111,7 +10105,9 @@ dos_items_prog: dw dos_l_run, dos_l_tset, dos_l_full
 dos_l_wrun: db 'Run in Window', 0   ; SPEC.md 96.54
 %endif
 
+%ifndef DOS_WTAIL                   ; (DOS_WTAIL: beside dos_htpl, resident)
 dos_ttl:    db 'DOS', 0
+%endif
 dos_l_args: db 'Arguments:', 0
 dos_l_envb: db 'Environment:', 0    ; ...and the rows under it are NAME=VALUE,
                                     ; one to a line (SPEC.md 96.32.2.1)
@@ -10306,6 +10302,8 @@ dos_bdalist:
     dw 0xFFFF, 0
 %endif                              ; DOS_EXTCORE
 %ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
+WIN_CODE                            ; the exit report's words are the tail's
+                                    ; (dos_fmt_exit's note, DOS-HEADLESS 1.2)
 
 ; **THE SIX STATUS LINES ARE GONE, AND THAT IS SPEC.md 96.33 ARRIVING.** They
 ; stood in the console's band under a comment saying they would go when it
@@ -10372,6 +10370,7 @@ dos_e_dvwp:  db 'Run in Window could not load its part of DOS.O88.', 0
                                     ; ~600KB in it, one page away. A user told
                                     ; `too big to fit` closes the window; one
                                     ; told where the room is opens Setup
+WIN_CODE_END
 dos_s_blast: db 'BLASTER=A', 0      ; dos_blaster_set's, which is the window's
                                     ; too (SPEC.md 96.44.15)
 %endif                              ; KD_BACKEND
@@ -10388,8 +10387,10 @@ dos_mlen:    db 31,28,31,30,31,30,31,31,30,31,30,31
 dos_dowt:    db 0,3,2,5,0,3,5,1,4,6,2,4    ; Sakamoto's month table
 %endif                              ; DOS_EXTCORE
 %ifndef KD_BACKEND                  ; dos_fmt_fn's, and so the window's
+WIN_CODE                            ; ...and the tail's (DOS-HEADLESS 1.2)
 dos_e_fn:    db 'It asked for INT 21h AH='  ; (SPEC.md 96.44.15)
 dos_fnd:     db '00h.', 0
+WIN_CODE_END
 %endif                              ; KD_BACKEND
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
@@ -12216,11 +12217,10 @@ DOS_BTREC_SZ equ 18              ; **A MIRROR OF os88ui.inc's OS88UI_BT_SIZE**,
     HBSS DOS_B_MWIN,  DOS_MCKSZ  ; ...and Run in a window, the furniture
 %endif                           ; row's (96.32.2.4)
 %ifdef DOS_WTAIL
-    HBSS DOS_B_MHEAD, DOS_MCKSZ  ; ...and Close when done, beside it
-    HBSS DOS_B_HNE,   1          ; (SPEC.md 96.44.20), resident because the
-                                 ; .LNK reader sets it; 1 = the target is an NE
-    HBSS DOS_B_HTXT,  DOS_HTXT   ; ...and a headless host's one line: the
-%endif                           ; window's, then the toast's (OSAPI_TOAST's 24)
+    WBSS DOS_B_MHEAD, DOS_MCKSZ  ; ...and Close when done, beside it (SPEC.md
+    WBSS DOS_B_HNE,   1          ; 96.44.20) - the TAIL's: only the Setup page
+%endif                           ; shows it and the .LNK reader's store is a
+                                 ; window's; 1 = the target is an NE
 %ifdef DOS_SETPART
     HBSS DOS_B_SPDOOR, 4         ; the Setup part's door, 0:claim - its
                                  ; segment word 0 = not held (96.32.2.3)
@@ -17757,9 +17757,8 @@ dos_mmou equ dos_hbss + DOS_B_MMOU   ; ...and the mouse's (96.36.8)
 %ifdef DVW
 dos_mwin equ dos_hbss + DOS_B_MWIN   ; ...and Run in a window (96.32.2.4)
 %ifdef DOS_WTAIL
-dos_mhead equ dos_hbss + DOS_B_MHEAD ; ...and Close when done (96.44.20)
-dos_hne equ dos_hbss + DOS_B_HNE     ; ...and the target is an NE: it greys
-dos_htxt equ dos_hbss + DOS_B_HTXT   ; ...and the headless host's line
+dos_mhead equ DOS_WB + DOS_B_MHEAD  ; ...and Close when done (96.44.20)
+dos_hne equ DOS_WB + DOS_B_HNE      ; ...and the target is an NE: it greys
 %endif
 %endif
 %ifdef DOS_SETPART

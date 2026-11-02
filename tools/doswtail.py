@@ -14,7 +14,8 @@ section without a word. A stray `call con_write` would run whatever claim
 landed there, a stray `mov [con_cx], ax` would write into it.
 
 So the resident host may name the tail only inside a WIN_ONLY bracket, whose
-opening is the test itself - `cmp byte [dos_head], 0` and a `jne` over the
+opening is the test itself - `call dos_hq` (`cmp byte [dos_head], 0` / `ret`,
+one copy of the five-byte compare for every bracket) and a `jne` over the
 window's arm - and this checker proves it. It does not disassemble anything
 to find a reference, because a disassembler cannot tell code from data:
 
@@ -23,9 +24,9 @@ to find a reference, because a disassembler cannot tell code from data:
     whose value depends on where the tail is - a branch, a memory operand, an
     immediate, a table entry - differs between the two files, and no other
     byte does;
-  * the brackets are read off the bytes too: `80 3E <dos_head> 00 75 rr` is a
-    short bracket over the next rr bytes, `80 3E <dos_head> 00 74 03 E9 rrrr`
-    a near one;
+  * the brackets are read off the bytes too: `E8 <to dos_hq> 75 rr` is a
+    short bracket over the next rr bytes, `E8 <to dos_hq> 74 03 E9 rrrr` a
+    near one;
   * any differing byte outside every bracket FAILS the build, named by the
     nearest symbol of HOST.map and disassembled.
 
@@ -79,13 +80,17 @@ def read_map(path):
     return secs, syms
 
 
-def brackets(img, head, end):
-    """[(lo, hi)] of every WIN_ONLY bracket in img[:end]"""
+def brackets(img, hq, end):
+    """[(lo, hi)] of every WIN_ONLY bracket in img[:end]: a near call to the
+    test, dos_hq, and the skip after it"""
     out = []
-    pat = bytes([0x80, 0x3E, head & 0xFF, head >> 8, 0x00])
-    i = img.find(pat, 0, end)
+    i = img.find(b"\xE8", 0, end)
     while i >= 0:
-        j = i + 5
+        j = i + 3
+        if j + 5 > len(img) or \
+                (j + (img[i + 1] | (img[i + 2] << 8))) & 0xFFFF != hq:
+            i = img.find(b"\xE8", i + 1, end)
+            continue
         if img[j] == 0x75:                                  # jne short
             r = img[j + 1]
             if r < 0x80:
@@ -94,7 +99,7 @@ def brackets(img, head, end):
             r = img[j + 3] | (img[j + 4] << 8)               # je +3; jmp near
             if r < 0x8000:
                 out.append((j + 5, j + 5 + r))
-        i = img.find(pat, i + 1, end)
+        i = img.find(b"\xE8", i + 1, end)
     return out
 
 
@@ -125,8 +130,8 @@ def layout(mapf):
     secs, syms = read_map(mapf)
     if ".text" not in secs or ".wtext" not in secs:
         fail("%s has no .wtext section: build it with -DDOS_WTAIL" % mapf)
-    if "dos_head" not in syms:
-        fail("%s has no dos_head: the bracket's test cell" % mapf)
+    if "dos_head" not in syms or "dos_hq" not in syms:
+        fail("%s has no dos_head/dos_hq: the bracket's test" % mapf)
     tlen = secs[".text"][1]
     wstart, wlen = secs[".wtext"]
     named = sorted((v, n) for n, v in syms.items()
@@ -157,7 +162,7 @@ def check(argv, strict):
     if len(b) - len(a) <= 0:
         fail("%s is not longer than %s: was it built with DOS_WSHIFT?"
              % (shifted, host))
-    br = brackets(a, syms["dos_head"], tlen)
+    br = brackets(a, syms["dos_hq"], tlen)
     inside = lambda i: any(lo <= i < hi for lo, hi in br)
     stray = [i for i in diff if not inside(i)]
     # one report per instruction: differing bytes within 4 of each other
