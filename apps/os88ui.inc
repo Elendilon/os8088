@@ -1285,6 +1285,16 @@ OS88UI_BHIT_BODY os88ui_bhit
 ; NAMED BY THE INCLUDER (OS88UI_KGLYPH = `.modu`) and not spelled here:
 ; tools/os88ovlchk.py reads this file as `.cold`, which is what every other
 ; block of it is in the kernel, so the panel's call is written CPXN
+;
+; --- OS88UI_CTLEXT - the glyph, check box, radio and drop-down EMITTED ELSEWHERE
+; Their code is four macro bodies - OS88UI_GLYPH_CODE, OS88UI_CHK_CODE,
+; OS88UI_RAD_CODE and OS88UI_DROP_CODE - expanded where they always were, so
+; every consumer that does not define this is byte-identical. Defined, the
+; equates and records stay and the CODE is left out, for a package that
+; expands the bodies into a part of its own: apps/dos's Setup page is their
+; only caller there, so they ride in its part (SPEC.md 96.32.2.3) and not in
+; every DOS window. The bodies call os88ui_bhit; such a part spells that a
+; stub with a %define around the expansion (apps/dos/dosset.inc)
 %ifdef OS88UI_KGLYPH
  %ifndef OS88UI_KERNEL
   %error "OS88UI_KGLYPH is the kernel's: a package's glyph is in its own image"
@@ -1417,6 +1427,7 @@ OS88UI_GW     equ 12            ; both are 12 x 12
 ; and it needs no bank at all - CX/DX come in as the position and are put
 ; back by the pops.
 
+%macro OS88UI_GLYPH_CODE 0        ; the code, as a body (OS88UI_CTLEXT)
 %ifndef OS88UI_NOGRADIO
 ; os88ui_gring - the 12x12 ROUND ring: four runs and ONE call for the four
 ; corner pixels, never a frame (SPEC.md 13.17.1).
@@ -1640,6 +1651,10 @@ os88ui_glyph:
     pop bx
     pop ax
     ret
+%endmacro
+%ifndef OS88UI_CTLEXT       ; ...emitted here, unless the package carries it
+OS88UI_GLYPH_CODE                ; elsewhere (OS88UI_CTLEXT, at the top)
+%endif
 
 %endif                          ; OS88UI_NOGLYPH
 %ifdef OS88UI_KGLYPH
@@ -3991,6 +4006,7 @@ OS88UI_CKBOX    equ OS88UI_GW   ; the box's side, and the label's left margin.
                                 ; size of its own was the last place they could
                                 ; still disagree
 OS88UI_CKGAP    equ 6
+%macro OS88UI_CHK_CODE 0        ; the code, as a body (OS88UI_CTLEXT)
 
 ; -----------------------------------------------------------------------------
 ; os88ui_chk - draw it as it stands
@@ -4089,6 +4105,10 @@ os88ui_chkhit:
     pop ax
     ret
 
+%endmacro
+%ifndef OS88UI_CTLEXT       ; ...emitted here, unless the package carries it
+OS88UI_CHK_CODE                ; elsewhere (OS88UI_CTLEXT, at the top)
+%endif
 %endif                          ; OS88UI_CHK
 
 %ifdef OS88UI_RAD
@@ -4226,6 +4246,7 @@ OS88UI_RDROWH   equ 20          ; **THE RING IS CENTRED IN THIS, NOT IN THE
                                 ; pitch mean "the next HEADING is this far
                                 ; down" rather than "this row is that tall"
 
+%macro OS88UI_RAD_CODE 0        ; the code, as a body (OS88UI_CTLEXT)
 ; -----------------------------------------------------------------------------
 ; os88ui_rad - draw the whole group as it stands
 ; in:  BX = the record, DI = flags (OS88UI_DIS); the gfx lock is held
@@ -4554,6 +4575,10 @@ os88ui_radhit:
     pop bx
     pop ax
     ret
+%endmacro
+%ifndef OS88UI_CTLEXT       ; ...emitted here, unless the package carries it
+OS88UI_RAD_CODE                ; elsewhere (OS88UI_CTLEXT, at the top)
+%endif
 %endif                          ; OS88UI_RAD
 
 %ifdef OS88UI_NODRGEST
@@ -4693,6 +4718,7 @@ OS88UI_DR_SIZE  equ 26
                                 ; painter, and they read the same one
 OS88UI_DRAW     equ 12          ; the arrow cell's width
 OS88UI_DRMAX    equ 12          ; items a list may hold (12 x 12 = 144 rows)
+%macro OS88UI_DROP_CODE 0        ; the code, as a body (OS88UI_CTLEXT)
 
 ; -----------------------------------------------------------------------------
 ; os88ui_drop - draw the control as it stands: the box, and the list if open
@@ -5327,6 +5353,10 @@ os88ui_drclose:
     clc
     ret
 %endif                          ; OS88UI_NODRGEST
+%endmacro
+%ifndef OS88UI_CTLEXT       ; ...emitted here, unless the package carries it
+OS88UI_DROP_CODE                ; elsewhere (OS88UI_CTLEXT, at the top)
+%endif
 %endif                          ; OS88UI_DROP
 
 %ifdef OS88UI_MENU
