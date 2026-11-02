@@ -187590,6 +187590,45 @@ dropping it is a stub change and kernel bytes; and it is decoded only on the
 whole-machine arm, once, with the operating system already gone - a cost no
 desktop launch pays.
 
+#### 96.44.18 The 360KB system disk's `DOS.O88` is packed LZB
+
+**Owner's decision, 2026-11-02.** The 360KB system disk carries a second
+build of `DOS.O88`, `$(BUILD)/kdos360/DOS.O88`: the same loader and the same
+seven parts, laid out by the same `os88pkg.py` call with `--part-compress lzb`
+instead of `lz4`. Every other disk keeps the lz4 build at `$(BUILD)/kdos/`.
+The part table's one format byte (`OP_T_FMT`, §20.12.7) says which; the loader
+and `op_self` hand it to `OSAPI_DECOMP` and need no change, and the near-call
+filter (§20.13.9) rides either format.
+
+**One reader did need changing: the handoff stub.** `kds_stub` (§96.40.1)
+expands kern_dos and the core with its own unbounded decoder, because no kernel
+is left when it runs, and that decoder was LZ4-only. On an LZB file it did not
+fail. It produced rubble and jumped into it: `call5`'s kern_dos leg drew
+garbage on the text screen instead of `exited`. The fix has three parts:
+- The record's spare byte 5 is now `KDH_FMT` (it was `KDH_PAD`, always 0, so
+  every earlier poster already says LZ4). DOS.O88 fills it from the table's
+  format, which the loader leaves in HELP's row.
+- `hbm_dosrun` stages it as `KDS_FMT`.
+- `kds_expand` branches to a 70-odd-byte LZB symbol loop that shares the T
+  word, the raw tail and the filter's inverse with the LZ4 one.
+
+The stub is 706 of `HS_CODE_MAX`'s 1,024 bytes (was 625). It lives in
+`HIBER.DRV`, an on-demand module, so it adds no resident byte. The SDK field
+was renamed, not moved, so `PKG_FMT` is unchanged.
+
+**What it buys and costs.** Measured on the tree it landed on: 52,971 ->
+46,965 bytes (-6.0 KB, 52 -> 46 one-KB clusters), every part smaller (host
+15,197 -> 13,374 packed, core 13,209 -> 11,554, kern_dos 11,640 -> 10,376).
+The cost is decode time on every launch - ESTIMATED ~+0.85 s on a 4.77 MHz
+8088, from the earlier whole-package A/B (+1.8 s for ~71 KB decoded) scaled
+to the ~34 KB a launch decodes now that part 0's zeros are filled (§96.44.17)
+- and a little on each lazy part's fetch. 360KB only, because it is the
+geometry that runs out; an install made from that disk copies the LZB build
+onto the hard disk, where the extra second is paid on every launch, and the
+owner accepted that. Every 360KB test disk built from the system disk's file
+list (`$(SYSROOT360)`) carries the same build, so a row on one is a row on
+what ships.
+
 ### 96.45 The mouse under `kern_dos`, and it was switched OFF rather than missing
 
 INT 33h has always been answered here (§96.10); what it answered with was a

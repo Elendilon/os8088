@@ -6586,7 +6586,8 @@ WHEEL_STEPS equ 3                ; LINES of text one wheel notch scrolls
 ; one honest against the kernel's.
 KDH_MAGIC   equ 0               ; dd 'KDH2' ('KDH1' named parts in SECTORS)
 KDH_VOL     equ 4               ; db the volume your package's FILE is on
-KDH_PAD     equ 5               ; db 0
+KDH_FMT     equ 5               ; db the kern_dos and core parts' FORMAT,
+                                ; OP_T_FMT's byte: 0 = LZ4, 1 = LZB (96.44.18)
 KDH_DIR     equ 6               ; dw its folder's first cluster, 0 = the root
 KDH_NAME    equ 8               ; db[13] its 8.3 name, NUL-terminated
 KDH_POFF    equ 21              ; dw the kern_dos part's first file PARAGRAPH

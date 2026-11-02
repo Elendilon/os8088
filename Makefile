@@ -3594,6 +3594,8 @@ $(STIKNOTESTXT): apps/stiknote/welcome.txt | $(BUILD)
 # icon and the association block cannot drift.
 SYSROOT := $(BUILD)/kdos/DOS.O88
 SYSROOTARG := APPS:$(BUILD)/kdos/DOS.O88
+SYSROOT360 := $(BUILD)/kdos360/DOS.O88
+SYSROOTARG360 := APPS:$(BUILD)/kdos360/DOS.O88
 # ...and the SUBSET an APPS disk carries: the Task Manager alone, for the
 # single-floppy machine above. THEWIRE.O88 is on NO apps disk (CLAUDE.md,
 # SPEC.md 92.11): the desktop zone launches it out of the BOOT volume's
@@ -5421,10 +5423,10 @@ $(BUILD)/wirecfg/WIRE.CFG: | $(BUILD)
 # volume wants the second. This rule arrived from `main`, where they are the
 # same bytes, and merged with no conflict - so the disk booted to a BLACK
 # 720x400 text screen and every row on it reported the feature broken.
-$(BUILD)/thewire360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) $(BUILD)/wirecfg/SYSTEM.CFG $(BUILD)/wirecfg/WIRE.CFG tools/os88disk.py
+$(BUILD)/thewire360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT360) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) $(BUILD)/wirecfg/SYSTEM.CFG $(BUILD)/wirecfg/WIRE.CFG tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
-		$(DRIVERS360) $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
+		$(DRIVERS360) $(SYSAPPSARGS) $(SYSROOTARG360) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
 		$(BUILD)/wirecfg/SYSTEM.CFG SYSTEM/APPDATA:$(BUILD)/wirecfg/WIRE.CFG
 
 # THE DATA DISK IS SCRATCH AND CARRIES NO PACKAGE. It used to hold a second
@@ -5561,10 +5563,10 @@ $(BUILD)/covoxsys720.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS)
 		$(DRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
 		$(BUILD)/covoxcfg2/system.cfg $(APPDATAFOLDER)
 
-$(BUILD)/covoxsys360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) $(BUILD)/covoxcfg1/system.cfg tools/os88disk.py
+$(BUILD)/covoxsys360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT360) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) $(BUILD)/covoxcfg1/system.cfg tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
-		$(DRIVERS360) $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
+		$(DRIVERS360) $(SYSAPPSARGS) $(SYSROOTARG360) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
 		$(BUILD)/covoxcfg1/system.cfg $(APPDATAFOLDER)
 
 .PHONY: covoxtest
@@ -5608,10 +5610,10 @@ $(BUILD)/pmsys720.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(
 		$(DRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
 		$(BUILD)/pmcfg720/system.cfg $(BUILD)/pmdma.o88 $(PMSYS720ARGS) $(APPDATAFOLDER)
 
-$(BUILD)/pmsys360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) $(BUILD)/pmcfg/system.cfg $(BUILD)/pmdma.o88 tools/os88disk.py
+$(BUILD)/pmsys360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT360) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) $(BUILD)/pmcfg/system.cfg $(BUILD)/pmdma.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
-		$(DRIVERS360) $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
+		$(DRIVERS360) $(SYSAPPSARGS) $(SYSROOTARG360) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
 		$(BUILD)/pmcfg/system.cfg $(BUILD)/pmdma.o88 $(APPDATAFOLDER)
 
 # PMBOXTEST - the B: disk for the PicoMEM UNDER 86Box (tools/picomem,
@@ -5732,10 +5734,10 @@ ethertest: $(BUILD)/ether360.img
 	@echo "ethertest: build/ether360.img - the Ethernet driver already wanted."
 	@echo "           Run it with: python3 tests/ethernet.py"
 
-$(BUILD)/ether360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) $(BUILD)/system.cfg tools/os88disk.py
+$(BUILD)/ether360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT360) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) $(BUILD)/system.cfg tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
-		$(DRIVERS360) $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
+		$(DRIVERS360) $(SYSAPPSARGS) $(SYSROOTARG360) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
 		$(BUILD)/system.cfg
 
 # FTPDTEST: the FTP SERVER's gate disk (SPEC.md 77, docs/plans/completed/NET-STACK-PLAN.md
@@ -5940,10 +5942,10 @@ $(BUILD)/ftpapps.img: $(FTPDFILES) tools/os88disk.py
 # is what fails if this flag is lost, and autostart360.img below takes it too
 # because it is this disk plus four files.
 SYS360SPC := --spc 1
-$(IMG360): $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS360) $(SYSAPPS) $(STIKAPPS) $(STIKNOTESTXT) $(SYSROOT) $(SYSINST) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) tools/os88disk.py
+$(IMG360): $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS360) $(SYSAPPS) $(STIKAPPS) $(STIKNOTESTXT) $(SYSROOT360) $(SYSINST) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(SYS360SPC) \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
-		$(DRIVERS360) $(SYSAPPSARGS) $(STIKARGS) $(STIKNOTESARG) $(SYSROOTARG) $(SYSINST) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
+		$(DRIVERS360) $(SYSAPPSARGS) $(STIKARGS) $(STIKNOTESARG) $(SYSROOTARG360) $(SYSINST) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
 		$(APPDATAFOLDER) $(AUTOFOLDER) $(STIKNOTESOPT)
 
 # AUTOSTARTTEST - the LINKS and AUTOSTART gate's disk (SPEC.md 26.10): the
@@ -5968,10 +5970,10 @@ $(BUILD)/astest/.made: tools/os88lnk.py | $(BUILD)
 	echo 'Not a link: autostart opens only *.LNK' > $(BUILD)/astest/NOTES.TXT
 	touch $@
 
-$(BUILD)/autostart360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) $(SYSROOT) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) tools/os88disk.py $(BUILD)/astest/.made
+$(BUILD)/autostart360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) $(SYSROOT360) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) tools/os88disk.py $(BUILD)/astest/.made
 	python3 tools/os88disk.py -o $@ --size 360 $(SYS360SPC) \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
-		$(DRIVERS360) $(SYSAPPSARGS) $(STIKARGS) $(SYSROOTARG) $(COREAPPSARGS360) $(SYSDOC) $(FACESARG360) \
+		$(DRIVERS360) $(SYSAPPSARGS) $(STIKARGS) $(SYSROOTARG360) $(COREAPPSARGS360) $(SYSDOC) $(FACESARG360) \
 		$(BUILD)/astest/CALC.LNK AUTOSTRT:$(BUILD)/astest/BADVER.LNK \
 		AUTOSTRT:$(BUILD)/astest/NOTES.TXT AUTOSTRT:$(BUILD)/astest/TASKMGR.LNK \
 		$(APPDATAFOLDER)
@@ -6025,10 +6027,10 @@ $(LZDDIR)/ramdisk.drv: $(BUILD)/ramdisk.bin tools/os88drv.py tools/os88lz.py
 
 $(BUILD)/lzdrv360.img: $(BUILD)/boot360.bin $(KERNFILE) \
                        $(LZDRIVERS) $(SYSAPPS) $(STIKAPPS) $(COREAPPS360) $(SYSDOC) \
-                       $(SYSLOGO) $(FACES360) $(FACELIC) tools/os88disk.py $(SYSROOT)
+                       $(SYSLOGO) $(FACES360) $(FACELIC) tools/os88disk.py $(SYSROOT360)
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
-		$(LZDRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSROOTARG) $(COREAPPSARGS360) $(SYSDOC) \
+		$(LZDRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSROOTARG360) $(COREAPPSARGS360) $(SYSDOC) \
 		$(SYSLOGOARG) $(FACESARG360) $(APPDATAFOLDER)
 
 .PHONY: lzdrvtest
@@ -7562,23 +7564,26 @@ $(BUILD)/doscore.bin: apps/dos/doscore.asm apps/dos/dos.asm apps/dos/dosh.inc ap
 # itself was it. The loader is 1,812 bytes and the two heavy pieces are parts,
 # both compressed: the windowed DOS as OP_SEG|OP_COMP and kern_dos as
 # OP_ASSET|OP_COMP|OP_LAZY, the pairing 20.12.7.4 had to unrefuse.
-$(BUILD)/kdos/DOS.O88: $(BUILD)/dosload.bin $(BUILD)/dosp.bin \
-                       $(BUILD)/doscore.bin $(BUILD)/kerndos.bin tools/os88pkg.py \
-                       $(if $(KERN_MEGA),$(BUILD)/kerndosl.bin) \
-                       $(BUILD)/doshelp.bin $(if $(KERN_MEGA),,$(BUILD)/dosnetp.bin) \
-                       $(if $(KERN_MEGA),,$(BUILD)/dossetp.bin) \
-                       $(if $(KERN_MEGA),,$(BUILD)/doswp.bin) \
-                       $(PKGZSTAMP)
+DOSPARTBINS = $(BUILD)/dosp.bin $(BUILD)/doscore.bin $(BUILD)/kerndos.bin \
+              $(if $(KERN_MEGA),$(BUILD)/kerndosl.bin) $(BUILD)/doshelp.bin \
+              $(if $(KERN_MEGA),,$(BUILD)/dosnetp.bin $(BUILD)/dossetp.bin $(BUILD)/doswp.bin)
+$(BUILD)/kdos/DOS.O88: $(BUILD)/dosload.bin $(DOSPARTBINS) tools/os88pkg.py $(PKGZSTAMP)
 	@mkdir -p $(BUILD)/kdos
-	$(OS88PKG) $(BUILD)/dosload.bin -o $@ \
-		--part $(BUILD)/dosp.bin --part $(BUILD)/doscore.bin \
-		--part $(BUILD)/kerndos.bin \
-		$(if $(KERN_MEGA),--part $(BUILD)/kerndosl.bin) \
-		--part $(BUILD)/doshelp.bin \
-		$(if $(KERN_MEGA),,--part $(BUILD)/dosnetp.bin) \
-		$(if $(KERN_MEGA),,--part $(BUILD)/dossetp.bin) \
-		$(if $(KERN_MEGA),,--part $(BUILD)/doswp.bin) --part-compress lz4
+	$(OS88PKG) $(BUILD)/dosload.bin -o $@ $(addprefix --part ,$(DOSPARTBINS)) \
+		--part-compress lz4
 	@echo "kdos: $(call FILESIZE,$@) bytes of DOS.O88 with kern_dos in it"
+
+# ...AND THE 360KB SYSTEM DISK'S COPY, PACKED LZB (the owner, 2026-11-02;
+# SPEC.md 96.44.18): the same seven parts, ~6 KB smaller (52,971 -> 46,965
+# measured, 52 -> 46 clusters) for an estimated ~0.85 s more decode per
+# launch on a 4.77 MHz 8088. 360KB only, because that is the geometry that
+# runs out; an install made from it carries the LZB copy onto the hard disk,
+# which the owner accepted. Every other disk keeps the lz4 one above.
+$(BUILD)/kdos360/DOS.O88: $(BUILD)/dosload.bin $(DOSPARTBINS) tools/os88pkg.py $(PKGZSTAMP)
+	@mkdir -p $(BUILD)/kdos360
+	$(OS88PKG) $(BUILD)/dosload.bin -o $@ $(addprefix --part ,$(DOSPARTBINS)) \
+		--part-compress lzb
+	@echo "kdos360: $(call FILESIZE,$@) bytes of the 360KB disk's LZB DOS.O88"
 
 # HELP's text as a part of its own (docs/plans/DOS-PARTS-PLAN.md 1.1): the
 # re-homed host reads it with op_self (apps/os88pself.inc) when HELP is typed,
@@ -9796,17 +9801,17 @@ $(STIKFIX)/DESKPROB.DAT: tools/os88stik.py | $(BUILD)
 	@mkdir -p $(STIKFIX)
 	python3 tools/os88stik.py dat -o $@ --x 376 --y 184 --screen 640x480 --cont
 
-$(BUILD)/stikdesk360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) $(BUILD)/deskprob.o88 $(STIKFIX)/desk/system.cfg $(STIKFIX)/DESKPROB.DAT tools/os88disk.py
+$(BUILD)/stikdesk360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT360) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) $(BUILD)/deskprob.o88 $(STIKFIX)/desk/system.cfg $(STIKFIX)/DESKPROB.DAT tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
-		$(DRIVERS360) $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
+		$(DRIVERS360) $(SYSAPPSARGS) $(SYSROOTARG360) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
 		STIKAPPS:$(BUILD)/deskprob.o88 SYSTEM/APPDATA:$(STIKFIX)/DESKPROB.DAT \
 		$(STIKFIX)/desk/system.cfg
 
-$(BUILD)/stik%360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) $(BUILD)/stikprob.o88 $(STIKFIX)/%/system.cfg $(STIKFIX)/STIKPROB.DAT tools/os88disk.py
+$(BUILD)/stik%360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT360) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) $(BUILD)/stikprob.o88 $(STIKFIX)/%/system.cfg $(STIKFIX)/STIKPROB.DAT tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
-		$(DRIVERS360) $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
+		$(DRIVERS360) $(SYSAPPSARGS) $(SYSROOTARG360) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
 		STIKAPPS:$(BUILD)/stikprob.o88 SYSTEM/APPDATA:$(STIKFIX)/STIKPROB.DAT \
 		$(STIKFIX)/$*/system.cfg
 

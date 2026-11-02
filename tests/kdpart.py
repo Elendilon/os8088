@@ -165,6 +165,9 @@ def main():
                  % (idx, pflags))
         return poff, plen, pzkb
 
+    # The table's FORMAT byte (OP_T_FMT, the byte before the rows): the 360KB
+    # disk's DOS.O88 is LZB (SPEC.md 96.44.18), and kds_stub reads it too
+    FMT = tbl[at + PARTS_HDR - 1]
     coff, clen, czkb = row(DOS_PART_CORE)
     poff, plen, pzkb = row(DOS_PART_KD)
     print("kdpart: 1/7 part %d is ASSET+COMP+LAZY at file paragraph %d, %d "
@@ -222,7 +225,7 @@ def main():
                    [(s, 1) for s in want])
     got = got[(poff & 31) * 16:][:pzkb]
     try:
-        out = os88lz.decompress(got, os88lz.LZ4, plen)
+        out = os88lz.decompress(got, FMT, plen)
     except Exception as e:                                      # noqa: BLE001
         fail("the sectors the walk names do not decompress: %s. That is step "
              "3's arithmetic wrong, not the packer's - a part read one sector "
@@ -249,7 +252,7 @@ def main():
         cout = os88lz.decompress(
             b"".join(bytes(v.img[l * v.bps:(l + 1) * v.bps])
                      for l in cwant)[(coff & 31) * 16:][:czkb],
-            os88lz.LZ4, clen)
+            FMT, clen)
     except Exception as e:                                      # noqa: BLE001
         fail("the core part's sectors do not decompress: %s" % e)
     if cout != craw:
@@ -267,8 +270,8 @@ def main():
     if delta * 16 + pzkb > len(run):
         fail("KDS_CDELTA would be %d paragraphs and the run is only %d bytes"
              % (delta, len(run)))
-    if (os88lz.decompress(run[chead * 16:][:czkb], os88lz.LZ4, clen) != craw
-            or os88lz.decompress(run[delta * 16:][:pzkb], os88lz.LZ4,
+    if (os88lz.decompress(run[chead * 16:][:czkb], FMT, clen) != craw
+            or os88lz.decompress(run[delta * 16:][:pzkb], FMT,
                                  plen) != raw):
         fail("the combined range from sector %d does not hand the stub both "
              "streams at KDS_CHEAD %d and KDS_CDELTA %d paragraphs - "

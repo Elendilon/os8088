@@ -138,6 +138,8 @@ KDS_KORG    equ 0x044C          ; dw kern_dos's segment and origin, HMA or LOW
 KDS_CHEAD   equ 0x044E          ; dw ...and to the CORE's: the run starts on
                                 ; the sector the core starts in, and a part
                                 ; starts on a paragraph (SPEC.md 20.12.2)
+KDS_FMT     equ 0x0450          ; db the two streams' format, KDH_FMT's byte:
+                                ; LZ_LZB = the 360KB disk's DOS.O88 (96.44.18)
 KDS_LB      equ 0x0500          ; db[512] the launch block, on HS_IVT's ground
 KDS_TMPSEG  equ 0x1000          ; 64KB up: above kern_dos's image, which starts
                                 ; at KD_SEG and is 46KB, so the stream and the
@@ -238,7 +240,8 @@ KDL_DPT_LEN equ 11              ; TABLE, the one field DOS.O88 cannot fill.
 ; MIRRORED in apps/os88api.inc, and t_mirror is the guard.
 KDH_MAGIC   equ 0               ; dd 'KDH2' ('KDH1' named parts in SECTORS)
 KDH_VOL     equ 4               ; db the volume DOS.O88 is on
-KDH_PAD     equ 5               ; db 0
+KDH_FMT     equ 5               ; db the kern_dos and core parts' FORMAT,
+                                ; OP_T_FMT's byte: 0 = LZ4, 1 = LZB (96.44.18)
 KDH_DIR     equ 6               ; dw its folder's first cluster, 0 = the root
 KDH_NAME    equ 8               ; db[13] its 8.3 name, NUL-terminated
 KDH_POFF    equ 21              ; dw the part's first file PARAGRAPH
@@ -3160,6 +3163,8 @@ hbm_dosrun:
     add ax, [cs:hbm_dosrec + KDH_POFF]  ; run starts on the SECTOR the core
     sub ax, [cs:hbm_dosrec + KDH_COFF]  ; starts in, so the core's stream is
     mov [es:KDS_CDELTA], ax         ; its place in that sector up the run and
+    mov al, [cs:hbm_dosrec + KDH_FMT]   ; ...and which decoder (96.44.18)
+    mov [es:KDS_FMT], al
                                     ; kern_dos's that plus the gap - both in
                                     ; paragraphs, exact because a part starts
                                     ; on one (SPEC.md 20.12.2)
@@ -5471,6 +5476,8 @@ kds_expand_at:                  ; ...or from DI (kern_mega's HMA image)
     sub cx, ax                  ; ...and so where the raw tail begins: the ONLY
     mov [cs:HS_LBA], cx         ; source bound the loop tests
     mov [cs:HS_LEFT], ax        ; ...and how much of it there is
+    cmp byte [cs:KDS_FMT], LZ_LZB
+    je .lzb                     ; the 360KB disk's DOS.O88 (SPEC.md 96.44.18)
 .seq:
     cmp si, [cs:HS_LBA]
     jae .tail
@@ -5536,6 +5543,56 @@ kds_expand_at:                  ; ...or from DI (kern_mega's HMA image)
     jne .ret
     LZ_UNE8 bx                  ; ...over ES:BX..DI (lzfilt.inc)
 .ret:
+    ret
+
+    ; --- LZB, kernel/lz.inc's lz_lzb with no bounds (SPEC.md 96.44.18) ------
+    ; The same framing as above - T word or escape, symbols, raw tail - so it
+    ; shares .tail and the filter's inverse; only the symbols differ. A flag
+    ; bit per symbol, MSB first out of DL with a guard bit: 0 = one literal,
+    ; 1 = a match of gamma bytes from ((gamma - 2) << 8 | byte) back.
+.lzb:
+    mov dl, 0x80                ; the guard alone: the first read refills
+.lzbl:
+    cmp si, [cs:HS_LBA]
+    jae .tail
+    call .bit
+    jc .lzbm
+    movsb
+    jmp short .lzbl
+.lzbm:
+    call .gam                   ; the length...
+    mov cx, ax
+    call .gam                   ; ...and (offset >> 8) + 2
+    dec ax
+    dec ax
+    mov ah, al
+    mov al, [si]                ; AX = the offset (not lodsb: the string
+    inc si                      ; form is refused in a module, .seq's note)
+    push ds
+    push si
+    mov si, di
+    sub si, ax
+    push es
+    pop ds                      ; a match reads what we have already written
+    rep movsb
+    pop si
+    pop ds
+    jmp short .lzbl
+.gam:
+    mov ax, 1
+.g:
+    call .bit
+    adc ax, ax
+    call .bit
+    jc .g
+    ret
+.bit:                           ; CF = the next flag bit (LZ_GETBIT)
+    add dl, dl
+    jnz .bok
+    mov dl, [si]
+    inc si                      ; `inc` keeps the guard's CF for the adc
+    adc dl, dl
+.bok:
     ret
 
 kds_s_fail: db 13, 10, 'kern_dos could not be read off the disk.', 13, 10

@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "fd810f5016e92ba83cd2bc0f366b0f66bbe785a19ed50051699ab00468fa6ee8",
+  "fingerprint": "5bdccbdf468b427fc98fd02c2dbc52504cab5184825cdcd63ea80eadc96b476b",
   "version": 12
  },
  "PKG_FMT": {
-  "fingerprint": "8f5f61082310f57fedd43574826a6c8224b92cb50f008fac696e2e40942b1565",
+  "fingerprint": "4d2e0218eebaefd14e7ae6d5f347a1dddf8916ab304f2c2d6c746bb4b203af0e",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -1442,6 +1442,20 @@
    "from": 12,
    "guard": "DRV_VER",
    "reason": "KDH record KDH1 to KDH2, KDH_POFF and KDH_COFF in PARAGRAPHS (SPEC.md 20.12.2.1, 96.40.1): the DOS to HIBER.DRV hand-off record's unit moved with the part layout. No PKG_FMT bump: the loader runs every old package unchanged (flags bit 2 and the link word keep their meaning), an old O88PARTS package carries its own 512 reader, and a DOS.O88 and HIBER.DRV from different trees refuse the hand-off at the magic rather than misread it",
+   "to": 12
+  },
+  {
+   "fingerprint": "4d2e0218eebaefd14e7ae6d5f347a1dddf8916ab304f2c2d6c746bb4b203af0e",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "KDH_PAD (byte 5 of the DOS handoff record, always 0) becomes KDH_FMT, the parts' format; 0 = LZ4 is what every earlier poster wrote, so nothing built before stops running (SPEC.md 96.44.18)",
+   "to": 10
+  },
+  {
+   "fingerprint": "5bdccbdf468b427fc98fd02c2dbc52504cab5184825cdcd63ea80eadc96b476b",
+   "from": 12,
+   "guard": "DRV_VER",
+   "reason": "KDH_PAD (byte 5 of the DOS handoff record, always 0) becomes KDH_FMT, the parts' format; 0 = LZ4 is what every earlier poster wrote, so nothing built before stops running (SPEC.md 96.44.18)",
    "to": 12
   }
  ]

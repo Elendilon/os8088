@@ -7295,7 +7295,10 @@ dos_handoff:
     mov di, dos_kdh
     mov word [di+KDH_MAGIC], KDH_SIG & 0xFFFF
     mov word [di+KDH_MAGIC+2], KDH_SIG >> 16
-    mov byte [di+KDH_PAD], 0
+    mov al, [dos_hlprow + OP_R_KIND]    ; the FORMAT the stub decodes with
+    mov [di+KDH_FMT], al            ; (SPEC.md 96.44.18): the loader wrote the
+                                    ; table's OP_T_FMT into HELP's kind byte,
+                                    ; and one file has one format
     mov al, [dos_pkgvol]
     mov [di+KDH_VOL], al
     mov ax, [dos_pkgdir]
