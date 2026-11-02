@@ -84,6 +84,7 @@ PSP fields that were zero here and are not zero under DOS, found that way.
 | `tests/dostrap/cx0.asm` | what `AH=40h` with `CX=0` does to a file's LENGTH (SPEC.md 96.11.6.2) |
 | `tests/dostrap/fcbrd.asm` | what the FCB READ calls (`0Fh`, `14h`, `21h`, `24h`, `27h`, `10h`) answer, padding included (SPEC.md 96.56.2) |
 | `tests/dostrap/fcbio.asm` | `AH=33h`/`37h` and the FCB file calls - make, write, open, read, find, delete by pattern - WordPerfect 4.1's whole set (SPEC.md 96.56) |
+| `tests/dostrap/exenext.asm` | one source, two programs: does the `.COM` typed after an `.EXE` run as ITSELF, or at the `.EXE`'s stale entry? (SPEC.md 96.8.3) |
 | `apps/dos/dos.asm`, `%ifdef DOSTRACE` | DOS's own ring — **not in any shipped build** |
 
 Both Python tools carry `--selfcheck`, which needs no emulator and no network.
