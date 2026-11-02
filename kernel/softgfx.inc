@@ -137,9 +137,9 @@ gfx_rect_setup:
                                 ; were this store and the add below
     shr dx, cl                  ; dx = right byte (x2 / 8)
     sub dx, ax
-    mov [gfx_rspan], dx          ; span = right byte - left byte
-    or dx, dx
-    jnz .offs
+    mov [gfx_rspan], dx          ; span = right byte - left byte (`mov` writes
+    jnz .offs                   ; no flag: the `sub`'s ZF is the test - kernel
+                                ; size pass 17, -2)
     mov dl, [gfx_rmsk]          ; one-byte rect: combine the masks
     and [gfx_lmsk], dl
 .offs:
@@ -221,23 +221,11 @@ sw_rect:
     push es
     call gfx_rect_setup
     jc .done
-    call sw_rect_pl
-.done:
-    jmp kret_es
-
-; -----------------------------------------------------------------------------
-; sw_rect_pl - internal: the mode staging and the pass, for a rect
-;              gfx_rect_setup has already described.
-;
-; IT WAS "the PLANE LOOP alone", and it is not one any more (SPEC.md 39.26) -
-; see the note at .planes. The header also named gfx_spans as a second caller;
-; that has not been true since SPEC.md 5.10 gave sw_spans a row walk of its
-; own, and sw_rect is the only `call sw_rect_pl` in the tree.
-; in:       the vga_* rect scratch and [sw_mode] are set
-; out:      -
-; clobbers: everything but the segment registers
-; -----------------------------------------------------------------------------
-sw_rect_pl:
+    ; --- the mode staging and the pass, for the rect gfx_rect_setup has just
+    ; described. It was sw_rect_pl, with this one call, until kernel size pass
+    ; 17 wrote it here: its call goes, and its tail `jmp sw_plane_op` is the
+    ; `call` below, whose ret comes back to the ladder (-3 on kern_big, -2 on
+    ; kern_small, where the jump had been short)
     mov byte [sw_altm], 0
     cmp byte [sw_mode], SWM_GRAY ; ONLY gray starts from the dither byte. Solid
     jne .planes                  ; overwrote it per plane below (sw_ink), and
@@ -281,8 +269,10 @@ sw_rect_pl:
                                 ; clocks by the prefetch floor) where it paid
                                 ; a taken je (18.19); GRAY and XOR pay those
                                 ; ~9.5 clocks back, once per fill.
-    jmp sw_plane_op             ; ...and with no loop under it, the last call
-                                ; is a TAIL jump: sw_plane_op's `ret` is ours
+    call sw_plane_op
+.done:
+    jmp kret_es
+
 
 %ifdef KERN_BIG
 ; -----------------------------------------------------------------------------
@@ -1016,7 +1006,7 @@ sw_fill_pat:
 ;             row byte from gfx_patbuf by (y & 7):
 ;             dest = dest ^ ((dest ^ pat) & mask)
 ; in:       CL = mask, DI = top byte, ES = plane; vga_* rect scratch
-; clobbers: AX, BX, DI, flags (preserves SI and CX)
+; clobbers: AX, BX, BP, DI, flags (preserves SI and CX)
 ;
 ; A CONTRACT CHANGE, and there are exactly two callers, both in sw_fill_pat
 ; above (grepped over kernel/, apps/, drivers/, tools/, tests/). Neither reads
@@ -1024,13 +1014,16 @@ sw_fill_pat:
 ; instructions are `mov si,[gfx_rspan] / or si,si / jz .done` and then
 ; `mov di,[gfx_roff]`, and after the right column `dec si / jz .done /
 ; mov di,[gfx_roff] / inc di / mov bx,[gfx_ry1]` - DI and BX both written
-; before any read. SI IS live across the second call (that `dec si`), so its
-; pair stays; reloading it instead would cost 4 bytes to save 2. This is what
-; sw_col already does and documents.
+; before any read. SI IS live across the second call (that `dec si`), so the
+; row count is kept in BP, which neither caller reads until it loads it for
+; the interior. This is what sw_col already does and documents.
 ; -----------------------------------------------------------------------------
 sw_patcol:
-    push si
-    mov si, [gfx_rrows]
+    mov bp, [gfx_rrows]         ; BP counts, not SI (kernel size pass 17, -2):
+                                ; the caller writes BP only after both calls
+                                ; (`mov bp, [gfx_rrows]` for the interior),
+                                ; and gfx_nextrow touches DI alone, so SI's
+                                ; push/pop pair went
     mov bx, [gfx_ry1]
     and bx, 7
 .row:
@@ -1043,9 +1036,8 @@ sw_patcol:
     inc bx
     and bx, 7
     call gfx_nextrow
-    dec si
+    dec bp
     jnz .row
-    pop si
     ret
 
 

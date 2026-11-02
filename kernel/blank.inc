@@ -450,9 +450,11 @@ blk_set:
     mov [blk_on], al
     push ax
 %ifdef KERN_BIG                 ; CX is the loop's and the loop is KERN_BIG's:
-    push cx                     ; the %else arm below names no CX, and blk_one
-                                ; tail-jumps into vid_bk, which banks ax/es/dx
-                                ; and never writes it
+    push cx                     ; the %else arm below names no CX, and
+                                ; vid_bk, which banks ax/es/dx, never writes it
+    push si                     ; SI = the routine the walk calls, chosen once
+                                ; below (kernel size pass 17: it was blk_one,
+                                ; which asked [blk_on] again per display)
                                 ; NO `push di`: this routine's body never names
                                 ; DI either, and the bank was a leftover from
                                 ; before 25448be converted this site off
@@ -481,6 +483,10 @@ blk_set:
                                 ; the primary is at the virtual origin and is
                                 ; banked as display 0 by construction
                                 ; (vid_disp_init, 39.19.2)
+    mov si, vid_unblank_kind    ; AL is still the direction: ssf_set keeps it
+    or al, al
+    jz .walk
+    mov si, vid_blank_kind
 .walk:
     mov cl, [vid_ndisp]
     jmp short .test             ; A WHILE, WHERE THIS WAS A DO-WHILE - entered
@@ -493,31 +499,32 @@ blk_set:
 .d:
     mov al, ch
     call vid_kind_of            ; vid_kind_of banks its own (`push di / call
-    call blk_one                ; vid_ctx_ptr / ... / pop di`), and blk_one
-    inc ch                      ; reaches only vid_bk, which never writes DI
+    call si                     ; vid_ctx_ptr / ... / pop di`), and SI's two
+    inc ch                      ; reach only vid_bk, which never writes DI or SI
 .test:
     cmp ch, cl
     jb .d                       ; ...and it counts UP and not down: a
                                 ; `dec cl` from 0 would run 255 more passes
                                 ; handing vid_kind_of an out-of-range display
 .pop:
+    pop si
     pop cx
 %else
+    or al, al                   ; the direction (`mov` writes no flag)...
     mov al, [vid_kind]          ; kern_small is single-display by construction
-    call blk_one                ; - vidsel.inc's whole multi-display half is
+    jz .lit                     ; - vidsel.inc's whole multi-display half is
+    call vid_blank_kind
+    jmp short .one
+.lit:
+    call vid_unblank_kind
+.one:
 %endif                          ; inside one %ifdef KERN_BIG
     pop ax
     ret
 
-; in: AL = VID_* kind. [blk_on] has already been written, and says which way.
-; Two near jmps and not a conditional one: an 8086 conditional branch is short
-; only, and both bodies are a module away in vidsel.inc.
-blk_one:
-    cmp byte [blk_on], 0
-    jne .dark
-    jmp vid_unblank_kind
-.dark:
-    jmp vid_blank_kind
+; (blk_one, which turned [blk_on] into one of these two jumps per display, is
+; gone: blk_set chooses once - kernel size pass 17, -2 on kern_big, -4 on
+; kern_small)
 
 ; -----------------------------------------------------------------------------
 ; blk_relit - the chrome and the world, after something owned the WHOLE screen

@@ -15212,7 +15212,8 @@ taken at all:
 
 Six things hold it up.
 
-- **`menu_kbnav` (`menu.inc`) is asked before `kbm_accel` is called**, so a
+- **`menu_kbnav` (`menu.inc`) is asked before the step ramp runs** (it was
+  `kbm_accel`, written into `kbm_move` by kernel size pass 17), so a
   placed press never touches the ramp: `[kbm_last]` is not stamped, and the
   first arrow press *after* the menu closes therefore sees a large tick gap
   and starts fresh at `KBM_MIN`, which is what it should do anyway.
@@ -32003,7 +32004,12 @@ the same rule `vid_wipe`'s header states two routines down - *"a helper further
 down the image is not resident yet"* - and a ladder is exactly such a helper;
 it is also the shape §15's own guard already refuses for `spl_gate`, *"the PATH
 is not aboard even though the destination is"*. **So `vid_pop8` keeps its own
-pop run, and any routine the first tick can reach must.**
+pop run, and any routine the first tick can reach must.** (Kernel size pass 17
+found `vid_text` was never one of them - its callers are `fsx_mode` and
+`vid_reboot`, both long after the desktop is up - so it moved past
+`spw_resident_end` onto the ladder (`kent_bp` / `kret_es`), and with
+`vid_setmode` the only routine left the `vid_pop8` label went: `vid_setmode`
+falls into its own pop run.)
 
 **A fourth routine joined it one label in**, until kernel size pass 14:
 `vid_apply` pushed the same run without `bp`, popped its own `es`, and entered
