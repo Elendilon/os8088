@@ -5128,17 +5128,22 @@ gfx_scroll:
     inc ax
     sub ax, di
     mov [vgas_rows], ax          ; rows to copy = height - |dy|
-    cmp word [vgas_sdy], 0
-    jl .down
     mov [vgas_ydst], bx          ; up: dest rows y1..y2-|dy|, walked top-down
-    mov word [vgas_step], 1      ; (source below destination - forward-safe)
+    mov ax, 1                   ; (source below destination - forward-safe)
+%ifdef KERN_SMALL
+    cmp si, 0                   ; SI is still dy, which is [vgas_sdy] (kernel
+%else                           ; size pass 17: the memory compare went, and
+    or si, si                   ; the step is built in AX and stored once,
+%endif                          ; -7; kern_small's 3-byte compare keeps the
+    jns .up                     ; total even there, and kern_big's parity pad
+    mov [vgas_ydst], dx          ; below goes instead)
+    neg ax                      ; down: dest rows y1+|dy|..y2, walked
+.up:                            ; bottom-up (source above destination)
+    mov [vgas_step], ax
     jmp short .disp
 .no:                            ; (the refusal HERE, in short reach of every
     stc                         ; guard above it: two-byte `jcc`s and 4-clock
     jmp short .out              ; not-takens, where the five-byte ones were 16)
-.down:
-    mov [vgas_ydst], dx          ; down: dest rows y1+|dy|..y2, walked
-    mov word [vgas_step], -1     ; bottom-up (source above destination)
 .disp:
 %ifdef VID_EXT
     cmp byte [vid_planes], 4    ; ONE compare for the three: 1bpp, packed
@@ -5159,9 +5164,8 @@ gfx_scroll:
 %ifdef VID_EXT
 .vx:                            ; a packed display (SPEC.md 120.3.1): the six
     VXCALL VX_SCROLL            ; vgas_* cells say what moves where
-    jmp short .ok
-    db 0                        ; PARITY, never executed: font_run and the hot
-%endif                          ; routines after it (tests/unit/t_hotpar.py)
+    jmp short .ok               ; (the PARITY pad that stood here went with
+%endif                          ; the odd -7 above, kernel size pass 17)
 .mono:
     call vgas_bankcopy           ; the framebuffer IS [vid_rseg] (SPEC.md 39)
 .ok:
