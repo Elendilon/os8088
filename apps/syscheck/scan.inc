@@ -47,6 +47,7 @@ sc_scan_begin:
     mov [sc_nf], ax
     mov [sc_flost], ax
     mov [sc_nrm], ax
+    mov [sc_nstale], ax
     mov [sc_nfiles], ax
     mov [sc_nfold], ax
     mov [sc_npkg], ax
@@ -538,7 +539,7 @@ sc_man_drvhdr:
     call sc_rsn_nn                  ; sc_rsn = BX's text with AX and DX
     mov si, sc_rsn
     mov ax, (SV_BROKEN << 8) | SC_DRV
-    call sc_manaddf
+    call sc_manstale
     jmp sc_man_next
 .build:
     mov ax, [sc_hdr+4]              ; MOD_H_BUILD: mod_check refuses any
@@ -549,7 +550,7 @@ sc_man_drvhdr:
     call sc_rsn_nn
     mov si, sc_rsn
     mov ax, (SV_BROKEN << 8) | SC_DRV
-    call sc_manaddf
+    call sc_manstale
     jmp sc_man_next
 .diff:
     mov si, sc_r_differs
@@ -640,6 +641,15 @@ sc_manaddf:
     push bx
     push dx
     xor bl, bl
+    jmp short sc_manstale.add
+
+; sc_manstale - sc_manaddf for a driver or module the kernel REFUSES: Clean
+; Up's second question removes it, through FSCHECK.DRV (SPEC.md 118.8.2)
+sc_manstale:
+    push bx
+    push dx
+    mov bl, FL_SYS | FL_STALE
+.add:
     mov dx, [sc_curfold]
     call sc_addf
     pop dx
@@ -762,9 +772,9 @@ sc_p_ret:
     mov di, sc_cpath
     call sc_drive
     call sc_scpy
-    mov si, sc_r_retdrv             ; hidden + system: Clean Up cannot touch it
-    mov ax, (SV_WARN << 8) | SC_RET
-    xor bl, bl
+    mov si, sc_r_retpkg             ; hidden + system: Clean Up asks the
+    mov ax, (SV_WARN << 8) | SC_RET ; kernel, through FSCHECK.DRV (118.8.1)
+    mov bl, FL_RM | FL_SYS
     xor dx, dx
     call sc_addf
 .skip:
@@ -1526,8 +1536,12 @@ sc_addf:
     jmp .out
 .room:
     test bl, FL_RM
-    jz .keep
+    jz .stale
     inc word [sc_nrm]
+.stale:
+    test bl, FL_STALE
+    jz .keep
+    inc word [sc_nstale]
 .keep:
     push ax
     mov ax, [sc_nf]
@@ -1854,7 +1868,6 @@ sc_r_modbld:   db 'from build # - the kernel refuses it', 0
 sc_r_vunk:     db 'differs; its version is unknown', 0
 sc_r_kpad:     db 'left by an install that stopped', 0
 sc_r_noapp:    db 'missing - programs keep settings there', 0
-sc_r_retdrv:   db 'retired - install with Erase', 0
 sc_r_retpkg:   db 'retired - Clean Up removes it', 0
 sc_r_pkgfmt:   db 'format #, kernel takes # - will not load', 0
 sc_r_damaged:  db 'damaged header - not a package', 0

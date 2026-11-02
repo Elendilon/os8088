@@ -64,6 +64,10 @@ SV_WARN     equ 2                   ; stale, duplicated or wasted - works
 SV_BROKEN   equ 3                   ; something will refuse to work
 FL_RM       equ 1                   ; Clean Up may delete this file (118.8)
 FL_ASSOC    equ 2                   ; Clean Up rebuilds ASSOC.DAT for this
+FL_SYS      equ 4                   ; ...through FSCHECK.DRV: hidden + system
+                                    ; (118.8.1), so FL_RM or FL_STALE with it
+FL_STALE    equ 8                   ; a driver or module this kernel REFUSES:
+                                    ; Clean Up's second question (118.8.2)
 
 ; a lamp's states (ui.inc draws them)
 LP_PEND     equ 0
@@ -83,7 +87,7 @@ SCF_SYSTEM  equ 1
 SCF_STIK    equ 2
 SCF_OPT     equ 0x80            ; OR'd in: not on every system disk (118.2.3)
 
-DRV_VER     equ 11                  ; drivers/os88drv.inc - the ABI lock binds
+DRV_VER     equ 12                  ; drivers/os88drv.inc - the ABI lock binds
 MOD_VER     equ 5                   ; kernel/mod.inc       it to PKG_FMT's era
 
 ; --- the findings table (SPEC.md 118.3) ---------------------------------------
@@ -587,6 +591,8 @@ sc_bok:
     jne .no
     cmp word [sc_nrm], 0
     jne .yes
+    cmp word [sc_nstale], 0
+    jne .yes
     cmp byte [sc_ascbad], 0
     je .no
 .yes:
@@ -818,6 +824,8 @@ sc_abn:     db 'Jorge Gonzalez', 0
     OS88_AWORD sc_nf                ; findings kept
     OS88_AWORD sc_flost             ; ...and not kept
     OS88_AWORD sc_nrm               ; findings Clean Up may remove
+    OS88_AWORD sc_nstale            ; ...and drivers it asks about again
+    OS88_AWORD sc_rmd               ; files a Clean Up removed, both parts
     OS88_AWORD sc_freelo            ; free KB, 32 bits
     OS88_AWORD sc_freehi
     OS88_AWORD sc_rseg              ; the report's transient claim

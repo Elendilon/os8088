@@ -104,6 +104,30 @@ mockups are [docs/syscheck/design/](../syscheck/design/).
   and `fsckhd` (FAT16) move folders; `fsckdisk` holds a Disk window
   standing in one to it.
 
+### Clean Up through the engine (SPEC.md 118.8.1)
+
+- [x] **Retired drivers:** as a user Clean Up removes a retired driver or
+  module (`DEBUG.DRV`, `CLONE.DRV`, `DESKTOP.DRV`, `VMMOUSE.DRV`) as well,
+  which a package cannot delete because it is hidden + system: System Check
+  asks `FSCHECK.DRV`, beside it, through `OSAPI_VOL_CHECK`'s `FSK_DELSYS`,
+  and the engine deletes only a name on its own retired list - never the
+  kernel, a driver this kernel loads or a module. No resident byte.
+  `t_sysman` holds the engine's list to `retired.txt`; `syscheck` (soak,
+  QEMU) plants `DEBUG.DRV` and requires Clean Up to remove it, and goes red
+  with the name taken off the engine's list.
+- [x] **Refused drivers, on a second click (SPEC.md 118.8.2):** as a user
+  Clean Up then asks *Also remove N refused drivers?* and removes the
+  drivers and modules this kernel refuses - another driver version, another
+  build's module - which no install may bring up to date (the 360KB system
+  disk no longer carries `XMEM.DRV`). The engine reads each through the
+  kernel's own expanding read and deletes it only if `drv_check` and
+  `mod_check` would both refuse it. `syscheck` plants an old packed
+  `XMEM.DRV`, a packed `WIN95.DRV` of another build and a version-9
+  `RAMDISK.DRV`, answers both questions, and holds every driver and module
+  the kernel loads to still being there; red with the second form refused.
+- [x] **System Check's `DRV_VER` mirror** read 11 after the kernel moved to
+  12; fixed, and `t_mirror` now guards it.
+
 ## Existing facilities and boundaries
 
 - **The scan is wake slices on the UI task** (`OSAPI_WM_ONWAKE`, SPEC.md
@@ -116,6 +140,9 @@ mockups are [docs/syscheck/design/](../syscheck/design/).
   hidden + system file and cannot list one (SPEC.md 19.7.1), which is why
   drivers are checked against a manifest and a retired list rather than
   discovered.
+- **A package cannot delete a hidden + system file** (SPEC.md 19.6), so
+  Clean Up's one system-file repair goes through the engine, which is kernel
+  code, and the engine - not the package - decides which names may go.
 - **No new kernel facility for the release checks.** The one thing a slot
   would add - the running kernel's build - is answered by construction
   instead (SPEC.md 118.1.1), so those cost no resident byte. **The disk

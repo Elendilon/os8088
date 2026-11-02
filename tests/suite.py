@@ -16917,7 +16917,7 @@ SOAK = [
         "(every breakage 118.1 names), wrapped as an XT-IDE VHD and booted on "
         "MartyPC's 5150 with CGA and with Hercules. Its AUTOSTRT link says "
         "`C: RELEASE REPORT` (118.14.9), so the scan runs and saves "
-        "SYSCHECK.TXT unattended; read back off the VHD it must say 5 broken, "
+        "SYSCHECK.TXT unattended; read back off the VHD it must say 7 broken, "
         "6 warnings and name every planted finding. 23s measured, both "
         "machines.",
         needs=("marty", "mtools"), serial=True, timeout=900,
@@ -16933,10 +16933,15 @@ SOAK = [
         "an orphaned HIBERNAT.IMG - and booted from C: with an AUTOSTRT link "
         "to SYSTEM\\SYSCHECK.O88. The scan must find each, the saved "
         "SYSCHECK.TXT (read back on the host) must name each, and Clean Up "
-        "must remove exactly 118.8's files and nothing else.",
+        "must remove exactly 118.8's files and nothing else - the retired "
+        "driver among them, hidden + system, which only FSCHECK.DRV beside "
+        "SYSCHECK.O88 can delete (118.8.1) - and then, on a second Proceed, "
+        "a driver of the last driver version, a module of another build and "
+        "a driver of version 9, which the kernel refuses (118.8.2), with "
+        "every driver and module it loads left where it was.",
         needs=("qemu", "mtools"), serial=True, timeout=600,
         wants=("build/os8088.img", "build/apps.img", "build/syscheck.o88",
-               "build/mbr.bin", "build/boothd.bin")),
+               "build/fscheck.drv", "build/mbr.bin", "build/boothd.bin")),
     Row("win16mines", "soak", py("tests/win16mines.py"), 60.0,
         "SPEC.md 124.15, WIN16-PLAN S8: Windows 3.1's Minesweeper (W31MINE, "
         "Microsoft's, in build/win16/ only where the win16-reference skill "

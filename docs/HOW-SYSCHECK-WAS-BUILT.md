@@ -315,3 +315,71 @@ The owner also asked what was "wrong about the claim" behind kern_mega's
 fault, and the honest answer is nothing: a claim an `OS88_HIGHMEM` program
 gets above 1MB is a data selector alone by design, RealDMG already handles
 it the same way, and the SDK's general note now says so.
+
+## 2026-11-02 — Clean Up reaches the retired drivers
+
+The owner asked whether System Check could use the engine sitting beside it
+to clean up the system's own files. Until then a retired driver was a
+finding Clean Up could not act on: *retired - install with Erase*, because a
+`.DRV` is hidden + system and a package can neither list nor delete one
+(SPEC.md 19.6). `FSCHECK.DRV` is kernel code and already rewrites directory
+entries and frees chains, so it was the natural place.
+
+**The engine decides what may go, not the package.** The new verb,
+`FSK_DELSYS`, takes a name - and refuses it unless the name is on a list
+assembled into the image itself: the `.DRV` lines of
+`apps/syscheck/retired.txt`. So no caller, however broken, can talk it into
+deleting `KERNEL.SYS`, `SYSTEM.CFG`, a driver the kernel loads or a module
+it reads. A plain *"anything not in `drv_tab`"* rule was considered and
+refused: `HTTPPAGE.DRV`, `HDDTOOL.DRV` and `FSCHECK.DRV` itself are images
+that something other than `drv_tab` loads, and that rule would have offered
+them up. The two lists are one list in two places, and `t_sysman` fails the
+build when they disagree. kern_emu's image leaves `VMMOUSE.DRV` off, since
+that kernel still loads it.
+
+The delete itself is `dskw_delete`'s own commit entered past its protection
+test, so the caches, listings and Disk windows follow as for any delete.
+Measured: the kernel is byte-identical (the verb is the image's), the engine
++229 bytes, System Check +25. The `syscheck` row now plants `DEBUG.DRV` and
+requires Clean Up to remove it; with `DEBUG` taken off the engine's list it
+goes red with *Clean Up left ::/DEBUG.DRV*.
+
+**What it still does not do**, and why: a driver of another version, or a
+module from another build, is not a leftover - it is a file this release
+needs, and the right answer is the new file rather than no file. Those
+findings still say to install again.
+
+### ...and the drivers the kernel refuses, on a second click
+
+The first cut left one kind of system file alone on purpose: a driver of
+another version, or a module from another build, because *install again*
+was supposed to be the answer. The owner pointed out that it is not always:
+the 360KB system disk stopped carrying `XMEM.DRV`, so a machine upgraded
+from that pair keeps its old `XMEM.DRV` for ever, refused at every boot,
+and no install touches it. So Clean Up removes those too - as a **second
+question**, after the leftovers, Cancel the default.
+
+The engine judges these as well, with a second form of the verb. The
+package hands over a buffer the size of the expanded file; the engine reads
+the file through the kernel's own read (which unpacks a `'CZ'` file, as the
+driver loader does) and deletes it only if its header is `'O8'` and neither
+`drv_check` nor `mod_check` would take it. Every image anything loads today
+- the sub-images such as `HTTPPAGE.DRV` included - carries a current header,
+so none of them can be offered up; and because the judge is the running
+kernel, kern_mega's engine keeps kern_mega's modules, which kern_big's
+manifest calls another build's.
+
+**Building the test found a real bug and a trap.** The bug: System Check
+spelled `DRV_VER` as 11, a cycle after the kernel moved to 12 - so the old
+`XMEM.DRV` this feature is for would have been reported as merely
+*different*, and a current driver that differed as the wrong version.
+`t_mirror` now holds the copy to the kernel's. The trap: the first fixture
+planted a `FORMAT.DRV` of another build, and Clean Up could then no longer
+rebuild `ASSOC.DAT` - the associations' writer lives in that module. True,
+and worth knowing (a refused `FORMAT.DRV` already breaks that before Clean
+Up runs), but not what the test is about; the planted module is `WIN95.DRV`
+now.
+
+After both answers the report is honest rather than tidy: `RAMDISK.DRV` and
+`WIN95.DRV` read as *missing - install again*, which they are, and the old
+`XMEM.DRV` is simply gone, being an optional file.
