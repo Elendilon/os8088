@@ -288,7 +288,10 @@ dvw_irq0:
     iret
 
 dvw_kexit:
-    mov ax, 0x4CFF
+    in al, 0x61                 ; **THE SPEAKER OFF**: a program stopped
+    and al, 0xFC                ; between turning it on and off (a BEEP, a
+    out 0x61, al                ; PLAY note) would leave the tone running for
+    mov ax, 0x4CFF              ; ever - nothing of it is left to turn it off
     int 0x21
 
 ; dvw_tolow - off a FOREIGN stack onto the worker's own slice, DVW_GAP below
@@ -1068,6 +1071,8 @@ dvw_int10:
     HCALL con_clear
     mov byte [dvw_dirty], 1
     call dvw_bcur
+    pop ax                          ; **A TEXT MODE STAYS IN THE WINDOW**: it
+    jmp .out                        ; is a clear and a home, and nothing more
 .gfx:
     pop ax                          ; **A GRAPHICS MODE IS THE ONE THING THE
     pop ds                          ; WINDOW CAN SEE COMING** (SPEC.md
@@ -1562,14 +1567,18 @@ dvw_wake:
 ; window is closing. Any stack; every register preserved
 ; -----------------------------------------------------------------------------
 dvw_shunt:
-    push bx
     push ds
     HOSTDS
     mov byte [PS dvw_fsreq], 1
 .w:
-    mov bx, [dos_win]
-    call OSAPI_WM_WAKE              ; every pass, as dvw_post does
-    call dvw_nap1
+    mov byte [dvw_dirty], 1         ; **THE WAKE IS dvw_xpost's, NOT OURS**:
+    call dvw_nap1                   ; this runs inside the program's int 10h,
+                                    ; on the PROGRAM'S stack, and evq_push
+                                    ; writes the ring through SS - a wake
+                                    ; posted here landed in the program's own
+                                    ; data and left the window deaf (W_WKQ
+                                    ; set, no record). dvw_nap posts it from
+                                    ; the worker's LOW_SEG slice
     cmp byte [PS dvw_fs], 0
     jne .up                         ; (CF = 0: nothing is below zero)
     cmp byte [PS dvw_kill], 0
@@ -1580,7 +1589,6 @@ dvw_shunt:
     stc
 .up:
     pop ds
-    pop bx
     ret
 
 ; -----------------------------------------------------------------------------

@@ -9072,6 +9072,19 @@ SOAK = [
         "with dos_con_run's dsh_home taken out. "
         "Measured 27s on MartyPC",
         needs=("marty",), serial=True, wants=("build/os8088-360.img",)),
+    Row("doswbasic", "soak", py("tests/doswbasic.py"), 20.0,
+        "WHAT A COMPILED BASIC PROGRAM DOES TO A LIVE WINDOW (SPEC.md "
+        "96.54.11), Galaxy Trek's three defects without the program: "
+        "DWMODE.COM typed at B:'s prompt with the mode ticked, on a lone "
+        "Hercules. A text mode set stays in the window and the program "
+        "prints in the band; a graphics mode set reaches the full screen and "
+        "leaves the program's own memory (where SS:evq_buf falls) intact; a "
+        "close in the middle of a tone ends the program, closes the window "
+        "and clears port 61h bits 0-1. Red at each leg with its fix taken "
+        "out (the text arm's jmp .out, dvw_shunt's wake moved back onto the "
+        "program's stack, dvw_kexit's three port instructions). "
+        "Measured 13s on MartyPC",
+        needs=("marty",), serial=True, wants=("build/os8088-360.img",)),
     Row("doscon", "soak", py("tests/doscon.py"), 40.0,
         "DOS'S CONSOLE, AND THE PROMPT IN IT (SPEC.md 96.33). The band "
         "below the top bar carried three lines of status text and now carries "
