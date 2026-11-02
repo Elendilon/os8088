@@ -5210,9 +5210,8 @@ vgas_bankcopy:                  ; (no DS bank, for the linear copy's reason)
     mov cl, [vid_bshift]        ; because dy may be negative and the shift has
     sar ax, cl                  ; to floor; exact, because dy is a multiple of
     mul word [vid_stride]       ; the bank count (mul's low word again)
-    mov dx, ax
-    cld
-    push bp                     ; ONE loop for both directions: the row step is
+    mov dx, ax                  ; (no `cld` here or in .gen's row loop: DF = 0
+    push bp                     ; is SPEC.md 1's on entry - kernel size pass 17)                     ; ONE loop for both directions: the row step is
     mov bp, gfx_nextrow         ; a routine in BP, `call bp` being two bytes
     cmp word [vgas_step], 0     ; and a cycle cheaper than the `call rel16` it
     jge .rstep                  ; replaces - up walks the destination DOWN the
@@ -5250,7 +5249,6 @@ vgas_bankcopy:                  ; (no DS bank, for the linear copy's reason)
     mov cx, [vgas_nb]
     push es
     pop ds
-    cld
     rep movsb
     KDS
     add bx, [vgas_step]
