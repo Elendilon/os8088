@@ -107,6 +107,10 @@ KD_IMG_KB   equ 34              ; 34 until SPEC.md 96.11.7's character devices
 ; arm stays 34 and fits by 8 (34,808): its kilobyte is now the shipped one's.
 ; **AND THE KNOB 34 -> 35 FOR SPEC.md 96.56.2**, Galaxy Trek's 14h/21h/24h:
 ; CORE_MAX +144 against the knob's 8. The SHIPPED arm stays 34 - it had ~550.
+; **AND BOTH ARMS STAY FOR SPEC.md 96.56.3**, the rest of the FCB family:
+; CORE_MAX +368, MEASURED 34,794 of 34,816 shipped (22 left) and 35,336 of
+; 35,840 on the knob. The next core byte past 22 is a kilobyte off the DOS
+; program on the third arm.
 ; **kern_mega's kern_dos IS A KILOBYTE BIGGER, and only kern_mega's**
 ; (SPEC.md 96.15.4, docs/plans/completed/KERN-MEGA-DOS-PLAN.md 6, 12.1 item 4): the XMS
 ; door over the arena is 842 bytes of code and 98 of bss (kerndos/kdxms.inc),
@@ -139,6 +143,8 @@ KD_IMG_KB   equ 39
 ; HMA's low half nor the loader's EXEPACK unpacker - with A20 shut the
 ; program's own runs - and this rung IS off the program again, as on kern_big
 ; **36 -> 37 FOR SPEC.md 96.56**: 36,982 of 36,864, 118 over
+; (96.56.3's +368 fit both kern_mega images: 39,465 of 39,936 HMA, 37,510
+; of 37,888 low)
 KD_IMG_KB   equ 37
 %endif
                                 ; since apps size pass 1 (above): this rung

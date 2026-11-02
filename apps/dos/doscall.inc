@@ -63,7 +63,7 @@ CORE_ORG    equ 0x0080
 ; CORE alone spends, both hosts read, and whose slack is one number in one
 ; place. Measured at the wave, with the assertion in `apps/dos/doscore.asm`.
 %ifndef DOS_MEGA
-CORE_MAX    equ 16128            ; +512 for SPEC.md 96.7.2's stack swap and
+CORE_MAX    equ 16496            ; +512 for SPEC.md 96.7.2's stack swap and
                                 ; 96.12.5's name truncation, which are 214
                                 ; bytes between them against 89 of slack. The
                                 ; two are the Playroom's whole report: a gate
@@ -158,8 +158,13 @@ CORE_MAX    equ 16128            ; +512 for SPEC.md 96.7.2's stack swap and
                                 ; +144 for SPEC.md 96.56.2, Galaxy Trek's
                                 ; 14h, 21h and 24h on 27h's body (140 bytes
                                 ; against 5 of slack): 16,119 used
+                                ; +368 for SPEC.md 96.56.3, the rest of the
+                                ; FCB family (15h 17h 22h 23h, a real 12h,
+                                ; the extended FCB's attribute, the PSP's
+                                ; FCBs parsed and copied): 371 bytes against
+                                ; 9 of slack, 16,490 used
 %else                           ; **kern_mega's core is 67 bytes longer**:
-CORE_MAX    equ 16784            ; SPEC.md 96.15.4's extended-to-extended
+CORE_MAX    equ 17152            ; SPEC.md 96.15.4's extended-to-extended
 %endif                          ; move (dos_xms_move's `.bothx`), 15,409 used.
                                 ; +80, kept a multiple of 16, and paid ONLY by
                                 ; kern_mega's DOS.O88 - both of its hosts
@@ -190,6 +195,8 @@ CORE_MAX    equ 16784            ; SPEC.md 96.15.4's extended-to-extended
                                 ; the load module: 16,629 used
                                 ; +144 for SPEC.md 96.56.2's 14h, 21h and
                                 ; 24h, as on kern_big's arm
+                                ; +368 for SPEC.md 96.56.3, as on kern_big's
+                                ; arm: 17,140 used
 ; ...and the core's bss sits directly above its code, at the same offset in
 ; every host, which is what SPEC.md 96.44.2 requires of every `DBSS` cell.
 ; --- THE CORE'S BLOCK IS A BUDGET, NOT A SUM (SPEC.md 96.44.2) --------------

@@ -181897,10 +181897,10 @@ of eleven NULs on drive A — a file that cannot exist, under a drive letter the
 program did not ask for — so a program that opens FCB 1 without reading the
 tail got a definite wrong answer instead of an obviously empty one.
 
-The blank form is what os8088 DOS writes. **Parsing real arguments into them is
-not built**: §96.19 passes arguments through the tail, which is what everything
-after DOS 1 reads, and a program that takes its filename from FCB 1 will see
-no filename. That is a gap with a name rather than a silent one.
+The blank form is what os8088 DOS writes for an empty tail. **Parsing real
+arguments into them was not built** until §96.56.3: the tail's first two words
+are parsed into them now, as COMMAND does, so a program that takes its
+filename from FCB 1 sees it.
 
 #### 96.21.7 The version is a SETTING, and 3.31 was the wrong setting
 
@@ -190138,8 +190138,8 @@ the handle calls rather than a second file system:
   which is `AH=40h CX=0` (96.11.6.2) and so needed nothing of its own.
 - **`11h`** is `AH=4Eh` on the spelled pattern, its find record then
   rewritten in place into what DOS leaves: the drive byte and a directory
-  entry (name 11, attribute, time, date, cluster 0, size). **`12h` is not
-  ours and answers `AL=FFh`, "no more"**: our find-next keeps its walk in the
+  entry (name 11, attribute, time, date, cluster 0, size). **`12h` was not
+  ours and answered `AL=FFh`, "no more"** (96.56.3 made it real): our find-next keeps its walk in the
   DTA's first 21 bytes, which `11h`'s answer overwrites, so a program that
   lists a directory by FCB sees one entry.
 - **`13h`** takes a PATTERN where `AH=41h` takes a name, so it finds, removes
@@ -190147,11 +190147,11 @@ the handle calls rather than a second file system:
   file that will not go is stepped past with `AH=4Fh`, so the walk ends. Its
   find record is on our stack and the program's DTA is untouched.
 
-**Not done**, and named so nobody assumes otherwise: the current block and
-record are not advanced by `27h`/`28h` (only the random record is); `15h`
-and `22h`, the one-record WRITES, are `.bad` (`14h`, `21h` and `24h` are
-96.56.2); the open's date and time fields are left as the program had them;
-`17h` rename and `23h` file size are `.bad`.
+**Not done** when this was written, and all of it is now (96.56.3): the
+current block and record were not advanced by `27h`/`28h`; `15h` and `22h`,
+the one-record WRITES, were `.bad` (`14h`, `21h` and `24h` are 96.56.2); the
+open's date and time fields were left as the program had them; `17h` rename
+and `23h` file size were `.bad`; and `12h` answered "no more".
 
 **Measured**, `tests/dostrap/fcb.asm` (`FCB.COM`), one binary under both:
 every line identical, `33=3300 DL=00` to `13=00 11=FF`. WordPerfect itself
@@ -190200,6 +190200,121 @@ shipped `KD_IMG_KB` stays **34**, and the `DOSR_MARK` knob, which 96.56.1
 left fitting by 8 bytes, goes 34 -> 35 (a trace build's kilobyte, not a
 shipped one's). kern_mega's two `kern_dos` images (39 HMA, 37 low) fit as
 they are.
+
+#### 96.56.3 The rest of the FCB family, so the next FCB program does not stop at once
+
+96.56.1 and 96.56.2 answered the calls two programs happened to make and left
+the rest at `.bad`'s `AX=0001` - which an FCB call reads in `AL` alone, as
+**end of file** or **no more**, a plausible wrong answer rather than a
+refusal. The owner's ask: *"implement the last few FCB functions, so when the
+next program runs it doesn't immediately hit them"*. So the DOS 2/3 FCB set
+is whole, every answer measured against IBM DOS 3.30:
+
+- **`15h` and `22h`, the one-record WRITES**, are `14h`'s and `21h`'s bodies
+  writing: `FCB+1Bh` is 1 to read and 0 to write (each pair is a read and a
+  write, and once `14h`/`15h` move up one the write is the even one), and
+  that byte picks `AH=3Fh` or `40h`. A short write is `AL=1`, disk full.
+  **Every write puts the file's size in the FCB** (`AH=42h AL=2` after it),
+  as DOS keeps it there - a program that writes and then reads `FCB+10h`
+  sees what it wrote.
+- **`27h`/`28h` set block and current from where they ended** - MEASURED,
+  and 96.56.1 had said they did not. `14h`, `15h`, `21h` and `22h` already
+  did; all six now share the one tail.
+- **`17h` rename** walks the old name (`FCB+1`) with `4Eh`/`4Fh` and renames
+  each match to the new one at `FCB+11h`, where a `?` keeps the old name's
+  own letter: `FCBW?.TMP` to `FCBV?.TMP` renames `FCBW1` to `FCBV1`. A
+  rename leaves the entry where it is, so the walk counts the same through
+  it (a delete's does not, which is why `13h` restarts). On the FCB's one
+  drive; a new name that is there ends it with `FFh`.
+- **`23h` file size** is `AH=4Eh` on the name and the size in RECORDS at the
+  FCB's record size, a part record counted - `0` meaning 128, MEASURED - into
+  `FCB+21h`. **Three bytes at any record size**: IBM DOS 3.30 leaves `+24h`
+  as it was, where a reading of the call would write four below 64.
+- **`12h` find next is real.** Every call of the layer now finds into a find
+  record of OUR OWN on the stack (`[sp+16]`, 44 bytes, with the program's DTA
+  banked above it), so 96.56.1's collision is gone: the program's DTA is
+  written by `11h`/`12h` alone and only with DOS's layout. The walk's
+  position is kept in `FCB+1Ch` (the reserved bytes `14h` borrows only for
+  the length of a call); `12h` runs `4Eh` on the FCB's pattern again and
+  `4Fh` from that position. Cost of the shape: a `12h` after its first match
+  was deleted answers "no more" - which a delete-in-the-walk program does
+  through `13h`'s pattern anyway.
+- **The DTA a search leaves is DOS's whole directory entry**: the drive,
+  name 11, attribute, ten zeros, time, date, cluster 0, size - and for an
+  extended FCB, `FFh`, five zeros and the attribute ASKED FOR in front.
+- **The extended FCB's attribute is used**, where it was read past: it is
+  the mask of `11h`/`12h`/`13h`/`17h`/`23h` and the attribute `16h` makes
+  with, so a folder is found by attribute `10h` and not by a plain FCB. Two
+  things an extended FCB asks for are the HANDLE layer's to answer and it
+  does not, so they are not asked here: a hidden file (`AH=3Ch` keeps no
+  attribute) and the volume label, which no package can see (96.12.1).
+- **The FCB the program named is not written in its reserved bytes by
+  `0Fh`-`23h`'s shared prologue any more**: `17h`'s new name runs from
+  `FCB+11h` to `+1Bh`, so 96.56.1's "the call at `FCB+1Ah`" overwrote the
+  last two letters of every new name. The call and the attribute are kept
+  on the stack; the read/write calls, whose FCB is open, still use
+  `+1Ah`/`+1Bh`.
+- **`0Fh`/`16h` write the date and time fields**, as DOS does, and write
+  them as the directory entry a search finds would have them: **zero**,
+  because this DOS's find record carries no timestamp (96.12.1). The probe
+  asks exactly that - the FCB's date and time against an extended search's
+  entry - and leaves "which date" to the layer below.
+- **The PSP's two FCBs are PARSED from the command tail**, which 96.21.6
+  named as not built: `dos_fcb_arg` is `AH=29h`'s own parse
+  (`dos_int21.pf_core`, the routine 96.28 is) over `dos_args`, blanks
+  skipped first. **An EXEC's child takes its parameter block's two FCBs** -
+  TWELVE bytes each, not sixteen: MEASURED, a child sees `5Ch+12..15` as
+  zero whatever the block's FCB holds there. **And the program is entered
+  with `AL`/`AH` = `FFh` for an FCB whose drive is past the last**, `00h`
+  otherwise: `FOO.TXT Z:BAR` enters with `AX=FF00h`.
+- **`1Ah` and `2Fh` give `AX` back** (they returned it holding the DTA's
+  segment); **`2Eh` sets and `54h` reads the verify flag**, a byte this DOS
+  keeps and nothing else consults - the write path has no verify to switch.
+  `0Dh` was already answered (96.11.8); IBM DOS 3.30 hands back `AL=01h`
+  from it, which is not a documented answer and is not copied.
+
+**Measured**, `tests/dostrap/fcbwr.asm` (`FCBWR.COM`), one binary run as
+`FCBWR FOO.TXT Z:BAR` under IBM DOS 3.30 and through the DOS window's path
+box here, fifteen lines identical:
+
+| line | asks | IBM DOS 3.30 answers |
+|---|---|---|
+| `PSP` | entry `AX`, `5Ch` (and `+12..15`), `6Ch` | `FF00 00 FOO     TXT 00000000 1A BAR` |
+| `KID` | the same in an EXEC'd child, block FCBs `02 KIDNAME TXT abcd` and `00 OTHER DAT efgh` | `0000 02 KIDNAME TXT 00000000 00 OTHER   DAT` |
+| `DTA` | `1Ah`, `2Fh` (`AX`, `BX`, `ES` ours), `0Dh` (`AH`), `2Eh`, `54h` after 1 and 0 | `1A5A 2F5A 0729 1 0D 2E01 01 00` - `0Dh` came back with `AH=00h` here before, the flush spending `AX` |
+| `15` | `16h`, three `15h` of 10-byte records: block, current, random (1234h), size | `00 00 00 00 0000 03 00001234 0000001E` |
+| `22` | `22h` at record 5 | `00 0000 05 00000005 0000003C` |
+| `28` | `28h` of two at 6: `CX`, block, current, random, size | `00 0002 0000 08 00000008 00000050` |
+| `0F` | close, open: record size, size, date and time = the entry's, block, current | `00 00 0080 00000050 1 0000 00` |
+| `27` | `27h` of four at 5: `CX`, block, current, random, sum | `01 0003 0000 08 00000008 2D29` |
+| `23` | `23h` at 10, 7, 128 and 0 (random `5A5A5A5Ah` first), a miss | `00 5A000008 00 5A00000C 00 5A000001 00 5A000001 FF` |
+| `17` | `17h` DAT -> DAX, `0Fh` on the old, `23h` on the new | `00 FF 00 0001` |
+| `REN` | by pattern, onto a name that is there, from nothing | `00 FF FF` |
+| `11` | `11h`, `12h`, `12h` on the pair; `11h` on the DAX (attribute, size) | `00 02 FCBV1   TMP 00 02 FCBV2   TMP FF 00 20 00000050` |
+| `X11` | extended `11h` (DTA bytes 0-7, the name), the folder (`10h`), the folder by a plain FCB | `00 FF00000000000002 FCBV1   TMP 00 FF` |
+| `XFC` | extended `16h`/`10h`; plain `11h`; extended `13h`/`11h`; extended `0Fh` (record size, size)/`10h` | `00 00 00 00 FF 00 0080 0050 00` |
+| `13` | delete the pair and the DAX | `00 00` |
+
+`tests/dosfcbwr.py` is the gate, VERIFIED TO FAIL: with `15h`, `17h`,
+`22h`, `23h` and `12h` pointed back at `.bad` ten lines differ, and with the
+tail parse, `1Ah`'s `AX`, `0Dh`'s `AX` and `27h`/`28h`'s block and current
+each taken back out, the lines that ask about them. `tests/dosfcbrd.py`,
+`tests/dosfcbio.py` and `tests/dosfcb.py` (96.56.2, 96.56.1, 96.28) still
+answer as IBM DOS does.
+
+**Cost**: **371 bytes of the core** (16,119 -> 16,490), `CORE_MAX` 16,128
+-> **16,496** and on kern_mega 16,784 -> **17,152** (17,140 used). Half of
+it is `17h` and `12h`; the shared prologue, the find record on the stack and
+`dos_int21.pf_core` (96.28's parse made a routine, so `dos_fcb_arg` is its
+second caller and not a second parser) keep the rest small, and the open
+gave back the bytes its `AH=42h` already had. `kern_dos`'s rung holds it -
+**`KD_IMG_KB` stays 34**, 34,794 of 34,816, **22 bytes left**, so the next
+core byte past 22 is a kilobyte off the DOS program on the Memory page's
+third arm. The `DOSR_MARK` knob (35) has 504; kern_mega's two `kern_dos`
+images fit as they are (39,465 of 39,936 HMA, 37,510 of 37,888 low).
+`DOS.O88` (packed) 35,061 -> 35,374 bytes; the kern_dos one 54,658 ->
+54,961. The verify flag takes 96.31's pad byte, so the core's bss does not
+grow.
 
 #### 96.54.5 TopView's buffer — a program that ASKS where to write
 
