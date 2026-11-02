@@ -1559,8 +1559,9 @@ vid_ctx_act:
     mov ds, cx                  ; and the caller's ES is not (vid_ctx_pre,
     mov es, cx                  ; written in: kernel size pass 15)
     call vid_ctx_ptr            ; DI = the record (it reads no memory)
-    mov cx, VID_CTX_W
-    cld
+    mov cx, VID_CTX_W           ; (no `cld`: DF = 0 is SPEC.md 1's, and every
+                                ; ISR that draws clears it at its gate -
+                                ; kernel size pass 17)
     mov si, di                  ; ...and the record is
     mov di, vid_seg             ; the SOURCE this way round
     rep movsw

@@ -6635,11 +6635,13 @@ thm_set:
     mov bl, THM_COLOR           ; a colour primary: Color, and Windows, which
     or bh, bh                   ; wears the Color row and its preset (76.14.13)
     jz .apply
-    mov bl, al                  ; 1bpp: WINDOWS IS NOT REFUSED THERE (SPEC.md
-    cmp al, THM_WIN             ; 76.14.6) - the buttons, the X and the menus
-    je .apply                   ; mean the same thing on a Hercules, so it takes
-    xor ax, ax                  ; its own black-and-white row (THM_WINMONO).
-    mov bl, al                  ; Color is refused, and falls back to Bright
+    cmp al, THM_WIN             ; 1bpp: WINDOWS IS NOT REFUSED THERE (SPEC.md
+    je .mono                    ; 76.14.6) - the buttons, the X and the menus
+    xor ax, ax                  ; mean the same thing on a Hercules, so it takes
+.mono:                          ; its own black-and-white row (THM_WINMONO).
+    mov bl, al                  ; Color is refused, and falls back to Bright -
+                                ; ONE `mov bl, al` for both, below the fork
+                                ; (kernel size pass 17, -2)
 .apply:
     COLDCALL thf_apply          ; AL = the kind: WIN95.DRV mounted and hooked
     jnc .live                   ; for THM_WIN, unhooked and dropped otherwise

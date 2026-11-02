@@ -1793,9 +1793,8 @@ vid_text:
     mov es, ax                  ; would have done: what is in there is a
     xor di, di                  ; 720x348 graphics desktop, and read as
     mov ax, 0x0720              ; characters it is noise. Space on attribute 7
-    mov cx, 2000
-    cld
-    rep stosw
+    mov cx, 2000                ; (DF = 0, SPEC.md 1: no `cld`, kernel size
+    rep stosw                   ; pass 17)
     mov dl, 0xB8                ; high-res text, video ON, blink on - IBM's own
                                 ; (3B8h: vid_6845_prog leaves DX at 3B4h, and
                                 ; rep stosw moves no DX)
