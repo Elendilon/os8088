@@ -1168,10 +1168,8 @@ osapi_fs_op:
     test byte [fpg_on], FPG_OP  ; CF = 0
     jz .no
     mov [fpg_pown], ah
-    jmp short .out
-.no:
-    stc
-.out:
+    CLC_OR_STC .no              ; CF = 0 here, CF = 1 at .no (kernel size pass
+.out:                           ; 17, -1): only CF is the cell's answer
     pop ax
     ret
 %endif
