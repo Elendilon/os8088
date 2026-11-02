@@ -1536,9 +1536,8 @@ fmv_load:
     ; window read "0 files" until Refresh, measured on the 128KB machine by
     ; launching Gorillas over a GAMES window. Retried here, the listing lands.
     call fmv_fit
-    push ax
-    push dx
-    push bx
+    push dx                     ; (AX: dsk_dest_x keeps it - kernel size
+    push bx                     ; pass 17)
     mov dx, [di+FS_VSEG]        ; 0 = this window has NO store, and there is
     call dsk_dest_b0            ; no floor to fall back to any more: the
                                 ; mount goes quiet and the window paints
@@ -1546,7 +1545,6 @@ fmv_load:
                                 ; instead of a listing (13.5 commit 3)
     pop bx
     pop dx
-    pop ax
 
     call dsk_chdir_x              ; a remount with [dsk_keepcwd] raised
 
@@ -3510,13 +3508,14 @@ fm_onclick_x:
     jc .clear
 %endif
 
-    push ax                     ; a press on a row may turn into a drag
-    push bx                     ; (SPEC.md 22.4), and only the pointer
+                                ; a press on a row may turn into a drag
+                                ; (SPEC.md 22.4), and only the pointer
     mov cx, [fm_pressx]         ; leaving the row decides which
     mov dx, [fm_pressy]
-    call fm_drag                ; CF=0 = it WAS a drag, already handled
-    pop bx
-    pop ax
+    call fm_drag                ; CF=0 = it WAS a drag, already handled. It
+                                ; banks AX..DI itself (the ladder), so AX and
+                                ; BX are not banked round it (kernel size
+                                ; pass 17)
     jnc .redraw                 ; ...except the repaint: a drop changes this
                                 ; window's own listing (a Cut left it) and
                                 ; may have armed the replace question
@@ -6685,7 +6684,9 @@ FM_NAMEX    equ 120             ; a LIST row is an entry left of this, and
 ;      inside W_ONCLICK)
 ; out: CF=0 = it was a drag and the drop is handled - the caller must not
 ;      also treat the press as a click; CF=1 = the pointer never left the
-;      row, so it was an ordinary click and nothing was drawn
+;      row, so it was an ordinary click and nothing was drawn. Every other
+;      register preserved (kentc_di/kretc_di): fm_onclick_x relies on AX and
+;      BX coming back
 ;
 ; ui_drag's loop, with three differences. The lock is already held, so this
 ; never calls gfx_lock - it unlocks and re-locks around the yield exactly as
@@ -6870,11 +6871,11 @@ fm_dgdrop:
 %else
     jz .out
 %endif
-    push cx                     ; is it a DISK window? fmv_winof goes the
-    push dx                     ; other way (block -> window), so the test is
-    call ct_cw_inst_win_owner         ; the instance that owns it
-    pop dx
-    pop cx
+                                ; is it a DISK window? fmv_winof goes the
+                                ; other way (block -> window), so the test is
+    call ct_cw_inst_win_owner   ; the instance that owns it - which clobbers
+                                ; DI alone, so CX and DX are not banked round
+                                ; it (kernel size pass 17)
     or di, di
     jz .out
     cmp byte [di+I_KIND], KIND_FILES
@@ -6937,12 +6938,11 @@ fm_dgdrop:
     mov byte [fcp_cbop], FCP_COPY   ; is in every file manager (SPEC.md 22.27)
 %endif
 .go:
-    push ax
-    push bx
+    push bx                     ; (AX: fm_vp_set writes DI and nothing else
     mov bx, [fm_dgwin]          ; the paste result is reported on the window
     call fm_vp_set              ; the drag STARTED in, which is where the
-    pop bx                      ; user is looking
-    pop ax
+    pop bx                      ; user is looking. AX it keeps - kernel size
+                                ; pass 17)
     call fcp_paste
     jmp fm_paste_res
 %ifdef OS88_SHORTCUTS
