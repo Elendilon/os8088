@@ -1384,14 +1384,14 @@ disk_read_x:
 disk_write_x:
     mov byte [dsk_op], 0x03     ; AH=03 write - the ONLY difference
 %ifdef OS88_FSCK
-    pushf                       ; ...and the volume's WRITE GENERATION moves
-    push bx                     ; (SPEC.md 118.14.6): a check that spans
-    mov bl, [disk_drive]        ; many calls sees that something else wrote
-    mov bh, 0                   ; the disk between two of them
-    inc byte [bx+dsk_wgen]
-    pop bx
-    popf
-%endif
+    push bx                     ; ...and the volume's WRITE GENERATION moves
+    mov bl, [disk_drive]        ; (SPEC.md 118.14.6): a check that spans
+    mov bh, 0                   ; many calls sees that something else wrote
+    inc byte [bx+dsk_wgen]      ; the disk between two of them. No flag bank:
+    pop bx                      ; `inc` leaves CF, and dsk_xfer reads no
+%endif                          ; other flag before setting it, and leaves
+                                ; through `dec byte [sch_lock]`, which sets
+                                ; every one but CF (kernel size pass 17)
     call dsk_rah_wr             ; ...and it drops §19.2.3's directory window if
                                 ; this write lands in it. Preserves every
                                 ; register AND the flags, which dsk_xfer's
@@ -1540,18 +1540,23 @@ dsk_xfer:
     mov si, di                  ; the buffer is in LOW_SEG, the FAT window or
                                 ; a heap claim and NEVER in the driver's
                                 ; segment or the kernel's
-    mov ah, [dsk_unit]          ; the row's unit, stored above
-    mov al, [dsk_op]
-    sub al, 2                   ; the int 13h function -> 0 read / 1 write
+%ifdef KERN_MEGA                ; (kern_big's .drvcut builds AX per call in
+    mov ah, [dsk_unit]          ; .dcall and reads none on the way in, so
+    mov al, [dsk_op]            ; only kern_mega's two arms are handed it -
+    sub al, 2                   ; kernel size pass 17) the row's unit, stored
+    push ax                     ; above, and the int 13h function -> 0 read /
+%endif                          ; 1 write
                                 ; THE ROW SAYS WHICH CLASS (SPEC.md 18.7). This
-    push ax                     ; was `drv_svc + DSV_SIZE`, the DISK class's
+                                ; was `drv_svc + DSV_SIZE`, the DISK class's
     mov al, [drv_blkcls]        ; entry hard-coded - right while one class
                                 ; served blocks and silently wrong the moment
                                 ; two did: a network volume's sectors would
                                 ; have been handed to the hard-disk driver
     call drv_cls_svc_x          ; CLSCF: a volume's class serves blocks, so it has a slot
     mov bp, [di+DSV_BLK]
+%ifdef KERN_MEGA
     pop ax
+%endif
 %ifdef OS88_BIGVOL
     mov di, [dsk_lbahi]         ; DI = the LBA's HIGH word (SPEC.md 18.7.5);
 %else                           ; SI is the low one. The LBA itself is dead on
@@ -2163,7 +2168,9 @@ dsk_xfer:
 ; and AL, the driver's. Clobbers the rest - .drv reloads what it needs. A
 ; driver bounds its runs at the page but cannot make a run of a sector that
 ; STRADDLES one, which only an unaligned buffer has: that sector goes through
-; dsk_secbuf on its own, as dsk_xfer's .bounce does for a BIOS volume.
+; dsk_secbuf on its own, as dsk_xfer's .bounce does for a BIOS volume - and
+; through .bounce's own copier, .bcp (kernel size pass 17: .dhcp, a second
+; copier, was assembled on kern_big for this one sector).
 .drvcut:
     jcxz .dcok                  ; all of it moved
     call .dcn                   ; AX = sectors that may go as they are
@@ -2182,12 +2189,13 @@ dsk_xfer:
     pop cx
     add dx, ax
     jmp short .drvcut
-.dcone:
-    cmp byte [dsk_op], 0x02
-    je .dcrd
+.dcone:                         ; THE STRADDLER, through dsk_secbuf by .bcp,
+    mov [dsk_bnc_bx], bx        ; which reads the caller's sector as this far
+    mov [dsk_bnc_es], dx        ; pointer. [dsk_bnc_si] stays 0: nothing is
+    push es                     ; "bouncing" for .unbounce or .fail to see.
+    push cx                     ; .bcp spends ES and CX
     mov al, 0x03
-    call .dhcp                  ; a write's sector into the scratch
-.dcrd:
+    call .bcp                   ; a write's sector into the scratch
     push dx
     push bx
     mov dx, ss
@@ -2196,12 +2204,13 @@ dsk_xfer:
     call .dcall
     pop bx
     pop dx
-    jc .dcret
-    cmp byte [dsk_op], 0x02
-    jne .dcwr
+    jc .dcput                   ; (pop writes no flag)
     mov al, 0x02
-    call .dhcp                  ; a read's sector out to the caller
-.dcwr:
+    call .bcp                   ; a read's sector out to the caller: CF = 0
+.dcput:                         ; either way, .bcp's compare being 2 - 2 or
+    pop cx                      ; 3 - 2
+    pop es
+    jc .dcret
     mov ax, 1
     jmp short .dcadv
 .dcok:
@@ -2232,24 +2241,22 @@ dsk_xfer:
     mov ax, dx
     mov cl, 4
     shl ax, cl
+    pop cx
     add ax, bx                  ; the physical address's low 16 bits
     neg ax                      ; ...and the bytes left in its page
     test ax, 511
     jz .dcnall                  ; 512-aligned: no sector can straddle
-    mov cl, 9
-    shr ax, cl
-    pop cx
+    mov al, ah                  ; / 512, which is AH / 2 - under 128, so
+    shr al, 1                   ; cbw is AH = 0 (kernel size pass 17: `mov
+    cbw                         ; cl, 9 / shr ax, cl` and its CX bank)
     cmp ax, cx
     jb .dcnr
+.dcnall:
     mov ax, cx
 .dcnr:
     ret
-.dcnall:
-    pop cx
-    mov ax, cx
-    ret
 %endif
-%if %isdef(KERN_MEGA) || %isdef(OS88_DRIVERS)
+%ifdef KERN_MEGA
 .dhcp:                          ; AL = 03h caller -> scratch, 02h back; the
     push ds                     ; caller's sector at DX:BX. Keeps everything
     push es
