@@ -307,19 +307,26 @@ dsl_w16:
     ; cluster this read already holds: 7, SW_SHOWMINNOACTIVE, is no window,
     ; so part 1 - the window - is never claimed. The magic and the CLSID's
     ; first word say it is a link at all (the host's dos_lnk_parse checks the
-    ; rest, and a link it refuses is a refusal the host reports headless)
+    ; rest, and a link it refuses is a refusal the host reports headless).
+    ; THE DWORD AT 3Ch IS BOTH FORMS' FIELD - a link's ShowCommand, an MZ's
+    ; e_lfanew - and both want its high word zero, so that is read ONCE
+    cmp word [es:0x3E], 0           ; ShowCommand's / e_lfanew's high word
+    jne .free
+    mov ax, [es:0x3C]
     cmp word [es:0], 0x004C         ; HeaderSize
     jne .notlnk
     cmp word [es:4], 0x1401         ; LinkCLSID {00021401-...}
-    jne .notlnk
-    cmp word [es:0x3C], 7           ; ShowCommand = SW_SHOWMINNOACTIVE
     jne .free
-    cmp word [es:0x3E], 0
+    cmp ax, 7                       ; ShowCommand = SW_SHOWMINNOACTIVE
     jne .free
-    mov byte [dsl_head], 1
+    inc byte [dsl_head]
     jmp short .free
 .notlnk:
-%endif
+    cmp word [es:0], 0x5A4D         ; 'MZ'
+    jne .free
+    cmp word [es:0x18], 0x40        ; ...with room for a new header's pointer
+    jb .free
+%else
     cmp word [es:0], 0x5A4D         ; 'MZ'
     jne .free
     cmp word [es:0x18], 0x40        ; ...with room for a new header's pointer
@@ -327,6 +334,7 @@ dsl_w16:
     cmp word [es:0x3E], 0           ; e_lfanew's high word: inside 64KB
     jne .free
     mov ax, [es:0x3C]
+%endif
     test al, 1                      ; even, so the word cannot straddle the
     jnz .free                       ; cluster's end
     mov dx, di
@@ -435,10 +443,6 @@ dsl_pmok:
     ; fetches, the carve is part 0's length, the re-home keeps to part 0's
     ; end, and the region is born the window's size smaller. Nothing is read
     ; for it either: the carve's run ends at the last eager row
-    cmp byte [dsl_head], 0
-    je .win
-    or byte [op_table + OP_T_ROWS + DOS_PART_WIN * OP_ROW + OP_R_FLAG], OP_LAZY
-.win:
 %endif
     mov cx, [op_table + OP_T_ROWS + DOS_PART_PKG * OP_ROW + OP_R_ZKB]
     xor dx, dx
@@ -446,7 +450,10 @@ dsl_pmok:
     adc dx, dx
 %ifndef DOS_MEGA
     cmp byte [dsl_head], 0
-    jne .nowin                      ; ...and only a window it will claim
+    je .win
+    or byte [op_table + OP_T_ROWS + DOS_PART_WIN * OP_ROW + OP_R_FLAG], OP_LAZY
+    jmp short .nowin                ; ...so the bar counts only a window it
+.win:                               ; will claim
     add cx, [op_table + OP_T_ROWS + DOS_PART_WIN * OP_ROW + OP_R_ZKB]
     adc dx, 0                       ; ...and the window's, read in the same run
 .nowin:

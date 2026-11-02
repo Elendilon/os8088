@@ -46,16 +46,26 @@ DOS_W16_NE  equ 0x454E              ; 'NE', read as a word
 ; out: CF=1 it was one and WIN16 has it: [dos_state] is DST_IDLE, and a launch
 ;      that did not come from the prompt closes this window. CF=0 = run it
 ;      here. Preserves every register but the flags.
+;
+; dos_w16_isne - ...ONLY the question: CF = 1 an NE, nothing else changed.
+; The Setup page asks it, to grey `Close when done` (SPEC.md 96.44.20). ONE
+; body: the entry's carry is the mode, banked under it with pushf
 ; -----------------------------------------------------------------------------
 dos_w16_isne:
+    stc                             ; CF = 1: ask only
+    jmp short dos_w16_go
+dos_w16_try:
+    clc                             ; CF = 0: and post an NE to WIN16
+dos_w16_go:
     push ax
     push bx
     push cx
     push dx
     push si
     push di
-    push bp
     push es
+    push bp                         ; (dos_hpop's order, BP last)
+    pushf                           ; [sp] = the mode, until the answer
     mov dx, [dos_dir]
     mov bl, [dos_vol]
     call dos_be_goto                ; stand where the file is
@@ -121,41 +131,8 @@ dos_w16_isne:
     pop cx
     mov dx, di
     call OSAPI_MEM_FREE
-    stc                             ; IT IS ONE
-    jmp short .wout
-.free:
-    pop cx
-    mov dx, di
-    call OSAPI_MEM_FREE
-.no:
-    clc
-.wout:
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; dos_w16_try - the same question, and an NE is POSTED to WIN16 (above)
-; dos_w16_isne - ...ONLY the question: CF = 1 an NE, nothing else changed.
-; The Setup page asks it, to grey `Close when done` (SPEC.md 96.44.20)
-dos_w16_try:
-    call dos_w16_isne
-    jc .isne0
-    ret
-.isne0:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
-    push es
+    popf                            ; IT IS ONE - and only asked: say so
+    jc .said
 .isne:                              ; --- IT IS ONE: WIN16's document --------
     mov si, dos_name                ; the 16-byte locator (SPEC.md 21.5.3),
     mov di, dos_pgdoc               ; folded, because the association tables
@@ -179,7 +156,7 @@ dos_w16_try:
     pop es
     mov di, dos_pgdoc
     call OSAPI_PKG_START
-    jc .no                          ; nothing opens it: DOS runs the stub
+    jc .nop                         ; nothing opens it: DOS runs the stub
     mov byte [dos_state], DST_IDLE
     cmp byte [dos_fromcon], 0
     jne .con
@@ -199,18 +176,17 @@ dos_w16_try:
 .said:
     stc
     jmp short .out
+.free:
+    pop cx
+    mov dx, di
+    call OSAPI_MEM_FREE
 .no:
+    popf                            ; (the mode: spent)
+.nop:
     clc
 .out:
-    pop es
     pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp dos_hpop_7                  ; the host's shared epilogue (96.54.8)
 
 dos_w16_pkg: db 'WIN16.O88', 0
 
