@@ -343,9 +343,9 @@
   "sources": [
    "apps/dos"
   ],
-  "stamped": "c6fcd7cc",
-  "strings": "0579f1da3c099bb3",
-  "why": "described Run in Window as a mode (SPEC 96.54.10), Close when done, the window's automatic memory limit, TopView programs and close-stops-program; checked the rest of the page against the current program"
+  "stamped": "cc9b679b",
+  "strings": "ab1cd0b5332c441d",
+  "why": "merge of main's WIN16 phase A: the DOS core shared with WIN16 (dosbe.inc) and the join box; no text a user sees changed"
  },
  "DOTDEL_O88": {
   "sources": [
@@ -1311,9 +1311,9 @@
   "sources": [
    "apps/win16"
   ],
-  "stamped": "24c3d243",
-  "strings": "2ad9edfbbb331868",
-  "why": "only an About-card credit line changed (ec45f031 / 'by jggonz'); the page already says the card shows who made it, its credits, or a line about it, so nothing quoted is wrong"
+  "stamped": "cc9b679b",
+  "strings": "f01a34339305f9fb",
+  "why": "merge of main's WIN16 phase A, whose own stamps record no manual change; elendilon's loader bounds and paragraph claims are below the page's detail"
  },
  "WIN16_TXT": {
   "sources": [
