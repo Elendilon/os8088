@@ -3596,9 +3596,9 @@ dsk_vol_drop_drv_x:
 ; clobbers: nothing else (flags)
 ; -----------------------------------------------------------------------------
 osapi_vol_fence:
-    push ax
-    push bx
-    push di
+    call kentc_di               ; the ladder: three pairs were seven bytes
+                                ; (kernel size pass 17, -1; with dsk_dirw_cwd
+                                ; it keeps the FAT walk's parity)
     mov bx, es
     or bx, bx
     jz .no
@@ -3630,10 +3630,7 @@ osapi_vol_fence:
 .yes:                           ; CF = 0 from the equal compare, and a `mov`
     mov [dsk_vcls], al          ; writes none: dsk_vol_add stamps the row with it
 .out:
-    pop di
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; osapi_vol_add - slot 0x01F8 (X: ES = the caller's segment)
@@ -4227,8 +4224,12 @@ disk_mount_x:
                                 ; built before the scan so the scan's entries
                                 ; land above it and the sort below never has
                                 ; to keep it in place
+%ifdef OS88_DRIVERS             ; (kern_small keeps the pair: there the -3
+    call dsk_dirw_cwd           ; puts the FAT walk odd, and the entry would
+%else                           ; buy that build nothing)
     mov ax, [dsk_cwd]           ; the current directory (0 = root at mount;
     call dsk_dirw_start_x         ; dsk_chdir re-enters here, SPEC.md 19.2)
+%endif
 .rootsec:
     call dsk_dirw_get_x           ; dsk_secbuf = the next directory sector
     jnc .rootok
@@ -4278,7 +4279,101 @@ disk_mount_x:
     add bx, DSK_DE_STRIDE       ; permuted alongside the entries (19.4). The
     dec cx                      ; parent link is not IN the sort - it is
 .sortall:                       ; always the first entry (19.5)
-    call dsk_sortdir
+    ; --- dsk_sortdir, written at its one call (kernel size pass 17) -------
+    ; (no frame: BP and ES are all disk_mount_x carries past it - pass 15)
+
+
+
+
+
+    cmp cx, 2
+    jb .sd_out                     ; 0 or 1 entries are already in order
+    mov ax, DSK_DE_STRIDE       ; count * DSK_DE_STRIDE. A MULTIPLY, because
+    mul cx                      ; the stride is no longer a power of two -
+                                ; count <= DSK_NENT so DX is 0, and DX is
+                                ; overwritten on the next line anyway. Every
+                                ; register here is banked at entry. The
+                                ; stride is the immediate and not the count,
+                                ; and the xchg is one byte where a mov is two:
+                                ; -3 between them, which pays for most of the
+                                ; folder key below and keeps what follows on
+                                ; an EVEN shift (tests/unit/t_hotpar.py)
+    add ax, bx
+    xchg ax, dx                 ; DX = one past the last entry (AX is free:
+    mov cx, dx                  ; nothing reads it before the compare loads it)
+    sub cx, DSK_DE_STRIDE       ; CX = the last entry: no choice to make for
+                                ; it once everything below is placed
+.sd_outer:                         ; BX = the slot being filled
+    cmp bx, cx
+    jae .sd_out
+    mov di, bx                  ; DI = the smallest name seen so far
+    mov si, bx
+.sd_inner:
+    add si, DSK_DE_STRIDE       ; SI = the candidate
+    cmp si, dx
+    jae .sd_placed
+    ; THE NAME COMPARE, its one caller's (it was dsk_ncmp, kernel size pass
+    ; 12: -4): the flags of an unsigned compare of [SI]'s display name
+    ; against [DI]'s. Case-insensitive, because "alphabetical" is what the
+    ; user is promised and a FAT short name is uppercase only BY CONVENTION -
+    ; dsk_synth_name's sanitizer folds unprintables and nothing else, so a
+    ; volume some other tool wrote with lowercase short names would otherwise
+    ; sort its whole lowercase half after 'Z'. The 16 bytes are NUL-padded
+    ; (dsk_synth zeroes the entry before filling it), so a short name sorts
+    ; before a longer one sharing its prefix with no length test anywhere:
+    ; PAINT.O88 before PAINT2.O88, because 0 < '2'. `loop` does not touch the
+    ; flags on an 8086, so falling out of the bottom means sixteen equal bytes
+    ; AND that the last `cmp` is still what `jae` reads
+    push cx
+    push si
+    push di
+    ; FOLDERS FIRST (SPEC.md 19.4): the type word's bit 1 is set for type 2
+    ; and clear for 0 and 1, and type 3 is never in the sort - so it is the
+    ; folder bit, and a package stays mixed in with the files. Compared
+    ; REVERSED, [DI]'s key against [SI]'s, so a folder candidate reads as
+    ; "below" a file and wins; equal keys fall through to the name compare
+    mov al, [es:di+16]
+    mov ah, [es:si+16]
+    and ax, 0x0202
+    cmp al, ah
+    jne .sd_ndone
+    mov cx, 16                  ; the display-name field (SPEC.md 19)
+.sd_ncmp:
+    mov al, [es:di]
+    call dsk_upper
+    mov ah, al                  ; AH = [DI]'s byte, folded
+    mov al, [es:si]
+    call dsk_upper              ; AL = [SI]'s byte, folded
+    inc si
+    inc di
+    cmp al, ah
+    jne .sd_ndone
+    loop .sd_ncmp
+.sd_ndone:
+    pop di
+    pop si
+    pop cx
+    jae .sd_inner                  ; not smaller: keep looking
+    mov di, si
+    jmp short .sd_inner
+.sd_placed:
+    cmp di, bx
+    je .sd_next                    ; already in place: an entry not moved
+    mov si, bx                  ; --- exchange [SI] and [DI], 32 bytes (it
+    push cx                     ; was dsk_swapent, this its one caller -
+    mov cx, DSK_DE_STRIDE       ; kernel size pass 15) ---
+.sd_swap:
+    mov al, [es:si]             ; one xchg where a second load and store were
+    xchg al, [es:di]            ; (size pass 10, -3)
+    mov [es:si], al
+    inc si                      ; SI and DI run off the two entries, and
+    inc di                      ; .sd_outer reloads both
+    loop .sd_swap
+    pop cx
+.sd_next:
+    add bx, DSK_DE_STRIDE
+    jmp short .sd_outer
+.sd_out:
 
     ; Blank EVERY icon slot up front so none ever carries a previous mount's
     ; bytes (SPEC.md 18.3 step 4: fully rewritten every mount) - the harvest
@@ -5222,102 +5317,7 @@ dsk_up_open:
 ; the module refuses to give them. Both operands are read and written with
 ; es: overrides instead.
 ; -----------------------------------------------------------------------------
-dsk_sortdir:
-    ; (no frame: BP and ES are all disk_mount_x carries past it - pass 15)
-
-
-
-
-
-    cmp cx, 2
-    jb .out                     ; 0 or 1 entries are already in order
-    mov ax, DSK_DE_STRIDE       ; count * DSK_DE_STRIDE. A MULTIPLY, because
-    mul cx                      ; the stride is no longer a power of two -
-                                ; count <= DSK_NENT so DX is 0, and DX is
-                                ; overwritten on the next line anyway. Every
-                                ; register here is banked at entry. The
-                                ; stride is the immediate and not the count,
-                                ; and the xchg is one byte where a mov is two:
-                                ; -3 between them, which pays for most of the
-                                ; folder key below and keeps what follows on
-                                ; an EVEN shift (tests/unit/t_hotpar.py)
-    add ax, bx
-    xchg ax, dx                 ; DX = one past the last entry (AX is free:
-    mov cx, dx                  ; nothing reads it before the compare loads it)
-    sub cx, DSK_DE_STRIDE       ; CX = the last entry: no choice to make for
-                                ; it once everything below is placed
-.outer:                         ; BX = the slot being filled
-    cmp bx, cx
-    jae .out
-    mov di, bx                  ; DI = the smallest name seen so far
-    mov si, bx
-.inner:
-    add si, DSK_DE_STRIDE       ; SI = the candidate
-    cmp si, dx
-    jae .placed
-    ; THE NAME COMPARE, its one caller's (it was dsk_ncmp, kernel size pass
-    ; 12: -4): the flags of an unsigned compare of [SI]'s display name
-    ; against [DI]'s. Case-insensitive, because "alphabetical" is what the
-    ; user is promised and a FAT short name is uppercase only BY CONVENTION -
-    ; dsk_synth_name's sanitizer folds unprintables and nothing else, so a
-    ; volume some other tool wrote with lowercase short names would otherwise
-    ; sort its whole lowercase half after 'Z'. The 16 bytes are NUL-padded
-    ; (dsk_synth zeroes the entry before filling it), so a short name sorts
-    ; before a longer one sharing its prefix with no length test anywhere:
-    ; PAINT.O88 before PAINT2.O88, because 0 < '2'. `loop` does not touch the
-    ; flags on an 8086, so falling out of the bottom means sixteen equal bytes
-    ; AND that the last `cmp` is still what `jae` reads
-    push cx
-    push si
-    push di
-    ; FOLDERS FIRST (SPEC.md 19.4): the type word's bit 1 is set for type 2
-    ; and clear for 0 and 1, and type 3 is never in the sort - so it is the
-    ; folder bit, and a package stays mixed in with the files. Compared
-    ; REVERSED, [DI]'s key against [SI]'s, so a folder candidate reads as
-    ; "below" a file and wins; equal keys fall through to the name compare
-    mov al, [es:di+16]
-    mov ah, [es:si+16]
-    and ax, 0x0202
-    cmp al, ah
-    jne .ndone
-    mov cx, 16                  ; the display-name field (SPEC.md 19)
-.ncmp:
-    mov al, [es:di]
-    call dsk_upper
-    mov ah, al                  ; AH = [DI]'s byte, folded
-    mov al, [es:si]
-    call dsk_upper              ; AL = [SI]'s byte, folded
-    inc si
-    inc di
-    cmp al, ah
-    jne .ndone
-    loop .ncmp
-.ndone:
-    pop di
-    pop si
-    pop cx
-    jae .inner                  ; not smaller: keep looking
-    mov di, si
-    jmp short .inner
-.placed:
-    cmp di, bx
-    je .next                    ; already in place: an entry not moved
-    mov si, bx                  ; --- exchange [SI] and [DI], 32 bytes (it
-    push cx                     ; was dsk_swapent, this its one caller -
-    mov cx, DSK_DE_STRIDE       ; kernel size pass 15) ---
-.swap:
-    mov al, [es:si]             ; one xchg where a second load and store were
-    xchg al, [es:di]            ; (size pass 10, -3)
-    mov [es:si], al
-    inc si                      ; SI and DI run off the two entries, and
-    inc di                      ; .outer reloads both
-    loop .swap
-    pop cx
-.next:
-    add bx, DSK_DE_STRIDE
-    jmp short .outer
-.out:
-    ret
+; (written at disk_mount_x's .sortall, its one caller: kernel size pass 17)
 
 ; -----------------------------------------------------------------------------
 ; dsk_upper - fold one name byte to upper case (module-internal)
@@ -6325,6 +6325,10 @@ dsk_next_clus_x:
 ; -----------------------------------------------------------------------------
 DSK_DIRW_MAX equ 256             ; hostile-FAT guard: max sectors per walk
 
+%ifdef OS88_DRIVERS
+dsk_dirw_cwd:                   ; ...of the CURRENT directory: the two
+    mov ax, [dsk_cwd]           ; callers that loaded it first (pass 17, -3)
+%endif
 dsk_dirw_start_x:
     mov [dsk_wclus], ax
     and word [dsk_wsec], 0
@@ -8812,7 +8816,8 @@ dsk_ncopy8:
     mov cx, 8
 dsk_ncopy:
     push cx
-    push si
+.held:                          ; dskw_copy11 enters here, its own CX banked
+    push si                     ; and CX = 11 (kernel size pass 17)
     push di
     push es
     push ds

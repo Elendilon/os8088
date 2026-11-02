@@ -4378,8 +4378,12 @@ dskw_find:
     mov byte [dskw_fend], 0
     push ss
     pop es
+%ifdef OS88_DRIVERS
+    call dsk_dirw_cwd           ; the CURRENT directory, not the root
+%else
     mov ax, [dsk_cwd]           ; the CURRENT directory, not the root
     call dsk_dirw_start_x ; (SPEC.md 19.2 - one walker, both shapes)
+%endif
 .sector:
     call dsk_dirw_get_x ; dsk_secbuf = the next sector (19.2.1)
     jnc .secok
@@ -4550,11 +4554,9 @@ dskw_n83go:
     mov di, dskw_n83
 %endif                          ; ...and falls into dskw_copy11
 dskw_copy11:
-    push cx
-    mov cx, 11
-    call dsk_ncopy
-    pop cx
-    ret
+    push cx                     ; banked HERE and popped by dsk_ncopy's own
+    mov cx, 11                  ; tail, so the caller's CX comes back (pass
+    jmp dsk_ncopy.held          ; 17, -2)
 
 ; -----------------------------------------------------------------------------
 ; dskw_take_slot - adopt the directory slot dskw_find spotted (SPEC.md 19.2)
