@@ -663,16 +663,14 @@ fsx_mode:
     mov ax, 0x0300              ; run again
     out dx, ax
     mov dl, 0xD4
-    mov al, 0x11                ; unprotect CRTC 0..7
-    out dx, al
-    inc dx
-    in al, dx
-    and al, 0x7F
-    out dx, al
-    dec dx
-    mov si, fsx_xcrtc
-    mov cx, 10
-    cld
+    mov si, fsx_xcrtc           ; ...and the CRTC: the table's FIRST word
+    mov cx, 11                  ; unprotects CR0-7 (kernel size pass 17, -8:
+                                ; it was `in`, `and al, 7Fh`, `out` of CR11;
+                                ; the table writes CR11 = ACh four words on,
+                                ; so what the low bits hold until then is
+                                ; mode 13h's own 0Eh rather than whatever the
+                                ; ROM left - and DF = 0 is SPEC.md 1's
+                                ; promise on entry, so the `cld` went)
 .crtc:
     lodsw
     out dx, ax
@@ -685,9 +683,7 @@ fsx_mode:
     call vid_wipe               ; are .text in KERNEL_SEG so the call is near,
                                 ; the four registers it clobbers - AX, CX, DI
                                 ; and ES - are all pushed at this routine's
-                                ; own entry, and zero is the right fill. Its
-                                ; own `cld` is redundant after the one above
-                                ; and harmless
+                                ; own entry, and zero is the right fill
     pop es
     pop di
     pop cx
@@ -698,7 +694,10 @@ fsx_mode:
     add ax, fsx_mtab
     xchg si, ax
     push cx                     ; CH is the id and rep movsw eats CX whole
-    cld
+                                ; (no `cld`: DF = 0 on entry, SPEC.md 1, and
+                                ; every call above is the kernel's or an
+                                ; int 10h, whose iret puts DF back - kernel
+                                ; size pass 17)
     mov cx, FSXR_SIZE / 2
     rep movsw
     pop cx
@@ -855,6 +854,7 @@ fsx_setbios:
 ; caller's buffer) are banked around it because .fill reads them.)
 
 fsx_xcrtc:                      ; Mode X CRTC retiming, index in the low byte
+    dw 0x0E11                   ; CR11 bit 7 clear: CR0-7 writable
     dw 0x0D06, 0x3E07, 0x4109, 0xEA10, 0xAC11
     dw 0xDF12, 0x0014, 0xE715, 0x0616, 0xE317
 %endif                          ; ...end of Mode X, VGA-only by definition
