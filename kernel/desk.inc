@@ -802,8 +802,8 @@ desk_cmark:
 ; Clobbers AH, BX.
 desk_cbit:
     push cx
-    mov bl, al
-    xor bh, bh
+    cbw                         ; (a cell is <= DSL_SLOT, and AH is a clobber:
+    mov bx, ax                  ; kernel size pass 17, -1)
     mov cl, bl
     and cl, 7
     mov ah, 1

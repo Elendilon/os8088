@@ -1125,8 +1125,11 @@ assoc_sweep:
 ; -----------------------------------------------------------------------------
 assoc_locate:
     call kentc_di               ; AX is a clobber, so the ladder may restore it
-    mov bl, al                  ; assoc_fname, inlined: assoc_fnb =
-    xor bh, bh                  ; '<STEM>.O88', the stem space-padded to 8 so
+    cbw                         ; assoc_fname, inlined: assoc_fnb =
+    xchg bx, ax                 ; '<STEM>.O88', the stem space-padded to 8 so
+                                ; (BX = the slot, < ASSOC_NAPP: nothing reads
+                                ; AX again before assoc_try_ix loads it -
+                                ; kernel size pass 17, -2)
     call assoc_glyph_di         ; the copy stops at the first space. The stem
     lea si, [di + assoc_stem - assoc_glyph] ; table has the glyph table's
     mov di, assoc_fnb           ; stride, 8 a slot, so the glyph's address is
@@ -2075,8 +2078,8 @@ asc_seed:
     push di                     ; wanted in DI (assoc_app_of clobbers SI)
     call assoc_app_of           ; AL = the slot, CF=1 = this program has no
     jc .next                    ; association, so there is nothing to point
-    mov bl, al
-    xor bh, bh
+    cbw                         ; BX = the slot (< ASSOC_NAPP); AX is loaded
+    xchg bx, ax                 ; below (kernel size pass 17, -2)
     mov dl, [disk_drive]
     mov [assoc_drv+bx], dl
     mov ax, [es:di+ASC_ROWCLUS]
@@ -2322,8 +2325,8 @@ asc_take_x:
                                 ; package already has its slot: asc_merge_ext
                                 ; made it, or assoc_note_app did on a miss
     jc .done
-    mov bl, al
-    xor bh, bh
+    cbw                         ; BX = the slot (< ASSOC_NAPP); AX is
+    xchg bx, ax                 ; assoc_hint_here's to clobber (pass 17, -2)
     call assoc_hint_here        ; ...it is HERE (SPEC.md 54.4.2 rung 1)
     mov al, cl
     call ico_body               ; ES:DI -> the 64-byte body, with the eight
