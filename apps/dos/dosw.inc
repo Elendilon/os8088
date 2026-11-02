@@ -996,7 +996,11 @@ dvw_int10:
     HOSTDS
     cmp ah, 0x0E                    ; the teletype first: it is most of them
     je .tty
-    cmp ah, 0x0F
+    cmp ah, 0x02                    ; ...and then the PRINT of a compiled BASIC
+    je .setcur                      ; program, which is AH=02h, AH=09h and
+    cmp ah, 0x09                    ; AH=02h a character (SPEC.md 96.54.12):
+    je .wca                         ; seven compares further down each, eleven
+    cmp ah, 0x0F                    ; times a character
     je .mode
     cmp ah, 0x13
     je .str
@@ -1010,8 +1014,6 @@ dvw_int10:
     jae .scroll                     ; 06h, 07h
     cmp ah, 0x03
     je .getcur
-    cmp ah, 0x02
-    je .setcur
     or ah, ah
     jz .setmode
 .out:
@@ -1050,7 +1052,31 @@ dvw_int10:
     jmp short .out
 
 .wca:                               ; AH 09h = char + BL attribute, 0Ah = char
-    push ax                         ; alone; CX of them, the cursor stays
+    cmp cx, 1                       ; alone; CX of them, the cursor stays.
+    jne .wcan                       ; **ONE CELL IS ITS OWN ARM** (SPEC.md
+    push bx                         ; 96.54.12): a BASIC PRINT is CX = 1 every
+    push cx                         ; time, and the run's loop, its bounds and
+    push di                         ; its row test are most of the general arm
+    mov ch, bl                      ; CH = the attribute, past dvw_coff
+    call dvw_coff                   ; DI = the cell, BX = its row
+    cmp di, CON_SCRSZ
+    jae .w1out                      ; (no cell: a pending wrap's past the end)
+    mov [con_scr + di], al
+    cmp ah, 0x09
+    jne .w1mk
+    mov [con_scr + di + 1], ch
+.w1mk:
+    mov cl, [con_cx]
+    mov ch, cl
+    HCALL con_marks                 ; BX = the row, the one column
+    mov byte [dvw_dirty], 1
+.w1out:
+    pop di
+    pop cx
+    pop bx
+    jmp .out
+.wcan:
+    push ax
     push bx
     push cx
     push dx
@@ -1180,11 +1206,14 @@ dvw_cdone:
     ; fall through
 dvw_bcur:                           ; 0040:0050 = the console's cursor
     push ax
-    push es
-    mov ax, 0x40
-    mov es, ax
     call dvw_ccur
+dvw_bput:                           ; ...AX, with the caller's AX pushed
+    push es
+    push bx
+    mov bx, 0x40
+    mov es, bx
     mov [es:0x50], ax
+    pop bx
     pop es
     pop ax
     ret
@@ -1225,23 +1254,25 @@ dvw_coff:
 ; largest share of its windowed time
 dvw_setcur:
     push ax
-    mov al, dl
-    xor ah, ah
+    push bx
+    mov ax, dx
     cmp al, CON_COLS - 1
     jbe .x
     mov al, CON_COLS - 1
 .x:
-    mov [con_cx], ax
-    mov al, dh
-    cmp al, CON_ROWS - 1
+    cmp ah, CON_ROWS - 1
     jbe .y
-    mov al, CON_ROWS - 1
+    mov ah, CON_ROWS - 1
 .y:
-    mov [con_cy], ax
+    xor bx, bx                      ; AL = the column, AH = the row: the
+    mov bl, al                      ; words take them zero-extended, and
+    mov [con_cx], bx                ; 0040:0050 takes AX exactly as it is
+    mov bl, ah
+    mov [con_cy], bx
+    pop bx
     mov byte [con_pwrap], 0
-    call dvw_cdone
-    pop ax
-    ret
+    mov byte [dvw_dirty], 1
+    jmp short dvw_bput              ; (dvw_bput pops the AX pushed above)
 
 ; -----------------------------------------------------------------------------
 ; dvw_scroll - AH 06h up / 07h down, AL lines (0 = clear), BH the fill
