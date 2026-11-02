@@ -106,6 +106,10 @@ sp_door:
 sp_wck:
     cmp byte [dos_keepc], DOS_MEM_WHOLE
     je .no
+%ifdef DOS_WTAIL
+    cmp byte [dos_mhead + OS88UI_CK_ON], 0  ; ...and while `Close when done`
+    jne .no                         ; is ticked: the two are exclusive (96.44.20)
+%endif
     push bx
     mov bx, dos_mwin
     call SPH(os88ui_chkhit)         ; CF = 0 toggled and redrawn
@@ -123,12 +127,42 @@ sp_wck:
     pop di
     pop bx
     call dos_mem_row
+%ifdef DOS_WTAIL
+    call sp_wdraw1                  ; ...and `Close when done` greys with it
+%endif
     clc
 .r:
     ret
 .no:
     stc
     ret
+
+%ifdef DOS_WTAIL
+; -----------------------------------------------------------------------------
+; sp_hck - a press on `Close when done` (SPEC.md 96.44.20)
+; in:  BX = the window, CX/DX = the point; out: CF = 0 it was ours, CF = 1 not
+; Greyed, and so not ours, while `Run in a window` is ticked - a run in a
+; window IS a window - and for a Windows program, which a headless DOS could
+; only run the MZ stub of ([dos_hne], dos_hne_ask)
+; -----------------------------------------------------------------------------
+sp_hck:
+    cmp byte [dos_mwin + OS88UI_CK_ON], 0
+    jne .no
+    cmp byte [dos_hne], 0
+    jne .no
+    push bx
+    mov bx, dos_mhead
+    call SPH(os88ui_chkhit)         ; CF = 0 toggled and redrawn
+    pop bx
+    jc .r
+    call sp_wdraw1                  ; ...and `Run in a window` greys with it
+    clc
+.r:
+    ret
+.no:
+    stc
+    ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; sp_wdraw - `Run in a window`, placed and drawn as it stands
@@ -145,8 +179,26 @@ sp_wdraw1:
     jne .live
     mov di, OS88UI_DIS              ; arm 1's, in the disabled pen (47 rule 2)
 .live:
+%ifdef DOS_WTAIL
+    cmp byte [dos_mhead + OS88UI_CK_ON], 0  ; ...and while `Close when done`
+    je .wl                          ; is ticked (SPEC.md 96.44.20)
+    mov di, OS88UI_DIS
+.wl:
+%endif
     mov bx, dos_mwin
     call SPH(os88ui_chk)
+%ifdef DOS_WTAIL
+    xor di, di                      ; --- `Close when done`, beside it -------
+    cmp byte [dos_mwin + OS88UI_CK_ON], 0
+    jne .hd
+    cmp byte [dos_hne], 0
+    je .hl
+.hd:
+    mov di, OS88UI_DIS
+.hl:
+    mov bx, dos_mhead
+    call SPH(os88ui_chk)
+%endif
     pop di
     pop bx
     ret
@@ -320,6 +372,16 @@ dos_furn_rects:
     mov [si+OS88UI_CK_RECT+4], cx
     mov [si+OS88UI_CK_RECT+2], dx
     mov [si+OS88UI_CK_RECT+6], bx
+%ifdef DOS_WTAIL
+    mov si, dos_mhead               ; --- ...and `Close when done` after it
+    mov word [si+OS88UI_CK_LABEL], dos_l_mhead  ; (SPEC.md 96.44.20), the
+    add cx, 1 + DOS_SETPAD          ; same width, a pad along
+    mov [si+OS88UI_CK_RECT+0], cx
+    add cx, OS88UI_CKBOX + OS88UI_CKGAP + 8 * DOS_MWINW - 1
+    mov [si+OS88UI_CK_RECT+4], cx
+    mov [si+OS88UI_CK_RECT+2], dx
+    mov [si+OS88UI_CK_RECT+6], bx
+%endif
 %endif
     mov si, dos_trect               ; --- 'Return', right-anchored ---
     mov cx, ax
@@ -1401,6 +1463,12 @@ dos_lnk_build:
     stosb                           ; the writer, which is the Setup part -
     inc si                          ; and inline, CS IS DS, so one spelling
     loop .hdr                       ; serves both shapes
+%ifdef DOS_WTAIL
+    cmp byte [dos_mhead + OS88UI_CK_ON], 0  ; **ShowCommand = 7 IS CLOSE WHEN
+    je .shown                       ; DONE** (SPEC.md 96.44.20): what the
+    mov byte [dos_lbuf + LNK_SHOW], LNK_SW_HEAD ; loader reads, in the
+.shown:                             ; header's own field
+%endif
 
     call dos_lnk_wdir               ; WORKING_DIR: the folder we came from
     jc .no

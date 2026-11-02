@@ -187733,6 +187733,80 @@ Measured where it landed, still one part: the resident host is 25,444 bytes
 (+167: 20 brackets at 7 bytes and the paragraph pad), `DOS.O88` 52,667 ->
 52,748 and the 360KB disk's LZB copy 46,662 -> 46,758.
 
+#### 96.44.20 HEADLESS: a shortcut that runs with no DOS window behind it
+
+**`Close when done`**, a check box on the Setup page beside `Run in a window`
+(§96.32.2.4), saves the shortcut with the Shell Link header's own
+**`ShowCommand` = 7** (`SW_SHOWMINNOACTIVE`, offset `0x3C`, §96.21) where DOS
+otherwise writes 1. A program launched through that `.LNK` runs with **no
+DOS window at all**: the region never holds part 1 (§96.44.19), so the
+program's arena is the window's size larger, and no compaction is needed to
+get it. kern_big and kern_emu only (`DOS_WTAIL`); kern_mega's DOS.O88 has no
+tail to leave out, and kern_small carries no DOS.O88.
+
+**The decision is the LOADER's, made before a sector of DOS is read.**
+`dsl_w16` already reads the document's first cluster to see whether it is an
+NE (§124.3.1); a cluster whose first dword is `0x4C`, whose CLSID begins
+`01 14` and whose `ShowCommand` dword is 7 sets `[dsl_head]`. `dsl_entry`
+then ORs `OP_LAZY` into part 1's row in its own table - the table is the
+loader image, per-instance RAM - so `op_size` sizes the carve from part 0
+alone, the carve's run ends at part 0, the re-home's KEEP form trims there,
+and the bar's total leaves part 1's packed bytes out. Last of the rows it
+copies into the host's bss, the loader writes the byte (`DSLH_HEAD`, the
+host's `[dos_head]`). An older `DOS.O88` ignores the field and runs the link
+windowed, which is the right way for an old host to be wrong; Windows would
+start the target minimised.
+
+**What a headless host does instead** (`dos_hwin`, `dos_hpaint`,
+`dos_fld_def`, `dos_hend`, all resident, all naming nothing of the tail):
+
+- a one-line window, `Starting NAME`, with no menu, no buttons, no console and
+  no About card: `OSAPI_FSX_RUN` and `OSAPI_WM_WAKE` are a window's (§53.1),
+  so the frame is the price of the bracket. Each pixel is drawn once - the
+  line by `OSAPI_FONT_RUN`, the ground beside and under it by two fills;
+- the settings' defaults without their field blocks, then the `.LNK` read as
+  ever (`dos_lnk_open`; its field reloads are bracketed out);
+- the run as ever - the bracket, or the whole machine with arm 3, whose
+  confirmation (§96.42) is the shortcut itself, the user having ticked both
+  boxes and saved;
+- INT 21h's character output is the ROM's teletype throughout (the console's
+  `DHK_TTY` and `DHK_SNAP` are not bound), and the program starts on a clean
+  text screen: there is no console to seed it with;
+- at the end, `dos_run`'s `.out` or `dos_wake`'s return from `kern_dos`, a
+  **toast** (§59) for a refusal or a non-zero exit code - words first, the
+  program's name last, so the 24 cells the bar shows lose the name and not
+  the reason: `Exit 3: PRINCE.EXE`, `No memory: PRINCE.EXE` - and then
+  `OSAPI_WM_CLOSE` on the instance's own window. Exit 0 says nothing.
+
+What it gives up is exactly the window's AFTER: the program's last screen,
+the exit line, a refusal's whole sentence, the prompt and Run again
+(docs/plans/DOS-HEADLESS-PLAN.md 2). A double-clicked `.COM` or `.EXE` with no
+shortcut stays windowed; the shortcut is where a user says the program draws
+its own screen and nothing it leaves is wanted.
+
+**The box.** It and `Run in a window` are exclusive - a run in a window is a
+window - so ticking one greys the other. It greys too for a Windows program
+(`[dos_hne]`, asked of the program DOS last named as the page opens through
+`dos_w16_isne`, the NE test `dos_w16_try` makes, now separable): a headless
+DOS would run only its MZ stub, the program being WIN16's. `dos_lnk_parse`
+reads the field back into the box, so a shortcut opened in a windowed DOS
+shows it ticked, and Save Shortcut keeps it.
+
+**What it buys, MEASURED** (`tests/doshead.py`, `soak -k doshead`: the 5150
+CGA, the shipped 360KB LZB system disk, `DOSHELLO.COM` behind two links that
+differ only in `ShowCommand`, each a fresh boot): the claim DOS runs in is
+**25,984 bytes against 45,680**, so the program's arena is **487 KB against
+467 (+20 KB)**, and the double-click reaches the program's `READY` in **13.5
+guest seconds against 15.9 (-2.4 s)** with **20 `int 13h` calls against 21**
+- the window's ~10 KB of packed stream is neither read nor decoded, no
+console is seeded and no window is painted. With the loader's flip taken out
+the same headless host reads 15.3 s and 467 KB: the read and decode of part
+1 are ~1.8 s of the 2.4. What it costs: the resident host is **+535 bytes**
+in every instance, windowed too (25,444 -> 25,979 + 3 of the loader's byte:
+the four routines and their strings, the box's record, the line), the
+loader +93 raw, and `DOS.O88` 53,212 -> 53,803 (lz4) and 47,174 -> 47,701
+(LZB, 47 clusters).
+
 ### 96.45 The mouse under `kern_dos`, and it was switched OFF rather than missing
 
 INT 33h has always been answered here (§96.10); what it answered with was a

@@ -183,6 +183,10 @@ DOS_MWINW   equ 15                  ; `Run in a window`, in cells (96.32.2.4)
     call sp_wck                     ; `Run in a window` (96.32.2.4)...
     jnc %1
 %endif
+%ifdef DOS_WTAIL
+    call sp_hck                     ; ...`Close when done` (96.44.20)...
+    jnc %1
+%endif
     call dos_click_mem              ; ...the memory block's field and radio
     jnc %1                          ; CF=1 = none of those, so it is the
     call dos_fld_hit                ; arguments box or an environment row
@@ -633,6 +637,10 @@ DOS_ENVBUF  equ DOS_ENVW + 1
 ; cannot run a DOS program anyway, so the value of the format here is that it
 ; is RECOGNISED, not that it round-trips. A foreign link is refused by name.
 LNK_HDR     equ 76                  ; the fixed header, 0x4C
+LNK_SHOW    equ 0x3C                ; ShowCommand, a dword in that header...
+LNK_SW_HEAD equ 7                   ; ...and SW_SHOWMINNOACTIVE: no window - DOS
+                                    ; runs the program headless (SPEC.md 96.44.20)
+DOS_HTXT    equ 25                  ; the headless host's line: a toast's 24 + NUL
 LNK_F_WDIR  equ 0x10                ; LinkFlags: HasWorkingDir...
 LNK_F_RELP  equ 0x08                ; ...HasRelativePath...
 LNK_F_ARGS  equ 0x20                ; ...HasArguments. Deliberately NOT
@@ -1141,6 +1149,11 @@ dos_entry:
     call os88ui_btninit             ; 20.5.1.3.3's cell now lets it write
     pop dx                          ; late. dos_click is OUR own click work
     mov bx, [dos_win]               ; and the library chains to it
+%ifdef DOS_WTAIL
+    WIN_ELSE                        ; HEADLESS (SPEC.md 96.44.20): one line,
+    call dos_hwin                   ; and no menu, no buttons, no console
+    jc .out
+%endif
     WIN_END
 
 %ifndef KD_BACKEND                  ; 96.43: the console is the window's
@@ -1224,6 +1237,10 @@ dos_entry:
     call dos_con_start              ; ...AND THE CONSOLE (SPEC.md 96.33), before
                                     ; the first paint can read a screen whose
                                     ; attribute is still a zeroed bss's
+%endif
+%ifdef DOS_WTAIL
+    WIN_ELSE
+    call dos_fld_def                ; ...or only the settings' defaults
 %endif
     WIN_END
 
@@ -1533,6 +1550,10 @@ dos_wake:
                                     ; spent it and threw that console into the
                                     ; full screen. kern_mega's trip (14.106) and
                                     ; kern_big's shut-down arm alike (14.113)
+%ifdef DOS_WTAIL
+    WIN_ELSE
+    call dos_hend                   ; headless: a toast if it is news, and go
+%endif
     WIN_END
     jmp short .out
 .nocode:
@@ -2047,6 +2068,10 @@ dos_run:
                                     ; after dos_repaint so the window under it
                                     ; is right when the bracket next comes down
 %endif
+%ifdef DOS_WTAIL
+    WIN_ELSE
+    call dos_hend                   ; headless: a toast if it is news, and go
+%endif
     WIN_END
 .outq:                              ; ...AND THE POSTED PATH, which reaches
                                     ; none of the above on purpose: nothing has
@@ -2498,6 +2523,219 @@ dos_fsx_cone:
     jmp dos_fsx_con
     WIN_END
     ret
+
+; =============================================================================
+; THE HEADLESS HOST (SPEC.md 96.44.20, docs/plans/DOS-HEADLESS-PLAN.md 5)
+;
+; A .LNK saved with `Close when done` (ShowCommand = 7) is read by the LOADER,
+; which marks part 1 - the window - lazy, so this region never holds it, and
+; writes [dos_head]. What is left of a window is what OSAPI_FSX_RUN and
+; OSAPI_WM_WAKE need one for: a frame and one line, `Starting NAME`, drawn
+; by the four routines below, which name nothing of the tail. The program
+; runs in the bracket (or on the whole machine), and its end is a toast for a
+; non-zero exit or a refusal, and the instance closing.
+; =============================================================================
+; dos_hwin - the one-line window. out: CF=0 BX = [dos_win]; CF=1 none
+dos_hwin:
+    mov si, dos_htpl
+    call OSAPI_WM_CREATE
+    jc .r
+    mov [dos_win], bx
+.r:
+    ret
+
+; dos_fld_def - the settings dos_fld_init sets on a windowed host (its field
+; blocks are the tail's): the arm, the cache's dial and the Hard Drives box.
+; Everything else's default is the zero the bss already holds
+dos_fld_def:
+    mov word [dos_keepc], DOS_MEM_IN
+    mov word [dos_cache], DOS_CA_AUTO
+    mov byte [dos_mhdd + OS88UI_CK_ON], 1
+    ret
+
+; dos_hpaint - W_PAINT: `Starting NAME` and the ground beside and under it,
+; each pixel once (SPEC.md 6.1). SI = the window, the gfx lock held
+dos_hpaint:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov di, dos_htxt
+    mov si, dos_hs_start
+    call dos_hcat
+    mov si, dos_name
+    call dos_hcat
+    mov byte [di], 0
+    sub di, dos_htxt                ; DI = the line's cells
+    mov bx, [dos_win]
+    call OSAPI_WM_CONTENT           ; AX = left, DX = top
+    push ax
+    push dx
+    mov cx, ax
+    mov si, dos_htxt
+    mov ax, (CWHITE << 8) | CBLACK
+    call OSAPI_FONT_RUN
+    call OSAPI_WM_GEOM              ; CX = width, DX = height
+    pop bx                          ; BX = top
+    pop ax                          ; AX = left
+    jc .out
+    mov si, ax                      ; SI = left, for the second fill
+    push dx
+    add cx, ax
+    dec cx                          ; CX = the right edge
+    mov dx, di
+    shl dx, 1
+    shl dx, 1
+    shl dx, 1
+    add ax, dx                      ; AX = past the text
+    pop dx
+    add dx, bx
+    dec dx                          ; DX = the bottom edge
+    push ax
+    mov al, CWHITE
+    call OSAPI_SET_COLOR
+    pop ax
+    cmp ax, cx
+    ja .under
+    push dx
+    mov dx, bx
+    add dx, 7                       ; ...beside the line,
+    call OSAPI_GFX_FILL
+    pop dx
+.under:
+    add bx, 8                       ; ...and under it
+    cmp bx, dx
+    ja .out
+    mov ax, si
+    call OSAPI_GFX_FILL
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; dos_hcat - append DS:SI's NUL string at DI, at most to the toast's width
+dos_hcat:
+    lodsb
+    or al, al
+    jz .r
+    cmp di, dos_htxt + DOS_HTXT - 1
+    jae .r
+    mov [di], al
+    inc di
+    jmp short dos_hcat
+.r:
+    ret
+
+; dos_hend - a headless run is over: say so if it is worth saying, and go.
+; A toast is COPIED by the kernel, so the instance may close while it is up
+; (OSAPI_TOAST); OSAPI_WM_CLOSE is deferred to the next UI pass, so this
+; returns and draws nothing after it
+dos_hend:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    push es
+    mov di, dos_htxt
+    cmp byte [dos_state], DST_ERR
+    jne .ran
+    mov al, [dos_err]               ; a refusal's short form, words FIRST so
+    mov si, dos_hers                ; the 24 cells the bar shows lose the name
+.w:                                 ; and not the reason
+    or al, al
+    jz .say
+    dec al
+.skip:
+    cmp byte [si], 0
+    je .past
+    inc si
+    jmp short .skip
+.past:
+    inc si
+    cmp byte [si], 0
+    jne .w
+    mov si, dos_hers                ; past the list: the first reads as well
+    jmp short .say                  ; as any (nothing sets one today)
+.ran:
+    mov al, [dos_exit]
+    or al, al
+    jz .close                       ; exit 0 is not news
+    mov si, dos_hs_exit
+    call dos_hcat                   ; (lodsb: AL is spent)
+    mov al, [dos_exit]
+    xor ah, ah                      ; AX = the code, three digits at most
+    mov bl, 100
+    div bl                          ; AL = hundreds, AH = the rest
+    mov cl, al                      ; CL = a digit is out: no leading zeros
+    call .dig
+    mov al, ah
+    xor ah, ah
+    mov bl, 10
+    div bl                          ; AL = tens, AH = units
+    or cl, al
+    call .dig
+    mov al, ah
+    mov cl, 1
+    call .dig
+    jmp short .nm
+.dig:
+    or cl, cl
+    jz .nod
+    add al, '0'
+    mov [di], al
+    inc di
+.nod:
+    ret
+.say:
+    call dos_hcat
+.nm:
+    mov si, dos_hs_sep
+    call dos_hcat
+    mov si, dos_name
+    call dos_hcat
+    mov byte [di], 0
+    push ds
+    pop es
+    mov si, dos_htxt
+    xor cx, cx
+    call OSAPI_TOAST
+.close:
+    mov bx, [dos_win]
+    call OSAPI_WM_CLOSE
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+dos_htpl:
+    dw 0, MBAR_H, 8 * DOS_HTXT, 8 + TITLE_H + 1
+    dw dos_httl, dos_hpaint, 0, 0
+dos_httl:     db 'DOS', 0
+dos_hs_start: db 'Starting ', 0
+dos_hs_exit:  db 'Exit ', 0
+dos_hs_sep:   db ': ', 0
+dos_hers:                           ; DER_* in order, each a toast's head
+dos_her0:     db 'No folder', 0
+dos_her1:     db 'No memory', 0
+dos_her2:     db 'Read error', 0
+dos_her3:     db 'Too large', 0
+dos_her4:     db 'Refused', 0
+dos_her5:     db 'Bad .EXE', 0
+dos_her6:     db 'Bad .EXE', 0
+dos_her7:     db 'No memory', 0
+dos_her8:     db 'Busy', 0
+dos_her9:     db 'Refused', 0
+              db 0                  ; ...and the list's end
 %endif
 
 ; =============================================================================
@@ -8690,6 +8928,9 @@ dos_onup:
     call dos_sp_get                 ; **THE PAGE'S CODE, READ NOW** (SPEC.md
     jc .out                         ; 96.32.2.3) - or not opened, and the
 %endif                              ; menu bar says why
+%ifdef DOS_WTAIL
+    call dos_hne_ask                ; ...and is the program an NE (96.44.20)
+%endif
     mov byte [dos_page], DOS_PAGE_SET
     call dos_swap
     jmp short .out
@@ -8892,6 +9133,9 @@ dos_oncmd:
 %ifdef DOS_SETPART
     call dos_sp_get                 ; ...and the bar's own read (96.32.2.3)
     jc .out
+%endif
+%ifdef DOS_WTAIL
+    call dos_hne_ask
 %endif
     mov byte [dos_page], DOS_PAGE_SET
     mov bx, [dos_win]
@@ -9333,6 +9577,14 @@ dos_lnk_parse:
     jne .no                         ; is as much of a 16-byte constant as is
     cmp byte [dos_lbuf+5], 0x14     ; worth comparing to refuse a wrong file
     jne .no
+%ifdef DOS_WTAIL
+    xor al, al                      ; **ShowCommand = 7 IS CLOSE WHEN DONE**
+    cmp word [dos_lbuf+LNK_SHOW], LNK_SW_HEAD   ; (SPEC.md 96.44.20): the
+    jne .show                       ; header's own field, which the loader
+    inc ax                          ; reads too - SW_SHOWMINNOACTIVE, no window
+.show:
+    mov [dos_mhead + OS88UI_CK_ON], al
+%endif
     mov ax, [dos_lbuf+20]           ; LinkFlags
     test ax, 0x03                   ; HasLinkTargetIDList | HasLinkInfo
     jnz .no                         ; ...a Windows-authored one. Refused.
@@ -10278,6 +10530,12 @@ dos_l_mmou: db 'Disable the mouse', 0
 dos_l_mwin: db 'Run in a window', 0 ; ...and the furniture row's (96.32.2.4)
 %if $ - dos_l_mwin - 1 != DOS_MWINW
  %error "DOS_MWINW is the label's length in cells: it sizes the box's rect"
+%endif
+%ifdef DOS_WTAIL
+dos_l_mhead: db 'Close when done', 0 ; ...and beside it (SPEC.md 96.44.20)
+%if $ - dos_l_mhead - 1 != DOS_MWINW
+ %error "Close when done is placed with DOS_MWINW: the two labels are one width"
+%endif
 %endif
 %endif
 
@@ -11953,9 +12211,31 @@ dos_sp_get:
 .have:
     ret
 
+%ifdef DOS_WTAIL
+; -----------------------------------------------------------------------------
+; dos_hne_ask - is the program the Setup page is about a WINDOWS one? (SPEC.md
+; 96.44.20). `Close when done` greys for an NE: a headless DOS would only run
+; its MZ stub, the program being WIN16's (SPEC.md 124.3.1). Asked as the page
+; opens, of the program DOS last named - the one a shortcut or a run set -
+; and a box the link left ticked is cleared with it. Preserves every register
+; -----------------------------------------------------------------------------
+dos_hne_ask:
+    pushf
+    mov byte [dos_hne], 0
+    cmp byte [dos_name], 0
+    je .r
+    call dos_w16_isne
+    jnc .r
+    mov byte [dos_hne], 1
+    mov byte [dos_mhead + OS88UI_CK_ON], 0
+.r:
+    popf
+    ret
+%endif
+WIN_CODE_END
+
 ; dos_sp_drop - give the part back, if it is held. Every register preserved;
 ; the flags are not
-WIN_CODE_END
 dos_sp_drop:
     push dx
     xor dx, dx
@@ -12222,6 +12502,12 @@ DOS_BTREC_SZ equ 18              ; **A MIRROR OF os88ui.inc's OS88UI_BT_SIZE**,
 %ifdef DVW
     HBSS DOS_B_MWIN,  DOS_MCKSZ  ; ...and Run in a window, the furniture
 %endif                           ; row's (96.32.2.4)
+%ifdef DOS_WTAIL
+    HBSS DOS_B_MHEAD, DOS_MCKSZ  ; ...and Close when done, beside it
+    HBSS DOS_B_HNE,   1          ; (SPEC.md 96.44.20), resident because the
+                                 ; .LNK reader sets it; 1 = the target is an NE
+    HBSS DOS_B_HTXT,  DOS_HTXT   ; ...and a headless host's one line: the
+%endif                           ; window's, then the toast's (OSAPI_TOAST's 24)
 %ifdef DOS_SETPART
     HBSS DOS_B_SPDOOR, 4         ; the Setup part's door, 0:claim - its
                                  ; segment word 0 = not held (96.32.2.3)
@@ -17752,6 +18038,11 @@ dos_mnet equ dos_hbss + DOS_B_MNET
 dos_mmou equ dos_hbss + DOS_B_MMOU   ; ...and the mouse's (96.36.8)
 %ifdef DVW
 dos_mwin equ dos_hbss + DOS_B_MWIN   ; ...and Run in a window (96.32.2.4)
+%ifdef DOS_WTAIL
+dos_mhead equ dos_hbss + DOS_B_MHEAD ; ...and Close when done (96.44.20)
+dos_hne equ dos_hbss + DOS_B_HNE     ; ...and the target is an NE: it greys
+dos_htxt equ dos_hbss + DOS_B_HTXT   ; ...and the headless host's line
+%endif
 %endif
 %ifdef DOS_SETPART
 dos_spdoor equ dos_hbss + DOS_B_SPDOOR   ; dword: the Setup part's door

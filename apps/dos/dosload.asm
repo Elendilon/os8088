@@ -129,6 +129,7 @@ DSLH_SETROW  equ DSLH_NETROW + OP_ROW   ; ...and the Setup page's after THAT
 ; --- DSLH_DVWROW --------------------------------------------------------------
 %ifndef DOS_MEGA
 DSLH_DVWROW  equ DSLH_SETROW + OP_ROW   ; ...and the window's (SPEC.md 96.54.9)
+DSLH_HEAD    equ DSLH_DVWROW + OP_ROW   ; ...and the headless byte (96.44.20)
 %endif
 ; --- end DSLH_DVWROW ----------------------------------------------------------
 
@@ -300,6 +301,25 @@ dsl_w16:
     mov cx, ax                      ; need not read it again. CX = delivered
     cmp ax, 0x40
     jb .free
+%ifndef DOS_MEGA
+    ; --- A SHORTCUT SAVED `Close when done` (SPEC.md 96.44.20) ------------
+    ; The Shell Link header's own ShowCommand, at a fixed offset in the
+    ; cluster this read already holds: 7, SW_SHOWMINNOACTIVE, is no window,
+    ; so part 1 - the window - is never claimed. The magic and the CLSID's
+    ; first word say it is a link at all (the host's dos_lnk_parse checks the
+    ; rest, and a link it refuses is a refusal the host reports headless)
+    cmp word [es:0], 0x004C         ; HeaderSize
+    jne .notlnk
+    cmp word [es:4], 0x1401         ; LinkCLSID {00021401-...}
+    jne .notlnk
+    cmp word [es:0x3C], 7           ; ShowCommand = SW_SHOWMINNOACTIVE
+    jne .free
+    cmp word [es:0x3E], 0
+    jne .free
+    mov byte [dsl_head], 1
+    jmp short .free
+.notlnk:
+%endif
     cmp word [es:0], 0x5A4D         ; 'MZ'
     jne .free
     cmp word [es:0x18], 0x40        ; ...with room for a new header's pointer
@@ -408,13 +428,28 @@ dsl_pmok:
     ; core's fetch, their PACKED lengths - what is read - as one bar. op_load's
     ; and op_fetch's own begins are refused as nesting; the flags ride the
     ; stack to .out, the one exit, which ends only what this began
+%ifndef DOS_MEGA
+    ; **HEADLESS: THE WINDOW IS NEVER CLAIMED** (SPEC.md 96.44.20). The table
+    ; is this image's, which is per-instance RAM, and op_size sizes the carve
+    ; from the EAGER rows alone - so one bit makes part 1 a lazy row nobody
+    ; fetches, the carve is part 0's length, the re-home keeps to part 0's
+    ; end, and the region is born the window's size smaller. Nothing is read
+    ; for it either: the carve's run ends at the last eager row
+    cmp byte [dsl_head], 0
+    je .win
+    or byte [op_table + OP_T_ROWS + DOS_PART_WIN * OP_ROW + OP_R_FLAG], OP_LAZY
+.win:
+%endif
     mov cx, [op_table + OP_T_ROWS + DOS_PART_PKG * OP_ROW + OP_R_ZKB]
     xor dx, dx
     add cx, [op_table + OP_T_ROWS + DOS_PART_CORE * OP_ROW + OP_R_ZKB]
     adc dx, dx
 %ifndef DOS_MEGA
+    cmp byte [dsl_head], 0
+    jne .nowin                      ; ...and only a window it will claim
     add cx, [op_table + OP_T_ROWS + DOS_PART_WIN * OP_ROW + OP_R_ZKB]
     adc dx, 0                       ; ...and the window's, read in the same run
+.nowin:
 %endif
     call OSAPI_FS_OP                ; CF = 0: ours to end; SI and ES kept
     pushf
@@ -490,7 +525,9 @@ dsl_pmok:
     call dsl_row                    ; 96.54.9), DI there again, the same way
     mov al, [op_table + OP_T_FMT]
     mov [es:di - OP_ROW], al
-%endif
+    mov al, [dsl_head]              ; ...and LAST, the byte that says this
+    mov [es:di], al                 ; region has no window (DSLH_HEAD, the
+%endif                              ; host's [dos_head], SPEC.md 96.44.20)
 ; --- end DOS_PART_DVW's row ---------------------------------------------------
                                     ; where the core goes, and only this image
                                     ; knows where either one sits in the file.
@@ -618,5 +655,6 @@ dsl_w16k equ dsl_doc + 16               ; ...1 = read, and it is no NE: the
                                         ; host's wake need not read it again.
                                         ; ADJACENT: the hand-on copies 17
 dsl_home equ dsl_w16k + 1               ; the folder we came from: dir, vol
-DSL_BSS  equ OP_ROW + 16 + 1 + 3
+dsl_head equ dsl_home + 3               ; 1 = a link saved Close when done
+DSL_BSS  equ OP_ROW + 16 + 1 + 3 + 1
 %endif

@@ -6866,6 +6866,17 @@ SOAK = [
         "answers first and the Goto dialog stays open",
         needs=("marty",),
         wants=("build/office360.img",)),
+    Row("doshead", "soak", py("tests/doshead.py"), 75.0,
+        "HEADLESS DOS (SPEC.md 96.44.20): a .LNK saved ShowCommand 7 runs its "
+        "program with no DOS window - the LOADER marks part 1, the window, "
+        "lazy, so the claim DOS runs in is part 0's length, the arena is the "
+        "window's ~19 KB larger, and the instance ends with the program in a "
+        "toast (`Exit 42: DOSHELLO.COM`). Two fresh boots on the 5150 CGA, the "
+        "same link with ShowCommand 7 and 1, and the windowed leg is the "
+        "control; each prints the guest seconds and int 13h calls to READY. "
+        "Red with the loader's flip taken out (OS88_DOSHEAD_SYS)",
+        needs=("marty",), serial=True,
+        wants=("build/DOSHELLO.COM",)),
     Row("doscom", "soak", py("tests/doscom.py"), 30.0,
         "THE DOS WAVE-1 GATE (SPEC.md 96): double-click a .COM in a Disk "
         "window and assert a real DOS program RAN - its own output on the "

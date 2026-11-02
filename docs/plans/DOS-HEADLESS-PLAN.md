@@ -528,6 +528,21 @@ DOS-PARTS-PLAN 1.1), and the windowed layer's resident half.
   46 -> 47 clusters): +545/+512, against the plan's +~330 (E). The second
   ZFILL row exposed a defect in `op_unpack` - the stream head re-read after
   stream 1 had overwritten it - fixed in the standard (SPEC.md 96.44.19).
+- [x] **W3, headless** (SPEC.md 96.44.20) - the loader's `ShowCommand` test
+  and the row flip, `[dos_head]`, the headless arms of entry, wake and run
+  (`dos_hwin`, `dos_fld_def`, `dos_hpaint`, `dos_hend`), the toast and the
+  close; `Close when done` on the Setup page (exclusive with `Run in a
+  window`, greyed for an NE through `dos_w16_isne`) and ShowCommand 7 in the
+  `.LNK` writer; `dos_lnk_parse` reads it back. **M** on `doshead`: claim
+  **25,984 against 45,680**, arena **+20 KB** (487 against 467), READY
+  **13.5 s against 15.9 (-2.4 s)**, **20 `int 13h` calls against 21**; red
+  with the loader's flip removed (claim 45,680, arena +0). The plan's E was
+  -0.7 s: the window's read and decode are ~1.8 s of it (the flip-removed
+  run), the rest is the console and paint a headless host never does. The
+  host's own arms are **+535 resident bytes** against the plan's ~+250 (E).
+- [ ] **W4** (drop after load on the same layout) - not built: it needs a
+  path from a live window to the headless arms plus a posted compaction to
+  hand the freed tail to the arena, which is not cheap on this layout.
 
 Every wave is kern_big and kern_emu; kern_small and kern_mega assemble the
 one-part layout from the same source and must stay byte-identical to their
