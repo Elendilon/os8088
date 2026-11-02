@@ -51,7 +51,11 @@ bits 16
 
 %include "os88api.inc"
 
-    OS88_HEADER 'DOS', dsl_entry, 3 | OS88_F_GLYPH | OS88_F_PARTS
+    ; OS88_HIGHMEM: the loader's one claim of its own is dsl_w16's one-cluster
+    ; probe buffer (SPEC.md 124.3.1), reached only through ES for READ_AT and
+    ; freed - no paragraph arithmetic - and assembled only with DOS_WIN16,
+    ; which kern_mega never defines (KERN-MEGA-PLAN 14.51, tests/megahigh.txt).
+    OS88_HEADER 'DOS', dsl_entry, 3 | OS88_F_GLYPH | OS88_F_PARTS, OS88_STACK_DEFAULT | OS88_HIGHMEM
 
 %include "dosicon.inc"          ; ...and the SAME icon, association block and
                                 ; document glyph part 0 carries: all read out
