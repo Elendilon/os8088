@@ -498,9 +498,9 @@ dskw_dfree_x:
 .shift:
     shl ax, 1
     rcl dx, 1
-    loop .shift
-    clc
-    jmp short .out
+    loop .shift                 ; CF = 0 out of the last `rcl`: free sectors
+    pop cx                      ; are under 65,536 * 128 = 2^23, so bit 31 of
+    ret                         ; the bytes is never set (pass 17, -1)
 .bad:
     mov ax, FERR_NODISK
     stc
