@@ -82,6 +82,7 @@ PSP fields that were zero here and are not zero under DOS, found that way.
 | `tests/dostrap/dfsel.asm` | ...and what it answers for the drive `AH=0Eh` just SELECTED, which `dfree` never does (SPEC.md 96.27.2) |
 | `tests/dostrap/getpsp.asm` | does `AH=62h`/`51h` answer the RUNNING program's PSP, parent and child alike? (SPEC.md 96.55) |
 | `tests/dostrap/cx0.asm` | what `AH=40h` with `CX=0` does to a file's LENGTH (SPEC.md 96.11.6.2) |
+| `tests/dostrap/fcbio.asm` | `AH=33h`/`37h` and the FCB file calls - make, write, open, read, find, delete by pattern - WordPerfect 4.1's whole set (SPEC.md 96.56) |
 | `apps/dos/dos.asm`, `%ifdef DOSTRACE` | DOS's own ring — **not in any shipped build** |
 
 Both Python tools carry `--selfcheck`, which needs no emulator and no network.
