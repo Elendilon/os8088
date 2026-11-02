@@ -43575,6 +43575,18 @@ generation is greyed `Needs a newer Wire - update the system disk` on every
 Wire from v1.0.20261012 on, and the release check refuses a call newer than
 any level. A package copied onto an old machine by hand is still unfenced.
 
+**What it cannot see, and the row that does**: the lock judges the SDK's TEXT
+one commit at a time, so a contract that moved in a DRIVER's verb, or a
+release package that leaned on something the kernel no longer gives it, is
+outside it. `tests/abicompat.py` (`soak -k abicompat`) asks the question the
+lock exists for directly: it builds the LATEST RELEASE (the newest
+`Release YYYYMMDD` commit) once into `build/abicompat/`, compares its cell
+offsets, its lock state, its SDK constants, its headers and every packed
+stream it shipped against this tree, and launches every package on its 360KB
+disks on THIS kernel with the release's own kernel as the control. An SDK
+constant changed without a bump is acknowledged in `tests/abicompat.txt` with
+its reason, and that file is cleared at each release.
+
 **The dispatcher at +12 is the header's one piece of executable code**, and
 it is what makes a package's callbacks ordinary near procs. Every
 kernel-to-package call goes far to `<this package's segment>:12` with BP
