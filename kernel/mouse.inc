@@ -2659,15 +2659,47 @@ kbm_rclick:                     ; latches too - menu_popup ends on a level poll
 ; A DROPPED MENU IS A LIST, and gets asked first (SPEC.md 9.6.3): a press with
 ; a vertical component there moves one ITEM rather than KBM_MIN pixels, and
 ; menu_kbnav has already placed the pointer when it answers CF = 0. Asking it
-; ABOVE kbm_accel is what keeps the two mechanisms apart - a placed press never
+; ABOVE the step ramp is what keeps the two mechanisms apart - a placed press never
 ; stamps [kbm_last], so the first arrow AFTER the menu closes sees a large tick
 ; gap and starts fresh at KBM_MIN, which is what it should do anyway.
 kbm_move:
     mov al, [bx+2]              ; dy: the axis a menu is a list along
     call COLD_SEG:menu_kbnav    ; FAR: it is cold (SPEC.md 12.10)
     jnc .paint                  ; placed - the repaint below is all that is left
-    call kbm_accel              ; DL = px this press is worth, and imul does
-    mov al, [bx+1]              ; not disturb it, so it serves both axes
+    ; --- DL = how far this press moves the pointer (it was kbm_accel, with
+    ; this one caller, until kernel size pass 17 wrote it here: AX and CX are
+    ; dead at this point - kbm_key's frame puts CX back, and AX is about to
+    ; be the step's product - so its three banks, its call and its jump to
+    ; the ladder went). A fixed step cannot be right: small enough to aim
+    ; with is too small to cross the screen with. Presses arriving closer
+    ; together than KBM_GAP are a held key (typematic repeat), and the step
+    ; grows while that lasts.
+    mov ax, [ticks]
+    mov dx, ax
+    xchg dx, [kbm_last]         ; the tick of THIS press banked, the last one's
+    sub ax, dx                  ; in DX: wrap-safe, like every other tick
+    mov dl, KBM_MIN             ; compare here
+    mov cl, [bx]                ; the direction this press is (the row's scan)
+    cmp ax, KBM_GAP
+    jae .set                    ; a fresh tap starts slow again...
+    cmp cl, [kbm_lastk]
+    jne .set                    ; ...and so does a CHANGE OF DIRECTION, which
+                                ; is what a person does the instant they
+                                ; overshoot. Without it the correction is
+                                ; travelling at full speed too, and a menu item
+                                ; sits unreachable between two 24px strides -
+                                ; which is exactly how this first failed to
+                                ; pick one
+    mov dl, [kbm_step]
+    add dl, KBM_ACC
+    cmp dl, KBM_MAX
+    jbe .set
+    mov dl, KBM_MAX
+.set:
+    mov [kbm_step], dl
+    mov [kbm_lastk], cl
+    mov al, [bx+1]              ; DL is the step, and imul does not disturb
+                                ; it, so it serves both axes
     imul dl                     ; dx (-1, 0, +1) x the step -> AX, signed
     add ax, [mouse_x]
     push ax                     ; banked on OUR stack until y is ready, for
@@ -2726,40 +2758,6 @@ kbm_move:
     stc
     ret
 
-; --- kbm_accel - DL = how far this press moves the pointer -------------------
-; A fixed step cannot be right: small enough to aim with is too small to cross
-; the screen with. Presses arriving closer together than KBM_GAP are a held
-; key (typematic repeat), and the step grows while that lasts.
-; clobbers: DL
-kbm_accel:
-    push ax
-    push bx
-    push cx
-    mov ch, [bx]                ; the direction this press is (the row's scan)
-    mov bx, [ticks]
-    mov ax, bx
-    sub ax, [kbm_last]          ; wrap-safe, like every other tick compare here
-    mov [kbm_last], bx
-    mov dl, KBM_MIN
-    cmp ax, KBM_GAP
-    jae .set                    ; a fresh tap starts slow again...
-    cmp ch, [kbm_lastk]
-    jne .set                    ; ...and so does a CHANGE OF DIRECTION, which
-                                ; is what a person does the instant they
-                                ; overshoot. Without it the correction is
-                                ; travelling at full speed too, and a menu item
-                                ; sits unreachable between two 24px strides -
-                                ; which is exactly how this first failed to
-                                ; pick one
-    mov dl, [kbm_step]
-    add dl, KBM_ACC
-    cmp dl, KBM_MAX
-    jbe .set
-    mov dl, KBM_MAX
-.set:
-    mov [kbm_step], dl
-    mov [kbm_lastk], ch
-    jmp kret_cx
 
 ; -----------------------------------------------------------------------------
 ; mou_clamp - the nearest legal pointer position (SPEC.md 39.15.4)

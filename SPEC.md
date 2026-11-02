@@ -15212,7 +15212,8 @@ taken at all:
 
 Six things hold it up.
 
-- **`menu_kbnav` (`menu.inc`) is asked before `kbm_accel` is called**, so a
+- **`menu_kbnav` (`menu.inc`) is asked before the step ramp runs** (it was
+  `kbm_accel`, written into `kbm_move` by kernel size pass 17), so a
   placed press never touches the ramp: `[kbm_last]` is not stamped, and the
   first arrow press *after* the menu closes therefore sees a large tick gap
   and starts fresh at `KBM_MIN`, which is what it should do anyway.
