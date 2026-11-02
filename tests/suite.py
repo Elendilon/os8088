@@ -842,6 +842,20 @@ FAST = [
         "os88sym proving its symbol map, and the proof is now kept beside the "
         "build under a key of the image, the defines and every source "
         "(tools/os88sym.py, _disk_key)"),
+    Row("abicompat", "soak", py("tests/abicompat.py"), 291.0,
+        "SPEC.md 20.2.0.1: does the LATEST RELEASE's software still run on "
+        "this tree? Builds the newest `Release YYYYMMDD` commit once into "
+        "build/abicompat/<sha>/ (a worktree, `make BUILD=build`, ~80s and "
+        "reused after), then: every release OSAPI cell at the same offset; "
+        "the release's abi.lock state a link in this tree's history; every "
+        "release SDK constant unchanged, bumped, or acknowledged in "
+        "tests/abicompat.txt; release headers against PKG_FMT/DRV_VER; every "
+        "release package, driver and CZ stream expanding identically under "
+        "this tree's decoder; and every package on the release's 360KB disks "
+        "launched on THIS kernel with the release's own kernel as the "
+        "control. Red arms: --red-version (leg F), --red-cell (leg A). "
+        "secs is the steady state; the first run on a box adds the build",
+        needs=("marty", "nasm"), cpus=1),
     Row("abilock", "fast", py("tests/unit/t_abilock.py"), 0.1,
         "SPEC.md 20.2.0.1: PKG_FMT and DRV_VER are LOCKED to a fingerprint of "
         "the SDK surface they guard (tools/abi.lock.json), so an ABI change "
