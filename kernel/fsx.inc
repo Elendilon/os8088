@@ -2350,9 +2350,8 @@ fsx_rdownf:
     mov ax, [cs:fsx_rkeepm+bx+2]
     mov [di+1], ax
     mov ax, [ss:fsx_rmsseg]
-    mov [di+3], ax
-    or bx, bx
-    jnz .km
+    mov [di+3], ax              ; (no `or bx, bx`: every instruction since
+    jnz .km                     ; the `sub` is a `mov` - kernel size pass 17)
     mov bx, FSX_RKEEPN          ; the list's bytes, walked down
 .keep:
     sub bx, 6                   ; (BX = the row's offset in the list)

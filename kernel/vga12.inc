@@ -4820,10 +4820,12 @@ gfx_lock:
                                 ; the same task cannot starve a waiter twice
                                 ; running
 .take:
-    mov byte [gfx_lock_flag], 1 ; AX is saved and AL = [sch_cur] already
-    mov [gfx_lock_own], al      ; the owner is stamped inside the cli window,
-    mov [gfx_lock_last], al     ; so flag and owner can never disagree - and
-    pop ax                      ; this second one outlives the hold (SPEC 7.3)
+    mov [gfx_lock_last], al     ; AX is saved and AL = [sch_cur] already;
+    mov ah, al                  ; this one outlives the hold (SPEC 7.3) - and
+    mov al, 1                   ; the flag and the owner go in ONE word store
+    mov [gfx_lock_flag], ax     ; (the pair is adjacent: toast_now's %error),
+    pop ax                      ; inside the cli window, so they can never
+                                ; disagree (kernel size pass 17, -1)
     sti
     mov byte [cur_lazy], 1      ; PROMISE the hide (SPEC.md 7.1.4) - the ISR
     CURLOG 'L'
@@ -4948,7 +4950,10 @@ gfx_unlock:
                                      ; every window change already makes one.
                                      ; ONE COMPARE against a byte that already
                                      ; exists, on the unlocks that never saw one
-    cmp byte [cur_lazy], 0      ; was the hide ever spent? (SPEC.md 7.1.4)
+    cmp [cur_lazy], ah          ; was the hide ever spent? (SPEC.md 7.1.4)
+                                ; AH is still the `xor ax, ax`'s 0: every
+                                ; call since keeps AX, and cur_shape_set's
+                                ; argument is AL (kernel size pass 17, -1)
     jne .never                  ; no: the arrow never left the screen, so
     call cursor_show            ; showing it would bank itself as background
     jmp short .rel
