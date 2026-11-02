@@ -28,9 +28,9 @@ layer still runs after it has moved - and about what a refusal says:
      Window leaves no run, no bracket and no part, and the console reads
      `Run in Window could not load its part of DOS.O88.`
 
-**Break it on purpose** (docs/WRITING-TESTS.md 1): with dvw_preloc's `jmp
-short dvw_patch` taken out - the segment banked, the stubs left naming the
-old one - leg 5's run far-calls a claim the compactor has walked past.
+**Break it on purpose** (docs/WRITING-TESTS.md 1): with a `ret` put
+after dvw_preloc's store, so it no longer falls into dvw_patch - the segment
+banked, the stubs left naming the old one - leg 5's run far-calls a claim the compactor has walked past.
 """
 
 import os

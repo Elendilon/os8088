@@ -39,33 +39,20 @@ dvw_stubs:
     DVWT dvw_fsmain,  DVWE_FSMAIN
     DVWT dvw_runprog, DVWE_RUNPROG
     DVWJ dvw_post,    DVWE_POST
-    DVWJ dvw_fin,     DVWE_FIN
+hent_dvw_fin:                       ; DVWJ's shape, less the pad: nothing
+    db 0xEA                         ; follows it in the stride
+    dw DVWE_FIN * 4, 0
 dvw_stubs_end:
-DVWT_N equ (dvw_stubs_end - dvw_stubs) / 6
+DVWT_N equ (dvw_stubs_end - dvw_stubs + 1) / 6
 %if DVWT_N != DVWE_N
  %error "one host stub per part entry (doswabi.inc's DVWE_*)"
 %endif
 
-; hent_dvw_wake - dos_wake's tail, while a program runs: the part's wake,
-; and THEN the claim made movable if that wake ended the run. Never inside the
-; part's wake: it calls host routines that claim (dos_drv_back remounts the
-; drivers), and a compaction there would move code that is on the stack
-WIN_CODE                            ; ...and everything below is the window's
+WIN_CODE                            ; everything below is the window's
                                     ; (DOS-HEADLESS-PLAN 4.4): the stubs above
                                     ; stay resident, being what a FENCED slot
                                     ; names - hent_dvw_fsmain is an fsx proc -
                                     ; and what the resident worker far-calls
-hent_dvw_wake:
-    call hent_dvw_wakef
-    jmp dvw_relax
-
-; hent_dvw_onclose - OSAPI_WM_ONCLOSE's callback. With no program running the
-; part may not even be fetched, and the close is simply allowed (CF = 0 off
-; the compare)
-hent_dvw_onclose:
-    cmp byte [dvw_run], 0
-    jne hent_dvw_onclosef
-    ret
 
 ; --- OUT of the part: a thunk per host routine (DVW_HOSTCALLS) --------------
 ; NUMBERED, not named: a core routine's name is an %xdefine of its slot in
@@ -80,11 +67,15 @@ dvwh_ %+ DVWH_N:
 %assign DVWH_N DVWH_N + 1
 %endmacro
     DVW_HOSTCALLS
-dvwh_icall:                         ; HICALL: dvw_serve's posted door, its
-    call word [cs:dvw_rtgt]         ; registers all the program's by now
-    retf
 dvwh_ret:                           ; DVW_POSTRET: dvw_post back to the core,
     ret                             ; which near-called a stub of OURS
+    db 0xCC, 0xCC, 0xCC             ; (the stride: dvw_hbind COMPUTES every
+dvwh_icall:                         ; offset, dvwh_0 + 4n, so these two are
+    call word [cs:dvw_rtgt]         ; slots too.) HICALL: dvw_serve's posted
+    retf                            ; door, its registers all the program's
+%if dvwh_ret != dvwh_0 + 4 * DVWH_N || dvwh_icall != dvwh_ret + 4
+ %error "the host's thunks are a 4-byte stride from dvwh_0, ret and icall last: doswp.asm's dvw_hbind computes them"
+%endif
 
 ; -----------------------------------------------------------------------------
 ; dvw_pfetch - dos_run's: the part for a run in the window, or none for one
@@ -125,13 +116,10 @@ dvw_pfetch:
     jc .out
     mov ax, cx                      ; ...and only the image's own KB of it:
     add ax, 1023                    ; op_self claimed for its read's slack
-    mov al, ah                      ; too, and a shrink is always in place
-    xor ah, ah                      ; (OSAPI_MEM_REGROW), DX unchanged
-    shr al, 1
-    shr al, 1
+    mov cl, 10                      ; too, and a shrink is always in place
+    shr ax, cl                      ; (OSAPI_MEM_REGROW), DX unchanged
     call OSAPI_MEM_REGROW
-    mov [dvw_pseg], dx
-    call dvw_patch
+    call dvw_preloc                 ; [dvw_pseg] = DX, and the stubs
     call dvw_relax                  ; movable until a program runs in it
     clc
 .out:
@@ -145,6 +133,12 @@ dvw_pfetch:
     pop ax
     ret
 
+; dvw_preloc - the part's claim has MOVED (SPEC.md 66.2): DX = where it is now,
+; DS = CS = ours. Nothing names it between runs but [dvw_pseg] and the stubs:
+; the world is out, the part's own copy of the host's segment is rewritten at
+; the next start. dvw_pfetch's store too. Every register preserved
+dvw_preloc:
+    mov [dvw_pseg], dx              ; ...and on into dvw_patch
 ; dvw_patch - the part's segment into every stub; every register preserved
 dvw_patch:
     push ax
@@ -162,14 +156,6 @@ dvw_patch:
     pop ax
     ret
 
-; dvw_preloc - the part's claim has MOVED (SPEC.md 66.2): DX = where it is now,
-; DS = CS = ours. Nothing names it between runs but [dvw_pseg] and the stubs:
-; the world is out, the part's own copy of the host's segment is rewritten at
-; the next start, and dvw_patch keeps every register
-dvw_preloc:
-    mov [dvw_pseg], dx
-    jmp short dvw_patch
-
 ; dvw_pin / dvw_relax - the claim pinned for a run (the IVT, the worker's
 ; frames and the program's interrupted CS:IP name it), or movable again once
 ; no run is in; both preserve every register and the flags
@@ -178,6 +164,20 @@ dvw_pin:
     push ax
     xor ax, ax
     jmp short dvw_rloc
+; hent_dvw_onclose - OSAPI_WM_ONCLOSE's callback. With no program running the
+; part may not even be fetched, and the close is simply allowed (CF = 0 off
+; the compare)
+hent_dvw_onclose:
+    cmp byte [dvw_run], 0
+    jne hent_dvw_onclosef
+    ret
+
+; hent_dvw_wake - dos_wake's tail, while a program runs: the part's wake,
+; and THEN the claim made movable if that wake ended the run. Never inside the
+; part's wake: it calls host routines that claim (dos_drv_back remounts the
+; drivers), and a compaction there would move code that is on the stack
+hent_dvw_wake:
+    call hent_dvw_wakef             ; ...and on into dvw_relax
 dvw_relax:
     pushf
     push ax

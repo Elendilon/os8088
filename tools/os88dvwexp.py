@@ -201,22 +201,11 @@ def check(mappath, root=None):
                     err(src, n, "HICALL through %r, which is not a host cell"
                         % rest.strip(), code)
                 continue
-            if mnem == "HREF":
-                inner = re.findall(r"\[([^\]]*)\]", rest)
-                if not inner or "HS" not in inner[0] or \
-                        not any(t in host for t in ID.findall(inner[0])):
-                    err(src, n, "HREF must name ONE host cell as [HS cell]", code)
-                continue
             if mnem in ("HOSTDS", "HOSTES", "PARTDS", "PARTES", "DVW_HBIND",
                         "DVW_POSTRET", "DVW_CLRDK", "DVW_PCOPY", "DVW_PCEND",
-                        "DVW_PESDS", "DVW_PESEND"):
+                        "DVW_PESDS", "DVW_PESEND", "DVW_LOWSTK"):
                 continue
             if mnem == "PARTCS":
-                continue
-            if mnem == "HSEGTO":
-                if rest.strip() not in part:
-                    err(src, n, "HSEGTO into %r, which is not a part cell"
-                        % rest.strip(), code)
                 continue
             if mnem == "PCALL":
                 err(src, n, "PCALL is the HOST's way into the part, not the "
@@ -243,8 +232,8 @@ def check(mappath, root=None):
             # --- segment values ----------------------------------------------
             if re.search(r"\bpush\s+cs\b", body) or \
                     re.search(r",\s*cs\s*$", body.strip()):
-                err(src, n, "CS as a value: HOSTDS/HOSTES/HSEGTO if it means the "
-                    "host, PARTDS/PARTES/PARTCS if the part", code)
+                err(src, n, "CS as a value: HOSTDS/HOSTES (or DS where DS is the "
+                    "host) if it means the host, PARTDS/PARTES/PARTCS if the part", code)
                 continue
             # --- branches -----------------------------------------------------
             if BRANCH.match(ml) or ml in ("call", "jmp"):
@@ -274,21 +263,19 @@ def check(mappath, root=None):
                 toks = ID.findall(inner)
                 seg = re.match(r"\s*(cs|ds|es|ss)\s*:", inner)
                 ps = "PS" in toks
-                hs = "HS" in toks
                 for t in toks:
-                    if t in ("PS", "HS") or t in REGS:
+                    if t == "PS" or t in REGS:
                         continue
                     if t in part:
                         if not ((seg and seg.group(1) == "cs") or ps):
                             err(src, n, "the part's %r with no segment: DS is the "
                                 "host's in the part - [PS %s]" % (t, t), code)
                     elif t in host:
-                        if hs:
-                            err(src, n, "HS outside HREF", code)
-                        elif ps:
+                        if ps:
                             err(src, n, "PS on the HOST's %r" % t, code)
                         elif seg and seg.group(1) == "cs":
-                            err(src, n, "the host's %r through CS: HREF" % t, code)
+                            err(src, n, "the host's %r through CS: DS is the host's in "
+                                "the part (HOSTDS)" % t, code)
                         elif seg:
                             err(src, n, "the host's %r through %s: (`; %s:` and "
                                 "why)" % (t, seg.group(1), OK), code)

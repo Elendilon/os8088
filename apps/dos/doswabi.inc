@@ -118,7 +118,6 @@ DVWE_NCALL   equ 8              ; ...the first eight are CALL entries
 ; --- the part's arms ---------------------------------------------------------
 %define PS cs:                  ; a part cell, reached while DS is the host's
 %define PSRC cs                 ; a string op's SOURCE in the part: `PSRC lodsw`
-%define HS                      ; inside HREF: the host cell, through DS
 %define HENT(x) hent_ %+ x      ; a part routine handed out as a NEAR entry:
                                 ; the host's stub for it (doswr.inc)
 %macro HCALL 1
@@ -137,22 +136,15 @@ DVWE_NCALL   equ 8              ; ...the first eight are CALL entries
 %macro HOSTES 0
     mov es, [cs:dvw_hseg]
 %endmacro
-%macro HSEGTO 1                 ; [%1] = the host's segment (a part cell)
-    push ax
-    mov ax, [cs:dvw_hseg]
-    mov [cs:%1], ax
-    pop ax
-%endmacro
-; HREF - ONE instruction naming a HOST cell from code whose DS is not the
-; host's (an interrupt). The operand is written `[HS cell]`. DS is banked in a
-; part cell and not on the stack, because one site (dvw_tolow) runs with SS
-; switched and SP not yet: so every HREF must run with IF = 0, which both do
-DVW_HREF_SITES equ 2
-%macro HREF 1+
-    mov [cs:dvw_tds], ds
-    mov ds, [cs:dvw_hseg]
-    %1
-    mov ds, [cs:dvw_tds]
+; DVW_LOWSTK - dvw_tolow's SS:SP = LOW_SEG:[dos_dstk], a HOST cell read from
+; code whose DS is anybody's (IF = 0). SS itself is the host for one load:
+; SS is what is being replaced anyway, so nothing is banked to reach the
+; cell. (This was HREF, which banked DS in a part cell for two sites; the
+; other, dvw_cpace's, is reached with DS the host's now.)
+%macro DVW_LOWSTK 0
+    mov ss, [cs:dvw_hseg]
+    mov sp, [ss:dos_dstk]   ; DVWCHK-OK: SS is the host for this one load
+    mov ss, [cs:dvw_lss]
 %endmacro
 ; DVW_HBIND - at the head of dvw_start, the one entry that runs first in a
 ; run: the host's segment into dvw_hseg and every HCALL dword (DS = the host)
@@ -160,9 +152,20 @@ DVW_HREF_SITES equ 2
     call dvw_hbind
 %endmacro
 ; DVW_POSTRET - dvw_post's one way back to the core, which near-called a HOST
-; stub: the ten popped, then a far jump to a host `ret`
+; stub: the ten popped, then a far jump to a host `ret`, which pops the core's
+; own near return with CS the host's. Its one site, so the pops are here
 %macro DVW_POSTRET 0
-    jmp dvw_rpopf
+    pop ax
+    pop bx
+    pop cx
+    pop dx
+    pop si
+    pop di
+    pop bp
+    pop es
+    pop ds
+    popf
+    jmp far [cs:dvwx_ret]
 %endmacro
 ; DVW_CLRDK - dvw_start's `done, kill` word: done is the host's (the
 ; resident worker sets it), kill the part's
@@ -200,7 +203,6 @@ DVW_HREF_SITES equ 2
 ; --- the inline (and the split host's) arms: the identity --------------------
 %define PS
 %define PSRC
-%define HS cs:
 %ifdef DVW_SPLIT
  %define HENT(x) hent_ %+ x     ; the split host names the part's entries by
 %else                           ; their stubs, and nothing else of the part
@@ -223,11 +225,9 @@ DVW_HREF_SITES equ 2
     push cs
     pop es
 %endmacro
-%macro HSEGTO 1
-    mov [%1], cs
-%endmacro
-%macro HREF 1+
-    %1
+%macro DVW_LOWSTK 0
+    mov ss, [cs:dvw_lss]
+    mov sp, [cs:dos_dstk]
 %endmacro
 %macro DVW_HBIND 0
 %endmacro
