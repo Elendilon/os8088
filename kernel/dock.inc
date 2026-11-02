@@ -1075,9 +1075,9 @@ db_draw_tile:
 ; in:  CX = x, DX = y (absolute)
 ; out: CF = 1 the point is not in the strip at all;
 ;      CF = 0 the strip owns it, and DI = the LIVE instance record under the
-;      pointer with AL = its slot - or DI = 0 for the bare strip, the gap
-;      between two tiles, a slot past the last, and an empty or dying one.
-; clobbers: AX, DI (the outputs)
+;      pointer - or DI = 0 for the bare strip, the gap between two tiles, a
+;      slot past the last, and an empty or dying one.
+; clobbers: AX, DI (DI the output)
 ;
 ; Lifted whole out of db_click when the right button wanted the same find
 ; (SPEC.md 30.2). Factored rather than copied because "which records have a
@@ -1110,13 +1110,13 @@ db_hit:
     jae .in
     call inst_ptr               ; DI = record (in: AL = index; AX survives)
 %ifdef KERN_BIG
-    push ax                     ; AL, the slot, is an output
     call db_key                 ; AX = 0: no tile - empty, dying or a DESK
     or ax, ax                   ; instance (SPEC.md 30). "Which records have
-    pop ax                      ; a tile" is ONE question (SPEC.md 29.2 rule
-    jnz .in                     ; 3), and db_key already asks all of it -
+    jnz .in                     ; a tile" is ONE question (SPEC.md 29.2 rule
+                                ; 3), and db_key already asks all of it -
                                 ; three bytes under asking it again here
-                                ; (kernel size pass 13). `pop` writes no flag
+                                ; (kernel size pass 13). AX is not an output
+                                ; (kernel size pass 17: nothing read the slot)
 %else
     cmp byte [di+I_STATE], 1
     je .in                      ; live: DI is the answer
@@ -1228,15 +1228,16 @@ db_click:
 ; consumed and drops NOTHING - a press there is neither a tile nor the
 ; desktop, and a menu about no application would be a menu with nothing in it.
 ;
-; **The record pointer does not survive the tracker; the slot does.**
+; **The record's STATE does not survive the tracker; its address does.**
 ; menu_popup holds the button and yields (SPEC.md 12.4), so a package worker
-; can reach inst_task_die and free the very record this menu is about. So the
-; SLOT is banked - ON THE STACK, which is the UI task's own and which the
-; tracker's yields do not touch; what cannot survive is the RECORD POINTER,
-; not a small integer - re-resolved afterwards, and re-tested for I_STATE = 1
-; before anything is done to it. Nothing can refill the slot in that window -
-; inst_alloc runs on the UI task, which is standing inside menu_drop - so the
-; state test is sufficient and the I_WIN test after it is insurance.
+; can reach inst_task_die and free the very record this menu is about. The
+; pointer itself is a slot of the static inst_tab (inst_ptr is arithmetic
+; and nothing else), held in DI, which menu_popup preserves - so what is
+; re-tested afterwards is I_STATE = 1, before anything is done to it. (It
+; banked the slot and called inst_ptr again until kernel size pass 17: the
+; same address.) Nothing can refill the slot in that window - inst_alloc
+; runs on the UI task, which is standing inside menu_drop - so the state
+; test is sufficient and the I_WIN test after it is insurance.
 ;
 ; Unbilled, exactly like menu_track and fm_rclick (SPEC.md 13): a held
 ; button's dwell time is nobody's CPU cost, and the command that follows
@@ -1254,20 +1255,18 @@ db_rclick:
     or di, di
     jz db_click.consumed      ; bare strip: consumed, and no menu
 
-    push ax                     ; AL = the SLOT - see above. menu_popup is
-    call gfx_lock               ; "clobbers: AX (the result); everything else
-    mov dx, [vid_dock_y0]       ; preserved", so SP balance across it is
-    sub dx, DOCK_CTX_H          ; contractual. The menu sits ABOVE the strip
-    mov bx, dock_ctx_items      ; rather than on it: CX, the press x, is still
-    mov ax, DOCK_CTX_N          ; the anchor
+    call gfx_lock               ; menu_popup is "clobbers: AX (the result);
+    mov dx, [vid_dock_y0]       ; everything else preserved", so DI - the
+    sub dx, DOCK_CTX_H          ; record - comes back as db_hit left it. The
+    mov bx, dock_ctx_items      ; menu sits ABOVE the strip rather than on it:
+    mov ax, DOCK_CTX_N          ; CX, the press x, is still the anchor
     call menu_popup             ; CF = 1 nothing chosen; else AL = the item,
-    pop ax                      ; and 'Close' is the only one there is. POP
-    jc .rdone                   ; spends no flag, so the CF here is still
-                                ; menu_popup's - and the stale AH it brings
-                                ; back is harmless (inst_ptr reads AL)
+    jc .rdone                   ; and 'Close' is the only one there is
 
-    call inst_ptr               ; the tracker yielded: find the record again,
-    cmp byte [di+I_STATE], 1    ; and take it only if it is still live
+                                ; the tracker yielded: take the record only
+    cmp byte [di+I_STATE], 1    ; if it is still live (kernel size pass 17:
+                                ; DI is the same slot's record, so the slot
+                                ; is no longer banked and found again, -5)
     jne .rdone
     mov bx, [di+I_WIN]
     or bx, bx
