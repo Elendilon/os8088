@@ -9187,6 +9187,21 @@ SOAK = [
         "counts the lines (DHL`s DH_LINES); this counts what a user can SEE, "
         "which is the thing the count is a proxy for.",
         needs=("marty",), serial=True),
+    Row("doshercwin", "soak", py("tests/doshercwin.py"), 25.0,
+        "THE DOS WINDOW ON A HERCULES IS SNUG ROUND ITS 80x25 (SPEC.md "
+        "96.32.5). The owner, off the pc5150: make the window FIT rather than "
+        "take the full width - and of the height, 80x25 matters more than "
+        "the dock, so 'not bigger than it needs to be'. The Hercules row of "
+        "dos_pref asked for 720, so the frame spanned the screen with 40 px "
+        "of empty window either side of the 640-px band. TWO LEGS on "
+        "os8088_5150_herc_gla: the GEOMETRY (frame on the screen, content "
+        "exactly the band's 640 px with both borders, origin on the 8-px "
+        "grid, 239 tall, 80x25 with all 25 rows shown and vtop 0) and the "
+        "GLASS (output pushed until the cursor is on row 24, and that row "
+        "has ink in Hercules VRAM in guest coordinates). VERIFIED RED on "
+        "the build before 96.32.5: `the frame is 720 wide, content 720 "
+        "against a band of 640`. Measured 13 s host.",
+        needs=("marty",), serial=True),
     Row("dirwshed", "soak", py("tests/dirwshed.py"), 60.0,
         "THE DIRECTORY READ-AHEAD WINDOW IS 32K A DOS PROGRAM CAN HAVE "
         "(SPEC.md 66.10.4). 50.6.6 gave a claimant a FLOOR - \"compact the "
