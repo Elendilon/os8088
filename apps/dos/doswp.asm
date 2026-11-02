@@ -55,6 +55,8 @@ dvwe_fsmain:  call dvw_fsmain       ; DVWE_FSMAIN
               retf
 dvwe_runprog: call dvw_runprog      ; DVWE_RUNPROG
               retf
+dvwe_regrow:  call dvw_regrow       ; DVWE_REGROW
+              retf
 dvwe_post:    jmp strict near dvw_post  ; DVWE_POST - a JUMP: the door stub's
               db 0xCC               ; return is the word dvw_post reads
 dvwe_fin:     jmp strict near dvw_fin   ; DVWE_FIN - a JUMP: the core's return

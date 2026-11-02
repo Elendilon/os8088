@@ -177028,7 +177028,16 @@ disabled pen, a press on it does nothing, and `dos_run` ignores it. Ticked
 under arm 0 it greys `Hard drives` and `Network` instead, because a run in the
 window unmounts no driver and publishes no packet driver (§96.54), and the
 arena figure is the window's: what the what-if and the dial answer, capped at
-the limit or `DVW_DEFKB` (§96.54.2), with no driver term.
+the limit or `DVW_DEFKB` (§96.54.2), with no driver term - and with the limit
+empty it reads `128KB+`, the `+` being §96.54.2.1's Automatic limit, which a
+program bigger than 128 KB raises.
+
+`Close when done` moves it too (§96.44.20): a headless run is the bracket
+with part 1 never claimed, so the figure adds `DOS_WTAILKB` - part 1's length
+in KB, rounded DOWN, which is what `doshead` measures the arena growing by
+less one for the rounding. `dos_mem_row` is the one routine the page and
+every control that moves the figure call, the page's paint included, so the
+two boxes and the radio redraw it the same way.
 
 **The shortcut carries it** in §96.25.2.1's boxes byte as `LNK_BX_WIN`
 (0x20), SET = ticked: an older link has the bit clear, which is the box's
@@ -189744,10 +189753,115 @@ memory size, defaulted, overridden by the program's own settings.
 windows at once and is red with the cap removed: the second claim fails.
 
 **A program the cap is too small for says so in the window's own terms**:
-`DER_FIT` after a run that used the default (`[dvw_cap]` differs from the
-user's `[dos_memkb]`) reads *"Too big for a window's 128K - raise Setup's
-Memory limit."*, where the bracket's sentence names "Shut down the OS", which
-is no way out for a window. Microsoft Works is the first program it met.
+`DER_FIT` after a run that used the default (no limit of the user's, and
+`[dvw_cap]` still `DVW_DEFKB` - §96.54.2.1 says when that is) reads *"Too
+big for a window's 128K - raise Setup's Memory limit."*, where the bracket's
+sentence names "Shut down the OS", which is no way out for a window.
+Microsoft Works is the first program it met.
+
+##### 96.54.2.1 An EMPTY limit is Automatic, and it grows to the program
+
+The Memory limit field has always had two states: a number, which is the
+user's decision, and **empty**, `[dos_memkb]` = 0, which said "as much as the
+machine will give" in the bracket and `DVW_DEFKB` in a window. Empty is
+**Automatic** now, and in a window it means *128 KB, or what the program
+needs if that is more*. No new control and no new state: the empty field was
+already distinguishable from a typed `128`, and a `.LNK`'s memory block
+(§96.25.2.1) already carries 0 for it.
+
+WordPerfect 4.1 is why. Its load module is 134,512 bytes - 4.5 KB past what
+128 KB leaves once the PSP and the file window are off it - so every window
+run of it was *"Too big for a window's 128K"*, and the user had to find the
+field, guess a number and run again, for a program whose header had said
+exactly what it needed all along.
+
+**The header decides, after the loader refuses.** A windowed run under an
+Automatic limit that ends in `DER_FIT` calls `dvw_regrow` (the windowed part,
+§96.54.9 - not one byte of it resident): it reads the program's first sector
+again with `OSAPI_FILE_READ_AT` into the arena it still holds, and for an MZ
+header takes the larger of the loader's two fit tests -
+
+- `dos_load`'s: the FILE, header and all, `e_cp` pages, must fit the block,
+  because the header is read in before the move that strips it (§96.8.2);
+- `dos_exe_setup`'s: PSP + image + `e_minalloc` (§96.14.3) - spelled as the
+  pages plus `e_minalloc - e_cparhdr`, which over-counts the image by under a
+  page and never under-counts it;
+
+plus the PSP's 16 paragraphs. The shortfall is measured against the block
+the 128 KB cap actually produced, so the file window off the arena's top
+(§96.11) is in it without being computed. The cap rises by that many KB
+**rounded up to `DVW_STEPKB` = 16 KB**, the arena is freed, and `dos_run`
+sizes again from `.floor` - the posted compaction and its wake included,
+which skip the line that resets the cap to `DVW_DEFKB`, so a raise outlives
+the pass it posted. WordPerfect's window is **144 KB**.
+
+**It is DOS's own rule, and it stops where DOS stops.** `e_minalloc` is what
+a program says it cannot load without; `e_maxalloc` (almost always `FFFFh`)
+is what it would take if offered. Real DOS hands an `FFFFh` program the
+largest free block, which in a window is the thing being rationed - so the
+raise grants the MINIMUM and rounds it up a step, and a program that wants
+working memory past its load requirement gets what is left of that step. A
+program that needs more than that is one a user should size by hand, and the
+field still takes a number.
+
+**What it refuses, and in which words:**
+
+- **a limit of the user's own** - any number, `128` included - refuses as it
+  always did: a typed number is a decision (`dvw_regrow` returns at once);
+- **a machine that cannot give the cap** - the arena came back smaller than
+  `[dvw_cap]` - is not a cap problem, so no raise is tried and the sentence is
+  the bracket's *"Not enough RAM..."* (`[dvw_cap]` is cleared for
+  `dos_err_line`). A raise the heap cannot meet ends the same way on the
+  second pass: the arena is short of the raised cap, which is that test;
+- **a `.COM`** never gets here - it is 64 KB by construction;
+- **a file the loader refused WHOLE** - a compressed `.EXE`, whose raw first
+  bytes are the wrapper (§20.14.3), or kern_small, whose `READ_AT` granule is
+  a cluster and refuses one sector - has no header to read, keeps 128 KB, and
+  says *"Too big for a window's 128K"*, which is still the right advice. The
+  sector is read AGAIN rather than trusted where the loader left it for this
+  reason: a file refused whole was never read, and the arena holds whatever
+  the heap held last.
+
+Every raise is at least one step, so the retry cannot go round: the second
+pass either fits, or finds the arena short of the cap and stops.
+
+**What a bigger window costs**, which is the reason 128 KB is a default and
+not a ceiling: the arena is claimed for the whole run, and while it stands
+every other package's claim - a second DOS window, a Paint canvas, the disk
+cache's next width - comes out of what is left (§96.54.2's first paragraph).
+So the raise takes exactly the program's own requirement, rounded to a 16 KB
+step so that the heap is not cut into odd sizes run after run, and never the
+machine; a raised window is as large as WordPerfect needs and no larger, and
+the next launch in the same window starts from 128 KB again.
+
+**Cost**, measured: the windowed part (`doswp.bin`, part 7, fetched only for
+a run in the window) **+138 bytes**; the resident host (part 0) **+28** - the
+reset of the cap on a launch's first pass (6), the retry at `.freeerr` (15),
+the part's new entry stub (6) and one byte to read the cap instead of a
+constant; the window's tail (part 1) **+6**, `dos_err_line`'s second test;
+the Setup part (part 6) **+8** for the `+` and the headless term, after
+`dos_paint_mem` drew its row through `dos_mem_row` instead of a copy of it.
+A windowed instance's region is therefore 34 bytes larger; `DOS.O88` on the
+disk 54,078 -> 54,279 (+201 packed), and the one-image `dos.o88` +164.
+
+**Measured on MartyPC**: WordPerfect 4.1, typed at the console with the box
+ticked and the field empty, runs in a **144 KB** window and edits; the
+fixture's 136 KB image with 16 KB of `e_minalloc` is given **176 KB** (161
+needed: the larger test, the PSP, the 34 paragraphs in front of the PSP and
+the 8 KB file window). `doswgrow` is the row: that fixture
+(`tests/dostrap/dwbig.asm`) runs in a window under Automatic, the figure
+reads `128KB+`, and a typed `128` reads `128KB` and refuses it.
+
+**The Setup page says so** (§96.32.2.4): with `Run in a window` ticked and
+the field empty the figure is **`128KB+`** - the window's default, and the
+`+` that a bigger program raises it. The `+` is the cell after `KB` in
+`[dos_marn]`, and a BLANK otherwise - not a NUL, because the row is one
+opaque run and a run one cell shorter leaves the last `+` on the glass (the
+first build did exactly that, `487KB+` with no `+` in memory). The label gave
+its trailing blank for the cell, so the row is no wider than it was: the
+five-wide field pads with blanks anyway. It is not
+shown when the machine itself has 128 KB or less, the machine being the
+figure then.
 
 #### 96.54.3 What a window costs a running program, and the exchange as copies
 
