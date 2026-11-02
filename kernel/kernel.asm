@@ -4493,7 +4493,9 @@ api_rxc:  ; STKBALANCE-OK: pops the rare cell's return address - it IS the targe
     pop es                      ; ES = the caller's DS
     KDS
                                 ; DS = KERNEL_SEG (api_far reads its word by it)
-    call KERNEL_SEG:api_far     ; COLD_SEG:BP, and the body's retf lands here
+    push cs                     ; COLD_SEG:BP, and the body's retf lands here:
+    call api_far                ; the far frame is CS and a near call (-1 a
+                                ; site on `call KERNEL_SEG:`, kernel size pass 17)
     jmp short api_x.done
 
 ; The rare SLOT bodies (OSAPI_RCSLOT for a .cold routine, OSAPI_RSLOT for a
@@ -4507,16 +4509,17 @@ api_rsc:  ; STKBALANCE-OK: pops the rare cell's return address - it IS the targe
     mov bp, [cs:bp]
     push ds
     KDS
-    call KERNEL_SEG:api_far     ; COLD_SEG:BP
-    pop ds
-    pop bp
-    retf
+    push cs                     ; COLD_SEG:BP (the far frame as api_rxc's)
+    call api_far
+    jmp short api_rs.tail       ; api_rs's own three-instruction tail (kernel
+                                ; size pass 17, -1: a rare cell's jump)
 api_rs:  ; STKBALANCE-OK: pops the rare cell's return address - it IS the target word's address, and the push bp the cell made is the frame
     pop bp
     mov bp, [cs:bp]
     push ds
     KDS
     call bp
+.tail:
     pop ds
     pop bp
     retf
@@ -4541,7 +4544,10 @@ api_rs:  ; STKBALANCE-OK: pops the rare cell's return address - it IS the target
 %else                           ; immediate a 286 can push and DS is not read.
  %define API_COLDSEG [api_coldseg] ; ONE push line either way: stkbalance
 %endif                          ; reads the source and not the %ifdef
-api_far:
+api_far:                        ; ovlchk: builds its own far frame - its
+                                ; retf is a jump to COLD_SEG:BP, and the BODY's
+                                ; retf takes the frame the caller made with
+                                ; `push cs / call api_far` (kernel size pass 17)
     push word API_COLDSEG
     push bp
     retf
@@ -4618,7 +4624,8 @@ api_rn:  ; STKBALANCE-OK: pops the rare cell's return address - it IS the target
                                 ; DS = KERNEL
     call inst_vol_enter         ; this instance's own folder (SPEC.md 19.2.1);
     mov si, api_name            ; preserves every register and the flags
-    call KERNEL_SEG:api_far     ; COLD_SEG:BP, the cold file door
+    push cs                     ; COLD_SEG:BP, the cold file door (the far
+    call api_far                ; frame as api_rxc's)
     pop si
     pop ds
     pop bp
