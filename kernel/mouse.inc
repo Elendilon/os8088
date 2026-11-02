@@ -1176,81 +1176,9 @@ mou_settle:
     ret
 %endif
 
-; -----------------------------------------------------------------------------
-; mou_claim - one more complete packet, on port BX (SPEC.md 9.5)
-;
-; [mou_need] of them IN A ROW on one port settles [mou_port] and sets
-; [mou_seen]. The run is per port, like the decoder that feeds it, so the two
-; ports race independently and whichever gets there first is the mouse.
-;
-; A run, and not the first packet, because a well-formed Microsoft packet is
-; only "a byte with bit 6 set, then two without" - and a modem's 'O','K',CR,LF
-; is exactly that. So is 'RING'+CRLF, and so is 'NO CARRIER'+CRLF: each of
-; them completes ONE packet, which under a first-past-the-post rule handed the
-; mouse's slot to the modem and masked the real mouse off for the session.
-;
-; But a COUNT alone is not enough either, and that is worth stating because it
-; is what a first attempt got wrong: nothing decayed, so four result codes
-; seconds apart accumulated to a run of four exactly as four mouse packets
-; would. What actually separates a mouse from ASCII is not how many packets
-; complete but that a mouse's bytes are ALL of them - they arrive in threes
-; with nothing between - so the ISR breaks the run on either protocol
-; violation: a bit-6 byte arriving mid-packet (a resync) and a bit-6-clear
-; byte arriving between packets (a stray). Every modem string above dies on
-; its second byte: 'RING' is R then I, both bit-6, and that is a resync.
-; mou_hotplug's reset edge clears the run too, so nothing can be built up
-; across one.
-;
-; The residual is a port carrying BINARY traffic in the seconds before the
-; mouse is first moved - random bytes do satisfy the protocol occasionally,
-; and MOU_LOCKN is what prices that: eight clean packets is 24 bytes that all
-; had to fall right, against a mouse that emits them in a fifth of a second of
-; motion. It is bounded anyway by mou_lockon masking the loser the moment the
-; mouse is found.
-;
-; Nothing the OTHER port does can break this port's run, and that separation is
-; the whole reason the decoders are per port. It was shared once, and a modem
-; chattering on COM1 then reset the run of a mouse moving on COM2 - so the
-; mouse never reached the threshold and never claimed its port at all, while
-; the modem's own violations kept it from claiming one either. A device that
-; cannot win must not be able to stop the one that should.
-;
-; ISR context, IF = 0.
-; ins:  BX = the port row the packet arrived on
-; outs: none (all registers preserved)
-; -----------------------------------------------------------------------------
-mou_claim:
-    push ax
-    cmp byte [mou_seen], 0
-    jne .out                    ; settled, and never revisited
-    mov ax, [ticks]             ; a line error on this port in the last
-    sub ax, [bx+mou_errt]       ; MOU_ERRQ ticks (SPEC.md 9.5.6): a cable's
-    cmp ax, MOU_ERRQ            ; stream at another baud rate decodes as
-    jae .count                  ; packets now and then - on a ONE-port
-    mov byte [bx+mou_run], -1   ; machine, where one packet settles, within
-                                ; its first frame. Wrap-safe, like [ticks].
-                                ; -1, so the `inc` below makes the run 0 and
-                                ; the compare after it - [mou_need] is never
-                                ; 0 - leaves by .out: the zeroing and the exit
-                                ; in one store (kernel size pass 14, -1; 17
-                                ; bytes, and mouse_unhook's pad went with it)
-.count:
-    inc byte [bx+mou_run]
-    mov al, [bx+mou_need]       ; 1 where the probe found one port, MOU_LOCKN
-    cmp byte [bx+mou_run], al   ; where it found two - and 1 again on a port
-                                ; whose identify burst already named it the
-                                ; only mouse-shaped one (SPEC.md 9.4.1)
-    jb .out
-    mov ah, bl                  ; settled. mou_hotplug's next pass retires
-    mov al, [mou_lfired]        ; every other port - and THIS is the line those
-%ifdef KERN_BIG                 ; packets came in on, which the base cannot say
-    call mou_settle             ; (SPEC.md 9.5.2.1). The [mou_seen] test the
-%else                           ; routine repeats is four lines above, so on
-    MOU_SETTLE_STORES           ; the build where this is the ONLY settle site
-%endif                          ; the stores go in without one
-.out:
-    pop ax
-    ret
+; (mou_claim - one more complete packet on port BX, SPEC.md 9.5 - is written
+; in mou_byte's .pkt arm, its one caller, since kernel size pass 17: the
+; account of the RUN it keeps is there too.)
 
 ; -----------------------------------------------------------------------------
 ; mou_newround - forget every port's part-built packet and part-built run
@@ -1271,7 +1199,8 @@ mou_newround:
     mov [mou_run], ax
     mov [mou_run+2], ax
     pop ax
-    ret
+.ret:                           ; (mou_hotplug's settled exit lands here, a
+    ret                         ; ret within short reach - kernel size pass 17)
 
 ; -----------------------------------------------------------------------------
 ; mou_lockon - the mouse has spoken on port [mou_port]: retire the others
@@ -1362,7 +1291,11 @@ mou_lockon:
 ; -----------------------------------------------------------------------------
 mou_hotplug:
     cmp byte [mou_hpst], 2      ; TERMINAL: the mouse exists and its ports are
-    je .out                     ; settled (.have, below). ONE compare a pass
+%ifdef KERN_BIG
+    je mou_newround.ret         ; settled (.have, below). ONE compare a pass
+%else
+    je .out
+%endif
     push ax                     ; for the rest of the session - and state 2 is
     push bx                     ; reached only through .have, so it implies
     push cx                     ; [mou_seen], which nothing ever clears
@@ -1445,8 +1378,10 @@ mou_hotplug:
     call mou_lockon             ; ...and only then retire the ports the mouse
     mov byte [mou_hpst], 2      ; did not speak on. State 2 is terminal: this
     jmp short .done             ; is one compare per UI pass from here on
-.out:
-    ret
+%ifndef KERN_BIG                ; (kern_big's settled exit is mou_newround's
+.out:                           ; ret, -1, whose odd byte evens mou_claim's
+    ret                         ; move into mou_byte there; kern_small's
+%endif                          ; claim was an even size and keeps its own)
 
 ; -----------------------------------------------------------------------------
 ; mouse_unhook - silence every UART we programmed (IER=0), mask its IRQ again,
@@ -3881,9 +3816,49 @@ mou_byte:
     mov byte [bx+mou_phase], 3  ; third byte: Y low 6 bits, packet complete -
                                 ; and phase 3 rather than 0, so the wheel byte
                                 ; that MAY follow is recognised by position
-    call mou_claim              ; ...and a RUN of them is PROOF OF MOUSE: the
-                                ; port is settled and the hot-plug poller
-                                ; stands down for the session
+    ; --- ...and a RUN of them is PROOF OF MOUSE (it was mou_claim, with this
+    ; one call, until kernel size pass 17: the call and its ret went, and a
+    ; SETTLED port - every packet of the session after the first few - now
+    ; skips the whole arm on one compare where it paid a call, a bank and
+    ; two compares of the same byte). [mou_need] of them IN A ROW on one port
+    ; settles [mou_port] and sets [mou_seen]; the run is per port, like the
+    ; decoder that feeds it, so the two ports race independently and
+    ; whichever gets there first is the mouse. A run, and not the first
+    ; packet, because a modem's 'OK'+CRLF is a well-formed packet; the ISR
+    ; breaks the run on either protocol violation (a resync, a stray), and
+    ; mou_hotplug's reset edge clears it too. Nothing the OTHER port does can
+    ; break this port's run: a device that cannot win must not be able to
+    ; stop the one that should (SPEC.md 9.5).
+    cmp byte [mou_seen], 0
+    jne .settled                ; settled, and never revisited
+    push ax                     ; AL is the packet's third byte
+    mov ax, [ticks]             ; a line error on this port in the last
+    sub ax, [bx+mou_errt]       ; MOU_ERRQ ticks (SPEC.md 9.5.6): a cable's
+    cmp ax, MOU_ERRQ            ; stream at another baud rate decodes as
+    jae .ccount                  ; packets now and then - on a ONE-port
+    mov byte [bx+mou_run], -1   ; machine, where one packet settles, within
+                                ; its first frame. Wrap-safe, like [ticks].
+                                ; -1, so the `inc` below makes the run 0 and
+                                ; the compare after it - [mou_need] is never
+                                ; 0 - leaves by .cout: the zeroing and the exit
+                                ; in one store (kernel size pass 14, -1; 17
+                                ; bytes, and mouse_unhook's pad went with it)
+.ccount:
+    inc byte [bx+mou_run]
+    mov al, [bx+mou_need]       ; 1 where the probe found one port, MOU_LOCKN
+    cmp byte [bx+mou_run], al   ; where it found two - and 1 again on a port
+                                ; whose identify burst already named it the
+                                ; only mouse-shaped one (SPEC.md 9.4.1)
+    jb .cout
+    mov ah, bl                  ; settled. mou_hotplug's next pass retires
+    mov al, [mou_lfired]        ; every other port - and THIS is the line those
+%ifdef KERN_BIG                 ; packets came in on, which the base cannot say
+    call mou_settle             ; (SPEC.md 9.5.2.1). The [mou_seen] test the
+%else                           ; routine repeats is four lines above, so on
+    MOU_SETTLE_STORES           ; the build where this is the ONLY settle site
+%endif                          ; the stores go in without one
+.cout:
+    pop ax
     cmp byte [mou_seen], 0      ; still unsettled? then this packet COUNTS and
     je .jbout                    ; does nothing else. A device on its way to
                                 ; losing the contest must not move the cursor
@@ -3892,6 +3867,7 @@ mou_byte:
                                 ; lowercase letter is the LEFT BUTTON. The
                                 ; packet that SETTLES the port is acted on, so
                                 ; a one-port machine loses nothing at all
+.settled:
     mov dh, [bx+mou_b0]         ; stage the packet out of this port's slot: BX
     mov dl, [bx+mou_b1]         ; belongs to the decode from here on
     mov bl, al                  ; BL = Y low bits, decoded below
