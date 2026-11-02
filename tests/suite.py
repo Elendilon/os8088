@@ -9121,6 +9121,19 @@ SOAK = [
         "program's stack, dvw_kexit's three port instructions). "
         "Measured 13s on MartyPC",
         needs=("marty",), serial=True, wants=("build/os8088-360.img",)),
+    Row("doswleave", "soak", py("tests/doswleave.py"), 30.0,
+        "WHAT A WINDOWED RUN PUTS BACK WHEN IT ENDS (SPEC.md 96.54.12): "
+        "Galaxy Trek closed mid-note left PIT channel 0 at 32x the tick "
+        "rate for the rest of the session. DWLEAVE.COM takes IVT 08h and "
+        "IRQ3's vector directly, sets channel 0 to divisor 2048 and unmasks "
+        "IRQ3; leg 1 closes its window while it spins, leg 2 lets it exit "
+        "(masking IRQ4 on the way, as Trek's exit does). Each leg asserts "
+        "the BIOS tick rate, IVT 0Bh and the 8259 mask as the launch found "
+        "them, then opens the Task Manager off A: by double-click and waits "
+        "for drive A's motor to go off. Red at leg 1 with dvw_fin's `call "
+        "dvw_mend` taken out (655 ticks a second against 22). "
+        "Measured 27s on MartyPC",
+        needs=("marty",), serial=True, wants=("build/os8088-360.img",)),
     Row("doscon", "soak", py("tests/doscon.py"), 40.0,
         "DOS'S CONSOLE, AND THE PROMPT IN IT (SPEC.md 96.33). The band "
         "below the top bar carried three lines of status text and now carries "

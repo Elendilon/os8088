@@ -191030,6 +191030,75 @@ byte-identical. `DOS.O88` **54,658 -> 54,668** on the disk (lz4) and
 `tests/dostrap/dwmode.asm`, and it is measured red at each leg with its fix
 taken out.
 
+#### 96.54.12 What a windowed run puts back at its end: the timer, the PIC, the vectors into the arena
+
+**Reported off the owner's 5150 after 96.54.11**: Galaxy Trek ran in the
+window, and after the window was CLOSED the whole machine was very slow,
+every file read failed (the Task Manager waited 15 s to two minutes and
+toasted *Load failed*), drive A's motor stayed on and windows took a very
+long time to redraw. **The program was stopped, all the way** - the worker
+went back to its idle loop, the arena was freed, no lock was held. What
+outlived it is MACHINE state that §96.54's exchange never covered:
+
+- **PIT channel 0.** Compiled BASIC plays a note (`SOUND`, `PLAY`, the title
+  tune) by writing its own ISR straight into IVT 08h, saving the old one in
+  IVT F0h, and setting channel 0 to divisor 2048 - **32 times the tick
+  rate**, counting 31 ticks itself and chaining the 32nd through `int F0h`.
+  The note's end puts both back. Stopped mid-note by a close, the IVT 08h
+  half is undone by the exchange and the channel 0 half is not: MEASURED on
+  MartyPC's `os8088_5150_herc_gla`, the BIOS tick ran at **~670 a guest
+  second after the close against 22 before it**, for the rest of the session.
+  The kernel's quantum, the double-click window (9 ticks, 15 ms at that rate:
+  the Disk window took two first clicks and opened nothing), every tick-timed
+  wait and the ROM's motor count all run on that clock.
+- **The 8259's mask.** Trek's own exit masks IRQ3 and IRQ4 (`in al, 21h /
+  or al, 18h`) whatever it found - IRQ4 is the serial mouse on COM1.
+- **Vectors outside the exchanged runs** (01h-07h, 0Ah-0Fh, 40h-FFh) that the
+  program pointed into its own memory: Trek's INT 04h and F0h. An IRQ vector
+  among them is code a hardware interrupt runs, in a block the next claim
+  overwrites.
+
+The bracket puts all of this back in `dos_restore_machine` (96.5), and the
+window cannot borrow that: it rewinds the WHOLE table and the BDA, which on a
+live desktop would rewind what other tasks did meanwhile. So `dvw_runprog`
+banks the vector table and the master PIC's mask as the run found them, into
+the core's own `dos_ivt` and `dos_pic1` - cells only the bracket used, so no
+new bss - and `dvw_fin`, which every end passes through (a program's own
+exit, `dvw_kexit`'s terminate, a child's parent's exit), runs `dvw_mend` with
+the world out and IF = 0:
+
+1. **Channel 0 is the kernel's**: `34h`, then divisor 0 - mode 2, exactly the
+   bytes `dos_restore_machine` writes (96.5.3), on the same ground: outside
+   a rate bracket (§53) the desktop's channel 0 is never anything else.
+2. **A vector whose segment lies in the arena is put back** to its banked
+   value. Nothing else is touched, so a driver mounted while the program ran
+   keeps its hook: its image is not the arena.
+3. **The mask is the banked one's unmasked levels, and a level whose vector
+   went back takes its banked bit**: `IMR = (now AND then) OR (then AND put
+   back)`. A level the desktop had live is live again; one the program
+   unmasked for a handler that is now gone is masked again.
+
+Two DOS windows playing at once still share one channel 0, and the first to
+end puts it back under the other's note - that program's note lasts 32 times
+too long, which is the same sharing §96.54's exchange already concedes for the
+whole timer while a program runs. While a note plays the DESKTOP runs at the
+program's rate too; that is the in-window path's, not this section's.
+
+`tests/doswleave.py` is the gate, on `tests/dostrap/dwleave.asm`: a program
+that takes IVT 08h and IRQ3's vector directly, sets channel 0 to divisor 2048,
+unmasks IRQ3 and masks IRQ4, then is closed in the window (leg 1) or exits
+leaving all of it (leg 2). Each leg asserts the vector, the mask and the tick
+rate as launch had them, and that a package then opens off A: by double-click
+and drive A's motor goes off. Red at leg 1 with `call dvw_mend` taken out:
+655 ticks a second against 22.
+
+**Cost**, measured against `cbe76c66`: the window part (part 7,
+`build/doswp.bin`) **4,946 -> 5,072**, +126, and no bss - the bank is the
+core's own `dos_ivt` and `dos_pic1`. The host (`dosp.bin`), the core, every
+other part, `kern_dos` and every kernel are byte-identical. `DOS.O88`
+**54,971 -> 55,098** on the disk (lz4) and **48,823 -> 48,943** as the 360KB
+disk's LZB copy; the inline shape (`build/dos.bin`) 44,301 -> 44,426.
+
 ## 97. PIXELSTEIN 3D — a raycast shooter in a foreign mode (`apps/pixelstein/`)
 
 A first-person shooter in the shape of the 1992 one: a 64×64 grid of cells,
