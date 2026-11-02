@@ -227157,7 +227157,7 @@ A retired driver or module (§118.2.2) is hidden and system, so
 `OSAPI_FILE_DELETE` refuses it `FERR_PROT` and a package has no other way to
 remove one. `FSCHECK.DRV` is kernel code sitting beside System Check
 (§118.14.1), so it does it: Clean Up counts a retired driver among the files
-it removes (*retired - Clean Up removes it*), reads the image if no disk task
+it removes (*dropped from os8088 - Clean Up removes it*), reads the image if no disk task
 has yet, stands in the driver's folder and asks `OSAPI_VOL_CHECK`'s fifth
 verb, **`FSK_DELSYS`** (4), to delete it by name - `DX:SI` an ASCIIZ 8.3 name
 in the caller's folder, no workspace and no run needed.
@@ -227185,12 +227185,15 @@ where an install carries a newer copy, and not every install does - the
 360KB system disk leaves `XMEM.DRV` off (§24.3.1.6), so a machine once
 installed from a larger disk and since upgraded from the 360KB pair keeps an
 `XMEM.DRV` of the old version for ever. So Clean Up removes these too, but
-asks **again** first, once the leftovers are done: *Also remove 2 refused
+asks **again** first, once the leftovers are done: *Also remove 2 unusable
 files?* (*Remove ...* when there were no leftovers to ask about), Cancel
-the default; it counts §118.8.3's files too. Cancel there keeps every one of them and loses nothing the
-first question did. The findings are the Drivers row's three **Broken**
-ones - `driver version #, kernel takes #`, `module version #, kernel takes
-#`, `from build # - the kernel refuses it`.
+the default; it counts §118.8.3's files too. Cancel there keeps every one of
+them and loses nothing the first question did. **The word is UNUSABLE**,
+and the findings say *will not load*: an earlier *refused* read to users as
+something System Check was declining to do, not as the system declining the
+file. The findings are the Drivers row's three **Broken** ones - `driver
+version #, needs # - will not load`, `module version #, needs # - will not
+load`, `from build # - will not load`.
 
 **The kernel judges, again**, with `FSK_DELSYS`'s second form, AH =
 `FSKD_REFUSED` (1) (AH = `FSKD_RETIRED`, 0, is §118.8.1's). System Check
@@ -227218,11 +227221,11 @@ The same question takes two more kinds of file, because the 360KB disks
 leave both behind for good: a package an apps disk stopped carrying is
 never replaced by an upgrade, and neither is `COLDHMA.SYS`, which the 360KB
 system disk does not ship (§24.3.1.6). So the question reads *Also remove N
-refused files?*, and counts:
+unusable files?*, and counts:
 
 - **A package the loader refuses**: the Packages row's two Broken findings,
-  `format #, kernel takes # - will not load` and `damaged header - not a
-  package` - the loader's own tests (§20.2.0), read off the header the scan
+  `package format #, needs # - will not load` and `damaged, or not a
+  program - will not load` - the loader's own tests (§20.2.0), read off the header the scan
   already read. A visible file, so it goes by `OSAPI_FILE_DELETE` like any
   leftover, and the associations are brought up to date after
   (`OSAPI_ASSOC_FLUSH`, incremental), a row for a program now gone being
@@ -227565,7 +227568,7 @@ THE RULE: **a program can have banked a folder's cluster** -
 its own memory, where nothing can put it right. So folders move only when
 no package instance but the caller is open; otherwise the run moves files
 alone and its Defragment row says `NOFOLD` with the count (*folders not
-moved: 1 programs open*). Disk windows are the kernel's and are patched, so
+moved: close other programs (1)*). Disk windows are the kernel's and are patched, so
 they do not count. System Check's own banked folders - where it was, where
 it was launched from - become the root of the volume when folders moved on
 it.

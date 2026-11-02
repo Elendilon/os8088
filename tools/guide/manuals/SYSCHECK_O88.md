@@ -99,7 +99,7 @@ well as yours - the drivers and programs of an install that has grown in
 pieces - and on a hard disk it moves `KERNEL.SYS` too, telling the disk's
 boot sector where it went. It moves folders as well, but only when no other
 program is open, because a program may remember where a folder was: close
-your other programs first, or the report will say *folders not moved*. It
+your other programs first, or the report will say *folders not moved: close other programs*. It
 never moves disk images (`*.IMG`, except a hibernation image), or the
 kernel on a floppy. If you save anything onto the disk while a disk task is running,
 it stops and asks you to scan again rather than work from an out-of-date
@@ -125,7 +125,7 @@ Then, if the check found any, it asks about the files this kernel refuses
 to use: drivers built for another driver version, kernel modules from
 another build, programs built for another version of os8088 or with a
 damaged header, and a `COLDHMA.SYS` that is not this release's: *Also
-remove 3 refused files?* Such a file does nothing but take room. Removing it is safe, but an
+remove 3 unusable files?* Such a file does nothing but take room. Removing it is safe, but an
 install from the release disks is what brings a current copy back, so
 afterwards System Check may list it as missing. A file that the disks you
 installed from do not carry at all - `XMEM.DRV` and `COLDHMA.SYS` are not on

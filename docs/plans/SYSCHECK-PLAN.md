@@ -116,7 +116,7 @@ mockups are [docs/syscheck/design/](../syscheck/design/).
   QEMU) plants `DEBUG.DRV` and requires Clean Up to remove it, and goes red
   with the name taken off the engine's list.
 - [x] **Refused drivers, on a second click (SPEC.md 118.8.2):** as a user
-  Clean Up then asks *Also remove N refused drivers?* and removes the
+  Clean Up then asks *Also remove N unusable files?* and removes the
   drivers and modules this kernel refuses - another driver version, another
   build's module - which no install may bring up to date (the 360KB system
   disk no longer carries `XMEM.DRV`). The engine reads each through the

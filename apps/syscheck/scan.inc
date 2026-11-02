@@ -1866,29 +1866,29 @@ sc_d_usbm:  db 'USBMOUSE.DRV', 0
 sc_d_ems:   db 'EMS.DRV', 0
 
 ; the reasons (SPEC.md 118.1) - each fits FR_RSNN - 1 = 45 characters
-sc_r_novol:    db 'the volume will not read', 0
-sc_r_unread:   db 'there, but it will not read', 0
-sc_r_kmiss:    db 'missing - this volume cannot boot', 0
+sc_r_novol:    db 'the drive could not be read', 0
+sc_r_unread:   db 'could not be read', 0
+sc_r_kmiss:    db 'missing - this disk cannot boot', 0
 sc_r_kempty:   db 'empty - an install stopped part way', 0
 sc_r_kother:   db 'not this release', 39, 's - install again', 0
-sc_r_bmiss:    db 'missing - only an install reads it', 0
+sc_r_bmiss:    db 'missing - needed only to install again', 0
 sc_r_bother:   db 'not this release', 39, 's boot sector', 0
 sc_r_hmaold:   db 'not this release', 39, 's HMA image', 0
-sc_r_notboot:  db 'not one sector ending 55AA', 0
+sc_r_notboot:  db 'not a valid boot sector', 0
 sc_r_differs:  db 'differs from this release', 0
 sc_r_missing:  db 'missing - install again', 0
-sc_r_drvver:   db 'driver version #, kernel takes #', 0
-sc_r_modver:   db 'module version #, kernel takes #', 0
-sc_r_modbld:   db 'from build # - the kernel refuses it', 0
-sc_r_vunk:     db 'differs; its version is unknown', 0
+sc_r_drvver:   db 'driver version #, needs # - will not load', 0
+sc_r_modver:   db 'module version #, needs # - will not load', 0
+sc_r_modbld:   db 'from build # - will not load', 0
+sc_r_vunk:     db 'differs; its version could not be read', 0
 sc_r_kpad:     db 'left by an install that stopped', 0
 sc_r_noapp:    db 'missing - programs keep settings there', 0
-sc_r_retpkg:   db 'retired - Clean Up removes it', 0
-sc_r_pkgfmt:   db 'format #, kernel takes # - will not load', 0
-sc_r_damaged:  db 'damaged header - not a package', 0
+sc_r_retpkg:   db 'dropped from os8088 - Clean Up removes it', 0
+sc_r_pkgfmt:   db 'package format #, needs # - will not load', 0
+sc_r_damaged:  db 'damaged, or not a program - will not load', 0
 sc_r_dupin:    db 'another copy is in ', 0
 sc_r_elsewh:   db 'another folder', 0
-sc_r_cfgbad:   db 'not a settings file this kernel reads', 0
+sc_r_cfgbad:   db 'not a settings file this system can read', 0
 sc_r_wants:    db 'wants ', 0
 sc_r_wants2:   db ', which is missing', 0
 sc_r_ascmiss:  db 'missing - Clean Up rebuilds it', 0
@@ -1897,6 +1897,6 @@ sc_r_ascstale: db 'the program is not there', 0
 sc_r_qfold:    db '\?', 0
 sc_r_root:     db '\', 0
 sc_r_hthis:    db 'a saved session of this build', 0
-sc_r_hother:   db 'another build', 39, 's - discarded at start', 0
-sc_r_hnoimg:   db 'no image beside it', 0
-sc_r_hnoptr:   db 'no pointer - nothing resumes it', 0
+sc_r_hother:   db 'from another build - discarded at next start', 0
+sc_r_hnoimg:   db 'its image file is missing', 0
+sc_r_hnoptr:   db 'nothing will resume it', 0

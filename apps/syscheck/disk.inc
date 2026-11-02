@@ -481,7 +481,7 @@ sc_df1:     db 'FAT copies differ in ', 1, ' of ', 2, ' sectors', 0
 sc_df2:     db 'dot entry names cluster ', 1, ', not ', 2, 0
 sc_df3:     db 'entry ', 1, ' is not a valid entry', 0
 sc_df4:     db 'folder names cluster ', 1, ', off the disk', 0
-sc_df5:     db 'nested ', 1, ' deep - not looked inside', 0
+sc_df5:     db 'nested ', 1, ' deep - its contents not checked', 0
 sc_df6:     db 'chain leaves the disk at link ', 2, 0
 sc_df7:     db 'chain runs into free cluster ', 1, 0
 sc_df8:     db 'chain runs into bad cluster ', 1, 0
@@ -495,9 +495,9 @@ sc_df15:    db 1, ' KB free of ', 2, ' KB', 0
 sc_df16:    db 1, ' clusters marked bad', 0
 sc_df17:    db 1, ' of ', 2, ' files are in pieces', 0
 sc_df18:    db 1, ' files moved, ', 2, ' left in pieces', 0
-sc_df19:    db 'not run: ', 1, ' errors - repair first', 0
+sc_df19:    db 'not run: ', 1, ' errors - run Check and repair', 0
 sc_df20:    db 'not asked', 0
-sc_df21:    db 'folders not moved: ', 1, ' programs open', 0
+sc_df21:    db 'folders not moved: close other programs (', 1, ')', 0
 sc_df22:    db 1, ' folders moved', 0
 sc_df_fixed: db ' (fixed)', 0
 sc_dr_none:  db 'not asked', 0
@@ -513,6 +513,6 @@ sc_de4:     db 'a disk read or write failed', 0
 sc_de5:     db 'the disk changed - scan again', 0
 sc_de6:     db 'not enough memory', 0
 sc_de7:     db 'the disk is write-protected', 0
-sc_de8:     db 'the checker refused the request', 0
+sc_de8:     db 'the disk checker could not do that', 0
 sc_de_noimg: db 'FSCHECK.DRV is not beside SYSCHECK.O88', 0
 sc_n_fsck:  db 'FSCHECK.DRV', 0

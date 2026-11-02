@@ -1073,9 +1073,9 @@
   "sources": [
    "apps/syscheck"
   ],
-  "stamped": "9e229576",
-  "strings": "87ba51abb2228f96",
-  "why": "the second question names programs and COLDHMA.SYS (SPEC.md 118.8.3)"
+  "stamped": "e6d71c79",
+  "strings": "e8b1d6e9ff7d1df3",
+  "why": "the second question's word (unusable) and the defragmenter's folders line as the program now prints them"
  },
  "SYSTEM": {
   "sources": [],

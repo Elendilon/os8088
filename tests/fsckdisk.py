@@ -522,7 +522,7 @@ def leg2(work, fails):
         text = run_task(ui, flush, 3, True, fails)
         print(text)
         need(fails, text, ["files moved, 0 left in pieces",
-                           "folders not moved: 1 programs open"],
+                           "folders not moved: close other programs (1)"],
              "defragment with a program open")
         v1 = Vol(flush.snapshot(1))
         if struct.unpack_from("<H", v1.find("\\FOLD")[1], 26)[0] != fold0:

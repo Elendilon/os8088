@@ -203,19 +203,19 @@ ALERT_PROCEED = (358, 265)  # the alert's Proceed (Cancel is the default)
 
 EXPECT = [                  # (severity, path, a word of the reason)
     ("BROKEN", r"C:\RAMDISK.DRV", "driver version 9"),
-    ("BROKEN", r"C:\XMEM.DRV", "driver version 11, kernel takes 12"),
-    ("BROKEN", r"C:\WIN95.DRV", "the kernel refuses it"),
+    ("BROKEN", r"C:\XMEM.DRV", "driver version 11, needs 12 - will not load"),
+    ("BROKEN", r"C:\WIN95.DRV", "will not load"),
     ("WARNING", r"C:\COLDHMA.SYS", "HMA image"),
     ("BROKEN", r"C:\EMS.DRV", "missing"),
     ("WARNING", r"C:\KPAD.TMP", "install"),
-    ("WARNING", r"C:\DEBUG.DRV", "retired"),
+    ("WARNING", r"C:\DEBUG.DRV", "dropped from os8088"),
     ("WARNING", r"C:\APPS\MINES.O88", r"C:\APPS\GAMES"),
-    ("BROKEN", r"C:\APPS\OLDTIMER.O88", "format 8, kernel takes 10"),
-    ("BROKEN", r"C:\APPS\JUNK.O88", "not a package"),
-    ("WARNING", r"C:\APPS\MODPLUG.O88", "retired"),
+    ("BROKEN", r"C:\APPS\OLDTIMER.O88", "package format 8, needs 10 - will not load"),
+    ("BROKEN", r"C:\APPS\JUNK.O88", "not a program"),
+    ("WARNING", r"C:\APPS\MODPLUG.O88", "dropped from os8088"),
     ("BROKEN", r"C:\SYSTEM.CFG", "EMS.DRV"),
     ("WARNING", r"C:\APPS\NOTEPAD.O88", "not there"),
-    ("WARNING", r"C:\HIBERNAT.IMG", "no pointer"),
+    ("WARNING", r"C:\HIBERNAT.IMG", "nothing will resume it"),
 ]
 REMOVED = ["::/KPAD.TMP", "::/APPS/MODPLUG.O88", "::/HIBERNAT.IMG",
            "::/DEBUG.DRV",          # hidden + system: FSK_DELSYS (118.8.1)
