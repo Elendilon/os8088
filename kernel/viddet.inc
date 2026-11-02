@@ -649,25 +649,28 @@ vid_depth_set:
                                 ; (vidext.inc)
 .notext:
 %endif
-%ifdef GFX_VGA                  ; **ZF IS THE ANSWER AND IT SURVIVES TO THE
-    cmp al, VID_VGA             ; `jne` BELOW**. WITHOUT A VGA RENDERER THERE
-    je .colour                  ; IS NO QUESTION AT ALL: kern_small's kind is a
-    cmp al, VID_EGA             ; CGA or a Hercules on every machine (SPEC.md
-                                ; 39.27.1), and its first compare could only
-                                ; ever answer "1bpp" - so the whole test and
-                                ; its `jne` are a planar kernel's, and AL is
-                                ; not read there (kernel size pass 13). EGA is
-                                ; the same four-plane
-.colour:                        ; 16-colour depth as VGA - mode 10h, just
-                                ; shorter (SPEC.md 39.24) - so `colour` is
-                                ; `al == VID_VGA || al == VID_EGA`, and the
-                                ; two `mov`s between here and the test set no
-                                ; flags. Do not put a flag-setting instruction
+%ifdef GFX_VGA                  ; **CF IS THE ANSWER AND IT SURVIVES TO THE
+    dec al                      ; `jb` BELOW**. WITHOUT A VGA RENDERER THERE
+    cmp al, 2                   ; IS NO QUESTION AT ALL: kern_small's kind is a
+                                ; CGA or a Hercules on every machine (SPEC.md
+                                ; 39.27.1), and its compare could only ever
+                                ; answer "1bpp" - so the whole test and its
+                                ; jump are a planar kernel's, and AL is not
+                                ; read there (kernel size pass 13). EGA is the
+                                ; same four-plane 16-colour depth as VGA -
+                                ; mode 10h, just shorter (SPEC.md 39.24) - so
+                                ; `colour` is VGA or EGA, which vid_bk's `dec`
+                                ; map answers in ONE unsigned compare: VGA ->
+                                ; FF, HERC -> 0, CGA -> 1, EGA -> 2 (kernel
+                                ; size pass 17, -2: it was two compares and a
+                                ; jump; VESA, kind 4, is answered above). The
+                                ; `mov` between here and the jump sets no
+                                ; flag. Do not put a flag-setting instruction
                                 ; in this gap.
 %endif
     mov ax, 0x0101              ; 1bpp: AL -> [vid_mono], AH -> [vid_planes].
 %ifdef GFX_VGA
-    jne .st                     ; The software renderer IS the direct path
+    jb .st                      ; The software renderer IS the direct path
     mov ax, 0x0400              ; there (SPEC.md 39.5); a VGA is 0 and 4.
 .st:
 %endif
