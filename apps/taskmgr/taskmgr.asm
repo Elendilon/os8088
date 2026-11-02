@@ -4168,9 +4168,22 @@ tm_lclick:
 ; =============================================================================
 
 ; -----------------------------------------------------------------------------
-; tm_hover - the worker's poll: re-pick, and on a change move the highlight
-; in:  the worker, NO lock held, [tm_view] = 1
-; out: nothing (all registers preserved)
+; tm_hover - the worker's poll: which group is the pointer over on the map,
+;            and on a change, move the highlight
+; in:  the worker, NO lock held, [tm_view] = 1; the last walk's
+;      tm_claims/tm_cgid
+; out: nothing; clobbers BP (the worker holds nothing in it)
+;
+; THE PICK is AL = the group + 1, or 0 for none - not the front window, not
+; on the map, over free memory. A group listed INSIDE System (Kernel, a
+; driver, a built-in) answers System while System is closed, the row that
+; stands for it then.
+;
+; THE TEST IS THE MAP'S OWN ARITHMETIC RUN BACKWARDS. A band [a, b] KB is
+; drawn from tm_ramkb2x(a) to tm_ramkb2x(b), never narrower than a pixel, so
+; it covers column p exactly when a <= hi and b >= lo, lo and hi being the
+; first and last KB that scale to p (tm_pxkb): two divides, then compares.
+; The LAST record that covers p wins, as the last one drawn there does.
 ; -----------------------------------------------------------------------------
 tm_hover:
     push ax
@@ -4179,127 +4192,6 @@ tm_hover:
     push dx
     push si
     push di
-    call tm_hpick               ; AL = the group + 1, or 0
-    cmp al, [tm_hgid]
-    je .out                     ; the common case: nothing taken, nothing drawn
-    mov [tm_hgid], al
-    call OSAPI_GFX_LOCK
-    mov bx, [tm_win]
-    test word [es:bx+W_FLAGS], 2    ; the refresh's own three refusals
-    jz .un
-    call OSAPI_WM_CLIP_SET
-    jc .un
-    cmp byte [tm_abon], 0       ; (NOT tm_view_begin: [tm_cx]/[tm_cy] are
-    jne .un                     ; where the last walk put the rows, which is
-                                ; the point - a move repaints, and the lock
-                                ; is held)
-    mov al, [tm_hrow]           ; the row that is inverted, back to plain
-    call tm_hxor
-    mov byte [tm_hrow], 0
-    mov al, [tm_hgid]
-    or al, al
-    jz .un                      ; the pointer left: nothing to light
-    dec ax
-    push es
-    push ds
-    pop es
-    mov di, tm_rgid             ; ...and the group's row, where the last walk
-    mov cx, TM_SHOWN            ; put it - none when it is scrolled off, or
-    repne scasb                 ; is not listed (Purgeable without DETAIL)
-    pop es
-    jne .un
-    sub di, tm_rgid             ; DI = the row + 1
-    xchg ax, di
-    call tm_hxor
-    jc .un
-    mov [tm_hrow], al
-.un:
-    call OSAPI_GFX_UNLOCK
-.out:
-    jmp tm_pop_dsdcba
-
-; -----------------------------------------------------------------------------
-; tm_hxor - invert screen row AL - 1 (AL = 0: none), its text band and the
-;           check words that describe it, and put its legend square back
-; in:  AL, gfx lock held, clip armed, tm_view_begin run
-; out: CF = 0 inverted, CF = 1 nothing (no row, or no place on the screen);
-;      every register preserved
-; -----------------------------------------------------------------------------
-tm_hxor:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    or al, al
-    stc
-    jz .out
-    dec ax
-    xor ah, ah
-    push ax
-    mov bx, TMM_ROW_Y           ; tm_mrow_open's placement, exactly
-    sub bx, [tm_xoff]
-    call tm_row_place
-    pop si                      ; SI = the row
-    jc .out
-    mov ax, si
-    mov cl, TM_NCHUNK           ; the row's check words, as tm_row_draw
-    mul cl                      ; indexes them: complemented, because that
-    shl ax, 1                   ; is what the other polarity hashes to. A 0
-    add ax, tm_rowck            ; is "draw me next time" and stays one
-    mov bx, ax
-    mov cx, TM_NCHUNK
-.ck:
-    cmp word [bx], 0
-    je .ckn
-    not word [bx]
-.ckn:
-    inc bx
-    inc bx
-    loop .ck
-    mov ax, [tm_rowx]           ; the band the chunks and the tail cover -
-    add ax, TM_PEN              ; not the lead-in, which is never inverted
-    call tm_rowr
-    mov bx, [tm_rowy]
-    mov dx, bx
-    add dx, 7
-    shl si, 1                   ; ...nor the legend square: a walk draws its
-    cmp word [tm_rsq+si], 0     ; frame and texture over either ground, so
-    je .one                     ; its 8x8 is the same pixels both ways - the
-    push cx                     ; band either side of it, then
-    mov cx, ax
-    add cx, TMH_SQC * 8 - 1
-    call OSAPI_GFX_XOR_FILL
-    add ax, TMH_SQC * 8 + 8
-    pop cx
-.one:
-    call OSAPI_GFX_XOR_FILL
-    clc
-.out:
-    pop si
-    jmp tm_pop_dcba
-
-; -----------------------------------------------------------------------------
-; tm_hpick - which group is the pointer over on the map?
-; in:  nothing (no lock needed: the last walk's tm_claims/tm_cgid)
-; out: AL = the group + 1, or 0 for none - not the front window, not on the
-;      map, over free memory. A group listed INSIDE System (Kernel, a
-;      driver, a built-in) answers System while System is closed, the row
-;      that stands for it then. Everything else preserved
-;
-; THE TEST IS THE MAP'S OWN ARITHMETIC RUN BACKWARDS. A band [a, b] KB is
-; drawn from tm_ramkb2x(a) to tm_ramkb2x(b), never narrower than a pixel, so
-; it covers column p exactly when a <= hi and b >= lo, lo and hi being the
-; first and last KB that scale to p (tm_pxkb): two divides, then compares.
-; The LAST record that covers p wins, as the last one drawn there does.
-; -----------------------------------------------------------------------------
-tm_hpick:
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
     mov bx, [tm_win]
     push bx
     call OSAPI_WM_TOP           ; the front window only: a window lying over
@@ -4307,11 +4199,10 @@ tm_hpick:
     cmp ax, bx
     jne .back
     call OSAPI_MOUSE            ; CX = x, DX = y
-    mov al, [tm_hgid]           ; A POINTER THAT HAS NOT MOVED is over what it
-    cmp cx, [tm_hmx]            ; was over, unless the page has walked since -
-    jne .new                    ; and a walk forgets the place (tm_rows_mem)
-    cmp dx, [tm_hmy]
-    je .out
+    cmp cx, [tm_hmx]            ; A POINTER THAT HAS NOT MOVED is over what it
+    jne .new                    ; was over, unless the page has walked since -
+    cmp dx, [tm_hmy]            ; and a walk forgets the place (tm_rows_mem):
+    je .out                     ; the common case, and nothing more is asked
 .new:
     mov [tm_hmx], cx
     mov [tm_hmy], dx
@@ -4428,19 +4319,104 @@ tm_hpick:
 .top:
     mov al, bl
     inc ax
-    jmp short .out
+    jmp short .pick
 .back:
     mov word [tm_hmx], 0FFFFh   ; not in front: the place is forgotten, so
 .none:                          ; coming back lights what is under it
     xor al, al
+.pick:
+    cmp al, [tm_hgid]
+    je .out                     ; no change: nothing taken, nothing drawn
+    mov [tm_hgid], al
+    call OSAPI_GFX_LOCK
+    mov bx, [tm_win]
+    test word [es:bx+W_FLAGS], 2    ; the refresh's own three refusals
+    jz .un
+    call OSAPI_WM_CLIP_SET
+    jc .un
+    cmp byte [tm_abon], 0       ; (NOT tm_view_begin: [tm_cx]/[tm_cy] are
+    jne .un                     ; where the last walk put the rows, which is
+                                ; the point - a move repaints, and the lock
+                                ; is held)
+    xor al, al                  ; the row that is inverted, back to plain -
+    xchg al, [tm_hrow]          ; and none is, until the next one lights
+    call tm_hxor
+    mov al, [tm_hgid]
+    dec al
+    js .un                      ; the pointer left: nothing to light
+    push es
+    push ds
+    pop es
+    mov di, tm_rgid             ; ...and the group's row, where the last walk
+    mov cx, TM_SHOWN            ; put it - none when it is scrolled off, or
+    repne scasb                 ; is not listed (Purgeable without DETAIL)
+    pop es
+    jne .un
+    sub di, tm_rgid             ; DI = the row + 1
+    xchg ax, di
+    call tm_hxor
+    jc .un
+    mov [tm_hrow], al
+.un:
+    call OSAPI_GFX_UNLOCK
 .out:
-    pop bp
-    pop di
-    pop si
-    pop dx
+    jmp tm_pop_dsdcba
+
+; -----------------------------------------------------------------------------
+; tm_hxor - invert screen row AL - 1 (AL = 0: none): its text band either
+;           side of its legend square, and the check words that describe it
+; in:  AL, gfx lock held, clip armed
+; out: CF = 0 inverted, CF = 1 nothing (no row, or no place on the screen);
+;      every register preserved
+; -----------------------------------------------------------------------------
+tm_hxor:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    sub al, 1                   ; AL = the row, and CF = 1 for none
+    jc .out
+    xor ah, ah
+    mov si, ax                  ; SI = the row
+    mov bx, TMM_ROW_Y           ; tm_mrow_open's placement, exactly
+    sub bx, [tm_xoff]
+    call tm_row_place
+    jc .out
+    mov cl, TM_NCHUNK           ; the row's check words, as tm_row_draw
+    mul cl                      ; indexes them: XOR 0Fh, because that is
+    shl ax, 1                   ; what the other polarity hashes to. A 0 is
+    add ax, tm_rowck            ; "draw me next time" and stays one
+    mov bx, ax
+    mov cx, TM_NCHUNK
+.ck:
+    cmp word [bx], 0
+    je .ckn
+    xor byte [bx], 0Fh
+.ckn:
+    inc bx
+    inc bx
+    loop .ck
+    mov ax, [tm_rowx]           ; the band the chunks and the tail cover -
+    add ax, TM_PEN              ; not the lead-in, which is never inverted
+    call tm_rowr
+    mov bx, [tm_rowy]
+    mov dx, bx
+    add dx, 7
+    shl si, 1                   ; ...nor the legend square: a walk draws its
+    cmp word [tm_rsq+si], 0     ; frame and texture over either ground, so
+    je .one                     ; its 8x8 is the same pixels both ways - the
+    push cx                     ; band either side of it, then
+    mov cx, ax
+    add cx, TMH_SQC * 8 - 1
+    call OSAPI_GFX_XOR_FILL
+    add ax, TMH_SQC * 8 + 8
     pop cx
-    pop bx
-    ret
+.one:
+    call OSAPI_GFX_XOR_FILL
+    clc
+.out:
+    jmp tm_pop_sdcba
 
 ; -----------------------------------------------------------------------------
 ; tm_pxkb - the KB a map column stands for: the first and last KB k whose
@@ -5692,7 +5668,7 @@ tm_rows_mem:
     pop es
     mov [tm_hrow], cl           ; ...and no row is inverted until one is drawn
     dec cx                      ; ...and the hover's pointer place forgotten:
-    mov [tm_hmx], cx            ; what is under it may have changed (tm_hpick)
+    mov [tm_hmx], cx            ; what is under it may have changed (tm_hover)
     call tm_hclamp              ; the scroll offset against what the LAST walk
     mov ax, [tm_htop]           ; counted (SPEC.md 28.4.4), then spend it: a
     mov [tm_hskip], ax          ; row above the view is composed and dropped
@@ -7202,11 +7178,11 @@ tm_row_draw:
     xor ax, ax
     call tm_sumb                ; AX = their hash
 %ifdef TMF_HEAP
-    cmp byte [tm_rinv], 0       ; ...and the hovered row's is its complement,
-    je .hk                      ; so a row that gains or loses the highlight
-    not ax                      ; is a changed row - and tm_hxor, which
-.hk:                            ; inverts the pixels, flips the record to
-%endif                          ; match (SPEC.md 28.4.16)
+    xor al, [tm_rinv]           ; ...and the hovered row's is XOR 0Fh, so a
+                                ; row that gains or loses the highlight is a
+                                ; changed row - and tm_hxor, which inverts the
+                                ; pixels, flips the record to match (SPEC.md
+%endif                          ; 28.4.16)
     mov bx, [tm_ckb]
     call tm_elchk               ; changed? (BX = this chunk's check word)
     jnc .draw
@@ -7253,11 +7229,13 @@ tm_row_draw:
     mov byte [bx], 0            ; buffer has room for the last chunk's, which
                                 ; lands on tm_str[25] of TM_STRMAX = 28
     push ax
+%ifdef TMF_HEAP
+    mov al, [tm_rinv]           ; ...swapped on the hovered row: 0Fh turns
+    mov ah, al                  ; CBLACK into CWHITE and back
+    xor ax, (CWHITE << 8) | CBLACK  ; AL = ink, AH = background: the erase
+%else                           ; and the letters as one decision per cell
     mov ax, (CWHITE << 8) | CBLACK  ; AL = ink, AH = background: the erase
                                 ; and the letters as one decision per cell
-%ifdef TMF_HEAP
-    xor al, [tm_rinv]           ; ...swapped on the hovered row: 0Fh turns
-    xor ah, [tm_rinv]           ; CBLACK into CWHITE and back
 %endif
     call tm_frun                ; (preserves BX, the terminator's address)
     pop ax
@@ -9463,7 +9441,7 @@ tm_pwin     equ tm_okey + TM_NOVL * 2   ; tm_pwes's window, 0 = none yet
 ; --- the map's HOVER (SPEC.md 28.4.16) -------------------------------------
 tm_hgid     equ tm_pwin + 2     ; byte: the group the pointer is over on the
                                 ; map, PLUS ONE - 0 is none, which is what a
-                                ; zeroed bss says at launch (tm_hpick)
+                                ; zeroed bss says at launch (tm_hover)
 tm_hrow     equ tm_hgid + 1     ; byte: the screen row DRAWN inverted, plus
                                 ; one: the truth about the pixels, which is
                                 ; what a toggle un-inverts (tm_hover)
@@ -9474,7 +9452,7 @@ tm_hsub     equ tm_rinv + 1     ; byte: hover polls since the last sample
 tm_hcell    equ tm_hsub + 1     ; 8 bytes: a fraction cell, inverted for the
                                 ; hovered row (tm_frun)
 tm_hmx      equ tm_hcell + 8    ; the pointer where the last pick read it,
-tm_hmy      equ tm_hmx + 2      ; FFFFh in x for "pick again" (tm_hpick)
+tm_hmy      equ tm_hmx + 2      ; FFFFh in x for "pick again" (tm_hover)
 TM_BSS_TOTAL equ tm_hmy + 2 - os88_image_end
 %else                           ; ...and with no list, no groups: the chain
 TM_BSS_TOTAL equ tm_hiend - os88_image_end      ; ends at the pool's

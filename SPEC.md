@@ -65131,7 +65131,7 @@ is lettered INVERTED**, white on black, and goes back when the pointer
 leaves. Full build only; the small build (§28.12) has no list and is
 byte-identical.
 
-**Which row.** `tm_hpick` runs the map's own arithmetic backwards: a band
+**Which row.** `tm_hover` runs the map's own arithmetic backwards: a band
 `[a, b]` KB is drawn from `tm_ramkb2x(a)` to `tm_ramkb2x(b)` and never
 narrower than a pixel, so it covers interior column `p` exactly when
 `a <= hi` and `b >= lo`, `lo` and `hi` being the first and last KB that scale
@@ -65170,8 +65170,8 @@ legend square**, whose 8x8 a walk draws as the same frame and texture over
 either ground, so it is never touched.
 
 **The walk and the toggle agree** because each chunk's check word records
-which polarity is on the glass: `tm_row_draw` complements the hovered row's
-chunk hashes (`[tm_rinv]`), and `tm_hxor` complements the words it inverts,
+which polarity is on the glass: `tm_row_draw` XORs 0Fh into the hovered row's
+chunk hashes (`[tm_rinv]`), and `tm_hxor` XORs the words it inverts the same,
 leaving a 0 - "draw me next time" - a 0. `[tm_hrow]` is the row that IS
 inverted, whoever inverted it, so a walk that runs between a poll and its
 toggle is undone and redone rather than doubled. A walk starts every screen
@@ -65187,15 +65187,15 @@ open):
 
 | | before | after |
 |---|---|---|
-| `TASKMGR.O88` image / bss | 11,449 / 2,487 | 12,045 (+596) / 2,503 (+16) |
-| ...the file on disk (lz4) | 10,176 | 10,676 (+500) |
-| kern_mega's arm, image / bss | 11,841 / 2,617 | 12,529 (+688) / 2,633 (+16) |
-| a poll, pointer still | - | ~1,650 cycles, 0.35 ms, no lock |
+| `TASKMGR.O88` image / bss | 11,449 / 2,487 | 12,011 (+562) / 2,503 (+16) |
+| ...the file on disk (lz4) | 10,176 | 10,649 (+473) |
+| kern_mega's arm, image / bss | 11,841 / 2,617 | 12,495 (+654) / 2,633 (+16) |
+| a poll, pointer still | - | ~1,370 cycles, 0.29 ms, no lock |
 | a pick, pointer moved, on the map | - | ~8,200 cycles, 1.7 ms, no lock |
-| a change of row (two rows, four fills) | a walk, ~50 ms of lock + the two rows lettered | ~80,000 cycles, **16.8 ms**, ~15 of it in the lock |
+| a change of row (two rows, four fills) | a walk, ~50 ms of lock + the two rows lettered | ~79,800 cycles, **16.7 ms**, ~15 of it in the lock |
 | the worker's share of an idle XT, memory page up, pointer still | 4.54% | 5.05% (**+0.5 points**), on the map or off it |
 
-The hover code itself (`tm_hover` to `tm_pxkb`) is 460 bytes; the rest is
+The hover code itself (`tm_hover` to `tm_pxkb`) is 434 bytes; the rest is
 the walk's and the draw's polarity, the worker's poll and the inverted cell.
 **Nothing resident, on any kernel**; the small build is byte-identical. Of
 the toggle's 16.8 ms, ~3 ms are the lock and the clip region and ~3 ms the
@@ -65203,7 +65203,10 @@ unlock's pointer redraw - the price of taking the lock at all - and each
 row's two fills are ~4 ms. The first build redrew each legend square with
 `tm_sq_pat` and refreshed the origin with `tm_view_begin` instead, and its
 toggle measured 143,400 cycles (30 ms); a still pointer re-ran the pick at
-every poll, +1.4 points idle where the cache makes it +0.5.
+every poll, +1.4 points idle where the cache makes it +0.5. A size pass
+then took 34 bytes: the pick folded into `tm_hover`, its only caller, and
+the polarity folded into the hash and the ink pair as one XOR with
+`[tm_rinv]`'s 0Fh rather than a test and a `not`.
 
 ### 28.5 The summary lines sit at `TM_PEN`, so the pane has one inset
 
