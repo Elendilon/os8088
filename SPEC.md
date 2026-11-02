@@ -36421,10 +36421,39 @@ not by calling `dsk_xfer` again, because the routine's head calls `fpg_busy`,
 which may draw, and a draw inside `[sch_lock]` can wait on a gfx lock another
 task holds. At most one sector per 64KB of caller buffer is staged, and a
 512-aligned base (every buffer of the kernel's own making, `clo_size`'s and
-`cmz`'s rounded ones) never reaches it. **The bounce covers BIOS volumes**: a
-`DVK_DRV` volume leaves `dsk_xfer` for its driver before the int 13h loop,
-with the caller's ES:BX and the whole run, and that driver bounds its own
-runs.
+`cmz`'s rounded ones) never reaches it. **The bounce above covers BIOS
+volumes**: a `DVK_DRV` volume leaves `dsk_xfer` for its driver before the
+int 13h loop. §18.91.4.1 is what that volume gets instead.
+
+##### 18.91.4.1 …and a DRIVER volume's straddling sector is cut out in `dsk_xfer` too
+
+This section used to end *"that driver bounds its own runs"*, and it was
+half true. `HDD.DRV`'s rung 0 does bound its runs at the 64KB page
+(`hd_bios_run`), but an UNALIGNED buffer whose next sector crosses the page
+leaves it a run of **zero**, which it answers - correctly, by its own rule -
+as a refusal, status 04h. The kernel promised the caller any offset
+(§18.4.1) and the driver was never told how to keep that promise.
+
+It stayed invisible because nothing read an unaligned buffer off `C:` until
+§96.8.2 made DOS load an `.EXE` with `READ_AT` straight into its arena at
+`PSP+16`, which is wherever the environment put it. A load module over 64KB
+always has a page boundary inside it, so on an XT with an MFM/RLL card
+(`HDD.DRV` rung 0) the sector across it failed and the program read as
+*"It could not be read."* - double-clicked or typed (where it is *"Bad
+command or file name"*) - on the owner's 86Box pc5150 with TREKRUN.EXE,
+70,784 bytes in `C:\DOS`. A boot partition, which `dsk_xfer` itself
+drives, bounced it and was never affected.
+
+**So on `kern_big` the `DVK_DRV` arm cuts the run** (`.drvcut`): a buffer
+that is 512-aligned, or whose run ends before its page does, goes to the
+driver whole exactly as before; otherwise the sectors before the boundary
+go in one call, the one across it goes through `dsk_secbuf` in a call of
+its own (copied in first for a write, out after for a read), and the rest
+carries on from the next page with the segment, not the offset, advanced.
+At most one extra call per 64KB of an unaligned buffer. `kern_mega` keeps
+its own arm - a buffer there may be a selector, which no paragraph
+arithmetic describes - and `kern_small` has no driver volumes at all.
+`tests/drvcut.py` is the gate.
 
 #### 18.91.5 …and on a FIXED disk it is ON, unasked for now - `NOHDCYL=1` the A/B, `HDCYLPROBE=1` the asked arm
 

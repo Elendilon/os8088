@@ -8504,6 +8504,20 @@ SOAK = [
         wants=("build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
                "build/hiber.drv", "build/ctrl.drv", "build/hdd.drv",
                "build/kdos/DOS.O88", "build/SEQCOST.COM")),
+    Row("drvcut", "soak", py("tests/drvcut.py"), 20.0,
+        "A DRIVER VOLUME'S SECTOR ACROSS A 64KB PAGE IS STAGED, NOT REFUSED "
+        "(SPEC.md 18.91.4.1). DOS loads an .EXE with READ_AT into its arena "
+        "at an unaligned PSP+16 (96.8.2); on C: mounted by HDD.DRV rung 0 a "
+        "load module over 64KB has one sector across a DMA page, which the "
+        "driver refuses - TREKRUN.EXE read as 'It could not be read.' on the "
+        "owner's pc5150. DRVCUT.EXE checksums its own 72KB load module off "
+        "an XT-IDE C: and the row compares it with the host's, and asserts "
+        "the buffer really was unaligned. VERIFIED TO FAIL with the plain "
+        "driver call put back.",
+        needs=("marty",),
+        wants=("build/os8088-360.img", "build/kernel.sys", "build/boothd.bin",
+               "build/mbr.bin", "build/hiber.drv", "build/ctrl.drv",
+               "build/hdd.drv")),
     Row("dosmouevt", "soak", py("tests/dosmouevt.py"), 30.0,
         "INT 33h's EVENT HANDLER IS CALLED (SPEC.md 96.10.4). Microsoft Works "
         "'had a mouse' and had none, and 96.10.3's histogram says why in one "

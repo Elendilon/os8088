@@ -1572,11 +1572,11 @@ dsk_xfer:
     call .drvhi                 ; mega_svc's fence, so it gets dsk_secbuf, a
     jmp short .drvret           ; sector a call (KERN-MEGA-PLAN 13.3 step 4)
 .drvlo:
-%endif
     call drv_blk_call_x
-%ifdef KERN_MEGA
 .drvret:
-%endif
+%else
+    call .drvcut                ; ...cut at a sector a 64KB page crosses
+%endif                          ; (SPEC.md 18.91.4.1)
     CURXFER_OFF                 ; ...and CF is the driver's answer, which `mov`
 %ifdef FPG_OPS                  ; leaves alone
     pop di                      ; the run's LBA - DI is dead here
@@ -2146,6 +2146,101 @@ dsk_xfer:
     pop bx                      ; the banked AX, dropped: AL is the status
     stc
     ret
+%endif
+%if %isdef(OS88_DRIVERS) && !%isdef(KERN_MEGA)
+; --- .drvcut: DSV_BLK for a run, CUT at a sector a 64KB page crosses --------
+; (SPEC.md 18.91.4.1) in: DX:BX the caller's buffer, CX sectors, DI:SI the
+; LBA, BP the driver's DSV_BLK; [dsk_op]/[dsk_unit] say what AX is. Out: CF
+; and AL, the driver's. Clobbers the rest - .drv reloads what it needs. A
+; driver bounds its runs at the page but cannot make a run of a sector that
+; STRADDLES one, which only an unaligned buffer has: that sector goes through
+; dsk_secbuf on its own, as dsk_xfer's .bounce does for a BIOS volume.
+.drvcut:
+    jcxz .dcok                  ; all of it moved
+    call .dcn                   ; AX = sectors that may go as they are
+    or ax, ax
+    jz .dcone                   ; ...none: the first one straddles
+    call .dcall                 ; CX = AX of them, the caller's buffer
+    jc .dcret
+    call .dcn                   ; the same inputs, so the same AX
+.dcadv:
+    sub cx, ax                  ; AX sectors done: the count, the LBA and
+    add si, ax                  ; the SEGMENT move - not BX, which would wrap
+    adc di, 0
+    push cx
+    mov cl, 5
+    shl ax, cl                  ; x 32 paragraphs
+    pop cx
+    add dx, ax
+    jmp short .drvcut
+.dcone:
+    cmp byte [dsk_op], 0x02
+    je .dcrd
+    mov al, 0x03
+    call .dhcp                  ; a write's sector into the scratch
+.dcrd:
+    push dx
+    push bx
+    mov dx, ss
+    mov bx, dsk_secbuf
+    mov ax, 1                   ; one sector, from the scratch
+    call .dcall
+    pop bx
+    pop dx
+    jc .dcret
+    cmp byte [dsk_op], 0x02
+    jne .dcwr
+    mov al, 0x02
+    call .dhcp                  ; a read's sector out to the caller
+.dcwr:
+    mov ax, 1
+    jmp short .dcadv
+.dcok:
+    clc                         ; (.dcadv's `add` may have left a carry)
+.dcret:
+    ret
+.dcall:                         ; AX sectors of DX:BX through the driver,
+    push cx                     ; everything but AX and the flags kept
+    push dx
+    push bx
+    push si
+    push di
+    push bp
+    mov cx, ax
+    mov ah, [dsk_unit]
+    mov al, [dsk_op]
+    sub al, 2                   ; 0 read / 1 write, as .drv built it
+    call drv_blk_call_x
+    pop bp
+    pop di
+    pop si
+    pop bx
+    pop dx
+    pop cx
+    ret
+.dcn:                           ; in DX:BX, CX -> AX = the sectors before the
+    push cx                     ; one a page boundary crosses (CX if none)
+    mov ax, dx
+    mov cl, 4
+    shl ax, cl
+    add ax, bx                  ; the physical address's low 16 bits
+    neg ax                      ; ...and the bytes left in its page
+    test ax, 511
+    jz .dcnall                  ; 512-aligned: no sector can straddle
+    mov cl, 9
+    shr ax, cl
+    pop cx
+    cmp ax, cx
+    jb .dcnr
+    mov ax, cx
+.dcnr:
+    ret
+.dcnall:
+    pop cx
+    mov ax, cx
+    ret
+%endif
+%if %isdef(KERN_MEGA) || %isdef(OS88_DRIVERS)
 .dhcp:                          ; AL = 03h caller -> scratch, 02h back; the
     push ds                     ; caller's sector at DX:BX. Keeps everything
     push es
