@@ -1162,12 +1162,10 @@ db_hit:
 ; before.
 ; -----------------------------------------------------------------------------
 db_click:
-    push ax
-    push bx
-    push cx
-    push dx                     ; DX IS NOT SPENT HERE - it is pushed so that
-    push di                     ; db_rclick can share the tail below, whose
-                                ; pop run is ax,bx,cx,dx,di for both
+    call kent_di                ; AX..DI, though DX and SI are not spent here:
+                                ; the frame db_rclick shares the tail below
+                                ; with, kret_di's (kernel size pass 17: five
+                                ; pushes and `pop di / jmp kret_dx` were -3)
 
     call db_hit               ; DI = the live instance under the pointer
     jc .miss
@@ -1204,13 +1202,12 @@ db_click:
     call gfx_unlock
 
 .consumed:                      ; --- THE SHARED TAIL. db_rclick jumps in
-    stc                         ; HERE and at `.miss`, and both push
-    SKIPAL1                     ; ax,bx,cx,dx,di in that order - which is now
-.miss:                          ; this label's CONTRACT, enforced by nothing
-    clc                         ; but the comment at both ends. SKIPAL1 is
-.out:                           ; mov al, imm8 over the clc - CF stays 1, and
-    pop di                      ; AL is kret_dx's to put back (kernel size
-    jmp kret_dx                 ; pass 16, -1 against a jump)
+    stc                         ; HERE and at `.miss`, and both open on
+    SKIPAL1                     ; `call kent_di` - which is now this label's
+.miss:                          ; CONTRACT, enforced by nothing but the
+    clc                         ; comment at both ends. SKIPAL1 is mov al,
+.out:                           ; imm8 over the clc - CF stays 1, and AL is
+    jmp kret_di                 ; the ladder's to put back (kernel size pass 16)
 
 ; -----------------------------------------------------------------------------
 ; db_rclick - right-press on the strip: a tile's context menu (SPEC.md 30.2)
@@ -1244,11 +1241,8 @@ db_click:
 ; destroys the very record it would be charged to.
 ; -----------------------------------------------------------------------------
 db_rclick:
-    push ax                     ; the same push run db_click has, in the same
-    push bx                     ; order, because this routine ENDS IN ITS TAIL
-    push cx
-    push dx
-    push di
+    call kent_di                ; the same frame db_click has, because this
+                                ; routine ENDS IN ITS TAIL
 
     call db_hit               ; DI = the live instance under the pointer
     jc db_click.miss

@@ -9394,9 +9394,10 @@ wm_su_flay:
     test byte [wm_su_x1], 7     ; the content's FIRST byte is whole...
     jnz .deep
     mov bl, [wm_su_x2]
-    not bl
-    test bl, 7                  ; ...and its LAST one is: x2 must be the eighth
-    jnz .deep                   ; pixel of its byte, not the first of the next
+    inc bx                      ; (kernel size pass 17: `not bl` was -1 more;
+    test bl, 7                  ; BX is reloaded before it is read again)
+    jnz .deep                   ; ...and its LAST one is: x2 must be the eighth
+                                ; pixel of its byte, not the first of the next
     mov word [WM_SU_PW], 1
 .deep:
     or al, al                   ; the flags below are the bands' again

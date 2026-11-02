@@ -6707,7 +6707,6 @@ fm_drag:
     call kentc_di
     mov [fm_dgidx], ax
     mov [fm_dgwin], si
-    mov byte [fm_dgon], 0
     call fm_dgwait              ; the WAIT is a routine, press, mouse test and
     jc .out                     ; all - on kern_big the desktop's items move
                                 ; by the same four pixels (SPEC.md 26.9), and
@@ -6722,7 +6721,6 @@ fm_drag:
     call fcp_arm                ; disturbs a clipboard the user filled
 %endif
     jc .out                     ; '..' (SPEC.md 19.5) is not draggable
-    mov byte [fm_dgon], 1
     call fm_dgmove
     call fm_dgxor               ; the outline is up from here on
 .track:
@@ -9531,8 +9529,6 @@ fm_dgidx:   resw 1              ; fm_drag: the row it began on...
 fm_dgwin:   resw 1              ; ...the window it began in...
 fm_dgx:     resw 1              ; where the outline is DRAWN (fm_dgxor)
 fm_dgy:     resw 1
-fm_dgon:    resb 1              ; 1 = the outline is on screen
-fm_dgdrv:   resb 1              ; the drop target's drive, banked past fm_hit
 
 fm_cx:      resw 1              ; fm_layout: content left (abs)
 fm_cy:      resw 1              ; fm_layout: content top (abs)
@@ -9586,9 +9582,14 @@ fm_numbuf   equ fm_name         ; fm_ultoa scratch, 10 digits + NUL - ONE
                                 ; first (fm_stage_name; fm_newwin's seed copies
                                 ; it before any row can repaint)
                                 ; - and 11 bytes is the most it needs, of 17
-fm_bsspad:  resb 1              ; ...whose 11 were odd: this keeps every .bss
-                                ; word after this file at the parity it had (a
-                                ; 286's wait state on each one that went odd)
+fm_dgdrv:   resb 1              ; fm_drag: the drop target's drive, banked
+                                ; past fm_hit - HERE, after fm_hdrbuf's 17 +
+                                ; 48 odd bytes, so that every .bss word after
+                                ; this file keeps the parity it had (a 286's
+                                ; wait state on each one that went odd). It
+                                ; sat beside fm_dgon, written twice and read
+                                ; nowhere, and the 1-byte fm_bsspad did this
+                                ; job (kernel size pass 17: -2 .bss, -10)
 
 section .text
 
