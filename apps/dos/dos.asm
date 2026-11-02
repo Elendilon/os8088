@@ -582,8 +582,9 @@ DOS_PBUF    equ 80                  ; the program's own path for the environment
 ; both 640 pixels WIDE. The only way a window has 640 of content is with no
 ; side borders, and SPEC.md 11.95.3 removes them in exactly one case: a frame
 ; that starts at its display's first column and reaches its last. So this
-; window SPANS the screen on every adapter, because on two of the three there
-; is no other way to hold the thing it is for.
+; window SPANS the screen on VGA and CGA, because there is no other way to
+; hold the thing it is for - and on a Hercules, 720 wide, it is SNUG instead:
+; two borders round 640 of content (DOS_HERCW, SPEC.md 96.32.5).
 ;
 ; It is worth having twice over: a spanning frame's content origin is W_X
 ; itself rather than W_X+1 (11.95.2), so the console's rows start on column 0
@@ -597,6 +598,15 @@ DOS_CONROWS equ 25                  ; ...and the rows it WANTS. What it GETS is
                                     ; give 25 and a drag across a display seam
                                     ; re-asks the question
 DOS_CONW    equ DOS_CONCOLS * 8     ; 640
+DOS_HERCW   equ DOS_CONW + 2        ; 642: the Hercules frame (SPEC.md
+                                    ; 96.32.5) - 80 cells and the two side
+                                    ; borders a frame that does NOT span keeps
+DOS_HERCX   equ (720 - DOS_HERCW) / 2   ; 39, so it is centred on 720 AND its
+                                    ; content origin, x+1 = 40, is on the
+                                    ; 8-pixel grid (11.94) with no snap needed
+%if (DOS_HERCX + 1) % 8
+%error "DOS_HERCX + 1 must be a multiple of 8 (SPEC.md 11.94, 96.32.5)"
+%endif
 DOS_BARH    equ 20                  ; the top bar: one 14px row of controls
                                     ; with 3 above and 3 below (96.32.1)
 DOS_BARY    equ 3                   ; ...the controls' own top, from content
@@ -7331,10 +7341,10 @@ dos_swap:
 ; THE X IS 8-ALIGNED AND THAT IS NOT TIDINESS (SPEC.md 6.1). font_run's
 ; single-store fast path needs the pen on a multiple of 8; a spanning window's
 ; content origin already is one (11.95.2); so the centring margin is rounded
-; DOWN to a multiple of 8 rather than halved exactly. On VGA and CGA it is 0
-; and on Hercules's 720 it is 40, which is a multiple of 8 already - so the
-; rounding never costs a pixel on any adapter in this tree and is there for
-; the one that is not.
+; DOWN to a multiple of 8 rather than halved exactly. It is 0 on every
+; adapter in this tree - Hercules too, since its frame stopped spanning and
+; became snug round the band (SPEC.md 96.32.5) - and the margin is there for a
+; window a user or a display has made wider than the band.
 ; -----------------------------------------------------------------------------
 dos_con_geom:
     push ax
@@ -7363,8 +7373,8 @@ dos_con_geom:
     shl ax, cl                      ; ...and back to pixels, to centre it
     pop dx                          ; the height...
     pop cx                          ; ...and the width, both back
-    sub cx, ax                      ; CX = the slack: 0 on VGA and CGA, 80 on
-    shr cx, 1                       ; Hercules
+    sub cx, ax                      ; CX = the slack: 0 on every adapter
+    shr cx, 1                       ; (96.32.5), more on a wider window
     and cx, 0xFFF8                  ; **DOWN to a multiple of 8** (SPEC.md
     push cx                         ; 6.1), and the WHOLE word: a display wide
                                     ; enough to make the margin exceed 255
@@ -10521,28 +10531,35 @@ dos_envpath:
 ; =============================================================================
 WIN_CODE                            ; the window's (DOS-HEADLESS-PLAN 4.4)
 dos_tpl:
-    dw 0, MBAR_H, DOS_CONW, DOS_FRAMEH
-                                    ; x, y, w, h (SPEC.md 96.32). **x IS 0 AND
-                                    ; THAT IS THE WHOLE TRICK**: the span test
-                                    ; 11.95.3 applies is "starts at its
+    dw DOS_HERCX, MBAR_H, DOS_CONW, DOS_FRAMEH
+                                    ; x, y, w, h (SPEC.md 96.32). On VGA and
+                                    ; CGA wm_fit clamps x to 0, because a
+                                    ; 640-wide frame has nowhere else to be,
+                                    ; and that is THE WHOLE TRICK: the span
+                                    ; test 11.95.3 applies is "starts at its
                                     ; display's first column and reaches its
-                                    ; last", so this is what buys the two
+                                    ; last", so the clamp is what buys the two
                                     ; border pixels back and puts the content
-                                    ; origin on an 8-aligned column. The WIDTH
-                                    ; is per-adapter and dos_pref says so;
-                                    ; this row is the VGA/CGA one
+                                    ; origin on column 0. On Hercules the frame
+                                    ; is DOS_HERCW and this x CENTRES it
+                                    ; (SPEC.md 96.32.5). The WIDTH is
+                                    ; per-adapter and dos_pref says so; this
+                                    ; row is the VGA/CGA one
     dw dos_ttl, dos_paint, dos_key, 0   ; W_ONCLICK is installed by
                                     ; os88ui_btninit (SPEC.md
                                     ; 20.5.1.3.3), so the buttons see
                                     ; the press before dos_click does
 
-    OS88_PREFER dos_pref, DOS_CONW, DOS_FRAMEH,  720, DOS_FRAMEH,  DOS_CONW, 300
+    OS88_PREFER dos_pref, DOS_CONW, DOS_FRAMEH,  DOS_HERCW, DOS_FRAMEH,  DOS_CONW, 300
                                     ; **A REAL WIDTH AND A GENEROUS HEIGHT**,
                                     ; which is OSAPI_WM_PREFER's own advice
                                     ; (SPEC.md 11.100.1): the width is what
-                                    ; matters and is almost never clamped, so
-                                    ; Hercules gets its full 720 and the
-                                    ; console centres in it. The CGA row asks
+                                    ; matters and is almost never clamped.
+                                    ; Hercules is NOT given its full 720 any
+                                    ; more (SPEC.md 96.32.5): 80 cells and two
+                                    ; borders, snug, where the spanning frame
+                                    ; left 40 px of empty window each side of
+                                    ; the band. The CGA row asks
                                     ; for 300 and is clamped to what the band
                                     ; plus the dock's strip allows - 17 rows
                                     ; instead of 25 - so this package never

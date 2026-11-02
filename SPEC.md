@@ -176628,8 +176628,10 @@ cell is 8 px and is not negotiable (§6), so 80 of them is **640 px of
 content** — and VGA and CGA are both 640 px WIDE. A window can only have 640
 px of content if it has no side borders, and §11.95.3 removes them in exactly
 one case: a frame that starts at its display's first column and reaches its
-last. So the frame **spans the screen width**, on every adapter, because on
-two of the three there is no other way to hold the thing the window is for.
+last. So the frame **spans the screen width** on VGA and CGA, because there is no
+other way to hold the thing the window is for. A Hercules is 720 wide and has
+80 pixels to spare, so it takes the other answer: two borders round 640 px of
+content, snug (§96.32.5).
 
 That is not a reluctant consequence — it is worth having twice over. A
 spanning frame's content origin is `W_X` itself rather than `W_X+1`
@@ -176641,7 +176643,7 @@ every row the console draws reaches `font_run`'s single-store fast path
 | adapter | frame | content | console |
 |---|---|---|---|
 | VGA 640×480 | 640×239 | 640×220 | **80×25**, flush to both edges |
-| Hercules 720×348 | 720×239 | 720×220 | **80×25**, centred with 40 px each side |
+| Hercules 720×348 | 642×239 at x = 39 | 640×220 | **80×25**, snug, the frame centred (§96.32.5) |
 | CGA 640×200 | 640×179 | 640×160 | **80×17**, flush |
 | EGA 640×350 | 640×239 | 640×220 | 80×25 (§39.8 takes the VGA row) |
 
@@ -177643,6 +177645,49 @@ because `os88line_click`'s CF is the answer its callers test.
 six callers already draw, so moving it inside `os88line_click` would make every
 one of them draw twice — and `ftpd` keeps a whole `FTPDSLOW=1` A/B about
 exactly that cost (§77.45).
+
+##### 96.32.5 On a Hercules the frame is SNUG, not spanning
+
+The owner, off the pc5150: *"Can we make the window size on herc fit the
+screen, instead of taking up the full width?"* — and of the height, *"the
+80x25 is more important than the dock cover, my request was just 'not bigger
+than it needs to be for that'"*.
+
+Until this section the Hercules row of `dos_pref` asked for the full **720**,
+so the frame spanned the screen and the 640-px band sat in it with **40 px of
+empty window either side**. Spanning is what VGA and CGA *need* (§96.32: 640 px
+of content on a 640-px screen exists only without side borders); a 720-px card
+does not, and the 80 px it has to spare were spent on margin.
+
+**The Hercules row is `DOS_HERCW` = 642** — 80 cells and the two side borders a
+frame that does not span keeps (§11.95.3) — and the template's x is
+**`DOS_HERCX` = 39**, which does two things at once: it centres a 642-px frame
+on 720, and its content origin `x + 1` = **40** is on the 8-pixel grid
+(§11.94), so the band keeps `font_run`'s single-store path and
+`OSAPI_GFX_BLIT1`'s alignment exactly as before. An `%error` holds that
+congruence. **The band does not move**: it was at x = 40 centred in a spanning
+frame and is at x = 40 as the content origin of a snug one, so nothing that
+aims at `[dos_conx]` — §96.54.4's mouse, the cell map, the captures — sees a
+different number. On VGA, EGA and CGA the template x is clamped to 0 by
+`wm_fit`'s right-edge clamp (a 640-px frame has nowhere else to be), so those
+adapters still span and are unchanged to the pixel.
+
+**The height was never the problem and is not changed**: 239 is 25 rows, the
+bar and the chrome, and a Hercules's desktop band holds it with the dock's 24
+rows still clear (the frame ends at y = 258 against the dock's 324). So all
+25 rows show, `[con_vrows]` is 25 and `[con_vtop]` stays 0. CGA is unchanged
+too, and is the one adapter where the dock IS covered (`OSAPI_WM_KEEPH`) —
+which is the owner's ordering: the console's rows before the dock's.
+
+| adapter | frame before | frame after | band |
+|---|---|---|---|
+| VGA 640×480 | 0,20 640×239 | the same | 0,58 80×25 |
+| Hercules 720×348 | 0,20 **720×239** | 39,20 **642×239** | 40,58 80×25 |
+| CGA 640×200 | 0,20 640×179 | the same | 0,58 80×17 |
+
+What it cost: **no instruction** — two `dw` values change — so every part of
+`DOS.O88` assembles to the same size and the packed file is +1 byte.
+`tests/doshercwin.py` (soak) is the gate, and is red on the build before.
 
 #### 96.33 THE CONSOLE BAND: our own `COMMAND.COM`, in the window (`apps/os88con.inc`)
 
@@ -189435,8 +189480,8 @@ one that drew something small and quick. What was behind the item was the
 Six lines: `DOS for os8088`, a blank, `Runs .COM and .EXE programs`,
 `natively - this machine IS an 8086`, a blank, and
 **`Contributed by Elendilon`**. The widest is 34 cells against a content box
-of `DOS_CONW` = 640 px on VGA and CGA and 720 on Hercules (§96.32's `dos_pref`
-row), so no adapter clamps the card and nothing is split across two lines.
+of `DOS_CONW` = 640 px on every adapter (§96.32's `dos_pref`
+row, and §96.32.5 for Hercules), so no adapter clamps the card and nothing is split across two lines.
 
 **Both entries are used, and the painter's one is the interesting half.**
 `dos_about` is the handler, so it calls `os88ui_about`, which arms the clip
