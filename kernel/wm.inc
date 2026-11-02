@@ -1643,12 +1643,10 @@ wm_min_axd:
     call wm_min_ax
     or ax, ax
     jnz .out
-    or dl, dl
-    jz .w
-    mov ax, WMIN_H
-    ret
-.w:
-    mov ax, WMIN_W
+    mov ax, WMIN_W              ; the width's floor, and the height's over it
+    or dl, dl                   ; when DL asks: one `ret` and every path's
+    jz .out                     ; flags as before - `mov` writes none (kernel
+    mov ax, WMIN_H              ; size pass 17, -1)
 .out:
     ret
 
@@ -2315,6 +2313,9 @@ wm_close_req:
 WKQ_NONE    equ 0               ; nothing owed
 WKQ_RING    equ 1               ; ...owed, and the record is in the ring
 WKQ_EATEN   equ 2               ; ...owed, and a drain ate the record
+%if WKQ_EATEN != WKQ_RING + 1
+  %error "evq_mup marks a WKQ_RING wake WKQ_EATEN with an inc (kernel size pass 17)"
+%endif
 
 wm_wake:
     push si
@@ -2431,10 +2432,10 @@ wm_ask_size:
     push ax
     push si
     push bp
-    cmp word [bx+W_ONSIZE], 0
-    je .out
+    mov bp, [bx+W_ONSIZE]       ; loaded and tested in one, as wm_ask_close
+    or bp, bp                   ; does (kernel size pass 17, -2: it compared
+    jz .out                     ; the word and then loaded it)
     mov si, bx
-    mov bp, [bx+W_ONSIZE]
     call wm_pkgcall             ; SI = window, CX/DX = the proposal
 .out:
     pop bp
@@ -3283,6 +3284,20 @@ osapi_wm_resize:
     call wm_resize
     jmp short wm_lk_tail
 
+wm_hide:                        ; (its header is at wm_hide_b, below)
+    push ax
+    call wm_lk                  ; SPEC.md 11.101.2
+    push ax
+    call wm_hide_b
+    jmp short wm_lk_tail
+
+wm_front:                       ; (its header is at wm_front_b, below)
+    push ax
+    call wm_lk                  ; SPEC.md 11.101.2
+    push ax
+    call wm_front_b
+    jmp short wm_lk_tail
+
 wm_show:
     push ax                     ; the caller's AX first: wm_lk answers in AL
     call wm_lk
@@ -3627,12 +3642,10 @@ wm_dock_clear:
 ; restore a fullscreen window's smaller windowed geometry on the way past and
 ; the pixels to repair are the ones that were actually lit.
 ; -----------------------------------------------------------------------------
-wm_hide:
-    push ax
-    call wm_lk                  ; SPEC.md 11.101.2, and wm_su_take below is
-    push ax                     ; exactly why: it BANKS the window going down
-    call wm_hide_b
-    jmp wm_lk_tail
+; (wm_hide itself - the door: wm_lk, this, wm_lk_tail - stands beside
+; wm_show, so it reaches the shared tail with a SHORT jump: kernel size pass
+; 17, -1. SPEC.md 11.101.2, and wm_su_take below is exactly why: it BANKS the
+; window going down)
 
 wm_hide_b:
     call kent_di                ; (kernel size pass 15: DI banked with the rest,
@@ -4307,12 +4320,8 @@ wm_fullscreen:
 ; entry point for that, and this declines to the full pass rather than
 ; silently drawing a hidden window.
 ; -----------------------------------------------------------------------------
-wm_front:
-    push ax
-    call wm_lk                  ; SPEC.md 11.101.2
-    push ax
-    call wm_front_b
-    jmp wm_lk_tail
+; (wm_front itself - the door: wm_lk, wm_front_b, wm_lk_tail - stands
+; beside wm_show, for wm_hide's reason: a SHORT jump to the shared tail)
 
 wm_front_b:
     test byte [bx+W_FLAGS], 2
@@ -8435,7 +8444,9 @@ wm_damage:
     mov ax, 1                   ; its origin unmoved, so nothing painted over
     xor bx, bx                  ; what survived - and an EMPTY rect (x1 > x2)
     xor cx, cx                  ; is what 11.90.2 already documents as "draw
-    xor dx, dx                  ; NOTHING". What MOVED is still the app's:
+    cwd                         ; NOTHING". What MOVED is still the app's
+                                ; (`cwd` of the 1: DX = 0, no flag - kernel
+                                ; size pass 17, -1):
                                 ; only it knows its strip is anchored
     jmp short .ret              ; (CF = 0: `xor` cleared it)
 .notrz:
@@ -8739,10 +8750,19 @@ wm_cov_x1: dw 0                 ; the covered box, accumulated
 wm_cov_y1: dw 0
 wm_cov_x2: dw 0
 wm_cov_y2: dw 0
-wm_cov_c1: dw 0                 ; ...and our content rect, held across the walk
-wm_cov_c2: dw 0                 ; so the fold can do one axis at a time
-wm_cov_c3: dw 0
-wm_cov_c4: dw 0
+wm_cov_c1 equ wm_cl_rx1         ; ...and our content rect, held across the walk
+wm_cov_c2 equ wm_cl_ry1         ; so the fold can do one axis at a time. THE
+wm_cov_c3 equ wm_cl_rx2         ; FOUR WORDS ARE wm_clip_split's, whose lifetime
+wm_cov_c4 equ wm_cl_ry2         ; never meets this one: written and read only
+                                ; inside wm_cov_rect, which calls nothing that
+                                ; reaches the region code (wm_su_rect_bx,
+                                ; wm_rect_empty, wm_zabove, wm_znext,
+                                ; wm_win_rect_bx, gfx_rect_isectcf and
+                                ; wm_runion are arithmetic), and split's own
+                                ; bank lives from its first instruction to its
+                                ; last and calls nothing that reaches here.
+                                ; Both run under the gfx lock, so no other task
+                                ; is between them (kernel size pass 17: -8)
 
 ; -----------------------------------------------------------------------------
 ; wm_su_owed - the rect window SI owes in this pass (SPEC.md 11.96.6)
@@ -9614,10 +9634,9 @@ wm_su_bget:
     or ax, [di+W_SUEXT+2]       ; to one byte - wm_su_flay's own test of
     or al, ah                   ; wm_su_kex (kernel size pass 17: -8, and
     pop ax                      ; no SI bank). ZF = no band, CF = 0 off the
-    jz .no                      ; `or`, and `pop` writes no flag
-    ret
-.no:
+    jnz .out                    ; `or`, and `pop` writes no flag
     stc
+.out:
     ret
 
 ; wm_su_slot - which cache belongs to a window
@@ -11770,6 +11789,8 @@ wm_cl_oy1:  resw 1                  ; drop shadow included
 wm_cl_ox2:  resw 1
 wm_cl_oy2:  resw 1
 wm_cl_rx1:  resw 1                  ; wm_clip_split: the rect being replaced
+                                    ; (and wm_cov_rect's content rect, its
+                                    ; wm_cov_c1..c4: see there)
 wm_cl_ry1:  resw 1
 wm_cl_rx2:  resw 1
 wm_cl_ry2:  resw 1

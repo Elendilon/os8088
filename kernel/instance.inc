@@ -505,9 +505,8 @@ inst_park_mk:
     cmp byte [bx+inst_parksafe], 0
     je .no                      ; never declared: park it at ALIVE and nowhere
                                 ; else (SPEC.md 66.5.4)
-    mov bl, [sch_cur]           ; ...and the MARK is the running task's
-    xor bh, bh
-    mov [bx+sch_parked], al
+    mov bl, [sch_cur]           ; ...and the MARK is the running task's (BH
+    mov [bx+sch_parked], al     ; is still the 0 above: kernel size pass 17)
 .no:
     pop bx
     pop ax
@@ -1653,7 +1652,9 @@ app_close_win:
     jc .hide
     cmp byte [di+I_STATE], 1
     jne .hide                   ; already dying: re-hide, idempotent
-    mov byte [di+I_STATE], 2    ; dying: lock-held readers skip it from here -
+    inc byte [di+I_STATE]       ; 1 -> 2, dying: lock-held readers skip it
+                                ; from here (an inc of the 1 just tested, -1:
+                                ; kernel size pass 17) -
                                 ; and for a TASKED instance it is the die flag
                                 ; (SPEC.md 14/29), set ahead of the test so
                                 ; both arms share it (kernel size pass 16, -4)
@@ -1972,10 +1973,9 @@ inst_wchk:
     push ax
     push cx
     mov ax, bx
-    sub ax, wm_wins
-    jc .bad                     ; below the window table
-    cmp ax, MAX_WIN * WIN_SIZE
-    jae .bad                    ; past its end
+    sub ax, wm_wins             ; BELOW the table wraps high, so the one
+    cmp ax, MAX_WIN * WIN_SIZE  ; unsigned compare is both ends - wm_isrec's
+    jae .bad                    ; test (kernel size pass 17: a `jc` went)
     mov cl, WIN_SIZE            ; AX <= 239 here, so the 8-bit div is safe
     div cl                      ; AH = offset mod WIN_SIZE
     test ah, ah

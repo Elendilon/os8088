@@ -226,17 +226,19 @@ evq_mup:
     jc .out
     cmp word [di + EV_TYPE], EVT_MUP
     je .out                     ; equal, so CF is already 0 - the "found" answer
-    cmp word [di + EV_TYPE], EVT_WAKE   ; wm_wake_eaten, written here - this
-    jne .dl                     ; loop was its last caller (kernel size pass
-    push bx                     ; 17, -4): a drain threw a record away, and if
-    mov bx, [di + EV_A]         ; it was a WAKE the window's flag drops from
-    cmp byte [bx + W_WKQ], WKQ_RING ; WKQ_RING to WKQ_EATEN - "still owed, no
-    jne .pop                    ; record" - not ours to downgrade otherwise: a
-    mov byte [bx + W_WKQ], WKQ_EATEN ; stale record for a slot already
-    mov byte [wm_wkdef], 1      ; re-promised, or already eaten. wm_wkdef is
-.pop:                           ; the one byte ui_task tests per pass, and its
-    pop bx                      ; redo puts a fresh record back in the ring
-    jmp short .dl               ; (SPEC.md 74.1.1)
+    cmp word [di + EV_TYPE], EVT_WAKE   ; THE WAKE BOOKKEEPING (SPEC.md
+    jne .dl                     ; 74.1.1): a drain threw a record away, and if
+    push bx                     ; it was a WAKE the window's flag drops from
+    mov bx, [di + EV_A]         ; WKQ_RING to WKQ_EATEN - "still owed, no
+    cmp byte [bx + W_WKQ], WKQ_RING ; record". Not ours to downgrade
+    jne .pop                    ; otherwise: a stale record for a slot already
+    inc byte [bx + W_WKQ]       ; re-promised, or already eaten. (RING + 1 IS
+    mov byte [wm_wkdef], 1      ; EATEN - wm.inc's %if.) wm_wkdef is the
+.pop:                           ; one byte ui_task tests per pass, and its redo
+    pop bx                      ; puts a fresh record back in the ring. It was
+    jmp short .dl               ; wm_wake_eaten, whose last caller this loop
+                                ; was (kernel size pass 17: -4, and -1 for the
+                                ; inc)
 .out:
     ret
 
