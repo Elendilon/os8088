@@ -3000,10 +3000,11 @@ wm_zoom:
                                 ; the origin moves, or wm_resize would bank
                                 ; the new x/y with the old w/h and the band
                                 ; the window VACATED would never be redrawn
-    push di                     ; ...and the user state, into the zoom bank.
-    lea di, [bx+W_ZOOMR]        ; (SI, the standard y, is untouched: both
-    call wm_bank4               ; banks preserve it)
-    pop di
+    lea di, [bx+W_ZOOMR]        ; ...and the user state, into the zoom bank.
+    call wm_bank4               ; (SI, the standard y, is untouched: both
+                                ; banks preserve it. DI is not read again -
+                                ; wm_resize_nb takes BX, CX and DX, and the
+                                ; ladder restores it: kernel size pass 17, -2)
     mov [bx+W_X], ax            ; the standard x
     mov [bx+W_Y], si            ; its DISPLAY's standard y (SPEC.md 39.17.2):
                                 ; wm_resize's y clamp only ever pushes a window
@@ -5248,8 +5249,8 @@ wm_dmg_wins:
     mov [wm_dmg_shad], bp
 .mark:
     mov al, [wm_zn]
-    xor ah, ah
-    cmp bp, ax
+    cbw                         ; (<= MAX_WIN: kernel size pass 17, -1, and
+    cmp bp, ax                  ; a clock faster)
     jae .draw
     mov al, [ds:bp+wm_zord]     ; (DS: BP addresses SS otherwise)
     call wm_idx2ptr             ; BX = window ptr (AX and CX survive)
@@ -5316,14 +5317,16 @@ wm_dmg_wins:
     jz .mbnext
     call wm_idx2ptr             ; BX = its record (AL still its index)
     push dx                     ; DO OURS AND THEIRS OVERLAP? wm_win_over's
-    push bx                     ; arithmetic with A = ours in DI, B = theirs
-    mov di, si                  ; in BX and B's far edges INCLUSIVE (k = 0),
-    xor dx, dx                  ; the drop shadow included exactly as
-    call wm_ovl                 ; wm_obscured tests them - and the answer the
-    cmc                         ; other way up, CF = 1 they overlap. It was
-    pop bx                      ; wm_win_hit, wm_dmg_wins' own now (kernel
-    pop dx                      ; size pass 12, -8). `mov` keeps CF, and DI is
-    mov di, bx                  ; theirs again, as it was
+    mov di, si                  ; arithmetic with A = ours in DI, B = theirs
+    xor dx, dx                  ; in BX and B's far edges INCLUSIVE (k = 0),
+    call wm_ovl                 ; the drop shadow included exactly as
+    cmc                         ; wm_obscured tests them - and the answer the
+    pop dx                      ; other way up, CF = 1 they overlap. It was
+    mov di, bx                  ; wm_win_hit, wm_dmg_wins' own now (kernel
+                                ; size pass 12, -8). `mov` keeps CF, and DI is
+                                ; theirs again, as it was. (wm_ovl preserves
+                                ; every register, BX included: no BX bank -
+                                ; kernel size pass 17, -2)
     jc .mset
 .mbnext:
     inc word [wm_dmg_j]
@@ -5353,7 +5356,7 @@ wm_dmg_wins:
     xor si, si                  ; SI = index into wm_zord
 .dwin:
     mov al, [wm_zn]
-    xor ah, ah
+    cbw                         ; (<= MAX_WIN: kernel size pass 17)
     cmp si, ax
     jae .wdone
     mov al, [si+wm_zord]
@@ -5734,12 +5737,8 @@ wm_ovl:
     add ax, [di+W_H]
     cmp ax, [bx+W_Y]
     jl .no
-    clc
-    pop ax                      ; a pop touches no flag
-    ret
-.no:
-    stc
-    pop ax
+    CLC_OR_STC .no              ; (kernel size pass 17: -2 against two exits;
+    pop ax                      ; only CF is the answer) - a pop touches no flag
     ret
 
 ; -----------------------------------------------------------------------------
@@ -7182,7 +7181,8 @@ wm_ptr2idx:
     sub ax, wm_wins
     mov cl, WIN_SIZE
     div cl                      ; AL = index...
-    xor ah, ah                  ; ...and AH IS THE REMAINDER, NOT ZERO. This
+                                ; ...and AH IS THE REMAINDER, NOT ZERO - the
+                                ; cbw below the clamp is what clears it. This
                                 ; line used to be a comment saying "AH = 0: ptr
                                 ; is record-aligned", which is a statement about
                                 ; the CALLER. wm_su_slot doubles the whole of AX
@@ -7196,9 +7196,10 @@ wm_ptr2idx:
     jb .ok                      ; per-window table in this module is addressed
     mov al, MAX_WIN - 1         ; off it: wm_su_segs, wm_su_ext, the size
 .ok:                            ; preferences. A pointer that is not a window
-    pop cx                      ; then names the LAST window rather than a byte
-    ret                         ; of .text, which is wrong and bounded instead
-                                ; of wrong and unbounded
+    cbw                         ; then names the LAST window rather than a byte
+    pop cx                      ; of .text, which is wrong and bounded instead
+    ret                         ; of wrong and unbounded. (cbw: AL < MAX_WIN
+                                ; here, so AH = 0 - kernel size pass 17, -1)
 
 ; -----------------------------------------------------------------------------
 ; wm_zabove - find this window in the z-order, and what is above it (SPEC.md 11)
@@ -9214,7 +9215,7 @@ wm_zwalk:
     mov bp, bx
     mov si, wm_zord
     mov al, [wm_zn]
-    mov ah, 0
+    cbw                         ; (<= MAX_WIN: kernel size pass 17)
     mov di, si
     add di, ax
     ret
@@ -9394,9 +9395,10 @@ wm_su_flay:
     test byte [wm_su_x1], 7     ; the content's FIRST byte is whole...
     jnz .deep
     mov bl, [wm_su_x2]
-    not bl
-    test bl, 7                  ; ...and its LAST one is: x2 must be the eighth
-    jnz .deep                   ; pixel of its byte, not the first of the next
+    inc bx                      ; (kernel size pass 17: `not bl` was -1 more;
+    test bl, 7                  ; BX is reloaded before it is read again)
+    jnz .deep                   ; ...and its LAST one is: x2 must be the eighth
+                                ; pixel of its byte, not the first of the next
     mov word [WM_SU_PW], 1
 .deep:
     or al, al                   ; the flags below are the bands' again
@@ -9851,12 +9853,8 @@ wm_dc_ok:
 ; in:  BX = the window, its W_X/W_Y ALREADY the new ones; ui_origx/y = the old
 ; out: nothing; preserves every register
 wm_dc_take:
-    push ax
-    push bx
-    push cx
-    push si
-    push di
-    push es
+    call kent_di                ; once per drag (kernel size pass 17: six
+    push es                     ; pushes and kret_cx's pop run were -4)
     call wm_su_rect_bx          ; ...AND SOME OF IT ON SCREEN WHERE IT IS GOING
     call wm_su_vset             ; (SPEC.md 11.96.14). This asked for the WHOLE
     jc short .out               ; rect and refused, which cost the commonest
@@ -9936,9 +9934,7 @@ wm_dc_take:
     and word [wm_dc_win], 0
 .out:
     pop es
-    pop di
-    pop si
-    jmp kret_cx
+    jmp kret_di
 
 ; wm_dc_done - the repaint is over: spend the waiver
 ; preserves every register and the flags

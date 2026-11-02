@@ -112,10 +112,12 @@ app_about_paint_x:
     call app_about_center_x
     mov al, [vid_kind]          ; fourth line: the adapter in use. Indexed
     cbw                         ; through SI, which is about to hold the
-    mov si, ax                  ; string anyway, rather than borrowing BX -
+    xchg si, ax                 ; string anyway, rather than borrowing BX -
     add si, si                  ; that is the window ptr app_about_center
     mov si, [si + app_about_vid]   ; wants. cbw is safe because [vid_kind] is
-    call app_about_center_x        ; 0, 1 or 2 (kernel/viddet.inc)
+    call app_about_center_x        ; 0, 1 or 2 (kernel/viddet.inc). xchg, not
+                                   ; mov: AX is the helper's to write next
+                                   ; (kernel size pass 17, -1)
 
     jmp kretc_di
 
@@ -134,12 +136,13 @@ app_about_center_x:
     add dx, 16
     call ct_font_width                     ; AX = string width, px
     mov cx, [bx+W_W]
-    dec cx                      ; content width, two bytes rather than three
-    dec cx
     sub cx, ax
-    shr cx, 1                   ; centering offset
-    add cx, [bx+W_X]
-    inc cx                      ; ...and fm_brun is the black-on-white run,
-    jmp fm_brun                 ; spelled once (kernel size pass 16)
+    shr cx, 1                   ; centering offset: ((W - 2 - w) >> 1) + 1,
+    add cx, [bx+W_X]            ; the content's centre, is (W - w) >> 1 for
+                                ; any W - w >= 2 - and every line here is far
+                                ; narrower than the box (kernel size pass 17:
+                                ; dec, dec and inc were -3)
+    jmp fm_brun                 ; ...and fm_brun is the black-on-white run,
+                                ; spelled once (kernel size pass 16)
 
 section .text

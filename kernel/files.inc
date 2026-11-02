@@ -510,8 +510,8 @@ files_init_x:
 ; -----------------------------------------------------------------------------
 section .cold                   ; ...and back: fm_kinit_x is a KIND's, run
                                 ; whenever a Disk window opens
-%if FS_EDIT != FS_VIEW+1 || FS_IOFH != FS_2UP+1 || FS_DIRTY != FS_VKB+1
-  %error "fm_kinit_x zeroes FS_VIEW/FS_EDIT, FS_2UP/FS_IOFH and FS_VKB/FS_DIRTY as three WORDS"
+%if FS_SEL != 0 || FS_SCRL != 2 || FS_CLKT != 4 || FS_N != 6 || FS_VIEW != 12 || FS_EDIT != 13 || FS_2UP != 14 || FS_IOFH != 15 || FS_VSEG != 16 || FS_VKB != 18 || FS_DIRTY != 19
+  %error "fm_kinit_x STOSWs FS_SEL, FS_SCRL, FS_CLKT, FS_N, steps over FS_CWD/FS_DRV/FS_MOK, then FS_VIEW..FS_DIRTY as four words"
 %endif
 fm_kinit_x:
     call kentc_di               ; AX..DI banked; it leaves through kretfc_di
@@ -531,15 +531,20 @@ fm_kinit_x:
     mov word [bx+W_ONWH], fm_onwheel_x  ; the wheel scrolls it (SPEC.md 13.18.3)
 %endif
     xor ax, ax                  ; EVERY field a fresh window starts from,
-    mov [di+FS_SCRL], ax        ; in word stores off one zero (kernel size
-    mov [di+FS_CLKT], ax        ; pass 9) and BEFORE the claim, which only
-    mov [di+FS_N], ax           ; ever writes FS_VSEG/FS_VKB on success: no
-    mov [di+FS_VIEW], ax        ; selection, nothing listed, list view,
-    mov [di+FS_2UP], ax         ; scrolled to the top, no half-typed name
-    mov [di+FS_VSEG], ax        ; (FS_VIEW+FS_EDIT, FS_2UP+FS_IOFH and
-    mov [di+FS_VKB], ax         ; FS_VKB+FS_DIRTY are each ONE word - the %if
-    dec ax                      ; above pins the pairs) - a reopened window
-    mov [di+FS_SEL], ax         ; never resumes one. FS_2UP: no prompt of the
+    push di                     ; as words off one zero, by STOSW (kernel size
+    dec ax                      ; pass 17, -10: ES = DS, app_launch - KD_INIT's
+    stosw                       ; one caller - having set it for wm_create's
+    inc ax                      ; template copy) and BEFORE the claim, which
+    stosw                       ; only ever writes FS_VSEG/FS_VKB on success:
+    stosw                       ; no selection (FS_SEL), scrolled to the top,
+    stosw                       ; no click, nothing listed - then past FS_CWD,
+    scasw                       ; FS_DRV and FS_MOK (the scasw pair only reads
+    scasw                       ; and writes flags) - list view, no half-typed
+    stosw                       ; name, no prompt, no icon slots, no claim and
+    stosw                       ; no debt: FS_VIEW..FS_DIRTY as four words
+    stosw                       ; (the %if above pins the layout) - a reopened
+    stosw                       ; window
+    pop di                      ; never resumes one. FS_2UP: no prompt of the
                                 ; LAST tenant's left up in the row area.
                                 ; FS_DIRTY: a KD_POOL block is REUSED (SPEC.md
                                 ; 29.3), and a window closed while it still
@@ -1104,8 +1109,8 @@ fmv_store:
     call fm_mzero               ; it is as meaningless as FS_SEL (22.27) -
 .mkeep:                         ; unless fmv_sync_x is re-listing in place
 %endif
-    mov word [di+FS_SEL], 0xFFFF
-    mov word [di+FS_SCRL], 0
+    or word [di+FS_SEL], -1     ; `or`/`and` for the two `mov`s: fmv_winof
+    and word [di+FS_SCRL], 0    ; writes the flags first (kernel size pass 17)
 
 
 
@@ -1295,7 +1300,7 @@ fmv_demote:
     add ax, fm_pool
     mov si, ax
     mov dx, [si+FS_VSEG]
-    mov word [si+FS_VSEG], 0
+    and word [si+FS_VSEG], 0    ; (flags dead: fm_owed, then a cmp)
     mov byte [si+FS_VKB], 0
 
     ; **AND THE WINDOW IS OWED A RE-LIST** (13.1). Shedding this used to cost
@@ -1313,7 +1318,7 @@ fmv_demote:
 
     cmp [fm_vseg], dx
     jne .out
-    mov word [fm_vseg], 0
+    and word [fm_vseg], 0       ; (the popf below: no flag survives)
 .out:
     pop si
     pop dx
@@ -1580,7 +1585,7 @@ fmv_load:
     ; file operation, for a buffer with no reader.
     cmp word [di+FS_VSEG], 0    ; ...and ONLY for a window that had one: with
     je .kept                    ; no claim the listing IS the floor buffer and
-    mov word [disk_nfiles], 0   ; the global honestly describes it, which is
+    and word [disk_nfiles], 0   ; the global honestly describes it, which is
     mov byte [dsk_lstale], 0    ; what commit 3 removes along with the floor
 .kept:
 
@@ -2791,8 +2796,8 @@ fm_seed:
     call kentc_di
     mov [fm_seed_drv], al
     mov [fm_seed_cwd], dx
-    mov word [fm_seed_nam], 0
-    or si, si
+    mov [fm_seed_nam], si       ; 0 for no name - and a name's pointer is
+    or si, si                   ; replaced below (kernel size pass 17, -2)
     jz .out
     mov di, fm_snam
     mov [fm_seed_nam], di
@@ -3021,7 +3026,7 @@ fm_brect:
     push bx
     push si
     dec al
-    xor ah, ah
+    cbw                         ; (an id is 1..FM_BDRIVE: kernel size pass 17)
     mov si, ax
     shl si, 1
     shl si, 1                   ; SI = (id-1) * 4: two words a row
@@ -3669,7 +3674,7 @@ fm_onup_x:
     call os88ui_sbdragging      ; SPEC.md 13.10.5: the release COMMITS, and it
     jc .btn                     ; commits unconditionally - a position the rate
     mov bx, si                  ; refused mid-drag is never lost, and a release
-    mov word [bx+W_TIMER], 0    ; that landed off the screen entirely still
+    and word [bx+W_TIMER], 0    ; that landed off the screen entirely still
                                 ; ends the gesture (13.7's second rule).
                                 ; 13.10.5.4.2's timer is cancelled FIRST: it
                                 ; must not outlive the gesture it belongs to,
@@ -4175,7 +4180,7 @@ fm_onkey_x:
 %else                           ; fm_lsel_bar lifts and relays it whole
     xchg ax, dx
     call fm_sel_bar             ; the old band off (22.2) - and nothing for
-    mov word [fm_lsel], 0xFFFF  ; a scroll below to carry: fm_scrollpaint
+    or word [fm_lsel], -1       ; a scroll below to carry: fm_scrollpaint
     mov [di+FS_SEL], dx         ; lifts and relays [fm_lsel]
 %endif
     mov ax, [ui_click_t]        ; ...and the double-click window shut: the
@@ -5210,7 +5215,7 @@ fm_c_format:                    ; File > Format Disk... (SPEC.md 22.12)
     ; loaded from a previous format, this is six compares and nothing is asked.
     call dskw_fmt_load          ; diskw.inc's own wrapper, which is this bank,
     jnc fm_fmt_go               ; this `mov al` and this call, already written
-    mov word [fm_swapwho], 0    ; ...and if it could not: the swap prompt
+    and word [fm_swapwho], 0    ; ...and if it could not: the swap prompt
                                 ; at step 0 (fm_fmtstep, the byte after) on
                                 ; the FORMATTER's behalf (SPEC.md 22.21.4).
                                 ; .bss arrives as whatever was in memory, so
@@ -6130,7 +6135,7 @@ fm_rclick_x:
                                 ; found in kernel size pass 9)
 .empty:
 %ifndef FM_MSEL
-    mov word [di+FS_SEL], 0xFFFF
+    or word [di+FS_SEL], -1     ; (flags dead: the cmp below)
 %endif
     mov di, fm_ctx_dir
 .have:
@@ -6171,7 +6176,7 @@ fm_rclick_x:
     call KERNEL_SEG:cw_menu_popup ; CF = 1 nothing chosen; CF = 0 and AL = the
     jc .out                     ; item index (DI, the descriptor, survives)
 
-    xor ah, ah                  ; AL is bounded by MC_NITEM (menu_hover), so
+    cbw                         ; AL is bounded by MC_NITEM (menu_hover), so
     mov bx, [di+MC_CMDS]        ; the parallel command array is in range
     add bx, ax
     mov al, [bx]
@@ -6707,7 +6712,6 @@ fm_drag:
     call kentc_di
     mov [fm_dgidx], ax
     mov [fm_dgwin], si
-    mov byte [fm_dgon], 0
     call fm_dgwait              ; the WAIT is a routine, press, mouse test and
     jc .out                     ; all - on kern_big the desktop's items move
                                 ; by the same four pixels (SPEC.md 26.9), and
@@ -6722,7 +6726,6 @@ fm_drag:
     call fcp_arm                ; disturbs a clipboard the user filled
 %endif
     jc .out                     ; '..' (SPEC.md 19.5) is not draggable
-    mov byte [fm_dgon], 1
     call fm_dgmove
     call fm_dgxor               ; the outline is up from here on
 .track:
@@ -8717,7 +8720,7 @@ fm_scrollpaint:
                                 ; (both are `jc`, so CF = 1 here already and
                                 ; the stc went - kernel size pass 15)
 .expup:
-    mov word [fm_rlo], 0        ; scrolled UP: the first |d| are
+    and word [fm_rlo], 0        ; scrolled UP: the first |d| are
     neg ax
     mov [fm_rhi], ax
 
@@ -9531,8 +9534,6 @@ fm_dgidx:   resw 1              ; fm_drag: the row it began on...
 fm_dgwin:   resw 1              ; ...the window it began in...
 fm_dgx:     resw 1              ; where the outline is DRAWN (fm_dgxor)
 fm_dgy:     resw 1
-fm_dgon:    resb 1              ; 1 = the outline is on screen
-fm_dgdrv:   resb 1              ; the drop target's drive, banked past fm_hit
 
 fm_cx:      resw 1              ; fm_layout: content left (abs)
 fm_cy:      resw 1              ; fm_layout: content top (abs)
@@ -9586,9 +9587,14 @@ fm_numbuf   equ fm_name         ; fm_ultoa scratch, 10 digits + NUL - ONE
                                 ; first (fm_stage_name; fm_newwin's seed copies
                                 ; it before any row can repaint)
                                 ; - and 11 bytes is the most it needs, of 17
-fm_bsspad:  resb 1              ; ...whose 11 were odd: this keeps every .bss
-                                ; word after this file at the parity it had (a
-                                ; 286's wait state on each one that went odd)
+fm_dgdrv:   resb 1              ; fm_drag: the drop target's drive, banked
+                                ; past fm_hit - HERE, after fm_hdrbuf's 17 +
+                                ; 48 odd bytes, so that every .bss word after
+                                ; this file keeps the parity it had (a 286's
+                                ; wait state on each one that went odd). It
+                                ; sat beside fm_dgon, written twice and read
+                                ; nowhere, and the 1-byte fm_bsspad did this
+                                ; job (kernel size pass 17: -2 .bss, -10)
 
 section .text
 

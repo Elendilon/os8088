@@ -524,12 +524,9 @@ inst_parksafe_set:
     push ax
     push bx
     push di
-    mov bx, es
-    call inst_of_seg            ; the scan, said once (the shuffle that used
-    jc .no                      ; to get ES past AL went with it)
-    call inst_fhome_idx         ; BX = the slot - the ONE place the side
-    mov [bx+inst_parksafe], al  ; table's indexing lives
-    clc                         ; inst_fhome_idx clobbers the flags
+    call inst_es_slot           ; BX = the caller's slot, CF = 0 - or CF = 1
+    jc .no                      ; (the scan and the index, said once)
+    mov [bx+inst_parksafe], al  ; ...and CF is still inst_es_slot's 0
 .no:                            ; ...and the CF=1 arm arrives carrying its own
     pop di
     pop bx
@@ -558,14 +555,11 @@ inst_restart_set:
     push ax
     push bx
     push di
-    mov bx, es
-    call inst_of_seg
+    call inst_es_slot
     jc .no
-    call inst_fhome_idx         ; BX = the slot, the one place the side
-    shl bx, 1                   ; tables' indexing lives - doubled here alone,
-    mov [bx+inst_restart], ax   ; this being the only WORD table among them
-    clc                         ; inst_fhome_idx clobbers the flags
-.no:
+    shl bx, 1                   ; doubled here alone, this being the only WORD
+    mov [bx+inst_restart], ax   ; table among them - and CF = 0 is the shl's:
+.no:                            ; BX < INST_MAX has a clear top bit
     jmp short inst_parksafe_set.no  ; the same three pops, one routine up
 
 ; -----------------------------------------------------------------------------
@@ -1180,19 +1174,31 @@ inst_fhome_here:
 ; -----------------------------------------------------------------------------
 ; inst_fhome_idx - a record pointer to its per-instance file-home index
 ; in:  DI = a record inside inst_tab
-; out: BX = the slot index (0..INST_MAX-1)
+; out: BX = the slot index (0..INST_MAX-1), CF = 0 (DI being a record)
 ; clobbers: BX (the output), flags. AX is banked, so this is inst_idx with a
 ;           different output register and nothing else.
 ;
 ; The one place the side table's indexing lives, so instance.inc and fdlg.inc
 ; cannot come to disagree about which row belongs to which record.
 ; -----------------------------------------------------------------------------
+%ifdef OS88_COMPACT
+; inst_es_slot - inst_parksafe_set's and inst_restart_set's common head: the
+; live package instance at ES (the X stub's caller), as its slot
+; out: CF = 0 with BX = the slot and DI = the record; CF = 1 not a live package
+; clobbers: BX, DI, flags (kernel size pass 17: their two copies, and the
+;           `clc` each spelt after inst_fhome_idx, which answers CF = 0)
+inst_es_slot:
+    mov bx, es
+    call inst_of_seg
+    jc inst_fhome_idx.ret
+%endif
 inst_fhome_idx:
     push ax
     call inst_idx               ; the same (DI - inst_tab) >> 5, said once
     mov bx, ax                  ; (inst_idx banks CX itself - SPEC.md 29.4)
-    pop ax
-    ret
+    pop ax                      ; ...and CF = 0: the shr's last bit out is
+.ret:                           ; bit 4 of a record's offset, and records are
+    ret                         ; 32 bytes apart (inst_es_slot reads it)
 
 ; -----------------------------------------------------------------------------
 ; inst_fhome_clr - seed a slot's own current directory (SPEC.md 19.2.1) - INLINE
