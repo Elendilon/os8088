@@ -154,3 +154,164 @@ wizard's open pull request had already claimed 117, so System Check's
 contract moved to SPEC.md 118 when main was merged in. Nothing changed
 but the number: every citation in the source, the tests and these
 documents now says 118.
+
+## 2026-11-01 — Check the disk, repair it, defragment it
+
+The owner asked for two more things System Check should do: *basic
+chkdsk-style FAT checks, and defragmenting, as options.* Then, partway
+through, a constraint: the 360KB system disk has no room left, so whatever
+the feature needs on disk must be able to live on `util360` beside
+`SYSCHECK.O88` itself.
+
+**The first decision was where the code goes, and it was not a choice.** A
+package cannot read a sector - the public disk surface is file-level on
+purpose, because a raw write underneath the kernel's FAT window, its
+read-ahead cache and its stream cursors has no safe answer. So the checker
+had to be kernel code. Kernel code that most machines never run is what an
+on-demand module is for, and that is what it became: `kernel/fsck.inc`,
+assembled with the kernel and cut out as `FSCHECK.DRV`. It reaches the FAT
+through the kernel's own `dsk_next_clus_x`, `dskw_setfat` and `dskw_flush_x`,
+so both FAT copies and the FAT window stay the kernel's business, and every
+sector it writes goes through `disk_write_x`, so the cache invalidates
+itself by the one rule it already had.
+
+**The owner's constraint changed how it is loaded.** The kernel only ever
+loads a module from the boot volume, and the boot volume is exactly the disk
+with no room. So `FSCHECK.DRV` is not a module the kernel knows: System Check
+reads it from its own folder into a claim of its own and hands the segment
+over on every call. The kernel keeps nothing between calls, checks the
+image's header against its own build and layout every time, and the image
+and its workspace die with the program. What that costs every kern_big
+machine is **101 bytes**: one API cell, a 66-byte stub, a trampoline, and a
+counter.
+
+Two things nearly went wrong there. The kernel can move its `.cold` code at
+boot - over the VGA rung on a mono machine, into a ROM - and it re-points
+the far calls in a module *when it loads one*. Nothing loads this one, so a
+`call COLD_SEG:` inside it would have called into the wrong segment on every
+CGA and Hercules machine. It builds its far pointer from the kernel's own
+`[api_coldseg]` on every call instead. And kern_mega runs protected mode,
+where an image cannot write to itself, so its build carries a 19-byte image
+that refuses.
+
+**The counter is the safety net.** A check is hundreds of calls apart and
+the desktop is live between them, so the user can save a file onto the disk
+being defragmented. Every sector write now bumps a per-volume byte, and the
+engine compares it at every step. A move copies into free clusters first,
+links the new chain, rewrites the file's entry, then frees the old chain -
+so a power cut leaves lost clusters, never a file pointing at nothing - and
+a write by anybody else in the middle ends the run before the link.
+
+**Every finding is a code and two numbers**, and System Check makes the
+words. So the window and the saved report say the same thing, and the
+kernel carries no English for it.
+
+The test plants seven faults on a copy of `util360.img` - a lost chain, a
+chain longer and one shorter than its size, a cross-link, a chain into a
+free cluster, a wrong `..`, two FAT copies that differ. It checks, repairs
+and defragments under MartyPC, and judges the result with a FAT reader of
+its own rather than with the program's report. The first run found the
+test's mistake rather than the program's: the planted `..` belongs to
+`SYSTEM\DOS`, whose parent is `SYSTEM` and not the root, and the engine
+said so. The second found two of the program's. A repaired finding still
+counted as broken, and *- repaired* ran off the end of the reason field.
+Both are fixed. **Measured on the 4.77 MHz 5150: 5 seconds to check a 360KB
+floppy, 13 to defragment it.** Looking at CGA showed the last thing: the
+task list ran off the bottom of the short card, so the tasks moved to a
+column of their own beside the drives.
+
+![The chooser asks what to do as well as which drive (VGA).](syscheck/vga-tasks.png)
+
+![The same on CGA's short card, all four tasks beside the drives.](syscheck/cga-tasks.png)
+
+![After Check and repair: everything fixed but the cross-link, which is the user's call (VGA).](syscheck/vga-repaired.png)
+
+![The same on CGA.](syscheck/cga-repaired.png)
+
+## 2026-11-02 — The installed system, a hard disk, and kern_mega
+
+Three follow-ups from the owner: kern_mega has to run it (kern_small may
+refuse), there has to be a hard-disk test, and the case that started all
+this - a fragmented os8088 install on a hard disk - should be able to
+defragment its own files too.
+
+**The installed system's own files.** The first version left every hidden
+or system file where it was, on the guess that something found them by
+position. Reading the boot path settled it: everything is found BY NAME -
+the drivers, the modules, the hibernation image - except `KERNEL.SYS`,
+which the hard disk's boot sector reads as one flat run from an offset the
+installer patches into it. So the rule became the fact. Everything moves,
+and `KERNEL.SYS` moves only when the volume's own boot sector is the one
+that names it, with that sector rewritten - after the new run is linked and
+before the entry is, so a stop between any two writes still boots.
+
+**The hard-disk test found the bug that mattered.** It builds the install a
+fragmented machine would have: the kernel moved high (the boot sector told),
+three system files cut into interleaved pieces, a user file in a folder in
+pieces, and an `AUTOSTRT` link that runs the defragmenter at boot. The first
+green-looking run moved the kernel and *did not tell the boot sector* - a
+machine that would never boot again. The name compare that recognises
+`KERNEL.SYS` cleared its own zero flag with two `inc`s on the way out, so it
+never matched anything, and the kernel was moved like any other file. The
+test's second boot - every free cluster zeroed first, so a stale boot sector
+would load zeros - is what makes that kind of mistake visible rather than
+lucky.
+
+That test needed a way to run System Check with nobody at the machine, so it
+grew one users get too: a link's parameter (`C: DEFRAG REPORT`) names the
+drive and the task and saves the report. Its first version returned a
+garbage window pointer from the entry proc when a drive was named - the
+boot hung on the loading screen - and its second started the scan from the
+entry proc; it now starts at the window's first paint.
+
+**kern_mega.** The engine ran out of its own image and kept its variables
+there, which protected mode forbids - a code selector is not writable - so
+its scratch moved into the workspace and three words of the kernel's. Bochs
+then found the second problem in one boot: System Check's claims live above
+1MB on kern_mega, and a claim there is a data selector alone, with no code
+half to far-call. That is a known case, not a defect: RealDMG meets it for
+its recompiled code and answers it the same way (`rw_csel`). The stub had
+far-called without asking. So System Check asks the kernel for a code/data
+pair over the image (`OSAPI_SEG SEG_SUBC`), and the stub refuses a selector
+with no code half instead of faulting. The SDK's general note, which said
+every claim is a pair, now names the exception and both examples. Repair and defragment then ran under
+kern_mega with no fault, held to the same independent FAT reader as on the
+8088.
+
+## 2026-11-02 — Folders, and the last open items
+
+The owner asked whether folders were the only thing left. They were not:
+nothing had ever made a write happen mid-run to prove the guard against
+it, and the release checks had never been run against a planted disk on
+the two 1bpp adapters. All three are done now.
+
+**A folder is named by its cluster in more places than a file.** Its own
+`.`, its children's `..` and its parent's entry are on the disk, and the
+engine rewrites all three, in an order where a stop leaves `..` entries a
+repair puts right and never a folder nothing names. The machine names it
+too: every program's current folder, every Disk window's, the clipboard's.
+Those are the kernel's own words and the engine patches them. What it
+cannot patch is a folder cluster a PROGRAM has kept for itself -
+`OSAPI_FILE_HERE` hands one out, fifty packages ask for one, and System
+Check itself banks two. So the rule is plain: folders move only when no
+other program is open, and the report says so when one is (*folders not
+moved: 1 programs open*). The test leaves a Disk window standing inside the
+folder it moves, with the Task Manager open, and runs the defragmenter
+twice: the first run moves files and leaves the folder; the second, with
+the Task Manager closed, moves the folder - and the window's own folder
+word follows it.
+
+**A write mid-run** is now proved both ways: the report System Check saves
+moves the volume's write generation (so `disk_write_x` really bumps it), and
+a generation moved while a check runs ends the run with *the disk changed -
+scan again*. The first attempt poked the generation before the run had
+recorded it, and the test went red - which is what showed it would.
+
+**CGA and Hercules** run the planted release-check disk as an XT-IDE hard
+disk on MartyPC's 5150, unattended through the link parameter; both find
+the same 5 broken and 6 warnings the VGA row does.
+
+The owner also asked what was "wrong about the claim" behind kern_mega's
+fault, and the honest answer is nothing: a claim an `OS88_HIGHMEM` program
+gets above 1MB is a data selector alone by design, RealDMG already handles
+it the same way, and the SDK's general note now says so.

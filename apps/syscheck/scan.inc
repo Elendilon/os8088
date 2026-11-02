@@ -101,6 +101,11 @@ sc_step:
     call sc_scan_end
     jmp short .out
 .go:
+    cmp byte [sc_task], TASK_REL
+    je .rel
+    call sc_dstep                   ; a disk task (disk.inc, SPEC.md 118.14)
+    jmp short .out
+.rel:
     mov bl, [sc_pass]
     xor bh, bh
     shl bx, 1
@@ -1408,6 +1413,7 @@ sc_hadd:
 ;               go home, and say so
 ; =============================================================================
 sc_scan_end:
+    call sc_dfinish                 ; a disk task's engine ends (118.14.6)
     call sc_opend                   ; (Stop, or a refusal, inside P_MAN)
     mov dx, [sc_homedx]
     mov bl, [sc_homebl]
@@ -1455,6 +1461,9 @@ sc_scan_end:
 .owed:
     mov word [sc_dirty], 0xFFFF     ; heading, counts, buttons, status, list
     mov word [sc_drows], 0xFFFF
+    mov al, [sc_areport]            ; a link's REPORT: once, at the next wake's
+    mov [sc_arepq], al              ; draw (sc_onwake), with the lock held as
+    mov byte [sc_areport], 0        ; a click's would be
     ret
 
 ; sc_opend - P_MAN's OSAPI_FS_OP ends (SPEC.md 12.8.10). Clobbers CX, DX

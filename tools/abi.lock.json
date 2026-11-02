@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "5bdccbdf468b427fc98fd02c2dbc52504cab5184825cdcd63ea80eadc96b476b",
+  "fingerprint": "46c78c2bdc7b6426445728405fe5ee148904e6de7486a0aa5225505756acaee7",
   "version": 12
  },
  "PKG_FMT": {
-  "fingerprint": "4d2e0218eebaefd14e7ae6d5f347a1dddf8916ab304f2c2d6c746bb4b203af0e",
+  "fingerprint": "a083253391b36c1a4c553594f2de94687e3163dbb269698f82295fe5867006fb",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -1456,6 +1456,62 @@
    "from": 12,
    "guard": "DRV_VER",
    "reason": "KDH_PAD (byte 5 of the DOS handoff record, always 0) becomes KDH_FMT, the parts' format; 0 = LZ4 is what every earlier poster wrote, so nothing built before stops running (SPEC.md 96.44.18)",
+   "to": 12
+  },
+  {
+   "fingerprint": "b250fcbc4502c9c74e5a6ef7d7b80e945b0622ccb6fef0b849d281cd51f454ab",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_VOL_CHECK appended at 0x04F5 (SPEC.md 118.14): a cell added at the end, nothing built before moves",
+   "to": 10
+  },
+  {
+   "fingerprint": "2f2273b03c9a10b581e9eb19e97829a91e76def2516b8585263a03dfba956506",
+   "from": 12,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_VOL_CHECK appended at 0x04F5 (SPEC.md 118.14): a cell added at the end, nothing built before moves",
+   "to": 12
+  },
+  {
+   "fingerprint": "44a0766621438dfa0b5db5f74a7f1d813143f1af07a7610bad0a9200bfde86a4",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_VOL_CHECK's note: kern_mega runs it (SEG_SUBC pair); a comment, nothing moves",
+   "to": 10
+  },
+  {
+   "fingerprint": "d3652eeaed49bb595793c626e35da04e215e3c86fadd7121b4d19e1671bcc5a8",
+   "from": 12,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_VOL_CHECK's note: kern_mega runs it (SEG_SUBC pair); a comment, nothing moves",
+   "to": 12
+  },
+  {
+   "fingerprint": "4a0665629401226cb08aff8c05291f2d72b31179550bd22f52e2c6c991c909c9",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_VOL_CHECK's record: FSW_MOVEDF, FSW_OTHERS (folders, SPEC.md 118.14.5) - appended fields",
+   "to": 10
+  },
+  {
+   "fingerprint": "1216911f5ae86d74a64f36449694ac7a0c25c7eeb2caa2785a3fabcbbf89f87e",
+   "from": 12,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_VOL_CHECK's record: FSW_MOVEDF, FSW_OTHERS (folders, SPEC.md 118.14.5) - appended fields",
+   "to": 12
+  },
+  {
+   "fingerprint": "a083253391b36c1a4c553594f2de94687e3163dbb269698f82295fe5867006fb",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "merge elendilon (System Check / FSCHECK.DRV, SPEC.md 118.14) into dos-windowed beside its DOS SDK changes",
+   "to": 10
+  },
+  {
+   "fingerprint": "46c78c2bdc7b6426445728405fe5ee148904e6de7486a0aa5225505756acaee7",
+   "from": 12,
+   "guard": "DRV_VER",
+   "reason": "merge elendilon (System Check / FSCHECK.DRV, SPEC.md 118.14) into dos-windowed beside its DOS SDK changes",
    "to": 12
   }
  ]

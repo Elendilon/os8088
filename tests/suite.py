@@ -16766,6 +16766,61 @@ SOAK = [
         "out of each package's own bss through its map.",
         needs=("marty",), serial=True, timeout=600,
         wants=("build/apps360.img", "build/timer.o88", "build/bounce.o88")),
+    Row("fsckdisk", "soak", py("tests/fsckdisk.py"), 60.0,
+        "SPEC.md 118.14: SYSTEM CHECK'S DISK TASKS, on MartyPC's 5150 off a "
+        "copy of util360.img in B: - SYSCHECK.O88 and FSCHECK.DRV side by "
+        "side, the case the engine ships beside its package for. Seven FAT "
+        "faults planted (a lost chain, a chain longer and one shorter than "
+        "its size, a cross-link, a chain into a free cluster, a wrong '..', "
+        "two FAT copies that differ): Check the disk must name each and write "
+        "nothing; Check and repair must leave a disk an INDEPENDENT FAT "
+        "reader finds clean but for the cross-link, the lost chains saved as "
+        "FILEnnnn.CHK. Then a fragmented copy - a folder in pieces with a "
+        "child folder in it - is defragmented twice, a Disk window standing "
+        "IN that folder: with the Task Manager open folders must stay "
+        "(118.14.5) and say why; with it closed the folder moves, every "
+        "'.'/'..' names it right and the window's FS_CWD follows it. Last, a "
+        "write mid-run (B:'s write generation bumped while a check runs) "
+        "must end the run with 'the disk changed', and saving the report "
+        "must move that generation.",
+        needs=("marty",), serial=True, timeout=600,
+        wants=("build/os8088-360.img", "build/util360.img",
+               "build/syscheck.o88", "build/fscheck.drv")),
+    Row("fsckhd", "soak", py("tests/fsckhd.py"), 120.0,
+        "SPEC.md 118.14.5: DEFRAGMENTING AN INSTALLED SYSTEM on a FAT16 hard "
+        "disk, on MartyPC's XT with XT-IDE. A VHD built the way an install "
+        "leaves one, then on the host: KERNEL.SYS moved high and the VBR's "
+        "BOOTHD_KOFS patched to match, HDD.DRV (hidden + system), "
+        "SYSCHECK.O88 and FSCHECK.DRV interleaved in pieces, a user file in a "
+        "folder in pieces, and an AUTOSTRT link `C: DEFRAG REPORT` (118.14.9). "
+        "Boot 1 runs the defragmenter from the link; an independent FAT reader "
+        "then finds nothing wrong and nothing in pieces, every file's bytes "
+        "unchanged, KERNEL.SYS lower and the VBR naming its new run. Boot 2, "
+        "with every free cluster zeroed, must reach the desktop.",
+        needs=("marty",), serial=True, timeout=900,
+        wants=("build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
+               "build/hdd.drv", "build/syscheck.o88", "build/fscheck.drv")),
+    Row("fsckmega", "soak", py("tests/fsckmega.py"), 45.0,
+        "SPEC.md 118.14.8: SYSTEM CHECK'S DISK TASKS ON kern_mega, under "
+        "Bochs, the instrument that faults where a 286 does. mega.img with an "
+        "AUTOSTRT link naming B: and the task (118.14.9): REPAIR on "
+        "fsckdisk's seven planted faults, then DEFRAG on a disk in pieces, "
+        "each B: held to fsckdisk's independent FAT reader, and no kern_mega "
+        "fault. Red before SEG_SUBC: FSCHECK.DRV's claim is a data selector "
+        "alone above 1MB, and the stub's far call through it was a #GP.",
+        needs=("bochs",),
+        wants=("build/mega.img", "build/redline.o88", "build/os88net.com")),
+    Row("syscheckmono", "soak", py("tests/syscheckmono.py"), 25.0,
+        "SPEC.md 118.11 on the 1bpp adapters: syscheck.py's planted hard disk "
+        "(every breakage 118.1 names), wrapped as an XT-IDE VHD and booted on "
+        "MartyPC's 5150 with CGA and with Hercules. Its AUTOSTRT link says "
+        "`C: RELEASE REPORT` (118.14.9), so the scan runs and saves "
+        "SYSCHECK.TXT unattended; read back off the VHD it must say 5 broken, "
+        "6 warnings and name every planted finding. 23s measured, both "
+        "machines.",
+        needs=("marty", "mtools"), serial=True, timeout=900,
+        wants=("build/os8088.img", "build/syscheck.o88", "build/mbr.bin",
+               "build/boothd.bin", "build/kernel.sys")),
     Row("syscheck", "soak", py("tests/syscheck.py"), 20.0,
         "SPEC.md 118: SYSTEM CHECK on an upgraded install. A hard-disk image "
         "of the system disk's own files is planted with one of every "

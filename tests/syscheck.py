@@ -65,11 +65,24 @@ def b(name):
 
 
 def mtools_img(img):
-    return "%s@@%d" % (img, PART_LBA * 512)
+    """mtools' view of the partition: its LBA read off the MBR's active
+    entry (PART_LBA at the default geometry; a track's sectors at another -
+    tests/syscheckmono.py builds at XT-IDE's)."""
+    lba = PART_LBA
+    with open(img, "rb") as f:
+        mbr = f.read(512)
+    for i in range(4):
+        e = mbr[446 + 16 * i:446 + 16 * (i + 1)]
+        if e[0] == 0x80:
+            lba = struct.unpack_from("<I", e, 8)[0]
+            break
+    return "%s@@%d" % (img, lba * 512)
 
 
-def build_fixture(out):
-    """The planted hard disk. Returns the scratch dir (the caller removes it)."""
+def build_fixture(out, arg=None, geometry=None):
+    """The planted hard disk. Returns the scratch dir (the caller removes it).
+    `arg` is the AUTOSTRT link's parameter (SPEC.md 118.14.9) and `geometry`
+    os88disk's C/H/S - tests/syscheckmono.py's, for MartyPC's XT-IDE disk."""
     tmp = tempfile.mkdtemp(prefix="syscheck-")
 
     def put(name, data):
@@ -119,11 +132,13 @@ def build_fixture(out):
     lnk = os.path.join(tmp, "auto", "SYSCHECK.LNK")
     os.makedirs(os.path.dirname(lnk), exist_ok=True)
     with open(lnk, "wb") as f:
-        f.write(bytes(os88lnk.make("SYSTEM/SYSCHECK.O88")))
+        f.write(bytes(os88lnk.make("SYSTEM/SYSCHECK.O88", arg=arg)))
     args.append("AUTOSTRT:" + lnk)
     cmd = ["python3", os.path.join(ROOT, "tools", "os88disk.py"), "-o", out,
            "--hdd", "--mbr", b("mbr.bin"), "--boot", b("boothd.bin"),
            "--kernel", b("kernel.sys"), "--folder", "SYSTEM/APPDATA"]
+    if geometry:
+        cmd += ["--geometry", geometry]
     for r in raw:                       # the plain path skips validation;
         cmd += ["--raw", r.split(":", 1)[1]]  # the positional places it
     cmd += args + raw

@@ -1383,6 +1383,15 @@ disk_read_x:
     jmp short dsk_xfer
 disk_write_x:
     mov byte [dsk_op], 0x03     ; AH=03 write - the ONLY difference
+%ifdef OS88_FSCK
+    pushf                       ; ...and the volume's WRITE GENERATION moves
+    push bx                     ; (SPEC.md 118.14.6): a check that spans
+    mov bl, [disk_drive]        ; many calls sees that something else wrote
+    mov bh, 0                   ; the disk between two of them
+    inc byte [bx+dsk_wgen]
+    pop bx
+    popf
+%endif
     call dsk_rah_wr             ; ...and it drops §19.2.3's directory window if
                                 ; this write lands in it. Preserves every
                                 ; register AND the flags, which dsk_xfer's

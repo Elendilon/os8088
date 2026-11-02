@@ -40,11 +40,69 @@ mockups are [docs/syscheck/design/](../syscheck/design/).
 - [x] **Presentation:** as a user on Hercules or CGA the lamps are shapes
   rather than colours and the layout fits the screen; on VGA they are the
   mockup's colours.
-- [ ] **Acceptance:** a hard-disk image with each kind of breakage planted is
-  booted from C:, scanned, reported and cleaned up by a soak row, on every
-  adapter the window claims. *Done on VGA (`syscheck`, QEMU); Hercules and
-  CGA have been LOOKED AT on MartyPC (a clean system disk, every row OK) but
-  no row drives a planted disk on them yet.*
+- [x] **Acceptance:** a hard-disk image with each kind of breakage planted is
+  booted from C:, scanned and reported by a soak row on every adapter the
+  window claims: VGA with Clean Up (`syscheck`, QEMU), CGA and Hercules
+  (`syscheckmono`, MartyPC, run from an `AUTOSTRT` link).
+
+### Disk tasks: check, repair, defragment (SPEC.md 118.14)
+
+- [x] **Contract:** SPEC.md 118.14 pins the chooser's four tasks, the nine
+  disk rows, `OSAPI_VOL_CHECK`, the workspace record, every finding's code
+  and numbers, what repair repairs and in what write order, the
+  defragmenter's rules, and the per-volume write generation.
+- [x] **Engine:** as a maintainer I get `FSCHECK.DRV`, the checker and
+  defragmenter as kernel code (`kernel/fsck.inc`), cut out by
+  `tools/os88mod.py` and **loaded by the package from beside it**, not by
+  `mod_need` - so it ships at util360's root next to `SYSCHECK.O88`, and in
+  `SYSTEM\` on the larger kern_big disks, and never on the 360KB system disk.
+  101 resident bytes, no rung crossed.
+- [x] **Choose the task:** as a user the chooser asks what to do as well as
+  which drive - Release files (the nine checks), Check the disk, Check and
+  repair the disk, Defragment the disk - with Tab, 1-4 or a click, and it
+  fits CGA's short card.
+- [x] **Check the disk:** as a user I am told about FAT copies that differ,
+  wrong `.`/`..` entries, entries that are not entries, chains that leave
+  the disk or run into free or bad clusters, files whose chain and size
+  disagree, cross-links and lost clusters, plus free space and
+  fragmentation - and nothing is written.
+- [x] **Repair it:** as a user *Check and repair* fixes all of those but a
+  cross-link, in an order that never leaves a file naming a free cluster,
+  saves lost chains as `FILEnnnn.CHK`, and shows each repaired finding as
+  `(fixed)`.
+- [x] **Defragment it:** as a user *Defragment the disk* (after a clean
+  check) makes every movable file one piece and packs files towards the
+  start, through free space only, leaving folders, hidden and system files
+  and disk images where they are.
+- [x] **Safety:** as a user a save onto the disk mid-run, or a swapped
+  floppy, ends the run with *The disk changed - scan again* instead of
+  working from a stale picture. `fsckdisk`'s third leg bumps the write
+  generation mid-run and holds the report to it, and checks that a real
+  write (the report itself) moves the generation.
+- [x] **Acceptance:** `fsckdisk` (soak, MartyPC) plants seven faults on a
+  copy of util360.img, checks, repairs and defragments it, and holds every
+  result to an independent FAT reader. Looked at on CGA and VGA.
+- [x] **Hard disk, and the installed system's own files:** as a user
+  *Defragment the disk* on an installed hard disk puts the system's own
+  files in one piece too - drivers, modules, every package, hidden and
+  system ones - and moves `KERNEL.SYS` where the hard disk's boot sector can
+  be told, patching `BOOTHD_KOFS` in an order that boots after any stop.
+  `fsckhd` (soak, MartyPC XT-IDE, FAT16) defragments such an install from an
+  `AUTOSTRT` link and boots it again with every free cluster zeroed.
+- [x] **kern_mega:** as a kern_mega user the disk tasks run in protected
+  mode, against kern_mega's own `FSCHECK.DRV` on `mega.img`. `fsckmega`
+  (soak, Bochs) repairs and defragments with no kern_mega fault.
+- [x] **Run from a link:** as a user an `AUTOSTRT` link such as
+  `SYSCHECK.O88 C: DEFRAG REPORT` defragments a disk at every boot with
+  nobody at the machine (SPEC.md 118.14.9).
+- [x] **Folders:** as a user *Defragment the disk* puts folders in one piece
+  and packs them low too: their `.`, their children's `..`, and the
+  kernel's own words that name them (each program's and each Disk window's
+  folder, the clipboard's) follow - and only while no other program is
+  open, because a program may hold a folder's cluster where nothing can see
+  it; otherwise the run says so and moves files alone. `fsckdisk` (FAT12)
+  and `fsckhd` (FAT16) move folders; `fsckdisk` holds a Disk window
+  standing in one to it.
 
 ## Existing facilities and boundaries
 
@@ -58,9 +116,13 @@ mockups are [docs/syscheck/design/](../syscheck/design/).
   hidden + system file and cannot list one (SPEC.md 19.7.1), which is why
   drivers are checked against a manifest and a retired list rather than
   discovered.
-- **No new kernel facility.** The one thing a slot would add - the running
-  kernel's build - is answered by construction instead (SPEC.md 118.1.1),
-  so the feature costs no resident byte.
+- **No new kernel facility for the release checks.** The one thing a slot
+  would add - the running kernel's build - is answered by construction
+  instead (SPEC.md 118.1.1), so those cost no resident byte. **The disk
+  tasks are the exception, and have to be**: a package has no sector read or
+  write and must not be given one (SPEC.md 96.5.2.2), so they add one cell,
+  `OSAPI_VOL_CHECK`, and an engine image the package loads (SPEC.md
+  118.14.1).
 
 ## Verification discipline
 

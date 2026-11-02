@@ -2631,6 +2631,12 @@ else
 BIGMODS = $(KMODDIR)/hiber.drv $(KMODDIR)/dock.drv $(KMODDIR)/extd.drv \
           $(KMODDIR)/win95.drv $(KMODDIR)/desk.drv $(KMODDIR)/stikmenu.drv
 endif
+# FSCHECK.DRV (SPEC.md 118.14.1) is cut beside them and is NOT in $(DRIVERS):
+# it is no mod_tab row and the kernel never loads it - System Check does, from
+# the folder SYSCHECK.O88 sits in - so it ships where $(SYSTOOLS) does and on
+# util360's root beside it, and never on the 360KB system disk, which has no
+# room for it. It is kern_big's alone, as System Check is.
+FSCKMOD = $(BUILD)/fscheck.drv
 KMODARGS = -m 0=$(BUILD)/ctrl.drv -m 1=$(BUILD)/format.drv \
            -m 2=$(BUILD)/diskops.drv
 # ...and kern_small's FIFTH and SIXTH, Cut/Copy/Paste (SPEC.md 22.3, MOD_FCP)
@@ -2652,7 +2658,8 @@ KMODARGS += -m 5=$(BUILD)/serial.drv
 else
 KMODARGS += -m 3=$(BUILD)/hiber.drv -m 4=$(BUILD)/dock.drv -m 5=$(BUILD)/extd.drv \
             -m 6=$(BUILD)/win95.drv -m 7=$(BUILD)/desk.drv \
-            -m 8=$(BUILD)/stikmenu.drv -m 9=$(BUILD)/serial.drv
+            -m 8=$(BUILD)/stikmenu.drv -m 9=$(BUILD)/serial.drv \
+            -m 10=$(BUILD)/fscheck.drv
 endif
 # ...AND THE MODULES ARE 'CZ' FILES ON THE DISK (SPEC.md 2.8, 20.13.5), by
 # the route a driver took: mod_need sizes its claim from the directory hint
@@ -2869,7 +2876,7 @@ endif
 # a second recipe would run os88mod.py a second time, and GNU make would run
 # it once PER TARGET for a multi-target rule, which is the classic way to get
 # a file written twice and a race with -j.
-$(KMODS) $(BIGMODS): $(BUILD)/kernel.bin ;
+$(KMODS) $(BIGMODS) $(FSCKMOD): $(BUILD)/kernel.bin ;
 
 # The boot sector needs to know how many sectors to read, so we measure the
 # kernel at build time and assemble the count in. Reading exactly what exists
@@ -3517,7 +3524,7 @@ STIKARGS := $(addprefix STIKAPPS:,$(STIKAPPS))
 # not into $(SYSAPPSARGS)'s gate disks, not onto an apps disk, and not onto
 # kern_small's or kern_emu's images, neither of which installs to a hard disk
 # (the browser's live image filters it back out, LIVENOTOOLS below).
-SYSTOOLS := $(BUILD)/syscheck.o88
+SYSTOOLS := $(BUILD)/syscheck.o88 $(FSCKMOD)
 SYSTOOLSARGS := $(addprefix SYSTEM:,$(SYSTOOLS))
 # ...EXCEPT THE 360KB SYSTEM DISK (SPEC.md 24.3.1.7, the owner's of
 # 2026-10-22): there it rides util360.img, and an install from the 360KB pair
@@ -4060,7 +4067,7 @@ $(BUILD)/syscheck_man.inc: $(KERNFILE) $(DRIVERS360) $(SYS360OMITDRV) $(SYSAPPS)
 
 $(BUILD)/syscheck.bin: apps/syscheck/syscheck.asm apps/syscheck/scan.inc \
                        apps/syscheck/ui.inc apps/syscheck/out.inc \
-                       apps/syscheck/choose.inc \
+                       apps/syscheck/choose.inc apps/syscheck/disk.inc \
                        apps/os88api.inc apps/os88ui.inc apps/os88dec.inc \
                        apps/os88rseq.inc $(BUILDINC) $(BUILD)/syscheck_man.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I $(BUILD)/ -o $@ apps/syscheck/syscheck.asm
@@ -15251,6 +15258,16 @@ mega: $(BUILD)/mega.img $(BUILD)/mega120.img $(BUILD)/megaapps.img $(BUILD)/mega
 	@python3 tools/os88megaseg.py --big $(BUILD)/kernel.map --mega $(MEGADIR)/kernel.map --check tests/megaseg.txt
 	@echo "mega: $< - kern_mega on 1.44MB, and build/mega120.img on 1.2MB. Pair them with build/megaapps.img / megaapps120.img, the apps disks with kern_mega's package arms (KERN-MEGA-PLAN 14.66)."
 
+# SYSTEM CHECK, AND kern_mega's OWN FSCHECK.DRV BESIDE IT (SPEC.md 118.14.8):
+# the package is the shipped one - it carries no kern_mega code, the kernel's
+# stub finds the claim's code selector - but the engine is cut out of THIS
+# kernel's assembly, as every module is, and a kern_big copy is refused here
+# by its layout stamp. Recipe-only, like $(MEGADRIVERS)' module half: the
+# sub-make in the recipe is what cuts it, and SYSCHECK.O88 is made by a sub-make
+# of its own with KMODDIR put back - as a prerequisite it would inherit the
+# target's KMODDIR and build its manifest from kern_mega's modules
+MEGATOOLSARGS = SYSTEM:$(BUILD)/syscheck.o88 SYSTEM:$(MEGADIR)/fscheck.drv
+
 # NO COLDHMA.SYS and no XMEM.DRV: the HMA and everything above it are
 # kern_mega's own (kernel/mega.inc), and xm_sniff never asks for either.
 MEGADRIVERS = $(filter-out %/coldhma.sys %/xmem.drv,$(DRIVERS))
@@ -15264,9 +15281,10 @@ $(BUILD)/mega.img: $(MEGADRIVERS) $(MEGAINST) $(call MEGASUB,$(SYSAPPS)) $(call 
                    $(FACES) $(FACELIC) tools/os88disk.py $(MEGASRC)
 	@$(MAKE) BUILD=$(MEGADIR) KERN_MEGA=1 $(if $(NOKZIP),NOKZIP=1) $(MEGADIR)/boot.bin $(MEGADIR)/boothd.sys \
 		$(MEGADIR)/kdos/DOS.O88
+	@$(MAKE) KMODDIR=$(BUILD) $(BUILD)/syscheck.o88
 	python3 tools/os88disk.py -o $@ --size 1440 \
 		--boot $(MEGADIR)/boot.bin --kernel $(MEGADIR)/$(KERNNAME) \
-		$(MEGADRIVERS) $(MEGASYSAPPSARGS) $(MEGASYSOPTARGS) $(STIKARGS) $(STIKNOTESARG) $(MEGAINST) APPS:$(MEGADIR)/kdos/DOS.O88 $(MEGACOREARGS) $(SYSDOC) \
+		$(MEGADRIVERS) $(MEGATOOLSARGS) $(MEGASYSAPPSARGS) $(MEGASYSOPTARGS) $(STIKARGS) $(STIKNOTESARG) $(MEGAINST) APPS:$(MEGADIR)/kdos/DOS.O88 $(MEGACOREARGS) $(SYSDOC) \
 		$(SYSLOGOARG) $(FACESARG) $(APPDATAFOLDER) $(AUTOFOLDER) $(STIKNOTESOPT)
 
 # ...and the 1.2MB 5.25" HD twin (KERN-MEGA-PLAN 14.1 answer 19: kern_mega's
@@ -15283,9 +15301,10 @@ $(BUILD)/mega120.img: $(MEGADRIVERS) $(MEGAINST) $(call MEGASUB,$(SYSAPPS)) $(ca
                    $(FACES) $(FACELIC) tools/os88disk.py $(MEGASRC)
 	@$(MAKE) BUILD=$(MEGADIR) KERN_MEGA=1 $(if $(NOKZIP),NOKZIP=1) $(MEGADIR)/boot120.bin $(MEGADIR)/boothd.sys \
 		$(MEGADIR)/kdos/DOS.O88
+	@$(MAKE) KMODDIR=$(BUILD) $(BUILD)/syscheck.o88
 	python3 tools/os88disk.py -o $@ --size 1200 \
 		--boot $(MEGADIR)/boot120.bin --kernel $(MEGADIR)/$(KERNNAME) \
-		$(MEGADRIVERS) $(MEGASYSAPPSARGS) $(MEGASYSOPTARGS) $(STIKARGS) $(STIKNOTESARG) $(MEGAINST) APPS:$(MEGADIR)/kdos/DOS.O88 $(MEGACOREARGS) $(SYSDOC) \
+		$(MEGADRIVERS) $(MEGATOOLSARGS) $(MEGASYSAPPSARGS) $(MEGASYSOPTARGS) $(STIKARGS) $(STIKNOTESARG) $(MEGAINST) APPS:$(MEGADIR)/kdos/DOS.O88 $(MEGACOREARGS) $(SYSDOC) \
 		$(SYSLOGOARG) $(FACESARG) $(APPDATAFOLDER) $(AUTOFOLDER) $(STIKNOTESOPT)
 
 # MEGACDTEST - kern_mega's CD-ROM machine disks (SPEC.md 119.7, KERN-MEGA-PLAN
@@ -16990,9 +17009,10 @@ $(GAMESIMG360): $(GAMES360) tools/os88disk.py
 # double-click on a machine it is not for. OS88NET.COM left apps360.img for
 # this disk; OS88CZ.COM had never fitted that one.
 UTIL_PKGS := $(BUILD)/syscheck.o88 $(BUILD)/redline.o88 $(BUILD)/taskmgr.o88
+UTIL_FSCK := $(FSCKMOD)
 UTIL_DOS := $(APPS_DOS) $(APPS_DOSCZ)
-UTIL360 := $(UTIL_PKGS) $(UTIL_DOS)
-UTILARGS360 := $(UTIL_PKGS) \
+UTIL360 := $(UTIL_PKGS) $(UTIL_FSCK) $(UTIL_DOS)
+UTILARGS360 := $(UTIL_PKGS) $(UTIL_FSCK) \
                $(addprefix SYSTEM/DOS:,$(UTIL_DOS)) \
                $(MEDIAFOLDER) $(APPDATAFOLDER)
 
