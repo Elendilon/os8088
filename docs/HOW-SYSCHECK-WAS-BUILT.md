@@ -227,3 +227,51 @@ column of their own beside the drives.
 ![After Check and repair: everything fixed but the cross-link, which is the user's call (VGA).](syscheck/vga-repaired.png)
 
 ![The same on CGA.](syscheck/cga-repaired.png)
+
+## 2026-11-02 — The installed system, a hard disk, and kern_mega
+
+Three follow-ups from the owner: kern_mega has to run it (kern_small may
+refuse), there has to be a hard-disk test, and the case that started all
+this - a fragmented os8088 install on a hard disk - should be able to
+defragment its own files too.
+
+**The installed system's own files.** The first version left every hidden
+or system file where it was, on the guess that something found them by
+position. Reading the boot path settled it: everything is found BY NAME -
+the drivers, the modules, the hibernation image - except `KERNEL.SYS`,
+which the hard disk's boot sector reads as one flat run from an offset the
+installer patches into it. So the rule became the fact. Everything moves,
+and `KERNEL.SYS` moves only when the volume's own boot sector is the one
+that names it, with that sector rewritten - after the new run is linked and
+before the entry is, so a stop between any two writes still boots.
+
+**The hard-disk test found the bug that mattered.** It builds the install a
+fragmented machine would have: the kernel moved high (the boot sector told),
+three system files cut into interleaved pieces, a user file in a folder in
+pieces, and an `AUTOSTRT` link that runs the defragmenter at boot. The first
+green-looking run moved the kernel and *did not tell the boot sector* - a
+machine that would never boot again. The name compare that recognises
+`KERNEL.SYS` cleared its own zero flag with two `inc`s on the way out, so it
+never matched anything, and the kernel was moved like any other file. The
+test's second boot - every free cluster zeroed first, so a stale boot sector
+would load zeros - is what makes that kind of mistake visible rather than
+lucky.
+
+That test needed a way to run System Check with nobody at the machine, so it
+grew one users get too: a link's parameter (`C: DEFRAG REPORT`) names the
+drive and the task and saves the report. Its first version returned a
+garbage window pointer from the entry proc when a drive was named - the
+boot hung on the loading screen - and its second started the scan from the
+entry proc; it now starts at the window's first paint.
+
+**kern_mega.** The engine ran out of its own image and kept its variables
+there, which protected mode forbids - a code selector is not writable - so
+its scratch moved into the workspace and three words of the kernel's. Bochs
+then found the second problem in one boot: System Check's claims live above
+1MB on kern_mega, and such a claim is a data selector alone, with no code
+half to far-call. The SDK's note says every claim is a pair; this one
+measured otherwise. So System Check asks the kernel for a code/data pair
+over the image (`OSAPI_SEG SEG_SUBC`), and the stub refuses a selector with
+no code half instead of faulting. Repair and defragment then ran under
+kern_mega with no fault, held to the same independent FAT reader as on the
+8088.

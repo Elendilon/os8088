@@ -171,26 +171,74 @@ class Vol(object):
         return data[:size]
 
     # --- the edits the fixtures plant ----------------------------------------
-    def add(self, name, data, clusters=None):
-        need = (len(data) + self.cb - 1) // self.cb
-        use = clusters if clusters is not None else self.free()[:need]
-        assert len(use) == need, "not enough room on the fixture"
+    def _slot(self, parent):
+        """A free entry's offset in the folder at `parent` (0 = the root);
+        taking an end mark keeps the next entry one."""
+        offs = self.dir_offsets(parent)
+        for k, o in enumerate(offs):
+            if self.img[o] == 0:
+                if k + 1 < len(offs):
+                    self.img[offs[k + 1]] = 0
+                return o
+            if self.img[o] == 0xE5:
+                return o
+        raise ValueError("the folder is full")
+
+    @staticmethod
+    def entry(name, attr, first, size):
+        if name in (".", ".."):
+            n, x = name, ""
+        else:
+            n, _, x = name.partition(".")
+        ent = bytearray(32)
+        ent[0:11] = (n.ljust(8) + x.ljust(3)).encode("latin1")
+        ent[11] = attr
+        struct.pack_into("<H", ent, 24, 0x5C21)
+        struct.pack_into("<H", ent, 26, first)
+        struct.pack_into("<I", ent, 28, size)
+        return ent
+
+    def write_chain(self, use, data):
+        need = len(use)
         for k, c in enumerate(use):
             self.put(c, self.eoc | 0xF if k == need - 1 else use[k + 1])
             chunk = data[k * self.cb:(k + 1) * self.cb]
-            self.img[self.coff(c):self.coff(c) + len(chunk)] = chunk
-        base = self.root_lba * self.bps
-        slot = next(i for i in range(self.nroot)
-                    if self.img[base + 32 * i] in (0, 0xE5))
-        n, _, x = name.partition(".")
-        ent = bytearray(32)
-        ent[0:11] = (n.ljust(8) + x.ljust(3)).encode("latin1")
-        ent[11] = 0x20
-        struct.pack_into("<H", ent, 24, 0x5C21)
-        struct.pack_into("<H", ent, 26, use[0] if use else 0)
-        struct.pack_into("<I", ent, 28, len(data))
-        self.img[base + 32 * slot:base + 32 * slot + 32] = ent
-        return base + 32 * slot, use
+            self.img[self.coff(c):self.coff(c) + self.cb] = \
+                chunk + bytes(self.cb - len(chunk))
+
+    def add(self, name, data, clusters=None, parent=0, attr=0x20):
+        need = (len(data) + self.cb - 1) // self.cb
+        use = clusters if clusters is not None else self.free()[:need]
+        assert len(use) == need, "not enough room on the fixture"
+        self.write_chain(use, data)
+        o = self._slot(parent)
+        self.img[o:o + 32] = self.entry(name, attr, use[0] if use else 0,
+                                        len(data))
+        return o, use
+
+    def mkdir(self, name, parent=0):
+        c = self.free()[0]
+        self.put(c, self.eoc | 0xF)
+        self.img[self.coff(c):self.coff(c) + self.cb] = bytes(self.cb)
+        o = self._slot(parent)
+        self.img[o:o + 32] = self.entry(name, 0x10, c, 0)
+        d = self.coff(c)
+        self.img[d:d + 32] = self.entry(".", 0x10, c, 0)
+        self.img[d + 32:d + 64] = self.entry("..", 0x10, parent, 0)
+        return c
+
+    def relocate(self, path, use):
+        """Move a file's bytes onto the clusters `use` (free ones), freeing
+        the old chain: how a fixture makes a file FRAGMENTED or puts it
+        anywhere it likes. Returns (old first cluster, entry offset)."""
+        o, e = self.find(path)
+        data = self.read(path)
+        old = self.chain(struct.unpack_from("<H", e, 26)[0])
+        for c in old:
+            self.put(c, 0)
+        self.write_chain(use, data)
+        struct.pack_into("<H", self.img, o + 26, use[0])
+        return old[0], o
 
     def delete(self, name):
         o, e = self.find("\\" + name)
@@ -268,8 +316,8 @@ def blob(n, seed):
     return bytes(rnd.getrandbits(8) for _ in range(n))
 
 
-def broken_fixture():
-    v = Vol(open(b("util360.img"), "rb").read())
+def broken_fixture(base=None):
+    v = Vol(open(base or b("util360.img"), "rb").read())
     cb = v.cb
     assert len(v.free()) > 40, "util360.img has no room for the fixture"
     # LOST: three chained clusters, no entry
@@ -303,8 +351,8 @@ def broken_fixture():
     return bytes(v.img)
 
 
-def frag_fixture():
-    v = Vol(open(b("util360.img"), "rb").read())
+def frag_fixture(base=None):
+    v = Vol(open(base or b("util360.img"), "rb").read())
     cb = v.cb
     v.add("F1.BIN", blob(4 * cb, 11))
     v.add("F2.BIN", blob(3 * cb, 12))

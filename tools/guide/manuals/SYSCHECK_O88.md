@@ -94,11 +94,22 @@ ends in *(fixed)*. For a cross-link, copy both files somewhere else,
 delete them from this disk, and check it again.
 
 **Defragment the disk** only runs on a disk with nothing broken, so run
-*Check and repair* first if it says so. It never moves folders, hidden or
-system files (the kernel and the drivers among them), or disk images
-(`*.IMG`). If you save anything onto the disk while a disk task is running,
+*Check and repair* first if it says so. It moves os8088's own files as
+well as yours - the drivers and programs of an install that has grown in
+pieces - and on a hard disk it moves `KERNEL.SYS` too, telling the disk's
+boot sector where it went. It never moves folders, disk images (`*.IMG`,
+except a hibernation image), or the kernel on a floppy. If you save anything onto the disk while a disk task is running,
 it stops and asks you to scan again rather than work from an out-of-date
 picture.
+
+## Running it from a link
+
+A link to `SYSCHECK.O88` can say which drive and what to do, after the
+program's name: for example `C: DEFRAG REPORT`. The words are a drive
+letter with its colon, one of `RELEASE`, `CHECK`, `REPAIR` or `DEFRAG`,
+and `REPORT` to save `SYSCHECK.TXT` when it finishes. Put such a link in
+the `AUTOSTRT` folder and the disk is checked or defragmented every time
+the machine starts.
 
 ## What Clean Up removes
 

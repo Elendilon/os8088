@@ -224031,6 +224031,8 @@ it, never on the 360KB system disk. Not the apps disks, `kern_small`'s or `kern_
 | row | tier | what |
 |---|---|---|
 | `t_sysman` | fast | the manifest against every built system disk: each entry present with its size and sum; `SYSCHECK.O88` itself absent from it |
+| `fsckhd` | soak | §118.14.5 on MartyPC's XT-IDE: a FAT16 install with `KERNEL.SYS` moved high (the VBR told), its system files in pieces, defragmented from an `AUTOSTRT` link; the reader finds nothing wrong and nothing in pieces, `KERNEL.SYS` lower and the VBR naming its new run, and the disk boots again with every free cluster zeroed |
+| `fsckmega` | soak | §118.14.8 under Bochs: kern_mega repairs fsckdisk's seven faults and defragments a disk in pieces from `AUTOSTRT` links, with no kern_mega fault |
 | `fsckdisk` | soak | §118.14 on MartyPC: a copy of `util360.img` in B: with seven FAT faults planted, checked (each named, nothing written), repaired (an independent FAT reader then finds only the cross-link, and three `FILEnnnn.CHK`), and a fragmented copy defragmented (no movable file in pieces, every file's bytes unchanged, both FAT copies equal) |
 | `syscheck` | soak | a hard-disk image built from the system disks with a planted package of another format, a retired package, `KPAD.TMP`, a duplicated program, a stale `ASSOC.DAT` row and an orphaned hibernation image, booted from C:; one Scan press checks the drive the chooser offers (C:), the report names each finding, and Clean Up removes exactly §118.8's |
 
@@ -224169,7 +224171,7 @@ the chosen drive's root with `OSAPI_FILE_GOTO_QM` before it begins.
 
 `FSKM_FIX` = 1 repairs as it goes; `FSKM_DEFRAG` = 2 defragments after a
 clean check (`FIX` and `DEFRAG` together is refused, `FSKE_ARG`).
-`FSKE_*`: 1 not here (kern_small, kern_mega - the cell is §20.3's
+`FSKE_*`: 1 not here (kern_small - the cell is §20.3's
 `OSAPI_XREFUSE`), 2 `FSKE_IMAGE`, 3 `FSKE_NOFAT` (no volume, or a
 redirected one, §62.9), 4 `FSKE_IO`, 5 `FSKE_CHANGED` (§118.14.6),
 6 `FSKE_SMALL` (the workspace is smaller than `FSK_SIZE` said), 7
@@ -224269,14 +224271,32 @@ lost chain write the FAT first and the entry second, for the same reason.
 
 **It runs only after a check that found nothing Broken**; otherwise its row
 says `SKIPDEF` with the count, and the user runs *Check and repair* first.
-It moves FILES, never folders, and never:
+It moves FILES, never folders. **The installed system's own files move
+too** - the drivers, the modules, `BOOTHD.SYS`, `COLDHMA.SYS`, every
+package - hidden and system ones included, because the system reads every
+one of them BY NAME, walking its chain each time. That is the case it is
+for: an install made over the years is the disk most in need of it. It
+never moves:
 
-- a file with the hidden or the system attribute - `KERNEL.SYS`,
-  `BOOTHD.SYS` and every driver among them, which a boot sector or a ROM
-  may find by where it is;
-- a `*.IMG`: a mounted disk image is read through extents taken when it was
-  mounted (§18.101), and so is a hibernation image (§87);
+- a `*.IMG` other than `HIBERNAT.IMG`: a MOUNTED disk image is read through
+  extents taken when it was mounted (§18.101). `HIBERNAT.IMG` is walked
+  afresh at a resume (§87), so it may move;
+- `KERNEL.SYS`, unless its boot sector can be told (below);
 - an empty file.
+
+**`KERNEL.SYS` is read BY POSITION**: a boot sector reads it as one flat
+run, not a chain. The floppy's sector expects it at cluster 2, so on A: and
+B: it never moves. A hard disk's VBR (`boot/boothd.asm`) is told where the
+run starts - `BOOTHD_KOFS`, the dword at 504, the run's offset into the data
+area, which the installer writes (§52.10.15) - and its length at 508. So on
+volume C: or later `KERNEL.SYS` in the root moves **when the volume's own
+sector 0 is that sector and names this file**: the `55AA` signature, the
+count at 508 equal to the file's sectors and the offset at 504 equal to
+`(first cluster - 2) x sectors a cluster`. Its move adds one write, ordered
+so that a stop between any two writes still boots: after step 2 below, the
+VBR is read, checked to still name the OLD run, and rewritten to name the
+new one - before the entry is (step 3), while both runs are whole and
+allocated.
 
 **Two passes, both through free space only.** Pass 1 takes every file in
 more than one piece and moves it to the LOWEST free run that holds it
@@ -224320,32 +224340,86 @@ always between two of §118.14.5's writes.
 
 #### 118.14.7 What it costs
 
-**Resident, measured: 101 bytes on kern_big and kern_emu**, no rung
-crossed - `.text` 72 (the 6-byte cell and the 66-byte stub that checks the
-header), `.cold` 17 (`fsk_cnear`'s 3 and the 14 that bump `[dsk_wgen]` in
-`disk_write_x`) and `.bss` 12 (`fsk_fp`'s 4 and `dsk_wgen`'s `DVOL_MAX`).
-kern_small carries none of it - the cell is an `OSAPI_XREFUSE` - and
-kern_mega carries the refusing cell and a 19-byte image that refuses too,
-so the module map has one shape on every kern_big build.
+**Resident, measured on kern_big: 116 bytes, no rung crossed** - `.text` 6
+(the cell), `.cold` 90 (the 73-byte stub that checks the image and finds its
+code selector, `fsk_cnear`'s 3 and the 14 that bump `[dsk_wgen]` in
+`disk_write_x`) and `.bss` 20 (`fsk_fp`, `fsk_cold`, `fsk_ws`, `fsk_sp`
+and `dsk_wgen`'s `DVOL_MAX`). The stub is `.cold` rather than `.text` so
+kern_mega's kernel segment carries none of it (§118.14.8). kern_small
+carries none of it at all - the cell is an `OSAPI_XREFUSE`.
 
-**Not resident**: the engine is `FSCHECK.DRV`, a 4,872-byte image (4,177
-packed on disk), read by System Check the first time a disk task is chosen
-and freed with the window; the workspace is `FSK_SIZE`'s figure - 10KB on a
+**Not resident**: the engine is `FSCHECK.DRV`, a 5,078-byte image (4,374
+packed on disk; kern_mega's, 5,076 and 4,375), read by System Check the
+first time a disk task is chosen and freed with the window; the workspace is `FSK_SIZE`'s figure - 10KB on a
 360KB floppy and up to 26KB on a FAT16 volume of 65,524 clusters (two
 bitmaps of one bit a cluster, a 512-byte folder sector, an 8KB copy buffer
 and the record). System Check itself grew 2,633 bytes of image and 41 of
-bss for the chooser's tasks and the words of every finding (14,827 ->
-17,460, 23,885 -> 23,926).
+bss for the chooser's tasks, the words of every finding and the link's
+parameter (14,827 -> 17,803, 23,885 -> 23,945).
 
 **What a run costs, measured on MartyPC's 4.77MHz 5150 with a 360KB floppy**
 (`tests/fsckdisk.py`): *Check the disk* is 5 seconds; *Check and repair*
 of the seven planted faults the same; *Defragment* moving 4 files of up to
-seven clusters, 13 seconds.
+seven clusters, 13 seconds. On MartyPC's XT with an XT-IDE FAT16 partition
+of 15,943 clusters (`tests/fsckhd.py`), defragmenting an install with
+`KERNEL.SYS` and three system files to move: 24 seconds.
 
 **Limits**: FAT12 and FAT16 only, as the kernel; a folder deeper than
 `FSK_MAXDEP` = 16 is reported and not entered; a path longer than 79
 characters is cut at the front in a finding; `.` and `..` are checked
 only in a folder's first two entries.
+
+#### 118.14.8 On kern_mega
+
+**It runs, from the same package, against kern_mega's own engine.** Three
+things make it so, and none is in System Check:
+
+- **The engine writes nothing through CS.** In protected mode a claim is a
+  data/code selector pair and the code half is not writable (KERN-MEGA-PLAN
+  2.4), so the image keeps no variables of its own: its per-call words are
+  the kernel's (`fsk_ws`, `fsk_sp`, `fsk_cold`, `.bss`, reached through
+  DS = KERNEL_SEG) and its scratch is the workspace's.
+- **The stub far-calls the claim's CODE selector**, which it asks
+  `OSAPI_MEM_CODESEL`'s own body for; on a real-mode kernel that answer is
+  the segment itself. **A claim above 1MB has no code half** - it is one
+  data selector, not the pair apps/os88api.inc's note on OSAPI_MEM_CODESEL
+  describes (measured: System Check is `OS88_HIGHMEM`, and its claim for
+  the image was LDT entry 218h, data alone) - so System Check asks
+  `OSAPI_SEG` `SEG_SUBC` for a code/data pair over the image once it is
+  read, and hands over the pair's data half. The stub refuses a selector
+  with no code half (`FSKE_IMAGE`) rather than far-calling data, which was
+  a fatal #GP in kernel context before it learned to. The stub is wholly `.cold`, so kern_mega's kernel
+  segment carries none of it (`tests/megaseg.txt`).
+- **`.cold` is reached through `COLD_SEG`**, which on kern_mega is an
+  identity selector (`kernel/mega.inc`), where every other kernel builds the
+  pointer from `[api_coldseg]` because `.cold` may have slid.
+
+The disk layer bounces a transfer whose buffer is an LDT selector through
+`dsk_secbuf` (KERN-MEGA-PLAN 14.47), so the workspace's 8KB copies move a
+sector a call there: slower, and correct. `FSCHECK.DRV` is cut from each
+kernel's own assembly, so kern_mega's disks (`make mega`: `mega.img`,
+`mega120.img`) carry kern_mega's copy in `SYSTEM\` beside the shipped
+`SYSCHECK.O88`; a kern_big copy is refused there by its layout stamp
+(`FSKE_IMAGE`), and the other way round. The release checks (§118.1) judge
+a kern_mega disk against kern_big's manifest, so on it the *Release files*
+task reports `KERNEL.SYS` and the modules as another build's - the disk tasks
+are what it is there for.
+
+#### 118.14.9 A link runs it
+
+A link's parameter (§26.10.7) can name the drive and the task, so the
+program runs with nobody at the machine - an `AUTOSTRT` link that
+defragments `C:` at every boot, or a test. The words, separated by spaces,
+any order and case:
+
+| word | does |
+|---|---|
+| `C:` (any drive letter) | checks that drive at once, without the chooser; a drive the machine does not have leaves the chooser up |
+| `RELEASE` `CHECK` `REPAIR` `DEFRAG` | the task (§118.14), *Release files* if none is named |
+| `REPORT` | saves `SYSCHECK.TXT` (§118.7) when that scan ends, once |
+
+So `SYSCHECK.O88 C: DEFRAG REPORT` defragments the hard disk and leaves the
+report on it. kern_small has no links and its System Check is not shipped.
 
 ## 119. CDROM.DRV — CD-ROM data and audio (`drivers/cdrom/`, `apps/cdrack/`)
 

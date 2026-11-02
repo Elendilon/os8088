@@ -757,13 +757,11 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; 118.14): OSAPI_VOL_CHECK's stub, the per-volume write generation
 ; [dsk_wgen] that disk_write_x bumps, and FSCHECK.DRV's image, which the
 ; PACKAGE loads (it is no mod_tab row). Every kern_big build carries the image
-; so the module map is the same shape on kern_big, kern_emu and kern_mega;
-; kern_mega's cell refuses, its segments being selectors.
-%ifdef KERN_BIG
- %define OS88_FSCKIMG 1         ; the image: kern_mega's is a refusing stub
- %ifndef KERN_MEGA
-  %define OS88_FSCK 1
- %endif
+; so the module map is the same shape on kern_big, kern_emu and kern_mega.
+; kern_mega runs it through the claim's CODE selector (fsck.inc's stub).
+%ifdef KERN_BIG                 ; kern_big, kern_emu and kern_mega
+ %define OS88_FSCKIMG 1         ; the image...
+ %define OS88_FSCK 1            ; ...and the cell, its stub and [dsk_wgen]
 %endif
 
 ; BANDCOMP - the 1bpp band composer (SPEC.md 5.9), and since SPEC.md 5.9.6 it
@@ -4307,7 +4305,7 @@ apic_fs_op:                       ; (the cell's own address, for the kernel's
     OSAPI_XREFUSE                 ; 0x04EF - OSAPI_FS_OP, refused here
 %endif
 %ifdef OS88_FSCK
-    OSAPI_RSLOT osapi_vol_check   ; 0x04F5 - CHECK, REPAIR OR DEFRAGMENT the
+    OSAPI_RCSLOT osapi_vol_check  ; 0x04F5 - CHECK, REPAIR OR DEFRAGMENT the
                                   ;          volume you stand on (SPEC.md
                                   ;          118.14.2): AL = FSK_* verb, ES =
                                   ;          FSCHECK.DRV's image as YOU loaded

@@ -30,7 +30,7 @@ SC_NTASK    equ 4
 sc_fsk:
     push dx
     push es
-    mov es, [sc_fseg]
+    mov es, [sc_fsel]
     mov dx, [sc_wseg]
     call OSAPI_VOL_CHECK
     pop es
@@ -146,7 +146,21 @@ sc_dinit:
     mov si, sc_n_fsck
     call OSAPI_FILE_READ
     pop es
-    jnc .have
+    jc .rdfail
+    ; ...and the selector to RUN it through (SPEC.md 118.14.8): on kern_mega
+    ; a claim above 1MB is a data selector alone, and the kernel far-calls
+    ; the image through a code half - so ask for a code/data PAIR over it.
+    ; A real-mode kernel answers the claim's segment, which is both
+    mov dx, [sc_fseg]
+    mov [sc_fsel], dx
+    xor ax, ax
+    xor cx, cx
+    mov bl, SEG_SUBC
+    call OSAPI_SEG
+    jc .have
+    mov [sc_fsel], dx
+    jmp short .have
+.rdfail:
     mov dx, [sc_fseg]
     call OSAPI_MEM_FREE
     mov word [sc_fseg], 0

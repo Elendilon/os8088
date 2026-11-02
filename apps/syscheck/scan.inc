@@ -1461,6 +1461,9 @@ sc_scan_end:
 .owed:
     mov word [sc_dirty], 0xFFFF     ; heading, counts, buttons, status, list
     mov word [sc_drows], 0xFFFF
+    mov al, [sc_areport]            ; a link's REPORT: once, at the next wake's
+    mov [sc_arepq], al              ; draw (sc_onwake), with the lock held as
+    mov byte [sc_areport], 0        ; a click's would be
     ret
 
 ; sc_opend - P_MAN's OSAPI_FS_OP ends (SPEC.md 12.8.10). Clobbers CX, DX

@@ -82,10 +82,22 @@ mockups are [docs/syscheck/design/](../syscheck/design/).
 - [x] **Acceptance:** `fsckdisk` (soak, MartyPC) plants seven faults on a
   copy of util360.img, checks, repairs and defragments it, and holds every
   result to an independent FAT reader. Looked at on CGA and VGA.
-- [ ] **Hard disk:** a FAT16 hard-disk partition checked, repaired and
-  defragmented on a period machine. *The engine's FAT16 arms are the
-  kernel's own FAT routines and are assembled, but no row drives a FAT16
-  volume yet.*
+- [x] **Hard disk, and the installed system's own files:** as a user
+  *Defragment the disk* on an installed hard disk puts the system's own
+  files in one piece too - drivers, modules, every package, hidden and
+  system ones - and moves `KERNEL.SYS` where the hard disk's boot sector can
+  be told, patching `BOOTHD_KOFS` in an order that boots after any stop.
+  `fsckhd` (soak, MartyPC XT-IDE, FAT16) defragments such an install from an
+  `AUTOSTRT` link and boots it again with every free cluster zeroed.
+- [x] **kern_mega:** as a kern_mega user the disk tasks run in protected
+  mode, against kern_mega's own `FSCHECK.DRV` on `mega.img`. `fsckmega`
+  (soak, Bochs) repairs and defragments with no kern_mega fault.
+- [x] **Run from a link:** as a user an `AUTOSTRT` link such as
+  `SYSCHECK.O88 C: DEFRAG REPORT` defragments a disk at every boot with
+  nobody at the machine (SPEC.md 118.14.9).
+- [ ] **Folders:** a folder in pieces is reported in the count but never
+  moved; moving one means rewriting its `.`, its entry in its parent and
+  every child folder's `..`. *Not built.*
 
 ## Existing facilities and boundaries
 

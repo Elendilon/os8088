@@ -119,6 +119,7 @@ SC_BUFSZ    equ 8192                ; sc_buf: chunks, ASSOC.DAT (<= 5,112), cfg
 ; out: BX = window ptr, CF clear (CF set = abort, from wm_create)
 ; -----------------------------------------------------------------------------
 sc_entry:
+    call sc_argcopy                 ; a link's parameter, while it is valid
     call OSAPI_FILE_HERE            ; the folder we were launched from, where
     mov [sc_ldx], dx                ; FSCHECK.DRV sits beside us (118.14.1)
     mov [sc_lbl], bl
@@ -149,9 +150,144 @@ sc_entry:
     xchg ax, bx                     ; BX = the window again
     call sc_volscan                 ; ASK which drive first (SPEC.md 118.13),
     mov byte [sc_choose], 1         ; the hard disk already chosen
+    push bx                         ; (BX is the entry proc's ANSWER, the
+    call sc_argrun                  ; window) ...unless a link said which
+    pop bx                          ; drive (118.14.9)
     clc
 sc_ret:
     ret
+
+; -----------------------------------------------------------------------------
+; THE LINK'S PARAMETER (SPEC.md 118.14.9): `B: DEFRAG REPORT` - a drive, a
+; task (RELEASE, CHECK, REPAIR, DEFRAG) and REPORT, any order, any case. A
+; drive starts the scan with no chooser; REPORT saves SYSCHECK.TXT when it
+; ends. So an AUTOSTRT link checks or defragments a disk at every boot, and a
+; test drives the whole program with nobody at it.
+; -----------------------------------------------------------------------------
+; sc_argcopy - the parameter into sc_arg (entry proc only: it is valid there)
+sc_argcopy:
+    push es                         ; KERNEL_SEG's, as the entry proc got it
+    push ds
+    call OSAPI_ARG_TEXT             ; DX:SI = the text, CF = 1 none
+    jc .none
+    push ds
+    pop es                          ; ES:DI = sc_arg, ours
+    mov ds, dx                      ; DS:SI = the link's text
+    mov di, sc_arg
+    mov cx, SC_ARGN - 1
+.c:
+    lodsb
+    or al, al
+    jz .z
+    cmp al, 'a'                     ; upper case as it goes
+    jb .p
+    cmp al, 'z'
+    ja .p
+    sub al, 20h
+.p:
+    stosb
+    loop .c
+.z:
+    mov byte [es:di], 0
+.none:
+    pop ds
+    pop es
+    ret
+
+; sc_argrun - act on sc_arg: a drive starts its scan now
+sc_argrun:
+    mov si, sc_arg
+.tok:
+    lodsb
+    or al, al
+    jz .done
+    cmp al, ' '
+    je .tok
+    cmp byte [si], ':'              ; "B:"
+    jne .word
+    sub al, 'A'
+    cmp al, SC_MAXVOL
+    jae .skip
+    mov [sc_avol], al
+    mov byte [sc_auto], 1
+    jmp short .skip
+.word:
+    dec si
+    xor bx, bx                      ; which word, 0..4
+.w:
+    mov di, [sc_argw+bx]
+    push si
+    call sc_argis                   ; ZF = 1 it is this word
+    pop si
+    je .hit
+    inc bx
+    inc bx
+    cmp bx, 2 * 5
+    jb .w
+    jmp short .skip
+.hit:
+    shr bx, 1
+    cmp bl, 4
+    je .rep
+    mov [sc_task], bl
+    jmp short .skip
+.rep:
+    mov byte [sc_areport], 1
+.skip:
+    lodsb                           ; past the rest of the token
+    or al, al
+    jz .done
+    cmp al, ' '
+    jne .skip
+    jmp short .tok
+.done:
+    cmp byte [sc_auto], 0
+    je .out
+    xor bx, bx                      ; the drive's row, if the machine has it
+.f:
+    cmp bl, [sc_nvol]
+    jae .out
+    mov al, [sc_vols+bx]
+    cmp al, [sc_avol]
+    je .go
+    inc bx
+    jmp short .f
+.go:
+    mov [sc_vsel], bl
+    mov [sc_vol], al
+    mov byte [sc_choose], 0
+    mov byte [sc_autogo], 1         ; ...at the FIRST PAINT, not here: an
+.out:                               ; AUTOSTRT link opens this inside the boot,
+    ret                             ; and a scan posting wakes from the entry
+                                    ; proc kept the UI task from ever ending
+                                    ; the loading screen (tests/fsckhd.py)
+
+; sc_argis - ZF = 1 the token at SI is the NUL word at DI (ended by a space
+;            or the NUL); clobbers AL, SI, DI
+sc_argis:
+    mov al, [di]
+    or al, al
+    jz .end
+    cmp al, [si]
+    jne .out
+    inc si
+    inc di
+    jmp short sc_argis
+.end:
+    mov al, [si]
+    or al, al
+    jz .out
+    cmp al, ' '
+.out:
+    ret
+
+SC_ARGN     equ 40
+sc_argw:    dw sc_aw0, sc_aw1, sc_aw2, sc_aw3, sc_aw4
+sc_aw0:     db 'RELEASE', 0
+sc_aw1:     db 'CHECK', 0
+sc_aw2:     db 'REPAIR', 0
+sc_aw3:     db 'DEFRAG', 0
+sc_aw4:     db 'REPORT', 0
 
 ; -----------------------------------------------------------------------------
 ; sc_onwake - OSAPI_WM_ONWAKE (SPEC.md 74.1): run the scan for up to a tick,
@@ -178,6 +314,12 @@ sc_onwake:
     call sc_regeo                   ; dragged since the paint? (11.96.12.0)
     mov bx, [sc_win]
     call sc_drawowed                ; arms the clip; draws only the owed
+    cmp byte [sc_arepq], 0          ; the link asked for the report (118.14.9)
+    je .norep
+    mov byte [sc_arepq], 0
+    mov si, [sc_win]
+    call sc_act_report
+.norep:
     call OSAPI_GFX_UNLOCK
     cmp byte [sc_run], 0
     je .out
@@ -228,6 +370,12 @@ sc_paint:
     call sc_layout
     call sc_drawall
     pop si
+    cmp byte [sc_autogo], 0         ; a link's scan starts now (118.14.9)
+    je .noauto
+    mov byte [sc_autogo], 0
+    call sc_scan_begin
+    call sc_kick
+.noauto:
     cmp byte [sc_btrec+OS88UI_BT_N], 0 ; the About card is up: drawn LAST,
     jne .out                        ; over what it is opaque about
     push si
@@ -618,11 +766,18 @@ sc_abn:     db 'Jorge Gonzalez', 0
     OS88_ABYTE sc_compact           ; the short layout (CGA)
     OS88_ABYTE sc_choose            ; the drive chooser is up (118.13)
     OS88_ABYTE sc_task              ; ...and what it will do (TASK_*, 118.14)
+    OS88_ABYTE sc_auto              ; a link named the drive (118.14.9)...
+    OS88_ABYTE sc_avol              ; ...this one
+    OS88_ABYTE sc_areport           ; ...and asked for the report
+    OS88_ABYTE sc_arepq             ; the report is owed at the next wake
+    OS88_ABYTE sc_autogo            ; ...and its scan starts at the first paint
+    OS88_ABUF  sc_arg, SC_ARGN      ; the link's parameter
     OS88_ABYTE sc_dsub              ; a disk task: 0 to start, 1 stepping
     OS88_ABYTE sc_dphase            ; ...the engine's phase the path line names
     OS88_ABYTE sc_lbl               ; the folder we were launched from
     OS88_AWORD sc_ldx
     OS88_AWORD sc_fseg              ; FSCHECK.DRV, read beside us (0 = not yet)
+    OS88_AWORD sc_fsel              ; ...the data half of the pair it RUNS in
     OS88_AWORD sc_wseg              ; the engine's workspace (0 = none)
     OS88_AWORD sc_wkb               ; ...and its KB
     OS88_ABYTE sc_isboot            ; the drive being checked is the boot one

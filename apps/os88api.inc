@@ -2456,13 +2456,16 @@ MEMP_CONV     equ 0x8000         ; CX for a claim verb: NO head, and stay
                                  ; the FAT volume you stand on (SPEC.md
                                  ; 118.14): AL = FSK_* verb, ES = FSCHECK.DRV's
                                  ; image as YOU read it into a claim of your
-                                 ; own, DX = your workspace (a claim from
+                                 ; own (on kern_mega the data half of an
+                                 ; OSAPI_SEG SEG_SUBC pair over it: a claim
+                                 ; above 1MB has no code half), DX = your
+                                 ; workspace (a claim from
                                  ; OSAPI_MEM_CLAIM_DMA, all of it page-safe),
                                  ; AH = FSKM_* and CX = its KB for FSK_BEGIN.
                                  ; out CF=0 AX = the answer, CF=1 AX = FSKE_*.
                                  ; Every other register kept. UI task, no gfx
-                                 ; lock - a file slot. kern_small and kern_mega
-                                 ; refuse (AX = 1); an image from another build
+                                 ; lock - a file slot. kern_small refuses
+                                 ; (AX = 1); an image from another build
                                  ; is FSKE_IMAGE. The kernel keeps NOTHING
                                  ; between calls: both segments are yours.
 OSAPI_FSK_SIZE      equ 0        ; out AX = the workspace's KB

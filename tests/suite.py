@@ -16490,6 +16490,30 @@ SOAK = [
         needs=("marty",), serial=True, timeout=600,
         wants=("build/os8088-360.img", "build/util360.img",
                "build/syscheck.o88", "build/fscheck.drv")),
+    Row("fsckhd", "soak", py("tests/fsckhd.py"), 120.0,
+        "SPEC.md 118.14.5: DEFRAGMENTING AN INSTALLED SYSTEM on a FAT16 hard "
+        "disk, on MartyPC's XT with XT-IDE. A VHD built the way an install "
+        "leaves one, then on the host: KERNEL.SYS moved high and the VBR's "
+        "BOOTHD_KOFS patched to match, HDD.DRV (hidden + system), "
+        "SYSCHECK.O88 and FSCHECK.DRV interleaved in pieces, a user file in a "
+        "folder in pieces, and an AUTOSTRT link `C: DEFRAG REPORT` (118.14.9). "
+        "Boot 1 runs the defragmenter from the link; an independent FAT reader "
+        "then finds nothing wrong and nothing in pieces, every file's bytes "
+        "unchanged, KERNEL.SYS lower and the VBR naming its new run. Boot 2, "
+        "with every free cluster zeroed, must reach the desktop.",
+        needs=("marty",), serial=True, timeout=900,
+        wants=("build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
+               "build/hdd.drv", "build/syscheck.o88", "build/fscheck.drv")),
+    Row("fsckmega", "soak", py("tests/fsckmega.py"), 45.0,
+        "SPEC.md 118.14.8: SYSTEM CHECK'S DISK TASKS ON kern_mega, under "
+        "Bochs, the instrument that faults where a 286 does. mega.img with an "
+        "AUTOSTRT link naming B: and the task (118.14.9): REPAIR on "
+        "fsckdisk's seven planted faults, then DEFRAG on a disk in pieces, "
+        "each B: held to fsckdisk's independent FAT reader, and no kern_mega "
+        "fault. Red before SEG_SUBC: FSCHECK.DRV's claim is a data selector "
+        "alone above 1MB, and the stub's far call through it was a #GP.",
+        needs=("bochs",),
+        wants=("build/mega.img", "build/redline.o88", "build/os88net.com")),
     Row("syscheck", "soak", py("tests/syscheck.py"), 20.0,
         "SPEC.md 118: SYSTEM CHECK on an upgraded install. A hard-disk image "
         "of the system disk's own files is planted with one of every "
