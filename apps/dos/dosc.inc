@@ -320,9 +320,17 @@ dos_con_run:
                                     ; way, dsh_redir being about to write a NUL
                                     ; into the buffer
     mov byte [dsh_exec], 1          ; ...hold .unknown's message back
+    call dsh_bank                   ; where we stand, for the refused `X:`
     mov si, dsh_line
     call dsh_run
     mov byte [dsh_exec], 0
+    cmp byte [dsh_why], DSHW_NODRV  ; **A REFUSED `X:` DOES NOT MOVE THE
+    jne .moved                      ; PROMPT** (SPEC.md 96.33.6.1): B: with no
+    call dsh_home                   ; floppy passes dos_drv_sel's table test
+.moved:                             ; and fails only at the stand, with
+                                    ; [dos_vol] already moved - put back here,
+                                    ; on the window side, the core being full.
+                                    ; dsh_home keeps AL, the exit code
     cmp byte [dsh_more], 0          ; **A SUSPENDED `DIR /P` OWES NO PROMPT**
     je .ranout                      ; (SPEC.md 96.33.9): the listing stopped
     jmp  dos_con_draw               ; mid-page and printed `Strike a key`, and

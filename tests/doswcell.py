@@ -201,7 +201,7 @@ def run(disk, machine, report):
             fail("the bracket never came down")
         os88marty.settle(m)
         ui.raise_window(ui.window("DOS"))
-        ui.menu_pick("Program", "Run in Window")
+        dosmap.run_in_window(ui)
         if not until(m, lambda: dos.b("dvw_run") == 1, "the worker's run", 20):
             fail("Run in Window did not put the program on the worker")
 

@@ -307,6 +307,47 @@ def centre(m, pseg, dm, name):
     return (x1 + x2) // 2, (y1 + y2) // 2
 
 
+def wmode(ui):
+    """The frontmost DOS window's `Run in Window` MODE (SPEC.md 96.54.10), as
+    its menu item reads: True ticked (`*Run in Window`), False cleared, None
+    greyed. The item's first byte is the mark, so this reads what a user
+    sees rather than the box's byte."""
+    for title, _x0, _x1, items in ui.menus():
+        if title != "Program":
+            continue
+        for text, enabled in items:
+            if text[1:].startswith("Run in Window") or \
+                    text.startswith("Run in Window"):
+                if not enabled:
+                    return None
+                return text[:1] == "*"
+    raise RuntimeError("dosmap.wmode: the frontmost window has no Program > "
+                       "Run in Window item")
+
+
+def set_wmode(ui, on):
+    """Tick or clear the mode through the menu item - which only toggles and
+    runs nothing - and confirm it took."""
+    if wmode(ui) != on:
+        ui.menu_pick("Program", "Run in Window")
+    if wmode(ui) != on:
+        raise RuntimeError("dosmap.set_wmode: Program > Run in Window did "
+                           "not %s the mode" % ("tick" if on else "clear"))
+
+
+def run_in_window(ui):
+    """The path box's program in the window: the mode ticked, then `Run` -
+    what `Program > Run in Window` itself did before it became a mode."""
+    set_wmode(ui, True)
+    ui.menu_pick("Program", "Run")
+
+
+def run_full(ui):
+    """...and on the full screen: the mode cleared, then `Run`."""
+    set_wmode(ui, False)
+    ui.menu_pick("Program", "Run")
+
+
 def sdk_const(name, default=None):
     """One `equ` out of the SDK (`apps/os88api.inc`), by name.
 

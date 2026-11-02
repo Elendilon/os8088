@@ -1495,7 +1495,25 @@ dvw_wake:
     call dvw_serve
     call dvw_capt                   ; what the program wrote itself (96.54.5-6)
     call OSAPI_GFX_LOCK
+    mov bx, [dos_win]               ; **CUT TO WHAT IS VISIBLE** (SPEC.md
+    call OSAPI_WM_CLIP_SET          ; 96.54.10): this is a wake, not W_PAINT,
+    jc .owe                         ; so no clip is armed, and the band went
+    call OSAPI_WM_OBSCURED          ; straight over a window dragged in front
+    jnc .draw                       ; of it. Covered in PART, a SCROLL is
+    cmp word [con_scrl], 0          ; owed and not drawn: GFX_SCROLL refuses
+    je .draw                        ; under a clip and the fallback is all 25
+.owe:                               ; rows a line - the lock held 99% of the
+    mov byte [PS dvw_owe], 1        ; time, measured. Owed is the whole band,
+    jmp short .hid                  ; at the first wake with nothing over it
+.draw:                              ; (dos_paint kicks one after an expose,
+    xor al, al                      ; whose own draw is cut to the exposed
+    xchg al, [PS dvw_owe]           ; part and spends every mark)
+    or al, al
+    jz .now
+    HCALL con_markall
+.now:
     HCALL dos_con_draw
+.hid:
     call OSAPI_GFX_UNLOCK
     cmp byte [dvw_done], 0
     je .r

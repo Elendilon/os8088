@@ -130,7 +130,7 @@ def run(disk):
 
         # --- 2: in the window ------------------------------------------------
         ui.raise_window(ui.window("DOS"))
-        ui.menu_pick("Program", "Run in Window")
+        dosmap.run_in_window(ui)
         if not until(m, lambda: dos.b("dvw_run") == 1, "the worker's run", 20):
             fail("Run in Window put nothing on the worker")
         rising(m, dos, "the windowed run")
@@ -213,7 +213,7 @@ def run(disk):
 
         # --- 8: the shunt ----------------------------------------------------
         ui.raise_window(ui.window("DOS"))
-        ui.menu_pick("Program", "Run in Window")
+        dosmap.run_in_window(ui)
         if not until(m, lambda: dos.b("dvw_run") == 1, "the second run", 20):
             fail("the second Run in Window put nothing on the worker")
         os88marty.pace(m, 0.5)              # its PSP is built: read from here

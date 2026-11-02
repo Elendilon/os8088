@@ -1622,11 +1622,12 @@ dos_run:
                                     ; pass below should meet no wall. A page
                                     ; still up reads it again at its repaint
 %ifdef DVW
-    ; --- `Run in a window`, THE BOX (SPEC.md 96.32.2.4) ----------------------
-    ; The same request the menu item makes, made HERE so that every way into a
-    ; run - the bar, Enter, the menu's `Run`, a .LNK saved with it ticked -
-    ; reaches it, and on BOTH passes of a compaction wake: dvw_want is read
-    ; below this line four times before it is spent. Arm 1 ignores the box: a
+    ; --- `Run in a window`, THE MODE (SPEC.md 96.32.2.4, 96.54.10) ----------
+    ; The box and the menu item are one byte, read HERE so that every way into
+    ; a run - the bar, Enter, the menu's `Run`, a .LNK saved with it ticked,
+    ; and every program TYPED AT THE PROMPT - reaches it, and on BOTH passes
+    ; of a compaction wake: dvw_want is read below this line four times
+    ; before it is spent. Arm 1 ignores the box: a
     ; window cannot shut the OS down. dos_mem_fix first, so a link's arm 1
     ; that this machine demotes is arm 0 and gets its window.
     call dos_mem_fix
@@ -2122,6 +2123,10 @@ dos_repaint:
     call OSAPI_GFX_LOCK             ; a wake handler is the one callback
     mov si, [dos_win]               ; without the lock, and it MAY take it for
                                     ; a burst it can state (SPEC.md 74.1)
+    mov bx, si                      ; ...CUT TO WHAT IS VISIBLE (SPEC.md
+    call OSAPI_WM_CLIP_SET          ; 96.54.10): a run in the window ends
+    jc .hid                         ; behind whatever the user went on to use,
+                                    ; and an unclipped repaint lands on it
     mov al, CWHITE                  ; **THE INK FIRST** (SPEC.md 96.19.5). AL
     call OSAPI_SET_COLOR            ; is the LOW BYTE of the AX that
                                     ; WM_CONTENT is about to answer x1 in, so
@@ -2146,6 +2151,7 @@ dos_repaint:
 .nofill:
     mov si, [dos_win]
     call dos_paint
+.hid:
     call OSAPI_GFX_UNLOCK
     pop si
     pop dx
@@ -7017,6 +7023,9 @@ dos_paint:
     push si
     push di
 
+%ifdef DVW
+    call dos_wlabel                 ; the menu's mode mark (SPEC.md 96.54.10)
+%endif
     mov bx, si                      ; THE BAND FIRST, on every page: it is a
     call dos_con_geom               ; property of the WINDOW and not of the
                                     ; page, and a painter that asked for it
@@ -7038,7 +7047,14 @@ dos_paint:
 .mainpage:
 
     cmp byte [dos_state], DST_READY  ; THE RE-KICK (SPEC.md 74.1): the kernel
+%ifdef DVW
+    je .kick                         ; (...and a run in the window: its wake
+    cmp byte [dvw_run], 0            ; draws what this expose's cut paint
+    je .nokick                       ; could not, SPEC.md 96.54.10)
+.kick:
+%else
     jne .nokick                      ; keeps at most one queued wake per window,
+%endif
     mov bx, si                       ; so this is free when one is already
     call OSAPI_WM_WAKE               ; waiting and is the difference between a
 .nokick:                             ; full ring costing a frame and costing
@@ -8920,8 +8936,12 @@ dos_click:
     mov al, SPD_CLICK               ; every control the page has, the
     call dos_spdo                   ; part's (SPEC.md 96.32.2.3)
 %else
-    SPB_CLICK .out
+    SPB_CLICK .wl
 %endif
+.wl:
+%ifdef DVW
+    call dos_wlabel                 ; the box, the arm or `Close when done`
+%endif                              ; may have moved (SPEC.md 96.54.10)
     jmp .out
 
     ; --- one field, hit-tested ----------------------------------------------
@@ -9223,15 +9243,17 @@ dos_oncmd:
     push bx
     mov bx, si
 %ifdef DVW
-    cmp byte [dvw_run], 0           ; nothing on this menu while a program
-    jne .out                        ; is running in the window
-    cmp al, 3
-    jne .notw
-    inc byte [dvw_want]             ; 'Run in Window': 'Run', on the worker
-                                    ; (any non-zero is the ask; dos_run spends
-                                    ; it whole with an xchg)
-    xor al, al
-.notw:
+    cmp al, 3                       ; 'Run in Window' is a MODE (SPEC.md
+    jne .notw                       ; 96.54.10): it flips the Setup box's byte,
+    xor byte [dos_mwin + OS88UI_CK_ON], 1   ; which is what dos_run reads on
+    call dos_wlabel                 ; every launch - the prompt's too - and
+    cmp byte [dos_page], DOS_PAGE_MAIN  ; runs nothing. Live during a run: it
+    je .out                         ; says what the NEXT launch does. Greyed
+    call dos_swap                   ; where the box is (dos_wlabel), so no
+    jmp short .out                  ; test here; on Setup the page repaints
+.notw:                              ; so the box follows the menu
+    cmp byte [dvw_run], 0           ; nothing else on this menu while a
+    jne .out                        ; program is running in the window
 %endif
     or al, al
     jnz .notrun
@@ -9259,6 +9281,38 @@ dos_oncmd:
     pop bx
     pop ax
     ret
+
+%ifdef DVW
+; -----------------------------------------------------------------------------
+; dos_wlabel - `Run in Window` as the mode stands (SPEC.md 96.54.10)
+; in:  nothing; out: nothing, every register preserved
+;
+; The item's first byte is a GUTTER, `*` ticked and a space cleared (Desk
+; Clock's mark), and it greys where the Setup box greys: arm 1, and `Close
+; when done`. Run at every paint and every Setup press, so the item cannot
+; disagree with the box.
+; -----------------------------------------------------------------------------
+dos_wlabel:
+    push ax
+    mov ax, dos_l_wrun0
+    cmp byte [dos_keepc], DOS_MEM_WHOLE
+    je .set
+%ifdef DOS_WTAIL
+    cmp byte [dos_mhead + OS88UI_CK_ON], 0
+    jne .set
+%endif
+    mov al, ' '
+    cmp byte [dos_mwin + OS88UI_CK_ON], 0
+    je .mk
+    mov al, '*'
+.mk:
+    mov [dos_l_wrun], al
+    mov ax, dos_l_wrun
+.set:
+    mov [dos_items_prog + 6], ax
+    pop ax
+    ret
+%endif
 %endif                              ; KD_BACKEND
 %ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 
@@ -10507,7 +10561,9 @@ dos_m_prog: db 'Program', 0
 dos_items_prog: dw dos_l_run, dos_l_tset, dos_l_full
 %ifdef DVW
                 dw dos_l_wrun
-dos_l_wrun: db 'Run in Window', 0   ; SPEC.md 96.54
+dos_l_wrun: db ' Run in Window', 0  ; SPEC.md 96.54.10: a MODE, its first
+                                    ; byte the mark (dos_wlabel)
+dos_l_wrun0: db MENU_DIS, 'Run in Window (see Setup)', 0
 %endif
 
 %ifndef DOS_WTAIL                   ; (DOS_WTAIL: beside dos_htpl, resident)
@@ -17779,6 +17835,7 @@ dvw_cmode   equ dvw_want + 19   ; 0, DVWC_TV, _SEG or _HP (96.54.5-6.1)
 dvw_ctick   equ dvw_want + 20   ; ...and the capture's tick count
 dvw_dkind   equ dvw_want + 21   ; the desktop's VID_* kind (96.54.7)
 dvw_hprow   equ dvw_want + 22   ; DVWC_HP's probe row, FFh once promoted
+dvw_owe     equ dvw_want + 23   ; the band, owed whole (96.54.10)
 %if dvw_kill != dvw_done + 1 || dvw_kt != dvw_kh + 1 || dvw_fs != dvw_closeq + 1 || dvw_fsreq != dvw_frz + 1 || dvw_gfx != dvw_parked + 1 || dvw_go != dvw_run + 1
  %error "dvw_start (dosw.inc) clears these flags in word PAIRS: keep each pair adjacent"
 %endif

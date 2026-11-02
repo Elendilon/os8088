@@ -131,7 +131,7 @@ def run(disk):
 
         # --- 2: in the window, the pointer on a known cell ------------------
         ui.raise_window(ui.window("DOS"))
-        ui.menu_pick("Program", "Run in Window")
+        dosmap.run_in_window(ui)
         if not until(m, lambda: dos.b("dvw_run") == 1, "the worker's run", 20):
             fail("Run in Window put nothing on the worker")
         if not until(m, lambda: dos.rec()["polls"] > 50, "the polls", 20):

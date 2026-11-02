@@ -9056,6 +9056,22 @@ SOAK = [
         "so its exit code; and IVT 08h is the kernel's again afterwards, "
         "the instance's world exchanged back out. Measured 11.6s on MartyPC",
         needs=("marty",), serial=True, wants=("build/os8088-360.img",)),
+    Row("doswmode", "soak", py("tests/doswmode.py"), 30.0,
+        "RUN IN WINDOW IS A MODE (SPEC.md 96.54.10) and a refused drive does "
+        "not move the prompt (96.33.6.1). The probes go on a scratch copy of "
+        "the 360KB system disk and B: is EMPTY: Program > Run in Window ticks "
+        "the mode and runs nothing; DWFS and then DWTICK TYPED AT THE PROMPT "
+        "both run on the worker, the folder window dragged over the SCROLLING "
+        "band while the first counts, not one of its pixels changed under the "
+        "band's paint and the band owed until the DOS window is raised; DIR answers in the band; a graphics mode takes the full "
+        "screen and the prompt comes back in the window with the mode set; "
+        "cleared, the typed program takes the bracket; `B:` with no floppy is "
+        "refused and the prompt stays A:\\>. Red on the one-shot (f4c112c6) "
+        "at leg 2, red at leg 3 with dvw_wake's clip taken out and again with its "
+        "owe taken out (the drag never finishes), and red at leg 8 "
+        "with dos_con_run's dsh_home taken out. "
+        "Measured 27s on MartyPC",
+        needs=("marty",), serial=True, wants=("build/os8088-360.img",)),
     Row("doscon", "soak", py("tests/doscon.py"), 40.0,
         "DOS'S CONSOLE, AND THE PROMPT IN IT (SPEC.md 96.33). The band "
         "below the top bar carried three lines of status text and now carries "
