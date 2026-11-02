@@ -439,7 +439,8 @@ fsk_gen:
 ;
 ; A package can neither list nor delete a hidden + system file (SPEC.md 19.6),
 ; and a leftover driver is one. So the kernel deletes it - and THE KERNEL
-; decides which, never the caller. Only a *.DRV, and only one of two kinds:
+; decides which, never the caller. Only a *.DRV of one of two kinds, or an old
+; COLDHMA.SYS:
 ;
 ;   FSKD_RETIRED  a name on fsk_retired, this release's own list of the
 ;                 drivers and modules earlier ones shipped and this one does
@@ -453,6 +454,9 @@ fsk_gen:
 ;                 Every image anything loads today carries one of the two,
 ;                 sub-images such as HTTPPAGE.DRV included; a header that is
 ;                 not 'O8' at all is left, as nothing this kernel can name.
+;                 And COLDHMA.SYS (118.8.3), the one other name it takes: an
+;                 HMA image carries no build key, so it goes when it IS one
+;                 ('OS88ROM', kind 3) and `.cold` is not running from it.
 ;
 ; So no caller can name KERNEL.SYS, SYSTEM.CFG, a driver this kernel loads or
 ; a module it reads. Read-only, hidden and system are forgiven, a folder and
@@ -508,14 +512,14 @@ fsk_delsys:
     pop ax
     jmp short .bad
 .named:
-    cmp word [dskw_n83 + 8], 'DR'   ; a *.DRV, whichever the form
-    jne .badp
-    cmp byte [dskw_n83 + 10], 'V'
-    jne .badp
     pop di
     pop cx
     pop si
     pop ax
+    cmp word [dskw_n83 + 8], 'DR'   ; a *.DRV, whichever the form...
+    jne .hma
+    cmp byte [dskw_n83 + 10], 'V'
+    jne .hma
     cmp ah, FSKD_REFUSED
     je .refused
     or ah, ah
@@ -536,7 +540,7 @@ fsk_delsys:
     inc si
     inc di
     loop .cmp
-    jmp short .ours
+    jmp .ours
 .nx:
     add bx, 11
     jmp short .list
@@ -544,6 +548,30 @@ fsk_delsys:
 .bad2:
     mov ax, FSKE_ARG
     jmp fsk_die
+.hma:                           ; ...or the one other name the refused form
+    cmp ah, FSKD_REFUSED        ; takes: COLDHMA.SYS (118.8.3)
+    jne .bad
+    push cx
+    push si
+    push di
+    push ds
+    pop es
+    mov si, fsk_n_hma
+    mov di, dskw_n83
+    mov cx, 11
+.hn:
+    mov al, [cs:si]
+    cmp al, [es:di]
+    jne .hn2
+    inc si
+    inc di
+    loop .hn
+    cmp al, al                  ; all eleven: ZF = 1 (the incs left it 0)
+.hn2:
+    pop di
+    pop si
+    pop cx
+    jne .bad                    ; ZF = 0: a mismatch jumped here
 .refused:
     ; --- read it whole, as the kernel itself would, and judge the header -
     push di                     ; the caller's buffer
@@ -581,6 +609,28 @@ fsk_delsys:
     mov ax, FSKE_SMALL
     jmp fsk_die
 .read:
+    cmp byte [dskw_n83 + 8], 'S'    ; COLDHMA.SYS, the only .SYS let in
+    jne .rdrv
+    ; --- THE HMA IMAGE carries no build key, so two facts instead: it IS
+    ; one ('OS88ROM', kind 3 - boot/osrom.asm's rom_id), and `.cold` is not
+    ; running from it, so this boot did not adopt it. Whether its .text hash
+    ; fits this kernel is the tail's own question (SPEC.md 2.10.7)
+    mov si, fsk_romid
+    xor di, di
+    mov cx, 9
+.rm:
+    mov al, [cs:si]
+    cmp al, [es:di]
+    jne .bad2
+    inc si
+    inc di
+    loop .rm
+%ifndef KERN_MEGA
+    cmp word [api_coldseg], HMA_SEG ; in use this boot: never
+    je .bad2
+%endif
+    jmp short .ours
+.rdrv:
     cmp word [es:0], 0x384F     ; 'O8': anything else is not ours to judge
     jne .bad2
     mov al, [es:2]
@@ -618,6 +668,9 @@ fsk_delsys:
 ; THE RETIRED DRIVERS AND MODULES, raw 8.3 - apps/syscheck/retired.txt's .DRV
 ; lines, in its order; tests/unit/t_sysman.py fails the build when the two
 ; disagree. A name stays for ever, as it does there
+fsk_n_hma:  db 'COLDHMA SYS'
+fsk_romid:  db 'OS88ROM', 0, 3  ; rom_id's magic and ROM_KIND_HMA
+
 fsk_retired:
     db 'DEBUG   DRV'
     db 'CLONE   DRV'

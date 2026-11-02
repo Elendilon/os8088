@@ -99,7 +99,7 @@ well as yours - the drivers and programs of an install that has grown in
 pieces - and on a hard disk it moves `KERNEL.SYS` too, telling the disk's
 boot sector where it went. It moves folders as well, but only when no other
 program is open, because a program may remember where a folder was: close
-your other programs first, or the report will say *folders not moved*. It
+your other programs first, or the report will say *folders not moved: close other programs*. It
 never moves disk images (`*.IMG`, except a hibernation image), or the
 kernel on a floppy. If you save anything onto the disk while a disk task is running,
 it stops and asks you to scan again rather than work from an out-of-date
@@ -121,14 +121,16 @@ over: an install's `KPAD.TMP`, a hibernation image nothing will resume,
 and the programs and drivers this release retired. It rebuilds the file
 associations when they point at programs that are gone.
 
-Then, if the check found any, it asks about the drivers and kernel
-modules this kernel refuses to load - ones built for another driver
-version, or modules from another build: *Also remove 2 refused drivers?*
-Such a file does nothing but take room. Removing it is safe, but an
+Then, if the check found any, it asks about the files this kernel refuses
+to use: drivers built for another driver version, kernel modules from
+another build, programs built for another version of os8088 or with a
+damaged header, and a `COLDHMA.SYS` that is not this release's: *Also
+remove 3 unusable files?* Such a file does nothing but take room. Removing it is safe, but an
 install from the release disks is what brings a current copy back, so
-afterwards System Check may list it as missing. A driver that the disk you
-installed from does not carry at all - `XMEM.DRV` is not on the 360KB
-system disk - is simply gone. Press Cancel to keep them. Then it checks
+afterwards System Check may list it as missing. A file that the disks you
+installed from do not carry at all - `XMEM.DRV` and `COLDHMA.SYS` are not on
+the 360KB system disk, and an old program may be on no apps disk any more -
+is simply gone. Press Cancel to keep them. Then it checks
 the disk again.
 
 The drivers are hidden system files, so Clean Up asks **FSCHECK.DRV** to
@@ -137,9 +139,8 @@ refused. A driver this kernel loads, a module it uses and the kernel itself
 are never touched.
 
 It leaves alone a program found in two folders (only you know which copy
-you want), a program built for another version (it may be your own,
-waiting for an update), a driver that loads but differs from this release's,
-and a kernel from another release. For those, install again from the
+you want), a driver that loads but differs from this release's, and a
+kernel from another release. For those, install again from the
 release disks, keeping your files.
 
 ## Good to know

@@ -16918,7 +16918,7 @@ SOAK = [
         "MartyPC's 5150 with CGA and with Hercules. Its AUTOSTRT link says "
         "`C: RELEASE REPORT` (118.14.9), so the scan runs and saves "
         "SYSCHECK.TXT unattended; read back off the VHD it must say 7 broken, "
-        "6 warnings and name every planted finding. 23s measured, both "
+        "7 warnings and name every planted finding. 23s measured, both "
         "machines.",
         needs=("marty", "mtools"), serial=True, timeout=900,
         wants=("build/os8088.img", "build/syscheck.o88", "build/mbr.bin",
@@ -16937,8 +16937,10 @@ SOAK = [
         "driver among them, hidden + system, which only FSCHECK.DRV beside "
         "SYSCHECK.O88 can delete (118.8.1) - and then, on a second Proceed, "
         "a driver of the last driver version, a module of another build and "
-        "a driver of version 9, which the kernel refuses (118.8.2), with "
-        "every driver and module it loads left where it was.",
+        "a driver of version 9, which the kernel refuses (118.8.2), and a "
+        "package of format 8, a damaged one and a COLDHMA.SYS that is not "
+        "this release's (118.8.3), with every driver and module it loads "
+        "left where it was.",
         needs=("qemu", "mtools"), serial=True, timeout=600,
         wants=("build/os8088.img", "build/apps.img", "build/syscheck.o88",
                "build/fscheck.drv", "build/mbr.bin", "build/boothd.bin")),

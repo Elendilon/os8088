@@ -390,7 +390,7 @@ sc_clean2:
     mov ax, [sc_nstale]
     or ax, ax
     jz sc_cleanfin
-    mov di, sc_q                    ; "Also remove 2 refused drivers?"
+    mov di, sc_q                    ; "Also remove 2 unusable files?"
     push si
     mov si, sc_q_st
     cmp word [sc_rmd], 0
@@ -416,8 +416,19 @@ sc_staledone:
     push es
     push ds
     pop es
+    mov ax, [sc_rmd]
+    push ax
     mov bl, FL_STALE
     call sc_rmall
+    pop ax
+    cmp ax, [sc_rmd]                ; something went, and a program may have:
+    je .same                        ; the associations follow (SPEC.md 54)
+    xor dx, dx
+    call sc_goto
+    mov dl, [sc_vol]
+    xor al, al                      ; incremental: rows whose package is gone
+    call OSAPI_ASSOC_FLUSH
+.same:
     pop es
     ; fall through
 
@@ -591,4 +602,4 @@ sc_q_rm3:      db ' files, fix associations?', 0
 sc_q_asc:      db 'Rebuild the file associations?', 0
 sc_q_st:       db 'Also remove ', 0
 sc_q_st0:      db 'Remove ', 0
-sc_q_st2:      db ' refused drivers?', 0
+sc_q_st2:      db ' unusable files?', 0

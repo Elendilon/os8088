@@ -227198,7 +227198,7 @@ A retired driver or module (§118.2.2) is hidden and system, so
 `OSAPI_FILE_DELETE` refuses it `FERR_PROT` and a package has no other way to
 remove one. `FSCHECK.DRV` is kernel code sitting beside System Check
 (§118.14.1), so it does it: Clean Up counts a retired driver among the files
-it removes (*retired - Clean Up removes it*), reads the image if no disk task
+it removes (*dropped from os8088 - Clean Up removes it*), reads the image if no disk task
 has yet, stands in the driver's folder and asks `OSAPI_VOL_CHECK`'s fifth
 verb, **`FSK_DELSYS`** (4), to delete it by name - `DX:SI` an ASCIIZ 8.3 name
 in the caller's folder, no workspace and no run needed.
@@ -227226,12 +227226,15 @@ where an install carries a newer copy, and not every install does - the
 360KB system disk leaves `XMEM.DRV` off (§24.3.1.6), so a machine once
 installed from a larger disk and since upgraded from the 360KB pair keeps an
 `XMEM.DRV` of the old version for ever. So Clean Up removes these too, but
-asks **again** first, once the leftovers are done: *Also remove 2 refused
-drivers?* (*Remove ...* when there were no leftovers to ask about), Cancel
-the default. Cancel there keeps every one of them and loses nothing the
-first question did. The findings are the Drivers row's three **Broken**
-ones - `driver version #, kernel takes #`, `module version #, kernel takes
-#`, `from build # - the kernel refuses it`.
+asks **again** first, once the leftovers are done: *Also remove 2 unusable
+files?* (*Remove ...* when there were no leftovers to ask about), Cancel
+the default; it counts §118.8.3's files too. Cancel there keeps every one of
+them and loses nothing the first question did. **The word is UNUSABLE**,
+and the findings say *will not load*: an earlier *refused* read to users as
+something System Check was declining to do, not as the system declining the
+file. The findings are the Drivers row's three **Broken** ones - `driver
+version #, needs # - will not load`, `module version #, needs # - will not
+load`, `from build # - will not load`.
 
 **The kernel judges, again**, with `FSK_DELSYS`'s second form, AH =
 `FSKD_REFUSED` (1) (AH = `FSKD_RETIRED`, 0, is §118.8.1's). System Check
@@ -227252,6 +227255,36 @@ What follows is honest rather than tidy: a refused file the release ships
 reads as **missing** at the next scan, which is what it now is, and an
 install puts it back; one the install never carried - the case above - is
 an optional manifest file (§118.2.3), and its absence is no finding at all.
+
+#### 118.8.3 ...and a program the loader refuses, and an old HMA image
+
+The same question takes two more kinds of file, because the 360KB disks
+leave both behind for good: a package an apps disk stopped carrying is
+never replaced by an upgrade, and neither is `COLDHMA.SYS`, which the 360KB
+system disk does not ship (§24.3.1.6). So the question reads *Also remove N
+unusable files?*, and counts:
+
+- **A package the loader refuses**: the Packages row's two Broken findings,
+  `package format #, needs # - will not load` and `damaged, or not a
+  program - will not load` - the loader's own tests (§20.2.0), read off the header the scan
+  already read. A visible file, so it goes by `OSAPI_FILE_DELETE` like any
+  leftover, and the associations are brought up to date after
+  (`OSAPI_ASSOC_FLUSH`, incremental), a row for a program now gone being
+  the next scan's finding otherwise. A package the scan could not READ is
+  not counted: that is the disk's fault, not the file's.
+- **`COLDHMA.SYS` that is not this release's** (Kernel and boot files, a
+  Warning, *not this release's HMA image*). It is hidden and system, so it
+  goes through `FSK_DELSYS`'s refused form, which takes that one name
+  besides `*.DRV`. Its header carries **no build key** - whether it fits this
+  kernel is a `.text` hash only its own install routine can take (§2.10.7) -
+  so the engine judges it on two facts instead: it IS an HMA image
+  (`OS88ROM`, kind 3, `boot/osrom.asm`'s `rom_id`), and `.cold` is **not
+  running from it** - `[api_coldseg]` is not `HMA_SEG`, so this boot did not
+  adopt it. The release side - that it differs from this release's - is
+  System Check's, from the manifest, and it offers nothing else. Removing a
+  current one by mistake would cost a 286 the heap `.cold` gives back
+  until the next install, never a boot: without the file `.cold` stays in
+  RAM.
 
 An image from another build is `FSKE_IMAGE`, as for every verb, and an
 absent one leaves the finding where it was: Clean Up's toast counts what it
@@ -227434,7 +227467,7 @@ the chosen drive's root with `OSAPI_FILE_GOTO_QM` before it begins.
 | `FSK_BEGIN` | 1 | AH = `FSKM_*`; zeroes the workspace and starts | AX = 0 |
 | `FSK_STEP` | 2 | one bounded piece of work | `FSKS_MORE` 0, `FSKS_FIND` 1 (a finding is in the workspace), `FSKS_DONE` 2 |
 | `FSK_END` | 3 | flushes, tells the Disk windows, ends | AX = 0; cannot fail |
-| `FSK_DELSYS` | 4 | deletes a `*.DRV` the engine itself judges dead, `DX:SI` its ASCIIZ name in the caller's folder: AH = `FSKD_RETIRED` (0) one on its retired list (§118.8.1), `FSKD_REFUSED` (1) one this kernel would refuse, `DI` a buffer and `CX` its KB (§118.8.2); no run needed | AX = 0 |
+| `FSK_DELSYS` | 4 | deletes a system file the engine itself judges dead, `DX:SI` its ASCIIZ name in the caller's folder: AH = `FSKD_RETIRED` (0) a `*.DRV` on its retired list (§118.8.1), `FSKD_REFUSED` (1) a `*.DRV` this kernel would refuse (§118.8.2) or an HMA image not in use (§118.8.3), `DI` a buffer and `CX` its KB; no run needed | AX = 0 |
 
 `FSKM_FIX` = 1 repairs as it goes; `FSKM_DEFRAG` = 2 defragments after a
 clean check (`FIX` and `DEFRAG` together is refused, `FSKE_ARG`).
@@ -227576,7 +227609,7 @@ THE RULE: **a program can have banked a folder's cluster** -
 its own memory, where nothing can put it right. So folders move only when
 no package instance but the caller is open; otherwise the run moves files
 alone and its Defragment row says `NOFOLD` with the count (*folders not
-moved: 1 programs open*). Disk windows are the kernel's and are patched, so
+moved: close other programs (1)*). Disk windows are the kernel's and are patched, so
 they do not count. System Check's own banked folders - where it was, where
 it was launched from - become the root of the volume when folders moved on
 it.
@@ -227661,7 +227694,9 @@ being the image's. The retired form is **+229 bytes of image** (5,679 ->
 **+152** more (6,060; 4,991 packed). System Check grew **+25** for the first
 (17,899 -> 17,924, the loader shared between the disk tasks and Clean Up as
 `sc_fload`) and **+251** and 4 of bss for the second question (18,175;
-23,944 -> 23,948).
+23,944 -> 23,948). §118.8.3's two more kinds of file are **+116 bytes of
+image** (6,176; 5,085 packed) and System Check **+93** (18,268), the kernel
+still byte-identical.
 
 **What a run costs, measured on MartyPC's 4.77MHz 5150 with a 360KB floppy**
 (`tests/fsckdisk.py`): *Check the disk* is 5 seconds; *Check and repair*
