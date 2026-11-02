@@ -62,12 +62,12 @@ DVWE_NCALL   equ 9              ; ...the first nine are CALL entries
 ; whose segment word dvw_hbind writes at every start. HCALL of a name that is
 ; not here fails to assemble (no dvwx_ of it), so the list cannot drift.
 %macro DVW_HOSTCALLS 0
-    DVW_HX con_celloff
     DVW_HX con_clear
     DVW_HX con_mark
     DVW_HX con_markall
     DVW_HX con_markcells
     DVW_HX con_markcur
+    DVW_HX con_marks
     DVW_HX con_tx_ice
     DVW_HX con_write
     DVW_HX dos_be_bind

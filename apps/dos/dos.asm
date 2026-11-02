@@ -7284,10 +7284,10 @@ dos_paint:
     ; leaving it - con_scrollpaint would blit a screen that has just been drawn
     ; from the buffer and mark only the rows it vacated (telnet's te_screen
     ; carries the same pair and the same reason).
-    call con_markall
-    call con_rows_owed
-    call con_takescroll
-%endif
+    call con_takescroll             ; ...FIRST (SPEC.md 96.54.14): con_takerow
+    call con_markall                ; refuses a row while a debt stands, so
+    call con_rows_owed              ; the debt is dropped and then every row
+%endif                              ; drawn, which is the same screen
 .card:
     ; --- AND THE ABOUT CARD LAST, OVER WHICHEVER PAGE IT WAS (SPEC.md 96.51) -
     ; Both branches arrive here - the setup page by `jmp .card` above and the
@@ -18033,7 +18033,7 @@ dvw_pseg    equ dvw_cap + 4     ; word: the part's claim, 0 = not fetched
  %error "dvw_start sets run and go with one word store"
 %endif
 %elifdef DVW                        ; --- the live window (SPEC.md 96.54) ---
-    HBSS DOS_B_DVWF,  26        ; the flag bytes below, in order
+    HBSS DOS_B_DVWF,  28        ; the flag bytes below, in order
     HBSS DOS_B_DVWC,  4         ; the capture's segment, and our CS for FFh
     HBSS DOS_B_DVWSM, 50        ; TopView's row sums, CON_ROWS words (96.54.5:
                                 ; os88con.inc comes later, so dosw.inc asserts)
@@ -18072,6 +18072,8 @@ dvw_dkind   equ dvw_want + 21   ; the desktop's VID_* kind (96.54.7)
 dvw_hprow   equ dvw_want + 22   ; DVWC_HP's probe row, FFh once promoted
 dvw_owe     equ dvw_want + 23   ; the band, owed whole (96.54.10)
 dvw_kbusy   equ dvw_want + 24   ; ticks a poll stays awake after a key
+dvw_ptk     equ dvw_want + 25   ; dvw_xpost was reached from a tick...
+dvw_pgap    equ dvw_want + 26   ; ...and the ticks since its last post
 %if dvw_kill != dvw_done + 1 || dvw_kt != dvw_kh + 1 || dvw_fs != dvw_closeq + 1 || dvw_fsreq != dvw_frz + 1 || dvw_gfx != dvw_parked + 1 || dvw_go != dvw_run + 1
  %error "dvw_start (dosw.inc) clears these flags in word PAIRS: keep each pair adjacent"
 %endif

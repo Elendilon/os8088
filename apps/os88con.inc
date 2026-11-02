@@ -189,40 +189,40 @@ con_mk1:
 ; and last rows, so int 10h AH=09h writing one digit in place - a clock -
 ; marks that digit and not the row it sits on. Widening-only, as con_markc.
 con_marks:
+    cmp bx, CON_ROWS                ; (the row one past the end is refused)
+    jae .ret
     push ax
-    push bx
+    push si
     push cx
-    push dx
-    mov dx, cx                      ; DL = first, DH = last, banked: con_bit
-    cmp bx, CON_ROWS                ; spends CL and rewrites BX into the
-    jae .out                        ; bitmap's byte index
+    mov si, bx                      ; **con_bit's SHAPE, IN LINE** (SPEC.md
+    mov cl, bl                      ; 96.54.14): this runs once for every
+    and cl, 7                       ; character a program prints, and the call,
+    mov al, 1                       ; the row banked round it and two more
+    shl al, cl                      ; registers saved were a third of it.
+    mov cl, 3                       ; AL = the row's bit, SI = its byte; BX
+    shr si, cl                      ; stays the row, which the spans index by
+    pop cx                          ; CL..CH, the span, again
     pushf
     cli
-    push bx                         ; ...so the ROW is banked too
-    call con_bit
-    mov ah, [con_drb + bx]
-    or [con_drb + bx], al           ; set it...
-    test ah, al                     ; ...but was it ALREADY set? `pop` touches
-    pop bx                          ; no flag, so this survives it
+    test [con_drb + si], al         ; ALREADY set?
     jnz .widen
-    mov [con_dc0 + bx], dl          ; a clean row: the span IS these columns
-    mov [con_dc1 + bx], dh
+    or [con_drb + si], al           ; a clean row: the span IS these columns
+    mov [con_dc0 + bx], cl
+    mov [con_dc1 + bx], ch
     jmp short .done
 .widen:
-    cmp dl, [con_dc0 + bx]
+    cmp cl, [con_dc0 + bx]
     jae .hi
-    mov [con_dc0 + bx], dl
+    mov [con_dc0 + bx], cl
 .hi:
-    cmp dh, [con_dc1 + bx]
+    cmp ch, [con_dc1 + bx]
     jbe .done
-    mov [con_dc1 + bx], dh
+    mov [con_dc1 + bx], ch
 .done:
     popf
-.out:
-    pop dx
-    pop cx
-    pop bx
+    pop si
     pop ax
+.ret:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -257,6 +257,16 @@ con_takerow:
     jae .no
     pushf                           ; **THE FLAGS FIRST AND THE ROW SECOND**, so
     cli                             ; the `pop bx` below takes the row and not
+    cmp word [con_scrl], 0          ; **AND NOT WHILE A SCROLL IS OWED**
+    jne .owed                       ; (SPEC.md 96.54.14): the pass that spent
+                                    ; the debt has been overtaken by a scroll
+                                    ; since, so the glass is about to be moved
+                                    ; again - a row drawn now from the buffer
+                                    ; is drawn where the next blit moves it
+                                    ; off. The mark SURVIVES (its own shift
+                                    ; carries it with the buffer), and the
+                                    ; next pass blits first. Every renderer
+                                    ; spends the debt before it takes a row
     push bx                         ; the saved flags - which it did, and the
     call con_bit                     ; span then indexed off a flags word: the
                                     ; renderer wrote 109 cells of an 80-cell
@@ -279,6 +289,8 @@ con_takerow:
     pop ax
     stc
     ret
+.owed:
+    popf
 .no:
     pop cx
     pop bx
@@ -401,8 +413,13 @@ con_rows_owed:
     push dx
     push si
     push di
-    call con_curmove
-    xor bx, bx
+    pushf                           ; **THE CARET'S MARKS AND "NO SCROLL OWED"
+    cli                             ; ARE ONE READING** (SPEC.md 96.54.14): a
+    cmp word [con_scrl], 0          ; mark is a BUFFER row and the glass is
+    jne .owed                       ; that row only with no debt standing - so
+    call con_curmove                ; with one, nothing here can be taken
+    popf                            ; anyway (con_takerow) and the pass is
+    xor bx, bx                      ; the next one's
 .row:
     test bl, 7                      ; **THE BITMAP IS READ BEFORE IT IS TAKEN**:
     jnz .bit                        ; con_takerow is a `cli` and a shift ladder
@@ -418,7 +435,9 @@ con_rows_owed:
     call con_takerow                 ; ...which CLEARS the bit it answers for,
     jnc .next                       ; so a mark the worker sets for a row this
     call con_rowspan                 ; loop has passed survives into the next
-.next:                              ; pass instead of being dropped
+    cmp word [con_scrl], 0          ; pass instead of being dropped
+    jne .late
+.next:
     inc bx
     jmp short .test
 .skip8:
@@ -426,6 +445,30 @@ con_rows_owed:
 .test:
     cmp bx, CON_ROWS
     jb .row
+    jmp short .done
+.owed:
+    popf
+    jmp short .done
+.late:
+    ; **A SCROLL ARRIVED DURING THE PASS** (SPEC.md 96.54.14). The worker
+    ; runs between this task's slices, so the buffer can move under a pass
+    ; that has already spent the debt: the row just put down was composed
+    ; from cells the buffer has (in part, or wholly) moved since, and the
+    ; NEXT pass blits the glass up by the new debt first - carrying this
+    ; row with it. So it is owed again where the blit will put it, under
+    ; the `cli` that makes the debt and the mark one reading (a later
+    ; scroll's con_markup carries the mark on up with it), and the pass
+    ; ends: every row after it would be drawn post-scroll and then moved
+    ; again. Measured as torn and doubled lines on the glass after a
+    ; windowed teletype run (tests/doswtty.py), 3,318 pixels from what a
+    ; full repaint draws
+    pushf
+    cli
+    sub bx, [con_scrl]
+    jb .gone                        ; ...carried off the top: owed nowhere
+    call con_mark
+.gone:
+    popf
 .done:
     pop di
     pop si
@@ -443,8 +486,11 @@ con_rows_owed:
 ; marked only one side, because any mark on the row redrew the row. A span
 ; does not, so the renderer keeps [con_lcur], where the caret was the last
 ; time a pass began, and marks both cells itself when it differs: every
-; mover is right whether or not it marked (int 10h AH=13h's restore does not).
-; FFFF = no caret drawn. A move during a pass is seen by the next one.
+; mover is right whether or not it marked - and since SPEC.md 96.54.14 no
+; mover marks at all. FFFF = no caret drawn. A move DURING a pass is
+; con_compose's (con_lcset), because the underline is drawn where the caret
+; is when its row is composed. IF = 0 (con_rows_owed): these marks and "no
+; scroll owed" are one reading.
 con_curmove:
     push ax
     push bx
@@ -518,6 +564,15 @@ con_scrollpaint:
     call OSAPI_GFX_SCROLL
     pop ax
     jc .all
+    mov bx, [con_lcur]              ; **THE CARET'S PIXELS MOVED WITH THE
+    cmp bx, 0xFFFF                  ; REST** (SPEC.md 96.54.14): the underline
+    je .lcok                        ; con_curmove last drew is N rows up now,
+    sub bh, al                      ; so that is where it is owed from - and a
+    jnc .lcset                      ; caret blitted off the top is owed nowhere.
+    mov bx, 0xFFFF                  ; con_putc no longer marks the cell a caret
+.lcset:                             ; leaves, so this is the only record of it
+    mov [con_lcur], bx
+.lcok:
     mov bx, CON_ROWS                 ; the rows it vacated are OURS to repaint
     sub bx, ax
 .mk:
@@ -733,6 +788,7 @@ con_compose:
     cmp ax, di                      ; pass's: DI walked to one past the span,
     jae .out                        ; and con_curmove marks the cells it moves
     sub ax, con_band                 ; between
+    call con_lcset                  ; ...and the glass has it HERE now
     mov di, con_band + CON_COLS*6
     add di, ax
     ; **IT IS THE CURSOR CELL'S OWN POLARITY AND NOT ALWAYS `or`.** On a 1bpp
@@ -764,6 +820,40 @@ con_compose:
     pop di
     pop si
     pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- con_lcset - AX = the column the caret's underline is being composed in,
+; [con_rr] its row: [con_lcur] says so, and if that is not where the pass's
+; con_curmove found it - the caret moved DURING the pass, which with no mark
+; from the mover nothing else sees - the cell it was in owes its underline
+; away (SPEC.md 96.54.14). That mover set the console's dirty byte after the
+; pass took it, so a cell already passed is drawn by the pass it posted. The old cell is a GLASS cell and a mark
+; is a BUFFER row, the two a debt apart, so the row is the debt less and the
+; two are read under one `cli` - a scroll may have overtaken this very row
+; (con_rows_owed's .late). AX is kept.
+con_lcset:
+    push ax
+    push bx
+    push cx
+    mov ah, [con_rr]                ; AH = the row, AL = the column: [con_lcur]
+    pushf                           ; is con_curmove's shape
+    cli
+    xchg ax, [con_lcur]
+    cmp ax, [con_lcur]
+    je .same
+    cmp ax, 0xFFFF
+    je .same                        ; none was on the glass
+    mov cl, al
+    mov bl, ah
+    xor bh, bh
+    sub bx, [con_scrl]
+    jb .same                        ; ...carried off the top by the debt
+    call con_markc
+.same:
+    popf
     pop cx
     pop bx
     pop ax
@@ -1096,16 +1186,6 @@ con_font:
     loop .far
     ret
 
-; --- con_celloff - AX = the cursor's byte offset within con_scr ----------------
-con_celloff:
-    push dx
-    mov ax, CON_COLS * 2
-    mul word [con_cy]                ; **MUL WRITES DX** (SPEC.md 1), and the
-    add ax, [con_cx]                 ; product is under 4,000 either way
-    add ax, [con_cx]
-    pop dx
-    ret
-
 ; --- con_putc - AL, a GLYPH, onto the screen at the cursor --------------------
 ; **IT IS ONLY A GLYPH NOW.** The controls and the escape sequences are the
 ; parser's (SPEC.md 70.9, teansi.inc), which is what replaced the "recognised
@@ -1125,26 +1205,38 @@ con_putc:
     push ax
     push bx
     push cx
-    push dx
     push di
-    call con_markcur                 ; the row the cursor is LEAVING owes a
-                                    ; redraw: the underline is in its band
     cmp byte [con_pwrap], 0
-    je .noww
+    je .put
     mov byte [con_pwrap], 0          ; ...the wrap the LAST glyph promised
     mov word [con_cx], 0
     call con_nextrow
-    call con_markcur
-.noww:
-    push ax
-    call con_celloff
-    mov di, ax
-    pop ax
-    mov [con_scr + di], al
-    mov bl, [con_attr]
-    mov [con_scr + di + 1], bl
-    call con_markcur                 ; ...BEFORE the cursor moves: this row is
-    mov ax, [con_cx]                 ; the one whose pixels changed
+.put:
+    ; **ONE MARK A GLYPH, AND IT IS THE CELL'S** (SPEC.md 96.54.14). This
+    ; called con_markcur three times - the cell the caret left, after a wrap
+    ; the cell it arrived on, and the cell written - and the windowed probe's
+    ; profile had a third of the machine in the marks. The caret's two cells
+    ; are con_curmove's: the band's renderer marks where the underline WAS
+    ; and where it IS at the head of every pass, and a scroll the band
+    ; followed moves [con_lcur] with the pixels (con_scrollpaint). A text-mode
+    ; renderer has a hardware cursor and no underline to owe. The cell's
+    ; offset is shifts and not con_celloff's `mul`: row * 160 is row * 32 * 5
+    mov bx, [con_cy]
+    mov di, bx
+    mov cl, 5
+    shl di, cl
+    mov cx, di
+    shl di, 1
+    shl di, 1
+    add di, cx                      ; DI = row * 160
+    mov cx, [con_cx]
+    add di, cx
+    add di, cx
+    mov ah, [con_attr]
+    mov [con_scr + di], ax
+    mov ch, cl                      ; BX = the row, CL = CH = the column
+    call con_marks
+    mov ax, [con_cx]
     inc ax
     cmp ax, CON_COLS
     jb .cxok
@@ -1153,7 +1245,6 @@ con_putc:
 .cxok:
     mov [con_cx], ax
     pop di
-    pop dx
     pop cx
     pop bx
     pop ax
@@ -1494,7 +1585,8 @@ con_scrolldown:
 ; --- con_write - AL = a byte, as the ROM teletype would take it ---------------
 con_write:
     push ax
-    cmp al, 13
+    cmp al, 13                      ; ABOVE CR IS A GLYPH, which is nearly
+    ja .glyph                       ; every byte: one compare, not five
     je .cr
     cmp al, 10
     je .lf
@@ -1507,28 +1599,25 @@ con_write:
                                     ; machine that beeps per byte of a DOS
                                     ; program's output is worse than one that
                                     ; does not
+.glyph:
     call con_putc
 .out:
     pop ax
     ret
-.cr:
-    mov word [con_cx], 0
+.cr:                                ; (the caret's cells are con_curmove's:
+    mov word [con_cx], 0            ; no mark here - SPEC.md 96.54.14)
     mov byte [con_pwrap], 0         ; ...and the wrap the last glyph promised is
-    call con_markcur                ; OFF: `...79th char, CR, LF` must not eat
-    jmp short .out                  ; the first character of the next line
+    jmp short .out                  ; OFF: `...79th char, CR, LF` must not eat
+                                    ; the first character of the next line
 .lf:
-    call con_markcur                ; the row being LEFT owes its underline
     call con_nextrow
-    call con_markcur
     mov byte [con_pwrap], 0
     jmp short .out
 .bs:
     cmp word [con_cx], 0
     je .out                         ; column 0: DOS does not wrap back up, and
-    call con_markcur                ; a console that did would scroll the other
-    dec word [con_cx]               ; way on the first keystroke of a new line
-    mov byte [con_pwrap], 0
-    call con_markcur
+    dec word [con_cx]               ; a console that did would scroll the other
+    mov byte [con_pwrap], 0         ; way on the first keystroke of a new line
     jmp short .out
 .tab:
     push cx                         ; the next multiple of eight, and the stops

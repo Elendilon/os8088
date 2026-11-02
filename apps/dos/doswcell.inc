@@ -61,6 +61,8 @@ dvw_dkind   db 0                ; the desktop's VID_* kind (96.54.7)
 dvw_hprow   db 0                ; DVWC_HP's probe row, FFh once promoted
 dvw_owe     db 0                ; the band, owed whole (96.54.10)
 dvw_kbusy   db 0                ; ticks a poll stays awake after a key
+dvw_ptk     db 0                ; dvw_xpost was reached from a tick...
+dvw_pgap    db 0                ; ...and the ticks since its last post
 dwm_own     db 0                ; INT 33h in the window (doswm.inc): the
 dwm_last    db 0                ; buttons the program has, the live mask at
 dwm_wasf    db 0                ; the last read, in front at the sample

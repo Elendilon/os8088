@@ -61,6 +61,9 @@ DVWC_OWN    equ 0x0FFE          ; the card's word that names its holder
                                 ; under 4K, so on an MDA, a CGA's page 0 and
                                 ; a Hercules's page 1 alike nothing shows it
 DVWC_EVERY  equ 3               ; a capture pass every 4th tick (mask)
+%ifndef DVW_SPACE
+DVW_SPACE   equ 4               ; a SCROLL's paint at most every 4th tick from
+%endif                          ; the program's own slices (SPEC.md 96.54.14)
 
 DVW_GAP     equ 96              ; the IRQ0 stub's frames go this far below the
                                 ; gate's own frame top ([dos_dstk]), so a
@@ -267,7 +270,7 @@ dvw_irq0:
 .go:                            ; gate to the iret (dvw_tolow)
     push ax                     ; NZ = this frame moved off a foreign stack
     mov ax, [cs:dvw_tax]
-    call dvw_xpost              ; the world out, and the paint posted
+    call dvw_xpostt             ; the world out, and the paint posted
     pushf
     call far [cs:dvw_k08]       ; the kernel's own tick: it may switch away,
                                 ; and resuming this task irets HERE (IF = 0)
@@ -322,6 +325,8 @@ dvw_tolow:
 ; **THE PAINT IS POSTED FROM HERE**: once a tick, whatever the program
 ; printed, so a chatty program costs the band 18 repaints a second at most
 ; and a quiet one none. OSAPI_WM_WAKE is ISR-safe and coalesces
+dvw_xpostt:                     ; ...from a TICK the program was holding:
+    mov byte [PS dvw_ptk], 1    ; its scroll's paint is paced (below)
 dvw_xpost:
     call dvw_xout               ; the desktop's world, sch_isr back at 08h
     sub byte [cs:dvw_kbusy], 1  ; a tick of 96.54.5.1's window spent - and
@@ -333,14 +338,37 @@ dvw_xpost:
     call dvw_kmore              ; tested BEFORE dvw_cpace, whose post is the
 .quiet:                         ; pass's door and not a change
     call dvw_cpace              ; (DS the host: its .post marks the band)
+    cmp byte [PS dvw_ptk], 0    ; the ticks since the last post, saturating
+    je .gap
+    inc byte [PS dvw_pgap]
+    jnz .gap
+    dec byte [PS dvw_pgap]
+.gap:
     cmp byte [dvw_dirty], 0
     je .r
+    ; **A SCROLL'S PAINT IS PACED** (SPEC.md 96.54.14). The band follows a
+    ; scroll by moving every pixel of it that stays - 192 scanlines of a
+    ; Hercules band, the largest single cost of a program that prints - and
+    ; a teletype that runs at a line a tick paid that move once a LINE. Held
+    ; to every DVW_SPACE'th tick, one move carries the lines of all of them.
+    ; Only from a tick, and only with a scroll owed: a nap is the program
+    ; WAITING, which is exactly when what it printed must be on the glass,
+    ; and a screen that only changed in place is cells, not a move
+    cmp byte [PS dvw_ptk], 0
+    je .post
+    cmp word [con_scrl], 0
+    je .post
+    cmp byte [PS dvw_pgap], DVW_SPACE
+    jb .r
+.post:
+    mov byte [PS dvw_pgap], 0
     mov byte [dvw_dirty], 0
     push bx
     mov bx, [dos_win]
     call OSAPI_WM_WAKE
     pop bx
 .r:
+    mov byte [PS dvw_ptk], 0
     pop ds
     ret
 
@@ -1049,7 +1077,11 @@ dvw_int10:
     HOSTDS
     cmp ah, 0x0E                    ; the teletype first: it is most of them
     je .tty
-    cmp ah, 0x0F
+    cmp ah, 0x02                    ; ...and then the PRINT of a compiled BASIC
+    je .setcur                      ; program, which is AH=02h, AH=09h and
+    cmp ah, 0x09                    ; AH=02h a character (SPEC.md 96.54.14):
+    je .wca                         ; seven compares further down each, eleven
+    cmp ah, 0x0F                    ; times a character
     je .mode
     cmp ah, 0x13
     je .str
@@ -1063,8 +1095,6 @@ dvw_int10:
     jae .scroll                     ; 06h, 07h
     cmp ah, 0x03
     je .getcur
-    cmp ah, 0x02
-    je .setcur
     or ah, ah
     jz .setmode
 .out:
@@ -1095,14 +1125,39 @@ dvw_int10:
 
 .rca:
     push bx
-    HCALL con_celloff
-    mov bx, ax
-    mov ax, [con_scr + bx]
+    push di
+    call dvw_coff
+    mov ax, [con_scr + di]
+    pop di
     pop bx
     jmp short .out
 
 .wca:                               ; AH 09h = char + BL attribute, 0Ah = char
-    push ax                         ; alone; CX of them, the cursor stays
+    cmp cx, 1                       ; alone; CX of them, the cursor stays.
+    jne .wcan                       ; **ONE CELL IS ITS OWN ARM** (SPEC.md
+    push bx                         ; 96.54.14): a BASIC PRINT is CX = 1 every
+    push cx                         ; time, and the run's loop, its bounds and
+    push di                         ; its row test are most of the general arm
+    mov ch, bl                      ; CH = the attribute, past dvw_coff
+    call dvw_coff                   ; DI = the cell, BX = its row
+    cmp di, CON_SCRSZ
+    jae .w1out                      ; (no cell: a pending wrap's past the end)
+    mov [con_scr + di], al
+    cmp ah, 0x09
+    jne .w1mk
+    mov [con_scr + di + 1], ch
+.w1mk:
+    mov cl, [con_cx]
+    mov ch, cl
+    HCALL con_marks                 ; BX = the row, the one column
+    mov byte [dvw_dirty], 1
+.w1out:
+    pop di
+    pop cx
+    pop bx
+    jmp .out
+.wcan:
+    push ax
     push bx
     push cx
     push dx
@@ -1110,11 +1165,8 @@ dvw_int10:
     jcxz .wdone
     mov dh, ah
     mov dl, bl
-    push ax
-    HCALL con_celloff
-    mov di, ax
-    mov bx, ax                      ; ...kept: the cursor does not move, so
-    pop ax                          ; .wmark needs no second crossing for it
+    call dvw_coff                   ; DI = the cursor's cell, BX = its row:
+    push di                         ; no crossing (SPEC.md 96.54.14)
 .wnext:
     cmp di, CON_SCRSZ
     jae .wmark
@@ -1127,14 +1179,25 @@ dvw_int10:
     inc di
     loop .wnext
 .wmark:
-    xchg ax, bx                     ; (con_celloff's answer, above: SPEC.md
-    shr ax, 1                       ; 96.54.9) the first cell...
+    pop ax
+    shr ax, 1                       ; the first cell...
     shr di, 1
     dec di                          ; ...and the last one written
-    mov bx, di
-    cmp bx, ax
+    cmp di, ax
     jb .wdone                       ; the cursor was past the last cell
-    HCALL con_markcells
+    mov cx, di                      ; **ONE ROW IS ONE MARK** (SPEC.md
+    sub cx, ax                      ; 96.54.14): a BASIC PRINT is AH=09h with
+    add cx, [con_cx]                ; CX = 1 a character, and con_markcells'
+    cmp cx, CON_COLS                ; two divides for a run inside the row the
+    jae .wmany                      ; cursor is on were most of its cost
+    mov ch, cl
+    mov cl, [con_cx]
+    HCALL con_marks                 ; BX = the row, CL..CH its columns
+    jmp short .wdirty
+.wmany:
+    mov bx, di
+    HCALL con_markcells             ; AX = the first cell, BX = the last
+.wdirty:
     mov byte [dvw_dirty], 1
 .wdone:
     pop di
@@ -1224,11 +1287,14 @@ dvw_cdone:
     ; fall through
 dvw_bcur:                           ; 0040:0050 = the console's cursor
     push ax
-    push es
-    mov ax, 0x40
-    mov es, ax
     call dvw_ccur
+dvw_bput:                           ; ...AX, with the caller's AX pushed
+    push es
+    push bx
+    mov bx, 0x40
+    mov es, bx
     mov [es:0x50], ax
+    pop bx
     pop es
     pop ax
     ret
@@ -1242,28 +1308,52 @@ dvw_ccur:                           ; AH = the console's row, AL its column
 .c:
     ret
 
+; --- dvw_coff - DI = the cursor's offset in con_scr, BX = its row ------------
+; (DS the host.) row * 160 is row * 32 * 5: con_celloff's `mul` and a host
+; crossing were two of the five a BASIC PRINT paid per character
+dvw_coff:
+    push cx
+    mov bx, [con_cy]
+    mov di, bx
+    mov cl, 5
+    shl di, cl
+    mov cx, di
+    shl di, 1
+    shl di, 1
+    add di, cx
+    mov cx, [con_cx]
+    add di, cx
+    add di, cx
+    pop cx
+    ret
+
 ; --- dvw_setcur - DH = row, DL = column, clamped -----------------------------
+; **NO MARK** (SPEC.md 96.54.14): the caret's cells are con_curmove's, which
+; marks where the underline was drawn and where it is now at the head of the
+; band's next pass. A compiled BASIC program moves the cursor twice for every
+; character it prints, and two host crossings and two marks apiece were the
+; largest share of its windowed time
 dvw_setcur:
     push ax
-    HCALL con_markcur                ; the row it LEFT (con_markcur's rule)
-    mov al, dl
-    xor ah, ah
+    push bx
+    mov ax, dx
     cmp al, CON_COLS - 1
     jbe .x
     mov al, CON_COLS - 1
 .x:
-    mov [con_cx], ax
-    mov al, dh
-    cmp al, CON_ROWS - 1
+    cmp ah, CON_ROWS - 1
     jbe .y
-    mov al, CON_ROWS - 1
+    mov ah, CON_ROWS - 1
 .y:
-    mov [con_cy], ax
+    xor bx, bx                      ; AL = the column, AH = the row: the
+    mov bl, al                      ; words take them zero-extended, and
+    mov [con_cx], bx                ; 0040:0050 takes AX exactly as it is
+    mov bl, ah
+    mov [con_cy], bx
+    pop bx
     mov byte [con_pwrap], 0
-    HCALL con_markcur
-    call dvw_cdone
-    pop ax
-    ret
+    mov byte [dvw_dirty], 1
+    jmp short dvw_bput              ; (dvw_bput pops the AX pushed above)
 
 ; -----------------------------------------------------------------------------
 ; dvw_scroll - AH 06h up / 07h down, AL lines (0 = clear), BH the fill
