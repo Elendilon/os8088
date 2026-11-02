@@ -7336,6 +7336,18 @@ SOAK = [
         "the field's `Exit code 002` came from.",
         needs=("marty",), wants=("build/dosvec360.img",)),
 
+    Row("dosfcbrd", "soak", py("tests/dosfcbrd.py"), 20.0,
+        "THE FCB READ CALLS ANSWER WHAT IBM DOS 3.30 ANSWERS (SPEC.md 96.56.2). "
+        "Galaxy Trek (compiled BASIC, 1983) reads DATA.DAT with AH=0Fh/21h/"
+        "10h; 21h was at .bad's AX=0001, so the random read read as AL=01, "
+        "end of file, and it said 'Input past end'. tests/dostrap/fcbrd.asm "
+        "reads a 300-byte file with 0Fh, 21h, 14h, 24h, 27h and 10h; the "
+        "table is that binary MEASURED under IBM DOS 3.30 (`--ref` re-takes "
+        "it), and SUM covers the whole record over an FFh-filled DTA, so a "
+        "partial record not zero-padded fails. VERIFIED TO FAIL with 21h, "
+        "14h and 24h pointed back at .bad.",
+        needs=("marty",),
+        wants=("build/os8088-360.img",)),
     Row("dosfcb", "soak", py("tests/dosfcb.py"), 20.0,
         "AH=29h PARSES A NAME INTO AN FCB, exactly as DOS does (SPEC.md "
         "96.28). THE CARRY IS THE ROW: unimplemented, the call fell to the "

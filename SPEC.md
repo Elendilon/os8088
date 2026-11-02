@@ -189978,10 +189978,10 @@ the handle calls rather than a second file system:
   find record is on our stack and the program's DTA is untouched.
 
 **Not done**, and named so nobody assumes otherwise: the current block and
-record are not advanced by `27h`/`28h` (only the random record is), so a
-program mixing them with sequential `14h`/`15h`, `21h`/`22h` or `24h` gets
-nothing from those (they are `.bad`); the open's date and time fields are
-left as the program had them; `17h` rename and `23h` file size are `.bad`.
+record are not advanced by `27h`/`28h` (only the random record is); `15h`
+and `22h`, the one-record WRITES, are `.bad` (`14h`, `21h` and `24h` are
+96.56.2); the open's date and time fields are left as the program had them;
+`17h` rename and `23h` file size are `.bad`.
 
 **Measured**, `tests/dostrap/fcb.asm` (`FCB.COM`), one binary under both:
 every line identical, `33=3300 DL=00` to `13=00 11=FF`. WordPerfect itself
@@ -189997,6 +189997,39 @@ used) and on kern_mega 16,096 -> **16,624** (16,613). Both hosts reserve it
 third arm**; the `DOSR_MARK` knob stays at 34 and fits by 8 bytes. On
 kern_mega the HMA image goes 38 -> 39 (the HMA's kilobyte) and the low one
 36 -> 37 (the program's).
+
+#### 96.56.2 Galaxy Trek: `14h`, `21h` and `24h`, on `27h`'s body
+
+Galaxy Trek (`TREKRUN.EXE`, Larry Jordan, 1983, compiled BASIC) reads its
+`DATA.DAT` - two delays and a level, `5500,15000,5` - with `0Fh`, **`21h`**
+and `10h`, and with `21h` at `.bad` its answer was `AX=0001`: an FCB call
+answers in `AL` alone, so the read said *end of file, nothing read* and the
+runtime printed *"Input past end at address 1876:00BF"*. Aligned against IBM
+DOS 3.30 by call site (`tools/os88intmon.py`, both machines): `4692 AH=21h`
+answered `AL=01` here and `AL=03` there - a partial 128-byte record, padded.
+
+**All three are `27h`'s body**, one record at a time. `21h` reads one record
+at the random record and puts the random record back where it was; `14h`
+banks the random record at `FCB+1Ch` (DOS's reserved bytes, unused by
+96.56.1), reads at block x 128 + current and gives the random record back;
+both then set block and current to where they ended - after the record for
+`14h` (unless it hit the end), at it for `21h` - and leave `CX` as the
+program had it. `24h` sets the random record from block and current. The
+padding and the `AL` codes are `27h`'s, so they cannot disagree.
+
+**Measured**, `tests/dostrap/fcbrd.asm` (`FCBRD.COM`), one binary under
+both: ten lines identical (`OPEN`, three `21h`s including a partial and the
+end, three `14h`s, `24h`, a `27h` of four records ending partial, `10h`),
+the sums over an `FFh`-filled DTA so the zero padding is in them.
+`tests/dosfcbrd.py` is the gate. Galaxy Trek then runs to its mission
+briefing as it does under IBM DOS 3.30.
+
+**Cost**: **140 bytes of the core**, `CORE_MAX` 15,984 -> **16,128** (16,119
+used) and on kern_mega 16,640 -> **16,784**. `kern_dos`'s rung had room: the
+shipped `KD_IMG_KB` stays **34**, and the `DOSR_MARK` knob, which 96.56.1
+left fitting by 8 bytes, goes 34 -> 35 (a trace build's kilobyte, not a
+shipped one's). kern_mega's two `kern_dos` images (39 HMA, 37 low) fit as
+they are.
 
 #### 96.54.5 TopView's buffer — a program that ASKS where to write
 

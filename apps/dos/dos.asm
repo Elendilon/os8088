@@ -3937,9 +3937,9 @@ dos_int21:
 .t21:                               ; DOS_T21_N words, 00h up: the handler,
     dw .term0, .getce, .putc, .bad, .bad, .bad, .dconio, .getc   ; 00h
     dw .getc, .puts, .bad, .kbhit, .flushin, .dskreset, .seldrv, .fcbop ; 08h
-    dw .fcbcl, .fcbop, .dbad, .fcbop, .bad, .bad, .fcbop, .bad ; 10h
+    dw .fcbcl, .fcbop, .dbad, .fcbop, .fcbrd, .bad, .fcbop, .bad ; 10h
     dw .bad, .curdrv, .setdta, .bad, .bad, .bad, .bad, .bad   ; 18h
-    dw .bad, .bad, .bad, .bad, .bad, .setvec, .bad, .fcbrd  ; 20h
+    dw .bad, .fcbrd, .bad, .bad, .fcbsr, .setvec, .bad, .fcbrd  ; 20h
     dw .fcbrd, .parsefcb, .getdate, .setdate, .gettime, .settime, .bad, .getdta ; 28h
     dw .ver, .term, .bad, .brk, .bad, .getvec, .dfree, .swch   ; 30h
     dw .bad, .mkdir, .rmdir, .chdir, .create, .open, .close, .read   ; 38h
@@ -5193,10 +5193,30 @@ DOS_T21_N equ ($ - .t21) / 2        ; ...or .bad for a function we lack
     ; and zero-filled; CX = the records moved, and the random record moved on
     ; by that many. A write of 0 records sets the file's length there, which
     ; is AH=40h's CX = 0 (96.11.6.2) and so needs nothing of its own.
+    ;
+    ; AH=21h and AH=14h are ONE record through the same body (96.56.2): 21h
+    ; at the random record, which it does not move, and 14h at block x 128 +
+    ; current, which it advances - its random record banked at FCB+1Ch and
+    ; given back. Both set block and current from where they ended, and
+    ; neither touches CX, which is the program's again at the end.
     push bx
     push ax
-    push cx
+    push cx                         ; the program's CX
+    cmp ah, 0x27
+    jae .fr0
+    mov cx, 1                       ; 14h, 21h: one record
+.fr0:
+    push cx                         ; the records asked
     call .fcbptr
+    cmp ah, 0x14
+    jne .frs
+    les ax, [si+0x21]               ; 14h: the random record out of the way
+    mov [si+0x1C], ax               ; (FCB+1Bh..1Fh are DOS's and unused)
+    mov [si+0x1E], es
+    call .fcbcur
+    mov [si+0x21], ax
+    mov [si+0x23], dx
+.frs:
     mov di, [si+0x0E]               ; DI = the record size, 0 meaning 128
     or di, di
     jnz .fr1
@@ -5222,8 +5242,11 @@ DOS_T21_N equ ($ - .t21) / 2        ; ...or .bad for a function we lack
     push ax
     mul di
     xchg cx, ax                     ; CX = the bytes asked for
-    mov ah, [si+0x1A]               ; 27h -> 3Fh, 28h -> 40h
-    add ah, 0x3F - 0x27
+    mov ah, 0x3F                    ; 28h -> 40h, every read -> 3Fh
+    cmp byte [si+0x1A], 0x28
+    jne .frrd
+    inc ah
+.frrd:
     push ds
     lds dx, [cs:dos_dta]
     int 0x21
@@ -5243,8 +5266,8 @@ DOS_T21_N equ ($ - .t21) / 2        ; ...or .bad for a function we lack
     pop bx                          ; the records asked
     or dx, dx
     jz .fr4
-    cmp byte [si+0x1A], 0x27
-    jne .frfull                     ; a write is short only when the disk is
+    cmp byte [si+0x1A], 0x28
+    je .frfull                      ; a write is short only when the disk is
     inc ax                          ; a partial is a record read, padded
     push ax
     xor al, al
@@ -5263,7 +5286,50 @@ DOS_T21_N equ ($ - .t21) / 2        ; ...or .bad for a function we lack
     adc word [si+0x23], 0
     xchg cx, ax
     mov al, dl
+    pop dx                          ; the program's CX
+    cmp byte [si+0x1A], 0x27
+    jae .fcbret                     ; 27h/28h answer in CX
+    xchg cx, dx                     ; DX = 0 or 1 record moved
+    cmp byte [si+0x1A], 0x21
+    jne .fq1
+    sub [si+0x21], dx               ; 21h: the random record stays put
+    sbb word [si+0x23], 0
+.fq1:
+    les bx, [si+0x21]               ; block and current from where it ended:
+    mov dx, es
+    mov [si+0x20], bl               ; current = record mod 128...
+    and byte [si+0x20], 0x7F
+    shl bx, 1                       ; ...block = record / 128
+    rcl dx, 1
+    mov bl, bh
+    mov bh, dl
+    mov [si+0x0C], bx
+    cmp byte [si+0x1A], 0x14
+    jne .fcbret
+    les bx, [si+0x1C]               ; 14h: its random record given back
+    mov [si+0x21], bx
+    mov [si+0x23], es
     jmp .fcbret
+.fcbsr:
+    ; AH=24h: the random record from the current block and record
+    push bx
+    push ax
+    call .fcbptr
+    call .fcbcur
+    mov [si+0x21], ax
+    mov [si+0x23], dx
+    xor al, al
+    jmp .fcbret
+.fcbcur:                            ; DX:AX = block x 128 + current record
+    mov ax, [si+0x0C]
+    xor dx, dx
+    mov dl, ah
+    mov ah, al
+    xor al, al
+    shr dx, 1
+    rcr ax, 1
+    or al, [si+0x20]
+    ret
 .fcbptr:                            ; out DS:SI = the FCB the program named
     mov ds, [bp]
     mov si, [bp-8]
