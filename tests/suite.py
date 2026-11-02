@@ -19991,6 +19991,14 @@ SOAK = [
         "paused), which is what the list draws its groups from - 41 s, where "
         "reassembling the drawn rows off font_run was ~450",
         needs=("marty",), serial=True),
+    Row("tmmaxrun", "soak", py("tests/tmmaxrun.py"), 30.0,
+        "SPEC.md 28.4.1: the Task Manager's MAX RUN is the WHAT-IF "
+        "(OSAPI_MEM_COMPACT's MEMC_WHATIF_P, SPEC.md 66.4.3.2), so its own "
+        "region is no wall - the Calculator opened first and closed leaves "
+        "a hole above the Task Manager, and after a PAINT (a window move: "
+        "the UI task in its own callback) MAX RUN must equal AVAIL. Red "
+        "with the page's plain MEMP_AVAIL ask put back",
+        needs=("marty",), serial=True),
     Row("tmhover", "soak", py("tests/tmhover.py"), 30.0,
         "SPEC.md 28.4.16: the pointer over a band of the memory map inverts "
         "the row of the group it stands for - the Calculator's region its "

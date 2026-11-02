@@ -2385,8 +2385,15 @@ tm_csums:                       ; ...the SAMPLE's: the claim table and the
     je .sums                    ; page asks it as tm_hsnap always did; the
 .avail:                         ; sample asks only when the heap's size has
     inc bp                      ; moved under the figure banked (BP = 1 now)
-    mov bl, MEMP_AVAIL
-    call OSAPI_MEM_P            ; AX = the largest run, BX = free, both
+    mov ax, (MEMC_WHATIF_P << 8) | MEM_LVL_TOP
+    clc                         ; THE WHAT-IF (SPEC.md 66.4.3.2, 28.4.1): the
+    call OSAPI_MEM_COMPACT      ; run ANY program would be handed, so this
+    jnc .wif                    ; page's own region is not a wall in its own
+    mov bl, MEMP_AVAIL          ; MAX RUN - the one asking is the one claim
+    call OSAPI_MEM_P            ; the kernel cannot move. kern_small refuses
+.wif:                           ; the verb and moves nothing, so its plain
+                                ; answer is the same number. AX = the largest
+                                ; run, BX = free, both
 %ifdef TMF_HEAP                 ; paragraphs at our floor (SPEC.md 50.3.7)
     mov [tm_maxrun], ax
     mov [tm_avl], bx

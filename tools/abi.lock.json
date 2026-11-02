@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "a2dcb930673ad25612facb7b78d963746339f122e89c3460b461bd3712ec82b7",
+  "fingerprint": "cd219a97c9dfeb30311cf91d864e3f5949dce50805bcdc76cf5772f47ad05d26",
   "version": 12
  },
  "PKG_FMT": {
-  "fingerprint": "54c7de6d3b267988c676271e9c0e6119124bf9adf6250b6dcb0fb6cff351c6b1",
+  "fingerprint": "7975321a2775ff8bcb8fc20d99837f9f38cc55270eee83b44f9fd3c8d51658db",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -1540,6 +1540,20 @@
    "from": 12,
    "guard": "DRV_VER",
    "reason": "FSK_DELSYS gains its second form, FSKD_REFUSED, and FSKD_RETIRED names the first: a verb's argument added, nothing built before changes meaning (SPEC.md 118.8.2)",
+   "to": 12
+  },
+  {
+   "fingerprint": "7975321a2775ff8bcb8fc20d99837f9f38cc55270eee83b44f9fd3c8d51658db",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_MEM_COMPACT gains MEMC_WHATIF_P (AH=2): the what-if in paragraphs. AH=1 is still the post; nothing built before sends AH=2, so no bump",
+   "to": 10
+  },
+  {
+   "fingerprint": "cd219a97c9dfeb30311cf91d864e3f5949dce50805bcdc76cf5772f47ad05d26",
+   "from": 12,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_MEM_COMPACT gains MEMC_WHATIF_P (AH=2): the what-if in paragraphs. AH=1 is still the post; nothing built before sends AH=2, so no bump",
    "to": 12
   }
  ]

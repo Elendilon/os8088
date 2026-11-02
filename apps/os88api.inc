@@ -1705,6 +1705,14 @@ MEMC_POST   equ 1                ; AH: post - BX = a window of YOURS, AL = the
                                  ; run; CF=1 refused - a post is already
                                  ; standing. BX is trusted, as OSAPI_WM_WAKE
                                  ; trusts it
+MEMC_WHATIF_P equ 2              ; AH: MEMC_WHATIF in PARAGRAPHS - the same
+                                 ; walk before its KB rounding, for a caller
+                                 ; that prints the half-K the heap is counted
+                                 ; in (the Task Manager). CF=1 on kern_small,
+                                 ; which moves nothing: OSAPI_MEM_P's
+                                 ; MEMP_AVAIL is that kernel's answer. CLEAR
+                                 ; CF FIRST - kern_big's what-if hands back
+                                 ; the flags it was called with
 %define OSAPI_MEM_COMPACT   KERNEL_SEG:0x0443   ; AH = MEMC_WHATIF: AL = a
                                  ; purge level, out AX/BX as OSAPI_MEM_AVAIL_LVL
                                  ; planned as if YOUR OWN REGION could move;

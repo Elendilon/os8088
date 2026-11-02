@@ -5684,8 +5684,10 @@ osapi_mem_movable_x:
 ;        MEMC_WHATIF (0): AL = a purge level, exactly as OSAPI_MEM_AVAIL_LVL's
 ;        MEMC_POST   (1): BX = a window of yours, AL = the shed rank the pass
 ;                         is to respect
+;        MEMC_WHATIF_P (2): the what-if, in PARAGRAPHS
 ; out: the what-if: AX = the largest run KB, BX = total free KB, planned as if
-;        the caller's own region and claims could move (SPEC.md 66.4.3.2)
+;        the caller's own region and claims could move (SPEC.md 66.4.3.2) -
+;        paragraphs for MEMC_WHATIF_P
 ;      the post:    CF = 0 posted, CF = 1 refused (a post is already standing)
 ; clobbers: flags
 ;
@@ -5725,8 +5727,8 @@ osapi_mem_movable_x:
 ; trusts it - the sibling slot every worker wakes its window through.
 ; -----------------------------------------------------------------------------
 osapi_mem_compact_x:
-    or ah, ah
-    jnz .post
+    cmp ah, 1                   ; MEMC_POST (apps/os88api.inc)
+    je .post
     pushf                       ; [mem_cp_self] is MACHINE-WIDE and mem_can_move
     cli                         ; reads it from mem_cp_walk - the REAL move, not
                                 ; only the plan - so a tick between the store
@@ -5736,9 +5738,15 @@ osapi_mem_compact_x:
                                 ; CS. The inner pushf/cli nests harmlessly
     push es                     ; THE WHAT-IF: the caller's segment is the one
     pop word [mem_cp_self]      ; the walk excuses...
+    or ah, ah                   ; MEMC_WHATIF_P (2): the same walk's own
+    jz .kb                      ; PARAGRAPHS, before the KB rounding - for a
+    call mem_avail_lvl_p        ; caller that prints the half-K the heap is
+    jmp short .wd               ; counted in (the Task Manager, 28.4.1)
+.kb:
     call mem_avail_lvl_x        ; ...AT THE CALLER'S LEVEL (SPEC.md 66.4.3.2):
                                 ; the what-if and the claim beside it must be
                                 ; answers to the same question
+.wd:
     and word [mem_cp_self], 0   ; ...and for this walk alone
     popf
     retf

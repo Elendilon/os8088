@@ -64484,6 +64484,25 @@ mem_base 17E0  mem_top A000  span 544K
                     -> AVAIL 519K, MAX RUN 515K, FRAG 4K   (the 4K above 9F00)
 ```
 
+**`MAX RUN` is the WHAT-IF, so the page is no wall in its own figure.** The
+page asks from inside its own callback, and a package standing in its region
+is the one claim the compactor will not move - so asked plainly
+(`OSAPI_MEM_P`'s `MEMP_AVAIL`) a hole between the Task Manager's region and
+whatever lies above it read as fragmentation, when any other program asking
+would have been handed the whole of AVAIL: the region is declared movable and
+its worker restartable (§66.6.1.1), so a real claim packs it out of the way.
+It reported a 6K wall (`AVAIL 521K, MAX RUN 515K`) on a machine whose only
+"barrier" was the page measuring it, and a Task Manager opened mid-heap would
+have drawn a partition no claim would ever meet. So the page asks
+`OSAPI_MEM_COMPACT`'s `MEMC_WHATIF_P` (§66.4.3.2): the same plan with its own
+region excused, in paragraphs. kern_small refuses the verb and the page falls
+back to `MEMP_AVAIL`, which is the same number on a kernel that moves nothing.
+The worker's refresh never walled it (the plan treats every worker as parked,
+§66.4.3.5); a click or a paint did. +11 bytes on every arm of `TASKMGR.O88`;
+`tests/tmmaxrun.py` is the gate, red with the plain ask put back (519.5K
+against 525.0K). The worked example above was measured with the plain ask,
+before this.
+
 **`TIER` reads `HELD` for an unpurgeable claim, never a dash.** The column
 answers what LOSING a block costs, and a dash in a list under `TRIV` reads as
 a rank *below* the cheapest cache — the exact opposite of the truth, since an
@@ -117288,6 +117307,16 @@ an edge. The two arms stay two: `mem_busy_seg` must not ask the nest (a
 package's data claim may move while the package executes, §66.3 rule 2), so an
 excuse placed inside it would still leave the region pinned by `mem_in_nest`
 one call earlier, and moving both tests inward is the same twelve bytes.
+
+**`AH = MEMC_WHATIF_P` (2) is the same what-if in PARAGRAPHS** — the walk's
+own figures before `mem_avail_lvl_x` rounds them down to whole KB. It exists
+for the Task Manager (§28.4.1), which counts the heap to the half-KB and would
+otherwise print a run half a KB short of the AVAIL beside it: a fragment that
+does not exist. It is **10 bytes of `.cold`, resident** (the verb was `or ah,
+ah` / `jnz .post`, so a stray AH of 2 used to POST; every caller in the tree
+sends 0 or 1). kern_small's stub refuses it (CF = 1), and that kernel moves
+nothing, so `OSAPI_MEM_P`'s `MEMP_AVAIL` is the same number there. kern_big's
+what-if returns the flags it was called with, so a caller clears CF first.
 
 `[mem_cp_self]` is plan-only by discipline — the what-if sets it and clears it
 before returning, and no path that can reach `mem_cp_run` ever sets it. A
