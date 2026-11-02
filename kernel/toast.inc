@@ -284,17 +284,16 @@ toast_show:
     call toast_now              ; ...and if the caller can be shown to hold
     jmp short .out              ; the lock, it reaches the glass NOW rather
                                 ; than on the next idle pass (SPEC.md 59.4)
-%ifdef TOAST_Q
-.queue:
-    mov byte [toast_qwant], 1
-    jmp short .kq               ; the popf below, and out
-%endif
 .kill:
     call toast_kill             ; preserves the flags, so the popf below is
-%ifdef TOAST_Q
+%ifdef TOAST_Q                  ; still the caller's
     cmp dh, [toast_qinst]       ; ...and the raiser's own QUEUED message goes
     jne .kq                     ; too, or retiring would pop it up
-    mov byte [toast_qwant], 0
+    mov al, 0                   ; AL is kent_di's: the byte both arms store,
+    SKIPF2                      ; the queue's 1 skipped (flags only, and the
+.queue:                         ; popf puts them back) - one store for the
+    mov al, 1                   ; two, and no jump over this block (kernel
+    mov [toast_qwant], al       ; size pass 17, -4)
 .kq:
 %endif
     popf                        ; still the caller's
