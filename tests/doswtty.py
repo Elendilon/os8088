@@ -16,6 +16,14 @@ Each leg runs in the bracket (the whole machine, the ROM's own teletype onto
 the Hercules's text page) and then in a window, and the row holds the
 window's speed as a share of the bracket's at a floor per leg.
 
+**AND THE GLASS AFTER EACH WINDOWED LEG IS THE FULL REPAINT'S** - doswcell's
+leg 3, after a run of output rather than a cell: every row is marked whole
+from the host and repainted, and the band must not change by a pixel. It is
+what 96.54.12's speed rests on: a glyph marks only its own cell and the
+caret's cells are con_curmove's, so a caret the band's scroll carried up and
+nothing marked would be a stale underline here (con_scrollpaint's [con_lcur]
+move taken out: 'b' passes and '9' and 'e' do not).
+
 MEASURED on a Hercules 5150 (os8088_5150_herc_gla), before and after 96.54.12
 (the 'before' is the tree it was written on, 3241006c):
 
@@ -47,9 +55,10 @@ SYS = os.path.join(ROOT, "build", "os8088-360.img")
 PROBE = os.path.join(ROOT, "tests", "dostrap", "dwtty.asm")
 HZ = 4772727.0
 MACHINE = os.environ.get("DOSWTTY_MACHINE", "os8088_5150_herc_gla")
-LEGS = (("9", "INT 21h AH=09h", 75.0),
-        ("e", "INT 10h AH=0Eh", 75.0),
-        ("b", "AH=02h/09h/02h", 70.0))
+LEGS = (("9", "INT 21h AH=09h", 80.0),
+        ("l", "five bare LFs", None),
+        ("e", "INT 10h AH=0Eh", 65.0),
+        ("b", "AH=02h/09h/02h", 40.0))
 LIMIT = 120.0                       # guest seconds a leg may take at all
 
 
@@ -75,6 +84,26 @@ def main():
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("doswtty: ok")
+
+
+def band_diff(a, b, x0, y0, vc, vr):
+    """Pixels differing inside the band between two fbuf captures."""
+    w, h, pa = a
+    pb = b[2]
+    n = 0
+    first = None
+    for y in range(max(0, y0), min(h, y0 + vr * 8)):
+        row = y * w * 3
+        lo, hi = row + max(0, x0) * 3, row + min(w, x0 + vc * 8) * 3
+        if pa[lo:hi] == pb[lo:hi]:
+            continue
+        for x in range(max(0, x0), min(w, x0 + vc * 8)):
+            i = row + x * 3
+            if pa[i:i + 3] != pb[i:i + 3]:
+                n += 1
+                if first is None:
+                    first = (x, y)
+    return n, first
 
 
 def run(disk):
@@ -113,6 +142,94 @@ def run(disk):
                 fail("%s: DWTTY.COM is not waiting for a key" % tag)
             return [leg(k, i) for i, (k, _, _) in enumerate(LEGS)]
 
+        def addr(name):
+            return dosmap.lin(m, dosmap.instance(m)) + dm[name]
+
+        def word(name):
+            return int.from_bytes(m.read(addr(name), 2), "little")
+
+        def until(cond, what):
+            try:
+                os88marty.until(m, lambda _m: cond(), what, poll=0.25,
+                                limit=10)
+            except os88marty.MartyError:
+                fail("%s never happened (marks %s, scroll %d, dirty %d)"
+                     % (what, m.read(addr("con_drb"), 4).hex(),
+                        word("con_scrl"), m.read(addr("dvw_dirty"), 1)[0]))
+
+        def caught_up():
+            """The incremental paint of what the program printed is done:
+            nothing marked, no scroll owed, no paint waiting to be posted."""
+            until(lambda: m.read(addr("con_drb"), 4) == b"\0\0\0\0"
+                  and word("con_scrl") == 0
+                  and m.read(addr("dvw_dirty"), 1)[0] == 0,
+                  "the band catching up with the console")
+            os88marty.pace(m, 0.5)
+
+        def force():
+            """Every row marked whole from the host, and repainted."""
+            m.pause()
+            m.write(addr("con_dc0"), bytes(25))
+            m.write(addr("con_dc1"), bytes([79] * 25))
+            m.write(addr("con_drb"), b"\xff\xff\xff\x01")
+            m.write(addr("dvw_dirty"), b"\x01")
+            m.run()
+            until(lambda: m.read(addr("con_drb"), 4) == b"\0\0\0\0"
+                  and word("con_scrl") == 0, "a forced full repaint")
+            os88marty.pace(m, 0.5)
+
+        def geom():
+            return (word("con_px"), word("con_oy") + word("con_topy"),
+                    word("con_vcols"), word("con_vrows"))
+
+        def calibrate():
+            """fbuf is the raster WITH its border: where a solid cell poked
+            into the buffer unmarked lands after a forced repaint is the
+            offset (doswcell's instrument)."""
+            x0, y0, vc, vr = geom()
+            r, c = vr - 1, vc - 1
+            force()
+            b = m.fbuf()
+            cell = (r * 80 + c) * 2
+            old = m.read(addr("con_scr") + cell, 2)
+            m.write(addr("con_scr") + cell, b"\xdb\x07")
+            force()
+            p = m.fbuf()
+            m.write(addr("con_scr") + cell, old)
+            force()
+            w, h = b[0], b[1]
+            n, first = band_diff(b, p, 0, y0, w // 8, (h - y0) // 8 + 1)
+            if n != 64:
+                fail("a solid cell poked at row %d column %d came back from "
+                     "a forced repaint as %d pixels, not 64" % (r, c, n))
+            return first[0] - (x0 + c * 8), first[1] - (y0 + r * 8)
+
+        def glass(what, off):
+            x0, y0, vc, vr = geom()
+            caught_up()
+            a = m.fbuf()
+            force()
+            b = m.fbuf()
+            n, first = band_diff(a, b, x0 + off[0], y0 + off[1], vc, vr)
+            if n:
+                fail("after %s in the window, %d pixels of the band changed "
+                     "when every row was repainted whole (the first at %r): "
+                     "the incremental paint left stale cells (SPEC.md "
+                     "96.54.12)" % (what, n, first))
+            # ...AND THE CARET IS ON IT, which equality cannot say: two lit
+            # scanlines under the cursor's cell (SPEC.md 70.8.2)
+            cx, cy = word("con_cx"), word("con_cy")
+            w = b[0]
+            for r in (6, 7):
+                yy = y0 + off[1] + cy * 8 + r
+                xx = x0 + off[0] + cx * 8
+                lit = sum(b[2][(yy * w + x) * 3:(yy * w + x) * 3 + 3]
+                          != b"\0\0\0" for x in range(xx, xx + 8))
+                if lit != 8:
+                    fail("after %s the caret at row %d column %d is not "
+                         "drawn: scanline %d of its cell has %d of 8 lit"
+                         % (what, cy, cx, r, lit))
+
         if not ui.path("B:/DWTTY.COM"):
             fail("could not launch DWTTY.COM")
         full = legs("bracket")
@@ -121,10 +238,25 @@ def run(disk):
         os88marty.settle(m)
         ui.raise_window(ui.window("DOS"))
         dosmap.run_in_window(ui)
-        win = legs("window")
+        os88marty.pace(m, 1)
+        off = calibrate()
+        n = None
+        for _ in range(200):
+            n = done()
+            if n == 0:
+                break
+            os88marty.guest_sleep(m, 0.1)
+        if n != 0:
+            fail("window: DWTTY.COM is not waiting for a key")
+        win = []
+        for i, (k, what, _) in enumerate(LEGS):
+            win.append(leg(k, i))
+            glass(what, off)
         m.type_text("q")
         bad = []
         for (k, what, floor), f, w in zip(LEGS, full, win):
+            if floor is None:
+                continue                # a glass leg, too short to time
             pct = 100.0 * f / w
             print("doswtty: %-15s bracket %6.2f s, window %6.2f s: %5.1f%% "
                   "(floor %.0f%%)" % (what, f, w, pct, floor))

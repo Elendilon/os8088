@@ -58,7 +58,7 @@ DVW_KBUSY   equ 18              ; ticks after a key in which a poll does not
                                 ; sleep (SPEC.md 96.54.5.1)
 DVWC_EVERY  equ 3               ; a capture pass every 4th tick (mask)
 %ifndef DVW_SPACE
-DVW_SPACE   equ 3               ; a SCROLL's paint at most every 3rd tick from
+DVW_SPACE   equ 4               ; a SCROLL's paint at most every 4th tick from
 %endif                          ; the program's own slices (SPEC.md 96.54.12)
 
 DVW_GAP     equ 96              ; the IRQ0 stub's frames go this far below the

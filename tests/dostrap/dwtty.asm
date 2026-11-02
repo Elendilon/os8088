@@ -10,9 +10,11 @@
 ;       utility, and a scroll a line
 ;   e   the same lines through INT 10h AH=0Eh, the ROM teletype a character
 ;       at a time
-;   b   ROWS rows of COLS characters the way a compiled BASIC PRINT puts
+;   b   ROWS rows of COLS characters, PASSES times over, the way a compiled BASIC PRINT puts
 ;       them: INT 10h AH=02h to the cell, AH=09h with CX = 1, AH=02h to the
 ;       next - three calls a character, and no scroll (Galaxy Trek, 96.54.11)
+;   l   five bare CR LFs: what the window's caret does on a scroll that
+;       nothing printed on the row it was on
 ;   q   exit
 ;
 ; It runs under a real IBM DOS 3.30 unchanged.
@@ -23,6 +25,7 @@ org 0x100
 LINES   equ 100
 ROWS    equ 20
 COLS    equ 66                      ; inside msg's printable part
+PASSES  equ 3                       ; ...over the same rows, three times
 
     jmp short start
     nop
@@ -38,6 +41,8 @@ start:
     je .pe
     cmp al, 'b'
     je .pb
+    cmp al, 'l'
+    je .pl
     jmp short start
 .quit:
     mov ah, 0x4C
@@ -52,6 +57,17 @@ start:
     int 0x21
     pop cx
     loop .l9
+    jmp short .done
+
+.pl:                                ; BLANK lines and nothing else: the
+    mov cx, 5                       ; caret the last paint drew rides the
+.ll:                                ; band's scroll up and is marked by
+    push cx                         ; nothing the program printed
+    mov dx, crlf
+    mov ah, 9
+    int 0x21
+    pop cx
+    loop .ll
     jmp short .done
 
 .pe:
@@ -73,6 +89,8 @@ start:
     jmp short .done
 
 .pb:
+    mov cx, PASSES
+.pp:
     mov dh, 2                       ; rows 2.. so nothing scrolls
 .rb:
     xor dl, dl
@@ -97,8 +115,10 @@ start:
     inc dh
     cmp dh, ROWS + 2
     jb .rb
+    loop .pp
 .done:
     inc word [done]
     jmp start
 
+crlf: db 13, 10, "$"
 msg: db "The quick brown fox jumps over the lazy dog, line after line of it.", 13, 10, "$"
