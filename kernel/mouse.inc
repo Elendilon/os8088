@@ -468,15 +468,15 @@ mou_pout:
 ; ins:  AH = register offset, AL = value
 ; outs: none (all registers preserved)
 ; -----------------------------------------------------------------------------
+%if MOU_PEND != 4
+  %error "mou_pall calls mou_pout for rows 0 and 2 by name: MOU_NPORT is 2"
+%endif
 mou_pall:
     push bx
-    xor bx, bx
-.port:
+    xor bx, bx                  ; TWO PORTS, TWO CALLS (kernel size pass 17,
+    call mou_pout               ; -2): the loop's `inc/inc/cmp/jb` was longer
+    mov bl, 2                   ; than its second iteration written out
     call mou_pout
-    inc bx
-    inc bx
-    cmp bx, MOU_PEND
-    jb .port
     pop bx
     ret
 
