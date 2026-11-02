@@ -774,6 +774,27 @@ fsk_name:
 ; =============================================================================
 ; sectors, clusters, bits
 ; =============================================================================
+; fsk_rootsec - read root sector AX into DBUF (and P_LBA)
+fsk_rootsec:
+    add ax, [es:P_ROOTLBA]
+    xor dx, dx
+; fsk_rdlba - the folder sector at DX:AX into DBUF, and P_LBA = DX:AX
+fsk_rdlba:
+    mov [es:P_LBA], ax
+    mov [es:P_LBA+2], dx
+; fsk_rd1d - one sector at DX:AX into DBUF
+fsk_rd1d:
+    mov bx, FSK_DBUF
+    jmp short fsk_rd1
+; fsk_rd0c / fsk_rd1c - the volume's sector 0 / the one at DX:AX into CBUF
+; (kernel size pass 17: eight callers loaded BX, CX and the LBA by hand)
+fsk_rd0c:
+    xor ax, ax
+    xor dx, dx
+fsk_rd1c:
+    mov bx, FSK_CBUF
+fsk_rd1:
+    mov cx, 1
 ; fsk_rd / fsk_wr - CX sectors at DX:AX to/from ES = the workspace : BX.
 ; Die on an error
 fsk_rd:
@@ -802,6 +823,16 @@ fsk_fat:
 .io:
     jmp fsk_ioerr
 
+; fsk_fatdx - DX = the FAT entry of cluster AX, ZF = 1 when it is free; AX
+; kept (kernel size pass 17: five callers banked AX by hand)
+fsk_fatdx:
+    push ax
+    call fsk_fat
+    xchg ax, dx
+    pop ax
+    or dx, dx
+    ret
+
 ; fsk_set - FAT entry AX = DX, in the kernel's window (flushed by fsk_flush)
 fsk_set:
     or byte [es:P_FLAGS], PF_WROTE
@@ -826,14 +857,11 @@ fsk_flush:
 ; fsk_isend - CF=1: AX (a FAT value) is an end-of-chain mark
 ; fsk_isbad - ZF=1: AX is the bad mark. Both keep AX
 fsk_isend:
-    cmp byte [dsk_fattype], 0
-    jne .w
-    cmp ax, 0FF8h
-    cmc
-    ret
-.w:
-    cmp ax, 0FFF8h
-    cmc
+    call fsk_isbad              ; AX against the bad mark, so CF = 0 at or
+    cmc                         ; past it: at or past the end mark, one more
+    jnz .r                      ; unless AX IS the bad mark (kernel size
+    clc                         ; pass 17: one compare for both)
+.r:
     ret
 fsk_isbad:
     cmp byte [dsk_fattype], 0
@@ -1109,12 +1137,8 @@ fsk_ph_tree:
     add ax, [es:bx+LV_SEC]
     adc dx, 0
 .read:
-    mov [es:P_LBA], ax
-    mov [es:P_LBA+2], dx
     push bx
-    mov bx, FSK_DBUF
-    mov cx, 1
-    call fsk_rd
+    call fsk_rdlba
     pop bx
     ; --- the entries ---------------------------------------------------
 .ent:
@@ -1554,11 +1578,7 @@ fsk_ph_scan:
     cmp ax, [es:P_MAXC]
     ja .swept
     inc word [es:P_IDX]
-    push ax
-    call fsk_fat                ; AX = the entry
-    mov dx, ax
-    pop ax                      ; AX = the cluster, DX = its entry
-    or dx, dx
+    call fsk_fatdx              ; AX = the cluster, DX = its entry
     jnz .nfree
     cmp byte [es:P_SWEEP], 0
     jne .n
@@ -1686,16 +1706,6 @@ fsk_ph_lost:
     je fsk_lost_chain
     jmp fsk_lost_rest
 
-; fsk_rootsec - read root sector AX into DBUF (and P_LBA)
-fsk_rootsec:
-    add ax, [es:P_ROOTLBA]
-    xor dx, dx
-    mov [es:P_LBA], ax
-    mov [es:P_LBA+2], dx
-    mov bx, FSK_DBUF
-    mov cx, 1
-    jmp fsk_rd
-
 fsk_lost_num:
     xor ax, ax
 .sec:
@@ -1764,11 +1774,7 @@ fsk_lost_chain:
     jnz .find
     call fsk_bt
     jnz .find
-    push ax
-    call fsk_fat
-    mov dx, ax
-    pop ax
-    or dx, dx
+    call fsk_fatdx
     jz .find
     xchg ax, dx
     call fsk_isbad
@@ -1780,10 +1786,7 @@ fsk_lost_chain:
 .f:
     call fsk_bs1
     inc cx
-    push ax
-    call fsk_fat
-    mov dx, ax
-    pop ax                      ; AX = this cluster, DX = its link
+    call fsk_fatdx              ; AX = this cluster, DX = its link
     xchg ax, dx
     call fsk_isend
     xchg ax, dx
@@ -1887,14 +1890,12 @@ fsk_save:
     mov word [es:di+8], 'CH'
     mov byte [es:di+10], 'K'
     mov byte [es:di+11], 20h    ; archive
+    push di
+    add di, 12                  ; bytes 12..21: zero
     xor ax, ax
-    mov cx, 5                   ; bytes 12..21: zero
-    lea bx, [di+12]
-.z:
-    mov [es:bx], ax
-    inc bx
-    inc bx
-    loop .z
+    mov cx, 5
+    rep stosw                   ; (DF is clear: fsk_entry's cld)
+    pop di
     KC dskw_now
     mov ax, [dskw_time]
     mov [es:di+22], ax
@@ -1941,11 +1942,7 @@ fsk_lost_rest:
     inc word [es:P_IDX]
     call fsk_bt1
     jnz .n
-    push ax
-    call fsk_fat
-    mov dx, ax
-    pop ax
-    or dx, dx
+    call fsk_fatdx
     jz .n
     xchg ax, dx
     call fsk_isbad
@@ -2066,10 +2063,7 @@ fsk_defmap:
     inc word [es:P_IDX]
     cmp ax, 2
     jb .set                     ; clusters 0 and 1 are never free
-    push ax
-    call fsk_fat
-    or ax, ax
-    pop ax
+    call fsk_fatdx
     jz .clr
 .set:
     call fsk_bs1
@@ -2330,11 +2324,7 @@ fsk_kernok:
     or dx, dx
     jnz .no
     push ax
-    xor ax, ax
-    xor dx, dx
-    mov bx, FSK_CBUF
-    mov cx, 1
-    call fsk_rd                 ; the volume's sector 0
+    call fsk_rd0c               ; the volume's sector 0
     pop ax
     cmp word [es:FSK_CBUF+510], 0AA55h
     jne .no
@@ -2560,9 +2550,7 @@ fsk_kids:
     call fsk_c2l
     add ax, [es:P_KS]
     adc dx, 0
-    mov bx, FSK_DBUF
-    mov cx, 1
-    call fsk_rd
+    call fsk_rd1d
     mov word [es:P_KE], 0
 .ent:
     mov si, [es:P_KE]
@@ -2590,9 +2578,7 @@ fsk_kids:
     cmp ax, [es:P_MAXC]
     ja .ent
     call fsk_c2l
-    mov bx, FSK_CBUF
-    mov cx, 1
-    call fsk_rd
+    call fsk_rd1c
     cmp word [es:FSK_CBUF+32], '..'
     jne .ent
     push ax
@@ -2695,11 +2681,7 @@ fsk_link:
     ; 2a. KERNEL.SYS: the boot sector is told BEFORE the entry is, so a stop
     ; between any two writes boots: before this, the old run (intact and
     ; still allocated); after it, the new one (whole, linked)
-    xor ax, ax
-    xor dx, dx
-    mov bx, FSK_CBUF
-    mov cx, 1
-    call fsk_rd
+    call fsk_rd0c
     mov ax, [es:M_OLD]
     call fsk_kofs
     cmp [es:FSK_CBUF+504], ax   ; still the sector that boots the old run
@@ -2716,11 +2698,7 @@ fsk_link:
 .entry:
     mov ax, [es:M_DLBA]         ; 3. the entry, read afresh
     mov dx, [es:M_DLBA+2]
-    mov [es:P_LBA], ax
-    mov [es:P_LBA+2], dx
-    mov bx, FSK_DBUF
-    mov cx, 1
-    call fsk_rd
+    call fsk_rdlba
     mov si, FSK_DBUF
     add si, [es:M_DOFF]
     mov ax, [es:si+26]
