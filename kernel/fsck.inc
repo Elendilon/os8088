@@ -74,6 +74,8 @@ FSKF_FRAGS  equ 17
 FSKF_MOVED  equ 18
 FSKF_SKIPDEF equ 19
 FSKF_NOTDEF equ 20
+FSKF_NOFOLD equ 21
+FSKF_FOLDERS equ 22
 
 FSV_NOTE    equ 1               ; System Check's SV_* (SPEC.md 118.1)
 FSV_WARN    equ 2
@@ -102,6 +104,8 @@ FSW_MOVED   equ 32
 FSW_STUCK   equ 34
 FSW_FATDF   equ 36
 FSW_CBYTES  equ 38
+FSW_MOVEDF  equ 40              ; folders the defragmenter moved
+FSW_OTHERS  equ 42              ; other programs open (folders stay, 118.14.5)
 FSW_FROW    equ 48
 FSW_FSEV    equ 49
 FSW_FCODE   equ 50
@@ -144,6 +148,8 @@ M_KS        equ 0x136           ; dw sectors copied into it (big clusters)
 P_CB        equ 0x138           ; dw bytes per cluster
 P_FREED     equ 0x13A           ; dw lost clusters freed
 M_KERN      equ 0x13C           ; db 1 = the file moving is KERNEL.SYS
+P_FOLDOK    equ 0x13D           ; db 1 = folders may move: nothing else open
+M_DIR       equ 0x13E           ; db 1 = what is moving is a FOLDER
 P_Q         equ 0x140           ; FSK_QMAX x 12: row sev code fix A(4) B(4)
 FSK_QMAX    equ 8
 P_QPATH     equ 0x1A0           ; 80: the queued findings' path
@@ -164,6 +170,9 @@ P_LAST      equ 0x326           ; dw ...the last good one,
 P_A         equ 0x328           ; dw ...where it stopped and its place there,
 P_B         equ 0x32A           ; dw
 P_NEED      equ 0x32C           ; dw ...and what its size needs
+P_KC        equ 0x32E           ; dw fsk_kids: the moved folder's cluster,
+P_KS        equ 0x330           ; dw ...its sector, its entry
+P_KE        equ 0x332           ; dw
 FSK_DBUF    equ 0x400           ; one folder sector
 FSK_CBUF    equ 0x600           ; the copy buffer
 FSK_CBSECS  equ 16              ; ...in sectors
@@ -551,9 +560,17 @@ fsk_end:
     jne .out                    ; written: a flush belongs to its own disk
     KC dskw_flush_x
     mov es, [fsk_ws]
-    ; every Disk window on this volume owes a re-list (SPEC.md 22.8): a
-    ; repair or a move touched folders all over it, not only the one the
-    ; machine stands in, which is all dskw_sync's fmv_mark can name
+    call fsk_markwins
+    KC dskw_sync_x
+.out:
+    ret
+
+; fsk_markwins - every Disk window on this volume owes a re-list (SPEC.md
+; 22.8): a repair or a move touched folders all over it, not only the one the
+; machine stands in, which is all dskw_sync's fmv_mark can name. After a
+; FOLDER moves too, at once: a window's cached listing names its folders by
+; cluster (118.14.5)
+fsk_markwins:
     mov dl, [es:P_VOL]
     mov si, inst_tab
     mov cx, INST_MAX
@@ -570,8 +587,6 @@ fsk_end:
     add si, I_RECSZ
     loop .inst
     KC fm_owed
-    KC dskw_sync_x
-.out:
     ret
 
 ; =============================================================================
@@ -2053,6 +2068,35 @@ fsk_defstart:
     mov byte [es:FSW_PHASE], FSKP_DONE
     ret
 .go:
+    ; FOLDERS MOVE ONLY WITH NOTHING ELSE OPEN (SPEC.md 118.14.5): a program
+    ; may have banked a folder's cluster (OSAPI_FILE_HERE) where the kernel
+    ; cannot see it to put right. Every package instance but the caller's
+    ; counts; the kernel's own words (fsk_krefs) are patched
+    push bp
+    mov bp, inst_caller         ; DH = the caller's slot
+    call KERNEL_SEG:spw_near
+    pop bp
+    xor ax, ax                  ; AX = the others
+    xor bx, bx                  ; BL = the slot
+    mov si, inst_tab
+    mov cx, INST_MAX
+.inst:
+    cmp byte [si+I_STATE], 1
+    jne .nx
+    test byte [si+I_KIND], 80h  ; a package
+    jz .nx
+    cmp bl, dh
+    je .nx
+    inc ax
+.nx:
+    inc bx
+    add si, I_RECSZ
+    loop .inst
+    mov [es:FSW_OTHERS], ax
+    cmp ax, 1
+    sbb al, al                  ; FF none open / 00 some
+    and al, 1
+    mov [es:P_FOLDOK], al
     mov byte [es:FSW_PHASE], FSKP_DEFRAG
     mov byte [es:P_SWEEP], 0
     mov word [es:P_IDX], 0
@@ -2125,6 +2169,22 @@ fsk_defpass:
     mov bx, FSKF_MOVED
     mov ax, FSV_NOTE << 8 | 7
     call fsk_q
+    xor dx, dx
+    xor di, di
+    xor si, si
+    mov cx, [es:FSW_MOVEDF]
+    jcxz .nof
+    mov bx, FSKF_FOLDERS
+    mov ax, FSV_NOTE << 8 | 7
+    call fsk_q
+.nof:
+    cmp byte [es:P_FOLDOK], 0
+    jne .fin
+    mov cx, [es:FSW_OTHERS]
+    mov bx, FSKF_NOFOLD
+    mov ax, FSV_NOTE << 8 | 7
+    call fsk_q
+.fin:
     mov byte [es:FSW_PHASE], FSKP_DONE
     ret
 
@@ -2141,29 +2201,58 @@ fsk_defent:
     mov al, [es:si+11]
     test al, 10h
     jz .file
-    ; --- a folder: walk in (its chain was checked) ------------------------
+    ; --- a folder: move it (118.14.5), then walk in ----------------------
     mov ax, [es:si+26]
     cmp ax, 2
     jb .skip
     cmp ax, [es:P_MAXC]
     ja .skip
-    mov cl, [es:P_DEPTH]
-    inc cx
-    cmp cl, FSK_MAXDEP
-    jae .skip
     push si
     push bx
     mov cl, 0
-    call fsk_walk               ; CX = its clusters
+    call fsk_walk               ; AL, CX = its clusters, DX = pieces
     mov es, [fsk_ws]
     pop bx
     pop si
+    or al, al
+    jnz .skip
     jcxz .skip
-    jmp fsk_dirent.deep_ok      ; ...the check's own descent
+    cmp byte [es:P_FOLDOK], 0
+    je .descend
+    mov ax, [es:si+26]
+    cmp byte [es:P_DPASS], 0
+    jne .fpack
+    cmp dx, 1                   ; pass 1: in pieces, to the lowest run
+    jbe .descend
+    push dx
+    mov dx, [es:P_MAXC]
+    inc dx
+    call fsk_findrun
+    pop dx
+    jnc .fmove
+    inc word [es:FSW_STUCK]
+    jmp short .descend
+.fpack:
+    cmp dx, 1                   ; packing: in one piece, lower down
+    jne .descend
+    mov dx, ax
+    call fsk_findrun
+    jc .descend
+.fmove:
+    mov byte [es:M_DIR], 1      ; ...and it is entered when the move is
+    mov byte [es:M_KERN], 0     ; done: .movego steps LV_ENT back to it
+    jmp .movego
+.descend:
+    mov al, [es:P_DEPTH]
+    inc ax
+    cmp al, FSK_MAXDEP
+    jae .skip
+    jmp fsk_dirent.deep_ok      ; ...the check's own descent, CX = clusters
 .skip:
     clc
     ret
 .file:
+    mov byte [es:M_DIR], 0
     ; WHAT MAY MOVE (SPEC.md 118.14.5): every file the system reads BY NAME,
     ; which is every file but two kinds. A mounted *.IMG is read through the
     ; extents taken when it was mounted (18.101); HIBERNAT.IMG is walked
@@ -2217,6 +2306,7 @@ fsk_defent:
     call fsk_findrun
     jc .skip
 .move:
+.movego:
     ; --- begin the move: AX = where to, CX = clusters --------------------
     mov [es:M_DST], ax
     mov [es:M_N], cx
@@ -2234,6 +2324,10 @@ fsk_defent:
     sub ax, FSK_DBUF
     mov [es:M_DOFF], ax
     or byte [es:P_FLAGS], PF_MOVING
+    cmp byte [es:M_DIR], 0      ; a FOLDER is taken again when it has
+    je .began                   ; moved, so the walk goes into it where it
+    dec word [es:bx+LV_ENT]     ; now is (and packs it lower still, or not)
+.began:
     stc
     ret
 
@@ -2424,6 +2518,7 @@ fsk_move:
     adc dx, 0
     mov bx, FSK_CBUF
     call fsk_rd
+    call fsk_dotpatch           ; a folder's copy names ITSELF
     mov ax, [es:M_DST]
     add ax, [es:M_K]
     call fsk_c2l
@@ -2476,6 +2571,7 @@ fsk_move:
     call fsk_c2l
     mov bx, FSK_CBUF
     call fsk_rd
+    call fsk_dotpatch           ; a folder's copy names ITSELF
     mov ax, [es:M_DST]
     add ax, [es:M_K]
     call fsk_c2l
@@ -2487,6 +2583,154 @@ fsk_move:
     call fsk_nth
     call fsk_fat
     mov [es:M_SRC], ax
+    ret
+
+; fsk_dotpatch - a FOLDER's copy, its first sector in the buffer: its '.'
+; names the new run, not the old (118.14.5). Keeps every register
+fsk_dotpatch:
+    cmp byte [es:M_DIR], 0
+    je .out
+    cmp word [es:M_K], 0
+    jne .out
+    cmp word [es:M_KS], 0
+    jne .out
+    cmp word [es:FSK_CBUF], '. '    ; '.' then a space
+    jne .out
+    push ax
+    mov ax, [es:M_DST]
+    mov [es:FSK_CBUF+26], ax
+    pop ax
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; fsk_kids - the folder that just moved: every folder IN it names it as '..',
+; and that '..' now names the new run (118.14.5). Its entries are read where
+; they now are - the copy, DST onward - into DBUF; each child's first sector
+; into CBUF. Die on an error
+; -----------------------------------------------------------------------------
+fsk_kids:
+    mov ax, [es:M_DST]
+    mov [es:P_KC], ax
+.clus:
+    mov word [es:P_KS], 0
+.sec:
+    mov ax, [es:P_KC]
+    call fsk_c2l
+    add ax, [es:P_KS]
+    adc dx, 0
+    mov bx, FSK_DBUF
+    mov cx, 1
+    call fsk_rd
+    mov word [es:P_KE], 0
+.ent:
+    mov si, [es:P_KE]
+    cmp si, 16
+    jae .nsec
+    inc word [es:P_KE]
+    mov cl, 5
+    shl si, cl
+    add si, FSK_DBUF
+    mov al, [es:si]
+    or al, al
+    jz .out                     ; the folder's end
+    cmp al, 0E5h
+    je .ent
+    cmp al, '.'
+    je .ent
+    mov al, [es:si+11]
+    cmp al, 0Fh
+    je .ent
+    test al, 10h
+    jz .ent
+    mov ax, [es:si+26]          ; a child folder: its '..'
+    cmp ax, 2
+    jb .ent
+    cmp ax, [es:P_MAXC]
+    ja .ent
+    call fsk_c2l
+    mov bx, FSK_CBUF
+    mov cx, 1
+    call fsk_rd
+    cmp word [es:FSK_CBUF+32], '..'
+    jne .ent
+    push ax
+    mov ax, [es:M_DST]
+    mov [es:FSK_CBUF+32+26], ax
+    pop ax
+    call fsk_wr                 ; DX:AX, BX, CX: the read's
+    jmp short .ent
+.nsec:
+    inc word [es:P_KS]
+    mov ax, [es:P_KS]
+    cmp ax, [es:P_SPC]
+    jb .sec
+    inc word [es:P_KC]
+    mov ax, [es:P_KC]
+    sub ax, [es:M_DST]
+    cmp ax, [es:M_N]
+    jb .clus
+.out:
+    ret
+
+; fsk_krefs - the KERNEL's own words that name the folder's old cluster on
+; this volume, made to name the new one: every instance's folder (19.2.1),
+; every Disk window's, the clipboard's and the mount's. A program's own
+; banked copy is out of reach - which is why folders move only with nothing
+; else open (fsk_defstart)
+fsk_krefs:
+    mov dl, [es:P_VOL]
+    mov ax, [es:M_OLD]
+    mov cx, [es:M_DST]
+    xor bx, bx
+.inst:
+    cmp dl, [inst_fdrv+bx]
+    jne .in
+    push bx
+    shl bx, 1
+    cmp ax, [inst_fcwd+bx]
+    jne .ip
+    mov [inst_fcwd+bx], cx
+.ip:
+    pop bx
+.in:
+    inc bx
+    cmp bx, INST_MAX
+    jb .inst
+    mov si, inst_tab
+    push cx
+    mov cx, INST_MAX
+.win:
+    cmp byte [si+I_STATE], 1
+    jne .wn
+    cmp byte [si+I_KIND], KIND_FILES
+    jne .wn
+    mov di, [si+I_SPTR]
+    cmp dl, [di+FS_DRV]
+    jne .wn
+    cmp ax, [di+FS_CWD]
+    jne .wn
+    pop bx
+    push bx
+    mov [di+FS_CWD], bx
+.wn:
+    add si, I_RECSZ
+    loop .win
+    pop cx
+    cmp byte [fcp_cbop], 0      ; the clipboard: a Cut or Copy waiting
+    je .mnt
+    cmp dl, [fcp_cbdrv]
+    jne .mnt
+    cmp ax, [fcp_cbcwd]
+    jne .mnt
+    mov [fcp_cbcwd], cx
+.mnt:
+    cmp dl, [disk_drive]
+    jne .out
+    cmp ax, [dsk_cwd]
+    jne .out
+    mov [dsk_cwd], cx
+.out:
     ret
 
 ; fsk_link - the copy is whole: new chain, then the entry, then free the old
@@ -2548,6 +2792,14 @@ fsk_link:
     mov ax, [es:M_DST]
     mov [es:si+26], ax
     call fsk_wdir
+    cmp byte [es:M_DIR], 0
+    je .old
+    ; 3a. A FOLDER: its children's '..', then the kernel's own words - both
+    ; after the entry, so a stop here leaves '..' entries a repair rewrites
+    ; (DOT) and never a folder nothing names
+    call fsk_kids
+    call fsk_krefs
+.old:
     mov ax, [es:M_OLD]          ; 4. the old chain goes
     mov cx, [es:M_N]
     push ax
@@ -2556,7 +2808,14 @@ fsk_link:
     KC dskw_free_chain
     call fsk_flush
     add word [dsk_mgen], 2      ; every READ_SEQ cursor walks again (18.4.8)
+    cmp byte [es:M_DIR], 0
+    je .file
+    inc word [es:FSW_MOVEDF]
+    call fsk_markwins           ; its cached listings name it by cluster
+    jmp short .counted
+.file:
     inc word [es:FSW_MOVED]
+.counted:
     inc byte [es:P_DMOVED]
     and byte [es:P_FLAGS], ~PF_MOVING
     mov ax, [es:FSW_MOVED]

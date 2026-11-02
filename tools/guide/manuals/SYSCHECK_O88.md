@@ -97,8 +97,11 @@ delete them from this disk, and check it again.
 *Check and repair* first if it says so. It moves os8088's own files as
 well as yours - the drivers and programs of an install that has grown in
 pieces - and on a hard disk it moves `KERNEL.SYS` too, telling the disk's
-boot sector where it went. It never moves folders, disk images (`*.IMG`,
-except a hibernation image), or the kernel on a floppy. If you save anything onto the disk while a disk task is running,
+boot sector where it went. It moves folders as well, but only when no other
+program is open, because a program may remember where a folder was: close
+your other programs first, or the report will say *folders not moved*. It
+never moves disk images (`*.IMG`, except a hibernation image), or the
+kernel on a floppy. If you save anything onto the disk while a disk task is running,
 it stops and asks you to scan again rather than work from an out-of-date
 picture.
 

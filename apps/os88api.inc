@@ -2079,7 +2079,11 @@ CPU_F_PM            equ 0x10     ; SEGMENTS ARE SELECTORS: kern_mega is in
 ; (docs/plans/KERN-MEGA-PLAN.md 2.4, 3.2, M4; KERN-MEGA-MEMORY-PLAN MC7.4.)
 ; Under CPU_F_PM every claim is a PAIR of LDT selectors: the value the kernel
 ; hands back is the DATA half, writable, and the entry below it - that value
-; less 8 - is a CODE selector over the same bytes. A far call, far jump or
+; less 8 - is a CODE selector over the same bytes. ONE EXCEPTION: a claim an
+; OS88_HIGHMEM package is given in the pool above 1MB is a LONE data
+; selector. OSAPI_MEM_CODESEL says so (CF=1), and OSAPI_SEG's SEG_SUBC makes
+; a pair over it - apps/realdmg's rw_csel and apps/syscheck's FSCHECK.DRV
+; loader are the two worked examples (REALDMG-SPEC 16.2.6, SPEC.md 118.14.8). A far call, far jump or
 ; retf THROUGH the data half loads a data selector into CS, which is #GP:
 ; kern_mega completes it (mega_gpfix) and it works, at the price of a fault
 ; per transfer. A package that far-calls code it put in a claim - an overlay,
@@ -2508,6 +2512,8 @@ FSW_MOVED   equ 32
 FSW_STUCK   equ 34
 FSW_FATDF   equ 36
 FSW_CBYTES  equ 38
+FSW_MOVEDF  equ 40
+FSW_OTHERS  equ 42
 FSW_FROW    equ 48
 FSW_FSEV    equ 49
 FSW_FCODE   equ 50

@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "d3652eeaed49bb595793c626e35da04e215e3c86fadd7121b4d19e1671bcc5a8",
+  "fingerprint": "1216911f5ae86d74a64f36449694ac7a0c25c7eeb2caa2785a3fabcbbf89f87e",
   "version": 12
  },
  "PKG_FMT": {
-  "fingerprint": "44a0766621438dfa0b5db5f74a7f1d813143f1af07a7610bad0a9200bfde86a4",
+  "fingerprint": "4a0665629401226cb08aff8c05291f2d72b31179550bd22f52e2c6c991c909c9",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -1442,6 +1442,20 @@
    "from": 12,
    "guard": "DRV_VER",
    "reason": "OSAPI_VOL_CHECK's note: kern_mega runs it (SEG_SUBC pair); a comment, nothing moves",
+   "to": 12
+  },
+  {
+   "fingerprint": "4a0665629401226cb08aff8c05291f2d72b31179550bd22f52e2c6c991c909c9",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_VOL_CHECK's record: FSW_MOVEDF, FSW_OTHERS (folders, SPEC.md 118.14.5) - appended fields",
+   "to": 10
+  },
+  {
+   "fingerprint": "1216911f5ae86d74a64f36449694ac7a0c25c7eeb2caa2785a3fabcbbf89f87e",
+   "from": 12,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_VOL_CHECK's record: FSW_MOVEDF, FSW_OTHERS (folders, SPEC.md 118.14.5) - appended fields",
    "to": 12
   }
  ]

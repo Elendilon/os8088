@@ -133,6 +133,7 @@ def fixture(work):
     data = F.blob(9 * v.cb + 300, 21)
     use = v.free()[1:20:2][:10]                         # every other one
     v.add("NOTES.TXT", data, clusters=use, parent=docs)
+    F.folder_in_pieces(v)                               # \\FOLD, in two
     # --- the link that runs it at boot ----------------------------------------
     import os88lnk
     auto = v.mkdir("AUTOSTRT")
@@ -145,6 +146,7 @@ def fixture(work):
     frag = set(r["frag"])
     assert {"\\HDD.DRV", "\\SYSCHECK.O88", "\\FSCHECK.DRV",
             "\\DOCS\\NOTES.TXT"} <= frag, frag
+    assert r["dfrag"] == ["\\FOLD"], r["dfrag"]
     return vhd, run[0]
 
 
@@ -202,8 +204,11 @@ def main():
             fails.append("the report is not the defragmenter's")
         if "0 left in pieces" not in text:
             fails.append("the report says files were left in pieces")
+        if "folders moved" not in text:
+            fails.append("the report moved no folder")
         r = F.check(v)
-        for k in ("lost", "xlink", "long", "short", "broken", "dot"):
+        for k in ("lost", "xlink", "long", "short", "broken", "dot",
+                  "dfrag"):
             if r[k]:
                 fails.append("after defragmenting the reader finds %s: %r"
                              % (k, r[k]))

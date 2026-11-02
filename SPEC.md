@@ -224033,7 +224033,8 @@ it, never on the 360KB system disk. Not the apps disks, `kern_small`'s or `kern_
 | `t_sysman` | fast | the manifest against every built system disk: each entry present with its size and sum; `SYSCHECK.O88` itself absent from it |
 | `fsckhd` | soak | §118.14.5 on MartyPC's XT-IDE: a FAT16 install with `KERNEL.SYS` moved high (the VBR told), its system files in pieces, defragmented from an `AUTOSTRT` link; the reader finds nothing wrong and nothing in pieces, `KERNEL.SYS` lower and the VBR naming its new run, and the disk boots again with every free cluster zeroed |
 | `fsckmega` | soak | §118.14.8 under Bochs: kern_mega repairs fsckdisk's seven faults and defragments a disk in pieces from `AUTOSTRT` links, with no kern_mega fault |
-| `fsckdisk` | soak | §118.14 on MartyPC: a copy of `util360.img` in B: with seven FAT faults planted, checked (each named, nothing written), repaired (an independent FAT reader then finds only the cross-link, and three `FILEnnnn.CHK`), and a fragmented copy defragmented (no movable file in pieces, every file's bytes unchanged, both FAT copies equal) |
+| `fsckdisk` | soak | §118.14 on MartyPC: a copy of `util360.img` in B: with seven FAT faults planted, checked (each named, nothing written), repaired (an independent FAT reader then finds only the cross-link, and three `FILEnnnn.CHK`); a fragmented copy with a folder in pieces defragmented with the Task Manager open (files move, folders stay, `NOFOLD`) and then with it closed (the folder moves, every `.`/`..` right, a Disk window standing in it follows it); and a write mid-run ends the run (§118.14.6) |
+| `syscheckmono` | soak | §118.1 on CGA and Hercules: `syscheck`'s planted hard disk as an XT-IDE VHD on MartyPC's 5150, scanned and reported from an `AUTOSTRT` link |
 | `syscheck` | soak | a hard-disk image built from the system disks with a planted package of another format, a retired package, `KPAD.TMP`, a duplicated program, a stale `ASSOC.DAT` row and an orphaned hibernation image, booted from C:; one Scan press checks the drive the chooser offers (C:), the report names each finding, and Clean Up removes exactly §118.8's |
 
 ### 118.12 What it costs, measured
@@ -224202,6 +224203,7 @@ the package reads; the rest is the engine's.
 | `FSW_MOVED` 32, `FSW_STUCK` 34 | dw | files the defragmenter moved, and files it left in pieces |
 | `FSW_FATDF` 36 | dw | FAT sectors whose two copies differ |
 | `FSW_CBYTES` 38 | dw | bytes per cluster |
+| `FSW_MOVEDF` 40, `FSW_OTHERS` 42 | dw | folders moved; other programs open at the defragmenter's start |
 | `FSW_FROW` 48 | db | a finding's row (the table above, 0-8) |
 | `FSW_FSEV` 49 | db | its severity, §118.1's `SV_*` |
 | `FSW_FCODE` 50 | db | its `FSKF_*` (§118.14.3) |
@@ -224236,6 +224238,8 @@ kernel carries no English for it and the report says what the window says.
 | 18 `MOVED` | 7 | Note | files moved, files left in pieces |
 | 19 `SKIPDEF` | 7 | Warning | Broken findings that stopped it |
 | 20 `NOTDEF` | 7 | Note | - (the task did not ask) |
+| 21 `NOFOLD` | 7 | Note | other programs open, so no folder moved |
+| 22 `FOLDERS` | 7 | Note | folders moved |
 
 A cross-linked file is named as the SECOND chain to claim the cluster: the
 walk keeps one bit per cluster, and naming the first owner would take a word
@@ -224271,7 +224275,7 @@ lost chain write the FAT first and the entry second, for the same reason.
 
 **It runs only after a check that found nothing Broken**; otherwise its row
 says `SKIPDEF` with the count, and the user runs *Check and repair* first.
-It moves FILES, never folders. **The installed system's own files move
+It moves files and FOLDERS. **The installed system's own files move
 too** - the drivers, the modules, `BOOTHD.SYS`, `COLDHMA.SYS`, every
 package - hidden and system ones included, because the system reads every
 one of them BY NAME, walking its chain each time. That is the case it is
@@ -224282,7 +224286,33 @@ never moves:
   extents taken when it was mounted (§18.101). `HIBERNAT.IMG` is walked
   afresh at a resume (§87), so it may move;
 - `KERNEL.SYS`, unless its boot sector can be told (below);
-- an empty file.
+- an empty file;
+- a folder, **while any other program is open** (below).
+
+**A folder is named by its cluster in places a file never is**: its own
+`.`, every child folder's `..`, the entry in its parent - and by the
+machine: each instance's current folder (`inst_fcwd`, §19.2.1), each Disk
+window's (`FS_CWD`), the clipboard's source (`fcp_cbcwd`), the mount's
+(`dsk_cwd`), and a cached listing that opens a folder by its cluster. A
+folder moves like a file with three more writes and one more rule. The copy
+of its first sector is written with its `.` naming the NEW run; after the
+parent's entry is rewritten (step 3), every child folder's `..` is
+rewritten to name it, and the kernel's words above that named the old
+cluster on this volume are made to name the new one, and every Disk window
+on the volume is told to re-list. A stop between those writes leaves `..`
+entries a repair rewrites (`DOT`), never a folder nothing names. The walk
+then takes the folder's entry again, so it goes into the folder where it
+now is (and packs it lower still, in pass 2, if it can).
+
+THE RULE: **a program can have banked a folder's cluster** -
+`OSAPI_FILE_HERE` answers one, and a package keeps it to go back to - in
+its own memory, where nothing can put it right. So folders move only when
+no package instance but the caller is open; otherwise the run moves files
+alone and its Defragment row says `NOFOLD` with the count (*folders not
+moved: 1 programs open*). Disk windows are the kernel's and are patched, so
+they do not count. System Check's own banked folders - where it was, where
+it was launched from - become the root of the volume when folders moved on
+it.
 
 **`KERNEL.SYS` is read BY POSITION**: a boot sector reads it as one flat
 run, not a chain. The floppy's sector expects it at cluster 2, so on A: and
@@ -224348,14 +224378,14 @@ and `dsk_wgen`'s `DVOL_MAX`). The stub is `.cold` rather than `.text` so
 kern_mega's kernel segment carries none of it (§118.14.8). kern_small
 carries none of it at all - the cell is an `OSAPI_XREFUSE`.
 
-**Not resident**: the engine is `FSCHECK.DRV`, a 5,078-byte image (4,374
-packed on disk; kern_mega's, 5,076 and 4,375), read by System Check the
+**Not resident**: the engine is `FSCHECK.DRV`, a 5,679-byte image (4,855
+packed on disk; kern_mega's, 5,677 and 4,856), read by System Check the
 first time a disk task is chosen and freed with the window; the workspace is `FSK_SIZE`'s figure - 10KB on a
 360KB floppy and up to 26KB on a FAT16 volume of 65,524 clusters (two
 bitmaps of one bit a cluster, a 512-byte folder sector, an 8KB copy buffer
 and the record). System Check itself grew 2,633 bytes of image and 41 of
 bss for the chooser's tasks, the words of every finding and the link's
-parameter (14,827 -> 17,803, 23,885 -> 23,945).
+parameter (14,827 -> 17,899, 23,885 -> 23,944).
 
 **What a run costs, measured on MartyPC's 4.77MHz 5150 with a 360KB floppy**
 (`tests/fsckdisk.py`): *Check the disk* is 5 seconds; *Check and repair*
@@ -224364,7 +224394,8 @@ seven clusters, 13 seconds. On MartyPC's XT with an XT-IDE FAT16 partition
 of 15,943 clusters (`tests/fsckhd.py`), defragmenting an install with
 `KERNEL.SYS` and three system files to move: 24 seconds.
 
-**Limits**: FAT12 and FAT16 only, as the kernel; a folder deeper than
+**Limits**: FAT12 and FAT16 only, as the kernel; the root folder never
+moves (it is not a chain); a folder deeper than
 `FSK_MAXDEP` = 16 is reported and not entered; a path longer than 79
 characters is cut at the front in a finding; `.` and `..` are checked
 only in a folder's first two entries.
@@ -224381,12 +224412,14 @@ things make it so, and none is in System Check:
   DS = KERNEL_SEG) and its scratch is the workspace's.
 - **The stub far-calls the claim's CODE selector**, which it asks
   `OSAPI_MEM_CODESEL`'s own body for; on a real-mode kernel that answer is
-  the segment itself. **A claim above 1MB has no code half** - it is one
-  data selector, not the pair apps/os88api.inc's note on OSAPI_MEM_CODESEL
-  describes (measured: System Check is `OS88_HIGHMEM`, and its claim for
-  the image was LDT entry 218h, data alone) - so System Check asks
-  `OSAPI_SEG` `SEG_SUBC` for a code/data pair over the image once it is
-  read, and hands over the pair's data half. The stub refuses a selector
+  the segment itself. **A claim an `OS88_HIGHMEM` package is given in the
+  pool above 1MB is one data selector with no code half** - System Check is
+  such a package, and its claim for the image was LDT entry 218h, data
+  alone - so System Check does what RealDMG's `rw_csel` does for its
+  recompiled code (REALDMG-SPEC 16.2.6): it asks `OSAPI_SEG` `SEG_SUBC` for
+  a code/data pair over the image once it is read, and hands over the
+  pair's data half. apps/os88api.inc's note above `OSAPI_MEM_CODESEL` names
+  the exception and both examples. The stub refuses a selector
   with no code half (`FSKE_IMAGE`) rather than far-calling data, which was
   a fatal #GP in kernel context before it learned to. The stub is wholly `.cold`, so kern_mega's kernel
   segment carries none of it (`tests/megaseg.txt`).

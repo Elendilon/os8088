@@ -268,10 +268,50 @@ entry proc; it now starts at the window's first paint.
 there, which protected mode forbids - a code selector is not writable - so
 its scratch moved into the workspace and three words of the kernel's. Bochs
 then found the second problem in one boot: System Check's claims live above
-1MB on kern_mega, and such a claim is a data selector alone, with no code
-half to far-call. The SDK's note says every claim is a pair; this one
-measured otherwise. So System Check asks the kernel for a code/data pair
-over the image (`OSAPI_SEG SEG_SUBC`), and the stub refuses a selector with
-no code half instead of faulting. Repair and defragment then ran under
+1MB on kern_mega, and a claim there is a data selector alone, with no code
+half to far-call. That is a known case, not a defect: RealDMG meets it for
+its recompiled code and answers it the same way (`rw_csel`). The stub had
+far-called without asking. So System Check asks the kernel for a code/data
+pair over the image (`OSAPI_SEG SEG_SUBC`), and the stub refuses a selector
+with no code half instead of faulting. The SDK's general note, which said
+every claim is a pair, now names the exception and both examples. Repair and defragment then ran under
 kern_mega with no fault, held to the same independent FAT reader as on the
 8088.
+
+## 2026-11-02 — Folders, and the last open items
+
+The owner asked whether folders were the only thing left. They were not:
+nothing had ever made a write happen mid-run to prove the guard against
+it, and the release checks had never been run against a planted disk on
+the two 1bpp adapters. All three are done now.
+
+**A folder is named by its cluster in more places than a file.** Its own
+`.`, its children's `..` and its parent's entry are on the disk, and the
+engine rewrites all three, in an order where a stop leaves `..` entries a
+repair puts right and never a folder nothing names. The machine names it
+too: every program's current folder, every Disk window's, the clipboard's.
+Those are the kernel's own words and the engine patches them. What it
+cannot patch is a folder cluster a PROGRAM has kept for itself -
+`OSAPI_FILE_HERE` hands one out, fifty packages ask for one, and System
+Check itself banks two. So the rule is plain: folders move only when no
+other program is open, and the report says so when one is (*folders not
+moved: 1 programs open*). The test leaves a Disk window standing inside the
+folder it moves, with the Task Manager open, and runs the defragmenter
+twice: the first run moves files and leaves the folder; the second, with
+the Task Manager closed, moves the folder - and the window's own folder
+word follows it.
+
+**A write mid-run** is now proved both ways: the report System Check saves
+moves the volume's write generation (so `disk_write_x` really bumps it), and
+a generation moved while a check runs ends the run with *the disk changed -
+scan again*. The first attempt poked the generation before the run had
+recorded it, and the test went red - which is what showed it would.
+
+**CGA and Hercules** run the planted release-check disk as an XT-IDE hard
+disk on MartyPC's 5150, unattended through the link parameter; both find
+the same 5 broken and 6 warnings the VGA row does.
+
+The owner also asked what was "wrong about the claim" behind kern_mega's
+fault, and the honest answer is nothing: a claim an `OS88_HIGHMEM` program
+gets above 1MB is a data selector alone by design, RealDMG already handles
+it the same way, and the SDK's general note now says so.

@@ -250,7 +250,8 @@ class Vol(object):
 def check(v):
     """What a CHKDSK finds, by the independent reader: a dict of lists."""
     r = {"lost": [], "xlink": [], "long": [], "short": [], "broken": [],
-         "frag": [], "dot": [], "fatdiff": 0, "files": 0, "dirs": 0}
+         "frag": [], "dfrag": [], "dot": [], "fatdiff": 0, "files": 0,
+         "dirs": 0}
     owner = {}
     for path, o, e, parent in v.walk():
         isdir = bool(e[11] & 0x10)
@@ -287,6 +288,8 @@ def check(v):
             if val >= v.eoc:
                 break
             c = val
+        if isdir and ok and pieces > 1:
+            r["dfrag"].append(path)
         if not ok or isdir:
             continue
         need = (size + v.cb - 1) // v.cb
@@ -351,6 +354,21 @@ def broken_fixture(base=None):
     return bytes(v.img)
 
 
+def folder_in_pieces(v):
+    """\\FOLD: a folder of two clusters FAR APART, holding a file and a
+    child folder (with a file of its own), so moving it has a '.' to
+    rewrite, a child's '..' to rewrite and bytes to keep (SPEC.md 118.14.5)."""
+    fold = v.mkdir("FOLD")
+    far = v.free()[-3]
+    v.put(fold, far)
+    v.put(far, v.eoc | 0xF)
+    v.img[v.coff(far):v.coff(far) + v.cb] = bytes(v.cb)
+    v.add("NOTE.TXT", blob(v.cb + 50, 16), parent=fold)
+    child = v.mkdir("CHILD", parent=fold)
+    v.add("DEEP.TXT", blob(300, 17), parent=child)
+    return fold
+
+
 def frag_fixture(base=None):
     v = Vol(open(base or b("util360.img"), "rb").read())
     cb = v.cb
@@ -361,8 +379,10 @@ def frag_fixture(base=None):
     v.add("F4.BIN", blob(6 * cb + 77, 14))     # F2's three, and past F3
     v.delete("F1.BIN")
     v.add("F5.BIN", blob(5 * cb + 9, 15))      # F1's four, and one more
+    folder_in_pieces(v)
     r = check(v)
     assert set(r["frag"]) >= {"\\F4.BIN", "\\F5.BIN"}, r["frag"]
+    assert r["dfrag"] == ["\\FOLD"], r["dfrag"]
     return bytes(v.img)
 
 
@@ -373,7 +393,7 @@ TASKS = {1: "Check the disk", 2: "Check and repair the disk",
          3: "Defragment the disk"}
 
 
-def run_task(ui, flush, task, first, fails, limit=900.0):
+def run_task(ui, flush, task, first, fails, limit=900.0, also=None):
     """Choose B: and task (1-3), Scan, then Save Report until the report
     names this task and a result. Returns the report's text."""
     import os88marty
@@ -399,7 +419,8 @@ def run_task(ui, flush, task, first, fails, limit=900.0):
             text = flush.volume(1).read("SYSCHECK.TXT").decode("latin1")
         except Exception:               # noqa: BLE001 - not written yet
             continue
-        if want in text and "Result:" in text:
+        if want in text and "Result:" in text and \
+                (also is None or also in text):
             return text
     fails.append("task %d (%s) never wrote its report in %ds of guest time"
                  % (task, TASKS[task], limit))
@@ -474,6 +495,12 @@ def leg1(work, fails):
 
 
 def leg2(work, fails):
+    """Defragment, twice. Disk window 1 stands IN \\FOLD and the Task
+    Manager is open: the first run moves files and must leave folders where
+    they are, saying why (a program may hold a folder's cluster where the
+    kernel cannot see it, SPEC.md 118.14.5). Then the Task Manager closes and
+    the second run moves \\FOLD - and window 1's FS_CWD, a kernel word, must
+    follow it to the new run."""
     import os88flush
     import os88ui
     img = os.path.join(work, "frag.img")
@@ -481,21 +508,50 @@ def leg2(work, fails):
     v0 = Vol(open(img, "rb").read())
     sums = {p: hashlib.sha1(v0.read(p)).hexdigest()
             for p, _, e, _ in v0.walk() if not e[11] & 0x10}
+    fold0 = struct.unpack_from("<H", v0.find("\\FOLD")[1], 26)[0]
     with os88ui.boot(b("os8088-360.img"), apps=img) as ui:
         flush = os88flush.Flush(marty=ui.m)
-        ui.path("B:/SYSCHECK.O88")
+        wf = ui.path("B:/FOLD")                 # window 1, standing in FOLD
+        if ui.fs_of(wf)[1] != fold0:
+            fails.append("window 1 is not standing in FOLD")
+        wr = ui.open_drive("B")                 # window 2, at the root:
+        tm = ui.open("TASKMGR.O88", win=wr)     # another program open, and
+        ui.raise_window(wr)                     # System Check from the same
+        sc = ui.open("SYSCHECK.O88", win=wr)    # window (a program can cover
+                                                # the drive's desktop zone)
         text = run_task(ui, flush, 3, True, fails)
         print(text)
-        need(fails, text, ["files moved, 0 left in pieces"], "defragment")
+        need(fails, text, ["files moved, 0 left in pieces",
+                           "folders not moved: 1 programs open"],
+             "defragment with a program open")
+        v1 = Vol(flush.snapshot(1))
+        if struct.unpack_from("<H", v1.find("\\FOLD")[1], 26)[0] != fold0:
+            fails.append("FOLD moved while another program was open")
+        ui.close(tm)
+        ui.raise_window(sc)
+        text = run_task(ui, flush, 3, False, fails, also="folders moved")
+        print(text)
+        need(fails, text, ["folders moved", "0 left in pieces"],
+             "defragment with nothing else open")     # FOLD, and any folder
+                                                      # pass 2 packs lower
         v = Vol(flush.snapshot(1))
+        fold = struct.unpack_from("<H", v.find("\\FOLD")[1], 26)[0]
+        if fold == fold0:
+            fails.append("FOLD did not move")
+        cwd = ui.fs_of(wf)[1]
+        if cwd != fold:
+            fails.append("window 1's FS_CWD names %d, FOLD is at %d (was %d)"
+                         % (cwd, fold, fold0))
     r = check(v)
-    for k in ("lost", "xlink", "long", "short", "broken", "dot"):
+    for k in ("lost", "xlink", "long", "short", "broken", "dot", "dfrag"):
         if r[k]:
-            fails.append("after defragmenting the reader finds %s: %r" % (k, r[k]))
+            fails.append("after defragmenting the reader finds %s: %r"
+                         % (k, r[k]))
     if r["fatdiff"]:
         fails.append("after defragmenting the FAT copies differ")
     movable = [p for p, _, e, _ in v.walk()
-               if not e[11] & 0x16 and not p.endswith(".IMG")]
+               if not e[11] & 0x10 and not p.endswith(".IMG")
+               and not p.endswith("SYSCHECK.TXT")]
     left = [p for p in r["frag"] if p in movable]
     if left:
         fails.append("still in pieces after defragmenting: %r" % left)
@@ -506,9 +562,66 @@ def leg2(work, fails):
             fails.append("%s's bytes changed in the move" % p)
 
 
+def leg3(work, fails):
+    """A WRITE BETWEEN TWO STEPS ENDS THE RUN (SPEC.md 118.14.6), both halves:
+    disk_write_x moves B:'s write generation (System Check's own report is a
+    write), and a generation that moved mid-run - another writer, simulated by
+    bumping [dsk_wgen+1] while a check runs - ends it with 'the disk changed'
+    rather than a picture of a disk that is no longer there."""
+    import os88flush
+    import os88marty
+    import os88ui
+    img = os.path.join(work, "frag.img")
+    open(img, "wb").write(frag_fixture())
+    with os88ui.boot(b("os8088-360.img"), apps=img) as ui:
+        m = ui.m
+        flush = os88flush.Flush(marty=m)
+        gen = m.sym("dsk_wgen") + 1                     # B:'s
+        ui.path("B:/SYSCHECK.O88")
+        m.key("ArrowDown")
+        os88marty.guest_sleep(m, 0.5)
+        m.key("Digit2")                                 # Check the disk
+        os88marty.guest_sleep(m, 0.5)
+        m.key("Enter")
+        for _ in range(16):                             # "somebody wrote B:",
+            os88marty.guest_sleep(m, 0.25)              # again and again: one
+            g = m.read(gen, 1)[0]                       # before the run's
+            m.write(gen, bytes([(g + 1) & 0xFF]))       # BEGIN is harmless,
+        before = m.read(gen, 1)[0]                      # one inside it is not
+        text = run_task_wait(ui, flush, "Check the disk", fails,
+                             also="the disk changed")
+        print(text)
+        need(fails, text, ["the disk changed - scan again"],
+             "a write mid-run")
+        if m.read(gen, 1)[0] == before:
+            fails.append("saving SYSCHECK.TXT onto B: did not move B:'s write "
+                         "generation - disk_write_x does not bump it")
+
+
+def run_task_wait(ui, flush, task, fails, also=None, limit=300.0):
+    """run_task's waiting half, for a run already started."""
+    import os88marty
+    m = ui.m
+    waited = 0.0
+    while waited < limit:
+        os88marty.guest_sleep(m, 4.0)
+        waited += 4.0
+        m.key("KeyR")
+        os88marty.guest_sleep(m, 2.0)
+        waited += 2.0
+        try:
+            text = flush.volume(1).read("SYSCHECK.TXT").decode("latin1")
+        except Exception:               # noqa: BLE001 - not written yet
+            continue
+        if "Task: " + task in text and (also is None or also in text):
+            return text
+    fails.append("the %s run never wrote its report" % task)
+    return ""
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--leg", type=int, choices=(1, 2))
+    ap.add_argument("--leg", type=int, choices=(1, 2, 3))
     ap.add_argument("--build", metavar="DIR")
     a = ap.parse_args()
     if a.build:
@@ -524,6 +637,8 @@ def main():
             leg1(work, fails)
         if a.leg in (None, 2):
             leg2(work, fails)
+        if a.leg in (None, 3):
+            leg3(work, fails)
     finally:
         shutil.rmtree(work, ignore_errors=True)
     if fails:

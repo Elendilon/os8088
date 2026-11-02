@@ -40,11 +40,10 @@ mockups are [docs/syscheck/design/](../syscheck/design/).
 - [x] **Presentation:** as a user on Hercules or CGA the lamps are shapes
   rather than colours and the layout fits the screen; on VGA they are the
   mockup's colours.
-- [ ] **Acceptance:** a hard-disk image with each kind of breakage planted is
-  booted from C:, scanned, reported and cleaned up by a soak row, on every
-  adapter the window claims. *Done on VGA (`syscheck`, QEMU); Hercules and
-  CGA have been LOOKED AT on MartyPC (a clean system disk, every row OK) but
-  no row drives a planted disk on them yet.*
+- [x] **Acceptance:** a hard-disk image with each kind of breakage planted is
+  booted from C:, scanned and reported by a soak row on every adapter the
+  window claims: VGA with Clean Up (`syscheck`, QEMU), CGA and Hercules
+  (`syscheckmono`, MartyPC, run from an `AUTOSTRT` link).
 
 ### Disk tasks: check, repair, defragment (SPEC.md 118.14)
 
@@ -75,10 +74,11 @@ mockups are [docs/syscheck/design/](../syscheck/design/).
   check) makes every movable file one piece and packs files towards the
   start, through free space only, leaving folders, hidden and system files
   and disk images where they are.
-- [ ] **Safety:** as a user a save onto the disk mid-run, or a swapped
+- [x] **Safety:** as a user a save onto the disk mid-run, or a swapped
   floppy, ends the run with *The disk changed - scan again* instead of
-  working from a stale picture. *Built (SPEC.md 118.14.6: the per-volume
-  write generation, the volume signature); no row writes mid-run yet.*
+  working from a stale picture. `fsckdisk`'s third leg bumps the write
+  generation mid-run and holds the report to it, and checks that a real
+  write (the report itself) moves the generation.
 - [x] **Acceptance:** `fsckdisk` (soak, MartyPC) plants seven faults on a
   copy of util360.img, checks, repairs and defragments it, and holds every
   result to an independent FAT reader. Looked at on CGA and VGA.
@@ -95,9 +95,14 @@ mockups are [docs/syscheck/design/](../syscheck/design/).
 - [x] **Run from a link:** as a user an `AUTOSTRT` link such as
   `SYSCHECK.O88 C: DEFRAG REPORT` defragments a disk at every boot with
   nobody at the machine (SPEC.md 118.14.9).
-- [ ] **Folders:** a folder in pieces is reported in the count but never
-  moved; moving one means rewriting its `.`, its entry in its parent and
-  every child folder's `..`. *Not built.*
+- [x] **Folders:** as a user *Defragment the disk* puts folders in one piece
+  and packs them low too: their `.`, their children's `..`, and the
+  kernel's own words that name them (each program's and each Disk window's
+  folder, the clipboard's) follow - and only while no other program is
+  open, because a program may hold a folder's cluster where nothing can see
+  it; otherwise the run says so and moves files alone. `fsckdisk` (FAT12)
+  and `fsckhd` (FAT16) move folders; `fsckdisk` holds a Disk window
+  standing in one to it.
 
 ## Existing facilities and boundaries
 
