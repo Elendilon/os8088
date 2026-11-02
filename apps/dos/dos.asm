@@ -7284,10 +7284,10 @@ dos_paint:
     ; leaving it - con_scrollpaint would blit a screen that has just been drawn
     ; from the buffer and mark only the rows it vacated (telnet's te_screen
     ; carries the same pair and the same reason).
-    call con_markall
-    call con_rows_owed
-    call con_takescroll
-%endif
+    call con_takescroll             ; ...FIRST (SPEC.md 96.54.12): con_takerow
+    call con_markall                ; refuses a row while a debt stands, so
+    call con_rows_owed              ; the debt is dropped and then every row
+%endif                              ; drawn, which is the same screen
 .card:
     ; --- AND THE ABOUT CARD LAST, OVER WHICHEVER PAGE IT WAS (SPEC.md 96.51) -
     ; Both branches arrive here - the setup page by `jmp .card` above and the

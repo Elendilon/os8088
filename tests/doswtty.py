@@ -58,7 +58,7 @@ MACHINE = os.environ.get("DOSWTTY_MACHINE", "os8088_5150_herc_gla")
 LEGS = (("9", "INT 21h AH=09h", 80.0),
         ("l", "five bare LFs", None),
         ("e", "INT 10h AH=0Eh", 65.0),
-        ("b", "AH=02h/09h/02h", 40.0))
+        ("b", "AH=02h/09h/02h", 35.0))
 LIMIT = 120.0                       # guest seconds a leg may take at all
 
 
@@ -211,6 +211,10 @@ def run(disk):
             force()
             b = m.fbuf()
             n, first = band_diff(a, b, x0 + off[0], y0 + off[1], vc, vr)
+            if n and os.environ.get("DOSWTTY_SHOTS"):  # the two, to look at
+                for t, c in (("a", a), ("b", b)):
+                    os88marty.write_png_rgb("%s-%s.png" % (
+                        os.environ["DOSWTTY_SHOTS"], t), c[0], c[1], c[2])
             if n:
                 fail("after %s in the window, %d pixels of the band changed "
                      "when every row was repainted whole (the first at %r): "
