@@ -161,6 +161,18 @@ C apps/os88xgap.inc @xg_gap              # an 8KB scratch at the DMA door for on
 
 # --- packages: bucket C - one callback, command, call or bracket ---------------
 
+D apps/syscheck/disk.inc sc_wseg         # FSCHECK.DRV's workspace (SPEC.md 118.14.2):
+                                         # int 13h moves sectors straight into it
+                                         # on every step of a disk task, a claim at
+                                         # the DMA door, freed when the task ends
+X apps/syscheck/disk.inc sc_fseg         # FSCHECK.DRV, KERNEL CODE the kernel far-
+                                         # calls on every step (118.14.1): a claim
+                                         # made inside a step - the read-ahead
+                                         # cache's - could compact it out from
+                                         # under CS, exactly why a MEM_K_MOD image
+                                         # is pinned. Kept for the window's life
+                                         # because the folder it was read from may
+                                         # itself be moved by the defragmenter
 C apps/notepad/notepad.asm np_stgseg     # the save's CR/LF staging, held only
                                          # across the OSAPI_FILE_WRITE it is the
                                          # ES:BX of

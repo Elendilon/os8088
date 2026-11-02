@@ -1064,9 +1064,9 @@
   "sources": [
    "apps/syscheck"
   ],
-  "stamped": "b4d46a82",
-  "strings": "6c7bfd7a870376d8",
-  "why": "Section renumber 116 to 118 in source comments only; the page already describes the drive chooser and cites no section"
+  "stamped": "23cf0ad5",
+  "strings": "22403500aab895a1",
+  "why": "rewritten for the disk tasks (check, repair, defragment, folders, KERNEL.SYS on a hard disk) and the link parameter; read against the program as it is"
  },
  "SYSTEM": {
   "sources": [],
