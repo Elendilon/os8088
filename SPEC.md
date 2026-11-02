@@ -190021,8 +190021,9 @@ not taken, and its section 4 is the speed this one gives up.
 Every reference the two files make across the line between the HOST (the
 console, the core, the doors, the instance's region) and the LAYER is
 spelled with a macro chosen by who owns the symbol: `HCALL`/`HJMP` a host
-routine, `HICALL` the posted door's target, `HREF` a host cell from an
-interrupt (two sites, both IF = 0), `HOSTDS`/`HOSTES` a `push cs / pop` that
+routine, `HICALL` the posted door's target, `DVW_LOWSTK` the one host cell
+an interrupt path reads (`dvw_tolow`'s `[dos_dstk]`, through SS, IF = 0),
+`HOSTDS`/`HOSTES` a `push cs / pop` that
 meant the host, `PARTDS`/`PARTES`/`PARTCS` one that meant the layer, `PS` a
 layer cell reached while DS is the host's, `PADDR()` a layer label used as an
 offset in the layer and `HENT()` one the host or the kernel ENTERS (its
@@ -190066,7 +190067,11 @@ character), `dvw_cap`, `dvw_rtgt` (the posted door's target, read by the
 host's `HICALL` thunk through its own CS) and `dvw_pseg`, the part's segment.
 Everything else is the part's, so an interrupt path that read `[cs:dvw_*]`
 inline reads the same bytes in the part with no change at all - 111 of the
-layer's 119 `cs:` operands - and the two that named host cells are `HREF`s.
+layer's 119 `cs:` operands. The two that named host cells were `HREF`s,
+which banked DS in a part cell; neither is now: `dvw_tolow` loads SS with the
+host's segment for the one read (`DVW_LOWSTK` - SS is what it is replacing
+anyway), and `dvw_cpace`'s one caller, `dvw_xpost`, sets DS to the host's
+before calling it instead of after.
 
 **DS IS THE HOST'S IN THE PART** wherever the part touches host data or calls
 the kernel, and that is not a style: an `OSAPI_*` cell names its caller by DS
@@ -190083,8 +190088,14 @@ by a far JUMP, so `dvw_post` sees the stub's return and `dvw_fin` the core's
 exactly as inline, and `dvw_post` goes back with a far jump to a host `ret`
 (`DVW_POSTRET`). Out of the part: `call far [cs:dvwx_<name>]` through a dword
 per host routine (`DVW_HOSTCALLS`, 28 of them) onto a four-byte host thunk
-`call <name> / retf`; `dvw_hbind` writes the host's segment into all of them
-at the head of every `dvw_start`, the one entry that runs first in a run.
+`call <name> / retf`. **The dwords are not shipped**: they are zeros after
+the cells, because the host lays its thunks out as a four-byte STRIDE from
+`dvwh_0` - the 28, then `DVW_POSTRET`'s `ret` (padded to the stride), then
+`HICALL`'s thunk, which `doswr.inc` and `doswp.asm` both assert - so
+`dvw_hbind` computes every offset as `dvwh_0 + 4n` and writes it with the
+host's segment, at the head of every `dvw_start`, the one entry that runs
+first in a run. Thirty incompressible words were 110 bytes of the packed
+part; the loop is 12 bytes more than the one that wrote only the segments.
 
 **THE LIFECYCLE.**
 
@@ -190141,6 +190152,28 @@ teletype twice; the owner accepted it. INT 21h output never enters the layer
 and is unchanged. The disk figure is above the plan's ~0.75 KB estimate: the
 part is a separate stream (the host packs 2,666 smaller for 3,923 fewer raw
 bytes) and a part starts on a sector of its own.
+
+**THE SIZE PASS** (2026-11-02, measured against `8f18e5f3` on the same
+flags): the part **4,830 -> 4,755** bytes of image and cells (still a 5 KB
+claim), packed **3,707 -> 3,534** lz4 and **3,253 -> 3,140** LZB; the window's
+tail of the host (part 1) **19,688 -> 19,678** and the resident host (part 0)
+**25,982 -> 25,981**; `DOS.O88` **53,803 -> 53,630** and the 360KB disk's LZB
+copy **47,701 -> 47,572**. The INLINE shape moved too, on purpose - the two
+layer changes below are in both arms - `build/dos.bin` 42,973 -> 42,941 of
+image and 10,229 -> 10,222 of bss. Where it came from: the computed pointer
+table above; `dvw_scroll`'s seven bytes of window cells became its own frame
+(the caller's CX, BH and AH read where the entry pushed them, the clamped
+corner and count pushed beside them - a shorter operand in both shapes, a
+CS: prefix fewer in the part, 6 bytes more of the program's stack); the
+`HREF`s above; `dvw_fsmain` storing fs and frz as one word (they are adjacent
+and asserted so); TopView's segment stored from DS where DS is already the
+host's; `DVW_POSTRET`'s pops at its one site instead of a jump to a copy; and
+in the host, `dvw_preloc` falling into `dvw_patch`, the wake wrapper into
+`dvw_relax`, a shift for the KB, and the last stub's unreached pad. No
+crossing was added or taken out. What is longer is once a run (`dvw_hbind`'s
+loop) or once a scroll (`dvw_scroll`'s prologue, four instructions), against
+shorter operands on every read of its row loop and two fewer instructions on
+`dvw_tolow`'s every tick off a foreign stack.
 
 `tests/doswpart.py` is the claim's gate - no part for a window that only ran
 on the full screen; the first Run in Window's 5 KB claim, pinned for the run

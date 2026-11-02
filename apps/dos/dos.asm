@@ -17626,7 +17626,6 @@ dvw_pseg    equ dvw_cap + 4     ; word: the part's claim, 0 = not fetched
     HBSS DOS_B_DVWK8, 4         ; the kernel's int 08h, far
     HBSS DOS_B_DVWR,  22        ; a posted door: its target, ten registers
     HBSS DOS_B_DVWQ,  32        ; the window's keys, sixteen
-    HBSS DOS_B_DVWS,  7         ; dvw_scroll's window
     HBSS DOS_B_DVWX,  DVW_XB_SIZE   ; the program's vectors and BDA...
     HBSS DOS_B_DVWD,  DVW_XB_SIZE   ; ...and the desktop's, while it runs
     HBSS DOS_B_DWM,   10        ; INT 33h in the window (doswm.inc)
@@ -17682,11 +17681,6 @@ dvw_r_es    equ dvw_rtgt + 16
 dvw_r_ds    equ dvw_rtgt + 18
 dvw_r_fl    equ dvw_rtgt + 20
 dvw_kq      equ dos_hbss + DOS_B_DVWQ
-dvw_sc_t    equ dos_hbss + DOS_B_DVWS   ; CL left, CH top
-dvw_sc_b    equ dvw_sc_t + 2            ; DL right, DH bottom
-dvw_sc_a    equ dvw_sc_t + 4
-dvw_sc_up   equ dvw_sc_t + 5
-dvw_sc_n    equ dvw_sc_t + 6
 dvw_xblk    equ dos_hbss + DOS_B_DVWX
 dvw_xdsk    equ dos_hbss + DOS_B_DVWD
 %endif

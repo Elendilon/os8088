@@ -19,9 +19,10 @@
 ;
 ;   0              the entry table, DVWE_N four-byte entries (doswabi.inc)
 ;   ...            dosw.inc, doswm.inc and the part-only glue below
-;   dvwx_tab       a far pointer per host routine the part calls, and the
-;                  two thunks of HICALL and DVW_POSTRET
 ;   dvw_pcells     apps/dos/doswcell.inc: the layer's own cells, as zeros
+;   dvwx_tab       a far pointer per host routine the part calls, and the
+;                  two thunks of DVW_POSTRET and HICALL - zeros too, every
+;                  word of it written by dvw_hbind
 ; =============================================================================
 
 %define DVW
@@ -73,32 +74,28 @@ dvwe_fin:     jmp strict near dvw_fin   ; DVWE_FIN - a JUMP: the core's return
 ; between runs (its region is pinned by the worker's frame for a run), so
 ; once here is enough: no other entry can be reached with stale pointers.
 ; -----------------------------------------------------------------------------
+;
+; The pointers are ZEROS in the image (they follow the cells) and their
+; offsets are COMPUTED: the host's thunks are a 4-byte stride from dvwh_0, in
+; DVW_HOSTCALLS order and then dvwh_ret and dvwh_icall (doswr.inc asserts it),
+; so a table of 30 incompressible words ships as nothing.
+; -----------------------------------------------------------------------------
 dvw_hbind:
+    push ax
     push di
     mov [cs:dvw_hseg], ds
-    mov di, PADDR(dvwx_tab) + 2
+    mov di, PADDR(dvwx_tab)
+    mov ax, dvwh_0
 .b:
-    mov [cs:di], ds
+    mov [cs:di], ax
+    mov [cs:di+2], ds
+    add ax, 4
     add di, 4
     cmp di, PADDR(dvwx_end)
     jb .b
     pop di
-    ret
-
-; dvw_rpopf - dvw_post's way back (DVW_POSTRET): the ten registers, then the
-; host's `ret`, which pops the core's own near return with CS the host's
-dvw_rpopf:
     pop ax
-    pop bx
-    pop cx
-    pop dx
-    pop si
-    pop di
-    pop bp
-    pop es
-    pop ds
-    popf
-    jmp far [cs:dvwx_ret]
+    ret
 
 ; -----------------------------------------------------------------------------
 ; dvw_key - DVWE_KEY: dos_key's arm for a running program (SPEC.md 96.54,
@@ -118,20 +115,25 @@ dvw_key:
 .r:
     ret
 
-; --- OUT: a far pointer per host routine, the segments dvw_hbind's ----------
-    align 2, db 0
-%assign DVWH_N 0                    ; numbered as doswr.inc numbers the
-%macro DVW_HX 1                     ; thunks, off the same list
+%include "doswcell.inc"
+
+; --- OUT: a far pointer per host routine, all of it dvw_hbind's ------------
+; zeros, after the cells; numbered as doswr.inc numbers the thunks, off the
+; same list, and then DVW_POSTRET's `ret` and HICALL's thunk - the order
+; dvw_hbind's stride assumes
+%assign DVWH_N 0
+%macro DVW_HX 1
 dvwx_%1:
-    dw dvwh_ %+ DVWH_N, 0           ; DVWCHK-OK: the host's thunk, by design
+    dd 0
 %assign DVWH_N DVWH_N + 1
 %endmacro
 dvwx_tab:
     DVW_HOSTCALLS
-dvwx_icall:
-    dw dvwh_icall, 0                ; DVWCHK-OK: HICALL's thunk
 dvwx_ret:
-    dw dvwh_ret, 0                  ; DVWCHK-OK: DVW_POSTRET's `ret`
+    dd 0
+dvwx_icall:
+    dd 0
 dvwx_end:
-
-%include "doswcell.inc"
+%if dvwh_ret != dvwh_0 + 4 * DVWH_N || dvwh_icall != dvwh_ret + 4
+ %error "the host's thunks are not the stride dvw_hbind computes (doswr.inc)"
+%endif

@@ -24,7 +24,6 @@
     align 2, db 0
 dvw_pcells:
 dvw_hseg    dw 0                ; the HOST's segment, written by dvw_hbind
-dvw_tds     dw 0                ; HREF's bank of DS (doswabi.inc), IF = 0 only
 dvw_cseg    dw 0                ; the capture's card: B800h or B000h
 dvw_csview  dw 0                ; ...and the segment TopView was told
 dvw_lss     dw 0                ; LOW_SEG, the worker's stack segment
@@ -43,11 +42,6 @@ dvw_r_bp    dw 0
 dvw_r_es    dw 0
 dvw_r_ds    dw 0
 dvw_r_fl    dw 0
-dvw_sc_t    dw 0                ; dvw_scroll's window: CL left, CH top
-dvw_sc_b    dw 0                ; ...DL right, DH bottom
-dvw_sc_a    db 0
-dvw_sc_up   db 0
-dvw_sc_n    db 0
 dvw_kill    db 0                ; the window is closing: stop it
 dvw_in      db 0                ; the instance's world is in the IVT
 dvw_rq      db 0                ; a door: 1 posted, 2 served, 0 done

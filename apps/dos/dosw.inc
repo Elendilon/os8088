@@ -304,8 +304,7 @@ dvw_tolow:
     pop ax
     mov [cs:dvw_fss], ss
     mov [cs:dvw_fsp], sp
-    mov ss, [cs:dvw_lss]
-    HREF mov sp, [HS dos_dstk]
+    DVW_LOWSTK                      ; SS = LOW_SEG, SP = the gate's mark
     sub sp, DVW_GAP
     jmp ax      ; DVWCHK-OK: our own return, popped above
 
@@ -316,9 +315,9 @@ dvw_tolow:
 ; and a quiet one none. OSAPI_WM_WAKE is ISR-safe and coalesces
 dvw_xpost:
     call dvw_xout               ; the desktop's world, sch_isr back at 08h
-    call dvw_cpace
     push ds
     HOSTDS
+    call dvw_cpace              ; (DS the host: its .post marks the band)
     cmp byte [dvw_dirty], 0
     je .r
     mov byte [dvw_dirty], 0
@@ -719,7 +718,8 @@ dvw_runprog:
     mov ah, al
     mov al, [con_cx]
     mov [PS dvw_xblk + DVW_XB_VID + 7], ax     ; 0040:0050, page 0
-    HSEGTO dvw_csview            ; TopView's answer, and its update's test
+    mov [PS dvw_csview], ds         ; TopView's answer, and its update's test
+                                    ; (DS is the host's: DVW_PCEND)
     mov byte [PS dvw_cmode], 0
     call dvw_cdetect                ; **A SCREEN THE WINDOW CAN READ**
     jc .nocap                       ; (96.54.6): the other card's text RAM
@@ -1073,7 +1073,22 @@ dvw_setcur:
 ; -----------------------------------------------------------------------------
 ; dvw_scroll - AH 06h up / 07h down, AL lines (0 = clear), BH the fill
 ; attribute, CH,CL the top left, DH,DL the bottom right
+;
+; **ITS STATE IS ITS OWN FRAME, NOT CELLS** (SPEC.md 96.54.9): the window's
+; top left, the fill and the direction are the caller's own CX, BH and AH,
+; which the entry pushes anyway and nothing changes - so they are read where
+; they were pushed, [bp+...] on SS - and only the clamped bottom right and
+; the line count are pushed beside them. A cell of the layer's is a CS:
+; prefix in the part on every read; a frame slot is a shorter operand in
+; both shapes. 6 bytes more of the program's stack (BP and the two words)
 ; -----------------------------------------------------------------------------
+DVWS_L  equ 10                      ; [bp+DVWS_L]  CL the left (CX pushed)
+DVWS_T  equ 11                      ; [bp+DVWS_T]  CH the top
+DVWS_A  equ 13                      ; [bp+DVWS_A]  BH the fill (BX pushed)
+DVWS_UP equ 15                      ; [bp+DVWS_UP] AH 06h or 07h (AX pushed)
+DVWS_R  equ -2                      ; [bp+DVWS_R]  DL the right, clamped
+DVWS_B  equ -1                      ; [bp+DVWS_B]  DH the bottom, clamped
+DVWS_N  equ -4                      ; [bp+DVWS_N]  the lines, clamped
 dvw_scroll:
     push ax
     push bx
@@ -1082,6 +1097,8 @@ dvw_scroll:
     push si
     push di
     push es
+    push bp
+    mov bp, sp
     push ds
     pop es
     cmp dh, CON_ROWS - 1
@@ -1096,10 +1113,7 @@ dvw_scroll:
     ja .out
     cmp cl, dl
     ja .out
-    mov [PS dvw_sc_t], cx              ; CL left, CH top
-    mov [PS dvw_sc_b], dx              ; DL right, DH bottom
-    mov [PS dvw_sc_a], bh
-    mov [PS dvw_sc_up], ah
+    push dx                         ; [bp-2] DL right, DH bottom
     mov bh, dh
     sub bh, ch
     inc bh                          ; BH = the window's height
@@ -1110,39 +1124,39 @@ dvw_scroll:
 .all:
     mov al, bh
 .n:
-    mov [PS dvw_sc_n], al
+    push ax                         ; [bp-4] AL the lines
     cld
     xor bl, bl
 .row:                               ; BL = 0..height-1, the row's ORDER
-    mov al, [PS dvw_sc_t + 1]          ; top
-    cmp byte [PS dvw_sc_up], 0x06
+    mov al, [bp+DVWS_T]             ; top
+    cmp byte [bp+DVWS_UP], 0x06
     je .uprow
-    mov al, [PS dvw_sc_b + 1]          ; down: bottom upwards
+    mov al, [bp+DVWS_B]             ; down: bottom upwards
     sub al, bl
     mov ah, al
-    sub ah, [PS dvw_sc_n]              ; the source row, above
+    sub ah, [bp+DVWS_N]             ; the source row, above
     jmp short .have
 .uprow:
     add al, bl
     mov ah, al
-    add ah, [PS dvw_sc_n]              ; the source row, below
+    add ah, [bp+DVWS_N]             ; the source row, below
 .have:                              ; AL = the destination row, AH = source
     push bx
     mov dl, al
     call .addr                      ; DI = the destination
     mov di, si
-    mov cl, [PS dvw_sc_b]
-    sub cl, [PS dvw_sc_t]
+    mov cl, [bp+DVWS_R]
+    sub cl, [bp+DVWS_L]
     inc cl
     xor ch, ch                      ; CX = the window's width
     mov al, ah
-    cmp byte [PS dvw_sc_up], 0x06
+    cmp byte [bp+DVWS_UP], 0x06
     je .srcup
-    cmp al, [PS dvw_sc_t + 1]
+    cmp al, [bp+DVWS_T]
     jl .blank                       ; above the window: no source
     jmp short .copy
 .srcup:
-    cmp al, [PS dvw_sc_b + 1]
+    cmp al, [bp+DVWS_B]
     jg .blank                       ; below the window: no source
 .copy:
     call .addr                      ; SI = the source
@@ -1150,7 +1164,7 @@ dvw_scroll:
     jmp short .marked
 .blank:
     mov al, ' '
-    mov ah, [PS dvw_sc_a]
+    mov ah, [bp+DVWS_A]
     rep stosw   ; DVWCHK-OK: into con_scr, ES the host
 .marked:
     mov bl, dl
@@ -1161,7 +1175,10 @@ dvw_scroll:
     cmp bl, bh
     jb .row
     mov byte [dvw_dirty], 1
+    pop di                          ; the two words of the frame (DI is
+    pop di                          ; popped again below)
 .out:
+    pop bp
     pop es
     pop di
     pop si
@@ -1176,7 +1193,7 @@ dvw_scroll:
     xor ah, ah
     mov dx, CON_COLS * 2
     mul dx
-    mov dl, [PS dvw_sc_t]
+    mov dl, [bp+DVWS_L]
     xor dh, dh
     add ax, dx
     add ax, dx
@@ -1524,9 +1541,9 @@ dvw_fsmain:
     DVW_PESEND
     mov byte [dos_aedn], 1          ; the Alt+Enter that brought us here is
     mov byte [dos_inbr], 1          ; still held: SEEDED DOWN (96.33.5.1). And
-    mov byte [PS dvw_fs], 1            ; DOS's teletype goes to the ROM now
-    mov byte [PS dvw_fsreq], 0
-    mov byte [PS dvw_frz], 0           ; ...and a FROZEN program thaws onto it
+    mov word [PS dvw_fs], 1         ; DOS's teletype goes to the ROM now -
+    mov byte [PS dvw_fsreq], 0      ; and frz, the byte after fs, is 0: a
+                                    ; FROZEN program thaws onto it
     sti
 .loop:
     call dvw_serve                  ; (a parking program may be waiting on a
@@ -1601,7 +1618,8 @@ dvw_fsmain:
 ; holds the CPU or sleeps (dvw_cpace), and never on the full screen or a
 ; frozen program, whose console is the captured glass.
 
-; --- dvw_cpace - post the pass, every DVWC_EVERY+1 ticks (any context) -------
+; --- dvw_cpace - post the pass, every DVWC_EVERY+1 ticks (dvw_xpost's) --------
+; in: DS = the host, every cell of the layer's own through CS
 dvw_cpace:
     cmp byte [cs:dvw_cmode], 0
     je .r
@@ -1649,7 +1667,7 @@ dvw_cpace:
 .r:
     ret
 .post:
-    HREF mov byte [HS dvw_dirty], 1      ; the paint post below is the pass's door
+    mov byte [dvw_dirty], 1         ; the paint post below is the pass's door
     ret
 
 ; -----------------------------------------------------------------------------
