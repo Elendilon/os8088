@@ -64,7 +64,7 @@ that list the whole window, which helps on a small screen.
 | Scan | Asks which drive, then checks it. While a check is running it reads Stop |
 | Details | Gives the findings list more room, or puts the checks back |
 | Save Report | Writes `SYSCHECK.TXT`, naming every finding, to the disk it checked |
-| Clean Up... | Removes the leftovers it is safe to remove, after asking |
+| Clean Up... | Removes the leftovers it is safe to remove, and drivers this kernel refuses, after asking |
 | Quit | Closes System Check |
 
 Keys: **S** scans or stops, **D** is Details, **R** saves the report,
@@ -116,16 +116,31 @@ the machine starts.
 
 ## What Clean Up removes
 
-Clean Up only removes files that are plainly left over: an install's
-`KPAD.TMP`, a hibernation image nothing will resume, and programs this
-release retired. It rebuilds the file associations when they point at
-programs that are gone. Then it checks the disk again.
+Clean Up asks twice. First it offers the files that are plainly left
+over: an install's `KPAD.TMP`, a hibernation image nothing will resume,
+and the programs and drivers this release retired. It rebuilds the file
+associations when they point at programs that are gone.
+
+Then, if the check found any, it asks about the drivers and kernel
+modules this kernel refuses to load - ones built for another driver
+version, or modules from another build: *Also remove 2 refused drivers?*
+Such a file does nothing but take room. Removing it is safe, but an
+install from the release disks is what brings a current copy back, so
+afterwards System Check may list it as missing. A driver that the disk you
+installed from does not carry at all - `XMEM.DRV` is not on the 360KB
+system disk - is simply gone. Press Cancel to keep them. Then it checks
+the disk again.
+
+The drivers are hidden system files, so Clean Up asks **FSCHECK.DRV** to
+remove them, and it removes only a file it has itself found retired or
+refused. A driver this kernel loads, a module it uses and the kernel itself
+are never touched.
 
 It leaves alone a program found in two folders (only you know which copy
-you want) and a program built for another version (it may be your own,
-waiting for an update). It cannot change the system's own hidden files.
-For a wrong kernel or driver, the finding tells you to install again
-from the release disks, keeping your files.
+you want), a program built for another version (it may be your own,
+waiting for an update), a driver that loads but differs from this release's,
+and a kernel from another release. For those, install again from the
+release disks, keeping your files.
 
 ## Good to know
 

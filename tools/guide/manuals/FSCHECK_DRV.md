@@ -2,8 +2,10 @@
 
 `FSCHECK.DRV` holds the code behind System Check's three disk tasks:
 **Check the disk**, **Check and repair the disk** and **Defragment the
-disk**. System Check reads it the first time you pick one of those tasks,
-and puts it away again when its window closes. Nothing else uses it, and
+disk** - and the part of **Clean Up** that removes retired drivers and
+drivers this kernel refuses, which are hidden system files a program cannot
+delete. System Check reads it the first time it needs it, and puts it away
+again when its window closes. Nothing else uses it, and
 the rest of the time it takes no memory at all.
 
 ## Where it lives
@@ -48,4 +50,9 @@ task does not start:
   kernel's own modules. A copy from another release is refused rather than
   run.
 - Leave it where it is. Without it, System Check still checks a disk's
-  release files, but the three disk tasks cannot start.
+  release files, but the three disk tasks cannot start, and Clean Up
+  leaves old drivers where they are.
+- It decides itself which drivers Clean Up may remove: only one on its own
+  list of drivers earlier releases shipped, or one this kernel would refuse
+  to load. It never removes the kernel or a driver or module the kernel
+  uses.

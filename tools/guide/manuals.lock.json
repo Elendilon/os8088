@@ -476,9 +476,9 @@
    "kernel/fsck.inc",
    "apps/syscheck/disk.inc"
   ],
-  "stamped": "24c3d243",
-  "strings": "90f4f6359ab84b95",
-  "why": "first stamp: page written for FSCHECK.DRV, checked against SPEC.md 118.10/118.14 and System Check's disk-task messages"
+  "stamped": "cf5434c4",
+  "strings": "6ce26773f175e5f4",
+  "why": "it also serves Clean Up's driver removal, and decides itself what may go (SPEC.md 118.8.1, 118.8.2)"
  },
  "FTPD_O88": {
   "sources": [
@@ -1073,9 +1073,9 @@
   "sources": [
    "apps/syscheck"
   ],
-  "stamped": "23cf0ad5",
-  "strings": "22403500aab895a1",
-  "why": "rewritten for the disk tasks (check, repair, defragment, folders, KERNEL.SYS on a hard disk) and the link parameter; read against the program as it is"
+  "stamped": "cf5434c4",
+  "strings": "cfc0da8b05182b69",
+  "why": "Clean Up's two questions: retired drivers and refused drivers through FSCHECK.DRV, what it leaves (SPEC.md 118.8.1, 118.8.2)"
  },
  "SYSTEM": {
   "sources": [],
