@@ -137,9 +137,9 @@ gfx_rect_setup:
                                 ; were this store and the add below
     shr dx, cl                  ; dx = right byte (x2 / 8)
     sub dx, ax
-    mov [gfx_rspan], dx          ; span = right byte - left byte
-    or dx, dx
-    jnz .offs
+    mov [gfx_rspan], dx          ; span = right byte - left byte (`mov` writes
+    jnz .offs                   ; no flag: the `sub`'s ZF is the test - kernel
+                                ; size pass 17, -2)
     mov dl, [gfx_rmsk]          ; one-byte rect: combine the masks
     and [gfx_lmsk], dl
 .offs:
@@ -221,23 +221,11 @@ sw_rect:
     push es
     call gfx_rect_setup
     jc .done
-    call sw_rect_pl
-.done:
-    jmp kret_es
-
-; -----------------------------------------------------------------------------
-; sw_rect_pl - internal: the mode staging and the pass, for a rect
-;              gfx_rect_setup has already described.
-;
-; IT WAS "the PLANE LOOP alone", and it is not one any more (SPEC.md 39.26) -
-; see the note at .planes. The header also named gfx_spans as a second caller;
-; that has not been true since SPEC.md 5.10 gave sw_spans a row walk of its
-; own, and sw_rect is the only `call sw_rect_pl` in the tree.
-; in:       the vga_* rect scratch and [sw_mode] are set
-; out:      -
-; clobbers: everything but the segment registers
-; -----------------------------------------------------------------------------
-sw_rect_pl:
+    ; --- the mode staging and the pass, for the rect gfx_rect_setup has just
+    ; described. It was sw_rect_pl, with this one call, until kernel size pass
+    ; 17 wrote it here: its call goes, and its tail `jmp sw_plane_op` is the
+    ; `call` below, whose ret comes back to the ladder (-3 on kern_big, -2 on
+    ; kern_small, where the jump had been short)
     mov byte [sw_altm], 0
     cmp byte [sw_mode], SWM_GRAY ; ONLY gray starts from the dither byte. Solid
     jne .planes                  ; overwrote it per plane below (sw_ink), and
@@ -281,8 +269,10 @@ sw_rect_pl:
                                 ; clocks by the prefetch floor) where it paid
                                 ; a taken je (18.19); GRAY and XOR pay those
                                 ; ~9.5 clocks back, once per fill.
-    jmp sw_plane_op             ; ...and with no loop under it, the last call
-                                ; is a TAIL jump: sw_plane_op's `ret` is ours
+    call sw_plane_op
+.done:
+    jmp kret_es
+
 
 %ifdef KERN_BIG
 ; -----------------------------------------------------------------------------
