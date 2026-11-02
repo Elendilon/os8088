@@ -284,17 +284,16 @@ toast_show:
     call toast_now              ; ...and if the caller can be shown to hold
     jmp short .out              ; the lock, it reaches the glass NOW rather
                                 ; than on the next idle pass (SPEC.md 59.4)
-%ifdef TOAST_Q
-.queue:
-    mov byte [toast_qwant], 1
-    jmp short .kq               ; the popf below, and out
-%endif
 .kill:
     call toast_kill             ; preserves the flags, so the popf below is
-%ifdef TOAST_Q
+%ifdef TOAST_Q                  ; still the caller's
     cmp dh, [toast_qinst]       ; ...and the raiser's own QUEUED message goes
     jne .kq                     ; too, or retiring would pop it up
-    mov byte [toast_qwant], 0
+    mov al, 0                   ; AL is kent_di's: the byte both arms store,
+    SKIPF2                      ; the queue's 1 skipped (flags only, and the
+.queue:                         ; popf puts them back) - one store for the
+    mov al, 1                   ; two, and no jump over this block (kernel
+    mov [toast_qwant], al       ; size pass 17, -4)
 .kq:
 %endif
     popf                        ; still the caller's
@@ -473,7 +472,11 @@ toast_arm:
 ;           [toast_scell] = its first cell (0 = x MENU_TXT_X0)
 ;           [toast_scov]  = 1 when it is over the clock, which hides the
 ;                           speaker (SPEC.md 34.15) and is menu_ckend's cue
-; clobbers: nothing (flags only)
+; clobbers: AX, BX, CX, DX, SI, DI (flags). Both calls are the menu bar's
+;           composition - menu_bt_ent's (whose callers are menu_draw_bar,
+;           which banks every register, and ui_task's clock step, which holds
+;           none across it) and menu_bt_raw's own, banked at its entry - so
+;           the kent_di/kret_di frame this made went (kernel size pass 17, -5)
 ;
 ; **CENTRED IN THE GAP**, between the end of the last menu and the clock's
 ; first GLYPH - its midpoint on the gap's, half the slack each side, `shr`
@@ -495,8 +498,6 @@ toast_arm:
 ; and goes underneath its operation, where it used to be shunted along.
 ; -----------------------------------------------------------------------------
 toast_place:
-    call kent_di                ; the shared ladder's frame, so `.out` is a
-                                ; rung (kernel size pass 15: DI banked too)
     xor ax, ax
     mov [toast_scn], ax
     mov [toast_scov], al        ; menu_ckend below asks it: the speaker SHOWS
@@ -524,7 +525,7 @@ toast_place:
     mov [toast_scell], ax
     mov [toast_scn], cx
 .out:
-    jmp kret_di                 ; pops di, si, dx, cx, bx, ax - kent_di above
+    ret
 
 ; -----------------------------------------------------------------------------
 ; toast_up - is a strip up and within its time? (SPEC.md 12.8.7, 59.9)

@@ -1877,7 +1877,50 @@ ui_drag:
                                 ; banked off the glass it holds whatever covers
                                 ; it, and wm_draw_win's desk arm never replays
 %endif
-    call ui_drag_phase          ; ...onto a multiple of 8 FIRST (SPEC.md
+    ; ui_drag_phase, WRITTEN HERE (kernel size pass 17): the drop's x onto
+    ; the phase the drag cache can replay, below.
+    mov si, bx
+    mov cx, [si + W_X]          ; the drop as the clamps left it, banked - x
+                                ; ALONE, because x alone is what moves below
+    mov ax, cx
+    sub ax, [ui_origx]          ; AX = dx, signed, and SF its sign...
+    jns .ph8                    ; ...truncated TOWARD ZERO to a multiple of
+    add ax, 7                   ; 8. The sign is the whole of it: `and ax,
+.ph8:                           ; -8` alone rounds toward MINUS INFINITY, so
+    and ax, -8                  ; on a leftward drag it would move the window
+                                ; further from the origin - out of the
+                                ; interval the safety argument above rests on
+                                ; - and a negative delta biased by 7 first
+                                ; rounds toward zero instead. It was
+                                ; ui_drag_ph8, a negate-mask-negate routine
+                                ; with this one caller (kernel size pass 10,
+                                ; -11)
+    add ax, [ui_origx]
+    mov [si + W_X], ax          ; W_Y IS LEFT ALONE (SPEC.md 11.96.13.1): the
+                                ; drop lands on the row the hand chose
+%ifdef KERN_BIG                 ; kern_small has one display and no
+                                ; vid_disp_find (SPEC.md 39.12)
+    EXTCALL EXT_PHASE           ; ONE DISPLAY: the interval argument above is
+                                ; the whole proof and nothing more is asked -
+                                ; mod_gone, every register kept. (AX IS the
+                                ; W_X just stored, CX the bank, SI the window.)
+                                ; TWO: EXTD.DRV's ext_e_phase since kernel size
+                                ; pass 14 - the legal top-lefts are a UNION of
+                                ; two rectangles and not an interval, so a phase
+                                ; along EITHER axis can leave the origin in the
+                                ; dead zone - x moves toward ui_origx while y
+                                ; holds the row the drop chose, and that pair
+                                ; need not be a point any card has. ui_drag_dead
+                                ; ran before this and cannot see it, and nothing
+                                ; after it moves the origin back. So the phased
+                                ; point is asked the same question and a NO
+                                ; undoes the phase: the drop stands where the
+                                ; clamps left it and replays by cards, the
+                                ; one-time-in-eight cost this exists to avoid,
+                                ; paid only on the seam. vid_disp_find preserves
+                                ; CX, which is why the bank survives the call
+%endif
+                                ; ...onto a multiple of 8 FIRST (SPEC.md
                                 ; 11.96.13): the cache can only replay the
                                 ; pixels at a dx whose low three bits are 0,
                                 ; and a hand drops a window on an arbitrary
@@ -2049,51 +2092,9 @@ ui_drag:
 ; carries not one byte of this - the A/B stays honest in both.
 ; -----------------------------------------------------------------------------
 %ifndef NODRAGCACHE
-ui_drag_phase:
-    call kent_di                ; (kernel size pass 15)
-    mov si, bx
-    mov cx, [si + W_X]          ; the drop as the clamps left it, banked - x
-                                ; ALONE, because x alone is what moves below
-    mov ax, cx
-    sub ax, [ui_origx]          ; AX = dx, signed, and SF its sign...
-    jns .ph8                    ; ...truncated TOWARD ZERO to a multiple of
-    add ax, 7                   ; 8. The sign is the whole of it: `and ax,
-.ph8:                           ; -8` alone rounds toward MINUS INFINITY, so
-    and ax, -8                  ; on a leftward drag it would move the window
-                                ; further from the origin - out of the
-                                ; interval the safety argument above rests on
-                                ; - and a negative delta biased by 7 first
-                                ; rounds toward zero instead. It was
-                                ; ui_drag_ph8, a negate-mask-negate routine
-                                ; with this one caller (kernel size pass 10,
-                                ; -11)
-    add ax, [ui_origx]
-    mov [si + W_X], ax          ; W_Y IS LEFT ALONE (SPEC.md 11.96.13.1): the
-                                ; drop lands on the row the hand chose
-%ifdef KERN_BIG                 ; kern_small has one display and no
-                                ; vid_disp_find (SPEC.md 39.12)
-    EXTCALL EXT_PHASE           ; ONE DISPLAY: the interval argument above is
-                                ; the whole proof and nothing more is asked -
-                                ; mod_gone, every register kept. (AX IS the
-                                ; W_X just stored, CX the bank, SI the window.)
-                                ; TWO: EXTD.DRV's ext_e_phase since kernel size
-                                ; pass 14 - the legal top-lefts are a UNION of
-                                ; two rectangles and not an interval, so a phase
-                                ; along EITHER axis can leave the origin in the
-                                ; dead zone - x moves toward ui_origx while y
-                                ; holds the row the drop chose, and that pair
-                                ; need not be a point any card has. ui_drag_dead
-                                ; ran before this and cannot see it, and nothing
-                                ; after it moves the origin back. So the phased
-                                ; point is asked the same question and a NO
-                                ; undoes the phase: the drop stands where the
-                                ; clamps left it and replays by cards, the
-                                ; one-time-in-eight cost this exists to avoid,
-                                ; paid only on the seam. vid_disp_find preserves
-                                ; CX, which is why the bank survives the call
-%endif
-.out:
-    jmp kret_di
+; (ui_drag_phase is not a routine since kernel size pass 17: its body is
+; written at ui_drag's one call, where kent_di's bank and the call go, -9.
+; ui_drag holds only BX across it, which it never writes)
 
 %endif
 
@@ -2759,13 +2760,46 @@ ui_sys_open:
                                 ; region segment
     push es
 
-    call ui_sys_find            ; already running? front it and stop
-    jc .load
+    ; ALREADY RUNNING? front it and stop. The running instance of
+    ; [ui_desc]'s package, by the name in its instance record - by NAME and
+    ; not by a remembered window pointer, because a window slot is reused: a
+    ; pointer banked at load time names some other app's window the moment
+    ; this one closes, and fronting that is a bug with no symptom until
+    ; someone notices the wrong window coming up. It was ui_sys_find, a
+    ; routine of its own with this as its one caller; written here its
+    ; call, its two `ret`s and its `stc` go, the miss FALLING into .load
+    ; (kernel size pass 17). kent_bp banked every register it writes.
+    mov bx, [ui_desc]           ; BX = the name to match, hoisted out of the
+    mov bx, [bx+UO_NAME]        ; scan: nothing in the loop writes it
+    mov di, inst_tab
+    mov cx, INST_MAX
+.scan:
+    cmp byte [di+I_STATE], 1
+    jne .next
+    test byte [di+I_KIND], KIND_PKG
+    jz .next
+    push di
+    mov si, bx
+    add di, I_NAME
+.cmp:
+    mov al, [si]
+    cmp al, [di]
+    jne .nomatch
+    inc si
+    inc di
+    or al, al
+    jnz .cmp
+    pop di                      ; DI = its record: found
     mov bp, inst_restore        ; un-minimize and show - the app_launch cap
     call ui_lcall               ; path's rule, and now literally its code (BP
                                 ; is on the stack above and comes back at .out)
     jmp .out                    ; (short wherever it reaches: ROM_PKG's arm
                                 ; below is what can push it past 127)
+.nomatch:
+    pop di
+.next:
+    add di, I_RECSZ
+    loop .scan                  ; ...and none open falls into the load
 .load:
 %ifdef ROM_PKG
     ; THE ROM'S COPY FIRST (docs/plans/ROM-PLAN.md 4.3, SPEC.md 2.10.5): a
@@ -2815,10 +2849,39 @@ ui_sys_open:
                                 ; icon harvest that nothing below looks at
     mov si, ui_s_nodisk
     jc .fail
-    call ui_tm_sysdir           ; into SYSTEM (SPEC.md 28.3); CF=1 = no such
-    mov bx, [ui_desc]           ; folder, which reads to the user as the file
-    mov si, ui_s_nofile         ; not being there, because it is not
-    jc .fail
+    ; INTO SYSTEM (SPEC.md 28.3) on the volume just mounted. No such folder
+    ; - or entering it failing - reads to the user as the file not being
+    ; there, because it is not: every refusal below goes to .nofile. It was
+    ; ui_tm_sysdir, with this as its one caller (kernel size pass 17: its
+    ; call, `stc`, `ret` and the caller's own `mov si` go).
+    ;
+    ; The folder's first cluster comes out of dskw_stat, which walks the
+    ; directory SECTORS, and not out of dsk_find_name, which reads the
+    ; snapshot a FULL mount published. That is drv_find's move (SPEC.md
+    ; 19.6) for the same reason: the listing is the expensive half of a
+    ; mount and this is the only thing that ever wanted it here.
+    ; dsk_chdir_q then re-runs the validated pipeline over the folder with
+    ; the scan, the sort and the icon harvest skipped, because ld_run_name
+    ; does not read a listing either (SPEC.md 21.4).
+    ;
+    ; The attribute test is what stops a FILE called SYSTEM being walked as
+    ; a directory. It is the RAW byte off the disk rather than dsk_synth's
+    ; type word, so - exactly as with a hidden .DRV - a SYSTEM folder that is
+    ; marked hidden or system is found here where the listing's species
+    ; filter would have dropped it (SPEC.md 19.6).
+    mov si, ui_s_tmdir
+    call COLD_SEG:dwf_dskw_stat ; AL = the raw attribute, BX = first cluster
+    jc .nofile
+    test al, 0x10               ; a subdirectory, not a file of that name
+    jz .nofile
+    xchg ax, bx                 ; its first cluster (BX is reloaded below)
+    or ax, ax
+    jz .nofile                  ; 0 is the root: a directory entry naming it
+    mov dl, [dsk_bootvol]       ; would be a loop, not a folder. The DRIVE is
+    call dsk_chdir_q            ; the one just mounted: this was `xor dl, dl`
+    jc .nofile                  ; once, and on an installed machine it walked
+                                ; into SYSTEM's cluster on the FLOPPY
+    mov bx, [ui_desc]
 
     mov word [ld_pwin], 0       ; no poster: this is not a Disk window's load,
     mov si, [bx+UO_FILE]        ; and so not loader_run either - there is no
@@ -2843,6 +2906,7 @@ ui_sys_open:
     call COLD_SEG:dwf_dskw_stat ; one message to a user (SPEC.md 28.3). The
     jnc .code                   ; index resolver could tell them apart because
     pop ax                      ; dsk_find_name failed first; by name they
+.nofile:                        ; (SYSTEM's own refusals above join here)
     mov si, ui_s_nofile         ; arrive as one code, so ask - on the FAILURE
     jmp short .fail             ; path only, still standing in SYSTEM, and for
                                 ; the sector ld_res_name has just read.
@@ -2868,49 +2932,6 @@ ui_sys_open:
     call ui_tm_back
 .out:
     jmp kret_es
-
-; -----------------------------------------------------------------------------
-; ui_tm_sysdir - step into SYSTEM on the volume just mounted (SPEC.md 28.3)
-; in:  the volume is mounted and standing in its root
-; out: CF = 0 and the volume is inside SYSTEM; CF = 1 = there is no SYSTEM
-;      folder here, or entering it failed
-; clobbers: AX, BX, CX, DX, SI, flags (ui_tm_open has banked them all)
-;
-; The folder's first cluster comes out of dskw_stat, which walks the directory
-; SECTORS, and not out of dsk_find_name, which reads the snapshot a FULL mount
-; published. That is drv_find's move (SPEC.md 19.6) for the same reason: the
-; listing is the expensive half of a mount and this is the only thing that
-; ever wanted it here. dsk_chdir_q then re-runs the validated pipeline over
-; the folder with the scan, the sort and the icon harvest skipped, because
-; ld_run_name does not read a listing either (SPEC.md 21.4).
-;
-; The attribute test is what stops a FILE called SYSTEM being walked as a
-; directory. It is the RAW byte off the disk rather than dsk_synth's type
-; word, so - exactly as with a hidden .DRV - a SYSTEM folder that is marked
-; hidden or system is found here where the listing's species filter would
-; have dropped it (SPEC.md 19.6).
-; -----------------------------------------------------------------------------
-ui_tm_sysdir:
-    mov si, ui_s_tmdir
-    call COLD_SEG:dwf_dskw_stat ; AL = the raw attribute, BX = first cluster
-    jc .no
-    test al, 0x10               ; a subdirectory, not a file of that name
-    jz .no
-    xchg ax, bx                 ; its first cluster (BX is dead: the caller
-    or ax, ax                   ; reloads it - kernel size pass 16, -1)
-    jz .no                      ; 0 is the root: a directory entry naming it
-    mov dl, [dsk_bootvol]       ; would be a loop, not a folder.
-                                ;
-                                ; The DRIVE is the one ui_tm_open just mounted,
-                                ; and this was `xor dl, dl` - the same A:
-                                ; assumption its caller had, one call deeper.
-                                ; On an installed machine it walked into
-                                ; SYSTEM's cluster on the FLOPPY, which reads
-                                ; to the user as the file not being there
-    jmp dsk_chdir_q             ; CF is its answer, and it is ours
-.no:
-    stc
-    ret
 
 ; ui_tm_back - put the volume the user was on back. Clobbers AX and DX, which
 ; its two calls in ui_sys_open have banked already and read nothing out of
@@ -2952,53 +2973,6 @@ ui_desc:    dw ui_d_tm          ; ui_sys_open's descriptor for the load in
                                 ; hand. In .text with a resting value for the
                                 ; reason [ui_tm_cwd] is: -f bin zeroes no .bss
 
-
-
-; -----------------------------------------------------------------------------
-; ui_sys_find - the running instance of [ui_desc]'s package, by the name in
-;               its instance record
-; in:  [ui_desc]
-; out: CF = 0 and DI = its record; CF = 1 none open
-; clobbers: AX, BX, CX, SI - its one caller, ui_sys_open, has banked every
-;           register before it and reads none of these four after it
-;           (kernel size pass 10, -7) - and DI (the output), flags
-;
-; By NAME and not by a remembered window pointer, because a window slot is
-; reused: a pointer banked at load time names some other app's window the
-; moment this one closes, and fronting that is a bug with no symptom until
-; someone notices the wrong window coming up.
-; -----------------------------------------------------------------------------
-ui_sys_find:
-    mov bx, [ui_desc]           ; BX = the name to match, hoisted out of the
-    mov bx, [bx+UO_NAME]        ; scan: nothing in the loop writes it
-    mov di, inst_tab
-    mov cx, INST_MAX
-.scan:
-    cmp byte [di+I_STATE], 1
-    jne .next
-    test byte [di+I_KIND], KIND_PKG
-    jz .next
-    push di
-    mov si, bx
-    add di, I_NAME
-.cmp:
-    mov al, [si]
-    cmp al, [di]
-    jne .nomatch
-    inc si
-    inc di
-    or al, al
-    jnz .cmp
-    pop di                      ; CF = 0 from the `or`: found
-    ret                         ; (kernel size pass 15: was a jump to the ret)
-.nomatch:
-    pop di
-.next:
-    add di, I_RECSZ
-    loop .scan
-    stc
-.out:
-    ret
 
 
 ; -----------------------------------------------------------------------------

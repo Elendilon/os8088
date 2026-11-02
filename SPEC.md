@@ -12778,7 +12778,7 @@ because it looks like an answer.
 
 Eleven more, all `%ifdef KFZTRACE` and so costing the shipped kernel nothing:
 `wm_zoom` (16), `wm_rz_paint` (17), `wm_su_precover` (18), `wm_su_take` (19),
-`wm_su_try` (20), `wm_su_occl` (21), `wm_dmg_wins` (22), `wm_paint_all` (23),
+`wm_su_try` (20), `wm_su_try.occl` (21), `wm_dmg_wins` (22), `wm_paint_all` (23),
 `wm_draw_win` (24), `gfx_blit4` (25), `ui_drag` (26). They are the funnels a
 geometry change passes through, in the order it passes them, so the cell names
 **how far the last one got** — and §11.96's raise cache and §11.3.3's cull have
@@ -15212,7 +15212,8 @@ taken at all:
 
 Six things hold it up.
 
-- **`menu_kbnav` (`menu.inc`) is asked before `kbm_accel` is called**, so a
+- **`menu_kbnav` (`menu.inc`) is asked before the step ramp runs** (it was
+  `kbm_accel`, written into `kbm_move` by kernel size pass 17), so a
   placed press never touches the ramp: `[kbm_last]` is not stamped, and the
   first arrow press *after* the menu closes therefore sees a large tick gap
   and starts fresh at `KBM_MIN`, which is what it should do anyway.
@@ -17701,8 +17702,11 @@ Two shared helpers, both taking **DI → an 8-byte record buffer in DS that is
 private to the caller** (the buffer is an in-parameter and that is the point —
 §74.1.1's refusal of a shared one is repeated in `events.inc`'s own header):
 
-- **`evq_drain`** — pop until the ring is empty, calling `wm_wake_eaten` for
-  every record it discards.
+- **`evq_drain`** — pop until the ring is empty, doing the wake bookkeeping
+  (§74.1.1's `WKQ_RING` → `WKQ_EATEN`) for every record it discards. That
+  bookkeeping was a routine of its own, `wm_wake_eaten`, until kernel size pass
+  17 wrote it into `evq_mup`, its one remaining caller - `evq_drain` is
+  `evq_mup` run until the ring is empty.
 - **`evq_mup`** — pop until an `EVT_MUP` arrives (CF=0, the record is at `[DI]`)
   or the ring goes empty (CF=1), owing every other record's wake the same way.
   It exists because that loop was written out **four** times — `ui_drag`'s and
@@ -21744,7 +21748,8 @@ Because the band is at the bottom, every reader of the order that walks
 ABOVE a window - `wm_obscured`, `wm_clip_set`, the damage pass's marking,
 `wm_hit` front to back - is correct with no change, and an ordinary window
 never pays clip arithmetic for a widget. `wm_paint_all` starts at
-`wm_fs_zpos` under a fullscreen window (§11.2), so a widget under one is not
+the fullscreen window's own slot (§11.2; `wm_fs_zpos`'s walk, written there in
+kernel size pass 17), so a widget under one is not
 drawn and the fullscreen window wins `wm_hit`.
 
 **The order is unchanged for them; the SHADOW is not.** Two subtractions walk
@@ -22698,7 +22703,8 @@ narrowing that to the strip was modelled against the same rects and is worth
 cannot express the L that a move actually vacates, and the L's own bounding
 box is the whole of the old rect, so no single-rect answer exists.
 
-So `wm_su_occl` seeds `wm_clip_*` with the named sub-rect and subtracts every
+So `wm_su_try`'s `.occl` block (it was the routine `wm_su_occl` until kernel
+size pass 17 wrote it at its one call) seeds `wm_clip_*` with the named sub-rect and subtracts every
 window above through `wm_clip_occl`, and `wm_su_try`'s fragment walk gains an
 inner loop: **once per piece, per buffer fragment**. `DI` — the fragment's base
 in the claim — is held across the inner walk and advanced by `wm_su_fsz` after
@@ -24635,7 +24641,9 @@ open, and is NOT taken here, is that §11.97.1's own experiment would come out
 differently on today's tree and is worth re-running before the next person
 quotes its number.
 
-`wm_ttl_seen` is the test and it costs **no second occlusion walk**:
+`wm_draw_win`'s title veto is the test (it was the routine `wm_ttl_seen`
+until kernel size pass 17 wrote it at its one call) and it costs **no second
+occlusion walk**:
 `wm_chrome_clip` has just built the frame's visible region, the strip is a
 sub-rect of the frame, so the answer is a walk of the ≤16 rects already in hand
 — `wm_clip_walk` with the corners exchanged, which is §11.3.3's own idiom for
@@ -24913,7 +24921,8 @@ There is **no universal source rect for a window appearing**. A Macintosh zooms
 out of the icon that was double-clicked; here a launch arrives from a menu
 item, a desktop drive zone, a Disk window row or a package's own `wm_create`,
 and **none of that reaches `wm_show`**. The window's own middle is the honest
-general answer and is what a system with no icon to hand does — `wm_an_seed`
+general answer and is what a system with no icon to hand does — `wm_an_open`'s
+`.half` (once `wm_an_seed`)
 collapses one rect onto the centre of the other, `WM_AN_SEED` px each side, and
 `wm_destroy` runs the same thing backwards.
 
@@ -25038,10 +25047,11 @@ cannot get it back. The animation would have flown every restore out of the
 middle of the screen instead of out of its tile — visually wrong, crashing
 nothing, and invisible to any test that does not look at the pixels.
 
-So `inst_unmin` does **both** halves — clears the bit and arms `wm_an_arm` with
+So `inst_unmin` does **both** halves — clears the bit and arms (`wm_an_arm`'s
+`rect_put` into `wm_an_s`, written there since kernel size pass 17) with
 the record's dock tile — and the four sites call it. A fifth path cannot forget
 the second half, because there is no longer a second half to forget.
-`wm_an_arm` is deliberately **one-shot** and `wm_an_open` spends the arm even
+The arm is deliberately **one-shot** and `wm_an_open` spends the arm even
 when it refuses to animate, or the next window to appear inherits somebody
 else's tile. `dock_tile_rect` is lifted out of `dock_erase_tile` rather than
 open-coded, for `dock_hit`'s reason (§30.2): where a tile *is* has one answer.
@@ -25435,7 +25445,8 @@ which threw away every browser nobody had grown yet, i.e. all of them.
 **One bit in the record (`WF_USRSZ`, `W_FLAGS` bit 9), set by `ui_grow` and
 `wm_zoom`, and while it is set no preference is applied to that window ever
 again.** §11.99's last paragraph is the rule; this is where it is enforced,
-inside `wm_pref_take`, so every path that could take a preference is covered
+inside `wm_pref_now` (it was `wm_pref_take` until kernel size pass 17 folded
+the two), so every path that could take a preference is covered
 by one test rather than by each of them remembering.
 
 **It is a bit in `W_FLAGS` and not a side table**, which is what makes the
@@ -31993,7 +32004,12 @@ the same rule `vid_wipe`'s header states two routines down - *"a helper further
 down the image is not resident yet"* - and a ladder is exactly such a helper;
 it is also the shape §15's own guard already refuses for `spl_gate`, *"the PATH
 is not aboard even though the destination is"*. **So `vid_pop8` keeps its own
-pop run, and any routine the first tick can reach must.**
+pop run, and any routine the first tick can reach must.** (Kernel size pass 17
+found `vid_text` was never one of them - its callers are `fsx_mode` and
+`vid_reboot`, both long after the desktop is up - so it moved past
+`spw_resident_end` onto the ladder (`kent_bp` / `kret_es`), and with
+`vid_setmode` the only routine left the `vid_pop8` label went: `vid_setmode`
+falls into its own pop run.)
 
 **A fourth routine joined it one label in**, until kernel size pass 14:
 `vid_apply` pushed the same run without `bp`, popped its own `es`, and entered
@@ -41822,7 +41838,7 @@ Seven things hold it up:
   kernel's own callers (`drv_cfg_*`, the copy engine, the file manager) call
   `dskw_*` directly and are untouched, because they act for the machine
   rather than for an app. `FDLG_OPEN` uses the same name-staging stub and is
-  deliberately **not** given the switch: `fdlg_seed` (§38.10; the retired
+  deliberately **not** given the switch: `fdlg_open`'s `.seed` (§38.10; the retired
   dialog's `fdlg_home_go`) is the routine that decides where a *dialog* opens, and a volume switch underneath it would
   pre-empt that decision.
 - **The compare is what makes it free.** `inst_vol_enter` loads the
@@ -53097,7 +53113,7 @@ x=30 and the list frame starts at `FD_LX2` = 213, so 22 cells are free
 against the 12 an 8.3 name needs — measured before the name was allowed
 there. A folder it was *placed* in still reads `Folder`, and the one default
 that can be named is `MEDIA`, which `fdlg_home_go` really did walk into
-(the chooser's `fdlg_seed` since §38.1, §38.10).
+(the chooser's `fdlg_open.seed` since §38.1, §38.10).
 
 Cost, measured: `.text` +11, `.bss` +165 (4 × 33 for the windows, 33 for the
 dialog), `.cold` +349 — **`KERN_SIZE` unchanged**, so the machine has not
@@ -74808,7 +74824,7 @@ instance's 16 name bytes move, for its dock tile and Task Manager row.
 | `fdlg_grab_x`, `fdlg_top_x` | modality (§38.2) |
 | `fdlg_brect`, `fdlg_blabel` | the button column's rect and label/greying, shared by both builds |
 | `fdlg_btn.drive` | §38.11 |
-| `fdlg_seed`, `fdlg_hidx`, `fdlg_home_dir` | §38.10 |
+| `fdlg_open.seed` (written at its one call, kernel size pass 17), `fdlg_hidx`, `fdlg_home_dir` | §38.10 |
 | `fdlg_tsel`, `fdlg_toebuf`, `fdlg_bank`, `fdlg_cpy` | the name: the selection staged, the box filled and banked, all through one bounded copy |
 
 | `FDH_*` event | raised by | the chooser's answer |
@@ -74851,7 +74867,7 @@ one its file operations resolve in. A Save As does not merely aim the next
 chooser, it moves the application.
 
 **And an application whose user has not chosen anything yet opens on
-`MEDIA`.** `fdlg_seed` has two answers, in this order:
+`MEDIA`.** `fdlg_open.seed` has two answers, in this order:
 
 | the app | the chooser opens on |
 |---|---|
@@ -75820,7 +75836,9 @@ mode on it (unlike the mono card, §39.20).
 Every window template in the tree — built-in, dialog and package alike — is
 authored against 640x480. `wm_create` therefore clamps the frame onto the
 live screen at the single point all four creation paths funnel through
-(`inst_tplbuf` and its per-slot cascade, `fdlg_tpl` — the retired dialog's;
+(the kind's template and its per-slot cascade - `inst_tplbuf` until kernel
+size pass 17, which cascades the template in place for the one call -
+`fdlg_tpl` — the retired dialog's;
 the chooser is a Disk window now, §38.1 — every built-in template,
 and every already-built third-party `.o88`, with zero app rebuilds). Size
 first, then position, and the y floor last so it wins:
@@ -81415,7 +81433,8 @@ outright rather than trusting a laptop BIOS to mean it.
 found four. It missed a fifth, and the reason it missed it is the lesson: **the
 table that `VID_VBE` runs off is not the kernel's.**
 
-`wm_pref_take` reads a window's preferred-size table (`OSAPI_WM_PREFER`,
+`wm_pref_take` (`wm_pref_now` since kernel size pass 17) reads a window's
+preferred-size table (`OSAPI_WM_PREFER`,
 §11.100.1) at `kind * 4`. `OS88_PREFER` builds **three** `(w, h)` pairs —
 `VID_VGA`, `VID_HERC`, `VID_CGA`, twelve bytes — and the routine already
 clamped `VID_EGA` to `VID_VGA` with a comment saying why. `VID_VBE` is 4, and
@@ -131827,8 +131846,9 @@ So the flag has three states:
 | `WKQ_RING` | owed, and the record is in the ring |
 | `WKQ_EATEN` | owed, and a drain took the record |
 
-- Every drain calls **`wm_wake_eaten`** with the record it is about to discard.
-  One word compare on the common path; `WKQ_RING` → `WKQ_EATEN`, and one global
+- Every drain does the **wake bookkeeping** (`wm_wake_eaten`'s, which since
+  kernel size pass 17 is written in `evq_mup` itself) with the record it is
+  about to discard. One word compare on the common path; `WKQ_RING` → `WKQ_EATEN`, and one global
   byte `wm_wkdef` is set. **Since kernel size pass 3 the discipline lives in
   two shared helpers rather than in six copies of it** — `evq_drain` and
   `evq_mup` (§10.3) — so there are now two places for it to be right and the

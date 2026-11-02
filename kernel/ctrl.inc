@@ -5160,7 +5160,9 @@ clk_fld_str:
     jmp short .done
 .year:
     mov ax, [clk_sn_year]
-    CPXK clk_put4
+    push cx                     ; clk_put4 spends CL on its divisor and this
+    CPXK clk_put4               ; routine "clobbers nothing else" - the bank
+    pop cx                      ; is here, in the image, and not resident
 .done:
     mov byte [bx], 0
     mov si, clk_fbuf

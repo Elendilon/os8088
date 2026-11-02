@@ -1559,8 +1559,9 @@ vid_ctx_act:
     mov ds, cx                  ; and the caller's ES is not (vid_ctx_pre,
     mov es, cx                  ; written in: kernel size pass 15)
     call vid_ctx_ptr            ; DI = the record (it reads no memory)
-    mov cx, VID_CTX_W
-    cld
+    mov cx, VID_CTX_W           ; (no `cld`: DF = 0 is SPEC.md 1's, and every
+                                ; ISR that draws clears it at its gate -
+                                ; kernel size pass 17)
     mov si, di                  ; ...and the record is
     mov di, vid_seg             ; the SOURCE this way round
     rep movsw
@@ -1790,8 +1791,10 @@ vid_disp_find:
 ; sentence applied one field further.
 ; -----------------------------------------------------------------------------
 vid_disp_planes:
-    push ax
-    push di
+    push ax                     ; (no DI bank, kernel size pass 17, -2: both
+                                ; callees keep it - vid_disp_of's
+                                ; vid_disp_find pushes its own, vid_kind_of
+                                ; brackets its vid_ctx_ptr)
     call vid_disp_of            ; AL = the display holding it...
     call vid_kind_of            ; ...and AL = that display's adapter
     mov cx, 1
@@ -1806,7 +1809,6 @@ vid_disp_planes:
     mov cx, [vx_bpp]            ; sized in packed bytes
 %endif
 .out:
-    pop di
     pop ax
     ret
 

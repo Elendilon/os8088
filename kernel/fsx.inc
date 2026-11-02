@@ -201,17 +201,17 @@ fsx_capstab:                    ; indexed by VID_* (VGA 0, HERC 1, CGA 2, EGA 3)
 ; window ptr, DS = CS = the package's segment, ES = KERNEL_SEG - an ordinary
 ; near proc with a near ret, exactly a W_ONKEY's environment.
 ; -----------------------------------------------------------------------------
+fsx_rfail:                      ; THE REFUSAL, ABOVE THE ENTRY. Nine `j..`
+    stc                         ; below were out of short reach as the 5-byte
+    jmp kret_di                 ; inverted-jump-plus-near-jmp form; from here
+                                ; they are 2 bytes each, backward. It was a
+                                ; `jmp short .tests` trampoline INSIDE fsx_run
+                                ; (`stc / jmp .out`), whose own jump went with
+                                ; it (kernel size pass 17, -2) - and it is a
+                                ; GLOBAL label, so no other routine's `.fail`
+                                ; can be retargeted by it
 fsx_run:
     call kent_di                ; = push ax/bx/cx/dx/si/di
-    jmp short .tests            ; THE REFUSAL TRAMPOLINE. Nine `j.. .fail`
-.fail:                          ; below were out of short reach and assembled
-    stc                         ; as the 5-byte inverted-jump-plus-near-jmp
-    jmp .out                    ; form; from here they are 2 bytes each and
-.tests:                         ; this is the ONE near jump. It must stay
-                                ; INSIDE fsx_run: `.fail` and `.tests` belong
-                                ; to the last non-local label, so moving it
-                                ; above would silently retarget another
-                                ; routine's `.fail`
 %ifdef KERN_MEGA
     mov si, cx                  ; the flags as ASKED, FSXF_REAL among them:
 %endif                          ; SI is nobody's until the release loop below
@@ -222,12 +222,12 @@ fsx_run:
                                 ; kern_mega acts on SI's copy after the fence
 %ifdef KERN_BIG
     cmp cl, FSXF_FASTTICK + FSXF_RATE ; 6: CL >= 8 is an undefined bit, and 6
-    jae .fail                   ; and 7 are FASTTICK WITH RATE, which refuses
+    jae fsx_rfail                   ; and 7 are FASTTICK WITH RATE, which refuses
     cmp [vid_ndisp], ch         ; too - one channel 0 (53.2.2). CH = 0 the
-    jb .fail                    ; window's display, n display n-1 (53.1.2)
+    jb fsx_rfail                    ; window's display, n display n-1 (53.1.2)
 %else
     cmp cx, FSXF_KEEPWORKER + FSXF_FASTTICK + 1 ; (CH: any display past the
-    jae .fail                   ; window's refuses, CX being past the flags)
+    jae fsx_rfail                   ; window's refuses, CX being past the flags)
 %endif
                                 ; undefined flag bits refuse, so the word
                                 ; stays extensible (SPEC.md 53.1). "any bit
@@ -237,7 +237,7 @@ fsx_run:
                                 ; without bit 3 and this must go back to a
                                 ; mask test
     cmp word [sch_cur], 0xFF00  ; the UI task alone may enter - a worker's
-    jne .fail                   ; bracket would freeze the UI task mid-frame -
+    jne fsx_rfail                   ; bracket would freeze the UI task mid-frame -
                                 ; and one bracket at a time: [sch_cur] = 0 and
                                 ; [fsx_task] = 0xFF, ONE word (adjacent, the
                                 ; %if at fsx_mine)
@@ -249,7 +249,7 @@ fsx_run:
     test cl, FSXF_RATE          ; SPEC.md 53.2.2: DX a divisor, DI a hook
     jz .norate                  ; (never with FASTTICK: refused above)
     cmp dx, FSX_RATE_MIN
-    jb .fail
+    jb fsx_rfail
     mov [sch_rdiv], dx          ; banked NOW, because the fence below spends
     mov [sch_rbp], di           ; DX and DI. Inert until [sch_fast] reads
     mov [sch_rwin], bx          ; SCH_RATE, which only the arm below writes -
@@ -271,9 +271,9 @@ fsx_run:
                                 ; place that catches it, and the double cursor
                                 ; SPEC.md 48.13 watches for is the symptom
     cmp word [fdlg_win], 0      ; not under the modal file dialog (SPEC.md 38)
-    jne .fail
+    jne fsx_rfail
     call inst_pkg_fence         ; the ownership fence (SPEC.md 53.1), which is
-    jc .fail                    ; inst_pkg_spawn's and now shared with it: BX
+    jc fsx_rfail                    ; inst_pkg_spawn's and now shared with it: BX
                                 ; bounded, a live package instance whose
                                 ; segment is the caller's own DS, and AX an
                                 ; entry inside its image+bss.  DI = the record
@@ -283,7 +283,7 @@ fsx_run:
     pop dx                      ; the hook - the caller's DI, which is the
     push dx                     ; LAST of the six pushes at the door - fenced
     cmp dx, [di+I_SIZE]         ; as the entry is: inside the SAME instance's
-    jae .fail                   ; image+bss (DX is the fence's scratch, dead
+    jae fsx_rfail                   ; image+bss (DX is the fence's scratch, dead
 .nohook:                        ; here)
 %endif
 %ifdef KERN_MEGA
@@ -540,6 +540,11 @@ fsx_run:
     clc
 .out:
     jmp kret_di
+fsx_mfail:                      ; fsx_mode's refusal, HERE rather than behind a
+    stc                         ; `jmp short .tests` trampoline inside it: its
+    jmp short fsx_run.out       ; tests reach this backward in two bytes, and
+                                ; fsx_run's own exit is the kret_di it wants
+                                ; (kernel size pass 17, -3)
 
 ; -----------------------------------------------------------------------------
 ; fsx_restore - one path home (SPEC.md 53.6, order binding)
@@ -575,15 +580,10 @@ fsx_run:
 ; -----------------------------------------------------------------------------
 fsx_mode:
     call kent_di                ; = push ax/bx/cx/dx/si/di
-    jmp short .tests            ; the refusal trampoline, fsx_run's - and for
-.fail:                          ; the same reason: `.fail` is a NASM local and
-    stc                         ; must stay inside the routine that owns it
-    jmp .out
-.tests:
     call fsx_mine               ; a bracket, and ours (SPEC.md 53.1)
-    jne .fail
+    jne fsx_mfail
     cmp al, FSXM_COUNT
-    jae .fail
+    jae fsx_mfail
     mov bl, [vid_kind]          ; the caps bit - the same predicate the
 %ifdef KERN_BIG                 ; app's greying used (SPEC.md 47), and for
     mov ah, EXTF_KIND           ; THE DISPLAY THIS BRACKET IS ON rather than
@@ -600,7 +600,7 @@ fsx_mode:
     mov cl, al
     shr bx, cl                  ; ...the id's bit down to bit 0...
     shr bx, 1                   ; ...and into CF. TWO shifts, not one variable
-    jnc .fail                   ; one: `shr bx, cl` with CL = 0 leaves the
+    jnc fsx_mfail                   ; one: `shr bx, cl` with CL = 0 leaves the
                                 ; flags alone on an 8086, so the fixed shift
                                 ; is what actually sets CF. Do not fold them
 
@@ -663,16 +663,14 @@ fsx_mode:
     mov ax, 0x0300              ; run again
     out dx, ax
     mov dl, 0xD4
-    mov al, 0x11                ; unprotect CRTC 0..7
-    out dx, al
-    inc dx
-    in al, dx
-    and al, 0x7F
-    out dx, al
-    dec dx
-    mov si, fsx_xcrtc
-    mov cx, 10
-    cld
+    mov si, fsx_xcrtc           ; ...and the CRTC: the table's FIRST word
+    mov cx, 11                  ; unprotects CR0-7 (kernel size pass 17, -8:
+                                ; it was `in`, `and al, 7Fh`, `out` of CR11;
+                                ; the table writes CR11 = ACh four words on,
+                                ; so what the low bits hold until then is
+                                ; mode 13h's own 0Eh rather than whatever the
+                                ; ROM left - and DF = 0 is SPEC.md 1's
+                                ; promise on entry, so the `cld` went)
 .crtc:
     lodsw
     out dx, ax
@@ -685,9 +683,7 @@ fsx_mode:
     call vid_wipe               ; are .text in KERNEL_SEG so the call is near,
                                 ; the four registers it clobbers - AX, CX, DI
                                 ; and ES - are all pushed at this routine's
-                                ; own entry, and zero is the right fill. Its
-                                ; own `cld` is redundant after the one above
-                                ; and harmless
+                                ; own entry, and zero is the right fill
     pop es
     pop di
     pop cx
@@ -698,7 +694,10 @@ fsx_mode:
     add ax, fsx_mtab
     xchg si, ax
     push cx                     ; CH is the id and rep movsw eats CX whole
-    cld
+                                ; (no `cld`: DF = 0 on entry, SPEC.md 1, and
+                                ; every call above is the kernel's or an
+                                ; int 10h, whose iret puts DF back - kernel
+                                ; size pass 17)
     mov cx, FSXR_SIZE / 2
     rep movsw
     pop cx
@@ -855,6 +854,7 @@ fsx_setbios:
 ; caller's buffer) are banked around it because .fill reads them.)
 
 fsx_xcrtc:                      ; Mode X CRTC retiming, index in the low byte
+    dw 0x0E11                   ; CR11 bit 7 clear: CR0-7 writable
     dw 0x0D06, 0x3E07, 0x4109, 0xEA10, 0xAC11
     dw 0xDF12, 0x0014, 0xE715, 0x0616, 0xE317
 %endif                          ; ...end of Mode X, VGA-only by definition
@@ -2350,9 +2350,8 @@ fsx_rdownf:
     mov ax, [cs:fsx_rkeepm+bx+2]
     mov [di+1], ax
     mov ax, [ss:fsx_rmsseg]
-    mov [di+3], ax
-    or bx, bx
-    jnz .km
+    mov [di+3], ax              ; (no `or bx, bx`: every instruction since
+    jnz .km                     ; the `sub` is a `mov` - kernel size pass 17)
     mov bx, FSX_RKEEPN          ; the list's bytes, walked down
 .keep:
     sub bx, 6                   ; (BX = the row's offset in the list)

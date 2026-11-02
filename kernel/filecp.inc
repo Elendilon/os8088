@@ -303,11 +303,15 @@ FCPBODY fcp_arm
 .keepl:
 %endif
 
+%ifdef FCP_MOD
     push ax
     push bx
     push cx
     push si
     push di
+%else
+    FCPX kentc_di               ; kern_big: the ladder is the frame - DX is
+%endif                          ; banked too and kept (kernel size pass 17)
     mov [fcp_cbop], al
     mov di, [fm_vp]
     mov ax, bx                  ; the INDEX is an argument: Cut and Copy pass
@@ -331,12 +335,16 @@ FCPBODY fcp_arm
     mov byte [fcp_cbop], FCP_NONE
     stc
 .out:
+%ifdef FCP_MOD
     pop di
     pop si
     pop cx
     pop bx
     pop ax
     ret
+%else
+    FCPXJ kretc_di              ; ...and CF, the answer, survives its pops
+%endif
 
 ; fcp_ncopy - CX bytes from DS:SI to DS:DI. disk.inc's dsk_ncopy is this
 ; body to the instruction, and both are `.cold` = COLD_SEG.
@@ -1440,12 +1448,13 @@ fcp_file1:
     mov FCV(fcp_ovwsz+2), ax    ; otherwise (SPEC.md 22.5.2)
     call fcp_fnames             ; publish this file's source and destination
     call fcp_gofd               ; does the destination already hold it?
-    jc .err
+    jc fcp_ensure.fail          ; (the two exits are fcp_ensure's, just above:
+                                ; kernel size pass 17)
     mov si, fcp_fname
     FCPX dskw_stat_x
     jc .free                    ; FERR_NOENT is the ordinary case
     test al, DSKW_DIR
-    jnz .clash                  ; a FOLDER of that name: not a replaceable
+    jnz fcp_ensure.clash        ; a FOLDER of that name: not a replaceable
     mov FCV(fcp_ovwsz), cx      ; a FILE of that name: its clusters come back
     mov FCV(fcp_ovwsz+2), dx    ; when dskw_write replaces it, so fcp_room may
                                 ; count them as room. Banked HERE because this
@@ -1461,14 +1470,9 @@ fcp_file1:
                                 ; borrows
 .free:
     cmp ax, FERR_NOENT
-    jne .err
+    jne fcp_ensure.fail
 .go:
     jmp fcp_xfer                ; ...whose CF and AX are this routine's
-.clash:
-    mov ax, FERR_EXIST
-.err:
-    stc
-    ret
 
 ; -----------------------------------------------------------------------------
 ; fcp_fnames - publish the pending file's source and destination

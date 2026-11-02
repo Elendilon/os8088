@@ -1862,21 +1862,16 @@ drv_cls_svc_x:
 
 ; drv_cls_idx - AL = class -> DI = class-1, CF=1 if out of range (internal)
 drv_cls_idx:
-    xor di, di                  ; BEFORE the range tests, and load-bearing:
-                                ; drv_cls_fp_x and drv_cls_svc_x both publish
-                                ; "CF = 1 and DI = 0 if the class is out of
-                                ; range" and neither has a .bad tail of its own
-    cmp al, 1
-    jb .bad
-    cmp al, DRVC_MAX
-    ja .bad
     mov di, ax                  ; AH is the caller's and must never reach the
     and di, 0x00FF              ; index, so zero-extend AL by hand
-    dec di
-    ret
-.bad:
-    stc
-    ret
+    dec di                      ; ...and class 0 wraps to FFFF, so ONE unsigned
+    cmp di, DRVC_MAX            ; compare is both range tests: CF = 1 iff the
+    cmc                         ; index is 0..DRVC_MAX-1, complemented into
+    jnc .ret                    ; the answer (kernel size pass 17, -3)
+    xor di, di                  ; ...and load-bearing: drv_cls_fp_x and
+    stc                         ; drv_cls_svc_x both publish "CF = 1 and DI =
+.ret:                           ; 0 if the class is out of range" and neither
+    ret                         ; has a .bad tail of its own
 
 ; -----------------------------------------------------------------------------
 ; drv_owns_seg - is BX the image segment of a driver that is loaded RIGHT NOW?
@@ -1915,8 +1910,7 @@ drv_pub_seg:
     call drv_cls_fp_x           ; (AX survives it)
     jc .next
     mov cx, [di+2]
-    or cx, cx
-    jz .next
+    jcxz .next                  ; (kernel size pass 17, -2: `or cx, cx / jz`)
     cmp cx, bx
     je .out                     ; ...equal, so CF = 0 already: the answer
 .next:
@@ -2296,8 +2290,10 @@ drv_call_ent:                   ; ...and the same thing for a caller that has
                                 ; nothing is re-parented, and drvf_drv_call
                                 ; (the far thunk) and :2002 (which passes
                                 ; [drv_dlg_cb] in BP) still enter at drv_call
-                                ; itself. The fifth site READS BP BACK
-                                ; afterwards and is deliberately left alone
+                                ; itself. The fifth, drv_unload_x, TESTS the
+                                ; entry first; it does that on the row's own
+                                ; word now and comes here too (kernel size
+                                ; pass 17)
 drv_call:
     cmp bx, drv_tab             ; ...AND BX MUST BE A ROW AT ALL. This one is
     jb .stray                   ; checked FIRST and on BX itself, because it is
@@ -3258,33 +3254,28 @@ osapi_drv_dlg_x:                ; the cell exists, the body does not
 ; -----------------------------------------------------------------------------
 drv_cp_class_x:
     push bx
-    push cx
     push di
     mov bl, al                  ; BL = the ordinal wanted, BH the tally so far
     xor bh, bh
-    mov cl, 1                   ; CL = the class (drv_cls_svc_x banks CX)
-.next:
-    mov al, cl
-    call drv_cls_svc_x
+    mov al, 1                   ; AL = the class, counted in AL itself: it is
+.next:                          ; drv_cls_svc_x's argument, which banks AX,
+    call drv_cls_svc_x          ; and the hit's answer as well (kernel size
+                                ; pass 17, -9: CL was the class, copied into
+                                ; AL every pass and back out at .hit)
     jc .skip                    ; class 3, DRVC_POINT and DRVC_EMS keep no copy
     cmp word [di+DSV_CPNAME], 0
     je .skip
-    cmp bl, bh
-    je .hit
+    cmp bl, bh                  ; equal: CF = 0 already, and AL is the class
+    je .out
     inc bh
 .skip:
-    inc cl
-    cmp cl, DRVC_MAX
+    inc ax                      ; (AL <= DRVC_MAX + 1: no carry reaches AH)
+    cmp al, DRVC_MAX
     jbe .next
-.done:
     mov al, bh                  ; ...which is the COUNT, for the entry above.
     stc                         ; Both ctrl.inc callers test CF, so AL on the
-    SKIPCX2                     ; refusal path changing is invisible (mov cx, imm16 over .hit's mov: no flag, CX popped - pass 15)
-.hit:                           ; (the `cmp bl, bh` that came here was equal,
-    mov al, cl                  ; so CF = 0 already, and `mov` keeps it)
-.out:
+.out:                           ; refusal path changing is invisible
     pop di
-    pop cx
     pop bx
     ret
 
@@ -3421,16 +3412,22 @@ drv_load_at:
     mov [bx+DRVR_SEG], dx       ; ...which also arms drv_call
     mov [bx+DRVR_PARA], ax
 
-    push ax                     ; ...AND IT MAY MOVE. The proc is the KERNEL's,
-    push bx                     ; because every word that names a driver image
-    push dx                     ; is the kernel's - mem_region_reloc's table
-    mov bx, MEM_K_DRV           ; walk is all of them - and the claim's owner is
-    mov ax, mem_region_reloc    ; a kernel tag, so mem_reloc_call dispatches it
-    call mem_movable_x          ; through cw_mem_disp and not through a driver's
-    pop dx                      ; dispatcher. NO DECLARATION IS ASKED OF THE
-    pop bx                      ; DRIVER: mem_can_move asks the three facts
-    pop ax                      ; instead, of which the IVT scan is the one a
-                                ; declaration would have got wrong
+    push bx                     ; ...AND IT MAY MOVE. The proc is the KERNEL's,
+    mov bx, MEM_K_DRV           ; because every word that names a driver image
+    mov ax, mem_region_reloc    ; is the kernel's - mem_region_reloc's table
+    call mem_movable_x          ; walk is all of them - and the claim's owner is
+    pop bx                      ; a kernel tag, so mem_reloc_call dispatches it
+                                ; through cw_mem_disp and not through a driver's
+                                ; dispatcher. NO DECLARATION IS ASKED OF THE
+                                ; DRIVER: mem_can_move asks the three facts
+                                ; instead, of which the IVT scan is the one a
+                                ; declaration would have got wrong. NO BANK of
+                                ; DX or AX round it (kernel size pass 17, -4):
+                                ; mem_movable_x writes neither (mem_find_own
+                                ; READS DX, and both exits are mem_free_x's
+                                ; pushf/si frame), and AX is spent - the
+                                ; PARA store above was its last reader and
+                                ; dskw_read_x below takes no AX
 
     push bx                     ; the row - BX is the read's own destination
     mov es, dx                  ; offset, and the claim starts at ES:0000.
@@ -3523,11 +3520,14 @@ drv_load_at:
 ; -----------------------------------------------------------------------------
 ; drv_check - validate a loaded driver image (module internal)
 ; in:  BX = row ptr with DRVR_SEG live, BP = the bytes that arrived
+; in:  ...and ES = the image already: drv_load_at, the one caller, read the
+;      file into ES:0 and dskw_read_x keeps ES (kernel size pass 17, -3: the
+;      `mov es, [bx+DRVR_SEG]` that reloaded it is gone)
 ; out: CF = 0 and [bx+DRVR_ENT] filled; CF = 1 malformed - and ES = the image
 ;      either way, which drv_bss, drv_hi and the attach half's HMA placement
-;      all take it in (kernel size pass 15: no bank, -3; drv_load_at, the one
-;      caller, read it in ES already and its kretc_es restores the caller's)
-; clobbers: AX, SI, ES, flags
+;      all take it in (kernel size pass 15: no bank, -3; its kretc_es
+;      restores the caller's)
+; clobbers: AX, SI, flags
 ;
 ; ld_check_hdr's tests, on a driver - and it is now literally them: the
 ; magic, the version, the link word and the dispatcher pair are ld_hdr_ok
@@ -3541,7 +3541,6 @@ drv_load_at:
 ; [es:si+n] is a byte shorter than [es:n] for every one of these fields.
 ; -----------------------------------------------------------------------------
 drv_check:
-    mov es, [bx+DRVR_SEG]
     xor si, si
     mov al, DRV_VER
     call ld_hdr_ok
@@ -3561,11 +3560,16 @@ drv_check:
     mov ax, [es:si+DRV_H_ENTRY]
     cmp ax, DRV_HDR_SZ
     jb .bad
-    cmp ax, [es:si+DRV_H_IMG]               ; ...and the entry is inside the
-    jae .bad                                ; image
+    cmp bp, ax                              ; ...and the entry is inside the
+    jbe .bad                                ; image - BP, which the compare
+                                            ; above has just made the header's
+                                            ; DRV_H_IMG, and the operands the
+                                            ; other way round so the success
+                                            ; path leaves with CF = 0 and no
+                                            ; `clc` (kernel size pass 17, -3)
     mov [bx+DRVR_ENT], ax                   ; banked: an unload must not be
                                             ; steerable by a driver that has
-    clc                                     ; since scribbled on its own
+                                            ; since scribbled on its own
     ret                                     ; header
 .bad:
     stc
@@ -3634,8 +3638,9 @@ drv_bss:                        ; (ES = the image, from drv_check; no frame -
     mov cl, 4
     shl ax, cl                  ; AX = the bss in BYTES, at most 4,080
     mov si, ax                  ; ...banked, because the test spends AX
-    mov di, [es:DRV_H_IMG]      ; the bss begins where the image ends, which
-    add ax, di                  ; drv_check has just made equal to BP
+    mov di, bp                  ; the bss begins where the image ends, which
+    add ax, di                  ; drv_check has just made equal to BP - so BP
+                                ; it is (kernel size pass 17, -3)
     call mem_bytes_gp_x         ; -> the granules of image + bss (at most
                                 ; DRV_MAX_KB + 4,080 bytes: no carry)
     cmp ax, [bx+DRVR_PARA]      ; THE ONE BOUND TEST, and it is about a byte
@@ -4051,11 +4056,11 @@ drv_unload_x:
     call drv_row_x
     cmp word [bx+DRVR_SEG], 0
     je .out
-    mov bp, [bx+DRVR_ENT]
-    or bp, bp
-    jz .free                    ; never attached: nothing could have spawned
+    cmp word [bx+DRVR_ENT], 0
+    je .free                    ; never attached: nothing could have spawned
     mov al, DRVV_DETACH
-    call drv_call
+    call drv_call_ent           ; ...which loads the BP the test above read
+                                ; (kernel size pass 17, -1)
     ; Detach told the workers to die; now WAIT for the deaths themselves
     ; before a byte of the image is freed. [drv_wcnt] falls inside
     ; task_exit's IF=0 window (drv_task), so zero means no task's CS points
@@ -4096,15 +4101,16 @@ drv_unload_x:
 ; -----------------------------------------------------------------------------
 drv_shutdown_x:
     push ax
-    push cx
-    xor cx, cx
-.next:
-    mov al, cl                  ; NO loaded-row pre-check: drv_unload_x's own
+    xor ax, ax                  ; AL = the row, counted in AL itself: drv_unload_x
+.next:                          ; is a KENT routine and hands AX back as it
+                                ; was given (kernel size pass 17, -5: CX was
+                                ; the counter, copied into AL every pass).
+                                ; NO loaded-row pre-check: drv_unload_x's own
     call drv_unload_x           ; first three instructions are drv_row_x and
-    inc cx                      ; `cmp word [bx+DRVR_SEG],0 / je .out`, so an
-    cmp cx, DRV_MAX             ; unloaded row already returns having done
+    inc ax                      ; `cmp word [bx+DRVR_SEG],0 / je .out`, so an
+    cmp al, DRV_MAX             ; unloaded row already returns having done
     jb .next                    ; nothing. It costs one extra prologue per
-    pop cx                      ; unloaded row, at most five, once, on the way
+                                ; unloaded row, at most five, once, on the way
     pop ax                      ; to int 19h - and it frees BX with it
     retf
 
@@ -4112,12 +4118,13 @@ drv_shutdown_x:
 ; drv_release - give the image's claim back and disarm the row (internal)
 ; in:  BX = row ptr
 ; out: nothing (all registers preserved)
+;
+; The KENT ladder's frame (kernel size pass 17, -7): it banks CX and BX as
+; well as the four this used to push, so the table clear's CX and the owner
+; sweep's BX need no bank of their own and the tail is one rung.
 ; -----------------------------------------------------------------------------
 drv_release:
-    push ax
-    push bx
-    push dx
-    push di
+    call kentc_di               ; KENT: push ax..di
     mov dx, [bx+DRVR_SEG]
     or dx, dx
     jz .out
@@ -4159,11 +4166,12 @@ drv_release:
     mov word [di+drv_owner], 0  ; one call (kernel size pass 15, -19): the
     call drv_cls_svc_x          ; owner, then the service table, in that
     jc .nosvc                   ; order. DRVC_POINT has no table to clear
-    push cx                     ; CX is the caller's, and AL the class still
-    mov cx, DSV_SIZE / 2        ; (below): the table alone, a word at a time
-    call dsk_ent_zero.zero      ; through DS:DI - disk.inc's loop, which
-    pop cx                      ; touches DI, CX and nothing else, so AX and
-                                ; ES need no bank (kernel size pass 16, -8).
+    mov cx, DSV_SIZE / 2        ; AL the class still (below): the table
+    call dsk_ent_zero.zero      ; alone, a word at a time through DS:DI -
+                                ; disk.inc's loop, which touches DI, CX and
+                                ; nothing else, so AX and ES need no bank
+                                ; (kernel size pass 16, -8), and CX is the
+                                ; ladder's (pass 17).
                                 ; The 16-byte staged sink name this once also
                                 ; cleared is gone, and drv_cfg now sits right
                                 ; behind drv_svc
@@ -4203,8 +4211,8 @@ drv_release:
 %ifdef HMA_DRV
     mov [bx+DRVR_DISP+1], al    ; ...and a row that ran from the HMA is a
 %endif                          ; heap row again: E00C -> PKG_DISP, AL is 0
-    push bx                     ; anything the DRIVER itself claimed is owned
-    mov bx, dx                  ; by its segment (mem_own), so sweep those
+    mov bx, dx                  ; anything the DRIVER itself claimed is owned
+                                ; by its segment (mem_own), so sweep those
     call mem_free_owner_x         ; FIRST - the image's own free below takes
 %ifdef HMA_DRV                  ; that segment out of existence, and a claim
     mov al, ROMF_HDROP          ; whose owner word no longer names anything
@@ -4226,14 +4234,9 @@ drv_release:
 %endif
     mov bx, MEM_K_DRV
     call mem_free_x
-.hma:
-    pop bx
+.hma:                           ; BX is the ladder's to restore
 .out:
-    pop di
-    pop dx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 %ifdef KERN_MEGA
 ; -----------------------------------------------------------------------------
@@ -4490,7 +4493,7 @@ drv_task_x:
     inc byte [drv_wcnt]         ; BEFORE the task can run, so the count never
     call KERNEL_SEG:cw_task_spawn             ; lags a worker that spawned and died at once
     jc .spfail                  ; (task_spawn preserves IF, so nothing runs
-    push bx                     ; until our popf)
+                                ; until our popf)
     mov bl, al                  ; AL = the slot: a driver's worker is service
     xor bh, bh                  ; plumbing and survives the fsx freeze
     mov cl, 3                   ; (SPEC.md 53.2) - stamped inside the same
@@ -4498,8 +4501,9 @@ drv_task_x:
                                 ; before the bit is on. CX is SCH_DRV_STK's
                                 ; already, so CL is free for the shift
     or byte [bx+sch_tasks+T_FLAGS], TF_SERVICE
-    pop bx
-    popf
+    popf                        ; (no bank of BX round the stamp: .out pops
+                                ; the caller's, and nothing between reads it -
+                                ; kernel size pass 17, -2)
     clc
     jmp short .out
 .spfail:
@@ -6550,11 +6554,11 @@ drv_pkg_call_x:
 .none:
     pop ax
     pop di
-    pop bp
-    pop ds
     xor ax, ax
     stc
-    ret
+    jmp short .done             ; ...and .done's two pops and `ret`, which
+                                ; were written out a second time here (kernel
+                                ; size pass 17, -1)
 
 ; -----------------------------------------------------------------------------
 ; drv_pkg_disp - drv_pkg_call_x's far call, synthesised on the CALLER'S STACK

@@ -802,8 +802,8 @@ desk_cmark:
 ; Clobbers AH, BX.
 desk_cbit:
     push cx
-    mov bl, al
-    xor bh, bh
+    cbw                         ; (a cell is <= DSL_SLOT, and AH is a clobber:
+    mov bx, ax                  ; kernel size pass 17, -1)
     mov cl, bl
     and cl, 7
     mov ah, 1
@@ -1223,17 +1223,19 @@ desk_pm_body:
 ;                   and its box grown so every window over it is owed a repaint
 ;                   (11.91's per-window test) - the old answer, kept for those
 ; in:  AL = a zone desk_dmg_zones marked; the gfx lock held
-; out: nothing (all registers preserved)
+; out: nothing; keeps CX and DX, the two its one caller's loop reads after
+;      `call dx` (the zone counter and this routine's own address) - AX is
+;      reloaded from CL and BX is not read (kernel size pass 17)
 ; -----------------------------------------------------------------------------
 desk_zone_whole:
     call desk_draw_zone         ; (the box is read by the window pass, after)
-    push ax
-    push bx
     push cx
     push dx
     call desk_zone_rect
     call KERNEL_SEG:cw_wm_dmg_zadd
-    jmp kretc_dx
+    pop dx
+    pop cx
+    ret
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -1585,14 +1587,8 @@ desk_zone_hilite:
 ; only where it shows, in one call per piece and with no pass of its own per
 ; fragment.
 desk_draw_zone:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
-    push es
+    call kentc_bp               ; AX..BP, and ES below: kretc_es's frame
+    push es                     ; (kernel size pass 17: eight pushes were -4)
     mov ah, [gfx_color]         ; read ABOVE cw_thm_desk, which writes it
     push ax
     push word [gfx_b1ink]       ; THE PEN, banked and put to rest: desk_col and
@@ -2093,14 +2089,8 @@ desk_zones_r_x:
 
 %else
 desk_draw_zone:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di                     ; for kretc_es's shape: nothing here spends it
-    push bp
-    push es
+    call kentc_bp               ; AX..BP for kretc_es's shape (nothing here
+    push es                     ; spends DI) - kernel size pass 17, -4
     mov ah, [gfx_color]         ; read ABOVE cw_thm_desk, which under
     push ax                     ; OS88_THEME writes [gfx_color] itself
     mov [desk_zdrv], al

@@ -198,15 +198,8 @@ ld_lname_cp:
     mov di, ld_lname
     mov cx, LD_NAMELEN
     cld
-.cp:
-    lodsb
-    stosb
-    or al, al
-    jz .done
-    loop .cp
-    mov byte [di], 0            ; twelve characters and no terminator: end it.
-.done:                          ; ES == DS, so no override is needed
-    jmp kretc_di
+    call fm_ncpy                ; the same loop and the same terminator,
+    jmp kretc_di                ; written once in files.inc (pass 17, -8)
 
 ; -----------------------------------------------------------------------------
 ; ld_unreserve - give back a region, and anything the entry proc claimed
@@ -400,14 +393,13 @@ ld_hdr_size:
     jbe .bad                    ; taken leaves CF = 0 and is the answer: the
     mov [ld_ent], ax            ; `clc` it needed the other way round is gone
     ret                         ; (kernel size pass 12)
-.bad:                           ; ...and BOTH REFUSALS ARE ld_check_hdr's TOO:
+.toobig:
+    mov al, LD_EBIG
+    SKIPF2                      ; test ax, imm16 over .bad's `mov al` (pass
+.bad:                           ; 17, -1). BOTH REFUSALS ARE ld_check_hdr's TOO:
     mov al, LD_EBAD             ; its own ladder above jumps here rather than
 .stc:                           ; carrying a second pair four bytes long - and
     stc                         ; so are ld_hdr_ok's, the body just above
-    ret
-.toobig:
-    mov al, LD_EBIG
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -694,16 +686,16 @@ loader_run_x:
                                 ; the kernel segment (SPEC.md 2.1)
 .body:
     call ld_run_body_x          ; in: SI -> the staged entry; out: AL = LD_*
-.said:
+    SKIPF2                      ; over .badix's `mov al` (pass 17, -1)
+.badix:
+    mov al, LD_EBAD             ; ld_take.bad's verdict, reached without it:
+.said:                          ; an index past the end is not a file
     call ld_say_status          ; record the verdict and SAY it (SPEC.md 59)
     call ld_owed                ; ...and the repaint, if this load left one
                                 ; owed - the body both far entries share, and
                                 ; its banner is where the reasoning lives
 
     jmp kretfc_es
-.badix:
-    mov al, LD_EBAD             ; ld_take.bad's verdict, reached without it:
-    jmp short .said             ; an index past the end is not a file
 
 ; -----------------------------------------------------------------------------
 ; ld_run_body - the load pipeline (module-internal; loader_run saves regs)
@@ -1014,7 +1006,10 @@ ld_run_body_x:
     test al, 0x10               ; bit 4 says which format (SPEC.md 20.13): the
     mov al, LZ_LZ4              ; decoder wants 0 or 1, and CX - the file's
     jz .fmt                     ; length - is not a register to shift by
-    mov al, LZ_LZB
+    inc ax                      ; LZ_LZB, one past LZ_LZ4 (pass 17, -1)
+%if LZ_LZB != LZ_LZ4 + 1
+  %error "ld_run_body_x steps LZ_LZ4 to LZ_LZB with one inc"
+%endif
 .fmt:
     xor di, di
     push ax                     ; ...the format, across the copy
@@ -1903,10 +1898,10 @@ ld_pkg_start_x:
     cld                         ; the last thing this block may read
     rep movsb
     pop ds
-    call ld_start               ; 7, 8 and 9 - and ES is the region, which is
-.bad_out:                       ; what that routine's step 7 wants. It answers
-    ret                         ; in AL and frees the region itself when the
-                                ; entry proc aborts
+    jmp ld_start                ; 7, 8 and 9 - and ES is the region, which is
+                                ; what that routine's step 7 wants. It answers
+                                ; in AL and frees the region itself when the
+                                ; entry proc aborts (a tail jump: pass 17, -1)
 .badpop:
     pop si
 .bad:
@@ -2061,13 +2056,10 @@ ldf_ld_pkg_start:
     call ld_owed                ; the repaint this load still owes, if any -
                                 ; and it banks AX itself, which is what the
                                 ; `push ax` / `pop ax` around this used to be
-    or al, al
-    jnz .fail                   ; every LD_* but LD_OK, ld_start's own
-    xor ax, ax                  ; LD_EABORT included: AX = 0 and CF = 0 on the
-    retf                        ; way out, and `xor` is what clears the flag
-.fail:
-    stc
-    retf                        ; retf touches no flags, so the answer stands
+    cmp al, 1                   ; every LD_* but LD_OK, ld_start's own
+    cmc                         ; LD_EABORT included, is CF = 1 - `cmp`
+    mov ah, 0                   ; borrows on 0 alone. AH = 0 writes no flag,
+    retf                        ; so LD_OK is AX = 0 (pass 17, -3)
 
 ; -----------------------------------------------------------------------------
 section .bss

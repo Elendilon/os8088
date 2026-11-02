@@ -288,11 +288,10 @@ spk_pcm_idle:
 ; audio cannot silence an alert.
 ; -----------------------------------------------------------------------------
 snd_tone_req:
-    push bx
-    push cx
-    push dx
-    push si
-    pushf
+    push bx                     ; BX and SI only: nothing here writes CX, and
+    push si                     ; DX comes back as it came, the one write to
+    pushf                       ; it (DL, for the sink) banked round its call
+                                ; (kernel size pass 17, -4)
     cli
     cmp byte [snd_live], 0      ; not initialised: .bss is garbage - refuse
     je .refuse
@@ -334,8 +333,6 @@ snd_tone_req:
     stc
 .out:
     pop si
-    pop dx
-    pop cx
     pop bx
     ret
 
