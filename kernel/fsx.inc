@@ -201,17 +201,17 @@ fsx_capstab:                    ; indexed by VID_* (VGA 0, HERC 1, CGA 2, EGA 3)
 ; window ptr, DS = CS = the package's segment, ES = KERNEL_SEG - an ordinary
 ; near proc with a near ret, exactly a W_ONKEY's environment.
 ; -----------------------------------------------------------------------------
+fsx_rfail:                      ; THE REFUSAL, ABOVE THE ENTRY. Nine `j..`
+    stc                         ; below were out of short reach as the 5-byte
+    jmp kret_di                 ; inverted-jump-plus-near-jmp form; from here
+                                ; they are 2 bytes each, backward. It was a
+                                ; `jmp short .tests` trampoline INSIDE fsx_run
+                                ; (`stc / jmp .out`), whose own jump went with
+                                ; it (kernel size pass 17, -2) - and it is a
+                                ; GLOBAL label, so no other routine's `.fail`
+                                ; can be retargeted by it
 fsx_run:
     call kent_di                ; = push ax/bx/cx/dx/si/di
-    jmp short .tests            ; THE REFUSAL TRAMPOLINE. Nine `j.. .fail`
-.fail:                          ; below were out of short reach and assembled
-    stc                         ; as the 5-byte inverted-jump-plus-near-jmp
-    jmp .out                    ; form; from here they are 2 bytes each and
-.tests:                         ; this is the ONE near jump. It must stay
-                                ; INSIDE fsx_run: `.fail` and `.tests` belong
-                                ; to the last non-local label, so moving it
-                                ; above would silently retarget another
-                                ; routine's `.fail`
 %ifdef KERN_MEGA
     mov si, cx                  ; the flags as ASKED, FSXF_REAL among them:
 %endif                          ; SI is nobody's until the release loop below
@@ -222,12 +222,12 @@ fsx_run:
                                 ; kern_mega acts on SI's copy after the fence
 %ifdef KERN_BIG
     cmp cl, FSXF_FASTTICK + FSXF_RATE ; 6: CL >= 8 is an undefined bit, and 6
-    jae .fail                   ; and 7 are FASTTICK WITH RATE, which refuses
+    jae fsx_rfail                   ; and 7 are FASTTICK WITH RATE, which refuses
     cmp [vid_ndisp], ch         ; too - one channel 0 (53.2.2). CH = 0 the
-    jb .fail                    ; window's display, n display n-1 (53.1.2)
+    jb fsx_rfail                    ; window's display, n display n-1 (53.1.2)
 %else
     cmp cx, FSXF_KEEPWORKER + FSXF_FASTTICK + 1 ; (CH: any display past the
-    jae .fail                   ; window's refuses, CX being past the flags)
+    jae fsx_rfail                   ; window's refuses, CX being past the flags)
 %endif
                                 ; undefined flag bits refuse, so the word
                                 ; stays extensible (SPEC.md 53.1). "any bit
@@ -237,7 +237,7 @@ fsx_run:
                                 ; without bit 3 and this must go back to a
                                 ; mask test
     cmp word [sch_cur], 0xFF00  ; the UI task alone may enter - a worker's
-    jne .fail                   ; bracket would freeze the UI task mid-frame -
+    jne fsx_rfail                   ; bracket would freeze the UI task mid-frame -
                                 ; and one bracket at a time: [sch_cur] = 0 and
                                 ; [fsx_task] = 0xFF, ONE word (adjacent, the
                                 ; %if at fsx_mine)
@@ -249,7 +249,7 @@ fsx_run:
     test cl, FSXF_RATE          ; SPEC.md 53.2.2: DX a divisor, DI a hook
     jz .norate                  ; (never with FASTTICK: refused above)
     cmp dx, FSX_RATE_MIN
-    jb .fail
+    jb fsx_rfail
     mov [sch_rdiv], dx          ; banked NOW, because the fence below spends
     mov [sch_rbp], di           ; DX and DI. Inert until [sch_fast] reads
     mov [sch_rwin], bx          ; SCH_RATE, which only the arm below writes -
@@ -271,9 +271,9 @@ fsx_run:
                                 ; place that catches it, and the double cursor
                                 ; SPEC.md 48.13 watches for is the symptom
     cmp word [fdlg_win], 0      ; not under the modal file dialog (SPEC.md 38)
-    jne .fail
+    jne fsx_rfail
     call inst_pkg_fence         ; the ownership fence (SPEC.md 53.1), which is
-    jc .fail                    ; inst_pkg_spawn's and now shared with it: BX
+    jc fsx_rfail                    ; inst_pkg_spawn's and now shared with it: BX
                                 ; bounded, a live package instance whose
                                 ; segment is the caller's own DS, and AX an
                                 ; entry inside its image+bss.  DI = the record
@@ -283,7 +283,7 @@ fsx_run:
     pop dx                      ; the hook - the caller's DI, which is the
     push dx                     ; LAST of the six pushes at the door - fenced
     cmp dx, [di+I_SIZE]         ; as the entry is: inside the SAME instance's
-    jae .fail                   ; image+bss (DX is the fence's scratch, dead
+    jae fsx_rfail                   ; image+bss (DX is the fence's scratch, dead
 .nohook:                        ; here)
 %endif
 %ifdef KERN_MEGA
