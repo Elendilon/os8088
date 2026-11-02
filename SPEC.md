@@ -50347,7 +50347,7 @@ top of §26.7's):
 | `.bss` | 6,134 | 6,138 | **+4** (`[ld_msrc]`) |
 | `.cold` | 37,485 | 37,622 | **+137** |
 
-**159 bytes**, 137 of them `.cold` — 9 over docs/WIRE-PLAN.md §3's 150-byte
+**159 bytes**, 137 of them `.cold` — 9 over docs/plans/completed/WIRE-PLAN.md §3's 150-byte
 budget, and **taken as it stands rather than contorted**: the 18 in `.text` are
 the three things that cannot be cold — the table cell, the resident thunk every
 cold body needs, and `cw_inst_caller` — so the cold half alone is inside 150
@@ -57453,7 +57453,7 @@ missing from a rect that has just been whitened.
 ### 26.7 A driver-registered desktop SERVICE zone, and the kernel keeps no glyph
 
 Every desktop zone in this OS is a row of `dsk_vtab` (§26.1). The Wire
-(docs/WIRE-PLAN.md) needs one that is not a disk: double-clicking it opens
+(docs/plans/completed/WIRE-PLAN.md) needs one that is not a disk: double-clicking it opens
 `SYSTEM/THEWIRE.O88`, the online software library. A package cannot put an
 icon on the desktop and `OSAPI_VOL_ADD` is fenced to drivers, so this is
 kernel code — but **the kernel learns nothing about the Wire**, and that is
@@ -57602,7 +57602,7 @@ is an ABI that depends on a knob (§20.8 rule 4, `wm_noanim`'s precedent).
 | `.bss` | 6,067 | 6,134 | **+67** |
 
 **243 bytes of `.text` + `.cold`, and 67 of `.bss`** — 43 over
-docs/WIRE-PLAN.md §2's 200-byte budget, and the overrun is named rather than
+docs/plans/completed/WIRE-PLAN.md §2's 200-byte budget, and the overrun is named rather than
 absorbed. The slot's own body is about 95 of it: a fence call, a 65-byte
 `rep movsb`, the caption's terminator, `desk_zmark` on both edges and a
 withdraw that checks it is yours. The zone's five arms are about 75. The rest
@@ -123871,7 +123871,7 @@ discard, the Telnet options a board expects and the keys a board expects
 user picks. The discard survives inside §70.9 as the fall-through for a
 sequence still not implemented, which is where it always belonged. Uploads,
 CRC-32, scroll regions and RIPscrip are deferred with their arithmetic in
-docs/TELNET-PLAN.md, which is this work's design record.
+docs/plans/completed/TELNET-PLAN.md, which is this work's design record.
 
 ### 70.1 Refusing every Telnet option is a valid implementation
 
@@ -124369,7 +124369,7 @@ handed an attribute byte draws that attribute or it draws a different picture;
 there is no degraded-but-honest rendering of a colour, the way there is of a
 shape. Two approximations were judged and rejected — paper exact with the ink
 raised to `ink OR paper`, and ink exact with the paper lowered to
-`ink AND paper` — and docs/TELNET-PLAN.md records, under *"The refused pen
+`ink AND paper` — and docs/plans/completed/TELNET-PLAN.md records, under *"The refused pen
 pair"*, why each is worse than the kernel change: both are one blit and both
 put a colour on the screen that nothing sent.
 
@@ -124894,7 +124894,7 @@ board is used, it is one keystroke away, and the alternative is the one thing
 this app may not do. §70.5's judgement stands word for word: *"what a narrow
 window costs is the right of every line, with no way to scroll to it, and that
 is the accepted trade rather than an oversight."* A horizontal scrollbar was
-judged and deferred; docs/TELNET-PLAN.md carries the arithmetic.
+judged and deferred; docs/plans/completed/TELNET-PLAN.md carries the arithmetic.
 
 **NAWS does not lie** (§70.10). It reports 80 by 25 always, because the buffer
 is 80 by 25 always. A client that reported its viewport would be telling the
@@ -125025,7 +125025,7 @@ buffer**, which is the property that matters on this machine: bytes arrive in
 whatever fragments TCP hands over, an escape sequence is routinely split
 across two `NETV_RECV` calls, and a parser that searched a buffer would have
 to reassemble one. Haberman's vtparse is its shape;
-`docs/TELNET-PLAN.md` records why it is that shape and not a port of one.
+`docs/plans/completed/TELNET-PLAN.md` records why it is that shape and not a port of one.
 
 #### 70.9.1 The states, and every transition
 
@@ -125554,7 +125554,7 @@ for pointer movement and Ins, Del and Space for the buttons, whenever
 see them"*. **ScrollLock is the escape hatch and it is the only one**
 (`kbm_shf`, bit 4 of `0040:0017`): with it on, the arrows are the
 application's again. A board is unusable without them, so the About panel says
-so and docs/TELNET-PLAN.md records that a per-window opt-out was judged and is
+so and docs/plans/completed/TELNET-PLAN.md records that a per-window opt-out was judged and is
 not in this work.
 
 **F11 and F12 may never arrive at all.** The kernel polls `int 16h AH=01h` and
@@ -125638,7 +125638,7 @@ remembering (§70.9.7).
 
 ### 70.11 Zmodem receive (`apps/telnet/tezm.inc`)
 
-**Receive only. Uploads are out of scope**, and docs/TELNET-PLAN.md carries
+**Receive only. Uploads are out of scope**, and docs/plans/completed/TELNET-PLAN.md carries
 the arithmetic. Started by §70.9.6's auto-start or by Session → *Receive File
 (Zmodem)…*, which sends a `ZRINIT` and waits.
 
@@ -168449,7 +168449,7 @@ what cannot carry is present with the fact stated (§47).** Nothing from the
 reference is vendored (CONTRIBUTING.md §6): every file carrying derived
 material cites `pacman.c`, the commit, the author and the licence in its
 header, and so does the About card. The design record is
-`docs/PACCMAN-PORT-PLAN.md`; every wave amends this section and its numbers are
+`docs/plans/completed/PACCMAN-PORT-PLAN.md`; every wave amends this section and its numbers are
 the shipping ones once the last wave lands.
 
 **It is a SECOND Pac-Man and shares nothing with the first.** §89's
@@ -168649,7 +168649,7 @@ draw. It is chosen anyway and `pmc_pick_path` says so at the branch: the loss
 is entirely the repack, the blit itself is 6.6×, and the path has to stay
 chosen, exercised and measured until wave 2 removes the repack — or the wave
 that removes it has nothing to remove it from. That is
-the first risk `docs/PACCMAN-PORT-PLAN.md` records, with its answer already
+the first risk `docs/plans/completed/PACCMAN-PORT-PLAN.md` records, with its answer already
 decided there — so **wave 2 composes into planar DIRECTLY on the colour path**
 and the packed band stays for the two 1bpp adapters and the `BLIT4` fallback,
 which reads it unchanged. The four-times-wrong number the plan warned about
@@ -170016,7 +170016,7 @@ of memory, **Add to Disk...** writes it and its sidecars to a floppy. A
 networked XT with one 360KB drive reaches the whole collection without ever
 seeing a second disk.
 
-`docs/WIRE-PLAN.md` is the design record — what was considered and why each
+`docs/plans/completed/WIRE-PLAN.md` is the design record — what was considered and why each
 fork went the way it did. This section is the contract.
 
 **`apps/wire/` is WIREFRAME (§78) and is not renamed.** The package is
@@ -170439,7 +170439,7 @@ Everything below is content-relative; the content origin is 8-aligned by
 
 **THE DETAIL PANE IS SIZED FROM THE CATALOG FORMAT AND THE LIST GETS WHAT IS
 LEFT**, which is the second place the shipped window departs from
-`docs/WIRE-PLAN.md`'s mock. That mock starts the detail pane at 176 — 208 px —
+`docs/plans/completed/WIRE-PLAN.md`'s mock. That mock starts the detail pane at 176 — 208 px —
 and draws a 27-column description in it, and 27 cells is 216 px: the first
 build ran the last two words of every description off the right-hand edge and
 into the frame. §92.2's 27 is the *format*, which the website implements too,
@@ -170457,12 +170457,12 @@ is where the title is shown in full.
 
 `y2 = 18 + PH - 1` and `PH = ch - 29`, so the visible row count is
 `(PH - 2) / 16`: **12 rows on VGA and Hercules, 6 on CGA**, which is the
-floor `docs/WIRE-PLAN.md` §7 asks for.
+floor `docs/plans/completed/WIRE-PLAN.md` §7 asks for.
 
 **The buttons are stacked and not side by side**, and the arithmetic is why:
 `Load Program` and `Add to Disk...` are 12 and 14 cells, so two standard
 buttons want 110 + 6 + 126 = 242 px against a 208-px detail pane. The captions
-are brand and are not shortened (`docs/WIRE-PLAN.md`'s table), so the column
+are brand and are not shortened (`docs/plans/completed/WIRE-PLAN.md`'s table), so the column
 is what fits.
 
 **The CGA drops the PICTURE, not the description**, and this is the one place
@@ -170639,7 +170639,7 @@ changes.
 ### 92.11 Sizes, and the 360KB disk
 
 The 360KB system disk is the binding one: its cluster is 1,024 bytes, and
-`docs/WIRE-PLAN.md` §7 sized the package against what was left on it.
+`docs/plans/completed/WIRE-PLAN.md` §7 sized the package against what was left on it.
 Measured with `python3 tools/os88disk.py --verify`:
 
 | | |
@@ -223614,7 +223614,7 @@ reimplemented in the C this toolchain compiles (§73), plus three hand-written
 the fact that greys it (§47).** Nothing is vendored (CONTRIBUTING.md §6): the
 26 data files are fetched at build time and never committed, and every file
 carrying a derived table, string or offset names its source in its header. The
-design record is `docs/LEMMINGS-PORT-PLAN.md`. **It is a developer's build by
+design record is `docs/plans/completed/LEMMINGS-PORT-PLAN.md`. **It is a developer's build by
 the owner's decision** (2026-10-21; `apps/RETIRED.txt`, kind `local`): the data
 is DMA Design's and still commercially owned, so no shipped image, everything-set
 floppy, live medium or release zip carries LEMMINGS or its bands, where the
@@ -223669,7 +223669,7 @@ disagreements the converter had to settle.
 | frame clock, the opening sequence and the spawn interval | Lemmix `src/Game.pas` `IncrementIteration:3498` (17 frames to the second; iteration 15 "let's go", 34 entrance sound, 35 entrances open, 55 music) and `CheckSpawnLemming:4001` (first countdown 20, interval `(99−RR) div 2 + 4`, spawn at entrance left+24, top+14). Agrees with `lemmings_3ds/src/ingame.c` `level_step` |
 | cursor hit test, skill priority and the right-click behaviour | Lemmix `src/Game.pas` `PrioritizedHitTest:3595` — a 13x13 box hung off the animation's foot offsets, prioritised actions Blocking / Building / Shrugging / Bashing / Mining / Digging / Ohnoing, last prioritised wins unless the right button is held. Carried as the original's behaviour, not switchable |
 | interactive-object metadata: trigger effect ids, trigger rectangle at ×4 resolution, frame counts, trap sound ids | `lemmings_3ds/doc/data/lemmings_vgagrx_dat_groundxo_dat_file_format.txt` (28-byte `OBJECT_INFO`; left×4, top×4−4, w/h×4 with a stored 0 meaning 256; effect 0 none, 1 exit, 4 trap, 5 drown, 6 disintegrate, 7 one-way left, 8 one-way right, 9 steel) |
-| world size, the terrain-list terminator and the steel bit layout | `docs/LEMMINGS-PORT-PLAN.md` and its measurement over all 120 levels — see §116.3.1 |
+| world size, the terrain-list terminator and the steel bit layout | `docs/plans/completed/LEMMINGS-PORT-PLAN.md` and its measurement over all 120 levels — see §116.3.1 |
 | sound EVENTS (let's go, oh no, explosion, door open, yippee, splat, exit, trap) | Lemmix `src/Dos.Consts.pas` `TSoundEffect` and `src/Meta.Structures.pas`'s trap ids for the event list and where each fires. **The tones themselves are this port's own** — see §116.11 |
 | **the explosion's spray** (wave 6, decision 5, §116.8): the 51x80 table and its -128 rule, the sixteen colours, its lifetime, and the level-end wait | Lemmix `src/Game.pas` — `TParticleTable` :47-51 and the `-128` rule in `DrawParticles` :2492-2515 (a pair with either byte -128 is not drawn), `ParticleColorIndices` :54-56 (the sixteen indices `lb_pcol` carries verbatim, the level palette's own), `ParticleTimer`/`ParticleFrame` :4452-4455 (drawn for **52** frames, row 50 twice), and `fParticleFinishTimer` :2236 / :3375-3377 / :3508 with `ShowParticles` in `TGameOptions.DEFAULT` (`src/Base.Types.pas:161`), which is R9's wait (§116.4.7). `Lemmings.ts` `particle-table.ts` reads the same table and agrees; `lemmings_3ds/src/data/particles.c` and its `doc/` are third-party by that project's own `LICENCE.txt` and are NOT the source. Two departures: CGA and Hercules draw every particle in the solid class (§116.4.6), and the data is Lemmix's own extract of the executable's table, fetched and never committed (§116.2, §116.8) |
 | About box attribution and the original credits | Lemmix `src/Base.Strings.pas` `SCredits` — eight lines. Against the twelve-row ceiling (§73.12) that block plus product, version and a port line is already twelve, so the FULL attribution list lives in `README.TXT` beside the package and the About card names **the two principals AND the rightsholder** — "Lemmings By DMA Design", "Programming By Russell Kay", "Copyright 1991 Psygnosis Ltd." — and points at it. **Twelve rows since wave 5**: "Lemmings for os8088", "The DOS release, 1991", the port line in two halves, the original's three ("Lemmings By DMA Design", "Programming By Russell Kay", "Copyright 1991 Psygnosis Ltd."), **the second principal** — "Screens, strings and level order:" / "Lemmix By Eric Langedijk", SCredits' own first line under its own program's name — the licence is NOT named on the card: until wave 6 it read "(zlib)", which Lemmix's `Licence.txt` never calls itself (zlib's text with a clause of its own inserted), so `README.TXT` names it as Lemmix's own licence instead — and "See README.TXT for the full credits.", with two blank spacers. Twelve is the ceiling and a 640x200 number, and the card is the kernel's standard one (`apps/os88ui.inc`) with `OS88UI_ABFIT`: its pitch steps down from 12 to 10 to put twelve lines inside a CGA's 137-pixel content box (134 with the frame). It has no button of its own — a click or a key dismisses it (`lem_abdismiss`). `apps/cword/cwovl.c` naming Microsoft on cword's card is the precedent and §116.2's posture is cword's |
@@ -224319,7 +224319,7 @@ level off it" from its own build's planner; wave 6's first build measured ~10
 clusters of headroom, of which the spray took nine.) ~10-40 ms a
 picture on a 4.77 MHz 8088 for a level's 2-8 visible objects, against the
 picture's own measured 1,652 ms (§116.7.4). **A departure put to the owner,
-not yet decided** (docs/LEMMINGS-PORT-PLAN.md's owner's-call list);
+not yet decided** (docs/plans/completed/LEMMINGS-PORT-PLAN.md's owner's-call list);
 README.TXT says the picture is terrain only.
 
 **THE COLOURS.** Mode 12h's sixteen are the MAIN-MENU palette's 0-7 — black,
@@ -225877,7 +225877,7 @@ carry. PERFORMANCE.md Set 161 readings 12-17 carry the argument.
    dry-pass bound would cure 3 of 91 such ticks. **Each of those ticks is
    rule 2's erase-then-draw of the pointer where the player aims**, kept on
    purpose by the cap; that standing flicker is **put to the owner**
-   (docs/LEMMINGS-PORT-PLAN.md's owner's-call list): accept the pair as
+   (docs/plans/completed/LEMMINGS-PORT-PLAN.md's owner's-call list): accept the pair as
    shipped, or compose a pointer-only tick from the stepped lemmings'
    LAST-DRAWN boxes and poses so no stepped lemming is shown mid-frame - the
    "different design" §116.4.6 records, which would remove the cascade the
