@@ -288,6 +288,10 @@ dsl_w16:
     mov bp, dx
     mov cl, 9
     shl bx, cl                      ; BX = the cluster in bytes
+    call dsl_opsz                   ; ONE BAR FOR THE LAUNCH BEGINS HERE, so
+    add cx, bx                      ; this read is in it (SPEC.md 96.44.5.5):
+    adc dx, 0                       ; the parts and this cluster. Begun after
+    call dsl_opgo                   ; it, the cluster was a fill of its own
     mov di, bx                      ; DI = it, for the second read
     mov cx, bx                      ; --- the first cluster -------------------
     mov es, bp
@@ -428,14 +432,14 @@ dsl_pmok:
     call dsl_w16
     pop es
     pop si
-    jnc .notne                      ; posted: refused, and SILENT (21.5.4) -
-    ret                             ; CF = 1, and BEFORE the launch's bar
-.notne:                             ; begins, so .out has no flags to pop
+    jc .no                          ; posted: refused, and SILENT (21.5.4) -
+                                    ; .out ends the bar dsl_w16 began
 %endif
-    ; ONE OPERATION FOR THE LAUNCH (SPEC.md 12.8.10): the DOS's carve and the
-    ; core's fetch, their PACKED lengths - what is read - as one bar. op_load's
-    ; and op_fetch's own begins are refused as nesting; the flags ride the
-    ; stack to .out, the one exit, which ends only what this began
+    ; ONE OPERATION FOR THE LAUNCH (SPEC.md 12.8.10, 96.44.5.5): the DOS's
+    ; carve and the core's fetch, their PACKED lengths - what is read - as one
+    ; bar. op_load's and op_fetch's own begins are refused as nesting. A
+    ; document's probe (dsl_w16) has begun it already, with its cluster in it;
+    ; .out, the one exit, ends it
 %ifndef DOS_MEGA
     ; **HEADLESS: THE WINDOW IS NEVER CLAIMED** (SPEC.md 96.44.20). The table
     ; is this image's, which is per-instance RAM, and op_size sizes the carve
@@ -443,23 +447,19 @@ dsl_pmok:
     ; fetches, the carve is part 0's length, the re-home keeps to part 0's
     ; end, and the region is born the window's size smaller. Nothing is read
     ; for it either: the carve's run ends at the last eager row
-%endif
-    mov cx, [op_table + OP_T_ROWS + DOS_PART_PKG * OP_ROW + OP_R_ZKB]
-    xor dx, dx
-    add cx, [op_table + OP_T_ROWS + DOS_PART_CORE * OP_ROW + OP_R_ZKB]
-    adc dx, dx
-%ifndef DOS_MEGA
     cmp byte [dsl_head], 0
     je .win
     or byte [op_table + OP_T_ROWS + DOS_PART_WIN * OP_ROW + OP_R_FLAG], OP_LAZY
-    jmp short .nowin                ; ...so the bar counts only a window it
-.win:                               ; will claim
-    add cx, [op_table + OP_T_ROWS + DOS_PART_WIN * OP_ROW + OP_R_ZKB]
-    adc dx, 0                       ; ...and the window's, read in the same run
-.nowin:
+    call dsl_opend                  ; the probe's bar counted the window it
+.win:                               ; will not read: begun again, below
 %endif
-    call OSAPI_FS_OP                ; CF = 0: ours to end; SI and ES kept
-    pushf
+%ifdef DOS_WIN16
+    cmp byte [dsl_opok], 0
+    jne .begun                      ; the probe's bar stands
+%endif
+    call dsl_opsz
+    call dsl_opgo
+.begun:
     call op_load                    ; sizes first and reads nothing if it will
     jc .no                          ; not fit (20.12); a toast has said why
 
@@ -557,15 +557,47 @@ dsl_pmok:
     stc                             ; ...and the kernel tears down what exists.
                                     ; op_load has already said why in a toast
 .out:
-    pop ax                          ; the begin's flags; ours stand
     pushf
-    shr al, 1                       ; CF = the begin was refused
-    jc .kept
+    call dsl_opend                  ; the end - refused, and harmless, when
+    popf                            ; the begin was
+    ret
+
+; -----------------------------------------------------------------------------
+; dsl_opsz - DX:CX = the launch's bytes: parts 0 and the core's PACKED lengths,
+;            and the window's unless headless (SPEC.md 96.44.5.5)
+; dsl_opgo - begin the launch's operation of DX:CX bytes; [dsl_opok] = 1 ours
+; dsl_opend - end it; an end the begin did not open is refused by the kernel
+;            (SPEC.md 12.8.10), so it is unconditional. CX and DX clobbered
+; every other register and, but for dsl_opend, nothing else kept as they were
+; -----------------------------------------------------------------------------
+dsl_opsz:
+    mov cx, [op_table + OP_T_ROWS + DOS_PART_PKG * OP_ROW + OP_R_ZKB]
+    xor dx, dx
+    add cx, [op_table + OP_T_ROWS + DOS_PART_CORE * OP_ROW + OP_R_ZKB]
+    adc dx, dx
+%ifndef DOS_MEGA
+    cmp byte [dsl_head], 0
+    jne .r                          ; ...so the bar counts only a window it
+    add cx, [op_table + OP_T_ROWS + DOS_PART_WIN * OP_ROW + OP_R_ZKB]
+    adc dx, 0                       ; will claim, read in the same run
+.r:
+%endif
+    ret
+dsl_opgo:
+    call OSAPI_FS_OP                ; every register kept
+%ifdef DOS_WIN16
+    jc .r
+    inc byte [dsl_opok]
+.r:
+%endif
+    ret
+dsl_opend:
+%ifdef DOS_WIN16
+    mov byte [dsl_opok], 0
+%endif
     xor cx, cx
     mov dx, cx
-    call OSAPI_FS_OP                ; the end
-.kept:
-    popf
+    call OSAPI_FS_OP
     ret
 
 ; --- the table, and the standard's own code after it (SPEC.md 20.12.3) ------
@@ -663,5 +695,6 @@ dsl_w16k equ dsl_doc + 16               ; ...1 = read, and it is no NE: the
                                         ; ADJACENT: the hand-on copies 17
 dsl_home equ dsl_w16k + 1               ; the folder we came from: dir, vol
 dsl_head equ dsl_home + 3               ; 1 = a link saved Close when done
-DSL_BSS  equ OP_ROW + 16 + 1 + 3 + 1
+dsl_opok equ dsl_head + 1               ; 1 = the launch's bar is ours (96.44.5.5)
+DSL_BSS  equ OP_ROW + 16 + 1 + 3 + 1 + 1
 %endif

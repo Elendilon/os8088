@@ -6932,17 +6932,22 @@ SOAK = [
         "text rather than any error.",
         needs=("marty",), serial=True,
         wants=("build/dosexe360.img",)),
-    Row("dosbar", "soak", py("tests/dosbar.py"), 15.0,
-        "LAUNCHING A DOS PROGRAM IS ONE FILE OPERATION (SPEC.md 12.8.10, "
-        "96.44.5.4). A double-click on B:DOSHELLO.EXE off the 360KB LZB "
-        "system disk, traced to READY: ONE fpg_opbegin (dsl_entry's), every "
-        "by-name read of DOS.O88 inside it, the operation filling its trough, "
-        "and the widget coming up at most the 4 times measured from "
-        "e7bd353b to 8f18e5f3. VERIFIED TO FAIL: with dsl_entry's begin "
-        "taken out the parts library opens its own two and the row reports 2 "
-        "operations. Measured 8s.",
+    Row("dosbar", "soak", py("tests/dosbar.py"), 10.0,
+        "LAUNCHING A DOS PROGRAM IS TWO FILE OPERATIONS (SPEC.md 12.8.10, "
+        "96.44.5.5, 96.8.2.1): one for DOS.O88 and one for the program's "
+        "load module. The row pads build/DOSHELLO.EXE's module to ~136 KB "
+        "(BIGLOAD.EXE, WordPerfect 4.1's shape: four 32 KB chunks and a "
+        "tail), double-clicks it off a scratch floppy with DOS.O88 on the "
+        "360KB LZB system disk, and traces the widget to READY: exactly two "
+        "fpg_opbegins, every DOS.O88 read, the loader's probe of the "
+        "document and every module read but dos_load's one-sector probe "
+        "inside one, each filling its trough, at most two phases of 100 ms "
+        "or more outside them (the kernel's header read and HIBER.DRV, as at "
+        "e7bd353b) and at most 4 widget ups. VERIFIED TO FAIL on f4c112c6: "
+        "1 operation, the probe outside, five module reads outside and eight "
+        "long phases. Measured 9s.",
         needs=("marty",), serial=True,
-        wants=("build/dosexe360.img",)),
+        wants=("build/DOSHELLO.EXE",)),
     Row("dosmouse", "soak", py("tests/dosmouse.py"), 40.0,
         "THE DOS MOUSE GATE (SPEC.md 96.10): INT 33h is a TRANSLATION over "
         "numbers os8088's own ISR is already keeping, so the row is a "

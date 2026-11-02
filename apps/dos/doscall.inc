@@ -63,7 +63,7 @@ CORE_ORG    equ 0x0080
 ; CORE alone spends, both hosts read, and whose slack is one number in one
 ; place. Measured at the wave, with the assertion in `apps/dos/doscore.asm`.
 %ifndef DOS_MEGA
-CORE_MAX    equ 15968            ; +512 for SPEC.md 96.7.2's stack swap and
+CORE_MAX    equ 15984            ; +512 for SPEC.md 96.7.2's stack swap and
                                 ; 96.12.5's name truncation, which are 214
                                 ; bytes between them against 89 of slack. The
                                 ; two are the Playroom's whole report: a gate
@@ -152,8 +152,11 @@ CORE_MAX    equ 15968            ; +512 for SPEC.md 96.7.2's stack swap and
                                 ; FCB file calls 0Fh 10h 11h 13h 16h 27h 28h
                                 ; (503) against 4 of slack, 15,963 used - and
                                 ; past kern_dos's rung: KD_IMG_KB 33 -> 34
+                                ; +16 for SPEC.md 96.8.2.1, the load
+                                ; module's reads as ONE bar (16 bytes
+                                ; against 5 of slack): 15,979 used
 %else                           ; **kern_mega's core is 67 bytes longer**:
-CORE_MAX    equ 16624            ; SPEC.md 96.15.4's extended-to-extended
+CORE_MAX    equ 16640            ; SPEC.md 96.15.4's extended-to-extended
 %endif                          ; move (dos_xms_move's `.bothx`), 15,409 used.
                                 ; +80, kept a multiple of 16, and paid ONLY by
                                 ; kern_mega's DOS.O88 - both of its hosts
@@ -180,6 +183,8 @@ CORE_MAX    equ 16624            ; SPEC.md 96.15.4's extended-to-extended
                                 ; +528 for SPEC.md 96.56's AH=33h/37h and
                                 ; FCB file calls, 527 bytes against 8 of
                                 ; slack: 16,613 used
+                                ; +16 for SPEC.md 96.8.2.1's one bar for
+                                ; the load module: 16,629 used
 ; ...and the core's bss sits directly above its code, at the same offset in
 ; every host, which is what SPEC.md 96.44.2 requires of every `DBSS` cell.
 ; --- THE CORE'S BLOCK IS A BUDGET, NOT A SUM (SPEC.md 96.44.2) --------------

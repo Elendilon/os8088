@@ -2235,7 +2235,14 @@ dos_load:
     lea ax, [bp+16]                 ; DOES THE BLOCK HOLD THE PSP AND THE
     cmp [dos_ldpara], ax            ; MODULE? Decided from the header, before
     jb .nofit                       ; anything more is read
+    mov ax, bp                      ; ONE OPERATION FOR THE MODULE (SPEC.md
+    sub ax, di                      ; 96.8.2.1, 12.8.10): the paragraphs left
+    mov cx, 16                      ; to read, as bytes - one bar where each
+    mul cx                          ; 32KB chunk's READ_AT filled it again.
+    xchg ax, cx                     ; Advisory: kern_dos refuses it
+    call dos_be_fsop
     call dos_ldrd                   ; DI = 32: the probe's sector is in already
+    call dsh_opend                  ; ...ended, the flags kept
     jnc .out                        ; CF=0 is the answer
 .rerr:
     ; --- "TOO BIG" IS NOT "COULD NOT BE READ" (SPEC.md 96.8.1) -------------

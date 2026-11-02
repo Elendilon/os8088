@@ -179396,6 +179396,24 @@ time, run in a 128 KB window, reading its own payload back through
 `AH=3Dh`/`42h`/`3Fh`. Without the load-module read it is refused `Not enough
 RAM` after the bracket's run of the same file has said `Arena: 459KB`.
 
+#### 96.8.2.1 The load module is ONE bar, however many chunks it takes
+
+`dos_ldrd` reads the module 32 KB at a time, and each `READ_AT` is a phase of
+the file widget of its own (§12.8.3) - so from 96.8.2 on, a program bigger
+than one chunk filled the menu bar's trough once a CHUNK where the whole-file
+`DBE_READ` before it had filled it once. WordPerfect 4.1 (`WP.EXE`, a 134,512
+byte load module) showed four long bars and a short one where it had shown
+one. `dos_load` now brackets the chunks in ONE operation (§12.8.10, through
+`DBE_FSOP`): the module's bytes left after the probe, begun once the header
+has said how many and the block has been found to hold them, and ended -
+flags kept - by `dsh_opend` whatever `dos_ldrd` answered. The probe's sector
+stays outside it, a one-sector phase under `FPG_WARM` (§12.8.3). Advisory as
+everywhere: `kern_dos` refuses the door and there is no bar there to fill, and
+a child's `AH=4Bh` load inside a program's bracket is refused like any begin
+the widget cannot take. **+16 bytes of core** against 5 of slack, so
+`CORE_MAX` is **15,984** (kern_mega 16,640). `tests/dosbar.py` is the row: a
+generated 135 KB `.EXE` must load inside one operation.
+
 ### 96.9 The MCB chain is a real allocator, not a stub
 
 `AH=48h/49h/4Ah` walk the blocks §96.3 lays out, first fit, with splitting.
@@ -186759,6 +186777,24 @@ the copy stays, because it is taken before anything can move the row.)
 parts 0 and 1's packed lengths and ends it at its one exit, so the carve and
 the core's fetch are one bar - the parts library's own begins, inside it,
 are refused as nesting (§20.12.9.6).
+
+##### 96.44.5.5 A document's probe is inside the launch's bar
+
+§124.3.1 put a READ in front of that operation: the loader reads the
+document's first cluster to ask whether it is a Windows program (and whether a
+`.LNK` saved *Close when done*, §96.44.20) before `op_load` - and that read,
+outside the operation, was a phase of the widget of its own, so a double-click
+filled the trough once for the cluster and again for the launch. So the
+operation BEGINS IN `dsl_w16`, just before that read, with the parts' packed
+lengths and the cluster's bytes (`dsl_opsz`, `dsl_opgo`), and `dsl_entry`
+begins it only when no probe did (`[dsl_opok]`): launched empty, a refused
+begin, or a folder or claim the probe could not have. An NE that is POSTED
+leaves through `.out` like every other refusal, which ends it. The one
+reshaping is a headless `.LNK`: the probe's scale counted the window, which
+that launch never reads, so `dsl_entry` ends the operation and begins it
+again without - after one cluster of it, so the trough restarts from a pixel
+or two. The kernel's own reads of the loader's image, before any entry proc
+runs, are the launch's first phase as they were at §12.8.10's adoption.
 
 **MEASURED, on `os8088_5150_cga_gla`**: the program is handed **585 KB above
 its PSP** against 431 windowed, the exit code comes back through §96.41's
