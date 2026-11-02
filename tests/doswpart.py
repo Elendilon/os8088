@@ -114,7 +114,7 @@ def until(m, cond, what, limit):
 
 def windowed(ui, m, d, win, what):
     ui.raise_window(win)
-    ui.menu_pick("Program", "Run in Window")
+    dosmap.run_in_window(ui)
     if not until(m, lambda: d.b("dvw_run") == 1, what, 30):
         fail("%s: Run in Window put nothing on the worker ([dos_err] %d, "
              "[dvw_pseg] %04X)" % (what, d.b("dos_err"), d.w("dvw_pseg")))
@@ -195,7 +195,7 @@ def run(disk):
         quit_run(ui, m, b, wb, "B's first windowed run")
         pb = b.w("dvw_pseg")
         ui.raise_window(wa)
-        ui.menu_pick("Program", "Run")
+        dosmap.run_full(ui)          # the mode is A's from leg 2
         os88marty.pace(m, 2)
         m.type_text("q")
         if not until(m, lambda: not a.b("dos_inbr") and a.w("dvw_pseg") == 0,
@@ -243,7 +243,7 @@ def run(disk):
                     key=lambda w: w.i)[0]
         m.write(a.base() + dm["dos_dvwrow"] + OP_R_LEN, b"\0\0")
         ui.raise_window(wa)
-        ui.menu_pick("Program", "Run in Window")
+        dosmap.run_in_window(ui)
         if not until(m, lambda: any("could not load its part" in r
                                     for r in a.rows()), "the refusal", 30):
             fail("a refused fetch said nothing in the window: %r"

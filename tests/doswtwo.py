@@ -137,7 +137,7 @@ def run(disk):
         # --- 2: both in their windows, both counting ------------------------
         for w, d in zip(wins, (a, b)):
             ui.raise_window(w)
-            ui.menu_pick("Program", "Run in Window")
+            dosmap.run_in_window(ui)
             if not until(m, lambda: d.b("dvw_run") == 1, "a run", 30):
                 fail("Run in Window in DOS window %d put nothing on its "
                      "worker - its arena claim failed? [dos_err] %d"

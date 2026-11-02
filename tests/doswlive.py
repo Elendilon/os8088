@@ -144,7 +144,7 @@ def run(disk):
         # --- 2: Run in Window, and lines arrive WHILE it runs ----------------
         w = ui.window("DOS")
         ui.raise_window(w)
-        ui.menu_pick("Program", "Run in Window")
+        dosmap.run_in_window(ui)
         if not until(m, lambda: dos.b("dvw_run") == 1, "the worker's run", 20):
             fail("Run in Window did not put a program on the worker "
                  "([dvw_run] never 1)")
@@ -243,7 +243,7 @@ def run(disk):
         # task, and the machine ran off into the heap with the ticks stopped.
         ivt = m.read(0, 1024)
         ui.raise_window(ui.window("DOS"))
-        ui.menu_pick("Program", "Run in Window")
+        dosmap.run_in_window(ui)
         if not until(m, lambda: dos.count() >= 2, "two lines", 30):
             fail("the second windowed run printed nothing")
         ui.close(ui.window("DOS"))          # raises if it never goes

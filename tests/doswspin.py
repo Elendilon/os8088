@@ -94,7 +94,7 @@ def run(disk):
         os88marty.pace(m, 3)
         os88marty.settle(m)
         ui.raise_window(ui.window("DOS"))
-        ui.menu_pick("Program", "Run in Window")
+        dosmap.run_in_window(ui)
         os88marty.pace(m, 2)
         win = rate("window")
         pct = 100.0 * win / full

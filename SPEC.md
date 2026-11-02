@@ -176990,8 +176990,10 @@ where `Run` puts the program: **cleared** (the default) is §96.2's bracket,
 in Window` sets - `[dvw_want]`, at the top of `dos_run`, on both passes of a
 compaction wake - so the windowed run is reached through `dos_run` exactly as
 the menu item reaches it, whatever started the run: the bar's `Run`, Enter,
-the menu's `Run`, a double click on a `.LNK` saved with the box ticked. The
-menu item stays, for one run.
+the menu's `Run`, a double click on a `.LNK` saved with the box ticked - and
+a command TYPED AT THE PROMPT, which goes through `dos_go`'s same wake. **The
+box and `Program > Run in Window` are ONE MODE** (§96.54.10): the menu item
+is the box's other face, a check mark on the item, and neither is a one-shot.
 
 It is a request about the FULL-SCREEN arms and it greys with arm 1: a window
 cannot shut the OS down, so under `Shut down the OS` the box is drawn in the
@@ -178475,8 +178477,8 @@ never going to be a program.
 file on B:, and `dsh_word` leaves the whole of it in `[dsh_verb]`, so the
 length test IS the distinction and no lookahead is needed. A drive that is not
 there answers DOS's own `Invalid drive specification` and **does not move**:
-`dos_drv_sel` puts the whole switch back when the mount refuses, so a floppy
-that is not in the drive leaves the user where they were.
+a floppy that is not in the drive leaves the user where they were (96.33.6.1
+is how that stopped being true and came back).
 
 **And the per-drive directory comes with it** (§96.6.2). `dos_drv_sel` banks
 where we were and RECALLS where that drive last stood, so `B:` `CD APPS` `A:`
@@ -178487,6 +178489,29 @@ already what `AH=0Eh` does for a program.
 `dos_con_run` calls `dsh_run` with no `dsh_bank`/`dsh_home` bracket and
 `dsh_tail` brackets it, so a child shell's drive dies with the child — §96.30's
 own note, arriving for free.
+
+###### 96.33.6.1 A drive that is in the table and cannot be stood on does not move the prompt
+
+`dos_drv_sel` used to put the whole switch back when the mount refused.
+§96.48 took the mount out of it - `dos_be_vkind` is the existence test and
+costs no disk - so the switch now SUCCEEDS for a drive the machine has and
+cannot read (B: with no floppy in it), and the refusal comes one step later,
+from `dos_vol_to`'s `dos_fh_stand`. That answered CF=1, and the prompt printed
+`Invalid drive specification` - but `[dos_vol]` had already moved, so the
+prompt read `B:\>` and the next command failed with *"Its folder could not be
+opened"* about a folder nobody had named. Reported off the field.
+
+**The prompt puts the drive back when `X:` is refused.** `dos_con_run` banks
+where it stands (`dsh_bank`) before `dsh_run` and, when the answer is
+`DSHW_NODRV`, goes home (`dsh_home`) - the core's own bracket, which
+`dsh_tail` already uses for `command /c`. It is on the WINDOW side and not in
+`dos_vol_to`, where it belongs by that routine's contract (*"CF=1, AL
+untouched, if that volume is not there"*), for a budget reason: the core had
+5 bytes left under `CORE_MAX`, which BOTH hosts reserve, and the fix there is
+6. `dsh_cdto`'s callers bank and put back anyway, so the bare `X:` was the one
+caller that showed it. +13 bytes of the window's tail.
+`tests/doswmode.py`'s last leg is the gate: `B:` on a machine with no B:
+floppy, and the prompt is still `A:\>` and `DIR` still lists A:.
 
 **`VER` says `os8088 DOS Version 3.31`.** It used to name MS-DOS as well,
 and this DOS is not Microsoft's. The VERSION stays, because it is what
@@ -189531,9 +189556,11 @@ It costs **823 bytes** of `kern_dos`'s image (34,780 -> 35,603) and fits
 
 ### 96.54 A program in its window, live — `Program > Run in Window` (`apps/dos/dosw.inc`)
 
-**Wave 1 of docs/plans/DOS-WINDOWED-PLAN.md, and it is OPT-IN.** `Run`,
-a double-click and the prompt still take §96.2's bracket. `Program > Run in
-Window` runs the same program on the instance's **worker** (§20.6) instead,
+**Wave 1 of docs/plans/DOS-WINDOWED-PLAN.md, and it is OPT-IN.** A new
+DOS window, a double-click on a program and an association take §96.2's
+bracket. `Program > Run in Window` is a MODE (§96.54.10): while it is ticked,
+`Run` and EVERY program typed at the prompt run on the instance's **worker**
+(§20.6) instead,
 so the scheduler pre-empts it like any other task: what it prints through
 INT 21h or the video BIOS reaches the console band as it is printed, and the
 desktop — other DOS windows included — goes on running. Each DOS window is
@@ -190368,6 +190395,114 @@ and its plain `dos.o88` - like `build/dos.bin` and the `DOSTRACE` build, which
 have no loader to hand them a row - keeps the layer INLINE, the identity
 shape, from the same source: 96.23.11's network has the same three shapes for
 the same reason. kern_dos is the bracket and never had it.
+
+#### 96.54.10 Run in Window is a MODE, and the prompt stays in the window
+
+**The owner's requirement, verbatim**: *"That is the primary usecase for
+in-window - setting the mode to 'run these in window', then being able to use
+the command prompt to run (multiple) utilities while still in the window.
+(The second case was running text-only games or programs and being able to
+continue to use the os while doing so)."*
+
+It shipped as the opposite. `Program > Run in Window` was a ONE-SHOT: it ran
+the path box's program in the window, and with the box empty it left a
+pending request (`[dvw_want]`) that the next typed command picked up and
+spent - so the first utility typed after it ran in the window and the second
+took the whole screen. The Setup page's `Run in a window` box (§96.32.2.4)
+already WAS a mode, read by `dos_run` on every launch the prompt makes; the
+menu item simply was not it.
+
+**ONE mode, two faces.** The mode is the box's byte, `[dos_mwin +
+OS88UI_CK_ON]`, and nothing else:
+
+- **The menu item TOGGLES it** and runs nothing. It reads `*Run in Window`
+  ticked and ` Run in Window` cleared - the one-byte gutter Desk Clock and
+  Sticky Note mark their items with, since the kernel's pull-down has no check
+  mark (§12.2 publishes `MENU_DIS` and nothing else). `dos_wlabel` writes the
+  gutter from the byte; it runs at every paint, after every press on the Setup
+  page (where the box, the arm and `Close when done` change) and after the
+  toggle, so the item can never disagree with the box a user can see.
+- **It greys where the box greys** (§47): under `Shut down the OS` (arm 1 -
+  a window cannot shut the OS down) and, on the shipped host, while `Close
+  when done` is ticked (§96.44.20), as `Run in Window (see Setup)` - the
+  reason is a control on that page, which is the honest thing to point at.
+- **It is live during a run.** Every other item on the menu is refused while
+  a program is on the worker; this one is not, because it changes only what
+  the NEXT launch does and a user running a long text game is exactly the one
+  who wants to say what comes after it. A toggle made on the Setup page
+  repaints that page, so the box follows the menu.
+- **It persists as the box does**: per window, for the window's life, and in
+  a `.LNK` as `LNK_BX_WIN` (§96.25.2.1) through Save Shortcut. A new DOS
+  window starts cleared - the bracket is the default (§96.32.2.4) - and so
+  does a double-click on a `.COM`, which is a new instance.
+
+**What the prompt does with it is what it already did for the box.** A typed
+program reaches `dos_run` through `dos_con_prog`'s `OSAPI_WM_WAKE`, the same
+wake the Run button posts, and `dos_run` sets `[dvw_want]` from the box at its
+head on every launch; `[dvw_want]` is spent at the launch and cleared at the
+end, so a mode is never confused with a request. So:
+
+- **Each typed program runs in the window**, one after another; `dvw_wake`
+  ends each with `dos_con_ended`'s exit line and a new prompt, in the band, and
+  the desktop runs throughout (§96.54).
+- **Built-ins never leave the window** in either mode - `DIR`, `TYPE`, `COPY`
+  and the rest are `dsh_run`'s on the UI task (§96.30) - and there is no batch
+  interpreter for a `.BAT` to need a mode (§96.33.7). A child a program EXECs
+  runs where its parent runs: `AH=4Bh` is the core's, inside the parent's
+  world, on whichever stack the parent was given.
+- **Refusals keep their meaning.** A program too big for the window refuses in
+  the window's own sentence (§96.54.2), a missing window part refuses the run
+  (§96.54.9), a task table with no room for a worker falls back to the bracket
+  (§96.54), and a graphics mode moves the live program to the full screen
+  (§96.54.1). Every one of those ends through `dos_run`'s or `dvw_wake`'s tail
+  into the console, so the next prompt is in the window and the mode is still
+  set - the next typed program goes back into the window.
+- **Arm 1 ignores the mode**, as it ignored the box: `Shut down the OS` is the
+  whole machine.
+
+**The band is cut to what is visible, and a scroll under a cover is OWED.**
+The requirement's second case - *"being able to continue to use the os"*
+while a program runs - did not hold on the glass: drag another window over
+the band and the program's output went straight over it, because `dvw_wake`
+draws from a WAKE, where no clip region is armed (the kernel arms one in front
+of `W_PAINT` and nowhere else) - and so does `dos_repaint` at a run's end,
+which in this mode is routinely behind whatever the user went on to use. Both
+now arm `OSAPI_WM_CLIP_SET` under their lock, §96.33.17.2's reason one door
+along and the published answer to it (§11.3.1).
+
+**The clip alone was measured WRONG.** `OSAPI_GFX_SCROLL` refuses under a
+clip that does not wholly contain the band, and `con_scrollpaint`'s fallback
+is to mark all 25 rows - so a program that scrolls, under a window that
+covers part of the band, redrew the whole band a line at a time: on the 5150
+the gfx lock was held **99%** of the time and the drag of the window on top
+could not finish. So `dvw_wake` draws only when nothing covers the window
+(`OSAPI_WM_OBSCURED`), or when something does and no scroll is owed (a
+program that writes in place - a text game - keeps drawing, cut); a scroll
+under a cover, or a window wholly covered, sets `[dvw_owe]` and draws
+nothing. The next wake with nothing over the window marks the whole band and
+draws it, and `dos_paint` posts that wake whenever a run is on the worker -
+an expose's own paint is cut to what was exposed and spends every mark, so
+without the kick a program waiting for a key would leave the rest of the band
+stale. Measured with `tests/dostrap/dwfs.asm` printing two lines a second:
+the lock held 51% in front (the scroll and its rows, as before) and **2%**
+under the folder window, with the program's line rate unchanged (51 against
+52 in the same 3 seconds).
+
+**Cost**, measured against `f4c112c6` (kern_big's shipped flags, image
+bytes; no host bss moved): the resident host (part 0) **+0**; the window's
+tail (part 1, in every DOS window's region) **+117** - the mode's 88 (the
+toggle, `dos_wlabel` and its three call sites, the mark's byte, the greyed
+string), 96.33.6.1's 13, `dos_repaint`'s clip 9 and the paint's kick 7; the
+window part (part 7) **+49**, the band's clip and owe 48 and the owed byte,
+4,755 -> 4,804 and still a 5 KB claim; the Setup part and the DOS core
+**+0**. `DOS.O88` **54,078 -> 54,220** on the disk (lz4) and **48,035 ->
+48,155** as the 360KB disk's LZB copy; the inline shape (`build/dos.bin`)
++162, whose owed byte is the 24th of its flag block and was spare, and
+kern_small's `dos.o88` 34,619 -> 34,760 on its disk. No kernel byte.
+`tests/doswmode.py` is the gate, and it is measured red three ways: on the
+one-shot at its leg 2 (the item is not a mode), at its leg 3 with `dvw_wake`'s
+clip taken out (788 bytes of the window in front changed under the band), and
+at its leg 8 with `dsh_home` taken out.
 
 ## 97. PIXELSTEIN 3D — a raycast shooter in a foreign mode (`apps/pixelstein/`)
 

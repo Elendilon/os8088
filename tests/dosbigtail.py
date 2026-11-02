@@ -135,7 +135,7 @@ def run(disk):
             return sum("BIGTAIL READY" in r for r in rows())
         n0 = readies()                  # the bracket's own run may have left
         ui.raise_window(wins[0])        # its lines in the console
-        ui.menu_pick("Program", "Run in Window")
+        dosmap.run_in_window(ui)
         done = until(m, lambda: readies() > n0, "BIGTAIL READY", 60)
         if not done:
             fail("Run in Window never printed BIGTAIL READY: [dos_err] %d, "

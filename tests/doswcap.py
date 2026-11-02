@@ -153,7 +153,7 @@ def capture(disk):
             fail("DWDIRECT's bracketed run never came down after `q`")
         os88marty.settle(m)
         ui.raise_window(ui.window("DOS"))
-        ui.menu_pick("Program", "Run in Window")
+        dosmap.run_in_window(ui)
         if not until(m, lambda: dos.b("dvw_run") == 1, "the windowed run", 20):
             fail("Run in Window put nothing on the worker")
 
@@ -191,7 +191,7 @@ def windowed(ui, name):
         fail("%s's bracketed run never came down after `q`" % name)
     os88marty.settle(m)
     ui.raise_window(ui.window("DOS"))
-    ui.menu_pick("Program", "Run in Window")
+    dosmap.run_in_window(ui)
     if not until(m, lambda: dos.b("dvw_run") == 1, "the windowed run", 20):
         fail("Run in Window put nothing on the worker")
     return dos
@@ -269,7 +269,7 @@ def topview(disk):
             fail("DWTV's bracketed run never came down after `q`")
         os88marty.settle(m)
         ui.raise_window(ui.window("DOS"))
-        ui.menu_pick("Program", "Run in Window")
+        dosmap.run_in_window(ui)
         if not until(m, lambda: dos.b("dvw_run") == 1, "the windowed run", 20):
             fail("Run in Window put nothing on the worker")
         os88marty.pace(m, 0.5)
