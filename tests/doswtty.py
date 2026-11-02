@@ -24,17 +24,27 @@ caret's cells are con_curmove's, so a caret the band's scroll carried up and
 nothing marked would be a stale underline here (con_scrollpaint's [con_lcur]
 move taken out: 'b' passes and '9' and 'e' do not).
 
-MEASURED on a Hercules 5150 (os8088_5150_herc_gla), before and after 96.54.12
-(the 'before' is the tree it was written on, 3241006c):
+MEASURED, the window's speed as a share of the bracket's, before 96.54.12
+(3241006c) and after, several boots each:
 
-    leg   before   after
-    9      46%      ~90%
-    e      49%      ~95%
-    b      29%      ~93%
+    leg   Hercules        CGA            VGA XT
+    9     44% -> 96-114%  46% -> 115%    170% -> 430%
+    e     39% -> 73-86%   41% -> 92-94%  146% -> 350%
+    b     22% -> 44-49%   19% -> 39-43%  120% -> 270%
+
+(the VGA BIOS's own teletype is the slow one on that machine).
 
 **Break it on purpose** (docs/WRITING-TESTS.md 1): every leg reads under its
 floor on the tree before 96.54.12 - three marks a character, a mark and two
-host crossings per cursor move, and the band scrolled once a line.
+host crossings per cursor move, and the band scrolled once a line - and its
+glass after leg 9 was 3,318 pixels off a full repaint. With con_scrollpaint's
+[con_lcur] move taken out, leg l reads 16 stale pixels (the caret's two
+scanlines). The scroll race itself is intermittent: 4 of 10 runs before the
+fix, so a green row is not proof of it.
+
+    python3 tests/doswtty.py           (DOSWTTY_MACHINE=os8088_xt_vga, ...;
+                                        DOSWTTY_SHOTS=<prefix> writes the two
+                                        captures of a glass that differed)
 """
 
 import os
@@ -60,6 +70,9 @@ LEGS = (("9", "INT 21h AH=09h", 80.0),
         ("e", "INT 10h AH=0Eh", 65.0),
         ("b", "AH=02h/09h/02h", 35.0))
 LIMIT = 120.0                       # guest seconds a leg may take at all
+SNOW = 8 if "cga" in MACHINE else 0  # pixels of CGA snow a capture may carry
+                                    # (cell_at): a stale caret is 16, a stale
+                                    # line hundreds
 
 
 def fail(msg):
@@ -87,11 +100,10 @@ def main():
 
 
 def band_diff(a, b, x0, y0, vc, vr):
-    """Pixels differing inside the band between two fbuf captures."""
+    """The pixels differing inside the band between two fbuf captures."""
     w, h, pa = a
     pb = b[2]
-    n = 0
-    first = None
+    out = []
     for y in range(max(0, y0), min(h, y0 + vr * 8)):
         row = y * w * 3
         lo, hi = row + max(0, x0) * 3, row + min(w, x0 + vc * 8) * 3
@@ -100,10 +112,20 @@ def band_diff(a, b, x0, y0, vc, vr):
         for x in range(max(0, x0), min(w, x0 + vc * 8)):
             i = row + x * 3
             if pa[i:i + 3] != pb[i:i + 3]:
-                n += 1
-                if first is None:
-                    first = (x, y)
-    return n, first
+                out.append((x, y))
+    return out
+
+
+def cell_at(px):
+    """The top left of the one solid 8x8 cell among `px`, which on CGA may
+    carry a stray pixel or two of SNOW: MartyPC renders the bus contention a
+    real CGA shows, so a capture is the glass AND whatever the card's reads
+    lost while the CPU wrote it."""
+    pts = set(px)
+    for x, y in sorted(px, key=lambda p: (p[1], p[0])):
+        if sum((x + i, y + j) in pts for i in range(8) for j in range(8)) == 64:
+            return x, y
+    return None
 
 
 def run(disk):
@@ -187,7 +209,16 @@ def run(disk):
             into the buffer unmarked lands after a forced repaint is the
             offset (doswcell's instrument)."""
             x0, y0, vc, vr = geom()
-            r, c = vr - 1, vc - 1
+            # a BLANK cell, so all 64 of its pixels change, inside the band's
+            # middle row and inside 640 pixels: the dock and the screen's
+            # edge cut a band on a 640x200 CGA
+            r = vr // 2
+            scr = m.read(addr("con_scr") + r * 160, 160)
+            c = next((c for c in range(min(vc, 80) - 2, 0, -1)
+                      if scr[c * 2] == 0x20 and x0 + 8 * (c + 1) <= 640),
+                     None)
+            if c is None:
+                fail("no blank cell on row %d to calibrate with" % r)
             force()
             b = m.fbuf()
             cell = (r * 80 + c) * 2
@@ -198,10 +229,12 @@ def run(disk):
             m.write(addr("con_scr") + cell, old)
             force()
             w, h = b[0], b[1]
-            n, first = band_diff(b, p, 0, y0, w // 8, (h - y0) // 8 + 1)
-            if n != 64:
+            px = band_diff(b, p, 0, y0, w // 8, (h - y0) // 8 + 1)
+            first = cell_at(px)
+            if not first or len(px) > 64 + SNOW:
                 fail("a solid cell poked at row %d column %d came back from "
-                     "a forced repaint as %d pixels, not 64" % (r, c, n))
+                     "a forced repaint as %d pixels, not one cell"
+                     % (r, c, len(px)))
             return first[0] - (x0 + c * 8), first[1] - (y0 + r * 8)
 
         def glass(what, off):
@@ -210,7 +243,9 @@ def run(disk):
             a = m.fbuf()
             force()
             b = m.fbuf()
-            n, first = band_diff(a, b, x0 + off[0], y0 + off[1], vc, vr)
+            px = band_diff(a, b, x0 + off[0], y0 + off[1], vc, vr)
+            n = len(px) if len(px) > SNOW else 0
+            first = px[0] if px else None
             if n and os.environ.get("DOSWTTY_SHOTS"):  # the two, to look at
                 for t, c in (("a", a), ("b", b)):
                     os88marty.write_png_rgb("%s-%s.png" % (
@@ -222,8 +257,12 @@ def run(disk):
                      "96.54.12)" % (what, n, first))
             # ...AND THE CARET IS ON IT, which equality cannot say: two lit
             # scanlines under the cursor's cell (SPEC.md 70.8.2)
-            cx, cy = word("con_cx"), word("con_cy")
+            cx, cy = word("con_cx"), word("con_cy") - word("con_vtop")
             w = b[0]
+            if cy >= vr or cx >= vc or SNOW:
+                return                  # off a short band's view, or on a
+                                        # 640x200 CGA whose dock is over the
+                                        # band's last row
             for r in (6, 7):
                 yy = y0 + off[1] + cy * 8 + r
                 xx = x0 + off[0] + cx * 8

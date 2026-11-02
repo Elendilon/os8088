@@ -189773,7 +189773,9 @@ prints its question and then waits for the answer spends every tick asleep
 in `dvw_nap`, so the question reached the glass only when something else
 repainted the window: reported off Prince of Persia's installer (*"after the
 first input it only updates after dragging the DOS window"*), and
-`doswlive`'s leg 4 is that case, red without the post.
+`doswlive`'s leg 4 is that case, red without the post. From `dvw_irq0` a
+SCROLL's paint is held to every fourth tick (§96.54.12); from `dvw_nap`
+nothing is held.
 
 **Closing the window stops the program, and the close is REFUSED to do it**
 (§75.1's own pattern). `dvw_onclose` sets a kill byte and answers CF=1. A
@@ -191032,7 +191034,121 @@ taken out.
 
 #### 96.54.12 Teletype output in the window: one mark a character, a paced scroll
 
-(DRAFT - being measured.)
+**A program that prints runs in its window at the speed it runs on the full
+screen**, where it ran at under half of it. Measured on MartyPC's
+`os8088_5150_herc_gla` in GUEST seconds, against `3241006c`, the tree this
+section was written on:
+
+| what | full screen | window before | window after |
+|---|---|---|---|
+| 300 lines through INT 21h AH=09h | 16.0 s | 35.0 s (46%) | **14.1-16.7 s (96-113%)** |
+| `tests/doswtty.py` leg 9: 100 lines, AH=09h | 5.2 s | 11.7 s (44%) | **4.7-5.5 s (96-114%)** |
+| leg e: the same through INT 10h AH=0Eh | 5.1 s | 13.1 s (39%) | **6.0-6.9 s (73-86%)** |
+| leg b: 3,960 chars as a BASIC PRINT (AH=02h, 09h, 02h) | 2.3-2.6 s | (22%) | **5.1-5.4 s (44-49%)** |
+| `TYPE` of a 300-line file at the prompt (the UI task's) | - | 18.4 s | **11.9 s** |
+| Galaxy Trek: the short-range scan (Space) | 5.0 s | 11.6 s | **7.9 s** |
+| Galaxy Trek: `L` (long-range scan) | 1.5 s | 4.5 s | **2.4 s** |
+| Galaxy Trek: `D` / `C` | 1.5 / 1.2 s | 4.7 / 4.3 s | **2.8 / 2.4 s** |
+
+Leg b's "before" was taken with one pass of 1,320 characters (0.9 s against
+4.2 s). The ranges are several boots each - a boot's phase against the tick moves
+the window's figure by ~15%; Trek's galaxy is random, so its rows are
+one game each and the full-screen column is a different galaxy. On a 640x200
+CGA (`os8088_5150_cga_gla`) the three legs went 46/41/19% -> **115/92/39-43%**,
+and on a VGA XT (`os8088_xt_vga`) the full screen is the slow one - the
+VGA BIOS's teletype is 20.0 s for leg 9 - and the window went 11.7 -> **4.6 s**
+(1.7x -> 4.4x the full screen's speed).
+
+**Where the time went** - a sampled profile of the 300-line probe in the
+window, before: `vgas_bankcopy` 27.9%, `con_compose` 10.1, `con_cmove` 8.4,
+`con_marks` 6.9, `con_putc` 6.6, `con_markcur` 5.2, `dos_hk_tty` 4.2,
+`con_celloff` 4.2, `dvw_copy` 3.7. After, of the busy samples:
+`con_cmove` 19.7%, `vgas_bankcopy` 17.5, `con_marks` 11.7, `con_putc` 11.1,
+`dos_hk_tty` 7.5, `dvw_copy` 7.2, `con_write` 4.0, `con_compose` 1.5.
+Galaxy Trek prints every character as INT 10h AH=02h (the cell), AH=09h with
+CX = 1 (the character) and AH=02h again (past it) - about 3,400 INT 10h calls
+for `L`, no INT 21h output at all and no scroll - and its profile was the
+marks and the host crossings of those three calls.
+
+- **One mark a glyph, and it is the cell's.** `con_putc` called
+  `con_markcur` three times - the cell the caret left, the cell after a
+  wrap, the cell written. It marks the cell written and nothing else; the
+  caret's cells are `con_curmove`'s, which marks where the underline was
+  drawn and where the caret is at the head of every band pass, so the
+  teletype controls (`con_write`'s CR, LF, BS) mark nothing either. Two
+  things make that exact: `con_scrollpaint` moves `[con_lcur]` up with the
+  blit that carried the underline's pixels (a caret blitted off the top is
+  FFFF), and `con_compose` records `[con_lcur]` where it actually draws the
+  underline (`con_lcset`) - a caret that moves during a pass is drawn where
+  it is when its row is composed, and the cell it was in is marked then. The
+  cell's offset is shifts, not `con_celloff`'s `mul`, which nothing uses any
+  more and is gone; `con_marks` has `con_bit`'s two shifts in line.
+- **The virtual INT 10h.** AH=02h marks nothing (the caret is
+  `con_curmove`'s) and writes `0040:0050` from the clamped pair it already
+  holds; AH=09h/0Ah work out the cell in the part (`dvw_coff`) and mark a run
+  inside the cursor's row with ONE crossing to `con_marks`, where they made
+  two crossings and `con_markcells`' two divides; CX = 1 is an arm of its
+  own. 0Eh, 02h and 09h are dispatched first.
+- **A scroll's paint is paced** (`DVW_SPACE` = 4). The band follows a
+  scroll by moving every pixel that stays - 192 scanlines of a Hercules
+  band - and a teletype at a line a tick paid that once a LINE. `dvw_xpost`
+  holds the paint from the program's own TICKS to every fourth while a
+  scroll is owed, so one move carries four ticks of lines; from a NAP it is
+  never held (a program waiting has its output on the glass at once), and a
+  screen that only changed in place is posted every tick as before. Held
+  harder the share falls further - six ticks read leg e at 80% - and the
+  band then moves under 4.5 times a second, which is the trade.
+- **No row is drawn while a scroll is owed.** The worker runs between the UI
+  task's slices, so the buffer could scroll under a pass that had already
+  spent the debt: the rows drawn after it were drawn from post-scroll cells
+  and then moved again by the next blit. MEASURED on `3241006c`: after 100
+  lines, the glass differed from a full repaint by 3,318 pixels - torn and
+  doubled lines, intermittently. `con_takerow` refuses a row while
+  `[con_scrl]` is not zero (the mark survives and the next pass blits first),
+  `con_rows_owed` makes no pass at all with a debt standing and reads it
+  under the same `cli` as `con_curmove`'s marks, a row a scroll overtook
+  between its take and its blit is owed again where the blit will carry it
+  (`.late`), and the two FULL paints - `dos_paint`'s and telnet's
+  `te_paint` - drop the debt before they draw every row rather than after.
+**Refused, with the reasons.** WORD MOVES in `vgas_bankcopy`, the
+kernel's mono scroll (`rep movsw` and the odd byte, where it is `rep movsb`):
+an 8088's `rep movsw` is 25 clocks a word against 17 a byte, so it looked like
+a quarter of the band's scroll for 12 resident bytes on both kernels - and
+MEASURED alone on `3241006c` it moved the 300-line probe 35.01 -> 35.04 s.
+The copy is VRAM to VRAM: two card accesses a byte with the card's wait
+states, which binds the bus and not the instruction, so the bytes buy
+nothing. A RING (a top-row index instead of
+`con_cmove`'s 3,840 bytes a line, now the largest share): `con_scr` is
+text VRAM's own layout at a FIXED address, and TopView's AH=FEh hands it
+to the program as its screen (§96.54.5) - a program writes row r at
+r * 160 - and `dos_snap`, the captures and `int 10h AH=08h` all read it so;
+a ring makes every one of them a translation. A slack of spare rows to
+scroll into and move once in many is the same buffer at 4,000 more bytes of
+every window's bss. Pacing EVERY paint, not only a scroll's: leg b went 49
+-> 50%, inside the noise, for a screen that updates at a quarter of the rate.
+A string door in the core (one hook a call for AH=09h/40h, not one a
+character): the core is assembled once for `kern_dos` too, and the per-
+character hook is ~7% now. The cell loop of `con_compose` split by polarity:
+under 1% of the probe.
+
+**Cost**, measured against `3241006c` (`OS88_BUILDNUM` pinned): the window
+part `doswp.bin` 5,137 -> 5,181 (+44), the host `dospw.bin` 44,780 -> 44,871
+(+91), the inline shape `build/dos.o88` 35,563 -> 35,660; `DOS.O88` on the
+disk 55,138 -> 55,245 (lz4) and 48,978 -> 49,059 (the 360KB disk's LZB);
+two bytes of window cells (`dvw_ptk`, `dvw_pgap`). The core, `kern_dos` and
+every kernel are byte-identical. Telnet, which shares `apps/os88con.inc`, 10,587 ->
+10,638 on the disk. `tests/doswtty.py` is the gate: each leg's window share
+of the full screen at a floor (80/65/35%, red at 44/39/22% before), and
+after each windowed leg the glass is compared with a full repaint (and the
+caret's two scanlines read) - a leg of five bare line feeds is the
+deterministic case for `[con_lcur]`'s move (16 stale pixels without it); the
+scroll race is intermittent by nature: the row saw it in 4 of 10 runs of
+this work's build before the refusal and in none of 8 after, but in none of 4
+either with the refusal and `.late` taken back out of the finished build, so
+for that case it is a weak guard and the argument above is the strong one. `DIR` and `TYPE` at the prompt
+run on the UI task and draw once when the verb returns (§96.33), so they
+were never paced - `TYPE`'s gain is the per-character marks, and what is
+left of it is `con_cmove` (25%), the marks and the disk.
 
 ## 97. PIXELSTEIN 3D — a raycast shooter in a foreign mode (`apps/pixelstein/`)
 

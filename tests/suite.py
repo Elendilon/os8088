@@ -8987,16 +8987,18 @@ SOAK = [
         "of samples in that loop), 88.8% with two blocks and rep movsw - so "
         "a dearer exchange fails it. Measured 16s on MartyPC",
         needs=("marty",), serial=True, wants=("build/os8088-360.img",)),
-    Row("doswtty", "soak", py("tests/doswtty.py"), 40.0,
-        "HOW FAST A PROGRAM PRINTS IN A DOS WINDOW (SPEC.md 96.54.12). The "
-        "probe (tests/dostrap/dwtty.asm) puts text on the screen three ways "
-        "- 100 lines through INT 21h AH=09h, the same through INT 10h AH=0Eh, "
-        "and 1,320 characters the way a compiled BASIC PRINT does, AH=02h, "
-        "AH=09h CX=1, AH=02h each - timed in GUEST seconds in the bracket and "
-        "in a window on a Hercules 5150. Each leg's window speed as a share "
-        "of the bracket's is held at a floor: 44%, 39% and 22% on the tree "
-        "before 96.54.12 (three marks a character, a mark and two crossings "
-        "a cursor move, the band scrolled a line at a time), all three red",
+    Row("doswtty", "soak", py("tests/doswtty.py"), 35.0,
+        "HOW FAST A PROGRAM PRINTS IN A DOS WINDOW, AND WHETHER WHAT IT "
+        "PRINTED IS WHAT THE GLASS SHOWS (SPEC.md 96.54.12). The probe "
+        "(tests/dostrap/dwtty.asm) prints 100 lines through INT 21h AH=09h, "
+        "the same through INT 10h AH=0Eh, and 3,960 characters the way a "
+        "compiled BASIC PRINT does (AH=02h, AH=09h CX=1, AH=02h each), timed "
+        "in GUEST seconds in the bracket and in a window on a Hercules 5150, "
+        "each leg's window share held at a floor (80/65/35%: 44, 39 and 22% "
+        "before 96.54.12). After each windowed leg - and a leg of bare line "
+        "feeds - the band is compared with a forced full repaint to the "
+        "pixel and the caret read: 3,318 pixels off before, 16 with the "
+        "caret's scroll move taken out. Measured 34s on MartyPC",
         needs=("marty",), serial=True, wants=("build/os8088-360.img",)),
     Row("doswtwo", "soak", py("tests/doswtwo.py"), 25.0,
         "TWO DOS WINDOWS, EACH RUNNING ITS OWN PROGRAM, AT ONCE (SPEC.md "
