@@ -9072,6 +9072,17 @@ SOAK = [
         "with dos_con_run's dsh_home taken out. "
         "Measured 27s on MartyPC",
         needs=("marty",), serial=True, wants=("build/os8088-360.img",)),
+    Row("dosexenext", "soak", py("tests/dosexenext.py"), 20.0,
+        "THE PROGRAM AFTER AN .EXE IS ITSELF (SPEC.md 96.8.3). [dos_isexe] "
+        "picks dos_prog_enter's entry and dos_run never cleared it, so a .COM "
+        "typed after an .EXE was entered at the .EXE's CS:IP - IBM DOS 3.30's "
+        "REPLACE then SYS hung. tests/dostrap/exenext.asm is the pair with no "
+        "owner binary: XFIRST.EXE (entry 0x400 into zeros, exit 88) then "
+        "CNEXT.COM (exit 67), typed at A:\\> in the bracket and then in the "
+        "window; each must print its own line and its own code. Red with "
+        "dos_run's .isCOM store taken out (CNEXT says `XFIRST ran`, exit "
+        "088). Measured 15s on MartyPC",
+        needs=("marty",), serial=True, wants=("build/os8088-360.img",)),
     Row("doscon", "soak", py("tests/doscon.py"), 40.0,
         "DOS'S CONSOLE, AND THE PROMPT IN IT (SPEC.md 96.33). The band "
         "below the top bar carried three lines of status text and now carries "

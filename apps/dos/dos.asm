@@ -1926,6 +1926,9 @@ dos_run:
     jnc .ready
     jmp short .freeerr              ; AL is already a DER_*
 .isCOM:
+    mov byte [dos_isexe], 0         ; DECIDED ON EVERY LAUNCH (SPEC.md 96.8.3):
+                                    ; left at an earlier .EXE's 1, this .COM
+                                    ; was entered at THAT program's CS:IP
     mov dx, [dos_imghi]             ; a .COM is ONE segment: 64KB - the PSP -
     or dx, dx                       ; the pushed word is the ceiling, so a high
     jnz .toobig                     ; word at all is a file that cannot be one

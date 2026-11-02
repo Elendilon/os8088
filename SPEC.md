@@ -179477,6 +179477,41 @@ the widget cannot take. **+16 bytes of core** against 5 of slack, so
 `CORE_MAX` is **15,984** (kern_mega 16,640). `tests/dosbar.py` is the row: a
 generated 135 KB `.EXE` must load inside one operation.
 
+#### 96.8.3 The kind is decided on EVERY launch - a `.COM` after an `.EXE` was entered at the `.EXE`'s entry
+
+`[dos_isexe]` is the byte `dos_prog_enter` and `dos_build_psp` read to
+choose between an `.EXE`'s relocated `[dos_exe_cs]:[dos_exe_ip]` and its own
+`SS:SP`, and a `.COM`'s `PSP:0100` with the stack word at the top of its
+block. `dos_exe_setup` sets it; three loaders decide the other half, and only
+two of them did. `AH=4Bh` (96.14) and `kern_dos` (`kerndos/kdentry.inc`)
+clear it on their `.COM` arm; `dos_run` - the launch the prompt, the bar and
+every link make - **never cleared it**, because until the prompt could run
+one program after another in one DOS window (96.30, 96.54.10) the byte
+started every window's first launch as the zero its bss was born with.
+
+So in a DOS window that had run an `.EXE`, the NEXT `.COM` was entered at the
+`.EXE`'s entry point, on the `.EXE`'s stack - the old image was still in the
+arena past the few bytes the `.COM` overwrote. Reported off IBM DOS 3.30's own
+utilities, in either mode: `REPLACE` with no arguments (an `.EXE`, exit code
+11), then `SYS` (a `.COM`) hung after `Starting B:\SYS.COM`, and a probe run
+after `REPLACE` "exited at once" - both were executing `REPLACE.EXE`'s code
+under the `.COM`'s name. IBM DOS 3.30 on the same machine runs the pair as
+two programs: `SYS` answers `Invalid drive specification`.
+
+`dos_run`'s `.COM` arm clears the byte, as the other two do, which puts the
+decision on every launch rather than on the window's life. **+5 bytes, all
+in the resident host** (part 0, 25,693 -> 25,698, still a 26 KB claim); the
+window's tail, the window part and the Setup part keep their sizes (only their
+references into part 0 move) and the core is byte-identical, so `CORE_MAX` and
+`kern_dos` (32,556) do not move. `DOS.O88` 54,658 -> 54,674 on the
+disk (lz4); the inline shape (`build/dos.bin`) +0, its `align 16` taking the
+five, and kern_small's `dos.o88` 35,061 -> 35,059. No kernel byte. `tests/dostrap/exenext.asm`
+is the pair without an owner binary - `XFIRST.EXE`, whose entry is 0x400
+bytes into an image of zeros, then `CNEXT.COM` - and `tests/dosexenext.py` is
+the row: before the fix the `.COM` prints `XFIRST ran` and ends with the
+`.EXE`'s code 88 (measured in the bracket, leg 1; leg 2 runs the pair again in the
+window, whose launch is the same `dos_run`).
+
 ### 96.9 The MCB chain is a real allocator, not a stub
 
 `AH=48h/49h/4Ah` walk the blocks §96.3 lays out, first fit, with splitting.
