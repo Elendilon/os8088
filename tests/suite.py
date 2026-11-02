@@ -6932,6 +6932,17 @@ SOAK = [
         "text rather than any error.",
         needs=("marty",), serial=True,
         wants=("build/dosexe360.img",)),
+    Row("dosbar", "soak", py("tests/dosbar.py"), 15.0,
+        "LAUNCHING A DOS PROGRAM IS ONE FILE OPERATION (SPEC.md 12.8.10, "
+        "96.44.5.4). A double-click on B:DOSHELLO.EXE off the 360KB LZB "
+        "system disk, traced to READY: ONE fpg_opbegin (dsl_entry's), every "
+        "by-name read of DOS.O88 inside it, the operation filling its trough, "
+        "and the widget coming up at most the 4 times measured from "
+        "e7bd353b to 8f18e5f3. VERIFIED TO FAIL: with dsl_entry's begin "
+        "taken out the parts library opens its own two and the row reports 2 "
+        "operations. Measured 8s.",
+        needs=("marty",), serial=True,
+        wants=("build/dosexe360.img",)),
     Row("dosmouse", "soak", py("tests/dosmouse.py"), 40.0,
         "THE DOS MOUSE GATE (SPEC.md 96.10): INT 33h is a TRANSLATION over "
         "numbers os8088's own ISR is already keeping, so the row is a "
