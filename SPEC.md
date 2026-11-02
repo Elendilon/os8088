@@ -65550,6 +65550,18 @@ row on the screen - scrolled off, or `Purgeable` without DETAIL - lights
 nothing. Only while this is the front window (`OSAPI_WM_TOP`): a window lying
 over the map is not the map.
 
+**A cache lights its OWN row.** Every purgeable claim wears the one texture
+on the map (`tm_pat_clm`), so the `Purgeable` heading alone matched a band to
+nothing. With DETAIL on and `Purgeable` OPEN, the record the pick found is
+named as well (`[tm_hcid]`, its index plus one, read as one word with
+`[tm_hgid]`), and the row lit is that claim's: every claim row records which
+record it is (`[tm_rcid]`, beside `[tm_rgid]`, set by `tm_mbrs` and taken by
+`tm_mrow_close`), and the walk inverts the row whose record matches instead
+of the heading. A block above 1MB, and every other open group, still lights
+the group's row. +75 bytes of image on both arms and `TM_SHOWN` + 2 of bss;
+the small build is byte-identical. `tests/tmhover.py`'s `PURGE` leg is the
+gate.
+
 **How it is noticed.** A window hears about the pointer only while a button
 is down (`W_ONDRAG`), so the worker POLLS: on the memory page it sleeps
 `TM_HOVT` = 3 ticks instead of `TM_INT` = 9 and samples on every third wake,

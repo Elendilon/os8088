@@ -4266,7 +4266,8 @@ tm_hover:
     mov bx, [tm_totkb]
     call tm_pxkb                ; BP = lo, DX = hi
     mov bl, 0FFh
-    mov cl, 6                   ; a segment is KB << 6, and so is a size
+    mov cx, 6                   ; a segment is KB << 6, and so is a size; CH
+                                ; = the covering claim plus one, 0 for none
     mov si, tm_claims
     mov di, tm_cgid
 .c:
@@ -4287,6 +4288,9 @@ tm_hover:
     jbe .cn
 .ch:
     mov bl, [di]
+    mov ax, di                  ; ...and which record it is
+    sub ax, tm_cgid - 1
+    mov ch, al
 .cn:
     add si, CLS_RECSZ
     inc di
@@ -4317,17 +4321,23 @@ tm_hover:
     jnc .top
     mov bl, TMG_SYS
 .top:
-    mov al, bl
-    inc ax
+    mov al, bl                  ; AL = the group plus one, AH = the claim plus
+    inc ax                      ; one when it has a row of its own to light:
+    xor ah, ah                  ; a PURGEABLE one while Purgeable is open,
+    cmp bl, TMG_PURGE           ; every cache wearing the one texture on the
+    jne .pick                   ; map (SPEC.md 28.4.16)
+    call tm_isopen
+    jc .pick
+    mov ah, ch
     jmp short .pick
 .back:
     mov word [tm_hmx], 0FFFFh   ; not in front: the place is forgotten, so
 .none:                          ; coming back lights what is under it
-    xor al, al
+    xor ax, ax
 .pick:
-    cmp al, [tm_hgid]
+    cmp ax, [tm_hgid]           ; [tm_hgid] and [tm_hcid] as one word
     je .out                     ; no change: nothing taken, nothing drawn
-    mov [tm_hgid], al
+    mov [tm_hgid], ax
     call OSAPI_GFX_LOCK
     mov bx, [tm_win]
     test word [es:bx+W_FLAGS], 2    ; the refresh's own three refusals
@@ -4341,18 +4351,24 @@ tm_hover:
     xor al, al                  ; the row that is inverted, back to plain -
     xchg al, [tm_hrow]          ; and none is, until the next one lights
     call tm_hxor
-    mov al, [tm_hgid]
+    mov ax, [tm_hgid]
     dec al
     js .un                      ; the pointer left: nothing to light
+    mov bx, tm_rgid             ; ...and the group's row, where the last walk
+    or ah, ah                   ; put it - or the claim's, when the pick
+    jz .scan                    ; named one - none when it is scrolled off,
+    mov al, ah                  ; or is not listed (Purgeable without DETAIL)
+    mov bx, tm_rcid
+.scan:
     push es
     push ds
     pop es
-    mov di, tm_rgid             ; ...and the group's row, where the last walk
-    mov cx, TM_SHOWN            ; put it - none when it is scrolled off, or
-    repne scasb                 ; is not listed (Purgeable without DETAIL)
+    mov di, bx
+    mov cx, TM_SHOWN
+    repne scasb
     pop es
     jne .un
-    sub di, tm_rgid             ; DI = the row + 1
+    sub di, bx                  ; DI = the row + 1
     xchg ax, di
     call tm_hxor
     jc .un
@@ -5665,6 +5681,10 @@ tm_rows_mem:
     mov al, 0FFh
     cld
     rep stosb
+    mov di, tm_rcid             ; ...nor a claim (0)
+    mov cx, TM_SHOWN
+    xor al, al
+    rep stosb
     pop es
     mov [tm_hrow], cl           ; ...and no row is inverted until one is drawn
     dec cx                      ; ...and the hover's pointer place forgotten:
@@ -6427,6 +6447,11 @@ tm_mbrs:
     mov al, [di]
     cmp al, bl
     jne .cn
+    push ax                     ; WHICH claim this row is, plus one, for the
+    mov ax, di                  ; hover to find it by (tm_rcid): tm_mrow_close
+    sub ax, tm_cgid - 1         ; takes it and leaves 0 behind
+    mov [tm_ccid], al
+    pop ax
     call tm_crow
 .cn:
     add si, CLS_RECSZ
@@ -6760,6 +6785,8 @@ tm_mrow_close:
     push dx
     push si
     push di
+    xor dl, dl                  ; DL = the claim this row is, plus one (tm_mbrs
+    xchg dl, [tm_ccid]          ; set it), and every other row's is 0
                                 ; ABOVE the top of the view (SPEC.md 28.4.4):
                                 ; composed, not drawn, and - the whole point -
                                 ; NOT counted, so every [tm_mrow] below the
@@ -6779,6 +6806,7 @@ tm_mrow_close:
     jae .rg                     ; so a scrolled list needs no arithmetic
     mov al, [tm_cgrp]
     mov [tm_rgid+bx], al
+    mov [tm_rcid+bx], dl        ; ...and which CLAIM, for the hover
     shl bx, 1                   ; ...and WHICH SQUARE: one that came, went or
     mov ax, [tm_sqp]            ; changed texture is a change the text cannot
     cmp ax, [tm_rsq+bx]         ; show, the TIER column a square sits in being
@@ -6800,10 +6828,17 @@ tm_mrow_close:
                                 ; square are the scroll bar's at the other end
     mov [tm_penx], ax           ; now, and a square is in the TIER column
     mov bx, [tm_mrow]
-    mov al, [tm_cgrp]           ; THE MAP'S HOVER (SPEC.md 28.4.16): the row
-    inc al                      ; of the group the pointer is over is lettered
-    jz .ninv                    ; inverted, and recorded as the one that is
+    mov al, [tm_hcid]           ; THE MAP'S HOVER (SPEC.md 28.4.16): the row
+    or al, al                   ; of the CLAIM the pointer is over, when the
+    jz .hg                      ; hover names one (an open Purgeable)...
+    cmp al, dl
+    jmp short .hc
+.hg:
+    mov al, [tm_cgrp]           ; ...else of its group is lettered inverted,
+    inc al                      ; and recorded as the one that is
+    jz .ninv
     cmp al, [tm_hgid]
+.hc:
     jne .ninv
     mov byte [tm_rinv], 0Fh
     inc bx
@@ -9442,7 +9477,10 @@ tm_pwin     equ tm_okey + TM_NOVL * 2   ; tm_pwes's window, 0 = none yet
 tm_hgid     equ tm_pwin + 2     ; byte: the group the pointer is over on the
                                 ; map, PLUS ONE - 0 is none, which is what a
                                 ; zeroed bss says at launch (tm_hover)
-tm_hrow     equ tm_hgid + 1     ; byte: the screen row DRAWN inverted, plus
+tm_hcid     equ tm_hgid + 1     ; byte: the CLAIM record whose own row the
+                                ; hover lights, plus one - 0 lights the
+                                ; group's. Read as one word with tm_hgid
+tm_hrow     equ tm_hcid + 1     ; byte: the screen row DRAWN inverted, plus
                                 ; one: the truth about the pixels, which is
                                 ; what a toggle un-inverts (tm_hover)
 tm_rinv     equ tm_hrow + 1     ; byte: 0Fh while tm_row_draw letters the
@@ -9453,7 +9491,13 @@ tm_hcell    equ tm_hsub + 1     ; 8 bytes: a fraction cell, inverted for the
                                 ; hovered row (tm_frun)
 tm_hmx      equ tm_hcell + 8    ; the pointer where the last pick read it,
 tm_hmy      equ tm_hmx + 2      ; FFFFh in x for "pick again" (tm_hover)
-TM_BSS_TOTAL equ tm_hmy + 2 - os88_image_end
+tm_rcid     equ tm_hmy + 2      ; TM_SHOWN bytes: the claim record each SCREEN
+                                ; row is, plus one, 0 for a row that is not
+                                ; a claim's (tm_mrow_close)
+tm_ccid     equ tm_rcid + TM_SHOWN  ; byte: the claim the row being composed
+                                ; is, plus one (tm_mbrs; tm_mrow_close
+                                ; takes it)
+TM_BSS_TOTAL equ tm_ccid + 1 - os88_image_end
 %else                           ; ...and with no list, no groups: the chain
 TM_BSS_TOTAL equ tm_hiend - os88_image_end      ; ends at the pool's
 %endif                          ; numbers, which the summary line still reads

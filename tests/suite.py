@@ -19995,10 +19995,14 @@ SOAK = [
         "SPEC.md 28.4.16: the pointer over a band of the memory map inverts "
         "the row of the group it stands for - the Calculator's region its "
         "row, the kernel's span System's - a walk that re-letters the "
-        "hovered row keeps it inverted, and both go back off the map. Read "
-        "off the page's bss ([tm_hgid], [tm_hrow], [tm_rgid]) AND the glass, "
+        "hovered row keeps it inverted, and both go back off the map; with "
+        "DETAIL on and Purgeable open, a cache's band inverts THAT claim's "
+        "own row and not the heading. Read "
+        "off the page's bss ([tm_hgid], [tm_hcid], [tm_hrow], [tm_rgid], "
+        "[tm_rcid]) AND the glass, "
         "because either alone passes a broken build; red with the XOR fill "
-        "taken out and with the draw's ink swap taken out. 25 s; "
+        "taken out, with the draw's ink swap taken out, and with the pick's "
+        "claim (`mov ah, ch`) taken out. 21 s; "
         "--machine os8088_5150_cga is the 1bpp leg",
         needs=("marty",), serial=True),
     Row("tmground", "soak", py("tests/tmground.py"), 40.0,
