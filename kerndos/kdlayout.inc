@@ -100,8 +100,11 @@ KERNEL_SEG  equ KD_SEG          ; ...and the kernel's own files call it this
 KD_IMG_KB   equ 34              ; and the shipped image has 133 of its rung
 %else                           ; left: the KNOB pays the kilobyte, as a DOS
                                 ; program on a trace build, and no shipped one
-KD_IMG_KB   equ 33              ; 34 until SPEC.md 96.11.7's character devices
+KD_IMG_KB   equ 34              ; 34 until SPEC.md 96.11.7's character devices
 %endif                          ; raised CORE_MAX by a kilobyte to 35, and 33
+; **33 -> 34 FOR SPEC.md 96.56**, WordPerfect 4.1's FCB file calls: the core
+; grew 527 bytes against the 133 left, MEASURED 34,266 of 34,816. The knob
+; arm stays 34 and fits by 8 (34,808): its kilobyte is now the shipped one's.
 ; **kern_mega's kern_dos IS A KILOBYTE BIGGER, and only kern_mega's**
 ; (SPEC.md 96.15.4, docs/plans/completed/KERN-MEGA-DOS-PLAN.md 6, 12.1 item 4): the XMS
 ; door over the arena is 842 bytes of code and 98 of bss (kerndos/kdxms.inc),
@@ -125,13 +128,16 @@ KD_IMG_KB   equ 33              ; 34 until SPEC.md 96.11.7's character devices
 ; bss took the image 37,843 -> 38,375 of 38,912, past the 45 left. The HMA's
 ; kilobyte again; the LOW image below takes the same 532 bytes inside its own
 ; rung (35,951 -> 36,483 of 36,864), so no DOS program pays for it
+; **38 -> 39 FOR SPEC.md 96.56**'s FCB file calls: 38,937 of 38,912, 25
+; over. The HMA's kilobyte; the LOW image below pays its own, off the program
 %elifdef KD_HMA
-KD_IMG_KB   equ 38
+KD_IMG_KB   equ 39
 %else
 ; **kern_mega's LOW kern_dos** (KD_LOWDOS, SPEC.md 96.40.9.2) has neither the
 ; HMA's low half nor the loader's EXEPACK unpacker - with A20 shut the
 ; program's own runs - and this rung IS off the program again, as on kern_big
-KD_IMG_KB   equ 36
+; **36 -> 37 FOR SPEC.md 96.56**: 36,982 of 36,864, 118 over
+KD_IMG_KB   equ 37
 %endif
                                 ; since apps size pass 1 (above): this rung
                                 ; reserves the core's block, so a kilobyte

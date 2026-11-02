@@ -3929,12 +3929,12 @@ dos_int21:
 ; instead of jumping over two expanded ones.
 .t21:                               ; DOS_T21_N words, 00h up: the handler,
     dw .term0, .getce, .putc, .bad, .bad, .bad, .dconio, .getc   ; 00h
-    dw .getc, .puts, .bad, .kbhit, .flushin, .dskreset, .seldrv, .bad   ; 08h
-    dw .bad, .bad, .bad, .bad, .bad, .bad, .bad, .bad   ; 10h
+    dw .getc, .puts, .bad, .kbhit, .flushin, .dskreset, .seldrv, .fcbop ; 08h
+    dw .fcbcl, .fcbop, .dbad, .fcbop, .bad, .bad, .fcbop, .bad ; 10h
     dw .bad, .curdrv, .setdta, .bad, .bad, .bad, .bad, .bad   ; 18h
-    dw .bad, .bad, .bad, .bad, .bad, .setvec, .bad, .bad   ; 20h
-    dw .bad, .parsefcb, .getdate, .setdate, .gettime, .settime, .bad, .getdta   ; 28h
-    dw .ver, .term, .bad, .bad, .bad, .getvec, .dfree, .bad   ; 30h
+    dw .bad, .bad, .bad, .bad, .bad, .setvec, .bad, .fcbrd  ; 20h
+    dw .fcbrd, .parsefcb, .getdate, .setdate, .gettime, .settime, .bad, .getdta ; 28h
+    dw .ver, .term, .bad, .brk, .bad, .getvec, .dfree, .swch   ; 30h
     dw .bad, .mkdir, .rmdir, .chdir, .create, .open, .close, .read   ; 38h
     dw .write, .unlink, .seek, .getattr, .ioctl, .bad, .bad, .getcwd   ; 40h
     dw .alloc, .free, .resize, .exec, .term, .retcode, .ff, .fn   ; 48h
@@ -4963,6 +4963,319 @@ DOS_T21_N equ ($ - .t21) / 2        ; ...or .bad for a function we lack
 .dbad:
     mov al, 0xFF
     jmp .ok
+.swch:
+    ; AH=37h AL=0: out DL = the switch character, '/' (COMMAND reads it so:
+    ; DIR/W). Changing it, and DOS 2's AL=2/3, are not ours: AL=FFh, DOS's
+    ; own "invalid subfunction", with no carry (SPEC.md 96.56)
+    mov dl, '/'
+    or al, al
+    jnz .dbad
+    jmp short .dlok
+.brk:
+    ; AH=33h, Ctrl-Break: AL=0 asks (out DL), AL=1 sets from DL (SPEC.md
+    ; 96.56). This DOS checks for no break, so the state is OFF and a set is
+    ; taken and changes nothing. **AH COMES BACK**: WordPerfect 4.1 asks,
+    ; then `mov al, 1 / int 21h` on the AH it was handed back - and .bad's
+    ; AX=0001 made that AH=00h, TERMINATE, exit code 0 and not a word said.
+    cmp al, 1
+    ja .dbad
+    je .brkok                       ; a set: DX is the program's own
+    mov dl, 0
+.dlok:
+    mov [bp-8], dl                  ; DL is the answer, into the banked DX
+.brkok:
+    jmp .ok
+;
+; --- THE FCB FILE CALLS: 0Fh 10h 11h 13h 16h 27h 28h (SPEC.md 96.56.1) -------
+; An FCB is a HANDLE in DOS's reserved bytes: the open is AH=3Dh on the name
+; the FCB spells, its handle goes at FCB+18h, and the close and the block moves
+; are AH=3Eh and AH=42h + 3Fh/40h on it - each a NESTED INT 21h, which the gate
+; takes on the stack it is already on (96.7.2). The search and the delete are
+; AH=4Eh and AH=41h on the same name. So nothing below knows a file system,
+; and an open FCB costs a handle out of the program's twenty, as under DOS 3.
+; An extended FCB (FFh, then six bytes) is read past.
+.fodel:
+    ; 13h: every file the name MATCHES, '?' and all - DOS's delete takes a
+    ; pattern where AH=41h takes a name. So: find the first match, remove it,
+    ; ask again from the top (a removal moves what a find-next would count);
+    ; one that will not go is stepped past with a find-next, so the walk
+    ; ends. Into a find record on OUR stack: the program's DTA is not touched
+    push word [cs:dos_dtaseg]
+    push word [cs:dos_dta]
+    sub sp, 44
+    mov [cs:dos_dta], sp
+    mov [cs:dos_dtaseg], ss
+    mov bl, 0xFF                    ; FFh until something is removed
+.fd1:
+    mov ah, 0x4E
+    xor cx, cx
+    int 0x21
+.fdhit:
+    jc .fd3
+    mov si, sp                      ; the found name, where the find left
+    add si, 0x1E                    ; it - behind the pattern's own drive
+    mov di, dx                      ; letter if it had one, over the find
+    cmp byte [di+1], ':'            ; record's size, which nothing reads
+    jne .fd2
+    dec si
+    dec si
+    mov ax, [di]
+    mov [si], ax
+.fd2:
+    push dx
+    mov dx, si
+    mov ah, 0x41
+    int 0x21
+    pop dx
+    jc .fdnext
+    mov bl, 0
+    jmp short .fd1
+.fdnext:
+    mov ah, 0x4F
+    int 0x21
+    jmp short .fdhit
+.fd3:
+    add sp, 44
+    pop word [cs:dos_dta]
+    pop word [cs:dos_dtaseg]
+    add bl, 1                       ; CF = nothing removed
+    jmp short .fo7
+.fcbop:
+    ; AH=0Fh open, 16h make (or empty), 11h find the first, 13h delete: DS:DX
+    ; = the FCB; out AL = 0, or FFh if there is no such file (or it cannot be
+    ; made, or removed). 11h writes the drive and the directory entry to the
+    ; DTA; 12h, the NEXT, is not ours and answers "no more"
+    push bx
+    push ax
+    push cx
+    call .fcbptr                    ; DS:SI = the FCB, its drive byte
+    push si
+    sub sp, 16                      ; "D:NAMEXXXX.EXT",0 on OUR stack, so it
+    mov dx, sp                      ; needs no buffer and no byte of bss
+    push ss
+    pop es
+    mov di, dx
+    lodsb                           ; 0 = the current drive: no letter
+    or al, al
+    jz .fo1
+    add al, 'A' - 1
+    mov ah, ':'
+    stosw
+.fo1:
+    mov cl, 8
+    call .fcbcp
+    mov al, '.'
+    stosb
+    mov cl, 3
+    call .fcbcp
+    cmp byte [es:di-1], '.'         ; no extension: "NAME", not "NAME."
+    jne .fo2
+    dec di
+.fo2:
+    mov byte [es:di], 0
+    mov al, [si+0x0E]               ; the call, which .fcbptr banked at FCB+1Ah
+    push ss                         ; (SI is 12 past the FCB now)
+    pop ds
+    cmp al, 0x13
+    je .fodel
+    mov ah, 0x4E                    ; 11h -> 4Eh, and CX is the 0 of
+    cmp al, 0x11                    ; attributes .fcbcp's `loop` left
+    je .fo5
+    cmp al, 0x16                    ; 0Fh -> 3Dh, open read AND write, as an
+    mov ax, 0x3C02                  ; FCB is; 16h -> 3Ch, CX attributes again
+    adc ah, 0
+.fo5:
+    int 0x21
+.fo7:
+    sbb di, di                      ; DI = FFFFh if it was refused - kept
+    add sp, 16                      ; across the `add`, which spends CF
+    pop si
+    mov ds, [bp]
+    inc di
+    jz .fofail
+    mov bl, [si]                    ; the drive NAMED: 0 means the current
+    or bl, bl                       ; one, and DOS writes the one it means
+    jnz .fo6
+    mov bl, [cs:dos_vol]
+    inc bx
+    mov [si], bl
+.fo6:
+    mov cl, [si+0x1A]
+    cmp cl, 0x13
+    je .fook
+    cmp cl, 0x11
+    je .fsconv
+    xchg bx, ax
+    mov [si+0x18], bx               ; THE HANDLE, in DOS's reserved bytes
+    xor ax, ax
+    mov [si+0x0C], ax               ; current block 0, records of 128
+    mov word [si+0x0E], 128
+    mov ax, 0x4202                  ; the size, from the end. Nothing reads
+    xor cx, cx                      ; the position: AH=27h seeks every time
+    cwd
+    int 0x21
+    mov [si+0x10], ax
+    mov [si+0x12], dx
+.fook:
+    xor al, al
+    jmp short .fo4
+.fofail:
+    mov al, 0xFF
+.fo4:
+    pop cx
+    jmp short .fcbret
+.fsconv:
+    ; AH=4Eh left its find record in the DTA; DOS's FCB search leaves the
+    ; drive and a DIRECTORY ENTRY there instead (name 11, attribute at +0Bh,
+    ; time +16h, date +18h, cluster +1Ah, size +1Ch, all one past the drive).
+    ; Rewritten in place, the name first, as its source is the last to go
+    les di, [cs:dos_dta]
+    push es
+    pop ds
+    mov [di], bl                    ; the drive
+    lea si, [di+0x1E]               ; the found name, "NAME.EXT",0
+    inc di
+    mov bx, di
+    mov cx, 11
+    mov al, ' '
+    rep stosb
+    mov di, bx
+.fs1:
+    lodsb
+    or al, al
+    jz .fs3
+    cmp al, '.'
+    jne .fs2
+    lea di, [bx+8]
+    jmp short .fs1
+.fs2:
+    stosb
+    jmp short .fs1
+.fs3:
+    mov ax, [bx+0x1B]               ; size, then cluster 0, date, time and
+    mov [bx+0x1E], ax               ; the attribute, each moved UP past
+    mov ax, [bx+0x19]               ; what is still to be read
+    mov [bx+0x1C], ax
+    xor ax, ax
+    mov [bx+0x1A], ax
+    mov ax, [bx+0x17]
+    mov [bx+0x18], ax
+    mov ax, [bx+0x15]
+    mov [bx+0x16], ax
+    mov al, [bx+0x14]
+    mov [bx+0x0B], al
+    jmp short .fook
+.fcbcl:
+    ; AH=10h: DS:DX = the FCB; out AL = 0, or FFh
+    push bx
+    push ax
+    call .fcbptr
+    mov bx, [si+0x18]
+    mov ah, 0x3E
+    int 0x21
+    sbb al, al
+.fcbret:                            ; AL = the answer, and the AH that was asked
+    pop bx
+    mov ah, bh
+    pop bx
+    jmp .ok
+.fcbrd:
+    ; AH=27h read, AH=28h write: CX = records, DS:DX = the FCB, its random
+    ; record at +21h, the data the DTA's (AH=1Ah). Out AL = 0 all of them, 1
+    ; end of file (read) or disk full (write), 3 a read's last record partial
+    ; and zero-filled; CX = the records moved, and the random record moved on
+    ; by that many. A write of 0 records sets the file's length there, which
+    ; is AH=40h's CX = 0 (96.11.6.2) and so needs nothing of its own.
+    push bx
+    push ax
+    push cx
+    call .fcbptr
+    mov di, [si+0x0E]               ; DI = the record size, 0 meaning 128
+    or di, di
+    jnz .fr1
+    mov di, 128
+    mov [si+0x0E], di
+.fr1:
+    mov ax, [si+0x21]               ; CX:DX = record * size: four bytes of
+    mul di                          ; record below 64, three at or above it
+    push ax
+    mov cx, dx
+    mov ax, [si+0x23]
+    cmp di, 64
+    jb .fr2
+    xor ah, ah
+.fr2:
+    mul di
+    add cx, ax
+    pop dx
+    mov bx, [si+0x18]
+    mov ax, 0x4200
+    int 0x21
+    pop ax
+    push ax
+    mul di
+    xchg cx, ax                     ; CX = the bytes asked for
+    mov ah, [si+0x1A]               ; 27h -> 3Fh, 28h -> 40h
+    add ah, 0x3F - 0x27
+    push ds
+    lds dx, [cs:dos_dta]
+    int 0x21
+    jnc .fr3
+    xor ax, ax
+.fr3:
+    push ds
+    pop es
+    add dx, ax                      ; ES:DX = past what came
+    push dx
+    xor dx, dx
+    div di                          ; AX = whole records, DX = the partial
+    mov cx, di
+    sub cx, dx                      ; ...and what it lacks of a record
+    pop di
+    pop ds                          ; the FCB's segment again
+    pop bx                          ; the records asked
+    or dx, dx
+    jz .fr4
+    cmp byte [si+0x1A], 0x27
+    jne .frfull                     ; a write is short only when the disk is
+    inc ax                          ; a partial is a record read, padded
+    push ax
+    xor al, al
+    rep stosb
+    pop ax
+    mov dl, 3
+    jmp short .fr5
+.frfull:
+    xor dx, dx                      ; ...full, which is AL = 1
+.fr4:
+    cmp ax, bx
+    je .fr5                         ; DL = 0: all of them
+    inc dx                          ; DL = 1: the file ended
+.fr5:
+    add [si+0x21], ax
+    adc word [si+0x23], 0
+    xchg cx, ax
+    mov al, dl
+    jmp .fcbret
+.fcbptr:                            ; out DS:SI = the FCB the program named
+    mov ds, [bp]
+    mov si, [bp-8]
+    cmp byte [si], 0xFF
+    jne .fp1
+    add si, 7
+.fp1:
+    mov [si+0x1A], ah               ; the call, in DOS's reserved bytes
+    ret
+.fcbcp:                             ; CL name bytes DS:SI -> ES:DI, no blanks
+    xor ch, ch
+.fc1:
+    lodsb
+    cmp al, ' '
+    je .fc2
+    stosb
+.fc2:
+    loop .fc1
+    ret
 .gettime:
     ; AH=2Ch: out CH = hours, CL = minutes, DH = seconds, DL = hundredths.
     call dos_date_roll

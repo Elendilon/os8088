@@ -7363,6 +7363,18 @@ SOAK = [
         "with the handler taken out every line reads BX=5A5A BAD.",
         needs=("marty",), serial=True,
         wants=("build/dospsp360.img",)),
+    Row("dosfcbio", "soak", py("tests/dosfcbio.py"), 10.0,
+        "WORDPERFECT 4.1's DOS CALLS (SPEC.md 96.56). It left with exit code "
+        "0 and nothing printed: AH=33h fell to the invalid-function arm, "
+        "whose AX=0001 turned its next `mov al, 1 / int 21h` into AH=00h, "
+        "TERMINATE - and behind that it is an FCB program. "
+        "tests/dostrap/fcbio.asm asks AH=33h both ways, AH=37h, and makes, "
+        "writes, opens, reads (to end of file and to a partial, zeroed "
+        "record), finds and deletes-by-pattern its own files through 0Fh "
+        "10h 11h 13h 16h 27h 28h; every line is checked against what IBM DOS "
+        "3.30 printed for the same binary.",
+        needs=("marty",), serial=True,
+        wants=("build/dosfcbio360.img",)),
     Row("dosbigtail", "soak", py("tests/dosbigtail.py"), 15.0,
         "AN .EXE IS READ AS FAR AS ITS LOAD MODULE (SPEC.md 96.8.2). DOS "
         "loads an MZ file's header + image and leaves the rest of the file "

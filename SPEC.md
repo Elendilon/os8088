@@ -189873,6 +189873,95 @@ at the child's `1100`, `R62` at `10C3` again, `EXEC=0000`). `soak -k 'dospsp'`
 is the row; with the handler taken out it reads `BX=5A5A ... BAD` on every
 line and fails.
 
+### 96.56 WordPerfect 4.1: `AH=33h` handed back the wrong `AH`, and the FCB file calls were missing
+
+WordPerfect 4.1 (`WP.EXE`, 234,247 bytes, a 134,512-byte load module) ended
+under this DOS with *"exit code 000"* and printed nothing, on the full screen
+and in a window alike; under IBM DOS 3.30 the same disk shows *Welcome to
+WordPerfect*. It is not TopView (between its entry and its exit it makes no
+`int 10h AH=FEh`, `int 15h` or `int 2Fh` call - watched on all three), not
+memory and not the overlay. It is two
+defects, found one behind the other by aligning on the call site per
+docs/DOS-DEBUGGING.md (`os88dosdbg.py ref` on the IBM side, `os88intmon.py`
+on ours).
+
+**The silent exit is `AH=33h`.**
+
+| call site | asked | IBM DOS 3.30 | os8088 DOS, before |
+|---|---|---|---|
+| `+1EFB:036F` | `AX=3700h` | `AX=3700h`, `DL='/'` | `.bad`: CF=1, `AX=0001h` |
+| `+1EFB:0134` | `AX=3300h` | `AX=3300h`, `DL=0` | `.bad`: CF=1, `AX=0001h` |
+| `+1EFB:013E` | `mov al, 1 / int 21h` | `AX=3301h`: set break | **`AX=0001h`: `AH=00h`, TERMINATE** |
+
+WordPerfect sets the break state with `mov al, 1` on the `AH` the previous
+call RETURNED, which every DOS gives back, and `.bad`'s `AX=0001h` made that
+`AH=00h` - a clean exit with code 0. So `AH=33h` now answers: `AL=0` gives
+`DL=0`, `AL=1` takes `DL` and changes nothing, anything else is `AL=FFh` (DOS
+3.30's own; `AL=5`, the boot drive, is DOS 4). OFF is the truth rather than
+a default: this DOS polls for no break between calls. `AH=37h` `AL=0` answers
+`AL=0`, `DL='/'`, which is what the built-in shell splits a command on;
+setting it, and DOS 2's `AL=2/3`, answer `AL=FFh`. No carry on either, and
+`AH` comes back as asked on every arm - that is the point of both.
+
+**Behind it, WordPerfect is an FCB program** - with `AH=33h` answered it
+printed *"Can't find correct copy of WP.EXE"*, because `AH=0Fh`, the FCB open
+it reads its own overlays with, fell to `.bad`. Its trace to the editing
+screen and out again uses `0Fh` open, `10h` close, `16h` make, `27h` random
+block read, `28h` random block write, `11h` search and `13h` delete, and its
+save is `16h`/`28h`/`10h`. So those seven are answered now, as a layer over
+the handle calls rather than a second file system:
+
+#### 96.56.1 An FCB is a handle in DOS's reserved bytes
+
+- **`0Fh`/`16h`** spell the FCB's drive, name and extension as `D:NAME.EXT`
+  (blanks dropped, no `.` for an empty extension) on OUR stack - no buffer,
+  no byte of bss - and issue `AH=3Dh` mode 2 or `AH=3Ch` as a NESTED
+  `INT 21h`, which the gate takes on the stack it is already on (96.7.2). The
+  handle goes at `FCB+18h`, the first of DOS's reserved bytes; the open fills
+  current block 0, record size 128 and the size (from `AH=42h AL=2`), and a
+  drive byte of 0 is rewritten as the drive it means, as DOS does. `AL=0`,
+  or `FFh`. An open FCB costs one of the program's twenty handles, as under
+  DOS 3. An extended FCB (`FFh` and six bytes) is read past.
+- **`10h`** is `AH=3Eh` on that handle.
+- **`27h`/`28h`** seek to random record x record size (four bytes of record
+  below a 64-byte record, three at or above) and move `CX` records through
+  the DTA with `AH=3Fh`/`40h`. `AL` = 0 all of them; 1 end of file (read) or
+  disk full (write); 3 a read whose last record was partial, zero-filled to
+  the record. `CX` = records moved, and the random record moves on by that
+  many. A write of 0 records sets the file's length at the random record -
+  which is `AH=40h CX=0` (96.11.6.2) and so needed nothing of its own.
+- **`11h`** is `AH=4Eh` on the spelled pattern, its find record then
+  rewritten in place into what DOS leaves: the drive byte and a directory
+  entry (name 11, attribute, time, date, cluster 0, size). **`12h` is not
+  ours and answers `AL=FFh`, "no more"**: our find-next keeps its walk in the
+  DTA's first 21 bytes, which `11h`'s answer overwrites, so a program that
+  lists a directory by FCB sees one entry.
+- **`13h`** takes a PATTERN where `AH=41h` takes a name, so it finds, removes
+  and asks again from the top (a removal moves what a find-next counts); a
+  file that will not go is stepped past with `AH=4Fh`, so the walk ends. Its
+  find record is on our stack and the program's DTA is untouched.
+
+**Not done**, and named so nobody assumes otherwise: the current block and
+record are not advanced by `27h`/`28h` (only the random record is), so a
+program mixing them with sequential `14h`/`15h`, `21h`/`22h` or `24h` gets
+nothing from those (they are `.bad`); the open's date and time fields are
+left as the program had them; `17h` rename and `23h` file size are `.bad`.
+
+**Measured**, `tests/dostrap/fcb.asm` (`FCB.COM`), one binary under both:
+every line identical, `33=3300 DL=00` to `13=00 11=FF`. WordPerfect itself
+then runs as it does under IBM DOS 3.30: the welcome screen, the editing
+screen, a document saved (`TEST.WP`, 17 bytes, read back off the image),
+and on exit its `{WP}?.???` work files deleted and `AX=4C00h`.
+
+**What it costs**, and it is not small: **527 bytes of the core** (24 for
+`33h`/`37h`, 503 for the FCB layer), `CORE_MAX` 15,440 -> **15,968** (15,963
+used) and on kern_mega 16,096 -> **16,624** (16,613). Both hosts reserve it
+(96.44.2), and on `kern_dos` it crosses a rung: `KD_IMG_KB` 33 -> **34**
+(34,266 of 34,816), **a kilobyte off the DOS program on the Memory page's
+third arm**; the `DOSR_MARK` knob stays at 34 and fits by 8 bytes. On
+kern_mega the HMA image goes 38 -> 39 (the HMA's kilobyte) and the low one
+36 -> 37 (the program's).
+
 #### 96.54.5 TopView's buffer — a program that ASKS where to write
 
 TopView published the escape hatch DESQview, Windows' DOS box and OS/2 all

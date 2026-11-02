@@ -8126,6 +8126,16 @@ $(BUILD)/GETPSP.COM: tests/dostrap/getpsp.asm | $(BUILD)
 $(BUILD)/dospsp360.img: $(BUILD)/GETPSP.COM tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/GETPSP.COM
 
+# ...and the FCB file calls' (SPEC.md 96.56): WordPerfect 4.1's AH=33h, 37h and
+# 0Fh 10h 11h 13h 16h 27h 28h. The probe makes, writes, reads back, finds and
+# deletes its own files, so the disk holds nothing but itself - and must be
+# writable, which a built image in build/ is.
+$(BUILD)/FCBIO.COM: tests/dostrap/fcbio.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/fcbio.asm
+
+$(BUILD)/dosfcbio360.img: $(BUILD)/FCBIO.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/FCBIO.COM
+
 # ...and the DRIVE-LETTER gate's PAIR (SPEC.md 96.6.2). It is a pair because
 # the question is cross-DRIVE: a letter in a name has to reach the other
 # floppy, so there has to be a file on each that is not on the other. The A:
@@ -8344,7 +8354,7 @@ doscom: $(BUILD)/dostype360.img $(BUILD)/doscom360.img $(BUILD)/dosexe360.img $(
         $(BUILD)/dosdrv360.img $(BUILD)/dosdrvsys.img \
         $(BUILD)/dosdfsel360.img \
         $(BUILD)/dosfcb360.img $(BUILD)/dosren360.img $(BUILD)/dossh360.img \
-        $(BUILD)/dospsp360.img \
+        $(BUILD)/dospsp360.img $(BUILD)/dosfcbio360.img \
         $(BUILD)/dosshrink360.img $(BUILD)/doslong360.img \
         $(BUILD)/dosrange360.img $(BUILD)/irqgrab360.img
 
