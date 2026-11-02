@@ -1910,8 +1910,7 @@ drv_pub_seg:
     call drv_cls_fp_x           ; (AX survives it)
     jc .next
     mov cx, [di+2]
-    or cx, cx
-    jz .next
+    jcxz .next                  ; (kernel size pass 17, -2: `or cx, cx / jz`)
     cmp cx, bx
     je .out                     ; ...equal, so CF = 0 already: the answer
 .next:
@@ -3255,33 +3254,28 @@ osapi_drv_dlg_x:                ; the cell exists, the body does not
 ; -----------------------------------------------------------------------------
 drv_cp_class_x:
     push bx
-    push cx
     push di
     mov bl, al                  ; BL = the ordinal wanted, BH the tally so far
     xor bh, bh
-    mov cl, 1                   ; CL = the class (drv_cls_svc_x banks CX)
-.next:
-    mov al, cl
-    call drv_cls_svc_x
+    mov al, 1                   ; AL = the class, counted in AL itself: it is
+.next:                          ; drv_cls_svc_x's argument, which banks AX,
+    call drv_cls_svc_x          ; and the hit's answer as well (kernel size
+                                ; pass 17, -9: CL was the class, copied into
+                                ; AL every pass and back out at .hit)
     jc .skip                    ; class 3, DRVC_POINT and DRVC_EMS keep no copy
     cmp word [di+DSV_CPNAME], 0
     je .skip
-    cmp bl, bh
-    je .hit
+    cmp bl, bh                  ; equal: CF = 0 already, and AL is the class
+    je .out
     inc bh
 .skip:
-    inc cl
-    cmp cl, DRVC_MAX
+    inc ax                      ; (AL <= DRVC_MAX + 1: no carry reaches AH)
+    cmp al, DRVC_MAX
     jbe .next
-.done:
     mov al, bh                  ; ...which is the COUNT, for the entry above.
     stc                         ; Both ctrl.inc callers test CF, so AL on the
-    SKIPCX2                     ; refusal path changing is invisible (mov cx, imm16 over .hit's mov: no flag, CX popped - pass 15)
-.hit:                           ; (the `cmp bl, bh` that came here was equal,
-    mov al, cl                  ; so CF = 0 already, and `mov` keeps it)
-.out:
+.out:                           ; refusal path changing is invisible
     pop di
-    pop cx
     pop bx
     ret
 
@@ -4107,15 +4101,16 @@ drv_unload_x:
 ; -----------------------------------------------------------------------------
 drv_shutdown_x:
     push ax
-    push cx
-    xor cx, cx
-.next:
-    mov al, cl                  ; NO loaded-row pre-check: drv_unload_x's own
+    xor ax, ax                  ; AL = the row, counted in AL itself: drv_unload_x
+.next:                          ; is a KENT routine and hands AX back as it
+                                ; was given (kernel size pass 17, -5: CX was
+                                ; the counter, copied into AL every pass).
+                                ; NO loaded-row pre-check: drv_unload_x's own
     call drv_unload_x           ; first three instructions are drv_row_x and
-    inc cx                      ; `cmp word [bx+DRVR_SEG],0 / je .out`, so an
-    cmp cx, DRV_MAX             ; unloaded row already returns having done
+    inc ax                      ; `cmp word [bx+DRVR_SEG],0 / je .out`, so an
+    cmp al, DRV_MAX             ; unloaded row already returns having done
     jb .next                    ; nothing. It costs one extra prologue per
-    pop cx                      ; unloaded row, at most five, once, on the way
+                                ; unloaded row, at most five, once, on the way
     pop ax                      ; to int 19h - and it frees BX with it
     retf
 
