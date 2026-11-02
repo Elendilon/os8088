@@ -726,7 +726,10 @@ Revisit when:
    `tools/dossetchk.py` failing the build on any near branch that leaves it.
    It is PINNED while held (its return addresses sit on the stack across
    kernel calls). Part 5 is 2,320 bytes raw and 1,914 packed; `DOS.O88`
-   +812. Opening Setup costs **1,013-1,181 ms** on MartyPC's 4.77 MHz
+   +812. (A size pass since moved `os88ui`'s check box, radio, drop-down
+   and glyph, and the arena figure's own arithmetic, out of the window and
+   the host into it: part 5 is 4,274 raw, and a windowed instance 1,898
+   bytes smaller - SPEC.md 96.32.2.3.2.) Opening Setup costs **1,013-1,181 ms** on MartyPC's 4.77 MHz
    machines (M: two `int 13h`, 7 sectors, 544 ms of seek), every open. The
    same change added SPEC.md 96.32.2.4's `Run in a window` box (85 resident
    bytes of the figure above). kern_mega keeps the page inline - its host is

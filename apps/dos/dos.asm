@@ -6709,27 +6709,6 @@ dos_paint:
     ret
 
 ; -----------------------------------------------------------------------------
-; dos_line - one opaque run at BX, DX
-; in:  SI = NUL string, BX = x, DX = y
-; out: nothing; preserves all registers
-;
-; font_run and not a fill-then-letter pair: one pass draws the ground and the
-; glyphs, so the line is never momentarily blank (SPEC.md 6.1).
-; -----------------------------------------------------------------------------
-dos_line:
-    push ax
-    push cx
-    push dx
-    mov cx, bx
-    mov al, CBLACK
-    mov ah, CWHITE
-    call OSAPI_FONT_RUN
-    pop dx
-    pop cx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
 ; dos_fmt_exit - stamp the exit code into dos_l2_ran
 ; in:  nothing; out: SI = the line
 ; -----------------------------------------------------------------------------
@@ -8128,238 +8107,6 @@ dos_mem_fix:
     ret
 
 ; -----------------------------------------------------------------------------
-; dos_mem_arena - THE ONE FIGURE, as the controls under it stand (96.36.3)
-; out: AX = the KB this page's settings would hand the program; flags
-;
-; It replaces the two numbers the page used to be a choice BETWEEN, because
-; the page is no longer a choice between two numbers: it is an arm, three
-; boxes, a dial and a cap, and what the user wants to know is what all of them
-; together come to. So it is read on every paint and after every control that
-; can move it - one row, live.
-;
-; **ARM 0's TERMS ARE EXACT AND ARM 1's ARE ESTIMATES**, which is what the '~'
-; in front of the row is about. Inside the OS the kernel answers the same
-; question `dos_run` asks, so what the page shows is what the program gets;
-; the driver boxes add figures that are build-time constants (SPEC.md 51.12)
-; and a driver's real claim can be a rung lower. Shutting the OS down cannot
-; be asked of anything - the machine it describes does not exist yet - so it
-; is conventional memory less what `kern_dos` is known to keep.
-;
-; **AND THE SAME QUESTION IS THE WHAT-IF, NOT PLAIN AVAIL** (SPEC.md 96.25.1.1).
-; dos_run posts OSAPI_MEM_COMPACT and claims on the wake, so what it
-; hands the program is a heap that has been packed with OUR OWN REGION IN THE
-; PASS - which is exactly the question the what-if answers and exactly
-; the one plain avail does not, a package being pinned by the act of asking
-; (SPEC.md 66.4.3). It made no difference for a release because this region
-; could not move at all: it is PART 0 of a re-homed DOS.O88 and the carve was
-; refused its declaration, so the excuse bought nothing and the two slots
-; agreed by accident. SPEC.md 66.6.1.2 unpinned it and the accident ended -
-; measured on a 360KB desktop, the page said 442K/474K and the launch handed
-; out 445K/477K, under-promising by the 3KB the region's own move recovers.
-;
-; The what-if is documented as a measurement rather than a promise, and for
-; THIS package it is the promise: the post is what makes it true, and dos_run
-; sends one whenever a pass would add anything (SPEC.md 66.4.3.2).
-; -----------------------------------------------------------------------------
-dos_mem_arena:
-    push bx
-    push cx
-    push dx
-    push di
-    push es
-    cmp byte [dos_keepc], DOS_MEM_WHOLE
-    je .whole
-
-    ; --- ARM 0: the kernel's own answer, plus what the boxes would hand back --
-    mov ax, DOS_PG_FLOOR            ; AH = MEMC_WHATIF, AL = the level, which is
-    call OSAPI_MEM_COMPACT          ; the floor dos_run will set - ON EVERY RUNG
-                                    ; of the dial now (SPEC.md 18.95.8), so this
-                                    ; no longer picks between two levels. The
-                                    ; what-if reads its level from AL rather
-                                    ; than from the task's floor the way
-                                    ; OSAPI_MEM_AVAIL does
-%ifdef DOS_SETPART
-    add ax, [dos_spwall]            ; ...PLUS what the page's own code walls
-%endif                              ; off while it is held (SPEC.md 96.32.2.3.1)
-    call dos_cache_give             ; ...PLUS what the dial hands back out of
-    add ax, cx                      ; the cache, which is the one term the
-%ifdef DVW
-    cmp byte [dos_mwin + OS88UI_CK_ON], 0   ; **A WINDOW'S FIGURE** (SPEC.md
-    je .full                        ; 96.32.2.4): no driver comes out for it
-    mov cx, [dos_memkb]             ; and no packet driver is published, so
-    or cx, cx                       ; none of the terms below applies - only
-    jnz .capcx                      ; the cap, which is the user's or
-    mov cl, DVW_DEFKB               ; DVW_DEFKB (96.54.2). CH is 0 already
-    jmp short .capcx
-.full:
-%endif
-                                    ; what-if cannot see: it was asked at a
-                                    ; floor that counts the window as KEPT, and
-                                    ; the dial is about to narrow it. Auto
-                                    ; answers 0 here, which is right - it
-                                    ; commands nothing
-    ; ...AND AN UNTICKED BOX IS A DRIVER THAT WILL NOT BE THERE (96.36.7) -
-    ; **ASKED OF THE ROUTINE THE LAUNCH ITSELF ASKS** (SPEC.md 96.36.7.3).
-    ; This used to read the two check boxes directly, which is the same
-    ; question one step short of the answer: `dos_drv_take` passed a mask of
-    ; ZERO for a cycle, so every term added here was a promise nothing kept.
-    ; One reader means the figure and the sweep cannot disagree again, and it
-    ; carries the guard with it - a class the launch will keep adds nothing,
-    ; whatever its box says. A class nothing has mounted reports 0 KB either
-    ; way (96.36.7.1).
-    call dos_spmask                 ; BL = what the launch will really let go
-    test bl, 1 << DRVC_DISK
-    jz .nohdd
-    add ax, [dos_mhkb]
-.nohdd:
-    test bl, 1 << DRVC_NET
-    jz .snd
-    add ax, [dos_mnkb]
-.snd:
-    add ax, [dos_msnk]              ; ...AND THE SOUND DRIVER, UNCONDITIONALLY
-                                    ; (SPEC.md 96.36.7.2). It has no box
-                                    ; because there is nothing to ask: a DOS
-                                    ; program cannot reach it either way, so
-                                    ; dos_drv_take unmounts it on every arm and
-                                    ; every path. The what-if above is asked
-                                    ; while it is still MOUNTED, so without
-                                    ; this line the page under-reported by the
-                                    ; whole of it on any machine with a card,
-                                    ; silently.
-                                    ;
-                                    ; IT IS A FLOOR. Measured card against
-                                    ; bare, the launch delivers the SAME 443KB
-                                    ; either way - so what comes back is 48KB
-                                    ; where drv_memk says 34, the other 14
-                                    ; being the MERGE the unmount unlocks
-                                    ; (docs/plans/HEAP-UNPIN-PLAN.md 2.0). No
-                                    ; constant can carry that, so the residual
-                                    ; stays under-reported - which is the safe
-                                    ; direction, and 48 under became 14
-    ; ...AND THE PACKET DRIVER'S BUFFERS COME OUT OF IT (SPEC.md 96.23.7.1).
-    ; dos_pkt_bufs claims them BEFORE the what-if above was ever asked, out of
-    ; the same heap, so on a machine with a wire the row promised three
-    ; kilobytes the program could never be handed. It is the same reader the
-    ; claim uses, which is what stops the two disagreeing again - and it
-    ; answers 0 on a machine with no wire and on one whose card the Network
-    ; box has just told the launch to let go.
-    push ax
-    call dos_pkt_want               ; CX = the KB, or CF = 1 for none
-    pop ax
-    jc .cap
-    cmp ax, cx                      ; ...and never BELOW zero: `.cap` clamps
-    jbe .none                       ; against the user's ceiling and has no
-    sub ax, cx                      ; floor, so an underflow here would print a
-    jmp short .cap                  ; 65,000K row on a machine too tight to run
-.none:                              ; DOS at all
-    xor ax, ax
-    jmp short .cap
-                                    ; ...and the LIMIT is arm 0's too, which
-                                    ; is why the other arm jumps past it:
-                                    ; `dos_lbfill` fills KDL_CAP from the BDA
-                                    ; and never from [dos_memkb], so a cap
-                                    ; shown on arm 1 would be a promise the
-                                    ; launch does not keep (SPEC.md 96.36.7)
-
-    ; --- ARM 1: conventional memory, less what kern_dos is known to keep ------
-    ; Every term is a constant this build knows, which is the only instrument
-    ; there is: the machine being described has no kernel in it, so nothing
-    ; can be asked. SK_KERN + SK_HEAP is everything from KERNEL_SEG up, and
-    ; DOS_LOWKB is what sits below it - the IVT, the BDA and the boot area.
-.whole:
-    push ds
-    pop es
-    mov di, dos_skbuf
-    call OSAPI_SYS_KB
-    mov ax, [dos_skbuf + SK_KERN]
-    add ax, [dos_skbuf + SK_HEAP]
-    add ax, DOS_LOWKB
-%ifndef DOS_MEGA
-    sub ax, DOS_KDKB                ; ...less kern_dos's own resident span
-%else
-    sub ax, DOS_KDKB_HMA            ; ...less kern_dos's own resident span,
-    cmp byte [dos_mhma + OS88UI_CK_ON], 0   ; which on kern_mega is the HMA
-    jne .kdhma                      ; arm's or the LOW one's (96.40.9.2)
-    sub ax, DOS_KDKB_LOW - DOS_KDKB_HMA
-.kdhma:
-%endif
-    sub ax, DSH_CPKB                ; ...and the buffer COPY and TYPE share
-    call dos_cache_kb               ; ...and the rung the dial is asking for
-    sub ax, cx
-    jmp short .out
-.cap:
-    mov cx, [dos_memkb]             ; ...and the user's own ceiling, which is
-    jcxz .out                       ; the one term that is neither estimate nor
-.capcx:
-    cmp ax, cx                      ; measurement: it is a decision
-    jbe .out
-    mov ax, cx
-.out:
-    pop es
-    pop di
-    pop dx
-    pop cx
-    pop bx
-    ret
-
-; -----------------------------------------------------------------------------
-; dos_cache_kb - what the dial is asking the cache to cost, in KB
-; out: CX = the KB; AX and every other register preserved
-;
-; `(runs * 9 + 1) >> 1` is `dsk_rah_want`'s own arithmetic and `kd_rahkb`'s,
-; mirrored here for the same reason those two mirror each other: a figure on
-; the glass that disagrees with the claim is worse than no figure.
-; -----------------------------------------------------------------------------
-dos_cache_kb:
-    push ax
-    push bx
-    mov bl, [dos_cache]
-    xor bh, bh
-    mov al, [bx + dos_ca_runs]      ; the ladder, one byte a row
-    xor ah, ah
-    call dos_rah_kb
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; dos_rah_kb - ...and the same sum for a width that is not the dial's
-; in:  AX = chunks
-; out: CX = the KB they cost; every other register preserved
-; -----------------------------------------------------------------------------
-dos_rah_kb:
-    push bx
-    mov bx, ax
-    mov cx, ax
-    shl cx, 1
-    shl cx, 1
-    shl cx, 1                       ; CX = runs * 8 (cpu 8086: no shl by an
-    add cx, bx                      ; immediate other than 1)...
-    inc cx
-    shr cx, 1                       ; ...and KB = ceil(runs * 4.5)
-    pop bx
-    ret
-
-; -----------------------------------------------------------------------------
-; dos_cache_ask - what the KERNEL is holding, in chunks (SPEC.md 18.95.8)
-; out: CF = 0 with AX = the width held now, 0 = none; CF = 1 = no such slot
-;      (a kernel older than 18.95.8), AX = 0. Every other register preserved
-;
-; `DSK_RAH_AUTO` is the sentinel that means *no ceiling of mine*, which is the
-; truth outside a launch - DOS has commanded nothing - so ASKING IS NOT A
-; SIDE EFFECT and the slot needs no read-only spelling. Where a previous launch
-; left the cache shed it takes it BACK, which is the resting state every figure
-; on this page is supposed to describe.
-; -----------------------------------------------------------------------------
-dos_cache_ask:
-    mov al, DSK_RAH_AUTO
-    call OSAPI_DSK_CACHE
-    jnc .out
-    xor ax, ax
-.out:
-    ret
-
-; -----------------------------------------------------------------------------
 ; dos_cache_arm - hand the dial to the kernel (SPEC.md 18.95.8)
 ; preserves every register; the flags are NOT preserved
 ;
@@ -8396,44 +8143,6 @@ dos_cache_free:
     push ax
     mov al, DSK_RAH_AUTO
     call OSAPI_DSK_CACHE
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; dos_cache_give - the KB the dial is going to hand back out of the cache
-; out: CX = the KB, 0 = none; every other register preserved
-;
-; The one term arm 0's estimate cannot get from the what-if. `OSAPI_MEM_COMPACT`
-; is asked at `DOS_PG_FLOOR`, which counts the read-ahead window as KEPT - and
-; that is right, because the dial usually keeps some of it. What the dial gives
-; up is the difference between the two widths, and it is computed as two KB
-; figures rather than one width: `ceil(a * 4.5) - ceil(b * 4.5)` is not
-; `ceil((a - b) * 4.5)` when one of them is odd (7 and 2 agree at 23, 2 and 1
-; disagree at 4 against 5), and a figure that is 1 KB over is a promise the
-; claim does not keep.
-; -----------------------------------------------------------------------------
-dos_cache_give:
-    push ax
-    push bx
-    push dx
-    xor cx, cx
-    cmp byte [dos_cache], DOS_CA_AUTO
-    je .out                         ; Auto commands nothing, so nothing moves
-    call dos_cache_ask              ; AX = what is held now...
-    call dos_rah_kb
-    mov dx, cx                      ; DX = what it costs
-    mov bl, [dos_cache]
-    xor bh, bh
-    mov al, [bx + dos_ca_runs]      ; ...and what the dial leaves standing
-    xor ah, ah
-    call dos_rah_kb
-    sub dx, cx
-    mov cx, dx
-    jnc .out
-    xor cx, cx                      ; a dial ASKING FOR MORE than is held frees
-.out:                               ; nothing - the kernel's own two bounds are
-    pop dx                          ; what held it down and this cannot lift
-    pop bx                          ; them (SPEC.md 18.95.8)
     pop ax
     ret
 
@@ -8923,16 +8632,7 @@ dos_onup:
     jne .setup
     cmp al, DOS_BT_ENV
     jne .run
-    call dos_defocus                ; the caret does not follow us off the page
-%ifdef DOS_SETPART
-    call dos_sp_get                 ; **THE PAGE'S CODE, READ NOW** (SPEC.md
-    jc .out                         ; 96.32.2.3) - or not opened, and the
-%endif                              ; menu bar says why
-%ifdef DOS_WTAIL
-    call dos_hne_ask                ; ...and is the program an NE (96.44.20)
-%endif
-    mov byte [dos_page], DOS_PAGE_SET
-    call dos_swap
+    call dos_set_open               ; Setup, the bar's button
     jmp short .out
 .run:
     call dos_defocus
@@ -8970,6 +8670,27 @@ dos_onup:
     pop bx
     pop ax
     ret
+
+; -----------------------------------------------------------------------------
+; dos_set_open - the main page gives way to Setup: the bar's button and the
+; menu's 'Environment' both. in: BX = the window; out: nothing, every register
+; as dos_swap leaves it
+; -----------------------------------------------------------------------------
+dos_set_open:
+    call dos_defocus                ; the caret does not follow us off the page
+%ifdef DOS_SETPART
+    call dos_sp_get                 ; **THE PAGE'S CODE, READ NOW** (SPEC.md
+    jc .r                           ; 96.32.2.3) - or not opened, and the
+%endif                              ; menu bar says why
+%ifdef DOS_WTAIL
+    call dos_hne_ask                ; ...and is the program an NE (96.44.20)
+%endif
+    mov byte [dos_page], DOS_PAGE_SET
+    jmp dos_swap
+%ifdef DOS_SETPART
+.r:
+    ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; dos_defocus - no field on either page keeps the caret
@@ -9129,17 +8850,8 @@ dos_oncmd:
     cmp al, 1
     jne .full
 .env:
-    call dos_defocus                ; 'Environment', which is the bar's other
-%ifdef DOS_SETPART
-    call dos_sp_get                 ; ...and the bar's own read (96.32.2.3)
-    jc .out
-%endif
-%ifdef DOS_WTAIL
-    call dos_hne_ask
-%endif
-    mov byte [dos_page], DOS_PAGE_SET
-    mov bx, [dos_win]
-    call dos_swap
+    mov bx, [dos_win]               ; 'Environment', which is the bar's other
+    call dos_set_open               ; button, and opens the page the same way
     jmp short .out
 .full:
 %ifndef KD_BACKEND                  ; 96.43: the console is the window's
@@ -12111,7 +11823,10 @@ dos_dvwrow  equ dos_hbss + DOS_B_DVWROW  ; ...and the window's (96.54.9)
 ; Our file is in OUR folder and the prompt stands in its own, so the instance
 ; goes there and back (dos_pkgwhere banked it). HELP's (DOS-PARTS-PLAN 1.1)
 ; and the network part's (SPEC.md 96.23.11) - one copy of the walk.
+; dos_pself0 is the same with AH = 0, HELP's and the Setup part's
 ; -----------------------------------------------------------------------------
+dos_pself0:
+    xor ah, ah                      ; no floor: the part and nothing else
 dos_pself:
     push ax                         ; the floor, across the kernel's answer
     call OSAPI_FILE_HERE            ; where the prompt stands
@@ -12176,8 +11891,7 @@ dos_sp_get:
     call OSAPI_MEM_COMPACT          ; 96.32.2.3.1): the what-if before the
     push ax                         ; claim, against the one after it below
     mov si, dos_setrow
-    xor ah, ah                      ; no floor: the code and nothing else
-    call dos_pself                  ; DX = the claim, CX = the part's length
+    call dos_pself0                 ; DX = the claim, CX = the part's length
     pop cx                          ; CX = the what-if with no part held
     jc .no
     mov ax, DOS_PG_FLOOR            ; ...and with it: a PINNED claim, so the
@@ -12187,10 +11901,9 @@ dos_sp_get:
     xor cx, cx                      ; program the difference back - which
 .wall:                              ; dos_mem_arena adds to every reading
     mov [dos_spwall], cx
-    mov es, dx                      ; ...and the way back, into its head
-    mov word [es:SPH_HOST], dos_sp_bounce
-    mov [es:SPH_HOST+2], cs
-    mov [dos_spdoor+2], dx          ; the offset word is 0 for ever (bss)
+    mov [dos_spdoor+2], dx          ; the offset word is 0 for ever (bss), and
+                                    ; the way back is the part's to write
+                                    ; (sp_door: its offset is assembled in)
     jmp short .out
 .no:
     push ds
@@ -17746,6 +17459,11 @@ WIN_CODE_END                        ; (DOS-HEADLESS-PLAN 4.4: the window's)
                                     ; taken down from outside, so its drag,
                                     ; release and close are out (SPEC.md
                                     ; 13.14.7, apps size pass 2b)
+%ifdef DOS_SETPART
+%define OS88UI_CTLEXT               ; ...and where the Setup page is a PART,
+%endif                              ; the box, radio, dial and their glyph are
+                                    ; ITS code, not the window's: the page is
+                                    ; their only caller (SPEC.md 96.32.2.3)
 %define OS88UI_ABOUT                ; ...and the About card (SPEC.md 96.51).
                                     ; dos_about was a bare `ret` for the whole
                                     ; of this package's life, so the kernel put

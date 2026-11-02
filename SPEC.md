@@ -176839,8 +176839,11 @@ that behind extra part loading."* So `dos_lnk_open`/`dos_lnk_parse` and the
 rest of the reader, every setting's VALUE (the radio's, the dial's and the
 boxes' records, `[dos_memkb]`, the limit field's block), and everything
 `dos_run` asks - `dos_mem_fix`, `dos_mem_whole`, `dos_mem_take`,
-`dos_mem_arena`, `dos_spmask`, `dos_pkt_want`, the cache bracket - stay in the
-host. So do the strings the page draws, which `os88ui`'s records and
+`dos_spmask`, `dos_pkt_want`, the cache bracket - stay in the host.
+`dos_mem_arena` and the cache arithmetic only it reads (`dos_cache_give`,
+`dos_cache_kb`, `dos_rah_kb`, `dos_cache_ask`) are NOT among them: `dos_run`
+asks none of them, the page's figure is their only caller, and they are the
+part's (§96.32.2.3.2). So do the strings the page draws, which `os88ui`'s records and
 `font_run` read through `DS`, and `dos_sav_done`, the Save dialog's completion,
 which the kernel dispatches through the package header and so must be a host
 offset.
@@ -176854,7 +176857,10 @@ part off the end. Its host CALLS cannot be near, so each is a three-byte
 `call` to a part-local stub that stores the target in `[dos_sp_tgt]` and
 far-calls the host's five-byte bouncer, `call [dos_sp_tgt] / retf` -
 register- and flag-transparent, so every routine keeps its contract as
-written. A near call from the part into the host would assemble silently
+written. The bouncer's far pointer is in the part's head: its offset is
+assembled in (the bouncer is a label of the same assembly) and its segment is
+the host's `DS`, which `sp_door` stores at every entry - the host's `CS` IS
+its `DS` - so the host writes nothing into the part when it fetches it. A near call from the part into the host would assemble silently
 and jump into the claim at the host's offset, so **`tools/dossetchk.py`
 disassembles the part's code and fails the build on any near branch that
 leaves it**. The host enters the part through ONE far door at its offset 0
@@ -176928,6 +176934,48 @@ what-if). The figure stays LIVE - each paint still asks the what-if -
 and the correction is the one term the what-if cannot see. It is re-priced at
 every fetch, which is every open of the page. 32 bytes of host image and 2 of
 bss; kern_mega's and the inline build's page have no part and no term.
+
+###### 96.32.2.3.2 …and the controls only it draws ride in it
+
+`os88ui`'s check box, radio and drop-down - and the glyph the first two draw
+- have ONE caller in DOS, and it is this page: nothing else in the host, the
+window or the windowed part names `os88ui_chk`, `os88ui_rad` or `os88ui_drop`.
+So where the page is a part, `apps/dos/dos.asm` defines `OS88UI_CTLEXT`
+before its `os88ui.inc`: the four bodies are macros there
+(`OS88UI_GLYPH_CODE`, `OS88UI_CHK_CODE`, `OS88UI_RAD_CODE`,
+`OS88UI_DROP_CODE`), expanded in place for every other package - which is
+therefore byte-identical - and left out of the WINDOW (part 1, §96.44.19) and
+expanded into the Setup part instead. Their records are the host's and are
+read through `DS`, as they always were; their one call out is `os88ui_bhit`,
+the button's hit test, which `apps/dos/dosset.inc` spells a stub for the
+length of the expansion, and `tools/dossetchk.py`'s near-branch gate is what
+proves it was the only one. The page's calls to them become NEAR calls, one
+bounce fewer each. The same reasoning took `dos_mem_arena`, `dos_line` and
+the cache arithmetic under the figure (§96.32.2.3) into the part, and
+`dos_mem_arena`'s two shared terms became stubs.
+
+**Measured** (kern_big's shipped flags, `build/*.bin`, on `dos-windowed` at
+8f18e5f3 and after; bytes, every figure a file size):
+
+| | before | after | delta |
+|---|---:|---:|---:|
+| part 0, the resident host (`dosp.bin`, every instance) | 25,982 | 25,744 | **-238** |
+| part 1, the window (`doswin.bin`, every WINDOWED instance) | 19,688 | 18,028 | **-1,660** |
+| **RAM per windowed DOS instance** (parts 0 + 1) | 45,670 | 43,772 | **-1,898** |
+| the Setup part (part 5), raw | 2,439 | 4,274 | +1,835, held only while Setup is open (a 5K claim, was 3K; §96.32.2.3.1 prices the wall) |
+| ...packed lz4 / LZB | 1,994 / 1,749 | 3,506 / 3,062 | +1,512 / +1,313 read at each open |
+| `DOS.O88` lz4 / the 360KB disk's LZB | 53,803 / 47,701 | 53,867 / 47,749 | +64 / +48 (47 clusters either way) |
+| kern_mega host (inline) | 46,308 | 46,302 | -6 |
+| `build/dos.bin` (inline, no part table) | 42,973 | 42,967 | -6 |
+
+The resident glue also gave back: `dos_sp_get` no longer writes the bouncer
+into the part's head (-14), both ways onto the page - the bar's button and
+the menu's `Environment` - are one `dos_set_open` (-12), and HELP and the
+Setup fetch share `dos_pself0`'s floor of zero (-2). What it costs is the
+open: the part read at every open of Setup is 1.5 KB longer packed, so the
+§96.32.2.3 open figure (1,013-1,181 ms) is owed a re-measurement - more
+sectors in the same run, and one more `int 13h` wherever the longer part
+crosses a track it did not.
 
 ###### 96.32.2.4 …and `Run in a window` is a box on it
 

@@ -708,8 +708,7 @@ dos_con_help:
     ; printed, freed. Our file is in OUR folder and the prompt stands in its
     ; own, so the instance goes there and back (dos_pkgwhere banked it).
     mov si, dos_hlprow
-    xor ah, ah                      ; no floor: the text and nothing else
-    call dos_pself                  ; DX = the claim, CX = the text's bytes
+    call dos_pself0                 ; no floor: DX = the claim, CX = the bytes
     jc .none
     mov bp, dx
     mov es, dx

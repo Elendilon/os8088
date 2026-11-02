@@ -30,7 +30,8 @@
 ;
 ; WHAT IS NOT HERE stays resident because a LAUNCH reads it, the owner's
 ; line: the .LNK reader, every setting's value and record, and everything
-; dos_run asks (dos_mem_fix, dos_mem_whole, dos_mem_take, dos_mem_arena) -
+; dos_run asks (dos_mem_fix, dos_mem_whole, dos_mem_take, and the two terms of
+; the arena figure that it shares: dos_spmask, dos_pkt_want) -
 ; and the strings the page draws, which os88ui's records and font_run read
 ; through DS, and dos_sav_done, which the kernel dispatches by offset.
 ; =============================================================================
@@ -40,6 +41,12 @@
  %define SP_BEGOTO sph_begoto       ; ...and the core's dos_be_goto, whose
                                     ; name is a slot's %xdefine and cannot be
                                     ; pasted into a stub's
+ %define sph_os88ui_chk os88ui_chk  ; ...but the box, the radio and the dial
+ %define sph_os88ui_chkhit os88ui_chkhit ; are THIS part's code (os88ui.inc's
+ %define sph_os88ui_rad os88ui_rad  ; OS88UI_CTLEXT, expanded below): their
+ %define sph_os88ui_radhit os88ui_radhit ; SPH() is a plain near call
+ %define sph_os88ui_drop os88ui_drop
+ %define sph_os88ui_drpress os88ui_drpress
 %else
  %define SPH(x) x                   ; inline: the routine itself
  %define SP_BEGOTO dos_be_goto
@@ -51,8 +58,9 @@ sp_base:
     jmp short sp_door               ; 0: the ONE far entry, AL = SPD_*
     dw sp_code_end                  ; 2: where the code ends (dossetchk.py)
 sp_hostfar:
-    dw 0, 0                         ; 4: the host's bouncer, offset and CS,
-                                    ;    written by dos_sp_get at every fetch
+    dw dos_sp_bounce, 0             ; 4: the host's bouncer: its offset is
+                                    ;    this assembly's own label, and its
+                                    ;    CS - the host's DS - sp_door writes
 %if sp_hostfar - sp_base != SPH_HOST
  %error "the Setup part's head moved: dos_sp_get writes the bouncer at SPH_HOST"
 %endif
@@ -69,6 +77,7 @@ sp_hostfar:
 ; Inline, the host's call sites ARE these bodies (dos.asm's SPB_* macros).
 ; -----------------------------------------------------------------------------
 sp_door:
+    mov [cs:sp_hostfar+2], ds       ; the way back: the host's CS IS its DS
     cmp al, SPD_PLACE
     je .place
     cmp al, SPD_CLICK
@@ -831,6 +840,297 @@ dos_mrad_place:
 
 
 ; -----------------------------------------------------------------------------
+; dos_mem_arena - THE ONE FIGURE, as the controls under it stand (96.36.3)
+; out: AX = the KB this page's settings would hand the program; flags
+;
+; It replaces the two numbers the page used to be a choice BETWEEN, because
+; the page is no longer a choice between two numbers: it is an arm, three
+; boxes, a dial and a cap, and what the user wants to know is what all of them
+; together come to. So it is read on every paint and after every control that
+; can move it - one row, live.
+;
+; **ARM 0's TERMS ARE EXACT AND ARM 1's ARE ESTIMATES**, which is what the '~'
+; in front of the row is about. Inside the OS the kernel answers the same
+; question `dos_run` asks, so what the page shows is what the program gets;
+; the driver boxes add figures that are build-time constants (SPEC.md 51.12)
+; and a driver's real claim can be a rung lower. Shutting the OS down cannot
+; be asked of anything - the machine it describes does not exist yet - so it
+; is conventional memory less what `kern_dos` is known to keep.
+;
+; **AND THE SAME QUESTION IS THE WHAT-IF, NOT PLAIN AVAIL** (SPEC.md 96.25.1.1).
+; dos_run posts OSAPI_MEM_COMPACT and claims on the wake, so what it
+; hands the program is a heap that has been packed with OUR OWN REGION IN THE
+; PASS - which is exactly the question the what-if answers and exactly
+; the one plain avail does not, a package being pinned by the act of asking
+; (SPEC.md 66.4.3). It made no difference for a release because this region
+; could not move at all: it is PART 0 of a re-homed DOS.O88 and the carve was
+; refused its declaration, so the excuse bought nothing and the two slots
+; agreed by accident. SPEC.md 66.6.1.2 unpinned it and the accident ended -
+; measured on a 360KB desktop, the page said 442K/474K and the launch handed
+; out 445K/477K, under-promising by the 3KB the region's own move recovers.
+;
+; The what-if is documented as a measurement rather than a promise, and for
+; THIS package it is the promise: the post is what makes it true, and dos_run
+; sends one whenever a pass would add anything (SPEC.md 66.4.3.2).
+; -----------------------------------------------------------------------------
+dos_mem_arena:
+    push bx
+    push cx
+    push dx
+    push di
+    push es
+    cmp byte [dos_keepc], DOS_MEM_WHOLE
+    je .whole
+
+    ; --- ARM 0: the kernel's own answer, plus what the boxes would hand back --
+    mov ax, DOS_PG_FLOOR            ; AH = MEMC_WHATIF, AL = the level, which is
+    call OSAPI_MEM_COMPACT          ; the floor dos_run will set - ON EVERY RUNG
+                                    ; of the dial now (SPEC.md 18.95.8), so this
+                                    ; no longer picks between two levels. The
+                                    ; what-if reads its level from AL rather
+                                    ; than from the task's floor the way
+                                    ; OSAPI_MEM_AVAIL does
+%ifdef DOS_SETPART
+    add ax, [dos_spwall]            ; ...PLUS what the page's own code walls
+%endif                              ; off while it is held (SPEC.md 96.32.2.3.1)
+    call dos_cache_give             ; ...PLUS what the dial hands back out of
+    add ax, cx                      ; the cache, which is the one term the
+%ifdef DVW
+    cmp byte [dos_mwin + OS88UI_CK_ON], 0   ; **A WINDOW'S FIGURE** (SPEC.md
+    je .full                        ; 96.32.2.4): no driver comes out for it
+    mov cx, [dos_memkb]             ; and no packet driver is published, so
+    or cx, cx                       ; none of the terms below applies - only
+    jnz .capcx                      ; the cap, which is the user's or
+    mov cl, DVW_DEFKB               ; DVW_DEFKB (96.54.2). CH is 0 already
+    jmp short .capcx
+.full:
+%endif
+                                    ; what-if cannot see: it was asked at a
+                                    ; floor that counts the window as KEPT, and
+                                    ; the dial is about to narrow it. Auto
+                                    ; answers 0 here, which is right - it
+                                    ; commands nothing
+    ; ...AND AN UNTICKED BOX IS A DRIVER THAT WILL NOT BE THERE (96.36.7) -
+    ; **ASKED OF THE ROUTINE THE LAUNCH ITSELF ASKS** (SPEC.md 96.36.7.3).
+    ; This used to read the two check boxes directly, which is the same
+    ; question one step short of the answer: `dos_drv_take` passed a mask of
+    ; ZERO for a cycle, so every term added here was a promise nothing kept.
+    ; One reader means the figure and the sweep cannot disagree again, and it
+    ; carries the guard with it - a class the launch will keep adds nothing,
+    ; whatever its box says. A class nothing has mounted reports 0 KB either
+    ; way (96.36.7.1).
+    call SPH(dos_spmask)                 ; BL = what the launch will really let go
+    test bl, 1 << DRVC_DISK
+    jz .nohdd
+    add ax, [dos_mhkb]
+.nohdd:
+    test bl, 1 << DRVC_NET
+    jz .snd
+    add ax, [dos_mnkb]
+.snd:
+    add ax, [dos_msnk]              ; ...AND THE SOUND DRIVER, UNCONDITIONALLY
+                                    ; (SPEC.md 96.36.7.2). It has no box
+                                    ; because there is nothing to ask: a DOS
+                                    ; program cannot reach it either way, so
+                                    ; dos_drv_take unmounts it on every arm and
+                                    ; every path. The what-if above is asked
+                                    ; while it is still MOUNTED, so without
+                                    ; this line the page under-reported by the
+                                    ; whole of it on any machine with a card,
+                                    ; silently.
+                                    ;
+                                    ; IT IS A FLOOR. Measured card against
+                                    ; bare, the launch delivers the SAME 443KB
+                                    ; either way - so what comes back is 48KB
+                                    ; where drv_memk says 34, the other 14
+                                    ; being the MERGE the unmount unlocks
+                                    ; (docs/plans/HEAP-UNPIN-PLAN.md 2.0). No
+                                    ; constant can carry that, so the residual
+                                    ; stays under-reported - which is the safe
+                                    ; direction, and 48 under became 14
+    ; ...AND THE PACKET DRIVER'S BUFFERS COME OUT OF IT (SPEC.md 96.23.7.1).
+    ; dos_pkt_bufs claims them BEFORE the what-if above was ever asked, out of
+    ; the same heap, so on a machine with a wire the row promised three
+    ; kilobytes the program could never be handed. It is the same reader the
+    ; claim uses, which is what stops the two disagreeing again - and it
+    ; answers 0 on a machine with no wire and on one whose card the Network
+    ; box has just told the launch to let go.
+    push ax
+    call SPH(dos_pkt_want)               ; CX = the KB, or CF = 1 for none
+    pop ax
+    jc .cap
+    cmp ax, cx                      ; ...and never BELOW zero: `.cap` clamps
+    jbe .none                       ; against the user's ceiling and has no
+    sub ax, cx                      ; floor, so an underflow here would print a
+    jmp short .cap                  ; 65,000K row on a machine too tight to run
+.none:                              ; DOS at all
+    xor ax, ax
+    jmp short .cap
+                                    ; ...and the LIMIT is arm 0's too, which
+                                    ; is why the other arm jumps past it:
+                                    ; `dos_lbfill` fills KDL_CAP from the BDA
+                                    ; and never from [dos_memkb], so a cap
+                                    ; shown on arm 1 would be a promise the
+                                    ; launch does not keep (SPEC.md 96.36.7)
+
+    ; --- ARM 1: conventional memory, less what kern_dos is known to keep ------
+    ; Every term is a constant this build knows, which is the only instrument
+    ; there is: the machine being described has no kernel in it, so nothing
+    ; can be asked. SK_KERN + SK_HEAP is everything from KERNEL_SEG up, and
+    ; DOS_LOWKB is what sits below it - the IVT, the BDA and the boot area.
+.whole:
+    push ds
+    pop es
+    mov di, dos_skbuf
+    call OSAPI_SYS_KB
+    mov ax, [dos_skbuf + SK_KERN]
+    add ax, [dos_skbuf + SK_HEAP]
+    add ax, DOS_LOWKB
+%ifndef DOS_MEGA
+    sub ax, DOS_KDKB                ; ...less kern_dos's own resident span
+%else
+    sub ax, DOS_KDKB_HMA            ; ...less kern_dos's own resident span,
+    cmp byte [dos_mhma + OS88UI_CK_ON], 0   ; which on kern_mega is the HMA
+    jne .kdhma                      ; arm's or the LOW one's (96.40.9.2)
+    sub ax, DOS_KDKB_LOW - DOS_KDKB_HMA
+.kdhma:
+%endif
+    sub ax, DSH_CPKB                ; ...and the buffer COPY and TYPE share
+    call dos_cache_kb               ; ...and the rung the dial is asking for
+    sub ax, cx
+    jmp short .out
+.cap:
+    mov cx, [dos_memkb]             ; ...and the user's own ceiling, which is
+    jcxz .out                       ; the one term that is neither estimate nor
+.capcx:
+    cmp ax, cx                      ; measurement: it is a decision
+    jbe .out
+    mov ax, cx
+.out:
+    pop es
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_line - one opaque run at BX, DX
+; in:  SI = NUL string, BX = x, DX = y
+; out: nothing; preserves all registers
+;
+; font_run and not a fill-then-letter pair: one pass draws the ground and the
+; glyphs, so the line is never momentarily blank (SPEC.md 6.1).
+; -----------------------------------------------------------------------------
+dos_line:
+    push ax
+    push cx
+    push dx
+    mov cx, bx
+    mov al, CBLACK
+    mov ah, CWHITE
+    call OSAPI_FONT_RUN
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_cache_give - the KB the dial is going to hand back out of the cache
+; out: CX = the KB, 0 = none; every other register preserved
+;
+; The one term arm 0's estimate cannot get from the what-if. `OSAPI_MEM_COMPACT`
+; is asked at `DOS_PG_FLOOR`, which counts the read-ahead window as KEPT - and
+; that is right, because the dial usually keeps some of it. What the dial gives
+; up is the difference between the two widths, and it is computed as two KB
+; figures rather than one width: `ceil(a * 4.5) - ceil(b * 4.5)` is not
+; `ceil((a - b) * 4.5)` when one of them is odd (7 and 2 agree at 23, 2 and 1
+; disagree at 4 against 5), and a figure that is 1 KB over is a promise the
+; claim does not keep.
+; -----------------------------------------------------------------------------
+dos_cache_give:
+    push ax
+    push bx
+    push dx
+    xor cx, cx
+    cmp byte [dos_cache], DOS_CA_AUTO
+    je .out                         ; Auto commands nothing, so nothing moves
+    call dos_cache_ask              ; AX = what is held now...
+    call dos_rah_kb
+    mov dx, cx                      ; DX = what it costs
+    mov bl, [dos_cache]
+    xor bh, bh
+    mov al, [bx + dos_ca_runs]      ; ...and what the dial leaves standing
+    xor ah, ah
+    call dos_rah_kb
+    sub dx, cx
+    mov cx, dx
+    jnc .out
+    xor cx, cx                      ; a dial ASKING FOR MORE than is held frees
+.out:                               ; nothing - the kernel's own two bounds are
+    pop dx                          ; what held it down and this cannot lift
+    pop bx                          ; them (SPEC.md 18.95.8)
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_cache_kb - what the dial is asking the cache to cost, in KB
+; out: CX = the KB; AX and every other register preserved
+;
+; `(runs * 9 + 1) >> 1` is `dsk_rah_want`'s own arithmetic and `kd_rahkb`'s,
+; mirrored here for the same reason those two mirror each other: a figure on
+; the glass that disagrees with the claim is worse than no figure.
+; -----------------------------------------------------------------------------
+dos_cache_kb:
+    push ax
+    push bx
+    mov bl, [dos_cache]
+    xor bh, bh
+    mov al, [bx + dos_ca_runs]      ; the ladder, one byte a row
+    xor ah, ah
+    call dos_rah_kb
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_rah_kb - ...and the same sum for a width that is not the dial's
+; in:  AX = chunks
+; out: CX = the KB they cost; every other register preserved
+; -----------------------------------------------------------------------------
+dos_rah_kb:
+    push bx
+    mov bx, ax
+    mov cx, ax
+    shl cx, 1
+    shl cx, 1
+    shl cx, 1                       ; CX = runs * 8 (cpu 8086: no shl by an
+    add cx, bx                      ; immediate other than 1)...
+    inc cx
+    shr cx, 1                       ; ...and KB = ceil(runs * 4.5)
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; dos_cache_ask - what the KERNEL is holding, in chunks (SPEC.md 18.95.8)
+; out: CF = 0 with AX = the width held now, 0 = none; CF = 1 = no such slot
+;      (a kernel older than 18.95.8), AX = 0. Every other register preserved
+;
+; `DSK_RAH_AUTO` is the sentinel that means *no ceiling of mine*, which is the
+; truth outside a launch - DOS has commanded nothing - so ASKING IS NOT A
+; SIDE EFFECT and the slot needs no read-only spelling. Where a previous launch
+; left the cache shed it takes it BACK, which is the resting state every figure
+; on this page is supposed to describe.
+; -----------------------------------------------------------------------------
+dos_cache_ask:
+    mov al, DSK_RAH_AUTO
+    call OSAPI_DSK_CACHE
+    jnc .out
+    xor ax, ax
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
 ; dos_mem_row - redraw the arena line alone, after a control has moved it
 ; in:  BX = the window; the gfx lock is held. Every register preserved
 ;
@@ -846,14 +1146,14 @@ dos_mem_row:
     push dx
     push si
     push di
-    call SPH(dos_mem_arena)
+    call dos_mem_arena
     mov di, dos_marn
     call SPH(dos_mem_num)
     mov bx, [dos_mx]
     mov dx, [dos_my]
     add dx, DOS_MARNY
     mov si, dos_l_marn
-    call SPH(dos_line)
+    call dos_line
     pop di
     pop si
     pop dx
@@ -926,14 +1226,14 @@ dos_paint_mem:
     pop bx
 
     push bx                         ; **THE ARENA, AND IT IS ONE LINE NOW**
-    call SPH(dos_mem_arena)              ; (SPEC.md 96.36.3): AX = the estimate this
+    call dos_mem_arena              ; (SPEC.md 96.36.3): AX = the estimate this
     mov di, dos_marn                ; page's own controls add up to, patched
     call SPH(dos_mem_num)                ; into the run it is drawn as
     mov bx, [dos_mx]
     mov dx, [dos_my]
     add dx, DOS_MARNY
     mov si, dos_l_marn
-    call SPH(dos_line)
+    call dos_line
     pop bx
 
     push bx                         ; ...and the choice itself, FIRST of the
@@ -942,7 +1242,7 @@ dos_paint_mem:
     mov dx, [dos_my]                ; (KERN-MEGA-DOS-PLAN 12.1 item 1): one
     add dx, DOS_MRADY               ; line saying what will happen, where the
     mov si, dos_l_mpark             ; radio stood, and no control to click
-    call SPH(dos_line)
+    call dos_line
 %else
     call dos_mrad_place             ; controls because its subsections are the
     mov bx, dos_mrad                ; ground the rest of them stand on
@@ -984,13 +1284,13 @@ dos_paint_mem:
     mov dx, [dos_my]
     add dx, DOS_MFLDY + 3
     mov si, dos_l_meml
-    call SPH(dos_line)
+    call dos_line
     mov bx, [dos_mx]                ; ...and the UNIT, hard against the box
     add bx, DOS_MSUBX + DOS_MFLDX + DOS_MFLDW + DOS_MFLDKX
     mov dx, [dos_my]
     add dx, DOS_MFLDY + 3
     mov si, dos_l_memk
-    call SPH(dos_line)
+    call dos_line
     clc                             ; ...and the pen back at once, whichever
     call OSAPI_GFX_PEN              ; arm it was: the lock is held for the
     pop bx                          ; whole page and whatever paints next
@@ -1023,7 +1323,7 @@ dos_paint_mem:
     add dx, DOS_MMOUY + 3
     stc                             ; **IN THE DISABLED PEN** (SPEC.md 47 rule
     call OSAPI_GFX_PEN              ; 2, 96.36.1): it belongs to the row above
-    call SPH(dos_line)                   ; it. Drawn solid it is the HEAVIEST text
+    call dos_line                   ; it. Drawn solid it is the HEAVIEST text
     clc                             ; on the block and sits at the labels' own
     call OSAPI_GFX_PEN              ; indent, so it reads as a THIRD arm that
 .nowhy:                             ; is live - which is rule 2's confusion one
@@ -1038,7 +1338,7 @@ dos_paint_mem:
     mov dx, [dos_my]
     add dx, DOS_MCACY + 3
     mov si, dos_l_memc
-    call SPH(dos_line)
+    call dos_line
     pop bx
     push bx
     call dos_drop_place             ; the list is the ARM's (SPEC.md 96.36.6)
@@ -1760,6 +2060,21 @@ dos_lnk_mem:
 
 
 %ifdef DOS_SETPART
+; --- os88ui's CHECK BOX, RADIO AND DROP-DOWN, and the glyph they draw --------
+; Their only caller in DOS is this page, so where it is a part their code is
+; the part's (OS88UI_CTLEXT in apps/dos/dos.asm took it out of the window's
+; os88ui.inc) and every call above is near. They read their records through
+; DS, which is the host's here as it is there. Their one way back into the
+; host is os88ui_bhit, the button's hit test, spelled a stub for the length
+; of the expansion
+sp_t_bhit equ os88ui_bhit           ; (the real label, before the %define)
+%define os88ui_bhit sph_ui_bhit
+    OS88UI_GLYPH_CODE
+    OS88UI_CHK_CODE
+    OS88UI_RAD_CODE
+    OS88UI_DROP_CODE
+%undef os88ui_bhit
+
 ; --- THE STUBS: one per host routine the code above calls --------------------
 ; `mov word [dos_sp_tgt], target` (6 bytes) and a jump to the one far call
 ; (2): the target is a HOST offset, which is what this assembly's labels are.
@@ -1774,8 +2089,6 @@ sph_begoto:
     SPSTUB dos_caret_to
     SPSTUB dos_defocus
     SPSTUB dos_defocus_but
-    SPSTUB dos_line
-    SPSTUB dos_mem_arena
     SPSTUB dos_mem_num
     SPSTUB dos_mem_num2
 sph_dos_mem_whole:                  ; ...and THE ONE FAR CALL in the middle of
@@ -1786,12 +2099,11 @@ sp_far:                             ; it is short
     SPSTUB os88line_draw
     SPSTUB os88line_hit
     SPSTUB os88ui_btn
-    SPSTUB os88ui_chk
-    SPSTUB os88ui_chkhit
-    SPSTUB os88ui_drop
-    SPSTUB os88ui_drpress
-    SPSTUB os88ui_rad
-    SPSTUB os88ui_radhit
+    SPSTUB dos_pkt_want             ; ...and dos_mem_arena's two, which is
+    SPSTUB dos_spmask               ; the page's own figure and so the part's
+sph_ui_bhit:                        ; ...and os88ui's own call out of the
+    mov word [dos_sp_tgt], sp_t_bhit    ; controls above
+    jmp short sp_far
 sp_code_end:                        ; ...and nothing past here is code
 %endif
 
