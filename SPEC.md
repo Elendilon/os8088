@@ -189763,7 +189763,9 @@ sixteen-key ring that the virtual INT 16h drains. `AH=00h` with nothing
 typed sleeps a tick, and so does every eighth empty `AH=01h`. It was a
 YIELD, and that was measured wrong: with nothing else ready a yield returns
 at once, so a program waiting for a key spent its whole slice exchanging its
-world in and out — every sample of the CPU landed in `dvw_walk`.
+world in and out — every sample of the CPU landed in `dvw_walk`. **Except
+for a second after a key** (§96.54.5.1): a poll then is the program at work
+and does not sleep.
 
 **The band's paint is posted from both places the instance leaves the CPU**
 — `dvw_irq0` and `dvw_nap`. It was the stub's alone, and a program that
@@ -190415,6 +190417,75 @@ sums, and the sum rotates so that two swapped cells are a change.
 
 On the full screen or inside a capture, `AH=FEh` returns `ES:DI` unchanged —
 which is also what a program reads on a machine with no multitasker at all.
+
+##### 96.54.5.1 WordPerfect's loop: a whole-screen AH=FFh, and a poll that is work
+
+**The owner's report** (86Box `pc5150`, WordPerfect 4.1 in a window): *about
+30 seconds before the first letter showed, then 15 to 30 seconds a letter*;
+on the full screen it types normally. Reproduced on MartyPC's
+`os8088_5150_herc_gla` (a lone Hercules, the owner's adapter), key to the
+glyph in `con_scr`: **17.4, 4.3, 18.0, 4.6, 18.4, 5.1 guest seconds** for
+`Testing`, against **0.12-0.23 s** on the full screen.
+
+**WordPerfect is a TopView program and the window's TopView path was what it
+took.** It asks `AH=FEh` once, at its start, with `ES` = its video segment and
+`DI` = 0, and compares the `ES` that comes back; told `con_scr`
+(`[dvw_cmode]` = `DVWC_TV`), it writes the console's cells itself and makes
+no other multitasker probe (no `int 15h`, no `int 21h AH=2Bh` `DE`, no
+`int 2Fh`). Then its MAIN LOOP - idle or answering a key alike - is three
+calls, measured at the `int`s: `int 16h AH=01h` (a key?), `int 10h AH=FFh`
+with `CX` = **2,000** (the whole screen changed) and `int 16h AH=02h`. A typed
+letter is answered by MANY passes of that loop, not by one. Two things made
+each pass dear:
+
+- **every eighth empty `AH=01h` slept a tick** (§96.54's *Keys and idle*), so
+  the loop ran at exactly 8 passes a tick - 146 a second, read off the trace -
+  where the full screen runs it thousands of times a second;
+- **every `AH=FFh` marked all 25 rows** (`dvw_tvmark` -> `con_markcells`, 25
+  `con_marks` under `cli` and a crossing), so a sampled profile of an IDLE
+  WordPerfect put **~67% of the whole machine** in the marking (`con_marks`
+  32%, `con_bit` 9%, `con_markcells` 7%, `con_mark`/`con_mk1` 7%), the
+  kernel's idle body in none of it, and the band was owed whole every tick.
+
+**The fix is two rules, both in the window part:**
+
+- **an `AH=FFh` for more than a row's cells marks nothing** (`dvw_int10`'s
+  `.tvupd`, `CX` > `CON_COLS`). `dvw_capt`'s row sums, every fourth tick,
+  already find what a TopView program changed (§96.54.5) - which is what they
+  were for - so the call costs a compare. A program that says which few cells
+  it wrote still has them marked at once;
+- **for `DVW_KBUSY` = 18 ticks after a key, an empty `AH=01h` does not sleep**
+  (`[dvw_kbusy]`, set where `dvw_kpeek` finds a key, counted down once a tick
+  in `dvw_xpost`). A key is work: the polls that follow it are the program
+  answering it, and between them it is pre-empted like any other task
+  (§96.54.3's 88%). The window starts AGAIN whenever the program's screen
+  moves while it is open (`dvw_kmore`: a row sum that moved, a capture's row,
+  INT 21h or BIOS output) - a long redraw keeps it - but a screen that moves
+  with no key in front of it (a clock) opens none, so an idle poller is
+  throttled exactly as before.
+
+**Measured on MartyPC** (`os8088_5150_herc_gla`, guest seconds):
+
+| | full screen | window, before | window, after |
+|---|---:|---:|---:|
+| WordPerfect 4.1, key to glyph (13 keys of `Testing 1 2 3`) | 0.12-0.23 | 4.3-18.4 | **0.20-0.35**, on the glass in the same 20 ms poll (WordPerfect's own `AH=02h` cursor move marks the cell) |
+| `tests/dostrap/dwpoll.asm`, a key's 2,000 passes (median of 3) | 0.45-0.47 | 13.8 (**30.7x**) | **0.83 (1.8x)** |
+| an IDLE WordPerfect in a window: the kernel's idle body | | ~0% | **61%** (the row sums 10%, the world exchange 7%) |
+
+The rest of the window's cost per pass is the virtual `int 16h` and `int 10h`
+themselves and the row sums; a plain INT 21h teletype program is untouched by
+this section (300 lines of `AH=09h` take 35.0 s in the window against 16.2 s
+on the full screen, its time in the band's scroll - `vgas_bankcopy` 24% - and
+the console's buffer scroll and per-cell marks).
+
+**Cost**, measured against the tree before it (kern_big's shipped flags): the
+window part (part 7, `doswp.bin`) **4,946 -> 5,013** bytes of image and cells,
+still a 5 KB claim; the resident host (part 0) and the window's tail (part 1)
+**+0**; `DOS.O88` **54,971 -> 55,015** on the disk (lz4) and **48,823 ->
+48,859** as the 360KB disk's LZB copy; the inline shape (`build/dos.bin`) +65
+and two bytes of its flag block; kern_small's `dos.o88` 35,412 -> 35,452. No
+core and no kernel byte. `tests/doswpoll.py` is the gate, at a 3x ceiling, and
+it reads 30.7x on the tree before it.
 
 #### 96.54.6 The OTHER card's text RAM — Works, live in a window
 

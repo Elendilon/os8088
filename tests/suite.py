@@ -8966,6 +8966,17 @@ SOAK = [
         "reach the band both marked by AH=FFh and found by the row sums. Red "
         "with the detector forced off. Measured 25s on MartyPC",
         needs=("marty",), serial=True, wants=("build/os8088-360.img",)),
+    Row("doswpoll", "soak", py("tests/doswpoll.py"), 20.0,
+        "A KEYSTROKE ANSWERED THE WAY WORDPERFECT 4.1 ANSWERS ONE, IN A DOS "
+        "WINDOW AND ON THE FULL SCREEN (SPEC.md 96.54.5.1). The probe "
+        "(tests/dostrap/dwpoll.asm) asks TopView's AH=FEh once and answers "
+        "each key with 2,000 passes of an INT 16h AH=01h poll, a cell written "
+        "and an INT 10h AH=FFh for the whole screen. Guest seconds from the "
+        "key to its count, median of three, bracket against window, held at "
+        "a 3x ceiling: measured 1.8x after the fix and 30.7x before it (every "
+        "eighth empty poll slept a tick, every FFh marked 25 rows). Measured "
+        "13s on MartyPC",
+        needs=("marty",), serial=True, wants=("build/os8088-360.img",)),
     Row("doswspin", "soak", py("tests/doswspin.py"), 20.0,
         "HOW FAST A PROGRAM RUNS IN A DOS WINDOW (SPEC.md 96.54.3). The probe "
         "(tests/dostrap/dwspin.asm) counts as fast as it can and never "

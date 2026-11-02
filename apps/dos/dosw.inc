@@ -54,6 +54,8 @@
 DVWC_TV     equ 1               ; [dvw_cmode]: TopView's buffer is con_scr
 DVWC_SEG    equ 2               ; ...the other card's text RAM is captured
 DVWC_HP     equ 3               ; ...a lone Hercules's page 1 is WATCHED
+DVW_KBUSY   equ 18              ; ticks after a key in which a poll does not
+                                ; sleep (SPEC.md 96.54.5.1)
 DVWC_EVERY  equ 3               ; a capture pass every 4th tick (mask)
 
 DVW_GAP     equ 96              ; the IRQ0 stub's frames go this far below the
@@ -318,8 +320,14 @@ dvw_tolow:
 ; and a quiet one none. OSAPI_WM_WAKE is ISR-safe and coalesces
 dvw_xpost:
     call dvw_xout               ; the desktop's world, sch_isr back at 08h
+    sub byte [cs:dvw_kbusy], 1  ; a tick of 96.54.5.1's window spent - and
+    adc byte [cs:dvw_kbusy], 0  ; none below zero
     push ds
     HOSTDS
+    cmp byte [dvw_dirty], 0     ; printed or marked since the last tick: a
+    je .quiet                   ; key's burst is still going (96.54.5.1) -
+    call dvw_kmore              ; tested BEFORE dvw_cpace, whose post is the
+.quiet:                         ; pass's door and not a change
     call dvw_cpace              ; (DS the host: its .post marks the band)
     cmp byte [dvw_dirty], 0
     je .r
@@ -1109,6 +1117,12 @@ dvw_int10:
 .tvsame:                            ; is drawn from, and the row sums find
     iret                            ; them
 .tvupd:                             ; FFh: ES:DI, CX cells changed
+    cmp cx, CON_COLS                ; **MORE THAN A ROW IS LEFT TO THE SUMS**
+    ja .tvsame                      ; (SPEC.md 96.54.5.1): WordPerfect says
+                                    ; "all 2,000 cells" on every pass of its
+                                    ; main loop, idle or not - which marked 25
+                                    ; rows a call - and dvw_capt's row sums,
+                                    ; every fourth tick, find what moved
     cmp byte [cs:dvw_cmode], DVWC_TV
     jne .tvsame
     push ax
@@ -1411,6 +1425,8 @@ dvw_int16:
     jnz .pk
     cmp byte [cs:dvw_kill], 0       ; **THE CLOSE IS HEARD HERE TOO**: a
     jne .pkill                      ; program waiting in INT 21h's own key
+    cmp byte [cs:dvw_kbusy], 0      ; **NOT WHILE A KEY IS BEING ANSWERED**
+    jne .pz                         ; (96.54.5.1): see dvw_kpeek
     inc byte [cs:dvw_poll]          ; read polls from the GATE's stack, where
     test byte [cs:dvw_poll], 7      ; dvw_irq0 never sees a foreign SS
     jnz .pz
@@ -1461,9 +1477,21 @@ dvw_kpeek:                          ; ZF = 1 empty, else AX = the next key
     xor bh, bh
     shl bx, 1
     mov ax, [cs:dvw_kq + bx]
-    or bx, 1                        ; ZF = 0
+    mov byte [cs:dvw_kbusy], DVW_KBUSY  ; **A KEY IS WORK, NOT A WAIT**: for
+    or bx, 1                        ; ZF = 0; a second after one, an empty
+                                    ; poll does not sleep (96.54.5.1)
 .r:
     pop bx
+    ret
+
+; dvw_kmore - the program's screen MOVED: a key's busy window, if one is
+; open, starts again (SPEC.md 96.54.5.1). A screen that moves with no key in
+; front of it - a clock - opens none, so an idle program stays throttled
+dvw_kmore:
+    cmp byte [cs:dvw_kbusy], 0
+    je .r
+    mov byte [cs:dvw_kbusy], DVW_KBUSY
+.r:
     ret
 
 dvw_kpop:                           ; ZF = 1 empty, else AX = it, taken
@@ -2038,6 +2066,7 @@ dvw_capt:
     call dvw_sumst
     je .snext
     HCALL con_mark
+    call dvw_kmore                  ; (96.54.5.1)
 .snext:
     inc bx
     cmp bx, CON_ROWS
@@ -2077,6 +2106,7 @@ dvw_capt:
     rep movsw   ; DVWCHK-OK: the card's row -> con_scr
     pop ds
     HCALL con_mark
+    call dvw_kmore                  ; (96.54.5.1)
     jmp short .gnext
 .same:
     pop ds
@@ -2168,6 +2198,7 @@ dvw_hprw:
     rep movsw   ; DVWCHK-OK: the card's row -> con_scr (ES the host)
     pop ds
     HCALL con_mark
+    call dvw_kmore                  ; (96.54.5.1)
     stc
 .same:
     ret
