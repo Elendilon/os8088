@@ -4081,12 +4081,6 @@ fm_onkey_x:
     jmp short .owed             ; (the scroll's .scr_move is above, so Enter
                                 ; no longer falls into it)
 
-.cut:
-    mov bx, FMC_CUT
-    jmp short .cmd
-.copy:
-    mov bx, FMC_COPY
-    jmp short .cmd
 .delete:
     call fm_delrep              ; stamp it, so the CONFIRMING press can tell
     mov bx, FMC_DELETE          ; itself from this one's typematic repeat -
@@ -4094,14 +4088,20 @@ fm_onkey_x:
                                 ; the same line asked for twice and the
                                 ; keystroke is only destructive at the answer
     jmp short .cmd
+.cut:                           ; THE THREE CLIPBOARD KEYS load BL and skip
+    mov bl, FMC_CUT             ; each other's load, and BH is cleared once
+    SKIPF2                      ; (kernel size pass 17: they were three
+.copy:                          ; `mov bx` and two `jmp short`)
+    mov bl, FMC_COPY
+    SKIPF2
 .paste:
-    mov bx, FMC_PASTE
+    mov bl, FMC_PASTE
+    mov bh, 0
 .cmd:
-    push si                     ; fm_docmd repaints and clobbers everything,
-    mov [fm_cmdwin], si         ; and SI is still the window pointer .redraw
-    call fm_docmd               ; wants (the .updir precedent)
-    pop si
-    jmp .out                    ; fm_docmd has already repainted
+    mov [fm_cmdwin], si         ; fm_docmd repaints and clobbers everything -
+    call fm_docmd               ; and .out is the ladder, which puts SI back,
+    jmp .out                    ; so it is not banked here (kernel size pass
+                                ; 17). fm_docmd has already repainted
 
 %ifdef FM_MSEL
 .selall:                        ; Ctrl+A (beside the ladder's other bodies, so
