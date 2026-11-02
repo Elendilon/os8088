@@ -259,7 +259,6 @@ fsk_cnear:
 
 section .bss
 fsk_cold:   resd 1              ; fsk_cnear where `.cold` IS, for this call
-fsk_ws:     resw 1              ; the workspace, for this call
 fsk_sp:     resw 1              ; ...and the stack fsk_die unwinds to
 dsk_wgen:   resb DVOL_MAX       ; THE WRITE GENERATION per volume (118.14.6):
                                 ; disk_write_x bumps [disk_drive]'s
@@ -292,8 +291,15 @@ FSK_NENT    equ 1
 
 ; NOTHING HERE IS WRITTEN THROUGH CS: kern_mega runs this image through a
 ; claim's CODE selector, which no store may use (KERN-MEGA-PLAN 2.4). Its
-; per-call words are the kernel's ([fsk_ws], [fsk_sp], [fsk_cold], reached
-; through DS = KERNEL_SEG) and its scratch is the workspace's (P_E onward).
+; per-call words are the kernel's ([fsk_sp], [fsk_cold], reached through DS =
+; KERNEL_SEG) and its scratch is the workspace's (P_E onward).
+;
+; **ES IS THE WORKSPACE, FROM fsk_entry's `mov es, dx` TO ITS RETURN**, and
+; nothing loads it again: KC banks it round every kernel routine, and the two
+; DS swaps (fsk_qpop, fsk_ph_fatcmp) copy it and leave it alone. So no
+; routine here reloads it, and the kernel holds no [fsk_ws] (kernel size pass
+; 17: fourteen reloads of a value ES already had). FSK_SIZE is the one verb
+; that has no workspace, and it touches none.
 
 ; -----------------------------------------------------------------------------
 ; fsk_entry - the one entry (SPEC.md 118.14.2), far-called by the stub
@@ -309,7 +315,6 @@ fsk_entry:
     push di
     push bp
     push es
-    mov [fsk_ws], dx
     mov [fsk_sp], sp
     mov word [fsk_cold], fsk_cnear
 %ifdef KERN_MEGA
@@ -433,7 +438,6 @@ fsk_begin:
     jnc .clean
     jmp fsk_ioerr
 .clean:
-    mov es, [fsk_ws]
     push bx
     xor di, di                  ; zero the record, the state and the maps
     mov cx, bx
@@ -522,7 +526,6 @@ fsk_step:
     dec bx
     shl bx, 1
     call [cs:fsk_phtab+bx]
-    mov es, [fsk_ws]
     call fsk_gen                ; what WE wrote is not a change
     mov [es:P_GEN], al
     call fsk_qpop
@@ -551,7 +554,6 @@ fsk_end:
     cmp al, [disk_drive]        ; only while the volume is still the one
     jne .out                    ; written: a flush belongs to its own disk
     KC dskw_flush_x
-    mov es, [fsk_ws]
     call fsk_markwins
     KC dskw_sync_x
 .out:
@@ -584,14 +586,26 @@ fsk_markwins:
 ; =============================================================================
 ; the finding queue (one path for every finding in it)
 ; =============================================================================
+; fsk_fix - BH = 1 when the run is a Fix, else 0, and ZF with it (kernel size
+; pass 17: six callers spelled it out)
+fsk_fix:
+    mov bh, [es:FSW_MODE]
+    and bh, FSKM_FIX
+    ret
+
 ; fsk_q - queue a finding. AL = row, AH = severity, BL = code, BH = 1 fixed,
 ; DX:CX = A, SI:DI = B. Keeps every register. A full queue drops it (the
-; counters are exact either way)
+; counters are exact either way). fsk_q0 is the same with DX = DI = SI = 0,
+; and fsk_q0ds with DX = SI = 0 - nine and seven callers wrote the zeros
+; out (kernel size pass 17)
+fsk_q0:
+    xor di, di
+fsk_q0ds:
+    xor dx, dx
+    xor si, si
 fsk_q:
     push ax
     push bx
-    push es
-    mov es, [fsk_ws]
     cmp ah, FSV_BROKEN
     jne .nb
     or bh, bh
@@ -621,7 +635,6 @@ fsk_q:
     mov [es:di+10], si
     mov di, ax
 .out:
-    pop es
     pop bx
     pop ax
     ret
@@ -632,7 +645,6 @@ fsk_qpop:
     push si
     push di
     push ds
-    mov es, [fsk_ws]
     cmp byte [es:P_QN], 0
     je .none
     push es
@@ -765,22 +777,14 @@ fsk_name:
 ; fsk_rd / fsk_wr - CX sectors at DX:AX to/from ES = the workspace : BX.
 ; Die on an error
 fsk_rd:
-    push es
-    mov es, [fsk_ws]
     mov [dsk_lbahi], dx
-    mov bp, disk_read_x
-    call far [fsk_cold]
-    pop es
+    KC disk_read_x
     jc fsk_ioerr
     ret
 fsk_wr:
-    push es
-    mov es, [fsk_ws]
     or byte [es:P_FLAGS], PF_WROTE
     mov [dsk_lbahi], dx
-    mov bp, disk_write_x
-    call far [fsk_cold]
-    pop es
+    KC disk_write_x
     jc fsk_ioerr
     ret
 
@@ -800,10 +804,7 @@ fsk_fat:
 
 ; fsk_set - FAT entry AX = DX, in the kernel's window (flushed by fsk_flush)
 fsk_set:
-    push es
-    mov es, [fsk_ws]
     or byte [es:P_FLAGS], PF_WROTE
-    pop es
     KC dskw_setfat
     ret
 
@@ -917,7 +918,6 @@ fsk_bm2:                        ; SI = BM2
 ;      (0 none), SI = the cluster it stopped at, DI = its place in the chain
 ; =============================================================================
 fsk_walk:
-    mov es, [fsk_ws]
     mov si, ax                  ; SI = the cluster under test
     xor di, di                  ; DI = clusters reached
     xor dx, dx                  ; DX = pieces
@@ -1048,15 +1048,12 @@ fsk_ph_fatcmp:
     jz .tree
     or byte [es:P_FLAGS], PF_SYNC
     xchg ax, cx
-    xor dx, dx
     mov di, [es:P_FATSZ]
-    xor si, si
     call fsk_qp_vol
-    mov bh, [es:FSW_MODE]
-    and bh, FSKM_FIX            ; repaired, in FSKP_SYNC, under Fix
+    call fsk_fix                ; repaired, in FSKP_SYNC, under Fix
     mov bl, FSKF_FATDIFF
     mov ax, FSV_WARN << 8 | 0
-    call fsk_q
+    call fsk_q0ds
 .tree:
     mov byte [es:FSW_PHASE], FSKP_TREE
     xor ax, ax
@@ -1197,20 +1194,17 @@ fsk_entry1:
     je fsk_eback
     mov cx, ax                  ; A = what it named, B = what it should
     mov di, dx
-    xor dx, dx
     call fsk_qp_dir
-    mov bh, [es:FSW_MODE]
-    and bh, FSKM_FIX
+    call fsk_fix
     jz .dotq
     mov si, [es:P_E]           ; ...repaired: it names the right one
     mov [es:si+26], di
     call fsk_wdir
     inc word [es:FSW_FIXED]
 .dotq:
-    xor si, si
     mov bl, FSKF_DOT
     mov ax, FSV_WARN << 8 | 1
-    call fsk_q
+    call fsk_q0ds
     jmp short fsk_eback
 .notdot:
     ; --- an entry that is not one -------------------------------------
@@ -1221,13 +1215,10 @@ fsk_entry1:
     je .named
     mov cx, [es:bx+LV_ENT]
     dec cx
-    xor dx, dx
-    xor di, di
-    xor si, si
     call fsk_qp_dir
     mov bx, FSKF_BADENT
     mov ax, FSV_WARN << 8 | 1
-    call fsk_q
+    call fsk_q0
     jmp short fsk_eback
 .named:
     cmp al, '.'                 ; a stray '.' entry past the first two
@@ -1240,7 +1231,6 @@ fsk_entry1:
 
 ; fsk_eback - an entry's handler ends: SI, BX back, CF = 0
 fsk_eback:
-    mov es, [fsk_ws]
     mov si, [es:P_E]
     mov bx, [es:P_L]
     clc
@@ -1296,18 +1286,14 @@ fsk_dirent:
     jbe .walk
 .bad:
     xchg ax, cx                 ; A = the cluster it names
-    xor dx, dx
-    xor di, di
     call fsk_qp_ent
-    xor si, si
     mov bx, FSKF_DIRBAD
     mov ax, FSV_BROKEN << 8 | 1
-    call fsk_q
+    call fsk_q0
     jmp fsk_eback
 .walk:
     mov cl, 1
     call fsk_walk               ; AL, CX = n, SI, DI
-    mov es, [fsk_ws]
     add [es:FSW_USED], cx
     or al, al
     jz .ok
@@ -1326,13 +1312,10 @@ fsk_dirent:
     jb .deep_ok
     xor ah, ah                  ; too deep: said, and not gone into
     xchg ax, cx
-    xor dx, dx
-    xor di, di
     call fsk_qp_ent
-    xor si, si
     mov bx, FSKF_DEEP
     mov ax, FSV_NOTE << 8 | 1
-    call fsk_q
+    call fsk_q0
 .none:
     jmp fsk_eback
 .deep_ok:
@@ -1380,7 +1363,6 @@ fsk_filent:
 .chain:
     mov cl, 1
     call fsk_walk               ; AL, CX = n, DX = pieces, BX = last, SI, DI
-    mov es, [fsk_ws]
     add [es:FSW_USED], cx
     cmp dx, 1
     jbe .onep
@@ -1393,8 +1375,7 @@ fsk_filent:
     mov [es:P_LAST], bx
     mov [es:P_A], si
     mov [es:P_B], di
-    mov bh, [es:FSW_MODE]
-    and bh, FSKM_FIX
+    call fsk_fix
     push ax
     call fsk_chainq
     pop ax
@@ -1436,14 +1417,11 @@ fsk_filent:
     ; --- LONG: more chain than size --------------------------------------
     call fsk_qp_ent
     mov cx, [es:P_N]
-    xor dx, dx
     mov di, [es:P_NEED]
-    xor si, si
-    mov bh, [es:FSW_MODE]
-    and bh, FSKM_FIX
+    call fsk_fix
     mov bl, FSKF_LONG
     mov ax, FSV_WARN << 8 | 2
-    call fsk_q
+    call fsk_q0ds
     or bh, bh
     jz .done
     inc word [es:FSW_FIXED]
@@ -1493,8 +1471,7 @@ fsk_filent:
     mov bp, [es:P_E]
     mov cx, [es:bp+28]          ; A = the size
     mov dx, [es:bp+30]
-    mov bh, [es:FSW_MODE]
-    and bh, FSKM_FIX
+    call fsk_fix
     mov bl, FSKF_SHORT
     mov ax, FSV_BROKEN << 8 | 2
     call fsk_q
@@ -1632,13 +1609,10 @@ fsk_ph_scan:
     mov cx, [es:FSW_LOST]
     jcxz .space
     mov di, [es:FSW_LOSTC]
-    xor dx, dx
-    xor si, si
-    mov bh, [es:FSW_MODE]
-    and bh, FSKM_FIX
+    call fsk_fix
     mov bl, FSKF_LOST
     mov ax, FSV_WARN << 8 | 4
-    call fsk_q
+    call fsk_q0ds
 .space:
     mov ax, [es:FSW_FREE]       ; free KB = clusters * spc / 2
     call fsk_kb
@@ -1654,20 +1628,15 @@ fsk_ph_scan:
     call fsk_q
     mov cx, [es:FSW_BAD]
     jcxz .frag
-    xor dx, dx
-    xor di, di
-    xor si, si
     mov bx, FSKF_BADCL
     mov ax, FSV_NOTE << 8 | 5
-    call fsk_q
+    call fsk_q0
 .frag:
     mov cx, [es:FSW_FRAG]
     mov di, [es:FSW_FILES]
-    xor dx, dx
-    xor si, si
     mov bx, FSKF_FRAGS
     mov ax, FSV_NOTE << 8 | 6
-    call fsk_q
+    call fsk_q0ds
     ; --- and next ------------------------------------------------------
     mov al, [es:FSW_MODE]
     test al, FSKM_FIX
@@ -1698,12 +1667,9 @@ fsk_kb:
 fsk_notdef:
     call fsk_qp_vol
     xor cx, cx
-    xor dx, dx
-    xor di, di
-    xor si, si
     mov bx, FSKF_NOTDEF
     mov ax, FSV_NOTE << 8 | 7
-    call fsk_q
+    call fsk_q0
     mov byte [es:FSW_PHASE], FSKP_DONE
     ret
 
@@ -1961,11 +1927,9 @@ fsk_save:
     pop di
     mov di, [es:P_CHKN]
     dec di
-    xor dx, dx
-    xor si, si
     mov bx, 1 << 8 | FSKF_SAVED
     mov ax, FSV_NOTE << 8 | 4
-    call fsk_q
+    call fsk_q0ds
     ret
 
 fsk_lost_rest:
@@ -2000,12 +1964,9 @@ fsk_lost_rest:
     jcxz .aft
     call fsk_qp_vol
     inc word [es:FSW_FIXED]
-    xor dx, dx
-    xor di, di
-    xor si, si
     mov bx, 1 << 8 | FSKF_FREED
     mov ax, FSV_NOTE << 8 | 4
-    call fsk_q
+    call fsk_q0
 .aft:
     jmp fsk_aftlost
 
@@ -2051,12 +2012,9 @@ fsk_defstart:
     mov cx, [es:FSW_ERRS]
     jcxz .go
     call fsk_qp_vol
-    xor dx, dx
-    xor di, di
-    xor si, si
     mov bx, FSKF_SKIPDEF
     mov ax, FSV_WARN << 8 | 7
-    call fsk_q
+    call fsk_q0
     mov byte [es:FSW_PHASE], FSKP_DONE
     ret
 .go:
@@ -2064,10 +2022,8 @@ fsk_defstart:
     ; may have banked a folder's cluster (OSAPI_FILE_HERE) where the kernel
     ; cannot see it to put right. Every package instance but the caller's
     ; counts; the kernel's own words (fsk_krefs) are patched
-    push bp
-    mov bp, inst_caller         ; DH = the caller's slot
-    call KERNEL_SEG:spw_near
-    pop bp
+    mov bp, inst_caller         ; DH = the caller's slot (BP is nobody's
+    call KERNEL_SEG:spw_near    ; here: KC's scratch - kernel size pass 17)
     xor ax, ax                  ; AX = the others
     xor bx, bx                  ; BL = the slot
     mov si, inst_tab
@@ -2156,26 +2112,21 @@ fsk_defpass:
     call fsk_qp_vol
     mov cx, [es:FSW_MOVED]
     mov di, [es:FSW_STUCK]
-    xor dx, dx
-    xor si, si
     mov bx, FSKF_MOVED
     mov ax, FSV_NOTE << 8 | 7
-    call fsk_q
-    xor dx, dx
-    xor di, di
-    xor si, si
+    call fsk_q0ds
     mov cx, [es:FSW_MOVEDF]
     jcxz .nof
     mov bx, FSKF_FOLDERS
     mov ax, FSV_NOTE << 8 | 7
-    call fsk_q
+    call fsk_q0
 .nof:
     cmp byte [es:P_FOLDOK], 0
     jne .fin
     mov cx, [es:FSW_OTHERS]
     mov bx, FSKF_NOFOLD
     mov ax, FSV_NOTE << 8 | 7
-    call fsk_q
+    call fsk_q0
 .fin:
     mov byte [es:FSW_PHASE], FSKP_DONE
     ret
@@ -2203,7 +2154,6 @@ fsk_defent:
     push bx
     mov cl, 0
     call fsk_walk               ; AL, CX = its clusters, DX = pieces
-    mov es, [fsk_ws]
     pop bx
     pop si
     or al, al
@@ -2273,7 +2223,6 @@ fsk_defent:
     push bx
     mov cl, 0
     call fsk_walk               ; CX = n, DX = pieces
-    mov es, [fsk_ws]
     pop bx
     pop si
     or al, al
