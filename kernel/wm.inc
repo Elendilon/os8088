@@ -5249,8 +5249,8 @@ wm_dmg_wins:
     mov [wm_dmg_shad], bp
 .mark:
     mov al, [wm_zn]
-    xor ah, ah
-    cmp bp, ax
+    cbw                         ; (<= MAX_WIN: kernel size pass 17, -1, and
+    cmp bp, ax                  ; a clock faster)
     jae .draw
     mov al, [ds:bp+wm_zord]     ; (DS: BP addresses SS otherwise)
     call wm_idx2ptr             ; BX = window ptr (AX and CX survive)
@@ -5356,7 +5356,7 @@ wm_dmg_wins:
     xor si, si                  ; SI = index into wm_zord
 .dwin:
     mov al, [wm_zn]
-    xor ah, ah
+    cbw                         ; (<= MAX_WIN: kernel size pass 17)
     cmp si, ax
     jae .wdone
     mov al, [si+wm_zord]
@@ -7181,7 +7181,8 @@ wm_ptr2idx:
     sub ax, wm_wins
     mov cl, WIN_SIZE
     div cl                      ; AL = index...
-    xor ah, ah                  ; ...and AH IS THE REMAINDER, NOT ZERO. This
+                                ; ...and AH IS THE REMAINDER, NOT ZERO - the
+                                ; cbw below the clamp is what clears it. This
                                 ; line used to be a comment saying "AH = 0: ptr
                                 ; is record-aligned", which is a statement about
                                 ; the CALLER. wm_su_slot doubles the whole of AX
@@ -7195,9 +7196,10 @@ wm_ptr2idx:
     jb .ok                      ; per-window table in this module is addressed
     mov al, MAX_WIN - 1         ; off it: wm_su_segs, wm_su_ext, the size
 .ok:                            ; preferences. A pointer that is not a window
-    pop cx                      ; then names the LAST window rather than a byte
-    ret                         ; of .text, which is wrong and bounded instead
-                                ; of wrong and unbounded
+    cbw                         ; then names the LAST window rather than a byte
+    pop cx                      ; of .text, which is wrong and bounded instead
+    ret                         ; of wrong and unbounded. (cbw: AL < MAX_WIN
+                                ; here, so AH = 0 - kernel size pass 17, -1)
 
 ; -----------------------------------------------------------------------------
 ; wm_zabove - find this window in the z-order, and what is above it (SPEC.md 11)
@@ -9213,7 +9215,7 @@ wm_zwalk:
     mov bp, bx
     mov si, wm_zord
     mov al, [wm_zn]
-    mov ah, 0
+    cbw                         ; (<= MAX_WIN: kernel size pass 17)
     mov di, si
     add di, ax
     ret

@@ -41832,7 +41832,7 @@ Seven things hold it up:
   kernel's own callers (`drv_cfg_*`, the copy engine, the file manager) call
   `dskw_*` directly and are untouched, because they act for the machine
   rather than for an app. `FDLG_OPEN` uses the same name-staging stub and is
-  deliberately **not** given the switch: `fdlg_seed` (§38.10; the retired
+  deliberately **not** given the switch: `fdlg_open`'s `.seed` (§38.10; the retired
   dialog's `fdlg_home_go`) is the routine that decides where a *dialog* opens, and a volume switch underneath it would
   pre-empt that decision.
 - **The compare is what makes it free.** `inst_vol_enter` loads the
@@ -53095,7 +53095,7 @@ x=30 and the list frame starts at `FD_LX2` = 213, so 22 cells are free
 against the 12 an 8.3 name needs — measured before the name was allowed
 there. A folder it was *placed* in still reads `Folder`, and the one default
 that can be named is `MEDIA`, which `fdlg_home_go` really did walk into
-(the chooser's `fdlg_seed` since §38.1, §38.10).
+(the chooser's `fdlg_open.seed` since §38.1, §38.10).
 
 Cost, measured: `.text` +11, `.bss` +165 (4 × 33 for the windows, 33 for the
 dialog), `.cold` +349 — **`KERN_SIZE` unchanged**, so the machine has not
@@ -74775,7 +74775,7 @@ instance's 16 name bytes move, for its dock tile and Task Manager row.
 | `fdlg_grab_x`, `fdlg_top_x` | modality (§38.2) |
 | `fdlg_brect`, `fdlg_blabel` | the button column's rect and label/greying, shared by both builds |
 | `fdlg_btn.drive` | §38.11 |
-| `fdlg_seed`, `fdlg_hidx`, `fdlg_home_dir` | §38.10 |
+| `fdlg_open.seed` (written at its one call, kernel size pass 17), `fdlg_hidx`, `fdlg_home_dir` | §38.10 |
 | `fdlg_tsel`, `fdlg_toebuf`, `fdlg_bank`, `fdlg_cpy` | the name: the selection staged, the box filled and banked, all through one bounded copy |
 
 | `FDH_*` event | raised by | the chooser's answer |
@@ -74818,7 +74818,7 @@ one its file operations resolve in. A Save As does not merely aim the next
 chooser, it moves the application.
 
 **And an application whose user has not chosen anything yet opens on
-`MEDIA`.** `fdlg_seed` has two answers, in this order:
+`MEDIA`.** `fdlg_open.seed` has two answers, in this order:
 
 | the app | the chooser opens on |
 |---|---|
