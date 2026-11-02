@@ -5686,10 +5686,17 @@ gfx_blit1_x:
     CLIPQF                  
     je .rowsall
     push ax                     ; x, which this block spends AX to compute
-    mov al, [wm_clip_r0]        ; skip the rows the region cut off the top:
-    xor ah, ah                  ; a row OFFSET is the same number in either
-    or ax, ax                   ; coordinate space, which is why this may be
-    jz .r0z                     ; applied before the translation below
+%ifdef GFX_VGA
+    xor ax, ax                  ; skip the rows the region cut off the top:
+    or al, [wm_clip_r0]         ; a row OFFSET is the same number in either
+%else                           ; coordinate space, which is why this may be
+    mov al, [wm_clip_r0]        ; applied before the translation below. (A
+    xor ah, ah                  ; planar kernel zero-extends with the `xor`
+    or ax, ax                   ; FIRST and lets the `or` set ZF, -1, paired
+%endif                          ; with the pen test's -1 below so the row loops
+    jz .r0z                     ; keep their parity; kern_small has no pen
+                                ; and keeps the old three - kernel size pass
+                                ; 17)
     add bx, ax
     mul bp                      ; ...and the band skips r0 whole strides
     add si, ax                  ; DX is NOT banked around the multiply: .r0z
@@ -5837,7 +5844,9 @@ gfx_blit1_x:
                                 ; pass 2 - and it must say so on the path that
                                 ; never asks
 %ifdef GFX_VGA                  ; SPEC.md 5.4.2.5: no VGA in this build, so no PEN
-    cmp byte [gfx_b1act], 0     ; SPEC.md 5.4.2.2's pen: the ports are the
+    cmp [gfx_b1act], bl         ; SPEC.md 5.4.2.2's pen (BL is the `xor`'s 0
+                                ; two lines up - kernel size pass 17, -1): the
+                                ; ports are the
     je .penres                  ; BAND's, issued once, and DS is still ours
     mov dx, VGA_GC              ; here - the emit below spends it on the
     mov ax, [gfx_b1g0]          ; caller's band
