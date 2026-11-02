@@ -190911,6 +190911,54 @@ one-shot at its leg 2 (the item is not a mode), at its leg 3 with `dvw_wake`'s
 clip taken out (788 bytes of the window in front changed under the band), and
 at its leg 8 with `dsh_home` taken out.
 
+#### 96.54.11 A compiled BASIC program in the window: a text mode, the shunt's wake, a close mid-tone
+
+**Galaxy Trek** (`TREKRUN.EXE`, 1983 compiled BASIC) was reported off the
+owner's 5150 (Hercules, C: through `HDD.DRV`), typed at `C:\DOS>` with the
+mode ticked: the band showed nothing and the cursor sat on the next line, a
+minimize and restore showed *"File not found"*, and a close did not close and
+left the PC speaker sounding one continuous tone. Three defects, each found
+on MartyPC's `os8088_5150_herc_gla` and `_hdd_gla`:
+
+- **A text mode set stayed a text mode.** BASIC's runtime starts with
+  `int 10h AH=00h` mode 3, and wave 3 (§96.54.1) made `.setmode`'s text arm
+  clear the console and then FALL INTO the graphics shunt, so every text mode
+  set in a window asked for the full screen and waited for it. The text arm
+  is a clear and a home and returns, as it did before wave 3 (+4 bytes).
+- **The shunt's wake is posted from the worker's own stack.** `dvw_shunt`
+  runs inside the program's `int 10h`, on the PROGRAM'S stack, and called
+  `OSAPI_WM_WAKE` there - and `evq_push` writes the ring through `SS`
+  (§10.1.1). The record landed at the program's `SS:evq_buf` (Trek's: its
+  own BASIC data segment, a string overwritten with `04 00 64 A2`, an
+  EVT_WAKE for its window) and the window's `W_WKQ` said one was queued:
+  **deaf for the rest of its life** (§74.1.1's failure, by another road), so
+  the full screen never came, no paint was drawn and `dvw_wake` - which ends
+  every run and performs the deferred close - never ran again. It sets
+  `[dvw_dirty]` instead, and `dvw_nap`'s `dvw_xpost`, already on the
+  `LOW_SEG` slice, posts the wake (-6 bytes). Every OSAPI cell wants
+  `SS = LOW_SEG` (os88api.inc's head); the INT 33h answers (`dwm_*`, §96.54.4)
+  also call cells from the program's stack and were not audited here.
+  **"File not found"**, on MartyPC, was the close's own door cancellation
+  (§96.54's `dvw_post`) answering the FCB open of `DATA.DAT` that the
+  refused shunt let the program reach; the stray records in the program's
+  data segment are the other way to it. Neither is a defect of the FCB
+  layer: with the two fixes above
+  the same program opens it in the window off a floppy and off C: alike, and
+  plays.
+- **A close silences the speaker.** A program stopped by the close is stopped
+  wherever it is, and a BEEP or a PLAY note between turning the speaker on
+  and turning it off leaves port 61h's bits 0 and 1 set, with nothing left
+  to clear them. `dvw_kexit`, the one exit every kill takes, clears them
+  before its `int 21h AH=4Ch` (+6 bytes).
+
+**Cost**, measured against `dd4cba2e`: the window part (part 7) **4,942 ->
+4,946**, and nothing else moved - parts 0-6, the core and every kernel are
+byte-identical. `DOS.O88` **54,658 -> 54,668** on the disk (lz4) and
+**48,541 -> 48,550** as the 360KB disk's LZB copy; the inline shape
+(`build/dos.o88`) 43,926 -> 43,930. `tests/doswbasic.py` is the gate, on
+`tests/dostrap/dwmode.asm`, and it is measured red at each leg with its fix
+taken out.
+
 ## 97. PIXELSTEIN 3D — a raycast shooter in a foreign mode (`apps/pixelstein/`)
 
 A first-person shooter in the shape of the 1992 one: a 64×64 grid of cells,
