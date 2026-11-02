@@ -1300,40 +1300,6 @@ gfx_pt_miss:
     stc
     ret
 
-; -----------------------------------------------------------------------------
-; gfx_pt_resolve - SPEC.md 5.6.9.5: the ACTIVE display, in the space the loop
-; asks its questions in. Once a PASS, never per point. Preserves everything
-; but BX, which it spends - and always did, the header said otherwise.
-; -----------------------------------------------------------------------------
-gfx_pt_resolve:
-    push ax                     ; (BX is SPENT, as it always was: the one
-    mov bx, [vid_ox]            ; caller's next use of it is gfx_ls_box's,
-    mov ax, [vid_cwm1]          ; which spends it again. Each origin is read
-    add ax, bx                  ; ONCE into BX and every store is AX's short
-    mov [gfx_ls_d2], ax         ; form - size pass 10)
-    mov [gfx_ls_bx2], ax        ; ...and the UNARMED box is the display, so it
-    mov [gfx_ls_bx1], bx        ; is written here once a pass: gfx_ls_box's no-
-                                ; region arm used to copy all four at every
-                                ; call (size pass 10)
-    sar bx, 1                   ; ...its BYTE column, which is exact: a
-    sar bx, 1                   ; display origin is a multiple of 8 (39.19.3
-    sar bx, 1                   ; puts it at the primary's own width)
-    mov [gfx_pt_kx], bx
-    mov bx, [vid_oy]
-    mov [gfx_ls_by1], bx
-    mov ax, [vid_chm1]
-    add ax, bx
-    mov [gfx_ls_d4], ax
-    mov [gfx_ls_by2], ax
-    mov ax, [vid_rowmax]
-    add ax, bx
-    mov [gfx_pt_rmax], ax
-    mov ax, vid_rowtab
-    sub ax, bx
-    sub ax, bx
-    mov [gfx_pt_rtab], ax
-    pop ax
-    ret
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -1450,7 +1416,36 @@ gfx_points:
     push si                     ; A PASS MAY RUN TWICE (SPEC.md 5.6.9.5), so
     push cx                     ; the array and the count are banked across it
 %ifdef KERN_BIG
-    call gfx_pt_resolve         ; the display, in the space the loop asks in
+    ; --- SPEC.md 5.6.9.5: the ACTIVE display, in the space the loop asks its
+    ; questions in. Once a PASS, never per point. It was gfx_pt_resolve, with
+    ; this one call, until kernel size pass 17 wrote it here: AX and BX are
+    ; both dead at this point (the ink load below writes AL, gfx_ls_box
+    ; spends BX), so its AX bank, call and ret went (-6)
+    mov bx, [vid_ox]            ; Each origin is read ONCE into BX and every
+    mov ax, [vid_cwm1]          ; store is AX's short form (size pass 10)
+    add ax, bx
+    mov [gfx_ls_d2], ax
+    mov [gfx_ls_bx2], ax        ; ...and the UNARMED box is the display, so it
+    mov [gfx_ls_bx1], bx        ; is written here once a pass: gfx_ls_box's no-
+                                ; region arm used to copy all four at every
+                                ; call (size pass 10)
+    sar bx, 1                   ; ...its BYTE column, which is exact: a
+    sar bx, 1                   ; display origin is a multiple of 8 (39.19.3
+    sar bx, 1                   ; puts it at the primary's own width)
+    mov [gfx_pt_kx], bx
+    mov bx, [vid_oy]
+    mov [gfx_ls_by1], bx
+    mov ax, [vid_chm1]
+    add ax, bx
+    mov [gfx_ls_d4], ax
+    mov [gfx_ls_by2], ax
+    mov ax, [vid_rowmax]
+    add ax, bx
+    mov [gfx_pt_rmax], ax
+    mov ax, vid_rowtab
+    sub ax, bx
+    sub ax, bx
+    mov [gfx_pt_rtab], ax
     and byte [gfx_pt_f], ~PT_OOB & 0xFF     ; ...and nothing off it seen yet
 %endif
     ; --- EVERYTHING THE LOOP NEEDS, resolved once, while DS is still ours ---
@@ -4189,7 +4184,7 @@ gfx_bank_ok:                    ; unlocked caller banks the arrow and nothing
 gfx_sr_tail:                    ; (gfx_restore's tail too - size pass 10)
     GFXDLEAVE                   ; so this is whole-shape like gfx_scroll and
 %ifdef GFX_VGA                  ; (a planar kernel's alone: kern_small has no
-    call gfx_1bpp_off           ; plane to arm, and nothing there reads the
+    mov word [vga_pn], VGA_PN_FOUR ; plane to arm, and nothing there reads the
 %endif                          ; pair - kernel size pass 13) ...and a
                                 ; ONE-PLANE arm is spent (11.96.17)
     jmp kret_dx                 ; NOT split like a blit's runs. The caller owes
@@ -4311,14 +4306,13 @@ vga_pm      db 1                ; ...and the Map Mask a RESTORE starts on: the
   %error "vga_pn/vga_pm must stay adjacent, pn first: gfx_1bpp_on/off store the pair as one word, and cur_saveu/cur_restoreu bank it with push/pop word"
 %endif
 
-; gfx_1bpp_on / gfx_1bpp_off - arm the next gfx_save/gfx_restore for ONE plane
-; Preserves every register and the flags. ONE word store each: the pair is
-; adjacent (the %error above)
+; gfx_1bpp_on - arm the next gfx_save/gfx_restore for ONE plane. Preserves
+; every register and the flags: ONE word store, the pair being adjacent (the
+; %error above). Its inverse, gfx_1bpp_off, had one caller - gfx_sr_tail - and
+; is that store written there since kernel size pass 17 (-4), as cur_rect
+; already wrote it
 gfx_1bpp_on:
     mov word [vga_pn], 0x0F01
-    ret
-gfx_1bpp_off:
-    mov word [vga_pn], VGA_PN_FOUR
     ret
 VGA_PN_FOUR equ 0x0104          ; [vga_pn] = 4 planes, [vga_pm] = Map Mask 1 -
                                 ; also stored inline by mouse.inc's cur_rect
