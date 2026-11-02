@@ -2075,6 +2075,12 @@ repository", which is where the branch already lives, and do nothing.
 the two 1.44MB main disks,
 `build/os8088.img` (system) and `build/apps.img` (apps). The owner wants the full set
 every time rather than a judgement about which disks a change could reach.
+**And when the code being worked on ships on a disk OUTSIDE that set, send
+that disk too** - the owner wants the disks relevant to the work in hand,
+not only the normal set: WIN16's `build/win16.img` while WIN16 is off the
+1.44MB pair (it is expected to rejoin the system disks once it is solid),
+an on-demand application floppy (`c64disk`, `weavedisk`, ...) when its
+package changed, and the like.
 The 360KB part is exactly the 360KB images `all` builds: system, apps, the
 module's own disk (§24.4), the five category disks (§24.6), the 128KB
 machine's system disk (§24.5.7) and WIN16's own disk (§124.18.1). It was three until the category disks
