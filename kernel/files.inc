@@ -8508,7 +8508,7 @@ fm_status_only:
 ;   fm_scrollpaint  the list view moving by less than a windowful: one blit,
 ;                   the rows it exposed, the two selection bands and the
 ;                   thumb. Nothing else on the window is touched at all.
-;   fm_rows_only    the icon grid, and any jump longer than the view: the row
+;   .rows (here)    the icon grid, and any jump longer than the view: the row
 ;                   band is erased and redrawn, and the header, the buttons
 ;                   and the status line are still left alone.
 ;   fm_repaint      the fallback, when a clip region cuts the band - SPEC.md
@@ -8572,8 +8572,40 @@ fm_scroll_by:
     call fm_scrollpaint
     jnc .done
 .rows:
-    call fm_rows_only
-    jmp short .done
+    ; THE MIDDLE TIER - erase and redraw the row band, and NOTHING around it.
+    ; It was fm_rows_only, written here at its one call (kernel size pass 17:
+    ; its call, the `jmp` after it and its own two exits went, the exits
+    ; being this routine's .same and .no).
+    ;
+    ; It is fm_status_only's shape at the other end of the window: one rect,
+    ; tested WHOLE against any armed clip region (SPEC.md 11.3) because the
+    ; erase clips per pixel and the glyphs per cell, then filled and redrawn.
+    ; What it saves over fm_repaint is the header, both buttons and the status
+    ; line - about thirty glyph cells, and the flash of the whole content
+    ; going white to move a list. CF = 1 is a refusal: the caller repaints.
+    ;
+    ; It does NOT re-run fm_layout: fm_clamp_scroll has just written the
+    ; mirror every one of these reads, and re-deriving the rest from an
+    ; unchanged window record would answer with what is already there. Same
+    ; contract as fm_draw_rows, fm_sel_bar and fm_thumb.
+    cmp word [fm_fit], 0
+    je .same                    ; no row area: a scroll shows nowhere
+
+    mov bx, [fm_cy]             ; the row band: full content width (the bar
+    add bx, FM_ROW_Y0           ; is inside it and is redrawn with it), from
+    mov dx, [fm_cy]             ; the header's bottom to the status line's top
+    add dx, [fm_listb]
+    dec dx
+    call fm_cxrgt
+    jg .no                      ; degenerate content: nothing to draw into.
+                                ; The y span needs no test of its own - fit
+                                ; >= 1 puts fm_listb a row or more below 22
+    call ct_cw_wm_clip_test
+    jc .no
+
+    call fm_wfill
+    call fm_draw_rows
+    jmp short .same
 .no:
     stc
     SKIPAL1                     ; mov al, imm8 over the clc: no flag written,
@@ -8582,49 +8614,6 @@ fm_scroll_by:
 .done:
     jmp kretc_bp
                                 ; answer
-
-; -----------------------------------------------------------------------------
-; fm_rows_only - erase and redraw the row band, and NOTHING around it
-; in:  fm_layout already run for the acting window; gfx lock held
-; out: CF = 0 drawn; CF = 1 refused - the caller must fm_repaint
-; clobbers: AX, BX, CX, DX, SI, DI, BP (fm_scroll_by banked them)
-;
-; The middle tier. It is fm_status_only's shape at the other end of the
-; window: one rect, tested WHOLE against any armed clip region (SPEC.md 11.3)
-; because the erase clips per pixel and the glyphs per cell, then filled and
-; redrawn. What it saves over fm_repaint is the header, both buttons and the
-; status line - about thirty glyph cells, and the flash of the whole content
-; going white to move a list.
-;
-; It does NOT re-run fm_layout: fm_clamp_scroll has just written the mirror
-; every one of these reads, and re-deriving the rest from an unchanged window
-; record would answer with what is already there. Same contract as
-; fm_draw_rows, fm_sel_bar and fm_thumb.
-; -----------------------------------------------------------------------------
-fm_rows_only:
-    cmp word [fm_fit], 0
-    je .done                    ; no row area: a scroll shows nowhere
-
-    mov bx, [fm_cy]             ; the row band: full content width (the bar
-    add bx, FM_ROW_Y0           ; is inside it and is redrawn with it), from
-    mov dx, [fm_cy]             ; the header's bottom to the status line's top
-    add dx, [fm_listb]
-    dec dx
-    call fm_cxrgt
-    jg .refuse                  ; degenerate content: nothing to draw into.
-                                ; The y span needs no test of its own - fit
-                                ; >= 1 puts fm_listb a row or more below 22
-    call ct_cw_wm_clip_test
-    jc .refuse
-
-    call fm_wfill
-    call fm_draw_rows
-.done:
-    clc
-    ret
-.refuse:
-    stc
-    ret
 
 ; -----------------------------------------------------------------------------
 ; fm_scrollpaint - move the list view with one blit (SPEC.md 22.11.1)
