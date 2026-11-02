@@ -2489,6 +2489,11 @@ OSAPI_FSK_SIZE      equ 0        ; out AX = the workspace's KB
 OSAPI_FSK_BEGIN     equ 1        ; AH = FSKM_*, CX = the workspace's KB
 OSAPI_FSK_STEP      equ 2        ; out AX = FSKS_*
 OSAPI_FSK_END       equ 3        ; flush and tell the Disk windows
+OSAPI_FSK_DELSYS    equ 4        ; DX:SI -> a RETIRED driver's name, ASCIIZ,
+                                 ; in your folder: deleted though it is
+                                 ; hidden + system. Only a name the image's
+                                 ; own retired list holds (118.8.1); no run
+                                 ; needed, DX is any segment of yours
 FSKM_FIX            equ 1        ; repair as it goes (118.14.4)
 FSKM_DEFRAG         equ 2        ; defragment after a clean check (118.14.5)
 FSKS_MORE           equ 0
@@ -2502,6 +2507,7 @@ FSKE_CHANGED        equ 5
 FSKE_SMALL          equ 6
 FSKE_WPROT          equ 7
 FSKE_ARG            equ 8
+FSKE_NOENT          equ 9        ; FSK_DELSYS: no such file
 ; the workspace's record (SPEC.md 118.14.2)
 FSW_PHASE   equ 0
 FSW_MODE    equ 1

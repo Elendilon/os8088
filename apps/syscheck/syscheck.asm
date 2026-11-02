@@ -64,6 +64,8 @@ SV_WARN     equ 2                   ; stale, duplicated or wasted - works
 SV_BROKEN   equ 3                   ; something will refuse to work
 FL_RM       equ 1                   ; Clean Up may delete this file (118.8)
 FL_ASSOC    equ 2                   ; Clean Up rebuilds ASSOC.DAT for this
+FL_SYS      equ 4                   ; ...through FSCHECK.DRV: hidden + system
+                                    ; (118.8.1), so FL_RM with it
 
 ; a lamp's states (ui.inc draws them)
 LP_PEND     equ 0

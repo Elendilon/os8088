@@ -227050,16 +227050,49 @@ previous report.
 Clean Up asks first (`os88ui_ask`'s Cancel/Proceed set, Cancel the
 default, with the count - *Remove 3 leftover files?*, or *... files, fix
 associations?* when `ASSOC.DAT` will be rebuilt too), then removes **only
-visible files whose finding says they are debris**: `KPAD.TMP`, a
+files whose finding says they are debris**: `KPAD.TMP`, a
 hibernation pointer from another build and the image that went with it, an
-orphaned image or pointer, and retired packages. A stale `ASSOC.DAT` is
+orphaned image or pointer, retired packages, and retired drivers and
+modules - those last through `FSCHECK.DRV` (§118.8.1). A stale `ASSOC.DAT` is
 rebuilt with `OSAPI_ASSOC_FLUSH` (`ASSOC_FL_FULL`). Then it scans again.
 
 What it does **not** touch: a duplicated program (which copy is wanted is
 the user's call), a package of another format (it may be the user's own,
-waiting for a rebuild), and anything hidden and system - a package can
-neither delete nor replace those (§19.6), and the honest repair for a wrong
-driver or kernel is to install again (§52.10.15), which those findings say.
+waiting for a rebuild), and anything hidden and system but a **retired
+driver** (§118.8.1) - a package can neither delete nor replace those
+(§19.6), and the honest repair for a wrong driver or kernel is to install
+again (§52.10.15), which those findings say.
+
+#### 118.8.1 A retired driver goes through `FSCHECK.DRV`
+
+A retired driver or module (§118.2.2) is hidden and system, so
+`OSAPI_FILE_DELETE` refuses it `FERR_PROT` and a package has no other way to
+remove one. `FSCHECK.DRV` is kernel code sitting beside System Check
+(§118.14.1), so it does it: Clean Up counts a retired driver among the files
+it removes (*retired - Clean Up removes it*), reads the image if no disk task
+has yet, stands in the driver's folder and asks `OSAPI_VOL_CHECK`'s fifth
+verb, **`FSK_DELSYS`** (4), to delete it by name - `DX:SI` an ASCIIZ 8.3 name
+in the caller's folder, no workspace and no run needed.
+
+**The engine decides what may go, not the package.** It deletes a name only
+when the name is on **its own list of the drivers and modules earlier
+releases shipped and this one does not** - `fsk_retired`, the `.DRV` lines of
+`apps/syscheck/retired.txt` as raw 8.3 names, assembled into the image and
+held to that file by `tests/unit/t_sysman.py`. So no caller can name
+`KERNEL.SYS`, `SYSTEM.CFG`, a driver this kernel loads or a module it reads,
+whatever it passes: anything else is `FSKE_ARG`, and a name that is not there
+is `FSKE_NOENT` (9). kern_emu's image leaves `VMMOUSE.DRV` off, kern_emu
+being the kernel that still loads it (§9.11.7). Read-only, hidden and system
+are forgiven; a folder or the volume label is refused. The rest is
+`dskw_delete`'s own commit - the deleted mark, one directory sector, then the
+chain freed and flushed (§18.4) - so the read-ahead cache, the listings and
+the Disk windows follow as they do for any delete.
+
+An image from another build is `FSKE_IMAGE`, as for every verb, and an
+absent one leaves the finding where it was: Clean Up's toast counts what it
+removed, and the next scan names what is left. It costs **no resident
+byte** - the verb is the image's, behind the stub's existing dispatch
+(§118.14.7).
 
 ### 118.9 Limits
 
@@ -227229,6 +227262,7 @@ the chosen drive's root with `OSAPI_FILE_GOTO_QM` before it begins.
 | `FSK_BEGIN` | 1 | AH = `FSKM_*`; zeroes the workspace and starts | AX = 0 |
 | `FSK_STEP` | 2 | one bounded piece of work | `FSKS_MORE` 0, `FSKS_FIND` 1 (a finding is in the workspace), `FSKS_DONE` 2 |
 | `FSK_END` | 3 | flushes, tells the Disk windows, ends | AX = 0; cannot fail |
+| `FSK_DELSYS` | 4 | deletes a RETIRED driver, `DX:SI` its ASCIIZ name in the caller's folder (§118.8.1); no run needed | AX = 0 |
 
 `FSKM_FIX` = 1 repairs as it goes; `FSKM_DEFRAG` = 2 defragments after a
 clean check (`FIX` and `DEFRAG` together is refused, `FSKE_ARG`).
@@ -227236,7 +227270,8 @@ clean check (`FIX` and `DEFRAG` together is refused, `FSKE_ARG`).
 `OSAPI_XREFUSE`), 2 `FSKE_IMAGE`, 3 `FSKE_NOFAT` (no volume, or a
 redirected one, §62.9), 4 `FSKE_IO`, 5 `FSKE_CHANGED` (§118.14.6),
 6 `FSKE_SMALL` (the workspace is smaller than `FSK_SIZE` said), 7
-`FSKE_WPROT`, 8 `FSKE_ARG`. After `FSKS_DONE` or any `FSKE_*` from a step,
+`FSKE_WPROT`, 8 `FSKE_ARG`, 9 `FSKE_NOENT` (`FSK_DELSYS`'s name is not
+there). After `FSKS_DONE` or any `FSKE_*` from a step,
 the caller ends with `FSK_END`.
 
 **The workspace** is a claim of the caller's, from `OSAPI_MEM_CLAIM_DMA`
@@ -227446,6 +227481,12 @@ bitmaps of one bit a cluster, a 512-byte folder sector, an 8KB copy buffer
 and the record). System Check itself grew 2,633 bytes of image and 41 of
 bss for the chooser's tasks, the words of every finding and the link's
 parameter (14,827 -> 17,899, 23,885 -> 23,944).
+
+**`FSK_DELSYS` (§118.8.1) added none of the resident figure** - kern_big's
+`kernel.bin` assembled byte-identical with it, the verb being the image's.
+It is **+229 bytes of image** (5,679 -> 5,908; packed 4,657 -> 4,849 on the
+tree it landed on), and System Check **+25** (17,899 -> 17,924, the loader
+shared between the disk tasks and Clean Up as `sc_fload`; bss unchanged).
 
 **What a run costs, measured on MartyPC's 4.77MHz 5150 with a 360KB floppy**
 (`tests/fsckdisk.py`): *Check the disk* is 5 seconds; *Check and repair*

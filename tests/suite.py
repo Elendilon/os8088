@@ -16908,10 +16908,12 @@ SOAK = [
         "an orphaned HIBERNAT.IMG - and booted from C: with an AUTOSTRT link "
         "to SYSTEM\\SYSCHECK.O88. The scan must find each, the saved "
         "SYSCHECK.TXT (read back on the host) must name each, and Clean Up "
-        "must remove exactly 118.8's files and nothing else.",
+        "must remove exactly 118.8's files and nothing else - the retired "
+        "driver among them, hidden + system, which only FSCHECK.DRV beside "
+        "SYSCHECK.O88 can delete (118.8.1).",
         needs=("qemu", "mtools"), serial=True, timeout=600,
         wants=("build/os8088.img", "build/apps.img", "build/syscheck.o88",
-               "build/mbr.bin", "build/boothd.bin")),
+               "build/fscheck.drv", "build/mbr.bin", "build/boothd.bin")),
     Row("win16mines", "soak", py("tests/win16mines.py"), 60.0,
         "SPEC.md 124.15, WIN16-PLAN S8: Windows 3.1's Minesweeper (W31MINE, "
         "Microsoft's, in build/win16/ only where the win16-reference skill "

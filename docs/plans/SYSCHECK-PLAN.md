@@ -104,6 +104,18 @@ mockups are [docs/syscheck/design/](../syscheck/design/).
   and `fsckhd` (FAT16) move folders; `fsckdisk` holds a Disk window
   standing in one to it.
 
+### Clean Up through the engine (SPEC.md 118.8.1)
+
+- [x] **Retired drivers:** as a user Clean Up removes a retired driver or
+  module (`DEBUG.DRV`, `CLONE.DRV`, `DESKTOP.DRV`, `VMMOUSE.DRV`) as well,
+  which a package cannot delete because it is hidden + system: System Check
+  asks `FSCHECK.DRV`, beside it, through `OSAPI_VOL_CHECK`'s `FSK_DELSYS`,
+  and the engine deletes only a name on its own retired list - never the
+  kernel, a driver this kernel loads or a module. No resident byte.
+  `t_sysman` holds the engine's list to `retired.txt`; `syscheck` (soak,
+  QEMU) plants `DEBUG.DRV` and requires Clean Up to remove it, and goes red
+  with the name taken off the engine's list.
+
 ## Existing facilities and boundaries
 
 - **The scan is wake slices on the UI task** (`OSAPI_WM_ONWAKE`, SPEC.md
@@ -116,6 +128,9 @@ mockups are [docs/syscheck/design/](../syscheck/design/).
   hidden + system file and cannot list one (SPEC.md 19.7.1), which is why
   drivers are checked against a manifest and a retired list rather than
   discovered.
+- **A package cannot delete a hidden + system file** (SPEC.md 19.6), so
+  Clean Up's one system-file repair goes through the engine, which is kernel
+  code, and the engine - not the package - decides which names may go.
 - **No new kernel facility for the release checks.** The one thing a slot
   would add - the running kernel's build - is answered by construction
   instead (SPEC.md 118.1.1), so those cost no resident byte. **The disk

@@ -7,7 +7,8 @@ kind of breakage SPEC.md 118.1 names PLANTED in it, and an AUTOSTRT link that
 opens SYSTEM\\SYSCHECK.O88 at boot. Then it boots the image under QEMU, lets
 the scan run, saves the report, and holds SYSCHECK.TXT (read back off the
 image on the host) to every planted finding; then Clean Up, and the volume
-must have lost exactly SPEC.md 118.8's files and nothing else.
+must have lost exactly SPEC.md 118.8's files and nothing else - the retired
+DEBUG.DRV among them, which only FSCHECK.DRV beside SYSCHECK.O88 can delete.
 
     python3 tests/syscheck.py              the whole gate
     python3 tests/syscheck.py --build OUT  build the fixture image only
@@ -21,7 +22,8 @@ THE PLANTED BREAKAGES, and the finding each must produce:
   APPS\\GAMES\\MINES.O88 the same program in two folders  Leftovers, warning
   KPAD.TMP            an install's pad                    Leftovers, warning, removable
   RAMDISK.DRV         driver version 9                    Drivers, broken
-  DEBUG.DRV           a retired driver                    Retired, warning
+  DEBUG.DRV           a retired driver                    Retired, warning, removable
+                      (hidden + system: through FSCHECK.DRV, SPEC.md 118.8.1)
   EMS.DRV             deleted                             Release files, broken
   SYSTEM.CFG          wants EMS.DRV                       Settings, broken
   APPS\\NOTEPAD.O88    deleted after ASSOC.DAT named it   Associations, warning
@@ -111,6 +113,7 @@ def build_fixture(out, arg=None, geometry=None):
             args.append(d)
     args.append(put("drv/DEBUG.DRV", open(b("net.drv"), "rb").read()))
     args.append("SYSTEM:" + b("syscheck.o88"))
+    args.append("SYSTEM:" + b("fscheck.drv"))   # beside it (SPEC.md 118.14.1)
     for p in ("calc.o88", "notepad.o88", "mines.o88", "timer.o88"):
         args.append("APPS:" + b(p))
     args.append("APPS/GAMES:" + b("mines.o88"))
@@ -180,8 +183,9 @@ EXPECT = [                  # (severity, path, a word of the reason)
     ("WARNING", r"C:\APPS\NOTEPAD.O88", "not there"),
     ("WARNING", r"C:\HIBERNAT.IMG", "no pointer"),
 ]
-REMOVED = ["::/KPAD.TMP", "::/APPS/MODPLUG.O88", "::/HIBERNAT.IMG"]
-KEPT = ["::/DEBUG.DRV", "::/APPS/GAMES/MINES.O88", "::/APPS/MINES.O88",
+REMOVED = ["::/KPAD.TMP", "::/APPS/MODPLUG.O88", "::/HIBERNAT.IMG",
+           "::/DEBUG.DRV"]          # hidden + system: FSK_DELSYS (118.8.1)
+KEPT = ["::/APPS/GAMES/MINES.O88", "::/APPS/MINES.O88",
         "::/APPS/OLDTIMER.O88", "::/APPS/JUNK.O88", "::/RAMDISK.DRV"]
 
 
@@ -329,10 +333,10 @@ def drive(img, keep, work):
     done(2.0)
     click(*ALERT_PROCEED)
     done(6.0)
-    after = save_until(img, "Result: 5 broken, 2 warnings")
+    after = save_until(img, "Result: 5 broken, 1 warning")
     if after is None:
         fails.append("after Clean Up the report never said 5 broken, "
-                     "2 warnings:\n%s" % report(img))
+                     "1 warning:\n%s" % report(img))
     elif "NOTEPAD.O88" in after:
         fails.append("ASSOC.DAT still names NOTEPAD.O88 after Clean Up")
     if not keep:

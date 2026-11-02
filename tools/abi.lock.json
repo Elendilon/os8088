@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "46c78c2bdc7b6426445728405fe5ee148904e6de7486a0aa5225505756acaee7",
+  "fingerprint": "75ba34e0b52cbbed4490c684919366ae504bf3e09dbb124673f98fae427d4c54",
   "version": 12
  },
  "PKG_FMT": {
-  "fingerprint": "a083253391b36c1a4c553594f2de94687e3163dbb269698f82295fe5867006fb",
+  "fingerprint": "66106ace3758cdb35747765fbe3eef9eadf5b7ebfa0e1ff26de57c3c066a5f89",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -1512,6 +1512,20 @@
    "from": 12,
    "guard": "DRV_VER",
    "reason": "merge elendilon (System Check / FSCHECK.DRV, SPEC.md 118.14) into dos-windowed beside its DOS SDK changes",
+   "to": 12
+  },
+  {
+   "fingerprint": "66106ace3758cdb35747765fbe3eef9eadf5b7ebfa0e1ff26de57c3c066a5f89",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_VOL_CHECK gains FSK_DELSYS (4) and FSKE_NOENT (9): a verb added, nothing built before changes meaning (SPEC.md 118.8.1)",
+   "to": 10
+  },
+  {
+   "fingerprint": "75ba34e0b52cbbed4490c684919366ae504bf3e09dbb124673f98fae427d4c54",
+   "from": 12,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_VOL_CHECK gains FSK_DELSYS (4) and FSKE_NOENT (9): a verb added, nothing built before changes meaning (SPEC.md 118.8.1)",
    "to": 12
   }
  ]

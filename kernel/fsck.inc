@@ -32,6 +32,7 @@ FSK_SIZE    equ 0
 FSK_BEGIN   equ 1
 FSK_STEP    equ 2
 FSK_END     equ 3
+FSK_DELSYS  equ 4
 FSKM_FIX    equ 1
 FSKM_DEFRAG equ 2
 FSKS_MORE   equ 0
@@ -44,6 +45,7 @@ FSKE_CHANGED equ 5
 FSKE_SMALL  equ 6
 FSKE_WPROT  equ 7
 FSKE_ARG    equ 8
+FSKE_NOENT  equ 9
 
 FSKP_FATCMP equ 1
 FSKP_TREE   equ 2
@@ -336,8 +338,13 @@ fsk_entry:
     je .step
     cmp al, FSK_END
     je .end
+    cmp al, FSK_DELSYS
+    je .delsys
     mov ax, FSKE_ARG
     jmp fsk_die
+.delsys:
+    call fsk_delsys
+    jmp short fsk_ok0
 .size:
     call fsk_mounted
     call fsk_need               ; AX = KB
@@ -416,6 +423,115 @@ fsk_gen:
     mov al, [bx+dsk_wgen]
     pop bx
     ret
+
+; =============================================================================
+; FSK_DELSYS - remove a RETIRED driver (SPEC.md 118.8.1)
+; in:  ES:SI -> its name, ASCIIZ, in the caller's folder (the stub stood us
+;      there); DS = KERNEL_SEG
+; out: returns, deleted; dies FSKE_ARG for a name this release did not
+;      retire, FSKE_NOENT for one that is not there, FSKE_IO/WPROT
+;
+; A package can neither list nor delete a hidden + system file (SPEC.md 19.6),
+; and a leftover driver is one. So the kernel deletes it - but ONLY a name
+; on fsk_retired, which is this release's own list of the drivers and modules
+; earlier ones shipped and this one does not (apps/syscheck/retired.txt's .DRV
+; lines, held to it by t_sysman). No caller can name KERNEL.SYS, a driver
+; this kernel loads or a module it reads through this verb. Read-only, hidden
+; and system are forgiven, a folder and a label are not; the rest is
+; dskw_delete's own commit, so the caches and the Disk windows follow
+; =============================================================================
+fsk_delsys:
+    call fsk_mounted
+    mov di, dskw_n83            ; the name, raw: eight and three, space-padded
+    push ds
+    pop es
+    mov ax, 0x2020
+    mov cx, 5
+    rep stosw
+    stosb
+    mov es, [fsk_ws]
+    mov di, dskw_n83
+    mov cx, 8
+.base:
+    mov al, [es:si]
+    inc si
+    or al, al
+    jz .named
+    cmp al, '.'
+    je .ext
+    jcxz .bad                   ; nine before the dot
+    mov [di], al
+    inc di
+    dec cx
+    jmp short .base
+.ext:
+    mov di, dskw_n83 + 8
+    mov cx, 3
+.e:
+    mov al, [es:si]
+    inc si
+    or al, al
+    jz .named
+    jcxz .bad
+    mov [di], al
+    inc di
+    dec cx
+    jmp short .e
+.named:
+    mov bx, fsk_retired         ; ...and it is one this release retired
+.list:
+    cmp byte [cs:bx], 0
+    je .bad
+    push ds
+    pop es
+    mov si, bx
+    mov di, dskw_n83
+    mov cx, 11
+.cmp:
+    mov al, [cs:si]
+    cmp al, [es:di]
+    jne .nx
+    inc si
+    inc di
+    loop .cmp
+    jmp short .ours
+.nx:
+    add bx, 11
+    jmp short .list
+.bad:
+    mov ax, FSKE_ARG
+    jmp fsk_die
+.ours:
+    KC dws_gate                 ; a pending WRITE_SEQ hold, committed first
+    KC dskw_find
+    jnc .found
+    cmp ax, FERR_NOENT
+    jne .io
+    mov ax, FSKE_NOENT
+    jmp fsk_die
+.found:
+    test byte [dskw_raw+DSK_R_ATTR], DSKW_DIR | 0x08
+    jnz .bad                    ; a folder or the volume label: never
+    mov ax, [dskw_raw+DSK_R_CLUS]
+    mov [dskw_oldclus], ax
+    KC dskw_rmbody_n83.delent   ; the deleted mark, the commit, the chain
+    jnc .out
+.io:
+    jmp fsk_ioerr
+.out:
+    ret
+
+; THE RETIRED DRIVERS AND MODULES, raw 8.3 - apps/syscheck/retired.txt's .DRV
+; lines, in its order; tests/unit/t_sysman.py fails the build when the two
+; disagree. A name stays for ever, as it does there
+fsk_retired:
+    db 'DEBUG   DRV'
+    db 'CLONE   DRV'
+    db 'DESKTOP DRV'
+%ifndef KERN_EMU                ; ...which kern_emu still loads (SPEC.md 9.11.7)
+    db 'VMMOUSE DRV'
+%endif
+    db 0
 
 ; =============================================================================
 ; FSK_BEGIN

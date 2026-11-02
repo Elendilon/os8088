@@ -7,7 +7,8 @@
 ; slots. The report is composed a line at a time in sc_txt with the same
 ; helpers the window uses, then appended to a transient claim and written in
 ; one OSAPI_FILE_WRITE. Clean Up removes only findings carrying FL_RM -
-; visible debris (118.8) - and rebuilds ASSOC.DAT when a finding asked for it.
+; debris (118.8), a hidden + system one (FL_SYS) through FSCHECK.DRV
+; (118.8.1) - and rebuilds ASSOC.DAT when a finding asked for it.
 ; =============================================================================
 
 ; -----------------------------------------------------------------------------
@@ -381,7 +382,25 @@ sc_cleandone:
     jmp short .ls
 .name:
     mov si, bx
+    test byte [di+FR_FLG], FL_SYS
+    jz .plain
+    push es                         ; hidden + system: the kernel deletes it,
+    call sc_fload                   ; and only a name its image retired
+    jc .sys                         ; (SPEC.md 118.8.1). sc_fload stood us
+    mov dx, [di+FR_CLUS]            ; beside the image, so back to the
+    call sc_goto                    ; finding's folder
+    jc .sys
+    mov si, bx
+    mov dx, ds
+    mov es, [sc_fsel]
+    mov al, OSAPI_FSK_DELSYS
+    call OSAPI_VOL_CHECK
+.sys:
+    pop es
+    jmp short .del
+.plain:
     call OSAPI_FILE_DELETE
+.del:
     jc .next
     inc bp
 .next:

@@ -762,9 +762,9 @@ sc_p_ret:
     mov di, sc_cpath
     call sc_drive
     call sc_scpy
-    mov si, sc_r_retdrv             ; hidden + system: Clean Up cannot touch it
-    mov ax, (SV_WARN << 8) | SC_RET
-    xor bl, bl
+    mov si, sc_r_retpkg             ; hidden + system: Clean Up asks the
+    mov ax, (SV_WARN << 8) | SC_RET ; kernel, through FSCHECK.DRV (118.8.1)
+    mov bl, FL_RM | FL_SYS
     xor dx, dx
     call sc_addf
 .skip:
@@ -1854,7 +1854,6 @@ sc_r_modbld:   db 'from build # - the kernel refuses it', 0
 sc_r_vunk:     db 'differs; its version is unknown', 0
 sc_r_kpad:     db 'left by an install that stopped', 0
 sc_r_noapp:    db 'missing - programs keep settings there', 0
-sc_r_retdrv:   db 'retired - install with Erase', 0
 sc_r_retpkg:   db 'retired - Clean Up removes it', 0
 sc_r_pkgfmt:   db 'format #, kernel takes # - will not load', 0
 sc_r_damaged:  db 'damaged header - not a package', 0

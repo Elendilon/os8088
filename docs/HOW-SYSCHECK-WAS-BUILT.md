@@ -315,3 +315,36 @@ The owner also asked what was "wrong about the claim" behind kern_mega's
 fault, and the honest answer is nothing: a claim an `OS88_HIGHMEM` program
 gets above 1MB is a data selector alone by design, RealDMG already handles
 it the same way, and the SDK's general note now says so.
+
+## 2026-11-02 — Clean Up reaches the retired drivers
+
+The owner asked whether System Check could use the engine sitting beside it
+to clean up the system's own files. Until then a retired driver was a
+finding Clean Up could not act on: *retired - install with Erase*, because a
+`.DRV` is hidden + system and a package can neither list nor delete one
+(SPEC.md 19.6). `FSCHECK.DRV` is kernel code and already rewrites directory
+entries and frees chains, so it was the natural place.
+
+**The engine decides what may go, not the package.** The new verb,
+`FSK_DELSYS`, takes a name - and refuses it unless the name is on a list
+assembled into the image itself: the `.DRV` lines of
+`apps/syscheck/retired.txt`. So no caller, however broken, can talk it into
+deleting `KERNEL.SYS`, `SYSTEM.CFG`, a driver the kernel loads or a module
+it reads. A plain *"anything not in `drv_tab`"* rule was considered and
+refused: `HTTPPAGE.DRV`, `HDDTOOL.DRV` and `FSCHECK.DRV` itself are images
+that something other than `drv_tab` loads, and that rule would have offered
+them up. The two lists are one list in two places, and `t_sysman` fails the
+build when they disagree. kern_emu's image leaves `VMMOUSE.DRV` off, since
+that kernel still loads it.
+
+The delete itself is `dskw_delete`'s own commit entered past its protection
+test, so the caches, listings and Disk windows follow as for any delete.
+Measured: the kernel is byte-identical (the verb is the image's), the engine
++229 bytes, System Check +25. The `syscheck` row now plants `DEBUG.DRV` and
+requires Clean Up to remove it; with `DEBUG` taken off the engine's list it
+goes red with *Clean Up left ::/DEBUG.DRV*.
+
+**What it still does not do**, and why: a driver of another version, or a
+module from another build, is not a leftover - it is a file this release
+needs, and the right answer is the new file rather than no file. Those
+findings still say to install again.
