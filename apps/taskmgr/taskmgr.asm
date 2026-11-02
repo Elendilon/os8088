@@ -211,6 +211,13 @@ TM_INT      equ 9               ; sample interval, ticks (~0.5s)
 ; moved, and the pointer is frozen for all of it (SPEC.md 7.1.4). At TM_INT
 ; that was 102 ms of every second on the heap page; at TM_SLOW it is 26.
 TM_SLOW     equ 4               ; intervals per paint on views 1 and 2
+; The memory page's worker wakes this often instead, to read the pointer for
+; the map's hover (SPEC.md 28.4.16), and samples on every TM_INT/TM_HOVT-th
+; wake - so the sample keeps its TM_INT and the graph keeps its meaning.
+TM_HOVT     equ 3               ; ticks between hover polls, ~165 ms
+%if TM_INT % TM_HOVT
+  %error "taskmgr: a sample has to be a whole number of hover polls"
+%endif
 TM_GW       equ TM_RW - 7       ; graph interior width = history ring size
                                 ; (7..TM_RW-1 inclusive), so it follows TM_RW
                                 ; and the two maps below always fill their
@@ -1690,6 +1697,12 @@ tm_pats:
 tm_worker:
 .interval:
     mov ax, TM_INT              ; SLEEP the interval (SPEC.md 28.7). It used to
+%ifdef TMF_HEAP
+    cmp byte [tm_view], 0       ; ...or, on the memory page, a hover poll's
+    je .sleep                   ; worth of it (SPEC.md 28.4.16)
+    mov al, TM_HOVT
+.sleep:
+%endif
     call OSAPI_TASK_SLEEP       ; SPIN it - { count += 1; yield } - because the
                                 ; count WAS the load meter, and a spin counter
                                 ; has no absolute scale so it had to be
@@ -1706,6 +1719,16 @@ tm_worker:
     call OSAPI_TASK_ALIVE       ; may never come back, and the lock is free
                                 ; here, which rule 4 requires
 
+%ifdef TMF_HEAP
+    cmp byte [tm_view], 0
+    je .sample
+    call tm_hover               ; the map's hover: the lock only on a change
+    inc byte [tm_hsub]
+    cmp byte [tm_hsub], TM_INT / TM_HOVT
+    jb .interval                ; not a whole interval yet
+    mov byte [tm_hsub], 0
+.sample:
+%endif
     call tm_sample              ; no lock: computes load, shares, RAM
 
 %ifdef TMF_MEM
@@ -4117,6 +4140,309 @@ tm_lclick:
 .out:
     jmp tm_pop_dcba
 
+; =============================================================================
+; THE MAP'S HOVER (SPEC.md 28.4.16)
+;
+; A band on the map is a texture and a frame, and the legend square beside a
+; row is the only thing tying the two together - which at 4KB a pixel, with
+; claims shoulder to shoulder, is a matching game. So the row of the group the
+; pointer is over is lettered INVERTED, for as long as the pointer is there.
+;
+; THE WORKER POLLS for it, every TM_HOVT ticks on this page: a window is told
+; about the pointer only while a button is down (W_ONDRAG), so there is no
+; event to wait on. The poll is OSAPI_WM_TOP, OSAPI_WM_CONTENT and
+; OSAPI_MOUSE with NO LOCK, and nothing else unless the answer changed.
+;
+; A CHANGE IS TWO XOR FILLS, NOT A WALK. The page's walk is ~50 ms of lock on
+; a 5150 whether or not anything is drawn (TM_SLOW's measurement), and a hand
+; sweeping across the map changes the answer at every poll - so a walk per
+; change would freeze the pointer for most of a second of sweeping. The row's
+; screen place is already known ([tm_rgid], from the last walk), so the
+; toggle inverts the old row's band and the new one's and nothing else.
+;
+; THE WALK AND THE TOGGLE AGREE because each chunk's check word records
+; WHICH polarity is on the glass (tm_row_draw folds the highlight into the
+; hash) and tm_hxor flips the words it inverts. [tm_hrow] is the row that IS
+; inverted, whoever inverted it - so a walk that ran between the poll and the
+; toggle is undone and redone rather than doubled.
+; =============================================================================
+
+; -----------------------------------------------------------------------------
+; tm_hover - the worker's poll: which group is the pointer over on the map,
+;            and on a change, move the highlight
+; in:  the worker, NO lock held, [tm_view] = 1; the last walk's
+;      tm_claims/tm_cgid
+; out: nothing; clobbers BP (the worker holds nothing in it)
+;
+; THE PICK is AL = the group + 1, or 0 for none - not the front window, not
+; on the map, over free memory. A group listed INSIDE System (Kernel, a
+; driver, a built-in) answers System while System is closed, the row that
+; stands for it then.
+;
+; THE TEST IS THE MAP'S OWN ARITHMETIC RUN BACKWARDS. A band [a, b] KB is
+; drawn from tm_ramkb2x(a) to tm_ramkb2x(b), never narrower than a pixel, so
+; it covers column p exactly when a <= hi and b >= lo, lo and hi being the
+; first and last KB that scale to p (tm_pxkb): two divides, then compares.
+; The LAST record that covers p wins, as the last one drawn there does.
+; -----------------------------------------------------------------------------
+tm_hover:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov bx, [tm_win]
+    push bx
+    call OSAPI_WM_TOP           ; the front window only: a window lying over
+    pop ax                      ; this map is not this map
+    cmp ax, bx
+    jne .back
+    call OSAPI_MOUSE            ; CX = x, DX = y
+    cmp cx, [tm_hmx]            ; A POINTER THAT HAS NOT MOVED is over what it
+    jne .new                    ; was over, unless the page has walked since -
+    cmp dx, [tm_hmy]            ; and a walk forgets the place (tm_rows_mem):
+    je .out                     ; the common case, and nothing more is asked
+.new:
+    mov [tm_hmx], cx
+    mov [tm_hmy], dx
+    push dx
+    call OSAPI_WM_CONTENT       ; AX = content left, DX = top
+    mov si, dx
+    pop dx
+    sub dx, si
+    sub dx, TMM_M1_Y1 + 1       ; the interior's 14 rows (tm_map_rect)
+    cmp dx, 14
+    jae .none
+    sub cx, ax
+    sub cx, 7                   ; CX = the interior column
+%ifdef PKG_MEGA
+    mov si, [tm_mconw]          ; the left part, conventional memory...
+    cmp cx, si
+    jb .conv
+    cmp si, TM_GW               ; ...or the right, RAM above 1MB (28.4.15)
+    jae .none
+    sub cx, si
+    sub cx, TMM_GAP
+    jb .none                    ; the gap between the two frames
+    mov si, TM_GW - TMM_GAP
+    sub si, [tm_mconw]
+    cmp cx, si
+    jae .none
+    mov bx, [tm_hitot]
+    call tm_pxkb
+    mov bl, 0FFh
+    mov si, tm_xw
+    mov di, tm_xgid
+    mov cx, [tm_xwn]
+.x:
+    jcxz .xd
+    mov ax, [si+XMW_OFF]        ; tm_map_hi's band: the pool's base plus the
+    add ax, [tm_hibase]         ; record's offset, XMW_KB of it
+    cmp ax, dx
+    ja .xn
+    sub ax, bp
+    jge .xh
+    neg ax
+    cmp [si+XMW_KB], ax
+    jbe .xn
+.xh:
+    mov bl, [di]
+.xn:
+    add si, TM_XWR
+    inc di
+    dec cx
+    jmp short .x
+.xd:
+    cmp bl, 0FFh
+    je .none
+    jmp short .got
+%else
+    mov si, TM_GW
+    cmp cx, si
+    jae .none
+%endif
+.conv:
+    mov bx, [tm_totkb]
+    call tm_pxkb                ; BP = lo, DX = hi
+    mov bl, 0FFh
+    mov cl, 6                   ; a segment is KB << 6, and so is a size
+    mov si, tm_claims
+    mov di, tm_cgid
+.c:
+    mov ax, [si+CLS_SEG]
+    or ax, ax                   ; a free record
+    jz .cn
+    shr ax, cl                  ; AX = a
+    cmp ax, dx
+    ja .cn                      ; starts past the column
+    sub ax, bp
+    jge .ch                     ; starts inside it
+    neg ax                      ; ...or before it: AX = lo - a, and the
+    push dx                     ; band reaches lo when its size exceeds that
+    mov dx, [si+CLS_PARA]       ; (a size under a KB is drawn as one column
+    shr dx, cl                  ; at a, which this reads as not reaching it -
+    cmp dx, ax                  ; and a < lo, so it does not)
+    pop dx
+    jbe .cn
+.ch:
+    mov bl, [di]
+.cn:
+    add si, CLS_RECSZ
+    inc di
+    cmp di, tm_cgid + MEM_MAX
+    jb .c
+    cmp bl, 0FFh
+    jne .got
+    cmp [tm_kb+SK_KERN], bp     ; no claim: the kernel's own span, gray from 0
+    jb .none                    ; to SK_KERN - System's
+    mov bl, TMG_SYS
+.got:
+    cmp bl, TMG_N               ; a fixed area or a block in the HMA: System
+    jb .grp                     ; HMA's, which is the row they are listed in
+    mov bl, TMG_HMA
+.grp:
+    cmp bl, TMG_KERN            ; Kernel and every driver are inside System
+    jae .nest
+    cmp bl, INST_MAX            ; ...and so is an instance that is not a
+    jae .top                    ; package - a built-in, a Disk window
+    xor bh, bh
+    test byte [tm_iknd+bx], KIND_PKG
+    jnz .top
+.nest:
+    push bx
+    mov bl, TMG_SYS
+    call tm_isopen              ; CF = 1 closed: System's own row stands for it
+    pop bx
+    jnc .top
+    mov bl, TMG_SYS
+.top:
+    mov al, bl
+    inc ax
+    jmp short .pick
+.back:
+    mov word [tm_hmx], 0FFFFh   ; not in front: the place is forgotten, so
+.none:                          ; coming back lights what is under it
+    xor al, al
+.pick:
+    cmp al, [tm_hgid]
+    je .out                     ; no change: nothing taken, nothing drawn
+    mov [tm_hgid], al
+    call OSAPI_GFX_LOCK
+    mov bx, [tm_win]
+    test word [es:bx+W_FLAGS], 2    ; the refresh's own three refusals
+    jz .un
+    call OSAPI_WM_CLIP_SET
+    jc .un
+    cmp byte [tm_abon], 0       ; (NOT tm_view_begin: [tm_cx]/[tm_cy] are
+    jne .un                     ; where the last walk put the rows, which is
+                                ; the point - a move repaints, and the lock
+                                ; is held)
+    xor al, al                  ; the row that is inverted, back to plain -
+    xchg al, [tm_hrow]          ; and none is, until the next one lights
+    call tm_hxor
+    mov al, [tm_hgid]
+    dec al
+    js .un                      ; the pointer left: nothing to light
+    push es
+    push ds
+    pop es
+    mov di, tm_rgid             ; ...and the group's row, where the last walk
+    mov cx, TM_SHOWN            ; put it - none when it is scrolled off, or
+    repne scasb                 ; is not listed (Purgeable without DETAIL)
+    pop es
+    jne .un
+    sub di, tm_rgid             ; DI = the row + 1
+    xchg ax, di
+    call tm_hxor
+    jc .un
+    mov [tm_hrow], al
+.un:
+    call OSAPI_GFX_UNLOCK
+.out:
+    jmp tm_pop_dsdcba
+
+; -----------------------------------------------------------------------------
+; tm_hxor - invert screen row AL - 1 (AL = 0: none): its text band either
+;           side of its legend square, and the check words that describe it
+; in:  AL, gfx lock held, clip armed
+; out: CF = 0 inverted, CF = 1 nothing (no row, or no place on the screen);
+;      every register preserved
+; -----------------------------------------------------------------------------
+tm_hxor:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    sub al, 1                   ; AL = the row, and CF = 1 for none
+    jc .out
+    xor ah, ah
+    mov si, ax                  ; SI = the row
+    mov bx, TMM_ROW_Y           ; tm_mrow_open's placement, exactly
+    sub bx, [tm_xoff]
+    call tm_row_place
+    jc .out
+    mov cl, TM_NCHUNK           ; the row's check words, as tm_row_draw
+    mul cl                      ; indexes them: XOR 0Fh, because that is
+    shl ax, 1                   ; what the other polarity hashes to. A 0 is
+    add ax, tm_rowck            ; "draw me next time" and stays one
+    mov bx, ax
+    mov cx, TM_NCHUNK
+.ck:
+    cmp word [bx], 0
+    je .ckn
+    xor byte [bx], 0Fh
+.ckn:
+    inc bx
+    inc bx
+    loop .ck
+    mov ax, [tm_rowx]           ; the band the chunks and the tail cover -
+    add ax, TM_PEN              ; not the lead-in, which is never inverted
+    call tm_rowr
+    mov bx, [tm_rowy]
+    mov dx, bx
+    add dx, 7
+    shl si, 1                   ; ...nor the legend square: a walk draws its
+    cmp word [tm_rsq+si], 0     ; frame and texture over either ground, so
+    je .one                     ; its 8x8 is the same pixels both ways - the
+    push cx                     ; band either side of it, then
+    mov cx, ax
+    add cx, TMH_SQC * 8 - 1
+    call OSAPI_GFX_XOR_FILL
+    add ax, TMH_SQC * 8 + 8
+    pop cx
+.one:
+    call OSAPI_GFX_XOR_FILL
+    clc
+.out:
+    jmp tm_pop_sdcba
+
+; -----------------------------------------------------------------------------
+; tm_pxkb - the KB a map column stands for: the first and last KB k whose
+;           k * W / total (tm_scale's arithmetic) is that column
+; in:  CX = the column, SI = W (the part's width), BX = its total KB
+; out: BP = lo = ceil(CX * BX / SI), DX = hi = ((CX + 1) * BX - 1) / SI
+; clobbers: AX, flags
+; -----------------------------------------------------------------------------
+tm_pxkb:
+    mov ax, cx
+    mul bx
+    add ax, si
+    adc dx, 0
+    sub ax, 1
+    sbb dx, 0
+    div si
+    mov bp, ax
+    mov ax, cx
+    inc ax
+    mul bx
+    sub ax, 1
+    sbb dx, 0
+    div si
+    xchg ax, dx
+    ret
+
 ; tm_k5 - AX = whole KB, DL = its quarters -> four digits and a 'K', or the
 ; fraction in the K's cell (tm_pfig's rule): AVAIL's figures on kern_mega,
 ; which read KB to 9,999. DI += 5; clobbers DL, keeps the rest
@@ -5331,6 +5657,18 @@ tm_rows_mem:
     push si
     push di
 
+    push es                     ; every screen row is NOT a group until this
+    push ds                     ; walk says it is: a row the list no longer
+    pop es                      ; reaches keeps no group for a click, or the
+    mov di, tm_rgid             ; hover (SPEC.md 28.4.16), to find on it
+    mov cx, TM_SHOWN
+    mov al, 0FFh
+    cld
+    rep stosb
+    pop es
+    mov [tm_hrow], cl           ; ...and no row is inverted until one is drawn
+    dec cx                      ; ...and the hover's pointer place forgotten:
+    mov [tm_hmx], cx            ; what is under it may have changed (tm_hover)
     call tm_hclamp              ; the scroll offset against what the LAST walk
     mov ax, [tm_htop]           ; counted (SPEC.md 28.4.4), then spend it: a
     mov [tm_hskip], ax          ; row above the view is composed and dropped
@@ -6434,7 +6772,7 @@ tm_mrow_close:
     cmp word [tm_hskip], 0
     je .live
     dec word [tm_hskip]
-    jmp short .gone
+    jmp .gone
 .live:
     mov bx, [tm_mrow]           ; WHICH GROUP this screen row is, for a click
     cmp bx, TM_SHOWN            ; on it (tm_lclick) - what the walk put HERE,
@@ -6462,7 +6800,18 @@ tm_mrow_close:
                                 ; square are the scroll bar's at the other end
     mov [tm_penx], ax           ; now, and a square is in the TIER column
     mov bx, [tm_mrow]
+    mov al, [tm_cgrp]           ; THE MAP'S HOVER (SPEC.md 28.4.16): the row
+    inc al                      ; of the group the pointer is over is lettered
+    jz .ninv                    ; inverted, and recorded as the one that is
+    cmp al, [tm_hgid]
+    jne .ninv
+    mov byte [tm_rinv], 0Fh
+    inc bx
+    mov [tm_hrow], bl
+    dec bx
+.ninv:
     call tm_row_draw            ; chunked: only what changed, and only what
+    mov byte [tm_rinv], 0       ; (flags kept)
     jc .out                     ; the region lets us (SPEC.md 11.3/28)
     mov si, [tm_sqp]            ; something drew, so the legend square may
     or si, si                   ; have been erased with it - put it back
@@ -6718,6 +7067,23 @@ tm_frun:
     shl bx, 1
     shl bx, 1
     lea si, [bx + tm_fcell - 8] ; TM_FQ1 is the first cell
+%ifdef TMF_HEAP
+    cmp byte [tm_rinv], 0       ; the hovered row's cell is the COMPLEMENT,
+    je .cell                    ; composed here rather than asked of the pen,
+    push cx                     ; which a 1bpp adapter does not read
+    push di                     ; (SPEC.md 5.4.2.2, 28.4.16)
+    mov di, tm_hcell
+    mov cx, 8
+.inv:
+    lodsb
+    not al
+    stosb
+    loop .inv
+    mov si, tm_hcell
+    pop di
+    pop cx
+.cell:
+%endif
     mov ax, cx                  ; AX = x
     mov bx, dx                  ; BX = y
     mov cx, 8                   ; one cell: 8 wide...
@@ -6811,6 +7177,12 @@ tm_row_draw:
     mov cx, TM_CHUNK            ; was: tm_sumb over a counted span
     xor ax, ax
     call tm_sumb                ; AX = their hash
+%ifdef TMF_HEAP
+    xor al, [tm_rinv]           ; ...and the hovered row's is XOR 0Fh, so a
+                                ; row that gains or loses the highlight is a
+                                ; changed row - and tm_hxor, which inverts the
+                                ; pixels, flips the record to match (SPEC.md
+%endif                          ; 28.4.16)
     mov bx, [tm_ckb]
     call tm_elchk               ; changed? (BX = this chunk's check word)
     jnc .draw
@@ -6857,8 +7229,14 @@ tm_row_draw:
     mov byte [bx], 0            ; buffer has room for the last chunk's, which
                                 ; lands on tm_str[25] of TM_STRMAX = 28
     push ax
+%ifdef TMF_HEAP
+    mov al, [tm_rinv]           ; ...swapped on the hovered row: 0Fh turns
+    mov ah, al                  ; CBLACK into CWHITE and back
+    xor ax, (CWHITE << 8) | CBLACK  ; AL = ink, AH = background: the erase
+%else                           ; and the letters as one decision per cell
     mov ax, (CWHITE << 8) | CBLACK  ; AL = ink, AH = background: the erase
                                 ; and the letters as one decision per cell
+%endif
     call tm_frun                ; (preserves BX, the terminator's address)
     pop ax
     mov [bx], ah
@@ -6867,7 +7245,13 @@ tm_row_draw:
     jne .gdone                          ; too - the pen is inset, so the row
                                         ; runs past the 25 cells and nothing
                                         ; else would scrub it
+%ifdef TMF_HEAP
+    mov al, CWHITE              ; the pane's ground, or the highlight's
+    xor al, [tm_rinv]
+    call OSAPI_SET_COLOR
+%else
     TM_INKX CWHITE              ; before AX is the tail's x1. `ja .gdone`
+%endif
                                 ; below is never taken at TM_PEN/TM_MPEN (the
                                 ; tail is at least a pixel on every page)
     mov ax, [tm_penx]
@@ -9054,7 +9438,22 @@ tm_onum     equ tm_nbuf + 13    ; byte: how many tm_ogid found this paint
 tm_ohi      equ tm_onum + 1     ; TM_NOVL bytes: 1 = the key is a pool offset
 tm_okey     equ tm_ohi + TM_NOVL    ; TM_NOVL words: each image's key
 tm_pwin     equ tm_okey + TM_NOVL * 2   ; tm_pwes's window, 0 = none yet
-TM_BSS_TOTAL equ tm_pwin + 2 - os88_image_end
+; --- the map's HOVER (SPEC.md 28.4.16) -------------------------------------
+tm_hgid     equ tm_pwin + 2     ; byte: the group the pointer is over on the
+                                ; map, PLUS ONE - 0 is none, which is what a
+                                ; zeroed bss says at launch (tm_hover)
+tm_hrow     equ tm_hgid + 1     ; byte: the screen row DRAWN inverted, plus
+                                ; one: the truth about the pixels, which is
+                                ; what a toggle un-inverts (tm_hover)
+tm_rinv     equ tm_hrow + 1     ; byte: 0Fh while tm_row_draw letters the
+                                ; hovered row, 0 otherwise - XORed into the
+                                ; ink pair, so CBLACK/CWHITE swap
+tm_hsub     equ tm_rinv + 1     ; byte: hover polls since the last sample
+tm_hcell    equ tm_hsub + 1     ; 8 bytes: a fraction cell, inverted for the
+                                ; hovered row (tm_frun)
+tm_hmx      equ tm_hcell + 8    ; the pointer where the last pick read it,
+tm_hmy      equ tm_hmx + 2      ; FFFFh in x for "pick again" (tm_hover)
+TM_BSS_TOTAL equ tm_hmy + 2 - os88_image_end
 %else                           ; ...and with no list, no groups: the chain
 TM_BSS_TOTAL equ tm_hiend - os88_image_end      ; ends at the pool's
 %endif                          ; numbers, which the summary line still reads

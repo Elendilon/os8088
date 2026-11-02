@@ -19776,6 +19776,16 @@ SOAK = [
         "paused), which is what the list draws its groups from - 41 s, where "
         "reassembling the drawn rows off font_run was ~450",
         needs=("marty",), serial=True),
+    Row("tmhover", "soak", py("tests/tmhover.py"), 30.0,
+        "SPEC.md 28.4.16: the pointer over a band of the memory map inverts "
+        "the row of the group it stands for - the Calculator's region its "
+        "row, the kernel's span System's - a walk that re-letters the "
+        "hovered row keeps it inverted, and both go back off the map. Read "
+        "off the page's bss ([tm_hgid], [tm_hrow], [tm_rgid]) AND the glass, "
+        "because either alone passes a broken build; red with the XOR fill "
+        "taken out and with the draw's ink swap taken out. 25 s; "
+        "--machine os8088_5150_cga is the 1bpp leg",
+        needs=("marty",), serial=True),
     Row("tmground", "soak", py("tests/tmground.py"), 40.0,
         "SPEC.md 28.10: the Task Manager paints its own ground, so a repaint"
         "is not a 450ms white hole.",
