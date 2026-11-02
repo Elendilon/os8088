@@ -5464,13 +5464,12 @@ kds_expand:
     xor di, di
 kds_expand_at:                  ; ...or from DI (kern_mega's HMA image)
     add cx, si                  ; the stream's end...
-    mov ax, [si]
-    add si, 2                   ; ...past the T word - OR THE FILTER'S ESCAPE
+    lodsw                       ; ovlchk: lods DS = the stream
+                                ; ...past the T word - OR THE FILTER'S ESCAPE
     cmp ax, LZ_ESC              ; (SPEC.md 20.13.9): then the real T is the
     pushf                       ; next word, and ZF is kept for the end
     jne .t
-    mov ax, [si]
-    add si, 2
+    lodsw                       ; ovlchk: lods DS = the stream
 .t:
     push di                     ; ...with where the output starts, which the
                                 ; filter's offsets count from
@@ -5478,80 +5477,14 @@ kds_expand_at:                  ; ...or from DI (kern_mega's HMA image)
     mov [cs:HS_LBA], cx         ; source bound the loop tests
     mov [cs:HS_LEFT], ax        ; ...and how much of it there is
     cmp byte [cs:KDS_FMT], LZ_LZB
-    je .lzb                     ; the 360KB disk's DOS.O88 (SPEC.md 96.44.18)
-.seq:
-    cmp si, [cs:HS_LBA]
-    jae .tail
-    mov al, [si]                ; the token: literal length in the high nibble,
-    inc si                      ; match length - 4 in the low one.
-    mov bl, al                  ; **THE STRING FORM IS REFUSED IN A MODULE
-                                ; IMAGE** (SPEC.md 2.8.6): a module's own data
-                                ; is CS-relative and os88ovlchk cannot see that
-                                ; this body is COPIED OUT of the module before
-                                ; it runs. Two bytes a site, and hbs_stub reads
-                                ; its own string the same way
-    mov cl, 4
-    shr al, cl
-    xor ah, ah
-    mov cx, ax
-    cmp al, 15
-    jne .lits
-.lx:
-    mov al, [si]
-    inc si
-    xor ah, ah
-    add cx, ax
-    cmp al, 255
-    je .lx
-.lits:
-    rep movsb                   ; CX = 0 is legal and moves nothing
-    cmp si, [cs:HS_LBA]
-    jae .tail                   ; the symbols never end on a literal run in
-                                ; this format - the tail is what ends it
-    mov ax, [si]                ; the match offset
-    add si, 2
-    mov bp, ax
-    mov al, bl
-    and al, 0x0F
-    xor ah, ah
-    mov cx, ax
-    cmp al, 15
-    jne .mat
-.mx:
-    mov al, [si]
-    inc si
-    xor ah, ah
-    add cx, ax
-    cmp al, 255
-    je .mx
-.mat:
-    add cx, 4                   ; the minimum match, which the token omits
-    push ds
-    push si
-    mov si, di
-    sub si, bp
-    push es
-    pop ds                      ; a match reads what we have already written
-    rep movsb
-    pop si
-    pop ds
-    jmp short .seq
-.tail:
-    mov cx, [cs:HS_LEFT]        ; SI is standing on it
-    rep movsb
-    pop bx                      ; the output's first offset
-    popf
-    jne .ret
-    LZ_UNE8 bx                  ; ...over ES:BX..DI (lzfilt.inc)
-.ret:
-    ret
+    jne .seq                    ; LZ4: every disk but the 360KB one
 
     ; --- LZB, kernel/lz.inc's lz_lzb with no bounds (SPEC.md 96.44.18) ------
-    ; The same framing as above - T word or escape, symbols, raw tail - so it
-    ; shares .tail and the filter's inverse; only the symbols differ. A flag
-    ; bit per symbol, MSB first out of DL with a guard bit: 0 = one literal,
-    ; 1 = a match of gamma bytes from ((gamma - 2) << 8 | byte) back.
-.lzb:
+    ; The 360KB disk's DOS.O88. The same framing as LZ4's - T word or escape,
+    ; symbols, raw tail - so it shares .tail, the match copy and the filter's
+    ; inverse; only the symbols differ. A flag bit per symbol, MSB first out
+    ; of DL with a guard bit: 0 = one literal, 1 = a match of gamma bytes from
+    ; ((gamma - 2) << 8 | byte) back.
     mov dl, 0x80                ; the guard alone: the first read refills
 .lzbl:
     cmp si, [cs:HS_LBA]
@@ -5567,18 +5500,79 @@ kds_expand_at:                  ; ...or from DI (kern_mega's HMA image)
     dec ax
     dec ax
     mov ah, al
-    mov al, [si]                ; AX = the offset (not lodsb: the string
-    inc si                      ; form is refused in a module, .seq's note)
+    lodsb                       ; ovlchk: lods DS = the stream
+    xchg ax, bp                 ; BP = the offset, as .cp takes it
+    call .cp
+    jmp short .lzbl
+
+    ; --- LZ4: the loop's test is at the BOTTOM, .seq, so a sequence ends in
+    ; `call .cp` and falls into it rather than jumping back to the top
+.sym:
+    lodsb                       ; ovlchk: lods DS = the stream
+                                ; the token: literal length in the high nibble,
+    mov bl, al                  ; match length - 4 in the low one.
+                                ; **`lods` IS REFUSED IN A MODULE IMAGE**
+                                ; (SPEC.md 2.8.6), because there DS is the
+                                ; kernel; this body is COPIED OUT of the module
+                                ; and runs with the kernel gone and DS = the
+                                ; stream, which the marker says and os88ovlchk
+                                ; reads - two bytes a site, four a word
+    mov cl, 4
+    shr al, cl
+    xor ah, ah
+    mov cx, ax
+    cmp al, 15
+    jne .lits
+.lx:
+    lodsb                       ; ovlchk: lods DS = the stream
+                                ; AH is still the zero above: neither this
+    add cx, ax                  ; nor the add touches it
+    cmp al, 255
+    je .lx
+.lits:
+    rep movsb                   ; CX = 0 is legal and moves nothing
+    cmp si, [cs:HS_LBA]
+    jae .tail                   ; the symbols never end on a literal run in
+                                ; this format - the tail is what ends it
+    lodsw                       ; ovlchk: lods DS = the stream
+    xchg ax, bp                 ; BP = the match offset
+    mov al, bl
+    and ax, 0x0F                ; ...and AX the match length's nibble
+    mov cx, ax
+    cmp al, 15
+    jne .mat
+.mx:
+    lodsb                       ; ovlchk: lods DS = the stream
+    add cx, ax
+    cmp al, 255
+    je .mx
+.mat:
+    add cx, 4                   ; the minimum match, which the token omits
+    call .cp
+.seq:
+    cmp si, [cs:HS_LBA]
+    jb .sym
+.tail:
+    mov cx, [cs:HS_LEFT]        ; SI is standing on it
+    rep movsb
+    pop bx                      ; the output's first offset
+    popf
+    jne .ret
+    LZ_UNE8 bx                  ; ...over ES:BX..DI (lzfilt.inc)
+.ret:
+    ret
+
+.cp:                            ; CX bytes from BP back, both formats' match
     push ds
     push si
     mov si, di
-    sub si, ax
+    sub si, bp
     push es
     pop ds                      ; a match reads what we have already written
     rep movsb
     pop si
     pop ds
-    jmp short .lzbl
+    ret
 .gam:
     mov ax, 1
 .g:

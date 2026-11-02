@@ -1982,6 +1982,11 @@ reason; what replaces them is narrower and aimed at the one thing that can
 still go wrong. **`lods` in a module image is refused**: it reads `DS:SI`,
 which is the kernel, and it is precisely the instruction somebody reaches for
 when writing a string copier — which is what a module's data is *for*.
+One line-level waiver exists, `; ovlchk: lods DS = <what>` on the `lods` line
+itself, for a body COPIED OUT of its image that runs with the kernel gone and
+DS set to something else: `kds_expand` in the kern_dos handoff stub, where
+DS:SI is the packed stream (§96.44.18). The marker names the segment, which is
+all `cs lodsb` does for the lines the check already lets through.
 `movs`, `stos`, `cmps` and `scas` are not refused, because every use of them
 in the tree's modules is over a heap claim or `LOW_SEG` rather than over the
 image, and refusing them would refuse correct code.
@@ -187609,10 +187614,17 @@ garbage on the text screen instead of `exited`. The fix has three parts:
   every earlier poster already says LZ4). DOS.O88 fills it from the table's
   format, which the loader leaves in HELP's row.
 - `hbm_dosrun` stages it as `KDS_FMT`.
-- `kds_expand` branches to a 70-odd-byte LZB symbol loop that shares the T
-  word, the raw tail and the filter's inverse with the LZ4 one.
+- `kds_expand` branches to a ~45-byte LZB symbol loop that shares the T
+  word, the match copy (a subroutine both loops call), the raw tail and the
+  filter's inverse with the LZ4 one.
 
-The stub is 706 of `HS_CODE_MAX`'s 1,024 bytes (was 625). It lives in
+The stub is 671 of `HS_CODE_MAX`'s 1,024 bytes (625 before LZB, 706 as LZB
+first landed; 701 on kern_mega, against 736). A size pass took the 35: the
+shared copy, LZ4's loop test moved to the bottom so a sequence falls into it,
+a redundant `xor ah, ah` in each length loop, and `lods` for the stream
+reads, which os88ovlchk lets through on a line marked
+`; ovlchk: lods DS = ...` because the stub runs copied out of
+the module with the kernel gone and DS = the stream (§2.8.6). It lives in
 `HIBER.DRV`, an on-demand module, so it adds no resident byte. The SDK field
 was renamed, not moved, so `PKG_FMT` is unchanged.
 

@@ -1174,12 +1174,21 @@ def main():
     # reasons, and every use of them in the tree's modules is over a heap
     # claim or LOW_SEG rather than over the image (clo_keepboot, clo_fin,
     # clo_issrc, clo_zerohdr). Refusing them would refuse correct code.
+    #
+    # **ONE WAIVER, on the line itself: `; ovlchk: lods DS = <what>`.** It is
+    # for a body that is COPIED OUT of its image before it runs, with the
+    # kernel gone and DS set to something that is not KERNEL_SEG at all -
+    # kds_expand, in the kern_dos handoff stub, where DS:SI IS the packed
+    # stream. Spelling those reads `mov al, [si]` / `inc si` cost the stub
+    # two bytes a site and four a word. The marker names the segment, which
+    # is the whole of what `cs lodsb` buys the lines this check lets through.
     LODS = re.compile(r'^\s*(?:[A-Za-z_]\w*:\s*)?(?:rep\w*\s+)?lods[bwd]?\b',
                       re.I)
+    LODS_OK = re.compile(r';.*\bovlchk:\s*lods\s+DS\s*=\s*\S', re.I)
     m_bad = []
     for f in kfiles:
-        for sect, n, line in sections(f):
-            if sect in MODS and LODS.match(line):
+        for sect, n, line, raw in sections_raw(f):
+            if sect in MODS and LODS.match(line) and not LODS_OK.search(raw):
                 m_bad.append((f, n, sect, line.strip()[:50]))
     for f, n, sect, src in m_bad:
         print("%s:%d: lods in %s reads DS:SI, which is the KERNEL: %s"
