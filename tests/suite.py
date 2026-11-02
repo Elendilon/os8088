@@ -8999,6 +8999,19 @@ SOAK = [
         "ends that program while the other counts on. Red with the cap "
         "removed: the second claim fails. Measured 21.9s on MartyPC",
         needs=("marty",), serial=True, wants=("build/os8088-360.img",)),
+    Row("doswtwotv", "soak", py("tests/doswtwotv.py"), 30.0,
+        "TWO TOPVIEW PROGRAMS IN TWO DOS WINDOWS ON A LONE HERCULES, EACH IN "
+        "ITS OWN WINDOW (SPEC.md 96.54.13). The first window's run holds the "
+        "Hercules's page 1, whose decode its slices leave on, and the second "
+        "window's capture test took that page for a CGA: its int 10h went to "
+        "the ROM, which drew it into the desktop's framebuffer - the owner's "
+        "second WordPerfect that never drew. tests/dostrap/dwtvb.asm asks "
+        "AH=FEh and falls to the video BIOS when told B800, as WordPerfect "
+        "does. Both windows must be DVWC_TV with buffers of their own, the "
+        "page held by the first alone, each console showing its own lines and "
+        "no line in B000. Red on the tree before it (the second window "
+        "DVWC_SEG, told B800). Measured 26s on MartyPC",
+        needs=("marty",), serial=True, wants=("build/os8088-360.img",)),
     Row("doswgrow", "soak", py("tests/doswgrow.py"), 25.0,
         "AN AUTOMATIC WINDOW LIMIT GROWS TO ITS PROGRAM (SPEC.md 96.54.2.1). "
         "tests/dostrap/dwbig.asm is a 136 KB image with 16 KB of MINALLOC - "

@@ -56,6 +56,10 @@ DVWC_SEG    equ 2               ; ...the other card's text RAM is captured
 DVWC_HP     equ 3               ; ...a lone Hercules's page 1 is WATCHED
 DVW_KBUSY   equ 18              ; ticks after a key in which a poll does not
                                 ; sleep (SPEC.md 96.54.5.1)
+DVWC_OWN    equ 0x0FFE          ; the card's word that names its holder
+                                ; (96.54.13): past 80x25's 4,000 bytes and
+                                ; under 4K, so on an MDA, a CGA's page 0 and
+                                ; a Hercules's page 1 alike nothing shows it
 DVWC_EVERY  equ 3               ; a capture pass every 4th tick (mask)
 
 DVW_GAP     equ 96              ; the IRQ0 stub's frames go this far below the
@@ -1629,6 +1633,18 @@ dvw_wake:
     je .r
     mov byte [dvw_done], 0
     mov byte [dvw_run], 0
+    cmp word [PS dvw_cseg], 0          ; THE CARD GIVEN BACK (96.54.13): the
+    je .nomark                      ; holder's mark cleared, a Hercules's
+    mov al, 3                       ; page decoded for the write (with it off
+    cmp byte [PS dvw_chp], 0        ; B800 is B000 on some cards, the
+    je .mark                        ; desktop's own pixels)
+    call dvw_hpage
+.mark:
+    push es
+    mov es, [PS dvw_cseg]
+    mov word [es:DVWC_OWN], 0
+    pop es
+.nomark:
     cmp byte [PS dvw_chp], 0           ; THE CAPTURE TORN DOWN, its last pass
     je .nopage                      ; taken above: a Hercules's page 1 has
     mov al, 1                       ; its decode off again, as vid_setmode
@@ -1946,8 +1962,24 @@ dvw_cdetect:
 .back:
     mov [0], bx                     ; (ZF = 0 from either jne)
     jne .miss
-    mov [cs:dvw_cseg], si           ; (CF = 0: the compare found them equal)
+    mov ax, [DVWC_OWN]              ; **ONE WINDOW AT A TIME HOLDS THE CARD**
+    PARTCS dx                       ; (SPEC.md 96.54.13): its holder's layer
+    cmp ax, dx                      ; segment is marked in the card's own
+    je .mine                        ; unused tail, and a holder still HOLDING
+    or ax, ax                       ; (none marked)
+    jz .mine
+    mov ds, ax                      ; it - its dvw_cseg this card - refuses
+    cmp [ds:dvw_cseg], si   ; DVWCHK-OK: the holder's own cell, another instance's layer
+    mov ds, si                      ; it. Without it a lone Hercules's page 1,
+    je .held                        ; left decoded by the first window, passed
+.mine:                              ; the CGA test in the second - whose ROM
+    mov [DVWC_OWN], dx              ; int 10h then wrote the DESKTOP (B000)
+    mov [cs:dvw_cseg], si
+    clc
     jmp short .x
+.held:
+    mov byte [cs:dvw_chp], 0        ; (its decode is the holder's: left on)
+    jmp short .no
 .miss:
     HOSTDS                         ; **NO CGA AT B800 UNDER A HERCULES: ITS
                                     ; OWN PAGE 1 IS** (96.54.6.1). 3BFh bit 1

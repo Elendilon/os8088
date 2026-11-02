@@ -191099,6 +191099,75 @@ other part, `kern_dos` and every kernel are byte-identical. `DOS.O88`
 **54,971 -> 55,098** on the disk (lz4) and **48,823 -> 48,943** as the 360KB
 disk's LZB copy; the inline shape (`build/dos.bin`) 44,301 -> 44,426.
 
+#### 96.54.13 Two windows, one capture card: the card names its holder
+
+**Reported off the owner's 5150** (86Box `pc5150`, a lone Hercules, C: on an
+ST11M): WordPerfect 4.1 ran well in one DOS window; a SECOND copy in a SECOND
+window *"sat with a cursor in the upper left corner of the screen, and never
+drew anything else."* Reproduced on MartyPC's `os8088_5150_herc_gla`: the
+second window's `[dvw_cmode]` read `DVWC_SEG`, a CGA capture, on a machine
+with no CGA.
+
+**The capture card is the MACHINE's, and nothing said which window had it.**
+The first window's run took the Hercules's own page 1 (96.54.6.1) and
+`dvw_xin` turns its decode on at every one of that window's slices, so the
+page is RAM at B800 whenever the second window starts. `dvw_cdetect` tests
+the CGA case first - RAM at B800, B000 unmoved - and that test PASSED: the
+second window took the first window's page for a second display card. From
+there on its `int 10h` went to the ROM (96.54.6), whose segment is chosen by
+the EQUIPMENT word and not the BDA's mode, so the second WordPerfect, told
+by `AH=FEh` that there was no multitasker (a capture answers `ES` unchanged),
+drew its whole screen with `AH=09h` into **B000 - the desktop's framebuffer**
+(the stripes behind both windows) and its window never changed. It is not
+WordPerfect's: traced at its `int`s it is the same loop as the first copy's,
+idling on `int 16h AH=01h`/`AH=02h` after a screen it drew where the ROM put
+it. Two windows on a machine with a real second card shared it the same
+way - both programs writing one CGA, each window copying the other's rows.
+
+**A card is held by one window at a time, and the card says by whom.** The
+holder's layer segment (its `CS`: the part's, or the host's in the inline
+shape) is written into the card's word `DVWC_OWN` = 0FFEh - past 80x25's
+4,000 bytes and under 4K, so it is nothing a text page shows on an MDA, a
+CGA's page 0 or a Hercules's page 1 - when `dvw_cdetect` takes it, and
+cleared by the run's teardown in `dvw_wake` (with a Hercules page decoded for
+the write: with it off, B800 is B000 on some cards). A window whose test
+finds a card marked by ANOTHER segment whose `dvw_cseg` still names that card
+is REFUSED it, leaves the decode as the holder has it, and runs as a plain
+window - so a TopView program is answered `con_scr` (96.54.5) and draws in
+its own window. The holder is checked rather than trusted, so a mark left by
+a window that never reached its teardown (a fault) is taken over by the next
+run once that memory no longer reads as a holder. No shared cell is needed,
+because the card itself is the one thing both windows can see.
+
+**What it does not reach**: a program that writes the screen ITSELF in the
+second window - Works, not WordPerfect - still writes the card the first
+window holds, and an 8086 cannot stop it (96.54.1); the first window then
+shows it. The first window keeps its card for the whole run even once its
+program has asked `AH=FEh` and stopped needing it.
+
+**WordPerfect's own question is WordPerfect's, and it is shown.** With the
+card fixed, a second copy started in the SAME directory as a running first
+one stops after its welcome screen on *"Directory is in use! 1 Exit; 2 Use
+Another Directory; 3 Overwrite Files: 1"* - in its own window, answered from
+its own keys. That is the program finding the first copy's work files
+(`{WP}.TV1`, `{WP}.BV1`, `{WP}.CHK`, `{WP}.SPC`) with an FCB open; a real
+IBM DOS 3.30 on the same machine, given a disk carrying those four files,
+asks the identical question on the identical line. Two copies in different
+directories (`B:\WP1`, `B:\WP2`) are not asked and edit side by side.
+
+**Cost**, measured against `2bcd676f`: the window part (part 7,
+`build/doswp.bin`) **5,137 -> 5,209**, +72, and no bss; the host and every
+other part, the core, `kern_dos` and every kernel byte-identical. `DOS.O88`
+**55,138 -> 55,194** on the disk (lz4) and **48,978 -> 49,025** as the 360KB
+disk's LZB copy; the inline shape (`build/dos.bin`) 44,491 -> 44,563 and
+kern_small's `dos.o88` 35,563 -> 35,663.
+
+`tests/doswtwotv.py` is the gate, on `tests/dostrap/dwtvb.asm` - a TopView
+probe that, like WordPerfect, falls back to the video BIOS when `AH=FEh`
+answers its own segment - in two windows on a lone Hercules: each window
+must be `DVWC_TV` and show its own lines. Red on the tree before it: the
+second window is `DVWC_SEG` and its lines never reach its console.
+
 ## 97. PIXELSTEIN 3D — a raycast shooter in a foreign mode (`apps/pixelstein/`)
 
 A first-person shooter in the shape of the 1992 one: a 64×64 grid of cells,
