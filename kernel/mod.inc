@@ -285,26 +285,30 @@ mod_gone:
 
 ; -----------------------------------------------------------------------------
 ; mod_row - AL = a module id -> BX = its row
-; clobbers: BX, AH, flags
+; clobbers: BX, AX, flags
 ;
 ; AH, because `cbw` is a byte where `mov bh, 0` is two. It SIGN-extends, so an
 ; AL past 0x7F would give a negative row offset where `mov bh,0` gave a large
 ; positive one - both out-of-table garbage, and every caller passes a MOD_*
 ; constant or the [fm_swapwho]-selected one, so no reachable input differs.
-; All three callers bank AX round the call.
+; All three callers bank AX round the call - mod_need and mod_drop on the KENT
+; ladder, mod_live's two by push/pop - so the row is built in AX, where the
+; add of the table's base is the accumulator's 3-byte form, and handed over
+; with a 1-byte xchg (kernel size pass 17, -2).
 ; -----------------------------------------------------------------------------
 mod_row:
     cbw
-    mov bx, ax
-    shl bx, 1
-    shl bx, 1                   ; MODR_SHIFT, unrolled rather than borrowing CL
-    add bx, mod_tab
+    add ax, ax
+    add ax, ax                  ; MODR_SHIFT, unrolled rather than borrowing CL
+    add ax, mod_tab
+    xchg bx, ax
     ret
 
 ; -----------------------------------------------------------------------------
 ; mod_live - is module AL resident RIGHT NOW? (SPEC.md 2.8, 13.8.3)
 ; in:  AL = a module id
-; out: CF = 0 resident, CF = 1 not; BX = its row either way, nothing else
+; out: CF = 0 resident, CF = 1 not; BX = its row either way, and AX spent
+;      (mod_row's, kernel size pass 17 - both callers bank it); nothing else
 ;      touched - which is still true, and the only thing that changed is
 ;      WHICH flags carry the answer. `cmp word [bx+MODR_SEG], 1` sets CF iff
 ;      the word is below 1 unsigned, and for a 16-bit word that is exactly
@@ -401,7 +405,10 @@ mod_need:
                                 ; deriving the id back out of the row pointer
     call mod_row
     cmp word [bx+MODR_SEG], 0
-    jne .already
+    jne .out                    ; already in: `cmp x, 0` cannot borrow, so CF
+                                ; = 0 is the answer (kernel size pass 17, -3:
+                                ; an `.already` arm that said `clc` and
+                                ; jumped here)
 
     call drv_vol_bank                      ; this goes to the system volume to find the
                                 ; file, and the user may have been anywhere
@@ -483,9 +490,6 @@ mod_need:
     jmp short .check            ; the check is written in BELOW the answers
                                 ; and not here, where it would push every
                                 ; early refusal's `.fail` past a short jump
-.already:
-    clc
-    jmp short .out
 .badarm:
     call mod_disarm             ; a half-armed block is the one state nothing
                                 ; downstream could survive - and it falls
@@ -525,8 +529,11 @@ mod_need:
 ; number changes on every commit (SPEC.md 14.2), so agreement here is by
 ; construction and disagreement is refused rather than executed.
 ; -----------------------------------------------------------------------------
-    mov es, [bx+MODR_SEG]       ; (BX is never written here - no bank,
-                                ; kernel size pass 15, -3)
+                                ; ES = the image ALREADY: the read went to
+                                ; ES:0 and dskw_read_x keeps ES, as does the
+                                ; ROM door's COPY (boot/osrom.asm) - so the
+                                ; `mov es, [bx+MODR_SEG]` that reloaded it is
+                                ; gone (kernel size pass 17, -3)
     mov ax, di                  ; the id mod_need was CALLED with - nine
 %ifdef OS88_SHORTCUTS
     cmp al, MOD_SETS            ; ...whose image is CTRL.DRV's, cut short
@@ -535,14 +542,18 @@ mod_need:
 .id:
 %endif
     mov [mod_hdrt + MOD_H_ID], al ; bytes of arithmetic recovered a number the
-    push di                     ; caller was holding. If DI were ever
-    mov si, mod_hdrt            ; clobbered on the way here the failure is a
-    xor di, di                  ; REFUSAL and not a wrong dispatch, which is
-    mov cx, 4                   ; the safe direction. The magic, the version,
-    cld                         ; the id, the BUILD and the layout STAMP
-    repe cmpsw                  ; (SPEC.md 2.8.2) in one compare against
-    pop di                      ; mod_hdrt; SI and CX are this routine's to
-    jne .freefail                    ; spend (the arming below reloads both)
+%ifdef OS88_SHORTCUTS           ; caller was holding. If DI were ever
+    push di                     ; clobbered on the way here the failure is a
+%endif                          ; REFUSAL and not a wrong dispatch, which is
+    mov si, mod_hdrt            ; the safe direction. The magic, the version,
+    xor di, di                  ; the id, the BUILD and the layout STAMP
+    mov cx, 4                   ; (SPEC.md 2.8.2) in one compare against
+    cld                         ; mod_hdrt; SI and CX are this routine's to
+    repe cmpsw                  ; spend (the arming below reloads both).
+%ifdef OS88_SHORTCUTS           ; The id in DI is read again only by the
+    pop di                      ; settings core's two tests below, so a
+%endif                          ; kernel with no shortcuts banks nothing
+    jne .freefail               ; (kernel size pass 17: kern_small -2)
     mov ax, [es:MOD_H_IMG]
     cmp ax, bp                  ; the image IS the file
 %ifdef OS88_SHORTCUTS
