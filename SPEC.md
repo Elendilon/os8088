@@ -227053,15 +227053,17 @@ associations?* when `ASSOC.DAT` will be rebuilt too), then removes **only
 files whose finding says they are debris**: `KPAD.TMP`, a
 hibernation pointer from another build and the image that went with it, an
 orphaned image or pointer, retired packages, and retired drivers and
-modules - those last through `FSCHECK.DRV` (§118.8.1). A stale `ASSOC.DAT` is
+modules - those last through `FSCHECK.DRV` (§118.8.1). Then, **as a second
+question of its own**, the drivers and modules the kernel refuses (§118.8.2). A stale `ASSOC.DAT` is
 rebuilt with `OSAPI_ASSOC_FLUSH` (`ASSOC_FL_FULL`). Then it scans again.
 
 What it does **not** touch: a duplicated program (which copy is wanted is
 the user's call), a package of another format (it may be the user's own,
 waiting for a rebuild), and anything hidden and system but a **retired
-driver** (§118.8.1) - a package can neither delete nor replace those
-(§19.6), and the honest repair for a wrong driver or kernel is to install
-again (§52.10.15), which those findings say.
+driver** (§118.8.1) or **one this kernel refuses** (§118.8.2) - a package can
+neither delete nor replace those (§19.6). A kernel of another release, and a
+driver of the right version whose bytes differ, are left: the first is the
+machine, and the second still loads.
 
 #### 118.8.1 A retired driver goes through `FSCHECK.DRV`
 
@@ -227088,11 +227090,54 @@ are forgiven; a folder or the volume label is refused. The rest is
 chain freed and flushed (§18.4) - so the read-ahead cache, the listings and
 the Disk windows follow as they do for any delete.
 
+#### 118.8.2 ...and so does a driver this kernel refuses, on a second click
+
+**A driver of another driver version, or a module from another build, is
+dead weight**: `drv_check` and `mod_check` refuse it at every load (§51.3,
+§2.8.2), so it does nothing but take room. *Install again* is the fix only
+where an install carries a newer copy, and not every install does - the
+360KB system disk leaves `XMEM.DRV` off (§24.3.1.6), so a machine once
+installed from a larger disk and since upgraded from the 360KB pair keeps an
+`XMEM.DRV` of the old version for ever. So Clean Up removes these too, but
+asks **again** first, once the leftovers are done: *Also remove 2 refused
+drivers?* (*Remove ...* when there were no leftovers to ask about), Cancel
+the default. Cancel there keeps every one of them and loses nothing the
+first question did. The findings are the Drivers row's three **Broken**
+ones - `driver version #, kernel takes #`, `module version #, kernel takes
+#`, `from build # - the kernel refuses it`.
+
+**The kernel judges, again**, with `FSK_DELSYS`'s second form, AH =
+`FSKD_REFUSED` (1) (AH = `FSKD_RETIRED`, 0, is §118.8.1's). System Check
+claims a buffer of the file's expanded size and hands it over in `DI`, its
+KB in `CX`; the engine reads the file whole through the kernel's own read -
+which expands a packed `'CZ'` file, as `drv_load` and `mod_need` read one
+(§20.13.3.1) - and deletes it only when its header is `'O8'`, its version
+byte is **not** `DRV_VER`, and its words are **not** `mod_hdrt`'s but for
+the id: a file `drv_check` **and** `mod_check` would both refuse. Every image
+anything loads today carries one of the two, the sub-images `HTTPPAGE.DRV`,
+`HDDTOOL.DRV`, `RAMPAGE.DRV`, `THMPAL.DRV`, `SAVER.DRV`, `VESA.DRV` and
+`XMEM.DRV` included (all `DRV_VER`), and a header that is not `'O8'` is not
+judged at all. A buffer the file does not fit is `FSKE_SMALL`. The judgment
+is the RUNNING kernel's, so kern_mega's engine keeps kern_mega's modules,
+which kern_big's manifest would call another build's (§118.14.8).
+
+What follows is honest rather than tidy: a refused file the release ships
+reads as **missing** at the next scan, which is what it now is, and an
+install puts it back; one the install never carried - the case above - is
+an optional manifest file (§118.2.3), and its absence is no finding at all.
+
 An image from another build is `FSKE_IMAGE`, as for every verb, and an
 absent one leaves the finding where it was: Clean Up's toast counts what it
 removed, and the next scan names what is left. It costs **no resident
 byte** - the verb is the image's, behind the stub's existing dispatch
 (§118.14.7).
+
+**A version mirror had been stale for a cycle.** System Check spells
+`DRV_VER` out (a package cannot include a kernel header) and it read 11 after
+the kernel moved to 12, so a current driver that differed was called the wrong
+version and an OLD one merely different - the very file §118.8.2 is for.
+`tests/unit/t_mirror.py` now holds `apps/syscheck/syscheck.asm`'s copy to the
+kernel's.
 
 ### 118.9 Limits
 
@@ -227262,7 +227307,7 @@ the chosen drive's root with `OSAPI_FILE_GOTO_QM` before it begins.
 | `FSK_BEGIN` | 1 | AH = `FSKM_*`; zeroes the workspace and starts | AX = 0 |
 | `FSK_STEP` | 2 | one bounded piece of work | `FSKS_MORE` 0, `FSKS_FIND` 1 (a finding is in the workspace), `FSKS_DONE` 2 |
 | `FSK_END` | 3 | flushes, tells the Disk windows, ends | AX = 0; cannot fail |
-| `FSK_DELSYS` | 4 | deletes a RETIRED driver, `DX:SI` its ASCIIZ name in the caller's folder (§118.8.1); no run needed | AX = 0 |
+| `FSK_DELSYS` | 4 | deletes a `*.DRV` the engine itself judges dead, `DX:SI` its ASCIIZ name in the caller's folder: AH = `FSKD_RETIRED` (0) one on its retired list (§118.8.1), `FSKD_REFUSED` (1) one this kernel would refuse, `DI` a buffer and `CX` its KB (§118.8.2); no run needed | AX = 0 |
 
 `FSKM_FIX` = 1 repairs as it goes; `FSKM_DEFRAG` = 2 defragments after a
 clean check (`FIX` and `DEFRAG` together is refused, `FSKE_ARG`).
@@ -227482,11 +227527,14 @@ and the record). System Check itself grew 2,633 bytes of image and 41 of
 bss for the chooser's tasks, the words of every finding and the link's
 parameter (14,827 -> 17,899, 23,885 -> 23,944).
 
-**`FSK_DELSYS` (§118.8.1) added none of the resident figure** - kern_big's
-`kernel.bin` assembled byte-identical with it, the verb being the image's.
-It is **+229 bytes of image** (5,679 -> 5,908; packed 4,657 -> 4,849 on the
-tree it landed on), and System Check **+25** (17,899 -> 17,924, the loader
-shared between the disk tasks and Clean Up as `sc_fload`; bss unchanged).
+**`FSK_DELSYS` (§118.8.1, §118.8.2) added none of the resident figure** -
+kern_big's `kernel.bin` assembled byte-identical with each form, the verb
+being the image's. The retired form is **+229 bytes of image** (5,679 ->
+5,908; packed 4,657 -> 4,849 on the tree it landed on) and the refused form
+**+152** more (6,060; 4,991 packed). System Check grew **+25** for the first
+(17,899 -> 17,924, the loader shared between the disk tasks and Clean Up as
+`sc_fload`) and **+251** and 4 of bss for the second question (18,175;
+23,944 -> 23,948).
 
 **What a run costs, measured on MartyPC's 4.77MHz 5150 with a 360KB floppy**
 (`tests/fsckdisk.py`): *Check the disk* is 5 seconds; *Check and repair*

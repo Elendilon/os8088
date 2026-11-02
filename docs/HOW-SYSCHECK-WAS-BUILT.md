@@ -348,3 +348,38 @@ goes red with *Clean Up left ::/DEBUG.DRV*.
 module from another build, is not a leftover - it is a file this release
 needs, and the right answer is the new file rather than no file. Those
 findings still say to install again.
+
+### ...and the drivers the kernel refuses, on a second click
+
+The first cut left one kind of system file alone on purpose: a driver of
+another version, or a module from another build, because *install again*
+was supposed to be the answer. The owner pointed out that it is not always:
+the 360KB system disk stopped carrying `XMEM.DRV`, so a machine upgraded
+from that pair keeps its old `XMEM.DRV` for ever, refused at every boot,
+and no install touches it. So Clean Up removes those too - as a **second
+question**, after the leftovers, Cancel the default.
+
+The engine judges these as well, with a second form of the verb. The
+package hands over a buffer the size of the expanded file; the engine reads
+the file through the kernel's own read (which unpacks a `'CZ'` file, as the
+driver loader does) and deletes it only if its header is `'O8'` and neither
+`drv_check` nor `mod_check` would take it. Every image anything loads today
+- the sub-images such as `HTTPPAGE.DRV` included - carries a current header,
+so none of them can be offered up; and because the judge is the running
+kernel, kern_mega's engine keeps kern_mega's modules, which kern_big's
+manifest calls another build's.
+
+**Building the test found a real bug and a trap.** The bug: System Check
+spelled `DRV_VER` as 11, a cycle after the kernel moved to 12 - so the old
+`XMEM.DRV` this feature is for would have been reported as merely
+*different*, and a current driver that differed as the wrong version.
+`t_mirror` now holds the copy to the kernel's. The trap: the first fixture
+planted a `FORMAT.DRV` of another build, and Clean Up could then no longer
+rebuild `ASSOC.DAT` - the associations' writer lives in that module. True,
+and worth knowing (a refused `FORMAT.DRV` already breaks that before Clean
+Up runs), but not what the test is about; the planted module is `WIN95.DRV`
+now.
+
+After both answers the report is honest rather than tidy: `RAMDISK.DRV` and
+`WIN95.DRV` read as *missing - install again*, which they are, and the old
+`XMEM.DRV` is simply gone, being an optional file.

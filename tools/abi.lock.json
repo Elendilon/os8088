@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "75ba34e0b52cbbed4490c684919366ae504bf3e09dbb124673f98fae427d4c54",
+  "fingerprint": "a2dcb930673ad25612facb7b78d963746339f122e89c3460b461bd3712ec82b7",
   "version": 12
  },
  "PKG_FMT": {
-  "fingerprint": "66106ace3758cdb35747765fbe3eef9eadf5b7ebfa0e1ff26de57c3c066a5f89",
+  "fingerprint": "54c7de6d3b267988c676271e9c0e6119124bf9adf6250b6dcb0fb6cff351c6b1",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -1526,6 +1526,20 @@
    "from": 12,
    "guard": "DRV_VER",
    "reason": "OSAPI_VOL_CHECK gains FSK_DELSYS (4) and FSKE_NOENT (9): a verb added, nothing built before changes meaning (SPEC.md 118.8.1)",
+   "to": 12
+  },
+  {
+   "fingerprint": "54c7de6d3b267988c676271e9c0e6119124bf9adf6250b6dcb0fb6cff351c6b1",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "FSK_DELSYS gains its second form, FSKD_REFUSED, and FSKD_RETIRED names the first: a verb's argument added, nothing built before changes meaning (SPEC.md 118.8.2)",
+   "to": 10
+  },
+  {
+   "fingerprint": "a2dcb930673ad25612facb7b78d963746339f122e89c3460b461bd3712ec82b7",
+   "from": 12,
+   "guard": "DRV_VER",
+   "reason": "FSK_DELSYS gains its second form, FSKD_REFUSED, and FSKD_RETIRED names the first: a verb's argument added, nothing built before changes meaning (SPEC.md 118.8.2)",
    "to": 12
   }
  ]

@@ -115,6 +115,18 @@ mockups are [docs/syscheck/design/](../syscheck/design/).
   `t_sysman` holds the engine's list to `retired.txt`; `syscheck` (soak,
   QEMU) plants `DEBUG.DRV` and requires Clean Up to remove it, and goes red
   with the name taken off the engine's list.
+- [x] **Refused drivers, on a second click (SPEC.md 118.8.2):** as a user
+  Clean Up then asks *Also remove N refused drivers?* and removes the
+  drivers and modules this kernel refuses - another driver version, another
+  build's module - which no install may bring up to date (the 360KB system
+  disk no longer carries `XMEM.DRV`). The engine reads each through the
+  kernel's own expanding read and deletes it only if `drv_check` and
+  `mod_check` would both refuse it. `syscheck` plants an old packed
+  `XMEM.DRV`, a packed `WIN95.DRV` of another build and a version-9
+  `RAMDISK.DRV`, answers both questions, and holds every driver and module
+  the kernel loads to still being there; red with the second form refused.
+- [x] **System Check's `DRV_VER` mirror** read 11 after the kernel moved to
+  12; fixed, and `t_mirror` now guards it.
 
 ## Existing facilities and boundaries
 

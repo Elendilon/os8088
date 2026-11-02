@@ -2489,11 +2489,16 @@ OSAPI_FSK_SIZE      equ 0        ; out AX = the workspace's KB
 OSAPI_FSK_BEGIN     equ 1        ; AH = FSKM_*, CX = the workspace's KB
 OSAPI_FSK_STEP      equ 2        ; out AX = FSKS_*
 OSAPI_FSK_END       equ 3        ; flush and tell the Disk windows
-OSAPI_FSK_DELSYS    equ 4        ; DX:SI -> a RETIRED driver's name, ASCIIZ,
-                                 ; in your folder: deleted though it is
-                                 ; hidden + system. Only a name the image's
-                                 ; own retired list holds (118.8.1); no run
-                                 ; needed, DX is any segment of yours
+OSAPI_FSK_DELSYS    equ 4        ; DX:SI -> a *.DRV name, ASCIIZ, in your
+                                 ; folder: deleted though it is hidden +
+                                 ; system - but ONLY one the engine judges
+                                 ; dead itself (118.8.1, 118.8.2). AH = the
+                                 ; form; no run needed, DX any segment
+FSKD_RETIRED        equ 0        ; a name on the image's own retired list
+FSKD_REFUSED        equ 1        ; a file this kernel would refuse to load as
+                                 ; a driver AND as a module; DI = a buffer
+                                 ; segment, CX = its KB, room for the file
+                                 ; EXPANDED (else FSKE_SMALL)
 FSKM_FIX            equ 1        ; repair as it goes (118.14.4)
 FSKM_DEFRAG         equ 2        ; defragment after a clean check (118.14.5)
 FSKS_MORE           equ 0

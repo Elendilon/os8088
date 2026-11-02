@@ -8,7 +8,9 @@ opens SYSTEM\\SYSCHECK.O88 at boot. Then it boots the image under QEMU, lets
 the scan run, saves the report, and holds SYSCHECK.TXT (read back off the
 image on the host) to every planted finding; then Clean Up, and the volume
 must have lost exactly SPEC.md 118.8's files and nothing else - the retired
-DEBUG.DRV among them, which only FSCHECK.DRV beside SYSCHECK.O88 can delete.
+DEBUG.DRV among them, which only FSCHECK.DRV beside SYSCHECK.O88 can delete;
+then the second question, and the drivers and module this kernel refuses go
+too (SPEC.md 118.8.2) while every driver and module it loads stays.
 
     python3 tests/syscheck.py              the whole gate
     python3 tests/syscheck.py --build OUT  build the fixture image only
@@ -21,7 +23,10 @@ THE PLANTED BREAKAGES, and the finding each must produce:
   APPS\\MODPLUG.O88    a retired program                  Retired, warning, removable
   APPS\\GAMES\\MINES.O88 the same program in two folders  Leftovers, warning
   KPAD.TMP            an install's pad                    Leftovers, warning, removable
-  RAMDISK.DRV         driver version 9                    Drivers, broken
+  RAMDISK.DRV         driver version 9                    Drivers, broken, refused
+  XMEM.DRV            the last driver version, packed     Drivers, broken, refused
+  WIN95.DRV           a module from another build, packed Drivers, broken, refused
+                      (refused: Clean Up's SECOND question, SPEC.md 118.8.2)
   DEBUG.DRV           a retired driver                    Retired, warning, removable
                       (hidden + system: through FSCHECK.DRV, SPEC.md 118.8.1)
   EMS.DRV             deleted                             Release files, broken
@@ -109,6 +114,22 @@ def build_fixture(out, arg=None, geometry=None):
             img = bytearray(os88lz.cz_unwrap(open(d, "rb").read()))
             img[2] = 9
             args.append(put("drv/RAMDISK.DRV", bytes(img)))
+        elif name == "XMEM.DRV":
+            # THE CASE SPEC.md 118.8.2 IS FOR: an XMEM.DRV of the last driver
+            # version, left by an earlier install - no 360KB install brings it
+            # up to date, the disk no longer carrying it. PACKED, so the
+            # engine judges it through the kernel's expanding read
+            img = bytearray(os88lz.cz_unwrap(open(d, "rb").read()))
+            img[2] -= 1
+            args.append(put("drv/XMEM.DRV", os88lz.cz_wrap(bytes(img), filt=True)[0]))
+        elif name == "WIN95.DRV":
+            # ...and a MODULE from another build (mod_check refuses it, SPEC.md
+            # 2.8.2), packed as well. Not FORMAT.DRV: that one carries the
+            # ASSOC.DAT writer, so a refused copy is a Clean Up that cannot
+            # rebuild the associations (and says so) - true, and not this test
+            img = bytearray(os88lz.cz_unwrap(open(d, "rb").read()))
+            img[4:6] = struct.pack("<H", struct.unpack("<H", img[4:6])[0] - 1)
+            args.append(put("drv/WIN95.DRV", os88lz.cz_wrap(bytes(img), filt=True)[0]))
         else:
             args.append(d)
     args.append(put("drv/DEBUG.DRV", open(b("net.drv"), "rb").read()))
@@ -172,6 +193,8 @@ ALERT_PROCEED = (358, 265)  # the alert's Proceed (Cancel is the default)
 
 EXPECT = [                  # (severity, path, a word of the reason)
     ("BROKEN", r"C:\RAMDISK.DRV", "driver version 9"),
+    ("BROKEN", r"C:\XMEM.DRV", "driver version 11, kernel takes 12"),
+    ("BROKEN", r"C:\WIN95.DRV", "the kernel refuses it"),
     ("BROKEN", r"C:\EMS.DRV", "missing"),
     ("WARNING", r"C:\KPAD.TMP", "install"),
     ("WARNING", r"C:\DEBUG.DRV", "retired"),
@@ -184,9 +207,14 @@ EXPECT = [                  # (severity, path, a word of the reason)
     ("WARNING", r"C:\HIBERNAT.IMG", "no pointer"),
 ]
 REMOVED = ["::/KPAD.TMP", "::/APPS/MODPLUG.O88", "::/HIBERNAT.IMG",
-           "::/DEBUG.DRV"]          # hidden + system: FSK_DELSYS (118.8.1)
+           "::/DEBUG.DRV",          # hidden + system: FSK_DELSYS (118.8.1)
+           "::/RAMDISK.DRV", "::/XMEM.DRV", "::/WIN95.DRV"]   # (118.8.2)
 KEPT = ["::/APPS/GAMES/MINES.O88", "::/APPS/MINES.O88",
-        "::/APPS/OLDTIMER.O88", "::/APPS/JUNK.O88", "::/RAMDISK.DRV"]
+        "::/APPS/OLDTIMER.O88", "::/APPS/JUNK.O88",
+        # what the kernel LOADS stays, whatever the second answer was
+        "::/CTRL.DRV", "::/DISKOPS.DRV", "::/FORMAT.DRV", "::/SOUND.DRV",
+        "::/HDD.DRV",
+        "::/SYSTEM/FSCHECK.DRV"]
 
 
 def click(x, y):
@@ -309,9 +337,9 @@ def drive(img, keep, work):
     done(1.5)
     click(*BTN_SCAN)                    # the chooser (SPEC.md 118.13) offers
     done(1.0)                           # C:, the boot hard disk: check it
-    text = save_until(img, "Result: 5 broken, 6 warnings")
+    text = save_until(img, "Result: 7 broken, 6 warnings")
     if text is None:
-        fails.append("the first report never said 5 broken, 6 warnings:\n%s"
+        fails.append("the first report never said 7 broken, 6 warnings:\n%s"
                      % report(img))
         text = report(img) or ""
     lines = text.splitlines()
@@ -333,10 +361,17 @@ def drive(img, keep, work):
     done(2.0)
     click(*ALERT_PROCEED)
     done(6.0)
-    after = save_until(img, "Result: 5 broken, 1 warning")
+    click(*ALERT_PROCEED)               # the second question (118.8.2)
+    done(6.0)
+    # RAMDISK.DRV and WIN95.DRV are release files, so they read as MISSING
+    # now - an install brings them back; XMEM.DRV is optional (118.2.3) and
+    # its absence is no finding at all
+    after = save_until(img, "Result: 6 broken, 1 warning")
     if after is None:
-        fails.append("after Clean Up the report never said 5 broken, "
+        fails.append("after Clean Up the report never said 6 broken, "
                      "1 warning:\n%s" % report(img))
+    elif "XMEM.DRV" in after:
+        fails.append("after Clean Up the report still names XMEM.DRV")
     elif "NOTEPAD.O88" in after:
         fails.append("ASSOC.DAT still names NOTEPAD.O88 after Clean Up")
     if not keep:
