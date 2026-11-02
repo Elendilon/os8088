@@ -21,7 +21,10 @@ no Microsoft binary and no Watcom) and DOSHELLO.EXE (a plain MZ):
      loader read the header and handed the document on.
   C  TINY16.EXE TYPED at that window's prompt: WIN16's window opens - the
      host's own arm (`dos_w16_try`), which the loader never sees and which
-     no other row drove.
+     no other row drove. "WIN16's window" is the instance window titled with
+     the program OR the program's MessageBox (W16TITLES): since WIN16 phase A
+     the first is up only through the load, and a typed TINY16 that joins the
+     instance leg A left running (SPEC.md 124.28.12) shows only the second.
 
 BROKEN ON PURPOSE: the same probe on c714ec45 (the tree before the loader
 arm) sees DOS's window from frame 257 and a 55,328-byte carve, so leg A goes
@@ -44,6 +47,14 @@ import os88ui                                                 # noqa: E402
 
 XT = "os8088_5150_cga_gla"
 NE, MZ = "TINY16.EXE", "DOSHELLO.EXE"
+# WIN16'S WINDOWS for TINY16: its instance window is titled with the program
+# while it loads, and TINY16 has no window of its own - its MessageBox is
+# captioned this (tests/win16/tiny16.asm). Since WIN16 phase A (SPEC.md
+# 124.28) the instance window is up only through the load, so a poll can
+# miss it and find the box; and a second TINY16 that JOINS the instance the
+# first left running (124.28.12) shows only its box. Either is WIN16's.
+T16BOX = "os8088 WIN16"
+W16TITLES = (NE, T16BOX)
 FRAMES = 1500                   # 25 guest seconds at 60Hz: the launch is ~6
 
 
@@ -106,7 +117,7 @@ def main():
                         continue
                     if w.title == "DOS" and dosf is None:
                         dosf = f
-                    if w.title == NE and up is None:
+                    if w.title in W16TITLES and up is None:
                         up = f
                 big += [c for c in claims(ui) if lo <= c < lo + 2048]
                 if up is not None and f > up + 30:
@@ -130,7 +141,7 @@ def main():
                 bad.append("A: a toast is up after the hand-on: %r" % text)
             # --- B ---------------------------------------------------------
             for w in ui.windows():              # WIN16's window is over B:'s
-                if w.visible and w.title == NE:
+                if w.visible and w.title in W16TITLES:
                     ui.close(w)
             ui.raise_window(dw)
             before = set(w.i for w in ui.windows() if w.visible)
@@ -158,7 +169,7 @@ def main():
 
                 def w16():
                     return any(w.visible and w.i not in before and
-                               w.title == NE for w in ui.windows())
+                               w.title in W16TITLES for w in ui.windows())
                 try:
                     ui._wait(w16, "WIN16's window for a typed %s" % NE, 60)
                     print("C. %s typed at the prompt: WIN16's window opened"
