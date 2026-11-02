@@ -285,13 +285,11 @@ PROFILES = {
     # fell 83 ms behind at most against 55 and 0 at 3.75 and read smoother on
     # the Victory, and the whole frame's share has been 123-126% on every
     # profiled play with no harm (SPEC.md 98.3.22.1)
-    # MEGA_DISK 0.88 (2026-10-29, SPEC.md 98.2.3.8): two plays' timed reads
-    # replayed through this curve at each frame's MEASURED share - Catch My
-    # Heart and Sonic 2 on the Victory - reproduce kern_big's dry frame
-    # within 2% of 519,000 (1371 against 1312, 737 against 733), and
-    # kern_mega's only at 475,000 and 455,000: 0.915 and 0.877, the worse
-    # taken. A reflected int 13h is a CPU reset, and the card's block
-    # interrupts are reflections too
+    # MEGA_DISK, 0.88 from 2026-10-29, is RETIRED (SPEC.md 98.2.3.8): it was
+    # kern_mega's protected-mode reads, every int 13h a CPU reset, and the
+    # real-mode bracket reads natively - W6 on the Victory measured Catch at
+    # 5 stalls against kern_big's 24 and Sonic at 8 pauses against 6, the
+    # stream's own dry stretch in both (docs/reports/VIDPROF-W6-2026-10-30.md)
     # XRD 0.159 (2026-10-29, SPEC.md 98.2.3.9): the in-place reader's own
     # ms a KB past the copy up. Catch My Heart's timed reads on kern_big,
     # replayed through this curve at each frame's measured share, ran the
@@ -300,7 +298,7 @@ PROFILES = {
     # gap), so this is the rest: the bounce, the mirror, the reader's loop.
     # The copy is skipped by the two tiers (98.3.18.18) and this is not
     "286-picomem1": dict(disk=519000, avg=2.25, peak=5.4, owe=1.6, speed=4.5,
-                         mega_disk=0.88, xrd=0.159,
+                         xrd=0.159,
                          ring=8, xcopy=0.345, lcopy_us=1.966,
                          cyc_us=CYC_US_286PVGA8, **XPLAY_VICTORY,
                          **PLAY_VICTORY,
@@ -560,13 +558,6 @@ CHOICE_HELP = {
                "of CPU, 65% of it on average - Mode X, the whole picture "
                "and 48 KB frames",
         "lossless": "No budget: every change kept, whatever it costs",
-    },
-    "kernel": {
-        "big": "kern_big, the real-mode kernel: the profile's disk as "
-               "measured (the default)",
-        "mega": "kern_mega, the 286's protected-mode kernel: every disk "
-                "read is a CPU reset, so the disk is the profile's own "
-                "share slower where it has measured one",
     },
     "aim": {
         "asked": "Encode what was asked for, nothing more (the default)",
@@ -915,7 +906,7 @@ def implied(preset=None, pixfmt=None, profile="5150-st225", live=None,
 # its story the day that default moved. What a preset, a format or a
 # profile implied is stored as the value it came to, and so is the
 # speaker style's three numbers. It is ~160 bytes (os88vid.OPTS_ZDICT).
-OPTS_VERSION = 50
+OPTS_VERSION = 51
 # what is the encode's plumbing rather than how the file was made
 OPTS_SKIP = ("src", "out", "help", "progress", "quiet", "preview_png",
              "profiles", "posters_only")
@@ -950,7 +941,8 @@ OPTS_FINGERPRINT = {1: "06108fff43ef1307", 2: "496cc97e70197133",
                     43: "ec2917558c23907f", 44: "1baaf8c2dacb6f7b",
                     45: "9f36a470662f10ba", 46: "bdf38e4e169941ba",
                     47: "5de4b2ffebe0a64f", 48: "ba9e5d3fb742014e",
-                    49: "238b11ab4d51b177", 50: "a2712f22a376dcac"}
+                    49: "238b11ab4d51b177", 50: "a2712f22a376dcac",
+                    51: "238b11ab4d51b177"}
 LAG_MS = "50-100"       # --lag's default (98.2.1.1.3), the owner's (2026-10-16):
                         # a RANGE, searched for each burst, where it was one
                         # number tuned by hand. Its top is the 100 ms that
@@ -1157,6 +1149,11 @@ MIGRATIONS = {
          ("added", "edge_solid", 0.0)],
     # 50: --kernel (98.2.3.8) - a file made before it was made for kern_big
     49: [("added", "kernel", "big")],
+    # 51: --kernel is RETIRED (98.2.3.8): kern_mega's real-mode bracket plays
+    # the Victory's files as kern_big does (MEGA-VIDEO-REALMODE-PLAN W6), so
+    # there is one budget, and a record that said mega is made for it
+    50: [("removed", "kernel", "kern_mega plays as kern_big does since its "
+          "real-mode bracket (SPEC.md 98.2.3.8): one budget for both")],
 }
 
 
@@ -9975,12 +9972,6 @@ def _encode(a, keep, tick, readers):
             pdef.get("frame_cap", "32")
     if a.live and prof["avg"] is not None:
         prof["avg"] = LIVE_AVG          # (the decode and the blit: 98.2.7)
-    # KERN_MEGA'S DISK (98.2.3.8): the profile's own rate, scaled by what
-    # the machine measured under kern_mega at the same share - before an
-    # explicit --disk, which is the rate on whichever kernel it names
-    if getattr(a, "kernel", "big") == "mega" and prof.get("disk") and \
-            prof.get("mega_disk"):
-        prof["disk"] = round(prof["disk"] * prof["mega_disk"])
     for k in ("disk", "avg", "peak", "owe", "reserve"):
         if getattr(a, k) is not None and getattr(a, k) != "auto":
             prof[k] = getattr(a, k)
@@ -12492,12 +12483,6 @@ def parser():
                          "frame is fitted to (--profiles says what each is)")
     ap.add_argument("--disk", type=float, help="the profile's bytes a "
                     "second, overridden")
-    ap.add_argument("--kernel", choices=("big", "mega"), default="big",
-                    help="the kernel it will play under: mega is kern_mega, "
-                         "whose every disk read is a CPU reset on a 286, "
-                         "and on a profile that has measured it the disk is "
-                         "that much slower (mega_disk, SPEC.md 98.2.3.8); "
-                         "a file made for mega plays on kern_big too")
     ap.add_argument("--avg", type=avg_arg, default="auto",
                     help="...its average CPU share, or AUTO (the default): the per-frame ceiling's on a profile whose disk curve already prices the reader, the profile's own share on one without (98.2.1.5)")
     ap.add_argument("--peak", type=float, help="...its per-frame ceiling")

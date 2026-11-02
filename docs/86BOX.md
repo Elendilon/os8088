@@ -153,6 +153,11 @@ profile and NOT copied - a `.cue` names its `.bin` relative to itself - and
 and dropped the drive without a word (KERN-MEGA-PLAN 14.68).
 `vm/286-mega-cdrom` and `vm/386-mega-cdrom` are kern_mega with a CD-ROM and
 `tests/megacdrom.py` is the row that drives the first.
+`vm/286-mega-ems` is `vm/286-mega` with 86Box's Lo-tech EMS board
+(`isamem0_type = lotechems`: registers 260h, frame E000h, 2 MB) added and
+nothing else changed - the one machine here that gives kern_mega expanded
+memory - and `tests/vidrmbems.py` (SPEC.md 107.8) is its row. Like
+`vm/286-hma` it has no make target: its row builds its own disks.
 
 ### `to` and `pointer`: why the pointer is closed-loop
 

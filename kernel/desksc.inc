@@ -260,7 +260,7 @@ sc_walk:
 ; the reflow gives it the first free cell, pinned - so the user can retry it
 ; or Delete it, and the next SYSTEM.CFG write keeps it so. A load the loader
 ; REFUSED keeps its row. desk_reflow is lock-free-safe here: it rewrites
-; [desk_zslot] and posts cells, never draws, and kmain's own desk_rowcalc_x
+; [desk_zslot] and posts cells, never draws, and kmain's own bvw_rowcalc
 ; runs it with nothing held. A pending resume or DOS question
 ; ([ui_rebootq]) stands everything down: that image IS the session.
 ; -----------------------------------------------------------------------------
@@ -389,7 +389,9 @@ lnk_open:
     pop ax
 .walk:
     call sc_walk
-    mov word [lnk_argo], 0      ; SPENT OR NOT, it dies with the launch
+    and word [lnk_argo], 0      ; SPENT OR NOT, it dies with the launch (`and`:
+                                ; a byte under `mov`, flags dead before the
+                                ; `add sp` - kernel size pass 16)
 .pop:
     add sp, LNK_SIZE
 .done:
@@ -570,10 +572,18 @@ section .text
 ; sc_reloc - the compactor moved the table (DX = its new base). In .text,
 ; called through the kernel's segment (ico_reloc's note). No compare against
 ; the old base: the table is the one claim this proc is registered on - the
-; trailer's claim (sc_m_ser) is made PINNED, with none.
+; trailer's claim (sc_m_ser) is made PINNED, with none. ...ON kern_mega:
+; everywhere else [sc_seg] is a word of mem_rr_tab's mem_rr_lone row
+; (memory.inc, kernel size pass 15) and this name is the walk's shared `ret`.
+; Exact, because the word is zeroed with the free (ovl_sc_free, sc_m_kb) and
+; nothing between the free and the store can compact.
+%ifdef KERN_MEGA
 sc_reloc:
     mov [sc_seg], dx
     ret
+%else
+sc_reloc    equ mem_rr_none
+%endif
 
 ; --- the File menu's item and the right-click's, ONE string ------------------
 ; desk_select points item 1 at the MENU_DIS byte or past it, the Close Window
@@ -599,7 +609,8 @@ sc_bdg      db 1, 10            ; the badge: 10x10, one word across - a box
 ; =============================================================================
 section .bss
 ; =============================================================================
-sc_seg      resw 1              ; the table's claim, 0 = no shortcuts
+                                ; (sc_seg, the table's claim, is memory.inc's
+                                ; mem_rr_lone: kernel size pass 15)
 sc_nrows    resb 1              ; rows the claim holds, 0..SC_MAX
 lnk_argo    resw 1              ; a link's parameter for OSAPI_ARG_TEXT: an
                                 ; offset into its record on task 0's stack,
@@ -1312,10 +1323,12 @@ sc_m_row:
 ; the way, it packs round whatever lands next to it.
 ; -----------------------------------------------------------------------------
 sc_m_cell:
-    CSDO mov [CSEG sc_px], cx
-    CSDO mov [CSEG sc_py], dx
-    CSDO mov [CSEG sc_ex], bl
-    CSDO mov word [CSEG sc_best], 0xFFFF
+    CSDO_ON
+    mov [CSEG sc_px], cx
+    mov [CSEG sc_py], dx
+    mov [CSEG sc_ex], bl
+    mov word [CSEG sc_best], 0xFFFF
+    CSDO_OFF
     xor bx, bx                  ; BL = the cell
 .cell:
     cmp bl, [desk_ncell]
@@ -1346,8 +1359,10 @@ sc_m_cell:
     add ax, dx
     cmp ax, [cs:sc_best]
     jae .next
-    CSDO mov [CSEG sc_best], ax
-    CSDO mov [CSEG sc_bc], bl
+    CSDO_ON
+    mov [CSEG sc_best], ax
+    mov [CSEG sc_bc], bl
+    CSDO_OFF
 .next:
     inc bx
     jmp .cell                   ; (short where it reaches: kern_mega's CSDO
@@ -1538,9 +1553,10 @@ sc_m_del:
 ; is none" the ask set.
 ;
 ; A CLAIM OF ITS OWN, PINNED, for the length of the write: CTRL.DRV's bss is
-; the slack in its own KB rounding (kernel.asm's MODC_BSS assertion) and two
-; KB of rows do not fit there, and a buffer the write is reading must not be
-; moved by a compaction the write itself triggers. sc_m_serx gives it back.
+; the SYSTEM.CFG buffer alone (kernel.asm's MODC_BSS), two KB of rows would be
+; two KB more of every CTRL.DRV claim, and a buffer the write is reading must
+; not be moved by a compaction the write itself triggers. sc_m_serx gives it
+; back.
 ; -----------------------------------------------------------------------------
 sc_m_ser:
     CSDO mov word [CSEG sc_tseg], 0
@@ -1739,8 +1755,7 @@ ovl_sc_load:
     push dx
     push si
     push di
-    push es
-    mov si, drv_cfgname
+    push es                     ; SI = the name, staged by the caller
     call COLD_SEG:dwf_dskw_stat ; DX:CX = its size
     jc ovl_sc_plain
     or dx, dx
@@ -1763,7 +1778,7 @@ ovl_sc_load:
     mov es, dx
     xor bx, bx
     mov cx, di
-    xor dx, dx                  ; SI is still drv_cfgname: dskw_stat and the
+    xor dx, dx                  ; SI is still the name: dskw_stat and the
                                 ; heap's entries all keep it
     call COLD_SEG:dwf_dskw_read ; AX = the bytes read
     jc ovl_sc_drop
@@ -2040,24 +2055,24 @@ section .cold
 as_bootc:                       ; (call COLD_SEG: from kmain, after mega_enter)
     AS_WALK
 
-; stik_bootf - stik_boot, FAR, for kern_mega's kmain AFTER mega_enter
-; (KERN-MEGA-PLAN 14.78). In drv_notice_x it ran in REAL mode, so a widget
+; stik_boot runs from kern_mega's kmain_hic AFTER mega_enter (KERN-MEGA-PLAN
+; 14.78; it was stik_bootf's far door until kern_mega size pass 1). In
+; drv_notice_x it ran in REAL mode, so a widget
 ; bound DESK.DRV's library by a real PARAGRAPH (os88stikc.inc's stik_load
 ; writes OSAPI_WM_DESK's DX into every far pointer of its own block) that
 ; the switch never translates - the first thunk called after it far-jumped
 ; to a paragraph that is no selector, and the package was closed for a #GP.
 ; Launched here, it binds in the mode it runs in, as AUTOSTART does (MC8),
 ; and no widget's worker can make mega_enter decline either.
-stik_bootf:
-    call stik_boot
-    retf
 %endif
 
 section .modc                   ; ...and the image's own scratch, IN the
 sc_mz       db 0                ; image: a module may write its own bytes
-sc_px       dw 0                ; (MODULE-SELFCONTAIN-PLAN), and its bss is
-sc_py       dw 0                ; only the slack in its KB rounding, which
-sc_ex       db 0                ; the settings buffer already spends
+sc_px       dw 0                ; (MODULE-SELFCONTAIN-PLAN), and its bss
+sc_py       dw 0                ; (`.modcb`) lies past the panel half, which
+sc_ex       db 0                ; a desktop gesture's core-only read stops
+                                ; short of - the claim covers it, the read
+                                ; does not zero it
 sc_best     dw 0                ; sc_m_cell: the point, the zone it leaves
 sc_bc       db 0                ; out, the nearest distance so far and its
                                 ; cell; sc_m_ser's claim and the rows it holds

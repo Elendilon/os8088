@@ -66,6 +66,7 @@ nothing here duplicates it — a second copy is a copy that goes stale.
 | **[docs/WIRE-PLAN.md](docs/WIRE-PLAN.md)** | anything in The Wire (§92, `apps/thewire/`, the desktop zone and `OSAPI_PKG_RUN`) — the design record: the four facts that decided the shape, the catalog and picture formats as they were pinned, and what was deferred with the arithmetic attached. SPEC.md §92 is the contract and this is why it reads that way; its brand table is **fixed by the user and not to be reworded** |
 | **[docs/plans/VESA-PLAN.md](docs/plans/VESA-PLAN.md)** | anything in the VESA display (§120, `drivers/vesa/`, `kernel/vidext.inc`'s `VIDEXT` hook, the `DRVC_VIDEO` class) — the story list with what each wave actually shipped, the decisions taken against their judged alternatives (hooks in `kern_big` against a fourth kernel; a 16-colour desktop at any depth; banked window A against the linear framebuffer), and `docs/HOW-VESA-WAS-BUILT.md` is its diary. SPEC.md §120 is the contract and says per story whether it is pinned or shipped |
 | **[docs/plans/completed/WEAVE-PLAN.md](docs/plans/completed/WEAVE-PLAN.md)** | re-opening a Weave design decision — why each fork went the way it did, the judged alternatives, and what was deferred with the arithmetic attached |
+| **[docs/plans/WIN16-PLAN.md](docs/plans/WIN16-PLAN.md)** | anything in the Windows 3.x layer (§124, `apps/win16/`, `WIN16.O88`) — the user stories, the owner decisions with their judged alternatives (a coroutine on the UI task against a worker; every segment fixed; a V20 floor checked by a CPU census at load; each adapter's Windows System font), and the Wine and winevdm commits it takes code and data from, which make `apps/win16/` **GPL-2.0-or-later** as `apps/apple2` is. **No Microsoft binary is ever committed**: the user supplies them with `WIN3X=<dir>`. `docs/HOW-WIN16-WAS-BUILT.md` is its diary, and **[docs/plans/WIN16-ANY-PLAN.md](docs/plans/WIN16-ANY-PLAN.md)** the road from S13 to any Win16 program (stories S14–S25, owner decisions O1–O6, not yet authorised), measured by `tools/w16reach.py` |
 
 ## Fast fullscreen VRAM games (SPEC.md §53, §109.5)
 
@@ -380,6 +381,14 @@ make loomdisk   #   in-OS IDE that edits a project's sources and packs the
                 #   demo bundles and the demo SOURCES on one floppy in all
                 #   four geometries, in the same two folders as `make
                 #   weavedisk`, which is the same shape plus `CATALOG.TXT`
+make waverackdisk # WAVERACK (§123.13): its own floppy in all four
+                  #   geometries - WAVERACK.O88, six public-domain and CC0
+                  #   music clips in MEDIA/ (COMMITTED in apps/waverack/demo/,
+                  #   made by tools/os88wrdemo.py from Wikimedia Commons with
+                  #   lame and numpy), CREDITS.TXT and a CLIPS.TXT per
+                  #   geometry; the 360KB one is WaveRack's 360KB home.
+                  #   `make waverackhd` is the XT's hard disk that
+                  #   `make xt-waverack` boots
 make viddemo    # the VIDEO PLAYER (§98, apps/video/): VIDEO.O88 ships on
 make vencbundle #   every apps disk and plays `.V88` files, made on the host
                 #   by tools/os88venc.py or by the encoder's own window,
@@ -550,7 +559,11 @@ make mega     # KERN_MEGA, the 286+ protected-mode kernel (docs/plans/
               #   Pair mega.img with megaapps.img, not with build/apps.img:
               #   the shipped Video Player REFUSES under protected mode and
               #   the shipped speaker library refuses its PCM tier there.
-              #   `make megapkgs` prints each arm against its shipped build
+              #   `make megapkgs` prints each arm against its shipped build.
+              #   It is a BUDGETED build and not a knob (rule 4 under Hard
+              #   rules): `make budget-check` builds and measures it, and
+              #   `kernsize --bless --build build/megak` blesses it - but it
+              #   is not RELEASED, and no release zip carries its disks
 make rom      # THE KERNEL IN ROM (SPEC.md 2.10, docs/plans/ROM-PLAN.md): an
 make socketrom#   IBM 5150's five spare sockets, U28-U32 at F4000-FDFFF, as
               #   ONE option ROM, written into build/rom/ as the 40KB window
@@ -638,6 +651,19 @@ make live     #   plus the allapps payload on one FAT16 partition that the
               #   floppy paying for a package out of RunCPM's drive A) is
               #   WITHDRAWN by the set; the lists stand until the owner
               #   decides
+make win16census WIN3X=<dir>  # WIN16 (SPEC.md 124): what each Windows 3.x
+              #   program in <dir> imports, holds and needs from the CPU, by
+              #   recursive descent (tools/os88ne.py). `make win16fixtures`
+              #   builds the Win16 TEST programs with Open Watcom
+              #   (tools/setup-watcom.sh fetches it). Both on demand.
+              #   `make win16` is the layer itself, in `all`: a WIN16\
+              #   folder on its OWN disk in four geometries (win16*.img), the
+              #   everything set and the live media, and at emu360's root
+              #   (SPEC.md 124.18.1); the shipped DOS.O88 hands it an NE on
+              #   kern_big and kern_emu. `make win16disk WIN3X=<dir>` puts
+              #   YOUR Windows programs on build/w16prog*.img in all four
+              #   geometries, and `make win16test` is the gate floppy -
+              #   boot it with TESTAPPS=build/win16test.img
 make burn     # the macOS guide onto REAL media (§80.4, tools/os88burn.py):
               #   lists the attached USB flash drives (USB + external +
               #   never the boot disk), typed-identifier confirmation,
@@ -721,7 +747,7 @@ lands on a floppy:
 | `KBDDIAG=1` | record what the KEYBOARD sent and what the ROM made of it (**SPEC.md §9.8.1**), for a machine with no debugger: every IRQ1 with port 64h before the ROM's `int 09h` and 64h and 60h after it, the BIOS buffer's head and tail either side and the word stored, the PIC's ISR, IRR and IMR, and inside an fsx bracket the same state sampled each tick - a 64-record ring drawn under the menu bar. It is for docs/FIELD-NOTES.md 63, a Pentium 4 whose USB-through-PS/2 keyboard types on the desktop and cannot PAUSE MIDIRack's speaker play, and its three possible pictures say which link broke: no `I` rows inside the bracket, `I` rows whose tail never moves, or a tail that moved and a head that never caught up. The only behaviour it changes is that `kbm_isr` CALLS the ROM's `int 09h` instead of jumping to it. `make kbddiag` builds the four system disks; the shipped kernel is byte-identical, and it cannot be built with `MOUDIAG=1`, which draws in the same place |
 | `NOFDMEDIA=1` | take **SPEC.md 38.10**'s `MEDIA` default out of the Standard File chooser: an app whose user has never chosen a folder opens it where the app was **LAUNCHED** from instead of in `MEDIA` at its drive's root. The default is a nicety rather than a contract, so it is the part of the dialog whose bytes are easy to take back - this knob is how, `t_buildmatrix` keeps it assembling, and `tests/fdlgchoose.py` is verified to fail on it |
 | `PICLOSE=1\|2` | kern_mega only: **LOSE INTERRUPT EDGES on purpose** (docs/plans/KERN-MEGA-PLAN.md 14.64). On the way down of every reflected BIOS call, both 8259s are initialised - ICW1 erases every pending edge - after a window that waits for a byte to be sitting in the 8042, and the masks go back as they were. It is what the Victory 286's BIOS is inferred to do on its reset path, and no emulator here loses an edge by itself (Bochs is a 386 with no reset per call; 86Box rebuilds IRR from line levels). `1` keeps `mega_kwd`, the tick's lost-edge watchdog; `2` compiles it out, which is the 343124b2 kernel on that BIOS: move the pointer through a DOS program's live resume and the mouse AND the keyboard are dead. `tests/megapiclose.py` builds both into private trees and is the A/B |
-| `MEGADIAG=1` | kern_mega only: **put its FIELD READINGS back on the menu bar** (docs/plans/KERN-MEGA-PLAN.md 14.65; `make megadiag` builds the disks into `build/megadiag/`). A shipped kern_mega shows the protected-mode toast at boot (`Entered protected mode`) and the lines a user acts on - a package closed for faulting, its refusals, the hibernate's - and nothing else; this build names the route in that toast instead (`protected, 286 reset` / `protected, 386 CR0`) and adds `mega_tell`'s `NMI`, `RST`, `FDC RESET`, `RFL` and `Q` lines, the DOS trip's `DOSP`, the native floppy's `FD BIOS` and *native floppy off* toasts, and the handoff record's hex (`H ssss:oooo ...`) in place of *Not our handoff record*. Those were how the Victory 286 was debugged off photographs, so a field run that needs one is given this disk. It costs the shipped kern_mega nothing: **-280 `.text`, -920 `.mega`, -42 `.bss`** came out of it, kern_big and kern_small are byte-identical either way, and E9's own lines stay on both arms |
+| `MEGADIAG=1` | kern_mega only: **put its FIELD READINGS back on the menu bar** (docs/plans/KERN-MEGA-PLAN.md 14.65; `make megadiag` builds the disks into `build/megadiag/`). A shipped kern_mega shows the protected-mode toast at boot (`Entered protected mode`) and the lines a user acts on - a package closed for faulting, its refusals, the hibernate's - and nothing else; this build names the route in that toast instead (`protected, 286 reset` / `protected, 386 CR0`) and adds `mega_tell`'s `NMI`, `RST`, `FDC RESET`, `RFL` and `Q` lines, the DOS trip's `DOSP`, the native floppy's `FD BIOS` and *native floppy off* toasts, and the handoff record's hex (`H ssss:oooo ...`) in place of *Not our handoff record*. Those were how the Victory 286 was debugged off photographs, so a field run that needs one is given this disk. It costs the shipped kern_mega nothing: **-280 `.text`, -920 `.mega`, -42 `.bss`** came out of it, kern_big and kern_small are byte-identical either way. **It is also the only build whose KERNEL writes to the debug port** (port E9h, Bochs's `e9.out`; `MEGATRAP=1` does too): the switch, a fault's dump, a package closed, a park and its return, a resume, a module above 1MB, the native floppy's verdicts (KERN-MEGA-PLAN 14.127). The shipped kern_mega writes nothing there - **-1,072 `.mega` (with its scratch), -72 `.text`, -34 `.cold`** more - and a row reads the same facts out of guest state (`tools/os88bochs.py`'s `wait_pm`, `fault`/`faults`, `wait_trip`, `wait_resumed`, `mod_base`; docs/BOCHS.md) |
 | `MEGAFDMASK=1` | kern_mega only: the A/B for the **empty-drive freeze** (docs/plans/KERN-MEGA-PLAN.md 14.125; `make megafdmask` builds its disks into `build/megafdmask/`). The native floppy call masks every IRQ line whose gate reflects to an option ROM - a PicoMEM's multiplexer - for its length, so no reflection, on a 286 a CPU reset through the BIOS, lands in the second-long motor spin-up it waits in with IF on. A reflected BIOS `int 13h` never has one: that IRQ runs inside the BIOS call, already in real mode. The 8259 latches an edge while masked, so the IRQ is late and not lost. The shipped kern_mega is byte-identical; `MEGADIAG=1`'s floppy strip counts the reflections it would have prevented (`j`, `v`) |
 | `NOVIDEXT=1` | assemble kern_big WITHOUT SPEC.md 120.3's external renderer hook - no `VID_VESA` kind, no `VESA.DRV` row, no compare at the planar bodies. The A/B the hook's resident cost is measured against (**382 bytes** on the tree of 2026-10-26: `.text` 317, `.bss` 39, `.cold` 26, and 200 of the boot blob), and the only thing keeping the unhooked arms assembling. `t_buildmatrix`'s `novidext` row builds it |
 | `MEGATRAP=1` | kern_mega only: its **TRAP CENSUS** (docs/plans/KERN-MEGA-PLAN.md 10.3) - every #GP writes one line to port E9 (error code, CS:IP, DS, ES and the image CS runs in) before `mega_gpfix`, `mega_gpw` or `mega_null0` completes it. Those fixups are correct and cost a fault apiece, so a site in a loop is a slow program that looks like a working one; `tools/megatraps.py` ranks the lines. `make megatrap` builds its disk into `build/megatrap/`, so `build/mega.img` is never it |
@@ -744,6 +770,12 @@ song, a module and a WAV for each; an XT cannot read a 1.44MB disk), `xt-midirac
 whose SB16 carries one, each sending MIDI to 86Box's FluidSynth with the
 GeneralUser GS soundfont `make midibank` fetches, and each with `make
 midirackdisk`'s floppy - player, wavetable bank, songs - in B:),
+`xt-waverack` (WaveRack's, SPEC.md §123.6-123.7: `xt-mfm`'s 4.77MHz XT
+and ST-225 on a Xebec with `xt-sound`'s Sound Blaster 2.0 added - on IRQ 7,
+the Xebec owning 5 (§34.5.6) - and A: empty, booting `make waverackhd`'s raw disk - the whole install plus long
+WAVs and the demo clips in `MEDIA/` - with `make waverackdisk`'s 360KB disk in B:, to LISTEN to a play going on through disk reads and to
+record onto a hard disk, with the disk at 86Box's `ST225` speed preset, so
+seeks and rotation are real where `xt-mfm`'s `ramdisk` has none),
 `xt-xtmp3`, `286-xtmp3`, `386-xtmp3`, `486-xtmp3` and `pentium-xtmp3`
 (XTMP3's ladder, SPEC.md §121.11.5: the tree's sound machines booting `make
 xtmp3field`'s disks, whose `\AUTOSTRT` opens the `-DX3REPORT` build on one
@@ -898,6 +930,12 @@ band and one blit, cached element keys, and full / mid / compact layouts so
 every adapter gets a face — is `.claude/skills/retro-face`
 (`/retro-face <app> [mockups]`), whose `LESSONS.md` is what CDRack (SPEC.md
 §119.6) learned.
+The real Windows 3.0 and 3.1 that SPEC.md §124's layer is held to - MS-DOS
+6.22 and a from-scratch install of each under QEMU, built from archive.org
+floppies into the git-ignored `win16ref/`, with the sample programs and
+reference screenshots - is `.claude/skills/win16-reference`
+(`/win16-reference`); its script recreates the lot and its traps are what
+getting Windows to boot here cost.
 
 ## Shared agent skills
 
@@ -1002,11 +1040,34 @@ user gives a different workflow. The worked example is
 - **Every disk-visible base is 512-byte aligned.** int 13h answers a transfer
   straddling a 64KB physical boundary with error 09h, and only starting
   512-aligned prevents it. The symptom is "Disk error" on a large save.
-- **Memory is two guards, not one** (docs/KERNEL-MEMORY.md): `KERN_BUDGET` is
-  the kernel's whole RAM footprint, `KERN_CODE_MAX` is `.text` + `.bss` inside
-  one 64KB window because offsets are 16 bits. They are relieved by different
-  mechanisms. **Raising either is a decision to take with whoever asked for the
-  feature, not a build fix.**
+- **Memory is THREE rules and three quantities** (docs/KERNEL-MEMORY.md):
+  **kern_big fully RESIDES in 100KB at the desktop**, **kern_small fully
+  RESIDES in 64KB** — every non-purgeable byte, no drivers, no XMS, on VGA
+  (guard 1's `KERN_BUDGET`, DERIVED from those, plus `tests/kernresident.py`
+  and `tests/small128.py` for the half an assembler cannot see) — and **BOTH
+  BOOT on 128KB** (guard 5, `MIN_RAM_KB`, asserted by booting each kernel on a
+  128KB machine). **kern_mega is rule 4 and is budgeted too** (kern_mega size
+  pass 1, docs/plans/completed/msp1/megabudget.md): it RESIDES in **68KB of
+  CONVENTIONAL memory** once it has switched - `MEGA_RESIDENT`, `KERN_SIZE`
+  less the `.cold` and `.mega` rungs that go above 1MB, and NOT `KERN_SIZE`,
+  which is a boot-time transient there - and BOOTS on its 1MB floor machine's
+  640KB (guard 5's mega arm, `MEGA_BOOT_KB`); budgeted is not RELEASED, and no
+  release artefact carries its disks. **A budget is met EXACTLY at an upstream merge or a release;
+  branch and integration work may run up to 2KB over it** (`KERN_GRACE` —
+  features land whole and are size-passed after), and `make budget-check` is
+  where that grace ends, on all four budgeted kernels. Over a budget at that point is a conversation with
+  the owner and a rework of the budgets, never a quiet raise.
+  `KERN_CODE_MAX` is separate and absolute: `.text` + `.bss` inside one 64KB
+  window because offsets are 16 bits. **Booting on a machine and residing in
+  one are different questions** — the 128KB boot is where overlays and boot
+  order broke machines whose resident size was well under it. `kernsize`
+  prints both lines; quote the one you mean. **None of the rules binds a KNOB
+  build** — guard 2 is the whole of what
+  bounds it, because nobody boots one and every machine here has 640KB or
+  could; a RAM-constrained test states its own constraint instead.
+  `KERN_SMALL`, `KERN_EMU` and `KERN_MEGA` are not knobs for this purpose;
+  a knob ON kern_mega (`MEGATRAP=1`, `MEGADIAG=1`, ...) is. **`soak -k 'buildmatrix'` is
+  the only thing that builds the knob kernels.**
 - **Before spending a resident byte, ask whether the feature is an ON-DEMAND
   MODULE** (§2.8, `kernel/mod.inc`, docs/plans/completed/ONDEMAND-PLAN.md §1's
   test): kernel code that ships as a file (`CTRL.DRV`, `FORMAT.DRV`,
@@ -1340,7 +1401,7 @@ checking all four. This is the rule for the on-demand APPLICATION floppies too
 `apple2disk`, `weavedisk`, `loomdisk`, `allapps` — which were three-geometry until 1.2MB
 reached them.
 
-**Seventeen images, not nine.** The system and apps disks in four geometries
+**Twenty-one images, not nine.** The system and apps disks in four geometries
 each, plus SIX more that exist at 360KB alone and ONE at 720KB alone -
 `build/more720.img`, the 720KB apps disk's other half (SPEC.md 24.7), carrying
 what that disk had to leave off - and the 128KB machine's two system disks,
@@ -1348,7 +1409,9 @@ what that disk had to leave off - and the 128KB machine's two system disks,
 which `all` builds through `make small`'s sub-make. The small 720KB disk is
 NOT the standard format: kern_small's two-sector FAT window refuses a
 standard 720KB FAT, so it takes 2KB clusters, and that machine reads no other
-720KB disk. `build/media360.img` —
+720KB disk. And WIN16's own disk in four geometries, `win16*.img`
+(§124.18.1), which left the apps disks when it outgrew them.
+`build/media360.img` —
 `BEVERLY.MOD` is data rather than software and was 114 of a 360KB disk's 354
 clusters before packages were compressed, so at that geometry it rides a disk
 of its own (§24.4). **It is not on `apps360.img` as well any more, and cannot

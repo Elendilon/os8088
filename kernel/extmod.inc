@@ -677,8 +677,10 @@ ui_drag_size:
     push word [bx+W_Y]          ; because the snap below can move a window
     push word [bx+W_X]          ; that kept its size
     call wm_disp_now            ; **THE DISPLAY IS DECIDED ONCE, HERE** (SPEC.md
-    CSDO mov [CSEG wm_lf_disp], al ; 39.16.4.2). Armed before the first question is
-    CSDO mov [CSEG wm_lf_win], bx ; asked and spent at .fin, so the resize this
+    CSDO_ON
+    mov [CSEG wm_lf_disp], al   ; 39.16.4.2). Armed before the first question is
+    mov [CSEG wm_lf_win], bx    ; asked and spent at .fin, so the resize this
+    CSDO_OFF
                                 ; routine applies cannot change the answer under
                                 ; the steps that follow it
     call ext_kind_of            ; the kind it stands on now (wm_kind_now's own
@@ -1207,7 +1209,7 @@ ext_extend_b:
                                 ; card, and what makes its 32KB/16KB clear
                                 ; land on the right memory
     mov al, 1
-    EXK vid_ctx_capture         ; bank it as display 1
+    call ext_ctxcap             ; bank it as display 1 (this image's own)
 
     mov al, ah                  ; ...and back. No vid_setmode: the primary is
     call ext_kapply_eq          ; already in its mode with the splash on it;
@@ -1215,7 +1217,7 @@ ext_extend_b:
                                 ; vid_setmode's CGA path flipped it to colour
                                 ; and nothing else ever would (SPEC.md 39.11.2)
     xor al, al
-    EXK vid_ctx_capture         ; a no-op today - vid_apply has just republished
+    call ext_ctxcap             ; a no-op today - vid_apply has just republished
                                 ; what vid_ctx_init banked - and 39.12's rule
                                 ; followed mechanically rather than reasoned
                                 ; about one instance at a time
@@ -1275,6 +1277,7 @@ ext_two:
 VSW_EQUIP ext
 VSW_UNION ext, EXK
 VID_APPLY ext, EXK              ; (viddet.inc: the panel, the boot and this)
+VID_CTXCAP ext_ctxcap, ret      ; (vidsel.inc: the panel, the boot and this)
 
 %ifdef SEAMCUT
 ; -----------------------------------------------------------------------------

@@ -157,7 +157,11 @@ FARLIT = re.compile(r"^(?:0x[0-9a-f]+|[0-9][0-9a-f]*h?)\s*:\s*(?:0x[0-9a-f]+|[0-
 # to fall out of the bottom of it into whatever followed, reporting that
 # routine's `retf`.  Control flow never runs THROUGH a table, so a data
 # directive ends the walk.
-DATA = re.compile(r"^(d[bwdq]|res[bwdq]|incbin)\b", re.I)
+# ...and kernel.asm's SKIP bytes (kernel size pass 15), which ARE a `db`: an
+# opcode whose immediate is the next instruction. Read as data the walk stops
+# there, as it does at CLC_OR_STC's own `db 0xA8` - the path past the skipped
+# instruction is the label after it, which its other entries reach.
+DATA = re.compile(r"^(d[bwdq]|res[bwdq]|incbin|SKIP(?:F1|F2|AL1|DL1|CX2))\b", re.I)
 # `%define a b` (and its x/i spellings): an alias, not an address (see _scan)
 PPDEF = re.compile(r"^%x?i?define\b", re.I)
 # A `section` directive is a HARD BARRIER: the next byte is in a different
@@ -318,13 +322,20 @@ class Unit(object):
 # and on kern_mega the same word, converted), and `CSDO insn` is `insn` with
 # DS swapped around it and put back - so it moves SP as `insn` does
 SEGPUSH = re.compile(r"^(?:PUSH_CSDATA|PUSH_KCODE)\s*$", re.I)
-CSDO = re.compile(r"^CSDO\s+", re.I)
+CSDO = re.compile(r"^CSDOF?\s+", re.I)
+# ...and CSDO_ON / CSDO_OFF, CSDO for a run: kern_mega's `push ds` and `pop ds`
+# (nothing on any other build), counted as kern_mega's - a jump out of a run
+# is the defect, and only that build's depth sees it
+CSDOON = re.compile(r"^CSDO_ON\s*$", re.I)
+CSDOOFF = re.compile(r"^CSDO_OFF\s*$", re.I)
 
 
 def delta(text):
     """How this instruction moves SP, in words. None = not a stack move."""
-    if SEGPUSH.match(text):
+    if SEGPUSH.match(text) or CSDOON.match(text):
         return 1
+    if CSDOOFF.match(text):
+        return -1
     if CSDO.match(text):
         return delta(CSDO.sub("", text))
     if PUSH.match(text):

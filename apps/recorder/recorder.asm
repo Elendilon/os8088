@@ -24,8 +24,10 @@
 ; here - it is the only thing that works.
 ;
 ;   - REC needs SND_CAP_PCM_IN (a Sound Blaster): verb 7 grants a 40,000 B
-;     capture buffer (5 s at 8 kHz), verb 4 opens the input stream, and the
-;     kernel drain task fills the grant. Without the cap the button is drawn
+;     take (5 s at 8 kHz), and verb 4 records into an EXTERNAL RING of ours
+;     (SPEC.md 34.6.4) - a 16 KB page-safe claim the card writes by itself -
+;     which a window timer (SPEC.md 13.9) copies into the grant every
+;     RC_PUMP ticks (rc_pump). Without the cap the button is drawn
 ;     grayed AND a click on it only explains in the status line (the
 ;     three-layer refusal idiom, SPEC.md 31.3) - the app stays fully usable
 ;     as a player on speaker-only machines.
@@ -136,6 +138,13 @@ RC_BTN_W    equ 52                  ; buttons at x 4 / 58 / 112 / 166
 RC_TIERS    equ 4
 RC_CAP_MAX  equ 40000               ; tier 0: 5 s at 8 kHz
 RC_RATE     equ 8000                ; one rate everywhere (PWM N=149, in range)
+RC_RCODE    equ 2                   ; the record ring's size code: 16 KB, 2 s
+RC_RL       equ 4096 << RC_RCODE    ; at RC_RATE - the UI task may be away that
+                                    ; long (a menu held down) before it laps us
+RC_RKB      equ RC_RL/1024 + 1      ; the ring and its two words, one claim
+RC_BLKSH    equ 2                   ; the card's block: 2,048 >> 2 = 512 bytes
+RC_RBLK     equ 2048 >> RC_BLKSH    ; ...as bytes (SPEC.md 34.6.4: SBL_RHALF >>)
+RC_PUMP     equ 2                   ; ticks between copies: ~880 bytes at 8 kHz
 RC_CHUNK    equ 250                 ; demo synth/stage chunk (divides RC_D_LEN/2,
                                     ; so the sweep turns on a chunk boundary).
                                     ; It is most of rc_pbuf: 32 verb-6 calls
@@ -192,6 +201,7 @@ rc_entry:
     mov si, rc_tpl
     call OSAPI_WM_CREATE            ; BX = window ptr, CF on table full
     jc .out
+    mov [rc_win], bx                ; rc_do_rec arms the window's timer
     ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, where the window
     ; exists, and not beside any worker's declaration: a package with
     ; NO worker is the case that moves most easily, and putting it at
@@ -203,6 +213,8 @@ rc_entry:
     call OSAPI_WM_ONMOUSEUP         ; landed on - so a mis-aimed press can be
     mov ax, rc_ondrag               ; slid off and cancelled - and 13.8.1's
     call OSAPI_WM_ONDRAG            ; tracking edge, so it comes back UP while
+    mov ax, rc_ontimer              ; the record pump (SPEC.md 13.9; CF on
+    call OSAPI_WM_ONTIMER           ; kern_small, which has no SOUND.DRV)
     pop ax                          ; the pointer is off it rather than at the
                                     ; release. Not template words; set after
                                     ; wm_create, like MENU_SET
@@ -237,11 +249,14 @@ rc_paint:
     call rc_org
     call rc_poll
     call rc_draw_all
+rc_card:                            ; (rc_ontimer's take-end repaint too)
     cmp byte [rc_abon], 0           ; ...and the About card LAST, over the
     je rc_pop6                      ; face it is opaque about (SPEC.md 20.5.1)
-    mov si, rc_ablines              ; (SI is the window no longer: the pops
-    call os88ui_about_d             ; put it back. _d: this paint's region is
-    jmp rc_pop6                     ; already armed)
+    mov bx, [rc_win]                ; the window: rc_draw_all left BX at
+    mov si, rc_ablines              ; rc_s_line2, which the card used to be
+    call os88ui_about_d             ; handed as one. SI is the window no
+    jmp rc_pop6                     ; longer either: the pops put it back.
+                                    ; _d: this paint's region is armed
 
 ; -----------------------------------------------------------------------------
 ; rc_org - stash the window's content origin in [rc_ox]/[rc_oy]
@@ -452,8 +467,19 @@ rc_cmd:
 ; path - the two ways of asking for the same four transitions have to leave
 ; the same pixels behind. Unlike rc_paint's, this content is NOT already
 ; white: the previous state's waveform and labels are still under us.
+;
+; NOTHING ARMS A REGION FOR IT: the kernel draws a menu command's handler
+; unclipped (ui.inc's .oncmd calls AM_ONCMD straight from the lock), and a
+; click arms none either (SPEC.md 11.3) - so a window that another sits
+; over would be white-filled THROUGH it. It arms its own, as rc_ontimer does,
+; over [rc_win] (the rc_do_* routines took SI): CF = 1 is not one pixel
+; showing, and then nothing is drawn - the exposure's W_PAINT draws the face.
+; Re-arming under rc_ontimer's region rebuilds the same one.
 ; -----------------------------------------------------------------------------
 rc_repaint:
+    mov bx, [rc_win]
+    call OSAPI_WM_CLIP_SET          ; CF = 1: wholly covered, and disarmed
+    jc .r
     mov al, CWHITE
     call OSAPI_SET_COLOR
     mov ax, [rc_ox]
@@ -464,6 +490,8 @@ rc_repaint:
     add dx, RC_CONT_H-1
     call OSAPI_GFX_FILL
     jmp rc_draw_all
+.r:
+    ret
 
 ; -----------------------------------------------------------------------------
 ; rc_poll - read STREAM verb 3 and retire state changes (SPEC.md 34.3: the
@@ -502,6 +530,7 @@ rc_poll:
     jmp short .say
 .pstale:
     mov byte [rc_st], RC_IDLE       ; stale: torn down under us
+    call rc_rfree
     mov ax, rc_s_stopped
     jmp short .say
 
@@ -509,24 +538,21 @@ rc_poll:
 .rec:
     or ax, ax                       ; 0 = still recording
     jnz .r1
-.rlive:
-    mov [rc_len], dx                ; live captured count
-    jmp short .out
+    call rc_pump                    ; the ring into the grant...
+    mov ax, rc_s_rover
+    jc .rend                        ; ...unless the card lapped us
+    mov ax, [rc_len]
+    cmp ax, [rc_cap]
+    jb .out
+    mov ax, rc_s_rfull              ; the grant is full: the take is done
+    jmp short .rend
 .r1:
     cmp ax, SND_ST_ENDED            ; watchdog: input IRQs stopped arriving
-    je .rwdog                       ; (on QEMU they never start - SPEC.md 35)
-    cmp ax, SND_ST_UNDER            ; state 1 is BOTH pauses (SPEC.md 20.3):
-    jne .pstale                     ; (not 1: stale, torn down under us)
-    cmp dx, [rc_cap]                ; consumed < capacity = drain starve -
-    jb .rlive                       ; track the count, kernel resumes (34.6)
-    mov [rc_len], dx                ; consumed == capacity: full - close
-    call rc_close
-    mov ax, rc_s_rfull
-    jmp short .say
-.rwdog:
-    mov [rc_len], dx
-    call rc_close
+    jne .pstale                     ; (on QEMU they never start - SPEC.md 35)
+    call rc_pump                    ; (what did arrive is kept)
     mov ax, rc_s_rwdog
+.rend:
+    call rc_close
 .say:
     mov [rc_msg], ax
 .out:
@@ -542,10 +568,150 @@ rc_poll:
 ; -----------------------------------------------------------------------------
 rc_close:
     mov ah, [rc_hand]
-    mov al, 2                       ; verb 2: close
-    call OSAPI_SND_STREAM
+    mov al, 2                       ; verb 2: close - the card stops writing
+    call OSAPI_SND_STREAM           ; the ring before rc_rfree lets it go
     mov byte [rc_st], RC_IDLE
+                                    ; ...and falls into rc_rfree
+; -----------------------------------------------------------------------------
+; rc_rfree - free the record ring, if one is held
+; in:  nothing; out: [rc_rseg] = 0; preserves all registers
+; -----------------------------------------------------------------------------
+rc_rfree:
+    push dx
+    xor dx, dx
+    xchg dx, [rc_rseg]
+    or dx, dx
+    jz .out
+    call OSAPI_MEM_FREE
+.out:
+    pop dx
     ret
+
+; -----------------------------------------------------------------------------
+; rc_pump - copy what the card has captured out of the ring into the grant
+; in:  a record stream open, [rc_rseg] its ring; [rc_len] = bytes taken so
+;      far, which is also the read count (a take is < 64 KB)
+; out: CF = 1 the card lapped the ring before we read it; [rc_len] advanced
+;      (never past [rc_cap]); preserves all registers
+;
+; The ring's count is free-running (SPEC.md 34.6.4), so captured - taken is
+; what waits, mod 65,536 - and at most RL less ONE BLOCK of it is whole: the
+; count moves a block at a time and the DMA is meanwhile writing the block
+; after it, which is the oldest block of the RL bytes before the count. The
+; count is re-read per chunk, so the copy below never trails it by more than
+; one 256-byte chunk against a 512-byte block (64 ms at 8 kHz).
+; The copy goes through rc_pbuf because verb 6 stages
+; from OUR segment: up to 256 bytes a call, never across the ring's end.
+; -----------------------------------------------------------------------------
+rc_pump:
+    push ax
+    push cx
+    push si
+    push di
+    push es
+.more:
+    mov es, [rc_rseg]
+    mov ax, [es:RC_RL+SND_EXT_CONS] ; bytes captured, free-running
+    sub ax, [rc_len]                ; ...not yet taken
+    cmp ax, RC_RL - RC_RBLK         ; the card is filling the block AFTER
+    ja .over                        ; the count, which is the oldest RC_RBLK
+                                    ; of the RL before it: more waiting than
+                                    ; RL less one block is torn already
+    mov cx, [rc_cap]
+    sub cx, [rc_len]                ; the room left in the grant
+    cmp ax, cx
+    jbe .n
+    xchg ax, cx
+.n:
+    or ax, ax                       ; (clears CF)
+    jz .out
+    mov si, [rc_len]
+    and si, RC_RL-1                 ; SI = where it is in the ring
+    mov cx, RC_RL
+    sub cx, si                      ; CX = to the ring's end...
+    cmp cx, ax
+    jbe .c1
+    mov cx, ax                      ; ...or what waits...
+.c1:
+    cmp cx, 256
+    jbe .c2
+    mov cx, 256                     ; ...or rc_pbuf, whichever is least
+.c2:
+    push cx
+    mov di, rc_pbuf
+    push ds
+    push ds
+    pop es                          ; ES = ours
+    mov ds, [rc_rseg]               ; DS = the ring (read before it changes)
+    cld
+    rep movsb
+    pop ds
+    pop cx
+    mov si, rc_pbuf
+    mov di, [rc_goff]
+    add di, [rc_len]
+    mov ax, 0x0006                  ; verb 6 stage: DS:SI -> grant at DI
+    call OSAPI_SND_STREAM
+    or ax, ax
+    jnz .over                       ; the grant is gone: end the take
+    add [rc_len], cx
+    jmp short .more
+.over:
+    stc
+.out:
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; rc_ontimer - W_ONTIMER (SPEC.md 13.9): the record pump's tick
+; in:  SI = window ptr; gfx lock held. out: nothing; preserves all registers
+; One-shot, so it re-arms itself while the take goes on; when rc_poll has
+; ended it the whole face is redrawn - the strip, the buttons, the message.
+;
+; A TIMER ARRIVES WITH NO CLIP REGION (SPEC.md 11.3, 13.9), so this arms its
+; own before any pixel: without it a covered or minimised Recorder lettered
+; its status lines over whatever was on top ~9 times a second, and the take's
+; end put a white fill the size of its content there. Not visible (CF = 1)
+; draws nothing - the exposure's W_PAINT draws the face - but the pump has
+; already run and the timer is still re-armed: the take goes on regardless.
+; The region dies at the kernel's unlock, so there is nothing to release.
+; The About card (rc_abon) is honoured as rc_paint honours it: no status is
+; lettered over it, and the take-end repaint puts it back up LAST.
+; -----------------------------------------------------------------------------
+rc_ontimer:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    cmp byte [rc_st], RC_REC
+    jne rc_pop6
+    call rc_org                     ; (BX = SI)
+    call rc_poll                    ; (preserves all: BX is still the window)
+    call OSAPI_WM_CLIP_SET          ; CF = 1: not one pixel shows
+    sbb di, di                      ; DI = -1 draw nothing (no drawer below
+    cmp byte [rc_st], RC_REC        ; touches DI before it is read)
+    jne .end
+    or di, di
+    jnz .arm                        ; hidden: pump only
+    cmp byte [rc_abon], 0
+    jne .arm                        ; the card is up: it covers the status
+    call rc_draw_status             ; the live count (clobbers BX)
+.arm:
+    mov bx, [rc_win]
+    mov ax, RC_PUMP
+    call OSAPI_WM_TIMER
+    jmp rc_pop6
+.end:
+    or di, di
+    jnz rc_pop6                     ; hidden: the exposure repaints it all
+    call rc_repaint                 ; the face as the take left it...
+    jmp rc_card                     ; ...and the card over it, if it is up
 
 ; -----------------------------------------------------------------------------
 ; rc_grant - ensure the capture/staging grant exists, as big as we can get
@@ -604,7 +770,7 @@ rc_captab:  dw RC_CAP_MAX, 24000, 16000, RC_D_LEN
 rc_cmdtab:  dw rc_do_rec, rc_do_stop, rc_do_play, rc_do_demo
 
 ; -----------------------------------------------------------------------------
-; rc_do_rec - the REC button: verb 4 open-in into the grant
+; rc_do_rec - the REC button: verb 4 into our ring, pumped into the grant
 ; in:  nothing
 ; out: nothing; clobbers AX, CX, DX, SI
 ; The three-layer refusal (SPEC.md 32 idiom): no SND_CAP_PCM_IN means the
@@ -616,10 +782,16 @@ rc_do_rec:
     jz .noin
     call rc_grant
     jc .out
-    mov ax, 0x0004                  ; verb 4 open-in: capture CX bytes into
-    mov si, [rc_goff]               ; the grant at SI (SPEC.md 20.3)
-    mov cx, [rc_cap]
+    mov ax, RC_RKB
+    mov cx, ax                      ; all of it is the card's: page-safe
+    call OSAPI_MEM_CLAIM_DMA_HI     ; DX = the ring's segment
+    jc .nomem
+    mov [rc_rseg], dx
+    mov di, dx                      ; verb 4, EXTERNAL (SPEC.md 34.6.4): DI:SI
+    xor si, si                      ; the ring, CX unread, the size and block
+    xor cx, cx                      ; codes in AH
     mov dx, RC_RATE
+    mov ax, (((RC_RCODE << SND_OPENF_RLSH) | (RC_BLKSH << SND_OPENF_BLKSH) | SND_OPENF_RING | SND_OPENF_EXT) << 8) | 4
     call OSAPI_SND_STREAM           ; out AL = err, AH = handle
     or al, al
     jnz .err
@@ -627,12 +799,19 @@ rc_do_rec:
     mov byte [rc_st], RC_REC
     mov word [rc_len], 0            ; the old take is gone
     mov word [rc_msg], rc_s_rec
+    mov bx, [rc_win]
+    mov ax, RC_PUMP
+    call OSAPI_WM_TIMER             ; the pump (rc_ontimer)
 .out:
     ret
 .noin:
     mov word [rc_msg], rc_s_noin
     ret
+.nomem:
+    mov word [rc_msg], rc_s_nomem
+    ret
 .err:
+    call rc_rfree
     mov ah, 0
     jmp rc_errmsg
 
@@ -649,13 +828,7 @@ rc_do_stop:
     mov word [rc_msg], rc_s_notrun
     ret
 .rec:
-    mov ah, [rc_hand]
-    mov al, 3                       ; last status first: DX = bytes captured
-    call OSAPI_SND_STREAM
-    cmp ax, 0FFFFh
-    je .recdone                     ; stale: keep whatever count we had
-    mov [rc_len], dx
-.recdone:
+    call rc_pump                    ; what the card has, before it stops
     call rc_close
     mov word [rc_msg], rc_s_stopped
     ret
@@ -1303,6 +1476,7 @@ rc_s_idle:   db 'READY', 0
 rc_s_rec:    db 'RECORDING...', 0
 rc_s_rwdog:  db 'REC STOPPED (WATCHDOG)', 0
 rc_s_rfull:  db 'REC STOPPED (FULL)', 0
+rc_s_rover:  db 'REC STOPPED (OVERRUN)', 0
 rc_s_pstop:  db 'PLAY '            ; ...which runs on into
 rc_s_stopped: db 'STOPPED', 0       ; this one: one NUL, two messages
 rc_s_psb:    db 'PLAYING (SB)', 0
@@ -1344,7 +1518,7 @@ rc_sine:
 %include "os88ui.inc"           ; buttons this already drew
 %include "os88pcm.inc"          ; the PWM clip player (SPEC.md 34.4)
 
-    OS88_BSS 276
+    OS88_BSS 280
     OS88_IMAGE_END
 
 ; --- loader-zeroed bss (SPEC.md 21 step 5) -------------------------------------
@@ -1377,5 +1551,7 @@ rc_pbuf  equ os88_image_end + 20    ; 256 B: the demo's synth/stage buffer
                                     ; play's chunks, which take a claim of
                                     ; their own now (rc_do_play) - and the
                                     ; Bresenham error is BP inside rc_do_demo
-                                    ; total 20 + 256 = 276
+rc_rseg  equ os88_image_end + 276   ; word: the record ring's claim, 0 = none
+rc_win   equ os88_image_end + 278   ; word: our window, for the pump's timer
+                                    ; total 20 + 256 + 4 = 280
                                     ; total 4023

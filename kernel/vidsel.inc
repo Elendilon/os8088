@@ -468,78 +468,6 @@ VSW_AVAIL vid
 VSW_EQUIP vid                   ; (still `.modu`: VSW_AVAIL's section)
 section .text
 
-; -----------------------------------------------------------------------------
-; vid_mono_text - put the REAL mono card into 80x25 text, when int 10h cannot
-;                 (SPEC.md 39.20)
-;
-; in:       [vid_kind] is VID_HERC and the caller has already blanked 3B8h and
-;           written 3BFh = 0
-; out:      CF = 1 this card is now in text and the caller must NOT call
-;                  int 10h; CF = 0 not this machine's problem, use the ROM
-; clobbers: flags
-;
-; The one case is A VGA IN THE MACHINE. Everything else - a lone MDA, a lone
-; Hercules, Hercules+CGA - has an int 10h owned by the motherboard ROM, whose
-; mode 7 IS this card and whose mode set is equipment-driven, so vid_equip
-; above already names it and this returns CF = 0 having touched nothing. That
-; is why the shipping pairing cannot change behaviour here.
-;
-; IT IS A PRE-EXISTING BUG AND NOT THIS BRANCH'S, which is worth stating
-; because it sits in a file the extended desktop is being built in. Reaching
-; it needs no extended desktop at all: a VGA and a Hercules in one machine,
-; the Display page (SPEC.md 31.10) used to make the Hercules primary, and then
-; a reboot - all of which the shipped kernel does today. vid_dual_ok's refusal
-; gates the DESKTOP, never vid_switch.
-;
-; What it does NOT do is update 40:49/40:63. Those describe the card int 10h
-; drives, and on this machine that is the VGA - saying "mode 7 at 3B4" there
-; would point the ROM at a card it has never heard of. vid_reboot below is
-; where the other card is given something the BIOS can honestly print on.
-; -----------------------------------------------------------------------------
-vid_mono_text:
-%ifndef GFX_VGA                 ; NO VGA IN THE BUILD, so [vid_avail]'s VGA
-    clc                         ; bit can never be set (see vid_probe_avail:
-    ret                         ; its only writer of that bit is `shl al, cl`
-%else                           ; on [vid_kind], vid_detect's VGA/EGA probes
-                                ; are themselves %ifdef GFX_VGA, VIDEO=vga is
-                                ; a %error there (viddet.inc 51), and every
-                                ; other [vid_kind] writer is inside
-                                ; %ifdef KERN_BIG). The whole body below is
-                                ; unreachable, and this IS the answer it gives.
-    test byte [vid_avail], VID_A_VGA
-    jnz .mine
-                                ; the ROM's mode 7 is this card: let it
-    ret
-.mine:
-    push ax
-    push cx
-    push dx
-    push si
-    push di
-    push es
-    mov si, vid_6845t           ; MDA 80x25, cursor off (viddet.inc)
-    call vid_6845_prog
-    VSEG ax, VID_HERC_SEG        ; and clear the page, which the ROM's mode set
-    mov es, ax                  ; would have done: what is in there is a
-    xor di, di                  ; 720x348 graphics desktop, and read as
-    mov ax, 0x0720              ; characters it is noise. Space on attribute 7
-    mov cx, 2000
-    cld
-    rep stosw
-    mov dl, 0xB8                ; high-res text, video ON, blink on - IBM's own
-                                ; (3B8h: vid_6845_prog leaves DX at 3B4h, and
-                                ; rep stosw moves no DX)
-    mov al, 0x29                ; mode 7 value, and the last write for the same
-    out dx, al                  ; reason vid_setmode's is (39.6): onto a page
-    pop es                      ; that is already blank
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop ax
-    stc
-    ret
-%endif
 
 ; -----------------------------------------------------------------------------
 ; vid_reboot - the text mode CMD_REBOOT wants, on every card (SPEC.md 39.20.1)
@@ -1114,8 +1042,8 @@ section .text
                                 ; adapter may not be the edge it was on
                                 ; (SPEC.md 30.5.1)
 %endif
-    call COLD_SEG:desk_rowcalc_x ; 4. the two things vid_apply does not own
-    call %3 %+ _refit
+    call %3 %+ _rowcalc         ; 4. the two things vid_apply does not own
+    call %3 %+ _refit           ; (desk.inc's DESK_ROWCALC: this image's own)
 %ifdef KERN_BIG
     push ax                     ; ...and the THEME, which can be a fact about
     mov al, [thm_kind]          ; the adapter: SPEC.md 76.12's Color theme is
@@ -1314,13 +1242,33 @@ vid_bk:
     out dx, al
 %ifdef GFX_VGA                  ; (without the planar arm .out is the next
     jmp short .out              ; instruction, and the jump is not assembled)
-.planar:
-    mov al, dh                  ; BOTH planar kinds blank the same way - the
-    call vid_ac_pal             ; Attribute Controller's Color Plane Enable,
-%endif                          ; which an EGA and a VGA both have.
-                                ; vid_ac_pal reads its argument as ZERO /
-                                ; NONZERO, so this body's own direction byte
-                                ; - 0 dark, 8 lit - is already the argument
+.planar:                        ; BOTH planar kinds blank the same way - the
+                                ; Attribute Controller's Color Plane Enable,
+                                ; which an EGA and a VGA both have (vid_ac_pal
+                                ; below is the account: that was a routine of
+                                ; its own with this one caller until kernel
+                                ; size pass 16 wrote it in here, its call,
+                                ; ret and AX/DX bank going - this routine
+                                ; banks both already, -8). It reads the
+                                ; direction byte as ZERO / NONZERO, so 0 dark,
+                                ; 8 lit is already the argument
+    mov al, dh
+    neg al                      ; 0 -> 0, CF=0; nonzero -> CF=1
+    sbb ah, ah                  ; AH = 0x00 dark / 0xFF lit...
+    and ah, 0x0F                ; ...and the four planes are the low nibble
+    pushf
+    cli
+    mov dx, 0x3DA               ; Input Status 1: latch to INDEX...
+    in al, dx
+    mov dl, 0xC0                ; (3C0h: DH is 3 from the move above)
+    mov al, 0x32                ; ...AC 12h, Color Plane Enable, WITH BIT 5
+    out dx, al
+    mov al, ah
+    out dx, al                  ; 0 = every pixel reads as attribute 0
+    mov dl, 0xDA                ; leave the latch where every reader assumes
+    in al, dx                   ; it, INDEX, and not mid-pair
+    popf
+%endif
 .out:
     pop ax
     pop dx
@@ -1343,9 +1291,11 @@ vid_cgamode db 0x1E             ; THE CGA'S OWN 3D8h VALUE (SPEC.md 39.18.1.1),
 ; -----------------------------------------------------------------------------
 ; vid_ac_pal - the PLANAR blank: the Attribute Controller's Color Plane Enable
 ;
-; in:       AL = 0 to dark the screen, nonzero to light it
+; WRITTEN INTO vid_bk's .planar arm, its one caller (kernel size pass 16); the
+; name is kept for this account and for SPEC.md 39.24/64, which cite it.
+; in:       AL = 0 to dark the screen, nonzero to light it (vid_bk: DH)
 ; out:      -
-; clobbers: flags (AX and DX are banked)
+; clobbers: flags (AX and DX are vid_bk's to bank)
 ;
 ; AN EGA HAS NEITHER ENABLE BIT. Sequencer register 1 bit 5 (Screen Off) and
 ; the Attribute Controller index's bit 5 (Palette Address Source) are BOTH
@@ -1393,30 +1343,6 @@ vid_cgamode db 0x1E             ; THE CGA'S OWN 3D8h VALUE (SPEC.md 39.18.1.1),
 ; with reachable gaps in it, off ui_task's idle blanker, pre-emptible
 ; throughout. pushf/cli ... popf, never cli/sti (SPEC.md 1).
 ; -----------------------------------------------------------------------------
-%ifdef GFX_VGA                  ; its only caller is vid_bk's planar arm, which
-                                ; is itself gated
-vid_ac_pal:
-    push ax
-    push dx
-    neg al                      ; 0 -> 0, CF=0; nonzero -> CF=1
-    sbb ah, ah                  ; AH = 0x00 dark / 0xFF lit...
-    and ah, 0x0F                ; ...and the four planes are the low nibble
-    pushf
-    cli
-    mov dx, 0x3DA               ; Input Status 1: latch to INDEX...
-    in al, dx
-    mov dl, 0xC0                ; (3C0h: DH is 3 from the move above)
-    mov al, 0x32                ; ...AC 12h, Color Plane Enable, WITH BIT 5
-    out dx, al
-    mov al, ah
-    out dx, al                  ; 0 = every pixel reads as attribute 0
-    mov dl, 0xDA                ; leave the latch where every reader assumes
-    in al, dx                   ; it, INDEX, and not mid-pair
-    popf
-    pop dx
-    pop ax
-    ret
-%endif                          ; ...end of vid_ac_pal
 
 %ifdef KERN_BIG
 
@@ -1555,28 +1481,9 @@ vid_ctx_ptr:
                                 ; unchanged
 
 ; -----------------------------------------------------------------------------
-; vid_ctx_pre - internal: the set-up vid_ctx_capture and vid_ctx_act share
-;
-; in:       AL = display index
-; out:      DS = ES = KERNEL_SEG, DI = the record, CX = VID_CTX_W, DF clear
-; clobbers: CX, DI, DS, ES, flags
-;
-; In .text beside its two callers on purpose: a near call across a section
-; boundary assembles and runs wrong, and both callers are here.
-; -----------------------------------------------------------------------------
-vid_ctx_pre:
-    KDATAR cx                   ; both ends are ours; the caller's ES is not
-    mov ds, cx
-    mov es, cx
-    call vid_ctx_ptr            ; DI = the record. It reads no memory, so
-    mov cx, VID_CTX_W           ; calling it after DS is loaded is what both
-    cld                         ; callers did anyway
-    ret
-
-; -----------------------------------------------------------------------------
 ; vid_ctx_capture - bank the live geometry into display AL's record
 ;
-; in:       AL = display index
+; in:       AL = display index; DS = KERNEL_SEG (every caller's already)
 ; out:      -
 ; clobbers: flags
 ;
@@ -1586,24 +1493,45 @@ vid_ctx_pre:
 ; one other entry on the list. Miss one and the display's record describes a
 ; geometry that has moved on - which shows up as drawing through the wrong
 ; segment the next time that display is activated, a long way from the cause.
+;
+; WRITTEN ONCE AND EXPANDED WHERE ITS CALLERS ARE (kernel size pass 15): it
+; was a resident `.text` body nothing resident called. Its callers are the
+; Control Panel's vid_disp_init (`vid_ctxcap`, CTRL.DRV), EXTD.DRV's Extend
+; (`ext_ctxcap`), the blob's bvs_disp_init (`cfx_ctxcap` in `.cfx` on
+; kern_big and kern_emu, whose blob is full, `bvs_ctxcap` in kern_mega's) and
+; the boot overlay's vid_ctx_init, which writes it in. %1 is the label, %2
+; the return (`ret`, or `retf` in `.cfx`). The vid_ctx_pre it shared with
+; vid_ctx_act is written into vid_ctx_act now, its one caller left.
 ; -----------------------------------------------------------------------------
-vid_ctx_capture:
-    push ax
+%macro VID_CTXCAP 2
+%1:
     push cx
     push si
     push di
-    push ds
     push es
-    call vid_ctx_pre            ; DS = ES = KERNEL_SEG, DI = the record,
-    push di                     ; CX = VID_CTX_W, DF clear
+    push ds                     ; ES = DS = KERNEL_SEG (on kern_mega the data
+    pop es                      ; alias, which is what DS is at every caller)
+    mov di, vid_ctx             ; vid_ctx_ptr, written in: display 0 or 1
+    or al, al
+    jz %%one
+    add di, VID_CTX_SZ
+%%one:
+    push di
     mov si, vid_seg
+    mov cx, VID_CTX_W
+    cld
     rep movsw
     pop di
     mov cl, [vid_kind]          ; ...and the adapter this geometry IS. Here
     mov [di+VID_CTX_KIND], cl   ; rather than in the run, because the run is
                                 ; what the RENDERER reads and a kind is not
                                 ; renderer state (SPEC.md 39.12)
-    jmp short vid_ctx_act.pops  ; the same six pushes, so the same six pops
+    pop es
+    pop di
+    pop si
+    pop cx
+    %2
+%endmacro
 
 ; -----------------------------------------------------------------------------
 ; vid_ctx_act - make display AL the one the renderer draws on
@@ -1627,8 +1555,14 @@ vid_ctx_act:
     push di
     push ds
     push es
-    call vid_ctx_pre            ; DS = ES = KERNEL_SEG, DI = the record,
-    mov si, di                  ; CX = VID_CTX_W, DF clear - and the record is
+    KDATAR cx                   ; DS = ES = KERNEL_SEG: both ends are ours
+    mov ds, cx                  ; and the caller's ES is not (vid_ctx_pre,
+    mov es, cx                  ; written in: kernel size pass 15)
+    call vid_ctx_ptr            ; DI = the record (it reads no memory)
+    mov cx, VID_CTX_W           ; (no `cld`: DF = 0 is SPEC.md 1's, and every
+                                ; ISR that draws clears it at its gate -
+                                ; kernel size pass 17)
+    mov si, di                  ; ...and the record is
     mov di, vid_seg             ; the SOURCE this way round
     rep movsw
     sub si, VID_CTX_W*2         ; ...and rep movsw left SI exactly that far
@@ -1676,7 +1610,7 @@ vid_ctx_act:
     mov di, VID_ROWTAB
 .norow:
     mov [vid_rowmax], di
-.pops:                          ; (vid_ctx_capture leaves through here too)
+.pops:
     pop es                      ; the pops are HERE, not above the origin
     pop ds                      ; block: DS is KERNEL_SEG either way (every
     pop di                      ; caller of this routine already has it, or
@@ -1685,6 +1619,9 @@ vid_ctx_act:
     pop ax                      ; uses no segment register and no SI
 .out:
     ret
+%ifdef KERN_SMALL
+    nop                         ; PARITY PAD, never run, kern_small only (kernel
+%endif                          ; size pass 15): kern_big paired it with viddet's
 
 ; -----------------------------------------------------------------------------
 ; vid_ctx_init - one display, at the origin, holding what is on screen now
@@ -1729,10 +1666,18 @@ vid_ctx_init:
     mov [es:di+VID_CTX_VY], ax
     mov [vid_ox], ax            ; ...and it is current, so vid_ctx_act - which
     mov [vid_oy], ax            ; is what normally publishes these - never runs
-    mov bp, vid_ctx_capture     ; ...and capture display 0 (AL = 0 already).
-    call KERNEL_SEG:spw_near    ; spw_near and not a cw_ shim since kernel
-                                ; size pass 14: EXTD.DRV, the shim's other
-                                ; caller, has its own EXK hop
+    push cx                     ; ...and capture display 0, written in
+    push si                     ; (kernel size pass 15: vid_ctx_capture is
+    push di                     ; VID_CTXCAP now, and DI is display 0's
+    mov si, vid_seg             ; record already, ES = DS = KERNEL_SEG)
+    mov cx, VID_CTX_W
+    cld
+    rep movsw
+    pop di
+    mov cl, [vid_kind]
+    mov [di+VID_CTX_KIND], cl
+    pop si
+    pop cx
     pop es
     pop di
     pop ax
@@ -1846,8 +1791,10 @@ vid_disp_find:
 ; sentence applied one field further.
 ; -----------------------------------------------------------------------------
 vid_disp_planes:
-    push ax
-    push di
+    push ax                     ; (no DI bank, kernel size pass 17, -2: both
+                                ; callees keep it - vid_disp_of's
+                                ; vid_disp_find pushes its own, vid_kind_of
+                                ; brackets its vid_ctx_ptr)
     call vid_disp_of            ; AL = the display holding it...
     call vid_kind_of            ; ...and AL = that display's adapter
     mov cx, 1
@@ -1862,7 +1809,6 @@ vid_disp_planes:
     mov cx, [vx_bpp]            ; sized in packed bytes
 %endif
 .out:
-    pop di
     pop ax
     ret
 
@@ -2138,7 +2084,15 @@ vid_dual_ok:
     call %1 %+ _apply           ; republishes the chrome extent AND re-homes
 .cap:
     xor al, al                  ; the pointer onto display 0 - which is what
-    %2 vid_ctx_capture          ; a shrinking desktop owes it
+%ifidn %1, bvs                  ; a shrinking desktop owes it - through this
+ %ifdef COLD_SLIDE              ; image's own copy (VID_CTXCAP): the blob's
+    call CFX_RAM:cfx_ctxcap     ; is in `.cfx` where there is one, its own
+ %else                          ; where there is not
+    call bvs_ctxcap
+ %endif
+%else
+    call %1 %+ _ctxcap
+%endif
     call %1 %+ _desk_union      ; ...and BANK BEFORE UNION, the extend path's
 .jout:
     jmp short .out              ; order: the union reads display 0's record,
@@ -2161,6 +2115,7 @@ vid_dual_ok:
 %endmacro
 section .modu                   ; the Display page's (KSW_SECT, kernel.asm)
 VSW_DISP vid, KSWK
+VID_CTXCAP vid_ctxcap, ret      ; ...and its capture (above)
 section .text
 
 ; -----------------------------------------------------------------------------
@@ -2251,7 +2206,7 @@ vid_span_one:
 ; -----------------------------------------------------------------------------
 ; (THE BODY IS CTRL.DRV's since kernel size pass 13: the Display page was its
 ; one caller, and it now makes the three calls itself - ctrl.inc, the
-; arrangement's click - through its CPXK hop, with desk_rowcalc_x far)
+; arrangement's click - through its CPXK hop, with its own wm_rowcalc)
 
 ; -----------------------------------------------------------------------------
 ; vid_desk_union - the desktop spans every display (SPEC.md 39.16)

@@ -1449,7 +1449,10 @@ build that is MEANT TO GROW.
     fixer, `osapi_vol_fence`, `osapi_mem_movable_x`, `mem_reloc_call`,
     DESK.DRV's library selector, and the SDK's `OS88_CODESEL`, which is
     `value - 8` under CPU_F_PM now (the ABI lock moved without a bump: a
-    no-op on every real-mode kernel).
+    no-op on every real-mode kernel, but a binary built before this step
+    that inlined the alias - `OS88_CODESEL` or `op_cseg` - names an
+    unrelated LDT entry on kern_mega and must be rebuilt for it; kern_mega
+    pairs with its own release's apps disk, SPEC.md 20.18).
   - **Sized, not grown.** The plan asked for an LDT that starts at 2K and
     grows. What shipped is sized once, at the switch, from `[mega_extkb]`:
     `MEGA_LDT_FREE0 + 512 + one entry per 16KB of extended memory` (to 15MB),
@@ -1746,9 +1749,10 @@ build that is MEANT TO GROW.
   **TRACKER, MODPLUG and MIDIRACK (2026-10-25) - DONE (item 6), one shared
   path, no `PKG_MEGA` arm.** A module or bank past 64KB is reached through
   `SEG_SUB` windows made once at load (a real-mode kernel answers the sum
-  they replace). Tracker and ModPlug: four pattern windows of 64 patterns
-  each (`mp_pwin`; pattern p is window p >> 6 at 60 + 1024 x (p & 63)) and
-  one SUB per PLAYABLE sample at start >> 4 - at most 35 LDT entries an
+  they replace). Tracker and ModPlug: eight pattern windows of 32 patterns
+  each (`mp_pwin`; pattern p is window p >> 5 at 60 + 1024 x (p & 31), since
+  64 a window wrapped the 64th pattern's last rows onto the order table) and
+  one SUB per PLAYABLE sample at start >> 4 - at most 39 LDT entries an
   instance, none for an unplayable sample, freed with the claim; a refused
   SUB refuses the load as "Out of memory". MIDIRack: a window every 32KB of
   the bank, 64KB long, a note playing from window A >> 15 at A & 7FFFh

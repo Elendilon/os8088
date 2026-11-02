@@ -50,7 +50,7 @@ STORY = os.path.join(BUILD, "zt", "ZBIG.Z8")
 GOLD = os.path.join(BUILD, "zt", "ZBIG8.GLD")
 ZIW_NONE, ZIW_LINE = 0, 1
 PROBES = ["zi_want", "zi_linen", "zw_sbseg", "zw_sbhead", "zw_sbcount",
-          "zw_sbmax", "zf_err", "zf_dead", "zf_sseg", "zf_skb"]
+          "zw_sbmax", "zf_err", "zf_dead", "zf_sseg", "zf_spara"]
 ZW_UPMAX, ZW_LSTRIDE = 12, 128
 
 
@@ -107,9 +107,9 @@ def play(box, fz, out):
                                                  ZIW_LINE) else None)
                   (fz.bss()), "the story's first prompt", 600, poll=1.0)
     box.shot(os.path.join(out, "prompt.png"))
-    print("megafrotz: story claim %04x (%s), %dKB" %
+    print("megafrotz: story claim %04x (%s), %d paragraphs" %
           (v["zf_sseg"], "a selector" if v["zf_sseg"] & 4 else "a segment",
-           v["zf_skb"]))
+           v["zf_spara"]))
     if halted(v):
         return fz.lines(v), "halted before its first prompt"
     for cmd in ("go", "text", "go"):
@@ -163,7 +163,7 @@ def main():
                         os.path.join(tmp, "ZBIG.Z8")],
                        check=True, stdout=subprocess.DEVNULL)
         box = os88bochs.Box(out, [], bimg=disk, btype="1_44")
-        if not box.wait_for("kern_mega: protected mode", 300):
+        if not box.wait_pm(300):
             err = "kern_mega never reached protected mode"
         else:
             box.up()
@@ -174,7 +174,7 @@ def main():
         f = box.fault()
         if f:
             err = f
-        closed = [l for l in box.lines() if "kern_mega CLOSED" in l]
+        closed = [l for l in box.faults() if "kern_mega CLOSED" in l]
         if closed and not err:
             err = closed[0]
     finally:

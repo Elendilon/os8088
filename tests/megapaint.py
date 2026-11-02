@@ -406,8 +406,7 @@ def main():
     except Exception as e:      # noqa: BLE001 - the machine stopped
         want(False, "the run: %s" % e)
     finally:
-        bad = [l for l in box.lines() if "kern_mega FAULT" in l or
-               "kern_mega CLOSED" in l]
+        bad = box.faults()
         want(not bad, "6. no fault%s" % "".join(" | " + l for l in bad[:3]))
         box.stop()
     if saved is not None:

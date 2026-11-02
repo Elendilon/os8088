@@ -60,7 +60,8 @@ def traps(lines):
 
 def pool(box):
     """[(entry, off, kb, own)] of mx_tab and the pool's KB"""
-    X, K = box.reads([("mx_tab", MX_BLKSZ * MX_NBLK), ("xm_kb", 2)])
+    X, K = box.reads([(box.tail("mx_tab"), MX_BLKSZ * MX_NBLK),
+                      ("xm_kb", 2)])
     rows = [(k,) + struct.unpack_from("<HHB", X, k * MX_BLKSZ)
             for k in range(MX_NBLK)]
     return rows, struct.unpack_from("<H", K, 0)[0]
@@ -79,7 +80,7 @@ def fill(box):
     if at < xkb:
         gaps.append((at, xkb - at))
     free = [k for k, _, kb, _ in rows if not kb]
-    base = box.sym("mx_tab")
+    base = box.tail("mx_tab")
     made, cmds = [], []
     for (o, kb), k in zip(gaps, free):
         e = base + k * MX_BLKSZ
@@ -108,7 +109,7 @@ def main():
     box = ob.Box(out, [t.img("megahib.o88"), t.img("mines.o88")],
                  build=t.dir, bootc=True, noa=True, csys=True, megs=megs)
     try:
-        if not box.wait_for("kern_mega: protected mode", 300):
+        if not box.wait_pm(300):
             print("FAIL: kern_mega never reached protected mode")
             return 1
         # every wait below is on the guest's state (os88bochs.Box) where
@@ -172,14 +173,14 @@ def main():
     box = ob.Box(out, [], build=t.dir, cmode="keep", bootc=True, noa=True,
                  megs=megs)
     try:
-        if not box.wait_for("kern_mega: protected mode", 300):
+        if not box.wait_pm(300):
             fails.append("the second boot never reached protected mode")
         else:
             box.up()                    # the desktop and its Resume card
             box.capture()
             box.goto(225, 225)          # Resume
             box.xd("click", 1)
-            if not box.wait_for("kern_mega: resumed", 120):
+            if not box.wait_resumed(120):
                 fails.append("no `kern_mega: resumed`")
             box.ui_done("the resumed desktop")
             box.shot(os.path.join(out, "resumed.png"))

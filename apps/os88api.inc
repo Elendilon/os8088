@@ -601,7 +601,9 @@ SND_CAP_TONE     equ 01h
 SND_CAP_FM       equ 02h
 SND_CAP_PCM_BG   equ 04h
 SND_CAP_PCM_EXCL equ 08h
-SND_CAP_PCM_IN   equ 10h
+SND_CAP_PCM_IN   equ 10h         ; verb 4 records: a DSP >= 2.00, captured
+                                 ; into YOUR ring (SND_OPENF_EXT, SPEC.md
+                                 ; 34.6.4) - the only record stream there is
 SND_CAP_PCM_HI   equ 20h         ; PCM_BG takes rates ABOVE 22,222 Hz - an SB
                                  ; Pro or SB16 (DSP >= 3.00). Without it verb
                                  ; 0 answers 2 for any such rate, so do not offer
@@ -614,7 +616,8 @@ SND_CAP_ADPCM4Q  equ 40h         ; the DSP answers 4.xx, where Creative DROPPED
                                  ; silence and let the user choose (SPEC.md
                                  ; 34.5.3.1)
 SND_CAP_EXTBLK   equ 80h         ; verb 0 honours SND_OPENF_BLKSH
-                                 ; (SPEC.md 34.5.3)
+                                 ; (SPEC.md 34.5.3), and so does verb 4's
+                                 ; external ring where it has one (34.6.4)
 SND_CAP_MIXER    equ 0200h       ; readable hardware mixer (SPEC.md 34.15)
 SND_CAP_STEREO   equ 0400h       ; verb 11 takes SND_FMT_STEREO: an SB Pro
                                  ; (DSP 3.xx, 4,000..22,050 Hz a channel) or
@@ -698,6 +701,20 @@ SND_OPENF_EXT    equ 2           ; ...an EXTERNAL ring (SPEC.md 34.5.3), with
                                  ; free-running mod 65536, so you feed without
                                  ; a call; verb 1 is only needed to RESUME an
                                  ; underrun, and verb 9 still answers exactly.
+                                 ; VERB 4 REQUIRES IT (SPEC.md 34.6.4): a
+                                 ; RECORD ring at DI:SI, the same claim, RL
+                                 ; and block codes (RING is implied; CX and
+                                 ; the grant are not read - pass CX = 0, which
+                                 ; a driver without it refuses with 7). The
+                                 ; card captures into it in place, and each
+                                 ; block IRQ writes the count of bytes
+                                 ; captured, free-running, to [...+
+                                 ; SND_EXT_CONS], zeroed at the open. No
+                                 ; drain, no grant, NO OVERRUN PAUSE: you
+                                 ; judge your own lag. 7 without the flag (the
+                                 ; grant-and-drain record stream is gone), on
+                                 ; a single-cycle DSP or a ring across a 64KB
+                                 ; page
                                  ; KEEP THAT CLAIM STILL while the card
                                  ; is armed on it: undeclared, or pinned with
                                  ; OSAPI_MEM_MOVABLE AX = 0 from verb 0 until
@@ -769,7 +786,12 @@ SND_EXT_TAB      equ 16          ; os88spk.inc's PWM table, written by its
                                  ; SI = your ISR's offset - the kernel points
                                  ; IRQ0's GATE at BX:SI and answers AX = K and
                                  ; CX:DX = the chain; you program channel 0.
-                                 ; Your ISR must write nothing through CS
+                                 ; Your ISR must write nothing through CS.
+                                 ; ...and kern_mega's REAL-MODE bracket
+                                 ; (53.2.3, FSXF_REAL), where AL = 0 refuses
+                                 ; too: there AL = 2 points IVT 20h - IRQ0,
+                                 ; the 8259 at its protected-mode base - at
+                                 ; BX:SI, and your ISR runs in real mode
 SPK_E_NOTRATE    equ 1           ; not in a FSXF_RATE bracket (and always,
                                  ; on kern_small)
 SPK_E_BUSY       equ 3           ; open already, or a clip plays
@@ -824,7 +846,10 @@ OSAPI_LZ_LZ4 equ 0
 OSAPI_LZ_LZB equ 1
 OSAPI_LZ_BIG equ 0x80            ; ...OR'd in: AH:CX is the length (20.13.3)
 %define OSAPI_DECOMP        KERNEL_SEG:0x03D3   ; DS:SI = the compressed bytes,
-                                 ; T word first (SPEC.md 20.13.7: every stream
+                                 ; T word first - or the word 0xFFFF and then
+                                 ; T, a FILTERED stream (SPEC.md 20.13.9),
+                                 ; which comes back unfiltered; a kernel that
+                                 ; predates it refuses one (20.13.7: every stream
                                  ; ends in T raw bytes, and needs NO in-place
                                  ; margin - a source read from exactly
                                  ; output - packed above its destination is
@@ -1336,6 +1361,16 @@ VID_VESA  equ 4             ; a packed VESA display (SPEC.md 120): square
                                  ; the new window's first paint, and the entry
                                  ; proc it calls runs with the lock free like
                                  ; every other package's.
+                                 ;
+                                 ; **FROM YOUR ENTRY PROC, THE DOCUMENT ARM
+                                 ; POSTS** (SPEC.md 21.5.4): CF=0 means the
+                                 ; program opens the document once your launch
+                                 ; has unwound. Then REFUSE (CF=1): a launch
+                                 ; opened by a double-click says nothing and
+                                 ; repaints nothing for that refusal. One post
+                                 ; stands at a time, and the latest wins. Any
+                                 ; other form from an entry proc is not
+                                 ; allowed. kern_small: no documents (54.0).
 OSAPI_LD_EVER   equ 6            ; ...and the AL that means THAT FILE IS AN
                                  ; os8088 PACKAGE OF ANOTHER FORMAT (SPEC.md
                                  ; 20.2.0): built for an older or a newer
@@ -1670,6 +1705,14 @@ MEMC_POST   equ 1                ; AH: post - BX = a window of YOURS, AL = the
                                  ; run; CF=1 refused - a post is already
                                  ; standing. BX is trusted, as OSAPI_WM_WAKE
                                  ; trusts it
+MEMC_WHATIF_P equ 2              ; AH: MEMC_WHATIF in PARAGRAPHS - the same
+                                 ; walk before its KB rounding, for a caller
+                                 ; that prints the half-K the heap is counted
+                                 ; in (the Task Manager). CF=1 on kern_small,
+                                 ; which moves nothing: OSAPI_MEM_P's
+                                 ; MEMP_AVAIL is that kernel's answer. CLEAR
+                                 ; CF FIRST - kern_big's what-if hands back
+                                 ; the flags it was called with
 %define OSAPI_MEM_COMPACT   KERNEL_SEG:0x0443   ; AH = MEMC_WHATIF: AL = a
                                  ; purge level, out AX/BX as OSAPI_MEM_AVAIL_LVL
                                  ; planned as if YOUR OWN REGION could move;
@@ -2057,7 +2100,11 @@ CPU_F_PM            equ 0x10     ; SEGMENTS ARE SELECTORS: kern_mega is in
 ; (docs/plans/KERN-MEGA-PLAN.md 2.4, 3.2, M4; KERN-MEGA-MEMORY-PLAN MC7.4.)
 ; Under CPU_F_PM every claim is a PAIR of LDT selectors: the value the kernel
 ; hands back is the DATA half, writable, and the entry below it - that value
-; less 8 - is a CODE selector over the same bytes. A far call, far jump or
+; less 8 - is a CODE selector over the same bytes. ONE EXCEPTION: a claim an
+; OS88_HIGHMEM package is given in the pool above 1MB is a LONE data
+; selector. OSAPI_MEM_CODESEL says so (CF=1), and OSAPI_SEG's SEG_SUBC makes
+; a pair over it - apps/realdmg's rw_csel and apps/syscheck's FSCHECK.DRV
+; loader are the two worked examples (REALDMG-SPEC 16.2.6, SPEC.md 118.14.8). A far call, far jump or
 ; retf THROUGH the data half loads a data selector into CS, which is #GP:
 ; kern_mega completes it (mega_gpfix) and it works, at the price of a fault
 ; per transfer. A package that far-calls code it put in a claim - an overlay,
@@ -2232,6 +2279,57 @@ SEG_BWIN    equ 6
 SEG_AIM     equ 7
 SEG_AT      equ 8
 
+; OSAPI_MEM_P - THE CLAIM HEAP IN PARAGRAPHS (SPEC.md 50.2.1, 50.3.7). Every
+; claim is rounded to the heap's GRANULE - 512 bytes today, and the door says
+; what it is - so a package whose size is a BYTE count should ask here rather
+; than rounding up to a whole KB for the KB doors above, which can never ask
+; for less than a KB: half a granule a claim on average is what that costs.
+; OS88_BYTES_PARA turns a byte count into the paragraphs to ask for. The KB
+; doors stay for every package built against them; a claim from either is
+; freed with OSAPI_MEM_FREE and made movable with OSAPI_MEM_MOVABLE.
+%define OSAPI_MEM_P         KERNEL_SEG:0x04E9   ; X: BL = the verb:
+                                 ; MEMP_CLAIM / MEMP_CLAIM_HI  AX = paragraphs,
+                                 ;          CX = the 64KB-page-safe HEAD in
+                                 ;          paragraphs (0 = none) -> CF=0,
+                                 ;          DX = the base, AX = the paragraphs
+                                 ;          GRANTED (the slack is yours).
+                                 ;          _HI claims from the TOP, as
+                                 ;          OSAPI_MEM_CLAIM_HI does
+                                 ;          | MEMP_CPU: no int 13h will
+                                 ;          land in it, so its base need not
+                                 ;          be 512-aligned (SPEC.md 50.2.1.1)
+                                 ;          - leave it off for a disk buffer
+                                 ; MEMP_REGROW  DX = your claim, AX = the new
+                                 ;          paragraphs -> as OSAPI_MEM_REGROW,
+                                 ;          AX = the paragraphs granted
+                                 ; MEMP_AVAIL  -> AX = the largest claim you
+                                 ;          can have, BX = the total, in
+                                 ;          paragraphs, at your floor as
+                                 ;          OSAPI_MEM_AVAIL; CX = the GRANULE
+                                 ;          in paragraphs
+                                 ; CF=1 refused, and a CLAIM or REGROW verb's
+                                 ; AX is then the request rounded up to the
+                                 ; granule. Every register not named is kept,
+                                 ; CX included. On kern_mega an OS88_HIGHMEM claim
+                                 ; with no head goes above 1MB where it can,
+                                 ; granted the KB that covers it - unless CX
+                                 ; is MEMP_CONV, which keeps it conventional
+MEMP_CLAIM    equ 0
+MEMP_CLAIM_HI equ 1
+MEMP_CPU      equ 2
+MEMP_REGROW   equ 4
+MEMP_AVAIL    equ 5
+MEMP_KPARTS   equ 6              ; -> AX = the kernel's resident FAT window,
+                                 ; BX = its background task stacks, CX = task
+                                 ; 0's stack, in BYTES: the three fixed parts
+                                 ; OSAPI_SYS_KB reports in whole KB
+MEMP_CONV     equ 0x8000         ; CX for a claim verb: NO head, and stay
+                                 ; CONVENTIONAL on kern_mega - a block that is
+                                 ; or will be a CS, or one a real-mode path
+                                 ; names. Plain CX = 0 may go above 1MB there
+                                 ; for an OS88_HIGHMEM package
+%define OS88_BYTES_PARA(n) (((n) + 15) / 16)   ; bytes -> paragraphs to ask for
+
 ; OSAPI_IMG_NAME - WHICH driver or module an image is (KERN-MEGA-PLAN 14.70.3).
 ; A class names a driver only when it has one, and a module's header names
 ; nothing, so the Task Manager could list a `DrvImg` or a `ModImg` and not say
@@ -2354,6 +2452,110 @@ SEG_AT      equ 8
                                  ; held, which it is inside any file operation
                                  ; (SPEC.md 18), and you must NEVER take it.
                                  ; Preserves every register and the flags
+
+%define OSAPI_FS_OP         KERNEL_SEG:0x04EF   ; DX:CX = the bytes ONE
+                                 ; operation of yours will move - a load, a
+                                 ; save, a download the user waits for, over
+                                 ; many chunks and many callbacks. READS AND
+                                 ; WRITES BOTH COUNT, so a read-then-write of a
+                                 ; file is twice its size. 0 = it is over.
+                                 ; The file widget keeps ONE bar for it,
+                                 ; PARKED on the menu bar between your
+                                 ; callbacks, and counts your transfers into
+                                 ; it (not anybody else's). Closing ends it.
+                                 ; out CF=1 = refused: another package holds
+                                 ; the widget, YOU ALREADY HAVE ONE OPEN
+                                 ; (nesting is refused, so a library inside a
+                                 ; wider operation of yours leaves it alone),
+                                 ; it could not arm (a bracket, a fullscreen
+                                 ; window), or kern_small, which has none.
+                                 ; Advisory: refused, your I/O still works and
+                                 ; reports as it always did. END ONLY WHAT
+                                 ; YOUR OWN BEGIN OPENED (CF=0): an end you do
+                                 ; not own is refused too. UI task (a
+                                 ; callback or a wake, locked or not - the
+                                 ; file calls' own rule). SPEC.md 12.8.10.
+                                 ; Every register kept
+
+%define OSAPI_VOL_CHECK     KERNEL_SEG:0x04F5   ; CHECK, REPAIR OR DEFRAGMENT
+                                 ; the FAT volume you stand on (SPEC.md
+                                 ; 118.14): AL = FSK_* verb, ES = FSCHECK.DRV's
+                                 ; image as YOU read it into a claim of your
+                                 ; own (on kern_mega the data half of an
+                                 ; OSAPI_SEG SEG_SUBC pair over it: a claim
+                                 ; above 1MB has no code half), DX = your
+                                 ; workspace (a claim from
+                                 ; OSAPI_MEM_CLAIM_DMA, all of it page-safe),
+                                 ; AH = FSKM_* and CX = its KB for FSK_BEGIN.
+                                 ; out CF=0 AX = the answer, CF=1 AX = FSKE_*.
+                                 ; Every other register kept. UI task, no gfx
+                                 ; lock - a file slot. kern_small refuses
+                                 ; (AX = 1); an image from another build
+                                 ; is FSKE_IMAGE. The kernel keeps NOTHING
+                                 ; between calls: both segments are yours.
+OSAPI_FSK_SIZE      equ 0        ; out AX = the workspace's KB
+OSAPI_FSK_BEGIN     equ 1        ; AH = FSKM_*, CX = the workspace's KB
+OSAPI_FSK_STEP      equ 2        ; out AX = FSKS_*
+OSAPI_FSK_END       equ 3        ; flush and tell the Disk windows
+OSAPI_FSK_DELSYS    equ 4        ; DX:SI -> a *.DRV name, ASCIIZ, in your
+                                 ; folder: deleted though it is hidden +
+                                 ; system - but ONLY one the engine judges
+                                 ; dead itself (118.8.1, 118.8.2). AH = the
+                                 ; form; no run needed, DX any segment
+FSKD_RETIRED        equ 0        ; a name on the image's own retired list
+FSKD_REFUSED        equ 1        ; a *.DRV this kernel would refuse to load as
+                                 ; a driver AND as a module, or a COLDHMA.SYS
+                                 ; .cold is not running from (118.8.3); DI =
+                                 ; a buffer segment, CX = its KB, room for the
+                                 ; file EXPANDED (else FSKE_SMALL)
+FSKM_FIX            equ 1        ; repair as it goes (118.14.4)
+FSKM_DEFRAG         equ 2        ; defragment after a clean check (118.14.5)
+FSKS_MORE           equ 0
+FSKS_FIND           equ 1        ; a finding is in FSW_F*
+FSKS_DONE           equ 2
+FSKE_NOTHERE        equ 1
+FSKE_IMAGE          equ 2
+FSKE_NOFAT          equ 3
+FSKE_IO             equ 4
+FSKE_CHANGED        equ 5
+FSKE_SMALL          equ 6
+FSKE_WPROT          equ 7
+FSKE_ARG            equ 8
+FSKE_NOENT          equ 9        ; FSK_DELSYS: no such file
+; the workspace's record (SPEC.md 118.14.2)
+FSW_PHASE   equ 0
+FSW_MODE    equ 1
+FSW_FAT16   equ 2
+FSW_SPC     equ 3
+FSW_DONE    equ 4
+FSW_TOTAL   equ 6
+FSW_NCLUS   equ 8
+FSW_FREE    equ 10
+FSW_BAD     equ 12
+FSW_USED    equ 14
+FSW_FILES   equ 16
+FSW_DIRS    equ 18
+FSW_LOST    equ 20
+FSW_LOSTC   equ 22
+FSW_XLINK   equ 24
+FSW_FRAG    equ 26
+FSW_ERRS    equ 28
+FSW_FIXED   equ 30
+FSW_MOVED   equ 32
+FSW_STUCK   equ 34
+FSW_FATDF   equ 36
+FSW_CBYTES  equ 38
+FSW_MOVEDF  equ 40
+FSW_OTHERS  equ 42
+FSW_FROW    equ 48
+FSW_FSEV    equ 49
+FSW_FCODE   equ 50
+FSW_FFIX    equ 51
+FSW_FA      equ 52
+FSW_FB      equ 56
+FSW_FPATH   equ 64
+FSKP_DEFRAG equ 6
+FSKP_DONE   equ 7
 
 ; --- a driver's settings, inside SYSTEM.CFG (SPEC.md 51.9) ------------------
 ; A DRIVER's slot, fenced like the four above. The kernel carries DRV_BLOB_SZ
@@ -5045,6 +5247,7 @@ OS88_BSS_SIZE equ 0
                                                 ; FSXF_FASTTICK - SPEC.md
                                                 ; 53.2.1; bit 2 = FSXF_RATE,
                                                 ; with DX and DI - 53.2.2;
+                                                ; bit 3 = FSXF_REAL - 53.2.3;
                                                 ; all others of CL must be
                                                 ; 0, or it refuses) and CH
                                                 ; = THE DISPLAY: 0 your
@@ -5068,7 +5271,10 @@ OS88_BSS_SIZE equ 0
                                                 ; W_ONKEY's environment, near
                                                 ; ret), and on its return
                                                 ; restores the desktop whole.
-                                                ; Out CF=1 refused. Inside:
+                                                ; Out CF=1 refused; CF=0 with
+                                                ; FSXF_REAL, SI = FSXR_* (pass
+                                                ; SI = 0 in; BP = 0 or your
+                                                ; FSXL_ list). Inside:
                                                 ; poll int 16h for keys and
                                                 ; OSAPI_MOUSE for the mouse -
                                                 ; no events are dispatched;
@@ -6470,12 +6676,13 @@ WHEEL_STEPS equ 3                ; LINES of text one wheel notch scrolls
 ; than private because the alternative is a second copy of it in two places
 ; that cannot see each other, and tests/unit/t_mirror.py is what keeps this
 ; one honest against the kernel's.
-KDH_MAGIC   equ 0               ; dd 'KDH1'
+KDH_MAGIC   equ 0               ; dd 'KDH2' ('KDH1' named parts in SECTORS)
 KDH_VOL     equ 4               ; db the volume your package's FILE is on
-KDH_PAD     equ 5               ; db 0
+KDH_FMT     equ 5               ; db the kern_dos and core parts' FORMAT,
+                                ; OP_T_FMT's byte: 0 = LZ4, 1 = LZB (96.44.18)
 KDH_DIR     equ 6               ; dw its folder's first cluster, 0 = the root
 KDH_NAME    equ 8               ; db[13] its 8.3 name, NUL-terminated
-KDH_POFF    equ 21              ; dw the kern_dos part's first file SECTOR
+KDH_POFF    equ 21              ; dw the kern_dos part's first file PARAGRAPH
 KDH_PLEN    equ 23              ; dd its packed bytes
 KDH_ULEN    equ 27              ; dd ...and its unpacked bytes
 KDH_LB      equ 31              ; db[512] the launch block, verbatim
@@ -6483,7 +6690,7 @@ KDH_WIN     equ 543             ; dw the window to wake on the way back - the
                                 ; DOS.O88's, because only DOS.O88 knows it
 KDH_CODE    equ 545             ; dw the program's exit code, poked in by the
                                 ; RESTORED kernel, KDH_NOCODE until then
-KDH_COFF    equ 547             ; dw the CORE part's first file SECTOR - the
+KDH_COFF    equ 547             ; dw the CORE part's first file PARAGRAPH - the
 KDH_CPLEN   equ 549             ; dd its packed bytes, and its unpacked ones.
 KDH_CULEN   equ 553             ; kern_dos's image has a HOLE where the core
                                 ; goes, so the stub reads TWO parts (SPEC.md
@@ -6498,7 +6705,7 @@ KDH_AKB     equ 559             ; dw the ARENA the program was given, in KB.
                                 ; only way a package can know what its program
                                 ; actually got
 KDH_SIZE    equ 561
-KDH_SIG     equ 0x3148444B      ; 'KDH1', little-endian
+KDH_SIG     equ 0x3248444B      ; 'KDH2', little-endian (SPEC.md 96.40.1)
 KDH_NOCODE  equ 0xFFFF          ; ...and what KDH_CODE says until it has one
 %define OSAPI_BOOT_TICKS    KERNEL_SEG:0x0255   ; out AX = how long this machine
                                  ; took to boot, in SYSTEM TICKS (18.2065 Hz,
@@ -6540,6 +6747,64 @@ FSXF_RATE       equ 4           ; OSAPI_FSX_RUN CX bit 2 (SPEC.md 53.2.2,
                                 ; it a no-op until you are ready. Not with
                                 ; FSXF_FASTTICK. [ticks] keeps its rate
 FSX_RATE_MIN    equ 2048        ; ...the fastest divisor: 582 Hz
+FSXF_REAL       equ 8           ; OSAPI_FSX_RUN CX bit 3 (SPEC.md 53.2.3): on
+                                ; kern_mega in protected mode, run the WHOLE
+                                ; bracket in REAL MODE - one drop at the entry,
+                                ; one return at the exit - instead of one
+                                ; reflection per BIOS call. Every kernel takes
+                                ; the bit and the others ignore it. Inside,
+                                ; DS = CS = a REAL paragraph that may be a
+                                ; COPY of your region (take your segment from
+                                ; CS, never from a word banked before the
+                                ; call), the copy is written back at the exit,
+                                ; IRQ n is vector 20h + n (write no IVT 08h-
+                                ; 0Fh or 20h-27h cell), and only the cells
+                                ; 53.2.3 lists run - any other cell answers
+                                ; CF = 1. Pass SI = FSXR_REAL: on CF = 0 SI is
+                                ; the ANSWER, FSXR_REAL it ran in real mode or
+                                ; the reason it ran in PROTECTED mode instead
+                                ; - kern_mega never refuses the bit, it falls
+                                ; back, and a kernel in real mode keeps SI.
+                                ; Inside, OSAPI_CPU_INFO's CPU_F_PM says the
+                                ; same. apps/os88real.inc renames your claims
+FSXR_REAL       equ 0           ; ...SI out: the bracket ran in real mode
+FSXR_KEEP       equ 1           ; ...protected: FSXF_KEEPWORKER was asked
+FSXR_SVC        equ 2           ; (RETIRED, never answered: a driver's
+FSXR_EXTD       equ 3           ; worker, the extended desktop and a
+FSXR_SERIAL     equ 4           ; SERIAL.DRV lease are all real since W7)
+FSXR_ROOM       equ 5           ; ...protected: no conventional room for the
+                                ; copy of an OS88_HIGH region, or for the
+                                ; bracket's service area (W3: its twins and
+                                ; the extent lists, ~2-3 KB)
+FSXR_VOL        equ 6           ; ...protected: a listed stream is on a
+                                ; volume real mode cannot read - a redirected
+                                ; or file-driver volume (a network share, the
+                                ; CD-ROM, HTTP, a RAM disk), a mounted image,
+                                ; or a sector past CHS's reach
+FSXR_FRAG       equ 7           ; ...protected: the listed streams need more
+                                ; than FSXL_RUNS runs (a fragmented file), or
+                                ; there are more than FSXL_NMAX of them
+FSXR_DRV        equ 8           ; ...protected: a listed driver class the
+                                ; real-mode bracket cannot carry (it carries
+                                ; DRVC_DISK, DRVC_EMS and DRVC_SOUND), or a
+                                ; SOUND.DRV segment word above 1MB
+FSXR_DROOM      equ 9           ; ...protected: no conventional room for a
+                                ; driver's low copy
+; FSXF_REAL's LIST (SPEC.md 53.2.3): BP = 0, or the offset in your DS of
+; entries naming what the bracket will read, so the kernel can make it
+; readable in real mode before it leaves protected mode. Ignored by every
+; kernel in real mode (BP is kept, as by every cell)
+FSXL_END        equ 0           ; ...the list's end (any other byte ends it)
+FSXL_FILE       equ 1           ; db FSXL_FILE, 'NAME.EXT', 0: a file your
+                                ; OSAPI_FILE_READ_SEQ will read inside, by
+                                ; THIS name, in your folder - walked into an
+                                ; extent list at the door
+FSXL_DRV        equ 2           ; db FSXL_DRV, DRVC_*: a driver your
+                                ; OSAPI_DRV_CALL will reach inside - and
+                                ; DRVC_SOUND for OSAPI_SND_STREAM (a stream
+                                ; on a DRVC_DISK volume asks for its own)
+FSXL_NMAX       equ 4           ; ...files a list may name
+FSXL_RUNS       equ 224         ; ...contiguous runs, all its files together
 FSX_SUBTICK     equ 3           ; ...and this is the divider, so with FASTTICK
                                 ; armed FSXW_FRAME returns 3 x 18.2065 = 54.6
                                 ; times a second. A constant, not a

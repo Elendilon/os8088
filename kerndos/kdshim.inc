@@ -32,6 +32,35 @@
 %macro CURBAR_OFF 0
 %endmacro
 
+; kernel.asm's skip bytes and CLC_OR_STC (kernel size pass 15): disk.inc and
+; diskw.inc are this root's too, and four of their refusal tails are an opcode
+; whose immediate is the next instruction. The same bytes as the kernel's.
+%macro CLC_OR_STC 1
+    db 0xA8                     ; test al, imm8 - the imm8 is the stc below
+%1: stc
+%endmacro
+%macro SKIPF1 0
+    db 0xA8
+%endmacro
+%macro SKIPF2 0
+    db 0xA9
+%endmacro
+%macro SKIPAL1 0
+    db 0xB0
+%endmacro
+%macro SKIPDL1 0
+    db 0xB2
+%endmacro
+%macro SKIPCX2 0
+    db 0xB9
+%endmacro
+%macro SKIPBL1 0
+    db 0xB3
+%endmacro
+%macro SKIPAX2 0
+    db 0xB8
+%endmacro
+
 ; The loading screen is stage 2's and there is none here: kern_dos is JUMPED
 ; INTO by SPEC.md 87.5's stub, not booted (KERN-DOS-PLAN 4.2), so every
 ; progress call the mount makes compiles away.
@@ -371,6 +400,7 @@ kd_spent:         resb 1        ; **AND WHETHER THE ARENA IS STILL OURS TO
 
 section .text
 ; in: AX = KB, BX = owner (ignored); out CF=0 and DX = the segment
+; (mem_claimp_x: AX in PARAGRAPHS, disk.inc's caches - SPEC.md 50.2.1)
 ;
 ; **A CLAIM AFTER THE HANDOVER IS A CLAIM ON THE PROGRAM** (SPEC.md
 ; 96.44.11.3). This allocator hands out `[kd_top] - size` and lowers the
@@ -379,13 +409,21 @@ section .text
 ; Before the handover that is the point; after it, `[kd_top]` is the window's
 ; TOP rather than a frontier, and lowering it again re-sells memory the
 ; program is already using.
+mem_claimp_x:
+    push ax
+    jmp short mem_claim_x.p
 mem_claim_x:
     push ax
-    cmp byte [kd_spent], 0
-    jne .no
     mov cl, 6
     shl ax, cl                  ; KB -> paragraphs
     jc .no
+.p:
+    add ax, 31                  ; ...a whole number of 512-byte granules, as
+    and ax, -32                 ; the kernel's own allocator rounds (SPEC.md
+    jz .no                      ; 50.2.1): a base off [kd_top] stays 512-
+                                ; aligned, which the read-ahead's int 13h needs
+    cmp byte [kd_spent], 0
+    jne .no
     mov dx, [kd_top]
     sub dx, ax
     jc .no

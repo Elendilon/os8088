@@ -247,8 +247,14 @@ def session(ui,adapter,card=None):
     check(ui._byte('fpg_on')==0,'file activity ends while popup remains open')
     check(ui._byte('cur_shape')!=os88sym.equates()["CUR_BUSYSH"],'popup restores the arrow')
     claims=s.owned()
-    expected=30 if adapter=='vesa' else (8 if adapter in ('vga','sb16') else 2)
-    check(sum(p for _,p in claims)==expected*64,'save-under has the adapter-sized claim')
+    # the save-under (72 rows x 26 bytes x planes) and, at its foot, the
+    # slider's 176x44 band (SPEC.md 34.15, kernel size pass 15), claimed to
+    # the heap's 512-byte GRANULE through OSAPI_MEM_P (SPEC.md 50.2.1): 30.5KB
+    # at VESA 16bpp, 8.5KB VGA/EGA, 3KB mono (whole already) where VGA and VESA
+    # were a KB above the pixels
+    planes=16 if adapter=='vesa' else (4 if adapter in ('vga','sb16') else 1)
+    expected=(72*26*planes+176*44//8+511)//512*32       # paragraphs
+    check(sum(p for _,p in claims)==expected,'save-under has the adapter-sized claim (and the band)')
     s.key('home');s.wait(lambda:d.rb('volume_levelv')==0,'Home reaches silence')
     s.key('right');s.wait(lambda:d.rb('volume_levelv')==1,'arrow moves by one percent on a coarse card')
     s.key('left');s.wait(lambda:d.rb('volume_levelv')==0,'opposite arrow returns by one percent')

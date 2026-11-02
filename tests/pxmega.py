@@ -107,7 +107,7 @@ def main():
     px = Pixel(box, t.dir)
     fails = []
     try:
-        if not box.wait_for("kern_mega: protected mode", 300):
+        if not box.wait_pm(300):
             print("FAIL: kern_mega never reached protected mode")
             return 1
         # the desktop, B:'s window and every step below end on the GUEST's

@@ -80,7 +80,7 @@ def main():
     box = os88bochs.Box(out, [], bimg=disk, btype="1_44", build=t.dir)
     fails, counts = [], collections.OrderedDict()
     try:
-        if not box.wait_for("kern_mega: protected mode", 300):
+        if not box.wait_pm(300):
             print("FAIL: kern_mega never reached protected mode")
             return 1
         box.up()                         # the desktop, off kernel state

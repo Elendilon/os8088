@@ -103,6 +103,11 @@ srl_div: db 12
 srl_pic: db 0
 srl_mask: db 0
 srl_seen: db 0                 ; [mou_seen] when the lease was taken
+SRL_O_SEG   equ srl_seg         ; three OFFSETS in the image, for code that
+SRL_O_BUF   equ srl_buf         ; holds the image's own DATA selector -
+SRL_O_MASK  equ srl_mask        ; fsx.inc's real-mode bracket (SPEC.md 53.2.3,
+                                ; W7) - and reads them through it, never
+                                ; through KERNEL_SEG
 
 ; Module API. DH=the stamped instance slot (< INST_MAX), ES=caller.
 srl_api:
@@ -262,10 +267,12 @@ srl_open:
     cmp bl, [mou_port]
     je .mouse
 .take:
-    CSDO mov [CSEG srl_base], ax
-    CSDO mov [CSEG srl_seg], es
-    CSDO mov [CSEG srl_buf], si
-    CSDO mov [CSEG srl_owner], dh
+    CSDO_ON
+    mov [CSEG srl_base], ax
+    mov [CSEG srl_seg], es
+    mov [CSEG srl_buf], si
+    mov [CSEG srl_owner], dh
+    CSDO_OFF
     mov dl, [mou_seen]          ; settled or not, as the lease begins: what
     CSDO mov [CSEG srl_seen], dl ; srl_close asks of the contest
     mov [ser_row], bx

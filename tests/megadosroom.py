@@ -20,10 +20,13 @@ written to, covers every free KB of the pool with PINNED mx_tab records
 through the debugger (megahiber --full's shape), starts KBTRIP, gives it a key,
 and asserts:
 
-  1. no `kern_mega: parked` - the park was not had;
+  1. no park was had - [mega_dwoke] still 0, the unpark never came home
+     (a MEGA_E9 kernel's `kern_mega: parked` line);
   2. `KBTRIP key 256B` - the program ran and read its key;
-  3. `kern_mega: resumed` - the reboot came back into the session;
-  4. every filler record stands where it was, and no FAULT or CLOSED line.
+  3. [hb_resumes] moved - the reboot came back into the session (a MEGA_E9
+     kernel's `kern_mega: resumed`);
+  4. every filler record stands where it was, and no FAULT or CLOSED (read
+     out of the kernel's state, Box.faults).
 
 THE FAILING CASE (docs/WRITING-TESTS.md 1): the tree before D5 refuses the
 trip with the toast and KBTRIP never starts - (2) and (3) fail. Verified when
@@ -49,7 +52,8 @@ MX_BLKSZ, MX_NBLK = 10, 96          # kernel/mega.inc
 
 
 def pool(box):
-    X, K = box.reads([("mx_tab", MX_BLKSZ * MX_NBLK), ("xm_kb", 2)])
+    X, K = box.reads([(box.tail("mx_tab"), MX_BLKSZ * MX_NBLK),
+                      ("xm_kb", 2)])
     rows = [(k,) + struct.unpack_from("<HH", X, k * MX_BLKSZ)
             for k in range(MX_NBLK)]
     return rows, struct.unpack_from("<H", K, 0)[0]
@@ -67,7 +71,7 @@ def fill(box):
     if at < xkb:
         gaps.append((at, xkb - at))
     free = [k for k, _, kb in rows if not kb]
-    base = box.sym("mx_tab")
+    base = box.tail("mx_tab")
     made, cmds = [], []
     for (o, kb), k in zip(gaps, free):
         e = base + k * MX_BLKSZ
@@ -93,10 +97,10 @@ def main():
                     "-o", disk, "--size", "1440", com],
                    check=True, stdout=subprocess.DEVNULL)
     t0 = time.time()
-    fails = []
+    fails, lines, parked = [], [], False
     box = ob.Box(OUT, [], bimg=disk, btype="1_44", megs=2)
     try:
-        if not box.wait_for("kern_mega: protected mode", 300):
+        if not box.wait_pm(300):
             print("FAIL: kern_mega never reached protected mode")
             return 1
         box.up()
@@ -116,7 +120,7 @@ def main():
             ob.xd("key", "k")
             if not box.wait_for("KBTRIP key", 60):
                 fails.append("KBTRIP never read its key")
-            if not box.wait_for("kern_mega: resumed", 400):
+            if not box.wait_resumed(400):
                 fails.append("no `kern_mega: resumed` after the program's "
                              "exit")
             else:
@@ -128,10 +132,11 @@ def main():
                 if gone:
                     fails.append("filler records not back as they were: %s"
                                  % gone)
-        lines = box.lines()
+        lines = box.said()
+        parked = box.trip_back()    # [mega_dwoke]: an unpark came home
     finally:
         box.stop()
-    if any("kern_mega: parked" in l for l in lines):
+    if parked:
         fails.append("the trip PARKED: the pool was not full")
     keys = [l for l in lines if l.startswith("KBTRIP key")]
     if keys and not keys[-1].startswith("KBTRIP key 256B"):

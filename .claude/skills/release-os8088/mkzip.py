@@ -52,8 +52,10 @@ and a missing optional one is reported and skipped. The images `make`
 produces are the release (four geometries of each pair since SPEC.md 19's
 1.2MB disk, the 360KB-only media disk, the five 360KB-only category disks of
 SPEC.md 24.6, the 720KB geometry's second apps disk, more720.img, SPEC.md
-24.7, and the 128KB machine's small360.img and small720.img, SPEC.md 24.5.7),
-and so is the emulator system disk (`make emu`, SPEC.md 9.11.7). The
+24.7, the 128KB machine's small360.img and small720.img, SPEC.md 24.5.7, and
+WIN16's own disk in four geometries, SPEC.md 124.18.1, which packs under
+PROGRAMS/WIN16 like a one-program disk but is required, being built by
+`make`), and so is the emulator system disk (`make emu`, SPEC.md 9.11.7). The
 one-program disks, the everything sets, the live media (`make live`), the
 video machines (`make viddemozip`) and the tools (`make toolszip`) are
 on-demand targets; their zips are written when they were built and named as
@@ -278,8 +280,9 @@ ITEMS = [
      [("games360.img", "360KB", "")]),
     ("xt", "Emulators disk", True,
      "RealDMG, the Game Boy emulator, with the project's own demo cartridge "
-     "in MEDIA. The other emulators -- the Commodore 64, the Apple II Plus "
-     "and CP/M -- each have a disk of their own below.",
+     "in MEDIA, and WIN16, which runs Windows 3.x programs you put on a "
+     "disk. The other emulators -- the Commodore 64, the Apple II Plus and "
+     "CP/M -- each have a disk of their own below.",
      [("emu360.img", "360KB", "")]),
     ("xt", "Utilities disk", True,
      "System Check, which checks a system disk against this release, the "
@@ -384,6 +387,16 @@ ITEMS = [
      "everything set and the live media carry them.",
      [("midirack.img", "1.44MB", ""), ("midirack120.img", "1.2MB", ""),
       ("midirack720.img", "720KB", ""), ("midirack360.img", "360KB", "")]),
+    ("progs", "WaveRack", False,
+     "A sound recorder and WAV editor with the face of an 80s digital "
+     "recorder: it records from a Sound Blaster straight onto the disk, "
+     "plays and edits WAV files of any length, and shows the waveform. "
+     "With demo clips of real music in MEDIA -- Beethoven, Joplin, Satie, "
+     "Sousa, Chopin and Bach, all public domain or CC0, listed in "
+     "CREDITS.TXT. The 1.44MB and 1.2MB disks carry all six, the 720KB "
+     "four and the 360KB two, with room to record.",
+     [("waverack.img", "1.44MB", ""), ("waverack120.img", "1.2MB", ""),
+      ("waverack720.img", "720KB", ""), ("waverack360.img", "360KB", "")]),
     ("progs", "PiXEL", False,
      "An image viewer and editor. It opens JPEG, PNG, GIF, BMP, PCX, TIFF "
      "and six more formats, shows them dithered to the desktop's colours "
@@ -402,6 +415,13 @@ ITEMS = [
      "software disk and the 360KB music disk; at 1.2MB and 720KB it is "
      "here.",
      [("xtmp3120.img", "1.2MB", ""), ("xtmp3720.img", "720KB", "")]),
+    ("progs", "Windows 3.x programs", True,
+     "WIN16, which runs Windows 3.0 and 3.1 programs in an os8088 window. "
+     "The disk carries WIN16 and is otherwise empty: copy your Windows "
+     "programs onto it and double-click one. No Microsoft program is "
+     "included. WIN16 is on the 360KB emulators disk too.",
+     [("win16.img", "1.44MB", ""), ("win16-120.img", "1.2MB", ""),
+      ("win16-720.img", "720KB", ""), ("win16-360.img", "360KB", "")]),
     ("progs", "Weave", False,
      "Web-style programs -- markup, script and formulas -- compiled into one "
      "bundle file and run natively. Carries the runtime, three demo "
@@ -457,9 +477,11 @@ PROGRAMS = {
     "PaccMan": ("PACCMAN", "PACCM"),
     "1942": ("1942", "1942"),
     "MIDIRack": ("MIDIRACK", "MIDI"),
+    "WaveRack": ("WAVERACK", "WAVE"),
     "PiXEL": ("PIXEL", "PIXEL"),
     "XTMP3": ("XTMP3", "XTMP3"),
     "Weave": ("WEAVE", "WEAVE"),
+    "Windows 3.x programs": ("WIN16", "WIN16"),
 }
 SIZE_TAG = {"1.44MB": "144", "1.2MB": "120", "720KB": "720", "360KB": "360"}
 
@@ -481,6 +503,10 @@ EXTRAS = [
      "Apple II Plus emulator is under -- its display code came from the "
      "same project the Commodore 64 emulator's did. It applies to that one "
      "program and to nothing else here."),
+    ("win16.img", "apps/win16/COPYING", "PROGRAMS/WIN16/COPYING",
+     "The GNU General Public License version 2, which is the licence WIN16 "
+     "is under, because it carries code and data from Wine and winevdm. It "
+     "applies to that one program and to nothing else here."),
     ("paccman.img", "apps/paccman/LICENSE", "PROGRAMS/PACCMAN/LICENSE",
      "The MIT licence on Andre Weissflog's pacman.c, which PaccMan was "
      "ported from. It names him as its copyright holder; the rest of this "

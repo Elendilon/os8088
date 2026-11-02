@@ -288,11 +288,10 @@ spk_pcm_idle:
 ; audio cannot silence an alert.
 ; -----------------------------------------------------------------------------
 snd_tone_req:
-    push bx
-    push cx
-    push dx
-    push si
-    pushf
+    push bx                     ; BX and SI only: nothing here writes CX, and
+    push si                     ; DX comes back as it came, the one write to
+    pushf                       ; it (DL, for the sink) banked round its call
+                                ; (kernel size pass 17, -4)
     cli
     cmp byte [snd_live], 0      ; not initialised: .bss is garbage - refuse
     je .refuse
@@ -320,29 +319,27 @@ snd_tone_req:
                                 ; priority, DH the instance: one word
                                 ; (adjacent - the %if under the .bss)
     mov [snd_town_exp], cx
-    mov byte [snd_town_act], 1
-    mov byte [snd_ch2mode], 1
+    mov al, 1                   ; one immediate for both bytes (AL is the
+    mov [snd_town_act], al      ; generation's below - kernel size pass 16, -2)
+    mov [snd_ch2mode], al
 .granted:                       ; ...and a release updates the record too
     inc byte [snd_gen]          ; (34.3): the generation, which is AL, the
     mov al, [snd_gen]           ; answer to both
     popf
-    clc
-    jmp short .out
-
-.off:                           ; --- tone off: release the channel ----------
-    call snd_town_off
-    jmp short .granted          ; same window close, same CF=0 answer, same
-                                ; AL = the generation
-
+    SKIPF2                      ; CF = 0 over .refuse's popf/stc (kernel size
+                                ; pass 16: -2 against clc and a jump)
 .refuse:
     popf
     stc
 .out:
     pop si
-    pop dx
-    pop cx
     pop bx
     ret
+
+.off:                           ; --- tone off: release the channel ----------
+    call snd_town_off
+    jmp short .granted          ; same window close, same CF=0 answer, same
+                                ; AL = the generation
 
 ; -----------------------------------------------------------------------------
 ; snd_town_off - silence the owning tone and free the channel (internal)
@@ -805,18 +802,9 @@ osapi_snd_stream:
     jz .ringok                  ; always was. The DMA claim cells stay
     cmp byte [mega_on], 0       ; conventional, so only a plain claim can
     je .ringok                  ; arrive there (SND_OPENF_EXT = 2). ASKED
-    push ax                     ; OF THE DESCRIPTOR'S BASE, not of DI's TI
-    push dx                     ; bit: since KERN-MEGA-MEMORY-PLAN MC7.4
-    mov ax, di                  ; EVERY claim is an LDT selector, so the bit
-    xor dx, dx                  ; test refused the conventional DMA ring
-    call MEGA_SEL_CODE:mega_selbasef ; MIDIRack hands over, with 2 (DX:AX =
-    cmp dx, 0x0F                ; the base; no descriptor leaves DX = 0 and
-    pop dx                      ; the driver judges the ring). In real mode
-    pop ax                      ; DI is a paragraph and nothing is asked
-    jbe .ringok
-    mov ax, 2
-    stc
-    ret
+    call MEGA_SEL_CODE:snd_ringhif ; OF THE DESCRIPTOR'S BASE (snd_ringhif,
+    jnc .ringok                 ; below). In real mode DI is a paragraph and
+    ret                         ; nothing is asked. CF = 1, AX = 2: refused
 .ringok:
 %endif
     push bx
@@ -1046,13 +1034,8 @@ spk_off:
 %ifdef KERN_MEGA
     cmp byte [ss:mega_pm], 0    ; protected mode: IRQ0 is IDT gate 20h, and
     je .rmv                     ; the IVT's cell is the BIOS's, for a
-    push es                     ; reflection - so the GATE goes back to
-    mov ax, MEGA_SEL_IDT        ; sch_isr (the door wrote it, 34.11.1.1)
-    mov es, ax
-    mov word [es:MEGA_PIC_BASE*8], sch_isr
-    mov word [es:MEGA_PIC_BASE*8+2], KERNEL_SEG
-    pop es
-    jmp short .vdone
+    call MEGA_SEL_CODE:spk_gate0kf ; reflection - so the GATE goes back to
+    jmp short .vdone            ; sch_isr (the door wrote it, 34.11.1.1)
 .rmv:
     MEGA_SEG0 ds                  ; segment 0 is the NULL selector
 %else
@@ -1103,19 +1086,9 @@ osapi_fsx_spk:
     jne spk_off.err             ; there is the real-mode contract, refused
     call .open                  ; as before so an older library falls back
     jc .pmo
-    push ax
-    push es
-    mov ax, MEGA_SEL_IDT        ; IRQ0's gate: the caller's ISR, its CODE
-    mov es, ax                  ; selector BX banked in [spk_seg] by .open
-    mov [es:MEGA_PIC_BASE*8], si
-    mov ax, [spk_seg]
-    mov [es:MEGA_PIC_BASE*8+2], ax
-    pop es
-    pop ax
-    mov cx, KERNEL_SEG          ; ...and the chain: the kernel's IRQ0, the
-    mov dx, sch_isr             ; gate's own target before (KERNEL_SEG is a
-.pmo:                           ; code selector there)
-    ret
+    call MEGA_SEL_CODE:spk_gate0f ; IRQ0's gate: the caller's ISR, its CODE
+.pmo:                           ; selector BX banked in [spk_seg] by .open,
+    ret                         ; and CX:DX the chain (spk_gate0f, `.mega`)
 .rm:
 .open:
 %endif
@@ -1186,6 +1159,68 @@ snd_str_busy:
 
 
 section .text
+
+%ifdef KERN_MEGA
+section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
+; -----------------------------------------------------------------------------
+; spk_gate0f / spk_gate0kf - FAR, protected mode: IRQ0's IDT gate (20h) to
+; [spk_seg]:SI (the speaker door's open, osapi_fsx_spk), with CX:DX = the
+; chain it hands back, the kernel's own IRQ0 (KERNEL_SEG:sch_isr - a code
+; selector there) / back to that sch_isr (spk_off). spk_gate0kf keeps every
+; register, spk_gate0f all but CX and DX (kern_mega size pass 1: the two
+; writes were inline in .text; pass 2: and the open's tail with them)
+; -----------------------------------------------------------------------------
+spk_gate0kf:
+    push ax
+    push si
+    mov ax, KERNEL_SEG
+    mov si, sch_isr
+    call spk_gate0
+    pop si
+    pop ax
+    retf
+spk_gate0f:
+    push ax
+    mov ax, [spk_seg]
+    call spk_gate0
+    pop ax
+    mov cx, KERNEL_SEG
+    mov dx, sch_isr
+    retf
+spk_gate0:
+    push es
+    push ax
+    mov ax, MEGA_SEL_IDT
+    mov es, ax
+    pop ax
+    mov [es:MEGA_PIC_BASE*8], si
+    mov [es:MEGA_PIC_BASE*8+2], ax
+    pop es
+    ret
+; -----------------------------------------------------------------------------
+; snd_ringhif - FAR, protected mode: is the external ring DI ABOVE 1MB? CF = 1
+; and AX = 2 (refused) when its descriptor's base is, else CF = 0 and every
+; register kept. ASKED OF THE BASE, not of DI's TI bit: since KERN-MEGA-
+; MEMORY-PLAN MC7.4 EVERY claim is an LDT selector, so the bit test refused
+; the conventional DMA ring MIDIRack hands over. No descriptor leaves DX = 0
+; and the driver judges the ring (osapi_snd_stream, SND_OPENF_EXT = 2)
+; -----------------------------------------------------------------------------
+snd_ringhif:
+    push dx
+    push ax
+    mov ax, di
+    xor dx, dx
+    call MEGA_SEL_CODE:mega_selbasef ; DX:AX = the base
+    cmp dx, 0x10                ; CF = 1 below 1MB...
+    cmc                         ; ...and CF = 1 at or above it
+    pop ax
+    pop dx
+    jnc .r
+    mov ax, 2
+.r:
+    retf
+section .text
+%endif
 
 ; =============================================================================
 ; state (SPEC.md 34.7) - all stored by snd_init, unreadable until snd_live

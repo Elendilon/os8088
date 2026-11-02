@@ -401,7 +401,7 @@ GROUPS = [
     ("Sound", "PC speaker: the sound shaped",
      ("spk_style", "spk_highpass", "spk_ratio", "spk_range", "spk_lows",
       "spk_drive", "spk_idle"), _shaping),
-    ("Budget", "The machine's budget", ("disk", "kernel", "avg", "peak",
+    ("Budget", "The machine's budget", ("disk", "avg", "peak",
                                         "owe", "reserve", "memory"), ALWAYS),
     ("Budget", "XMS bank (a 286 or better)", ("bank", "prefill", "pool"),
      _bank),
@@ -1566,10 +1566,11 @@ def grid_of(n):
 
 def preview_frames(path, most=2000, tick=None):
     """(reader, [frame canvases' images]) - every frame the screen shows,
-    or every n-th of a long file so the scrubber stays usable. A colour
-    file's start at key 0 (os88vid.first_shown): the pre-roll before it is
-    never on the screen, so it is not in the preview either - the owner's
-    Spice & Wolf encode played whole and previewed half-painted.
+    or every n-th of a long file so the scrubber stays usable. A play's
+    start at key 0 (os88vid.first_shown): the pre-roll before it is never
+    on the screen, so it is not in the preview either - the owner's Spice &
+    Wolf encode played whole and previewed half-painted, and so did a
+    one-bit file until the player started it at key 0 too (98.2.9.3).
     `tick(done, total)` as it goes"""
     r = vid.Reader(path)
     f0 = vid.first_shown(r)

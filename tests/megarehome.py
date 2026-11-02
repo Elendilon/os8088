@@ -154,13 +154,14 @@ def main():
     fails = []
     box = os88bochs.Box(out, pkgs)
     try:
-        if not box.wait_for("kern_mega:", 240):
-            raise SystemExit("megarehome: no kern_mega line in 240s")
+        if not box.wait_pm(240):
+            raise SystemExit("megarehome: kern_mega never switched to "
+                             "protected mode in 240s")
         box.up()                        # the desktop, off kernel state
         box.megarun()                   # 0RUN.O88: MEGARUN starts the rest
         end = time.time() + 180
         while time.time() < end:
-            ls = box.lines()
+            ls = box.said()
             if "MEGARUN: done" in ls or any(
                     l.startswith("kern_mega FAULT") for l in ls):
                 break
@@ -169,7 +170,7 @@ def main():
         # has finished with its launch (a game's worker may hold the gfx
         # lock for good, so the lock is not asked) - was a 10 s sleep
         box.ui_done("the last program's window", lock=False)
-        lines = box.lines()
+        lines = box.said()
         for l in lines:
             if l.startswith("kern_mega FAULT") or l.startswith("MEGARUN: no "):
                 fails.append(l)
@@ -179,7 +180,8 @@ def main():
         inst = 0x600 + sym("inst_tab")
         e9 = box.e9
         low = low_lin(out, e9)          # SS's base: LOW_SEG, off the machine
-        mx = low + sym("mx_tab")        # .lowbss since KERN-MEGA-PLAN 14.49
+        mx = box.tail("mx_tab")         # the tables' tail, above 1MB since
+                                        # kern_mega size pass 2
         mem = low + sym("mem_tab")
         n = os.path.getsize(e9)
         cmds = ["xp /%dhx 0x%x" % (I_RECSZ * INST_MAX // 2, inst),

@@ -69,7 +69,7 @@ def pkg_syms(src, inc, defines=()):
 ROWS = [
     ("A:/APPS/DOS.O88", "dos_btrec", "/apps/dos/dos.asm",
      ["/apps/", "/apps/dos/", "/drivers/net/", "/kerndos/"],
-     ("-DDOSKPART", "-DDOS_EXTCORE"), (556, 26)),
+     ("-DDOSKPART", "-DDOS_EXTCORE", "-DDOS_WIN16"), (556, 26)),
     ("B:/APPS/TELNET.O88", "te_btrec", "/apps/telnet/telnet.asm",
      ["/apps/", "/apps/telnet/", "/drivers/net/"], (), False),
     ("B:/APPS/BROWSER.O88", "br_btrec", "/apps/browser/browser.asm",
@@ -90,8 +90,9 @@ ROWS = [
 # their maps are taken with the same defines or they resolve to plausible,
 # wrong offsets - pkg_syms' own warning
 if os.environ.get("OS88_MEGA"):
-    ROWS = [r[:4] + (r[4] + (("-DDOS_MEGA",) if "DOS" in r[0] else
-                             ("-DPKG_MEGA",) if "AUDIO" in r[0] else ()),)
+    ROWS = [r[:4] + (tuple(d for d in r[4] if d != "-DDOS_WIN16")
+                     + (("-DDOS_MEGA",) if "DOS" in r[0] else
+                        ("-DPKG_MEGA",) if "AUDIO" in r[0] else ()),)
             + r[5:] for r in ROWS]
 
 

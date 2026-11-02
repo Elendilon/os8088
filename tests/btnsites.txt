@@ -34,15 +34,19 @@
 # are THE SAME PIXELS in every still.
 
 # --- the library's own ------------------------------------------------------
-6 apps/os88ui.inc                  # os88ui_btn's own dispatch, the About
+5 apps/os88ui.inc                  # os88ui_btn's own dispatch, the About
                                    # card's row and the alert's (os88ui_kbtn's
                                    # call is `call %2` in OS88UI_KBTN_BODY since
                                    # kernel size pass 14)
 
 # --- packages ---------------------------------------------------------------
 15 apps/sheet/sheet.asm            # seven dialog engines, a record each
-4 apps/dos/dos.asm                 # the bar's two and the Setup page's two,
-                                   # one record repointed per page
+2 apps/dos/dos.asm                 # the bar's two, one record repointed per
+                                   # page...
+1 apps/dos/dosset.inc              # ...and the Setup page's pair, which is the
+                                   # Setup PART's (SPEC.md 96.32.2.3): its stub
+                                   # is the one call site, the two draws in
+                                   # dos_paint_furn going through it
 1 apps/ftpd/ftpd.asm               # Start/Stop, Setup, Done - one shared body (fd_btn_draw)
 2 apps/word/word.asm               # staged N=1: entries in its own WDD list
 2 apps/scribe/scribe.asm           # Word's shape, same lineage
@@ -69,6 +73,9 @@
 1 apps/cdrack/cdrack.asm           # thirteen buttons through one record with its OWN
                                    # painter (SPEC.md 119.6.4): cr_regrey draws them,
                                    # os88ui_btnup fires them
+1 apps/waverack/waverack.asm       # eleven keys through one record with its OWN painter
+                                   # (OS88UI_BOWN, wf_bpaint) - CDRack's shape; wr_regrey
+                                   # writes BT_RECTS and BT_N beside the call (SPEC.md 123.1)
 1 apps/xtmp3/xtmp3.asm             # the five transport keys and OPEN through one
                                    # record with its OWN painter (SPEC.md 121.8):
                                    # x3_regrey draws them, os88ui_btnup fires them
@@ -134,14 +141,15 @@
 
 # --- and the FAR entry, for the on-demand modules (SPEC.md 2.6) -------------
 # ctrl.inc and hiber.inc run from a heap claim with a CS of their own and
-# reach the control by `call COLD_SEG:os88ui_btn_f`, which os88ui_kbtn serves.
+# reach the control by their own far hops into os88ui_kbtn - CPXC and HBGC
+# (kernel size pass 15; it was `call COLD_SEG:os88ui_btn_f`, a resident shim).
 # A far call is invisible to a grep for `call os88ui_btn` and that is how the
 # WHOLE Control Panel was missed: the far entry went on pointing at an
 # os88ui_btn that had started taking a record, so every panel button read its
 # live count out of a rectangle's coordinates and Date/Time went white.
 2 kernel/ctrl.inc                  # every Control Panel page's buttons - ONE per kernel: the far entry on kern_big, CTRL.DRV's own os88ui_kbtn on kern_small (kernel size pass 14)
 1 kernel/hiber.inc                 # the hibernate prompt's
-1 apps/redline/ui.inc              # both tabs' foot and the tabs themselves; SDK arm/track/release
+2 apps/redline/ui.inc              # the three tabs' foot, the tabs themselves and Inspect's sub-page strip (ru_btn1 redraws the two strip buttons a page change moves); SDK arm/track/release
 1 apps/pixel/pxui.inc              # every PiXEL control, through px_btn; SDK arm/track/release
 2 kernel/shutdown.inc              # modal confirmation; release inside the armed control - ONE per kernel, as ctrl.inc's
 5 apps/wireball/wbfront.inc        # splash play/help/sound controls; SDK init installs press/drag/release, launch only on release

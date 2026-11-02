@@ -264,8 +264,12 @@ def _modcut(blob):
 # here for KERN_SMALL's exact reason - it is kern_big plus the absolute
 # pointer, measured against kern_big's budget, so adding KERN_KNOB for it
 # would assemble a map of a kernel `make emu` never built and the
-# byte-identity check below would refuse it.
-_SHIPPED_DEFS = ("KERN_BIG", "KERN_SMALL", "KERN_EMU", "KERNSIZE", "KERN_KNOB")
+# byte-identity check below would refuse it. KERN_MEGA joined them at kern_mega
+# size pass 1, when it stopped being a knob build and took a budget of its own
+# (docs/plans/completed/msp1/megabudget.md); its knob arms - MEGA_TRAPLOG,
+# MEGA_DIAG, MEGA_FDMASK, PIC_LOSE - are not here and still pull KERN_KNOB in.
+_SHIPPED_DEFS = ("KERN_BIG", "KERN_SMALL", "KERN_EMU", "KERN_MEGA", "KERNSIZE",
+                 "KERN_KNOB")
 
 
 # The About box's first line (SPEC.md 14.2), and the only place the build
@@ -685,6 +689,32 @@ def linear(name, defines=()):
         raise KeyError("no kernel symbol %r (a package's symbols are in its "
                        "own segment and are not here)" % name)
     return segment_of(name, defines) * 16 + s[name]
+
+
+# kern_mega's TABLES' TAIL (kern_mega size pass 2, kernel/mega.inc): the four
+# tables only protected mode reads live past the IDT's last gate in the
+# tables' block - above 1MB, wherever mega_layoutf put it on THIS machine -
+# so their names are `equ` OFFSETS into the tail, not labels, and linear()
+# refuses them (KeyError). tail() is the one place that knows where they are.
+TAIL = ("mx_tab", "mem_sel", "mega_wtab", "mega_ustab")
+
+
+def tail(name, read, sym, equ):
+    """The LINEAR address of tail table NAME on the running machine.
+
+    READ(addr, n) -> bytes reads guest memory, SYM(label) -> a label's linear
+    address (the harness's own), EQU the map's equates. The tail starts at
+    [mega_tbllin] + [mega_ldtend] + MEGA_IDT_SIZE: the GDT's base, the LDT on
+    it, the IDT after. Before the switch (or on a refused machine) there is
+    no tail and [mega_tbllin] says so (0): ValueError.
+    """
+    if name not in TAIL:
+        raise KeyError("%r is not in kern_mega's tables' tail" % name)
+    tb = int.from_bytes(bytes(read(sym("mega_tbllin"), 4)), "little")
+    if not tb:
+        raise ValueError("kern_mega has no tables yet (mega_tbllin is 0)")
+    le = int.from_bytes(bytes(read(sym("mega_ldtend"), 2)), "little")
+    return tb + le + equ["MEGA_IDT_SIZE"] + equ[name]
 
 
 def wfield(slot, field, defines=()):

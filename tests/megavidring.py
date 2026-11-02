@@ -113,16 +113,14 @@ def run(leg, disk, out, display, sy):
                         display=display)
 
     def bad():
-        return [ln for ln in box.lines()
-                if ln.startswith("kern_mega FAULT")
-                or ln.startswith("kern_mega CLOSED")]
+        return box.faults()
 
     def word(label):
         b = box.pkg_read("Video", label, 2, VMAP)
         return b[0] | b[1] << 8
 
     try:
-        if not box.wait_for("kern_mega: protected mode", 300):
+        if not box.wait_pm(300):
             return "%s: kern_mega never reached protected mode" % leg
         box.up()
         box.capture()

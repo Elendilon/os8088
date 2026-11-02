@@ -608,10 +608,21 @@ def main():
                      r'|(?:mov|add|sub|or|and|xor|inc|dec|adc|sbb|not|neg'
                      r'|xchg|shl|shr|rol|ror)\s+(?:(?:byte|word|dword)\s+)?'
                      r'\[\s*cs\s*:)', re.I)
+    #
+    # ...EXCEPT CODE `.mega` CARRIES FOR REAL MODE (SPEC.md 53.2.3, the
+    # real-mode bracket's twins): assembled there and never run there - it is
+    # COPIED below 1MB and run in real mode at a paragraph of its own, where
+    # `push cs` is just its own segment. Bracketed by `; ovlchk: real mode` and
+    # `; ovlchk: end real mode` comments, and nothing else is exempt
     m_bad = []
     for f in kfiles:
-        for sect, n, line in sections(f):
-            if sect == '.mega' and MCS.search(line):
+        rm = False
+        for sect, n, line, raw in sections_raw(f):
+            if 'ovlchk: end real mode' in raw:
+                rm = False
+            elif 'ovlchk: real mode' in raw:
+                rm = True
+            if sect == '.mega' and not rm and MCS.search(line):
                 m_bad.append((f, n, line.strip()[:60]))
     for f, n, src in m_bad:
         print("%s:%d: .mega names CS as more than a read: %s" % (f, n, src),
@@ -1013,11 +1024,26 @@ def main():
     # at the right offset in the wrong segment. Every reference to a `.mega`
     # data label must be in `.mega` and either inside `[cs:...]` or an offset
     # loaded into a register for a CS-reading routine (`mov si, msg`).
+    # ...and the REAL-MODE region's (`; ovlchk: real mode`, above) is neither:
+    # its data is the COPY's, written and read with DS = CS below 1MB, and the
+    # protected-mode code that fills that copy names those labels as OFFSETS
+    # into a claim's selector, never as `.mega`'s own bytes
+    rmlines = {}
+    for f in kfiles:
+        rm, s = False, set()
+        for sect, n, line, raw in sections_raw(f):
+            if 'ovlchk: end real mode' in raw:
+                rm = False
+            elif 'ovlchk: real mode' in raw:
+                rm = True
+            if rm:
+                s.add(n)
+        rmlines[f] = s
     mdata = {}
     for f in kfiles:
         pend = None
         for sect, n, line in sections(f):
-            if sect != '.mega':
+            if sect != '.mega' or n in rmlines[f]:
                 pend = None
                 continue
             m = re.match(r'^([A-Za-z_]\w*)(:?)\s*(.*)$', line)
@@ -1036,6 +1062,48 @@ def main():
                 if DATA.match(line):
                     mdata[pend[0]] = (pend[1], pend[2])
                 pend = None
+    # ...AND THE RUNG'S OWN DATA (`; ovlchk: rung data` to `; ovlchk: end rung
+    # data`): read in REAL mode, before the switch, through a segment register
+    # loaded with `.mega`'s RUNG paragraph (MEGA_RAM) - mega_enterf's refusal
+    # toast (kern_mega size pass 2), whose lines toast_show COPIES before
+    # mega_rung gives the rung to the heap. Neither DS nor CS names them, so
+    # the only reference allowed is an OFFSET load (`mov reg, label`), and the
+    # code that loads one also loads the rung's segment beside it
+    rungdata = {}
+    for f in kfiles:
+        rd = False
+        for sect, n, line, raw in sections_raw(f):
+            if 'ovlchk: end rung data' in raw:
+                rd = False
+                continue
+            if 'ovlchk: rung data' in raw:
+                rd = True
+                continue
+            if rd:
+                if sect != '.mega':
+                    sys.exit("%s:%d: `ovlchk: rung data` outside .mega" % (f, n))
+                m = re.match(r'^([A-Za-z_]\w*):?\s+d[bw]\b', line, re.I)
+                if m:
+                    rungdata[m.group(1)] = (f, n)
+                    mdata.pop(m.group(1), None)
+    rd_bad = []
+    if rungdata:
+        rnames = re.compile(r'\b(' + '|'.join(map(re.escape, rungdata)) + r')\b')
+        for f in kfiles:
+            for sect, n, line in sections(f):
+                for mm in rnames.finditer(line):
+                    lab = mm.group(1)
+                    if re.match(r'^\s*' + re.escape(lab) + r'\b', line) or \
+                            re.match(r'^\s*%', line):
+                        continue
+                    if not re.match(r'^\s*mov\s+\w+\s*,\s*' + re.escape(lab) + r'\s*$', line, re.I):
+                        rd_bad.append((f, n, lab, line.strip()[:60]))
+    for f, n, lab, src in rd_bad:
+        print("%s:%d: `.mega` rung data `%s` named other than as an offset: %s"
+              % (f, n, lab, src), file=sys.stderr)
+    if rd_bad:
+        sys.exit("os88ovlchk: %d reference(s) to the rung's data are not "
+                 "offset loads" % len(rd_bad))
     md_bad = []
     if mdata:
         names = re.compile(r'\b(' + '|'.join(map(re.escape, mdata)) + r')\b')
@@ -1057,7 +1125,7 @@ def main():
     # whatever `.mega` holds at that offset once the routine moves.
     for f in kfiles:
         for sect, n, line in sections(f):
-            if sect != '.mega':
+            if sect != '.mega' or n in rmlines[f]:
                 continue
             for mm in re.finditer(r'\[\s*cs\s*:\s*([A-Za-z_]\w*)', line, re.I):
                 lab = mm.group(1)
@@ -1072,6 +1140,8 @@ def main():
         sys.exit("os88ovlchk: %d reference(s) to .mega data not through CS"
                  % len(md_bad))
     print("os88ovlchk: .mega data is read through CS (%d labels)" % len(mdata))
+    print("os88ovlchk: .mega rung data is named only as offsets (%d labels)"
+          % len(rungdata))
 
     # --- and a module's data is its HEADER, at its head, and nothing else ---
     # A module (SPEC.md 2.8) runs with CS = a heap claim and DS = KERNEL_SEG,
@@ -1104,12 +1174,21 @@ def main():
     # reasons, and every use of them in the tree's modules is over a heap
     # claim or LOW_SEG rather than over the image (clo_keepboot, clo_fin,
     # clo_issrc, clo_zerohdr). Refusing them would refuse correct code.
+    #
+    # **ONE WAIVER, on the line itself: `; ovlchk: lods DS = <what>`.** It is
+    # for a body that is COPIED OUT of its image before it runs, with the
+    # kernel gone and DS set to something that is not KERNEL_SEG at all -
+    # kds_expand, in the kern_dos handoff stub, where DS:SI IS the packed
+    # stream. Spelling those reads `mov al, [si]` / `inc si` cost the stub
+    # two bytes a site and four a word. The marker names the segment, which
+    # is the whole of what `cs lodsb` buys the lines this check lets through.
     LODS = re.compile(r'^\s*(?:[A-Za-z_]\w*:\s*)?(?:rep\w*\s+)?lods[bwd]?\b',
                       re.I)
+    LODS_OK = re.compile(r';.*\bovlchk:\s*lods\s+DS\s*=\s*\S', re.I)
     m_bad = []
     for f in kfiles:
-        for sect, n, line in sections(f):
-            if sect in MODS and LODS.match(line):
+        for sect, n, line, raw in sections_raw(f):
+            if sect in MODS and LODS.match(line) and not LODS_OK.search(raw):
                 m_bad.append((f, n, sect, line.strip()[:50]))
     for f, n, sect, src in m_bad:
         print("%s:%d: lods in %s reads DS:SI, which is the KERNEL: %s"
@@ -1454,7 +1533,8 @@ def main():
     # BLOBCALL is `push cs` + a near call: a FAR frame, so its target owns a
     # retf - and COLDCALL is the same two instructions inside `.cold`
     # (kernel.asm, docs/plans/ROM-PLAN.md 3.2), judged the same way
-    BLOBF = re.compile(r'\b(?:BLOBCALL|COLDCALL)\s+([A-Za-z_]\w*)')
+    # (TEXTCALL, the same in `.text`)
+    BLOBF = re.compile(r'\b(?:BLOBCALL|COLDCALL|TEXTCALL)\s+([A-Za-z_]\w*)')
     #
     # A LABEL IS COLLECTED AS A LIST OF EXTENTS, NOT AS ONE.  `%ifdef
     # KERN_BIG` / `%else` is the ordinary shape for a routine whose small-
