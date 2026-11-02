@@ -187661,6 +187661,59 @@ goes red. What the gate cannot see is a FALL-THROUGH across a section switch,
 so a routine either side of `WIN_CODE`/`WIN_CODE_END` ends in an
 unconditional transfer.
 
+**The window is PART 1 of `DOS.O88`**, cut off the same assembly at `.wtext`'s
+first byte (`tools/doswtail.py cut`, so `$(BUILD)/dospw.bin` is the whole and
+`dosp.bin`/`doswin.bin` its two halves). It is EAGER and adjacent to part 0,
+`OP_SEG | OP_COMP | OP_ZFILL`, so the parts standard lays it at
+`CS:roundup16(part 0's length)` - which is `.wtext`'s own address, the section
+being paragraph-aligned after the resident bss - and every call, jump and
+operand between the two halves is near and exactly as assembled. The re-home's
+KEEP form keeps the carve to part 1's end. The rest renumber, on kern_big and
+kern_emu only:
+
+| part | what | flags |
+|---:|---|---|
+| 0 | the resident host | `OP_SEG, OP_COMP, OP_ZFILL` |
+| 1 | **the window** | `OP_SEG, OP_COMP, OP_ZFILL` |
+| 2 | the INT 21h core (§96.44.5) | `OP_ASSET, OP_COMP, OP_LAZY` |
+| 3 | `kern_dos` | `OP_ASSET, OP_COMP, OP_LAZY` |
+| 4 | HELP's text | `OP_ASSET, OP_COMP, OP_LAZY, OP_SELF` |
+| 5 | the network (§96.23.11) | the same |
+| 6 | the Setup page (§96.32.2.3) | the same |
+| 7 | the windowed layer (§96.54.9) | the same |
+
+kern_mega's `DOS.O88` has no tail and keeps its five parts as they were (core
+1, `kern_dos` 2, the low `kern_dos` 3, HELP 4). Nothing outside the loader
+names a part by number: the host reads the rows the loader copies into its bss
+(`DSLH_*`), and the handoff stub reads the core's and `kern_dos`'s offsets out
+of the record DOS.O88 posts (§96.44.5.4) - the two are still adjacent, so it
+is still one extent run. `tests/kdpart.py` mirrors the two numbers.
+
+**A second `OP_ZFILL` row found a defect in the standard** (§20.12.7.5):
+`op_unpack` read the row's eight-byte stream head AGAIN after expanding stream
+1, and stream 1's output, running up from a landing close under its own packed
+bytes, had already overwritten it - so stream 2 was expanded to the wrong
+length at the wrong place and the launch ran into the rubble. Part 0's
+landing is far below its packed bytes, which is why one ZFILL row never met
+it. The head is now banked on the stack before stream 1. DOS.O88's loaders are
+the standard's only ZFILL users; kern_mega's is the same size, its bytes
+changed by the fix alone.
+
+**What the split costs a WINDOWED launch, MEASURED** on
+`os8088_5150_cga_gla`, the 360KB system disk (LZB, §96.44.18) built twice from
+one file list with only `DOS.O88` differing, a fresh boot, B: opened, the
+counters reset and `B:\DOSHELLO.COM` double-clicked: **14 `int 13h` calls to
+the DOS window and 18 to the program's `READY`, the same as before the split**
+(one run in five of either build reads one more, the harness's and not the
+package's), 113 sectors against 112, and `READY` at 11.90-12.04 guest seconds
+against 11.89-11.96 (five runs each) - inside the run-to-run spread. The two
+parts are one read, because they are one run of the carve. While the window
+is up nothing changed at all: the same instructions at the same CS, and the
+brackets are on entry, wake and run, never per character or per tick.
+`DOS.O88` grew 52,667 -> 53,212 bytes (lz4) and 46,662 -> 47,174 (the 360KB
+disk's LZB), 46 -> 47 one-KB clusters: the window's stream no longer shares the
+host's LZ context, a second ZFILL head, and eight bytes of row.
+
 **What stays resident although only a window uses it** (§20.12.10.4,
 `inst_pkg_fence`): an entry a FENCED slot names must be below `I_SIZE`, which
 is the resident host's image + bss - so the windowed layer's worker loop

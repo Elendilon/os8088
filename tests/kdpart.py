@@ -48,8 +48,9 @@ CORE = os.path.join(ROOT, "build", "doscore.bin")
 DOSCALL = os.path.join(ROOT, "apps", "dos", "doscall.inc")
 PARTS_HDR = 10                  # magic(8) + count(1) + format(1)
 PART_ROW = 8
-DOS_PART_CORE = 1               # loader image, 0 = DOS, 1 = the INT 21h
-DOS_PART_KD = 2                 # CORE (SPEC.md 96.44.5), 2 = kern_dos
+DOS_PART_CORE = 2               # loader image, 0 = DOS, 1 = its window (SPEC.md
+DOS_PART_KD = 3                 # 96.44.19), 2 = the INT 21h CORE (96.44.5),
+                                # 3 = kern_dos
 
 
 def coredef(name):
@@ -142,9 +143,10 @@ def main():
     # os88pkg.py refused --compress beside parts then, so whatever was the
     # IMAGE shipped raw and 96.40.3 measured that at +932 ms a launch.
     n = tbl[at + PARTS_HDR - 2]
-    if n != 7:
+    if n != 8:
         fail("the table declares %d part(s); DOS.O88 is a loader image with "
-             "SIX - DOS, the INT 21h core, kern_dos (SPEC.md 96.44.5), "
+             "EIGHT - DOS, its window (SPEC.md 96.44.19), the INT 21h core, "
+             "kern_dos (SPEC.md 96.44.5), "
              "HELP's text, the network (SPEC.md 96.23.11), the Setup page "
              "(SPEC.md 96.32.2.3) and the windowed layer (SPEC.md 96.54.9), "
              "the last four read by the host itself with op_self "

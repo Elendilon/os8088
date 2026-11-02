@@ -517,6 +517,17 @@ DOS-PARTS-PLAN 1.1), and the windowed layer's resident half.
   instead. `os88pkg.py` now refuses a program part SHORTER than its image +
   bss rather than any other length. kern_mega, kern_small, `build/dos.bin` and
   the core are byte-identical (`cmp`ed).
+- [x] **W2, the split** - the window is part 1 (eager, `OP_COMP|OP_ZFILL`),
+  the core, kern_dos, HELP, network, Setup and the windowed layer renumber to
+  2-7 (kern_mega keeps its five), `tests/kdpart.py`'s mirrors updated.
+  **The owner's condition holds** (M, 5150 CGA, 360KB LZB system disk,
+  `DOSHELLO.COM` double-clicked on a fresh boot, five runs each): **14 `int
+  13h` calls to the window and 18 to the program's READY, before and after**,
+  113 sectors against 112, READY at 11.90-12.04 guest s against 11.89-11.96.
+  Calls stay near. `DOS.O88` 52,667 -> 53,212 (lz4) and 46,662 -> 47,174 (LZB,
+  46 -> 47 clusters): +545/+512, against the plan's +~330 (E). The second
+  ZFILL row exposed a defect in `op_unpack` - the stream head re-read after
+  stream 1 had overwritten it - fixed in the standard (SPEC.md 96.44.19).
 
 Every wave is kern_big and kern_emu; kern_small and kern_mega assemble the
 one-part layout from the same source and must stay byte-identical to their

@@ -21,7 +21,7 @@
 ; it is not a workaround: **only the IMAGE has to be raw, and the image can be
 ; a kilobyte.** Everything heavy becomes a part, and a part may be `OP_COMP`.
 ;
-; **PART 1 IS LAZY, AND IT HAS TO BE** - it is not a style choice.  `op_load`
+; **KERN_DOS IS A LAZY PART, AND IT HAS TO BE** - not a style choice.  `op_load`
 ; claims and reads every EAGER part into one carve, and `op_size` refuses a
 ; carve of 64KB or more; part 0 unpacks to ~45KB and `kern_dos` to ~29KB, so
 ; an eager pair would be refused outright before a sector was read. It is also
@@ -68,17 +68,25 @@ bits 16
 %include "os88parts.inc"
 
 DOS_PART_PKG  equ 0             ; windowed DOS: a whole .o88 image (20.12.10)
+%ifdef DOS_MEGA
 DOS_PART_CORE equ 1             ; ...the INT 21h core, which goes INSIDE it
 DOS_PART_KD   equ 2             ; ...and kern_dos, which nothing here reads
-%ifdef DOS_MEGA
 DOS_PART_KDL  equ 3             ; ...and kern_mega's LOW kern_dos (SPEC.md
 DOS_PART_HELP equ 4             ; 96.40.9.2), which nothing here reads either
 %else
-DOS_PART_HELP equ 3             ; ...and HELP's text, which the HOST reads
-DOS_PART_NET  equ 4             ; with op_self (DOS-PARTS-PLAN 1.1) - and the
+DOS_PART_WIN  equ 1             ; ...and its WINDOW, the tail of the same
+                                ; assembly (SPEC.md 96.44.19): EAGER and
+                                ; adjacent, so the carve lays it at the
+                                ; offset it was assembled at and a windowed
+                                ; launch reads both in one run - and a
+                                ; headless one never claims it at all
+DOS_PART_CORE equ 2             ; ...the INT 21h core, which goes INSIDE it
+DOS_PART_KD   equ 3             ; ...and kern_dos, which nothing here reads
+DOS_PART_HELP equ 4             ; ...and HELP's text, which the HOST reads
+DOS_PART_NET  equ 5             ; with op_self (DOS-PARTS-PLAN 1.1) - and the
                                 ; NETWORK, the same way (SPEC.md 96.23.11)
 ; --- the Setup page's part, APPENDED (SPEC.md 96.32.2.3) -------------------
-DOS_PART_SETUP equ 5            ; ...and the SETUP PAGE's code, the same way
+DOS_PART_SETUP equ 6            ; ...and the SETUP PAGE's code, the same way
                                 ; again: read when Setup opens. kern_mega's
                                 ; DOS.O88 keeps the page inline (its host is
                                 ; above 1MB), so it has no such row
@@ -404,6 +412,10 @@ dsl_pmok:
     xor dx, dx
     add cx, [op_table + OP_T_ROWS + DOS_PART_CORE * OP_ROW + OP_R_ZKB]
     adc dx, dx
+%ifndef DOS_MEGA
+    add cx, [op_table + OP_T_ROWS + DOS_PART_WIN * OP_ROW + OP_R_ZKB]
+    adc dx, 0                       ; ...and the window's, read in the same run
+%endif
     call OSAPI_FS_OP                ; CF = 0: ours to end; SI and ES kept
     pushf
     call op_load                    ; sizes first and reads nothing if it will
@@ -514,8 +526,8 @@ dsl_pmok:
 
 ; --- the table, and the standard's own code after it (SPEC.md 20.12.3) ------
 %ifndef DOS_MEGA
-    OS88_PARTS_BEGIN 7              ; ...the sixth the Setup page's, the
-                                    ; seventh the window's (SPEC.md 96.54.9)
+    OS88_PARTS_BEGIN 8              ; ...the seventh the Setup page's, the
+                                    ; eighth the windowed layer's (96.54.9)
 %else
     OS88_PARTS_BEGIN 5
 %endif
@@ -529,13 +541,23 @@ dsl_pmok:
                                     ;   26,109 of these 55,316 bytes, and
                                     ;   op_unpack fills them rather than
                                     ;   decoding them (SPEC.md 96.44.17)
+%ifndef DOS_MEGA
+      OS88_PART OP_SEG,   OP_COMP | OP_ZFILL
+                                    ; 1 THE DOS's WINDOW, the tail of part 0's
+                                    ;   own assembly (SPEC.md 96.44.19): the
+                                    ;   console, the prompt, the controls, the
+                                    ;   paint and their bss. Eager, so the
+                                    ;   carve lays it at CS:roundup16(part 0)
+                                    ;   - where it was assembled - and reads
+                                    ;   both in one run
+%endif
       OS88_PART OP_ASSET, OP_COMP | OP_LAZY
-                                    ; 1 THE INT 21h CORE, lazy because it does
+                                    ; 1 (2) THE INT 21h CORE, lazy because it does
                                     ;   not belong in the carve - dsl_core
                                     ;   copies it into the hole at CORE_ORG
                                     ;   inside part 0 and drops it again
       OS88_PART OP_ASSET, OP_COMP | OP_LAZY
-                                    ; 2 kern_dos. LAZY because op_size would
+                                    ; 2 (3) kern_dos. LAZY because op_size would
                                     ;   refuse the pair eagerly (the header
                                     ;   above), and never fetched at all
                                     ;   because the handoff reads it by extent
@@ -551,19 +573,19 @@ dsl_pmok:
                                     ;   96.40.9.2), part 2's twin at 0060:0000
 %endif
       OS88_PART OP_ASSET, OP_COMP | OP_LAZY | OP_SELF
-                                    ; 3 (4 on kern_mega) HELP's text, read by
+                                    ; 4 HELP's text, read by
                                     ;   the re-homed host's op_self when HELP
                                     ; is typed (DOS-PARTS-PLAN 1.1)
 %ifndef DOS_MEGA
       OS88_PART OP_ASSET, OP_COMP | OP_LAZY | OP_SELF
-                                    ; 4 DOS's NETWORK - the packet driver and
+                                    ; 5 DOS's NETWORK - the packet driver and
                                     ;   the cable translation - read by the
                                     ;   host's op_self into the network claim
                                     ;   when a run will publish a packet driver
                                     ;   (SPEC.md 96.23.11). kern_mega's has none
 ; --- the Setup page's part (SPEC.md 96.32.2.3) ------------------------------
       OS88_PART OP_ASSET, OP_COMP | OP_LAZY | OP_SELF
-                                    ; 5 the SETUP PAGE's code - its painters,
+                                    ; 6 the SETUP PAGE's code - its painters,
                                     ;   placers and press handlers and the
                                     ;   .LNK writer - read by the host's
                                     ;   op_self when Setup opens and freed
@@ -573,7 +595,7 @@ dsl_pmok:
 ; --- DOS_PART_DVW ------------------------------------------------------------
 %ifndef DOS_MEGA
       OS88_PART OP_ASSET, OP_COMP | OP_LAZY | OP_SELF
-                                    ; 6 DOS's WINDOWED LAYER (SPEC.md 96.54.9),
+                                    ; 7 DOS's WINDOWED LAYER (SPEC.md 96.54.9),
                                     ;   read by the host's op_self into a claim
                                     ;   of its own at the first Run in Window.
                                     ;   kern_mega's has none
