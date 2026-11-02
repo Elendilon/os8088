@@ -161,6 +161,9 @@ MAX_WIN  equ 6                  ; SIX windows on kern_small (SPEC.md 11.102).
 %else
 MAX_WIN  equ 12                 ; mirrored in apps/os88api.inc (SPEC.md 11)
 %endif
+%if MAX_WIN > 16
+%error "wm_clreq is a bit per slot in one word (SPEC.md 75.2.1)"
+%endif
 WM_PKGD_MAX equ 8               ; how deep wm_pkgs records the nest (SPEC.md
                                 ; 66.6.1). Callbacks nest across packages - a
                                 ; callback may call OSAPI_WM_SHOW, which
@@ -538,8 +541,9 @@ wm_init:
                                 ; EVERY window on its way out, handler or not,
                                 ; ui_rdown reads wm_onrc for every frontmost
                                 ; window a right press lands on (SPEC.md
-                                ; 13.11), and wm_close_pass reads [wm_clreq]
-                                ; on the machine's first UI pass
+                                ; 13.11), and ui_task's .chk_close (the close
+                                ; pass, written there) reads [wm_clreq] on
+                                ; the machine's first UI pass
     pop es
     pop di
     pop cx
@@ -2239,8 +2243,9 @@ wm_ask_close:
 ; negotiator raised - so it is standing INSIDE its own segment, and
 ; app_close_win frees that segment (SPEC.md 29.4). The far return would then
 ; execute the three dispatcher bytes at PKG_DISP out of memory the heap has
-; already handed back. So the request is one word, and wm_close_pass spends it
-; on the next UI pass with no package code on the stack at all.
+; already handed back. So the request is the window's slot's bit in one word,
+; and wm_close_pass spends every bit set on the next UI pass with no package
+; code on the stack at all.
 ;
 ; It does NOT ask the negotiator again: this IS the answer to the question the
 ; negotiator asked, so a second one would be a loop every app would have to
@@ -2248,7 +2253,15 @@ wm_ask_close:
 ; which puts "no more questions" in one place rather than in every package.
 ; -----------------------------------------------------------------------------
 wm_close_req:
-    mov [wm_clreq], bx
+    push ax
+    push cx
+    call wm_ptr2idx             ; AL = its slot, AH = 0
+    xchg ax, cx
+    mov ax, 1                   ; ONE BIT A SLOT, so any number of closes can
+    shl ax, cl                  ; wait (SPEC.md 75.2.1): a pointer here kept
+    or [wm_clreq], ax           ; the last of a burst and lost the rest. One
+    pop cx                      ; `or` into memory, which no interrupt splits
+    pop ax
     inc byte [ui_post]          ; ...and SAY SO once (SPEC.md 13.13). `inc`
                                 ; and not `mov byte ..., 1`, a byte less: the
                                 ; flag is only ever tested for nonzero, and a
@@ -2256,20 +2269,26 @@ wm_close_req:
                                 ; forgotten post, which the tick's sweep turns
                                 ; into 55 ms of latency (ui.inc, 13.12)
     ret
+    nop                         ; PARITY PAD, never executed: the slot's bit
+                                ; above (SPEC.md 75.2.1) is 13 bytes longer
+                                ; than the pointer it replaced, and everything
+                                ; from wm_wake to ui_task and wm_paint_all
+                                ; sits at the parity t_hotpar pins
 
 ; -----------------------------------------------------------------------------
-; wm_close_pass - spend a deferred close (SPEC.md 75.2)
-; in:  nothing; the UI task's idle section, NO lock held
+; wm_close_pass - spend every deferred close (SPEC.md 75.2)
+; in:  [wm_clreq] not 0; the UI task's idle section, NO lock held
 ; out: nothing (all registers preserved)
 ;
 ; fdlg_reap's shape: one compare per pass when nothing is pending, which is
-; nearly always - and that compare is the CALLER's, in ui_task. The request is cleared BEFORE the close, so nothing this
-; reaches can see a request that has already been spent - and wm_destroy
-; clears it too, so a slot that died between the request and this pass cannot
-; be closed through a pointer that now means a different window.
+; nearly always - and that compare is the CALLER's, in ui_task. Each bit is
+; cleared BEFORE its close, so nothing this reaches can see a request that has
+; already been spent - and wm_destroy clears a slot's bit too, so a window
+; that died between the request and this pass cannot have its slot's next
+; tenant closed in its place.
 ; -----------------------------------------------------------------------------
 ; (WRITTEN IN ui_task's .chk_close step, its one call: kernel size pass 16.
-; BX is dead there, so nothing is banked)
+; AX and BX are dead there, so nothing is banked)
 
 ; -----------------------------------------------------------------------------
 ; wm_wkh_slot - SI -> this window's wake handler word (module internal)
@@ -3056,17 +3075,17 @@ wm_destroy:
     mov bx, si
     call wm_fs_drop             ; a dying fullscreen window must release the
                                 ; screen (SPEC.md 11.2)
-    xor ax, ax                  ; the three zero stores below take it from AX,
+    xor ax, ax                  ; the two zero stores below take it from AX,
                                 ; banked on the stack already and spent by
-                                ; wm_ptr2idx next (kernel size pass 17, -5)
-    cmp [wm_clreq], bx          ; ...and a deferred close naming it (SPEC.md
-    jne .noclreq                ; 75.2) goes with it, or the next tenant of
-    mov [wm_clreq], ax          ; this slot is closed by a stale pointer
-.noclreq:
+                                ; wm_ptr2idx next (kernel size pass 17)
     mov [bx+W_FLAGS], ax        ; free the record slot
     mov [bx+W_WKQ], al          ; wm_wake_redo walks DEAD slots too
     call wm_ptr2idx             ; AL = window index, AH = 0
-    xchg si, ax                 ; orphan the slot's owner entry so a future
+    xchg ax, cx                 ; ...and a deferred close naming this slot
+    mov dx, 0xFFFE              ; (SPEC.md 75.2) goes with it, or the slot's
+    rol dx, cl                  ; next tenant is closed in its place. One
+    and [wm_clreq], dx          ; `and` into memory, which no interrupt splits
+    mov si, cx                  ; orphan the slot's owner entry so a future
     mov byte [wm_owner+si], 0xFF; wm_create reuse starts unowned (SPEC.md 11)
                                 ; The per-slot handlers below are zeroed by
                                 ; wm_create's run now, when the slot is TAKEN;
@@ -11733,10 +11752,9 @@ wm_rz_oh:   resw 1              ; Not per-slot: it never outlives the call.
                                     ; below for wm_oncl's reason: ui_rdown reads
                                     ; this word for EVERY frontmost window a
                                     ; right press lands on, handler or not
-wm_clreq:   resw 1                  ; the window a package asked to have closed
-                                    ; (SPEC.md 75.2), 0 = none. ONE, because the
-                                    ; request is spent on the next UI pass and
-                                    ; nothing can queue a second inside one
+wm_clreq:   resw 1                  ; a bit per SLOT a package asked to have
+                                    ; closed (SPEC.md 75.2, 75.2.1), 0 = none:
+                                    ; any number wait for the next UI pass
 wm_clask:   resw 1                  ; the window whose negotiator is running
                                     ; RIGHT NOW, 0 = none: the re-entry fence
 ;m_wkq:     resb MAX_WIN            ; per slot: WKQ_NONE / WKQ_RING (a record is

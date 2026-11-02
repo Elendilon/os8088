@@ -842,6 +842,20 @@ FAST = [
         "os88sym proving its symbol map, and the proof is now kept beside the "
         "build under a key of the image, the defines and every source "
         "(tools/os88sym.py, _disk_key)"),
+    Row("abicompat", "soak", py("tests/abicompat.py"), 291.0,
+        "SPEC.md 20.2.0.1: does the LATEST RELEASE's software still run on "
+        "this tree? Builds the newest `Release YYYYMMDD` commit once into "
+        "build/abicompat/<sha>/ (a worktree, `make BUILD=build`, ~80s and "
+        "reused after), then: every release OSAPI cell at the same offset; "
+        "the release's abi.lock state a link in this tree's history; every "
+        "release SDK constant unchanged, bumped, or acknowledged in "
+        "tests/abicompat.txt; release headers against PKG_FMT/DRV_VER; every "
+        "release package, driver and CZ stream expanding identically under "
+        "this tree's decoder; and every package on the release's 360KB disks "
+        "launched on THIS kernel with the release's own kernel as the "
+        "control. Red arms: --red-version (leg F), --red-cell (leg A). "
+        "secs is the steady state; the first run on a box adds the build",
+        needs=("marty", "nasm"), cpus=1),
     Row("abilock", "fast", py("tests/unit/t_abilock.py"), 0.1,
         "SPEC.md 20.2.0.1: PKG_FMT and DRV_VER are LOCKED to a fingerprint of "
         "the SDK surface they guard (tools/abi.lock.json), so an ABI change "
@@ -2225,6 +2239,17 @@ FAST = [
         "`make win16fixtures`'s, which `make clean` removes, so it needs them "
         "rather than failing a clean tree's `make` on its own SKIP",
         needs=("nasm", "unicorn", "win16fixtures")),
+    Row("w16xsec", "fast", py("tests/unit/t_w16xsec.py"), 3.0,
+        "WIN16 is one nasm run emitting the image and its code parts, each at "
+        "vstart=0, so a near call from a part to an image label (or back) "
+        "assembles cleanly and lands on whatever the CALLER's segment holds "
+        "at that offset - nothing in -f bin refuses it. SPEC.md 124.19.3: "
+        "off WIN16's own listing and map, every near call/jmp must stay in "
+        "its section, nothing outside a part may name the part's labels but "
+        "the DCALL/LCALL vector store, and a part whose DS is the image may "
+        "not read its own data without cs:. S14 moves handlers into the "
+        "library part, and this is what keeps that move honest",
+        needs=("nasm",)),
 ]
 
 # --------------------------------------------------------------------------
@@ -16892,8 +16917,8 @@ SOAK = [
         "(every breakage 118.1 names), wrapped as an XT-IDE VHD and booted on "
         "MartyPC's 5150 with CGA and with Hercules. Its AUTOSTRT link says "
         "`C: RELEASE REPORT` (118.14.9), so the scan runs and saves "
-        "SYSCHECK.TXT unattended; read back off the VHD it must say 5 broken, "
-        "6 warnings and name every planted finding. 23s measured, both "
+        "SYSCHECK.TXT unattended; read back off the VHD it must say 7 broken, "
+        "7 warnings and name every planted finding. 23s measured, both "
         "machines.",
         needs=("marty", "mtools"), serial=True, timeout=900,
         wants=("build/os8088.img", "build/syscheck.o88", "build/mbr.bin",
@@ -16908,10 +16933,17 @@ SOAK = [
         "an orphaned HIBERNAT.IMG - and booted from C: with an AUTOSTRT link "
         "to SYSTEM\\SYSCHECK.O88. The scan must find each, the saved "
         "SYSCHECK.TXT (read back on the host) must name each, and Clean Up "
-        "must remove exactly 118.8's files and nothing else.",
+        "must remove exactly 118.8's files and nothing else - the retired "
+        "driver among them, hidden + system, which only FSCHECK.DRV beside "
+        "SYSCHECK.O88 can delete (118.8.1) - and then, on a second Proceed, "
+        "a driver of the last driver version, a module of another build and "
+        "a driver of version 9, which the kernel refuses (118.8.2), and a "
+        "package of format 8, a damaged one and a COLDHMA.SYS that is not "
+        "this release's (118.8.3), with every driver and module it loads "
+        "left where it was.",
         needs=("qemu", "mtools"), serial=True, timeout=600,
         wants=("build/os8088.img", "build/apps.img", "build/syscheck.o88",
-               "build/mbr.bin", "build/boothd.bin")),
+               "build/fscheck.drv", "build/mbr.bin", "build/boothd.bin")),
     Row("win16mines", "soak", py("tests/win16mines.py"), 60.0,
         "SPEC.md 124.15, WIN16-PLAN S8: Windows 3.1's Minesweeper (W31MINE, "
         "Microsoft's, in build/win16/ only where the win16-reference skill "
@@ -16936,6 +16968,178 @@ SOAK = [
         needs=("qemu", "mtools", "nasm", "win16fixtures"), timeout=600,
         wants=("build/os8088.img", "build/win16.o88",
                "build/win16/DOS.O88")),
+    Row("win16sol", "soak", py("tests/win16sol.py"), 420.0,
+        "SPEC.md 124.20, WIN16-ANY-PLAN S15: Solitaire 3.0 (SOL.EXE, 180 KB, "
+        "the first program over 64 KB) and 3.1 (W31SOL.EXE) - Microsoft's, in "
+        "build/win16/ only where the win16-reference skill put them - on VGA, "
+        "EGA, CGA and Hercules under QEMU: private VIDEO= kernel trees "
+        "(tools/os88build.py), Hercules with HERCSEG and read out of RAM. Each "
+        "program alone: its window is Solitaire, it has dealt (a tenth of the "
+        "client is not the felt), a click on the deck turns cards onto the "
+        "waste, and its close box ends it",
+        needs=("qemu", "mtools", "nasm", "win16samples"), timeout=1800,
+        wants=("build/os8088.img", "build/win16.o88",
+               "build/win16/DOS.O88")),
+    Row("win16big", "soak", py("tests/win16big.py"), 60.0,
+        "SPEC.md 124.20, WIN16-ANY-PLAN S15: BIG.EXE (`make win16fixtures`, "
+        "tests/win16/big.c) - 17 code segments and about 155 KB of code, each "
+        "of sixteen functions far-called forward and back, and a 128 KB "
+        "GlobalAlloc block written through a __huge pointer and read back by "
+        "adding __AHINCR (KERNEL.114) to the segment. Its MessageBox, read "
+        "off the program's stack, must be the sums the row computes itself",
+        needs=("qemu", "mtools", "nasm", "win16fixtures"), timeout=600,
+        wants=("build/os8088.img", "build/win16.o88",
+               "build/win16/DOS.O88")),
+    Row("win16file", "soak", py("tests/win16file.py"), 60.0,
+        "SPEC.md 124.21, WIN16-ANY-PLAN S16: FILES.EXE (`make win16fixtures`, "
+        "tests/win16/files.c) reaches files through KERNEL's _lopen family, "
+        "OpenFile and GetTempFileName and through the C runtime's own int 21h "
+        "(mkdir, chdir, getcwd, rename, remove, findfirst, stdio), all answered "
+        "by DOS.O88's core hosted in WIN16; its MessageBox names any check that "
+        "failed, and the 10,000-byte W16FILE.TXT it writes is read back off the "
+        "floppy image on the host, every byte",
+        needs=("qemu", "mtools", "nasm", "win16fixtures"), timeout=600,
+        wants=("build/os8088.img", "build/win16.o88",
+               "build/win16/DOS.O88")),
+    Row("win16fam", "soak", py("tests/win16fam.py"), 300.0,
+        "SPEC.md 124.22, WIN16-ANY-PLAN S17: the story's program families - "
+        "Notepad, Cardfile, Calendar, Clipboard, PIF Editor, Task Manager and "
+        "Character Map, and the 3.1 screen savers' setup dialogs - "
+        "Microsoft's, in build/win16/ only where the win16-reference skill put "
+        "them, on VGA and CGA under QEMU. Each alone: WIN16 says Running, its "
+        "window's title has the family's word, its client is not one colour, "
+        "Character Map's DS_SETFONT dialog fits the screen (124.22.17), and "
+        "it ends by its close box or by Esc",
+        needs=("qemu", "mtools", "nasm", "win16samples"), timeout=1500,
+        wants=("build/os8088.img", "build/win16.o88",
+               "build/win16/DOS.O88")),
+    Row("win16dll", "soak", py("tests/win16dll.py"), 60.0,
+        "SPEC.md 124.23, WIN16-ANY-PLAN S18: a program's own libraries. "
+        "DLLUSE.EXE (`make win16fixtures`, tests/win16/dlluse.c) imports "
+        "W16DLL.DLL by name and by ordinal, its LibMain having run first; "
+        "GetModuleHandle, GetProcAddress, GetModuleFileName and "
+        "GetModuleUsage answer for it; LoadLibrary loads W16DLL2.DLL, which "
+        "imports W16DLL too and raises its counter - one DGROUP for both - "
+        "and FreeLibrary runs its WEP. The MessageBox, read off the program's "
+        "stack, must be DLLUSE OK",
+        needs=("qemu", "mtools", "nasm", "win16fixtures"), timeout=600,
+        wants=("build/os8088.img", "build/win16.o88",
+               "build/win16/DOS.O88", "build/win16/W16DLL.DLL")),
+    Row("win16cdlg", "soak", py("tests/win16cdlg.py"), 120.0,
+        "SPEC.md 124.24, WIN16-ANY-PLAN S19: COMMDLG. CDLG.EXE (`make "
+        "win16fixtures`, tests/win16/cdlg.c) waits in ChooseFont and in "
+        "ChooseColor with WIN16's Font and Color dialogs up, OK in each; its "
+        "MessageBox must say both answered TRUE, Helv mapped to MS Sans Serif "
+        "8 point, red's COLORREF, and the font made from it selected into a "
+        "window's DC answering GetTextFace MS Sans Serif and tmHeight 13. "
+        "Where the win16-reference skill put them: Notepad 3.1's (W31NOTE.EXE) File Open "
+        "opens os8088's chooser and Esc is seen as a Cancel (124.24.2), and "
+        "Marquee 3.1's Format Text opens Font and carries on after OK",
+        needs=("qemu", "mtools", "nasm", "win16fixtures"), timeout=900,
+        wants=("build/os8088.img", "build/win16.o88",
+               "build/win16/DOS.O88")),
+    Row("win16reg", "soak", py("tests/win16reg.py"), 60.0,
+        "SPEC.md 124.24.6-7, WIN16-ANY-PLAN S19: REGDB.EXE (`make "
+        "win16fixtures`, tests/win16/regdb.c) registers a document class "
+        "through SHELL's seven Reg calls and reads it back - by full name, "
+        "through an open key, cut short, enumerated in order and past the "
+        "last, deleted and gone - and OLECLI answers OleRegisterClientDoc "
+        "OLE_OK and OleQueryCreateFromClip OLE_ERROR_FORMAT; its MessageBox "
+        "must be REGDB OK, and REG.DAT off the floppy image must hold the "
+        "two keys the delete left",
+        needs=("qemu", "mtools", "nasm", "win16fixtures"), timeout=600,
+        wants=("build/os8088.img", "build/win16.o88",
+               "build/win16/DOS.O88")),
+    Row("win16lz", "soak", py("tests/win16lz.py"), 60.0,
+        "SPEC.md 124.24.8-9, WIN16-ANY-PLAN S19: LZT.EXE (`make "
+        "win16fixtures`, tests/win16/lzt.c) reads three SZDD files the host "
+        "packed (checked against tools/w16font.py's expansion first) - "
+        "forward, back, past the end, copied out with LZCopy, by the name "
+        "it expands to - reads its own VERSIONINFO out of a packed copy of "
+        "itself, and has VerFindFile and VerInstallFile put one in the "
+        "system directory; its MessageBox must be LZT OK and the length, and "
+        "SAMPLE.TXT and the installed SECOND.DAT off the floppy image must "
+        "be the host's expansions byte for byte",
+        needs=("qemu", "mtools", "nasm", "win16fixtures"), timeout=600,
+        wants=("build/os8088.img", "build/win16.o88",
+               "build/win16/DOS.O88")),
+    Row("win16shx", "soak", py("tests/win16shx.py"), 60.0,
+        "SPEC.md 124.24.10, WIN16-ANY-PLAN S19: SHX.EXE (`make "
+        "win16fixtures`, tests/win16/shx.c) asks ShellExecute and "
+        "FindExecutable for what they refuse - a verb not open, a file and "
+        "a folder not there, a document no Windows program is named for, a "
+        "second launch before the first has started - and opens DOCS\\SHX.TXT "
+        "by its folder; its MessageBox must be SHX OK, and os8088's "
+        "association must have opened the document in a Note Pad window, "
+        "which is closed before SHX ends",
+        needs=("qemu", "mtools", "nasm", "win16fixtures"), timeout=600,
+        wants=("build/os8088.img", "build/win16.o88",
+               "build/win16/DOS.O88")),
+    Row("win16memdc", "soak", py("tests/win16memdc.py"), 60.0,
+        "SPEC.md 124.25.3-6, WIN16-ANY-PLAN S19b: MEMDC.EXE (`make "
+        "win16fixtures`, tests/win16/memdc.c) draws into a memory DC's bitmap "
+        "with every call Paintbrush draws with - PatBlt, FillRect, Rectangle, "
+        "LineTo, a filled Polygon, ExtFloodFill, TextOut, SetPixel - reads "
+        "each back through GetDIBits, sends the bits out and back by Get/"
+        "SetBitmapBits and Get/SetDIBits, cuts a fill by a clip region and "
+        "ExcludeClipRect, copies screen to bitmap and back through a moved "
+        "window origin, and flood-fills on the window's DC inside a frame "
+        "and across the client; its MessageBox must be MEMDC OK",
+        needs=("qemu", "mtools", "nasm", "win16fixtures"), timeout=600,
+        wants=("build/os8088.img", "build/win16.o88",
+               "build/win16/DOS.O88")),
+    Row("win16mdi", "soak", py("tests/win16mdi.py"), 60.0,
+        "SPEC.md 124.27, WIN16-ANY-PLAN S20b: MDI.EXE (`make win16fixtures`, "
+        "tests/win16/mdi.c) makes an MDICLIENT and three children by "
+        "WM_MDICREATE and checks them: listed in the Window menu, tiled "
+        "apart and covering the client, cascaded with the active one "
+        "lowest, one minimized to an icon at the bottom with a tile above "
+        "it, one maximized into the client with the frame's bar merged and "
+        "WM_MDIGETACTIVE saying so, restored where it was, WM_MDINEXT, and "
+        "destroyed one at a time; its MessageBox must be MDI OK",
+        needs=("qemu", "mtools", "nasm", "win16fixtures"), timeout=600,
+        wants=("build/os8088.img", "build/win16.o88",
+               "build/win16/DOS.O88")),
+    Row("win16tasks", "soak", py("tests/win16tasks.py"), 90.0,
+        "SPEC.md 124.28, WIN16-ANY-PLAN S21: TASKS.EXE starts TASKB.EXE in "
+        "its own WIN16 (`make win16fixtures`, tests/win16/tasks.c and "
+        "taskb.c) and the two check each other: WinExec's tail and "
+        "nCmdShow, posts both ways, PostAppMessage, a cross-task "
+        "SendMessage with a send back inside it, PostMessage and "
+        "SendMessage to HWND_BROADCAST, global atoms and a DDE "
+        "conversation whose GMEM_DDESHARE data outlives its task, one task "
+        "ending while the other goes on, and ShellExecute starting TASKB "
+        "again; the instance's claims stay within eight, its MessageBox "
+        "must be TASKS OK, and the heap after the instance ends is the one "
+        "before it",
+        needs=("qemu", "mtools", "nasm", "win16fixtures"), timeout=600,
+        wants=("build/os8088.img", "build/win16.o88",
+               "build/win16/DOS.O88")),
+    Row("win16pbrush", "soak", py("tests/win16pbrush.py"), 240.0,
+        "SPEC.md 124.8, 124.9, 124.25, 96.11.6.4, WIN16-ANY-PLAN S19b: Windows 3.0's "
+        "Paintbrush (PBRUSH.EXE and .DLL - Microsoft's, in build/win16/ only "
+        "where the win16-reference skill put them) on VGA under QEMU: a brush "
+        "stroke, then the box tool - which the stroke's capture lets go of "
+        "only on a hover move off the canvas - a box, red rolled inside it "
+        "and green across the canvas around it, read back off the glass; and "
+        "the first sixteen interrupt vectors as they were, which a discarded "
+        "GMEM_NOTIFY strip locked unchecked would have written over; then "
+        "File > Save As NEW.BMP, read off B: on the host as a whole BMP with "
+        "red inside the box and green outside it",
+        needs=("qemu", "mtools", "nasm", "win16samples"), timeout=900,
+        wants=("build/os8088.img", "build/win16.o88",
+               "build/win16/DOS.O88")),
+    Row("win16write", "soak", py("tests/win16write.py"), 300.0,
+        "SPEC.md 124.26, WIN16-ANY-PLAN S20: Windows 3.0's Write (WRITE.EXE "
+        "- Microsoft's, in build/win16/ only where the win16-reference "
+        "skill put it) under QEMU, with WIN16 built W16DEFS=-DW16_CODEKB=40 "
+        "into a private tree so its code is discarded and loaded again as it "
+        "runs: a sentence typed, File > Save As ROW.WRI in Write's own "
+        "dialog, File > New, File > Open ROW.WRI, the window named for it "
+        "each time; ROW.WRI read off B: as a Write file holding the "
+        "sentence, and WIN16's load and discard counters both moved",
+        needs=("qemu", "mtools", "nasm", "win16samples"), timeout=900,
+        wants=("build/os8088.img", "build/win16/DOS.O88")),
     Row("win16calc", "soak", py("tests/win16calc.py"), 150.0,
         "SPEC.md 124.16, WIN16-PLAN S10: Windows 3.0's and 3.1's Calculator "
         "(CALC.EXE, W31CALC.EXE - Microsoft's, in build/win16/ only where the "
@@ -19789,14 +19993,26 @@ SOAK = [
         "paused), which is what the list draws its groups from - 41 s, where "
         "reassembling the drawn rows off font_run was ~450",
         needs=("marty",), serial=True),
+    Row("tmmaxrun", "soak", py("tests/tmmaxrun.py"), 30.0,
+        "SPEC.md 28.4.1: the Task Manager's MAX RUN is the WHAT-IF "
+        "(OSAPI_MEM_COMPACT's MEMC_WHATIF_P, SPEC.md 66.4.3.2), so its own "
+        "region is no wall - the Calculator opened first and closed leaves "
+        "a hole above the Task Manager, and after a PAINT (a window move: "
+        "the UI task in its own callback) MAX RUN must equal AVAIL. Red "
+        "with the page's plain MEMP_AVAIL ask put back",
+        needs=("marty",), serial=True),
     Row("tmhover", "soak", py("tests/tmhover.py"), 30.0,
         "SPEC.md 28.4.16: the pointer over a band of the memory map inverts "
         "the row of the group it stands for - the Calculator's region its "
         "row, the kernel's span System's - a walk that re-letters the "
-        "hovered row keeps it inverted, and both go back off the map. Read "
-        "off the page's bss ([tm_hgid], [tm_hrow], [tm_rgid]) AND the glass, "
+        "hovered row keeps it inverted, and both go back off the map; with "
+        "DETAIL on and Purgeable open, a cache's band inverts THAT claim's "
+        "own row and not the heading. Read "
+        "off the page's bss ([tm_hgid], [tm_hcid], [tm_hrow], [tm_rgid], "
+        "[tm_rcid]) AND the glass, "
         "because either alone passes a broken build; red with the XOR fill "
-        "taken out and with the draw's ink swap taken out. 25 s; "
+        "taken out, with the draw's ink swap taken out, and with the pick's "
+        "claim (`mov ah, ch`) taken out. 21 s; "
         "--machine os8088_5150_cga is the 1bpp leg",
         needs=("marty",), serial=True),
     Row("tmground", "soak", py("tests/tmground.py"), 40.0,

@@ -40,6 +40,8 @@
 
 DOS_W16_NE  equ 0x454E              ; 'NE', read as a word
 
+%include "win16/w16join.inc"        ; WIN16's join box (SPEC.md 124.28.12)
+
 ; -----------------------------------------------------------------------------
 ; dos_w16_try - hand a Windows program to WIN16.O88
 ; in:  [dos_dir]/[dos_vol]/[dos_name] = the program; UI task, lock NOT held
@@ -129,10 +131,9 @@ dos_w16_go:
     cmp word [es:si], DOS_W16_NE
     jne .free
     pop cx
-    mov dx, di
-    call OSAPI_MEM_FREE
     popf                            ; IT IS ONE - and only asked: say so
-    jc .said
+    jc .askd
+    push di                         ; the claim, kept: the snapshot's room
 .isne:                              ; --- IT IS ONE: WIN16's document --------
     mov si, dos_name                ; the 16-byte locator (SPEC.md 21.5.3),
     mov di, dos_pgdoc               ; folded, because the association tables
@@ -149,6 +150,14 @@ dos_w16_go:
     mov [dos_pgdoc + 13], ax
     mov al, [dos_vol]
     mov [dos_pgdoc + 15], al
+    pop es                          ; the claim
+    mov si, dos_pgdoc
+    call w16j_give                  ; CF=1: a running WIN16 took it
+    pushf
+    mov dx, es
+    call OSAPI_MEM_FREE
+    popf
+    jc .taken
     mov si, dos_w16_pkg             ; WIN16's stem names the slot (SPEC.md
     xor cx, cx                      ; 124.3): a built-in row, found wherever
     xor dx, dx                      ; the volume keeps it
@@ -157,6 +166,7 @@ dos_w16_go:
     mov di, dos_pgdoc
     call OSAPI_PKG_START
     jc .nop                         ; nothing opens it: DOS runs the stub
+.taken:
     mov byte [dos_state], DST_IDLE
     cmp byte [dos_fromcon], 0
     jne .con
@@ -176,6 +186,10 @@ dos_w16_go:
 .said:
     stc
     jmp short .out
+.askd:
+    mov dx, di                      ; (only asked: the claim goes now)
+    call OSAPI_MEM_FREE
+    jmp short .said
 .free:
     pop cx
     mov dx, di
@@ -190,3 +204,4 @@ dos_w16_go:
 
 dos_w16_pkg: db 'WIN16.O88', 0
 
+%include "win16/w16jgive.inc"       ; w16j_give: the loader's too (124.28.12)

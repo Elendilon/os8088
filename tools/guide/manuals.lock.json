@@ -343,9 +343,9 @@
   "sources": [
    "apps/dos"
   ],
-  "stamped": "c6fcd7cc",
-  "strings": "0579f1da3c099bb3",
-  "why": "described Run in Window as a mode (SPEC 96.54.10), Close when done, the window's automatic memory limit, TopView programs and close-stops-program; checked the rest of the page against the current program"
+  "stamped": "cc9b679b",
+  "strings": "ab1cd0b5332c441d",
+  "why": "merge of main's WIN16 phase A: the DOS core shared with WIN16 (dosbe.inc) and the join box; no text a user sees changed"
  },
  "DOTDEL_O88": {
   "sources": [
@@ -476,9 +476,9 @@
    "kernel/fsck.inc",
    "apps/syscheck/disk.inc"
   ],
-  "stamped": "24c3d243",
-  "strings": "90f4f6359ab84b95",
-  "why": "first stamp: page written for FSCHECK.DRV, checked against SPEC.md 118.10/118.14 and System Check's disk-task messages"
+  "stamped": "7649165b",
+  "strings": "623cb2b108de6dbf",
+  "why": "checked against fsck.inc and disk.inc: the messages the page quotes are unchanged and it already names COLDHMA.SYS; the rewording touched none of its lines"
  },
  "FTPD_O88": {
   "sources": [
@@ -1073,9 +1073,9 @@
   "sources": [
    "apps/syscheck"
   ],
-  "stamped": "23cf0ad5",
-  "strings": "22403500aab895a1",
-  "why": "rewritten for the disk tasks (check, repair, defragment, folders, KERNEL.SYS on a hard disk) and the link parameter; read against the program as it is"
+  "stamped": "e6d71c79",
+  "strings": "e8b1d6e9ff7d1df3",
+  "why": "the second question's word (unusable) and the defragmenter's folders line as the program now prints them"
  },
  "SYSTEM": {
   "sources": [],
@@ -1311,9 +1311,9 @@
   "sources": [
    "apps/win16"
   ],
-  "stamped": "24c3d243",
-  "strings": "2ad9edfbbb331868",
-  "why": "only an About-card credit line changed (ec45f031 / 'by jggonz'); the page already says the card shows who made it, its credits, or a line about it, so nothing quoted is wrong"
+  "stamped": "db5f8851",
+  "strings": "24601ea4726e08aa",
+  "why": "post-merge fixes: paragraph claims, the load's one file operation and the join from a double-click; below the page's level of detail"
  },
  "WIN16_TXT": {
   "sources": [

@@ -101,7 +101,7 @@ first of them fires in the first minute of a session.
 | **[docs/WIRE-PLAN.md](docs/WIRE-PLAN.md)** | anything in The Wire (§92, `apps/thewire/`, the desktop zone and `OSAPI_PKG_START`) — the design record: the four facts that decided the shape, the catalog and picture formats as they were pinned, and what was deferred with the arithmetic attached. SPEC.md §92 is the contract and this is why it reads that way; its brand table is **fixed by the user and not to be reworded** |
 | **[docs/plans/VESA-PLAN.md](docs/plans/VESA-PLAN.md)** | anything in the VESA display (§120, `drivers/vesa/`, `kernel/vidext.inc`'s `VIDEXT` hook, the `DRVC_VIDEO` class) — the story list with what each wave actually shipped, the decisions taken against their judged alternatives (hooks in `kern_big` against a fourth kernel; a 16-colour desktop at any depth; banked window A against the linear framebuffer), and `docs/HOW-VESA-WAS-BUILT.md` is its diary. SPEC.md §120 is the contract and says per story whether it is pinned or shipped |
 | **[docs/plans/completed/WEAVE-PLAN.md](docs/plans/completed/WEAVE-PLAN.md)** | re-opening a Weave design decision — why each fork went the way it did, the judged alternatives, and what was deferred with the arithmetic attached |
-| **[docs/plans/WIN16-PLAN.md](docs/plans/WIN16-PLAN.md)** | anything in the Windows 3.x layer (§124, `apps/win16/`, `WIN16.O88`) — the user stories, the owner decisions with their judged alternatives (a coroutine on the UI task against a worker; every segment fixed; a V20 floor checked by a CPU census at load; each adapter's Windows System font), and the Wine and winevdm commits it takes code and data from, which make `apps/win16/` **GPL-2.0-or-later** as `apps/apple2` is. **No Microsoft binary is ever committed**: the user supplies them with `WIN3X=<dir>`. `docs/HOW-WIN16-WAS-BUILT.md` is its diary |
+| **[docs/plans/WIN16-PLAN.md](docs/plans/WIN16-PLAN.md)** | anything in the Windows 3.x layer (§124, `apps/win16/`, `WIN16.O88`) — the user stories, the owner decisions with their judged alternatives (a coroutine on the UI task against a worker; every segment fixed; a V20 floor checked by a CPU census at load; each adapter's Windows System font), and the Wine and winevdm commits it takes code and data from, which make `apps/win16/` **GPL-2.0-or-later** as `apps/apple2` is. **No Microsoft binary is ever committed**: the user supplies them with `WIN3X=<dir>`. `docs/HOW-WIN16-WAS-BUILT.md` is its diary, and **[docs/plans/WIN16-ANY-PLAN.md](docs/plans/WIN16-ANY-PLAN.md)** the road from S13 to any Win16 program (stories S14–S25, owner decisions O1–O6, not yet authorised), measured by `tools/w16reach.py` |
 
 ## Fast fullscreen VRAM games (SPEC.md §53, §109.5)
 
@@ -873,7 +873,7 @@ make win16census WIN3X=<dir>  # WIN16 (SPEC.md 124): what each Windows 3.x
               #   builds the Win16 TEST programs with Open Watcom
               #   (tools/setup-watcom.sh fetches it). Both on demand.
               #   `make win16` is the layer itself, in `all`: a WIN16\
-              #   folder on the 1.44MB/1.2MB apps disks, more720, the
+              #   folder on its OWN disk in four geometries (win16*.img), the
               #   everything set and the live media, and at emu360's root
               #   (SPEC.md 124.18.1); the shipped DOS.O88 hands it an NE on
               #   kern_big and kern_emu. `make win16disk WIN3X=<dir>` puts
@@ -1899,7 +1899,7 @@ checking all four. This is the rule for the on-demand APPLICATION floppies too
 `apple2disk`, `weavedisk`, `loomdisk`, `allapps` — which were three-geometry until 1.2MB
 reached them.
 
-**Seventeen images, not nine.** The system and apps disks in four geometries
+**Twenty-one images, not nine.** The system and apps disks in four geometries
 each, plus SIX more that exist at 360KB alone and ONE at 720KB alone -
 `build/more720.img`, the 720KB apps disk's other half (SPEC.md 24.7), carrying
 what that disk had to leave off - and the 128KB machine's two system disks,
@@ -1907,7 +1907,9 @@ what that disk had to leave off - and the 128KB machine's two system disks,
 which `all` builds through `make small`'s sub-make. The small 720KB disk is
 NOT the standard format: kern_small's two-sector FAT window refuses a
 standard 720KB FAT, so it takes 2KB clusters, and that machine reads no other
-720KB disk. `build/media360.img` — `BEVERLY.MOD` is data rather than software and
+720KB disk. And WIN16's own disk in four geometries, `win16*.img`
+(§124.18.1), which left the apps disks when it outgrew them.
+`build/media360.img` — `BEVERLY.MOD` is data rather than software and
 was 114 of a 360KB disk's 354 clusters before packages were compressed, so at
 that geometry it rides a disk of its own (§24.4). **It is not on `apps360.img`
 as well any more, and cannot be**: lz4-packed it is 42 clusters and that disk
@@ -2066,17 +2068,24 @@ repository", which is where the branch already lives, and do nothing.
 
 ### 3. SEND the 360KB set and the two 1.44MB main disks after every commit, without being asked
 
-**All ELEVEN of them**: the nine 360KB images `build/os8088-360.img`,
+**All TWELVE of them**: the ten 360KB images `build/os8088-360.img`,
 `build/apps360.img`, `build/media360.img`, `build/office360.img`,
 `build/network360.img`, `build/games360.img`, `build/emu360.img`,
-`build/util360.img` and `build/small360.img`, plus the two 1.44MB main disks,
+`build/util360.img`, `build/small360.img` and `build/win16-360.img`, plus
+the two 1.44MB main disks,
 `build/os8088.img` (system) and `build/apps.img` (apps). The owner wants the full set
 every time rather than a judgement about which disks a change could reach.
+**And when the code being worked on ships on a disk OUTSIDE that set, send
+that disk too** - the owner wants the disks relevant to the work in hand,
+not only the normal set: WIN16's `build/win16.img` while WIN16 is off the
+1.44MB pair (it is expected to rejoin the system disks once it is solid),
+an on-demand application floppy (`c64disk`, `weavedisk`, ...) when its
+package changed, and the like.
 The 360KB part is exactly the 360KB images `all` builds: system, apps, the
-module's own disk (§24.4), the five category disks (§24.6) and the 128KB
-machine's system disk (§24.5.7). It was three until the category disks
+module's own disk (§24.4), the five category disks (§24.6), the 128KB
+machine's system disk (§24.5.7) and WIN16's own disk (§124.18.1). It was three until the category disks
 landed, six until `emu360` did, seven until `util360` did, eight until
-`small360` did, and it will grow
+`small360` did, nine until `win16-360` did, and it will grow
 again — **`$(SHIPIMGS)` in the Makefile is the
 list**, filtered to the 360KB ones. Do NOT reach for `ls build/*360*.img`:
 that also catches `c64360`, `weave360`, `loom360` and `wire360`, which are
@@ -2085,12 +2094,12 @@ The 1.44MB pair is those two files and no others: the 720KB and 1.2MB
 geometries are not sent.
 
 **The exception: send them only when the commit could change the CONTENT of
-one of those eleven disks.** A commit that cannot - documentation, notes, a plan,
+one of those twelve disks.** A commit that cannot - documentation, notes, a plan,
 a test or harness file, a host tool that writes no shipped byte - sends
 nothing. The build number does not count: it is the commit count (SPEC.md
 §14.2), so every commit moves three bytes of `.text` in every image, and an
 image that differs only by that is not a change to its content. When the
-commit does reach one disk, the rule above stands and all eleven go. Which tools
+commit does reach one disk, the rule above stands and all twelve go. Which tools
 write shipped bytes, and so are NOT in the exception, is fork rule 6's list
 (`os88disk.py`, `os88pkg.py`, `os88drv.py`, `os88mini.py`, `buildnum.py`).
 

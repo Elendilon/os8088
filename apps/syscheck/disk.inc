@@ -114,62 +114,9 @@ sc_dinit:
 .k:
     mov [sc_fixed], ah
     or word [sc_dirty], SYD_HEAD | SYD_SYS
-    ; --- the engine, from beside us (SPEC.md 118.14.1) --------------------
-    cmp word [sc_fseg], 0
-    jne .have
-    mov dx, [sc_ldx]
-    mov bl, [sc_lbl]
-    call OSAPI_FILE_GOTO_QM
-    jc .noimg
-    mov si, sc_n_fsck
-    call sc_probe                   ; DX = its KB
-    cmp al, 1
-    jne .noimg
-    or dx, dx
-    jz .noimg
-    mov ax, dx
-    push ax
-    call OSAPI_MEM_CLAIM            ; DX = the segment
-    pop ax
-    jc .nomem
-    mov [sc_fseg], dx
-    push es
-    mov es, dx
-    xor bx, bx
-    mov dx, ax                      ; DX:CX = the claim's bytes
-    mov cl, 6
-    shr dx, cl
-    and ax, 63
-    mov cl, 10
-    shl ax, cl
-    xchg ax, cx
-    mov si, sc_n_fsck
-    call OSAPI_FILE_READ
-    pop es
-    jc .rdfail
-    ; ...and the selector to RUN it through (SPEC.md 118.14.8): on kern_mega
-    ; a claim above 1MB is a data selector alone, and the kernel far-calls
-    ; the image through a code half - so ask for a code/data PAIR over it.
-    ; A real-mode kernel answers the claim's segment, which is both
-    mov dx, [sc_fseg]
-    mov [sc_fsel], dx
-    xor ax, ax
-    xor cx, cx
-    mov bl, SEG_SUBC
-    call OSAPI_SEG
-    jc .have
-    mov [sc_fsel], dx
-    jmp short .have
-.rdfail:
-    mov dx, [sc_fseg]
-    call OSAPI_MEM_FREE
-    mov word [sc_fseg], 0
-.noimg:
-    mov si, sc_de_noimg
-    jmp sc_dfail
-.nomem:
-    mov si, sc_t_nomem
-    jmp sc_dfail
+    call sc_fload                   ; the engine, from beside us
+    jnc .have
+    jmp sc_dfail                    ; SI = why not
 .have:
     ; --- the volume's root, its free space, and what the engine needs ----
     xor dx, dx
@@ -224,6 +171,87 @@ sc_dinit:
     xchg ax, dx
     mov cl, P_INIT                  ; (the pass is not read in a disk task)
     jmp sc_nextpass
+
+; -----------------------------------------------------------------------------
+; sc_fload - FSCHECK.DRV, read once from the folder we were launched from
+;            (SPEC.md 118.14.1), for the disk tasks and for Clean Up (118.8.1)
+; out: CF=0 [sc_fseg]/[sc_fsel] hold it; CF=1 SI = why not. Every other
+;      register kept; the folder is the launch folder after a first read
+; -----------------------------------------------------------------------------
+sc_fload:
+    cmp word [sc_fseg], 0
+    je .read
+    clc
+    ret
+.read:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    mov dx, [sc_ldx]
+    mov bl, [sc_lbl]
+    call OSAPI_FILE_GOTO_QM
+    jc .noimg
+    mov si, sc_n_fsck
+    call sc_probe                   ; DX = its KB
+    cmp al, 1
+    jne .noimg
+    or dx, dx
+    jz .noimg
+    mov ax, dx
+    push ax
+    call OSAPI_MEM_CLAIM            ; DX = the segment
+    pop ax
+    jc .nomem
+    mov [sc_fseg], dx
+    push es
+    mov es, dx
+    xor bx, bx
+    mov dx, ax                      ; DX:CX = the claim's bytes
+    mov cl, 6
+    shr dx, cl
+    and ax, 63
+    mov cl, 10
+    shl ax, cl
+    xchg ax, cx
+    mov si, sc_n_fsck
+    call OSAPI_FILE_READ
+    pop es
+    jc .rdfail
+    ; ...and the selector to RUN it through (SPEC.md 118.14.8): on kern_mega
+    ; a claim above 1MB is a data selector alone, and the kernel far-calls
+    ; the image through a code half - so ask for a code/data PAIR over it.
+    ; A real-mode kernel answers the claim's segment, which is both
+    mov dx, [sc_fseg]
+    mov [sc_fsel], dx
+    xor ax, ax
+    xor cx, cx
+    mov bl, SEG_SUBC
+    call OSAPI_SEG
+    jc .ok
+    mov [sc_fsel], dx
+.ok:
+    clc
+    jmp short .out
+.rdfail:
+    mov dx, [sc_fseg]
+    call OSAPI_MEM_FREE
+    mov word [sc_fseg], 0
+.noimg:
+    mov si, sc_de_noimg
+    jmp short .fail
+.nomem:
+    mov si, sc_t_nomem
+.fail:
+    stc
+.out:
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
 
 ; sc_dcounts - the counter line and the bar from the workspace's record
 sc_dcounts:
@@ -453,7 +481,7 @@ sc_df1:     db 'FAT copies differ in ', 1, ' of ', 2, ' sectors', 0
 sc_df2:     db 'dot entry names cluster ', 1, ', not ', 2, 0
 sc_df3:     db 'entry ', 1, ' is not a valid entry', 0
 sc_df4:     db 'folder names cluster ', 1, ', off the disk', 0
-sc_df5:     db 'nested ', 1, ' deep - not looked inside', 0
+sc_df5:     db 'nested ', 1, ' deep - its contents not checked', 0
 sc_df6:     db 'chain leaves the disk at link ', 2, 0
 sc_df7:     db 'chain runs into free cluster ', 1, 0
 sc_df8:     db 'chain runs into bad cluster ', 1, 0
@@ -467,9 +495,9 @@ sc_df15:    db 1, ' KB free of ', 2, ' KB', 0
 sc_df16:    db 1, ' clusters marked bad', 0
 sc_df17:    db 1, ' of ', 2, ' files are in pieces', 0
 sc_df18:    db 1, ' files moved, ', 2, ' left in pieces', 0
-sc_df19:    db 'not run: ', 1, ' errors - repair first', 0
+sc_df19:    db 'not run: ', 1, ' errors - run Check and repair', 0
 sc_df20:    db 'not asked', 0
-sc_df21:    db 'folders not moved: ', 1, ' programs open', 0
+sc_df21:    db 'folders not moved: close other programs (', 1, ')', 0
 sc_df22:    db 1, ' folders moved', 0
 sc_df_fixed: db ' (fixed)', 0
 sc_dr_none:  db 'not asked', 0
@@ -485,6 +513,6 @@ sc_de4:     db 'a disk read or write failed', 0
 sc_de5:     db 'the disk changed - scan again', 0
 sc_de6:     db 'not enough memory', 0
 sc_de7:     db 'the disk is write-protected', 0
-sc_de8:     db 'the checker refused the request', 0
+sc_de8:     db 'the disk checker could not do that', 0
 sc_de_noimg: db 'FSCHECK.DRV is not beside SYSCHECK.O88', 0
 sc_n_fsck:  db 'FSCHECK.DRV', 0

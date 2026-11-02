@@ -32,6 +32,9 @@ FSK_SIZE    equ 0
 FSK_BEGIN   equ 1
 FSK_STEP    equ 2
 FSK_END     equ 3
+FSK_DELSYS  equ 4
+FSKD_RETIRED equ 0              ; FSK_DELSYS's two forms (118.8.1, 118.8.2)
+FSKD_REFUSED equ 1
 FSKM_FIX    equ 1
 FSKM_DEFRAG equ 2
 FSKS_MORE   equ 0
@@ -44,6 +47,7 @@ FSKE_CHANGED equ 5
 FSKE_SMALL  equ 6
 FSKE_WPROT  equ 7
 FSKE_ARG    equ 8
+FSKE_NOENT  equ 9
 
 FSKP_FATCMP equ 1
 FSKP_TREE   equ 2
@@ -333,8 +337,13 @@ fsk_entry:
     je .step
     cmp al, FSK_END
     je .end
+    cmp al, FSK_DELSYS
+    je .delsys
     mov ax, FSKE_ARG
     jmp fsk_die
+.delsys:
+    call fsk_delsys
+    jmp short fsk_ok0
 .size:
     call fsk_mounted
     call fsk_need               ; AX = KB
@@ -413,6 +422,260 @@ fsk_gen:
     mov al, [bx+dsk_wgen]
     pop bx
     ret
+
+; =============================================================================
+; FSK_DELSYS - remove a driver this kernel has no use for (SPEC.md 118.8.1,
+;              118.8.2)
+; in:  ES:SI -> its name, ASCIIZ, in the caller's folder (the stub stood us
+;      there); AH = FSKD_RETIRED or FSKD_REFUSED; for FSKD_REFUSED DI = a
+;      buffer segment of the caller's and CX = its KB, room for the file
+;      EXPANDED; DS = KERNEL_SEG
+; out: returns, deleted; dies FSKE_ARG for a name it may not delete,
+;      FSKE_NOENT for one that is not there, FSKE_SMALL for a buffer the
+;      file does not fit, FSKE_IO/WPROT
+;
+; A package can neither list nor delete a hidden + system file (SPEC.md 19.6),
+; and a leftover driver is one. So the kernel deletes it - and THE KERNEL
+; decides which, never the caller. Only a *.DRV of one of two kinds, or an old
+; COLDHMA.SYS:
+;
+;   FSKD_RETIRED  a name on fsk_retired, this release's own list of the
+;                 drivers and modules earlier ones shipped and this one does
+;                 not (apps/syscheck/retired.txt's .DRV lines, held to it by
+;                 t_sysman);
+;   FSKD_REFUSED  a file THIS KERNEL WOULD REFUSE as both a driver and a
+;                 module, read whole through the kernel's own read - which
+;                 expands a packed file - and judged here: an 'O8' header
+;                 whose version byte is not DRV_VER (drv_check's test) and
+;                 whose words are not mod_hdrt's but for the id (mod_check's).
+;                 Every image anything loads today carries one of the two,
+;                 sub-images such as HTTPPAGE.DRV included; a header that is
+;                 not 'O8' at all is left, as nothing this kernel can name.
+;                 And COLDHMA.SYS (118.8.3), the one other name it takes: an
+;                 HMA image carries no build key, so it goes when it IS one
+;                 ('OS88ROM', kind 3) and `.cold` is not running from it.
+;
+; So no caller can name KERNEL.SYS, SYSTEM.CFG, a driver this kernel loads or
+; a module it reads. Read-only, hidden and system are forgiven, a folder and
+; a label are not; the rest is dskw_delete's own commit, so the caches and
+; the Disk windows follow
+; =============================================================================
+fsk_delsys:
+    call fsk_mounted
+    push ax                     ; AH = the form
+    push si                     ; the caller's name, for FSKD_REFUSED's read,
+    push cx                     ; ...its buffer's KB
+    push di                     ; ...and its buffer
+    mov di, dskw_n83            ; the name, raw: eight and three, space-padded
+    push di
+    push ds
+    pop es
+    mov ax, 0x2020
+    mov cx, 5
+    rep stosw
+    stosb
+    pop di
+    mov es, [fsk_ws]
+    mov cx, 8
+.base:
+    mov al, [es:si]
+    inc si
+    or al, al
+    jz .named
+    cmp al, '.'
+    je .ext
+    jcxz .badp                  ; nine before the dot
+    mov [di], al
+    inc di
+    dec cx
+    jmp short .base
+.ext:
+    mov di, dskw_n83 + 8
+    mov cx, 3
+.e:
+    mov al, [es:si]
+    inc si
+    or al, al
+    jz .named
+    jcxz .badp
+    mov [di], al
+    inc di
+    dec cx
+    jmp short .e
+.badp:                          ; four words deep: back to the entry's
+    pop di                      ; depth first, so fsk_die is reached at one
+    pop cx
+    pop si
+    pop ax
+    jmp short .bad
+.named:
+    pop di
+    pop cx
+    pop si
+    pop ax
+    cmp word [dskw_n83 + 8], 'DR'   ; a *.DRV, whichever the form...
+    jne .hma
+    cmp byte [dskw_n83 + 10], 'V'
+    jne .hma
+    cmp ah, FSKD_REFUSED
+    je .refused
+    or ah, ah
+    jnz .bad
+    mov bx, fsk_retired         ; ...and it is one this release retired
+.list:
+    cmp byte [cs:bx], 0
+    je .bad
+    push ds
+    pop es
+    mov si, bx
+    mov di, dskw_n83
+    mov cx, 11
+.cmp:
+    mov al, [cs:si]
+    cmp al, [es:di]
+    jne .nx
+    inc si
+    inc di
+    loop .cmp
+    jmp .ours
+.nx:
+    add bx, 11
+    jmp short .list
+.bad:
+.bad2:
+    mov ax, FSKE_ARG
+    jmp fsk_die
+.hma:                           ; ...or the one other name the refused form
+    cmp ah, FSKD_REFUSED        ; takes: COLDHMA.SYS (118.8.3)
+    jne .bad
+    push cx
+    push si
+    push di
+    push ds
+    pop es
+    mov si, fsk_n_hma
+    mov di, dskw_n83
+    mov cx, 11
+.hn:
+    mov al, [cs:si]
+    cmp al, [es:di]
+    jne .hn2
+    inc si
+    inc di
+    loop .hn
+    cmp al, al                  ; all eleven: ZF = 1 (the incs left it 0)
+.hn2:
+    pop di
+    pop si
+    pop cx
+    jne .bad                    ; ZF = 0: a mismatch jumped here
+.refused:
+    ; --- read it whole, as the kernel itself would, and judge the header -
+    push di                     ; the caller's buffer
+    mov di, cp_sbuf             ; the name, staged where the file API reads
+    push ds                     ; it (DS:SI): cp_stage's landing ground, one
+    pop es                      ; string at a time on the UI task
+    mov ds, [fsk_ws]
+    mov bx, 13                  ; 8 + '.' + 3 + NUL, already proved
+.st:
+    lodsb
+    stosb
+    or al, al
+    jz .staged
+    dec bx
+    jnz .st
+.staged:
+    push es
+    pop ds
+    pop es                      ; ES:BX = the buffer, DX:CX = its bytes
+    mov bx, cx
+    mov dx, cx
+    mov cl, 6
+    shr dx, cl
+    mov cl, 10
+    shl bx, cl
+    mov cx, bx
+    xor bx, bx
+    mov si, cp_sbuf
+    KC dskw_read_x
+    jnc .read
+    cmp ax, FERR_NOENT
+    je .noent
+    cmp ax, FERR_BIG
+    jne .io
+    mov ax, FSKE_SMALL
+    jmp fsk_die
+.read:
+    cmp byte [dskw_n83 + 8], 'S'    ; COLDHMA.SYS, the only .SYS let in
+    jne .rdrv
+    ; --- THE HMA IMAGE carries no build key, so two facts instead: it IS
+    ; one ('OS88ROM', kind 3 - boot/osrom.asm's rom_id), and `.cold` is not
+    ; running from it, so this boot did not adopt it. Whether its .text hash
+    ; fits this kernel is the tail's own question (SPEC.md 2.10.7)
+    mov si, fsk_romid
+    xor di, di
+    mov cx, 9
+.rm:
+    mov al, [cs:si]
+    cmp al, [es:di]
+    jne .bad2
+    inc si
+    inc di
+    loop .rm
+%ifndef KERN_MEGA
+    cmp word [api_coldseg], HMA_SEG ; in use this boot: never
+    je .bad2
+%endif
+    jmp short .ours
+.rdrv:
+    cmp word [es:0], 0x384F     ; 'O8': anything else is not ours to judge
+    jne .bad2
+    mov al, [es:2]
+    cmp al, DRV_VER             ; drv_check would take it
+    je .bad2
+    cmp al, MOD_VER             ; ...and so would mod_check, unless its
+    jne .ours                   ; build or this kernel's layout differs
+    mov ax, [es:MOD_H_BUILD]
+    cmp ax, [mod_hdrt + MOD_H_BUILD]
+    jne .ours
+    mov ax, [es:MOD_H_STAMP]
+    cmp ax, [mod_hdrt + MOD_H_STAMP]
+    je .bad2
+.ours:
+    KC dws_gate                 ; a pending WRITE_SEQ hold, committed first
+    KC dskw_find
+    jnc .found
+    cmp ax, FERR_NOENT
+    jne .io
+.noent:
+    mov ax, FSKE_NOENT
+    jmp fsk_die
+.found:
+    test byte [dskw_raw+DSK_R_ATTR], DSKW_DIR | 0x08
+    jnz .bad2                   ; a folder or the volume label: never
+    mov ax, [dskw_raw+DSK_R_CLUS]
+    mov [dskw_oldclus], ax
+    KC dskw_rmbody_n83.delent   ; the deleted mark, the commit, the chain
+    jnc .out
+.io:
+    jmp fsk_ioerr
+.out:
+    ret
+
+; THE RETIRED DRIVERS AND MODULES, raw 8.3 - apps/syscheck/retired.txt's .DRV
+; lines, in its order; tests/unit/t_sysman.py fails the build when the two
+; disagree. A name stays for ever, as it does there
+fsk_n_hma:  db 'COLDHMA SYS'
+fsk_romid:  db 'OS88ROM', 0, 3  ; rom_id's magic and ROM_KIND_HMA
+
+fsk_retired:
+    db 'DEBUG   DRV'
+    db 'CLONE   DRV'
+    db 'DESKTOP DRV'
+%ifndef KERN_EMU                ; ...which kern_emu still loads (SPEC.md 9.11.7)
+    db 'VMMOUSE DRV'
+%endif
+    db 0
 
 ; =============================================================================
 ; FSK_BEGIN
