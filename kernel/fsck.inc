@@ -467,7 +467,8 @@ fsk_delsys:
     push cx                     ; ...its buffer's KB
     push di                     ; ...and its buffer
     mov di, dskw_n83            ; the name, raw: eight and three, space-padded
-    push di
+    push es                     ; the workspace, which ES is for the whole
+    push di                     ; call (no [fsk_ws]: kernel size pass 17)
     push ds
     pop es
     mov ax, 0x2020
@@ -475,7 +476,7 @@ fsk_delsys:
     rep stosw
     stosb
     pop di
-    mov es, [fsk_ws]
+    pop es
     mov cx, 8
 .base:
     mov al, [es:si]
@@ -548,6 +549,7 @@ fsk_delsys:
 .hma:                           ; ...or the one other name the refused form
     cmp ah, FSKD_REFUSED        ; takes: COLDHMA.SYS (118.8.3)
     jne .bad
+    push es                     ; the workspace, back for .refused's name
     push cx
     push si
     push di
@@ -568,14 +570,16 @@ fsk_delsys:
     pop di
     pop si
     pop cx
+    pop es
     jne .bad                    ; ZF = 0: a mismatch jumped here
 .refused:
     ; --- read it whole, as the kernel itself would, and judge the header -
     push di                     ; the caller's buffer
     mov di, cp_sbuf             ; the name, staged where the file API reads
-    push ds                     ; it (DS:SI): cp_stage's landing ground, one
-    pop es                      ; string at a time on the UI task
-    mov ds, [fsk_ws]
+    push es                     ; it (DS:SI): cp_stage's landing ground, one
+    push ds                     ; string at a time on the UI task - and the
+    pop es                      ; name is the workspace's, which ES held
+    pop ds
     mov bx, 13                  ; 8 + '.' + 3 + NUL, already proved
 .st:
     lodsb
