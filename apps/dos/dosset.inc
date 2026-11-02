@@ -165,7 +165,8 @@ sp_hck:
     pop bx
     jc .r
     call sp_wdraw1                  ; ...and `Run in a window` greys with it
-    clc
+    call dos_mem_row                ; ...and the figure moves: headless is the
+    clc                             ; bracket with part 1 left out (96.44.20)
 .r:
     ret
 .no:
@@ -841,7 +842,9 @@ dos_mrad_place:
 
 ; -----------------------------------------------------------------------------
 ; dos_mem_arena - THE ONE FIGURE, as the controls under it stand (96.36.3)
-; out: AX = the KB this page's settings would hand the program; flags
+; out: AX = the KB this page's settings would hand the program; CF = 1 when
+;      it is an AUTOMATIC window's DVW_DEFKB, which a bigger program raises
+;      (SPEC.md 96.54.2.1) - dos_mem_row's `+`
 ;
 ; It replaces the two numbers the page used to be a choice BETWEEN, because
 ; the page is no longer a choice between two numbers: it is an arm, three
@@ -899,11 +902,21 @@ dos_mem_arena:
     cmp byte [dos_mwin + OS88UI_CK_ON], 0   ; **A WINDOW'S FIGURE** (SPEC.md
     je .full                        ; 96.32.2.4): no driver comes out for it
     mov cx, [dos_memkb]             ; and no packet driver is published, so
-    or cx, cx                       ; none of the terms below applies - only
-    jnz .capcx                      ; the cap, which is the user's or
-    mov cl, DVW_DEFKB               ; DVW_DEFKB (96.54.2). CH is 0 already
-    jmp short .capcx
+    jcxz .auto                      ; none of the terms below applies - only
+    jmp short .capcx                ; the cap, which is the user's...
+.auto:                              ; ...or AUTOMATIC (96.54.2.1): DVW_DEFKB,
+    cmp ax, DVW_DEFKB               ; and MORE for a program that needs it -
+    jbe .outc                       ; which is CF = 1, the row's `+`. Not when
+    mov ax, DVW_DEFKB               ; the machine is under the default: then
+    stc                             ; the machine is the figure, and all of it
+    jmp short .out
 .full:
+%endif
+%ifdef DOS_WTAIL
+    cmp byte [dos_mhead + OS88UI_CK_ON], 0  ; **AND HEADLESS IS THE BRACKET
+    je .nohead                      ; WITHOUT THE WINDOW** (SPEC.md 96.44.20):
+    add ax, DOS_WTAILKB             ; that region never holds part 1, so the
+.nohead:                            ; program gets its KB as well (floor)
 %endif
                                     ; what-if cannot see: it was asked at a
                                     ; floor that counts the window as KEPT, and
@@ -998,14 +1011,16 @@ dos_mem_arena:
     sub ax, DSH_CPKB                ; ...and the buffer COPY and TYPE share
     call dos_cache_kb               ; ...and the rung the dial is asking for
     sub ax, cx
-    jmp short .out
+    jmp short .outc
 .cap:
     mov cx, [dos_memkb]             ; ...and the user's own ceiling, which is
-    jcxz .out                       ; the one term that is neither estimate nor
+    jcxz .outc                      ; the one term that is neither estimate nor
 .capcx:
     cmp ax, cx                      ; measurement: it is a decision
-    jbe .out
+    jbe .outc
     mov ax, cx
+.outc:
+    clc                             ; CF = 0: the figure is all there is
 .out:
     pop es
     pop di
@@ -1146,7 +1161,12 @@ dos_mem_row:
     push dx
     push si
     push di
-    call dos_mem_arena
+    call dos_mem_arena              ; CF = 1: an AUTOMATIC window's figure,
+    sbb dl, dl                      ; which grows to its program - `128KB+`
+    and dl, '+' - ' '               ; (SPEC.md 96.54.2.1) - and a BLANK
+    add dl, ' '                     ; otherwise, not a NUL: the run is opaque
+    mov [dos_marn + 7], dl          ; and one cell shorter would leave the
+                                    ; last `+` on the glass
     mov di, dos_marn
     call SPH(dos_mem_num)
     mov bx, [dos_mx]
@@ -1225,16 +1245,10 @@ dos_paint_mem:
     call dos_mck_place              ; all three boxes, and their figures
     pop bx
 
-    push bx                         ; **THE ARENA, AND IT IS ONE LINE NOW**
-    call dos_mem_arena              ; (SPEC.md 96.36.3): AX = the estimate this
-    mov di, dos_marn                ; page's own controls add up to, patched
-    call SPH(dos_mem_num)                ; into the run it is drawn as
-    mov bx, [dos_mx]
-    mov dx, [dos_my]
-    add dx, DOS_MARNY
-    mov si, dos_l_marn
-    call dos_line
-    pop bx
+    call dos_mem_row                ; **THE ARENA, AND IT IS ONE LINE NOW**
+                                    ; (SPEC.md 96.36.3): the estimate this
+                                    ; page's own controls add up to - the same
+                                    ; routine every control that moves it calls
 
     push bx                         ; ...and the choice itself, FIRST of the
 %ifdef DOS_MEGA

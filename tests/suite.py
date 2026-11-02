@@ -8943,6 +8943,19 @@ SOAK = [
         "ends that program while the other counts on. Red with the cap "
         "removed: the second claim fails. Measured 21.9s on MartyPC",
         needs=("marty",), serial=True, wants=("build/os8088-360.img",)),
+    Row("doswgrow", "soak", py("tests/doswgrow.py"), 25.0,
+        "AN AUTOMATIC WINDOW LIMIT GROWS TO ITS PROGRAM (SPEC.md 96.54.2.1). "
+        "tests/dostrap/dwbig.asm is a 136 KB image with 16 KB of MINALLOC - "
+        "WordPerfect 4.1's shape, past both of the loader's fit tests at a "
+        "window's 128 KB. With `Run in a window` ticked and the limit empty "
+        "the Setup figure reads 128KB+ (the full screen's arena, no +, "
+        "unticked - and no + left on the glass either, the row being one "
+        "opaque run); Run puts it on its worker with the cap raised to a 16 KB "
+        "step and its block holding image and MINALLOC; a typed 128 shows "
+        "128KB and refuses it DER_FIT, as before. Red with dos_run's call to "
+        "dvw_regrow taken out (leg 2 refused DER_FIT) and with dos_mem_row's "
+        "`sbb dl, dl` made `xor` (leg 1, no +). Measured 19s on MartyPC",
+        needs=("marty",), serial=True, wants=("build/os8088-360.img",)),
     Row("doswpart", "soak", py("tests/doswpart.py"), 60.0,
         "THE WINDOWED DOS LAYER IS A PART, AND ITS CLAIM'S WHOLE LIFE "
         "(SPEC.md 96.54.9). A window that only ran on the full screen holds "

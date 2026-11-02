@@ -38,6 +38,7 @@ dvw_stubs:
     DVWT dwm_txt,     DVWE_TXT
     DVWT dvw_fsmain,  DVWE_FSMAIN
     DVWT dvw_runprog, DVWE_RUNPROG
+    DVWT dvw_regrow,  DVWE_REGROW
     DVWJ dvw_post,    DVWE_POST
 hent_dvw_fin:                       ; DVWJ's shape, less the pad: nothing
     db 0xEA                         ; follows it in the stride

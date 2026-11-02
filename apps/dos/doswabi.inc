@@ -51,10 +51,11 @@ DVWE_MOUSE   equ 4              ; DHK_MOUSE, bound for a windowed run
 DVWE_TXT     equ 5              ; DHK_TXT, ditto
 DVWE_FSMAIN  equ 6              ; OSAPI_FSX_RUN's proc (Alt+Enter, a shunt)
 DVWE_RUNPROG equ 7              ; the worker's one call, dvw_runprog
-DVWE_POST    equ 8              ; JUMP: the 23 door stubs' dvw_post
-DVWE_FIN     equ 9              ; JUMP: DHK_SNAP, dvw_fin
-DVWE_N       equ 10
-DVWE_NCALL   equ 8              ; ...the first eight are CALL entries
+DVWE_REGROW  equ 8              ; dos_run's DER_FIT, an Automatic limit
+DVWE_POST    equ 9              ; JUMP: the 23 door stubs' dvw_post
+DVWE_FIN     equ 10             ; JUMP: DHK_SNAP, dvw_fin
+DVWE_N       equ 11
+DVWE_NCALL   equ 9              ; ...the first nine are CALL entries
 
 ; --- the host routines the part calls, each through a 4-byte thunk ----------
 ; `call x / retf` in the host (doswr.inc) and a dword `dvwx_x` in the part,

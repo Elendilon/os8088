@@ -149,7 +149,12 @@ Blaster, DOS adds a `BLASTER=` line by itself, describing the card.
 
 The right half is about memory. **Est DOS Ram (Current Machine)** is how much
 memory the program will get with the settings as they stand. It changes as
-you change them.
+you change them. With **Run in a window** ticked it is the window's share,
+**128KB+** while **Limit** is empty: a window starts at 128KB and grows by
+itself, in 16KB steps, for a program that needs more - WordPerfect 4.1 gets
+144KB. Type a Limit and the window is that size exactly, and a program too
+big for it is refused. With **Close when done** ticked the figure is a
+little larger, because a shortcut run that way leaves the window out.
 
 **Disk cache** decides how much of that memory DOS keeps for speeding up
 disk reads: **Auto**, **32K**, **18K**, **9K** or **Off (SLOW!)**. A program
@@ -164,7 +169,8 @@ The two choices below it say where the program runs:
   Clear one to unload that driver while the program runs and give its
   memory to the program; it comes back afterwards. The figure beside each is
   the most memory that kind of driver can take. **Limit** caps the memory the program is
-  given, in kilobytes. Leave it empty to give it all there is.
+  given, in kilobytes. Leave it empty to give it all there is - or, in a
+  window, 128KB and as much more as the program needs.
 - **Shut down the OS** unloads os8088 itself and gives the program nearly
   the whole machine: on a 640KB PC, roughly 150KB more than Inside the OS.
   On a machine with a hard disk, os8088 saves your session to the disk first

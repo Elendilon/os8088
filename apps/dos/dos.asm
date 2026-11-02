@@ -213,8 +213,10 @@ DOS_MWINW   equ 15                  ; `Run in a window`, in cells (96.32.2.4)
 %ifdef DVW
  %define DOS_ACAP dvw_cap           ; dos_run's arena cap (SPEC.md 96.54.2)
 DVW_DEFKB   equ 128                 ; ...a window's, when the user set none
-%if DVW_DEFKB > 255
- %error "dos_run sets DVW_DEFKB with `mov al` (size pass, SPEC.md 96.54.8)"
+DVW_STEPKB  equ 16                  ; ...and the step an AUTOMATIC limit grows
+                                    ; in, to fit its program (96.54.2.1)
+%if DVW_STEPKB & (DVW_STEPKB - 1) || DVW_STEPKB > 128 || DVW_DEFKB % DVW_STEPKB
+ %error "dvw_regrow rounds with `and al, -DVW_STEPKB`: a power of two, a divisor of DVW_DEFKB"
 %endif
 %else
  %define DOS_ACAP dos_memkb
@@ -259,6 +261,7 @@ DVW_DEFKB   equ 128                 ; ...a window's, when the user set none
   %error "DOS_WTAIL is the parted kern_big host's layout (DVW_SPLIT)"
  %endif
 section .wtext follows=.text align=16
+dos_wtail_beg:                      ; part 1's first byte (DOS_WTAILKB)
  %ifdef DOS_WSHIFT
     times DOS_WSHIFT db 0           ; tools/doswtail.py's second assembly
  %endif
@@ -1647,6 +1650,12 @@ dos_run:
     jne .floor                      ; THE COMPACTION WAKE resumes here: the
                                     ; buffers are claimed already, and claiming
                                     ; them twice would leak 2KB a launch
+%ifdef DVW
+    mov word [dvw_cap], DVW_DEFKB   ; AN AUTOMATIC LIMIT STARTS AT THE DEFAULT
+%endif                              ; on each launch, and only dvw_regrow
+                                    ; raises it (SPEC.md 96.54.2.1) - here,
+                                    ; which the compaction wake skips, so a
+                                    ; raise outlives the pass it posted
 %ifndef KD_BACKEND
     WIN_ONLY
     call dos_con_starting           ; **SAID BEFORE IT HAPPENS** (SPEC.md
@@ -1776,8 +1785,8 @@ dos_run:
     je .take                        ; WINDOW (SPEC.md 96.54): the desktop goes
     or ax, ax                       ; on running and its sound driver with it
     jnz .kept
-    mov al, DVW_DEFKB               ; AX was 0, so AH already is
-    jmp short .kept
+    mov ax, [dvw_cap]               ; AUTOMATIC: DVW_DEFKB, or what dvw_regrow
+    jmp short .kept                 ; raised it to for this program (96.54.2.1)
 .take:
 %endif
     call dos_drv_take               ; THE DRIVERS OUT FIRST, on every arm and
@@ -1974,6 +1983,14 @@ dos_run:
     mov byte [dos_state], DST_RAN
     jmp short .free
 .freeerr:
+%ifdef DVW
+    cmp byte [dvw_want], 0          ; **A WINDOW GROWS TO ITS PROGRAM** (SPEC.md
+    je .noreg                       ; 96.54.2.1): a DER_FIT under an Automatic
+    call HENT(dvw_regrow)           ; limit frees the arena and raises the cap
+    jnc .noreg                      ; to what the header asks - and the sizing
+    jmp .floor                      ; runs again, posted pass and all
+.noreg:
+%endif
     mov [dos_err], al
     mov byte [dos_state], DST_ERR
 .free:
@@ -7054,10 +7071,12 @@ dos_err_line:
 %ifdef DVW
     cmp al, DER_FIT * 2             ; **A WINDOW'S 128K IS NOT THE MACHINE**
     jne .out                        ; (SPEC.md 96.54.2): the default cap was
-    mov ax, [dvw_cap]               ; in force when the cap differs from the
-    cmp ax, [dos_memkb]             ; user's own word, and "shut down the OS"
-    je .out                         ; is the bracket's way out, not this one's
-    mov si, dos_e_wfit
+    cmp word [dos_memkb], 0         ; in force when there is no limit of the
+    jne .out                        ; user's and the cap is still DVW_DEFKB -
+    cmp word [dvw_cap], DVW_DEFKB   ; unraised (a .COM, a compressed file,
+    jne .out                        ; kern_small), the machine not being short
+    mov si, dos_e_wfit              ; (96.54.2.1). "Shut down the OS" is the
+                                    ; bracket's way out, not this one's
 %endif
 .out:
     pop bx
@@ -10471,10 +10490,17 @@ dos_l_msav:  db 'Save the session to disk', 0    ; ...and HIBERNAT.IMG first
 ; which invites the question *which program* - the answer being the one this
 ; DOS is about to run, under whatever is ticked below. One value, one name for
 ; it, and no word about arms: the user is picking options, not picking arms.
-dos_l_marn: db 'Est DOS Ram (Current Machine): '
+dos_l_marn: db 'Est DOS Ram (Current Machine):'
 %endif                              ; KD_BACKEND
 %ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
-dos_marn:   db '     KB', 0
+dos_marn:   db '     KB ', 0       ; ...and the cell after the KB is a `+`
+                                     ; for an AUTOMATIC window's figure
+                                     ; (SPEC.md 96.54.2.1), a blank otherwise
+                                     ; - never a NUL, or a shorter opaque run
+                                     ; would leave the last `+` standing. The
+                                     ; label gave its trailing blank for it, so
+                                     ; the run is no wider than it was: the
+                                     ; five-wide field pads with blanks anyway
 %endif                              ; KD_BACKEND
 %ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 ; --- the two arms, and the words under the greyed one (SPEC.md 96.36) -------
@@ -18396,7 +18422,9 @@ DOS_WBSS_SIZE equ WB + CON_BSS
 section .wtext
 dos_wbss:
     times DOS_WBSS_SIZE db 0
-section .text
+dos_wtail_end:                      ; ...where part 1 ends: the Setup page's
+section .text                       ; headless figure adds DOS_WTAILKB
+%define DOS_WTAILKB ((dos_wtail_end - dos_wtail_beg) >> 10)
 %endif
 
 ; --- THE SETUP PART, APPENDED (SPEC.md 96.32.2.3) ----------------------------

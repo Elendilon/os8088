@@ -648,6 +648,101 @@ dvw_start:
     stc
     ret
 
+; -----------------------------------------------------------------------------
+; dvw_regrow - DVWE_REGROW: the program did not fit the window's cap, and the
+; Memory limit is AUTOMATIC (empty) - so the cap grows to the program
+; (SPEC.md 96.54.2.1)
+; in:  AL = the DER_* dos_run's load answered; [dvw_want] set, the arena still
+;      claimed; DS = the host; UI task, lock FREE
+; out: CF = 1 RAISED: [dvw_cap] = what the program's own header asks for,
+;      rounded up to DVW_STEPKB, and the arena FREED - dos_run sizes again.
+;      CF = 0 the refusal stands, and [dvw_cap] = 0 when it was the MACHINE
+;      that was short and not the cap, so dos_err_line does not blame the
+;      window's 128K. AX, BX, DS and ES kept; CX, DX and SI SPENT, which
+;      dos_run's `.freeerr` and `.floor` both reload before reading.
+;
+; **THE HEADER IS READ AGAIN, NOT TRUSTED WHERE IT LIES.** dos_load leaves it
+; at the program's segment when its own fit test refused, and dos_exe_setup
+; does when its PSP + image + MINALLOC test did - but a file refused WHOLE (a
+; compressed one, or kern_small's cluster-granule probe) was never read, and
+; that arena holds whatever the heap last held. One sector through
+; OSAPI_FILE_READ_AT costs one read and is THIS file; on kern_small, whose
+; granule is a cluster, it refuses, and the window keeps its cap.
+;
+; THE FIGURE IS THE LARGER OF dos_load's AND dos_exe_setup's TWO TESTS: the
+; whole file in pages (the header is read into the block, before the move
+; that strips it), and the image plus MINALLOC - spelled here as the pages
+; plus (MINALLOC - header), which over-counts the image by under a page. Plus
+; the PSP. The shortfall is taken against the block THIS cap produced, so the
+; file window off the arena's top (SPEC.md 96.11) is counted without being
+; known here.
+; -----------------------------------------------------------------------------
+dvw_regrow:
+    DVW_HBIND                       ; the host may have moved since the last
+    cmp al, DER_FIT                 ; run (a compaction wake, 66.6.1.2)
+    jne .no
+    cmp word [dos_memkb], 0         ; THE USER'S OWN NUMBER IS A DECISION and
+    je .auto                        ; refuses as it always did
+.no:
+    clc
+    ret
+.auto:
+    push ax
+    push bx
+    push es
+    mov ax, [dvw_cap]
+    cmp ax, [dos_akb]
+    jne .short                      ; the arena was LESS than the cap: no
+                                    ; raise reaches what the machine lacks
+    mov es, [dos_arena]             ; ANY sector of the arena: it is ours,
+    xor bx, bx                      ; and the load that refused is over
+    mov cx, 512                     ; READ_AT's granule (SPEC.md 18.4.4.2)
+    xor ax, ax
+    cwd
+    mov si, [dos_ldname]
+    call OSAPI_FILE_READ_AT         ; DBE_RDAT's own door (dos_k_rdat): we
+    jc .keep                        ; stand where dos_run's goto put us
+    mov ax, [es:bx]
+    cmp ax, 0x5A4D                  ; 'MZ', or 'ZM': dos_is_exe's two
+    je .mz
+    cmp ax, 0x4D5A
+    jne .keep                       ; a .COM is 64K by construction
+.mz:
+    mov ax, [es:bx + MZ_CP]
+    mov cl, 5
+    shl ax, cl                      ; header + image, in paragraphs (past
+                                    ; 2,047 pages it wraps, reads SMALL, and
+                                    ; dos_load's own refusal is what stands)
+    mov dx, [es:bx + MZ_MINALLOC]
+    sub dx, [es:bx + MZ_CPARHDR]
+    jbe .img                        ; MINALLOC within the header: the file
+    add ax, dx                      ; is the larger of the two. A wrap here
+.img:                               ; or below reads SMALL, and refuses
+    add ax, 16                      ; ...and the PSP
+    sub ax, [dos_ldpara]            ; paragraphs SHORT of the block it had
+    jbe .keep                       ; it would have fitted: not this refusal
+    dec ax
+    mov cl, 6
+    shr ax, cl                      ; KB short, less one (rounded up below)
+    add ax, [dvw_cap]
+    add ax, DVW_STEPKB              ; ...and the cap, up a step at least, so
+    and al, -DVW_STEPKB             ; every raise is a real one and the retry
+    mov [dvw_cap], ax               ; cannot go round for ever
+    xor dx, dx
+    xchg dx, [dos_arena]
+    call OSAPI_MEM_FREE             ; dos_run claims again, at the new cap
+    stc
+    jmp short .pop
+.short:
+    and word [dvw_cap], 0
+.keep:
+    clc
+.pop:
+    pop es
+    pop bx
+    pop ax
+    ret
+
 %endif                              ; [P]
 %ifndef DVW_PART                    ; --- [R]: the worker's loop is the
                                     ; host's: its idle sleep is what the
