@@ -216,6 +216,113 @@ DVW_DEFKB   equ 128                 ; ...a window's, when the user set none
                                 ; document glyph, shared with dosload.asm
 %endif                              ; KD_BACKEND
 
+; --- THE WINDOW'S TAIL (docs/plans/DOS-HEADLESS-PLAN.md 4.3, 4.4) -----------
+; Everything that only SHOWS the window - the console, the prompt, the
+; controls, the line editor, the paint, the menus and the windowed layer's
+; resident stubs - is assembled into `.wtext`, a section placed after every
+; byte of the host's own image and bss, with the window's own bss after IT.
+; So the region reads `[header][core slot][the resident host][the window]`,
+; and a host that never shows a window need never hold the last part.
+;
+; `DOS_WTAIL` is that layout. It is the parted host's on kern_big and kern_emu
+; (DVW_SPLIT) and nobody else's: kern_mega's and kern_small's builds, the
+; plain `build/dos.bin` and `kern_dos` assemble every macro below to nothing,
+; byte for byte what they were (the plan's section 7).
+;
+; THE BOUNDARY IS A GATE, NOT A CONVENTION: nasm resolves a near reference
+; across a section silently, and in a region with no tail the tail's address
+; is somebody else's claim. So every reference from the resident host into
+; the tail is spelled inside `WIN_ONLY` ... `WIN_END`, whose opening IS the
+; test (`cmp byte [dos_head], 0` / `jne`), and `tools/doswtail.py` assembles
+; the host twice - the second time with the tail moved up by DOS_WSHIFT bytes
+; - and FAILS THE BUILD on any byte of the resident host that moved with it
+; outside such a bracket. A branch, a memory operand, an immediate and a
+; table entry are all caught alike, because each is a byte that depends on
+; where the tail is.
+;   WIN_CODE / WIN_CODE_END   what is between them goes into the tail. A
+;                             routine either side of one must END in an
+;                             unconditional transfer: nothing falls across
+;   WIN_ONLY / WIN_ONLYF      open a bracket (short / near skip), and
+;   WIN_ELSE / WIN_END        ...its headless arm, and its close
+;   WBSS name, n              a bss row of the TAIL's (HBSS's shape)
+%ifdef DOS_WTAIL
+ %ifndef DVW_SPLIT
+  %error "DOS_WTAIL is the parted kern_big host's layout (DVW_SPLIT)"
+ %endif
+section .wtext follows=.text align=16
+ %ifdef DOS_WSHIFT
+    times DOS_WSHIFT db 0           ; tools/doswtail.py's second assembly
+ %endif
+section .text
+ %macro WIN_CODE 0
+section .wtext
+ %endmacro
+ %macro WIN_CODE_END 0
+section .text
+ %endmacro
+ %assign DOS_WBN 0               ; brackets so far: -DDOS_WBREAK=n leaves the
+ %macro WIN_ONLY 0                ; n-th one's test out, which is how the gate
+  %push dwonly                    ; is shown to go red (tests/unit/t_doswtail.py)
+  %assign DOS_WBN DOS_WBN + 1
+  %ifndef DOS_WBREAK
+    cmp byte [dos_head], 0          ; THE TEST IS THE BRACKET: the checker
+    jne short %$end                 ; reads its range off this jump
+  %elif DOS_WBN != DOS_WBREAK
+    cmp byte [dos_head], 0
+    jne short %$end
+  %endif
+ %endmacro
+ %macro WIN_ONLYF 0
+  %push dwonly
+  %assign DOS_WBN DOS_WBN + 1
+  %ifndef DOS_WBREAK
+    cmp byte [dos_head], 0
+    je short %%in
+    jmp near %$end
+  %elif DOS_WBN != DOS_WBREAK
+    cmp byte [dos_head], 0
+    je short %%in
+    jmp near %$end
+  %endif
+%%in:
+ %endmacro
+ %macro WIN_ELSE 0
+  %ifnctx dwonly
+   %error "WIN_ELSE outside a WIN_ONLY bracket"
+  %endif
+  %repl dwelse
+    jmp %$fin
+%$end:
+ %endmacro
+ %macro WIN_END 0
+  %ifctx dwelse
+%$fin:
+  %elifctx dwonly
+%$end:
+  %else
+   %error "WIN_END outside a WIN_ONLY bracket"
+  %endif
+  %pop
+ %endmacro
+%else
+ %macro WIN_CODE 0
+ %endmacro
+ %macro WIN_CODE_END 0
+ %endmacro
+ %macro WIN_ONLY 0
+  %push dwonly
+ %endmacro
+ %macro WIN_ONLYF 0
+  %push dwonly
+ %endmacro
+ %macro WIN_ELSE 0             ; no tail: the window is always there, and a
+  %error "a headless arm is DOS_WTAIL's: put %ifdef DOS_WTAIL round WIN_ELSE and the arm"
+ %endmacro
+ %macro WIN_END 0
+  %pop
+ %endmacro
+%endif
+
 ; --- AND THE HOLE THE CORE GOES IN (SPEC.md 96.44.5) ------------------------
 ; A host does not contain the core; it RESERVES it. `CORE_ORG` is where the
 ; core's jump table sits in every host's segment, `CORE_MAX` is the budget its
@@ -1006,6 +1113,9 @@ dos_entry:
     pop es
 %endif
 
+    WIN_ONLYF                       ; THE WINDOW (DOS-HEADLESS-PLAN 4.4): a
+                                    ; headless host makes a one-line one of
+                                    ; its own instead (dos_hwin)
     mov si, dos_tpl                 ; THE TEMPLATE IS THE VGA/CGA SIZE and
     call OSAPI_WM_CREATE            ; dos_pref is the rest (SPEC.md 96.32).
     jc .out                         ; dos_size is GONE: it computed 90% of the
@@ -1028,6 +1138,7 @@ dos_entry:
     call os88ui_btninit             ; 20.5.1.3.3's cell now lets it write
     pop dx                          ; late. dos_click is OUR own click work
     mov bx, [dos_win]               ; and the library chains to it
+    WIN_END
 
 %ifndef KD_BACKEND                  ; 96.43: the console is the window's
     mov al, KSC_ALT                 ; **ASK ONCE, TO ARM THE KEY-STATE MAP**
@@ -1096,6 +1207,7 @@ dos_entry:
                                     ; compaction that cannot reach the hole
                                     ; are the same number and different bugs
 
+    WIN_ONLY
     call dos_keeph                  ; **KEEPH FIRST, THEN THE PREFERENCE.** On
     mov si, dos_pref                ; a CGA the dock's strip is the difference
     call OSAPI_WM_PREFER            ; between 15 console rows and 17, and the
@@ -1110,6 +1222,7 @@ dos_entry:
                                     ; the first paint can read a screen whose
                                     ; attribute is still a zeroed bss's
 %endif
+    WIN_END
 
     mov bx, [dos_win]               ; **NAMED, not whatever the last call left
     mov ax, dos_wake                ; in BX.** The slot takes BX = the window
@@ -1121,6 +1234,8 @@ dos_entry:
                                     ; nowhere - Run, Enter-re-run and the
                                     ; console's own launch all stuck at
                                     ; DST_READY with nothing to see
+    WIN_ONLY                        ; ...and the window's two: a close that
+                                    ; stops a windowed run, and the About card
 %ifdef DVW
     mov ax, HENT(dvw_onclose)       ; a running program is stopped by a close,
     call OSAPI_WM_ONCLOSE           ; not orphaned behind a hidden window
@@ -1128,6 +1243,7 @@ dos_entry:
                                     ; every slot preserves it
     mov si, dos_about
     call OSAPI_ABOUT_SET
+    WIN_END
 
     mov byte [dos_pvol], 0xFF       ; **THE SENTINEL, BECAUSE BSS IS ZERO AND
                                     ; ZERO IS DRIVE A:** (SPEC.md 96.6.3).
@@ -1200,6 +1316,7 @@ dos_entry:
     call dos_lnk_open               ; A SHORTCUT names another program and
                                     ; carries its arguments (SPEC.md 96.21);
                                     ; anything else is the program itself
+    WIN_ONLY
     call dos_path_make              ; ...and EITHER WAY the box shows the
                                     ; fully qualified path of what is about to
                                     ; run (SPEC.md 96.32.3). AFTER the link is
@@ -1208,6 +1325,7 @@ dos_entry:
                                     ; PROGRAM's rather than the shortcut's.
                                     ; A refusal leaves the bare name there,
                                     ; which is still true and still runs
+    WIN_END
     mov byte [dos_state], DST_READY
     mov bx, [dos_win]
     call OSAPI_WM_WAKE              ; ...and run it from the wake handler, which
@@ -1239,7 +1357,9 @@ dos_entry:
     ; question. `dos_wholedone` records the refusal and returns with
     ; `[dos_state]` still DST_READY and nothing to undo, which is right - and
     ; left `A:\>` on the glass over a DOS standing on B:.
+    WIN_ONLY
     call dos_prompt                 ; ...and BEFORE the `clc`: it spends the
+    WIN_END
 %endif                              ; flags, and the CF here is the loader's
     mov bx, [dos_win]
     clc
@@ -1264,15 +1384,18 @@ dos_wake:
 %ifdef DVW
     cmp byte [dvw_run], 0           ; A PROGRAM ON THE WORKER (SPEC.md 96.54):
     je .nodvw                       ; its doors, its paint and its end are
+    WIN_ONLY
     jmp HENT(dvw_wake)              ; all this wake is for, and nothing else
                                     ; may start while it runs. A TAIL CALL:
                                     ; .out is a bare `ret` and nothing is
                                     ; pushed above it (size pass, 96.54.8)
+    WIN_END
 .nodvw:
 %endif
 %ifndef KD_BACKEND                  ; 96.43: the console is the window's
     cmp byte [dos_pkgq], 0          ; **A `.O88` TYPED AT THE PROMPT** (SPEC.md
     je .nopkg                       ; 96.33.17): OSAPI_PKG_START wants the gfx
+    WIN_ONLY
     jmp dos_pkg_go                  ; lock FREE and W_ONKEY holds it, so the
                                     ; console posts and this is where it lands
                                     ; (a tail call, for .out's bare `ret`)
@@ -1282,6 +1405,7 @@ dos_wake:
                                     ; own flag, so it neither reads nor moves
                                     ; [dos_state]: a package is not the thing
                                     ; `run it again` re-runs
+    WIN_END
 .nopkg:                             ; **AND THE MISS LANDS HERE AND NOT PAST
                                     ; THE BLOCK BELOW** (SPEC.md 96.41.4). It
                                     ; was `.notpkg`, which is where the STATE
@@ -1392,6 +1516,8 @@ dos_wake:
     ; starts, so a line written there is about a launch that has not happened
     ; (SPEC.md 96.35.1). Before `dos_swap`, which is the repaint, for
     ; `dos_repaint`'s reason one arm over.
+    WIN_ONLY                        ; the exit line, the repaint and the full
+                                    ; screen are the console's
     call dos_con_ended
     mov bx, [dos_win]
     call dos_swap
@@ -1404,6 +1530,7 @@ dos_wake:
                                     ; spent it and threw that console into the
                                     ; full screen. kern_mega's trip (14.106) and
                                     ; kern_big's shut-down arm alike (14.113)
+    WIN_END
     jmp short .out
 .nocode:
 %endif
@@ -1444,7 +1571,9 @@ dos_wake:
 %ifdef DOS_WIN16
     shr byte [dos_w16k], 1      ; THE LOADER READ THIS FILE and it is no NE
     jc .w16no                   ; (SPEC.md 124.3.1): once, the launch's own
+    WIN_ONLY
     call dos_w16_try            ; wake. SPEC.md 124.3: a WINDOWS program is
+    WIN_END
     jc .out                     ; WIN16's, asked before anything is claimed or
 .w16no:                         ; taken out - and before arm 3's question, too
 %endif
@@ -1507,12 +1636,14 @@ dos_run:
                                     ; buffers are claimed already, and claiming
                                     ; them twice would leak 2KB a launch
 %ifndef KD_BACKEND
+    WIN_ONLY
     call dos_con_starting           ; **SAID BEFORE IT HAPPENS** (SPEC.md
                                     ; 96.33.20.1), and HERE rather than at
                                     ; `.there`: everything above this point
                                     ; runs again on the compaction wake, and a
                                     ; launch that had to wait for a pass would
                                     ; announce itself twice
+    WIN_END
     call dos_mem_fix                ; the arm FIRST, because dos_pkt_bufs reads
                                     ; the network part only for an arm that
                                     ; will publish it (SPEC.md 96.23.11) -
@@ -1531,7 +1662,9 @@ dos_run:
                                     ; already standing in, and pinned it
                                     ; stranded 39.5KB under itself
 %ifdef DVW_SPLIT
+    WIN_ONLY
     call dvw_pfetch                 ; **THE WINDOW'S PART** (SPEC.md 96.54.9),
+    WIN_END
     jnc .dvwok                      ; here for the network's reason: before the
     mov al, DER_DVWP                ; arena is sized, so it is placed with the
     jmp .err                        ; part in the heap - and a REFUSED fetch
@@ -1795,6 +1928,7 @@ dos_run:
     xchg al, [dvw_want]             ; read and spent in one: the worker takes
     or al, al                       ; it from here, and dvw_wake pays this
     jz .bracket                     ; routine's tail when the program ends.
+    WIN_ONLY                        ; (dvw_want is never set headless)
 %ifdef DVW_SPLIT
     call dvw_pin                    ; the IVT and the worker will name it
 %endif
@@ -1803,6 +1937,7 @@ dos_run:
 %ifdef DVW_SPLIT
     call dvw_relax                  ; (...and no run names the part after all)
 %endif
+    WIN_END
 .bracket:                           ; what it gets. AX is spent: GFX_LOCK
 %endif
     call OSAPI_GFX_LOCK             ; ...and only NOW, because fsx_run wants it
@@ -1882,6 +2017,8 @@ dos_run:
                                     ; exactly as it skips the resume: the
                                     ; compaction is going to run and then come
                                     ; back through here
+    WIN_ONLY                        ; the console's account of the run, the
+                                    ; repaint and the full screen
 %ifndef KD_BACKEND                  ; 96.43: the console is the window's
     call dos_con_ended              ; ...and the console says what happened, which
                                     ; is where §96.32's three status lines went
@@ -1907,6 +2044,7 @@ dos_run:
                                     ; after dos_repaint so the window under it
                                     ; is right when the bracket next comes down
 %endif
+    WIN_END
 .outq:                              ; ...AND THE POSTED PATH, which reaches
                                     ; none of the above on purpose: nothing has
                                     ; ended, the drivers must stay out for the
@@ -1919,6 +2057,7 @@ dos_run:
 ; in:  nothing; the wake handler's context, gfx lock NOT held (SPEC.md 74.1)
 ; out: nothing; preserves all registers
 ; -----------------------------------------------------------------------------
+WIN_CODE                            ; the window's (DOS-HEADLESS-PLAN 4.4)
 dos_repaint:
     push ax
     push bx
@@ -1959,6 +2098,7 @@ dos_repaint:
     pop bx
     pop ax
     ret
+WIN_CODE_END
 %endif                              ; KD_BACKEND
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
@@ -2378,6 +2518,8 @@ dos_fsx_main:
                                     ; CLEARED, so without this a program starts
                                     ; on a blank screen and the command line
                                     ; that launched it is not above its output
+    WIN_ONLY                        ; the console onto the screen is the
+                                    ; window's: a headless run starts clean
 %ifndef KD_BACKEND                  ; 96.43: the console is the window's
     mov bx, [dos_win]
     call OSAPI_FSX_CAPS             ; DL = the DISPLAY's own kind, which
@@ -2401,6 +2543,7 @@ dos_fsx_main:
     mov ah, 0x02                    ; and overwrite the history just painted
     int 0x10
 %endif
+    WIN_END
 .noseed:
 
     call OSAPI_VIDEO                ; AX = width, BX = height: INT 33h's scale
@@ -6013,9 +6156,17 @@ dos_be_bind:
 ; -----------------------------------------------------------------------------
 dos_hk_bind:
     push ax
+%ifdef DOS_WTAIL
+    mov word [dos_hkv + DHK_POLL], dos_hk_poll
+    WIN_ONLY                        ; the program's last screen and its INT
+    mov word [dos_hkv + DHK_SNAP], dos_snap ; 21h output are the CONSOLE's,
+    mov word [dos_hkv + DHK_TTY],  dos_hk_tty ; and a headless host has none:
+    WIN_END                         ; 0 = the ROM's teletype (DOS-HEADLESS 2)
+%else
     mov word [dos_hkv + DHK_SNAP], dos_snap
     mov word [dos_hkv + DHK_POLL], dos_hk_poll
     mov word [dos_hkv + DHK_TTY],  dos_hk_tty
+%endif
     mov word [dos_hkv + DHK_MOUSE], dos_hk_mouse
     mov word [dos_hkv + DHK_TXT],  dos_hk_txt
     mov word [dos_hkv + DHK_CLAIM], dos_hk_claim
@@ -6067,6 +6218,7 @@ dos_hk_poll:
 ; offset. MEASURED: a probe's `COUNT ` and `TERM ` labels vanished and their
 ; VALUES survived, because AH=09h was reading a program byte that happened to
 ; be 0 and AH=02h was reading ours.
+WIN_CODE                            ; the window's (DOS-HEADLESS-PLAN 4.4)
 dos_hk_tty:
     cmp byte [cs:dos_inbr], 0
     jne .rom                        ; inside the bracket the ROM's teletype IS
@@ -6135,6 +6287,7 @@ dos_reloc:                          ; BX = the base it WAS at, DX = where it
 ; the machine where FSI describes the surface this bracket was given.
 ; `kern_dos` has no bracket and reads the BDA; this host has a bracket and
 ; reads its record. Two hosts, two bodies, one core (96.44.3).
+WIN_CODE_END
 dos_hk_txt:
     mov ax, [dos_fsi + FSI_SEG]
     or ax, ax
@@ -6214,6 +6367,7 @@ dos_betab:
 ; in:  SI = window ptr; the gfx lock is held
 ; out: nothing; preserves all registers
 ; -----------------------------------------------------------------------------
+WIN_CODE                            ; the window's (DOS-HEADLESS-PLAN 4.4)
 dos_paint:
     push ax
     push bx
@@ -6322,6 +6476,7 @@ dos_line:
 ; dos_fmt_exit - stamp the exit code into dos_l2_ran
 ; in:  nothing; out: SI = the line
 ; -----------------------------------------------------------------------------
+WIN_CODE_END
 dos_fmt_exit:
     push ax
     push di
@@ -6419,6 +6574,7 @@ dos_hexd:
 ; lock and far-calls us with NO clip region armed (SPEC.md 11.3), so the widget
 ; arms one itself. dos_paint uses the other entry.
 ; -----------------------------------------------------------------------------
+WIN_CODE                            ; the window's (DOS-HEADLESS-PLAN 4.4)
 dos_about:
     push bx
     push si
@@ -7162,6 +7318,7 @@ dos_sav_done:
 ; Where the page is a PART (DOS_SETPART) this file names none of it: the
 ; -DDOS_SETEMIT assembly includes dosset.inc at the END, in a section of its
 ; own, and the Makefile cuts it off. Everywhere else it is here, as it was.
+WIN_CODE_END
 %ifndef DOS_SETPART
 %include "dosset.inc"
 %endif
@@ -7203,7 +7360,9 @@ dos_mem_whole:
     ret
 .no:
 %endif
-    mov si, dos_l_memw3
+    WIN_ONLY                        ; the reason is the Setup page's, and a
+    mov si, dos_l_memw3             ; headless host has none (CF is the
+    WIN_END                         ; answer dos_mem_fix reads)
     stc
     ret
 
@@ -7462,9 +7621,10 @@ dos_wholeask:
     call dos_hasfixed
     jnc .no                     ; there is one: the session comes back (96.41)
                                 ; and there is nothing to warn about
-    push ax
-    push bx
-    push si
+    WIN_ONLY                    ; the question is a WINDOW's dialog, and a
+    push ax                     ; headless shortcut saved with arm 3 IS the
+    push bx                     ; confirmation: the user ticked both boxes
+    push si                     ; and saved (DOS-HEADLESS-PLAN 5)
     push di
     call OSAPI_GFX_LOCK
     mov al, OS88UI_ADANGER
@@ -7480,6 +7640,11 @@ dos_wholeask:
     jc .no                      ; REFUSED - one was already up and has been
                                 ; raised. Falling through to the launch there
                                 ; would run the program behind its own question
+%ifdef DOS_WTAIL
+    WIN_ELSE
+    jmp short .no
+%endif
+    WIN_END
 .hold:
     stc
     ret
@@ -8021,6 +8186,7 @@ dos_cache_give:
 ; one line along: the line is drawn by one opaque font_run and a number
 ; assembled anywhere else would need a second store to get there.
 ; -----------------------------------------------------------------------------
+WIN_CODE                            ; the window's (DOS-HEADLESS-PLAN 4.4)
 dos_mem_num:
     mov cx, 5                       ; the arena's field: five digits, which is
     jmp short dos_mem_numn          ; every KB figure a machine under 1MB has
@@ -9004,6 +9170,7 @@ dos_fld_init:
 ; alternative - a half-applied link - is a window naming a program the user
 ; never chose.
 ; -----------------------------------------------------------------------------
+WIN_CODE_END
 dos_lnk_open:
     push ax
     push bx
@@ -9033,7 +9200,9 @@ dos_lnk_open:
 %ifdef DOS_WIN16
     mov byte [dos_w16k], 0          ; the loader read the LINK, not what it
 %endif                              ; names: the wake asks again (124.3.1)
+    WIN_ONLY
     call dos_fld_reload             ; the fields show what the link carried
+    WIN_END
 .out:
     jmp dos_hpop_7                  ; the host's shared epilogue (96.54.8)
 
@@ -9089,6 +9258,7 @@ dos_upc:
 %ifndef KD_BACKEND                  ; THE WINDOW HALF (SPEC.md 96.43.2)
 
 ; --- dos_fld_reload - the fields show what is in the buffers now ------------
+WIN_CODE                            ; the window's (DOS-HEADLESS-PLAN 4.4)
 dos_fld_reload:
     push bx
     push cx
@@ -9126,6 +9296,7 @@ dos_fld_reload:
 ; count that runs past the end of a SHORT file would otherwise read whatever
 ; follows it in our own image (SPEC.md 20.8 rule 2).
 ; -----------------------------------------------------------------------------
+WIN_CODE_END
 dos_lnk_parse:
     push ax
     push bx
@@ -9673,7 +9844,9 @@ dos_lnk_memr:
 .nobox:                             ; inside it; an older, 12-byte link keeps
                                     ; the defaults dos_fld_init set
     call dos_mem_fix
+    WIN_ONLY
     call dos_mem_put                ; ...and the field shows what the link said
+    WIN_END
     pop ax
     ret
 
@@ -9910,6 +10083,7 @@ dos_envpath:
 ; =============================================================================
 ; DATA
 ; =============================================================================
+WIN_CODE                            ; the window's (DOS-HEADLESS-PLAN 4.4)
 dos_tpl:
     dw 0, MBAR_H, DOS_CONW, DOS_FRAMEH
                                     ; x, y, w, h (SPEC.md 96.32). **x IS 0 AND
@@ -10106,6 +10280,7 @@ dos_l_ca3: db '9K', 0
 dos_l_ca4: db 'Off (SLOW!)', 0
 ; ...and what each row is worth in RUNS, which is what the launch block
 ; carries and what dos_cache_kb turns into the KB on the glass.
+WIN_CODE_END
 dos_ca_runs:
     db DOS_CA_AUTORUN               ; Auto - kern_dos's own KD_RAH_KEEP
     db 7                            ; 32K
@@ -11694,6 +11869,7 @@ dos_pself:
 ; dos_sp_bounce - the part's way back in: `call SPH(x)` stored x in
 ; [dos_sp_tgt] and far-called here. Nothing is touched on the way, so the
 ; routine's registers and FLAGS are the part's answer exactly.
+WIN_CODE                            ; the window's (DOS-HEADLESS-PLAN 4.4)
 dos_sp_bounce:
     call [dos_sp_tgt]
     retf
@@ -11760,6 +11936,7 @@ dos_sp_get:
 
 ; dos_sp_drop - give the part back, if it is held. Every register preserved;
 ; the flags are not
+WIN_CODE_END
 dos_sp_drop:
     push dx
     xor dx, dx
@@ -11773,12 +11950,14 @@ dos_sp_drop:
 
 ; dos_spdo - door AL of the Setup part (dosset.inc's sp_door), fetching it
 ; first if it is not held. out: CF = 1 it could not be had and nothing ran
+WIN_CODE                            ; the window's (DOS-HEADLESS-PLAN 4.4)
 dos_spdo:
     call dos_sp_get
     jc .r
     call far [dos_spdoor]
 .r:
     ret
+WIN_CODE_END
 %endif                              ; DOS_SETPART
 %endif
 %endif
@@ -11865,6 +12044,20 @@ DOS_CBASE   equ os88_image_end
     %1 equ HB
     %assign HB HB + %2
 %endmacro
+; ...and a THIRD, for the window's tail (DOS-HEADLESS-PLAN 4.4): a row only
+; the window reads, based past the tail's code at `dos_wbss` so that a host
+; with no tail holds none of it. Spelled as an offset from `dos_hbss` like an
+; HBSS row's, so every `dos_x equ dos_hbss + DOS_B_X` below reads the same
+; whichever macro declared it. With no tail it IS an HBSS row, in place.
+%assign WB 0
+%macro WBSS 2
+ %ifdef DOS_WTAIL
+    %1 equ (dos_wbss - dos_hbss) + WB
+    %assign WB WB + %2
+ %else
+    HBSS %1, %2
+ %endif
+%endmacro
 
 ; --- AND THE VERY FIRST ROW IS THE LOADER'S (SPEC.md 96.44.4) ---------------
 ; `apps/dos/dosload.asm` writes the `kern_dos` part's table row into the head
@@ -11910,6 +12103,10 @@ DOS_CBASE   equ os88_image_end
     HBSS DOS_B_DVWROW, 8         ; ...and the WINDOW's after that, the same
 %endif                           ; shape again (dosload.asm's DSLH_DVWROW)
 ; --- end DOS_PART_DVW's row -------------------------------------------------
+%ifdef DOS_WTAIL
+    HBSS DOS_B_HEAD, 1           ; **NON-ZERO = HEADLESS** (DOS-HEADLESS-PLAN
+%endif                           ; 4.4): the tail is not in this region, and
+                                 ; every WIN_ONLY bracket tests this byte
     ; --- THE CONSOLE BAND (SPEC.md 96.32), four words dos_con_geom fills and
     ;     the console wave reads. Not banked "for one paint" like the line
     ;     above: they are the answer to a question about the WINDOW, so
@@ -17196,11 +17393,15 @@ DOS_BSS_SIZE equ HB
                                     ; a file, over the back end like every
                                     ; other file verb
 %ifndef KD_BACKEND                  ; the console's, so 96.43 takes it too
+WIN_CODE
 %include "dosc.inc"                 ; ...AND THE PROMPT THAT TYPES INTO IT
+WIN_CODE_END                        ; (DOS-HEADLESS-PLAN 4.4: the window's)
                                     ; (SPEC.md 96.33): an input, an output and
                                     ; a prompt, and not one verb of its own
 %ifdef DOS_WIN16
+WIN_CODE
 %include "dosw16.inc"               ; ...and the door a Windows program leaves
+WIN_CODE_END                        ; (DOS-HEADLESS-PLAN 4.4: the window's)
 %endif                              ; by, to WIN16 (SPEC.md 124.3)
 %endif
 
@@ -17251,14 +17452,18 @@ DOS_BSS_SIZE equ HB
                                     ; a package pays for the controls it uses -
                                     ; one level up: a build with no window uses
                                     ; none
+WIN_CODE
 %include "os88ui.inc"
+WIN_CODE_END                        ; (DOS-HEADLESS-PLAN 4.4: the window's)
 %if DOS_BTREC_SZ != OS88UI_BT_SIZE
  %error "DOS_BTREC_SZ mirrors OS88UI_BT_SIZE and they have drifted - the HBSS block is laid out before this include, so the size must be written twice; fix the literal"
 %endif
 %define OS88LINE_NOSET              ; the fields are filled in place and
                                     ; resynced (96.21.1), never replaced
                                     ; (apps size pass 2b)
+WIN_CODE
 %include "os88line.inc"
+WIN_CODE_END                        ; (DOS-HEADLESS-PLAN 4.4: the window's)
 %endif
 ; --- THE CONSOLE (SPEC.md 96.33), telnet's screen as a shared include -------
 ; **ITS BSS GOES LAST**, past this package's own chain, which is the one line
@@ -17268,7 +17473,11 @@ DOS_BSS_SIZE equ HB
 ; table - which is exactly the silent overlap SPEC.md 96.29.1 cost a session.
 ; DOS_BSS_SIZE is an `equ` a few lines above, so there is nothing to keep in
 ; step by hand.
+%ifdef DOS_WTAIL
+%define CON_BSS_AT (dos_wbss + WB)  ; ...in the TAIL's bss, after its rows
+%else
 %define CON_BSS_AT (os88_image_end + DOS_BSS_SIZE)
+%endif
 %define CON_FSX                     ; the FULL-SCREEN renderer (SPEC.md 70.8.13,
                                     ; 96.33.5): the same buffer on real text
                                     ; VRAM, driven by dosc.inc's own bracket
@@ -17288,7 +17497,9 @@ DOS_BSS_SIZE equ HB
                                     ; 96.33.1) - and con_open, since the
                                     ; attribute a zeroed bss leaves is black
                                     ; on black
+WIN_CODE
 %include "os88con.inc"
+WIN_CODE_END                        ; (DOS-HEADLESS-PLAN 4.4: the window's)
 %ifdef DVW
 %if CON_ROWS * 2 != 50
  %error "dos.asm reserves 50 bytes for dvw_sums - one word a CON_ROWS row"
@@ -17344,7 +17555,12 @@ above reserves three records this file does not own"
 %endif                              ; KD_BACKEND
 
 %ifndef KD_BACKEND
+%ifdef DOS_WTAIL
+    OS88_BSS DOS_BSS_SIZE           ; the RESIDENT host's: the console's and
+                                    ; every WBSS row are the tail's
+%else
     OS88_BSS DOS_BSS_SIZE + CON_BSS
+%endif
     OS88_IMAGE_END
 %endif
 
@@ -17365,6 +17581,9 @@ dos_hbss    equ os88_image_end   ; the HOST's block IS the package's bss
 %endif
 
 dos_win equ dos_hbss + DOS_B_WIN     ; word: our window
+%ifdef DOS_WTAIL
+dos_head equ dos_hbss + DOS_B_HEAD   ; byte: no tail in this region (4.4)
+%endif
 dos_state equ dos_hbss + DOS_B_STATE   ; byte: DST_*
 dos_err     equ DOS_CBASE + DOS_B_ERR     ; byte: DER_*, when DST_ERR
 dos_exit    equ DOS_CBASE + DOS_B_EXIT    ; byte: the program's exit code
@@ -17831,6 +18050,16 @@ dos_pkt_xl equ dos_hbss + DOS_B_PKTXL
 %ifdef DOSKPART
     times OS88_BSS_SIZE db 0
 %endif
+; --- ...AND THE TAIL'S OWN bss, AFTER ITS CODE (DOS-HEADLESS-PLAN 4.4) ------
+; Zeros in the file for the reason above, at the very end of the tail, so the
+; parts standard's OP_ZFILL keeps them off the disk and off the decoder.
+%ifdef DOS_WTAIL
+DOS_WBSS_SIZE equ WB + CON_BSS
+section .wtext
+dos_wbss:
+    times DOS_WBSS_SIZE db 0
+section .text
+%endif
 
 ; --- THE SETUP PART, APPENDED (SPEC.md 96.32.2.3) ----------------------------
 ; Only the Makefile's second assembly (-DDOS_SETEMIT) emits it, AFTER every
@@ -17838,7 +18067,11 @@ dos_pkt_xl equ dos_hbss + DOS_B_PKTXL
 ; tools/dossetchk.py checks before it cuts the part off. vstart=0: the part is
 ; read into a claim of its own and runs at that claim's offset 0.
 %ifdef DOS_SETEMIT
+%ifdef DOS_WTAIL
+section .setp vstart=0 follows=.wtext align=16
+%else
 section .setp vstart=0 follows=.text align=16
+%endif
 %include "dosset.inc"
 section .text
 %endif

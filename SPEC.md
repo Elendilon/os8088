@@ -187629,6 +187629,46 @@ owner accepted that. Every 360KB test disk built from the system disk's file
 list (`$(SYSROOT360)`) carries the same build, so a row on one is a row on
 what ships.
 
+#### 96.44.19 The window is the TAIL of the region (docs/plans/DOS-HEADLESS-PLAN.md)
+
+**A DOS host that never shows its window need never hold it.** The window
+- the console and its face, the prompt, the controls, the line editor, the
+paint, the menus, the Setup page's glue and the windowed layer's resident
+stubs (§96.54.9) - is 19 KB of every DOS instance. In the parted host on
+kern_big and kern_emu (`DVW_SPLIT`) it is assembled into a section of its
+own, `.wtext`, placed after every byte of the resident host and its bss,
+with the window's own bss after IT:
+
+`[header][core slot][resident code][resident bss][window code][window bss]`
+
+`DOS_WTAIL` is that layout (`apps/dos/dos.asm`). kern_mega's host, kern_small's
+plain `dos.o88`, `build/dos.bin` and `kern_dos` assemble every macro of it to
+nothing and stay byte for byte what they were.
+
+**The boundary is a gate.** nasm resolves a near reference across a section
+without a word, and in a region with no tail the tail's addresses are some
+other claim's. So the resident host names the tail only inside a `WIN_ONLY`
+... `WIN_END` bracket, whose opening is the test itself - `cmp byte
+[dos_head], 0` / `jne` over the window's arm (`WIN_ONLYF` for an arm past a
+short jump, `WIN_ELSE` for a headless arm). `tools/doswtail.py` proves it
+without disassembling anything: it assembles the host a second time with the
+tail moved up `DOS_WSHIFT` bytes, so every byte of the resident host whose
+value depends on where the tail is - a branch, a memory operand, an
+immediate, a table entry - differs between the two, and any such byte
+outside a bracket fails `make`. `tests/unit/t_doswtail.py` (`soak -k
+doswtail`) assembles it with a bracket's test taken out and asserts the gate
+goes red. What the gate cannot see is a FALL-THROUGH across a section switch,
+so a routine either side of `WIN_CODE`/`WIN_CODE_END` ends in an
+unconditional transfer.
+
+**What stays resident although only a window uses it** (§20.12.10.4,
+`inst_pkg_fence`): an entry a FENCED slot names must be below `I_SIZE`, which
+is the resident host's image + bss - so the windowed layer's worker loop
+(`dvw_worker`, an `OSAPI_TASK_SPAWN` entry) and its far stubs (`dvw_stubs`,
+whose `hent_dvw_fsmain` is an `OSAPI_FSX_RUN` proc) stay in the resident
+host, and so do the full-screen console's bracket entry and the 14 bytes of
+`dvw_*` cells the resident `dos_run` and `dos_wake` read.
+
 ### 96.45 The mouse under `kern_dos`, and it was switched OFF rather than missing
 
 INT 33h has always been answered here (§96.10); what it answered with was a

@@ -492,6 +492,21 @@ DOS-PARTS-PLAN 1.1), and the windowed layer's resident half.
 
 ## 7. Waves
 
+**Build status** (updated as each wave actually works, branch `dos-headless`):
+
+- [x] **W0, the checker** - `tools/doswtail.py`, the `WIN_CODE`/`WIN_ONLY`
+  macros and `WBSS` in `apps/dos/dos.asm`, the classification marked in the
+  source, and `make` running the checker on a `-DDOS_WTAIL` assembly of the
+  host. The shipped `dosp.bin` is byte-identical. Taking any bracket's test
+  out turns `make` red (`soak -k doswtail` does it to the first and a middle
+  one). The checker does not disassemble: it assembles the host twice with
+  the tail at two addresses and refuses every resident byte that moved,
+  which counts data references the plan's `ndisasm` survey could not. On
+  that survey's 81 references: 19 brackets cover them, 0 unbracketed.
+  Recorded in SPEC.md 96.44.19. The red row is SOAK and not fast, being
+  about one package (docs/WRITING-TESTS.md 2.1); the every-build half is
+  `make`'s own run of the checker.
+
 Every wave is kern_big and kern_emu; kern_small and kern_mega assemble the
 one-part layout from the same source and must stay byte-identical to their
 shape before (their `dos.o88`/`DOS.O88` `cmp`ed in a private tree).

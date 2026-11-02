@@ -50,6 +50,11 @@ DVWT_N equ (dvw_stubs_end - dvw_stubs) / 6
 ; and THEN the claim made movable if that wake ended the run. Never inside the
 ; part's wake: it calls host routines that claim (dos_drv_back remounts the
 ; drivers), and a compaction there would move code that is on the stack
+WIN_CODE                            ; ...and everything below is the window's
+                                    ; (DOS-HEADLESS-PLAN 4.4): the stubs above
+                                    ; stay resident, being what a FENCED slot
+                                    ; names - hent_dvw_fsmain is an fsx proc -
+                                    ; and what the resident worker far-calls
 hent_dvw_wake:
     call hent_dvw_wakef
     jmp dvw_relax
@@ -192,4 +197,5 @@ dvw_rloc:
     popf
     ret
 
+WIN_CODE_END
 %endif                              ; DVW_SPLIT
