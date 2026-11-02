@@ -1311,9 +1311,9 @@
   "sources": [
    "apps/win16"
   ],
-  "stamped": "cc9b679b",
-  "strings": "f01a34339305f9fb",
-  "why": "merge of main's WIN16 phase A, whose own stamps record no manual change; elendilon's loader bounds and paragraph claims are below the page's detail"
+  "stamped": "db5f8851",
+  "strings": "24601ea4726e08aa",
+  "why": "post-merge fixes: paragraph claims, the load's one file operation and the join from a double-click; below the page's level of detail"
  },
  "WIN16_TXT": {
   "sources": [
