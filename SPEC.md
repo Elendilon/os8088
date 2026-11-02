@@ -187617,7 +187617,7 @@ The stub is 706 of `HS_CODE_MAX`'s 1,024 bytes (was 625). It lives in
 was renamed, not moved, so `PKG_FMT` is unchanged.
 
 **What it buys and costs.** Measured on the tree it landed on: 52,971 ->
-46,965 bytes (-6.0 KB, 52 -> 46 one-KB clusters), every part smaller (host
+46,662 bytes (-6.2 KB, 52 -> 46 one-KB clusters), every part smaller (host
 15,197 -> 13,374 packed, core 13,209 -> 11,554, kern_dos 11,640 -> 10,376).
 The cost is decode time on every launch - ESTIMATED ~+0.85 s on a 4.77 MHz
 8088, from the earlier whole-package A/B (+1.8 s for ~71 KB decoded) scaled
