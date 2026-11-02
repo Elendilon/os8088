@@ -1241,14 +1241,12 @@ mem_claim_1:
                                 ; move a new tenant's block and then call the
                                 ; PREVIOUS tenant's proc to tell it about it.
                                 ; DI walked: it is popped at .out
-    popf
-    clc
-    jmp short .out
-.fail:
-    popf
-    xor dx, dx
-    stc
-.out:
+    SKIPF2                      ; ...over .fail's `xor dx, dx`: DX is the base
+.fail:                          ; here, a segment above [mem_base] and so never
+    xor dx, dx                  ; 0, and 0 on every refusal - so ONE compare
+    popf                        ; after the shared popf IS the answer, CF = 1
+    cmp dx, 1                   ; iff DX = 0 (kernel size pass 17, -1: the
+.out:                           ; success arm's own popf / clc / jmp)
     pop bp
     pop di                      ; the parameters, so a RETRY re-enters with
     pop si                      ; the same ones (pop touches no flag, and CF
@@ -3240,8 +3238,10 @@ mem_region_reloc:
 %ifdef KERN_MEGA
     MEGA_SEG0 es                  ; segment 0 is the NULL selector (no zero:
 %else                           ; mem_rr_walk's lodsw writes AX first)
-    xor ax, ax
-    mov es, ax                  ; ES = 0: the hardware IRQ vectors, the fourth
+    mov es, di                  ; ES = 0: the hardware IRQ vectors, the fourth
+                                ; - and DI IS 0, mem_rr_walk's only exit being
+                                ; the zero word that ends a group (kernel size
+                                ; pass 17, -2: `xor ax, ax` / `mov es, ax`)
 %endif
     call mem_rr_walk            ; address space and the only one outside this
 %ifdef KERN_MEGA                ; kernel (SPEC.md 66.6.3.1) - and on kern_mega
@@ -6396,10 +6396,9 @@ mem_bytes_kb:
     push cx
     add ax, 1023
     mov cl, 10
-    shr ax, cl
-    or ax, ax
-    jnz .out
-    inc ax
+    shr ax, cl                  ; ...whose ZF IS the zero test: a shift by a
+    jnz .out                    ; non-zero CL sets ZF from its result (kernel
+    inc ax                      ; size pass 17, -2: an `or ax, ax` re-asked it)
 .out:
     pop cx
     ret
