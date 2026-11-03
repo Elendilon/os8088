@@ -476,9 +476,9 @@
    "kernel/fsck.inc",
    "apps/syscheck/disk.inc"
   ],
-  "stamped": "7649165b",
-  "strings": "623cb2b108de6dbf",
-  "why": "checked against fsck.inc and disk.inc: the messages the page quotes are unchanged and it already names COLDHMA.SYS; the rewording touched none of its lines"
+  "stamped": "5d148b4e3",
+  "strings": "56f35984ce04b211",
+  "why": "PR 328 review: repairs that free wait for a complete walk; PARTIAL message"
  },
  "FTPD_O88": {
   "sources": [
@@ -1057,9 +1057,9 @@
   "sources": [
    "kernel/stikmenu.inc"
   ],
-  "stamped": "e4576a70",
-  "strings": "8b9860220a28a7ab",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "7ce68bd14",
+  "strings": "46bee294ee36d33d",
+  "why": "PR #328 review: the eight-App cap and the line that says so (SPEC.md 110.12)"
  },
  "STIKNOTE_O88": {
   "sources": [
@@ -1073,9 +1073,9 @@
   "sources": [
    "apps/syscheck"
   ],
-  "stamped": "e6d71c79",
-  "strings": "e8b1d6e9ff7d1df3",
-  "why": "the second question's word (unusable) and the defragmenter's folders line as the program now prints them"
+  "stamped": "5d148b4e3",
+  "strings": "367e018389ad0046",
+  "why": "PR 328 review: PARTIAL message fits the report column"
  },
  "SYSTEM": {
   "sources": [],
@@ -1155,9 +1155,9 @@
   "sources": [
    "apps/timer"
   ],
-  "stamped": "24c3d243",
-  "strings": "e9aabbc59981e7c7",
-  "why": "only an About-card credit line changed (ec45f031 / 'by jggonz'); the page already says the card shows who made it, its credits, or a line about it, so nothing quoted is wrong"
+  "stamped": "5d148b4e3",
+  "strings": "adc1e93ddbd77c7e",
+  "why": "PR 328 review: About card fitted to two lines; the page's 'shows who made it' still holds"
  },
  "TIMES_F88": {
   "sources": [],

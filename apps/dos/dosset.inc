@@ -151,8 +151,8 @@ sp_wck:
 ; sp_hck - a press on `Close when done` (SPEC.md 96.44.20)
 ; in:  BX = the window, CX/DX = the point; out: CF = 0 it was ours, CF = 1 not
 ; Greyed, and so not ours, while `Run in a window` is ticked - a run in a
-; window IS a window - and for a Windows program, which a headless DOS could
-; only run the MZ stub of ([dos_hne], dos_hne_ask)
+; window IS a window - and for a Windows program, which opens in WIN16's
+; window whatever the box says ([dos_hne], dos_hne_ask)
 ; -----------------------------------------------------------------------------
 sp_hck:
     cmp byte [dos_mwin + OS88UI_CK_ON], 0
@@ -1098,9 +1098,9 @@ dos_cache_give:
 ; dos_cache_kb - what the dial is asking the cache to cost, in KB
 ; out: CX = the KB; AX and every other register preserved
 ;
-; `(runs * 9 + 1) >> 1` is `dsk_rah_want`'s own arithmetic and `kd_rahkb`'s,
-; mirrored here for the same reason those two mirror each other: a figure on
-; the glass that disagrees with the claim is worse than no figure.
+; `(runs * 9 + 1) >> 1` is the claim `dsk_rah_want` and `kd_rahpara` make
+; (`runs * 288` paragraphs) in whole KB, an odd width's half KB rounded up:
+; a figure on the glass that disagrees with the claim is worse than no figure.
 ; -----------------------------------------------------------------------------
 dos_cache_kb:
     push ax
