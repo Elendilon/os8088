@@ -7697,6 +7697,25 @@ SOAK = [
         "BIOS buffer drained, and one more paced key still lands. Red on a "
         "MartyPC built without patch 14 (leg B stops in sch_stkdie).",
         needs=("marty",)),
+    Row("kbdpreempt", "soak", py("tests/kbdpreempt.py"), 35.0,
+        "A TICK INSIDE THE ROM'S int 09h MUST NOT SPLIT A KEY FROM ITS "
+        "MODIFIER (SPEC.md 9.8.3). pxdecode failed twice with a Ctrl+R that "
+        "never reached PiXEL: it arrived as a plain 'r', and Ctrl stayed "
+        "stuck in KB_FLAG. GLaBIOS EOIs and stis before it reads KB_FLAG, "
+        "so a tick landing there ran inside it - sch_isr's ~3,500 cycles, "
+        "or a switch that parked it - and R's byte, a millisecond behind, "
+        "nested and read the flags without Ctrl. kbm_isr now calls the ROM "
+        "with every IRQ but IRQ1 masked. Leg A puts the tick in that window "
+        "on purpose: stop at sch_isr, advance to N cycles before the tick "
+        "after next, send Ctrl+R, read the ring slot. 259 trials over leads "
+        "of 516-1837 cycles must all store 1312, with Ctrl released, and the "
+        "tick must be held on >= 10 of them by under one handler's length. "
+        "Leg B: Pause (Ctrl+NumLock waits in int 09h for a NESTED key) still "
+        "ends on a key. RED, both measured: before the fix the 532-cycle "
+        "lead stored 1372 with Ctrl stuck (90 of 261 passed), and masking "
+        "IRQ1 too never ends the Pause. 35s is 28.5 measured",
+        needs=("marty",),
+        wants=("build/os8088.img", "build/apps.img")),
     Row("kbd4f", "soak", py("tests/kbd4f.py"), 8.0,
         "THE SCANCODE COMES FROM THE ROM'S int 15h AH=4Fh, NOT A PEEK (SPEC.md "
         "9.7.2). kbm_isr used to read port 60h ahead of the ROM whenever the "

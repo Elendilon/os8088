@@ -15888,8 +15888,10 @@ would nest a second handler.
   (the IBM AT's sends `0ADh` to the 8042 first and `0AEh` last).
 
 So a handler finishes before the next byte can arrive, on every machine this
-boots on. A tick landing inside the window does not change that: the most an
-interrupted handler costs a task's stack is one frame.
+boots on - **unless something runs inside it**. That is 9.8.3: a tick
+landing inside the window ran `sch_isr`, or switched tasks, in the middle of
+the handler, until `kbm_isr` masked every other IRQ around the ROM. On its own
+stack the most an interrupted handler costs is one frame.
 
 **MartyPC could do it, and that is what was measured.** Its machine took one
 queued key event per call to `machine.run()`, which its own comment calls
@@ -15919,6 +15921,73 @@ beep the PC is acknowledging every byte, in the nested handlers, so a second
 one stack, which no slice is short of. The full-buffer beep chains because
 the buffer stays full however fast it is serviced, and that is why only it is
 guarded.
+
+#### 9.8.3 …and the ROM's handler runs with only the keyboard open — a tick inside it split a key from its modifier
+
+`soak -k pxdecode` failed twice, months apart, the same way. PiXEL was sent
+Ctrl+R and never opened a picture, though the machine was idle and the BIOS
+ring empty. The keystroke had arrived, but **as a plain `r`**, the Rotate
+tool's letter, which PiXEL took silently. **Ctrl was left stuck on** in
+`0040:0017`.
+
+The cause is the order inside GLaBIOS's int 09h. It reads port 60h,
+acknowledges, sends the EOI and executes `sti` (9.8.2), and only THEN reads
+KB_FLAG into DX; for a shift key it writes the flag back later still. A tick
+landing between the `sti` and that write ran inside the handler. That was
+either `sch_isr` at ~3,500 cycles, or `sch_switch`, which parked the handler
+with the task it had interrupted. Nothing barred the switch: the handler runs
+on a task stack, with `[sch_lock]` free. The keyboard sends its next byte a
+millisecond after the acknowledge regardless. So R's make code ran a SECOND
+handler, nested or on the ui task's stack, which read KB_FLAG before Ctrl was
+set and stored `1372h`. A parked Ctrl handler then set the flag after Ctrl's
+break had already gone by. 9.8.2's argument assumed a handler lasts its own
+~2,500 cycles, and a tick inside it is what made that false.
+
+The IBM 5150 ROM `sti`s at once but EOIs only at its end. There the second
+byte waits instead, and IRQ1, with the mouse's IRQ3/IRQ4 under it, stays in
+service for as long as the handler is stretched or parked.
+
+It was reproduced on purpose rather than waited for. Stop at `sch_isr`,
+advance to N cycles before the tick after next, queue Ctrl down, R and Ctrl
+up, and read the slot the ROM writes. On a 640KB VGA XT under GLaBIOS the
+sweep stored `1372h` and left KB_FLAG `04h` at a few leads near 530-610 and
+near 1,780 cycles. Holding only the SWITCH, under `[sch_lock]`, made it worse:
+46 of 80 trials failed, because the tick's own ~3,500 cycles inside the
+handler still carried it past the millisecond.
+
+**The fix: `kbm_isr` CALLS the ROM where it used to jump to it, with every IRQ
+but IRQ1 masked at the master PIC, and puts the IMR back as it was after the
+ROM's `iret`.** Neither a tick nor any other device can run inside the
+handler, so it lasts its own length again, inside the millisecond on every
+keyboard (9.8.2). The rules that go with it:
+
+- **A masked edge is latched in the IRR and taken at the restore**, so
+  nothing is lost: the tick is late by at most the rest of one handler,
+  measured at 1,725 cycles.
+- **IRQ1 stays open for the ROM's Pause.** Ctrl+NumLock waits INSIDE int 09h
+  for the next key to nest a second handler. The nested `kbm_isr` saves and
+  restores in its turn, which is why the IMR travels on the stack and not in
+  a byte of `.bss`.
+- **The tick stands still while paused**, IRQ0 being masked there, and with
+  it the scheduler. The machine is paused.
+- **The ROM's `iret` restores the ISR's own flags (IF = 0)**, so the restore
+  and the final `iret` stay inside the ISR's contract.
+
+Two chains are left as they were. **int 15h AH=4Fh** (9.7.2) keeps its jump,
+because CF is its answer and an `iret` here would throw it away; it exists
+only on an AT-class ROM, whose handler shuts the keyboard interface for its
+whole length (9.8.2). **kern_mega** keeps its jump too: its protected-mode
+chain is `mega_k09`, kernel code, on the same AT-class hardware.
+
+**Cost**: `.text` **+26** on kern_big and **+12** on kern_small, with no rung
+crossed. kern_big's extra bytes are the int 15h test and the jump that only it
+and kern_mega still need. While the ROM runs, the interrupt floor pays the
+far call's six bytes and the IMR's two, and only during a keystroke.
+
+`tests/kbdpreempt.py` is the gate, and both of its legs are measured red. Leg
+A runs the sweep, at leads of 516 to 1,837 cycles. Before the fix, the
+532-cycle trial stored `1372h` with Ctrl stuck, and every trial after it read
+KB_FLAG `04h`. Leg B is the Pause: masking IRQ1 as well never ends it.
 
 ### 9.9 The PS/2 mouse — the other socket, probed after the serial one
 
