@@ -204539,16 +204539,40 @@ plane step wrong; the walk not asked for) it FAILS.
 **The one video that ships** (VIDEO-PLAN 14.3): a 40-pin DIP on a circuit
 board, lit 1s and 0s running along its traces in and out of it, the
 os8088 wordmark burning into the blank package letter by letter as the bits
-reach it, a light sweeping it once - and from frame 57 of 105 (15 fps, 7 s)
-a loop of the finished chip with the bits still running, which the seam
+reach it, a light sweeping it - and from frame 57 of 105 (15 fps, 7 s)
+a loop of the finished chip with the bits still running and the light
+sweeping it once a lap, which the seam
 (98.1.1.2) repeats for as long as the window is open. It is the Live file
 this section was built for: RESIDENT, LIVE, three one-bit LIN80 renditions
 drawn at each screen's own pixel shape - VGA/EGA 320 x 200, Hercules
 360 x 144, CGA 320 x 112 (a third taller than its true proportions, which
 would leave the lettering ten rows) - each LZB-packed, with Repeat on and
 two keyframes - the start, and the finished logo at 57, which is the
-poster. **90,624 bytes**, under the owner's 105 KB (it was 120 KB until
+poster. **103,424 bytes**, under the owner's 105 KB (it was 120 KB until
 the bits were reworked, below).
+
+**It shows it is RENDERED, not slid** (the owner's pick of 2026-11-03,
+after forum posts called the video fake because the digits only slide
+along). Three things a sprite pasted over a still picture would not do:
+- **The sweep is in the loop**, once every 48 frames, rather than once in
+  the intro - and the file is 1.5 KB SMALLER for it, the loop's first frame
+  being nearer the seam's last.
+- **A front-side bit becomes its pin.** Over the last 4.5 mm of its trace
+  the digit's pixels squeeze into a vertical line - the pin's leg - which
+  slides up onto the real one; the pin flashes and fades over six frames,
+  its light spreading onto the package's face above it. An outward bit is
+  the same film backwards. The face glow is 5.7 KB of the flash's 7.
+- **A bit's wire is bolder behind it**: the trace stays solid, and for
+  4 mm behind each digit it is up to two pixels wider each side, tapering
+  back to its one.
+Tried and turned down, each still a `--fx` switch of the generator: dim
+traces lit only by a trail (the wiring disappeared), a pool of light on
+the board per bit (167 KB), digits sized by depth (they popped between
+sizes and the small ones read wrong), a T-shaped pin (it read as a
+letter), a letter flickering as its pin takes a bit (it fought the sweep
+and the flash), a hard shadow (invisible on a black board), and digits
+with no black ground (they dissolve into their wires - and lifted off
+them, 109 KB).
 
 **A bit is an EMISSION, not a slot.** Each trace emits a bit every `gap`
 frames, `gap` dividing the loop's 48, and bit *j* rides the whole trace

@@ -282,12 +282,20 @@ class Trace:
 #              behind it, tapering back to the trace's one pixel
 #   flicker    the letter over the pin a bit enters dims for a moment
 #   shadow     each digit casts a hard shadow down and to the right
-FX = set()
+#   nohalo     a digit has no black ground: its pixels alone, over the scene
+#   lift       a digit rides just above its wire rather than centred on it
+#
+# THE SHIPPED FILE is the owner's pick of 2026-11-03 ("A"): the sweep every
+# loop, the front bits morphing into their pins with the flash and its glow
+# on the package, and the bold trails. --fx adds to it and -name takes one
+# away, so --fx=-morph,pop is the same picture with the bits popping
+FX_SHIP = ("sweeploop", "morph", "trailbold")
+FX = set(FX_SHIP)
 TRACE_LIT, TRACE_DIM = 0.95, 0.30
 TRAIL_MM = 6.0                  # a trail's fall to 1/e, behind its bit
 TRAIL_CUT = 3 * TRAIL_MM        # ...and where it ends (5% of its light)
-BOLD_MM = 8.0                   # a bold trail's taper, to the trace's width
-BOLD_W = 1.0                    # ...from this many pixels' extra half-width
+BOLD_MM = 4.0                   # a bold trail's taper, to the trace's width
+BOLD_W = 0.8                    # ...from this many pixels' extra half-width
 GLOW_MM = 2.6                   # a pool's radius to 1/e
 SLIDE_MM = 1.5                  # ...the last of which it slides onto the pin
 MORPH_MM = 4.5                  # the last of a trace a bit morphs along
@@ -702,6 +710,11 @@ class Renderer:
                     flat = img.reshape(-1)
         return np.minimum(img, 1.0)
 
+    def ink(self, spr, under):
+        """A digit's sprite over what is under it: with its halo, the
+        sprite as it is (black round white); without, its white alone"""
+        return spr | under if "nohalo" in FX else spr
+
     def events(self, tr, f):
         """Frames since each bit's arrival at the pin (inward) or until
         its departure (outward), for the bits near frame f"""
@@ -770,6 +783,8 @@ class Renderer:
                 # loop emits, so the seam meets the same digit it left
                 g = glyphs[ch]
                 x0, y0 = px - gw // 2, py - gh // 2
+                if "lift" in FX:
+                    y0 = py - gh - 1        # riding ON the wire, not in it
                 spr = np.zeros((gh + 2, gw + 2), bool)   # the halo...
                 for yy, row in enumerate(g):
                     for xx, c in enumerate(row):
@@ -786,7 +801,7 @@ class Renderer:
                 spr = spr[cy0 - by0:cy1 - by0, cx0 - bx0:cx1 - bx0]
                 box = (slice(cy0, cy1), slice(cx0, cx1))
                 vis = ~self.occ_far[box] if far else True
-                out[box] = np.where(vis, spr, out[box])
+                out[box] = np.where(vis, self.ink(spr, out[box]), out[box])
 
 
 def _morph_methods():
@@ -841,7 +856,7 @@ def _morph_methods():
         spr = spr[cy0 - by0:cy1 - by0, cx0 - bx0:cx1 - bx0]
         box = (slice(cy0, cy1), slice(cx0, cx1))
         vis = ~self.occ_far[box] if far else True
-        out[box] = np.where(vis, spr, out[box])
+        out[box] = np.where(vis, self.ink(spr, out[box]), out[box])
 
     def particles(self, out, tr, s, g):
         """THE MORPH, in two parts. Riding the last MORPH_MM of the trace
@@ -886,7 +901,7 @@ def _morph_methods():
             px = ox + sx + (dx - sx) * e
             py = oy + sy + (dy - sy) * e
             pts.add((int(math.floor(px)), int(math.floor(py))))
-        halo = s > SLIDE_MM * 0.35          # gone as it joins the pin
+        halo = s > SLIDE_MM * 0.35 and "nohalo" not in FX
         if halo:
             for px, py in pts:
                 for dx in (-1, 0, 1):
@@ -1085,10 +1100,15 @@ def main():
                     help="the LISTENING copy: a PCM8 track, not live")
     ap.add_argument("--wav", metavar="OUT", help="the sound alone, as a WAV")
     ap.add_argument("--fx", default="",
+                    metavar="[-]NAME,...",
                     help="experiments, comma-separated: sweeploop, morph, "
                     "trail, glow, scale")
     a = ap.parse_args()
-    FX.update(x for x in a.fx.split(",") if x)
+    for x in a.fx.split(","):
+        if x.startswith("-"):
+            FX.discard(x[1:])
+        elif x:
+            FX.add(x)
     if a.wav:
         wav(a.wav)
     if a.preview:
