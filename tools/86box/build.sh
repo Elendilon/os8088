@@ -70,6 +70,10 @@ fetch_pin "$ROMS" "$RREPO" "$RPIN"
 # --- our changes -------------------------------------------------------------
 echo "==> applying patches"
 git -C "$SRC" checkout --quiet -- .
+git -C "$SRC" clean -fdq          # ...and the FILES a patch ADDS (07's
+                                    # isa_picomem.c): checkout leaves them, and
+                                    # a re-run then fails "already exists".
+                                    # /build is upstream-ignored, so it stays
 for p in "$HERE"/patches/*.patch; do
     echo "    $(basename "$p")"
     git -C "$SRC" apply "$p"
@@ -88,6 +92,10 @@ cmake -S "$SRC" -B "$SRC/build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
 echo "==> building (ninja; ~5 minutes on four cores)"
 ninja -C "$SRC/build" >"$BUILD/ninja.log" 2>&1 || { grep -A5 FAILED "$BUILD/ninja.log" | head -30 >&2; exit 1; }
 cp "$SRC/build/src/86Box" "$BUILD/86Box"
+# ...and WHICH PATCHES it carries, so tools/os88box86api.py can refuse a
+# binary built before a patch landed (08's mouse fix changed no verb, so no
+# probe could tell the two apart). The same hash as patches_sha() there.
+cat "$HERE"/patches/*.patch | sha256sum | cut -d' ' -f1 >"$BUILD/86Box.patches"
 
 cat <<EOF
 

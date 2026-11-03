@@ -115,6 +115,7 @@ its desktop is up (`_poker`).
 """
 import atexit
 import json
+import hashlib
 import os
 import queue
 import re
@@ -1311,6 +1312,35 @@ def kernel_map():
     return os.path.join(bdir, "kernel.map")
 
 
+def patches_sha():
+    """tools/86box/build.sh's stamp: sha256 of every patch, in name order."""
+    pdir = os.path.join(ob.ROOT, "tools", "86box", "patches")
+    h = hashlib.sha256()
+    for n in sorted(os.listdir(pdir)):
+        if n.endswith(".patch"):
+            with open(os.path.join(pdir, n), "rb") as f:
+                h.update(f.read())
+    return h.hexdigest()
+
+
+def _patched_or_refuse():
+    """THE BINARY CARRIES THIS TREE'S PATCHES, or the row stops here. A patch
+    that changes behaviour and no verb - 08's exact automation mouse - is
+    invisible to the `fdc` probe, and the old binary then runs every row on
+    the defect the patch fixed (mega-deskzoom-86box: a pointer proven at its
+    target moved one more pixel, so a drag landed a pixel off)."""
+    try:
+        with open(ob.BIN + ".patches") as f:
+            have = f.read().strip()
+    except OSError:
+        have = None
+    if have != patches_sha():
+        raise om.MartyError(
+            "%s: %s was built %s tools/86box/patches/ as they are now - "
+            "rebuild it: python3 tools/os88box.py build"
+            % (TAG, ob.BIN, "against other" if have else "with no record of"))
+
+
 def boot_machine(cls, a, b, machine, boot=True, label=None, cimg=None,
                  cfg=None, megs=None, ne2k_io=None, kmap=None, mega=False,
                  images=(), turbo=False):
@@ -1387,6 +1417,7 @@ def boot_machine(cls, a, b, machine, boot=True, label=None, cimg=None,
             raise om.MartyError(        # "unknown command"
                 "%s: %s predates tools/86box/patches/04-06 - rebuild it: "
                 "python3 tools/os88box.py build" % (TAG, ob.BIN))
+        _patched_or_refuse()
         m._a("ff on")
         if cimg and a and not info["at"]:
             _xub_floppy(box)
