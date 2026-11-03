@@ -50159,9 +50159,10 @@ next pass (at most one tick later), exactly as it spends a double-click
 ```
 
 **THE ENTRY PROC THEN REFUSES, and the refusal is SILENT.** `assoc_run`
-finds `[assoc_dapp]` standing again after `ld_run_name` returns - it consumed
-the slot before the load, so only a post made during it can have put one
-back - and treats the refusal as a hand-on: no `ld_say_status` (so no `Load
+finds a DOCUMENT post (`[assoc_dapp]` below `ASSOC_FLUSH`, §54.7.6.3)
+standing again after `ld_run_name` returns - it consumed the slot before the
+load, so only a post made since can have put one back - and treats the
+refusal as a hand-on: no `ld_say_status` (so no `Load
 failed` toast), no `files_refresh` (so no whole-screen repaint, which
 `ld_owed` charges any other `LD_EABORT`), only `assoc_back`. The loader's
 abort path still sweeps the instance's windows and frees its region and
@@ -50188,6 +50189,29 @@ kern_big and kern_emu, MEASURED by `tools/os88rdiff.py` against c714ec45**
 (10 in `ld_pkg_byname`, 12 in `assoc_run_x`), the same 22 of `.cold` on
 kern_mega (above 1MB there), and **none on kern_small**, whose
 `ld_pkg_byname` is a tail jump and which assembles byte-identical.
+
+#### 21.5.4.1 A FLUSH standing there is not a hand-on
+
+The test was first written `!= 0xFF`, on the argument above that only the
+entry proc could post during the launch. It was wrong: `[assoc_dapp]` is
+also where §54.7.6.3's FLUSH rides, and `assoc_run`'s OWN `assoc_locate`
+posts one - §54.7.6.1's second trigger, the search's `.found` - whenever
+this volume's association cache did not know where the program it just
+found lives. That is BEFORE the load, on the same run, so every document
+whose program was found somewhere its volume's `ASSOC.DAT` did not say was
+taken for a hand-on: no handover (§54.10), and the program opened EMPTY,
+its document banked by `OSAPI_ARG_FILE` and never read. The flush then ran
+and the cache learned, so the SECOND double-click worked - which is the
+shape of a defect that reads as an intermittent one. It was found by the
+`mega-httpmount` row, whose `mega.img` twin carries a Note Pad that
+`ASSOC.DAT` places elsewhere: Note Pad opened over `PACKED.TXT` blank, and
+the HTTP drive was never asked for the file.
+
+So the test is `< ASSOC_FLUSH`: a document post (an app slot or
+`ASSOC_FIND`) is the hand-on, a flush is not, and a flush left standing is
+spent by `ui_task`'s next pass as any flush is. The same instruction pair,
+so it costs nothing. `tests/httpmount.py` under `OS88_MEGA=1` is the row,
+red against `!= 0xFF`.
 
 #### 21.5.1 Why it is one cell and was briefly two
 
@@ -108157,7 +108181,9 @@ packages (`APPS\` on the 1.44MB and 1.2MB apps disks).
 
 `ui.inc`'s existing `cmp byte [assoc_dapp], 0xFF` is the whole of the poll,
 and `assoc_run_x` routes 0xF0 and above to `asc_flush` before anything about
-a document is read.
+a document is read. A flush posted DURING a document's run - its own
+`assoc_locate` posts one - is left for the next pass: the hand-on test after
+the load reads below 0xF0 only (§21.5.4.1).
 
 **A post never overwrites a pending document**: `asc_post` writes only when
 the byte is 0xF0 or above, which is why `ASSOC_FIND` moved from 0xFE to
@@ -230261,8 +230287,13 @@ reply said and what landed.
 
 Cost: `HTTPFS.DRV` +225 bytes of image. Measured on the gate: a launch and
 a copy each one connection for their two GETs, and the whole run 10
-requests over 6 connections against a server that closes an idle one after
-3 seconds; sending `Connection: close` instead turns both checks red.
+requests over 6 connections against a server that closed an idle one after
+3 seconds; sending `Connection: close` instead turns both checks red. The
+gate's server now closes idle connections at each LEG BOUNDARY instead, and
+has no host-time timeout at all (§122.7): its 3 seconds were every read's and
+write's bound too, so a guest starved by a loaded host had a reply cut
+mid-body, or its kept connection closed between a peek and its read, on the
+host's clock rather than the machine's.
 
 ### 122.3 The index — `OS88.IDX`
 
@@ -230441,7 +230472,11 @@ copy to B: byte-identical with `Range:`, and again with the server ignoring
 it; a path with `#` goes out escaped; a paste onto the drive ends
 `FERR_WPROT`; and a `'CZ'` file served as stored opens in Note Pad as its
 unpacked text. Taking the 200 arm's offset skip out turns leg 6 red at byte
-65,024 - the first byte of the second chunk.
+65,024 - the first byte of the second chunk. Its last leg is also where a
+document launch's HANDOVER is checked on a volume whose association cache
+did not know the program (§21.5.4.1): under `OS88_MEGA=1` the twin's
+`ASSOC.DAT` places Note Pad elsewhere, and a hand-on test that read the
+flush that posts as a refusal left Note Pad open and empty.
 
 ### 122.8 Not done
 
