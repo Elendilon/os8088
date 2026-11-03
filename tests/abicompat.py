@@ -148,9 +148,23 @@ def build_base(sha):
         print("abicompat: building the base %s into %s (log: %s)"
               % (sha[:12], src, log), flush=True)
         jobs = str(max(1, (os.cpu_count() or 2)))
+        # THE BASE'S BUILD IS ITS OWN, so none of THIS run's OS88_* reaches
+        # it. Under a frozen soak the runner sets $OS88_BUILD (and the tree's
+        # siblings) for every row, and the base's Makefile calls os88sym
+        # without naming a build of its own: it then checked the base's map
+        # against the frozen tree's kernel.bin and refused, so the base
+        # "did not build" on every soak and on no bare run
+        env = {k: v for k, v in os.environ.items()
+               if not k.startswith("OS88_")}
         with open(log, "w") as lf:
-            r = subprocess.run(["make", "-C", src, "BUILD=build", "-j" + jobs],
-                               stdout=lf, stderr=subprocess.STDOUT)
+            # ...and its ARTEFACTS, not its gates: `all` ends in checkdocs
+            # and test-fast, which are the BASE's opinions of THIS box -
+            # its t_w16cens answered a capability this box gained after the
+            # release with exit 77, which that runner counted as a failure.
+            # Whether the base was a good tree was settled when it shipped
+            r = subprocess.run(["make", "-C", src, "BUILD=build", "-j" + jobs,
+                                "-o", "test-fast", "-o", "checkdocs"],
+                               stdout=lf, stderr=subprocess.STDOUT, env=env)
         if r.returncode:
             raise SystemExit("abicompat: the base did not build - see %s"
                              % log)
