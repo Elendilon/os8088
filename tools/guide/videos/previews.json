@@ -189,7 +189,7 @@
   "kb": 217,
   "poster": "herc/08-live.png"
  },
- "37a2072936189ecf5666175265a2fe92beaa782058b1f9bfa94e5fd7b5da25f2": {
+ "434a92eca36576b64db1272278cb32a38fc9d43fa5721015f562ecc790d05cef": {
   "src": "apps/video/os8088.v88",
   "mp4": "logo/os8088.mp4",
   "poster": "logo/os8088.png",
@@ -197,7 +197,7 @@
   "h": 200,
   "secs": 7.0,
   "title": "os8088",
-  "kb": 43
+  "kb": 39
  },
  "df4e7bb54c6a54f87fd486d62aa6d8c2ab3b0f87d68454355d0e3653a9c2dc4a": {
   "src": "apps/video/demo/vga/01-BCRRT.V88",
