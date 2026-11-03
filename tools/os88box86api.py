@@ -618,6 +618,32 @@ class Gdb(object):
                                 % (body, r))
         return r
 
+    def go(self, verb="c"):
+        """`c` or `s`, and RETURN ONLY ONCE THE STUB HAS TAKEN IT. Neither
+        has a reply of its own (the stop is its answer), so a bare send left
+        the resume in flight while the caller went on to the automation
+        socket's `step` - a second connection, served by the same emulation
+        thread in whatever order the two sockets' bytes reach it. Under host
+        load the `c` was taken AFTER the step had already run the CPU to the
+        breakpoint it was for: the late `c` then RESUMED the CPU from that
+        stop (a second, stale stop at the same address when the breakpoint
+        was still armed; the CPU loose with nobody waiting when it had been
+        lifted, so the stub's CS:IP was written into a running machine and
+        the stub never ran - box-dtwrite's "the port stub never stopped",
+        `stub set` reading F000:F968). The stub takes one client's packets
+        strictly in order, each processed before the next is read, so the
+        reply to a one-byte memory read sent straight after is the proof the
+        resume is in force: an ordering fence on the stub's own queue, with
+        no host clock in it. Its reply is hex (or an E code), never a stop's
+        T/S, and either one is the proof - so neither is refused here"""
+        self.send(verb)
+        self.send("m0,1")
+        try:
+            self.replies.get(timeout=15.0)
+        except queue.Empty:
+            raise om.MartyError("os88box86api: the GDB stub never answered "
+                                "the fence after %r" % verb)
+
     def close(self):
         try:
             self.s.close()
@@ -733,7 +759,7 @@ class Api86Box(om.Marty):
                 if was == "running":
                     self.b.cmd("hold")
                 self._gdb = Gdb(self._gdbport, self._on_stop)
-                self._gdb.send("c")
+                self._gdb.go()
                 if was == "running":
                     self.b.cmd("release")
         return self._gdb
@@ -801,7 +827,7 @@ class Api86Box(om.Marty):
     def _c_run(self, **_):
         frm = self._stops
         if self._state == "breakpoint":
-            self.gdb().send("c")        # the stop just left is not re-hit
+            self.gdb().go()             # the stop just left is not re-hit
         if self._state != "running":
             self._release()
         st = self._status()
@@ -852,11 +878,11 @@ class Api86Box(om.Marty):
                 for _ in range(n):
                     was = self._where()
                     for _try in range(4):
-                        g.send("s")
+                        g.go("s")
                         self._gdb_stop("a single step")
                         if self._where() != was:
                             break
-                g.send("c")             # ...and the stub back to running,
+                g.go()                  # ...and the stub back to running,
             finally:                    # the machine still held
                 self._stepq = None
             self._state = "paused"
@@ -868,7 +894,7 @@ class Api86Box(om.Marty):
         ms = (cycles * 1000.0 / GUEST_HZ if cycles is not None else
               (frames or 1) * 1000.0 / 60.0)
         if self._state == "breakpoint":
-            self.gdb().send("c")
+            self.gdb().go()
         with self._lock:
             self.b.cmd("hold")
             self._state = "running"
@@ -1194,7 +1220,7 @@ class Api86Box(om.Marty):
         try:
             t0 = self.b.ms()
             while True:
-                g.send("c")
+                g.go()
                 left = max_ms - (self.b.ms() - t0)
                 if left <= 0:
                     raise om.MartyError("%s: %s was not reached in %d "
@@ -1226,6 +1252,12 @@ class Api86Box(om.Marty):
         interrupt gate, with IF clear, where the stub then runs and from
         which the handler carries on as if nothing had happened."""
         end = self._STUB_AT + len(code)
+        # CONNECTED FIRST, outside the hold below: a first connect on a
+        # RUNNING machine holds it, connects and RELEASES it - which, made
+        # under this proc's own hold, ran the whole stub on a free machine
+        # (every step answering `held: False`, emulated time going by
+        # between the IRQ0 stop and the stub's CS:IP write)
+        self.gdb()
         with self._lock:
             was = self._state
             if was == "running":
@@ -1263,7 +1295,7 @@ class Api86Box(om.Marty):
                     self._setregs(back)
                 for a in rows:
                     g.req("Z1,%x,1" % a)
-                g.send("c")             # the stub running, the machine held
+                g.go()                  # the stub running, the machine held
                 self._stepq = None
                 self._regs_at()
                 if was == "running":

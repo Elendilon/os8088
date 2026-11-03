@@ -1078,8 +1078,26 @@ def mouse_dblclick(m, sym, hmp, x, y):
     # (one command a call: some callers' `hmp` takes exactly one - trkscrl's
     # and minesrc's did, and a four-argument call was a TypeError there)
     _sep(m)                     # the FIRST press, from whatever came before
-    for edge in (1, 0, 1, 0):
-        hmp("mouse_button %d" % edge)
+    # ...AND ON 86Box THE GUEST IS STOPPED AROUND THEM. Its serial mouse
+    # reports a LEVEL at its own poll, so os88qmpmega proves each edge on
+    # the guest before taking the next - and if the guest ran between two
+    # of those, this process's round trips were guest time: box-ethernet's
+    # BROWSER.O88 double-click was born 26 ticks press to press on a loaded
+    # box. Stopped, the server ADVANCES the guest edge by edge itself
+    # (os88qmpmega.Server._box_edges), so the span is the UART's and the
+    # ISR's whatever the host does; `cont` hands it back. Only a guest
+    # that is RUNNING is stopped, and only it is resumed
+    held = False
+    if BOX86:
+        held = "running" in str(hmp("info status") or "")
+        if held:
+            hmp("stop")
+    try:
+        for edge in (1, 0, 1, 0):
+            hmp("mouse_button %d" % edge)
+    finally:
+        if held:
+            hmp("cont")
     c = Clock(m)
     lim = to_ticks(PKT_SECS)
     while (mouse_where(m, sym)[2] & 3 or c.step() < 2) and c.step() < lim:
@@ -1352,6 +1370,9 @@ MEGA = bool(os.environ.get("OS88_MEGA"))
 # QMP server over it. `lin`, `drv_base` and `mega_twin` stay MEGA's alone -
 # a real-mode kernel's segment is `seg << 4` whatever runs it
 SERVED = MEGA or (os.environ.get("OS88_EMU") or "").lower() == "86box"
+# ...and BOX86 the served machines that are 86Box (os88qmpmega's BOX86)
+BOX86 = os.environ.get("OS88_MEGA_EMU") == "86box" or \
+    (os.environ.get("OS88_EMU") or "").lower() == "86box"
 
 
 def lin(seg, off=0):
