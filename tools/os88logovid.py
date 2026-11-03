@@ -287,9 +287,13 @@ class Trace:
 #
 # THE SHIPPED FILE is the owner's pick of 2026-11-03 ("A"): the sweep every
 # loop, the front bits morphing into their pins with the flash and its glow
-# on the package, and the bold trails. --fx adds to it and -name takes one
-# away, so --fx=-morph,pop is the same picture with the bits popping
-FX_SHIP = ("sweeploop", "morph", "trailbold")
+# on the package, and the bold trails - and, the same day, the digits
+# TRANSPARENT and riding just above their wires, which with the trail
+# reads as skating along them. The rest stay here as the fallbacks for
+# room: -lift,-nohalo is 5.6 KB smaller, FACE_GLOW = 0 another 5.7.
+# --fx adds to it and -name takes one away, so --fx=-morph,pop is the same
+# picture with the bits popping
+FX_SHIP = ("sweeploop", "morph", "trailbold", "nohalo", "lift")
 FX = set(FX_SHIP)
 TRACE_LIT, TRACE_DIM = 0.95, 0.30
 TRAIL_MM = 6.0                  # a trail's fall to 1/e, behind its bit

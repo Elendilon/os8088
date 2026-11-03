@@ -204548,8 +204548,11 @@ drawn at each screen's own pixel shape - VGA/EGA 320 x 200, Hercules
 360 x 144, CGA 320 x 112 (a third taller than its true proportions, which
 would leave the lettering ten rows) - each LZB-packed, with Repeat on and
 two keyframes - the start, and the finished logo at 57, which is the
-poster. **103,424 bytes**, under the owner's 105 KB (it was 120 KB until
-the bits were reworked, below).
+poster. **109,056 bytes**, under the owner's 112 KB: 120 KB until the bits
+were reworked (below), then 105 KB, raised for the transparent digits on
+the owner's word that the disks carrying the file have room for them -
+the tightest, `media360.img` and the 720KB system disk, kept 19 and 34
+clusters.
 
 **It shows it is RENDERED, not slid** (the owner's pick of 2026-11-03,
 after forum posts called the video fake because the digits only slide
@@ -204565,14 +204568,22 @@ along). Three things a sprite pasted over a still picture would not do:
 - **A bit's wire is bolder behind it**: the trace stays solid, and for
   4 mm behind each digit it is up to two pixels wider each side, tapering
   back to its one.
+- **The digits are transparent and ride ON the wire**, their bottom row a
+  pixel above the point they are at, so with the bold trail under them
+  they read as skating along it. Centred on the wire with no black ground
+  they dissolved into it; lifted they cost 5.6 KB MORE than with the
+  ground, because the wire under a digit is no longer cleared to black
+  with it.
 Tried and turned down, each still a `--fx` switch of the generator: dim
 traces lit only by a trail (the wiring disappeared), a pool of light on
 the board per bit (167 KB), digits sized by depth (they popped between
 sizes and the small ones read wrong), a T-shaped pin (it read as a
 letter), a letter flickering as its pin takes a bit (it fought the sweep
 and the flash), a hard shadow (invisible on a black board), and digits
-with no black ground (they dissolve into their wires - and lifted off
-them, 109 KB).
+with no black ground centred on their wires (they dissolve into them).
+**The fallbacks for room**, if a disk ever needs the bytes back:
+`--fx=-lift,-nohalo` (the black-ground digits, 103,424 bytes), and with
+`FACE_GLOW = 0` the flash keeps off the package face (about 5.7 KB less).
 
 **A bit is an EMISSION, not a slot.** Each trace emits a bit every `gap`
 frames, `gap` dividing the loop's 48, and bit *j* rides the whole trace
