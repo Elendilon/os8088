@@ -15888,8 +15888,10 @@ would nest a second handler.
   (the IBM AT's sends `0ADh` to the 8042 first and `0AEh` last).
 
 So a handler finishes before the next byte can arrive, on every machine this
-boots on. A tick landing inside the window does not change that: the most an
-interrupted handler costs a task's stack is one frame.
+boots on - **unless something runs inside it**. That is 9.8.3: a tick
+landing inside the window ran `sch_isr`, or switched tasks, in the middle of
+the handler, until `kbm_isr` masked every other IRQ around the ROM. On its own
+stack the most an interrupted handler costs is one frame.
 
 **MartyPC could do it, and that is what was measured.** Its machine took one
 queued key event per call to `machine.run()`, which its own comment calls
@@ -15919,6 +15921,73 @@ beep the PC is acknowledging every byte, in the nested handlers, so a second
 one stack, which no slice is short of. The full-buffer beep chains because
 the buffer stays full however fast it is serviced, and that is why only it is
 guarded.
+
+#### 9.8.3 …and the ROM's handler runs with only the keyboard open — a tick inside it split a key from its modifier
+
+`soak -k pxdecode` failed twice, months apart, the same way. PiXEL was sent
+Ctrl+R and never opened a picture, though the machine was idle and the BIOS
+ring empty. The keystroke had arrived, but **as a plain `r`**, the Rotate
+tool's letter, which PiXEL took silently. **Ctrl was left stuck on** in
+`0040:0017`.
+
+The cause is the order inside GLaBIOS's int 09h. It reads port 60h,
+acknowledges, sends the EOI and executes `sti` (9.8.2), and only THEN reads
+KB_FLAG into DX; for a shift key it writes the flag back later still. A tick
+landing between the `sti` and that write ran inside the handler. That was
+either `sch_isr` at ~3,500 cycles, or `sch_switch`, which parked the handler
+with the task it had interrupted. Nothing barred the switch: the handler runs
+on a task stack, with `[sch_lock]` free. The keyboard sends its next byte a
+millisecond after the acknowledge regardless. So R's make code ran a SECOND
+handler, nested or on the ui task's stack, which read KB_FLAG before Ctrl was
+set and stored `1372h`. A parked Ctrl handler then set the flag after Ctrl's
+break had already gone by. 9.8.2's argument assumed a handler lasts its own
+~2,500 cycles, and a tick inside it is what made that false.
+
+The IBM 5150 ROM `sti`s at once but EOIs only at its end. There the second
+byte waits instead, and IRQ1, with the mouse's IRQ3/IRQ4 under it, stays in
+service for as long as the handler is stretched or parked.
+
+It was reproduced on purpose rather than waited for. Stop at `sch_isr`,
+advance to N cycles before the tick after next, queue Ctrl down, R and Ctrl
+up, and read the slot the ROM writes. On a 640KB VGA XT under GLaBIOS the
+sweep stored `1372h` and left KB_FLAG `04h` at a few leads near 530-610 and
+near 1,780 cycles. Holding only the SWITCH, under `[sch_lock]`, made it worse:
+46 of 80 trials failed, because the tick's own ~3,500 cycles inside the
+handler still carried it past the millisecond.
+
+**The fix: `kbm_isr` CALLS the ROM where it used to jump to it, with every IRQ
+but IRQ1 masked at the master PIC, and puts the IMR back as it was after the
+ROM's `iret`.** Neither a tick nor any other device can run inside the
+handler, so it lasts its own length again, inside the millisecond on every
+keyboard (9.8.2). The rules that go with it:
+
+- **A masked edge is latched in the IRR and taken at the restore**, so
+  nothing is lost: the tick is late by at most the rest of one handler,
+  measured at 1,725 cycles.
+- **IRQ1 stays open for the ROM's Pause.** Ctrl+NumLock waits INSIDE int 09h
+  for the next key to nest a second handler. The nested `kbm_isr` saves and
+  restores in its turn, which is why the IMR travels on the stack and not in
+  a byte of `.bss`.
+- **The tick stands still while paused**, IRQ0 being masked there, and with
+  it the scheduler. The machine is paused.
+- **The ROM's `iret` restores the ISR's own flags (IF = 0)**, so the restore
+  and the final `iret` stay inside the ISR's contract.
+
+Two chains are left as they were. **int 15h AH=4Fh** (9.7.2) keeps its jump,
+because CF is its answer and an `iret` here would throw it away; it exists
+only on an AT-class ROM, whose handler shuts the keyboard interface for its
+whole length (9.8.2). **kern_mega** keeps its jump too: its protected-mode
+chain is `mega_k09`, kernel code, on the same AT-class hardware.
+
+**Cost**: `.text` **+26** on kern_big and **+12** on kern_small, with no rung
+crossed. kern_big's extra bytes are the int 15h test and the jump that only it
+and kern_mega still need. While the ROM runs, the interrupt floor pays the
+far call's six bytes and the IMR's two, and only during a keystroke.
+
+`tests/kbdpreempt.py` is the gate, and both of its legs are measured red. Leg
+A runs the sweep, at leads of 516 to 1,837 cycles. Before the fix, the
+532-cycle trial stored `1372h` with Ctrl stuck, and every trial after it read
+KB_FLAG `04h`. Leg B is the Pause: masking IRQ1 as well never ends it.
 
 ### 9.9 The PS/2 mouse — the other socket, probed after the serial one
 
@@ -16308,6 +16377,19 @@ machine and zero on a broken one — which is the one thing a diagnostic may not
 do. Live, "move the mouse and read the counters" becomes a question the glass
 can answer, which is the whole reason §57.2 makes this a knob rather than a
 registry entry.
+
+**Live means a LINE IS DRAWN WHEN IT CHANGED, not every `MDG_RATE`.** Each
+line is built into `mdg_buf` and compared against `mdg_shad`, what that line
+last put on the glass; an unchanged line is skipped, and an unchanged table
+takes no gfx lock at all. Redrawn blind, thirteen lines of 40 cells (fifteen
+under `MOUROUND=1`) are about half a second of `font_run` on a 4.77 MHz
+8088 - the whole of `MDG_RATE` - so the UI task held the lock nearly all the
+time on an idle desktop, never slept (§8.1.2), and the arrow over the table
+blinked twice a second. A harness waiting for the machine to go quiet could
+never see it do so: `tests/knobhd.py`'s `BOOTPROF=1 MOUDIAG=1` install timed
+out in `settle` on a desktop that was finished. Every `MDG_FULL` (16) redraws,
+about 8 s, every line is drawn regardless, which is what puts back a table a
+window dragged across it and away has erased.
 
 The decision tree it collapses, in the order the columns are read:
 
@@ -43428,25 +43510,26 @@ of, and those are what set the real number:
    `ld_alloc`'s adds nor `cmz_pkg`'s can carry. §20.12's `OP_PARTMAX` is the
    same figure for the same reason, which is why Word's carve already ran to
    65,024 (§68.10).
-2. **The heap's unit is the kilobyte**, so a region over 63KB is a **64KB
+2. **The heap's unit WAS the kilobyte**, so a region over 63KB was a **64KB
    claim**, and two words that held a KB count as bytes wrapped there.
    `mem_bytes_kb_x` was `add ax, 1023 / shr` and answered **0 KB** for every
    input from 64,513 up; it is `dec ax / shr / inc ax` now — ceil for every
    input ≥ 1, which its banner already required, and a byte shorter. And
-   `ld_alloc`'s `I_SIZE = KB << 10` is 65,536 for 64KB, which is **0** in a
+   `ld_alloc`'s `I_SIZE = KB << 10` was 65,536 for 64KB, which is **0** in a
    word — and `I_SIZE = 0` is how `instance.inc` tells a BUILT-IN, so a
-   63.5KB package would have been swept as one. It **saturates** instead:
-   `sbb ax, 0` after the shift takes the bit that fell out, so a 64KB region
-   reads `0xFFFF`. Both readers of it as a bound (`inst_pkg_fence`, §53.1's
-   hook fence) compare `< I_SIZE`, so the only offset the saturation refuses
-   is `0xFFFF`, which `image + bss ≤ 0xFE00` already did.
+   63.5KB package would have been swept as one. It saturated with a `sbb ax,
+   0` until **§50.2.1's 512-byte granule** retired the KB rounding for the
+   region: `ld_alloc` claims it through the PARAGRAPH door to exactly
+   `roundup512(image + bss)`, at most `0xFE00` bytes = 4,064 paragraphs, and
+   `I_SIZE` is that byte count, which cannot carry. So the largest package
+   gets exactly what it declared — on `kern_mega` too, whose region selector's
+   limit is `0xFDFF` — and its `I_SIZE` reads `0xFE00`, never 0. Both readers
+   of it as a bound (`inst_pkg_fence`, §53.1's hook fence) compare `< I_SIZE`,
+   which is `image + bss` rounded to the granule. `tests/pkgmax.py` is the
+   row, on both kernels.
 
-What the last 512 bytes cost a package is the KB granularity, and it is worth
-knowing before reaching for them: **63KB + 1 byte is a 64KB claim**, the same
-as 63.5KB. What they cost the kernel is **3 bytes of `.cold`, resident**:
-the `sbb`, with the byte `mem_bytes_kb_x` gave back spent on a parity pad
-behind it, because the hot disk routines that follow it in `.cold` must not
-move by an odd amount (`tests/unit/t_hotpar.py`).
+What the last 512 bytes cost a package is nothing beyond themselves now:
+**63KB + 1 byte is a 63.5KB claim**, the granule's and not the kilobyte's.
 
 **What owning a segment costs, and what it retires.** It retires the whole
 v2 relocation machinery — the dual assembly, the diff scan, the byte-exact
@@ -50159,9 +50242,10 @@ next pass (at most one tick later), exactly as it spends a double-click
 ```
 
 **THE ENTRY PROC THEN REFUSES, and the refusal is SILENT.** `assoc_run`
-finds `[assoc_dapp]` standing again after `ld_run_name` returns - it consumed
-the slot before the load, so only a post made during it can have put one
-back - and treats the refusal as a hand-on: no `ld_say_status` (so no `Load
+finds a DOCUMENT post (`[assoc_dapp]` below `ASSOC_FLUSH`, §54.7.6.3)
+standing again after `ld_run_name` returns - it consumed the slot before the
+load, so only a post made since can have put one back - and treats the
+refusal as a hand-on: no `ld_say_status` (so no `Load
 failed` toast), no `files_refresh` (so no whole-screen repaint, which
 `ld_owed` charges any other `LD_EABORT`), only `assoc_back`. The loader's
 abort path still sweeps the instance's windows and frees its region and
@@ -50188,6 +50272,29 @@ kern_big and kern_emu, MEASURED by `tools/os88rdiff.py` against c714ec45**
 (10 in `ld_pkg_byname`, 12 in `assoc_run_x`), the same 22 of `.cold` on
 kern_mega (above 1MB there), and **none on kern_small**, whose
 `ld_pkg_byname` is a tail jump and which assembles byte-identical.
+
+#### 21.5.4.1 A FLUSH standing there is not a hand-on
+
+The test was first written `!= 0xFF`, on the argument above that only the
+entry proc could post during the launch. It was wrong: `[assoc_dapp]` is
+also where §54.7.6.3's FLUSH rides, and `assoc_run`'s OWN `assoc_locate`
+posts one - §54.7.6.1's second trigger, the search's `.found` - whenever
+this volume's association cache did not know where the program it just
+found lives. That is BEFORE the load, on the same run, so every document
+whose program was found somewhere its volume's `ASSOC.DAT` did not say was
+taken for a hand-on: no handover (§54.10), and the program opened EMPTY,
+its document banked by `OSAPI_ARG_FILE` and never read. The flush then ran
+and the cache learned, so the SECOND double-click worked - which is the
+shape of a defect that reads as an intermittent one. It was found by the
+`mega-httpmount` row, whose `mega.img` twin carries a Note Pad that
+`ASSOC.DAT` places elsewhere: Note Pad opened over `PACKED.TXT` blank, and
+the HTTP drive was never asked for the file.
+
+So the test is `< ASSOC_FLUSH`: a document post (an app slot or
+`ASSOC_FIND`) is the hand-on, a flush is not, and a flush left standing is
+spent by `ui_task`'s next pass as any flush is. The same instruction pair,
+so it costs nothing. `tests/httpmount.py` under `OS88_MEGA=1` is the row,
+red against `!= 0xFF`.
 
 #### 21.5.1 Why it is one cell and was briefly two
 
@@ -108157,7 +108264,9 @@ packages (`APPS\` on the 1.44MB and 1.2MB apps disks).
 
 `ui.inc`'s existing `cmp byte [assoc_dapp], 0xFF` is the whole of the poll,
 and `assoc_run_x` routes 0xF0 and above to `asc_flush` before anything about
-a document is read.
+a document is read. A flush posted DURING a document's run - its own
+`assoc_locate` posts one - is left for the next pass: the hand-on test after
+the load reads below 0xF0 only (§21.5.4.1).
 
 **A post never overwrites a pending document**: `asc_post` writes only when
 the byte is 0xF0 or above, which is why `ASSOC_FIND` moved from 0xFE to
@@ -205431,6 +205540,20 @@ another file's open, the close) end it. The widget does not arm inside a
 bracket, so what `vp_xlag` and `vp_xput` fill there is on the card and not
 on the bar, which resumes behind it after the play. +35 bytes.
 
+**...and it ENDS at the bracket's door** (`vp_srun`), because a parked
+operation is not torn down by `fsx_run`'s `fpg_finish` - it PARKS there as
+at any unlock (§12.8.9), its pixels on the bar - so a play in the window
+started while the hold still loads had the widget on the bar, frozen, for
+the whole play (§12.8.5.2). And the end could not be made inside: on
+kern_mega's real-mode bracket `OSAPI_FS_OP` is outside the table (§53.2.3)
+and answers CF = 1, so a hold that finished there (`vp_xput`'s `vp_xdone`)
+left the operation owned, and the widget on the bar, until the player
+closed (`mega-vidwin`). `vp_opend` at the door ends it - refused, harmlessly,
+when none is the player's - and `vp_xreop`, as `vp_srun` returns, begins it
+again over the bytes still to read while a timer-fed hold is still loading
+(a bank has none: it fills as a play reads). +56 bytes of the image, both
+builds; no kernel byte.
+
 **All of it is on the UI task** - the timer, the bracket's main loop, a
 callback - which is where §41.8 allows the copy. On a 286 the copy is
 `int 15h AH=87h` with interrupts off for its 32 KB; the rate hook waits that
@@ -230314,8 +230437,13 @@ reply said and what landed.
 
 Cost: `HTTPFS.DRV` +225 bytes of image. Measured on the gate: a launch and
 a copy each one connection for their two GETs, and the whole run 10
-requests over 6 connections against a server that closes an idle one after
-3 seconds; sending `Connection: close` instead turns both checks red.
+requests over 6 connections against a server that closed an idle one after
+3 seconds; sending `Connection: close` instead turns both checks red. The
+gate's server now closes idle connections at each LEG BOUNDARY instead, and
+has no host-time timeout at all (§122.7): its 3 seconds were every read's and
+write's bound too, so a guest starved by a loaded host had a reply cut
+mid-body, or its kept connection closed between a peek and its read, on the
+host's clock rather than the machine's.
 
 ### 122.3 The index — `OS88.IDX`
 
@@ -230494,7 +230622,11 @@ copy to B: byte-identical with `Range:`, and again with the server ignoring
 it; a path with `#` goes out escaped; a paste onto the drive ends
 `FERR_WPROT`; and a `'CZ'` file served as stored opens in Note Pad as its
 unpacked text. Taking the 200 arm's offset skip out turns leg 6 red at byte
-65,024 - the first byte of the second chunk.
+65,024 - the first byte of the second chunk. Its last leg is also where a
+document launch's HANDOVER is checked on a volume whose association cache
+did not know the program (§21.5.4.1): under `OS88_MEGA=1` the twin's
+`ASSOC.DAT` places Note Pad elsewhere, and a hand-on test that read the
+flush that posts as a refusal left Note Pad open and empty.
 
 ### 122.8 Not done
 
