@@ -518,9 +518,19 @@ def launch_leg(a):
 def run_leg(tools, sysimg, appsimg, pkgs, tag):
     out = tempfile.mktemp(prefix="abicompat-%s-" % tag, suffix=".json")
     print("F    --- %s: %s + %s" % (tag, sysimg, appsimg), flush=True)
+    # THE RELEASE'S LEG READS THE RELEASE'S KERNEL, so it gets none of this
+    # run's OS88_* - a frozen soak's $OS88_BUILD names the TIP's kernel, and
+    # the base's os88sym then refused its own map against it and every
+    # release leg died before a launch - and $OS88_BUILD is the base's build
+    env = None
+    if os.path.abspath(tools) != os.path.abspath(TOOLS):
+        env = {k: v for k, v in os.environ.items()
+               if not k.startswith("OS88_")}
+        env["OS88_BUILD"] = os.path.join(os.path.dirname(
+            os.path.abspath(tools)), "build")
     r = subprocess.run([sys.executable, os.path.abspath(__file__), "--leg",
                         "--tools", tools, "--sys", sysimg, "--apps", appsimg,
-                        "--pkgs", json.dumps(pkgs), "--out", out])
+                        "--pkgs", json.dumps(pkgs), "--out", out], env=env)
     if r.returncode or not os.path.exists(out):
         say("F", "FAIL", "the %s leg did not finish (exit %d)"
             % (tag, r.returncode))
