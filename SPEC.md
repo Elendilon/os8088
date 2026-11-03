@@ -204547,7 +204547,25 @@ drawn at each screen's own pixel shape - VGA/EGA 320 x 200, Hercules
 360 x 144, CGA 320 x 112 (a third taller than its true proportions, which
 would leave the lettering ten rows) - each LZB-packed, with Repeat on and
 two keyframes - the start, and the finished logo at 57, which is the
-poster. **100,352 bytes**, under the owner's 120 KB.
+poster. **90,624 bytes**, under the owner's 105 KB (it was 120 KB until
+the bits were reworked, below).
+
+**A bit is an EMISSION, not a slot.** Each trace emits a bit every `gap`
+frames, `gap` dividing the loop's 48, and bit *j* rides the whole trace
+from its spawn end - the canvas edge for a trace into the chip, a pin's foot
+for one out of it - to the other end, with ONE digit, a function of
+*j* mod the bits a loop emits. The file shipped with bits as slots on a
+wrapping ring and the digit belonging to the slot, so the seam put a
+different digit where each had been and some FLIPPED as the loop joined;
+and the intro hid the outward bits until frame 36 and then showed them all
+at once part way along, and ended the inward ones 4 mm short of the pins
+(the owner's report). Now the intro is the same rule with a start: nothing
+reaches a pin before frame 16, where the burn begins, and the chip emits
+nothing before 16 - so an outward trace must cross the canvas in the 40
+frames to the loop, and the three longest, up the board behind the chip,
+ride faster to do it. A bit leaving the canvas is clipped at the edge
+rather than dropped a pixel short of it. The generator refuses to write a
+file whose frame 105 is not frame 57, pixel for pixel, on every screen.
 
 **The key at frame 0 is the start's PLACE ON THE BAR.** The file shipped
 with the loop's key alone, on the argument that a resident play from the

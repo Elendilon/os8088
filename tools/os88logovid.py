@@ -36,6 +36,14 @@ the package once; and from frame LOOP on the scene is periodic - every bit
 in step with a period that divides the loop's length - so the file's seam
 (SPEC.md 98.1.1.2) takes the last frame back to frame LOOP exactly, and the
 lettering stays once it has appeared.
+
+THE BITS (SPEC.md 98.3.11): each is an EMISSION with a time of its own - it
+enters at the canvas edge or leaves a pin's foot, rides the whole trace
+with one digit, and is gone at the other end, the pin or past the edge
+(clipped there, so it slides rather than pops). The intro is the same rule
+with a start: nothing reaches a pin before BIT_IN, the chip sends nothing
+before BIT_OUT. build() refuses a file whose frame NFRAMES is not frame
+LOOP.
 """
 import argparse
 import math
@@ -206,15 +214,26 @@ def burn_times(tex, spans, t0, dt, speed):
 
 class Trace:
     """A board trace from a pin's foot outward: a polyline on the board
-    (z = 0), and the bits that ride it"""
+    (z = 0), and the bits that ride it.
 
-    def __init__(self, pts, inward, phase, spacing, speed):
+    A BIT IS AN EMISSION: bit j leaves its spawn end - the canvas edge for
+    an inward trace, the pin's foot for an outward one - at frame
+    T_j = off + j x gap and rides at `speed` mm a frame until it reaches the
+    other end, where it is gone. It is the same bit, with the same digit,
+    for the whole of its ride: no bit appears or vanishes part way along,
+    and none changes from a 1 to a 0 (the owner's report: they FLIPPED on
+    the loop, when a bit's digit belonged to a slot that wrapped round
+    rather than to the bit)"""
+
+    def __init__(self, pts, inward, off, gap, speed, start=None):
         self.pts = [np.array(p, float) for p in pts]
         self.seg = [np.linalg.norm(b - a) for a, b in zip(self.pts,
                                                           self.pts[1:])]
         self.length = sum(self.seg)
-        self.inward, self.phase = inward, phase
-        self.spacing, self.speed = spacing, speed
+        self.inward, self.off = inward, off
+        self.gap, self.speed = gap, speed       # gap: FRAMES, dividing PERIOD
+        self.k = PERIOD // gap                  # bits emitted a loop
+        self.start = start                      # outward: the first emission
 
     def at(self, s):
         """The board point s millimetres from the pin's end"""
@@ -224,12 +243,64 @@ class Trace:
             s -= n
         return self.pts[-1]
 
+    def riding(self, f):
+        """The bits on the trace at frame f, as (j, s): s millimetres from
+        the pin's end. The age is (f - j gap) - off, integers first, so
+        frame f and frame f + PERIOD give bit j and bit j + k exactly the
+        same place - the seam (98.1.1.2) has nothing to round"""
+        life = self.length / self.speed
+        j1 = int(math.floor((f - self.off) / self.gap))
+        j0 = int(math.floor((f - self.off - life) / self.gap))
+        for j in range(j0, j1 + 1):
+            age = (f - j * self.gap) - self.off
+            d = age * self.speed
+            if d < 0 or d > self.length:
+                continue
+            if self.inward:
+                # THE INTRO: nothing reaches the pins before BIT_IN, so a
+                # bit that would have is never on the trace at all
+                if (j * self.gap + self.off) + life < BIT_IN:
+                    continue
+                yield j, self.length - d
+            else:
+                # ...and the chip sends nothing before ITS first emission
+                if j * self.gap + self.off < self.start:
+                    continue
+                yield j, d
+
+
+BIT_IN = 16                     # the first bit reaches a pin; the burn begins
+BIT_OUT = 16                    # the chip's first bit out
+# a bit's sprite, in canvas units, at its largest on any adapter: a bit is
+# off the canvas once its CENTRE is this far past an edge
+SPRITE_HALF = 0.035
+
+
+def canvas_exit(tr):
+    """How far along an outward trace (mm from the pin) a bit has left the
+    canvas, sprite and all"""
+    m = SPRITE_HALF
+    s = 0.0
+    while s < tr.length:
+        p, _ = CAM.project((*tr.at(s), 0.0))
+        if not (-m <= p[0] < PHYS_W + m and -m <= p[1] < PHYS_H + m):
+            return s
+        s += 0.1
+    return tr.length
+
 
 def make_traces():
     """Traces off chosen pins: straight out, a 45 degree bend, and on to
     beyond the canvas. Every loop motion is periodic in PERIOD frames: a
-    bit moves `speed` mm a frame and they are `spacing` apart, with
-    spacing x k = speed x PERIOD, so the pattern returns to itself"""
+    trace emits a bit every `gap` frames and gap divides PERIOD.
+
+    THE LOOP IS WHOLE FROM FRAME LOOP: every bit the steady state has on
+    the canvas there must have been emitted. An inward one was emitted off
+    the canvas, so it can have been at any time; an outward one left the
+    chip, which sends nothing before BIT_OUT - so an outward trace's bits
+    must cross the canvas in LOOP - BIT_OUT frames, and a long one (up the
+    board, behind the chip) rides that much faster. Its pixels are fewer a
+    millimetre there, which is why it does not look it"""
     rng = np.random.RandomState(88)
     out = []
     for side in (-1, 1):
@@ -247,10 +318,14 @@ def make_traces():
             pts = [(x, y0), (x, y1), (x + bend * far, y1 + side * far)]
             speed = [0.9, 1.1, 1.3][i % 3]
             k = [1, 2, 1][(i + (side > 0)) % 3]
-            spacing = speed * PERIOD / k
+            gap = PERIOD // k
             inward = ((i + (side > 0)) % 2) == 0
-            out.append(Trace(pts, inward, rng.uniform(0, spacing), spacing,
-                             speed))
+            off = rng.uniform(0, gap)
+            tr = Trace(pts, inward, off, gap, speed, BIT_OUT)
+            if not inward:
+                tr.speed = max(speed, canvas_exit(tr) /
+                               float(LOOP - BIT_OUT - 1))
+            out.append(tr)
     return out
 
 
@@ -479,34 +554,33 @@ class Renderer:
         gh = len(glyphs["0"])
         gw = 5
         for ti, tr in enumerate(self.traces):
-            if f < LOOP and not tr.inward and f < 36:
-                continue                    # the intro: only bits coming IN
             far = tr.pts[0][1] > 0          # behind the package, from here
-            n = int(tr.length / tr.spacing) + 2
-            for k in range(n):
-                s = (tr.phase + k * tr.spacing + tr.speed * f) % \
-                    (n * tr.spacing)
-                if tr.inward:
-                    s = n * tr.spacing - s
-                if s < 0.6 or s > tr.length:
-                    continue
-                if f < 16 and s < 4.0:
-                    continue                # nothing reaches the pins yet
+            for j, s in tr.riding(f):
+                if s < 0.6:
+                    continue                # at the pin: into the chip
                 p, _ = CAM.project((*tr.at(s), 0.0))
-                px = int(p[0] / PHYS_W * self.w)
-                py = int(p[1] / PHYS_H * self.h)
-                ch = "1" if (ti * 7 + k * 3) % 5 < 2 else "0"
+                px = int(math.floor(p[0] / PHYS_W * self.w))
+                py = int(math.floor(p[1] / PHYS_H * self.h))
+                # the bit's digit is the BIT's, periodic in the bits a
+                # loop emits, so the seam meets the same digit it left
+                ch = "1" if (ti * 7 + (j % tr.k) * 3) % 5 < 2 else "0"
                 g = glyphs[ch]
                 x0, y0 = px - gw // 2, py - gh // 2
-                if x0 < 1 or y0 < 1 or x0 + gw + 1 >= self.w or \
-                        y0 + gh + 1 >= self.h:
-                    continue
                 spr = np.zeros((gh + 2, gw + 2), bool)   # the halo...
                 for yy, row in enumerate(g):
                     for xx, c in enumerate(row):
                         if c == "1":
                             spr[yy + 1, xx + 1] = True        # ...the digit
-                box = (slice(y0 - 1, y0 + gh + 1), slice(x0 - 1, x0 + gw + 1))
+                # CLIPPED to the canvas, so a bit slides in at an edge and
+                # off at one rather than popping a pixel short of it
+                bx0, by0 = x0 - 1, y0 - 1
+                cx0, cy0 = max(bx0, 0), max(by0, 0)
+                cx1 = min(bx0 + gw + 2, self.w)
+                cy1 = min(by0 + gh + 2, self.h)
+                if cx0 >= cx1 or cy0 >= cy1:
+                    continue
+                spr = spr[cy0 - by0:cy1 - by0, cx0 - bx0:cx1 - bx0]
+                box = (slice(cy0, cy1), slice(cx0, cx1))
                 vis = ~self.occ_far[box] if far else True
                 out[box] = np.where(vis, spr, out[box])
 
@@ -559,6 +633,14 @@ def build(out, ground="board", pack=None, sound=False):
     ws, names = [], ("vga", "herc", "cga")
     for name in names:
         r, fr = render_all(name, ground)
+        # THE SEAM, checked here rather than trusted: the frame after the
+        # last must BE frame LOOP, pixel for pixel, or the loop flips
+        # something as it joins (the owner's report: digits did)
+        d = int((r.frame(NFRAMES) != fr[LOOP]).sum())
+        if d:
+            raise SystemExit("%s: frame %d is not frame %d (%d pixels): "
+                             "the loop would jump at the seam"
+                             % (name, NFRAMES, LOOP, d))
         ws.append(writer(name, fr, sound))
     tg = [vid.TARGETS[n] for n in names]
     extra = dict(audio_fmt=vid.AUD_PCM8, abytes=SPF, audio=soundtrack(),
