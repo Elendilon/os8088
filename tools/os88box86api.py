@@ -767,11 +767,24 @@ class Api86Box(om.Marty):
         return r
 
     def _status(self):
-        if self._state == "running":
-            self._a("status")
-        cs, ip, flat = self._at
-        return {"state": self._state, "cycles": self._cycles(),
-                "stops": self._stops, "cs": cs, "ip": ip, "flat_ip": flat}
+        # UNDER THE LOCK, because a stop is published by ANOTHER THREAD:
+        # `_hit` (the GDB reader's) sets the state and the count and THEN
+        # reads the registers, a round trip to 86Box, all inside the lock.
+        # A status taken in that window without it answered "breakpoint",
+        # the new count - and the PREVIOUS stop's CS:IP. MegaMixin.wait_stop
+        # asks that CS:IP whether the stop is the kernel's real-mode landing
+        # (fsx_rland) to re-arm a row's breakpoint on the bracket's copy;
+        # told the idle loop's, it handed the landing to the row as the
+        # row's own hit, the copy was never armed, and vidpreview's play
+        # ran to its end past a breakpoint nobody had set (mega-vidpreview,
+        # 4 runs in 15 four at a time)
+        with self._lock:
+            if self._state == "running":
+                self._a("status")
+            cs, ip, flat = self._at
+            return {"state": self._state, "cycles": self._cycles(),
+                    "stops": self._stops, "cs": cs, "ip": ip,
+                    "flat_ip": flat}
 
     def _c_ping(self, **_):
         return {"pipeline": False}

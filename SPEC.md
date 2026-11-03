@@ -205418,6 +205418,20 @@ another file's open, the close) end it. The widget does not arm inside a
 bracket, so what `vp_xlag` and `vp_xput` fill there is on the card and not
 on the bar, which resumes behind it after the play. +35 bytes.
 
+**...and it ENDS at the bracket's door** (`vp_srun`), because a parked
+operation is not torn down by `fsx_run`'s `fpg_finish` - it PARKS there as
+at any unlock (§12.8.9), its pixels on the bar - so a play in the window
+started while the hold still loads had the widget on the bar, frozen, for
+the whole play (§12.8.5.2). And the end could not be made inside: on
+kern_mega's real-mode bracket `OSAPI_FS_OP` is outside the table (§53.2.3)
+and answers CF = 1, so a hold that finished there (`vp_xput`'s `vp_xdone`)
+left the operation owned, and the widget on the bar, until the player
+closed (`mega-vidwin`). `vp_opend` at the door ends it - refused, harmlessly,
+when none is the player's - and `vp_xreop`, as `vp_srun` returns, begins it
+again over the bytes still to read while a timer-fed hold is still loading
+(a bank has none: it fills as a play reads). +56 bytes of the image, both
+builds; no kernel byte.
+
 **All of it is on the UI task** - the timer, the bracket's main loop, a
 callback - which is where §41.8 allows the copy. On a 286 the copy is
 `int 15h AH=87h` with interrupts off for its 32 KB; the rate hook waits that
