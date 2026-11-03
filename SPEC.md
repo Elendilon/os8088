@@ -16309,6 +16309,19 @@ do. Live, "move the mouse and read the counters" becomes a question the glass
 can answer, which is the whole reason §57.2 makes this a knob rather than a
 registry entry.
 
+**Live means a LINE IS DRAWN WHEN IT CHANGED, not every `MDG_RATE`.** Each
+line is built into `mdg_buf` and compared against `mdg_shad`, what that line
+last put on the glass; an unchanged line is skipped, and an unchanged table
+takes no gfx lock at all. Redrawn blind, thirteen lines of 40 cells (fifteen
+under `MOUROUND=1`) are about half a second of `font_run` on a 4.77 MHz
+8088 - the whole of `MDG_RATE` - so the UI task held the lock nearly all the
+time on an idle desktop, never slept (§8.1.2), and the arrow over the table
+blinked twice a second. A harness waiting for the machine to go quiet could
+never see it do so: `tests/knobhd.py`'s `BOOTPROF=1 MOUDIAG=1` install timed
+out in `settle` on a desktop that was finished. Every `MDG_FULL` (16) redraws,
+about 8 s, every line is drawn regardless, which is what puts back a table a
+window dragged across it and away has erased.
+
 The decision tree it collapses, in the order the columns are read:
 
 | reading | what it is |
