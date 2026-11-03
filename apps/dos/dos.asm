@@ -9190,7 +9190,9 @@ dos_set_open:
     jc .r                           ; 96.32.2.3) - or not opened, and the
 %endif                              ; menu bar says why
 %ifdef DOS_WTAIL
+%ifdef DOS_WIN16                    ; (no WIN16 - kern_small - no NE to grey for)
     call dos_hne_ask                ; ...and is the program an NE (96.44.20)
+%endif
 %endif
     mov byte [dos_page], DOS_PAGE_SET
     jmp dos_swap
@@ -12494,6 +12496,7 @@ dos_sp_get:
     ret
 
 %ifdef DOS_WTAIL
+%ifdef DOS_WIN16
 ; -----------------------------------------------------------------------------
 ; dos_hne_ask - is the program the Setup page is about a WINDOWS one? (SPEC.md
 ; 96.44.20). `Close when done` greys for an NE: a headless DOS would only run
@@ -12513,7 +12516,8 @@ dos_hne_ask:
 .r:
     popf
     ret
-%endif
+%endif                              ; DOS_WIN16: without WIN16 a program is
+%endif                              ; never one it runs, so nothing greys
 WIN_CODE_END
 
 ; dos_sp_drop - give the part back, if it is held. Every register preserved;
@@ -12786,9 +12790,10 @@ DOS_BTREC_SZ equ 18              ; **A MIRROR OF os88ui.inc's OS88UI_BT_SIZE**,
 %endif                           ; row's (96.32.2.4)
 %ifdef DOS_WTAIL
     WBSS DOS_B_MHEAD, DOS_MCKSZ  ; ...and Close when done, beside it (SPEC.md
-    WBSS DOS_B_HNE,   1          ; 96.44.20) - the TAIL's: only the Setup page
-%endif                           ; shows it and the .LNK reader's store is a
-                                 ; window's; 1 = the target is an NE
+%ifdef DOS_WIN16                 ; 96.44.20) - the TAIL's: only the Setup page
+    WBSS DOS_B_HNE,   1          ; shows it and the .LNK reader's store is a
+%endif                           ; window's; 1 = the target is an NE (WIN16's)
+%endif
 %ifdef DOS_SETPART
     HBSS DOS_B_SPDOOR, 4         ; the Setup part's door, 0:claim - its
                                  ; segment word 0 = not held (96.32.2.3)
@@ -18349,7 +18354,9 @@ dos_mmou equ dos_hbss + DOS_B_MMOU   ; ...and the mouse's (96.36.8)
 dos_mwin equ dos_hbss + DOS_B_MWIN   ; ...and Run in a window (96.32.2.4)
 %ifdef DOS_WTAIL
 dos_mhead equ DOS_WB + DOS_B_MHEAD  ; ...and Close when done (96.44.20)
+%ifdef DOS_WIN16
 dos_hne equ DOS_WB + DOS_B_HNE      ; ...and the target is an NE: it greys
+%endif
 %endif
 %endif
 %ifdef DOS_SETPART

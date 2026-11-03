@@ -2644,8 +2644,16 @@ endif
 # it is no mod_tab row and the kernel never loads it - System Check does, from
 # the folder SYSCHECK.O88 sits in - so it ships where $(SYSTOOLS) does and on
 # util360's root beside it, and never on the 360KB system disk, which has no
-# room for it. It is kern_big's alone, as System Check is.
+# room for it. It is kern_big's alone, as System Check is - and so it is
+# GUARDED, hiber.drv's trap above one module along: a KERN_SMALL=1 kernel
+# cuts no FSCHECK.DRV, so `make KERN_SMALL=1` asked os88disk for a file that
+# build does not cut (`cannot read .../fscheck.drv`) on every disk carrying
+# $(SYSTOOLS) and on util360.
+ifneq ($(KERN_SMALL),)
+FSCKMOD =
+else
 FSCKMOD = $(BUILD)/fscheck.drv
+endif
 KMODARGS = -m 0=$(BUILD)/ctrl.drv -m 1=$(BUILD)/format.drv \
            -m 2=$(BUILD)/diskops.drv
 # ...and kern_small's FIFTH and SIXTH, Cut/Copy/Paste (SPEC.md 22.3, MOD_FCP)
