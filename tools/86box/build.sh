@@ -91,6 +91,10 @@ cmake -S "$SRC" -B "$SRC/build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
     || { tail -20 "$BUILD/cmake.log" >&2; exit 1; }
 echo "==> building (ninja; ~5 minutes on four cores)"
 ninja -C "$SRC/build" >"$BUILD/ninja.log" 2>&1 || { grep -A5 FAILED "$BUILD/ninja.log" | head -30 >&2; exit 1; }
+# UNLINK FIRST: a running instance (another session's row) holds the old
+# binary open, and cp onto it dies with "Text file busy" after the whole
+# build. The running one keeps its inode; the next launch gets this one
+rm -f "$BUILD/86Box"
 cp "$SRC/build/src/86Box" "$BUILD/86Box"
 # ...and WHICH PATCHES it carries, so tools/os88box86api.py can refuse a
 # binary built before a patch landed (08's mouse fix changed no verb, so no
