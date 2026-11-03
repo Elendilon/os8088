@@ -43441,25 +43441,26 @@ of, and those are what set the real number:
    `ld_alloc`'s adds nor `cmz_pkg`'s can carry. §20.12's `OP_PARTMAX` is the
    same figure for the same reason, which is why Word's carve already ran to
    65,024 (§68.10).
-2. **The heap's unit is the kilobyte**, so a region over 63KB is a **64KB
+2. **The heap's unit WAS the kilobyte**, so a region over 63KB was a **64KB
    claim**, and two words that held a KB count as bytes wrapped there.
    `mem_bytes_kb_x` was `add ax, 1023 / shr` and answered **0 KB** for every
    input from 64,513 up; it is `dec ax / shr / inc ax` now — ceil for every
    input ≥ 1, which its banner already required, and a byte shorter. And
-   `ld_alloc`'s `I_SIZE = KB << 10` is 65,536 for 64KB, which is **0** in a
+   `ld_alloc`'s `I_SIZE = KB << 10` was 65,536 for 64KB, which is **0** in a
    word — and `I_SIZE = 0` is how `instance.inc` tells a BUILT-IN, so a
-   63.5KB package would have been swept as one. It **saturates** instead:
-   `sbb ax, 0` after the shift takes the bit that fell out, so a 64KB region
-   reads `0xFFFF`. Both readers of it as a bound (`inst_pkg_fence`, §53.1's
-   hook fence) compare `< I_SIZE`, so the only offset the saturation refuses
-   is `0xFFFF`, which `image + bss ≤ 0xFE00` already did.
+   63.5KB package would have been swept as one. It saturated with a `sbb ax,
+   0` until **§50.2.1's 512-byte granule** retired the KB rounding for the
+   region: `ld_alloc` claims it through the PARAGRAPH door to exactly
+   `roundup512(image + bss)`, at most `0xFE00` bytes = 4,064 paragraphs, and
+   `I_SIZE` is that byte count, which cannot carry. So the largest package
+   gets exactly what it declared — on `kern_mega` too, whose region selector's
+   limit is `0xFDFF` — and its `I_SIZE` reads `0xFE00`, never 0. Both readers
+   of it as a bound (`inst_pkg_fence`, §53.1's hook fence) compare `< I_SIZE`,
+   which is `image + bss` rounded to the granule. `tests/pkgmax.py` is the
+   row, on both kernels.
 
-What the last 512 bytes cost a package is the KB granularity, and it is worth
-knowing before reaching for them: **63KB + 1 byte is a 64KB claim**, the same
-as 63.5KB. What they cost the kernel is **3 bytes of `.cold`, resident**:
-the `sbb`, with the byte `mem_bytes_kb_x` gave back spent on a parity pad
-behind it, because the hot disk routines that follow it in `.cold` must not
-move by an odd amount (`tests/unit/t_hotpar.py`).
+What the last 512 bytes cost a package is nothing beyond themselves now:
+**63KB + 1 byte is a 63.5KB claim**, the granule's and not the kilobyte's.
 
 **What owning a segment costs, and what it retires.** It retires the whole
 v2 relocation machinery — the dual assembly, the diff scan, the byte-exact

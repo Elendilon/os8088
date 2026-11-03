@@ -4330,14 +4330,15 @@ SOAK = [
         needs=("marty",), serial=True, wants=("build/pkgbig.img",)),
     Row("pkgmax", "soak", py("tests/pkgmax.py"), 20.0,
         "SPEC.md 20.1.1: a package of EXACTLY APP_MAX_SIZE (0xFE00) loads, "
-        "runs and closes. Over 63KB the region is a whole 64KB claim, the one "
-        "size two 16-bit words in the loader used to wrap on - "
-        "mem_bytes_kb_x's `add ax, 1023` answered 0 KB, and ld_alloc's "
-        "I_SIZE = KB << 10 read 0, which is how the instance table says "
-        "BUILT-IN. PKGMAX.O88 (tests/pkgbig/pkgmax.asm) is image + bss = "
+        "runs and closes. It is the edge two 16-bit words in the loader used "
+        "to wrap on while the heap counted KB (mem_bytes_kb_x's `add ax, "
+        "1023` answered 0 KB, and ld_alloc's I_SIZE = KB << 10 read 0, which "
+        "is how the instance table says BUILT-IN); since SPEC.md 50.2.1's "
+        "granule the region is claimed to exactly roundup512(image + bss). "
+        "PKGMAX.O88 (tests/pkgbig/pkgmax.asm) is image + bss = "
         "0xFE00 to the byte and marks the last byte of its bss. Asserts off "
         "guest state: LD_OK and a window; a PACKAGE instance with I_SIZE "
-        "0xFFFF (saturated); one 4,096-paragraph claim owned by it; the mark "
+        "0xFE00; one 4,064-paragraph claim owned by it; the mark "
         "at segment:0xFDFF; and nothing left after the close box. Shares "
         "build/pkgbig.img with pkgbig and pkgfence - `make pkgbig`.",
         needs=("marty",), serial=True, wants=("build/pkgbig.img",)),
