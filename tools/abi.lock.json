@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "cd219a97c9dfeb30311cf91d864e3f5949dce50805bcdc76cf5772f47ad05d26",
+  "fingerprint": "dd65d06f134f6c98e5d9f63ab55715739302ae94bfca91bf54d65a74c6d9b6c8",
   "version": 12
  },
  "PKG_FMT": {
-  "fingerprint": "7975321a2775ff8bcb8fc20d99837f9f38cc55270eee83b44f9fd3c8d51658db",
+  "fingerprint": "a6d586d0eb0696dc8fa259267e07770ed49c7d55efc5eb7aacd2041c51d0616e",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -1554,6 +1554,20 @@
    "from": 12,
    "guard": "DRV_VER",
    "reason": "OSAPI_MEM_COMPACT gains MEMC_WHATIF_P (AH=2): the what-if in paragraphs. AH=1 is still the post; nothing built before sends AH=2, so no bump",
+   "to": 12
+  },
+  {
+   "fingerprint": "a6d586d0eb0696dc8fa259267e07770ed49c7d55efc5eb7aacd2041c51d0616e",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_SND_STREAM's contract now says what SPEC.md 34.6.5 already pinned: verb 4 (open-in) requires SND_OPENF_EXT in AH and answers 7 without it, and verb 0 alone answers 8 (a record stream claims no double buffer). No bump: an .o88 built before that records into a grant is refused with 7 - it runs and says so - and the only callers built against the new form (Recorder, WaveRack) ship with the driver",
+   "to": 10
+  },
+  {
+   "fingerprint": "dd65d06f134f6c98e5d9f63ab55715739302ae94bfca91bf54d65a74c6d9b6c8",
+   "from": 12,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_SND_STREAM's contract now says what SPEC.md 34.6.5 already pinned: verb 4 (open-in) requires SND_OPENF_EXT in AH and answers 7 without it, and verb 0 alone answers 8 (a record stream claims no double buffer). No bump: an .o88 built before that records into a grant is refused with 7 - it runs and says so - and the only callers built against the new form (Recorder, WaveRack) ship with the driver",
    "to": 12
   }
  ]

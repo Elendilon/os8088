@@ -145,6 +145,9 @@ RC_RKB      equ RC_RL/1024 + 1      ; the ring and its two words, one claim
 RC_BLKSH    equ 2                   ; the card's block: 2,048 >> 2 = 512 bytes
 RC_RBLK     equ 2048 >> RC_BLKSH    ; ...as bytes (SPEC.md 34.6.4: SBL_RHALF >>)
 RC_PUMP     equ 2                   ; ticks between copies: ~880 bytes at 8 kHz
+RC_FMAX     equ (65536 - RC_RL) * 18 / RC_RATE ; the most ticks between
+                                    ; pumps before the 16-bit count may lap
+                                    ; (18, not 18.2: a little early, wc_fmax)
 RC_CHUNK    equ 250                 ; demo synth/stage chunk (divides RC_D_LEN/2,
                                     ; so the sweep turns on a chunk boundary).
                                     ; It is most of rc_pbuf: 32 verb-6 calls
@@ -602,6 +605,10 @@ rc_rfree:
 ; one 256-byte chunk against a 512-byte block (64 ms at 8 kHz).
 ; The copy goes through rc_pbuf because verb 6 stages
 ; from OUR segment: up to 256 bytes a call, never across the ring's end.
+; Two things that mod cannot see are overruns too, as WaveRack's wc_pull and
+; wc_refold say them: a lead within a block of a ring (the block the card is
+; filling is the ring's oldest), and more than RC_FMAX ticks since the last
+; pump, long enough for the count to have lapped 65,536 and look small.
 ; -----------------------------------------------------------------------------
 rc_pump:
     push ax
@@ -609,6 +616,12 @@ rc_pump:
     push si
     push di
     push es
+    call OSAPI_GET_TICKS            ; AX = now
+    mov cx, ax
+    sub ax, [rc_ptick]              ; ticks since the last pump...
+    mov [rc_ptick], cx
+    cmp ax, RC_FMAX
+    ja .over                        ; ...long enough to lap: no count says so
 .more:
     mov es, [rc_rseg]
     mov ax, [es:RC_RL+SND_EXT_CONS] ; bytes captured, free-running
@@ -799,6 +812,8 @@ rc_do_rec:
     mov byte [rc_st], RC_REC
     mov word [rc_len], 0            ; the old take is gone
     mov word [rc_msg], rc_s_rec
+    call OSAPI_GET_TICKS
+    mov [rc_ptick], ax              ; rc_pump's lap bound counts from here
     mov bx, [rc_win]
     mov ax, RC_PUMP
     call OSAPI_WM_TIMER             ; the pump (rc_ontimer)
@@ -1518,7 +1533,7 @@ rc_sine:
 %include "os88ui.inc"           ; buttons this already drew
 %include "os88pcm.inc"          ; the PWM clip player (SPEC.md 34.4)
 
-    OS88_BSS 280
+    OS88_BSS 282
     OS88_IMAGE_END
 
 ; --- loader-zeroed bss (SPEC.md 21 step 5) -------------------------------------
@@ -1553,5 +1568,6 @@ rc_pbuf  equ os88_image_end + 20    ; 256 B: the demo's synth/stage buffer
                                     ; Bresenham error is BP inside rc_do_demo
 rc_rseg  equ os88_image_end + 276   ; word: the record ring's claim, 0 = none
 rc_win   equ os88_image_end + 278   ; word: our window, for the pump's timer
-                                    ; total 20 + 256 + 4 = 280
+rc_ptick equ os88_image_end + 280   ; word: the tick of the last rc_pump
+                                    ; total 20 + 256 + 6 = 282
                                     ; total 4023

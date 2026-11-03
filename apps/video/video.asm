@@ -10225,6 +10225,32 @@ vp_xopbeg:
     mov cx, [vp_xcap]
     mov dx, [vp_xcap+2]
     jmp short vp_opend.go
+; vp_xreop - after a bracket (vp_srun, which ended it at the door): a
+; TIMER-fed hold still loading begins its operation again, over the bytes it
+; has still to read. A bank fills while a play reads and has none (vp_xopen).
+; Refused, or nothing left to read, nothing changes. Every register kept
+vp_xreop:
+    cmp byte [vp_xon], 0
+    je .r
+    cmp byte [vp_xbank], 0
+    jne .r
+    cmp byte [vp_xfull], 0
+    jne .r
+    push cx
+    push dx
+    mov cx, [vp_xcap]
+    mov dx, [vp_xcap+2]
+    sub cx, [vp_xhave]
+    sbb dx, [vp_xhave+2]
+    jc .p                           ; (more held than the cap: none to read)
+    jnz vp_opend.go
+    jcxz .p
+    jmp short vp_opend.go
+.p:
+    pop dx
+    pop cx
+.r:
+    ret
 ; vp_xdone - the hold has all of the file: [vp_xfull], and its bar over
 vp_xdone:
     mov byte [vp_xfull], 1
@@ -11843,10 +11869,7 @@ vp_sstart:
     call vp_mclaim
     jnc .rgot
     pop bx
-%ifdef PKG_MEGA
-    call vp_rbfree
-%endif
-    jmp .memf
+    jmp .memf                       ; (.memf gives the hold back)
 .rgot:
 %ifdef PKG_MEGA
     call vp_rbfree                  ; (the bracket's room back, at the top)
@@ -11909,6 +11932,9 @@ vp_sstart:
     clc
     jmp short .out
 .memf:
+%ifdef PKG_MEGA
+    call vp_rbfree                  ; (the bracket's room, if a refusal took
+%endif                              ; it here still held: .kfit's too)
     mov word [vp_msg], vp_s_mem
 .fail:
     call vp_sfree
@@ -14857,12 +14883,11 @@ vp_rxfree:
     pop bx
     ret
 
-; vp_rhave - CF=0 DX = the sound's ring a real-mode bracket holds already
-; (the door's, or one Mute kept): vp_sndprep's claim, which real mode
-; refuses. CF=1 make the claim. Every other register kept
+; vp_rhave - CF=0 DX = the sound's ring held already (the door's, or one
+; Mute kept): vp_sndprep's claim, which real mode refuses - and which a
+; bracket the kernel ran PROTECTED would make a second time over the door's,
+; leaking it. CF=1 make the claim. Every other register kept
 vp_rhave:
-    cmp byte [vp_rbr], 0
-    je .no
     mov dx, [vp_aseg]
     or dx, dx
     jz .no
@@ -14871,6 +14896,8 @@ vp_rhave:
 .no:
     stc
     ret
+    nop                             ; (never run: what follows at the parity
+                                    ; it had)
 
 ; vp_rspic - vp_sesspic, or in a real-mode bracket owed to vp_rpost: the
 ; poster's claim and its drawing are the desktop's (OSAPI_MEM_CLAIM_HI)
@@ -14920,6 +14947,16 @@ vp_srun:
     je .go                          ; the rows between are left behind (the
     call vp_pposter                 ; owner's report)
 .go:
+    call vp_opend
+                                    ; (SPEC.md 12.8.10): an owned operation
+                                    ; PARKS at fsx_run's fpg_finish rather
+                                    ; than coming down (12.8.9), so it stayed
+                                    ; on the bar, frozen, for a whole play in
+                                    ; the window - and its end, made inside,
+                                    ; is refused by kern_mega's real-mode
+                                    ; table, so it stayed for good. Refused
+                                    ; when none is ours; vp_xreop begins it
+                                    ; again after
     call OSAPI_WM_CLIP_CLEAR        ; THE BRACKET'S DOOR PAYS OFF THE WIDGET
                                     ; under whatever region is armed (SPEC.md
                                     ; 12.8.5.2): a play from a key reads its
@@ -15061,6 +15098,7 @@ vp_srun:
     call vp_fmt                     ; now: Play resumes it)
     call vp_repaint
 .out:
+    call vp_xreop                   ; (the hold's bar again, if it still loads)
     call vp_parm                    ; (a session left paused banks on)
     pop di
     pop dx
@@ -18058,7 +18096,8 @@ vp_lstage:
 ; every live chunk fits it, and to the bank once it is full, so the bank
 ; still banks in the calm stretches when its copy is cheap.
 ;
-;   - vp_ttab's table is a word a chunk (the live window is under 256): the slot,
+;   - vp_ttab's table is a word a chunk (the live window is under 256, the
+;     bank capped by vp_treset so both tiers hold VP_TMAX at most): the slot,
 ;     bit 15 the conventional tier, bit 14 a SEAM. vp_slot answers it and
 ;     vp_xbaddr turns a conventional one into a pointer the decode reads as
 ;     a copying ring's, a segment below VP_XSEL, so VP_DSDX borrows for none
@@ -18077,6 +18116,8 @@ vp_lstage:
 VP_TOFF     equ VP_CHUNK - 512      ; the table's place in the mirror slot
 VP_TMIN     equ 4                   ; the least ring for a tier: the bounce
                                     ; and three slots
+VP_TMAX     equ 254                 ; both tiers' slots at most: the live
+                                    ; window under the table's 256
 
 ; vp_tierq - at .kin, CX = the slots the conventional ring would take: CX =
 ; that, [vp_ttwo] 1, when the bank plays in place and a tier is worth it;
@@ -18107,7 +18148,8 @@ vp_tierq:
 
 ; vp_treset - the stream (re)starts at chunk 0: both tiers empty, the next
 ; chunk the conventional tier's. A ring that came out short of VP_TMIN, or a
-; bank short of four slots, plays with no tier. Every register kept
+; bank short of four slots, plays with no tier; a bank past VP_TMAX less the
+; conventional tier is capped there. Every register kept
 vp_treset:
     cmp byte [vp_ttwo], 0
     je .r
@@ -18117,6 +18159,12 @@ vp_treset:
     mov [vp_tkc], ax
     cmp ax, VP_TMIN - 1
     jb .off
+    neg ax                          ; THE TABLE's BOUND: both tiers' slots
+    add ax, VP_TMAX                 ; under it, the bank capped - [vp_kr]
+    cmp ax, [vp_kr]                 ; with it, so vp_xbread's mirror and the
+    jae .kb                         ; seam's are the one slot
+    mov [vp_kr], ax
+.kb:
     mov ax, [vp_kr]
     mov [vp_tkb], ax
     cmp ax, 4

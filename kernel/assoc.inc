@@ -1297,11 +1297,18 @@ assoc_run_x:
                                 ; on, so no listing and no index (21.4)
     mov byte [assoc_argp], 0    ; a package launched later, by any route, must
                                 ; never inherit this document
-    cmp byte [assoc_dapp], 0xFF ; THE ENTRY PROC POSTED ANOTHER PROGRAM for
-    jne .fwd                    ; this document (SPEC.md 21.5.4) and refused:
-                                ; a hand-on, not a failure - no toast, and no
-                                ; repaint, the posted launch being the next
-                                ; thing on the glass
+    cmp byte [assoc_dapp], ASSOC_FLUSH ; THE ENTRY PROC POSTED ANOTHER
+    jb .fwd                     ; PROGRAM for this document (SPEC.md 21.5.4)
+                                ; and refused: a hand-on, not a failure - no
+                                ; toast, and no repaint, the posted launch
+                                ; being the next thing on the glass. BELOW
+                                ; ASSOC_FLUSH, NOT `!= 0xFF`: a FLUSH posted
+                                ; since the consume is no hand-on - and
+                                ; assoc_locate's own .learn posts one, on
+                                ; THIS run, whenever the volume's cache did
+                                ; not know where the program is (54.7.6.1),
+                                ; which skipped the handover and opened the
+                                ; program EMPTY (SPEC.md 21.5.4.1)
     call ld_say_status          ; record the verdict and SAY it (SPEC.md
                                 ; 59/22.9) - loader.inc's, `.cold` like this,
                                 ; so the call is near, and it preserves every
