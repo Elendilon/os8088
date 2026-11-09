@@ -404,9 +404,7 @@ user gives a different workflow. `apps/wirefleet/` and its SPEC.md section
   CONVENTIONAL memory** once it has switched - `MEGA_RESIDENT`, `KERN_SIZE`
   less the `.cold` and `.mega` rungs that go above 1MB, and NOT `KERN_SIZE`,
   which is a boot-time transient there - and BOOTS on its 1MB floor machine's
-  640KB (guard 5's mega arm, `MEGA_BOOT_KB`); budgeted and, since 2026-11-07,
-  RELEASED: the release zip requires its disks (`mkzip.py`'s `mega` group),
-  which `make mega` builds and `all` does not. **A budget is met EXACTLY at an upstream merge or a release;
+  640KB (guard 5's mega arm, `MEGA_BOOT_KB`). **A budget is met EXACTLY at an upstream merge or a release;
   branch and integration work may run up to 2KB over it** (`KERN_GRACE` —
   features land whole and are size-passed after), and `make budget-check` is
   where that grace ends, on all four budgeted kernels. Over a budget at that point is a conversation with
@@ -437,16 +435,6 @@ user gives a different workflow. `apps/wirefleet/` and its SPEC.md section
   the test may grow `.text`/`.cold`, and moving code to `.cold` or the boot
   overlay relieves `KERN_CODE_MAX` but not `KERN_BUDGET` — a module relieves
   both. Check `tools/kernsize.py` before and after: a byte costs a byte.
-  **FILECP and FDLG fail that test on kern_big, and are REFUSED as modules
-  there** - the owner has said no over twenty times, almost once per size
-  pass, so do not propose it again in any shape that reloads them from the
-  system disk, a boot-time cache included (a cache is still resident memory,
-  so it is not a saving either). Open and Copy are not system-management
-  actions: on kern_big the user has a DOS, office or utility disk in the
-  drive, and cannot be made to fetch the system disk and wait every time
-  they open or copy a file. kern_small takes them as modules because it is a
-  one-disk system with no hard disk, drivers or DOS, where being able to run
-  a program at all beats managing files faster.
   **`.cold` IS RESIDENT, and the name is the trap**: it means a cold PATH, not
   a cold LIFETIME. Those bytes are in RAM from boot to power-off exactly like
   `.text`'s on the machine the budget describes (a 5150's ROM or a 286's HMA
