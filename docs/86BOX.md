@@ -164,7 +164,26 @@ profile and NOT copied - a `.cue` names its `.bin` relative to itself - and
 `--cd` replaces it; left relative, 86Box looked for it in the run directory
 and dropped the drive without a word (KERN-MEGA-PLAN 14.68).
 `vm/286-mega-cdrom` and `vm/386-mega-cdrom` are kern_mega with a CD-ROM and
-`tests/megacdrom.py` is the row that drives the first.
+`tests/megacdrom.py` is the row that drives the first. `vm/386-mega-cdrom`
+(a Micronics 386DX-25, SB16) carries a seeded CMOS
+(`nvr-seed/micronics386.nvr`, both floppies 1.44MB), so it boots straight
+through rather than stopping in setup, and the kern_mega port takes it as
+`OS88_MEGA_VM=386-mega-cdrom` - `tests/x3live386.py` is its row
+(KERN-MEGA-PLAN 14.150).
+`vm/pentium-pciether` (`make pentium-pciether`, SPEC.md 125.6) is `vm/pentium`'s
+PCI board (`p54tp4xe`, 16 MB) with 86Box's Realtek RTL8139C+ (`net_01_card =
+rtl8139c+`, SLiRP) booting kern_mega's `make pciethertest` disk with
+`megaapps.img` in B: - the one profile where PCIETHER.DRV meets a period PCI
+BIOS instead of SeaBIOS's. The card's internal name `rtl8139c+` (UI string
+"Realtek RTL8139C+") is `src/network/net_rtl8139.c`'s `.internal_name` at the
+commit `tools/86box/UPSTREAM` pins, and the installed app's agrees. The link
+key is left out, as `vm/xt-wire`'s is: absent is every speed and the cable
+up, where `net_01_link = 0` is a link with no speed at all. It is a place to
+LOOK (86Box cannot be keyed or asserted against); `tests/pciether.py` is the
+gate and runs under QEMU. kern_big carries the same row (SPEC.md 125.1), so
+the shipped `os8088.img` with Control Panel → Drivers → PCI Ethernet ticked
+is the same card on the real-mode kernel; `make pcibigtest` is that disk
+with the tick already made.
 `vm/286-mega-ems` is `vm/286-mega` with 86Box's Lo-tech EMS board
 (`isamem0_type = lotechems`: registers 260h, frame E000h, 2 MB) added and
 nothing else changed - the one machine here that gives kern_mega expanded
@@ -426,6 +445,7 @@ profile. Whatever the row's MartyPC machine name says is added to it
 | `_sb` | a Sound Blaster 2.0 at 220h, IRQ 7, DMA 1. `$OS88_MEGA_SND=sb16[:irq]` gives an SB16 instead |
 | `_ne2k` | an NE2000 at 300h, IRQ 10, on slirp. The host is 10.0.2.2, as on QEMU |
 | `_hdd` | the row's own fixed disk on the IDE controller, mounted in place |
+| `_ems` | a Lo-tech EMS board at 260h, frame E000h, 2 MB (`vm/286-mega-ems`'s), on the seeded machine - that profile has no CMOS seed of its own and stops in MR BIOS setup under the port. A kern_mega system disk still needs a `SYSTEM.CFG` wanting EMS.DRV (bit 7; `tests/vbtmega.py --arm ems`) |
 
 A floppy drive's type follows its image: a 360KB or 1.2MB image gets a
 5.25" HD drive and anything else a 3.5" one. `$OS88_MEGA_MEGS` sets the RAM.

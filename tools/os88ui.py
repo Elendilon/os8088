@@ -150,6 +150,30 @@ class _Booted(object):
         return self._cm.__exit__(*e)
 
 
+def keep_kbmouse(m):
+    """Keep the keyboard mouse's pointer half for a row that FAKES a mouseless
+    machine on one that has a mouse (SPEC.md 9.6.7, BOOT3-PLAN wave 5).
+
+    Since wave 5 the pointer half is a claim adopted at the boot's end when
+    no pointer has spoken - which on MartyPC is every boot, the mouse not
+    having moved - and DROPPED by mou_hotplug's `.have` the first time one
+    does. A row that then puts [mou_ptr] back to 0 to drive the keypad
+    (wirefleetnomouse, serlease) would find the slots empty and every key
+    passing through. So call this BEFORE the row's first mouse motion: it
+    NOPs the 5-byte far call at `mou_hotplug.kbmdrop`, and the half stays
+    armed as it would on a machine whose mouse never spoke. Paused, so no
+    pass runs half of it; asserts the bytes are the call it means to remove.
+    """
+    at = m.sym("mou_hotplug.kbmdrop")
+    m.pause()
+    op = m.read(at, 1)[0]
+    if op != 0x9A:
+        raise RuntimeError("mou_hotplug.kbmdrop is %02X, not the far call to "
+                           "kbm_dropf - the drop moved" % op)
+    m.write(at, b"\x90" * 5)
+    m.run()
+
+
 def boot(image, apps=None, machine="os8088_5150_cga", card=None,
          saver=False, why_ibm=None, verbose=True, limit=180.0, settle=True,
          quick=False, **kw):
@@ -1260,7 +1284,8 @@ class UI:
             # the listing cache is a purgeable claim that MOVES (its reloc
             # rewrites FS_VSEG): its base and its bytes in one snapshot
             vseg, got = (os88marty.seg_snap(
-                self.m, base + geom.FS_VSEG, [(0, n * geom.DSK_DE_STRIDE)],
+                self.m, base + geom.FS_VSEG,
+                [(_fvdoff(), n * geom.DSK_DE_STRIDE)],
                 what="the Disk window's listing", sym=self._S, step=False)
                 if n else (0, None))
             if n and vseg:
@@ -1358,8 +1383,9 @@ class UI:
                 break
         else:
             raise UIError("the list would not scroll to the top")
-        for _ in range(200):                # a selection walks a row a key
-            if self.scroll(win) >= entry:
+        for _ in range(1100):               # a selection walks a row a key,
+            if self.scroll(win) >= entry:   # and a listing runs to DSK_NENT
+                                            # = 1,024 (SPEC.md 22.6.4)
                 break
             if not step("ArrowDown"):       # the END STOP: it clamped, so
                 break                       # `entry` is as visible as it gets
@@ -1506,6 +1532,13 @@ class UI:
                      tuple(r[0] for r in self.listing(win))),
             guest=1.0,
             what="the mount %r started to finish" % name)
+        # ...AND A QUIET DRIVE IS NOT A FINISHED MOUNT EITHER, on kern_big:
+        # a folder past 32 entries is listed TWICE (SPEC.md 22.6.4), and the
+        # second pass's Shell sort reads no sector and writes no FS_N for
+        # whole guest seconds - 2.7 at 1,000 entries - so the quiesce above
+        # ended inside it and this reported the FIRST pass's 32. fmv_load is
+        # ui_task's, so ui_task asleep is the mount over.
+        os88marty.ui_done(self.m, "the mount %r to finish" % name)
         self._say("open %s -> %d entries" % (name, len(self.listing(win))))
         return self._refresh(win)
 
@@ -1966,6 +1999,15 @@ def _assoc_note(name, ty):
 def _sel(ui):
     v = ui._word("menu_sel")
     return -1 if v == 0xFFFF else v
+
+
+def _fvdoff():
+    """Where entry 0 sits in a Disk window's listing claim: past the
+    multi-selection bitmap on kern_big (SPEC.md 22.6.4), at 0 on kern_small."""
+    try:
+        return geom.FV_DOFF
+    except Exception:
+        return 0
 
 
 def _decode(raw, n):

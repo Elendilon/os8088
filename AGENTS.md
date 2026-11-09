@@ -210,6 +210,11 @@ What `make help` cannot tell you:
 - **Nothing in `build/` is tracked - never commit a binary.** The toolchain is
   deterministic (`os88disk.py` pins the volume serial and every FAT
   timestamp), so any image can be rebuilt byte for byte.
+  **One sanctioned exception, the owner's (2026-11-05)**: ARCADE's
+  ROM-free translated parts in `apps/arcade/prebuilt/`, so neither `make`
+  nor a release needs the ROMs or archive.org. `make arcadeprebuilt`
+  refreshes them, and the fast-tier `arcprebuilt-stamp` fails `make` when
+  their inputs move without them (ARCADE-SPEC 1.6).
 - **Fetched data is never committed** (Frotz stories, Lemmings, the Apple II
   ROMs, RunCPM's master disk, the soundfont): the targets fetch it at pinned
   hashes, and `make clean` spares what it fetched.
@@ -244,6 +249,7 @@ remains manual-only, with matching policy in its `agents/openai.yaml`.
 | `vga-face` | a colour face for a package on VGA/EGA (**manual invocation only**) |
 | `retro-face` | an app whose UI is a styled piece of hardware from mockups |
 | `win16-reference` | rebuilding the real Windows 3.0/3.1 machines SPEC.md §124 is held to |
+| `story-fanout` | building a plan's stories or open items with parallel sub-agents, each in its own worktree, verified before it is integrated |
 
 Each has a `LESSONS.md` beside it: what the runs it came from learned.
 
@@ -292,11 +298,37 @@ user gives a different workflow. `apps/wirefleet/` and its SPEC.md section
 
 ## Hard rules (§1 — these break silently if violated)
 
+> ### RUNGS ARE TEMPORARY. BYTES ARE FOREVER.
+>
+> The footprint moves in 512-byte steps, so a change that adds 400 bytes often
+> reports as costing nothing and a change that saves 300 often reports as
+> buying nothing. **Both readings are wrong and neither is a rounding error —
+> they are the wrong question.** The right one is always *how many BYTES, and
+> what do they buy?*, and it is asked against the byte and not against the
+> step. This project will keep optimising and will keep spending; every rung
+> gets crossed eventually, and the byte that crossed it is charged to whoever
+> was standing there rather than to whoever spent it.
+>
+> **A rounded figure will actively hide the thing you are deciding about.**
+> Worked example, this tree: `gfx_points` was built with one inner loop and
+> with three, and `kern_small`'s `kernel.bin` is **75,493 bytes either way** —
+> section padding swallowed the difference whole. The symbol span says what the
+> file could not: **472 bytes against 215**. Measure the SPAN, or `kernsize`'s
+> sum and its accrued line; never a step count, and never a padded artefact.
+>
+> **The question that replaces it has a shape**: *do we spend N resident bytes
+> for M cycles?* — and it may answer differently per build. The same
+> `gfx_points` split is **yes on `kern_big` and no on `kern_small`**: 257 bytes
+> for 92 cycles a point is worth it on the machine with memory and is not on
+> the machine with 128KB (SPEC.md 5.6.9.3, PERFORMANCE.md Set 143.3.2).
+
+
 - **8086 only.** `cpu 8086` plus `-w+error`: no `pusha`, no `push imm`, no
   `shl reg, imm` other than 1, no `movzx`, no 32-bit registers.
 - **Near model.** CS = DS = `KERNEL_SEG` for kernel code and every task;
   **SS = `LOW_SEG`**, because task stacks live outside the kernel's segment.
-  Every inter-module kernel call is near — there is no far code (§33).
+  Calls between modules in `.text` are near; `.cold` is a code segment of its
+  own, entered far (§2.6).
   **SS ≠ DS, so `[bp+disp]` addresses SS**: kernel code holding a pointer in BP
   needs `[ds:bp+…]`.
 - **Register discipline.** Public routines preserve every register but their
@@ -308,6 +340,13 @@ user gives a different workflow. `apps/wirefleet/` and its SPEC.md section
 - **Label hygiene.** One flat namespace: every module-internal label carries
   its module prefix (`vga_`, `wm_`, `menu_`, `fm_`, `dsk_`, …) or is a NASM
   local label.
+- **A toast message is a `TOASTSTR`, never a bare `db` (§59.10.1).**
+  `TOASTSTR label, 'text'` (or `TOASTRUN label` ... `TOASTEND` round a run
+  with fields poked at run time) emits the same bytes and FAILS THE BUILD at
+  that line past `TOAST_MAX` (24) - the bar drops the rest silently. In C,
+  hand `os88_toast` a literal. `tests/unit/t_toast.py` follows every toast
+  argument back and fails on anything else; text only the running program
+  knows (a name, a number) goes in `tests/toastdyn.txt` with its reason.
 - **Text is `font_run`, not `font_str` (§6.1, §6.6).** `font_char`/`font_str`
   are TRANSPARENT — they leave what is underneath — so a `gfx_fill` followed by
   one of them writes every pixel twice, and the gap between the two passes is
@@ -335,6 +374,22 @@ user gives a different workflow. `apps/wirefleet/` and its SPEC.md section
   rung may not name `.cold`'s segment (a `.text` shim makes that call), and
   a row reading a `.cold` label on a mono machine goes through `m.sym()`,
   which follows the slide.
+- **Packages are trusted; a resident guard is for OUR catastrophic,
+  visible mistakes** (the owner's rule; SPEC.md 34.11.1,
+  docs/plans/LAST-DROP-BYTES.md). A real-mode kernel cannot defend itself
+  from a hostile package - and on kern_mega an FSX real-mode bracket hands
+  the package real mode anyway - so no resident byte is spent validating a
+  package's arguments against the package. The kernel's own mistakes are
+  caught at BUILD time wherever that is possible (a gate, a knob kernel). A
+  resident guard earns its bytes only where the failure is catastrophic and
+  user-visible and what it prints gives the owner something to act on, as
+  the stack-overflow panel does - and even then it is weighed against the
+  bytes: a panel for a failure no machine has met yet (a divide fault, so
+  far) goes behind a build knob, off in the shipped kernels, until a field
+  report says it is being hit. Bytes read off a disk or out of
+  `SYSTEM.CFG` are still hostile and still fenced (§19). On kern_mega, where
+  the kernel can afford not to crash, closing the faulting package beats
+  stopping the machine.
 - **Every disk-visible base is 512-byte aligned.** int 13h answers a transfer
   straddling a 64KB physical boundary with error 09h, and only starting
   512-aligned prevents it. The symptom is "Disk error" on a large save.
@@ -349,14 +404,15 @@ user gives a different workflow. `apps/wirefleet/` and its SPEC.md section
   CONVENTIONAL memory** once it has switched - `MEGA_RESIDENT`, `KERN_SIZE`
   less the `.cold` and `.mega` rungs that go above 1MB, and NOT `KERN_SIZE`,
   which is a boot-time transient there - and BOOTS on its 1MB floor machine's
-  640KB (guard 5's mega arm, `MEGA_BOOT_KB`); budgeted is not RELEASED, and no
-  release artefact carries its disks. **A budget is met EXACTLY at an upstream merge or a release;
+  640KB (guard 5's mega arm, `MEGA_BOOT_KB`). **A budget is met EXACTLY at an upstream merge or a release;
   branch and integration work may run up to 2KB over it** (`KERN_GRACE` —
   features land whole and are size-passed after), and `make budget-check` is
   where that grace ends, on all four budgeted kernels. Over a budget at that point is a conversation with
   the owner and a rework of the budgets, never a quiet raise.
   `KERN_CODE_MAX` is separate and absolute: `.text` + `.bss` inside one 64KB
-  window because offsets are 16 bits. **Booting on a machine and residing in
+  window because offsets are 16 bits - and on kern_big the near-called VGA
+  rung shares that window above the FAT window and LOW, so its guard binds
+  first (`kernsize`'s `window` line, docs/KERNEL-MEMORY.md). **Booting on a machine and residing in
   one are different questions** — the 128KB boot is where overlays and boot
   order broke machines whose resident size was well under it. `kernsize`
   prints both lines; quote the one you mean. **None of the rules binds a KNOB
@@ -379,6 +435,18 @@ user gives a different workflow. `apps/wirefleet/` and its SPEC.md section
   the test may grow `.text`/`.cold`, and moving code to `.cold` or the boot
   overlay relieves `KERN_CODE_MAX` but not `KERN_BUDGET` — a module relieves
   both. Check `tools/kernsize.py` before and after: a byte costs a byte.
+  **`.cold` IS RESIDENT, and the name is the trap**: it means a cold PATH, not
+  a cold LIFETIME. Those bytes are in RAM from boot to power-off exactly like
+  `.text`'s on the machine the budget describes (a 5150's ROM or a 286's HMA
+  can take them out of RAM, SPEC.md 2.10 and 2.10.7, and no budget counts
+  that) and are billed by `KERN_BUDGET` exactly like `.text`'s — all
+  `COLD_SEG` buys is a CS of its own, which relieves the 64KB near-addressing
+  window and nothing else (docs/KERNEL-MEMORY.md, *Where it goes*). **`.boot2`
+  (the boot blob) and `.ovl` are the sections that really do go away**, and the two get
+  conflated constantly: *"+N bytes of `.cold`, nothing resident"* is a
+  sentence several sessions have now written and it is wrong every time. The
+  honest form is *"+N bytes of `.cold`, resident, no rung crossed"* — and per
+  the banner above, the rung is not the point anyway.
   **Code `mod_need` itself reaches cannot be a module** - the loader cannot
   load its own dependencies - so code inside that cone is gated by build
   rather than moved. There is no entry cap (§2.8.1): a module's slot block is its
@@ -388,6 +456,19 @@ user gives a different workflow. `apps/wirefleet/` and its SPEC.md section
   `tests/moddrop.txt` says why it is held until restart - `DESK.DRV` held
   5KB pinned after the last Sticky App closed, until SPEC.md 11.103.10's
   drop rule. A new module needs its drop on the day it lands.
+- **Design for BYTES, never for rungs** — the banner at the top of this
+  section is the rule; this is its mechanics. The amortised price of a byte is
+  a byte, so a change that crosses no rung has not cost nothing: it spent slack
+  belonging to whoever comes next, and the guard bills *them* the whole 512.
+  **A rung is not a design input.** Do not size a feature, shave a table, or
+  justify an addition against where the next crossing falls; take a rung-shaped
+  answer only when it is the clean one anyway. Two arguments are refused
+  outright: *"it adds 400 bytes and crosses no rung, so it is free"* and *"it
+  saves 500 and uncrosses no rung, so it buys nothing."* The one moment a rung
+  is the point is when a crossing means the kernel no longer FITS — and that is
+  a discussion to have with whoever asked for the feature, never a build fix
+  and never a reason to quietly cut the design down. Slack here
+  has never gone unspent, so its expected cost is 100%.
 - **kern_mega-only package code is the ARM's, never the shipped build's**
   (SPEC.md 20.18). The owner's rule:
   *"mega specific work that more than trivially increases the disk size is
@@ -418,6 +499,19 @@ user gives a different workflow. `apps/wirefleet/` and its SPEC.md section
   can have more than one such word, and segments derived from a base are
   reached by no poke at all. Opting in and forgetting the proc is silent until
   the next compaction, which by construction happens on a busy heap.
+- **A PACKAGE'S OWN REGION is that rule's biggest instance, and it is a
+  RATCHET now** (§66.6.1.1). Every package under `apps/` declares
+  `OS88_REGION_MOVABLE` where its window exists — and, if it hires a worker,
+  `OS88_WORKER_RESTARTABLE` at the spawn, because §66.6.2's frame pins the
+  region however it is declared and a region declaration alone is **inert**.
+  `tests/unit/t_movable.py` (fast tier) fails the build otherwise; the way out
+  is a line in `tests/movable.txt` with a reason, and the list only turns one
+  way. **Before declaring, ask what segment words the package holds that point
+  INSIDE itself** — almost always none, which is why the proc is a `ret`; the
+  two shapes where it is not are a segment the package **stamped** somewhere
+  (scribe did, into its pre-parts `.ovl`, until SPEC.md 95.8.8 made it a part) and a **re-homed** program whose assets
+  live in its own carve (skies), and for those the bare form is silent
+  corruption rather than a missed optimisation.
 - **The package boundary is solved once, not per call site** (§20): calling out
   is a far call through an API cell that switches DS; calling in goes through
   the three-byte dispatcher in the package header, so every callback is a near
@@ -518,7 +612,7 @@ bug: a **visible redraw** (seconds on real hardware), a **double-draw flash**
 every one was found on hardware or by counting.
 
 That is the whole of it that applies to every change. Open PERFORMANCE.md
-itself for one of four reasons — it is 6,553 lines and over half is a log of
+itself for one of four reasons — it is over 15,000 lines and most of it is a log of
 field measurements:
 
 - **Part 5** before touching a redraw path — the standing budget names the
@@ -676,7 +770,14 @@ in docs/TESTING.md, per capability.
   `setup-cc.sh` + `cc8086.py` (the C toolchain's fetch and its gate, §73);
   `stkwater.py`/`stkdepth.py` (how deep a task stack HAS been, and which
   call chain took it there - docs/KERNEL-MEMORY.md's "Task stacks");
-  `kfzread.py` (the KFZ heartbeat out of a field screenshot).
+  `kfzread.py` (the KFZ heartbeat out of a field screenshot);
+  `os88intguide.py` (the interactive INTERRUPTS page - the first 1.5KB
+  of memory, how the 8088 takes an interrupt, all 256 vectors and which
+  ones os8088 and its DOS hook, and every field after them; ON DEMAND, no emulator. Every os8088
+  claim on it stands on a source anchor `--selfcheck` re-checks, and it
+  will not write a page whose anchors fail. Chapter 2 is the BIOS data
+  area byte by byte, the 0500h page and one floppy read followed through
+  them; docs/plans/completed/INTERRUPT-GUIDE-PLAN.md is how it was built).
 - `docs/` — **the directory says what a document is** (`docs/README.md`, and
   `docs/INDEX.md` lists every one under the same five headings). `docs/`
   itself is how the system works TODAY — instructions, contracts, maintained
@@ -711,7 +812,7 @@ checking all four. This is the rule for the on-demand APPLICATION floppies too
 `apple2disk`, `weavedisk`, `loomdisk`, `allapps` — which were three-geometry until 1.2MB
 reached them.
 
-**Twenty-one images, not nine.** The system and apps disks in four geometries
+**Twenty-five images, not nine.** The system and apps disks in four geometries
 each, plus SIX more that exist at 360KB alone and ONE at 720KB alone -
 `build/more720.img`, the 720KB apps disk's other half (SPEC.md 24.7), carrying
 what that disk had to leave off - and the 128KB machine's two system disks,
@@ -720,7 +821,9 @@ which `all` builds through `make small`'s sub-make. The small 720KB disk is
 NOT the standard format: kern_small's two-sector FAT window refuses a
 standard 720KB FAT, so it takes 2KB clusters, and that machine reads no other
 720KB disk. And WIN16's own disk in four geometries, `win16*.img`
-(§124.18.1), which left the apps disks when it outgrew them.
+(§124.18.1), which left the apps disks when it outgrew them, and ARCADE's
+release floppy in four, `arcrel*.img` (ARCADE-SPEC 1.6): the package and
+`ARCADE.TXT`, no ROM.
 `build/media360.img` —
 `BEVERLY.MOD` is data rather than software and was 114 of a 360KB disk's 354
 clusters before packages were compressed, so at that geometry it rides a disk

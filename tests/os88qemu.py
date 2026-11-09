@@ -813,8 +813,15 @@ def seg_snap(q, word, spans, base=None, what="a read through a heap base",
     `word` names, in one consistent snapshot - os88marty.seg_snap's twin."""
     # (under $OS88_MEGA the word names an LDT SELECTOR: `lin` resolves it,
     # and os88geom.drv_base - a real-mode HMA sum - is lin's job there too)
-    lin = (lambda s: globals()["lin"](s, 0)) if MEGA \
-        else (base or (lambda s: s << 4))
+    # ...and a kern_mega guest under PLAIN QEMU (tests/pciether.py's MQemu,
+    # which decodes its own GDT/LDT because $OS88_MEGA means Bochs) carries
+    # `sel_base`: its words are selectors too, and `q.lin` resolves them
+    if MEGA:
+        lin = lambda s: globals()["lin"](s, 0)       # noqa: E731
+    elif hasattr(q, "sel_base"):
+        lin = lambda s: q.lin(s, 0)                  # noqa: E731
+    else:
+        lin = base or (lambda s: s << 4)
     u16 = lambda b: b[0] | (b[1] << 8)          # noqa: E731
     busy = _busy(q)
     for _ in range(2):
@@ -988,6 +995,18 @@ class Private(object):
         self.b = os.path.join(work, "b.img")
         shutil.copy(a, self.a)
         shutil.copy(b, self.b)
+        if SERVED:
+            # KERN_MEGA UNDER BOCHS, or a kernel under 86Box: the same socket
+            # answered by tests/os88qmpmega.py, as the launcher above does -
+            # the system copy becomes its kern_mega twin there (mega_twin),
+            # an NE2000 on the emulator's slirp for `ether`. QEMU's `extra`
+            # arguments have no meaning on that machine
+            import os88qmpmega
+            self.pid = None
+            self.server = os88qmpmega.Server(self.sock, pidf, self.a, self.b,
+                                             hd=hd, ne2k=ether)
+            atexit.register(self.close)
+            return
         cmd = ["qemu-system-i386", "-machine", "pc,vmport=off",
                "-drive", "file=%s,format=raw,if=floppy" % self.a,
                "-boot", "c" if hd else "a",
@@ -1010,6 +1029,11 @@ class Private(object):
             time.sleep(0.2)             # the socket appearing is a HOST event
 
     def close(self):
+        srv = getattr(self, "server", None)
+        if srv is not None:
+            self.server = None
+            srv.close()
+            return
         if self.pid:
             try:
                 os.kill(self.pid, signal.SIGTERM)
@@ -1188,7 +1212,7 @@ def _killpid(pid):
 # wrong kernel and report on it.
 # -----------------------------------------------------------------------------
 _MT_KNOBS = {"TESTIMG", "TESTAPPS", "TESTHD", "ETHER", "ETHFWD", "ETHDUMP", "ADLIB",
-             "SB16", "NOCARD", "VMPORT", "MOUSEPORT"}
+             "SB16", "NOCARD", "VMPORT", "MOUSEPORT", "PCIETHER"}
 
 
 # The Makefile's ETHFWD=1 forwards, kept equal to its FTPPASV by hand: the
@@ -1323,6 +1347,20 @@ def make_test(*knobs, copy=True, extra=()):
     elif not kv.get("NOCARD"):
         cmd += ["-audiodev", "none,id=devsnd", "-device",
                 "adlib,audiodev=devsnd"]
+    if kv.get("PCIETHER"):
+        # PCIETHER.DRV's machine (SPEC.md 125.6, tests/pciether.py): the SAME
+        # slirp network as ETHER=1 with a PCI RTL8139 (10EC:8139) where the
+        # ISA NE2000 would be, and 16MB because kern_mega's protected mode
+        # wants memory above 1MB (the Makefile's M1 note). QEMU only - Bochs
+        # has no 8139 and 86Box takes the card from its profile
+        if kv.get("ETHER"):
+            raise ValueError("os88qemu.make_test: PCIETHER= replaces ETHER=, "
+                             "it is not an addition - one slirp, one card")
+        if SERVED:
+            raise ValueError("os88qemu.make_test: PCIETHER= is QEMU's alone "
+                             "(Bochs has no RTL8139; vm/pentium-pciether is 86Box's)")
+        cmd += ["-m", "16", "-netdev", "user,id=n0",
+                "-device", "rtl8139,netdev=n0"]
     if kv.get("ETHER"):
         net = "user,id=n0"
         if kv.get("ETHFWD"):

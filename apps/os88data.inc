@@ -101,6 +101,7 @@
 ; =============================================================================
 
 od_s_system: db 'SYSTEM', 0
+od_s_syslen equ $ - od_s_system   ; its length, the NUL with it (no bytes)
 od_s_appdat: db 'APPDATA', 0
 od_home:     dw 0               ; where the instance stood before this visit
 od_homedrv:  db 0
@@ -257,10 +258,11 @@ od_back:
     push dx
     mov dx, [od_home]
     mov bl, [od_homedrv]
-    call od_qm                      ; a word: we never left the volume. A
-    pop dx                          ; refusal here has nobody to tell, as
-    pop bx                          ; the old FILE_GOTO's had not either
-    pop ax
+    call od_qm                      ; a word, or a quiet mount home from an
+    pop dx                          ; OD_BOOTVOL/OD_TVOL visit to another
+    pop bx                          ; volume. A refusal here has nobody to
+    pop ax                          ; tell, as the old FILE_GOTO's had not
+                                    ; either
     popf
     ret
 

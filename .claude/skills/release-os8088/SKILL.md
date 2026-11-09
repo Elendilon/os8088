@@ -17,10 +17,10 @@ them, all written by `mkzip.py` in step 3a:
 
 | zip | holds |
 |---|---|
-| `os8088-<version>.zip` | every floppy, in a folder per disk size (`1440K/`, `1200K/`, `720K/`, `360K/`, with `128K-RAM/` inside the last two) and `PROGRAMS/<APP>/` for the one-program disks, every image and folder named 8.3; a `README.md` that explains every file, grouped by what the reader is trying to do; a `SHA256SUMS` |
+| `os8088-<version>.zip` | every floppy, in a folder per disk size (`1440K/`, `1200K/`, `720K/`, `360K/`, with `286-PLUS/` inside the first two and `128K-RAM/` inside the last two) and `PROGRAMS/<APP>/` for the one-program disks, every image and folder named 8.3; a `README.md` that explains every file, grouped by what the reader is trying to do; a `SHA256SUMS` |
 | `os8088-<version>-live.zip` | the live USB image and CD as `LIVEUSB.IMG` and `OS8088.ISO`, the Mac burner as `burn-usb-macos.py`, its own README and SHA256SUMS |
 | `os8088-<version>-videos.zip` | the three 86Box machines with the Video Player demos (`make viddemozip`) |
-| `os8088-<version>-tools.zip` | the PicoMEM firmware, the kernel ROMs cut against this build, the encoder, the Game Boy precompiler, the file splitter, the Browser's proxy and the DOS tools (`make toolszip`) |
+| `os8088-<version>-tools.zip` | the PicoMEM firmware, the kernel ROMs cut against this build, the encoder, the Video Battle builder, the Game Boy precompiler, the file splitter, the Browser's proxy and the DOS tools (`make toolszip`) |
 
 The main zip is the one every release has; the other three are written when
 their on-demand targets were built, and named as skipped when not. Eleven
@@ -38,6 +38,12 @@ When the release adds a whole program -- or there is a video about it -- it
 also gets a **Spotlight page** (step 4b), which is a page of its own under
 `/spotlight/` with its own screenshots. A line on the releases page does not
 carry a new program.
+
+**Every release checks the Windows applications gallery** (step 4e),
+`/spotlight/windows/`. That page has one real screenshot and one note per
+Windows 3.x program tested on WIN16. A newly tested program, a lifted limit or
+a program that broke goes there and on the WIN16 Spotlight page,
+`/spotlight/win16/`, in the same PR.
 
 **Every release also brings the site's Docs section up to the build** (step
 4d): `/docs/`'s disk guide, memory model and source-checked articles quote one
@@ -203,7 +209,11 @@ cd "$OS_REPO"
 git switch main && git pull --ff-only
 git switch -c "release/$VERSION-version"
 $EDITOR apps/install/OS88VER.TXT        # line 1 = the date, then what is new
-git commit -m "Release YYYYMMDD: version file" apps/install/OS88VER.TXT
+python3 tools/guidelock.py stamp INSTALL_O88 --why "apps/install changed only \
+  in OS88VER.TXT (release YYYYMMDD's date and what-is-new lines); the page \
+  quotes neither, so it stands unchanged"
+git commit -m "Release YYYYMMDD: version file" apps/install/OS88VER.TXT \
+  tools/guide/manuals.lock.json
 git push -u origin "release/$VERSION-version"
 gh pr create --title "Release YYYYMMDD: version file" \
   --body "The release stamp INSTALL checks (SPEC.md 117.10.1)."
@@ -213,6 +223,10 @@ head -n 1 apps/install/OS88VER.TXT      # must print YYYYMMDD
 ```
 
 `--admin` because the ruleset wants a review the sole maintainer cannot give.
+The stamp is there because the guide lock (`guidelock-full`, in `test-full`)
+watches `apps/install/` for the INSTALL manual, and OS88VER.TXT is in it: a
+version file committed without it leaves `main` failing that row until the
+next PR pays it, which #335 and the 20261104 follow-up both had to.
 With `--no-pr`, stop after the commit on the branch, build from it, and say
 in the report that `main` does not carry the release yet. Step 3a refuses to
 pack when line 1 is not this version's date.
@@ -221,7 +235,7 @@ pack when line 1 is not this version's date.
 
 ```bash
 cd "$OS_REPO"
-make clean && make && make emu
+make clean && make && make emu && make mega
 ls -l build/os8088.img build/os8088-120.img build/os8088-720.img \
       build/os8088-360.img \
       build/apps.img build/apps120.img build/apps720.img build/apps360.img \
@@ -231,21 +245,27 @@ ls -l build/os8088.img build/os8088-120.img build/os8088-720.img \
       build/small360.img build/small720.img \
       build/win16.img build/win16-120.img build/win16-720.img \
       build/win16-360.img \
-      build/emu.img
+      build/emu.img \
+      build/mega.img build/megaapps.img build/mega120.img build/megaapps120.img \
+      build/megaxtmp3.img build/megaxtmp3-120.img \
+      build/megawin16.img build/megawin16-120.img
 ```
 
-All twenty-two must exist -- step 3a refuses to pack without them.
+All thirty must exist -- step 3a refuses to pack without them. **`make mega`
+is not optional either** (the owner's, 2026-11-07: kern_mega ships): its eight
+disks go in `1440K/286-PLUS/` and `1200K/286-PLUS/`, and `mkzip.py` refuses a
+kern_mega system disk older than `build/megak/kernel.sys`, or that kernel
+older than `build/kernel.sys` - so it runs after `make`.
 
 **And the published tree** INSTALL upgrades from (SPEC.md 117.10.2):
 
 ```bash
-make mega              # kern_mega's system and apps disks, which the mega tree is cut from
 make nettree           # build/nettree/{big,mega,emu}/: system + apps, SYSTEM/OS88VER.TXT, OS88.IDX
 head -n 1 build/nettree/{big,mega,emu}/SYSTEM/OS88VER.TXT   # each YYYYMMDD
 ```
 
-`make nettree` builds all three trees, so it runs after `make emu` (above)
-and `make mega`: the emu tree is cut from `build/emu.img`, the mega tree from
+`make nettree` builds all three trees, so it runs after `make emu` and
+`make mega` (above): the emu tree is cut from `build/emu.img`, the mega tree from
 `build/mega.img` and `build/megaapps.img`.
 
 There are THREE trees, one per kernel, because kern_big, kern_mega and
@@ -275,8 +295,9 @@ make budget-check
 
 Branch and integration work may run a kernel up to 2KB over its budget
 (`KERN_GRACE`, docs/KERNEL-MEMORY.md) and `make` lets it; **a release may not
-run one byte over**. `budget-check` measures kern_big, kern_small and kern_emu
-against 100,864 / 64,000 / 100,864 and fails naming the one that is over. If it
+run one byte over**. `budget-check` measures kern_big, kern_small, kern_emu and kern_mega
+against 100,864 / 64,000 / 100,864 / 68,096 (kern_mega's RESIDENT figure,
+`MEGA_RESIDENT`) and fails naming the one that is over. If it
 fails, STOP: that is a size pass or a conversation with the owner about the
 budgets, never a raise to get the release out. Report each kernel's
 `KERN_SIZE` and spare from its output.
@@ -316,6 +337,10 @@ make runcpm-src && make runcpmdisk    # runcpm*.img
 make scribedisk paccmandisk           # scribe*.img, paccman*.img
 make 1942disk midirackdisk            # 1942*.img, midirack*.img
 make waverackdisk                     # waverack*.img -- WaveRack and its clips
+make vbattledisk                      # vbattle*.img -- Video Battle and its
+                                      # demo battle, the four sizes for CGA
+                                      # plus vbattlev (VGA) and vbattleh
+                                      # (Hercules), all in PROGRAMS/VBATTLE
 make pixeldisk                        # pixel.img -- PiXEL with its whole
                                       # gallery, which no software disk has
                                       # room for; the 1.44MB disk alone is
@@ -336,7 +361,8 @@ make viddemo viddemozip               # the three 86Box machines with the Video
 make toolszip                         # the firmware and utilities -- the tools
                                       # zip: it cuts the kernel ROMs (`make
                                       # rom`, `socketrom`) against THIS tree
-                                      # and packs the encoder, the Game Boy
+                                      # and packs the encoder, the Video
+                                      # Battle builder, the Game Boy
                                       # precompiler and the splitter bundles
 make usb-emu                          # os8088-emu-usb.img -- THE WEBSITE'S DEMO
                                       # DISK (SPEC.md 80.7), the same volume on
@@ -477,7 +503,7 @@ The script does seven things worth knowing about:
   would make `ALL10-144.IMG` and stop it too; that is a naming decision for
   the owner, not a fix to make at release time.
 - **It refuses to pack a partial release.** A missing image that `make` or
-  `make emu` builds stops it; a missing on-demand file is reported and
+  `make emu` or `make mega` builds stops it; a missing on-demand file is reported and
   skipped, and its zip is not written.
 - **It refuses a stale companion.** The live images, the videos zip and the
   tools zip must be newer than `build/kernel.sys` (step 2 says why); one that
@@ -540,7 +566,8 @@ in Notepad as on GitHub, generated from two tables in `mkzip.py`:
 - **`GROUPS`** -- the situations a reader is in, in the order the README takes
   them: *Start here* (the system and software pair per disk size, as a table),
   *More software disks for a 360KB machine*, *A second software disk for a
-  720KB machine*, *A machine with as little as 128KB of memory*, *In an
+  720KB machine*, *A machine with as little as 128KB of memory*, *A 286 or later* (the
+  kern_mega disks), *In an
   emulator or virtual machine* (the emulator disk), *Every program, on a set
   of disks*, *One program per disk*, and *About this zip* (checksums and the
   licence files). Each carries the instructions for using its own files --
@@ -785,13 +812,6 @@ hardest: the **deck** (`.spot-deck`, one or two sentences that are the whole
 page) and the **three numbers** in the `.specs` block. If you cannot fill those
 three cells with facts, the page is probably a highlight and not a spotlight.
 
-The copy rules above apply, plus one more: **a Spotlight page is written for
-someone who does not know the subject at all**, so explain the domain and not
-only the change. The Frotz page spends three paragraphs on what a Z-machine is
-before it says a word about the implementation. That is the right proportion.
-Still no marketing, still numbers instead of adjectives, and still no `§`
-numbers or symbol names.
-
 **3. Embed the video, if there is one.** Reuse the markup on the Frotz page --
 an `<a class="vid__poster" data-video="<id>">` around an
 `<img src="/videos/thumb/<id>.jpg">`, plus `<script src="/js/videos.js" defer>`
@@ -961,6 +981,105 @@ a file it added, and open `#memory` at 128K and 640K on both kernel builds. An
 inventory that parses and a guide that renders an empty pane read the same in
 `git diff`.
 
+#### 4e. The Windows applications gallery, when WIN16 checked something new
+
+`/spotlight/windows/` (`$WEB_REPO/site/spotlight/windows.html`) gives each
+original Windows 3.x program checked on WIN16 (SPEC.md 124) one card: a real
+screenshot, the file name, what has been checked and what has not. Cards are
+grouped by section (Writing and drawing, Everyday utilities, Games, Desktop and
+system tools, Screen saver settings, the 286+ kernel, Multimedia previews).
+`$WEB_REPO/tools/scenes.windows.json` lists the scenes, and
+`tools/capture_windows.py` takes their screenshots. The page is hand-written
+HTML, not generated, so nothing on it changes unless this step changes it.
+**`/spotlight/win16/` is the gallery's companion page**: it explains how WIN16
+works and links to the gallery. Its counts, programs and "how to run it" steps
+have to match the gallery's.
+
+**Decide first, and check every release.** List what changed in WIN16 since
+the last release:
+
+```bash
+cd "$OS_REPO"
+PREV_TAG=$(git tag --list 'v1.0.*' --sort=-creatordate | head -1)   # last release
+git log --oneline "$PREV_TAG"..HEAD -- apps/win16 tests/win16*.py \
+        docs/plans/WIN16*.md docs/HOW-WIN16-WAS-BUILT.md
+```
+
+Then read the diary entries and plan-status changes those commits make. A
+program belongs in the gallery when it has been **tested and validated**: a
+registered `tests/suite.py` row drives it, or the user drove it on the screen
+and said it works. A program that only reaches its window is not enough, and
+neither is an import census saying it should load. Each of these changes the
+page:
+
+- **A newly validated program** gets a new card in the section it belongs to.
+- **A newly checked feature in a program already on the page** (common
+  dialogs, printing, sound or a second version of the program) changes that
+  card's text.
+- **A lifted limit** moves or edits cards. This includes kern_mega reaching
+  the release disks, which removes every "not on the release disks yet" note
+  and changes the `#protected` section. It also includes audio verified on a
+  preview, which moves the program out of `#previews`, and a CPU requirement
+  that changed. Then update the Requirements and limits section to match.
+- **A regression**, meaning a program on the page that no longer works on
+  this build, comes off the page or gets a note saying what broke. Ask the
+  user which, and do not leave the page claiming that it works.
+
+If nothing changed, leave the page alone and say so in the PR body.
+
+**1. Write the scene.** Add one entry per new program to
+`tools/scenes.windows.json`, copied from a neighbour. Set `program` to the
+**WIN16 test alias** (`W31MINE.EXE`, not `WINMINE.EXE`, when two versions
+share a name, and `.EXE` for a renamed `.SCR`). List every companion DLL or
+help file in `files`. A kern_mega program also needs `"bootImg": "mega.img"`
+and `"package": "megak/apps/win16.o88"`, which means `make mega` has been run
+first. The `steps` are what `capture.py` runs; they should leave the program
+showing what the card says it does.
+
+**2. Capture it from the private program folder.** **No Microsoft binary is
+ever committed to either repository.** The capture tool builds scratch
+floppies outside both trees and publishes only the PNGs. The programs come
+from one flat folder named by the aliases. `build/win16/` is that folder for
+the programs the win16-reference skill's `samples` step puts there (run it
+again after a `make clean`). Ask the user for anything else.
+
+```bash
+cd "$WEB_REPO"
+python3 tools/capture_windows.py --repo "$OS_REPO" --programs <folder> \
+        --only <id>,<id>
+```
+
+**Recapture the whole gallery** (no `--only`) when the release changed how
+WIN16 draws: its fonts, window frame, colours, dialogs or the desktop around
+it. A gallery taken with two different builds shows two different systems.
+Then run `git diff --stat public/img/windows/`. A drawing change that left
+every PNG unchanged means the capture or the build is wrong.
+
+**Look at every captured PNG with the Read tool**, as in 4b. A program that
+crashed shows WIN16's missing-function message, and a lost keystroke shows an
+empty window. Both are plausible 640x480 PNGs.
+
+**3. Write the card.** Copy a neighbouring `<article class="win
+spotlight-card" id="<id>">` into the right section and change the `id`,
+`aria-labelledby`, image paths, `alt`, kicker (`Windows 3.0`, `Windows 3.1`,
+`/ Setup dialog`, `/ Preview`), heading, file name and text. The `<code>`
+shows the program's **real** file name (`WINMINE.EXE`), not the test alias.
+Only the first card on the page keeps `fetchpriority="high"`; the others use
+`loading="lazy"`. The text says what was checked and nothing more, in the
+"Writing the copy" voice. Put each requirement (V20 or later, the 286+ kernel
+or a companion file) in a `class="note"` line. Update the `spot-toc` if you
+add a section. In the closing note, update the capture date and anything that
+it says the page was checked against.
+
+**4. Update the pages around it.** Update the `/spotlight/win16/` sections
+whose claims moved, including its "See it running" band and how-to-run steps.
+Update the Windows card on `site/spotlight.html` when it names programs or
+sections that changed. In `data/releases.json`, link the WIN16 highlight to
+the card, `/spotlight/windows/#<id>`.
+
+**5. Rebuild, link-check and look**, as in 4b step 5. Use 1600px and 390px
+widths, and open each new card's full-size `@2x` link.
+
 ### 5. Commit and open the pull request
 
 ```bash
@@ -992,6 +1111,12 @@ If step 4b produced a Spotlight page, say so in the PR body and give its path,
 list the scenes captured, and name the video it embeds. Mention that the video
 poster only resolves once the Worker is serving the page, so a reviewer reading
 a local build does not file it as a broken image.
+
+Say what step 4e did to the Windows gallery: the programs added and the
+section each went into, the cards whose text changed and why, any limit lifted
+or regression found, and whether the gallery was recaptured whole or only by
+`--only`. If WIN16 changed but the gallery did not need to, say that too, so a
+reviewer can tell that the check was made.
 
 When the session calls for an attribution line, name the host that actually
 performed the release. For Claude Code:
@@ -1093,7 +1218,8 @@ Tell the user: the version, the version-file PR step 1a merged, the PR URL,
 the release URL, the kernel size and its delta, each zip's packed size and
 how many images went into the main one, what step 6a's `--verify` printed
 for each of the three trees, the
-Spotlight page's URL if step 4b ran, the Docs snapshot commit step 4d moved
+Spotlight page's URL if step 4b ran, the Windows gallery cards step 4e
+added or changed (or that WIN16 needed none), the Docs snapshot commit step 4d moved
 to (or that it did not, and why), and anything you skipped or that needs
 their attention -- naming any on-demand disk or companion zip that did not
 get built, since a reader of the README cannot tell a disk that was left out
@@ -1137,7 +1263,14 @@ them in a status line is how they get lost.
 - **Never put a screenshot on a Spotlight page that you have not looked at.**
   Step 4b captures them from a real boot and you read every one. A mockup, a
   crop of an old shot, or a scene whose click was lost are all the same defect
-  to a reader: a picture of something that did not happen.
+  to a reader: a picture of something that did not happen. The same goes for
+  step 4e's Windows gallery.
+- **Never commit a Microsoft binary**, in either repository. Step 4e's
+  programs come from a private folder, and only the screenshots are
+  published.
+- **Never list a Windows program in the gallery that has not been tested
+  and validated.** If it only opens its window or passes the import census,
+  it is not ready, and each card says only what was checked.
 - **Never move a Docs "checked against" commit you did not check.** Step 4d's
   script moves only what it measured or what nothing touched; the rest is a
   person reading the commits it lists.
