@@ -1,6 +1,8 @@
 # A PicoMEM 2's disk by DMA - what the card can do, and the plan
 
-**Status: PLAN (2026-11-10). Nothing built.** The firmware half lives in
+**Status: PLAN (2026-11-10). Nothing built. The owner's answers are in
+(section 11): S1, with NO sound stutter as its acceptance; nobody waits
+on Freddy; two machine shapes, the second a bonus.** The firmware half lives in
 Elendilon/ISA-PicoMEM on a branch of its own cut from `pm-pr` (section 9);
 `pm-pr` itself is not touched. The os8088 half is small and comes last.
 
@@ -27,7 +29,8 @@ Elendilon/ISA-PicoMEM on a branch of its own cut from `pm-pr` (section 9);
 4. **One line means the card's Sound Blaster and its disk SHARE a channel.**
    Video Battle and Video Player stream SB sound while they read, so a
    DMA disk that only works with the SB idle buys nothing for them. Sharing
-   is wave 3 and the hard part; two designs, owner's choice (section 6).
+   is wave 3 and the hard part: S1, time-sharing the line, chosen, under a
+   rule that the card's SB FIFO is never allowed to run dry (section 6).
 5. **Off is the default and stays bit-identical.** A `PICOMEM.CFG` byte
    that is already spare (`Spare2`) selects DMA; with it clear the int 13h
    is today's `pm-pr` path byte for byte. The 1.x builds as now - it has no
@@ -153,7 +156,9 @@ Fallbacks, each per run, each to today's copy:
 
 - **`PM_Config->Spare2` becomes `HDD_DMA`**: 0 = off (the default and the
   value every existing `PICOMEM.CFG` already holds), 1 = channel 1, 3 =
-  channel 3. The byte is spare in June's `PMCFG_t`, so no file moves and
+  channel 3 - shared with the card's SB on the jumper's line (shape A,
+  section 6.4) - and 83h = channel 3 on a line of its own (shape B, the
+  bonus, which needs a board modification). The byte is spare in June's `PMCFG_t`, so no file moves and
   the 1.x's "delete `PICOMEM.CFG`" trap does not return. The setup menu
   (`pmbios/bios_menu.asm`) gets the one line; it must say "the DMA jumper's
   channel", because the firmware cannot read the jumper.
@@ -187,13 +192,141 @@ both. Three ways through, cheapest first:
 | | how | cost | gives Video Battle |
 |---|---|---|---|
 | **S3** | DMA only when the SB's stream is idle on that channel; copy otherwise | none beyond wave 1 | **nothing** - it always plays sound |
-| **S1** | time-share: the card stops its SB requests (its FIFO is 1,024 samples, ~46 ms at 22 kHz), the PC saves the channel (`PCC_DMA_READ`, already in the BIOS), the disk runs, the PC restores. The 8237 cannot restore an auto-init ring mid-way (writing the address writes base AND current), so the restore programs the TAIL single-shot, and at its TC the card asks the PC, through its own interrupt as the 1.x's virtual DMA does (`IRQ_R_DMACOPY`'s "new DMA regs after the copy"), to put the ring back | the most firmware, all of it in the card; a card IRQ per disk call on a jumpered line (June: IRQ 7 fixed) | **everything**, with the SB on real DMA |
+| **S1** | time-share: the card stops its SB requests (its FIFO is 1,024 samples, ~46 ms at 22 kHz), the PC saves the channel (`PCC_DMA_READ`, already in the BIOS), the disk runs, the PC restores. The 8237 cannot restore an auto-init ring mid-way (writing the address writes base AND current), so the restore programs the TAIL single-shot, and at its TC the card asks the PC, through its own interrupt as the 1.x's virtual DMA does (`IRQ_R_DMACOPY`'s "new DMA regs after the copy"), to put the ring back | the most firmware, all of it in the card; a card interrupt only when a ring's tail runs out before the next disk call (6.1), on the card's jumpered line (June: IRQ 7 fixed) | **everything**, with the SB on real DMA |
 | **S2** | with HDD DMA on, run the card's SB on the 1.x's *virtual* DMA (the `USE_HWDMA=0` code, made a runtime choice on the 2.0): the line is the disk's alone | the SB's own data crosses by CPU copies (~22 KB/s, ~5% of an XT); the virtual path's DOS-game compatibility is upstream's "low", though os8088's SOUND.DRV is proven on it (the 1.x) | everything except the SB's copies |
 
-**Recommendation: S1**, with S3 as wave 1's behaviour so that wave 1 ships
-something correct. S2 is the fallback if S1's restore proves fragile on
-the iron, and is cheaper to try than it looks because the code exists. The
-owner chooses; section 10's question 1.
+**Chosen: S1 (the owner, 2026-11-10), on one condition: it may not
+stutter.** No dropout and no stutter in the card's SB while the disk moves
+by DMA - the defect `pm-pr` exists to cure is not to be reintroduced by
+the next thing. S3 is wave 1's behaviour so wave 1 ships something
+correct; S2 stays the fallback if S1's restore proves fragile on the iron.
+
+### 6.1 Why S1 can be made stutter-free, and the rule that makes it so
+
+A dropout is exactly one event: **the card's SB FIFO runs dry**. The FIFO
+is mixed into the card's output at the sample rate and refilled by the
+SB's DMA; while the disk owns the line the refill stops and the FIFO only
+drains. On `pm-pr` it is **2,048 samples** (`AUDIO_FIFO_SIZE`), ~92 ms at
+os8088's 22,222 Hz. Everything below keeps the line away from the SB for a
+bounded time that the FIFO covers with margin, and the card - which is the
+only party that knows both the FIFO's level and the disk's progress -
+enforces it, rather than any timing the PC is trusted to keep.
+
+**The switch is not instant, and that is what the rule is about.** Only
+the PC can program the 8237, and the PC runs the card's commands only
+between interrupts: a `PCC_DMA_SETUP` that hands the line back to the SB
+can wait behind a whole run of os8088's IRQ0 hook (Video Battle's period
+is 13.7 ms, and a decode can fill most of it). So the time the SB is
+starved is *the disk burst plus the worst wait for the switch back*, and
+the rule is written in those terms:
+
+- **Watermark rule.** The card starts a disk burst only when
+  `FIFO level >= burst time + T_switch + margin`, where `T_switch` is the
+  longest hold the PC may put between two commands (a config constant,
+  default 20 ms, above any os8088 hook) and the margin is a further 10 ms.
+  At 92 ms of FIFO that leaves bursts of up to ~60 ms - several
+  eight-sector calls' worth at the rates in section 2.
+- **Top up first.** If the FIFO is below the mark, the disk waits with
+  the line given to the SB until it is above it - the call takes a little
+  longer and the sound does not notice.
+- **Bursts, not calls.** A long call (`pm-pr` lifts the run cap, so a call
+  can be a cylinder) is cut into bursts that each satisfy the rule, with
+  the SB's line restored and the FIFO topped up between them. Each
+  hand-over is one command round trip, inside the same int 13h.
+- **The FIFO may grow.** If wave 3's measurements leave the margin thin,
+  4,096 samples on the 2.0 is 2 KB of a 512 KB RAM of which ~130 KB is
+  free; the 1.x already runs 2,048.
+
+**Leaving the call.** After the last burst the SB has its line back but
+the 8237 cannot be put back as it was: writing an address writes the
+channel's base AND current, so an auto-init ring cannot be restored part
+way round. The card restores the ring's **tail** single-shot (current
+address and count, which it knows - it counted every byte the SB took
+since the ring was programmed, and snoops every 8237 write in
+`dev_dma.cpp`). Then:
+
+- **Usually the next int 13h repairs it for free.** A stream that reads
+  does so every few tens of ms, and a 16 KB player ring (SPEC.md 34,
+  `SBL_PLAYKB`) lasts ~740 ms at 22 kHz, so the next call's first switch
+  re-programs the ring whole (base = ring start, auto-init) at the position
+  the tail reached.
+- **Otherwise the card's interrupt does.** If the tail's TC comes first
+  (no disk call in time), the SB stops requesting and the card raises its
+  own interrupt - the mechanism the 1.x's virtual DMA already uses to have
+  the PC rewrite the 8237 (`IRQ_R_DMACOPY`'s "new regs after the copy") -
+  with the whole FIFO, ~92 ms, as its latency budget against the PC's
+  20 ms worst hold.
+- **Rejected: fast-forwarding.** Re-programming the whole ring and burning
+  dummy DMA reads up to the right offset needs no interrupt, but costs up
+  to a ring's length of bus cycles (~16 ms of a 16 KB ring) at the end of
+  every call - more than the copy it replaces.
+
+**What os8088's SOUND.DRV sees: nothing.** The card raises the SB's block
+IRQ off its own byte count, as now, and the ring's bytes arrive in order;
+kern_big's block IRQ does not read the 8237 (SPEC.md 34.5.2.2: only
+kern_mega's does, and kern_mega's buffers stay below 1 MB, R6). The wave-3
+row checks this directly: the bytes the card's SB consumed must be the
+ring's, in order, with no repeat and no skip, across every hand-over.
+
+### 6.2 What "no stutter" is measured as
+
+The acceptance for wave 3, all against the `pm-pr` image on the same
+machine:
+
+- **VIDSND's tone rows, T and R**, through `tools/vstone.py`: **zero**
+  breaks in every row, the 16 ms hold-inside-a-copy row included, as
+  `pm-pr` has (SPEC.md 18.91.7.1);
+- **Bolt under VBPROF**: sound frames late no worse than `pm-pr`'s, frames
+  stalled better;
+- **the card's own count of FIFO underruns** (a counter the diagnostic
+  build prints, DK01's shape): zero;
+- **and the row fails on purpose**: with the watermark set to 0 and
+  `T_switch` to 0 in a test build, the same row must report breaks. A
+  no-stutter row that cannot see a stutter tests nothing
+  (docs/WRITING-TESTS.md 1).
+
+### 6.3 What it costs if the rule bites
+
+The rule spends disk time, never sound. On a machine where the hook holds
+the PC long and the clip is loud and fast, bursts get shorter and calls
+longer; the worst case degrades toward `pm-pr`'s copy rate, not below it -
+and if a burst can never fit (a FIFO too small for `T_switch`), the call
+falls back to the copy path, which is the S3 behaviour. Wave 2 and 3
+report how often each happened.
+
+### 6.4 The two machine shapes
+
+**Shape A - the ST11M owns DMA 3 (the requirement).** 5150 #1 with its
+ST-225 in: the ST11M is on channel 3 and IRQ 5, so the card's jumper is on
+**1** and its SB and its disk share channel 1 under S1. The stutter
+report's coexistence notes apply (ROM at D000h, NE2000 off 320h, the SB
+off IRQ 5). The ST11M's own reads are nibble-6 cycles on channel 3 too,
+which is R2's collision; it does not arise because os8088's disk calls are
+serial (and so is the BIOS's).
+
+**Shape B - the card owns DMA 1 and 3 (the bonus).** The stock 2.0 cannot
+do this. It has one request pin and one acknowledge input; the jumper
+picks which channel's pair reaches them, and tying two channels' DACK
+lines together would short two driven outputs. But the plan's disk
+direction never uses DACK - it recognises its cycles by the nibble - so
+the disk needs only **a second DRQ output**: a spare RP2350 GPIO wired to
+the slot's DRQ3. Then the SB keeps channel 1 by the jumper, with its real
+acknowledge, the disk runs on 3, nothing is shared, and section 6.1's rule
+is not needed at all (the SB's line is never taken).
+
+- What it needs: a GPIO that is free in the firmware AND reaches a pad
+  you can solder to. `pm20.h` leaves GPIO 0, 4-7 and 12-17 unnamed, but
+  other modules (I2S audio, USB host, PSRAM, the Wi-Fi chip) claim pins
+  outside that file, and without the 2.0 schematic which of them reach a
+  pad is unknown. Finding one is the first step of this shape and is a
+  continuity-meter job on the owner's board.
+- What it costs the firmware: a second "DRQ owner" in the arbitration
+  wave 1 writes anyway, and `HDD_DMA = 83h`. Both shapes are one firmware.
+- Both at once on one machine is impossible: shape B takes channel 3, which
+  is the ST11M's. Shape A and shape B are two machines, or the same one with
+  the ST11M out.
+- The answer is wave 3b, after S1 works: S1 is what every stock card gets,
+  and B only shortens the path for a modified one.
 
 ## 7. Risks
 
@@ -215,8 +348,10 @@ owner chooses; section 10's question 1.
   byte. Wave 1's row compares every byte, and the firmware keeps a missed-
   cycle counter the diagnostic build reports (DK01's shape,
   `os8088-pm-debug`).
-- **R5 - SB restore (S1)**: an ear-visible failure if wrong. Its row is
-  VIDSND's tone through a battle, the instrument that found the stutter.
+- **R5 - SB restore (S1)**: an ear-visible failure if wrong - a stutter,
+  which the owner made the acceptance condition. Section 6.1 is the rule
+  that prevents it and 6.2 the rows that prove it, including the build
+  that breaks it on purpose.
 - **R6 - kern_mega**: its int 13h runs in the real-mode bracket with
   buffers below 1MB already (the BIOS cannot DMA above 1MB, HMA-PLAN), so
   nothing changes; its row is the existing `pmbox2` leg left out today.
@@ -287,9 +422,16 @@ the hook. MartyPC has no DMA hard disk (98.2.15.4) and its PicoMEM is the
 1.x snoop; giving it a 2.0 disk device is the only way to a cycle-exact
 number off the iron and is scoped here, not promised.
 
-**Wave 3 - the SB shares the line** (S1, or S2 if chosen). The row is
-VIDSND's tone through a play and through Bolt, against the `pm-pr` image:
-it must be no worse anywhere and better under the hook.
+**Wave 3 - the SB shares the line (S1).** Section 6.1's arbitration,
+watermark, bursts, tail restore and repair, and the card-interrupt
+fallback; the underrun counter in the diagnostic build. On the twin
+first, where the hook's hold can be set as long as the row likes: the
+ring-order check, and the break-on-purpose build. Then the iron, with
+section 6.2 as the acceptance - zero breaks, or the wave is not done.
+
+**Wave 3b - shape B (bonus).** The spare GPIO found on the board, the
+second DRQ owner, `HDD_DMA = 83h`; the same rows with the SB never
+starved.
 
 **Wave 4 - writes by DMA**, on the existing `isa_dma_w_tc` path. Optional.
 
@@ -297,17 +439,16 @@ it must be no worse anywhere and better under the hook.
 FreddyVRetro/ISA-PicoMEM, the option off by default, the image into
 `firmware/picomem2/` with its README's table updated.
 
-## 11. Questions for the owner
+## 11. The owner's answers (2026-11-10)
 
-1. **S1 or S2** for the SB on the same line (section 6) - or S3 alone to
-   start, accepting that Video Battle gains nothing until wave 3?
-2. **Ask Freddy about H1 first?** One sentence - "is D0-D7's buffer
-   enabled for an IOR during AEN on the 2.0?" - may save wave 0.
-3. **5150 #1's jumper**: the card is on DMA 1 today (FIELD-MACHINES).
-   With an ST11M on 3 in the same machine (the stutter report's last
-   section), 1 is the only channel the card can have, so S1/S2 is not
-   optional there.
-4. "Three DMA slots": the card can be on **one** channel, 1 or 3; the XT's
-   others are refresh (0) and the floppy (2). If the intent was "SB on 1
-   and the disk on 3", this hardware cannot do it - one DRQ pin, one
-   acknowledge.
+1. **S1**, "as long as that doesn't cause sound stutter or sound dropouts
+   with the SB while we are doing disk DMA." That condition is section
+   6.1's rule and 6.2's acceptance.
+2. **Freddy has not answered the `pm-pr` questions**, so H1 is settled by
+   wave 0 on the iron, not by asking. The question stays worth sending
+   when he can be reached.
+3. **Two shapes**: the ST11M owns DMA 3 and the card shares 1 under S1
+   (the requirement, shape A); or the card owns 1 and 3 (a bonus, shape
+   B). Running both was a wish, not a requirement. Shape B needs one wire
+   on the board (section 6.4); both shapes cannot be on one machine at
+   once, because B's channel is the ST11M's.
