@@ -14184,6 +14184,29 @@ $(BUILD)/cpubench144.img: $(BUILD)/cpubench.o88 tools/os88disk.py
 $(BUILD)/cpubench360.img: $(BUILD)/cpubench.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/cpubench.o88
 
+# PM2DMA (tests/pm2dma/pm2dma.asm): can a PicoMEM 2 be the DEVICE in an
+# 8237 write transfer - the go / no-go of docs/plans/PICOMEM2-DMA-DISK-PLAN.md
+# (wave 0). Needs the card's PROBE firmware (Elendilon/ISA-PicoMEM pm2-dma,
+# -DPM2DMA_PROBE=1); it reports which strobes the card saw and whether 512
+# bytes driven by the card landed in memory.
+# `make pm2dma` is the package on a 1.44MB and a 360KB disk alone
+.PHONY: pm2dma
+pm2dma: $(BUILD)/pm2dma144.img $(BUILD)/pm2dma360.img
+
+$(BUILD)/pm2dma.bin: tests/pm2dma/pm2dma.asm tests/benchlib.inc apps/os88api.inc tools/benchlint.py | $(BUILD)
+	python3 tools/benchlint.py tests/pm2dma/pm2dma.asm
+	$(NASM) -f bin -w+error -I apps/ -I tests/ -o $@ tests/pm2dma/pm2dma.asm
+	@echo "pm2dma: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/pm2dma.o88: $(BUILD)/pm2dma.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/pm2dma.bin -o $@
+
+$(BUILD)/pm2dma144.img: $(BUILD)/pm2dma.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/pm2dma.o88
+
+$(BUILD)/pm2dma360.img: $(BUILD)/pm2dma.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/pm2dma.o88
+
 # ...and wave 0 (b): streaming a 12.6 MB file off the fixed disk, and the
 # controller's own ceiling. tests/viddisk.py builds the VHD it runs on.
 vidbench: $(BUILD)/viddisk.o88

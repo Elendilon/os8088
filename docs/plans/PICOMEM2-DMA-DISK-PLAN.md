@@ -1,6 +1,9 @@
 # A PicoMEM 2's disk by DMA - what the card can do, and the plan
 
-**Status: PLAN (2026-11-10). Nothing built. The owner's answers are in
+**Status: WAVE 0 BUILT, AWAITING THE IRON (2026-11-10)** - the probe
+firmware and `tests/pm2dma` (section 10), and a finding that changes the
+question (section 2.1). `os8088-pm-debug` has `pm-pr` merged in (section 9).
+**The owner's answers are in
 (section 11): S1, with NO sound stutter as its acceptance; nobody waits
 on Freddy; two machine shapes, the second a bonus.** The firmware half lives in
 Elendilon/ISA-PicoMEM on a branch of its own cut from `pm-pr` (section 9);
@@ -23,9 +26,11 @@ Elendilon/ISA-PicoMEM on a branch of its own cut from `pm-pr` (section 9);
    control lines as a nibble, and MEMW + IOR together (value 6) is a cycle
    no CPU ever makes: only an 8237 *write transfer* does. With the card's
    DRQ up and no other channel moving device-to-memory, that cycle is the
-   card's. Whether the board's data buffers will drive D0-D7 during an AEN
-   cycle is the one thing the source cannot answer - **wave 0 is a bench
-   test on the 5150 that settles it before anything else is written.**
+   card's. **But the source says the 2.0 probably never sees that IOR**
+   (section 2.1): its firmware reads no AEN, so the board must gate the I/O
+   strobes with AEN, and then the card sees only the transfer's MEMW - which
+   it can still answer, with a timing question attached. **Wave 0 is a bench
+   test on the 5150 that settles which, before anything else is written.**
 4. **One line means the card's Sound Blaster and its disk SHARE a channel.**
    Video Battle and Video Player stream SB sound while they read, so a
    DMA disk that only works with the SB idle buys nothing for them. Sharing
@@ -87,6 +92,42 @@ disarm at the count.** The data goes out through the existing read path of
 an I/O read already does; IOCHRDY (`PIN_IORDY`, already raised for slow
 cycles) stretches the cycle if core 1 needs the time, and the XT's 8237
 honours I/O CH RDY on DMA cycles.
+
+### 2.1 What a second look at the source says: the card sees MEMW, not IOR
+
+**The 2.0's bus code never reads AEN.** The 1.x's PIO jumps on an AEN pin
+to "ignore cycles during DMA" (`isa_iomem_m1.pio`); the 2.0's
+(`isa_iomem_m2_v15.pio`) has the pin commented out, and core 1 decodes an
+I/O cycle from ten address bits and the four strobes alone. Yet a 2.0 does
+not hear the XT's refresh - channel 0, MEMR + IOW, every 15 us, at every
+low address in turn - as I/O writes to its AdLib and SB ports, and it needs
+a separate **DACK-and-IOW** signal for its own Sound Blaster's DMA. Both
+make sense only if **the board gates IOR and IOW with AEN in hardware**.
+
+If so, during a write transfer the card sees **MEMW alone** (nibble 2), at
+the address the 8237 counts - never nibble 6, and never IOR. The plan above
+survives in a different shape: **answer the transfer's MEMW** at the
+buffer's next expected address while DRQ is up. A CPU write to exactly that
+address at that moment does not happen (the PC is waiting in the card
+BIOS's loop), so the address is the signature the missing DACK was.
+
+**What that costs is a timing question.** The 8237's normal (late) write
+asserts IOR a clock before MEMW, so a real device's data is on the bus
+before memory starts writing. The card learns of the cycle only AT MEMW,
+and memory may latch early: DRAM written early-write latches at CAS, a
+delay-line step after the strobe. The card answers a memory READ well
+inside an 8088 cycle today, so it may be fast enough; on the motherboard,
+on a SixPakPlus and on the card's own RAM the answer can differ. IOCHRDY
+does not help, because it stretches the cycle after the latch. Two ways
+out if it is too slow: the 8237's EXTENDED write (command register bit 5)
+moves MEMW a clock earlier and is a setting, not a wire - but it is
+global to the 8237 and the BIOS's floppy runs with it off; or a wire from
+the slot's DACK to a spare GPIO (section 6.4's kind of modification),
+which gives the card the cycle from its start.
+
+The probe (section 10, wave 0) asks all of it at once: it counts every
+strobe the card sees while its DRQ is up, and drives its pattern both ways
+- on the MEMW (mode 1) and as an I/O read (mode 2).
 
 **What the source cannot say (H1).** The 2.0 schematic is not in the fork
 (`hw/` has only `PicoMEM1.14.pdf`). If the data transceiver's enable or
@@ -388,22 +429,59 @@ Small, and deliberately so:
   where the debug branch carries the earlier 1.x versions plus diag), so
   that a diagnostic 2.0 image exists before wave 2 needs one; `pm2-dma`
   then merges into the debug branch for field diag builds, never the other
-  way. *This session cannot push to Elendilon/ISA-PicoMEM (read access
-  only); the merge is the first thing a session with push access does.*
+  way. **DONE 2026-11-10** (`fafe50b`): every conflict was the same fix
+  with and without its counters, and the instrumented side is kept; the
+  8088h stamp is put back and `PICOMEM_BOARD` is a cache variable so the
+  one tree builds both cards. Built here: the 1.x and the 2.0, diagnostics
+  off and on, all four link; the 2.0 with diagnostics off differs from
+  `pm-pr`'s image in 6 bytes, all address constants moved by 16.
 
 ## 10. Waves
 
 Each wave ends with both firmwares built reproducibly and the 1.x image's
 bytes unchanged unless the wave says why.
 
-**Wave 0 - the bench (go / no-go, hardware).** A throwaway firmware on
-`pm2-dma`: a vendor port starts a test that raises DRQ and answers nibble-6
-cycles with a counting pattern. A test package (`tests/pm2dma/`, built only
-by its own target, PMDMA's shape) programs the jumpered channel for 512
-bytes into a page-aligned buffer, waits for TC in the 8237 status, and
-paints what arrived, byte by byte, with the card's missed-cycle count.
-*Owner, on 5150 #1.* Pass = 512 right bytes three times running. Fail =
-R1 is real; stop and talk.
+**Wave 0 - the bench (go / no-go, hardware). BUILT 2026-11-10.**
+
+- **The probe firmware**: Elendilon/ISA-PicoMEM `pm2-dma` (`e8950c3`),
+  built `-DPM2DMA_PROBE=1` for the 2.0:
+  `PM2_11_10_26_OS8088_DMAPROBE.uf2`, sha256 `ab5b2695...35d9`, rebuilt
+  from the pushed commit to the same hash. Without the switch the 2.0 image
+  is byte-identical to `pm-pr`'s (`03fd63df...`); the 1.x builds from the
+  same tree. Five card commands, B0h-B4h (`src/pm_libs/pm2dma_probe.h`):
+  address, mode and channel, go (raises DRQ), stop, and forty counters. A
+  test image only, never a release, and it is flashed back to `pm-pr`'s
+  image afterwards.
+- **`tests/pm2dma` (PM2DMA.O88, `make pm2dma`)**: programs the channel for
+  a single-mode write transfer of 512 bytes into a buffer no 64KB page edge
+  crosses, arms the card, unmasks with interrupts off, polls for the
+  channel's TC, and reports: TC or not, bytes right against the card's
+  pattern, bytes left at EEh, bytes FFh (a floating bus), the first wrong
+  byte, and the card's counters - every strobe it saw by kind, the first and
+  last in-buffer address and strobe, and the 8237 programming as the card
+  snooped it (S1 needs that snoop). Mode 0 once, modes 1 and 2 three times
+  each; R or a click for channel 1, key 3 for channel 3.
+- **`tests/pm2dma/hostcheck.py`** (by hand) runs the package's own code
+  under Unicorn against a model of the 8237 and of the probe's commands: a
+  card that answers right reads 512 right on either channel, a gated card
+  reads a floating bus, and two models broken on purpose - a card one byte
+  late, the jumper on the other channel - do not pass. It checks the
+  instrument, not the board.
+
+*Owner, on 5150 #1, the SB quiet:* flash the probe image, run PM2DMA,
+bring back PM2DMA1.TXT, flash `pm-pr`'s image back. **Reading it:**
+
+| mode 0 says | means |
+|---|---|
+| MEMW cycles in the buffer = 512, MEMW+IOR = 0, IOR = 0 | section 2.1 is right: the card sees MEMW alone |
+| MEMW+IOR or IOR in the buffer = 512 | the board passes IOR under AEN: mode 2 is the design |
+| nothing in the buffer, but TC came | the card's address decode is not what the probe assumes - stop and look |
+| no TC | DRQ is not reaching that channel - the jumper, or the SET pin's sense |
+
+Pass = mode 1 or mode 2 with 512 right, three runs running. Mode 1 with a
+few wrong bytes, all near the start of a run or all in one kind of memory,
+is the timing question of 2.1 and points at the extended write or the DACK
+wire. Fail everywhere = R1 is real; stop and talk.
 
 **Wave 1 - the read path, SB idle (S3).** `PCC_DMA_SETUP` in the card
 BIOS; core 1's nibble-6 arm; the run loop in `bios_disk.cpp` with the
