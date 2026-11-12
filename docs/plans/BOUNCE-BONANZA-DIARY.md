@@ -123,3 +123,54 @@ trickle.** Wave 0b ships three camera modes so the owner can choose by feel
 took about twenty rounds to feel right, and this is expected to be the same
 kind of loop.
 
+
+## 2026-11-12 (night): wave 0b, the camera and the optimisation round
+
+**What was built.** Three camera modes, cycled with `C` in play or on the
+desktop face: GLIDE (rest inside the dead zone, then pan fast with a lead),
+FOLLOW (a camera velocity that eases toward the ball's), and wave 0's
+TRICKLE as the control. The optimisation list from SPEC.md 128.9, and the
+Hercules ball's mid tone now follows the course's checker instead of
+striping across it.
+
+**Measured** (MartyPC, the 1,200-frame benchmark, A/B against wave 0 built
+with its own art; SPEC.md 128.9 has the full table):
+
+| | CGA wave 0 | CGA wave 0b | Hercules wave 0 | Hercules wave 0b |
+|---|---|---|---|---|
+| box compose | 23,515 clk | 11,490 | 23,568 | 11,839 |
+| busy, of a refresh | 58% | 43% | 50% | 37% |
+| misses in 1,199 | 2 | 0 | 0 | 0 |
+| worst frame | 134,437 clk | 105,051 | 116,916 | 114,705 |
+
+**Discoveries.**
+- **FOLLOW cannot fix the slow-scroll jerk, and the measurement says why.**
+  A camera moving at the ball's speed has to step every 8/v frames, so at a
+  slow ball FOLLOW steps exactly as often as TRICKLE (every 15-17 frames
+  across on the CGA). It only centres the ball and evens the gaps. GLIDE is
+  the only mode that changes what the eye sees: a pan steps every second
+  frame across (30 a second on the CGA) and every frame down, with long rests
+  between pans.
+- **The benchmark route had to change.** Under GLIDE, wave 0's route gave
+  the Hercules no right-going diagonal and the CGA no pure left step, so the
+  ring row's "all eight directions" check would have failed. An integer-exact
+  host model of the autopilot and cameras chose new waypoints, and MartyPC
+  confirmed them (3-6 of each direction).
+- **The review caught a deadline that could never fail.** The row-0 corner's
+  first design checked the box's last line, but the column writer outruns the
+  beam, so its binding deadline is its first row. It now writes the column
+  first and checks both ends of the box. The test course cannot actually put
+  a box at row 0, which SPEC.md says plainly; a later wave owes it a probe.
+- **The row and column writers are bound by the card, not the code.** About a
+  fifth cheaper a call after the rewrite, where box compose halved. Further
+  speed there would come from writing less, not from tighter loops.
+- **15KB in each ball part can never be drawn** (only one shift in four is
+  reachable for a given frame). Left for a later wave.
+
+**The verifier found a real defect after the fix stage.** The CGA results
+face drew 14 lines into a 13-line box, and the spill left a broken stretch
+in the dock's border after the window closed. The face is now 13 lines and
+`bz_line` refuses to draw past the box.
+
+**Next:** the owner chooses a camera by feel; wave 1 (the course pipeline
+and physics v1) starts now.

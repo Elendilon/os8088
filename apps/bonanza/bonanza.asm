@@ -129,6 +129,11 @@ bz_onkey:
     or al, 20h
     cmp al, 'f'
     je .play
+    cmp al, 'c'
+    jne .notc
+    call bz_camkey              ; C: the camera mode (SPEC.md 128.9)
+    jmp .done
+.notc:
     cmp al, 'b'
     jne .done
     mov byte [bz_mode], 1       ; B: the benchmark (SPEC.md 128.6)
@@ -256,22 +261,8 @@ TOASTSTR bz_t_nofs, 'Bonanza: no full screen'
 ; written twice.  The lines are built in bz_lbuf.
 ; -----------------------------------------------------------------------------
 bz_face:
-    mov bx, [bz_win]
-    call OSAPI_WM_GEOM
+    call bz_fgeom
     jc .out
-    mov [bz_fw], cx
-    mov [bz_fh], dx
-    call OSAPI_WM_CONTENT
-    mov [bz_ox], ax
-    mov [bz_oy], dx
-    mov ax, [bz_fw]
-    mov cl, 3
-    shr ax, cl
-    cmp ax, BZ_LMAX
-    jbe .cells
-    mov ax, BZ_LMAX
-.cells:
-    mov [bz_fcells], ax
     mov word [bz_fy], 0
     ; line 0, 1: the title and the keys
     mov si, bz_s_title
@@ -295,9 +286,7 @@ bz_face:
 .adl:
     call bz_lstr
     call bz_line
-    mov si, bz_s_none
-    call bz_lstr
-    call bz_line
+    call bz_camline             ; line 3: the camera mode (SPEC.md 128.9)
     cmp byte [bz_res], 0
     jne .results
     mov al, [bz_err]            ; 1 the mode was refused, 2 the display
@@ -343,6 +332,57 @@ bz_face:
 .out:
     ret
 
+; the face's geometry: [bz_fw], [bz_fh], [bz_ox], [bz_oy], [bz_fcells].  CF = 1
+; when the window has none.  Clobbers AX, BX, CX, DX.
+bz_fgeom:
+    mov bx, [bz_win]
+    call OSAPI_WM_GEOM
+    jc .out
+    mov [bz_fw], cx
+    mov [bz_fh], dx
+    call OSAPI_WM_CONTENT
+    mov [bz_ox], ax
+    mov [bz_oy], dx
+    mov ax, [bz_fw]
+    mov cl, 3
+    shr ax, cl
+    cmp ax, BZ_LMAX
+    jbe .cells
+    mov ax, BZ_LMAX
+.cells:
+    mov [bz_fcells], ax
+    clc
+.out:
+    ret
+
+; the CAMERA line at [bz_fy]: the mode a play will start in.  C on the desktop
+; cycles it too, and redraws this one line (bz_camkey): the same pixels the
+; whole face draws there, once.
+bz_camline:
+    mov si, bz_s_cam
+    call bz_lstr
+    mov bl, [bz_cmode]
+    xor bh, bh
+    shl bx, 1
+    mov si, [bz_s_cmodes + bx]
+    call bz_lcat
+    mov si, bz_s_camk
+    call bz_lcat
+    jmp bz_line
+
+; C on the desktop: the next camera mode, and its line redrawn
+bz_camkey:
+    call bz_cnext
+    mov bx, [bz_win]
+    call OSAPI_WM_CLIP_SET      ; outside a paint: arm the clip (SPEC.md 11.3)
+    jc .out
+    call bz_fgeom
+    jc .out
+    mov word [bz_fy], 3 * BZ_LH
+    call bz_camline
+.out:
+    ret
+
 ; the RESULTS of the last benchmark (SPEC.md 128.6): the frames and the display
 ; rate, the refreshes missed and the worst frame, then the mean CPU clocks of
 ; each part of a frame (PIT counts x 4), then the writer counts
@@ -366,16 +406,14 @@ bz_facres:
     pop ax
     add al, '0'
     call bz_lch
-    mov si, bz_s_hz
-    call bz_lcat
-    call bz_line
-    mov si, bz_s_miss           ; the refreshes missed and the worst frame: a
-    call bz_lstr                ; mean rate cannot tell 0 misses from a few
+    mov si, bz_s_hz             ; and the refreshes missed: a mean rate
+    call bz_lcat                ; cannot tell 0 misses from a few
     mov ax, [bz_rmiss]
     xor dx, dx
     call bz_lnum
-    mov si, bz_s_worst
-    call bz_lcat
+    call bz_line
+    mov si, bz_s_worst          ; the worst frame, and the means' heading
+    call bz_lstr
     mov ax, [bz_rfmax]
     mov dx, [bz_rfmax + 2]
     shl ax, 1                   ; PIT counts x 4 = CPU clocks
@@ -383,11 +421,8 @@ bz_facres:
     shl ax, 1
     rcl dx, 1
     call bz_lnum
-    mov si, bz_s_clk
-    call bz_lcat
-    call bz_line
     mov si, bz_s_mean
-    call bz_lstr
+    call bz_lcat
     call bz_line
     xor bx, bx                  ; BX = the part (0..5)
 .part:
@@ -422,8 +457,12 @@ bz_facres:
     mov ax, [bz_rnfull]
     xor dx, dx
     call bz_lnum
-    call bz_line
-    ret
+    mov si, bz_s_late           ; the row-0 boxes the beam overtook (SPEC.md
+    call bz_lcat                ; 128.9 item 6), on the same line: the CGA
+    mov ax, [bz_rlate]          ; window's 136 content lines hold 13 face
+    xor dx, dx                  ; lines and this face is 13
+    call bz_lnum
+    jmp bz_line
 
 ; -> AX = the display rate x 10, from the measured frames' mean period.  1 PIT
 ; count is 1/1,193,182 s, so rate x 10 = 11,931,820 / mean counts.  0 = none.
@@ -593,6 +632,14 @@ bz_line:
     mov dx, bx
     inc dx
     call bz_fillrows
+    add dx, BZ_LH - 1           ; DX = the cell's foot, exclusive
+    cmp dx, [bz_fh]
+    jle .fits
+    inc bx                      ; a cell past the content's foot is not drawn
+    inc bx                      ; (FONT_RUN does not clip to it): its rows
+    call bz_fillrows            ; that are inside are filled instead
+    jmp .next
+.fits:
     mov si, bz_lbuf
     xor cx, cx
     add cx, [bz_ox]
@@ -601,6 +648,7 @@ bz_line:
     add dx, [bz_oy]
     mov ax, CBLACK | (CWHITE << 8)
     call OSAPI_FONT_RUN
+.next:
     add word [bz_fy], BZ_LH
     pop si
     pop dx
@@ -663,29 +711,34 @@ bz_tpl: dw 40, 24, 344, 168, bz_title, bz_cls
 bz_title: db 'Bounce Bonanza',0
 bz_credits: dw bz_title,bz_credit1,bz_credit2,bz_credit3,0
 bz_credit1: db 'Isometric rolling-ball game',0
-bz_credit2: db 'Wave 0: the two-way scroll engine',0
+bz_credit2: db 'Wave 0b: the scroll engine, cameras',0
 bz_credit3: db 'Generated art, original design',0
 
-bz_s_title: db 'BOUNCE BONANZA - wave 0 engine spike',0
-bz_s_keys:  db 'ENTER play   B benchmark',0
+bz_s_title: db 'BOUNCE BONANZA - wave 0b',0
+bz_s_keys:  db 'ENTER play   B benchmark   C camera',0
 bz_s_cga:   db 'Adapter: CGA, 320x200 four colours',0
 bz_s_herc:  db 'Adapter: Hercules, 360x200 pair pixels',0
 bz_s_noad:  db 'CGA OR HERC ONLY',0
 bz_s_small: db 'NEEDS MORE MEMORY (128KB kernel)',0
-bz_s_none:  db 0
+bz_s_cam:   db 'Camera: ',0
+bz_s_camk:  db '   (C cycles it)',0
+bz_s_cmodes: dw bz_s_glide, bz_s_follow, bz_s_trickle
+bz_s_glide: db 'GLIDE',0
+bz_s_follow: db 'FOLLOW',0
+bz_s_trickle: db 'TRICKLE',0
 bz_s_hint:  db 'Arrows roll; Esc, F or Alt+Enter: back',0
 bz_s_err:   db 'The full screen mode was refused',0
 bz_s_err2:  db "The window's display changed",0
 bz_s_frames: db 'Frames ',0
-bz_s_disp:  db '   display ',0
-bz_s_hz:    db ' Hz',0
-bz_s_miss:  db 'Misses ',0
-bz_s_worst: db '   worst frame ',0
-bz_s_mean:  db 'Mean CPU clocks a frame:',0
+bz_s_disp:  db '  ',0
+bz_s_hz:    db ' Hz  misses ',0
+bz_s_worst: db 'Worst ',0
+bz_s_mean:  db ' clk   means (GLIDE):',0
 bz_s_clk:   db ' clk',0
-bz_s_cols:  db 'Columns ',0
+bz_s_cols:  db 'Cols ',0
 bz_s_rows:  db '  rows ',0
-bz_s_full:  db '  full writes ',0
+bz_s_full:  db '  full ',0
+bz_s_late:  db '  late ',0
 bz_s_parts: dw bz_s_p0, bz_s_p1, bz_s_p2, bz_s_p3, bz_s_p4, bz_s_p5
 bz_s_p0:    db '  sim+camera     ',0
 bz_s_p1:    db '  box compose    ',0

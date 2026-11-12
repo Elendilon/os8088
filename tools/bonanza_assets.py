@@ -36,15 +36,23 @@ Ball part:
     then frames: 4 x 64 x 16 x 5 bytes (shift, frame, row), ANDed with ~mask.
     Shift s = the ball moved s game pixels right in its 20-pixel row.
     Frame f = (py & 7) * 8 + (px & 7).  Hercules ball pixels: 0 -> 00,
-    3 -> 11, 1 and 2 -> 10 (a ball lands on any line, so no checkerboard).
+    3 -> 11, 1 and 2 -> the COURSE's checker (SPEC.md 128.9 item 7): 10 where
+    (line + column) is even, 01 where odd, at the WORLD game pixel the ball's
+    pixel lands on.  Ball pixel (x, r) of a ball at (px, py) is world column
+    px + x and line py + r; f carries px & 7 and py & 7, so the parity is
+    (fx + x + fy + r) & 1 - fixed per frame, no run-time cost.  In shift s's
+    5-byte row slot j holds ball pixel x = j - s (the row starts at world
+    column px & ~3, and s = px & 3), so slot j's column is fx - s + j.
 
 Host reference for the test rows (import this module):
     course_indices()        the 512 x 1600 picture, a tuple of 1600 bytes rows
     ball_frame_indices(f)   16 rows of 16 entries, an index or None (clear)
     cga_bytes(pixels)       pack indices 4 a byte, MSB first
-    herc_bytes(pixels, line=None, col0=0)
-                            pack as Hercules pairs; line=None is the ball's
-                            rule, a line number is the course's checkerboard
+    herc_bytes(pixels, line, col0=0)
+                            pack as Hercules pairs by the course's checker,
+                            pixels[0] at world (line, col0)
+    ball_herc_pairs(f)      frame f as Hercules pairs (0..3) or None, by the
+                            checker at the ball's world position
     waypoints()             the autopilot's route, ball top-left world pixels
 """
 import argparse
@@ -222,11 +230,27 @@ def course_layout():
     # the TRAVERSE LEFT across the steps to the climb's foot (down-left), the
     # RETURN UP to the landing (up-right) and on up to the start (up-left) - a
     # course drawn downhill only ever scrolls one way otherwise.  Then the climb
-    # and the sprint down, for a longer run.  A host model of the autopilot and
-    # the camera (written to choose these legs, not kept) put every one of the
-    # eight step directions into the benchmark on both cards at 60/50, 40/33 and
-    # 30/25 frames a second; the bonanzaring row is what checks it on the glass.
-    route = [(4, 15), (10, 15), (16, 15), (22, 15), (30, 39), (28, 19), (4, 15),
+    # and the sprint down, for a longer run.
+    #
+    # The benchmark's camera is GLIDE (SPEC.md 128.9), which rests and then
+    # pans, so a DIAGONAL step needs an across pan and a down pan at once - a
+    # matter of where the ball crosses the dead zone's edge and the band's, not
+    # of speed.  Wave 0's route never gave the Hercules a right-going diagonal
+    # under GLIDE (its window has only 19 columns of room, one pan's worth), so
+    # wave 0b re-chose the descent's first legs and split the traverse: the
+    # descent STARTS SHALLOW, (10, 13) at about 0.36 px down a px right, which is
+    # where the window's centre-to-edge distances put both crossings together
+    # on both cards (CGA 80 px and 33 lines, Hercules 90 px and 33 lines), then
+    # drops (11, 14) and runs on to the landing; (26, 26) is a bend half-way
+    # down the traverse.  A host model of the autopilot and the three cameras
+    # (written to choose these, not kept) put every one of the eight step
+    # directions into the GLIDE benchmark at least 5 times on both cards for
+    # step rates 0.96 - 1.04 of the real one at ten phases, and at least once
+    # down to 0.92 (below that the up-going legs are not reached in 1,200
+    # frames).  At a 40/33 or 30/25 Hz display GLIDE gives the CGA no pure
+    # horizontal step: the down pans never rest.  The bonanzaring row is what
+    # checks it on the glass.
+    route = [(4, 15), (10, 13), (11, 14), (22, 15), (26, 26), (30, 39), (28, 19), (4, 15),
              (33, 40), (38, 39), (42, 39),
              ((92 + 3) // 2, (92 - 3) // 2), ((118 + 2) // 2, (118 - 2) // 2),
              ((138 + 2) // 2, (138 - 2) // 2), ((156 + 2) // 2, (156 - 2) // 2)]
@@ -496,21 +520,21 @@ def cga_bytes(pixels):
     return bytes(out)
 
 
-def herc_pair(c, line=None, col=0):
-    """one game pixel -> its two card bits as a number 0..3 (left bit high)"""
+def herc_pair(c, line, col):
+    """one game pixel at world (line, col) -> its two card bits as a number
+    0..3 (left bit high).  The course and the ball share it (SPEC.md 128.3,
+    128.9 item 7): the mid level is 10 / 01 by (line + column)"""
     if c == BLK:
         return 0
     if c == WHT:
         return 3
-    if line is None:
-        return 2                               # the ball: always 10
-    return 2 if (line + col) % 2 == 0 else 1   # the course: 10 / 01 checker
+    return 2 if (line + col) % 2 == 0 else 1
 
 
-def herc_bytes(pixels, line=None, col0=0):
-    """indices -> Hercules bytes, four game pixels (eight card pixels) a byte.
-    line=None is the ball's rule; a line number is the course's, with col0
-    the world column of pixels[0]"""
+def herc_bytes(pixels, line, col0=0):
+    """indices -> Hercules bytes, four game pixels (eight card pixels) a byte,
+    pixels[0] at world (line, col0).  Only the parities matter, so the
+    ball's frame-relative line and column (ball_herc_line) serve as well"""
     out = bytearray()
     for i in range(0, len(pixels), 4):
         v = 0
@@ -562,7 +586,25 @@ def _ball_row(frame_row, shift):
     return slots
 
 
-def build_ball_part(herc):
+def ball_herc_line(f, s, r):
+    """(line, col0) for herc_bytes of shift s, frame f, ball row r: congruent
+    mod 2 to the world line and the world column of slot 0 of every ball
+    position that uses them.  Slot j holds ball pixel x = j - s, which lands
+    on world column px + x; px = fx (mod 8), py = fy (mod 8)."""
+    return (f >> 3) + r, (f & 7) - s
+
+
+def ball_herc_pairs(f):
+    """frame f as Hercules pairs: 16 rows of 16 entries, 0..3 or None where the
+    background shows; pixel (x, r) by the checker at world (py + r, px + x)"""
+    return tuple(tuple(None if c is None else herc_pair(c, (f >> 3) + r, (f & 7) + x)
+                       for x, c in enumerate(row))
+                 for r, row in enumerate(ball_frame_indices(f)))
+
+
+def build_ball_part(herc, _fixed_mid=False):
+    """_fixed_mid: wave 0's Hercules ball (1 and 2 always 10), kept only as
+    --selfcheck's negative control"""
     hdr = b"BZB0" + struct.pack("<HHHH", NFRAMES, SHIFTS, D, RB) + bytes(4)
     masks = bytearray()
     frames = bytearray()
@@ -571,12 +613,17 @@ def build_ball_part(herc):
         for row in sil:
             slots = _ball_row(row, s)
             masks += cga_bytes([3 if c is None else 0 for c in slots])
-    enc = (lambda px: herc_bytes(px)) if herc else cga_bytes
     for s in range(SHIFTS):
         for f in range(NFRAMES):
-            for row in ball_frame_indices(f):
-                slots = _ball_row(row, s)
-                frames += enc([0 if c is None else c for c in slots])
+            for r, row in enumerate(ball_frame_indices(f)):
+                slots = [0 if c is None else c for c in _ball_row(row, s)]
+                if not herc:
+                    frames += cga_bytes(slots)
+                elif _fixed_mid:
+                    frames += cga_bytes([2 if c in (CYN, MAG) else c for c in slots])
+                else:
+                    line, col0 = ball_herc_line(f, s, r)
+                    frames += herc_bytes(slots, line, col0)
     out = bytes(hdr + masks + frames)
     if len(out) != BAL_SIZE:
         raise AssetError("ball part is %d bytes, not %d" % (len(out), BAL_SIZE))
@@ -734,12 +781,47 @@ def _check_ball(part, herc, results):
                 shifted = False
             for f in (0, 9, 63):
                 row = [0 if c is None else c for c in _ball_row(ball_frame_indices(f)[r], s)]
-                enc = herc_bytes(row) if herc else cga_bytes(row)
+                enc = herc_bytes(row, *ball_herc_line(f, s, r)) if herc else cga_bytes(row)
                 got = frames[((s * NFRAMES + f) * D + r) * RB:((s * NFRAMES + f) * D + r + 1) * RB]
                 if got != enc:
                     shifted = False
     results.append(("%s shifts are the ball moved 0..3 px right; %s pixel rule" %
-                    (name, "Hercules 10" if herc else "CGA 2-bit"), shifted))
+                    (name, "Hercules checker" if herc else "CGA 2-bit"), shifted))
+
+
+def _check_herc_ball_checker(part):
+    """SPEC.md 128.9 item 7, read off the part independently of the encoder:
+    for every shift and frame, each lit mid pixel (not 00, not 11) is 10 where
+    the world (line + column) it lands on is even and 01 where odd.  The world
+    position is reckoned from the ball's: a ball at (px, py), px = fx + 8k,
+    py = fy + 8m, draws pixel (x, r) at world (py + r, px + x); for the shift
+    the game actually uses with that frame (s = px & 3) it is ALSO reckoned
+    from the byte it lands in - the row starts at world byte px >> 2, so slot
+    j is world column 4 * (px >> 2) + j.  Returns (bad, mids, tens, ones)."""
+    frames = part[BAL_FRMOFF:]
+    bad = mids = tens = ones = 0
+    for s in range(SHIFTS):
+        for f in range(NFRAMES):
+            fx, fy = f & 7, f >> 3
+            for r, row in enumerate(ball_frame_indices(f)):
+                o = ((s * NFRAMES + f) * D + r) * RB
+                for j in range(RB * 4):
+                    pr = (frames[o + (j >> 2)] >> (6 - 2 * (j & 3))) & 3
+                    x = j - s
+                    c = row[x] if 0 <= x < D else None
+                    if c not in (CYN, MAG):
+                        continue
+                    mids += 1
+                    tens += pr == 2
+                    ones += pr == 1
+                    ok = True
+                    for px, py in ((fx, fy), (fx + 8 * 37, fy + 8 * 151)):
+                        ok = ok and pr == (2 if ((py + r) + (px + x)) % 2 == 0 else 1)
+                        if (px & 3) == s:
+                            col = 4 * (px >> 2) + j
+                            ok = ok and pr == (2 if ((py + r) + col) % 2 == 0 else 1)
+                    bad += not ok
+    return bad, mids, tens, ones
 
 
 def selfcheck():
@@ -790,6 +872,15 @@ def selfcheck():
                     (100 * lit // (WPX * WPY)), used == {0, 1, 2, 3} and left > 0 and right > 0))
     _check_ball(a_files["BZBALC.BIN"], False, results)
     _check_ball(a_files["BZBALH.BIN"], True, results)
+    bad, mids, tens, ones = _check_herc_ball_checker(a_files["BZBALH.BIN"])
+    results.append(("BZBALH mid pixels take the course's checker at the ball's world position, "
+                    "every shift and frame (%d mid: %d 10, %d 01; %d wrong)" % (mids, tens, ones, bad),
+                    bad == 0 and tens > 0 and ones > 0 and tens + ones == mids))
+    # ...and the ring's host picture composes it the same way (ball_herc_pairs)
+    hp = all(ball_herc_pairs(f)[r][x] == (None if c is None else herc_pair(c, py + r, px + x))
+             for f in range(NFRAMES) for px, py in (((f & 7) + 8, (f >> 3) + 16),)
+             for r, row in enumerate(ball_frame_indices(f)) for x, c in enumerate(row))
+    results.append(("ball_herc_pairs(f) is the checker at world (py + r, px + x)", hp))
     # rolling is visible: every frame differs from its neighbours in phase
     differ = all(ball_frame_indices(fy * 8 + fx) != ball_frame_indices(fy * 8 + (fx + 1) % 8) and
                  ball_frame_indices(fy * 8 + fx) != ball_frame_indices(((fy + 1) % 8) * 8 + fx)
@@ -820,6 +911,10 @@ def selfcheck():
     _check_ball(bytes(bad), False, sub)
     results.append(("negative control: a frame bit under a set mask bit is caught",
                     not all(good for _, good in sub)))
+    old = build_ball_part(True, _fixed_mid=True)
+    obad, omids, _, _ = _check_herc_ball_checker(old)
+    results.append(("negative control: wave 0's fixed-10 Hercules ball is caught (%d of %d mid wrong)"
+                    % (obad, omids), obad > 0))
     ok = True
     for what, good in results:
         print("  %-4s %s" % ("ok" if good else "FAIL", what))

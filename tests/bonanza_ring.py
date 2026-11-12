@@ -2,7 +2,7 @@
 """BONANZA: the two-way ring on MartyPC's CGA and Hercules (SPEC.md 128.2, 128.8).
 
     make bonanzadisk && python3 tests/bonanza_ring.py [--adapter cga|herc|both]
-    python3 tests/bonanza_ring.py --red colright|colfirst   (a red arm, below)
+    python3 tests/bonanza_ring.py --red colright|colfirst|late   (a red arm, below)
 
 The oracle is tools/bonanza_assets.py: the course picture and the ball's
 frame f = (py & 7) * 8 + (px & 7), composited on the HOST with none of the
@@ -51,6 +51,10 @@ build/), runs the checks against it and PASSES only if they FAIL:
   colfirst   the entering column is written BEFORE the retrace wait and the
              flip - the same bytes in the end, so only the bz_tf check (the
              order) can see it
+  late       every frame counts as a late row-0 box (bz_late): only the
+             bz_rlate = 0 assertion can see it.  (The row-0 path itself is
+             out of the wave-0b course's reach - SPEC.md 128.9 item 6 - so
+             this arm proves the assertion's plumbing, not the timing.)
 """
 import argparse
 import os
@@ -121,10 +125,9 @@ class Ref:
 
     def ball(self, f):
         if f not in self.frames:
-            fr = A.ball_frame_indices(f)
-            if self.tag == "herc":
-                fr = [[None if c is None else A.herc_pair(c, None, 0) for c in r] for r in fr]
-            self.frames[f] = fr
+            # Hercules: the course's checker at the ball's world position (SPEC.md
+            # 128.9 item 7) - the generator's own encoder, frame-relative parity
+            self.frames[f] = A.ball_herc_pairs(f) if self.tag == "herc" else A.ball_frame_indices(f)
         return self.frames[f]
 
     def picture(self, R0, c0, px, py):
@@ -411,11 +414,19 @@ def bench(g, ref):
             break
     m.bp_exec()
     m.run()
+    late = None
     if not fails:
         M.until(m, lambda _: g.b("bz_fs") == 0, "the benchmark ends", guest=120)
+        # SPEC.md 128.9 item 6: a box at window row 0 the beam overtook is counted, and the
+        # benchmark must have none (bz_rlate is the finished run's copy of bz_late)
+        assert g.b("bz_res") == 1, "the benchmark left no results"
+        late = g.w("bz_rlate")
+        if late:
+            fails.append("bz_late = %d: a box at window row 0 was not ahead of the beam" % late)
     print("%s benchmark to frame %d: %d frames checked at bz_presented and %d at bz_tf (the old window "
           "intact at the latch); the full write %d; column split round the boxes on %d of them" % (
               tag, fr, checks, tfchecks, full_checked, split), flush=True)
+    print("%s late row-0 boxes (bz_rlate): %s" % (tag, late), flush=True)
     print("%s directions checked (dr,dc): %s" % (
         tag, "  ".join("%+d%+d x%d" % (d[0], d[1], done[d]) for d in DIRS)), flush=True)
     if controls:
@@ -473,6 +484,9 @@ REDS = {
                  "    add ax, [bz_W]              ; moving right: the right edge's\n"),
     # the entering column before the retrace and the flip: the same bytes in the end
     "colfirst": None,
+    # every frame counted late: the bz_rlate assertion's own red
+    "late": ("bzgame.inc", "bz_presented:\n    call bz_mark\n",
+             "bz_presented:\n    call bz_mark\n    inc word [bz_late]\n"),
 }
 
 
@@ -481,9 +495,9 @@ def red_tree(name, td):
     shutil.copytree(os.path.join(ROOT, "apps", "bonanza"), src)
     gp = os.path.join(src, "bzgame.inc")
     t = open(gp).read()
-    if name == "colright":
+    if name in ("colright", "late"):
         _, old, new = REDS[name]
-        assert t.count(old) == 1, "the colright anchor moved: re-anchor the red arm"
+        assert t.count(old) == 1, "the %s anchor moved: re-anchor the red arm" % name
         t = t.replace(old, new)
     else:
         # colfirst: at bz_tv, write the whole entering column (from the window's top) and

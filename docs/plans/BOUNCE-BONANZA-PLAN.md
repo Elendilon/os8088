@@ -3,7 +3,8 @@
 **STATUS: WAVE 0 (the spike) DONE, a GO (the owner, 2026-11-12: "we are good
 to continue"): both cards hold the full refresh on MartyPC (CGA 59.8 Hz,
 Hercules 50.8 Hz). WAVE 0b (the camera and the optimisation round, SPEC.md
-128.9) IN PROGRESS, then wave 1. The owner's decisions are in section 12.** The package is `BONANZA` (`apps/bonanza/`). Below is the
+128.9) DONE: busy time 43% of a CGA refresh and 37% of a Hercules one, no
+misses, three camera modes for the owner to choose by feel. WAVE 1 NEXT. The owner's decisions are in section 12.** The package is `BONANZA` (`apps/bonanza/`). Below is the
 investigation as it was written, the answer to the owner's
 brief of 2026-11-12, on branch `bounce-bonanza`, cut from `elendilon`: is an
 overhead isometric rolling-ball game with a scrolling course feasible on the
@@ -748,21 +749,39 @@ keys.
 review's findings 7, 9, 11, 12, 13; the numbers are SPEC.md 128.8's). The
 owner's first play (86Box, CGA): slow scrolling is jerky, fast scrolling is
 smooth.
-- [ ] Three camera modes, `C` to cycle: GLIDE (rest or pan fast, with a
+- [x] Three camera modes, `C` to cycle: GLIDE (rest or pan fast, with a
       lead; the default), FOLLOW (velocity-matched, even cadence), TRICKLE
       (wave 0's, for the A/B). The owner picks by feel.
-- [ ] The Hercules ball takes the course's checker for its mid level.
-- [ ] Box compose (23.5k clk, the largest working part): column-major fill
+      *Cadence measured per mode and card (SPEC.md 128.9): at a slow ball
+      FOLLOW steps as often as TRICKLE; only GLIDE turns the hops into pans.*
+- [x] The Hercules ball takes the course's checker for its mid level.
+      *Selfcheck: 0 of 24,596 mid pixels wrong; looked at, zoomed.*
+- [x] Box compose (23.5k clk, the largest working part): column-major fill
       with a `movsw`/`add di` chain, an unclipped word-wise ball path, no
       MUL.
-- [ ] The column writer: find the wrap row once, unroll per block.
-- [ ] The row writer: word columns outermost (the two CGA misses are
+      *23.5k -> 11.5k clk on both cards (SPEC.md 128.9's table).*
+- [x] The column writer: find the wrap row once, unroll per block.
+- [x] The row writer: word columns outermost (the two CGA misses are
       two-row frames: rows 19k there).
-- [ ] `S` kept incrementally; `rb*R` by shifts in `bz_row`, `bz_col`,
+      *A row ~9.4k -> 7.5k (CGA), ~19.2k -> 13.7k (Hercules); 0 misses.*
+- [x] `S` kept incrementally; `rb*R` by shifts in `bz_row`, `bz_col`,
       `bz_boxw`.
-- [ ] Do not write the overlap of two boxes twice; do not re-compose an
+- [x] Do not write the overlap of two boxes twice; do not re-compose an
       idle ball.
-- [ ] The box at window row 0 (SPEC.md 128.2 rule 4's open corner).
+- [x] The box at window row 0 (SPEC.md 128.2 rule 4's open corner).
+      *Built; the wave-0b course cannot reach it (SPEC.md 128.9 item 6), so
+      `bz_late` = 0 is true by construction until a later wave's physics
+      reach the window's first row - that wave owes it a probe that does.*
+
+*Open, found by wave 0b's review:* each ball part carries 15,360 bytes that
+can never be drawn (`bz_boxc` takes shift `s = px & 3`, already fixed by the
+frame's `px & 7`, so only 64 of the 4 x 64 shift/frame entries are reached).
+Indexing the frames by `f` alone (`16 + 320 + 64 x 80` bytes a part) saves
+about 15KB per heap claim and the disk bytes of both parts, and drops the
+`5040 s` term from `bz_boxc`; SPEC.md 128.3 pins the part's size this round,
+so it is a later wave's change. GLIDE's "fast" test is `|v|` against the
+full refresh's step rate (SPEC.md 128.9); the ball's travel a frame is the
+rate-proof form, a later wave's change made with the route re-checked.
 
 **Wave 1: the course pipeline.**
 - [ ] `tools/bbcourse.py`: the text course → render → blocks, metatiles and
