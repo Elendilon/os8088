@@ -4,8 +4,13 @@
 to continue"): both cards hold the full refresh on MartyPC (CGA 59.8 Hz,
 Hercules 50.8 Hz). WAVE 0b (the camera and the optimisation round, SPEC.md
 128.9) DONE: busy time 43% of a CGA refresh and 37% of a Hercules one, no
-misses, three camera modes for the owner to choose by feel. WAVE 1 NEXT: its
-contract is SPEC.md 128.10 (the text course, `tools/bbcourse.py`, physics v1). The owner's decisions are in section 12.** The package is `BONANZA` (`apps/bonanza/`). Below is the
+misses, three camera modes for the owner to choose by feel. WAVE 1 (the text
+course, `tools/bbcourse.py`, physics v1, SPEC.md 128.10) DONE and measured:
+busy 46.5% of a CGA refresh and 39.4% of a Hercules one, no misses; its story
+1.3 waits on open question O8. WAVE 2 NEXT ("feel": three balls, bounce, stun
+and shatter, the keyboard's ramp, Hop and Grip, surfaces, the shadow,
+replays, and O8's answer): its contract is SPEC.md 128.11. The owner's
+decisions are in section 12.** The package is `BONANZA` (`apps/bonanza/`). Below is the
 investigation as it was written, the answer to the owner's
 brief of 2026-11-12, on branch `bounce-bonanza`, cut from `elendilon`: is an
 overhead isometric rolling-ball game with a scrolling course feasible on the
@@ -321,8 +326,10 @@ blocks, so it is cheap. Some depth cases are ambiguous: a block's pixels
 can have several depths and tops. Wave 1's answer (SPEC.md 128.10.4.4) is to
 split rather than flag: one record for each block, occluding cell and 2 px
 band of tops, so every pixel is keyed to within 2 px. What the tool REFUSES
-at build time is the cost - more than 24 records in a block row, or more
-than 8 laid at any reachable position - so ambiguity and expense land as
+at build time is the cost - since wave 2 (SPEC.md 128.11.4), more than 4
+records in one block or 128 in a block row, after an exact merge of the
+records no reachable position tells apart (wave 1's 24 a block row and 8
+laid were the wrong quantities) - so ambiguity and expense land as
 authoring errors at build time, not glitches at run time.
 
 Art is source (CLAUDE.md, "Building an app or game in waves", step 5).
@@ -958,13 +965,177 @@ keeps a rolling ball whole on the ground in front of it (SPEC.md
       measured tables, the diary's entries, `docs/INDEX.md` current
       (`os88index.py --check`), `checkdocs` 0 problems.*
 
-**Wave 2: feel.**
-- [ ] Forces, surfaces, walls with restitution, air, bounce, stun - tuned
-      INSIDE SPEC.md 128.10.7.2's speed caps; the arrows' force ramp and
-      coast, Hop on Space and Grip on Left Shift (keys reserved in wave 1);
-      the spin's vertical phase off `z` (SPEC.md 128.10.5.3).
-- [ ] Final ball art, shadow and squash; occlusion behind props.
-- [ ] Replays: input logs and a recorded-run test row.
+**Wave 2: feel** (the contract is SPEC.md 128.11, written before the code
+and revised after three reviews of it).
+Decided there, against this plan: the ball is picked on the desktop (`M`,
+starting from the course's own `ball`), and section 5.5's swap pads are wave
+4's; a landing is judged against the floor's own rate, and a rebound is at
+most `e` times the ball's downward speed, so a bounce never climbs above the
+height its energy came from - a rubber-only route is a drop and a bounce to
+a ledge BELOW it, and climbing stays ramps and the spring pad (SPEC.md
+128.11.5.3); Space at a contact replaces the rebound with at least a Hop but
+never adds to it, so it cannot pump a bounce and the reachable set stays
+bounded (SPEC.md 128.11.4.4); an airborne ball lands on a floor up to 4 px
+above it, as a rolling one climbs it; a goal is a finish line crossed in the
+air too; the materials' constants and each material's force, drag and brake
+on each surface are generated tables, PROVISIONAL until the owner has rolled
+them; section 5.2's restitution is a stone wall's per material and a bumper's
+for every ball; Grip's Left Shift is read from the BIOS's shift flags,
+because the kernel's key-state map takes a 101-key keyboard's fake shifts as
+Shift (O19); section 4's shadow is skipped where the floor can hide a
+grounded ball (`OCCG`), and kept out of a box of its own while the ball's
+cell can be hidden; open question O8 is answered by building the Hercules
+table and part on the guest (one part a course and one a ball on the disk),
+an exact merge of the records and a per-BLOCK bound, not by narrowing the
+reachable set to pits (option c, measured and declined: SPEC.md 128.11.4.5).
+Sound (section 10) stays wave 4's. Every cost and size below is PREDICTED
+until the final pass; the rows run once, after the last batch.
+- [ ] **2.1 One part a course, one a ball.** The disk carries the CGA's
+      course blocks and ball frames only; a Hercules launch builds `BZ_HTAB`
+      (512 bytes) in the idle box buffers and translates the parts in place
+      through it before the bracket - no table in the image. Part rows:
+      three balls, then one a course. `BONANZA.O88` predicted 47 - 51KB
+      against wave 1's 64,509, with a third course and two more balls.
+      *Verify: `bonanzaassets` - `bbcourse.htab()` equal to `herc_pair`, the
+      rubber part translated equal to wave 1's Hercules ball part, with red
+      controls; `bonanzaring`'s Hercules glass checks the guest's built table
+      (red arm `htab`); `bonanzaexit` over the new rows; `bonanzamega` builds
+      and translates on kern_mega (red arm `hxcs`); the package size printed
+      by the build.*
+- [ ] **2.2 Occluders the courses meet (O8).** Records of one block that no
+      reachable position tells apart are merged (exact); the bounds become
+      at most 4 records a block and 128 a block row, which `BENCH` and
+      `FIRST` meet before the merge (`BENCH` with no headroom on the block
+      bound); the provisional 96 / 32 go; the new grid flag `OCCG`; the
+      reach with the Hop's launch and bounces bounded by energy, iterated to
+      a fixed point, with discrete flights. *Verify: `bonanzacourse` items
+      2, 4, 5, 6 - the merge lays the same pixels as the unmerged records
+      for every query (negative control: a forced merge of differing
+      verdicts fails), the refusals fire, the counts, rounds and `Y0`'s
+      source printed (measured on the host with the contract's rule:
+      `BENCH` `Y0` 156, 2,938 records merged to 2,645; `FIRST` `Y0` 36, 334
+      to 290).* This also closes wave 1's story 1.3.
+- [ ] **2.3 Walls give some of it back.** Restitution at the edges, the
+      corner and the fallback - a stone wall's per material (rubber 0.38,
+      steel 0.13, glass 0.25), a bumper rail's 0.90 for every ball - with a
+      minimum that stops a pushed ball chattering; the wall-edge test made
+      symmetric (wave 1's P1: no more creep against east and south walls).
+      *Verify: `bonanzacourse` item 7 (the rail's rebounds and time to rest
+      per material, a bumper's, the east wall resting at 10.00 like the west
+      at 6.00); `bonanzaphys`'s `rail`, `bumper` and `eastwall` scenarios on
+      both cards, red arm `edge`.*
+- [ ] **2.4 Keys that feel analogue.** The arrows' force ramps over 146 ms
+      and coasts on release (a quick re-press resumes); Hop on Space (from
+      the ground, or at a contact inside its 110 ms window, so Space at a
+      Hop's landing hops again); Grip on Left Shift, read from the BIOS's
+      shift flags (brakes and carves, and catches a bounce); half-force air
+      control; an airborne ball lands on a half-unit step instead of
+      bouncing off it. *Verify: `bonanzacourse` item 7 (each material's
+      ramp, the Hop's rise, window, contact Hop and step-up, Grip's stop, the
+      catch); `bonanzaphys`'s `ramp`, `hop`, `hopagain`, `stepup`, `grip`
+      and `catch` scenarios, red arm `airwall`; `bonanzareplay`'s injected
+      log covering every key bit; `bonanzamega`'s grey arrows with NumLock
+      on leave Grip clear (red arm `shiftmap`).*
+- [ ] **2.5 Three balls, and a hard fall is a mechanic (D4).** Rubber
+      bounces (a 6-unit drop rebounds 3.7 units and carries 4.8 tiles, then
+      settles in 3.2 s), steel is stunned and stopped dead for a second by a
+      fall of 2 units, glass shatters on a fall of 3 and comes back on its
+      last SAFE cell, each judged on the impact relative to the floor so a
+      Hop down a ramp is not a fall; steel is the heavy ball (slow to start,
+      a 13-tile coast), glass the light one (quick, a 341 top, stops in under
+      a tile); `M` picks the ball on the desktop, `N` the course (its ball
+      with it). *Verify: `bonanzacourse` item 7 on `TRIAL` with all three
+      balls; `bonanzaphys`'s `bounce`, `stun`, `shatter` and `ramphop`
+      scenarios with red arms `bounce`, `stun`, `shatter`, `absimpact`; one
+      boot to look on each card at each ball's landing.*
+- [ ] **2.6 Floors with a character.** Ice (no drag, a push of 1 for every
+      ball), sand (a 32nd drag, a push of at least 2), a bounce mat (every
+      ball bounces, none is hurt: a trampoline, 5.3 s from a 6-unit drop
+      unless Grip or Space ends it), each drawn with its own top; every
+      material moves on every surface. *Verify: `bonanzacourse` items 2, 4
+      and 7 (every pair from rest; steel stopped on ice leaves it);
+      `bonanzaphys`'s `ice`, `sand` and `mat` scenarios; the `--png`
+      previews looked at on both cards.*
+- [ ] **2.7 The ball looks like what it is, and where it is.** Three looks
+      inside one black rim (rubber's spots, steel's seam band, glass you can
+      see the course through); the spin's vertical phase off the GROUND, so
+      a bouncing ball does not turn; a checkered SHADOW on the floor under a
+      ball in the air; squash on a hard landing, drawn only while the ball
+      is at its floor; a dazed wobble while stunned; a four-frame shatter.
+      *Verify: `bonanzaassets` (`BZB2`, every material, the black ring on
+      both cards, red controls); `bonanzaring`'s oracle with the shadow, the
+      sprite and the ground phase on both cards, red arm `shadow`; the look
+      boots, with each ball previewed over a cyan tile, a white tile, a ramp
+      and a magenta face on both cards.*
+- [ ] **2.8 A ball and its shadow, drawn once, in raster order.** Up to four
+      boxes (the ball's and the shadow's, old and new), each composed with
+      everything that meets it, written interleaved with the entering column
+      in raster order; the occluder pass decides once a frame and lays into
+      every box; no shadow box of its own while the ball's cell can be
+      hidden; lateness checked for every box, interrupts off for the first
+      only; the idle test knows the sprite and the shadow. *Verify:
+      `bonanzaring`'s TRIAL leg - card equal to the oracle at `bz_tf` and
+      `bz_presented`, a frame with the shadow in its own box and one with
+      three or more boxes, the order check on every frame, one pass a frame
+      (red arms `boxfirst`, `pass2`); the multi-box row-0 probe (red arm
+      `late2`); `bonanzaperf`'s TRIAL leg counts the boxes.*
+- [ ] **2.9 A course that needs the rubber ball.** `TRIAL`, "Bounce Trial"
+      (`K = 2`): a 6-unit drop onto a floor at least 4 tiles deep and a
+      2-tile gap to a ledge 2 units up that only the rubber bounce reaches,
+      a steep ramp long enough to catch its own throw, ice with bumper rails,
+      sand before the goal, a mat off the route; its flights toward the
+      viewer, over no cell that can hide the ball; its route for the
+      autopilot. And `FIRST`'s goal, a finish line a rubber ball can now
+      cross in the air. *Verify: `bonanzacourse` items 7 and 8 (the sweep:
+      rubber lands on `G` in at least a quarter of approach speeds and
+      offsets, steel and glass never, no ball without the bounce; the route
+      reaches the goal without a fall and with no airborne step over an
+      `OCC` cell; `FIRST` finished with each ball); one play by eye on each
+      card.*
+- [ ] **2.10 Replays.** A play is logged as one key byte a step,
+      run-length coded in 4,096 bytes of bss with the current run in two
+      fixed cells; `R` on the desktop replays it on either card, the same
+      steps whatever the frame rate; the host model runs the same log; a log
+      is trusted only because the package wrote it. *Verify:
+      `bonanzareplay` - a real-keys play on the CGA whose log the model
+      reproduces at every frame, its replay on both cards with the same end
+      state, and an injected log covering every key bit and state; red arms
+      `hopbit` and `framekeys`.*
+- [ ] **2.11 A camera that knows the frame rate, and keys that do not
+      repeat.** GLIDE's "fast" test is the ball's travel over four frames
+      (the per-card constants go), and the benchmark's route is re-proved
+      with a host model of GLIDE that is KEPT this time; C, M and N held on
+      the desktop are one press each until `OSAPI_KEY_DOWN` says the key
+      came up (a window timer polls it), and a release and a second press
+      are two. *Verify: `bonanzacourse` item 8 (every direction at least
+      five times on both cards at 0.96 - 1.04); `bonanzaring` (all eight on
+      the glass); `bonanzaexit`'s held and re-pressed keys, red arms
+      `crepeat` and `overswallow`.*
+- [ ] **2.12 kern_mega, run.** The table is built in the package's bss and
+      the translation writes the fetched parts' own selectors (as
+      `op_fetch`'s own expansion already does); the log and the boxes are
+      bss; no `PKG_MEGA` arm. *Verify: `bonanzamega` - the Hercules display
+      (so every launch builds and translates), the benchmark, a play with
+      Hop and Grip and its replay, the grey arrows: no fault, no leak; red
+      arms `segadd`, `hxcs`, `shiftmap`.*
+- [ ] **2.13 What it costs.** Busy on the benchmark predicted 48.0 - 48.6%
+      of a CGA refresh and 40.7 - 41.3% of a Hercules one (the step priced
+      instruction by instruction and taken 1.3 times, as wave 1 measured);
+      `TRIAL`'s airborne frames +4 - 12k with a shadow and 0 misses on its
+      route; a fall behind geometry with the pass at its bound may present at
+      2 refreshes on the CGA, counted; the image about 15,100 bytes, bss
+      about 5,700, claims while playing `BENCH` about 57.5KB. *Verify:
+      `bonanzaperf` - the floor and the instruments on both legs, the A/B
+      leg against wave 1 (`2df3f469`, fetched, or SKIP with the reason), the
+      misses and the camera's rows panned per bounce; SPEC.md 128.11.15 and
+      128.11.16 get their measured columns.*
+- [ ] **2.14 The record.** README, the face's lines and keys, `make help`
+      for the new row, `BZ_COURSES` with `trial.bbc`, docs/HEAP-CLAIMS.md's
+      Bonanza row and `tests/pins.txt`'s line REWORDED as SPEC.md 128.11.3.1
+      says (one part a course, one a material, `op:BZ_P_BALR`) with the new
+      sizes, the diary's wave-2 entries, `docs/INDEX.md` current. *Verify:
+      `make` (the doc gates), `tools/os88index.py --check`, `checkdocs` 0
+      problems.*
 
 **Wave 3: obstacles and the wheel.**
 - [ ] Lanes; the wheel with calibrated credit, trim, seeded clocks and the
@@ -973,8 +1144,9 @@ keeps a rolling ball whole on the ground in front of it (SPEC.md
       kinds) with the camera glide.
 
 **Wave 4: a game.**
-- [ ] Five courses, with the props from section 8. The HUD, timer,
-      checkpoints and cup.
+- [ ] Five courses, with the props from section 8 and section 5.5's
+      ball-swap pads (SPEC.md 128.11.5.4). The HUD, timer, checkpoints and
+      cup.
 - [ ] Speaker sound (section 10).
 - [ ] The mouse as a tilt stick.
 
@@ -1034,3 +1206,17 @@ it needs a composite monitor to judge. Not before the game is.
   to within 2 px (records split by band of tops) and refuses a course past
   its record bounds (SPEC.md 128.10.4.4), so this risk lands as
   course-design constraints, not run-time bugs.
+- **`BENCH` sits on the block bound.** Wave 2's bound is 4 records a block
+  (SPEC.md 128.11.4.2) and `BENCH`'s fullest block holds exactly 4 before
+  and after the merge, so the next route or geometry change can refuse it.
+  The refusal names the block; moving the geometry, or the owner pricing a
+  bound of 5, is the answer - never a quiet raise.
+- **A fall behind geometry on the CGA.** With the occluder pass at its
+  bound, a falling ball over a cell that can hide it is predicted at 1.06 -
+  1.11 CGA refreshes (SPEC.md 128.11.15): it presents a frame late and is
+  counted. `TRIAL`'s flights are built to cross no such cell; wave 4's
+  courses will meet it.
+- **Feel numbers off a model.** Wave 2's materials, surfaces and course
+  rules are the host model's discrete figures (SPEC.md 128.11.5), checked
+  against the guest frame by frame - but whether they FEEL right is the
+  owner's play, and every one of them is PROVISIONAL until then (O11).
