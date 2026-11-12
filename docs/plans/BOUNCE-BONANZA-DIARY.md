@@ -446,3 +446,103 @@ benchmark's course part is 54,214 bytes against a predicted 46,000, the
 package 64,509 bytes on the disk against 25 - 35KB, nearly all of it
 occluder records twice over - open question O8, which stays the owner's.
 Story 1.3 is the one left unticked for that reason.
+
+## 2026-11-12 (wave 2, the contract)
+
+Wave 2 is "feel", and its contract (SPEC.md 128.11) was written before any of
+its code. What it decides, and the one thing it measured to decide it:
+
+- **Three balls, and the hard fall as a mechanic.** The owner's D4 becomes
+  one table of constants a material, written once in the course tool and
+  generated into the package: the rubber ball bounces (a 6-unit drop
+  rebounds 3.8 units and carries nearly five tiles - the gap only it can
+  cross), the steel ball is stunned for a second by a 1.5-unit drop, the
+  glass ball shatters on about 2.7 units and comes back. Every number is
+  PROVISIONAL until the owner has rolled them.
+- **A bounce never climbs.** The rebound is a fraction of the impact with
+  the floor taken as still, and the Hop works only from the ground. That is
+  a design choice for the reachable set's sake: a Hop at the bounce would
+  pump a rubber ball to the vertical cap anywhere on the course, and every
+  occluder and `Y0` with it.
+- **O8, measured before it was decided.** The course tool's own reachable
+  set and records, run on the host with each candidate rule: wave 1's 3,143
+  records on the benchmark's course are 1.7 a block over every block that
+  can hide the ball, almost never split by their band of tops. Narrowing the
+  reachable set to pits (the option recommended to the owner) halves them -
+  by drawing a ball that falls off a back edge over the plateau it falls
+  behind. An exact merge of the records no position tells apart takes 13%
+  (21% on First Roll) at no cost to the picture. So the contract keeps the
+  reachable set, merges, and bounds the records per BLOCK (4), which is what
+  a frame pays; the bytes are answered elsewhere.
+- **The Hercules copy goes.** A Hercules block is the CGA block through a
+  pure function of the pixel and its line's parity, so the guest can make it
+  at the fetch through a 512-byte table in about a tenth of a second. One
+  part a course and one a ball on the disk: the package is predicted to
+  SHRINK to 45 - 52KB with a third course and two more balls.
+- **Replays are the cheap half of determinism.** A play is its course, its
+  ball and one key byte a step, run-length coded in 4KB; the guest replays
+  it on either card and the host model runs the same bytes, which is the new
+  `bonanzareplay` row.
+
+Intentions, not yet observations: every cost and size in 128.11.15 and
+128.11.16 is predicted; the final pass measures them.
+
+That was the first draft. The review below changed several of its
+numbers, and SPEC.md 128.11 is the authority: the 6-unit rebound is 3.7
+units, the stun's fall 2 units and the shatter's 3, a Hop also fires at a
+contact (never adding to the rebound), the merge takes 10% on `BENCH` (13%
+on First Roll) with the final reach, and the package is predicted at 47 -
+51KB.
+
+## 2026-11-12 (wave 2, the contract reviewed)
+
+Three reviewers - budget, the OS, game design - read the contract before any
+code and returned thirty-five findings, several of them one fault seen from
+two sides. Every one was checked against the text and a scratch model of the
+step; none was rejected outright, and three were taken in part. What they
+found is worth keeping, because most of it was arithmetic the contract did in
+its head instead of in the step:
+
+- **The reach was measured on a different rule from the one written.** The
+  records and `Y0` quoted were the Hop's reach alone; the written bounce rule
+  added a 384 floor and a fall on top of each other, and claimed bounces
+  could not reach `BENCH` or `FIRST`. Rewritten as an energy bound - a ball
+  over a cell has at most the energy of the highest flight over it, a
+  rebound keeps at most `e` of the speed - with discrete flights, and
+  measured again: `BENCH` `Y0` 156, 2,938 records merging to 2,645, five
+  rounds to settle. The record counts also swing up to 7% with `Y0`'s
+  alignment to the 8-line blocks, which is now said rather than hidden.
+- **The rubber ball overflew `FIRST`'s goal.** A one-column goal and a
+  10 px bounce off the lip: every rubber run in the model fell into the void
+  past it. A goal is now a finish line crossed in the air too.
+- **Shifts truncated a material to nothing.** Steel's force quartered on ice
+  was 0. Each material's force, drag and brake on each surface is now a
+  generated number, and the self-check holds every pair to moving.
+- **A hop down a ramp was judged as a fall.** Hard landings now use the
+  impact relative to the floor; and a rebound off a floor falling away is
+  relative to it too, or a small bounce on a steep ramp became a long flight
+  onto its foot. The model then showed a crest at the cap throws any ball
+  three tiles - a course rule now, not a surprise.
+- **The keyboard had two traps the OS already knew about.** An interval
+  test cannot see the typematic delay (SPEC.md 9.7 says so in its first
+  paragraph), and the kernel's key-state map reads a 101-key keyboard's fake
+  shifts as Left Shift. The desktop keys now ask `OSAPI_KEY_DOWN` whether
+  the key came up; Grip reads the BIOS's shift flags; the kernel defect is
+  the owner's question (O19).
+- **The worst frame was priced only where no shadow is drawn.** With four
+  boxes and the occluder pass it was a third over a refresh on both cards.
+  The pass now decides once and lays into every box, and the shadow stays
+  out of a box of its own while the ball can be hidden; what is left over a
+  refresh is a fall behind geometry on the CGA, counted.
+- **Smaller things that were simply wrong**: `XLAT` reads DS, not the
+  part's segment; a 512-byte table the guest can build in 6 ms had been put
+  in every image; the bounce chain was six bounces in 3.2 s, not eight in
+  3.9; the Hop window lost Space at a Hop's own landing; and a squash was
+  drawn on a ball climbing away from the floor.
+
+Rejected or deferred, with the reason in the contract: a ground-line camera
+target (it would re-prove three cameras' routes; the bob is measured
+instead), a fractional drag (offered with O2 in wave 3), and a Hop that pumps
+a bounce (it would carry a course's highest launch to every cell). These
+are still intentions: every figure is the host model's or predicted until
+the final pass.
