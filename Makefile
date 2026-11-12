@@ -21288,6 +21288,31 @@ $(BUILD)/vbattle120.img: $(VBATTLEFILES) tools/os88disk.py
 $(BUILD)/vbattle360.img: $(BUILD)/vbattle.o88 $(BUILD)/vbshort/BATTLE.VBT tools/os88disk.py
 	python3 tools/os88disk.py --size 360 -o $@ $(BUILD)/vbattle.o88 $(BUILD)/vbshort/BATTLE.VBT
 
+# WireArena (docs/plans/MULTIPLAYER-FPS-PLAN.md): the text-mode arena
+# shooter's Wave 0 renderer spike. ON DEMAND, and on a disk of its own in
+# four geometries - on no shipped disk until it is a game. Its tables (sine,
+# arena, patrols, the pre-projected stick-figure keyframes) are built by
+# tools/arenagen.py into $(BUILD)/watab.inc.
+#> [Applications] wirearena :: WARENA.O88, the text-mode arena shooter's renderer prototype (docs/plans/MULTIPLAYER-FPS-PLAN.md)
+.PHONY: wirearena wirearenadisk
+wirearena: $(BUILD)/warena.o88
+$(BUILD)/watab.inc: tools/arenagen.py | $(BUILD)
+	python3 tools/arenagen.py $@
+$(BUILD)/wirearena.bin: apps/wirearena/wirearena.asm apps/wirearena/wrender.inc $(BUILD)/watab.inc apps/os88api.inc apps/os88pit.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/wirearena/ -I $(BUILD)/ -l $(BUILD)/wirearena.lst -o $@ $<
+$(BUILD)/warena.o88: $(BUILD)/wirearena.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
+	$(OS88PKGB) $< -o $@
+#> [Applications] wirearenadisk :: its own floppies, warena{,720,120,360}.img
+wirearenadisk: $(BUILD)/warena.img $(BUILD)/warena720.img $(BUILD)/warena120.img $(BUILD)/warena360.img
+$(BUILD)/warena.img: $(BUILD)/warena.o88 tools/os88disk.py
+	python3 tools/os88disk.py --size 1440 -o $@ $<
+$(BUILD)/warena720.img: $(BUILD)/warena.o88 tools/os88disk.py
+	python3 tools/os88disk.py --size 720 -o $@ $<
+$(BUILD)/warena120.img: $(BUILD)/warena.o88 tools/os88disk.py
+	python3 tools/os88disk.py --size 1200 -o $@ $<
+$(BUILD)/warena360.img: $(BUILD)/warena.o88 tools/os88disk.py
+	python3 tools/os88disk.py --size 360 -o $@ $<
+
 .PHONY: wireball wireballdisk wireballtest wireball-pair
 wireball-pair:
 	python3 tools/wireball-pair.py

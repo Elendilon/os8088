@@ -412,6 +412,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | Timer | `apps/timer/timer.asm` | §111 | yes |
 | Video Battle | `apps/vbattle/vbattle.asm` | §126 | no |
 | Video Player | `apps/video/video.asm` | §98 | yes |
+| WARENA | `apps/wirearena/wirearena.asm` |  | no |
 | WEAVE | `apps/weave/weave.asm` | `docs/WEAVE-SPEC.md` | yes |
 | WIRE | `apps/wire/wire.asm` | §78 | no |
 | WIREBALL | `apps/wireball/wireball.asm` | §109 | yes |

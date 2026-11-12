@@ -1,6 +1,11 @@
 # A multiplayer first-person shooter for the 5150, in text mode: investigation
 
-**STATUS: INVESTIGATION. Nothing is built.**
+**STATUS: WAVE 0 BUILT (the renderer spike, `apps/wirearena/`), measured in
+section 16.** The owner's answers to section 14 (2026-11-12): prototype to
+decide 40 vs 80 columns; spend the relative-mouse bytes (done, SPEC.md 9.14 -
+38 resident bytes on kern_big and kern_mega, refused on kern_small for its
+budget); raw Ethernet pausing TCP is acceptable; kern_small decided once the
+size is known.
 
 The owner asked for this on 2026-11-12, on branch `multiplayer-fps` (cut from
 `elendilon` at `9f5c3c9c`):
@@ -646,3 +651,89 @@ PARTS. The region must follow §66.6.1.1, `OS88_REGION_MOVABLE`.
   snow option and kern_mega rows.
 - **Wave 7:** the field run on 5150 #1, the CGA questions, and the
   PERFORMANCE.md set.
+
+---
+
+## 16. Wave 0 — what was built and what it measured
+
+**Built:** `apps/wirearena/` (`WARENA.O88`, `make wirearenadisk`). It is an
+on-demand `instrument` in `apps/RETIRED.txt` until it is a game. The package
+has these parts:
+
+- `wirearena.asm`: the shell, the loop, input and the 30 Hz sim.
+- `wrender.inc`: the renderer.
+- `tools/arenagen.py`: builds the sine table, the arena, the patrols, and
+  the stick-figure keyframes pre-projected for 16 facings.
+
+What the prototype contains:
+
+- A 32 m room with nine blocks.
+- Three dummies running patrols. Each has run, flinch and death animations,
+  blended in quarter steps.
+- The pistol: hitscan through the crosshair, three hits to drop a dummy, a
+  hit flash, and respawn after three seconds.
+- Mouse look through `OSAPI_MOUSE_REL`, WASD, jumping, and pitch by y-shear.
+- **Tab** swaps between 80 and 40 columns, live. **V** presents after
+  vertical retrace. **B** runs the BENCH.
+- A HUD meter showing fps, frame ms, render ms, present ms and video writes
+  a frame.
+
+**The bench** (B) is 64 frames from (1024, 700), turning 1/64 of a circle
+each frame, with the dummies frozen at their path starts. It is the same work
+on every build, in either width. These figures come from MartyPC on
+`os8088_5150_cga`, `_herc` and `os8088_xt_vga`. The three agree to the
+millisecond, because MartyPC charges their text memory alike (see the report's
+caveat about a real IBM CGA):
+
+| | render | present | frame | fps | video writes a frame |
+|---|---|---|---|---|---|
+| 80 columns | 69.4 ms | 13.4 ms | 76.7 ms | **13.0** | 193 |
+| 40 columns | 52.0 ms | 7.8 ms | 55.3 ms | **18.0** | 113 |
+
+These are against section 4.7's prediction of ~145k clk (~30 ms) for a
+duel. **The first renderer costs ~2.5x the prediction at 80 columns.**
+
+The sampling profile of a busy view (`flat_ip` bucketed by listing labels)
+shows where the time goes:
+
+| part | share |
+|---|---|
+| wall edges | ~24% |
+| per-column depth raster | ~16% |
+| figures (limb plotting, keyframe blends) | ~19% |
+| geometry (transform, clip, project) | ~22% |
+| present | ~10% |
+
+The first version was at 7.4 fps before two rounds of tightening. Most of
+that loss was a call chain four levels deep per plotted cell.
+
+**What it looks like** is on the glass in screenshots taken during the work:
+
+- **Walls** read as a dashed wireframe. A shallow slope becomes a staircase
+  of `─` and `_` at half-row steps; box corners are `│`. They dim with
+  distance: bright cyan, then cyan, then blue on colour; normal intensity on
+  mono, where the MDA font's line glyphs join into solid lines.
+- **The figures**, close up, read unmistakably as running stick men with the
+  pistol arm out. At mid range they are a small cluster of blocks. 80 columns
+  keeps limb detail further out than 40 does.
+- **Snow** on a real IBM CGA at 80 columns is not measured. MartyPC does not
+  show it. 86Box reportedly does (the owner); the owner's own CGA is the real
+  test.
+
+**The design levers for 30 fps**, in order of expected gain:
+
+1. **Front-to-back "solid segment" occlusion instead of the per-column
+   depth buffer.** The arena's walls are full-height, so a column closed once
+   is closed. That removes the raster's per-column compares and stores. It
+   also lets the edge pass step each top and bottom line incrementally across
+   its visible span, rather than reloading and rounding per column.
+   Front-to-back order comes from a host-built 2D BSP (section 4.1).
+2. **Shared products for axis-aligned boxes.** A box's corners share x or y,
+   so 8 multiplies replace 16. A reciprocal table can stand in for the
+   per-vertex divides.
+3. **Figures:** clip and depth-test per LIMB, not per sub-pixel, and plot
+   inline.
+4. **Present:** walk the two lists in one merged pass.
+
+The decision the owner asked to make — **40 or 80** — now has both on one
+disk, with the meter, switchable live.
