@@ -251149,7 +251149,7 @@ the choice persists across plays in the session (not on disk).
 | mode | `bz_cmode` | horizontal | vertical |
 |---|---|---|---|
 | **GLIDE** (the default) | 0 | REST until the ball's CENTRE leaves the dead zone (the middle half, unchanged); then PAN toward the target column that puts the ball on the dead zone's TRAILING edge - a quarter-window behind the centre, so the camera LEADS by a quarter-window in the direction of travel (the sign of `vx`, at rest the last one) - rounded so the ball lands inside the edge and clamped to the course; one column every second frame, and every frame while the ball is faster than 4 px a frame or still outside the dead zone; re-aiming every frame, until the target is reached; then rest | the same shape on rows: rest inside the band (the middle third, unchanged); when the ball leaves it, pan toward the row that puts the ball on the band's trailing edge (the camera leads by a sixth of the window), at one row a frame, two while the ball is faster than 2 lines a frame, and one more while one row still leaves the ball outside the band, until reached |
-| **FOLLOW** | 1 | a camera VELOCITY in 1/256 px a frame eases toward the ball's (by a quarter of the difference a frame) plus a correction toward the dead-zone centre; its POSITION accumulates and steps a column whenever it crosses a column, so steps come at an even cadence that matches the ball | the same, in lines, stepping a row whenever it crosses a row |
+| **FOLLOW** (removed in wave 2, 128.11.11.1) | 1 | a camera VELOCITY in 1/256 px a frame eases toward the ball's (by a quarter of the difference a frame) plus a correction toward the dead-zone centre; its POSITION accumulates and steps a column whenever it crosses a column, so steps come at an even cadence that matches the ball | the same, in lines, stepping a row whenever it crosses a row |
 | **TRICKLE** | 2 | wave 0's camera exactly (128.5): kept for the A/B | wave 0's |
 
 All three keep 128.2's limits: at most `BZ_MAXR` rows and `BZ_MAXC` columns a
@@ -253655,15 +253655,26 @@ directions at least five times on both cards at step rates 0.96 - 1.04 of the
 real one over `BENCH`'s 1,200 frames with `BENCH`'s ball; `bonanzaring` is
 the glass's proof. If a direction falls short, the route's `way` lines move.
 
+**FOLLOW is removed in wave 2 (the owner, 2026-11-12, after playing wave 1:
+"Glide: feels pretty good. Follow: no good, the most jerky. Trickle: a
+'classic' style, but the jerky feeling when very slow makes it probably worse
+than glide. Keep Glide/Trickle as the two camera options").** This amends
+128.9: the camera has TWO modes, GLIDE (`bz_cmode` 0, the default) and
+TRICKLE (`bz_cmode` 1, wave 0's camera exactly); `C` toggles between them in
+play and on the desktop (a held `C` is one press, below), the face names the
+mode, and the choice persists for the session. `bz_camfollow` and every byte
+that serves only FOLLOW are deleted, not kept behind a flag; 128.9's FOLLOW
+row and its cadence figures stay as the record of why. Any row or red arm
+that cycles the modes cycles two. The benchmark still runs GLIDE.
+
 **The camera follows `z`, and a bounce bobs it.** `bz_by` includes `-z`
-(128.10.8), so the camera's vertical decision sees every bounce: FOLLOW eases
-toward the ball and pans the window with each one (a 6-unit drop's first
-rebound is 29.6 px up and down again, about 51 steps), GLIDE pans only when
-the ball leaves its band, TRICKLE in between. Wave 2 does NOT change the
-target (a ground-line target would re-open 128.9's measured routes for all
-three modes); it MEASURES the bob - `bonanzaperf`'s TRIAL leg reports the
-rows panned per bounce in each mode - and O9, the owner's choice of camera,
-now carries it.
+(128.10.8), so the camera's vertical decision sees every bounce (a 6-unit
+drop's first rebound is 29.6 px up and down again, about 51 steps): GLIDE
+pans only when the ball leaves its band, TRICKLE steps a row whenever the
+ball's edge crosses the band's. Wave 2 does NOT change the
+target (a ground-line target would re-open 128.9's measured routes); it
+MEASURES the bob - `bonanzaperf`'s TRIAL leg reports the rows panned per
+bounce in each of the two modes - for the owner to judge by feel.
 
 ##### 128.11.11.2 A held key on the desktop is one press
 
@@ -254074,7 +254085,7 @@ None blocks wave 2; each has the default wave 2 builds.
 |---|---|---|
 | O2 | (wave 1's, carried) How the arrows map to the ground, (a) along the screen through the ground, (b) equal screen speed, (c) plan 5.3's 45-degree rotation (128.10.12) - and, with it, the round-up drag's DEAD BAND: one arrow's top speed depends on how the ball got there (rubber 189 from rest, 252 from above), which is why the materials' one-arrow tops (189, 255, 155) are not designed numbers. A fractional drag (a byte of remainder an axis, about 30 clk a step) would make the top speed a material property. Wave 2 builds neither | (a) and the round-up drag; both offered again in wave 3, after the owner has rolled wave 2's three balls |
 | O8 | (wave 1's) The occluders: wave 2 keeps the reachable set, merges records exactly, bounds them per block (4, which `BENCH` meets with no headroom) and pays them once on the disk (128.11.3, 128.11.4). Option (c), void positions only in pits, would halve the records (`BENCH` 1,422) at the price of a ball drawn over the plateau it falls behind, for about 0.4 s on every back-edge fall; the kill at the lip (2,271) at the price of seeing no fall at all | as built |
-| O9 | (carried) Which camera mode feels best? GLIDE is the default, FOLLOW and TRICKLE stay for the A/B. New with wave 2: every mode's vertical follows the ball's `z`, so FOLLOW bobs with each bounce (128.11.11.1); `bonanzaperf` reports the rows panned per bounce. A ground-line vertical target is possible and would re-prove every mode's route | GLIDE, following `z` |
+| O9 | **ANSWERED (the owner, 2026-11-12): GLIDE and TRICKLE, the player's choice; FOLLOW removed** (128.11.11.1). Still open: every mode's vertical follows the ball's `z`, so a bounce bobs the camera; `bonanzaperf` reports the rows panned per bounce. A ground-line vertical target is possible and would re-prove the routes | GLIDE default, TRICKLE by `C`; vertical following `z` |
 | O10 | (carried) Wave 0b's benchmark route change (128.9) and wave 1's (128.10.11.1): unanswered | as built |
 | O11 | The materials' constants (128.11.5.1) and the surfaces' (128.11.6.2): restitution, Hop, Grip, the stun's second and its 2-unit threshold, the shatter's 3 units, steel's 13-tile coast, glass's 341 top; rubber's chatter, 6 bounces and 3.2 s from the vertical cap; the mat's, 10 bounces and 5.3 s (a mat is a trampoline: Grip or Space ends it); a stone rail's rattle, 0.7 s for rubber at one arrow's speed | the tables, PROVISIONAL; tuned by the owner's play |
 | O12 | The ball is picked on the desktop (`M`, from the course's own); pads that swap it on the course are wave 4's | as built |
