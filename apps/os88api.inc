@@ -6469,7 +6469,8 @@ OSAPI_FT_UP   equ 3             ; the synthesized '..' (SPEC.md 19.5)
                                  ; unclamped, + right/down), both then zeroed;
                                  ; AL = buttons as OSAPI_MOUSE. Everything else
                                  ; kept. The mouse-look call: the first answer
-                                 ; after entry is the desktop's, so discard it
+                                 ; after entry is the desktop's, so discard it.
+                                 ; kern_small REFUSES: CF = 1, AX = 1
 
 ; --- the two cells a PACKAGE may not call (SPEC.md 19.6.1) --------------------
 ; It is published here because a DRIVER assembles against this same SDK, and

@@ -19765,7 +19765,8 @@ function `0Bh`'s mickey counters (§96.10.2, docs/plans/DOS-EXEC-PLAN.md).
 
 **The accumulator.** `mou_apply` adds the report's signed dx and dy into two
 `.bss` words, `[mou_rx]` and `[mou_ry]`, BEFORE the clamp — two `add`s, eight
-bytes, one per report on the ISR path. They are raw device units (mickeys),
+bytes, one per report on the ISR path (not on kern_small, below). They are
+raw device units (mickeys),
 unscaled, positive right and DOWN, and wrap at 16 bits; nothing else reads or
 resets them. Every backend that reaches `mou_apply` feeds them: the serial
 mouse, the PS/2 mouse (§9.9) and the CH375 (§9.12). The keyboard mouse
@@ -19774,6 +19775,13 @@ whose arrows a game reads as keys anyway. The VMware absolute pointer
 (§9.11) joins at `mou_apply_abs`'s tail, past the add, so on `kern_emu` with
 the backdoor live the words do not move: an absolute device has no motion to
 report, and a package wanting one there differences `OSAPI_MOUSE`.
+
+**kern_small refuses it** (the owner, 2026-11-12: that kernel's 64KB
+budget is held below a rung the 38 bytes would cross). Its cell is still at
+0x0236 — a table cell's position is ABI on every kernel — and jumps to a
+six-byte body answering CF = 1, AX = 1 (§20.3.4's refusal); the accumulator
+and its words are compiled out. Ten bytes of `.text` there, against 38 on the
+others. If a size pass ever makes room, the gate comes off.
 
 **The cell** is a jump cell at the table's end (the `OSAPI_FILE_FIND_SEQ`
 shape, §19.7.1.1), in every kernel:
@@ -19790,9 +19798,10 @@ every hot routine assembled after it needs (`tests/unit/t_hotpar.py`). The first
 boot answers whatever motion the desktop saw, so a mouse-look calls it once
 on entry and discards the answer.
 
-**Cost**, on every kernel: the eight bytes in `mou_apply`, four of `.bss`,
-the three-byte cell and its body. The design question was *do we spend ~40
-resident bytes for relative motion on every machine* (§1's banner) — yes,
+**Cost**, on kern_big and kern_mega: the eight bytes in `mou_apply`, four
+of `.bss`, the three-byte cell, its body and the table's parity pad, 38 bytes
+measured on kern_big. The design question was *do we spend ~40
+resident bytes for relative motion* (§1's banner) — yes on the two big kernels,
 because the alternative is each mouse-steered package taking the UART for
 itself (WireBall's shape, §109.1), which kern_small cannot do (no rate hook,
 §53.2.2) and which leaves a PS/2 mouse out.

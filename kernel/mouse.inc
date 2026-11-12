@@ -1647,6 +1647,7 @@ osapi_mouse:
     mov al, [mouse_btn]
     ret
 
+%ifndef KERN_SMALL
 ; osapi_mouse_rel - OSAPI_MOUSE_REL (0x0236, SPEC.md 9.14), a JUMP cell: the
 ; caller's far call lands here with its own DS. Out CX = dx, DX = dy, the raw
 ; mickeys since the last call, each taken and zeroed by one xchg; AL =
@@ -1667,6 +1668,16 @@ osapi_mouse_rel:
     popf
     pop ds
     retf
+%else
+; kern_small: OSAPI_MOUSE_REL REFUSES (SPEC.md 9.14) - the owner gated the
+; accumulator out of the 64KB machine's budget. The cell stays where every
+; kernel has it and lands here: AX = 1, CF = 1 (`cmp al, 2` borrows as `stc`
+; sets it, and makes the body six bytes, EVEN, for t_hotpar)
+osapi_mouse_rel:
+    mov ax, 1
+    cmp al, 2
+    retf
+%endif
 
 %ifdef KERN_BIG
 ; =============================================================================
@@ -4366,8 +4377,12 @@ mou_apply:
                                 ; awake all night. One store, no register - the
                                 ; UI task spends it, so nothing in an ISR
                                 ; touches a video port or reads a clock
+%ifndef KERN_SMALL
     add [mou_rx], ax            ; THE MICKEYS, before the clamp can eat them
-    add [mou_ry], bx            ; (SPEC.md 9.14): OSAPI_MOUSE_REL's two words
+    add [mou_ry], bx            ; (SPEC.md 9.14): OSAPI_MOUSE_REL's two words.
+%endif                          ; kern_big and kern_mega: the owner gated
+                                ; kern_small out (its 64KB budget), whose cell
+                                ; refuses
     add ax, [mouse_x]           ; STAGED, not stored: the clamp is 2-D on a
     add bx, [mouse_y]           ; machine with two displays (SPEC.md 39.15.4)
                                 ; and cannot answer about x until y is known -
@@ -6900,9 +6915,11 @@ mou_whl     resw 1              ; the WHEEL, notches owed, signed, positive
                                 ; one xchg, so a spin is one scroll however fast
                                 ; it comes and can never flood the event ring
 %endif
+%ifndef KERN_SMALL
 mou_rx      resw 1              ; raw dx and dy summed since the last
 mou_ry      resw 1              ; OSAPI_MOUSE_REL (SPEC.md 9.14): signed,
                                 ; unclamped, unscaled, wrapping at 16 bits
+%endif
 cur_lazy    resb 1              ; gfx_lock deferred the hide (SPEC.md 7.1.4):
                                 ; the arrow is still on screen this hold
 cur_off     resw 1              ; cur_geom's answers, banked for cur_get_mono:
