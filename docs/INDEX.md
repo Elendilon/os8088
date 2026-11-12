@@ -348,6 +348,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | ARKANOID | `apps/arkanoid/arkanoid.asm` | §44 | yes |
 | AUDIO PLAYER | `apps/audio/audio.asm` | §86 | yes |
 | ArtfulType | `apps/artful/artful.asm` | §46 | yes |
+| BONANZA | `apps/bonanza/bonanza.asm` | §128 | no |
 | BROWSER | `apps/browser/browser.asm` | §71 | yes |
 | Bounce | `apps/bounce/bounce.asm` | §112 | yes |
 | C64 | `apps/c64/c64.asm` | `docs/C64-SPEC.md` | yes |

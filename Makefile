@@ -21311,3 +21311,77 @@ wireballtest: wireballdisk $(IMG)
 # Native WireBall art is reproducible from the committed imagegen source.
 apps/wireball/art/wbfront.inc: apps/wireball/art/splash-source.png tools/wbfront.py
 	python3 tools/wbfront.py
+
+# BONANZA (Bounce Bonanza, SPEC.md 128): an isometric rolling-ball game that
+# hardware-scrolls in both directions on the CGA and the Hercules. Wave 0 is
+# the engine spike. Its art is GENERATED, by tools/bonanza_assets.py from code
+# alone (no input file, no reference game), so this block needs NASM and
+# Python and nothing else. `local` in apps/RETIRED.txt: NOT in `all`, on no
+# standard image, allapps floppy or live media; `bonanzadisk` is its own
+# floppy in all four geometries.
+BZ_ART := $(BUILD)/bonanza-art
+BZ_GEN := $(addprefix $(BZ_ART)/,bzconst.inc BZCRSC.BIN BZCRSH.BIN BZBALC.BIN BZBALH.BIN)
+.PHONY: bonanza bonanzadisk bonanza-art bonanza-check
+# One run emits every generated file. The stamp is written first and holds a
+# hash of the tool, so an edited course rebuilds the package and the disks; a
+# generated file that is missing removes the stamp and asks for it again (a
+# deleted output must not be silently skipped).
+$(BZ_ART)/.bz-art: tools/bonanza_assets.py | $(BUILD)
+	python3 tools/bonanza_assets.py -o $(BZ_ART)
+$(BZ_GEN): $(BZ_ART)/.bz-art
+	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
+bonanza-art: $(BZ_GEN)
+# The host-side gate (determinism, the block count, the map, the Hercules
+# rule, the ball's mask/frame invariants, negative controls): the
+# bonanzaassets soak row; this is the by-hand form.
+bonanza-check:
+	python3 tools/bonanza_assets.py --selfcheck
+
+$(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bonanza/bzgame.inc \
+                      apps/os88api.inc apps/os88ui.inc apps/os88alt.inc apps/os88parts.inc \
+                      apps/os88partsbody.inc apps/os88rseq.inc apps/os88pself.inc $(BZ_ART)/bzconst.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -l $(BUILD)/bonanza.lst -o $@ $<
+
+# THE FOUR ART FILES ARE PARTS OF IT (SPEC.md 128.3, 20.12), and this --part
+# order MUST equal the OS88_PART rows' order in apps/bonanza/bonanza.asm:
+# the course for each card, then the ball for each card.
+BZ_PARTS := $(addprefix $(BZ_ART)/,BZCRSC.BIN BZCRSH.BIN BZBALC.BIN BZBALH.BIN)
+$(BUILD)/bonanza.o88: $(BUILD)/bonanza.bin $(BZ_PARTS) tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $< -o $@ $(foreach p,$(BZ_PARTS),--part $(p))
+
+#> [Applications] bonanza :: Bounce Bonanza's package, BONANZA.O88, with its generated art as parts (SPEC.md 128)
+bonanza: $(BUILD)/bonanza.o88
+
+# The disk is the package and its README, LZ-wrapped like every other data
+# file (SPEC.md 20.14); `make PKGZ=` ships it raw.
+BZ_Z := $(ZDATA)/bonanza
+BZ_DATA := apps/bonanza/README.md
+BZ_DISKFILES := $(BUILD)/bonanza.o88 $(if $(PKGZ),$(addprefix $(BZ_Z)/,$(notdir $(BZ_DATA))),$(BZ_DATA))
+$(BZ_Z)/README.md: apps/bonanza/README.md tools/os88lz.py $(PKGZSTAMP) | $(BUILD)
+	@mkdir -p $(BZ_Z)
+	python3 tools/os88lz.py --wrap $@ --fmt $(PKGZ) $<
+$(BUILD)/bonanza.img: $(BZ_DISKFILES) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BZ_DISKFILES)
+	python3 tools/os88disk.py --verify $@
+$(BUILD)/bonanza720.img: $(BZ_DISKFILES) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 720 $(BZ_DISKFILES)
+	python3 tools/os88disk.py --verify $@
+$(BUILD)/bonanza120.img: $(BZ_DISKFILES) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1200 $(BZ_DISKFILES)
+	python3 tools/os88disk.py --verify $@
+$(BUILD)/bonanza360.img: $(BZ_DISKFILES) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BZ_DISKFILES)
+	python3 tools/os88disk.py --verify $@
+#> [Applications] bonanzadisk :: Bounce Bonanza's floppy, package and README, in all four geometries (SPEC.md 128.1)
+bonanzadisk: $(BUILD)/bonanza.img $(BUILD)/bonanza720.img $(BUILD)/bonanza120.img $(BUILD)/bonanza360.img
+# SPEC.md 128.8's two MartyPC rows, by hand (the soak rows bonanzaring and
+# bonanzaperf run the same scripts). The ring's red arms build a broken copy
+# of the package into a temporary directory, never $(BUILD):
+# `python3 tests/bonanza_ring.py --red colright|colfirst`.
+.PHONY: bonanzaring bonanzaperf
+#> [Applications] bonanzaring :: Bounce Bonanza's ring on MartyPC, CGA and Hercules: card memory through the ring = the host's picture (SPEC.md 128.8)
+bonanzaring: bonanzadisk $(BUILD)/os8088-360.img
+	python3 tests/bonanza_ring.py
+#> [Applications] bonanzaperf :: Bounce Bonanza's frame cost on MartyPC, CGA and Hercules: period and parts over the benchmark (SPEC.md 128.8)
+bonanzaperf: bonanzadisk $(BUILD)/os8088-360.img
+	python3 tests/bonanza_perf.py

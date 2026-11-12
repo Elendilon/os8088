@@ -250922,7 +250922,17 @@ plan 6.4).
    written once the new start is latched, and must stay ahead of the beam.
    This is the cell rule 1 leaves out: a diagonal step's corner belongs to the
    column.
-4. **Boxes** (128.4) after the columns.
+4. **Boxes** (128.4) are written IN THE COLUMN'S RASTER ORDER: the entering
+   column's rows ABOVE the boxes' top row first, then the boxes, then the
+   column's remaining rows (`bz_csplit`). When a box holds a cell of the
+   entering column, or there is no box, the whole column goes first. Writing
+   the whole column first and the boxes after it left the ball's box behind
+   the beam for one refresh whenever the camera was clamped at the course's
+   top and the ball sat high in the window (MartyPC, CGA: five of five such
+   frames, 72-114 px; after the split ten of ten clean on each card). Writing
+   the boxes first instead would leave the column's top rows behind the
+   beam. One corner is still open: a box at window row 0 gives the column
+   no rows above it, so the whole column follows the box.
 
 A row that is entering and a column that is entering are both drawn wholly
 from the course; nothing on the card is ever read.
@@ -250951,7 +250961,8 @@ eight lines of one word each, the byte order the card wants (left byte
 first). Block 0 is all black. A CGA block word is 8 pixels at 2 bits; a
 Hercules block word is 8 game pixels as 16 card bits: index 0 `00`, index 3
 `11`, indices 1 and 2 the mid level `10`/`01` alternating with
-`(line + column)` (§102.7.1's tile rule).
+`(line + column)` (§102.7.1's tile rule): `10` where `line + column` is
+even, `01` where it is odd.
 
 **Ball part**: `+0` magic `BZB0`, `+4` word frame count (64), `+6` word
 shifts (4), `+8` word rows (16), `+10` word bytes a row (5), `+12` four
@@ -250960,14 +250971,24 @@ keeps the background); then the FRAMES, `4 x 64 x 16 x 5` bytes (shift, then
 frame, then row), already ANDed with the inverse mask. Shift `s` is the ball
 moved `s` game pixels right inside its 5-byte row. Frame `f = (py & 7) * 8 +
 (px & 7)`, where `(px, py)` is the ball's position in world pixels (128.5).
-Hercules ball pixels: index 0 `00`, 3 `11`, 1 and 2 `10`.
+Hercules ball pixels: index 0 `00`, 3 `11`, 1 and 2 `10`. (That fixed mid
+level shows as vertical stripes where the course shows a checker; the frame
+index already carries the ball's pixel parity, so a later wave can give the
+ball the course's checker at no run-time cost.) The mask is the same disc in
+every frame and is stored identically in both ball parts.
 
 The ball's 64 frames are the phase torus of plan section 4: a 16 px disc
 sampling an 8-periodic texture through `u = R asin(x/R)`, lit from the upper
-left, a dithered terminator, a dark 1 px rim.
+left, a dithered terminator, a dark 1 px rim. The texture is sampled at
+`u = R asin(x/R) - phase`, so the spots travel WITH the ball: the face the
+camera sees is above the equator.
 
-`bzconst.inc` carries `BZ_COLS`, `BZ_BROWS`, the part sizes and the world
-pixel size, so a course change re-sizes the package rather than breaking it.
+`bzconst.inc` carries `BZ_COLS`, `BZ_BROWS`, the part sizes and offsets
+(`BZ_CRS_*`, `BZ_BAL_*`), the world pixel size, the ball's limits
+(`BZ_BXMIN`..`BZ_BYMAX`), its start, and the autopilot's waypoints
+(`BZ_NWAY`, the `BZ_WAYTAB` macro), so a course change re-sizes the package
+rather than breaking it. Wave 0's course: 293 distinct blocks, each course
+part 30,304 bytes.
 
 ### 128.4 THE FRAME
 
@@ -250977,9 +250998,18 @@ pixel size, so a course change re-sizes the package rather than breaking it.
 | `bz_ts` | the BOX composed in RAM: the union of the ball's old and new footprints, clipped to the NEW window, filled from the course and the ball drawn into it (mask AND, frame OR) |
 | `bz_tr` | entering rows (rule 1) |
 | `bz_tv` | the retrace wait: CGA 3DAh bit 3 high, Hercules 3BAh bit 7 low, bounded by two sub-ticks (three on the Hercules); its time is IDLE |
-| `bz_tf` | `S_new` to R12/R13, then entering columns (rule 3) |
-| `bz_tb` | the box to the card, a line at a time, split where the ring wraps |
+| `bz_tf` | `S_new` to R12/R13, then the entering column's rows above the boxes (rules 3 and 4) |
+| `bz_tb` | the boxes to the card, a line at a time, split where the ring wraps |
+| `bz_tc` | the entering column's remaining rows; a mark only on a frame that splits its column |
 | `bz_presented` | the frame's end: `bz_frames` counts it |
+
+The instruments' "flip+columns" part is `bz_tf`..`bz_tb` plus
+`bz_tc`..`bz_presented`; "box write" is `bz_tb`..`bz_tc`, or
+`bz_tb`..`bz_presented` when no column rows follow the boxes.
+
+**A retrace wait that times out** is counted (`bz_tos`) and the frame is
+finished anyway; it is not rolled back. A full-write frame skips the wait and
+is left out of the means.
 
 The display is paced by the RETRACE, never by a sub-tick wait. A frame whose
 work misses a retrace waits for the next one, so the display rate is the
@@ -250998,8 +251028,10 @@ The ball is at `(bx, by)`, world pixels with an 8-bit fraction, inside the
 course minus a 16 px margin, with velocity `(vx, vy)` in 1/256 px a step.
 **Wave 0 has no heightfield**: the arrow keys apply an acceleration
 (`OSAPI_KEY_DOWN`), a small drag acts always, and the course's edges reflect
-the velocity with a restitution of one half. Later waves replace this with
-plan section 5's physics.
+the velocity with a restitution of one half. The arrows push along the
+SCREEN axes. Acceleration 8, drag |v|/64 rounded up, top speed 512 (in
+1/256 px a step; 2 px a step keeps the old and new footprints inside one box
+at the full rate). Later waves replace this with plan section 5's physics.
 
 **The ball's frame is a function of its POSITION**: `f = ((by >> 8) & 7) * 8
 + ((bx >> 8) & 7)`. Rolling by a pixel moves the phase by a pixel, so the
@@ -251020,31 +251052,66 @@ clamped to the course.
 | arrows | play | roll |
 | Esc, F, Alt+Enter | play | back to the desktop |
 
-**The autopilot** steers toward a fixed list of waypoints (a long diagonal
-descent, a traverse left, a climb, a sprint down) as if the arrow keys were
-held toward the next one. It moves the camera on both axes, in both
-directions, including diagonal steps. It is deterministic from the first
-frame.
+**The autopilot** steers toward a fixed list of waypoints as if the arrow
+keys were held toward the next one: the long diagonal descent, the traverse
+down-left to the climb's foot, the return up (up-right to the landing, then
+up-left to the start), the climb and the sprint down. The 1,200 frames cover
+about the first four legs. It moves the camera on both axes, in both
+directions, including all four diagonal steps, and `--selfcheck` asserts the
+legs go both ways in x and in y. It is deterministic from the first frame.
 
 **The instruments are in the package**, so a field machine reports the same
 numbers the emulator does: per frame the sub-tick clock is read at each mark,
 and the window shows, after a benchmark, the frames, the display rate, and
 the mean PIT counts of each part of the frame converted to CPU clocks
-(x 4). MartyPC rows read the same marks as zero-cost logged breakpoints
+(x 4), the column, row and full-write counts, the MISSES (frames whose
+period passed 1.5 refreshes: `BZ_MLIMC` 29,870 PIT counts on the CGA,
+`BZ_MLIMH` 35,795 on the Hercules) and the worst frame in clocks. A
+benchmark's end copies the live counters into a results copy (`bz_r*`) and
+that is what the window shows. Play mode measures nothing. Each mark costs
+about 0.5k clocks of its own, billed to the part it closes and not
+subtracted. MartyPC rows read the same marks as zero-cost logged breakpoints
 instead.
+
+The window's keys line reads `ENTER play   B benchmark`; F and Alt+Enter
+work but are not shown.
 
 ### 128.7 Memory
 
 The image and bss stay under one segment. The parts are fetched on the
 DESKTOP before the bracket (a refusal can then toast), the two for the adapter
 in use: the course part (16 + 25,600 + 16N bytes, at most 42,000) and the
-ball part (16 + 320 + 20,480 bytes). The box buffer (at most 8 bytes x 24
-lines) is bss. Both claims are dropped when the bracket ends, on every way out.
+ball part (16 + 320 + 20,480 bytes). The box buffers are bss: TWO of at
+most 8 bytes x 24 lines (384 bytes), because the old and new footprints are
+one box when their union fits 4 words x 24 lines and two boxes otherwise.
+Where two boxes overlap, those bytes are written twice. Both claims are
+dropped when the bracket ends, on every way out. Wave 0's image is 6,191
+bytes with 813 of bss.
 
 ### 128.8 The rows
 
 | row | tier | asserts |
 |---|---|---|
 | `bonanzaassets` | soak | `tools/bonanza_assets.py --selfcheck`: determinism, block count, the ball's mask/frame invariants |
-| `bonanzaring` | soak | MartyPC, CGA and Hercules: after autopilot frames in every scroll direction, the card memory decoded through the ring at the package's shown `S` equals the host's picture of the course window with the ball composited; the same decode at `S + 1` must FAIL (the negative control) |
-| `bonanzaperf` | soak | MartyPC, CGA and Hercules: the frame period and every mark's share over the benchmark route, cycle-exact. Reports; asserts only the floor that the display holds at least half the refresh |
+| `bonanzaring` | soak | MartyPC, CGA and Hercules (`tests/bonanza_ring.py`). (1) GLASS: the ball at rest, the card decoded through the ring and the rendered framebuffer (CGA a 320x200 field; Hercules the 200-line field, nothing lit outside it) both equal the host's picture. (2) Over the benchmark, at `bz_presented` the card at the new `S` equals this frame's picture, and at `bz_tf` (retrace begun, start not yet written) the card at the OLD `S` still equals the previous frame's: the check that sees the ORDER of rules 1 and 3. It fails if any of the 8 scroll directions never occurs. (3) Negative controls: the decode at `S + 1`, and pokes of `bz_c0 + 1` and `bz_R0 + 1`, must each FAIL. `--red colright|colfirst` builds a deliberately broken copy in a private tree and must go red |
+| `bonanzaperf` | soak | MartyPC, CGA and Hercules (`tests/bonanza_perf.py`): the frame period and every mark's share over the benchmark route, cycle-exact, from logged breakpoints. Asserts the floor (mean period at most 2 refreshes) and that the package's own `bz_r*` instruments agree with the breakpoints (parts and period within 10% or 200 clk, counts exactly) |
+
+**Wave 0's measurement** (MartyPC, the 1,200-frame benchmark, mean CPU clocks
+a frame):
+
+| | CGA (79,653 clk refresh, 59.9 Hz) | Hercules (93,969 clk refresh, 50.8 Hz) |
+|---|---|---|
+| sim + camera | 7,651 | 8,166 |
+| box compose | 23,520 | 23,549 |
+| rows | 4,508 | 5,388 |
+| retrace wait (idle) | 33,452 | 46,602 |
+| flip + columns | 2,789 | 2,423 |
+| box write | 7,856 | 7,730 |
+| display rate | 59.8 Hz, 2 misses in 1,199 | 50.85 Hz, 0 misses |
+
+Both cards hold the full refresh; busy time is 58% of a CGA refresh and 50%
+of a Hercules one. The two CGA misses are two-row frames with no column. The
+Hercules 200-line field refreshes at 50.8 Hz on MartyPC, not 50, so
+`BZ_MLIMH` is about 1.52 of its refreshes; and because the retrace wait tests
+a LEVEL, a frame can present anywhere in the blank, so a single frame's
+period swings by about half a refresh without a miss.

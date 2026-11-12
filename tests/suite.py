@@ -5011,6 +5011,50 @@ SOAK = [
         "effect) that must be REFUSED - a guard nobody has seen fire is a "
         "guard nobody knows is alive",
         needs=("nasm",)),
+    Row("bonanzaassets", "soak", ["python3", "tools/bonanza_assets.py", "--selfcheck"], 2.0,
+        "BONANZA's asset generator (SPEC.md 128.3, 128.8): two runs "
+        "byte-identical file for file, the deduplicated block count under "
+        "1,024, block 0 black, every map word a block offset and the map and "
+        "blocks decoded back to the course picture, each Hercules block its "
+        "CGA block by the pair rule, and the ball's invariants (mask pixels "
+        "00/11, no frame bit under a set mask bit, shifts 0-3, the same disc "
+        "every frame, every frame unlike its phase neighbours), with a "
+        "negative control for the map and the mask guards. Host only, "
+        "standard library, nothing external"),
+    Row("bonanzaring", "soak", py("tests/bonanza_ring.py"), 31.0,
+        "BONANZA's two-way ring on MartyPC's CGA and Hercules (SPEC.md 128.2, "
+        "128.8): play mode with the ball at rest, the card's own "
+        "rasterisation (m.fbuf) equals the host's course picture - a 320 x "
+        "200 field on the CGA, a 200-line field of pixel pairs with nothing "
+        "lit outside it on the Hercules; then the BENCHMARK's autopilot "
+        "stopped at bz_tf and bz_presented on the full write, the first "
+        "frames of all eight scroll directions and one moving frame in 97: "
+        "card memory decoded through the ring at the package's bz_S equals "
+        "the host's window with the ball composited at bz_presented, and at "
+        "bz_tf (retrace come, start address not yet written) the OLD window "
+        "is still the last frame's picture - the ORDER of rules 1 and 3, "
+        "which an end-state check cannot see. Fails if a direction never "
+        "occurs. Negative controls: the decode at S+1 and a poked wrong "
+        "camera (bz_c0+1, bz_R0+1) must mismatch, and the glass one column "
+        "over. Red arms `--red colright|colfirst` (by hand; a broken copy "
+        "built in a temporary directory) go red: colfirst only at bz_tf",
+        needs=("marty", "nasm"), timeout=600,
+        wants=("build/bonanza360.img", "build/os8088-360.img")),
+    Row("bonanzaperf", "soak", py("tests/bonanza_perf.py"), 24.0,
+        "BONANZA's frame cost on MartyPC's 4.77 MHz XT, CGA and Hercules "
+        "(SPEC.md 128.4, 128.6, 128.8): the benchmark's 1,200 frames under "
+        "LOGGED breakpoints on the frame marks and writers (zero guest "
+        "cost) - period mean/min/max/p99 in clocks and Hz against the card's "
+        "refresh, frames held 1/2/3+ refreshes and each miss's parts, every "
+        "part's mean and share, columns/rows/full writes a frame. Asserts "
+        "only the FLOOR (mean period <= two refreshes) and that the "
+        "package's own PIT instruments (bz_r*) agree with the breakpoints: "
+        "parts and period within 10% (or 200 clk), counts exactly. "
+        "Measured: CGA 59.83 Hz on a 59.92 Hz refresh, 2 misses in 1,199; "
+        "Hercules 50.85 Hz on 50.8, none. A guest-cycle count, so host load "
+        "cannot move it",
+        needs=("marty", "nasm"), timeout=600,
+        wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("arclock", "soak", py("tests/arclock.py", "build/arcade/invcode.bin",
                               "build/arcade/invaux.bin",
                               "build/arcade-rom/INVADERS.ROM", "--frames", "600",
