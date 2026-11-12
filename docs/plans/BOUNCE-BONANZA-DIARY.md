@@ -557,3 +557,12 @@ the wave-0b cadence measurement predicted - a camera that matches the ball's
 speed must hop as often as the ball crosses 8 px, so FOLLOW only evened the
 gaps - and the eye agreed with the numbers. Folded into wave 2 while its
 build was on its first stage (SPEC.md 128.11.11.1, story 2.15).
+
+**Two more answers the same evening.** The benchmark route: the owner had
+only wave 1's, which "kind of goes in a circle a bit on a single bit of the
+stage" - fine as an engine benchmark, but the real benchmark should be
+**demos the owner records** once there are longer courses, so recording to
+disk joins wave 4. And O8: the exact merge of occluder records is accepted
+("losing nothing on screen and merging art seems fine"), with the note that
+the package's size means parting it out further at some point - also wave
+4, once five courses are measured.

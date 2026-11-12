@@ -1155,6 +1155,19 @@ until the final pass; the rows run once, after the last batch.
       cup.
 - [ ] Speaker sound (section 10).
 - [ ] The mouse as a tilt stick.
+- [ ] **Recorded demos as the benchmark** (the owner, 2026-11-12, SPEC.md
+      128.11.18 O10 and O18). Wave 2's replay log saved to disk and loaded
+      back - a file read off a disk is hostile input, checked in full
+      before any part row is chosen - so the owner can record demos on the
+      longer courses; B plays a recorded demo and prices it with the same
+      instruments, and the perf row runs the shipped demos. Wave 0b's
+      autopilot route stays as the ENGINE benchmark until the demos replace
+      it.
+- [ ] **Part out further as the courses grow** (the owner, 2026-11-12, O8):
+      courses are already lazy parts, so only the course being played is
+      in memory, but every course still rides in `BONANZA.O88`. Decide
+      when five courses are measured: courses as separate files (O1, with
+      the hostile-input pass), a second disk, or a part set per course.
 
 **Wave 5: the machines.**
 - [ ] Hercules polish (pair art, its blank budget).
