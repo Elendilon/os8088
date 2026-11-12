@@ -123,11 +123,6 @@ IMAGES = {
     "debug-sound-720.img": (2, "os8088-720.img's shape"),
     "debug-sound-120.img": (2, "os8088-120.img's shape"),
     "debug-sound.img":     (2, "os8088.img's shape"),
-    # ...and the input debug disk (SPEC.md 127.5), the same shape again
-    "debug-input-360.img": (2, "os8088-360.img's shape"),
-    "debug-input-720.img": (2, "os8088-720.img's shape"),
-    "debug-input-120.img": (2, "os8088-120.img's shape"),
-    "debug-input.img":     (2, "os8088.img's shape"),
 }
 # ...whose kernel is build/smallk's, so its stage-2 read is priced off that
 # kernel's own packed layout and not the big one's
@@ -325,10 +320,6 @@ STAGE2 = {
     "debug-sound-720.img": 10,
     "debug-sound-120.img": 7,
     "debug-sound.img": 6,
-    "debug-input-360.img": 10,
-    "debug-input-720.img": 10,
-    "debug-input-120.img": 7,
-    "debug-input.img": 6,
 }
 
 

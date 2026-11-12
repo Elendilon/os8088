@@ -69,9 +69,7 @@ IMAGES = [("os8088-360.img", ""), ("os8088-720.img", ""),
           # the sound debug disk (SPEC.md 127): the system disk's boot and
           # kernel at the system disk's LBA, on all four geometries
           ("debug-sound-360.img", ""), ("debug-sound-720.img", ""),
-          ("debug-sound-120.img", ""), ("debug-sound.img", ""),
-          ("debug-input-360.img", ""), ("debug-input-720.img", ""),
-          ("debug-input-120.img", ""), ("debug-input.img", "")]
+          ("debug-sound-120.img", ""), ("debug-sound.img", "")]
 # ...and kern_mega's and kern_emu's, which `make mega` and `make emu` build
 # and `all` does not: walked IN FULL when the image carries its tree's
 # current KERNEL.SYS, and named as stale otherwise - a tree that has run

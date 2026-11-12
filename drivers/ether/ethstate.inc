@@ -71,15 +71,8 @@ eth_mode:   db ECM_DHCP         ; ECM_*: where the four above came from
 ; --- scratch -----------------------------------------------------------------
 eth_pr:     db 0                ; the protocol of the frame being built
 eth_dip:    times 4 db 0        ; ...and where it is really going
-%ifndef ETH_NORAW
-eth_dport:  dw 0                ; ...and, NETV_UDPTX's, the port: the
-                                ; package's six bytes land on these two
-                                ; (ethsock.inc), where ip_start banks a
-                                ; destination anyway
-  %if eth_dport != eth_dip + 4
-    %error "NETV_UDPTX reads the destination's six bytes into eth_dip and eth_dport"
-  %endif
-%endif
+eth_ipid:   dw 1
+eth_ph:     times 4 db 0        ; the pseudo-header's tail (ip_pseudo)
 eth_ph2:    times 4 db 0        ; a 32-bit scratch for sequence arithmetic
 eth_oflg:   db 0                ; the flags tcp_out is sending...
 eth_flg:    db 0                ; ...and the ones tcp_seg received. TWO WORDS
@@ -100,6 +93,7 @@ eth_now:    dw 0
 eth_dl:     dw 0
 eth_hnd:    db 0
 eth_useg:   dw 0                ; the calling package's segment (eth_pkg)
+eth_usi:    dw 0                ; ...and the offset it handed NETV_OPEN
 eth_busy:   db 0                ; THE CARD'S MUTEX (SPEC.md 72.2.2). One byte,
                                 ; and the first thing in this driver that two
                                 ; tasks touch: eth_useg above is one word for

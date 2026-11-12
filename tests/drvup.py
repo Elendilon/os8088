@@ -213,8 +213,9 @@ def run_net(m, mo, mono):
     quiet(m)
 
 
-with M.launch(IMG, apps="build/apps360.img", machine=MACHINE,
-              boot="up") as m:          # the boot gate on STATE: cacheable
+with M.launch(IMG, apps="build/apps360.img", machine=MACHINE, boot=False) as m:
+    m.run()                             # the boot gate on STATE (it settled
+    M.kernel_up(m)                      # twice: launch's and this one)
     M.no_saver(m)
     mo = Mouse(marty=m)
     mono = m.video()["type"] in ("cga", "mda", "herc")

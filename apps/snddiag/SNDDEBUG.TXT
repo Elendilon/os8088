@@ -40,14 +40,8 @@ WHAT TO SEND US
 4. Copy the SOUND*.TXT files off the disk on any PC (it is an ordinary
    FAT floppy) and send them, with what you heard and the card's name.
 
-Keys: 1 to 5 pages, P runs the tone again, A the tone and then the lab,
-L the lab alone, S saves a report now (SOUNDS1.TXT), R changes the tone's
-rate (22050, 11025, 8000, 44100 Hz), V turns the D8h voice reading off and
-on, Esc quits.
+Keys: 1 2 3 pages, P runs the play test again, R changes its rate (22050,
+11025, 8000, 44100 Hz), V turns the D8h voice reading off and on, Esc quits.
 
-OTHER CHECKS ON THIS DISK
--------------------------
-The APPS folder also holds the other diagnostics, to start by hand:
-INPUTCHK.O88 (Input Check: the keyboard and the mouse) and REDLINE.O88
-(the benchmark, whose Inspect page lists the machine's hardware). For a
-keyboard or mouse report, the input debug disk is still the one to boot.
+If the tone stops when D8h sampling is on and plays through when it is off,
+say so: that is a finding too.

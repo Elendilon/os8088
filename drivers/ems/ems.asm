@@ -305,8 +305,8 @@ em_alloc:
     inc di
     cmp di, 2 * EMS_NHND
     jb .h
-    mov al, EMSE_HND
-    db 0x3D                     ; `cmp ax, imm16` swallows .room's mov
+    mov ax, EMSE_HND
+    jmp short .fail
 .got:
     mov cx, ax                  ; the run is [CX - AX, CX)
 .again:
@@ -337,8 +337,8 @@ em_alloc:
     inc ax                      ; AX = the handle
     jmp short .out
 .room:
-    mov al, EMSE_ROOM
-    cbw                         ; AX = the code
+    mov ax, EMSE_ROOM
+.fail:
     stc
 .out:
     pop si

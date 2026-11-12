@@ -75,13 +75,11 @@ def build_disk():
 def main():
     os.chdir(os.path.join(HERE, ".."))
     build_disk()
-    with M.launch(SF.SYS, apps=DISK, machine=SF.MACHINE,
-                  boot=False) as m:
-        m.run()                         # SOAK-SPEED 12: the boot is
-        M.kernel_up(m)                  # gated on state, no settle
+    with M.launch(SF.SYS, apps=DISK, machine=SF.MACHINE) as m:
+        M.settle(m)
         mo = Mouse(marty=m)
         dispcp.open_drive(m, mo, lambda n: m.sym(n), M.settle, letter="B")
-        M.ui_done(m)                    # SOAK-SPEED 4: no pixel read next
+        M.settle(m)
         mo.dblclick(*SF.APPS_FOLDER)
         M.settle(m)
         SF.open_shin(m, mo)

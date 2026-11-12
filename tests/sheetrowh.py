@@ -114,15 +114,13 @@ def main():
     build_disk()
     S = os88sym.linear
     gaps, text, low, saved = {}, {}, None, {}
-    with M.launch(SF.SYS, apps=DISK, machine=SF.MACHINE,
-                  boot=False) as m:
-        m.run()                         # SOAK-SPEED 12: the boot is
-        M.kernel_up(m)                  # gated on state, no settle
+    with M.launch(SF.SYS, apps=DISK, machine=SF.MACHINE) as m:
+        M.settle(m)
         M.no_saver(m)
         mo = Mouse(marty=m)
         table = glass.glyphs(m)
         dispcp.open_drive(m, mo, S, M.settle, letter="B")
-        M.ui_done(m)                    # SOAK-SPEED 4: no pixel read next
+        M.settle(m)
         ds = dispcp.win_list(m, S)[-1]
         wx, wy, _, _ = dispcp.win_rect(m, S, ds)
         dispcp.open_named(m, mo, S, M.settle, wx, wy, name=NAME)
@@ -161,7 +159,7 @@ def main():
         def rowheight(r, typed):
             mo.click((xs[1] + xs[2]) // 2, (ys[r] + ys[r + 1]) // 2)
             M.settle(m)
-            SF.menu(m, mo, SF.FORMAT_MENU[0], SF.FORMAT_MENU[1], *ROWH_ITEM)
+            mo.menu(SF.FORMAT_MENU[0], SF.FORMAT_MENU[1], *ROWH_ITEM)
             M.settle(m)
             m.type_text(typed + "\n")
             M.settle(m)
@@ -176,13 +174,13 @@ def main():
         def save(tag):
             before = saved.get("last") or open(os.path.join(WORK, NAME),
                                                "rb").read()
-            SF.menu(m, mo, SF.FILE_MENU[0], SF.FILE_MENU[1],
+            mo.menu(SF.FILE_MENU[0], SF.FILE_MENU[1],
                     SF.SAVE_AS[0], SF.SAVE_AS[1])
-            M.ui_done(m)                    # SOAK-SPEED 4: every step of
+            M.settle(m)
             mo.click(*SF.fdlg_xy(m, SF.FMT_ROW['bif']))
-            M.ui_done(m)                    # the save is aimed off the
+            M.settle(m)
             mo.click(*SF.fdlg_okxy(m))
-            M.ui_done(m)                    # kernel's window record
+            M.settle(m, limit=120)
             mo.click(*SF.SAVE_BUTTON)
             for _ in range(60):
                 v = os88flush.Flush(marty=m).volume(1)
@@ -198,14 +196,14 @@ def main():
         # --- 5: Insert Row at 1, save; Undo, save
         mo.click((xs[0] + xs[1]) // 2, (ys[0] + ys[1]) // 2)
         M.settle(m)
-        SF.menu(m, mo, EDIT[0], EDIT[1], *ITEM(EDIT[0], INSERT))
+        mo.menu(EDIT[0], EDIT[1], *ITEM(EDIT[0], INSERT))
         M.settle(m)
         mo.click(*SF.fdlg_xy(m, 0))                 # Row
         M.settle(m)
         mo.click(*SF.fdlg_okxy(m))
         M.settle(m)
         save("5-inserted")
-        SF.menu(m, mo, EDIT[0], EDIT[1], *ITEM(EDIT[0], UNDO))
+        mo.menu(EDIT[0], EDIT[1], *ITEM(EDIT[0], UNDO))
         M.settle(m)
         save("5-undone")
 

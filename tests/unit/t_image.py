@@ -105,9 +105,7 @@ SYSTEM_IMAGES = ["os8088.img", "os8088-120.img", "os8088-720.img",
 # (t_pkg would call it stale) and they carry no Sticky Apps (t_stikcard).
 # t_debugdisk checks what they carry instead.
 DEBUG_IMAGES = ["debug-sound.img", "debug-sound-120.img",
-                "debug-sound-720.img", "debug-sound-360.img",
-                "debug-input.img", "debug-input-120.img",
-                "debug-input-720.img", "debug-input-360.img"]
+                "debug-sound-720.img", "debug-sound-360.img"]
 # ...and the 128KB machine's (SPEC.md 24.5.7), shipped since 2026-10-25. They
 # are system disks with a DIFFERENT kernel - build/smallk's - and no
 # BOOTHD.SYS, kern_small having no hard-disk install, so they are read against
@@ -121,7 +119,7 @@ DATA_IMAGES = ["apps.img", "apps120.img", "apps720.img", "apps360.img",
                # ours, no kernel, so t_canary and t_blobruns - which are both
                # about a bootable volume - have nothing to say about them and
                # do not list them.
-               "office360.img", "network360.img", "games360.img", "games2-360.img",
+               "office360.img", "network360.img", "games360.img",
                "emu360.img", "util360.img",
                # ...and the 720KB geometry's second apps disk (SPEC.md 24.7),
                # a DATA image for the same reason

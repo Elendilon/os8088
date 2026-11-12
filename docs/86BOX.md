@@ -481,28 +481,6 @@ a cycle COUNT that means anything. 86Box is not cycle-accurate, and its
 1 ms `step` is the resolution. A row whose assertion is a MartyPC cycle
 budget is not a port.
 
-## Trap: never overwrite a mounted floppy image
-
-Change a floppy through 86Box's media menu (eject and load, or another image
-and back) or `os88box.py NAME fdd DRIVE IMG` - never by copying a new build
-over the `.img` while the machine runs. 86Box's `.img` driver
-(`src/floppy/fdd_img.c`) keeps ONE CYLINDER of the image in RAM, re-read from
-the file only on a seek to a different cylinder, and keeps the file open:
-
-- **rewritten in place** (`cp` over it): the cylinder the head is parked on
-  is the OLD image's. os8088's saves end on the directory, so that is usually
-  cylinder 0 - and a Refresh then lists the old disk and a launch fails
-  (*"Cannot read my parts"*) until something moves the head; a reboot or a
-  media-menu swap cures it. Nothing is wrong with the image.
-- **replaced** (a new file renamed over it): 86Box goes on reading the
-  deleted one until the drive is loaded again.
-- a guest WRITE on a stale cylinder writes the whole buffered cylinder back
-  (`write_back`; read in the source, not measured).
-
-os8088 does not work round it - SPEC.md 18.9.1.4 is the record of the fix
-that was built and refused - but a program that WRITES after such a swap is
-refused rather than allowed to corrupt the new image (SPEC.md 18.9.1.3).
-
 ## What it is NOT
 
 - **Not cycle-accurate.** 86Box times a machine by its model, not by the bus

@@ -54,14 +54,12 @@ def main():
                    stdout=subprocess.DEVNULL)
     S = os88sym.linear
     got = {}
-    with M.launch(SF.SYS, apps=DISK, machine="os8088_xt_vga",
-                  boot=False) as m:
-        m.run()                         # SOAK-SPEED 12: the boot is
-        M.kernel_up(m)                  # gated on state, no settle
+    with M.launch(SF.SYS, apps=DISK, machine="os8088_xt_vga") as m:
+        M.settle(m)
         M.no_saver(m)
         mo = Mouse(marty=m)
         dispcp.open_drive(m, mo, S, M.settle, letter="B")
-        M.ui_done(m)                    # SOAK-SPEED 4: no pixel read next
+        M.settle(m)
         ds = dispcp.win_list(m, S)[-1]
         wx, wy, _, _ = dispcp.win_rect(m, S, ds)
         dispcp.open_named(m, mo, S, M.settle, wx, wy, name=NAME)
@@ -85,7 +83,7 @@ def main():
         M.write_png_rgb(os.path.join(WORK, "1-launch.png"), *m.fbuf())
         # 2: File > New, Worksheet (the default radio), OK
         bar = y0 + 18 + 7
-        SF.menu(m, mo, x0 + 1 + (8 * 4 + 16) // 2, bar,
+        mo.menu(x0 + 1 + (8 * 4 + 16) // 2, bar,
                 x0 + 1 + 24 + 6, y0 + 18 + 14 + 2 + 6)
         M.settle(m, limit=120)
         dlg = dispcp.win_list(m, S, check=False)[-1]

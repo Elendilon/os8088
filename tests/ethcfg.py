@@ -152,15 +152,14 @@ def setup_wins(m):
 
 def open_cp(m):
     """Chip menu -> Control Panel, and wait for its window."""
-    import cpface
-    cpface.compact(m, S)  # the compact face's geometry (SPEC.md 135.13, tests/cpface.py)
-    # CLOSED LOOP (ethernet.Mouse.run), each pause a ui_done capped at the
-    # old pace (docs/plans/soak-speed-2/qemubox.md)
-    Mouse().run("down", 8, 8)
-    os88qemu.ui_done(m, S, cap=0.4)
-    Mouse().run("to", 8, 40)
-    os88qemu.ui_done(m, S, cap=0.4)
-    Mouse().run("up")
+    subprocess.run(["python3", "tools/mouse.py", os88qemu.SOCK,
+                    "down", "8", "8"], check=True, capture_output=True)
+    os88qemu.pace(m, 0.4)
+    subprocess.run(["python3", "tools/mouse.py", os88qemu.SOCK,
+                    "to", "8", "40"], check=True, capture_output=True)
+    os88qemu.pace(m, 0.4)
+    subprocess.run(["python3", "tools/mouse.py", os88qemu.SOCK, "up"],
+                   check=True, capture_output=True)
     if os88qemu.acted(m, lambda: find_cp(m) is not None, secs=15,
                       what="the Control Panel window", poll=0.25):
         os88qemu.pace(m, 1)             # ...and its first paint

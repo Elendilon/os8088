@@ -130,9 +130,14 @@ mpu_alone:
     jne .other                      ; a register that is not our status
 .nx:
     loop .odd
-    CLC_OR_STC .other               ; (mpu_probe reads CF alone)
     pop dx
     pop cx
+    clc
+    ret
+.other:
+    pop dx
+    pop cx
+    stc
     ret
 
 ; mpu_waitw - DX = status: wait for DRR clear. CF=1 timed out. AL clobbered
@@ -142,11 +147,14 @@ mpu_waitw:
 .w:
     in al, dx
     test al, MPU_DRR
-    jz .ok                          ; (CF = 0: the TEST cleared it)
+    jz .ok
     loop .w
+    pop cx
     stc
+    ret
 .ok:
     pop cx
+    clc
     ret
 
 ; mpu_ack - DX = status: wait for a byte, CF=0 when it is the ACK. AL
@@ -159,17 +167,20 @@ mpu_ack:
     test al, MPU_DSR
     jz .rd
     loop .w
-    jmp short .no
+    pop cx
+    stc
+    ret
 .rd:
     dec dx
     in al, dx
     inc dx
-    cmp al, MPU_ACK
-    je .ok                          ; (CF = 0: an EQUAL compare)
-.no:
-    stc
-.ok:
     pop cx
+    cmp al, MPU_ACK
+    je .ok
+    stc
+    ret
+.ok:
+    clc
     ret
 
 %endmacro
@@ -265,9 +276,8 @@ mpu_v_info:                         ; SNDV_MIDINFO: AX = the base
     or ax, ax
     jz mpu_nomidi
 %endif
-    clc                             ; (KEPT, though snd_pkg's dispatch enters
-    ret                             ; at CF = 0: its byte is mpu_v_write's
-                                    ; parity, driver size pass 1)
+    clc
+    ret
 %ifndef SND_SPLIT
 mpu_nomidi:
     mov ax, SNDE_NOMIDI
@@ -280,20 +290,24 @@ mpu_v_open:                         ; SNDV_MIDOPEN: the interface is ES's
     cmp word [mpu_base], 0
     je mpu_nomidi
 %endif
+    push bx
+    mov bx, es
     pushf
     cli
-    mov ax, es
-    cmp word [mpu_own], 0
-    je .take
-    cmp [mpu_own], ax
+    mov ax, [mpu_own]
+    or ax, ax
+    jz .take
+    cmp ax, bx
     je .take
     popf
+    pop bx
     mov ax, SNDE_BUSY
     stc
     ret
 .take:
-    mov [mpu_own], ax
+    mov [mpu_own], bx
     popf
+    pop bx
     xor ax, ax                  ; (CF = 0)
     ret
 
@@ -312,25 +326,29 @@ mpu_v_write:                        ; SNDV_MIDW: ES:SI, CX bytes
     push cx
     push si
     push di
-    xor di, di                      ; DI = bytes sent (and CF = 0)
+    xor di, di                      ; DI = bytes sent
     jcxz .done
 .b:
     mov al, [es:si]
     call mpu_put
     jc .time
-    inc si                          ; (INC and LOOP keep mpu_put's CF = 0)
+    inc si
     inc di
     loop .b
 .done:
-    xchg ax, di                     ; AX = the count (DI is popped)
-.out:
+    mov ax, di
     pop di
     pop si
     pop cx
+    clc
     ret
 .time:
-    mov ax, SNDE_MIDTIME            ; (CF = 1: mpu_put's)
-    jmp short .out
+    mov ax, SNDE_MIDTIME
+    pop di
+    pop si
+    pop cx
+    stc
+    ret
 
 mpu_v_close:                        ; SNDV_MIDCLOSE: silenced and given back
 %ifndef SND_SPLIT
@@ -340,8 +358,9 @@ mpu_v_close:                        ; SNDV_MIDCLOSE: silenced and given back
     mov ax, es                      ; (AX is the answer either way)
     cmp ax, [mpu_own]
     jne .not
-    call mpu_detach                 ; silenced and given back: [mpu_own] is
-.not:                               ; ES, so not 0, and that is detach's body
+    call mpu_hush
+    mov word [mpu_own], 0
+.not:
     xor ax, ax                  ; (CF = 0)
     ret
 

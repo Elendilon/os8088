@@ -130,14 +130,12 @@ def main():
                    check=True, stdout=subprocess.DEVNULL)
     S = os88sym.linear
     saved = {}
-    with M.launch(SF.SYS, apps=DISK, machine=SF.MACHINE,
-                  boot=False) as m:
-        m.run()                         # SOAK-SPEED 12: the boot is
-        M.kernel_up(m)                  # gated on state, no settle
+    with M.launch(SF.SYS, apps=DISK, machine=SF.MACHINE) as m:
+        M.settle(m)
         M.no_saver(m)
         mo = Mouse(marty=m)
         dispcp.open_drive(m, mo, S, M.settle, letter="B")
-        M.ui_done(m)                    # SOAK-SPEED 4: no pixel read next
+        M.settle(m)
         ds = dispcp.win_list(m, S)[-1]
         wx, wy, _, _ = dispcp.win_rect(m, S, ds)
         vol = lambda: os88flush.Flush(marty=m).volume(1)
@@ -147,7 +145,7 @@ def main():
             M.write_png(os.path.join(WORK, tag + ".png"), 640, 200, rr)
 
         def save(out, before):
-            SF.menu(m, mo, SF.FILE_MENU[0], SF.FILE_MENU[1], SF.SAVE_AS[0],
+            mo.menu(SF.FILE_MENU[0], SF.FILE_MENU[1], SF.SAVE_AS[0],
                     SF.SAVE_AS[1])
             M.settle(m)
             mo.click(*SF.fdlg_xy(m, SF.FMT_ROW['bif']))
@@ -174,7 +172,7 @@ def main():
         def reopen(name):
             shown = sorted(e.name for e in vol().listdir()
                            if not e.is_system and not e.is_dir)
-            SF.menu(m, mo, SF.FILE_MENU[0], SF.FILE_MENU[1], *OPEN_ITEM)
+            mo.menu(SF.FILE_MENU[0], SF.FILE_MENU[1], *OPEN_ITEM)
             M.settle(m)
             mo.click(LIST_X, LIST_Y0 + LIST_DY * shown.index(name))
             M.settle(m)
@@ -189,7 +187,7 @@ def main():
         shown = sorted(e.name for e in vol().listdir()
                        if not e.is_system and not e.is_dir)
         row = shown.index("WS.BIF")
-        SF.menu(m, mo, SF.FILE_MENU[0], SF.FILE_MENU[1], *OPEN_ITEM)
+        mo.menu(SF.FILE_MENU[0], SF.FILE_MENU[1], *OPEN_ITEM)
         M.settle(m)
         mo.click(LIST_X, LIST_Y0 + LIST_DY * row)
         M.settle(m)
@@ -209,7 +207,7 @@ def main():
         # a macro sheet with a SECOND sheet is saved as a BIFF4 WORKBOOK
         # (81.10.5), and every sheet substream's own BOF must say it too
         reopen("MAC.BIF")
-        SF.menu(m, mo, SF.SHEETS_MENU[0], SF.SHEETS_MENU[1], SF.SHEET2[0],
+        mo.menu(SF.SHEETS_MENU[0], SF.SHEETS_MENU[1], SF.SHEET2[0],
                 SF.SHEET2[1])
         M.settle(m)
         m.type_text("77")

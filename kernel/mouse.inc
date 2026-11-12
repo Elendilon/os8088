@@ -212,30 +212,15 @@ MOU_P2KOFF  equ 0x10            ; the command byte's bit 4: THE KEYBOARD
                                 ; the 8042's command byte and the other the
                                 ; slave 8259's mask, so they are named apart
 
-MOU_P2TMO   equ 5               ; ticks one handshake step may take (~275ms).
+MOU_P2TMO   equ 2               ; ticks one handshake step may take (~110ms).
                                 ; TICKS AND NOT A SPIN COUNT: a count sized on
                                 ; a 286 is some fifty times too short on a 486
                                 ; and one sized on a 486 is minutes on a 286,
-                                ; while [ticks] is the same quantity on both.
-                                ; It was 2 (55-110 ms, by where in a tick the
-                                ; wait began) until an STPC board's controller
-                                ; answered an unanswered D4 FF with its own FE
-                                ; just PAST it (SPEC.md 9.9.1.1): the reply
-                                ; was then nobody's, and the keyboard with it.
-                                ; It bounds a wait and is spent only when a
-                                ; step FAILS - a mouse that answers is not
-                                ; slowed by a tick
-MOU_P2BAT   equ 2               ; ...and the reset's self-test, which the part
+                                ; while [ticks] is the same quantity on both
+MOU_P2BAT   equ 5               ; ...and the reset's self-test, which the part
                                 ; is allowed half a second for, is that short
                                 ; wait RETRIED this many times rather than a
-                                ; second timeout to size: 2 x 5 ticks, the
-                                ; ~550 ms 5 x 2 gave before
-MOU_P2QUIET equ 3               ; ticks the output buffer must stay EMPTY
-                                ; before a failed probe hands the keyboard
-                                ; back (mou_p2drain, SPEC.md 9.9.1.1)...
-MOU_P2DMAX  equ 18              ; ...and the most that drain may take, ~1 s:
-                                ; a controller that never goes quiet must not
-                                ; hold the boot
+                                ; second timeout to size
 
 ; The arrow (SPEC.md 7.1) is 8 pixels wide and 12 rows tall. The tables used
 ; to be 16 rows of 16 bits because that is the classic cell, and for years
@@ -1664,55 +1649,6 @@ osapi_mouse:
     mov al, [mouse_btn]
     ret
 
-%ifndef KERN_SMALL
-; osapi_mouse_rel - OSAPI_MOUSE_REL (0x0236, SPEC.md 9.14), a JUMP cell: the
-; caller's far call lands here with its own DS. Out CX = dx, DX = dy, the raw
-; mickeys since the last call, each taken and zeroed by one xchg; AL =
-; mouse_btn. Flags and every other register kept (popf restores the caller's).
-; NO cli: a report landing between the two xchgs has its dy answered by the
-; next call instead of this one - delayed a frame, never lost.
-;
-; THROUGH CS, not a DS bank, on the real-mode kernels (kernel size pass 21):
-; CS is KERNEL_SEG in .text, so three `cs:` prefixes replace `push ds` /
-; KDS / `pop ds` - 21 bytes for 22, and ~35 clocks a call faster on an 8088
-; (three 2-clock prefixes against two pushes, two pops). kern_mega's CS is a
-; read-only code selector in protected mode, so it keeps the bank. The odd
-; byte pairs with the PARITY nop after mou_p2_off, which goes
-; (tests/unit/t_hotpar.py)
-osapi_mouse_rel:
-%ifdef KERN_MEGA
-    push ds
-    KDS
-    pushf
-    xor cx, cx
-    xchg cx, [mou_rx]
-    xor dx, dx
-    xchg dx, [mou_ry]
-    mov al, [mouse_btn]
-    popf
-    pop ds
-%else
-    pushf
-    xor cx, cx
-    xchg cx, [cs:mou_rx]
-    xor dx, dx
-    xchg dx, [cs:mou_ry]
-    mov al, [cs:mouse_btn]
-    popf
-%endif
-    retf
-%else
-; kern_small: OSAPI_MOUSE_REL AND OSAPI_KEY_MAP REFUSE (SPEC.md 9.14, 9.7.3) -
-; the owner gated both off the 128KB machine, which is locked under its
-; 70.5KB heap rung. Both cells stay where every kernel has them and land
-; HERE: AX = 1, CF = 1, api_refuse's answer (xm_copy's three instructions,
-; called near), every other register kept. Four bytes, EVEN, for t_hotpar
-osapi_mouse_rel:
-osapi_key_map:
-    call xm_copy
-    retf
-%endif
-
 %ifdef KERN_BIG
 ; =============================================================================
 ; The PS/2 mouse (SPEC.md 9.9)
@@ -1869,8 +1805,8 @@ B3SECT                          ; ...SPLIT WITH mou_uart's BLOCK ABOVE: the
                                 ; mou_p2_init, so the two blocks land in ONE
                                 ; section on every build
 %endif
-                                ; ...and the overlay's last four: mou_p2dev,
-                                ; mou_p2flush, mou_p2drain and mou_p2_init, all of which only
+                                ; ...and the overlay's last three: mou_p2dev,
+                                ; mou_p2flush and mou_p2_init, all of which only
                                 ; mouse_init's probe reaches
 ; -----------------------------------------------------------------------------
 ; mou_p2dev - send AL to the AUXILIARY DEVICE and collect its acknowledgement
@@ -1910,48 +1846,6 @@ mou_p2flush:
     in  al, MOU_P2DAT
     loop .f
 .out:
-    pop cx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; mou_p2drain - empty the 8042's output buffer UNTIL IT STAYS EMPTY
-; ins:  none
-; outs: none (all registers preserved)
-;
-; mou_p2flush empties what is there NOW. That is not enough after a step that
-; timed out: the controller may still answer it, and on the STPC board of
-; SPEC.md 9.9.1.1 it did - its own FE to an unanswered D4 FF arrived just past
-; MOU_P2TMO, as an AUX byte. With IRQ12 masked (as .fail leaves it) nobody
-; ever reads that byte, the 8042's one output buffer stays full, and the
-; KEYBOARD can deliver nothing for the session: no key, no LED ACK. So the
-; failure path waits for MOU_P2QUIET ticks with nothing arriving, taking
-; whatever does arrive, at most MOU_P2DMAX ticks in all. Runs with the
-; keyboard interface still disabled, so nothing it takes is a keystroke.
-; -----------------------------------------------------------------------------
-mou_p2drain:
-    push ax
-    push cx
-    push dx
-    mov dx, [ticks]             ; DX = when the drain began
-    mov cx, dx                  ; CX = when it was last busy
-.w:
-    in  al, MOU_P2CMD
-    test al, 0x01
-    jz .idle
-    in  al, MOU_P2DAT           ; a late byte: taken, and the quiet restarts
-    mov cx, [ticks]
-.idle:
-    mov ax, [ticks]
-    sub ax, dx                  ; wrap-safe, as mou_p2wr
-    cmp ax, MOU_P2DMAX
-    jae .out                    ; the cap: never hold the boot
-    mov ax, [ticks]
-    sub ax, cx
-    cmp ax, MOU_P2QUIET
-    jb .w
-.out:
-    pop dx
     pop cx
     pop ax
     ret
@@ -2229,11 +2123,6 @@ mou_p2_init:
                                 ; can supply (SPEC.md 9.9.6)
     mov al, 0xA7                ; the auxiliary port off again...
     call mou_ov_p2cw
-    call mou_p2drain            ; ...THE LATE ANSWER TAKEN, before anything
-                                ; hands the keyboard back (SPEC.md 9.9.1.1):
-                                ; a reply that lands after its step's wait is
-                                ; an aux byte nobody reads with IRQ12 masked,
-                                ; and the keyboard waits behind it for ever
     mov al, [mou_p2cmdr]        ; ...and its command byte EXACTLY as the BIOS
     call mou_ov_p2wcmd          ; had it, bit 4 aside - which is what this
                                 ; line SAID it did and did not (SPEC.md 9.9.7).
@@ -3263,58 +3152,6 @@ kbd_down:
     mov byte [kbd_armed], 1     ; ...and only NOW may the ISR write here
     jmp short .go
 
-; -----------------------------------------------------------------------------
-; osapi_key_map - OSAPI_KEY_MAP (0x0239, SPEC.md 9.7.3), a JUMP cell: the
-; caller's far call lands here with its own DS.
-; in:  DS:DI = KBD_MAPSZ (16) bytes of the caller's
-; out: those bytes = the map, bit (s & 7) of byte (s >> 3) set while make
-;      scancode s is held; CF = 0; every register kept
-;
-; ONE far call for every key a frame asks about, where kbd_down is one EACH -
-; ~540 clk apiece on the 8088 (SPEC.md 97's table), so a game polling nine
-; keys paid ~5,000 a frame. A COPY and not a pointer: the caller's own DS is
-; a selector on kern_mega and a real segment again inside a FSXF_REAL
-; bracket, right in both, where a pointer into KERNEL_SEG would be a
-; different word in each - and a package's stray write through it would land
-; in the ISR's own state.
-;
-; NO cli: one IRQ1 changes ONE bit of ONE byte, and each byte is read whole,
-; so a key landing mid-copy is either in the snapshot or not - never a torn
-; map. Arms the map on the first call as kbd_down does, THROUGH kbd_down, and
-; CF is 0 on both paths: `cmp [..], 0` never borrows, and the arm's first
-; answer is always "up". No `cld`: DF = 0 on entry (SPEC.md 1). 32 bytes, 35
-; on kern_mega (KDS), EVEN on every real-mode kernel for t_hotpar
-;
-; NOT ON kern_small (the owner, 2026-11-15): that kernel is locked under its
-; 70.5KB heap rung (SPEC.md 24.5.7's 128KB machine), and this body was 32 of
-; the 36 bytes that put it over. Its cell refuses there, beside
-; OSAPI_MOUSE_REL's (osapi_mouse_rel below)
-; -----------------------------------------------------------------------------
-%ifndef KERN_SMALL
-osapi_key_map:
-    push si
-    push di
-    push cx
-    push es
-    push ds
-    pop es                      ; ES:DI = the caller's 16 bytes
-    KDS
-    mov si, kbd_dnmap
-    cmp byte [si - 1], 0        ; [kbd_armed], the byte below the map: a
-    jne .copy                   ; byte shorter than naming it, which keeps
-    call kbd_down               ; the body EVEN (t_hotpar). THE ARM (any
-.copy:                          ; AL): the map cleared, CF = 0
-    mov cx, KBD_MAPSZ / 2
-    rep movsw
-    push es
-    pop ds                      ; the caller's DS back
-    pop es
-    pop cx
-    pop di
-    pop si
-    retf
-%endif
-
 ; =============================================================================
 ; The overrun guard (SPEC.md 9.8) - A FULL BIOS BUFFER IS A HANG, NOT A BEEP
 ;
@@ -4081,9 +3918,6 @@ kbd_armed   db 0                ; SPEC.md 9.7: has anything ever ASKED for key
                                 ; kbd_down has not cleared yet
 kbd_dnmap   times KBD_MAPSZ db 0 ; ...and the bit per key. Zeroed again at the
                                 ; arm, so this initialiser is belt and braces
-%if kbd_dnmap - kbd_armed != 1
-  %error "osapi_key_map reads [kbd_armed] as the byte below kbd_dnmap"
-%endif
 kbd_ovn     db 0                ; SPEC.md 9.8: beeps this overrun burst has
                                 ; already spent, reset when the buffer next
                                 ; reads empty
@@ -4604,12 +4438,6 @@ mou_apply:
                                 ; awake all night. One store, no register - the
                                 ; UI task spends it, so nothing in an ISR
                                 ; touches a video port or reads a clock
-%ifndef KERN_SMALL
-    add [mou_rx], ax            ; THE MICKEYS, before the clamp can eat them
-    add [mou_ry], bx            ; (SPEC.md 9.14): OSAPI_MOUSE_REL's two words.
-%endif                          ; kern_big and kern_mega: the owner gated
-                                ; kern_small out (its 64KB budget), whose cell
-                                ; refuses
     add ax, [mouse_x]           ; STAGED, not stored: the clamp is 2-D on a
     add bx, [mouse_y]           ; machine with two displays (SPEC.md 39.15.4)
                                 ; and cannot answer about x until y is known -
@@ -7140,11 +6968,6 @@ mou_whl     resw 1              ; the WHEEL, notches owed, signed, positive
                                 ; every backend ADDS to and ui_task takes with
                                 ; one xchg, so a spin is one scroll however fast
                                 ; it comes and can never flood the event ring
-%endif
-%ifndef KERN_SMALL
-mou_rx      resw 1              ; raw dx and dy summed since the last
-mou_ry      resw 1              ; OSAPI_MOUSE_REL (SPEC.md 9.14): signed,
-                                ; unclamped, unscaled, wrapping at 16 bits
 %endif
 cur_lazy    resb 1              ; gfx_lock deferred the hide (SPEC.md 7.1.4):
                                 ; the arrow is still on screen this hold

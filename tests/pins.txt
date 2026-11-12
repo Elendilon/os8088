@@ -258,9 +258,6 @@ C apps/recorder/recorder.asm @rc_do_play # the speaker play buffer, held for one
                                          # of the call
 C apps/stiknote/stiknote.asm @sn_flip    # the note read whole for a checkbox flip
                                          # and written back, inside one callback
-C apps/inputchk/inputchk.asm mc_rseg   # Save Report's and Copy's text (SPEC.md
-                                         # 136.3), composed, written or put on
-                                         # the clipboard and freed in one callback
 C apps/syscheck/out.inc sc_rseg          # Save Report's text, composed and written
                                          # inside one command
 C apps/syscheck/out.inc @sc_rmone       # a refused driver read whole for
@@ -324,10 +321,6 @@ X apps/os88pself.inc @op_self           # op_self hands its claim to the CALLER
                                          # the page is up
 C apps/wirefleet/wfsound.inc op:WF_P_SFX # the samples part, fetched and dropped
                                          # inside wf_pcm_open's one call
-C apps/wirearena/wirearena.asm @wa_loadarena # an arena part, fetched, read
-                                         # into both halves and dropped inside
-                                         # wa_loadarena's one call (the Game
-                                         # menu's command, before the bracket)
 C apps/c64/c64kbd.c ovl_clip_service:seg # Copy's staging, claimed and freed
                                          # inside one wake (Paste's queue in the
                                          # same function declares)

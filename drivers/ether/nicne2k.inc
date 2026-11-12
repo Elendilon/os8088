@@ -85,16 +85,9 @@ eth_next:   db NE_PSTART + 1    ; the page WE will read next
     mov si, eu_s_ne2
 %%kind:
     call eu_val
-    mov ax, [eth_base]          ; ...and its base as four hex digits - eu_hex
-    mov di, eu_buf              ; until driver size pass 1, written at its one
-    xchg al, ah                 ; call (eth_cp_paint has banked every
-    call eu_hexb                ; register), so PCIETHER.DRV no longer
-    xchg al, ah                 ; carries it unused
-    call eu_hexb
-    mov byte [di], 0
-    mov si, eu_buf
+    mov ax, [eth_base]
     mov cx, EU_VX + 64
-    call eu_txt
+    call eu_hex
 %endmacro
 %macro NIC_UI_STRINGS 0
 eu_s_ne1:   db 'Ne1000', 0

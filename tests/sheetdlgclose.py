@@ -60,14 +60,12 @@ def main():
     S = os88sym.linear
     sym = pkg_syms("apps/sheet/sheet.asm")
     got = {}
-    with M.launch(SF.SYS, apps=DISK, machine="os8088_xt_vga",
-                  boot=False) as m:
-        m.run()                         # SOAK-SPEED 12: the boot is
-        M.kernel_up(m)                  # gated on state, no settle
+    with M.launch(SF.SYS, apps=DISK, machine="os8088_xt_vga") as m:
+        M.settle(m)
         M.no_saver(m)
         mo = Mouse(marty=m)
         dispcp.open_drive(m, mo, S, M.settle, letter="B")
-        M.ui_done(m)                    # SOAK-SPEED 4: no pixel read next
+        M.settle(m)
         ds = dispcp.win_list(m, S)[-1]
         wx, wy, _, _ = dispcp.win_rect(m, S, ds)
         dispcp.open_named(m, mo, S, M.settle, wx, wy, name=NAME)
@@ -102,7 +100,7 @@ def main():
             M.settle(m, limit=60)
 
         def open_item(t, i):
-            SF.menu(m, mo, X[t], bar, *item(t, i))
+            mo.menu(X[t], bar, *item(t, i))
             M.settle(m, limit=120)
             mo.to(*park)
 
@@ -127,8 +125,8 @@ def main():
         open_item("Formula", 4)                  # 5: Note - type, OK
         got["nt_open"] = (word("sh_ndlg_win"), top() != sl)
         for ch in "hi":
-            M.text_taken(m, ch, ui=False, cap=0.3)
-            # (SOAK-SPEED 9: taken when read, the old pace the cap)
+            m.type_text(ch)
+            M.guest_sleep(m, 0.3)
         M.settle(m)
         t = top()
         if t is not None and t != sl:

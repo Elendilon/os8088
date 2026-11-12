@@ -164,29 +164,6 @@ SYNC = os.environ.get("OS88_BOCHS_SYNC", "slowdown")
 IPS_N = int(os.environ.get("OS88_BOCHS_IPS") or 4000000)
 IPS = "cpu: ips=%d\n" % IPS_N
 
-# THE CAP'S RATE (docs/plans/soak-speed-2/bochs.md): `slowdown` caps the
-# guest against time(), and the clock preload's time() runs RATE times the
-# host's running time ($OS88_BXCLOCK_RATE inside the preload), so a guest is
-# capped at RATE x real time. It is the same machine at any RATE - 4M
-# instructions and 18.2 ticks a GUEST second, every wait of the shim on the
-# guest's clock - and only how many guest seconds a host second may hold
-# moves: a Bochs row was the one emulator held BELOW real time on a box
-# that could run it faster (MartyPC runs its 8088 at ~3.4x). Under it the
-# VGA update timer is the GUEST's (`vga: realtime=0`), so the glass is
-# painted on guest time too, and os88test's lane weighs a Bochs row sqrt(RATE)
-# times what it did (`_default_bpc`). 1 is the cap at real time as it was.
-# Needs the preload: with OS88_BXCLOCK=0 the rate is 1.
-#
-# A ROW's machine (os88megabochs.launch) runs at ROW_RATE; a Box made any
-# other way - `os88bochs.py boot` for a person to watch, a standalone row's
-# own Box - at 1 unless $OS88_BOCHS_RATE says otherwise, which sets both.
-ROW_RATE_DEFAULT = 4.0
-try:
-    RATE = max(1.0, float(os.environ["OS88_BOCHS_RATE"]))
-except (KeyError, ValueError):
-    RATE = None
-ROW_RATE = RATE or ROW_RATE_DEFAULT
-
 # A STOP COSTS THE GUEST NOTHING - but only with tools/bochs/bxclock.c
 # preloaded (docs/BOCHS.md, *The clock*). `slowdown`'s cap reads time(NULL),
 # the WALL clock, so host seconds spent stopped at the debugger (every read,
@@ -380,7 +357,7 @@ class _Input(object):
                     self.seen = self.marks
                     break
                 time.sleep(nap)
-                nap = min(nap * 2, NAP_MAX)
+                nap = min(nap * 2, 0.01)
             self.sent = False
             return                      # PROCESSED: nothing is in flight
         self._taken_socket(stopped, timeout)
@@ -396,7 +373,7 @@ class _Input(object):
                 if not n or time.time() > end:  # 0, or no answer
                     break
                 time.sleep(nap)
-                nap = min(nap * 2, NAP_MAX)
+                nap = min(nap * 2, 0.01)
             self.sent = False
         gap = self.last + INPUT_GAP - time.time()
         if gap > 0:
@@ -607,21 +584,11 @@ def xvfb(display=None):
         subprocess.Popen(["Xvfb", display, "-screen", "0", "1024x768x24",
                           "-r"],            # no key autorepeat: see above
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        # ...until it ACCEPTS, not a guess: the socket file appears as the
-        # server binds, and a half-second sleep after it stood in for the
-        # rest (paid once per display, every fresh one a row's)
-        import socket
-        for _ in range(100):
+        for _ in range(50):             # until it is listening, not a guess
             if os.path.exists(sock):
-                c = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                try:
-                    c.connect(sock)
-                    break
-                except OSError:
-                    pass
-                finally:
-                    c.close()
-            time.sleep(0.05)
+                break
+            time.sleep(0.1)
+        time.sleep(0.5)
 
 
 def _ours(pid, display=None):
@@ -682,15 +649,6 @@ def _unsplit(t):
         ls = t.rfind("\n", 0, s) + 1
         t = t[:ls] + t[s:e.end()] + t[ls:s] + t[e.end():]
         i = ls + (e.end() - s)
-
-
-# THE DEBUGGER'S ANSWER IS POLLED off e9.out, a nap at a time doubling from
-# 2 ms - and capped at NAP_MAX. The cap was 20 ms, which an answer arriving
-# just after a nap ended paid in full on each of a stop's three waits (the
-# prompt, the commands' prompts, the `c`'s echo); a stop is ~20 ms of Bochs,
-# so the naps were as dear as the stop. A read of a small file's tail every
-# 5 ms is nothing to the host. $OS88_BOCHS_NAP overrides (0.02 is the A/B).
-NAP_MAX = float(os.environ.get("OS88_BOCHS_NAP") or 0.005)
 
 
 def _tail(path, n):
@@ -763,7 +721,7 @@ def session(out, cmds, timeout=DBG_TIMEOUT, pids=None, inp=None, interrupt=True,
             raise RuntimeError("os88bochs: no debugger prompt in %.0fs - "
                                "is Bochs on %s running?" % (timeout, DISPLAY))
         time.sleep(nap)
-        nap = min(nap * 2, NAP_MAX)
+        nap = min(nap * 2, 0.02)
     stop_at = len(text)
     want = len(_PROMPT.findall(text)) + len(cmds)
     if cmds:
@@ -778,7 +736,7 @@ def session(out, cmds, timeout=DBG_TIMEOUT, pids=None, inp=None, interrupt=True,
             if time.time() > end:
                 break               # say what it did say, and carry on
             time.sleep(nap)
-            nap = min(nap * 2, NAP_MAX)
+            nap = min(nap * 2, 0.02)
     if at_prompt is not None:       # ...anything the caller does while
         at_prompt()                 # the guest is stopped (Box.dblclick)
     with open(os.path.join(out, "dbg.fifo"), "w") as fh:
@@ -862,7 +820,7 @@ class Box(object):
                  display=None, megs=None, noc=False, vgahz=None,
                  flog=False, mouse=None, noserial=False, imps2=False,
                  cimg=None, cgeom=None, ne2k_io=None, rcextra="",
-                 ips=None, rate=None):
+                 ips=None):
         # DISPLAY: the X display this machine owns - the module's
         # ($OS88_BOCHS_DISPLAY, :99) by default, or its own, so ONE process
         # can run several machines at once (one display each)
@@ -880,11 +838,6 @@ class Box(object):
         # THIS machine's instructions a guest second (guest_sleep)
         self.ips = (ips if ips and not os.environ.get("OS88_BOCHS_IPS")
                     else IPS_N)
-        # ...and how far past real time it may run (RATE): 1 without the
-        # preload, which is what applies the rate
-        self.rate = (max(1.0, float(rate if rate is not None else
-                                    (RATE or 1.0)))
-                     if BXCLOCK and SYNC == "slowdown" else 1.0)
         self._map = None
         self.captured = False
         self._wspans = None         # (watch_write)
@@ -973,10 +926,7 @@ class Box(object):
                     "ata0: enabled=1, ioaddr1=0x1f0, ioaddr2=0x3f0, irq=14\n"
                     "ata0-master: type=disk, path=%s, mode=flat, "
                     "cylinders=%d, heads=%d, spt=%d\n" % ((c,) + geom)),
-                vgahz=(", update_freq=%d" % vgahz if vgahz else "") + (
-                    # past real time the VGA timer is the GUEST's, or the
-                    # glass would lag the guest RATE x as far
-                    ", realtime=0" if self.rate > 1.0 else ""),
+                vgahz=", update_freq=%d" % vgahz if vgahz else "",
                 # A C: OF THE CALLER'S tries A: first and falls to C: - a
                 # blank or empty A: is how a MartyPC row offers the BIOS C:
                 boot="disk" if bootc else (
@@ -1025,23 +975,15 @@ class Box(object):
         if BXCLOCK and SYNC == "slowdown":
             pre = os.environ.get("LD_PRELOAD")
             benv = dict(self.env, LD_PRELOAD=bxclock() +
-                        (" " + pre if pre else ""),
-                        OS88_BXCLOCK_RATE="%g" % self.rate)
+                        (" " + pre if pre else ""))
         self.p = subprocess.Popen(["bochs", "-q", "-f", rc], cwd=out,
                                   stdin=os.open(fifo, os.O_RDWR),
                                   stdout=self.f, stderr=subprocess.STDOUT,
                                   env=benv, preexec_fn=_fsize_cap)
         self.inp.attach(self.p.pid,     # (the wrapper execs bochs-bin)
                         os.path.join(out, "bochs.log"))
-        # THE HOLDER TAKES NONE OF ITS PARENT'S STDIO. It inherited the
-        # row's stderr, and a row that died before stop() (a timeout's
-        # SIGTERM, an exception) left it orphaned for its day with that pipe
-        # open - so os88test, reading the row's output to EOF, waited on it:
-        # a whole-tier soak sat 2 h 7 min on a mega-zoomsave already reaped
         self.hold = subprocess.Popen("exec sleep 86400 > '%s'" % fifo,
-                                     shell=True, env=self.env,
-                                     stdin=subprocess.DEVNULL,
-                                     stderr=subprocess.DEVNULL)
+                                     shell=True, env=self.env)
         with open(fifo, "w") as fh:
             fh.write("c\n")
 
@@ -1114,23 +1056,13 @@ class Box(object):
                            capture_output=True, text=True).stdout.split()[0]
         self.inp.regrab = False
         autorepeat_off(self.display)
-        # ONE CHAIN, and then the condition: four xdotool calls and a host
-        # second's sleep were every boot's, where the SENTINEL that ends a
-        # chain (`taken`) is the proof Bochs has PROCESSED the toggle - the
-        # same proof every re-capture after a stop (GRAB) already relies on
-        # (soak-speed-2/bochs.md). $OS88_BOCHS_CAPTURE=sleep is the A/B
-        if os.environ.get("OS88_BOCHS_CAPTURE") == "sleep":
-            self.xd("windowfocus", "--sync", w)
-            self.xd("mousemove", 330, 300)
-            self.xd("keydown", "ctrl")
-            self.xd("click", 2)
-            self.xd("keyup", "ctrl")
-            self.captured = True
-            time.sleep(1)
-            return
-        self.xd("windowfocus", "--sync", w, "mousemove", 330, 300, *GRAB)
-        self.inp.taken()
+        self.xd("windowfocus", "--sync", w)
+        self.xd("mousemove", 330, 300)
+        self.xd("keydown", "ctrl")
+        self.xd("click", 2)
+        self.xd("keyup", "ctrl")
         self.captured = True
+        time.sleep(1)
 
     # ---- the guest's own state, through the debugger (docs/BOCHS.md,
     # "Waiting on the guest"). Every wait below ends on a CONDITION read out
@@ -1174,7 +1106,6 @@ class Box(object):
         plus 30 s names a machine that stopped running."""
         want = int(secs * self.ips)
         t0, end = self.ptime(), time.time() + 30 + 10 * secs
-        poll /= self.rate               # (a poll's overshoot, in GUEST time)
         while True:
             time.sleep(poll)
             if self.ptime() - t0 >= want:
@@ -1652,27 +1583,19 @@ class Box(object):
                 self.xd("mousemove_relative", "--", sx, sy)
                 x2 -= sx
                 y2 -= sy
-            # ...and every wait below is GUEST time. It was 30 HOST ms
-            # between the two reads that call the pointer stopped, and on a
-            # loaded box the guest runs a fraction of that: a pointer still
-            # mid-way through the packets just sent reads "stopped", the
-            # next round sends the difference AGAIN, and the overshoot lands
-            # after this returned "there" - under the double-click that
-            # follows (rdgmega's "the game to start", a full soak at lane 4).
-            was = pos
-            end = self.ptime() + int(2.0 * self.ips)
+            was, end = pos, time.time() + 2.0
             while True:
-                self.guest_sleep(0.03, poll=0.01)
+                time.sleep(0.03)
                 pos = self.mouse()
                 if pos != was:
                     # until it STOPS: one more read the same
-                    self.guest_sleep(0.03, poll=0.01)
+                    time.sleep(0.03)
                     p2 = self.mouse()
                     if p2 == pos:
                         break
                     pos = p2
                     continue
-                if self.ptime() > end:
+                if time.time() > end:
                     break
             stuck = stuck + 1 if pos == was else 0
         raise RuntimeError("os88bochs: the pointer is at %s, not (%d, %d) - "

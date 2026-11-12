@@ -144,14 +144,16 @@ eth_cfg_open:
     pop si
     mov [si+LN_BUF], di
     mov word [si+LN_MAX], EC_TLEN
-    xor ax, ax                  ; (AX is the mode's no more: it is banked)
-    mov [si+LN_FOCUS], al
-    mov [si+LN_VIEW], ax
+    mov byte [si+LN_FOCUS], 0
+    mov word [si+LN_VIEW], 0
+    push cx
     call os88line_set           ; DI = the string; the caret lands at the end
-    inc cx                      ; (every register kept)
+    pop cx
+    inc cx
     cmp cx, EC_NF
     jb .fld
-    mov byte [ec_f0+LN_FOCUS], 1 ; the first field has it, so a user who opens
+    mov si, ec_f0
+    mov byte [si+LN_FOCUS], 1   ; the first field has it, so a user who opens
                                 ; this and types is typing into the address
 
     mov bx, [ec_win]
@@ -240,17 +242,18 @@ ec_paint:
     ; --- the four fields, each with its label ----------------------------
     xor cx, cx
 .f:
-    call ec_blk                 ; SI = the block, BX = the index * 2
     push cx
-    push si
+    call ec_blk                 ; SI = the block, BX = the index * 2
     mov dx, [si+LN_Y1]          ; the label sits on the field's own top edge,
     add dx, 3                   ; so the two cannot drift apart
     mov si, [ec_labels+bx]
     lea cx, [di+EC_LX]
     call ec_txt
-    pop si
     pop cx
-    call os88line_draw          ; (which keeps every register)
+    push cx
+    call ec_blk
+    call os88line_draw
+    pop cx
     inc cx
     cmp cx, EC_NF
     jb .f
@@ -354,9 +357,9 @@ ec_click:
     call os88line_click
     pop cx
     jc .nextf
-    jmp ec_key.setf             ; ec_focus with CX = the one that was hit,
-                                ; then the repaint - ec_key's own tail, whose
-                                ; stack is this one (os88_ent, out by ep_bp)
+    call ec_focus               ; CX = the one that was hit
+    call ec_repaint
+    jmp .out
 .nextf:
     inc cx
     cmp cx, EC_NF
@@ -380,7 +383,8 @@ ec_click:
     mov bl, ECM_MAN
 .mode:
     mov [ec_mode], bl
-    jmp ec_key.rep              ; (the repaint, and out by ec_key's ep_bp)
+    call ec_repaint
+    jmp short .out
 
     ; --- a button? -------------------------------------------------------
 .btn:
@@ -393,7 +397,7 @@ ec_click:
     xor ah, ah                  ; 13.8.4). Both of these want the release: Ok
     call os88ui_arm             ; commits an address and Cancel throws typing
     call ec_setdown             ; away, and neither is a 13.6 control with a
-                                ; safe prefix action - so a mis-aimed press is
+    jmp short .out              ; safe prefix action - so a mis-aimed press is
                                 ; cancelled by sliding off, which it could not
                                 ; be while it acted on the way down
 .out:
@@ -560,9 +564,8 @@ ec_key:
     cmp cx, EC_NF
     jb  .setf
     xor cx, cx
-.setf:                          ; (ec_click's way in too)
+.setf:
     call ec_focus
-.rep:                           ; ...and ec_click's radio
     call ec_repaint
     jmp short .out
 .ret:
@@ -584,15 +587,16 @@ ec_repaint:
     jz  .out
     call OSAPI_WM_CONTENT       ; AX = content left, DX = content top
     mov si, ax
-    mov bx, dx
+    mov di, dx
     mov al, CWHITE
-    call OSAPI_SET_COLOR        ; (which keeps BX)
+    call OSAPI_SET_COLOR
     mov ax, si
+    mov bx, di
     lea cx, [si+EC_FW - 3]      ; the content is (w-2) x (h-TITLE_H-1), so its
-    lea dx, [bx+EC_FH - TITLE_H - 2] ; last column and row are these
+    lea dx, [di+EC_FH - TITLE_H - 2] ; last column and row are these
     call OSAPI_GFX_FILL
-    call ec_paint               ; (which reads [ec_win], not the SI a W_PAINT
-                                ; is handed)
+    mov si, [ec_win]
+    call ec_paint
 .out:
     jmp ep_bp
 
@@ -803,7 +807,9 @@ eth_cfg_load:
                                 ; a version 1 file is SHORTER and the read
                                 ; answers with what it found, which is what
     call OSAPI_FILE_READ        ; tells the two apart below
-    call ec_vol_back            ; (AX and CF kept)
+    push ax
+    call ec_vol_back
+    pop ax
     jc  .no
     cmp word [ec_fbuf+EC_F_MAGIC], EC_MAGIC
     jne .no
@@ -830,7 +836,8 @@ eth_cfg_load:
     call mem_copy
     mov si, eth_ip              ; ...and a stored 0.0.0.0 is not an address
     call ip_zero
-    jz  .drop                   ; (CF = 0 otherwise: ip_zero's `or`)
+    jz  .drop
+    clc
     jmp short .out
 .drop:
     mov byte [eth_mode], ECM_DHCP
@@ -871,10 +878,6 @@ eth_cfg_load:
 ; ever fires on the second and later dirty closes of a session - the first
 ; is a full write - and that is a real case: every Ok marks [ec_dirty].
 ; -----------------------------------------------------------------------------
-; --- eth_cp_close - DSV_CPCLOSE: the panel has gone. The window goes, then
-;     the setting reaches the disk: it FALLS INTO eth_cfg_save, its one caller
-eth_cp_close:
-    call eth_cfg_reap
 eth_cfg_save:
     call os88_ent               ; push ax..di, and bp: out by ep_bp
     push es
@@ -882,12 +885,9 @@ eth_cfg_save:
     je  .out
     mov byte [ec_dirty], 0
     mov word [ec_fbuf+EC_F_MAGIC], EC_MAGIC
-    mov ah, [eth_mode]          ; the version and the mode, one word
-    mov al, EC_VER
-    mov [ec_fbuf+EC_F_VER], ax
-%if EC_F_MODE != EC_F_VER + 1
-  %error "eth_cfg_save writes the version and the mode as one word"
-%endif
+    mov byte [ec_fbuf+EC_F_VER], EC_VER
+    mov al, [eth_mode]
+    mov [ec_fbuf+EC_F_MODE], al
     mov si, eth_ip
     mov di, ec_fbuf + EC_F_IP
     mov cx, 16
@@ -950,6 +950,13 @@ ec_buf_put:
     pop ax
     ret
 
+; -----------------------------------------------------------------------------
+; eth_cp_close - DSV_CPCLOSE: the panel has gone
+; -----------------------------------------------------------------------------
+eth_cp_close:
+    call eth_cfg_reap
+    call eth_cfg_save
+    ret
 
 ; --- strings and state --------------------------------------------------------
 ec_s_file:   db 'ETHER.CFG', 0

@@ -2968,14 +2968,6 @@ MEM_P_DIRW  equ MEM_PG_HIGH<<8 | 0x02   ; the directory read-ahead window (18.95
 MEM_P_RAHB  equ MEM_PG_HIGH<<8 | 0x03   ; kern_mega's read-ahead LANDING: the
                                  ; conventional bounce under the store above
                                  ; 1MB (docs/plans/KERN-MEGA-PLAN.md item 32)
-MEM_P_ICO_SM equ MEM_PG_LOW<<8 | 0x01  ; kern_small's spellings of MEM_P_ICO
-MEM_P_DIRW_SM equ MEM_PG_TRIV<<8 | 0x03 ; and MEM_P_DIRW (SPEC.md 50.6.13.2):
-                                 ; there the icon store OUTRANKS the
-                                 ; read-ahead - no ASSOC.DAT, so losing it is
-                                 ; a sector per package - and a refusal sheds
-                                 ; the read-ahead first. Mirrored here for
-                                 ; MEM_P_VIEW's reason: the Task Manager names
-                                 ; the claim table through the SDK
 
 ; --- OSAPI_SYS_KB's buffer, all in KB ----------------------------------------
 ; THERE IS NO `SK_DSK` (SPEC.md 20.9). It was the mount's own buffers, and
@@ -6494,40 +6486,6 @@ OSAPI_FT_UP   equ 3             ; the synthesized '..' (SPEC.md 19.5)
                                  ; when the folder changes, and count entries
                                  ; yourself. kern_small walks by ordinal and
                                  ; answers the same
-%define OSAPI_MOUSE_REL     KERNEL_SEG:0x0236   ; RELATIVE MOTION (SPEC.md
-                                 ; 9.14): out CX = dx, DX = dy, the raw
-                                 ; mickeys since the LAST call (signed,
-                                 ; unclamped, + right/down), both then zeroed;
-                                 ; AL = buttons as OSAPI_MOUSE. Everything else
-                                 ; kept. The mouse-look call: the first answer
-                                 ; after entry is the desktop's, so discard it.
-                                 ; kern_small REFUSES: CF = 1, AX = 1
-%define OSAPI_KEY_MAP       KERNEL_SEG:0x0239   ; THE WHOLE KEY-STATE MAP
-                                 ; (SPEC.md 9.7.3): DS:DI = KEYMAP_BYTES of
-                                 ; yours (kern_small REFUSES: CF = 1, AX = 1,
-                                 ; the bytes untouched), filled with OSAPI_KEY_DOWN's map -
-                                 ; bit (s & 7) of byte (s >> 3) set while make
-                                 ; scancode s is held. CF = 0, every register
-                                 ; kept (not the other flags). ONE far call for
-                                 ; every key a frame asks about, where
-                                 ; OSAPI_KEY_DOWN is one EACH (~540 clk on the
-                                 ; 8088; this is ~650 for all of them). It
-                                 ; ARMS the map as OSAPI_KEY_DOWN does, and the
-                                 ; first answer is all up: ask once at entry.
-                                 ; Every kernel but kern_small, a FSXF_REAL
-                                 ; bracket included
-KEYMAP_BYTES equ 16              ; ...its size: 128 bits, one per make code
-
-; --- KEYMAP_TEST map, scancode - "is it held?" against your own copy ---------
-; ZF = 0 held. One `test` - no call, no register - so a frame's keys are one
-; OSAPI_KEY_MAP and then this once per key:
-;     mov di, my_map
-;     call OSAPI_KEY_MAP
-;     KEYMAP_TEST my_map, KSC_LEFT
-;     jnz .left_held
-%macro KEYMAP_TEST 2
-    test byte [%1 + ((%2) >> 3)], 1 << ((%2) & 7)
-%endmacro
 
 ; --- the two cells a PACKAGE may not call (SPEC.md 19.6.1) --------------------
 ; It is published here because a DRIVER assembles against this same SDK, and
@@ -6966,11 +6924,7 @@ FSIF_BANKED equ 4
                                  ; of 115200: 0 or 12 = 9600, 48 = 2400 -
                                  ; SPEC.md 115.1), 1 Close, 2 Read
                                  ; (AL byte, AH sticky LSR/overflow), 3 Write
-                                 ; (CL byte), 4 Write block (SI, CX: AX =
-                                 ; taken), 5 Read block (DI, CX room: AL =
-                                 ; read, AH status) - 115.1.2; an older
-                                 ; module answers 4 and 5 CF=1 AX=5. AX/CF
-                                 ; outputs, every other
+                                 ; (CL byte). AX/CF outputs, every other
                                  ; register kept. Open may read SERIAL.DRV
                                  ; from the system disk. CF=1 AX=1 busy,
                                  ; 2 move mouse to settle, 3 mouse port,

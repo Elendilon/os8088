@@ -84,8 +84,7 @@ def key_canvas(r, i):
     return k, r.g.canvas(surf)
 
 
-def main(argv=None, boot=None):
-    """one row, or with `boot` (tests/vidshare.py) one leg of a shared boot"""
+def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--layout", choices=sorted(DESK), default="cga")
     ap.add_argument("--screen", choices=sorted(DESK),
@@ -95,10 +94,7 @@ def main(argv=None, boot=None):
                     help="a key's read at most (98.1.3.8): a small one cuts "
                     "every key into KEY PARTS, and every question below is "
                     "asked of keys in parts")
-    a = ap.parse_args(argv)
-    if boot is not None and MEGA:
-        sys.exit("vidpreview: --shared is MartyPC's: a kern_mega leg boots "
-                 "a machine of its own")
+    a = ap.parse_args()
     screen = a.screen or a.layout
     shadow = screen != a.layout
     machine = a.machine or vidplay.MACHINE[screen]
@@ -134,9 +130,8 @@ def main(argv=None, boot=None):
         ty0 = (vidplay.ROWS[screen] - g.h) // 2 // tg.banks * tg.banks
         tx0 = (tg.stride - g.wb) // 2
         rows_at = [tg.base[y + ty0] + tx0 for y in range(g.h)]
-        with (boot or os88ui.boot)(os88build.at("build/os8088-360.img"),
-                                   apps=disk, machine=machine,
-                                   quick=True) as ui:
+        with os88ui.boot(os88build.at("build/os8088-360.img"), apps=disk,
+                         machine=machine, quick=True) as ui:
             m = ui.m
             w = ui.path("B:/CLIP.V88")
             rec = m.read(ui._S("wm_wins") + w.i * geom.WIN_SIZE,
@@ -509,7 +504,4 @@ def main(argv=None, boot=None):
 
 
 if __name__ == "__main__":
-    if sys.argv[1:2] == ["--shared"]:   # ONE BOOT, SEVERAL ROWS' LEGS
-        import vidshare
-        sys.exit(vidshare.run(main, sys.argv[2:]))
     sys.exit(main())

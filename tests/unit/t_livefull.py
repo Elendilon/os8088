@@ -103,11 +103,6 @@ LOCAL_EXEMPT = {
                "the debug disks with that driver and nowhere else - beside "
                "the live media's shipped SOUND.DRV it could only say it has "
                "nothing to show",
-    "inputchk": "the input DEBUG disk's program (SPEC.md 127.5, 136): it "
-                "decodes the kernel's 'MO' block only on the kern_big it was "
-                "built against and ships on the debug-input disks alone for "
-                "now; upstream's MOUSECHK, its source, rides SYSTOOLS, and "
-                "putting INPUTCHK there is the change that lifts this",
 }
 
 
@@ -144,11 +139,6 @@ PKG_FILE = {
     "drmario": "DRMARCO.O88",      # SPEC.md 100: $(BUILD)/drmarco.o88 out of
                                    # apps/drmario/ - the package was renamed
                                    # and the source folder kept its name
-    "wirearena": "WIRERENA.O88",   # $(BUILD)/wirerena.o88 out of apps/wirearena/
-                                   # (the Makefile's WA_SHIP; docs/plans/
-                                   # MULTIPLAYER-FPS-PLAN.md 17.2)
-    "byteopoly": "BYTEOPLY.O88",   # SPEC.md 131: $(BUILD)/byteoply.o88 out of
-                                   # apps/byteopoly/ - the 8.3 stem the brief named
 }
 
 

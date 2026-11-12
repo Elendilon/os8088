@@ -1010,19 +1010,13 @@ hd_tw_nomb:
 hd_tw_delok:
     push ax
     push bx
-    mov ah, HTS_FREE            ; Delete's OTHER refusal: an empty slot
-hd_tw_okbody:                   ; hd_tw_fmtok's too: AH = the state that
-                                ; refuses besides HTS_LIVE, which both do -
-                                ; taking the boot partition's entry away is
-                                ; the same act as formatting it, one
-                                ; indirection (driver size pass 1: one body)
     mov bl, [hd_tsel]
     xor bh, bh
     mov al, [bx+hd_tstate]
-    cmp al, ah
+    cmp al, HTS_FREE
     je .no
-    cmp al, HTS_LIVE
-    je .no
+    cmp al, HTS_LIVE            ; taking the boot partition's entry away is the
+    je .no                      ; same act as formatting it, one indirection
     CLC_OR_STC .no
     pop bx
     pop ax
@@ -1043,12 +1037,20 @@ hd_tw_okbody:                   ; hd_tw_fmtok's too: AH = the state that
 hd_tw_fmtok:
     push ax
     push bx
-    mov ah, HTS_GEOM            ; the one state where the ROW ABOVE THE BUTTON
+    mov bl, [hd_tsel]
+    xor bh, bh
+    cmp byte [bx+hd_tstate], HTS_LIVE
+    je .no
+    cmp byte [bx+hd_tstate], HTS_GEOM
+    je .no                      ; the one state where the ROW ABOVE THE BUTTON
                                 ; is false: there is a volume here and this
                                 ; driver cannot see it, so 'Erase slot N?' is
                                 ; a fair question asked of a user who has just
                                 ; been shown a wrong picture (SPEC.md 52.2.6)
-    jmp short hd_tw_okbody      ; ...and HTS_LIVE, hd_tw_delok's body's own
+    CLC_OR_STC .no
+    pop bx
+    pop ax
+    ret
 
 ; -----------------------------------------------------------------------------
 ; hd_tw_confirm - the ask-again gate both destructive buttons share (internal)

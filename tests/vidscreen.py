@@ -232,18 +232,7 @@ def one(ui, scr, v88, syms, bad):
         ui.close(w)
 
 
-_SYMS = {}
-
-
-def _pkg_syms(*k):
-    """pkg_syms once a process: every --shared leg asks for the same"""
-    if k not in _SYMS:
-        _SYMS[k] = pkg_syms(*k)
-    return _SYMS[k]
-
-
-def main(argv=None, boot=None):
-    """one row, or with `boot` (tests/vidshare.py) one leg of a shared boot"""
+def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--machine", default="os8088_xt_vga")
     # (the NARROW two, 98.1.3.2.5, flip as the others do, on rows 40 bytes
@@ -262,11 +251,11 @@ def main(argv=None, boot=None):
                     "scene change, and frame 21's record bringing its page "
                     "up by the copy off the glass - a scene built ahead "
                     "(--flip-build, 98.2.5.2.1)")
-    a = ap.parse_args(argv)
+    a = ap.parse_args()
     global OWN, LCOPY, BUILD
     OWN, LCOPY, BUILD = a.own or a.build, a.lcopy, a.build
     os.chdir(ROOT)
-    syms, _ = _pkg_syms("apps/video/video.asm", ("apps/",))
+    syms, _ = pkg_syms("apps/video/video.asm", ("apps/",))
     pkg = os88build.at("build/video.o88")
     bad = []
     names = a.screen or wide
@@ -277,8 +266,8 @@ def main(argv=None, boot=None):
         subprocess.run([sys.executable, "tools/os88disk.py", "-o", disk,
                         "--size", "360", pkg] + clips, check=True,
                        capture_output=True)
-        with (boot or os88ui.boot)(os88build.at("build/os8088-360.img"),
-                                   apps=disk, machine=a.machine) as ui:
+        with os88ui.boot(os88build.at("build/os8088-360.img"), apps=disk,
+                         machine=a.machine) as ui:
             for scr, v88 in zip(scrs, clips):
                 one(ui, scr, v88, syms, bad)
     for b in bad:
@@ -289,7 +278,4 @@ def main(argv=None, boot=None):
 
 
 if __name__ == "__main__":
-    if sys.argv[1:2] == ["--shared"]:   # ONE BOOT, SEVERAL ROWS' LEGS
-        import vidshare
-        sys.exit(vidshare.run(main, sys.argv[2:]))
     sys.exit(main())

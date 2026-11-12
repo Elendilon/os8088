@@ -63,14 +63,12 @@ def main():
                    stdout=subprocess.DEVNULL)
     S = os88sym.linear
     got = {}
-    with M.launch(SF.SYS, apps=DISK, machine="os8088_xt_vga",
-                  boot=False) as m:
-        m.run()                         # SOAK-SPEED 12: the boot is
-        M.kernel_up(m)                  # gated on state, no settle
+    with M.launch(SF.SYS, apps=DISK, machine="os8088_xt_vga") as m:
+        M.settle(m)
         M.no_saver(m)
         mo = Mouse(marty=m)
         dispcp.open_drive(m, mo, S, M.settle, letter="B")
-        M.ui_done(m)                    # SOAK-SPEED 4: no pixel read next
+        M.settle(m)
         ds = dispcp.win_list(m, S)[-1]
         wx, wy, _, _ = dispcp.win_rect(m, S, ds)
         dispcp.open_named(m, mo, S, M.settle, wx, wy, name=NAME)
@@ -92,7 +90,7 @@ def main():
         M.settle(m)
         before = m.fbuf()
         M.write_png_rgb(os.path.join(WORK, "1-sheet.png"), *before)
-        SF.menu(m, mo, X["Data"], bar, *item("Data", 10))     # Chart Column... -
+        mo.menu(X["Data"], bar, *item("Data", 10))     # Chart Column... -
                                                       # 9 until 81.114 put
                                                       # Table... in at 8
         M.settle(m, limit=120)

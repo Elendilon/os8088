@@ -82,8 +82,6 @@ com_entry:
                                 ; machine you have to walk to
     jmp start
 
-%define LPL_ZLATER              ; the transport's zeroed cells, and the
-%define LSLV_ZLATER             ; slave's, are reserved below (net_bss0)
 %include "lplink.inc"           ; the transport, shared with NET.DRV and with
 %include "lplslv.inc"           ; tests/lptlink - one body, no drift
 
@@ -154,9 +152,11 @@ PKGV_IDENT  equ 0               ; apps/os88api.inc's, which a .COM does not
 ; else's problem in both directions (SPEC.md 45.15's `js`, one layer down).
 dos_ticks:
     push ds
-    xor ax, ax                  ; 0000:046C IS 0040:006C - and needs no
-    mov ds, ax                  ; second register to say so
-    mov ax, [0x46C]
+    push bx
+    mov bx, 0x40
+    mov ds, bx
+    mov ax, [0x6C]
+    pop bx
     pop ds
     ret
 
@@ -404,7 +404,8 @@ net_start:
     call puts
     mov si, eth_ip              ; ...and WHICH address, because a machine with
     call put_ip                 ; two networks on it is an ordinary thing
-    call crlf
+    mov si, s_crlf
+    call puts
     jmp short .out
 .no:
     call puts                   ; nw_up left the reason in SI
@@ -479,21 +480,25 @@ listen_once:
     push cx
     push di
     mov cl, [ncand]
+    or  cl, cl
+    jz  .out
     xor ch, ch
-    jcxz .out
     xor di, di
 .one:
     push cx
-    cmp byte [cand_ok+di], 0
+    mov bx, di
+    cmp byte [cand_ok+bx], 0
     je  .next
+    cmp byte [pinned], 0        ; /P: was given: only that port is listened on
+    je  .listen
+    shl bx, 1
+    mov ax, [cand_base+bx]
+    cmp ax, [pinbase]
+    jne .next2
+.listen:
     mov bx, di
     shl bx, 1
     mov ax, [cand_base+bx]
-    cmp byte [pinned], 0        ; /P: was given: only that port is listened on
-    je  .listen
-    cmp ax, [pinbase]
-    jne .next
-.listen:
     call lp_setport
     call lp_init
     call slv_hunt               ; the 8-nibble magic window
@@ -514,6 +519,7 @@ listen_once:
     call lp_restore
     cmp byte [slv_abort], 0
     jne .stop
+.next2:
 .next:
     inc di
     pop cx
@@ -680,13 +686,16 @@ parse_args:
     mov si, 0x81
     xor ch, ch
     mov cl, [0x80]
-    jcxz .done
+    or  cl, cl
+    jz  .done
 .next:
     call skip_sp
-    jcxz .done                  ; NO TRAMPOLINE any more: `jcxz` has no near
-                                ; form on an 8086, and the switches had put
-                                ; the end of this out of one byte's reach
-                                ; until they shrank (driver size pass 1)
+    jcxz .argdone
+    jmp short .word
+.argdone:                   ; a TRAMPOLINE, because `jcxz` has no near form on
+    jmp .done               ; an 8086 and the switches put the end of this out
+                            ; of one byte's reach. The same shape serves the
+                            ; three `jcxz .done`s below, which are nearer
 .word:
     mov al, [si]
     cmp al, '/'
@@ -703,32 +712,40 @@ parse_args:
 .opt:
     inc si
     dec cx
-    jcxz .done
+    jcxz .argdone
     mov al, [si]
     or  al, 0x20
+    cmp al, 'r'
+    je  .ro
     cmp al, 'p'
     je  .port
-    mov bx, roflag              ; the four FLAG switches name the byte they
-    cmp al, 'r'                 ; set, so one store serves them all
-    je  .set
-    mov bx, wholemc
     cmp al, 'w'
-    je  .set
-    mov bx, netflag
+    je  .whole
     cmp al, 'n'
-    je  .set
-    mov bx, helpflag
+    je  .net
     cmp al, '?'
-    je  .set
+    je  .help
     cmp al, 'h'
-    jne .skipopt
-.set:
-    mov byte [bx], 1
+    je  .help
+    jmp short .skipopt
+.help:
+    mov byte [helpflag], 1
+    jmp short .skipopt
+.net:
+    mov byte [netflag], 1
+    jmp short .skipopt
+.ro:
+    mov byte [roflag], 1
+    jmp short .skipopt
+.whole:
+    mov byte [wholemc], 1
     jmp short .skipopt
 .port:
     inc si                      ; past 'P'
     dec cx
-    jz  .done                   ; (`dec cx` has set ZF as jcxz would)
+    jnz .phave                  ; **NOT jcxz**: it is short-only on an 8086 and
+    jmp .argdone                ; /N pushed .argdone out of its reach. `dec cx`
+.phave:                         ; has already set ZF the same way
     cmp byte [si], ':'
     jne .skipopt
     inc si
@@ -966,7 +983,8 @@ srv_list:
     call lp_sword
     jc  .lost
     call srv_send               ; walk 2: send exactly that many
-    jmp short .lost             ; CF is the call's: .out would only clc it
+    jc  .lost
+    jmp short .out
 
 .nodir:
     mov al, FERR_NOENT           ; a count of zero still completes the frame,
@@ -976,14 +994,22 @@ srv_list:
     call lp_sword
     jc  .lost
 .out:
-    clc
-.lost:                          ; (CF = 1: every way in is a jc)
     pop di
     pop si
     pop dx
     pop cx
     pop bx
     pop ax
+    clc
+    ret
+.lost:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1091,7 +1117,8 @@ srv_enum:
     call lp_sbyte
     jc  .lost
     call srv_put
-    jmp short .lost             ; CF is the call's: .out would only clc it
+    jc  .lost
+    jmp short .out
 
 .end:
     mov al, FERR_NOENT          ; the ordinary end of a walk
@@ -1105,14 +1132,22 @@ srv_enum:
     call srv_put                ; the entry is owed whatever the status said
     jc  .lost
 .out:
-    clc
-.lost:                          ; (CF = 1: every way in is a jc)
     pop di
     pop si
     pop dx
     pop cx
     pop bx
     pop ax
+    clc
+    ret
+.lost:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1147,22 +1182,42 @@ srv_drv_nth:
     jc  .lost
     call srv_blank
     call srv_put
-    jmp short .lost             ; CF is the call's: .out would only clc it
+    jc  .lost
+    jmp short .out
 .found:
-    call srv_drvent             ; DL's entry, as srv_drives sends it
+    call srv_blank
+    mov al, dl
+    add al, 'A' - 1
+    mov [entbuf], al            ; 'C:' - a NAME, and the kernel prints it as
+    mov byte [entbuf+1], ':'    ; one (SPEC.md 26.4)
+    mov byte [entbuf+2], 0
+    mov word [entbuf + DE_TYPE], 2
+    push dx
+    xor ax, ax                  ; parent = the root
+    mov si, entbuf
+    call hd_get
+    pop dx
+    mov [entbuf + DE_HAND], ax
     mov al, NST_OK
     call lp_sbyte
     jc  .lost
     call srv_put
     jc  .lost
 .out:
-    clc
-.lost:                          ; (CF = 1: every way in is a jc)
     pop si
     pop dx
     pop cx
     pop bx
     pop ax
+    clc
+    ret
+.lost:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1176,19 +1231,25 @@ srv_count:
     push dx
     xor bx, bx                  ; the running count
     call srv_first
-    jc  .none                   ; AN EMPTY FOLDER IS NOT A REFUSAL: DOS
-.next:                          ; answers findfirst with 'no more files' for
-    call srv_keep               ; one, and the master wants a count of zero
-    jc  .skip                   ; rather than FERR_NOENT - which is BX's 0.
-    inc bx                      ; CF=0 = this is one we would show
+    jc  .none
+.next:
+    call srv_keep               ; CF=0 = this is one we would show
+    jc  .skip
+    inc bx
 .skip:
     call srv_more
     jnc .next
-.none:
     mov ax, bx
     pop dx
     pop cx
     pop bx
+    clc
+    ret
+.none:
+    xor ax, ax                  ; AN EMPTY FOLDER IS NOT A REFUSAL: DOS
+    pop dx                      ; answers findfirst with 'no more files' for
+    pop cx                      ; one, and the master wants a count of zero
+    pop bx                      ; rather than FERR_NOENT
     clc
     ret
 
@@ -1221,12 +1282,18 @@ srv_send:
     dec bx
     jnz .padl
 .done:
-    clc
-.lost:                          ; (CF = 1: every way in is a jc)
     pop dx
     pop cx
     pop bx
     pop ax
+    clc
+    ret
+.lost:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    stc
     ret
 
 srv_put:                        ; entbuf -> the wire, DE_SZ bytes
@@ -1239,10 +1306,15 @@ srv_put:                        ; entbuf -> the wire, DE_SZ bytes
     call lp_sbyte
     jc  .lost
     inc si
-    loop .b                     ; (CF = 0: the last lp_sbyte's, which `inc`
-.lost:                          ; and `loop` keep; CF = 1 by the jc)
+    loop .b
     pop si
     pop cx
+    clc
+    ret
+.lost:
+    pop si
+    pop cx
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1261,17 +1333,31 @@ srv_first:
     mov dx, wildbuf
     mov cx, 0x10                ; ...directories as well as ordinary files
     mov ah, 0x4E
-    int 0x21                    ; CF is DOS's answer, and `pop` keeps it
+    int 0x21
+    jc  .no
     pop dx
     pop cx
     pop ax
+    clc
+    ret
+.no:
+    pop dx
+    pop cx
+    pop ax
+    stc
     ret
 
 srv_more:
     push ax
     mov ah, 0x4F
-    int 0x21                    ; (CF, as srv_first's)
+    int 0x21
+    jc  .no
     pop ax
+    clc
+    ret
+.no:
+    pop ax
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1284,13 +1370,19 @@ srv_more:
 ; every other volume os8088 mounts.
 ; -----------------------------------------------------------------------------
 srv_keep:
-    test byte [dtabuf + DTA_ATTR], 0x08 | 0x06  ; volume label, hidden, system
+    push ax
+    mov al, [dtabuf + DTA_ATTR]
+    test al, 0x08               ; volume label
+    jnz .no
+    test al, 0x06               ; hidden | system
     jnz .no
     cmp byte [dtabuf + DTA_NAME], '.'
     je  .no                     ; '.' and '..' both start with it, and nothing
-    clc                         ; else DOS returns ever does
+    pop ax                      ; else DOS returns ever does
+    clc
     ret
 .no:
+    pop ax
     stc
     ret
 
@@ -1329,12 +1421,14 @@ srv_ent:
     test byte [dtabuf + DTA_ATTR], 0x10
     jnz .dir
     call ent_ispkg              ; @16: 1 = a package, so the loader's icon and
-    jnc .out                    ; the double-click both do the right thing - a
-                                ; plain file is srv_blank's 0, and has no @18
-    mov byte [entbuf + DE_TYPE], 1  ; (srv_blank zeroed the high byte)
+    jnc .file                   ; the double-click both do the right thing
+    mov word [entbuf + DE_TYPE], 1
     jmp short .hand             ; ...AND A PACKAGE NEEDS @18 TOO. See below
+.file:
+    mov word [entbuf + DE_TYPE], 0
+    jmp short .out
 .dir:
-    mov byte [entbuf + DE_TYPE], 2
+    mov word [entbuf + DE_TYPE], 2
 .hand:
     ; @18: OUR OPAQUE HANDLE, for a FOLDER because dsk_chdir dives on it, and
     ; for a PACKAGE because loader_run reads one BY HANDLE out of the staged
@@ -1420,26 +1514,6 @@ ent_ispkg:
 ; still touches the media - which is why crit24 is installed: an empty floppy
 ; would otherwise stop this machine on DOS's own Abort/Retry/Fail with nobody
 ; standing at it.
-
-; --- srv_drvent - DL = a drive, 1 = A: -> entbuf, its root-level entry -------
-; @0: 'C:' - a NAME, and the kernel prints it as one. The drive LETTER os8088
-; shows is its own volume index (SPEC.md 26.4) and has nothing to do with
-; this one. @16: 2, a folder; @18: its handle, whose parent is the root.
-; srv_blank's zeros are the NUL after the colon and the type's high byte.
-; clobbers: AX, SI
-srv_drvent:
-    call srv_blank
-    mov al, dl
-    add al, 'A' - 1
-    mov ah, ':'
-    mov [entbuf], ax
-    mov byte [entbuf + DE_TYPE], 2
-    xor ax, ax                  ; parent = the root
-    mov si, entbuf
-    call hd_get                 ; (keeps DX)
-    mov [entbuf + DE_HAND], ax
-    ret
-
 ; -----------------------------------------------------------------------------
 srv_drives:
     push ax
@@ -1470,19 +1544,39 @@ srv_drives:
 .send:
     call drive_live
     jc  .snext
-    call srv_drvent
+    call srv_blank
+    mov al, dl
+    add al, 'A' - 1
+    mov [entbuf], al            ; @0: 'C:' - a NAME, and the kernel prints it
+    mov byte [entbuf+1], ':'    ; as one. The drive LETTER os8088 shows is its
+    mov byte [entbuf+2], 0      ; own volume index (SPEC.md 26.4) and has
+                                ; nothing to do with this one
+    mov word [entbuf + DE_TYPE], 2
+    push dx
+    xor ax, ax                  ; parent = the root
+    mov si, entbuf
+    call hd_get
+    pop dx
+    mov [entbuf + DE_HAND], ax
     call srv_put
     jc  .lost
 .snext:
     inc dl
     loop .send
-    clc
-.lost:                          ; (CF = 1: every way in is a jc)
     pop si
     pop dx
     pop cx
     pop bx
     pop ax
+    clc
+    ret
+.lost:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    stc
     ret
 
 ; drive_live - DL = 1..26. CF=0 = it answered. DL and CX preserved.
@@ -1493,12 +1587,20 @@ drive_live:
     push dx
     mov ah, 0x36
     int 0x21
-    inc ax                      ; 0xFFFF, "no such drive", is 0 now...
-    cmp ax, 1                   ; ...and CF = 1 exactly for it
+    cmp ax, 0xFFFF
+    je  .no
     pop dx
     pop cx
     pop bx
     pop ax
+    clc
+    ret
+.no:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1540,17 +1642,23 @@ srv_chdir:
     mov ax, [srv_h]
     call hd_par                 ; -> AX = the parent, 0 for the root
     call lp_sword
-    jmp short .lost             ; CF is the call's: .out would only clc it
+    jc  .lost
+    jmp short .out
 .no:
     mov al, FERR_NOENT
     call lp_sbyte
     jc  .lost
 .out:
-    clc
-.lost:                          ; (CF = 1: every way in is a jc)
     pop si
     pop bx
     pop ax
+    clc
+    ret
+.lost:
+    pop si
+    pop bx
+    pop ax
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1610,36 +1718,49 @@ srv_dfree:
     jmp short .say
 .huge:
     mov ax, 0xFFFF              ; ...and a clamp is the honest answer
-    cwd                         ; (DX = 0xFFFF too)
+    mov dx, 0xFFFF
+    jmp short .say2
 .say:
     ; DX:AX = free bytes. `mul` set CF/OF if DX is non-zero, which is not an
     ; overflow here - it is simply a big disk.
 .say2:
-    push ax                     ; (lp_sbyte and lp_sword keep AX and DX:
-    mov al, NST_OK              ; only the status byte's AL needs saving)
+    push ax
+    push dx
+    mov al, NST_OK
     call lp_sbyte
+    pop dx
     pop ax
     jc  .lost
+    push ax
+    push dx
     call lp_sword               ; the low half
+    pop dx
+    pop ax
     jc  .lost
     mov ax, dx
     call lp_sword               ; ...and the high
     jc  .lost
     mov ax, 512                 ; the granule. os8088 rounds a size UP to it
     call lp_sword               ; in the Disk window's status line, and 512 is
-    jmp short .lost             ; CF is the call's: .out would only clc it
-                                ; what every volume it can mount uses
+    jc  .lost                   ; what every volume it can mount uses
+    jmp short .out
 .no:
     mov al, FERR_NOENT
     call lp_sbyte
     jc  .lost
 .out:
-    clc
-.lost:                          ; (CF = 1: every way in is a jc)
     pop dx
     pop cx
     pop bx
     pop ax
+    clc
+    ret
+.lost:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1679,17 +1800,17 @@ srv_stat:
     mov ax, [srv_h]             ; the handle is (this folder, this name), so a
     mov si, namebuf             ; second stat of the same file answers the
     call hd_get                 ; same handle - hd_get dedupes
+    mov [srv_fh], ax
     or  ax, ax                  ; ...0 IS THE TABLE FULL, and 0 is the ROOT -
     jz  .no                     ; open_handle refuses it, so answering OK with
                                 ; it is a success the caller cannot use. A
                                 ; refusal here at least names the file that
                                 ; could not be reached
 
-    push ax                     ; the handle, across the status byte
     xor al, al
     call lp_sbyte
-    pop ax
     jc  .lost
+    mov ax, [srv_fh]
     call lp_sword
     jc  .lost
     mov ax, [dtabuf + DTA_SIZE]
@@ -1700,20 +1821,29 @@ srv_stat:
     jc  .lost
     mov al, [dtabuf + DTA_ATTR]
     call lp_sbyte
-    jmp short .lost             ; CF is the call's: .out would only clc it
+    jc  .lost
+    jmp short .out
 .no:
     mov al, FERR_NOENT
     call lp_sbyte
     jc  .lost
 .out:
-    clc
-.lost:                          ; (CF = 1: every way in is a jc)
     pop di
     pop si
     pop dx
     pop cx
     pop bx
     pop ax
+    clc
+    ret
+.lost:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    stc
     ret
 
 ; srv_rname - 13 bytes off the wire -> namebuf, NUL-terminated
@@ -1729,12 +1859,17 @@ srv_rname:
     mov [di], al
     inc di
     loop .b
-    mov byte [namebuf+13], 0    ; ...whatever the far end sent, this ends -
-                                ; and CF = 0, the last lp_rbyte's
-.bad:                          ; (CF = 1: every way in is a jc)
+    mov byte [namebuf+13], 0    ; ...whatever the far end sent, this ends
     pop di
     pop cx
     pop ax
+    clc
+    ret
+.bad:
+    pop di
+    pop cx
+    pop ax
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1781,10 +1916,18 @@ stat_file:
     mov dx, wildbuf
     mov cx, 0x10
     mov ah, 0x4E
-    int 0x21                    ; CF is DOS's answer, and `pop` keeps it
+    int 0x21
+    jc  .no
     pop dx
     pop cx
     pop ax
+    clc
+    ret
+.no:
+    pop dx
+    pop cx
+    pop ax
+    stc
     ret
 
 ; path_join - pathbuf + '\' + namebuf -> wildbuf
@@ -1807,7 +1950,6 @@ stat_file:
 ; is turned away.
 path_join:
     push ax
-    push bx
     push si
     push di
     mov si, namebuf
@@ -1822,13 +1964,24 @@ path_join:
     lodsb
     or  al, al
     jz  .okname
-    mov bx, pj_bad              ; ...against every byte the fence refuses (the
-.t:                             ; header), one table rather than nine compares
-    cmp al, [bx]
+    cmp al, '\'
     je  .bad
-    inc bx
-    cmp byte [bx], 0            ; AL is not 0 here, so the table's NUL ends it
-    jne .t
+    cmp al, '/'
+    je  .bad
+    cmp al, ':'
+    je  .bad
+    cmp al, '*'
+    je  .bad
+    cmp al, '?'
+    je  .bad
+    cmp al, '<'
+    je  .bad
+    cmp al, '>'
+    je  .bad
+    cmp al, '|'
+    je  .bad
+    cmp al, '"'
+    je  .bad
     jmp short .chk
 .okname:
     mov si, pathbuf
@@ -1841,19 +1994,19 @@ path_join:
 .sep:
     mov si, namebuf
     call str_app
-    mov byte [di], 0            ; CF = 0: str_app's `or`
-    jmp short .out
-.bad:
-    mov byte [wildbuf], 0       ; nothing downstream may see a half-built path
-    stc
-.out:
+    mov byte [di], 0
     pop di
     pop si
-    pop bx
     pop ax
+    clc
     ret
-pj_bad:     db '\/:*?<>|"', 0     ; a separator, a drive colon, a wildcard, and
-                                ; the characters DOS will not put in a name
+.bad:
+    mov byte [wildbuf], 0       ; nothing downstream may see a half-built path
+    pop di
+    pop si
+    pop ax
+    stc
+    ret
 
 ; -----------------------------------------------------------------------------
 ; srv_read - NF_READ: a handle and a capacity -> the file
@@ -1903,21 +2056,28 @@ srv_read:
     jmp short .out
 .rlost:
     call close_handle
-    stc                         ; (close_handle's CF is not ours)
     jmp short .lost
 .no:
     mov al, FERR_NOENT
     call lp_sbyte
     jc  .lost
 .out:
-    clc
-.lost:                          ; (CF = 1: every way in is a jc)
     pop di
     pop si
     pop dx
     pop cx
     pop bx
     pop ax
+    clc
+    ret
+.lost:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1989,21 +2149,28 @@ srv_readat:
     jmp short .out
 .rlost:
     call close_handle
-    stc                         ; (close_handle's CF is not ours)
     jmp short .lost
 .no:
     mov al, FERR_NOENT
     call lp_sbyte
     jc  .lost
 .out:
-    clc
-.lost:                          ; (CF = 1: every way in is a jc)
     pop di
     pop si
     pop dx
     pop cx
     pop bx
     pop ax
+    clc
+    ret
+.lost:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2040,14 +2207,18 @@ open_handle:
     int 0x21
     jc  .no
     mov [rfh], ax
-    jmp short .out              ; CF = 0: the int's
-.no:
-    stc
-.out:
     pop dx
     pop cx
     pop bx
     pop ax
+    clc
+    ret
+.no:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    stc
     ret
 
 close_handle:
@@ -2133,13 +2304,21 @@ send_body:
     sub [srv_rlen], ax
     sbb word [srv_rlen+2], 0
     jmp short .chunk
-.done:                          ; (CF = 0: the `or` that found the end)
-.lost:                          ; (CF = 1: every way in is a jc)
+.done:
     pop si
     pop dx
     pop cx
     pop bx
     pop ax
+    clc
+    ret
+.lost:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    stc
     ret
 
 ; str_cpy16 - SI -> DI, whole, up to 80 bytes
@@ -2174,11 +2353,13 @@ str_cpy16:
 ; short for ever and the master's own status wait never ends. The status is the
 ; caller's to send, once the wire is quiet (SPEC.md 62.10.4.5)
 wr_gate:
-    cmp byte [roflag], 1        ; CF = 1 exactly when it is 0...
-    cmc                         ; ...so CF = 1 now when writes are refused
-    jnc .ok
+    cmp byte [roflag], 0
+    je  .ok
     mov al, FERR_WPROT          ; the MEDIA answer, which is what a read-only
-.ok:                            ; run is from the other end's point of view
+    stc                         ; run is from the other end's point of view
+    ret
+.ok:
+    clc
     ret
 
 ; wr_arg - the folder handle and one name, off the wire into pathbuf+namebuf
@@ -2202,7 +2383,9 @@ wr_arg:
 .nodir:
     mov byte [srv_ok], 0
     clc
-.lost:                          ; (CF = 1: the jc)
+    ret
+.lost:
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2236,8 +2419,8 @@ srv_copy:
     call srv_rname
     jc  .lost
 
-    call wr_gate                ; /RO, with every argument now off the wire:
-    jc  .tell                   ; AL = FERR_WPROT, wr_gate's answer
+    call wr_gate                ; /RO, with every argument now off the wire
+    jc  .gsay
 
     call hd_path                ; the SOURCE, as a path
     jc  .nodir
@@ -2301,31 +2484,48 @@ srv_copy:
 .close:
     call cpy_close              ; AX preserved, so the answer survives it
     jmp short .tell
+.gsay:
+    mov al, FERR_WPROT          ; wr_gate's answer, sent by its caller
+    jmp short .tell
 .nosrc:
 .nodir:
     mov al, FERR_NOENT
 .tell:
     call lp_sbyte
 .out:
-    clc
-.lost:                          ; (CF = 1: every way in is a jc)
     pop di
     pop si
     pop dx
     pop cx
     pop bx
     pop ax
+    clc
+    ret
+.lost:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    stc
     ret
 
 ; cpy_close - shut both handles, whichever of them got opened
 cpy_close:
-    call close_handle           ; the SOURCE, through [rfh] - 0xFFFF after
     push ax
-    mov ax, 0xFFFF
-    xchg ax, [cpydst]           ; ...then the DESTINATION through the same
-    mov [rfh], ax               ; cell, so both end 0xFFFF and the close is
-    pop ax                      ; close_handle's, written once
-    jmp close_handle
+    push bx
+    call close_handle           ; the SOURCE, through [rfh]
+    mov bx, [cpydst]
+    cmp bx, 0xFFFF
+    je  .out
+    mov ah, 0x3E
+    int 0x21
+    mov word [cpydst], 0xFFFF
+.out:
+    pop bx
+    pop ax
+    ret
 
 ; -----------------------------------------------------------------------------
 ; srv_write - NF_WRITE: create or replace, whole
@@ -2336,18 +2536,9 @@ cpy_close:
 ; worth of bytes on it and nobody listening, which is the link dead rather
 ; than one operation failed. So the gate is tested, the run is drained either
 ; way, and only then does the status go back.
-;
-; srv_append - NF_APPEND: add to the end of an existing file, through the SAME
-; body (driver size pass 1: they were two copies that differed in three
-; lines). The length is ONE WORD there (SPEC.md 62.10.1): this is the chunked half of
-; the pair, so a copy streams through it a claim at a time.
 ; -----------------------------------------------------------------------------
-srv_append:                     ; ...AND NF_APPEND, which is the same verb
-    mov byte [sf_wtag], 'A'     ; with a WORD length (SPEC.md 62.10.1) and an
-    jmp short srv_wcom          ; open that seeks to the end: one body, which
-srv_write:                      ; asks [sf_wtag] at the two places they part
+srv_write:
     mov byte [sf_wtag], 'W'
-srv_wcom:
     push ax
     push bx
     push cx
@@ -2355,71 +2546,128 @@ srv_wcom:
     push si
     push di
     call wr_arg
-    jc  .fin
+    jc  .lost
     call lp_rword               ; the length, low
-    jc  .fin
+    jc  .lost
     mov [srv_rlen], ax
-    xor ax, ax                  ; APPEND's high half is not on the wire
-    cmp byte [sf_wtag], 'A'
-    je  .lenhi
     call lp_rword               ; ...and high
-    jc  .fin
-.lenhi:
+    jc  .lost
     mov [srv_rlen+2], ax
-    cmp byte [sf_wtag], 'A'
-    je  .ap
     call wr_open                ; 3Ch: create or truncate. CF=1 = refused
-    jmp short .opened
-.ap:
-    call wr_openap              ; open existing and seek to the end
-.opened:
     jc  .sink
     mov byte [srv_wbad], 0
     call recv_body              ; ...straight into the file
     jc  .rlost
     call close_handle
-    mov al, [srv_wbad]          ; 1 = DOS took fewer bytes than it was given:
-    neg al                      ; FERR_FULL, and otherwise FERR_OK
-    and al, FERR_FULL
-.tell:
-    call lp_sbyte
-    clc
-    jmp short .fin
+    mov al, FERR_OK
+    cmp byte [srv_wbad], 0
+    je  .say
+    mov al, FERR_FULL           ; DOS took fewer bytes than it was given
+.say:
+    jmp .tell
 .sink:
     mov [srv_fail], al          ; the reason, banked across the drain
     call sink_body
-    jc  .fin
+    jc  .lost
     mov al, [srv_fail]          ; ...and said ONLY NOW, with the whole run off
-    jmp short .tell             ; the cable and the master listening for it
+    jmp .tell                ; the cable and the master listening for it
 .rlost:
     call close_handle
-    stc
-.fin:                           ; (CF = 1 every way in but .tell's)
+.lost:
     pop di
     pop si
     pop dx
     pop cx
     pop bx
     pop ax
+    stc
     ret
-%if FERR_OK != 0
-  %error "os88net: srv_wcom builds FERR_OK as 0 and FERR_FULL as a mask of it"
-%endif
+.tell:
+    call lp_sbyte
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
 
+; -----------------------------------------------------------------------------
+; srv_append - NF_APPEND: add to the end of an existing file
+;
+; The length is ONE WORD here (SPEC.md 62.10.1): this is the chunked half of
+; the pair, so a copy streams through it a claim at a time.
+; -----------------------------------------------------------------------------
+srv_append:
+    mov byte [sf_wtag], 'A'
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    call wr_arg
+    jc  .lost
+    call lp_rword
+    jc  .lost
+    mov [srv_rlen], ax
+    mov word [srv_rlen+2], 0
+    call wr_openap              ; open existing and seek to the end
+    jc  .sink
+    mov byte [srv_wbad], 0
+    call recv_body              ; ...straight into the file
+    jc  .rlost
+    call close_handle
+    mov al, FERR_OK
+    cmp byte [srv_wbad], 0
+    je  .say
+    mov al, FERR_FULL           ; DOS took fewer bytes than it was given
+.say:
+    jmp .tell
+.sink:
+    mov [srv_fail], al          ; the reason, banked across the drain
+    call sink_body
+    jc  .lost
+    mov al, [srv_fail]          ; ...and said ONLY NOW, with the whole run off
+    jmp .tell                ; the cable and the master listening for it
+.rlost:
+    call close_handle
+.lost:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    stc
+    ret
+.tell:
+    call lp_sbyte
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
 
 ; -----------------------------------------------------------------------------
 ; srv_delete / srv_mkdir / srv_rmdir - one name, one status
 ; -----------------------------------------------------------------------------
-srv_delete:                     ; [srv_verb] IS THE DOS FUNCTION, so the body
-    mov byte [srv_verb], 0x41   ; puts it in AH and asks no question about it
-    mov byte [sf_wtag], 'D'     ; (delete)
+srv_delete:
+    mov byte [srv_verb], 0
+    mov byte [sf_wtag], 'D'
     jmp short srv_name1
 srv_mkdir:
-    mov byte [srv_verb], 0x39   ; (mkdir)
+    mov byte [srv_verb], 1
     mov byte [sf_wtag], 'M'
     jmp short srv_name1
 srv_rmdir:
-    mov byte [srv_verb], 0x3A   ; (rmdir)
+    mov byte [srv_verb], 2
     mov byte [sf_wtag], 'K'
 srv_name1:
     push ax
@@ -2431,11 +2679,22 @@ srv_name1:
     call wr_arg
     jc  .lost
     call wr_gate
-    jc  .tell                   ; /RO, with the name already off the wire - and
-    cmp byte [srv_ok], 0        ; AL = FERR_WPROT, wr_gate's answer
+    jc  .gsay                   ; /RO, with the name already off the wire
+    cmp byte [srv_ok], 0
     je  .nodir
     mov dx, wildbuf
-    mov ah, [srv_verb]          ; 41h delete, 39h mkdir, 3Ah rmdir
+    cmp byte [srv_verb], 1
+    je  .mk
+    cmp byte [srv_verb], 2
+    je  .rm
+    mov ah, 0x41                ; delete
+    jmp short .go
+.mk:
+    mov ah, 0x39                ; mkdir
+    jmp short .go
+.rm:
+    mov ah, 0x3A                ; rmdir
+.go:
     int 0x21
     jc  .doserr
     mov al, FERR_OK
@@ -2443,19 +2702,30 @@ srv_name1:
 .doserr:
     call dos_ferr               ; AX = DOS's code -> AL = a FERR_*
     jmp .tell
+.gsay:
+    mov al, FERR_WPROT          ; wr_gate's answer, sent by its caller
+    jmp .tell
 .nodir:
     mov al, FERR_NOENT
 .tell:
     call lp_sbyte
 .out:
-    clc
-.lost:                          ; (CF = 1: every way in is a jc)
     pop di
     pop si
     pop dx
     pop cx
     pop bx
     pop ax
+    clc
+    ret
+.lost:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2563,15 +2833,14 @@ srv_rmtree:
     jc  .toodeep
     jmp short .pass
 
-.empty:                         ; ...and SAY SO, lower case, which is the same
-                                ; convention the copy's two ends use ('Y'/'y').
+.empty:
+    push si                     ; ...and SAY SO, lower case, which is the same
+    push di                     ; convention the copy's two ends use ('Y'/'y').
     mov si, rtpath              ; This is the most destructive verb here and
     mov di, wildbuf             ; the two machines are usually in different
     call str_cpy96              ; rooms (62.10.5): the log is the only record
-                                ; of what went, and one that named the files
-                                ; and not the folders would be half of it.
-                                ; (SI and DI are nobody's in this loop: the
-                                ; frame gives the caller's back)
+    pop di                      ; of what went, and one that named the files
+    pop si                      ; and not the folders would be half of it
     mov al, 't'
     call say_file
     mov dx, rtpath              ; nothing left in it, so it can go
@@ -2585,7 +2854,6 @@ srv_rmtree:
 
 .done:
     mov al, FERR_OK
-.gsay:                          ; (AL = FERR_WPROT, wr_gate's answer)
     jmp .tell
 .doserr:
     call dos_ferr               ; AX = DOS's code -> AL = a FERR_*
@@ -2597,20 +2865,31 @@ srv_rmtree:
 .toodeep:
     mov al, FERR_DIRFULL        ; the path will not fit, so we cannot name the
     jmp .tell                ; folder we would be deleting
+.gsay:
+    mov al, FERR_WPROT
+    jmp .tell
 .noent:
 .nodir:
     mov al, FERR_NOENT
 .tell:
     call lp_sbyte
 .out:
-    clc
-.lost:                          ; (CF = 1: every way in is a jc)
     pop di
     pop si
     pop dx
     pop cx
     pop bx
     pop ax
+    clc
+    ret
+.lost:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2636,18 +2915,24 @@ rt_first:
     call rt_wild                ; rtpath + '\*.*' -> wildbuf
     mov dx, wildbuf
     call rt_ff16
-    jc  .out                    ; CF = 1: none
+    jc  .none
 .test:
     cmp byte [dtabuf + DTA_NAME], '.'
-    clc                         ; (ZF is the compare's)
-    jne .out                    ; '.' and '..' are the only names DOS returns
+    jne .have                   ; '.' and '..' are the only names DOS returns
     mov ah, 0x4F                ; that start with one
     int 0x21
-    jnc .test                   ; ...and its CF = 1 is "none" too
-.out:
+    jnc .test
+.none:
     pop dx
     pop cx
     pop ax
+    stc
+    ret
+.have:
+    pop dx
+    pop cx
+    pop ax
+    clc
     ret
 
 ; rt_stat  - findfirst on rtpath ITSELF, so its attribute can be read
@@ -2668,13 +2953,17 @@ srv_isdir:
     push dx
     mov dx, pathbuf
     call rt_ff16
-    jc  .out                    ; CF = 1: no such thing
+    jc  .no
     test byte [dtabuf + DTA_ATTR], 0x10
-    jnz .out                    ; a folder: CF = 0 from the test
-    stc
-.out:
+    jz  .no
     pop dx
     pop ax
+    clc
+    ret
+.no:
+    pop dx
+    pop ax
+    stc
     ret
 
 ; rt_ff16 - findfirst DS:DX with directories, hidden and system included
@@ -2736,11 +3025,18 @@ rt_build:
     call str_app
     mov byte [di], 0
     sub di, wildbuf
-    cmp di, RT_PATHMAX + 1      ; CF = 1 while it fits...
-    cmc                         ; ...so CF = 1 now when it is too long
+    cmp di, RT_PATHMAX
+    ja  .long
     pop di
     pop cx
     pop ax
+    clc
+    ret
+.long:
+    pop di
+    pop cx
+    pop ax
+    stc
     ret
 
 ; rt_fits - is the ASCIIZ string at SI short enough to be an rtpath?
@@ -2751,15 +3047,19 @@ rt_fits:
     xor ax, ax
 .l:
     cmp byte [si], 0
-    je  .end                    ; CF = 0: it fits
+    je  .end
     inc si
     inc ax
     cmp ax, RT_PATHMAX
     jbe .l
+    pop si
+    pop ax
     stc
+    ret
 .end:
     pop si
     pop ax
+    clc
     ret
 
 ; rt_push - descend: rtpath += '\' + the DTA's name. CF=1 = too deep to name.
@@ -2768,19 +3068,23 @@ rt_push:
     push si
     push di
     call rt_join                ; the child's full path, length-checked there
-    jc  .out
-    cmp word [rtdep], RT_DEPTH  ; CF = 1 while there is room...
-    cmc
-    jc  .out                    ; ...so CF = 1 now when there is not
+    jc  .no
+    cmp word [rtdep], RT_DEPTH
+    jae .no
     mov si, wildbuf
     mov di, rtpath
     call str_cpy96
     inc word [rtdep]
-    clc
-.out:
     pop di
     pop si
     pop ax
+    clc
+    ret
+.no:
+    pop di
+    pop si
+    pop ax
+    stc
     ret
 
 ; rt_pop - climb: cut rtpath at its last '\'. Only ever called with rtdep > 0,
@@ -2838,8 +3142,7 @@ srv_rename:
     call srv_rname              ; the NEW name -> namebuf
     jc  .lost
     call wr_gate
-    jc  .tell                   ; /RO, with BOTH names already off the wire:
-                                ; AL = FERR_WPROT, wr_gate's answer
+    jc  .gsay                   ; /RO, with BOTH names already off the wire
     cmp byte [srv_ok], 0
     je  .nodir
     call path_join              ; the new name, in the same folder
@@ -2857,19 +3160,30 @@ srv_rename:
 .doserr:
     call dos_ferr
     jmp .tell
+.gsay:
+    mov al, FERR_WPROT          ; wr_gate's answer, sent by its caller
+    jmp .tell
 .nodir:
     mov al, FERR_NOENT
 .tell:
     call lp_sbyte
 .out:
-    clc
-.lost:                          ; (CF = 1: every way in is a jc)
     pop di
     pop si
     pop dx
     pop cx
     pop bx
     pop ax
+    clc
+    ret
+.lost:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2982,13 +3296,21 @@ recv_body:
     sub [srv_rlen], ax
     sbb word [srv_rlen+2], 0
     jmp short .chunk
-.done:                          ; (CF = 0: the `or` that found the end)
-.lost:                          ; (CF = 1: every way in is a jc)
+.done:
     pop di
     pop dx
     pop cx
     pop bx
     pop ax
+    clc
+    ret
+.lost:
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    stc
     ret
 
 ; sink_body - swallow [srv_rlen] bytes and store none of them
@@ -3007,11 +3329,17 @@ sink_body:
     sub cx, 1
     sbb dx, 0
     jmp short .b
-.out:                           ; (CF = 0: the `or` that found the end)
-.lost:                          ; (CF = 1: every way in is a jc)
+.out:
     pop dx
     pop cx
     pop ax
+    clc
+    ret
+.lost:
+    pop dx
+    pop cx
+    pop ax
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -3031,13 +3359,9 @@ dos_ferr:
     je  .exist
     cmp ax, 4                   ; too many open files
     je  .io
-    cmp ax, 39                  ; 39 is 'insufficient disk space', and the
-    mov al, FERR_FULL           ; rest of DOS's write failures are near
-    je  .out                    ; enough the same thing from here. COMPARED
-                                ; FIRST: the `mov` used to come before it, so
-                                ; AX was 6 by the time it was asked about 39
-                                ; and a full disk answered FERR_IO (driver
-                                ; size pass 1, a defect found by reading)
+    mov al, FERR_FULL           ; 39 is 'insufficient disk space', and the
+    cmp ax, 39                  ; rest of DOS's write failures are near
+    je  .out                    ; enough the same thing from here
 .io:
     mov al, FERR_IO
     jmp short .out
@@ -3092,21 +3416,22 @@ hd_get:
     inc cx
     add di, HD_SZ
     jmp short .scan
-.new:                           ; (CX = [nhd]: the scan stopped at it)
-    cmp cx, HD_MAX
+.hit:
+    mov ax, cx
+    inc ax                      ; slot i is handle i+1
+    jmp short .out
+.new:
+    cmp word [nhd], HD_MAX
     jae .full
     mov [di + HD_PAR], dx
-    push cx
     push di
     add di, HD_NAME
     mov cx, 13
     call str_cpy                ; SI -> DI, at most CX
     pop di
-    pop cx
-    inc word [nhd]              ; ...and the new slot is a hit like any other
-.hit:
-    mov ax, cx
-    inc ax                      ; slot i is handle i+1
+    mov ax, [nhd]
+    inc word [nhd]
+    inc ax
     jmp short .out
 .full:
     xor ax, ax
@@ -3388,24 +3713,28 @@ pin_or_scan:
     push cx
     push di
     mov cl, [ncand]
+    or  cl, cl
+    jz  .none
     xor ch, ch
-    jcxz .none
     xor di, di
 .l:
     mov bx, di
     cmp byte [cand_ok+bx], 0
     je  .nx
     cmp byte [pinned], 0
-    je  .out                    ; CF = 0 from the equal compare: a port
+    je  .yes
     shl bx, 1
     mov ax, [cand_base+bx]
     cmp ax, [pinbase]
-    je  .out                    ; (and here)
+    je  .yes
 .nx:
     inc di
     loop .l
 .none:
     stc
+    jmp short .out
+.yes:
+    clc
 .out:
     pop di
     pop cx
@@ -3427,7 +3756,8 @@ report_ports:
     xor ch, ch
     jcxz .out
     xor di, di
-.row:                           ; (puts, puthex16 and crlf keep CX)
+.row:
+    push cx
     mov si, s_ind
     call puts
     mov bx, di
@@ -3436,14 +3766,16 @@ report_ports:
     call puthex16
     mov si, s_gap
     call puts
+    mov bx, di
     mov si, s_dash
-    cmp byte [cand_ok+di], 0
+    cmp byte [cand_ok+bx], 0
     je  .say
     mov si, s_ok
 .say:
     call puts
     call crlf
     inc di
+    pop cx
     loop .row
 .out:
     pop di
@@ -3483,7 +3815,8 @@ lpl_kbhit:
     stc
     ret
 .none:
-    xor ax, ax                  ; (CF = 0)
+    xor ax, ax
+    clc
     ret
 
 putc:
@@ -3511,28 +3844,33 @@ puts:
     ret
 
 crlf:
-    push si
-    mov si, s_crlf
-    call puts
-    pop si
+    push ax
+    mov al, 13
+    call putc
+    mov al, 10
+    call putc
+    pop ax
     ret
 
 puthex16:
     push ax
     push cx
-    mov cx, 0x0404              ; CH = four digits, CL = the rotate
+    mov cx, 4
 .d:
+    push cx
+    mov cl, 4
     rol ax, cl
+    pop cx
     push ax
     and al, 0x0F
-    add al, 0x90                ; the 8086's hex-digit idiom (netui.inc's
-    daa                         ; net_hex): 0..9 -> '0'..'9', 10..15 ->
-    adc al, 0x40                ; 'A'..'F'
-    daa
+    add al, '0'
+    cmp al, '9'
+    jbe .p
+    add al, 7
+.p:
     call putc
     pop ax
-    dec ch
-    jnz .d
+    loop .d
     pop cx
     pop ax
     ret
@@ -3645,11 +3983,6 @@ eth_rxb:    resb NE_FRAME + 4
 eth_txb:    resb NE_FRAME + 4
 pk_ring:    resb PKT_NBUF * PKT_FRAME
 nw_buf:     resb NET_SKMAX
-    ; (lplink.inc emits its own state)
-    ; (lplslv.inc emits its own)
-    NWSLV_ZSTATE                ; ...nwslv.inc's...
-    PKT_ZSTATE                  ; ...and pktdrv.inc's: zero at start, like
-                                ; everything here, and so never emitted
 
 ; --- and THIS PROGRAM'S OWN, which were emitted zeros until apps size pass 2.
 ; Every one of them is zero when net_bss_clear has run, exactly as the file
@@ -3697,8 +4030,7 @@ srv_rlen:   resd 1              ; ...and what we are actually sending
 srv_off:    resd 1              ; FSV_READAT's window
 srv_chunk:  resw 1              ; bytes in the secbuf pass in hand
 srv_ok:     resb 1              ; wr_arg resolved the folder
-srv_verb:   resb 1              ; the DOS function of the delete/mkdir/rmdir
-                                ; in hand (41h, 39h, 3Ah)
+srv_verb:   resb 1              ; which of delete/mkdir/rmdir is in hand
 srv_fail:   resb 1              ; ...the FERR_* banked across a drain
 srv_wbad:   resb 1              ; a DOS write came up short: the disk is full
 oldbuf:     resb 88             ; rename's first path, while the second is

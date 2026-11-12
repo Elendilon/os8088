@@ -1370,25 +1370,6 @@ _os88_key_down:
     ret
 %endif
 
-; int os88_key_map(unsigned char *map) - DS:DI = the caller's
-; OS88_KEYMAP_BYTES (16); the kernel's whole key-state map copied in, bit
-; (s & 7) of byte (s >> 3) set while make scancode s is held (SPEC.md 9.7.3).
-; ONE crossing for every key a frame asks about, where os88_key_down is one
-; EACH. The map must be a `static` - DS-relative, SPEC.md 73's first rule -
-; and the call ARMS the map exactly as os88_key_down does: the first answer is
-; all up. Answers 0 = copied, -1 = REFUSED (kern_small, CF = 1): poll
-; os88_key_down there. The cell keeps every register, and the thunk owes none
-; (73.3)
-CC_GATE _os88_key_map
-%ifdef CC_U__os88_key_map
-_os88_key_map:
-    mov bx, sp                      ; no frame: one argument
-    mov di, [ss:bx+2]
-    call OSAPI_KEY_MAP
-    sbb ax, ax                      ; CF -> -1 = refused, else 0
-    ret
-%endif
-
 CC_T_A1   _os88_srand,         OSAPI_SRAND, ax
 CC_T_AX   _os88_rand,          OSAPI_RAND
 

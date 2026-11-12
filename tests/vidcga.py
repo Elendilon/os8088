@@ -219,18 +219,7 @@ def cliptext(tmp, colour):
     return out, W, H
 
 
-_SYMS = {}
-
-
-def _pkg_syms(*k):
-    """pkg_syms once a process: every --shared leg asks for the same"""
-    if k not in _SYMS:
-        _SYMS[k] = pkg_syms(*k)
-    return _SYMS[k]
-
-
-def main(argv=None, boot=None):
-    """one row, or with `boot` (tests/vidshare.py) one leg of a shared boot"""
+def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--fmt", choices=("cga4", "c160", "c512", "text"),
                     default="cga4")
@@ -238,12 +227,12 @@ def main(argv=None, boot=None):
                     help="text: a MONO file (07h, 0Fh, 70h), else colour")
     ap.add_argument("--screen", choices=sorted(MACHINE), default="cga")
     ap.add_argument("--pal", default="51")
-    a = ap.parse_args(argv)
+    a = ap.parse_args()
     pal = int(a.pal, 16)
     if a.fmt == "text":
         pal = 0 if a.mono else 1
     os.chdir(ROOT)
-    syms, _ = _pkg_syms("apps/video/video.asm", ("apps/",))
+    syms, _ = pkg_syms("apps/video/video.asm", ("apps/",))
     pkg = os88build.at("build/video.o88")
     bad = []
     if a.fmt == "c512" and a.screen != "cga":
@@ -260,9 +249,8 @@ def main(argv=None, boot=None):
         subprocess.run([sys.executable, "tools/os88disk.py", "-o", disk,
                         "--size", "360", pkg, v88], check=True,
                        capture_output=True)
-        with (boot or os88ui.boot)(os88build.at("build/os8088-360.img"),
-                                   apps=disk, machine=MACHINE[a.screen],
-                                   quick=True) as ui:
+        with os88ui.boot(os88build.at("build/os8088-360.img"), apps=disk,
+                         machine=MACHINE[a.screen], quick=True) as ui:
             m = ui.m
             w = ui.path("B:/COLOUR.V88")
             rec = m.read(ui._S("wm_wins") + w.i * geom.WIN_SIZE,
@@ -545,7 +533,4 @@ def main(argv=None, boot=None):
 
 
 if __name__ == "__main__":
-    if sys.argv[1:2] == ["--shared"]:   # ONE BOOT, SEVERAL ROWS' LEGS
-        import vidshare
-        sys.exit(vidshare.run(main, sys.argv[2:]))
     sys.exit(main())

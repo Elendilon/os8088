@@ -1280,19 +1280,6 @@ gfx_pt_miss:
     ret
 
 %endif
-%ifdef KERN_SMALL
-    nop                         ; PARITY, never executed (both kernels end a
-                                ; `ret` above). Kernel size pass 21 took an odd
-                                ; 9 from here to gfx_blit4 on kern_small - the
-                                ; dead line stub's 2 above, gfx_points' empty
-                                ; test (3) and its ink reload (3) below, and the
-                                ; nop that stood here for gfx_points' hide - so
-                                ; this byte keeps gfx_blit4 and every hot routine
-                                ; after it at their parity (t_hotpar). kern_big
-                                ; takes an even 10 over the same span, its
-                                ; gfx_disp_run's `kret_bp` above being the tenth,
-                                ; and needs no pad
-%endif
 
 ; -----------------------------------------------------------------------------
 ; gfx_points - draw a set of pixels the CALLER computed (SPEC.md 5.6.9)
@@ -1325,18 +1312,10 @@ gfx_points:
                                 ; flags rather than `or cx, cx`'s, which no
                                 ; contract names (SPEC.md 5.6.9: out nothing)
 .work:
-    call fnt_unlazy             ; UNARMED this may write any pixel on the
-                                ; screen and the deferred hide is owed; ARMED,
-                                ; gfx_ls_box confines every point to the
-                                ; region, which wm_clip_set already asked
-                                ; cur_lazyck about - a glyph's contract, so
-                                ; the glyph's test (SPEC.md 7.1.4). Spent
-                                ; unconditionally it hid an arrow parked on
-                                ; the OTHER display of an extended desktop on
-                                ; every explosion a game drew (tests/
-                                ; dispmcfs.py). Owed HERE, above everything
-                                ; that reads state the arrow's removal could
-                                ; change
+    CURUNLAZY                   ; this may write any pixel on the screen, so
+                                ; the deferred hide is owed (SPEC.md 7.1.4) -
+                                ; and owed HERE, above everything that reads
+                                ; state the arrow's removal could change
     push ax
     push bx
     push cx

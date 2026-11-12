@@ -111,7 +111,7 @@ def main_card(card):
         M.no_saver(m)
         mo = Mouse(marty=m)
         dispcp.open_drive(m, mo, S, M.settle, letter="B")
-        M.ui_done(m)                    # SOAK-SPEED 4: no pixel read next
+        M.settle(m)
         ds = dispcp.win_list(m, S)[-1]
         wx, wy, _, _ = dispcp.win_rect(m, S, ds)
         dispcp.open_named(m, mo, S, M.settle, wx, wy, name=NAME)
@@ -140,7 +140,7 @@ def main_card(card):
             before = m.fbuf()
             mo.to(*data)
             mo._edge(True)
-            SF.held(m)
+            M.settle(m)
             opened = word("sh_mopen") & 0xFF
             banked = word("sh_mbanked") & 0xFF
             rect = (word("sh_mrx1"), word("sh_mry1"), word("sh_mrx2"),
@@ -212,10 +212,8 @@ def main():
     S = os88sym.linear
     sym = pkg_syms("apps/sheet/sheet.asm")
     res = {}
-    with M.launch(SF.SYS, apps=DISK, machine=SF.MACHINE,
-                  boot=False) as m:
-        m.run()                         # SOAK-SPEED 12: the boot is
-        M.kernel_up(m)                  # gated on state, no settle
+    with M.launch(SF.SYS, apps=DISK, machine=SF.MACHINE) as m:
+        M.settle(m)
         M.no_saver(m)
         mo = Mouse(marty=m)
         dispcp.open_drive(m, mo, S, M.settle, letter="B")
@@ -248,7 +246,7 @@ def main():
             before = screen()
             mo.to(x, y)
             mo._edge(True)
-            SF.held(m)
+            M.settle(m)
             rect = (word("sh_mrx1"), word("sh_mry1"), word("sh_mrx2"),
                     word("sh_mry2"))
             banked = (word("sh_mbanked") & 0xFF, word("sh_mbky2"))

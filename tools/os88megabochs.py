@@ -91,7 +91,6 @@ GUEST_HZ = om.GUEST_HZ
 # $OS88_BOCHS_EXACT=0: waits end on the polled clock again, not on Bochs's
 # time breakpoint (MegaBochs._run_exact) - the A/B
 EXACT = os.environ.get("OS88_BOCHS_EXACT", "1") != "0"
-GLASS_EXACT = os.environ.get("OS88_BOCHS_GLASS", "exact") != "sleep"   # _fbuf
 _WIDEN = bytes(v | v >> 6 for v in range(256))
 
 # W3C KeyboardEvent.code (MartyKey's names) -> X keysym
@@ -317,7 +316,7 @@ class MegaBochs(MegaMixin, om.Marty):
                                     " - Bochs on %s is gone or wedged"
                                     % self.box.display)
             time.sleep(nap)
-            nap = min(nap * 2, ob.NAP_MAX)
+            nap = min(nap * 2, 0.02)
         if kicks > 1:
             # ...and a kick that reached the PROMPT ends its read as an
             # empty line, which prints a prompt more: let it land before
@@ -345,7 +344,7 @@ class MegaBochs(MegaMixin, om.Marty):
                 raise om.MartyError("os88megabochs: %r had no answer in %.0fs"
                                     % (cmds[0], timeout))
             time.sleep(nap)
-            nap = min(nap * 2, ob.NAP_MAX)
+            nap = min(nap * 2, 0.02)
 
     def _resume(self):
         if self._state == "running":
@@ -515,29 +514,11 @@ class MegaBochs(MegaMixin, om.Marty):
         # catches up), so a row looking at a paused machine N times handed
         # the guest N x GLASS of extra time: mega-vidfskeysvga4 saw a toast
         # ~25 frames long 4 times, ~7 frames a look, and failed `looks < 8`
-        #
-        # ...AND THE GLASS IS GUEST TIME (soak-speed-2/bochs.md): a running
-        # guest is run EXACTLY GLASS_GUEST of its own seconds on a time
-        # breakpoint (two of the shim's 20 Hz VGA updates and a margin),
-        # dumped STOPPED, and resumed. The host sleep it replaces was 0.45
-        # host s of a guest capped at RATE x real time - a quarter of every
-        # look's cost, and past real time (RATE > 1) several guest seconds
-        # a look. Where no exact run is possible (a row breakpoint armed,
-        # a bp_trace pump, sync=realtime) it is the sleep, scaled to the
-        # cap. $OS88_BOCHS_GLASS=sleep is the A/B
-        resume = False
         if self._state == "running":
-            if GLASS_EXACT and self._run_exact(self.GLASS_GUEST):
-                resume = True           # stopped by _run_exact, at a frame
-            elif self._state == "running":  # (not stopped on a bp)
-                time.sleep(ob.GLASS / self.box.rate)
-        try:
-            raw = subprocess.run(["xwd", "-silent", "-id", self._window()],
-                                 env=self.box.env, capture_output=True,
-                                 check=True).stdout
-        finally:
-            if resume:
-                self._resume()
+            time.sleep(ob.GLASS)
+        raw = subprocess.run(["xwd", "-silent", "-id", self._window()],
+                             env=self.box.env, capture_output=True,
+                             check=True).stdout
         hsz = int.from_bytes(raw[0:4], "big")
         W, H = (int.from_bytes(raw[16:20], "big"),
                 int.from_bytes(raw[20:24], "big"))
@@ -622,8 +603,6 @@ class MegaBochs(MegaMixin, om.Marty):
         return self._status()
 
     KICK = 0.05                # s: _halt's SIGINT again, until a prompt
-    ADVANCE_STALL = 60.0       # host s an advance's clock may stand still
-    GLASS_GUEST = 0.12         # guest s a running look runs first (_fbuf)
     TB_SENTINEL = 10 ** 15     # ticks: eight years of guest at 4M
 
     def _run_exact(self, secs, count=False):
@@ -701,7 +680,7 @@ class MegaBochs(MegaMixin, om.Marty):
                         % (secs, n, time.time() - t0, got, self.box.display,
                            t[-400:]))
                 time.sleep(nap)
-                nap = min(nap * 2, ob.NAP_MAX)
+                nap = min(nap * 2, 0.01)
             self._stopped_now("paused", t)
             if not count:               # advance's stop is a stop, pace's
                 self._stops -= 1        # is not
@@ -784,7 +763,7 @@ class MegaBochs(MegaMixin, om.Marty):
             # ...looking only once the host has had the time to run it: the
             # guest runs at real time at most, so an earlier look is a stop
             # spent on an answer known in advance
-            if time.time() - t0 >= look:
+            if time.time() - t0 >= secs * 0.9:
                 if self._cycles(fresh=True, stale=min(0.02, rem)) >= want:
                     break
             time.sleep(min(0.005, max(0.001, rem / 4)))
@@ -1513,7 +1492,7 @@ def _first_c(box):
         if time.time() > end or box.p.poll() is not None:
             raise om.MartyError("os88megabochs: Bochs never started (%s)"
                                 % os.path.join(box.out, "bochs.log"))
-        time.sleep(0.01)
+        time.sleep(0.05)
 
 
 
@@ -1602,20 +1581,12 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
         b = os.path.join(bld, "megaapps.img")
     btype = {368640: "360k", 737280: "720k", 1228800: "1_2",
              1474560: "1_44"}[os.path.getsize(b)]
-    # THE CAP'S RATE (os88bochs.ROW_RATE; soak-speed-2/bochs.md): a row's
-    # guest may run that many times real time on its own clock - except
-    # where a PEER keeps the host's: an NE2000's slirp and whatever answers
-    # it (os88proxy, a host curl), and the SB16, whose waveout mixer thread
-    # drains on host time (iodev/sound/soundlow.cc). Those stay at 1, the
-    # cap they were measured at. $OS88_BOCHS_RATE moves every row
-    rate = 1.0 if (ne2k or sb) and ob.RATE is None else ob.ROW_RATE
     box_btype = "1_2" if btype in ("360k", "1_2") else "1_44"
     box = ob.Box(run_dir, [], sb=sb, cfg=cfg, bimg=b, aimg=a,
                  btype=box_btype, cmode="keep" if (cimg or own) else "run",
                  build=bld, display=disp, megs=megs, noc=noc, vgahz=20, flog=True,
                  ne2k=ne2k, noserial=noserial, imps2=wheel, put=put,
-                 cimg=cimg, cgeom=cgeom, noa=noa, ne2k_io=ne2k_io,
-                 rate=rate)
+                 cimg=cimg, cgeom=cgeom, noa=noa, ne2k_io=ne2k_io)
     m = MegaBochs(box, run_dir, label=label)
     m.cimg = cimg or (own and os.path.join(run_dir, "c.img"))  # its own C:
     m.imps2 = wheel or "type=imps2" in ob.BOCHSRC
@@ -1623,8 +1594,7 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
                     display=disp, megs=megs, noc=noc, vgahz=20, flog=True,
                     ne2k=ne2k, noserial=noserial, imps2=wheel,
                     cmode="keep",    # a reset keeps the C: it had
-                    cimg=cimg, cgeom=cgeom, noa=noa, ne2k_io=ne2k_io,
-                    rate=rate)
+                    cimg=cimg, cgeom=cgeom, noa=noa, ne2k_io=ne2k_io)
     try:
         _first_c(box)
         m._bpmark = os.path.getsize(box.e9)

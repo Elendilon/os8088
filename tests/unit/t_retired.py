@@ -61,9 +61,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                     "..", ".."))
 REGISTRY = os.path.join(ROOT, "apps", "RETIRED.txt")
 PKG_STEM = {"pixelstein": "pxstein", "drmario": "drmarco", "excitebike": "excbike",
-            "wirefleet": "wireflet",
-            "wirearena": "wirerena",
-            "byteopoly": "byteoply"}  # apps/<dir> -> build/<stem>.o88
+            "wirefleet": "wireflet"}  # apps/<dir> -> build/<stem>.o88
 BUILD = os.path.join(ROOT, "build")
 MAKEFILE = os.path.join(ROOT, "Makefile")
 LIVEPAYLOAD = os.path.join(BUILD, "livepayload.txt")
@@ -78,16 +76,14 @@ KINDS = ("retired", "instrument", "local")
 # added to all of them.
 SHIPPED = ("os8088.img", "os8088-720.img", "os8088-360.img", "os8088-120.img",
            "apps.img", "apps720.img", "apps360.img", "apps120.img",
-           "media360.img", "office360.img", "network360.img", "games360.img", "games2-360.img",
+           "media360.img", "office360.img", "network360.img", "games360.img",
            "emu360.img", "util360.img", "more720.img",
            "small360.img", "small720.img",
            "win16.img", "win16-120.img", "win16-720.img", "win16-360.img",
            "arcrel.img", "arcrel120.img", "arcrel720.img", "arcrel360.img",
            # the debug disks (SPEC.md 127), shipped in the release zip
            "debug-sound.img", "debug-sound-120.img", "debug-sound-720.img",
-           "debug-sound-360.img",
-           "debug-input.img", "debug-input-120.img", "debug-input-720.img",
-           "debug-input-360.img")
+           "debug-sound-360.img")
 
 # A package is a directory under apps/ that emits a package header. apps/cc is
 # the C SDK and emits none of its own.

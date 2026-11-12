@@ -34,17 +34,15 @@ HF_DEPTH     equ 16             ; the deepest folder a path is composed for
 hf_rec:
     push ax
     mov bx, ax
+    shl bx, 1                   ; 2n
     shl ax, 1
     shl ax, 1
-    shl ax, 1                   ; 8n
-    add bx, ax                  ; 9n
-    shl bx, 1                   ; 18n
+    shl ax, 1
+    shl ax, 1                   ; 16n
+    add bx, ax
     add bx, HF_HDR
     pop ax
     ret
-%if HF_REC != 18
-  %error "httpfs: hf_rec multiplies by 18 as (8n + n) x 2"
-%endif
 
 ; -----------------------------------------------------------------------------
 ; hf_reloc - the index moved (SPEC.md 66.2, NO-PINNING R2). BX = where it was,
@@ -269,9 +267,13 @@ hf_valid:
     inc ax
     cmp ax, cx
     jb .r
-    ret                         ; CF = 0: the compare that ended the walk
-.badnm:                         ; (a CX or a BX on the stack: either is a
-.badkid:                        ; register this clobbers, so one pop drops it)
+    clc
+    ret
+.badnm:
+    pop cx
+    stc
+    ret
+.badkid:
     pop bx
 .bad:
     stc
@@ -524,9 +526,10 @@ hf_wprot:
 
 ; FSV_DFREE: nothing free, in 512-byte granules
 hf_dfree:
-    xor ax, ax                  ; (CF = 0)
+    xor ax, ax
     xor dx, dx
     mov bx, 512
+    clc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -544,8 +547,9 @@ hf_chdir:
     mov ax, bx
     call hf_isdir
     jc .out
-    mov [hf_cwd], ax            ; (CF = 0: hf_isdir's)
+    mov [hf_cwd], ax
     mov dx, [es:bx+HR_PAR]      ; the root's is 0, which is never read
+    clc
 .out:
     pop es
     pop bx
@@ -671,9 +675,11 @@ hf_stat:
     mov cx, [es:bx+HR_A]
     mov dx, [es:bx+HR_B]
     xor bl, bl
-    jmp short .out              ; (CF = 0: the test, and every one after it)
+    jmp short .ok
 .dir:
     mov bl, 0x10
+.ok:
+    clc
 .out:
     pop es
     pop di
@@ -708,7 +714,8 @@ hf_open_file:
     pop cx
     mov ax, FERR_IO
     jc .fail
-    ret                         ; (CF = 0: hf_mkpath's)
+    clc
+    ret
 .fail:
     xor dx, dx
     stc
@@ -904,7 +911,8 @@ hf_lenis:
     mov ax, [hf_clen+2]
     cmp ax, [hf_fsize+2]
     jne .no
-.ok:                            ; (CF = 0 every way in: an equal compare)
+.ok:
+    clc
     ret
 .no:
     mov ax, HFE_SHORT

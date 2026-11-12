@@ -141,14 +141,12 @@ def main():
     got = {}
     saved = None
 
-    with M.launch(SF.SYS, apps=DISK, machine=SF.MACHINE,
-                  boot=False) as m:
-        m.run()                         # SOAK-SPEED 12: the boot is
-        M.kernel_up(m)                  # gated on state, no settle
+    with M.launch(SF.SYS, apps=DISK, machine=SF.MACHINE) as m:
+        M.settle(m)
         M.no_saver(m)
         mo = Mouse(marty=m)
         dispcp.open_drive(m, mo, S, M.settle, letter="B")
-        M.ui_done(m)                    # SOAK-SPEED 4: no pixel read next
+        M.settle(m)
         SF.open_shin(m, mo, NAME)
         M.settle(m, limit=300)
         sl = dispcp.win_list(m, S, check=False)[-1]
@@ -170,12 +168,12 @@ def main():
                         for (r, c) in sorted(WANT)]
 
         # --- 4-6: SHEET's own save, read back by the host ------------------
-        SF.menu(m, mo, SF.FILE_MENU[0], SF.FILE_MENU[1], SF.SAVE_AS[0], SF.SAVE_AS[1])
-        M.ui_done(m)                    # SOAK-SPEED 4: every step of
+        mo.menu(SF.FILE_MENU[0], SF.FILE_MENU[1], SF.SAVE_AS[0], SF.SAVE_AS[1])
+        M.settle(m)
         mo.click(*SF.fdlg_xy(m, SF.FMT_ROW['bif']))
-        M.ui_done(m)                    # the save is aimed off the
+        M.settle(m)
         mo.click(*SF.fdlg_okxy(m))
-        M.ui_done(m)                    # kernel's window record
+        M.settle(m, limit=120)
         mo.click(*SF.SAVE_BUTTON)
         for _ in range(60):
             v = os88flush.Flush(marty=m).volume(1)

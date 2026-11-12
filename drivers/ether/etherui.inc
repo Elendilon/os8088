@@ -74,26 +74,19 @@ eth_cp_paint:
                                 ; also its I/O base (nicne2k.inc)
 
     ; --- and its address, which is a fact about the hardware -----------------
-    ; eth_mac as twelve hex digits in eu_buf - eu_macstr until driver size
-    ; pass 1, written at its one call: os88_ent has banked every register
     add bx, EU_ROW
-    mov si, eth_mac
-    mov di, eu_buf
-    mov cx, 6
-.mac:
-    mov al, [si]
-    inc si
-    call eu_hexb
-    loop .mac
-    mov byte [di], 0
+    call eu_macstr
     mov si, eu_buf
     call eu_val
 
-    ; --- then the three the network gave us, a row each (eu_ip steps BX) ----
+    ; --- then the three the network gave us ----------------------------------
+    add bx, EU_ROW
     mov si, eth_ip
     call eu_ip
+    add bx, EU_ROW
     mov si, eth_gw
     call eu_ip
+    add bx, EU_ROW
     mov si, eth_dns
     call eu_ip
 
@@ -155,9 +148,9 @@ eth_cp_click:
     jc  .out                    ; sk_busy, in eth_draw_btns and here alone
 .arm:
     xor ah, ah                  ; ...and the press only ARMS and DRAWS: both
-                                ; of these want the RELEASE (SPEC.md 13.8.4),
+    push ax                     ; of these want the RELEASE (SPEC.md 13.8.4),
     call os88ui_arm             ; Renew because it is seconds of wire and Set
-                                ; Up because it opens a window (AX kept)
+    pop ax                      ; Up because it opens a window
     call eth_setdown
 .out:
     jmp ep_bp
@@ -213,8 +206,8 @@ eu_ud:
     cmp al, EU_BBUF
     je  .buf
     call eth_dhcp_wait          ; Renew: and it WAITS, because nothing else
-    jmp short .bfheld           ; pumps the ring (SPEC.md 72.2.1) - and then
-                                ; the pane, as the buffer button's arm ends
+    call eth_cp_pane            ; pumps the ring (SPEC.md 72.2.1)
+    jmp short .out
 .buf:
     mov al, 1
     xchg al, [eth_busy]         ; the mutex every VERB takes (SPEC.md 72.2.2):
@@ -356,58 +349,52 @@ eu_btflg: dw 0
 eu_btrec: dw 0, eu_btlbl, eu_btflg, 1, 0, 0, 0, 0, 0
 
 eth_draw_btns:
-    push ax
     push bx
-    push cx
     push si
     push di
     call eth_brects
-    mov bx, eth_r1              ; the three rects in order (eth_r1..eth_r3),
-    mov si, eu_s_renew          ; and AL their EU_B* numbers alongside
-    mov al, EU_BRENEW
-    cmp byte [eth_mode], ECM_MAN    ; DISABLED IS A FLAG AND NOT A COLOUR
-    call .one                       ; (SPEC.md 47 rule 1): on a manual machine
-                                    ; there is no server being asked, which is
-                                    ; a FACT rather than a guess - rule 3
-    mov si, eu_s_setup
-    inc ax                      ; EU_BSETUP - and ZF = 0, so never greyed
-    call .one
-    call eu_bufcap              ; the caption IS the readout: whatever the
-    inc ax                      ; ladder actually got, not what was asked for
-    call sk_busy                ; ...and a live socket's data is IN the rings,
-    sbb cx, cx                  ; so resizing them is not available while there
-    inc cx                      ; is one - a FACT, which is what SPEC.md 47
-    call .one                   ; rule 3 lets a control grey itself on. (CF=1
-    pop di                      ; is CX = 0 and ZF = 1: greyed)
-    pop si
-    pop cx
-    pop bx
-    pop ax
-    ret
-%if EU_BSETUP != EU_BRENEW + 1 || EU_BBUF != EU_BSETUP + 1
-  %error "eth_draw_btns steps AL along the three buttons with `inc`"
-%endif
-
-; --- .one - the button at rect BX, label SI, number AL: GREYED if ZF = 1 on
-;     the way in (`call` writes no flag), else PRESSED if it is [eth_down].
-;     BX steps to the next rect after it; AX, CX, SI and DI are the caller's
-.one:
+    mov bx, eth_r1
+    mov si, eu_s_renew
     mov di, OS88UI_FILL         ; **THE FILL IS NOT OPTIONAL HERE.** A button
                                 ; that can be drawn PRESSED is a button drawn
                                 ; over its own previous picture, and
                                 ; os88ui_btn's own note is that a redraw
                                 ; without the fill lands the new caption on
-                                ; top of the old one (`mov` writes no flag)
-    jne .live
-    or  di, OS88UI_DIS          ; ...and a greyed control is never also
-    jmp short .draw             ; PRESSED
-.live:
-    cmp al, [eth_down]
-    jne .draw
+                                ; top of the old one
+    cmp byte [eth_mode], ECM_MAN    ; DISABLED IS A FLAG AND NOT A COLOUR
+    jne .rdown                      ; (SPEC.md 47 rule 1): on a manual machine
+    or  di, OS88UI_DIS              ; there is no server being asked, which is
+    jmp short .rdraw                ; a FACT rather than a guess - rule 3. And
+.rdown:                             ; a greyed control is never also PRESSED
+    cmp byte [eth_down], EU_BRENEW
+    jne .rdraw
     or  di, OS88UI_DOWN
-.draw:
+.rdraw:
     call eth_btn
-    add bx, 8
+    mov bx, eth_r2
+    mov si, eu_s_setup
+    mov di, OS88UI_FILL
+    cmp byte [eth_down], EU_BSETUP
+    jne .sdraw
+    or  di, OS88UI_DOWN
+.sdraw:
+    call eth_btn
+    mov bx, eth_r3
+    call eu_bufcap              ; the caption IS the readout: whatever the
+    mov di, OS88UI_FILL         ; ladder actually got, not what was asked for
+    call sk_busy                ; ...and a live socket's data is IN the rings,
+    jnc .bdown                  ; so resizing them is not available while there
+    or  di, OS88UI_DIS          ; is one - a FACT, which is what SPEC.md 47
+    jmp short .bdraw            ; rule 3 lets a control grey itself on
+.bdown:
+    cmp byte [eth_down], EU_BBUF
+    jne .bdraw
+    or  di, OS88UI_DOWN
+.bdraw:
+    call eth_btn
+    pop di
+    pop si
+    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -448,9 +435,9 @@ eth_cp_pane:
     mov cx, ax
     add cx, EU_W - 1
     lea dx, [bx+EU_H]
-    call OSAPI_GFX_FILL         ; (every register kept: AX and BX are still
-    mov di, ax                  ; the pane's corner)
-    mov dx, bx
+    call OSAPI_GFX_FILL
+    mov di, [eth_px]
+    mov dx, [eth_py]
     call eth_cp_paint
     pop di
     jmp ep_dx
@@ -465,12 +452,13 @@ EU_H        equ 131             ; ...and its LAST ROW: a short clear leaves a
 eu_lab:
     push cx
     mov cx, EU_LX
-    jmp short eu_val.txt
+    call eu_txt
+    pop cx
+    ret
 
 eu_val:
     push cx
     mov cx, EU_VX
-.txt:
     call eu_txt
     pop cx
     ret
@@ -487,6 +475,24 @@ eu_txt:
     call OSAPI_FONT_RUN
     pop dx
     pop cx
+    pop ax
+    ret
+
+; --- AX as four hex digits at column CX, row BX ------------------------------
+eu_hex:
+    push ax
+    push si
+    push di
+    mov di, eu_buf
+    xchg al, ah
+    call eu_hexb
+    xchg al, ah
+    call eu_hexb
+    mov byte [di], 0
+    mov si, eu_buf
+    call eu_txt
+    pop di
+    pop si
     pop ax
     ret
 
@@ -515,15 +521,12 @@ eu_dec:
     ret
 
 ; -----------------------------------------------------------------------------
-; eu_ip - the four bytes at DS:SI as a dotted quad in the value column, on the
-; NEXT row: BX steps by EU_ROW first, and stays stepped (its three calls all
-; did that themselves)
+; eu_ip - the four bytes at DS:SI as a dotted quad in the value column, row BX
 ;
 ; An address of 0.0.0.0 is drawn as `none`, because a machine with no address
 ; showing four zeroes reads like a machine with a very odd one.
 ; -----------------------------------------------------------------------------
 eu_ip:
-    add bx, EU_ROW
     push si
     push di
     call ip_zero
@@ -570,10 +573,13 @@ eth_ipstr:
     add al, '0'
     mov [di], al
     inc di
-    mov byte [di], '.'          ; a dot after every part, and the last one's
-    inc di                      ; is overwritten by the NUL - the same bytes
+    cmp cx, 1
+    je  .done
+    mov byte [di], '.'
+    inc di
     loop .part
-    mov byte [di-1], 0
+.done:
+    mov byte [di], 0
     pop di
     pop si
     pop cx
@@ -605,19 +611,45 @@ eu_digit:
     pop bx
     ret
 
+; -----------------------------------------------------------------------------
+; eu_macstr - eth_mac as twelve hex digits in eu_buf
+; -----------------------------------------------------------------------------
+eu_macstr:
+    push ax
+    push cx
+    push si
+    push di
+    mov si, eth_mac
+    mov di, eu_buf
+    mov cx, 6
+.b:
+    mov al, [si]
+    inc si
+    call eu_hexb
+    loop .b
+    mov byte [di], 0
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
 ; --- eu_hexb - AL as two hex digits at DS:DI, DI advanced ---------------------
 eu_hexb:
+    push ax
     push cx
     mov cl, 4
-    rol al, cl                  ; the high nibble low...
-    call eu_nib
-    rol al, cl                  ; ...and back, for the low one below
+    shr al, cl
     pop cx
-                                ; ...and fall into eu_nib for it
-; --- eu_nib - AL's LOW nibble as a hex digit at DS:DI, DI advanced; AX kept
-eu_nib:
+    call eu_nib
+    pop ax
     push ax
     and al, 0x0F
+    call eu_nib
+    pop ax
+    ret
+
+eu_nib:
     add al, '0'
     cmp al, '9'
     jbe .p
@@ -625,7 +657,6 @@ eu_nib:
 .p:
     mov [di], al
     inc di
-    pop ax
     ret
 
 ; --- strings, every one of them inside the pane ------------------------------
@@ -693,18 +724,25 @@ eu_bufcap:
 ; would make `auto` unreachable on any machine where auto lands on a rung.
 ; -----------------------------------------------------------------------------
 eu_bufnext:
-    push ax                     ; the first rung ABOVE the request is the
-    mov ax, SK_RXCAP0           ; next one: each is loaded, then kept if the
-    cmp [sk_want], ax           ; request is below it
-    jb  .set
-    mov ax, SK_RXMID
-    cmp [sk_want], ax
-    jb  .set
-    mov ax, SK_RXMAX
-    cmp [sk_want], ax
-    jb  .set
+    push ax
+    mov ax, [sk_want]
+    cmp ax, SK_RXCAP0
+    jb  .to1
+    cmp ax, SK_RXMID
+    jb  .to4
+    cmp ax, SK_RXMAX
+    jb  .to8
     xor ax, ax                  ; ...and round to AUTO, which is the default a
-.set:                           ; fresh machine boots with
+    jmp short .set              ; fresh machine boots with
+.to1:
+    mov ax, SK_RXCAP0
+    jmp short .set
+.to4:
+    mov ax, SK_RXMID
+    jmp short .set
+.to8:
+    mov ax, SK_RXMAX
+.set:
     mov [sk_want], ax
     pop ax
     ret

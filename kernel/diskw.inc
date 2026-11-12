@@ -378,12 +378,7 @@ dskw_wrp:
     mov [dskw_src], bx          ; loop (which re-loads ES per transfer)
     mov [dskw_len], cx
     mov [dskw_lenhi], dx
-%ifdef KERN_SMALL                ; (kern_small's heap rung is locked:
-    call ax                     ; no media check there, SPEC.md 18.9.1.3)
-%else
-    call dskw_wck               ; the body in AX, behind SPEC.md 18.9.1.3's
-%endif                          ; media check: out CF + AX (pops do not touch
-                                ; flags)
+    call ax                     ; out: CF + AX (pops do not touch flags)
     call ct_fpg_end             ; the ONE place the widget is given back,
                                 ; however many ways the body returned - and it
                                 ; preserves CF and AX too (SPEC.md 12.8)
@@ -537,125 +532,8 @@ dskw_wrap7:
     push di
     push bp
     push es
-%ifdef KERN_SMALL
     call ax
-%else
-    call dskw_wck               ; the body in AX, behind the media check
-%endif
     jmp short dskw_wrp.pop      ; the same seven pops, the same order
-
-; DSKW_DIRRUN - load DISKOPS.DRV, run verb DL, drop the hold only if this call
-; took it (SPEC.md 18.5.3). in: DL = the CLV_* verb, the gate already open;
-; out: the verb's CF/AX, or CF=1 AX = FERR_IO when the image cannot be had
-; and nothing was mutated; clobbers AX, BX, BP and whatever the verb does -
-; both users bank all seven of dskw_wrap7's registers round it
-%macro DSKW_DIRRUN 0
-    mov al, MOD_DISKOPS
-    call mod_live
-    pushf                       ; CF = 1: this operation acquires the hold
-    call clo_need               ; (AX kept, CF = 1: not resident)
-    mov ax, FERR_IO             ; ...the existing file-error surface, and no
-    jc %%returned               ; mutation ran. No verb reads AX: clo_disp_x
-    call far [CLFP + CLE_DISP*4] ; dispatches on DL (kernel size pass 21: -2)
-%%returned:
-    pop bp                      ; entry liveness, leaving result CF untouched
-    pushf
-    push ax
-    shr bp, 1                   ; CF = the entry's: 1 = the hold is ours
-    jnc %%kept                  ; (`test bp, 1` / `jz`, -2)
-    call clo_drop
-%%kept:
-    pop ax
-    popf
-%endmacro
-
-%ifndef KERN_SMALL
-; -----------------------------------------------------------------------------
-; dskw_wck - EVERY WRITE BODY'S DOOR: is this still the disk we mounted?
-; (SPEC.md 18.9.1.3) in: AX = the body, everything else the body's; out: the
-; body's CF/AX, or CF=1 AX = FERR_NODISK and nothing written; clobbers what
-; the body clobbers
-;
-; Every create, replace, append, write-at, WRITE_SEQ chunk, delete, rename,
-; mkdir, rmdir and rmtree comes through dskw_wrp or dskw_wrap7, and so through
-; here - the kernel's own writers as well as the cells. A WRITE is asked what
-; a read is not: a read of a swapped floppy returns bunk and refuses, a write
-; of one puts the old disk's FAT and free map on the new disk. So the volume
-; is re-read (a quiet mount: LBA 0, the FAT window kept on a matching
-; signature) when the motor is stopped NOW, or when [dsk_mvok] says a
-; transfer ran with it stopped since the last mount - which is the case the
-; motor test alone misses: an unchecked READ after the swap spins the motor,
-; and then the write is "within two seconds". A different signature REFUSES
-; the write, leaving the new disk mounted for the next operation to resolve
-; against: the name and the folder this one was handed are the old disk's.
-; Fixed, driver and redirected volumes answer the motor test with no I/O and
-; never clear [dsk_mvok].
-;
-; NOT INSIDE A BATCH: there the caller has said the disk is the same disk
-; (SPEC.md 18.9.3, which rejects a motor gate in a batch), and the re-mount
-; would read nothing - a banked head - yet would PARK the volume onto itself
-; mid-call, flushing a held stream's dirt that 18.8.5 banks: a join's two
-; FAT writes a block came back with this door until it asked.
-; -----------------------------------------------------------------------------
-dskw_wck:
-    cmp byte [dsk_batch], 0     ; the caller vouches for the disk
-    jne .go
-    push ax                     ; THE BODY and the caller's DX, banked ONCE
-    push dx                     ; for every arm (kernel size pass 21)
-    mov dx, [dsk_mntok]         ; DL = the gate, DH = [dsk_mvok] (ADJACENT:
-    dec dl                      ; .publish sets the pair with one word)
-    jne .ok                     ; nothing mounted: the body's own gate says so
-    mov dl, [disk_drive]
-    call dsk_media_ok           ; CF=1: the motor has stopped - check. It
-    jc .chk                     ; keeps every register, so DL rides on
-    test dh, dh                 ; ...or a transfer ran with it stopped since
-    jnz .ok                     ; the last mount: check
-.chk:
-    push word [dsk_sigcur]      ; which disk the caller's view came off
-    mov ax, [dsk_cwd]
-    call dsk_chdir_q_x.go       ; a QUIET mount where we stand (disk.inc's
-    pop ax                      ; arm: [dsk_quiet] round dsk_chdir_x): LBA 0
-    jc .no                      ; off the platter, never the cache. No disk
-    cmp ax, [dsk_sigcur]        ; at all now: refused
-    jne .no                     ; ANOTHER DISK: refused, nothing written
-.ok:
-    pop dx
-    pop ax
-.go:
-    jmp ax
-.no:
-    pop dx
-    pop ax
-.nodisk:                        ; (dskw_dirbody's shut gate answers here too)
-    mov ax, FERR_NODISK
-    stc
-    ret
-%if dsk_mvok - dsk_mntok != 1
-  %error "dskw_wck reads dsk_mntok and dsk_mvok as ONE WORD: keep them adjacent"
-%endif
-
-%ifndef KD_BUILD
-; dskw_dirbody - THE TREE'S BODY (SPEC.md 18.5.3): dskw_wrap7 banks the seven
-; registers and dskw_wck has asked its media question, exactly as for every
-; resident write body, and this is what is left of dskw_dircall on the kernels
-; whose New Folder, Rename and empty folder are resident (kernel size pass 21:
-; it was a ladder of its own that called dskw_wck back with a body in itself).
-; in: the verb's own (SI); out: CF/AX as dskw_rmtree
-dskw_dirbody:
-    cmp byte [dsk_mntok], 1     ; THE GATE BEFORE ANYTHING LOADS: a shut gate
-    jne .nodisk                 ; makes mod_need bank the BOOT volume's root,
-                                ; and the load would leave the verb standing
-                                ; there with the gate open. dskw_wck passes a
-                                ; shut gate straight through, and a quiet
-                                ; mount it made opened it again or refused
-    mov dl, CLV_RMTREE          ; the module's one verb here
-    DSKW_DIRRUN                 ; the load, the verb and the drop
-    ret
-.nodisk equ dskw_wck.nodisk     ; dskw_gate's own answer: nothing is held
-                                ; yet, so nothing is dropped
-%endif
-%endif
-
 
 ; -----------------------------------------------------------------------------
 ; dskw_dfree - free space on the mounted volume (SPEC.md 18.4, a door cell)
@@ -3392,11 +3270,7 @@ dskw_sync_x:
                                 ; the single remount at its end has left
     cmp byte [dskw_batch], 0    ; a tree copy remounts ONCE, when it ends -
     jne .defer                  ; not after every one of its files (22.3)
-%ifdef KERN_SMALL
-    and word [disk_nfiles], 0   ; ...otherwise publish the EMPTY listing and
-%else                           ; (`and`: the flags it leaves are the `cmp`'s
-    mov word [disk_nfiles], 0   ; above, ZF = 1 and CF = 0 - SPEC.md
-%endif                          ; 50.6.13.2's byte)
+    mov word [disk_nfiles], 0   ; ...otherwise publish the EMPTY listing and
     mov byte [dsk_lstale], 1    ; the debt, exactly the state a quiet mount
                                 ; leaves (18.9): a wrong listing is worse than
                                 ; no listing, and the next listing mount pays
@@ -6492,9 +6366,8 @@ modf_hdr:
 %ifdef OS88_ASSOC
     dw modf_end - asw_v         ; MOD_H_SCR: ascw's cells, the image's last
 %else                           ; bytes and zeros in the file (2.8.3) - KEPT
-    dw modf_end - modf_scr      ; ...and kern_small's: ONE zero byte, the
-%endif                          ; image writing nothing else of its own
-                                ; (DESK.DRV's shape, SPEC.md 2.8.3.4.1) - KEPT
+    dw 0                        ; ...or freed, on a kernel with no ASSOC.DAT
+%endif                          ; writer (none of them keeps an image)
     dw dskw_fmt_probe_x         ; the FAR entries ARE the bodies: each is
     dw dskw_fmt_do_x            ; reached by `call far` - the two inside
     dw dskw_fmt_line_x          ; dskw_fmt_do_x by `push cs / call` - so each

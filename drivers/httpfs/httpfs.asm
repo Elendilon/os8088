@@ -159,10 +159,8 @@ hf_ready:
 
 ; DRVV_DETACH - cannot fail (SPEC.md 51.6 rule 1)
 hf_detach:
-    call hp_drop                ; the page's image, if the panel left it -
-                                ; then HFV_UNMOUNT's body: hf_unmount, which
-                                ; aborts a kept connection itself first
-hf_punmnt:
+    call hp_drop                ; the page's image, if the panel left it
+    call hf_abort
     call hf_unmount
     clc
     ret
@@ -194,7 +192,8 @@ hf_vadd:
     pop dx
     pop cx
     jc .full
-    mov [hf_vol], al            ; (CF = 0: VOL_ADD's, which `pop` keeps)
+    mov [hf_vol], al
+    clc
     ret
 .full:
     mov ax, HFE_VOL
@@ -288,6 +287,11 @@ hf_pmount:
     call hf_vadd
     jc hf_pno
     mov al, [hf_vol]
+    ret
+
+hf_punmnt:
+    call hf_unmount
+    clc
     ret
 
 hf_pfetch:

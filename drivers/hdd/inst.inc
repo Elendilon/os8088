@@ -1126,10 +1126,10 @@ hd_inst_sys:
     jmp short .out
 .notable:
     mov ax, hd_s_inomb
-    jmp short .fail
+    call hd_ifail
+    jmp short .out
 .nomem:
     mov ax, hd_s_inomem
-.fail:                          ; (the two refusals' one call)
     call hd_ifail
     jmp short .out
 .nboot:                         ; the FILES are all there and the disk simply
@@ -1285,13 +1285,17 @@ hd_ibuf_get:
     jnc .got
     add si, 2
     jmp short .try
-.no:                            ; AX = 0 here, off the `jz`, and so is [si]
-    cwd                         ; (the ladder's 0): DX = 0 too, so the
-    stc                         ; stores below write the two zeros
-.got:                           ; (CF = 0 off the `jnc`, or the stc above:
-    mov ax, [si]                ; no `mov` touches it)
+.got:
+    mov ax, [si]
     mov [hd_ibufkb], ax
+.have:
     mov [hd_ibufseg], dx
+    clc
+    jmp os88_r_bp
+.no:
+    mov word [hd_ibufseg], 0
+    mov word [hd_ibufkb], 0
+    stc
     jmp os88_r_bp
 
 ; The ladder, descending, ending in a 0. Every rung is a whole number of KB
@@ -1331,8 +1335,6 @@ hd_ibuf_put:
 
 ; hd_ifail - [hd_imsg] = AX, CF = 1: an installer step's refusal, which
 ; fifteen exits wrote as `mov word [hd_imsg], ... / stc`
-hd_ifail_err:                   ; ...and the commonest refusal of all, five
-    mov ax, hd_s_ierr           ; steps' disk error, as one call
 hd_ifail:
     mov [hd_imsg], ax
     stc
@@ -1638,13 +1640,15 @@ hd_iapps_scan:
     inc bl
     cmp bl, HIA_VMAX
     jb .next
+    call hd_ivol_back
     stc
     jmp short .out
-.found:                         ; (CF = 0 off the `jnc`: `mov` keeps it)
-    mov al, bl
-.out:
+.found:
     call hd_ivol_back           ; ...which preserves the flags AND AX, so the
-    pop bx                      ; answer is the same taken before it
+    mov al, bl                  ; answer is taken after it either way
+    clc
+.out:
+    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1710,15 +1714,15 @@ hd_isrc:
     call os88_ent
     mov bl, [hd_isrcdrv]        ; the source is where the user was: A: on a
     xor dx, dx                  ; one-floppy machine, at its ROOT
-.go:                            ; (all four of these GOTOs end here, each
-    call OSAPI_FILE_GOTO_Q      ; from its own os88_ent: QUIET, SPEC.md 19.2.2)
+    call OSAPI_FILE_GOTO_Q      ; QUIET (SPEC.md 19.2.2)
     jmp os88_r_bp
 
 hd_idst:
     call os88_ent
     mov bl, [hd_idrv]
     xor dx, dx
-    jmp short hd_isrc.go
+    call OSAPI_FILE_GOTO_Q      ; QUIET (SPEC.md 19.2.2)
+    jmp os88_r_bp
 
 ; -----------------------------------------------------------------------------
 ; hd_iop_go / hd_iop_end - one disk's copy is ONE operation (SPEC.md 12.8.10)
@@ -1960,7 +1964,8 @@ hd_icopy_tree:
     stc
     jmp short .out
 .fail:
-    call hd_ifail_err
+    mov ax, hd_s_ierr
+    call hd_ifail
 .out:
     jmp os88_r_bp
 
@@ -2363,15 +2368,18 @@ hd_isrc_ck:
     pop bx
 .no:
     mov word [hd_imsg], hd_isdiag   ; hd_isd_add terminated it
-    stc
-    jmp short .out
-.found:
-    pop bx
-.ok:                            ; (CF = 0 off either `jnc`: `pop` keeps it)
-.out:
     pop di
     pop si
     pop ax
+    stc
+    ret
+.found:
+    pop bx
+.ok:
+    pop di
+    pop si
+    pop ax
+    clc
     ret
 
 ; hd_isrc_ck_one - KERNEL.SYS in [hd_isrcdrv]'s root? (module internal)
@@ -2625,15 +2633,16 @@ hd_isrc_here:
     call hd_ilvl_bx
     mov dx, [hd_isrcc+bx]
     mov bl, [hd_isrcdrv]
-.go:
-    jmp hd_isrc.go              ; QUIET (SPEC.md 19.2.2): hd_isrc's tail
+    call OSAPI_FILE_GOTO_Q      ; QUIET (SPEC.md 19.2.2)
+    jmp os88_r_bp
 
 hd_idst_here:
     call os88_ent
     call hd_ilvl_bx
     mov dx, [hd_idstc+bx]
     mov bl, [hd_idrv]
-    jmp short hd_isrc_here.go
+    call OSAPI_FILE_GOTO_Q      ; QUIET (SPEC.md 19.2.2)
+    jmp os88_r_bp
 
 ; -----------------------------------------------------------------------------
 ; hd_idst_child - the cluster of the folder named in hd_iname2 (internal)
@@ -2666,8 +2675,9 @@ hd_idst_child:
     je .dir                     ; MKDIR's FERR_EXIST too, and its cluster is
     stc                         ; its data: the walk stops rather than write
     jmp short .out              ; entries into it
-.dir:                           ; (CF = 0 off the equal compare)
+.dir:
     mov ax, [hd_ifind+16]
+    clc
 .out:
     pop di
     pop si
@@ -2757,7 +2767,8 @@ hd_inst_fmt:
     mov al, [hd_idev]
     call hd_dev_row
     call hd_fmt_run
-    jc .fail                    ; (CF = 0 when it falls through: no clc)
+    jc .fail
+    clc
     jmp short .out
 .fail:
     mov ax, hd_s_ifmt
@@ -3084,14 +3095,17 @@ hd_inst_keep:
     pop word [hd_ivcwd]
     pop ax
     mov [hd_ivdrv], al
-    jc .nboot                    ; (CF = 0 when it falls through: no clc)
+    jc .nboot
+    clc
     jmp short .out
 .nboot:
     mov ax, hd_s_inboot
-    jmp short .fail
+    call hd_ifail
+    jmp short .out
 .nomnt:
     mov ax, hd_s_ikbpb              ; nothing was formatted, whatever
-    jmp short .fail             ; hd_inst_mount's own caption says
+    call hd_ifail               ; hd_inst_mount's own caption says
+    jmp short .out
 .padio:
     call hd_idst                ; a pad that stopped part-way is not left in
     jc .io                      ; the user's root
@@ -3099,7 +3113,6 @@ hd_inst_keep:
     call OSAPI_FILE_DELETE
 .io:
     mov ax, hd_s_ierr
-.fail:                          ; the three refusals' one call
     call hd_ifail
 .out:
     jmp os88_r_bp
@@ -3222,7 +3235,8 @@ hd_kplan:
     jnz .scan
 .noroom:
     mov ax, hd_s_ikroom
-    jmp short .fail
+    call hd_ifail
+    jmp short .out
 .found:
     mov [hd_kf], si
     mov ax, [hd_kr]             ; the offset the VBR adds: (run - 2) * spc
@@ -3234,13 +3248,14 @@ hd_kplan:
     jmp short .out
 .bad:
     mov ax, hd_s_ikbpb
-    jmp short .fail
+    call hd_ifail
+    jmp short .out
 .geom:
     mov ax, hd_s_ikgeom
-    jmp short .fail
+    call hd_ifail
+    jmp short .out
 .io:
     mov ax, hd_s_ierr
-.fail:                          ; the four refusals' one call
     call hd_ifail
 .out:
     jmp os88_r_es
@@ -3270,7 +3285,11 @@ hd_kclus:
     div word [hd_kspc]
     or ax, ax
     jz .no
-    CLC_OR_STC .no
+    clc
+    pop cx
+    ret
+.no:
+    stc
     pop cx
     ret
 
@@ -3507,7 +3526,8 @@ hd_kverify:
     mov cx, [hd_kn]
     call hd_krun
     jc .bad
-    jnz .bad                    ; (CF = 0 off the `jc`: no clc)
+    jnz .bad
+    clc
     jmp short .out
 .bad:
     mov ax, hd_s_iksplit
@@ -3574,10 +3594,12 @@ hd_inst_vbr:
     xor ax, ax                  ; write: volume LBA 0
     xor dx, dx
     call hd_fmt_wr
-    jc .fail                    ; (CF = 0 when it falls through: no clc)
+    jc .fail
+    clc
     jmp short .out
 .fail:
-    call hd_ifail_err
+    mov ax, hd_s_ierr
+    call hd_ifail
 .out:
     jmp os88_r_es
 
@@ -3614,8 +3636,13 @@ hd_iksecs:
     rcr ax, 1
     dec cl
     jnz .shr
-    CLC_OR_STC .fail            ; (the shifts' CF is not the answer)
-    call hd_ivol_back           ; ...which keeps the flags
+    call hd_ivol_back
+    clc
+    jmp short .out
+.fail:
+    call hd_ivol_back
+    stc
+.out:
     pop si
     pop dx
     pop cx
@@ -3659,10 +3686,12 @@ hd_inst_mbr:
     mov al, [hd_idev]
     call hd_dev_row
     call hd_part_write
-    jc .fail                    ; (CF = 0 when it falls through: no clc)
+    jc .fail
+    clc
     jmp short .out
 .fail:
-    call hd_ifail_err
+    mov ax, hd_s_ierr
+    call hd_ifail
 .out:
     jmp os88_r_bp
 

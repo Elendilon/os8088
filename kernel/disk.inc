@@ -1497,13 +1497,6 @@ dsk_xfer:
     mov dl, [disk_drive]        ; **A STOPPED FLOPPY MOTOR IS WARM ALREADY**
     call dsk_media_ok           ; (SPEC.md 12.8.3.1). The first transfer of a
     jnc .warm                   ; mount is the one-sector boot read, and it is
-%ifndef KERN_SMALL
-    mov [dsk_mvok], ch          ; (...and a write must now re-check the disk,
-                                ; SPEC.md 18.9.1.3: this transfer may spin
-                                ; the motor up on a disk nobody has signed.
-                                ; CH is 0 here - below - so the store is 4
-                                ; bytes, and dsk_runcap keeps its parity)
-%endif
     mov cl, FPG_WARM            ; the one that carries the SPIN-UP - an AT
 .warm:                          ; BIOS waits DPT byte 10 for it, one second on
                                 ; a 286 - so FPG_WARM's sector count put the
@@ -5210,22 +5203,9 @@ disk_mount_x:
 .publish:
     mov [disk_nfiles], bp       ; publish the count last
     mov [dsk_lstale], al
-%ifdef KERN_SMALL
     mov byte [dsk_mntok], 1     ; the volume IS validated: only now open the
-%else                           ; write gate...
-    mov word [dsk_mntok], 0x0101 ; ...and [dsk_mvok], its medium just read
-%endif                          ; (SPEC.md 18.9.1.3)
-%ifdef KD_BUILD                 ; CF = 0 on BOTH ways in on every kernel, so
-    clc                         ; no `clc` there: .quiet is `xor bp, bp`'s,
-%endif                          ; and .done's every way in is a `jae` that
-    jmp .out                    ; took (the harvest's, dsk_icopass's and
-                                ; dsk_docpass's own exits). kern_dos has no
-                                ; harvest, and its selection sort's 0-or-1
-                                ; entry `jb .sd_out` reaches .done with CF =
-                                ; 1, so it keeps one (kernel size pass 21,
-                                ; -1). kern_big's parity nop that stood here
-                                ; (the word store's odd byte) went with
-                                ; dsk_free_clus_x's .slowj, an odd -3
+    clc                         ; write gate
+    jmp .out
     ; --- A REDIRECTED VOLUME: ASK THE DRIVER, READ NO DISK (SPEC.md 62.9) ---
     ; Everything the FAT path does between .cwd_kept and the listing is about
     ; SECTORS - the boot sector, the BPB's seventeen rules, the FAT window,
@@ -8817,7 +8797,7 @@ dsk_rah_want:
     jnc .out
 .conv:
 %endif
-    mov al, MEM_P_DIRW >> 8     ; ...at OUR OWN rank (SPEC.md 50.6.4), so a
+    mov al, MEM_PG_HIGH         ; ...at OUR OWN rank (SPEC.md 50.6.4), so a
     call mem_avail_lvl_x          ; cheaper cache counts as free and a dearer one
                                 ; does not. This window is the most expensive
                                 ; cache in the system to lose and the raise
@@ -13073,13 +13053,6 @@ dsk_base:     resd 1            ; the partition base added to every LBA; 0
 ; --- write-path state (SPEC.md 18.4), all reset by disk_mount ---------------
 dsk_mntok:    resb 1            ; 1 only between a fully successful mount and
                                 ; the next mount attempt - the write gate
-%ifndef KERN_SMALL
-dsk_mvok:     resb 1            ; ADJACENT to dsk_mntok (.publish sets both
-                                ; with one word): 1 = no transfer has run on
-                                ; this volume with its floppy motor stopped
-                                ; since the mount - dskw_wck's question
-                                ; (SPEC.md 18.9.1.3)
-%endif
                                 ; (a dsk_wpad was here to keep the words below
                                 ; even-aligned. The target is an 8088 and its
                                 ; bus is EIGHT BITS WIDE, so a word costs two

@@ -258,12 +258,11 @@ def main():
     s16 = lambda b: u16(b) - 0x10000 if u16(b) & 0x8000 else u16(b)
 
     with os88ui.boot(os.path.join(ROOT, "build", "os8088-360.img"),
-                     apps=DISK, machine="os8088_xt_vga",
-                     quick=True) as ui:    # SOAK-SPEED 12
+                     apps=DISK, machine="os8088_xt_vga") as ui:
         m = ui.m
         w = ui.path("B:/CHART.O88")
         seg = os88marty.pkg_live(m, w, ui.sym)
-        ui.still(0)
+        ui.settle()
 
         rd = lambda s: u16(m.readseg(seg, S[s], 2))
         rds = lambda s: s16(m.readseg(seg, S[s], 2))
@@ -287,7 +286,7 @@ def main():
         def load(doc):
             ui.menu_pick("File", "Open...")
             ui.chooser_open(doc)
-            ui.still(0)
+            ui.settle()
             return published()
 
         # --- 0 BLANK: the canvas, before any file (SPEC.md 82.14.2) --------
@@ -365,7 +364,7 @@ def main():
 
         # --- Data > Column, on the file that has no names in it -------------
         ui.menu_pick("Data", "Column B")
-        ui.still(0)
+        ui.settle()
         col = published()
         check(rd("ct_wantcol") == 2 and rd("ct_wantrng") == 0
               and col[1] == 1, "7 COLUMN",
@@ -387,7 +386,7 @@ def main():
         # and ct_labels_names leaves the rest saying what they still are.
         load(SLK)
         ui.menu_pick("Data", "Column B")
-        ui.still(0)
+        ui.settle()
         check(rd("ct_wantcol") == 2 and rd("ct_wantrng") == 0, "8 BOTH",
               "the SAME menu item must mean the same thing when the file "
               "also has a name. ct_labels_names fills slot 0 with PICK and "

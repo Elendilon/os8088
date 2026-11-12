@@ -122,7 +122,8 @@ hd_sync:
     mov [hd_ndev], al
     mov [hd_sel], ah
     mov al, HSV_STATE           ; ...and the three bytes that do not fit AX,
-    call hd_svc_res             ; in a verb of their own (hddabi.inc)
+    call hd_svc_req             ; in a verb of their own (hddabi.inc)
+    mov al, [hd_req+HRQ_RES]
     mov [hd_msgc], al           ; the caption the resident last set...
     mov al, [hd_req+HRQ_VOL]
     mov [hd_mntmask], al        ; ...and which devices have a volume up
@@ -153,8 +154,10 @@ hd_mount_one:
     mov [hd_req+HRQ_DEV], al
     mov al, [hd_pslot]
     mov [hd_req+HRQ_SLOT], al
+    mov byte [hd_req+HRQ_RES], 0xFF
     mov al, HSV_MOUNT
-    call hd_svc_resff
+    call hd_svc_req
+    mov al, [hd_req+HRQ_RES]
     mov [hd_mvol], al
     pop ax
     ret
@@ -183,7 +186,8 @@ hd_tw_unmount_slot:
     mov byte [hd_req+HRQ_RES], 0
     mov byte [hd_req+HRQ_VOL], 0xFF
     mov al, HSV_UNMOUNT
-    call hd_svc_res
+    call hd_svc_req
+    mov al, [hd_req+HRQ_RES]
     mov [hd_tdrop], al
     mov al, [hd_req+HRQ_VOL]
     mov [hd_tdropv], al
@@ -312,12 +316,12 @@ hd_unmount:
     mov al, HSV_UNMOUNTDEV
 hd_mnt_do:
     push ax
-    mov ah, [hd_sel]            ; THE VERB STAYS IN AL and the device goes
-    mov [hd_req+HRQ_DEV], ah    ; through AH, which neither verb reads (a
-    call hd_svc_req             ; second push of AX inside one proc is what
-                                ; t_asmrules reads as a crossed pop, and it is
-                                ; right to - getting it wrong returns with two
-                                ; registers swapped and nothing faults)
+    mov ah, al                  ; THE VERB, banked in AH and not on the stack:
+    mov al, [hd_sel]            ; a second push of AX inside one proc is what
+    mov [hd_req+HRQ_DEV], al    ; t_asmrules reads as a crossed pop, and it is
+    mov al, ah                  ; right to - the depth is fine either way, so
+    call hd_svc_req             ; getting it wrong returns with two registers
+                                ; swapped and nothing faults
     call hd_sync                ; the mask, the count and the caption are all
     pop ax                      ; the resident's answer (SPEC.md 52.13)
     ret
@@ -336,14 +340,8 @@ hd_mnt_do:
 hd_vol_ask:
     mov [hd_req+HRQ_DEV], al
     mov [hd_req+HRQ_SLOT], ah
-    mov al, HSV_VOLOF
-                                ; ...and on into the shared tail:
-; hd_svc_resff / hd_svc_res - hd_svc_req, then AL = the answer's HRQ_RES; the
-; first presets it to 0FFh ("none"), which is what a verb that answers
-; nothing leaves there. AH and every other register kept
-hd_svc_resff:
     mov byte [hd_req+HRQ_RES], 0xFF
-hd_svc_res:
+    mov al, HSV_VOLOF
     call hd_svc_req
     mov al, [hd_req+HRQ_RES]
     ret

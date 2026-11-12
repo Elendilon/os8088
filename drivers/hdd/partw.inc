@@ -60,18 +60,23 @@ hd_cyl_up:
     mov si, dx                  ; below write DX
     mov ax, [di+HDD_HEADS]
     mul word [di+HDD_SPT]
-    xchg cx, ax                 ; CX = sectors per cylinder (<= 16,065)
-    mov ax, bx                  ; ...and the LBA back, which is also the
-    mov dx, si                  ; answer for the two refusals below
-    jcxz .out
+    mov cx, ax                  ; CX = sectors per cylinder (<= 16,065)
+    or cx, cx
+    jz .keep
+    mov ax, bx
+    mov dx, si
     cmp dx, cx
-    jae .out                    ; the quotient would not fit a word: only a
+    jae .keep                   ; the quotient would not fit a word: only a
     div cx                      ; corrupt table reaches this
     or dx, dx
     jz .exact
     inc ax
 .exact:
     mul cx                      ; DX:AX = the boundary at or above the LBA
+    jmp short .out
+.keep:
+    mov ax, bx
+    mov dx, si
 .out:
     pop si
     pop cx
@@ -335,8 +340,9 @@ hd_cyl_trim:
     call os88_ent
     mov ax, [di+HDD_HEADS]
     mul word [di+HDD_SPT]
-    xchg cx, ax                 ; CX = sectors per cylinder (<= 16,065)
-    jcxz .out                   ; a geometry with no cylinder: leave it alone
+    mov cx, ax                  ; CX = sectors per cylinder (<= 16,065)
+    or cx, cx
+    jz .out                     ; a geometry with no cylinder: leave it alone
     mov ax, [hd_fbase]          ; DX:AX = the extent's end, exclusive
     mov dx, [hd_fbase+2]
     add ax, [hd_fsecs]
@@ -527,12 +533,19 @@ hd_lba_chs:
 ; clobbers: AX (the output), flags
 ; -----------------------------------------------------------------------------
 hd_chs_pack:
-    mov al, [hd_cyl+1]          ; cylinder bits 8..9 into bits 6..7: two
-    ror al, 1                   ; ROTATES and the mask, where six shifts
-    ror al, 1                   ; were (hd_chs_regs' idiom) - the same
-    and al, 0xC0                ; (cyl_hi & 3) << 6 for any byte
-    or al, [hd_sec]
+    push cx
+    mov cl, [hd_cyl+1]
+    shl cl, 1
+    shl cl, 1
+    shl cl, 1
+    shl cl, 1
+    shl cl, 1
+    shl cl, 1
+    and cl, 0xC0
+    or cl, [hd_sec]
+    mov al, cl
     mov ah, [hd_cyl]
+    pop cx
     ret
 
 ; -----------------------------------------------------------------------------

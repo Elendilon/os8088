@@ -169,9 +169,11 @@ rt_claim:
     shr ax, cl                  ; 0..0Fh and lands in the top nibble
     mov cl, 12
     shl dx, cl
-    or  ax, dx                  ; (CF = 0: the `or`)
-    mov [rt_par], ax            ; [rt_win] is 0 already: a window exists only
-.out:                           ; while [rt_seg] does, and rt_stop zeroes both
+    or  ax, dx
+    mov [rt_par], ax
+    mov word [rt_win], 0
+    clc
+.out:
     pop dx
     ret
 
@@ -229,8 +231,9 @@ rt_init:
     call rt_port
     xor al, al
     out dx, al                  ; CONFIG1 = 0: powered on
-    sub dx, RT_CONFIG1 - RT_CR  ; (a port is a step from the last one: the
-    mov al, RTC_RST             ; walk ne_dma_read takes, driver size pass 1)
+    mov al, RT_CR
+    call rt_port
+    mov al, RTC_RST
     out dx, al
     call rt_rstwait
     mov dx, [eth_base]          ; IDR0..5: the station address
@@ -242,8 +245,8 @@ rt_init:
     inc si
     inc dx
     loop .mac
-    inc dx                      ; RT_MAR0: two past IDR5
-    inc dx
+    mov al, RT_MAR0
+    call rt_port
     mov cx, 8
     xor al, al
 .mar:                           ; no multicast: the stack has no use for it
@@ -269,26 +272,31 @@ rt_start:
     call rt_port
     mov ax, [rt_lin]
     mov bx, [rt_lin+2]
-    call rt_outd                ; RBSTART = the ring (rt_outd keeps DX, and
-    add dx, RT_IMR - RT_RBSTART ; each port below is a step from the last)
+    call rt_outd                ; RBSTART = the ring
+    mov al, RT_IMR
+    call rt_port
     xor ax, ax
     out dx, ax                  ; IMR = 0: we poll
-    inc dx                      ; RT_ISR
-    inc dx
+    mov al, RT_ISR
+    call rt_port
     mov ax, 0xFFFF
     out dx, ax                  ; every cause cleared (write-one-to-clear)
-    sub dx, RT_ISR - RT_CR
+    mov al, RT_CR
+    call rt_port
     mov al, RTC_RE | RTC_TE
     out dx, al
-    add dx, RT_RCR - RT_CR
+    mov al, RT_RCR
+    call rt_port
     xor bx, bx
     mov ax, RT_RCR_VAL
     call rt_outd
-    sub dx, RT_RCR - RT_TCR
+    mov al, RT_TCR
+    call rt_port
     mov bx, RT_TCR_HI
     mov ax, RT_TCR_LO
     call rt_outd
-    sub dx, RT_TCR - RT_CAPR
+    mov al, RT_CAPR
+    call rt_port
     mov ax, RT_CAPR0
     out dx, ax                  ; CAPR = 0 - 16: the ring is empty
     and word [rt_off], 0        ; (both callers' callers set what they read)
@@ -360,7 +368,9 @@ rt_halt:
     call rt_port
     xor ax, ax
     out dx, ax
-    sub dx, RT_IMR - RT_CR      ; (AL is 0 already)
+    mov al, RT_CR
+    call rt_port
+    xor al, al
     out dx, al                  ; receiver and transmitter off
     mov al, RTC_RST
     out dx, al                  ; ...and the chip reset
@@ -388,7 +398,8 @@ rt_rx:
     out dx, ax                  ; the ring is not to be trusted after an
     jmp short .reset            ; overrun, and every frame in it is lost
 .nov:
-    sub dx, RT_ISR - RT_CR      ; DX is the ISR's port: CR is a step away
+    mov al, RT_CR
+    call rt_port
     in  al, dx
     test al, RTC_BUFE
     jnz .empty
@@ -516,9 +527,10 @@ rt_tx:
     call rt_port
     add dx, si
     pop ax
-    call rt_outd                ; (which keeps DX)
-    sub dx, RT_TSAD0 - RT_TSD0  ; TSD[n] = ERTXTH and the size, ONE write:
-                                ; OWN clear in it is what starts the send
+    call rt_outd
+    mov al, RT_TSD0             ; TSD[n] = ERTXTH and the size, ONE write:
+    call rt_port                ; OWN clear in it is what starts the send
+    add dx, si
     mov bx, RT_ERTXTH
     mov ax, cx
     call rt_outd

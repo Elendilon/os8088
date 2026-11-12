@@ -492,15 +492,18 @@ hd_vol_new:
     cmp byte [bx+HDV_USED], 0
     je .free
     add bx, HDV_SIZE
-    inc ax
-    cmp al, HD_MAXVOL
-    jb .scan
-    cmc                         ; CF = 1: not below the last (BX is past the
-    pop ax                      ; table: hd_mount_one's .full reads none)
-    ret
-.free:                          ; (CF = 0 off the equal compare)
-    mov [bx+HDV_VOLH], al
+    inc al
+    loop .scan
+    xor bx, bx
+    pop cx
     pop ax
+    stc
+    ret
+.free:
+    mov [bx+HDV_VOLH], al
+    pop cx
+    pop ax
+    clc
     ret
 
 ; -----------------------------------------------------------------------------

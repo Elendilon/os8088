@@ -105,7 +105,6 @@ H = 100
 YOFF, ROWS = 4, 12                  # vosd.inc's box: 4 rows in, 12 tall
 BLOCK = (10, 16)                    # ...and the rows under its glyphs
 CGAPAL = 0x51
-_GEOM0 = (H, YOFF, ROWS, BLOCK)
 X2 = [sum(3 << (2 * i) for i in range(4) if n >> i & 1) for n in range(16)]
 
 # per kind: layout, the canvas's row (in its own units: bytes, cells or
@@ -245,18 +244,7 @@ def cost(hookcost, press, hold, release, ww, rb, rw, span):
         print("   cost: no frame timed both ways")
 
 
-_SYMS = {}
-
-
-def _pkg_syms(*k):
-    """pkg_syms once a process: every --shared leg asks for the same"""
-    if k not in _SYMS:
-        _SYMS[k] = pkg_syms(*k)
-    return _SYMS[k]
-
-
-def main(argv=None, boot=None):
-    """one row, or with `boot` (tests/vidshare.py) one leg of a shared boot"""
+def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--kind", choices=sorted(KINDS), default="herc")
     ap.add_argument("--machine")
@@ -283,12 +271,8 @@ def main(argv=None, boot=None):
                     "Play's vp_recheck - answers none)")
     ap.add_argument("--src", help="with --cost: a tree whose apps/ to build "
                     "the player from, for the build before")
-    a = ap.parse_args(argv)
+    a = ap.parse_args()
     global H, YOFF, ROWS, BLOCK
-    H, YOFF, ROWS, BLOCK = _GEOM0       # (--shared: each leg from these)
-    if boot is not None and (a.cost or a.src or MEGA):
-        sys.exit("vidfskeys: --shared is MartyPC's rows: --cost, --src and "
-                 "kern_mega legs boot a machine of their own")
     if a.kind == "text":            # 25 rows, and the box one of them
         H, YOFF, ROWS, BLOCK = 25, 1, 1, (1, 2)
     (lay, row, gwb, pf, machine, how, xoff, nf, keysecs,
@@ -330,8 +314,7 @@ def main(argv=None, boot=None):
                             pkg] + part, check=True, capture_output=True)
             syms, _ = pkg_syms(apps + "video/video.asm", (apps,))
         else:
-            syms, _ = _pkg_syms("apps/video/video.asm", ("apps/",),
-                                MEGA_DEFS)
+            syms, _ = pkg_syms("apps/video/video.asm", ("apps/",), MEGA_DEFS)
             pkg = os88build.at(VIDEO_O88)
         g = vid.Geom(lay, gwb, H, bitplanes=pf == vid.PF_VGA4)
         g.sub2 = a.kind == "vga4m3"
@@ -372,8 +355,7 @@ def main(argv=None, boot=None):
         subprocess.run([sys.executable, "tools/os88disk.py", "-o", disk,
                         "--size", "360", pkg, clip], check=True,
                        capture_output=True)
-        with (boot or os88ui.boot)(os88build.at("build/os8088-360.img"),
-                                   apps=disk,
+        with os88ui.boot(os88build.at("build/os8088-360.img"), apps=disk,
                          machine=a.machine or machine, quick=True) as ui:
             m = ui.m
             w = ui.path("B:/KEYS.V88")
@@ -784,7 +766,4 @@ def main(argv=None, boot=None):
 
 
 if __name__ == "__main__":
-    if sys.argv[1:2] == ["--shared"]:   # ONE BOOT, SEVERAL ROWS' LEGS
-        import vidshare
-        sys.exit(vidshare.run(main, sys.argv[2:]))
     sys.exit(main())

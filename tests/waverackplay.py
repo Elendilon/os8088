@@ -108,20 +108,7 @@ class PR(WRT.WR):
                         os88build.at("build/mixercfg/SYSTEM.CFG")],
                        check=True, capture_output=True)  # SOUND.DRV wanted
         shutil.copy(os88build.at("build/wrfix.img"), bimg)
-        # A FIXED-SPEED GUEST, AND THE CARD ON ITS CLOCK (os88qemu.icount,
-        # os88build.qemuvt; xtmp3eng's rate legs). Every check here is the
-        # CAPTURE - samples played, sample for sample - and on a stock QEMU
-        # both the SB16's DMA and the wav backend run in HOST time, so a
-        # loaded soak played and captured a different stream: TONE44's count
-        # short, a sample off at 9,702 of 11,025. Under -icount the PIT, the
-        # tick and the wav audiodev are the guest's, and on `qemuvt` the
-        # 8237's transfers too; without it the DMA is the one host clock left
-        vt = os88build.qemuvt() if os.environ.get("OS88_QEMUVT") != "0" \
-            else None
-        if vt and os.path.dirname(vt) not in os.environ.get("PATH", ""):
-            os.environ["PATH"] = (os.path.dirname(vt) + os.pathsep +
-                                  os.environ.get("PATH", ""))
-        self.q = Q(tmp, sysimg, bimg, 4, keep=True, extra=[
+        self.q = Q(tmp, sysimg, bimg, 4, extra=[
             "-device", "sb16,audiodev=a0" + sbopt, "-audiodev",
             "wav,id=a0,path=%s,out.frequency=%d,out.channels=2,"
             "out.format=s16" % (self.wav, afreq)] + os88qemu.icount())
@@ -129,7 +116,6 @@ class PR(WRT.WR):
         os88qemu.acted(self.q, lambda: os.path.exists(self.sock), secs=30,
                        what="the QMP socket")
         xmcheck.wait_desktop(self.sock, "waverackplay")
-        WRT.guest(self.q)               # every wait on THIS guest's clock
         self.ui = os88ui.UI(self.q, mouse=WRT.Mo(self.sock), sym=xmcheck.sym,
                             verbose=False)
         self.seg = None
@@ -166,8 +152,8 @@ class PR(WRT.WR):
         if not until(lambda: self.state() == WT_PLAY, what + " playing", 15,
                      0.05):
             return f0, seen
-        t = WRT.gnow()                  # (guest seconds: WRT.guest)
-        while WRT.gnow() - t < secs and self.state() == WT_PLAY:
+        t = time.time()
+        while time.time() - t < secs and self.state() == WT_PLAY:
             seen["lit"].add(self.b("wr_lit"))
             seen["peak"] |= self.b("wr_peak")
             seen["mwho"].add(self.b("wr_mwho"))
@@ -295,7 +281,7 @@ def leg_rates(syms, img, tmp):
     try:
         if not check("WaveRack launches off B:", pr.launch()):
             return
-        WRT.idle(1)
+        time.sleep(1)
         idle0 = pr.heap()
         say("     heap, idle, no document: %s KB" % idle0)
         # --- STEREO16, to its end, every sample ---------------------------------
@@ -373,16 +359,16 @@ def leg_loop(pr, m, idle):
     xa, y = pr.wpoint(c0)
     xb, _ = pr.wpoint(c1)
     WRT.mouse(pr.sock, "to", xa, y)
-    WRT.idle(0.3)
+    time.sleep(0.3)
     WRT.mouse(pr.sock, "down", xa, y)
-    WRT.idle(0.3)
+    time.sleep(0.3)
     for x in range(xa, xb + 1, max(1, (xb - xa) // 6)):
         WRT.mouse(pr.sock, "to", x, y)
-        WRT.idle(0.1)
+        time.sleep(0.1)
     WRT.mouse(pr.sock, "to", xb, y)
-    WRT.idle(0.3)
+    time.sleep(0.3)
     WRT.mouse(pr.sock, "up")
-    WRT.idle(0.5)
+    time.sleep(0.5)
     fpp = 1 << z
     want = (first + c0 * fpp, min(first + c1 * fpp + fpp, pr.d("wo_frames")))
     s, e = pr.dsel()
@@ -397,7 +383,7 @@ def leg_loop(pr, m, idle):
     pr.key("spc")
     until(lambda: pr.state() == WT_PLAY, "the loop playing", 15, 0.05)
     t = (e - s) / 22050.0
-    WRT.gpause(max(2.0, 2.6 * t + 0.6))
+    time.sleep(max(2.0, 2.6 * t + 0.6))
     pr.key("spc")
     until(lambda: pr.state() == WT_PPAUSE, "paused", 10, 0.05)
     time.sleep(1.0)
@@ -425,10 +411,10 @@ def leg_loop(pr, m, idle):
     pr.key("spc")
     ok = until(lambda: pr.state() == WT_PLAY, "resumed", 10, 0.05)
     check("Space resumes it", ok)
-    WRT.gpause(0.6)
+    time.sleep(0.6)
     pr.key("s")
     until(lambda: pr.state() == WT_IDLE, "stopped", 10, 0.05)
-    WRT.idle(0.5)
+    time.sleep(0.5)
     check("Stop: the playhead back where the play began (%d)" % s,
           pr.d("wt_ph") == s and pr.d("wt_p0") == s,
           "ph %d p0 %d" % (pr.d("wt_ph"), pr.d("wt_p0")))
@@ -455,17 +441,13 @@ def leg_close(pr):
     xmcheck.click(pr.sock, cx, cy)
     check("the window closes", until(lambda: pr.wrseg()[0] is None,
                                       "the close", 15))
-    # THE CLAIMS GOING, not the UI idling: the close's frees land after
-    # ui_task sleeps, so `idle(1)` (ui_done) read them all still there
-    # every run where the host sleep it replaced did not. A leak still
-    # fails - the claims never go, and the 5 guest s run out.
-    until(lambda: pr.heap() == [], "the closed region's claims freed", 5)
+    time.sleep(1)
     left = pr.heap()                    # (claims still owned by its segment)
     check("no claim of the closed region left (%s)" % left, left == [])
     pr.seg = None
     if not check("WaveRack launches again", pr.launch()):
         return
-    WRT.idle(1)
+    time.sleep(1)
     if not check("STEREO16.WAV opens again", pr.open("MEDIA/GOOD/STEREO16.WAV")):
         return
     pr.settled()
@@ -485,13 +467,13 @@ def leg_d2(syms, img, tmp):
     try:
         if not check("WaveRack launches off B:", pr.launch()):
             return
-        WRT.idle(1)
+        time.sleep(1)
         if not check("TONE44.WAV opens", pr.open("MEDIA/GOOD/TONE44.WAV")):
             return
         pr.settled()
         for _ in range(5):
             pr.key("bracket_left")
-            WRT.idle(0.15)
+            time.sleep(0.15)
         check("VOLUME 50%% from the keys (wr_vol %d)" % pr.b("wr_vol"),
               until(lambda: pr.b("wr_vol") == 50, "volume 50", 5))
         data, r, m = reference("TONE44.WAV")
@@ -530,7 +512,7 @@ def leg_hi(syms, img, tmp):
     try:
         if not check("WaveRack launches off B:", pr.launch()):
             return
-        WRT.idle(1)
+        time.sleep(1)
         if not check("TONE44.WAV opens", pr.open("MEDIA/GOOD/TONE44.WAV")):
             return
         pr.settled()
