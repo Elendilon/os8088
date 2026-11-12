@@ -1,7 +1,7 @@
 # BOUNCE BONANZA — an isometric rolling-ball game for the 5150 (investigation and plan)
 
-**STATUS: WAVE 0 (the spike) IN PROGRESS; the owner's decisions are in
-section 12.** The package is `BONANZA` (`apps/bonanza/`). Below is the
+**STATUS: WAVE 0 (the spike) IN PROGRESS; its contract is SPEC.md 128 and
+the owner's decisions are in section 12.** The package is `BONANZA` (`apps/bonanza/`). Below is the
 investigation as it was written, the answer to the owner's
 brief of 2026-11-12, on branch `bounce-bonanza`, cut from `elendilon`: is an
 overhead isometric rolling-ball game with a scrolling course feasible on the
@@ -114,9 +114,12 @@ How the game runs on each kernel:
 
 - **kern_big:** the main target.
 - **kern_mega:** a shipped kernel, so it is in the design and not an
-  afterthought. It uses the real-mode FSX bracket (`FSXF_REAL`, SPEC.md
-  53.2.3) as the Video Player does, and `OSAPI_SEG` for any segment derived
-  from a claim. Any mega-only code goes under `PKG_MEGA` (SPEC.md 20.18).
+  afterthought. It uses the ORDINARY FSX bracket with `FSXF_FASTTICK`, as
+  Excitebike does. *(Corrected 2026-11-12: this said the real-mode bracket,
+  `FSXF_REAL`, SPEC.md 53.2.3, but that bracket's API table has no
+  `OSAPI_SND_TONE` or `OSAPI_MEM_P`, so the speaker would go silently dead.)*
+  `OSAPI_SEG` covers any segment derived from a claim, and any mega-only
+  code goes under `PKG_MEGA` (SPEC.md 20.18).
 - **kern_small:** the 128 KB machine cannot hold the level and art claims
   (section 7), so the game **refuses at start with that reason**. A smaller
   arm is not planned.
