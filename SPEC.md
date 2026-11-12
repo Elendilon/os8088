@@ -251115,3 +251115,77 @@ Hercules 200-line field refreshes at 50.8 Hz on MartyPC, not 50, so
 `BZ_MLIMH` is about 1.52 of its refreshes; and because the retrace wait tests
 a LEVEL, a frame can present anywhere in the blank, so a single frame's
 period swings by about half a refresh without a miss.
+
+### 128.9 Wave 0b: the camera that does not trickle, and the optimisation round
+
+**The owner's first play (2026-11-12, 86Box, CGA):** the ball reads as
+rolling, but **scrolling SLOWLY is jerky, and scrolling fast looks smooth**.
+That is the hardware floor showing through wave 0's camera: the CGA's start
+address moves the picture in **8 px horizontally** (a word of mode 4 is 8
+pixels, and the 6845 counts words) and **2 lines vertically** (a char row of
+R9 = 1); the Hercules field steps 8 game px and 4 lines. Neither card has a
+finer scroll in graphics mode: no pel panning (that is the EGA's), and the
+6845 always starts a frame at scan line 0 of a char row. A camera that follows
+a slow ball therefore HOPS a whole step every few frames, and the ball jumps
+back on the screen by the same step each time; a fast camera hops every frame
+or two, which the eye reads as motion.
+
+So the rule wave 0b adds: **the camera either rests or moves fast; it never
+trickles.** Three camera MODES ship in wave 0b so the owner can choose by
+feel; `C` in play cycles them, the desktop face names the current one, and
+the choice persists across plays in the session (not on disk).
+
+| mode | `bz_cmode` | horizontal | vertical |
+|---|---|---|---|
+| **GLIDE** (the default) | 0 | REST until the ball's box leaves the dead zone (the middle half, unchanged); then PAN toward a target column that puts the ball a quarter-window AHEAD of the centre in its direction of travel, one column a frame while the ball is faster than 4 px a frame and otherwise one column every second frame, re-aiming every frame, until the target is reached; then rest | the same shape on rows: rest inside the band (the middle third, unchanged); when the ball leaves it, pan toward the row that puts the ball a sixth of the window ahead of the centre in its direction of travel, at one row a frame, or two while the ball is faster than 2 lines a frame, until reached |
+| **FOLLOW** | 1 | a camera VELOCITY in 1/256 px a frame eases toward the ball's (by a quarter of the difference a frame) plus a correction toward the dead-zone centre; its POSITION accumulates and steps a column whenever it crosses a column, so steps come at an even cadence that matches the ball | the same, in lines, stepping a row whenever it crosses a row |
+| **TRICKLE** | 2 | wave 0's camera exactly (128.5): kept for the A/B | wave 0's |
+
+All three keep 128.2's limits: at most `BZ_MAXR` rows and `BZ_MAXC` columns a
+frame, a larger move is a full write, and every mode is clamped to the
+course. All three keep the ball's box inside the dead zone and band EDGES
+that 128.5 sets (a pan only moves the ball toward the centre), so the
+column-split rule of 128.2 rule 4 is unchanged. The autopilot benchmark runs
+in GLIDE; `bonanzaring` must still see all eight step directions there.
+
+**The camera is part of the simulation, not the display.** It advances once
+per FRAME (not per sub-tick step), from the ball's position and velocity
+after the frame's steps, so a mode's cadence is a function of the frame
+rate, which is the refresh on both cards (128.8).
+
+**A smoother floor was considered and is not taken.** A 2 px horizontal step
+needs four pre-shifted copies of the course and a whole-window rewrite a
+step (plan 2.8); a 1-line vertical step needs the 6845 to start a frame
+mid-row, which it cannot. The VGA arm (plan 2.8, a later wave) is where
+pixel-smooth scrolling lives.
+
+**The optimisation round** changes no picture. Every item keeps the bytes on
+the card exactly what 128.2 - 128.4 say, and `bonanzaring` is its proof:
+
+1. **Box compose** without MUL: the fill column-major, a block's lines by a
+   `movsw` / `add di` chain, and an unclipped word-wise path for a ball whose
+   box is wholly inside the window.
+2. **The column writer** finds the ring's wrap row once and runs a block's
+   lines unrolled.
+3. **The row writer** runs word columns outermost (the two CGA misses of
+   128.8 were two-row frames).
+4. **`S` kept incrementally**, and `rb * R` by shifts in `bz_row`, `bz_col`
+   and `bz_boxw`.
+5. **No byte written twice**: where two boxes overlap the second skips the
+   overlap; an idle ball (same position and frame, no scroll) composes and
+   writes nothing.
+6. **The box at window row 0** (128.2 rule 4's open corner): when the box
+   starts at the window's first row, the box goes FIRST and the column after
+   it, both still inside the time before the beam reaches the box's last
+   line; a box that cannot is the documented exception, counted
+   (`bz_late`).
+7. **The Hercules ball's mid level** takes the course's checker (128.3):
+   index 1 and 2 write `10` where `(line + column)` is even and `01` where
+   it is odd, the column being the world's game-pixel column. The ball's
+   part is generated with that rule for each of its four shifts and stays the
+   same size.
+
+The bar each item answers to is 128.8's table, re-measured in the same pass
+with an A/B leg against wave 0's commit; the instruments, the rows and the
+benchmark route are unchanged except that the ring row also asserts
+`bz_late` = 0 over the benchmark.
