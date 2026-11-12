@@ -5036,8 +5036,10 @@ SOAK = [
         "which an end-state check cannot see. Fails if a direction never "
         "occurs. Negative controls: the decode at S+1 and a poked wrong "
         "camera (bz_c0+1, bz_R0+1) must mismatch, and the glass one column "
-        "over. Red arms `--red colright|colfirst` (by hand; a broken copy "
-        "built in a temporary directory) go red: colfirst only at bz_tf",
+        "over. After the benchmark, bz_rlate (late row-0 boxes, SPEC.md "
+        "128.9 item 6) must be 0. Red arms `--red colright|colfirst|late` (by "
+        "hand; a broken copy built in a temporary directory) go red: "
+        "colfirst only at bz_tf, late only at the bz_rlate assertion",
         needs=("marty", "nasm"), timeout=600,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("bonanzaperf", "soak", py("tests/bonanza_perf.py"), 24.0,
@@ -5050,9 +5052,11 @@ SOAK = [
         "only the FLOOR (mean period <= two refreshes) and that the "
         "package's own PIT instruments (bz_r*) agree with the breakpoints: "
         "parts and period within 10% (or 200 clk), counts exactly. "
-        "Measured: CGA 59.83 Hz on a 59.92 Hz refresh, 2 misses in 1,199; "
-        "Hercules 50.85 Hz on 50.8, none. A guest-cycle count, so host load "
-        "cannot move it",
+        "Measured (wave 0b, SPEC.md 128.9): CGA 59.94 Hz on a 59.93 Hz "
+        "refresh, Hercules 50.85 Hz on 50.83, no misses on either; "
+        "`--apps/--src/--art` runs the same breakpoints against another "
+        "build (the A/B leg against wave 0). A guest-cycle count, so host "
+        "load cannot move it",
         needs=("marty", "nasm"), timeout=600,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("arclock", "soak", py("tests/arclock.py", "build/arcade/invcode.bin",

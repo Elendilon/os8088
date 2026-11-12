@@ -2,6 +2,14 @@
 """BONANZA: the frame's cost on MartyPC's 4.77 MHz XT, CGA and Hercules (SPEC.md 128.4, 128.6, 128.8).
 
     make bonanzadisk && python3 tests/bonanza_perf.py [--adapter cga|herc|both]
+    python3 tests/bonanza_perf.py --apps IMG --src DIR --art DIR   (an A/B leg)
+
+--apps/--src/--art point the run at ANOTHER build of the package - a floppy
+with its BONANZA.O88, the source it was assembled from and the art directory
+it assembled against (the symbols are read by re-assembling that source) -
+so an earlier wave's package, built in a private tree, is measured by the
+same breakpoints on the same route as the current one (SPEC.md 128.9's A/B
+leg against wave 0).
 
 The BENCHMARK (B: the autopilot's fixed route, 1,200 frames, deterministic) is
 run under LOGGED breakpoints on the frame marks - bz_t0 bz_ts bz_tr bz_tv bz_tf
@@ -92,9 +100,9 @@ def stats(xs):
     return {"n": n, "mean": sum(xs) / n, "min": xs[0], "max": xs[-1], "p99": xs[min(n - 1, int(n * .99))]}
 
 
-def run(tag):
-    sym = R.symbols()
-    with os88ui.boot(R.at("build/os8088-360.img"), apps=R.at("build/bonanza360.img"),
+def run(tag, apps=None, src=None, art=None):
+    sym = R.symbols(src, art)
+    with os88ui.boot(R.at("build/os8088-360.img"), apps=apps or R.at("build/bonanza360.img"),
                      machine=R.MACHINE[tag]) as ui:
         ui.open_drive("B")
         ui.open("BONANZA.O88")
@@ -189,11 +197,14 @@ def report(tag, fr, pkg, refresh, npres):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--adapter", choices=("cga", "herc", "both"), default="both")
+    ap.add_argument("--apps", help="the B: floppy to run instead of build/bonanza360.img")
+    ap.add_argument("--src", help="the package source that floppy was built from (default apps/bonanza)")
+    ap.add_argument("--art", help="the art directory that source assembled against (default build/bonanza-art)")
     a = ap.parse_args()
     tags = ("cga", "herc") if a.adapter == "both" else (a.adapter,)
     allbad = []
     for tag in tags:
-        bad = run(tag)
+        bad = run(tag, a.apps, a.src, a.art)
         for b in bad:
             print("FAIL %s: %s" % (tag, b))
         allbad += bad

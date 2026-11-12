@@ -250931,8 +250931,9 @@ plan 6.4).
    top and the ball sat high in the window (MartyPC, CGA: five of five such
    frames, 72-114 px; after the split ten of ten clean on each card). Writing
    the boxes first instead would leave the column's top rows behind the
-   beam. One corner is still open: a box at window row 0 gives the column
-   no rows above it, so the whole column follows the box.
+   beam. A box at window row 0 gives the column no rows above it: then the
+   column's rows down to the boxes' last row go first, the boxes, then the
+   rest (128.9 item 6).
 
 A row that is entering and a column that is entering are both drawn wholly
 from the course; nothing on the card is ever read.
@@ -250971,10 +250972,11 @@ keeps the background); then the FRAMES, `4 x 64 x 16 x 5` bytes (shift, then
 frame, then row), already ANDed with the inverse mask. Shift `s` is the ball
 moved `s` game pixels right inside its 5-byte row. Frame `f = (py & 7) * 8 +
 (px & 7)`, where `(px, py)` is the ball's position in world pixels (128.5).
-Hercules ball pixels: index 0 `00`, 3 `11`, 1 and 2 `10`. (That fixed mid
-level shows as vertical stripes where the course shows a checker; the frame
-index already carries the ball's pixel parity, so a later wave can give the
-ball the course's checker at no run-time cost.) The mask is the same disc in
+Hercules ball pixels: index 0 `00`, 3 `11`, 1 and 2 the course's checker at
+the world game pixel each lands on (128.9 item 7): ball pixel `(x, r)` is world
+`(px + x, py + r)`, so `10` where `(fx + x + fy + r)` is even and `01` where
+odd, `fx = f & 7`, `fy = f >> 3` - the frame carries the parity, at no
+run-time cost. The mask is the same disc in
 every frame and is stored identically in both ball parts.
 
 The ball's 64 frames are the phase torus of plan section 4: a 16 px disc
@@ -251050,6 +251052,7 @@ clamped to the course.
 | Enter, F, Alt+Enter | desktop | play |
 | B | desktop | the BENCHMARK: the autopilot drives a fixed route for 1,200 frames, then the bracket ends and the window shows the result |
 | arrows | play | roll |
+| C | play, desktop | the next CAMERA mode (128.9): GLIDE, FOLLOW, TRICKLE. In play a key-down edge; on the desktop a typed key, which redraws the face's camera line |
 | Esc, F, Alt+Enter | play | back to the desktop |
 
 **The autopilot** steers toward a fixed list of waypoints as if the arrow
@@ -251069,12 +251072,15 @@ period passed 1.5 refreshes: `BZ_MLIMC` 29,870 PIT counts on the CGA,
 `BZ_MLIMH` 35,795 on the Hercules) and the worst frame in clocks. A
 benchmark's end copies the live counters into a results copy (`bz_r*`) and
 that is what the window shows. Play mode measures nothing. Each mark costs
-about 0.5k clocks of its own, billed to the part it closes and not
-subtracted. MartyPC rows read the same marks as zero-cost logged breakpoints
+about 1.0k clocks of its own on MartyPC (a PIT latch and the 32-bit sums;
+a frame with no rows still shows ~1.07k in the rows part), billed to the
+part it closes and not subtracted, so a benchmark's busy time reads ~4-5k
+above play's. MartyPC rows read the same marks as zero-cost logged breakpoints
 instead.
 
-The window's keys line reads `ENTER play   B benchmark`; F and Alt+Enter
-work but are not shown.
+The window's keys line reads `ENTER play   B benchmark   C camera`; F and
+Alt+Enter work but are not shown. The line under the adapter's names the
+camera mode a play will start in.
 
 ### 128.7 Memory
 
@@ -251084,9 +251090,14 @@ in use: the course part (16 + 25,600 + 16N bytes, at most 42,000) and the
 ball part (16 + 320 + 20,480 bytes). The box buffers are bss: TWO of at
 most 8 bytes x 24 lines (384 bytes), because the old and new footprints are
 one box when their union fits 4 words x 24 lines and two boxes otherwise.
-Where two boxes overlap, those bytes are written twice. Both claims are
-dropped when the bracket ends, on every way out. Wave 0's image is 6,191
-bytes with 813 of bss.
+Where two boxes overlap, the second writes only the words beside the
+overlap (128.9 item 5). Both claims are dropped when the bracket ends, on
+every way out. Wave 0's image was 6,191 bytes with 813 of bss; wave 0b's is
+8,785 with 913 (the three camera modes are most of the growth), and the
+packed `BONANZA.O88` is 30,966 bytes. Each ball part carries 15,360 bytes
+that can never be drawn - only the shift `px & 3` that frame `f`'s own
+`px & 7` implies is ever read, 64 of its 256 shift-frame entries - a saving
+left for a later wave.
 
 ### 128.8 The rows
 
@@ -251137,16 +251148,38 @@ the choice persists across plays in the session (not on disk).
 
 | mode | `bz_cmode` | horizontal | vertical |
 |---|---|---|---|
-| **GLIDE** (the default) | 0 | REST until the ball's box leaves the dead zone (the middle half, unchanged); then PAN toward a target column that puts the ball a quarter-window AHEAD of the centre in its direction of travel, one column a frame while the ball is faster than 4 px a frame and otherwise one column every second frame, re-aiming every frame, until the target is reached; then rest | the same shape on rows: rest inside the band (the middle third, unchanged); when the ball leaves it, pan toward the row that puts the ball a sixth of the window ahead of the centre in its direction of travel, at one row a frame, or two while the ball is faster than 2 lines a frame, until reached |
+| **GLIDE** (the default) | 0 | REST until the ball's CENTRE leaves the dead zone (the middle half, unchanged); then PAN toward the target column that puts the ball on the dead zone's TRAILING edge - a quarter-window behind the centre, so the camera LEADS by a quarter-window in the direction of travel (the sign of `vx`, at rest the last one) - rounded so the ball lands inside the edge and clamped to the course; one column every second frame, and every frame while the ball is faster than 4 px a frame or still outside the dead zone; re-aiming every frame, until the target is reached; then rest | the same shape on rows: rest inside the band (the middle third, unchanged); when the ball leaves it, pan toward the row that puts the ball on the band's trailing edge (the camera leads by a sixth of the window), at one row a frame, two while the ball is faster than 2 lines a frame, and one more while one row still leaves the ball outside the band, until reached |
 | **FOLLOW** | 1 | a camera VELOCITY in 1/256 px a frame eases toward the ball's (by a quarter of the difference a frame) plus a correction toward the dead-zone centre; its POSITION accumulates and steps a column whenever it crosses a column, so steps come at an even cadence that matches the ball | the same, in lines, stepping a row whenever it crosses a row |
 | **TRICKLE** | 2 | wave 0's camera exactly (128.5): kept for the A/B | wave 0's |
 
 All three keep 128.2's limits: at most `BZ_MAXR` rows and `BZ_MAXC` columns a
 frame, a larger move is a full write, and every mode is clamped to the
-course. All three keep the ball's box inside the dead zone and band EDGES
-that 128.5 sets (a pan only moves the ball toward the centre), so the
-column-split rule of 128.2 rule 4 is unchanged. The autopilot benchmark runs
-in GLIDE; `bonanzaring` must still see all eight step directions there.
+course. None of them moves the ball OUT of the dead zone and band that 128.5
+sets: GLIDE's target always puts the ball inside them and its steps never
+pass the target (a pan carries the ball across the centre to the far edge,
+not past it), so only the ball's own speed takes it outside, as in wave 0,
+and the column-split rule of 128.2 rule 4 is unchanged. GLIDE's "faster than"
+is `|v|` (1/256 px a step) against per-card constants for the full refresh
+(`BZ_GFXC` 1,124 and `BZ_GFXH` 954 across, `BZ_GFYC` 562 and `BZ_GFYH` 477
+down, from 54.62 steps a second and 128.8's rates); a display that drops
+frames therefore pans slower than this table says - the ball's actual travel
+a frame is the honest measure and is a later wave's change, made with the
+route re-checked. The autopilot benchmark runs in GLIDE whatever the
+player's mode, and the results say so; `bonanzaring` must still see all
+eight step directions there.
+
+**The benchmark ROUTE changes in wave 0b**, which 128.6's leg list predates.
+Under GLIDE, wave 0's route gave the Hercules no right-going diagonal step
+(its window has 19 columns of room, one pan) and the CGA no pure left step.
+The descent now starts shallow - waypoints (10,13) and (11,14) where wave 0
+had (10,15) and (16,15), about 0.36 px down a px right, so the ball crosses
+the dead zone's edge and the band's at about the same time on both cards -
+and a bend at (26,26) is added half-way down the traverse (`BZ_NWAY` 14 to
+15). A host model of the autopilot and the three cameras, integer-exact to
+the code, predicts every direction at least five times on both cards at
+step rates 0.96-1.04 of the real one; `bonanzaring` is the proof. An A/B leg
+against wave 0 must build wave 0's package with WAVE 0's art (its own
+`tools/bonanza_assets.py`), and each table names the route its leg ran.
 
 **The camera is part of the simulation, not the display.** It advances once
 per FRAME (not per sub-tick step), from the ball's position and velocity
@@ -251175,10 +251208,26 @@ the card exactly what 128.2 - 128.4 say, and `bonanzaring` is its proof:
    overlap; an idle ball (same position and frame, no scroll) composes and
    writes nothing.
 6. **The box at window row 0** (128.2 rule 4's open corner): when the box
-   starts at the window's first row, the box goes FIRST and the column after
-   it, both still inside the time before the beam reaches the box's last
-   line; a box that cannot is the documented exception, counted
-   (`bz_late`).
+   starts at the window's first row there are no column rows above it, so
+   the column's rows DOWN TO THE BOXES' LAST ROW go first (the column writer
+   outruns the beam about 2.4 to 1, so its binding deadline is its FIRST
+   row), then the boxes, then the rest of the column. The box writer runs at
+   about the beam's speed, so it is on time if it STARTS before the beam
+   reaches window line 0 and ENDS before the beam reaches the boxes' last
+   line - a writer at a steady speed is then ahead at every line between -
+   and `bz_latechk` checks both ends; a frame late at either is the
+   documented exception, counted (`bz_late`) and finished regardless. The
+   beam is reckoned from the retrace wait's last clock sample: the sync's
+   START (less a line) when the wait saw it rise, its END (16 lines on) when
+   it was already high, then 22 blank lines of 76 PIT counts on the CGA and
+   82 of 63 on the Hercules (MartyPC's 6845 timing, rounded toward late).
+   **The wave-0b course cannot reach this path**: the ball keeps 16 px from
+   the course's top (`BZ_BYMIN`), so with the window clamped at `R0` = 0 a
+   box starts at card row 8 (CGA) or 4 (Hercules), and away from the clamp
+   every mode keeps the ball's centre 66 lines or more down. `bz_late` = 0
+   over the benchmark is therefore true by construction until later
+   physics or courses reach the window's first row; the ring row's
+   `--red late` arm proves only that the assertion can fail.
 7. **The Hercules ball's mid level** takes the course's checker (128.3):
    index 1 and 2 write `10` where `(line + column)` is even and `01` where
    it is odd, the column being the world's game-pixel column. The ball's
@@ -251186,6 +251235,67 @@ the card exactly what 128.2 - 128.4 say, and `bonanzaring` is its proof:
    same size.
 
 The bar each item answers to is 128.8's table, re-measured in the same pass
-with an A/B leg against wave 0's commit; the instruments, the rows and the
-benchmark route are unchanged except that the ring row also asserts
-`bz_late` = 0 over the benchmark.
+with an A/B leg against wave 0's commit; the instruments and the rows are
+unchanged except that the ring row also asserts `bz_late` = 0 over the
+benchmark (and has a `--red late` arm), and the benchmark route is the one
+above.
+
+**Wave 0b's measurement** (MartyPC, one pass: `bonanzaperf` on wave 0b's
+route, and the A/B leg `tests/bonanza_perf.py --apps/--src/--art` against
+wave 0's package built with wave 0's own art on wave 0's route; mean CPU
+clocks a frame over the 1,199 measured frames of the 1,200-frame benchmark;
+refresh CGA 79,643 clk = 59.93 Hz, Hercules 93,898 clk = 50.83 Hz):
+
+| | CGA wave 0 | CGA wave 0b | Hercules wave 0 | Hercules wave 0b |
+|---|---|---|---|---|
+| route | wave 0's | wave 0b's | wave 0's | wave 0b's |
+| sim + camera | 7,653 | 8,813 | 8,131 | 9,223 |
+| box compose | 23,515 | 11,490 | 23,568 | 11,839 |
+| rows | 4,524 | 4,185 | 5,390 | 4,211 |
+| retrace wait (idle) | 33,436 | 45,154 | 46,602 | 59,031 |
+| flip + columns | 2,808 | 3,053 | 2,420 | 2,760 |
+| box write | 7,843 | 6,935 | 7,737 | 6,789 |
+| busy, of a refresh | 46,343 (58%) | 34,476 (43%) | 47,246 (50%) | 34,821 (37%) |
+| columns / rows / full writes | 59 / 546 / 1 | 90 / 607 / 1 | 46 / 323 / 1 | 76 / 330 / 1 |
+| display rate | 59.82 Hz | 59.94 Hz | 50.86 Hz | 50.85 Hz |
+| misses in 1,199 | 2 | 0 | 0 | 0 |
+| worst frame | 134,437 clk | 105,051 clk | 116,916 clk | 114,705 clk |
+| retrace timeouts / late row-0 boxes | 0 / - | 0 / 0 | 0 / - | 0 / 0 |
+
+Box compose halves on both cards (item 1, and item 5's idle ball, whose
+frames compose nothing: minimum 1,617 clk). The row and column writers are
+about a fifth cheaper a call - a row about 9.4k to 7.5k clk on the CGA and
+19.2k to 13.7k on the Hercules, a column about 25.5k to 19.7k and 22.7k to
+18.8k - DERIVED from the part means and counts, since the two legs ran
+different routes, not measured a call. They are bound by the card's write
+cost, which is why item 2 bought little. Sim + camera costs about 1.1k more
+(the camera modes and the C key). Wave 0's two CGA misses are gone. GLIDE
+scrolls more than TRICKLE did on the benchmark (90 columns against 59 on the
+CGA), and the frame still fits with 57% of the CGA refresh idle.
+
+**Camera cadence** (MartyPC, play mode, a scratch script holding one axis's
+`|v|` near a target by pressing and releasing the arrow each frame: 144 a
+step - the ball at 0.51 px a frame on the CGA, 0.6 on the Hercules - and
+256, 0.85-0.9 and 1.0-1.07; 600 frames a run; the display at the full
+refresh in every run):
+
+| slow ball | CGA across | CGA down | Hercules across | Hercules down |
+|---|---|---|---|---|
+| GLIDE | one pan of 22 columns in 43 frames (a step every 2nd frame, 30/s), then rest | pans of 45 rows in 45 frames (every frame), rests of 130-132 frames | one pan of 19 columns in 37 frames (25/s), then rest | pans of 19 rows in 19 frames, rests of 106-108 |
+| FOLLOW | a step every 15-17 frames (2.4/s) | every 3-6, mostly 4 (15.1/s) | every 13-16 (1.6/s) | every 6-8 (7.6/s) |
+| TRICKLE | every 15-17 (2.1/s) | every 3-5 (13.7/s) | every 13-14 (1.6/s) | every 6-8 (7.1/s) |
+
+| mid ball | CGA across | CGA down | Hercules across | Hercules down |
+|---|---|---|---|---|
+| GLIDE | one pan of 24 columns in 47 frames | pans of 61 rows, rests of 73-74 | pans of 15 and 19 columns, one each way | pans of 22 rows, rests of 60-62 |
+| FOLLOW | every 8-13, mostly 9 (2.9/s) | every 2-3 (26.9/s) | every 7-12, mostly 8 (2.9/s) | every 3-5, mostly 4 (13.5/s) |
+| TRICKLE | every 8-10 (2.4/s) | every 2-4, mostly 2 (25.5/s) | every 7-9 (2.0/s) | every 3-5, mostly 4 (13.0/s) |
+
+**What that says for the choice.** A camera that matches the ball's speed
+must step every 8/v frames, so FOLLOW hops at TRICKLE's rate: it only
+centres the ball (within 8 lines of the middle) and evens the gaps. GLIDE
+alone turns the slow ball's hops into fast pans with rests between them.
+The test course gives only 24 (CGA) or 19 (Hercules) columns of horizontal
+scroll, so a GLIDE pan across nearly spans the whole range; wave 1's larger
+courses are where the pans will show their rhythm. The owner chooses by
+feel.

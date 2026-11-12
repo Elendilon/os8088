@@ -21377,7 +21377,7 @@ bonanzadisk: $(BUILD)/bonanza.img $(BUILD)/bonanza720.img $(BUILD)/bonanza120.im
 # SPEC.md 128.8's two MartyPC rows, by hand (the soak rows bonanzaring and
 # bonanzaperf run the same scripts). The ring's red arms build a broken copy
 # of the package into a temporary directory, never $(BUILD):
-# `python3 tests/bonanza_ring.py --red colright|colfirst`.
+# `python3 tests/bonanza_ring.py --red colright|colfirst|late`.
 .PHONY: bonanzaring bonanzaperf
 #> [Applications] bonanzaring :: Bounce Bonanza's ring on MartyPC, CGA and Hercules: card memory through the ring = the host's picture (SPEC.md 128.8)
 bonanzaring: bonanzadisk $(BUILD)/os8088-360.img

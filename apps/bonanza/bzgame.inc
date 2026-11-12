@@ -37,10 +37,20 @@
 ;                      bz_presented), 5 box write (bz_tb..bz_tc, or
 ;                      ..bz_presented when no column rows follow the boxes).
 ;                      CPU clocks = counts x 4.
+;   bz_cmode    byte   the camera MODE (SPEC.md 128.9): 0 GLIDE, 1 FOLLOW, 2
+;                      TRICKLE.  C cycles it, in play and on the desktop; it
+;                      persists across plays (bss, never reset).  The benchmark
+;                      runs GLIDE whatever it says and leaves it alone
+;   bz_late     word   frames with a box at window row 0 whose box did not
+;                      START before the beam reached window line 0 (the column
+;                      rows down to the box's last line went first) or did not
+;                      END before it reached the box's last line (SPEC.md
+;                      128.9 item 6, bz_latechk): 0 over the benchmark is what
+;                      bonanzaring asserts
 ;   bz_res      byte   1 = the bz_r* copy below holds a finished benchmark
 ;   bz_rframes, bz_rmfr, bz_rncol, bz_rnrow, bz_rnfull, bz_rmiss, bz_rfmax,
-;                      bz_racc: that copy, the same layout as bz_frames ..
-;                      bz_acc
+;                      bz_racc, bz_rlate: that copy, the same layout as
+;                      bz_frames .. bz_late
 ;
 ; AT bz_presented THE CARD HOLDS THE WINDOW EXACTLY: every word of the W x H
 ; window at bz_S is the course's, with the ball at (bz_px, bz_py) composited
@@ -54,7 +64,9 @@
 ; column's rows above the boxes' top row go between bz_tf and bz_tb, the boxes
 ; between bz_tb and bz_tc, and the column's remaining rows between bz_tc and
 ; bz_presented - raster order, so neither the column nor the box races the
-; beam (SPEC.md 128.2 rule 4 as amended by the wave-0 fix stage).
+; beam (SPEC.md 128.2 rule 4 as amended by the wave-0 fix stage).  A box at
+; window row 0 has no column rows above it: then the column's rows down to the
+; boxes' LAST row go first, the boxes, and the rest (SPEC.md 128.9 item 6).
 ;
 ; THE CLOCK.  Excitebike's (SPEC.md 102, xb_clk_sample's shape): PIT channel 0
 ; counts DOWN from BZ_SUB once a FASTTICK sub-tick, and a sample that reads a
@@ -76,11 +88,25 @@ BZ_VMAX     equ 512             ; |v| at most 2 px a step: 16 px a frame at 8 st
 BZ_REACH    equ 12              ; the autopilot's waypoint radius, px
 BZ_KSC_F    equ 21h             ; the F key's make code
 BZ_KSC_B    equ 30h             ; ...and B's
+BZ_KSC_C    equ 2eh             ; ...and C's: the camera mode (SPEC.md 128.9)
+BZ_CMODES   equ 3               ; GLIDE, FOLLOW, TRICKLE
+; GLIDE's "faster than 4 px (x) / 2 lines (y) a FRAME" as |v| in 1/256 px a
+; STEP: a frame runs 54.62 / refresh steps on average (FASTTICK's 1,193,182 /
+; 21,845 Hz against 128.8's 59.92 Hz CGA and 50.85 Hz Hercules refresh: 0.9115
+; and 1.0741), so the ball passes 4 px a frame past |v| = 1024 / that and 2
+; lines past 512 / that.  With wave 0's BZ_VMAX of 512 the x pair is out of
+; reach on both cards (GLIDE pans one column every second frame, 4 px a frame,
+; about twice the ball's top speed) and the y pair is reached on the Hercules
+; only; later waves' physics may cross them.
+BZ_GFXC     equ 1124            ; CGA, x: 1024 / 0.9115 = 1123.4
+BZ_GFXH     equ 954             ; Hercules, x: 1024 / 1.0741 = 953.4
+BZ_GFYC     equ 562             ; CGA, y: 512 / 0.9115 = 561.7
+BZ_GFYH     equ 477             ; Hercules, y: 512 / 1.0741 = 476.7
 BZ_K_L      equ 1               ; bz_keys: the arrows held
 BZ_K_R      equ 2
 BZ_K_U      equ 4
 BZ_K_D      equ 8
-BZ_LIVE     equ 40              ; bytes of bz_frames .. bz_acc (the results copy)
+BZ_LIVE     equ 42              ; bytes of bz_frames .. bz_late (the results copy)
 
 %macro BZ_GAME_VARS 0
 VAR bz_mode,1
@@ -94,7 +120,25 @@ VAR bz_first,1
 VAR bz_oldv,1
 VAR bz_keys,1
 VAR bz_lsh,1
-VAR bz_pad0,1
+VAR bz_row0,1                   ; 1: this frame's box is at window row 0 (bz_csplit)
+VAR bz_vedge,1                  ; 1: bz_vr saw the sync RISE (not already high)
+VAR bz_pad0,1                   ; (the words below stay even)
+VAR bz_cmode,1                  ; the camera mode: 0 GLIDE, 1 FOLLOW, 2 TRICKLE
+VAR bz_cuse,1                   ; ...the one this frame used (a benchmark: GLIDE)
+VAR bz_ckey,1                   ; FFh while C was down last frame (the edge)
+VAR bz_gpx,1                    ; GLIDE: 1 while the x pan is on
+VAR bz_gpy,1                    ; ...the y pan
+VAR bz_gpar,1                   ; ...the x pan's frame parity (0: step now)
+VAR bz_gdx,1                    ; ...the ball's last x direction: 0 right, 1 left
+VAR bz_gdy,1                    ; ...and y: 0 down, 1 up
+VAR bz_gfx,2                    ; ...BZ_GFX? and BZ_GFY? for this card
+VAR bz_gfy,2
+VAR bz_lbx,2                    ; FOLLOW: the low words of last frame's bz_bx,
+VAR bz_lby,2                    ; bz_by (24.8: the frame's travel)
+VAR bz_fvx,2                    ; ...the camera velocity, 1/256 px (line) a frame
+VAR bz_fvy,2
+VAR bz_fcx,4                    ; ...its position, 24.8 like bz_bx: the window's
+VAR bz_fcy,4                    ; left px and top line, + 1 the integer word
 VAR bz_S,2
 VAR bz_R0,2
 VAR bz_c0,2
@@ -119,6 +163,7 @@ VAR bz_nfull,2
 VAR bz_miss,2
 VAR bz_fmax,4
 VAR bz_acc,4 * BZ_NPART
+VAR bz_late,2
 VAR bz_rframes,2
 VAR bz_rmfr,2
 VAR bz_rncol,2
@@ -127,6 +172,7 @@ VAR bz_rnfull,2
 VAR bz_rmiss,2
 VAR bz_rfmax,4
 VAR bz_racc,4 * BZ_NPART
+VAR bz_rlate,2
 VAR bz_tos,2
 ; the clock
 VAR bz_subs,2
@@ -136,6 +182,9 @@ VAR bz_mpit,2
 VAR bz_lsubs,2
 VAR bz_fper,4
 VAR bz_mlim,2
+VAR bz_vsubs,2                  ; the retrace wait's last sample (bz_latechk)
+VAR bz_vpit,2
+VAR bz_lblank,2
 ; the parts' segments and the card
 VAR bz_cseg,2
 VAR bz_bseg,2
@@ -155,6 +204,7 @@ VAR bz_vrlim,2
 VAR bz_ccol,2
 VAR bz_cfrom,2
 VAR bz_crest,2
+VAR bz_cbot,2                   ; the boxes' lowest window line (bz_csplit)
 ; the footprints and the boxes
 VAR bz_ofx0,2
 VAR bz_ofx1,2
@@ -165,9 +215,22 @@ VAR bz_nfx1,2
 VAR bz_nfy0,2
 VAR bz_nfy1,2
 VAR bz_nbox,2
+VAR bz_opx,2                    ; the ball's px, py last frame (the idle test)
+VAR bz_opy,2
+VAR bz_xhi,2                    ; the second box's overlap band (bz_boxw)
+VAR bz_xlo,2
+VAR bz_xa,2
+VAR bz_xb,2
+VAR bz_xact,2
 VAR bz_bw,2
+VAR bz_bstep,2                  ; bz_boxw: buffer step from a line's end to the next
+VAR bz_wtab,10                  ; W * dr for dr = -2 .. 2 (bz_tf's incremental S)
 VAR bz_bx2,2
 VAR bz_imin,2
+VAR bz_fmp,2                    ; bz_boxc's fill: the run's map entry, buffer
+VAR bz_fbp,2                    ; line, line word in a block, lines left
+VAR bz_flo,2
+VAR bz_fln,2
 VAR bz_kmin,2
 VAR bz_boxes,2 * BZ_BOXD
 VAR bz_boxbuf,2 * BZ_BOXB
@@ -198,9 +261,11 @@ bz_clk_sample:
 ; -----------------------------------------------------------------------------
 ; bz_mark - a frame mark: the PIT counts since the last mark go to part BX/4's
 ; accumulator (bz_acc + BX) and to the frame's period (bz_fper) when this
-; frame is measured, and the mark becomes the base.  A mark costs ~0.5k clocks
-; of its own (a PIT latch and the sums), billed to the part it closes: the
-; small parts' means read that much high.  Preserves all but the flags.
+; frame is measured, and the mark becomes the base.  A mark costs ~1.0k clocks
+; of its own on MartyPC's 8088 (a PIT latch, ~0.2k, and the 32-bit sums;
+; measured: a frame with no rows still shows ~1.07k in the rows part), billed
+; to the part it closes: the small parts' means read that much high, and a
+; benchmark's busy time ~4-5k above play's, where the sums are skipped.  Preserves all but the flags.
 ; -----------------------------------------------------------------------------
 bz_mark:
     push ax
@@ -245,6 +310,63 @@ bz_mark:
     ret
 
 ; -----------------------------------------------------------------------------
+; bz_latechk - SPEC.md 128.9 item 6, the box at window row 0: CF = 1 if NOW is
+; later than the beam reaching window line AX.  The beam is reckoned from the
+; retrace wait's last clock sample ([bz_vsubs], [bz_vpit]): when the wait saw
+; the sync RISE ([bz_vedge]) that is its start, less a line for the loop, so
+; 15 lines of sync are still to come; when the sync was already high it may
+; have been anywhere in its 16 lines, and its END is the late case.  Then
+; [bz_lblank] counts of blank and AX window lines (76 counts a CGA line, 63 a
+; Hercules one; both round toward LATE).  Preserves all but the flags.
+; -----------------------------------------------------------------------------
+bz_latechk:
+    push ax
+    push bx
+    push cx
+    push dx
+    cmp byte [bz_vedge], 0
+    je .lv
+    add ax, 15                  ; the sync's lines still to come
+.lv:
+    mov bx, ax
+    mov cl, 6
+    shl ax, cl                  ; 64 n
+    cmp byte [bz_herc], 0
+    jne .h
+    mov cx, bx
+    shl bx, 1
+    add bx, cx
+    shl bx, 1
+    shl bx, 1                   ; 12 n
+    add ax, bx                  ; 76 n: CGA lines
+    jmp short .b
+.h:
+    sub ax, bx                  ; 63 n: Hercules lines
+.b:
+    add ax, [bz_lblank]
+    mov bx, ax                  ; BX = the counts the beam takes to get there
+    call bz_clk_sample
+    mov ax, [bz_subs]
+    sub ax, [bz_vsubs]          ; whole sub-ticks since (0 or 1: a sub-tick is
+    mov dx, [bz_vpit]           ; longer than a refresh)
+    sub dx, [bz_pitl]           ; + the phase moved (the count runs down)
+    cmp ax, 1
+    ja .late
+    jb .el
+    add dx, BZ_SUB
+.el:                            ; DX = the counts since the retrace was seen
+    cmp bx, dx                  ; CF = the beam got there first
+    jmp short .out
+.late:
+    stc
+.out:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; bz_play - the frame loop, until Esc / F / Alt+Enter or the benchmark's last
 ; frame.  DS = ours, the mode set, bz_vinit run.
 ; -----------------------------------------------------------------------------
@@ -271,6 +393,7 @@ bz_play:
     rep stosw
     mov word [bz_wp], 1         ; waypoint 0 is the start
     mov byte [bz_first], 1
+    mov byte [bz_ckey], 0ffh    ; C must go down IN play to count (an edge)
     cmp byte [bz_mode], 0
     je .play
     mov byte [bz_res], 0        ; a benchmark replaces the last one's results
@@ -329,9 +452,20 @@ bz_tv:
 bz_tf:
     mov bx, 3 * 4
     call bz_mark
-    mov ax, [bz_R0n]            ; S = (W*R0 + c0) mod 4096
-    mul word [bz_W]
+    cmp byte [bz_full], 0       ; S = (W*R0 + c0) mod 4096, KEPT (SPEC.md
+    jne .whole                  ; 128.9 item 4): a step adds W a row and the
+    mov ax, [bz_S]              ; column step to the shown S, the row's W*dr
+    add ax, [bz_dc]             ; out of a five-entry table (dr = -2 .. 2)
+    mov bx, [bz_dr]
+    shl bx, 1
+    add ax, [bz_wtab + 4 + bx]
+    jmp short .S
+.whole:
+    mov ax, [bz_R0n]            ; a full write: W*R0 = rb*R0 / 2
+    call bz_rbR
+    shr ax, 1
     add ax, [bz_c0n]
+.S:
     and ax, 0fffh
     call bz_flip
     mov [bz_S], ax
@@ -340,6 +474,7 @@ bz_tf:
     mov ax, [bz_c0n]
     mov [bz_c0], ax
     mov word [bz_crest], 0      ; no column rows left for after the boxes
+    mov byte [bz_row0], 0       ; ...and no box at row 0 to time
     cmp byte [bz_full], 0
     je .col
     call bz_fullw
@@ -367,6 +502,12 @@ bz_tf:
 bz_tb:
     mov bx, 4 * 4
     call bz_mark
+    cmp byte [bz_row0], 0       ; A BOX AT WINDOW ROW 0 (SPEC.md 128.9 item 6):
+    je .go                      ; the column's rows down to its last line went
+    xor ax, ax                  ; first (they outrun the beam), so they and the
+    call bz_latechk             ; box's first line are on time if the box
+    rcl byte [bz_row0], 1       ; starts before the beam reaches line 0 (2 or 3)
+.go:
     mov bx, 5 * 4               ; (the part the next mark closes: the box write)
     mov si, bz_boxes
     mov cx, [bz_nbox]
@@ -376,11 +517,20 @@ bz_tb:
     add si, BZ_BOXD
     loop .write
 .wrote:
+    cmp byte [bz_row0], 0       ; ...and its LAST line if the box is done before
+    je .timed                   ; the beam reaches that: a writer at a steady
+    mov ax, [bz_cbot]           ; speed is ahead of the beam at every line
+    call bz_latechk             ; between if it is at both ends
+    adc byte [bz_row0], 0
+    cmp byte [bz_row0], 2
+    je .timed
+    inc word [bz_late]          ; late at either end: counted, and finished
+.timed:
     cmp word [bz_crest], 0
     je bz_presented
 bz_tc:
     call bz_mark                ; BX = 5*4: the box write ends here
-    mov ax, [bz_ccol]           ; the column's rows under the boxes' top row
+    mov ax, [bz_ccol]           ; the column's rows under the boxes' last row
     mov bx, [bz_cfrom]
     mov cx, [bz_crest]
     call bz_col
@@ -476,10 +626,21 @@ bz_drain:
 .out:
     ret
 
-; the arrows held -> [bz_keys].  Preserves all but the flags.
+; the arrows held -> [bz_keys], and C's key-down EDGE (not its repeat) cycles
+; the camera mode (SPEC.md 128.9).  Preserves all but the flags.
 bz_input:
     push ax
     push bx
+    mov al, BZ_KSC_C
+    call OSAPI_KEY_DOWN
+    sbb bl, bl                  ; BL = FFh while C is down
+    mov al, bl
+    xchg al, [bz_ckey]          ; AL = last frame's
+    not al
+    and al, bl                  ; down now and not then: the edge
+    jz .arrows
+    call bz_cnext
+.arrows:
     xor bl, bl
     mov al, KSC_LEFT
     call OSAPI_KEY_DOWN
@@ -504,6 +665,16 @@ bz_input:
     mov [bz_keys], bl
     pop bx
     pop ax
+    ret
+
+; the next camera mode, GLIDE -> FOLLOW -> TRICKLE -> GLIDE.  Preserves all
+; but the flags.  The camera picks its new state up itself (bz_camera's tail).
+bz_cnext:
+    inc byte [bz_cmode]
+    cmp byte [bz_cmode], BZ_CMODES
+    jb .out
+    mov byte [bz_cmode], 0
+.out:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -723,13 +894,25 @@ bz_way:
     BZ_WAYTAB
 
 ; -----------------------------------------------------------------------------
-; bz_camera - the ball's integer position and frame, then the new window
-; (SPEC.md 128.5): the ball kept inside a vertical BAND of the middle third,
-; at most BZ_MAXR rows a frame, and a horizontal DEAD ZONE of the middle half,
-; at most BZ_MAXC columns, clamped to the course.  The first frame centres the
-; window on the ball and is a FULL WRITE, as is any step past BZ_MAXR/BZ_MAXC.
-; Sets bz_px, bz_py, bz_frm, bz_R0n, bz_c0n, bz_dr, bz_dc, bz_full, bz_meas.
-; Preserves nothing.
+; bz_camera - the ball's integer position and frame, then the new window.
+; Runs ONCE A FRAME, after the frame's steps (SPEC.md 128.9: the camera is part
+; of the simulation, and its cadence is the frame rate's).  The first frame
+; centres the window on the ball and is a FULL WRITE, as is any step past
+; BZ_MAXR/BZ_MAXC.  After it, the MODE (bz_cmode; GLIDE in a benchmark):
+;
+;   GLIDE   (bz_camglide) rests while the ball is inside the dead zone and the
+;           band, and PANS when it leaves them, ahead of the ball, until the
+;           target is reached: the camera either rests or moves fast
+;   FOLLOW  (bz_camfollow) a camera velocity eased toward the ball's; its
+;           position steps the window at an even cadence
+;   TRICKLE wave 0's camera, unchanged (SPEC.md 128.5), for the A/B
+;
+; Every mode keeps the ball's centre inside the dead zone (the window's middle
+; half across) and the band (its middle third down) wherever the course lets
+; the window go, at most BZ_MAXR rows and BZ_MAXC columns a frame, clamped to
+; the course - so 128.2 rule 4's column split is the same in all three.
+; Sets bz_px, bz_py, bz_frm, bz_R0n, bz_c0n, bz_dr, bz_dc, bz_full, bz_meas,
+; bz_cuse.  Preserves nothing.
 ; -----------------------------------------------------------------------------
 bz_camera:
     mov ax, [bz_bx + 1]
@@ -743,9 +926,15 @@ bz_camera:
     shl bx, 1
     add ax, bx
     mov [bz_frm], ax
+    mov al, [bz_cmode]          ; the mode this frame: the benchmark's is GLIDE
+    cmp byte [bz_mode], 0       ; whatever the player chose, so its route and
+    je .muse                    ; its numbers stay comparable (bz_cmode is
+    xor al, al                  ; left as it was)
+.muse:
+    mov [bz_cuse], al
     mov cl, [bz_lsh]
     cmp byte [bz_first], 0
-    je .follow
+    je .modes
     ; --- the first frame: the window centred on the ball ---
     mov byte [bz_first], 0
     mov ax, [bz_py]
@@ -774,9 +963,18 @@ bz_camera:
     mov ax, [bz_c0n]
     mov [bz_c0], ax
     mov byte [bz_full], 1
-    jmp .decided
-.follow:
-    ; --- vertical: the band [T + 1/3, T + 2/3] of the window's lines ---
+    xor ax, ax                  ; every mode starts at rest, heading right
+    mov [bz_gpx], ax            ; and down (bz_gpx, bz_gpy; bz_gpar, bz_gdx)
+    mov [bz_gpar], ax
+    mov [bz_gdy], al
+    jmp .sync
+.modes:
+    mov al, [bz_cuse]
+    cmp al, 1
+    jb .glide
+    je .follow
+    ; --- TRICKLE, wave 0's camera (SPEC.md 128.5) ---
+    ; vertical: the band [T + 1/3, T + 2/3] of the window's lines
     mov ax, [bz_py]
     add ax, 8                   ; the ball's centre line
     mov bx, [bz_R0]
@@ -813,7 +1011,7 @@ bz_camera:
     mov si, ax
 .vdone:
     mov [bz_R0n], si
-    ; --- horizontal: the dead zone [left + W*2, left + W*6] px ---
+    ; horizontal: the dead zone [left + W*2, left + W*6] px
     mov ax, [bz_px]
     add ax, 8                   ; the ball's centre px
     mov bx, [bz_c0]
@@ -837,6 +1035,13 @@ bz_camera:
     inc si
 .hdone:
     mov [bz_c0n], si
+    jmp .moved
+.glide:
+    call bz_camglide
+    jmp .moved
+.follow:
+    call bz_camfollow
+.moved:
     call bz_clampwin
     mov byte [bz_full], 0
     mov ax, [bz_R0n]            ; a step past the ring's rules: a full write
@@ -850,10 +1055,40 @@ bz_camera:
     mov dx, ax
     call bz_abs
     cmp dx, BZ_MAXC
-    jbe .decided
+    jbe .synced
 .full:
     mov byte [bz_full], 1
+.synced:
+    cmp byte [bz_cuse], 1
+    je .decided
+.sync:
+    ; --- every mode but FOLLOW: FOLLOW's camera sits ON the window, at rest,
+    ; so choosing it starts from where the picture is; and GLIDE's pans are
+    ; off outside GLIDE.  (The ball's last position is kept below.)
+    mov cl, [bz_lsh]
+    mov ax, [bz_c0n]
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    mov [bz_fcx + 1], ax        ; (+ 1, the integer word; +3 is 0 below)
+    mov ax, [bz_R0n]
+    shl ax, cl
+    mov [bz_fcy + 1], ax
+    xor ax, ax
+    mov [bz_fcx], al
+    mov [bz_fcy], al
+    mov [bz_fcx + 3], al
+    mov [bz_fcy + 3], al
+    mov [bz_fvx], ax
+    mov [bz_fvy], ax
+    cmp byte [bz_cuse], 0
+    je .decided
+    mov [bz_gpx], ax            ; (bz_gpx and bz_gpy)
 .decided:
+    mov ax, [bz_bx]             ; FOLLOW's next frame measures the ball's
+    mov [bz_lbx], ax            ; travel from here (the low word of 24.8 is
+    mov ax, [bz_by]             ; enough: a frame moves it < 128 px)
+    mov [bz_lby], ax
     mov ax, [bz_R0n]
     sub ax, [bz_R0]
     mov [bz_dr], ax
@@ -864,6 +1099,434 @@ bz_camera:
     xor al, 1                   ; write; PLAY measures nothing, since nothing
     and al, [bz_mode]           ; reads it (bz_mode is 0 or 1)
     mov [bz_meas], al
+    ret
+
+; -----------------------------------------------------------------------------
+; bz_camglide - GLIDE (SPEC.md 128.9), the default: the camera RESTS, or it
+; PANS fast; it never trickles.  CL = [bz_lsh].  Sets [bz_c0n], [bz_R0n].
+;
+; ACROSS: at rest until the ball's centre leaves the dead zone [2W, 6W] px of
+; the window (its middle half, 128.5's).  Then a pan toward the column that
+; puts the ball on the dead zone's TRAILING edge - a quarter-window behind the
+; centre, so the camera sees a quarter-window AHEAD of it in its direction of
+; travel (the direction is the sign of bz_vx; at rest, the last one) - which
+; is re-aimed every frame and ends where the target is reached.  The target
+; is rounded so the ball lands INSIDE the edge (floor right, ceiling left), and
+; clamped to the course: a pan the course stops ends.  A pan steps one column
+; every SECOND frame (8 px in two: 4 px a frame), and every frame while the
+; ball is faster than 4 px a frame (bz_gfx), or while the ball is still
+; outside the dead zone (the first frame of a pan, so the edge holds).
+;
+; DOWN: the same on rows: at rest inside the band [L/3, 2L/3] (the middle
+; third of BZ_LINES lines, 66 .. 133), and when the ball leaves it a pan to
+; the row that puts it on the band's trailing edge - a sixth of the window
+; behind the centre, so the camera leads by a sixth - at one row a frame, two
+; while the ball is faster than 2 lines a frame (bz_gfy), and a second one
+; while the first still leaves the ball outside the band.
+;
+; (The SPEC's "the ball a quarter-window / a sixth AHEAD of the centre" is the
+; camera's lead: putting the BALL ahead of the centre would aim at the edge it
+; just crossed, and the pan would be wave 0's trickle again.)
+; -----------------------------------------------------------------------------
+bz_camglide:
+    ; ---- across ----
+    mov si, [bz_c0]
+    mov ax, [bz_vx]             ; the direction of travel
+    or ax, ax
+    jz .xdir
+    mov byte [bz_gdx], 0
+    jns .xdir
+    mov byte [bz_gdx], 1
+.xdir:
+    mov bx, [bz_W]
+    shl bx, 1                   ; BX = 2W, the dead zone's left edge
+    mov di, bx
+    shl di, 1
+    add di, bx                  ; DI = 6W, its right edge
+    mov ax, [bz_px]
+    add ax, 8                   ; AX = the ball's centre px
+    mov dx, si
+    shl dx, 1
+    shl dx, 1
+    shl dx, 1
+    neg dx
+    add dx, ax                  ; DX = ...in the window
+    xor ch, ch                  ; CH = 1: the ball is outside the dead zone
+    cmp dx, bx
+    jl .xout
+    cmp dx, di
+    jle .xin
+.xout:
+    inc ch
+    cmp byte [bz_gpx], 0
+    jne .xin
+    mov byte [bz_gpx], 1        ; a pan begins: its first column now
+    mov byte [bz_gpar], 0
+.xin:
+    cmp byte [bz_gpx], 0
+    je .xdone
+    cmp byte [bz_gdx], 0        ; the target column: the ball on the
+    jne .xtl                    ; trailing edge
+    sub ax, bx                  ; right: floor((centre - 2W) / 8)
+    jge .xtr
+    xor ax, ax
+.xtr:
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    jmp .xtc
+.xtl:
+    sub ax, di                  ; left: ceiling((centre - 6W) / 8)
+    jg .xtl2
+    xor ax, ax
+    jmp .xtc
+.xtl2:
+    add ax, 7
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+.xtc:
+    cmp ax, [bz_cmax]
+    jle .xtm
+    mov ax, [bz_cmax]
+.xtm:
+    cmp ax, si                  ; AX = the target
+    je .xrest
+    mov dl, [bz_gpar]
+    xor byte [bz_gpar], 1
+    or ch, ch                   ; outside the dead zone: now
+    jnz .xstep
+    or dl, dl                   ; ...every second frame
+    jz .xstep
+    mov dx, [bz_vx]             ; ...every frame while the ball is fast
+    call bz_abs
+    cmp dx, [bz_gfx]
+    jbe .xdone
+.xstep:
+    cmp ax, si
+    jl .xleft
+    inc si
+    jmp .xreach
+.xleft:
+    dec si
+.xreach:
+    cmp ax, si
+    jne .xdone
+.xrest:
+    mov byte [bz_gpx], 0
+.xdone:
+    mov [bz_c0n], si
+    ; ---- down ----
+    mov si, [bz_R0]
+    mov ax, [bz_vy]
+    or ax, ax
+    jz .ydir
+    mov byte [bz_gdy], 0
+    jns .ydir
+    mov byte [bz_gdy], 1
+.ydir:
+    mov ax, [bz_py]
+    add ax, 8                   ; AX = the ball's centre line
+    mov dx, si
+    shl dx, cl
+    neg dx
+    add dx, ax                  ; DX = ...in the window
+    cmp dx, BZ_LINES / 3
+    jl .yout
+    cmp dx, 2 * BZ_LINES / 3
+    jle .yin
+.yout:
+    mov byte [bz_gpy], 1
+.yin:
+    cmp byte [bz_gpy], 0
+    je .ydone
+    cmp byte [bz_gdy], 0        ; the target row: the ball on the trailing edge
+    jne .ytu
+    sub ax, BZ_LINES / 3        ; down: floor((centre - L/3) / rl)
+    jge .ytd
+    xor ax, ax
+.ytd:
+    shr ax, cl
+    jmp .ytc
+.ytu:
+    sub ax, 2 * BZ_LINES / 3    ; up: ceiling((centre - 2L/3) / rl)
+    jg .ytu2
+    xor ax, ax
+    jmp .ytc
+.ytu2:
+    add ax, [bz_rl]
+    dec ax
+    shr ax, cl
+.ytc:
+    cmp ax, [bz_rmax]
+    jle .ytm
+    mov ax, [bz_rmax]
+.ytm:
+    cmp ax, si                  ; AX = the target
+    je .yrest
+    mov di, 1                   ; DI = the step, toward the target
+    jg .ys
+    neg di
+.ys:
+    add si, di                  ; one row
+    cmp ax, si
+    je .yrest
+    mov dx, [bz_vy]             ; two while the ball is fast...
+    call bz_abs
+    cmp dx, [bz_gfy]
+    ja .y2
+    mov dx, [bz_py]             ; ...or while one leaves it outside the band
+    add dx, 8
+    mov bx, si
+    shl bx, cl
+    sub dx, bx
+    cmp dx, BZ_LINES / 3
+    jl .y2
+    cmp dx, 2 * BZ_LINES / 3
+    jle .ydone
+.y2:
+    add si, di
+    cmp ax, si
+    jne .ydone
+.yrest:
+    mov byte [bz_gpy], 0
+.ydone:
+    mov [bz_R0n], si
+    ret
+
+; -----------------------------------------------------------------------------
+; bz_camfollow - FOLLOW (SPEC.md 128.9): a camera that MOVES WITH the ball, so
+; its steps come at an even cadence matched to the ball's speed.  CL =
+; [bz_lsh].  Sets [bz_c0n], [bz_R0n].  Per axis, each frame:
+;
+;   d   = the ball's travel this frame, 1/256 px (lines): bz_bx - bz_lbx
+;   e   = the ball's centre - the camera's centre, px (lines)
+;   v  += (d + 8e - v) / 4        the camera velocity, 1/256 px a frame: it
+;                                 eases toward the ball's by a QUARTER of the
+;                                 difference a frame, with a correction of
+;                                 e/32 px a frame toward the window's centre
+;   pos += v                      24.8, clamped to the course (v = 0 there)
+;
+; and the window steps a column (row) when pos is a whole column (row) or
+; more away from it - when pos CROSSES the next one, so a camera moving at a
+; steady speed steps every 8 px (rl lines) of it.  Then the dead zone and the
+; band are held as edges (a step more if the ball is still outside, within
+; BZ_MAXC / BZ_MAXR), and pos is put back on the window if it drifted a whole
+; step from it (an edge or the course moved the window, not pos).
+;
+; The constants: the ease of 1/4 smooths the ball's frame-to-frame travel
+; (0, 1 or 2 steps a frame) into a speed; the correction's 1/32 a frame is a
+; time constant of about 28 frames with the ease (both roots of the loop
+; real, 0.965 and 0.777: it settles without overshoot), slow enough that the
+; cadence is the ball's, not the correction's.  (Asked for by feel: the owner
+; chooses between the modes; these are the first guess.)
+; -----------------------------------------------------------------------------
+bz_camfollow:
+    ; ---- across ----
+    mov ax, [bz_bx]
+    sub ax, [bz_lbx]            ; AX = d
+    mov bx, [bz_px]
+    add bx, 8
+    mov dx, [bz_W]
+    shl dx, 1
+    shl dx, 1                   ; 4W: half the window's px
+    add dx, [bz_fcx + 1]
+    sub bx, dx                  ; BX = e
+    shl bx, 1
+    shl bx, 1
+    shl bx, 1
+    add ax, bx                  ; the velocity wanted
+    sub ax, [bz_fvx]
+    sar ax, 1
+    sar ax, 1
+    add ax, [bz_fvx]
+    mov [bz_fvx], ax
+    cwd
+    add [bz_fcx], ax
+    adc [bz_fcx + 2], dx
+    test byte [bz_fcx + 3], 80h ; the course: px 0 .. cmax*8
+    jz .xnn
+    xor ax, ax
+    mov [bz_fcx], ax
+    mov [bz_fcx + 2], ax
+    mov [bz_fvx], ax
+    jmp .xpos
+.xnn:
+    mov ax, [bz_cmax]
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    cmp [bz_fcx + 1], ax
+    jbe .xpos
+    mov [bz_fcx + 1], ax
+    mov byte [bz_fcx], 0
+    mov word [bz_fvx], 0
+.xpos:
+    mov si, [bz_c0]             ; the step: pos a whole column away
+    mov bx, si
+    shl bx, 1
+    shl bx, 1
+    shl bx, 1
+    mov ax, [bz_fcx + 1]
+    sub ax, bx
+    cmp ax, 8
+    jl .xnr
+    inc si
+    jmp .xedge
+.xnr:
+    cmp ax, -8
+    jg .xedge
+    dec si
+.xedge:
+    mov ax, [bz_px]             ; the dead zone's edges
+    add ax, 8
+    mov bx, si
+    shl bx, 1
+    shl bx, 1
+    shl bx, 1
+    sub ax, bx
+    mov dx, [bz_W]
+    shl dx, 1
+    cmp ax, dx
+    jge .xe2
+    mov si, [bz_c0]
+    dec si
+    jmp .xcl
+.xe2:
+    mov bx, dx
+    shl bx, 1
+    add bx, dx
+    cmp ax, bx
+    jle .xcl
+    mov si, [bz_c0]
+    inc si
+.xcl:
+    or si, si
+    jge .xcl2
+    xor si, si
+.xcl2:
+    cmp si, [bz_cmax]
+    jle .xcl3
+    mov si, [bz_cmax]
+.xcl3:
+    mov [bz_c0n], si
+    shl si, 1                   ; pos back on the window if a step away
+    shl si, 1
+    shl si, 1
+    mov ax, [bz_fcx + 1]
+    sub ax, si
+    cmp ax, 8
+    jge .xsnap
+    cmp ax, -8
+    jg .down
+.xsnap:
+    mov [bz_fcx + 1], si
+    mov byte [bz_fcx], 0
+.down:
+    ; ---- down ----
+    mov ax, [bz_by]
+    sub ax, [bz_lby]            ; AX = d
+    mov bx, [bz_py]
+    add bx, 8
+    mov dx, [bz_fcy + 1]
+    add dx, BZ_LINES / 2
+    sub bx, dx                  ; BX = e
+    shl bx, 1
+    shl bx, 1
+    shl bx, 1
+    add ax, bx
+    sub ax, [bz_fvy]
+    sar ax, 1
+    sar ax, 1
+    add ax, [bz_fvy]
+    mov [bz_fvy], ax
+    cwd
+    add [bz_fcy], ax
+    adc [bz_fcy + 2], dx
+    test byte [bz_fcy + 3], 80h ; the course: lines 0 .. rmax << lsh
+    jz .ynn
+    xor ax, ax
+    mov [bz_fcy], ax
+    mov [bz_fcy + 2], ax
+    mov [bz_fvy], ax
+    jmp .ypos
+.ynn:
+    mov ax, [bz_rmax]
+    shl ax, cl
+    cmp [bz_fcy + 1], ax
+    jbe .ypos
+    mov [bz_fcy + 1], ax
+    mov byte [bz_fcy], 0
+    mov word [bz_fvy], 0
+.ypos:
+    mov si, [bz_R0]             ; the steps: pos a whole row away, twice
+    mov ch, BZ_MAXR
+.ystep:
+    mov bx, si
+    shl bx, cl
+    mov ax, [bz_fcy + 1]
+    sub ax, bx
+    cmp ax, [bz_rl]
+    jl .ynd
+    inc si
+    jmp .ynx
+.ynd:
+    mov dx, [bz_rl]
+    neg dx
+    cmp ax, dx
+    jg .ynx
+    dec si
+.ynx:
+    dec ch
+    jnz .ystep
+    mov ch, BZ_MAXR             ; the band's edges, within BZ_MAXR of R0
+.yedge:
+    mov ax, [bz_py]
+    add ax, 8
+    mov bx, si
+    shl bx, cl
+    sub ax, bx
+    mov dx, [bz_R0]
+    cmp ax, BZ_LINES / 3
+    jge .ye2
+    sub dx, BZ_MAXR
+    cmp si, dx
+    jle .ycl
+    dec si
+    jmp .yen
+.ye2:
+    cmp ax, 2 * BZ_LINES / 3
+    jle .ycl
+    add dx, BZ_MAXR
+    cmp si, dx
+    jge .ycl
+    inc si
+.yen:
+    dec ch
+    jnz .yedge
+.ycl:
+    or si, si
+    jge .ycl2
+    xor si, si
+.ycl2:
+    cmp si, [bz_rmax]
+    jle .ycl3
+    mov si, [bz_rmax]
+.ycl3:
+    mov [bz_R0n], si
+    shl si, cl                  ; pos back on the window if a row away
+    mov ax, [bz_fcy + 1]
+    sub ax, si
+    cmp ax, [bz_rl]
+    jge .ysnap
+    mov dx, [bz_rl]
+    neg dx
+    cmp ax, dx
+    jg .out
+.ysnap:
+    mov [bz_fcy + 1], si
+    mov byte [bz_fcy], 0
+.out:
     ret
 
 ; [bz_R0n], [bz_c0n] clamped to the course.  Clobbers AX.
@@ -893,13 +1556,28 @@ bz_clampwin:
 ; -----------------------------------------------------------------------------
 ; bz_mkboxes - the frame's boxes (SPEC.md 128.4): the new footprint (the ball's
 ; 5 bytes x 16 lines, in words), and with it the old one - as ONE box, their
-; union, when that fits BZ_BOXW x BZ_BOXH, else as two (which may overlap: both
-; are composed from the course and the ball, so an overlap is written twice
-; with the same bytes).  A full write needs only the new one.  Each box is
-; clipped to the NEW window; what the old footprint loses to the clip needs no
-; restoring (SPEC.md 128.4).  Preserves nothing.
+; union, when that fits BZ_BOXW x BZ_BOXH, else as two.  Two boxes may
+; overlap; both are composed from the course and the ball, and the SECOND
+; skips the overlap when it is written (bz_boxw, the band set here: SPEC.md
+; 128.9 item 5).  A full write needs only the new one.  Each box is clipped to
+; the NEW window; what the old footprint loses to the clip needs no restoring
+; (SPEC.md 128.4).  AN IDLE BALL - the same position as last frame, so the
+; same frame, and no scroll - needs NO box: the card already holds it (item
+; 5).  Preserves nothing.
 ; -----------------------------------------------------------------------------
 bz_mkboxes:
+    mov ax, [bz_px]             ; BP = 0 when the ball has not moved and the
+    mov bp, ax                  ; window has not either (the old px, py are
+    xchg ax, [bz_opx]           ; this frame's from here on)
+    sub bp, ax
+    mov ax, [bz_py]
+    mov dx, ax
+    xchg ax, [bz_opy]
+    sub dx, ax
+    or bp, dx
+    or bp, [bz_dr]
+    or bp, [bz_dc]
+    mov word [bz_xhi], 0        ; no overlap band
     mov ax, [bz_px]
     mov bx, ax
     mov cl, 3
@@ -919,6 +1597,10 @@ bz_mkboxes:
     jne .new
     cmp byte [bz_oldv], 0
     je .new
+    or bp, bp
+    jnz .union
+    ret                         ; idle: nothing to compose or write
+.union:
     mov ax, [bz_ofx0]           ; the union
     cmp ax, [bz_nfx0]
     jle .ux0
@@ -954,6 +1636,55 @@ bz_mkboxes:
     mov cx, [bz_ofy0]
     mov dx, [bz_ofy1]
     call bz_addbox
+    call .new
+    cmp word [bz_nbox], 2
+    jne .out
+    ; the overlap of the two clipped boxes, in the second box's terms: its
+    ; words [xa, xb) on its lines whose lines-left count is in (xlo, xhi]
+    mov si, bz_boxes
+    mov ax, [si]                ; x: [max(x0, x0'), min(x0 + w, x0' + w'))
+    mov bx, [si + BZ_BOXD]
+    cmp ax, bx
+    jge .xl
+    mov ax, bx
+.xl:
+    mov cx, [si]
+    add cx, [si + 4]
+    mov dx, bx
+    add dx, [si + BZ_BOXD + 4]
+    cmp cx, dx
+    jle .xr
+    mov cx, dx
+.xr:
+    cmp ax, cx
+    jge .out                    ; apart in x
+    sub ax, bx
+    sub cx, bx
+    mov [bz_xa], ax
+    mov [bz_xb], cx
+    mov ax, [si + 2]            ; y: [max(y0, y0'), min(y0 + h, y0' + h'))
+    mov bx, [si + BZ_BOXD + 2]
+    cmp ax, bx
+    jge .yt
+    mov ax, bx
+.yt:
+    mov cx, [si + 2]
+    add cx, [si + 6]
+    mov dx, bx
+    add dx, [si + BZ_BOXD + 6]  ; DX = y0' + h', the second box's end
+    cmp cx, dx
+    jle .yb
+    mov cx, dx
+.yb:
+    cmp ax, cx
+    jge .out                    ; apart in y
+    sub dx, ax
+    mov [bz_xhi], dx            ; the band's first line has xhi lines left...
+    add dx, ax
+    sub dx, cx
+    mov [bz_xlo], dx            ; ...and the line after its last, xlo
+.out:
+    ret
 .new:
     mov ax, [bz_nfx0]
     mov bx, [bz_nfx1]
@@ -1042,6 +1773,7 @@ bz_csplit:
     mov cl, [bz_lsh]
     shl dx, cl                  ; DX = the window's top line
     pop cx
+    mov word [bz_cbot], 0
     mov si, bz_boxes
     mov bx, [bz_nbox]
     or bx, bx
@@ -1051,6 +1783,14 @@ bz_csplit:
     sub ax, [si]                ; column first (unsigned: left of x0 is huge)
     cmp ax, [si + 4]
     jb .whole
+    mov ax, [si + 2]            ; the boxes' lowest line in the window (the
+    add ax, [si + 6]            ; row-0 case's beam, bz_latechk)
+    dec ax
+    sub ax, dx
+    cmp ax, [bz_cbot]
+    jbe .low
+    mov [bz_cbot], ax
+.low:
     mov ax, [si + 2]            ; the box's top row in the window
     sub ax, dx
     push cx
@@ -1064,10 +1804,20 @@ bz_csplit:
     add si, BZ_BOXD
     dec bx
     jnz .box
+    jcxz .row0
 .out:
     ret
 .whole:
     mov cx, [bz_H]
+    ret
+.row0:                          ; a box at window row 0 (SPEC.md 128.9 item 6):
+    mov cx, [bz_cbot]           ; no column rows above it, so the column's rows
+    mov dx, cx                  ; down to the boxes' LAST line go first instead
+    mov cl, [bz_lsh]            ; - they outrun the beam, the box does not -
+    shr dx, cl                  ; and bz_tb times the box (bz_row0)
+    inc dx
+    mov cx, dx
+    mov byte [bz_row0], 1
     ret
 
 ; -----------------------------------------------------------------------------
