@@ -1136,6 +1136,12 @@ until the final pass; the rows run once, after the last batch.
       sizes, the diary's wave-2 entries, `docs/INDEX.md` current. *Verify:
       `make` (the doc gates), `tools/os88index.py --check`, `checkdocs` 0
       problems.*
+- [ ] **2.15 Two cameras, by the owner's choice.** After playing wave 1 the
+      owner kept GLIDE (the default) and TRICKLE ("classic") and dropped
+      FOLLOW ("the most jerky"): `C` toggles the two in play and on the
+      desktop, the face names the mode, and FOLLOW's code is deleted
+      (SPEC.md 128.11.11.1). *Verified: `bonanzaring`/`bonanzaexit` cycle two
+      modes, a held `C` is one toggle, and the look boot shows both.*
 
 **Wave 3: obstacles and the wheel.**
 - [ ] Lanes; the wheel with calibrated credit, trim, seeded clocks and the

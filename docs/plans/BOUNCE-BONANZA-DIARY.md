@@ -546,3 +546,14 @@ instead), a fractional drag (offered with O2 in wave 3), and a Hop that pumps
 a bounce (it would carry a course's highest launch to every cell). These
 are still intentions: every figure is the host model's or predicted until
 the final pass.
+
+## 2026-11-12 (late): the owner picks the camera
+
+After wave 1 the owner played the three camera modes. **GLIDE "feels pretty
+good"; FOLLOW is "no good, the most jerky"; TRICKLE is "a 'classic' style",
+but slow is still jerky, so probably worse than GLIDE.** The decision: keep
+GLIDE and TRICKLE as the player's choice and drop FOLLOW. That matches what
+the wave-0b cadence measurement predicted - a camera that matches the ball's
+speed must hop as often as the ball crosses 8 px, so FOLLOW only evened the
+gaps - and the eye agreed with the numbers. Folded into wave 2 while its
+build was on its first stage (SPEC.md 128.11.11.1, story 2.15).
