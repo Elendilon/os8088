@@ -363,6 +363,11 @@ wa_frame_input:
     xor byte [wa_vsync], 1
     jmp .drain
 .b:
+    cmp ah, 0x26                ; L: the wall detail level, full or sparse
+    jne .bb
+    xor byte [wa_sparse], 1
+    jmp .drain
+.bb:
     cmp ah, 0x30                ; B: the bench
     jne .drain
     call wa_bench
@@ -709,6 +714,7 @@ wa_fire:
     call OSAPI_SND_TONE
     mov bx, [wa_w]
     and bx, 0xFFFE              ; the crosshair column's word in wa_colz
+    call wa_wallz               ; (asked for: wa_colz fills on demand)
     mov ax, [wa_colz+bx]        ; ...what the wall there is at
     mov [wa_tmp], ax
     xor si, si                  ; best so far
@@ -911,6 +917,13 @@ wa_meter:
     mov [wa_tpr+2], ax
     mov [wa_ncells], ax
     mov [wa_ncells+2], ax
+    mov al, 'F'                 ; the detail level
+    cmp byte [wa_sparse], 0
+    je .det
+    mov al, 'S'
+.det:
+    mov di, 38
+    call wa_putc
     mov al, ' '                 ; B: these are the bench's figures
     cmp byte [wa_benchm], 0
     je .bm
@@ -1046,15 +1059,19 @@ wa_help:
     db 'Mouse looks; W A S D move; arrows', 0
     db 'turn and pitch; Space jumps; click', 0
     db 'or Ctrl fires; Tab: 80/40; V: vsync;', 0
-    db 'B: bench (64-frame spin). Esc leaves.', 0
+    db 'B: bench (64-frame spin). L: walls full', 0
+    db 'or sparse (floor lines + posts). Esc.', 0
     db 'HUD: fps, frame, render, present ms,', 0
     db 'video writes a frame.', 0
     db 0
 
 ;               0         1         2         3
 ;               0123456789012345678901234567890123456789
-wa_hudtpl:  db 'FPS       MS      R      P      N     V ', 0
+wa_hudtpl:  db 'FPS       MS      R      P      N       ', 0
 
+; a wall edge's glyph by half-row: upper half the middle line, lower the
+; bottom one
+wa_hgl:     times WA_HR/2 db 0xC4, '_'
 ; the figure layer's glyph for each 2x2 occupancy mask: bit 0 top-left,
 ; 1 top-right, 2 bottom-left, 3 bottom-right
 wa_fglyph:  db 0x20, 0xDF, 0xDF, 0xDF, 0xDC, 0xDD, 0xDB, 0xDB
@@ -1086,6 +1103,7 @@ WA_VAR wa_want,1
 WA_VAR wa_mono,1
 WA_VAR wa_quit,1
 WA_VAR wa_vsync,1
+WA_VAR wa_sparse,1
 WA_VAR wa_trig,1
 WA_VAR wa_mflash,1
 WA_VAR wa_frame,1

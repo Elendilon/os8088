@@ -810,3 +810,51 @@ over 5%. No single lever is left.
 
   Each is a few percent to perhaps 15%. Together they might bring 40 columns
   to the mid-20s.
+
+### 16.2 Optimization round 2, and a sparse detail level — measured
+
+Same bench. F is the full detail level, S the sparse one.
+
+| | F render | F fps | S render | S fps | round 1 |
+|---|---|---|---|---|---|
+| 80 columns | 55.5 ms | **15.5** | 49.5 ms | **18.5** | 13.7 |
+| 40 columns | 46.8 ms | **19.5** | 43.7 ms | **21.7** | 18.4 |
+
+**The column loop is hand-tuned.** It is one NASM macro (`SPANLOOP`)
+assembled four ways — top edge or not, steep-step fills or not — so no
+column tests a mode. Inside it:
+
+- The loop ends on a compare, not a counter.
+- An edge's glyph comes from a half-row table.
+- The distance shade is no longer chosen per column. A span is cut into at
+  most three column ranges where its inverse depth crosses a threshold
+  (`.bands`).
+- Depth is neither stepped nor stored. A span registers its projected ends in
+  a table (`wa_cov` holds the span's tag), and `wa_wallz` interpolates the
+  inverse depth for the columns a figure or the trigger actually asks about
+  (`wa_figcols`, `wa_colsz`).
+- An opened column at full detail on a flat span is now ~120 bytes of code,
+  against ~260.
+
+After this round the loop itself is ~11% of a 40-column frame. The span
+SETUP is ~18%: the occlusion scans and two divides a span.
+
+**Tried and backed out.** Computing the per-coordinate products lazily, once
+per coordinate per frame, measured SLOWER: 19.5 -> 19.0 fps. Nearly every
+coordinate is used, so the stamp tests were pure cost. The note is at
+`wa_products`.
+
+**The sparse detail level (L)** draws floor lines and corner posts — no top
+edges and no top slope fills. It is about 40% fewer video writes (80
+columns: 149 against 240 a frame), and the posts still carry the walls'
+height. The HUD shows F or S.
+
+**Where 40 columns stands:** ~20-22 fps on the worst-case spin. The rest is
+mostly fixed per frame and does not shrink with the width:
+
+| part | share |
+|---|---|
+| vertex transforms, projections, products | ~22% |
+| span setup | ~18% |
+| figures | ~10% |
+| present | ~7% |
