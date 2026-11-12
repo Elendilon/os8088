@@ -31,6 +31,16 @@ BZ_MLIMH    equ 35795           ; 19,913) and a Hercules one (taken as 50 Hz,
                                 ; 23,864; MartyPC measures 50.8 Hz, so this is
                                 ; ~1.52 of its refreshes) - a longer period
                                 ; missed a retrace (bz_miss)
+BZ_VSPIN    equ 64              ; bz_vr's reads between clock samples (~3.8k clocks)
+BZ_VLAT     equ 56              ; PIT counts, at most, from the sync's rise to the
+                                ; clock's latch after bz_vr saw it: a turn of the
+                                ; spin (in, xor, test, jnz, dec, jnz: ~60 clocks
+                                ; at the 8088's fetch floor), the read that saw
+                                ; it, the row-0 test and CLI (~70) and
+                                ; bz_clk_sample's way to its OUT (call, push,
+                                ; pushf, cli, xor, out: ~75) - ~205 clocks, 52
+                                ; counts, rounded UP: a larger figure only makes
+                                ; bz_latechk the more pessimistic
 BZ_LBLC     equ 22 * 76         ; PIT counts from the vertical sync's END to the
 BZ_LBLH     equ 82 * 63         ; first window line: the CGA's 6845 syncs 16 lines
                                 ; from line 224 of 262 (R4 127, R5 6, R7 112), a
@@ -113,8 +123,6 @@ bz_vinit:
     mov byte [bz_lsh], 1
     mov word [bz_bend], 4000h
     mov word [bz_crtc], 3d4h
-    mov word [bz_cmax], BZ_COLS - 40
-    mov word [bz_rmax], BZ_BROWS * 8 / 2 - 100
     mov word [bz_vrport], 3dah
     mov word [bz_vrbits], 0008h ; 3DAh bit 3 HIGH: in the retrace
     mov word [bz_vrlim], 2      ; ...given up after two sub-ticks
@@ -131,8 +139,6 @@ bz_vinit:
     mov byte [bz_lsh], 2
     mov word [bz_bend], 8000h
     mov word [bz_crtc], 3b4h
-    mov word [bz_cmax], BZ_COLS - 45
-    mov word [bz_rmax], BZ_BROWS * 8 / 4 - 50
     mov word [bz_vrport], 3bah
     mov word [bz_vrbits], 8080h ; 3BAh bit 7 LOW: in the retrace
     mov word [bz_vrlim], 3      ; ...three sub-ticks (a 50 Hz field)
@@ -145,7 +151,20 @@ bz_vinit:
     out dx, ax
     mov ax, BZ_HR7 * 256 + 7
     out dx, ax
-.wtab:                          ; W * dr for dr = -2 .. 2 (bz_tf's S)
+.wtab:
+    ; the camera's limits, from the course's size (SPEC.md 128.10.8 item 4):
+    ; cmax = COLS - W, rmax = BROWS * 8 lines / rl - H
+    mov ax, [bz_cols]
+    sub ax, [bz_W]
+    mov [bz_cmax], ax
+    mov ax, [bz_brows]
+    mov cl, 3
+    shl ax, cl
+    mov cl, [bz_lsh]
+    shr ax, cl
+    sub ax, [bz_H]
+    mov [bz_rmax], ax
+                                ; W * dr for dr = -2 .. 2 (bz_tf's S)
     mov ax, [bz_W]
     mov [bz_wtab + 6], ax
     neg ax
@@ -181,13 +200,20 @@ bz_flip:
 ; -----------------------------------------------------------------------------
 ; bz_vr - the retrace wait (SPEC.md 128.4): the CGA's 3DAh bit 3 high, the
 ; Hercules's 3BAh bit 7 low - the LEVEL, as Excitebike's xc_vr - bounded by
-; two sub-ticks (three on the Hercules), the clock sampled between reads.  Its
-; time is IDLE (the bz_tv part).  A timeout counts in [bz_tos] and the frame
-; goes on.  The last clock sample is kept ([bz_vsubs], [bz_vpit]), and
-; [bz_vedge] says whether the wait saw the sync RISE - a read outside it first,
-; so the sample is within one turn of the loop (~1 line) of the sync's START -
-; or found it already high, anywhere in its 16 lines (bz_latechk).  Preserves
-; all but the flags.
+; two sub-ticks (three on the Hercules).  Its time is IDLE (the bz_tv part).
+; A timeout counts in [bz_tos] and the frame goes on.  A clock sample is kept
+; ([bz_vsubs], [bz_vpit]) for bz_latechk, and [bz_vedge] says which:
+;   1  the wait saw the sync RISE (a read outside it first).  The spin is
+;      TIGHT - BZ_VSPIN reads between clock samples - and the sample is taken
+;      just AFTER the read that found the sync, so it is at most one turn of
+;      the spin plus the sampler's way to its latch (BZ_VLAT counts) after
+;      the sync's START.  (It used to be the sample BEFORE that read, with a
+;      clock sample every turn: a turn of ~840 clocks on MartyPC's 8088,
+;      almost three CGA lines, where bz_latechk allowed one - the final pass
+;      of wave 1 measured the row-0 probe's on-time boxes counted late.)
+;   0  it found the sync already high, anywhere in its 16 lines: the sample is
+;      the one taken before that first read, and its END is the late case.
+; Preserves all but the flags.
 ; -----------------------------------------------------------------------------
 bz_vr:
     push ax
@@ -199,21 +225,41 @@ bz_vr:
     mov dx, [bz_vrport]
     mov bx, [bz_vrbits]
     mov byte [bz_vedge], 0
+    in al, dx                   ; already in the sync: this sample is the one
+    xor al, bh
+    test al, bl
+    jnz .high
+    mov byte [bz_vedge], 1      ; outside it: spin for the rise
 .spin:
+    mov ah, BZ_VSPIN
+.tight:
     in al, dx
     xor al, bh
     test al, bl
-    jnz .done
-    mov byte [bz_vedge], 1      ; outside the sync: the next read that finds
-    call bz_clk_sample          ; it finds its start
+    jnz .rose
+    dec ah
+    jnz .tight
+    call bz_clk_sample          ; the bound, a sample every BZ_VSPIN reads
     mov ax, [bz_subs]
     sub ax, cx
     cmp ax, [bz_vrlim]
     jb .spin
     inc word [bz_tos]           ; no retrace at all: go on regardless
+    jmp short .done
+.rose:
+    cmp byte [bz_r0p], 0        ; a box at window row 0 (bz_r0pend): no
+    je .rs                      ; interrupt until it is written - bz_tv's
+    cli                         ; PUSHF, bz_tb's POPF
+.rs:
+    call bz_clk_sample          ; just after the rise: bz_latechk's beam
+    jmp short .done
+.high:
+    cmp byte [bz_r0p], 0        ; (the same, the sync already high)
+    je .done
+    cli
 .done:
-    mov ax, [bz_subs]           ; the last sample before the retrace was seen:
-    mov [bz_vsubs], ax          ; bz_latechk reckons the beam from it
+    mov ax, [bz_subs]           ; the sample bz_latechk reckons the beam from
+    mov [bz_vsubs], ax
     mov ax, [bz_pitl]
     mov [bz_vpit], ax
     pop dx
@@ -301,12 +347,11 @@ bz_row:
     shl ax, cl                  ; AX = L0, the row's first world line
     mov dx, ax
     and dx, 7
-    shl dx, 1
-    add dx, BZ_CRS_BLKOFF       ; DX = the first line's word in a block
+    shl dx, 1                   ; DX = the first line's word in a block
     and ax, 0fff8h
-    mov cl, 4
-    shl ax, cl                  ; (L0 >> 3) * 128: the block row's map
-    add ax, BZ_CRS_MAPOFF
+    mov cl, [bz_mapsh]
+    shl ax, cl                  ; (L0 >> 3) * ROWB: the block row's map
+    add ax, BZC_MAP
     shl bx, 1
     add bx, ax                  ; BX = the map entry of the first word
     pop cx
@@ -468,9 +513,9 @@ bz_col:
     mov dx, ax
     and dx, 7                   ; the line in its block
     and ax, 0fff8h
-    mov cl, 4
-    shl ax, cl
-    add ax, BZ_CRS_MAPOFF
+    mov cl, [bz_mapsh]
+    shl ax, cl                  ; (L0 >> 3) * ROWB
+    add ax, BZC_MAP
     add si, ax
     mov bx, si                  ; BX = the map entry of the first block
     pop cx                      ; CX = the rows
@@ -486,7 +531,6 @@ bz_col:
     mov ds, [bz_cseg]           ; (MOV keeps the flags)
     jne .herc
     mov si, [bx]
-    add si, BZ_CRS_BLKOFF
     add si, dx
     add si, dx                  ; SI = the first line's word
     shr dl, 1
@@ -494,8 +538,8 @@ bz_col:
     add dl, 4                   ; DL = the rows left in this block (1..4)
     cmp dl, 4
     jne .cseg
-    sub bx, BZ_CRS_ROWB         ; at the block's top: the block loop loads it
-    mov dl, 0
+    sub bx, [BZC_ROWB]          ; at the block's top: the block loop loads it
+    mov dl, 0                   ; (ROWB read through DS = the part, 128.10.6.4)
 .cseg:                          ; a run of CX rows, DL left in the block
     or dl, dl
     jz .cwhole
@@ -515,9 +559,8 @@ bz_col:
     shr cx, 1                   ; CX = the whole blocks
     jcxz .ctail
 .cblk:
-    add bx, BZ_CRS_ROWB         ; the next block row
+    add bx, [BZC_ROWB]          ; the next block row
     mov si, [bx]
-    add si, BZ_CRS_BLKOFF
     BZ_CROW
     BZ_CROW
     BZ_CROW
@@ -527,9 +570,8 @@ bz_col:
     mov al, dl
     or al, al
     jz .cnext
-    add bx, BZ_CRS_ROWB
+    add bx, [BZC_ROWB]
     mov si, [bx]
-    add si, BZ_CRS_BLKOFF
     neg dl
     add dl, 4                   ; the rows the block has left after the tail
     call .cch
@@ -542,30 +584,27 @@ bz_col:
     jmp .cseg
 .herc:
     mov si, [bx]
-    add si, BZ_CRS_BLKOFF
     add si, dx
     add si, dx
     cmp dl, 4                   ; the first line in the block's second row:
     jae .hseg1                  ; one row left in it
-    sub bx, BZ_CRS_ROWB         ; at the block's top: the block loop loads it
+    sub bx, [BZC_ROWB]          ; at the block's top: the block loop loads it
 .hseg:
     mov dl, cl                  ; whole blocks (two rows), then a tail
     and dl, 1
     shr cx, 1
     jcxz .htail
 .hblk:
-    add bx, BZ_CRS_ROWB
+    add bx, [BZC_ROWB]
     mov si, [bx]
-    add si, BZ_CRS_BLKOFF
     BZ_HROW
     BZ_HROW
     loop .hblk
 .htail:
     or dl, dl                   ; DL = 1: the run ends inside a block
     jz .hnext
-    add bx, BZ_CRS_ROWB
+    add bx, [BZC_ROWB]
     mov si, [bx]
-    add si, BZ_CRS_BLKOFF
     call .hrow
 .hnext:
     or bp, bp                   ; the run after the wrap row
@@ -657,14 +696,11 @@ bz_boxc:
     mov dx, 8
     sub dx, bx                  ; DX = the first run's lines (to the block's end)
     shl bx, 1
-    add bx, BZ_CRS_BLKOFF
     mov [bz_flo], bx            ; L0's line word in a block
     and ax, 0fff8h
-    shl ax, 1
-    shl ax, 1
-    shl ax, 1
-    shl ax, 1                   ; (L0 >> 3) * 128
-    add ax, BZ_CRS_MAPOFF
+    mov cl, [bz_mapsh]
+    shl ax, cl                  ; (L0 >> 3) * ROWB
+    add ax, BZC_MAP
     mov cx, [si]
     shl cx, 1
     add ax, cx
@@ -715,8 +751,9 @@ bz_boxc:
     push si
     cmp word [bz_fln], 0
     je .filled
-    add word [bz_fmp], BZ_CRS_ROWB
-    mov word [bz_flo], BZ_CRS_BLKOFF
+    mov ax, [bz_rowb]           ; the next block row: ROWB, the launch's
+    add [bz_fmp], ax            ; copy (128.10.6.4)
+    mov word [bz_flo], 0
     mov dx, 8
     jmp .run
 .filled:
@@ -797,14 +834,13 @@ bz_boxc:
     add si, ax
     add si, BZ_BAL_MASKOFF      ; SI = the first mask byte
     ; the frame's byte sits a constant BX past its mask's: FRMOFF - MASKOFF
-    ; + (5120 - 80) s + 80 f
-%if BZ_BAL_MASKSH != 80 || BZ_BAL_FRMSH != 5120 || BZ_BAL_FRMB != 80 || BZ_BAL_RB != 5
+    ; + 80 (f - s) - BZB1 stores frame f at its own shift, f & 3 = px & 3 = s
+    ; (SPEC.md 128.10.5.3)
+%if BZ_BAL_MASKSH != 80 || BZ_BAL_FRMB != 80 || BZ_BAL_RB != 5
  %error "bz_boxc's shifts assume the 5 x 16 ball of SPEC.md 128.3"
 %endif
-    mov bx, dx
-    mov cl, 6
-    shl bx, cl                  ; 5120 s
-    sub bx, dx                  ; 5040 s
+    xor bx, bx
+    sub bx, dx                  ; -80 s
     mov ax, [bz_frm]
     mov cl, 4
     shl ax, cl                  ; 16 f
@@ -863,6 +899,324 @@ bz_boxc:
     pop cx
     pop bx
     pop ax
+    ; (on into bz_occ: the occluders go back over the ball just drawn)
+
+; bz_occ - THE OCCLUDER PASS (SPEC.md 128.10.8 item 1, 128.10.4.4) over box SI,
+; run after its ball: every record the rule lays at the ball's position lays
+; its block's pixels back over the ball, `buffer = (buffer AND mask) OR (block
+; AND NOT mask)`, done as `((buffer XOR block) AND mask) XOR block` - a SET
+; mask bit keeps the buffer, so no NOT.  The rule, for a record (s_C, top_C):
+;
+;     lay it  iff  s_b < s_C  and  z_b + m < top_C
+;
+; s_b = [bz_sb] (bz_camera's, this frame), z_b = the integer px of bz_gz, m =
+; BZ_CLIMB grounded and 0 airborne.  Only the NEW footprint's blocks are
+; visited - its lines [py, py + 16) and word columns [nfx0, nfx1], each
+; clipped to the box, so at most 3 x 3 blocks; the old footprint holds no
+; ball.  A block row's records come from OCCIDX in their sorted order (column,
+; then s_C): a binary search finds the first at or right of the first column
+; (about 7 probes in BENCH's longest row, where a walk from the row's start
+; passed over 30 on average) and the walk stops at the first right of the
+; last.  The records of one block word are a GROUP: their laid masks are
+; ANDed (bz_oand) and the word is laid ONCE (bz_olay), so a frame lays at
+; most 3 x 3 words whatever the record counts (128.10.9).  Outside the
+; footprint the box holds the course already, so laying a record's whole word
+; is the same as laying its footprint pixels.
+;
+; THE GATE: the pass runs only when the centre's cell has OCC (the grid's
+; flag: some position in the cell meets a record the rule would lay).  The
+; flag is read out of bz_nbr, whose centre IS the ball's cell after every
+; step; a harness's POKE (bz_pokd set) leaves the window behind until the
+; next step, and then the pass runs ungated - which lays what the rule lays,
+; the flag being only a saving.  DS = ours.  Preserves all.
+bz_occ:
+    cmp byte [bz_pokd], 0
+    jne .gate
+    test byte [bz_nbr + BZN_C + 3], BZ_FOCC
+    jnz .gate
+    ret
+.gate:
+    push ax
+    inc word [bz_nocf]
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push ds
+    push es
+    mov ax, [bz_py]             ; the lines: [max(py, y0), min(py + 16, y0 + h))
+    mov bx, [si + 2]
+    cmp ax, bx
+    jge .lo
+    mov ax, bx
+.lo:
+    mov [bz_olo], ax
+    add bx, [si + 6]
+    mov dx, [bz_py]
+    add dx, BZ_BAL_ROWS
+    cmp dx, bx
+    jle .hi
+    mov dx, bx
+.hi:
+    mov [bz_ohi], dx
+    cmp ax, dx
+    jge .out0
+    mov bx, [si]                ; the columns: DL = max(nfx0, x0), DH =
+    mov ax, [bz_nfx0]           ; min(nfx1, x0 + w - 1) (both < 128)
+    cmp ax, bx
+    jge .c0
+    mov ax, bx
+.c0:
+    mov dl, al
+    add bx, [si + 4]
+    dec bx
+    mov ax, [bz_nfx1]
+    cmp ax, bx
+    jle .c1
+    mov ax, bx
+.c1:
+    mov dh, al
+    cmp dl, dh
+    jbe .base
+.out0:
+    jmp .out
+.base:
+    mov ax, [si + 2]            ; the buffer's base: buf - 8 y0 - 2 x0 (mod 64K)
+    mov cl, 3
+    shl ax, cl
+    mov bx, [si]
+    shl bx, 1
+    add ax, bx
+    neg ax
+    add ax, [si + 8]
+    mov [bz_obuf], ax
+    mov ax, [bz_gz + 1]         ; the key: z_b + m
+    cmp byte [bz_air], 0
+    jne .air
+    add ax, BZ_CLIMB
+.air:
+    mov [bz_ozk], ax
+    mov ax, [bz_olo]
+    and al, 0f8h
+    mov [bz_obr], ax            ; the first block row's first line
+    push ds
+    pop es                      ; ES = ours
+    mov ds, [bz_cseg]           ; DS = the course part
+.brow:
+    mov bx, [es:bz_obr]         ; OCCIDX[B / 8]: the row's records [SI, BP)
+    shr bx, 1
+    shr bx, 1
+    add bx, [BZC_OCCIDX]
+    mov si, [bx]
+    mov bp, [bx + 2]
+    mov bx, bp                  ; the first record at or right of column DL:
+.bs:                            ; a lower bound over [SI, BX), 8 bytes a
+    mov ax, bx                  ; record (an empty row costs one test)
+    sub ax, si
+    jz .bsd
+    shr ax, 1
+    and ax, byte -8             ; 8 floor(n / 2)
+    mov di, si
+    add di, ax                  ; DI = the middle record
+    cmp [di], dl
+    jae .bsh
+    lea si, [di + 8]
+    jmp short .bs
+.bsh:
+    mov bx, di
+    jmp short .bs
+.bsd:
+    cmp si, bp
+    jae .nrow0                  ; none at or right of DL
+    mov al, [si]
+    cmp al, dh
+    jbe .lines                  ; the first is right of DH: none in the
+.nrow0:                         ; footprint's columns
+    jmp .nrow
+.lines:
+    mov ax, [es:bz_obr]         ; the block row's lines inside [lo, hi):
+    mov bx, [es:bz_olo]         ; [max(lo, B), min(hi, B + 8))
+    cmp bx, ax
+    jge .f
+    mov bx, ax
+.f:
+    add ax, 8
+    mov di, [es:bz_ohi]
+    cmp di, ax
+    jle .e
+    mov di, ax
+.e:
+    sub di, bx
+    mov [es:bz_on], di
+    mov ax, bx
+    and ax, 7
+    shl ax, 1
+    mov [es:bz_ofl2], ax        ; 2 x the first line's place in the block
+    mov cl, 3
+    shl bx, cl
+    add bx, [es:bz_obuf]
+    mov [es:bz_obl], bx         ; the first line's buffer word at column 0
+    mov ax, [es:bz_obr]         ; the map row: MAP + (B << MAPSH), as the fill's
+    mov cl, [es:bz_mapsh]
+    shl ax, cl
+    add ax, BZC_MAP
+    mov [es:bz_omrow], ax
+    mov cx, [es:bz_sb]          ; the walk's keys in registers: CX = s_b,
+    mov di, [es:bz_ozk]         ; DI = z_b + m
+    push dx                     ; (DL, the first column, is the next row's)
+.grp:
+    mov dl, [si]                ; A GROUP: the records of one block word, its
+    xor bx, bx                  ; laid masks ANDed - BX: 0 none laid yet, a
+.rec:                           ; mask's offset, or -1 for bz_omsk
+    cmp cx, [si + 2]
+    jge .skip                   ; s_b >= s_C: beside or in front
+    cmp di, [si + 4]
+    jge .skip                   ; z_b + m >= top_C: above it
+    inc word [es:bz_nlay]       ; LAID
+    or bx, bx
+    jnz .and
+    mov bx, [si + 6]            ; the group's first: its own mask
+    jmp short .skip
+.and:
+    call bz_oand                ; a second or later: ANDed into bz_omsk
+.skip:
+    add si, 8
+    cmp si, bp
+    jae .gend
+    mov al, [si]
+    cmp al, dl
+    je .rec                     ; the same block word
+.gend:
+    or bx, bx
+    jz .gnext
+    call bz_olay                ; the word's lines laid ONCE (128.10.9)
+.gnext:
+    cmp si, bp
+    jae .rdone
+    mov al, [si]
+    cmp al, dh
+    jbe .grp                    ; the stop: the first right of the last column
+.rdone:
+    pop dx
+.nrow:
+    mov ax, [es:bz_obr]
+    add ax, 8
+    mov [es:bz_obr], ax
+    cmp ax, [es:bz_ohi]
+    jge .out
+    jmp .brow
+.out:
+    pop es
+    pop ds
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; bz_oand - a group's second or later laid record, SI, ANDed into bz_omsk:
+; BX = the group's mask so far (a part offset, or -1 for bz_omsk already) ->
+; BX = -1.  Only the lines bz_olay will lay ([bz_ofl2 / 2, + bz_on), at the
+; same place in bz_omsk as in a mask); the AND of two keep-masks keeps only
+; what both keep, so laying it once is laying each in turn (128.10.8 item 1).
+; DS = the course part, ES = ours.  Preserves all but AX and BX.
+bz_oand:
+    push cx
+    push si
+    push di
+    mov cx, [es:bz_on]
+    mov ax, [es:bz_ofl2]
+    mov si, [si + 6]
+    add si, ax                  ; SI = this record's mask line
+    mov di, bz_omsk
+    add di, ax                  ; DI = bz_omsk's
+    cmp bx, byte -1
+    je .and
+    add bx, ax                  ; the group's first: BX = its mask line, and
+.both:                          ; bz_omsk = the two ANDed
+    lodsw
+    and ax, [bx]
+    stosw
+    inc bx
+    inc bx
+    loop .both
+    mov bx, -1
+    jmp short .done
+.and:
+    lodsw
+    and [es:di], ax
+    inc di
+    inc di
+    loop .and
+.done:
+    pop di
+    pop si
+    pop cx
+    ret
+
+; bz_olay - lay a group: block word DL of the block row bz_occ is on, its
+; lines [bz_ofl2 / 2, + bz_on) under mask BX (a part offset, or -1 for
+; bz_omsk): buffer = ((buffer XOR block) AND mask) XOR block.  DS = the course
+; part, ES = ours.  Preserves all but AX and BX.
+bz_olay:
+    push cx
+    push dx
+    push si
+    push di
+    mov si, bx                  ; SI = the mask
+    mov bl, dl
+    xor bh, bh
+    shl bx, 1
+    mov di, [es:bz_obl]
+    add di, bx                  ; DI = the buffer's word
+    add bx, [es:bz_omrow]
+    mov bx, [bx]                ; the block (an absolute offset)
+    mov ax, [es:bz_ofl2]
+    add bx, ax                  ; BX = the block's line
+    mov dx, [es:bz_on]
+    cmp si, byte -1
+    je .scr
+    add si, ax                  ; SI = the mask's line
+.line:
+    mov ax, [es:di]
+    xor ax, [bx]
+    and ax, [si]
+    xor ax, [bx]
+    stosw
+    add di, byte BZ_BOXW * 2 - 2
+    inc bx
+    inc bx
+    inc si
+    inc si
+    dec dx
+    jnz .line
+    jmp short .done
+.scr:
+    mov si, bz_omsk
+    add si, ax
+.sline:
+    mov ax, [es:di]
+    xor ax, [bx]
+    and ax, [es:si]
+    xor ax, [bx]
+    stosw
+    add di, byte BZ_BOXW * 2 - 2
+    inc bx
+    inc bx
+    inc si
+    inc si
+    dec dx
+    jnz .sline
+.done:
+    pop di
+    pop si
+    pop dx
+    pop cx
     ret
 
 ; bz_boxw - box SI (a descriptor) to the card, a line at a time, each line

@@ -812,7 +812,7 @@ of tops), laid back over the NEW footprint's blocks only, with a margin that
 keeps a rolling ball whole on the ground in front of it (SPEC.md
 128.10.4.4); wave 1 is the wave that probes the row-0 box (SPEC.md
 128.10.11.2). Every cost below is PREDICTED until the final pass.
-- [ ] **1.1 A course is text.** `apps/bonanza/courses/bench.bbc` ("Proving
+- [x] **1.1 A course is text.** `apps/bonanza/courses/bench.bbc` ("Proving
       Ground", `K = 0`: wave 0b's test course in the format of SPEC.md
       128.10.3, its ramps inside the limits, the return leg's steps made a
       climbable ramp, and its holes off the autopilot's legs)
@@ -824,7 +824,10 @@ keeps a rolling ball whole on the ground in front of it (SPEC.md
       strings inside the tool. *Verified: `bonanzacourse` items 1 and 2 -
       two compiles byte-identical, and every grammar and bound refusal fires
       on its bad line, reserved statements included.*
-- [ ] **1.2 The picture comes from the course.** The renderer MOVES from
+      *Final pass: `bonanzacourse` ok - two compiles byte-identical file for
+      file (`BZ0C`/`BZ0H`/`BZ1C`/`BZ1H.BIN`, `bzcourse.inc`), and all fourteen
+      refusals fire on their lines, reserved statements included.*
+- [x] **1.2 The picture comes from the course.** The renderer MOVES from
       `tools/bonanza_assets.py` into `bbcourse.py` (the palette and the
       Hercules checker are imported, not copied); `BZ<K>C.BIN` and
       `BZ<K>H.BIN` in `BZC1` (absolute map offsets, `MAPSH`, `ROWB`,
@@ -834,6 +837,11 @@ keeps a rolling ball whole on the ground in front of it (SPEC.md
       SPEC.md 128.10.10 quotes. *Verified: `bonanzacourse` items 3 and 6 (the
       decode back on both cards, with its negative control); the `--png`
       previews looked at on both cards.*
+      *Final pass: `bonanzacourse` items 3 and 6 on both courses (the moved
+      map word caught); the `--png` previews looked at on both cards;
+      `bonanzaring`'s glass equal to the picture on both cards. Parts 54,214
+      (`BENCH`) and 10,614 (`FIRST`) bytes a card, over SPEC.md 128.10.10's
+      predictions (its measured table).*
 - [ ] **1.3 The ground knows its shape.** The grid in `BZG1` inside each
       course part: heights, slopes, kinds (4 - 15 reserved for a later
       wave's shapes), NEAR and OPEN void, SAFE and OCC, the start and the route;
@@ -842,10 +850,19 @@ keeps a rolling ball whole on the ground in front of it (SPEC.md
       grid's plane equals the drawn geometry at every integer point, and the
       records' composite equals the per-pixel buffer's at every reachable
       cell in both air states, with its negative control.*
-- [ ] **1.4 The ball part loses what it never drew.** `BZB1`, 64 frames each
+      *Final pass: `bonanzacourse` items 4 and 5 hold (`BENCH` 2,312 positions
+      and 1,940 at the fractional-height line, `FIRST` 276 and 252, 0 differ;
+      the lowered depth and the cleared OCC flag caught). NOT ticked: the
+      bounds are not met - 79 / 29 on `BENCH` and 32 / 23 on `FIRST` against
+      24 / 8, refused provisionally at 96 / 32 - and the choice is the owner's
+      (SPEC.md 128.10.12 O8).*
+- [x] **1.4 The ball part loses what it never drew.** `BZB1`, 64 frames each
       at shift `f & 3`: 5,456 bytes a part against 20,816. *Verified:
       `bonanzaassets`; `bonanzaring`'s glass on both cards.*
-- [ ] **1.5 The ball rolls on the course.** `bzphys.inc`: the guest fetches
+      *Final pass: `bonanzaassets` ok (5,456 bytes a part, every frame at
+      shift `f & 3`, the checker 0 wrong); `bonanzaring`'s glass on both
+      cards.*
+- [x] **1.5 The ball rolls on the course.** `bzphys.inc`: the guest fetches
       the course and the ball and plays physics v1 - slopes pull, walls push
       the ball out and it slides along them at any angle, a fast ball flies
       off a lip and lands with its drop and impact speed recorded, a pit
@@ -860,21 +877,38 @@ keeps a rolling ball whole on the ground in front of it (SPEC.md
       `slope`, `respawn` and `takeoff`; and one boot to look on each card:
       the ball rolling behind the traverse's blocks and dropping into a pit
       behind its rim.*
-- [ ] **1.6 The ball goes behind things.** The occluder pass in the box
+      *Final pass: `bonanzacourse` item 7 with both red controls;
+      `bonanzaphys` ok - the guest equal to the model at every frame of the
+      benchmark (1,091 steps CGA, 1,286 Hercules, one trajectory) and in the
+      pit, lip, rail and goal scenarios on both cards (`Finished in 0.45 s` /
+      `0.54 s` by the formula); red arms `slope`, `respawn`, `takeoff` each
+      red at its own leg. The look boots were the physics and occluder stages'
+      (the pit, and the traverse's block on the Hercules).*
+- [x] **1.6 The ball goes behind things.** The occluder pass in the box
       compose, run only on an OCC cell, over the new footprint's blocks
       only, each row's walk stopped past the footprint; the idle test
       compares the ball's cell row, height and air flag too. *Verified:
       `bonanzaring` with the oracle laying the records back, at least one
       checked frame with a record laid, red arm `occ`; `bonanzacourse` item
       8 prints the bench route's OCC share and records laid.*
-- [ ] **1.7 Nothing is left behind.** Esc, F, Alt+Enter, the benchmark's
+      *Final pass: `bonanzaring` - 6 checked frames a card hiding ball pixels
+      behind a record (69 px), 132 records laid on the CGA's benchmark and 455
+      on the Hercules'; red arm `occ` red on both cards; `bonanzacourse` item
+      8: 23% of the route's steps on an OCC cell, 1.11 laid on average.*
+- [x] **1.7 Nothing is left behind.** Esc, F, Alt+Enter, the benchmark's
       end and the goal each drop both claims; a refused fetch drops what was
       fetched. *Verified: `bonanzaexit` on both cards - every part row with
       `OP_FETCHED` clear, `op_seg` 0 and `OP_R_ZKB` back to its pre-launch
       packed length, and the instance's claims as before the launch read
       through `tools/heapmap.py` - red arm `leak`; the desktop refusal by
       review.*
-- [ ] **1.8 The benchmark on a real course.** B drives the bench course
+      *Final pass: `bonanzaexit` ok on both cards and all five ways out -
+      every row unfetched with its packed length back, the claims as before,
+      two more inside every bracket; red arm `leak` red at the goal and only
+      there. The refused fetch by review (`jc .drop`). Found by `bonanzamega`:
+      `bz_launch` now loads ES with its own segment before the drops
+      (kern_mega's #GP at `op_drop`'s `pop es`).*
+- [x] **1.8 The benchmark on a real course.** B drives the bench course
       under physics in GLIDE; the route re-chosen with a host model of GLIDE
       (not kept) so all eight step directions occur at least five times on
       both cards. *Verified: `bonanzaring` (every direction on the glass)
@@ -882,27 +916,47 @@ keeps a rolling ball whole on the ground in front of it (SPEC.md
       two-box frames) in the final pass, with the A/B leg against wave 0b;
       SPEC.md 128.10.9's predictions - busy about 45 - 48% of a CGA refresh
       and 39 - 41% of a Hercules one - get their measured column.*
-- [ ] **1.9 The row-0 box, reached at last.** A poked probe holds the
+      *Final pass: `bonanzaring` every direction on both cards; `bonanzaperf
+      --ab` - busy 46.5% of a CGA refresh (59.96 Hz) and 39.4% of a Hercules
+      one (50.87 Hz), inside 128.10.9's predictions, 0 misses, against wave
+      0b's 43.3% / 37.0% on its own course (SPEC.md 128.10.9's measured
+      table).*
+- [x] **1.9 The row-0 box, reached at last.** A poked probe holds the
       ball's box at window row 0 while GLIDE pans up and across (play
       reaches row 0 only in the air, SPEC.md 128.10.4.1). *Verified: `bonanzaring`'s probe - at least five frames
       a card with the boxes at window row 0 and an entering column, the
       card equal to the picture at `bz_tf` and `bz_presented`, `bz_late` 0 -
       and its red arm `row0` (the whole column first, item 6's order
       undone) going red.*
-- [ ] **1.10 kern_mega, built and RUN.** Every new segment is a part's own,
+      *Final pass: `bonanzaring`'s probe - 11 frames on the CGA and 7 on the
+      Hercules with the boxes at window row 0 and an entering column, card =
+      picture at `bz_tf` and `bz_presented`, `bz_late` 0; red arm `row0` 11
+      late of 11 on the CGA (the CGA only: the Hercules' blank holds the whole
+      column). It failed first: the guest's beam reckoning, a FASTTICK
+      interrupt and an overrunning probe, all measured and fixed - and the
+      probe moved to the top clamp, where play reaches row 0 (SPEC.md
+      128.10.11.2, 128.9 item 6).*
+- [x] **1.10 kern_mega, built and RUN.** Every new segment is a part's own,
       used whole (the grid at `GRIDOFF` inside the course part), nothing
       written through CS and no patched immediate (the map stride is read
       from the part's header), no `PKG_MEGA` arm (SPEC.md 128.10.6.4).
       *Verified: `bonanzamega` in the final pass - kern_mega on 86Box's
       `286-mega-multimon`, the window on its Hercules display, the
       benchmark and a play: no fault, no leak; red arm `segadd`.*
-- [ ] **1.11 The record.** README, the face's title line, `make help` lines
+      *Final pass: `bonanzamega` ok after the ES fix - benchmark and play on
+      86Box's Hercules, no part fetched and no claim left after either, no
+      exception charged to the package; red arm `segadd` red with a #GP.*
+- [x] **1.11 The record.** README, the face's title line, `make help` lines
       for `bonanza-course-check` and the new rows, the Bonanza row in
       docs/HEAP-CLAIMS.md (both claims pinned, bucket C; the
       `tests/pins.txt` lines `bz_cseg` and `op:BZ_P_BALC` stand), SPEC.md
       128.10's measured tables, the diary's wave-1 entry, and
       `docs/INDEX.md` regenerated. *Verified: `make` (the doc gates) and
       `tools/os88index.py --check`.*
+      *Final pass: README's status, the face's title, `make help` (`os88help
+      --check`), the HEAP-CLAIMS row, SPEC.md 128.10.9 and 128.10.10's
+      measured tables, the diary's entries, `docs/INDEX.md` current
+      (`os88index.py --check`), `checkdocs` 0 problems.*
 
 **Wave 2: feel.**
 - [ ] Forces, surfaces, walls with restitution, air, bounce, stun - tuned

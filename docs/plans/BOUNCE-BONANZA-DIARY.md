@@ -174,3 +174,275 @@ in the dock's border after the window closed. The face is now 13 lines and
 
 **Next:** the owner chooses a camera by feel; wave 1 (the course pipeline
 and physics v1) starts now.
+
+## 2026-11-12 (wave 1, the host half): courses become text
+
+The first stage of wave 1 built everything a host can check: the course
+compiler (`tools/bbcourse.py`), the two shipped courses, the physics model the
+guest will be written to match, and the smaller ball part. Nothing here has
+run on the 5150 yet; the numbers below are the tool's own, not measurements
+of the game.
+
+- **A course is a text file now.** `apps/bonanza/courses/first.bbc` is the
+  worked example from the contract, nine lines long. `bench.bbc` is the
+  benchmark's course. One compiler run turns the list into two parts a course
+  (one a card) and the include that lists them.
+- **The ball part lost three quarters of itself.** Only one shift of each
+  frame was ever drawn, so the part went from 20,816 bytes to 5,456. Every
+  stored frame is byte-for-byte the old one at its own shift; one line of the
+  box compose changed to match.
+- **The occluders cost far more than the contract predicted.** The rule that
+  draws a ball behind the scenery has to cover a ball falling off ANY edge,
+  not only into pits. The worked example needs 32 records in one block row
+  and 23 at one ball position, against bounds of 24 and 8; the benchmark
+  needs 79 and 29. The tool refuses at 96 and 32 for now, and the choice is
+  the owner's (SPEC.md 128.10.12 O8).
+- **The benchmark course had to get narrower.** The void band round a course
+  reaches four tiles sideways on screen, and every place the ball can be has
+  to fit in the 512-pixel picture. Wave 0b's course was half again too wide.
+- **A half-unit step at the bottom of a ramp cannot be climbed**, though the
+  same step between two flat floors can. The floor height is sampled one
+  ground unit inside the tile, which puts it a quarter pixel over the limit.
+  The return route stuck there until the landing was made level.
+- **Landings stopped dead in the first physics model.** The contract tested
+  the walls against the ball's height after the move, so a ball landing next
+  to a floor of the same height treated it as a wall. Testing against the
+  height at the start of the step, as the contract already did elsewhere,
+  fixed it.
+- **The route was chosen by search.** With the course that narrow the camera
+  is pinned at one side or the other at the end of every long leg, so no
+  reversal there gives a diagonal scroll. The new landing is a square plateau
+  in the middle, and a hill-climb over routes in a host model of the GLIDE
+  camera found a loop round it. That loop scrolls in all eight directions at
+  least 8 times on both cards, where 5 is required.
+
+## 2026-11-12 (wave 1, the guest reads a course)
+
+The second stage gave the guest a course. The engine still moves the ball
+with wave 0b's flat motion; physics comes next.
+
+- **Enter plays First Roll and B benchmarks Proving Ground.** The key picks
+  the course and the card picks the part row. The face's second line names
+  both courses by their titles, which come from the generated include.
+- **Every course value is read at launch.** The engine used to assemble
+  each course constant into its code. Now `bz_crshdr` copies the header into
+  the package's data on the desktop: the map's shift and stride, the size,
+  X0 and Y0, the route and the start. The camera's limits come from the
+  course's size.
+- **The column writer reads the map stride from the course part.** It
+  already held that part in DS, so `add bx, [24]` replaced `add bx, 128`.
+  The two instructions are the same 4 bytes, and the new one patches no code
+  and works on kern_mega's selectors.
+- **The start comes from the grid.** The ball begins on the start tile's
+  centre on its floor. The rule is the same one the compiler uses for
+  waypoints.
+- **Checked by one look boot per card.** On the CGA and the Hercules, the
+  card memory matched the course part's picture, away from the ball, in
+  every check: First Roll at rest, First Roll after rolling to the far
+  corner, and Proving Ground 400 frames into the benchmark. The benchmark
+  ran its 1,200 frames on both cards with `late` 0.
+  The package image is 8,994 bytes (wave 0b: 8,785) and its bss is 939
+  bytes (913).
+
+## 2026-11-12 (wave 1, the ball goes behind things)
+
+The occluder stage put the rule of SPEC.md 128.10.4.4 into the box compose.
+
+- **One routine, entered from the end of the compose.** `bz_occ` runs after
+  the ball is drawn into a box. It visits only the new footprint's blocks,
+  at most three block rows of at most three columns. For each block row it
+  reads that row's records from the course part's index, skips the ones to
+  the left and stops at the first one to the right. A record whose cell is
+  behind the ball's and whose top is above the ball (by the 4 px margin
+  while the ball rolls) puts its block's pixels back over the ball.
+- **The lay needs no NOT.** `((buffer XOR block) AND mask) XOR block` is
+  the contract's `(buffer AND mask) OR (block AND NOT mask)`, one
+  instruction shorter a line.
+- **Both boxes get the pass, not only the new one.** When the old and new
+  footprints take two boxes, the card gets the FIRST box's bytes where the
+  two overlap, and the first box is the old footprint's. So every box runs
+  the pass, clipped to its share of the new footprint. A box with no share
+  walks nothing. SPEC.md 128.10.8 item 1 now says so.
+- **The cell's flag is a saving, never a verdict.** The pass runs only when
+  the ball's cell is marked as one where a record could ever be laid. If a
+  test has poked the ball somewhere and no step has run since, the window
+  of cells may still describe the old place. Then the pass runs anyway,
+  which lays exactly what the rule lays.
+- **Checked on the host first.** A scratch harness ran the built package's
+  compose under an 8086 emulator along physics runs on both courses, with
+  the footprint's box, union boxes and boxes clipped at every edge:
+  138,480 boxes against the compiler's own composite, 6,075 of them laying
+  21,840 records, none different. With the records left out of the host's
+  picture, 93 boxes of 1,800 on one run differed, so the check can fail.
+- **One look boot per card.** Holding Right and Down on First Roll flies
+  the ball off the slope and into the pit. Its last frame before the
+  respawn hides 12 px of the ball behind the pit's near rim, on both cards.
+  On the Hercules the benchmark was run as well. It laid records on 157
+  frames. Each one decoded from the card equalled the host picture, and
+  the most the rule hid in one frame was 36 px of the ball, rolling behind
+  the traverse's block.
+- **A finished play now shows its time in place of the benchmark's
+  results.** The CGA face has room for 13 lines, and the results already
+  fill it. The results come back with the next benchmark.
+- **Sizes.** The package image is 11,808 bytes (the stage before: 11,413):
+  +395 for the pass, the instruments and the face. The bss is 1,085 bytes
+  (1,055): +30, of which 18 are the pass's working words and 12 are the
+  three instruments and their copies.
+
+## 2026-11-12 (wave 1, the rows that will judge it)
+
+SPEC.md 128.10.11.3's rows were written in this stage and NOT run: the
+final pass runs every one of them once, with its red arms, and measures
+the `secs` each is registered with (all predicted here, and each row's
+description says so).
+
+- **One oracle, the compiler's.** The ring row's host picture is now
+  `bbcourse.py`'s render with the ball composited and the occluder
+  records laid back at the guest's own `s_b`, `z_b` and air flag - the
+  compiler's `composite`, not a second copy of the rule. The frames
+  checked behind a record are chosen on the host, from what the oracle
+  hides, not from the guest's own counter: a build whose pass never runs
+  would otherwise never be looked at where it is wrong.
+- **The row-0 probe could not be built as written.** The contract asked
+  for a window ten columns from either side of the course; on the
+  Hercules the whole camera range on a 64-column course is 19 columns.
+  And a probe ball must hang over a floor somewhere down its screen
+  column, which the narrow benchmark course runs out of within a few
+  columns of a pan to the right. The probe settles the window low on the
+  course's right instead and pans up and LEFT; the host model gives about
+  12 qualifying frames on the CGA and 8 on the Hercules, against the five
+  required. SPEC.md 128.10.11.2 now says so.
+- **Physics is checked exactly, every frame.** `bonanzaphys` steps the
+  host model to the guest's step count at every presented frame and
+  compares eight numbers with no tolerance, over the benchmark on both
+  cards and over four poked scenarios on First Roll (the pit, the lip,
+  the rail, the goal). Each scenario was chosen by running the host
+  model first: the pit's run passes over a SAFE cell so that a respawn
+  "at the start" is distinguishable from the right one.
+- **Every red arm must fail at its own check.** A broken package that
+  fails somewhere else proves nothing about the check it was written
+  for, so each red arm names the failure it must produce.
+- **The A/B leg builds wave 0b from git.** `bonanza_perf.py --ab` takes
+  that commit's package source, includes and generator out of git into a
+  temporary tree, runs its own generator and packs it in its own part
+  order. Built on the host here, it assembles; the build of today's
+  package by the same helper is byte-identical to `build/`'s.
+
+## 2026-11-12 (wave 1, the review round)
+
+Four reviewers read wave 1 through four lenses - the picture, the
+physics, the cost and the OS - and returned fifteen findings. What they
+found, and what changed:
+
+- **The occluder pass was the expensive part, and it still is.** It laid
+  every qualifying record separately, eight lines read, merged and
+  written per record, so its worst frame grew with the record counts.
+  The pass now treats the records of one block word as a GROUP: the
+  masks of the laid ones are ANDed (only the lines the lay touches) and
+  the word is laid once - the AND of two keep-masks keeps only what both
+  keep, so the bytes are the same - which caps the lays at nine. Each
+  block row's first candidate is found by a binary search on the column
+  instead of a walk from the row's start, and the keys sit in registers.
+  **Priced from the instructions the built guest executes** (a host
+  trace, not a measurement): the worst reachable position costs 28.3k
+  clk on First Roll and 33.5k on the benchmark's course, where laying
+  each record separately priced 34.5k and 42.5k; over the benchmark's
+  route the pass is gated on at 22.5% of frames, 8.2k on those, about
+  +1.9k a CGA frame - against the contract's +0.7k, which assumed the
+  bounds the courses do not meet. Grouping bounds the lays, not the
+  tests: only fewer records (open question O8) shrinks the rest. The
+  binary search turned out to save little on the mean - the benchmark's
+  records are thin - and that is written down rather than hidden.
+- **A per-step test paid for the harness.** Every step began by
+  checking that the window was centred on the ball, which only a test's
+  POKE could ever break - about 100 clk a step. A poke now raises a flag
+  (`bz_pokd`), the next step refills the window and clears it, and the
+  hot path pays one byte test; the occluder gate reads the same flag.
+  The poke helper also writes the screen position, so a frame that runs
+  no step draws the ball where it was put.
+- **The oracle and the guest disagreed in a corner only a poke reaches.**
+  The guest skips the pass in a cell whose OCC flag is clear; the ring's
+  oracle laid records by the rule regardless, and a poked ball can sit
+  at a height its cell never reaches. The oracle now applies the same
+  gate, with the flag read from the host's course, not the guest's, so a
+  wrong flag in the part still shows.
+- **A latent off-by-one in the occluder derivation.** A ball at a whole
+  height with a fraction has its footprint one line higher than the tool
+  tried; the derivation now covers that line, and the selfcheck has an
+  item for it with a negative control. On the shipped courses it changed
+  no byte of any part.
+- **Three sentences in the contract were wrong about the physics**: a
+  one-arrow ball settles at 0.74 gu a step from rest (189), or 252 when
+  slowing, not 1 gu - the round-up drag has a dead band; a fallback undo
+  never lands an airborne ball; and the wall test is asymmetric (the
+  integer `u` against east and south walls leaves the ball 1 gu closer
+  and creeping), which wave 1 keeps and now says so.
+- **The rows were made to survive the merge.** The A/B leg against wave
+  0b skips itself, with a line, when that commit is not in the clone -
+  upstream squash-merges; the kern_mega row reports a package the kernel
+  closed instead of dying in a traceback; and the course list is read
+  out of the Makefile and the generated include rather than copied by
+  hand into the tool and the rows.
+- **The launch costs per course.** The benchmark's parts pack to twice
+  wave 0b's - about three more disk calls - while Enter's are smaller.
+
+## 2026-11-12 (wave 1, the final pass)
+
+Every row ran once, as one scoped soak call (`bonanzacourse`,
+`bonanzaassets`, `bonanzaring`, `bonanzaperf --ab`, `bonanzaphys`,
+`bonanzaexit` on MartyPC, `bonanzamega` on 86Box), then every red arm.
+Four came back green and three red, and none of the three was the
+assertion being wrong about what it guarded. What was found, all of it
+measured rather than argued:
+
+- **The row-0 box was really late on the CGA, sometimes.** The probe
+  asked for `bz_late` 0 and got 4 - 6 of 12. MartyPC's cycle counter,
+  read at the read that saw the sync rise and at both of `bz_latechk`'s
+  checks, took it apart into three causes. The box WRITER is not "about
+  the beam's speed" as wave 0b assumed: a 4-word line costs about 490
+  clocks against the beam's 304, so a 16-line box at row 0 has about
+  2.7k clocks of slack. `bz_latechk` reckoned the beam from a clock
+  sample a whole turn of the retrace spin BEFORE the read that saw the
+  sync - about 840 clocks, where it allowed one line - so on-time boxes
+  were counted late. And a FASTTICK interrupt (about 2.9k clocks)
+  landing between the rise and the box's last line made a box really
+  late, about one row-0 frame in eleven. The guest now spins tight and
+  samples the clock just after the rise, allows a measured bound
+  (`BZ_VLAT`) instead of a line, and shuts interrupts from the rise to
+  the end of the box write on the frames that have a row-0 box - 13k
+  clocks, under a tick. 98 bytes of image and 1 of bss (and 2 more
+  for the kern_mega fix below: 11,956 to 12,056 in all).
+- **The probe itself asked for a frame play cannot make.** It panned UP
+  two rows a frame with a column and a window refill every frame, which
+  overran a CGA refresh. Play reaches window row 0 only at the top
+  clamp - a flight's apex over the course's top - so the probe moved
+  there: the window settled on the start, the ball poked onto the first
+  line and panned right. 11 qualifying frames on the CGA, 7 on the
+  Hercules. Its red arm (the whole column first) goes red on the CGA
+  only, 11 of 11: the Hercules' 98 lines of sync and blank hold the
+  whole column ahead of the box, so the order is the CGA's alone to need.
+- **kern_mega found a real bug the real-mode kernels cannot.**
+  `op_drop` restores its caller's ES after freeing the claim, and the
+  bracket left a part's own selector in ES: on kern_mega that is a #GP
+  the moment the claim is gone. `bz_launch` now loads its own segment
+  into ES before the drops. The same row also counted the kernel's own
+  286 way out of protected mode (a deliberate shutdown in
+  `mega_svc_lo`) as a failure; it now resolves the reset against the
+  kernel map and excludes that one, as the contract always said.
+- **Two harness slips.** The goal's face line has a cell of margin
+  before "Finished in", which the row read as text; and a key pressed
+  the moment the play ended (the flag drops inside the bracket) could be
+  lost while the bracket was still being left, so the rows now wait for
+  the launch to drop its parts first, as `bonanzaexit` always did.
+
+The numbers, all MartyPC, the benchmark on `BENCH`: busy **46.5%** of a
+CGA refresh (59.96 Hz on a 59.92 Hz card) and **39.4%** of a Hercules one
+(50.87 Hz), no misses, inside the contract's predicted 45 - 48% and 39 -
+41%. Against wave 0b on its own course: busy +2.6k clocks a CGA frame
+and +2.2k a Hercules one. Physics costs +3.0k and +3.6k in sim + camera,
+more than predicted, but the occluder pass, feared at +1.9k, shows as
++0.4 - 0.5k in the box compose. The bytes went the other way: the
+benchmark's course part is 54,214 bytes against a predicted 46,000, the
+package 64,509 bytes on the disk against 25 - 35KB, nearly all of it
+occluder records twice over - open question O8, which stays the owner's.
+Story 1.3 is the one left unticked for that reason.
