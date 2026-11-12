@@ -1,9 +1,9 @@
 # BOUNCE BONANZA — an isometric rolling-ball game for the 5150 (investigation and plan)
 
-**STATUS: WAVE 0 (the spike) DONE, a GO: both cards hold the full refresh on
-MartyPC (CGA 59.8 Hz, Hercules 50.8 Hz). Its contract and measurement are
-SPEC.md 128; the owner's decisions are in section 12. Next: the optimisation
-round wave 0 named, then wave 1.** The package is `BONANZA` (`apps/bonanza/`). Below is the
+**STATUS: WAVE 0 (the spike) DONE, a GO (the owner, 2026-11-12: "we are good
+to continue"): both cards hold the full refresh on MartyPC (CGA 59.8 Hz,
+Hercules 50.8 Hz). WAVE 0b (the camera and the optimisation round, SPEC.md
+128.9) IN PROGRESS, then wave 1. The owner's decisions are in section 12.** The package is `BONANZA` (`apps/bonanza/`). Below is the
 investigation as it was written, the answer to the owner's
 brief of 2026-11-12, on branch `bounce-bonanza`, cut from `elendilon`: is an
 overhead isometric rolling-ball game with a scrolling course feasible on the
@@ -744,8 +744,14 @@ keys.
       refresh on both cards, and `FSXF_RATE` is not needed. The table is
       SPEC.md 128.8.*
 
-**Wave 0b: the optimisation round** (the review's findings 7, 9, 11, 12,
-13; the numbers are SPEC.md 128.8's).
+**Wave 0b: the camera and the optimisation round** (SPEC.md 128.9; the
+review's findings 7, 9, 11, 12, 13; the numbers are SPEC.md 128.8's). The
+owner's first play (86Box, CGA): slow scrolling is jerky, fast scrolling is
+smooth.
+- [ ] Three camera modes, `C` to cycle: GLIDE (rest or pan fast, with a
+      lead; the default), FOLLOW (velocity-matched, even cadence), TRICKLE
+      (wave 0's, for the A/B). The owner picks by feel.
+- [ ] The Hercules ball takes the course's checker for its mid level.
 - [ ] Box compose (23.5k clk, the largest working part): column-major fill
       with a `movsw`/`add di` chain, an unclipped word-wise ball path, no
       MUL.

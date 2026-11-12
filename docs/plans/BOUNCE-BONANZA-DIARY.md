@@ -97,3 +97,29 @@ VGA was tried), a two-card machine, and real hardware.
 working part and the two CGA misses are two-row frames, so compose and rows
 come first.
 
+## 2026-11-12 (evening): the owner plays it
+
+**The owner played it on 86Box (a 5150 with CGA).** The first try said `Load
+failed`. The cause was the emulator's setup: the third drive was set to an
+80-track quad-density type while holding a 40-track 360KB image. A 5150 BIOS
+steps one track at a time, so only track 0 (the FAT and directory) reads
+right on that drive. The file is listed and its body is not. With the image
+in a 360KB drive it loads. There is no package or kernel defect. The lesson
+for whoever reads a field report next: **check the drive type before the
+package.**
+
+**What they saw:** "The ball animation is very impressive." But **scrolling
+slowly is jerky, and speeding up it smooths out.**
+
+That is the hardware floor showing through wave 0's camera. The CGA moves the
+picture in 8 px and 2-line steps, and nothing finer exists in its graphics
+mode. Wave 0's camera follows a slow ball one step at a time, so the world
+hops every few frames, and the ball jumps back on the screen each time. Fast,
+it hops every frame, and that reads as motion.
+
+The fix is a camera rule rather than a renderer: **rest, or move fast; never
+trickle.** Wave 0b ships three camera modes so the owner can choose by feel
+(SPEC.md 128.9): GLIDE, FOLLOW, and wave 0's TRICKLE as the control. TITHE
+took about twenty rounds to feel right, and this is expected to be the same
+kind of loop.
+
