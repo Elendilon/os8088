@@ -267,6 +267,12 @@ def arena_tables(w, tag, boxes, start):
         w("    db %d, %d" % (kind, box * 8))
         w("    dw %d, %s, %s" % (v, P + "bsp+%d" % (lo * 8) if lo >= 0 else "0",
                               P + "bsp+%d" % (hi * 8) if hi >= 0 else "0"))
+    w(P + "bcol:                        ; per box (the room first): its colour")
+    w("                                ; - 0 a boundary wall, 1 an item. The")
+    w("                                ; owner's call: colour says WHAT a wall")
+    w("                                ; is, not how far (two shades never read")
+    w("                                ; as depth, and Hercules has none)")
+    w("    db 0" + "".join(", 1" for _ in boxes))
     w(P + "boxes:                       ; x0, y0, x1, y1")
     for b in boxes:
         w("    dw %d, %d, %d, %d" % b)
@@ -290,13 +296,14 @@ def bsp_tables(w):
     w("WA_MVTX equ %d" % max(c[2] for c in counts))
     w("WA_MBOX equ %d" % max(c[3] for c in counts))
     w("wa_arenas:                      ; xv, nxv, yv, nyv, vtx, nvtx, corn,")
-    w("                                ; boxes, nbox, root, start x, y, angle")
+    w("                                ; boxes, nbox, root, start x, y, angle,")
+    w("                                ; colours")
     for (tag, name, boxes, start), (nx, ny, nv, nb) in zip(arenas(), counts):
         P = "wa_%s_" % tag
         w("    dw %sxv, %d, %syv, %d, %svtx, %d, %scorn" % (P, nx, P, ny, P, nv, P))
-        w("    dw %sboxes, %d, %sbsp, %d, %d, %d" % (P, nb, P, start[0],
-                                                  start[1], start[2]))
-    w("WA_ARENASZ equ 26")
+        w("    dw %sboxes, %d, %sbsp, %d, %d, %d, %sbcol" % (
+            P, nb, P, start[0], start[1], start[2], P))
+    w("WA_ARENASZ equ 28")
 
 def main(out):
     L = []

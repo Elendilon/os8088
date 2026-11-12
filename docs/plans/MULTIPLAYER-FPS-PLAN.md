@@ -906,3 +906,40 @@ off the HUD at the end:
 
 These are emulator figures. The report's caveat about a real IBM CGA's
 text-mode contention applies, and the field rate is the one that decides.
+
+### 16.4 The owner on 86Box, and what followed
+
+The owner ran 86Box (2026-11-12), and the timing there is coarser than
+MartyPC's:
+
+- **The rate:** the full arena at 40 columns ran 12–14 fps with three
+  figures, the camera moving, running and shooting. The open arena ran ~2
+  fps more.
+- **The target:** the FULL level of detail, which will hold rooms and stairs
+  on screen. The open arena is a style a level may use.
+- **The look:** walls read well up close. Far away their distance "keeps
+  jumping as the perspective changes", closer at the side of the view and
+  pushed back at its centre.
+
+**That has three causes.**
+
+1. **Planar projection.** A wall's height goes with its depth ALONG the
+   view, so at the edge of a 90-degree view it is 1.41x its height at the
+   centre.
+2. **The distance shades used that same depth**, so a wall turning to the
+   centre could drop a colour band.
+3. **The half-row quantum** is 15–25% of a far wall's height.
+
+**The owner's answers, and what was built.** Each is measured on the bench
+at 40 columns.
+
+| change | how | cost |
+|---|---|---|
+| **Colour says what a wall IS, not how far.** Two shades never read as depth, and Hercules has none: boundary walls dark blue, items (pillars, blocks, later stairs) cyan, floor dots dark grey, figures white; mono keeps every wall normal intensity and the figures bright | a per-box colour index in each arena's data (`wa_<tag>_bcol`), set per box in the walk | the per-span band split is gone (cause 2 with it), so it costs nothing |
+| **F: the field of view**, 90 -> 75 -> 60 degrees. A zoom, the vertical scales following, so proportions hold. The edge stretch is 1.41x / 1.30x / 1.15x | `wa_setfov` | none: it is a constant |
+| **H: held far edges.** An edge keeps last frame's half-row until the true position is a quarter half-row past the boundary, per column. Against cause 3's flicker on slow turns | `EDGE`; `SPANLOOP` is assembled eight ways now | 20.1 -> 19.3 fps |
+| **G: a floor grid**, a dark dot every 2 m within ~6 m, behind walls and under figures | one divide and three multiplies a dot | 20.1 -> 15.9 fps |
+
+Each toggle shows at the HUD's tail: view (9/7/6), H, F/S, G. Rejected: a
+true-distance (cylindrical) projection — it bends straight walls and is
+slower.

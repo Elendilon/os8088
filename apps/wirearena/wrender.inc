@@ -38,9 +38,18 @@ WA_VAR wa_spcs, WA_MAXSP*2      ; per span: c1 (x16), inverse depth there,
 WA_VAR wa_spih, WA_MAXSP*2      ; c2 - c1 and i2 - i1: wa_wallz's line
 WA_VAR wa_spsh, WA_MAXSP*2
 WA_VAR wa_spsl, WA_MAXSP*2
-WA_VAR wa_bend, 8               ; a span's shade bands: end column x 2...
-WA_VAR wa_batt, 8               ; ...and shade (word-spaced)
-WA_VAR wa_nbnd, 2
+WA_VAR wa_wcol, 1               ; the colour of the walls being drawn
+WA_VAR wa_pt32, WA_MAXW*2       ; per column, last frame's top and bottom
+WA_VAR wa_pb32, WA_MAXW*2       ; half-rows x 32 (wa_hyst)
+WA_VAR wa_dxc, 9*4              ; the floor grid's products (wa_dots)
+WA_VAR wa_dxs, 9*4
+WA_VAR wa_dyc, 9*4
+WA_VAR wa_dys, 9*4
+WA_VAR wa_dnx, 2
+WA_VAR wa_diz, 2
+WA_VAR wa_dny, 2
+WA_VAR wa_dix, 2
+WA_VAR wa_diy, 2
 WA_VAR wa_vt0, 2
 WA_VAR wa_vb0, 2
 WA_VAR wa_afix, 1               ; the span's shade is one band
@@ -176,7 +185,7 @@ wa_render:
     mov [wa_hh], ax
     mov ax, WA_HTOP
     sub ax, [wa_eye]
-    mov cx, WA_KYQ
+    mov cx, [wa_kyq]            ; (the field of view's vertical scale)
     imul cx
     mov [wa_numt], ax
     mov ax, [wa_eye]
@@ -198,6 +207,11 @@ wa_render:
     cmp word [wa_left], 0       ; the room, last: it encloses everything
     je .roomless
     mov word [wa_crow], wa_corn
+    mov al, [wa_bcol]           ; the room's colour
+    xor ah, ah
+    mov si, ax
+    mov al, [wa_at+si]
+    mov [wa_wcol], al
     mov byte [wa_endok], 0      ; (each room corner is some face's START)
     mov ax, (6 << 8) | 0        ; its faces run the other way: c0->c3,
     call wa_face                ; c3->c2, c2->c1, c1->c0 (vertex x 2)
@@ -208,6 +222,7 @@ wa_render:
     mov ax, (0 << 8) | 2
     call wa_face
 .roomless:
+    call wa_dots
     mov ax, [wa_lp]
     sub ax, [wa_newp]
     mov [wa_newn], ax
@@ -285,6 +300,14 @@ wa_node:
 .leaf:
     mov al, [bx+1]              ; box x 8
     xor ah, ah
+    mov si, ax
+    mov cl, 3
+    shr si, cl
+    mov al, [wa_bcol+si+1]      ; its colour (the room's is first)
+    mov si, ax
+    mov al, [wa_at+si]
+    mov [wa_wcol], al
+    mov al, [bx+1]
     mov si, ax
     add si, wa_boxes
     shr ax, 1
@@ -836,44 +859,35 @@ wa_span:
     call .big                   ; (32 in 13.3) or more - far walls never
     mov ax, [wa_sb]             ; are, and then the loop without the slope
     call .big                   ; test runs
-    call .bands                 ; the distance shades, as column ranges
     mov ax, [wa_vt]             ; (the first column's edges, for its corner)
     mov [wa_vt0], ax
     mov ax, [wa_vb]
     mov [wa_vb0], ax
+    mov ax, [wa_cs]             ; BP = the end, x 2
+    add ax, [wa_n]
+    shl ax, 1
+    mov bp, ax
     mov si, [wa_cs]
     shl si, 1
     mov di, [wa_lp]
     mov dl, [wa_frame]
-    mov cx, 5                   ; CL = 5 (13.3 -> half-rows), CH = opened
-    xor bx, bx
-.bloop:
-    push bx
-    mov bp, [wa_bend+bx]
-    mov dh, [wa_batt+bx]
+    mov dh, [wa_wcol]           ; the wall's colour: its ITEM's, not its depth
     mov [wa_eatt], dh           ; (the slope fill and the corners read it)
+    xor bx, bx                  ; which of the eight loops
     cmp byte [wa_sparse], 0
-    jne .sp
+    je .v1
+    or bl, 8
+.v1:
     cmp byte [wa_steep], 0
-    jne .fs
-    call wa_lfull
-    jmp .bdone
-.fs:
-    call wa_lfulls
-    jmp .bdone
-.sp:
-    cmp byte [wa_steep], 0
-    jne .ss
-    call wa_lsparse
-    jmp .bdone
-.ss:
-    call wa_lsparses
-.bdone:
-    pop bx
-    inc bx
-    inc bx
-    cmp bx, [wa_nbnd]
-    jb .bloop
+    je .v2
+    or bl, 4
+.v2:
+    cmp byte [wa_hyst], 0
+    je .v3
+    or bl, 2
+.v3:
+    mov cx, 5                   ; CL = 5 (13.3 -> half-rows), CH = opened
+    call [wa_loops+bx]
     mov [wa_lp], di
     mov al, ch
     xor ah, ah
@@ -925,93 +939,6 @@ wa_span:
     mov [wa_lp], di
     ret
 
-; .bands - the span's columns cut where its inverse depth crosses a shade
-; threshold (682: 12 m, 2048: 4 m), so the loop never picks a shade. Out
-; wa_bend/wa_batt (end column x 2, exclusive; shade), [wa_nbnd] = entries x 2
-.bands:
-    mov word [wa_nbnd], 0
-    mov ax, [wa_i1]
-    call .bandof                ; BL = the left end's band 0..2
-    mov bh, bl
-    mov ax, [wa_i2]
-    call .bandof                ; BL = the right end's
-.bnext:
-    cmp bh, bl
-    je .blast
-    mov ax, 682                 ; the threshold between BH and the next band
-    mov cl, bh                  ; toward BL: 682 between 0 and 1, 2048
-    jb .bup                     ; between 1 and 2
-.bdown:
-    cmp bh, 2
-    je .bset
-    jmp .bset0
-.bup:
-    cmp bh, 1
-    jne .bset0
-.bset:
-    mov ax, 2048
-.bset0:
-    push bx
-    sub ax, [wa_i1]             ; c16 = c1 + (T - i1)(c2 - c1)/(i2 - i1)
-    imul word [wa_dc]
-    mov cx, [wa_i2]
-    sub cx, [wa_i1]
-    idiv cx
-    add ax, [wa_c1]
-    add ax, 7                   ; the first column whose centre is past it
-    mov cl, 4
-    sar ax, cl
-    cmp ax, [wa_cs]             ; clamped to the open range
-    jge .bge
-    mov ax, [wa_cs]
-.bge:
-    mov cx, [wa_cs]
-    add cx, [wa_n]
-    cmp ax, cx
-    jle .ble
-    mov ax, cx
-.ble:
-    pop bx
-    call .bpush                 ; this band ends there...
-    cmp bh, bl                  ; ...and the next one starts
-    jb .binc
-    dec bh
-    jmp .bnext
-.binc:
-    inc bh
-    jmp .bnext
-.blast:
-    mov ax, [wa_cs]
-    add ax, [wa_n]
-.bpush:                         ; AX = end column, BH = the band
-    push bx
-    shl ax, 1
-    mov bx, [wa_nbnd]
-    mov [wa_bend+bx], ax
-    pop ax
-    push ax
-    mov al, ah                  ; AL = band -> its shade
-    xor ah, ah
-    push si
-    mov si, ax
-    neg si
-    mov al, [wa_at+A_FAR+si]    ; FAR is 2, MID 1, NEAR 0: band 0 is far
-    pop si
-    mov bx, [wa_nbnd]
-    mov [wa_batt+bx], al
-    add word [wa_nbnd], 2
-    pop bx
-    ret
-.bandof:                        ; AX = inverse depth -> BL = 0 far, 1 mid,
-    xor bl, bl                  ; 2 near
-    cmp ax, 682
-    jb .bo
-    inc bl
-    cmp ax, 2048
-    jb .bo
-    inc bl
-.bo:
-    ret
 
 .big:                           ; AX = a step: |AX| >= 32 marks the span
     or ax, ax
@@ -1035,14 +962,43 @@ wa_span:
     ret
 
 ; --- the column loops ---------------------------------------------------------
-; The hot path of a frame, generated four ways so no column tests a mode:
+; The hot path of a frame, generated eight ways so no column tests a mode:
 ; %1 = 1 draws the TOP edge (the full detail level; 0 is the sparse one,
 ; floor lines and corner posts), %2 = 1 fills steep steps (a span whose
-; edge can move two half-rows a column). In: SI = column x 2, BP = the
+; edge can move two half-rows a column), %3 = 1 holds edges (EDGE). In: SI = column x 2, BP = the
 ; band's end x 2, DH = its shade, DL = the stamp, DI = the list, CL = 5,
 ; CH = columns opened so far. Each opened column costs, at full detail and
 ; flat, about 120 bytes of code - the first renderer's was ~260.
-%macro SPANLOOP 2
+; EDGE - BX = an edge's half-row, from the accumulator %1: rounded (%3 = 0),
+; or (%3 = 1) held at last frame's half-row (%2, x 32, per column) until the
+; true position is a QUARTER half-row past the boundary - so a far edge on a
+; slow turn steps once instead of flickering between two
+%macro EDGE 3
+%if %3
+    mov ax, [%1]
+    mov bx, ax
+    sub ax, [%2+si]
+    add ax, 24
+    cmp ax, 48
+    jb %%keep
+    add bx, 16
+    sar bx, cl
+    mov ax, bx
+    shl ax, cl
+    mov [%2+si], ax
+    jmp %%have
+%%keep:
+    mov bx, [%2+si]
+    sar bx, cl
+%%have:
+%else
+    mov bx, [%1]
+    add bx, 16
+    sar bx, cl
+%endif
+%endmacro
+
+%macro SPANLOOP 3
     cmp si, bp
     jae %%done
 %%col:
@@ -1052,9 +1008,7 @@ wa_span:
     mov [wa_cov+si], ax
     inc ch
 %if %1
-    mov bx, [wa_vt]
-    add bx, 16
-    sar bx, cl
+    EDGE wa_vt, wa_pt32, %3
   %if %2
     mov [wa_cht+si], bx
   %endif
@@ -1068,9 +1022,7 @@ wa_span:
     WPLOT
 %%t:
 %endif
-    mov bx, [wa_vb]
-    add bx, 16
-    sar bx, cl
+    EDGE wa_vb, wa_pb32, %3
 %if %2
     mov [wa_chb+si], bx
 %endif
@@ -1112,10 +1064,16 @@ wa_span:
 %%done:
     ret
 %endmacro
-wa_lfull:   SPANLOOP 1, 0
-wa_lfulls:  SPANLOOP 1, 1
-wa_lsparse: SPANLOOP 0, 0
-wa_lsparses: SPANLOOP 0, 1
+wa_l000:    SPANLOOP 1, 0, 0     ; full, flat
+wa_l001:    SPANLOOP 1, 0, 1     ; ...held edges
+wa_l010:    SPANLOOP 1, 1, 0     ; full, steep
+wa_l011:    SPANLOOP 1, 1, 1
+wa_l100:    SPANLOOP 0, 0, 0     ; sparse
+wa_l101:    SPANLOOP 0, 0, 1
+wa_l110:    SPANLOOP 0, 1, 0
+wa_l111:    SPANLOOP 0, 1, 1
+wa_loops:   dw wa_l000, wa_l001, wa_l010, wa_l011
+            dw wa_l100, wa_l101, wa_l110, wa_l111
 
 ; wa_stepfill - AX = this column's edge, CX = the last one's (half-rows):
 ; two half-rows or more apart is a step to fill (wa_slope); less is not
@@ -1266,6 +1224,171 @@ wa_plotf:
     mov [wa_cur+bx], ax
     ret
 
+; --- the floor grid (G) -------------------------------------------------------
+; A dim dot every 2 m, (64 + 128i, 64 + 128j), within ~6 m on each axis: a
+; depth cue that does not depend on a wall's height. Behind walls (wa_wallz)
+; and under figures (drawn after). Off by default: the owner's question is
+; whether it costs the black ground's readability.
+WA_DOTSP    equ 128
+wa_dots:
+    cmp byte [wa_grid], 0
+    jne .on
+    ret
+.on:
+    mov ax, [wa_px]             ; the lines within 4 of the player's
+    mov si, wa_dxc
+    mov di, wa_dxs
+    call .lines
+    mov [wa_dnx], cx
+    mov ax, [wa_py]
+    mov si, wa_dyc
+    mov di, wa_dys
+    call .lines
+    mov [wa_dny], cx
+    mov word [wa_dix], 0
+.ix:
+    mov word [wa_diy], 0
+.iy:
+    mov si, [wa_dix]
+    mov bp, [wa_diy]
+    mov ax, [wa_dxc+si]         ; z = (Xc + Ys) >> 14
+    mov dx, [wa_dxc+si+2]
+    add ax, [ds:wa_dys+bp]
+    adc dx, [ds:wa_dys+bp+2]
+    shl ax, 1
+    rcl dx, 1
+    shl ax, 1
+    rcl dx, 1
+    cmp dx, 48
+    jl .next                    ; behind, or at our feet
+    mov cx, dx                  ; CX = z
+    mov ax, [wa_dxs+si]         ; x = (Xs - Yc) >> 14
+    mov dx, [wa_dxs+si+2]
+    sub ax, [ds:wa_dyc+bp]
+    sbb dx, [ds:wa_dyc+bp+2]
+    shl ax, 1
+    rcl dx, 1
+    shl ax, 1
+    rcl dx, 1
+    mov ax, dx                  ; AX = x
+    mov bx, ax
+    or bx, bx
+    jns .xa
+    neg bx
+.xa:
+    cmp bx, cx
+    jg .next                    ; outside even the widest view
+    push ax                     ; ONE divide a dot: 1/z, then multiplies
+    mov dx, 0x0007
+    mov ax, 0xFFF0
+    div cx
+    mov [wa_diz], ax            ; (2^19 / z)
+    pop ax
+    imul word [wa_diz]          ; x / z x 2^19 - |x| <= z, so 20 bits: >> 3
+    sar dx, 1                   ; is x/z x 65536 in 16
+    rcr ax, 1
+    sar dx, 1
+    rcr ax, 1
+    sar dx, 1
+    rcr ax, 1
+    imul word [wa_k16]          ; x 8Wf / 65536: the column's offset, x16
+    mov bx, dx
+    add bx, [wa_k16]
+    push cx
+    mov cl, 4
+    sar bx, cl
+    pop cx
+    cmp bx, [wa_w]
+    jae .next                   ; (negative is huge, unsigned)
+    shl bx, 1
+    call wa_wallz
+    mov ax, [wa_diz]
+    cmp [wa_colz+bx], ax
+    ja .next                    ; a wall is nearer
+    mov ax, [wa_numb]           ; the floor's half-row: hh + numb/z/4 =
+    imul word [wa_diz]          ; hh + (numb x 2^19/z) >> 21
+    push cx
+    mov cl, 5
+    sar dx, cl
+    pop cx
+    mov ax, dx
+    add ax, [wa_hh]
+    cmp ax, WA_HR
+    jae .next
+    mov si, ax
+    shl si, 1
+    add bx, [wa_hroff+si]       ; BX = the cell
+    mov ah, [wa_at+A_DOT]
+    mov al, 0xFA                ; upper half: the middle dot...
+    test si, 2
+    jz .gl
+    mov al, '.'                 ; ...lower: the full stop
+.gl:
+    mov dl, [wa_frame]
+    mov di, [wa_lp]
+    WPLOT
+    mov [wa_lp], di
+.next:
+    add word [wa_diy], 4
+    mov ax, [wa_diy]
+    cmp ax, [wa_dny]
+    jb .iy
+    add word [wa_dix], 4
+    mov ax, [wa_dix]
+    cmp ax, [wa_dnx]
+    jb .ix
+    ret
+; .lines - AX = the player's coordinate, SI/DI = cos/sin product tables: the
+; grid lines within three of it, (v - p) cos and (v - p) sin each. CX = their
+; count x 4.
+.lines:
+    mov bx, ax
+    mov cl, 7
+    shr bx, cl                  ; the line nearest below, roughly
+    sub bx, 3
+    jns .l0
+    xor bx, bx
+.l0:
+    mov dx, bx
+    add dx, 7
+    cmp dx, 16
+    jbe .l1
+    mov dx, 16
+.l1:
+    xor cx, cx
+.l2:
+    push ax
+    push dx
+    mov dx, bx                  ; the line's coordinate: 64 + 128 k
+    push cx
+    mov cl, 7
+    shl dx, cl
+    pop cx
+    add dx, 64
+    sub dx, ax
+    push dx
+    mov ax, dx
+    imul word [wa_cos]
+    push bx
+    mov bx, cx
+    mov [si+bx], ax
+    mov [si+bx+2], dx
+    pop bx
+    pop ax
+    imul word [wa_sinv]
+    push bx
+    mov bx, cx
+    mov [di+bx], ax
+    mov [di+bx+2], dx
+    pop bx
+    pop dx
+    pop ax
+    add cx, 4
+    inc bx
+    cmp bx, dx
+    jb .l2
+    ret
+
 ; --- figures ----------------------------------------------------------------
 wa_figures:
     mov di, wa_figs
@@ -1346,13 +1469,11 @@ wa_figure:
     div si
     mov [wa_fiz], ax
     mov [di+F_PIZ], ax
-    mov ax, [wa_w]              ; sub-columns a unit: W x 256 / z
-    mov ah, al
-    xor al, al
-    xor dx, dx
+    mov ax, [wa_wf]             ; sub-columns a unit: W x f / z (f the field
+    xor dx, dx                  ; of view's scale, 8.8)
     div si
     mov [wa_fs8], ax
-    mov ax, WA_KYH256
+    mov ax, [wa_kyh]
     xor dx, dx
     div si
     mov [wa_fv8], ax

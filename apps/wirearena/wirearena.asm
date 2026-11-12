@@ -214,9 +214,7 @@ wa_setmode:
     mov [wa_vseg], ax
     mov ax, [wa_fsi+FSI_W]
     mov [wa_w], ax
-    mov cl, 3
-    shl ax, cl
-    mov [wa_k16], ax            ; 8W: the projection's scale, col16 units
+    call wa_setfov
     mov ax, [wa_w]
     shl ax, 1
     mov [wa_w2], ax             ; 2W: the figures' sub-columns
@@ -330,7 +328,47 @@ wa_loadarena:
     mov [wa_sy], ax
     mov ax, [bx+24]
     mov [wa_sa], ax
+    mov si, [bx+26]             ; the boxes' colours, the room's first
+    mov cx, [wa_nbox]
+    inc cx
+    mov di, wa_bcol
+    rep movsb
     ret
+
+; wa_setfov - the projection's scales for [wa_fov] (0 = 90, 1 = 75, 2 = 60
+; degrees across) at [wa_w] columns: f = 1 / tan(half the field), 8.8, on
+; the column scale (8W f) and both vertical ones, so a narrower view is a
+; zoom and the proportions hold. A wall at the edge of a 90-degree view
+; projects 1.41x the height it has at the centre; at 60 degrees 1.15x.
+wa_setfov:
+    mov bl, [wa_fov]
+    xor bh, bh
+    shl bx, 1
+    mov cx, [wa_fovf+bx]
+    mov ax, [wa_w]
+    mul cx
+    mov [wa_wf], ax             ; W f (8.8 -> sub-columns x 256 a unit at z 1)
+    mov ax, [wa_w]
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    mul cx
+    mov al, ah
+    mov ah, dl
+    mov [wa_k16], ax            ; 8 W f
+    mov ax, WA_KYQ
+    mul cx
+    mov al, ah
+    mov ah, dl
+    mov [wa_kyq], ax
+    mov ax, WA_KYH256
+    mul cx
+    mov al, ah
+    mov ah, dl
+    mov [wa_kyh], ax
+    ret
+wa_fovf:    dw 256, 334, 443
+wa_fovc:    db '976'    ; 1/tan(45), 1/tan(37.5), 1/tan(30), x 256
 
 wa_reset:
     mov ax, [wa_sx]
@@ -429,6 +467,26 @@ wa_frame_input:
     xor byte [wa_vsync], 1
     jmp .drain
 .b:
+    cmp ah, 0x21                ; F: the field of view, 90 -> 75 -> 60
+    jne .bh
+    inc byte [wa_fov]
+    cmp byte [wa_fov], 3
+    jb .fov
+    mov byte [wa_fov], 0
+.fov:
+    call wa_setfov
+    jmp .drain
+.bh:
+    cmp ah, 0x23                ; H: hold far edges (EDGE)
+    jne .bg
+    xor byte [wa_hyst], 1
+    jmp .drain
+.bg:
+    cmp ah, 0x22                ; G: the floor grid
+    jne .bl
+    xor byte [wa_grid], 1
+    jmp .drain
+.bl:
     cmp ah, 0x26                ; L: the wall detail level, full or sparse
     jne .bb
     xor byte [wa_sparse], 1
@@ -971,7 +1029,7 @@ wa_meter:
     mov cx, 16
     div cx
     mov di, 33
-    mov cx, 4
+    mov cx, 3
     call wa_putn
     xor ax, ax
     mov [wa_nfr], ax
@@ -983,24 +1041,36 @@ wa_meter:
     mov [wa_tpr+2], ax
     mov [wa_ncells], ax
     mov [wa_ncells+2], ax
+    mov bl, [wa_fov]            ; the field of view: 9, 7 or 6 (tens)
+    xor bh, bh
+    mov al, [wa_fovc+bx]
+    mov di, 36
+    call wa_putc
+    mov al, '-'                 ; H: held edges
+    cmp byte [wa_hyst], 0
+    je .h
+    mov al, 'H'
+.h:
+    call wa_putc
     mov al, 'F'                 ; the detail level
     cmp byte [wa_sparse], 0
     je .det
     mov al, 'S'
 .det:
-    mov di, 38
     call wa_putc
-    mov al, ' '                 ; B: these are the bench's figures
+    mov al, '-'                 ; G: the floor grid
+    cmp byte [wa_grid], 0
+    je .g
+    mov al, 'G'
+.g:
+    call wa_putc
+    mov al, 'N'                 ; B: these are the bench's figures
     cmp byte [wa_benchm], 0
     je .bm
     mov al, 'B'
 .bm:
     mov byte [wa_benchm], 0
-    mov di, 37
-    call wa_putc
-    mov al, '0'
-    add al, [wa_vsync]
-    mov di, 39
+    mov di, 32
     call wa_putc
     ret
 
@@ -1129,8 +1199,9 @@ wa_help:
     db 'Mouse looks; W A S D move; arrows', 0
     db 'turn and pitch; Space jumps; click', 0
     db 'or Ctrl fires; Tab: 80/40; V: vsync;', 0
-    db 'B: bench (64-frame spin). L: walls full', 0
-    db 'or sparse (floor lines + posts). Esc.', 0
+    db 'B: bench. L: walls full/sparse. F: view', 0
+    db '90/75/60. H: hold far edges. G: floor', 0
+    db 'grid. Esc leaves. HUD tail: view H F G.', 0
     db 'HUD: fps, frame, render, present ms,', 0
     db 'video writes a frame.', 0
     db 0
@@ -1147,11 +1218,17 @@ wa_hgl:     times WA_HR/2 db 0xC4, '_'
 wa_fglyph:  db 0x20, 0xDF, 0xDF, 0xDF, 0xDC, 0xDD, 0xDB, 0xDB
             db 0xDC, 0xDB, 0xDE, 0xDB, 0xDC, 0xDB, 0xDB, 0xDB
 ;              near   mid    far    figure flash  cross
-wa_attrc:   db 0x0B,  0x03,  0x01,  0x0F,  0x0C,  0x0E
+; COLOUR SAYS WHAT A THING IS, not how far (the owner's call: two shades of
+; blue never read as depth, and Hercules has no colour at all): a boundary
+; wall dark blue, an item - a pillar, a block, a stair to come - cyan, the
+; floor grid dark grey, the figures white. On mono every wall and dot is
+; normal intensity and the figures alone are bright.
+;              room   item   dot    figure flash  cross
+wa_attrc:   db 0x01,  0x03,  0x08,  0x0F,  0x0C,  0x0E
 wa_attrm:   db 0x07,  0x07,  0x07,  0x0F,  0x70,  0x0F
-A_NEAR  equ 0
-A_MID   equ 1
-A_FAR   equ 2
+A_ROOM  equ 0
+A_ITEM  equ 1
+A_DOT   equ 2
 A_FIG   equ 3
 A_FLASH equ 4
 A_CROSS equ 5
@@ -1187,6 +1264,13 @@ WA_VAR wa_yv,WA_MYV*2
 WA_VAR wa_vtx,WA_MVTX*2
 WA_VAR wa_corn,(WA_MBOX+1)*4
 WA_VAR wa_boxes,WA_MBOX*8
+WA_VAR wa_bcol,WA_MBOX+2
+WA_VAR wa_fov,1
+WA_VAR wa_hyst,1
+WA_VAR wa_grid,1
+WA_VAR wa_kyq,2
+WA_VAR wa_kyh,2
+WA_VAR wa_wf,2
 WA_VAR wa_trig,1
 WA_VAR wa_mflash,1
 WA_VAR wa_frame,1
