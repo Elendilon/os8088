@@ -19754,6 +19754,54 @@ boot overlay and gone — and the line unmasked at the 8259.
 `[mou_port] >= MOU_PEND` returns, because neither is a UART and neither
 indexes the serial tables. No reported program takes `int 74h`.
 
+### 9.14 Relative motion — `OSAPI_MOUSE_REL` (0x0236), the mickeys before the clamp
+
+`mou_apply` folds each report's dx/dy into a CLAMPED position, so a pointer
+held against a screen edge loses whatever motion carries on past it — right
+for a desktop and wrong for anything steered by motion rather than position:
+a mouse-look (docs/plans/MULTIPLAYER-FPS-PLAN.md section 7) or `INT 33h`
+function `0Bh`'s mickey counters (§96.10.2, docs/plans/DOS-EXEC-PLAN.md).
+§97.11 named the slot as "not taken"; the owner took it on 2026-11-12.
+
+**The accumulator.** `mou_apply` adds the report's signed dx and dy into two
+`.bss` words, `[mou_rx]` and `[mou_ry]`, BEFORE the clamp — two `add`s, eight
+bytes, one per report on the ISR path. They are raw device units (mickeys),
+unscaled, positive right and DOWN, and wrap at 16 bits; nothing else reads or
+resets them. Every backend that reaches `mou_apply` feeds them: the serial
+mouse, the PS/2 mouse (§9.9) and the CH375 (§9.12). The keyboard mouse
+(§9.6) does not: `kbm_move` clamps its own step and is a desktop affordance
+whose arrows a game reads as keys anyway. The VMware absolute pointer
+(§9.11) joins at `mou_apply_abs`'s tail, past the add, so on `kern_emu` with
+the backdoor live the words do not move: an absolute device has no motion to
+report, and a package wanting one there differences `OSAPI_MOUSE`.
+
+**The cell** is a jump cell at the table's end (the `OSAPI_FILE_FIND_SEQ`
+shape, §19.7.1.1), in every kernel:
+
+| cell | in | out |
+|---|---|---|
+| `OSAPI_MOUSE_REL` (0x0236) | — | CX = dx, DX = dy, the mickeys since the LAST call (signed), and both words zeroed; AL = `[mouse_btn]`. Every other register and the flags kept |
+
+Each word is read and zeroed by one `xchg`, which no interrupt can split.
+There is deliberately no `cli` round the pair: a report landing between the
+two answers its dx now and its dy at the next call, a frame late and never
+lost, and leaving it out keeps the body at 22 bytes, an EVEN count, which
+every hot routine assembled after it needs (`tests/unit/t_hotpar.py`). The first call after
+boot answers whatever motion the desktop saw, so a mouse-look calls it once
+on entry and discards the answer.
+
+**Cost**, on every kernel: the eight bytes in `mou_apply`, four of `.bss`,
+the three-byte cell and its body. The design question was *do we spend ~40
+resident bytes for relative motion on every machine* (§1's banner) — yes,
+because the alternative is each mouse-steered package taking the UART for
+itself (WireBall's shape, §109.1), which kern_small cannot do (no rate hook,
+§53.2.2) and which leaves a PS/2 mouse out.
+
+**Inside an fsx bracket** the cell answers live: the mouse ISR keeps running
+there (§53.1). It is NOT in `fsx_rkeep` (§53.2.3), so a `FSXF_REAL` bracket
+on kern_mega does not have it; a protected-mode bracket does.
+
+
 ## 10. events.inc
 
 Event record, 8 bytes: `EV_TYPE` dw, `EV_A` dw, `EV_B` dw, `EV_C` dw.
@@ -176897,8 +176945,8 @@ image carrying data spells `CD 81 FF` by chance.
 of the last release** (the rule the PKG_FMT 10 rows were cut by: two
 releases shared that format and both Wires were level 2, so one byte had to
 hold both back, and the older table decided).
-`WIRE_TABLE_END` (0x0236, the flag day's `osapi_table_end` with `OSAPI_FILE_FIND_SEQ` (§19.7.1.1) appended
-before any kernel at `PKG_FMT` 13 was released - a cell added to an UNRELEASED generation moves the
+`WIRE_TABLE_END` (0x0239, the flag day's `osapi_table_end` with `OSAPI_FILE_FIND_SEQ` (§19.7.1.1) and
+`OSAPI_MOUSE_REL` (§9.14) appended before any kernel at `PKG_FMT` 13 was released - a cell added to an UNRELEASED generation moves the
 end and cuts no row) is the end of the table the TOP level's kernel
 has. **A call at or past `WIRE_TABLE_END` is refused** by `--verify
 --pkgdir`, because no Wire in the field can be told about it: the release

@@ -1,6 +1,6 @@
 {
  "DRV_VER": {
-  "fingerprint": "656c4d3e833541a611013b08fcb90cc38806ad506fedec67f45aebef1324010f",
+  "fingerprint": "507f6afa32bbe012e56a41050f3255f524e507ff7aaeda164d683f5aabe7c9cb",
   "version": 14
  },
  "HD_ABI_VER": {
@@ -8,7 +8,7 @@
   "version": 7
  },
  "PKG_FMT": {
-  "fingerprint": "f6c2cf20149faee82be3681877c01727821c71336bbcd768c3f24ac704cec33d",
+  "fingerprint": "2d96e4d95a66f5990791f2975b5067b555fc3a88201116b04819955ac1a98c1c",
   "version": 13
  },
  "VX_ABI_VER": {
@@ -2252,6 +2252,20 @@
    "from": 14,
    "guard": "DRV_VER",
    "reason": "SPEC.md 50.6.13.2: two owner tags added (MEM_P_ICO_SM, MEM_P_DIRW_SM), kern_small's spellings of the icon store's and the read-ahead's tags for the Task Manager; nothing built before changes meaning, no bump",
+   "to": 14
+  },
+  {
+   "fingerprint": "2d96e4d95a66f5990791f2975b5067b555fc3a88201116b04819955ac1a98c1c",
+   "from": 13,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_MOUSE_REL (SPEC.md 9.14) is a cell APPENDED at the table's end, 0x0236: every package built before it calls only cells that are where they were, so nothing built before it changes and PKG_FMT stays 13. A package that calls it on an older kernel far-calls past that kernel's table, which is the appended-cell case 20.2.0.1 already covers.",
+   "to": 13
+  },
+  {
+   "fingerprint": "507f6afa32bbe012e56a41050f3255f524e507ff7aaeda164d683f5aabe7c9cb",
+   "from": 14,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_MOUSE_REL (SPEC.md 9.14) is a cell APPENDED at the table's end, 0x0236: every package built before it calls only cells that are where they were, so nothing built before it changes and PKG_FMT stays 13. A package that calls it on an older kernel far-calls past that kernel's table, which is the appended-cell case 20.2.0.1 already covers.",
    "to": 14
   }
  ]

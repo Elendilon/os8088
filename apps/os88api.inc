@@ -6463,6 +6463,13 @@ OSAPI_FT_UP   equ 3             ; the synthesized '..' (SPEC.md 19.5)
                                  ; when the folder changes, and count entries
                                  ; yourself. kern_small walks by ordinal and
                                  ; answers the same
+%define OSAPI_MOUSE_REL     KERNEL_SEG:0x0236   ; RELATIVE MOTION (SPEC.md
+                                 ; 9.14): out CX = dx, DX = dy, the raw
+                                 ; mickeys since the LAST call (signed,
+                                 ; unclamped, + right/down), both then zeroed;
+                                 ; AL = buttons as OSAPI_MOUSE. Everything else
+                                 ; kept. The mouse-look call: the first answer
+                                 ; after entry is the desktop's, so discard it
 
 ; --- the two cells a PACKAGE may not call (SPEC.md 19.6.1) --------------------
 ; It is published here because a DRIVER assembles against this same SDK, and

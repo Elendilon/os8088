@@ -1647,6 +1647,27 @@ osapi_mouse:
     mov al, [mouse_btn]
     ret
 
+; osapi_mouse_rel - OSAPI_MOUSE_REL (0x0236, SPEC.md 9.14), a JUMP cell: the
+; caller's far call lands here with its own DS. Out CX = dx, DX = dy, the raw
+; mickeys since the last call, each taken and zeroed by one xchg; AL =
+; mouse_btn. Flags and every other register kept (popf restores the caller's).
+; NO cli: a report landing between the two xchgs has its dy answered by the
+; next call instead of this one - delayed a frame, never lost - and the 22
+; bytes stay EVEN, which every hot routine assembled after this one needs
+; (tests/unit/t_hotpar.py)
+osapi_mouse_rel:
+    push ds
+    KDS
+    pushf
+    xor cx, cx
+    xchg cx, [mou_rx]
+    xor dx, dx
+    xchg dx, [mou_ry]
+    mov al, [mouse_btn]
+    popf
+    pop ds
+    retf
+
 %ifdef KERN_BIG
 ; =============================================================================
 ; The PS/2 mouse (SPEC.md 9.9)
@@ -4345,6 +4366,8 @@ mou_apply:
                                 ; awake all night. One store, no register - the
                                 ; UI task spends it, so nothing in an ISR
                                 ; touches a video port or reads a clock
+    add [mou_rx], ax            ; THE MICKEYS, before the clamp can eat them
+    add [mou_ry], bx            ; (SPEC.md 9.14): OSAPI_MOUSE_REL's two words
     add ax, [mouse_x]           ; STAGED, not stored: the clamp is 2-D on a
     add bx, [mouse_y]           ; machine with two displays (SPEC.md 39.15.4)
                                 ; and cannot answer about x until y is known -
@@ -6877,6 +6900,9 @@ mou_whl     resw 1              ; the WHEEL, notches owed, signed, positive
                                 ; one xchg, so a spin is one scroll however fast
                                 ; it comes and can never flood the event ring
 %endif
+mou_rx      resw 1              ; raw dx and dy summed since the last
+mou_ry      resw 1              ; OSAPI_MOUSE_REL (SPEC.md 9.14): signed,
+                                ; unclamped, unscaled, wrapping at 16 bits
 cur_lazy    resb 1              ; gfx_lock deferred the hide (SPEC.md 7.1.4):
                                 ; the arrow is still on screen this hold
 cur_off     resw 1              ; cur_geom's answers, banked for cur_get_mono:
