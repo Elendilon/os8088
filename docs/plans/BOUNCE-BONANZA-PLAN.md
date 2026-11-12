@@ -1,11 +1,13 @@
 # BOUNCE BONANZA — an isometric rolling-ball game for the 5150 (investigation and plan)
 
-**STATUS: INVESTIGATION. Nothing is built.** This is the answer to the owner's
+**STATUS: WAVE 0 (the spike) IN PROGRESS; the owner's decisions are in
+section 12.** The package is `BONANZA` (`apps/bonanza/`). Below is the
+investigation as it was written, the answer to the owner's
 brief of 2026-11-12, on branch `bounce-bonanza`, cut from `elendilon`: is an
 overhead isometric rolling-ball game with a scrolling course feasible on the
 IBM 5150, which tricks does the scrolling need, how do we make the ball look
 3D, how do animated obstacles stay cheap, and what else could the game do?
-**Bounce Bonanza** is a working title (section 12). Every figure here is
+**Bounce Bonanza** is the title, and `BONANZA` the package (section 12). Every figure here is
 **PREDICTED** from measured unit costs unless it says otherwise. The
 emulated-XT spike in section 11 (wave 0) is what turns those predictions into
 measurements. Nothing here has been run on a 5150.
@@ -263,7 +265,7 @@ gets low.
 ## 3. The course: authored in 3D, shipped as blocks
 
 The course is authored as a **heightfield of tiles plus props**, in a text
-format (`apps/bbonanza/courses/*.txt`; `apps/bounce/` is already BOUNCE,
+format (`apps/bonanza/courses/*.txt`; `apps/bounce/` is already BOUNCE,
 the square, SPEC.md 112). A deterministic host tool,
 `tools/bbcourse.py` (to be written), compiles it into three products.
 
@@ -426,10 +428,12 @@ airborne:
 - gravity acts on *z*, and *x*/*y* keep their momentum;
 - on landing, *v_z* is reflected with the surface's restitution, so the ball
   bounces;
-- a landing below the "too hard" speed is fine;
-- one above it costs **2 seconds stunned** (a wobble animation), **not** a
-  lost life. The splat is gentler than Marble Madness's, and an owner
-  decision (D4).
+- **a hard landing is a MECHANIC, not a punishment** (the owner's decision
+  D4). What it does depends on the BALL (section 5.5): the rubber ball
+  bounces back up, which is how it clears a gap or reaches a higher tier;
+  the steel ball lands dead and is stunned for a moment; the glass ball
+  shatters and respawns at the last checkpoint. Falling off a high edge is
+  therefore something a course *asks for* with the right ball.
 
 ### 5.3 Controls that feel analogue on a keyboard
 
@@ -448,13 +452,32 @@ the grid.
 
 ### 5.4 Pointer devices
 
+**The keyboard is the primary control (owner's decision D2).** A pointer
+is a bonus for the end of the project, and a non-trackball mouse is a poor
+fit for this style of game, so neither row below is planned before wave 6.
+
 | device | how | kernel cost |
 |---|---|---|
 | **Mouse as a tilt stick** | the pointer's offset from the screen centre is the tilt vector, and the edge is full tilt. `OSAPI_MOUSE` answers in desktop coordinates inside a bracket (`apps/missile` already relies on this), giving ±320 × ±100 of analogue range on a CGA desktop | **none** |
 | **Mouse as a trackball** (Marble Madness's arcade control) | the mouse's *relative* motion becomes impulse | **a new slot.** `OSAPI_MOUSE` is clamped to the screen, and `OSAPI_MOUSE_FEED` is for drivers only. Its resident cost is tens of bytes on every budgeted kernel, to be priced exactly if chosen. **Owner decision D2** |
 | Game-port joystick (201h) | read once a frame. A full-scale poll is about 1.1 ms. §53.7 does not forbid the port | none. Optional; no game port is known on 5150 #1 |
 
-### 5.5 Determinism buys three features
+### 5.5 The balls: one engine, three materials (D4)
+
+The ball type is a record of physics constants plus its own 4 KB texture
+set, so the texture tells the player what they are rolling. Pads on the
+course swap it.
+
+| ball | restitution | hard landing | what courses use it for |
+|---|---|---|---|
+| **rubber** | 0.85 | bounces, keeping most of v_z | the bounce that clears a gap or climbs a tier: **required** on some routes |
+| **steel** | 0.15 | stunned (a wobble, about 1 s) | heavy: breaks crumbling tiles, ignores fans, sticks to magnets, sinks in water |
+| **glass** | 0.40 | **shatters**: back to the last checkpoint | light and fast with high grip; the precise, fragile route |
+
+The table is a first guess and is tuned in wave 2. A fall's "hard" speed
+is per ball as well.
+
+### 5.6 Determinism buys three features
 
 The inputs are **one byte a step**: 55 bytes a second, about 3.3 KB a
 minute. Fixed-point physics with no frame-rate dependence replays exactly,
@@ -617,11 +640,9 @@ obstacle.
 These are ordered roughly from cheapest to most ambitious. Each is costed
 against the lanes above.
 
-1. **Ball swaps.** Pads change the ball type: **steel** (heavy, e = 0.2,
-   breaks crumbling blocks, sinks in water), **rubber** (e = 0.85, so
-   bouncing is the *point*: the "Bonanza"), and **sponge** (light, so fans
-   and wind push it much harder). Each type is a physics-constant record plus
-   its own 4 KB texture set, so the texture tells the player what they are.
+1. **Ball swaps.** *Promoted into the core game by D4: section 5.5.* A
+   fourth ball, **sponge** (light, so fans and wind push it much harder), is
+   still an idea.
 2. **Surfaces as rules:** ice, sand, mud, grates that slow you only
    sideways, and boost chevrons. These are physics-grid nibbles only, with
    **zero drawing cost**.
@@ -641,7 +662,8 @@ against the lanes above.
 8. **Pinball zone.** A walled section where **flippers** answer the grip
    key. Two contact-lane obstacles, plus bumpers. This is the closest nod to
    *Extreme Pinball*.
-9. **Golf mode, on the same courses.** Instead of continuous control, you
+9. **Golf mode, on the same courses.** *D3: a possible SECOND game on
+   this engine, after the first, which is direct control.* Instead of continuous control, you
    **aim and set power**, and the ball then rolls under physics alone.
    Strokes are scored against par. This mode suits a slow machine very well
    (input is rare, and the wheel gets every spare cycle), and it re-uses
@@ -653,7 +675,7 @@ against the lanes above.
 11. **Gems on the risky line.** Collectibles placed where the fast line is
     dangerous. Each is drawn in the static background, and taking it is a
     one-time block swap.
-12. **Ghost race against your best time** (section 5.5). The ghost is drawn
+12. **Ghost race against your best time** (section 5.6). The ghost is drawn
     as a dithered ball on the wheel, at a lower rate.
 13. **Link race over a null modem**, as WireBall and WireFleet do
     (`apps/os88link.inc`). Each machine renders its own view, and the other
@@ -740,7 +762,7 @@ keys.
 - [ ] Hercules polish (pair art, its blank budget).
 - [ ] kern_mega, through the real-mode bracket.
 - [ ] VGA runs the CGA arm; EGA, MDA and kern_small refuse with reasons.
-- [ ] Disks: `make bbonanzadisk` in four geometries. The package is `local`
+- [ ] Disks: `make bonanzadisk` in four geometries. The package is `local`
       in `apps/RETIRED.txt` until the owner says it ships.
 
 **Wave 6: the picks from section 9**, which the owner chooses: golf mode,
@@ -755,12 +777,27 @@ A "How It Was Built" diary is started in
 
 | # | decision | recommendation |
 |---|---|---|
-| D1 | **2D scrolling, or vertical only?** | **2D**: the same engine, and a narrow course is just a vertical-only course |
-| D2 | **A trackball slot** (a kernel slot for relative mouse motion, tens of bytes resident), or the tilt stick only? | the tilt stick first. Add the slot only if it plays badly |
-| D3 | **Run mode, golf mode, or both?** | run first, then golf (section 9, item 9): the same engine, and possibly the better fit for the machine |
-| D4 | **What a hard fall costs** | a 2 s stun, never a lost life |
-| D5 | **The 160×100×16 snow-bound colour experiment** | park it; revisit only after wave 0's numbers |
-| D6 | **The name** (`BOUNCE` and `apps/bounce/` are taken by SPEC.md 112's square, so the package is `BBONANZA` whatever the title) | *Bounce Bonanza* fits if rubber balls, bumpers and combo bounces are central (section 9, items 1 and 10). Otherwise: *Roll Call*, *Tumble Town*, *Orbit Links* (if golf mode leads), *Gravity Gardens* |
+**Decided by the owner, 2026-11-12:**
+
+| # | decision | the owner's answer |
+|---|---|---|
+| D1 | 2D scrolling, or vertical only? | **2D.** |
+| D2 | A trackball slot, or the tilt stick? | **The keyboard is primary.** A mouse is a possible bonus at the end; a non-trackball mouse is hard for this style of game |
+| D3 | Run mode, golf mode, or both? | **Direct control first.** A golf-like game may follow later as a second game on this engine |
+| D4 | What a hard fall costs | **Make it a mechanic, encourage it.** The rubber ball bounces, and that is required to clear some gaps and heights; the steel ball may be stunned; a glass ball may shatter (section 5.5) |
+| D5 | 16 colours | **Not the focus.** It would suit a composite monitor; consider it if the render and art budgets allow (below) |
+| D6 | The name | **`BONANZA` is the package** (`apps/bonanza/`, `BONANZA.O88`); the title is *Bounce Bonanza* |
+
+**On D5: composite is the better 16-colour route.** On a composite monitor,
+the CGA's 640×200 mono mode shows *artifact colour*: 160 colour pixels a
+row in 16 colours. Unlike the 80-column text trick (section 2.8), it is a
+**graphics mode, so there is no snow**, and its 6845 ring is the same 8 KB a
+bank with the same 80-byte rows, so **this engine scrolls it unchanged**.
+The horizontal step stays one word, which is 4 colour pixels: the same
+fraction of the screen as now. The cost is a second art set (the same bytes
+per row as the 4-colour set), and an RGB monitor shows it as stripes, so it
+is an option, never the default. The owner's CGA drives an IBM 5153 RGB, so
+it needs a composite monitor to judge. Not before the game is.
 
 ## 13. Risks
 
