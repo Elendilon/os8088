@@ -737,3 +737,76 @@ that loss was a call chain four levels deep per plotted cell.
 
 The decision the owner asked to make — **40 or 80** — now has both on one
 disk, with the meter, switchable live.
+
+### 16.1 Optimization round 1 — measured
+
+The bench is unchanged: 64 frames, a fixed spin, MartyPC `os8088_5150_cga`.
+
+| | render | present | fps | before |
+|---|---|---|---|---|
+| 80 columns | 64.0 ms | 13.4 ms | **13.7** | 13.0 |
+| 40 columns | 50.1 ms | 7.6 ms | **18.4** | 18.0 |
+
+**What was done**, each checked on the glass:
+
+- **The renderer is now front to back over a box-level BSP.** Boxes are
+  convex, so the tree orders only the nine boxes: 17 nodes, every split a
+  clean axis-aligned line, refused at build time otherwise. The room comes
+  last.
+  - A box's faces are chosen by four compares.
+  - A column a nearer wall drew is closed, and the walk stops once all are
+    closed.
+  - A wall whose reachable columns are all closed is dropped BEFORE any clip
+    or divide. The reachable range is found from camera space, and an open
+    column is found with one `repne scasw`.
+  - Transforms are two 32-bit adds per vertex, off per-coordinate products
+    made once a frame.
+  - Projections are cached per vertex.
+  - The left/right frustum clip is gone. Spans clamp to the screen; a guard
+    band of |x| <= 8z keeps the column divide in range.
+  - The per-column depth buffer and the separate edge pass are gone: a
+    span draws its open columns as it steps.
+  - Slope fills are tested only on spans steep enough to need them.
+  - Corners are drawn after the loop. A box corner is drawn once: a face's
+    start, and its end only on a silhouette.
+- **The host check of the BSP order** compares the first front-facing wall
+  per column against a ray-cast, over 24,000 columns from 300 viewpoints.
+  It found 0 errors, and 1,112 with the walk reversed.
+- **Cells are indexed by OFFSET** throughout (stamp, mask, lists, row
+  tables), which removes a shift at every plot and in both present loops.
+- **Figures:** sub-pixels plotted inline in the line loop. Past ~15 m a
+  figure is a one-sub-column marker instead of nine limbs.
+
+**Why it moved so little.** Two instruments explain it.
+
+- **Counters** read off the guest: per frame 35 walls walked, 19 facing, 7
+  spans set up, 79 columns opened, 27 vertices, 14 clips (before the guard
+  band), and one figure of ~20 sub-pixels.
+- **The listing:** an opened column ran ~260 bytes of code, and the 8088
+  fetches at ~4.34 clk a byte (PERFORMANCE.md Part 2) — ~1,100 clk before
+  any data moves, ~1,800 measured.
+
+The plan's per-frame estimate (section 4.7) priced instructions at a few
+clocks each; the floor is ~20. After this round the profile is FLAT: span
+~29%, projection ~11%, vertices ~8%, present ~8%, figures ~9%, nothing else
+over 5%. No single lever is left.
+
+**The honest reading:**
+
+- 30 fps at 80 columns is out of reach for this renderer on a stock 4.77 MHz
+  8088.
+- 40 columns is ~19 fps on the bench's worst case, a continuous fast spin
+  across the busiest view. The HUD in the look-around runs read 12–16 fps
+  at 40 columns, including the 30 Hz sim's ~2 ms a tick. (Wave 0's 20–24
+  readings were taken while a cap bug ran the sim at a third of its rate.)
+- What would still move it:
+  1. A per-column path in the ~100-byte class. That means a hand-scheduled
+     register loop, the accumulators out of memory, and tops and bottoms as
+     8.8 values when on screen.
+  2. A reciprocal table instead of the per-vertex divides.
+  3. Fewer cells: for example, top edges only, or no slope fills, as a
+     player option.
+  4. Present merged into the span pass.
+
+  Each is a few percent to perhaps 15%. Together they might bring 40 columns
+  to the mid-20s.

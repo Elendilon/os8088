@@ -162,6 +162,88 @@ def angle_of(dx, dy):
     return int(round(a * 1024 / (2 * math.pi))) & 1023
 
 
+# --- the BSP (docs/plans/MULTIPLAYER-FPS-PLAN.md section 16, lever 1) --------
+# Over BOXES, not segments: a box's faces never hide one another (it is
+# convex), so the tree only has to order the boxes, front to back, and the
+# room - which encloses everything - is drawn last. Every split is an
+# axis-aligned line that separates the boxes WITHOUT cutting one, so the
+# guest's node test is one compare and a leaf is one box; an arena with no
+# such line is refused here, at build time.
+#
+# A wall face is one-sided: drawn when the player is on its outer side, and
+# p1 -> p2 runs left to right seen from the front. A box's corners are
+# c0 (x0,y0), c1 (x1,y0), c2 (x1,y1), c3 (x0,y1); its faces are south c0->c1,
+# east c1->c2, north c2->c3, west c3->c0. The room's run the other way.
+
+def box_tree(ids, nodes):
+    """-> node index. nodes: [kind, box, value, low, high]; kind 0 splits on
+    x, 1 on y, 2 is a leaf holding one box."""
+    me = len(nodes)
+    nodes.append(None)
+    if len(ids) == 1:
+        nodes[me] = [2, ids[0], 0, -1, -1]
+        return me
+    best = None
+    for axis in (0, 1):
+        for v in sorted({BOXES[i][axis] for i in ids} |
+                        {BOXES[i][axis + 2] for i in ids}):
+            low = [i for i in ids if BOXES[i][axis + 2] <= v]
+            high = [i for i in ids if BOXES[i][axis] >= v]
+            if low and high and len(low) + len(high) == len(ids):
+                score = abs(len(low) - len(high))
+                if best is None or score < best[0]:
+                    best = (score, axis, v, low, high)
+    if best is None:
+        raise SystemExit("arenagen: no axis-aligned line separates boxes %r "
+                         "without cutting one - move a box" % ids)
+    _, axis, v, low, high = best
+    lo = box_tree(low, nodes)
+    hi = box_tree(high, nodes)
+    nodes[me] = [axis, 0, v, lo, hi]
+    return me
+
+
+def bsp_tables(w):
+    nodes = []
+    box_tree(list(range(len(BOXES))), nodes)
+    pts = []
+    for (a, b, c, d) in [ROOM] + BOXES:
+        pts += [(a, b), (c, b), (c, d), (a, d)]
+    xs = sorted({p[0] for p in pts})
+    ys = sorted({p[1] for p in pts})
+    verts, vix = [], {}
+    for p in pts:
+        if p not in vix:
+            vix[p] = len(verts)
+            verts.append(p)
+    if len(verts) * 2 > 255 or len(BOXES) * 8 > 255 or len(xs) * 4 > 255 \
+            or len(ys) * 4 > 255:
+        raise SystemExit("arenagen: the arena outgrew a byte index")
+    w("WA_NXV equ %d" % len(xs))
+    w("WA_NYV equ %d" % len(ys))
+    w("WA_NVTX equ %d" % len(verts))
+    w("WA_NNODE equ %d" % len(nodes))
+    w("wa_xv:      dw " + ", ".join(str(x) for x in xs))
+    w("wa_yv:      dw " + ", ".join(str(y) for y in ys))
+    w("wa_vtx:                         ; x index x 4, y index x 4 (byte offsets")
+    w("                                ; into the per-frame product tables)")
+    for (x, y) in verts:
+        w("    db %d, %d" % (xs.index(x) * 4, ys.index(y) * 4))
+    w("wa_corn:                        ; per box (the room first): its corners")
+    w("                                ; c0..c3 as vertex x 2")
+    for (a, b, c, d) in [ROOM] + BOXES:
+        w("    db " + ", ".join(str(vix[p] * 2) for p in
+                                [(a, b), (c, b), (c, d), (a, d)]))
+    w("wa_bsp:                         ; kind (0 x, 1 y, 2 leaf), box x 8 (a leaf's,")
+    w("                                ; into wa_boxes), value, low, high (0 = none)")
+    for (kind, box, v, lo, hi) in nodes:
+        w("    db %d, %d" % (kind, box * 8))
+        w("    dw %d, %s, %s" % (v, "wa_bsp+%d" % (lo * 8) if lo >= 0 else "0",
+                              "wa_bsp+%d" % (hi * 8) if hi >= 0 else "0"))
+    sys.stderr.write("arenagen: %d boxes in a %d-node tree, %d vertices, "
+                     "%d x and %d y values\n"
+                     % (len(BOXES), len(nodes), len(verts), len(xs), len(ys)))
+
 def main(out):
     L = []
     w = L.append
@@ -182,6 +264,7 @@ def main(out):
     for i in range(0, 1024, 8):
         w("    dw " + ", ".join(str(int(round(16384 * math.sin(
             2 * math.pi * j / 1024)))) for j in range(i, i + 8)))
+    bsp_tables(w)
     w("wa_boxes:                       ; x0, y0, x1, y1")
     for b in BOXES:
         w("    dw %d, %d, %d, %d" % b)

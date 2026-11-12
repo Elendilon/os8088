@@ -209,6 +209,9 @@ wa_setmode:
     mov cl, 3
     shl ax, cl
     mov [wa_k16], ax            ; 8W: the projection's scale, col16 units
+    mov ax, [wa_w]
+    shl ax, 1
+    mov [wa_w2], ax             ; 2W: the figures' sub-columns
     mov byte [wa_mono], 0
     cmp word [wa_vseg], 0xB000
     jne .colour
@@ -222,11 +225,14 @@ wa_setmode:
     mov di, wa_hroff
     mov cx, WA_ROWS + 1
 .rows:
-    mov [si], bx
+    mov [si], bx                ; cells (the HUD's)...
+    mov ax, bx
+    shl ax, 1                   ; ...and cell OFFSETS, which is what the
+    mov [si+wa_rowo2-wa_rowoff], ax ; renderer indexes everything by
     cmp cx, 1
     je .last                    ; (the HUD row has no half-rows)
-    mov [di], bx
-    mov [di+2], bx
+    mov [di], ax
+    mov [di+2], ax
     add di, 4
 .last:
     add bx, [wa_w]
@@ -241,7 +247,10 @@ wa_setmode:
     rep stosw
     mov di, wa_stamp
     xor ax, ax
-    mov cx, WA_CELLS/2
+    mov cx, WA_CELLS
+    rep stosw
+    mov di, wa_vst              ; the frame number restarts: so does the
+    mov cx, WA_NVTX             ; vertex cache, or an old stamp could match
     rep stosw
     mov [wa_frame], al
     mov [wa_newn], ax
@@ -1071,6 +1080,7 @@ WA_VAR wa_fsi,FSI_SIZE
 WA_VAR wa_vseg,2
 WA_VAR wa_w,2
 WA_VAR wa_k16,2
+WA_VAR wa_w2,2
 WA_VAR wa_mode,1
 WA_VAR wa_want,1
 WA_VAR wa_mono,1
@@ -1107,14 +1117,15 @@ WA_VAR wa_benched,1
 WA_VAR wa_benchm,1
 WA_VAR wa_hold,1
 WA_VAR wa_rowoff,(WA_ROWS+1)*2
+WA_VAR wa_rowo2,(WA_ROWS+1)*2
 WA_VAR wa_figs,F_SIZE*WA_NFIG
 WR_BSS
 WA_VAR wa_newp,2
 WA_VAR wa_oldp,2
 WA_VAR wa_newn,2
 WA_VAR wa_oldn,2
-WA_VAR wa_stamp,WA_CELLS
-WA_VAR wa_fmask,WA_CELLS
+WA_VAR wa_stamp,WA_CELLS*2       ; by cell OFFSET: even bytes only
+WA_VAR wa_fmask,WA_CELLS*2
 WA_VAR wa_cur,WA_CELLS*2
 WA_VAR wa_vis,WA_CELLS*2
 WA_VAR wa_lista,WA_CELLS*2
