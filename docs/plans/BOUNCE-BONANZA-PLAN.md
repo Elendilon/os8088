@@ -4,7 +4,8 @@
 to continue"): both cards hold the full refresh on MartyPC (CGA 59.8 Hz,
 Hercules 50.8 Hz). WAVE 0b (the camera and the optimisation round, SPEC.md
 128.9) DONE: busy time 43% of a CGA refresh and 37% of a Hercules one, no
-misses, three camera modes for the owner to choose by feel. WAVE 1 NEXT. The owner's decisions are in section 12.** The package is `BONANZA` (`apps/bonanza/`). Below is the
+misses, three camera modes for the owner to choose by feel. WAVE 1 NEXT: its
+contract is SPEC.md 128.10 (the text course, `tools/bbcourse.py`, physics v1). The owner's decisions are in section 12.** The package is `BONANZA` (`apps/bonanza/`). Below is the
 investigation as it was written, the answer to the owner's
 brief of 2026-11-12, on branch `bounce-bonanza`, cut from `elendilon`: is an
 overhead isometric rolling-ball game with a scrolling course feasible on the
@@ -271,7 +272,7 @@ gets low.
 ## 3. The course: authored in 3D, shipped as blocks
 
 The course is authored as a **heightfield of tiles plus props**, in a text
-format (`apps/bonanza/courses/*.txt`; `apps/bounce/` is already BOUNCE,
+format (`apps/bonanza/courses/*.bbc`; `apps/bounce/` is already BOUNCE,
 the square, SPEC.md 112). A deterministic host tool,
 `tools/bbcourse.py` (to be written), compiles it into three products.
 
@@ -316,10 +317,13 @@ whose pixels can occlude, and gives it:
 
 After the ball is composited into its box, any marked block that is in front
 of the ball is laid back over it through its mask. That is typically 0–4
-blocks, so it is cheap. Some depth cases are ambiguous; the course design
-avoids them, and the tool **flags** any block whose depth varies too much to
-key with one value. A block the tool cannot key is an authoring error at
-build time, not a glitch at run time.
+blocks, so it is cheap. Some depth cases are ambiguous: a block's pixels
+can have several depths and tops. Wave 1's answer (SPEC.md 128.10.4.4) is to
+split rather than flag: one record for each block, occluding cell and 2 px
+band of tops, so every pixel is keyed to within 2 px. What the tool REFUSES
+at build time is the cost - more than 24 records in a block row, or more
+than 8 laid at any reachable position - so ambiguity and expense land as
+authoring errors at build time, not glitches at run time.
 
 Art is source (CLAUDE.md, "Building an app or game in waves", step 5).
 Tile textures may be hand-drawn or generated. Whichever is used, the source
@@ -418,6 +422,8 @@ decides whether that is needed; kern_small would refuse it anyway.
        − v · drag(surface)                          sand and mud drag; normal surfaces barely do
     v += a;  v = clamp(v, vmax(surface))
     move in at most 4-unit sub-steps; resolve walls and edges per sub-step
+    (wave 1: not needed while the ground speed stays under the ball's
+    radius a step, SPEC.md 128.10.7.2)
 
 **Walls** reflect the normal component with **restitution e** (0.3 on
 stone, 0.85 on a bumper rail). The tangential component keeps most of its
@@ -565,9 +571,12 @@ along the tube's path at the scroll lane's top speed (section 2.2). The tube
 takes exactly as long to travel as the glide does. The rumble on the speaker
 covers it, and the exit is on screen before the ball comes out.
 
-**Teleports and respawns** are cuts. The 145 ms window rewrite is hidden by
-a two-step "iris" (a black box closing on the ball) or simply by the CGA
-border flash. It is a beat the player expects, not a hitch.
+**Teleports and respawns** are cuts when the destination is off the
+window. The 144 - 157 ms window rewrite is hidden by a two-step "iris" (a
+black box closing on the ball) or simply by the CGA border flash. It is a
+beat the player expects, not a hitch. A respawn whose cell is already on
+the window is no cut: the ball is placed and the camera pans (SPEC.md
+128.10.8, open question O5).
 
 ### 6.5 Predicted budget for one CGA frame (79.6k clocks)
 
@@ -783,15 +792,123 @@ so it is a later wave's change. GLIDE's "fast" test is `|v|` against the
 full refresh's step rate (SPEC.md 128.9); the ball's travel a frame is the
 rate-proof form, a later wave's change made with the route re-checked.
 
-**Wave 1: the course pipeline.**
-- [ ] `tools/bbcourse.py`: the text course → render → blocks, metatiles and
-      map → physics grid → occluders. Deterministic, with a `--selfcheck`.
-- [ ] The guest loads a course into claims and plays it with physics v1.
-- [ ] Desktop window, FSX bracket, Esc/F, and claims dropped on every way
-      out.
+**Wave 1: the course pipeline and physics v1** (the contract is SPEC.md
+128.10, written before the code and revised after three review lenses).
+Decided there, against this plan: the map stays FLAT, one word a block
+cell, and metatiles (section 3) are not taken (SPEC.md 128.10.1); a course
+is two PARTS, one a card, each carrying the picture, the occluders AND the
+physics grid - one fetch and one claim a launch, as wave 0b - and not a
+data file (open question O1, which a file's hostile bytes make a priced
+validation pass, not a free addition); the physics cell is one tile in
+ground units, the ball is a CIRCLE pushed out of walls along the contact's
+normal, it leaves the ground when the floor falls away faster than gravity
+and keeps the floor's vertical speed, and a ball two tiles past every solid
+cell is respawned (SPEC.md 128.10.7); ramps are at most 4 half units a tile
+(2 along both axes) so the camera can follow, and the speed caps are set so
+D4's rubber rebound can clear 4 units (128.10.7.2), and the ground cap
+(1.5 gu a step) is under the ball's 6 gu radius, so plan 5.2's sub-steps
+are not needed; occluders are records cut per (block, cell, 2 px band
+of tops), laid back over the NEW footprint's blocks only, with a margin that
+keeps a rolling ball whole on the ground in front of it (SPEC.md
+128.10.4.4); wave 1 is the wave that probes the row-0 box (SPEC.md
+128.10.11.2). Every cost below is PREDICTED until the final pass.
+- [ ] **1.1 A course is text.** `apps/bonanza/courses/bench.bbc` ("Proving
+      Ground", `K = 0`: wave 0b's test course in the format of SPEC.md
+      128.10.3, its ramps inside the limits, the return leg's steps made a
+      climbable ramp, and its holes off the autopilot's legs)
+      and `first.bbc` ("First Roll", `K = 1`, the worked example and the
+      course Enter plays) compile with ONE `tools/bbcourse.py` run over the
+      Makefile's explicit `BZ_COURSES` list (never a glob), which writes
+      `bzcourse.inc` whole, its `OS88_PART` rows included. Everything under
+      `apps/bonanza/courses/` ships; the selfcheck's malformed inputs are
+      strings inside the tool. *Verified: `bonanzacourse` items 1 and 2 -
+      two compiles byte-identical, and every grammar and bound refusal fires
+      on its bad line, reserved statements included.*
+- [ ] **1.2 The picture comes from the course.** The renderer MOVES from
+      `tools/bonanza_assets.py` into `bbcourse.py` (the palette and the
+      Hercules checker are imported, not copied); `BZ<K>C.BIN` and
+      `BZ<K>H.BIN` in `BZC1` (absolute map offsets, `MAPSH`, `ROWB`,
+      occluders, the grid); `Y0` the least that holds every reachable
+      footprint, the reach bounded by the OPEN rule and the launch apex.
+      The tool checks every part it wrote and prints the sizes and counts
+      SPEC.md 128.10.10 quotes. *Verified: `bonanzacourse` items 3 and 6 (the
+      decode back on both cards, with its negative control); the `--png`
+      previews looked at on both cards.*
+- [ ] **1.3 The ground knows its shape.** The grid in `BZG1` inside each
+      course part: heights, slopes, kinds (4 - 15 reserved for a later
+      wave's shapes), NEAR and OPEN void, SAFE and OCC, the start and the route;
+      the occluder records and masks inside their bounds (24 a block row, 8
+      laid at any position). *Verified: `bonanzacourse` items 4 and 5 - the
+      grid's plane equals the drawn geometry at every integer point, and the
+      records' composite equals the per-pixel buffer's at every reachable
+      cell in both air states, with its negative control.*
+- [ ] **1.4 The ball part loses what it never drew.** `BZB1`, 64 frames each
+      at shift `f & 3`: 5,456 bytes a part against 20,816. *Verified:
+      `bonanzaassets`; `bonanzaring`'s glass on both cards.*
+- [ ] **1.5 The ball rolls on the course.** `bzphys.inc`: the guest fetches
+      the course and the ball and plays physics v1 - slopes pull, walls push
+      the ball out and it slides along them at any angle, a fast ball flies
+      off a lip and lands with its drop and impact speed recorded, a pit
+      puts it back on the last SAFE cell (a cut only when that is off the
+      window), and the goal ends the play with `Finished in <s.hh> s` on the
+      face. Space and Left Shift are reserved for wave 2's Hop and Grip.
+      No guest-side header check: the parts are checked at build time.
+      *Verified: `bonanzacourse` item 7 (the scripted runs on `FIRST`, with
+      red controls); `bonanzaphys` - the guest's state equals
+      `bbcourse.Physics` at every frame of the benchmark on both cards, and
+      the poked pit, lip, rail and goal scenarios on `FIRST`, with red arms
+      `slope`, `respawn` and `takeoff`; and one boot to look on each card:
+      the ball rolling behind the traverse's blocks and dropping into a pit
+      behind its rim.*
+- [ ] **1.6 The ball goes behind things.** The occluder pass in the box
+      compose, run only on an OCC cell, over the new footprint's blocks
+      only, each row's walk stopped past the footprint; the idle test
+      compares the ball's cell row, height and air flag too. *Verified:
+      `bonanzaring` with the oracle laying the records back, at least one
+      checked frame with a record laid, red arm `occ`; `bonanzacourse` item
+      8 prints the bench route's OCC share and records laid.*
+- [ ] **1.7 Nothing is left behind.** Esc, F, Alt+Enter, the benchmark's
+      end and the goal each drop both claims; a refused fetch drops what was
+      fetched. *Verified: `bonanzaexit` on both cards - every part row with
+      `OP_FETCHED` clear, `op_seg` 0 and `OP_R_ZKB` back to its pre-launch
+      packed length, and the instance's claims as before the launch read
+      through `tools/heapmap.py` - red arm `leak`; the desktop refusal by
+      review.*
+- [ ] **1.8 The benchmark on a real course.** B drives the bench course
+      under physics in GLIDE; the route re-chosen with a host model of GLIDE
+      (not kept) so all eight step directions occur at least five times on
+      both cards. *Verified: `bonanzaring` (every direction on the glass)
+      and `bonanzaperf` (the floor, the instruments, the OCC frames and the
+      two-box frames) in the final pass, with the A/B leg against wave 0b;
+      SPEC.md 128.10.9's predictions - busy about 45 - 48% of a CGA refresh
+      and 39 - 41% of a Hercules one - get their measured column.*
+- [ ] **1.9 The row-0 box, reached at last.** A poked probe holds the
+      ball's box at window row 0 while GLIDE pans up and across (play
+      reaches row 0 only in the air, SPEC.md 128.10.4.1). *Verified: `bonanzaring`'s probe - at least five frames
+      a card with the boxes at window row 0 and an entering column, the
+      card equal to the picture at `bz_tf` and `bz_presented`, `bz_late` 0 -
+      and its red arm `row0` (the whole column first, item 6's order
+      undone) going red.*
+- [ ] **1.10 kern_mega, built and RUN.** Every new segment is a part's own,
+      used whole (the grid at `GRIDOFF` inside the course part), nothing
+      written through CS and no patched immediate (the map stride is read
+      from the part's header), no `PKG_MEGA` arm (SPEC.md 128.10.6.4).
+      *Verified: `bonanzamega` in the final pass - kern_mega on 86Box's
+      `286-mega-multimon`, the window on its Hercules display, the
+      benchmark and a play: no fault, no leak; red arm `segadd`.*
+- [ ] **1.11 The record.** README, the face's title line, `make help` lines
+      for `bonanza-course-check` and the new rows, the Bonanza row in
+      docs/HEAP-CLAIMS.md (both claims pinned, bucket C; the
+      `tests/pins.txt` lines `bz_cseg` and `op:BZ_P_BALC` stand), SPEC.md
+      128.10's measured tables, the diary's wave-1 entry, and
+      `docs/INDEX.md` regenerated. *Verified: `make` (the doc gates) and
+      `tools/os88index.py --check`.*
 
 **Wave 2: feel.**
-- [ ] Forces, surfaces, walls with restitution, air, bounce, stun.
+- [ ] Forces, surfaces, walls with restitution, air, bounce, stun - tuned
+      INSIDE SPEC.md 128.10.7.2's speed caps; the arrows' force ramp and
+      coast, Hop on Space and Grip on Left Shift (keys reserved in wave 1);
+      the spin's vertical phase off `z` (SPEC.md 128.10.5.3).
 - [ ] Final ball art, shadow and squash; occlusion behind props.
 - [ ] Replays: input logs and a recorded-run test row.
 
@@ -859,5 +976,7 @@ it needs a composite monitor to judge. Not before the game is.
 - **Whether 8 px horizontal steps feel acceptable.** The dead zone and the
   glide are the mitigation. The fallback is narrower courses (D1 makes this
   a design choice, not a rewrite).
-- **Occlusion ambiguity.** The authoring tool refuses what it cannot key, so
-  this risk lands as course-design constraints, not run-time bugs.
+- **Occlusion ambiguity.** The authoring tool keys every occluding pixel
+  to within 2 px (records split by band of tops) and refuses a course past
+  its record bounds (SPEC.md 128.10.4.4), so this risk lands as
+  course-design constraints, not run-time bugs.
