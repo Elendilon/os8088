@@ -1,0 +1,85 @@
+# Proving Ground - BONANZA's course 0, the benchmark's (SPEC.md 128.10.11.1).
+#
+# Wave 0b's generated test course (SPEC.md 128.3) - a start plateau, a long
+# descent with a rail, a landing, a traverse left with a block, a climb, a
+# plateau, a sprint down and a finish - in the text format, changed where
+# physics v1 needs it:
+#  - every ramp a whole half unit a tile, inside the limits;
+#  - NARROWER: a NEAR void cell reaches two tiles past a solid one in wx AND
+#    wy, four in a = wx - wy, and every reachable footprint must lie inside
+#    the 512 px picture, so solid tiles keep to a = -10 .. 10 (wave 0b's
+#    spanned -15 .. 16);
+#  - the LANDING is a square plateau in the middle of the picture: with the
+#    course that narrow GLIDE has only 24 columns to pan in and is clamped at
+#    either end of every long leg, so the benchmark's diagonal pans come from
+#    the autopilot's loop round the landing (the route below);
+#  - every step between floors the route crosses is level or a ramp (a half
+#    unit at a ramp's foot is 4.25 px to the floor function, over BZ_CLIMB),
+#    and the pits are off the route.
+course BENCH "Proving Ground"
+width  64
+
+# A. the start plateau, upper left, and its rail
+floor rect   5 13  8 16  flat 30
+wall  rect   5 12  8 13  flat 32
+# B. the descent, down-right along +wx: 30 -> 27.5 over 5 tiles (r = -1)
+floor rect   8 13 13 16  ramp x 8 13 30 27.5
+wall  rect   8 12 13 13  ramp x 8 13 32 29.5     # its back rail, 2 units proud
+# C. the landing: an 8 x 8 plateau level with the descent's foot, and its rail
+floor rect  13 13 21 21  flat 27.5
+wall  rect  13 12 21 13  flat 29.5
+# D. the traverse left, down-left along +wy (r = -1), its back rail, a block
+#    beside it the ball rolls behind, and the turn
+floor rect  17 21 20 27  ramp y 21 27 27.5 24.5
+wall  rect  16 21 17 27  ramp y 21 27 29.5 26.5
+wall  tile  19 24        ramp y 21 27 29.5 26.5
+floor rect  18 27 20 29  flat 24.5
+# E. the climb, back down-right along +wx: 24.5 -> 28.5 over 8 tiles (r = 1)
+floor rect  20 26 28 29  ramp x 20 28 24.5 28.5
+# F. the plateau at the top of the climb
+floor rect  28 25 33 31  flat 28.5
+wall  rect  28 24 33 25  flat 30.5
+# G. the sprint down: a screen-vertical band, one half unit a tile of s down
+#    (wave 0b's ran 56 rows of s; this one 28, so the part fits: SPEC.md
+#    128.10.4.2 - the benchmark's 1,200 frames never reach it)
+floor band  -1 6  64 92  ramp s 64 92 28.5 14.5
+# H. the finish: a wide plateau and a chequered line
+floor band  -7 7  92 112 flat 14.5
+goal  band  -7 7 102 104 flat 14.5
+wall  band  -8 -8 92 112 flat 16.5
+wall  band   8  8 92 112 flat 16.5
+
+# pits, off the autopilot's route
+hole  tile  10 15
+hole  tile  31 30
+hole  band  4 4 74 75
+hole  band  0 0 84 85
+
+start 6 14
+
+# The benchmark's route (the autopilot, SPEC.md 128.6): the ball's picture
+# top-left on each tile's centre, in order, the first the start (bz_play
+# begins at the second).  Chosen with a host model of GLIDE driving
+# bbcourse.Physics (written to choose, not kept, SPEC.md 128.10.11.1): down the
+# descent onto the landing, a loop round it with two reversals, into the
+# traverse behind its block, then on toward the climb.  Every one of the
+# eight scroll directions occurs at least 8 times on both cards at step rates
+# 0.96 - 1.04 of the real one (ten phases each), at least 3 times at 0.92 -
+# 0.96; past 1.04 the CGA's up-left and down-left pans can vanish.  The
+# 1,200 frames reach the first twelve (the CGA's 1,093 steps) with no fall in
+# the Hercules's 1,289; `bbcourse.py --selfcheck` item 8 holds that.
+way   6 14
+way  16 14
+way  17 18
+way  19 21
+way  20 16
+way  19 19
+way  15 20
+way  15 13
+way  13 13
+way  17 13
+way  17 24
+way  19 22
+way  19 28
+way  27 27
+way  30 27

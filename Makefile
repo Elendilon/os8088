@@ -21313,39 +21313,61 @@ apps/wireball/art/wbfront.inc: apps/wireball/art/splash-source.png tools/wbfront
 	python3 tools/wbfront.py
 
 # BONANZA (Bounce Bonanza, SPEC.md 128): an isometric rolling-ball game that
-# hardware-scrolls in both directions on the CGA and the Hercules. Wave 0 is
-# the engine spike. Its art is GENERATED, by tools/bonanza_assets.py from code
-# alone (no input file, no reference game), so this block needs NASM and
-# Python and nothing else. `local` in apps/RETIRED.txt: NOT in `all`, on no
-# standard image, allapps floppy or live media; `bonanzadisk` is its own
-# floppy in all four geometries.
+# hardware-scrolls in both directions on the CGA and the Hercules.  Its art is
+# GENERATED from code and text alone (no input file, no reference game), so
+# this block needs NASM and Python and nothing else: tools/bonanza_assets.py
+# writes the ball's two parts and bzconst.inc, tools/bbcourse.py compiles the
+# text courses (SPEC.md 128.10.3) into two parts each and bzcourse.inc.
+# `local` in apps/RETIRED.txt: NOT in `all`, on no standard image, allapps
+# floppy or live media; `bonanzadisk` is its own floppy in all four geometries.
 BZ_ART := $(BUILD)/bonanza-art
-BZ_GEN := $(addprefix $(BZ_ART)/,bzconst.inc BZCRSC.BIN BZCRSH.BIN BZBALC.BIN BZBALH.BIN)
-.PHONY: bonanza bonanzadisk bonanza-art bonanza-check
-# One run emits every generated file. The stamp is written first and holds a
-# hash of the tool, so an edited course rebuilds the package and the disks; a
-# generated file that is missing removes the stamp and asks for it again (a
-# deleted output must not be silently skipped).
+# THE COURSES, IN ORDER, NEVER A GLOB (SPEC.md 128.10.3): course K is the K-th
+# of this list - 0 the benchmark's, 1 the one Enter plays - and everything
+# under apps/bonanza/courses/ ships.  ONE bbcourse.py run compiles the whole
+# list and writes bzcourse.inc WHOLE, its OS88_PART rows included, and the
+# --part list below is built from the same list, so the rows' order and the
+# file's order cannot drift.
+BZ_COURSES := apps/bonanza/courses/bench.bbc apps/bonanza/courses/first.bbc
+BZ_CRSPARTS := $(foreach k,$(shell seq 0 $$(( $(words $(BZ_COURSES)) - 1 ))),$(BZ_ART)/BZ$(k)C.BIN $(BZ_ART)/BZ$(k)H.BIN)
+BZ_GEN := $(addprefix $(BZ_ART)/,bzconst.inc BZBALC.BIN BZBALH.BIN)
+BZ_CGEN := $(BZ_ART)/bzcourse.inc $(BZ_CRSPARTS)
+.PHONY: bonanza bonanzadisk bonanza-art bonanza-check bonanza-course-check
+# Each tool's run emits all of its generated files.  bonanza_assets.py writes
+# its stamp first and holds a hash of the tool; bbcourse.py compiles every
+# course in memory and writes its stamp (a hash of both tools and the courses)
+# and its files only if all of them compiled, so a refused course leaves no
+# stamp behind to make a stale part look current.  A generated file that is
+# missing removes its stamp and asks for it again (a deleted output must not
+# be silently skipped).
 $(BZ_ART)/.bz-art: tools/bonanza_assets.py | $(BUILD)
 	python3 tools/bonanza_assets.py -o $(BZ_ART)
 $(BZ_GEN): $(BZ_ART)/.bz-art
 	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
-bonanza-art: $(BZ_GEN)
-# The host-side gate (determinism, the block count, the map, the Hercules
-# rule, the ball's mask/frame invariants, negative controls): the
-# bonanzaassets soak row; this is the by-hand form.
+$(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py $(BZ_COURSES) | $(BUILD)
+	python3 tools/bbcourse.py -o $(BZ_ART) $(BZ_COURSES)
+$(BZ_CGEN): $(BZ_ART)/.bz-crs
+	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
+#> [Applications] bonanza-art :: Bounce Bonanza's generated parts and includes, the ball's and every course's (SPEC.md 128.10.4)
+bonanza-art: $(BZ_GEN) $(BZ_CGEN)
+# The host-side gates, by hand; the bonanzaassets and bonanzacourse soak rows
+# run the same commands.
+#> [Applications] bonanza-check :: Bounce Bonanza's ball generator's selfcheck: BZB1, the checker, determinism (SPEC.md 128.10.11.3)
 bonanza-check:
 	python3 tools/bonanza_assets.py --selfcheck
+#> [Applications] bonanza-course-check :: Bounce Bonanza's course compiler's selfcheck: grammar, picture, grid, occluders, physics, route (SPEC.md 128.10.4.6)
+bonanza-course-check:
+	python3 tools/bbcourse.py --selfcheck $(BZ_COURSES)
 
-$(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bonanza/bzgame.inc \
+$(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bonanza/bzgame.inc apps/bonanza/bzphys.inc \
                       apps/os88api.inc apps/os88ui.inc apps/os88alt.inc apps/os88parts.inc \
-                      apps/os88partsbody.inc apps/os88rseq.inc apps/os88pself.inc $(BZ_ART)/bzconst.inc | $(BUILD)
+                      apps/os88partsbody.inc apps/os88rseq.inc apps/os88pself.inc \
+                      $(BZ_ART)/bzconst.inc $(BZ_ART)/bzcourse.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -l $(BUILD)/bonanza.lst -o $@ $<
 
-# THE FOUR ART FILES ARE PARTS OF IT (SPEC.md 128.3, 20.12), and this --part
-# order MUST equal the OS88_PART rows' order in apps/bonanza/bonanza.asm:
-# the course for each card, then the ball for each card.
-BZ_PARTS := $(addprefix $(BZ_ART)/,BZCRSC.BIN BZCRSH.BIN BZBALC.BIN BZBALH.BIN)
+# THE ART FILES ARE PARTS OF IT (SPEC.md 128.10.6.1, 20.12), and this --part
+# order MUST equal the OS88_PART rows' order in apps/bonanza/bonanza.asm: the
+# ball for each card, then each course of BZ_COURSES for each card.
+BZ_PARTS := $(BZ_ART)/BZBALC.BIN $(BZ_ART)/BZBALH.BIN $(BZ_CRSPARTS)
 $(BUILD)/bonanza.o88: $(BUILD)/bonanza.bin $(BZ_PARTS) tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $< -o $@ $(foreach p,$(BZ_PARTS),--part $(p))
 
@@ -21374,14 +21396,25 @@ $(BUILD)/bonanza360.img: $(BZ_DISKFILES) tools/os88disk.py
 	python3 tools/os88disk.py --verify $@
 #> [Applications] bonanzadisk :: Bounce Bonanza's floppy, package and README, in all four geometries (SPEC.md 128.1)
 bonanzadisk: $(BUILD)/bonanza.img $(BUILD)/bonanza720.img $(BUILD)/bonanza120.img $(BUILD)/bonanza360.img
-# SPEC.md 128.8's two MartyPC rows, by hand (the soak rows bonanzaring and
-# bonanzaperf run the same scripts). The ring's red arms build a broken copy
-# of the package into a temporary directory, never $(BUILD):
-# `python3 tests/bonanza_ring.py --red colright|colfirst|late`.
-.PHONY: bonanzaring bonanzaperf
-#> [Applications] bonanzaring :: Bounce Bonanza's ring on MartyPC, CGA and Hercules: card memory through the ring = the host's picture (SPEC.md 128.8)
+# SPEC.md 128.10.11.3's emulator rows, by hand (the soak rows of the same
+# names run the same scripts). Every red arm builds a broken copy of the
+# package into a temporary directory, never $(BUILD):
+# `python3 tests/bonanza_ring.py --red colright|colfirst|late|row0|occ`,
+# `python3 tests/bonanza_phys.py --red slope|respawn|takeoff`,
+# `python3 tests/bonanza_exit.py --red leak`, `python3 tests/bonanza_mega.py --red segadd`.
+.PHONY: bonanzaring bonanzaperf bonanzaphys bonanzaexit bonanzamega
+#> [Applications] bonanzaring :: Bounce Bonanza's ring on MartyPC, CGA and Hercules: card memory = bbcourse's picture, occluders laid, the row-0 probe (SPEC.md 128.10.11)
 bonanzaring: bonanzadisk $(BUILD)/os8088-360.img
 	python3 tests/bonanza_ring.py
-#> [Applications] bonanzaperf :: Bounce Bonanza's frame cost on MartyPC, CGA and Hercules: period and parts over the benchmark (SPEC.md 128.8)
+#> [Applications] bonanzaperf :: Bounce Bonanza's frame cost on MartyPC, CGA and Hercules, with the A/B leg against wave 0b (SPEC.md 128.10.11.3)
 bonanzaperf: bonanzadisk $(BUILD)/os8088-360.img
-	python3 tests/bonanza_perf.py
+	python3 tests/bonanza_perf.py --ab
+#> [Applications] bonanzaphys :: Bounce Bonanza's physics on MartyPC equals bbcourse.Physics every frame, benchmark and poked scenarios (SPEC.md 128.10.11.3)
+bonanzaphys: bonanzadisk $(BUILD)/os8088-360.img
+	python3 tests/bonanza_phys.py
+#> [Applications] bonanzaexit :: Bounce Bonanza drops both parts on every way out, rows and claims through heapmap (SPEC.md 128.10.11.3)
+bonanzaexit: bonanzadisk $(BUILD)/os8088-360.img
+	python3 tests/bonanza_exit.py
+#> [Applications] bonanzamega :: Bounce Bonanza on kern_mega, 86Box's 286-mega-multimon, on its Hercules: no fault, no leak (SPEC.md 128.10.11.3)
+bonanzamega: bonanzadisk $(BUILD)/mega.img
+	python3 tests/bonanza_mega.py

@@ -308,12 +308,16 @@ X apps/os88pself.inc @op_self           # op_self hands its claim to the CALLER
                                          # the page is up
 C apps/wirefleet/wfsound.inc op:WF_P_SFX # the samples part, fetched and dropped
                                          # inside wf_pcm_open's one call
-C apps/bonanza/bonanza.asm bz_cseg       # the course part: fetched on the desktop,
-                                         # read by every frame of the fsx bracket
+C apps/bonanza/bonanza.asm bz_cseg       # the course part (its grid inside it):
+                                         # fetched on the desktop, held in DS or
+                                         # ES by every frame of the fsx bracket
                                          # and dropped as it returns, all inside
-                                         # bz_launch's one call (SPEC.md 128.7)
-C apps/bonanza/bonanza.asm op:BZ_P_BALC  # the ball part: the same call, the same
-                                         # bracket, dropped beside the course
+                                         # bz_launch's one call (SPEC.md 128.7,
+                                         # 128.10.6.3)
+C apps/bonanza/bonanza.asm op:BZ_P_BALC  # the ball part (row 0, the CGA's; the
+                                         # Hercules's is the next row): the same
+                                         # call, the same bracket, dropped beside
+                                         # the course
 C apps/c64/c64kbd.c ovl_clip_service:seg # Copy's staging, claimed and freed
                                          # inside one wake (Paste's queue in the
                                          # same function declares)

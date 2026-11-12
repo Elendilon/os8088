@@ -1,0 +1,12 @@
+# First Roll - BONANZA's course 1, the one Enter plays (SPEC.md 128.10.3).
+# The worked example of the text format: every wave-1 rule in a minute.
+# Ships: everything under apps/bonanza/courses/ is a part of BONANZA.O88.
+course FIRST "First Roll"
+width  64
+floor rect   3 4  7 7  flat 4             # A plateau, 4 x 3 tiles, 4 units (32 px) up
+wall  rect   3 3  7 4  flat 6             # its back rail, 2 units (16 px) proud
+floor rect   7 4 11 7  ramp x 7 11 4 2    # B falls along +wx: r = 2(2-4)/(11-7) = -1 half unit a tile
+floor rect  11 4 14 7  flat 0             # C the foot: B's lip is 2 units (16 px) above it
+goal  rect  13 4 14 7  flat 0             # C's last column is the goal
+hole  tile  12 5                          # a pit in C
+start 4 5
