@@ -98,8 +98,14 @@ wa_paint:
     pop ax
     ret
 
-wa_oncmd:                       ; Game menu: 0 = 80 columns, 1 = 40
+wa_oncmd:                       ; Game menu: wa_items maps the item
+    xor ah, ah                  ; to (width, arena)
+    shl ax, 1
+    mov bx, ax
+    mov al, [wa_items+bx]
     mov [wa_want], al
+    mov al, [wa_items+bx+1]
+    mov [wa_arena], al
     mov ax, wa_main
     mov bx, [wa_win]
     xor cx, cx
@@ -117,6 +123,8 @@ wa_main:
     call wa_setmode
     jc .out
 .go:
+    mov al, [wa_arena]
+    call wa_loadarena
     call wa_reset
     call OSAPI_MOUSE_REL        ; the desktop's motion is not ours: discard
     call pit_now
@@ -250,7 +258,7 @@ wa_setmode:
     mov cx, WA_CELLS
     rep stosw
     mov di, wa_vst              ; the frame number restarts: so does the
-    mov cx, WA_NVTX             ; vertex cache, or an old stamp could match
+    mov cx, WA_MVTX             ; vertex cache, or an old stamp could match
     rep stosw
     mov [wa_frame], al
     mov [wa_newn], ax
@@ -272,13 +280,71 @@ wa_setmode:
 .out:
     ret
 
+; wa_loadarena - AL = an arena: its coordinate tables, vertices, corner rows
+; and boxes into the working tables (the renderer and the collision read
+; those), its counts, its tree's root and its start. The tree is walked
+; where it was assembled.
+wa_loadarena:
+    mov ah, WA_ARENASZ
+    mul ah
+    add ax, wa_arenas
+    mov bx, ax
+    push ds
+    pop es
+    mov si, [bx]                ; x values
+    mov cx, [bx+2]
+    mov ax, cx
+    shl ax, 1
+    mov [wa_nxv2], ax
+    mov di, wa_xv
+    rep movsw
+    mov si, [bx+4]              ; y values
+    mov cx, [bx+6]
+    mov ax, cx
+    shl ax, 1
+    mov [wa_nyv2], ax
+    mov di, wa_yv
+    rep movsw
+    mov si, [bx+8]              ; vertices, two bytes each
+    mov cx, [bx+10]
+    mov di, wa_vtx
+    rep movsw
+    mov cx, [bx+16]             ; boxes
+    mov [wa_nbox], cx
+    mov si, [bx+12]             ; corner rows, the room's and one a box
+    inc cx
+    shl cx, 1
+    mov di, wa_corn
+    rep movsw
+    mov si, [bx+14]
+    mov cx, [bx+16]
+    shl cx, 1
+    shl cx, 1
+    mov di, wa_boxes
+    rep movsw
+    mov ax, [bx+18]
+    mov [wa_root], ax
+    mov ax, [bx+20]
+    mov [wa_sx], ax
+    mov ax, [bx+22]
+    mov [wa_sy], ax
+    mov ax, [bx+24]
+    mov [wa_sa], ax
+    ret
+
 wa_reset:
-    mov word [wa_px], WA_START_X
-    mov word [wa_py], WA_START_Y
+    mov ax, [wa_sx]
+    mov [wa_px], ax
+    mov ax, [wa_sy]
+    mov [wa_py], ax
     xor ax, ax
     mov [wa_pxf], ax
     mov [wa_pyf], ax
-    mov word [wa_ang], WA_START_A << 6
+    mov ax, [wa_sa]
+    mov cl, 6
+    shl ax, cl
+    mov [wa_ang], ax
+    xor ax, ax                  ; (the rest start at 0: AX held the angle)
     mov [wa_pitch], ax
     mov [wa_jz], ax
     mov [wa_jv], ax
@@ -562,7 +628,7 @@ wa_collide:
     cmp bx, WA_ROOM_Y1 - WA_RAD
     jg .hit
     mov si, wa_boxes
-    mov cx, WA_NBOX
+    mov cx, [wa_nbox]
 .box:
     mov dx, [si]
     sub dx, WA_RAD
@@ -1043,19 +1109,23 @@ wa_tpl:
     OS88_CLASS wa_cls, 0, PAINT, wa_paint
 
     OS88_MENUSET wa_menus, wa_name, wa_oncmd
-        OS88_MENU wa_m_game, wa_i_game, 2
+        OS88_MENU wa_m_game, wa_i_game, 4
     OS88_MENUSET_END wa_menus
 
 wa_name:
 wa_ttl:     db 'WireArena', 0
 wa_m_game:  db 'Game', 0
-wa_i_game:  dw wa_it_80, wa_it_40
-wa_it_80:   db 'Play, 80 columns', 0
+wa_i_game:  dw wa_it_40, wa_it_80, wa_it_o40, wa_it_o80
 wa_it_40:   db 'Play, 40 columns', 0
+wa_it_80:   db 'Play, 80 columns', 0
+wa_it_o40:  db 'Open arena, 40 columns', 0
+wa_it_o80:  db 'Open arena, 80 columns', 0
+wa_items:   db 1, 0, 0, 0, 1, 1, 0, 1  ; width (0 = 80, 1 = 40), arena
 
 wa_help:
     db 'WireArena - renderer prototype', 0
-    db 'Game menu: play in 80 or 40 columns.', 0
+    db 'Game menu: 40 or 80 columns; the full', 0
+    db 'arena, or the open one (pillars only).', 0
     db 'Mouse looks; W A S D move; arrows', 0
     db 'turn and pitch; Space jumps; click', 0
     db 'or Ctrl fires; Tab: 80/40; V: vsync;', 0
@@ -1104,6 +1174,19 @@ WA_VAR wa_mono,1
 WA_VAR wa_quit,1
 WA_VAR wa_vsync,1
 WA_VAR wa_sparse,1
+WA_VAR wa_arena,1
+WA_VAR wa_nxv2,2
+WA_VAR wa_nyv2,2
+WA_VAR wa_nbox,2
+WA_VAR wa_root,2
+WA_VAR wa_sx,2
+WA_VAR wa_sy,2
+WA_VAR wa_sa,2
+WA_VAR wa_xv,WA_MXV*2
+WA_VAR wa_yv,WA_MYV*2
+WA_VAR wa_vtx,WA_MVTX*2
+WA_VAR wa_corn,(WA_MBOX+1)*4
+WA_VAR wa_boxes,WA_MBOX*8
 WA_VAR wa_trig,1
 WA_VAR wa_mflash,1
 WA_VAR wa_frame,1

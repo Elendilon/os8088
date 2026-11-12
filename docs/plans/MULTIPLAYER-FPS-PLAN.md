@@ -858,3 +858,51 @@ mostly fixed per frame and does not shrink with the width:
 | span setup | ~18% |
 | figures | ~10% |
 | present | ~7% |
+
+### 16.3 The owner's first field run, and what it found
+
+The owner ran WARENA on 5150 #1's CGA (2026-11-12):
+
+- **40 columns:** "looks fine, as the default for CGA". It is now first in
+  the Game menu.
+- **The rate in play** — moving the camera, three dummies, shooting — was
+  **10.4–11.7 fps**: "still too low to be playable".
+- **The sparse level:** makes the room "a lot harder to read" and "doesn't
+  seem to have a major impact on FPS". Its measured gain was 2 fps at 40
+  columns.
+- **"WASD does not seem to do anything"**, while Esc and L worked.
+
+**WASD was not the keyboard.**
+
+- The start position (1024, 256) was INSIDE the south stub (960..1088 x
+  192..320), so every step collided and was undone. Turning and the trigger
+  worked because they do not move the player.
+- Wave 0's scripted walk never caught it: no shot was compared with the one
+  before it.
+- `tools/arenagen.py` now REFUSES a start inside a wall (and a patrol that
+  runs into one). The start is (1024, 480).
+- Making the start per-arena then exposed a second bug: `wa_reset` stored
+  the start ANGLE into the pitch, the jump height and velocity, and the hit
+  counts, which until then had relied on AX being 0. Fixed.
+
+**The field rate was taken from inside the stub, which is no measurement of
+play.** It should be re-taken.
+
+**A second, sparser ARENA.** The menu now offers "Open arena": the same
+room, only the four pillars, beside the full one. The question it answers is
+how much of a frame is the scene's own complexity. Arenas are host-built
+(`arenas()`), copied into working tables at launch (`wa_loadarena`); each
+tree is walked where it was assembled.
+
+A play scenario on MartyPC `os8088_5150_cga`: about 8 guest seconds of mouse
+turning with the dummies running and the trigger pulled every second, read
+off the HUD at the end:
+
+| | fps in play |
+|---|---|
+| full arena, 40 columns | **20.1** |
+| open arena, 40 columns | **24.8** |
+| full arena, 80 columns | 14.5 |
+
+These are emulator figures. The report's caveat about a real IBM CGA's
+text-mode contention applies, and the field rate is the one that decides.

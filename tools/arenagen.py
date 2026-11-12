@@ -37,7 +37,16 @@ BOXES = [
     (960, 192, 1088, 320),      # and off the south and north ones
     (960, 1728, 1088, 1856),
 ]
-PLAYER_START = (1024, 256, 256)  # x, y, angle (facing north)
+# The open arena: the same room, only the four pillars - the sparser level
+# that asks how much of a frame the scene's own complexity costs.
+OPEN_BOXES = BOXES[:4]
+# x, y, angle. NOT (1024, 256), where Wave 0 started: that is inside the
+# south stub, so every step collided and WASD looked dead. arenas() checks.
+PLAYER_START = (1024, 480, 256)  # facing north, the patrols crossing ahead
+
+def arenas():
+    return [("a0", "Arena", BOXES, PLAYER_START),
+            ("a1", "Open", OPEN_BOXES, PLAYER_START)]
 
 # --- the dummies' patrols: closed loops of waypoints clear of every block ----
 PATHS = [
@@ -175,7 +184,7 @@ def angle_of(dx, dy):
 # c0 (x0,y0), c1 (x1,y0), c2 (x1,y1), c3 (x0,y1); its faces are south c0->c1,
 # east c1->c2, north c2->c3, west c3->c0. The room's run the other way.
 
-def box_tree(ids, nodes):
+def box_tree(ids, nodes, BOXES):
     """-> node index. nodes: [kind, box, value, low, high]; kind 0 splits on
     x, 1 on y, 2 is a leaf holding one box."""
     me = len(nodes)
@@ -197,17 +206,36 @@ def box_tree(ids, nodes):
         raise SystemExit("arenagen: no axis-aligned line separates boxes %r "
                          "without cutting one - move a box" % ids)
     _, axis, v, low, high = best
-    lo = box_tree(low, nodes)
-    hi = box_tree(high, nodes)
+    lo = box_tree(low, nodes, BOXES)
+    hi = box_tree(high, nodes, BOXES)
     nodes[me] = [axis, 0, v, lo, hi]
     return me
 
 
-def bsp_tables(w):
+def inside(x, y, boxes, r):
+    if not (ROOM[0] + r < x < ROOM[2] - r and ROOM[1] + r < y < ROOM[3] - r):
+        return True
+    return any(a - r < x < c + r and b - r < y < d + r
+               for (a, b, c, d) in boxes)
+
+
+def arena_tables(w, tag, boxes, start):
+    """One arena's tables, every label prefixed wa_<tag>_; -> its counts."""
+    if inside(start[0], start[1], boxes, 20):
+        raise SystemExit("arenagen: arena %s starts the player INSIDE a wall "
+                         "at %r - every step would collide" % (tag, start))
+    for p in PATHS:
+        for j in range(len(p)):
+            (x0, y0), (x1, y1) = p[j], p[(j + 1) % len(p)]
+            for k in range(33):
+                x, y = x0 + (x1 - x0) * k / 32, y0 + (y1 - y0) * k / 32
+                if inside(x, y, boxes, 12):
+                    raise SystemExit("arenagen: arena %s: a patrol runs into "
+                                     "a wall near (%d, %d)" % (tag, x, y))
     nodes = []
-    box_tree(list(range(len(BOXES))), nodes)
+    box_tree(list(range(len(boxes))), nodes, boxes)
     pts = []
-    for (a, b, c, d) in [ROOM] + BOXES:
+    for (a, b, c, d) in [ROOM] + boxes:
         pts += [(a, b), (c, b), (c, d), (a, d)]
     xs = sorted({p[0] for p in pts})
     ys = sorted({p[1] for p in pts})
@@ -216,33 +244,59 @@ def bsp_tables(w):
         if p not in vix:
             vix[p] = len(verts)
             verts.append(p)
-    if len(verts) * 2 > 255 or len(BOXES) * 8 > 255 or len(xs) * 4 > 255 \
+    if len(verts) * 2 > 255 or len(boxes) * 8 > 255 or len(xs) * 4 > 255 \
             or len(ys) * 4 > 255:
         raise SystemExit("arenagen: the arena outgrew a byte index")
-    w("WA_NXV equ %d" % len(xs))
-    w("WA_NYV equ %d" % len(ys))
-    w("WA_NVTX equ %d" % len(verts))
-    w("WA_NNODE equ %d" % len(nodes))
-    w("wa_xv:      dw " + ", ".join(str(x) for x in xs))
-    w("wa_yv:      dw " + ", ".join(str(y) for y in ys))
-    w("wa_vtx:                         ; x index x 4, y index x 4 (byte offsets")
+    P = "wa_%s_" % tag
+    w(P + "xv:      dw " + ", ".join(str(x) for x in xs))
+    w(P + "yv:      dw " + ", ".join(str(y) for y in ys))
+    w(P + "vtx:                         ; x index x 4, y index x 4 (byte offsets")
     w("                                ; into the per-frame product tables)")
     for (x, y) in verts:
         w("    db %d, %d" % (xs.index(x) * 4, ys.index(y) * 4))
-    w("wa_corn:                        ; per box (the room first): its corners")
+    w(P + "corn:                        ; per box (the room first): its corners")
     w("                                ; c0..c3 as vertex x 2")
-    for (a, b, c, d) in [ROOM] + BOXES:
+    for (a, b, c, d) in [ROOM] + boxes:
         w("    db " + ", ".join(str(vix[p] * 2) for p in
                                 [(a, b), (c, b), (c, d), (a, d)]))
-    w("wa_bsp:                         ; kind (0 x, 1 y, 2 leaf), box x 8 (a leaf's,")
-    w("                                ; into wa_boxes), value, low, high (0 = none)")
+    w(P + "bsp:                         ; kind (0 x, 1 y, 2 leaf), box x 8 (a")
+    w("                                ; leaf's, into wa_boxes), value, low,")
+    w("                                ; high (0 = none) - ABSOLUTE: the tree")
+    w("                                ; is walked in place, not copied")
     for (kind, box, v, lo, hi) in nodes:
         w("    db %d, %d" % (kind, box * 8))
-        w("    dw %d, %s, %s" % (v, "wa_bsp+%d" % (lo * 8) if lo >= 0 else "0",
-                              "wa_bsp+%d" % (hi * 8) if hi >= 0 else "0"))
-    sys.stderr.write("arenagen: %d boxes in a %d-node tree, %d vertices, "
-                     "%d x and %d y values\n"
-                     % (len(BOXES), len(nodes), len(verts), len(xs), len(ys)))
+        w("    dw %d, %s, %s" % (v, P + "bsp+%d" % (lo * 8) if lo >= 0 else "0",
+                              P + "bsp+%d" % (hi * 8) if hi >= 0 else "0"))
+    w(P + "boxes:                       ; x0, y0, x1, y1")
+    for b in boxes:
+        w("    dw %d, %d, %d, %d" % b)
+    sys.stderr.write("arenagen: arena %s: %d boxes in a %d-node tree, %d "
+                     "vertices, %d x and %d y values\n"
+                     % (tag, len(boxes), len(nodes), len(verts), len(xs),
+                        len(ys)))
+    return len(xs), len(ys), len(verts), len(boxes)
+
+
+def bsp_tables(w):
+    """Every arena, then their descriptors (SPEC: wa_loadarena copies one into
+    the working tables; the tree stays where it is) and the maxima the
+    working tables are sized to."""
+    counts = []
+    for tag, name, boxes, start in arenas():
+        counts.append(arena_tables(w, tag, boxes, start))
+    w("WA_NARENA equ %d" % len(counts))
+    w("WA_MXV equ %d" % max(c[0] for c in counts))
+    w("WA_MYV equ %d" % max(c[1] for c in counts))
+    w("WA_MVTX equ %d" % max(c[2] for c in counts))
+    w("WA_MBOX equ %d" % max(c[3] for c in counts))
+    w("wa_arenas:                      ; xv, nxv, yv, nyv, vtx, nvtx, corn,")
+    w("                                ; boxes, nbox, root, start x, y, angle")
+    for (tag, name, boxes, start), (nx, ny, nv, nb) in zip(arenas(), counts):
+        P = "wa_%s_" % tag
+        w("    dw %sxv, %d, %syv, %d, %svtx, %d, %scorn" % (P, nx, P, ny, P, nv, P))
+        w("    dw %sboxes, %d, %sbsp, %d, %d, %d" % (P, nb, P, start[0],
+                                                  start[1], start[2]))
+    w("WA_ARENASZ equ 26")
 
 def main(out):
     L = []
@@ -256,18 +310,11 @@ def main(out):
     w("WA_ROOM_Y0 equ %d" % ROOM[1])
     w("WA_ROOM_X1 equ %d" % ROOM[2])
     w("WA_ROOM_Y1 equ %d" % ROOM[3])
-    w("WA_START_X equ %d" % PLAYER_START[0])
-    w("WA_START_Y equ %d" % PLAYER_START[1])
-    w("WA_START_A equ %d" % PLAYER_START[2])
-    w("WA_NBOX equ %d" % len(BOXES))
     w("wa_sin:")
     for i in range(0, 1024, 8):
         w("    dw " + ", ".join(str(int(round(16384 * math.sin(
             2 * math.pi * j / 1024)))) for j in range(i, i + 8)))
     bsp_tables(w)
-    w("wa_boxes:                       ; x0, y0, x1, y1")
-    for b in BOXES:
-        w("    dw %d, %d, %d, %d" % b)
     # paths: per dummy, a count and per leg (x, y, heading, steps)
     w("WA_NFIG equ %d" % len(PATHS))
     w("wa_pathtab:")

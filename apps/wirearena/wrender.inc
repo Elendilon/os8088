@@ -46,18 +46,18 @@ WA_VAR wa_vb0, 2
 WA_VAR wa_afix, 1               ; the span's shade is one band
 WA_VAR wa_left, 2               ; columns still open
 WA_VAR wa_lp, 2                 ; the list's write pointer across spans
-WA_VAR wa_xc, WA_NXV*4          ; per frame: (x - px) cos and sin, 32 bits,
-WA_VAR wa_xs, WA_NXV*4          ; one per distinct x of the arena...
-WA_VAR wa_yc, WA_NYV*4          ; ...and per distinct y: a vertex is two
-WA_VAR wa_ys, WA_NYV*4          ; 32-bit adds, not four multiplies
-WA_VAR wa_vst, WA_NVTX*2        ; a vertex's cache stamp (the frame number)
-WA_VAR wa_vok, WA_NVTX*2        ; 1: inside the view, projected below
-WA_VAR wa_vx, WA_NVTX*2         ; camera space
-WA_VAR wa_vz, WA_NVTX*2
-WA_VAR wa_vpc, WA_NVTX*2        ; projected: column x16, top, bottom,
-WA_VAR wa_vpt, WA_NVTX*2        ; inverse depth
-WA_VAR wa_vpb, WA_NVTX*2
-WA_VAR wa_vpi, WA_NVTX*2
+WA_VAR wa_xc, WA_MXV*4          ; per frame: (x - px) cos and sin, 32 bits,
+WA_VAR wa_xs, WA_MXV*4          ; one per distinct x of the arena...
+WA_VAR wa_yc, WA_MYV*4          ; ...and per distinct y: a vertex is two
+WA_VAR wa_ys, WA_MYV*4          ; 32-bit adds, not four multiplies
+WA_VAR wa_vst, WA_MVTX*2        ; a vertex's cache stamp (the frame number)
+WA_VAR wa_vok, WA_MVTX*2        ; 1: inside the view, projected below
+WA_VAR wa_vx, WA_MVTX*2         ; camera space
+WA_VAR wa_vz, WA_MVTX*2
+WA_VAR wa_vpc, WA_MVTX*2        ; projected: column x16, top, bottom,
+WA_VAR wa_vpt, WA_MVTX*2        ; inverse depth
+WA_VAR wa_vpb, WA_MVTX*2
+WA_VAR wa_vpi, WA_MVTX*2
 WA_VAR wa_fv, 2
 WA_VAR wa_bvis, 1
 WA_VAR wa_endok, 1
@@ -144,7 +144,7 @@ wa_render:
     mov cx, WA_CELLS
     rep stosw
     mov di, wa_vst              ; ...and the vertex cache's with them
-    mov cx, WA_NVTX
+    mov cx, WA_MVTX
     rep stosw
     mov byte [wa_frame], 1
 .stamped:
@@ -193,7 +193,7 @@ wa_render:
     mov [wa_left], cx
     rep stosw
     call wa_products
-    mov bx, wa_bsp
+    mov bx, [wa_root]
     call wa_node
     cmp word [wa_left], 0       ; the room, last: it encloses everything
     je .roomless
@@ -235,7 +235,7 @@ wa_products:
     mov [wa_xs+di+2], dx
     add si, 2
     add di, 4
-    cmp si, WA_NXV*2
+    cmp si, [wa_nxv2]
     jb .x
     xor si, si
     xor di, di
@@ -252,7 +252,7 @@ wa_products:
     mov [wa_ys+di+2], dx
     add si, 2
     add di, 4
-    cmp si, WA_NYV*2
+    cmp si, [wa_nyv2]
     jb .y
     ret
 
