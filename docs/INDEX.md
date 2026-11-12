@@ -553,6 +553,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | 125 | PCIETHER.DRV — PCI network cards for the big builds (`drivers/pciether/`) |
 | 126 | VIDEO BATTLE — a battle played as joined video clips (`apps/vbattle/`, `VBATTLE.O88`, `.VBT`) |
 | 127 | Debug disks — a boot floppy per subsystem that shows what the driver found (`apps/snddiag/`, `drivers/sound/snddiag.inc`) |
+| 128 | BONANZA — Bounce Bonanza, an isometric rolling-ball game (`apps/bonanza/`) |
 
 ## docs/
 
