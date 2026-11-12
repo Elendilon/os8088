@@ -1,7 +1,9 @@
 # BOUNCE BONANZA — an isometric rolling-ball game for the 5150 (investigation and plan)
 
-**STATUS: WAVE 0 (the spike) IN PROGRESS; its contract is SPEC.md 128 and
-the owner's decisions are in section 12.** The package is `BONANZA` (`apps/bonanza/`). Below is the
+**STATUS: WAVE 0 (the spike) DONE, a GO: both cards hold the full refresh on
+MartyPC (CGA 59.8 Hz, Hercules 50.8 Hz). Its contract and measurement are
+SPEC.md 128; the owner's decisions are in section 12. Next: the optimisation
+round wave 0 named, then wave 1.** The package is `BONANZA` (`apps/bonanza/`). Below is the
 investigation as it was written, the answer to the owner's
 brief of 2026-11-12, on branch `bounce-bonanza`, cut from `elendilon`: is an
 overhead isometric rolling-ball game with a scrolling course feasible on the
@@ -727,15 +729,34 @@ number at that time; the last section on `elendilon` today is 127.
 **Wave 0: the spike (go/no-go).** A throwaway package with a 2D ring and a
 generated test course, with no art pipeline and no physics beyond the arrow
 keys.
-- [ ] The CGA ring: vertical steps into the slack, columns raced after the
+- [x] The CGA ring: vertical steps into the slack, columns raced after the
       retrace, and a diagonal. The ring holds what the formula says
       (decoded off the card on MartyPC, as Excitebike's `excitebike_video`
-      does).
-- [ ] The same on the Hercules field.
-- [ ] The phase-torus ball at the 4 pre-shifts, with its box.
-- [ ] A MartyPC cycle count for each item in section 6.5's table. This is
+      does). *Evidence: `bonanzaring`, all 8 directions, 0 bad pixels, at
+      both the presented frame and the retrace start; its red arms go red.*
+- [x] The same on the Hercules field. *Same row, same result.*
+- [x] The phase-torus ball at the 4 pre-shifts, with its box. *Looked at
+      on both cards; the Hercules mid tone is stripes, not the course's
+      checker (SPEC.md 128.3).*
+- [x] A MartyPC cycle count for each item in section 6.5's table. This is
       one measurement, taken once, because it *decides the design*: 60 Hz
-      or 30 Hz, and whether `FSXF_RATE` is needed.
+      or 30 Hz, and whether `FSXF_RATE` is needed. *Decided: the full
+      refresh on both cards, and `FSXF_RATE` is not needed. The table is
+      SPEC.md 128.8.*
+
+**Wave 0b: the optimisation round** (the review's findings 7, 9, 11, 12,
+13; the numbers are SPEC.md 128.8's).
+- [ ] Box compose (23.5k clk, the largest working part): column-major fill
+      with a `movsw`/`add di` chain, an unclipped word-wise ball path, no
+      MUL.
+- [ ] The column writer: find the wrap row once, unroll per block.
+- [ ] The row writer: word columns outermost (the two CGA misses are
+      two-row frames: rows 19k there).
+- [ ] `S` kept incrementally; `rb*R` by shifts in `bz_row`, `bz_col`,
+      `bz_boxw`.
+- [ ] Do not write the overlap of two boxes twice; do not re-compose an
+      idle ball.
+- [ ] The box at window row 0 (SPEC.md 128.2 rule 4's open corner).
 
 **Wave 1: the course pipeline.**
 - [ ] `tools/bbcourse.py`: the text course → render → blocks, metatiles and
@@ -763,7 +784,7 @@ keys.
 
 **Wave 5: the machines.**
 - [ ] Hercules polish (pair art, its blank budget).
-- [ ] kern_mega, through the real-mode bracket.
+- [ ] kern_mega, through the ordinary FASTTICK bracket (SPEC.md 128.1).
 - [ ] VGA runs the CGA arm; EGA, MDA and kern_small refuse with reasons.
 - [ ] Disks: `make bonanzadisk` in four geometries. The package is `local`
       in `apps/RETIRED.txt` until the owner says it ships.
