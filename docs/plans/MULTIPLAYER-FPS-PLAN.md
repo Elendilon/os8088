@@ -1261,6 +1261,10 @@ for everything else, with ~6.6 KB to spare.
    a CPU read in 80-column text as on a write, so this adds ~206 reads to
    ~242 writes a frame there. 40 columns (the CGA default), Hercules, EGA and
    VGA do not snow. It is one commit (`8faddff8`) and can be dropped alone.
+   **The owner kept it (2026-11-13):** snow is the 5150's CGA alone, a 5150
+   with CGA will mostly play at 40 columns, and the later cards that solved
+   snow tend to sit beside a faster CPU (a V20 and up) that 80 columns
+   wants anyway.
 2. **Figure detail by distance.** Measured on `perf-overall` and not
    committed: markers below `fv8` 16 (~11 m) give P 40 = 17.8 fps on that
    branch (from its 16.3); below 24 (~7 m), 18.2. `perf-figs` built
