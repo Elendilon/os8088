@@ -148,8 +148,8 @@ WA_VAR wa_fbw, 2                ; wa_figure's box: width in cells,
 WA_VAR wa_fbc, 2                ;   left column x 2, last row x 2
 WA_VAR wa_fbr, 2
 WA_VAR wa_frow, 2
-WA_VAR wa_fk, 4                 ; wa_fjl's narrow sums: fcx fs8 + 256 W,
-WA_VAR wa_fe, 2                 ;   eye fv8
+WA_VAR wa_fk, 2                 ; wa_fjl's narrow sums: Klo (fcx fs8 + 256 W),
+WA_VAR wa_fe, 2                 ;   eye fv8 + 256 hh + 255
 WA_VAR wa_fbuf, WA_CELLS*2      ; a figure's sub-pixels by cell offset (0
                                 ; between figures: wa_figure clears its own)
 WA_VAR wa_nwr, 2                ; video writes this frame
@@ -1770,41 +1770,48 @@ wa_femit:                       ; pass 3: the joints' box, clipped
 
 ; wa_fjl - wa_figure's joints: SI, DI = keyframes A and B at this facing.
 ; Each is A + (B - A) x q / 4 (q = [wa_fsub], rounded down as wa_blend's
-; was), projected: x = ((lateral + fcx) fs8 >> 8) + W, y = hh - ((height -
-; eye) fv8 >> 8). Eight loops, one per quarter and per multiply:
+; was; q = 3 is worked as B + (A - B) / 4, the same number), projected:
+; x = ((lateral + fcx) fs8 >> 8) + W, y = hh - ((height - eye) fv8 >> 8).
+; Eight loops, one per quarter and per multiply:
 ; - NARROW (fs8 and fv8 under 128: past ~1.6 m at 40 columns, most of the
-;   time): an 8-bit multiply. lateral x fs8 is `imul r8` added to K = fcx fs8
-;   + 256 W; height x fv8 is `mul r8` less E = eye fv8. The same sums,
-;   regrouped, so the same pixels, at ~70 clk a coordinate less;
+;   time): 8-bit multiplies on sums regrouped so they stay in 16 bits -
+;   K = fcx fs8 + 256 W split as 256 Khi + Klo, so x = ((lateral fs8 + Klo)
+;   >> 8) + Khi; and E = eye fv8 + 256 hh + 255, so y = (E - height fv8)
+;   >> 8. The same numbers, so the same pixels;
 ; - WIDE: the 16-bit multiplies, as before.
 ; Returns to wa_fjdone. Clobbers AX, BX, CX, DX, BP.
-%macro WA_FJ 2                  ; %1 = q, %2 = 1 narrow
-.j%2%1:
-    mov al, [si+bx]             ; lateral
+%macro WA_FBLEND 2              ; %1 = q, %2 = 0 lateral, 1 height
+  %if %1 == 3
+    mov al, [di+bx+%2]          ; (B + (A - B) / 4)
+  %else
+    mov al, [si+bx+%2]
+  %endif
     cbw
   %if %1
     mov dx, ax
-    mov al, [di+bx]
+    %if %1 == 3
+    mov al, [si+bx+%2]
+    %else
+    mov al, [di+bx+%2]
+    %endif
     cbw
     sub ax, dx
-    %if %1 == 3
-    mov bp, ax
-    shl ax, 1
-    add ax, bp
-    %endif
     %if %1 != 2
     sar ax, 1
     %endif
     sar ax, 1
     add ax, dx
   %endif
+%endmacro
+%macro WA_FJ 2                  ; %1 = q, %2 = 1 narrow
+.j%2%1:
+    WA_FBLEND %1, 0             ; lateral
   %if %2
     imul cl
-    cwd
     add ax, [wa_fk]
-    adc dx, [wa_fk+2]
     mov al, ah
-    mov ah, dl
+    cbw
+    add ax, bp
   %else
     add ax, [wa_fcx]
     imul word [wa_fs8]
@@ -1813,27 +1820,11 @@ wa_femit:                       ; pass 3: the joints' box, clipped
     add ax, [wa_w]
   %endif
     mov [wa_jsx+bx], ax
-    mov al, [si+bx+1]           ; height
-    cbw
-  %if %1
-    mov dx, ax
-    mov al, [di+bx+1]
-    cbw
-    sub ax, dx
-    %if %1 == 3
-    mov bp, ax
-    shl ax, 1
-    add ax, bp
-    %endif
-    %if %1 != 2
-    sar ax, 1
-    %endif
-    sar ax, 1
-    add ax, dx
-  %endif
+    WA_FBLEND %1, 1             ; height
   %if %2
     mul ch
-    sub ax, [wa_fe]
+    neg ax
+    add ax, [wa_fe]
     mov al, ah
     cbw
   %else
@@ -1841,16 +1832,14 @@ wa_femit:                       ; pass 3: the joints' box, clipped
     imul word [wa_fv8]
     mov al, ah
     mov ah, dl
-  %endif
     neg ax
     add ax, [wa_hh]
+  %endif
     mov [wa_jsy+bx], ax
     inc bx
     inc bx
     cmp bx, WA_NJ*2
-    jae %%out
-    jmp .j%2%1
-%%out:
+    jb .j%2%1
     jmp wa_fjdone
 %endmacro
 wa_fjl:
@@ -1865,7 +1854,7 @@ wa_fjl:
     jae .wide
     mov cl, al
     mov ch, dl
-    imul word [wa_fcx]          ; K = fcx fs8 + 256 W
+    imul word [wa_fcx]          ; K = fcx fs8 + 256 W...
     mov bp, [wa_w]
     xchg bp, ax
     mov ah, al
@@ -1873,11 +1862,17 @@ wa_fjl:
     xchg bp, ax
     add ax, bp
     adc dx, 0
-    mov [wa_fk], ax
-    mov [wa_fk+2], dx
-    mov al, ch                  ; E = eye fv8
-    xor ah, ah
+    mov [wa_fk], al             ; ...Klo
+    mov byte [wa_fk+1], 0
+    mov al, ah
+    mov ah, dl
+    mov bp, ax                  ; ...and Khi
+    mov al, ch                  ; E = eye fv8 + 256 hh + 255 (mod 2^16: the
+    xor ah, ah                  ; difference it ends in fits)
     mul word [wa_eye]
+    mov dh, [wa_hh]
+    mov dl, 255
+    add ax, dx
     mov [wa_fe], ax
     add bx, 8
 .wide:
@@ -1895,31 +1890,6 @@ wa_fjl:
     WA_FJ 1, 1
     WA_FJ 2, 1
     WA_FJ 3, 1
-
-; wa_fpix - SI = sub-column, DI = half-row: one sub-pixel into wa_fbuf,
-; clipped to the view. Keeps SI and DI; clobbers AX, BX, CX.
-wa_fpix:
-    cmp si, [wa_w2]             ; unsigned: a negative one is huge
-    jae .out
-    cmp di, WA_HR
-    jae .out
-    mov bx, di
-    shl bx, 1
-    mov bx, [wa_hroff+bx]
-    mov ax, si
-    and al, 0xFE
-    add bx, ax                  ; BX = the cell
-    mov cx, si
-    and cl, 1
-    mov ax, di
-    and al, 1
-    shl al, 1
-    or cl, al                   ; CL = the quadrant
-    mov al, 1
-    shl al, cl
-    or [wa_fbuf+bx], al
-.out:
-    ret
 
 ; WA_FPIXI - SI = sub-column, DI = half-row: one sub-pixel into wa_fbuf,
 ; clipped (wa_fpix inline, for the clipped walk). Clobbers AX, BX, DX.
@@ -1944,6 +1914,12 @@ wa_fpix:
 %%out:
 %endmacro
 wa_qbit:    db 1, 2, 4, 8
+
+; wa_fpix - SI = sub-column, DI = half-row: one sub-pixel into wa_fbuf,
+; clipped to the view (the head). Keeps SI and DI; clobbers AX, BX, DX.
+wa_fpix:
+    WA_FPIXI
+    ret
 
 ; wa_fline - (CX,DX) to (AX,BX), sub-pixels: a limb into wa_fbuf. Clobbers
 ; AX, BX, CX, DX, SI, DI, BP.
