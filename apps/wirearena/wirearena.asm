@@ -53,6 +53,12 @@ F_PWH   equ 32                  ;   half width, sub-columns
 F_SIZE  equ 34
 
 wa_entry:
+    mov byte [wa_fov], 1        ; 75 degrees: the owner's pick of the three
+    call OSAPI_CPU_INFO         ; the floor grid costs a 4.77 MHz 8088 ~13 ms
+    cmp al, CPU_8086            ; a frame: on by default on a 286 or better,
+    je .nogrid                  ; off on the target machine (G either way)
+    mov byte [wa_grid], 1
+.nogrid:
     mov si, wa_tpl
     call OSAPI_WM_CREATE
     jc .out
@@ -348,6 +354,11 @@ wa_setfov:
     mov ax, [wa_w]
     mul cx
     mov [wa_wf], ax             ; W f (8.8 -> sub-columns x 256 a unit at z 1)
+    mov ax, [wa_w]
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    mov [wa_c16], ax            ; 8W: the screen's centre, x16 - whatever f is
     mov ax, [wa_w]
     shl ax, 1
     shl ax, 1
@@ -1244,6 +1255,7 @@ WA_VAR wa_fsi,FSI_SIZE
 WA_VAR wa_vseg,2
 WA_VAR wa_w,2
 WA_VAR wa_k16,2
+WA_VAR wa_c16,2
 WA_VAR wa_w2,2
 WA_VAR wa_mode,1
 WA_VAR wa_want,1

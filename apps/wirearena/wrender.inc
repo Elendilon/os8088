@@ -51,6 +51,11 @@ WA_VAR wa_dny, 2
 WA_VAR wa_dix, 2
 WA_VAR wa_diy, 2
 WA_VAR wa_vt0, 2
+WA_VAR wa_stl, 2
+WA_VAR wa_voff, 2
+WA_VAR wa_sbl, 2
+WA_VAR wa_vtl, 2
+WA_VAR wa_vbl, 2
 WA_VAR wa_vb0, 2
 WA_VAR wa_afix, 1               ; the span's shade is one band
 WA_VAR wa_left, 2               ; columns still open
@@ -684,7 +689,10 @@ wa_proj:
     mov si, bx
     imul word [wa_k16]          ; the column, x16: NOT clamped - a vertex in
     idiv si                     ; the guard band lands off the screen and
-    add ax, [wa_k16]            ; the span clamps to it
+    add ax, [wa_c16]            ; the span clamps to it. (The CENTRE, 8W -
+                                ; not the scale, 8Wf: at 90 degrees they are
+                                ; one number, and using the scale for both put
+                                ; every wall six columns right at 75)
     push ax
     mov dx, 0x0007              ; 0x7FFF0 / z: 32767 at the near plane
     mov ax, 0xFFF0
@@ -803,38 +811,38 @@ wa_span:
     mov ax, bx
     sub ax, [wa_c1]
     mov [wa_dc], ax
+    ; THE EDGES' START AND STEP, EXACT (docs/plans/MULTIPLAYER-FPS-PLAN.md
+    ; 16.5). The start used to be STEPPED from the segment's own first
+    ; column - for a wall clipped at the guard band, ~150 columns off the
+    ; screen - with a step truncated to a whole 13.3 unit: up to 0.99 of a
+    ; unit lost a column, two and more half-rows by the first visible one.
+    ; That was the far wall the owner saw drawn in front of a nearer pillar.
+    ; Now the first open column's value is interpolated exactly (one
+    ; multiply and divide each), and the step carries a 16-bit fraction.
     xor ax, ax
     mov [wa_st], ax
+    mov [wa_stl], ax
     mov [wa_sb], ax
-    cmp word [wa_n], 1
-    je .start
-    mov ax, [wa_t2]             ; per-column steps: top and bottom 13.3
-    sub ax, [wa_t1]             ; (x8: a wall at the near plane spans
-    mov cx, 128                 ; ~2,300 and the step must fit 16 bits over
-    imul cx                     ; the 17 col16 units a 2-column face has)
-    idiv word [wa_dc]
-    mov [wa_st], ax
+    mov [wa_sbl], ax
+    cmp word [wa_dc], 16        ; the steps whenever the SEGMENT spans more
+    jbe .start                  ; than a column (not the trimmed count)
+    mov ax, [wa_t2]
+    sub ax, [wa_t1]
+    call .step32
+    mov [wa_st], dx
+    mov [wa_stl], ax
     mov ax, [wa_b2]
     sub ax, [wa_b1]
-    imul cx
-    idiv word [wa_dc]
-    mov [wa_sb], ax
+    call .step32
+    mov [wa_sb], dx
+    mov [wa_sbl], ax
 .start:
-    mov cl, 3
-    mov ax, [wa_st]             ; start values at the first column's centre
-    imul word [wa_fs]
-    call .sar4
-    mov bx, [wa_t1]
-    shl bx, cl
-    add ax, bx
-    mov [wa_vt], ax
-    mov ax, [wa_sb]
-    imul word [wa_fs]
-    call .sar4
-    mov bx, [wa_b1]
-    shl bx, cl
-    add ax, bx
-    mov [wa_vb], ax
+    mov ax, [wa_fs]
+    call .vat
+    mov [wa_vt], bx
+    mov [wa_vb], cx
+    mov word [wa_vtl], 0x8000   ; (rounding: a half unit in)
+    mov word [wa_vbl], 0x8000
     ; REGISTER THE SPAN: wa_cov holds its tag (x 2, from 2) in every column
     ; it opens, and the table its ends.
     mov bx, [wa_tag]
@@ -912,17 +920,14 @@ wa_span:
     cmp byte [wa_e2], 0
     je .cdone
     mov si, ax
-    mov cx, [wa_n]              ; the last column's edges: start + step(n-1)
-    dec cx
-    mov ax, [wa_st]
-    imul cx
-    add ax, [wa_vt0]
-    push ax
-    mov ax, [wa_sb]
-    imul cx
-    add ax, [wa_vb0]
-    mov bx, ax
-    pop ax
+    mov ax, [wa_n]              ; the last column's edges, exact
+    dec ax
+    mov cl, 4
+    shl ax, cl
+    add ax, [wa_fs]
+    call .vat
+    mov ax, bx
+    mov bx, cx
     call .corner
 .cdone:
     ret
@@ -940,6 +945,58 @@ wa_span:
     ret
 
 
+.step32:                        ; AX = an edge's change over the segment
+    push bx                     ; (quarter half-rows) -> DX:AX = its step a
+    mov bx, ax                  ; column, 13.3 with a 16-bit fraction:
+    or ax, ax                   ; change x 128 / dc. |change| <= ~1,600, so
+    jns .sp                     ; the whole part is under 21,000 for any
+    neg ax                      ; dc > 16
+.sp:
+    mov dx, 128
+    mul dx
+    div word [wa_dc]
+    push ax
+    xor ax, ax
+    div word [wa_dc]
+    pop dx
+    or bx, bx
+    jns .spx
+    neg ax
+    adc dx, 0
+    neg dx
+.spx:
+    pop bx
+    ret
+.vat:                           ; AX = a column centre past c1 (x16) -> BX =
+    mov [wa_voff], ax           ; top, CX = bottom (13.3) there, EXACT:
+    mov bx, [wa_t1]             ; t1 x 8 + (t2 - t1) x 8 x off / dc.
+    shl bx, 1                   ; Clobbers AX, DX
+    shl bx, 1
+    shl bx, 1
+    mov cx, [wa_b1]
+    shl cx, 1
+    shl cx, 1
+    shl cx, 1
+    cmp word [wa_dc], 16
+    jbe .vret
+    mov ax, [wa_t2]
+    sub ax, [wa_t1]
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    imul word [wa_voff]
+    idiv word [wa_dc]
+    add bx, ax
+    mov ax, [wa_b2]
+    sub ax, [wa_b1]
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    imul word [wa_voff]
+    idiv word [wa_dc]
+    add cx, ax
+.vret:
+    ret
 .big:                           ; AX = a step: |AX| >= 32 marks the span
     or ax, ax
     jns .bigp
@@ -1052,11 +1109,15 @@ wa_span:
 %endif
 %%step:
 %if %1
+    mov ax, [wa_stl]            ; 16.16: the fraction carries
+    add [wa_vtl], ax
     mov ax, [wa_st]
-    add [wa_vt], ax
+    adc [wa_vt], ax
 %endif
+    mov ax, [wa_sbl]
+    add [wa_vbl], ax
     mov ax, [wa_sb]
-    add [wa_vb], ax
+    adc [wa_vb], ax
     inc si
     inc si
     cmp si, bp
@@ -1293,7 +1354,7 @@ wa_dots:
     rcr ax, 1
     imul word [wa_k16]          ; x 8Wf / 65536: the column's offset, x16
     mov bx, dx
-    add bx, [wa_k16]
+    add bx, [wa_c16]            ; the centre, not the scale
     push cx
     mov cl, 4
     sar bx, cl

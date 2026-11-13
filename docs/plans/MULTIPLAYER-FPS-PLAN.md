@@ -943,3 +943,77 @@ at 40 columns.
 Each toggle shows at the HUD's tail: view (9/7/6), H, F/S, G. Rejected: a
 true-distance (cylindrical) projection — it bends straight walls and is
 slower.
+
+### 16.5 Far walls drawn in front of nearer ones — a precision bug, found and fixed
+
+**The owner's feedback** (86Box, with screenshots):
+
+- Colour per item: keep.
+- 75 degrees: "probably best", but no change to the distance issue.
+- Held edges: no visible difference.
+- Floor grid: "looks amazing" but costs too much on 4.77 MHz. Keep it as an
+  option, on by default on a 286 or better — done, through `OSAPI_CPU_INFO`.
+
+**The shots showed what 16.4's three causes could not explain.** A
+dark-blue ROOM wall drew TALLER than a cyan pillar standing in front of it.
+Every wall here is 3 m on one floor, so no projection makes a farther wall
+taller. It was a bug.
+
+**The instrument: `tools/wacheck.py`.** It boots WARENA in MartyPC and
+teleports the player to random poses by writing the BSS. It reads text VRAM
+directly, because `screen()` drops `─` and `│`. Then it compares each
+column's edge rows with a host reference: the nearest front-facing wall a
+ray through the column's centre meets, projected with the guest's own
+integer scales.
+
+**Two of its own mistakes cost time, and are fixed in it:**
+
+- reading the screen through `screen()`, which saw half the edges;
+- BSS addresses from a stale map, which wrote every pose into the wrong
+  bytes once the image grew. The tool now assembles a map of the exact build
+  it boots, and refuses a mismatch.
+
+**What was wrong:**
+
+- A wall clipped at the guard band — a room wall running off the side of the
+  view or behind the camera — starts ~150 columns off the screen.
+- The edges' value at the first VISIBLE column was STEPPED from there, with a
+  per-column step truncated to a whole 13.3 unit. Up to 0.99 of a unit was
+  lost per column: 2+ half-rows by the screen.
+- Bottoms erred less than tops because their change across the wall is
+  smaller, so mostly the top edge rose — the wall "jumped forward". Turning
+  moved the clip point and the error: "jump back". Walking closer shrank the
+  off-screen run: "recedes to its actual distance".
+
+**The fix** (`wa_span`):
+
+- The first open column's top and bottom are interpolated EXACTLY: one
+  multiply and divide each (`.vat`).
+- The per-column steps carry a 16-bit fraction (`.step32`, an `adc` in the
+  loop).
+- The far corner is exact too.
+- Steps are also computed whenever the segment spans a column. They had
+  been skipped when the TRIMMED span was one column, giving the wall's end
+  height there.
+
+**The result** (90 degrees, seed 1, 30 poses):
+
+| build | poses with an edge two rows or more off |
+|---|---|
+| without the fix | 15 of 30 |
+| with the fix | 5 of 30 |
+
+The same poses, so the tool shows both. A wider run gave 6 of 60. What
+remains is a single column where a NEAR box's corner lands one column early
+or late; rounding the projection's divide did not change it, and it is not
+yet explained.
+
+**Cost:** the bench went from 20.1 to 19.1 fps at 40 columns.
+
+**The checker also caught a fresh bug in 16.4's FOV toggle.** The column is
+`centre + x * scale / z`. At 90 degrees the centre (8W) and the scale (8Wf)
+are one number, and `wa_k16` stood in for both. At 75 and 60 degrees every
+wall was drawn ~6 columns right of its place — figures were placed right,
+and the floor dots had the same fault. The fix is a separate `wa_c16`. **The
+owner's judgment of 75 degrees was made on that build** and wants a second
+look. With the fix, at 75 degrees, 6 of 30 poses have one such column.
