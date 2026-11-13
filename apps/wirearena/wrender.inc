@@ -2579,7 +2579,7 @@ wa_cross:
 %macro PNEW 0                   ; this frame's cell: written if it differs
     lodsw
     xchg bx, ax
-    mov ax, [wa_cur+bx]
+    mov ax, [bx+di]             ; (DI = wa_cur)
     cmp ax, [es:bx]
     je %%same
     mov [es:bx], ax
@@ -2587,9 +2587,9 @@ wa_cross:
 %%same:
 %endmacro
 %macro POLD 1                   ; last frame's: blanked unless drawn again
-    lodsw                       ; (DL = this frame, DI = WA_BLANK)
+    lodsw                       ; (DL = this frame, DI = wa_stamp)
     xchg bx, ax
-    mov al, [wa_stamp+bx]
+    mov al, [bx+di]
     and al, 0x7F
     cmp al, dl
     jne .ob%1
@@ -2597,7 +2597,7 @@ wa_cross:
 %endmacro
 %macro POLDB 1                  ; ...its blank, out of line
 .ob%1:
-    mov [es:bx], di
+    mov word [es:bx], WA_BLANK
     inc bp
     jmp .or%1
 %endmacro
@@ -2606,6 +2606,7 @@ wa_present:
     mov es, [wa_vseg]
     xor bp, bp                  ; writes, for the meter
     mov si, [wa_newp]
+    mov di, wa_cur
     mov cx, [wa_newn]           ; bytes: 2 a cell
     mov bx, cx
     and bx, 6                   ; (cells mod 4) x 2
@@ -2628,7 +2629,7 @@ wa_present:
     mov si, [wa_oldp]
     mov cx, [wa_oldn]
     mov dl, [wa_frame]
-    mov di, WA_BLANK
+    mov di, wa_stamp
     mov bx, cx
     and bx, 6
     add cx, 6
