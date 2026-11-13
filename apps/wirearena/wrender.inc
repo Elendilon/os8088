@@ -155,7 +155,8 @@ WA_VAR wa_rcp, (WA_ZMAX-WA_NEAR)*2 ; 0x7FFF0 / z, z = NEAR.. (wa_ptbi)
 WA_VAR wa_xk, WA_MXV+1          ; per coordinate: the step from the one
 WA_VAR wa_yk, WA_MYV+1          ; before, as a slot x 8 (wa_products)
 WA_VAR wa_nk, 2                 ; the last slot used, x 8
-WA_VAR wa_sel, 6                ; the cone test's bounds bytes (wa_products)
+WA_VAR wa_sel, 10               ; the cone test's bounds bytes and shifts
+                                ; (wa_products)
 WA_VAR wa_lord, (WA_MBOX+1)*2  ; the leaves front to back (wa_order)...
 WA_VAR wa_rx0, 2                ; ...for a position in [rx0, rx1) x
 WA_VAR wa_rx1, 2                ; [ry0, ry1) - the pairs adjacent: wa_order
@@ -392,36 +393,44 @@ wa_products:
 .kd:
     WA_AXIS wa_xv, wa_px, wa_xk, wa_xc, wa_xs
     WA_AXIS wa_yv, wa_py, wa_yk, wa_yc, wa_ys
-    mov cx, [wa_sinv]           ; the cone test's corners (wa_node): which end
-    mov dx, [wa_cos]            ; of a node's bounds is the extreme of each
-    mov ax, (9 << 8) | 10       ; sum - the sums are linear in the coordinate
-    cmp cx, dx
+    mov cx, [wa_sinv]           ; the cone test's corners (wa_leaf): which
+    mov dx, [wa_cos]            ; end of a box's bounds is the extreme of
+    mov ax, (9 << 8) | 10       ; each sum - the sums are linear in the
+    cmp cx, dx                  ; coordinate
     jl .p
     mov ax, (11 << 8) | 8
 .p:
-    mov [wa_sel], al            ; right: min x - z over x...
-    mov [wa_sel+3], ah          ; left: max x + z over y
+    mov [wa_sel+2], al          ; right: min x - z over x...
+    mov [wa_sel+5], ah          ; left: max x + z over y
     mov ax, (8 << 8) | 9
     mov bx, cx
     add bx, dx
     js .q
     mov ax, (10 << 8) | 11
 .q:
-    mov [wa_sel+1], al          ; right: ...and max over y
-    mov [wa_sel+2], ah          ; left: max over x
-    mov al, 8
+    mov [wa_sel+3], al          ; right: ...and max over y
+    mov [wa_sel+4], ah          ; left: max over x
+    mov ax, (10 << 8) | 8
     or dx, dx
     js .c
-    mov al, 10
+    xchg al, ah
 .c:
-    mov [wa_sel+4], al          ; behind: max z over x...
-    mov al, 9
+    mov [wa_sel+6], al          ; behind: max z over x...
+    mov [wa_sel], ah            ; (and the nearest: min z)
+    mov ax, (11 << 8) | 9
     or cx, cx
     js .s
-    mov al, 11
+    xchg al, ah
 .s:
-    mov [wa_sel+5], al          ; ...and over y
+    mov [wa_sel+7], al          ; ...and over y
+    mov [wa_sel+1], ah
+    mov bl, [wa_fov]            ; the narrower views' shifts (wa_leaf)
+    xor bh, bh
+    shl bx, 1
+    mov ax, [wa_fush+bx]
+    mov [wa_sel+8], ax
     ret
+wa_fush:    db 0, 0, 3, 1, 2, 2 ; 90 (unused), 75: 7/32, 60: 13/32
 
 ; wa_order - the box tree walked front to back from the player's position
 ; into wa_lord (leaf nodes, 0 at the end), and the cell of the split lines
@@ -491,31 +500,31 @@ wa_leaf:
     ; one inner test in the full arena dropped anything.
     ; (Storing the per-coordinate sums with the products measured slower:
     ; most coordinates' are never read)
-    mov si, wa_sel
+    mov si, wa_sel+2
     xor ah, ah
     lodsb
     xlatb
     mov di, ax
-    mov dx, [wa_xs+di+2]        ; x - z = (Xs - Xc) - (Yc + Ys) > 1
-    sub dx, [wa_xc+di+2]
+    mov cx, [wa_xs+di+2]        ; x - z = (Xs - Xc) - (Yc + Ys) > 1
+    sub cx, [wa_xc+di+2]
     lodsb
     xlatb
     mov di, ax
-    sub dx, [wa_yc+di+2]
-    sub dx, [wa_ys+di+2]
-    cmp dx, 4
+    sub cx, [wa_yc+di+2]
+    sub cx, [wa_ys+di+2]
+    cmp cx, 4
     jge .out
     lodsb
     xlatb
     mov di, ax
-    mov dx, [wa_xs+di+2]        ; x + z = (Xs + Xc) + (Ys - Yc) < -1
-    add dx, [wa_xc+di+2]
+    mov bp, [wa_xs+di+2]        ; x + z = (Xs + Xc) + (Ys - Yc) < -1
+    add bp, [wa_xc+di+2]
     lodsb
     xlatb
     mov di, ax
-    add dx, [wa_ys+di+2]
-    sub dx, [wa_yc+di+2]
-    cmp dx, -5
+    add bp, [wa_ys+di+2]
+    sub bp, [wa_yc+di+2]
+    cmp bp, -5
     jle .out
     lodsb
     xlatb
@@ -527,6 +536,43 @@ wa_leaf:
     add dx, [wa_ys+di+2]
     cmp dx, WA_NEAR-2
     jle .out
+    ; THE NARROWER VIEWS: the screen's edge is x = t z with t = 0.767 at
+    ; 75 degrees and 0.578 at 60, so a box is also off the screen when
+    ; x - (1 - u) z > 0 everywhere in it, for any u <= 1 - t (or the mirror
+    ; on the left). Over the box that is at least the 90-degree sum's least
+    ; value plus u times the least z - one more corner, and u by shifts:
+    ; 7/32 at 75 degrees, 13/32 at 60 (the shifts round down: smaller
+    ; still). Only for a box the 90-degree cone kept. Over P's poses at 75
+    ; degrees ~0.9 of 6.4 boxes a frame fewer reach wa_box.
+    cmp byte [wa_fov], 0
+    je .in
+    mov si, wa_sel
+    lodsb
+    xlatb
+    mov di, ax
+    mov dx, [wa_xc+di+2]        ; z = Xc + Ys, least
+    lodsb
+    xlatb
+    mov di, ax
+    add dx, [wa_ys+di+2]
+    mov al, cl
+    mov cl, [wa_sel+8]
+    sar dx, cl                  ; z / 8 (z / 4 at 60)...
+    mov di, dx
+    sar di, 1
+    add dx, di                  ; ...+ z / 16 (z / 8)...
+    mov cl, [wa_sel+9]
+    sar di, cl
+    add dx, di                  ; ...+ z / 32
+    mov cl, al
+    add cx, dx                  ; x - (1 - u) z
+    cmp cx, 4
+    jge .out
+    sub bp, dx                  ; x + (1 - u) z
+    cmp bp, -5
+    jle .out
+.in:
+    xor ah, ah
     mov al, [bx+1]              ; box x 8
     mov si, ax
     mov cl, 3
