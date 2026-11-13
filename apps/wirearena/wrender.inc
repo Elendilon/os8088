@@ -115,7 +115,6 @@ WA_VAR wa_b2, 2
 WA_VAR wa_i2, 2
 WA_VAR wa_pht, 2
 WA_VAR wa_phb, 2
-WA_VAR wa_eatt, 1               ; the edge glyphs' attribute this column
 WA_VAR wa_ht, 2
 WA_VAR wa_hroff, WA_HR*2         ; a half-row's cell row offset
 WA_VAR wa_hb, 2
@@ -993,12 +992,11 @@ wa_span:
     mov [wa_b2], ax
 .dcok:
     ; THE FLAT SPAN, nine in ten: neither edge moves a half-row a column (or
-    ; one that does is off the screen throughout), full detail, no held
-    ; edges - two passes by runs (wa_fedge, FLATPASS). Anything else is
-    ; SPANLOOP's, below.
-    mov al, [wa_sparse]
-    or al, [wa_hyst]
-    jnz .general
+    ; one that does is off the screen throughout), no held edges - two
+    ; passes by runs (wa_fedge, FLATPASS). Anything else is SPANLOOP's,
+    ; below.
+    cmp byte [wa_hyst], 0
+    jne .general
     mov ax, [wa_b1]             ; the bottom
     mov bx, [wa_b2]
     call wa_fedge
@@ -1013,23 +1011,25 @@ wa_span:
     jc .general
     call .reg                   ; (keeps SI, BP, CX and DI)
     jc .none
-    mov [wa_vt0], si
-    mov [wa_fh], si
+    mov [wa_vt0], si            ; (for the corners)
+    mov [wa_qt], bp
     mov [wa_ft], cx
     mov [wa_dt], di
+    mov [wa_fh], si
+    cmp byte [wa_sparse], 0     ; the sparse level draws no top: pass 1
+    je .full1                   ; only opens
+    mov word [wa_fh], -1
+    xor cx, cx
+.full1:
     mov dh, bl                  ; DH = the tag
     mov dl, [wa_frame]
     mov di, [wa_lp]
     mov ah, [wa_wcol]           ; the wall's colour: its ITEM's, not its depth
-    mov [wa_eatt], ah           ; (the corners read it)
     mov word [wa_ncl], 0
     mov si, [wa_end]            ; the column past the end reads shut to pass
     mov byte [wa_cov+si+1], 1   ; 1 (a high byte: always 0 otherwise)
     mov si, [wa_cs]
     call wa_fo                  ; pass 1: open, and the top
-    mov [wa_qt], bp             ; (the top, one column past the end)
-    mov bx, [wa_fh]
-    mov [wa_ht], bx
     mov si, [wa_end]
     mov byte [wa_cov+si+1], 0
     mov bx, [wa_vb0]            ; pass 2: the bottom - unless it is off the
@@ -1045,7 +1045,6 @@ wa_span:
     cmp bx, WA_HR
     jb .b2
 .bp:
-    mov [wa_lp], di
     mov ax, [wa_end]            ; opened: the range less the shut ones
     sub ax, [wa_cs]
     shr ax, 1
@@ -1069,17 +1068,25 @@ wa_span:
     mov al, [wa_tag]
     cmp [wa_cov+si], al         ; (and opened here)
     jne .fdone
-    mov bx, [wa_ht]             ; the last column's edges: a step back from
-    mov ax, [wa_qt]             ; one column past the end (in a pass's form,
-    cmp ax, [wa_ft]             ; a borrow either way)
-    jnc .ft
-    sub bx, [wa_dt]
+    sub si, [wa_cs]             ; the last column's edges: the top's from
+    shr si, 1                   ; its start (a carry a half-row; in a pass's
+    xchg ax, si                 ; form, either way), the bottom's a step
+    mul word [wa_ft]            ; back from one column past the end (a
+    add ax, [wa_qt]             ; borrow)
+    adc dx, 0
+    mov bx, [wa_vt0]
+    cmp word [wa_dt], 0
+    jg .ft
+    neg dx
 .ft:
+    add bx, dx
     mov ax, [wa_fh]
     cmp bp, [wa_fb]
     jnc .fb
     sub ax, [wa_db]
 .fb:
+    mov si, [wa_ce0]
+    mov dl, [wa_frame]          ; (the multiply took DX)
     xor cl, cl
     call wa_corner
 .fdone:
@@ -1167,7 +1174,6 @@ wa_span:
     mov dl, [wa_frame]
     mov dh, bl                  ; DH = the tag
     mov ah, [wa_wcol]           ; the wall's colour: its ITEM's, not its depth
-    mov [wa_eatt], ah           ; (the slope fill and the corners read it)
     xor bx, bx                  ; which of the eight loops
     cmp byte [wa_sparse], 0
     je .v1
@@ -1363,7 +1369,7 @@ wa_span:
 %%keep:
     mov bx, [%4+si]
 %%have:
-    mov ah, [wa_eatt]
+    mov ah, [wa_wcol]
 %else
     mov bx, %1
 %endif
@@ -1425,7 +1431,7 @@ wa_span:
     mov cx, [wa_chb+si-2]
     call wa_stepfill
     pop cx
-    mov ah, [wa_eatt]
+    mov ah, [wa_wcol]
 %endif
 %%step:
     add bp, [wa_stl]            ; 16.16: the fraction carries
@@ -1446,13 +1452,12 @@ wa_span:
 wa_l001:    SPANLOOP 1, 0, 1     ; ...held edges
 wa_l010:    SPANLOOP 1, 1, 0     ; full, steep
 wa_l011:    SPANLOOP 1, 1, 1
-wa_l100:    SPANLOOP 0, 0, 0     ; sparse
 wa_l101:    SPANLOOP 0, 0, 1
 wa_l110:    SPANLOOP 0, 1, 0
 wa_l111:    SPANLOOP 0, 1, 1
 wa_loops:   dw 0,        wa_l001, wa_l010, wa_l011   ; (full and flat:
                                 ; wa_span's passes)
-            dw wa_l100, wa_l101, wa_l110, wa_l111
+            dw 0,        wa_l101, wa_l110, wa_l111
 
 ; --- the flat span's passes ---------------------------------------------------
 ; A FLAT span (neither edge moves a half-row a column) at full detail without
@@ -1767,7 +1772,7 @@ wa_slope:
     add bx, si
     mov cx, ax
     mov ax, bp
-    mov ah, [wa_eatt]
+    mov ah, [wa_wcol]
 .row:
     WPLOT
     add bx, [wa_rowo2+2]        ; (a row's offset: row 1's)
@@ -1832,7 +1837,7 @@ wa_vrows:                       ; -> BX = the first cell, CX = rows (0:
     mov bx, [wa_rowo2+bx]
     add bx, si
     mov al, 0xB3
-    mov ah, [wa_eatt]
+    mov ah, [wa_wcol]
     ret
 
 wa_list:                        ; BX = cell, onto this frame's list
