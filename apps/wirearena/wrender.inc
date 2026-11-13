@@ -404,14 +404,22 @@ wa_node:
     jz .out
     cmp word [wa_left], 0
     je .out
-    ; THE VIEW CONE: a node whose bounds lie wholly right of x = z, left of
-    ; x = -z or behind the near plane holds nothing that could reach the
-    ; screen (90 degrees, the widest view), so neither do its boxes. Each is
-    ; a sum of the products' high words (wa_products) at the bounds' extreme
-    ; corner (wa_sel); the margins cover the four truncated words, so a node
-    ; is dropped only when the exact walk would have drawn none of it.
-    ; (Storing the per-coordinate sums with the products measured slower:
-    ; most coordinates' are never read)
+    cmp byte [bx], 2
+    jne .inner
+    ; THE VIEW CONE: a box whose bounds lie wholly right of x = z, left of
+    ; x = -z or behind the near plane has nothing that could reach the
+    ; screen (90 degrees, the widest view). Each is a sum of the products'
+    ; high words (wa_products) at the bounds' extreme corner (wa_sel); the
+    ; margins cover the four truncated words, so a box is dropped only when
+    ; the exact walk would have drawn none of it. (Storing the
+    ; per-coordinate sums with the products measured slower: most
+    ; coordinates' are never read.) It is asked of the LEAVES only: a split
+    ; node's test passed every time on the play bench (17 nodes visited, 8
+    ; of them splits, none dropped) and cost ~1 ms a frame there, and a
+    ; split it would drop holds boxes inside its bounds, which their own
+    ; tests drop alike: the same boxes drawn. (The play bench at 40
+    ; columns, with wa_face's exact pre-check: 52.6 -> 51.0 ms of render;
+    ; the fly-through bench B 31.4 -> 31.2)
     mov si, wa_sel
     xor ah, ah
     lodsb
@@ -448,9 +456,9 @@ wa_node:
     add dx, [wa_ys+di+2]
     cmp dx, WA_NEAR-2
     jle .out
+    jmp .leaf
+.inner:
     mov al, [bx]
-    cmp al, 2
-    je .leaf
     mov si, [bx+4]              ; near = low, far = high...
     mov di, [bx+6]
     mov cx, [wa_px]
@@ -569,9 +577,10 @@ wa_face:
     xor bh, bh
     call wa_vert
     mov cl, 4                   ; THE PRE-CHECK: the columns it could reach,
-    xor bh, bh                  ; from the columns (a vertex in view is its
-    mov bl, [wa_fv+1]           ; own, one beside the view is beyond that
-    call .reach                 ; edge, one behind is anywhere)
+    xor bh, bh                  ; from the columns (a vertex in view: the
+    mov bl, [wa_fv+1]           ; first column whose centre is at or past
+    call .reach                 ; it; one beside the view is beyond that
+                                ; edge, one behind is anywhere)
     mov dx, ax
     mov bl, [wa_fv]
     call .reach
@@ -581,6 +590,11 @@ wa_face:
 .lohi:
     cmp ax, 0x8000              ; (behind: anywhere)
     je .open
+    dec dx                      ; ...to the last centre short of the far end:
+    cmp ax, dx                  ; EXACTLY wa_span's columns, so a face seen
+    jg .shut                    ; edge-on, between two centres, ends here -
+                                ; not after its tops, bottoms and inverse
+                                ; depths (two a frame on the play bench)
     or dx, dx                   ; wholly left of the screen, or right: off
     js .shut                    ; it, whatever is open
     cmp ax, [wa_w]
@@ -684,6 +698,7 @@ wa_face:
     test byte [wa_vok+bx], 1    ; (on the screen or off it), -32767 or 32767
     jz .rout                    ; beside the view, 0x8000 behind it
     mov ax, [wa_vpc+bx]
+    add ax, 7
     sar ax, cl
     ret
 .rout:
