@@ -2149,7 +2149,23 @@ The part's descriptor gains a word at 42 (WIREARENA-PARTS-PLAN 7.5).
 
 **9.8.3 Measured** (MartyPC `os8088_5150_cga`, the games' own benches):
 
-BENCHTABLE
+Both columns were taken on the same harness and system disk; "before" is
+`b507c171`. fps (MS):
+
+| | before | with the PVS |
+|---|---|---|
+| P bench, 40 / 80 columns | 18.8 (53.1) / 15.6 (63.7) | 18.8 (53.1) / 15.6 (63.7) |
+| B bench, 40 columns, full / sparse | 33.0 (30.3) / 36.2 (27.6) | 33.0 (30.3) / 36.2 (27.6) |
+| heights A, 40 / 80 | 12.8 (77.6) / 10.3 (97.0) | 12.9 (77.1) / 10.3 (96.7) |
+| heights B, 40 / 80 | 13.7 (72.9) / 10.0 (99.5) | **15.0 (66.4) / 10.7 (93.1)** |
+| heights C, 40 / 80 | 25.9 (38.5) / 20.5 (48.7) | **31.3 (31.9) / 23.9 (41.7)** |
+| heights D, 40 / 80 | 11.8 (84.4) / 9.2 (108.2) | **12.3 (81.0) / 9.5 (105.0)** |
+| heights E, 40 / 80 | 25.0 (39.9) / 20.5 (48.7) | 25.1 (39.8) / 20.5 (48.6) |
+
+The whole-frame traces agree: B goes 330,814 → 298,350 clk a frame
+(−9.8%), C 186,406 → 149,878 (−19.6%) and D 380,469 → 362,106 (−4.8%).
+`wamodel --arena 2 --bench`, which now walks with the PVS too, gives
+17.1/17.4/26.2/15.4/25.1 at 40 columns.
 
 What it culls at the bench poses: A the annex's north block and the jump
 platform (both already outside the cone there); B both annex blocks and the
@@ -2164,9 +2180,33 @@ jump platform; C the same three; D the jump platform; E nothing.
   (at its corners and edges, a player's radius in) turned toward the box, at
   a random eye and pitch. That is 550 poses at 40 columns and 550 at 80.
 
-All were identical. CHECKS
+All were identical.
 
-**9.8.5 Bytes.** BYTES
+Two more checks:
+
+- **The flat posed sets**, 720 frames, are identical as well. Arenas 0 and 1
+  carry no PVS. Their leaves pass with one byte compare when the order is
+  rebuilt, and on no other frame.
+- **`wacheck`**: `--arena 2` 60 poses at 40 columns and 40 at 80, and the
+  flat arena's 30. Each reports the same poses and the same columns as
+  `b507c171`'s build, with 0 divide faults.
+
+**The test goes red when the PVS is wrong.** I built it with a margin of
+−0.01 rad, which wrongly culls slivers. Its own targeted set, 600 poses a
+width, showed 1 pose wrong at 40 columns and 2 at 80: a post column missing,
+seen past a pillar's edge.
+
+**The margin has room.** A PVS with no margin at all (35.4% culled) passed
+its own targeted set, 684 poses a width, with no frame differing.
+
+**9.8.5 Bytes.**
+
+| | `b507c171` | with the PVS |
+|---|---|---|
+| renderer part | 53,863 (image 22,755) | 54,530 (image 22,906): +667, of which `wa_pvs` 512 and its three cells 4 |
+| arena 2's part | 848 | 1,366: the masks 512, their header 4, the descriptor's word 2 |
+| arenas 0 and 1 | | +2 each (the descriptor's word) |
+| `WARENA.O88` (the same packer flags) | 21,695 | 21,960 |
 
 **9.8.6 What the frame says to do next** (each Measured above, priced
 against the frame):
