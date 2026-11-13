@@ -149,8 +149,6 @@ WA_VAR wa_rcp, (WA_ZMAX-WA_NEAR)*2 ; 0x7FFF0 / z, z = NEAR.. (wa_ptbi)
 WA_VAR wa_xk, WA_MXV+1          ; per coordinate: the step from the one
 WA_VAR wa_yk, WA_MYV+1          ; before, as a slot x 8 (wa_products)
 WA_VAR wa_nk, 2                 ; the last slot used, x 8
-WA_VAR wa_xq, WA_MXV*4          ; per coordinate, high words: sin - cos,
-WA_VAR wa_yq, WA_MYV*4          ; sin + cos (wa_node's cone test)
 WA_VAR wa_sel, 6                ; the cone test's bounds bytes (wa_products)
 WA_VAR wa_kv, (WA_MAXKS+1)*8    ; per slot: the step x 4...
 WA_VAR wa_mk, (WA_MAXKS+1)*8    ; ...and its products, cos and sin, 32 bits
@@ -296,9 +294,8 @@ wa_geominit:
     mov byte [di+1], 0
     ret
 
-; WA_AXIS values, the player's coordinate, steps, cos products, sin
-; products, cone sums
-%macro WA_AXIS 6
+; WA_AXIS values, the player's coordinate, steps, cos products, sin products
+%macro WA_AXIS 5
     mov ax, [%1]
     sub ax, [%2]
     shl ax, 1
@@ -323,13 +320,6 @@ wa_geominit:
     mov [di+2], dx
     mov [di+%5-%4], bp
     mov [di+%5-%4+2], cx
-    mov bx, cx                  ; the cone test's sums (wa_node): sin - cos
-    sub bx, dx                  ; and sin + cos, high words
-    mov [di+%6-%4], bx
-    mov bx, cx
-    add bx, dx
-    mov [di+%6-%4+2], bx
-    xor bx, bx
     add di, 4
     inc si
     mov bl, [si]
@@ -363,8 +353,8 @@ wa_products:
     add si, 8
     jmp .k
 .kd:
-    WA_AXIS wa_xv, wa_px, wa_xk, wa_xc, wa_xs, wa_xq
-    WA_AXIS wa_yv, wa_py, wa_yk, wa_yc, wa_ys, wa_yq
+    WA_AXIS wa_xv, wa_px, wa_xk, wa_xc, wa_xs
+    WA_AXIS wa_yv, wa_py, wa_yk, wa_yc, wa_ys
     mov cx, [wa_sinv]           ; the cone test's corners (wa_node): which end
     mov dx, [wa_cos]            ; of a node's bounds is the extreme of each
     mov ax, (9 << 8) | 10       ; sum - the sums are linear in the coordinate
@@ -406,29 +396,35 @@ wa_node:
     ; THE VIEW CONE: a node whose bounds lie wholly right of x = z, left of
     ; x = -z or behind the near plane holds nothing that could reach the
     ; screen (90 degrees, the widest view), so neither do its boxes. Each is
-    ; a sum of two per-coordinate high words at the bounds' extreme corner
-    ; (wa_sel); the margins cover the four truncated words, so a node is
-    ; dropped only when the exact walk would have drawn none of it
+    ; a sum of the products' high words (wa_products) at the bounds' extreme
+    ; corner (wa_sel); the margins cover the four truncated words, so a node
+    ; is dropped only when the exact walk would have drawn none of it.
+    ; (Storing the per-coordinate sums with the products measured slower:
+    ; most coordinates' are never read)
     mov si, wa_sel
     xor ah, ah
     lodsb
     xlatb
     mov di, ax
-    mov dx, [wa_xq+di]          ; x - z = (Xs - Xc) - (Yc + Ys) > 1
+    mov dx, [wa_xs+di+2]        ; x - z = (Xs - Xc) - (Yc + Ys) > 1
+    sub dx, [wa_xc+di+2]
     lodsb
     xlatb
     mov di, ax
-    sub dx, [wa_yq+di+2]
+    sub dx, [wa_yc+di+2]
+    sub dx, [wa_ys+di+2]
     cmp dx, 4
     jge .out
     lodsb
     xlatb
     mov di, ax
-    mov dx, [wa_xq+di+2]        ; x + z = (Xs + Xc) + (Ys - Yc) < -1
+    mov dx, [wa_xs+di+2]        ; x + z = (Xs + Xc) + (Ys - Yc) < -1
+    add dx, [wa_xc+di+2]
     lodsb
     xlatb
     mov di, ax
-    add dx, [wa_yq+di]
+    add dx, [wa_ys+di+2]
+    sub dx, [wa_yc+di+2]
     cmp dx, -5
     jle .out
     lodsb
