@@ -8,10 +8,6 @@ wa_hgl:     times WA_HR/2 db 0xC4, '_'
 ; 1 top-right, 2 bottom-left, 3 bottom-right
 wa_fglyph:  db 0x20, 0xDF, 0xDF, 0xDF, 0xDC, 0xDD, 0xDB, 0xDB
             db 0xDC, 0xDB, 0xDE, 0xDB, 0xDC, 0xDB, 0xDB, 0xDB
-; ...and a LINE figure's (I, wa_fln): the line in line glyphs, its head's
-; cell - all four bits - a face
-wa_flglyph: db 0x20, 0x27, 0x27, 0xC4, 0x2E, 0xB3, 0x2F, 0xB3
-            db 0x2E, 0x5C, 0xB3, 0xB3, 0x5F, 0xB3, 0xB3, 0x02
 ;              near   mid    far    figure flash  cross
 ; COLOUR SAYS WHAT A THING IS, not how far (the owner's call: two shades of
 ; blue never read as depth, and Hercules has no colour at all): a boundary

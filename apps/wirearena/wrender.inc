@@ -27,9 +27,6 @@
 ; the bench. This one does both in one pass, over the visible walls only.
 
 WA_MAXSP equ 96                 ; spans a frame the table holds
-%ifndef WA_FLINE
-WA_FLINE equ 16                 ; I on: a figure under this fs8 is a line
-%endif
 %macro WR_BSS 0
 WA_VAR wa_colz, WA_MAXW*2       ; nearest face's inverse depth (0 = none)
 WA_VAR wa_colt, WA_MAXW*2       ; its top, quarter half-rows
@@ -160,7 +157,6 @@ WA_VAR wa_frow, 2
 WA_VAR wa_fnr, 2                ;   rows left to sweep
 WA_VAR wa_fvis, WA_MAXW*2       ;   per column x 2: 1 = in front of its wall
 WA_VAR wa_flfn, 2               ;   wa_fline or wa_flinef
-WA_VAR wa_fgo, 1                ;   0, or 16 for a line figure (wa_fln)
 WA_VAR wa_fon, 1                ;   1: every joint on the screen
 WA_VAR wa_fk, 2                 ; wa_fjl's narrow sums: Klo (fcx fs8 + 256 W),
 WA_VAR wa_fe, 2                 ;   eye fv8 + 256 hh + 255
@@ -2030,7 +2026,6 @@ wa_plotf:
     push bx
     mov bl, dl
     and bx, 15
-    add bl, [wa_fgo]            ; (16: I's far figures, wa_flglyph)
     mov al, [wa_fglyph+bx]
     pop bx
     mov [wa_cur+bx], ax
@@ -2396,11 +2391,6 @@ wa_figure:
     add ax, wa_pose
     add ax, bx
     mov di, ax                  ; DI = keyframe B
-    cmp byte [wa_flod], 0       ; I: a far figure as a LINE (wa_fln), under
-    je .full                    ; WA_FLINE sub-columns a unit - a WIDTH, so
-    cmp word [wa_fs8], WA_FLINE ; 80 columns keeps whole figures twice as
-    jb wa_fln                   ; far out (~13 m at 40, ~26 m at 80, FOV 75;
-.full:                          ; past ~19 m wa_marker draws the same look)
     jmp wa_fjl                  ; the joints (and back to wa_fjdone)
 wa_fjdone:                      ; (wa_fjl comes back here)
     pop di
@@ -2427,11 +2417,8 @@ wa_fjdone:                      ; (wa_fjl comes back here)
     mov [di+F_PWH], ax
     push di
     mov byte [wa_fon], 1        ; the joints' box FIRST: whether the limbs
-    cmp byte [wa_fgo], 0        ; may skip their clip tests, and whether any
-    jne .lnx                    ; of it is in front of the walls at all.
-    WA_MINMAX wa_jsx
-.gx:
-    mov ax, [wa_w2]
+    WA_MINMAX wa_jsx            ; may skip their clip tests, and whether any
+    mov ax, [wa_w2]             ; of it is in front of the walls at all.
     or bx, bx                   ; BX = min, DX = max sub-column
     js .xoff
     cmp dx, ax
@@ -2457,10 +2444,7 @@ wa_fjdone:                      ; (wa_fjl comes back here)
     mov [wa_fbw], dx            ; the box's width, cells
     shl bx, 1
     mov [wa_fbc], bx            ; ...and its left column x 2
-    cmp byte [wa_fgo], 0
-    jne .lny
     WA_MINMAX wa_jsy
-.gy:
     or bx, bx
     js .yoff
     cmp dx, WA_HR
@@ -2526,23 +2510,6 @@ wa_fjdone:                      ; (wa_fjl comes back here)
     je .limbs
     mov word [wa_flfn], wa_flinef
 .limbs:
-    cmp byte [wa_fgo], 0
-    je .alllimbs
-    WA_LIMB 0, 4                ; a line figure: the one limb, head to ground
-    mov si, [wa_jsx]            ; ...and the head's whole cell, which
-    mov di, [wa_jsy]
-    cmp si, [wa_w2]
-    jae .nh
-    cmp di, WA_HR
-    jae .nh
-    mov bx, di
-    shl bx, 1
-    mov bx, [wa_hroff+bx]
-    and si, 0xFFFE
-    or byte [wa_fbuf+bx+si], 15 ; wa_flglyph draws as a face: the rest of
-.nh:                            ; the line in line glyphs, `│` `/` `\`
-    jmp wa_femit
-.alllimbs:
     WA_LIMB 2, 4                ; pass 2: the limbs into wa_fbuf (joint x 2
     WA_LIMB 2, 6                ; at each end: neck-pelvis, the arms, the
     WA_LIMB 6, 8                ; legs)
@@ -2564,22 +2531,7 @@ wa_fjdone:                      ; (wa_fjl comes back here)
     dec si
     call wa_fpix
     jmp wa_femit
-.lnx:                           ; a line figure's box: its two points
-    mov bx, [wa_jsx]
-    mov dx, [wa_jsx+4]
-    cmp bx, dx
-    jle .gx
-    xchg bx, dx
-    jmp .gx
-.lny:
-    mov bx, [wa_jsy]
-    mov dx, [wa_jsy+4]
-    cmp bx, dx
-    jle .gy
-    xchg bx, dx
-    jmp .gy
 .out:
-    mov byte [wa_fgo], 0
     pop di
     ret
 ; wa_femit - pass 3: the box swept with `repe scasw`, a row at a time. Each
@@ -2615,7 +2567,6 @@ wa_femit:
     add bp, [wa_w2]             ; (2W bytes: a row)
     dec word [wa_fnr]
     jnz .row
-    mov byte [wa_fgo], 0
     sub si, [wa_newp]
     mov [wa_newn], si
     pop di
@@ -2642,7 +2593,6 @@ wa_femit:
 .put:
     mov [di+WA_FMSO], dl
     mov bl, dl                  ; (BH is 0: BX was a column)
-    add bl, [wa_fgo]            ; (16: a line figure's glyphs)
     mov al, [wa_fglyph+bx]
     mov ah, [wa_fatt]
     mov [di+WA_FCUO], ax
@@ -2655,75 +2605,6 @@ wa_femit:
 .have:                          ; (a cell two figures share: rarer)
     or dl, [di+WA_FMSO]
     jmp .put
-
-; wa_fln - wa_figure's continuation for a far figure with I on (fs8 under
-; WA_FLINE; past fv8 9 wa_marker draws the same look more cheaply): the
-; figure as ONE LINE from its head to the ground under it, through the
-; limbs' walk, its head's cell a face (wa_flglyph). The head joint is
-; blended and projected as wa_fjl does it, so the line leans, flashes in a
-; flinch and sinks to the floor in a death.
-; SI, DI = keyframes A and B at this facing (the facing's offset already
-; in both, so BX - which still holds it - is cleared before the reads).
-; It fills what wa_fjdone reads of the joint table - joint 0 the head,
-; joint 2 (the pelvis, the trigger's centre) and the feet the ground point -
-; and sets wa_fgo, so wa_fjdone's trigger fields (the same rules as a whole
-; figure's), wall test and sweep serve it, its box is the two points', and
-; its one limb runs joint 0 to joint 2.
-; Returns to wa_fjdone. Clobbers AX, BX, CX, DX.
-wa_fln:
-    ; STKBALANCE-OK: never called - wa_figure's continuation, JMPed to with
-    ; wa_figure's DI on the stack; it leaves by `jmp wa_fjdone`, which pops it
-    xor bx, bx                  ; (joint 0: SI and DI are at the facing)
-    call .blend                 ; the head's lateral...
-    add ax, [wa_fcx]
-    imul word [wa_fs8]
-    mov al, ah
-    mov ah, dl
-    add ax, [wa_w]
-    mov [wa_jsx], ax
-    inc bx
-    call .blend                 ; ...and its height
-    sub ax, [wa_eye]
-    imul word [wa_fv8]
-    mov al, ah
-    mov ah, dl
-    neg ax
-    add ax, [wa_hh]
-    mov [wa_jsy], ax
-    mov ax, [wa_fcx]            ; the ground under its centre, as wa_marker
-    imul word [wa_fs8]          ; finds it: "joint 2" (the pelvis, the
-    mov al, ah                  ; trigger's centre)...
-    mov ah, dl
-    add ax, [wa_w]
-    mov [wa_jsx+4], ax
-    mov ax, [wa_eye]
-    imul word [wa_fv8]
-    mov al, ah
-    mov ah, dl
-    add ax, [wa_hh]
-    cmp ax, [wa_jsy]            ; (a head on the floor - a death's last
-    jge .gnd                    ; frames - can round a half-row below the
-    mov ax, [wa_jsy]            ; ground point: the line would point up)
-.gnd:
-    mov [wa_jsy+4], ax
-    mov [wa_jsy+16], ax         ; ...and the feet, for the trigger's extent
-    mov [wa_jsy+20], ax
-    mov byte [wa_fgo], 16       ; (a line figure, to wa_fjdone and wa_femit)
-    jmp wa_fjdone
-.blend:                         ; AX = A + (B - A) q / 4, rounded down (the
-    mov al, [si+bx]             ; same number as wa_fjl's per-quarter forms)
-    cbw
-    mov cx, ax
-    mov al, [di+bx]
-    cbw
-    sub ax, cx
-    mov dl, [wa_fsub]
-    xor dh, dh
-    imul dx
-    sar ax, 1
-    sar ax, 1
-    add ax, cx
-    ret
 
 ; wa_fjl - wa_figure's joints: SI, DI = keyframes A and B at this facing.
 ; Each is A + (B - A) x q / 4 (q = [wa_fsub], rounded down as wa_blend's
@@ -3164,19 +3045,11 @@ wa_marker:
     mov ax, WA_HR-1
 .bot:
     mov [wa_mbot], ax           ; the last half-row, clipped
-    and si, 1                   ; SI = the sub-column's half of the cell
-    cmp byte [wa_flod], 0       ; I: the line figure's look - its top cell a
-    je .bar                     ; face (SI's bit 8 marks it), the rest in
-    mov byte [wa_fgo], 16       ; wa_flglyph's line glyphs - and a dying one
-    or si, 0x100                ; its face on the floor
-    cmp byte [di+F_ANIM], WA_A_DEATH
-    jne .bar
-    mov cx, [wa_mbot]
-.bar:
     or cx, cx
     jns .top
     xor cx, cx
 .top:
+    and si, 1                   ; SI = the sub-column's half of the cell
     push di
     mov di, bx                  ; DI = the column x 2
 .cell:                          ; a cell at a time, both of its half-rows
@@ -3196,22 +3069,16 @@ wa_marker:
     mov dl, 5
     inc cx
 .half:
-    test si, 1
+    or si, si
     jz .put
     shl dl, 1                   ; the right-hand quadrants
 .put:
-    test si, 0x100
-    jz .plot
-    mov dl, 15                  ; (I: the top cell, the face)
-    and si, 1
-.plot:
     mov ah, [wa_fatt]
     call wa_plotf
     jmp .cell
 .done:
     pop di
 .out:
-    mov byte [wa_fgo], 0
     ret
 
 ; --- the crosshair ----------------------------------------------------------

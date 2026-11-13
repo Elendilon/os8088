@@ -398,11 +398,6 @@ wa_frame_input:
     xor byte [wa_hyst], 1
     jmp .drain
 .bg:
-    cmp ah, 0x17                ; I: far figures as a line
-    jne .bgg
-    xor byte [wa_flod], 1
-    jmp .drain
-.bgg:
     cmp ah, 0x22                ; G: the floor grid
     jne .bl
     xor byte [wa_grid], 1
@@ -1201,10 +1196,6 @@ wa_meter:
     je .det
     mov al, 'S'
 .det:
-    cmp byte [wa_flod], 0       ; ...in lower case with I's far figures as
-    je .fl                      ; lines
-    or al, 0x20
-.fl:
     call wa_putc
     mov al, '-'                 ; G: the floor grid
     cmp byte [wa_grid], 0
@@ -1551,9 +1542,9 @@ wa_help:
     db 'or Ctrl fires; Tab: 80/40; V: vsync;', 0
     db 'B: bench. L: walls full/sparse. F: view', 0
     db '90/75/60. H: hold far edges. G: floor', 0
-    db 'grid. I: far figures as lines. P: play', 0
-    db 'bench. Esc leaves. HUD: fps, frame,', 0
-    db 'render, present ms, writes a frame.', 0
+    db 'grid. P: play bench (8 s). Esc leaves.', 0
+    db 'HUD: fps, frame, render, present ms,', 0
+    db 'video writes a frame.', 0
     db 0
 
 ;               0         1         2         3
