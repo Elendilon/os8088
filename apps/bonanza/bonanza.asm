@@ -15,7 +15,8 @@
 ; simulation, the camera, the autopilot and the instruments (128.4 - 128.6).
 ; Nothing here is a reference game's: the ball is tools/bonanza_assets.py's
 ; (128.3) and the courses are text compiled by tools/bbcourse.py (128.10.4),
-; generated into build/bonanza-art/ and carried as 2 + 2 BZ_NCRS PARTS.
+; generated into build/bonanza-art/ and carried as 3 + BZ_NCRS PARTS: three
+; balls and one part a course, every one the CGA's (SPEC.md 128.11.3.1).
 %include "os88api.inc"
 OS88_HEADER 'BONANZA', bz_entry, 1 | OS88_F_PARTS, OS88_STACK_256 | OS88_HIGH | OS88_HIGHMEM
 OS88_ICON16
@@ -24,10 +25,11 @@ OS88_ICON16
     dw 0x07e0,0x1818,0x2004,0x4002,0x4c02,0x8c01,0x8001,0x8061
     dw 0x8061,0x8001,0x8c03,0x4c06,0x400e,0x203c,0x1ff8,0x07e0
 OS88_ICON16_END
-; The art files are PARTS of this file (SPEC.md 128.10.6.1, 20.12), every one
-; lazy and compressed: only the adapter's two are ever read, on the DESKTOP
-; before the bracket (so op_fetch's refusal toast can be drawn), and both are
-; dropped when the bracket returns (SPEC.md 128.7).
+; The art files are PARTS of this file (SPEC.md 128.11.3.1, 20.12), every one
+; lazy and compressed: only the play's course and ball are ever read, on the
+; DESKTOP before the bracket (so op_fetch's refusal toast can be drawn), the
+; Hercules translates both in place there (bz_hxlat), and both are dropped
+; when the bracket returns (SPEC.md 128.7, 128.11.3).
 %define OP_NO_LAZYOK            ; (the fetch itself asks; no pre-check is used)
 %include "os88parts.inc"
 %include "bzconst.inc"          ; the ball part's layout (tools/bonanza_assets.py)
@@ -57,11 +59,11 @@ OS88_ICON16_END
 BZ_LH       equ 10              ; the face's line pitch: an 8px cell and 2px of air
 BZ_LMAX     equ 88              ; the longest padded line (a 720px Hercules content box)
 
-; --- the part rows: the Makefile's BZ_PARTS order (SPEC.md 128.10.6.1) ---------
-BZ_P_BALC   equ 0               ; BZBALC.BIN  the ball, CGA
-BZ_P_BALH   equ 1               ; BZBALH.BIN  the ball, Hercules
-                                ; course K: BZ_P_CRS + 2K (CGA), + 1 (Hercules),
-                                ; bzcourse.inc's rows
+; --- the part rows: the Makefile's BZ_PARTS order (SPEC.md 128.11.3.1) ---------
+BZ_P_BALR   equ 0               ; BZBALR.BIN  the rubber ball: a material's row
+BZ_P_BALS   equ 1               ; BZBALS.BIN  is BZ_P_BALR + the material
+BZ_P_BALG   equ 2               ; BZBALG.BIN
+                                ; course K: BZ_P_CRS + K, bzcourse.inc's rows
 
 ; --- the course part's header (SPEC.md 128.10.5.1, 128.10.5.2) ------------------
 ; Byte offsets from the part's first byte; the grid's from GRIDOFF.  Nothing
@@ -69,7 +71,9 @@ BZ_P_BALH   equ 1               ; BZBALH.BIN  the ball, Hercules
 ; build time (SPEC.md 128.10.6.2).
 BZC_COLS    equ 4               ; word columns: 64 or 128
 BZC_BROWS   equ 6               ; block rows
+BZC_NBLK    equ 8               ; N, blocks (bz_hxlat)
 BZC_MAPSH   equ 10              ; 4 for 64 columns, 5 for 128
+BZC_BLKOFF  equ 12              ; block 0's offset (bz_hxlat)
 BZC_OCCIDX  equ 14              ; OCCIDX: BROWS + 1 words, each the offset of
                                 ; the block row's first occluder record
 BZC_ROWB    equ 24              ; 2 COLS: the map row's byte stride, READ by the
@@ -87,6 +91,19 @@ BZG_WX      equ 20              ; the start tile
 BZG_WY      equ 22
 BZG_NWAY    equ 24              ; the route: NWAY pairs of words, the ball's
 BZG_ROUTE   equ 26              ; picture top-left (px), at this offset
+; --- the ball part's header (BZB2, SPEC.md 128.11.9.1); its layout is
+; bzconst.inc's BZ_BAL_* -------------------------------------------------------
+BZB_NSHA    equ 12              ; byte: shatter frames, 4 for glass, else 0
+; --- the replay log's header (SPEC.md 128.11.12.1), in [bz_rlog] ---------------
+BZR_CRS     equ 4               ; byte: the course K
+BZR_MAT     equ 5               ; byte: the material
+BZR_FLAGS   equ 6               ; byte: bit 0 COMPLETE, bit 1 TRUNCATED
+BZR_STEPS   equ 8               ; DWORD: the steps recorded
+BZR_NRUN    equ 12              ; word: the runs recorded
+BZR_RUNS    equ 16              ; the runs: (key byte, count 1 - 255) pairs
+BZR_SIZE    equ 4096            ; the log, bz_rlog: at most 2,040 runs
+BZR_DONE    equ 1
+BZR_TRUNC   equ 2
 
 bz_entry:
     push es                     ; op_load spends ES, which arrives KERNEL_SEG
@@ -101,8 +118,13 @@ bz_entry:
     neg al
     mov [bz_small], al
     mov [bz_win], bx
+    mov byte [bz_crsel], BZ_CRS_FIRST ; the course Enter plays, and its ball
+    mov al, [bz_cballs + BZ_CRS_FIRST] ; (N and M change them, SPEC.md
+    mov [bz_matsel], al         ; 128.11.5.4)
     OS88_REGION_MOVABLE
-    OS88_ALTENTER_ARM
+    OS88_ALTENTER_ARM           ; (also the ask 128.11.11.2 owes at the open:
+                                ; asking arms SPEC.md 9.7's map, so the held-
+                                ; key guard sees every key pressed after it)
     mov bx, [bz_win]
     clc
 .out: ret
@@ -156,23 +178,95 @@ bz_onkey:
     or al, 20h
     cmp al, 'f'
     je .play
-    cmp al, 'c'
-    jne .notc
-    call bz_camkey              ; C: the camera mode (SPEC.md 128.9)
-    jmp .done
-.notc:
     cmp al, 'b'
+    je .bench
+    cmp al, 'r'
+    je .replay
+    mov bx, bz_camkey           ; C, M, N: one press however long it is held
+    cmp al, 'c'                 ; (SPEC.md 128.11.11.2)
+    je .held
+    mov bx, bz_ballkey
+    cmp al, 'm'
+    je .held
+    mov bx, bz_crskey
+    cmp al, 'n'
     jne .done
+.held:
+    call bz_dkey                ; AH = the make code: CF = 1 a repeat, swallowed
+    jc .done
+    call bx
+    jmp .done
+.replay:
+    call bz_rhave               ; R: offered only when there is a log
+    jne .done                   ; (SPEC.md 128.11.12.2): its course, and
+    mov ah, [bz_rlog + BZR_CRS] ; bz_launch takes its ball
+    mov al, 2
+    jmp .go
+.bench:
     mov ax, 1 | (BZ_CRS_BENCH << 8) ; B: the benchmark, on BENCH (SPEC.md
     jmp .go                     ; 128.10.11.1)
 .play:
-    mov ax, 0 | (BZ_CRS_FIRST << 8) ; Enter, F, Alt+Enter: play FIRST
-.go:                            ; (SPEC.md 128.10.6.1, open question O4)
+    mov al, 0                   ; Enter, F, Alt+Enter: play the selected
+    mov ah, [bz_crsel]          ; course (SPEC.md 128.11.11.3)
+.go:
     mov [bz_mode], al
     mov [bz_crs], ah
     call bz_launch
 .done:
     RESTORE
+    ret
+
+; bz_dkey - the held-key guard (SPEC.md 128.11.11.2), AH = a typed key's make
+; code.  The key's typematic repeats arrive as typed keys too, and an interval
+; test cannot see the typematic DELAY, so the fact asked is whether the key
+; came UP: while [bz_dkk] is this key's code it has not, and the key is
+; SWALLOWED (CF = 1).  Else it is a press (CF = 0): [bz_dkk] takes its code and
+; the window's timer is armed for a tick, whose handler (bz_ontimer) asks
+; OSAPI_KEY_DOWN.  With no timer (kern_small answers CF = 1) there is no guard.
+; Preserves all but AX and the flags.
+bz_dkey:
+    cmp ah, [bz_dkk]
+    stc
+    je .out
+    mov [bz_dkk], ah
+    push bx
+    mov bx, [bz_win]
+    mov ax, 1
+    call OSAPI_WM_TIMER
+    pop bx
+    jnc .out
+    mov byte [bz_dkk], 0
+    clc                         ; a press
+.out:
+    ret
+
+; the window's timer (WC_ONTIMER, SPEC.md 13.9): is [bz_dkk] still down?
+; Down, ask again in a tick; up, the next typed key of it is a press
+bz_ontimer:
+    SAVE
+    mov al, [bz_dkk]
+    or al, al
+    jz .done
+    call OSAPI_KEY_DOWN
+    jnc .up
+    mov bx, [bz_win]
+    mov ax, 1
+    call OSAPI_WM_TIMER
+    jmp .done
+.up:
+    mov byte [bz_dkk], 0
+.done:
+    RESTORE
+    ret
+
+; ZF = 1 when [bz_rlog] holds a log (the recorder's signature, SPEC.md
+; 128.11.12.1).  The log is the package's own bss, written by the package:
+; trusted, not checked (128.11.12.2).  Preserves all but the flags.
+bz_rhave:
+    cmp word [bz_rlog], 'BZ'
+    jne .out
+    cmp word [bz_rlog + 2], 'R1'
+.out:
     ret
 
 ; the window repainted outside a paint: arm the clip first (SPEC.md 11.3)
@@ -215,9 +309,16 @@ bz_adapter:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_launch - the desktop side of a play or a benchmark: every refusal is here,
-; where a toast can still be drawn (SPEC.md 128.1, 128.7).  The adapter's two
-; parts are fetched, the bracket runs, and both are dropped on every way out.
+; bz_launch - the desktop side of a play, a benchmark or a replay: every
+; refusal is here, where a toast can still be drawn (SPEC.md 128.1, 128.7).
+; In: [bz_mode] (0 play, 1 benchmark, 2 replay) and [bz_crs].  The MATERIAL is
+; chosen here (SPEC.md 128.11.5.4): a play rolls the session's ball
+; ([bz_matsel], M), a benchmark the course's own (BENCH's for B; the course a
+; harness poked at this entry otherwise), a replay the log's.  Course K's part
+; (row BZ_P_CRS + K) and the material's (BZ_P_BALR + [bz_mat]) are fetched -
+; the same rows on both cards - and on the Hercules both are translated in
+; place (bz_hgen, bz_hxlat, SPEC.md 128.11.3); the bracket runs, and both are
+; dropped on every way out.
 ; -----------------------------------------------------------------------------
 bz_launch:
     cmp byte [bz_small], 0
@@ -233,27 +334,41 @@ bz_launch:
 .ok:
     dec al
     mov [bz_herc], al
-    mov al, [bz_crs]            ; course K's row for this card: BZ_P_CRS + 2K,
-    shl al, 1                   ; + 1 on the Hercules (bzcourse.inc)
-    add al, BZ_P_CRS
-    add al, [bz_herc]
-    mov [bz_pc], al
-    mov al, BZ_P_BALC
-    add al, [bz_herc]
+    mov al, [bz_matsel]         ; the material (above)
+    mov bl, [bz_mode]
+    dec bl
+    js .mat                     ; 0: a play, M's
+    mov al, [bz_rlog + BZR_MAT]
+    jnz .mat                    ; 2: a replay, the log's
+    mov bl, [bz_crs]            ; 1: a benchmark, the course's own
+    xor bh, bh
+    mov al, [bz_cballs + bx]
+.mat:
+    mov [bz_mat], al
+    add al, BZ_P_BALR           ; its row (SPEC.md 128.11.3.1)
     mov [bz_pb], al
-    mov al, [bz_pc]
+    mov al, [bz_crs]            ; course K's row: BZ_P_CRS + K (bzcourse.inc)
+    add al, BZ_P_CRS
+    mov [bz_pc], al
     call op_fetch               ; claim, read, expand - or a toast said why
     jc .out
+    mov al, [bz_pc]             ; (each fetch's segment stored before the next
+    call op_seg                 ; fetch, so tests/pins.txt keys each claim by
+    mov [bz_cseg], ax           ; its own word: bz_cseg, bz_bseg)
     mov al, [bz_pb]
     call op_fetch
     jc .drop
-    mov al, [bz_pc]
-    call op_seg
-    mov [bz_cseg], ax
     mov al, [bz_pb]
     call op_seg
     mov [bz_bseg], ax
     call bz_crshdr              ; the course's header, copied into our data
+    cmp byte [bz_herc], 0       ; the Hercules's parts are the CGA's through
+    je .run                     ; BZ_HTAB, made here (SPEC.md 128.11.3)
+    push es                     ; (ES as the bracket call found it before:
+    call bz_hgen                ; bz_hxlat leaves the ball's there)
+    call bz_hxlat
+    pop es
+.run:
     mov byte [bz_err], 0
     mov bx, [bz_win]
     mov ax, bz_fullscreen
@@ -330,6 +445,130 @@ bz_crshdr:
     xchg ax, dx
     ret
 
+; -----------------------------------------------------------------------------
+; THE HERCULES MADE AT THE FETCH (SPEC.md 128.11.3).  A Hercules byte is the
+; CGA byte with each 2-bit pixel c replaced by herc_pair(c, line, column): 00
+; for 0, 11 for 3, and for 1 or 2, 10 where line + column is even and 01 where
+; it is odd.  Every block, ball row and squash or shatter row starts on a
+; 4-pixel world column, so only the PARITY p of a byte's line chooses, and
+; BZ_HTAB[256 p + b] is the byte b translated: two 256-byte tables.
+;
+; bz_hgen - BUILD BZ_HTAB into the first 512 bytes of bz_boxbuf, which nothing
+; uses until the bracket starts.  Per byte, bitwise rather than per pixel: a
+; field is MID (1 or 2) where its two bits differ, m = those fields' 11s, and
+; the byte is b ^ ((b ^ P) & m) with P the parity's mid pattern - 10 01 10 01
+; (99h) for p = 0, 01 10 01 10 (66h) for p = 1, which is NOT 99h.  The tool's
+; bbcourse.htab() is the same table; bonanzaring's Hercules oracle checks this
+; one by its picture (SPEC.md 128.11.17.2).  DS = ours.  Preserves nothing.
+; -----------------------------------------------------------------------------
+bz_hgen:
+    mov di, bz_boxbuf
+    mov dl, 99h                 ; P for p = 0
+.p:
+    xor cx, cx                  ; CL = b, 0 .. 255
+.b:
+    mov al, cl
+    mov ah, al
+    shr ah, 1
+    xor ah, al
+    and ah, 55h                 ; each mid field's low bit
+    mov bh, ah
+    shl ah, 1
+    or ah, bh                   ; AH = m
+    mov bh, al
+    xor bh, dl
+    and bh, ah
+    xor al, bh                  ; AL = b ^ ((b ^ P) & m)
+    mov [di], al
+    inc di
+    inc cl
+    jnz .b
+    not dl                      ; 99h -> 66h: the second table; 66h -> 99h: done
+    cmp dl, 66h
+    je .p
+    ret
+
+; -----------------------------------------------------------------------------
+; bz_hxlat - translate the fetched course and ball parts IN PLACE through
+; BZ_HTAB (SPEC.md 128.11.3), on the Hercules, before the bracket:
+;   the course's blocks, BLKOFF .. BLKOFF + 16 N: a block line is ONE WORD, its
+;     index in the block the line, so the table changes every two bytes (8
+;     lines a block, even: one run of 8 N rows of 2 bytes from table 0);
+;   the ball's ROLL frames: frame f's row r through ((f >> 3) + r) & 1, so each
+;     run of 8 frames is 128 rows of 5 bytes from table (f >> 3) & 1;
+;   the FRAME half of each squash and shatter entry (frame x shift x parity
+;     copy p x (mask 80, frame 80)): 16 rows from table p.
+; Masks and the shadow are the same bytes on both cards and are not touched.
+; XLAT reads DS:BX + AL, so DS = OURS (the table, in our bss) and the part is
+; ES (`es lodsb`, `stosb`, SI = DI): on kern_mega ES is the part's own
+; selector, written whole at offsets under its length, as op_fetch's expand
+; already writes it; nothing through CS (SPEC.md 128.11.14).  DS = ours.
+; Preserves nothing; ES is left the ball's (bz_launch saves and restores it).
+; -----------------------------------------------------------------------------
+bz_hxlat:
+    mov bx, bz_boxbuf           ; BX = table 0, BP = the toggle to table 1 and
+    lea bp, [bx + 256]          ; back: table 0 ^ table 1, two byte bases 256
+    xor bp, bx                  ; apart (any alignment)
+    mov es, [bz_cseg]           ; the course: 8 N rows of 2 bytes
+    mov si, [es:BZC_BLKOFF]
+    mov cx, [es:BZC_NBLK]
+    shl cx, 1
+    shl cx, 1
+    shl cx, 1
+    mov dl, 2
+    call bz_hxrows
+    mov es, [bz_bseg]           ; the ball's roll frames: 8 runs of 8 frames
+    mov si, BZ_BAL_FRMOFF
+    mov dl, BZ_BAL_RB
+    mov dh, BZ_BAL_FRAMES / 8
+.roll:
+    mov cx, 8 * BZ_BAL_ROWS     ; (even: the run ends on its first table)
+    call bz_hxrows
+    xor bx, bp                  ; the next run's first row: the other table
+    dec dh
+    jnz .roll
+    mov si, BZ_BAL_SQOFF        ; the squash entries
+    mov al, BZ_BAL_NSQ
+    call bz_hxents
+    mov si, BZ_BAL_SHAOFF       ; ...and glass's shatter entries: +12 counts
+    mov al, [es:BZB_NSHA]       ; them, 0 for rubber and steel
+; AL = frames of entries at SI: each frame's BZ_BAL_SHIFTS x 2 parity copies,
+; every copy's frame half 16 rows from table p (copies alternate p = 0, 1)
+bz_hxents:
+    mov ah, BZ_BAL_SHIFTS * 2
+    mul ah
+    or ax, ax
+    jz .out
+    mov dh, al                  ; (at most 4 x 8 entries)
+    mov bx, bz_boxbuf
+.ent:
+    add si, BZ_BAL_ENT / 2      ; past the mask half to the frame half
+    mov cx, BZ_BAL_ROWS
+    call bz_hxrows              ; (even: back on the copy's own table)
+    xor bx, bp                  ; the next copy is the other parity
+    dec dh
+    jnz .ent
+.out:
+    ret
+
+; ES:SI = the first byte, CX = rows (at least 1) of DL bytes, BX = the first
+; row's table, BP = the toggle: each byte through the table, each row then the
+; other table.  Out: SI past the last byte, BX the next row's table.  Clobbers
+; AX, CX, DI.
+bz_hxrows:
+    mov di, si
+.r:
+    mov ah, dl
+.b:
+    es lodsb
+    xlat
+    stosb
+    dec ah
+    jnz .b
+    xor bx, bp
+    loop .r
+    ret
+
 ; SI = a TOASTSTR in our segment
 bz_toast:
     push es
@@ -358,15 +597,7 @@ bz_face:
     mov si, bz_s_title
     call bz_lstr
     call bz_line
-    mov si, bz_s_keys           ; which course each key plays, by its title
-    call bz_lstr                ; (SPEC.md 128.10.6.1)
-    mov si, bz_ctitles + BZ_CRS_FIRST * BZ_CRS_TITLEB
-    call bz_lcat
-    mov si, bz_s_keyb
-    call bz_lcat
-    mov si, bz_ctitles + BZ_CRS_BENCH * BZ_CRS_TITLEB
-    call bz_lcat
-    call bz_line
+    call bz_playline            ; ENTER <the course's title>  B bench
     ; line 2: the adapter, or the refusal's reason
     mov si, bz_s_small
     cmp byte [bz_small], 0
@@ -382,12 +613,13 @@ bz_face:
 .adl:
     call bz_lstr
     call bz_line
-    call bz_camline             ; line 3: the camera mode (SPEC.md 128.9)
-    cmp byte [bz_fin], 0        ; line 4 after a play that reached the goal:
-    je .nofin                   ; its time (SPEC.md 128.10.6.2), IN PLACE OF
-    call bz_finline             ; the last benchmark's results - the CGA's
-    jmp short .nores            ; content holds 13 lines and they are 9 - which
-.nofin:                         ; come back with the next benchmark
+    call bz_keyline             ; line 3: the camera, the ball, their keys
+    cmp byte [bz_fin], 0        ; lines 4 and 5 after a play or a replay that
+    je .nofin                   ; reached the goal: its time (SPEC.md
+    call bz_finline             ; 128.10.6.2) and its mishaps (128.11.11.3),
+    call bz_tally               ; IN PLACE OF the last benchmark's results -
+    jmp short .nores            ; the CGA's content holds 13 lines and they
+.nofin:                         ; are 9 - which come back with the next one
     cmp byte [bz_res], 0
     jne .results
 .nores:
@@ -403,6 +635,9 @@ bz_face:
     call bz_line
 .hint:
     mov si, bz_s_hint
+    call bz_lstr
+    call bz_line
+    mov si, bz_s_hint2
     call bz_lstr
     call bz_line
     jmp .tail
@@ -457,19 +692,47 @@ bz_fgeom:
 .out:
     ret
 
-; the CAMERA line at [bz_fy]: the mode a play will start in.  C on the desktop
-; cycles it too, and redraws this one line (bz_camkey): the same pixels the
-; whole face draws there, once.
-bz_camline:
-    mov si, bz_s_cam
+; line 1 at [bz_fy], what Enter plays: `ENTER <title>  B bench` (SPEC.md
+; 128.11.11.3), the title the selected course's (N)
+bz_playline:
+    mov si, bz_s_keys
+    call bz_lstr
+    mov al, [bz_crsel]
+    mov ah, BZ_CRS_TITLEB
+    mul ah
+    add ax, bz_ctitles
+    xchg ax, si
+    call bz_lcat
+    mov si, bz_s_keyb
+    call bz_lcat
+    jmp bz_line
+
+; line 3 at [bz_fy], the settings and their keys: `C <camera>  M <ball>  N
+; COURSE`, and `R REPLAY` when there is a log (SPEC.md 128.11.11.3).  C, M and N
+; on the desktop redraw it (bz_camkey, bz_ballkey, bz_crskey): the same pixels
+; the whole face draws there, once.
+bz_keyline:
+    mov si, bz_s_camk
     call bz_lstr
     mov bl, [bz_cmode]
     xor bh, bh
     shl bx, 1
     mov si, [bz_s_cmodes + bx]
     call bz_lcat
-    mov si, bz_s_camk
+    mov si, bz_s_ballk
     call bz_lcat
+    mov bl, [bz_matsel]
+    xor bh, bh
+    shl bx, 1
+    mov si, [bz_s_mats + bx]
+    call bz_lcat
+    mov si, bz_s_crsk
+    call bz_lcat
+    call bz_rhave
+    jne .line
+    mov si, bz_s_repk
+    call bz_lcat
+.line:
     jmp bz_line
 
 ; the FINISHED line at [bz_fy]: "Finished in <s.hh> s", the steps the play took
@@ -497,16 +760,82 @@ bz_finline:
     call bz_lcat
     jmp bz_line
 
-; C on the desktop: the next camera mode, and its line redrawn
+; the TALLY line at [bz_fy], under the time: `Falls <n>  stuns <n>  shatters
+; <n>` - the play's respawns that were not a shatter's, and its steel stuns and
+; glass shatters (SPEC.md 128.11.11.3).  At the goal every shatter has
+; respawned (a shattering ball reaches no goal), so the falls are not negative.
+bz_tally:
+    mov si, bz_s_falls
+    call bz_lstr
+    mov ax, [bz_nfall]
+    sub ax, [bz_nshat]
+    mov bx, bz_nstun
+    mov cx, 3
+.n:
+    xor dx, dx
+    call bz_lnum
+    dec cx
+    jz .line
+    mov si, [bz_s_tally + bx - bz_nstun]
+    call bz_lcat
+    mov ax, [bx]
+    inc bx
+    inc bx
+    jmp .n
+.line:
+    jmp bz_line
+
+; C, M and N on the desktop (one press each, bz_dkey): the next camera mode,
+; ball or course, and the lines that name them redrawn - outside a paint, so
+; the clip is armed first (SPEC.md 11.3).  N sets the ball to the new course's
+; own (SPEC.md 128.11.5.4).  Every one is the session's, not the disk's.
 bz_camkey:
     call bz_cnext
-    mov bx, [bz_win]
-    call OSAPI_WM_CLIP_SET      ; outside a paint: arm the clip (SPEC.md 11.3)
-    jc .out
-    call bz_fgeom
+    jmp short bz_line3
+
+bz_ballkey:
+    inc byte [bz_matsel]
+    cmp byte [bz_matsel], BZ_NMAT
+    jb bz_line3
+    mov byte [bz_matsel], 0
+bz_line3:
+    call bz_fclip
     jc .out
     mov word [bz_fy], 3 * BZ_LH
-    call bz_camline
+    call bz_keyline
+.out:
+    ret
+
+%if BZ_CRS_BENCH != 0
+ %error "bz_crskey cycles courses 1 .. BZ_NCRS - 1: BENCH must be course 0"
+%endif
+bz_crskey:
+    mov bl, [bz_crsel]          ; every course but BENCH: FIRST, TRIAL, ...
+    inc bx
+    cmp bl, BZ_NCRS
+    jb .k
+    mov bl, 1
+.k:
+    mov [bz_crsel], bl
+    xor bh, bh
+    mov al, [bz_cballs + bx]
+    mov [bz_matsel], al
+    call bz_fclip
+    jc .out
+    mov word [bz_fy], 1 * BZ_LH
+    call bz_playline
+    mov word [bz_fy], 3 * BZ_LH
+    call bz_keyline
+.out:
+    ret
+
+; the window's clip armed and the face's geometry read: CF = 1 when either
+; cannot be had.  Clobbers AX, BX, CX, DX.
+bz_fclip:
+    mov bx, [bz_win]
+    call OSAPI_WM_CLIP_SET
+    jc .out
+    call bz_fgeom
 .out:
     ret
 
@@ -834,29 +1163,40 @@ bz_fillrect:
 bz_tpl: dw 40, 24, 344, 168, bz_title, bz_cls
 ; its CLASS (SPEC.md 11.104): every handler; WF_OWNBG, the face paints every pixel
     OS88_CLASS bz_cls, WF_OWNBG, PAINT, bz_paint, ONKEY, bz_onkey, \
-               ONCLICK, bz_click, ABOUT, bz_about
+               ONCLICK, bz_click, ABOUT, bz_about, ONTIMER, bz_ontimer
 bz_title: db 'Bounce Bonanza',0
 bz_credits: dw bz_title,bz_credit1,bz_credit2,bz_credit3,0
 bz_credit1: db 'Isometric rolling-ball game',0
-bz_credit2: db 'Wave 1: courses and physics v1',0
+bz_credit2: db 'Wave 2: feel - three balls',0
 bz_credit3: db 'Generated art, original design',0
 
-bz_s_title: db 'BOUNCE BONANZA - wave 1',0
+bz_s_title: db 'BOUNCE BONANZA - wave 2',0
 bz_s_keys:  db 'ENTER ',0
-bz_s_keyb:  db '   B ',0
+bz_s_keyb:  db '  B bench',0
 bz_ctitles: BZ_CRS_TITLES       ; the courses' titles, BZ_CRS_TITLEB bytes each
+bz_cballs:  BZ_CRS_BALLS        ; ...and their balls, a byte each
 bz_s_cga:   db 'Adapter: CGA, 320x200 four colours',0
 bz_s_herc:  db 'Adapter: Hercules, 360x200 pair pixels',0
 bz_s_noad:  db 'CGA OR HERC ONLY',0
 bz_s_small: db 'NEEDS MORE MEMORY (128KB kernel)',0
-bz_s_cam:   db 'Camera: ',0
-bz_s_camk:  db '   (C cycles it)',0
-bz_s_cmodes: dw bz_s_glide, bz_s_follow, bz_s_trickle
+bz_s_camk:  db 'C ',0
+bz_s_ballk: db '  M ',0
+bz_s_crsk:  db '  N COURSE',0
+bz_s_repk:  db '  R REPLAY',0
+bz_s_mats:  dw bz_s_rubber, bz_s_steel, bz_s_glass
+bz_s_rubber: db 'RUBBER',0
+bz_s_steel: db 'STEEL',0
+bz_s_glass: db 'GLASS',0
+bz_s_cmodes: dw bz_s_glide, bz_s_trickle   ; bz_cmode's (SPEC.md 128.11.11.1)
 bz_s_glide: db 'GLIDE',0
-bz_s_follow: db 'FOLLOW',0
 bz_s_trickle: db 'TRICKLE',0
-bz_s_hint:  db 'Arrows roll; Esc, F or Alt+Enter: back',0
+bz_s_hint:  db 'Arrows roll  Space hop  L.Shift grip',0
+bz_s_hint2: db 'Esc, F or Alt+Enter: back',0
 bz_s_fin:   db 'Finished in ',0
+bz_s_falls: db 'Falls ',0
+bz_s_tally: dw bz_s_stuns, bz_s_shats   ; after bz_nstun's and bz_nshat's
+bz_s_stuns: db '  stuns ',0
+bz_s_shats: db '  shatters ',0
 bz_s_secs:  db ' s',0
 bz_s_err:   db 'The full screen mode was refused',0
 bz_s_err2:  db "The window's display changed",0
@@ -881,16 +1221,20 @@ bz_s_p5:    db '  box write      ',0
 %include "bzvideo.inc"
 %include "bzgame.inc"
 %include "bzphys.inc"
+%if 4 * BZ_BOXB < 512
+ %error "bz_hgen: BZ_HTAB's 512 bytes do not fit bz_boxbuf"
+%endif
 
-; --- the part table (SPEC.md 128.10.6.1, 20.12) --------------------------------
-; 2 + 2 BZ_NCRS rows, in the Makefile's BZ_PARTS order, every one OP_LAZY |
-; OP_COMP: the ball for each card, then each course for each card (BZ_COURSES's
-; order, bzcourse.inc's rows).  Fetched by bz_launch on the desktop (op_fetch,
+; --- the part table (SPEC.md 128.11.3.1, 20.12) --------------------------------
+; 3 + BZ_NCRS rows, in the Makefile's BZ_PARTS order, every one OP_LAZY |
+; OP_COMP: the three balls, then each course (BZ_COURSES's order, bzcourse.inc's
+; rows), every one the CGA's.  Fetched by bz_launch on the desktop (op_fetch,
 ; 1942's pattern) and dropped when the bracket returns.
-OS88_PARTS_BEGIN 2 + 2 * BZ_NCRS
-    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; 0  BZBALC.BIN
-    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; 1  BZBALH.BIN
-    BZ_CRS_PARTS                            ; 2 + 2K, 3 + 2K: BZ<K>C.BIN, BZ<K>H.BIN
+OS88_PARTS_BEGIN 3 + BZ_NCRS
+    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; 0  BZBALR.BIN  rubber
+    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; 1  BZBALS.BIN  steel
+    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; 2  BZBALG.BIN  glass
+    BZ_CRS_PARTS                            ; 3 + K: BZ<K>.BIN
 OS88_PARTS_END
 
 %define OS88UI_ABOUT
@@ -907,8 +1251,15 @@ OS88_PARTS_END
 VAR bz_win,2
 VAR bz_abon,1
 VAR bz_small,1                  ; 1 = kern_small (no timer slot): refused
-VAR bz_pc,1                     ; the course's part row for this adapter
-VAR bz_pb,1                     ; ...and the ball's
+VAR bz_pc,1                     ; the course's part row (BZ_P_CRS + K)
+VAR bz_pb,1                     ; ...and the ball's (BZ_P_BALR + [bz_mat])
+VAR bz_crsel,1                  ; the course Enter plays (N): FIRST, TRIAL, ...
+VAR bz_matsel,1                 ; the ball a play rolls (M; N sets the course's)
+VAR bz_mat,1                    ; THIS launch's material, 0 rubber, 1 steel,
+                                ; 2 glass (bz_launch; bz_pinit copies its
+                                ; BZ_MATTAB record, SPEC.md 128.11.5.2)
+VAR bz_dkk,1                    ; the held-key guard: the make code of the C, M
+                                ; or N not yet seen up, 0 none (128.11.11.2)
 VAR bz_fw,2                     ; the face: content width, height, origin
 VAR bz_fh,2
 VAR bz_ox,2
@@ -919,5 +1270,9 @@ VAR bz_lbuf,BZ_LMAX + 2
 ; the engine's (bzgame.inc's head documents the ones a harness reads)
 BZ_GAME_VARS
 BZ_PHYS_VARS
+VAR bz_rlog,BZR_SIZE                ; THE REPLAY LOG (SPEC.md 128.11.12.1): `BZR1`,
+                                ; the course (+4), the material (+5), flags,
+                                ; the steps, the runs.  The recorder writes
+                                ; it; R replays it (bz_rhave)
 OS88_BSS BZ_BSS
 OS88_IMAGE_END

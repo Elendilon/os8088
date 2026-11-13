@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""BONANZA on kern_mega: correct on selectors, RUN (SPEC.md 128.10.6.4, 128.10.11.3).
+"""BONANZA on kern_mega: correct on selectors, RUN (SPEC.md 128.10.6.4, 128.11.14, 128.11.17.2).
 
     make mega bonanzadisk && python3 tests/bonanza_mega.py [--keep]
-    python3 tests/bonanza_mega.py --red segadd        (the red arm, below)
+    python3 tests/bonanza_mega.py --red segadd|hxcs|shiftmap     (a red arm, below)
+    python3 tests/bonanza_mega.py --check                        (the host half: the red arms assemble)
 
 Under kern_mega a claim is an LDT SELECTOR, so every segment wave 1 added -
 the course part, with the grid inside it, and the ball part - is a part's own,
@@ -23,6 +24,27 @@ BONANZA plays on a CGA or a Hercules only - and then:
   1  B, the benchmark, to its end on the Hercules ([bz_herc] 1 inside, the
      results left: [bz_res] 1, 1,200 frames in [bz_rframes]);
   2  Enter, a play of FIRST, left by Esc after 100 frames;
+  3  a play with a HOP (Space) and GRIP (Left Shift held) and the arrows,
+     left by Esc, then its REPLAY by R run to its end: the replay's end
+     state (nstep, gx, gy, gz and the velocities, read in the package's bss)
+     is the play's - every launch on the Hercules BUILDS BZ_HTAB in the
+     package's bss and TRANSLATES both fetched parts in place through their
+     own selectors (SPEC.md 128.11.3, 128.11.14);
+
+     Keys are held for STEPS, never frames: 86Box paces the Hercules'
+     retrace nothing like a real card's (about nine frames a step on this
+     machine), and a key is recorded only by a step that runs while it is
+     down - a Hop held 4 frames fell between two steps in the first final
+     pass and the play logged 19 steps in 120 frames;
+  4  THE FAKE SHIFTS (128.11.7.2): with NumLock on, a play in which the GREY
+     Right arrow (E0 4D: a 101-key keyboard sends E0 2A first with NumLock
+     on) is held for 30 steps, left by Esc: every key byte the play
+     RECORDED has bit 5 (Grip) clear.  (86Box's keyboard sends no fake
+     shift, and its automation drops an explicit E0 2A - 0x12A, tried in
+     wave 2's final pass - so on 86Box this case is a SKIP.)  Before that it reads kbd_track's map
+     with the grey arrow held: if bit 2Ah is not set there, this machine's
+     keyboard sends no fake shift, the case could not go red, and it reports
+     SKIP with that reason (asserting nothing about it);
 
 and asserts, after each, as bonanza_exit does on MartyPC: every part row
 with OP_FETCHED clear and OP_R_ZKB back to its packed length, and the
@@ -36,11 +58,18 @@ kernel's own way out of protected mode on a 286 (mega_svc_lo's deliberate
 shutdown, which the first final pass counted as a failure).  No time is
 asserted: 86Box is not cycle-exact.
 
---red segadd builds a package (in a temporary directory, never build/)
-that reaches the grid by ADDING GRIDOFF >> 4 to the course's segment - right
-on every real-mode kernel, and on a selector another descriptor - and PASSES
-only if the row FAILS with an exception in the fault log.  Needs a built
-86Box (python3 tools/os88box.py build).
+--red NAME builds a package (in a temporary directory, never build/) that
+is right on every real-mode kernel and wrong on kern_mega, and PASSES only if
+the row FAILS at its own check:
+  segadd    the grid reached by ADDING GRIDOFF >> 4 to the course's segment (on
+            a selector, another descriptor): an exception in the fault log
+  hxcs      the Hercules translation writes through CS (bz_hxrows' store a
+            `mov [cs:di], al`): an exception in the fault log, charged to the
+            package, at the first Hercules launch
+  shiftmap  Grip read through OSAPI_KEY_DOWN (2Ah), §9.7's map: with the
+            fake shift in the map, bit 5 set while the grey arrow is held
+            (a SKIP of case 4 leaves this arm unjudged, and it says so)
+Needs a built 86Box (python3 tools/os88box.py build).
 """
 import argparse
 import os
@@ -67,6 +96,7 @@ FIRST = (160, 127)              # the first file of a fresh B: window: BONANZA.O
 OP_ROW, OP_T_ROWS, OP_R_FLAG, OP_R_ZKB, OP_FETCHED = 8, 10, 1, 6, 32
 KERNEL_CS = (0x0060, 0x0028)    # the kernel's own code (os88box.faults' segmap)
 FAILS = []
+SKIPS = []
 
 
 def want(cond, what):
@@ -220,6 +250,51 @@ def claims(b, pkg, hs, equ):
     return sorted(out)
 
 
+def nstep(b, pkg):
+    """[bz_nstep]: the play's steps so far"""
+    return u16(b.memr(pkg.a("bz_nstep"), 2))
+
+
+def steps(b, pkg, n, what):
+    """run until the play has taken N more STEPS.  Counted in steps, not frames:
+    86Box paces the Hercules' retrace nothing like a real card's (it is not
+    cycle-exact; on this machine about nine frames a step), and a key a frame
+    samples is recorded only by a step that runs while it is down"""
+    s0 = nstep(b, pkg)
+    b.until(lambda: nstep(b, pkg) >= s0 + n, "%s (%d steps)" % (what, n), 60000, 20)
+
+
+def hold(b, pkg, key, n):
+    """KEY held down for N of the play's STEPS (a tap could fall between two
+    steps' samples), then up"""
+    b.cmd("key down 0x%X" % os88box.keycode(key))
+    steps(b, pkg, n, "%s held" % key)
+    b.cmd("key up 0x%X" % os88box.keycode(key))
+
+
+def phys(b, pkg):
+    """(nstep, gx, gy, gz, gvx, gvy, gvz, air) out of the package's bss"""
+    lo = pkg.a("bz_phs")
+    raw = b.memr(lo, pkg.sym["bz_phe"] - pkg.sym["bz_phs"])
+
+    def f(n, fmt):
+        return struct.unpack_from(fmt, raw, pkg.sym[n] - pkg.sym["bz_phs"])[0]
+    return (f("bz_nstep", "<I"), f("bz_gx", "<I"), f("bz_gy", "<I"), f("bz_gz", "<i"), f("bz_gvx", "<h"),
+            f("bz_gvy", "<h"), f("bz_gvz", "<h"), f("bz_air", "B"))
+
+
+def log_keys(b, pkg):
+    """the key bytes of the play bz_rlog holds (its runs; SPEC.md 128.11.12.1)"""
+    raw = b.memr(pkg.a("bz_rlog"), 4096)
+    if raw[:4] != b"BZR1":
+        return []
+    n = u16(raw, 12)
+    out = []
+    for i in range(min(n, 2040)):
+        out += [raw[16 + 2 * i]] * raw[17 + 2 * i]
+    return out
+
+
 def check_after(what, pkg, base_rows, base_claims, got_claims):
     rows = pkg.rows()
     bad = [i for i, (f, _) in enumerate(rows) if f & OP_FETCHED]
@@ -299,6 +374,64 @@ def run(img_b, keep, tmp):
         b.until(lambda: pkg.word("bz_cseg") == 0 and pkg.word("bz_bseg") == 0, "the parts dropped", 10000, 50)
         b.ui_done(limit_ms=30000)
         check_after("2. the play", pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
+        # 3. a play with a Hop and Grip, then its replay by R
+        b.tap("return", gap=300)
+        b.until(lambda: pkg.byte("bz_fs") == 1 and pkg.word("bz_frames") > 20, "a play of 20 frames", 60000, 100)
+        steps(b, pkg, 10, "the play's first steps")
+        hold(b, pkg, "space", 4)                        # a Hop from the ground
+        b.cmd("key down 0x%X" % os88box.keycode("lshift"))
+        b.cmd("key down 0x%X" % os88box.keycode("right"))
+        steps(b, pkg, 60, "Grip and Right held")
+        b.cmd("key up 0x%X" % os88box.keycode("right"))
+        b.cmd("key up 0x%X" % os88box.keycode("lshift"))
+        hold(b, pkg, "space", 4)
+        steps(b, pkg, 40, "the play's last steps")
+        b.tap("escape", gap=300)
+        b.until(lambda: pkg.byte("bz_fs") == 0, "the play to end on Esc", 30000, 100)
+        b.until(lambda: pkg.word("bz_cseg") == 0 and pkg.word("bz_bseg") == 0, "the parts dropped", 10000, 50)
+        b.ui_done(limit_ms=30000)
+        play_end = phys(b, pkg)
+        log = b.memr(pkg.a("bz_rlog"), 16)
+        keys = log_keys(b, pkg)
+        want(log[:4] == b"BZR1" and log[6] & 1 and any(k & 0x10 for k in keys) and any(k & 0x20 for k in keys),
+             "3. the play's log: BZR1, COMPLETE, %d steps, with a Hop (bit 4) and Grip (bit 5) recorded" % len(keys))
+        check_after("3. the play with Hop and Grip", pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
+        b.tap("r", gap=300)
+        b.until(lambda: pkg.byte("bz_fs") == 1, "R's replay", 60000, 100)
+        want(pkg.byte("bz_mode") == 2 and pkg.byte("bz_herc") == 1, "3. R replays it on the Hercules")
+        b.until(lambda: pkg.byte("bz_fs") == 0, "the replay to reach its end", 60000, 100)
+        b.until(lambda: pkg.word("bz_cseg") == 0 and pkg.word("bz_bseg") == 0, "the parts dropped", 10000, 50)
+        b.ui_done(limit_ms=30000)
+        rep_end = phys(b, pkg)
+        want(rep_end == play_end, "3. the replay ends where the play did: %s (the play %s)" % (rep_end, play_end))
+        check_after("3. the replay", pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
+        # 4. the fake shifts: NumLock on, the grey Right arrow held
+        b.tap("numlock", gap=200)
+        b.tap("return", gap=300)
+        b.until(lambda: pkg.byte("bz_fs") == 1 and pkg.word("bz_frames") > 10, "a play of 10 frames", 60000, 100)
+        steps(b, pkg, 5, "the play's first steps")
+        b.cmd("key down 0x%X" % os88box.keycode("right"))
+        steps(b, pkg, 5, "the grey arrow down")
+        dnmap = b.sym("kbd_dnmap")
+        fake = bool(b.memr(dnmap + (0x2A >> 3), 1)[0] & (1 << (0x2A & 7)))
+        steps(b, pkg, 25, "the grey arrow held")
+        b.cmd("key up 0x%X" % os88box.keycode("right"))
+        b.tap("escape", gap=300)
+        b.until(lambda: pkg.byte("bz_fs") == 0, "the play to end on Esc", 30000, 100)
+        b.until(lambda: pkg.word("bz_cseg") == 0 and pkg.word("bz_bseg") == 0, "the parts dropped", 10000, 50)
+        b.ui_done(limit_ms=30000)
+        b.tap("numlock", gap=200)
+        keys = log_keys(b, pkg)
+        if not fake:
+            SKIPS.append("4. the fake shifts: SKIP - with the grey arrow held, kbd_track's map has no 2Ah (Left "
+                         "Shift): this machine's keyboard sends no fake shift, so the case could not go red")
+            print("   SKIP %s" % SKIPS[-1], flush=True)
+        else:
+            want(any(k & 2 for k in keys) and not any(k & 0x20 for k in keys),
+                 "4. the fake shifts: 2Ah set in kbd_track's map with the grey arrow held (NumLock on), and bit 5 "
+                 "(Grip) clear in every one of the play's %d recorded key bytes (Right, bit 1, among them)"
+                 % len(keys))
+        check_after("4. the grey-arrow play", pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
     except Gone as e:
         # every later step is skipped: there is nothing left to read
         want(False, "%s (a fault charged to it - the fault log below names it)" % e)
@@ -321,14 +454,29 @@ REDS = {
                 "    mov cl, 4\n    shr ax, cl\n    add ax, [bz_cseg]\n    mov es, ax\n"
                 "    mov bx, [bz_goff]\n    and bx, 15\n    mov ax, [es:bx + BZG_NROWS]\n"
                 "    mov es, [bz_cseg]\n")],
+    # the Hercules translation's store through CS: on kern_mega a code selector takes no write
+    "hxcs": [("bonanza.asm", "    es lodsb\n    xlat\n    stosb\n",
+              "    es lodsb\n    xlat\n    mov [cs:di], al             ; RED hxcs: written through CS\n"
+              "    inc di\n")],
+    # Grip read through the key-state map, which takes a grey arrow's fake shift as Left Shift
+    "shiftmap": [("bzgame.inc", "    mov ah, 2                   ; the BIOS's shift flags: bit 1 Left Shift\n"
+                  "    int 16h\n    test al, 2\n    jz .out\n",
+                  "    mov al, 2ah                 ; RED shiftmap: Left Shift through OSAPI_KEY_DOWN\n"
+                  "    call OSAPI_KEY_DOWN\n    jnc .out\n")],
 }
+RED_WANT = {"segadd": None, "hxcs": None, "shiftmap": "4. the fake shifts"}
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--keep", action="store_true")
     ap.add_argument("--red", choices=sorted(REDS))
+    ap.add_argument("--check", action="store_true", help="the host half only: every red arm assembles")
     a = ap.parse_args()
+    if a.check:
+        for line in R.check_reds(REDS, "bonanza_mega"):
+            print(line)
+        return 0
     for f in ("mega.img", "megak/kernel.map", "bonanza.img"):
         if not os.path.exists(os.path.join(B, f)):
             sys.exit("bonanza_mega: build/%s is not built - `make mega bonanzadisk`" % f)
@@ -341,10 +489,16 @@ def main():
             print("bonanza_mega --red %s: %d failure(s), %d exception(s) charged to the package, %d of them #GP"
                   % (a.red, len(FAILS), len(mine), len(gp)))
             if not FAILS:
-                print("RED ARM %s: the row stayed GREEN against a package that adds to a selector" % a.red)
+                if SKIPS and RED_WANT[a.red]:
+                    print("RED ARM %s could not be judged: %s" % (a.red, SKIPS[-1]))
+                    return 2
+                print("RED ARM %s: the row stayed GREEN against a package broken on kern_mega" % a.red)
                 return 1
-            if not mine:
+            if RED_WANT[a.red] is None and not mine:
                 print("RED ARM %s went red, but with no exception in the fault log: %s" % (a.red, FAILS))
+                return 1
+            if RED_WANT[a.red] and not any(RED_WANT[a.red] in f for f in FAILS):
+                print("RED ARM %s went red, but not at its own check (%r): %s" % (a.red, RED_WANT[a.red], FAILS))
                 return 1
             print("bonanza_mega --red %s: PASS (the row fails against the broken package)" % a.red)
             return 0
@@ -356,7 +510,8 @@ def main():
             print("bonanza_mega: kept %s" % tmp)
         else:
             shutil.rmtree(tmp, ignore_errors=True)
-    print("bonanza_mega: %s" % ("FAIL - %d" % len(FAILS) if FAILS else "ok"))
+    print("bonanza_mega: %s%s" % ("FAIL - %d" % len(FAILS) if FAILS else "ok",
+                                  "; %d case(s) SKIPPED: %s" % (len(SKIPS), " | ".join(SKIPS)) if SKIPS else ""))
     return 1 if FAILS else 0
 
 

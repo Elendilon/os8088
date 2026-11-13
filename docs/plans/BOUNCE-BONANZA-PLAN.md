@@ -849,7 +849,7 @@ keeps a rolling ball whole on the ground in front of it (SPEC.md
       `bonanzaring`'s glass equal to the picture on both cards. Parts 54,214
       (`BENCH`) and 10,614 (`FIRST`) bytes a card, over SPEC.md 128.10.10's
       predictions (its measured table).*
-- [ ] **1.3 The ground knows its shape.** The grid in `BZG1` inside each
+- [x] **1.3 The ground knows its shape.** The grid in `BZG1` inside each
       course part: heights, slopes, kinds (4 - 15 reserved for a later
       wave's shapes), NEAR and OPEN void, SAFE and OCC, the start and the route;
       the occluder records and masks inside their bounds (24 a block row, 8
@@ -863,6 +863,10 @@ keeps a rolling ball whole on the ground in front of it (SPEC.md
       bounds are not met - 79 / 29 on `BENCH` and 32 / 23 on `FIRST` against
       24 / 8, refused provisionally at 96 / 32 - and the choice is the owner's
       (SPEC.md 128.10.12 O8).*
+      *Closed by wave 2's story 2.2 (the owner's O8: the exact merge and the
+      per-BLOCK bounds of SPEC.md 128.11.4.2, at most 4 records a block and
+      128 a block row): `bonanzacourse` ok in wave 2's final pass on all
+      three courses, the bounds met by the merged records.*
 - [x] **1.4 The ball part loses what it never drew.** `BZB1`, 64 frames each
       at shift `f & 3`: 5,456 bytes a part against 20,816. *Verified:
       `bonanzaassets`; `bonanzaring`'s glass on both cards.*
@@ -990,7 +994,7 @@ an exact merge of the records and a per-BLOCK bound, not by narrowing the
 reachable set to pits (option c, measured and declined: SPEC.md 128.11.4.5).
 Sound (section 10) stays wave 4's. Every cost and size below is PREDICTED
 until the final pass; the rows run once, after the last batch.
-- [ ] **2.1 One part a course, one a ball.** The disk carries the CGA's
+- [x] **2.1 One part a course, one a ball.** The disk carries the CGA's
       course blocks and ball frames only; a Hercules launch builds `BZ_HTAB`
       (512 bytes) in the idle box buffers and translates the parts in place
       through it before the bracket - no table in the image. Part rows:
@@ -1002,7 +1006,17 @@ until the final pass; the rows run once, after the last batch.
       (red arm `htab`); `bonanzaexit` over the new rows; `bonanzamega` builds
       and translates on kern_mega (red arm `hxcs`); the package size printed
       by the build.*
-- [ ] **2.2 Occluders the courses meet (O8).** Records of one block that no
+      *Final pass: `bonanzaassets` ok (`htab()` equal to `herc_pair`,
+      the rubber part translated equal to wave 1's Hercules ball part,
+      its four red controls); `bonanzaring`'s Hercules glass equal to
+      the picture through the guest's BUILT table, red arm `htab` red
+      there; `bonanzaexit` ok - 19 launches a card, each fetching row 3
+      + K and its ball's row and dropping both; `bonanzamega` ok - the
+      Hercules bracket on kern_mega builds and translates through the
+      parts' own selectors with no fault, red arm `hxcs` red with an
+      exception charged to the package. `BONANZA.O88` 47,334 bytes
+      against wave 1's 64,509 (predicted 47 - 51KB).*
+- [x] **2.2 Occluders the courses meet (O8).** Records of one block that no
       reachable position tells apart are merged (exact); the bounds become
       at most 4 records a block and 128 a block row, which `BENCH` and
       `FIRST` meet before the merge (`BENCH` with no headroom on the block
@@ -1015,7 +1029,13 @@ until the final pass; the rows run once, after the last batch.
       source printed (measured on the host with the contract's rule:
       `BENCH` `Y0` 156, 2,938 records merged to 2,645; `FIRST` `Y0` 36, 334
       to 290).* This also closes wave 1's story 1.3.
-- [ ] **2.3 Walls give some of it back.** Restitution at the edges, the
+      *Final pass: `bonanzacourse` ok - the merge exact on every course
+      (`BENCH` 2,938 to 2,645 records, 443,661 queries; `FIRST` 334 to
+      290; `TRIAL` 1,079 to 786), the forced-merge control and every
+      refusal firing; `Y0` 156 / 36 / 50, the reach settled in 5 / 2 / 3
+      rounds; OCCG never without OCC and set wherever a grounded ball
+      lays a record.*
+- [x] **2.3 Walls give some of it back.** Restitution at the edges, the
       corner and the fallback - a stone wall's per material (rubber 0.38,
       steel 0.13, glass 0.25), a bumper rail's 0.90 for every ball - with a
       minimum that stops a pushed ball chattering; the wall-edge test made
@@ -1024,7 +1044,11 @@ until the final pass; the rows run once, after the last batch.
       per material, a bumper's, the east wall resting at 10.00 like the west
       at 6.00); `bonanzaphys`'s `rail`, `bumper` and `eastwall` scenarios on
       both cards, red arm `edge`.*
-- [ ] **2.4 Keys that feel analogue.** The arrows' force ramps over 146 ms
+      *Final pass: `bonanzacourse` item 7 ok; `bonanzaphys` ok - `rail`,
+      `bumper` and `eastwall` equal to the model at every frame on both
+      cards; red arm `edge` red (the broken model parts from `eastwall`
+      at step 15).*
+- [x] **2.4 Keys that feel analogue.** The arrows' force ramps over 146 ms
       and coasts on release (a quick re-press resumes); Hop on Space (from
       the ground, or at a contact inside its 110 ms window, so Space at a
       Hop's landing hops again); Grip on Left Shift, read from the BIOS's
@@ -1036,7 +1060,18 @@ until the final pass; the rows run once, after the last batch.
       and `catch` scenarios, red arm `airwall`; `bonanzareplay`'s injected
       log covering every key bit; `bonanzamega`'s grey arrows with NumLock
       on leave Grip clear (red arm `shiftmap`).*
-- [ ] **2.5 Three balls, and a hard fall is a mechanic (D4).** Rubber
+      *Final pass: `bonanzacourse` item 7 ok; `bonanzaphys` ok - `ramp`
+      with each ball, `hop`, `hopagain`, `stepup`, `grip` and `catch` on
+      both cards, red arm `airwall` red; `bonanzareplay` ok - a
+      real-keys play and three injected logs covering every key bit;
+      `bonanzamega` ok - a play with Hop and Grip logged (130 steps,
+      bits 4 and 5) and replayed to the same end on kern_mega. NOT
+      judged: red arm `shiftmap` and the fake-shift case, a SKIP on
+      86Box (its keyboard sends no fake shift and its automation drops
+      an explicit E0 2A); the BIOS shift-flag read is right by
+      construction (SPEC.md 128.11.7.2) and still wants a 101-key
+      machine to prove it.*
+- [x] **2.5 Three balls, and a hard fall is a mechanic (D4).** Rubber
       bounces (a 6-unit drop rebounds 3.7 units and carries 4.8 tiles, then
       settles in 3.2 s), steel is stunned and stopped dead for a second by a
       fall of 2 units, glass shatters on a fall of 3 and comes back on its
@@ -1048,7 +1083,14 @@ until the final pass; the rows run once, after the last batch.
       balls; `bonanzaphys`'s `bounce`, `stun`, `shatter` and `ramphop`
       scenarios with red arms `bounce`, `stun`, `shatter`, `absimpact`; one
       boot to look on each card at each ball's landing.*
-- [ ] **2.6 Floors with a character.** Ice (no drag, a push of 1 for every
+      *Final pass: `bonanzacourse` item 7 on `TRIAL` with all three
+      balls ok; `bonanzaphys` ok - `bounce`, `stun`, `shatter` (its
+      respawn's cut) and `ramphop` (steel, glass) on both cards; red
+      arms `bounce`, `stun`, `shatter` and `absimpact` each red at its
+      own scenario. The look boots were the physics stage's (rubber's
+      bounce chain, steel stunned and glass shattered on `F`, both
+      cards).*
+- [x] **2.6 Floors with a character.** Ice (no drag, a push of 1 for every
       ball), sand (a 32nd drag, a push of at least 2), a bounce mat (every
       ball bounces, none is hurt: a trampoline, 5.3 s from a 6-unit drop
       unless Grip or Space ends it), each drawn with its own top; every
@@ -1056,7 +1098,10 @@ until the final pass; the rows run once, after the last batch.
       and 7 (every pair from rest; steel stopped on ice leaves it);
       `bonanzaphys`'s `ice`, `sand` and `mat` scenarios; the `--png`
       previews looked at on both cards.*
-- [ ] **2.7 The ball looks like what it is, and where it is.** Three looks
+      *Final pass: `bonanzacourse` items 2, 4 and 7 ok; `bonanzaphys` ok
+      - `ice`, `sand` and `mat` equal to the model on both cards. The
+      previews were looked at in the host stage.*
+- [x] **2.7 The ball looks like what it is, and where it is.** Three looks
       inside one black rim (rubber's spots, steel's seam band, glass you can
       see the course through); the spin's vertical phase off the GROUND, so
       a bouncing ball does not turn; a checkered SHADOW on the floor under a
@@ -1067,7 +1112,15 @@ until the final pass; the rows run once, after the last batch.
       sprite and the ground phase on both cards, red arm `shadow`; the look
       boots, with each ball previewed over a cyan tile, a white tile, a ramp
       and a magenta face on both cards.*
-- [ ] **2.8 A ball and its shadow, drawn once, in raster order.** Up to four
+      *Final pass: `bonanzaassets` ok (BZB2 for every material, the
+      black ring on both cards, five red controls); `bonanzaring` ok -
+      the oracle with the shadow, the sprite and the ground phase equal
+      to the card on both cards, 14 / 8 checked frames with a shadow box
+      of its own and 6 / 4 with the shadow inside the ball's box (CGA /
+      Hercules); red arm `shadow` red on both cards once the ring
+      checked the merged-shadow frames it breaks. The look boots were
+      the engine stage's.*
+- [x] **2.8 A ball and its shadow, drawn once, in raster order.** Up to four
       boxes (the ball's and the shadow's, old and new), each composed with
       everything that meets it, written interleaved with the entering column
       in raster order; the occluder pass decides once a frame and lays into
@@ -1079,7 +1132,19 @@ until the final pass; the rows run once, after the last batch.
       three or more boxes, the order check on every frame, one pass a frame
       (red arms `boxfirst`, `pass2`); the multi-box row-0 probe (red arm
       `late2`); `bonanzaperf`'s TRIAL leg counts the boxes.*
-- [ ] **2.9 A course that needs the rubber ball.** `TRIAL`, "Bounce Trial"
+      *Final pass: `bonanzaring`'s TRIAL leg ok on both cards - card
+      equal to the oracle at `bz_tf` and `bz_presented` on every checked
+      frame, the raster order on 1,199 of 1,199 frames, one pass a
+      frame; the frame of three boxes is MADE (the route has none: the
+      ball poked across the window at frame 301 and checked); the probe
+      ok - 36 CGA boxes timed, `bz_latechk` agreeing with the cycle
+      counter on all 36, the first box on time on every frame. Red arms
+      `boxfirst`, `pass2` and `late2` red (`late2` after the probe's
+      split frames). Found and fixed: a CGA row-0 box after a sync found
+      already high was late; `bz_vr` now takes the next rise (SPEC.md
+      128.11.10.3, +47 bytes). `bonanzaperf`'s TRIAL leg: boxes 0 / 1 /
+      2 on 733 / 430 / 36 CGA frames.*
+- [x] **2.9 A course that needs the rubber ball.** `TRIAL`, "Bounce Trial"
       (`K = 2`): a 6-unit drop onto a floor at least 4 tiles deep and a
       2-tile gap to a ledge 2 units up that only the rubber bounce reaches,
       a steep ramp long enough to catch its own throw, ice with bumper rails,
@@ -1092,7 +1157,15 @@ until the final pass; the rows run once, after the last batch.
       reaches the goal without a fall and with no airborne step over an
       `OCC` cell; `FIRST` finished with each ball); one play by eye on each
       card.*
-- [ ] **2.10 Replays.** A play is logged as one key byte a step,
+      *Final pass: `bonanzacourse` items 7 and 8 ok - the sweep: rubber
+      on `G` after a bounce on `F` in 1,863 of 1,872, steel stunned and
+      glass shattered on `F` in all, no ball on `G` without the bounce;
+      the route to the goal at step 500 with no fall on either card;
+      `FIRST` finished with each ball. DEVIATION: the flights cross
+      `OCC` cells (92 airborne steps; the screen-row layout could not be
+      crossed by the one-arrow autopilot, SPEC.md 128.11.13). The plays
+      by eye were the physics and engine stages' look boots on `TRIAL`.*
+- [x] **2.10 Replays.** A play is logged as one key byte a step,
       run-length coded in 4,096 bytes of bss with the current run in two
       fixed cells; `R` on the desktop replays it on either card, the same
       steps whatever the frame rate; the host model runs the same log; a log
@@ -1101,7 +1174,13 @@ until the final pass; the rows run once, after the last batch.
       reproduces at every frame, its replay on both cards with the same end
       state, and an injected log covering every key bit and state; red arms
       `hopbit` and `framekeys`.*
-- [ ] **2.11 A camera that knows the frame rate, and keys that do not
+      *Final pass: `bonanzareplay` ok - a real-keys play of `TRIAL` on
+      the CGA (550 steps, 25 runs) whose log the model reproduces at
+      every frame and at its end, its replay by R on both cards to the
+      play's end state, three injected logs (rubber, steel stunned,
+      glass shattered) on both cards; red arms `hopbit` and `framekeys`
+      red.*
+- [x] **2.11 A camera that knows the frame rate, and keys that do not
       repeat.** GLIDE's "fast" test is the ball's travel over four frames
       (the per-card constants go), and the benchmark's route is re-proved
       with a host model of GLIDE that is KEPT this time; C, M and N held on
@@ -1111,14 +1190,26 @@ until the final pass; the rows run once, after the last batch.
       five times on both cards at 0.96 - 1.04); `bonanzaring` (all eight on
       the glass); `bonanzaexit`'s held and re-pressed keys, red arms
       `crepeat` and `overswallow`.*
-- [ ] **2.12 kern_mega, run.** The table is built in the package's bss and
+      *Final pass: `bonanzacourse` item 8 ok (every direction at least 8
+      times on both cards at 0.96 - 1.04); `bonanzaring` all eight
+      directions on both cards; `bonanzaexit` ok - C, M and N held 1.5 s
+      advance once and pressed twice advance twice, on both cards; red
+      arms `crepeat` and `overswallow` red.*
+- [x] **2.12 kern_mega, run.** The table is built in the package's bss and
       the translation writes the fetched parts' own selectors (as
       `op_fetch`'s own expansion already does); the log and the boxes are
       bss; no `PKG_MEGA` arm. *Verify: `bonanzamega` - the Hercules display
       (so every launch builds and translates), the benchmark, a play with
       Hop and Grip and its replay, the grey arrows: no fault, no leak; red
       arms `segadd`, `hxcs`, `shiftmap`.*
-- [ ] **2.13 What it costs.** Busy on the benchmark predicted 48.0 - 48.6%
+      *Final pass: `bonanzamega` ok on 86Box's `286-mega-multimon` - the
+      Hercules bracket, the benchmark's 1,200 frames, a play, a play
+      with Hop and Grip and its replay ending where it did, no fault
+      charged to the package, no part or claim left; red arms `segadd`
+      and `hxcs` red. `shiftmap` could not be judged (story 2.4). The
+      row now holds its keys for STEPS: 86Box presents about nine
+      Hercules frames a step.*
+- [x] **2.13 What it costs.** Busy on the benchmark predicted 48.0 - 48.6%
       of a CGA refresh and 40.7 - 41.3% of a Hercules one (the step priced
       instruction by instruction and taken 1.3 times, as wave 1 measured);
       `TRIAL`'s airborne frames +4 - 12k with a shadow and 0 misses on its
@@ -1129,19 +1220,38 @@ until the final pass; the rows run once, after the last batch.
       leg against wave 1 (`2df3f469`, fetched, or SKIP with the reason), the
       misses and the camera's rows panned per bounce; SPEC.md 128.11.15 and
       128.11.16 get their measured columns.*
-- [ ] **2.14 The record.** README, the face's lines and keys, `make help`
+      *Final pass: `bonanzaperf --ab` ok - `BENCH` busy 42,485 clk,
+      53.4% of a CGA refresh, and 42,805, 45.5% of a Hercules one (wave
+      1 measured alongside: 37,043, 46.5%, and 36,842, 39.2%), 0 misses;
+      predicted 48.0 - 48.6% / 40.7 - 41.3% by the contract and 54 - 55%
+      / 46 - 46.5% by the review's repricing - the first MISSED, the
+      second met. `TRIAL`: busy 32.0k (40%) and 31.7k (34%); misses 8 on
+      the CGA and 2 on the Hercules against a target of 0 - 6 and 2 on
+      the fall and the flight (the fallback layout's allowance) and 2 on
+      the steep ramp's grounded descent, which no allowance covers
+      (reported, SPEC.md 128.11.15). Image 14,200, bss 5,805, `BENCH`
+      with rubber 57,528 bytes of parts beside a 19,968-byte region.
+      SPEC.md 128.11.15 and 128.11.16 carry the measured columns.*
+- [x] **2.14 The record.** README, the face's lines and keys, `make help`
       for the new row, `BZ_COURSES` with `trial.bbc`, docs/HEAP-CLAIMS.md's
       Bonanza row and `tests/pins.txt`'s line REWORDED as SPEC.md 128.11.3.1
-      says (one part a course, one a material, `op:BZ_P_BALR`) with the new
+      says (one part a course, one a material, keyed `bz_bseg`) with the new
       sizes, the diary's wave-2 entries, `docs/INDEX.md` current. *Verify:
       `make` (the doc gates), `tools/os88index.py --check`, `checkdocs` 0
       problems.*
-- [ ] **2.15 Two cameras, by the owner's choice.** After playing wave 1 the
+      *Final pass: `make` (the doc gates and the fast tier, 44 passed),
+      `tools/os88index.py --check` current, `checkdocs` 0 problems; the
+      rows' measured `secs` registered in `tests/suite.py`.*
+- [x] **2.15 Two cameras, by the owner's choice.** After playing wave 1 the
       owner kept GLIDE (the default) and TRICKLE ("classic") and dropped
       FOLLOW ("the most jerky"): `C` toggles the two in play and on the
       desktop, the face names the mode, and FOLLOW's code is deleted
       (SPEC.md 128.11.11.1). *Verified: `bonanzaring`/`bonanzaexit` cycle two
       modes, a held `C` is one toggle, and the look boot shows both.*
+      *Final pass: `bonanzaexit` ok - C counted at its handler, a held C
+      one toggle on both cards; `bonanzaring` and `bonanzaperf` run
+      GLIDE and replay TRICKLE (rows panned over TRIAL's bounces: 251
+      against 137 on the CGA). The look boot was the engine stage's.*
 
 **Wave 3: obstacles and the wheel.**
 - [ ] Lanes; the wheel with calibrated credit, trim, seeded clocks and the

@@ -51,13 +51,14 @@ BZ_LBLH     equ 82 * 63         ; first window line: the CGA's 6845 syncs 16 lin
 
 ; -----------------------------------------------------------------------------
 ; bz_fullscreen - the bracket proc.  DS = CS = our segment, ES = KERNEL_SEG,
-; SI = our window.  bz_launch fetched the adapter's two parts on the desktop
-; ([bz_cseg], [bz_bseg]) and set [bz_herc].
+; SI = our window.  bz_launch fetched the play's course and ball parts on the
+; desktop ([bz_cseg], [bz_bseg]; on the Hercules already translated, SPEC.md
+; 128.11.3) and set [bz_herc].
 ; -----------------------------------------------------------------------------
 bz_fullscreen:
     cld
     OS88_ALTENTER_SEED
-    ; Let the key that got us here (Enter, F or B) release before the mode set
+    ; Let the key that got us here (Enter, F, B or R) release before the mode set
     ; can mask its break.  The wait is the bracket's, never the scheduler's,
     ; and BOUNDED: OSAPI_KEY_DOWN is advice (a break lost in a long
     ; interrupts-off stretch leaves a key reading down for good), so after
@@ -72,6 +73,9 @@ bz_fullscreen:
     call OSAPI_KEY_DOWN
     jc .wait
     mov al, BZ_KSC_B
+    call OSAPI_KEY_DOWN
+    jc .wait
+    mov al, BZ_KSC_R
     call OSAPI_KEY_DOWN
     jnc .mode
 .wait:
@@ -128,8 +132,6 @@ bz_vinit:
     mov word [bz_vrlim], 2      ; ...given up after two sub-ticks
     mov word [bz_mlim], BZ_MLIMC
     mov word [bz_lblank], BZ_LBLC
-    mov word [bz_gfx], BZ_GFXC  ; GLIDE's "fast" at this card's refresh
-    mov word [bz_gfy], BZ_GFYC
     jmp short .wtab
 .herc:
     mov word [bz_W], 45
@@ -144,8 +146,6 @@ bz_vinit:
     mov word [bz_vrlim], 3      ; ...three sub-ticks (a 50 Hz field)
     mov word [bz_mlim], BZ_MLIMH
     mov word [bz_lblank], BZ_LBLH
-    mov word [bz_gfx], BZ_GFXH
-    mov word [bz_gfy], BZ_GFYH
     mov dx, 3b4h
     mov ax, BZ_HR6 * 256 + 6
     out dx, ax
@@ -213,6 +213,11 @@ bz_flip:
 ;      of wave 1 measured the row-0 probe's on-time boxes counted late.)
 ;   0  it found the sync already high, anywhere in its 16 lines: the sample is
 ;      the one taken before that first read, and its END is the late case.
+;      On the CGA with a box at window row 0 pending ([bz_r0p]) that case is
+;      no lead at all for the box (a 16-line box needs ~3.1k clocks ahead of
+;      the beam), so the wait lets this sync go and takes the NEXT rise: the
+;      frame a refresh late, never its row-0 box (wave 2's final pass,
+;      SPEC.md 128.11.10.3).  The Hercules's 82 lines of blank hold the box.
 ; Preserves all but the flags.
 ; -----------------------------------------------------------------------------
 bz_vr:
@@ -256,6 +261,28 @@ bz_vr:
 .high:
     cmp byte [bz_r0p], 0        ; (the same, the sync already high)
     je .done
+    cmp byte [bz_herc], 0
+    jne .hcli
+.hwait:                         ; a CGA row-0 box: wait the sync out, then
+    mov ah, BZ_VSPIN            ; spin for the next rise, under the same bound
+.ht:
+    in al, dx
+    xor al, bh
+    test al, bl
+    jz .hlow
+    dec ah
+    jnz .ht
+    call bz_clk_sample
+    mov ax, [bz_subs]
+    sub ax, cx
+    cmp ax, [bz_vrlim]
+    jb .hwait
+    inc word [bz_tos]           ; never low: go on regardless
+    jmp short .hcli
+.hlow:
+    mov byte [bz_vedge], 1
+    jmp short .spin
+.hcli:
     cli
 .done:
     mov ax, [bz_subs]           ; the sample bz_latechk reckons the beam from
@@ -646,37 +673,36 @@ bz_col:
     ret
 
 ; -----------------------------------------------------------------------------
-; THE BOXES (SPEC.md 128.4).  A box is a rectangle of the world in WORDS x
-; LINES, composed in RAM from the course and the ball (mask AND, frame OR) and
-; then written to the card a line at a time.  Descriptor, BZ_BOXD bytes:
-; +0 x0 (world word column), +2 y0 (world line), +4 w (words), +6 h (lines),
-; +8 the buffer.  At most two boxes a frame (bzgame.inc bz_mkboxes): the union
-; of the old and new footprints when it fits BZ_BOXW x BZ_BOXH, else each.
-; A buffer's lines are BZ_BOXW words apart whatever the box's w (SPEC.md 128.9
-; item 1: a fixed stride is what lets the fill and the ball step by a
-; constant).
+; THE BOXES (SPEC.md 128.4, 128.11.10).  A box is a rectangle of the world in
+; WORDS x LINES, composed in RAM from the course, the shadow, the ball's sprite
+; and the occluders that lay back over them, and then written to the card a
+; line at a time.  Descriptor, BZ_BOXD bytes: +0 x0 (world word column), +2 y0
+; (world line), +4 w (words), +6 h (lines), +8 the buffer, +10 the overlap
+; band's xhi (0: none), +12 xlo, +14 xa, +16 xb (bz_boxw), +18 the box's
+; GROUP (0 the ball's, 1 the shadow's), +19 unused.  At most four boxes a
+; frame (bzgame.inc bz_mkboxes).  A buffer's lines are BZ_BOXW words apart
+; whatever the box's w (SPEC.md 128.9 item 1: a fixed stride is what lets the
+; fill and the sprite step by a constant).
 ; -----------------------------------------------------------------------------
 BZ_BOXW     equ 4               ; words (8 bytes)
 BZ_BOXH     equ 24              ; lines
 BZ_BOXB     equ BZ_BOXW * 2 * BZ_BOXH
-BZ_BOXD     equ 10
+BZ_BOXD     equ 20
 
-; bz_boxc - compose box SI (a descriptor): fill from the course, then the ball
-; at [bz_px], [bz_py] with frame [bz_frm].  DS = ours.  Preserves all.
+; bz_boxc - compose box SI (a descriptor): fill from the course, then the
+; shadow when it is drawn this frame (bz_snv: AND only), then the ball's
+; sprite - each clipped to the box (bz_blit).  The occluders are laid after
+; every box is composed, once a frame (bz_occ).  DS = ours.  Preserves all.
 ;
 ; SPEC.md 128.9 item 1, no MUL anywhere.  THE FILL runs COLUMN-MAJOR: down one
 ; word column the map entry changes only every 8 lines, so each block's run of
 ; lines is a jump into an unrolled `movsw / add di` chain - a map read a BLOCK,
-; where wave 0 read one a word.  THE BALL takes two words and a byte a row
-; through `lodsw / and / or / stosw` when the whole ball is in the box (the
-; frame read at a constant distance from its mask, so one pointer walks both);
-; a ball the box clips (a window edge, or the old footprint's box of two) takes
-; the byte path.
+; where wave 0 read one a word.
 bz_boxc:
     ; STKBALANCE-OK: the fill's `jmp dx` is the entry into this routine's own
     ; unrolled chain (.chain, at the run's length), not a tail call: every
     ; entry runs on to .chend and the column loop, at the same depth, and the
-    ; routine pops what it pushed at .noball.  No static walk follows a
+    ; routine pops what it pushed at .done.  No static walk follows a
     ; computed jump into the middle of a routine (pxmaster.inc's px_quant).
     push ax
     push bx
@@ -709,7 +735,7 @@ bz_boxc:
     mov [bz_fbp], ax            ; the buffer's line for the run
     mov ax, [si + 6]
     mov [bz_fln], ax            ; the lines left
-    push si                     ; (the descriptor, for each run and the ball)
+    push si                     ; (the descriptor, for each run and the sprite)
 .run:
     cmp dx, [bz_fln]            ; the run: the block's lines, cut at the box's
     jbe .n                      ; foot - the same for every word column
@@ -758,30 +784,70 @@ bz_boxc:
     jmp .run
 .filled:
     pop si
-    ; --- the ball, clipped to the box ---
-    ; rows i in [imin, imax): py + i inside [y0, y0+h)
-    mov ax, [si + 2]
-    sub ax, [bz_py]             ; y0 - py
+    ; --- the shadow, AND only (SPEC.md 128.11.10.2: before the ball) ---
+    cmp byte [bz_snv], 0
+    je .ball
+    mov ax, [bz_spy]
+    mov dx, BZ_BAL_SHDROWS
+    mov di, [bz_shm]
+    xor bx, bx
+    call bz_blit
+.ball:
+    ; --- the ball's sprite: mask AND, frame OR ---
+    mov ax, [bz_py]
+    mov dx, BZ_BAL_ROWS
+    mov di, [bz_smsk]
+    mov bx, [bz_sfd]
+    call bz_blit
+    pop ds
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; bz_blit - a sprite of the ball part into box SI, clipped to it: its rows i
+; at world lines AX + i, i < DX, its 5 bytes a row from world byte px / 4 (the
+; ball's columns: the sprite and the shadow share them).  Row i, byte k of the
+; MASK is at DI + 5 i + k in the ball part, the FRAME's BX past it (frames are
+; pre-ANDed, SPEC.md 128.3) - or, BX = 0, no frame: AND only (the shadow).
+; A SET mask bit keeps the box.  The whole sprite inside the box takes two
+; words and a byte a row (`lodsw / and / or / stosw`), and the shadow whole
+; across the same with AND alone; a sprite clipped anywhere, or a shadow
+; clipped across, the byte path.  DS = ES = ours.  Preserves all but AX, BX, CX, DX,
+; DI, BP.
+bz_blit:
+    push si
+    mov [bz_bly], ax
+    mov [bz_blm], di
+    mov bp, bx                  ; BP = the frame's distance (0: none)
+    ; rows i in [imin, imax): AX + i inside [y0, y0 + h)
+    mov cx, [si + 2]
+    sub cx, ax                  ; y0 - y
     jge .imin
-    xor ax, ax
+    xor cx, cx
 .imin:
-    mov [bz_imin], ax
+    mov [bz_imin], cx
     mov ax, [si + 2]
     add ax, [si + 6]
-    sub ax, [bz_py]             ; y0 + h - py
-    cmp ax, BZ_BAL_ROWS
+    sub ax, [bz_bly]            ; y0 + h - y
+    cmp ax, dx
     jle .imax
-    mov ax, BZ_BAL_ROWS
+    mov ax, dx
 .imax:
-    sub ax, [bz_imin]
+    sub ax, cx
     jg .rows
-    jmp .noball
+    jmp .out
 .rows:
-    mov bp, ax                  ; BP = the rows
+    mov dx, ax                  ; DX = the rows
     ; bytes k in [kmin, kmax): px/4 + k inside [2x0, 2x0 + 2w)
     mov cx, [bz_px]
     shr cx, 1
-    shr cx, 1                   ; CX = the ball's first world byte
+    shr cx, 1                   ; CX = the sprite's first world byte
     mov ax, [si]
     shl ax, 1
     sub ax, cx                  ; 2x0 - bc
@@ -799,11 +865,11 @@ bz_boxc:
 .kmax:
     sub ax, [bz_kmin]
     jg .bytes
-    jmp .noball
+    jmp .out
 .bytes:
     mov [bz_bw], ax             ; the bytes a row
-    ; the destination: buf + (py + imin - y0) * 8 + (bc + kmin - 2x0)
-    mov di, [bz_py]
+    ; the destination: buf + (y + imin - y0) * 8 + (bc + kmin - 2x0)
+    mov di, [bz_bly]
     add di, [bz_imin]
     sub di, [si + 2]
     shl di, 1
@@ -815,49 +881,29 @@ bz_boxc:
     mov ax, [si]
     shl ax, 1
     sub di, ax
-    ; the first mask byte: MASKOFF + 80 s + 5 imin + kmin, s = px & 3
+    ; the first mask byte: the mask's row 0 + 5 imin + kmin
     mov ax, [bz_imin]
-    mov cx, ax
+    mov si, ax
     shl ax, 1
     shl ax, 1
-    add ax, cx
-    add ax, [bz_kmin]           ; AX = 5 imin + kmin
-    mov dx, [bz_px]
-    and dx, 3
-    mov cl, 4
-    shl dx, cl                  ; 16 s
-    mov bx, dx
-    shl dx, 1
-    shl dx, 1
-    add dx, bx                  ; DX = 80 s
-    mov si, dx
     add si, ax
-    add si, BZ_BAL_MASKOFF      ; SI = the first mask byte
-    ; the frame's byte sits a constant BX past its mask's: FRMOFF - MASKOFF
-    ; + 80 (f - s) - BZB1 stores frame f at its own shift, f & 3 = px & 3 = s
-    ; (SPEC.md 128.10.5.3)
-%if BZ_BAL_MASKSH != 80 || BZ_BAL_FRMB != 80 || BZ_BAL_RB != 5
- %error "bz_boxc's shifts assume the 5 x 16 ball of SPEC.md 128.3"
+    add si, [bz_kmin]
+    add si, [bz_blm]
+%if BZ_BAL_RB != 5
+ %error "bz_blit's rows assume the 5-byte rows of SPEC.md 128.3"
 %endif
-    xor bx, bx
-    sub bx, dx                  ; -80 s
-    mov ax, [bz_frm]
-    mov cl, 4
-    shl ax, cl                  ; 16 f
-    add bx, ax
-    shl ax, 1
-    shl ax, 1                   ; 64 f
-    add bx, ax
-    add bx, BZ_BAL_FRMOFF - BZ_BAL_MASKOFF
+    mov bx, bp
     mov cx, [bz_bw]
-    mov ds, [bz_bseg]           ; DS = the ball from here
+    mov ds, [bz_bseg]           ; DS = the ball part from here
+    or bx, bx
+    jz .andonly
     cmp cx, BZ_BAL_RB
     jne .clip
-    cmp bp, BZ_BAL_ROWS
+    cmp dx, BZ_BAL_ROWS
     jne .clip
-    mov cx, bp                  ; THE WHOLE BALL: two words and a byte a row
+    mov cx, dx                  ; THE WHOLE SPRITE: two words and a byte a row
 .whole:
-    lodsw                       ; the mask (a set bit keeps the course)...
+    lodsw                       ; the mask (a set bit keeps the box)...
     and ax, [es:di]
     or ax, [bx + si - 2]        ; ...and the frame, pre-ANDed (SPEC.md 128.3)
     stosw
@@ -871,10 +917,10 @@ bz_boxc:
     stosb
     add di, byte BZ_BOXW * 2 - BZ_BAL_RB
     loop .whole
-    jmp short .noball
+    jmp short .ds
 .clip:
-    mov dx, BZ_BOXW * 2         ; A CLIPPED BALL: CX bytes of BP rows
-    sub dx, cx                  ; DX = the buffer's step after a row's bytes
+    mov bp, BZ_BOXW * 2         ; A CLIPPED SPRITE: CX bytes of DX rows
+    sub bp, cx                  ; BP = the buffer's step after a row's bytes
 .crow:
     push cx
 .cb:
@@ -886,54 +932,85 @@ bz_boxc:
     pop cx
     add si, BZ_BAL_RB
     sub si, cx
-    add di, dx
-    dec bp
+    add di, bp
+    dec dx
     jnz .crow
-.noball:
-    pop ds
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
+    jmp short .ds
+.andonly:
+    cmp cx, BZ_BAL_RB           ; THE SHADOW: AND only.  Unclipped across, two
+    jne .aclip                  ; words and a byte a row (any rows: the row's
+.awhole:                        ; bytes are what the word path saves)
+    lodsw
+    and [es:di], ax
+    inc di
+    inc di
+    lodsw
+    and [es:di], ax
+    inc di
+    inc di
+    lodsb
+    and [es:di], al
+    add di, byte BZ_BOXW * 2 - BZ_BAL_RB + 1
+    dec dx
+    jnz .awhole
+    jmp short .ds
+.aclip:
+    mov bp, BZ_BOXW * 2         ; ...clipped across: CX bytes of DX rows
+    sub bp, cx
+.arow:
+    push cx
+.ab:
+    lodsb
+    and [es:di], al
+    inc di
+    loop .ab
     pop cx
-    pop bx
-    pop ax
-    ; (on into bz_occ: the occluders go back over the ball just drawn)
+    add si, BZ_BAL_RB
+    sub si, cx
+    add di, bp
+    dec dx
+    jnz .arow
+.ds:
+    push es
+    pop ds                      ; DS = ours
+.out:
+    pop si
+    ret
 
-; bz_occ - THE OCCLUDER PASS (SPEC.md 128.10.8 item 1, 128.10.4.4) over box SI,
-; run after its ball: every record the rule lays at the ball's position lays
-; its block's pixels back over the ball, `buffer = (buffer AND mask) OR (block
-; AND NOT mask)`, done as `((buffer XOR block) AND mask) XOR block` - a SET
-; mask bit keeps the buffer, so no NOT.  The rule, for a record (s_C, top_C):
+; bz_occ - THE OCCLUDER PASS (SPEC.md 128.10.8 item 1, 128.10.4.4, 128.11.10.2),
+; ONCE A FRAME, after every box is composed: every record the rule lays at the
+; ball's position lays its block's pixels back over the shadow and the ball in
+; EVERY box it meets, `buffer = (buffer AND mask) OR (block AND NOT mask)`,
+; done as `((buffer XOR block) AND mask) XOR block` - a SET mask bit keeps the
+; buffer, so no NOT.  The rule, for a record (s_C, top_C):
 ;
 ;     lay it  iff  s_b < s_C  and  z_b + m < top_C
 ;
 ; s_b = [bz_sb] (bz_camera's, this frame), z_b = the integer px of bz_gz, m =
-; BZ_CLIMB grounded and 0 airborne.  Only the NEW footprint's blocks are
-; visited - its lines [py, py + 16) and word columns [nfx0, nfx1], each
-; clipped to the box, so at most 3 x 3 blocks; the old footprint holds no
-; ball.  A block row's records come from OCCIDX in their sorted order (column,
-; then s_C): a binary search finds the first at or right of the first column
-; (about 7 probes in BENCH's longest row, where a walk from the row's start
-; passed over 30 on average) and the walk stops at the first right of the
-; last.  The records of one block word are a GROUP: their laid masks are
-; ANDed (bz_oand) and the word is laid ONCE (bz_olay), so a frame lays at
-; most 3 x 3 words whatever the record counts (128.10.9).  Outside the
-; footprint the box holds the course already, so laying a record's whole word
-; is the same as laying its footprint pixels.
+; BZ_CLIMB grounded and 0 airborne.  The verdicts depend on the ball alone, so
+; the NEW footprint's blocks are walked ONCE - its lines [py, py + 16) and word
+; columns [nfx0, nfx1], each clipped to the window, so at most 3 x 3 blocks -
+; and each laid group goes into every box that meets it (bz_olay), clipped to
+; the box: two boxes that overlap hold the same bytes there.  A block row's
+; records come from OCCIDX in their sorted order (column, then s_C): a binary
+; search finds the first at or right of the first column and the walk stops
+; at the first right of the last.  The records of one block word are a GROUP:
+; their laid masks are ANDed (bz_oand) and the word is laid ONCE a box
+; (bz_olay), so a frame lays at most 3 x 3 words a box whatever the record
+; counts (128.10.9).  Outside the footprint a box holds the course and the
+; shadow already, and with OCCG clear (the shadow's condition) no record lays
+; over the shadow alone, so laying a record's whole word is laying its
+; footprint pixels.
 ;
-; THE GATE: the pass runs only when the centre's cell has OCC (the grid's
-; flag: some position in the cell meets a record the rule would lay).  The
-; flag is read out of bz_nbr, whose centre IS the ball's cell after every
-; step; a harness's POKE (bz_pokd set) leaves the window behind until the
-; next step, and then the pass runs ungated - which lays what the rule lays,
-; the flag being only a saving.  DS = ours.  Preserves all.
+; THE GATE: the pass runs only when [bz_ogate] (bz_mkboxes: the centre's cell
+; has OCC, the grid's flag - some position in the cell meets a record the rule
+; would lay - for an AIRBORNE ball, or OCCG - some GROUNDED ball in the cell
+; does - for a grounded one, or a harness POKED the ball, bz_pokd, when the window is behind
+; until the next step and the pass runs ungated, which lays what the rule
+; lays, the flag being only a saving).  DS = ours.  Preserves all.
 bz_occ:
-    cmp byte [bz_pokd], 0
+    cmp byte [bz_ogate], 0
     jne .gate
-    test byte [bz_nbr + BZN_C + 3], BZ_FOCC
-    jnz .gate
     ret
 .gate:
     push ax
@@ -946,14 +1023,14 @@ bz_occ:
     push bp
     push ds
     push es
-    mov ax, [bz_py]             ; the lines: [max(py, y0), min(py + 16, y0 + h))
-    mov bx, [si + 2]
+    mov bx, [bz_wtop]           ; the lines: [max(py, top), min(py + 16, top
+    mov ax, [bz_py]             ; + BZ_LINES))
     cmp ax, bx
     jge .lo
     mov ax, bx
 .lo:
     mov [bz_olo], ax
-    add bx, [si + 6]
+    add bx, BZ_LINES
     mov dx, [bz_py]
     add dx, BZ_BAL_ROWS
     cmp dx, bx
@@ -963,14 +1040,14 @@ bz_occ:
     mov [bz_ohi], dx
     cmp ax, dx
     jge .out0
-    mov bx, [si]                ; the columns: DL = max(nfx0, x0), DH =
-    mov ax, [bz_nfx0]           ; min(nfx1, x0 + w - 1) (both < 128)
+    mov bx, [bz_c0n]            ; the columns: DL = max(nfx0, c0), DH =
+    mov ax, [bz_nfx0]           ; min(nfx1, c0 + W - 1) (both < 128)
     cmp ax, bx
     jge .c0
     mov ax, bx
 .c0:
     mov dl, al
-    add bx, [si + 4]
+    add bx, [bz_W]
     dec bx
     mov ax, [bz_nfx1]
     cmp ax, bx
@@ -979,19 +1056,10 @@ bz_occ:
 .c1:
     mov dh, al
     cmp dl, dh
-    jbe .base
+    jbe .key
 .out0:
     jmp .out
-.base:
-    mov ax, [si + 2]            ; the buffer's base: buf - 8 y0 - 2 x0 (mod 64K)
-    mov cl, 3
-    shl ax, cl
-    mov bx, [si]
-    shl bx, 1
-    add ax, bx
-    neg ax
-    add ax, [si + 8]
-    mov [bz_obuf], ax
+.key:
     mov ax, [bz_gz + 1]         ; the key: z_b + m
     cmp byte [bz_air], 0
     jne .air
@@ -1050,14 +1118,10 @@ bz_occ:
 .e:
     sub di, bx
     mov [es:bz_on], di
-    mov ax, bx
-    and ax, 7
-    shl ax, 1
-    mov [es:bz_ofl2], ax        ; 2 x the first line's place in the block
-    mov cl, 3
-    shl bx, cl
-    add bx, [es:bz_obuf]
-    mov [es:bz_obl], bx         ; the first line's buffer word at column 0
+    mov [es:bz_of], bx
+    and bx, 7
+    shl bx, 1
+    mov [es:bz_ofl2], bx        ; 2 x the first line's place in the block
     mov ax, [es:bz_obr]         ; the map row: MAP + (B << MAPSH), as the fill's
     mov cl, [es:bz_mapsh]
     shl ax, cl
@@ -1091,7 +1155,7 @@ bz_occ:
 .gend:
     or bx, bx
     jz .gnext
-    call bz_olay                ; the word's lines laid ONCE (128.10.9)
+    call bz_olay                ; the word's lines laid ONCE a box (128.10.9)
 .gnext:
     cmp si, bp
     jae .rdone
@@ -1121,7 +1185,7 @@ bz_occ:
 
 ; bz_oand - a group's second or later laid record, SI, ANDed into bz_omsk:
 ; BX = the group's mask so far (a part offset, or -1 for bz_omsk already) ->
-; BX = -1.  Only the lines bz_olay will lay ([bz_ofl2 / 2, + bz_on), at the
+; BX = -1.  Only the lines the pass lays ([bz_ofl2 / 2, + bz_on), at the
 ; same place in bz_omsk as in a mask); the AND of two keep-masks keeps only
 ; what both keep, so laying it once is laying each in turn (128.10.8 item 1).
 ; DS = the course part, ES = ours.  Preserves all but AX and BX.
@@ -1159,28 +1223,66 @@ bz_oand:
     pop cx
     ret
 
-; bz_olay - lay a group: block word DL of the block row bz_occ is on, its
-; lines [bz_ofl2 / 2, + bz_on) under mask BX (a part offset, or -1 for
-; bz_omsk): buffer = ((buffer XOR block) AND mask) XOR block.  DS = the course
-; part, ES = ours.  Preserves all but AX and BX.
+; bz_olay - lay a group into EVERY box it meets: block word DL of the block row
+; bz_occ is on, its lines [bz_of, + bz_on) (2 x the first's place in the
+; block: bz_ofl2), under mask BX (a part offset, or -1 for bz_omsk), each box
+; taking the lines and the word it holds: buffer = ((buffer XOR block) AND
+; mask) XOR block.  DS = the course part, ES = ours.  Preserves all but AX and
+; BX.
 bz_olay:
     push cx
     push dx
     push si
     push di
-    mov si, bx                  ; SI = the mask
+    push bp
+    mov bp, bx                  ; BP = the mask
     mov bl, dl
     xor bh, bh
     shl bx, 1
-    mov di, [es:bz_obl]
-    add di, bx                  ; DI = the buffer's word
     add bx, [es:bz_omrow]
-    mov bx, [bx]                ; the block (an absolute offset)
-    mov ax, [es:bz_ofl2]
+    mov ax, [bx]
+    mov [es:bz_oblk], ax        ; the block (an absolute offset)
+    mov si, bz_boxes
+    mov cx, [es:bz_nbox]
+.box:
+    push cx
+    mov al, dl                  ; the word inside the box: DI = 2 (c - x0)
+    xor ah, ah
+    sub ax, [es:si]
+    cmp ax, [es:si + 4]
+    jae .nb                     ; (unsigned: left of x0 is huge)
+    shl ax, 1
+    mov di, ax
+    mov ax, [es:bz_of]          ; the lines: [max(f, y0), min(f + n, y0 + h))
+    mov bx, [es:si + 2]
+    cmp ax, bx
+    jge .l0
+    mov ax, bx
+.l0:
+    mov cx, [es:bz_of]
+    add cx, [es:bz_on]
+    add bx, [es:si + 6]
+    cmp cx, bx
+    jle .l1
+    mov cx, bx
+.l1:
+    sub cx, ax
+    jle .nb                     ; CX = the lines
+    mov bx, ax
+    sub bx, [es:si + 2]
+    shl bx, 1
+    shl bx, 1
+    shl bx, 1
+    add di, bx
+    add di, [es:si + 8]         ; DI = the buffer's word
+    and ax, 7
+    shl ax, 1                   ; 2 x the first line's place in the block
+    mov bx, [es:bz_oblk]
     add bx, ax                  ; BX = the block's line
-    mov dx, [es:bz_on]
-    cmp si, byte -1
+    push si
+    cmp bp, byte -1
     je .scr
+    mov si, bp
     add si, ax                  ; SI = the mask's line
 .line:
     mov ax, [es:di]
@@ -1193,9 +1295,8 @@ bz_olay:
     inc bx
     inc si
     inc si
-    dec dx
-    jnz .line
-    jmp short .done
+    loop .line
+    jmp short .bd
 .scr:
     mov si, bz_omsk
     add si, ax
@@ -1210,9 +1311,17 @@ bz_olay:
     inc bx
     inc si
     inc si
-    dec dx
-    jnz .sline
+    loop .sline
+.bd:
+    pop si
+.nb:
+    pop cx
+    add si, BZ_BOXD
+    dec cx
+    jz .done
+    jmp .box
 .done:
+    pop bp
     pop di
     pop si
     pop dx
@@ -1221,10 +1330,11 @@ bz_olay:
 
 ; bz_boxw - box SI (a descriptor) to the card, a line at a time, each line
 ; split where it crosses the ring's 8KB end.  DS = ours.  Preserves all.
-; The SECOND of two boxes skips their overlap (SPEC.md 128.9 item 5): its
-; lines in the band [bz_xlo, bz_xhi) of lines-left counts write only the words
-; left of [bz_xa, bz_xb) and right of it - the first box already put those
-; bytes there, the same bytes.  bz_mkboxes sets the band; bz_xhi = 0 is none.
+; The LATER of two boxes of one group skips their overlap (SPEC.md 128.9 item
+; 5, 128.11.10.2): its lines in the band (xlo, xhi] of lines-left counts write
+; only the words left of [xa, xb) and right of it - the earlier box already
+; put those bytes there, the same bytes.  bz_mkboxes sets the band in the
+; descriptor (+10 .. +16); xhi = 0 is none.
 bz_boxw:
     push ax
     push bx
@@ -1235,12 +1345,17 @@ bz_boxw:
     push bp
     push es
     mov es, [bz_vseg]
-    mov ax, [bz_xhi]            ; the overlap band is the second box's alone
-    cmp si, bz_boxes + BZ_BOXD
-    je .band
-    xor ax, ax
-.band:
+    mov ax, [si + 10]           ; the band, copied: SI is the buffer below
     mov [bz_xact], ax
+    or ax, ax
+    jz .band
+    mov ax, [si + 12]
+    mov [bz_xlo], ax
+    mov ax, [si + 14]
+    mov [bz_xa], ax
+    mov ax, [si + 16]
+    mov [bz_xb], ax
+.band:
     mov ax, [si + 4]
     mov [bz_bw], ax
     mov bp, [si + 6]            ; BP = lines left

@@ -3,6 +3,7 @@
 # Ships: everything under apps/bonanza/courses/ is a part of BONANZA.O88.
 course FIRST "First Roll"
 width  64
+ball   rubber
 floor rect   3 4  7 7  flat 4             # A plateau, 4 x 3 tiles, 4 units (32 px) up
 wall  rect   3 3  7 4  flat 6             # its back rail, 2 units (16 px) proud
 floor rect   7 4 11 7  ramp x 7 11 4 2    # B falls along +wx: r = 2(2-4)/(11-7) = -1 half unit a tile

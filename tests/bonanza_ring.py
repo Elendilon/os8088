@@ -1,93 +1,112 @@
 #!/usr/bin/env python3
-"""BONANZA: the two-way ring on MartyPC's CGA and Hercules (SPEC.md 128.2, 128.8, 128.10.11).
+"""BONANZA: the two-way ring on MartyPC's CGA and Hercules (SPEC.md 128.2, 128.8, 128.10.11, 128.11.17.2).
 
-    make bonanzadisk && python3 tests/bonanza_ring.py [--adapter cga|herc|both]
-    python3 tests/bonanza_ring.py --red colright|colfirst|late|row0|occ   (a red arm, below)
+    make bonanzadisk && python3 tests/bonanza_ring.py [--adapter cga|herc|both] [--part glass|bench|trial|probe]
+    python3 tests/bonanza_ring.py --red NAME        (a red arm, below)
 
-THE ORACLE is tools/bbcourse.py (SPEC.md 128.10.4): the course's picture as
-the compiler rendered it, with the ball's frame f = (py & 7) * 8 + (px & 7)
-composited at the guest's (px, py) AND the occluder records laid back over it
-by SPEC.md 128.10.4.4's rule at the guest's own s_b ([bz_sb]), z_b (the
-integer px of [bz_gz]) and air flag ([bz_air]) - bbcourse.composite, the
-compiler's own function, on the HOST with none of the guest's tricks (no
-shear, no ring, no boxes, no clipping, no OCC gate).  The guest's card memory
-is decoded through the ring exactly as the 6845 scans it - bank by line,
-`+ 2*S` bytes, mod 8,192 - at the package's own shown start address bz_S, and
-the two are compared PIXEL FOR PIXEL (2-bit inks on the CGA, 2-bit card-pixel
-PAIRS on the Hercules, by bonanza_assets.herc_pair: the course's and the
-ball's checker are one rule, SPEC.md 128.9 item 7).
+THE ORACLE is tools/bbcourse.py and tools/bonanza_assets.py (SPEC.md
+128.10.4, 128.11.9, 128.11.10.2): the course's picture as the compiler
+rendered it, and over it, in the guest's order, the SHADOW (an AND-only mask
+of the ball part, 128.11.9.4) when the frame draws one, the BALL - the
+MATERIAL's sprite (roll frame f = PHY * 8 + (px & 7) with its vertical phase
+off the GROUND line, a squash, a shatter: bbcourse.sprite, 128.11.9.2) as
+mask AND, frame OR out of the ball part's own bytes - and the occluder
+records laid back by 128.10.4.4's rule at the guest's s_b, z_b and air flag
+over the footprint's lines and columns (so a record in front of the ball
+hides the shadow under it too).  On the Hercules the course and the ball
+are the CGA bytes THROUGH bbcourse.htab() (the table bz_hgen builds, 128.11.3)
+and the ball part through bonanza_assets.herc_translate_ball - so the guest's
+BUILT table and its in-place translation are checked by their picture.  The
+guest's card memory is decoded through the ring exactly as the 6845 scans it
+- bank by line, `+ 2*S` bytes, mod 8,192 - at the package's own shown start
+address bz_S, and compared PIXEL FOR PIXEL (2-bit inks on the CGA, 2-bit
+card-pixel pairs on the Hercules).
 
-  1  THE GLASS (m.fbuf): play mode (Enter: FIRST, 128.10.6.1), no key held,
-     so the ball rests and every frame re-presents one picture; the card's
-     own rasterisation is then the same picture - a 320 x 200 field on the
-     CGA, a 200-line field of 360 pixel pairs on the Hercules with nothing
-     lit outside it (SPEC.md 102.7.1's R6 = 50).  Its control: the picture
-     one word column over must NOT match the glass.
-  2  THE BENCHMARK (B: BENCH under physics v1, the autopilot, 1,200 frames):
-     the frame loop stopped at BOTH of these on chosen frames -
-       bz_tf         the retrace has come and the start address is about to
-                     change: the card at the OLD bz_S must still be the LAST
-                     frame's picture exactly (rules 1 and 3's ORDER).
-       bz_presented  the frame is done: the card at the NEW bz_S must be
-                     this frame's picture.
-     The frames checked are the first full write, the FIRST FEW of each of
-     the eight scroll directions (dr, dc) as the autopilot produces them, the
-     first few frames where the ORACLE hides part of the ball behind a
-     record (decided on the host at bz_tf from the frame's ball, not off the
-     guest's [bz_nlay], so a build whose pass never runs is still checked
-     there), and then one moving frame in 97.  Every direction must appear,
-     and at least one checked frame must have hidden part of the ball behind
-     a record (SPEC.md 128.10.11.3) - a row that never looks behind a block
-     cannot see the occluder pass.  After it, bz_rlate must be 0.
-  3  NEGATIVE CONTROLS on a scrolled frame per adapter: the decode at S + 1
-     must FAIL, and so must the picture after a poked wrong camera (bz_c0 +
-     1, then bz_R0 + 1, written and read back through the same path).
-  4  THE ROW-0 PROBE (SPEC.md 128.10.11.2): play mode on BENCH ([bz_crs]
-     poked at bz_launch: Enter plays FIRST) in GLIDE.  The camera settles on
-     the start, with the window at the TOP CLAMP (R0 0) - the one place play
-     can put a box at window row 0, a flight's apex over the course's top
-     (128.10.4.1); away from it GLIDE's two rows a frame keep a rising ball
-     inside its band.  Then at bz_t0 of every probe frame the ball's position
-     and velocities are written so that its footprint's top is the window's
-     first line and its centre right of the dead zone (so GLIDE steps a
-     column at the right edge each frame, clear of the footprint) -
-     airborne, high over a floor cell, drifting right.  The first probe
-     frame is a LEAD-IN whose lateness is not counted (its box is the union
-     of the start's footprint and the poked one, a teleport play cannot
-     make).  Each later frame with a box at window row 0 ([bz_row0] set) and
-     an entering column ([bz_dc] != 0) takes 128.9 item 6's path; at least
-     five of them on each card, the card equal to the host picture at bz_tf
-     and bz_presented on every probe frame, and [bz_late] 0 at the end.  It
-     proves item 6's ORDER on the glass, and its timing on the CGA, where
-     the box writer is ~1.6x slower than the beam.  (The first final pass
-     ran it panning UP from low on the course's right: two rows, a column
-     and a window refill every frame overran a CGA refresh, a frame play
-     cannot make, and the boxes it made late were measured, not guessed -
-     SPEC.md 128.10.11.2's as-built note.)
+What the oracle takes from the guest is the physics state the frame was drawn
+from (gx, gy, gz, px, py, the material, mst, mct, sqf, the floor under an
+airborne ball) - bonanzaphys holds that state to bbcourse.Physics - and
+whether the frame DREW its shadow ([bz_snv]), which is a choice of the box
+layout (128.11.9.4: under an occluder pass, only inside the ball's box).  That
+choice is checked rather than trusted: no shadow where the model has none, a
+shadow wherever the model has one and the pass is off, and its line the
+model's (`spy`).
+
+  1  THE GLASS (m.fbuf): play mode on FIRST (Enter), no key held, so the ball
+     rests and every frame re-presents one picture; the card's own
+     rasterisation is then the same picture - a 320 x 200 field on the CGA, a
+     200-line field of 360 pixel pairs on the Hercules with nothing lit
+     outside it.  Its control: the picture one word column over must NOT
+     match the glass.
+  2  THE BENCHMARK on BENCH (B, the autopilot, 1,200 frames) stopped at bz_tf
+     (the card at the OLD bz_S must still be the last frame's picture, rules 1
+     and 3's ORDER) and bz_presented (the card at the NEW bz_S this frame's
+     picture) on chosen frames: the first full write, the first few of each of
+     the eight scroll directions, the first few where the oracle hides part of
+     the ball behind a record, then one moving frame in 97.  Every direction
+     must appear and a checked frame must hide some ball behind a record.
+     bz_rlate must be 0 after it.  Negative controls on a diagonal frame: the
+     decode at S + 1 and a poked wrong camera must mismatch.
+  3  THE TRIAL LEG (SPEC.md 128.11.17.2): the benchmark on TRIAL ([bz_crs]
+     poked at bz_launch's entry; the rubber ball off H's lip, over the gap) -
+     at every checked frame the card equals the oracle at bz_tf and
+     bz_presented, with at least one checked frame whose SHADOW is in a box
+     of its own and one with THREE OR MORE boxes; and on EVERY frame, from
+     breakpoints on bz_col (BX its first row, CX its rows) and bz_boxw (SI
+     the box), the column's rows and the boxes in RASTER ORDER (128.11.10.3):
+     the boxes by first line, and before box j exactly the column rows that
+     end above its first line (the first box at window row 0: down to its
+     last line; a box holding a cell of the column, or no box: the whole
+     column first); and the occluder pass's walk (bz_occ.gate) entered at
+     most once a frame.
+  4  THE ROW-0 PROBE (SPEC.md 128.10.11.2) and its MULTI-BOX case: play mode
+     on BENCH at the top clamp in GLIDE; at bz_t0 of every probe frame the
+     ball is poked airborne at window row 0, at least 16 px over a floor cell
+     whose OCC and OCCG flags are clear - so its SHADOW is drawn, in a box of
+     its own below the ball's - drifting right so a column enters.  At least
+     five frames take 128.9 item 6's path (row 0, an entering column) and at
+     least five are multi-box (a shadow box apart from the ball's); the card
+     equals the oracle at bz_tf and bz_presented on every probe frame; on the
+     multi-box frames interrupts are back ON (a breakpoint after bz_tb's
+     POPF) before the second box is written, and bz_latechk's verdict on
+     EVERY box (DL at bz_wbox's end) agrees with MartyPC's cycle counter:
+     the beam reaches window line n at the sync's rise (the breakpoint where
+     bz_vr saw it) + (16 + 22 + n) x 304 clocks on the CGA (mode 4: 262
+     lines, the sync at line 224), against the cycles at which the box write
+     started and ended.  Agreement is asserted on the CGA, the card whose
+     boxes can be late (the Hercules' 98 lines of sync and blank hold every
+     box ahead of the beam, 128.10.11.2); bz_latechk rounds toward LATE by
+     contract, so a guest LATE the cycle model calls on time by less than
+     that rounding (BZ_VLAT counts and a line) is reported, not failed.  The
+     Hercules' verdicts are reported.  [bz_late] over the probe must be 0 on
+     frames that are not multi-box.
 
 --red NAME is the row's red arm (docs/WRITING-TESTS.md 1): it copies
 apps/bonanza/ to a temporary directory, breaks one thing there, builds that
 package and its 360KB floppy into the same temporary directory (never
-build/), runs the checks against it and PASSES only if they FAIL:
+build/), runs the parts that can see it and PASSES only if they FAIL at
+their own check:
   colright   the entering column moving right is the window's column W, not
              W - 1 (a content error: the right edge is left stale)
-  colfirst   the entering column is written BEFORE the retrace wait and the
-             flip - the same bytes in the end, so only the bz_tf check (the
-             order) can see it
-  late       every frame counts as a late row-0 box: the bz_rlate assertion's
-             own plumbing
-  row0       item 6's order undone: a box at window row 0 takes the WHOLE
-             column first again, so the probe's boxes start after the beam
-             has passed line 0 and [bz_late] must go above 0 - on the CGA
-             ONLY (RED_TAGS): the Hercules' 98 lines of sync and blank hold
-             the whole column ahead of the box, so the order is not load-
-             bearing there
-  occ        the occluder pass skipped (bz_occ returns at once): a checked
-             frame behind a record mismatches the oracle
+  colfirst   the entering column written BEFORE the retrace wait and the flip
+             (the same bytes in the end: only the bz_tf check sees it)
+  late       every frame counts a late box: the bz_rlate assertion's plumbing
+  row0       item 6's order undone (the whole column before a row-0 box):
+             [bz_late] above 0 on the probe - the CGA only (RED_TAGS)
+  occ        the occluder pass skipped: a checked frame behind a record differs
+  shadow     the shadow composed into ITS OWN box only (group 1): where the
+             ball's box covers it - a Hop, a flight's last lines - the card
+             differs (the TRIAL leg)
+  boxfirst   every box before any column row: the raster-order check fails
+  htab       one bit of bz_hgen's output flipped (BZ_HTAB[55h], a cyan byte
+             on an even line): the Hercules picture differs
+  late2      bz_latechk on the first box only: on the CGA the cycle counter
+             disagrees on a multi-box frame (the probe)
+  pass2      the occluder pass run once per box: its walk entered twice on a
+             two-box frame (the TRIAL leg)
 
 The module is also the LIBRARY the other BONANZA rows share (bonanza_perf,
-bonanza_phys, bonanza_exit, bonanza_mega): `symbols`, `Bz`, `Ref`, `Walker`,
-`build_tree` and the course cache.
+bonanza_phys, bonanza_exit, bonanza_mega, bonanza_replay): `symbols`, `Bz`,
+`Ref`, `Walker`, `poke_ball`, `build_tree` and the course cache.
 """
 import argparse
 import os
@@ -113,12 +132,26 @@ RL = {"cga": 2, "herc": 4}          # lines a card row
 RB = {"cga": 80, "herc": 90}        # bytes a line
 FILES = ("bonanza.asm", "bzvideo.inc", "bzgame.inc", "bzphys.inc")
 EXTRA_SYMS = ("op_table",)          # os88parts.inc's: the part rows (bonanza_exit)
+# NASM local labels a row breakpoints (proc, local): resolved by the same
+# assembly when the source has them (a red tree, or an older wave, may not)
+LOCAL_SYMS = (("bz_tb", "first"), ("bz_wbox", "wr"), ("bz_wbox", "out"), ("bz_vr", "rose"),
+              ("bz_vr", "high"), ("bz_occ", "gate"))
 DIRS = [(dr, dc) for dr in (-1, 0, 1) for dc in (-1, 0, 1) if (dr, dc) != (0, 0)]
 FIRST_EACH = 3                      # frames checked per direction, first ones
 LAY_EACH = 6                        # ...and the first frames that laid a record
+SHD_EACH = 4                        # ...and (TRIAL) the first with a shadow box of its own
+B3_EACH = 3                         # ...and the first with three boxes or more
 EVERY = 97                          # ...and then one moving frame in this many
 PROBE_MIN = 5                       # row-0 probe frames a card (SPEC.md 128.10.11.2)
 PROBE_MAX = 30                      # probe frames run at most
+PROBE_SPLIT = 7                     # from this probe frame, every other one SPLIT: the ball poked 40 px
+                                    # back, so its old and new footprints are two boxes at row 0 and the
+                                    # second is behind the beam on the CGA - the later-box verdict judged
+BZ_BOXD = 20                        # bzvideo.inc: a box descriptor
+BZ_VLAT = 56                        # bzvideo.inc: PIT counts, the rise to the sample at most
+CGA_LINE = 304                      # clocks a CGA line (76 PIT counts, 912 dots / 3)
+CGA_TO0 = 16 + 22                   # CGA lines from the sync's rise to window line 0
+SPIN_TOL = 60                       # clocks: bz_vr's tight spin turn (the rise to its stop)
 
 
 class _CourseTable(dict):
@@ -150,6 +183,7 @@ COURSES = _CourseTable("path")      # bzcourse.inc's names -> the course file
 CRS_K = _CourseTable("k")           # ...and -> K, BZ_COURSES's order
 LUT = [bytes(((b >> 6) & 3, (b >> 4) & 3, (b >> 2) & 3, b & 3)) for b in range(256)]
 _COURSE = {}
+_BALL = {}
 
 
 def at(p):
@@ -165,11 +199,43 @@ def course(name, src=None):
     return _COURSE[path]
 
 
+def course_k(k):
+    """course K's compile (BZ_COURSES's order)"""
+    name = [n for n in CRS_K if CRS_K[n] == k] if dict.__len__(CRS_K) else None
+    if not name:
+        CRS_K["bench"]                           # (fills the table)
+        name = [n for n in CRS_K if CRS_K[n] == k]
+    return course(name[0])
+
+
+def ball_part(mat, tag, art=None):
+    """the material's BZB2 part as the card holds it: the CGA's bytes, or on
+    the Hercules those bytes through htab() (bonanza_assets.herc_translate_ball,
+    the translation bz_hxlat makes at the fetch, SPEC.md 128.11.3)"""
+    art = art or at("build/bonanza-art")
+    key = (mat, tag, art)
+    if key not in _BALL:
+        with open(os.path.join(ROOT, art, A.BALL_FILES[mat]), "rb") as f:
+            part = f.read()
+        _BALL[key] = A.herc_translate_ball(part, BB.htab()) if tag == "herc" else part
+    return _BALL[key]
+
+
+def _has_local(text, proc, local):
+    """does PROC (a `bz_x:` line) have the local label `.local:` before the next proc?"""
+    m = re.search(r"^%s:" % re.escape(proc), text, re.M)
+    if not m:
+        return False
+    nxt = re.search(r"^bz_\w+:", text[m.end():], re.M)
+    body = text[m.end():m.end() + nxt.start()] if nxt else text[m.end():]
+    return re.search(r"^\.%s:" % re.escape(local), body, re.M) is not None
+
+
 def symbols(src=None, art=None):
-    """Every bz_ label and VAR of the package (and EXTRA_SYMS), by assembling
-    it with a table of `dw label` on the end (the guest's own offsets, no
-    listing parsing).  A file of FILES a source does not have is skipped:
-    wave 0b's package (bonanza_perf's A/B leg) has no bzphys.inc."""
+    """Every bz_ label and VAR of the package (and EXTRA_SYMS, and LOCAL_SYMS as
+    'proc.local'), by assembling it with a table of `dw label` on the end (the
+    guest's own offsets, no listing parsing).  A file of FILES a source does not
+    have is skipped: an earlier wave's package (bonanza_perf's A/B leg)."""
     d = src or os.path.join(ROOT, "apps", "bonanza")
     art = art or at("build/bonanza-art")
     names = []
@@ -181,6 +247,7 @@ def symbols(src=None, art=None):
         names += re.findall(r"^VAR (bz_\w+),", t, re.M)
         names += re.findall(r"^(bz_\w+):", t, re.M)
         names += [n for n in EXTRA_SYMS if re.search(r"^%s:" % n, t, re.M)]
+        names += ["%s.%s" % (pr, lo) for pr, lo in LOCAL_SYMS if _has_local(t, pr, lo)]
     inc = os.path.join(ROOT, "apps", "os88parts.inc")
     names += [n for n in EXTRA_SYMS if re.search(r"^%s:" % n, open(inc).read(), re.M)]
     names = sorted(set(names))
@@ -201,47 +268,110 @@ def unpack_ball(tag):
     return A.ball_herc_pairs if tag == "herc" else A.ball_frame_indices
 
 
+def _row_pix(data, o, n=A.RB):
+    """N bytes at O as their 4N 2-bit pixels, leftmost first"""
+    out = []
+    for b in data[o:o + n]:
+        out += LUT[b]
+    return out
+
+
+class Look(object):
+    """what a frame was drawn from: the guest's physics state, read at a stop
+    (Bz.look), shaped as bbcourse.sprite and bbcourse.shadow read a Physics"""
+
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+    @property
+    def G8(self):
+        return (self.gx + self.gy) >> 9
+
+    def cell(self, wx, wy):
+        return self.grid.cell(wx, wy)
+
+    def key(self):
+        return (self.px, self.py, self.sb, self.zb, self.air, self.spr, self.spy, self.gate)
+
+
 class Ref:
     """The host's picture of one course on one card: bbcourse's render, the
-    ball over it and the records laid back (bbcourse.composite)."""
+    shadow, the material's sprite and the records laid back over it."""
 
-    def __init__(self, tag, crs):
-        self.tag, self.c = tag, crs
+    def __init__(self, tag, crs, art=None):
+        self.tag, self.c, self.art = tag, crs, art
         pic = crs.pic
         if tag == "cga":
             self.rows = [bytes(r) for r in pic]
-        else:                       # the course's 10/01 checker by world line and column
-            self.rows = [bytes(A.herc_pair(v, L, X) for X, v in enumerate(r)) for L, r in enumerate(pic)]
+        else:                       # the CGA's bytes through htab(), the table bz_hgen builds
+            ht = BB.htab()
+            self.rows = []
+            for L, r in enumerate(pic):
+                out = []
+                for x in range(0, len(r), 4):
+                    b = (r[x] << 6) | (r[x + 1] << 4) | (r[x + 2] << 2) | r[x + 3]
+                    out += LUT[ht[256 * (L & 1) + b]]
+                self.rows.append(bytes(out))
 
-    def enc(self, v, L, X):
-        return v if self.tag == "cga" else A.herc_pair(v, L, X)
-
-    def foot(self, px, py, sb, zb, air, cell=None):
-        """-> ({(x, y): card value} over the footprint, ball pixels the records hid).
-        CELL (Bz.occkey): the ball's cell when the guest's window was centred on
-        it; if that cell's OCC flag is clear the guest's gate was off and the
-        ball is drawn whole - what bz_occ does, 128.10.8 item 1."""
-        gated = cell is not None and not (self.c.cells.get(cell, (0, 0, 0, 0))[3] & BB.FL_OCC)
-        comp = BB.composite(self.c, px, py, sb, zb, air, via="none" if gated else "records")
+    def foot(self, lk):
+        """-> ({(x, y): card value} over the shadow's and the ball's footprints,
+        ball pixels the records hid).  LK: a Look."""
+        part = ball_part(lk.mat, self.tag, self.art)
+        x4 = lk.px & ~3
+        s = lk.px & 3
+        out = {}
+        if lk.spy is not None:                   # the shadow: AND only (128.11.9.4)
+            mo = A.B2_SHDOFF + ((lk.spy & 1) * A.SHIFTS + s) * A.SHD_ROWS * A.RB
+            for r in range(A.SHD_ROWS):
+                y = lk.spy + r
+                if not 0 <= y < len(self.rows):
+                    continue
+                for j, mp in enumerate(_row_pix(part, mo + r * A.RB)):
+                    out[(x4 + j, y)] = self.rows[y][x4 + j] & mp
+        kind, k = lk.spr                         # the sprite: mask AND, frame OR
+        if kind == "roll":
+            mo, fo = A.B2_MASKOFF + s * A.D * A.RB, A.B2_FRMOFF + k * A.D * A.RB
+        else:
+            base = A.B2_SQOFF if kind == "squash" else A.B2_SHAOFF
+            mo = base + ((k * A.SHIFTS + s) * 2 + (lk.py & 1)) * A.ENT
+            fo = mo + A.ENT // 2
+        ball = {}
+        for r in range(A.D):
+            y = lk.py + r
+            mrow, frow = _row_pix(part, mo + r * A.RB), _row_pix(part, fo + r * A.RB)
+            for j in range(A.RB * 4):
+                v = out.get((x4 + j, y), self.rows[y][x4 + j] if 0 <= y < len(self.rows) else 0)
+                nv = (v & mrow[j]) | frow[j]
+                out[(x4 + j, y)] = nv
+                if mrow[j] != 3:
+                    ball[(x4 + j, y)] = nv
         hidden = 0
-        for p, v in BB.ball_pixels(px, py).items():
-            if comp.get(p, v) != v:
-                hidden += 1
-        return {(x, y): self.enc(v, y, x) for (x, y), v in comp.items()}, hidden
+        if lk.gate:                              # the records (128.10.4.4's rule) over the
+            m = 0 if lk.air else BB.CLIMB       # footprint's lines and the ball's columns
+            for br in range(lk.py >> 3, ((lk.py + BB.FOOT_H - 1) >> 3) + 1):
+                for bc in range(x4 >> 3, ((x4 + BB.FOOT_W - 1) >> 3) + 1):
+                    for rec in self.c.by_block.get((br, bc), ()):
+                        if lk.sb < rec["s"] and lk.zb + m < rec["top"]:
+                            for (x, y) in rec["pix"]:
+                                if lk.py <= y < lk.py + BB.FOOT_H and x4 <= x < x4 + BB.FOOT_W \
+                                        and (x, y) in out:
+                                    if (x, y) in ball and out[(x, y)] != self.rows[y][x]:
+                                        hidden += 1
+                                    out[(x, y)] = self.rows[y][x]
+        return out, hidden
 
-    def picture(self, R0, c0, px, py, sb, zb, air, cell=None):
+    def picture(self, R0, c0, lk):
         """200 rows (bytes) of the window whose top card row is R0 and left word
-        column c0, the ball's top-left at world (px, py) in cell row sb at
-        whole height zb, air 0/1 (the occluder rule's inputs), CELL as foot()."""
+        column c0, drawn from LK (a Look)"""
         top, left, w = R0 * RL[self.tag], c0 * 8, W[self.tag]
-        fp, _ = self.foot(px, py, sb, zb, air, cell)
+        fp, _ = self.foot(lk)
         out = []
         for y in range(200):
             L = top + y
             row = self.rows[L][left:left + w]
-            if py <= L < py + BB.FOOT_H:
+            if any((x, L) in fp for x in range(lk.px & ~3, (lk.px & ~3) + BB.FOOT_W)):
                 row = bytearray(row)
-                for x in range(max(left, px & ~3), min(left + w, (px & ~3) + BB.FOOT_W)):
+                for x in range(max(left, lk.px & ~3), min(left + w, (lk.px & ~3) + BB.FOOT_W)):
                     v = fp.get((x, L))
                     if v is not None:
                         row[x - left] = v
@@ -307,25 +437,65 @@ class Bz:
         """(S, R0, c0, px, py) as the package holds them now."""
         return (self.w("bz_S"), self.w("bz_R0"), self.w("bz_c0"), self.w("bz_px"), self.w("bz_py"))
 
-    def occkey(self):
-        """(s_b, z_b, air, cell): the occluder rule's inputs as the frame
-        composed them, and the ball's cell (wx, wy) when the guest's window is
-        centred on it - no POKE since the last step, [bz_pokd] 0 - else None.
-        Ref.foot's input for bz_occ's GATE (128.10.8 item 1): centred and the
-        cell's OCC flag clear, the flag read from the HOST's course, not the
-        guest's window, so a wrong flag still shows.  The gate only matters for
-        a POKED ball (the row-0 probe) at a height the tool's reachable set
-        never gives its cell; for every reachable state an OCC-clear cell lays
-        nothing by construction (128.10.4.6 item 5)."""
-        gx, gy = self.d("bz_gx") >> 12, self.d("bz_gy") >> 12
-        centred = not self.b("bz_pokd")             # every step leaves the window on the ball's cell
-        return (self.w("bz_sb"), struct.unpack("<h", self.m.read(self.a("bz_gz") + 1, 2))[0], self.b("bz_air"),
-                (gx, gy) if centred else None)
+    def look(self, crs):
+        """The Look the frame the guest holds now was drawn from (at bz_tf or
+        bz_presented), CRS the host's course (its cells: the OCC gate and OCCG):
+        the physics state, the sprite bbcourse.sprite chooses from it, and the
+        shadow - drawn when [bz_snv] says the box layout drew it, which is
+        CHECKED against the model's candidate (bbcourse.shadow): -> (Look, a
+        complaint or None)."""
+        grid = getattr(crs, "_grid", None)
+        if grid is None:
+            grid = crs._grid = BB.Grid(crs.cga)
+        lo = self.sym["bz_phs"]
+        raw = self.m.read(self.base + lo, self.sym["bz_phe"] - lo)
+
+        def f(n, fmt):
+            return struct.unpack_from(fmt, raw, self.sym[n] - lo)[0]
+        lk = Look(grid=grid, gx=f("bz_gx", "<I"), gy=f("bz_gy", "<I"), gz=f("bz_gz", "<i"), air=f("bz_air", "B"),
+                  mst=f("bz_mst", "B"), mct=f("bz_mct", "B"), sqf=f("bz_sqf", "B"), ghv=f("bz_ghv", "B"),
+                  gh=f("bz_gh", "<h"), sb=f("bz_sb", "<H"), pokd=f("bz_pokd", "B"),
+                  mat=self.b("bz_mat"), px=self.w("bz_px"), py=self.w("bz_py"), y0=grid.y0)
+        lk.zb = lk.gz >> 8
+        lk.spr = BB.sprite(lk, self.tag == "herc")
+        centred = not lk.pokd
+        cell = grid.cell(lk.gx >> 12, lk.gy >> 12)
+        # bz_occ's gate (bz_mkboxes: the centre's OCC airborne, its OCCG grounded,
+        # or a harness's poke): with no poke since the last step the window is
+        # centred on the ball's cell, whose flag is read from the HOST's course,
+        # so a wrong flag still shows
+        lk.gate = not centred or bool(cell[4] & (BB.FL_OCC if lk.air else BB.FL_OCCG))
+        cand = BB.shadow(lk)                     # (spy, px) or None
+        drawn = self.b("bz_snv")
+        why = None
+        if drawn and cand is None:
+            why = "the guest drew a shadow ([bz_snv] 1) where the model has none"
+        elif cand is not None and not drawn and not lk.gate:
+            why = "the guest drew no shadow where the model has one and no occluder pass runs"
+        elif drawn and cand is not None and self.s("bz_spy") != cand[0]:
+            why = "the guest's shadow line [bz_spy] %d is not the model's %d" % (self.s("bz_spy"), cand[0])
+        lk.spy = cand[0] if (drawn and cand is not None) else None
+        return lk, why
 
     def phys(self):
         """(nstep, gx, gy, gz, gvx, gvy, gvz, air): bbcourse.Physics.state()'s shape"""
         return (self.d("bz_nstep"), self.d("bz_gx"), self.d("bz_gy"), self.sd("bz_gz"),
                 self.s("bz_gvx"), self.s("bz_gvy"), self.s("bz_gvz"), self.b("bz_air"))
+
+    def boxes(self):
+        """[(x0, y0, w, h, group)] of the frame's boxes, in their write order"""
+        n = self.w("bz_nbox")
+        raw = self.m.read(self.a("bz_boxes"), 4 * BZ_BOXD)
+        return [struct.unpack_from("<HhHH", raw, i * BZ_BOXD) + (raw[i * BZ_BOXD + 18],) for i in range(min(n, 4))]
+
+    def read_log(self):
+        """bz_rlog's 4,096 bytes"""
+        return self.m.read(self.a("bz_rlog"), BB.RLOG_SIZE)
+
+    def write_log(self, log):
+        """a log (bbcourse.encode_log's bytes) into bz_rlog, the rest zeroed"""
+        assert len(log) <= BB.RLOG_SIZE
+        self.m.write(self.a("bz_rlog"), bytes(log) + bytes(BB.RLOG_SIZE - len(log)))
 
     def decode(self, S):
         """The card memory as the 6845 scans it from start address S (words)."""
@@ -362,28 +532,38 @@ def diff(got, exp):
 
 
 class Walker:
-    """The frame loop under breakpoints: bz_tf and bz_presented (and bz_t0)."""
+    """The frame loop under breakpoints: bz_tf and bz_presented (and bz_t0, and
+    EXTRA: more names of the package's to stop on, each returned by its name)."""
 
-    def __init__(self, g, t0=False):
+    def __init__(self, g, t0=False, extra=()):
         self.g, self.m = g, g.m
         self.tf, self.pr = g.a("bz_tf"), g.a("bz_presented")
         self.t0 = g.a("bz_t0") if t0 else None
+        self.extra = {}
+        for n in extra:
+            if isinstance(n, tuple):             # (name, offset): an address past a label
+                self.extra[g.a(n[0]) + n[1]] = "%s+%d" % n
+            else:
+                self.extra[g.a(n)] = n
 
     def arm(self):
-        self.m.bp_exec(*[a for a in (self.t0, self.tf, self.pr) if a is not None])
+        self.m.bp_exec(*([a for a in (self.t0, self.tf, self.pr) if a is not None] + list(self.extra)))
 
     def next(self):
-        """Run to the next mark; -> 't0', 'tf' or 'pr'."""
+        """Run to the next mark; -> 't0', 'tf', 'pr' or an EXTRA name."""
         m = self.m
         m.run()
         st = m.wait_stop(60)
         assert st == "breakpoint", "the frame loop stopped reaching its marks (state %r)" % st
         r = m.regs()
+        self.r = r
         flat = ((r["cs"] << 4) + r["ip"]) & 0xFFFFF
         if flat == self.tf:
             return "tf"
         if flat == self.t0:
             return "t0"
+        if flat in self.extra:
+            return self.extra[flat]
         assert flat == self.pr, "stopped at %05X, none of the marks" % flat
         return "pr"
 
@@ -391,7 +571,8 @@ class Walker:
 def pic_now(g, ref, st=None):
     """The host picture of the frame the guest holds now (at bz_presented)."""
     st = st or g.state()
-    return ref.picture(*st[1:], *g.occkey())
+    lk, _ = g.look(ref.c)
+    return ref.picture(st[1], st[2], lk)
 
 
 def glass(g, ref):
@@ -413,18 +594,27 @@ def glass(g, ref):
         seen = st
     m.bp_exec()
     S, R0, c0, px, py = seen
-    key = g.occkey()
-    exp = ref.picture(R0, c0, px, py, *key)
+    lk, why = g.look(ref.c)
+    assert why is None, "play mode's resting frame: %s" % why
+    exp = ref.picture(R0, c0, lk)
     n, box = diff(g.decode(S), exp)
     assert n == 0, "play mode's resting frame: card memory != the course (%d px, box %s)" % (n, box)
     fw, fh, fd = m.fbuf(0)
-    wrong = ref.picture(R0, c0 + 1, px, py, *key)
+    wrong = ref.picture(R0, c0 + 1, lk)
     res = glass_cga(fw, fh, fd, exp, wrong) if tag == "cga" else glass_herc(fw, fh, fd, exp, wrong)
-    print("%s glass (FIRST, ball at rest at %d,%d): framebuffer %dx%d; %s" % (tag, px, py, fw, fh, res),
-          flush=True)
+    print("%s glass (FIRST, the %s ball at rest at %d,%d): framebuffer %dx%d; %s" % (
+        tag, A.MAT_NAMES[lk.mat], px, py, fw, fh, res), flush=True)
     m.run()
     g.key("Escape")
     M.until(m, lambda _: g.b("bz_fs") == 0, "play mode ends on Esc", guest=60)
+    dropped(g, "the glass's play")
+
+
+def dropped(g, what):
+    """Wait for the LAUNCH to return, not only the play: bz_launch's .drop
+    writes bz_cseg and bz_bseg 0 last, after both op_drop calls."""
+    M.until(g.m, lambda _: g.w("bz_cseg") == 0 and g.w("bz_bseg") == 0,
+            "the launch to drop its parts after %s" % what, guest=30)
 
 
 def _px(fd, fw, x, y):
@@ -510,57 +700,127 @@ def glass_herc(fw, fh, fd, exp, wrong):
                 gy0, gy0 + 199, top, bot, len(xs), gx0, nwrong))
 
 
-def bench(g, ref):
-    """Parts 2 and 3: the benchmark, stopped at bz_tf and bz_presented on chosen frames."""
+def bench(g, ref, trial=False):
+    """Parts 2 and 3: a benchmark (BENCH, or TRIAL poked into [bz_crs] at
+    bz_launch's entry), stopped at bz_tf and bz_presented on chosen frames; on
+    TRIAL also at bz_col, bz_boxw and bz_occ.gate on every frame (the order)."""
     m, tag = g.m, g.tag
-    wk = Walker(g)
-    wk.arm()                                # the desktop never runs these: armed before B
-    g.key("KeyB")
+    leg = "TRIAL" if trial else "BENCH"
+    extra = ("bz_col", "bz_boxw", "bz_occ.gate") if trial else ()
+    wk = Walker(g, t0=trial, extra=extra)
+    if trial:
+        m.bp_exec(g.a("bz_launch"))
+        g.key("KeyB")
+        assert m.wait_stop(60) == "breakpoint", "B did not reach bz_launch"
+        g.putb("bz_crs", CRS_K["trial"])         # the benchmark on TRIAL, with TRIAL's ball
+        wk.arm()
+    else:
+        wk.arm()                                # the desktop never runs these: armed before B
+        g.key("KeyB")
     done = {d: 0 for d in DIRS}
-    checks, tfchecks, fails, full_checked, split, controls = 0, 0, [], 0, 0, None
+    checks, tfchecks, fails, full_checked, controls = 0, 0, [], 0, None
     laid_checked, hid_checked, hid_px, glaid = 0, 0, 0, 0
-    prev = None                             # the last presented frame's (S, R0, c0, px, py) + occkey
+    shd_checked, b3_checked, nbox_seen = 0, 0, {}
+    shdin_checked = 0
+    order_frames, order_bad, walk_max = 0, 0, 0
+    prev = None                             # the last presented frame's (S, R0, c0, px, py) + Look
     want = False
     moving = 0
     nlay0 = 0
     first = True
+    ev, ngate = [], 0
+    fr = 0
+    tpokes, tpoke_next = [], TPOKE_AT
     while True:
         k = wk.next()
         if first:
             g.check_base()
             first = False
+        if k == "t0":
+            # TRIAL's route makes no frame of three boxes (its shadow jumps a
+            # line only over OCC cells, where the gate drops a box of its own),
+            # so the leg MAKES one: the ball poked airborne across the window
+            if trial and not b3_checked and fr >= tpoke_next and len(tpokes) < TPOKE_MAX \
+                    and g.w("bz_subs") != g.w("bz_lsubs"):
+                tpoke_next = fr + TPOKE_EVERY
+                got = tpoke(g, ref.c)
+                if got:
+                    tpokes.append((fr + 1,) + got)
+            continue
+        if k == "bz_col":
+            r = wk.r
+            ev.append(("col", r["ax"], r["bx"], r["cx"]))
+            continue
+        if k == "bz_boxw":
+            si = wk.r["si"]
+            x0, y0, w, h = struct.unpack("<HhHH", m.read(g.base + si, 8))
+            ev.append(("box", (si - g.sym["bz_boxes"]) // BZ_BOXD, y0, h, x0, w))
+            continue
+        if k == "bz_occ.gate":
+            ngate += 1
+            continue
         if k == "tf":
             if g.b("bz_mode") != 1:
                 raise AssertionError("B did not start the benchmark")
+            if trial and g.b("bz_crs") != CRS_K["trial"]:
+                raise AssertionError("the TRIAL leg runs course %d, not TRIAL" % g.b("bz_crs"))
             full = g.b("bz_full")
             dr, dc = g.s("bz_dr"), g.s("bz_dc")
             dk = ((dr > 0) - (dr < 0), (dc > 0) - (dc < 0))
             moving += dk != (0, 0)
+            lk, why = g.look(ref.c)
+            if why:
+                fails.append("%s frame %d at bz_tf: %s" % (leg, g.w("bz_frames") + 1, why))
             # does the ORACLE hide part of this frame's ball behind a record? (decided on the host,
             # not off [bz_nlay]: a build whose pass never runs must still have these frames checked)
-            _, hid = ref.foot(g.w("bz_px"), g.w("bz_py"), *g.occkey())
+            _, hid = ref.foot(lk)
             laid = hid > 0
             nlay = g.w("bz_nlay")
             glaid += nlay != nlay0
             nlay0 = nlay
+            bxs = g.boxes()
+            nbox_seen[len(bxs)] = nbox_seen.get(len(bxs), 0) + 1
+            shd_own = bool(g.b("bz_snv")) and any(b[4] == 1 for b in bxs)
+            shd_in = bool(g.b("bz_snv")) and bool(bxs) and not shd_own    # the shadow in the ball's box
+            three = len(bxs) >= 3
             want = bool(full and not full_checked) or (dk in done and done[dk] < FIRST_EACH) or \
-                (laid and laid_checked < LAY_EACH) or (dk != (0, 0) and moving % EVERY == 0)
+                (laid and laid_checked < LAY_EACH) or (dk != (0, 0) and moving % EVERY == 0) or \
+                (trial and shd_own and shd_checked < SHD_EACH) or (trial and three and b3_checked < B3_EACH) or \
+                (trial and shd_in and shdin_checked < SHD_EACH)
             if want and prev is not None and not full:
                 assert g.w("bz_S") == prev[0][0], "bz_S moved before bz_tf"
-                n, box = diff(g.decode(prev[0][0]), ref.picture(*prev[0][1:], *prev[1]))
+                n, box = diff(g.decode(prev[0][0]), ref.picture(prev[0][1], prev[0][2], prev[1]))
                 tfchecks += 1
                 if n:
-                    fails.append("frame %d (%+d,%+d) at bz_tf: the shown window (S %d) is not the last "
-                                 "frame's picture: %d px, lines %d-%d, x %d-%d" % (
-                                     g.w("bz_frames") + 1, dr, dc, prev[0][0], n, *box))
+                    fails.append("%s frame %d (%+d,%+d) at bz_tf: the shown window (S %d) is not the last "
+                                 "frame's picture, card != oracle: %d px, lines %d-%d, x %d-%d" % (
+                                     leg, g.w("bz_frames") + 1, dr, dc, prev[0][0], n, *box))
             if want:
-                wk.dk, wk.full, wk.laid = dk, full, laid
+                wk.dk, wk.full, wk.laid, wk.shd, wk.three, wk.shdin = dk, full, laid, shd_own, three, shd_in
+            wk.frame = (full, g.w("bz_wtop"), g.w("bz_H"), dc, bxs)
+            ev = []                             # (the pass ran before bz_tf: ngate is this frame's)
             continue
+        # bz_presented
         st = g.state()
-        key = g.occkey()
+        lk, _ = g.look(ref.c)
         fr = g.w("bz_frames")
+        if trial:
+            walk_max = max(walk_max, ngate)
+            if ngate > 1:
+                fails.append("TRIAL frame %d: the occluder pass's walk entered %d times (once a frame at most, "
+                             "SPEC.md 128.11.10.2)" % (fr, ngate))
+            full, wtop, H, dc, bxs = wk.frame
+            if not full:
+                order_frames += 1
+                why = order_check(ev, H, RL[tag], wtop, g.w("bz_ccol"), dc)
+                if why:
+                    order_bad += 1
+                    if order_bad <= 3:
+                        fails.append("TRIAL frame %d: the column and the boxes not in RASTER ORDER (128.11.10.3): "
+                                     "%s; events %s" % (fr, why, ev))
+            ngate = 0
         if want:
-            n, box = diff(g.decode(st[0]), ref.picture(*st[1:], *key))
+            n, box = diff(g.decode(st[0]), ref.picture(st[1], st[2], lk))
             checks += 1
             if wk.full:
                 full_checked += 1
@@ -568,21 +828,25 @@ def bench(g, ref):
                 done[wk.dk] += 1
             if wk.laid:
                 laid_checked += 1
-                _, hid = ref.foot(st[3], st[4], *key)
+                _, hid = ref.foot(lk)
                 if hid:
                     hid_checked += 1
                     hid_px += hid
-            if g.w("bz_crest") and g.w("bz_cfrom"):
-                split += 1
+            if trial and wk.shd:
+                shd_checked += 1
+            if trial and wk.three:
+                b3_checked += 1
+            if trial and wk.shdin:
+                shdin_checked += 1
             if n:
-                fails.append("frame %d (%+d,%+d)%s%s at bz_presented: S %d R0 %d c0 %d ball %d,%d (s_b %d z_b %d "
-                             "air %d): %d px, lines %d-%d, x %d-%d" % (
-                                 fr, wk.dk[0], wk.dk[1], " FULL" if wk.full else "",
-                                 " LAID" if wk.laid else "", *st, *key[:3], n, *box))
+                fails.append("%s frame %d (%+d,%+d)%s%s at bz_presented, card != oracle: S %d R0 %d c0 %d ball "
+                             "%d,%d (s_b %d z_b %d air %d, sprite %s, shadow %s): %d px, lines %d-%d, x %d-%d" % (
+                                 leg, fr, wk.dk[0], wk.dk[1], " FULL" if wk.full else "",
+                                 " LAID" if wk.laid else "", *st, lk.sb, lk.zb, lk.air, lk.spr, lk.spy, n, *box))
             elif controls is None and wk.dk[0] and wk.dk[1] and not wk.full:
-                controls = negative_controls(g, ref, st)
+                controls = negative_controls(g, ref, st, lk)
             want = False
-        prev = (st, key)
+        prev = (st, lk)
         if fr >= 1199 or len(fails) >= 4:
             break
     m.bp_exec()
@@ -592,36 +856,93 @@ def bench(g, ref):
         M.until(m, lambda _: g.b("bz_fs") == 0, "the benchmark ends", guest=120)
         assert g.b("bz_res") == 1, "the benchmark left no results"
         late = g.w("bz_rlate")
-        if late:
+        if late and not trial:
             fails.append("bz_rlate = %d: a box at window row 0 was not ahead of the beam" % late)
-    print("%s benchmark to frame %d: %d frames checked at bz_presented and %d at bz_tf (the old window "
-          "intact at the latch); the full write %d; column split round the boxes on %d of them" % (
-              tag, fr, checks, tfchecks, full_checked, split), flush=True)
-    print("%s occluders: %d checked frames where the oracle hides part of the ball behind a record (%d of "
+        dropped(g, "the %s benchmark" % leg)
+    print("%s %s benchmark to frame %d: %d frames checked at bz_presented and %d at bz_tf (the old window "
+          "intact at the latch); the full write %d" % (tag, leg, fr, checks, tfchecks, full_checked), flush=True)
+    print("%s %s occluders: %d checked frames where the oracle hides part of the ball behind a record (%d of "
           "them still at bz_presented, %d ball px); frames whose compose laid one ([bz_nlay] moved) %d; records "
-          "laid over the run %s, boxes with the pass gated on %s" % (
-              tag, laid_checked, hid_checked, hid_px, glaid, g.w("bz_rnlay") if late is not None else "-",
+          "laid over the run %s, frames the pass ran %s" % (
+              tag, leg, laid_checked, hid_checked, hid_px, glaid, g.w("bz_rnlay") if late is not None else "-",
               g.w("bz_rnocf") if late is not None else "-"), flush=True)
-    print("%s late row-0 boxes (bz_rlate): %s" % (tag, late), flush=True)
-    print("%s directions checked (dr,dc): %s" % (
-        tag, "  ".join("%+d%+d x%d" % (d[0], d[1], done[d]) for d in DIRS)), flush=True)
+    print("%s %s boxes a frame %s; late boxes (bz_rlate) %s" % (
+        tag, leg, ", ".join("%d: %d" % kv for kv in sorted(nbox_seen.items())), late), flush=True)
+    if trial:
+        print("%s TRIAL: the ball poked across the window for a frame of three boxes on frames %s" % (
+            tag, ", ".join("%d (%+d,%+d px)" % t for t in tpokes) or "none"), flush=True)
+        print("%s TRIAL: %d checked frames with the shadow in a box of its own, %d with it inside the ball's box, "
+              "%d with three boxes or more; the column and boxes in raster order on %d of %d frames that are not a "
+              "full write; the pass's walk entered at most %d times a frame" % (
+                  tag, shd_checked, shdin_checked, b3_checked, order_frames - order_bad, order_frames, walk_max),
+              flush=True)
+    else:
+        print("%s directions checked (dr,dc): %s" % (
+            tag, "  ".join("%+d%+d x%d" % (d[0], d[1], done[d]) for d in DIRS)), flush=True)
     if controls:
         print("%s negative controls: %s" % (tag, controls), flush=True)
     return {"fails": fails, "done": done, "full": full_checked, "controls": controls, "checks": checks,
-            "hid": hid_checked}
+            "hid": hid_checked, "shd": shd_checked, "b3": b3_checked, "orders": order_frames,
+            "shdin": shdin_checked}
 
 
-def negative_controls(g, ref, st):
+def order_check(ev, H, rl, wtop, ccol, dc):
+    """SPEC.md 128.11.10.3 on one frame's writes, EV in time order: ('col', AX,
+    first row, rows) and ('box', index, y0, h, x0, w).  -> None, or what is wrong."""
+    cols = [e for e in ev if e[0] == "col"]
+    bxs = [e for e in ev if e[0] == "box"]
+    ys = [b[2] for b in bxs]
+    if ys != sorted(ys):
+        return "the boxes written at first lines %s, not in their order" % ys
+    if [b[1] for b in bxs] != list(range(len(bxs))):
+        return "the boxes written as %s, not 0, 1, ... in turn" % [b[1] for b in bxs]
+    if not dc:
+        return "a column written on a frame with none entering" if cols else None
+    nxt = 0
+    for c in cols:
+        if c[1] != ccol:
+            return "a column call for word column %d, the entering column is %d" % (c[1], ccol)
+        if c[2] != nxt:
+            return "the column's rows from %d where %d were done (not top first)" % (c[2], nxt)
+        nxt += c[3]
+    if nxt != H:
+        return "the column's rows written %d of %d" % (nxt, H)
+    whole = not bxs or any(0 <= ((ccol - b[4]) & 0xFFFF) < b[5] for b in bxs)
+    exp, last = [], 0
+    for j, b in enumerate(bxs):
+        y0w = b[2] - wtop
+        if whole:
+            e = H
+        elif j == 0 and y0w // rl == 0:
+            e = (y0w + b[3] - 1) // rl + 1
+        else:
+            e = y0w // rl
+        e = min(max(e, last), H)
+        last = e
+        exp.append(e)
+    got, n = [], 0
+    for e in ev:
+        if e[0] == "col":
+            n += e[3]
+        else:
+            got.append(n)
+    if got != exp:
+        return "the column rows written before each box %s, raster order says %s%s" % (
+            got, exp, " (a box holds a column cell: the whole column first)" if whole else "")
+    return None
+
+
+def negative_controls(g, ref, st, lk):
     """The same decode must FAIL at S + 1, and after a poked wrong camera."""
     S, R0, c0, px, py = st
-    key = g.occkey()
-    n1, _ = diff(g.decode((S + 1) % 4096), ref.picture(R0, c0, px, py, *key))
+    n1, _ = diff(g.decode((S + 1) % 4096), ref.picture(R0, c0, lk))
     assert n1 > 1000, "decode at S + 1 matches too (%d px differ): the check cannot fail" % n1
     out = ["S+1 differs in %d px" % n1]
     for name, v in (("bz_c0", c0 + 1), ("bz_R0", R0 + 1)):
         g.put(name, v)
         try:
-            n2, _ = diff(g.decode(g.w("bz_S")), ref.picture(*g.state()[1:], *key))
+            st2 = g.state()
+            n2, _ = diff(g.decode(g.w("bz_S")), ref.picture(st2[1], st2[2], lk))
         finally:
             g.put(name, c0 if name == "bz_c0" else R0)
         assert n2 > 1000, "a poked %s still matches (%d px differ): the check cannot fail" % (name, n2)
@@ -631,13 +952,14 @@ def negative_controls(g, ref, st):
 
 
 # ---- the row-0 probe (SPEC.md 128.10.11.2) ----------------------------------
-def poke_ball(g, gx, gy, gz, gvx=0, gvy=0, gvz=0, same_cell=False):
+def poke_ball(g, gx, gy, gz, gvx=0, gvy=0, gvz=0, same_cell=False, air=None, ztop=None, lvl=None):
     """The position and the velocities (SPEC.md 128.10.7.1), 24.8 values, and
     what a poke owes besides: bz_pokd = 1, so the next step refills the window
     round the ball's cell itself, and the SCREEN state derived from the poked
     position with a zero velocity - bbcourse.Physics.poke's _derive(True) -
     so that a frame which runs no step (about 9% of the CGA's) draws the ball
-    where it was poked, not where the last step left it.
+    where it was poked, not where the last step left it.  AIR, ZTOP (whole
+    px) and LVL (the arrows' four levels, 128.11.7.1) are poked when given.
 
     SAME_CELL: leave bz_pokd as it is when the poke stays in the cell the
     window is centred on ([bz_wgx], [bz_wgy] are 16 wx, 16 wy) - the window
@@ -651,6 +973,12 @@ def poke_ball(g, gx, gy, gz, gvx=0, gvy=0, gvz=0, same_cell=False):
     g.put("bz_gvx", gvx)
     g.put("bz_gvy", gvy)
     g.put("bz_gvz", gvz)
+    if air is not None:
+        g.putb("bz_air", air)
+    if ztop is not None:
+        g.put("bz_ztop", ztop)
+    if lvl is not None:
+        g.m.write(g.a("bz_lvl"), bytes(lvl))
     kx, ky = g.sd("bz_kx"), g.sd("bz_ky")       # (X0 - 8) << 8, (Y0 - 13) << 8
     g.putd("bz_bx", gx - gy + kx)
     g.putd("bz_by", ((gx + gy) >> 1) - gz + ky)
@@ -660,10 +988,12 @@ def poke_ball(g, gx, gy, gz, gvx=0, gvy=0, gvz=0, same_cell=False):
         g.putb("bz_pokd", 1)
 
 
-def probe_ground(crs, px, py, grid, sx=1):
+def probe_ground(crs, px, py, grid, sx=1, clear=16, flags=0):
     """A contact point (24.8 gx, gy, gz) whose derived picture top-left is (px, py)
-    with the by fraction at 0x80, high over a FLOOR cell (at least 16 px above
-    its floor), placed so that its drift (gvx 64 SX, gvy -64 SX: at most 2 gu
+    with the by fraction at 0x80, high over a FLOOR cell (at least CLEAR px above
+    its floor, and none of FLAGS set in the cell: the multi-box probe asks for
+    OCC and OCCG clear, so the shadow is drawn in a box of its own), placed so
+    that its drift (gvx 64 SX, gvy -64 SX: at most 2 gu
     each way over a catch-up's 8 steps; SX +1 drifts right on the screen, -1
     left) keeps it in the cell, and no neighbour its circle can test over that
     drift is a WALL, OPEN, or a floor reaching within 16 px of it: an airborne
@@ -680,10 +1010,10 @@ def probe_ground(crs, px, py, grid, sx=1):
             continue
         wx, wy, u, v = gx8 >> 12, gy8 >> 12, (gx8 >> 8) & 15, (gy8 >> 8) & 15
         c = grid.cell(wx, wy)
-        if c[3] != BB.KIND_FLOOR:               # (not a GOAL: play would end on it)
+        if c[3] != BB.KIND_FLOOR or c[4] & flags:   # (not a GOAL: play would end on it)
             continue
         gz8 = (d8 >> 1) + ky - by8
-        z4 = (gz8 >> 6) - 64                    # quarter px, 16 px under the ball
+        z4 = (gz8 >> 6) - 4 * clear             # quarter px, CLEAR px under the ball
         if gz8 >= 600 << 8 or BB.Physics.h4(c, u, v) > z4:
             continue
         ulo, uhi = (u, u + 2) if sx > 0 else (u - 2, u)     # u and v over the drift (u +- 2, v -+ 2
@@ -707,28 +1037,72 @@ def probe_ground(crs, px, py, grid, sx=1):
     return best
 
 
+def tpoke(g, crs):
+    """The TRIAL leg's frame of THREE boxes (SPEC.md 128.11.10.1, 128.11.17.2):
+    at bz_t0 of a frame that runs a step, the ball poked AIRBORNE 40 - 56 px
+    across the screen, inside the window with its shadow, over a floor cell
+    with OCC and OCCG clear (probe_ground's search) - so the ball's old and new
+    footprints are two boxes (their union wider than BZ_BOXW) and the shadow,
+    the gate clear, a third.  -> (dx, dy) poked, or None where no cell fits."""
+    tag = g.tag
+    S, R0, c0, px, py = g.state()
+    top, left = R0 * RL[tag], c0 * 8
+    grid = getattr(crs, "_grid", None) or BB.Grid(crs.cga)
+    for dx in (40, -40, 48, -48, 56, -56):
+        tpx = px + dx
+        if tpx < left + 8 or tpx + 24 > left + W[tag] - 8:
+            continue
+        for dy in (0, -8, 8, -16, 16, -24, 24):
+            tpy = py + dy
+            if tpy < top + 8 or tpy + 16 + 48 > top + 192:
+                continue
+            sx = 1 if dx > 0 else -1
+            gp = probe_ground(crs, tpx, tpy, grid, sx, clear=16, flags=BB.FL_OCC | BB.FL_OCCG)
+            if gp:
+                poke_ball(g, gp[0], gp[1], gp[2], 64 * sx, -64 * sx, 36, air=1)
+                return dx, dy
+    return None
+
+
+TPOKE_AT, TPOKE_EVERY, TPOKE_MAX = 300, 40, 12
+
+
+PROBE_CLEAR = 10    # px over the floor: z - h about 10, so the shadow (spy = py + 10 + (z - h),
+                    # 128.11.9.4) is a box of its own just below the ball's (their union 26 lines,
+                    # over BZ_BOXH's 24) - the CGA's late case of 128.11.10.3
+
+
+def cycles(m):
+    return int(m.status()["cycles"])
+
+
 def probe(g, ref):
-    """Part 4: the POKED row-0 probe, play mode on BENCH in GLIDE."""
+    """Part 4: the POKED row-0 probe, play mode on BENCH in GLIDE, every frame a
+    multi-box frame (the ball at window row 0, its shadow in a box below)."""
     m, tag = g.m, g.tag
     crs = ref.c
     grid = BB.Grid(crs.cga)
+    for nm, op in (("bz_tb.first", 0x9D), ("bz_wbox.wr", 0xE8)):
+        got = m.read(g.a(nm), 1)[0]
+        assert got == op, "%s is not the instruction the probe breakpoints after (%02X, not %02X)" % (nm, got, op)
     m.bp_exec(g.a("bz_launch"))
     g.key("Enter")
     assert m.wait_stop(60) == "breakpoint", "Enter did not reach bz_launch"
     g.putb("bz_crs", CRS_K["bench"])            # play mode, on the benchmark's course
     g.putb("bz_cmode", 0)                       # GLIDE (C cycles it; it persists)
+    g.putb("bz_tpoke", 1)                       # time play's boxes: only a benchmark's are
+                                                # (bz_wbox, SPEC.md 128.11.10.3)
     m.bp_exec()
     m.run()
     M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 5, "play mode on BENCH runs", guest=60)
     m.pause()
     g.check_base()
-    # 1. the window at the course's TOP: play starts on BENCH's start plateau
-    # (6, 14), and GLIDE settles with the window clamped at R0 = 0 - the one
-    # place play can put a box at window row 0 (an airborne ball at its apex
-    # over the top's back edge, 128.10.4.1; away from the clamp GLIDE's two
-    # rows a frame keep a rising ball inside its band).  The probe pans RIGHT
-    # from there, its ball over the plateau and the descent below it.
-    wk = Walker(g, t0=True)
+    # 1. the window at the course's TOP: play starts on BENCH's start plateau,
+    # and GLIDE settles with the window clamped at R0 = 0 - the one place play
+    # can put a box at window row 0 (a flight's apex over the top's back edge,
+    # 128.10.4.1).  The probe pans RIGHT from there.
+    wk = Walker(g, t0=True, extra=("bz_vr.rose", "bz_vr.high", ("bz_wbox.wr", 0), ("bz_wbox.wr", 3),
+                                   "bz_wbox.out", ("bz_tb.first", 1)))
     m.bp_exec(wk.pr)
     still, last = 0, None
     for _ in range(2000):
@@ -741,76 +1115,159 @@ def probe(g, ref):
     assert still >= 8, "the camera never settled on the course's start (last %r)" % (last,)
     wk.arm()
     R0, c0 = last
-    cmax, rmax = g.w("bz_cmax"), g.w("bz_rmax")
-    print("%s probe: the window settled at R0 %d c0 %d on the start (cmax %d, rmax %d)" % (
-        tag, R0, c0, cmax, rmax), flush=True)
+    cmax = g.w("bz_cmax")
+    print("%s probe: the window settled at R0 %d c0 %d on the start (cmax %d)" % (tag, R0, c0, cmax), flush=True)
     assert R0 == 0 and c0 + PROBE_MIN + 2 <= cmax, \
-        "the probe's window is not at the top clamp with room to pan right: R0 %d, c0 %d, cmax %d" % (
-            R0, c0, cmax)
-    # 2. the probe frames.  The FIRST is a lead-in and its lateness is not
-    # counted: its poke moves the ball from the start, at rest down the
-    # window, to the window's first line, so its box is the union of the two
-    # footprints and the column's rows down to that box's last row go first -
-    # a teleport play cannot make (a ball moves a few lines a frame, and a
-    # respawn lands on a floor, 16 lines or more down: 128.10.4.1).  Its
-    # pictures are checked like every frame's.
-    late0 = None
+        "the probe's window is not at the top clamp with room to pan right: R0 %d, c0 %d, cmax %d" % (R0, c0, cmax)
+    # 2. the probe frames.  The FIRST is a lead-in whose timing is not judged:
+    # its poke moves the ball from the start to the window's first line, a
+    # teleport play cannot make.  Its pictures are checked like every frame's.
     lw = W[tag] // 8
-    frames, hit, fails, prev = 0, 0, [], None
+    frames, hit, multi, fails, prev = 0, 0, 0, [], None
+    agree, pess, unjudged, verd = 0, 0, 0, []
+    late_agree = 0                              # later boxes LATE by both bz_latechk and the counter
+    fe = None
     while frames < PROBE_MAX:
         k = wk.next()
         if k == "t0":
             R0, c0 = g.w("bz_R0"), g.w("bz_c0")
             if R0 != 0 or c0 >= cmax:
                 break
-            # the ball's top on the window's first line (world line 0: the window stays clamped) and its
-            # centre RIGHT of the dead zone (which is [2W, 6W] px), so GLIDE steps a column at the right
-            # edge each frame, clear of the footprint
+            # the ball's top on the window's first line (world line 0: the window stays clamped) and
+            # its centre RIGHT of the dead zone ([2W, 6W] px), so GLIDE steps a column at the right edge
+            # each frame, clear of the footprint
             tpx = c0 * 8 + W[tag] - lw - 8
-            gp = probe_ground(crs, tpx, 0, grid, 1)
+            split = frames + 1 >= PROBE_SPLIT and (frames + 1 - PROBE_SPLIT) % 2 == 0
+            if split:                   # the ball 40 px back: its old and new footprints two
+                tpx -= 40               # boxes at row 0, the second behind the beam on the CGA
+            gp = probe_ground(crs, tpx, 0, grid, 1, clear=PROBE_CLEAR, flags=BB.FL_OCC | BB.FL_OCCG)
+            if gp is None and split:    # no ground there: this frame is not split
+                split, tpx = False, tpx + 40
+                gp = probe_ground(crs, tpx, 0, grid, 1, clear=PROBE_CLEAR, flags=BB.FL_OCC | BB.FL_OCCG)
             if gp is None:              # the ball's screen column has left the course: the probe is over
                 break
             poke_ball(g, gp[0], gp[1], gp[2], 64, -64, 36, same_cell=True)
+            fe = {"rise": None, "vedge": None, "box": [], "if": None, "late0": g.w("bz_late"), "split": split}
+            continue
+        if fe is None:
+            continue
+        if k in ("bz_vr.rose", "bz_vr.high"):
+            fe["rise"], fe["vedge"] = cycles(m), k == "bz_vr.rose"
+            continue
+        if k == "bz_wbox.wr+0":
+            fe["box"].append({"i": (wk.r["si"] - g.sym["bz_boxes"]) // BZ_BOXD, "c0": cycles(m)})
+            continue
+        if k == "bz_wbox.wr+3":
+            fe["box"][-1]["c1"] = cycles(m)
+            continue
+        if k == "bz_wbox.out":
+            fe["box"][-1]["dl"] = wk.r["dx"] & 0xFF
+            continue
+        if k == "bz_tb.first+1":
+            fe["if"] = (bool(wk.r["flags"] & 0x200), len(fe["box"]))
             continue
         if k == "tf":
             if prev is not None and not g.b("bz_full"):
-                n, box = diff(g.decode(prev[0][0]), ref.picture(*prev[0][1:], *prev[1]))
+                n, box = diff(g.decode(prev[0][0]), ref.picture(prev[0][1], prev[0][2], prev[1]))
                 if n:
-                    fails.append("probe frame %d at bz_tf: the shown window is not the last frame's picture: "
-                                 "%d px, lines %d-%d, x %d-%d" % (frames + 1, n, *box))
+                    fails.append("probe frame %d at bz_tf: the shown window is not the last frame's picture, "
+                                 "card != oracle: %d px, lines %d-%d, x %d-%d" % (frames + 1, n, *box))
+            fe["boxes"], fe["wtop"], fe["full"] = g.boxes(), g.w("bz_wtop"), g.b("bz_full")
             continue
+        # bz_presented
         frames += 1
-        st, key = g.state(), g.occkey()
-        n, box = diff(g.decode(st[0]), ref.picture(*st[1:], *key))
+        st = g.state()
+        lk, why = g.look(crs)
+        if why:
+            fails.append("probe frame %d: %s" % (frames, why))
+        n, box = diff(g.decode(st[0]), ref.picture(st[1], st[2], lk))
         r0, dc = g.b("bz_row0"), g.s("bz_dc")
-        if late0 is None:                       # the lead-in (above)
-            late0 = g.w("bz_late")
-        elif r0 and dc:
-            hit += 1
+        bxs = fe["boxes"]
+        is_multi = len(bxs) >= 2 and g.b("bz_snv") and any(b[4] == 1 for b in bxs)
         if n:
-            fails.append("probe frame %d at bz_presented: S %d R0 %d c0 %d ball %d,%d (row0 %d, dc %d): %d px, "
-                         "lines %d-%d, x %d-%d" % (frames, *st, r0, dc, n, *box))
-        prev = (st, key)
-        if len(fails) >= 4:
+            fails.append("probe frame %d at bz_presented, card != oracle: S %d R0 %d c0 %d ball %d,%d (row0 %d, "
+                         "dc %d, %d boxes): %d px, lines %d-%d, x %d-%d" % (frames, *st, r0, dc, len(bxs), n, *box))
+        if frames > 1 and not fe["full"]:       # (the first: the lead-in)
+            hit += bool(r0 and dc)
+            multi += bool(is_multi and r0)
+            tm = fe["box"]
+            if tm and tm[0].get("dl"):
+                fails.append("probe frame %d: the FIRST box, at window row 0, is late by bz_latechk (DL %d): "
+                             "128.9 item 6's order did not hold it ahead of the beam" % (frames, tm[0]["dl"]))
+            if not is_multi and g.w("bz_late") != fe["late0"]:
+                fails.append("probe frame %d: bz_late counted %d on a frame of one box group" % (
+                    frames, g.w("bz_late") - fe["late0"]))
+            if is_multi:
+                ifon, at_box = fe["if"] if fe["if"] else (None, None)
+                if not ifon or at_box != 1:
+                    fails.append("probe frame %d: interrupts %s after bz_tb's POPF, with %s boxes started "
+                                 "(on, after the FIRST box and before the second, 128.11.10.3)" % (
+                                     frames, "ON" if ifon else "OFF", at_box))
+                for j, b in enumerate(tm):
+                    x0, y0, w, h, grp = bxs[b["i"]]
+                    y0w = y0 - fe["wtop"]
+                    fl = 0 if (j == 0 and r0) else y0w
+                    rec = (frames, j, grp, y0w, h, bool(b.get("dl")))
+                    if tag != "cga" or not fe["vedge"]:
+                        unjudged += 1
+                        verd.append(rec + (None,))
+                        continue
+                    ms = fe["rise"] + (CGA_TO0 + fl) * CGA_LINE - b["c0"]
+                    me = fe["rise"] + (CGA_TO0 + y0w + h - 1) * CGA_LINE - b["c1"]
+                    margin = min(ms, me)
+                    verd.append(rec + (margin,))
+                    if bool(b.get("dl")) == (margin < 0):
+                        agree += 1
+                        late_agree += j > 0 and margin < 0
+                    elif b.get("dl") and margin < BZ_VLAT * 4 + CGA_LINE:
+                        pess += 1               # the documented rounding toward LATE
+                    elif not b.get("dl") and -margin <= SPIN_TOL:
+                        agree += 1              # within bz_vr's spin turn of the beam
+                    else:
+                        fails.append("probe frame %d box %d (group %d, window lines %d-%d): bz_latechk says %s, the "
+                                     "cycle counter %s by %d clocks (the sync's rise at cycle %d)" % (
+                                         frames, j, grp, y0w, y0w + h - 1, "LATE" if b.get("dl") else "on time",
+                                         "on time" if margin >= 0 else "LATE", abs(margin), fe["rise"]))
+        prev = (st, lk)
+        fe = None
+        if len(fails) >= 6:
             break
     m.bp_exec()
-    late = g.w("bz_late") - (late0 if late0 is not None else g.w("bz_late"))
     m.run()
     g.key("Escape")
     M.until(m, lambda _: g.b("bz_fs") == 0, "the probe's play ends on Esc", guest=60)
-    print("%s probe: %d frames (the first a lead-in), %d with the boxes at window row 0 and an entering column (128.9 item 6's "
-          "path), card = picture on every one at bz_tf and bz_presented: %s; late row-0 boxes %d" % (
-              tag, frames, hit, "yes" if not fails else "NO", late), flush=True)
+    dropped(g, "the probe")
+    g.putb("bz_tpoke", 0)                       # (the package's bss persists: later legs untimed)
+    nlate = sum(1 for v in verd if v[5])
+    print("%s probe: %d frames (the first a lead-in), %d with the boxes at window row 0 and an entering column "
+          "(128.9 item 6's path), %d MULTI-BOX (a shadow box below the ball's); card = picture on every one at "
+          "bz_tf and bz_presented: %s" % (tag, frames, hit, multi, "yes" if not fails else "NO"), flush=True)
+    print("%s probe boxes timed: %d, late by bz_latechk %d; against the cycle counter %d agree, %d late within the "
+          "documented rounding, %d not judged (%s)" % (
+              tag, len(verd), nlate, agree, pess, unjudged,
+              "the Hercules: its blank holds every box" if tag != "cga" else "the sync already high"), flush=True)
+    for v in verd[:12]:
+        print("    frame %d box %d group %d lines %d+%d: guest %s, margin %s" % (
+            v[0], v[1], v[2], v[3], v[4], "LATE" if v[5] else "on time", v[6]), flush=True)
     if hit < PROBE_MIN:
         fails.append("only %d probe frames took item 6's path (row 0 and an entering column); %d needed" % (
             hit, PROBE_MIN))
-    if late:
-        fails.append("bz_late = %d over the probe: a row-0 box started after the beam passed line 0" % late)
+    if multi < PROBE_MIN:
+        fails.append("only %d probe frames were multi-box (the shadow in a box of its own); %d needed" % (
+            multi, PROBE_MIN))
+    if tag == "cga" and multi and not agree:
+        fails.append("no box of the probe was judged against the cycle counter")
+    print("%s probe: later boxes LATE by bz_latechk and by the cycle counter alike: %d (the split frames, %d on)" % (
+        tag, late_agree, PROBE_SPLIT), flush=True)
+    if tag == "cga" and not late_agree:
+        fails.append("no LATER box of the probe was late by the cycle counter and judged so: the split frames "
+                     "(the ball's old and new footprints two boxes at row 0) did not reach bz_latechk's later-box "
+                     "verdict")
     return fails
 
 
-def run(tag, apps=None, src=None, art=None, parts=("glass", "bench", "probe")):
-    """-> {"parts": the parts run, "fails": [...], and the benchmark's tallies}"""
+def run(tag, apps=None, src=None, art=None, parts=("glass", "bench", "trial", "probe")):
+    """-> {"parts": the parts run, "fails": [...], and the benchmarks' tallies}"""
     sym = symbols(src, art)
     out = {"parts": parts, "fails": []}
     with os88ui.boot(at("build/os8088-360.img"), apps=apps or at("build/bonanza360.img"),
@@ -820,27 +1277,41 @@ def run(tag, apps=None, src=None, art=None, parts=("glass", "bench", "probe")):
         g = Bz(ui, tag, sym)
         ui.settle()
         if "glass" in parts:
-            glass(g, Ref(tag, course("first")))
+            glass(g, Ref(tag, course("first"), art))
         if "bench" in parts:
-            out.update(bench(g, Ref(tag, course("bench"))))
+            out["bench"] = bench(g, Ref(tag, course("bench"), art))
+            out["fails"] += out["bench"]["fails"]
+        if "trial" in parts and not out["fails"]:
+            out["trial"] = bench(g, Ref(tag, course("trial"), art), trial=True)
+            out["fails"] += out["trial"]["fails"]
         if "probe" in parts and not out["fails"]:
-            out["fails"] += probe(g, Ref(tag, course("bench")))
+            out["fails"] += probe(g, Ref(tag, course("bench"), art))
     return out
 
 
 def verdict(tag, r):
     bad = list(r["fails"])
-    if "bench" not in r["parts"]:
-        return bad
-    missing = [d for d in DIRS if not r["done"][d]]
-    if missing:
-        bad.append("directions never checked: %s" % missing)
-    if not r["full"]:
-        bad.append("the first frame's full write was not checked")
-    if not r["controls"] and not r["fails"]:
-        bad.append("no diagonal frame for the negative controls")
-    if not r["hid"] and not r["fails"]:
-        bad.append("no checked frame hid any of the ball behind an occluder record (SPEC.md 128.10.11.3)")
+    if "bench" in r:
+        b = r["bench"]
+        missing = [d for d in DIRS if not b["done"][d]]
+        if missing:
+            bad.append("directions never checked: %s" % missing)
+        if not b["full"]:
+            bad.append("the first frame's full write was not checked")
+        if not b["controls"] and not b["fails"]:
+            bad.append("no diagonal frame for the negative controls")
+        if not b["hid"] and not b["fails"]:
+            bad.append("no checked frame hid any of the ball behind an occluder record (SPEC.md 128.10.11.3)")
+    if "trial" in r and not r["trial"]["fails"]:
+        t = r["trial"]
+        if not t["shd"]:
+            bad.append("TRIAL: no checked frame had the shadow in a box of its own (SPEC.md 128.11.17.2)")
+        if not t["b3"]:
+            bad.append("TRIAL: no checked frame had three boxes or more (SPEC.md 128.11.17.2)")
+        if not t["shdin"]:
+            bad.append("TRIAL: no checked frame had the shadow drawn inside the ball's box (SPEC.md 128.11.10.2)")
+        if not t["orders"]:
+            bad.append("TRIAL: no frame's raster order was checked")
     return bad
 
 
@@ -852,16 +1323,10 @@ def build_tree(td, patches, size=360, src0=None, art=None, name="bonanza"):
     -> (source dir, image)."""
     src = os.path.join(td, name)
     shutil.copytree(src0 or os.path.join(ROOT, "apps", "bonanza"), src)
-    for f, old, new in patches:
-        p = os.path.join(src, f)
-        t = open(p).read()
-        assert t.count(old) == 1, "the red anchor in %s moved (%d matches): re-anchor the red arm" % (
-            f, t.count(old))
-        open(p, "w").write(t.replace(old, new))
+    patch_tree(src, patches)
     art = art or at("build/bonanza-art")
     binp, o88, img = (os.path.join(td, n) for n in ("bonanza.bin", "BONANZA.O88", "%s%d.img" % (name, size)))
-    subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
-                    "-I", art + "/", "-o", binp, os.path.join(src, "bonanza.asm")], cwd=ROOT, check=True)
+    assemble(src, art, binp)
     subprocess.run(["python3", "tools/os88pkg.py", "--compress-if=lz4", binp, "-o", o88] + part_args(art),
                    cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
     subprocess.run(["python3", "tools/os88disk.py", "-o", img, "--size", str(size), o88], cwd=ROOT, check=True,
@@ -869,13 +1334,44 @@ def build_tree(td, patches, size=360, src0=None, art=None, name="bonanza"):
     return src, img
 
 
+def patch_tree(src, patches):
+    for f, old, new in patches:
+        p = os.path.join(src, f)
+        t = open(p).read()
+        assert t.count(old) == 1, "the red anchor in %s moved (%d matches): re-anchor the red arm" % (
+            f, t.count(old))
+        open(p, "w").write(t.replace(old, new))
+
+
+def assemble(src, art, binp):
+    subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
+                    "-I", art + "/", "-o", binp, os.path.join(src, "bonanza.asm")], cwd=ROOT, check=True)
+
+
 def part_args(art):
-    """The --part list in the Makefile's BZ_PARTS order: the ball's two, then
-    every course's two (bzcourse.inc's BZ_NCRS)."""
+    """The --part list in the Makefile's BZ_PARTS order (SPEC.md 128.11.3.1):
+    rows 0 - 2 the rubber, steel and glass balls, then course K's one part
+    (bzcourse.inc's BZ_NCRS of them)."""
     n = int(re.search(r"^BZ_NCRS\s+equ\s+(\d+)", open(os.path.join(art, "bzcourse.inc")).read(), re.M).group(1))
     out = []
-    for p in ["BZBALC.BIN", "BZBALH.BIN"] + ["BZ%d%s.BIN" % (k, c) for k in range(n) for c in "CH"]:
+    for p in list(A.BALL_FILES) + ["BZ%d.BIN" % k for k in range(n)]:
         out += ["--part", os.path.join(art, p)]
+    return out
+
+
+def check_reds(reds, label):
+    """the HOST half of a red arm: every patch's anchor is still there once, and
+    the broken copy ASSEMBLES (nasm -w+error into a temporary file).  -> lines"""
+    out = []
+    art = at("build/bonanza-art")
+    for name, patches in sorted(reds.items()):
+        with tempfile.TemporaryDirectory() as td:
+            src = os.path.join(td, "bonanza")
+            shutil.copytree(os.path.join(ROOT, "apps", "bonanza"), src)
+            patch_tree(src, patches)
+            assemble(src, art, os.path.join(td, "bonanza.bin"))
+            out.append("%s --red %s: anchors found, the broken copy assembles (%d bytes)" % (
+                label, name, os.path.getsize(os.path.join(td, "bonanza.bin"))))
     return out
 
 
@@ -895,37 +1391,69 @@ REDS = {
     "late": [("bzgame.inc", "bz_presented:\n    call bz_mark\n",
               "bz_presented:\n    call bz_mark\n    inc word [bz_late]\n")],
     # SPEC.md 128.9 item 6's order undone: a box at window row 0 takes the WHOLE column first
-    # (still timed as a row-0 box, so bz_late sees the beam overtake it)
-    "row0": [("bzgame.inc", ".row0:                          ; a box at window row 0 (SPEC.md 128.9 item 6):\n",
-              ".row0:                          ; a box at window row 0 (SPEC.md 128.9 item 6):\n"
-              "    mov cx, [bz_H]              ; RED row0: the whole column first\n"
-              "    mov byte [bz_row0], 1\n    ret\n")],
+    # (still flagged a row-0 box, so bz_latechk times it from line 0 and sees the beam overtake it)
+    "row0": [("bzgame.inc", "    inc ax\n    mov byte [bz_row0], 1\n.mono:\n",
+              "    inc ax\n    mov byte [bz_row0], 1\n    mov ax, [bz_H]              ; RED row0: the whole column first\n"
+              ".mono:\n")],
     # the occluder pass skipped: the ball is drawn over what should hide it
-    "occ": [("bzvideo.inc", "bz_occ:\n    cmp byte [bz_pokd], 0\n",
-             "bz_occ:\n    ret                         ; RED occ\n    cmp byte [bz_pokd], 0\n")],
+    "occ": [("bzvideo.inc", "bz_occ:\n    cmp byte [bz_ogate], 0\n",
+             "bz_occ:\n    ret                         ; RED occ\n    cmp byte [bz_ogate], 0\n")],
+    # the shadow composed into its own box only (group 1), never into the ball's
+    "shadow": [("bzvideo.inc", "    cmp byte [bz_snv], 0\n    je .ball\n    mov ax, [bz_spy]\n",
+                "    cmp byte [bz_snv], 0\n    je .ball\n    cmp byte [si + 18], 1       ; RED shadow: its own box only\n"
+                "    jne .ball\n    mov ax, [bz_spy]\n")],
+    # every box before any column row (the splits all 0, the column after the last box)
+    "boxfirst": [("bzgame.inc", "    mov cx, [bz_csp]\n    ret\n.whole:\n",
+                  "    xor cx, cx                  ; RED boxfirst: no column row before any box\n"
+                  "    mov [bz_csp], cx\n    mov [bz_csp + 2], cx\n    mov [bz_csp + 4], cx\n"
+                  "    mov [bz_csp + 6], cx\n    ret\n.whole:\n")],
+    # one bit of bz_hgen's output flipped: BZ_HTAB[0][55h], solid cyan on an even line
+    "htab": [("bonanza.asm", "    xor al, bh                  ; AL = b ^ ((b ^ P) & m)\n    mov [di], al\n",
+              "    xor al, bh                  ; AL = b ^ ((b ^ P) & m)\n    cmp di, bz_boxbuf + 55h     ; RED htab\n"
+              "    jne .redh\n    xor al, 1\n.redh:\n    mov [di], al\n")],
+    # bz_latechk on the first box only (both of its checks skipped for every later box)
+    "late2": [("bzgame.inc", ".t:\n    inc dh\n",
+               ".t:\n    or di, di                   ; RED late2: the first box only\n    jnz .wr\n    inc dh\n")],
+    # the occluder pass run once per box (inside the compose loop) instead of once a frame
+    "pass2": [("bzgame.inc", "    call bz_boxc                ; the course, the shadow, the sprite\n"
+               "    add si, BZ_BOXD\n    loop .comp\n    call bz_occ ",
+               "    call bz_boxc                ; the course, the shadow, the sprite\n"
+               "    call bz_occ                 ; RED pass2: a walk a box\n"
+               "    add si, BZ_BOXD\n    loop .comp\n    nop                         ;")],
 }
 RED_PARTS = {"colright": ("bench",), "colfirst": ("bench",), "late": ("bench",), "row0": ("probe",),
-             "occ": ("bench",)}
+             "occ": ("bench",), "shadow": ("trial",), "boxfirst": ("trial",), "htab": ("glass",),
+             "late2": ("probe",), "pass2": ("trial",)}
 # ...the cards each CAN go red on: the Hercules has 16 + 82 lines of sync and
 # blank (~24.7k clocks) before its window's line 0, so the WHOLE column (at
 # most ~22k on the benchmark) fits ahead of a row-0 box there and item 6's
-# order is the CGA's alone to need (22 lines after the sync; the final pass
-# measured row0 at 11 late boxes of 11 on the CGA and 0 of 7 on the Hercules)
-RED_TAGS = {"row0": ("cga",)}
+# order is the CGA's alone to need (the final pass of wave 1 measured row0 at
+# 11 late boxes of 11 on the CGA, 0 of 7 on the Hercules); a later box is late
+# on the CGA alone for the same reason; and the table is the Hercules's
+RED_TAGS = {"row0": ("cga",), "late2": ("cga",), "htab": ("herc",)}
 # ...and what each must go red FOR: a red arm that fails for another reason
 # proves nothing about the check it is the arm of
-RED_WANT = {"colright": "at bz_presented", "colfirst": "at bz_tf", "late": "bz_rlate", "row0": "bz_late",
-            "occ": " LAID "}
+RED_WANT = {"colright": "at bz_presented", "colfirst": "at bz_tf", "late": "bz_rlate", "row0": "FIRST box",
+            "occ": " LAID ", "shadow": "card != oracle", "boxfirst": "RASTER ORDER",
+            "htab": "card memory != the course", "late2": "cycle counter", "pass2": "walk entered"}
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--adapter", choices=("cga", "herc", "both"), default="both")
+    ap.add_argument("--part", choices=("glass", "bench", "trial", "probe"), action="append",
+                    help="run only these parts (default all four)")
     ap.add_argument("--red", choices=sorted(REDS))
+    ap.add_argument("--check-reds", action="store_true",
+                    help="the host half only: every red arm's anchors found and its broken copy assembles")
     a = ap.parse_args()
+    if a.check_reds:
+        for line in check_reds(REDS, "bonanza_ring"):
+            print(line)
+        return
     tags = ("cga", "herc") if a.adapter == "both" else (a.adapter,)
     if a.red:
-        tags = tuple(t for t in tags if t in RED_TAGS.get(a.red, tags)) or tags
+        tags = tuple(t for t in tags if t in RED_TAGS.get(a.red, tags)) or RED_TAGS.get(a.red, tags)
         with tempfile.TemporaryDirectory() as td:
             src, img = build_tree(td, REDS[a.red])
             for tag in tags:
@@ -943,9 +1471,10 @@ def main():
                 print("bonanza_ring --red %s (%s): went red as it must" % (a.red, tag), flush=True)
         print("bonanza_ring --red %s: PASS (the row fails against the broken package)" % a.red)
         return
+    parts = tuple(a.part) if a.part else ("glass", "bench", "trial", "probe")
     allbad = []
     for tag in tags:
-        bad = verdict(tag, run(tag))
+        bad = verdict(tag, run(tag, parts=parts))
         for b in bad:
             print("FAIL %s: %s" % (tag, b))
         allbad += bad
