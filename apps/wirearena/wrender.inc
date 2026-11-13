@@ -2562,7 +2562,12 @@ wa_cross:
 
 ; --- present ---------------------------------------------------------------
 ; Write this frame's cells that differ from the glass; blank last frame's
-; cells this frame did not draw. Nothing else. Each list is walked four cells
+; cells this frame did not draw. Nothing else. The glass is compared against
+; itself, in text VRAM: a RAM copy of it (wa_vis, 3,840 bytes of BSS) cost a
+; second write for every cell written and bought nothing - a VRAM read is a
+; RAM read and a few wait states on MartyPC. (On a real IBM CGA at 80
+; columns a read snows like a write does: this reads every listed cell once.
+; 40 columns, Hercules and EGA/VGA text do not snow.) Each list is walked four cells
 ; an iteration, entered part-way for the remainder (a jump table, once), so
 ; the loop's own cost is a quarter of a `loop` a cell.
 ; - A new cell's usual case in play is CHANGED (the view moves: two in three
@@ -2575,9 +2580,8 @@ wa_cross:
     lodsw
     xchg bx, ax
     mov ax, [wa_cur+bx]
-    cmp ax, [wa_vis+bx]
+    cmp ax, [es:bx]
     je %%same
-    mov [wa_vis+bx], ax
     mov [es:bx], ax
     inc bp
 %%same:
@@ -2593,7 +2597,6 @@ wa_cross:
 %endmacro
 %macro POLDB 1                  ; ...its blank, out of line
 .ob%1:
-    mov [wa_vis+bx], di
     mov [es:bx], di
     inc bp
     jmp .or%1
