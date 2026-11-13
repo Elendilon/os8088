@@ -302,9 +302,19 @@ def pvs_seen(p, boxes, tall, have):
     return got
 
 
+_PVS = {}
+
+
 def pvs_masks(tag, boxes):
     """-> the grid's masks, [ix][iy] (bit i: box i may draw from the cell),
-    or None when the arena takes none"""
+    or None when the arena takes none (made once a run: tools/wamodel.py
+    walks with them too)"""
+    if tag not in _PVS:
+        _PVS[tag] = pvs_build(tag, boxes)
+    return _PVS[tag]
+
+
+def pvs_build(tag, boxes):
     boxes = [bx(b) for b in boxes]
     top = hmax(boxes)
     if pvs_eyemax(boxes) >= top:
