@@ -1467,6 +1467,139 @@ seeds where needed, and the Hercules beam checks reported, not asserted.
       docs/HEAP-CLAIMS.md MILL's 33,906, the rows' `secs` registered MEASURED; README has carried no
       Bonanza entry since wave 0: left open.*
 
+**Wave 3b: the performance round** (the contract is SPEC.md 128.13,
+written before the code; the owner, 2026-11-13: "do the performance wave
+next, then move on past sound"). Designed from MEASURED scratch runs on
+wave 3's build (SPEC.md 128.13.3): a line-change frame of the ride spends
+59k of its 96k on two overlapping boxes that each lay the slab and the
+ball; with the ball BESIDE the lift the frame is the slab's own box and the
+ball's, about 71k on both cards; the raster lane writer is 88% (CGA) and
+85% (Hercules) of a commit's span, and the preparation's record reads, MULs and DIV 3.2k of
+its 7.2k; and, clause by clause, the heavy rule's slab-near-edge clause is
+the only part of level 1 that helps (`MILL` 81 CGA and 16 - 18 Hercules
+misses with it, against 105 - 107 and 14 with the whole rule, 102 and 28 with
+level 2 alone), while its other two clauses made `TRIAL` worse on both
+cards. It closes wave 3's open stories 3.2, 3.3, 3.8, 3.12 and 3.13. Sound
+is the other session's (wave 4): this round leaves it a reserve of 2,048
+clk a frame, spent by a harness pad in the target legs, and names where it
+may hook and what the engine asks of it elsewhere. Every cost and size
+below is PREDICTED until the final pass; the rows run once, after the last
+batch.
+- [ ] **3b.1 The lift rides in one box.** A ball riding the lift and the
+      slab are composed ONCE - the course, the slab under, the shadow, the
+      ball, the occluders, the slab over - in one box of up to 4 words by
+      32 lines, and written once, where wave 3 drew two overlapping boxes
+      that each laid both; the picture is the same, byte for byte. The
+      ride's line-change frames fall from 120% / 104% of a refresh to about
+      80% / 70%. A ball riding near the diamond's left or right corner
+      keeps two boxes: reported, a counted residue. *Verify:
+      `bonanzaring`'s `ridebox` frames (card = oracle, both cards), red arm
+      `ridebox`; `bonanzaperf`'s ride leg, no miss on a line-change frame
+      and `bz_late` 0 ASSERTED with sound's reserve spent, red arm `rideoff`
+      (CGA); the corner ride sub-leg reported.*
+- [ ] **3b.2 A crowded frame draws the lift a frame later, and a kicked
+      post lights at once.** When the ball's and its shadow's groups are
+      two boxes (a fast or airborne ball), the lift's box waits one frame
+      (never two running, never under a ball it carries, never as it leaves
+      the window): the slab is a line late for one frame, display only,
+      where wave 3 drew three boxes and the slab and missed a refresh. A
+      post lighting beside the moving lift on such a frame lights on its
+      kick's frame and the lift's box waits, unless the box cannot wait (it
+      waited the frame before, carries the ball, or is leaving the window). Decided
+      before the camera, so a strip meeting the slab on a waited frame
+      still draws it. A visible change (the owner looks: O37). *Verify:
+      `bonanzaring`'s PWAIT scene (`pwait`, card = oracle, every platform
+      box at most 30 lines, a waited frame with a strip meeting the slab),
+      red arm `pwait2`; `bonanzawheel` (12) tightened (a kicked post lit on
+      its kick's frame); `bonanzaperf` reports the share of line changes
+      that waited.*
+- [ ] **3b.3 Boxes go to the card faster.** A 3- or 4-word box with no
+      overlap band is written a card row at a time by unrolled moves,
+      about 160 clk a line less (wave 3 measured 490 a 4-word line where
+      the row writer moves the same bytes in 284): about -2.5k a `BENCH`
+      frame, -3.0k a slab box. *Verify: `bonanzaring` everywhere, its
+      `wrapbox` frames (a box across the ring's end), red arm `fastwrap`;
+      `bonanzaperf`'s A/B against wave 3.*
+- [ ] **3b.4 The wheel commits faster.** A commit is one column-major pass
+      from the pose map - the map's words stored as they are read (through
+      DS, never the stack's SS), a block's lines by the column writer's
+      own macros, the uncovered cells' map words in the same span - priced
+      by a model with a per-column term and a per-uncovered-cell term, and
+      calibrated by the same three spans: a rotor about 7.2k on the CGA
+      (its spans measured 12.2k) and 7.0k on the Hercules (8.9k). *Verify:
+      `bonanzawheel` (3) - (6) on every commit at the pass's probe points,
+      a whole-lane commit's cost within `CAL_TOL`, the spans reported by
+      kind; red arms `alias`, `corner`, `costtab`; `bonanzaring`'s card =
+      oracle and the map on `MILL`, red arm `mapskip`; on kern_mega
+      `bonanzamega`'s `mapcs` re-pointed at the pass's map store (SPEC.md
+      128.13.11).*
+- [ ] **3b.5 Less to prepare, less to walk.** Per-lane tables filled once
+      a play, a whole lane's cost from a table filled after the
+      calibration, the trim's MUL and DIV only under 100: a preparation
+      about 5.3k (was 7.2k), so the CGA's wait holds two rotors and the
+      Hercules' three. The walk skips a rotor until its next pose change
+      and a post drawn dark with no lit frames and no new kick: about -1.5k
+      a `MILL` frame. *Verify: `bonanzawheel` (2), (5), (7), (9), (12), the
+      new (13) (`bz_lnext` exact), red arms `lnext` and `pskip`;
+      `bonanzaperf`'s padded `MILL` leg (`bz_wover` and `bz_wlate` 0
+      ASSERTED, the promotions reported).*
+- [ ] **3b.6 `TRIAL` is no worse for the heavy rule** (O28 and O35,
+      answered by measurement). Level 1 keeps only its slab-near-edge
+      clause; the occluder-pass and two-box clauses go; level 2 (a frame
+      drawing a contact group takes no strip) stays. `TRIAL` and `BENCH`
+      have no slab, so their camera is the no-rule camera: `TRIAL`'s misses
+      are its fall's again, about 9 / 1 (wave 2's allowance 8 / 2), not 15
+      / 9. *Verify: `bonanzaperf`'s `TRIAL` leg (`bz_nhvy` 0 ASSERTED,
+      misses reported), red arm `level1`; its three `MILL` legs (this
+      build, no rule, wave 3), unpadded; `bonanzacourse` item 8 with
+      `bbcourse.Heavy` and `Glide` changed.*
+- [ ] **3b.7 The lift stretch, measured with sound's reserve spent.** No
+      miss on the ride's line-change frames on either card (3b.1); on
+      `MILL`'s lift stretch with the ball beside the lift, at most 3 missed
+      refreshes on the Hercules (PREDICTED 0 - 1); on the CGA a REPORTED
+      residue (PREDICTED 15 - 20 of about 280 frames: the slab's own box
+      and the ball's are two different pictures and nothing in this round
+      removes that tail), each missed frame written into SPEC.md 128.13.4.5
+      with its parts - the owner's O33 (the slab on even lines) is the
+      lever. *Verify: `bonanzaperf`'s padded `MILL` and ride legs.*
+- [ ] **3b.8 Every red arm meets its case.** `defer` on a DEFER scene (a
+      post really drawn lit, then due and waiting with cells outside every
+      box), `nobeam` on a BEAM sweep keyed to due frames, `alias` on the
+      light corner step's commit, `lanestale` on a STALE scene (a rotor
+      brought in by a row after its pose changed off screen), `corner` on a
+      LIGHT diagonal step (TRICKLE, a held frame before it, one row, so
+      the wait has room: `bz_tw` about 57 - 60k), and `shiftmap` at case
+      3's own fake-shift-release check (86Box sends the release with Left
+      Shift held, MEASURED). `bonanzawheel` (6) passes on the CGA. *Verify:
+      each arm run once in the final pass, red at its own check.*
+- [ ] **3b.9 A smaller image.** The step's wall and floor macros in one
+      instance (-530 bytes, about +150 clk a step on a course with no
+      props near the ball: O34), level 1's two clauses gone (-25), the
+      raster lane writer gone (-323 against the pass's +260): the image
+      about 23,020 bytes (wave 3: 23,227), bss about 6,993 (+256 of it the
+      32-line buffers), `BONANZA.O88` about 68,105, the course parts byte
+      for byte wave 3's. *Verify: `nasm` spans in SPEC.md 128.13.8's
+      measured column; `bonanzaphys` and `bonanzareplay` equal to the model
+      at every frame on the merged step; `bonanzaexit`'s heap reads.*
+- [ ] **3b.10 Room for sound, and what the engine asks of it.** Sound may
+      spend 2,048 clk a frame at one hook (after the LEAD, before the
+      frame's last mark, BX preserved), reading physics' event counters;
+      the step, the wheel, the wait and the beam-raced writes are places
+      whose costs are budgeted, the kernel's own sound tick lands in them,
+      and an interrupt-time voice is the sound session's choice with its
+      costs written down. The ride and the Hercules' lift stretch hold with
+      the reserve spent; the CGA's heaviest frames already miss without
+      it, which the SPEC says plainly. *Verify: `bonanzaperf`'s `MILL` and
+      ride legs run with `bz_spad` 1.*
+- [ ] **3b.11 The record.** `bbcourse.Heavy` mirrors the promotion, the
+      slab's waits and the post rule; the top-level README lists `make
+      bonanzadisk`; the seven stale "PREDICTED" `tests/suite.py` texts say
+      what each row asserts; `tools/bbcourse.py` pyflakes-clean; the
+      diary's 3b entries; SPEC.md 128.13 gets its MEASURED columns.
+      *Verify: `make` (the doc gates, `checkreadme`), `tools/os88index.py
+      --check`, `checkdocs` 0 problems, `python3 -m pyflakes
+      tools/bbcourse.py`.*
+
 **Wave 4: a game.**
 - [ ] Five courses, with the props from section 8 and section 5.5's
       ball-swap pads (SPEC.md 128.11.5.4). The HUD, timer, checkpoints and
@@ -1555,7 +1688,9 @@ it needs a composite monitor to judge. Not before the game is.
   bound, a falling ball over a cell that can hide it is predicted at 1.06 -
   1.11 CGA refreshes (SPEC.md 128.11.15): it presents a frame late and is
   counted. `TRIAL`'s flights are built to cross no such cell; wave 4's
-  courses will meet it.
+  courses will meet it. Since wave 3b (SPEC.md 128.13.6) that frame has no camera
+  relief either - the heavy rule's occluder-pass clause is gone - so wave
+  4's courses price it or route around it.
 - **Feel numbers off a model.** Wave 2's materials, surfaces and course
   rules are the host model's discrete figures (SPEC.md 128.11.5), checked
   against the guest frame by frame - but whether they FEEL right is the
