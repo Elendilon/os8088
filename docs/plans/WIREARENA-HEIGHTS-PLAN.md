@@ -2235,6 +2235,78 @@ against the frame):
    rooms. Each box costs a bit per cell. At 31 boxes, `WA_PVSB` is 4 bytes
    and the table 1 KB.
 
+### 9.9 Speed round 5, merged (2026-11-13)
+
+Four branches from `b507c171`, merged without conflict:
+
+- `r5-arch`: the frame accounted, and the per-cell PVS (9.8).
+- `r5-low`: wrlow.inc.
+  - Floor and top edges walked in separate loops.
+  - Corners transformed and projected in one unrolled pass, and a box's
+    height pair reused for the next box of that height.
+  - Zero-length posts skipped, and the walks over faces unrolled.
+- `r5-walls`: wrender.inc's walls.
+  - A face with both ends in view draws straight from the vertex cache.
+  - Heights' tall spans test the clip only where a low box raised one.
+  - Steep spans skip steps that cannot draw.
+- `r5-figs`: figures, present and the sim.
+  - Byte-wide joint blends, and the figure header taken from tables.
+  - The floor read skipped on ground legs, and one `pit_now` fewer a frame.
+  - Present's redrawn cells fall through.
+  - The joints reordered ends-first in arenagen.
+
+**Measured on MartyPC `os8088_5150_cga`, the merged build, no look option on:**
+
+| | b507c171 | round 5 |
+|---|---|---|
+| P bench, 40/80 | 18.8/15.6 | **19.3/16.1** |
+| B bench, full/sparse | 33.0/36.2 | **33.4/36.6** |
+| heights, 40, A/B/C/D/E | 12.8/13.7/25.9/11.8/25.0 | **13.8/15.6/34.1/12.9/27.0** |
+| heights, 80, A/B/C/D/E | 10.3/10.0/20.5/9.2/20.5 | **10.9/11.1/26.6/9.9/22.0** |
+
+**Correctness:**
+
+- The posed sets are identical to `b507c171`: 980 frames, VRAM and the drawn
+  figures' trigger fields. That is 720 flat frames over both arenas, both
+  widths and all three fields of view, plus 260 heights frames.
+- Mean render cycles per pose: −1.3 to −1.9% flat, −6.3% (40) and −6.8% (80)
+  on heights.
+- `wacheck --arena 2` (30 poses): 5 of 1,183 columns off, all single
+  columns at a near corner, and 0 divide faults.
+- The fast tier passes.
+
+**Bytes:** the renderer part is 55,629 (+1,766 on `b507c171`), of which the
+PVS is 667 and arena 2's part +518.
+
+**The look options:** each comes with side-by-side videos, and they wait for
+the owner's choice. All are off.
+
+- **J (a key, `r5-figs`):** small figures under fv8 16 are drawn as 5
+  straight limbs, with no elbows or knees. P is +0.5 fps.
+- **Build knobs in wrlow.inc (`r5-low`):**
+  - `WL_NOPOSTS`: no vertical corner posts on low boxes.
+  - `WL_FARTOP=64`: a low box's far top edge is drawn only when the eye is
+    64 or more above it. This gives heights B +2.3 fps, but things behind
+    the top can show through.
+  - `WL_RAMP2`: a ramp is drawn as its two sides only.
+  - All three together: heights 40 gains about A +1.7, B +3.4, D +0.6.
+- **Build knobs in wrender.inc (`r5-walls`):**
+  - `WA_LOOK_ROUND`: rounded product high words.
+  - `WA_LOOK_COARSE`: a shallow edge is drawn level.
+  - `WA_LOOK_NOPOST`: no posts on walls under 8 half-rows tall.
+  - `WA_LOOK_ROOMF`: the room's walls are drawn as floor lines only.
+  - All four together: P 19.0 → 21.3 at 40 columns, 15.8 → 18.1 at 80, and
+    heights +0.1 to 0.8.
+  - Making a knob a key needs a frame-block flags byte and a handler.
+- **Rejected by measurement:**
+  - K: no blend for small figures.
+  - Nearest post only.
+  - Whole-box culls, twice more.
+  - Jumping shut-column runs in the flat passes.
+  - Temporal reuse: the camera turns almost every frame.
+  - Coarser distant columns.
+  - A frame cap.
+
 ### 9.3 Open, for the owner and the next waves
 
 1. **The symmetric dead ground** is decided (7.1.1) and built in wave 3:
