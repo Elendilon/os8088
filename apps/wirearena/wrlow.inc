@@ -338,6 +338,8 @@ wa_lowbox:
 ; stand above its stringers, so for one only shut columns count. Nothing it
 ; skips would have drawn a cell, raised a clip or pushed an entry.
 wl_hidden:
+    cmp byte [wl_need], 0       ; (no corner wanted: inside it, under its top)
+    je wl_scan.none
     xor ax, ax                  ; the corner wanted: the largest z, or with
     mov cx, [wa_eye]            ; the eye at or under the top the smallest
     cmp cx, [wl_h]              ; (z xor -1 its key)
@@ -376,32 +378,13 @@ wl_hidden:
     add si, WL_REC
     cmp si, wl_c+4*WL_REC
     jb .c
-    add dx, 7                   ; the columns: wa_span's first past the
-    add cx, 7                   ; least, less one; its last short of the
-    push cx                     ; most, plus one
-    mov cl, 4
-    sar dx, cl
-    pop ax
-    sar ax, cl
-    dec dx
-    jns .lo
-    xor dx, dx
-.lo:
-    mov cx, [wa_w]
-    dec cx
-    cmp ax, cx
-    jle .hi
-    mov ax, cx
-.hi:
-    cmp dx, ax
-    jg .none                    ; (off the screen, or no corner wanted)
-    shl dx, 1
-    shl ax, 1
-    mov si, dx
-    mov di, ax
-    mov ax, -32768              ; a flight: any open column shows
-    test byte [wl_kind], 3
-    jnz .scan
+    sub dx, 9                   ; the columns: wa_span's first past the
+    add cx, 7+16                ; least, less one; its last short of the
+    mov ax, -32768              ; most, plus one. A flight: any open column
+    test byte [wl_kind], 3      ; shows
+    jnz wl_scan
+    push cx
+    push dx
     mov bx, bp
     mov bx, [wa_vz+bx]
     call wl_iz                  ; (clobbers AX, DX)
@@ -411,6 +394,41 @@ wl_hidden:
     sar ax, 1
     sar ax, 1
     dec ax                      ; AX = the topmost half-row, less one
+    pop dx
+    pop cx
+    jmp wl_scan
+.shows:
+    clc
+    ret
+
+; wl_scan - DX, CX = an outline's least and most columns x 16, as (c + 7)
+; >> 4 makes its first and last columns, AX = a half-row at or under its
+; topmost less one: CF = 1 when each of those columns on the screen is shut,
+; or its clip is at or above AX - so nothing of it would draw a cell, raise a
+; clip or push an entry. Clobbers CX, DX, SI, DI
+wl_scan:
+    push ax
+    mov ax, cx
+    mov cl, 4
+    sar dx, cl
+    sar ax, cl
+    or dx, dx
+    jns .lo
+    xor dx, dx
+.lo:
+    mov cx, [wa_w]
+    dec cx
+    cmp ax, cx
+    jle .hi
+    mov ax, cx
+.hi:
+    shl dx, 1
+    shl ax, 1
+    mov si, dx
+    mov di, ax
+    pop ax
+    cmp si, di
+    jg .none                    ; (off the screen, or nothing wanted)
 .scan:
     cmp word [wa_cov+si], 0
     jne .n
@@ -462,7 +480,29 @@ wl_face:
     mov bx, [wl_c+di+WL_CV]
     test byte [wa_vok+bx], 1
     jz .clip
-    mov bx, di                  ; both corners in the view: as projected
+    mov dx, [wl_c+si+WL_KC]     ; both corners in the view: unless every
+    mov cx, [wl_c+di+WL_KC]     ; column it spans is shut or clipped above
+    cmp dx, cx                  ; it (wl_scan), as projected
+    jle .cs
+    xchg dx, cx
+.cs:
+    add dx, 7
+    sub cx, 9
+    mov ax, [wl_c+si+WL_KT]
+    cmp ax, [wl_c+di+WL_KT]
+    jle .ct
+    mov ax, [wl_c+di+WL_KT]
+.ct:
+    sar ax, 1
+    sar ax, 1
+    dec ax
+    push si
+    push di
+    call wl_scan
+    pop di
+    pop si
+    jc .hid
+    mov bx, di
     lea si, [wl_c+si+WL_KC]
     mov di, wl_e1c
     movsw
@@ -475,6 +515,7 @@ wl_face:
     movsw
     movsw
     call wl_draw
+.hid:
     pop bx
     ret
 .clip:
