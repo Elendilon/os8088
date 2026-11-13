@@ -916,6 +916,100 @@ These bind the waves. Where one changes a section above, it overrides it.
 - **Q8, 80 columns:** already a mode for faster machines. Hercules has no
   40-column choice, so it pays the 80-column price.
 
+### 7.2 The contracts for waves 0 and 1 (pinned before the code)
+
+Waves 0 and 1 change three interfaces. Each is pinned here first: the
+arena part, the box schema the host tools share, and the renderer's
+column state.
+
+**7.2.1 The arena part grows four words** (extending
+[WIREARENA-PARTS-PLAN](WIREARENA-PARTS-PLAN.md) 7.5). The descriptor's 15
+words keep their offsets, and four more follow:
+
+| offset | word | |
+|---|---|---|
+| 30 | `boxh` | offset of the BOX RECORDS: per box, in `wa_boxes`' order, 4 bytes |
+| 32 | room height | units above the floor (today 192) |
+| 34 | `hmax` | the arena's TALLEST height, the room's included: a face at it, seen from below it, shuts its columns |
+| 36 | `lifts` | offset of the LIFT TABLE: a count (word), then per lift its box index (byte), 0, its rest height and its raised height (words) |
+
+The tables follow at 38. Each box record holds:
+
+- its **height** (a word): for a lift, its rest height;
+- its **kind** (a byte):
+  - bits 0–1: 0 solid, 1 flight, 2 lift;
+  - for a flight: bits 2–3 the face it rises TOWARD (0 S, 1 E, 2 N, 3 W),
+    and bits 4–7 its tread count;
+  - for a lift: bits 4–7 its index in the lift table;
+- its **faces** (a byte):
+  - bits 0–3: S, E, N and W drawn. A face wholly against the room wall,
+    or wholly covered by neighbours at least as tall, is not;
+  - bits 4–7: those faces' TOP EDGES drawn. One is dropped only where
+    neighbours of exactly the same height cover it, so the top runs on
+    unbroken.
+
+The two arenas of today are written with every box 192, solid, all faces
+and tops drawn, room 192, `hmax` 192 and no lifts. A renderer that reads
+none of it is unaffected. Wave 1 reads `hmax` and the box heights, only to know the
+arena is FLAT (no box below `hmax`).
+
+**7.2.2 The box schema** (host, `tools/arenagen.py`). An arena's boxes are
+4-tuples, a 3 m solid box as today, or `Box(x0, y0, x1, y1, h, kind=...)`.
+The same records feed:
+
+- the arena parts;
+- the visible-budget check;
+- `tools/wamodel.py`, which reads arenas from `arenagen` and keeps no
+  layout of its own.
+
+Arena 2 is the demo of section 4.1, built as a third lazy part. It is not
+on the Game menu until wave 2 draws heights: today's renderer would draw
+every box 3 m tall. Its patrols wait for wave 5, so the patrol check skips
+it until then.
+
+**7.2.3 The eye arithmetic** (section 1.6, as built). `numt` and `numb`
+each become a (product, shift) pair, made once a frame:
+
+- **when the 16-bit product fits**, it is today's, with today's shift: the
+  same bits;
+- **when it does not**, it is the 32-bit product / 4 with a shift two
+  smaller.
+
+So every frame that did not overflow is byte-identical, and one that did is
+right where it was wrong. The floor grid's product takes the same pair.
+
+This replaces section 1.6's "num / 4 always", which would have moved a
+quarter of a quarter half-row in rare frames. The FIGURES' narrow path
+(`wa_fjl`) sums `eye × fv8 + 256 hh` in 16 bits. It is taken only when that
+fits, against a bound made once a frame, so a raised eye or a high horizon
+takes the 32-bit wide path instead.
+
+**7.2.4 Pitch** is clamped at ±112 quarter half-rows (±80 before),
+section 1.6.
+
+**7.2.5 The column state** (section 1.2):
+
+- **`wa_clip`**: a byte a column.
+- **`wa_cst`**: per column a count and 4 entries of (span tag, row).
+- **Cleared each frame** on an arena that is not flat.
+- **Queried by one routine, `wa_occl`**: column, row, inverse depth → hidden
+  or not. The figures, the pistol's ray and the floor grid ask it.
+  - On a flat arena a column has no entries, so `wa_occl` is today's wall
+    test.
+  - A column's tall face is its `wa_cov` tag, as today.
+
+The WRITERS of entries are the low boxes' outline path and the
+clip-tested passes of tall faces. Nothing before wave 2 can make a low
+entry, so they land with wave 2, which exercises them.
+
+**7.2.6 `tools/wamodel.py`** prints the per-pose forecast of section 2 for
+an arena:
+
+    python3 tools/wamodel.py --arena 2 [--width 40|80] [--variant G]
+
+It also checks an arena against the visible budget of section 4.2:
+`arenagen --arena N` refuses one over it.
+
 ## 8. The instruments behind the numbers
 
 They are kept as written in `tools/wamodel/` (copied out of the session's
