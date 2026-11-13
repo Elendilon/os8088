@@ -11,11 +11,25 @@
 ; 80 and 40 columns, V waits for vertical retrace before presenting, B runs
 ; the bench (64 frames, a fixed spin - section 16 of the plan), Esc leaves.
 %include "os88api.inc"
-    OS88_HEADER 'WARENA', wa_entry, 0, OS88_HIGH | OS88_HIGHMEM
+    OS88_HEADER 'WARENA', wa_entry, OS88_F_PARTS, OS88_HIGH | OS88_HIGHMEM
+%define OP_WANT_CSEG            ; the renderer part is far-called through its
+%define OP_ONMOVE wa_partsmv    ; CODE selector, and its claim MOVES (SPEC.md
+%include "os88parts.inc"        ; 20.12.12): wa_partsmv re-reads both words
 
 %include "waconst.inc"
+%include "watab.inc"               ; its constants (the data comes later)
+%include "wafb.inc"                ; the renderer part's ABI
 
 wa_entry:
+    clc                         ; kern_small refuses the relative mouse, and
+    call OSAPI_MOUSE_REL        ; WireArena refuses kern_small (the owner,
+    jc .small                   ; 2026-11-13): kern_big and kern_mega only
+    call op_load                ; the renderer part (SPEC.md 20.12): SI is
+    jc .out                     ; the kernel's, so before anything else; a
+    call wa_rbind               ; refusal has said why in a toast
+    jc .out
+    mov al, OP_CARVE            ; ...and its claim may move: wa_partsmv
+    call op_movable             ; re-reads the two words wa_rbind banked
     mov byte [wa_fov], 1        ; 75 degrees: the owner's pick of the three
     call OSAPI_CPU_INFO         ; the floor grid costs a 4.77 MHz 8088 ~13 ms
     cmp al, CPU_8086            ; a frame: on by default on a 286 or better,
@@ -32,6 +46,14 @@ wa_entry:
     mov bx, [wa_win]
     clc
 .out:
+    ret
+.small:
+    push ds
+    pop es
+    mov si, wa_t_small
+    xor cx, cx
+    call OSAPI_TOAST
+    stc
     ret
 
 ; --- the window ---------------------------------------------------------------
@@ -196,39 +218,22 @@ wa_setmode:
     mov ah, 1                   ; hide the cursor (SPEC.md 53.4's bare text
     mov cx, 0x2000              ; contract: the cursor is the app's)
     int 10h
-    xor bx, bx                  ; row offsets, in cells
-    mov si, wa_rowoff
-    mov di, wa_hroff
+    xor bx, bx                  ; row offsets, in cells (the HUD's; the
+    mov si, wa_rowoff           ; renderer makes its own, in cell offsets)
     mov cx, WA_ROWS + 1
 .rows:
-    mov [si], bx                ; cells (the HUD's)...
-    mov ax, bx
-    shl ax, 1                   ; ...and cell OFFSETS, which is what the
-    mov [si+wa_rowo2-wa_rowoff], ax ; renderer indexes everything by
-    cmp cx, 1
-    je .last                    ; (the HUD row has no half-rows)
-    mov [di], ax
-    mov [di+2], ax
-    add di, 4
-.last:
+    mov [si], bx
     add bx, [wa_w]
     inc si
     inc si
     loop .rows
+    call wa_rsync               ; the mode into the renderer part, and its
+    mov bx, WRV_INIT            ; row tables, stamps and lists started again
+    call wa_rcall
     push ds
     pop es
-    mov di, wa_stamp
     xor ax, ax
-    mov cx, WA_CELLS
-    rep stosw
-    mov di, wa_vst              ; the frame number restarts: so does the
-    mov cx, WA_MVTX             ; vertex cache, or an old stamp could match
-    rep stosw
     mov [wa_frame], al
-    mov [wa_newn], ax
-    mov [wa_oldn], ax
-    mov word [wa_newp], wa_lista
-    mov word [wa_oldp], wa_listb
     mov [wa_tfr], ax            ; and the meter starts again
     mov [wa_tfr+2], ax
     mov [wa_trn], ax
@@ -242,63 +247,6 @@ wa_setmode:
     call wa_hudfix
     clc
 .out:
-    ret
-
-; wa_loadarena - AL = an arena: its coordinate tables, vertices, corner rows
-; and boxes into the working tables (the renderer and the collision read
-; those), its counts, its tree's root and its start. The tree is walked
-; where it was assembled.
-wa_loadarena:
-    mov ah, WA_ARENASZ
-    mul ah
-    add ax, wa_arenas
-    mov bx, ax
-    push ds
-    pop es
-    mov si, [bx]                ; x values
-    mov cx, [bx+2]
-    mov ax, cx
-    shl ax, 1
-    mov [wa_nxv2], ax
-    mov di, wa_xv
-    rep movsw
-    mov si, [bx+4]              ; y values
-    mov cx, [bx+6]
-    mov ax, cx
-    shl ax, 1
-    mov [wa_nyv2], ax
-    mov di, wa_yv
-    rep movsw
-    mov si, [bx+8]              ; vertices, two bytes each
-    mov cx, [bx+10]
-    mov di, wa_vtx
-    rep movsw
-    mov cx, [bx+16]             ; boxes
-    mov [wa_nbox], cx
-    mov si, [bx+12]             ; corner rows, the room's and one a box
-    inc cx
-    shl cx, 1
-    mov di, wa_corn
-    rep movsw
-    mov si, [bx+14]
-    mov cx, [bx+16]
-    shl cx, 1
-    shl cx, 1
-    mov di, wa_boxes
-    rep movsw
-    mov ax, [bx+18]
-    mov [wa_root], ax
-    mov ax, [bx+20]
-    mov [wa_sx], ax
-    mov ax, [bx+22]
-    mov [wa_sy], ax
-    mov ax, [bx+24]
-    mov [wa_sa], ax
-    mov si, [bx+26]             ; the boxes' colours, the room's first
-    mov cx, [wa_nbox]
-    inc cx
-    mov di, wa_bcol
-    rep movsb
     ret
 
 ; wa_setfov - the projection's scales for [wa_fov] (0 = 90, 1 = 75, 2 = 60
@@ -337,7 +285,7 @@ wa_setfov:
     mov al, ah
     mov ah, dl
     mov [wa_kyh], ax
-    ret
+    jmp wa_rsync                ; ...and into the renderer part
 wa_fovf:    dw 256, 334, 443
 wa_fovc:    db '976'    ; 1/tan(45), 1/tan(37.5), 1/tan(30), x 256
 
@@ -948,44 +896,23 @@ wa_fire:
     mov cx, 1
     mov dl, 0x40
     call OSAPI_SND_TONE
-    mov bx, [wa_w]
-    and bx, 0xFFFE              ; the crosshair column's word in wa_colz
-    call wa_wallz               ; (asked for: wa_colz fills on demand)
-    mov ax, [wa_colz+bx]        ; ...what the wall there is at
-    mov [wa_tmp], ax
-    xor si, si                  ; best so far
-    xor bp, bp                  ; ...and its inverse depth
-    mov di, wa_figs
-    mov cx, WA_NFIG
-.f:
-    cmp word [di+F_PZ], 0
-    je .n
-    cmp byte [di+F_DEAD], 0
-    jne .n
-    mov ax, [di+F_PCX]
-    sub ax, [wa_w]
-    jns .abs
-    neg ax
-.abs:
-    cmp ax, [di+F_PWH]
-    jg .n
-    cmp word [di+F_PTOP], WA_HR/2
-    jg .n
-    cmp word [di+F_PBOT], WA_HR/2
-    jl .n
-    mov ax, [di+F_PIZ]
-    cmp ax, [wa_tmp]
-    jb .n                       ; a wall is nearer
-    cmp ax, bp
-    jbe .n
-    mov bp, ax
-    mov si, di
-.n:
-    add di, F_SIZE
-    loop .f
-    or si, si
-    jz .miss
-    mov di, si
+    call wa_rframe              ; the figures as they stand (F_DEAD)...
+%assign wa_i 0
+%rep WA_NFIG
+    cmp word [wa_figs + wa_i*F_SIZE + F_PZ], 0
+    jne .drawn%[wa_i]           ; ...and one respawned since the last frame
+    mov word [es:WA_RAT(wa_figs) + wa_i*F_SIZE + F_PZ], 0 ; was not drawn
+.drawn%[wa_i]:                  ; where the part's projection says
+%assign wa_i wa_i+1
+%endrep
+    mov bx, WRV_TRACE           ; the ray, in the renderer part: AX = the
+    call wa_rcall               ; figure hit, or -1
+    push ds
+    pop es
+    or ax, ax
+    js .miss
+    add ax, wa_figs
+    mov di, ax
     inc word [wa_hits]
     mov byte [di+F_FLASH], 5
     dec byte [di+F_HP]
@@ -1450,14 +1377,195 @@ wa_hudfix:                      ; SI = the HUD's template, NUL-terminated
 .out:
     ret
 
-%include "wrender.inc"
+; --- the renderer part (docs/plans/WIREARENA-PARTS-PLAN.md section 7) --------
+; The renderer is part 0 of this file, apps/wirearena/wrpart.asm: its own
+; segment, its own data, entered by far call with DS = that data. The names
+; this file always called it by - wa_render, wa_present, wa_geominit,
+; wa_loadarena - are the glue below, so the loop and the benches read as they
+; did. What the renderer reads is copied into its FRAME BLOCK
+; (apps/wirearena/wafb.inc) at a fixed offset, WR_FB; WA_RAT names a frame
+; block variable's address there.
+
+; wa_rbind - at entry, once op_load has the carve: bank the part's data
+; segment and code selector and its verbs' offsets, after checking its header
+; is the one this primary was built with. CF = 1 refused, with a toast.
+wa_rbind:
+    xor al, al
+    call op_seg
+    or ax, ax
+    jz .bad
+    mov es, ax
+    cmp word [es:0], 'WR'
+    jne .bad
+    cmp word [es:2], 'PA'
+    jne .bad
+    cmp word [es:4], 'RT'
+    jne .bad
+    cmp word [es:WR_H_ABI], WR_ABI | (WR_NVERB << 8)
+    jne .bad
+    mov [wa_rds], ax
+    xor bx, bx
+.v:
+    mov ax, [es:WR_H_VERB+bx]
+    mov [wa_rverb+bx], ax
+    inc bx
+    inc bx
+    cmp bx, WR_NVERB*2
+    jb .v
+    xor al, al
+    call op_cseg
+    mov [wa_rcs], ax
+    push ds
+    pop es
+    clc
+    ret
+.bad:
+    push ds
+    pop es
+    mov si, wa_t_part
+    xor cx, cx
+    call OSAPI_TOAST
+    stc
+    ret
+
+; wa_partsmv - the parts standard's hook (OP_ONMOVE, SPEC.md 20.12.12): the
+; carve moved, op_seg is right again, and the two words wa_rbind banked are
+; asked for anew. Safe because the renderer part calls no kernel slot: no
+; claim - so no move - happens while this task stands in it. A relocation
+; proc: registers are the kernel's to restore
+wa_partsmv:
+    xor al, al
+    call op_seg
+    mov [wa_rds], ax
+    xor al, al
+    call op_cseg
+    mov [wa_rcs], ax
+    ret
+
+; wa_rcall - BX = a verb (WRV_*): far-call it in the renderer part, DS = its
+; data for the call. AX..DI and BP as the verb takes them; out its AX and
+; flags, everything else the verb's to clobber, ES included. Built as
+; push/push/RETF so no vector is read after DS has moved (apps/xtmp3/
+; x3pars.inc's x3p_fcall)
+wa_rcall:
+    ; STKBALANCE-OK: a far CALL built by hand - the return (CS:wa_rret) and
+    ; the target are pushed and RETF enters the part, whose own RETF comes
+    ; back to wa_rret, which pops the DS pushed before them
+    push ds
+    push cs
+    push word [wa_rretv]
+    push word [wa_rcs]
+    push word [wa_rverb+bx]
+    mov ds, [wa_rds]
+    retf
+wa_rret:
+    ; STKBALANCE-OK: the far return of wa_rcall's verb lands here, one push
+    ; deep, and this pops it
+    pop ds
+    ret
+wa_rretv:   dw wa_rret
+
+; wa_rsync - the CONFIG section into the renderer part (after a mode set, a
+; field-of-view change). Keeps every register but the flags.
+wa_rsync:
+    push cx
+    push si
+    push di
+    push es
+    mov es, [wa_rds]
+    mov si, wa_fb_cfg
+    mov di, WA_RAT(wa_fb_cfg)
+    mov cx, (wa_fb_frm - wa_fb_cfg) / 2
+    cld
+    rep movsw
+    pop es
+    pop di
+    pop si
+    pop cx
+    ret
+
+; wa_rframe - the FRAME section and the head of each figure record (bytes
+; 0..17: where it is, which way it faces, its animation, its flash, whether
+; it is dead) into the renderer part: three runs, the first taking FRAME and
+; figure 0 together. Clobbers CX, SI, DI, ES (= the part)
+WA_FHW equ WA_FIGHEAD/2
+wa_rframe:
+    mov es, [wa_rds]
+    cld
+    mov si, wa_fb_frm
+    mov di, WA_RAT(wa_fb_frm)
+    mov cx, (wa_figs - wa_fb_frm) / 2 + WA_FHW
+    rep movsw
+%assign wa_i 1
+%rep WA_NFIG-1
+    mov si, wa_figs + wa_i*F_SIZE
+    mov di, WA_RAT(wa_figs) + wa_i*F_SIZE
+    mov cx, WA_FHW
+    rep movsw
+%assign wa_i wa_i+1
+%endrep
+    ret
+
+; wa_render - a frame: the frame state into the part, the renderer, and back
+; its frame number (the sim's key poll, wa_tick). Each figure's F_PZ here
+; then says only "drawn since it last spawned" (wa_spawn zeroes it): the
+; projection itself stays in the part, where TRACE reads it. ES = DS out, as
+; the renderer left it.
+wa_render:
+    call wa_rframe
+    mov bx, WRV_RENDER
+    call wa_rcall
+    mov [wa_frame], al
+    push ds
+    pop es
+%assign wa_i 0
+%rep WA_NFIG
+    mov word [wa_figs + wa_i*F_SIZE + F_PZ], 1
+%assign wa_i wa_i+1
+%endrep
+    ret
+
+; wa_present - the changed cells onto the glass, and how many (the meter)
+wa_present:
+    mov bx, WRV_PRESENT
+    call wa_rcall
+    mov [wa_nwr], ax
+    push ds
+    pop es
+    ret
+
+; wa_geominit - once an arena is loaded: the reciprocal table and the
+; coordinate steps, in the part
+wa_geominit:
+    mov bx, WRV_GEOM
+    call wa_rcall
+    push ds
+    pop es
+    ret
+
+; wa_loadarena - AL = an arena, into the part's working tables; then its
+; ARENA section - the boxes the collision walks and the start wa_reset takes
+; - back into ours
+wa_loadarena:
+    mov bx, WRV_ARENA
+    call wa_rcall
+    push ds
+    push ds
+    pop es
+    mov si, WA_RAT(wa_fb_arn)
+    mov di, wa_fb_arn
+    mov cx, (wa_fb_end - wa_fb_arn) / 2
+    mov ds, [wa_rds]
+    cld
+    rep movsw
+    pop ds
+    ret
+
 %include "os88pit.inc"
 
 ; --- tables -----------------------------------------------------------------
-%define WA_TAB_SIN               ; every data block arenagen writes
-%define WA_TAB_ARENAS
-%define WA_TAB_PATHS
-%define WA_TAB_POSE
+%define WA_TAB_SIN               ; the tables this half reads (the renderer
+%define WA_TAB_PATHS             ; part takes the arenas and the keyframes)
 %include "watab.inc"
 
 wa_tpl:
@@ -1497,59 +1605,45 @@ wa_help:
 ;               0123456789012345678901234567890123456789
 wa_hudtpl:  db 'FPS       MS      R      P      N       ', 0
 
-%include "wrtab.inc"
+TOASTSTR wa_t_small, 'Needs kern_big or mega'
+TOASTSTR wa_t_part, 'Renderer part mismatch'
+
+; --- the parts (SPEC.md 20.12.3): ONE, the renderer, with its BSS as zeros
+; neither stored nor decoded (OP_ZFILL, 20.12.7.5)
+    OS88_PARTS_BEGIN 1
+      OS88_PART OP_SEG, OP_COMP | OP_ZFILL  ; 0 build/wrpart.bin
+    OS88_PARTS_END
 
 ; --- bss ------------------------------------------------------------------
+; The parts standard's words first (OP_BSS, apps/os88parts.inc), then the
+; FRAME BLOCK in wafb.inc's order (the renderer part holds the same layout at
+; WR_FB), then this half's own.
 %assign WA_BSS 0
 %macro WA_VAR 2
-%1 equ os88_image_end+WA_BSS
+%1 equ os88_image_end+OP_BSS+WA_BSS
 %assign WA_BSS WA_BSS+%2
 %endmacro
+%macro WA_FBV 2
+WA_VAR %1,%2
+%endmacro
+WA_FBLOCK
 WA_VAR wa_win,2
+WA_VAR wa_rds,2                  ; the renderer part: its data segment,
+WA_VAR wa_rcs,2                  ;   its code selector (op_cseg)
+WA_VAR wa_rverb,WR_NVERB*2       ;   and its verbs' offsets (wa_rbind)
+WA_VAR wa_nwr,2                  ; video writes the last present made
 WA_VAR wa_fsi,FSI_SIZE
-WA_VAR wa_vseg,2
-WA_VAR wa_w,2
-WA_VAR wa_k16,2
-WA_VAR wa_c16,2
-WA_VAR wa_w2,2
 WA_VAR wa_mode,1
 WA_VAR wa_want,1
-WA_VAR wa_mono,1
 WA_VAR wa_quit,1
 WA_VAR wa_vsync,1
-WA_VAR wa_sparse,1
 WA_VAR wa_arena,1
-WA_VAR wa_nxv2,2
-WA_VAR wa_nyv2,2
-WA_VAR wa_nbox,2
-WA_VAR wa_root,2
-WA_VAR wa_sx,2
-WA_VAR wa_sy,2
-WA_VAR wa_sa,2
-WA_VAR wa_xv,WA_MXV*2
-WA_VAR wa_yv,WA_MYV*2
-WA_VAR wa_vtx,WA_MVTX*2
-WA_VAR wa_corn,(WA_MBOX+1)*4
-WA_VAR wa_boxes,WA_MBOX*8
-WA_VAR wa_bcol,WA_MBOX+2
-WA_VAR wa_fov,1
-WA_VAR wa_hyst,1
-WA_VAR wa_grid,1
-WA_VAR wa_kyq,2
-WA_VAR wa_kyh,2
-WA_VAR wa_wf,2
 WA_VAR wa_trig,1
-WA_VAR wa_mflash,1
-WA_VAR wa_frame,1
-WA_VAR wa_px,2
-WA_VAR wa_py,2
+WA_VAR wa_frame,1                ; the renderer's, after each frame (wa_tick)
 WA_VAR wa_pxf,2
 WA_VAR wa_pyf,2
-WA_VAR wa_ang,2
-WA_VAR wa_pitch,2
 WA_VAR wa_jz,2
 WA_VAR wa_jv,2
-WA_VAR wa_eye,2
 WA_VAR wa_s13,2
 WA_VAR wa_c13,2
 WA_VAR wa_hits,2
@@ -1572,8 +1666,6 @@ WA_VAR wa_pbtk,2
 WA_VAR wa_pbfr,2
 WA_VAR wa_hold,1
 WA_VAR wa_rowoff,(WA_ROWS+1)*2
-WA_VAR wa_rowo2,(WA_ROWS+1)*2
-WA_VAR wa_figs,F_SIZE*WA_NFIG
 WA_VAR wa_kbits,2                ; the held keys this frame (wa_keys)
 WA_VAR wa_kfr,1                  ; ...polled in this frame
 WA_VAR wa_kwatch,2               ; the keys to ask about (wa_keys)
@@ -1581,15 +1673,5 @@ WA_VAR wa_ksw,1                  ; frames to the next sweep of them all
 WA_VAR wa_kqn,2                  ; wa_kq: typed keys a tick took, x 2,
 WA_VAR wa_kqi,2                  ;   and how far wa_frame_input has read
 WA_VAR wa_kq,WA_KQ*2
-WR_BSS
-WA_VAR wa_newp,2
-WA_VAR wa_oldp,2
-WA_VAR wa_newn,2
-WA_VAR wa_oldn,2
-WA_VAR wa_stamp,WA_CELLS*2       ; by cell OFFSET: the stamp is the even
-wa_fmask equ wa_stamp+1          ; byte, a figure cell's sub-pixel mask the odd
-WA_VAR wa_cur,WA_CELLS*2
-WA_VAR wa_lista,WA_CELLS*2
-WA_VAR wa_listb,WA_CELLS*2
-    OS88_BSS WA_BSS
+    OS88_BSS OP_BSS+WA_BSS
     OS88_IMAGE_END

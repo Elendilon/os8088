@@ -21292,16 +21292,21 @@ $(BUILD)/vbattle360.img: $(BUILD)/vbattle.o88 $(BUILD)/vbshort/BATTLE.VBT tools/
 # shooter's Wave 0 renderer spike. ON DEMAND, and on a disk of its own in
 # four geometries - on no shipped disk until it is a game. Its tables (sine,
 # arena, patrols, the pre-projected stick-figure keyframes) are built by
-# tools/arenagen.py into $(BUILD)/watab.inc.
+# tools/arenagen.py into $(BUILD)/watab.inc. Two segments in one file
+# (docs/plans/WIREARENA-PARTS-PLAN.md 7): wirearena.bin is the primary - the
+# game - and wrpart.bin the renderer, its part 0 (OP_SEG, OP_COMP|OP_ZFILL),
+# far-called with its own data; each assembles the watab.inc blocks it reads.
 #> [Applications] wirearena :: WARENA.O88, the text-mode arena shooter's renderer prototype (docs/plans/MULTIPLAYER-FPS-PLAN.md)
 .PHONY: wirearena wirearenadisk
 wirearena: $(BUILD)/warena.o88
 $(BUILD)/watab.inc: tools/arenagen.py | $(BUILD)
 	python3 tools/arenagen.py $@
-$(BUILD)/wirearena.bin: apps/wirearena/wirearena.asm apps/wirearena/wrender.inc apps/wirearena/waconst.inc apps/wirearena/wasin.inc apps/wirearena/wrtab.inc $(BUILD)/watab.inc apps/os88api.inc apps/os88pit.inc | $(BUILD)
+$(BUILD)/wirearena.bin: apps/wirearena/wirearena.asm apps/wirearena/waconst.inc apps/wirearena/wasin.inc apps/wirearena/wafb.inc $(BUILD)/watab.inc apps/os88api.inc apps/os88pit.inc apps/os88parts.inc apps/os88partsbody.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/wirearena/ -I $(BUILD)/ -l $(BUILD)/wirearena.lst -o $@ $<
-$(BUILD)/warena.o88: $(BUILD)/wirearena.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
-	$(OS88PKGB) $< -o $@
+$(BUILD)/wrpart.bin: apps/wirearena/wrpart.asm apps/wirearena/wrender.inc apps/wirearena/waconst.inc apps/wirearena/wasin.inc apps/wirearena/wrtab.inc apps/wirearena/wafb.inc $(BUILD)/watab.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/wirearena/ -I $(BUILD)/ -l $(BUILD)/wrpart.lst -o $@ $<
+$(BUILD)/warena.o88: $(BUILD)/wirearena.bin $(BUILD)/wrpart.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
+	$(OS88PKGB) $< -o $@ --part $(BUILD)/wrpart.bin --part-compress $(PKGZBFMT)
 #> [Applications] wirearenadisk :: its own floppies, warena{,720,120,360}.img
 wirearenadisk: $(BUILD)/warena.img $(BUILD)/warena720.img $(BUILD)/warena120.img $(BUILD)/warena360.img
 $(BUILD)/warena.img: $(BUILD)/warena.o88 tools/os88disk.py

@@ -11,6 +11,9 @@ each take what they read):
   WA_TAB_PATHS   wa_pathtab and the patrols
   WA_TAB_POSE    wa_pose
 
+The constants come first, under a guard of their own, so a second include
+of the file adds only the data blocks the includer has asked for by then.
+
   wa_sin        1024 words, sin in Q14 (16384 = 1.0); cos(a) = wa_sin[a+256]
   wa_boxes      the arena's solid blocks, axis-aligned, in world units
   wa_room       the room's inner bounds
@@ -26,6 +29,7 @@ World units are 1/64 m. Angles are 1024 to a turn, counter-clockwise from
     python3 tools/arenagen.py build/watab.inc
 """
 import math
+import re
 import sys
 
 UNIT = 64.0                     # world units a metre
@@ -399,6 +403,14 @@ def main(out):
                                          for a, b in pr) +
                   "   ; %s %d facing %d" % (name, i, k))
     w("%endif")
+    # Every constant first, once: an includer that wants the constants
+    # before its own layout and the data blocks later (the renderer part,
+    # apps/wirearena/wrpart.asm) includes this file twice, and the second
+    # pass defines only the data it asks for
+    const = [l for l in L[1:] if re.match(r"^WA_\w+ equ ", l)]
+    rest = [l for l in L[1:] if not re.match(r"^WA_\w+ equ ", l)]
+    L = L[:1] + ["%ifndef WATAB_CONSTS", "%define WATAB_CONSTS"] + const + \
+        ["%endif"] + rest
     with open(out, "w") as f:
         f.write("\n".join(L) + "\n")
 
