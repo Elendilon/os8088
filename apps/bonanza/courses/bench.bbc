@@ -18,6 +18,7 @@
 #    and the pits are off the route.
 course BENCH "Proving Ground"
 width  64
+ball   rubber
 
 # A. the start plateau, upper left, and its rail
 floor rect   5 13  8 16  flat 30
@@ -60,17 +61,18 @@ start 6 14
 # The benchmark's route (the autopilot, SPEC.md 128.6): the ball's picture
 # top-left on each tile's centre, in order, the first the start (bz_play
 # begins at the second).  Chosen with a host model of GLIDE driving
-# bbcourse.Physics (written to choose, not kept, SPEC.md 128.10.11.1): down the
-# descent onto the landing, a loop round it with two reversals, into the
-# traverse behind its block, then on toward the climb.  Every one of the
-# eight scroll directions occurs at least 8 times on both cards at step rates
-# 0.96 - 1.04 of the real one (ten phases each), at least 3 times at 0.92 -
-# 0.96; past 1.04 the CGA's up-left and down-left pans can vanish.  The
-# 1,200 frames reach the first twelve (the CGA's 1,093 steps) with no fall in
-# the Hercules's 1,289; `bbcourse.py --selfcheck` item 8 holds that.
+# bbcourse.Physics: down the descent onto the landing, a loop round it with
+# two reversals, into the traverse behind its block, then on toward the climb.
+# Wave 2 (SPEC.md 128.11.13) re-proved it under the arrows' ramp, the rubber
+# ball and GLIDE's four-frame "fast" test, with the model KEPT this time
+# (bbcourse.Glide): the third way moved from (17, 18) to (17, 15), and every
+# one of the eight scroll directions occurs at least 8 times on both cards
+# at step rates 0.96 - 1.04 of the real one (ten phases each).  The 1,200
+# frames reach the first twelve (the CGA's 1,093 steps) with no fall in the
+# Hercules's 1,289; `bbcourse.py --selfcheck` item 8 holds both.
 way   6 14
 way  16 14
-way  17 18
+way  17 15
 way  19 21
 way  20 16
 way  19 19

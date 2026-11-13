@@ -1,58 +1,88 @@
 #!/usr/bin/env python3
-"""BONANZA: physics v1 on the guest equals bbcourse.Physics, step for step (SPEC.md 128.10.7, 128.10.11.3).
+"""BONANZA: the guest's physics equals bbcourse.Physics, step for step (SPEC.md 128.10.7, 128.11.8, 128.11.17.2).
 
-    make bonanzadisk && python3 tests/bonanza_phys.py [--adapter cga|herc|both] [--leg bench|scen|both]
-    python3 tests/bonanza_phys.py --red slope|respawn|takeoff     (a red arm, below)
+    make bonanzadisk && python3 tests/bonanza_phys.py [--adapter cga|herc|both] [--leg bench|scen|replay|all]
+                                                      [--only NAME ...]
+    python3 tests/bonanza_phys.py --red NAME        (a red arm, below)
+    python3 tests/bonanza_phys.py --check           (the host half: every scenario built and proved on the
+                                                     model, every red arm's broken copy assembled)
 
 THE REFERENCE is tools/bbcourse.py's Physics class - the model SPEC.md
-128.10.7.3 binds the guest to ("the guest and bbcourse.Physics do exactly
+128.11.8 binds the guest to ("the guest and bbcourse.Physics do exactly
 this") - run on the HOST on the same course part the build compiled.  The
 guest is read at chosen marks through its own bss (bzphys.inc's head lists
-the words): nstep, gx, gy (24.8 DWORDs), gz (signed 24.8), gvx, gvy, gvz and
-the air flag.  Physics is a function of the step count and the input alone
-(128.10.7.3, *Determinism*), so the model is stepped to the guest's nstep and
-the eight values compared EXACTLY - no tolerance: a rounding that differs is
-a defect, and the first one is where the guest and the model part.
+the words): 128.10.11.3's eight values (nstep, gx, gy, gz, gvx, gvy, gvz,
+air) and 128.11.8.1's (the arrows' levels, the Hop's window, the last key
+byte, the ball's state and its steps, the squash, the last landing's lvz).
+Physics is a function of the step count and the key bytes alone, so the
+model is stepped to the guest's nstep and every value compared EXACTLY - no
+tolerance: a rounding that differs is a defect, and the first one is where
+the guest and the model part.
 
-  1  THE BENCHMARK (B: BENCH, the autopilot, 1,200 frames), on both cards:
-     at every frame's bz_presented the guest's state equals the model's
-     after that many steps of its own autopilot (Physics.step_auto) - and
-     the CGA's and the Hercules' trajectories are therefore the same one,
-     though their frames hold different numbers of steps (0.911 and 1.075 a
-     frame).  It reports the steps, take-offs, landings and falls the run
-     met (a benchmark that falls is a route that is wrong, 128.10.4.6 8).
-  2  POKED SCENARIOS on FIRST (Enter: play mode, no key held).  At bz_t0 of
-     a frame the row writes the ball's position and velocities, the screen
-     state derived from them and bz_pokd = 1 (128.10.7.1: the next step then
-     re-centres the window itself; bonanza_ring.poke_ball), the model
-     is poked the same way at the guest's nstep and its SAFE cell, and from
-     there every frame's bz_presented is compared as in 1:
-       pit    from (5, 5) at gvx 256: over the SAFE (6, 5), down B, off its
-              lip and into the pit (12, 5): killed at the model's step and
-              put back on the model's SAFE cell (6, 5) - not the start -
-              with a CUT (the frame's full write, [bz_full]) exactly when
-              128.10.8 item 3 says: the respawned footprint not wholly inside
-              the window the frame began with
-       lip    from (9, 4) at gvx 100: off B's lip, airborne at the model's
-              step with the floor's gvz, landing on C at the model's step
-              with the model's lfall and lvz ([bz_lfall], [bz_lvz], wave 2's
-              input) and [bz_nland] counted
-       rail   from (5, 4) at (-150, -250): into the rail at wy = 3, gvy
-              zeroed and gvx kept, sliding west as the model does
-       goal   from (12, 6) at gvx 250: onto the goal column; the play ENDS
-              the frame after the model's goal step (bz_fs drops, [bz_fin]
-              set, the last frame presented is the one that held it) and the
-              face's line reads `Finished in <s.hh> s` for the guest's final
-              nstep by 128.10.6.2's truncated formula (read off bz_lbuf as
-              bz_line draws it, breakpointed)
+  1  THE BENCHMARK (B: BENCH, the autopilot through the ramp, 1,200 frames),
+     on both cards: at every frame's bz_presented the guest's state equals
+     the model's after that many steps of its own autopilot (step_auto) - so
+     the CGA's and the Hercules' trajectories are one, though their frames
+     hold different numbers of steps.  A benchmark that falls is a route
+     that is wrong (128.11.17.1 item 8).
+  2  WAVE 1'S FOUR on FIRST, POKED in play mode with no key held (the ball's
+     position and velocities written at bz_t0 with bz_pokd = 1; the model
+     poked the same way at the guest's nstep and its SAFE cell), every
+     frame compared:
+       pit    from (5, 5) at gvx 364: off B's lip, over C, into the void:
+              killed at the model's step and put back on the model's SAFE
+              cell (6, 5), with a CUT (the frame's full write) exactly when
+              128.10.8 item 3 says
+       lip    from (9, 4) at gvx 100: off B's lip with the floor's gvz; on
+              C it is a RUBBER BOUNCE now (wave 2), its lfall and lvz the
+              model's at the contact
+       rail   from (5, 4) at (-150, -250): into the rail at wy = 3, where gvy
+              REBOUNDS now (128.11.8.4) and gvx is kept
+       goal   from (12, 6) at gvx 250: the play ENDS the frame after the
+              model's goal step (a finish line, grounded or in the air), and
+              the face reads `Finished in <s.hh> s` for the final nstep
+  3  REPLAYS (SPEC.md 128.11.17.2): each scenario is a LOG the row builds on
+     the host (bbcourse.encode_log), writes into bz_rlog and plays with R; at
+     the replay's first frame's bz_t0 the ball is poked (or left at the
+     course's start), and from there every frame's bz_presented is compared
+     to the model stepped through the same key bytes, to the replay's end:
+       ramp      the arrows' ramp and coast, each material (rubber, steel, glass)
+       hop       a Hop from the ground (Space's key-down edge)
+       hopagain  Space again at the Hop's own landing: a Hop at the contact
+       stepup    a Hop up FIRST's B ramp, where the airborne margin decides
+                 (128.11.8.2 step 5: no shipped course has a half-unit step;
+                 the scenario is the one the model says the margin changes)
+       grip      Grip held from 300: the brake, never past 0
+       catch     a rubber ball dropped 6 units with Grip held: caught at the
+                 first contact
+       eastwall  P1: held Right + Down into G's east rail on TRIAL
+       bumper    steel into the ice strip's bumper rail: 230/256 back
+       ice       a coast over TRIAL's ice: no drag
+       sand      a coast onto TRIAL's sand
+       mat       steel dropped onto TRIAL's mat: bounces, unhurt
+       bounce    rubber off H's lip at the cap, over the gap onto G
+       stun      steel off H's lip: stunned on F, still for 55 steps
+       shatter   glass off H's lip: shattered on F, respawned on H 24 steps
+                 later, with the CUT 128.10.8 item 3 says
+       ramphop   steel and glass Hop down TRIAL's steep ramp: unhurt
+     Each scenario is PROVED on the model before it is run (its events
+     there - the hop, the contact, the stun, ...), and each red arm's
+     scenario is proved to PART from the broken model (or to raise the
+     event the red arm changes), so a green scenario cannot be one that
+     does not exercise what it names.
 
 --red NAME builds a broken package in a temporary directory (never build/)
 and PASSES only if the row FAILS - at its own check:
-  slope     the slope term's sign flipped (gvx += BZ_GSL sx): the benchmark's
-            descent parts from the model
-  respawn   the respawn put on the course's START instead of bz_safe: the
-            pit scenario reappears on (4, 5) where the model says (6, 5)
-  takeoff   gvz zeroed at take-off: the lip's flight lands late
+  slope      the slope term's sign flipped: the benchmark's descent parts
+  respawn    the respawn put on the course's START instead of bz_safe: pit
+  takeoff    gvz zeroed at a grounded take-off (over no floor, or a floor
+             falling away; not a Hop's), as the model's switch: lip
+  bounce     the floor's rebound taken from EW, the wall's: bounce parts
+  edge       the east test put back to wave 1's (pu > 2,815): eastwall
+  stun       no stun: the steel ball bounces on: stun parts
+  shatter    the respawn at once, no 24 steps: shatter parts
+  absimpact  the impact on -gvz, not relative to the floor: ramphop parts
+  airwall    no airborne margin: stepup parts
 """
 import argparse
 import os
@@ -70,13 +100,17 @@ import bonanza_ring as R       # noqa: E402
 
 BENCH = 1200                   # bzgame.inc BZ_BENCH
 FIELDS = ("nstep", "gx", "gy", "gz", "gvx", "gvy", "gvz", "air")
+FIELDS2 = ("lvl", "hopw", "kprev", "mst", "mct", "sqf", "lvz")
 SCEN = {
-    # name: (tile, gvx, gvy, frames at most)
-    "pit": ((5, 5), 256, 0, 260),
+    # name: (tile, gvx, gvy, frames at most) - poked in play, no key held
+    "pit": ((5, 5), 364, 0, 260),
     "lip": ((9, 4), 100, 0, 120),
     "rail": ((5, 4), -150, -250, 90),
     "goal": ((12, 6), 250, 0, 60),
 }
+K = BB
+CHORD_X = K.K_R | K.K_D        # +wx: Right (+F, -F) and Down (+F, +F)
+CHORD_MX = K.K_L | K.K_U       # -wx
 
 
 def ftime(n):
@@ -88,8 +122,12 @@ def show(st):
     return "nstep %d gx %06X gy %06X gz %d gvx %d gvy %d gvz %d air %d" % st
 
 
+def show2(s2):
+    return "lvl %s hopw %d kprev %02X mst %d mct %d sqf %d lvz %d" % s2
+
+
 class Reader:
-    """The physics words in ONE read a stop: bz_gx .. bz_resp are one run of
+    """The physics words in ONE read a stop: bz_phs .. bz_phe are one run of
     VARs (bzphys.inc BZ_PHYS_VARS)."""
 
     def __init__(self, g):
@@ -97,32 +135,56 @@ class Reader:
         s = g.sym
         self.lo = s["bz_phs"]
         self.n = s["bz_phe"] - self.lo
-        self.off = {n: s[n] - self.lo for n in ("bz_gx", "bz_gy", "bz_gz", "bz_gvx", "bz_gvy", "bz_gvz",
-                                                "bz_nstep", "bz_air", "bz_lfall", "bz_lvz", "bz_nland",
-                                                "bz_nfall", "bz_resp", "bz_goal")}
+        self.off = {n: s[n] - self.lo for n in (
+            "bz_gx", "bz_gy", "bz_gz", "bz_gvx", "bz_gvy", "bz_gvz", "bz_nstep", "bz_air", "bz_lfall", "bz_lvz",
+            "bz_nland", "bz_nfall", "bz_resp", "bz_goal", "bz_lvl", "bz_hopw", "bz_kprev", "bz_mst", "bz_mct",
+            "bz_sqf", "bz_nbnc", "bz_nstun", "bz_nshat", "bz_nhop")}
 
     def read(self):
+        """-> (state, state2, extras): Physics.state()'s and state2()'s shapes"""
         raw = self.g.m.read(self.g.base + self.lo, self.n)
         o = self.off
         st = (struct.unpack_from("<I", raw, o["bz_nstep"])[0], struct.unpack_from("<I", raw, o["bz_gx"])[0],
               struct.unpack_from("<I", raw, o["bz_gy"])[0], struct.unpack_from("<i", raw, o["bz_gz"])[0],
               struct.unpack_from("<h", raw, o["bz_gvx"])[0], struct.unpack_from("<h", raw, o["bz_gvy"])[0],
               struct.unpack_from("<h", raw, o["bz_gvz"])[0], raw[o["bz_air"]])
-        ext = {k: struct.unpack_from("<H", raw, o["bz_" + k])[0] for k in ("lfall", "lvz", "nland", "nfall")}
+        s2 = (tuple(raw[o["bz_lvl"]:o["bz_lvl"] + 4]), raw[o["bz_hopw"]], raw[o["bz_kprev"]], raw[o["bz_mst"]],
+              raw[o["bz_mct"]], raw[o["bz_sqf"]], struct.unpack_from("<H", raw, o["bz_lvz"])[0])
+        ext = {k: struct.unpack_from("<H", raw, o["bz_" + k])[0]
+               for k in ("lfall", "lvz", "nland", "nfall", "nbnc", "nstun", "nshat", "nhop")}
         ext["resp"], ext["goal"] = raw[o["bz_resp"]], raw[o["bz_goal"]]
-        return st, ext
+        return st, s2, ext
+
+
+def counts(p):
+    return {"nland": p.nland, "nfall": p.nfall, "nbnc": p.nbnc, "nstun": p.nstun, "nshat": p.nshat, "nhop": p.nhop}
 
 
 def advance(p, n, keys=None):
-    """the model to step N (Physics.step_auto for the benchmark, KEYS for a scenario);
-    -> the events the steps raised"""
+    """the model to step N (Physics.step_auto for the benchmark; KEYS a list of
+    key bytes indexed by the step, or one byte for every step); -> the events"""
     e0 = len(p.events)
     while p.nstep < n:
         if keys is None:
             p.step_auto()
-        else:
+        elif isinstance(keys, int):
             p.step(keys)
+        else:
+            p.step(keys[p.nstep] if p.nstep < len(keys) else 0)
     return p.events[e0:]
+
+
+def compare(name, frames, st, s2, ext, p):
+    """-> a failure line, or None: the guest's state against the model's"""
+    if st != p.state() or s2 != p.state2():
+        return ("%s frame %d: the guest differs from the model after %d steps:\n      guest %s\n            %s\n"
+                "      model %s\n            %s" % (name, frames, st[0], show(st), show2(s2), show(p.state()),
+                                                   show2(p.state2())))
+    want = counts(p)
+    got = {k: ext[k] for k in want}
+    if got != want:
+        return "%s frame %d: the counters %s against the model's %s" % (name, frames, got, want)
+    return None
 
 
 def bench(g, crs):
@@ -141,16 +203,17 @@ def bench(g, crs):
         if first:
             g.check_base()
             assert g.b("bz_mode") == 1 and g.b("bz_crs") == R.CRS_K["bench"], "B did not run BENCH's benchmark"
+            assert g.b("bz_mat") == crs.ball, "B rolls material %d, BENCH's ball is %d" % (g.b("bz_mat"), crs.ball)
             first = False
         frames += 1
-        st, ext = rd.read()
+        st, s2, ext = rd.read()
         if st[0] < p.nstep:
             fails.append("frame %d: the guest's nstep went BACK to %d (the model is at %d)" % (frames, st[0], p.nstep))
             break
         ev += advance(p, st[0])
-        if st != p.state():
-            fails.append("frame %d: the guest differs from the model after %d steps:\n      guest %s\n      model %s"
-                         % (frames, st[0], show(st), show(p.state())))
+        bad = compare("the benchmark", frames, st, s2, ext, p)
+        if bad:
+            fails.append(bad)
             break
     m.bp_exec()
     m.run()
@@ -165,7 +228,8 @@ def bench(g, crs):
                                    ", ".join("%s %d" % kv for kv in sorted(kinds.items())) or "none"),
           flush=True)
     if not fails and p.nfall:
-        fails.append("the benchmark FELL %d times under the model: its route is wrong (SPEC.md 128.10.4.6 8)" % p.nfall)
+        fails.append("the benchmark FELL %d times under the model: its route is wrong (SPEC.md 128.11.17.1 8)"
+                     % p.nfall)
     return fails, p.nstep
 
 
@@ -177,8 +241,26 @@ def outwin(px, py, R0, c0, Wc, rl):
     return first < c0 or last >= c0 + Wc or py < top or py > top + 200 - 16
 
 
+def cut_check(g, name, frames, ev, win, Wc, rl, cuts, fails):
+    """a respawn in this frame's steps takes a CUT (the frame's full write) exactly
+    when 128.10.8 item 3 says: the respawned footprint not wholly inside the
+    window the frame began with"""
+    resp = [e for e in ev if e[0] == "respawn"]
+    if not resp:
+        return
+    px, py = g.w("bz_px"), g.w("bz_py")
+    want = outwin(px, py, win[0], win[1], Wc, rl)
+    got = bool(g.b("bz_full"))
+    cuts.append((frames, resp[0][1], resp[0][2], want, got))
+    if want != got:
+        fails.append("%s frame %d: a respawn on %s %s a CUT ([bz_full] %d), but 128.10.8 item 3 says %s "
+                     "(footprint %d,%d against the window R0 %d c0 %d)" % (
+                         name, frames, resp[0][2], "took" if got else "took no", got,
+                         "cut" if want else "no cut", px, py, win[0], win[1]))
+
+
 def scenario(g, crs, name):
-    """Part 2: one poked scenario on FIRST in play mode."""
+    """Part 2: one of wave 1's poked scenarios on FIRST in play mode."""
     m, tag = g.m, g.tag
     (wx, wy), gvx, gvy, nmax = SCEN[name]
     rd = Reader(g)
@@ -192,16 +274,19 @@ def scenario(g, crs, name):
     m.bp_exec(wk.t0, wk.pr)
     while wk.next() != "t0":
         pass
-    st0, _ = rd.read()
+    st0, s20, ext0 = rd.read()
     safe = tuple(m.read(g.a("bz_safe"), 2))
-    p = SlidePhysics(crs, play=True).poke(wx, wy, gvx, gvy)
-    p.nstep, p.safe = st0[0], safe
-    R.poke_ball(g, p.gx, p.gy, p.gz, p.gvx, p.gvy, p.gvz)
+    p = MarkPhysics(crs, play=True, mat=g.b("bz_mat")).poke(wx, wy, gvx, gvy)
+    p.nstep, p.safe = st0[0], safe             # the model picks the play up where the guest is
+    p.lvl, p.hopw, p.kprev = list(s20[0]), s20[1], s20[2]
+    for k in ("nland", "nfall", "nbnc", "nstun", "nshat", "nhop"):
+        setattr(p, k, ext0[k])
+    R.poke_ball(g, p.gx, p.gy, p.gz, p.gvx, p.gvy, p.gvz, air=0)
     Wc = g.w("bz_W")
     rl = R.RL[tag]
     win = (g.w("bz_R0"), g.w("bz_c0"))          # the window this frame begins with
     frames, last, ended, cuts = 0, None, False, []
-    landed = None
+    contact = None
     while frames < nmax:
         k = wk.next()
         if k == "t0":
@@ -213,29 +298,19 @@ def scenario(g, crs, name):
         if k != "pr":
             continue
         frames += 1
-        st, ext = rd.read()
+        st, s2, ext = rd.read()
         ev = advance(p, st[0], 0)
-        if st != p.state():
-            fails.append("%s frame %d: the guest differs from the model after %d steps:\n      guest %s\n"
-                         "      model %s" % (name, frames, st[0], show(st), show(p.state())))
+        bad = compare(name, frames, st, s2, ext, p)
+        if bad:
+            fails.append(bad)
             break
-        resp = [e for e in ev if e[0] == "respawn"]
-        if resp:
-            px, py = g.w("bz_px"), g.w("bz_py")
-            want = outwin(px, py, win[0], win[1], Wc, rl)
-            got = bool(g.b("bz_full"))
-            cuts.append((frames, resp[0][1], resp[0][2], want, got))
-            if want != got:
-                fails.append("%s frame %d: a respawn on %s %s a CUT ([bz_full] %d), but 128.10.8 item 3 says %s "
-                             "(footprint %d,%d against the window R0 %d c0 %d)" % (
-                                 name, frames, resp[0][2], "took" if got else "took no", got,
-                                 "cut" if want else "no cut", px, py, win[0], win[1]))
+        cut_check(g, name, frames, ev, win, Wc, rl, cuts, fails)
         for e in ev:
-            if e[0] == "land" and landed is None:
-                landed = (frames, e[1], e[2])
-                if (ext["lfall"], ext["lvz"]) != (p.lfall, p.lvz) or ext["nland"] != p.nland:
-                    fails.append("%s: the landing at step %d recorded lfall %d lvz %d nland %d; the model %d %d %d"
-                                 % (name, e[1], ext["lfall"], ext["lvz"], ext["nland"], p.lfall, p.lvz, p.nland))
+            if e[0] in ("land", "bounce") and contact is None:
+                contact = (frames, e[1], (p.lfall, p.lvz))
+                if (ext["lfall"], ext["lvz"]) != (p.lfall, p.lvz):
+                    fails.append("%s: the contact at step %d recorded lfall %d lvz %d; the model %d %d"
+                                 % (name, e[1], ext["lfall"], ext["lvz"], p.lfall, p.lvz))
         if (ext["nfall"], ext["goal"]) != (p.nfall, p.goal):
             fails.append("%s frame %d: nfall %d goal %d against the model's %d %d" % (
                 name, frames, ext["nfall"], ext["goal"], p.nfall, p.goal))
@@ -243,7 +318,7 @@ def scenario(g, crs, name):
         last = st
         if name != "goal" and frames >= 8 and _done(name, p):
             break
-    out = {"frames": frames, "events": list(p.events), "cuts": cuts, "landed": landed, "model": p}
+    out = {"frames": frames, "events": list(p.events), "cuts": cuts, "landed": contact, "model": p}
     face = None
     if name == "goal" and not fails:
         if not ended:
@@ -252,7 +327,8 @@ def scenario(g, crs, name):
         else:
             gs = [e[1] for e in p.events if e[0] == "goal"]
             if last is None or not gs or not (gs[0] <= last[0]):
-                fails.append("goal: the play ended after step %d but the model's goal step is %s" % (last[0], gs))
+                fails.append("goal: the play ended after step %s but the model's goal step is %s" % (
+                    last[0] if last else None, gs))
             n = last[0] if last else 0
             face = goal_face(g, n)
             want = "Finished in %d.%02d s" % divmod(ftime(n), 100)
@@ -263,8 +339,9 @@ def scenario(g, crs, name):
     else:
         m.bp_exec()
         m.run()
-        g.key("Escape")
-        M.until(m, lambda _: g.b("bz_fs") == 0, "the %s scenario's play ends on Esc" % name, guest=60)
+        if not ended:
+            g.key("Escape")
+        M.until(m, lambda _: g.b("bz_fs") == 0, "the %s scenario's play ends" % name, guest=60)
         dropped(g, name)
     out["face"] = face
     _say(tag, name, out, fails)
@@ -272,27 +349,24 @@ def scenario(g, crs, name):
         r = [e for e in p.events if e[0] == "respawn"]
         if not r or r[0][2] != (6, 5):
             fails.append("pit: the model's respawn was %s, not on the SAFE cell (6, 5)" % r)
-    if name == "lip" and not fails and (landed is None or not [e for e in p.events if e[0] == "takeoff"]):
-        fails.append("lip: no take-off and landing in %d frames (%s)" % (frames, p.events[:4]))
-    if name == "rail" and not fails and not _slid(p):
-        fails.append("rail: the model never zeroed gvy against the rail with gvx kept")
+    if name == "lip" and not fails and (contact is None or not [e for e in p.events if e[0] == "takeoff"]):
+        fails.append("lip: no take-off and contact in %d frames (%s)" % (frames, p.events[:4]))
+    if name == "rail" and not fails and not p._reb:
+        fails.append("rail: the model never REBOUNDED gvy off the rail with gvx kept")
     return fails, out
 
 
 def _done(name, p):
     """the scenario has shown what it is for, and a few frames past it"""
-    kinds = [e[0] for e in p.events]
+    def at(*kinds):
+        return [e[1] for e in p.events if e[0] in kinds]
     if name == "pit":
-        return "respawn" in kinds and p.nstep > [e[1] for e in p.events if e[0] == "respawn"][0] + 8
+        return at("respawn") and p.nstep > at("respawn")[0] + 8
     if name == "lip":
-        return "land" in kinds and p.nstep > [e[1] for e in p.events if e[0] == "land"][0] + 8
+        return at("land", "bounce") and p.nstep > at("land", "bounce")[0] + 8
     if name == "rail":
-        return _slid(p) and p.nstep > 40
+        return p._reb and p.nstep > 40
     return False
-
-
-def _slid(p):
-    return getattr(p, "_slid", False)
 
 
 def goal_face(g, n):
@@ -336,25 +410,346 @@ def _say(tag, name, out, fails):
         tag, name, out["frames"], p.nstep, "yes" if not fails else "NO",
         ", ".join("%s@%d" % (e[0], e[1]) for e in out["events"] if e[0] != "corner") or "none",
         "; cuts %s" % ["frame %d step %d on %s: want %s got %s" % c for c in out["cuts"]] if out["cuts"] else "",
-        "; landed frame %d step %d (lfall, lvz) %s" % out["landed"] if out["landed"] else "",
+        "; first contact frame %d step %d (lfall, lvz) %s" % out["landed"] if out.get("landed") else "",
         "; face %r" % out.get("face") if out.get("face") else ""), flush=True)
 
 
-class SlidePhysics(BB.Physics):
-    """the model, noting the rail's slide: a step that zeroes gvy from a
-    non-zero value while gvx stays non-zero"""
+class MarkPhysics(BB.Physics):
+    """the model, noting the rail's REBOUND: a step that turns gvy from
+    negative to positive while gvx stays non-zero, on the ground"""
+    _reb = False
 
     def step(self, keys=0):
         g0 = (self.gvx, self.gvy)
         r = BB.Physics.step(self, keys)
-        if g0[1] and not self.gvy and self.gvx and not self.air:
-            self._slid = True
+        if g0[1] < 0 < self.gvy and self.gvx and not self.air:
+            self._reb = True
         return r
 
 
-def run(tag, legs, apps=None, src=None):
+# ---- the replays (SPEC.md 128.11.17.2) -----------------------------------------
+POKE = ("gx", "gy", "gz", "gvx", "gvy", "gvz", "air", "ztop")
+
+
+def poke_of(p):
+    """the fields a scenario's poke writes, off a Physics poked on the host"""
+    d = {k: getattr(p, k) for k in POKE}
+    d["lvl"] = list(p.lvl)
+    return d
+
+
+def model(crs, mat, poke, **kw):
+    """the model of a replay: the course's start, poked as the guest will be"""
+    p = BB.Physics(R.course(crs), play=True, mat=mat, **kw)
+    if poke:
+        for k in POKE:
+            setattr(p, k, poke[k])
+        p.lvl = list(poke["lvl"])
+        p._derive(True)
+    return p
+
+
+def run_keys(crs, mat, poke, keys, **kw):
+    p = model(crs, mat, poke, **kw)
+    for k in keys:
+        p.step(k)
+        if p.goal:
+            break
+    return p
+
+
+def parts(crs, mat, poke, keys, **red):
+    """does the broken model PART from the model somewhere over KEYS? -> the step, or None"""
+    a, b = model(crs, mat, poke), model(crs, mat, poke, **red)
+    for i, k in enumerate(keys):
+        a.step(k)
+        b.step(k)
+        if a.state() + a.state2() != b.state() + b.state2():
+            return i + 1
+        if a.goal:
+            break
+    return None
+
+
+def tile(crs, mat, wx, wy, gvx=0, gvy=0, lvl=(0, 0, 0, 0), lift=0):
+    """a poke on tile (wx, wy)'s centre at a ground velocity, LIFT px in the air"""
+    p = BB.Physics(R.course(crs), play=True, mat=mat).poke(wx, wy, gvx, gvy)
+    p.lvl = list(lvl)
+    if lift:
+        p.gz += lift << 8
+        p.air, p.ztop = 1, p.gz >> 8
+    p._derive(True)
+    return poke_of(p)
+
+
+def shot(mat, v=BB.VMAXG, off=0):
+    """bbcourse._trial_shot's poke: on H 20 gu before its lip at gvx V, the chord's levels full"""
+    p = BB.Physics(R.course("trial"), play=True, mat=mat).poke(BB.TRIAL_H[0][1] - 1, 11)
+    lip = BB.TRIAL_H[0][1] * BB.TILE
+    p.gx = (lip << 8) - (20 << 8)
+    p.gy = ((11 * BB.TILE + 8) << 8) + (off << 8)
+    p.gvx = v
+    p.lvl = [0, BB.LVL_MAX, 0, BB.LVL_MAX]
+    p._derive(True)
+    return poke_of(p)
+
+
+def ev_of(crs, mat, poke, keys):
+    p = run_keys(crs, mat, poke, keys)
+    return p, [e[0] for e in p.events]
+
+
+def replays():
+    """-> [scenario dicts]: name, course, material, poke (None: the start), the
+    key bytes, the proof on the model (a description and a bool), and the red
+    arm the scenario is the check of (the model's switch, when it has one)"""
+    S = []
+
+    def add(name, crs, mat, poke, keys, what, ok, red=None):
+        S.append({"name": name, "crs": crs, "mat": mat, "poke": poke, "keys": keys, "what": what,
+                  "ok": bool(ok), "red": red})
+    for mat in range(3):                          # the ramp and the coast, from TRIAL's start
+        keys = [K.K_R] * 12 + [0] * 2 + [K.K_R] * 10 + [CHORD_X] * 24 + [0] * 30
+        p, ev = ev_of("trial", mat, None, keys)
+        moved = model("trial", mat, None)
+        mv = []
+        for k in keys:
+            moved.step(k)
+            mv.append(moved.gvx)
+        add("ramp-%s" % BB.MAT_NAMES[mat], "trial", mat, None, keys, "it moves and coasts (gvx peak %d)" % max(mv),
+            max(mv) > 0 and not p.nfall)
+    keys = [0] * 5 + [K.K_HOP] * 3 + [0] * 40
+    p, ev = ev_of("trial", 0, None, keys)
+    add("hop", "trial", 0, None, keys, "a Hop from the ground", "hop" in ev)
+    base = [0] * 5 + [K.K_HOP] * 2 + [0] * 60
+    p, ev = ev_of("trial", 0, None, base)
+    c1 = [e[1] for e in p.events if e[0] in ("bounce", "land")]
+    t = c1[0] if c1 else 30
+    keys = [0] * 5 + [K.K_HOP] * 2 + [0] * (t - 9) + [K.K_HOP] * 2 + [0] * 40
+    p, ev = ev_of("trial", 0, None, keys)
+    add("hopagain", "trial", 0, None, keys, "Space at the Hop's own landing (step %d) hops at the contact" % t,
+        ev.count("hop") == 1 and "hopc" in ev)
+    pk = tile("first", 0, 8, 4, -200, 0, (BB.LVL_MAX, 0, BB.LVL_MAX, 0))
+    keys = [CHORD_MX] * 2 + [CHORD_MX | K.K_HOP] + [CHORD_MX] * 47
+    p, ev = ev_of("first", 0, pk, keys)
+    add("stepup", "first", 0, pk, keys, "a Hop up B's ramp the airborne margin decides", "hop" in ev,
+        red={"_no_airclimb": True})
+    pk = tile("trial", 0, 5, 11, 300, 0)
+    keys = [K.K_GRIP] * 45 + [0] * 10
+    p, ev = ev_of("trial", 0, pk, keys)
+    add("grip", "trial", 0, pk, keys, "Grip from 300 stops it on H", p.gvx == 0 and "takeoff" not in ev)
+    pk = tile("trial", 0, 10, 11, lift=48)
+    keys = [K.K_GRIP] * 80
+    p, ev = ev_of("trial", 0, pk, keys)
+    add("catch", "trial", 0, pk, keys, "a 6-unit drop caught at the first contact", "land" in ev
+        and "bounce" not in ev and ev_of("trial", 0, pk, [0] * 80)[1].count("bounce") > 0)
+    pk = tile("trial", 0, 17, 11, 300, 0, (0, BB.LVL_MAX, 0, BB.LVL_MAX))
+    keys = [CHORD_X] * 120
+    add("eastwall", "trial", 0, pk, keys, "held into G's east rail", True, red={"_east_w1": True})
+    pk = tile("trial", 1, 13, 17, 0, -200)
+    keys = [0] * 40
+    p, ev = ev_of("trial", 1, pk, keys)
+    q = model("trial", 1, pk)
+    back = None
+    for k in keys:
+        g0 = q.gvy
+        q.step(k)
+        if g0 < 0 < q.gvy:
+            back = (g0, q.gvy)
+            break
+    add("bumper", "trial", 1, pk, keys, "steel off the bumper rail: %s" % (back,),
+        back is not None and back[1] == (BB.E_BUMPER * -back[0]) >> 8)
+    pk = tile("trial", 0, 15, 17, -300, 0)
+    keys = [0] * 20
+    p, ev = ev_of("trial", 0, pk, keys)
+    add("ice", "trial", 0, pk, keys, "a coast over ice keeps -300", p.gvx == -300)
+    pk = tile("trial", 0, 12, 18, -300, 0)
+    keys = [0] * 60
+    p, ev = ev_of("trial", 0, pk, keys)
+    q = model("trial", 0, pk)
+    on = 0
+    for k in keys:
+        q.step(k)
+        on += q.cell(q.gx >> 12, q.gy >> 12)[5] == BB.SURF_SAND
+        if q.goal:
+            break
+    add("sand", "trial", 0, pk, keys, "a coast onto the sand (%d steps on it)" % on, on > 0)
+    pk = tile("trial", 1, BB.TRIAL_MAT[0], BB.TRIAL_MAT[1], lift=48)
+    keys = [0] * 150
+    p, ev = ev_of("trial", 1, pk, keys)
+    add("mat", "trial", 1, pk, keys, "steel dropped onto the mat bounces, unhurt",
+        "bounce" in ev and "stun" not in ev)
+    pk = shot(0)
+    keys = [CHORD_X] * 150
+    p, ev = ev_of("trial", 0, pk, keys)
+    add("bounce", "trial", 0, pk, keys, "rubber off H's lip bounces on F, over the gap",
+        "bounce" in ev and not p.nfall and p.m["EF"] != p.m["EW"])
+    pk = shot(1)
+    keys = [CHORD_X] * 120
+    p, ev = ev_of("trial", 1, pk, keys)
+    add("stun", "trial", 1, pk, keys, "steel stunned on F", "stun" in ev, red={"_no_stun": True})
+    pk = shot(2)
+    keys = [CHORD_X] * 120
+    p, ev = ev_of("trial", 2, pk, keys)
+    add("shatter", "trial", 2, pk, keys, "glass shattered on F and respawned 24 steps later",
+        "shatter" in ev and "respawn" in ev)
+    for mat in (1, 2):
+        pk = tile("trial", mat, 17, 11, 0, BB.VMAXG, (BB.LVL_MAX, 0, 0, BB.LVL_MAX))
+        keys = [K.K_L | K.K_D] * 20 + [K.K_L | K.K_D | K.K_HOP] + [K.K_L | K.K_D] * 49
+        p, ev = ev_of("trial", mat, pk, keys)
+        add("ramphop-%s" % BB.MAT_NAMES[mat], "trial", mat, pk, keys, "a Hop down the steep ramp, unhurt",
+            "hop" in ev and "stun" not in ev and "shatter" not in ev, red={"_abs_impact": True})
+    return S
+
+
+def prove(S):
+    """the host's proof of each scenario: -> failure lines (empty: all proved)"""
+    bad = []
+    for s in S:
+        if not s["ok"]:
+            bad.append("replay %s: the model does not show what the scenario is for (%s)" % (s["name"], s["what"]))
+        if s["red"]:
+            at = parts(s["crs"], s["mat"], s["poke"], s["keys"], **s["red"])
+            if at is None:
+                bad.append("replay %s: the broken model %s never parts from the model over its %d steps: the "
+                           "scenario cannot catch its red arm" % (s["name"], s["red"], len(s["keys"])))
+            else:
+                s["parts_at"] = at
+    return bad
+
+
+def prove_wave1():
+    """the host's proof of wave 1's scenarios and red arms on the wave-2 model:
+    the pit reaches its SAFE cell's respawn, the lip and the bench part from
+    their broken models.  -> (failure lines, report lines)"""
+    bad, say = [], []
+    first = R.course("first")
+    for name in ("pit", "lip", "rail", "goal"):
+        (wx, wy), gvx, gvy, n = SCEN[name]
+        p = MarkPhysics(first, play=True).poke(wx, wy, gvx, gvy)
+        for _ in range(2 * n):
+            p.step(0)
+            if p.goal or (name == "pit" and p.nfall):
+                break
+        kinds = [e[0] for e in p.events if e[0] != "corner"]
+        ok = {"pit": [e[2] for e in p.events if e[0] == "respawn"][:1] == [(6, 5)] and
+              (6, 5) != BB.Grid(first.cga).start, "lip": "takeoff" in kinds and "bounce" in kinds,
+              "rail": p._reb, "goal": p.goal}[name]
+        say.append("wave 1's %s on the model: %s" % (name, ", ".join(kinds) or "none"))
+        if not ok:
+            bad.append("scenario %s: the model does not show it (%s)" % (name, kinds))
+    (wx, wy), gvx, gvy, n = SCEN["lip"]
+    a = BB.Physics(first, play=True).poke(wx, wy, gvx, gvy)
+    b = BB.Physics(first, play=True, _takeoff_zero=True).poke(wx, wy, gvx, gvy)
+    at = None
+    for i in range(2 * n):
+        a.step(0)
+        b.step(0)
+        if a.state() != b.state():
+            at = i + 1
+            break
+    say.append("the takeoff red's model parts from the lip's at step %s" % at)
+    if at is None:
+        bad.append("scenario lip cannot catch the takeoff red: its broken model never parts")
+    bench = R.course("bench")
+    a, b = BB.Physics(bench), BB.Physics(bench, _slope_sign=-1)
+    at = None
+    for i in range(1400):
+        a.step_auto()
+        b.step_auto()
+        if a.state() != b.state():
+            at = i + 1
+            break
+    say.append("the slope red's model parts from the benchmark's at step %s" % at)
+    if at is None:
+        bad.append("the benchmark cannot catch the slope red: its broken model never parts")
+    return bad, say
+
+
+def replay(g, s):
+    """Part 3: one scenario as a REPLAY: its log in bz_rlog, R, the poke at the
+    first frame's bz_t0, every frame against the model, to the replay's end."""
+    m, tag, name = g.m, g.tag, s["name"]
+    rd = Reader(g)
+    fails = []
+    log = BB.encode_log(s["keys"], course=R.CRS_K[s["crs"]], mat=s["mat"])
+    m.pause()
+    g.write_log(log)
+    wk = R.Walker(g, t0=True)
+    m.bp_exec(wk.t0)
+    m.run()                                     # (paused for the write: R needs a running guest,
+    g.key("KeyR")                               # and wait_stop measures from this resume)
+    assert m.wait_stop(60) == "breakpoint", "R did not start the replay"
+    r = m.regs()
+    assert ((r["cs"] << 4) + r["ip"]) & 0xFFFFF == wk.t0, "R's launch stopped somewhere but bz_t0"
+    g.check_base()
+    if g.b("bz_mode") != 2 or g.b("bz_crs") != R.CRS_K[s["crs"]] or g.b("bz_mat") != s["mat"]:
+        fails.append("%s: R launched mode %d on course %d with material %d, not the log's replay of %d with %d" % (
+            name, g.b("bz_mode"), g.b("bz_crs"), g.b("bz_mat"), R.CRS_K[s["crs"]], s["mat"]))
+    p = model(s["crs"], s["mat"], s["poke"])
+    if s["poke"]:
+        pk = s["poke"]
+        R.poke_ball(g, pk["gx"], pk["gy"], pk["gz"], pk["gvx"], pk["gvy"], pk["gvz"], air=pk["air"],
+                    ztop=pk["ztop"], lvl=pk["lvl"])
+    Wc, rl = g.w("bz_W"), R.RL[tag]
+    win = (g.w("bz_R0"), g.w("bz_c0"))
+    wk.arm()
+    frames, cuts = 0, []
+    while not fails:
+        k = wk.next()
+        if k == "t0":
+            win = (g.w("bz_R0"), g.w("bz_c0"))
+            if g.b("bz_goal") or not (g.b("bz_rn") or g.w("bz_rruns")):
+                break                           # the replay's end: this bz_t0 leaves the bracket
+            continue
+        if k != "pr":
+            continue
+        frames += 1
+        st, s2, ext = rd.read()
+        ev = advance(p, st[0], s["keys"])
+        bad = compare(name, frames, st, s2, ext, p)
+        if bad:
+            fails.append(bad)
+            break
+        cut_check(g, name, frames, ev, win, Wc, rl, cuts, fails)
+        if frames > len(s["keys"]) * 5 // 4 + 50:  # (0.911 steps a CGA frame: a runaway's bound)
+            fails.append("%s: the replay ran %d frames past its %d steps" % (name, frames, len(s["keys"])))
+    m.bp_exec()
+    m.run()
+    M.until(m, lambda _: g.b("bz_fs") == 0, "the %s replay to end" % name, guest=60)
+    dropped(g, name)
+    if not fails:
+        m.pause()
+        st, s2, ext = rd.read()
+        advance(p, st[0], s["keys"])
+        end = len(s["keys"]) if not p.goal else p.nstep
+        if st[0] != end:
+            fails.append("%s: the replay ended after step %d, its log holds %d%s" % (
+                name, st[0], len(s["keys"]), " (the goal at %d)" % p.nstep if p.goal else ""))
+        bad = compare(name + " (its end)", frames, st, s2, ext, p)
+        if bad:
+            fails.append(bad)
+        m.run()
+    kinds = [e[0] for e in p.events if e[0] != "corner"]
+    print("%s replay %s (%s, %s): %d frames to step %d, equal to the model at every bz_presented and at its end: "
+          "%s; events %s%s%s" % (tag, name, s["crs"], BB.MAT_NAMES[s["mat"]], frames, p.nstep,
+                                 "yes" if not fails else "NO", ", ".join(kinds) or "none",
+                                 "; cuts %s" % ["frame %d step %d on %s: want %s got %s" % c for c in cuts]
+                                 if cuts else "",
+                                 "; its red arm's model parts at step %d" % s["parts_at"] if s.get("parts_at") else ""),
+          flush=True)
+    return fails
+
+
+def run(tag, legs, apps=None, src=None, only=None):
     sym = R.symbols(src)
     fails, outs = [], {}
+    S = replays() if "replay" in legs else []
+    if only:
+        S = [s for s in S if s["name"] in only or s["name"].split("-")[0] in only]
+    pre = prove(S) + (prove_wave1()[0] if "scen" in legs or "bench" in legs else [])
+    if pre:
+        return pre, outs
     with os88ui.boot(R.at("build/os8088-360.img"), apps=apps or R.at("build/bonanza360.img"),
                      machine=R.MACHINE[tag]) as ui:
         ui.open_drive("B")
@@ -368,58 +763,110 @@ def run(tag, legs, apps=None, src=None):
         if "scen" in legs and not fails:         # (a benchmark that parted is still running)
             first = R.course("first")
             for name in SCEN:
+                if only and name not in only:
+                    continue
                 f, out = scenario(g, first, name)
                 fails += f
                 outs[name] = out
+        if "replay" in legs and not [f for f in fails if "benchmark" in f]:
+            for s in S:
+                fails += replay(g, s)
     return fails, outs
 
 
-SLOPE_X = ("    mov ax, bx                  ; gvx += arrows - BZ_GSL sx; the drag; the clamp\n"
-           "    shl ax, 1\n    shl ax, 1\n    neg ax\n")
-SLOPE_Y = "    mov ax, si                  ; gvy the same with sy\n    shl ax, 1\n    shl ax, 1\n    neg ax\n"
+SLOPE_X = ("    mov ax, [bz_tsx]            ; gvx += arrows - BZ_GSL sx; drag; brake; clamp\n"
+           "    shl ax, 1                   ; (C's slopes: bz_win9f's, 0 off a plane floor)\n"
+           "    shl ax, 1\n    neg ax\n")
+SLOPE_Y = "    mov ax, [bz_tsy]            ; gvy the same with sy\n    shl ax, 1\n    shl ax, 1\n    neg ax\n"
 REDS = {
     "slope": [("bzphys.inc", SLOPE_X, SLOPE_X.replace("    neg ax\n", "")),
               ("bzphys.inc", SLOPE_Y, SLOPE_Y.replace("    neg ax\n", ""))],
-    "respawn": [("bzphys.inc", ".respawn:\n    call bz_place\n",
-                 ".respawn:\n    mov di, [bz_goff]           ; RED respawn: on the start, not bz_safe\n"
+    "respawn": [("bzphys.inc", "    mov [bz_ghv], al\n    call bz_place\n",
+                 "    mov [bz_ghv], al\n    mov di, [bz_goff]           ; RED respawn: on the start, not bz_safe\n"
                  "    mov al, [es:di + BZG_WX]\n    mov ah, [es:di + BZG_WY]\n    mov [bz_safe], ax\n"
                  "    call bz_place\n")],
-    "takeoff": [("bzphys.inc", ".takeoff:\n    mov byte [bz_air], 1        ; TAKE OFF, keeping the floor's gvz\n",
-                 ".takeoff:\n    mov byte [bz_air], 1        ; TAKE OFF, keeping the floor's gvz\n"
-                 "    mov word [bz_gvz], 0        ; RED takeoff\n")],
+    "takeoff": [("bzphys.inc", ".takeoff:                       ; over no floor: no bz_gh (bz_ghv cleared)\n"
+                 "    call bz_toff\n",
+                 ".takeoff:                       ; over no floor: no bz_gh (bz_ghv cleared)\n"
+                 "    mov word [bz_gvz], 0        ; RED takeoff\n    call bz_toff\n"),
+                ("bzphys.inc", "    jle .launch\n    mov ax, bx                  ; z = h: the ball follows the floor\n",
+                 "    jg .redf\n    mov word [bz_gvz], 0        ; RED takeoff: off a falling floor too\n"
+                 "    jmp short .launch\n.redf:\n    mov ax, bx\n")],
+    "bounce": [("bzphys.inc", "    mov cl, [bz_se + 3]\n",
+                "    mov cl, [bz_mrec + BZM_EW]  ; RED bounce: the wall's restitution\n")],
+    "edge": [("bzphys.inc", "    cmp ax, (16 - BZ_RAD) * 256 ; east when pu > 2,560: a true distance under\n",
+              "    cmp ax, (16 - BZ_RAD) * 256 + 255 ; RED edge: wave 1's east test\n")],
+    "stun": [("bzphys.inc", ".hard:\n    or al, al\n    jz .soft\n",
+              ".hard:\n    or al, al\n    jz .soft\n    cmp al, BZ_ST_STUN          ; RED stun: none\n    je .soft\n")],
+    "shatter": [("bzphys.inc", "    mov dl, [bz_mrec + BZM_HSTEPS] ; velocity stopped, the state's steps\n"
+                 "    mov [bz_mct], dl\n",
+                 "    mov dl, [bz_mrec + BZM_HSTEPS] ; velocity stopped, the state's steps\n"
+                 "    mov [bz_mct], dl\n    cmp al, BZ_ST_SHAT          ; RED shatter: the respawn at once\n"
+                 "    jne .redsh\n    mov byte [bz_mct], 1\n.redsh:\n")],
+    "absimpact": [("bzphys.inc", "    mov di, ax\n    sub ax, [bz_gvz]            ; lvz = max(0, fr - gvz)\n",
+                   "    mov di, ax\n    xor ax, ax                  ; RED absimpact: lvz = -gvz\n"
+                   "    sub ax, [bz_gvz]\n")],
+    "airwall": [("bzphys.inc", "    add ax, BZ_CLIMB * 4        ; (+ 1,024 / 64)\n",
+                 "    cmp byte [bz_air], 0        ; RED airwall: no airborne margin\n    jne .redam\n"
+                 "    add ax, BZ_CLIMB * 4\n.redam:\n")],
 }
 RED_LEGS = {"slope": ("bench",), "respawn": ("scen",), "takeoff": ("scen",)}
-RED_WANT = {"slope": "benchmark", "respawn": "pit", "takeoff": "lip"}
+RED_ONLY = {"respawn": ("pit",), "takeoff": ("lip",), "bounce": ("bounce",), "edge": ("eastwall",),
+            "stun": ("stun",), "shatter": ("shatter",), "absimpact": ("ramphop",), "airwall": ("stepup",)}
+RED_WANT = {"slope": "the benchmark frame", "respawn": "pit", "takeoff": "lip", "bounce": "bounce frame",
+            "edge": "eastwall frame", "stun": "stun frame", "shatter": "shatter frame",
+            "absimpact": "ramphop-", "airwall": "stepup frame"}
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--adapter", choices=("cga", "herc", "both"), default="both")
-    ap.add_argument("--leg", choices=("bench", "scen", "both"), default="both")
+    ap.add_argument("--leg", choices=("bench", "scen", "replay", "all"), default="all")
+    ap.add_argument("--only", action="append", help="only these scenarios (and replays) by name")
     ap.add_argument("--red", choices=sorted(REDS))
+    ap.add_argument("--check", action="store_true",
+                    help="the host half only: the replays proved on the model, every red arm assembled")
     a = ap.parse_args()
+    if a.check:
+        S = replays()
+        bad = prove(S)
+        for s in S:
+            print("bonanza_phys replay %-16s %s, %s, %d steps: %s%s" % (
+                s["name"], s["crs"], BB.MAT_NAMES[s["mat"]], len(s["keys"]), s["what"],
+                "; red %s parts at step %s" % (s["red"], s.get("parts_at")) if s["red"] else ""))
+        b1, say = prove_wave1()
+        for line in say:
+            print("bonanza_phys %s" % line)
+        bad += b1
+        for b in bad:
+            print("FAIL %s" % b)
+        for line in R.check_reds(REDS, "bonanza_phys"):
+            print(line)
+        assert not bad, "%d scenario(s) not proved on the model" % len(bad)
+        return
     tags = ("cga", "herc") if a.adapter == "both" else (a.adapter,)
-    legs = ("bench", "scen") if a.leg == "both" else (a.leg,)
+    legs = ("bench", "scen", "replay") if a.leg == "all" else (a.leg,)
     if a.red:
         with tempfile.TemporaryDirectory() as td:
             src, img = R.build_tree(td, REDS[a.red])
             for tag in tags:
                 try:
-                    bad, _ = run(tag, RED_LEGS[a.red], apps=img, src=src)
+                    bad, _ = run(tag, RED_LEGS.get(a.red, ("replay",)), apps=img, src=src,
+                                 only=RED_ONLY.get(a.red))
                 except AssertionError as e:
                     bad = ["assertion: %s" % e]
                 for b in bad:
                     print("  red %s %s: %s" % (a.red, tag, b))
                 assert bad, "RED ARM %s on %s: the row stayed GREEN against a broken package" % (a.red, tag)
-                want = "the guest differs" if a.red == "slope" else RED_WANT[a.red]
-                assert any(want in b for b in bad), \
-                    "RED ARM %s on %s went red, but not at its own check (%r): %s" % (a.red, tag, want, bad)
+                assert any(RED_WANT[a.red] in b for b in bad), \
+                    "RED ARM %s on %s went red, but not at its own check (%r): %s" % (
+                        a.red, tag, RED_WANT[a.red], bad)
                 print("bonanza_phys --red %s (%s): went red as it must" % (a.red, tag), flush=True)
         print("bonanza_phys --red %s: PASS (the row fails against the broken package)" % a.red)
         return
     allbad, steps = [], {}
     for tag in tags:
-        bad, outs = run(tag, legs)
+        bad, outs = run(tag, legs, only=a.only)
         for b in bad:
             print("FAIL %s: %s" % (tag, b))
         allbad += bad

@@ -1,0 +1,64 @@
+# Bounce Trial - BONANZA's course 2 (SPEC.md 128.11.13): the course D4 is judged
+# on, built for the RUBBER ball.  Everything wave 2 adds is on it, each where
+# the route passes it:
+#  - a 6-unit drop off the start tier H onto a floor F four tiles deep, and
+#    beyond F a two-tile gap to a ledge G two units ABOVE F.  Only a bounce
+#    reaches G: rubber's (a fall of 6 units rebounds at 615, 3.7 units), never
+#    steel's (stunned on F: a fall of 2 units or more) nor glass's (shattered
+#    on F: 3 or more), and no Hop (4.5 px at most) climbs 2 units.  No up-ramp
+#    is within five tiles of the gap (SPEC.md 128.11.5.3);
+#  - a STEEP ramp (2 units a tile, r = -4) four tiles long, so a ball thrown
+#    off its crest at the cap lands on it, not on its foot;
+#  - ICE between BUMPER rails (walls with a bounce surface: 230/256 to every
+#    ball), then SAND before the goal;
+#  - a MAT (a bounce floor) off the route, beside the steep ramp, 8 units
+#    below its crest.
+# The gap runs TOWARD THE VIEWER (along +wx): the screen-row layout (the gap
+# along a cell row, 128.11.13's shadow row) was tried first and kept its flight
+# off every OCC cell, but the autopilot rolls a screen row on ONE arrow, and one
+# arrow's top speed (189 - 252 an axis, the round-up drag's dead band) is
+# under the 256 its bounce needs to carry the gap - so the route could not
+# cross.  This layout's airborne steps over OCC cells are counted instead
+# (`bbcourse.py --selfcheck` item 8).
+course TRIAL "Bounce Trial"
+width  64
+ball   rubber
+
+# H, the start tier, 6 units over F
+floor rect   4 10  9 13  flat 14
+# F, four tiles deep along the route; then the gap, wx 13 and 14
+floor rect   9 10 13 13  flat 8
+# G, the ledge two units above F, and its far rail
+floor rect  15 10 19 13  flat 10
+wall  rect  19 10 20 13  flat 10.5
+# the steep ramp down from G, along +wy, and its inner rail
+floor rect  16 13 19 17  ramp y 13 17 10 2
+wall  rect  15 13 16 17  flat 10.5
+# the turn at its foot, then the ice back along -wx between bumper rails
+floor rect  16 17 19 19  flat 2
+floor rect  11 17 16 19  flat 2
+surface ice    rect 11 17 16 19
+wall  rect  11 16 15 17  flat 2.5
+wall  rect   9 19 19 20  flat 2.5
+surface bounce rect 11 16 15 17
+surface bounce rect 11 19 19 20
+# sand before the goal
+floor rect   9 17 11 19  flat 2
+surface sand   rect  9 17 11 19
+goal  rect   8 17  9 19  flat 2
+# the mat, off the route beside the steep ramp
+floor rect  19 13 21 17  flat 2
+surface bounce rect 19 13 21 17
+
+start 5 11
+
+# The autopilot's route (the benchmark's TRIAL leg, SPEC.md 128.11.13): off
+# H's lip at speed, its bounces on F carry it over the gap onto G, down the
+# steep ramp, back along the ice and over the sand to the goal - no fall in
+# 1,289 steps (`bbcourse.py --selfcheck` item 8).
+way   5 11
+way  17 11
+way  17 15
+way  17 18
+way  13 18
+way   8 18

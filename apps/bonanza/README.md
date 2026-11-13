@@ -17,15 +17,22 @@ the ball, walls stop it and it slides along them, it flies off a lip and
 lands, a pit puts it back on the last safe tile, and the goal ends the play
 with its time on the face. There is no bounce, sound or scoring yet.
 
-Keys, on the desktop: Enter, F or Alt+Enter plays the small course "First
-Roll"; **B runs the benchmark** on its own course, "Proving Ground" (the
-autopilot drives the course's route for 1,200 frames, then the window shows
-the frames, the display rate, the refreshes missed and the worst frame, and
-the cost of each part of a frame; the benchmark always runs the GLIDE
-camera). **C cycles the camera mode** - GLIDE, FOLLOW, TRICKLE (SPEC.md
-128.9) - on the desktop, where the face names it, and while playing; the
-choice lasts until the package closes. Playing: the arrows roll the ball;
-Esc, F or Alt+Enter goes back to the desktop.
+Keys, on the desktop: Enter, F or Alt+Enter plays the selected course with
+the selected ball. **N cycles the course** ("First Roll", then "Bounce
+Trial"; each sets the ball to the course's own) and **M cycles the ball**
+(rubber, steel, glass); the face names both. **B runs the benchmark** on its
+own course, "Proving Ground", with that course's ball (the autopilot drives
+the course's route for 1,200 frames, then the window shows the frames, the
+display rate, the refreshes missed and the worst frame, and the cost of each
+part of a frame; the benchmark always runs the GLIDE camera). **C toggles
+the camera** between GLIDE and TRICKLE (SPEC.md 128.11.11.1) on the desktop,
+where the face names it, and while playing. C, M and N held down count as
+ONE press, and every choice lasts until the package closes. **R replays the
+last play** - the same steps, on either card - once one has been recorded
+(SPEC.md 128.11.12). After a play or a replay that reaches the goal the face
+shows its time and its falls, stuns and shatters. Playing: the arrows roll
+the ball, Space hops, Left Shift grips; Esc, F or Alt+Enter goes back to the
+desktop.
 
 Needs a CGA or a Hercules card (anything else is refused with the reason)
 and kern_big or kern_mega; the 128KB machine's kernel refuses it.
