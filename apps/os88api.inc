@@ -6471,6 +6471,31 @@ OSAPI_FT_UP   equ 3             ; the synthesized '..' (SPEC.md 19.5)
                                  ; kept. The mouse-look call: the first answer
                                  ; after entry is the desktop's, so discard it.
                                  ; kern_small REFUSES: CF = 1, AX = 1
+%define OSAPI_KEY_MAP       KERNEL_SEG:0x0239   ; THE WHOLE KEY-STATE MAP
+                                 ; (SPEC.md 9.7.3): DS:DI = KEYMAP_BYTES of
+                                 ; yours, filled with OSAPI_KEY_DOWN's map -
+                                 ; bit (s & 7) of byte (s >> 3) set while make
+                                 ; scancode s is held. CF = 0, every register
+                                 ; kept (not the other flags). ONE far call for
+                                 ; every key a frame asks about, where
+                                 ; OSAPI_KEY_DOWN is one EACH (~540 clk on the
+                                 ; 8088; this is ~650 for all of them). It
+                                 ; ARMS the map as OSAPI_KEY_DOWN does, and the
+                                 ; first answer is all up: ask once at entry.
+                                 ; Every kernel, kern_small and a FSXF_REAL
+                                 ; bracket included
+KEYMAP_BYTES equ 16              ; ...its size: 128 bits, one per make code
+
+; --- KEYMAP_TEST map, scancode - "is it held?" against your own copy ---------
+; ZF = 0 held. One `test` - no call, no register - so a frame's keys are one
+; OSAPI_KEY_MAP and then this once per key:
+;     mov di, my_map
+;     call OSAPI_KEY_MAP
+;     KEYMAP_TEST my_map, KSC_LEFT
+;     jnz .left_held
+%macro KEYMAP_TEST 2
+    test byte [%1 + ((%2) >> 3)], 1 << ((%2) & 7)
+%endmacro
 
 ; --- the two cells a PACKAGE may not call (SPEC.md 19.6.1) --------------------
 ; It is published here because a DRIVER assembles against this same SDK, and

@@ -17372,6 +17372,8 @@ So `kbd_track`, called from `kbm_isr`, keeps one bit per key in a 16-byte map,
 and **`kbd_down` (slot 0x016A)** reads it: `AL` = a make scancode, `CF = 1`
 down. It takes no lock, touches no port and reads no VRAM, so it is legal from
 a **worker task** — which is where a game loop that needs it actually runs.
+A loop asking about several keys a frame takes the whole map in one call
+instead, `OSAPI_KEY_MAP` (§9.7.3), under the same rules.
 
 Five things are load-bearing:
 
@@ -17715,6 +17717,90 @@ the ROM's `retf 2` rejection, the int 09h fallback, a live desktop, advancing
 timer ticks and a responsive serial mouse. The kernel before the FLAGS
 save/restore freezes on a black screen with `ticks = 2`. The repair adds
 two boot-overlay bytes and no resident bytes.
+
+#### 9.7.3 The whole map in one call — `OSAPI_KEY_MAP` (0x0239)
+
+`kbd_down` answers ONE key a far call, and a game asks about many keys every
+frame: **113 µs (~540 clk) a call** on the 8088 (§97's table, measured), so
+WireArena's nine keys were ~1 ms of every frame and its watch-list workaround
+(ask only the keys that could have changed) still ~2,000 clk. PIXELSTEIN 3D asks
+eleven, SKIES and TANK eight, and the C64's keyboard scan up to twenty. The
+fact they all want is one 16-byte map the ISR already keeps, so the kernel
+hands over the whole of it in one call (the owner, 2026-11-13: *"That seems
+like something that would be useful for all games."*).
+
+| cell | in | out |
+|---|---|---|
+| `OSAPI_KEY_MAP` (0x0239) | `DS:DI` = 16 bytes of the caller's | the 16 bytes = the map: **bit `s & 7` of byte `s >> 3` is set while make scancode `s` is held**; `CF = 0`; every register kept. The other flags are not |
+
+So "is Left held" is one instruction against the caller's own copy,
+`test byte [map + (KSC_LEFT >> 3)], 1 << (KSC_LEFT & 7)`, and every key a
+frame reads costs one call between them.
+
+**Everything §9.7 says of the map holds of the copy**, because it IS the map
+at one instant: 128 bits, one per set-1 make code; E0/E1 skipped, so grey Up
+and keypad Up are one bit; advice and not an oracle (a lost break code reads
+held until the key is pressed again). **The call ARMS the map as `kbd_down`
+does** — through `kbd_down` itself, so there is one arm — and the first answer
+after arming is all zeros. Ask once in the entry proc and discard it, exactly
+as for `OSAPI_KEY_DOWN`; either call arms for both.
+
+The decisions, and what each cost:
+
+- **A copy, not a pointer.** A far pointer to `kbd_dnmap` would be cheaper on
+  the 8088 — the far call (~220 clk) and a handful of instructions, against
+  ~650 for the copy — but the word it hands back is a DIFFERENT word in each
+  of the places a game runs: `KERNEL_SEG` on the real-mode kernels, the data
+  selector on kern_mega, and `KERNEL_SEG` again inside a `FSXF_REAL` bracket
+  (§53.2.3), so a pointer fetched before a bracket is wrong inside it. And it
+  is writable kernel state: a package's stray store through it is a key the
+  ISR believes is held. The copy goes to the caller's own `DS`, which is right
+  in all three — the cell runs its own `KDS` — and the ~430 clk the pointer
+  would save is under 0.2% of a 19 fps frame.
+- **`DS:DI`, not `ES:DI`.** A package's `ES` is the kernel's in every callback
+  (§20) and a frame loop usually has it on a framebuffer, while `DS` is
+  already the package's: no segment load at the call site. The body makes
+  its own `ES` from it. A C caller passes a pointer to a `static` buffer,
+  which is `DS`-relative by §73's rules.
+- **No `cli`.** One IRQ1 changes one bit of one byte, and `rep movsw` reads
+  each byte whole, so a key landing mid-copy is either in the snapshot or
+  not: every copy is a state the map really held. (`rep movsw` with no
+  segment override is also safe to interrupt on the 8088.)
+- **Every kernel has it, kern_small included** — unlike `OSAPI_MOUSE_REL`
+  (§9.14), and decided by the bytes rather than by that precedent. The full
+  body is 32 bytes; a refusal is 6, so gating would save kern_small **26
+  bytes** — and would cost every adopter a second path (the per-key loop it
+  was replacing) in its own image, on the machine where a frame's cycles are
+  dearest. Measured from the maps against the parent commit at one build
+  number:
+
+  | kernel | `.text` | `.bss` | other |
+  |---|---|---|---|
+  | kern_big | **+34** (the 32-byte body, the 3-byte cell, and §20.3's parity pad OUT again: the table is even with both `MOUSE_REL`'s cell and this one) | +0 | — |
+  | kern_emu | +34 | +0 | — |
+  | kern_small | +34 | +0 | — |
+  | kern_mega | +38 (`KDS` is `mov ds, [cs:k_dsel]`, 5 bytes) | +0 | `.mega` +6: `fsx_rkeep`'s row, above 1MB |
+
+  The body reads `[kbd_armed]` as `[si - 1]` — the flag is the byte below the
+  map, asserted at the definition — which is a byte shorter than naming it
+  and keeps the body EVEN (32), so every hot routine after it keeps its
+  parity (`tests/unit/t_hotpar.py`) with no pad.
+- **Inside a `FSXF_REAL` bracket on kern_mega it answers live**: the cell is
+  in `fsx_rkeep` (§53.2.3) and its body is `.text`, whose `KDS` reads the
+  real segment `fsx` puts in `[k_dsel]` for the bracket.
+
+**The price on the 8088**, predicted from the instruction table and the
+measured far call rather than measured: the far call, five register saves and
+restores, the segment shuffle and `rep movsw` over eight words come to
+~650 clk (~140 µs) — about one `kbd_down` and a quarter, for every key at once.
+A caller that asks three keys a frame or more is ahead; WireArena's nine
+(apps/wirearena, the adopting commit) are the worked example.
+
+`tests/keymap.py` (`soak -k keymap`) is the gate: it runs each built kernel's
+OWN bytes under Unicorn — the cell, `kbd_track` (the ISR's writer) and
+`kbd_down` — and asserts the arm, the bit layout through E0-prefixed keys,
+every register and `CF = 0`, and that the copy agrees with `kbd_down` on all
+128 scancodes; on kern_mega it also reads `fsx_rkeep` for the cell's row.
 
 ### 9.8 The overrun guard — a full BIOS buffer is a HANG, not a beep
 
@@ -111608,8 +111694,8 @@ for the exit (a tone is not the bracket's: the speaker is the door's).
     (`OSAPI_GET_TICKS`, `OSAPI_SET_COLOR`; `OSAPI_CPU_INFO`, which answers
     without `CPU_F_PM` inside), `OSAPI_FSX_MODE`, `OSAPI_FSX_SURF`,
     `OSAPI_FSX_PAGE`, `OSAPI_VIDEO`, `OSAPI_FONT_GLYPHS`, `OSAPI_KEY_DOWN`,
-    `OSAPI_SND_CAPS`, `OSAPI_WM_CONTENT` and `OSAPI_WM_WAKE`
-    (MEGA-VIDEO-REALMODE-PLAN 7.2);
+    `OSAPI_KEY_MAP` (§9.7.3), `OSAPI_SND_CAPS`, `OSAPI_WM_CONTENT` and
+    `OSAPI_WM_WAKE` (MEGA-VIDEO-REALMODE-PLAN 7.2);
   * **as it is, with a real-mode arm** of a few bytes: `OSAPI_FSX_WAIT`,
     whose `FSXW_FRAME` waits on `hlt` (there is no scheduler to yield to),
     and `OSAPI_MOUSE`, which answers the pointer's words and does not run
@@ -176954,8 +177040,8 @@ image carrying data spells `CD 81 FF` by chance.
 of the last release** (the rule the PKG_FMT 10 rows were cut by: two
 releases shared that format and both Wires were level 2, so one byte had to
 hold both back, and the older table decided).
-`WIRE_TABLE_END` (0x0239, the flag day's `osapi_table_end` with `OSAPI_FILE_FIND_SEQ` (§19.7.1.1) and
-`OSAPI_MOUSE_REL` (§9.14) appended before any kernel at `PKG_FMT` 13 was released - a cell added to an UNRELEASED generation moves the
+`WIRE_TABLE_END` (0x023C, the flag day's `osapi_table_end` with `OSAPI_FILE_FIND_SEQ` (§19.7.1.1),
+`OSAPI_MOUSE_REL` (§9.14) and `OSAPI_KEY_MAP` (§9.7.3) appended before any kernel at `PKG_FMT` 13 was released - a cell added to an UNRELEASED generation moves the
 end and cuts no row) is the end of the table the TOP level's kernel
 has. **A call at or past `WIRE_TABLE_END` is refused** by `--verify
 --pkgdir`, because no Wire in the field can be told about it: the release

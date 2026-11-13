@@ -1,6 +1,6 @@
 {
  "DRV_VER": {
-  "fingerprint": "bf6b72cae0b03bb4ad4d88c44711c8b7ab8ef677600c15a19197572054096893",
+  "fingerprint": "7a16cbe6c853f024bd048d4c4e8e55f62c3f6189ec20a9afb2cc2a8773419b4c",
   "version": 14
  },
  "HD_ABI_VER": {
@@ -8,7 +8,7 @@
   "version": 7
  },
  "PKG_FMT": {
-  "fingerprint": "ebd169085996987ee10e2ddd7c6072a0b711b546ca3e420e17fc3dbea8ffc201",
+  "fingerprint": "a4a157e5a466e74bdee722c122551a280041236b9d4b39d6f3d1a17fc34c0187",
   "version": 13
  },
  "VX_ABI_VER": {
@@ -2280,6 +2280,20 @@
    "from": 14,
    "guard": "DRV_VER",
    "reason": "OSAPI_MOUSE_REL's contract now says kern_small refuses it (CF = 1, AX = 1): the owner gated the accumulator off that kernel's budget. The cell is where it was on every kernel, so nothing built before changes and PKG_FMT stays 13.",
+   "to": 14
+  },
+  {
+   "fingerprint": "a4a157e5a466e74bdee722c122551a280041236b9d4b39d6f3d1a17fc34c0187",
+   "from": 13,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_KEY_MAP (SPEC.md 9.7.3): a jump cell APPENDED at 0x0239 that copies the whole key-state map to DS:DI, with KEYMAP_BYTES/KEYMAP_TEST in the SDK and os88_key_map/OS88_KEYMAP_* in the C SDK. Nothing built before it moves or changes meaning, and no kernel at PKG_FMT 13 has been released, so no bump.",
+   "to": 13
+  },
+  {
+   "fingerprint": "7a16cbe6c853f024bd048d4c4e8e55f62c3f6189ec20a9afb2cc2a8773419b4c",
+   "from": 14,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_KEY_MAP (SPEC.md 9.7.3): a jump cell APPENDED at 0x0239 that copies the whole key-state map to DS:DI, with KEYMAP_BYTES/KEYMAP_TEST in the SDK and os88_key_map/OS88_KEYMAP_* in the C SDK. Nothing built before it moves or changes meaning, and no kernel at PKG_FMT 13 has been released, so no bump.",
    "to": 14
   }
  ]

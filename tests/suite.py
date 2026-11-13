@@ -8510,6 +8510,22 @@ SOAK = [
         "4 (an 8042); MartyPC's 8255 keeps the peek. 8s is 5.1 measured",
         needs=("qemu",), serial=True,
         wants=("build/os8088.img", "build/apps.img")),
+    Row("keymap", "soak", py("tests/keymap.py"), 1.0,
+        "OSAPI_KEY_MAP (0x0239) COPIES THE WHOLE KEY-STATE MAP (SPEC.md 9.7.3). "
+        "Each built kernel's own bytes under Unicorn - the jump cell, kbd_track "
+        "(the int 09h writer) and the kbd_down slot: the cell jumps to the body "
+        "and the table ends at 0x023C; with the map unarmed and poisoned one "
+        "call ARMS it and answers 16 zero bytes; scancodes fed through "
+        "kbd_track (makes, breaks, E0-prefixed grey keys on the keypad bits) "
+        "copy out as bit s&7 of byte s>>3 into an odd offset of a foreign DS, "
+        "sentinels untouched, CF = 0, every register kept; kbd_down agrees "
+        "with the copy on all 128 make codes; on kern_mega fsx_rkeep keeps the "
+        "cell for a FSXF_REAL bracket. kern_big required; smallk, megak and "
+        "emuk when built. A negative control patches the copy one word short "
+        "and must see it. RED with the arm's `call kbd_down` dropped (the "
+        "poison comes back) and with fsx_rkeep's row taken out. 1s is 0.3 "
+        "measured",
+        needs=("unicorn",), wants=("build/kernel.map",)),
     Row("kdkbd", "soak", py("tests/kdkbd.py"), 50.0,
         "KERN_DOS KEEPS THE BIOS KEY BUFFER OFF FULL (SPEC.md 96.50). "
         "Reported off an 86Box 386: hold a direction key in Prince of Persia "
