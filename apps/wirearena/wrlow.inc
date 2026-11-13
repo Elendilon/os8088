@@ -59,6 +59,7 @@ WA_VAR wl_topb, 1               ; the faces' top bits
 WA_VAR wl_need, 1               ; the corners projected: bits
 WA_VAR wl_fneed, 1              ; ...of them, those with a floor row
 WA_VAR wl_m, 1                  ; a mask being walked
+WA_VAR wl_pm, 1                 ; ...and the faces given a pass
 WA_VAR wl_c, 4*WL_REC           ; its corners (WL_*)
 WA_VAR wl_fn, 2                 ; the floor's pair (made in the frame
 WA_VAR wl_fs, 1                 ; wl_ffr)
@@ -171,6 +172,38 @@ wl_bit:     db 1, 2, 4, 8, 1
 %%div:
     call wl_iz.div
     jmp short %%iz
+%%n:
+%endmacro
+
+; WLPOST, WLPASS2, WLPASS3 %1 = a face: wa_lowbox's three walks over the
+; faces, one face each (r5): its posts; its seen pass, with the floor edge
+; where [wl_m] has its bit; its far top's pass. [wl_pm] the faces given a
+; pass
+%macro WLPOST 1
+    test byte [wl_front], 1 << %1
+    jz %%n
+    mov bx, %1
+    call wl_post0
+    test byte [wl_seen], 1 << ((%1 + 1) & 3)
+    jnz %%n
+    call wl_post1
+%%n:
+%endmacro
+%macro WLPASS2 1
+    test byte [wl_pm], 1 << %1
+    jz %%n
+    mov al, [wl_m]
+    and al, 1 << %1
+    mov [wl_two], al
+    mov bx, %1
+    call wl_face
+%%n:
+%endmacro
+%macro WLPASS3 1
+    test byte [wl_pm], 1 << %1
+    jz %%n
+    mov bx, %1
+    call wl_face
 %%n:
 %endmacro
 
@@ -341,50 +374,36 @@ wa_lowbox:
     ret
 %endif
     ; 1. POSTS, against the clip as it stood: a drawn face's start corner,
-    ; and its end where the next face round is not seen (wa_boxf's rule)
-    mov al, [wl_front]          ; (each loop walks its faces' bits, and
-    mov [wl_m], al              ; stops after the last)
-    xor bx, bx
-.p1:
-    shr byte [wl_m], 1
-    jnc .p1n
-    call wl_post0
-    mov al, [wl_bit+bx+1]
-    test al, [wl_seen]
-    jnz .p1n
-    call wl_post1
-.p1n:
-    inc bx
-    cmp byte [wl_m], 0
-    jne .p1
+    ; and its end where the next face round is not seen (wa_boxf's rule).
+    ; (r5: each of the three walks over the faces unrolled, its masks made
+    ; once)
+    WLPOST 0
+    WLPOST 1
+    WLPOST 2
+    WLPOST 3
 .p1d:
     ; 2. THE SEEN FACES, a pass each: the floor edge, then the top raising
     ; the clip - and a seen face hidden against a taller neighbour still
-    ; shows its top's crease where its top bit says
-    mov al, [wl_seen]
+    ; shows its top's crease where its top bit says. A ramp's low face is
+    ; its one edge
+    mov al, [wl_front]
+    mov ah, al
+    not ah
+    and ah, [wl_topb]           ; AH = the seen faces' top creases...
+    mov dl, [wl_lom]
+    and dl, al
+    or ah, dl                   ; ...and a ramp's low face: one edge each
+    not dl
+    and al, dl                  ; AL = the faces drawn with a floor edge
+    and al, [wl_seen]
+    and ah, [wl_seen]
     mov [wl_m], al
-    xor bx, bx
-.p2:
-    shr byte [wl_m], 1
-    jnc .p2n
-    mov al, [wl_bit+bx]
-    mov byte [wl_two], 1
-    test al, [wl_front]
-    jz .p2top
-    test al, [wl_lom]           ; (a ramp's low face: its one edge)
-    jz .p2c
-    jmp .p2t
-.p2top:
-    test al, [wl_topb]
-    jz .p2n
-.p2t:
-    mov byte [wl_two], 0
-.p2c:
-    call wl_face
-.p2n:
-    inc bx
-    cmp byte [wl_m], 0
-    jne .p2
+    or ah, al
+    mov [wl_pm], ah             ; the seen faces given a pass
+    WLPASS2 0
+    WLPASS2 1
+    WLPASS2 2
+    WLPASS2 3
     ; (a flight seen from its low end: its inner treads are nearer than the
     ; far side of its top, and the depth stack keeps its entries in order)
     call wl_lowseen
@@ -401,17 +420,12 @@ wa_lowbox:
     mov al, [wl_seen]           ; (the faces not seen whose tops are drawn)
     not al
     and al, [wl_topb]
-    mov [wl_m], al
-    xor bx, bx
-.p3:
-    shr byte [wl_m], 1
-    jnc .p3n
+    mov [wl_pm], al
     mov byte [wl_two], 0
-    call wl_face
-.p3n:
-    inc bx
-    cmp byte [wl_m], 0
-    jne .p3
+    WLPASS3 0
+    WLPASS3 1
+    WLPASS3 2
+    WLPASS3 3
 .p3d:
     ; 4. A FLIGHT'S INNER TREADS, seen from anywhere but its low end
     test byte [wl_kind], 3
