@@ -580,7 +580,6 @@ wa_order:
     inc ax
     mov [wa_rx0], ax
     mov [wa_ry0], ax
-    mov word [wa_pvp], wa_pvall
     mov cl, [wa_pvsh]
     or cl, cl
     jz .walk
@@ -632,9 +631,11 @@ wa_order:
     mov al, [bx]
     cmp al, 2
     jne .split
-    mov al, [bx+1]              ; a leaf: onto the list, if its box is in
-    mov cl, 6                   ; the cell's PVS (box x 8: its byte x 64,
-    shr al, cl                  ; its bit x 8)
+    cmp byte [wa_pvsh], 0       ; a leaf: onto the list - with a PVS, if
+    je .take                    ; its box is in the cell's (box x 8: its
+    mov al, [bx+1]              ; byte x 64, its bit x 8)
+    mov cl, 6
+    shr al, cl
     cbw
     mov si, ax
     add si, [wa_pvp]
@@ -647,6 +648,7 @@ wa_order:
     shl al, cl
     test [si], al
     jz .out
+.take:
     mov ax, bx
     stosw
 .out:
@@ -682,7 +684,6 @@ wa_order:
 
 ; wa_leaf - BX = a leaf of the box tree: its box, unless the view cone
 ; drops it.
-wa_pvall:   db 255, 255, 255, 255 ; (no PVS: every box, wa_order)
 wa_lret:    ret                 ; (the cone tests' short way out)
 %macro LEAFBODY 1               ; %1 = 1: heights (tall or low)
     ; THE VIEW CONE: a box wholly right of x = z, left of x = -z or behind
