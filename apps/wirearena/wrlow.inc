@@ -275,11 +275,12 @@ wa_lowbox:
 .posts:
     ; 1. POSTS, against the clip as it stood: a drawn face's start corner,
     ; and its end where the next face round is not seen (wa_boxf's rule)
+    mov al, [wl_front]          ; (each loop walks its faces' bits, and
+    mov [wl_m], al              ; stops after the last)
     xor bx, bx
 .p1:
-    mov al, [wl_bit+bx]
-    test al, [wl_front]
-    jz .p1n
+    shr byte [wl_m], 1
+    jnc .p1n
     call wl_post0
     mov al, [wl_bit+bx+1]
     test al, [wl_seen]
@@ -287,16 +288,18 @@ wa_lowbox:
     call wl_post1
 .p1n:
     inc bx
-    cmp bx, 4
-    jb .p1
+    cmp byte [wl_m], 0
+    jne .p1
     ; 2. THE SEEN FACES, a pass each: the floor edge, then the top raising
     ; the clip - and a seen face hidden against a taller neighbour still
     ; shows its top's crease where its top bit says
+    mov al, [wl_seen]
+    mov [wl_m], al
     xor bx, bx
 .p2:
+    shr byte [wl_m], 1
+    jnc .p2n
     mov al, [wl_bit+bx]
-    test al, [wl_seen]
-    jz .p2n
     mov byte [wl_two], 1
     test al, [wl_front]
     jnz .p2f
@@ -307,8 +310,8 @@ wa_lowbox:
     call wl_face
 .p2n:
     inc bx
-    cmp bx, 4
-    jb .p2
+    cmp byte [wl_m], 0
+    jne .p2
     ; (a flight seen from its low end: its inner treads are nearer than the
     ; far side of its top, and the depth stack keeps its entries in order)
     call wl_lowseen
@@ -319,19 +322,20 @@ wa_lowbox:
     mov ax, [wa_eye]
     cmp ax, [wl_h]
     jle .p3d
+    mov al, [wl_seen]           ; (the faces not seen whose tops are drawn)
+    not al
+    and al, [wl_topb]
+    mov [wl_m], al
     xor bx, bx
 .p3:
-    mov al, [wl_bit+bx]
-    test al, [wl_seen]
-    jnz .p3n
-    test al, [wl_topb]
-    jz .p3n
+    shr byte [wl_m], 1
+    jnc .p3n
     mov byte [wl_two], 0
     call wl_face
 .p3n:
     inc bx
-    cmp bx, 4
-    jb .p3
+    cmp byte [wl_m], 0
+    jne .p3
 .p3d:
     ; 4. A FLIGHT'S INNER TREADS, seen from anywhere but its low end
     test byte [wl_kind], 3
@@ -659,6 +663,7 @@ wl_row:
 wl_xedge:
     call wa_clip
     jc .out
+.in:                            ; (both ends inside already: wl_treads)
     mov di, wl_e1c
     mov ax, [wa_x1]
     mov bx, [wa_z1]
@@ -1052,8 +1057,15 @@ wl_treads:
     neg word [wl_dxb]
     neg word [wl_dzb]
 .t:
-    mov ax, [wl_th]             ; its height's pair, both ends
+    mov ax, [wl_th]             ; its height's pair, both ends (the top
+    cmp ax, [wl_h]              ; tread's the box's)
+    jne .th
+    mov ax, [wl_hn]
+    mov bl, [wl_hs]
+    jmp .tp
+.th:
     call wa_hnum
+.tp:
     mov [wl_n1], ax
     mov [wl_n2], ax
     mov [wl_s1], bl
@@ -1064,7 +1076,32 @@ wl_treads:
     movsw
     movsw
     movsw
+    mov cl, 3                   ; both ends inside the near plane and the
+    mov ax, [wl_tz1]            ; guard band (wa_clip's tests): no cut to
+    cmp ax, WA_NEAR             ; make
+    jl .clip
+    shl ax, cl
+    mov dx, [wl_tx1]
+    cmp dx, ax
+    jg .clip
+    neg ax
+    cmp dx, ax
+    jl .clip
+    mov ax, [wl_tz2]
+    cmp ax, WA_NEAR
+    jl .clip
+    shl ax, cl
+    mov dx, [wl_tx2]
+    cmp dx, ax
+    jg .clip
+    neg ax
+    cmp dx, ax
+    jl .clip
+    call wl_xedge.in
+    jmp .next
+.clip:
     call wl_xedge
+.next:
     mov ax, [wl_hst]            ; the next
     add [wl_th], ax
     mov ax, [wl_dxa]
