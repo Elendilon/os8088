@@ -508,10 +508,20 @@ wa_frame_input:
     jmp .drain
 .bb:
     cmp ah, 0x30                ; B: the bench
-    jne .drain
+    jne .bp
     call wa_bench
     jmp .drain
+.bp:
+    cmp ah, 0x19                ; P: the PLAY bench
+    jne .drain
+    call wa_pbstart
+    jmp .drain
 .typed:
+    cmp byte [wa_pbon], 0
+    je .live
+    call OSAPI_MOUSE_REL        ; (the hand's motion is not the test's)
+    jmp wa_pbview
+.live:
     call OSAPI_MOUSE_REL
     jc .nomouse                 ; kern_small refuses: keys only
     mov bl, al                  ; the buttons
@@ -595,6 +605,11 @@ wa_tick:
     mov [wa_kfr], al
     call wa_keys
 .polled:
+    cmp byte [wa_pbon], 0
+    je .live
+    inc word [wa_pbtk]           ; the play bench: its clock, and no keys
+    mov word [wa_kbits], 0
+.live:
     mov dx, [wa_kbits]
     test dl, WA_K_LEFT
     jz .r
@@ -1041,10 +1056,181 @@ wa_bench:
     mov byte [wa_benched], 1
     ret
 
+; --- the PLAY bench (P) --------------------------------------------------------
+; What play costs, not what a spin costs (the owner, 2026-11-13: "the higher
+; framerates of the benchmark come from spinning ... or from having the
+; characters static"). A fixed pose in the full arena - mid-room, not in a
+; corner - the dummies RUNNING their patrols from offsets chosen on the host so
+; two or more are in view the whole time (tools-side search over the patrols:
+; two or more at every sample of the run, three at a fifth of them), and the
+; view moved in a moderate CIRCLE, yaw and pitch together, the way a hand
+; circling the mouse moves it - driven by the sim's clock, so it moves at the
+; same speed whatever the frame rate. 8 s; the HUD then holds the run's
+; averages, marked P, until a key. It runs on any machine the game does: the
+; 5150, 86Box, MartyPC alike.
+WA_PB_X     equ 224
+WA_PB_Y     equ 800
+WA_PB_A     equ 32              ; a little north of east, across the room
+WA_PBT      equ 240             ; ticks: 8 s
+WA_PB_YAW   equ 17 * 64         ; the circle: +-6 degrees of yaw (ang16)...
+WA_PB_PIT   equ 16              ; ...+-2 rows of pitch (quarter half-rows)
+WA_PB_STEP  equ 23              ; ...once round every ~1.5 s (1024 / 45)
+wa_pbstart:
+    mov word [wa_px], WA_PB_X
+    mov word [wa_py], WA_PB_Y
+    xor ax, ax
+    mov [wa_pxf], ax
+    mov [wa_pyf], ax
+    mov [wa_jz], ax
+    mov [wa_jv], ax
+    mov [wa_pitch], ax
+    mov [wa_pbtk], ax
+    mov [wa_pbfr], ax
+    mov word [wa_eye], WA_EYE
+    mov word [wa_ang], WA_PB_A << 6
+    mov di, wa_figs             ; the dummies from their starts, then on to
+    mov si, wa_pbph             ; the bench's points along their patrols
+    mov cx, WA_NFIG
+.fig:
+    push cx
+    call wa_spawn
+    lodsw
+    mov cx, ax
+    jcxz .placed
+.walk:
+    push cx
+    push si
+    call wa_figtick
+    pop si
+    pop cx
+    loop .walk
+.placed:
+    pop cx
+    add di, F_SIZE
+    loop .fig
+    xor ax, ax                  ; the sums, from here
+    mov [wa_tfr], ax
+    mov [wa_tfr+2], ax
+    mov [wa_trn], ax
+    mov [wa_trn+2], ax
+    mov [wa_tpr], ax
+    mov [wa_tpr+2], ax
+    mov [wa_ncells], ax
+    mov [wa_ncells+2], ax
+    mov [wa_acc], ax            ; and no sim debt carried in
+    mov [wa_acc+2], ax
+    mov byte [wa_hold], 0
+    mov byte [wa_pbon], 1
+    mov si, wa_hudtpl           ; the HUD's numbers cleared while it runs,
+    call wa_hudfix              ; so the screen shows only the run's result
+    mov al, 'P'
+    mov di, 32
+    call wa_putc
+    ret
+wa_pbph:    dw 160, 64, 80      ; ticks along each patrol (the host search)
+
+; wa_pbview - the circle: yaw and pitch at the play bench's clock
+wa_pbview:
+    mov ax, [wa_pbtk]
+    mov cx, WA_PB_STEP
+    mul cx
+    call wa_sincos              ; AX = sin, DX = cos (Q14)
+    push ax
+    mov ax, dx
+    mov cx, WA_PB_YAW
+    imul cx
+    shl ax, 1
+    rcl dx, 1
+    shl ax, 1
+    rcl dx, 1
+    add dx, WA_PB_A << 6
+    mov [wa_ang], dx
+    pop ax
+    mov cx, WA_PB_PIT
+    imul cx
+    shl ax, 1
+    rcl dx, 1
+    shl ax, 1
+    rcl dx, 1
+    mov [wa_pitch], dx
+    ret
+
+; wa_pbmeter - each frame of the play bench: sum it; at its end, the averages
+; over every frame of the run into the HUD, marked P, and the meter held
+wa_pbmeter:
+    mov ax, [wa_nwr]
+    add [wa_ncells], ax
+    adc word [wa_ncells+2], 0
+    inc word [wa_pbfr]
+    cmp word [wa_pbtk], WA_PBT
+    jae .done
+    ret
+.done:
+    mov byte [wa_pbon], 0
+    mov cx, [wa_pbfr]
+    mov si, wa_tfr
+    call wa_avgn                ; AX = ms x 10 a frame
+    push ax
+    mov bx, ax
+    mov ax, 0x86A0              ; 100,000 / ms10 = fps x 10
+    mov dx, 1
+    cmp bx, 2
+    jae .div
+    mov bx, 2
+.div:
+    div bx
+    mov di, 4
+    call wa_put10
+    pop ax
+    mov di, 12
+    call wa_put10
+    mov cx, [wa_pbfr]
+    mov si, wa_trn
+    call wa_avgn
+    mov di, 19
+    call wa_put10
+    mov cx, [wa_pbfr]
+    mov si, wa_tpr
+    call wa_avgn
+    mov di, 26
+    call wa_put10
+    mov ax, [wa_ncells]
+    mov dx, [wa_ncells+2]
+    div word [wa_pbfr]
+    mov di, 33
+    mov cx, 3
+    call wa_putn
+    mov al, 'P'
+    mov di, 32
+    call wa_putc
+    mov byte [wa_hold], 1
+    xor ax, ax
+    mov [wa_nfr], ax
+    ret
+
+; wa_avgn - SI -> a 32-bit sum of 838 ns counts, CX = frames: AX = the
+; average a frame in tenths of a ms (sum x 549 / 65536 / frames, 32-bit)
+wa_avgn:
+    mov ax, [si]
+    mov bx, 549
+    mul bx
+    push dx
+    mov ax, [si+2]
+    mul bx
+    pop bx
+    add ax, bx
+    adc dx, 0
+    div cx
+    ret
+
 ; --- the meter ------------------------------------------------------------
 ; Every 16 frames: average frame, render and present times, and cells
 ; written, into the HUD row.
 wa_meter:
+    cmp byte [wa_pbon], 0
+    je .norm
+    jmp wa_pbmeter
+.norm:
     mov ax, [wa_nwr]            ; video writes this frame
     add [wa_ncells], ax
     adc word [wa_ncells+2], 0
@@ -1268,7 +1454,7 @@ wa_help:
     db 'or Ctrl fires; Tab: 80/40; V: vsync;', 0
     db 'B: bench. L: walls full/sparse. F: view', 0
     db '90/75/60. H: hold far edges. G: floor', 0
-    db 'grid. Esc leaves. HUD tail: view H F G.', 0
+    db 'grid. P: play bench (8 s). Esc leaves.', 0
     db 'HUD: fps, frame, render, present ms,', 0
     db 'video writes a frame.', 0
     db 0
@@ -1368,6 +1554,9 @@ WA_VAR wa_bang,2
 WA_VAR wa_nbench,2
 WA_VAR wa_benched,1
 WA_VAR wa_benchm,1
+WA_VAR wa_pbon,1
+WA_VAR wa_pbtk,2
+WA_VAR wa_pbfr,2
 WA_VAR wa_hold,1
 WA_VAR wa_rowoff,(WA_ROWS+1)*2
 WA_VAR wa_rowo2,(WA_ROWS+1)*2

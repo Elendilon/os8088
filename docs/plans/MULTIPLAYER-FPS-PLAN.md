@@ -1115,3 +1115,47 @@ and 36.8 KB of BSS, 58.6 KB of the 63.5 KB a package may have.
 
 The renderer is near the 8088's fetch floor for this design. A further step
 would need a change of design, not tuning.
+
+### 16.7 A play bench — the `P` key
+
+Bench `B` (16.1) flies a fixed path through the arena and is good for
+comparing renderer changes. The owner asked for a second bench that looks like
+PLAY. Its numbers should be judged against a frame rate felt at the controls.
+The owner's estimate from play on 86Box was 16–19 fps.
+
+**What it does.** `P` starts it from the Game screen, in either width. For
+240 sim ticks (8 s):
+
+- **A fixed pose.** The player stands at (224, 800), looking about 11 degrees
+  north of east. That is part of the room, not all of it, and not a corner.
+- **Running dummies.** The three dummies are spawned and advanced 160, 64 and
+  80 ticks along their patrols before the run starts. They then run and animate
+  through the 8 s.
+- **A circle of the aim.** The view moves in a circle, not a turn: yaw swings
+  ±6 degrees and pitch ±2 rows, a quarter-period apart, once every ~1.5 s
+  (23 sixty-fourths of a turn of phase a tick). The mouse is read and thrown
+  away, and WASD is ignored.
+- **The HUD.** The numbers clear when it starts. At the end they show the
+  run's averages: `FPS`, `MS` a frame, `R` (render ms), `P` (present ms) and
+  the text cells written per frame. A `P` at column 32 marks a play-bench
+  result.
+
+**How the pose was chosen.** A host search (`arenagen`'s geometry, the 75-degree
+view less 6.5 degrees of margin, 2.5–25 m) found no pose that kept two dummies
+in view for a full 10 s under stricter limits. At 8 s with these limits, two or
+more are in view at every one of 24 samples, and three at 5 of them.
+
+**Measured on MartyPC `os8088_5150_cga`, full detail, FOV 75:**
+
+| | FPS | ms a frame | R | P | cells a frame |
+|---|---|---|---|---|---|
+| play bench, 40 columns | **15.9** | 62.8 | 52.6 | 7.0 | 115 |
+| play bench, 80 columns | **12.9** | 77.1 | 61.0 | 12.7 | 246 |
+| bench `B`, 40 columns (16.6) | 28.1 | — | 31.4 | 7.2 | — |
+
+The 40-column figure sits at the bottom of the owner's 16–19. Present costs
+about what it did on bench `B`. The difference is render, at 52.6 ms against
+31.4. This view keeps much of the full arena's walls in front of it, and two
+or three animated figures in every frame. So this is the bench
+to quote for play, and render in a full room is where the next round should
+look.
