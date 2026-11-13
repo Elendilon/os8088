@@ -1868,18 +1868,17 @@ wa_figure:
     xor dx, dx
     div si
     mov [wa_fv8], ax
+    mov bx, A_FIG               ; its attribute - the far marker's too, which
+    cmp byte [di+F_FLASH], 0    ; used to draw in the last near figure's
+    je .att                     ; (a hit far one did not flash, and a near
+    mov bl, A_FLASH             ; one's flash coloured the far ones)
+.att:
+    mov bl, [wa_at+bx]
+    mov [wa_fatt], bl
     cmp ax, 9                   ; FAR: under ~4 half-rows tall. Nine limbs of
     jae .near                   ; a sub-pixel or two each read as a blob
     jmp wa_marker               ; anyway - draw that blob directly
 .near:
-    mov bl, A_FIG
-    cmp byte [di+F_FLASH], 0
-    je .att
-    mov bl, A_FLASH
-.att:
-    xor bh, bh
-    mov al, [wa_at+bx]
-    mov [wa_fatt], al
     mov ax, [di+F_ANG]          ; facing, relative to the view, of 16
     sub ax, [wa_cang]
     add ax, 32
