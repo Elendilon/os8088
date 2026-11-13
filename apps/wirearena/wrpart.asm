@@ -93,6 +93,14 @@ wr_v_init:
     inc si
     inc si
     loop .rows
+    mov si, wa_hroff            ; ...and in wa_fbuf (wa_flgo's start)
+    mov di, wa_hrfb
+    mov cx, WA_HR
+.fb:
+    lodsw
+    add ax, wa_fbuf
+    stosw
+    loop .fb
     mov di, wa_stamp
     xor ax, ax
     mov cx, WA_CELLS

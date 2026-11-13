@@ -119,6 +119,7 @@ WA_VAR wa_pht, 2
 WA_VAR wa_phb, 2
 WA_VAR wa_ht, 2
 WA_VAR wa_hroff, WA_HR*2         ; a half-row's cell row offset
+WA_VAR wa_hrfb, WA_HR*2          ; ...and its row's place in wa_fbuf
 WA_VAR wa_hb, 2
 WA_VAR wa_cs, 2
 WA_VAR wa_end, 2                ; the span loop's end, column x 2
@@ -3472,8 +3473,7 @@ wa_flgo:
     sub bx, dx                  ; BX = y1 - y0, >= 0
     mov di, dx
     shl di, 1
-    mov di, [wa_hroff+di]
-    add di, wa_fbuf
+    mov di, [wa_hrfb+di]
     and dx, 1                   ; DX = (r x 2 + c) x 2, the state's entry
     shr cx, 1
     rcl dx, 1
@@ -3491,8 +3491,7 @@ wa_flgo:
     mov dx, [wa_fl_ytab+si]     ; steep: a sub-pixel every half-row
     mov cx, bx
     cmp cx, bp
-    jbe .yc
-    mov cx, bp                  ; (off the bottom: stop at the edge)
+    ja .ycut                    ; (off the bottom: out of line)
 .yc:
     inc cx                      ; CX = sub-pixels
     mov si, ax                  ; SI = the minor step...
@@ -3502,6 +3501,9 @@ wa_flgo:
     mov ax, [wa_w2]             ; AX = a row's bytes (2W)
 .walky:
     jmp dx
+.ycut:
+    mov cx, bp                  ; stop at the edge
+    jmp .yc
 .shallow:
     mov dx, [wa_fl_xtab+si]     ; shallow: a sub-pixel every sub-column
     mov cx, ax
