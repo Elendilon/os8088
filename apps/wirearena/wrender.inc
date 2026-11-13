@@ -556,19 +556,23 @@ wa_boxf:
 ; face wholly behind nearer walls never pays for them.
 wa_face:
     mov [wa_fv], ax
+    xor bh, bh
     mov bl, al
-    xor bh, bh
+    mov al, [wa_frame]          ; (the cache's stamp test here, not behind
+    cmp [wa_vst+bx], al         ; a call: a third of the vertices a face
+    je .v1                      ; names were made by an earlier face)
     call wa_vert
-    mov bl, [wa_fv+1]
-    xor bh, bh
+.v1:
+    mov bl, [wa_fv+1]           ; (BH = 0: wa_vert keeps it)
+    mov al, [wa_frame]
+    cmp [wa_vst+bx], al
+    je .v2
     call wa_vert
-    mov cl, 4                   ; THE PRE-CHECK: the columns it could reach,
-    xor bh, bh                  ; from the columns (a vertex in view is its
-    mov bl, [wa_fv+1]           ; own, one beside the view is beyond that
-    call .reach                 ; edge, one behind is anywhere)
-    mov dx, ax
-    mov bl, [wa_fv]
-    call .reach
+.v2:
+    mov dx, [wa_vpc+bx]         ; THE PRE-CHECK: the columns it could reach,
+    mov bl, [wa_fv]             ; x 16 (a vertex in view is its own, one
+    mov si, bx                  ; beside the view is beyond that edge, one
+    mov ax, [wa_vpc+bx]         ; behind is anywhere - wa_vert's sentinels)
     cmp ax, dx
     jle .lohi
     xchg ax, dx
@@ -577,8 +581,11 @@ wa_face:
     je .open
     or dx, dx                   ; wholly left of the screen, or right: off
     js .shut                    ; it, whatever is open
+    mov cl, 4
+    sar ax, cl
     cmp ax, [wa_w]
     jge .shut
+    sar dx, cl
     or ax, ax
     jns .lo
     xor ax, ax
@@ -599,35 +606,32 @@ wa_face:
     je .open                    ; an open column: carry on
 .shut:
     ret                         ; every one closed: nothing more
-.open:
-    mov bl, [wa_fv]
-    mov di, bx                  ; DI = v1 x 2, BX = v2 x 2
-    mov bl, [wa_fv+1]
-    mov al, [wa_vok+di]
+.open:                          ; SI = v1 x 2
+    mov bl, [wa_fv+1]           ; BX = v2 x 2
+    mov al, [wa_vok+si]
     mov [wa_e1], al
     mov ah, [wa_vok+bx]
     and ah, [wa_endok]          ; (the end corner, only on a silhouette)
     mov [wa_e2], ah
     and al, [wa_vok+bx]
     jz .clip
-    mov si, di                  ; both inside the view: the cache
-    mov di, wa_c1
+    mov di, wa_c1               ; both inside the view: the cache
     push bx
     call .put
     pop si
     call .put                   ; (DI has run on to wa_c2)
     jmp wa_span
 .clip:
-    mov ax, [wa_vx+di]
+    mov ax, [wa_vx+si]
     mov [wa_x1], ax
-    mov ax, [wa_vz+di]
+    mov ax, [wa_vz+si]
     mov [wa_z1], ax
     mov ax, [wa_vx+bx]
     mov [wa_x2], ax
     mov ax, [wa_vz+bx]
     mov [wa_z2], ax
     push bx
-    push di
+    push si
     call wa_clip                ; (it never moves an end inside the view)
     pop si
     jc .gone
@@ -656,17 +660,46 @@ wa_face:
     stosw
     ret
 .put:                           ; SI = a vertex in view, DI = wa_c1 or wa_c2:
-    test byte [wa_vok+si], 2    ; its column, top, bottom, inverse depth -
-    jnz .have                   ; the last three made the first time a face
-    or byte [wa_vok+si], 2      ; of it gets this far in a frame
+    mov ax, [wa_vpc+si]         ; its column, top, bottom, inverse depth -
+    stosw                       ; the last three made the first time a face
+    test byte [wa_vok+si], 2    ; of it gets this far in a frame (wa_ptbi's
+    jnz .have                   ; arithmetic, inline)
+    or byte [wa_vok+si], 2
     mov bx, [wa_vz+si]
-    call wa_ptbi
-    mov [wa_vpt+si], bx
-    mov [wa_vpb+si], cx
-    mov [wa_vpi+si], dx
-.have:
-    mov ax, [wa_vpc+si]
+    cmp bx, WA_ZMAX
+    jae .zdiv
+    shl bx, 1
+    mov bx, [wa_rcp+bx-WA_NEAR*2]
+.iz:
+    mov ax, [wa_numt]
+    imul bx
+    sar dx, 1
+    sar dx, 1
+    sar dx, 1
+    mov ax, [wa_hq]
+    sub ax, dx
+    mov [wa_vpt+si], ax
     stosw
+    mov ax, [wa_numb]
+    imul bx
+    sar dx, 1
+    sar dx, 1
+    sar dx, 1
+    add dx, [wa_hq]
+    mov [wa_vpb+si], dx
+    xchg ax, dx
+    stosw
+    mov [wa_vpi+si], bx
+    xchg ax, bx
+    stosw
+    ret
+.zdiv:                          ; (deeper than the room: never, but exact)
+    mov ax, 0xFFF0
+    mov dx, 0x0007
+    div bx
+    mov bx, ax
+    jmp .iz
+.have:
     mov ax, [wa_vpt+si]
     stosw
     mov ax, [wa_vpb+si]
@@ -674,36 +707,18 @@ wa_face:
     mov ax, [wa_vpi+si]
     stosw
     ret
-.reach:                         ; BX = vertex x 2, CL = 4 -> AX = its column
-    test byte [wa_vok+bx], 1    ; (on the screen or off it), -32767 or 32767
-    jz .rout                    ; beside the view, 0x8000 behind it
-    mov ax, [wa_vpc+bx]
-    sar ax, cl
-    ret
-.rout:
-    mov ax, 0x8000
-    cmp word [wa_vz+bx], WA_NEAR
-    jl .rret                    ; behind: anywhere
-    mov ax, -32767
-    cmp word [wa_vx+bx], 0
-    jl .rret                    ; beside the view, left
-    mov ax, 32767               ; ...or right
-.rret:
-    ret
 
-; wa_vert - BX = a vertex x 2: into camera space and, inside the view (the
-; guard band), its column - once a frame (wa_vst). [wa_vok]: 0 outside,
-; 1 the column made, 3 the rest too (wa_face). Clobbers AX, BX, CX, DX, SI,
-; DI.
+; wa_vert - BX = a vertex x 2 (BH = 0) not yet made this frame, AL = the
+; frame: into camera space and, inside the view (the guard band), its
+; column. [wa_vok]: 0 outside, 1 the column made, 3 the rest too (wa_face).
+; Outside, [wa_vpc] is the pre-check's sentinel instead: 0x8000 behind,
+; -32767 beside the view on the left, 32767 on the right. BX is kept;
+; clobbers AX, CX, DX, SI, DI.
 wa_vert:
-    mov al, [wa_frame]
-    cmp [wa_vst+bx], al
-    je .out
     mov [wa_vst+bx], al
     mov di, bx                  ; DI = vertex x 2
     mov ax, [wa_vtx+bx]         ; AL = x index x 4, AH = y index x 4
     mov bl, ah
-    xor bh, bh
     xor ah, ah
     mov si, ax
     mov ax, [wa_xc+si]          ; z = ((x-px) 4 cos + (y-py) 4 sin) >> 16
@@ -714,26 +729,37 @@ wa_vert:
     sub ax, [wa_yc+bx]
     mov ax, [wa_xs+si+2]
     sbb ax, [wa_yc+bx+2]
-    mov [wa_vz+di], cx
-    mov [wa_vx+di], ax
-    mov byte [wa_vok+di], 0
+    mov bx, di
+    mov [wa_vz+bx], cx
+    mov [wa_vx+bx], ax
     cmp cx, WA_NEAR             ; projectable: z >= NEAR, |x| <= 8z (the
-    jl .out                     ; guard band - the screen is |x| <= z)
-    mov bx, cx
-    shl bx, 1
-    shl bx, 1
-    shl bx, 1
-    cmp ax, bx
-    jg .out
-    neg bx
-    cmp ax, bx
-    jl .out
-    mov byte [wa_vok+di], 1
+    jl .behind                  ; guard band - the screen is |x| <= z)
+    mov dx, cx
+    shl dx, 1
+    shl dx, 1
+    shl dx, 1
+    cmp ax, dx
+    jg .right
+    neg dx
+    cmp ax, dx
+    jl .left
+    mov byte [wa_vok+bx], 1
     imul word [wa_k16]          ; the column, x16 (wa_proj)
     idiv cx
     add ax, [wa_c16]
-    mov [wa_vpc+di], ax
+    mov [wa_vpc+bx], ax
+    ret
+.behind:
+    mov ax, 0x8000
+    jmp .out
+.left:
+    mov ax, -32767
+    jmp .out
+.right:
+    mov ax, 32767
 .out:
+    mov byte [wa_vok+bx], 0
+    mov [wa_vpc+bx], ax
     ret
 
 ; wa_xform - AX, BX = a world point -> AX = camera x (right), DX = z
