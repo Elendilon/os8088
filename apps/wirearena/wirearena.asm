@@ -507,6 +507,11 @@ wa_frame_input:
     xor byte [wa_hyst], 1
     jmp .drain
 .bg:
+    cmp ah, 0x17                ; I: far figures as a line
+    jne .bgg
+    xor byte [wa_flod], 1
+    jmp .drain
+.bgg:
     cmp ah, 0x22                ; G: the floor grid
     jne .bl
     xor byte [wa_grid], 1
@@ -1392,6 +1397,10 @@ wa_meter:
     je .det
     mov al, 'S'
 .det:
+    cmp byte [wa_flod], 0       ; ...in lower case with I's far figures as
+    je .fl                      ; lines
+    or al, 0x20
+.fl:
     call wa_putc
     mov al, '-'                 ; G: the floor grid
     cmp byte [wa_grid], 0
@@ -1536,9 +1545,9 @@ wa_help:
     db 'or Ctrl fires; Tab: 80/40; V: vsync;', 0
     db 'B: bench. L: walls full/sparse. F: view', 0
     db '90/75/60. H: hold far edges. G: floor', 0
-    db 'grid. P: play bench (8 s). Esc leaves.', 0
-    db 'HUD: fps, frame, render, present ms,', 0
-    db 'video writes a frame.', 0
+    db 'grid. I: far figures as lines. P: play', 0
+    db 'bench. Esc leaves. HUD: fps, frame,', 0
+    db 'render, present ms, writes a frame.', 0
     db 0
 
 ;               0         1         2         3
@@ -1552,6 +1561,10 @@ wa_hgl:     times WA_HR/2 db 0xC4, '_'
 ; 1 top-right, 2 bottom-left, 3 bottom-right
 wa_fglyph:  db 0x20, 0xDF, 0xDF, 0xDF, 0xDC, 0xDD, 0xDB, 0xDB
             db 0xDC, 0xDB, 0xDE, 0xDB, 0xDC, 0xDB, 0xDB, 0xDB
+; ...and a LINE figure's (I, wa_fln): the line in line glyphs, its head's
+; cell - all four bits - a face
+wa_flglyph: db 0x20, 0x27, 0x27, 0xC4, 0x2E, 0xB3, 0x2F, 0xB3
+            db 0x2E, 0x5C, 0xB3, 0xB3, 0x5F, 0xB3, 0xB3, 0x02
 ;              near   mid    far    figure flash  cross
 ; COLOUR SAYS WHAT A THING IS, not how far (the owner's call: two shades of
 ; blue never read as depth, and Hercules has no colour at all): a boundary
@@ -1603,6 +1616,7 @@ WA_VAR wa_boxes,WA_MBOX*8
 WA_VAR wa_bcol,WA_MBOX+2
 WA_VAR wa_fov,1
 WA_VAR wa_hyst,1
+WA_VAR wa_flod,1                 ; I: far figures as a line (wa_fln)
 WA_VAR wa_grid,1
 WA_VAR wa_kyq,2
 WA_VAR wa_kyh,2
