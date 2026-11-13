@@ -36,10 +36,10 @@ WA_VAR wl_cv, 8                 ; its corners: vertex x 2
 WA_VAR wl_ch, 8                 ; ...their heights
 WA_VAR wl_cn, 8                 ; ...their tops' (product, shift) pairs
 WA_VAR wl_cs, 4
-WA_VAR wl_kc, 8                 ; ...and, in the view, column x 16, inverse
-WA_VAR wl_ki, 8                 ; depth, top and floor rows (quarter half-
-WA_VAR wl_kt, 8                 ; rows)
-WA_VAR wl_kf, 8
+WA_VAR wl_kc, 12                ; ...and, in the view, column x 16, inverse
+WA_VAR wl_ki, 12                ; depth, top and floor rows (quarter half-
+WA_VAR wl_kt, 12                ; rows); slots 8 and 10 (x 2) a clipped
+WA_VAR wl_kf, 12                ; edge's ends, projected (wl_xedge)
 WA_VAR wl_fn, 2                 ; the floor's pair (made in the frame
 WA_VAR wl_fs, 1                 ; wl_ffr)
 WA_VAR wl_ffr, 1
@@ -51,14 +51,6 @@ WA_VAR wl_n1, 2                 ; a clipped edge's ends' pairs
 WA_VAR wl_s1, 1
 WA_VAR wl_n2, 2
 WA_VAR wl_s2, 1
-WA_VAR wl_e1c, 2                ; a pass's ends: column x 16, top row,
-WA_VAR wl_e1r, 2                ; inverse depth, floor row
-WA_VAR wl_e1i, 2
-WA_VAR wl_e1f, 2
-WA_VAR wl_e2c, 2
-WA_VAR wl_e2r, 2
-WA_VAR wl_e2i, 2
-WA_VAR wl_e2f, 2
 WA_VAR wl_stw, 2                ; the top's step a column (its value: CX.BP)
 WA_VAR wl_stf, 2
 WA_VAR wl_bw, 2                 ; the floor edge: half-row, fraction, step
@@ -339,23 +331,7 @@ wl_face:
     mov bx, [wl_cv+di]
     test byte [wa_vok+bx], 1
     jz .clip
-    mov ax, [wl_kc+si]          ; both corners in the view: as projected
-    mov [wl_e1c], ax
-    mov ax, [wl_kt+si]
-    mov [wl_e1r], ax
-    mov ax, [wl_ki+si]
-    mov [wl_e1i], ax
-    mov ax, [wl_kf+si]
-    mov [wl_e1f], ax
-    mov ax, [wl_kc+di]
-    mov [wl_e2c], ax
-    mov ax, [wl_kt+di]
-    mov [wl_e2r], ax
-    mov ax, [wl_ki+di]
-    mov [wl_e2i], ax
-    mov ax, [wl_kf+di]
-    mov [wl_e2f], ax
-    call wl_draw
+    call wl_draw                ; both corners in the view: as projected
     pop bx
     ret
 .clip:
@@ -465,7 +441,8 @@ wl_row:
 
 ; wl_xedge - [wa_x1],[wa_z1] - [wa_x2],[wa_z2] in camera space, [wl_n1]/
 ; [wl_s1] and [wl_n2]/[wl_s2] the ends' heights' pairs, [wl_upd], [wl_two]:
-; clipped (the near plane, the guard band), projected and drawn
+; clipped (the near plane, the guard band), projected into wl_kc..wl_kf's
+; slots 8 and 10 and drawn
 wl_xedge:
     call wa_clip
     jc .out
@@ -474,19 +451,21 @@ wl_xedge:
     mov cx, [wl_n1]
     mov dl, [wl_s1]
     call wl_proj
-    mov [wl_e1c], ax
-    mov [wl_e1r], bx
-    mov [wl_e1i], dx
-    mov [wl_e1f], si
+    mov [wl_kc+8], ax
+    mov [wl_kt+8], bx
+    mov [wl_ki+8], dx
+    mov [wl_kf+8], si
     mov ax, [wa_x2]
     mov bx, [wa_z2]
     mov cx, [wl_n2]
     mov dl, [wl_s2]
     call wl_proj
-    mov [wl_e2c], ax
-    mov [wl_e2r], bx
-    mov [wl_e2i], dx
-    mov [wl_e2f], si
+    mov [wl_kc+10], ax
+    mov [wl_kt+10], bx
+    mov [wl_ki+10], dx
+    mov [wl_kf+10], si
+    mov si, 8
+    mov di, 10
     jmp wl_draw
 .out:
     ret
@@ -518,72 +497,121 @@ wl_proj:
     mov ax, di
     ret
 
-; wl_draw - a pass over the columns between [wl_e1*] and [wl_e2*]: from the
-; first whose centre is past the left end to the last short of the right,
-; in each the top edge plotted where it is above the column's clip (and the
-; column not shut), with [wl_two] the floor edge too, a steep step between
-; two columns filled; with [wl_upd] the clip raised to the top and a stack
-; entry pushed (a top at or above the screen's shuts the column)
+; wl_draw - a pass over the columns between two ends, SI and DI (x 2
+; indices into wl_kc..wl_kf: a corner, or wl_xedge's slots 8 and 10): from
+; the first column whose centre is past the left end to the last short of
+; the right, in each the top edge plotted where it is above the column's
+; clip (and the column not shut), with [wl_two] the floor edge too, a steep
+; step between two columns filled; with [wl_upd] the clip raised to the top
+; and a stack entry pushed (a top at or above the screen's shuts the column).
+; A pass whose edges lie at or under every one of its columns' clips draws
+; nothing and raises nothing, so it is CULLED before its edges are set up:
+; neither edge's interpolation leaves the range of its two ends, and each
+; is drawn, and raises, only above the clip (the steep fill too: wa_slope
+; stops at the clip). It registers no tag, the one thing it would have left.
 wl_draw:
-    mov ax, [wl_e1c]
-    cmp ax, [wl_e2c]
+    mov ax, [wl_kc+si]
+    cmp ax, [wl_kc+di]
     jle .ord
-    mov si, wl_e1c              ; (left to right)
-    mov di, wl_e2c
-    mov cx, 4
-.sw:
-    mov ax, [si]
-    xchg ax, [di]
-    mov [si], ax
-    inc si
-    inc si
-    inc di
-    inc di
-    loop .sw
+    xchg si, di                 ; (left to right)
+    mov ax, [wl_kc+si]
 .ord:
-    mov bx, [wl_e1c]
+    mov [wa_c1], ax
     mov cl, 4
+    mov bx, ax
     add bx, 7
     sar bx, cl                  ; the first column
-    mov si, [wl_e2c]
-    add si, 7
-    sar si, cl
-    dec si                      ; the last
+    mov dx, [wl_kc+di]
+    add dx, 7
+    sar dx, cl
+    dec dx                      ; the last
     or bx, bx
     jns .lok
     xor bx, bx
 .lok:
-    mov ax, [wa_w]
-    dec ax
-    cmp si, ax
+    mov cx, [wa_w]
+    dec cx
+    cmp dx, cx
     jle .rok
-    mov si, ax
+    mov dx, cx
 .rok:
-    cmp bx, si
+    cmp bx, dx
     jg .none
     shl bx, 1
-    shl si, 1
-    inc si
-    inc si
-    mov [wl_end], si
     mov [wa_cs], bx
+    shl dx, 1
+    inc dx
+    inc dx
+    mov [wl_end], dx
+    mov ax, [wl_kt+si]          ; THE CULL: the highest half-row either edge
+    cmp ax, [wl_kt+di]          ; reaches (an end's, rounded as the loops
+    jle .c1                     ; round)...
+    mov ax, [wl_kt+di]
+.c1:
+    cmp byte [wl_two], 0
+    je .c3
+    cmp ax, [wl_kf+si]
+    jle .c2
+    mov ax, [wl_kf+si]
+.c2:
+    cmp ax, [wl_kf+di]
+    jle .c3
+    mov ax, [wl_kf+di]
+.c3:
+    add ax, 2
+    sar ax, 1
+    sar ax, 1
+    xchg ax, dx                 ; DX = it, AX = one past the last x 2
+    sub ax, bx
+    shr ax, 1
+    xchg ax, cx                 ; CX = the columns
+    push si
+    lea si, [wa_cclip+bx]
+.scan:
+    lodsw                       ; ...against each column's clip
+    cmp ax, dx
+    jg .shows
+    loop .scan
+    pop si
+.none:
+    ret                         ; (hidden throughout: nothing to do)
+.shows:
+    pop si
     mov ax, bx                  ; the first centre past the left end, x 16
     shl ax, 1
     shl ax, 1
     shl ax, 1
     add ax, 8
-    mov cx, [wl_e1c]
+    mov cx, [wa_c1]
     sub ax, cx
     mov [wa_fs], ax
-    mov ax, [wl_e2c]
+    mov ax, [wl_kc+di]
     sub ax, cx
     mov [wa_dc], ax
-    mov [wa_c1], cx
+    mov byte [wl_tag], 0        ; its tag (wa_span.reg's): its inverse
+    cmp byte [wl_upd], 0        ; depth's line
+    je .notag
+    mov bx, [wa_tag]
+    add bx, 2
+    cmp bx, WA_MAXSP*2
+    jae .full
+    mov [wa_tag], bx
+    mov [wl_tag], bl
+    mov [wa_spcs+bx], cx
+    mov [wa_spsh+bx], ax
+    mov ax, [wl_ki+si]
+    mov [wa_spih+bx], ax
+    neg ax
+    add ax, [wl_ki+di]
+    mov [wa_spsl+bx], ax
+.notag:
+    push word [wl_kt+si]        ; (the top's ends, for after the floor's)
+    push word [wl_kt+di]
     cmp byte [wl_two], 0        ; the floor edge's start and step: wa_span's
     je .nob                     ; own (exact at the first column; half-rows
     mov byte [wa_steep], 0      ; with a 16-bit fraction, the whole part
-    mov ax, [wl_e1f]            ; rounded)
-    mov bx, [wl_e2f]
+    mov ax, [wl_kf+si]          ; rounded)
+    mov bx, [wl_kf+di]
     call wa_span.edge
     mov [wl_bsw], dx
     mov [wl_bsf], ax
@@ -593,33 +621,19 @@ wl_draw:
     mov [wl_bst], al
 .nob:
     mov byte [wa_steep], 0      ; ...and the top's
-    mov ax, [wl_e1r]
-    mov bx, [wl_e2r]
+    pop bx
+    pop ax
     call wa_span.edge
     mov [wl_stw], dx
     mov [wl_stf], ax
-    push bx
-    push cx
-    mov al, [wa_steep]
-    mov [wl_tst], al
-    mov byte [wl_tag], 0
-    cmp byte [wl_upd], 0
-    je .notag
-    mov ax, [wl_e1i]            ; its tag: its inverse depth's line
-    mov [wa_i1], ax
-    mov ax, [wl_e2i]
-    mov [wa_i2], ax
-    call wa_span.reg
-    jc .full
-    mov [wl_tag], bl
-.notag:
-    pop bp                      ; the top: CX.BP
-    pop cx
+    mov bp, cx                  ; the top: CX.BP
+    mov cx, bx
     mov byte [wl_havep], 0
     mov si, [wa_cs]
     mov di, [wa_lp]
     mov dl, [wa_frame]
-    mov al, [wl_tst]            ; which of the four loops: the floor edge
+    mov al, [wa_steep]          ; which of the four loops: the floor edge
+    mov [wl_tst], al
     or al, [wl_bst]             ; too, a step to fill
     mov bl, [wl_two]
     shl bl, 1
@@ -628,12 +642,10 @@ wl_draw:
     shl bx, 1
     call [wl_loops+bx]
     mov [wa_lp], di
-.none:
     ret
 .full:
-    pop cx
-    pop bp
-    ret
+    mov word [wa_left], 0       ; (more spans than the table holds: drawing
+    ret                         ; stops this frame - never seen)
 wl_loops:   dw wl_l00, wl_l01, wl_l10, wl_l11
 
 ; WLLOOP %1 = 1 the floor edge too, %2 = 1 a steep step may need filling:
