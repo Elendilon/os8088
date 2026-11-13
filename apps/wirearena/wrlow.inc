@@ -67,7 +67,7 @@ WA_VAR wl_ffr, 1
 WA_VAR wl_hn, 2                 ; the box's height's
 WA_VAR wl_hs, 1
 WA_VAR wl_hh, 2                 ; ...that height (-1: none this frame)
-WA_VAR wl_upd, 1                ; this pass raises the clip
+WA_VAR wl_vk, 1                 ; the corners projected in the view: bits
 WA_VAR wl_two, 1                ; ...and draws a floor edge with its top
 WA_VAR wl_n1, 2                 ; a clipped edge's ends' pairs
 WA_VAR wl_s1, 1
@@ -140,6 +140,7 @@ wl_bit:     db 1, 2, 4, 8, 1
 %%c:
     test byte [wa_vok+bx], 1
     jz %%n
+    or byte [wl_vk], 1 << %1
     mov ax, [wa_vpc+bx]
     mov [wl_c+%1*WL_REC+WL_KC], ax
     mov bx, [wa_vz+bx]
@@ -197,6 +198,7 @@ wl_bit:     db 1, 2, 4, 8, 1
     mov [wl_two], al
     mov si, %1 * WL_REC
     mov di, ((%1 + 1) & 3) * WL_REC
+    mov al, (1 << %1) | (1 << ((%1 + 1) & 3))
     call wl_face
 %%n:
 %endmacro
@@ -205,6 +207,7 @@ wl_bit:     db 1, 2, 4, 8, 1
     jz %%n
     mov si, %1 * WL_REC
     mov di, ((%1 + 1) & 3) * WL_REC
+    mov al, (1 << %1) | (1 << ((%1 + 1) & 3))
     call wl_face
 %%n:
 %endmacro
@@ -271,6 +274,7 @@ wa_lowbox:
     xlatb
 .need:
     mov [wl_need], al
+    mov byte [wl_vk], 0
     mov al, [wa_frame]          ; the floor's pair, once a frame (wa_render
     cmp al, [wl_ffr]            ; clears wl_ffr) - and the box's own
     je .hpair                   ; height's, kept for the next box of that
@@ -460,15 +464,13 @@ wl_ends:
     ret
 
 ; wl_face - SI, DI = a face's start and end corners' records (offsets into
-; wl_c), [wl_two] 1 its floor edge too: its pass, raising the clip
+; wl_c), AL their two bits, [wl_two] 1 its floor edge too: its pass, raising
+; the clip
 wl_face:
-    mov byte [wl_upd], 1
-    mov bx, [wl_c+si+WL_CV]
-    test byte [wa_vok+bx], 1
-    jz .clip
-    mov bx, [wl_c+di+WL_CV]
-    test byte [wa_vok+bx], 1
-    jz .clip
+    mov ah, al
+    and ah, [wl_vk]
+    cmp ah, al
+    jne .clip
     add si, wl_c+WL_KC          ; both corners in the view: the two
     add di, wl_c+WL_KC          ; records' projections, in place (wl_draw
     jmp wl_draw                 ; culls a pass hidden in all its columns)
@@ -565,7 +567,7 @@ wl_row:
     ret
 
 ; wl_xedge - [wa_x1],[wa_z1] - [wa_x2],[wa_z2] in camera space, [wl_n1]/
-; [wl_s1] and [wl_n2]/[wl_s2] the ends' heights' pairs, [wl_upd], [wl_two]:
+; [wl_s1] and [wl_n2]/[wl_s2] the ends' heights' pairs, [wl_two]:
 ; clipped (the near plane, the guard band), projected and drawn
 wl_xedge:
     call wa_clip
@@ -627,7 +629,7 @@ wl_proj:
 ; the first column whose centre is past the left end to the last short of
 ; the right, in each the top edge plotted where it is above the column's
 ; clip (and the column not shut), with [wl_two] the floor edge too, a steep
-; step between two columns filled; with [wl_upd] the clip raised to the top
+; step between two columns filled; the clip raised to the top
 ; and a stack entry pushed (a top at or above the screen's shuts the column).
 ; A pass whose edges lie at or under every one of its columns' clips draws
 ; nothing and raises nothing, so it is CULLED before its edges are set up:
@@ -729,10 +731,8 @@ wl_draw:
     add ax, 8
     sub ax, cx
     mov [wa_fs], ax
-    xor al, al                  ; its tag (wa_span.reg's): its inverse
-    cmp [wl_upd], al            ; depth's line
-    je .notag
-    mov bx, [wa_tag]
+    mov bx, [wa_tag]            ; its tag (wa_span.reg's): its inverse
+                                ; depth's line
     add bx, 2
     cmp bx, WA_MAXSP*2
     jae .full
@@ -744,9 +744,7 @@ wl_draw:
     neg ax
     add ax, [di+4]
     mov [wa_spsl+bx], ax
-    mov al, bl
-.notag:
-    mov [wl_tag], al
+    mov [wl_tag], bl
     pop word [wl_col0]          ; (the first column x 2)
     push word [si+2]            ; (the top's ends, for after the floor's)
     push word [di+2]
@@ -1068,7 +1066,6 @@ wl_treads:
     call wl_going
     mov [wl_dxb], ax
     mov [wl_dzb], dx
-    mov byte [wl_upd], 1
     mov byte [wl_two], 0
     mov ax, [wl_nt]
     dec ax
