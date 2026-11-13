@@ -2105,9 +2105,9 @@ wa_help:
     db 'or Ctrl fires; Tab: 80/40; V: vsync;', 0
     db 'B: bench. P: play bench (8 s). F: view', 0
     db '90/75/60. 1-5: detail, very low to', 0
-    db 'very high (HUD). G: floor grid. T: ramps', 0
-    db 'as treads. R: ramps as two sides. L:', 0
-    db 'no wall tops (debug). Esc leaves.', 0
+    db 'very high (HUD). G: floor grid. T:', 0
+    db 'ramps as treads. R: ramps as two sides.', 0
+    db 'L: no wall tops (debug). Esc leaves.', 0
     db 'HUD: fps, frame, render, present ms,', 0
     db 'video writes a frame.', 0
     db 0
