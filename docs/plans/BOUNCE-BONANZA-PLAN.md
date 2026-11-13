@@ -7,10 +7,13 @@ Hercules 50.8 Hz). WAVE 0b (the camera and the optimisation round, SPEC.md
 misses, three camera modes for the owner to choose by feel. WAVE 1 (the text
 course, `tools/bbcourse.py`, physics v1, SPEC.md 128.10) DONE and measured:
 busy 46.5% of a CGA refresh and 39.4% of a Hercules one, no misses; its story
-1.3 waits on open question O8. WAVE 2 NEXT ("feel": three balls, bounce, stun
+1.3 waits on open question O8. WAVE 2 ("feel": three balls, bounce, stun
 and shatter, the keyboard's ramp, Hop and Grip, surfaces, the shadow,
-replays, and O8's answer): its contract is SPEC.md 128.11. The owner's
-decisions are in section 12.** The package is `BONANZA` (`apps/bonanza/`). Below is the
+replays, and O8's answer, SPEC.md 128.11) DONE and measured: busy 53.4% of a
+CGA refresh and 45.5% of a Hercules one. WAVE 3 NEXT (obstacles and the
+wheel: windmills, bumpers, a moving platform, three tubes, lanes and TITHE's
+wheel adapted): its contract is SPEC.md 128.12. The owner's decisions are in
+section 12.** The package is `BONANZA` (`apps/bonanza/`). Below is the
 investigation as it was written, the answer to the owner's
 brief of 2026-11-12, on branch `bounce-bonanza`, cut from `elendilon`: is an
 overhead isometric rolling-ball game with a scrolling course feasible on the
@@ -1253,11 +1256,163 @@ until the final pass; the rows run once, after the last batch.
       GLIDE and replay TRICKLE (rows panned over TRIAL's bounces: 251
       against 137 on the CGA). The look boot was the engine stage's.*
 
-**Wave 3: obstacles and the wheel.**
-- [ ] Lanes; the wheel with calibrated credit, trim, seeded clocks and the
-      rate cap.
-- [ ] Windmill, bumper, moving platform (contact lane) and tubes (three
-      kinds) with the camera glide.
+**Wave 3: obstacles and the wheel** (the contract is SPEC.md 128.12, written
+before the code, and revised once by three reviewers' findings before any
+code). Decided there, against this plan: a LANE is a rectangle of the
+course's block map (at most 4 words by 3 block rows) whose poses are sets of
+map words, so the row, column and box writers draw a lane's drawn pose with
+no change of their own, and a pose reaches the glass by a wheel commit, by
+the LEAD after the flip, by the CONTACT box (the lane meets one of the
+frame's boxes), or by the strip that brings it in (section 6.2's lanes, made
+concrete); TITHE's wheel (section 6.3) keeps its calibrated TIME credit
+(calibrated over the whole commit), its trim and its seeded clocks, but its
+credit is the RETRACE WAIT itself with a margin listed term by term, its
+order is the BEAM's (lanes ahead of the beam first, then each as the beam
+passes it, the wheel spinning in the idle wait; the CGA's lowest lines on a
+busy frame get one LEAD commit after the flip), its rate cap is the STEP
+CLOCK (a rotor's phase is `(n + seed) AND (P - 1)`, the seeds spreading the
+pose CHANGES so at most two rotors change on a step), and it banks nothing
+(SPEC.md 128.12.5.1 says row by row what is taken and why); the boxes stay
+FOUR (a second lane touching the ball waits a frame, display only, so
+bumpers may stand in a cluster); the moving platform is a sprite with a lip
+along `s`, not a lane, which carries the ball through a hop; the windmill is
+a KEEP tube through a house whose DOORWAY is the house face, swallowing or
+knocking back the ball that touches it, with a rotor lane standing on it
+that is drawn on the frame its gate changes; the bumper is a KICKER, never
+softer than wave 2's rail; section 8's three tubes (keep, launch, drop) hide
+the ball and move a GHOST along the path at the ball's own speed caps, and
+GLIDE re-centres on it every frame; nothing animated passes in front of the
+ball (a lane's occluder verdicts must not depend on its pose); a HEAVY frame
+withholds GLIDE's second row and its column, and a contact frame every row
+and column (wave 2's `TRIAL` misses); a log carries its course's identity;
+`BENCH` stays as it is and its A/B against wave 2 pokes the heavy rule off,
+so it measures the engine, and a fourth course, `MILL`, carries the
+obstacles. Every cost and size in the stories is PREDICTED until the final
+pass; the rows run once, after the last batch.
+The consistency check's five resolutions are SPEC.md 128.12.15: the rotor
+drawn from the last step's phase, IN's whole 3 x 3 free of `OCC`, the
+platform simulated always and drawn only when shown, explicit windmill
+seeds where needed, and the Hercules beam checks reported, not asserted.
+- [ ] **3.1 Props in the course.** `tube` and `prop` are statements (`edge`,
+      `checkpoint`, `pad`, `shape` stay reserved); the part's prop table
+      (`BZC1` +28 / +30) holds up to 16 records in wave 3 (the format's limit
+      is a word); the grid gains ONE bit, `OBS`, and keeps bits 4 - 5 for
+      `edge`, the window refill listing its `OBS` cells and their props;
+      every refusal of SPEC.md 128.12.3.3 (the exits checked by the model per
+      ball, the facing of a windmill's doorway and a DROP's mouth, a
+      platform's speed) and every bound of 128.12.4.6 fires at its line; the
+      seeds spread the rotors' pose changes and the tool proves at most two a
+      step in every window; `BENCH`, `FIRST` and `TRIAL` compile to wave 2's
+      bytes but for the identity word. *Verify: `bonanzacourse` items 1 - 4
+      and 6 (the byte identity against `848ade16`'s tool, exit 77 when it
+      cannot be had), its grammar and bound negative controls.*
+- [ ] **3.2 Lanes on the glass.** A lane's pose is its map words; the
+      contact box draws a due lane beside the ball together with the ball,
+      and a second lane touching the ball waits a frame; the wheel draws the
+      rest in the retrace wait, only the cells in the shown window and the
+      cells the entering rows write (never the entering column's); a lane
+      scrolling in is drawn at its true pose by the strip; still four boxes;
+      no lane's pose changes what hides the ball. *Verify: `bonanzaring`'s
+      `MILL` leg on both cards (commits ahead of and behind the beam, a
+      lead, a contact box for a rotor and a post, a deferred lane in the
+      cluster, a lane entering by a row and by a column, the card equal to
+      the oracle at `bz_tf` and `bz_presented`), red arms `contact` and
+      `defer`; `bonanzacourse` item 5 over every pose, its
+      rotor-off-the-house refusal.*
+- [ ] **3.3 The wheel.** Calibrated at the launch over the whole commit
+      (three sizes, eight samples each, an idempotent commit), trimmed by its
+      own overruns, ordered by the beam (ahead first, then behind, spinning
+      in the idle wait), skipped on a frame already past its first sync,
+      with one LEAD commit after the flip for a lane the wait could not
+      reach, its rate the step clock's: every commit changes a pose, none is
+      ahead of the true one, none is written where the beam is or into an
+      aliased cell, none ends past its deadline, a lane scrolling in shows
+      its true pose, a shown rotor's poses reach the glass at its rate.
+      *Verify: `bonanzawheel` (new) on both cards, red arms `repeat`,
+      `ahead`, `nobeam`, `kmod`, `halfcal`, `alias`, `corner`, `lanestale`.*
+- [ ] **3.4 The windmill.** A ball rolled at the doorway on the house face is
+      knocked back while a blade is down (at 0.625 of its speed) and
+      swallowed by the tunnel while it is up, from the front or along the
+      house; the blade across the doorway is on the glass on the frame of
+      every knock-back and gone on the frame of every capture, and is seen
+      coming down two poses before the gate closes. *Verify: `bonanzacourse`
+      item 7's gate runs from every phase; `bonanzaphys` `knock`, `pass` and
+      `side`, red arm `gate`; `bonanzawheel` (10), red arm `gatelate`; the
+      look boot.*
+- [ ] **3.5 The bumper.** A ball touching a post leaves along the normal at
+      least as fast as wave 2's rail would return it plus 0.25 gu a step and
+      never under 1.25 gu a step, keeps its tangential speed, and the post
+      lights for 6 steps; posts may stand in a cluster and the ball
+      ricochets between them; a ball can rest on a post's top. *Verify:
+      `bonanzacourse` item 7's approach and speed sweep; `bonanzaphys`
+      `kick`, `cluster` and `post`, red arm `kick`.*
+- [ ] **3.6 The moving platform.** A slab with a lip crosses a moat along
+      the screen's vertical, a line at a time at most 0.75 lines a step; a
+      ball on it is carried to the far rim, a Hop on it lands back on it, a
+      rubber ball dropped on it settles on it, a ball rolling off falls, a
+      ball under it is not lifted, and the slab is drawn over a ball below it
+      and under one on it, its own box only when its line changes. *Verify:
+      `bonanzaphys` `ride`, `hop`, `land` and `under`, red arms `carry` and
+      `stick`; `bonanzaring`'s platform frames, red arm `padfront`;
+      `bonanzaperf`'s ride leg.*
+- [ ] **3.7 Three tubes and the camera glide.** KEEP spits the ball out along
+      its mouth at the speed it went in with, LAUNCH fires it at a fixed
+      velocity over a gap onto a floor, DROP drops it 3 units (rubber
+      bounces, steel is stunned, glass shatters); a plain tube's IN is a hole
+      and its OUT a rim pointing the way out; the ball is hidden in transit,
+      GLIDE re-centres on the hidden ball every frame and the exit is in the
+      window when it comes out. *Verify: `bonanzacourse` item 7's transit
+      and exit runs (each exit's outcome per ball); `bonanzaphys` `keep`,
+      `launch`, and `drop` with all three balls, red arm `exit`;
+      `bonanzaring`'s transit frames and exits, red arm `hidden`.*
+- [ ] **3.8 The heavy frame.** On a frame that runs the occluder pass, draws
+      the ball as two boxes or shows the slab at the window's edge, GLIDE
+      takes at most one row and no column; on a frame that draws a contact
+      box, none; each axis released near its edge, decided before the camera;
+      `TRIAL`'s steep-ramp misses go and its fall misses stay inside wave
+      2's allowance (PROVISIONAL). *Verify: `bonanzacourse` item 8
+      (`BENCH`'s eight directions with the rule off, reported with it on);
+      `bonanzaperf`'s second `BENCH` leg and its `TRIAL` leg with the busy
+      of every missed frame.*
+- [ ] **3.9 Replays with moving obstacles.** Obstacles are a function of the
+      step count, so a `MILL` play recorded on the CGA replays on the Hercules
+      to the same state at every step, through knock-backs, kicks and
+      transits; a log names its course, and a log made on another course (a
+      re-seeded one) is refused rather than played wrong. *Verify:
+      `bonanzareplay`'s `MILL` record, replay and refusal, red arms
+      `propclock` and `noident`; `bonanzaphys` at every frame.*
+- [ ] **3.10 `MILL`, "Windmill Lane", and the benchmarks.** Two windmills, a
+      bumper cluster, a moving platform, a cannon and a drop chute (8
+      records), at most six lanes in any window and two rotor changes a
+      step, the platform in a window with no windmill; the cannon's flight
+      and the chute's fall over no `OCC` cell; the autopilot reaches its goal
+      with no fall in 1,200 frames on both cards; `N` cycles `FIRST`,
+      `TRIAL`, `MILL`; B still runs the unchanged `BENCH`. *Verify:
+      `bonanzacourse` item 8 (`MILL`'s route); `bonanzaperf`'s `BENCH` A/B
+      against wave 2 (`848ade16`, the heavy rule poked off) and its `MILL`
+      leg.*
+- [ ] **3.11 kern_mega.** The map's words are written through the course
+      part's own selector; no `PKG_MEGA` arm. *Verify: `bonanzamega` -
+      `MILL` on the Hercules display, a replay of a log the row writes with
+      the model, through a knock-back, a kick, a ride and each tube kind: no
+      fault, no leak, the replay's end state; red arm `mapcs`.*
+- [ ] **3.12 What it costs.** `BENCH`'s busy about 44.3k (55.6%) on the CGA
+      and 44.6k (47.4%) on the Hercules without the wheel (the A/B leg);
+      `MILL`'s wait commits inside the wait with no overrun and no lane
+      late; `MILL`'s misses only on the cannon's flight and the chute's fall,
+      each named with its busy; the ride's line-change frames under a
+      refresh (94% on the CGA, PROVISIONAL, O30); the image about 17,900 -
+      18,800 bytes, bss about 6,010, `MILL`'s part about 22 - 30KB,
+      `BONANZA.O88` about 58 - 61KB, still on the 360KB `bonanzadisk`.
+      *Verify: `bonanzaperf` (its five legs and the A/B), `bonanzawheel`,
+      `bonanzaexit`'s heap reads; SPEC.md 128.12.10 and 128.12.11 get their
+      measured columns.*
+- [ ] **3.13 The record.** README and the face's course list, `BZ_COURSES`
+      with `mill.bbc`, docs/HEAP-CLAIMS.md's Bonanza row with `MILL`'s size,
+      the new row's registration in `tests/suite.py` with its predicted
+      `secs`, the diary's wave-3 entries, `docs/INDEX.md` current. *Verify:
+      `make` (the doc gates), `tools/os88index.py --check`, `checkdocs` 0
+      problems.*
 
 **Wave 4: a game.**
 - [ ] Five courses, with the props from section 8 and section 5.5's
