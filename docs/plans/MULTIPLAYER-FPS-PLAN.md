@@ -1017,3 +1017,101 @@ wall was drawn ~6 columns right of its place — figures were placed right,
 and the floor dots had the same fault. The fix is a separate `wa_c16`. **The
 owner's judgment of 75 degrees was made on that build** and wants a second
 look. With the fix, at 75 degrees, 6 of 30 poses have one such column.
+
+### 16.6 Performance pass 3 — four agents, three areas, measured together
+
+**The owner's verdicts:**
+
+- The walls look right even far away: 16.5 fixed it.
+- 75 degrees "still feels about right"; 90 gives the most awareness and 60
+  is narrow.
+- 60 has a jump bug: the screen squashes at the top of a jump. This is very
+  likely `eye x kyq` passing 16 bits at 60 degrees with the eye raised.
+  Deferred until stairs and platforms make jumps matter.
+
+**How the pass was run.** One read-only reviewer was asked whether there is
+a better core technique. Three implementers worked in isolated worktrees —
+wall geometry; columns and present; figures and the sim — each measured on
+the same bench and held to `tools/wacheck.py`. Their branches merged with no
+textual conflict.
+
+**The reviewer's key finding came from a host simulation.** Over 2,000 free
+poses in the full arena, only 1.8 of the 9 boxes are visible, 6.4 lie wholly
+outside a 90-degree cone, and 0.4 are in view but hidden. The coverage
+machinery served the rare case; frustum work was spent on boxes no ray could
+reach. Its other proposals:
+
+| proposal | outcome |
+|---|---|
+| figure limbs into a mask, then one plot per cell | done |
+| per-column wall records | weighed by the columns agent: ~1% for real overlay risk, not done |
+| Doom-style wall setup without clipping | deferred to stairs |
+| self-modifying loops | low, and kern_mega faults on writes through CS |
+
+It advised against the top-from-bottom height ratio (it breaks with stairs),
+reduced-rate or interlaced walls, and page flipping for speed.
+
+**Geometry (`perf-geometry`):**
+
+- A 1/z reciprocal table (5.8 KB of BSS, the same bits as the divide).
+- Columns computed with the transform; tops, bottoms and 1/z only after a
+  face passes the occlusion pre-check.
+- Products from per-axis steps: ~12 multiplies a frame instead of 52.
+- An unrolled clip, and faces from a table.
+- **BSP nodes culled against a conservative 90-degree cone before any vertex
+  work** (arenagen emits node bounds).
+- Faces wholly off one side dropped.
+- Geometry went from ~16.8 to ~8.9 ms.
+- Text VRAM was byte-identical to the base over 130 poses, at both widths and
+  at 60 and 90 degrees.
+
+**Columns and present (`perf-cells`):**
+
+- The top edge lives in registers.
+- One divide per flat edge's step, and the start value as step x offset.
+- The far corner comes from the accumulators.
+- Corners skip stamp tests where nothing can collide.
+- List appends use `stosw`, and present takes two cells a turn.
+- A run of shut columns is jumped by a multiply (`wa_gap`).
+- An opened column is ~105 bytes of code, down from ~142. The precision is
+  unchanged: error sums against the reference were 382 before, 376 after.
+
+**Figures and sim (`perf-figures`):**
+
+- Limbs are walked with the midpoint rule into a cell-mask scratch. The
+  line's state is its place in the code: ~70 clk a sub-pixel against ~700.
+  One depth test and plot follows per cell.
+- 8-bit joint multiplies beyond ~1.6 m.
+- Keys are polled once a frame, not once a tick.
+- Standing still skips the walk and the collisions.
+- The figure pass is 37–47% cheaper with three figures in view, and the sim
+  60% cheaper.
+- Hits, flinch and death were checked. Posed VRAM is byte-identical to the
+  old renderer with only the new line rule.
+
+**Merged, measured on MartyPC `os8088_5150_cga`:**
+
+| | before (e02c073a) | after |
+|---|---|---|
+| bench, 40 columns, full | 18.8 fps | **28.1 fps** (R 31.4, P 7.2) |
+| bench, 40 columns, sparse | 21.1 | **31.4** |
+| bench, 80 columns, full | 14.8 | **21.5** |
+| play, 40 columns (HUD) | ~19 | **27.2** |
+| play, open arena, 40 columns | ~25 | **36.1** |
+| play, 80 columns | ~14.5 | **24.5** |
+
+`wacheck`: the same 6 single-column poses. The package is 21.8 KB of image
+and 36.8 KB of BSS, 58.6 KB of the 63.5 KB a package may have.
+
+**Left, each under ~2%:**
+
+- inline `wa_plotf` in the figures' emit;
+- a FOV-aware cone;
+- `wa_face` handing values over in registers;
+- a run-based column loop;
+- analytic clipped limb walks;
+- the bottom edge's step in registers, which needs DX freed from the stamp
+  scheme.
+
+The renderer is near the 8088's fetch floor for this design. A further step
+would need a change of design, not tuning.
