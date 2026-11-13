@@ -28,6 +28,12 @@
 ; the view is projected once a box (wl_kc..wl_kf); an edge with a corner out
 ; of it is clipped (wa_clip) and its ends projected on the spot.
 
+;
+; LOOK OPTIONS (r5, build knobs, nothing assembled when off - the owner's
+; to judge by the videos): WL_NOPOSTS draws no corner posts; WL_NEARPOST
+; only the nearest of a box's; WL_FARTOP=n draws the far side of a box's
+; top only with the eye n units or more above it; WL_RAMP2 draws a ramp as
+; its two sides alone (no low-end edge, no high-end top)
 
 ; a corner's record in wl_c (WL_REC bytes, x 16 its index): its vertex x 2,
 ; its top's (product, shift) pair, and - projected, in the view - its column
@@ -104,6 +110,10 @@ WA_VAR wl_tz2, 2
 WA_VAR wl_th, 2
 WA_VAR wl_hst, 2
 WA_VAR wl_back, 1
+%ifdef WL_NEARPOST
+WA_VAR wl_pbr, 2                ; the nearest post's record and rule
+WA_VAR wl_pbc, 2
+%endif
 %endmacro
 
 ; wl_crn - per set of faces (S 1, E 2, N 4, W 8): the corners they run
@@ -215,6 +225,9 @@ wa_lowbox:
     mov [wl_topb], al
     mov al, 15                  ; THE CORNERS WANTED: all four with the eye
     mov cx, [wa_eye]            ; above the top (its far side is drawn) or
+%ifdef WL_FARTOP
+    sub cx, WL_FARTOP
+%endif
     cmp cx, [wl_h]              ; for a flight (its treads span it), else
     jg .need                    ; only the seen faces'
     test byte [wl_kind], 3
@@ -254,6 +267,18 @@ wa_lowbox:
     test byte [wl_kind], 3
     jz .cor
     call wl_flight0
+%ifdef WL_RAMP2
+    cmp word [wl_nt], 2         ; (a ramp, not stepped: its two sides alone)
+    jae .cor
+    mov bl, [wl_lo]
+    xor bh, bh
+    mov al, [wl_bit+bx]
+    mov bl, [wl_hi]
+    or al, [wl_bit+bx]
+    not al
+    and [wl_front], al
+    and [wl_topb], al
+%endif
 .cor:
     ; EACH CORNER WANTED (r5: one pass, unrolled): transformed through the
     ; shared vertex cache, then, in the view, its column, inverse depth and
@@ -266,6 +291,55 @@ wa_lowbox:
     WLCORNER 2
     WLCORNER 3
 .posts:
+%ifdef WL_NOPOSTS
+    jmp .p1d
+%endif
+%ifdef WL_NEARPOST
+    xor bp, bp                  ; (the nearest post only: the largest
+    mov word [wl_pbr], -1       ; inverse depth of those it would draw)
+    mov al, [wl_front]
+    mov [wl_m], al
+    xor bx, bx
+.q1:
+    shr byte [wl_m], 1
+    jnc .q1n
+    call wl_ends
+    mov cx, 7
+    call .qc
+    mov al, [wl_bit+bx+1]
+    test al, [wl_seen]
+    jnz .q1n
+    mov si, di
+    mov cx, 7-16
+    call .qc
+.q1n:
+    inc bx
+    cmp byte [wl_m], 0
+    jne .q1
+    mov si, [wl_pbr]
+    cmp si, -1
+    je .p1d
+    mov cx, [wl_pbc]
+    call .qp
+    jmp .p1d
+.qp:
+    push bx
+    jmp wl_post
+.qc:
+    push bx
+    mov bx, [wl_c+si+WL_CV]
+    test byte [wa_vok+bx], 1
+    pop bx
+    jz .qr
+    mov ax, [wl_c+si+WL_KI]
+    cmp ax, bp
+    jbe .qr
+    mov bp, ax
+    mov [wl_pbr], si
+    mov [wl_pbc], cx
+.qr:
+    ret
+%endif
     ; 1. POSTS, against the clip as it stood: a drawn face's start corner,
     ; and its end where the next face round is not seen (wa_boxf's rule)
     mov al, [wl_front]          ; (each loop walks its faces' bits, and
@@ -283,6 +357,7 @@ wa_lowbox:
     inc bx
     cmp byte [wl_m], 0
     jne .p1
+.p1d:
     ; 2. THE SEEN FACES, a pass each: the floor edge, then the top raising
     ; the clip - and a seen face hidden against a taller neighbour still
     ; shows its top's crease where its top bit says
@@ -318,6 +393,9 @@ wa_lowbox:
 .p3s:
     ; 3. THE FAR SIDE OF ITS TOP, with the eye above the box
     mov ax, [wa_eye]
+%ifdef WL_FARTOP
+    sub ax, WL_FARTOP
+%endif
     cmp ax, [wl_h]
     jle .p3d
     mov al, [wl_seen]           ; (the faces not seen whose tops are drawn)
@@ -423,17 +501,6 @@ wl_post:                        ; SI = the corner's record, CX = 7 (or 7 - 16
     mov bx, [wl_c+si+WL_CV]     ; for the end's rule: one column less)
     test byte [wa_vok+bx], 1
     jz .out                     ; (not in the view: off the screen, or behind)
-    mov ax, [wl_c+si+WL_KC]     ; its column: as wa_span's corners
-    add ax, cx
-    mov cl, 4
-    sar ax, cl
-    js .out
-    cmp ax, [wa_w]
-    jge .out
-    shl ax, 1
-    mov di, ax                  ; DI = the column x 2
-    cmp word [wa_cov+di], 0
-    jne .out                    ; (shut)
     mov bx, [wl_c+si+WL_KT]     ; top and floor, half-rows, rounded
     add bx, 2
     sar bx, 1
@@ -442,6 +509,23 @@ wl_post:                        ; SI = the corner's record, CX = 7 (or 7 - 16
     add ax, 2
     sar ax, 1
     sar ax, 1
+    mov dx, ax                  ; (no cell between them, whatever the clip:
+    sar dx, 1                   ; the floor's row at most one under the
+    mov di, bx                  ; top's - a ramp's low corners, on the
+    sar di, 1                   ; floor, and every short post - r5)
+    inc di
+    cmp dx, di
+    jle .out
+    mov di, [wl_c+si+WL_KC]     ; its column: as wa_span's corners
+    add di, cx
+    mov cl, 4
+    sar di, cl
+    js .out
+    cmp di, [wa_w]
+    jge .out
+    shl di, 1                   ; DI = the column x 2
+    cmp word [wa_cov+di], 0
+    jne .out                    ; (shut)
     mov si, di                  ; SI = the column x 2
     cmp ax, [wa_cclip+si]
     jle .clp
