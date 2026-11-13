@@ -21299,16 +21299,19 @@ $(BUILD)/vbattle360.img: $(BUILD)/vbattle.o88 $(BUILD)/vbshort/BATTLE.VBT tools/
 #> [Applications] wirearena :: WARENA.O88, the text-mode arena shooter's renderer prototype (docs/plans/MULTIPLAYER-FPS-PLAN.md)
 .PHONY: wirearena wirearenadisk
 wirearena: $(BUILD)/warena.o88
-$(BUILD)/watab.inc: tools/arenagen.py | $(BUILD)
+$(BUILD)/watab.inc: tools/arenagen.py apps/wirearena/waconst.inc | $(BUILD)
 	python3 tools/arenagen.py $@
 $(BUILD)/wirearena.bin: apps/wirearena/wirearena.asm apps/wirearena/waconst.inc apps/wirearena/wasin.inc apps/wirearena/wafb.inc $(BUILD)/watab.inc apps/os88api.inc apps/os88pit.inc apps/os88parts.inc apps/os88partsbody.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/wirearena/ -I $(BUILD)/ -l $(BUILD)/wirearena.lst -o $@ $<
 $(BUILD)/wrpart.bin: apps/wirearena/wrpart.asm apps/wirearena/wrender.inc apps/wirearena/waconst.inc apps/wirearena/wasin.inc apps/wirearena/wrtab.inc apps/wirearena/wafb.inc $(BUILD)/watab.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/wirearena/ -I $(BUILD)/ -l $(BUILD)/wrpart.lst -o $@ $<
 # ...and each arena a part of its own (WIREARENA-PARTS-PLAN 7.5), in
-# arenagen's order: one row per arena in wirearena.asm's table (WA_NARENA)
-WAARENAS := $(BUILD)/waa0.bin $(BUILD)/waa1.bin
-$(BUILD)/waa%.asm: tools/arenagen.py | $(BUILD)
+# arenagen's order: one row per arena in wirearena.asm's table (WA_NARENA).
+# Arena 2, the heights demo, is a row before it is on the Game menu
+# (docs/plans/WIREARENA-HEIGHTS-PLAN.md 7.2); arenagen refuses an arena over
+# the visible budget, which tools/wamodel.py prices
+WAARENAS := $(BUILD)/waa0.bin $(BUILD)/waa1.bin $(BUILD)/waa2.bin
+$(BUILD)/waa%.asm: tools/arenagen.py tools/wamodel.py apps/wirearena/waconst.inc | $(BUILD)
 	python3 tools/arenagen.py --arena $* $@
 $(BUILD)/waa%.bin: $(BUILD)/waa%.asm | $(BUILD)
 	$(NASM) -f bin -w+error -o $@ $<

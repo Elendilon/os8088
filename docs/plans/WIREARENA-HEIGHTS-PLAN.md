@@ -1012,21 +1012,23 @@ It also checks an arena against the visible budget of section 4.2:
 
 ## 8. The instruments behind the numbers
 
-They are kept as written in `tools/wamodel/` (copied out of the session's
-scratch directory so they outlive it; `p40.json` is the trace section 2.1
-analysed). They are working scripts, not tools yet: wave 0 makes the model
-`tools/wamodel.py` proper.
+Wave 0 made them tools. The working scripts first kept in `tools/wamodel/`
+are gone, their substance carried over.
 
-- **`trace.py` and `anal.py`**: the breakpoint trace of section 2.1, and its
-  per-piece table and span regression. Run from a worktree root, on the
-  split build.
-- **`hmodel.py`**: the renderer model:
-  - today's walk;
-  - the heights renderer;
-  - the outline path;
-  - the unit costs, Measured (`C`) and Forecast (`CF`).
-- **`arena2.py`**: the section 4 layout and its variants (building height,
-  steps, flights, pillars, tower height). Its `stats` give the counts
-  `arenagen`'s limits are checked against.
-- **`poses.py`**: section 2.3's pose sets. `python3 poses.py 40` prints
-  section 2.4's table, and `poses.py 80` the 80-column one.
+- **`tools/watrace.py`**: the breakpoint trace of section 2.1, and with
+  `--analyse` its per-piece table and span regression. Run from a worktree
+  root, on the split build.
+- **`tools/wamodel.py`**: the renderer model (7.2.6).
+  - It reads the arenas from `tools/arenagen.py` and keeps no layout of its
+    own.
+  - It prices today's walk, the heights renderer and the outline path at the
+    unit costs Measured (`C`) and Forecast (`CF`).
+  - It scales into fps against the P bench measured on the same tree.
+  - `--arena N [--width 40|80] [--variant G|A]` prints the pose sets of
+    section 2.3 for the demo, or the P bench and a floor sample for a flat
+    arena.
+  - `--budget N` prints the arena's most boxes and outline edges in view,
+    the check `arenagen --arena N` makes (4.2).
+  - Its variant A prices today's span for every edge with each flight as
+    one box. Section 2.4's A had four step boxes a flight, so A here is
+    kinder than the table there.
