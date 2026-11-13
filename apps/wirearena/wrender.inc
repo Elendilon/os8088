@@ -2560,10 +2560,17 @@ wa_cross:
     mov [wa_cur+bx], ax
     ret
 
-; --- present ----------------------------------------------------------------
+; --- present ---------------------------------------------------------------
 ; Write this frame's cells that differ from the glass; blank last frame's
-; cells this frame did not draw. Nothing else. Each list is walked two cells
-; an iteration (the odd one first), which halves the loop's own cost.
+; cells this frame did not draw. Nothing else. Each list is walked four cells
+; an iteration, entered part-way for the remainder (a jump table, once), so
+; the loop's own cost is a quarter of a `loop` a cell.
+; - A new cell's usual case in play is CHANGED (the view moves: two in three
+;   on the P bench), so the write falls through and the unchanged one jumps.
+; - An old cell's usual case is DRAWN AGAIN (85 of 121 on the P bench), so
+;   that falls through and the blank is out of line. It is written without
+;   asking whether the glass is blank already: an old-list cell was drawn last
+;   frame, so it is not, and if it were, the write is a no-op.
 %macro PNEW 0                   ; this frame's cell: written if it differs
     lodsw
     xchg bx, ax
@@ -2575,50 +2582,67 @@ wa_cross:
     inc bp
 %%same:
 %endmacro
-%macro POLD 0                   ; last frame's: blanked unless drawn again
-    lodsw
+%macro POLD 1                   ; last frame's: blanked unless drawn again
+    lodsw                       ; (DL = this frame, DI = WA_BLANK)
     xchg bx, ax
     mov al, [wa_stamp+bx]
     and al, 0x7F
     cmp al, dl
-    je %%kept
-    cmp word [wa_vis+bx], WA_BLANK
-    je %%kept
-    mov word [wa_vis+bx], WA_BLANK
-    mov word [es:bx], WA_BLANK
+    jne .ob%1
+.or%1:
+%endmacro
+%macro POLDB 1                  ; ...its blank, out of line
+.ob%1:
+    mov [wa_vis+bx], di
+    mov [es:bx], di
     inc bp
-%%kept:
+    jmp .or%1
 %endmacro
 wa_present:
     push es
     mov es, [wa_vseg]
     xor bp, bp                  ; writes, for the meter
     mov si, [wa_newp]
-    mov cx, [wa_newn]
+    mov cx, [wa_newn]           ; bytes: 2 a cell
+    mov bx, cx
+    and bx, 6                   ; (cells mod 4) x 2
+    add cx, 6
     shr cx, 1
-    shr cx, 1                   ; pairs; CF = an odd one
-    jnc .np
-    PNEW
-.np:
+    shr cx, 1
+    shr cx, 1                   ; groups of four, the first one partial
     jcxz .old
-.new:
+    jmp [.ntab+bx]
+.n0:
     PNEW
+.n3:
     PNEW
-    loop .new
+.n2:
+    PNEW
+.n1:
+    PNEW
+    loop .n0
 .old:
     mov si, [wa_oldp]
     mov cx, [wa_oldn]
     mov dl, [wa_frame]
+    mov di, WA_BLANK
+    mov bx, cx
+    and bx, 6
+    add cx, 6
     shr cx, 1
     shr cx, 1
-    jnc .op
-    POLD
-.op:
+    shr cx, 1
     jcxz .swap
-.o:
-    POLD
-    POLD
-    loop .o
+    jmp [.otab+bx]
+.o0:
+    POLD 0
+.o3:
+    POLD 3
+.o2:
+    POLD 2
+.o1:
+    POLD 1
+    loop .o0
 .swap:
     mov [wa_nwr], bp
     mov ax, [wa_newp]
@@ -2628,3 +2652,9 @@ wa_present:
     mov [wa_oldn], ax
     pop es
     ret
+    POLDB 0
+    POLDB 3
+    POLDB 2
+    POLDB 1
+.ntab:  dw .n0, .n1, .n2, .n3
+.otab:  dw .o0, .o1, .o2, .o3
