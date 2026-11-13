@@ -1644,7 +1644,12 @@ wa_span:
     cmp byte [wa_hflat], 0
     jne .vf
     cmp byte [wa_sparse], 0     ; (heights: the four clip-tested ones)
-    je .vc1
+    jne .vcs
+    cmp word [wa_t1], -3        ; (a top above the screen at both ends is
+    jg .vc1                     ; above it in every column: the sparse
+    cmp word [wa_t2], -3        ; loop, which draws no top and no top
+    jg .vc1                     ; fills, draws the same cells - as
+.vcs:                           ; wa_fedge's test)
     or bl, 4
 .vc1:
     cmp byte [wa_steep], 0
@@ -1659,7 +1664,12 @@ wa_span:
     jmp .vd
 .vf:
     cmp byte [wa_sparse], 0
-    je .v1
+    jne .vs
+    cmp word [wa_t1], -3        ; (a top above the screen throughout: the
+    jg .v1                      ; sparse loop, as above)
+    cmp word [wa_t2], -3
+    jg .v1
+.vs:
     or bl, 8
 .v1:
     cmp byte [wa_steep], 0
@@ -2363,6 +2373,16 @@ wa_stepfill:
     inc bx                      ; -1..+1 -> 0..2: no fill
     cmp bx, 3
     jb .no
+    cmp ax, 0                   ; both at or above the screen's top half-row
+    jg .t1                      ; (a near wall's top), or both on or below
+    cmp cx, 0                   ; its last: wa_slope's rows between them
+    jle .no                     ; are none
+.t1:
+    cmp ax, WA_HR-1
+    jl .go
+    cmp cx, WA_HR-1
+    jge .no
+.go:
     jmp wa_slope
 .no:
     ret
