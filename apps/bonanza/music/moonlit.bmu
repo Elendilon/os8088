@@ -1,0 +1,91 @@
+; BOUNCE BONANZA - song 4, course 4: "Moonlit Green" (SPEC.md 128.20)
+;
+; A minor at 102 BPM with a light SWING - a 16th is 9 then 7 sub-ticks (an
+; 8th is always 16, 293 ms), so the 16th pick-ups tiptoe rather than march.
+; A nocturne: sneaky, twinkling, never scary.
+;
+; The intro is the motif hidden in the dark: a glockenspiel picks out its
+; notes an octave up between rests, over the organ's pedal and a soft pad,
+; and slips down a semitone (F to E) into the theme.
+; A is the music box's theme, a period of four patterns: the motif leaps up
+; a fourth, twiddles round the harmonic minor's G# - a hiccup of a 16th rest
+; in the swing - climbs to C and creeps back down; it answers itself over
+; F, half-closes on E, comes again reaching up to E6 (and a D twinkling
+; its minor arpeggio over F, an F6 sparkle), and closes on A. Am F | Dm E |
+; Am F | Dm E Am, over a pluck bass walking on tiptoe and a strings pad.
+; B is the contrast: the recorder in long notes over a plucked harp's lilt
+; (4. 8 2) and a held bass - C G | Am D, the D MAJOR the Dorian colour - then
+; F G | Bb E, the Phrygian B-flat whose D twinkles on the minor arpeggio
+; (a Bbmaj7 shimmer), and E's G# F E (the flat ninth) hands back to A.
+; Intro, A1 A2 A3 A4 B1 B2 B3 B4 for ever: 37.5 s a loop.
+;
+; The speaker hears the lead (q0, so nothing breaks between its notes), the
+; kick on one and a tom's rim on three as blips, and - `spkbass` - the bass
+; in every rest of the lead: the pedal under the intro's twinkles, a low
+; tock in the motif's hiccup, and the bass stepping E B G# into the loop.
+;
+; Every section's first phrase names its instruments and volumes; the
+; phrases after it inherit them, and the loop comes back to A1, which names
+; them again.
+
+song moonlit "Moonlit Green"
+groove 9 7
+unit 16
+rows 32
+measure 16
+spkbass
+voice lead glock
+voice bass pedal
+voice chord stab
+; (stab is never heard: every chord phrase names strings or harp itself)
+
+; --- the intro: the motif twinkling in the dark, Am | E ---------------------------
+lead LI = q0 o6 e8 r8 o5 a8 r16 g+16 a8 r8 o6 c8 r8 |
+          o5 b8 r8 g+8 r8 b8 a8 g+8 f8 |
+bass BI = o2 a1 | e1 |
+chord CI = @strings v13 o3 [a >c e]1 | [g+ b >e]1 |
+
+; --- A: the music box's theme ------------------------------------------------------
+lead LA1 = @musicbox q0 o5 e8 a8 r16 g+16 a8 o6 c8 o5 b8 a8 e8 |
+           f8 a8 r16 g16 f8 e8 d8 c8 d8 |
+lead LA2 = @musicbox q0 o5 e8 f8 r16 e16 d8 a4 f8 d8 |
+           e8 g+8 b8 o6 d8 c8 o5 b8 g+8 r8 |
+lead LA3 = @musicbox q0 o5 e8 a8 r16 g+16 a8 o6 c8 e8 d8 c8 |
+           o5 a8 o6 c8 r16 o5 b-16 a8 g8 f8 @chiparpm d8 @musicbox c8 |
+lead LA4 = @musicbox q0 o5 f8 d8 a8 o6 d8 c8 o5 b8 g+8 e8 |
+           a4 r16 e16 a8 o6 c8 o5 b8 a4 |
+bass BA1 = @pluckbass o2 a4 e4 a8 b8 o3 c4 | o2 f4 c4 f8 g8 a4 |
+bass BA2 = @pluckbass o2 d4 a4 d8 e8 f4 | e4 o1 b4 o2 e8 f8 g+4 |
+bass BA4 = @pluckbass o2 d4 f4 e4 g+4 | a4 e4 a8 g8 e8 d8 |
+chord CA1 = @strings v13 o3 [a >c e]1 | [a >c f]1 |
+chord CA2 = @strings v13 o3 [a >d f]1 | [g+ b >e]1 |
+chord CA4 = @strings v13 o3 [a >d f]2 [g+ b >e]2 | [a >c e]1 |
+drum DA = k4 h8 h8 T8 h8 h4 | k4 h8 h8 h8 t8 h8 T8 |
+drum DA4 = k4 h8 h8 T8 h8 h4 | k4 h8 t8 h8 t8 T8 T8 |
+
+; --- B: the recorder, the harp, Dorian then Phrygian ---------------------------------
+lead LB1 = @recorder q0 o5 e4. g8 o6 c4 o5 b8 a8 | b4. a8 g4 d4 |
+lead LB2 = @recorder q0 o5 a4 o6 c8 o5 b8 a8 g8 e4 | f+2 e8 f+8 a4 |
+lead LB3 = @recorder q0 o6 c2 o5 a8 g8 f8 a8 | g4. f8 d4 f4 |
+lead LB4 = @recorder q0 o5 b-4. a8 f4 @chiparpm d4 | @recorder g+4. f8 e4 r4 |
+bass BB1 = @bass o2 c2. e4 | o1 g2. b4 |
+bass BB2 = @bass o1 a2. o2 c4 | d2. f+4 |
+bass BB3 = @bass o2 f2. a4 | g2. b4 |
+bass BB4 = @bass o2 b-2. f4 | e2 o1 b4 o2 g+4 |
+chord CB1 = @harp v10 o4 [e g >c]4. [e g >c]8 [e g >c]2 | [d g b]4. [d g b]8 [d g b]2 |
+chord CB2 = @harp v10 o4 [e a >c]4. [e a >c]8 [e a >c]2 | [d f+ a]4. [d f+ a]8 [d f+ a]2 |
+chord CB3 = @harp v10 o4 [f a >c]4. [f a >c]8 [f a >c]2 | [d g b]4. [d g b]8 [d g b]2 |
+chord CB4 = @harp v10 o4 [d f b-]4. [d f b-]8 [d f b-]2 | [e g+ b]4. [e g+ b]8 [e g+ b]2 |
+drum DB = k4 h4 h4 h8 h8 | k4 h4 h4 h8 T8 |
+drum DB4 = k4 h4 h4 h8 h8 | k4 h4 t8 h8 T8 T8 |
+
+order LI  BI  CI  -
+order LA1 BA1 CA1 DA          ; 1: the loop comes back here
+order LA2 BA2 CA2 DA
+order LA3 BA1 CA1 DA
+order LA4 BA4 CA4 DA4
+order LB1 BB1 CB1 DB
+order LB2 BB2 CB2 DB
+order LB3 BB3 CB3 DB
+order LB4 BB4 CB4 DB4
+loop 1

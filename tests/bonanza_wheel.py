@@ -1003,6 +1003,13 @@ def run(tag, legs=LEGS, apps=None, src=None):
         ui.open("BONANZA.O88")
         g = R.Bz(ui, tag, sym)
         ui.settle()
+        if "bzs_mode" in sym:
+            # THE WHEEL AT EQUAL CONTENT: the sound OFF (S's own choice, SPEC.md 128.20.4). Its idle time is
+            # what the wheel spends, and with the music on the rotors show ~2 poses in 36 fewer (SPEC.md
+            # 128.20.7): a trade the owner weighs, priced by bonanzasound, not this row's verdict
+            g.m.pause()
+            g.putb("bzs_mode", 3)
+            g.m.run()
         ref = R.Ref(tag, R.course("mill"))
         cover = {"beam": [], "cost": {2: [], 3: []}}
         for leg, fn in (("bench", lambda: bench_leg(g, ref, wr)), ("low", lambda: low_leg(g, ref))):

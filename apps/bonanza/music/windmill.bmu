@@ -1,0 +1,106 @@
+; BOUNCE BONANZA - song 3, course 3: "Windmill Lane" (SPEC.md 128.20)
+;
+; C major, a street-organ WALTZ in 3/4 at 136.5 BPM: a bar is twelve 16ths,
+; and a beat (four rows) is 24 sub-ticks, 0.44 s. The groove is 7 7 5 5, so
+; every PAIR of 8ths leans long-short (14 : 10 sub-ticks) - a gentle lilt,
+; the organ grinder a glass of jenever into the afternoon - while the beats
+; themselves stay exactly even.
+;
+; The accompaniment is the oom-pah-pah: the PEDAL on beat 1 (root, then the
+; fifth below in the next bar), damped STAB chords on beats 2 and 3, and a
+; kick on 1 with hats on 2 and 3 - the hats are silent on the speaker, so
+; the PC speaker's single voice hears only the kick's blip once a bar and the
+; lead is never chopped mid-beat (one clap marks each section's last bar).
+;
+; The intro winds the organ up: the LEAD itself plays the "pah-pah" on beats
+; 2 and 3 while `spkbass` lets the pedal sound beat 1 through the lead's rest,
+; so even the speaker plays a whole oom-pah-pah - then slides, F F# G, into
+; the tune. A (8 bars) is the SAILS: a C arpeggio climbing to G5 and a
+; tipsy chromatic turn around it (F# G A G E), the same again a step lower
+; on G7, then a falling dotted line over Dm - G7 and a half cadence. A
+; repeats with a full close and a Bb pickup that tips the music into F major
+; for B, where the glockenspiel takes the lead with turning 8ths (the
+; windmill's clockwork) and a falling dotted sequence over Bb - F; a G7 bar
+; and the organ's scale run down F E D C B A lead home to A'' - the first
+; bar's turn flips up to C6, the pah-pah moves to the glockenspiel (the
+; organ's bell stop, AdLib only) - whose last bar ends on the intro's F F#
+; slide, back into the loop. Intro, then A A' B A'' for ever: 32 bars, 42.2 s.
+;
+; The packer starts every phrase at the voice's instrument and v12, but the
+; sequencer carries a channel's last instrument and volume over, so every
+; LEAD phrase ends on the organ at v12 or is followed by one that names its
+; own `@glock v10`, and every CHORD phrase opens with its volume and ends on
+; the stab - a phrase never inherits a state its packing did not assume.
+
+song windmill "Windmill Lane"
+groove 7 7 5 5
+unit 16
+rows 24
+measure 12
+spkbass
+voice lead organ
+voice bass pedal
+voice chord stab
+
+; --- the intro: oom (pedal) pah pah (the organ itself), the slide into A -------
+lead LI = o4 r4 e8 r8 e8 r8 | r4 f8 r8 f8 f+8 |
+bass BI = o2 c4 r2 | o1 g4 r2 |
+chord CI = o3 r4 v10 [g >c e]4 [g >c e]4 | r4 [g b >f]4 [g b >f]4 |
+drum DW = k4 h4 h4 | k4 h4 h4 |
+drum DX = k4 h4 h4 | k4 h4 c4 |
+
+; --- A: the sails going round -------------------------------------------------
+lead LA1 = o4 g4 >c8 e8 g4 | f+8 g8 a8 g8 e4 |
+lead LA2 = o4 f4 b8 >d8 f4 | e8 f8 g8 f8 d4 |
+lead LA3 = o5 a4. g8 f8 e8 | d4. c8 o4 b4 |
+lead LA4 = o5 c4 e8 g8 >c4 | <b4 a8 f8 d4 |
+lead LA5 = o5 c4 e8 g8 >c4 | <c4 r4 o4 a8 b-8 |
+lead LA6 = o5 c4 e8 g8 >c4 | <c4 r4 o4 f8 f+8 |
+lead LA7 = o4 g4 >c8 e8 g8. a16 | g8 f+8 g8 >c8 <e4 |
+bass BCC = o2 c4 r2 | o1 g4 r2 |
+bass BGG = o1 g4 r2 | o2 d4 r2 |
+bass BDG = o2 d4 r2 | o1 g4 r2 |
+chord CCC = o3 r4 v10 [g >c e]4 [g >c e]4 | r4 [g >c e]4 [g >c e]4 |
+chord CGG = o3 r4 v10 [g b >f]4 [g b >f]4 | r4 [g b >f]4 [g b >f]4 |
+chord CDG = o3 r4 v10 [a >d f]4 [a >d f]4 | r4 [g b >f]4 [g b >f]4 |
+chord CCG = o3 r4 v10 [g >c e]4 [g >c e]4 | r4 [g b >f]4 [g b >f]4 |
+chord CC7 = o3 r4 v10 [g >c e]4 [g >c e]4 | r4 [g b- >e]4 [g b- >e]4 |
+
+; --- A'': the organ's bell stop - the pah-pah on the glockenspiel, and the
+; first bar's turn flips up to C6. The last bar goes back to the stab, so the
+; loop's A starts on it (the sequencer keeps a channel's last instrument).
+chord GCC = @glock o3 r4 v8 [g >c e]4 [g >c e]4 | r4 [g >c e]4 [g >c e]4 |
+chord GGG = @glock o3 r4 v8 [g b >f]4 [g b >f]4 | r4 [g b >f]4 [g b >f]4 |
+chord GDG = @glock o3 r4 v8 [a >d f]4 [a >d f]4 | r4 [g b >f]4 [g b >f]4 |
+chord GCE = @glock o3 r4 v8 [g >c e]4 [g >c e]4 | @stab v10 r4 [g >c e]4 [g >c e]4 |
+
+; --- B: F major, the glockenspiel and the clockwork ---------------------------
+lead LB1 = @glock v10 o5 c8 f8 a8 >c8 <a8 f8 | g8 f8 e8 f8 a4 |
+lead LB2 = @glock v10 o5 c8 e8 g8 b-8 g8 e8 | f8 g8 a8 b-8 >c4 |
+lead LB3 = @glock v10 o6 d4. c8 <b-4 | a4. g8 f4 |
+lead LB4 = @glock v10 o5 d8 f8 b8 >d8 <b8 g8 | @organ v12 f8 e8 d8 c8 o4 b8 a8 |
+bass BFF = o2 f4 r2 | c4 r2 |
+bass BCF = o2 c4 r2 | f4 r2 |
+bass BBF = o1 b-4 r2 | o2 f4 r2 |
+chord CFF = o3 r4 v10 [a >c f]4 [a >c f]4 | r4 [a >c f]4 [a >c f]4 |
+chord CCF = o3 r4 v10 [g b- >e]4 [g b- >e]4 | r4 [a >c f]4 [a >c f]4 |
+chord CBF = o3 r4 v10 [b- >d f]4 [b- >d f]4 | r4 [a >c f]4 [a >c f]4 |
+
+order LI  BI  CI  DW
+order LA1 BCC CCC DW          ; 1: A - the loop comes back here
+order LA2 BGG CGG DW
+order LA3 BDG CDG DW
+order LA4 BCC CCG DX
+order LA1 BCC CCC DW          ; A'
+order LA2 BGG CGG DW
+order LA3 BDG CDG DW
+order LA5 BCC CC7 DX
+order LB1 BFF CFF DW          ; B
+order LB2 BCF CCF DW
+order LB3 BBF CBF DW
+order LB4 BGG CGG DX
+order LA7 BCC GCC DW          ; A''
+order LA2 BGG GGG DW
+order LA3 BDG GDG DW
+order LA6 BCC GCE DX
+loop 1

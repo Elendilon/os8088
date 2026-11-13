@@ -160,7 +160,7 @@ MACHINE = {"cga": "os8088_5150_cga_gla", "herc": "os8088_5150_herc_gla"}
 W = {"cga": 320, "herc": 360}       # game pixels across the window
 RL = {"cga": 2, "herc": 4}          # lines a card row
 RB = {"cga": 80, "herc": 90}        # bytes a line
-FILES = ("bonanza.asm", "bzvideo.inc", "bzgame.inc", "bzwheel.inc", "bzphys.inc")
+FILES = ("bonanza.asm", "bzvideo.inc", "bzgame.inc", "bzwheel.inc", "bzphys.inc", "bzsound.inc")
 EXTRA_SYMS = ("op_table",)          # os88parts.inc's: the part rows (bonanza_exit)
 # NASM local labels a row breakpoints (proc, local): resolved by the same
 # assembly when the source has them (a red tree, or an older wave, may not)
@@ -280,8 +280,8 @@ def symbols(src=None, art=None):
         if not os.path.exists(p):
             continue
         t = open(p).read()
-        names += re.findall(r"^VAR (bz_\w+),", t, re.M)
-        names += re.findall(r"^(bz_\w+):", t, re.M)
+        names += re.findall(r"^VAR (bzs?_\w+),", t, re.M)      # (bzs_: the sound's, 128.20)
+        names += re.findall(r"^(bzs?_\w+):", t, re.M)
         names += [n for n in EXTRA_SYMS if re.search(r"^%s:" % n, t, re.M)]
         names += ["%s.%s" % (pr, lo) for pr, lo in LOCAL_SYMS if _has_local(t, pr, lo)]
     inc = os.path.join(ROOT, "apps", "os88parts.inc")
@@ -1923,7 +1923,7 @@ def build_tree(td, patches, size=360, src0=None, art=None, name="bonanza"):
     art = art or at("build/bonanza-art")
     binp, o88, img = (os.path.join(td, n) for n in ("bonanza.bin", "BONANZA.O88", "%s%d.img" % (name, size)))
     assemble(src, art, binp)
-    subprocess.run(["python3", "tools/os88pkg.py", "--compress-if=lz4", binp, "-o", o88] + part_args(art),
+    subprocess.run(["python3", "tools/os88pkg.py", "--compress-if=lz4", binp, "-o", o88] + part_args(art, src),
                    cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
     subprocess.run(["python3", "tools/os88disk.py", "-o", img, "--size", str(size), o88], cwd=ROOT, check=True,
                    stdout=subprocess.DEVNULL)
@@ -1944,13 +1944,20 @@ def assemble(src, art, binp):
                     "-I", art + "/", "-o", binp, os.path.join(src, "bonanza.asm")], cwd=ROOT, check=True)
 
 
-def part_args(art):
+def part_args(art, src=None):
     """The --part list in the Makefile's BZ_PARTS order (SPEC.md 128.11.3.1):
     rows 0 - 2 the rubber, steel and glass balls, then course K's one part
-    (bzcourse.inc's BZ_NCRS of them)."""
+    (bzcourse.inc's BZ_NCRS of them), then - where SRC's package carries
+    them - the sound part and one part a song (SPEC.md 128.20.3)."""
     n = int(re.search(r"^BZ_NCRS\s+equ\s+(\d+)", open(os.path.join(art, "bzcourse.inc")).read(), re.M).group(1))
+    files = list(A.BALL_FILES) + ["BZ%d.BIN" % k for k in range(n)]
+    asm = open(os.path.join(src or os.path.join(ROOT, "apps", "bonanza"), "bonanza.asm")).read()
+    if "BZS_NSONG" in asm:
+        ns = int(re.search(r"^BZS_NSONG\s+equ\s+(\d+)", open(os.path.join(art, "bzsnd.inc")).read(),
+                           re.M).group(1))
+        files += ["BZSND.BIN"] + ["BZM%d.BIN" % i for i in range(ns)]
     out = []
-    for p in list(A.BALL_FILES) + ["BZ%d.BIN" % k for k in range(n)]:
+    for p in files:
         out += ["--part", os.path.join(art, p)]
     return out
 

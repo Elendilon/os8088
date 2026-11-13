@@ -661,6 +661,7 @@ bz_t0:
     jne .camera                 ; its log ends on the same step (128.11.12.2)
     loop .step
 .camera:
+    call bzs_frame              ; the sound: events, sub-ticks, output (128.20)
     call bz_foot                ; RULE 0 (SPEC.md 128.12.4.4): the ball's screen
     call bz_props               ; state and new footprints, the props' walk
     call bz_camera              ; (the contact and bz_heavy), then the camera

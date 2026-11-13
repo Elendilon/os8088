@@ -1940,7 +1940,14 @@ bz_refl:
     mov al, ah
     mov ah, dl                  ; >> 8
     cmp ax, BZ_WMIN
-    jae .t
+    jb .z
+    inc word [bz_nwall]         ; SOUND STATE (SPEC.md 128.20.5), never read
+    mov [bz_lwv], ax            ; by physics: a reflection that left a speed,
+    mov byte [bz_lwb], 0        ; the speed, and whether off a bumper's face
+    cmp bl, BZ_EBUMPER
+    jne .t
+    mov byte [bz_lwb], 1
+    jmp short .t
 .z:
     xor ax, ax
 .t:

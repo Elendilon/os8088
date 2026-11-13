@@ -34,6 +34,9 @@ OS88_ICON16_END
 %include "os88parts.inc"
 %include "bzconst.inc"          ; the ball part's layout (tools/bonanza_assets.py)
 %include "bzcourse.inc"         ; the courses and their part rows (tools/bbcourse.py)
+%include "bzsnd.inc"            ; the songs and the events (tools/bbmusic.py)
+%include "drivers/sound/sndpkg.inc" ; SOUND.DRV's FM door (bzsound.inc), from the root
+                                ; as every bonanza row assembles it
 
 %macro SAVE 0
  push ax
@@ -126,7 +129,8 @@ bz_entry:
     mov al, [bz_cballs + BZ_CRS_FIRST] ; (N and M change them, SPEC.md
     mov [bz_matsel], al         ; 128.11.5.4)
     OS88_REGION_MOVABLE
-    OS88_ALTENTER_ARM           ; (also the ask 128.11.11.2 owes at the open:
+    OS88_ALTENTER_ARM
+    call bzs_dstart             ; the title's music (SPEC.md 128.20.6)           ; (also the ask 128.11.11.2 owes at the open:
                                 ; asking arms SPEC.md 9.7's map, so the held-
                                 ; key guard sees every key pressed after it)
     mov bx, [bz_win]
@@ -192,6 +196,9 @@ bz_onkey:
     mov bx, bz_ballkey
     cmp al, 'm'
     je .held
+    mov bx, bzs_skey            ; S: the sound (SPEC.md 128.20.4)
+    cmp al, 's'
+    je .held
     mov bx, bz_crskey
     cmp al, 'n'
     jne .done
@@ -248,6 +255,7 @@ bz_dkey:
 ; Down, ask again in a tick; up, the next typed key of it is a press
 bz_ontimer:
     SAVE
+    call bzs_dtick              ; the title (re-arms the timer while it plays)
     mov al, [bz_dkk]
     or al, al
     jz .done
@@ -365,6 +373,9 @@ bz_launch:
     mov al, [bz_pb]
     call op_seg
     mov [bz_bseg], ax
+    push es                     ; the title off, the course's song fetched
+    call bzs_gfetch             ; (none had: a SILENT play, SPEC.md 128.20.6)
+    pop es
     call bz_crshdr              ; the course's header, copied into our data
     cmp byte [bz_mode], 2       ; a REPLAY of a log made on another course (a
     jne .idok                   ; re-seeded one: its identity differs) is
@@ -406,8 +417,9 @@ bz_launch:
     call op_drop
     mov word [bz_cseg], 0
     mov word [bz_bseg], 0
-    cmp byte [bz_err], 3        ; no bracket ran: the face repainted with the
-    jne .out                    ; refusal
+    call bzs_gdrop              ; the song back, and the title (a finish's
+    cmp byte [bz_err], 3        ; fanfare first, SPEC.md 128.20.6); no bracket
+    jne .out                    ; ran: the face repainted with the refusal
     call bz_repaint
 .out:
     ret
@@ -659,6 +671,7 @@ bz_face:
     call bz_lstr
     call bz_line
     call bz_keyline             ; line 3: the camera, the ball, their keys
+    call bz_sndline             ; line 4: the sound and its key (128.20.4)
     cmp byte [bz_err], 3        ; (a refused replay says why, whatever the
     je .nores                   ; lines would hold)
     cmp byte [bz_fin], 0        ; lines 4 and 5 after a play or a replay that
@@ -859,6 +872,34 @@ bz_line3:
 %if BZ_CRS_BENCH != 0
  %error "bz_crskey cycles courses 1 .. BZ_NCRS - 1: BENCH must be course 0"
 %endif
+; line 4 at [bz_fy]: `S <the sound>` - the player's choice and, under AUTO,
+; the arm it found (SPEC.md 128.20.4).  S redraws it (bzs_skey).
+bz_sndline:
+    mov si, bz_s_sndk
+    call bz_lstr
+    mov bl, [bzs_mode]
+    xor bh, bh
+    shl bx, 1
+    mov si, [bz_s_smodes + bx]
+    call bz_lcat
+    cmp byte [bzs_mode], BZS_M_SPK
+    jae .l
+    mov si, bz_s_sfm
+    cmp byte [bzs_arm], BZS_A_FM
+    je .a
+    mov si, bz_s_sspk
+.a:
+    call bz_lcat
+.l:
+    jmp bz_line
+bz_line4:
+    call bz_fclip
+    jc .out
+    mov word [bz_fy], 4 * BZ_LH
+    call bz_sndline
+.out:
+    ret
+
 bz_crskey:
     mov bl, [bz_crsel]          ; every course but BENCH: FIRST, TRIAL, ...
     inc bx
@@ -1222,6 +1263,14 @@ bz_credit3: db 'Generated art, original design',0
 
 bz_s_title: db 'BOUNCE BONANZA - wave 3',0
 bz_s_keys:  db 'ENTER ',0
+bz_s_sndk:  db 'S SOUND ',0
+bz_s_smodes: dw bz_s_sauto, bz_s_sspkf, bz_s_sfx, bz_s_soff
+bz_s_sauto: db 'AUTO',0
+bz_s_sspkf: db 'SPEAKER',0
+bz_s_sfx:   db 'EFFECTS ONLY',0
+bz_s_soff:  db 'OFF',0
+bz_s_sfm:   db ': ADLIB',0
+bz_s_sspk:  db ': SPEAKER',0
 bz_s_keyb:  db '  B bench',0
 bz_ctitles: BZ_CRS_TITLES       ; the courses' titles, BZ_CRS_TITLEB bytes each
 bz_cballs:  BZ_CRS_BALLS        ; ...and their balls, a byte each
@@ -1273,6 +1322,7 @@ bz_s_p5:    db '  box write      ',0
 %include "bzgame.inc"
 %include "bzwheel.inc"
 %include "bzphys.inc"
+%include "bzsound.inc"
 %if 4 * BZ_BOXB < 512
  %error "bz_hgen: BZ_HTAB's 512 bytes do not fit bz_boxbuf"
 %endif
@@ -1282,11 +1332,15 @@ bz_s_p5:    db '  box write      ',0
 ; OP_COMP: the three balls, then each course (BZ_COURSES's order, bzcourse.inc's
 ; rows), every one the CGA's.  Fetched by bz_launch on the desktop (op_fetch,
 ; 1942's pattern) and dropped when the bracket returns.
-OS88_PARTS_BEGIN 3 + BZ_NCRS
+OS88_PARTS_BEGIN 3 + BZ_NCRS + 1 + BZS_NSONG
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; 0  BZBALR.BIN  rubber
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; 1  BZBALS.BIN  steel
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; 2  BZBALG.BIN  glass
     BZ_CRS_PARTS                            ; 3 + K: BZ<K>.BIN
+    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ_P_SND: BZSND.BIN (128.20.3)
+ %rep BZS_NSONG
+    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ_P_SONG + S: BZM<S>.BIN
+ %endrep
 OS88_PARTS_END
 
 %define OS88UI_ABOUT
@@ -1322,6 +1376,7 @@ VAR bz_lbuf,BZ_LMAX + 2
 ; the engine's (bzgame.inc's head documents the ones a harness reads)
 BZ_GAME_VARS
 BZ_PHYS_VARS
+BZ_SND_VARS
 VAR bz_rlog,BZR_SIZE                ; THE REPLAY LOG (SPEC.md 128.11.12.1): `BZR1`,
                                 ; the course (+4), the material (+5), flags,
                                 ; the steps, the runs.  The recorder writes

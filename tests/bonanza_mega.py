@@ -309,11 +309,27 @@ def log_keys(b, pkg):
     return out
 
 
+def title_rows(n):
+    """the desktop's title holds two rows while the window is open (SPEC.md
+    128.20.6): the sound part and song 0, after the courses' - the rows a
+    package with sound has past 3 + BZ_NCRS (none for one without)"""
+    import re
+    inc = os.path.join(R.at("build/bonanza-art"), "bzsnd.inc")
+    if not os.path.exists(inc):
+        return set()
+    nsong = int(re.search(r"^BZS_NSONG\s+equ\s+(\d+)", open(inc).read(), re.M).group(1))
+    snd = n - 1 - nsong
+    return {snd, snd + 1} if snd >= 3 else set()
+
+
 def check_after(what, pkg, base_rows, base_claims, got_claims):
     rows = pkg.rows()
-    bad = [i for i, (f, _) in enumerate(rows) if f & OP_FETCHED]
+    title = title_rows(len(rows))
+    bad = [i for i, (f, _) in enumerate(rows) if f & OP_FETCHED and i not in title]
     want(not bad, "%s: no part row FETCHED after it (%s)" % (what, bad or "none"))
-    moved = [i for i, (a, c) in enumerate(zip(base_rows, rows)) if a[1] != c[1]]
+    gone = [i for i in title if (rows[i][0] ^ base_rows[i][0]) & OP_FETCHED]
+    want(not gone, "%s: the title's rows held as before it (%s)" % (what, gone or "both"))
+    moved = [i for i, (a, c) in enumerate(zip(base_rows, rows)) if a[1] != c[1] and i not in title]
     want(not moved, "%s: every row's zkb back to its packed length (%s)" % (what, moved or "all"))
     want(got_claims == base_claims, "%s: the instance's claims as before the launch: %s" % (what, got_claims))
 

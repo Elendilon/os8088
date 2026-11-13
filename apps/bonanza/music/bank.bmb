@@ -1,0 +1,204 @@
+; BOUNCE BONANZA'S INSTRUMENT BANK AND EFFECTS (SPEC.md 128.20.3, 128.20.5) -
+; shared by every song, carried once in BZSND.BIN. tools/bbmusic.py packs it.
+;
+; `fm` is an OPL2 patch in SOUND.DRV's own order (SPEC.md 34.2): the
+; MODULATOR's 20h 40h 60h 80h E0h, a `/`, the CARRIER's five, a `/`, C0h.
+;   20h  AM | VIB | EGT(sustain) | KSR | MULT      40h  KSL | TL (0 = loudest)
+;   60h  attack | decay                              80h  sustain level | release
+;   E0h  waveform 0 sine, 1 half, 2 abs, 3 pulse     C0h  feedback<<1 | additive
+; With EGT clear the note is PERCUSSIVE: it decays at the release rate even
+; while held, which is how a pluck, a drum and a bell stop by themselves.
+; A note's VOLUME (v0 - v15) adds (15 - v) * 2 to the CARRIER's TL.
+;
+; `macro` is a pitch offset in semitones a SUB-TICK (54.6 Hz) from the note's
+; start - `|` marks where it loops, else the last value holds. It moves the
+; pitch on BOTH arms: an arpeggio on the speaker, a drum's fall on the chip.
+; `vib DELAY DEPTH` marks an instrument that sings with a VIBRATO: on the
+; AdLib the chip's own (the carrier's VIB bit, 7 cents at 6.1 Hz). Nothing
+; writes one as pitch - on the speaker that was a tone re-sent every other
+; sub-tick for a held note, ~1.2k cycles each, which the game's frame cannot
+; spare (SPEC.md 128.20.7); DELAY and DEPTH are kept for the day it can.
+; `spk N` is a DRUM's claim on the speaker: N sub-ticks of blip ahead of the
+; lead (SPEC.md 128.20.4). A drum without one is never heard there.
+; `alt` puts a drum on the AdLib's SECOND drum channel (6): the noise family
+; (snare, hat, clap) there, the thumps (kick, toms) on 5, so a hit is never a
+; re-patch - eleven registers, ~12k cycles on the XT.
+; A written vibrato would cost a register batch every other sub-tick on the
+; AdLib and a tone on the speaker; `vib` is the chip's bit (above).
+;
+; The patches marked TITHE are TITHE's bank (apps/tithe/music/bank.tmb on
+; tithe-new), which the owner has heard on the chip; the rest are this
+; game's.
+
+; --- LEADS --------------------------------------------------------------------
+
+inst trumpet            ; TITHE: bright brass, the title's fanfare
+  fm  21 14 A3 13 00 / 21 00 C5 06 00 / 08
+  vib 10 4
+inst horn               ; TITHE: rounder brass with a scoop
+  fm  21 1C 72 14 00 / 21 00 94 06 00 / 06
+  macro -1 0
+  vib 8 4
+inst recorder           ; TITHE: near-pure, breathy onset
+  fm  61 30 86 05 00 / 61 00 75 06 00 / 0C
+  vib 8 5
+inst fiddle             ; TITHE: bowed, a quick bite and a held tone
+  fm  61 18 B6 16 00 / 61 00 A5 06 00 / 0C
+  vib 6 5
+inst chip               ; the arcade lead: a sine with feedback, a little
+  fm  21 1C F2 24 00 / 21 00 F2 16 00 / 0C      ; buzz, held
+  vib 12 3
+inst chiparp            ; the same, ARPEGGIATED a major chord and its octave,
+  fm  21 1C F2 24 00 / 21 00 F2 16 00 / 0C      ; four steps so the desktop's
+  macro | 0 4 7 12                              ; three-a-tick sampling still moves
+inst chiparpm           ; ...and the minor one
+  fm  21 1C F2 24 00 / 21 00 F2 16 00 / 0C
+  macro | 0 3 7 12
+inst glock              ; a glockenspiel: modulator x7, percussive
+  fm  07 1E F6 55 00 / 01 00 F4 26 00 / 04
+inst musicbox           ; softer and longer than the glock, the night's
+  fm  05 24 F4 54 00 / 01 00 F3 24 00 / 02
+
+; --- ACCOMPANIMENT ------------------------------------------------------------
+
+inst strings            ; TITHE: a pad, slow swell and the chip's vibrato
+  fm  61 1E 44 04 00 / 61 10 54 05 00 / 0C
+inst organ              ; TITHE: additive, the octave stop - the street organ
+  fm  22 16 D0 05 00 / 21 10 D0 05 00 / 03
+inst lute               ; TITHE: plucked, bright at the attack
+  fm  01 1A F4 55 00 / 01 08 F3 25 01 / 0A
+inst harp               ; TITHE: a softer, longer pluck
+  fm  01 24 F3 54 00 / 01 06 F2 24 00 / 06
+inst stab               ; a short off-beat chord: the lute, damped
+  fm  01 1A F6 57 00 / 01 08 F5 47 01 / 0A
+inst bass               ; TITHE: a held bass whose brightness settles
+  fm  21 1A F3 37 00 / 21 08 F2 07 00 / 06
+inst pluckbass          ; TITHE: percussive, the bouncy one
+  fm  01 16 F4 55 00 / 01 06 F2 04 00 / 06
+inst pedal              ; TITHE: the organ's pedal, additive and soft
+  fm  22 1A C0 05 00 / 21 0A C0 05 00 / 01
+
+; --- PERCUSSION (the drum channel's voice, re-patched a hit at a time) ---------
+
+inst kick               ; TITHE's thump, and a fall in pitch: on the speaker
+  fm  01 0C F8 FF 00 / 01 00 F6 F6 00 / 00      ; that fall IS the kick
+  macro 0 -3 -6 -9 -12
+  spk 2
+inst snare              ; TITHE: feedback noise, additive; on the speaker a
+  fm  0C 08 F7 F7 00 / 01 08 F8 F8 00 / 0F      ; snap from high to low
+  macro 19 7 0
+  spk 2
+  alt
+inst hat                ; TITHE: the noise, high and very short (chip only)
+  fm  0F 0C FA FA 00 / 0F 14 FA FA 00 / 0F
+  alt
+inst tom                ; TITHE: a pitched drum with a little rasp
+  fm  02 14 F7 F7 00 / 01 00 F5 F5 00 / 0A
+  macro 0 -1 -2 -3
+  spk 3
+inst clap               ; noise with a slower release: the waltz's "pah"
+  fm  0C 06 F6 F5 00 / 01 06 F7 F5 00 / 0F
+  macro 24 12 5 0
+  spk 2
+  alt
+
+drum k kick   d2
+drum s snare  d3
+drum h hat    c5
+drum t tom    a2
+drum T tom    e3
+drum c clap   e3
+
+; --- THE EFFECTS' VOICES (SPEC.md 128.20.5) -------------------------------------
+; PERCUSSIVE on the AdLib: a segment sets the level once and the chip's own
+; envelope decays it (a TL a sub-tick would be a register a sub-tick). On the
+; speaker the segments' decay is what silences them.
+
+inst rubber             ; a pure sine, percussive: the ball's own body
+  fm  01 24 F5 F5 00 / 01 00 F4 F5 00 / 02
+inst steel              ; INHARMONIC, modulator x7 on a carrier x2 - 3.5 : 1,
+  fm  07 10 F8 F4 00 / 02 00 F5 F4 00 / 0C      ; so it rings like metal
+inst glass              ; high and bright, modulator x15 on x4, fast decay
+  fm  0F 18 F8 F6 00 / 04 00 F6 F5 00 / 04
+inst bumper             ; TITHE's bell: carrier x2 against x5, a toll
+  fm  05 1C F3 04 00 / 02 02 F2 03 00 / 00
+inst noise              ; feedback noise, additive, slower than the snare
+  fm  0C 04 F5 F3 00 / 01 04 F6 F3 00 / 0F
+inst zap                ; a sine for the sweeps, a slow decay
+  fm  01 3F F2 F0 00 / 01 00 F2 F3 00 / 00
+
+; --- THE EFFECTS ------------------------------------------------------------------
+; sfx NAME inst I prio P sens S : SEGMENT ; SEGMENT ...
+;   t= sub-ticks  n= the note (r a silent segment)  s= slide, 1/16 semitone a
+;   sub-tick  v= volume 0-15  d= volume decay, 1/16 a sub-tick  j= jitter mask
+;   (0,1,3,..127, in 1/16 semitone)  `legato`: re-pitched, not struck again.
+; The impact's strength raises it (strength >> sens) semitones, at most 7,
+; and half that in volume; sens 255 never.  prio: the higher plays.
+;
+; RUBBER: a warm, low sine that bends - the boing.
+
+sfx r_land   inst rubber prio 1 sens 7 : t=3 n=g2 s=-20 v=11 d=40
+sfx r_bounce inst rubber prio 3 sens 7 : t=2 n=c3 s=56 v=13 d=6 ;
+             t=9 n=g3 s=-10 v=12 d=16 legato
+sfx r_wall   inst rubber prio 2 sens 6 : t=2 n=e3 s=-16 v=11 d=48
+sfx r_bump   inst rubber prio 4 sens 255 : t=2 n=g3 s=64 v=14 d=4 ;
+             t=6 n=e4 s=24 v=13 d=8 legato ; t=8 n=a4 s=-16 v=12 d=20 legato
+sfx r_knock  inst rubber prio 4 sens 255 : t=2 n=a2 s=-32 v=14 d=30 ;
+             t=4 n=e3 s=-8 v=10 d=24
+
+; STEEL: short and INHARMONIC - two pitches a tritone apart, a sub-tick each,
+; then the ring falling. On the speaker that alternation is the clank.
+
+sfx s_land   inst steel prio 1 sens 7 : t=1 n=g3 v=13 d=16 ;
+             t=1 n=c+4 v=12 d=16 legato ; t=4 n=g3 s=-8 v=11 d=32 legato
+sfx s_bounce inst steel prio 3 sens 7 : t=1 n=a3 v=14 ; t=1 n=d+4 v=13 legato ;
+             t=1 n=a3 v=12 legato ; t=6 n=d+4 s=-6 v=11 d=20 legato
+sfx s_wall   inst steel prio 2 sens 6 : t=1 n=e4 v=14 ; t=1 n=a+4 v=12 legato ;
+             t=5 n=e4 s=-10 v=10 d=28 legato
+sfx s_bump   inst steel prio 4 sens 255 : t=1 n=e5 v=15 ; t=1 n=a+5 v=14 legato ;
+             t=10 n=e5 s=-2 v=13 d=12 legato
+sfx s_knock  inst steel prio 4 sens 255 : t=2 n=c3 v=15 d=10 ;
+             t=2 n=f+3 v=13 legato ; t=6 n=c3 s=-12 v=12 d=24 legato
+sfx s_stun   inst steel prio 5 sens 255 : t=1 n=c3 v=15 ; t=1 n=f+3 v=14 legato ;
+             t=4 n=c3 s=-16 v=13 d=30 legato ; t=2 n=r ;
+             t=2 n=c6 v=10 ; t=2 n=e6 v=10 legato ; t=2 n=c6 v=9 legato ;
+             t=2 n=e6 v=9 legato ; t=2 n=c6 v=8 legato ; t=3 n=e6 v=7 d=16 legato
+
+; GLASS: high, bright and brief, with a shimmer of jitter - and the shatter a
+; cascade of it.
+
+sfx g_land   inst glass prio 1 sens 7 : t=1 n=c6 v=13 d=32 ;
+             t=3 n=g6 s=-8 v=10 d=40 j=3 legato
+sfx g_bounce inst glass prio 3 sens 7 : t=2 n=e6 v=13 d=40 ; t=1 n=r ;
+             t=3 n=b6 v=11 d=40
+sfx g_wall   inst glass prio 2 sens 6 : t=1 n=a5 v=12 d=24 ;
+             t=3 n=e6 s=-8 v=9 d=36 j=3 legato
+sfx g_bump   inst glass prio 4 sens 255 : t=2 n=c7 v=14 d=24 ; t=2 n=g6 v=12 d=24 ;
+             t=4 n=c7 v=10 d=24 j=3
+sfx g_knock  inst glass prio 4 sens 255 : t=1 n=f6 v=14 ; t=1 n=b6 v=13 legato ;
+             t=3 n=f6 s=-24 v=11 d=40 j=7 legato
+sfx g_shat   inst glass prio 6 sens 255 : t=2 n=c7 v=15 j=127 ;
+             t=3 n=g6 v=13 d=16 j=63 ; t=4 n=e7 v=11 d=24 j=63 ;
+             t=4 n=c7 v=9 d=24 j=31 ; t=6 n=a7 v=7 d=16 j=31
+
+; SHARED: what the ball does rather than what it hits.
+
+sfx hop      inst zap    prio 1 sens 255 : t=4 n=g3 s=40 v=10 d=16
+sfx fall     inst zap    prio 5 sens 255 : t=24 n=c5 s=-24 v=12 d=6
+sfx tube     inst noise  prio 3 sens 255 : t=24 n=c2 s=4 v=12 d=4 j=15
+sfx goal     inst glock  prio 7 sens 255 : t=4 n=c5 v=14 ; t=4 n=e5 v=14 ;
+             t=4 n=g5 v=14 ; t=14 n=c6 v=15 d=8
+
+; --- THE EVENT MAP: which effect an event plays, a ball at a time -------------
+
+event LAND    rubber=r_land   steel=s_land   glass=g_land
+event BOUNCE  rubber=r_bounce steel=s_bounce glass=g_bounce
+event WALL    rubber=r_wall   steel=s_wall   glass=g_wall
+event BUMPER  rubber=r_bump   steel=s_bump   glass=g_bump
+event KNOCK   rubber=r_knock  steel=s_knock  glass=g_knock
+event STUN    all=s_stun
+event SHATTER all=g_shat
+event HOP     all=hop
+event FALL    all=fall
+event TUBE    all=tube
+event GOAL    all=goal

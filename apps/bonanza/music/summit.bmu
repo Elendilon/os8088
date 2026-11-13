@@ -1,0 +1,110 @@
+; BOUNCE BONANZA - song 5, course 5: "Summit Rush" (SPEC.md 128.20)
+;
+; E minor at 164 BPM - a 16th is one row of FIVE sub-ticks (91.6 ms), straight.
+; A pattern is ONE bar (rows 16), not two: the bass, the stabs and the drums
+; are a bar per chord, so every Em, C, D and B bar shares one phrase and the
+; song stays small for its length.
+;
+; The intro is the engine: a bar of the E bass pumping alone under the beat,
+; then a fanfare up a B major chord. A is the hook on the trumpet - B up to
+; E up to B, then a tumble down to E - answered a step lower over D, over
+; Em C D B, Em C Am-B Em, with off-beat-pushed stabs (3+3+2) and a rock beat.
+; B LIFTS to G major on the horn: broad held notes with eighth pickups over a
+; string pad, G D Em C G D C D. C is the climb, on the chip: the hook's own
+; leap shape (a fifth below the root, the root, the third) on C, then D, then
+; Em, twice - the second pass an octave up - and a B major arpeggio and a
+; tom fill throw it back into the hook. Intro, A B C for ever: 24 bars.
+;
+; The SPEAKER hears the lead whole - every rest in it is filled by the bass
+; (`spkbass`) - with the kick and snare blipping the beats; hats are silent
+; there. The arpeggiated notes (chiparp, chiparpm) arpeggiate on both arms.
+
+song summit "Summit Rush"
+groove 5
+unit 16
+rows 16
+measure 16
+spkbass
+voice lead trumpet
+voice bass pluckbass
+voice chord stab
+
+; --- the band: a bar per chord, shared by every section -------------------------
+bass BE = o2 l8 e e >e <e e e >e <e |
+bass BC = o2 l8 c c >c <c c c >c <c |
+bass BD = o2 l8 d d >d <d d d >d <d |
+bass BB = o1 l8 b b >b <b b b >b <b |
+bass BG = o2 l8 g g >g <g g g >g <g |
+bass BAB = o1 l8 a a >a <a b b >b <b |
+chord CEm = o4 v10 [e g b]4. [e g b]4. [e g b]4 |
+chord CC = o4 v10 [e g >c]4. [e g >c]4. [e g >c]4 |
+chord CD = o4 v10 [f+ a >d]4. [f+ a >d]4. [f+ a >d]4 |
+chord CB = o4 v10 [d+ f+ b]4. [d+ f+ b]4. [d+ f+ b]4 |
+chord CAB = o4 v10 [e a >c]4 [e a >c]4 [d+ f+ b]4 [d+ f+ b]4 |
+chord SG = @strings o4 v10 [d g b]1 |
+chord SD = @strings o4 v10 [f+ a >d]1 |
+chord SEm = @strings o4 v10 [e g b]1 |
+chord SC = @strings o4 v10 [e g >c]1 |
+drum DR = k8 h8 s8 h8 k8 k8 s8 h8 |
+drum DB = k8 h8 s8 h8 k8 h8 s8 h8 |
+drum DF = k8 h8 s8 h8 k8 s8 T16 T16 t16 t16 |
+drum DF2 = k8 h8 s8 h8 s16 s16 T16 T16 T16 t16 t16 t16 |
+
+; --- the intro: the bass alone, then the fanfare ----------------------------------
+lead LI = v14 o4 f+8 f+8 b8 >d+8 f+4 @chiparp <b4 |
+
+; --- A: the hook, Em C D B / Em C Am-B Em --------------------------------------------
+lead LA1 = v14 o4 b8 >e8 b8 a16 g16 f+8 g8 e4 |
+lead LA2 = v14 o6 c4. <b8 g4 e4 |
+lead LA3 = v14 o4 a8 >d8 a8 g16 f+16 e8 f+8 d4 |
+lead LA4 = v14 o5 f+4. g8 f+4 d+4 |
+lead LA7 = v14 o6 c8 <b8 a8 e8 d+8 f+8 a8 f+8 |
+lead LA8 = v14 o5 g8 f+8 @chiparpm e2 r4 |
+
+; --- B: the lift to G major, on the horn ---------------------------------------------
+lead LB1 = @horn v13 o5 r8 d8 g8 a8 b2 |
+lead LB2 = @horn v13 o5 a8 b8 a8 f+8 @chiparp d2 |
+lead LB3 = @horn v13 o5 r8 e8 g8 a8 b2 |
+lead LB4 = @horn v13 o6 c4. <b8 a8 g8 e4 |
+lead LB5 = @horn v13 o5 r8 d8 g8 a8 b4. >d8 |
+lead LB6 = @horn v13 o6 f+4. e8 d2 |
+lead LB7 = @horn v13 o6 e4. d8 c4 e4 |
+lead LB8 = @horn v13 o6 d4. c8 <a4 f+8 d8 |
+
+; --- C: the climb, C D Em twice, on the chip ------------------------------------------
+lead LC1 = @chip v13 o4 g8 >c8 e4. d8 c4 |
+lead LC2 = @chip v13 o4 a8 >d8 f+4. e8 d4 |
+lead LC3 = @chip v13 o4 b8 >e8 g4. f+8 e4 |
+lead LC4 = @chiparpm v13 o5 e2 @chip <b8 >d8 e8 f+8 |
+lead LC5 = @chip v13 o5 g8 >c8 e4. d8 c4 |
+lead LC6 = @chip v13 o5 a8 >d8 f+4. e8 d4 |
+lead LC7 = @chip v13 o5 b8 >e8 g4. f+8 e4 |
+lead LC8 = @chiparp v13 o5 b2 @chip a8 f+8 d+8 r8 |
+
+order -   BE  CEm DR
+order LI  BB  CB  DF
+order LA1 BE  CEm DR          ; 2: the loop comes back here
+order LA2 BC  CC  DR
+order LA3 BD  CD  DR
+order LA4 BB  CB  DR
+order LA1 BE  CEm DR
+order LA2 BC  CC  DR
+order LA7 BAB CAB DR
+order LA8 BE  CEm DF
+order LB1 BG  SG  DB
+order LB2 BD  SD  DB
+order LB3 BE  SEm DB
+order LB4 BC  SC  DB
+order LB5 BG  SG  DB
+order LB6 BD  SD  DB
+order LB7 BC  SC  DB
+order LB8 BD  SD  DF
+order LC1 BC  CC  DR
+order LC2 BD  CD  DR
+order LC3 BE  CEm DR
+order LC4 BE  CEm DF
+order LC5 BC  CC  DR
+order LC6 BD  CD  DR
+order LC7 BE  CEm DR
+order LC8 BB  CB  DF2
+loop 2

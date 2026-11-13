@@ -34,6 +34,18 @@ shows its time and its falls, stuns and shatters. Playing: the arrows roll
 the ball, Space hops, Left Shift grips; Esc, F or Alt+Enter goes back to the
 desktop.
 
+**Sound** (SPEC.md 128.20): a title theme plays while the window is open and
+each course has its own (the first five planned: *Fairway*, *Bounce Trial*,
+*Windmill Lane*, *Moonlit Green*, *Summit Rush*), on the PC speaker or, with
+`SOUND.DRV` and an AdLib, on the OPL2. Every impact - a landing, a bounce, a
+wall, a bumper, a windmill's knock - sounds different for each ball: rubber
+boings, steel clanks, glass tinks (and shatters). **S cycles the sound**:
+AUTO (the AdLib where the Control Panel's route allows it, else the speaker),
+SPEAKER, EFFECTS ONLY and OFF; the face names the choice and the arm found.
+The songs are text (`apps/bonanza/music/*.bmu`) packed by `tools/bbmusic.py`,
+which also renders them to WAV on the host:
+`python3 tools/bbmusic.py wav -o DIR`.
+
 Needs a CGA or a Hercules card (anything else is refused with the reason)
 and kern_big or kern_mega; the 128KB machine's kernel refuses it.
 
@@ -44,4 +56,5 @@ make bonanza        # build/bonanza.o88
 make bonanzadisk    # build/bonanza.img, bonanza720.img, bonanza120.img, bonanza360.img
 make bonanza-check  # the ball generator's own gate
 make bonanza-course-check  # the course compiler's own gate
+make bonanza-music-check   # the music packer's own gate
 ```
