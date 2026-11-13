@@ -839,9 +839,9 @@ wl_treads:
     mov byte [wl_two], 0
     mov word [wl_k], 2
 .t:
-    mov ax, [wl_k]              ; from the low end when the player is past
-    call wl_lowseen             ; it, else from the top
-    jnz .fwd
+    call wl_lowseen             ; from the low end when the player is past
+    mov ax, [wl_k]              ; it, else from the top (wl_lowseen takes
+    jnz .fwd                    ; AL)
     mov ax, [wl_nt]
     add ax, 2
     sub ax, [wl_k]
