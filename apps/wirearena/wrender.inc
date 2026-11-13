@@ -722,10 +722,10 @@ wa_proj:
     cmp [wa_stamp+bx], dl
     je %%skip
     mov [wa_stamp+bx], dl
-    mov [di], bx
-    inc di
-    inc di
     mov [wa_cur+bx], ax
+    xchg ax, bx                 ; onto the list (ES = DS through wa_render)
+    stosw
+    xchg ax, bx
 %%skip:
 %endmacro
 
@@ -883,7 +883,8 @@ wa_span:
     mov bx, [wa_vt0]
     mov ax, [wa_vb0]
     push cx
-    call wa_vedge
+    mov cl, [wa_hyst]           ; (nothing else is in this column yet - but
+    call wa_corner              ; a HELD edge can be inside the post)
     pop cx
 .c2:
     mov si, [wa_end]
@@ -900,7 +901,9 @@ wa_span:
     sub ax, [wa_sbl]
     mov ax, [wa_vb]
     sbb ax, [wa_sb]
-    call wa_vedge
+    mov cl, [wa_hyst]           ; (a steep step's fill can be in this column
+    or cl, [wa_steep]           ; too, and wins)
+    call wa_corner
 .cdone:
     mov [wa_lp], di
     ret
@@ -951,38 +954,48 @@ wa_span:
 .e2:
     mov bp, cx                  ; BP.SI = |step|
     mov si, ax
-    mul word [wa_fs]            ; x off: BX:DI:CX
+    mul word [wa_fs]            ; x off: DI:CX (and DX above it, steep)
     mov cx, ax
     mov di, dx
-    xor bx, bx
     or bp, bp
     jz .e3
     mov ax, bp
     mul word [wa_fs]
     add di, ax
-    adc bx, dx
+    adc dx, 0
+    shr dx, 1                   ; / 16
+    rcr di, 1
+    rcr cx, 1
+    shr dx, 1
+    rcr di, 1
+    rcr cx, 1
+    shr dx, 1
+    rcr di, 1
+    rcr cx, 1
+    shr dx, 1
+    rcr di, 1
+    rcr cx, 1
+    jmp .e4
 .e3:
-    shr bx, 1                   ; / 16
-    rcr di, 1
+    shr di, 1
     rcr cx, 1
-    shr bx, 1
-    rcr di, 1
+    shr di, 1
     rcr cx, 1
-    shr bx, 1
-    rcr di, 1
+    shr di, 1
     rcr cx, 1
-    shr bx, 1
-    rcr di, 1
+    shr di, 1
     rcr cx, 1
+.e4:
     pop ax                      ; the sign onto both
-    xor cx, ax
-    xor di, ax
-    sub cx, ax
-    sbb di, ax
-    xor si, ax
-    xor bp, ax
-    sub si, ax
-    sbb bp, ax
+    or ax, ax
+    jz .e5
+    neg di
+    neg cx
+    sbb di, 0
+    neg bp
+    neg si
+    sbb bp, 0
+.e5:
     pop ax                      ; + t1 (x 16384) + a half
     mov dx, ax
     sar dx, 1
@@ -1061,9 +1074,9 @@ wa_span:
     add bx, si
     mov [wa_stamp+bx], dl       ; the first cell of its column: no test
     mov [wa_cur+bx], ax
-    mov [di], bx
-    inc di
-    inc di
+    xchg ax, bx
+    stosw
+    xchg ax, bx
 %%t:
 %endif
     EDGE [wa_vb], [wa_vbl], %3, wa_pb32
@@ -1081,9 +1094,9 @@ wa_span:
 %else
     mov [wa_stamp+bx], dl
     mov [wa_cur+bx], ax
-    mov [di], bx
-    inc di
-    inc di
+    xchg ax, bx
+    stosw
+    xchg ax, bx
 %endif
 %%b:
 %if %2
@@ -1214,11 +1227,44 @@ wa_slope:
     pop bp
     ret
 
-; wa_vedge - BX = top, AX = bottom (half-rows), SI = column x 2: `│` between
-; them, the cell stepped by a row. Keeps SI, DI and DL; clobbers AX, BX, CX.
+; wa_corner - BX = top, AX = bottom (half-rows), SI = column x 2, CL = 0
+; when no cell between them can have been drawn this frame: `│` between
+; them, the cell stepped by a row; CL = 0 skips the stamp tests. Keeps SI,
+; DI and DL; clobbers AX, BX, CX.
+wa_corner:
+    or cl, cl
+    jnz wa_vedge
+    call wa_vrows
+    jcxz .out
+    push bp
+    mov bp, [wa_rowo2+2]        ; (a row's offset: row 1's)
+.row:
+    mov [wa_stamp+bx], dl
+    mov [wa_cur+bx], ax
+    xchg ax, bx
+    stosw
+    xchg ax, bx
+    add bx, bp
+    loop .row
+    pop bp
+.out:
+    ret
+; wa_vedge - the same, every cell tested (first one wins)
 wa_vedge:
-    sar ax, 1                   ; the bottom's row: stop before it
-    cmp ax, WA_ROWS
+    call wa_vrows
+    jcxz .out
+    push bp
+    mov bp, [wa_rowo2+2]
+.row:
+    WPLOT
+    add bx, bp
+    loop .row
+    pop bp
+.out:
+    ret
+wa_vrows:                       ; -> BX = the first cell, CX = rows (0:
+    sar ax, 1                   ; none), AX = the glyph. The bottom's row:
+    cmp ax, WA_ROWS             ; stop before it
     jle .bok
     mov ax, WA_ROWS
 .bok:
@@ -1229,17 +1275,15 @@ wa_vedge:
 .tok:
     mov cx, ax
     sub cx, bx
-    jle .out
+    jg .some
+    xor cx, cx
+    ret
+.some:
     shl bx, 1
     mov bx, [wa_rowo2+bx]
     add bx, si
     mov al, 0xB3
     mov ah, [wa_eatt]
-.row:
-    WPLOT
-    add bx, [wa_rowo2+2]
-    loop .row
-.out:
     ret
 
 wa_list:                        ; BX = cell, onto this frame's list
@@ -1947,7 +1991,33 @@ wa_cross:
 
 ; --- present ----------------------------------------------------------------
 ; Write this frame's cells that differ from the glass; blank last frame's
-; cells this frame did not draw. Nothing else.
+; cells this frame did not draw. Nothing else. Each list is walked two cells
+; an iteration (the odd one first), which halves the loop's own cost.
+%macro PNEW 0                   ; this frame's cell: written if it differs
+    lodsw
+    xchg bx, ax
+    mov ax, [wa_cur+bx]
+    cmp ax, [wa_vis+bx]
+    je %%same
+    mov [wa_vis+bx], ax
+    mov [es:bx], ax
+    inc bp
+%%same:
+%endmacro
+%macro POLD 0                   ; last frame's: blanked unless drawn again
+    lodsw
+    xchg bx, ax
+    mov al, [wa_stamp+bx]
+    and al, 0x7F
+    cmp al, dl
+    je %%kept
+    cmp word [wa_vis+bx], WA_BLANK
+    je %%kept
+    mov word [wa_vis+bx], WA_BLANK
+    mov word [es:bx], WA_BLANK
+    inc bp
+%%kept:
+%endmacro
 wa_present:
     push es
     mov es, [wa_vseg]
@@ -1955,38 +2025,28 @@ wa_present:
     mov si, [wa_newp]
     mov cx, [wa_newn]
     shr cx, 1
+    shr cx, 1                   ; pairs; CF = an odd one
+    jnc .np
+    PNEW
+.np:
     jcxz .old
 .new:
-    lodsw
-    xchg bx, ax
-    mov ax, [wa_cur+bx]
-    cmp ax, [wa_vis+bx]
-    je .same
-    mov [wa_vis+bx], ax
-    mov [es:bx], ax
-    inc bp
-.same:
+    PNEW
+    PNEW
     loop .new
 .old:
     mov si, [wa_oldp]
     mov cx, [wa_oldn]
-    shr cx, 1
-    jcxz .swap
     mov dl, [wa_frame]
-    mov dh, 0                   ; (DX is not a word here; DL alone is read)
+    shr cx, 1
+    shr cx, 1
+    jnc .op
+    POLD
+.op:
+    jcxz .swap
 .o:
-    lodsw
-    xchg bx, ax
-    mov al, [wa_stamp+bx]
-    and al, 0x7F
-    cmp al, dl
-    je .kept
-    cmp word [wa_vis+bx], WA_BLANK
-    je .kept
-    mov word [wa_vis+bx], WA_BLANK
-    mov word [es:bx], WA_BLANK
-    inc bp
-.kept:
+    POLD
+    POLD
     loop .o
 .swap:
     mov [wa_nwr], bp
