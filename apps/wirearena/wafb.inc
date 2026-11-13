@@ -66,10 +66,10 @@ WA_FBV wa_pitch, 2
 WA_FBV wa_eye, 2
 WA_FBV wa_fov, 1
 WA_FBV wa_hyst, 1
+WA_FBV wa_flod, 1                   ; I: far figures as a line (wa_fln)
 WA_FBV wa_grid, 1
 WA_FBV wa_sparse, 1
 WA_FBV wa_mflash, 1
-WA_FBV wa_fbpad1, 1
 WA_FBV wa_figs, F_SIZE*WA_NFIG      ; FIGS (follows FRAME: one copy)
 WA_FBV wa_fb_arn, 0                 ; ARENA
 WA_FBV wa_sx, 2

@@ -3099,6 +3099,51 @@ kbd_down:
     mov byte [kbd_armed], 1     ; ...and only NOW may the ISR write here
     jmp short .go
 
+; -----------------------------------------------------------------------------
+; osapi_key_map - OSAPI_KEY_MAP (0x0239, SPEC.md 9.7.3), a JUMP cell: the
+; caller's far call lands here with its own DS.
+; in:  DS:DI = KBD_MAPSZ (16) bytes of the caller's
+; out: those bytes = the map, bit (s & 7) of byte (s >> 3) set while make
+;      scancode s is held; CF = 0; every register kept
+;
+; ONE far call for every key a frame asks about, where kbd_down is one EACH -
+; ~540 clk apiece on the 8088 (SPEC.md 97's table), so a game polling nine
+; keys paid ~5,000 a frame. A COPY and not a pointer: the caller's own DS is
+; a selector on kern_mega and a real segment again inside a FSXF_REAL
+; bracket, right in both, where a pointer into KERNEL_SEG would be a
+; different word in each - and a package's stray write through it would land
+; in the ISR's own state.
+;
+; NO cli: one IRQ1 changes ONE bit of ONE byte, and each byte is read whole,
+; so a key landing mid-copy is either in the snapshot or not - never a torn
+; map. Arms the map on the first call as kbd_down does, THROUGH kbd_down, and
+; CF is 0 on both paths: `cmp [..], 0` never borrows, and the arm's first
+; answer is always "up". No `cld`: DF = 0 on entry (SPEC.md 1). 32 bytes, 35
+; on kern_mega (KDS), EVEN on every real-mode kernel for t_hotpar
+; -----------------------------------------------------------------------------
+osapi_key_map:
+    push si
+    push di
+    push cx
+    push es
+    push ds
+    pop es                      ; ES:DI = the caller's 16 bytes
+    KDS
+    mov si, kbd_dnmap
+    cmp byte [si - 1], 0        ; [kbd_armed], the byte below the map: a
+    jne .copy                   ; byte shorter than naming it, which keeps
+    call kbd_down               ; the body EVEN (t_hotpar). THE ARM (any
+.copy:                          ; AL): the map cleared, CF = 0
+    mov cx, KBD_MAPSZ / 2
+    rep movsw
+    push es
+    pop ds                      ; the caller's DS back
+    pop es
+    pop cx
+    pop di
+    pop si
+    retf
+
 ; =============================================================================
 ; The overrun guard (SPEC.md 9.8) - A FULL BIOS BUFFER IS A HANG, NOT A BEEP
 ;
@@ -3864,6 +3909,9 @@ kbd_armed   db 0                ; SPEC.md 9.7: has anything ever ASKED for key
                                 ; kbd_down has not cleared yet
 kbd_dnmap   times KBD_MAPSZ db 0 ; ...and the bit per key. Zeroed again at the
                                 ; arm, so this initialiser is belt and braces
+%if kbd_dnmap - kbd_armed != 1
+  %error "osapi_key_map reads [kbd_armed] as the byte below kbd_dnmap"
+%endif
 kbd_ovn     db 0                ; SPEC.md 9.8: beeps this overrun burst has
                                 ; already spent, reset when the buffer next
                                 ; reads empty

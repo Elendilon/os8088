@@ -353,32 +353,14 @@ wa_runanim:
     ret
 
 ; --- input ----------------------------------------------------------------
-wa_key:                         ; AL = scancode -> CF = 1 held
-    call OSAPI_KEY_DOWN
-    ret
-
 ; once a frame: typed keys, mouse look, the trigger
 wa_frame_input:
 .drain:
-    mov bx, [wa_kqi]            ; what a tick took out of the BIOS buffer
-    cmp bx, [wa_kqn]            ; first (wa_keys), then the buffer
-    jb .queued
-    xor bx, bx
-    mov [wa_kqi], bx
-    mov [wa_kqn], bx
     mov ah, 1
     int 16h
     jz .typed
     xor ah, ah
     int 16h
-    call wa_kmark
-    jmp .got
-.queued:
-    mov ax, [wa_kq+bx]
-    inc bx
-    inc bx
-    mov [wa_kqi], bx
-.got:
     mov byte [wa_hold], 0       ; any typed key frees the meter
     cmp ah, KSC_ESC
     jne .tab
@@ -416,6 +398,11 @@ wa_frame_input:
     xor byte [wa_hyst], 1
     jmp .drain
 .bg:
+    cmp ah, 0x17                ; I: far figures as a line
+    jne .bgg
+    xor byte [wa_flod], 1
+    jmp .drain
+.bgg:
     cmp ah, 0x22                ; G: the floor grid
     jne .bl
     xor byte [wa_grid], 1
@@ -461,9 +448,8 @@ wa_frame_input:
     jge .fire
     mov word [wa_pitch], -80
 .fire:
-    mov al, 0x1D                ; Ctrl is a trigger too
-    call wa_key
-    jnc .btn
+    KEYMAP_TEST wa_kmap, 0x1D   ; Ctrl is a trigger too: the map the
+    jz .btn                     ; frame's first tick took (wa_keys)
     or bl, 1
 .btn:
     and bl, 1
@@ -480,13 +466,12 @@ wa_frame_input:
 ; --- the 30 Hz tick -------------------------------------------------------
 ; The keys a tick reads, polled ONCE A FRAME (wa_keys): the ticks a frame
 ; runs are its catch-up, all due at the same instant, so they read one
-; poll. And not every key every frame: an OSAPI_KEY_DOWN is ~550 clk, so
-; nine were ~1 ms of each frame. A key is asked about when it is WATCHED -
-; it read down at the last poll, or its keystroke reached the BIOS buffer
-; (wa_kmark: a press enqueues one at once, so a press is seen the frame it
-; lands, as before) - and every key on every fourth frame (WA_KSWEEP),
-; which catches a press the BIOS does not enqueue (Ctrl or Alt with an
-; arrow) within three frames. A release is seen the next frame, as before.
+; poll. ONE OSAPI_KEY_MAP (SPEC.md 9.7.3) for all of them - an OSAPI_KEY_DOWN
+; is ~540 clk EACH, so nine were ~1 ms of a frame, and asking only the keys
+; that could have changed was still ~2,000 clk with a sweep every fourth
+; frame to catch the presses the BIOS never enqueues. The map has no such
+; gap: a press is seen the frame it lands, Ctrl or Alt with it or not, and a
+; release the next frame.
 WA_K_LEFT   equ 1
 WA_K_RIGHT  equ 2
 WA_K_UP     equ 4
@@ -496,90 +481,38 @@ WA_K_S      equ 32
 WA_K_A      equ 64
 WA_K_D      equ 128
 WA_K_SPACE  equ 256
-wa_ktab:    db KSC_LEFT, KSC_RIGHT, KSC_UP, KSC_DOWN, 0x11, 0x1F, 0x1E, 0x20
-            db KSC_SPACE
-WA_NKEYS    equ 9
-WA_KSWEEP   equ 4                ; every key, every this many frames
-WA_KQ       equ 16               ; typed keys a tick can hold for the frame
 
-; wa_keys - the held keys into [wa_kbits] (WA_K_*). Keeps all but the flags.
-; The BIOS buffer is drained first, into wa_kq, which wa_frame_input reads
-; before the buffer - the same keystrokes in the same order, only taken out
-; earlier, so a press marks its key before the poll.
+; WA_KBIT scancode, bit - the held key's bit into BX
+%macro WA_KBIT 2
+    KEYMAP_TEST wa_kmap, %1
+    jz %%up
+ %if (%2) > 255
+    or bh, (%2) >> 8
+ %else
+    or bl, %2
+ %endif
+%%up:
+%endmacro
+
+; wa_keys - the held keys into [wa_kbits] (WA_K_*), and the whole map into
+; wa_kmap for wa_frame_input's trigger. Keeps all but the flags.
 wa_keys:
-    push ax
     push bx
-    push cx
-    push dx
-    push si
-.q:
-    mov bx, [wa_kqn]
-    cmp bx, WA_KQ*2
-    jae .poll                   ; (full: the rest wait in the BIOS's)
-    mov ah, 1
-    int 16h
-    jz .poll
-    xor ah, ah
-    int 16h
-    mov [wa_kq+bx], ax
-    inc bx
-    inc bx
-    mov [wa_kqn], bx
-    call wa_kmark
-    jmp .q
-.poll:
-    mov dx, [wa_kwatch]
-    dec byte [wa_ksw]
-    jns .some
-    mov byte [wa_ksw], WA_KSWEEP-1
-    mov dx, (1 << WA_NKEYS) - 1 ; the sweep: all of them
-.some:
+    push di
+    mov di, wa_kmap
+    call OSAPI_KEY_MAP          ; every key at once (and the first call arms)
     xor bx, bx
-    or dx, dx
-    jz .none                    ; none to ask about (most frames)
-    mov si, wa_ktab
-    mov cx, WA_NKEYS
-.k:
-    lodsb
-    shr dx, 1
-    jnc .up                     ; not watched: up (CF = 0)
-    call OSAPI_KEY_DOWN         ; CF = 1 held
-.up:
-    rcr bx, 1
-    loop .k
-    mov cl, 16 - WA_NKEYS
-    shr bx, cl
-.none:
+    WA_KBIT KSC_LEFT, WA_K_LEFT
+    WA_KBIT KSC_RIGHT, WA_K_RIGHT
+    WA_KBIT KSC_UP, WA_K_UP
+    WA_KBIT KSC_DOWN, WA_K_DOWN
+    WA_KBIT 0x11, WA_K_W
+    WA_KBIT 0x1F, WA_K_S
+    WA_KBIT 0x1E, WA_K_A
+    WA_KBIT 0x20, WA_K_D
+    WA_KBIT KSC_SPACE, WA_K_SPACE
     mov [wa_kbits], bx
-    mov [wa_kwatch], bx         ; the held ones stay watched
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; wa_kmark - AH = a typed key's scancode: watch it if a tick reads it.
-; Keeps every register.
-wa_kmark:
-    push bx
-    push cx
-    push si
-    mov si, wa_ktab
-    mov cx, WA_NKEYS
-    mov bx, 1
-.m:
-    cmp ah, [si]
-    je .hit
-    inc si
-    shl bx, 1
-    loop .m
-    jmp .out
-.hit:
-    or [wa_kwatch], bx
-.out:
-    pop si
-    pop cx
+    pop di
     pop bx
     ret
 
@@ -1268,6 +1201,10 @@ wa_meter:
     je .det
     mov al, 'S'
 .det:
+    cmp byte [wa_flod], 0       ; ...in lower case with I's far figures as
+    je .fl                      ; lines
+    or al, 0x20
+.fl:
     call wa_putc
     mov al, '-'                 ; G: the floor grid
     cmp byte [wa_grid], 0
@@ -1614,9 +1551,9 @@ wa_help:
     db 'or Ctrl fires; Tab: 80/40; V: vsync;', 0
     db 'B: bench. L: walls full/sparse. F: view', 0
     db '90/75/60. H: hold far edges. G: floor', 0
-    db 'grid. P: play bench (8 s). Esc leaves.', 0
-    db 'HUD: fps, frame, render, present ms,', 0
-    db 'video writes a frame.', 0
+    db 'grid. I: far figures as lines. P: play', 0
+    db 'bench. Esc leaves. HUD: fps, frame,', 0
+    db 'render, present ms, writes a frame.', 0
     db 0
 
 ;               0         1         2         3
@@ -1690,10 +1627,6 @@ WA_VAR wa_hold,1
 WA_VAR wa_rowoff,(WA_ROWS+1)*2
 WA_VAR wa_kbits,2                ; the held keys this frame (wa_keys)
 WA_VAR wa_kfr,1                  ; ...polled in this frame
-WA_VAR wa_kwatch,2               ; the keys to ask about (wa_keys)
-WA_VAR wa_ksw,1                  ; frames to the next sweep of them all
-WA_VAR wa_kqn,2                  ; wa_kq: typed keys a tick took, x 2,
-WA_VAR wa_kqi,2                  ;   and how far wa_frame_input has read
-WA_VAR wa_kq,WA_KQ*2
+WA_VAR wa_kmap,KEYMAP_BYTES      ; ...and the whole map they came from
     OS88_BSS OP_BSS+WA_BSS
     OS88_IMAGE_END

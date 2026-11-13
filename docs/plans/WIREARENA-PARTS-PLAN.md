@@ -786,7 +786,7 @@ address in the part is `x - wa_fb_cfg + WR_FB` (`WA_RAT`).
 | section | variables | written by | copied |
 |---|---|---|---|
 | CONFIG | `wa_vseg`, `wa_w`, `wa_w2`, `wa_k16`, `wa_c16`, `wa_kyq`, `wa_kyh`, `wa_wf`, `wa_mono` | the primary (`wa_setmode`, `wa_setfov`) | primary → part by `wa_rsync`, at a mode set and a field-of-view change |
-| FRAME | `wa_px`, `wa_py`, `wa_ang`, `wa_pitch`, `wa_eye`, `wa_fov`, `wa_hyst`, `wa_grid`, `wa_sparse`, `wa_mflash` | the primary | primary → part every frame (`wa_rframe`) |
+| FRAME | `wa_px`, `wa_py`, `wa_ang`, `wa_pitch`, `wa_eye`, `wa_fov`, `wa_hyst`, `wa_flod`, `wa_grid`, `wa_sparse`, `wa_mflash` | the primary | primary → part every frame (`wa_rframe`) |
 | FIGS | `wa_figs`, 3 × 40 | the primary writes bytes 0..17 (position, facing, animation, flash, dead); the part writes the projection (`F_PZ` … `F_PWH`) and keeps it | bytes 0..17 primary → part every frame and before TRACE; never back |
 | ARENA | `wa_sx`, `wa_sy`, `wa_sa`, `wa_nbox`, `wa_boxes` | the part (`WRV_ARENA`) | part → primary after `WRV_ARENA` |
 
