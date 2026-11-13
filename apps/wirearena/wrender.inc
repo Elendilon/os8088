@@ -2116,6 +2116,9 @@ wa_femit:                       ; pass 3: the joints' box, clipped
     jmp wa_fjdone
 %endmacro
 wa_fjl:
+    ; STKBALANCE-OK: never called - wa_figure's continuation, JMPed to with
+    ; wa_figure's DI on the stack; its table dispatch (`jmp ax`) and every
+    ; joint block leave by `jmp wa_fjdone`, which pops it
     xor bx, bx
     mov bl, [wa_fsub]
     shl bx, 1
