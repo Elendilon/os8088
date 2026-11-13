@@ -67,6 +67,12 @@ WA_VAR wa_vbl, 2
 WA_VAR wa_vb0, 2
 WA_VAR wa_afix, 1               ; the span's shade is one band
 WA_VAR wa_fclp, 1               ; wa_fspanh: 1 the clip-tested passes
+%ifdef WA_LOOK_ROOMF
+WA_VAR wa_roomf, 1              ; ROOMF: 1 while the room's faces are drawn
+%endif
+%ifndef WA_POSTMIN
+WA_POSTMIN equ 8                ; NOPOST: the shortest wall with posts
+%endif
 WA_VAR wa_left, 2               ; columns still open
 WA_VAR wa_lp, 2                 ; the list's write pointer across spans
 WA_VAR wa_xc, WA_MXV*4          ; per frame: (x - px) cos and sin, 32 bits,
@@ -378,6 +384,9 @@ wa_render:
     mov al, [wa_at+si]
     mov [wa_wcol], al
     mov byte [wa_endok], 0      ; (each room corner is some face's START)
+%ifdef WA_LOOK_ROOMF
+    mov byte [wa_roomf], 1      ; (ROOMF: the room's floor lines alone)
+%endif
     cmp byte [wa_hflat], 0
     jne .rflat
     mov ax, [wa_roomh]          ; (heights: the room at its own height)
@@ -401,6 +410,9 @@ wa_render:
     mov ax, (0 << 8) | 2
     call wa_face
 .roomless:
+%ifdef WA_LOOK_ROOMF
+    mov byte [wa_roomf], 0
+%endif
     call wa_dots
     mov ax, [wa_lp]
     sub ax, [wa_newp]
@@ -476,6 +488,12 @@ wa_geominit:
     mov cx, dx
     mov ax, bx
     imul word [wa_cos]          ; DX:AX, CX:BP = the first value's products
+%ifdef WA_LOOK_ROUND
+    add ax, 0x8000              ; (ROUND: biased by a half, so every high
+    adc dx, 0                   ; word after is its product ROUNDED - the
+    add bp, 0x8000              ; steps added are exact - and only the high
+    adc cx, 0                   ; words are kept)
+%endif
     mov di, %4
     mov si, %3
     xor bx, bx
@@ -486,9 +504,13 @@ wa_geominit:
     add bp, [wa_mk+bx+4]
     adc cx, [wa_mk+bx+6]
 %%put:
+%ifndef WA_LOOK_ROUND
     mov [di], ax
+%endif
     mov [di+2], dx
+%ifndef WA_LOOK_ROUND
     mov [di+%5-%4], bp
+%endif
     mov [di+%5-%4+2], cx
     add di, 4
     inc si
@@ -667,7 +689,11 @@ wa_lret:    ret                 ; (the cone tests' short way out)
     xlatb
     mov di, ax
     add dx, [wa_ys+di+2]
+%ifdef WA_LOOK_ROUND
+    cmp dx, WA_NEAR-3           ; (ROUND: a vertex's z is rounded too)
+%else
     cmp dx, WA_NEAR-2
+%endif
     jle wa_lret
     ; THE NARROWER VIEWS: the screen's edge is x = t z with t = 0.767 at
     ; 75 degrees and 0.578 at 60, so a box is also off the screen when
@@ -1121,6 +1147,12 @@ wa_vert:
     mov bl, ah
     xor ah, ah
     mov si, ax
+%ifdef WA_LOOK_ROUND
+    mov cx, [wa_xc+si+2]        ; (ROUND: the products' rounded high words,
+    add cx, [wa_ys+bx+2]        ; a sum each)
+    mov ax, [wa_xs+si+2]
+    sub ax, [wa_yc+bx+2]
+%else
     mov ax, [wa_xc+si]          ; z = ((x-px) 4 cos + (y-py) 4 sin) >> 16
     add ax, [wa_ys+bx]
     mov cx, [wa_xc+si+2]
@@ -1129,6 +1161,7 @@ wa_vert:
     sub ax, [wa_yc+bx]
     mov ax, [wa_xs+si+2]
     sbb ax, [wa_yc+bx+2]
+%endif
     mov bx, di
     mov [wa_vz+bx], cx
     mov [wa_vx+bx], ax
@@ -1382,8 +1415,16 @@ wa_ptbib:
     mov [wa_db], di
     mov ax, [wa_t1]             ; the top: kept in registers
     mov bx, [wa_t2]
+%ifdef WA_LOOK_ROOMF
+    cmp byte [wa_roomf], 0
+    je %%tf
+    call wa_rnotop
+    jmp %%td
+%%tf:
+%endif
     call wa_fedge
     jc %3
+%%td:
     call .reg                   ; (keeps SI, BP, CX and DI)
     jc .none
 %if %6
@@ -1430,6 +1471,12 @@ wa_ptbib:
     shr ax, 1
     sub ax, [wa_ncl]
     sub [wa_left], ax
+%ifdef WA_LOOK_NOPOST
+    mov ax, [wa_vb0]            ; (NOPOST: a wall shorter than WA_POSTMIN
+    sub ax, [wa_vt0]            ; half-rows at its first column - a far
+    cmp ax, WA_POSTMIN          ; one - has no corner posts)
+    jl %%fdone
+%endif
     mov si, [wa_cs]             ; the corners, at the segment's own ends,
     cmp si, [wa_cs0]            ; when this span opened them: a `│` each
     jne %%fc2                   ; (nothing else is in either column: no
@@ -1641,6 +1688,16 @@ wa_span:
     mov dh, bl                  ; DH = the tag
     mov ah, [wa_wcol]           ; the wall's colour: its ITEM's, not its depth
     xor bx, bx                  ; which of the eight loops
+%ifdef WA_LOOK_ROOMF
+    cmp byte [wa_roomf], 0      ; (ROOMF: the room's steep span sparse, and
+    je .vr                      ; no posts)
+    mov byte [wa_e1], 0
+    mov byte [wa_e2], 0
+    cmp byte [wa_hflat], 0
+    jne .vs
+    jmp .vcs
+.vr:
+%endif
     cmp byte [wa_hflat], 0
     jne .vf
     cmp byte [wa_sparse], 0     ; (heights: the four clip-tested ones)
@@ -1688,6 +1745,12 @@ wa_span:
     shr ax, 1
     sub ax, [wa_ncl]
     sub [wa_left], ax
+%ifdef WA_LOOK_NOPOST
+    mov ax, [wa_vb0]
+    sub ax, [wa_vt0]
+    cmp ax, WA_POSTMIN
+    jl .cdone
+%endif
     mov si, [wa_cs]             ; the corners, at the segment's own ends,
     cmp si, [wa_cs0]            ; when this span opened them: a `│` each
     jne .c2
@@ -1890,8 +1953,16 @@ wa_span:
     mov [wa_db], di
     pop bx                      ; the top
     pop ax
+%ifdef WA_LOOK_ROOMF
+    cmp byte [wa_roomf], 0
+    je %%tf
+    call wa_rnotop
+    jmp %%td
+%%tf:
+%endif
     call wa_fedge
     jc %%steep
+%%td:
     add sp, 4
     mov bx, [wa_tag]
 %if %1
@@ -1910,6 +1981,19 @@ wa_fspan:
     FSPAN 0
 wa_fspanh:
     FSPAN 1
+
+%ifdef WA_LOOK_ROOMF
+; wa_rnotop - ROOMF: the room's top edge not drawn - wa_fedge's answer for an
+; edge above the screen - and no corner posts
+wa_rnotop:
+    mov si, -1
+    xor bp, bp
+    xor cx, cx
+    mov di, 1
+    mov byte [wa_e1], 0
+    mov byte [wa_e2], 0
+    ret
+%endif
 
 ; wa_fclpc - heights: [wa_fclp] = 1 when a column of [wa_cs, wa_end) is
 ; under a low box's top (its clip raised), else 0. Clobbers AX, CX, DI
@@ -2262,6 +2346,10 @@ wa_fedge:
     mov di, dx                  ; its sign
     xor ax, dx
     sub ax, dx                  ; |change|
+%ifdef WA_LOOK_COARSE
+    cmp ax, 4                   ; (COARSE: an edge that moves less than a
+    jb .level                   ; half-row along the whole wall is drawn
+%endif                          ; level, at its middle's half-row)
     shl ax, 1
     jc .steep
     shl ax, 1
@@ -2302,6 +2390,17 @@ wa_fedge:
     not bp                      ; (a pass's form)
     clc
     ret
+%ifdef WA_LOOK_COARSE
+.level:
+    xor ax, di                  ; e1 + change / 2, rounded to a half-row
+    sub ax, di
+    sar ax, 1
+    add si, ax
+    add si, 2
+    sar si, 1
+    sar si, 1
+    jmp .off
+%endif
 .above:
     mov si, -1
     jmp .off
