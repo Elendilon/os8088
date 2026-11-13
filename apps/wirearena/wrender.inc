@@ -160,7 +160,13 @@ WA_VAR wa_rcp, (WA_ZMAX-WA_NEAR)*2 ; 0x7FFF0 / z, z = NEAR.. (wa_ptbi)
 WA_VAR wa_xk, WA_MXV+1          ; per coordinate: the step from the one
 WA_VAR wa_yk, WA_MYV+1          ; before, as a slot x 8 (wa_products)
 WA_VAR wa_nk, 2                 ; the last slot used, x 8
-WA_VAR wa_sel, 6                ; the cone test's bounds bytes (wa_products)
+WA_VAR wa_sel, 10               ; the cone test's bounds bytes and shifts
+                                ; (wa_products)
+WA_VAR wa_lord, (WA_MBOX+1)*2  ; the leaves front to back (wa_order)...
+WA_VAR wa_rx0, 2                ; ...for a position in [rx0, rx1) x
+WA_VAR wa_rx1, 2                ; [ry0, ry1) - the pairs adjacent: wa_order
+WA_VAR wa_ry0, 2                ; reaches the high end at +2
+WA_VAR wa_ry1, 2
 WA_VAR wa_kv, (WA_MAXKS+1)*8    ; per slot: the step x 4...
 WA_VAR wa_mk, (WA_MAXKS+1)*8    ; ...and its products, cos and sin, 32 bits
 %endmacro
@@ -225,8 +231,32 @@ wa_render:
     mov [wa_left], cx
     rep stosw
     call wa_products
-    mov bx, [wa_root]
-    call wa_node
+    mov ax, [wa_px]             ; the boxes' order: the same from anywhere in
+    cmp ax, [wa_rx0]            ; the cell of the tree's split lines the
+    jl .order                   ; player stands in, so it is walked again
+    cmp ax, [wa_rx1]            ; only when one is crossed (wa_order)
+    jge .order
+    mov ax, [wa_py]
+    cmp ax, [wa_ry0]
+    jl .order
+    cmp ax, [wa_ry1]
+    jl .ordered
+.order:
+    call wa_order
+.ordered:
+    mov si, wa_lord             ; front to back, while any column is open
+.leaves:
+    cmp word [wa_left], 0
+    je .walked
+    lodsw
+    or ax, ax
+    jz .walked
+    push si
+    xchg ax, bx
+    call wa_leaf
+    pop si
+    jmp .leaves
+.walked:
     cmp word [wa_left], 0       ; the room, last: it encloses everything
     je .roomless
     mov word [wa_crow], wa_corn
@@ -269,6 +299,8 @@ wa_geominit:
     inc bx
     cmp bx, WA_ZMAX
     jb .r
+    mov word [wa_rx0], 1        ; an empty cell: the first frame orders the
+    mov word [wa_rx1], 0        ; boxes (wa_order)
     mov word [wa_nk], 0
     mov si, wa_xv
     mov di, wa_xk
@@ -366,86 +398,140 @@ wa_products:
 .kd:
     WA_AXIS wa_xv, wa_px, wa_xk, wa_xc, wa_xs
     WA_AXIS wa_yv, wa_py, wa_yk, wa_yc, wa_ys
-    mov cx, [wa_sinv]           ; the cone test's corners (wa_node): which end
-    mov dx, [wa_cos]            ; of a node's bounds is the extreme of each
-    mov ax, (9 << 8) | 10       ; sum - the sums are linear in the coordinate
-    cmp cx, dx
+    mov cx, [wa_sinv]           ; the cone test's corners (wa_leaf): which
+    mov dx, [wa_cos]            ; end of a box's bounds is the extreme of
+    mov ax, (9 << 8) | 10       ; each sum - the sums are linear in the
+    cmp cx, dx                  ; coordinate
     jl .p
     mov ax, (11 << 8) | 8
 .p:
-    mov [wa_sel], al            ; right: min x - z over x...
-    mov [wa_sel+3], ah          ; left: max x + z over y
+    mov [wa_sel+2], al          ; right: min x - z over x...
+    mov [wa_sel+5], ah          ; left: max x + z over y
     mov ax, (8 << 8) | 9
     mov bx, cx
     add bx, dx
     js .q
     mov ax, (10 << 8) | 11
 .q:
-    mov [wa_sel+1], al          ; right: ...and max over y
-    mov [wa_sel+2], ah          ; left: max over x
-    mov al, 8
+    mov [wa_sel+3], al          ; right: ...and max over y
+    mov [wa_sel+4], ah          ; left: max over x
+    mov ax, (10 << 8) | 8
     or dx, dx
     js .c
-    mov al, 10
+    xchg al, ah
 .c:
-    mov [wa_sel+4], al          ; behind: max z over x...
-    mov al, 9
+    mov [wa_sel+6], al          ; behind: max z over x...
+    mov [wa_sel], ah            ; (and the nearest: min z)
+    mov ax, (11 << 8) | 9
     or cx, cx
     js .s
-    mov al, 11
+    xchg al, ah
 .s:
-    mov [wa_sel+5], al          ; ...and over y
+    mov [wa_sel+7], al          ; ...and over y
+    mov [wa_sel+1], ah
+    mov bl, [wa_fov]            ; the narrower views' shifts (wa_leaf)
+    xor bh, bh
+    shl bx, 1
+    mov ax, [wa_fush+bx]
+    mov [wa_sel+8], ax
     ret
+wa_fush:    db 0, 0, 3, 1, 2, 2 ; 90 (unused), 75: 7/32, 60: 13/32
 
-; wa_node - BX = a node of the box tree (0 = none): front to back, while any
-; column is open. A leaf is one box.
-wa_node:
-    or bx, bx
-    jz .out
-    cmp word [wa_left], 0
-    je .out
-    cmp byte [bx], 2
-    jne .inner
-    ; THE VIEW CONE: a box whose bounds lie wholly right of x = z, left of
-    ; x = -z or behind the near plane has nothing that could reach the
-    ; screen (90 degrees, the widest view). Each is a sum of the products'
-    ; high words (wa_products) at the bounds' extreme corner (wa_sel); the
-    ; margins cover the four truncated words, so a box is dropped only when
-    ; the exact walk would have drawn none of it. (Storing the
-    ; per-coordinate sums with the products measured slower: most
-    ; coordinates' are never read.) It is asked of the LEAVES only: a split
-    ; node's test passed every time on the play bench (17 nodes visited, 8
-    ; of them splits, none dropped) and cost ~1 ms a frame there, and a
-    ; split it would drop holds boxes inside its bounds, which their own
-    ; tests drop alike: the same boxes drawn. (The play bench at 40
-    ; columns, with wa_face's exact pre-check: 52.6 -> 51.0 ms of render;
-    ; the fly-through bench B 31.4 -> 31.2)
-    mov si, wa_sel
+; wa_order - the box tree walked front to back from the player's position
+; into wa_lord (leaf nodes, 0 at the end), and the cell of the split lines
+; that position is in: [rx0, rx1) x [ry0, ry1). The order is a function of
+; the position alone - which side of each split line it is on - so a frame
+; whose position is still in the cell (turning, or moving inside it, which
+; is most frames of play) reuses the list, and a frame walks no inner node.
+wa_order:
+    mov ax, 32767
+    mov [wa_rx1], ax
+    mov [wa_ry1], ax
+    inc ax
+    mov [wa_rx0], ax
+    mov [wa_ry0], ax
+    mov di, wa_lord
+    mov bx, [wa_root]
+    call .n
+    xor ax, ax
+    stosw
+    ret
+.n:
+    mov al, [bx]
+    cmp al, 2
+    jne .split
+    mov ax, bx                  ; a leaf: onto the list
+    stosw
+    ret
+.split:
+    mov si, [bx+4]              ; near = low, far = high...
+    mov dx, [bx+6]
+    mov cx, [bx+2]
+    mov bp, wa_rx0
+    or al, al
+    mov ax, [wa_px]
+    jz .axis
+    mov bp, wa_ry0
+    mov ax, [wa_py]
+.axis:
+    cmp ax, cx
+    jl .low
+    xchg si, dx                 ; ...or the other way about
+    cmp cx, [ds:bp]             ; (the cell: from max(lo, v)...
+    jle .go
+    mov [ds:bp], cx
+    jmp .go
+.low:
+    cmp cx, [ds:bp+2]           ; ...to min(hi, v))
+    jge .go
+    mov [ds:bp+2], cx
+.go:
+    push dx
+    mov bx, si
+    call .n
+    pop bx
+    jmp .n
+
+; wa_leaf - BX = a leaf of the box tree: its box, unless the view cone
+; drops it.
+wa_lret:    ret                 ; (the cone tests' short way out)
+wa_leaf:
+    ; THE VIEW CONE: a box wholly right of x = z, left of x = -z or behind
+    ; the near plane cannot reach the screen (90 degrees, the widest view).
+    ; Each is a sum of the products' high words (wa_products) at the box's
+    ; extreme corner (wa_sel); the margins cover the four truncated words,
+    ; so a box is dropped only when the exact walk would have drawn none of
+    ; it. Only BOXES are tested, not the tree's inner nodes: their bounds
+    ; are most of the room, and over P's poses (and nearly all of B's) not
+    ; one inner test in the full arena dropped anything.
+    ; (Storing the per-coordinate sums with the products measured slower:
+    ; most coordinates' are never read)
+    mov si, wa_sel+2
     xor ah, ah
     lodsb
     xlatb
     mov di, ax
-    mov dx, [wa_xs+di+2]        ; x - z = (Xs - Xc) - (Yc + Ys) > 1
-    sub dx, [wa_xc+di+2]
+    mov cx, [wa_xs+di+2]        ; x - z = (Xs - Xc) - (Yc + Ys) > 1
+    sub cx, [wa_xc+di+2]
     lodsb
     xlatb
     mov di, ax
-    sub dx, [wa_yc+di+2]
-    sub dx, [wa_ys+di+2]
-    cmp dx, 4
-    jge .out
+    sub cx, [wa_yc+di+2]
+    sub cx, [wa_ys+di+2]
+    cmp cx, 4
+    jge wa_lret
     lodsb
     xlatb
     mov di, ax
-    mov dx, [wa_xs+di+2]        ; x + z = (Xs + Xc) + (Ys - Yc) < -1
-    add dx, [wa_xc+di+2]
+    mov bp, [wa_xs+di+2]        ; x + z = (Xs + Xc) + (Ys - Yc) < -1
+    add bp, [wa_xc+di+2]
     lodsb
     xlatb
     mov di, ax
-    add dx, [wa_ys+di+2]
-    sub dx, [wa_yc+di+2]
-    cmp dx, -5
-    jle .out
+    add bp, [wa_ys+di+2]
+    sub bp, [wa_yc+di+2]
+    cmp bp, -5
+    jle wa_lret
     lodsb
     xlatb
     mov di, ax
@@ -455,29 +541,45 @@ wa_node:
     mov di, ax
     add dx, [wa_ys+di+2]
     cmp dx, WA_NEAR-2
+    jle wa_lret
+    ; THE NARROWER VIEWS: the screen's edge is x = t z with t = 0.767 at
+    ; 75 degrees and 0.578 at 60, so a box is also off the screen when
+    ; x - (1 - u) z > 0 everywhere in it, for any u <= 1 - t (or the mirror
+    ; on the left). Over the box that is at least the 90-degree sum's least
+    ; value plus u times the least z - one more corner, and u by shifts:
+    ; 7/32 at 75 degrees, 13/32 at 60 (the shifts round down: smaller
+    ; still). Only for a box the 90-degree cone kept. Over P's poses at 75
+    ; degrees ~0.9 of 6.4 boxes a frame fewer reach wa_box.
+    cmp byte [wa_fov], 0
+    je .in
+    mov si, wa_sel
+    lodsb
+    xlatb
+    mov di, ax
+    mov dx, [wa_xc+di+2]        ; z = Xc + Ys, least
+    lodsb
+    xlatb
+    mov di, ax
+    add dx, [wa_ys+di+2]
+    mov al, cl
+    mov cl, [wa_sel+8]
+    sar dx, cl                  ; z / 8 (z / 4 at 60)...
+    mov di, dx
+    sar di, 1
+    add dx, di                  ; ...+ z / 16 (z / 8)...
+    mov cl, [wa_sel+9]
+    sar di, cl
+    add dx, di                  ; ...+ z / 32
+    mov cl, al
+    add cx, dx                  ; x - (1 - u) z
+    cmp cx, 4
+    jge .out
+    sub bp, dx                  ; x + (1 - u) z
+    cmp bp, -5
     jle .out
-    jmp .leaf
-.inner:
-    mov al, [bx]
-    mov si, [bx+4]              ; near = low, far = high...
-    mov di, [bx+6]
-    mov cx, [wa_px]
-    or al, al
-    jz .axis
-    mov cx, [wa_py]
-.axis:
-    cmp cx, [bx+2]
-    jl .order
-    xchg si, di                 ; ...or the other way about
-.order:
-    push di
-    mov bx, si
-    call wa_node
-    pop bx
-    jmp wa_node                 ; (a tail call: the far side)
-.leaf:
-    mov al, [bx+1]              ; box x 8
+.in:
     xor ah, ah
+    mov al, [bx+1]              ; box x 8
     mov si, ax
     mov cl, 3
     shr si, cl
@@ -570,31 +672,42 @@ wa_boxf:
 ; face wholly behind nearer walls never pays for them.
 wa_face:
     mov [wa_fv], ax
+    xor bh, bh
     mov bl, al
-    xor bh, bh
+    mov al, [wa_frame]          ; (the cache's stamp test here, not behind
+    cmp [wa_vst+bx], al         ; a call: a third of the vertices a face
+    je .v1                      ; names were made by an earlier face)
     call wa_vert
-    mov bl, [wa_fv+1]
-    xor bh, bh
+.v1:
+    mov bl, [wa_fv+1]           ; (BH = 0: wa_vert keeps it)
+    mov al, [wa_frame]
+    cmp [wa_vst+bx], al
+    je .v2
     call wa_vert
-    mov cl, 4                   ; THE PRE-CHECK: the columns it could reach,
-    xor bh, bh                  ; from the columns (a vertex in view: the
-    mov bl, [wa_fv+1]           ; first column whose centre is at or past
-    call .reach                 ; it; one beside the view is beyond that
-                                ; edge, one behind is anywhere)
-    mov dx, ax
-    mov bl, [wa_fv]
-    call .reach
+.v2:
+    mov dx, [wa_vpc+bx]         ; THE PRE-CHECK: the columns it could reach,
+    mov bl, [wa_fv]             ; x 16 (a vertex in view is its own, one
+    mov si, bx                  ; beside the view is beyond that edge, one
+    mov ax, [wa_vpc+bx]         ; behind is anywhere - wa_vert's sentinels)
     cmp ax, dx
     jle .lohi
     xchg ax, dx
 .lohi:
     cmp ax, 0x8000              ; (behind: anywhere)
     je .open
-    dec dx                      ; ...to the last centre short of the far end:
-    cmp ax, dx                  ; EXACTLY wa_span's columns, so a face seen
-    jg .shut                    ; edge-on, between two centres, ends here -
-                                ; not after its tops, bottoms and inverse
-                                ; depths (two a frame on the play bench)
+    mov cl, 4                   ; the first column whose centre is at or past
+    mov ch, al                  ; the near end, (c + 7) >> 4, and the last
+    sar ax, cl                  ; short of the far end, ((c + 7) >> 4) - 1:
+    and ch, 15                  ; EXACTLY wa_span's columns, so a face seen
+    cmp ch, 9                   ; edge-on, between two centres, ends here -
+    sbb ax, -1                  ; not after its tops, bottoms and inverse
+    mov ch, dl                  ; depths (two a frame on the play bench).
+    sar dx, cl                  ; (+7 by the remainder's carry rather than
+    and ch, 15                  ; an add: a sentinel, +-32767, would
+    cmp ch, 9                   ; overflow)
+    sbb dx, 0                   ; (the far end: one less)
+    cmp ax, dx
+    jg .shut
     or dx, dx                   ; wholly left of the screen, or right: off
     js .shut                    ; it, whatever is open
     cmp ax, [wa_w]
@@ -619,35 +732,32 @@ wa_face:
     je .open                    ; an open column: carry on
 .shut:
     ret                         ; every one closed: nothing more
-.open:
-    mov bl, [wa_fv]
-    mov di, bx                  ; DI = v1 x 2, BX = v2 x 2
-    mov bl, [wa_fv+1]
-    mov al, [wa_vok+di]
+.open:                          ; SI = v1 x 2
+    mov bl, [wa_fv+1]           ; BX = v2 x 2
+    mov al, [wa_vok+si]
     mov [wa_e1], al
     mov ah, [wa_vok+bx]
     and ah, [wa_endok]          ; (the end corner, only on a silhouette)
     mov [wa_e2], ah
     and al, [wa_vok+bx]
     jz .clip
-    mov si, di                  ; both inside the view: the cache
-    mov di, wa_c1
+    mov di, wa_c1               ; both inside the view: the cache
     push bx
     call .put
     pop si
     call .put                   ; (DI has run on to wa_c2)
     jmp wa_span
 .clip:
-    mov ax, [wa_vx+di]
+    mov ax, [wa_vx+si]
     mov [wa_x1], ax
-    mov ax, [wa_vz+di]
+    mov ax, [wa_vz+si]
     mov [wa_z1], ax
     mov ax, [wa_vx+bx]
     mov [wa_x2], ax
     mov ax, [wa_vz+bx]
     mov [wa_z2], ax
     push bx
-    push di
+    push si
     call wa_clip                ; (it never moves an end inside the view)
     pop si
     jc .gone
@@ -676,17 +786,46 @@ wa_face:
     stosw
     ret
 .put:                           ; SI = a vertex in view, DI = wa_c1 or wa_c2:
-    test byte [wa_vok+si], 2    ; its column, top, bottom, inverse depth -
-    jnz .have                   ; the last three made the first time a face
-    or byte [wa_vok+si], 2      ; of it gets this far in a frame
+    mov ax, [wa_vpc+si]         ; its column, top, bottom, inverse depth -
+    stosw                       ; the last three made the first time a face
+    test byte [wa_vok+si], 2    ; of it gets this far in a frame (wa_ptbi's
+    jnz .have                   ; arithmetic, inline)
+    or byte [wa_vok+si], 2
     mov bx, [wa_vz+si]
-    call wa_ptbi
-    mov [wa_vpt+si], bx
-    mov [wa_vpb+si], cx
-    mov [wa_vpi+si], dx
-.have:
-    mov ax, [wa_vpc+si]
+    cmp bx, WA_ZMAX
+    jae .zdiv
+    shl bx, 1
+    mov bx, [wa_rcp+bx-WA_NEAR*2]
+.iz:
+    mov ax, [wa_numt]
+    imul bx
+    sar dx, 1
+    sar dx, 1
+    sar dx, 1
+    mov ax, [wa_hq]
+    sub ax, dx
+    mov [wa_vpt+si], ax
     stosw
+    mov ax, [wa_numb]
+    imul bx
+    sar dx, 1
+    sar dx, 1
+    sar dx, 1
+    add dx, [wa_hq]
+    mov [wa_vpb+si], dx
+    xchg ax, dx
+    stosw
+    mov [wa_vpi+si], bx
+    xchg ax, bx
+    stosw
+    ret
+.zdiv:                          ; (deeper than the room: never, but exact)
+    mov ax, 0xFFF0
+    mov dx, 0x0007
+    div bx
+    mov bx, ax
+    jmp .iz
+.have:
     mov ax, [wa_vpt+si]
     stosw
     mov ax, [wa_vpb+si]
@@ -694,37 +833,18 @@ wa_face:
     mov ax, [wa_vpi+si]
     stosw
     ret
-.reach:                         ; BX = vertex x 2, CL = 4 -> AX = its column
-    test byte [wa_vok+bx], 1    ; (on the screen or off it), -32767 or 32767
-    jz .rout                    ; beside the view, 0x8000 behind it
-    mov ax, [wa_vpc+bx]
-    add ax, 7
-    sar ax, cl
-    ret
-.rout:
-    mov ax, 0x8000
-    cmp word [wa_vz+bx], WA_NEAR
-    jl .rret                    ; behind: anywhere
-    mov ax, -32767
-    cmp word [wa_vx+bx], 0
-    jl .rret                    ; beside the view, left
-    mov ax, 32767               ; ...or right
-.rret:
-    ret
 
-; wa_vert - BX = a vertex x 2: into camera space and, inside the view (the
-; guard band), its column - once a frame (wa_vst). [wa_vok]: 0 outside,
-; 1 the column made, 3 the rest too (wa_face). Clobbers AX, BX, CX, DX, SI,
-; DI.
+; wa_vert - BX = a vertex x 2 (BH = 0) not yet made this frame, AL = the
+; frame: into camera space and, inside the view (the guard band), its
+; column. [wa_vok]: 0 outside, 1 the column made, 3 the rest too (wa_face).
+; Outside, [wa_vpc] is the pre-check's sentinel instead: 0x8000 behind,
+; -32767 beside the view on the left, 32767 on the right. BX is kept;
+; clobbers AX, CX, DX, SI, DI.
 wa_vert:
-    mov al, [wa_frame]
-    cmp [wa_vst+bx], al
-    je .out
     mov [wa_vst+bx], al
     mov di, bx                  ; DI = vertex x 2
     mov ax, [wa_vtx+bx]         ; AL = x index x 4, AH = y index x 4
     mov bl, ah
-    xor bh, bh
     xor ah, ah
     mov si, ax
     mov ax, [wa_xc+si]          ; z = ((x-px) 4 cos + (y-py) 4 sin) >> 16
@@ -735,26 +855,37 @@ wa_vert:
     sub ax, [wa_yc+bx]
     mov ax, [wa_xs+si+2]
     sbb ax, [wa_yc+bx+2]
-    mov [wa_vz+di], cx
-    mov [wa_vx+di], ax
-    mov byte [wa_vok+di], 0
+    mov bx, di
+    mov [wa_vz+bx], cx
+    mov [wa_vx+bx], ax
     cmp cx, WA_NEAR             ; projectable: z >= NEAR, |x| <= 8z (the
-    jl .out                     ; guard band - the screen is |x| <= z)
-    mov bx, cx
-    shl bx, 1
-    shl bx, 1
-    shl bx, 1
-    cmp ax, bx
-    jg .out
-    neg bx
-    cmp ax, bx
-    jl .out
-    mov byte [wa_vok+di], 1
+    jl .behind                  ; guard band - the screen is |x| <= z)
+    mov dx, cx
+    shl dx, 1
+    shl dx, 1
+    shl dx, 1
+    cmp ax, dx
+    jg .right
+    neg dx
+    cmp ax, dx
+    jl .left
+    mov byte [wa_vok+bx], 1
     imul word [wa_k16]          ; the column, x16 (wa_proj)
     idiv cx
     add ax, [wa_c16]
-    mov [wa_vpc+di], ax
+    mov [wa_vpc+bx], ax
+    ret
+.behind:
+    mov ax, 0x8000
+    jmp .out
+.left:
+    mov ax, -32767
+    jmp .out
+.right:
+    mov ax, 32767
 .out:
+    mov byte [wa_vok+bx], 0
+    mov [wa_vpc+bx], ax
     ret
 
 ; wa_xform - AX, BX = a world point -> AX = camera x (right), DX = z
