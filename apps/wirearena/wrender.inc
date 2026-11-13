@@ -1807,20 +1807,20 @@ wa_figures:
     pop bp
     ret
 ; WA_MINMAX t - BX, DX = the least and the most of the eleven words at t
-; (unrolled for WA_NJ = 11, which tools/arenagen.py asserts)
+; (unrolled for WA_NJ = 11, which tools/arenagen.py asserts). Clobbers AX, SI.
 %macro WA_MINMAX 1
-    mov bx, [%1]
-    mov dx, bx
-  %assign %%j 2
+    mov si, %1
+    lodsw
+    mov bx, ax
+    mov dx, ax
   %rep 10
-    mov ax, [%1+%%j]
+    lodsw
     cmp ax, bx
     jge $+4                     ; (over the two-byte move)
     mov bx, ax
     cmp ax, dx
     jle $+4
     mov dx, ax
-    %assign %%j %%j+2
   %endrep
 %endmacro
 ; WA_LIMB a, b - a limb, joint a x 2 to joint b x 2, into wa_fbuf
@@ -2414,6 +2414,7 @@ wa_flgo:
     shr bp, 1                   ; BP = the error, half the major...
     xchg bx, di                 ; BX = the cell, DI = the major
     mov ax, [wa_w2]             ; AX = a row's bytes (2W)
+.walky:
     jmp dx
 .shallow:
     mov dx, [wa_fl_xtab+si]     ; shallow: a sub-pixel every sub-column
@@ -2425,6 +2426,7 @@ wa_flgo:
     xchg ax, di                 ; DI = the major (dx), AX = the cell
     xchg ax, bx                 ; BX = the cell
     mov ax, [wa_w2]
+.walkx:
     jmp dx
 ; The fast walk's states. Registers: BX = the cell in wa_fbuf, CX =
 ; sub-pixels left, BP = the error, SI = the minor step, DI = the major, AX =
