@@ -57,6 +57,8 @@ WA_VAR wl_ffr, 1
 WA_VAR wl_hn, 2                 ; the box's height's
 WA_VAR wl_hs, 1
 WA_VAR wl_zm, 2                 ; wl_hidden: 0, or -1 for the nearest corner
+WA_VAR wl_vis0, 2               ; ...the first column x 2 it found showing
+WA_VAR wl_wx2, 2                ; the last column x 2 (made with wl_fn)
 WA_VAR wl_upd, 1                ; this pass raises the clip
 WA_VAR wl_two, 1                ; ...and draws a floor edge with its top
 WA_VAR wl_n1, 2                 ; a clipped edge's ends' pairs
@@ -202,6 +204,10 @@ wa_lowbox:
     call wa_hnum
     mov [wl_fn], ax
     mov [wl_fs], bl
+    mov ax, [wa_w]              ; (and the last column, x 2)
+    dec ax
+    shl ax, 1
+    mov [wl_wx2], ax
 .hpair:
     mov ax, [wl_h]              ; the box's own height's, every corner's -
     call wa_hnum                ; but a flight's low end's (wl_flight0)
@@ -338,6 +344,7 @@ wa_lowbox:
 ; stand above its stringers, so for one only shut columns count. Nothing it
 ; skips would have drawn a cell, raised a clip or pushed an entry.
 wl_hidden:
+    mov word [wl_vis0], 0
     cmp byte [wl_need], 0       ; (no corner wanted: inside it, under its top)
     je wl_scan.none
     xor ax, ax                  ; the corner wanted: the largest z, or with
@@ -405,7 +412,8 @@ wl_hidden:
 ; >> 4 makes its first and last columns, AX = a half-row at or under its
 ; topmost less one: CF = 1 when each of those columns on the screen is shut,
 ; or its clip is at or above AX - so nothing of it would draw a cell, raise a
-; clip or push an entry. Clobbers CX, DX, SI, DI
+; clip or push an entry; else [wl_vis0] the first that is not, x 2.
+; Clobbers CX, DX, SI, DI
 wl_scan:
     push ax
     mov ax, cx
@@ -443,6 +451,7 @@ wl_scan:
     stc
     ret
 .shows:
+    mov [wl_vis0], si           ; (the first that showed: wl_face's start)
     clc
     ret
 
@@ -480,28 +489,46 @@ wl_face:
     mov bx, [wl_c+di+WL_CV]
     test byte [wa_vok+bx], 1
     jz .clip
-    mov dx, [wl_c+si+WL_KC]     ; both corners in the view: unless every
-    mov cx, [wl_c+di+WL_KC]     ; column it spans is shut or clipped above
-    cmp dx, cx                  ; it (wl_scan), as projected
-    jle .cs
-    xchg dx, cx
-.cs:
-    add dx, 7
-    sub cx, 9
-    mov ax, [wl_c+si+WL_KT]
+    mov bx, [wl_c+si+WL_KC]     ; both corners in the view: unless each
+    mov dx, [wl_c+di+WL_KC]     ; column it spans, as wl_draw takes them,
+    mov ax, [wl_c+si+WL_KT]     ; is shut or clipped at or above its higher
+    cmp bx, dx                  ; top less a half-row (wl_scan's test), as
+    jle .f1                     ; projected
+    xchg bx, dx
+.f1:
     cmp ax, [wl_c+di+WL_KT]
-    jle .ct
+    jle .f2
     mov ax, [wl_c+di+WL_KT]
-.ct:
+.f2:
     sar ax, 1
     sar ax, 1
     dec ax
-    push si
-    push di
-    call wl_scan
-    pop di
-    pop si
-    jc .hid
+    mov cl, 3
+    add bx, 7                   ; BX = the first column x 2, DX the last:
+    sar bx, cl                  ; (c + 7) >> 4, x 2
+    and bl, 0xFE
+    sub dx, 9
+    sar dx, cl
+    and dl, 0xFE
+    cmp bx, [wl_vis0]           ; (none before the box's first that showed
+    jge .f3                     ; can show now: clips only rise)
+    mov bx, [wl_vis0]
+.f3:
+    cmp dx, [wl_wx2]
+    jle .fs
+    mov dx, [wl_wx2]
+.fs:
+    cmp bx, dx
+    jg .hid
+    cmp word [wa_cov+bx], 0
+    jne .fn
+    cmp [wa_cclip+bx], ax
+    jg .shows
+.fn:
+    inc bx
+    inc bx
+    jmp .fs
+.shows:
     mov bx, di
     lea si, [wl_c+si+WL_KC]
     mov di, wl_e1c
