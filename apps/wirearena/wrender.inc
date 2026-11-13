@@ -67,6 +67,7 @@ WA_VAR wa_vbl, 2
 WA_VAR wa_vb0, 2
 WA_VAR wa_afix, 1               ; the span's shade is one band
 WA_VAR wa_fclp, 1               ; wa_fspanh: 1 the clip-tested passes
+WA_VAR wa_ftailp, 2             ; wa_fspan's way on: FLATBODY's tail
 %ifdef WA_LOOK_ROOMF
 WA_VAR wa_roomf, 1              ; ROOMF: 1 while the room's faces are drawn
 %endif
@@ -287,6 +288,7 @@ wa_render:
     mov [wa_numb], ax
     mov [wa_nshb], bl
 .paired:
+    mov word [wa_ftailp], wa_span.ftail ; (wa_fspan's: wa_fspanh sets its own)
     mov al, [wa_hyst]
     cmp byte [wa_hflat], 0
     jne .gen
@@ -1041,50 +1043,12 @@ wa_boxf:
     stosw
     ret
 .put:                           ; SI = a vertex in view, DI = wa_c1 or wa_c2:
-    mov ax, [wa_vpc+si]         ; its column, top, bottom, inverse depth -
-    stosw                       ; the last three made the first time a face
-    test byte [wa_vok+si], 2    ; of it gets this far in a frame (wa_ptbi's
-    jnz .have                   ; arithmetic, inline)
-    or byte [wa_vok+si], 2
-    mov bx, [wa_vz+si]
-    cmp bx, WA_ZMAX
-    jae .zdiv
-    shl bx, 1
-    mov bx, [wa_rcp+bx-WA_NEAR*2]
-.iz:
-    mov ax, [wa_numt]
-    imul bx
-%if %1
-    mov cl, [wa_nsht]           ; (the face's own height: wa_hnt)
-    sar dx, cl
-%else
-    sar dx, 1
-    sar dx, 1
-    sar dx, 1
-%endif
-    mov ax, [wa_hq]
-    sub ax, dx
-    mov [wa_vpt+si], ax
-    stosw
-    mov ax, [wa_numb]
-    imul bx
-    mov cl, [wa_nshb]           ; (3, or 1 for a product / 4)
-    sar dx, cl
-    add dx, [wa_hq]
-    mov [wa_vpb+si], dx
-    xchg ax, dx
-    stosw
-    mov [wa_vpi+si], bx
-    xchg ax, bx
-    stosw
-    ret
-.zdiv:                          ; (deeper than the room: never, but exact)
-    mov ax, 0xFFF0
-    mov dx, 0x0007
-    div bx
-    mov bx, ax
-    jmp .iz
+    test byte [wa_vok+si], 2    ; its column, top, bottom, inverse depth -
+    jnz .have                   ; the last three made the first time a face
+    call .mk                    ; of it gets this far in a frame (.mk)
 .have:
+    mov ax, [wa_vpc+si]
+    stosw
     mov ax, [wa_vpt+si]
     stosw
     mov ax, [wa_vpb+si]
@@ -1904,12 +1868,15 @@ wa_span:
 ; passes test the column's clip only where a low box has raised one in the
 ; range: with none raised, no low box has a cell there, and the plain passes
 ; draw the same cells.
-%macro FSPAN 1                  ; %1 = 1: heights' tall faces
-%if %1
+wa_fspanh:                      ; (heights' tall faces)
     push di
     call wa_fclpc
     pop di
-%endif
+    mov word [wa_ftailp], wa_span.ftail
+    cmp byte [wa_fclp], 0
+    je wa_fspan
+    mov word [wa_ftailp], wa_span.ftailc
+wa_fspan:
     mov bx, [wa_tag]            ; the span's tag and its line first (.reg's;
     inc bx                      ; a steep edge's way out takes it back): the
     inc bx                      ; table full stops drawing, as .reg does
@@ -1936,9 +1903,9 @@ wa_span:
     mov [wa_fs], cx
     mov bp, di                  ; the edges' far ends: v2's - or, a segment
     cmp dx, 16                  ; inside one column, v1's (no step:
-    ja %%st                     ; wa_span's rule)
+    ja .st                      ; wa_span's rule)
     mov bp, si
-%%st:
+.st:
     push di                     ; (v2, v1: a steep edge's way out)
     push si
     push word [wa_vpt+si]       ; the top's ends, for after the bottom's
@@ -1946,7 +1913,7 @@ wa_span:
     mov ax, [wa_vpb+si]         ; the bottom
     mov bx, [ds:bp+wa_vpb]
     call wa_fedge
-    jc %%steep2
+    jc .steep2
     mov [wa_vb0], si            ; its half-row at the first open column,
     mov [wa_qb], bp             ; fraction, step and direction
     mov [wa_fb], cx
@@ -1955,32 +1922,25 @@ wa_span:
     pop ax
 %ifdef WA_LOOK_ROOMF
     cmp byte [wa_roomf], 0
-    je %%tf
+    je .tf
     call wa_rnotop
-    jmp %%td
-%%tf:
+    jmp .td
+.tf:
 %endif
     call wa_fedge
-    jc %%steep
-%%td:
+    jc .steep
+.td:
     add sp, 4
     mov bx, [wa_tag]
-%if %1
-    cmp byte [wa_fclp], 0
-    jne wa_span.ftailc
-%endif
-    jmp wa_span.ftail           ; FLATBODY's passes and corners
-%%steep2:
+    jmp [wa_ftailp]             ; FLATBODY's passes and corners (on heights
+                                ; the clip-tested ones where a low box has
+                                ; raised a column's clip: wa_fspanh)
+.steep2:
     add sp, 4
-%%steep:
+.steep:
     pop si
     pop di
     jmp wa_fsteep
-%endmacro
-wa_fspan:
-    FSPAN 0
-wa_fspanh:
-    FSPAN 1
 
 %ifdef WA_LOOK_ROOMF
 ; wa_rnotop - ROOMF: the room's top edge not drawn - wa_fedge's answer for an
