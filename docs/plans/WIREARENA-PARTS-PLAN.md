@@ -49,11 +49,16 @@ questions for later waves, and none that blocks the split.
 
 ## 1. Today's byte budget (measured)
 
-**How it was measured.** `make wirearena` was run in this worktree at
-`d30f8d30`. `build/wirearena.bin` is 22,201 bytes of image, and the header
-declares 36,803 bytes of BSS: 59,004 bytes against `APP_MAX_SIZE` = 65,024
-(`tools/os88pkg.py:61`, SPEC.md §20.1.1). That leaves **6,020 bytes**. The
-packed `WARENA.O88` is 15,419 bytes (LZB).
+**Re-measured at `7232b890`** (performance pass 4 merged,
+MULTIPLAYER-FPS-PLAN §16.8), which is the tree the split starts from. The
+first edition of this section measured `d30f8d30` (59,004 bytes); pass 4
+took 7,680 bytes of BSS out of the presenter (`wa_vis` gone, `wa_fmask`
+folded into `wa_stamp`'s odd bytes) and spent ~1 KB of code.
+
+**How it was measured.** `make wirearena`. `build/wirearena.bin` is 23,226
+bytes of image, and the header declares 29,383 bytes of BSS: **52,609 bytes**
+against `APP_MAX_SIZE` = 65,024 (`tools/os88pkg.py:61`, SPEC.md §20.1.1).
+That leaves **12,415 bytes**. The packed `WARENA.O88` is 16,238 bytes (LZB).
 
 The code was split by area using a NASM symbol map of a wrapper that
 `%include`s `wirearena.asm` unchanged. The wrapper's output was
@@ -62,66 +67,62 @@ top-level labels was charged to the file that defines the first label.
 
 The BSS was split by area by expanding the `WA_VAR` chain with a `%warning`
 that prints each variable's offset and size. The sizes sum to the header's
-36,803 exactly.
+29,383 exactly.
 
-### 1.1 Image: 22,201 bytes
+### 1.1 Image: 23,226 bytes
 
 | area | file | bytes |
 |---|---|---:|
 | header | `OS88_HEADER` | 32 |
 | shell: entry, window paint, menu command | `wirearena.asm` | 147 |
 | the bracket loop `wa_main` | `wirearena.asm` | 257 |
-| mode set, FOV, arena load (`wa_setmode`, `wa_setfov`, `wa_loadarena`) | `wirearena.asm` | 404 |
+| mode set, FOV, arena load (`wa_setmode`, `wa_setfov`, `wa_loadarena`) | `wirearena.asm` | 393 |
 | reset, spawn, animation start | `wirearena.asm` | 157 |
-| input (`wa_frame_input`, `wa_keys`) | `wirearena.asm` | 306 |
-| simulation (`wa_tick`, `wa_collide`, `wa_sincos`, `wa_figtick`, `wa_fire`) | `wirearena.asm` | 870 |
+| input (`wa_frame_input`, `wa_keys`, `wa_kmark`) | `wirearena.asm` | 440 |
+| simulation (`wa_tick`, `wa_collide`, `wa_sincos`, `wa_figtick`, `wa_fire`) | `wirearena.asm` | 888 |
 | bench `B` and play bench `P` | `wirearena.asm` | 600 |
 | HUD meter and digit output | `wirearena.asm` | 412 |
-| **game and shell code, total** | | **3,153** |
-| geometry: products, BSP walk, boxes, faces, vertices, clip, projection | `wrender.inc` | ~1,760 |
-| spans and columns (`wa_span`, the eight `SPANLOOP` bodies, gaps, slopes, corners) | `wrender.inc` | ~2,200 |
-| floor grid (`wa_dots`, `wa_plotf`) | `wrender.inc` | 452 |
-| figures (joints, limb lines, emit, marker, depth on demand) | `wrender.inc` | ~2,630 |
-| crosshair and `wa_present` | `wrender.inc` | 281 |
-| **renderer code, total** | | **7,319** |
+| **game and shell code, total** | | **3,294** |
+| **renderer code, total** (`wrender.inc`: geometry, the box order cache, spans and the flat passes, floor grid, figures, crosshair, `wa_present`) | `wrender.inc` | **8,203** |
 | `pit_now` | `os88pit.inc` | 61 |
 | sine table `wa_sin` (1,024 Q14 words) | `build/watab.inc` | 2,048 |
 | two arenas: coordinates, vertices, corners, BSP, boxes, colours, directory | `build/watab.inc` | 719 |
-| three patrol paths | `build/watab.inc` | 186 |
+| three patrol paths | `build/watab.inc` | 124 |
 | **stick-figure keyframes `wa_pose`** (23 frames × 16 facings × 11 joints × 2 bytes) | `build/watab.inc` | **8,096** |
 | window template, menus, help text (391), HUD template | `wirearena.asm` | 573 |
 | renderer glyph and attribute tables (`wa_hgl`, `wa_fglyph`, `wa_attrc`, `wa_attrm`) | `wirearena.asm` | 76 |
 
-### 1.2 BSS: 36,803 bytes
+### 1.2 BSS: 29,383 bytes
 
 | area | owner | bytes |
 |---|---|---:|
-| six cell buffers, 1,920 cells × 2 each: `wa_stamp`, `wa_fmask`, `wa_cur`, `wa_vis`, `wa_lista`, `wa_listb` | renderer and present | **23,040** |
+| four cell buffers, 1,920 cells × 2 each: `wa_stamp` (the figure mask in its odd bytes), `wa_cur`, `wa_lista`, `wa_listb` | renderer and present | **15,360** |
 | `wa_rcp`, the 1/z reciprocal table (MULTIPLAYER-FPS-PLAN §16.6) | renderer | **5,764** |
 | `wa_fbuf`, the figures' cell-mask scratch | renderer | **3,840** |
-| per-column arrays (`wa_colz` … `wa_chb`) | renderer | 1,282 |
-| vertex caches and per-frame products | renderer | 1,028 |
+| per-column arrays (`wa_colz` … `wa_chb`, `wa_fvis`) | renderer | 1,444 |
+| vertex caches, per-frame products, the box order (`wa_lord`) | renderer | 1,052 |
 | span table | renderer | 768 |
 | arena working tables (`wa_xv`, `wa_yv`, `wa_vtx`, `wa_corn`, `wa_boxes`, `wa_bcol`) | renderer and collision | 255 |
 | row tables (`wa_rowoff`, `wa_rowo2`, `wa_hroff`) | renderer and HUD | 196 |
 | floor-grid products | renderer | 144 |
 | figure records `wa_figs` (3 × 40) | sim and renderer | 120 |
-| other renderer scalars | renderer | 232 |
-| other game and shell scalars | game | 134 |
+| typed-key queue `wa_kq` | game | 32 |
+| other renderer scalars | renderer | 267 |
+| other game and shell scalars | game | 141 |
 
-**The renderer owns 36.5 KB of the 36.8 KB of BSS, and the game owns about
-0.25 KB.** Three items dominate:
+**The renderer owns ~29 KB of the 29.4 KB of BSS, and the game about
+0.3 KB.** Three items dominate:
 
-- the changed-cell presenter's buffers (23,040);
+- the changed-cell presenter's buffers (15,360);
 - the reciprocal table (5,764);
 - the figure scratch (3,840).
 
 MULTIPLAYER-FPS-PLAN §11 predicted "shadows 8 KB" and concluded "the code
 fits one segment". That prediction did not foresee two things: the
 stamp/mask/list scheme behind the measured frame rates, and pass 3's
-reciprocal table. **They are why the segment is full, not the code.** Game
-and shell code is 3.2 KB. The renderer is 7.3 KB of code over 36.5 KB of
-data, plus 8.1 KB of keyframes it reads.
+reciprocal table. **They are why the segment is nearly full, not the code.**
+Game and shell code is 3.3 KB. The renderer is 8.2 KB of code over ~29 KB
+of data, plus 8.1 KB of keyframes it reads.
 
 ---
 
@@ -437,7 +438,9 @@ re-takes it.
 
 ## 4. Recommendation and migration
 
-**Adopt design B, with A's data parts.** The parts table:
+**Adopt design B, with A's data parts.** (As built: section 7 is the
+contract, and it supersedes this table - the keyframes ride in row 0.) The
+parts table as first proposed:
 
 | row | kind | flags | contents |
 |---|---|---|---|
@@ -713,4 +716,103 @@ lands.
 
 **Since this plan was written:** the round-4 present work (perf-present)
 removed `wa_vis` and folded `wa_fmask` into `wa_stamp`'s odd bytes, which
-cuts the renderer's BSS by 7,680 bytes. Section 1.2's table predates it.
+cuts the renderer's BSS by 7,680 bytes. Section 1 is re-measured at that
+tree (`7232b890`).
+
+---
+
+## 7. The contract (pinned before step 3)
+
+WireArena has no SPEC.md section yet, so the interface between its two
+segments is pinned here, as step 0 allowed. Nothing in it is a kernel or SDK
+interface: the parts standard is used as SPEC.md §20.12 already pins it, and
+`apps/os88api.inc` does not move. `apps/wirearena/wafb.inc` is the code form
+of 7.2 and 7.3, included by both halves.
+
+### 7.1 The part table
+
+| row | kind | flags | file | contents |
+|---|---|---|---|---|
+| 0 | `OP_SEG` | `OP_COMP \| OP_ZFILL` | `build/wrpart.bin` from `apps/wirearena/wrpart.asm` | the header, the frame block, `wrender.inc`, the glyph and attribute tables (`wrtab.inc`), `wa_sin` and `wa_sincos`, the keyframes `wa_pose`, the arenas until step 4, and the renderer's BSS as zeros |
+| 1.. | `OP_ASSET` | `OP_LAZY \| OP_COMP` | one per arena, from step 4 | 7.5 |
+
+**The keyframes ride in row 0** (the owner's Q3): measured at step 2, the
+renderer's image is ~19.2 KB and its BSS ~28.9 KB, ~48 KB of the 65,024 a
+part may hold, so the keyframes share the renderer's claim and its DS. No
+segment override reaches `wa_figure` or `wa_fjl`.
+
+The primary declares `OS88_F_PARTS`, `OP_WANT_CSEG` and `OP_ONMOVE
+wa_partsmv`; `wa_entry` calls `op_load` before anything that could disturb
+SI, banks the part's data segment (`op_seg`) and code selector (`op_cseg`)
+and the verbs' offsets out of its header, then declares the carve movable
+(`op_movable`, `OP_CARVE`). The hook re-reads the two segment words. That is
+sound because the part calls no kernel slot (SPEC.md §20.12.12's condition):
+nothing claims while this task stands in it.
+
+### 7.2 The part's header
+
+| offset | size | |
+|---|---|---|
+| 0 | 6 | `'WRPART'` |
+| 6 | 1 | `WR_ABI` (1) |
+| 7 | 1 | `WR_NVERB` (6) |
+| 8 | 2 × 6 | each verb's offset in the part, in the order below |
+| 32 | — | `WR_FB`: the frame block (7.3) |
+
+The primary refuses to start, with a toast, if the magic, the ABI byte or the
+verb count differ from the ones it was built with.
+
+**The verbs.** The primary enters one through `wa_rcall` (BX = the verb x 2):
+a far call built as push/push/`retf` with DS = the part's data, so no vector
+is read through CS (XTMP3's `x3p_fcall`; under kern_mega a part's CS is an
+execute-only alias). The verb returns with `retf`; DS is put back by the
+glue, and every other register, ES included, is the verb's to clobber.
+
+| verb | when | in | out |
+|---|---|---|---|
+| `WRV_INIT` 0 | after a mode set | the CONFIG section | the row tables, the stamps, the vertex cache and the lists started again |
+| `WRV_GEOM` 1 | after `WRV_ARENA` | | `wa_geominit`: the reciprocal table and the coordinate steps |
+| `WRV_ARENA` 2 | a match starts | AL = the arena (step 4: DX = its part's segment) | the working tables, and the ARENA section |
+| `WRV_RENDER` 3 | every frame | the FRAME section and the figures | AL = the frame number |
+| `WRV_PRESENT` 4 | every frame | | AX = the text cells written |
+| `WRV_TRACE` 5 | a shot | the figures' heads | AX = the hit figure's offset in `wa_figs`, or -1 |
+
+### 7.3 The frame block
+
+One layout in both segments: `WA_FBLOCK` expands to the same variables in the
+same order in the primary's BSS and at `WR_FB` in the part, so a variable's
+address in the part is `x - wa_fb_cfg + WR_FB` (`WA_RAT`).
+
+| section | variables | written by | copied |
+|---|---|---|---|
+| CONFIG | `wa_vseg`, `wa_w`, `wa_w2`, `wa_k16`, `wa_c16`, `wa_kyq`, `wa_kyh`, `wa_wf`, `wa_mono` | the primary (`wa_setmode`, `wa_setfov`) | primary → part by `wa_rsync`, at a mode set and a field-of-view change |
+| FRAME | `wa_px`, `wa_py`, `wa_ang`, `wa_pitch`, `wa_eye`, `wa_fov`, `wa_hyst`, `wa_grid`, `wa_sparse`, `wa_mflash` | the primary | primary → part every frame (`wa_rframe`) |
+| FIGS | `wa_figs`, 3 × 40 | the primary writes bytes 0..17 (position, facing, animation, flash, dead); the part writes the projection (`F_PZ` … `F_PWH`) and keeps it | bytes 0..17 primary → part every frame and before TRACE; never back |
+| ARENA | `wa_sx`, `wa_sy`, `wa_sa`, `wa_nbox`, `wa_boxes` | the part (`WRV_ARENA`) | part → primary after `WRV_ARENA` |
+
+**A renderer toggle is a FRAME variable.** Anything the renderer reads that
+the primary writes must be in CONFIG or FRAME, or the part never sees it
+change. That includes a new key-toggled flag: it goes in FRAME, in
+`wafb.inc`, not in the primary's own BSS.
+
+The primary's own `F_PZ` means only *drawn since it last spawned*: the render
+glue sets it to 1 for every figure after each frame, and `wa_spawn` zeroes
+it as before. Before TRACE, a 0 there zeroes the part's `F_PZ`, so a figure
+respawned since the frame is not hit where its body lay, exactly as when the
+pistol read the primary's own projection.
+
+### 7.4 Who calls what
+
+The primary keeps the names it always called: `wa_render`, `wa_present`,
+`wa_geominit` and `wa_loadarena` are its glue, so `wa_main` and the two
+benches are unchanged. `wa_fire` keeps the hit (sound, flash, flinch, death)
+and asks the part for the ray.
+
+### 7.5 An arena part (step 4)
+
+One `OP_ASSET` row per arena, assembled at org 0 by `tools/arenagen.py`,
+fetched by the Game menu's command before the bracket, read by `WRV_ARENA`
+and dropped again. It is `wa_arenas`' descriptor at offset 0 - the table
+offsets relative to the part, the BSP's links too - followed by the tables
+it names. `WRV_ARENA` copies the tables into the working ones and the tree
+into `wa_bsp`, rebasing each link by `wa_bsp - (the part's tree)`.
