@@ -232,6 +232,9 @@ def main_heights(a, off):
         m.go()
         ui.menu_pick("Game", item)
         m.advance(cycles=F * 2)
+        if a.level:
+            m.key("Digit%d" % a.level)
+            m.advance(cycles=F // 2)
         buf = m.read(0x10000, 0x90000)
         base = None
         for o in range(0, len(buf) - 32, 16):
@@ -321,6 +324,11 @@ def main():
                     help="1: ramps drawn as stepped treads (the T option) - "
                          "for its divide faults: the reference is the ramp, so "
                          "its columns off are expected")
+    ap.add_argument("--level", type=int, default=0,
+                    help="1..5: the detail level, Very Low to Very High (its "
+                         "key, after the menu: HEIGHTS-PLAN 9.11); 0 the "
+                         "default. A level's look changes (ROOMF's missing "
+                         "room tops, say) count as columns off")
     a = ap.parse_args()
     off = offsets()
     if a.arena == 2:
@@ -338,6 +346,9 @@ def main():
         m.go()
         ui.menu_pick("Game", "Play, 40 columns")
         m.advance(cycles=F * 2)
+        if a.level:
+            m.key("Digit%d" % a.level)
+            m.advance(cycles=F // 2)
         buf = m.read(0x10000, 0x90000)
         base = None
         for o in range(0, len(buf) - 32, 16):

@@ -23,8 +23,10 @@
 WR_MAGIC0   equ 'WR'                ; +0: 'WRPART', then the ABI byte and the
 WR_MAGIC1   equ 'PA'                ;     verb count - checked by the primary
 WR_MAGIC2   equ 'RT'                ;     at launch, refused on a mismatch
-WR_ABI      equ 3                   ; (2: the camera's sin/cos in FRAME;
-                                    ; 3: F_Z, the treads, ARENA's heights)
+WR_ABI      equ 4                   ; (2: the camera's sin/cos in FRAME;
+                                    ; 3: F_Z, the treads, ARENA's heights;
+                                    ; 4: wa_look, the detail level's bits,
+                                    ; where wa_hyst was; wa_flod gone)
 WR_H_ABI    equ 6
 WR_H_NV     equ 7
 WR_H_VERB   equ 8                   ; +8: a word per verb, its offset
@@ -59,8 +61,7 @@ WA_FBV wa_kyq, 2
 WA_FBV wa_kyh, 2
 WA_FBV wa_wf, 2
 WA_FBV wa_mono, 1
-WA_FBV wa_flod, 1                   ; figure detail options (keys K, J: G's
-                                    ; wa_frame_input; R's wa_figure)
+WA_FBV wa_fbpad0, 1
 WA_FBV wa_fb_frm, 0                 ; FRAME
 WA_FBV wa_px, 2
 WA_FBV wa_py, 2
@@ -70,7 +71,7 @@ WA_FBV wa_eye, 2
 WA_FBV wa_fsn, 2                    ; the camera's sin and cos, Q14, at wa_ang
 WA_FBV wa_fcs, 2                    ; >> 6 (G: wa_rframe, from its wa_sincos)
 WA_FBV wa_fov, 1
-WA_FBV wa_hyst, 1
+WA_FBV wa_look, 1                   ; the detail level's options, LK_*
 WA_FBV wa_grid, 1
 WA_FBV wa_sparse, 1
 WA_FBV wa_mflash, 1

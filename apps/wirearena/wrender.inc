@@ -49,8 +49,6 @@ WA_VAR wa_spih, WA_MAXSP*2      ; c2 - c1 and i2 - i1: wa_wallz's line
 WA_VAR wa_spsh, WA_MAXSP*2
 WA_VAR wa_spsl, WA_MAXSP*2
 WA_VAR wa_wcol, 1               ; the colour of the walls being drawn
-WA_VAR wa_pt32, WA_MAXW*2       ; per column, the held top and bottom
-WA_VAR wa_pb32, WA_MAXW*2       ; half-rows (wa_hyst)
 WA_VAR wa_dxc, 9*4              ; the floor grid's products (wa_dots)
 WA_VAR wa_dxs, 9*4
 WA_VAR wa_dyc, 9*4
@@ -68,12 +66,11 @@ WA_VAR wa_vb0, 2
 WA_VAR wa_afix, 1               ; the span's shade is one band
 WA_VAR wa_fclp, 1               ; wa_fspanh: 1 the clip-tested passes
 WA_VAR wa_ftailp, 2             ; wa_fspan's way on: FLATBODY's tail
-%ifdef WA_LOOK_ROOMF
-WA_VAR wa_roomf, 1              ; ROOMF: 1 while the room's faces are drawn
-%endif
-%ifndef WA_POSTMIN
+WA_VAR wa_roomf, 1              ; ROOMF: non-zero while the room's faces are
+                                ; drawn at a level with it (wa_render)
+WA_VAR wa_vertp, 2              ; wa_vert or wa_vertr: the level's (wa_lookset)
+WA_VAR wa_lnear, 2              ; the cone test's near margin: the level's
 WA_POSTMIN equ 8                ; NOPOST: the shortest wall with posts
-%endif
 WA_VAR wa_left, 2               ; columns still open
 WA_VAR wa_lp, 2                 ; the list's write pointer across spans
 WA_VAR wa_xc, WA_MXV*4          ; per frame: (x - px) cos and sin, 32 bits,
@@ -189,7 +186,7 @@ WA_VAR wa_kv, (WA_MAXKS+1)*8    ; per slot: the step x 4...
 WA_VAR wa_mk, (WA_MAXKS+1)*8    ; ...and its products, cos and sin, 32 bits
 WA_VAR wa_nsht, 1               ; ...and wa_numt's, for the height in
 WA_VAR wa_ntht, 2               ; wa_ntht (wa_hnt)
-WA_VAR wa_gen, 1                ; held edges or heights: every span general
+WA_VAR wa_gen, 1                ; heights: every span general
 WA_VAR wa_roomh, 2              ; the room's height
 WA_VAR wa_nshb, 1               ; the shift wa_numb's product takes (3, or 1
                                 ; when it is / 4: wa_render)
@@ -290,7 +287,8 @@ wa_render:
     mov [wa_nshb], bl
 .paired:
     mov word [wa_ftailp], wa_span.ftail ; (wa_fspan's: wa_fspanh sets its own)
-    mov al, [wa_hyst]
+    call wa_lookset             ; the detail level's choices, once a frame
+    xor al, al
     cmp byte [wa_hflat], 0
     jne .gen
     mov word [wa_ntht], -1      ; (heights: the top per box, wa_hnt, and
@@ -387,9 +385,9 @@ wa_render:
     mov al, [wa_at+si]
     mov [wa_wcol], al
     mov byte [wa_endok], 0      ; (each room corner is some face's START)
-%ifdef WA_LOOK_ROOMF
-    mov byte [wa_roomf], 1      ; (ROOMF: the room's floor lines alone)
-%endif
+    mov al, [wa_look]           ; (ROOMF: the room's floor lines alone)
+    and al, LK_ROOMF
+    mov [wa_roomf], al
     cmp byte [wa_hflat], 0
     jne .rflat
     mov ax, [wa_roomh]          ; (heights: the room at its own height)
@@ -413,9 +411,7 @@ wa_render:
     mov ax, (0 << 8) | 2
     call wa_face
 .roomless:
-%ifdef WA_LOOK_ROOMF
     mov byte [wa_roomf], 0
-%endif
     call wa_dots
     mov ax, [wa_lp]
     sub ax, [wa_newp]
@@ -479,8 +475,9 @@ wa_geominit:
     mov byte [di+1], 0
     ret
 
-; WA_AXIS values, the player's coordinate, steps, cos products, sin products
-%macro WA_AXIS 5
+; WA_AXIS values, the player's coordinate, steps, cos products, sin products,
+; %6 = 1: ROUND's (the high words alone, rounded)
+%macro WA_AXIS 6
     mov ax, [%1]
     sub ax, [%2]
     shl ax, 1
@@ -491,7 +488,7 @@ wa_geominit:
     mov cx, dx
     mov ax, bx
     imul word [wa_cos]          ; DX:AX, CX:BP = the first value's products
-%ifdef WA_LOOK_ROUND
+%if %6
     add ax, 0x8000              ; (ROUND: biased by a half, so every high
     adc dx, 0                   ; word after is its product ROUNDED - the
     add bp, 0x8000              ; steps added are exact - and only the high
@@ -507,11 +504,11 @@ wa_geominit:
     add bp, [wa_mk+bx+4]
     adc cx, [wa_mk+bx+6]
 %%put:
-%ifndef WA_LOOK_ROUND
+%if %6 == 0
     mov [di], ax
 %endif
     mov [di+2], dx
-%ifndef WA_LOOK_ROUND
+%if %6 == 0
     mov [di+%5-%4], bp
 %endif
     mov [di+%5-%4+2], cx
@@ -548,8 +545,15 @@ wa_products:
     add si, 8
     jmp .k
 .kd:
-    WA_AXIS wa_xv, wa_px, wa_xk, wa_xc, wa_xs
-    WA_AXIS wa_yv, wa_py, wa_yk, wa_yc, wa_ys
+    test byte [wa_look], LK_ROUND
+    jnz .round
+    WA_AXIS wa_xv, wa_px, wa_xk, wa_xc, wa_xs, 0
+    WA_AXIS wa_yv, wa_py, wa_yk, wa_yc, wa_ys, 0
+    jmp .cone
+.round:
+    WA_AXIS wa_xv, wa_px, wa_xk, wa_xc, wa_xs, 1
+    WA_AXIS wa_yv, wa_py, wa_yk, wa_yc, wa_ys, 1
+.cone:
     mov cx, [wa_sinv]           ; the cone test's corners (wa_leaf): which
     mov dx, [wa_cos]            ; end of a box's bounds is the extreme of
     mov ax, (9 << 8) | 10       ; each sum - the sums are linear in the
@@ -756,11 +760,8 @@ wa_lret:    ret                 ; (the cone tests' short way out)
     xlatb
     mov di, ax
     add dx, [wa_ys+di+2]
-%ifdef WA_LOOK_ROUND
-    cmp dx, WA_NEAR-3           ; (ROUND: a vertex's z is rounded too)
-%else
-    cmp dx, WA_NEAR-2
-%endif
+    cmp dx, [wa_lnear]          ; (NEAR - 2; ROUND's NEAR - 3, its vertex
+                                ; z rounded too: wa_lookset)
     jle wa_lret
     ; THE NARROWER VIEWS: the screen's edge is x = t z with t = 0.767 at
     ; 75 degrees and 0.578 at 60, so a box is also off the screen when
@@ -962,13 +963,13 @@ wa_boxf:
     mov al, [wa_frame]          ; (the cache's stamp test here, not behind
     cmp [wa_vst+bx], al         ; a call: a third of the vertices a face
     je .v1                      ; names were made by an earlier face)
-    call wa_vert
+    call [wa_vertp]
 .v1:
     mov bl, [wa_fv+1]           ; (BH = 0: wa_vert keeps it)
     mov al, [wa_frame]
     cmp [wa_vst+bx], al
     je .v2
-    call wa_vert
+    call [wa_vertp]
 .v2:
     mov dx, [wa_vpc+bx]         ; THE PRE-CHECK: the columns it could reach,
     mov bl, [wa_fv]             ; x 16 (a vertex in view is its own, one
@@ -1054,17 +1055,11 @@ wa_boxf:
     call .mk
     xchg si, di
 .h2:
-    cmp byte [wa_hyst], 0
-    jne .copy
 %if %1
     jmp wa_fspanh
 %else
     jmp wa_fspan
 %endif
-.copy:                          ; (held edges: wa_span's own way, from wa_c1..)
-    call wa_tomem
-    mov dx, [wa_cs]
-    jmp wa_span.open2
 .clip:
     mov ax, [wa_vx+si]
     mov [wa_x1], ax
@@ -1176,12 +1171,6 @@ wa_vert:
     mov bl, ah
     xor ah, ah
     mov si, ax
-%ifdef WA_LOOK_ROUND
-    mov cx, [wa_xc+si+2]        ; (ROUND: the products' rounded high words,
-    add cx, [wa_ys+bx+2]        ; a sum each)
-    mov ax, [wa_xs+si+2]
-    sub ax, [wa_yc+bx+2]
-%else
     mov ax, [wa_xc+si]          ; z = ((x-px) 4 cos + (y-py) 4 sin) >> 16
     add ax, [wa_ys+bx]
     mov cx, [wa_xc+si+2]
@@ -1190,7 +1179,7 @@ wa_vert:
     sub ax, [wa_yc+bx]
     mov ax, [wa_xs+si+2]
     sbb ax, [wa_yc+bx+2]
-%endif
+.cam:
     mov bx, di
     mov [wa_vz+bx], cx
     mov [wa_vx+bx], ax
@@ -1222,6 +1211,42 @@ wa_vert:
 .out:
     mov byte [wa_vok+bx], 0
     mov [wa_vpc+bx], ax
+    ret
+
+; wa_vertr - wa_vert at a level with ROUND: the products' rounded high
+; words, a sum each (wa_products), then wa_vert's own way
+wa_vertr:
+    mov [wa_vst+bx], al
+    mov di, bx
+    mov ax, [wa_vtx+bx]
+    mov bl, ah
+    xor ah, ah
+    mov si, ax
+    mov cx, [wa_xc+si+2]
+    add cx, [wa_ys+bx+2]
+    mov ax, [wa_xs+si+2]
+    sub ax, [wa_yc+bx+2]
+    jmp wa_vert.cam
+
+; wa_lookset - once a frame: the detail level's choices (wa_look) that are
+; made once rather than tested where they act - which wa_vert, the cone
+; test's near margin, a low box's far-top allowance (wrlow.inc)
+wa_lookset:
+    mov ax, wa_vert
+    mov cx, WA_NEAR-2
+    test byte [wa_look], LK_ROUND
+    jz .r
+    mov ax, wa_vertr
+    dec cx
+.r:
+    mov [wa_vertp], ax
+    mov [wa_lnear], cx
+    xor ax, ax
+    test byte [wa_look], LK_FARTOP
+    jz .f
+    mov al, WL_FARTOPV
+.f:
+    mov [wl_fartop], ax
     ret
 
 ; wa_xform - AX, BX = a world point -> AX = camera x (right), DX = z
@@ -1444,13 +1469,11 @@ wa_ptbib:
     mov [wa_db], di
     mov ax, [wa_t1]             ; the top: kept in registers
     mov bx, [wa_t2]
-%ifdef WA_LOOK_ROOMF
-    cmp byte [wa_roomf], 0
+    cmp byte [wa_roomf], 0      ; (ROOMF: the room's top not drawn)
     je %%tf
     call wa_rnotop
     jmp %%td
 %%tf:
-%endif
     call wa_fedge
     jc %3
 %%td:
@@ -1500,12 +1523,13 @@ wa_ptbib:
     shr ax, 1
     sub ax, [wa_ncl]
     sub [wa_left], ax
-%ifdef WA_LOOK_NOPOST
-    mov ax, [wa_vb0]            ; (NOPOST: a wall shorter than WA_POSTMIN
-    sub ax, [wa_vt0]            ; half-rows at its first column - a far
-    cmp ax, WA_POSTMIN          ; one - has no corner posts)
+    test byte [wa_look], LK_NOPOST ; (NOPOST: a wall shorter than
+    jz %%np                     ; WA_POSTMIN half-rows at its first column -
+    mov ax, [wa_vb0]            ; a far one - has no corner posts)
+    sub ax, [wa_vt0]
+    cmp ax, WA_POSTMIN
     jl %%fdone
-%endif
+%%np:
     mov si, [wa_cs]             ; the corners, at the segment's own ends,
     cmp si, [wa_cs0]            ; when this span opened them: a `│` each
     jne %%fc2                   ; (nothing else is in either column: no
@@ -1621,10 +1645,10 @@ wa_span:
     mov [wa_b2], ax
 .dcok:
     ; THE FLAT SPAN, nine in ten: neither edge moves a half-row a column (or
-    ; one that does is off the screen throughout), no held edges - two
+    ; one that does is off the screen throughout) - two
     ; passes by runs (wa_fedge, FLATPASS). Anything else is SPANLOOP's,
     ; below.
-    cmp byte [wa_gen], 0        ; (held edges, or heights)
+    cmp byte [wa_gen], 0        ; (heights)
     jne .general
     FLATBODY wa_fo, wa_fp, .general, 0, .ftail
 
@@ -1655,12 +1679,10 @@ wa_span:
     stc
     ret
 
-.general:                       ; (heights, no held edges: a flat span
+.general:                       ; (heights: a flat span
     cmp byte [wa_hflat], 0      ; takes the clip-tested passes)
     jne .gen1
     call wa_fclpc
-    cmp byte [wa_hyst], 0
-    jne .gen1
     FLATBODY wa_foc, wa_fpc, .gen1, 1, .ftailc, 1
 .gen1:                          ; SPANLOOP's: the last open column too
     mov si, [wa_end]
@@ -1717,7 +1739,6 @@ wa_span:
     mov dh, bl                  ; DH = the tag
     mov ah, [wa_wcol]           ; the wall's colour: its ITEM's, not its depth
     xor bx, bx                  ; which of the eight loops
-%ifdef WA_LOOK_ROOMF
     cmp byte [wa_roomf], 0      ; (ROOMF: the room's steep span sparse, and
     je .vr                      ; no posts)
     mov byte [wa_e1], 0
@@ -1726,7 +1747,6 @@ wa_span:
     jne .vs
     jmp .vcs
 .vr:
-%endif
     cmp byte [wa_hflat], 0
     jne .vf
     cmp byte [wa_sparse], 0     ; (heights: the four clip-tested ones)
@@ -1743,8 +1763,7 @@ wa_span:
     or bl, 2
     cmp byte [wa_fclp], 0       ; (steep, and no column of the range under a
     jne .vc2                    ; low box's top: the plain steep loop, which
-    shl bl, 1                   ; draws the same cells - wa_fspan)
-    jmp .v3
+    jmp .v3                     ; draws the same cells - wa_fspan)
 .vc2:
     call [wa_loopsc+bx]
     jmp .vd
@@ -1756,13 +1775,9 @@ wa_span:
     cmp word [wa_t2], -3
     jg .v1
 .vs:
-    or bl, 8
+    or bl, 4
 .v1:
     cmp byte [wa_steep], 0
-    je .v2
-    or bl, 4
-.v2:
-    cmp byte [wa_hyst], 0
     je .v3
     or bl, 2
 .v3:
@@ -1774,12 +1789,13 @@ wa_span:
     shr ax, 1
     sub ax, [wa_ncl]
     sub [wa_left], ax
-%ifdef WA_LOOK_NOPOST
+    test byte [wa_look], LK_NOPOST
+    jz .np
     mov ax, [wa_vb0]
     sub ax, [wa_vt0]
     cmp ax, WA_POSTMIN
     jl .cdone
-%endif
+.np:
     mov si, [wa_cs]             ; the corners, at the segment's own ends,
     cmp si, [wa_cs0]            ; when this span opened them: a `│` each
     jne .c2
@@ -1790,7 +1806,7 @@ wa_span:
     call wa_cclp
     push cx
     mov cl, [wa_gen]            ; (nothing else is in this column yet - but
-    call wa_corner              ; a HELD edge, or a low box, can be)
+    call wa_corner              ; a low box can be)
     pop cx
 .c2:
     mov si, [wa_end]
@@ -1923,8 +1939,8 @@ wa_span:
     mov dx, si
     ret
 
-; wa_fspan - wa_face's way for a face with BOTH ends in the view and no held
-; edges: wa_span's flat span (FLATBODY's head) straight off the vertex cache,
+; wa_fspan - wa_face's way for a face with BOTH ends in the view: wa_span's
+; flat span (FLATBODY's head) straight off the vertex cache,
 ; the pre-check's columns standing for wa_span's own scan - no copy into
 ; wa_c1.., no second scan. SI = v1 x 2, DI = v2 x 2 (made: wa_face.mk);
 ; [wa_cs], [wa_end], [wa_cs0], [wa_ce0], wa_e1 and wa_e2 set by wa_face.
@@ -1985,13 +2001,11 @@ wa_fspan:
     mov [wa_db], di
     pop bx                      ; the top
     pop ax
-%ifdef WA_LOOK_ROOMF
-    cmp byte [wa_roomf], 0
+    cmp byte [wa_roomf], 0      ; (ROOMF)
     je .tf
     call wa_rnotop
     jmp .td
 .tf:
-%endif
     call wa_fedge
     jc .steep
 .td:
@@ -2007,7 +2021,6 @@ wa_fspan:
     pop di
     jmp wa_fsteep
 
-%ifdef WA_LOOK_ROOMF
 ; wa_rnotop - ROOMF: the room's top edge not drawn - wa_fedge's answer for an
 ; edge above the screen - and no corner posts
 wa_rnotop:
@@ -2018,7 +2031,6 @@ wa_rnotop:
     mov byte [wa_e1], 0
     mov byte [wa_e2], 0
     ret
-%endif
 
 ; wa_fclpc - heights: [wa_fclp] = 1 when a column of [wa_cs, wa_end) is
 ; under a low box's top (its clip raised), else 0. Clobbers AX, CX, DI
@@ -2076,10 +2088,11 @@ wa_tomem:
     ret
 
 ; --- the column loops ---------------------------------------------------------
-; The hot path of a frame, generated eight ways so no column tests a mode:
-; %1 = 1 draws the TOP edge (the full detail level; 0 is the sparse one,
-; floor lines and corner posts), %2 = 1 fills steep steps (a span whose
-; edge can move two half-rows a column), %3 = 1 holds edges (EDGE).
+; The steep spans' loop (a flat span is FLATBODY's), generated so no column
+; tests a mode: %1 = 1 draws the TOP edge (0: the sparse one, floor lines
+; and corner posts - and a top above the screen), %2 = 1 fills steep steps
+; (always, now: the flat ones are FLATBODY's), %3 unused (the held edges
+; were H, removed with it), %4 = 1 tests the heights clip.
 ; In: SI = first column x 2, [wa_end] = one past the last x 2 (the first
 ; and last are open), CX.BP = the top (whole half-row, rounded, and a
 ; 16-bit fraction), wa_vb.wa_vbl the bottom alike, DL = the stamp, DH = the
@@ -2089,42 +2102,13 @@ wa_tomem:
 ; column at full detail is ~105 bytes of code (round 2's was ~142, the
 ; first renderer's ~260). The top is the first cell its column draws, so it
 ; needs no stamp test.
-; EDGE - BX = an edge's half-row from the accumulator %1.%2 (%3 = 0); or
-; (%3 = 1) held at last frame's half-row (%4, per column) until the true
-; position is a QUARTER half-row past the boundary - so a far edge on a
-; slow turn steps once instead of flickering between two. Clobbers AX
-%macro EDGE 4
-%if %3
-    mov bx, %1
-    sub bx, [%4+si]             ; x - held + a quarter: [0, 1.5) keeps
-    mov ax, %2
-    add ax, 0x4000
-    adc bx, 0
-    jz %%keep
-    dec bx
-    jnz %%move
-    cmp ax, 0x8000
-    jb %%keep
-%%move:
-    mov bx, %1
-    mov [%4+si], bx
-    jmp %%have
-%%keep:
-    mov bx, [%4+si]
-%%have:
-    mov ah, [wa_wcol]
-%else
-    mov bx, %1
-%endif
-%endmacro
-
 %macro SPANLOOP 3-4 0
 %%col:
     cmp word [wa_cov+si], 0
     jne %%shut
     mov [wa_cov+si], dh
 %if %1
-    EDGE cx, bp, %3, wa_pt32
+    mov bx, cx
   %if %2
     mov [wa_cht+si], bx
   %endif
@@ -2149,7 +2133,7 @@ wa_tomem:
 %endif
 %%t:
 %endif
-    EDGE [wa_vb], [wa_vbl], %3, wa_pb32
+    mov bx, [wa_vb]
 %if %2
     mov [wa_chb+si], bx
 %endif
@@ -2204,27 +2188,21 @@ wa_tomem:
     call wa_gap
     jmp %%col
 %endmacro
-wa_l001:    SPANLOOP 1, 0, 1     ; ...held edges
 wa_l010:    SPANLOOP 1, 1, 0     ; full, steep
-wa_l011:    SPANLOOP 1, 1, 1
-wa_l101:    SPANLOOP 0, 0, 1
-wa_l110:    SPANLOOP 0, 1, 0
-wa_l111:    SPANLOOP 0, 1, 1
-; on an arena with heights (not flat), every tall span is one of these: the
+wa_l110:    SPANLOOP 0, 1, 0     ; sparse (or a top above the screen), steep
+; on an arena with heights (not flat), a tall span the clip may reach: the
 ; edges tested against the column's clip (docs/plans/WIREARENA-HEIGHTS-PLAN.md
-; 1.2, 7.3.2), held edges not applied
-wa_lc00:    SPANLOOP 1, 0, 0, 1  ; full, flat
+; 1.2, 7.3.2)
 wa_lc01:    SPANLOOP 1, 1, 0, 1  ; full, steep
-wa_lc10:    SPANLOOP 0, 0, 0, 1  ; sparse, flat
 wa_lc11:    SPANLOOP 0, 1, 0, 1  ; sparse, steep
-wa_loopsc:  dw wa_lc00, wa_lc01, wa_lc10, wa_lc11
-wa_loops:   dw 0,        wa_l001, wa_l010, wa_l011   ; (full and flat:
-                                ; wa_span's passes)
-            dw 0,        wa_l101, wa_l110, wa_l111
+; by sparse x 4 + steep x 2: every span here is steep (a flat one is
+; FLATBODY's), and the steep loop draws a flat one right anyway
+wa_loopsc:  dw wa_lc01, wa_lc01, wa_lc11, wa_lc11
+wa_loops:   dw wa_l010, wa_l010, wa_l110, wa_l110
 
 ; --- the flat span's passes ---------------------------------------------------
-; A FLAT span (neither edge moves a half-row a column) at full detail without
-; held edges - nine spans in ten. Such an edge keeps its half-row for RUNS of
+; A FLAT span (neither edge moves a half-row a column) at full detail - nine
+; spans in ten. Such an edge keeps its half-row for RUNS of
 ; columns, so its whole part is not stepped: the step's fraction is added and
 ; the carry is the change, after which the cell is simply the next column's.
 ; An edge moving UP the screen subtracts it instead, a borrow being the
@@ -2371,10 +2349,9 @@ wa_fedge:
     mov di, dx                  ; its sign
     xor ax, dx
     sub ax, dx                  ; |change|
-%ifdef WA_LOOK_COARSE
     cmp ax, 4                   ; (COARSE: an edge that moves less than a
-    jb .level                   ; half-row along the whole wall is drawn
-%endif                          ; level, at its middle's half-row)
+    jb .small                   ; half-row along the whole wall is drawn
+.exact:                         ; level, at its middle's half-row)
     shl ax, 1
     jc .steep
     shl ax, 1
@@ -2415,8 +2392,9 @@ wa_fedge:
     not bp                      ; (a pass's form)
     clc
     ret
-%ifdef WA_LOOK_COARSE
-.level:
+.small:
+    test byte [wa_look], LK_COARSE
+    jz .exact
     xor ax, di                  ; e1 + change / 2, rounded to a half-row
     sub ax, di
     sar ax, 1
@@ -2425,7 +2403,6 @@ wa_fedge:
     sar si, 1
     sar si, 1
     jmp .off
-%endif
 .above:
     mov si, -1
     jmp .off
@@ -3129,8 +3106,8 @@ wa_figure:
     mov ax, [di+F_PH]
     mov cl, al
     and cl, 3
-    test byte [wa_flod], WA_FL_SNAP | WA_FL_FEW
-    jnz .lod                    ; (the look options, K and J: off, one test)
+    test byte [wa_look], LK_FEW
+    jnz .lod                    ; (the level's J: off, one test)
 .lodd:
     mov [wa_fsub], cl
     shr ax, 1
@@ -3160,14 +3137,11 @@ wa_figure:
     mov di, [wa_kfo+di]
     add di, bx                  ; DI = keyframe B
     jmp wa_fjl                  ; the joints (and back to wa_fjdone)
-.lod:                           ; a SMALL figure (fv8 under WA_FLODV): K, its
-    cmp word [wa_fv8], WA_FLODV ; keyframe as it stands (q 0); J, that and
-    jae .lodd                   ; only its first seven joints, the ends,
-    xor cl, cl                  ; joined by five straight limbs (q 4:
-    test byte [wa_flod], WA_FL_FEW ; wa_fjl, wa_fjdone)
-    jz .lodd
-    mov cl, 4
-    jmp .lodd
+.lod:                           ; a SMALL figure (fv8 under WA_FLODV): J,
+    cmp word [wa_fv8], WA_FLODV ; its keyframe as it stands and only its
+    jae .lodd                   ; first seven joints, the ends, joined by
+    mov cl, 4                   ; five straight limbs (q 4: wa_fjl,
+    jmp .lodd                   ; wa_fjdone)
 ; a keyframe's place, and a facing's offset in one (no multiply a figure)
 wa_kfo:
 %assign wa_i 0
