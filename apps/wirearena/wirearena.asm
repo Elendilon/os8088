@@ -629,8 +629,10 @@ wa_keys:
     mov byte [wa_ksw], WA_KSWEEP-1
     mov dx, (1 << WA_NKEYS) - 1 ; the sweep: all of them
 .some:
-    mov si, wa_ktab
     xor bx, bx
+    or dx, dx
+    jz .none                    ; none to ask about (most frames)
+    mov si, wa_ktab
     mov cx, WA_NKEYS
 .k:
     lodsb
@@ -642,6 +644,7 @@ wa_keys:
     loop .k
     mov cl, 16 - WA_NKEYS
     shr bx, cl
+.none:
     mov [wa_kbits], bx
     mov [wa_kwatch], bx         ; the held ones stay watched
     pop si
@@ -688,6 +691,8 @@ wa_tick:
     mov word [wa_kbits], 0
 .live:
     mov dx, [wa_kbits]
+    or dx, dx
+    jz .jump                    ; nothing held: no turn, no step
     test dl, WA_K_LEFT
     jz .r
     add word [wa_ang], 12 << 6
@@ -884,15 +889,8 @@ wa_sincos:
 
 ; wa_figtick - DI = a figure: one 30 Hz step of its patrol and its animation
 wa_figtick:
-    cmp byte [di+F_FLASH], 0
-    je .alive
-    dec byte [di+F_FLASH]
-.alive:
-    cmp byte [di+F_DEAD], 0
-    je .live
-    dec byte [di+F_DEAD]
-    jnz .anim
-    jmp wa_spawn
+    cmp word [di+F_FLASH], 0    ; (F_FLASH and F_DEAD, one word: the usual
+    jne .flash                  ; tick has neither)
 .live:
     cmp byte [di+F_ANIM], WA_A_FLINCH
     je .anim                    ; a flinch stops it in its tracks
@@ -943,6 +941,7 @@ wa_figtick:
 .turn:
     mov ax, [di+F_HEAD]         ; face the way it is going, 48 a tick at most
     sub ax, [di+F_ANG]
+    jz .anim                    ; (it does, most ticks)
     and ax, 1023
     cmp ax, 512
     jb .ccw
@@ -979,6 +978,16 @@ wa_figtick:
     jmp wa_runanim              ; the flinch is over: run again
 .out:
     ret
+.flash:
+    cmp byte [di+F_FLASH], 0
+    je .alive
+    dec byte [di+F_FLASH]
+.alive:
+    cmp byte [di+F_DEAD], 0
+    je .live
+    dec byte [di+F_DEAD]
+    jnz .anim
+    jmp wa_spawn
 .q14:                           ; DX:AX Q14 -> AX, rounding toward -inf
     shl ax, 1
     rcl dx, 1
