@@ -299,6 +299,13 @@ ANIMS = [                       # name, keyframes, builder
 ]
 
 
+# The joints' order in wa_pose: pose()'s, regrouped so a figure's first
+# SEVEN are the ends - head, neck, pelvis, the hands, the feet - and the
+# elbows and knees follow (wa_fjl's reduced figure, the J option, reads the
+# first seven alone; the renderer's limb pairs follow this order)
+JORDER = [0, 1, 2, 4, 6, 8, 10, 3, 5, 7, 9]
+
+
 def project(pts, k):
     rel = 2 * math.pi * k / NFACE
     c, s = math.cos(rel), math.sin(rel)
@@ -690,8 +697,11 @@ def main(out):
     w("%ifdef WA_TAB_POSE")
     w("wa_pose:")
     for name, n, fn in ANIMS:
-        frames = [[project(fn(i, n), k) for k in range(NFACE)]
-                  for i in range(n)]
+        frames = []
+        for i in range(n):
+            pts = fn(i, n)
+            frames.append([[pr[j] for j in JORDER]
+                           for pr in (project(pts, k) for k in range(NFACE))])
         # wa_fjl's narrow path blends a joint between two keyframes in
         # BYTES: B - A must be a signed byte for each coordinate between
         # every pair it can blend - the next keyframe, and the first after

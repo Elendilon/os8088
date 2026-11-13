@@ -432,8 +432,19 @@ wa_frame_input:
     jmp .drain
 .bpb:
     cmp ah, 0x19                ; P: the PLAY bench
-    jne .drain
+    jne .bk
     call wa_pbstart
+    jmp .drain
+.bk:
+    mov al, WA_FL_SNAP          ; K: a small figure's keyframe, unblended;
+    cmp ah, 0x25                ; J: and seven joints, five limbs (the look
+    je .lod                     ; options, wa_flod: the renderer's
+    mov al, WA_FL_FEW           ; wa_figure)
+    cmp ah, 0x24
+    jne .drain
+.lod:
+    xor [wa_flod], al
+    call wa_rsync
     jmp .drain
 .typed:
     cmp byte [wa_pbon], 0

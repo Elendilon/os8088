@@ -2768,6 +2768,9 @@ wa_figure:
     mov ax, [di+F_PH]
     mov cl, al
     and cl, 3
+    test byte [wa_flod], WA_FL_SNAP | WA_FL_FEW
+    jnz .lod                    ; (the look options, K and J: off, one test)
+.lodd:
     mov [wa_fsub], cl
     shr ax, 1
     shr ax, 1                   ; AX = keyframe
@@ -2796,6 +2799,14 @@ wa_figure:
     mov di, [wa_kfo+di]
     add di, bx                  ; DI = keyframe B
     jmp wa_fjl                  ; the joints (and back to wa_fjdone)
+.lod:                           ; a SMALL figure (fv8 under WA_FLODV): K, its
+    cmp word [wa_fv8], WA_FLODV ; keyframe as it stands (q 0); J, that and
+    jae .lodd                   ; only its first seven joints, the ends,
+    xor cl, cl                  ; joined by five straight limbs (q 4:
+    test byte [wa_flod], WA_FL_FEW ; wa_fjl, wa_fjdone)
+    jz .lodd
+    mov cl, 4
+    jmp .lodd
 ; a keyframe's place, and a facing's offset in one (no multiply a figure)
 wa_kfo:
 %assign wa_i 0
@@ -2816,10 +2827,10 @@ wa_fjdone:                      ; (wa_fjl comes back here)
     mov ax, [wa_jsy]
     dec ax
     mov [di+F_PTOP], ax
-    mov ax, [wa_jsy+16]
-    cmp ax, [wa_jsy+20]
+    mov ax, [wa_jsy+10]         ; (the feet: joints 5 and 6)
+    cmp ax, [wa_jsy+12]
     jge .b
-    mov ax, [wa_jsy+20]
+    mov ax, [wa_jsy+12]
 .b:
     mov [di+F_PBOT], ax
     mov ax, [wa_fs8]
@@ -2931,18 +2942,21 @@ wa_fjdone:                      ; (wa_fjl comes back here)
     je .limbs
     mov word [wa_flfn], wa_flinef
 .limbs:
+    cmp byte [wa_fsub], 4       ; (J: a small figure's ends alone)
+    je .few
     WA_LIMB 2, 4                ; pass 2: the limbs into wa_fbuf (joint x 2
-    WA_LIMB 2, 6                ; at each end: neck-pelvis, the arms, the
-    WA_LIMB 6, 8                ; legs)
-    WA_LIMB 2, 10
-    WA_LIMB 10, 12
-    WA_LIMB 4, 14
-    WA_LIMB 14, 16
+    WA_LIMB 2, 14               ; at each end, tools/arenagen.py's JORDER:
+    WA_LIMB 14, 6               ; neck-pelvis, the arms, the legs)
+    WA_LIMB 2, 16
+    WA_LIMB 16, 8
     WA_LIMB 4, 18
-    WA_LIMB 18, 20
+    WA_LIMB 18, 10
+    WA_LIMB 4, 20
+    WA_LIMB 20, 12
     mov si, [wa_jsx]            ; the head
     mov di, [wa_jsy]
     call wa_fpix
+.head:
     cmp word [wa_fv8], 40       ; big enough for a 2x2 head
     jb wa_femit
     inc si
@@ -2955,6 +2969,13 @@ wa_fjdone:                      ; (wa_fjl comes back here)
 .out:
     pop di
     ret
+.few:                           ; J: neck-pelvis, neck to each hand, pelvis
+    WA_LIMB 2, 4                ; to each foot, straight
+    WA_LIMB 2, 6
+    WA_LIMB 2, 8
+    WA_LIMB 4, 10
+    WA_LIMB 4, 12
+    jmp .head
 ; wa_femit - pass 3: the box swept with `repe scasw`, a row at a time. Each
 ; cell the limbs touched is cleared out of wa_fbuf, depth-tested once
 ; against its column's wall (resolved above) and plotted - the old
@@ -3196,8 +3217,9 @@ wa_frowv:
     jb .j%2%1
     jmp wa_fjdone
 %endmacro
-%macro WA_FJN 1                 ; narrow, %1 = q: SI = A, BX = B - A, DI =
-.j1%1:                          ; the joint's place in wa_jsx
+%macro WA_FJN 3                 ; narrow, %1 = q: SI = A, BX = B - A, DI =
+.j1%2:                          ; the joint's place in wa_jsx (%2 the label,
+                                ; %3 the joints)
     lodsw                       ; AL, AH = A's lateral and height
   %if %1 == 0
     mov dh, ah
@@ -3240,8 +3262,17 @@ wa_frowv:
     mov al, ah
     cbw
     mov [di+WA_NJ*2-2], ax      ; y (wa_jsy follows wa_jsx)
-    cmp di, wa_jsx+WA_NJ*2
-    jb .j1%1
+    cmp di, wa_jsx+%3*2
+    jb .j1%2
+  %if %3 < WA_NJ
+    mov ax, [wa_jsx]
+    mov cx, WA_NJ - %3
+    rep stosw
+    mov ax, [wa_jsy]
+    add di, WA_NJ*2 - (WA_NJ - %3)*2
+    mov cx, WA_NJ - %3
+    rep stosw
+  %endif
     jmp wa_fjdone
 %endmacro
 wa_fjl:
@@ -3287,19 +3318,22 @@ wa_fjl:
     mov di, wa_jsx
     jmp ax
 .wide:
+    and bx, 6                   ; (J's q 4 is q 0 here: all eleven joints)
     mov ax, [.tab+bx]
     xor bx, bx                  ; (BX: the joint x 2)
     jmp ax
 .tab:
-    dw .j00, .j01, .j02, .j03, .j10, .j11, .j12, .j13
+    dw .j00, .j01, .j02, .j03, .j10, .j11, .j12, .j13, .j1r
     WA_FJ 0, 0
     WA_FJ 1, 0
     WA_FJ 2, 0
     WA_FJ 3, 0
-    WA_FJN 0
-    WA_FJN 1
-    WA_FJN 2
-    WA_FJN 3
+    WA_FJN 0, 0, WA_NJ
+    WA_FJN 1, 1, WA_NJ
+    WA_FJN 2, 2, WA_NJ
+    WA_FJN 3, 3, WA_NJ
+    WA_FJN 0, r, 7              ; J: the first seven alone - and the other
+                                ; four made the head's, for the box
 
 ; WA_FPIXI - SI = sub-column, DI = half-row: one sub-pixel into wa_fbuf,
 ; clipped (wa_fpix inline, for the clipped walk). Clobbers AX, BX, DX.
