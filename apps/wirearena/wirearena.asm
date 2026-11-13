@@ -455,11 +455,25 @@ wa_key:                         ; AL = scancode -> CF = 1 held
 ; once a frame: typed keys, mouse look, the trigger
 wa_frame_input:
 .drain:
+    mov bx, [wa_kqi]            ; what a tick took out of the BIOS buffer
+    cmp bx, [wa_kqn]            ; first (wa_keys), then the buffer
+    jb .queued
+    xor bx, bx
+    mov [wa_kqi], bx
+    mov [wa_kqn], bx
     mov ah, 1
     int 16h
     jz .typed
     xor ah, ah
     int 16h
+    call wa_kmark
+    jmp .got
+.queued:
+    mov ax, [wa_kq+bx]
+    inc bx
+    inc bx
+    mov [wa_kqi], bx
+.got:
     mov byte [wa_hold], 0       ; any typed key frees the meter
     cmp ah, KSC_ESC
     jne .tab
@@ -561,7 +575,13 @@ wa_frame_input:
 ; --- the 30 Hz tick -------------------------------------------------------
 ; The keys a tick reads, polled ONCE A FRAME (wa_keys): the ticks a frame
 ; runs are its catch-up, all due at the same instant, so they read one
-; poll - nine OSAPI_KEY_DOWN far calls a frame rather than nine a tick.
+; poll. And not every key every frame: an OSAPI_KEY_DOWN is ~550 clk, so
+; nine were ~1 ms of each frame. A key is asked about when it is WATCHED -
+; it read down at the last poll, or its keystroke reached the BIOS buffer
+; (wa_kmark: a press enqueues one at once, so a press is seen the frame it
+; lands, as before) - and every key on every fourth frame (WA_KSWEEP),
+; which catches a press the BIOS does not enqueue (Ctrl or Alt with an
+; arrow) within three frames. A release is seen the next frame, as before.
 WA_K_LEFT   equ 1
 WA_K_RIGHT  equ 2
 WA_K_UP     equ 4
@@ -574,28 +594,85 @@ WA_K_SPACE  equ 256
 wa_ktab:    db KSC_LEFT, KSC_RIGHT, KSC_UP, KSC_DOWN, 0x11, 0x1F, 0x1E, 0x20
             db KSC_SPACE
 WA_NKEYS    equ 9
+WA_KSWEEP   equ 4                ; every key, every this many frames
+WA_KQ       equ 16               ; typed keys a tick can hold for the frame
 
 ; wa_keys - the held keys into [wa_kbits] (WA_K_*). Keeps all but the flags.
+; The BIOS buffer is drained first, into wa_kq, which wa_frame_input reads
+; before the buffer - the same keystrokes in the same order, only taken out
+; earlier, so a press marks its key before the poll.
 wa_keys:
     push ax
     push bx
     push cx
+    push dx
     push si
+.q:
+    mov bx, [wa_kqn]
+    cmp bx, WA_KQ*2
+    jae .poll                   ; (full: the rest wait in the BIOS's)
+    mov ah, 1
+    int 16h
+    jz .poll
+    xor ah, ah
+    int 16h
+    mov [wa_kq+bx], ax
+    inc bx
+    inc bx
+    mov [wa_kqn], bx
+    call wa_kmark
+    jmp .q
+.poll:
+    mov dx, [wa_kwatch]
+    dec byte [wa_ksw]
+    jns .some
+    mov byte [wa_ksw], WA_KSWEEP-1
+    mov dx, (1 << WA_NKEYS) - 1 ; the sweep: all of them
+.some:
     mov si, wa_ktab
     xor bx, bx
     mov cx, WA_NKEYS
 .k:
     lodsb
+    shr dx, 1
+    jnc .up                     ; not watched: up (CF = 0)
     call OSAPI_KEY_DOWN         ; CF = 1 held
+.up:
     rcr bx, 1
     loop .k
     mov cl, 16 - WA_NKEYS
     shr bx, cl
     mov [wa_kbits], bx
+    mov [wa_kwatch], bx         ; the held ones stay watched
     pop si
+    pop dx
     pop cx
     pop bx
     pop ax
+    ret
+
+; wa_kmark - AH = a typed key's scancode: watch it if a tick reads it.
+; Keeps every register.
+wa_kmark:
+    push bx
+    push cx
+    push si
+    mov si, wa_ktab
+    mov cx, WA_NKEYS
+    mov bx, 1
+.m:
+    cmp ah, [si]
+    je .hit
+    inc si
+    shl bx, 1
+    loop .m
+    jmp .out
+.hit:
+    or [wa_kwatch], bx
+.out:
+    pop si
+    pop cx
+    pop bx
     ret
 
 wa_tick:
@@ -1563,6 +1640,11 @@ WA_VAR wa_rowo2,(WA_ROWS+1)*2
 WA_VAR wa_figs,F_SIZE*WA_NFIG
 WA_VAR wa_kbits,2                ; the held keys this frame (wa_keys)
 WA_VAR wa_kfr,1                  ; ...polled in this frame
+WA_VAR wa_kwatch,2               ; the keys to ask about (wa_keys)
+WA_VAR wa_ksw,1                  ; frames to the next sweep of them all
+WA_VAR wa_kqn,2                  ; wa_kq: typed keys a tick took, x 2,
+WA_VAR wa_kqi,2                  ;   and how far wa_frame_input has read
+WA_VAR wa_kq,WA_KQ*2
 WR_BSS
 WA_VAR wa_newp,2
 WA_VAR wa_oldp,2
