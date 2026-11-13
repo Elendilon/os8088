@@ -187,6 +187,8 @@ WA_VAR wa_nshb, 1               ; the shift wa_numb's product takes (3, or 1
                                 ; when it is / 4: wa_render)
 WA_VAR wa_fvn, 2                ; wa_fjl's narrow path below this fv8
 WA_VAR wa_fhr, 1                ; wa_femit: the row's top half-row
+WA_VAR wa_fthlo, 1              ; ...and the lowest wa_fthr between 0 and
+                                ; 0xFF (wa_fthrs)
 WA_VAR wa_fthr, WA_MAXW*2       ; heights: per column x 2, the first half-row
                                 ; of the figure a platform hides (wa_fthrs)
 WA_VAR wa_hflat, 1              ; 1: no box below the tallest (HEIGHTS-PLAN
@@ -2206,6 +2208,8 @@ wa_occl:
 ; its entries front to back while they are nearer (wa_cst). Keeps every
 ; register but CL.
 wa_occlow:
+    cmp byte [wa_cstn+bx], 0    ; (no entries: nothing to lower it - most
+    je .none                    ; columns)
     push ax
     push dx
     push si
@@ -2220,8 +2224,20 @@ wa_occlow:
     mov si, [wa_cst+di]
     mov dh, [wa_cst+di+1]       ; DH = the row it hides from
     and si, 0xFF                ; SI = its span's tag
-    mov ax, bx                  ; its inverse depth here, as wa_wallz
-    shl ax, 1                   ; makes it
+    mov ax, [wa_spih+si]        ; its inverse depth here lies between its
+    cmp ax, bp                  ; ends' (the entry is in one of its
+    jbe .lo                     ; columns), so the ends often settle it:
+    add ax, [wa_spsl+si]        ; both nearer...
+    cmp ax, bp
+    ja .near
+    jmp .exact
+.lo:
+    add ax, [wa_spsl+si]        ; ...or neither
+    cmp ax, bp
+    jbe .done
+.exact:
+    mov ax, bx                  ; else as wa_wallz makes it
+    shl ax, 1
     shl ax, 1
     shl ax, 1
     add ax, 8
@@ -2233,6 +2249,7 @@ wa_occlow:
     add ax, [wa_spih+si]
     cmp ax, bp
     jbe .done                   ; not nearer: nor is any after it
+.near:
     cmp dh, cl
     jae .next
     mov cl, dh
@@ -2246,6 +2263,7 @@ wa_occlow:
     pop si
     pop dx
     pop ax
+.none:
     ret
 
 ; wa_slope - AX = this column's edge, CX = the last column's (half-rows),
@@ -2945,7 +2963,11 @@ WA_FCUO equ wa_cur - wa_fbuf - 2
     mov [wa_fnr], ax            ; rows
 %%row:
 %if %1
+    mov al, [wa_fhr]            ; (above every partial verdict wa_fvis is
+    cmp al, [wa_fthlo]          ; wa_fthrs's own)
+    jb %%rv
     call wa_frowv
+%%rv:
 %endif
     mov di, bp
     add di, [wa_fbc]
@@ -3016,7 +3038,8 @@ wa_fthrs:
     push ax
     push bx
     push cx
-    mov bx, [wa_fbc]
+    mov byte [wa_fthlo], 0xFF   ; (the lowest partial verdict: wa_femith
+    mov bx, [wa_fbc]            ; asks wa_frowv nothing above it)
     mov cx, [wa_fbw]
 .c:
     xor al, al
@@ -3029,7 +3052,12 @@ wa_fthrs:
     mov al, cl
     pop cx
     or al, al
-    jnz .put
+    jz .gone
+    cmp al, [wa_fthlo]          ; (0xFF, nothing hidden, never lowers it)
+    jae .put
+    mov [wa_fthlo], al
+    jmp .put
+.gone:
     mov byte [wa_fvis+bx], 0
     dec dl
 .put:
