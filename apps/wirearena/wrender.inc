@@ -191,6 +191,8 @@ WA_VAR wa_fthr, WA_MAXW*2       ; heights: per column x 2, the first half-row
                                 ; of the figure a platform hides (wa_fthrs)
 WA_VAR wa_hflat, 1              ; 1: no box below the tallest (HEIGHTS-PLAN
 WA_VAR wa_hmax, 2               ; 7.2.5) - and the tallest, the room's too
+WA_VAR wa_keye, 2               ; the eye and kyq wa_numt and wa_numb were
+WA_VAR wa_kkyq, 2               ; made for (wa_render)
 ; THE COLUMN STATE OF HEIGHTS (docs/plans/WIREARENA-HEIGHTS-PLAN.md 1.2,
 ; 7.2.5), per column x 2: the topmost half-row covered so far, and a stack
 ; of the faces that raised it, front to back - entry k at wa_cst + k x
@@ -245,20 +247,19 @@ wa_render:
     sar ax, 1
     sar ax, 1
     mov [wa_hh], ax
-    mov ax, WA_HTOP
-    sub ax, [wa_eye]
     mov cx, [wa_kyq]            ; (the field of view's vertical scale)
-    imul cx                     ; (the top, 3 m less the eye: |90| x 230
-    mov [wa_numt], ax           ; at most, never past 16 bits)
-    mov byte [wa_nsht], 3
-    mov word [wa_ntht], WA_HTOP ; (a flat arena: every box and the room)
-    mov al, [wa_hyst]
-    cmp byte [wa_hflat], 0
-    jne .gen
-    mov word [wa_ntht], -1      ; (heights: per box, wa_hnt)
-    mov al, 1
-.gen:
-    mov [wa_gen], al
+    mov ax, [wa_eye]            ; THE EYE'S PRODUCTS, made again only when
+    cmp ax, [wa_keye]           ; the eye or the field of view moved
+    jne .pair                   ; (wa_geominit forgets them with the arena:
+    cmp cx, [wa_kkyq]           ; a heights arena's wa_hnt takes wa_numt)
+    je .paired
+.pair:
+    mov [wa_keye], ax
+    mov [wa_kkyq], cx
+    mov ax, WA_HTOP             ; a flat arena's top: every box and the room
+    sub ax, [wa_eye]            ; (3 m less the eye: |90| x 230 at most,
+    imul cx                     ; never past 16 bits)
+    mov [wa_numt], ax
     mov ax, [wa_eye]
     imul cx
     mov bx, dx                  ; THE BOTTOM, eye x kyq, as a (product,
@@ -276,6 +277,23 @@ wa_render:
 .nst:
     mov [wa_numb], ax
     mov [wa_nshb], bl
+.paired:
+    mov al, [wa_hyst]
+    cmp byte [wa_hflat], 0
+    jne .gen
+    mov word [wa_ntht], -1      ; (heights: the top per box, wa_hnt, and
+    mov di, wa_cclip            ; every span general; the column state,
+    mov ax, WA_HR               ; HEIGHTS-PLAN 7.2.5)
+    mov cx, [wa_w]
+    rep stosw
+    mov di, wa_cstn
+    xor ax, ax
+    mov cx, [wa_w]
+    rep stosw
+    mov [wl_ffr], al            ; (the outline path's floor pair: anew)
+    inc ax
+.gen:
+    mov [wa_gen], al
     mov ax, 128                 ; (eye at most 128 and hh 61: 128 x 127 +
     cmp word [wa_eye], 128      ; 61 x 256 + 255 is under 32512, so 128 -
     ja .fvd                     ; every frame of today's arenas, no divide)
@@ -302,18 +320,6 @@ wa_render:
     mov ax, 0xFFFF
     mov cx, [wa_w]
     rep stosw
-    cmp byte [wa_hflat], 0      ; (heights: the column state, HEIGHTS-PLAN
-    jne .flat                   ; 7.2.5)
-    mov di, wa_cclip
-    mov ax, WA_HR
-    mov cx, [wa_w]
-    rep stosw
-    mov di, wa_cstn
-    xor ax, ax
-    mov cx, [wa_w]
-    rep stosw
-    mov [wl_ffr], al            ; (the outline path's floor pair: anew)
-.flat:
     mov di, wa_cov
     xor ax, ax
     mov [wa_tag], ax
@@ -418,6 +424,7 @@ wa_geominit:
     jb .r
     mov word [wa_rx0], 1        ; an empty cell: the first frame orders the
     mov word [wa_rx1], 0        ; boxes (wa_order)
+    mov word [wa_keye], 0x8000  ; ...and makes the eye's products
     mov word [wa_nk], 0
     mov si, wa_xv
     mov di, wa_xk
@@ -708,7 +715,9 @@ wa_lret:    ret                 ; (the cone tests' short way out)
     mov si, ax
     add si, wa_boxes
     shr ax, 1
+%if %1
     mov di, ax                  ; (DI = box x 4: its record in wa_bxh)
+%endif
     add ax, wa_corn+4           ; (the room's row is first)
     mov [wa_crow], ax
 %if %1 == 0
@@ -1260,17 +1269,18 @@ wa_ptbih:                       ; (heights: the top at [wa_ntht]'s shift -
     mov cl, [wa_nsht]
     sar dx, cl
 wa_ptbib:
-    mov cx, [wa_hq]
-    sub cx, dx
-    push cx
-    mov ax, [wa_numb]
-    imul bx
-    mov cl, [wa_nshb]           ; (3, or 1 for a product / 4)
-    sar dx, cl
+    neg dx
     add dx, [wa_hq]
-    pop cx
-    xchg bx, cx                 ; BX = top, CX = iz
-    xchg cx, dx                 ; CX = bottom, DX = iz
+    xchg bx, dx                 ; BX = top, DX = iz
+    mov ax, [wa_numb]
+    xchg cx, dx                 ; CX = iz
+    imul cx
+    xchg cx, dx                 ; DX = iz, CX = the product's high word
+    xchg ax, cx
+    mov cl, [wa_nshb]           ; (3, or 1 for a product / 4)
+    sar ax, cl
+    add ax, [wa_hq]
+    xchg cx, ax                 ; CX = bottom
     ret
 
 ; --- spans --------------------------------------------------------------
@@ -1630,47 +1640,44 @@ wa_span:
 ; guard-band clip), and it is one MULTIPLY (two on a steep edge) where an
 ; IMUL and an IDIV were.
 .edge:
-    push ax                     ; t1
+    mov di, ax                  ; DI = t1
     sub bx, ax
-    mov ax, bx
+    xchg ax, bx
     cwd
-    push dx                     ; the change's sign
+    mov bp, dx                  ; BP = the change's sign (0 or -1)
     xor ax, dx
     sub ax, dx                  ; |change|
-    xor cx, cx                  ; CX = the step's whole part
+    xor si, si                  ; SI = the step's whole part
+    mov cx, [wa_dc]
+    cmp cx, 16                  ; whenever the SEGMENT spans more than a
+    jbe .e0                     ; column (not the trimmed count)
     xor dx, dx
-    cmp word [wa_dc], 16        ; whenever the SEGMENT spans more than a
-    ja .e1                      ; column (not the trimmed count)
-    xor ax, ax
-    jmp .e2
-.e1:
     shl ax, 1
     rcl dx, 1
     shl ax, 1
     rcl dx, 1                   ; DX:AX = |change| x 4
     or dx, dx
     jnz .ew
-    cmp ax, [wa_dc]
+    cmp ax, cx
     jb .ef
 .ew:
-    div word [wa_dc]
-    mov cx, ax
+    div cx
+    mov si, ax
     mov byte [wa_steep], 1
     xor ax, ax
     jmp .ed
 .ef:
     xchg ax, dx                 ; (under a half-row: the fraction alone)
 .ed:
-    div word [wa_dc]
-.e2:
-    mov bp, cx                  ; BP.SI = |step|
-    mov si, ax
-    mul word [wa_fs]            ; x off: DI:CX (and DX above it, steep)
+    div cx
+    mov bx, ax                  ; SI.BX = |step|
+    mul word [wa_fs]            ; x off: DX:AX (a steep step: and above)
+    or si, si
+    jz .e3
+    push di
     mov cx, ax
     mov di, dx
-    or bp, bp
-    jz .e3
-    mov ax, bp
+    mov ax, si
     mul word [wa_fs]
     add di, ax
     adc dx, 0
@@ -1686,42 +1693,48 @@ wa_span:
     shr dx, 1
     rcr di, 1
     rcr cx, 1
+    xchg ax, cx
+    mov dx, di
+    pop di
+    jmp .e4
+.e0:
+    xor bx, bx                  ; (no step: the start is t1's)
+    xor ax, ax
+    cwd
     jmp .e4
 .e3:
-    shr di, 1
-    rcr cx, 1
-    shr di, 1
-    rcr cx, 1
-    shr di, 1
-    rcr cx, 1
-    shr di, 1
-    rcr cx, 1
+    shr dx, 1
+    rcr ax, 1
+    shr dx, 1
+    rcr ax, 1
+    shr dx, 1
+    rcr ax, 1
+    shr dx, 1
+    rcr ax, 1
 .e4:
-    pop ax                      ; the sign onto both
-    or ax, ax
+    or bp, bp                   ; the sign onto both
     jz .e5
-    neg di
-    neg cx
-    sbb di, 0
-    neg bp
+    neg dx
+    neg ax
+    sbb dx, 0
     neg si
-    sbb bp, 0
+    neg bx
+    sbb si, 0
 .e5:
-    pop ax                      ; + t1 (x 16384) + a half
-    mov dx, ax
-    sar dx, 1
-    sar dx, 1
-    ror ax, 1
-    ror ax, 1
-    and ax, 0xC000
-    add ax, cx
-    adc dx, di
-    add ax, 0x8000
+    add ax, 0x8000              ; + a half + t1 (x 16384)
     adc dx, 0
-    mov cx, ax
+    mov cx, di
+    sar cx, 1
+    sar cx, 1
+    ror di, 1
+    ror di, 1
+    and di, 0xC000
+    add ax, di
+    adc dx, cx
+    mov cx, ax                  ; BX.CX = the start
+    mov ax, bx                  ; DX.AX = the step
     mov bx, dx
-    mov dx, bp
-    mov ax, si
+    mov dx, si
     ret
 
 ; --- the column loops ---------------------------------------------------------

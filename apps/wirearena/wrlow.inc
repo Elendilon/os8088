@@ -508,7 +508,8 @@ wl_proj:
 ; nothing and raises nothing, so it is CULLED before its edges are set up:
 ; neither edge's interpolation leaves the range of its two ends, and each
 ; is drawn, and raises, only above the clip (the steep fill too: wa_slope
-; stops at the clip). It registers no tag, the one thing it would have left.
+; stops at the clip); a shut column draws nothing either. It registers no
+; tag, the one thing it would have left.
 wl_draw:
     mov ax, [wl_kc+si]
     cmp ax, [wl_kc+di]
@@ -570,12 +571,15 @@ wl_draw:
 .scan:
     lodsw                       ; ...against each column's clip
     cmp ax, dx
-    jg .shows
+    jg .hit
+.snext:
     loop .scan
     pop si
 .none:
     ret                         ; (hidden throughout: nothing to do)
-.shows:
+.hit:
+    cmp word [si+wa_cov-wa_cclip-2], 0
+    jne .snext                  ; (a shut column shows nothing either)
     pop si
     mov ax, bx                  ; the first centre past the left end, x 16
     shl ax, 1
