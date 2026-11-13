@@ -131,6 +131,12 @@ make xt-isotron-herc # ...a Hercules XT: F takes 720x348 at 2x by 1.5
 make xt-isotron-ega # ...the 256KB IBM XT with a real EGA: F is a same-mode
               # bracket in 16 colours at 640x350
 make pmcbandbench # its band composer's benchmark, under QEMU -icount shift=3
+make bonanzadisk # Bounce Bonanza, an isometric rolling-ball game for the
+              # IBM 5150 on CGA and Hercules (SPEC.md 128): the package,
+              # its generated art, courses and music as parts, in all four
+              # geometries (bonanza.img, bonanza720/120/360.img). It is on
+              # no other disk; apps/bonanza/README.md. Its gates are the
+              # bonanza* soak rows (tests/bonanza_*.py)
 make c64disk  # build the C64 floppy - a Commodore 64: the package, its
               # overlay; the KERNAL/BASIC/CHARGEN ROM rides INSIDE the
               # package as an embedded part (SPEC.md 20.12)
