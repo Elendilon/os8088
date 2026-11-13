@@ -156,6 +156,11 @@ WA_VAR wa_xk, WA_MXV+1          ; per coordinate: the step from the one
 WA_VAR wa_yk, WA_MYV+1          ; before, as a slot x 8 (wa_products)
 WA_VAR wa_nk, 2                 ; the last slot used, x 8
 WA_VAR wa_sel, 6                ; the cone test's bounds bytes (wa_products)
+WA_VAR wa_lord, (WA_MBOX+1)*2  ; the leaves front to back (wa_order)...
+WA_VAR wa_rx0, 2                ; ...for a position in [rx0, rx1) x
+WA_VAR wa_rx1, 2                ; [ry0, ry1) - the pairs adjacent: wa_order
+WA_VAR wa_ry0, 2                ; reaches the high end at +2
+WA_VAR wa_ry1, 2
 WA_VAR wa_kv, (WA_MAXKS+1)*8    ; per slot: the step x 4...
 WA_VAR wa_mk, (WA_MAXKS+1)*8    ; ...and its products, cos and sin, 32 bits
 %endmacro
@@ -220,8 +225,32 @@ wa_render:
     mov [wa_left], cx
     rep stosw
     call wa_products
-    mov bx, [wa_root]
-    call wa_node
+    mov ax, [wa_px]             ; the boxes' order: the same from anywhere in
+    cmp ax, [wa_rx0]            ; the cell of the tree's split lines the
+    jl .order                   ; player stands in, so it is walked again
+    cmp ax, [wa_rx1]            ; only when one is crossed (wa_order)
+    jge .order
+    mov ax, [wa_py]
+    cmp ax, [wa_ry0]
+    jl .order
+    cmp ax, [wa_ry1]
+    jl .ordered
+.order:
+    call wa_order
+.ordered:
+    mov si, wa_lord             ; front to back, while any column is open
+.leaves:
+    cmp word [wa_left], 0
+    je .walked
+    lodsw
+    or ax, ax
+    jz .walked
+    push si
+    xchg ax, bx
+    call wa_leaf
+    pop si
+    jmp .leaves
+.walked:
     cmp word [wa_left], 0       ; the room, last: it encloses everything
     je .roomless
     mov word [wa_crow], wa_corn
@@ -264,6 +293,8 @@ wa_geominit:
     inc bx
     cmp bx, WA_ZMAX
     jb .r
+    mov word [wa_rx0], 1        ; an empty cell: the first frame orders the
+    mov word [wa_rx1], 0        ; boxes (wa_order)
     mov word [wa_nk], 0
     mov si, wa_xv
     mov di, wa_xk
@@ -392,39 +423,72 @@ wa_products:
     mov [wa_sel+5], al          ; ...and over y
     ret
 
-; wa_node - BX = a node of the box tree: front to back, while any column is
-; open. A leaf is one box.
-wa_node:
-    cmp word [wa_left], 0
-    je .out
+; wa_order - the box tree walked front to back from the player's position
+; into wa_lord (leaf nodes, 0 at the end), and the cell of the split lines
+; that position is in: [rx0, rx1) x [ry0, ry1). The order is a function of
+; the position alone - which side of each split line it is on - so a frame
+; whose position is still in the cell (turning, or moving inside it, which
+; is most frames of play) reuses the list, and a frame walks no inner node.
+wa_order:
+    mov ax, 32767
+    mov [wa_rx1], ax
+    mov [wa_ry1], ax
+    inc ax
+    mov [wa_rx0], ax
+    mov [wa_ry0], ax
+    mov di, wa_lord
+    mov bx, [wa_root]
+    call .n
+    xor ax, ax
+    stosw
+    ret
+.n:
     mov al, [bx]
     cmp al, 2
-    je .leaf
+    jne .split
+    mov ax, bx                  ; a leaf: onto the list
+    stosw
+    ret
+.split:
     mov si, [bx+4]              ; near = low, far = high...
-    mov di, [bx+6]
-    mov cx, [wa_px]
+    mov dx, [bx+6]
+    mov cx, [bx+2]
+    mov bp, wa_rx0
     or al, al
+    mov ax, [wa_px]
     jz .axis
-    mov cx, [wa_py]
+    mov bp, wa_ry0
+    mov ax, [wa_py]
 .axis:
-    cmp cx, [bx+2]
-    jl .order
-    xchg si, di                 ; ...or the other way about
-.order:
-    push di
+    cmp ax, cx
+    jl .low
+    xchg si, dx                 ; ...or the other way about
+    cmp cx, [ds:bp]             ; (the cell: from max(lo, v)...
+    jle .go
+    mov [ds:bp], cx
+    jmp .go
+.low:
+    cmp cx, [ds:bp+2]           ; ...to min(hi, v))
+    jge .go
+    mov [ds:bp+2], cx
+.go:
+    push dx
     mov bx, si
-    call wa_node
+    call .n
     pop bx
-    jmp wa_node                 ; (a tail call: the far side)
-.leaf:
+    jmp .n
+
+; wa_leaf - BX = a leaf of the box tree: its box, unless the view cone
+; drops it.
+wa_leaf:
     ; THE VIEW CONE: a box wholly right of x = z, left of x = -z or behind
     ; the near plane cannot reach the screen (90 degrees, the widest view).
     ; Each is a sum of the products' high words (wa_products) at the box's
     ; extreme corner (wa_sel); the margins cover the four truncated words,
     ; so a box is dropped only when the exact walk would have drawn none of
-    ; it. Only LEAVES are tested: an inner node's bounds are most of the
-    ; room, and over P's poses (and nearly all of B's) not one inner test
-    ; in the full arena dropped anything - 8 tests a frame for nothing.
+    ; it. Only BOXES are tested, not the tree's inner nodes: their bounds
+    ; are most of the room, and over P's poses (and nearly all of B's) not
+    ; one inner test in the full arena dropped anything.
     ; (Storing the per-coordinate sums with the products measured slower:
     ; most coordinates' are never read)
     mov si, wa_sel
