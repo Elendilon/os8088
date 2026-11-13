@@ -142,6 +142,14 @@ WA_VAR wa_ldx, 2
 WA_VAR wa_ldy, 2
 WA_VAR wa_lsx, 2
 WA_VAR wa_lsy, 2
+WA_VAR wa_fbw, 2                ; wa_figure's box: width in cells,
+WA_VAR wa_fbc, 2                ;   left column x 2, last row x 2
+WA_VAR wa_fbr, 2
+WA_VAR wa_frow, 2
+WA_VAR wa_fk, 2                 ; wa_fjl's narrow sums: Klo (fcx fs8 + 256 W),
+WA_VAR wa_fe, 2                 ;   eye fv8 + 256 hh + 255
+WA_VAR wa_fbuf, WA_CELLS*2      ; a figure's sub-pixels by cell offset (0
+                                ; between figures: wa_figure clears its own)
 WA_VAR wa_nwr, 2                ; video writes this frame
 WA_VAR wa_rcp, (WA_ZMAX-WA_NEAR)*2 ; 0x7FFF0 / z, z = NEAR.. (wa_ptbi)
 WA_VAR wa_xk, WA_MXV+1          ; per coordinate: the step from the one
@@ -1725,6 +1733,7 @@ wa_dots:
 
 ; --- figures ----------------------------------------------------------------
 wa_figures:
+    push bp
     mov di, wa_figs
     xor bx, bx
 .proj:
@@ -1791,9 +1800,37 @@ wa_figures:
     call wa_figure
     jmp .pick
 .done:
+    pop bp
     ret
 
-; wa_figure - DI = a figure, AX = its camera x, DX = its z
+; WA_LIMB a, b - a limb, joint a x 2 to joint b x 2, into wa_fbuf
+%macro WA_LIMB 2
+    mov cx, [wa_jsx+%1]
+    mov dx, [wa_jsy+%1]
+    mov ax, [wa_jsx+%2]
+    mov bx, [wa_jsy+%2]
+    call wa_fline
+%endmacro
+
+; wa_figure - DI = a figure, AX = its camera x, DX = its z. Clobbers every
+; register but DI.
+;
+; A near figure is drawn in three passes, each priced for the 8088:
+;  1. its eleven joints, blended and projected - the blend specialised per
+;     quarter (wa_fjl), the scale in a register;
+;  2. its nine limbs and head rasterised into wa_fbuf, a cell-mask scratch
+;     laid out like the screen, by a Bresenham whose state is its POSITION
+;     IN THE CODE (wa_fline: one block per sub-cell quadrant, so a sub-pixel
+;     is one `or byte [bx], imm` and a pointer step) - ~70 clk a sub-pixel
+;     against ~700 for the per-sub-pixel clip, depth test and plot it was;
+;  3. the box the joints span, swept with `repe scasw`: each cell the figure
+;     touched is cleared out of wa_fbuf, depth-tested ONCE against its
+;     column's wall (wa_wallz, on demand) and handed to wa_plotf once,
+;     however many of its four sub-pixels the limbs set.
+; wa_fbuf is all zeros between figures: pass 3 clears exactly what pass 2
+; set, because every sub-pixel pass 2 plots is on the screen and inside the
+; joints' box (a line stays inside its endpoints' box; the head's 2x2 reaches
+; one up and one right, which the box allows for).
 wa_figure:
     mov [wa_fcx], ax
     mov [di+F_PZ], dx
@@ -1829,8 +1866,8 @@ wa_figure:
     mov cl, 6
     shr ax, cl
     and ax, 15
-    mov cx, WA_NJ*2
-    mul cx
+    mov cl, WA_NJ*2
+    mul cl
     mov bx, ax                  ; BX = facing's offset in a frame
     mov ax, [di+F_PH]
     mov cl, al
@@ -1850,89 +1887,22 @@ wa_figure:
     mov cx, dx
     dec cx
 .nx:
-    push cx
-    mov cl, [di+F_ANIM]
-    xor ch, ch
-    add ax, cx
-    mov cx, WA_FRAMESZ
+    mov dl, [di+F_ANIM]
+    add ax, dx
+    add cx, dx
+    push di
+    mov dx, WA_FRAMESZ
+    mul dx
+    add ax, wa_pose
+    add ax, bx
+    mov si, ax                  ; SI = keyframe A at this facing
+    mov ax, WA_FRAMESZ
     mul cx
     add ax, wa_pose
     add ax, bx
-    mov [wa_pa], ax
-    pop ax
-    mov cl, [di+F_ANIM]
-    xor ch, ch
-    add ax, cx
-    mov cx, WA_FRAMESZ
-    mul cx
-    add ax, wa_pose
-    add ax, bx
-    mov [wa_pb], ax
-    push di
-    xor bx, bx                  ; joints
-.joint:
-    mov si, [wa_pa]
-    mov di, [wa_pb]
-    mov al, [si+bx]             ; lateral, blended
-    cbw
-    mov cx, ax
-    mov al, [di+bx]
-    cbw
-    call wa_blend
-    add ax, [wa_fcx]
-    imul word [wa_fs8]
-    mov al, ah
-    mov ah, dl
-    add ax, [wa_w]
-    mov [wa_jsx+bx], ax
-    mov al, [si+bx+1]           ; height, blended
-    cbw
-    mov cx, ax
-    mov al, [di+bx+1]
-    cbw
-    call wa_blend
-    sub ax, [wa_eye]
-    imul word [wa_fv8]
-    mov al, ah
-    mov ah, dl
-    neg ax
-    add ax, [wa_hh]
-    mov [wa_jsy+bx], ax
-    add bx, 2
-    cmp bx, WA_NJ*2
-    jb .joint
-    pop di
-    call wa_figcols             ; the walls' depth under the figure
-    mov si, wa_limbs
-.limb:
-    lodsw
-    cmp al, 0xFF
-    je .head
-    xor bx, bx
-    mov bl, al
-    mov cx, [wa_jsx+bx]
-    mov dx, [wa_jsy+bx]
-    mov bl, ah
-    mov ax, [wa_jsx+bx]
-    mov bx, [wa_jsy+bx]
-    push si
-    call wa_line
-    pop si
-    jmp .limb
-.head:
-    push di
-    mov si, [wa_jsx]
-    mov di, [wa_jsy]
-    call wa_fplot
-    cmp word [wa_fv8], 40       ; big enough for a 2x2 head
-    jb .rec
-    inc si
-    call wa_fplot
-    dec di
-    call wa_fplot
-    dec si
-    call wa_fplot
-.rec:
+    mov di, ax                  ; DI = keyframe B
+    jmp wa_fjl                  ; the joints (and back to wa_fjdone)
+wa_fjdone:                      ; (wa_fjl comes back here)
     pop di
     mov ax, [wa_jsx+4]          ; for the trigger: centre, extent, width
     mov [di+F_PCX], ax
@@ -1955,7 +1925,500 @@ wa_figure:
     inc ax
 .w:
     mov [di+F_PWH], ax
+    push di
+    WA_LIMB 2, 4                ; pass 2: the limbs into wa_fbuf (joint x 2
+    WA_LIMB 2, 6                ; at each end: neck-pelvis, the arms, the
+    WA_LIMB 6, 8                ; legs)
+    WA_LIMB 2, 10
+    WA_LIMB 10, 12
+    WA_LIMB 4, 14
+    WA_LIMB 14, 16
+    WA_LIMB 4, 18
+    WA_LIMB 18, 20
+    mov si, [wa_jsx]            ; the head
+    mov di, [wa_jsy]
+    call wa_fpix
+    cmp word [wa_fv8], 40       ; big enough for a 2x2 head
+    jb wa_femit
+    inc si
+    call wa_fpix
+    dec di
+    call wa_fpix
+    dec si
+    call wa_fpix
+; WA_MINMAX t - BX, DX = the least and the most of the eleven words at t
+; (unrolled for WA_NJ = 11, which tools/arenagen.py asserts)
+%macro WA_MINMAX 1
+    mov bx, [%1]
+    mov dx, bx
+  %assign %%j 2
+  %rep 10
+    mov ax, [%1+%%j]
+    cmp ax, bx
+    jge $+4                     ; (over the two-byte move)
+    mov bx, ax
+    cmp ax, dx
+    jle $+4
+    mov dx, ax
+    %assign %%j %%j+2
+  %endrep
+%endmacro
+wa_femit:                       ; pass 3: the joints' box, clipped
+    WA_MINMAX wa_jsx            ; BX = min, DX = max sub-column
+    inc dx                      ; (the 2x2 head reaches one further)
+    or bx, bx
+    jns .cl
+    xor bx, bx
+.cl:
+    mov ax, [wa_w2]
+    dec ax
+    cmp dx, ax
+    jle .cr
+    mov dx, ax
+.cr:
+    sar bx, 1                   ; columns
+    sar dx, 1
+    sub dx, bx
+    jl .out                     ; all off the screen
+    inc dx
+    mov [wa_fbw], dx            ; the box's width, cells
+    shl bx, 1
+    mov [wa_fbc], bx            ; ...and its left column x 2
+    WA_MINMAX wa_jsy
+    dec bx                      ; (and one higher)
+    jns .ct
+    xor bx, bx
+.ct:
+    cmp dx, WA_HR-1
+    jle .cb
+    mov dx, WA_HR-1
+.cb:
+    and bl, 0xFE                ; half-rows -> row x 2 (wa_rowo2's index)
+    and dl, 0xFE
+    cmp bx, dx
+    jg .out
+    mov [wa_fbr], dx            ; the last row x 2
+    mov [wa_frow], bx           ; ...and this one
+.row:
+    mov bp, [wa_rowo2+bx]
+    add bp, wa_fbuf+2           ; BP = the row's first cell in wa_fbuf, + 2
+    mov di, bp
+    add di, [wa_fbc]
+    dec di
+    dec di
+    mov cx, [wa_fbw]
+    xor ax, ax
+    repe scasw                  ; (only a cell's even byte is ever set)
+    je .nrow                    ; the rest of the row is clear
+.found:                         ; DI = the cell's offset in wa_fbuf, + 2
+    mov dl, [di-2]              ; DL = its sub-pixels, taken out of the
+    mov byte [di-2], 0          ; scratch
+    mov bx, di
+    sub bx, bp                  ; BX = its column x 2
+    cmp word [wa_colz+bx], 0xFFFF
+    jne .z
+    call wa_wallz
+.z:
+    mov ax, [wa_colz+bx]
+    cmp ax, [wa_fiz]
+    ja .hid                     ; the wall there is nearer
+    lea bx, [di-2-wa_fbuf]      ; BX = the cell
+    mov ah, [wa_fatt]
+    call wa_plotf
+.hid:
+    jcxz .nrow
+    xor ax, ax
+    repe scasw
+    jne .found
+.nrow:
+    mov bx, [wa_frow]
+    inc bx
+    inc bx
+    mov [wa_frow], bx
+    cmp bx, [wa_fbr]
+    jbe .row
+.out:
+    pop di
     ret
+
+; wa_fjl - wa_figure's joints: SI, DI = keyframes A and B at this facing.
+; Each is A + (B - A) x q / 4 (q = [wa_fsub], rounded down as wa_blend's
+; was; q = 3 is worked as B + (A - B) / 4, the same number), projected:
+; x = ((lateral + fcx) fs8 >> 8) + W, y = hh - ((height - eye) fv8 >> 8).
+; Eight loops, one per quarter and per multiply:
+; - NARROW (fs8 and fv8 under 128: past ~1.6 m at 40 columns, most of the
+;   time): 8-bit multiplies on sums regrouped so they stay in 16 bits -
+;   K = fcx fs8 + 256 W split as 256 Khi + Klo, so x = ((lateral fs8 + Klo)
+;   >> 8) + Khi; and E = eye fv8 + 256 hh + 255, so y = (E - height fv8)
+;   >> 8. The same numbers, so the same pixels;
+; - WIDE: the 16-bit multiplies, as before.
+; Returns to wa_fjdone. Clobbers AX, BX, CX, DX, BP.
+%macro WA_FBLEND 2              ; %1 = q, %2 = 0 lateral, 1 height
+  %if %1 == 3
+    mov al, [di+bx+%2]          ; (B + (A - B) / 4)
+  %else
+    mov al, [si+bx+%2]
+  %endif
+    cbw
+  %if %1
+    mov dx, ax
+    %if %1 == 3
+    mov al, [si+bx+%2]
+    %else
+    mov al, [di+bx+%2]
+    %endif
+    cbw
+    sub ax, dx
+    %if %1 != 2
+    sar ax, 1
+    %endif
+    sar ax, 1
+    add ax, dx
+  %endif
+%endmacro
+%macro WA_FJ 2                  ; %1 = q, %2 = 1 narrow
+.j%2%1:
+    WA_FBLEND %1, 0             ; lateral
+  %if %2
+    imul cl
+    add ax, [wa_fk]
+    mov al, ah
+    cbw
+    add ax, bp
+  %else
+    add ax, [wa_fcx]
+    imul word [wa_fs8]
+    mov al, ah
+    mov ah, dl
+    add ax, [wa_w]
+  %endif
+    mov [wa_jsx+bx], ax
+    WA_FBLEND %1, 1             ; height
+  %if %2
+    mul ch
+    neg ax
+    add ax, [wa_fe]
+    mov al, ah
+    cbw
+  %else
+    sub ax, [wa_eye]
+    imul word [wa_fv8]
+    mov al, ah
+    mov ah, dl
+    neg ax
+    add ax, [wa_hh]
+  %endif
+    mov [wa_jsy+bx], ax
+    inc bx
+    inc bx
+    cmp bx, WA_NJ*2
+    jb .j%2%1
+    jmp wa_fjdone
+%endmacro
+wa_fjl:
+    xor bx, bx
+    mov bl, [wa_fsub]
+    shl bx, 1
+    mov ax, [wa_fs8]
+    cmp ax, 128
+    jae .wide
+    mov dx, [wa_fv8]
+    cmp dx, 128
+    jae .wide
+    mov cl, al
+    mov ch, dl
+    imul word [wa_fcx]          ; K = fcx fs8 + 256 W...
+    mov bp, [wa_w]
+    xchg bp, ax
+    mov ah, al
+    mov al, 0
+    xchg bp, ax
+    add ax, bp
+    adc dx, 0
+    mov [wa_fk], al             ; ...Klo
+    mov byte [wa_fk+1], 0
+    mov al, ah
+    mov ah, dl
+    mov bp, ax                  ; ...and Khi
+    mov al, ch                  ; E = eye fv8 + 256 hh + 255 (mod 2^16: the
+    xor ah, ah                  ; difference it ends in fits)
+    mul word [wa_eye]
+    mov dh, [wa_hh]
+    mov dl, 255
+    add ax, dx
+    mov [wa_fe], ax
+    add bx, 8
+.wide:
+    mov bx, [.tab+bx]
+    xchg ax, bx
+    xor bx, bx                  ; (BX: the joint x 2)
+    jmp ax
+.tab:
+    dw .j00, .j01, .j02, .j03, .j10, .j11, .j12, .j13
+    WA_FJ 0, 0
+    WA_FJ 1, 0
+    WA_FJ 2, 0
+    WA_FJ 3, 0
+    WA_FJ 0, 1
+    WA_FJ 1, 1
+    WA_FJ 2, 1
+    WA_FJ 3, 1
+
+; WA_FPIXI - SI = sub-column, DI = half-row: one sub-pixel into wa_fbuf,
+; clipped (wa_fpix inline, for the clipped walk). Clobbers AX, BX, DX.
+%macro WA_FPIXI 0
+    cmp si, [wa_w2]
+    jae %%out
+    cmp di, WA_HR
+    jae %%out
+    mov bx, si
+    shr bx, 1                   ; CF = the column's half
+    mov bx, di
+    rcl bx, 1
+    and bx, 3                   ; BX = the quadrant
+    mov dl, [wa_qbit+bx]
+    mov bx, di
+    shl bx, 1
+    mov bx, [wa_hroff+bx]
+    mov ax, si
+    and al, 0xFE
+    add bx, ax
+    or [wa_fbuf+bx], dl
+%%out:
+%endmacro
+wa_qbit:    db 1, 2, 4, 8
+
+; wa_fpix - SI = sub-column, DI = half-row: one sub-pixel into wa_fbuf,
+; clipped to the view (the head). Keeps SI and DI; clobbers AX, BX, DX.
+wa_fpix:
+    WA_FPIXI
+    ret
+
+; wa_fline - (CX,DX) to (AX,BX), sub-pixels: a limb into wa_fbuf. Clobbers
+; AX, BX, CX, DX, SI, DI, BP.
+;
+; Drawn downward. On the FAST path - both ends' columns on the screen, the
+; top end inside it, and the bottom end too unless the line is steep - the
+; walk is a state machine: a block per quadrant of the cell the pen is in
+; (row parity r, column parity c), each plotting its own bit, so no sub-pixel
+; computes an address, a bit or a clip. A steep line running off the bottom
+; is cut by its count. Anything else (a limb off the side or the top, or
+; shallow and off the bottom: a figure at your shoulder) takes the slow walk,
+; which clips each sub-pixel (wa_fpix).
+wa_fline:
+    cmp bx, dx
+    jge .down
+    xchg ax, cx
+    xchg bx, dx
+.down:                          ; (CX,DX) the top end, (AX,BX) the bottom
+    mov si, [wa_w2]
+    cmp cx, si                  ; (unsigned: a negative one is huge)
+    jae .slow
+    cmp ax, si
+    jae .slow
+    cmp dx, WA_HR
+    jae .slow
+    cmp bx, WA_HR
+    jb .fast
+    mov si, ax                  ; the bottom end is off the screen: fast
+    sub si, cx                  ; only when steep, where the count cuts it
+    jns .ab
+    neg si
+.ab:
+    mov bp, bx
+    sub bp, dx
+    cmp si, bp
+    ja .slow
+.fast:
+    sub ax, cx                  ; AX = x1 - x0
+    sub bx, dx                  ; BX = y1 - y0, >= 0
+    mov bp, WA_HR-1
+    sub bp, dx                  ; BP = the most half-rows a steep one steps
+    mov di, dx
+    shl di, 1
+    mov di, [wa_hroff+di]
+    add di, wa_fbuf
+    and dx, 1                   ; DX = (r x 2 + c) x 2, the state's entry
+    shr cx, 1
+    rcl dx, 1
+    shl dx, 1
+    shl cx, 1
+    add di, cx                  ; DI = the start's cell in wa_fbuf
+    or ax, ax
+    jns .r
+    neg ax                      ; leftward: the second half of each table
+    add dx, 8
+.r:
+    mov si, dx
+    cmp ax, bx
+    jg .shallow
+    mov dx, [wa_fl_ytab+si]     ; steep: a sub-pixel every half-row
+    mov cx, bx
+    cmp cx, bp
+    jbe .yc
+    mov cx, bp                  ; (off the bottom: stop at the edge)
+.yc:
+    inc cx                      ; CX = sub-pixels
+    mov si, ax                  ; SI = the minor step...
+    mov bp, bx
+    shr bp, 1                   ; BP = the error, half the major...
+    xchg bx, di                 ; BX = the cell, DI = the major
+    mov ax, [wa_w2]             ; AX = a row's bytes (2W)
+    jmp dx
+.shallow:
+    mov dx, [wa_fl_xtab+si]     ; shallow: a sub-pixel every sub-column
+    mov cx, ax
+    inc cx
+    mov si, bx                  ; SI = the minor step (dy)
+    mov bp, ax
+    shr bp, 1
+    xchg ax, di                 ; DI = the major (dx), AX = the cell
+    xchg ax, bx                 ; BX = the cell
+    mov ax, [wa_w2]
+    jmp dx
+.slow:                          ; the same walk, each sub-pixel clipped
+    mov si, cx                  ; SI, DI = the pen
+    mov di, dx
+    sub ax, cx                  ; AX = |dx|, [wa_lsx] its sign
+    mov word [wa_lsx], 1
+    jns .sxp
+    neg ax
+    mov word [wa_lsx], -1
+.sxp:
+    sub bx, dx                  ; BX = dy, >= 0
+    cmp ax, bx
+    jg .sx
+    mov [wa_ldx], ax            ; steep: [wa_ldx] the minor, [wa_ldy] the
+    mov [wa_ldy], bx            ; major
+    mov cx, bx
+    inc cx
+    mov bp, bx
+    shr bp, 1
+.sy:
+    WA_FPIXI
+    dec cx
+    jz .ret
+    inc di
+    cmp di, WA_HR
+    jge .ret                    ; (below the view: nothing more to see)
+    sub bp, [wa_ldx]
+    jns .sy
+    add bp, [wa_ldy]
+    add si, [wa_lsx]
+    jmp .sy
+.sx:
+    mov [wa_ldx], ax            ; shallow: [wa_ldx] the major, [wa_ldy] the
+    mov [wa_ldy], bx            ; minor
+    mov cx, ax
+    inc cx
+    mov bp, ax
+    shr bp, 1
+.sxl:
+    WA_FPIXI
+    dec cx
+    jz .ret
+    add si, [wa_lsx]
+    sub bp, [wa_ldy]
+    jns .sxl
+    add bp, [wa_ldx]
+    inc di
+    cmp di, WA_HR
+    jl .sxl
+.ret:
+    ret
+
+; The fast walk's states. Registers: BX = the cell in wa_fbuf, CX =
+; sub-pixels left, BP = the error, SI = the minor step, DI = the major, AX =
+; a row's bytes. A block plots its quadrant's bit and moves the pen: a
+; half-row down from a bottom quadrant is the next row's top (BX += AX), a
+; sub-column right from a right quadrant is the next cell's left (BX += 2).
+%macro WA_FYS 5                 ; steep: %1 R/L, %2 r, %3 c, %4 the state
+wa_fy%1%2%3:                    ; after a sideways step too, %5 without
+    or byte [bx], 1 << (%3 + 2*%2)
+    dec cx
+    jz wa_fy%1ret
+    sub bp, si
+  %if %2 == 0
+    jns %5
+  %else
+    jns %%down
+  %endif
+    add bp, di
+  %ifidn %1, R
+    %if %3 == 1
+    inc bx
+    inc bx
+    %endif
+  %else
+    %if %3 == 0
+    dec bx
+    dec bx
+    %endif
+  %endif
+  %if %2 == 1
+    add bx, ax
+  %endif
+    jmp %4
+  %if %2 == 1
+%%down:
+    add bx, ax
+    jmp %5
+  %endif
+%endmacro
+%macro WA_FXS 5                 ; shallow: %4 the state after a step down
+wa_fx%1%2%3:                    ; too, %5 without
+    or byte [bx], 1 << (%3 + 2*%2)
+    dec cx
+    jz wa_fx%1ret
+  %ifidn %1, R
+    %if %3 == 1
+    inc bx
+    inc bx
+    %endif
+  %else
+    %if %3 == 0
+    dec bx
+    dec bx
+    %endif
+  %endif
+    sub bp, si
+    jns %5
+    add bp, di
+  %if %2 == 1
+    add bx, ax
+  %endif
+    jmp %4
+%endmacro
+wa_fyRret:
+    ret
+    WA_FYS R, 0, 0, wa_fyR11, wa_fyR10
+    WA_FYS R, 0, 1, wa_fyR10, wa_fyR11
+    WA_FYS R, 1, 0, wa_fyR01, wa_fyR00
+    WA_FYS R, 1, 1, wa_fyR00, wa_fyR01
+wa_fyLret:
+    ret
+    WA_FYS L, 0, 0, wa_fyL11, wa_fyL10
+    WA_FYS L, 0, 1, wa_fyL10, wa_fyL11
+    WA_FYS L, 1, 0, wa_fyL01, wa_fyL00
+    WA_FYS L, 1, 1, wa_fyL00, wa_fyL01
+wa_fxRret:
+    ret
+    WA_FXS R, 0, 0, wa_fxR11, wa_fxR01
+    WA_FXS R, 0, 1, wa_fxR10, wa_fxR00
+    WA_FXS R, 1, 0, wa_fxR01, wa_fxR11
+    WA_FXS R, 1, 1, wa_fxR00, wa_fxR10
+wa_fxLret:
+    ret
+    WA_FXS L, 0, 0, wa_fxL11, wa_fxL01
+    WA_FXS L, 0, 1, wa_fxL10, wa_fxL00
+    WA_FXS L, 1, 0, wa_fxL01, wa_fxL11
+    WA_FXS L, 1, 1, wa_fxL00, wa_fxL10
+wa_fl_ytab:                     ; by (r x 2 + c) x 2, leftward + 8
+    dw wa_fyR00, wa_fyR01, wa_fyR10, wa_fyR11
+    dw wa_fyL00, wa_fyL01, wa_fyL10, wa_fyL11
+wa_fl_xtab:
+    dw wa_fxR00, wa_fxR01, wa_fxR10, wa_fxR11
+    dw wa_fxL00, wa_fxL01, wa_fxL10, wa_fxL11
 
 ; wa_marker - DI = a figure too far for limbs: a one-sub-column bar from
 ; head to feet, its attribute already chosen. The trigger's extents too.
@@ -1999,30 +2462,6 @@ wa_marker:
     pop di
     ret
 
-; wa_figcols - the columns the figure's joints span (sub-columns / 2,
-; clamped to the screen): their wall depth, before any limb is plotted
-wa_figcols:
-    push di
-    mov si, wa_jsx
-    mov cx, WA_NJ
-    mov bx, 0x7FFF              ; BX = min, DX = max sub-column
-    mov dx, 0x8000
-.mm:
-    lodsw
-    cmp ax, bx
-    jge .a
-    mov bx, ax
-.a:
-    cmp ax, dx
-    jle .b
-    mov dx, ax
-.b:
-    loop .mm
-    inc dx                      ; (the 2x2 head reaches one further)
-    call wa_colsz
-    pop di
-    ret
-
 ; wa_colsz - BX..DX = sub-columns: wall depth for their columns
 wa_colsz:
     sar bx, 1
@@ -2050,112 +2489,6 @@ wa_colsz:
 .out:
     ret
 
-; the limbs, as byte offsets into wa_jsx/wa_jsy (joint x 2)
-wa_limbs:
-    db 2, 4,  2, 6,  6, 8,  2, 10,  10, 12
-    db 4, 14,  14, 16,  4, 18,  18, 20
-    db 0xFF, 0xFF
-
-; wa_blend - CX = keyframe A's value, AX = B's -> AX = A + (B - A) sub / 4
-wa_blend:
-    sub ax, cx
-    push dx
-    xor dx, dx
-    test byte [wa_fsub], 1
-    jz .two
-    add dx, ax
-.two:
-    test byte [wa_fsub], 2
-    jz .sum
-    add dx, ax
-    add dx, ax
-.sum:
-    sar dx, 1
-    sar dx, 1
-    mov ax, dx
-    add ax, cx
-    pop dx
-    ret
-
-; FPLOT - SI = sub-column, DI = half-row: one figure sub-pixel, inline (the
-; call, four pushes and four pops it used to be were most of a limb's cost).
-; Clobbers AX, BX, CX, DX.
-%macro FPLOT 0
-    cmp si, [wa_w2]             ; unsigned: a negative x is huge
-    jae %%out
-    cmp di, WA_HR
-    jae %%out
-    mov ax, si
-    and ax, 0xFFFE              ; the column x 2
-    mov bx, ax
-    mov cx, [wa_fiz]
-    cmp [wa_colz+bx], cx
-    ja %%out                    ; the wall is nearer
-    mov bx, di
-    shl bx, 1
-    add ax, [wa_hroff+bx]
-    mov bx, ax                  ; BX = cell offset
-    mov cx, si
-    and cl, 1
-    mov ax, di
-    and al, 1
-    shl al, 1
-    or cl, al                   ; CL = the quadrant
-    mov dl, 1
-    shl dl, cl
-    mov ah, [wa_fatt]
-    call wa_plotf
-%%out:
-%endmacro
-
-; wa_line - (CX,DX) to (AX,BX), sub-pixels: Bresenham, FPLOT inline
-wa_line:
-    push bp
-    push di
-    mov [wa_lx1], ax
-    mov [wa_ly1], bx
-    mov si, cx
-    mov di, dx
-    sub ax, cx                  ; dx = |x1 - x0|, sx
-    mov word [wa_lsx], 1
-    jns .xp
-    neg ax
-    mov word [wa_lsx], -1
-.xp:
-    mov [wa_ldx], ax
-    sub bx, dx                  ; dy = -|y1 - y0|, sy
-    mov word [wa_lsy], 1
-    jns .yp
-    neg bx
-    mov word [wa_lsy], -1
-.yp:
-    neg bx
-    mov [wa_ldy], bx
-    mov bp, ax
-    add bp, bx                  ; err
-.step:
-    FPLOT
-    cmp si, [wa_lx1]
-    jne .go
-    cmp di, [wa_ly1]
-    je .out
-.go:
-    mov ax, bp
-    shl ax, 1
-    cmp ax, [wa_ldy]
-    jl .y
-    add bp, [wa_ldy]
-    add si, [wa_lsx]
-.y:
-    cmp ax, [wa_ldx]
-    jg .step
-    add bp, [wa_ldx]
-    add di, [wa_lsy]
-    jmp .step
-.out:
-    pop di
-    pop bp
-    ret
 
 ; wa_fplot - SI = sub-column, DI = half-row: one figure sub-pixel, clipped
 ; to the view and depth-tested against its column's wall. Keeps every
