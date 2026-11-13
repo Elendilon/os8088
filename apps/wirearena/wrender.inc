@@ -563,8 +563,8 @@ wa_face:
     call wa_vert
     mov cl, 4                   ; THE PRE-CHECK: the columns it could reach,
     xor bh, bh                  ; from the columns (a vertex in view is its
-    mov bl, [wa_fv+1]           ; own, one beside the view is that edge, one
-    call .reach                 ; behind is anywhere)
+    mov bl, [wa_fv+1]           ; own, one beside the view is beyond that
+    call .reach                 ; edge, one behind is anywhere)
     mov dx, ax
     mov bl, [wa_fv]
     call .reach
@@ -572,8 +572,21 @@ wa_face:
     jle .lohi
     xchg ax, dx
 .lohi:
-    or ax, ax                   ; (-1: behind - anywhere)
-    js .open
+    cmp ax, 0x8000              ; (behind: anywhere)
+    je .open
+    or dx, dx                   ; wholly left of the screen, or right: off
+    js .shut                    ; it, whatever is open
+    cmp ax, [wa_w]
+    jge .shut
+    or ax, ax
+    jns .lo
+    xor ax, ax
+.lo:
+    cmp dx, [wa_w]
+    jl .hi
+    mov dx, [wa_w]
+    dec dx
+.hi:
     mov cx, dx
     sub cx, ax
     inc cx
@@ -583,6 +596,7 @@ wa_face:
     xor ax, ax
     repne scasw
     je .open                    ; an open column: carry on
+.shut:
     ret                         ; every one closed: nothing more
 .open:
     mov bl, [wa_fv]
@@ -659,30 +673,21 @@ wa_face:
     mov ax, [wa_vpi+si]
     stosw
     ret
-.reach:                         ; BX = vertex x 2, CL = 4 -> AX = a column,
-    test byte [wa_vok+bx], 1    ; or -1
-    jz .rout
+.reach:                         ; BX = vertex x 2, CL = 4 -> AX = its column
+    test byte [wa_vok+bx], 1    ; (on the screen or off it), -32767 or 32767
+    jz .rout                    ; beside the view, 0x8000 behind it
     mov ax, [wa_vpc+bx]
     sar ax, cl
-    jns .rpos
-    xor ax, ax
-    ret
-.rpos:
-    cmp ax, [wa_w]
-    jl .rret
-    mov ax, [wa_w]
-    dec ax
-.rret:
     ret
 .rout:
-    mov ax, -1
+    mov ax, 0x8000
     cmp word [wa_vz+bx], WA_NEAR
     jl .rret                    ; behind: anywhere
-    xor ax, ax
+    mov ax, -32767
     cmp word [wa_vx+bx], 0
     jl .rret                    ; beside the view, left
-    mov ax, [wa_w]
-    dec ax                      ; ...or right
+    mov ax, 32767               ; ...or right
+.rret:
     ret
 
 ; wa_vert - BX = a vertex x 2: into camera space and, inside the view (the
