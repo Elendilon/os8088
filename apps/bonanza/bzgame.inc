@@ -79,12 +79,14 @@
 ;   bz_wcom .. bz_wtmin words, wave 3's (SPEC.md 128.12.5.6): commits, overruns,
 ;                      lanes late, LEADs, skipped wheels, contact groups,
 ;                      platform boxes, deferred contact lanes, heavy frames, rows
-;                      and columns withheld, edge releases, the trim's lowest
+;                      and columns withheld, edge releases, the trim's lowest;
+;                      bz_npwt word, wave 3b's: the platform's box WAITED a
+;                      frame (SPEC.md 128.13.4.3; bz_ndef counts it too)
 ;   bz_res      byte   1 = the bz_r* copy below holds a finished benchmark
 ;   bz_rframes, bz_rmfr, bz_rncol, bz_rnrow, bz_rnfull, bz_rmiss, bz_rfmax,
 ;                      bz_racc, bz_rlate, bz_rnocf, bz_rnlay, bz_rn2bx, bz_rn3bx,
-;                      bz_rnshd, bz_rwcom .. bz_rwtmin: that copy, the same
-;                      layout as bz_frames .. bz_wtmin
+;                      bz_rnshd, bz_rwcom .. bz_rnpwt: that copy, the same
+;                      layout as bz_frames .. bz_npwt
 ;   bz_nbox     word   this frame's boxes (0 - 4), bz_boxes the descriptors (BZ_BOXD
 ;                      bytes each, bzvideo.inc), SORTED by first line
 ;   bz_csp      4 words the entering column's split rows: before box i, the
@@ -164,7 +166,7 @@ BZ_K_L      equ 1               ; bz_keys: the arrows held
 BZ_K_R      equ 2
 BZ_K_U      equ 4
 BZ_K_D      equ 8
-BZ_LIVE     equ 82              ; bytes of bz_frames .. bz_wtmin (the results copy)
+BZ_LIVE     equ 84              ; bytes of bz_frames .. bz_npwt (the results copy)
 BZ_SPR_SQ   equ 64              ; bz_spr: squash k is 64 + k ...
 BZ_SPR_SHA  equ 68              ; ...and shatter k 68 + k (roll frames 0 - 63)
 
@@ -268,6 +270,7 @@ VAR bz_nwr,2                    ; ...the rows they withheld
 VAR bz_nwc,2                    ; ...and the columns
 VAR bz_nhedge,2                 ; ...heavy frames whose edge clause released an axis
 VAR bz_wtmin,2                  ; the trim's lowest (100 when it never fell)
+VAR bz_npwt,2                   ; wave 3b: the platform's box WAITED (128.13.4.3)
 VAR bz_rframes,2
 VAR bz_rmfr,2
 VAR bz_rncol,2
@@ -295,6 +298,7 @@ VAR bz_rnwr,2
 VAR bz_rnwc,2
 VAR bz_rnhedge,2
 VAR bz_rwtmin,2
+VAR bz_rnpwt,2
 VAR bz_tos,2
 ; the clock
 VAR bz_subs,2
@@ -382,7 +386,7 @@ VAR bz_boxbuf,4 * BZ_BOXB          ; four box buffers (SPEC.md 128.11.10.1),
                                 ; whose first 512 bytes hold BZ_HTAB at a
                                 ; Hercules launch, before the bracket (128.11.3)
 BZ_WHEEL_VARS                   ; wave 3's lanes and wheel (bzwheel.inc)
-%if bz_rframes - bz_frames != BZ_LIVE || bz_wtmin + 2 != bz_rframes || bz_sox0 != bz_ofx0 + 8 || bz_snx0 != bz_nfx0 + 8 || bz_nfx0 != bz_sox0 + 8
+%if bz_rframes - bz_frames != BZ_LIVE || bz_npwt + 2 != bz_rframes || bz_sox0 != bz_ofx0 + 8 || bz_snx0 != bz_nfx0 + 8 || bz_nfx0 != bz_sox0 + 8
  %error "bz_play copies the instruments and the footprints as blocks: their layout moved"
 %endif
 %endmacro
@@ -2051,15 +2055,25 @@ bz_mkboxes:
     ; THE CONTACT GROUP (SPEC.md 128.12.4.3): bz_props's lane or slab, merged
     ; into the ball's group when that is one rect and their union fits, else
     ; a rect of its own - and when that would be a FIFTH, the shadow's new
-    ; footprint is left out and its old one restored, as on an OCC frame
+    ; footprint is left out and its old one restored, as on an OCC frame.
+    ; The PLATFORM's box (bz_ctype 2) fits when the union is BZ_BOXW x
+    ; BZ_BOXL: THE RIDE BOX, one compose and one write of the slab and the
+    ; ball it carries (128.13.4.1); a lane's and a strip's, BZ_BOXH
     mov word [bz_cgr], 0
-    cmp byte [bz_ctype], 0
+    mov al, [bz_ctype]
+    or al, al
     je .eall
     cmp dx, bz_gr + 8
     jne .cadd
     mov si, bz_gr
     mov bx, bz_crect
+    cmp al, 2
+    jne .cun
+    call bz_unionl
+    jmp short .cu2
+.cun:
     call bz_union
+.cu2:
     jc .cadd
     push di
     mov di, bz_gr
@@ -2078,9 +2092,11 @@ bz_mkboxes:
     call bz_rput
 .ct2:
     ; THE LIFT'S BOX BESIDE A LIGHTING POST (bz_pflag bit 2, SPEC.md
-    ; 128.12.5.2): merged into the ball's group or the post's when the union
-    ; fits, else a rect of its own when there is room - else the post WAITS a
-    ; frame (bz_pyield: its map words back) and the box is the contact group
+    ; 128.12.5.2): merged into the ball's group (up to BZ_BOXL lines, the
+    ; ride box's limit) or the post's (BZ_BOXH) when the union fits, else a
+    ; rect of its own when there is room - else the post WAITS a frame
+    ; (bz_pyield: its map words back) and the box is the contact group (on a
+    ; crowded frame bz_props made the BOX wait instead when it could, 128.13.4.3)
     mov word [bz_cgr2], 0
     test byte [bz_pflag], 4
     jz .eall
@@ -2088,7 +2104,7 @@ bz_mkboxes:
     mov si, bz_gr
     cmp dx, bz_gr + 8
     jne .ct2b
-    call bz_union
+    call bz_unionl              ; (the ride box's limit, as above)
     jnc .ct2m
 .ct2b:
     mov si, [bz_cgr]
@@ -2207,7 +2223,28 @@ bz_mkboxes:
     ret
 
 ; bz_union - the union of the rects at SI and BX into bz_ur: CF = 1 when it
-; does not fit one box (BZ_BOXW words x BZ_BOXH lines).  Clobbers AX.
+; does not fit one box (BZ_BOXW words x BZ_BOXH lines).  bz_unionl - the same
+; held to BZ_BOXL lines: the PLATFORM's contact group with the ball's (the
+; RIDE BOX, SPEC.md 128.13.4.1) - bz_union's, and when that refuses a union
+; that is narrow enough, its height asked again against BZ_BOXL (the width
+; refused first, so the lines are in bz_ur whenever it gets that far): the
+; common caller pays no limit register (128.13.4.5).  Clobbers AX.
+bz_unionl:
+    call bz_union
+    jnc .x
+    mov ax, [bz_ur + 2]
+    sub ax, [bz_ur]
+    cmp ax, BZ_BOXW - 1
+    ja .no
+    mov ax, [bz_ur + 6]
+    sub ax, [bz_ur + 4]
+    cmp ax, BZ_BOXL             ; CF = it fits ...
+    cmc                         ; ...turned round
+.x:
+    ret
+.no:
+    stc
+    ret
 bz_union:
     mov ax, [si]
     cmp ax, [bx]
@@ -2237,7 +2274,7 @@ bz_union:
 .y1:
     mov [bz_ur + 6], ax
     sub ax, [bz_ur + 4]
-    cmp ax, BZ_BOXH             ; CF = it fits (h - 1 < BZ_BOXH) ...
+    cmp ax, BZ_BOXH             ; CF = it fits (h - 1 < the limit) ...
     cmc                         ; ...turned round
     ret
 .no:

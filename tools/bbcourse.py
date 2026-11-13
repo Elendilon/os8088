@@ -242,8 +242,11 @@ WIN_LANES = 6                 # lanes meeting any window (SPEC.md 128.12.4.6)
 RANGE_LANES = 8               # lanes in the walk's range
 ROTOR_CHG = 2                 # rotor pose changes on a step, and in two consecutive
 HEDGE = 16                    # BZ_HEDGE: the heavy rule's edge zone, lines (and 24 px)
-WLAG = 8                      # BZ_WLAG: frames due and shown before a lane is late, and
-                              # before a waiting contact candidate takes the slot anyway
+WLAG = 8                      # BZ_WLAG: frames due and shown before a lane is late
+WPRO = 3                      # BZ_WPRO: frames a WHEEL candidate is due before it is PROMOTED
+                              # to the contact slot on a frame that allows a contact lane, and
+WPRF = 5                      # BZ_WPRF on any frame - and a waiting contact candidate takes
+                              # the slot anyway (SPEC.md 128.12.18, 128.13.9)
 
 
 class CourseError(Exception):
@@ -2522,6 +2525,17 @@ def rotor_changes(recs, P=256):
     return max(ch), max(ch[n] + ch[(n + 1) % P] for n in range(P))
 
 
+def ring_cross(r0, r1, x0, x1, herc):
+    """SPEC.md 128.13.5.1-2: does a column of the card rectangle (rows [r0, r1),
+    words [x0, x1)) cross the ring's 8KB end - bz_wprect's test, a column's last
+    row's offset ((rb r + 2 x) mod 8K, absolute) at 2000h or past, made as
+    bz_lwrp makes it for the LAST column"""
+    rb = 90 if herc else 80
+    if r1 - r0 < 2 or x1 <= x0:
+        return False
+    return ((rb * r0 + 2 * x0) & 0x1FFF) + (r1 - r0 - 1) * rb + 2 * (x1 - x0) >= 0x2000 + 2
+
+
 def check_bounds(c):
     """SPEC.md 128.12.4.6's bounds over every window position on both cards,
     and the start window's calibration corner.  -> a dict for the report"""
@@ -2576,6 +2590,8 @@ def check_bounds(c):
             rx = (8 * bc, 8 * br, 8 * (bc + 4), 8 * (br + 3))
             if any(_meet(L, *rx) for L in lanes) or any(_meet(S, *rx) for S in slabs) or _meet(foot, *rx):
                 continue
+            if ring_cross((8 * br) >> lsh, (8 * (br + 3)) >> lsh, bc, bc + 4, herc):
+                continue                    # its columns cross the ring's end (bz_lwrp, 128.13.5.2)
             corner = (name, bc, br)
             break
         if corner is None:
@@ -3876,27 +3892,45 @@ class Glide:
 
 
 class Heavy:
-    """bz_props's bz_heavy, the host model's (SPEC.md 128.12.7): from what is
-    known before the camera - the ball after the frame's steps, its old and
-    new footprints, the contact choice and the window as it stands - level 2
-    (a contact group: a contact lane, a must-draw rotor, the platform's box
-    for a change of its line), level 1 (the occluder pass, the ball's group
-    two boxes, the slab near the window's edge) or 0; and the edge clause,
-    per axis.  The display it models: every due lane the wheel can take is
-    drawn by the frame's end (a wheel that never runs late), a deferred
-    contact lane waits.  The contact choice is bz_props's: a must-draw rotor
-    (of two, the IN cell nearer the window's centre), else a post lighting
-    (with the platform's box beside it when that is due too), else the
-    platform's box, else the contact candidate due longest - on a frame that
-    allows one, or once it has waited WLAG frames."""
+    """bz_props's bz_heavy and its contact choice, the host model's (SPEC.md
+    128.12.7, 128.13.6, 128.13.9): from what is known before the camera - the
+    ball after the frame's steps, its old and new footprints, the lanes'
+    true and drawn poses and the window as it stands - level 2 (the frame
+    draws a contact group), level 1 (no group, and the slab shown near the
+    window's edge on the ball's side: the clause alone, 128.13.6) or 0; and
+    the edge clause, per axis.
 
-    def __init__(self, phys):
+    The choice is bz_props's: a must-draw rotor (of two, the IN cell nearer
+    the window's centre); else the platform's box when its drawn line changes
+    while shown - which WAITS one frame (its drawn line holds; never two
+    running, never while the lift carries the ball, never LEAVING: its drawn
+    footprint shown and its true one not, 128.13.4.3) on a CROWDED frame (the
+    ball's and the shadow's footprints, old and new, not one BZ_BOXW x
+    BZ_BOXH box: bz_bsone), and for a PROMOTED wheel lane on another frame
+    with no post lighting; with a post lighting the post is the group and the
+    box a second rect (the model takes the frame to have room for it); else a
+    post lighting; else the contact candidate due longest - on a frame that
+    allows a contact lane (bz_conok: no occluder pass, the ball outside the
+    edge zone, not crowded) or once it has been due WPRF frames; else the
+    WHEEL candidate due longest once it has been due WPRO frames on such a
+    frame, or WPRF on any (bz_wpro: PROMOTED).  A lane the group draws is
+    drawn and its age 0 (bz_csync).  The wheel: every other wheel candidate
+    is drawn by the frame's end - or, with WCAP, the first WCAP of them in
+    raster order and the rest stay due and age (a wheel that runs out of
+    room, which is when the promotion fires) - and a deferred contact lane
+    waits."""
+
+    def __init__(self, phys, wcap=None):
         self.p = phys
+        self.wcap = wcap                        # None: the wheel takes every candidate
         self.drawn = {}
         self.pline = {}
         self.old = None                         # the last frame's footprint (x4, py)
         self.oshadow = None
         self.ncon = self.ndef = self.nmust = self.npbx = 0
+        self.npwt = 0                           # the platform's box waited (bz_npwt)
+        self.npro = 0                           # a wheel lane PROMOTED to the contact group
+        self.pylp = False                       # ...last frame (never two running)
         self.levels = [0, 0, 0]
         self.hold = {}                          # a post's lit frames left ON THE GLASS (bz_lhold)
         self.seen = {}                          # the kick it last saw (bz_lkick)
@@ -3912,6 +3946,11 @@ class Heavy:
             self.hold[i] = PLITF
         return 1 if self.hold.get(i, 0) else 0
 
+    def _draw(self, r, n_last):
+        """the contact group draws lane R: drawn = true, its age 0 (bz_csync)"""
+        self.drawn[r["i"]] = self._true(r, n_last)
+        self.age[r["i"]] = 0
+
     def frame(self, g):
         p = self.p
         W, rl = g.W, g.rl
@@ -3921,25 +3960,27 @@ class Heavy:
         new = None if p.tube else ((p.px & ~3), p.py)
         sh = shadow(p) if not p.tube else None
         news = ((sh[1] & ~3), sh[0]) if sh else None
-        foots = [f for f in (self.old, new) if f] + [f for f in (self.oshadow, news) if f]
         rect = lambda f, h: (f[0], f[1], f[0] + FOOT_W, f[1] + h)
         frects = [rect(f, FOOT_H) for f in (self.old, new) if f] + [rect(f, 6) for f in (self.oshadow, news) if f]
         cl = p.cell(p.gx >> 12, p.gy >> 12)
         passon = bool(new) and bool(cl[4] & (FL_OCC if p.air else FL_OCCG))
-        two = False
-        if new and self.old:
-            ux0, ux1 = min(new[0], self.old[0]) >> 3, (max(new[0], self.old[0]) + FOOT_W - 1) >> 3
-            uy0, uy1 = min(new[1], self.old[1]), max(new[1], self.old[1]) + FOOT_H - 1
-            two = ux1 - ux0 > 3 or uy1 - uy0 >= 24
+        crowded = False                         # bz_bsone: the ball's and the shadow's groups two boxes
+        if frects and not p.tube:
+            crowded = (max(r[2] for r in frects) - 1 >> 3) - (min(r[0] for r in frects) >> 3) > 3 or \
+                max(r[3] for r in frects) - min(r[1] for r in frects) > 24
         edge_r = bool(new) and (new[1] < ya + HEDGE or new[1] + FOOT_H > yb - HEDGE)
         edge_c = bool(new) and (new[0] < xa + 24 or new[0] + FOOT_W > xb - 24)
+        conok = bool(p.tube) or not (passon or edge_r or edge_c or crowded)     # bz_conok
         shown = lambda r4: r4[0] < xb and xa < r4[2] and r4[1] < yb and ya < r4[3]
-        contact = cands = None
+        contact = None
         must = []
         mustp = []
         cands = []
+        wheel = []
         slabbox = False
         slabnear = False
+        slableave = False
+        plat = None
         # the ball's side of the window (bz_pnear: GLIDE pans toward it)
         up = bool(new) and 2 * new[1] + FOOT_H < 2 * ya + WIN_LINES
         left = bool(new) and 2 * new[0] + FOOT_W < xa + xb
@@ -3952,10 +3993,11 @@ class Heavy:
                 if shown(r4) or shown((x_l, yd, x_l + PL_W, yd + PL_H)):
                     if yd != y_t:               # its drawn or its true footprint shown
                         slabbox = True
+                        slableave = not shown(r4)
                     if ((up and y_t < ya + 2 * rl) or (not up and y_t + PL_H > yb - 2 * rl)
                             or (left and x_l < xa + 8) or (not left and x_l + PL_W > xb - 8)):
                         slabnear = True
-                self.pline[r["i"]] = y_t
+                plat = (r["i"], y_t)            # (its drawn line: after the choice, which may wait)
                 continue
             if not L:
                 continue
@@ -3970,48 +4012,85 @@ class Heavy:
             if tq == dq:
                 self.age[r["i"]] = 0
                 continue
-            self.age[r["i"]] = min(255, self.age.get(r["i"], 0) + 1) if shown(r4) else 0
+            if not shown(r4):                   # wholly outside: its map now, in RAM
+                self.drawn[r["i"]] = tq
+                self.age[r["i"]] = 0
+                continue
+            self.age[r["i"]] = min(255, self.age.get(r["i"], 0) + 1)
             if r["kind"] == PK_WINDMILL:
                 cell = [c for c, pi in p.wol if pi == r["i"]]
                 c0, c1 = r["closed"][0] >> r["shift"], r["closed"][1] >> r["shift"]
                 if cell and (c0 <= tq < c1) != (c0 <= dq < c1):
                     must.append((0 if cell[0] == 4 else 1 if cell[0] & 1 else 2, len(must), r))
                     continue
-            if r["kind"] == PK_BUMPER and tq == 1 and dq == 0 and shown(r4):
+            if r["kind"] == PK_BUMPER and tq == 1 and dq == 0:
                 mustp.append(r)                 # a post LIGHTING is must-draw (the owner's preview)
                 continue
             if any(_meet(r4, *f) for f in frects):
                 cands.append(r)
-            else:
-                self.drawn[r["i"]] = tq         # the wheel's (or a strip's, off the glass)
-        level = 0
+            elif len(wheel) < WIN_LANES:
+                wheel.append(r)                 # (raster order: the props' order)
+        wbest = None                            # the wheel candidate due longest (the first of a tie)
+        for r in wheel:
+            if self.age[r["i"]] > (self.age[wbest["i"]] if wbest else 0):
+                wbest = r
+        wpro = wbest is not None and (self.age[wbest["i"]] >= WPRF or
+                                      (self.age[wbest["i"]] >= WPRO and conok))
         waits = len(must) + len(mustp)          # must-draw lanes not chosen wait a frame
+        pwait = promo = False
         if must:
             contact = min(must, key=lambda t: t[:2])[2]
             waits -= 1
-        elif mustp:                             # (beside the platform's box when it is due too:
-            contact = mustp[0]                  # a second rect, bz_mkboxes - the model takes the
-            waits -= 1                          # frame to have room for it)
-            if slabbox:
-                self.npbx += 1
+            slabbox = False                     # (its line holds: no window has both, 128.12.4.6)
         elif slabbox:
-            contact = "slab"
-            self.npbx += 1
-        if contact is not None and contact != "slab":
-            self.nmust += 1
-            self.drawn[contact["i"]] = self._true(contact, n_last)
-        if contact is None and cands:
+            if not self.pylp and not p.onp and not slableave:
+                if crowded:                     # (a) and (b): the box waits, a post lighting is the group
+                    pwait = True
+                elif not mustp and wpro:        # (c): the box waits for a promoted wheel lane
+                    pwait = promo = True
+            if pwait:
+                slabbox = False
+                self.npwt += 1
+                waits += 1
+        if contact is None and not promo:
+            if slabbox:
+                self.npbx += 1                  # the slab's box: the group, or beside a post lighting
+                if not mustp:
+                    contact = "slab"
+            if mustp:
+                contact = mustp[0]
+                waits -= 1
+        if contact is None and not promo and cands:
             cands.sort(key=lambda r: (-self.age.get(r["i"], 0), r["i"]))
             best = cands[0]
-            if (not passon and not two and not (edge_r or edge_c)) or self.age.get(best["i"], 0) >= WLAG:
+            if conok or self.age.get(best["i"], 0) >= WPRF:
                 contact = best
-                self.drawn[contact["i"]] = self._true(contact, n_last)
                 cands = cands[1:]
+            elif wpro:
+                promo = True
+        elif contact is None and not promo and wpro:
+            promo = True
+        if promo:
+            contact = wbest
+            wheel.remove(wbest)
+            self.npro += 1
+        if contact is not None and contact != "slab":
+            if contact in mustp or any(contact is t[2] for t in must):
+                self.nmust += 1
+            self._draw(contact, n_last)
+        self.pylp = pwait
+        if plat is not None and not pwait and not must:
+            self.pline[plat[0]] = plat[1]
+        for k, r in enumerate(wheel):           # the wheel: the rest by the frame's end (or WCAP of them)
+            if self.wcap is None or k < self.wcap:
+                self.drawn[r["i"]] = self._true(r, n_last)
+                self.age[r["i"]] = 0
         self.ndef += len(cands) + waits
+        level = 0
         if contact is not None:
             level = 2
             self.ncon += 1
-        elif passon or two or slabnear:
+        elif slabnear:
             level = 1
         self.old, self.oshadow = new, news
         self.levels[level] += 1
@@ -4998,7 +5077,6 @@ def _physics_checks(first, res, trial=None):
     res.append(("7 negative control: the slope term's sign flipped fails the slope run", not slope(_slope_sign=-1)))
     res.append(("7 negative control: the take-off's gvz zeroed fails the lip run", not lip(_takeoff_zero=True)))
     p = _drop(long_, (6, 12), 6, MAT_RUBBER, n=600, upto=lambda p: not p.air)
-    p0 = Physics(long_)
     pz = _drop(long_, (6, 12), 6, MAT_RUBBER, n=100, upto=lambda p: not p.air)
     pz = Physics(long_, _ef_zero=True).poke(6, 12)
     pz.gz += 48 << 8
@@ -5322,7 +5400,6 @@ def _mouth_checks(c, res, tag):
     ops_flat = draw_ops(c.tiles, c.x0)
     nctl = 0
     for cell in sorted(deep):
-        t = c.tiles[cell]
         sw_n, se_n = c.tiles.get((cell[0], cell[1] + 1)), c.tiles.get((cell[0] + 1, cell[1]))
         if (sw_n is None) == (se_n is None):
             continue                                    # both faces over the void, or neither
@@ -5752,10 +5829,10 @@ def _mill_route(c, res):
         print("    MILL under GLIDE with the heavy rule, %s: %d frames, %.2f lanes shown a frame, %d pose changes "
               "while shown (the commits the route needs); %d transit frames; heavy frames %d (level 1 %d, level 2 "
               "%d), rows withheld %d, columns %d, edge releases %d; contact groups %d (must-draw rotors %d, "
-              "platform boxes %d), deferred lanes %d" % (
+              "platform boxes %d, platform waits %d, promoted wheel lanes %d), deferred lanes %d" % (
                   "Hercules" if herc else "CGA", stats["frames"], stats["shown"] / float(stats["frames"]),
                   stats["chg"], stats["tf"], g.nhvy, g.heavy.levels[1], g.heavy.levels[2], g.nwr, g.nwc, g.nhedge,
-                  g.heavy.ncon, g.heavy.nmust, g.heavy.npbx, g.heavy.ndef))
+                  g.heavy.ncon, g.heavy.nmust, g.heavy.npbx, g.heavy.npwt, g.heavy.npro, g.heavy.ndef))
         res.append(("8 MILL, %s: GLIDE (heavy rule on) pans on every transit frame that has a row or a column "
                     "outstanding (%d transit frames)" % ("Hercules" if herc else "CGA", stats["tf"]),
                     stats["tf"] > 0 and stats["tbad"] == 0))
@@ -5872,7 +5949,6 @@ def _trial_checks(c, res):
                 share >= 0.25 and cnt[1]["stun"] == tot and cnt[2]["shatter"] == tot
                 and all(cnt[m]["G!"] == 0 for m in range(3))))
     out, _, p = _trial_shot(c, MAT_GLASS, VMAXG, 0, None)
-    t = p.nstep
     for _ in range(30):
         p.step(K_R | K_D)
     sh = _ev(p, "shatter", "respawn")
@@ -5964,11 +6040,8 @@ def _route_checks(bench, res, trial=None, first=None):
             pl = Physics(trial, play=True)
             for _ in range(steps):
                 pl.step_auto()
-            first_g = next((e for e in pl.events if e[0] in ("bounce", "land")
-                            and _in(TRIAL_G, (e[2] if False else (0, 0)))), None)
             out.append((p, occ, lays, air_occ, occg, pl))
         p, occ, lays, air_occ, occg, pl = out[0]
-        airs = sum(1 for _ in range(0))
         bF = [e for e in pl.events if e[0] == "bounce"]
         res.append(("8 TRIAL: the autopilot goes off H's lip (step %s), bounces on F (impact %s) over the gap, reaches "
                     "the goal at step %s and falls nowhere in the CGA's %d steps or the Hercules's %d" % (
@@ -6158,7 +6231,6 @@ def selfcheck(paths=None):
         pt = c.part
 
         def herc_ok(hpart):
-            blkoff = pt["blkoff"]
             for y in range(c.lines):
                 for bx in range(c.cols):
                     off = pt["map"][(y >> 3) * c.cols + bx]

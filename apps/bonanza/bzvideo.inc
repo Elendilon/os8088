@@ -697,11 +697,14 @@ bz_col:
 ; GROUP (0 the ball's, 1 the shadow's, 2 the contact's), +19 unused.  At most four boxes a
 ; frame (bzgame.inc bz_mkboxes).  A buffer's lines are BZ_BOXW words apart
 ; whatever the box's w (SPEC.md 128.9 item 1: a fixed stride is what lets the
-; fill and the sprite step by a constant).
+; fill and the sprite step by a constant).  A buffer holds BZ_BOXL lines (the
+; RIDE BOX and the slab's box after a waited frame, SPEC.md 128.13.4.1,
+; 128.13.4.3); every union but the platform's is held to BZ_BOXH.
 ; -----------------------------------------------------------------------------
 BZ_BOXW     equ 4               ; words (8 bytes)
-BZ_BOXH     equ 24              ; lines
-BZ_BOXB     equ BZ_BOXW * 2 * BZ_BOXH
+BZ_BOXH     equ 24              ; lines: the union limit of every group but the platform's
+BZ_BOXL     equ 32              ; lines: the platform's union limit, and a buffer's
+BZ_BOXB     equ BZ_BOXW * 2 * BZ_BOXL
 BZ_BOXD     equ 20
 
 ; bz_boxc - compose box SI (a descriptor): fill from the course, then the
@@ -1362,6 +1365,14 @@ bz_olay:
 ; only the words left of [xa, xb) and right of it - the earlier box already
 ; put those bytes there, the same bytes.  bz_mkboxes sets the band in the
 ; descriptor (+10 .. +16); xhi = 0 is none.
+;
+; THE WHOLE-ROW PATH (SPEC.md 128.13.4.4): a box with no band, 3 or 4 words
+; wide, writes each card row it covers from the row's FIRST line by an
+; unrolled block - the CGA's two lines, the Hercules' four, `movsw` x w a
+; line, the bank's step folded into an `add di` and the buffer's (2 bytes a
+; line for a 3-word box) into `inc si` - the ring's end tested once a card
+; row, as the per-line loop does (a crossing row goes to bz_wseg).  A row the
+; box starts or ends inside, and any other width, take the per-line loop.
 bz_boxw:
     push ax
     push bx
@@ -1402,7 +1413,51 @@ bz_boxw:
     shl bx, cl                  ; BX = the bank
     mov si, [si + 8]            ; SI = the buffer
     cmp word [bz_xact], 0
-    jne .line
+    je .nob
+.line:                          ; the band (rare: two boxes that overlap)
+    push si
+    cmp bp, [bz_xact]           ; in the band: lines-left in (xlo, xhi]
+    ja .bwhole
+    cmp bp, [bz_xlo]
+    jbe .bwhole
+    mov cx, [bz_xa]             ; the words left of the overlap...
+    jcxz .right
+    mov ax, dx
+    call bz_wseg
+.right:
+    pop si
+    push si
+    mov ax, [bz_xb]             ; ...and right of it
+    mov cx, [bz_bw]
+    sub cx, ax
+    jbe .bnext
+    shl ax, 1
+    add si, ax
+    add ax, dx
+    call bz_wseg
+    jmp short .bnext
+.bwhole:
+    mov ax, dx
+    mov cx, [bz_bw]
+    call bz_wseg
+.bnext:
+    pop si
+    call .step
+    jnz .line
+    jmp .done
+; .next's step, for the band's loop (ZF set at the box's foot)
+.step:
+    add si, BZ_BOXW * 2
+    add bx, 2000h
+    cmp bx, [bz_bend]
+    jb .bsame
+    xor bx, bx
+    add dx, [bz_rb]
+    and dx, 1fffh
+.bsame:
+    dec bp
+    ret
+.nob:
     mov ax, [bz_bw]             ; no band: every line whole.  The buffer's
     shl ax, 1                   ; step from a line's end to the next line's
     neg ax                      ; start (8 - 2w: 0 for a 4-word box)
@@ -1414,6 +1469,14 @@ bz_boxw:
     add ax, dx
     cmp ax, 2000h
     ja .wsplit
+    or bx, bx                   ; from the row's first line, a whole row or
+    jnz .wline                  ; more left, 3 or 4 words: the whole-row path
+    cmp bp, [bz_rl]
+    jb .wline
+    mov ax, [bz_bw]
+    sub ax, 3
+    cmp ax, 1
+    jbe .fast
 .wline:
     mov di, dx
     add di, bx
@@ -1453,49 +1516,107 @@ bz_boxw:
     pop bx
     pop ax
     ret
-.line:                          ; the band (rare: two boxes that overlap)
-    push si
-    cmp bp, [bz_xact]           ; in the band: lines-left in (xlo, xhi]
-    ja .bwhole
-    cmp bp, [bz_xlo]
-    jbe .bwhole
-    mov cx, [bz_xa]             ; the words left of the overlap...
-    jcxz .right
-    mov ax, dx
-    call bz_wseg
-.right:
-    pop si
-    push si
-    mov ax, [bz_xb]             ; ...and right of it
-    mov cx, [bz_bw]
-    sub cx, ax
-    jbe .bnext
+.fast:                          ; the whole-row path (bz_bwrows), then the
+    call bz_bwrows              ; lines it left: a partial last row, or a row
+    or bp, bp                   ; crossing the ring's end (bz_wseg's)
+    jz .done
+    jmp .whole
+
+; bz_bwrows - bz_boxw's WHOLE-ROW PATH (SPEC.md 128.13.4.4): from DX, the
+; offset of a card row's first line (bank 0, BX = 0), the whole card rows of
+; BP lines left for a box AX + 3 words wide (AX = 0, 1), DS:SI its buffer, ES
+; the card: each card row by an unrolled block, the ring's end tested once a
+; row.  -> BP the lines it left (a partial last row, or every line from a row
+; that would cross the ring's end on), DX that row's offset, BX = 0, SI past
+; what it wrote.  Clobbers AX, CX, DI.
+bz_bwrows:
+    ; STKBALANCE-OK: the blocks' `jmp bp` is the loop back into this routine's
+    ; own blocks (bz_bwft: one card row a turn), not a tail call - every block
+    ; runs on to .ftail and leaves through .fx, which pops what the entry
+    ; pushed and returns.  No static walk follows a register jump (bz_boxc's
+    ; `jmp dx` is the same shape).
+    mov cl, [bz_lsh]            ; 1 the CGA, 2 the Hercules
+    add al, cl
+    add al, cl
+    cbw
     shl ax, 1
-    add si, ax
-    add ax, dx
-    call bz_wseg
-    jmp short .bnext
-.bwhole:
-    mov ax, dx
-    mov cx, [bz_bw]
-    call bz_wseg
-.bnext:
-    pop si
-    call .step
-    jnz .line
-    jmp short .done
-; .next's step, for the band's loop (ZF set at the box's foot)
-.step:
-    add si, BZ_BOXW * 2
-    add bx, 2000h
-    cmp bx, [bz_bend]
-    jb .bsame
-    xor bx, bx
-    add dx, [bz_rb]
-    and dx, 1fffh
-.bsame:
-    dec bp
+    xchg ax, di                 ; DI = (w - 3 + 2 lsh) x 2: the block's entry
+    mov ax, bp
+    shr ax, cl
+    xchg ax, cx                 ; CX = the whole card rows left
+    mov ax, [bz_rl]
+    dec ax
+    and bp, ax
+    push bp                     ; the lines after them (0 .. rl - 1)
+    mov bp, [bz_bwft - 4 + di]  ; BP = the block, a card row a turn
+    mov bx, [bz_bw]
+    shl bx, 1
+    neg bx
+    add bh, 20h                 ; BX = 2000h - 2 w: a row starting past it
+    mov ax, [bz_rb]             ; crosses the ring's end
+    jmp bp
+.fx:                            ; CX rows left (a crossing row stopped the
+    mov ax, cx                  ; blocks, or 0): back into the line count
+    mov cl, [bz_lsh]
+    shl ax, cl
+    pop bp
+    add bp, ax
+    xor bx, bx                  ; (the next row's first line)
     ret
+; the blocks: one card row from offset DX, its first line in bank 0; the
+; Hercules' first two lines run on into the CGA's two
+%macro BZ_BWLN 1                ; one line of %1 words, DI past it ...
+ %rep %1
+    movsw
+ %endrep
+ %rep 2 * (BZ_BOXW - %1)
+    inc si                      ; (the buffer's stride is BZ_BOXW words)
+ %endrep
+%endmacro
+%macro BZ_BWNX 1                ; ... and on to the next bank's line
+    add di, 2000h - 2 * %1
+%endmacro
+.fh3:
+    mov di, dx
+    BZ_BWLN 3
+    BZ_BWNX 3
+    BZ_BWLN 3
+    BZ_BWNX 3
+    jmp short .c3
+.fc3:
+    mov di, dx
+.c3:
+    BZ_BWLN 3
+    BZ_BWNX 3
+    BZ_BWLN 3
+    jmp short .ftail
+.fh4:
+    mov di, dx
+    BZ_BWLN 4
+    BZ_BWNX 4
+    BZ_BWLN 4
+    BZ_BWNX 4
+    jmp short .c4
+.fc4:
+    mov di, dx
+.c4:
+    BZ_BWLN 4
+    BZ_BWNX 4
+    BZ_BWLN 4
+.ftail:
+    add dx, ax                  ; the next card row
+    and dh, 1fh
+    dec cx
+    jz .fx
+    cmp dx, bx
+    ja .fx                      ; (it crosses the ring's end: bz_wseg's)
+    jmp bp
+
+bz_bwft:                        ; bz_bwrows's blocks, by w - 3 + 2 lsh
+    dw bz_bwrows.fc3, bz_bwrows.fc4, bz_bwrows.fh3, bz_bwrows.fh4
+%if BZ_BOXW != 4
+ %error "bz_boxw's whole-row path writes 3- and 4-word boxes of a 4-word stride"
+%endif
 
 ; bz_wseg - CX words (at least 1) from DS:SI to bank BX of the card (ES) at
 ; offset AX (mod 8KB), split where they cross the ring's end.  Advances SI;

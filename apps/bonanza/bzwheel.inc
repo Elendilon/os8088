@@ -23,8 +23,8 @@
 ;                      frame on demand, bonanzawheel)
 ;   bz_hvoff    byte   a harness's: 1 forces bz_heavy to 0 (wave 2's camera,
 ;                      the BENCH A/B, SPEC.md 128.12.9)
-;   bz_heavy    byte   this frame's level (128.12.7): 2 a contact group, 1 the
-;                      pass / two ball boxes / the slab near an edge, 0
+;   bz_heavy    byte   this frame's level (128.12.7, 128.13.6): 2 a contact
+;                      group, 1 the slab near an edge, 0
 ;   bz_hedr,bz_hedc byte the edge clause: the ball's new footprint near the top
 ;                      or bottom (releases the rows), the left or right (the
 ;                      column), the window as it stood before the camera
@@ -39,9 +39,14 @@
 ;                      raster order (bit 7 set once committed)
 ;   bz_wld      byte   the lane (+ 1) the last wheel marked for the LEAD
 ;   bz_wcal     byte   1 once this launch's calibration ran
-;   bz_wlw,bz_wll,bz_warr word the calibration (SPEC.md 128.12.5.4): a word-line
-;                      and a line in 1/16 PIT counts, the commit's fixed part
-;                      in counts;  bz_cT 3 words its means T1, T3, T3n
+;   bz_wlw,bz_wcw,bz_warr word the calibration (SPEC.md 128.13.5.2): a word-line
+;                      and a column in 1/16 PIT counts, the commit's fixed part
+;                      in counts;  bz_cT 3 words its means T1, T3, T3n;
+;                      bz_lcf 16 words each lane's WHOLE commit's cost, counts
+;                      bz_lxw 16 bytes 1: the lane's columns cross the
+;                      ring's end (bz_wcalib, bz_lwrp)
+;   bz_lnext    16 words each rotor's next pose change, a bz_nstep value (the
+;                      walk's skip, SPEC.md 128.13.5.3)
 ;   bz_trim     word   the trim, 30 - 100 (cost' = cost x 100 / trim)
 ;   bz_pline    word   the platform's DRAWN line (8000h: not on the card),
 ;                      bz_ptru its true one this frame
@@ -68,17 +73,40 @@ BZ_FOOTW    equ BZ_BAL_RB * 4   ; the ball's footprint, px (SPEC.md 128.4)
 BZ_WBLK     equ 17              ; a wheel slot: the lane state bz_lbr .. bz_lL,
 BZ_WSLOT    equ 2 * BZ_WBLK + 4 ; ...then its AHEAD bound and BEHIND time
 BZ_WCSTO    equ 28              ; a slot's cost' (bz_wcst's place in the block)
-BZ_WRB      equ 160             ; PIT counts: the lane writer's set-up of a
-                                ; second rectangle (the entering rows'), which
-                                ; the calibration's commits never run (PREDICTED,
-                                ; about 0.5k clk raw)
-BZ_WMW      equ 6               ; ...and a map word bz_lmap copies (17 clk raw
-                                ; x 1.3), charged for the lane's w x h whatever
-                                ; its shown lines (PREDICTED)
-BZ_WPRP     equ 1900            ; PIT counts: one candidate's preparation
+BZ_WRB      equ 345             ; PIT counts: the pass's set-up of a second
+                                ; rectangle (the entering rows'), which the
+                                ; calibration's commits never run: bz_wprect's
+                                ; .go to .col and its exit, less the empty
+                                ; rectangle's early return the calibration does
+                                ; run - PRICED from the instructions at the
+                                ; fetch floor, 1,300 clk, x 1.05 (SPEC.md
+                                ; 128.13.5.2)
+BZ_WMF      equ 155             ; PIT counts: a commit that is not the WHOLE
+BZ_WMR      equ 15              ; lane copies the pose first (bz_lmap, SPEC.md
+BZ_WMW      equ 13              ; 128.13.5.1): its fixed part, a block row and
+                                ; a word - PRICED, 590 clk fixed and 56 a row,
+                                ; and the word raised to 47 clk so that wave 3's
+                                ; MEASURED rotor (3 x 3, 1,179 clk) is covered,
+                                ; all x 1.05 (the 2 x 3 post's 852 is then priced
+                                ; 1,112)
+BZ_WXR      equ 34              ; PIT counts: a column's row and block on
+BZ_WXB      equ 21              ; bz_wprect's ROW-AT-A-TIME path (.slow: a column
+                                ; crossing the ring's end) over the unrolled one
+                                ; - PRICED, 127 and 77 clk, x 1.05 (bz_lwrp)
+BZ_WPATH    equ 50              ; PIT counts: a wheel commit's path from its
+                                ; test's clock sample to bz_wcore that the
+                                ; calibration's span (bz_wspan) does not run -
+                                ; bz_wtest's arithmetic and return, the pass's
+                                ; bound tests, the slot's lane, bz_wcommit's
+                                ; entry: about 200 clk with the margin, added
+                                ; to bz_warr (SPEC.md 128.13.16: the final
+                                ; pass measured whole rotors 0.9 - 1.5% over
+                                ; their price, and one overrun a run)
+BZ_WPRP     equ 1360            ; PIT counts: one candidate's preparation
                                 ; (bz_wprep, bz_lrect, bz_wboxm, the slot and its
-                                ; two bounds; MEASURED about 7.2k clk on MartyPC's
-                                ; CGA, MILL's benchmark, the final pass)
+                                ; two bounds): MEASURED about 5.1k clk (wave 3b's
+                                ; look boots, MILL's benchmark: bz_wprep 2.8k, the
+                                ; rest 2.3k; wave 3's was 7.2k), padded to 5.4k
 BZ_WLBUD    equ 3               ; the LEAD's budget: it ends by BZ_WLBUD / 8 of
                                 ; a refresh after the wait's sample (PROVISIONAL)
 %if BZ_PROPREC != 32
@@ -114,7 +142,10 @@ VAR bz_mrank,1                  ; IN cell's rank (bz_lmust), a must-draw POST
 VAR bz_mustp,1                  ; (lane + 1), and the must-draw lanes seen
 VAR bz_mcnt,1                   ; (those not chosen wait: bz_ndef)
 VAR bz_pflag,1                  ; bit 0 the slab's box, bit 1 the slab near an edge,
-                                ; bit 2 the slab's box is bz_crect2 (beside a post)
+                                ; bit 2 the slab's box is bz_crect2 (beside a post),
+                                ; bit 3 its TRUE footprint is out of the shown
+                                ; window and its drawn one in it (leaving: it
+                                ; cannot wait, SPEC.md 128.13.4.3)
 VAR bz_pov,1                    ; the slab this frame: 1 OVER the ball, 0 under,
                                 ; FFh not on the card (bz_povr)
 VAR bz_cold,1                   ; the contact lane's drawn pose before its sync,
@@ -122,8 +153,9 @@ VAR bz_cage,1                   ; ...and its age (bz_csync zeroes it: drawn)
 VAR bz_pany,1                   ; bz_pstrip: a strip met the slab
 VAR bz_wbest,1                  ; bz_props: the wheel candidate due longest,
 VAR bz_wbage,1                  ; ...its age (0: none)
-VAR bz_pyld,1                   ; the slab's box YIELDED its slot this frame,
-VAR bz_pylp,1                   ; ...and last frame (never two running)
+VAR bz_pyld,1                   ; the slab's box WAITED this frame (a crowded
+VAR bz_pylp,1                   ; frame or a promoted lane), and last frame
+                                ; (never two running, SPEC.md 128.13.4.3)
 VAR bz_wcl,6
 VAR bz_ldrw,BZ_PROPMAX
 VAR bz_lage,BZ_PROPMAX
@@ -135,7 +167,7 @@ VAR bz_wla,2                    ; the blank before window line 0, lines; a line,
 VAR bz_wlb,2                    ; counts, AHEAD's (short) and BEHIND's (long);
 VAR bz_wrefp,2                  ; the refresh, counts, rounded down; and the
 VAR bz_wlw,2                    ; calibration's three, PREDICTED until
-VAR bz_wll,2                    ; bz_wcalib replaces them
+VAR bz_wcw,2                    ; bz_wcalib replaces them
 VAR bz_warr,2
 VAR bz_trim,2
 VAR bz_wlo,2                    ; the reckoning: the rise between lo and hi
@@ -183,7 +215,15 @@ VAR bz_wmin,2                   ; ...the cheapest cost' among them
 VAR bz_wnp,1                    ; ...and how many were prepared (the clock's room)
 VAR bz_lrw,2 * BZ_PROPMAX       ; each lane's first block row, its block rows
 VAR bz_lhh,BZ_PROPMAX           ; and its record's kind (bz_pread: the walk
-VAR bz_lknd,BZ_PROPMAX          ; reads no record for its range or a post)
+VAR bz_lknd,BZ_PROPMAX          ; reads no record for its range or a post);
+VAR bz_ltcl,BZ_PROPMAX          ; and its first word column, its words, a
+VAR bz_ltw,BZ_PROPMAX           ; pose's bytes and its pose maps (bz_ldesc
+VAR bz_ltsz,BZ_PROPMAX          ; reads no record either: SPEC.md 128.13.5.2)
+VAR bz_ltpm,2 * BZ_PROPMAX
+VAR bz_lcf,2 * BZ_PROPMAX       ; each lane's WHOLE commit's cost (bz_wcalib)
+VAR bz_lxw,BZ_PROPMAX           ; 1: a column of the lane crosses the ring's end
+VAR bz_lnext,2 * BZ_PROPMAX     ; each rotor's next pose change (bz_ltrue)
+VAR bz_lnsk,1                   ; 1: the walk's range moved, no lane skipped
 VAR bz_lrc,8                    ; the lane's rect, words x lines inclusive
 VAR bz_kr,8                     ; the calibration corner, px (x0 y0 x1 y1)
 VAR bz_kt,8                     ; ...what it must not meet
@@ -192,7 +232,7 @@ VAR bz_cT,6
 %if bz_lL != bz_lbr + 2 * (BZ_WBLK - 1) || bz_wcst != bz_lbr + BZ_WCSTO || bz_lra != bz_lbr + 12
  %error "bz_wsave/bz_wload copy BZ_WBLK words from bz_lbr: bz_lbr .. bz_lL moved"
 %endif
-%if bz_wla != bz_wb0 + 2 || bz_wlb != bz_wb0 + 4 || bz_wrefp != bz_wb0 + 6 || bz_wlw != bz_wb0 + 8 || bz_wll != bz_wb0 + 10 || bz_warr != bz_wb0 + 12
+%if bz_wla != bz_wb0 + 2 || bz_wlb != bz_wb0 + 4 || bz_wrefp != bz_wb0 + 6 || bz_wlw != bz_wb0 + 8 || bz_wcw != bz_wb0 + 10 || bz_warr != bz_wb0 + 12
  %error "bz_vinit copies BZ_WKN words to bz_wb0: their order moved"
 %endif
 %endmacro
@@ -201,17 +241,19 @@ VAR bz_cT,6
 ; 38 + F lines after a CGA rise, 98 + F after a Hercules one; a line 76 counts
 ; on the CGA, on the Hercules 63 where shorter is safe and 64 where longer
 ; is), the measured refresh rounded down, and the calibration's PREDICTED
-; values (128.12.5.4) - the wheel's until the launch's first full write
+; values (128.13.5.2: about 71 clk a word-line, 250 a column, 1.2k the fixed
+; part, on both cards) - the wheel's until the launch's first full write
 ; measures them
-bz_wkc: dw 38, 76, 76, 19880, 284, 290, 375
-bz_wkh: dw 98, 63, 64, 23420, 224, 290, 375
+bz_wkc: dw 38, 76, 76, 19880, 285, 1000, 300
+bz_wkh: dw 98, 63, 64, 23420, 280, 1000, 300
 
 ; -----------------------------------------------------------------------------
 ; bz_pread - a play's start (bz_play, after bz_pinit): the prop table's place,
-; its lanes (the first records) and its platform, the slab's columns and
-; track; every lane brought to its true pose in the map (128.12.4.1), the
-; slice empty, the wheel uncalibrated with the trim at 100.  Preserves
-; nothing.
+; its lanes (the first records: their rows, columns, sizes and pose maps into
+; the per-lane tables bz_ldesc reads, SPEC.md 128.13.5.2) and its platform,
+; the slab's columns and track; every lane brought to its true pose in the
+; map (128.12.4.1), the slice empty, the wheel uncalibrated with the trim at
+; 100.  Preserves nothing.
 ; -----------------------------------------------------------------------------
 bz_pread:
     push ds
@@ -258,11 +300,21 @@ bz_pread:
     test byte [es:si + BZP_FLAGS], BZ_PF_LANE
     jz .nl
     inc bh
+    mov al, [es:si + BZP_LCOL]
+    mov [bz_ltcl + di], al
     mov al, [es:si + BZP_LH]
     mov [bz_lhh + di], al
+    mov ah, al
+    mov al, [es:si + BZP_LW]
+    mov [bz_ltw + di], al
+    shl al, 1
+    mul ah                      ; 2 w h, a pose's bytes (at most 24)
+    mov [bz_ltsz + di], al
     shl di, 1
     mov ax, [es:si + BZP_LROW]
     mov [bz_lrw + di], ax
+    mov ax, [es:si + BZP_LMAPS]
+    mov [bz_ltpm + di], ax
 .nl:
     cmp byte [es:si + BZP_KIND], BZ_PK_PLATFORM
     jne .np
@@ -365,13 +417,14 @@ bz_lrecsi:
 ; left on the glass (bz_lhold, SPEC.md 128.12.6.3 as the owner's preview
 ; amended it): a kick it has not seen (bz_pkick against bz_lkick) gives it its
 ; record's lit frames, and bz_props counts them off only on frames it was
-; DRAWN lit.  Reads physics state; physics never reads this.  Preserves all
-; but AX and the flags.
+; DRAWN lit.  A rotor's bz_lnext with it (the walk's skip).  Reads physics
+; state; physics never reads this.  Preserves all but AX and the flags.
 ; -----------------------------------------------------------------------------
 bz_ltrue:
     cmp byte [bz_lknd + bx], BZ_PK_WINDMILL
     jne .post
     push cx
+    push dx
     push si
     push es
     mov es, [bz_cseg]
@@ -379,11 +432,25 @@ bz_ltrue:
     mov ax, [bz_nstep]
     dec ax
     add ax, [es:si + BZP_SEED]
-    and al, [es:si + BZP_MASK]
+    and al, [es:si + BZP_MASK]  ; AL = m = (n_last + seed) AND (P - 1)
     mov cl, [es:si + BZP_SHIFT]
-    shr al, cl
     pop es
+    mov dl, 1                   ; ITS NEXT CHANGE (SPEC.md 128.13.5.3): a pose
+    shl dl, cl                  ; holds B = 1 << shift steps, so the step
+    dec dl                      ; count n' = n + (B - 1 - (m AND (B - 1))) + 1
+    mov ah, al                  ; is the first whose m crosses into the next
+    not ah                      ; pose: bz_lnext
+    and ah, dl
+    shr al, cl                  ; AL = the pose
+    mov dl, ah
+    xor dh, dh
+    inc dx
+    add dx, [bz_nstep]
+    mov si, bx
+    shl si, 1
+    mov [bz_lnext + si], dx
     pop si
+    pop dx
     pop cx
     jmp short .out
 .post:                          ; (no record read but a new kick's)
@@ -411,36 +478,32 @@ bz_ltrue:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_ldesc - lane BX's descriptor from its record: bz_lbr, bz_lcl, bz_lw,
-; bz_lh, its pose maps (bz_lpm, bz_lsz bytes a pose, bz_lsst = 2 w their row
-; stride) and its card rows (bz_lq).  Preserves all but the flags.
+; bz_ldesc - lane BX's descriptor from the per-lane tables bz_pread filled (no
+; record read, no MUL: SPEC.md 128.13.5.2): bz_lbr, bz_lcl, bz_lw, bz_lh, its
+; pose maps (bz_lpm, bz_lsz bytes a pose, bz_lsst = 2 w their row stride) and
+; its card rows (bz_lq).  Preserves all but the flags.
 ; -----------------------------------------------------------------------------
 bz_ldesc:
     push ax
-    push cx
     push si
-    push es
-    mov es, [bz_cseg]
-    call bz_lrecsi
-    mov ax, [es:si + BZP_LROW]
+    mov si, bx
+    shl si, 1
+    mov ax, [bz_lrw + si]
     mov [bz_lbr], ax
+    mov ax, [bz_ltpm + si]
+    mov [bz_lpm], ax
     xor ah, ah
-    mov al, [es:si + BZP_LCOL]
+    mov al, [bz_ltcl + bx]
     mov [bz_lcl], ax
-    mov al, [es:si + BZP_LH]
+    mov al, [bz_lhh + bx]
     mov [bz_lh], ax
-    mov cl, al
-    mov al, [es:si + BZP_LW]
+    mov al, [bz_ltsz + bx]
+    mov [bz_lsz], ax
+    mov al, [bz_ltw + bx]
     mov [bz_lw], ax
     shl ax, 1
     mov [bz_lsst], ax
-    mul cl                      ; 2 w h, a pose's bytes
-    mov [bz_lsz], ax
-    mov ax, [es:si + BZP_LMAPS]
-    mov [bz_lpm], ax
-    pop es
     pop si
-    pop cx
     pop ax
 ; bz_lq - the lane's card rows [lq0, lq1) from bz_lbr and bz_lh: (8 brow) >>
 ; lsh to (8 (brow + h)) >> lsh.  Preserves all but the flags.
@@ -464,16 +527,13 @@ bz_lq:
     pop ax
     ret
 
-; AL = a pose -> bz_lsrc, its map words in the course part.  Preserves all
-; but the flags.
+; AL = a pose -> bz_lsrc, its map words in the course part (a pose's bytes
+; are at most 24: a byte MUL).  Preserves all but the flags.
 bz_lsrcp:
     push ax
-    push dx
-    xor ah, ah
-    mul word [bz_lsz]
+    mul byte [bz_lsz]
     add ax, [bz_lpm]
     mov [bz_lsrc], ax
-    pop dx
     pop ax
     ret
 
@@ -640,190 +700,375 @@ bz_lclip:
     pop ax
     ret
 
-; bz_lwrite - THE LANE WRITER: bz_lclip's cells to the card from the map -
-; the shown window's, then the entering rows' - a card row at a time, each
-; row's words in turn, every line of the row (2 on the CGA, 4 on the
-; Hercules: a word's lines go to the banks at one offset).  The rect's map
-; entries are read once a card row and its line in the block steps by 2 rl
-; bytes a row (8 lines a block, so a block row is 4 CGA card rows, 2
-; Hercules ones).  A row is contiguous in every bank but where it crosses the
-; 8KB ring's end, the same word in every bank: such a row takes the masked
-; path, a word at a time.  The loop's state lives on the stack (SS: DS is the
-; course part and ES the card inside it).  DS = ours.  Preserves all but the
-; flags.
-bz_lwrite:
-    push si
-    mov si, bz_lra
-    call .rect
-    mov si, bz_lrb
-    call .rect
-    pop si
-    ret
-.rect:
+; -----------------------------------------------------------------------------
+; bz_wpass - THE COMMIT'S WRITER (SPEC.md 128.13.5.1): bz_lclip's cells - the
+; shown window's (bz_lra), then the entering rows' (bz_lrb) - in ONE
+; COLUMN-MAJOR pass from the POSE MAP: each block's pose word read once
+; through DS (the course part: its selector on kern_mega, nothing through
+; CS), stored into the map's word for that cell, and its lines in the column
+; written from it by bz_col's own unrolled row macros (BZ_CROW four a block,
+; BZ_HROW two).  A commit that is not the WHOLE lane (bz_lwhole) first copies
+; the whole pose into the map (bz_lmap), so the map holds the pose when the
+; span ends, its cells outside the rectangles included, and the pass's own
+; stores are idempotent there.  The order inside the span is free: the beam
+; bounds the whole span (128.13.5.1).  Interrupts shut by the caller.  DS =
+; ES = ours.  Preserves all but the flags.
+; -----------------------------------------------------------------------------
+bz_wpass:
     push ax
-    mov ax, [si + 2]
-    sub ax, [si]                ; the card rows
-    jle .x0
     push bx
     push cx
     push dx
+    push si
     push di
     push bp
-    push ds
-    push es
-    mov cx, [si + 6]
-    sub cx, [si + 4]            ; the words
-    jle .x
-    push word [bz_rowb]         ; [bp + 10] ROWB
-    mov dx, [bz_rl]
-    shl dx, 1
-    push dx                     ; [bp + 8]  2 rl: the line word's step a row
-    mov dx, cx
-    shl dx, 1
-    push dx                     ; [bp + 6]  2 w
-    neg dx
-    add dx, [bz_rb]
-    push dx                     ; [bp + 4]  rb - 2 w: a row's end to the next
-    push ax                     ; [bp + 2]  the rows left
-    push cx                     ; [bp + 0]  the words
-    mov bp, sp
-    mov ax, [si]                ; the first card row R
-    mov bx, ax
-    call bz_rbR
-    mov di, [si + 4]
-    shl di, 1
-    add di, ax
-    and di, 1fffh               ; DI = (rb R + 2 x0) mod 8192, the row's base
-    mov ax, bx
-    mov cl, [bz_lsh]
-    shl ax, cl                  ; L0
-    mov dx, ax
-    and dx, 7
-    shl dx, 1                   ; DX = the line's word in a block
-    and ax, 0fff8h
-    mov cl, [bz_mapsh]
-    shl ax, cl
-    add ax, BZC_MAP
-    mov bx, [si + 4]
-    shl bx, 1
-    add bx, ax                  ; BX = the map entry of (L0, x0)
-    mov al, [bz_herc]
-    mov es, [bz_vseg]
-    mov ds, [bz_cseg]
-    or al, al
-    jnz .hrow
-.crow:                          ; THE CGA: two lines a card row
-    mov cx, [bp + 0]
-    mov ax, di
-    add ax, [bp + 6]
-    cmp ax, 2000h
-    ja .cwrap
-.cw:
-    mov si, [bx]
-    add si, dx
-    lodsw
-    stosw
-    lodsw
-    mov [es:di + 1ffeh], ax
-    inc bx
-    inc bx
-    loop .cw
-    jmp short .cn
-.cwrap:                         ; (the row crosses the ring's end)
-    mov si, [bx]
-    add si, dx
-    lodsw
-    mov [es:di], ax
-    lodsw
-    mov [es:di + 2000h], ax
-    inc bx
-    inc bx
-    inc di
-    inc di
-    and di, 1fffh
-    loop .cwrap
-.cn:
-    call .next
-    jnz .crow
-    jmp short .done
-.hrow:                          ; THE HERCULES: four
-    mov cx, [bp + 0]
-    mov ax, di
-    add ax, [bp + 6]
-    cmp ax, 2000h
-    ja .hwrap
-.hw:
-    mov si, [bx]
-    add si, dx
-    lodsw
-    stosw
-    lodsw
-    mov [es:di + 1ffeh], ax
-    lodsw
-    mov [es:di + 3ffeh], ax
-    lodsw
-    mov [es:di + 5ffeh], ax
-    inc bx
-    inc bx
-    loop .hw
-    jmp short .hn
-.hwrap:
-    mov si, [bx]
-    add si, dx
-    lodsw
-    mov [es:di], ax
-    lodsw
-    mov [es:di + 2000h], ax
-    lodsw
-    mov [es:di + 4000h], ax
-    lodsw
-    mov [es:di + 6000h], ax
-    inc bx
-    inc bx
-    inc di
-    inc di
-    and di, 1fffh
-    loop .hwrap
-.hn:
-    call .next
-    jnz .hrow
-.done:
-    add sp, 12
-.x:
-    pop es
-    pop ds
+    call bz_lwhole
+    je .w
+    call bz_lmap
+.w:
+    mov si, bz_lra
+    call bz_wprect
+    mov si, bz_lrb
+    call bz_wprect
     pop bp
     pop di
+    pop si
     pop dx
     pop cx
     pop bx
-.x0:
     pop ax
     ret
-; the next card row (DI is the row's end, (base + 2 w) mod 8192, and BX the
-; map entry past its last word): its base, its map entries, its line in the
-; block (a block's end: the map's next row); ZF = 1 when the rect is done
-.next:
-    add di, [bp + 4]
+
+; ZF = 1 when bz_lra is the lane's WHOLE rectangle (bz_lq0, bz_lq1, bz_lcl,
+; bz_lw): every cell shown, so no entering row meets it either.  Clobbers AX.
+bz_lwhole:
+    mov ax, [bz_lra]
+    cmp ax, [bz_lq0]
+    jne .x
+    mov ax, [bz_lra + 2]
+    cmp ax, [bz_lq1]
+    jne .x
+    mov ax, [bz_lra + 4]
+    cmp ax, [bz_lcl]
+    jne .x
+    neg ax
+    add ax, [bz_lra + 6]
+    cmp ax, [bz_lw]
+.x:
+    ret
+
+; bz_wprect - rectangle SI (card rows [r0, r1), words [x0, x1)) of the lane
+; whose pose is at bz_lsrc (row stride bz_lsst), column by column.  Its FRAME
+; is on the stack (SS), the same for every column but the three words a
+; column steps: [+0] the columns left, [+2] the column's first pose word, [+4]
+; its first map entry, [+6] its first row's card address, [+8] that row's
+; line word in its block, [+10] the HEAD's rows (the first block entered
+; below its top, else 0), [+12] the WHOLE blocks (low byte) and the TAIL's
+; rows (high), [+14] (rows - 1) rb, [+16] the card's column writer, [+18]
+; its one-row writer; [+11] holds the rows a block.  A column whose rows
+; cross the ring's end (once at most: rare) is written a row at a time, each
+; row's address masked (.slow).  DS = ES = ours.  Clobbers AX - DI, BP.
+BZ_WPF      equ 20                  ; the frame's bytes
+%if BZ_WPF != 20
+ %error "bz_wprect's ADD SP, 20 is the frame's bytes (tools/stkbalance.py reads the number)"
+%endif
+bz_wprect:
+    mov cx, [si + 2]
+    sub cx, [si]                ; CX = the rows
+    jle .x
+    mov ax, [si + 6]
+    sub ax, [si + 4]            ; AX = the words
+    jg .go
+.x:
+    ret
+.go:
+    push ds
+    push es
+    mov bp, ax                  ; BP = the words
+    mov ax, bz_wpc1
+    mov bx, bz_wpc
+    cmp byte [bz_herc], 0
+    je .wr
+    mov ax, bz_wph1
+    mov bx, bz_wph
+.wr:
+    push ax                     ; [+18]
+    push bx                     ; [+16]
+    mov al, cl
+    dec ax
+    mul byte [bz_rb]
+    push ax                     ; [+14] (rows - 1) rb (the rows at most 12)
+    mov dl, cl                  ; DL = the rows
+    mov cl, [bz_lsh]
+    mov bx, [si]
+    shl bx, cl                  ; BX = L0, the first row's line
+    mov di, bx
+    and di, 7                   ; DI = its line in its block
+    mov ax, di
+    shr al, cl                  ; AL = j, its row in its block
+    mov ch, 8
+    shr ch, cl                  ; CH = RB, the rows a block
+    mov ah, ch
+    sub ah, al                  ; AH = those left in its block
+    cmp ah, ch
+    jne .hd
+    xor ah, ah                  ; (entered at its top: no head)
+.hd:
+    cmp ah, dl
+    jbe .hd2
+    mov ah, dl                  ; AH = the head's rows
+.hd2:
+    mov al, dl
+    sub al, ah                  ; AL = the rows after it
+    mov dl, ah
+    mov dh, ch                  ; DH = RB
+    neg cl
+    add cl, 3                   ; RB = 1 << CL
+    dec ch
+    mov ah, al
+    and ah, ch                  ; AH = the tail's rows
+    shr al, cl                  ; AL = the whole blocks
+    push ax                     ; [+12]
+    push dx                     ; [+10] the head's rows, RB
+    shl di, 1
+    push di                     ; [+8]
+    mov ax, [si]
+    mul word [bz_rb]
+    mov di, [si + 4]
+    shl di, 1                   ; DI = 2 x0
+    add ax, di
+    and ah, 1fh
+    push ax                     ; [+6] (rb r0 + 2 x0) mod 8192
+    mov ax, bx
+    and al, 0f8h
+    mov cl, [bz_mapsh]
+    shl ax, cl
+    add ax, di
+    add ax, BZC_MAP
+    push ax                     ; [+4]
+    mov cl, 3
+    shr bx, cl
+    sub bx, [bz_lbr]            ; BX = the first block's row in the lane
+    sub di, [bz_lcl]
+    sub di, [bz_lcl]
+    mov ax, [bz_lsrc]
+    add ax, di
+    mov dx, [bz_lsst]           ; DX = the pose map's row stride (kept)
+    jmp short .br
+.brl:
+    add ax, dx
+.br:
+    dec bx
+    jns .brl
+    push ax                     ; [+2]
+    push bp                     ; [+0]
+    mov es, [bz_vseg]
+    mov ds, [bz_cseg]
+.col:                           ; A COLUMN: its first block's pose word read
+    mov bp, sp                  ; and stored, then the card's writer, told
+    mov di, [bp + 6]            ; by CF = 0 that the column's rows cross the
+    mov bx, [bp + 4]            ; ring's end (once at most: then each row's
+    mov si, [bp + 2]            ; address is masked)
+    mov si, [si]                ; the first block's pose word (DS = the part)
+    mov [bx], si                ; ...into the map
+    add si, [bp + 8]            ; SI = the first row's line
+    mov ax, di
+    add ax, [bp + 14]
+    cmp ax, 2000h
+    mov cx, [bp + 12]
+    mov al, [bp + 10]
+    jae .slow
+    call word [bp + 16]
+.cn:
+    mov bp, sp
+    add word [bp + 2], 2
+    add word [bp + 4], 2
+    mov ax, [bp + 6]
+    inc ax
+    inc ax
+    and ah, 1fh
+    mov [bp + 6], ax
+    dec word [bp]
+    jnz .col
+    add sp, 20                  ; (the frame: BZ_WPF)
+    pop es
+    pop ds
+    ret
+.slow:                          ; ACROSS THE RING'S END: the same blocks a row
+    push word [bp + 2]          ; at a time, each row's address masked, by
+    or al, al                   ; the card's one-row writer (the pose word's
+    jnz .s1                     ; address on the stack, walked here)
+    mov al, ch
+    or cl, cl
+    jz .s0
+    mov al, [bp + 11]
+    jmp short .s2
+.s0:
+    mov ch, cl
+.s1:
+    inc cx
+.s2:
+    push ax
     and di, 1fffh
-    sub bx, [bp + 6]
-    add dx, [bp + 8]
-    cmp dx, 16
-    jb .same
-    xor dx, dx
-    add bx, [bp + 10]
-.same:
-    dec word [bp + 2]
+    call word [bp + 18]
+    pop ax
+    dec al
+    jnz .s2
+    pop si
+    add si, dx
+    push si
+    add bx, [BZC_ROWB]
+    dec cl
+    jz .st
+    mov al, [bp + 11]
+.sl:
+    pop si
+    push si
+    mov si, [si]
+    mov [bx], si
+    jmp short .s2
+.st:
+    mov al, ch
+    or al, al
+    jz .sx
+    mov ch, cl
+    inc cx
+    jmp short .sl
+.sx:
+    pop si
+    jmp short .cn
+
+; the column writers, called from bz_wprect.col: DS = the part, ES = the
+; card, BP = the frame, BX = the first block's map entry, SI = its first
+; row's line (that block's pose word read and stored), DI = that row's card
+; address, DX = the pose map's stride, CL = the whole blocks, CH = the tail's
+; rows, AL = the head's rows.  Clobber AX, BX, CX, SI, DI, BP.  And each
+; card's ONE-ROW writer (bz_wpc1, bz_wph1: bz_wprect.slow's).
+bz_wpc:                         ; THE CGA: four rows a block, two lines each
+    mov bp, [bp + 2]            ; BP = the first block's pose word
+    or al, al
+    jnz .one                    ; a head: the block loaded, AL rows of it
+    mov al, ch
+    or cl, cl
+    jnz .c4                     ; else a whole block, loaded
+    mov ch, cl                  ; else the tail is the block loaded
+.one:
+    inc cx                      ; (one block more for the loop to count)
+.disp:                          ; AL = 1 - 3 rows of the block loaded
+    cmp al, 2
+    jb .c1
+    je .c2
+    jmp short .c3
+.blk:
+    mov si, [ds:bp]             ; the block's pose word (BP would be SS's)
+    mov [bx], si                ; ...into the map
+.c4:
+    BZ_CROW
+.c3:
+    BZ_CROW
+.c2:
+    BZ_CROW
+.c1:
+    BZ_CROW
+    add bp, dx
+    add bx, [BZC_ROWB]
+    dec cl
+    jnz .blk
+    mov al, ch                  ; the tail
+    or al, al
+    jz .x
+    mov ch, cl
+    inc cx
+    mov si, [ds:bp]
+    mov [bx], si
+    jmp short .disp
+.x:
+    ret
+bz_wpc1:
+    BZ_CROW
+    ret
+
+bz_wph:                         ; THE HERCULES: two rows a block, four lines each
+    mov bp, [bp + 2]
+    or al, al
+    jnz .one
+    or cl, cl
+    jnz .c2
+    mov ch, cl
+.one:
+    inc cx
+    jmp short .c1
+.blk:
+    mov si, [ds:bp]
+    mov [bx], si
+.c2:
+    BZ_HROW
+.c1:
+    BZ_HROW
+    add bp, dx
+    add bx, [BZC_ROWB]
+    dec cl
+    jnz .blk
+    or ch, ch
+    jz .x
+    mov ch, cl
+    inc cx
+    mov si, [ds:bp]
+    mov [bx], si
+    jmp short .c1
+.x:
+    ret
+bz_wph1:
+    BZ_HROW
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_lcost - the commit's cost' in PIT counts (SPEC.md 128.12.5.3, 128.12.5.4):
-;   cost  = warr + (sum over bz_lra and bz_lrb of lines (wll + words wlw)) >> 4
-;   cost' = cost x 100 / trim
-; -> AX (FFFFh when it does not fit a word: never takes the wheel).  Preserves
-; all else.
+; bz_lcost - lane BX's commit's cost' in PIT counts (SPEC.md 128.13.5.2): a
+; WHOLE commit's (bz_lwhole) from bz_lcf, which bz_wcalib filled, else
+; bz_lcraw's; cost' = cost x 100 / trim only while the trim is under 100.
+; -> AX (FFFFh when it does not fit a word: never takes the wheel).
+; Preserves all else.
 ; -----------------------------------------------------------------------------
 bz_lcost:
+    call bz_lwhole
+    jne .f
+    push bx
+    shl bx, 1
+    mov ax, [bz_lcf + bx]
+    pop bx
+    jmp short .t
+.f:
+    call bz_lcraw
+.t:
+    cmp word [bz_trim], 100
+    jae .out
+    cmp ax, 0ffffh
+    je .out
+    push cx
+    push dx
+    mov cx, 100
+    mul cx
+    mov cx, [bz_trim]
+    cmp dx, cx
+    jae .big
+    div cx
+    jmp short .o2
+.big:
+    mov ax, 0ffffh
+.o2:
+    pop dx
+    pop cx
+.out:
+    ret
+
+; bz_lcraw - the commit's cost in PIT counts, the model (SPEC.md 128.13.5.2):
+;   warr + (sum over bz_lra and bz_lrb of words (wcw + lines wlw)) >> 4
+;        [+ BZ_WRB: a second rectangle]
+;        [+ BZ_WMF + (BZ_WMR + BZ_WMW w) h: not the whole lane]
+;        [+ bz_lwrp's, each rectangle: lane BX's columns cross the ring's end]
+; BX = the lane.  -> AX, FFFFh when it does not fit a word.  Preserves all
+; else.
+bz_lcraw:
     push bx
     push cx
     push dx
@@ -831,25 +1076,33 @@ bz_lcost:
     push di
     xor si, si
     xor di, di                  ; SI:DI = the sum, 1/16 counts
+    cmp byte [bz_lxw + bx], 0
+    je .nx
+    mov bx, bz_lra              ; (a lane whose columns cross the ring's end:
+    call bz_lwrp                ; the pass's row-at-a-time path, priced)
+    mov bx, bz_lrb
+    call bz_lwrp
+.nx:
     mov bx, bz_lra
     call .rect
     mov bx, bz_lrb
     call .rect
-    mov al, [bz_lw]             ; the map copy's words, w x h whatever the
-    mul byte [bz_lh]            ; shown lines (BZ_WMW)
-    mov dx, BZ_WMW * 16
+    jnc .nb
+    add di, BZ_WRB * 16         ; (a second rectangle: its set-up, which no
+    adc si, 0                   ; calibration commit runs)
+.nb:
+    call bz_lwhole
+    je .wh
+    mov al, BZ_WMW              ; (not the whole lane: the pose copied first,
+    mul byte [bz_lw]            ; a block row at a time)
+    add ax, BZ_WMR
+    mul word [bz_lh]
+    add ax, BZ_WMF
+    mov dx, 16
     mul dx
     add di, ax
     adc si, dx
-    mov ax, [bz_lrb + 2]        ; a second rectangle (the entering rows'):
-    cmp ax, [bz_lrb]            ; its set-up, which no calibration commit
-    jle .nb                     ; runs (BZ_WRB)
-    mov ax, [bz_lrb + 6]
-    cmp ax, [bz_lrb + 4]
-    jle .nb
-    add di, BZ_WRB * 16
-    adc si, 0
-.nb:
+.wh:
     mov ax, di
     mov dx, si
     mov cx, 4
@@ -859,15 +1112,7 @@ bz_lcost:
     loop .sh
     add ax, [bz_warr]
     adc dx, 0
-    jnz .big
-    mov cx, 100
-    mul cx
-    mov cx, [bz_trim]
-    cmp dx, cx
-    jae .big
-    div cx
-    jmp short .out
-.big:
+    jz .out
     mov ax, 0ffffh
 .out:
     pop di
@@ -876,18 +1121,19 @@ bz_lcost:
     pop cx
     pop bx
     ret
-.rect:
-    mov ax, [bx + 2]
+.rect:                          ; BX = a rect: its words (wcw + lines wlw)
+    mov ax, [bx + 2]            ; into SI:DI; CF = 1 when it has cells
     sub ax, [bx]
     jle .rn
-    mov cl, [bz_lsh]
-    shl ax, cl
-    mov cx, ax                  ; CX = the lines
-    mov ax, [bx + 6]
-    sub ax, [bx + 4]
+    mov cx, [bx + 6]
+    sub cx, [bx + 4]
     jle .rn
+    push cx
+    mov cl, [bz_lsh]
+    shl ax, cl                  ; the lines
+    pop cx
     mul word [bz_wlw]
-    add ax, [bz_wll]
+    add ax, [bz_wcw]
     adc dx, 0
     jz .ok
     mov ax, 0ffffh
@@ -895,7 +1141,78 @@ bz_lcost:
     mul cx
     add di, ax
     adc si, dx
+    stc
+    ret
 .rn:
+    clc
+    ret
+
+; bz_lwrp - rectangle BX's (card rows [r0, r1), words [x0, x1)) price on
+; bz_wprect's ROW-AT-A-TIME path (.slow, SPEC.md 128.13.5.1) when a column of
+; it crosses the ring's end - bz_wprect's own test (a column's last row's
+; offset at 2000h or past), made for its LAST column - every column charged
+; (an upper bound) rows x BZ_WXR and the blocks it visits x BZ_WXB, PIT
+; counts, added x 16 into SI:DI.  Whether a lane crosses is fixed (card
+; offsets are absolute, rb R + 2 x mod 8K), so bz_wcalib flags the lanes
+; (bz_lxw) and bz_lcraw asks only for those.  Preserves all but SI, DI.
+bz_lwrp:
+    push ax
+    push bx
+    push cx
+    push dx
+    push bp
+    mov cx, [bx + 2]
+    sub cx, [bx]                ; CX = the rows
+    cmp cx, 2
+    jl .x                       ; (one row never crosses)
+    mov bp, [bx + 6]
+    sub bp, [bx + 4]            ; BP = the words
+    jle .x
+    mov al, cl
+    dec ax
+    mul byte [bz_rb]
+    push ax                     ; (rows - 1) rb
+    mov ax, [bx]
+    mul word [bz_rb]
+    add ax, [bx + 4]
+    add ax, [bx + 4]
+    and ah, 1fh                 ; the first row's offset (bz_wprect's [+6])
+    pop dx
+    add ax, dx
+    add ax, bp
+    add ax, bp                  ; the last column's last row's, + 2
+    cmp ax, 2000h + 2
+    jb .x
+    mov ax, [bx + 2]
+    mov dx, [bx]
+    push cx
+    mov cl, [bz_lsh]
+    shl ax, cl
+    dec ax
+    shl dx, cl
+    mov cl, 3
+    shr ax, cl
+    shr dx, cl
+    pop cx
+    sub ax, dx
+    inc ax                      ; the blocks a column visits
+    mov dx, BZ_WXB
+    mul dx
+    xchg ax, cx                 ; CX = their price, AX = the rows
+    mov dx, BZ_WXR
+    mul dx
+    add ax, cx                  ; a column's
+    mul bp
+    mov cx, 16
+    mul cx
+    add di, ax
+    adc si, dx
+.x:
+    pop bp
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1010,8 +1327,8 @@ bz_wprep:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_wcommit - THE COMMIT of lane AL, bz_wprep'd: interrupts SHUT for the map's
-; words, the lane writer and a closing clock sample (TITHE's span: one commit,
+; bz_wcommit - THE COMMIT of lane AL, bz_wprep'd: interrupts SHUT for the
+; pass (the map's words and the card's) and a closing clock sample (TITHE's span: one commit,
 ; no tick ISR - a FASTTICK sub-tick held pending by it is late by about a
 ; tenth of a sub-tick and never lost, 128.12.5.3); then bz_ldrw = the true
 ; pose (a change, always: the lane was due), its age 0, bz_wcom, and THE TRIM
@@ -1055,13 +1372,13 @@ bz_wcommit:
     pop ax
     ret
 
-; bz_wcore - a commit's timed span: interrupts shut, the map's words, the lane
-; writer, the closing clock sample.  Preserves all but the flags.
+; bz_wcore - a commit's timed span: interrupts shut, the pass (the map's words
+; and the card's, SPEC.md 128.13.5.1), the closing clock sample.  Preserves
+; all but the flags.
 bz_wcore:
     pushf
     cli
-    call bz_lmap
-    call bz_lwrite
+    call bz_wpass
     call bz_clk_sample
     popf
     ret
@@ -1423,18 +1740,20 @@ bz_lead:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_wcalib - THE CALIBRATION (SPEC.md 128.12.5.4), once a launch, at the end
-; of its first full write and before its sub-ticks are discarded: the COMMIT
-; path itself - the map copy, the lane writer, the closing clock sample - on a
-; pseudo-lane whose pose map is its own map words, over 1 block row x 4 words,
-; 3 x 4 and 3 x 2, eight times each, one commit a span, interrupts shut inside
-; each.  Idempotent: the words are copied onto themselves and the full write
-; has just put exactly those bytes on the card from the same map.  The
-; rectangle is the first of the window's four corners holding no lane, no
+; bz_wcalib - THE CALIBRATION (SPEC.md 128.12.5.4, 128.13.5.2), once a launch,
+; at the end of its first full write and before its sub-ticks are discarded:
+; the COMMIT path itself - the pass, the closing clock sample - on a
+; pseudo-lane whose pose map is its own map words, over 1 block row x 4
+; words, 3 x 4 and 3 x 2, eight times each, one commit a span, interrupts
+; shut inside each.  Idempotent: the words are stored onto themselves and the
+; full write has just put exactly those bytes on the card from the same map.
+; The rectangle is the first of the window's four corners holding no lane, no
 ; track and none of the ball's footprint (bz_wcorner; the tool refuses a
 ; course without one).  With T1, T3, T3n the three means, in PIT counts:
-;   wlw = 16 (T3 - T3n) / 48, wll = (T3 - T1) - 4 wlw (1/16 counts),
-;   warr = T1 - (wll + 4 wlw) / 2, each at least 1.
+;   wlw = 16 (T3 - T1) / (16 x 4), wcw = 16 (T3 - T3n) / 2 - 24 wlw
+;   (1/16 counts), warr = T1 - (4 (wcw + 8 wlw)) >> 4, each at least 1.
+; Then (with or without a corner) bz_lcf: each lane's WHOLE commit's cost
+; by the model (bz_lcraw), which bz_lcost takes for a whole-lane commit.
 ; Preserves nothing.
 ; -----------------------------------------------------------------------------
 bz_wcalib:
@@ -1444,7 +1763,7 @@ bz_wcalib:
 .go:
     mov byte [bz_wcal], 1
     call bz_wcorner
-    jc .out
+    jc .lcf
     mov byte [bz_lmode], 0
     mov ax, [bz_rowb]
     mov [bz_lsst], ax           ; the pose map is the map itself
@@ -1459,42 +1778,105 @@ bz_wcalib:
     call bz_wspan
     mov [bz_cT + 4], ax         ; T3n
     mov ax, [bz_cT + 2]
-    sub ax, [bz_cT + 4]
+    sub ax, [bz_cT]             ; T3 - T1: 16 word-lines x 4 words
     jae .w
     xor ax, ax
 .w:
-    mov cx, 16
-    mul cx
-    mov cx, 48
-    div cx
+    shr ax, 1
+    shr ax, 1
     call .min1
     mov [bz_wlw], ax
-    shl ax, 1
-    shl ax, 1
-    mov bx, ax                  ; BX = 4 wlw
     mov ax, [bz_cT + 2]
-    sub ax, [bz_cT]
-    sub ax, bx
+    sub ax, [bz_cT + 4]         ; T3 - T3n: two columns of 24 lines
+    jae .c
+    xor ax, ax
+.c:
+    mov cx, 8
+    mul cx
+    mov bx, ax
+    mov si, dx                  ; SI:BX = 8 (T3 - T3n)
+    mov ax, [bz_wlw]
+    mov cx, 24
+    mul cx
+    sub bx, ax
+    sbb si, dx                  ; less their 48 word-lines
+    mov ax, bx
+    js .c0
+    jz .c1
+    mov ax, 0ffffh
+    jmp short .c1
+.c0:
+    xor ax, ax
+.c1:
     call .min1
-    mov [bz_wll], ax
-    add ax, bx
-    shr ax, 1
-    mov dx, [bz_cT]
-    sub dx, ax
-    xchg ax, dx
+    mov [bz_wcw], ax
+    mov ax, [bz_wlw]
+    mov cx, 8
+    mul cx
+    add ax, [bz_wcw]
+    adc dx, 0                   ; DX:AX = wcw + 8 wlw, a column of a block row
+    shr dx, 1
+    rcr ax, 1
+    shr dx, 1
+    rcr ax, 1                   ; ...x 4 words >> 4
+    mov cx, [bz_cT]
+    sub cx, ax                  ; T1 less it: below 0 (a borrow, or DX
+    xchg ax, cx                 ; not 0) is 0, and then 1
+    jc .a0
+    or dx, dx
+    jz .a
+.a0:
+    xor ax, ax
+.a:
+    add ax, BZ_WPATH            ; + the wheel's own path to bz_wcore (128.13.16)
     call .min1
     mov [bz_warr], ax
+.lcf:
+    xor bx, bx                  ; EACH LANE'S WHOLE COMMIT, priced once
+.lf:
+    cmp bl, [bz_nlane]
+    jae .out
+    call bz_ldesc
+    mov ax, [bz_lq0]
+    mov [bz_lra], ax
+    mov ax, [bz_lq1]
+    mov [bz_lra + 2], ax
+    mov ax, [bz_lcl]
+    mov [bz_lra + 4], ax
+    add ax, [bz_lw]
+    mov [bz_lra + 6], ax
+    xor ax, ax
+    mov [bz_lrb], ax
+    mov [bz_lrb + 2], ax
+    xor si, si
+    xor di, di
+    push bx
+    mov bx, bz_lra
+    call bz_lwrp
+    pop bx
+    or si, di                   ; (a column of it crosses the ring's end:
+    mov byte [bz_lxw + bx], 0   ; bz_lcraw prices its rows, here and in
+    jz .nc                      ; every clipped commit of it)
+    inc byte [bz_lxw + bx]
+.nc:
+    call bz_lcraw
+    mov si, bx
+    shl si, 1
+    mov [bz_lcf + si], ax
+    inc bx
+    jmp short .lf
 .out:
     ret
 .min1:
     or ax, ax
-    jg .m1
-    mov ax, 1
+    jnz .m1
+    inc ax
 .m1:
     ret
 
 ; bz_wspan - the mean of BZ_CALN timed commits of the rectangle (bz_lbr,
-; bz_lcl, bz_lw x bz_lh) onto itself -> AX, PIT counts.  Clobbers BX, CX, DX,
+; bz_lcl, bz_lw x bz_lh) onto itself (a whole lane: no copy) -> AX, PIT
+; counts.  Clobbers BX, CX, DX,
 ; SI.  (bz_wnow inside a span spends DX: BX, CX hold the opening sample.)
 bz_wspan:
     mov ax, [bz_lbr]
@@ -1549,7 +1931,8 @@ bz_wspan:
 ; bz_wcorner - the calibration's rectangle: the window's four corners of 4
 ; words x 3 WHOLE block rows - top-left, top-right, bottom-left, bottom-right,
 ; bbcourse.check_bounds's order - the first free of lanes, the slab's track
-; and the ball's footprint -> bz_lbr, bz_lcl; CF = 1 none.  Clobbers AX, BX,
+; and the ball's footprint, none of its columns crossing the ring's end
+; (bz_lwrp) -> bz_lbr, bz_lcl; CF = 1 none.  Clobbers AX, BX,
 ; CX, DX, SI, DI.
 bz_wcorner:
     mov ax, [bz_R0]
@@ -1585,7 +1968,8 @@ bz_wcorner:
     ret
 
 ; AX = a word column, DX = a block row: CF = 1 when the corner there meets a
-; lane, the slab's track or the ball's footprint; else bz_lcl, bz_lbr = it.
+; lane, the slab's track or the ball's footprint, or a column of it crosses
+; the ring's end; else bz_lcl, bz_lbr = it (bz_lra its card rectangle).
 ; Preserves BX, CX, SI, DI.
 bz_wctry:
     push bx
@@ -1653,6 +2037,29 @@ bz_wctry:
     inc bx
     jmp short .l
 .free:
+    pop dx                      ; ...and none of its columns crossing the
+    pop ax                      ; ring's end (the pass's row-at-a-time path
+    push ax                     ; would be timed as the model's columns,
+    push dx                     ; bz_lwrp's price twice over)
+    mov cl, 3
+    shl dx, cl
+    mov cl, [bz_lsh]
+    shr dx, cl
+    mov [bz_lra], dx            ; its card rows ...
+    mov bx, 24
+    shr bx, cl
+    add bx, dx
+    mov [bz_lra + 2], bx
+    mov [bz_lra + 4], ax        ; ...and words
+    add ax, 4
+    mov [bz_lra + 6], ax
+    xor si, si
+    xor di, di
+    mov bx, bz_lra
+    call bz_lwrp
+    or si, di
+    stc
+    jnz .out
     pop dx
     pop ax
     mov [bz_lcl], ax
@@ -1702,7 +2109,11 @@ bz_kmeet:
 ; by a compare or two, and is not looked at when the range has not moved); a
 ; lane outside it costs nothing, and the walk reads no record for a lane's
 ; range or a post (bz_lrw, bz_lhh, bz_lknd; a descriptor only for a lit post
-; or a due lane).  For each lane in it:
+; or a due lane).  A lane that nothing about can change this frame is SKIPPED
+; after its range test (SPEC.md 128.13.5.3): a rotor drawn at its true pose
+; until its next change (bz_lnext), a post drawn dark with no lit frames and
+; no kick it has not seen - except on a frame whose range moved, when every
+; lane is walked.  For each lane walked:
 ;   0. a POST's lit frames: one counted off when it begins the frame drawn
 ;      lit, all of them when it is wholly out of the shown window;
 ;   1. its TRUE pose (bz_ltrue);
@@ -1719,15 +2130,21 @@ bz_kmeet:
 ; THE PLATFORM (128.12.15 item 3): its whole rise outside the walk's range,
 ; not on the card (bz_pline 8000h) and not computed; else its true line from
 ; n; its drawn and its true footprint both outside the shown window, its drawn
-; line follows in RAM; else, its line changed, its box.
+; line follows in RAM; else, its line changed, its box - which WAITS one frame
+; (SPEC.md 128.13.4.3: never two running, never while it carries the ball,
+; never LEAVING - its drawn footprint shown and its true one not) on a
+; CROWDED frame (the ball's and the shadow's groups two boxes, bz_bsone: a
+; post lighting then is the group and lights on its kick's frame), or for a
+; promoted wheel lane on a frame with no post lighting.
 ; THE CONTACT GROUP, at most one: a must-draw rotor, else the slab's box (a
-; post lighting waits a frame for it: the box cannot, SPEC.md 128.12.4.3),
-; else a post lighting, else the contact candidate due longest (the highest
+; post lighting beside it is the group and the box a second rect, which may
+; yet make the post wait in bz_mkboxes), else a post lighting, else the
+; contact candidate due longest (the highest
 ; bz_lage, then the lowest index) - on a frame whose ball and shadow are ONE
 ; box between them, with no occluder pass and the ball outside the edge zone,
 ; or on any frame once it has been due BZ_WPRF frames - else the WHEEL
 ; candidate due longest once it has been due BZ_WPRO frames on such a frame,
-; or BZ_WPRF on any (bz_wpro: PROMOTED; the slab's box yields it one frame).  Every other contact
+; or BZ_WPRF on any (bz_wpro: PROMOTED; the slab's box waits for it).  Every other contact
 ; candidate and must-draw lane WAITS, its map unsynced (bz_ndef): display
 ; only.  bz_heavy (128.12.7) from those choices and the ball before the
 ; camera.  Preserves nothing.
@@ -1770,12 +2187,14 @@ bz_props:
     add ax, BZ_LINES - 1
     shr ax, cl
     add ax, 3
+    mov byte [bz_lnsk], 0
     cmp dx, [bz_pra]            ; the last frame's: the slice stands
     jne .rng
     cmp ax, [bz_prb]
     je .walk
 .rng:
-    mov [bz_pra], dx
+    mov byte [bz_lnsk], 1       ; (moved: every lane in it walked this frame,
+    mov [bz_pra], dx            ; none skipped - one may have just entered it)
     mov [bz_prb], ax
     xor bx, bx                  ; lr0 on while that lane cannot reach ra (its
     mov bl, [bz_lr0]            ; brow + 3 <= ra: h is at most 3), back while
@@ -1841,10 +2260,30 @@ bz_props:
     xor ch, ch
     add ax, cx
     cmp ax, [bz_pra]
-    jg .in
+    jle .nx
+    cmp byte [bz_lnsk], 0       ; THE SKIP (SPEC.md 128.13.5.3): nothing about
+    jne .w0                     ; the lane can change this frame - it is not
+    mov al, [bz_ldrw + bx]      ; due, no candidate, its age 0 - while it is
+    cmp al, [bz_ltru + bx]      ; drawn at its true pose and ...
+    jne .w0
+    cmp byte [bz_lknd + bx], BZ_PK_WINDMILL
+    jne .skp
+    mov ax, [bz_lnext + si]     ; ...a ROTOR's next pose change is past this
+    sub ax, [bz_nstep]          ; frame's last step (a 16-bit difference:
+    or ax, ax                   ; it tolerates the wrap), ...
+    jg .nx
+    jmp short .w0
+.skp:
+    or al, al                   ; ...or a POST is drawn dark, its lit frames
+    jnz .w0                     ; none, every kick seen
+    cmp [bz_lhold + bx], al
+    jne .w0
+    mov ax, [bz_pkick + si]
+    cmp ax, [bz_lkick + si]
+    jne .w0
 .nx:
     jmp .next
-.in:
+.w0:
     cmp byte [bz_lhold + bx], 0 ; 0. a lit post's frames ON THE GLASS: one
     je .t                       ; counted off each frame that begins with it
     call bz_ldesc               ; drawn lit; none left once it is wholly
@@ -1953,7 +2392,9 @@ bz_props:
     cmp ax, BZ_PLNONE
     je .pout
     call bz_pshown              ; ...and the DRAWN one: drawn = true, in RAM
-    jc .pbox                    ; (the drawn one shown: its box erases it)
+    jnc .pout                   ; (the drawn one shown: its box erases it,
+    or byte [bz_pflag], 8       ; LEAVING, and it does not wait)
+    jmp short .pbox
 .pout:
     mov [bz_pline], dx
     jmp short .choose
@@ -1973,15 +2414,28 @@ bz_props:
     jnz .mlane
     test byte [bz_pflag], 1     ; ...the slab's box, ...
     jz .nopl
-    mov al, [bz_pylp]           ; (which YIELDS a frame - never two running,
-    or al, [bz_onp]             ; never under a ball the lift carries or
-    or al, [bz_mustp]           ; beside a post lighting - to a wheel lane
-    jnz .pkeep                  ; promoted (bz_wpro): its drawn line holds,
-    call bz_wpro                ; and the drawn line is what every writer
-    jnc .pkeep                  ; draws, so the card stays the map's)
+    mov al, [bz_pylp]           ; (which WAITS a frame - never two running,
+    or al, [bz_onp]             ; never under a ball the lift carries, never
+    jnz .pkeep                  ; leaving the window - SPEC.md 128.13.4.3:
+    test byte [bz_pflag], 8     ; its drawn line holds, and the drawn line is
+    jnz .pkeep                  ; what every writer draws, so the card stays
+    call bz_bsone               ; the map's - (a) when the ball's and the
+    jnc .pwait                  ; shadow's groups are two boxes, (b) a post
+    cmp byte [bz_mustp], 0      ; lighting then too; (c) for a wheel lane
+    jne .pkeep                  ; promoted, bz_wpro, on any other frame
+    call bz_wpro                ; without a post lighting)
+    jnc .pkeep
+    call .pwt
+    jmp short .promo
+.pwait:
+    call .pwt                   ; (a) and (b): the post is the group and
+    jmp short .nopl             ; lights on its kick's frame
+.pwt:
     and byte [bz_pflag], 0feh
     mov byte [bz_pyld], 1
-    jmp short .promo
+    inc word [bz_npwt]
+    inc word [bz_ndef]
+    ret
 .pkeep:
     cmp byte [bz_mustp], 0      ; (with a post lighting: the post is the
     je .slab                    ; group and the box a SECOND rect, which
@@ -2307,7 +2761,8 @@ bz_csync:
     ret
 
 ; bz_pyield - bz_mkboxes found no room for the lift's box beside a lighting
-; post (bz_pflag bit 2): the post WAITS a frame - its map words back to its
+; post (bz_pflag bit 2: the box could not wait, SPEC.md 128.13.4.3, or the
+; frame was not crowded and still had no room): the post WAITS a frame - its map words back to its
 ; drawn pose, bz_ndef - and the box is the contact group (bz_crect2 to
 ; bz_crect, bz_ctype 2).  Clobbers AX, BX.
 bz_pyield:
@@ -2332,7 +2787,8 @@ bz_pyield:
 
 ; bz_cslab - the PLATFORM's box is the contact group (SPEC.md 128.12.4.3): its
 ; drawn and true footprints, one box (the slab moves at most 6 lines in an
-; 8-step frame), BZ_BOXW words from its columns; then its drawn line is the
+; 8-step frame: 18 + 6 lines, 18 + 12 after a waited frame, inside BZ_BOXL,
+; 128.13.4.3), BZ_BOXW words from its columns; then its drawn line is the
 ; true one (bz_pline).  Preserves all but the flags.
 bz_cslab:
     mov byte [bz_ctype], 2
@@ -2623,16 +3079,24 @@ bz_passon:
 ; CF = 1 when a contact LANE may be drawn this frame (SPEC.md 128.12.4.3): no
 ; occluder pass, the ball's new footprint outside the edge zone, and the
 ; ball's and the shadow's footprints - old and new - ONE box between them
-; (bz_union's BZ_BOXW x BZ_BOXH), so the contact frame is at most two boxes.
-; A hidden ball's frame has none of these.  Clobbers AX, BX, SI.
+; (bz_bsone), so the contact frame is at most two boxes.  A hidden ball's
+; frame has none of these.  Clobbers AX, BX, SI.
 bz_conok:
     cmp byte [bz_tube], 0
-    jne .yes
+    jne bz_bsone.yes
     call bz_pedge
     call bz_passon
-    jnz .no
+    jnz bz_bsone.no
     cmp word [bz_hedr], 0
-    jne .no
+    jne bz_bsone.no
+; bz_bsone - CF = 1 when the ball's and the shadow's footprints, old and new,
+; are ONE box between them (bz_union's BZ_BOXW x BZ_BOXH); CF = 0 when the
+; two groups are two boxes or more - a CROWDED frame, on which the platform's
+; box waits (SPEC.md 128.13.4.3 (a)).  A hidden ball's is one.  Clobbers AX,
+; BX, SI.
+bz_bsone:
+    cmp byte [bz_tube], 0
+    jne .yes
     mov si, bz_ur               ; the union, from the ball's new footprint
     mov ax, [bz_nfx0]
     mov [si], ax
@@ -2666,27 +3130,17 @@ bz_conok:
     ret
 
 ; CF = 1 when a frame with no contact group is HEAVY at level 1 (SPEC.md
-; 128.12.7): it runs the occluder pass, its ball's group is TWO boxes (its old
-; and new footprints do not fit one, unclipped), or it shows the slab near the
-; window's edge.  A hidden ball's is not.  Clobbers AX, BX, SI.
+; 128.13.6): it shows the slab near the window's edge on the ball's side
+; (bz_pnear, bz_pflag bit 1) - the clause alone: wave 3's occluder-pass and
+; two-box clauses are gone, MEASURED to buy nothing on MILL and to cost
+; TRIAL (128.13.3.3, 128.13.3.4).  A hidden ball's is not, and is never
+; asked: bz_props' .level makes a frame with a tube in transit light before
+; it calls here.  Clobbers nothing but the flags.
 bz_hv1:
-    cmp byte [bz_tube], 0
-    jne .no
-    test byte [bz_pflag], 2
-    jnz .yes
-    call bz_passon
-    jnz .yes
-    cmp byte [bz_oldv], 0
-    je .no
-    mov si, bz_nfx0
-    mov bx, bz_ofx0
-    call bz_union               ; (CF = 1: two boxes)
-    ret
-.yes:
+    test byte [bz_pflag], 2     ; (CF = 0)
+    jz .x
     stc
-    ret
-.no:
-    clc
+.x:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2780,9 +3234,11 @@ bz_hspin:
 ; platform is not in the map: every box that meets its drawn footprint
 ; (bz_pline) is composed with it - under the ball, or over it by ONE decision a
 ; frame (bz_povr) - and three things put it on the card: its BOX when its drawn
-; line changes while it is shown (bz_props's contact, bz_cslab), its box after
-; a FULL WRITE (bz_pfull), and its box CLIPPED to the cells a strip brings in
-; (bz_pstrip).  Nothing else writes it, so nothing else needs to know.
+; line changes while it is shown (bz_props's contact, bz_cslab; merged with
+; the ball's group up to BZ_BOXL lines, THE RIDE BOX, SPEC.md 128.13.4.1, and
+; one frame late on a crowded frame, 128.13.4.3), its box after a FULL WRITE
+; (bz_pfull), and its box CLIPPED to the cells a strip brings in (bz_pstrip).
+; Nothing else writes it, so nothing else needs to know.
 ; =============================================================================
 BZ_PLB      equ BZ_PLW / 4      ; the slab's bytes a line (4 px a byte)
 %if BZ_PLSPR != 4 * BZ_PLH * BZ_PLB || (BZ_PLH & 1) || BZ_PLB != 2 * BZ_BOXW

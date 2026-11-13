@@ -24,8 +24,13 @@ BONANZA plays on a CGA or a Hercules only - and then:
   1  B, the benchmark, to its end on the Hercules ([bz_herc] 1 inside, the
      results left: [bz_res] 1, 1,200 frames in [bz_rframes]);
   2  Enter, a play of FIRST, left by Esc after 100 frames;
-  3  a play with a HOP (Space) and GRIP (Left Shift held) and the arrows,
-     left by Esc, then its REPLAY by R run to its end: the replay's end
+  3  a play with a HOP (Space) and GRIP (Left Shift held ALONE for 2 steps,
+     then the GREY Right with it), left by Esc, then its REPLAY by R run to
+     its end; and "3. the fake-shift release" (SPEC.md 128.13.7 item 6):
+     with both held, kbd_track's map is read at 2Ah - CLEAR means this
+     machine sent the fake-shift release (86Box does, MEASURED), and then
+     every step logged while both were held has bits 1 and 5 (Right, Grip),
+     ASSERTED; 2Ah still set SKIPS that check naming why.  The replay's end
      state (nstep, gx, gy, gz and the velocities, read in the package's bss)
      is the play's - every launch on the Hercules BUILDS BZ_HTAB in the
      package's bss and TRANSLATES both fetched parts in place through their
@@ -77,11 +82,15 @@ the row FAILS at its own check:
   hxcs      the Hercules translation writes through CS (bz_hxrows' store a
             `mov [cs:di], al`): an exception in the fault log, charged to the
             package, at the first Hercules launch
-  mapcs     a lane's map words written through CS (bz_lmap's ES the code
-            selector): an exception in the fault log at MILL's first sync
-  shiftmap  Grip read through OSAPI_KEY_DOWN (2Ah), §9.7's map: with the
-            fake shift in the map, bit 5 set while the grey arrow is held
-            (a SKIP of case 4 leaves this arm unjudged, and it says so)
+  mapcs     the commit's PASS stores a block's map word through CS (wave
+            3b, SPEC.md 128.13.11: bz_wprect.col's `mov [cs:bx], si`): an
+            exception in the fault log at MILL's launch (the calibration
+            commits through the pass)
+  shiftmap  Grip read through OSAPI_KEY_DOWN (2Ah), §9.7's map: 86Box sends
+            the fake-shift RELEASE (E0 AA) before a grey arrow pressed with
+            Left Shift held (MEASURED, SPEC.md 128.13.3.4), so the map loses
+            Grip under it: red at "3. the fake-shift release" (a SKIP of
+            that check leaves this arm unjudged, and it says so)
 Needs a built 86Box (python3 tools/os88box.py build).
 """
 import argparse
@@ -524,9 +533,17 @@ def run(img_b, keep, tmp):
         b.until(lambda: pkg.byte("bz_fs") == 1 and pkg.word("bz_frames") > 20, "a play of 20 frames", 60000, 100)
         steps(b, pkg, 10, "the play's first steps")
         hold(b, pkg, "space", 4)                        # a Hop from the ground
+        # Grip (Left Shift) ALONE for 2 steps, so "Grip recorded" is judged apart from
+        # the grey arrow (SPEC.md 128.13.7 item 6); then the grey Right with it
         b.cmd("key down 0x%X" % os88box.keycode("lshift"))
+        steps(b, pkg, 2, "Grip held alone")
         b.cmd("key down 0x%X" % os88box.keycode("right"))
-        steps(b, pkg, 60, "Grip and Right held")
+        steps(b, pkg, 5, "Grip and the grey Right down")
+        dnmap = b.sym("kbd_dnmap")
+        rel = not (b.memr(dnmap + (0x2A >> 3), 1)[0] & (1 << (0x2A & 7)))
+        both0 = nstep(b, pkg)                           # (bz_nstep counts from the play's start:
+        steps(b, pkg, 55, "Grip and Right held")        # the log's key byte i is step i's)
+        both1 = nstep(b, pkg)
         b.cmd("key up 0x%X" % os88box.keycode("right"))
         b.cmd("key up 0x%X" % os88box.keycode("lshift"))
         hold(b, pkg, "space", 4)
@@ -540,6 +557,23 @@ def run(img_b, keep, tmp):
         keys = log_keys(b, pkg)
         want(log[:4] == b"BZR1" and log[6] & 1 and any(k & 0x10 for k in keys) and any(k & 0x20 for k in keys),
              "3. the play's log: BZR1, COMPLETE, %d steps, with a Hop (bit 4) and Grip (bit 5) recorded" % len(keys))
+        # 3. THE FAKE-SHIFT RELEASE (SPEC.md 128.13.3.4, 128.13.7 item 6): 86Box sends E0 AA before a grey
+        # arrow pressed with Left Shift held, and kbd_track's map takes it for Left Shift's release; the
+        # package reads Grip from the BIOS's flags, which ignore it.  2Ah CLEAR with both held: this
+        # machine sent the release, and every step logged while both were held has Right and Grip
+        both = keys[both0 + 1:both1]
+        if not rel:
+            SKIPS.append("3. the fake-shift release: SKIP - with Left Shift and the grey Right both held, 2Ah is "
+                         "still set in kbd_track's map: this machine sent no fake-shift release, so the case "
+                         "could not go red")
+            print("   SKIP %s" % SKIPS[-1], flush=True)
+        else:
+            lost = [both0 + 1 + i for i, k in enumerate(both) if k & 0x22 != 0x22]
+            want(len(both) >= 40 and not lost,
+                 "3. the fake-shift release: 2Ah clear in kbd_track's map with Left Shift and the grey Right held "
+                 "(the machine sent E0 AA), and all %d steps logged while both were held (steps %d - %d) have "
+                 "Right (bit 1) and Grip (bit 5)%s" % (len(both), both0 + 1, both1 - 1,
+                                                       "; WITHOUT them: steps %s" % lost[:8] if lost else ""))
         check_after("3. the play with Hop and Grip", pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
         b.tap("r", gap=300)
         b.until(lambda: pkg.byte("bz_fs") == 1, "R's replay", 60000, 100)
@@ -609,13 +643,14 @@ REDS = {
                   "    int 16h\n    test al, 2\n    jz .out\n",
                   "    mov al, 2ah                 ; RED shiftmap: Left Shift through OSAPI_KEY_DOWN\n"
                   "    call OSAPI_KEY_DOWN\n    jnc .out\n")],
-    # wave 3: a lane's map words written through CS - a code selector on kern_mega takes
-    # no write (SPEC.md 128.12.12): an exception at MILL's first sync
-    "mapcs": [("bzwheel.inc", "    mov es, [bz_cseg]\n    push es\n    pop ds\n.r:\n",
-               "    mov ds, [bz_cseg]\n    push cs                     ; RED mapcs: the map through CS\n"
-               "    pop es\n.r:\n")],
+    # wave 3b (SPEC.md 128.13.11): the commit's PASS stores a block's map word through CS - a
+    # code selector on kern_mega takes no write: an exception at MILL's launch (the calibration's
+    # idempotent commit is the pass itself) or its first commit
+    "mapcs": [("bzwheel.inc", "    mov [bx], si                ; ...into the map\n    add si, [bp + 8]            ; SI",
+               "    mov [cs:bx], si             ; RED mapcs: the pass's map store through CS\n"
+               "    add si, [bp + 8]            ; SI")],
 }
-RED_WANT = {"segadd": None, "hxcs": None, "shiftmap": "4. the fake shifts", "mapcs": None}
+RED_WANT = {"segadd": None, "hxcs": None, "shiftmap": "3. the fake-shift release", "mapcs": None}
 
 
 def main():

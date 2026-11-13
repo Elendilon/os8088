@@ -655,32 +655,51 @@ bz_face:
     call bz_lstr
     call bz_line
     call bz_playline            ; ENTER <the course's title>  B bench
-    ; line 2: the adapter, or the refusal's reason
+    ; line 2: the adapter, or the refusal's reason - on a RESULTS face the
+    ; results' first line, the adapter named in it (bz_fres: the CGA's
+    ; content holds 13 lines, and the sound's line 4 made the face 14)
+    mov byte [bz_fres], 0
     mov si, bz_s_small
     cmp byte [bz_small], 0
     jne .adl
     call bz_adapter
     mov si, bz_s_cga
+    mov bx, bz_s_cgar
     cmp al, 1
-    je .adl
+    je .ad
     mov si, bz_s_herc
+    mov bx, bz_s_hercr
     cmp al, 2
-    je .adl
+    je .ad
     mov si, bz_s_noad
+    jmp short .adl
+.ad:
+    cmp byte [bz_err], 3        ; the results are shown unless a refused
+    je .adl                     ; replay says why, or a play's goal took
+    cmp byte [bz_fin], 0        ; their place (below), or there are none
+    jne .adl
+    cmp byte [bz_res], 0
+    je .adl
+    inc byte [bz_fres]
+    mov si, bx
+    call bz_lstr
+    call bz_frline
+    jmp short .adk
 .adl:
     call bz_lstr
+.adk:
     call bz_line
     call bz_keyline             ; line 3: the camera, the ball, their keys
     call bz_sndline             ; line 4: the sound and its key (128.20.4)
     cmp byte [bz_err], 3        ; (a refused replay says why, whatever the
     je .nores                   ; lines would hold)
-    cmp byte [bz_fin], 0        ; lines 4 and 5 after a play or a replay that
+    cmp byte [bz_fin], 0        ; lines 5 and 6 after a play or a replay that
     je .nofin                   ; reached the goal: its time (SPEC.md
     call bz_finline             ; 128.10.6.2) and its mishaps (128.11.11.3),
     call bz_tally               ; IN PLACE OF the last benchmark's results -
     jmp short .nores            ; the CGA's content holds 13 lines and they
-.nofin:                         ; are 9 - which come back with the next one
-    cmp byte [bz_res], 0
+.nofin:                         ; are 8 below line 4 - which come back with
+    cmp byte [bz_fres], 0       ; the next one
     jne .results
 .nores:
     mov al, [bz_err]            ; 1 the mode was refused, 2 the display
@@ -930,12 +949,11 @@ bz_fclip:
 .out:
     ret
 
-; the RESULTS of the last benchmark (SPEC.md 128.6): the frames and the display
-; rate, the refreshes missed and the worst frame, then the mean CPU clocks of
-; each part of a frame (PIT counts x 4), then the writer counts
-bz_facres:
-    mov si, bz_s_frames
-    call bz_lstr
+; the RESULTS of the last benchmark (SPEC.md 128.6): on line 2, after the
+; adapter's name (bz_face), the frames and the display rate and the refreshes
+; missed; from line 5 the worst frame, then the mean CPU clocks of each part
+; of a frame (PIT counts x 4), then the writer counts
+bz_frline:
     mov ax, [bz_rframes]
     xor dx, dx
     call bz_lnum
@@ -957,8 +975,9 @@ bz_facres:
     call bz_lcat                ; cannot tell 0 misses from a few
     mov ax, [bz_rmiss]
     xor dx, dx
-    call bz_lnum
-    call bz_line
+    jmp bz_lnum
+
+bz_facres:
     mov si, bz_s_worst          ; the worst frame, and the means' heading
     call bz_lstr
     mov ax, [bz_rfmax]
@@ -1261,7 +1280,7 @@ bz_credit1: db 'Isometric rolling-ball game',0
 bz_credit2: db 'Wave 3: obstacles and the wheel',0
 bz_credit3: db 'Generated art, original design',0
 
-bz_s_title: db 'BOUNCE BONANZA - wave 3',0
+bz_s_title: db 'BOUNCE BONANZA - wave 3b',0
 bz_s_keys:  db 'ENTER ',0
 bz_s_sndk:  db 'S SOUND ',0
 bz_s_smodes: dw bz_s_sauto, bz_s_sspkf, bz_s_sfx, bz_s_soff
@@ -1300,7 +1319,8 @@ bz_s_secs:  db ' s',0
 bz_s_err:   db 'The full screen mode was refused',0
 bz_s_err2:  db "The window's display changed",0
 bz_s_err3:  db "Another course's log",0
-bz_s_frames: db 'Frames ',0
+bz_s_cgar:  db 'CGA: frames ',0
+bz_s_hercr: db 'Hercules: frames ',0
 bz_s_disp:  db '  ',0
 bz_s_hz:    db ' Hz  misses ',0
 bz_s_worst: db 'Worst ',0
@@ -1357,6 +1377,7 @@ OS88_PARTS_END
 VAR bz_win,2
 VAR bz_abon,1
 VAR bz_small,1                  ; 1 = kern_small (no timer slot): refused
+VAR bz_fres,1                   ; 1 = this paint's face shows the results
 VAR bz_pc,1                     ; the course's part row (BZ_P_CRS + K)
 VAR bz_pb,1                     ; ...and the ball's (BZ_P_BALR + [bz_mat])
 VAR bz_crsel,1                  ; the course Enter plays (N): FIRST, TRIAL, ...
