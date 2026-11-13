@@ -186,7 +186,7 @@ WA_VAR wa_kv, (WA_MAXKS+1)*8    ; per slot: the step x 4...
 WA_VAR wa_mk, (WA_MAXKS+1)*8    ; ...and its products, cos and sin, 32 bits
 WA_VAR wa_nsht, 1               ; ...and wa_numt's, for the height in
 WA_VAR wa_ntht, 2               ; wa_ntht (wa_hnt)
-WA_VAR wa_gen, 1                ; held edges or heights: every span general
+WA_VAR wa_gen, 1                ; heights: every span general
 WA_VAR wa_roomh, 2              ; the room's height
 WA_VAR wa_nshb, 1               ; the shift wa_numb's product takes (3, or 1
                                 ; when it is / 4: wa_render)
@@ -1645,10 +1645,10 @@ wa_span:
     mov [wa_b2], ax
 .dcok:
     ; THE FLAT SPAN, nine in ten: neither edge moves a half-row a column (or
-    ; one that does is off the screen throughout), no held edges - two
+    ; one that does is off the screen throughout) - two
     ; passes by runs (wa_fedge, FLATPASS). Anything else is SPANLOOP's,
     ; below.
-    cmp byte [wa_gen], 0        ; (held edges, or heights)
+    cmp byte [wa_gen], 0        ; (heights)
     jne .general
     FLATBODY wa_fo, wa_fp, .general, 0, .ftail
 
@@ -1679,7 +1679,7 @@ wa_span:
     stc
     ret
 
-.general:                       ; (heights, no held edges: a flat span
+.general:                       ; (heights: a flat span
     cmp byte [wa_hflat], 0      ; takes the clip-tested passes)
     jne .gen1
     call wa_fclpc
@@ -1806,7 +1806,7 @@ wa_span:
     call wa_cclp
     push cx
     mov cl, [wa_gen]            ; (nothing else is in this column yet - but
-    call wa_corner              ; a HELD edge, or a low box, can be)
+    call wa_corner              ; a low box can be)
     pop cx
 .c2:
     mov si, [wa_end]
@@ -1939,8 +1939,8 @@ wa_span:
     mov dx, si
     ret
 
-; wa_fspan - wa_face's way for a face with BOTH ends in the view and no held
-; edges: wa_span's flat span (FLATBODY's head) straight off the vertex cache,
+; wa_fspan - wa_face's way for a face with BOTH ends in the view: wa_span's
+; flat span (FLATBODY's head) straight off the vertex cache,
 ; the pre-check's columns standing for wa_span's own scan - no copy into
 ; wa_c1.., no second scan. SI = v1 x 2, DI = v2 x 2 (made: wa_face.mk);
 ; [wa_cs], [wa_end], [wa_cs0], [wa_ce0], wa_e1 and wa_e2 set by wa_face.
@@ -2201,8 +2201,8 @@ wa_loopsc:  dw wa_lc01, wa_lc01, wa_lc11, wa_lc11
 wa_loops:   dw wa_l010, wa_l010, wa_l110, wa_l110
 
 ; --- the flat span's passes ---------------------------------------------------
-; A FLAT span (neither edge moves a half-row a column) at full detail without
-; held edges - nine spans in ten. Such an edge keeps its half-row for RUNS of
+; A FLAT span (neither edge moves a half-row a column) at full detail - nine
+; spans in ten. Such an edge keeps its half-row for RUNS of
 ; columns, so its whole part is not stepped: the step's fraction is added and
 ; the carry is the change, after which the cell is simply the next column's.
 ; An edge moving UP the screen subtracts it instead, a borrow being the

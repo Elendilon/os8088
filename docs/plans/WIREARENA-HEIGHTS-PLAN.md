@@ -2307,6 +2307,136 @@ the owner's choice. All are off.
   - Coarser distant columns.
   - A frame cap.
 
+### 9.10 Detail levels (2026-11-13, branch `detail` from `e9ca8cff`)
+
+Round 5's look options are now five **detail levels**, chosen at run time
+by keys **1 to 5**. The HUD shows the level at column 37, where H's mark
+was. They follow the owner's verdicts on the round-5 videos.
+
+**The levels** (`wa_levtab` in `wirearena.asm`: a row per level, the
+options as bits, so moving an option between levels is one line):
+
+| level | key | options | grid (G) | treads (T) |
+|---|---|---|---|---|
+| Very Low | 1 | Low + ROOMF + FARTOP | off | off |
+| Low | 2 | Medium + NOPOST | off | off |
+| **Medium** (the default on an 8088) | 3 | J + ROUND + COARSE | off | off |
+| **High** (the default on a 286 or better) | 4 | Medium | **on** | off |
+| Very High | 5 | none: exact products and edges, full figures | on | **on** |
+
+The options, a bit each in `wa_look` (LK_ in `waconst.inc`):
+
+- **J** (LK_FEW, `r5-figs`): a small figure (fv8 under 16) as its seven
+  joints and five straight limbs. The owner: it "can become the default".
+- **ROUND** (`r5-walls`): the products' rounded high words, a sum each for a
+  vertex. "Can hardly see much difference."
+- **COARSE**: an edge moving less than a half-row along a whole wall is
+  drawn level, at its middle. "Can hardly notice."
+- **NOPOST**: no corner posts on walls under 8 half-rows tall. "Not great
+  but works better than always-nopost."
+- **ROOMF**: the room's walls as floor lines alone. "Looks like a boundary
+  line instead of a wall, but for an arena meant to look like that it
+  works."
+- **FARTOP** (`r5-low`): a low box's far top edge is drawn only with the eye
+  64 or more above it. The owner was unsure, so it is at Very Low alone for
+  now.
+- **RAMP2** (`r5-low`): a ramp drawn as its two sides. "Likely ok": it has
+  its **own key, R**, is in no level, and is off by default.
+
+**Dropped:**
+
+- `WL_NOPOSTS` ("it deletes what defines the block");
+- `WL_NEARPOST` and K (rejected by measurement in round 5);
+- **H**, the held edges (no visible difference, and not repeatable): the
+  hold code, its four loops and its 320 bytes of BSS are gone.
+
+**Kept as keys:**
+
+- **G** and **T** are manual overrides. Choosing a level sets both; either
+  key then flips its own until the next level is chosen.
+- **L** (no wall tops) is a debug key in no level. At Very Low it buys
+  little: P is 22.6/19.5 with it, against 22.1/18.7 without. And it reads
+  poorly where ROOMF already leaves the room as lines.
+
+**How they cost nothing when off.** The game's level sets `wa_look`, a
+FRAME byte where `wa_hyst` was, and the grid and treads bytes. The renderer
+reads them once per object or once per frame, never once per column:
+
+| option | where it is tested | off costs |
+|---|---|---|
+| ROUND | `wa_products` (a frame); `wa_vert` or `wa_vertr` through `wa_vertp`, set once a frame by `wa_lookset`; the cone test's near margin, `wa_lnear` | ~8 clk a vertex, ~10 a box |
+| COARSE | `wa_fedge`, only for an edge moving under a half-row | a byte test such an edge |
+| NOPOST | the span's tail | a byte test a span |
+| ROOMF | `wa_roomf`, set for the room's faces | a byte test a span |
+| FARTOP | `wl_fartop`, a word `wa_lookset` makes 0 or 64; the box's two eye tests subtract it | the subtracts' memory reads |
+| RAMP2 | before a flight's corners | a byte test a flight |
+| J | the figure's head | the byte test it had (`wa_flod` before) |
+
+The frame block keeps its layout: `wa_look` takes `wa_hyst`'s byte, and
+CONFIG's `wa_flod` is a pad again, J having moved into `wa_look`. **WR_ABI
+is 4** anyway, because the byte's meaning changed.
+
+**Correctness** (MartyPC `os8088_5150_cga`; r5-figs' posed sets, 720 flat
+and 260 heights frames, the level poked into the frame block):
+
+- **No options, no grid, no treads** (Very High's options all off): VRAM
+  and the figures' trigger fields **identical to `e9ca8cff` in all 980
+  frames.**
+- **Each level against the build-time knob build of its options at
+  `e9ca8cff`, the same pokes, all identical over 980 frames:**
+  - Very Low: `WA_LOOK_ROUND WA_LOOK_COARSE WA_LOOK_NOPOST WA_LOOK_ROOMF
+    WL_FARTOP=64` + J;
+  - Low: ROUND, COARSE, NOPOST + J;
+  - Medium, and High with the grid: ROUND, COARSE + J;
+  - Very High: the plain build with the grid and treads.
+  - RAMP2 is identical to `WL_RAMP2` (at Medium).
+- **`wacheck --level N`** (a new option: the level's key after the menu),
+  at every level: **0 divide faults.**
+
+  | level | today's arena (30 poses) | heights 40 (40) | heights 80 (30) |
+  |---|---|---|---|
+  | 1 | 28 off (ROOMF's missing tops, by design) | 429 of 1,560 columns | 654 of 2,336 |
+  | 2 | 3 | 5 of 1,560 | 14 of 2,336 |
+  | 3 | 3 | 5 of 1,561 | 15 of 2,339 |
+  | 4 | 3 | 5 of 1,562 | 14 of 2,334 |
+  | 5 | 6 | 7 of 1,563 (treads: expected) | 19 of 2,340 |
+
+- The fast tier passes.
+
+**Speed** (MartyPC `os8088_5150_cga`; fps; heights A–E):
+
+| | P 40 | P 80 | B full / sparse | heights 40 | heights 80 |
+|---|---|---|---|---|---|
+| `e9ca8cff` | 19.3 | 16.1 | 33.4 / 36.6 | 13.8 / 15.6 / 34.1 / 12.9 / 27.0 | 10.9 / 11.1 / 26.6 / 9.9 / 22.0 |
+| 1 Very Low | **22.1** | **18.7** | 36.6 / 38.0 | 15.7 / 18.3 / 34.6 / 13.1 / 27.7 | 12.7 / 13.2 / 26.8 / 10.0 / 22.8 |
+| 2 Low | 21.3 | 17.6 | 34.4 / 37.7 | 14.0 / 15.8 / 34.6 / 13.1 / 27.1 | 11.0 / 11.2 / 26.8 / 10.0 / 22.1 |
+| **3 Medium** | **20.5** | **17.0** | 34.3 / 37.7 | 14.0 / 15.8 / 34.6 / 13.1 / 27.1 | 11.0 / 11.2 / 26.7 / 10.0 / 22.1 |
+| 4 High (grid) | 14.4 | 12.5 | 23.6 / 25.1 | 11.4 / 12.8 / 22.7 / 11.4 / 19.8 | 9.3 / 9.6 / 18.9 / 9.0 / 16.9 |
+| 5 Very High | 13.7 | 11.9 | 23.0 / 24.5 | 10.1 / 11.1 / 22.4 / 10.0 / 19.6 | 8.3 / 8.4 / 18.9 / 8.1 / 16.8 |
+
+- **Medium**, the default on the target, is P 20.5/17.0, against
+  `e9ca8cff`'s 19.3/16.1.
+- **High and Very High** carry the floor grid, which costs a 4.77 MHz 8088
+  about a third of its rate. They are the 286's levels.
+- **Very High's cost against High** is the exact products, exact edges
+  and full figures: P 40 −0.7 fps. On heights the treads come on too:
+  A −1.3.
+
+**Bytes:**
+
+- the renderer part: 55,629 → **54,781** (−848: H's loops and BSS out, the
+  level code in);
+- the game: 8,322 → **8,390** (+68: the table and the keys);
+- `WARENA.O88`: 22,840 → 22,888.
+
+**Videos** (side by side, labelled in the frame; the P bench and heights
+view A; the session's scratch, `r5/walls/lv/vids/`):
+
+- `lev1-P`, `lev1-A`, `lev2-*`, `lev4-*`, `lev5-*`: Medium on the left, the
+  level on the right;
+- `lev3-*`: Very High on the left, Medium on the right;
+- `ramp2-A`: Medium, and Medium with R.
+
 ### 9.3 Open, for the owner and the next waves
 
 1. **The symmetric dead ground** is decided (7.1.1) and built in wave 3:
@@ -2332,7 +2462,10 @@ the owner's choice. All are off.
 
    What the kernel does about it is the owner's call; it is not this
    plan's.
-6. **Wave 4's remainder** (6): dummies on lifts, more than one lift, the
+6. **The detail levels** (9.10): the owner re-reviews the labelled videos;
+   moving an option between levels is a line of `wa_levtab`. FARTOP sits
+   at Very Low for now, and RAMP2 has its own key (R).
+7. **Wave 4's remainder** (6): dummies on lifts, more than one lift, the
    host reference's raised lift. The walking runs of 9.7.3 are scratch
    scripts; as suite rows they belong in `soak`
    (docs/WRITING-TESTS.md).
