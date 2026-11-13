@@ -120,15 +120,14 @@ wa_main:
     call wa_geominit            ; (wa_oncmd loaded the arena)
     call wa_reset
     call OSAPI_MOUSE_REL        ; the desktop's motion is not ours: discard
-    call pit_now
-    mov [wa_last], ax
-    mov [wa_last+2], dx
     xor ax, ax
     mov [wa_acc], ax
     mov [wa_acc+2], ax
-.loop:
     call pit_now
-    mov bx, ax
+    mov [wa_last], ax
+    mov [wa_last+2], dx
+.loop:                          ; DX:AX = now (the last frame's present's
+    mov bx, ax                  ; end: one PIT read a frame fewer)
     mov cx, dx
     sub ax, [wa_last]
     sbb dx, [wa_last+2]
@@ -186,11 +185,15 @@ wa_main:
 .present:
     call wa_present
     call pit_now
+    push dx
+    push ax
     sub ax, [wa_t0]
     sbb dx, [wa_t0+2]
     add [wa_tpr], ax
     adc [wa_tpr+2], dx
     call wa_meter
+    pop ax
+    pop dx
     jmp .loop
 .out:
     ret
@@ -1194,6 +1197,13 @@ wa_figtick:
 .turn:
     cmp byte [wa_aflat], 0      ; the floor it now stands on (none on a
     jne .flatz                  ; flat arena: F_Z stays 0)
+    mov si, [di+F_PATH]         ; on a leg arenagen found on the ground all
+    add si, [di+F_LEG]          ; the way, the ground - wa_figz's own test,
+    test byte [si+7], 0x80      ; without its call: most ticks of most legs
+    jnz .zread
+    mov word [di+F_Z], 0
+    jmp short .flatz
+.zread:
     call wa_figz
 .flatz:
     mov ax, [di+F_HEAD]         ; face the way it is going, 48 a tick at most
