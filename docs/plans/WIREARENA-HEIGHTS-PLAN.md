@@ -883,7 +883,7 @@ both 1bpp adapters looked at (SPEC.md §39.4, the rule CLAUDE.md repeats).
 
 ---
 
-## 7.1 The owner's answers (2026-11-13)
+### 7.1 The owner's answers (2026-11-13)
 
 These bind the waves. Where one changes a section above, it overrides it.
 
