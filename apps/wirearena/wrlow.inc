@@ -83,6 +83,7 @@ WA_VAR wl_dxb, 2
 WA_VAR wl_dzb, 2
 WA_VAR wl_ca, 2                 ; ...and its low end's two corners
 WA_VAR wl_cb, 2
+WA_VAR wl_zm, 2                 ; wl_hidden: 0, or -1 for the nearest corner
 %endmacro
 
 ; wa_lowbox - from wa_leaf: SI = a low box, DI = its record x 4 in wa_bxh,
@@ -167,6 +168,10 @@ wa_lowbox:
     call wa_hnum
     mov [wl_hn], ax
     mov [wl_hs], bl
+    call wl_hidden              ; nothing of it can show: done
+    jnc .shows
+    ret
+.shows:
     xor si, si                  ; each corner: its pair, and in the view its
 .hn:                            ; column, inverse depth, top and floor rows
     mov ax, [wl_ch+si]
@@ -274,6 +279,105 @@ wa_lowbox:
     jnz .done
     call wl_treads
 .done:
+    ret
+
+; wl_hidden - CF = 1 when nothing of the box can show, decided before its
+; corners are projected: every corner in the view, and in each column its
+; outline could reach (one either side of its corners' columns, for the
+; posts' rounding) the column shut, or its clip at or above the box's
+; topmost row. That row is the top's at the corner its height makes the
+; highest on the screen - the farthest with the eye above the top, the
+; nearest with it below - since every edge, post and tread of a box is
+; interpolated between its corners' rows, and a floor row is under its
+; top's; less one half-row for the edges' rounding. A flight's inner treads
+; stand above its stringers, so for one only shut columns count. Nothing it
+; skips would have drawn a cell, raised a clip or pushed an entry.
+wl_hidden:
+    xor ax, ax                  ; the corner wanted: the largest z, or with
+    mov cx, [wa_eye]            ; the eye at or under the top the smallest
+    cmp cx, [wl_h]              ; (z xor -1 its key)
+    jg .zm
+    dec ax
+.zm:
+    mov [wl_zm], ax
+    mov dx, 32767               ; DX, CX = the columns x 16, least and most
+    mov cx, -32767
+    mov di, -32768              ; DI = the best key, BP its vertex
+    xor si, si
+.c:
+    mov bx, [wl_cv+si]
+    test byte [wa_vok+bx], 1
+    jz .shows                   ; (a corner out of the view: no test)
+    mov ax, [wa_vpc+bx]
+    cmp ax, dx
+    jge .c1
+    mov dx, ax
+.c1:
+    cmp ax, cx
+    jle .c2
+    mov cx, ax
+.c2:
+    mov ax, [wa_vz+bx]
+    xor ax, [wl_zm]
+    cmp ax, di
+    jle .c3
+    mov di, ax
+    mov bp, bx
+.c3:
+    inc si
+    inc si
+    cmp si, 8
+    jb .c
+    add dx, 7                   ; the columns: wa_span's first past the
+    add cx, 7                   ; least, less one; its last short of the
+    push cx                     ; most, plus one
+    mov cl, 4
+    sar dx, cl
+    pop ax
+    sar ax, cl
+    dec dx
+    jns .lo
+    xor dx, dx
+.lo:
+    mov cx, [wa_w]
+    dec cx
+    cmp ax, cx
+    jle .hi
+    mov ax, cx
+.hi:
+    cmp dx, ax
+    jg .none                    ; (off the screen)
+    shl dx, 1
+    shl ax, 1
+    mov si, dx
+    mov di, ax
+    mov ax, -32768              ; a flight: any open column shows
+    test byte [wl_kind], 3
+    jnz .scan
+    mov bx, bp
+    mov bx, [wa_vz+bx]
+    call wl_iz                  ; (clobbers AX, DX)
+    mov ax, [wl_hn]
+    mov cl, [wl_hs]
+    call wl_row
+    sar ax, 1
+    sar ax, 1
+    dec ax                      ; AX = the topmost half-row, less one
+.scan:
+    cmp word [wa_cov+si], 0
+    jne .n
+    cmp [wa_cclip+si], ax
+    jg .shows
+.n:
+    inc si
+    inc si
+    cmp si, di
+    jbe .scan
+.none:
+    stc
+    ret
+.shows:
+    clc
     ret
 
 ; wl_lowseen - ZF = 0 when the box is a flight and the player stands past
