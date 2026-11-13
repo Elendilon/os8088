@@ -828,3 +828,85 @@ the call, and a compressed lazy row can be fetched again after a drop
 (`WA_MNODE` nodes, the largest arena's), adding `wa_bsp - (the part's tree)`
 to every non-zero link; the root is the first node. The tree is then walked
 there, by `wrender.inc` unchanged.
+
+---
+
+## 8. As built (2026-11-13, branch `parts-impl` from `7232b890`)
+
+Steps 1-4 landed as five commits: step 1 (constants, `wa_sincos` and the
+renderer's tables into includes, `wirearena.bin` cmp-identical), step 2
+(`build/watab.inc`'s data blocks on request, cmp-identical; the keyframes'
+home decided), section 7 (this contract, before any interface moved),
+step 3 (the renderer part) and step 4 (the arena parts).
+
+### 8.1 Bytes, measured
+
+| | image | BSS | segment |
+|---|---:|---:|---:|
+| before: `WARENA`, one segment | 23,226 | 29,383 | **52,609** |
+| the primary (game): `wirearena.asm` | 8,669 | 534 | **9,203** |
+| part 0, the renderer: `wrpart.asm` - header and frame block 266, verbs and the arena loader 386, `wrender.inc` 8,203, `wa_sincos` 26, tables 76, `wa_sin` 2,048, keyframes 8,096 | 19,101 | 29,181 | **48,282** |
+| parts 1 and 2, the arenas | 488 and 235 | | |
+
+`WARENA.O88` on the disk: 16,238 → 20,738 bytes. Two streams compress worse
+than one, `wa_sin` is in both halves (2 KB that compresses poorly), and the
+parts standard is ~2.4 KB of the primary (its whole lazy arm, measured in
+section 3.1). The renderer's BSS costs the disk nothing (`OP_ZFILL`: 18,845
+bytes stored of 48,282, LZB to ~13 KB).
+
+The game segment has **55.8 KB** free for the features in section 2, and the
+renderer segment **16.7 KB**.
+
+### 8.2 Speed, measured (MartyPC `os8088_5150_cga`, the same system disk)
+
+| | `7232b890` | split |
+|---|---|---|
+| **P bench, 40 columns** | 19.1 fps (MS 52.2, R 44.8, P 5.3) | **18.9 fps (MS 52.7, R 45.2, P 5.4)**: +0.96% |
+| **P bench, 80 columns** | 15.8 (MS 63.0, R 51.5, P 9.4) | **15.7 (MS 63.3, R 51.7, P 9.5)**: +0.5% |
+| B bench, 40 columns, full / sparse | 33.7 / 37.0 (MS 29.6 / 27.0) | 33.2 / 36.4 (MS 30.1 / 27.4) |
+| B bench, 80 columns, full / sparse | 26.8 / 31.0 (MS 37.2 / 32.2) | 26.5 / 30.6 (MS 37.6 / 32.6) |
+
+**The glue, by guest cycles a frame** (breakpoints at each boundary, 25
+frames of play): **1,422** from the primary's `wa_render` to the
+renderer's (copying FRAME and the three figures' heads, 35 words, and
+entering), **246** back (the frame number, the drawn flags), **282 + 149**
+round `PRESENT`: ~2,100 cycles, ~0.44 ms. That is section 3.4's version 1.
+Version 2 (the sim writing the renderer's copy through ES) was not built:
+its derived saving is ~600 cycles a frame (~0.25%), against rewriting every
+figure access in the sim, which other branches are editing.
+
+### 8.3 Correctness
+
+- **Posed text VRAM and the figures' projection fields** against the
+  `7232b890` build, seven sets on MartyPC: 40 and 80 columns with
+  sparse/hold/grid mixed (120 poses each), FOV 60 at 40 and 90 at 80 (100
+  each), far figures (100), the open arena (60), Hercules at 80 (60).
+  After step 3, all seven identical. After step 4, six identical; in the
+  40-column mixed set two poses differ in one or two top-edge cells with
+  held edges on - and **the base build makes exactly the same picture when
+  its frame counter is advanced by one before the dump** (the same md5 over
+  100 poses). So those two poses depend on the renderer's frame-counter
+  phase, which the dump's warm-up fixes by timing: a property of the
+  renderer before the split (held edges and the stamps' lap), not of the
+  split. It is worth a look by whoever owns `EDGE`.
+- **The pistol**: a dummy held 5 m ahead and shot six times, hits, flinches,
+  the kill and the misses after it identical shot for shot.
+- **Arenas in turn**: five matches alternating the full and open arenas at
+  both widths, each fetched, drawn and dropped; no toast.
+- `tools/wacheck.py --poses 30`: 6 poses with an edge off, as the base.
+- **kern_mega** (Bochs, 386, 16 MB): the region above 1MB (`OS88_HIGH`), the
+  part a conventional selector pair through `op_seg`/`op_cseg`, the arena
+  fetched as a selector, the bracket in protected mode (no `FSXF_REAL`),
+  the full arena drawn with its figures, Tab to 80 columns, Esc back; no
+  fault and no `kern_mega CLOSED`. kern_mega WORKS; no `PKG_MEGA` arm.
+- **kern_small**: refused at entry, before a sector of the parts is read,
+  with the toast *Needs kern_big or mega* (`OSAPI_MOUSE_REL`'s refusal,
+  SPEC.md §9.14, is the test).
+
+### 8.4 Left over
+
+- The frame-phase dependence above, for the renderer's owners.
+- The game is an `instrument` (`apps/RETIRED.txt`) with no suite row. Once
+  it ships, the rows section 4.2 names; `pins`, `megapkg`, `partoff`,
+  `stkapps` and `pkgdeps` already cover what this branch touched.
+- Section 3.4's version 2, if a later measurement wants the ~0.25%.
