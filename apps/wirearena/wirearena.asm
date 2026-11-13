@@ -257,10 +257,6 @@ wa_setmode:
     loop .rows
     push ds
     pop es
-    mov di, wa_vis              ; nothing of ours on the glass yet
-    mov ax, WA_BLANK
-    mov cx, WA_CELLS
-    rep stosw
     mov di, wa_stamp
     xor ax, ax
     mov cx, WA_CELLS
@@ -1659,10 +1655,9 @@ WA_VAR wa_newp,2
 WA_VAR wa_oldp,2
 WA_VAR wa_newn,2
 WA_VAR wa_oldn,2
-WA_VAR wa_stamp,WA_CELLS*2       ; by cell OFFSET: even bytes only
-WA_VAR wa_fmask,WA_CELLS*2
+WA_VAR wa_stamp,WA_CELLS*2       ; by cell OFFSET: the stamp is the even
+wa_fmask equ wa_stamp+1          ; byte, a figure cell's sub-pixel mask the odd
 WA_VAR wa_cur,WA_CELLS*2
-WA_VAR wa_vis,WA_CELLS*2
 WA_VAR wa_lista,WA_CELLS*2
 WA_VAR wa_listb,WA_CELLS*2
     OS88_BSS WA_BSS
