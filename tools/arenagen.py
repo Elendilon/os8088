@@ -61,6 +61,7 @@ PATHS = [
 #         7 L knee, 8 L foot, 9 R knee, 10 R foot
 # local frame: x right, y up, z forward (metres)
 NJ = 11
+assert NJ == 11, "wrender.inc's WA_LIMB calls and WA_MINMAX are written for 11"
 THIGH, SHIN, UARM, FARM = 0.46, 0.46, 0.30, 0.28
 
 
