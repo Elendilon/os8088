@@ -1126,9 +1126,9 @@ wa_span:
     cmp si, [wa_end]
     jb %%col
     ret
-%%shut:
-    inc word [wa_ncl]
-    jmp %%step
+%%shut:                         ; (a nearer wall: wa_gap jumps the run)
+    call wa_gap
+    jmp %%col
 %endmacro
 wa_l000:    SPANLOOP 1, 0, 0     ; full, flat
 wa_l001:    SPANLOOP 1, 0, 1     ; ...held edges
@@ -1140,6 +1140,55 @@ wa_l110:    SPANLOOP 0, 1, 0
 wa_l111:    SPANLOOP 0, 1, 1
 wa_loops:   dw wa_l000, wa_l001, wa_l010, wa_l011
             dw wa_l100, wa_l101, wa_l110, wa_l111
+
+; wa_gap - SI = a shut column x 2 inside a span's loop: on to the next open
+; one (the span's last column is open, so there is one), the accumulators
+; jumped across the run by MULTIPLYING - a gap behind a nearer box averages
+; eight columns, each of which used to be stepped through the loop - and
+; wa_ncl counted. Keeps everything else the loop holds.
+wa_gap:
+    push ax
+    push dx
+    push di
+    push cx
+    lea di, [si+wa_cov+2]
+    mov cx, [wa_end]
+    sub cx, si
+    shr cx, 1
+    dec cx                      ; the columns after this one (one is open)
+    xor ax, ax
+    repne scasw
+    lea ax, [di-2-wa_cov]
+    mov cx, ax
+    sub cx, si
+    mov si, ax                  ; SI = the next open column
+    shr cx, 1                   ; CX = the shut ones, k
+    add [wa_ncl], cx
+    mov ax, [wa_stl]            ; the top: + k x the step, whole.fraction
+    mul cx
+    add bp, ax
+    adc dx, 0
+    mov bx, dx
+    mov ax, [wa_st]
+    imul cx                     ; (k x the whole part: its low word)
+    add bx, ax
+    pop ax
+    add ax, bx
+    push ax
+    mov ax, [wa_sbl]            ; the bottom alike
+    mul cx
+    add [wa_vbl], ax
+    adc dx, 0
+    mov bx, dx
+    mov ax, [wa_sb]
+    imul cx
+    add ax, bx
+    add [wa_vb], ax
+    pop cx
+    pop di
+    pop dx
+    pop ax
+    ret
 
 ; wa_stepfill - AX = this column's edge, CX = the last one's (half-rows):
 ; two half-rows or more apart is a step to fill (wa_slope); less is not
