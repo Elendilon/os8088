@@ -21325,11 +21325,13 @@ apps/wireball/art/wbfront.inc: apps/wireball/art/splash-source.png tools/wbfront
 BZ_ART := $(BUILD)/bonanza-art
 # THE COURSES, IN ORDER, NEVER A GLOB (SPEC.md 128.10.3): course K is the K-th
 # of this list - 0 the benchmark's, 1 the one Enter plays, 2 the rubber ball's
-# trial - and everything under apps/bonanza/courses/ ships.  ONE bbcourse.py
+# trial, 3 the obstacles' (SPEC.md 128.12.9) - and everything under
+# apps/bonanza/courses/ ships.  ONE bbcourse.py
 # run compiles the whole list and writes bzcourse.inc WHOLE, its OS88_PART rows
 # included, and the --part list below is built from the same list, so the
 # rows' order and the file's order cannot drift.
-BZ_COURSES := apps/bonanza/courses/bench.bbc apps/bonanza/courses/first.bbc apps/bonanza/courses/trial.bbc
+BZ_COURSES := apps/bonanza/courses/bench.bbc apps/bonanza/courses/first.bbc apps/bonanza/courses/trial.bbc \
+              apps/bonanza/courses/mill.bbc
 BZ_CRSPARTS := $(foreach k,$(shell seq 0 $$(( $(words $(BZ_COURSES)) - 1 ))),$(BZ_ART)/BZ$(k).BIN)
 BZ_BALLS := $(addprefix $(BZ_ART)/,BZBALR.BIN BZBALS.BIN BZBALG.BIN)
 BZ_GEN := $(BZ_ART)/bzconst.inc $(BZ_BALLS)
@@ -21361,7 +21363,7 @@ bonanza-check:
 bonanza-course-check:
 	python3 tools/bbcourse.py --selfcheck $(BZ_COURSES)
 
-$(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bonanza/bzgame.inc apps/bonanza/bzphys.inc \
+$(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bonanza/bzgame.inc apps/bonanza/bzwheel.inc apps/bonanza/bzphys.inc \
                       apps/os88api.inc apps/os88ui.inc apps/os88alt.inc apps/os88parts.inc \
                       apps/os88partsbody.inc apps/os88rseq.inc apps/os88pself.inc \
                       $(BZ_ART)/bzconst.inc $(BZ_ART)/bzcourse.inc | $(BUILD)
@@ -21400,32 +21402,37 @@ $(BUILD)/bonanza360.img: $(BZ_DISKFILES) tools/os88disk.py
 	python3 tools/os88disk.py --verify $@
 #> [Applications] bonanzadisk :: Bounce Bonanza's floppy, package and README, in all four geometries (SPEC.md 128.1)
 bonanzadisk: $(BUILD)/bonanza.img $(BUILD)/bonanza720.img $(BUILD)/bonanza120.img $(BUILD)/bonanza360.img
-# SPEC.md 128.11.17.2's emulator rows, by hand (the soak rows of the same
-# names run the same scripts). Every red arm builds a broken copy of the
-# package into a temporary directory, never $(BUILD):
-# `python3 tests/bonanza_ring.py --red colright|colfirst|late|row0|occ|shadow|boxfirst|htab|late2|pass2`,
-# `python3 tests/bonanza_phys.py --red slope|respawn|takeoff|bounce|edge|stun|shatter|absimpact|airwall`,
-# `python3 tests/bonanza_replay.py --red hopbit|framekeys`,
+# SPEC.md 128.11.17.2's and 128.12.13.2's emulator rows, by hand (the soak
+# rows of the same names run the same scripts). Every red arm builds a broken
+# copy of the package into a temporary directory, never $(BUILD):
+# `python3 tests/bonanza_ring.py --red colright|colfirst|late|row0|occ|shadow|boxfirst|htab|late2|pass2|contact|defer|padfront|hidden`,
+# `python3 tests/bonanza_phys.py --red slope|respawn|takeoff|bounce|edge|stun|shatter|absimpact|airwall|gate|kick|carry|carrys|stick|exit`,
+# `python3 tests/bonanza_replay.py --red hopbit|framekeys|propclock|noident`,
 # `python3 tests/bonanza_exit.py --red leak|crepeat|overswallow`,
-# `python3 tests/bonanza_mega.py --red segadd|hxcs|shiftmap`.  Each script's
-# `--check` (bonanza_ring's `--check-reds`) is the host half: every red arm's
-# broken copy assembles, and the scenarios are proved on the model.
-.PHONY: bonanzaring bonanzaperf bonanzaphys bonanzareplay bonanzaexit bonanzamega
-#> [Applications] bonanzaring :: Bounce Bonanza's ring on MartyPC, CGA and Hercules: card = the oracle with shadow, sprite and occluders; TRIAL's boxes in raster order; the multi-box row-0 probe (SPEC.md 128.11.17.2)
+# `python3 tests/bonanza_mega.py --red segadd|hxcs|shiftmap|mapcs`,
+# `python3 tests/bonanza_wheel.py --red repeat|ahead|nobeam|kmod|halfcal|alias|corner|lanestale|gatelate|litsteps`,
+# `python3 tests/bonanza_perf.py --red halfcal`.  Each script's `--check`
+# (bonanza_ring's `--check-reds`) is the host half: every red arm's broken
+# copy assembles, and the scenarios are proved on the model.
+.PHONY: bonanzaring bonanzaperf bonanzaphys bonanzareplay bonanzaexit bonanzamega bonanzawheel
+#> [Applications] bonanzaring :: Bounce Bonanza's ring on MartyPC, CGA and Hercules: card = the oracle with shadow, sprite, occluders, lanes at their drawn poses and the lift's slab; TRIAL's boxes in raster order; MILL's wheel, lead and contact frames; the row-0 probe (SPEC.md 128.11.17.2, 128.12.13.2)
 bonanzaring: bonanzadisk $(BUILD)/os8088-360.img
 	python3 tests/bonanza_ring.py
-#> [Applications] bonanzaperf :: Bounce Bonanza's frame cost on MartyPC, CGA and Hercules, BENCH and TRIAL, with the A/B leg against wave 1 (SPEC.md 128.11.17.2)
+#> [Applications] bonanzaperf :: Bounce Bonanza's frame cost on MartyPC, CGA and Hercules: BENCH's A/B against wave 2 with the heavy rule off, BENCH and TRIAL with it, MILL's wheel and the lift's ride (SPEC.md 128.11.17.2, 128.12.13.2)
 bonanzaperf: bonanzadisk $(BUILD)/os8088-360.img
 	python3 tests/bonanza_perf.py --ab
-#> [Applications] bonanzaphys :: Bounce Bonanza's physics on MartyPC equals bbcourse.Physics every frame: the benchmark, wave 1's pokes, wave 2's replayed scenarios (SPEC.md 128.11.17.2)
+#> [Applications] bonanzaphys :: Bounce Bonanza's physics on MartyPC equals bbcourse.Physics every frame: the benchmark, wave 1's pokes, wave 2's replayed scenarios, MILL's windmills, tubes, posts and lift (SPEC.md 128.11.17.2, 128.12.13.2)
 bonanzaphys: bonanzadisk $(BUILD)/os8088-360.img
 	python3 tests/bonanza_phys.py
-#> [Applications] bonanzareplay :: Bounce Bonanza's replays on MartyPC: a recorded play, its replay on both cards and injected logs, all equal to the host model (SPEC.md 128.11.12)
+#> [Applications] bonanzareplay :: Bounce Bonanza's replays on MartyPC: a recorded play, its replay on both cards and injected logs, all equal to the host model; MILL's play and another course's log refused (SPEC.md 128.11.12, 128.12.8)
 bonanzareplay: bonanzadisk $(BUILD)/os8088-360.img
 	python3 tests/bonanza_replay.py
-#> [Applications] bonanzaexit :: Bounce Bonanza drops both parts on every way out with each ball, and a held C, M or N is one press (SPEC.md 128.11.17.2)
+#> [Applications] bonanzaexit :: Bounce Bonanza drops both parts on every way out with each ball and on MILL, Esc with the ball hidden in a tube, and a held C, M or N is one press (SPEC.md 128.11.17.2, 128.12.13.2)
 bonanzaexit: bonanzadisk $(BUILD)/os8088-360.img
 	python3 tests/bonanza_exit.py
-#> [Applications] bonanzamega :: Bounce Bonanza on kern_mega, 86Box's 286-mega-multimon, on its Hercules: the translation, a replay, the fake shifts; no fault, no leak (SPEC.md 128.11.17.2)
+#> [Applications] bonanzamega :: Bounce Bonanza on kern_mega, 86Box's 286-mega-multimon, on its Hercules: the translation, replays (MILL's route and ride), the fake shifts; no fault, no leak (SPEC.md 128.11.17.2, 128.12.12)
 bonanzamega: bonanzadisk $(BUILD)/mega.img
 	python3 tests/bonanza_mega.py
+#> [Applications] bonanzawheel :: Bounce Bonanza's wheel on MartyPC, CGA and Hercules: MILL's commits ahead of and behind the beam, by the deadline, at their calibrated cost, in the allowed cells; the lead; lit posts (SPEC.md 128.12.13.2)
+bonanzawheel: bonanzadisk $(BUILD)/os8088-360.img
+	python3 tests/bonanza_wheel.py

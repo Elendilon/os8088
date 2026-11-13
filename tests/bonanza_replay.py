@@ -2,7 +2,7 @@
 """BONANZA: a play recorded, and replayed on the guest and on the host model, the same run (SPEC.md 128.11.12, 128.11.17.2).
 
     make bonanzadisk && python3 tests/bonanza_replay.py [--leg record|replay|inject|all]
-    python3 tests/bonanza_replay.py --red hopbit|framekeys     (a red arm, below)
+    python3 tests/bonanza_replay.py --red hopbit|framekeys|propclock|noident     (a red arm, below)
     python3 tests/bonanza_replay.py --check                     (the host half only)
 
 Physics is a function of the step count and the key byte alone, so a play is
@@ -36,8 +36,22 @@ bbcourse.Physics.run_log to one another:
      (those events, at those steps), poked into bz_rlog and replayed with R,
      every frame against the model.
 
+  4  MILL (SPEC.md 128.12.8, 128.12.13.2): every log carries its course's
+     IDENTITY at +14 (R.make_log).  RECORD on the CGA: Enter on MILL, no key
+     for the steps that make the autopilot's first approach to its windmill
+     a KNOCK-BACK (found on the model), then REAL keys - the arrows the
+     autopilot would press, decided at each bz_presented off the guest's own
+     screen state (a pilot pinned still for STUCK frames gives up its
+     waypoint for the next) - for MILL_FRAMES frames (on to MILL_MAX until a
+     plain tube's transit has been seen and left): the model run off the log equals
+     the play at every frame, and the play went through a knock-back, a
+     windmill's capture, a kick and a tube's capture.  REPLAY on the
+     Hercules, every frame the model's, the end the play's.  REFUSE: the same
+     log with its identity changed - [bz_err] 3, nothing played, the face's
+     "Another course's log".
+
 --red NAME builds a broken package in a temporary directory (never build/)
-and PASSES only if the record leg FAILS - at its own check:
+and PASSES only if its leg FAILS - at its own check:
   hopbit     the recorder stores the key byte WITHOUT bit 4 (Space): the
              model run off the log parts from the play at its first Hop
   framekeys  the recorder appends once a FRAME instead of once a step - a
@@ -45,6 +59,10 @@ and PASSES only if the record leg FAILS - at its own check:
              appends a byte, a frame of two one: the model run off the log
              parts from the play at the first key change after such a frame
              (checked before the log's step count, which this also breaks)
+  propclock  a windmill's gate judged on the FRAME count (the MILL leg): the
+             model run off the MILL play's log parts from it at the gate
+  noident    the identity check taken out (the MILL leg): the log with
+             another identity PLAYS - refuse: fails
 """
 import argparse
 import os
@@ -310,6 +328,168 @@ def injects():
     return out
 
 
+# ---- MILL (SPEC.md 128.12.8, 128.12.13.2) ----------------------------------------
+MILL_FRAMES = 700                   # about 640 CGA steps: past the knock, the tunnel, the green and the chute
+MILL_MAX = 1400                     # ...and on, while no plain tube's transit has been seen and left (a ball
+                                    # the closed loop leaves ricocheting in the bumper cluster: the model's
+                                    # pilot with one or two steps a frame reaches the chute by frames 328 - 418
+                                    # in five runs of six and not in 1,400 in the sixth; the final pass)
+STUCK = 30                          # frames the ball sits still under held arrows before the pilot gives up
+                                    # its waypoint for the next: a kick can carry the ball past one without
+                                    # reaching it, and the pilot's greedy steer then pins it against a wall
+                                    # for good (the model's closed loop, one run in twenty; the guest's
+                                    # record in the final pass, at 1,293 steps; the final pass)
+ARROWS = ((K.K_L, "ArrowLeft"), (K.K_R, "ArrowRight"), (K.K_U, "ArrowUp"), (K.K_D, "ArrowDown"))
+
+
+def mill_delay():
+    """the steps of no key that make the autopilot's first approach to the route's
+    windmill find its gate CLOSED (a knock-back, then the capture as it pushes on)
+    - the middle of the run of such delays, found on the model"""
+    c = R.course("mill")
+    ok = []
+    for d in range(0, 64):
+        p = BB.Physics(c, play=True)
+        for _ in range(d):
+            p.step(0)
+        for _ in range(260):
+            p.step_auto()
+        ev = [e[0] for e in p.events if e[0] in ("knock", "capture")]
+        if ev[:2] == ["knock", "capture"]:
+            ok.append(d)
+    return ok[len(ok) // 2] if ok else None, ok
+
+
+def record_mill(g, delay):
+    """MILL's record (the CGA): Enter on MILL ([bz_crs] poked at bz_launch), no key
+    for DELAY steps, then REAL keys - the arrows the autopilot would press, its
+    decision made at every bz_presented off the guest's own screen state (a pilot
+    beside the play, not the play) - for MILL_FRAMES frames, and Esc.  -> (failures,
+    the log, the frames' states, the end state)"""
+    m = g.m
+    rd = P.Reader(g)
+    fails = []
+    pilot = BB.Physics(R.course("mill"), play=True)
+    m.bp_exec(g.a("bz_launch"))
+    g.key("Enter")
+    assert m.wait_stop(60) == "breakpoint", "Enter did not reach bz_launch"
+    g.putb("bz_crs", R.CRS_K["mill"])
+    m.bp_exec(g.a("bz_presented"))
+    m.run()
+    recs = {r["i"]: r for r in R.course("mill").part["props"]}
+    held, seen, frames, tubed, tdone = set(), {}, 0, False, False
+    still, last, rescues = 0, None, 0
+    while frames < MILL_FRAMES or (not tdone and frames < MILL_MAX):
+        assert m.wait_stop(60) == "breakpoint", "the MILL play stopped presenting (frame %d)" % frames
+        if not frames:
+            g.check_base()
+            if g.b("bz_mode") != 0 or g.b("bz_crs") != R.CRS_K["mill"]:
+                fails.append("record MILL: Enter launched mode %d on course %d, not a play of MILL" % (
+                    g.b("bz_mode"), g.b("bz_crs")))
+                break
+        frames += 1
+        st, s2, ext = rd.read()
+        seen[st[0]] = (st, s2, dict(ext), frames)
+        k = 0
+        if st[0] >= delay:
+            pos = (g.d("bz_bx"), g.d("bz_by"))
+            still = still + 1 if pos == last else 0
+            last = pos
+            if still >= STUCK and pilot.wp < len(pilot.route) - 1:
+                pilot.wp += 1               # pinned against a wall: the waypoint the kicks carried it past
+                still, rescues = 0, rescues + 1
+            pilot.bx, pilot.by = pos
+            pilot.vx, pilot.vy = g.s("bz_vx"), g.s("bz_vy")
+            k = pilot.auto()
+        want = {name for bit, name in ARROWS if k & bit}
+        for name in sorted(held - want):
+            m.key(name, down=False)
+        for name in sorted(want - held):
+            m.key(name, up=False)
+        held = want
+        tb = g.b("bz_tube")
+        if tb and recs[tb - 1]["kind"] == BB.PK_TUBE:
+            tubed = True
+        elif tubed and not tb:
+            tdone = True
+        if g.b("bz_goal"):
+            break
+        m.run()
+    m.bp_exec()
+    m.run()
+    for name in sorted(held):
+        m.key(name, down=False)
+    if g.b("bz_fs"):
+        g.key("Escape")
+    M.until(m, lambda _: g.b("bz_fs") == 0, "the MILL play ends", guest=60)
+    P.dropped(g, "the recorded MILL play")
+    m.pause()
+    end = rd.read()
+    log = g.read_log()
+    m.run()
+    print("%s record MILL: the pilot gave up %d waypoint(s) after %d still frames" % (g.tag, rescues, STUCK),
+          flush=True)
+    return fails, log, seen, end
+
+
+def refused(g, log):
+    """SPEC.md 128.12.8: the log with its +14 identity changed is REFUSED - R
+    plays nothing ([bz_err] 3, the bracket never up, bz_nstep untouched) and the
+    face says "Another course's log".  -> failures"""
+    m = g.m
+    bad = bytearray(log)
+    struct.pack_into("<H", bad, 14, BB.log_ident(log) ^ 0x5A5A)
+    m.pause()
+    g.write_log(bytes(bad))
+    n0 = g.d("bz_nstep")
+    m.bp_exec(g.a("bz_line"), g.a("bz_t0"))
+    m.run()
+    g.key("KeyR")
+    found, played = None, False
+    for _ in range(60):
+        if m.wait_stop(20) != "breakpoint":
+            break
+        r = m.regs()
+        if ((r["cs"] << 4) + r["ip"]) & 0xFFFFF == g.a("bz_t0"):
+            played = True
+            break
+        n = (r["di"] - g.sym["bz_lbuf"]) & 0xFFFF
+        line = m.read(g.a("bz_lbuf"), min(n, 88)).decode("latin-1").strip()
+        if line.startswith("Another course"):
+            found = line
+            break
+        m.run()
+    m.bp_exec()
+    m.run()
+    M.until(m, lambda _: g.b("bz_fs") == 0 and g.w("bz_cseg") == 0, "R's refusal to settle", guest=30)
+    fails = []
+    if played or g.b("bz_err") != 3 or g.d("bz_nstep") != n0 or not found:
+        fails.append("refuse: a log whose identity is not MILL's PLAYED, or was not refused as another course's "
+                     "log (a play reached bz_t0: %s, [bz_err] %d, bz_nstep %d -> %d, the face's line %r; SPEC.md "
+                     "128.12.8)" % (played, g.b("bz_err"), n0, g.d("bz_nstep"), found))
+    print("%s refuse: the MILL log with its identity %04Xh changed to %04Xh: %s" % (
+        g.tag, BB.log_ident(log), BB.log_ident(bytes(bad)), "refused, the face says %r" % found if not fails
+        else "PLAYED or not refused"), flush=True)
+    return fails
+
+
+def judge_mill(log, seen, end):
+    """the MILL record judged as TRIAL's, and the run's props: a knock-back, a
+    capture at a windmill (the pass), a kick and a tube's capture.  -> (failures, events)"""
+    k, mat = log[4], log[5]
+    f, p = judge_record(log, seen, end, k, mat)
+    recs = {r["i"]: r for r in R.course("mill").part["props"]}
+    ev = [e for e in p.events if e[0] in ("knock", "capture", "kick", "exit")]
+    has = {"a knock-back": any(e[0] == "knock" for e in ev),
+           "a windmill's capture": any(e[0] == "capture" and recs[e[2]]["kind"] == BB.PK_WINDMILL for e in ev),
+           "a kick": any(e[0] == "kick" for e in ev),
+           "a tube's capture": any(e[0] == "capture" and recs[e[2]]["kind"] == BB.PK_TUBE for e in ev)}
+    if not f:
+        f += ["record MILL: the play went through no %s (SPEC.md 128.12.13.2)" % w for w, ok in has.items() if not ok]
+    f = [x.replace("record:", "record MILL:", 1) for x in f]
+    return f, ev
+
+
 def run_all(legs, apps=None, src=None):
     fails, logs, ends = [], {}, {}
     inj = injects() if "inject" in legs else []
@@ -318,8 +498,13 @@ def run_all(legs, apps=None, src=None):
             fails.append("inject %s: the model does not prove it (%s)" % (name, what))
     if fails:
         return fails
+    if "mill" in legs:
+        delay, dels = mill_delay()
+        if delay is None:
+            fails.append("record MILL: no delay makes the autopilot's first approach a knock-back (the model)")
+            return fails
     for tag in ("cga", "herc"):
-        if tag == "herc" and "replay" not in legs and "inject" not in legs:
+        if tag == "herc" and "replay" not in legs and "inject" not in legs and "mill" not in legs:
             break
         booted, sym = boot(tag, apps, src)
         with booted as ui:                      # (the UI is what the context YIELDS)
@@ -343,9 +528,29 @@ def run_all(legs, apps=None, src=None):
                 f, _ = replay(g, log, lambda: BB.Physics(R.course_k(k), play=True, mat=mat), ends["play"],
                               "replay of the CGA's play")
                 fails += f
+            if "mill" in legs and tag == "cga":
+                f, log, seen, end = record_mill(g, delay)
+                if not f:
+                    f, ev = judge_mill(log, seen, end)
+                    print("cga record MILL: %d frames, %d steps (no key for %d, the autopilot's arrows after), %d "
+                          "runs; the model run off the log equals the play at every frame and at its end: %s; its "
+                          "props %s" % (len(seen), end[0][0], delay, struct.unpack_from("<H", log, 12)[0],
+                                        "yes" if not f else "NO",
+                                        ", ".join("%s@%d" % (e[0], e[1]) for e in ev)), flush=True)
+                    if not f:
+                        logs["mill"], ends["mill"] = log, end
+                fails += f
+            if "mill" in legs and tag == "herc" and "mill" in logs:
+                log = logs["mill"]
+                k, mat = log[4], log[5]
+                f, _ = replay(g, log, lambda: BB.Physics(R.course_k(k), play=True, mat=mat), ends["mill"],
+                              "replay of the CGA's MILL play")
+                fails += f
+                if not f:
+                    fails += refused(g, log)
             if "inject" in legs:
                 for name, k, mat, keys, what, _ in inj:
-                    log = BB.encode_log(keys, course=k, mat=mat)
+                    log = R.make_log(keys, k, mat)
                     f, _ = replay(g, log, lambda k=k, mat=mat: BB.Physics(R.course_k(k), play=True, mat=mat),
                                   None, "inject %s" % name)
                     fails += f
@@ -370,13 +575,24 @@ REDS = {
                   ("bzphys.inc", "    mov bl, [bz_keys]           ; PLAY: the frame's (bz_input), RECORDED - the\n",
                    "    mov bl, [bz_keys]           ; PLAY: the frame's (bz_input), RECORDED - the\n"
                    "    jmp short .key              ; RED framekeys: not a step's\n")],
+    # wave 3 (SPEC.md 128.12.13.2).  A windmill's gate judged on the FRAME count, not the step's
+    # n: the play depends on the display - the model run off its log parts at the gate
+    "propclock": [("bzphys.inc", "    call bz_lrecsi\n    mov ax, [bz_nstep]\n    add ax, [es:si + BZP_SEED]\n"
+                   "    and al, [es:si + BZP_MASK]\n    cmp al, [es:si + BZP_TC0]\n",
+                   "    call bz_lrecsi\n    mov ax, [bz_frames]         ; RED propclock: the frame count\n"
+                   "    add ax, [es:si + BZP_SEED]\n    and al, [es:si + BZP_MASK]\n    cmp al, [es:si + BZP_TC0]\n")],
+    # the identity check taken out: another course's log plays
+    "noident": [("bonanza.asm", "    cmp ax, [bz_rlog + BZR_ID]\n    je .idok\n",
+                 "    cmp ax, [bz_rlog + BZR_ID]\n    jmp short .idok             ; RED noident\n")],
 }
-RED_WANT = {"hopbit": "parts from the play", "framekeys": "parts from the play"}
+RED_WANT = {"hopbit": "parts from the play", "framekeys": "parts from the play", "propclock": "parts from the play",
+            "noident": "refuse:"}
+RED_LEGS = {"hopbit": ("record",), "framekeys": ("record",), "propclock": ("mill",), "noident": ("mill",)}
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--leg", choices=("record", "replay", "inject", "all"), default="all")
+    ap.add_argument("--leg", choices=("record", "replay", "inject", "mill", "all"), default="all")
     ap.add_argument("--red", choices=sorted(REDS))
     ap.add_argument("--check", action="store_true",
                     help="the host half only: the inject logs proved on the model, every red arm assembled")
@@ -390,12 +606,12 @@ def main():
             print(line)
         assert not bad, "%d inject log(s) not proved on the model" % bad
         return
-    legs = ("record", "replay", "inject") if a.leg == "all" else (a.leg,)
+    legs = ("record", "replay", "inject", "mill") if a.leg == "all" else (a.leg,)
     if a.red:
         with tempfile.TemporaryDirectory() as td:
             src, img = R.build_tree(td, REDS[a.red])
             try:
-                bad = run_all(("record",), apps=img, src=src)
+                bad = run_all(RED_LEGS[a.red], apps=img, src=src)
             except AssertionError as e:
                 bad = ["assertion: %s" % e]
             for b in bad:

@@ -71,6 +71,26 @@ the guest and the model part.
      event the red arm changes), so a green scenario cannot be one that
      does not exercise what it names.
 
+  4  WAVE 3 (SPEC.md 128.12.6, 128.12.13.2): at every frame also 128.12.6.6's
+     state - bz_ps, bz_wol, the tube in transit, its segment and steps, the
+     entry speed, bz_onp, every prop's last kick and the kick, knock and
+     capture counts (Physics.state3), not the display state - from the first
+     step after a poke; and on MILL fifteen more replays, built and PROVED on
+     the model (the idle steps that put a windmill's gate where a scenario
+     needs it SEARCHED, so a re-seeded course re-finds them): knock (the gate
+     closed, then swallowed), pass (open: the tunnel), side (along the house
+     front into the open doorway), keep (the other windmill's tunnel, out
+     along its mouth), kick (at the cap into a post), cluster (a ricochet
+     between two posts), post (dropped onto a post's top: it rests there - a
+     Hop's apex, 4 px for rubber, is under a post's 8, so it is a drop),
+     ride (on the LIFT at its low dock, carried PMAX up with no spin, off
+     onto its high rim), hop (a Hop on the rising slab lands back on it),
+     land (rubber dropped onto the slab at its lowest settles), fall (the
+     owner's preview: rolled off the high rim into the shaft while the slab
+     is low, it lands on it), board (rolled onto it at its high dock), under
+     (in the shaft under the slab: never lifted, falls),
+     launch (the cannon), drop (the chute) with each ball.
+
 --red NAME builds a broken package in a temporary directory (never build/)
 and PASSES only if the row FAILS - at its own check:
   slope      the slope term's sign flipped: the benchmark's descent parts
@@ -83,6 +103,14 @@ and PASSES only if the row FAILS - at its own check:
   shatter    the respawn at once, no 24 steps: shatter parts
   absimpact  the impact on -gvz, not relative to the floor: ramphop parts
   airwall    no airborne margin: stepup parts
+  gate       the gate judged one step late: knock parts
+  kick       the kick's floor at K alone: kick parts
+  carry      no carry: hop parts (a Hop on the rising lift comes down early)
+  carrys     the carry along +s, wave 3's first design: ride parts (the
+             rider moves and spins - the owner's preview)
+  stick      bz_onp cleared at a take-off: hop parts
+  exit       a windmill's KEEP exit along its entry (the doorway's direction),
+             not its mouth's: keep parts
 """
 import argparse
 import os
@@ -153,7 +181,25 @@ class Reader:
         ext = {k: struct.unpack_from("<H", raw, o["bz_" + k])[0]
                for k in ("lfall", "lvz", "nland", "nfall", "nbnc", "nstun", "nshat", "nhop")}
         ext["resp"], ext["goal"] = raw[o["bz_resp"]], raw[o["bz_goal"]]
+        ext["s3"] = self.state3(raw) if "bz_ps" in self.g.sym else None
         return st, s2, ext
+
+    def state3(self, raw):
+        """wave 3's state (SPEC.md 128.12.6.6) in Physics.state3()'s shape: bz_ps,
+        bz_wol's pairs, the tube in transit, its segment and steps left, the entry
+        speed, bz_onp, every prop's last kick, the kicks, knock-backs and captures
+        - all of it but the display state (bz_ldrw, bz_lage, bz_pline)"""
+        s, lo = self.g.sym, self.lo
+
+        def b(n, k=0):
+            return raw[s[n] - lo + k]
+
+        def w(n, k=0):
+            return struct.unpack_from("<H", raw, s[n] - lo + 2 * k)[0]
+        nw = b("bz_wol")
+        wol = tuple((b("bz_wol", 1 + 2 * k), b("bz_wol", 2 + 2 * k)) for k in range(min(nw, 9)))
+        return (b("bz_ps"), wol, b("bz_tube"), b("bz_tseg"), w("bz_tcnt"), w("bz_tsin"), b("bz_onp"),
+                tuple(w("bz_pkick", k) for k in range(BB.PROP_MAX)), w("bz_nkick"), w("bz_nknock"), w("bz_ntube"))
 
 
 def counts(p):
@@ -175,11 +221,19 @@ def advance(p, n, keys=None):
 
 
 def compare(name, frames, st, s2, ext, p):
-    """-> a failure line, or None: the guest's state against the model's"""
+    """-> a failure line, or None: the guest's state against the model's - and
+    wave 3's (128.12.6.6, Physics.state3) once a step has run since a poke (a
+    poke's window refill is the guest's next step's, the model's at once)"""
     if st != p.state() or s2 != p.state2():
         return ("%s frame %d: the guest differs from the model after %d steps:\n      guest %s\n            %s\n"
                 "      model %s\n            %s" % (name, frames, st[0], show(st), show2(s2), show(p.state()),
                                                    show2(p.state2())))
+    if ext.get("s3") is not None and p.nstep > getattr(p, "_poked_at", -1) and ext["s3"] != p.state3():
+        g3, m3 = ext["s3"], p.state3()
+        names = ("ps", "wol", "tube", "tseg", "tcnt", "tsin", "onp", "pkick", "nkick", "nknock", "ntube")
+        return "%s frame %d: wave 3's state differs from the model's after %d steps: %s" % (
+            name, frames, st[0], "; ".join("%s guest %s model %s" % (n, a, b)
+                                           for n, a, b in zip(names, g3, m3) if a != b))
     want = counts(p)
     got = {k: ext[k] for k in want}
     if got != want:
@@ -278,6 +332,7 @@ def scenario(g, crs, name):
     safe = tuple(m.read(g.a("bz_safe"), 2))
     p = MarkPhysics(crs, play=True, mat=g.b("bz_mat")).poke(wx, wy, gvx, gvy)
     p.nstep, p.safe = st0[0], safe             # the model picks the play up where the guest is
+    p._poked_at = st0[0]
     p.lvl, p.hopw, p.kprev = list(s20[0]), s20[1], s20[2]
     for k in ("nland", "nfall", "nbnc", "nstun", "nshat", "nhop"):
         setattr(p, k, ext0[k])
@@ -439,13 +494,19 @@ def poke_of(p):
 
 
 def model(crs, mat, poke, **kw):
-    """the model of a replay: the course's start, poked as the guest will be"""
+    """the model of a replay: the course's start, poked as the guest will be -
+    the window refilled round the poked cell (the guest's bz_pokd refill) and,
+    on a slab, carried (bz_onp)"""
     p = BB.Physics(R.course(crs), play=True, mat=mat, **kw)
     if poke:
         for k in POKE:
             setattr(p, k, poke[k])
         p.lvl = list(poke["lvl"])
+        p.onp = poke.get("onp", 0)
+        p._fill(p.gx >> 12, p.gy >> 12)
+        p._ps()
         p._derive(True)
+        p._poked_at = p.nstep
     return p
 
 
@@ -464,7 +525,7 @@ def parts(crs, mat, poke, keys, **red):
     for i, k in enumerate(keys):
         a.step(k)
         b.step(k)
-        if a.state() + a.state2() != b.state() + b.state2():
+        if a.state() + a.state2() + a.state3() != b.state() + b.state2() + b.state3():
             return i + 1
         if a.goal:
             break
@@ -599,6 +660,201 @@ def replays():
         p, ev = ev_of("trial", mat, pk, keys)
         add("ramphop-%s" % BB.MAT_NAMES[mat], "trial", mat, pk, keys, "a Hop down the steep ramp, unhurt",
             "hop" in ev and "stun" not in ev and "shatter" not in ev, red={"_abs_impact": True})
+    return S + mill_replays()
+
+
+# ---- MILL (SPEC.md 128.12.6, 128.12.13.2): every obstacle, as replays ------------
+def mill_rec(kind, at=None):
+    return next(r for r in R.course("mill").part["props"] if r["kind"] == kind and (at is None or r["at"] == at))
+
+
+def mill_poke(wx, wy, gvx=0, gvy=0, mat=0, dgx=0, gy=None, lift=0):
+    """a MILL poke: tile (wx, wy)'s centre (DGX gu along x, or GY in 24.8), at
+    a ground velocity, LIFT px up"""
+    p = BB.Physics(R.course("mill"), play=True, mat=mat).poke(wx, wy, gvx, gvy)
+    p.gx += dgx << 8
+    if gy is not None:
+        p.gy = gy
+    if lift:
+        p.gz += lift << 8
+        p.air, p.ztop = 1, p.gz >> 8
+    p._derive(True)
+    return poke_of(p)
+
+
+def slab_poke(n0, off=(8, 8), lift=0, zoff=0, onp=True, mat=0):
+    """the ball on (or over, or under) the LIFT's slab, in its shaft, as it
+    stands at step N0"""
+    P = mill_rec(BB.PK_PLATFORM)
+    p = BB.Physics(R.course("mill"), play=True, mat=mat)
+    A, I = P["at"], BB.plat_pos(P, n0 & 0xFFFF)
+    p.gx, p.gy = (16 * A[0] + off[0]) << 8, (16 * A[1] + off[1]) << 8
+    p.gz = (P["hP"] << 8) + I + ((zoff + lift) << 8)
+    p.air = 1 if (lift or zoff < 0) else 0
+    p.ztop = p.gz >> 8
+    p.gvx = p.gvy = p.gvz = 0
+    p._derive(True)
+    d = poke_of(p)
+    d["onp"] = P["i"] + 1 if onp else 0
+    return d
+
+
+def mill_replays():
+    """SPEC.md 128.12.13.2's thirteen MILL scenarios (fifteen replays: drop
+    with each ball), each found and PROVED on the model - the idle steps that
+    put the windmill's gate where the scenario needs it are SEARCHED, so a
+    re-seeded course re-finds them - and each red arm's broken model shown to
+    part from it.  -> [scenario dicts], replays()'s shape"""
+    S = []
+    c = R.course("mill")
+
+    def add(name, mat, poke, keys, what, ok, red=None):
+        S.append({"name": name, "crs": "mill", "mat": mat, "poke": poke, "keys": keys, "what": what,
+                  "ok": bool(ok), "red": red})
+
+    def evs(p, *kinds):
+        return [e for e in p.events if e[0] in kinds]
+    W1 = mill_rec(BB.PK_WINDMILL, (9, 9))           # the route's windmill (seed 16)
+    W0 = mill_rec(BB.PK_WINDMILL, (7, 9))           # the other (seed 36)
+    UPR = K.K_U | K.K_R
+
+    def gate(W, want):
+        pk = mill_poke(W["at"][0], W["at"][1] + 2)
+        for d in range(W["mask"] + 1):
+            keys = [0] * d + [UPR] * 200
+            p, _ = ev_of("mill", 0, pk, keys)
+            g = evs(p, "knock", "capture")
+            if g and g[0][0] == want and g[0][2] == W["i"] and evs(p, "exit"):
+                return pk, keys[:evs(p, "exit")[0][1] + 20], p
+        return pk, [0], None
+    pk, keys, p = gate(W1, "knock")
+    add("knock", 0, pk, keys, "held at the doorway of %s with the gate CLOSED: knocked back (%s), then swallowed"
+        % (W1["at"], [(e[0], e[1]) for e in evs(p, "knock", "capture")] if p else None),
+        p and evs(p, "capture") and evs(p, "knock")[0][1] < evs(p, "capture")[0][1], red={"_gate_late": True})
+    pk, keys, p = gate(W1, "capture")
+    add("pass", 0, pk, keys, "the gate OPEN: swallowed at once, through the tunnel to its exit (%s)"
+        % ([(e[0], e[1]) for e in evs(p, "capture", "exit")] if p else None), p and not evs(p, "knock"))
+    pk = mill_poke(W1["at"][0] - 1, W1["at"][1], gy=(16 * W1["at"][1] + BB.RAD) << 8)
+    for d in range(W1["mask"] + 1):
+        keys = [0] * d + [K.K_R] * 80
+        p, _ = ev_of("mill", 0, pk, keys)
+        g = evs(p, "knock", "capture")
+        if g and g[0][0] == "capture":
+            break
+    add("side", 0, pk, keys[:g[0][1] + 40] if g else keys,
+        "rolled along the house front into the open doorway of %s from the side (%s)" % (
+            W1["at"], [(e[0], e[1]) for e in g] if g else None), g and g[0][0] == "capture" and not p.nfall)
+    pk, keys, p = gate(W0, "capture")
+    add("keep", 0, pk, keys, "the KEEP tunnel of %s: out along its mouth at max(s_in, 64) (%s)" % (
+        W0["at"], [e for e in evs(p, "exit")] if p else None), p and evs(p, "exit"), red={"_exit_vel": True})
+    B2 = mill_rec(BB.PK_BUMPER, (14, 19))
+    pk = mill_poke(B2["at"][0] - 2, B2["at"][1] - 2, BB.VMAXG, BB.VMAXG)     # diagonal: past K, the rail's
+    keys = [0] * 60                                                          # floor shows (K 384, O23)
+    p, _ = ev_of("mill", 0, pk, keys)
+    add("kick", 0, pk, keys, "diagonally at the cap into the post at %s: kicked (%s)" % (
+        B2["at"], [(e[1], e[2], e[4]) for e in evs(p, "kick")]), evs(p, "kick") and not p.nfall,
+        red={"_kick_k": True})
+    pk = mill_poke(16, 19, 0, 64)
+    keys = [0] * 60
+    p, _ = ev_of("mill", 0, pk, keys)
+    who = [e[2] for e in evs(p, "kick")]
+    add("cluster", 0, pk, keys, "between the posts at (16, 18) and (16, 20): a ricochet (%s)" % who,
+        len(set(who)) >= 2 and not p.nfall)
+    B3 = mill_rec(BB.PK_BUMPER, (16, 18))
+    pk = mill_poke(B3["at"][0], B3["at"][1], lift=B3["ph"] + 16)
+    keys = [0] * 120
+    p, _ = ev_of("mill", 0, pk, keys)
+    top = (BB.Physics.h4(c and p.cell(*B3["at"]), 8, 8) >> 2) + B3["ph"]
+    add("post", 0, pk, keys, "dropped onto the post at %s: it rests on the top (z %d, the top %d), unkicked "
+        "(a Hop's apex, 4 px for rubber, is under a post's 8)" % (B3["at"], p.gz >> 8, top),
+        not p.air and p.gz >> 8 == top and not evs(p, "kick"))
+    P = mill_rec(BB.PK_PLATFORM)
+    per = P["mask"] + 1
+    n_dep = next(n for n in range(per) if BB.plat_pos(P, n) == 0 and BB.plat_pos(P, n + 1) > 0)
+    n_arr = next(n for n in range(n_dep, n_dep + per) if BB.plat_pos(P, n) == P["pmax"])
+    hi_rim, hi_in = BB._plat_rim(c, P, P["hT"])
+    hi_out = {K.K_R | K.K_D: K.K_L | K.K_U, K.K_L | K.K_U: K.K_R | K.K_D,
+              K.K_L | K.K_D: K.K_R | K.K_U, K.K_R | K.K_U: K.K_L | K.K_D}[hi_in]
+    pk = slab_poke(0)
+    keys = [0] * (n_arr + 8) + [hi_out] * 60
+    p = run_keys("mill", 0, pk, keys)
+    q = model("mill", 0, pk)
+    turn = lambda r: (BB.sprite(r, 0), BB.sprite(r, 1)[0], BB.sprite(r, 1)[1] & ~8)
+    f0, spin = turn(q), 0
+    for k in keys[:n_arr + 8]:
+        q.step(k)
+        spin += turn(q) != f0
+    carried = (q.gx - pk["gx"], q.gy - pk["gy"], q.gz - pk["gz"])
+    add("ride", 0, pk, keys, "on the LIFT at its low dock, carried %s (x, y, z; PMAX %d) to its high dock with no "
+        "spin on the way (%d steps whose roll frame turned), off onto its high rim" % (carried, P["pmax"], spin),
+        carried == (0, 0, P["pmax"]) and not spin and not p.nfall and not p.air, red={"_carry_s": True})
+    pk = slab_poke(0)
+    keys = [0] * (n_dep + 20) + [K.K_HOP] + [0] * 70
+    p = run_keys("mill", 0, pk, keys)
+    add("hop", 0, pk, keys, "a Hop on the RISING slab at step %d lands back on it (%s)" % (
+        n_dep + 21, [(e[0], e[1]) for e in evs(p, "hop", "bounce", "land")][:4]),
+        evs(p, "hop") and not p.nfall and p.onp == P["i"] + 1 and not p.air, red={"_stick": True})
+    for lift in range(40, 4, -4):
+        pk = slab_poke(0, off=(10, 6), lift=lift, onp=False)
+        keys = [0] * 200
+        p = run_keys("mill", 0, pk, keys)
+        b = evs(p, "bounce", "land")
+        if b and b[0][1] < n_dep and not p.nfall and p.onp == P["i"] + 1 and not p.air:
+            break
+    add("land", 0, pk, keys, "rubber dropped %d px onto the slab at its LOWEST (its first contact at step %s, the "
+        "slab docked low until %d): it settles on it and rides" % (lift, b[0][1] if b else None, n_dep),
+        b and b[0][1] < n_dep and not p.nfall and p.onp == P["i"] + 1 and not p.air)
+    ux, uy = P["at"][0] - hi_rim[0], P["at"][1] - hi_rim[1]
+    pk = mill_poke(hi_rim[0], hi_rim[1], 32 * ux, 32 * uy, dgx=9 * ux)       # its centre just over the shaft
+    if uy:
+        pk["gy"] += (9 * uy) << 8
+    keys = [0] * 160
+    p = run_keys("mill", 0, pk, keys)
+    q = model("mill", 0, pk)
+    first = None
+    for k in keys:
+        q.step(k)
+        if first is None and evs(q, "bounce", "land"):
+            first = (evs(q, "bounce", "land")[0], q.onp == P["i"] + 1,
+                     (q.gx >> 12, q.gy >> 12) == tuple(P["at"]), BB.plat_pos(P, q.nstep & 0xFFFF) >> 8)
+    add("fall", 0, pk, keys, "the owner's preview: rolled off the high rim %s into the shaft while the slab is LOW "
+        "(6 units down): its first contact %s is ON the slab (risen %s px) and carries it, and it is never "
+        "respawned" % (hi_rim, first[0][:2] if first else None, first[3] if first else None),
+        first and first[1] and first[2] and not p.nfall)
+    pk = mill_poke(*hi_rim)
+    keys = [0] * (n_arr + 4) + [hi_in] * 60
+    p = run_keys("mill", 0, pk, keys)
+    q = model("mill", 0, pk)
+    boarded = False
+    for k in keys:
+        q.step(k)
+        boarded = boarded or bool(q.onp)
+    add("board", 0, pk, keys, "waiting on the high rim %s, rolled onto the slab at its HIGHEST dock: boarded" % (
+        hi_rim,), boarded and not p.nfall)
+    pk = slab_poke(n_dep + 4, zoff=-10, onp=False)
+    keys = [0] * 80
+    p = model("mill", 0, pk)
+    lifted = False
+    for k in keys:
+        p.step(k)
+        lifted = lifted or bool(p.onp)
+    add("under", 0, pk, keys, "in the shaft under the slab: never lifted onto it, it falls (%s)" % (
+        [e[0] for e in p.events][:3]), p.nfall and not lifted)
+    TL = next(r for r in c.part["props"] if r["kind"] == BB.PK_TUBE and r["sub"] == BB.TK_LAUNCH)
+    TD = next(r for r in c.part["props"] if r["kind"] == BB.PK_TUBE and r["sub"] == BB.TK_DROP)
+    pk = mill_poke(*TL["at"])
+    keys = [0] * 160
+    p, _ = ev_of("mill", 0, pk, keys)
+    add("launch", 0, pk, keys, "the cannon at %s: swallowed, fired, landed (%s)" % (
+        TL["at"], [(e[0], e[1]) for e in evs(p, "capture", "exit", "bounce", "land")][:4]),
+        evs(p, "capture") and evs(p, "exit") and evs(p, "bounce", "land") and not p.nfall)
+    for mat, out in ((0, "bounce"), (1, "stun"), (2, "shatter")):
+        pk = mill_poke(*TD["at"], mat=mat)
+        keys = [0] * 100
+        p, _ = ev_of("mill", mat, pk, keys)
+        add("drop-%s" % BB.MAT_NAMES[mat], mat, pk, keys, "the chute at %s, %s: %s (%s)" % (
+            TD["at"], BB.MAT_NAMES[mat], out, [(e[0], e[1]) for e in evs(p, "capture", "exit", out)][:3]),
+            evs(p, "capture") and evs(p, "exit") and evs(p, out))
     return S
 
 
@@ -672,7 +928,7 @@ def replay(g, s):
     m, tag, name = g.m, g.tag, s["name"]
     rd = Reader(g)
     fails = []
-    log = BB.encode_log(s["keys"], course=R.CRS_K[s["crs"]], mat=s["mat"])
+    log = R.make_log(s["keys"], R.CRS_K[s["crs"]], s["mat"])
     m.pause()
     g.write_log(log)
     wk = R.Walker(g, t0=True)
@@ -691,6 +947,9 @@ def replay(g, s):
         pk = s["poke"]
         R.poke_ball(g, pk["gx"], pk["gy"], pk["gz"], pk["gvx"], pk["gvy"], pk["gvz"], air=pk["air"],
                     ztop=pk["ztop"], lvl=pk["lvl"])
+        if "bz_onp" in g.sym:                   # wave 3: carried by the slab, or not
+            g.putb("bz_onp", pk.get("onp", 0))
+            g.putb("bz_ps", (g.b("bz_ps") & ~4) | (4 if pk.get("onp") else 0))
     Wc, rl = g.w("bz_W"), R.RL[tag]
     win = (g.w("bz_R0"), g.w("bz_c0"))
     wk.arm()
@@ -785,13 +1044,16 @@ REDS = {
                  "    mov [bz_ghv], al\n    mov di, [bz_goff]           ; RED respawn: on the start, not bz_safe\n"
                  "    mov al, [es:di + BZG_WX]\n    mov ah, [es:di + BZG_WY]\n    mov [bz_safe], ax\n"
                  "    call bz_place\n")],
-    "takeoff": [("bzphys.inc", ".takeoff:                       ; over no floor: no bz_gh (bz_ghv cleared)\n"
+    # (wave 3 writes steps 4 - 6 as macros instanced twice, SPEC.md 128.12.3.2: the
+    # patch is in the macro's body, so both instances - wave 2's path and the
+    # prop path - are broken alike)
+    "takeoff": [("bzphys.inc", "%%takeoff:                       ; over no floor: no bz_gh (bz_ghv cleared)\n"
                  "    call bz_toff\n",
-                 ".takeoff:                       ; over no floor: no bz_gh (bz_ghv cleared)\n"
+                 "%%takeoff:                       ; over no floor: no bz_gh (bz_ghv cleared)\n"
                  "    mov word [bz_gvz], 0        ; RED takeoff\n    call bz_toff\n"),
-                ("bzphys.inc", "    jle .launch\n    mov ax, bx                  ; z = h: the ball follows the floor\n",
-                 "    jg .redf\n    mov word [bz_gvz], 0        ; RED takeoff: off a falling floor too\n"
-                 "    jmp short .launch\n.redf:\n    mov ax, bx\n")],
+                ("bzphys.inc", "    jle %%launch\n    mov ax, bx                  ; z = h: the ball follows the floor\n",
+                 "    jg %%redf\n    mov word [bz_gvz], 0        ; RED takeoff: off a falling floor too\n"
+                 "    jmp short %%launch\n%%redf:\n    mov ax, bx\n")],
     "bounce": [("bzphys.inc", "    mov cl, [bz_se + 3]\n",
                 "    mov cl, [bz_mrec + BZM_EW]  ; RED bounce: the wall's restitution\n")],
     "edge": [("bzphys.inc", "    cmp ax, (16 - BZ_RAD) * 256 ; east when pu > 2,560: a true distance under\n",
@@ -809,13 +1071,42 @@ REDS = {
     "airwall": [("bzphys.inc", "    add ax, BZ_CLIMB * 4        ; (+ 1,024 / 64)\n",
                  "    cmp byte [bz_air], 0        ; RED airwall: no airborne margin\n    jne .redam\n"
                  "    add ax, BZ_CLIMB * 4\n.redam:\n")],
+    # wave 3 (SPEC.md 128.12.13.2).  The gate judged one step late (n - 1)
+    "gate": [("bzphys.inc", "    mov ax, [bz_nstep]\n    add ax, [es:si + BZP_SEED]\n    and al, [es:si + BZP_MASK]\n"
+              "    cmp al, [es:si + BZP_TC0]\n",
+              "    mov ax, [bz_nstep]\n    dec ax                      ; RED gate: a step late\n"
+              "    add ax, [es:si + BZP_SEED]\n    and al, [es:si + BZP_MASK]\n    cmp al, [es:si + BZP_TC0]\n")],
+    # the kick's floor at K alone: t = max(K, d) for an approach too
+    "kick": [("bzphys.inc", "    jns .t                      ; d >= 0: t = max(K, d)\n",
+              "    jmp short .t                ; RED kick: t = max(K, d) always\n")],
+    # no carry: a Hop on the rising lift is not carried, so it comes down early
+    "carry": [("bzphys.inc", "bz_carry:\n    mov bl, [bz_onp]\n",
+               "bz_carry:\n    ret                         ; RED carry: none\n    mov bl, [bz_onp]\n")],
+    # the carry along +s, wave 3's first design: the ball riding the lift moves (and SPINS)
+    "carrys": [("bzphys.inc", "    mov [bz_cdd], ax\n    cwd\n    add [bz_gz], ax\n    adc [bz_gz + 2], dx\n    ret\n",
+                "    mov [bz_cdd], ax\n    cwd\n    add [bz_gx], ax             ; RED carrys: along +s\n"
+                "    adc [bz_gx + 2], dx\n"
+                "    add [bz_gy], ax\n    adc [bz_gy + 2], dx\n    ret\n")],
+    # bz_onp cleared at a take-off: a Hop on the slab is not carried through its flight
+    "stick": [("bzphys.inc", "    cmp byte [bz_air], 0\n    je .pclr\n    cmp byte [bz_wcen + 1], BZ_PK_PLATFORM\n",
+               "    jmp short .pclr             ; RED stick: never kept airborne\n"
+               "    cmp byte [bz_wcen + 1], BZ_PK_PLATFORM\n")],
+    # a windmill's KEEP exit along its entry (its doorway's direction), not its mouth's
+    "exit": [("bzphys.inc", "    mov cl, [es:si + BZP_TDIR]  ; 0 +x, 1 -x, 2 +y, 3 -y\n",
+              "    mov cl, [es:si + BZP_TDIR]  ; 0 +x, 1 -x, 2 +y, 3 -y\n"
+              "    cmp byte [es:si + BZP_KIND], BZ_PK_WINDMILL ; RED exit: along the entry\n    jne .redx\n"
+              "    mov cl, [es:si + BZP_TGVX]  ; (the doorway: 0 -x, 1 -y -> codes 1, 3)\n    shl cl, 1\n"
+              "    inc cl\n.redx:\n")],
 }
 RED_LEGS = {"slope": ("bench",), "respawn": ("scen",), "takeoff": ("scen",)}
 RED_ONLY = {"respawn": ("pit",), "takeoff": ("lip",), "bounce": ("bounce",), "edge": ("eastwall",),
-            "stun": ("stun",), "shatter": ("shatter",), "absimpact": ("ramphop",), "airwall": ("stepup",)}
+            "stun": ("stun",), "shatter": ("shatter",), "absimpact": ("ramphop",), "airwall": ("stepup",),
+            "gate": ("knock",), "kick": ("kick",), "carry": ("hop",), "carrys": ("ride",), "stick": ("hop",),
+            "exit": ("keep",)}
 RED_WANT = {"slope": "the benchmark frame", "respawn": "pit", "takeoff": "lip", "bounce": "bounce frame",
             "edge": "eastwall frame", "stun": "stun frame", "shatter": "shatter frame",
-            "absimpact": "ramphop-", "airwall": "stepup frame"}
+            "absimpact": "ramphop-", "airwall": "stepup frame", "gate": "knock frame", "kick": "kick frame",
+            "carry": "hop frame", "carrys": "ride frame", "stick": "hop frame", "exit": "keep frame"}
 
 
 def main():

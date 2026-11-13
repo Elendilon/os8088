@@ -2,7 +2,7 @@
 """BONANZA on kern_mega: correct on selectors, RUN (SPEC.md 128.10.6.4, 128.11.14, 128.11.17.2).
 
     make mega bonanzadisk && python3 tests/bonanza_mega.py [--keep]
-    python3 tests/bonanza_mega.py --red segadd|hxcs|shiftmap     (a red arm, below)
+    python3 tests/bonanza_mega.py --red segadd|hxcs|shiftmap|mapcs     (a red arm, below)
     python3 tests/bonanza_mega.py --check                        (the host half: the red arms assemble)
 
 Under kern_mega a claim is an LDT SELECTOR, so every segment wave 1 added -
@@ -46,6 +46,17 @@ BONANZA plays on a CGA or a Hercules only - and then:
      keyboard sends no fake shift, the case could not go red, and it reports
      SKIP with that reason (asserting nothing about it);
 
+  5  MILL (wave 3, SPEC.md 128.12.12): the model's log from MILL's start -
+     the knock-back, the windmill's tunnel, a kick, the chute and the cannon
+     - poked into bz_rlog with MILL's identity and replayed by R on the
+     Hercules: the lanes' map words written through the course part's own
+     selector, its blocks and the platform's frames translated; the end
+     state the model's;
+  6  bonanzaphys's `ride` replayed on the Hercules, the ball poked onto the
+     slab in the first frame's bz_hold SPIN (the one point a poke is the
+     next step's input: bz_hold 255, then the frame count seen to move);
+     the end state the model's;
+
 and asserts, after each, as bonanza_exit does on MartyPC: every part row
 with OP_FETCHED clear and OP_R_ZKB back to its packed length, and the
 instance's claims - the conventional heap's (mem_tab) and the pool's above
@@ -66,6 +77,8 @@ the row FAILS at its own check:
   hxcs      the Hercules translation writes through CS (bz_hxrows' store a
             `mov [cs:di], al`): an exception in the fault log, charged to the
             package, at the first Hercules launch
+  mapcs     a lane's map words written through CS (bz_lmap's ES the code
+            selector): an exception in the fault log at MILL's first sync
   shiftmap  Grip read through OSAPI_KEY_DOWN (2Ah), §9.7's map: with the
             fake shift in the map, bit 5 set while the grey arrow is held
             (a SKIP of case 4 leaves this arm unjudged, and it says so)
@@ -86,6 +99,7 @@ import os88geom as G                                          # noqa: E402
 import os88sym                                                # noqa: E402
 import heapmap                                                # noqa: E402
 import bonanza_ring as R                                      # noqa: E402
+import bbcourse as BB                                         # noqa: E402
 
 B = os.path.join(ROOT, "build")
 VM = "286-mega-multimon"
@@ -304,6 +318,121 @@ def check_after(what, pkg, base_rows, base_claims, got_claims):
     want(got_claims == base_claims, "%s: the instance's claims as before the launch: %s" % (what, got_claims))
 
 
+# ---- MILL on the Hercules (SPEC.md 128.12.12) ------------------------------------
+def memw(b, addr, data):
+    for i in range(0, len(data), 512):
+        b.cmd("memw 0x%X %s" % (addr + i, bytes(data[i:i + 512]).hex()))
+
+
+def mill_route_log():
+    """the model's MILL log from the course's start (bbcourse.Physics, as
+    bonanzaphys writes its logs): no key for the delay that makes the
+    autopilot's first approach to its windmill a KNOCK-BACK, then the
+    autopilot's own key bytes - the knock, the windmill's tunnel (a KEEP), the
+    bumpers' kicks, the chute (a DROP) and the cannon (a LAUNCH).  -> (keys,
+    the model at their end, the events)"""
+    import bonanza_replay as RP
+    delay = RP.mill_delay()[0] or 0
+    p = BB.Physics(R.course("mill"), play=True)
+    keys = []
+    for i in range(delay + 900):
+        k = 0 if i < delay else p.auto()
+        keys.append(k)
+        p.step(k)
+        if p.goal:
+            break
+    return keys, p, [e for e in p.events if e[0] in ("knock", "capture", "kick", "exit")]
+
+
+def mill_replay(b, pkg, keys, what, poke=None):
+    """KEYS as a MILL log (its identity stamped) in bz_rlog, R, to its end; POKE:
+    {name: bytes} written into the bss in the first frame's bz_hold SPIN - bz_hold
+    poked 255 and the frame count seen to move, so the guest is in bz_t0's spin
+    before its steps, the one place a poke is the step's input (bonanzawheel's
+    harness byte, SPEC.md 128.12.5.6).  -> (bz_nstep at the poke, the end state)"""
+    log = R.make_log(keys, R.CRS_K["mill"], R.course("mill").ball)
+    memw(b, pkg.a("bz_rlog"), log + bytes(BB.RLOG_SIZE - len(log)))
+    b.tap("r", gap=300)
+    b.until(lambda: pkg.byte("bz_fs") == 1, "R's MILL replay (%s)" % what, 60000, 20)
+    want(pkg.byte("bz_mode") == 2 and pkg.byte("bz_crs") == R.CRS_K["mill"] and pkg.byte("bz_herc") == 1,
+         "%s: R replays MILL on the Hercules ([bz_err] %d)" % (what, pkg.byte("bz_err")))
+    s0 = None
+    if poke:
+        memw(b, pkg.a("bz_hold"), b"\xff")
+        f0 = pkg.word("bz_frames")
+        b.until(lambda: pkg.word("bz_frames") != f0, "a frame presented, the next one's spin begun", 10000, 1)
+        want(pkg.byte("bz_hold") != 0, "%s: the poke lands in bz_t0's spin ([bz_hold] still set)" % what)
+        s0 = nstep(b, pkg)
+        for n, v in poke(s0).items():
+            memw(b, pkg.a(n), v)
+        # every write must have landed INSIDE the spin (bz_hold x 256 counts, about 55 ms at
+        # 86Box's real-time pace): still spinning, no step taken.  A miss is the HARNESS's (the
+        # socket's round trips outran the spin), not the guest's: the caller retries it once
+        landed = pkg.byte("bz_hold") != 0 and nstep(b, pkg) == s0
+    b.until(lambda: pkg.byte("bz_fs") == 0, "the %s replay to reach its end" % what, 240000, 100)
+    b.until(lambda: pkg.word("bz_cseg") == 0 and pkg.word("bz_bseg") == 0, "the parts dropped", 10000, 50)
+    b.ui_done(limit_ms=30000)
+    if poke and not landed:
+        return None, None
+    return s0, phys(b, pkg)
+
+
+def ride_poke(pkg, b):
+    """bonanzaphys's `ride` scenario, poked at step S0: the ball resting on the
+    LIFT's slab at its low dock, carried - its bytes (state, screen state, the
+    window's refill flag, bz_onp, bz_ps's bit 2)"""
+    import bonanza_phys as P
+
+    def at(s0):
+        pk = P.slab_poke(s0)
+        kx = struct.unpack("<i", b.memr(pkg.a("bz_kx"), 4))[0]
+        ky = struct.unpack("<i", b.memr(pkg.a("bz_ky"), 4))[0]
+        ps = pkg.byte("bz_ps")
+        return {"bz_gx": struct.pack("<I", pk["gx"]), "bz_gy": struct.pack("<I", pk["gy"]),
+                "bz_gz": struct.pack("<i", pk["gz"]), "bz_gvx": struct.pack("<h", pk["gvx"]),
+                "bz_gvy": struct.pack("<h", pk["gvy"]), "bz_gvz": struct.pack("<h", pk["gvz"]),
+                "bz_air": bytes([pk["air"]]), "bz_ztop": struct.pack("<h", pk["ztop"]),
+                "bz_bx": struct.pack("<i", pk["gx"] - pk["gy"] + kx),
+                "bz_by": struct.pack("<i", ((pk["gx"] + pk["gy"]) >> 1) - pk["gz"] + ky),
+                "bz_vx": b"\0\0", "bz_vy": b"\0\0", "bz_onp": bytes([pk["onp"]]),
+                "bz_ps": bytes([ps | 4]), "bz_pokd": b"\1"}
+    return at
+
+
+def mill_cases(b, pkg, base_rows, base_claims, hs, eq):
+    """5 and 6: MILL on the Hercules - every launch translates MILL's blocks and
+    its platform's frames through BZ_HTAB, and every lane's map words are written
+    through the course part's own selector (128.12.12)"""
+    import bonanza_phys as P
+    keys, p, ev = mill_route_log()
+    kinds = {(e[0], R.course("mill").part["props"][e[2]]["kind"]) for e in ev}
+    want(("knock", BB.PK_WINDMILL) in kinds and ("kick", BB.PK_BUMPER) in kinds and
+         ("capture", BB.PK_WINDMILL) in kinds and len({e[2] for e in ev if e[0] == "exit"} - {
+             r["i"] for r in R.course("mill").part["props"] if r["kind"] == BB.PK_WINDMILL}) >= 2,
+         "5. the model's MILL log (%d steps) goes through a knock-back, a windmill's KEEP tunnel, a kick, the "
+         "chute (DROP) and the cannon (LAUNCH): %s" % (len(keys), ", ".join("%s@%d" % (e[0], e[1]) for e in ev)))
+    _, end = mill_replay(b, pkg, keys, "5. the MILL route")
+    want(end == p.state(), "5. the MILL route replayed on the Hercules ends at the model's state: %s (the model %s)" % (
+        end, p.state()))
+    check_after("5. the MILL route's replay", pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
+    s = next(x for x in P.mill_replays() if x["name"] == "ride")
+    for attempt in (1, 2):
+        s0, end = mill_replay(b, pkg, s["keys"], "6. the ride", poke=ride_poke(pkg, b))
+        if s0 is not None:
+            break
+        print("   ..   6. the ride: a poke write landed after bz_t0's spin ended (a harness miss, attempt %d)"
+              % attempt, flush=True)
+    want(s0 is not None, "6. the ride's poke landed inside one bz_hold spin (every write; two attempts)")
+    if s0 is None:
+        return
+    q = P.model("mill", s["mat"], P.slab_poke(s0 or 0))
+    q.nstep = s0 or 0
+    P.advance(q, len(s["keys"]), s["keys"])
+    want(end == q.state(), "6. the ride (poked onto the slab at step %s, carried up the lift, off at its high rim) "
+         "replayed on the Hercules ends at the model's state: %s (the model %s)" % (s0, end, q.state()))
+    check_after("6. the ride's replay", pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
+
+
 def run(img_b, keep, tmp):
     eq = os88sym._parse_map(os.path.join(B, "megak", "kernel.map"))[2]
     off = os88sym._parse_map(os.path.join(B, "megak", "kernel.map"))[0]
@@ -432,6 +561,7 @@ def run(img_b, keep, tmp):
                  "(Grip) clear in every one of the play's %d recorded key bytes (Right, bit 1, among them)"
                  % len(keys))
         check_after("4. the grey-arrow play", pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
+        mill_cases(b, pkg, base_rows, base_claims, hs, eq)
     except Gone as e:
         # every later step is skipped: there is nothing left to read
         want(False, "%s (a fault charged to it - the fault log below names it)" % e)
@@ -463,8 +593,13 @@ REDS = {
                   "    int 16h\n    test al, 2\n    jz .out\n",
                   "    mov al, 2ah                 ; RED shiftmap: Left Shift through OSAPI_KEY_DOWN\n"
                   "    call OSAPI_KEY_DOWN\n    jnc .out\n")],
+    # wave 3: a lane's map words written through CS - a code selector on kern_mega takes
+    # no write (SPEC.md 128.12.12): an exception at MILL's first sync
+    "mapcs": [("bzwheel.inc", "    mov es, [bz_cseg]\n    push es\n    pop ds\n.r:\n",
+               "    mov ds, [bz_cseg]\n    push cs                     ; RED mapcs: the map through CS\n"
+               "    pop es\n.r:\n")],
 }
-RED_WANT = {"segadd": None, "hxcs": None, "shiftmap": "4. the fake shifts"}
+RED_WANT = {"segadd": None, "hxcs": None, "shiftmap": "4. the fake shifts", "mapcs": None}
 
 
 def main():

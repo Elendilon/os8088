@@ -20,6 +20,10 @@ BALL (M on the desktop: rubber, steel, glass):
     Esc in a replay      R, a log of 600 steps, left by Esc
     the benchmark's end  B, BENCH with BENCH's ball, its 1,200th frame (once)
 
+    and, wave 3 (SPEC.md 128.12.13.2), on MILL (part row 6) every way out
+    above - its goal, a log of MILL, its benchmark - and Esc while the ball
+    is HIDDEN in a tube (poked into the chute's drain)
+
 and asserts, against what was read on the desktop BEFORE that launch:
 
   1  every part row of BONANZA.O88's table (os88parts.inc's op_table, all
@@ -126,46 +130,78 @@ def leave(g, way):
         m.key("AltLeft", down=False)
 
 
-def launch(g, way):
-    """Start the launch that WAY leaves by; -> the floppy reads it took, once
-    the bracket is up (both parts fetched)."""
+def launch(g, way, crs=None):
+    """Start the launch that WAY leaves by - on course CRS ([bz_crs] poked at
+    bz_launch's entry; a replay's course is its log's) - ; -> the floppy reads
+    it took, once the bracket is up (both parts fetched)."""
     m = g.m
     m.disk(reset=True)
-    g.key("KeyB" if way == "bench" else "KeyR" if way.startswith("replay") else "Enter")
+    key = "KeyB" if way == "bench" else "KeyR" if way.startswith("replay") else "Enter"
+    if crs and not way.startswith("replay"):
+        m.bp_exec(g.a("bz_launch"))
+        g.key(key)
+        assert m.wait_stop(60) == "breakpoint", "%s did not reach bz_launch" % key
+        g.putb("bz_crs", R.CRS_K[crs])
+        m.bp_exec()
+        m.run()
+    else:
+        g.key(key)
     M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "the bracket is up (%s)" % way, guest=60)
     m.pause()
     return m.disk()["reads"]
 
 
-def goal(g):
-    """Play FIRST to its goal: the ball poked onto the goal column at bz_t0."""
+def at_t0(g, poke):
+    """POKE(g) at the next bz_t0 (the guest stopped there), then run on"""
     m = g.m
-    (wx, wy), gvx, gvy, _ = P.SCEN["goal"]
     wk = R.Walker(g, t0=True)
     m.bp_exec(wk.t0)
     while wk.next() != "t0":
         pass
-    p = BB.Physics(R.course("first"), play=True, mat=g.b("bz_mat")).poke(wx, wy, gvx, gvy)
-    R.poke_ball(g, p.gx, p.gy, p.gz, p.gvx, p.gvy, p.gvz, air=0)
+    poke(g)
     m.bp_exec()
     m.run()
 
 
-def one(g, way, base_rows, base_claims, mat):
-    """One launch left by WAY with the ball MAT chose: -> (failures, the report line)"""
+def goal(g, crs="first"):
+    """Play to the goal: FIRST's ball poked onto its goal column at bz_t0; on
+    another course, onto the centre of its first GOAL cell, at rest."""
+    if crs == "first":
+        (wx, wy), gvx, gvy, _ = P.SCEN["goal"]
+    else:
+        grid = BB.Grid(R.course(crs).cga)
+        wx, wy = next((x, y) for y in range(256) for x in range(256) if grid.cell(x, y)[3] == BB.KIND_GOAL)
+        gvx = gvy = 0
+    p = BB.Physics(R.course(crs), play=True, mat=g.b("bz_mat")).poke(wx, wy, gvx, gvy)
+    at_t0(g, lambda g_: R.poke_ball(g_, p.gx, p.gy, p.gz, p.gvx, p.gvy, p.gvz, air=0))
+
+
+def into_tube(g, crs="mill"):
+    """the ball poked onto the centre of the course's first plain tube's IN
+    cell (a DRAIN: SPEC.md 128.12.6.1) at bz_t0: the next step captures it;
+    -> once the guest says it is hidden ([bz_tube])"""
+    tb = next(r for r in R.course(crs).part["props"] if r["kind"] == BB.PK_TUBE)
+    p = BB.Physics(R.course(crs), play=True, mat=g.b("bz_mat")).poke(*tb["at"])
+    at_t0(g, lambda g_: R.poke_ball(g_, p.gx, p.gy, p.gz, 0, 0, 0, air=0))
+    M.until(g.m, lambda _: g.b("bz_tube") != 0, "the ball to be swallowed by the tube at %s" % (tb["at"],), guest=10)
+
+
+def one(g, way, base_rows, base_claims, mat, crs="first"):
+    """One launch on CRS left by WAY with the ball MAT chose: -> (failures, the
+    report line).  B on FIRST is BENCH's benchmark (B's own course)."""
     m = g.m
     fails = []
-    if way.startswith("replay"):                # a log of FIRST with this ball: 2 s to its end, or
+    if way.startswith("replay"):                # a log of CRS with this ball: 2 s to its end, or
         m.pause()                               # 11 s to be left by Esc early
-        g.write_log(BB.encode_log([0] * (120 if way == "replayend" else 600), course=R.CRS_K["first"], mat=mat))
+        g.write_log(R.make_log([0] * (120 if way == "replayend" else 600), R.CRS_K[crs], mat))
         m.run()
     if way == "bench":
-        want_mat = R.course("bench").ball           # B rolls BENCH's own ball
+        want_mat = R.course("bench" if crs == "first" else crs).ball    # B rolls its course's own ball
     elif way.startswith("replay"):
         want_mat = m.read(g.a("bz_rlog") + 5, 1)[0]   # R the log's (SPEC.md 128.11.12.2)
     else:
         want_mat = mat                              # a play M's
-    reads = launch(g, way)
+    reads = launch(g, way, None if crs == "first" else crs)
     pc, pb = g.b("bz_pc"), g.b("bz_pb")
     r_in, c_in = rows(g), claims(g)
     for i in (pc, pb):
@@ -184,13 +220,37 @@ def one(g, way, base_rows, base_claims, mat):
         m.run()
         M.until(m, lambda _: g.b("bz_fs") == 0, "the benchmark's 1,200 frames", guest=120)
     elif way == "goal":
-        goal(g)
+        goal(g, crs)
         M.until(m, lambda _: g.b("bz_fs") == 0, "the play to end at the goal", guest=60)
         if not g.b("bz_fin"):
             fails.append("goal: the play ended but [bz_fin] is clear - it did not end at the goal")
     elif way == "replayend":
         m.run()
         M.until(m, lambda _: g.b("bz_fs") == 0, "the replay to reach its end", guest=60)
+    elif way == "tubeesc":                      # Esc while the ball is HIDDEN in a tube
+        m.run()
+        for _ in range(3):                      # (swallowed and still inside, the guest paused)
+            into_tube(g, crs)
+            m.pause()
+            if g.b("bz_tube"):
+                break
+            m.run()
+        # the Esc is judged where bz_exitchk TAKES it: the ball must still be hidden there,
+        # or this case is an ordinary Esc that says nothing about a tube
+        m.bp_exec(g.a("bz_exitchk.leave"))
+        m.run()
+        leave(g, "esc")
+        if m.wait_stop(60) != "breakpoint":
+            fails.append("tubeesc: bz_exitchk never took the Esc")
+            hid = None
+        else:
+            hid = g.b("bz_tube")
+        m.bp_exec()
+        m.run()
+        if hid == 0:
+            fails.append("tubeesc: the Esc was taken after the ball left the tube ([bz_tube] 0 at "
+                         "bz_exitchk's leave) - an ordinary Esc, not one with the ball HIDDEN")
+        M.until(m, lambda _: g.b("bz_fs") == 0, "the launch to end on Esc in a tube", guest=60)
     else:
         m.run()
         leave(g, way)
@@ -210,8 +270,9 @@ def one(g, way, base_rows, base_claims, mat):
     if c_out != base_claims:
         fails.append("%s: the instance's claims after the launch %s, before it %s" % (way, c_out, base_claims))
     m.run()
-    line = "%s (%s): rows %d,%d fetched inside; %d floppy reads to the bracket; after it every row as before and " \
-           "the claims as before: %s" % (way, BB.MAT_NAMES[want_mat], pc, pb, reads, "yes" if not fails else "NO")
+    line = "%s %s (%s): rows %d,%d fetched inside; %d floppy reads to the bracket; after it every row as before " \
+           "and the claims as before: %s" % (crs.upper(), way, BB.MAT_NAMES[want_mat], pc, pb, reads,
+                                             "yes" if not fails else "NO")
     return fails, line
 
 
@@ -264,7 +325,7 @@ def held_keys(g):
     return fails
 
 
-def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=True):
+def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=True, mill=True):
     sym = R.symbols(src)
     fails = []
     with os88ui.boot(R.at("build/os8088-360.img"), apps=apps or R.at("build/bonanza360.img"),
@@ -300,6 +361,14 @@ def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=Tr
             f, line = one(g, "bench", base_rows, base_claims, 0)
             print("%s %s" % (tag, line), flush=True)
             fails += f
+        if mill and not fails:                  # wave 3: MILL (row 6) every way out, and Esc in a tube
+            choose_ball(g, R.course("mill").ball)
+            for way in [w for w in ways if w in WAYS] + ["tubeesc", "bench"]:
+                f, line = one(g, way, base_rows, base_claims, R.course("mill").ball, crs="mill")
+                print("%s %s" % (tag, line), flush=True)
+                fails += f
+                if f:
+                    break
         if keys and not fails:
             fails += held_keys(g)
     return fails
@@ -317,8 +386,8 @@ REDS = {
     # bz_dkk never cleared: the key never reads as come up
     "overswallow": [("bonanza.asm", ".up:\n    mov byte [bz_dkk], 0\n", ".up:                            ; RED overswallow\n")],
 }
-RED_RUN = {"leak": {"keys": False}, "crepeat": {"ways": (), "bench": False},
-           "overswallow": {"ways": (), "bench": False}}
+RED_RUN = {"leak": {"keys": False}, "crepeat": {"ways": (), "bench": False, "mill": False},
+           "overswallow": {"ways": (), "bench": False, "mill": False}}
 RED_WANT = {"leak": "goal:", "crepeat": "held 1.5 s advanced", "overswallow": "pressed twice"}
 
 

@@ -79,6 +79,8 @@ BZC_OCCIDX  equ 14              ; OCCIDX: BROWS + 1 words, each the offset of
 BZC_ROWB    equ 24              ; 2 COLS: the map row's byte stride, READ by the
                                 ; column writer through DS = the part (128.10.6.4)
 BZC_GRID    equ 26              ; GRIDOFF
+BZC_PROPOFF equ 28              ; the prop table (SPEC.md 128.12.3.1): its first
+BZC_NPROP   equ 30              ; record, and the records (0: none)
 BZC_MAP     equ 32              ; the map: COLS x BROWS words, absolute offsets
 BZG_NROWS   equ 4               ; (at GRIDOFF +) the rows
 BZG_SMIN    equ 6               ; row 0's s = wx + wy
@@ -87,6 +89,7 @@ BZG_KW      equ 10              ; cells a row
 BZG_ROWTAB  equ 12              ; ROWTAB's offset: a row's first cell
 BZG_X0      equ 14              ; px
 BZG_Y0      equ 16              ; signed px
+BZG_ID      equ 18              ; the course's IDENTITY (SPEC.md 128.12.8)
 BZG_WX      equ 20              ; the start tile
 BZG_WY      equ 22
 BZG_NWAY    equ 24              ; the route: NWAY pairs of words, the ball's
@@ -100,6 +103,7 @@ BZR_MAT     equ 5               ; byte: the material
 BZR_FLAGS   equ 6               ; byte: bit 0 COMPLETE, bit 1 TRUNCATED
 BZR_STEPS   equ 8               ; DWORD: the steps recorded
 BZR_NRUN    equ 12              ; word: the runs recorded
+BZR_ID      equ 14              ; word: the course's identity (128.12.8)
 BZR_RUNS    equ 16              ; the runs: (key byte, count 1 - 255) pairs
 BZR_SIZE    equ 4096            ; the log, bz_rlog: at most 2,040 runs
 BZR_DONE    equ 1
@@ -362,6 +366,18 @@ bz_launch:
     call op_seg
     mov [bz_bseg], ax
     call bz_crshdr              ; the course's header, copied into our data
+    cmp byte [bz_mode], 2       ; a REPLAY of a log made on another course (a
+    jne .idok                   ; re-seeded one: its identity differs) is
+    push es                     ; refused, and the face says so (SPEC.md
+    mov es, [bz_cseg]           ; 128.12.8)
+    mov di, [bz_goff]
+    mov ax, [es:di + BZG_ID]
+    pop es
+    cmp ax, [bz_rlog + BZR_ID]
+    je .idok
+    mov byte [bz_err], 3
+    jmp short .drop
+.idok:
     cmp byte [bz_herc], 0       ; the Hercules's parts are the CGA's through
     je .run                     ; BZ_HTAB, made here (SPEC.md 128.11.3)
     push es                     ; (ES as the bracket call found it before:
@@ -390,6 +406,9 @@ bz_launch:
     call op_drop
     mov word [bz_cseg], 0
     mov word [bz_bseg], 0
+    cmp byte [bz_err], 3        ; no bracket ran: the face repainted with the
+    jne .out                    ; refusal
+    call bz_repaint
 .out:
     ret
 
@@ -497,7 +516,9 @@ bz_hgen:
 ;   the ball's ROLL frames: frame f's row r through ((f >> 3) + r) & 1, so each
 ;     run of 8 frames is 128 rows of 5 bytes from table (f >> 3) & 1;
 ;   the FRAME half of each squash and shatter entry (frame x shift x parity
-;     copy p x (mask 80, frame 80)): 16 rows from table p.
+;     copy p x (mask 80, frame 80)): 16 rows from table p;
+;   a PLATFORM's sprite (wave 3, SPEC.md 128.12.6.4): parity copy p x (mask
+;     144, frame 144), the frame's row r through table (p + r) AND 1.
 ; Masks and the shadow are the same bytes on both cards and are not touched.
 ; XLAT reads DS:BX + AL, so DS = OURS (the table, in our bss) and the part is
 ; ES (`es lodsb`, `stosb`, SI = DI): on kern_mega ES is the part's own
@@ -517,6 +538,30 @@ bz_hxlat:
     shl cx, 1
     mov dl, 2
     call bz_hxrows
+    mov cx, [es:BZC_NPROP]      ; the PLATFORMS' sprites (SPEC.md 128.12.6.4):
+    mov di, [es:BZC_PROPOFF]    ; parity copy p's frame half, row r through
+    jcxz .noplat                ; table (p + r) AND 1 (BX is table 0 here: the
+.prec:                          ; blocks' run is even)
+    cmp byte [es:di + BZP_KIND], BZ_PK_PLATFORM
+    jne .pnext
+    push cx
+    push di
+    mov si, [es:di + BZP_PSPR]
+    mov dl, BZ_PLW / 4
+    add si, BZ_PLH * BZ_PLW / 4 ; past copy 0's mask
+    mov cx, BZ_PLH              ; (even: back on table 0)
+    call bz_hxrows
+    add si, BZ_PLH * BZ_PLW / 4 ; past copy 1's mask
+    xor bx, bp                  ; copy 1's first row: table 1
+    mov cx, BZ_PLH
+    call bz_hxrows
+    xor bx, bp                  ; (table 0 again)
+    pop di
+    pop cx
+.pnext:
+    add di, BZ_PROPREC
+    loop .prec
+.noplat:
     mov es, [bz_bseg]           ; the ball's roll frames: 8 runs of 8 frames
     mov si, BZ_BAL_FRMOFF
     mov dl, BZ_BAL_RB
@@ -614,6 +659,8 @@ bz_face:
     call bz_lstr
     call bz_line
     call bz_keyline             ; line 3: the camera, the ball, their keys
+    cmp byte [bz_err], 3        ; (a refused replay says why, whatever the
+    je .nores                   ; lines would hold)
     cmp byte [bz_fin], 0        ; lines 4 and 5 after a play or a replay that
     je .nofin                   ; reached the goal: its time (SPEC.md
     call bz_finline             ; 128.10.6.2) and its mishaps (128.11.11.3),
@@ -624,12 +671,15 @@ bz_face:
     jne .results
 .nores:
     mov al, [bz_err]            ; 1 the mode was refused, 2 the display
-    or al, al                   ; changed between the key and the bracket
-    jz .hint
+    or al, al                   ; changed between the key and the bracket,
+    jz .hint                    ; 3 a replay's log is another course's
     mov si, bz_s_err
     cmp al, 1
     je .errl
     mov si, bz_s_err2
+    cmp al, 2
+    je .errl
+    mov si, bz_s_err3
 .errl:
     call bz_lstr
     call bz_line
@@ -896,8 +946,8 @@ bz_facres:
     call bz_line
     pop bx
     inc bx
-    cmp bx, BZ_NPART
-    jb .part
+    cmp bx, BZ_NFACE            ; (the wheel's part is the rows' to read: the
+    jb .part                    ; face keeps its 13 lines, SPEC.md 128.12.5.6)
     mov si, bz_s_cols
     call bz_lstr
     mov ax, [bz_rncol]
@@ -944,7 +994,7 @@ bz_hz10:
     pop bx
     ret
 
-; -> DX:AX = the mean PIT counts of one measured frame (the six parts summed)
+; -> DX:AX = the mean PIT counts of one measured frame (the seven parts summed)
 bz_period:
     push bx
     push cx
@@ -1167,10 +1217,10 @@ bz_tpl: dw 40, 24, 344, 168, bz_title, bz_cls
 bz_title: db 'Bounce Bonanza',0
 bz_credits: dw bz_title,bz_credit1,bz_credit2,bz_credit3,0
 bz_credit1: db 'Isometric rolling-ball game',0
-bz_credit2: db 'Wave 2: feel - three balls',0
+bz_credit2: db 'Wave 3: obstacles and the wheel',0
 bz_credit3: db 'Generated art, original design',0
 
-bz_s_title: db 'BOUNCE BONANZA - wave 2',0
+bz_s_title: db 'BOUNCE BONANZA - wave 3',0
 bz_s_keys:  db 'ENTER ',0
 bz_s_keyb:  db '  B bench',0
 bz_ctitles: BZ_CRS_TITLES       ; the courses' titles, BZ_CRS_TITLEB bytes each
@@ -1200,6 +1250,7 @@ bz_s_shats: db '  shatters ',0
 bz_s_secs:  db ' s',0
 bz_s_err:   db 'The full screen mode was refused',0
 bz_s_err2:  db "The window's display changed",0
+bz_s_err3:  db "Another course's log",0
 bz_s_frames: db 'Frames ',0
 bz_s_disp:  db '  ',0
 bz_s_hz:    db ' Hz  misses ',0
@@ -1220,6 +1271,7 @@ bz_s_p5:    db '  box write      ',0
 
 %include "bzvideo.inc"
 %include "bzgame.inc"
+%include "bzwheel.inc"
 %include "bzphys.inc"
 %if 4 * BZ_BOXB < 512
  %error "bz_hgen: BZ_HTAB's 512 bytes do not fit bz_boxbuf"
