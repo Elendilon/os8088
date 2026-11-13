@@ -556,6 +556,13 @@ Memory: code ~20-30 KB, the animation tables ~14 KB, arenas 4-8 KB each, and
 shadows 8 KB. The code fits one segment, and the arenas and animations are
 PARTS. The region must follow §66.6.1.1, `OS88_REGION_MOVABLE`.
 
+**Superseded by [WIREARENA-PARTS-PLAN](WIREARENA-PARTS-PLAN.md)** (2026-11-13):
+it measured the segment, forecast +35 to +80 KB still to come, and split the
+game into a renderer part, the game in the primary, keyframes as an asset
+and arenas fetched per match. Its section 6 records the owner's answers:
+kern_big and kern_mega only (kern_small refuses), at most three figures, and
+640 KB as the design machine.
+
 ---
 
 ## 12. How it would be verified
@@ -1159,3 +1166,114 @@ about what it did on bench `B`. The difference is render, at 52.6 ms against
 or three animated figures in every frame. So this is the bench
 to quote for play, and render in a full room is where the next round should
 look.
+
+### 16.8 Performance pass 4 — five agents on the play bench, measured merged
+
+Five agents worked from `d30f8d30`, one on the whole frame and one each on
+geometry, spans, figures and present. Each owned an area of `wrender.inc` or
+`wirearena.asm` and had to prove its picture: text VRAM byte-identical to the
+base over hundreds of posed frames, with figures posed in every state.
+
+**What the whole-frame count found (`perf-overall`).** On the P bench at 40
+columns the renderer does almost no wasted drawing: nothing is overdrawn and
+the coverage map shuts 0.07 faces a frame. The frame goes on FIXED costs per
+face, span and figure. About 6 ms went on faces that drew nothing (off-screen
+or edge-on), and ~1 ms on cone tests at split nodes that never dropped
+anything.
+
+**What landed:**
+
+- **Geometry (`perf-geom`).**
+  - The front-to-back box order is cached per cell of the split lines
+    (`wa_order`, `wa_lord`), so a frame walks no inner node while the player
+    stays in that cell. That covers turning and moving inside it, so it is
+    not a "nothing changed" test.
+  - Only the boxes take the cone test (`wa_leaf`). `perf-overall` found the
+    same.
+  - `wa_vert` leaves column sentinels, so `wa_face`'s pre-check is two loads.
+  - A narrower-view bound at 75 and 60 degrees.
+- **The exact pre-check (`perf-overall`).** It uses the same column range as
+  `wa_span`, `(c + 7) >> 4 .. ((c + 7) >> 4) - 1`, so a face seen edge-on ends
+  before its tops and bottoms are made. At the merge it was re-expressed on
+  `perf-geom`'s x16 sentinels, with the +7 taken from the remainder's carry,
+  because ±32767 would overflow an add.
+- **Spans (`perf-spans`).** A span opens only ~4 columns, so per-span setup
+  (~4,700 clk) outweighed the column loop.
+  - Flat spans are drawn in two passes by runs, one edge a pass: `FLATPASS`,
+    `wa_fedge`, `wa_fcell`.
+  - A shut column costs one step, not a `wa_gap` call.
+  - An opened column costs ~170 + 150 clk, against ~780.
+  - The sparse level takes the same path. `wa_l000`, `wa_l100` and
+    `wa_eatt` are gone.
+- **Figures (`perf-figs`).**
+  - The joints' bounding box is found first. On-screen figures skip the
+    limbs' clip tests, and a figure wholly behind a wall skips limbs and
+    emit.
+  - `wa_femit` plots inline.
+  - The draw order is an insertion sort.
+  - Wall depth in a column is taken from the span's end depths whenever
+    those bound it.
+  - Keys are asked of the kernel only when they could have changed: once
+    every 4 frames, or when the BIOS buffer saw them.
+  - The sim ticks are cheaper.
+  - **A bug fix that changes the picture:** a far figure drawn as a marker
+    took the previous near figure's colour. Now it takes its own, so a hit
+    far dummy flashes. Only marker attribute bytes differ.
+- **Present (`perf-present`).** It already walked lists, not the screen, so
+  its cost was ~138 clk a listed cell, near the bus floor.
+  - Four cells a turn, with the usual case falling through.
+  - Compared against text VRAM, not a RAM copy of it. `wa_vis` is gone,
+    −3,840 bytes.
+  - Indexed off DI.
+  - `wa_fmask` is the odd byte of `wa_stamp`'s word, another −3,840 bytes.
+
+**Merged, measured on MartyPC `os8088_5150_cga`, full detail, FOV 75:**
+
+| | d30f8d30 | pass 4 |
+|---|---|---|
+| **P bench, 40 columns** | 15.9 fps (MS 62.8, R 52.6, P 7.0) | **19.1 fps** (MS 52.2, R 44.8, P 5.3) |
+| **P bench, 80 columns** | 12.9 (MS 77.1, R 61.0, P 12.7) | **15.8** (MS 63.0, R 51.5, P 9.4) |
+| B bench, 40 columns, full | 28.1 | **33.7** (R 26.7, P 5.6) |
+| B bench, 40 columns, sparse | 31.4 | **37.0** |
+
+Each agent's own gain on P at 40 columns was 16.3 (overall), 16.9 (geom),
+16.3 (spans), 16.8 (figs) and 16.3 (present). The merge adds them up.
+
+**Correctness of the merge:**
+
+- The figures agent's six sets (720 posed frames, including two
+  marker-heavy far sets) are identical to its post-fix references.
+- The spans agent's five sets (560 frames, mixing sparse, hysteresis and
+  floor grid at all three FOVs) are identical to `d30f8d30`.
+- The open arena (60 frames) is identical.
+- Hercules at 80 columns (120 frames) differs from `d30f8d30` in 2 attribute
+  bytes only: the marker fix, `0x0F` → `0x70`, the mono flash.
+- `wacheck --poses 30` gives 6, the same as the base.
+- The fast tier passes.
+
+**Size:** image 22,201 → 23,226 bytes, BSS 36,803 → 29,383. The package is
+52,609 of the 65,024 bytes a segment may hold. Present's 7,680 bytes paid
+for everything else, with ~6.6 KB to spare.
+
+**Owner's calls this pass raised:**
+
+1. **Present reads text VRAM at 80 columns on CGA.** A real IBM CGA snows on
+   a CPU read in 80-column text as on a write, so this adds ~206 reads to
+   ~242 writes a frame there. 40 columns (the CGA default), Hercules, EGA and
+   VGA do not snow. It is one commit (`8faddff8`) and can be dropped alone.
+2. **Figure detail by distance.** Measured on `perf-overall` and not
+   committed: markers below `fv8` 16 (~11 m) give P 40 = 17.8 fps on that
+   branch (from its 16.3); below 24 (~7 m), 18.2. `perf-figs` built
+   five straight limbs below `fv8` 20 and rejected it: mid-range figures lose
+   the legs and arm that make them read as men.
+3. **A kernel slot returning the key-state map** would save ~0.4 ms a frame.
+   It is an SDK/ABI change.
+
+**Next, by the agents' estimates:**
+
+- Per-span glue is now the largest single cost, ~11% of a frame. `wa_span`
+  could read the vertex cache directly, ~1.3% (both `perf-geom` and
+  `perf-spans` name it).
+- Rounded 16-bit product high words, ~1.4%. Not byte-identical.
+- The room's clipped walls, ~3 ms.
+- The joints' quarter-step blend for small figures, ~0.4 ms.
