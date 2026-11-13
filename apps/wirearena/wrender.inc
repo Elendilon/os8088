@@ -1846,15 +1846,18 @@ wa_figures:
 ; A near figure is drawn in three passes, each priced for the 8088:
 ;  1. its eleven joints, blended and projected - the blend specialised per
 ;     quarter (wa_fjl), the scale in a register;
-;  2. its nine limbs and head rasterised into wa_fbuf, a cell-mask scratch
+;  2. the box the joints span, and per column of it whether the figure is
+;     in front of the wall there (wa_fvis: the span's ends bound it, and
+;     wa_wallz is asked only when they do not) - none: nothing is drawn;
+;     its nine limbs and head rasterised into wa_fbuf, a cell-mask scratch
 ;     laid out like the screen, by a Bresenham whose state is its POSITION
 ;     IN THE CODE (wa_fline: one block per sub-cell quadrant, so a sub-pixel
 ;     is one `or byte [bx], imm` and a pointer step) - ~70 clk a sub-pixel
 ;     against ~700 for the per-sub-pixel clip, depth test and plot it was;
-;  3. the box the joints span, swept with `repe scasw`: each cell the figure
-;     touched is cleared out of wa_fbuf, depth-tested ONCE against its
-;     column's wall (wa_wallz, on demand) and handed to wa_plotf once,
-;     however many of its four sub-pixels the limbs set.
+;     with every joint on the screen, through wa_flinef and no clip tests;
+;  3. the box swept with `repe scasw` (wa_femit): each cell the figure
+;     touched is cleared out of wa_fbuf and, where wa_fvis says so, plotted
+;     once - inline - however many of its four sub-pixels the limbs set.
 ; wa_fbuf is all zeros between figures: pass 3 clears exactly what pass 2
 ; set, because every sub-pixel pass 2 plots is on the screen and inside the
 ; joints' box (a line stays inside its endpoints' box; the head's 2x2 reaches
