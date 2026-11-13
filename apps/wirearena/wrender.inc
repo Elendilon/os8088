@@ -1807,20 +1807,28 @@ wa_figures:
     pop bp
     ret
 ; WA_MINMAX t - BX, DX = the least and the most of the eleven words at t
-; (unrolled for WA_NJ = 11, which tools/arenagen.py asserts). Clobbers AX, SI.
+; (unrolled for WA_NJ = 11, which tools/arenagen.py asserts): the first, then
+; five pairs, each ordered by one compare and its smaller tried against the
+; least, its larger against the most - three compares a pair, not four.
+; Clobbers AX, CX, SI.
 %macro WA_MINMAX 1
     mov si, %1
     lodsw
     mov bx, ax
     mov dx, ax
-  %rep 10
+  %rep 5
     lodsw
+    mov cx, ax
+    lodsw
+    cmp ax, cx
+    jle $+3                     ; (over the one-byte exchange)
+    xchg ax, cx                 ; AX = the smaller, CX = the larger
     cmp ax, bx
     jge $+4                     ; (over the two-byte move)
     mov bx, ax
-    cmp ax, dx
+    cmp cx, dx
     jle $+4
-    mov dx, ax
+    mov dx, cx
   %endrep
 %endmacro
 ; WA_LIMB a, b - a limb, joint a x 2 to joint b x 2, into wa_fbuf
