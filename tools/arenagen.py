@@ -940,7 +940,7 @@ def arena_part(n, out):
         if tag in ARENA_PATHS else []
     L += ["    dw %s, %d                ; its own patrols: offset, bytes (0: the "
           "primary's)" % (P + "paths" if pb else "0", 2 * len(pb))]
-    pv = pvs_masks(tag, boxes)
+    pv = wamodel.A.pvs_masks(tag, boxes)    # (the budget's walk made them)
     L += ["    dw %s                    ; its PVS (0: none): grid shift, cells "
           "a column, masks" % (P + "pvs" if pv else "0")] + T
     if pv:
