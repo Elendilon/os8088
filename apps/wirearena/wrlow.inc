@@ -277,7 +277,7 @@ wa_lowbox:
     ret
 
 ; wl_lowseen - ZF = 0 when the box is a flight and the player stands past
-; its low end
+; its low end. Clobbers AL, CL
 wl_lowseen:
     test byte [wl_kind], 3
     jz .out
@@ -818,9 +818,9 @@ wl_treads:
     mov byte [wl_two], 0
     mov word [wl_k], 2
 .t:
-    mov ax, [wl_k]              ; from the low end when the player is past
-    call wl_lowseen             ; it, else from the top
-    jnz .fwd
+    call wl_lowseen             ; from the low end when the player is past
+    mov ax, [wl_k]              ; it, else from the top (AX after the test:
+    jnz .fwd                    ; wl_lowseen takes AL and CL)
     mov ax, [wl_nt]
     add ax, 2
     sub ax, [wl_k]
