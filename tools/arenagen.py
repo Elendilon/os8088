@@ -1,7 +1,15 @@
 #!/usr/bin/env python3
 """arenagen - WireArena's host-built tables (docs/plans/MULTIPLAYER-FPS-PLAN.md).
 
-Writes one NASM include, deterministic byte for byte:
+Writes one NASM include, deterministic byte for byte. Its constants are
+always defined; each DATA block is assembled only where the includer asks for
+it (docs/plans/WIREARENA-PARTS-PLAN.md: the primary and the renderer part
+each take what they read):
+
+  WA_TAB_SIN     wa_sin
+  WA_TAB_ARENAS  every arena's tables and wa_arenas
+  WA_TAB_PATHS   wa_pathtab and the patrols
+  WA_TAB_POSE    wa_pose
 
   wa_sin        1024 words, sin in Q14 (16384 = 1.0); cos(a) = wa_sin[a+256]
   wa_boxes      the arena's solid blocks, axis-aligned, in world units
@@ -311,8 +319,10 @@ def bsp_tables(w):
     the working tables; the tree stays where it is) and the maxima the
     working tables are sized to."""
     counts = []
+    w("%ifdef WA_TAB_ARENAS")
     for tag, name, boxes, start in arenas():
         counts.append(arena_tables(w, tag, boxes, start))
+    w("%endif")
     w("WA_NARENA equ %d" % len(counts))
     w("WA_MXV equ %d" % max(c[0] for c in counts))
     w("WA_MYV equ %d" % max(c[1] for c in counts))
@@ -323,6 +333,7 @@ def bsp_tables(w):
     # so no z exceeds its diagonal (wa_rcp covers NEAR..WA_ZMAX-1)
     w("WA_ZMAX equ %d" % (int(math.hypot(ROOM[2] - ROOM[0],
                                          ROOM[3] - ROOM[1])) + 2))
+    w("%ifdef WA_TAB_ARENAS")
     w("wa_arenas:                      ; xv, nxv, yv, nyv, vtx, nvtx, corn,")
     w("                                ; boxes, nbox, root, start x, y, angle,")
     w("                                ; colours")
@@ -331,6 +342,7 @@ def bsp_tables(w):
         w("    dw %sxv, %d, %syv, %d, %svtx, %d, %scorn" % (P, nx, P, ny, P, nv, P))
         w("    dw %sboxes, %d, %sbsp, %d, %d, %d, %sbcol" % (
             P, nb, P, start[0], start[1], start[2], P))
+    w("%endif")
     w("WA_ARENASZ equ 28")
 
 def main(out):
@@ -345,13 +357,16 @@ def main(out):
     w("WA_ROOM_Y0 equ %d" % ROOM[1])
     w("WA_ROOM_X1 equ %d" % ROOM[2])
     w("WA_ROOM_Y1 equ %d" % ROOM[3])
+    w("%ifdef WA_TAB_SIN")
     w("wa_sin:")
     for i in range(0, 1024, 8):
         w("    dw " + ", ".join(str(int(round(16384 * math.sin(
             2 * math.pi * j / 1024)))) for j in range(i, i + 8)))
+    w("%endif")
     bsp_tables(w)
     # paths: per dummy, a count and per leg (x, y, heading, steps)
     w("WA_NFIG equ %d" % len(PATHS))
+    w("%ifdef WA_TAB_PATHS")
     w("wa_pathtab:")
     for i in range(len(PATHS)):
         w("    dw wa_path%d" % i)
@@ -363,6 +378,7 @@ def main(out):
             dx, dy = nx - x, ny - y
             steps = max(1, int(round(math.hypot(dx, dy) / SPEED)))
             w("    dw %d, %d, %d, %d" % (x, y, angle_of(dx, dy), steps))
+    w("%endif")
     # poses
     first = 0
     for name, n, _ in ANIMS:
@@ -372,6 +388,7 @@ def main(out):
     w("WA_NFRAMES equ %d" % first)
     w("WA_FRAMESZ equ %d                ; one frame: NFACE x NJ x 2 bytes"
       % (NFACE * NJ * 2))
+    w("%ifdef WA_TAB_POSE")
     w("wa_pose:")
     for name, n, fn in ANIMS:
         for i in range(n):
@@ -381,6 +398,7 @@ def main(out):
                 w("    db " + ", ".join("%d,%d" % (sb(a), sb(b))
                                          for a, b in pr) +
                   "   ; %s %d facing %d" % (name, i, k))
+    w("%endif")
     with open(out, "w") as f:
         f.write("\n".join(L) + "\n")
 

@@ -1454,6 +1454,10 @@ wa_hudfix:                      ; SI = the HUD's template, NUL-terminated
 %include "os88pit.inc"
 
 ; --- tables -----------------------------------------------------------------
+%define WA_TAB_SIN               ; every data block arenagen writes
+%define WA_TAB_ARENAS
+%define WA_TAB_PATHS
+%define WA_TAB_POSE
 %include "watab.inc"
 
 wa_tpl:
