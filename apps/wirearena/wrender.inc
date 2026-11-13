@@ -39,8 +39,8 @@ WA_VAR wa_spih, WA_MAXSP*2      ; c2 - c1 and i2 - i1: wa_wallz's line
 WA_VAR wa_spsh, WA_MAXSP*2
 WA_VAR wa_spsl, WA_MAXSP*2
 WA_VAR wa_wcol, 1               ; the colour of the walls being drawn
-WA_VAR wa_pt32, WA_MAXW*2       ; per column, last frame's top and bottom
-WA_VAR wa_pb32, WA_MAXW*2       ; half-rows x 32 (wa_hyst)
+WA_VAR wa_pt32, WA_MAXW*2       ; per column, the held top and bottom
+WA_VAR wa_pb32, WA_MAXW*2       ; half-rows (wa_hyst)
 WA_VAR wa_dxc, 9*4              ; the floor grid's products (wa_dots)
 WA_VAR wa_dxs, 9*4
 WA_VAR wa_dyc, 9*4
@@ -52,9 +52,7 @@ WA_VAR wa_dix, 2
 WA_VAR wa_diy, 2
 WA_VAR wa_vt0, 2
 WA_VAR wa_stl, 2
-WA_VAR wa_voff, 2
 WA_VAR wa_sbl, 2
-WA_VAR wa_vtl, 2
 WA_VAR wa_vbl, 2
 WA_VAR wa_vb0, 2
 WA_VAR wa_afix, 1               ; the span's shade is one band
@@ -114,14 +112,14 @@ WA_VAR wa_ht, 2
 WA_VAR wa_hroff, WA_HR*2         ; a half-row's cell row offset
 WA_VAR wa_hb, 2
 WA_VAR wa_cs, 2
-WA_VAR wa_n, 2
+WA_VAR wa_end, 2                ; the span loop's end, column x 2
+WA_VAR wa_ncl, 2                ; ...and the columns it found shut
 WA_VAR wa_fs, 2
 WA_VAR wa_dc, 2
 WA_VAR wa_st, 2
 WA_VAR wa_sb, 2
 WA_VAR wa_slo, 2
 WA_VAR wa_shi, 2
-WA_VAR wa_vt, 2
 WA_VAR wa_vb, 2
 WA_VAR wa_vil, 2
 WA_VAR wa_vih, 2
@@ -910,10 +908,10 @@ wa_ptbi:
     cmp [wa_stamp+bx], dl
     je %%skip
     mov [wa_stamp+bx], dl
-    mov [di], bx
-    inc di
-    inc di
     mov [wa_cur+bx], ax
+    xchg ax, bx                 ; onto the list (ES = DS through wa_render)
+    stosw
+    xchg ax, bx
 %%skip:
 %endmacro
 
@@ -957,37 +955,28 @@ wa_span:
     mov cx, si                  ; ANY OPEN COLUMN? One scan of wa_cov, before
     sub cx, dx                  ; a single divide: a wall wholly behind
     inc cx                      ; nearer ones costs this and nothing more
-    mov di, dx                  ; (ES = DS through wa_render)
-    shl di, 1
+    shl dx, 1                   ; (ES = DS through wa_render)
+    shl si, 1
+    mov di, dx
     add di, wa_cov
     xor ax, ax
     repne scasw
     je .open1
     ret
 .open1:
-    dec di
-    dec di
-    sub di, wa_cov
-    shr di, 1
-    mov [wa_cs], di             ; the first open column...
+    lea dx, [di-2-wa_cov]       ; DX = the first open column x 2...
+    mov [wa_cs], dx
     mov cx, si
-    sub cx, di
+    sub cx, dx
+    shr cx, 1
     inc cx
-    mov di, si
-    shl di, 1
-    add di, wa_cov
+    lea di, [si+wa_cov]
     std
     repne scasw                 ; ...and, from the right, the last
     cld
-    inc di
-    inc di
-    sub di, wa_cov
-    shr di, 1
-    mov dx, [wa_cs]
-    mov si, di
-    sub si, dx
-    inc si
-    mov [wa_n], si
+    lea si, [di+4-wa_cov]       ; one past it, x 2
+    mov [wa_end], si
+    shr dx, 1                   ; DX = the first open column
     mov ax, dx
     mov cl, 4
     shl ax, cl
@@ -1003,34 +992,31 @@ wa_span:
     ; screen - with a step truncated to a whole 13.3 unit: up to 0.99 of a
     ; unit lost a column, two and more half-rows by the first visible one.
     ; That was the far wall the owner saw drawn in front of a nearer pillar.
-    ; Now the first open column's value is interpolated exactly (one
-    ; multiply and divide each), and the step carries a 16-bit fraction.
-    xor ax, ax
-    mov [wa_st], ax
-    mov [wa_stl], ax
-    mov [wa_sb], ax
-    mov [wa_sbl], ax
-    cmp word [wa_dc], 16        ; the steps whenever the SEGMENT spans more
-    jbe .start                  ; than a column (not the trimmed count)
-    mov ax, [wa_t2]
-    sub ax, [wa_t1]
-    call .step32
+    ; Now the first open column's value is interpolated exactly, and the
+    ; step is in HALF-ROWS with a 16-bit fraction (the loop keeps the edge as
+    ; whole.fraction, the whole part being the ROUNDED half-row itself: no
+    ; column shifts or rounds). See .edge.
+    mov byte [wa_steep], 0
+    mov ax, [wa_t1]
+    mov bx, [wa_t2]
+    call .edge
     mov [wa_st], dx
     mov [wa_stl], ax
-    mov ax, [wa_b2]
-    sub ax, [wa_b1]
-    call .step32
+    mov [wa_vt0], bx            ; (the first column's, for its corner)
+    push cx
+    mov ax, [wa_b1]
+    mov bx, [wa_b2]
+    call .edge
     mov [wa_sb], dx
     mov [wa_sbl], ax
-.start:
-    mov ax, [wa_fs]
-    call .vat
-    mov [wa_vt], bx
-    mov [wa_vb], cx
-    mov word [wa_vtl], 0x8000   ; (rounding: a half unit in)
-    mov word [wa_vbl], 0x8000
-    ; REGISTER THE SPAN: wa_cov holds its tag (x 2, from 2) in every column
-    ; it opens, and the table its ends.
+    mov [wa_vb], bx             ; the bottom: half-row and fraction
+    mov [wa_vbl], cx
+    mov [wa_vb0], bx
+    pop bp                      ; the top: CX.BP in the loop
+    mov cx, [wa_vt0]
+    ; REGISTER THE SPAN: wa_cov holds its tag (x 2, from 2: a byte, the
+    ; word's high byte staying 0) in every column it opens, and the table
+    ; its ends.
     mov bx, [wa_tag]
     add bx, 2
     cmp bx, WA_MAXSP*2
@@ -1048,25 +1034,13 @@ wa_span:
     mov ax, [wa_i2]
     sub ax, [wa_i1]
     mov [wa_spsl+bx], ax
-    mov byte [wa_steep], 0      ; can an edge step two half-rows between
-    mov ax, [wa_st]             ; columns? Only if a step is a half-row
-    call .big                   ; (32 in 13.3) or more - far walls never
-    mov ax, [wa_sb]             ; are, and then the loop without the slope
-    call .big                   ; test runs
-    mov ax, [wa_vt]             ; (the first column's edges, for its corner)
-    mov [wa_vt0], ax
-    mov ax, [wa_vb]
-    mov [wa_vb0], ax
-    mov ax, [wa_cs]             ; BP = the end, x 2
-    add ax, [wa_n]
-    shl ax, 1
-    mov bp, ax
+    mov word [wa_ncl], 0
     mov si, [wa_cs]
-    shl si, 1
     mov di, [wa_lp]
     mov dl, [wa_frame]
-    mov dh, [wa_wcol]           ; the wall's colour: its ITEM's, not its depth
-    mov [wa_eatt], dh           ; (the slope fill and the corners read it)
+    mov dh, bl                  ; DH = the tag
+    mov ah, [wa_wcol]           ; the wall's colour: its ITEM's, not its depth
+    mov [wa_eatt], ah           ; (the slope fill and the corners read it)
     xor bx, bx                  ; which of the eight loops
     cmp byte [wa_sparse], 0
     je .v1
@@ -1080,178 +1054,201 @@ wa_span:
     je .v3
     or bl, 2
 .v3:
-    mov cx, 5                   ; CL = 5 (13.3 -> half-rows), CH = opened
     call [wa_loops+bx]
     mov [wa_lp], di
-    mov al, ch
-    xor ah, ah
+    mov ax, [wa_end]            ; opened: the range less the shut ones
+    sub ax, [wa_cs]
+    shr ax, 1
+    sub ax, [wa_ncl]
     sub [wa_left], ax
-    mov ax, [wa_cs]             ; the corners, at the segment's own ends,
-    shl ax, 1                   ; when this span opened them: a `│` each
-    cmp ax, [wa_cs0]
+    mov si, [wa_cs]             ; the corners, at the segment's own ends,
+    cmp si, [wa_cs0]            ; when this span opened them: a `│` each
     jne .c2
     cmp byte [wa_e1], 0
     je .c2
-    mov si, ax
-    mov ax, [wa_vt0]
-    mov bx, [wa_vb0]
-    call .corner
+    mov bx, [wa_vt0]
+    mov ax, [wa_vb0]
+    push cx
+    mov cl, [wa_hyst]           ; (nothing else is in this column yet - but
+    call wa_corner              ; a HELD edge can be inside the post)
+    pop cx
 .c2:
-    mov ax, [wa_cs]
-    add ax, [wa_n]
-    dec ax
-    shl ax, 1
-    cmp ax, [wa_ce0]
+    mov si, [wa_end]
+    dec si
+    dec si
+    cmp si, [wa_ce0]
     jne .cdone
     cmp byte [wa_e2], 0
     je .cdone
-    mov si, ax
-    mov ax, [wa_n]              ; the last column's edges, exact
-    dec ax
-    mov cl, 4
-    shl ax, cl
-    add ax, [wa_fs]
-    call .vat
-    mov ax, bx
+    sub bp, [wa_stl]            ; the last column's edges: the accumulators
+    sbb cx, [wa_st]             ; are one column past it
     mov bx, cx
-    call .corner
+    mov ax, [wa_vbl]
+    sub ax, [wa_sbl]
+    mov ax, [wa_vb]
+    sbb ax, [wa_sb]
+    mov cl, [wa_hyst]           ; (a steep step's fill can be in this column
+    or cl, [wa_steep]           ; too, and wins)
+    call wa_corner
 .cdone:
-    ret
-.corner:                        ; AX = top, BX = bottom (13.3), SI = col x 2
-    add ax, 16
-    add bx, 16
-    mov cl, 5
-    sar ax, cl
-    sar bx, cl
-    xchg ax, bx                 ; wa_vedge: BX = top, AX = bottom
-    mov dl, [wa_frame]
-    mov di, [wa_lp]
-    call wa_vedge
     mov [wa_lp], di
     ret
 
-
-.step32:                        ; AX = an edge's change over the segment
-    push bx                     ; (quarter half-rows) -> DX:AX = its step a
-    mov bx, ax                  ; column, 13.3 with a 16-bit fraction:
-    or ax, ax                   ; change x 128 / dc. |change| <= ~1,600, so
-    jns .sp                     ; the whole part is under 21,000 for any
-    neg ax                      ; dc > 16
-.sp:
-    mov dx, 128
-    mul dx
-    div word [wa_dc]
-    push ax
+; .edge - AX = t1, BX = t2 (an edge's ends, quarter half-rows) -> DX:AX =
+; its step a column, BX.CX = its value at the first open column: half-rows,
+; 16.16, the whole part ROUNDED (half a row added). Marks wa_steep when the
+; step is a half-row or more. Clobbers SI, DI, BP.
+; The step is change x 4 x 65536 / dc: ONE divide when it is under a
+; half-row (the usual far wall), two otherwise. The start is t1 + the step x
+; off / 16 - the step's 16-bit fraction makes that exact to a few
+; thousandths of a half-row even ~300 columns from the segment's start (a
+; guard-band clip), and it is one MULTIPLY (two on a steep edge) where an
+; IMUL and an IDIV were.
+.edge:
+    push ax                     ; t1
+    sub bx, ax
+    mov ax, bx
+    cwd
+    push dx                     ; the change's sign
+    xor ax, dx
+    sub ax, dx                  ; |change|
+    xor cx, cx                  ; CX = the step's whole part
+    xor dx, dx
+    cmp word [wa_dc], 16        ; whenever the SEGMENT spans more than a
+    ja .e1                      ; column (not the trimmed count)
     xor ax, ax
+    jmp .e2
+.e1:
+    shl ax, 1
+    rcl dx, 1
+    shl ax, 1
+    rcl dx, 1                   ; DX:AX = |change| x 4
+    or dx, dx
+    jnz .ew
+    cmp ax, [wa_dc]
+    jb .ef
+.ew:
     div word [wa_dc]
-    pop dx
-    or bx, bx
-    jns .spx
-    neg ax
-    adc dx, 0
-    neg dx
-.spx:
-    pop bx
-    ret
-.vat:                           ; AX = a column centre past c1 (x16) -> BX =
-    mov [wa_voff], ax           ; top, CX = bottom (13.3) there, EXACT:
-    mov bx, [wa_t1]             ; t1 x 8 + (t2 - t1) x 8 x off / dc.
-    shl bx, 1                   ; Clobbers AX, DX
-    shl bx, 1
-    shl bx, 1
-    mov cx, [wa_b1]
-    shl cx, 1
-    shl cx, 1
-    shl cx, 1
-    cmp word [wa_dc], 16
-    jbe .vret
-    mov ax, [wa_t2]
-    sub ax, [wa_t1]
-    shl ax, 1
-    shl ax, 1
-    shl ax, 1
-    imul word [wa_voff]
-    idiv word [wa_dc]
-    add bx, ax
-    mov ax, [wa_b2]
-    sub ax, [wa_b1]
-    shl ax, 1
-    shl ax, 1
-    shl ax, 1
-    imul word [wa_voff]
-    idiv word [wa_dc]
-    add cx, ax
-.vret:
-    ret
-.big:                           ; AX = a step: |AX| >= 32 marks the span
-    or ax, ax
-    jns .bigp
-    neg ax
-.bigp:
-    cmp ax, 32
-    jb .bigx
+    mov cx, ax
     mov byte [wa_steep], 1
-.bigx:
-    ret
-.sar4:                          ; DX:AX >>= 4 (signed) -> AX
+    xor ax, ax
+    jmp .ed
+.ef:
+    xchg ax, dx                 ; (under a half-row: the fraction alone)
+.ed:
+    div word [wa_dc]
+.e2:
+    mov bp, cx                  ; BP.SI = |step|
+    mov si, ax
+    mul word [wa_fs]            ; x off: DI:CX (and DX above it, steep)
+    mov cx, ax
+    mov di, dx
+    or bp, bp
+    jz .e3
+    mov ax, bp
+    mul word [wa_fs]
+    add di, ax
+    adc dx, 0
+    shr dx, 1                   ; / 16
+    rcr di, 1
+    rcr cx, 1
+    shr dx, 1
+    rcr di, 1
+    rcr cx, 1
+    shr dx, 1
+    rcr di, 1
+    rcr cx, 1
+    shr dx, 1
+    rcr di, 1
+    rcr cx, 1
+    jmp .e4
+.e3:
+    shr di, 1
+    rcr cx, 1
+    shr di, 1
+    rcr cx, 1
+    shr di, 1
+    rcr cx, 1
+    shr di, 1
+    rcr cx, 1
+.e4:
+    pop ax                      ; the sign onto both
+    or ax, ax
+    jz .e5
+    neg di
+    neg cx
+    sbb di, 0
+    neg bp
+    neg si
+    sbb bp, 0
+.e5:
+    pop ax                      ; + t1 (x 16384) + a half
+    mov dx, ax
     sar dx, 1
-    rcr ax, 1
     sar dx, 1
-    rcr ax, 1
-    sar dx, 1
-    rcr ax, 1
-    sar dx, 1
-    rcr ax, 1
+    ror ax, 1
+    ror ax, 1
+    and ax, 0xC000
+    add ax, cx
+    adc dx, di
+    add ax, 0x8000
+    adc dx, 0
+    mov cx, ax
+    mov bx, dx
+    mov dx, bp
+    mov ax, si
     ret
 
 ; --- the column loops ---------------------------------------------------------
 ; The hot path of a frame, generated eight ways so no column tests a mode:
 ; %1 = 1 draws the TOP edge (the full detail level; 0 is the sparse one,
 ; floor lines and corner posts), %2 = 1 fills steep steps (a span whose
-; edge can move two half-rows a column), %3 = 1 holds edges (EDGE). In: SI = column x 2, BP = the
-; band's end x 2, DH = its shade, DL = the stamp, DI = the list, CL = 5,
-; CH = columns opened so far. Each opened column costs, at full detail and
-; flat, about 120 bytes of code - the first renderer's was ~260.
-; EDGE - BX = an edge's half-row, from the accumulator %1: rounded (%3 = 0),
-; or (%3 = 1) held at last frame's half-row (%2, x 32, per column) until the
-; true position is a QUARTER half-row past the boundary - so a far edge on a
-; slow turn steps once instead of flickering between two
-%macro EDGE 3
+; edge can move two half-rows a column), %3 = 1 holds edges (EDGE).
+; In: SI = first column x 2, [wa_end] = one past the last x 2 (the first
+; and last are open), CX.BP = the top (whole half-row, rounded, and a
+; 16-bit fraction), wa_vb.wa_vbl the bottom alike, DL = the stamp, DH = the
+; span's tag, AH = the wall's attribute, DI = the list. Out: DI, the two
+; accumulators one column past the end, wa_ncl = the columns found shut.
+; The top lives in registers, so neither edge shifts or rounds: an opened
+; column at full detail is ~105 bytes of code (round 2's was ~142, the
+; first renderer's ~260). The top is the first cell its column draws, so it
+; needs no stamp test.
+; EDGE - BX = an edge's half-row from the accumulator %1.%2 (%3 = 0); or
+; (%3 = 1) held at last frame's half-row (%4, per column) until the true
+; position is a QUARTER half-row past the boundary - so a far edge on a
+; slow turn steps once instead of flickering between two. Clobbers AX
+%macro EDGE 4
 %if %3
-    mov ax, [%1]
-    mov bx, ax
-    sub ax, [%2+si]
-    add ax, 24
-    cmp ax, 48
+    mov bx, %1
+    sub bx, [%4+si]             ; x - held + a quarter: [0, 1.5) keeps
+    mov ax, %2
+    add ax, 0x4000
+    adc bx, 0
+    jz %%keep
+    dec bx
+    jnz %%move
+    cmp ax, 0x8000
     jb %%keep
-    add bx, 16
-    sar bx, cl
-    mov ax, bx
-    shl ax, cl
-    mov [%2+si], ax
+%%move:
+    mov bx, %1
+    mov [%4+si], bx
     jmp %%have
 %%keep:
-    mov bx, [%2+si]
-    sar bx, cl
+    mov bx, [%4+si]
 %%have:
+    mov ah, [wa_eatt]
 %else
-    mov bx, [%1]
-    add bx, 16
-    sar bx, cl
+    mov bx, %1
 %endif
 %endmacro
 
 %macro SPANLOOP 3
-    cmp si, bp
-    jae %%done
 %%col:
     cmp word [wa_cov+si], 0
-    jne %%step
-    mov ax, [wa_tag]
-    mov [wa_cov+si], ax
-    inc ch
+    jne %%shut
+    mov [wa_cov+si], dh
 %if %1
-    EDGE wa_vt, wa_pt32, %3
+    EDGE cx, bp, %3, wa_pt32
   %if %2
     mov [wa_cht+si], bx
   %endif
@@ -1261,11 +1258,14 @@ wa_span:
     shl bx, 1
     mov bx, [wa_hroff+bx]
     add bx, si
-    mov ah, dh
-    WPLOT
+    mov [wa_stamp+bx], dl       ; the first cell of its column: no test
+    mov [wa_cur+bx], ax
+    xchg ax, bx
+    stosw
+    xchg ax, bx
 %%t:
 %endif
-    EDGE wa_vb, wa_pb32, %3
+    EDGE [wa_vb], [wa_vbl], %3, wa_pb32
 %if %2
     mov [wa_chb+si], bx
 %endif
@@ -1275,13 +1275,19 @@ wa_span:
     shl bx, 1
     mov bx, [wa_hroff+bx]
     add bx, si
-    mov ah, dh
-    WPLOT
+%if %1
+    WPLOT                       ; (the top's cell, a wall under a row tall)
+%else
+    mov [wa_stamp+bx], dl
+    mov [wa_cur+bx], ax
+    xchg ax, bx
+    stosw
+    xchg ax, bx
+%endif
 %%b:
 %if %2
-    mov ax, [wa_tag]            ; the column before was ours: fill a steep
-    cmp [wa_cov+si-2], ax       ; step (wa_covpad stands before column 0)
-    jne %%step
+    cmp [wa_cov+si-2], dh       ; the column before was ours: fill a steep
+    jne %%step                  ; step (wa_covpad stands before column 0)
     push cx
   %if %1
     mov ax, [wa_cht+si]
@@ -1292,24 +1298,23 @@ wa_span:
     mov cx, [wa_chb+si-2]
     call wa_stepfill
     pop cx
+    mov ah, [wa_eatt]
 %endif
 %%step:
-%if %1
-    mov ax, [wa_stl]            ; 16.16: the fraction carries
-    add [wa_vtl], ax
-    mov ax, [wa_st]
-    adc [wa_vt], ax
-%endif
-    mov ax, [wa_sbl]
-    add [wa_vbl], ax
-    mov ax, [wa_sb]
-    adc [wa_vb], ax
+    add bp, [wa_stl]            ; 16.16: the fraction carries
+    adc cx, [wa_st]
+    mov bx, [wa_sbl]
+    add [wa_vbl], bx
+    mov bx, [wa_sb]
+    adc [wa_vb], bx
     inc si
     inc si
-    cmp si, bp
+    cmp si, [wa_end]
     jb %%col
-%%done:
     ret
+%%shut:                         ; (a nearer wall: wa_gap jumps the run)
+    call wa_gap
+    jmp %%col
 %endmacro
 wa_l000:    SPANLOOP 1, 0, 0     ; full, flat
 wa_l001:    SPANLOOP 1, 0, 1     ; ...held edges
@@ -1321,6 +1326,55 @@ wa_l110:    SPANLOOP 0, 1, 0
 wa_l111:    SPANLOOP 0, 1, 1
 wa_loops:   dw wa_l000, wa_l001, wa_l010, wa_l011
             dw wa_l100, wa_l101, wa_l110, wa_l111
+
+; wa_gap - SI = a shut column x 2 inside a span's loop: on to the next open
+; one (the span's last column is open, so there is one), the accumulators
+; jumped across the run by MULTIPLYING - a gap behind a nearer box averages
+; eight columns, each of which used to be stepped through the loop - and
+; wa_ncl counted. Keeps everything else the loop holds.
+wa_gap:
+    push ax
+    push dx
+    push di
+    push cx
+    lea di, [si+wa_cov+2]
+    mov cx, [wa_end]
+    sub cx, si
+    shr cx, 1
+    dec cx                      ; the columns after this one (one is open)
+    xor ax, ax
+    repne scasw
+    lea ax, [di-2-wa_cov]
+    mov cx, ax
+    sub cx, si
+    mov si, ax                  ; SI = the next open column
+    shr cx, 1                   ; CX = the shut ones, k
+    add [wa_ncl], cx
+    mov ax, [wa_stl]            ; the top: + k x the step, whole.fraction
+    mul cx
+    add bp, ax
+    adc dx, 0
+    mov bx, dx
+    mov ax, [wa_st]
+    imul cx                     ; (k x the whole part: its low word)
+    add bx, ax
+    pop ax
+    add ax, bx
+    push ax
+    mov ax, [wa_sbl]            ; the bottom alike
+    mul cx
+    add [wa_vbl], ax
+    adc dx, 0
+    mov bx, dx
+    mov ax, [wa_sb]
+    imul cx
+    add ax, bx
+    add [wa_vb], ax
+    pop cx
+    pop di
+    pop dx
+    pop ax
+    ret
 
 ; wa_stepfill - AX = this column's edge, CX = the last one's (half-rows):
 ; two half-rows or more apart is a step to fill (wa_slope); less is not
@@ -1368,70 +1422,103 @@ wa_wallz:
 
 ; wa_slope - AX = this column's edge, CX = the last column's (half-rows),
 ; SI = column x 2: a step of two half-rows or more is filled down it,
-; `\` falling to the right and `/` rising. Keeps SI, DI's list pointer and
+; `\` falling to the right and `/` rising - one cell a row, the cell
+; stepped by a row rather than looked up. Keeps SI, DI's list pointer and
 ; DL; clobbers AX, BX, CX.
 wa_slope:
     push bp
-    mov bp, ('\' << 8)
+    mov bp, '\'
     cmp ax, cx
     jg .fall
-    mov bp, ('/' << 8)
+    mov bp, '/'
     xchg ax, cx                 ; AX = the lower edge, CX = the higher
 .fall:
     inc cx                      ; half-rows CX+1 .. AX-1, as rows
     sar cx, 1
+    jns .c0
+    xor cx, cx
+.c0:
     dec ax
     sar ax, 1
-    js .out
-.row:
-    cmp cx, ax
-    jg .out
-    cmp cx, WA_ROWS
-    jae .next                   ; (negative rows skipped too)
-    push ax
+    cmp ax, WA_ROWS-1
+    jle .c1
+    mov ax, WA_ROWS-1
+.c1:
+    sub ax, cx
+    jl .out
+    inc ax
     mov bx, cx
     shl bx, 1
     mov bx, [wa_rowo2+bx]
     add bx, si
+    mov cx, ax
     mov ax, bp
-    mov al, ah
     mov ah, [wa_eatt]
+.row:
     WPLOT
-    pop ax
-.next:
-    inc cx
-    jmp .row
+    add bx, [wa_rowo2+2]        ; (a row's offset: row 1's)
+    loop .row
 .out:
     pop bp
     ret
 
-; wa_vedge - BX = top, AX = bottom (half-rows), SI = column x 2: `│` between
-; them. Keeps SI, DI and DL; clobbers AX, BX, CX.
-wa_vedge:
+; wa_corner - BX = top, AX = bottom (half-rows), SI = column x 2, CL = 0
+; when no cell between them can have been drawn this frame: `│` between
+; them, the cell stepped by a row; CL = 0 skips the stamp tests. Keeps SI,
+; DI and DL; clobbers AX, BX, CX.
+wa_corner:
+    or cl, cl
+    jnz wa_vedge
+    call wa_vrows
+    jcxz .out
     push bp
-    mov bp, ax
-    sar bp, 1                   ; BP = the bottom's row (stop before it)
-    mov cx, bx
-    sar cx, 1
-    inc cx                      ; CX = the row under the top's
-    jns .row
-    xor cx, cx
+    mov bp, [wa_rowo2+2]        ; (a row's offset: row 1's)
 .row:
-    cmp cx, bp
-    jge .out
-    cmp cx, WA_ROWS
-    jge .out
-    mov bx, cx
+    mov [wa_stamp+bx], dl
+    mov [wa_cur+bx], ax
+    xchg ax, bx
+    stosw
+    xchg ax, bx
+    add bx, bp
+    loop .row
+    pop bp
+.out:
+    ret
+; wa_vedge - the same, every cell tested (first one wins)
+wa_vedge:
+    call wa_vrows
+    jcxz .out
+    push bp
+    mov bp, [wa_rowo2+2]
+.row:
+    WPLOT
+    add bx, bp
+    loop .row
+    pop bp
+.out:
+    ret
+wa_vrows:                       ; -> BX = the first cell, CX = rows (0:
+    sar ax, 1                   ; none), AX = the glyph. The bottom's row:
+    cmp ax, WA_ROWS             ; stop before it
+    jle .bok
+    mov ax, WA_ROWS
+.bok:
+    sar bx, 1
+    inc bx                      ; the row under the top's
+    jns .tok
+    xor bx, bx
+.tok:
+    mov cx, ax
+    sub cx, bx
+    jg .some
+    xor cx, cx
+    ret
+.some:
     shl bx, 1
     mov bx, [wa_rowo2+bx]
     add bx, si
     mov al, 0xB3
     mov ah, [wa_eatt]
-    WPLOT
-    inc cx
-    jmp .row
-.out:
-    pop bp
     ret
 
 wa_list:                        ; BX = cell, onto this frame's list
@@ -2139,7 +2226,33 @@ wa_cross:
 
 ; --- present ----------------------------------------------------------------
 ; Write this frame's cells that differ from the glass; blank last frame's
-; cells this frame did not draw. Nothing else.
+; cells this frame did not draw. Nothing else. Each list is walked two cells
+; an iteration (the odd one first), which halves the loop's own cost.
+%macro PNEW 0                   ; this frame's cell: written if it differs
+    lodsw
+    xchg bx, ax
+    mov ax, [wa_cur+bx]
+    cmp ax, [wa_vis+bx]
+    je %%same
+    mov [wa_vis+bx], ax
+    mov [es:bx], ax
+    inc bp
+%%same:
+%endmacro
+%macro POLD 0                   ; last frame's: blanked unless drawn again
+    lodsw
+    xchg bx, ax
+    mov al, [wa_stamp+bx]
+    and al, 0x7F
+    cmp al, dl
+    je %%kept
+    cmp word [wa_vis+bx], WA_BLANK
+    je %%kept
+    mov word [wa_vis+bx], WA_BLANK
+    mov word [es:bx], WA_BLANK
+    inc bp
+%%kept:
+%endmacro
 wa_present:
     push es
     mov es, [wa_vseg]
@@ -2147,38 +2260,28 @@ wa_present:
     mov si, [wa_newp]
     mov cx, [wa_newn]
     shr cx, 1
+    shr cx, 1                   ; pairs; CF = an odd one
+    jnc .np
+    PNEW
+.np:
     jcxz .old
 .new:
-    lodsw
-    xchg bx, ax
-    mov ax, [wa_cur+bx]
-    cmp ax, [wa_vis+bx]
-    je .same
-    mov [wa_vis+bx], ax
-    mov [es:bx], ax
-    inc bp
-.same:
+    PNEW
+    PNEW
     loop .new
 .old:
     mov si, [wa_oldp]
     mov cx, [wa_oldn]
-    shr cx, 1
-    jcxz .swap
     mov dl, [wa_frame]
-    mov dh, 0                   ; (DX is not a word here; DL alone is read)
+    shr cx, 1
+    shr cx, 1
+    jnc .op
+    POLD
+.op:
+    jcxz .swap
 .o:
-    lodsw
-    xchg bx, ax
-    mov al, [wa_stamp+bx]
-    and al, 0x7F
-    cmp al, dl
-    je .kept
-    cmp word [wa_vis+bx], WA_BLANK
-    je .kept
-    mov word [wa_vis+bx], WA_BLANK
-    mov word [es:bx], WA_BLANK
-    inc bp
-.kept:
+    POLD
+    POLD
     loop .o
 .swap:
     mov [wa_nwr], bp
