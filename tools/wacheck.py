@@ -36,6 +36,13 @@ and the room's corners (where every box is in view), each a random heading
 and pitch. Every expected edge (the topmost and bottommost of a front face,
 the far top) must have a drawn edge (`─` `_` `/` and backslash) within a row, and
 every drawn edge an expected one: a column fails either way.
+
+Each heights pose also fails on a DIVIDE FAULT: the BIOS's catch-all handler,
+which int 0 reaches on a shipped kernel, writes INTR_FLAG (0040:006B), and
+this clears it before the pose and reads it after. The fault is silent on
+MartyPC's GLaBIOS; the IBM ROM's handler MASKS whatever IRQ is in service at
+the time, so on a 5150 the timer, the keyboard and the mouse die one by one
+(HEIGHTS-PLAN 9.5: lifts taken for flights, a zero tread count).
 """
 import argparse, math, os, random, struct, subprocess, sys, tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -216,7 +223,7 @@ def main_heights(a, off):
     item = "Heights arena, %d columns" % W
     plats = [(A.bx(b), A.bx(b).h) for b in A.HEIGHTS_BOXES
              if A.bx(b).h < hmax and A.bx(b).kind == A.SOLID and A.bx(b).h > 40]
-    stats = dict(poses=0, bad=0, badnf=0, cols=0, off=0, offnf=0)
+    stats = dict(poses=0, bad=0, badnf=0, cols=0, off=0, offnf=0, faults=0)
     with os88ui.boot(os.path.join(ROOT, "build/os8088-360.img"),
                      apps=os.path.join(ROOT, "build/warena360.img"),
                      machine=a.machine) as ui:
@@ -255,8 +262,14 @@ def main_heights(a, off):
                          ('pitch', pitch & 0xFFFF), ('jz', 0), ('jv', 0),
                          ('feet', feet), ('eye', eye)):
                 m.write(base + off[k], struct.pack('<H', v))
-            m.advance(cycles=F // 2)
+            m.write(0x46B, b'\0')       # the BIOS's INTR_FLAG: its catch-all
+            m.advance(cycles=F // 2)     # handler, int 0's, writes it
             vr = m.read(0xB8000, W * 25 * 2)
+            if m.read(0x46B, 1)[0]:
+                stats["faults"] += 1
+                print("pose %d: px=%d py=%d a=%d pitch=%d eye=%d: an UNEXPECTED "
+                      "INTERRUPT (a divide fault) - INTR_FLAG %02X"
+                      % (n, px, py, ang, pitch, eye, m.read(0x46B, 1)[0]))
             exp = expect_h(px, py, ang, eye, pitch, boxes, W, hmax, kyq, k16)
             badc, badnf = [], []
             for c in range(W):
@@ -288,10 +301,11 @@ def main_heights(a, off):
                       % (n, px, py, ang, pitch, eye, len(badc), len(badc) - len(badnf),
                          [x for x in badc if x[0] in badnf][:3]))
     print("wacheck heights: %d poses, %d with a column off (%d not at a flight's "
-          "side); %d of %d columns off (%d not at a flight's side)"
+          "side); %d of %d columns off (%d not at a flight's side); %d with a "
+          "divide fault"
           % (stats["poses"], stats["bad"], stats["badnf"], stats["off"], stats["cols"],
-             stats["offnf"]))
-    return 1 if stats["badnf"] else 0
+             stats["offnf"], stats["faults"]))
+    return 1 if stats["badnf"] or stats["faults"] else 0
 
 
 def main():

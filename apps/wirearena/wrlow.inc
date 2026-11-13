@@ -92,8 +92,15 @@ wa_lowbox:
     mov ax, [wa_bxh+di]
     mov [wl_h], ax
     mov ax, [wa_bxh+di+2]
-    mov [wl_kind], al
     mov [wl_faces], ah
+    mov ah, al                  ; the kind: only a FLIGHT (kind 1) keeps it -
+    and ah, 3                   ; every flight test below is "kind & 3 is
+    cmp ah, 1                   ; not 0", and a LIFT (kind 2, its index in
+    je .kind                    ; bits 4-7) taken for one divided its height
+    xor al, al                  ; by that index as a tread count: lift 0's
+.kind:                          ; divide fault, every frame it was in view
+    mov [wl_kind], al           ; (HEIGHTS-PLAN 9.5). A lift draws as the
+                                ; solid low box it rests as, until wave 4
     xor bl, bl                  ; the faces seen, as wa_box chooses them
     mov ax, [wa_py]             ; (S 1, E 2, N 4, W 8)
     cmp ax, [si+2]

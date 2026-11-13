@@ -403,6 +403,10 @@ def height_checks(tag, boxes):
     reach = set()
     for b in boxes:
         if b.kind == FLIGHT:
+            if not 1 <= b.treads <= 15:          # (its nibble, and the
+                raise SystemExit("arenagen: arena %s: %s has %d treads - a "
+                                 "flight has 1 to 15 (the renderer divides by "
+                                 "them)" % (tag, b.name, b.treads))
             rise, odd = divmod(b.h, b.treads)
             if odd or rise > STEPUP:
                 raise SystemExit("arenagen: arena %s: %s rises %d/%d a tread "

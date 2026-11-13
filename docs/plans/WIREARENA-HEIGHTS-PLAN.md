@@ -1483,6 +1483,96 @@ in the session's scratch directory). Each is in `shots/` at both widths
    limit, because body and eye heights differ. 7.1.1 is the derivation:
    **the down limit should be 290, the up limit stays 112**, from wave 3.
 
+### 9.5 The open-area hang: a divide fault in the outline path (fixed)
+
+**The report** (the owner, a 5150 on 86Box, CGA, "Heights arena, 40
+columns"):
+
+- any view into the open area, from the start turned slightly right
+  onward, ran for about half a second;
+- then one frame showed every few seconds, and keys, the mouse and the
+  clock stopped;
+- the HUD read `FPS 000.0 MS000.0 R040.7 P006.0`;
+- MartyPC never showed it.
+
+**The cause.** `wa_lowbox` tested "is this a flight" as `kind & 3`
+non-zero. A LIFT (kind 2) passed that test, so `wl_flight0` divided the
+lift's height by the bits a flight keeps its tread count in. For a lift,
+those bits hold its index in the lift table, and the south lift's index is
+0. The result was **`div cx` with CX = 0 (`wl_flight0`), every frame the
+south lift's box was walked**. The leaf walk visits it from most of the
+arena, and from the start once turned about 20° right of north.
+
+(Measured, MartyPC: an exec breakpoint on the int 0 vector, `div0.py` in
+the session's scratch `hang2/`. The first hit was pose (1120, 480), heading
+200, at `wl_flight0+38`, with AX = 16, the lift's height, and CX = 0.)
+
+**Why only on the 5150.** On a shipped kernel, int 0 goes to the BIOS's
+catch-all handler.
+
+- **On MartyPC's GLaBIOS** the fault is silent. The 8088 returns past the
+  `div`, the rise is garbage, and a 16-unit lift hides it.
+- **On the IBM ROM** (`ibm5150_5700051`, vm/pc5150) the handler reads the
+  PIC's in-service register and MASKS whatever level it finds there.
+
+Measured on 86Box (vm/pc5150 with CGA, 256 KB, the ST-11M):
+
+- after a few turns to the right, the BIOS tick at 0040:006C stood still
+  across a second of emulated time;
+- INTR_FLAG read 10h;
+- the HUD read `FPS 000.0 MS001.0 R002.9`.
+
+`pit_now` then wraps every 54.9 ms. R and P still read under it, the
+whole frame reads as about 0, the sim almost never accrues a tick, and the
+keys, polled in the tick, freeze.
+
+**The fix.** `wa_lowbox` keeps the kind only for a flight (kind & 3 = 1)
+and zeroes it otherwise. A lift draws as the solid low box it rests as
+until wave 4 raises it. Every flight path keys off that one byte, so the
+whole class (a lift or a solid box reaching flight code) is closed at
+once.
+
+`tools/arenagen.py` now refuses a flight with fewer than 1 or more than 15
+treads: the renderer divides by the count, and it is a nibble.
+
+**The instrument that keeps it closed.** `tools/wacheck.py --arena 2`
+clears INTR_FLAG before every pose and fails a pose that leaves it set: a
+divide fault, or any other unexpected interrupt.
+
+- Before the fix: 12 of 20 poses faulted.
+- After the fix: none. That holds for 60 poses at 40 columns and 40 at 80.
+
+**The class, after the fix** (MartyPC, `div0.py`): an exec breakpoint on
+the int 0 vector across the whole arena found **no hit**:
+
+- at 40 columns, a 256-unit grid, 8 positions × 8, at 8 headings
+  (512 poses);
+- at 80 columns, a 384-unit grid at 8 headings (200 poses).
+
+Unchanged by the fix:
+
+- the flat arenas' 720 posed frames, identical to wave 1;
+- the P, B and heights benches, as in 9.4;
+- the renderer part, 12 bytes larger (53,843).
+
+**Evidence** (the session's scratch directory, `hang2/`):
+
+| | file |
+|---|---|
+| 86Box before the fix: the tick stops and the HUD goes to zeros | `b4.png` |
+| 86Box after the fix: the same turns, through the lifts | `f4.png` |
+
+**What the other suspects came to:**
+
+- The task-0 stack goes 48 bytes below the render's SP at open-area poses,
+  with 382 bytes left above `STK0_BOT`.
+- Past the part's image and BSS, in 275 open-area poses, the only bytes
+  that changed were the game's own frame timers. The game writes them
+  itself, between the render and the present; a write watch named the
+  writer.
+- The game's region starts right after the part's, so an out-of-bounds
+  write would have shown.
+
 ### 9.3 Open, for the owner and the next waves
 
 1. **The symmetric dead ground** is decided (7.1.1). From wave 3 the pitch
@@ -1499,3 +1589,11 @@ in the session's scratch directory). Each is in `shots/` at both widths
 3. **The room corners' views** (9.1), beside the tower's.
 4. **Flights as one object**: the owner's call from the wave-2 screenshots
    (9.4.6).
+5. **Any package's divide fault, on an IBM ROM, kills the machine's IRQs**
+   (9.5). The shipped kernels leave int 0 to the BIOS. CLAUDE.md's rule
+   keeps the divide-fault panel behind a knob "until a field report says it
+   is being hit", and 9.5 is the first such report. It came off 86Box's
+   pc5150, not iron.
+
+   What the kernel does about it is the owner's call; it is not this
+   plan's.
