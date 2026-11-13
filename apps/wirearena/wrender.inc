@@ -489,6 +489,7 @@ wa_order:
 
 ; wa_leaf - BX = a leaf of the box tree: its box, unless the view cone
 ; drops it.
+wa_lret:    ret                 ; (the cone tests' short way out)
 wa_leaf:
     ; THE VIEW CONE: a box wholly right of x = z, left of x = -z or behind
     ; the near plane cannot reach the screen (90 degrees, the widest view).
@@ -513,7 +514,7 @@ wa_leaf:
     sub cx, [wa_yc+di+2]
     sub cx, [wa_ys+di+2]
     cmp cx, 4
-    jge .out
+    jge wa_lret
     lodsb
     xlatb
     mov di, ax
@@ -525,7 +526,7 @@ wa_leaf:
     add bp, [wa_ys+di+2]
     sub bp, [wa_yc+di+2]
     cmp bp, -5
-    jle .out
+    jle wa_lret
     lodsb
     xlatb
     mov di, ax
@@ -535,7 +536,7 @@ wa_leaf:
     mov di, ax
     add dx, [wa_ys+di+2]
     cmp dx, WA_NEAR-2
-    jle .out
+    jle wa_lret
     ; THE NARROWER VIEWS: the screen's edge is x = t z with t = 0.767 at
     ; 75 degrees and 0.578 at 60, so a box is also off the screen when
     ; x - (1 - u) z > 0 everywhere in it, for any u <= 1 - t (or the mirror
