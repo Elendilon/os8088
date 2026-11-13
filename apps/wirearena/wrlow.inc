@@ -182,11 +182,14 @@ wl_bit:     db 1, 2, 4, 8, 1
 %macro WLPOST 1
     test byte [wl_front], 1 << %1
     jz %%n
-    mov bx, %1
-    call wl_post0
+    mov si, %1 * WL_REC         ; its start corner's
+    mov cx, 7
+    call wl_post
     test byte [wl_seen], 1 << ((%1 + 1) & 3)
     jnz %%n
-    call wl_post1
+    mov si, ((%1 + 1) & 3) * WL_REC
+    mov cx, 7-16                ; ...and its end's
+    call wl_post
 %%n:
 %endmacro
 %macro WLPASS2 1
@@ -195,14 +198,16 @@ wl_bit:     db 1, 2, 4, 8, 1
     mov al, [wl_m]
     and al, 1 << %1
     mov [wl_two], al
-    mov bx, %1
+    mov si, %1 * WL_REC
+    mov di, ((%1 + 1) & 3) * WL_REC
     call wl_face
 %%n:
 %endmacro
 %macro WLPASS3 1
     test byte [wl_pm], 1 << %1
     jz %%n
-    mov bx, %1
+    mov si, %1 * WL_REC
+    mov di, ((%1 + 1) & 3) * WL_REC
     call wl_face
 %%n:
 %endmacro
@@ -356,7 +361,6 @@ wa_lowbox:
     call .qp
     jmp .p1d
 .qp:
-    push bx
     jmp wl_post
 .qc:
     push bx
@@ -458,11 +462,9 @@ wl_ends:
     and di, 3*WL_REC
     ret
 
-; wl_face - BX = a face, [wl_two] 1 its floor edge too: its pass, raising
-; the clip. Keeps BX
+; wl_face - SI, DI = a face's start and end corners' records (offsets into
+; wl_c), [wl_two] 1 its floor edge too: its pass, raising the clip
 wl_face:
-    push bx
-    call wl_ends
     mov byte [wl_upd], 1
     mov bx, [wl_c+si+WL_CV]
     test byte [wa_vok+bx], 1
@@ -472,9 +474,7 @@ wl_face:
     jz .clip
     add si, wl_c+WL_KC          ; both corners in the view: the two
     add di, wl_c+WL_KC          ; records' projections, in place (wl_draw
-    call wl_draw                ; culls a pass hidden in all its columns)
-    pop bx
-    ret
+    jmp wl_draw                 ; culls a pass hidden in all its columns)
 .clip:
     mov ax, [wl_c+si+WL_CN]     ; a corner out of the view: the edge clipped,
     mov [wl_n1], ax             ; its ends projected at their corners'
@@ -494,23 +494,12 @@ wl_face:
     mov [wa_x2], ax
     mov ax, [wa_vz+si]
     mov [wa_z2], ax
-    call wl_xedge
-    pop bx
-    ret
+    jmp wl_xedge
 
-; wl_post0, wl_post1 - BX = a face: the post at its start corner (the
-; first column whose centre is past it) or its end (the last short of it):
-; `│` from the top to the floor, against the clip. Keeps BX
-wl_post0:
-    push bx
-    call wl_ends
-    mov cx, 7
-    jmp wl_post
-wl_post1:
-    push bx
-    call wl_ends
-    mov si, di
-    mov cx, 7-16
+; wl_post - SI = a corner's record (an offset into wl_c), CX = 7 for a
+; face's start corner (the first column whose centre is past it) or 7 - 16
+; for its end (the last short of it): its post, `│` from the top to the
+; floor, against the clip
 wl_post:                        ; SI = the corner's record, CX = 7 (or 7 - 16
     mov bx, [wl_c+si+WL_CV]     ; for the end's rule: one column less)
     test byte [wa_vok+bx], 1
@@ -551,7 +540,6 @@ wl_post:                        ; SI = the corner's record, CX = 7 (or 7 - 16
     call wa_corner              ; (wa_vedge: every cell tested)
     mov [wa_lp], di
 .out:
-    pop bx
     ret
 
 ; wl_iz - BX = z (>= NEAR) -> BX = the inverse depth (wa_rcp's). Clobbers
