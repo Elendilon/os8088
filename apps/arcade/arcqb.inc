@@ -55,13 +55,16 @@ QB_SHPL     equ 256 * 30            ; the shadow of the glass: a byte a plane
                                     ;   what differs, ARCADE-SPEC 10.4)
 
 ; -----------------------------------------------------------------------------
-; qb_on / qb_off - Q*bert picked, and given back: G, the game's 64KB
+; qb_on / qb_off - Q*bert picked, and given back: G, the game's 64KB, and
+; the shadow, with its sound board's memory past it when it can be heard
 ; -----------------------------------------------------------------------------
 qb_on:
     mov word [qb_rclaim], 0
     mov word [qb_sclaim], 0
-    mov ax, 64
-    call OSAPI_MEM_CLAIM
+    mov word [qbs_seg], 0
+    mov ax, 64 * 64
+    mov bl, MEMP_CLAIM
+    call OSAPI_MEM_P
     jc .r
     mov [qb_gseg], dx
     mov [qb_gcs], dx                ; G as CODE: itself, but on kern_mega
@@ -71,10 +74,30 @@ qb_on:
     mov dx, [qb_gseg]               ; MOVABLE (SPEC.md 66): qb_gmv
     mov ax, qb_gmv
     call OSAPI_MEM_MOVABLE
-    mov ax, QB_SHPL * 4 / 1024      ; ...and the shadow of the glass
-    call OSAPI_MEM_CLAIM
+    xor ax, ax                      ; ...and the shadow of the glass, with
+    call qbs_want                   ;   the sound board's 32KB past it when
+    or ax, ax                       ;   it can be heard here: one claim, not
+    jz .shadow                      ;   two (ARCADE-SPEC 13.3)
+    mov ax, (QB_SHPL * 4 / 1024 + QBS_KB) * 64
+    mov bl, MEMP_CLAIM
+    call OSAPI_MEM_P
+    jc .shadow
+    mov [qb_shseg], dx
+    mov ax, QB_SHPL * 4 / 16        ; the 6503's memory: a segment of its
+    call ar_sub                     ;   own (ARCADE-SPEC 14 rule 1)
+    cmp dx, [qb_shseg]              ; (refused - no LDT entry: not heard)
+    je .silent
+    mov [qbs_seg], dx
+    jmp short .shmv
+.shadow:
+    mov ax, (QB_SHPL * 4 / 1024) * 64      ; (the shadow alone: the board silent)
+    mov bl, MEMP_CLAIM
+    call OSAPI_MEM_P
     jc .noshadow
     mov [qb_shseg], dx
+.silent:
+    mov byte [qbs_chips], 0         ; (and no chips kept for it: qb_build)
+.shmv:
     mov dx, [qb_shseg]
     mov ax, qb_shmv
     call OSAPI_MEM_MOVABLE
@@ -165,7 +188,7 @@ qb_gmv:
 
 ; qb_rmv / qb_smv / qb_shmv - Q*bert's built ROM part (ar_rseg), sprite part
 ; (ar_aseg) and shadow of the glass moved: the word and the copy it is banked
-; in. BX = was, DX = now
+; in - and with the shadow, the 6503's memory past it. BX = was, DX = now
 qb_rmv:
     mov [qb_rclaim], dx
     cmp [ar_rseg], bx
@@ -182,6 +205,13 @@ qb_smv:
     ret
 qb_shmv:
     mov [qb_shseg], dx
+    cmp word [qbs_seg], 0           ; (the board heard: qb_on)
+    je .r
+    mov ax, QB_SHPL * 4 / 16        ; the 6503's memory is m6_seg, read at
+    call ar_sub                     ;   each m6_run
+    mov [qbs_seg], dx
+    mov [m6_seg], dx
+.r:
     ret
 
 qb_off:
@@ -218,14 +248,19 @@ qb_off:
 ; -----------------------------------------------------------------------------
 qb_build:
     push bx
-    mov ax, QB_ROMKB
-    call qbs_want                   ; (+4KB: the sound chips, kept past the
-    call OSAPI_MEM_CLAIM            ;   image - ARCADE-SPEC 13.3)
+    mov ax, QB_ROMKB * 64           ; paragraphs
+    cmp byte [qbs_chips], 0         ; (+4KB: the sound chips, kept past the
+    je .rom                         ;   image when qb_on made the board room
+    add ax, QBS_CHIPKB * 64         ;   - ARCADE-SPEC 13.3)
+.rom:
+    mov bl, MEMP_CLAIM
+    call OSAPI_MEM_P
     jc .nomem
     mov [qb_rclaim], dx
     mov [ar_rseg], dx
-    mov ax, QB_SPRKB
-    call OSAPI_MEM_CLAIM
+    mov ax, QB_SPRKB * 64
+    mov bl, MEMP_CLAIM
+    call OSAPI_MEM_P
     jc .nomem
     mov [qb_sclaim], dx
     mov [ar_aseg], dx

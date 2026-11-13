@@ -1017,12 +1017,18 @@ wt_srcbps:
 wt_claims:
     cmp word [wt_laseg], 0
     jne .ring
-    mov ax, WT_LAKB
-    call OSAPI_MEM_CLAIM
+    mov ax, WT_LAKB * 64
+    push bx
+    mov bl, MEMP_CLAIM
+    call OSAPI_MEM_P
+    pop bx
     mov cx, WT_LAKB * 1024
     jnc .la
-    mov ax, WT_LAKB2
-    call OSAPI_MEM_CLAIM
+    mov ax, WT_LAKB2 * 64
+    push bx
+    mov bl, MEMP_CLAIM
+    call OSAPI_MEM_P
+    pop bx
     mov cx, WT_LAKB2 * 1024
     jc .nomem
 .la:
@@ -1036,17 +1042,20 @@ wt_claims:
     mov byte [wt_ext], 0
     cmp byte [wt_noext], 0
     jne .grant
-    mov ax, WT_RINGKB + 1           ; the ring and its words, the head all of
+    mov ax, (WT_RINGKB + 1) * 64    ; the ring and its words, the head all of
     mov cl, 3                       ; it: RL's code 3, 32 KB
 .etry:
     push cx
     mov cx, ax
-    call OSAPI_MEM_CLAIM_DMA_HI     ; (keeps all but DX)
+    push bx
+    mov bl, MEMP_CONV + MEMP_DMAPOOL + MEMP_CLAIM_HI
+    call OSAPI_MEM_P            ; (keeps all but DX)
+    pop bx
     pop cx
     jnc .egot
-    cmp ax, WT_RINGKB2 + 1
-    je .grant                       ; no room for either: the pool's grant
-    mov ax, WT_RINGKB2 + 1
+    cmp ax, (WT_RINGKB2 + 1) * 64   ; (refused: AX = the request, which is
+    je .grant                       ; whole granules) no room for either: the
+    mov ax, (WT_RINGKB2 + 1) * 64   ; pool's grant
     mov cl, 2                       ; code 2, 16 KB
     jmp short .etry
 .egot:
@@ -1542,7 +1551,8 @@ wt_rd1:
 ; conventional piece the smaller by the pool's (the hold then longer than
 ; the region, which nothing reads past). Conventional memory in it is
 ; declared MOVABLE, a `ret` its proc (its windows follow a move; nothing
-; holds a window across a call that can move it).
+; holds a window across a call that can move it) - on a selector step: a
+; paragraph step (kern_mega in real mode) is a plain segment, kept PINNED.
 ; out: CF = 0 [wt_hseg] = the claim, wt_hw its record; CF = 1 nothing claimed.
 ; clobbers AX, BX, CX, DX (wt_plan, its one caller, clobbers them all)
 wt_hhuge:
@@ -1556,6 +1566,8 @@ wt_hhuge:
     call hw_claimfit                ; DX = the claim, CX = FFFFh conventional
     jc .o                           ; memory in it
     mov [wt_hseg], dx
+    test byte [wt_hw+HW_STEP+1], 0x10
+    jnz .o                          ; a paragraph step stays PINNED (CF = 0)
     jcxz .o                         ; ...that piece movable (SPEC.md 50.3.5)
     mov ax, wr_ret
     call OSAPI_MEM_MOVABLE

@@ -435,6 +435,11 @@ static void c64_key_push(int ascii, int scan)
                                              * cannot start to, so this latch
                                              * is one way */
     }
+    if (scan & 0x80)
+        return;                             /* Alt+0, F11, Ctrl+PgUp...: no
+                                             * matrix key, and bit 7 is rule
+                                             * 6's Shift - kept, it would be
+                                             * read as Shift on scan & $7F */
     if (n == c64_ring_h)
         return;                             /* the ring is full: the key is
                                              * dropped, not written past it */
@@ -1098,7 +1103,7 @@ static void ovl_clip_service(unsigned base)
 
     if (c64_copy_req) {
         c64_copy_req = 0;
-        seg = os88_mem_claim(C64_CLIPKB);
+        seg = os88_mem_claim_p(C64_CLIPKB * 64);
         if (seg == 0) {
             c64_say("No memory for the copy.");
         } else {
@@ -1124,7 +1129,7 @@ static void ovl_clip_service(unsigned base)
         c64_paste_stop();                   /* a second Paste over the first:
                                              * the old claim goes back before
                                              * the new one is asked for */
-        seg = os88_mem_claim(C64_PASTEKB);
+        seg = os88_mem_claim_p(C64_PASTEKB * 64);
         if (seg == 0) {
             c64_say("No memory for the paste.");
             return;

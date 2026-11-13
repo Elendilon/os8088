@@ -86,6 +86,15 @@ IMG   := $(BUILD)/os8088.img
 IMG120 := $(BUILD)/os8088-120.img
 IMG720 := $(BUILD)/os8088-720.img
 IMG360 := $(BUILD)/os8088-360.img
+# ...and the DEBUG DISKS (SPEC.md 127): a system disk that boots straight into
+# a diagnostic program reading a driver built from the SHIPPED source with its
+# record kept. One family, four geometries each, in the release zip beside the
+# system disks; `make debugdisks` builds them alone.
+DEBUGSND    := $(BUILD)/debug-sound.img
+DEBUGSND120 := $(BUILD)/debug-sound-120.img
+DEBUGSND720 := $(BUILD)/debug-sound-720.img
+DEBUGSND360 := $(BUILD)/debug-sound-360.img
+DEBUGIMGS := $(DEBUGSND) $(DEBUGSND120) $(DEBUGSND720) $(DEBUGSND360)
 APPSIMG := $(BUILD)/apps.img
 APPSIMG120 := $(BUILD)/apps120.img
 APPSIMG720 := $(BUILD)/apps720.img
@@ -150,7 +159,8 @@ SHIPIMGS := $(IMG) $(IMG120) $(IMG720) $(IMG360) \
             $(EMUIMG360) $(UTILIMG360) $(MOREIMG720) \
             $(SMALLIMG360) $(SMALLIMG720) \
             $(WIN16IMG) $(WIN16IMG120) $(WIN16IMG720) $(WIN16IMG360) \
-            $(ARCRELIMG) $(ARCRELIMG120) $(ARCRELIMG720) $(ARCRELIMG360)
+            $(ARCRELIMG) $(ARCRELIMG120) $(ARCRELIMG720) $(ARCRELIMG360) \
+            $(DEBUGIMGS)
 
 # ...and each of them SIGNS IN A SLOT OF ITS OWN (SPEC.md 18.8.2.2): os88disk.py
 # reads this list (tools/os88ship.py) and steers every member's boot-sector
@@ -575,6 +585,16 @@ $(error BOOTPROF=1 and QUANTUM= cannot be built together: QUANTUM reprograms \
 the PIT divisor (SPEC.md 53.2.1) and the phase stamps are counted against it)
 endif
 VIDDEF += -DBOOT_PROFILE
+endif
+
+#> [Knobs] RARECNT=1 :: count every rare-door call and every rare-cell call, per cell (kernel size pass 19, V7)
+# RARECNT=1 compiles a 32-bit counter into the rare door (one an index,
+# SPEC.md 20.3.4) and into the five rare cell bodies (one a cell, keyed by the
+# cell's offset in the table), in `.lowbss`: the reading that draws T5's
+# hot/rare line by measured frequency rather than by site count
+# (docs/plans/completed/ksp19/door.md). A knob kernel, so guard 2 alone binds it.
+ifneq ($(RARECNT),)
+VIDDEF += -DRARE_COUNTERS
 endif
 
 #> [Knobs] STKDIAG=1 :: measure what an interrupt costs a task stack, on the desktop
@@ -1580,6 +1600,7 @@ endif
 # 39.14.7's mechanism and gives up 5.4.1's fast path on all of the block's
 # pixels rather than only on the seam. The A/B the cut is measured by, and
 # the only thing keeping the whole-virtual path assembling.
+#> [Knobs] MEMGRAN=16 :: the heap on a 256-byte granule, a measurement build (SPEC.md 50.2.1.1)
 # MEMGRAN=16 builds the heap on a 256-byte GRANULE (SPEC.md 50.2.1.1): the
 # DISK class (kernel/memory.inc MEM_ALIGN_CLASS) keeps every int 13h base
 # 512-aligned while a CPU-only claim (OSAPI_MEM_P's MEMP_CPU) may land on any
@@ -2260,7 +2281,7 @@ endif
 # second build CLAUDE.md asks for after every change, and it exited 1.
 KNOBS := $(strip $(foreach k,VIDEO HERCSEG RTC DISKCNT DISKAL BOOTDIAG FLOPPY1 \
                              KFZ DIRW1 INSTRO KEEPH STRAD DIRTYRAM HEAPCOMPACT HEAPPARK HEAPPARKLK FDDPROBE FDDABSENT REDRAWFULL NOSPLIT NOSEAMCUT NOFDMEDIA NOSUOCCL SNDSNIFF RAMKB DRAGCACHE FATWNONE FATWGATE \
-                             SNAPAUDIT SCROLLROW QUANTUM GFXAUDIT \
+                             SNAPAUDIT SCROLLROW QUANTUM GFXAUDIT RARECNT \
                              CURFIX \
                              FONT INSTCHUNK NOPICOMEM PM_BASE PM_SB_PORT ANIMOFF DISINK0 \
                              BOOTPROF STKDIAG BOOTMARK BOOTHALT BOOTSTOP NOPS2 MOUIDSLOW MOUDIAG MOUROUND KBDDIAG DOSRMARK FDDSLOW TRACKRUN NOHDCYL HDCYLPROBE SBDRAGOFF SBRATE SBRATE286 SBIDLE \
@@ -2385,7 +2406,7 @@ endif
 # `make` believes is current, and every image shipped from it wrong. The
 # knob roster above still carries NOKZIP, because that is what somebody asks
 # for and what a knob build has to announce.
-VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(DISKAL),-al$(DISKAL))$(if $(RAMKB),-ram$(RAMKB))$(if $(DIRW1),-d1$(DIRW1))$(if $(INSTRO),-ro$(INSTRO))$(if $(KEEPH),-kh$(KEEPH))$(if $(STRAD),-st$(STRAD))$(if $(HEAPCOMPACT),-hc$(HEAPCOMPACT))$(if $(HEAPPARK),-hp$(HEAPPARK))$(if $(HEAPPARKLK),-hl$(HEAPPARKLK))$(if $(FDDPROBE),-fp$(FDDPROBE))$(if $(FDDABSENT),-fa$(FDDABSENT))$(if $(SNDSNIFF),-ss$(SNDSNIFF))$(if $(REDRAWFULL),-rf$(REDRAWFULL))$(if $(DRAGCACHE),-dg$(DRAGCACHE))$(if $(NOSPLIT),-ns$(NOSPLIT))$(if $(NOSEAMCUT),-nsc$(NOSEAMCUT))$(if $(NOFDMEDIA),-nfm$(NOFDMEDIA))$(if $(NOSUOCCL),-no$(NOSUOCCL))$(if $(CURFIX),-cf$(CURFIX))$(if $(FONT),-font$(FONT))$(if $(KERN_SMALL),-small$(KERN_SMALL))$(if $(KERN_EMU),-emu$(KERN_EMU))$(if $(KERN_MEGA),-mega$(KERN_MEGA))$(if $(MEGATRAP),-mtl$(MEGATRAP))$(if $(PICLOSE),-plc$(PICLOSE))$(if $(MEGADIAG),-mdx$(MEGADIAG))$(if $(MEGAFDMASK),-mfm$(MEGAFDMASK))$(if $(KFZ),-kfz$(KFZ))$(if $(INSTCHUNK),-ic$(INSTCHUNK))$(if $(SNAPAUDIT),-sa$(SNAPAUDIT))$(if $(GFXAUDIT),-ga$(GFXAUDIT))$(if $(SCROLLROW),-sr$(SCROLLROW))$(if $(QUANTUM),-q$(QUANTUM))$(if $(DIRTYRAM),-dr$(DIRTYRAM))$(if $(FSNOSTAMP),-fn$(FSNOSTAMP))$(if $(ANIMOFF),-ao$(ANIMOFF))$(if $(THEMEDARK),-td$(THEMEDARK))$(if $(DISINK0),-di$(DISINK0))$(if $(BOOTPROF),-bp$(BOOTPROF))$(if $(STKDIAG),-sd$(STKDIAG))$(if $(NOMOUPRIV),-nmp$(NOMOUPRIV))$(if $(NOCHAINPRIV),-ncp$(NOCHAINPRIV))$(if $(BOOTMARK),-bm$(BOOTMARK))$(if $(BOOTHALT),-bh$(BOOTHALT))$(if $(BOOTSTOP),-bs$(BOOTSTOP))$(if $(NOPS2),-np$(NOPS2))$(if $(MOUIDSLOW),-mis$(MOUIDSLOW))$(if $(MOUDIAG),-mdg$(MOUDIAG))$(if $(MOUROUND),-mrd$(MOUROUND))$(if $(KBDDIAG),-kbd$(KBDDIAG))$(if $(DOSRMARK),-drm$(DOSRMARK))$(if $(FDDSLOW),-fsl$(FDDSLOW))$(if $(TRACKRUN),-tr$(TRACKRUN))$(if $(NOHDCYL),-nhc$(NOHDCYL))$(if $(HDCYLPROBE),-hcp$(HDCYLPROBE))$(if $(SBDRAGOFF),-sbo$(SBDRAGOFF))$(if $(SBRATE),-sbr$(SBRATE))$(if $(SBRATE286),-sbr2$(SBRATE286))$(if $(SBIDLE),-sbi$(SBIDLE))$(if $(TITLESNAP),-ts$(TITLESNAP))$(if $(FONTSLOW),-fsw$(FONTSLOW))$(if $(SPLSTARS),-sst$(SPLSTARS))$(if $(NOSIZESNAP),-nzs$(NOSIZESNAP))$(if $(NOFLUSHR),-nfr$(NOFLUSHR))$(if $(NOUNAL),-nu$(NOUNAL))$(if $(MEMGRAN),-mg$(MEMGRAN))$(if $(NOVIDEXT),-nvx$(NOVIDEXT))$(if $(LDDIAG),-ldd$(LDDIAG))$(if $(DRVDIAG),-drd$(DRVDIAG))$(if $(BAND),-bnd$(BAND))$(if $(NOPLANE),-npl$(NOPLANE))$(if $(NOCOLFAST),-ncf$(NOCOLFAST))$(if $(NOBLITCUT),-nbc$(NOBLITCUT))$(if $(NOUIBLOCK),-nub$(NOUIBLOCK))$(if $(NOCURDISK),-ncd$(NOCURDISK))$(if $(NOFDDPARK),-nfp$(NOFDDPARK))$(if $(MSELOFF),-mso$(MSELOFF))$(if $(VGADIRTY),-vd$(VGADIRTY))$(if $(B3POISON),-b3p$(B3POISON))$(if $(BOOTDIAG),-bd$(BOOTDIAG))$(if $(PM_BASE),-pmb$(PM_BASE))$(if $(PM_SB_PORT),-pms$(PM_SB_PORT))$(if $(ETHPROF),-ep$(ETHPROF))$(if $(FTPDSLOW),-fs$(FTPDSLOW))$(if $(FTPDBG),-fd$(FTPDBG))$(if $(DLJUNK),-dlj$(DLJUNK))$(if $(DPTROM),-dpr$(DPTROM))$(if $(FATWNONE),-fwn$(FATWNONE))$(if $(FATWGATE),-fwg$(FATWGATE))-cmp$(LZFMTS)$(if $(KZIP),-kz)
+VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(DISKAL),-al$(DISKAL))$(if $(RAMKB),-ram$(RAMKB))$(if $(DIRW1),-d1$(DIRW1))$(if $(INSTRO),-ro$(INSTRO))$(if $(KEEPH),-kh$(KEEPH))$(if $(STRAD),-st$(STRAD))$(if $(HEAPCOMPACT),-hc$(HEAPCOMPACT))$(if $(HEAPPARK),-hp$(HEAPPARK))$(if $(HEAPPARKLK),-hl$(HEAPPARKLK))$(if $(FDDPROBE),-fp$(FDDPROBE))$(if $(FDDABSENT),-fa$(FDDABSENT))$(if $(SNDSNIFF),-ss$(SNDSNIFF))$(if $(REDRAWFULL),-rf$(REDRAWFULL))$(if $(DRAGCACHE),-dg$(DRAGCACHE))$(if $(NOSPLIT),-ns$(NOSPLIT))$(if $(NOSEAMCUT),-nsc$(NOSEAMCUT))$(if $(NOFDMEDIA),-nfm$(NOFDMEDIA))$(if $(NOSUOCCL),-no$(NOSUOCCL))$(if $(CURFIX),-cf$(CURFIX))$(if $(FONT),-font$(FONT))$(if $(KERN_SMALL),-small$(KERN_SMALL))$(if $(KERN_EMU),-emu$(KERN_EMU))$(if $(KERN_MEGA),-mega$(KERN_MEGA))$(if $(MEGATRAP),-mtl$(MEGATRAP))$(if $(PICLOSE),-plc$(PICLOSE))$(if $(MEGADIAG),-mdx$(MEGADIAG))$(if $(MEGAFDMASK),-mfm$(MEGAFDMASK))$(if $(KFZ),-kfz$(KFZ))$(if $(INSTCHUNK),-ic$(INSTCHUNK))$(if $(SNAPAUDIT),-sa$(SNAPAUDIT))$(if $(GFXAUDIT),-ga$(GFXAUDIT))$(if $(RARECNT),-rcn$(RARECNT))$(if $(SCROLLROW),-sr$(SCROLLROW))$(if $(QUANTUM),-q$(QUANTUM))$(if $(DIRTYRAM),-dr$(DIRTYRAM))$(if $(FSNOSTAMP),-fn$(FSNOSTAMP))$(if $(ANIMOFF),-ao$(ANIMOFF))$(if $(THEMEDARK),-td$(THEMEDARK))$(if $(DISINK0),-di$(DISINK0))$(if $(BOOTPROF),-bp$(BOOTPROF))$(if $(STKDIAG),-sd$(STKDIAG))$(if $(NOMOUPRIV),-nmp$(NOMOUPRIV))$(if $(NOCHAINPRIV),-ncp$(NOCHAINPRIV))$(if $(BOOTMARK),-bm$(BOOTMARK))$(if $(BOOTHALT),-bh$(BOOTHALT))$(if $(BOOTSTOP),-bs$(BOOTSTOP))$(if $(NOPS2),-np$(NOPS2))$(if $(MOUIDSLOW),-mis$(MOUIDSLOW))$(if $(MOUDIAG),-mdg$(MOUDIAG))$(if $(MOUROUND),-mrd$(MOUROUND))$(if $(KBDDIAG),-kbd$(KBDDIAG))$(if $(DOSRMARK),-drm$(DOSRMARK))$(if $(FDDSLOW),-fsl$(FDDSLOW))$(if $(TRACKRUN),-tr$(TRACKRUN))$(if $(NOHDCYL),-nhc$(NOHDCYL))$(if $(HDCYLPROBE),-hcp$(HDCYLPROBE))$(if $(SBDRAGOFF),-sbo$(SBDRAGOFF))$(if $(SBRATE),-sbr$(SBRATE))$(if $(SBRATE286),-sbr2$(SBRATE286))$(if $(SBIDLE),-sbi$(SBIDLE))$(if $(TITLESNAP),-ts$(TITLESNAP))$(if $(FONTSLOW),-fsw$(FONTSLOW))$(if $(SPLSTARS),-sst$(SPLSTARS))$(if $(NOSIZESNAP),-nzs$(NOSIZESNAP))$(if $(NOFLUSHR),-nfr$(NOFLUSHR))$(if $(NOUNAL),-nu$(NOUNAL))$(if $(MEMGRAN),-mg$(MEMGRAN))$(if $(NOVIDEXT),-nvx$(NOVIDEXT))$(if $(LDDIAG),-ldd$(LDDIAG))$(if $(DRVDIAG),-drd$(DRVDIAG))$(if $(BAND),-bnd$(BAND))$(if $(NOPLANE),-npl$(NOPLANE))$(if $(NOCOLFAST),-ncf$(NOCOLFAST))$(if $(NOBLITCUT),-nbc$(NOBLITCUT))$(if $(NOUIBLOCK),-nub$(NOUIBLOCK))$(if $(NOCURDISK),-ncd$(NOCURDISK))$(if $(NOFDDPARK),-nfp$(NOFDDPARK))$(if $(MSELOFF),-mso$(MSELOFF))$(if $(VGADIRTY),-vd$(VGADIRTY))$(if $(B3POISON),-b3p$(B3POISON))$(if $(BOOTDIAG),-bd$(BOOTDIAG))$(if $(PM_BASE),-pmb$(PM_BASE))$(if $(PM_SB_PORT),-pms$(PM_SB_PORT))$(if $(ETHPROF),-ep$(ETHPROF))$(if $(FTPDSLOW),-fs$(FTPDSLOW))$(if $(FTPDBG),-fd$(FTPDBG))$(if $(DLJUNK),-dlj$(DLJUNK))$(if $(DPTROM),-dpr$(DPTROM))$(if $(FATWNONE),-fwn$(FATWNONE))$(if $(FATWGATE),-fwg$(FATWGATE))-cmp$(LZFMTS)$(if $(KZIP),-kz)
 $(shell mkdir -p $(BUILD); \
         [ -f $(VIDSTAMP) ] || { rm -f $(BUILD)/.video-* $(BUILD)/kernel.bin \
                                       $(BUILD)/kernel-full.bin \
@@ -2486,7 +2507,7 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm \
         xt-hercules xt-ega xt-multimon 286 286-525 386sx 386 386-xms 386-ps2 xt-sound xt-sound-1.44 xt-midirack 386-midirack xt-covox xt-wire \
         286-525-z 286-525-word 286-525-cword 286-525-runcpm 286-525-c64 \
         286-525-weave 286-525-loom 286-525-all \
-        286-sound 286-video viddemo-vga viddemo-cga viddemo-herc viddemozip 286-realdmg 286-victory 386-sound 486 486-video 486-vesa 486-vesa-desk pentium pentium-pciether \
+        286-sound 286-video viddemo-vga viddemo-cga viddemo-herc viddemozip 286-realdmg 286-victory 386-sound 486 486-video 486-vesa 486-vesa-desk pentium pentium-pciether pentium-ess \
         bench field combo combo144 combo720 stackprobe trklog trkscrl npbench clicktest marty \
         comscan lptlink calcref \
         fonts fontsheets fontlist \
@@ -4357,7 +4378,7 @@ SNDSTAMP := $(BUILD)/.sound-$(if $(NOPICOMEM),nopm,pm)$(if $(PM_BASE),-b$(PM_BAS
 $(BUILD)/sound.bin: drivers/sound/sound.asm drivers/sound/sb.inc drivers/sound/mpu.inc drivers/sound/covox.inc \
                     drivers/sound/picomem.inc drivers/sound/sndpkg.inc drivers/sound/mixer.inc \
                     drivers/sound/volume.inc apps/os88mixui.inc apps/os88gfx.inc apps/os88dec.inc \
-                    drivers/os88drv.inc apps/os88api.inc | $(BUILD)
+                    drivers/sound/snddiag.inc drivers/os88drv.inc apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error $(SNDDEF) -I drivers/sound/ -I drivers/ -I apps/ \
 		-o $@ drivers/sound/sound.asm
 	@echo "sound:  $(call FILESIZE,$@) bytes$(if $(NOPICOMEM), (no PicoMEM),)"
@@ -4370,12 +4391,32 @@ $(SNDSTAMP): | $(BUILD)
 $(BUILD)/sound.drv: $(BUILD)/sound.bin tools/os88drv.py $(PKGZSTAMP)
 	$(OS88DRV) $(BUILD)/sound.bin -o $@
 
+# ...and the SOUND DEBUG DISK's (SPEC.md 127.3): the same source and the same
+# knobs, with -DSNDDIAG - the probes and the stream keep a record, and one more
+# package verb hands it to SNDDIAG.O88. Its own directory, so the file is
+# still SOUND.DRV on the disk and the shipped build/sound.drv is never it.
+# drivers/sound/snddiag.inc expands to nothing without SNDDIAG, and
+# tests/unit/t_debugdisk.py holds the shipped arm byte-identical to a build
+# without the include's hooks taken.
+$(BUILD)/snddiag/sound.bin: drivers/sound/sound.asm drivers/sound/sb.inc drivers/sound/mpu.inc drivers/sound/covox.inc \
+                    drivers/sound/picomem.inc drivers/sound/sndpkg.inc drivers/sound/mixer.inc \
+                    drivers/sound/volume.inc apps/os88mixui.inc apps/os88gfx.inc apps/os88dec.inc \
+                    drivers/sound/snddiag.inc drivers/os88drv.inc apps/os88api.inc \
+                    $(BUILD)/sound.bin | $(BUILD)
+	@mkdir -p $(dir $@)
+	$(NASM) -f bin -w+error $(SNDDEF) -DSNDDIAG -I drivers/sound/ -I drivers/ -I apps/ \
+		-o $@ drivers/sound/sound.asm
+	@echo "sound (debug disk): $(call FILESIZE,$@) bytes"
+
+$(BUILD)/snddiag/sound.drv: $(BUILD)/snddiag/sound.bin tools/os88drv.py $(PKGZSTAMP)
+	$(OS88DRV) $(BUILD)/snddiag/sound.bin -o $@
+
 # The store above 1MB (SPEC.md 41.12). An OVERLAY, not a driver: os88drv.py
 # stamps it and names it 'overlay' because its class byte is DRVC_OVL, which
 # the kernel deliberately does not know - so nothing can load it but xm_boot.
-$(BUILD)/xmem.bin: drivers/xmem/xmem.asm drivers/os88drv.inc apps/os88api.inc apps/os88la.inc apps/os88ub.inc \
+$(BUILD)/xmem.bin: drivers/xmem/xmem.asm kernel/xmabi.inc drivers/os88drv.inc apps/os88api.inc apps/os88la.inc apps/os88ub.inc \
                    | $(BUILD)
-	$(NASM) -f bin -w+error -I drivers/ -I apps/ -o $@ drivers/xmem/xmem.asm
+	$(NASM) -f bin -w+error -I drivers/ -I apps/ -I kernel/ -o $@ drivers/xmem/xmem.asm
 	@echo "xmem:   $(call FILESIZE,$@) bytes"
 
 $(BUILD)/xmem.drv: $(BUILD)/xmem.bin tools/os88drv.py $(PKGZSTAMP)
@@ -4699,7 +4740,7 @@ $(BUILD)/coldhma.sys: $(KERNFILE) boot/osrom.asm tools/os88rom.py tools/os88romf
 $(BUILD)/sound.hma.bin: drivers/sound/sound.asm drivers/sound/sb.inc drivers/sound/mpu.inc drivers/sound/covox.inc \
                         drivers/sound/picomem.inc drivers/sound/sndpkg.inc drivers/sound/mixer.inc \
                     drivers/sound/volume.inc apps/os88mixui.inc apps/os88gfx.inc apps/os88dec.inc \
-                        drivers/os88drv.inc apps/os88api.inc $(BUILD)/sound.bin
+                        drivers/sound/snddiag.inc drivers/os88drv.inc apps/os88api.inc $(BUILD)/sound.bin
 	$(NASM) -f bin -w+error $(SNDDEF) -DDRV_ORG=$(DRV_HMA_ORG) -I drivers/sound/ \
 		--before "[map symbols $(BUILD)/sound.hma.map]" \
 		-I drivers/ -I apps/ -o $@ drivers/sound/sound.asm
@@ -5859,6 +5900,81 @@ $(BUILD)/covoxsys360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS)
 covoxtest: $(BUILD)/covoxsys720.img $(BUILD)/covoxsys360.img
 	@echo "covoxtest: build/covoxsys720.img - SOUND.DRV wanted, the Covox tier"
 	@echo "           set. Run it with: python3 tests/covox.py --arm <arm>"
+
+# THE SOUND DEBUG DISK (SPEC.md 127): the debug-disk family's first member.
+# A system disk - covoxtest's shape, on all four geometries - with three
+# differences: its SOUND.DRV is the -DSNDDIAG build above, its SYSTEM.CFG asks
+# for that driver ('DW' bit 0) so a card the boot sniff cannot see is still
+# probed, and \AUTOSTRT\SNDDIAG.LNK opens SNDDIAG.O88 at the volume's root,
+# so the machine boots into the report with nobody at it. SNDDEBUG.TXT is what
+# to do with it. It is a debugging aid and not a second system disk, so it
+# carries the boot set, the system packages the kernel reaches for, and Note
+# Pad to read the text with - no fonts, no DOS, no games.
+#
+# THE DRIVER SWAP IS CHECKED, not hoped for: a filter-out that matches nothing
+# is silent, so the guard below refuses the build if sound.drv ever leaves
+# $(DRIVERS) under another name - and t_debugdisk reads SOUND.DRV back off
+# each built image and compares it with build/snddiag/sound.drv.
+$(BUILD)/snddiag.bin: apps/snddiag/snddiag.asm apps/snddiag/sdtext.inc \
+                      drivers/sound/snddiag.inc drivers/sound/sndpkg.inc \
+                      apps/os88api.inc apps/os88ui.inc apps/os88dec.inc $(BUILDINC) | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I drivers/sound/ -I $(BUILD)/ -o $@ apps/snddiag/snddiag.asm
+	@echo "snddiag: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/snddiag.o88: $(BUILD)/snddiag.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/snddiag.bin -o $@
+
+SDDRV := $(BUILD)/snddiag/sound.drv
+SDDRIVERS = $(if $(filter $(BUILD)/sound.drv,$(DRIVERS)),,$(error \
+    the sound debug disk swaps $(BUILD)/sound.drv out of DRIVERS and it is \
+    not there - SPEC.md 127.2))$(filter-out $(BUILD)/sound.drv,$(DRIVERS)) $(SDDRV)
+SDDRIVERS360 = $(filter-out $(BUILD)/sound.drv,$(DRIVERS360)) $(SDDRV)
+SDFILES := $(BUILD)/snddiag.o88 apps/snddiag/SNDDEBUG.TXT \
+           $(BUILD)/sdcfg/system.cfg AUTOSTRT:$(BUILD)/sdcfg/SNDDIAG.LNK
+SDAPPS := APPS:$(BUILD)/notepad.o88
+SDDEPS := $(KERNFILE) $(DRIVERS) $(SDDRV) $(SYSAPPS) $(SYSDOC) $(SYSLOGO) $(BUILD)/notepad.o88 \
+          $(BUILD)/snddiag.o88 apps/snddiag/SNDDEBUG.TXT $(BUILD)/sdcfg/system.cfg \
+          $(BUILD)/sdcfg/SNDDIAG.LNK tools/os88disk.py
+
+$(BUILD)/sdcfg/system.cfg: | $(BUILD)
+	@mkdir -p $(BUILD)/sdcfg
+	python3 -c "import sys; sys.stdout.buffer.write(b'O88CFG\0\0' + \
+	  (3).to_bytes(2,'little') + b'DW' + bytes([1,2]) + \
+	  (1 << 0).to_bytes(2,'little') + b'\0\0')" > $@
+
+$(BUILD)/sdcfg/SNDDIAG.LNK: tools/os88lnk.py | $(BUILD)
+	@mkdir -p $(BUILD)/sdcfg
+	python3 tools/os88lnk.py $@ 'SNDDIAG.O88' --vol A
+
+$(DEBUGSND): $(BUILD)/boot.bin $(SDDEPS)
+	python3 tools/os88disk.py -o $@ --size 1440 \
+		--boot $(BUILD)/boot.bin --kernel $(KERNFILE) \
+		$(SDDRIVERS) $(SYSAPPSARGS) $(SDAPPS) $(SYSDOC) $(SYSLOGOARG) \
+		$(SDFILES) $(APPDATAFOLDER)
+
+$(DEBUGSND120): $(BUILD)/boot120.bin $(SDDEPS)
+	python3 tools/os88disk.py -o $@ --size 1200 \
+		--boot $(BUILD)/boot120.bin --kernel $(KERNFILE) \
+		$(SDDRIVERS) $(SYSAPPSARGS) $(SDAPPS) $(SYSDOC) $(SYSLOGOARG) \
+		$(SDFILES) $(APPDATAFOLDER)
+
+$(DEBUGSND720): $(BUILD)/boot360.bin $(SDDEPS)
+	python3 tools/os88disk.py -o $@ --size 720 \
+		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
+		$(SDDRIVERS) $(SYSAPPSARGS) $(SDAPPS) $(SYSDOC) $(SYSLOGOARG) \
+		$(SDFILES) $(APPDATAFOLDER)
+
+$(DEBUGSND360): $(BUILD)/boot360.bin $(SDDEPS)
+	python3 tools/os88disk.py -o $@ --size 360 \
+		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
+		$(SDDRIVERS360) $(SYSAPPSARGS) $(SDAPPS) $(SYSDOC) $(SYSLOGOARG) \
+		$(SDFILES) $(APPDATAFOLDER)
+
+.PHONY: debugdisks
+#> [Test] debugdisks :: the sound debug disk in four geometries: boots into a report on what SOUND.DRV found (SPEC.md 127)
+debugdisks: $(DEBUGIMGS)
+	@echo "debugdisks: build/debug-sound{,-120,-720,-360}.img - boots into"
+	@echo "            SNDDIAG.O88 with the -DSNDDIAG SOUND.DRV (SPEC.md 127)"
 
 # PICOMEMTEST - the PicoMEM field disks (SPEC.md 34.10.1, 72.2, 9.12.7):
 # covoxtest's shape, with 'DW' = bit 0 (SOUND.DRV) | bit 4 (ETHER.DRV) |
@@ -15601,6 +15717,19 @@ $(BUILD)/small.img: $(SMALLDRIVERS) $(SMALLSYSAPPS) $(SMALLSTIKAPPS) $(SMALLPKGS
 # kernel - not "compatible with", THE SAME - and build/apps.img pairs with it
 # unchanged. `make small` has to say this carefully because the two kernels
 # there have different feature sets; here there is nothing to say beyond it.
+# THE KERN_EMU AND KERN_MEGA KERNELS AS TARGETS OF THEIR OWN. A row's `wants=`
+# names $(EMUDIR)/kernel.bin and $(MEGADIR)/kernel.bin (api-abi-all, every
+# kernel's API table), and a soak's own frozen tree has neither until a
+# sub-make writes one - `make <tree>/emuk/kernel.bin` answered "No rule" and
+# the whole tier refused to start. The sub-make keeps every freshness decision
+# with the kernel's own rules, so the phony prerequisite only means "ask it".
+.PHONY: kernsub-force
+kernsub-force:
+$(EMUDIR)/kernel.bin: kernsub-force
+	@$(MAKE) BUILD=$(EMUDIR) KERN_EMU=1 $(EMUDIR)/kernel.bin
+$(BUILD)/megak/kernel.bin: kernsub-force
+	@$(MAKE) BUILD=$(BUILD)/megak KERN_MEGA=1 $(if $(NOKZIP),NOKZIP=1) $(BUILD)/megak/kernel.bin
+
 #> [Kernels] emu :: kern_emu (kern_big + the VMware absolute pointer) and build/emu.img
 emu: $(BUILD)/emu.img
 	@echo "emu: $< - kern_emu on 1.44MB, VMMOUSE.DRV wanted from the first"
@@ -16160,6 +16289,7 @@ MEGASRC := $(KERNEL_SRC) $(KERNEL_INC) kerndos/kdos.asm $(KERNDOS_INC) \
 #> [Kernels] mega :: kern_mega (286+ protected mode) and its system and apps disks into build/megak/
 mega: $(BUILD)/mega.img $(BUILD)/mega120.img $(BUILD)/megaapps.img $(BUILD)/megaapps120.img \
       $(BUILD)/megawin16.img $(BUILD)/megawin16-120.img $(BUILD)/megaxtmp3.img $(BUILD)/megaxtmp3-120.img \
+      $(BUILD)/arcrelmega.img $(BUILD)/arcrelmega120.img \
       $(BUILD)/kernel.bin tests/megaseg.txt tools/os88megaseg.py
 ifeq ($(filter-out KERN_SMALL=% KERN_MEGA=%,$(KNOBS)),)
 	@python3 tools/os88megaseg.py --big $(BUILD)/kernel.map --mega $(MEGADIR)/kernel.map --check tests/megaseg.txt
@@ -16295,6 +16425,7 @@ $(BUILD)/pciethertest.img: $(BUILD)/mega.img $(BUILD)/pciethercfg/system.cfg
 		$(MEGADRIVERS) $(MEGASYSAPPSARGS) $(MEGASYSOPTARGS) $(STIKARGS) $(MEGAINST) APPS:$(MEGADIR)/kdos/DOS.O88 $(MEGACOREARGS) $(SYSDOC) \
 		$(SYSLOGOARG) $(FACESARG) $(BUILD)/pciethercfg/system.cfg $(APPDATAFOLDER)
 
+#> [Gate disks] pciethertest :: kern_mega with PCIETHER.DRV already wanted in SYSTEM.CFG (QEMU's RTL8139)
 .PHONY: pciethertest
 pciethertest: $(BUILD)/pciethertest.img
 	@echo "pciethertest: build/pciethertest.img - kern_mega, PCIETHER.DRV already wanted"
@@ -16314,6 +16445,7 @@ $(BUILD)/pcibigtest.img: $(BUILD)/boot.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(S
 		$(DRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
 		$(BUILD)/pciethercfg/system.cfg --folder SYSTEM/APPDATA
 
+#> [Gate disks] pcibigtest :: the same PCIETHER.DRV gate on kern_big's 1.44MB system disk
 .PHONY: pcibigtest
 pcibigtest: $(BUILD)/pcibigtest.img
 	@echo "pcibigtest: build/pcibigtest.img - kern_big, PCIETHER.DRV already wanted"
@@ -20074,6 +20206,15 @@ marty: $(IMG360)
 pentium: $(IMG) $(APPSIMG)
 	@$(UNPROTECT) $(VMPENT)/86box.cfg
 	$(BOX) -P $(VMPENT) -N
+
+# ...and the same Pentium with an ESS ES1868 in place of its SB16, booting the
+# sound DEBUG disk (SPEC.md 127): the field report that started the debug disks
+# was an ES1868F, and this is the machine its pages were first read on. The
+# CMOS is seeded (nvr-seed/) so drive B exists. 86Box's ESS treats D1h/D3h as
+# no-ops, so a voice the chip itself switches off shows only on the real card
+pentium-ess: $(DEBUGSND) $(APPSIMG)
+	@$(UNPROTECT) vm/pentium-ess/86box.cfg
+	$(BOX) -P vm/pentium-ess -N
 
 # PCIETHER.DRV's machine (SPEC.md 125.6, docs/plans/PCIETHER-PLAN.md S9): a
 # Pentium on a PCI board (vm/pentium's p54tp4xe) with 86Box's Realtek

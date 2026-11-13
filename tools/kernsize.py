@@ -179,9 +179,15 @@ RUNGS = (
 # rounds to 512 ONCE, at KERN_END, so it is one rung and not three. The kernel
 # says which with `toppara` (0 on a kernel with rungs, and absent from a
 # baseline taken before it, which then reads as the three rungs' sum).
+#
+# ...and since kernel size pass 19 the IMAGE is not a rung either: KIMG_PARA
+# rounds `.text` + `.bss` to the paragraph, because the two fixed disk buffers
+# above it need only not straddle a 64KB DMA page (SPEC.md 2.1.1, guard 6)
+# rather than a 512-byte base. So a LADDER_PACK kernel is ONE rung, KERNEL_SEG
+# to KERN_END, and the FAT window (a fixed size) is a member of it.
 RUNGS_PACK = (
-    ("image", ("text", "bss"), "imgpara"),
-    ("top", ("lowbss", "stk0", "vga", "cold", "vgabuf"), "toppara"),
+    ("kernel", ("text", "bss", "fat", "lowbss", "stk0", "vga", "cold",
+                "vgabuf"), "kernpara"),
 )
 
 # ...and therefore the sections a rung CHARGES for, which is not SECTIONS:
@@ -308,10 +314,13 @@ THEMES = (
     # should move when it is compiled in. stkdiag.inc
     # (docs/plans/completed/STACK-SLOTS-PLAN.md 10) is here for both halves of that: what it
     # measures is sch_isr's own chain to the ROM, and `make STKDIAG=1` is the
-    # only build that has it.
+    # only build that has it. boot3.inc (SPEC.md 2.9.15) is here because it is
+    # kernel.asm's own boot ladder moved into `.boot3`: what it leaves in the
+    # resident sections is the frame round bodies kernel.asm used to hold, and
+    # the two trade bytes with each other on every BOOT3 change.
     ("the kernel proper: API table, heap, scheduler, events",
      (RESIDUAL, "memory.inc", "sched.inc", "events.inc", "mod.inc",
-      "bootprof.inc", "stkdiag.inc")),
+      "bootprof.inc", "stkdiag.inc", "boot3.inc")),
     ("the Control Panel", ("ctrl.inc",)),
     # mega.inc is 0 in every variant but kern_mega's, where it is the whole of
     # what that kernel adds (megados.inc, the DOS park, is %include'd from it
@@ -501,7 +510,7 @@ def measure_modules(nasm_args=()):
             # one is measuring something else.
             return None, ("THE MARKERS CHANGED THE BINARY - refusing to "
                           "report (nothing was written to kernel.asm)")
-        per = {}
+        per, seen = {}, set()
         for line in r_inst.stderr.splitlines():
             m = re.search(r"\bkm: (\d+) (.*?)(?: \[|$)", line)
             if not m:
@@ -510,9 +519,15 @@ def measure_modules(nasm_args=()):
             for pair in m.group(2).split():
                 k, _, v = pair.partition("=")
                 vals[k] = int(v)
-            per[mods[int(m.group(1))]] = vals
-        if len(per) != len(mods):
-            return None, f"{len(per)} of {len(mods)} modules reported"
+            # A file %included more than once (boot3.inc: BOOT3's head and
+            # its declarations, BOOT3-PLAN wave 1) is ONE row: its marker
+            # pairs are summed, so the table still adds up to the sections
+            seen.add(int(m.group(1)))
+            row = per.setdefault(mods[int(m.group(1))], {})
+            for kk, vv in vals.items():
+                row[kk] = row.get(kk, 0) + vv
+        if len(seen) != len(mods):
+            return None, f"{len(seen)} of {len(mods)} includes reported"
         return per, None
     finally:
         for f in os.listdir(tmp):
@@ -525,6 +540,8 @@ def rung_bytes(v, para_key):
     # (SPEC.md 39.22's `.vgabuf` is the case that arrived): a rung nobody had
     # measured was 0 bytes, which is the honest reading and makes the first
     # report after it lands price the whole thing rather than crashing.
+    if para_key == "kernpara":
+        return (v.get("kend", 0) - v.get("kseg", 0)) * 16
     if para_key == "toppara" and not v.get("toppara"):
         return sum(v.get(k, 0) for k in ("lowpara", "coldpara",
                                           "vgabufpara")) * 16
@@ -532,7 +549,8 @@ def rung_bytes(v, para_key):
 
 
 def rung_used(v, parts):
-    return sum(v.get(p, 0) for p in parts)
+    return sum(v.get("fatpara", 0) * 16 if p == "fat" else v.get(p, 0)
+               for p in parts)
 
 
 def rung_accrued(size, used):

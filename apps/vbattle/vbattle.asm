@@ -407,9 +407,6 @@ vb_entry:
     jc .out
     mov [vb_win], bx
     OS88_REGION_MOVABLE
-    mov bx, [vb_win]                ; (the compaction a play may post wakes
-    mov ax, vb_onwake               ; us: VBATTLE-RAM-PLAN R1)
-    call OSAPI_WM_ONWAKE
     mov word [vb_status], vb_s_ready
     cmp byte [vb_found], 0          ; NO BATTLE beside us, none embedded, no
     jne .some                       ; document: the window says to open one,
@@ -419,9 +416,6 @@ vb_entry:
     mov bx, [vb_win]
     mov si, vb_menus                ; File > Open... (and Close)
     call OSAPI_MENU_SET
-    mov bx, [vb_win]                ; the standard About card (SPEC.md 12.2)
-    mov si, vb_about
-    call OSAPI_ABOUT_SET
     clc
 .out:
     ret
@@ -575,13 +569,14 @@ vb_coverload:
     jne .no
     call vb_round
     push ax                         ; (the read, whole 4 KBs)
-    mov cl, 10
+    mov cl, 4                       ; ...in paragraphs
     shr ax, cl
     or ax, ax
     jnz .kb
-    mov ax, 64                      ; (60 KB and up: vb_round's 0xF000)
+    mov ax, 64 * 64                 ; (60 KB and up: vb_round's 0xF000)
 .kb:
-    call OSAPI_MEM_CLAIM
+    mov bl, MEMP_CLAIM
+    call OSAPI_MEM_P
     pop cx
     jc .no
     mov [vb_cvseg], dx
@@ -1243,7 +1238,7 @@ vb_paint:
 .r:
     ret
 
-; vb_about - OSAPI_ABOUT_SET's handler: SI = the window, no region armed, so
+; vb_about - vb_cls's WC_ABOUT handler: SI = the window, no region armed, so
 ; the handler entry (os88ui_about) arms one
 vb_about:
     mov byte [vb_abon], 1
@@ -1624,7 +1619,7 @@ vb_play:
 vb_cpask:
     push bx
     push cx
-    call OSAPI_MEM_AVAIL            ; AX = the largest run now, KB
+    call vb_avkb                    ; AX = the largest run now, KB
     mov cx, ax
     mov ax, MEM_LVL_TOP             ; AH = MEMC_WHATIF: if we moved too (every
     call OSAPI_MEM_COMPACT          ; cache counted free - the play purges
@@ -1893,7 +1888,6 @@ vb_kb:
     loop .s
     ret
 
-; vb_p2kb - AX = AX paragraphs in KB, rounded up. CX, DX spent
 ; vb_bpara - CX = one band buffer's paragraphs: the band's rows x 80 bytes
 ; (2 bits a pixel, 320 across), rounded to 4 KB. AX kept
 vb_bpara:
@@ -1944,14 +1938,6 @@ vb_gpara:
     pop ax
     ret
 
-vb_p2kb:
-    xor dx, dx
-    mov cx, 4
-.k:
-    shl ax, 1
-    rcl dx, 1
-    loop .k
-    jmp vb_kb
 
 ; vb_load - what a play needs before it starts, in TWO claims - an owner may
 ; hold eight (MEM_OWNER_MAX, SPEC.md 50): the RESIDENT claim, carved into
@@ -2178,10 +2164,11 @@ vb_load:
     add ax, cx                      ; band's rows and no more (they were 16
     call vb_gpara                   ; KB each for a 4.6 KB band: VBATTLE-
     add ax, cx                      ; (the ground's: VGA's layer after it)
-    call vb_p2kb                    ; RAM-PLAN R1)
+                                    ; RAM-PLAN R1)
     mov word [vb_err], vb_s_nomem
     xor cx, cx                      ; (the DMA door, no head: CONVENTIONAL on
-    call OSAPI_MEM_CLAIM_DMA_HI     ; kern_mega, where the bracket sums it -
+    mov bl, MEMP_CONV + MEMP_CLAIM_HI
+    call OSAPI_MEM_P            ; kern_mega, where the bracket sums it -
                                     ; 126.4.5) FROM THE TOP: claimed from the bottom it
     jc .fail1                       ; landed just over the desktop's caches
                                     ; and left them a pocket no ring could
@@ -2210,7 +2197,12 @@ vb_load:
 ; or a clip named - an opening, the title and its way out, an end loop, the
 ; victory and defeat clips, a pool's - that the clip table has not got, or
 ; a pool past 7 or named by an action past the pools. Each was a play that
-; waited for ever on a head that never came (126.2: every byte is hostile)
+; waited for ever on a head that never came (126.2: every byte is hostile).
+; A clip an action or an ending plays with no anchor to enter at, and every
+; INDEX the rules hold - an effect's stat, attack or stance, a stance's
+; moves, responses, return and change, a menu's items, a character's menus,
+; a follow-up's action - past its table, the same (126.2.4): each indexed a
+; record past it, and wrote the tables a clip or a stat sizes
 vb_vcheck:
     mov cx, [vb_meta+VH_NCLIPS]     ; (1..64: vb_load's)
     mov si, vb_meta+VB_CTAB
@@ -2262,10 +2254,10 @@ vb_vcheck:
     call .clip
     jc .bad
     mov al, [RL+RH_VICT]            ; ...and the rules
-    call .clip
+    call .cliph
     jc .bad
     mov al, [RL+RH_DEFT]
-    call .clip
+    call .cliph
     jc .bad
     mov bl, [RL+RH_NPOOL]           ; the pools: 0 to 7 clips, each one
     xor bh, bh                      ; the table has
@@ -2283,7 +2275,7 @@ vb_vcheck:
     jcxz .p2
     inc si
     mov al, [si]
-    call .clip0
+    call .clipa
     jc .pb
     loop .p1
 .p2:
@@ -2293,34 +2285,214 @@ vb_vcheck:
     jmp short .p
 .pb:
     pop si
-    jmp short .bad
+    jmp .bad
 .a:
     mov bl, [RL+RH_NACT]            ; every action's pools: one there is,
-    xor bh, bh                      ; or none
-    mov si, [RL+RH_OACT]
-    add si, RL+AC_POOLS
-.a1:
+    xor bh, bh                      ; or none - its own five at AC_POOLS,
+    mov si, [RL+RH_OACT]            ; each character's five at AC_BY (48,
+    add si, RL                      ; not 45: a scan of 25 from AC_POOLS
+.a1:                                ; missed the last one's last three)
     or bx, bx
-    jz .ok
-    mov cx, 5 + 4 * 5
+    jz .st
     push si
-.a2:
-    lodsb
-    cmp al, NONE
-    je .a3
-    cmp al, [RL+RH_NPOOL]
-    jae .pb
-.a3:
-    loop .a2
+    add si, AC_POOLS
+    mov cx, 5
+    call .pools
+    jc .ab
+    pop si
+    push si
+    add si, AC_BY
+    mov cx, 4 * 5
+    call .pools
+    jc .ab
+    pop si
+    push si
+    add si, AC_EFF                  ; ...and its effects' indices: a stat
+    mov cx, 4                       ; (BOOST, LOWER: vb_effect's .mod
+.e:                                 ; writes vb_mods+stat), an attack
+    mov ax, [si+EF_V]               ; (DAMAGE: vb_stat's), a stance
+    cmp al, V_DAMAGE
+    jne .e1
+    cmp ah, K_FIXED
+    ja .ab
+.e1:
+    cmp al, V_BOOST
+    je .e2
+    cmp al, V_LOWER
+    jne .e3
+.e2:
+    cmp ah, 3
+    ja .ab
+.e3:
+    cmp al, V_STANCE
+    jne .e4
+    cmp ah, [RL+RH_NST]
+    jae .ab
+.e4:
+    add si, 6
+    loop .e
     pop si
     add si, AC_SZ
     dec bx
     jmp short .a1
+.ab:
+    pop si
+    jmp .bad
+.st:
+    mov al, [RL+RH_START]           ; THE STANCES: the enemy's first one
+    cmp al, [RL+RH_NST]             ; there is, and each one 1 to 6 moves
+    jae .sbad                       ; (none: the draw by weight went round
+    mov bl, [RL+RH_NST]             ; 64K times), each an action of some
+    xor bh, bh                      ; weight; 0 to 2 responses, each an
+    mov si, [RL+RH_OST]             ; action; its return and its change's
+    add si, RL                      ; way an action or none, its change's
+.s1:                                ; stance one there is
+    or bx, bx
+    jz .mn
+    mov al, [si+ST_NMOV]
+    dec al
+    cmp al, 6 - 1
+    ja .sbad
+    cmp byte [si+ST_NRESP], 2
+    ja .sbad
+    mov al, [si+ST_RET]
+    call .actn
+    jc .sbad
+    mov al, [si+ST_AUTO+3]
+    call .actn
+    jc .sbad
+    mov al, [si+ST_AUTO+2]
+    cmp al, [RL+RH_NST]
+    jae .sbad
+    push si
+    mov cl, [si+ST_NMOV]
+    xor ch, ch
+    add si, ST_MOVES
+.s2:
+    mov al, [si]
+    call .act
+    jc .sb
+    cmp byte [si+1], 0
+    je .sb
+    add si, 4
+    loop .s2
+    pop si
+    push si
+    mov cl, [si+ST_NRESP]
+    add si, ST_RESP + 3
+.s3:
+    jcxz .s4
+    mov al, [si]
+    call .act
+    jc .sb
+    add si, 4
+    dec cx
+    jmp short .s3
+.s4:
+    pop si
+    add si, ST_SZ
+    dec bx
+    jmp short .s1
+.sb:
+    pop si
+.sbad:
+    jmp .bad
+.mn:
+    mov bl, [RL+RH_NMENU]           ; THE MENUS: at most 8 items, and all 8
+    xor bh, bh                      ; an action or a menu there is (an
+    mov si, [RL+RH_OMENU]           ; empty one's cursor stands on its
+    add si, RL                      ; first: vb_item)
+.m1:
+    or bx, bx
+    jz .cm
+    cmp byte [si+MN_N], 8
+    ja .sbad
+    push si
+    add si, MN_ITEMS
+    mov cx, 8
+.m2:
+    lodsw                           ; AL the index, AH the kind
+    or ah, ah
+    jnz .m3
+    call .act
+    jmp short .m4
+.m3:
+    call .menu
+.m4:
+    jc .sb
+    loop .m2
+    pop si
+    add si, MN_SZ
+    dec bx
+    jmp short .m1
+.cm:
+    mov cl, [RL+RH_NCH]             ; THE CHARACTERS' menus: a top one
+    xor ch, ch                      ; there is, a side one or none (1..4:
+    mov si, [RL+RH_OCH]             ; vb_load's)
+    add si, RL
+.cm1:
+    mov al, [si+CH_TOP]
+    call .menu
+    jc .sbad
+    mov al, [si+CH_SIDE]
+    cmp al, NONE
+    je .cm2
+    call .menu
+    jc .sbad
+.cm2:
+    add si, CH_SZ
+    loop .cm1
+    mov cl, [RL+RH_NFOL]            ; THE FOLLOW-UPS: each one's next
+    mov si, [RL+RH_OFOL]            ; action one there is
+    add si, RL+1
+.f:
+    jcxz .ok
+    mov al, [si]
+    call .act
+    jc .bad
+    add si, 4
+    dec cx
+    jmp short .f
 .ok:
     clc
     ret
 .bad:
     stc
+    ret
+.pools:                             ; CX pools at SI, each one there is or
+    lodsb                           ; FFh none: CF=1 not
+    cmp al, NONE
+    je .pl
+    cmp al, [RL+RH_NPOOL]
+    jae .bad
+.pl:
+    loop .pools
+    clc
+    ret
+.actn:                              ; AL an action, or FFh none: CF=1 not
+    cmp al, NONE
+    je .yes
+.act:                               ; AL an action there is: CF=1 not
+    cmp al, [RL+RH_NACT]
+    cmc
+    ret
+.menu:                              ; AL a menu there is: CF=1 not
+    cmp al, [RL+RH_NMENU]
+    cmc
+    ret
+.cliph:                             ; AL a clip with an anchor, or FFh none
+    cmp al, 0xFF
+    je .yes
+.clipa:                             ; AL a clip the table has, with an
+    call .clip0                     ; anchor to enter at (an action's, an
+    jc .ca                          ; ending's: vb_anchor). AX spent
+    push di
+    mov dl, 48
+    mul dl
+    xchg ax, di
+    cmp word [vb_meta+VB_CTAB+VC_NANCH+di], 1
+    pop di
+.ca:
     ret
 .clip:                              ; AL a clip, or FFh none: CF=1 neither
     cmp al, 0xFF
@@ -2574,7 +2746,7 @@ vb_ringclm:
     push cx
     mov ax, (VB_RL / 1024 + 1) * 64 ; paragraphs (SPEC.md 50.3.7)
     mov cx, ax
-    mov bl, MEMP_CLAIM_HI
+    mov bl, MEMP_CLAIM_HI + MEMP_CONV
     call OSAPI_MEM_P
     pop cx
     pop bx
@@ -2602,11 +2774,10 @@ vb_ringclm:
 ; door's KB went to that gap (KERN-MEGA-PLAN 14.187). AX, BX, CX, DX spent;
 ; CF=1 and [vb_err] when there is not room for VB_CRMIN each
 vb_rclaim:
-    call OSAPI_MEM_AVAIL            ; THE ARENA PACKED FIRST: the whole of the
+    call vb_avkb                    ; THE ARENA PACKED FIRST: the whole of the
     sub ax, [vb_rkeep]              ; largest run claimed and given back. The
     jc vb_rcpair.no                 ; kernel can serve that only by shedding
-    xor cx, cx                      ; (conventional: the DMA door, no head)
-    call OSAPI_MEM_CLAIM_DMA        ; the caches and packing what moves - a
+    call vb_kbconv                  ; the caches and packing what moves - a
     jc .pk                          ; claim that fits a free run as it stands
     call OSAPI_MEM_FREE             ; does neither, and on a USED machine the
 .pk:                                ; directory read-ahead's 31.5 KB was left
@@ -2614,8 +2785,7 @@ vb_rclaim:
     push ax                         ; PLAN R1). THE DOOR'S ROOM HELD (above):
     sub ax, VB_RKEEP                ; none on a real-mode kernel's door
     jbe .rc
-    xor cx, cx
-    call OSAPI_MEM_CLAIM_DMA        ; (CX = 0: plain, bottom-up, conventional
+    call vb_kbconv              ; (CX = 0: plain, bottom-up, conventional
     jc .rc                          ; - the door's own placement; refused, the
     mov word [vb_rkeep], VB_RKEEP   ; KB are left as they were)
     push dx
@@ -2630,15 +2800,44 @@ vb_rclaim:
 .ro:
     pop word [vb_rkeep]             ; (POP keeps CF)
     ret
+; vb_avkb - MEMP_AVAIL's answers in KB, the unit the rings are planned in
+; (vb_rkeep, MEMC_WHATIF's answer): AX = the largest run, BX = the total.
+; Keeps CX
+vb_avkb:
+    push cx
+    mov bl, MEMP_AVAIL
+    call OSAPI_MEM_P
+    mov cl, 6
+    shr ax, cl
+    shr bx, cl
+    pop cx
+    ret
+
+; vb_kbconv - AX = KB: a CONVENTIONAL claim of them with no head (MEMP_CONV,
+; CX = 0) -> CF=0 DX = its base. Keeps every other register
+vb_kbconv:
+    push ax
+    push bx
+    push cx
+    mov cl, 6
+    shl ax, cl
+    xor cx, cx
+    mov bl, MEMP_CONV
+    call OSAPI_MEM_P
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 vb_rcpair:
-    call OSAPI_MEM_AVAIL            ; Then THE PAIR, half and half
+    call vb_avkb                    ; Then THE PAIR, half and half
     call .pair
     jc .no                          ; of what OSAPI_MEM_AVAIL says - which is
                                     ; exactly what a claim gets (it was
                                     ; checked against the heap at the instant:
                                     ; 298 KB said, 298 KB there)
 .room:
-    call OSAPI_MEM_AVAIL            ; ROOM STILL: ring 1 went to another run
+    call vb_avkb                    ; ROOM STILL: ring 1 went to another run
     mov dx, [vb_rkeep]
     add dx, VB_RGROW
     cmp ax, dx                      ; (a used machine's second hole), and ring
@@ -2648,7 +2847,7 @@ vb_rcpair:
     xor dx, dx
     xchg dx, [vb_rclm]
     call OSAPI_MEM_FREE
-    call OSAPI_MEM_AVAIL
+    call vb_avkb
     sub ax, [vb_rkeep]
     mov bx, vb_rg0
     call .claim
@@ -2691,7 +2890,7 @@ vb_rcpair:
 .p0:                                ; which fits does not shed (kern_mega's
     call .claim                     ; pinned read-ahead, 9 KB) left ring 1
     jc .pno                         ; short when ring 0 went first
-    call OSAPI_MEM_AVAIL
+    call vb_avkb
     sub ax, [vb_rkeep]
     jc .pfree
     mov bx, vb_rg1
@@ -2719,8 +2918,8 @@ vb_rcpair:
     jb .cno                         ; room past them: format 8)
     push ax
     add ax, dx
-    xor cx, cx                      ; (CONVENTIONAL: a ring is read and summed
-    call OSAPI_MEM_CLAIM_DMA        ; inside a real-mode bracket, 126.4.5)
+    call vb_kbconv                  ; (CONVENTIONAL: a ring is read and summed
+                                    ; inside a real-mode bracket, 126.4.5)
     pop ax
     jc .cno
     cmp bx, vb_rg0
@@ -4316,6 +4515,8 @@ vb_anchor:
     mov es, [vb_vres]
 .a:
     mov ax, [es:di]
+    cmp ax, [vb_meta+VH_NIDLE]      ; (a frame the loop has not got: never
+    jae .an                         ; stood on - passed over)
     sub ax, [vb_ifr]
     jae .pos
     add ax, [vb_meta+VH_NIDLE]
@@ -4537,7 +4738,17 @@ vb_chunk:
     mov cx, ax
     jmp short .cur
 .go:
-    call vb_asound
+    push cx                         ; (CX KEPT: vb_crec's CL = 4 made it the
+    call vb_asound                  ; chunk's length less its low byte, plus
+    pop cx                          ; 4 - a cut at the ring's wrap lost, and
+                                    ; 4 bytes written over its control words
+                                    ; past the ring: SND_EXT_TOTAL and the
+                                    ; card's own count, 0x9090, the clock a
+                                    ; dozen frames on and the picture with it,
+                                    ; then held while the sound caught up -
+                                    ; an own-sound clip heard ~0.3 s late,
+                                    ; when its sound began 512 bytes short of
+                                    ; the wrap. vbtownsnd's sweep finds one)
 .cur:
     ; the clip's sound playing: to the end of its frame
     mov byte [vb_aown], 0
@@ -5167,7 +5378,8 @@ vb_reader:
     call vb_mbig                    ; (THE MUSIC AND A PLAYING CLIP RUNNING
     call vb_mpiece                  ; LOW are read whole even at a menu: a
     mov byte [vb_pbig], 0           ; read is a seek and a turn of the disk,
-    ret                             ; ~75 ms on the owner's ST-225, and 4 KB
+    jc .rerr                        ; ~75 ms on the owner's ST-225, and 4 KB
+    ret
 .clips:                             ; a call moved ~50 KB/s against a 55 KB/s
     mov bx, vb_rg0                  ; idle loop and the music's 11 - "the
     call .low                       ; music and video pause" at a menu, and
@@ -5273,24 +5485,36 @@ vb_reader:
     or al, al
     jnz .rok
     call vb_hstep                   ; 9. the HOLD's fill (VBATTLE-MEMORY 4)
-    jc .rerr
+    jc .hfail
     or al, al
     jnz .rok
     cmp byte [vb_cmode], 0          ; 10. THE CACHE: every other clip, into
     je .rok                         ; room never used
-    jmp vb_cpre2
+    call vb_cpre2
+    jc .rerr
+    ret
+.hfail:
+    cmp byte [vb_hon], 0            ; (the hold dropped: the disk serves -
+    jne .rerr                       ; 126.4; the cache's kept, its read the
+    stc                             ; play's)
+    ret
 .rok:
     clc
     ret
-.rerr:
-    stc
+.rerr:                              ; A READ FAILED: the play ends and says
+    mov word [vb_err], vb_s_badread ; so (vb_play's .back), where it went
+    mov byte [vb_quit], 1           ; round asking again, a failed BIOS read
+    stc                             ; a pass, on a frozen frame
     ret
 .read:
-    jmp vb_rpiece
+    call vb_rpiece
+    jc .rerr
+    ret
 .rbig:
     mov byte [vb_pbig], 1
     call vb_rpiece
     mov byte [vb_pbig], 0
+    jc .rerr
     ret
 .out:
     ret
@@ -5547,7 +5771,10 @@ vb_utoa:
 ; =============================================================================
 vb_tpl:
     dw 40, 40, 320, 72
-    dw vb_title, vb_paint, vb_onkey, vb_onclick
+    dw vb_title, vb_cls
+; its CLASS (SPEC.md 11.104): every handler, and the flags it is born with
+    OS88_CLASS vb_cls, 0, PAINT, vb_paint, ONKEY, vb_onkey, \
+               ONCLICK, vb_onclick, ABOUT, vb_about, ONWAKE, vb_onwake
 vb_title:     db 'Video Battle', 0
 vb_actab:     db 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0
 vb_name:      db 'BATTLE.VBT', 0

@@ -53,7 +53,7 @@ first of them fires in the first minute of a session.
 | **[docs/BOCHS.md](docs/BOCHS.md)** | running **kern_mega** at all. Bochs is its instrument and nothing else's: QEMU lets code write through CS and checks no segment limit, so it runs what a real 286 faults on, and Bochs reproduced the Victory 286's faults to the CS:IP. Install, `tools/os88bochs.py` and `tools/os88bochsui.py`, reading E9 and the debugger, recipes - and the four blind spots, of which the one that bites is that **its CPU is a 386, so the 286 reset path never runs there** - docs/86BOX.md is where it does |
 | **[docs/86BOX.md](docs/86BOX.md)** | anything only an 86Box machine can answer - **a 286 or 386 running kern_mega's RESET path, an AT BIOS, the owner's mr286 or pc5150 profile, or a TIMING on a machine MartyPC does not model** - or the moment you are about to write *"86Box cannot be automated"*. **It can, and in a container**: `python3 tools/os88box.py build` makes upstream 86Box with its automation socket and GDB stub (three minutes), and `tools/os88box.py` boots any `vm/` profile HEADLESS - step by exact emulated time, screenshot, read the text screen and guest memory, keys, a closed-loop pointer (`to X Y` off the kernel's own `mouse_x`), double-clicks, typing, `quit` saving the CMOS. **`faults` is the instrument for a machine that REBOOTS**: this tree's patch prints every CPU exception and shutdown with its CS:IP, resolved against the kernel map - the one tool that sees a 286 reset loop, which Bochs (a 386) cannot. Read its *AT machines start in BIOS setup once* before the first launch and its *What it is NOT* before quoting a time: 86Box is not cycle-accurate |
 | **[docs/TESTING.md](docs/TESTING.md)** | concluding something is untestable, **or reaching for a test tier** — it is the matrix of what each emulator can and cannot do, with a recipe per capability, and its *When to run which tier* is the AUTHORITY on when `fast`, `full` and the soak are run. None of the three is a per-commit gate, and the Testing section below is only its short form |
-| **[docs/KERNEL-MEMORY.md](docs/KERNEL-MEMORY.md)** | spending any memory — the three rules and their guards, what `kernsize`'s lines mean, the ladder, task stacks and the standing gotchas (512-aligned bases, sections are not heap, rungs are not a design input). |
+| **[docs/KERNEL-MEMORY.md](docs/KERNEL-MEMORY.md)** | spending any memory — the three rules and their guards, what `kernsize`'s lines mean, the ladder, task stacks and the standing gotchas (no transfer across a 64KB page, sections are not heap, rungs are not a design input). |
 | **[docs/HEAP-CLAIMS.md](docs/HEAP-CLAIMS.md)** | declaring a heap claim movable, or asking why a compaction achieved less than expected — one row per claim in the tree with its `MC_RLOC` verdict and the reason, including the packages that claim and have never declared (Word, Sheet, every C package — the C SDK cannot). `tools/heapmap.py` reads the fact off a running machine |
 | **[docs/HERCULES-TESTING.md](docs/HERCULES-TESTING.md)** | testing on Hercules — MartyPC boots a real Hercules and `shot` reads it back (use the `_herc_gla` twin: the IBM ROM is not in the tree); QEMU needs `VIDEO=herc HERCSEG=0x7000` plus `tools/hercshot.py`, and all four ways of getting that wrong give a black or plausible image rather than an error |
 | **[docs/C-TOOLCHAIN.md](docs/C-TOOLCHAIN.md)** | writing or building a package in C (§73) — how to install the compiler, the four C rules and what each refusal means, and what the language does not have here |
@@ -154,10 +154,9 @@ chunks in a fallback without a rate hook.
 serial bytes, not 4.77 MHz speed. In the final pass described below, use
 MartyPC's guest cycles with held-key motion, wall/paddle hits and no pause or
 serve countdown; report display frames and physics steps separately.
-WireBall's `wireballvideo` row checks VGA, CGA, lone Hercules and dual-card
-Hercules, page counts, exact sprite occupancy after movement, fractional
-controls and restored desktop/input state. `wireballphysics` checks swept
-contacts and their cycle budget. Include real serial traffic when changing
+WireBall's own rows (`grep -n wireball tests/suite.py`) are the worked
+example of what to check: every adapter, page counts, sprite occupancy after
+movement and the restored desktop. Include real serial traffic when changing
 the renderer's service budget. Set 160 measured 46–59 display frames/s and
 about 73 motion steps/s, not a guarantee for every game or physical XT.
 Read [Hercules testing](docs/HERCULES-TESTING.md) and
@@ -213,14 +212,22 @@ What `make help` cannot tell you:
   `tools/os88build.py`). **`make -n` with a knob pointed at `build/` is NOT a
   dry run**: the stamp rule deletes `kernel.bin` and every boot sector while
   make parses.
+- **The `KHP_*` knobs are NASM defines, not make variables**, so `make help`
+  does not list them. Each selects the rewritten body of one kernel hot path;
+  undefined, the source assembles to the body it replaced, byte for byte.
+  Which kernel carries which is set in `kernel/kernel.asm`'s KHP block - the
+  list and the authority - not on the command line. Turning one on for
+  another kernel is a `%define` in that block and a re-measure; a new one
+  goes behind its knob with `tools/os88knob.py`, whose `merge` is the safe
+  form. The knobs shipped OFF still have to assemble: find the rows that
+  cover what you touched in `tests/suite.py` (Testing, below).
 - **Nothing in `build/` is tracked - never commit a binary.** The toolchain is
   deterministic (`os88disk.py` pins the volume serial and every FAT
   timestamp), so any image can be rebuilt byte for byte.
   **One sanctioned exception, the owner's (2026-11-05)**: ARCADE's
   ROM-free translated parts in `apps/arcade/prebuilt/`, so neither `make`
   nor a release needs the ROMs or archive.org. `make arcadeprebuilt`
-  refreshes them, and the fast-tier `arcprebuilt-stamp` fails `make` when
-  their inputs move without them (ARCADE-SPEC 1.6).
+  refreshes them when their inputs move (ARCADE-SPEC 1.6).
 - **Fetched data is never committed** (Frotz stories, Lemmings, the Apple II
   ROMs, RunCPM's master disk, the soundfont): the targets fetch it at pinned
   hashes, and `make clean` spares what it fetched.
@@ -350,16 +357,15 @@ user gives a different workflow. `apps/wirefleet/` and its SPEC.md section
   `TOASTSTR label, 'text'` (or `TOASTRUN label` ... `TOASTEND` round a run
   with fields poked at run time) emits the same bytes and FAILS THE BUILD at
   that line past `TOAST_MAX` (24) - the bar drops the rest silently. In C,
-  hand `os88_toast` a literal. `tests/unit/t_toast.py` follows every toast
-  argument back and fails on anything else; text only the running program
-  knows (a name, a number) goes in `tests/toastdyn.txt` with its reason.
+  hand `os88_toast` a literal. Text only the running program knows (a name,
+  a number) goes in `tests/toastdyn.txt` with its reason.
 - **Text is `font_run`, not `font_str` (§6.1, §6.6).** `font_char`/`font_str`
   are TRANSPARENT — they leave what is underneath — so a `gfx_fill` followed by
   one of them writes every pixel twice, and the gap between the two passes is
   *visible* on the target machine. `font_run` draws the ground and the glyph in
   one pass. Transparent text is a **closed list of six cases** (§6.6.2) and
-  `tests/textsites.txt` is the ratchet: a new call site fails the build until it
-  is registered with a reason, and the count can only go down. **The sweep is
+  `tests/textsites.txt` is the ratchet: a new call site is registered there
+  with a reason, and the count can only go down. **The sweep is
   finished** (§6.6.5): the registry stands at 70 sites in 21 files, every one
   with a reason, so a new transparent call is now an argument to win rather
   than a queue to join.
@@ -396,9 +402,11 @@ user gives a different workflow. `apps/wirefleet/` and its SPEC.md section
   `SYSTEM.CFG` are still hostile and still fenced (§19). On kern_mega, where
   the kernel can afford not to crash, closing the faulting package beats
   stopping the machine.
-- **Every disk-visible base is 512-byte aligned.** int 13h answers a transfer
-  straddling a 64KB physical boundary with error 09h, and only starting
-  512-aligned prevents it. The symptom is "Disk error" on a large save.
+- **No disk transfer may straddle a 64KB page.** int 13h answers one with
+  error 09h; the symptom is "Disk error" on a large save. A base known only
+  at run time (the heap, every claim, `KERNEL_SEG`) is 512-byte aligned, the
+  one way to rule that out; the two FIXED windows (`FAT_SEG`, `dsk_secbuf`)
+  are proved inside one page by guard 6 instead (SPEC.md 2.1.1).
 - **Memory is THREE rules and three quantities** (docs/KERNEL-MEMORY.md):
   **kern_big fully RESIDES in 100KB at the desktop**, **kern_small fully
   RESIDES in 64KB** — every non-purgeable byte, no drivers, no XMS, on VGA
@@ -442,11 +450,11 @@ user gives a different workflow. `apps/wirefleet/` and its SPEC.md section
   item, the greying predicate and the thunks; everything else goes in the
   module. Moving code to `.cold` or the boot overlay relieves `KERN_CODE_MAX`
   but not `KERN_BUDGET` — a module relieves both.
-  **"Freed when it is done" is GATED**: `tests/unit/t_moddrop.py` (fast)
-  fails `make` for a `mod_tab` row nothing drops, unless
-  `tests/moddrop.txt` says why it is held until restart - `DESK.DRV` held
-  5KB pinned after the last Sticky App closed, until SPEC.md 11.103.10's
-  drop rule. A new module needs its drop on the day it lands.
+  **"Freed when it is done" is a rule, not a hope**: every `mod_tab` row is
+  dropped somewhere, or `tests/moddrop.txt` says why it is held until
+  restart - `DESK.DRV` held 5KB pinned after the last Sticky App closed,
+  until SPEC.md 11.103.10's drop rule. A new module needs its drop on the
+  day it lands.
   **`.cold` IS RESIDENT, and the name is the trap**: it means a cold PATH, not
   a cold LIFETIME. Those bytes are in RAM from boot to power-off exactly like
   `.text`'s on the machine the budget describes (a 5150's ROM or a 286's HMA
@@ -478,6 +486,13 @@ user gives a different workflow. `apps/wirefleet/` and its SPEC.md section
   a discussion to have with whoever asked for the feature, never a build fix
   and never a reason to quietly cut the design down. Slack here
   has never gone unspent, so its expected cost is 100%.
+- **kern_mega is a SHIPPED kernel, not a beta or a side kernel** (the
+  owner, 2026-11-12). A new feature's design INCLUDES its kern_mega work:
+  where kern_mega's memory model differs (selectors, the HMA, images above
+  1MB), the design says how the feature works there and the work lands with
+  the feature. "kern_mega frees it instead" or "not on mega" is a gap to
+  close, never "by design" - unless the owner has agreed to that one gap.
+  Name kern_mega's rows beside kern_big's when you verify.
 - **kern_mega-only package code is the ARM's, never the shipped build's**
   (SPEC.md 20.18). The owner's rule:
   *"mega specific work that more than trivially increases the disk size is
@@ -489,11 +504,9 @@ user gives a different workflow. `apps/wirefleet/` and its SPEC.md section
   disks. On kern_mega a claim is an LDT SELECTOR, so a package asks
   `OSAPI_SEG` (§50.6.11) for a derived segment rather than adding to one. The shipped build must still be CORRECT on kern_mega: run low and
   plain, refuse the one tier, or refuse to start with `OS88_MEGA_REFUSE`,
-  and say which at the place. `tests/unit/t_megapkg.py` (fast) fails the
-  build when a shipped build assembles a kern_mega marker (`CPU_F_PM`, the
-  selector cells) beyond `tests/megapkg.txt`'s per-file allowance - which
-  turns one way - or takes a part assembled `-DVB_PM`/`-DPKG_MEGA`, or names
-  `PKG_MEGA` with no arm in `$(MEGAPKGS)`. A new arm is a `$(MEGAAPPDIR)`
+  and say which at the place. A shipped build's kern_mega markers
+  (`CPU_F_PM`, the selector cells) are held to `tests/megapkg.txt`'s
+  per-file allowance, which turns one way. A new arm is a `$(MEGAAPPDIR)`
   rule and a `$(MEGAPKGS)` entry in the same diff.
 - **An ABI change is a written decision** (§20.2.0.1). `PKG_FMT` and
   `DRV_VER` are locked in `tools/abi.lock.json` to a fingerprint of
@@ -513,9 +526,8 @@ user gives a different workflow. `apps/wirefleet/` and its SPEC.md section
   `OS88_REGION_MOVABLE` where its window exists — and, if it hires a worker,
   `OS88_WORKER_RESTARTABLE` at the spawn, because §66.6.2's frame pins the
   region however it is declared and a region declaration alone is **inert**.
-  `tests/unit/t_movable.py` (fast tier) fails the build otherwise; the way out
-  is a line in `tests/movable.txt` with a reason, and the list only turns one
-  way. **Before declaring, ask what segment words the package holds that point
+  The way out is a line in `tests/movable.txt` with a reason, and the list
+  only turns one way. **Before declaring, ask what segment words the package holds that point
   INSIDE itself** — almost always none, which is why the proc is a `ret`; the
   two shapes where it is not are a segment the package **stamped** somewhere
   (scribe did, into its pre-parts `.ovl`, until SPEC.md 95.8.8 made it a part) and a **re-homed** program whose assets
@@ -1015,16 +1027,19 @@ in docs/TESTING.md, per capability.
   area byte by byte, the 0500h page and one floppy read followed through
   them; docs/plans/completed/INTERRUPT-GUIDE-PLAN.md is how it was built).
 - `docs/` — **the directory says what a document is** (`docs/README.md`, and
-  `docs/INDEX.md` lists every one under the same five headings). `docs/`
+  `docs/INDEX.md` lists every one under the same six headings). `docs/`
   itself is how the system works TODAY — instructions, contracts, maintained
   reference such as `KERNEL-MEMORY.md`, and `FIELD-NOTES.md`/`FIELD-MACHINES.md`
   for what real hardware said. **Everything else is NOT where to learn how
   something works**: `docs/plans/` is work proposed or half-done,
   `docs/plans/completed/` is how something got built (never what it does
-  now), `docs/history/` is superseded, and `docs/reports/` is a dated
+  now), `docs/plans/retired/` is a plan closed without its route being
+  taken and kept for its lesson, `docs/history/` is superseded, and `docs/reports/` is a dated
   MEASUREMENT of one tree. They go stale by design; SPEC.md, the docs above
   and the code are the authority. When you write one: a plan whose work
-  lands moves to `completed/` in that commit, and a second measurement is a
+  lands moves to `completed/` in that commit, one whose goal was met by
+  another route (or dropped) moves to `retired/` with that lesson written
+  at its top, and a second measurement is a
   NEW report rather than an edit.
 
 ## Package pipeline
@@ -1056,19 +1071,12 @@ checking all four. This is the rule for the on-demand APPLICATION floppies too
 `apple2disk`, `weavedisk`, `loomdisk`, `allapps` — which were three-geometry until 1.2MB
 reached them.
 
-**Twenty-five images, not nine.** The system and apps disks in four geometries
-each, plus SIX more that exist at 360KB alone and ONE at 720KB alone -
-`build/more720.img`, the 720KB apps disk's other half (SPEC.md 24.7), carrying
-what that disk had to leave off - and the 128KB machine's two system disks,
-`build/small360.img` and `build/small720.img` (kern_small, SPEC.md 24.5.7),
-which `all` builds through `make small`'s sub-make. The small 720KB disk is
-NOT the standard format: kern_small's two-sector FAT window refuses a
-standard 720KB FAT, so it takes 2KB clusters, and that machine reads no other
-720KB disk. And WIN16's own disk in four geometries, `win16*.img`
-(§124.18.1), which left the apps disks when it outgrew them, and ARCADE's
-release floppy in four, `arcrel*.img` (ARCADE-SPEC 1.6): the package and
-`ARCADE.TXT`, no ROM.
-`build/media360.img` — `BEVERLY.MOD` is data rather than software and
+**The 128KB machine's 720KB disk, `build/small720.img`, is NOT the standard
+format** (SPEC.md 24.5.7): kern_small's two-sector FAT window refuses a
+standard 720KB FAT, so it takes 2KB clusters, and that machine reads no
+other 720KB disk.
+
+**`build/media360.img`** — `BEVERLY.MOD` is data rather than software and
 was 114 of a 360KB disk's 354 clusters before packages were compressed, so at
 that geometry it rides a disk of its own (§24.4). **It is not on `apps360.img`
 as well any more, and cannot be**: lz4-packed it is 42 clusters and that disk

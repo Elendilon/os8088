@@ -249,7 +249,10 @@ ar_zread:
     mov byte [ar_zrun], 1
 .hno:                               ; (CF: the claim's - or's and cmp's 0)
 %else
-    call OSAPI_MEM_CLAIM
+    mov cl, 6                       ; the KB in paragraphs
+    shl ax, cl
+    mov bl, MEMP_CLAIM
+    call OSAPI_MEM_P
 %endif
     pop si
     jc .nomem
@@ -296,12 +299,11 @@ ar_zswap:
     push cx
     push si
     mov si, ar_zsize
-    mov cx, 8
-.w:
-    mov ax, [si]
-    xchg ax, [si + ar_z2 - ar_zsize]
-    mov [si], ax
-    inc si
+    mov cx, AR_ZREC                 ; (bytes: ar_zrun makes it odd on
+.w:                                 ;   kern_mega)
+    mov al, [si]
+    xchg al, [si + ar_z2 - ar_zsize]
+    mov [si], al
     inc si
     loop .w
     xor byte [ar_zon], 1
@@ -643,16 +645,17 @@ ar_iplace:
 ; no file is just not here, and says nothing
 ar_impmake:
     mov [ar_iset], si
-    mov ax, [si+AS_LEN]             ; the image's claim: header + image
-    mov dx, [si+AS_LEN+2]
-    add ax, 32 + 1023
+    mov ax, [si+AS_LEN]             ; the image's claim: header + image, in
+    mov dx, [si+AS_LEN+2]           ;   paragraphs
+    add ax, 32 + 15
     adc dx, 0
-    mov cl, 10
+    mov cl, 4
     shr ax, cl
-    mov cl, 6
+    mov cl, 12
     shl dx, cl
     or ax, dx
-    call OSAPI_MEM_CLAIM
+    mov bl, MEMP_CLAIM
+    call OSAPI_MEM_P
     jnc .claimed
     ret
 .claimed:
@@ -727,8 +730,11 @@ ar_impmake:
     mov dx, [es:bx+44]
     mov cx, [es:bx+10]
     mov [ar_imeth], cx
-    mov cx, [es:bx+20]              ; the packed size, for the bounds
-    mov [ar_ipack], cx
+    mov cx, [es:bx+20]              ; the packed size, for the bounds:
+    mov [ar_ipack], cx              ;   1 to 32KB (ar_zat's reach past BX)
+    dec cx
+    cmp cx, 0x7FFF
+    ja .fail
     call ar_zat
     jc .fail
     cmp word [es:bx], 'PK'
@@ -765,6 +771,9 @@ ar_impmake:
     xor di, di
     cmp word [ar_imeth], 8
     je .inf
+    cmp cx, [ar_ipack]              ; stored: exactly the chip, or a short
+    stc                             ;   packed size copied past its bound
+    jne .made
     push ds
     mov ds, ax
     rep movsb
@@ -772,6 +781,7 @@ ar_impmake:
     clc
     jmp short .made
 .inf:
+    mov dx, [ar_ipack]              ; (no byte read past the packed size)
     call inflate                    ; (INF_DSWS: the work space through DS)
 .made:
     pop si

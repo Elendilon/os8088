@@ -212,12 +212,8 @@ ar_entry:
     mov si, ar_menus
     call OSAPI_MENU_SET
     mov bx, [ar_win]
-    mov al, 1                       ; every pixel of the content is ours
-    call OSAPI_WM_OWNBG
     call af_vgacheck                ; (the display's modes: the window's own)
     mov bx, [ar_win]
-    mov si, ar_about
-    call OSAPI_ABOUT_SET
     clc
 .out:
     ret
@@ -254,6 +250,11 @@ ar_select:
     call ar_unselect
     pop bx
     push bx
+    cmp word [bx+BD_SBPREP], inv_sbprep ; the 8080 boards' sounds go unless
+    je .keepsfx                     ;   this board plays them: a claim of
+    mov al, AR_P_INVSFX             ;   their own, over MEM_OWNER_MAX at
+    call op_drop                    ;   Q*bert's pick (ARCADE-SPEC 13.3)
+.keepsfx:
     mov al, [bx+BD_CODE]
     call op_fetch
     jc .no
@@ -498,7 +499,10 @@ ar_romtry:
     mov ax, dx                      ; the KB it needs, and one over
     inc ax
     push ax
-    call OSAPI_MEM_CLAIM
+    mov cl, 6                       ; ...in paragraphs
+    shl ax, cl
+    mov bl, MEMP_CLAIM
+    call OSAPI_MEM_P
     pop cx
     jc .nomem
     mov [ar_rimgc], dx
@@ -2354,7 +2358,10 @@ ar_none:    dw 0
 
 ar_tpl:
     dw 60, 40, AR_CONT_W+2, AR_CONT_H+TITLE_H+1
-    dw ar_title, ar_paint, ar_onkey, ar_onclick
+    dw ar_title, ar_cls
+; its CLASS (SPEC.md 11.104): every handler, and the flags it is born with
+    OS88_CLASS ar_cls, WF_OWNBG, PAINT, ar_paint, ONKEY, ar_onkey, \
+               ONCLICK, ar_onclick, ABOUT, ar_about
     OS88_MENUSET ar_menus, ar_title, ar_oncmd
 %ifdef ARC_PACMAN
         OS88_MENU ar_m_game, ar_i_game, 10
@@ -2449,6 +2456,7 @@ AR_VAR ar_hsv, AR_NSET * AR_HSB     ;   each game's best (12.4)
 AR_DATSZ    equ 1 + AR_NPLACE * 3 + AR_NSET * (2 + AR_HSB)
 AR_VAR ar_datst, 1                  ;   ...and os88data's state byte for it
 AR_VAR ar_impname, 13               ; the import (arcimp.inc): the zip,
+%assign AR_ZREC0 AR_BSS             ; (a zip's record, ar_zsize..ar_cdn)
 AR_VAR ar_zsize, 4                  ;   its size,
 AR_VAR ar_zkb, 2                    ;   its claim's KB, its claim,
 AR_VAR ar_zclaim, 2
@@ -2459,6 +2467,8 @@ AR_VAR ar_cdseg, 2                  ;   its central directory: where,
 AR_VAR ar_cdoff, 2
 AR_VAR ar_cdend, 2                  ;   where it ends, how many entries
 AR_VAR ar_cdn, 2
+%assign AR_ZREC0 AR_BSS - AR_ZREC0  ; (its bytes: 17 on kern_mega, ar_zrun's)
+AR_ZREC     equ AR_ZREC0
 AR_VAR ar_impbd, 2                  ;   the board to pick again after
 AR_VAR ar_nimp, 1                   ;   sets made, and sets refused
 AR_VAR ar_nwrong, 1
@@ -2467,7 +2477,7 @@ AR_VAR ar_iclaim, 2
 AR_VAR ar_ifound, 1                 ;   chips found, and each one's method
 AR_VAR ar_imeth, 2                  ;   and packed size
 AR_VAR ar_ipack, 2
-AR_VAR ar_z2, 16                    ;   a PARENT zip (ar_zsize..ar_cdn's shape)
+AR_VAR ar_z2, AR_ZREC0              ;   a PARENT zip (ar_zsize..ar_cdn's shape)
 AR_VAR ar_zon, 1                    ;   1: the parent's is the one in ar_zsize
 AR_VAR ar_iloose, 1                 ;   1: loose chips in a folder, no zip
 AR_VAR ar_iok, AR_NSET              ;   each set: whole in the zip(s)
@@ -2607,7 +2617,8 @@ AR_VAR qb_sbase, 2
 AR_VAR qb_o, 4                      ;   NOT its row's opaque mask, placed
 AR_VAR qb_rows, 2
 AR_VAR qb_yp, 2
-AR_VAR qb_shseg, 2                  ;   the shadow of the glass (32KB claim)
+AR_VAR qb_shseg, 2                  ;   the shadow of the glass (30KB claim,
+                                    ;   62KB with the 6503's memory past it)
 AR_VAR qb_shr0, 2                   ;   ...the box's first byte in it, a plane
 AR_VAR qb_shr, 2                    ;   ...and a row's
 AR_VAR qb_pp, 2                     ;   the plane being put, in qb_pl
