@@ -933,6 +933,18 @@ costs speed.
 - **Bytes:** G's image 8,594 → 7,115. Part 0 48,282 → 46,214 in memory, and
   13,055 → 11,100 bytes packed on disk.
 - **Speed:** P bench 18.9 fps at 40 columns and 15.7 at 80, unchanged.
-- **Picture:** the seven posed sets of section 8.3 (740 frames: both widths,
-  all three FOVs, sparse/hysteresis/grid mixed, far figures, the open arena
-  and Hercules) are identical to `a4edcb7f`, VRAM and trigger fields.
+- **Picture:** six of section 8.3's seven posed sets (620 frames: 80
+  columns mixed, all three FOVs, far figures, the open arena and Hercules)
+  are identical to `a4edcb7f`, VRAM and trigger fields. The seventh, 40
+  columns with sparse/hysteresis/grid mixed, differed in ONE top-edge cell
+  of 120 (`─` against `_`). A rerun moved it to 2-3 other frames. Every
+  differing frame had held edges (H) on.
+  - With H forced off in that set's 120 frames, the two builds give the
+    same md5.
+  - So H's output carries state from earlier frames and is not repeatable
+    under the dump. The old build happened to repeat itself (its runs at
+    frame offsets 0, 1 and 2 agreed); the new one did not.
+  - The commit message's "740 posed frames identical" overstated it; this
+    is the accurate account.
+  - H made no visible difference in the owner's field run (16.4), and it is
+    a candidate when the toggles are tidied.
