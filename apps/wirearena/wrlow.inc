@@ -26,25 +26,37 @@
 ; the view is projected once a box (wl_kc..wl_kf); an edge with a corner out
 ; of it is clipped (wa_clip) and its ends projected on the spot.
 
+
+; a corner's record in wl_c (WL_REC bytes, x 16 its index): its vertex x 2,
+; its top's (product, shift) pair, and - projected, in the view - its column
+; x 16, top row, inverse depth and floor row, in wl_e1c's order
+WL_CV       equ 0
+WL_CN       equ 2
+WL_CS       equ 4
+WL_KC       equ 6
+WL_KT       equ 8
+WL_KI       equ 10
+WL_KF       equ 12
+WL_REC      equ 16
+
 %macro WL_BSS 0
 WA_VAR wl_box, 2                ; the box (x0, y0, x1, y1)
 WA_VAR wl_h, 2                  ; its height (a flight's, its top tread's)
 WA_VAR wl_kind, 1               ; its kind byte and faces byte (wa_bxh)
 WA_VAR wl_faces, 1
 WA_VAR wl_seen, 1               ; the faces the player is outside of: bits
-WA_VAR wl_cv, 8                 ; its corners: vertex x 2
-WA_VAR wl_ch, 8                 ; ...their heights
-WA_VAR wl_cn, 8                 ; ...their tops' (product, shift) pairs
-WA_VAR wl_cs, 4
-WA_VAR wl_kc, 8                 ; ...and, in the view, column x 16, inverse
-WA_VAR wl_ki, 8                 ; depth, top and floor rows (quarter half-
-WA_VAR wl_kt, 8                 ; rows)
-WA_VAR wl_kf, 8
+WA_VAR wl_front, 1              ; ...of them, those drawn (posts, floors)
+WA_VAR wl_topb, 1               ; the faces' top bits
+WA_VAR wl_need, 1               ; the corners projected: bits
+WA_VAR wl_fneed, 1              ; ...of them, those with a floor row
+WA_VAR wl_m, 1                  ; a mask being walked
+WA_VAR wl_c, 4*WL_REC           ; its corners (WL_*)
 WA_VAR wl_fn, 2                 ; the floor's pair (made in the frame
 WA_VAR wl_fs, 1                 ; wl_ffr)
 WA_VAR wl_ffr, 1
 WA_VAR wl_hn, 2                 ; the box's height's
 WA_VAR wl_hs, 1
+WA_VAR wl_zm, 2                 ; wl_hidden: 0, or -1 for the nearest corner
 WA_VAR wl_upd, 1                ; this pass raises the clip
 WA_VAR wl_two, 1                ; ...and draws a floor edge with its top
 WA_VAR wl_n1, 2                 ; a clipped edge's ends' pairs
@@ -52,8 +64,8 @@ WA_VAR wl_s1, 1
 WA_VAR wl_n2, 2
 WA_VAR wl_s2, 1
 WA_VAR wl_e1c, 2                ; a pass's ends: column x 16, top row,
-WA_VAR wl_e1r, 2                ; inverse depth, floor row
-WA_VAR wl_e1i, 2
+WA_VAR wl_e1r, 2                ; inverse depth, floor row - adjacent, in
+WA_VAR wl_e1i, 2                ; this order (wl_face, wl_proj, wl_draw)
 WA_VAR wl_e1f, 2
 WA_VAR wl_e2c, 2
 WA_VAR wl_e2r, 2
@@ -72,22 +84,40 @@ WA_VAR wl_prev, 2               ; the column before's half-rows (a steep
 WA_VAR wl_bprev, 2              ; step), and whether there was one
 WA_VAR wl_havep, 1
 WA_VAR wl_tag, 1
-WA_VAR wl_k, 2                  ; a flight: the tread, the count, the rise,
-WA_VAR wl_nt, 2                 ; the low and high faces, and a tread's step
-WA_VAR wl_rise, 2               ; along each side, camera space
-WA_VAR wl_lo, 1
+WA_VAR wl_k, 2                  ; a flight: the treads left, the count, the
+WA_VAR wl_nt, 2                 ; rise, the low and high faces, and a
+WA_VAR wl_rise, 2               ; tread's step along each side, camera
+WA_VAR wl_lo, 1                 ; space
 WA_VAR wl_hi, 1
 WA_VAR wl_dxa, 2
 WA_VAR wl_dza, 2
 WA_VAR wl_dxb, 2
 WA_VAR wl_dzb, 2
-WA_VAR wl_ca, 2                 ; ...and its low end's two corners
+WA_VAR wl_ca, 2                 ; ...its low end's two corners (records)
 WA_VAR wl_cb, 2
-WA_VAR wl_zm, 2                 ; wl_hidden: 0, or -1 for the nearest corner
+WA_VAR wl_tx1, 2                ; ...and the tread being drawn: its ends,
+WA_VAR wl_tz1, 2                ; its height, the height's step, and 1
+WA_VAR wl_tx2, 2                ; walking down from the top
+WA_VAR wl_tz2, 2
+WA_VAR wl_th, 2
+WA_VAR wl_hst, 2
+WA_VAR wl_back, 1
 %endmacro
 
+; wl_crn - per set of faces (S 1, E 2, N 4, W 8): the corners they run
+; between, face f from corner f to f + 1; wl_bit - a face's bit, and the
+; next one round's
+wl_crn:
+%assign wl_i 0
+%rep 16
+    db (wl_i | (wl_i << 1) | (wl_i >> 3)) & 15
+%assign wl_i wl_i+1
+%endrep
+wl_bit:     db 1, 2, 4, 8, 1
+
 ; wa_lowbox - from wa_leaf: SI = a low box, DI = its record x 4 in wa_bxh,
-; [wa_crow] its corners, [wa_wcol] its colour
+; [wa_crow] its corners, [wa_wcol] its colour (ES = DS, as all through the
+; frame)
 wa_lowbox:
     mov [wl_box], si
     mov ax, [wa_bxh+di]
@@ -124,100 +154,119 @@ wa_lowbox:
     or bl, 8
 .sd:
     mov [wl_seen], bl
-    mov bx, [wa_crow]           ; the corners, transformed
-    xor si, si
+    mov al, bl
+    and al, [wl_faces]
+    mov [wl_front], al          ; the faces drawn: their posts, floor edges
+    mov bx, wl_crn
+    xlatb
+    mov [wl_fneed], al          ; ...and the corners that need a floor row
+    mov al, [wl_faces]
+    mov cl, 4
+    shr al, cl
+    mov [wl_topb], al
+    mov al, 15                  ; THE CORNERS WANTED: all four with the eye
+    mov cx, [wa_eye]            ; above the top (its far side is drawn) or
+    cmp cx, [wl_h]              ; for a flight (its treads span it), else
+    jg .need                    ; only the seen faces'
+    test byte [wl_kind], 3
+    jnz .need
+    mov al, [wl_seen]
+    xlatb
+.need:
+    mov [wl_need], al
+    mov [wl_m], al              ; ...transformed (the shared vertex cache)
+    mov si, [wa_crow]
+    xor bp, bp                  ; BP = the corner's record (wa_vert keeps BP
+    xor bh, bh                  ; and BX)
 .cv:
-    xor ah, ah
-    mov al, [bx+si]
-    mov di, si
-    shl di, 1
-    mov [wl_cv+di], ax
-    push bx
-    push si
-    mov bx, ax
+    shr byte [wl_m], 1
+    jnc .cvn
+    mov bl, [si]
+    mov [ds:bp+wl_c+WL_CV], bx
     mov al, [wa_frame]
     cmp [wa_vst+bx], al
-    je .cached
+    je .cvn
+    push si
     call wa_vert
-.cached:
     pop si
-    pop bx
+.cvn:
     inc si
-    cmp si, 4
+    add bp, WL_REC
+    cmp bp, 4*WL_REC
     jb .cv
-    mov ax, [wl_h]              ; their heights: the box's, or for a flight
-    mov cx, 4                   ; its first tread's at the low end
-    mov di, wl_ch
-    push ds
-    pop es
-    rep stosw
-    test byte [wl_kind], 3
-    jz .heights
-    call wl_flight0
-.heights:
-    mov al, [wa_frame]          ; the floor's pair, once a frame
-    cmp al, [wl_ffr]
-    je .fpair
+    mov al, [wa_frame]          ; the floor's pair, once a frame (wa_render
+    cmp al, [wl_ffr]            ; clears wl_ffr)
+    je .hpair
     mov [wl_ffr], al
     xor ax, ax
     call wa_hnum
     mov [wl_fn], ax
     mov [wl_fs], bl
-.fpair:
-    mov ax, [wl_h]              ; the box's own height's, once
-    call wa_hnum
+.hpair:
+    mov ax, [wl_h]              ; the box's own height's, every corner's -
+    call wa_hnum                ; but a flight's low end's (wl_flight0)
     mov [wl_hn], ax
     mov [wl_hs], bl
+    mov [wl_c+0*WL_REC+WL_CN], ax
+    mov [wl_c+1*WL_REC+WL_CN], ax
+    mov [wl_c+2*WL_REC+WL_CN], ax
+    mov [wl_c+3*WL_REC+WL_CN], ax
+    mov [wl_c+0*WL_REC+WL_CS], bl
+    mov [wl_c+1*WL_REC+WL_CS], bl
+    mov [wl_c+2*WL_REC+WL_CS], bl
+    mov [wl_c+3*WL_REC+WL_CS], bl
+    test byte [wl_kind], 3
+    jz .hid
+    call wl_flight0
+.hid:
     call wl_hidden              ; nothing of it can show: done
     jnc .shows
     ret
 .shows:
-    xor si, si                  ; each corner: its pair, and in the view its
-.hn:                            ; column, inverse depth, top and floor rows
-    mov ax, [wl_ch+si]
-    cmp ax, [wl_h]
-    jne .hnown
-    mov ax, [wl_hn]
-    mov bl, [wl_hs]
-    jmp .hnset
-.hnown:
-    call wa_hnum
-.hnset:
-    mov [wl_cn+si], ax
-    shr si, 1
-    mov [wl_cs+si], bl
-    shl si, 1
-    mov bx, [wl_cv+si]
+    mov si, wl_c                ; each corner wanted and in the view: its
+    mov ch, 1                   ; column, inverse depth and top row, and for
+.k:                             ; a drawn face's its floor row (wa_ptbi's
+    test [wl_need], ch          ; arithmetic, the pairs scaled by 4 where
+    jz .kn                      ; they would pass 16 bits)
+    mov bx, [si+WL_CV]
     test byte [wa_vok+bx], 1
-    jz .hnn
+    jz .kn
     mov ax, [wa_vpc+bx]
-    mov [wl_kc+si], ax
+    mov [si+WL_KC], ax
     mov bx, [wa_vz+bx]
     call wl_iz
-    mov [wl_ki+si], bx
-    mov ax, [wl_cn+si]
-    shr si, 1
-    mov cl, [wl_cs+si]
-    shl si, 1
-    call wl_row
-    mov [wl_kt+si], ax
+    mov [si+WL_KI], bx
+    mov ax, [si+WL_CN]
+    mov cl, [si+WL_CS]
+    imul bx
+    sar dx, cl
+    mov ax, [wa_hq]
+    sub ax, dx
+    mov [si+WL_KT], ax
+    test [wl_fneed], ch
+    jz .kn
     mov ax, [wl_fn]
     mov cl, [wl_fs]
-    call wl_row
-    mov [wl_kf+si], ax
-.hnn:
-    inc si
-    inc si
-    cmp si, 8
-    jb .hn
-    ; 1. POSTS, against the clip as it stood: a seen face's start corner,
+    imul bx
+    sar dx, cl
+    mov ax, [wa_hq]
+    sub ax, dx
+    mov [si+WL_KF], ax
+.kn:
+    add si, WL_REC
+    shl ch, 1
+    test ch, 16
+    jz .k
+    ; 1. POSTS, against the clip as it stood: a drawn face's start corner,
     ; and its end where the next face round is not seen (wa_boxf's rule)
     xor bx, bx
 .p1:
-    call wl_isfront
+    mov al, [wl_bit+bx]
+    test al, [wl_front]
     jz .p1n
     call wl_post0
-    call wl_nextseen
+    mov al, [wl_bit+bx+1]
+    test al, [wl_seen]
     jnz .p1n
     call wl_post1
 .p1n:
@@ -229,15 +278,13 @@ wa_lowbox:
     ; shows its top's crease where its top bit says
     xor bx, bx
 .p2:
-    mov al, [wl_seen]
-    mov cl, bl
-    shr al, cl
-    test al, 1
+    mov al, [wl_bit+bx]
+    test al, [wl_seen]
     jz .p2n
-    call wl_isfront
     mov byte [wl_two], 1
+    test al, [wl_front]
     jnz .p2f
-    call wl_topbit
+    test al, [wl_topb]
     jz .p2n
     mov byte [wl_two], 0
 .p2f:
@@ -258,12 +305,10 @@ wa_lowbox:
     jle .p3d
     xor bx, bx
 .p3:
-    mov al, [wl_seen]
-    mov cl, bl
-    shr al, cl
-    test al, 1
+    mov al, [wl_bit+bx]
+    test al, [wl_seen]
     jnz .p3n
-    call wl_topbit
+    test al, [wl_topb]
     jz .p3n
     mov byte [wl_two], 0
     call wl_face
@@ -282,9 +327,9 @@ wa_lowbox:
     ret
 
 ; wl_hidden - CF = 1 when nothing of the box can show, decided before its
-; corners are projected: every corner in the view, and in each column its
-; outline could reach (one either side of its corners' columns, for the
-; posts' rounding) the column shut, or its clip at or above the box's
+; corners are projected: every corner wanted in the view, and in each column
+; its outline could reach (one either side of those corners' columns, for
+; the posts' rounding) the column shut, or its clip at or above the box's
 ; topmost row. That row is the top's at the corner its height makes the
 ; highest on the screen - the farthest with the eye above the top, the
 ; nearest with it below - since every edge, post and tread of a box is
@@ -300,12 +345,16 @@ wl_hidden:
     dec ax
 .zm:
     mov [wl_zm], ax
+    mov al, [wl_need]
+    mov [wl_m], al
     mov dx, 32767               ; DX, CX = the columns x 16, least and most
     mov cx, -32767
     mov di, -32768              ; DI = the best key, BP its vertex
-    xor si, si
+    mov si, wl_c
 .c:
-    mov bx, [wl_cv+si]
+    shr byte [wl_m], 1
+    jnc .c3
+    mov bx, [si+WL_CV]
     test byte [wa_vok+bx], 1
     jz .shows                   ; (a corner out of the view: no test)
     mov ax, [wa_vpc+bx]
@@ -324,9 +373,8 @@ wl_hidden:
     mov di, ax
     mov bp, bx
 .c3:
-    inc si
-    inc si
-    cmp si, 8
+    add si, WL_REC
+    cmp si, wl_c+4*WL_REC
     jb .c
     add dx, 7                   ; the columns: wa_span's first past the
     add cx, 7                   ; least, less one; its last short of the
@@ -346,7 +394,7 @@ wl_hidden:
     mov ax, cx
 .hi:
     cmp dx, ax
-    jg .none                    ; (off the screen)
+    jg .none                    ; (off the screen, or no corner wanted)
     shl dx, 1
     shl ax, 1
     mov si, dx
@@ -392,43 +440,14 @@ wl_lowseen:
 .out:
     ret
 
-; wl_isfront - BX = a face (0 S, 1 E, 2 N, 3 W): ZF = 0 when it is seen and
-; drawn (its face bit). Keeps every register but AL, CL
-wl_isfront:
-    mov al, [wl_seen]
-    and al, [wl_faces]
-    mov cl, bl
-    shr al, cl
-    test al, 1
-    ret
-
-; wl_nextseen - BX = a face: ZF = 0 when the face after it round is seen
-wl_nextseen:
-    mov al, [wl_seen]
-    mov cl, bl
-    inc cl
-    and cl, 3
-    shr al, cl
-    test al, 1
-    ret
-
-; wl_topbit - BX = a face: ZF = 0 when its top edge is drawn
-wl_topbit:
-    mov al, [wl_faces]
-    mov cl, bl
-    add cl, 4
-    shr al, cl
-    test al, 1
-    ret
-
-; wl_ends - BX = a face: SI, DI = its start and end corners x 2 (indices
-; into the wl_c* and wl_k* words). Keeps BX
+; wl_ends - BX = a face (0 S, 1 E, 2 N, 3 W): SI, DI = its start and end
+; corners' records (offsets into wl_c). Keeps BX; clobbers CL
 wl_ends:
     mov si, bx
-    shl si, 1
-    lea di, [bx+1]
-    and di, 3
-    shl di, 1
+    mov cl, 4
+    shl si, cl
+    lea di, [si+WL_REC]
+    and di, 3*WL_REC
     ret
 
 ; wl_face - BX = a face, [wl_two] 1 its floor edge too: its pass, raising
@@ -437,46 +456,38 @@ wl_face:
     push bx
     call wl_ends
     mov byte [wl_upd], 1
-    mov bx, [wl_cv+si]
+    mov bx, [wl_c+si+WL_CV]
     test byte [wa_vok+bx], 1
     jz .clip
-    mov bx, [wl_cv+di]
+    mov bx, [wl_c+di+WL_CV]
     test byte [wa_vok+bx], 1
     jz .clip
-    mov ax, [wl_kc+si]          ; both corners in the view: as projected
-    mov [wl_e1c], ax
-    mov ax, [wl_kt+si]
-    mov [wl_e1r], ax
-    mov ax, [wl_ki+si]
-    mov [wl_e1i], ax
-    mov ax, [wl_kf+si]
-    mov [wl_e1f], ax
-    mov ax, [wl_kc+di]
-    mov [wl_e2c], ax
-    mov ax, [wl_kt+di]
-    mov [wl_e2r], ax
-    mov ax, [wl_ki+di]
-    mov [wl_e2i], ax
-    mov ax, [wl_kf+di]
-    mov [wl_e2f], ax
+    mov bx, di                  ; both corners in the view: as projected
+    lea si, [wl_c+si+WL_KC]
+    mov di, wl_e1c
+    movsw
+    movsw
+    movsw
+    movsw
+    lea si, [wl_c+bx+WL_KC]
+    movsw                       ; (DI has run on to wl_e2c)
+    movsw
+    movsw
+    movsw
     call wl_draw
     pop bx
     ret
 .clip:
-    mov ax, [wl_cn+si]          ; a corner out of the view: the edge clipped,
+    mov ax, [wl_c+si+WL_CN]     ; a corner out of the view: the edge clipped,
     mov [wl_n1], ax             ; its ends projected at their corners'
-    mov ax, [wl_cn+di]          ; heights
+    mov ax, [wl_c+di+WL_CN]     ; heights
     mov [wl_n2], ax
-    shr si, 1
-    shr di, 1
-    mov al, [wl_cs+si]
+    mov al, [wl_c+si+WL_CS]
     mov [wl_s1], al
-    mov al, [wl_cs+di]
+    mov al, [wl_c+di+WL_CS]
     mov [wl_s2], al
-    shl si, 1
-    shl di, 1
-    mov bx, [wl_cv+si]
-    mov si, [wl_cv+di]
+    mov bx, [wl_c+si+WL_CV]
+    mov si, [wl_c+di+WL_CV]
     mov ax, [wa_vx+bx]
     mov [wa_x1], ax
     mov ax, [wa_vz+bx]
@@ -495,24 +506,21 @@ wl_face:
 wl_post0:
     push bx
     call wl_ends
-    xor cx, cx
+    mov cx, 7
     jmp wl_post
 wl_post1:
     push bx
     call wl_ends
     mov si, di
-    mov cx, 1
-wl_post:                        ; SI = the corner x 2, CX = 1 the end's rule
-    mov bx, [wl_cv+si]
+    mov cx, 7-16
+wl_post:                        ; SI = the corner's record, CX = 7 (or 7 - 16
+    mov bx, [wl_c+si+WL_CV]     ; for the end's rule: one column less)
     test byte [wa_vok+bx], 1
     jz .out                     ; (not in the view: off the screen, or behind)
-    mov ax, [wl_kc+si]          ; its column: as wa_span's corners
-    add ax, 7
-    push cx
+    mov ax, [wl_c+si+WL_KC]     ; its column: as wa_span's corners
+    add ax, cx
     mov cl, 4
     sar ax, cl
-    pop cx
-    sub ax, cx
     js .out
     cmp ax, [wa_w]
     jge .out
@@ -520,11 +528,11 @@ wl_post:                        ; SI = the corner x 2, CX = 1 the end's rule
     mov di, ax                  ; DI = the column x 2
     cmp word [wa_cov+di], 0
     jne .out                    ; (shut)
-    mov bx, [wl_kt+si]          ; top and floor, half-rows, rounded
+    mov bx, [wl_c+si+WL_KT]     ; top and floor, half-rows, rounded
     add bx, 2
     sar bx, 1
     sar bx, 1
-    mov ax, [wl_kf+si]
+    mov ax, [wl_c+si+WL_KF]
     add ax, 2
     sar ax, 1
     sar ax, 1
@@ -551,8 +559,8 @@ wl_iz:
     mov bx, [wa_rcp+bx-WA_NEAR*2]
     ret
 .div:
-    mov ax, 0xFFF0
-    mov dx, 0x0007
+    mov ax, 0xFFF0              ; (BX >= WA_ZMAX > 7 = DX: no fault, and the
+    mov dx, 0x0007              ; quotient fits)
     div bx
     mov bx, ax
     ret
@@ -573,53 +581,52 @@ wl_row:
 wl_xedge:
     call wa_clip
     jc .out
+    mov di, wl_e1c
     mov ax, [wa_x1]
     mov bx, [wa_z1]
     mov cx, [wl_n1]
     mov dl, [wl_s1]
     call wl_proj
-    mov [wl_e1c], ax
-    mov [wl_e1r], bx
-    mov [wl_e1i], dx
-    mov [wl_e1f], si
     mov ax, [wa_x2]
     mov bx, [wa_z2]
     mov cx, [wl_n2]
     mov dl, [wl_s2]
     call wl_proj
-    mov [wl_e2c], ax
-    mov [wl_e2r], bx
-    mov [wl_e2i], dx
-    mov [wl_e2f], si
     jmp wl_draw
 .out:
     ret
 
-; wl_proj - AX = x, BX = z (z >= NEAR, |x| <= 8z), CX, DL = a height's
-; pair -> AX = column x 16, BX = that height's row, SI = the floor's (quarter
-; half-rows), DX = inverse depth
+; wl_proj - AX = x, BX = z (z >= NEAR, |x| <= 8z: wa_clip's), CX, DL = a
+; height's pair, DI = wl_e1c or wl_e2c: its column x 16, that height's row,
+; the inverse depth and, with [wl_two], the floor's row (quarter half-rows),
+; DI past them. Clobbers AX, BX, CX, DX, SI
 wl_proj:
-    push cx
-    push dx
+    mov si, cx                  ; SI = the product, CH = the shift
+    mov ch, dl
     imul word [wa_k16]
-    idiv bx
+    idiv bx                     ; (z >= NEAR: no fault; |x| <= 8z: it fits)
     add ax, [wa_c16]
-    push ax
+    stosw
     call wl_iz
+    mov ax, si
+    mov cl, ch
+    imul bx
+    sar dx, cl
+    mov ax, [wa_hq]
+    sub ax, dx
+    stosw
+    mov ax, bx
+    stosw
+    cmp byte [wl_two], 0
+    je .nof                     ; (no floor edge: the word is not read)
     mov ax, [wl_fn]
     mov cl, [wl_fs]
-    push bx
-    call wl_row
-    pop bx
-    mov si, ax                  ; SI = the floor's row
-    pop di                      ; DI = the column
-    pop cx                      ; CL = the shift
-    pop ax                      ; AX = the product
-    push bx
-    call wl_row
-    pop dx                      ; DX = the inverse depth
-    mov bx, ax
-    mov ax, di
+    imul bx
+    sar dx, cl
+    mov ax, [wa_hq]
+    sub ax, dx
+.nof:
+    stosw
     ret
 
 ; wl_draw - a pass over the columns between [wl_e1*] and [wl_e2*]: from the
@@ -857,10 +864,11 @@ wl_l10:     WLLOOP 1, 0
 wl_l11:     WLLOOP 1, 1
 wl_k160:    dw 0, 2*WA_MAXW, 4*WA_MAXW, 6*WA_MAXW
 
+
 ; --- flights --------------------------------------------------------------
-; wl_flight0 - a flight's corners: the low end's two stand as tall as its
-; first tread (wl_ch), its high end's as its top. [wl_lo], [wl_hi] the two
-; ends' faces; [wl_nt], [wl_rise] its treads and their rise
+; wl_flight0 - a flight's corners: the low end's two take its first tread's
+; height's pair, its high end's its top's (wa_lowbox's). [wl_lo], [wl_hi]
+; the two ends' faces; [wl_nt], [wl_rise] its treads and their rise
 wl_flight0:
     mov al, [wl_kind]
     mov cl, 2
@@ -874,71 +882,128 @@ wl_flight0:
     shr al, cl
     xor ah, ah
     mov [wl_nt], ax
-    mov cx, ax
-    mov ax, [wl_h]
+    mov cx, ax                  ; (1..15: arenagen refuses any other count,
+    mov ax, [wl_h]              ; and only a flight keeps its kind)
     xor dx, dx
     div cx
     mov [wl_rise], ax
     xor bh, bh                  ; the low face's two corners
     mov bl, [wl_lo]
     call wl_ends
-    mov [wl_ch+si], ax
-    mov [wl_ch+di], ax
+    mov ax, [wl_rise]
+    call wa_hnum
+    mov [wl_c+si+WL_CN], ax
+    mov [wl_c+di+WL_CN], ax
+    mov [wl_c+si+WL_CS], bl
+    mov [wl_c+di+WL_CS], bl
     ret
 
 ; wl_treads - a flight's inner treads, 2..N: each a line across it at its
 ; height, between points on its two sides - a tread's going along each, in
 ; camera space, made once - nearest first, from whichever end the player
 ; stands at. The low face runs corner A to B; A's side goes to the corner
-; before A, B's to the corner after B (the high face's two)
+; before A, B's to the corner after B (the high face's two). Each tread's
+; ends and height are the last's plus a step, the same bits as k - 1 goings
+; and k rises made afresh
 wl_treads:
     cmp word [wl_nt], 2
     jb .out
     xor bh, bh
     mov bl, [wl_lo]
-    call wl_ends                ; SI = A, DI = B (x 2)
+    call wl_ends                ; SI = A, DI = B (records)
     mov [wl_ca], si
     mov [wl_cb], di
-    mov ax, si
-    sub ax, 2
-    and ax, 6                   ; A's side's far corner
-    mov bx, [wl_cv+si]
-    mov si, ax
-    mov si, [wl_cv+si]
+    mov bx, [wl_c+si+WL_CV]
+    sub si, WL_REC
+    and si, 3*WL_REC            ; A's side's far corner
+    mov si, [wl_c+si+WL_CV]
     call wl_going
     mov [wl_dxa], ax
     mov [wl_dza], dx
     mov si, [wl_cb]
-    mov ax, si
-    add ax, 2
-    and ax, 6                   ; B's side's
-    mov bx, [wl_cv+si]
-    mov si, ax
-    mov si, [wl_cv+si]
+    mov bx, [wl_c+si+WL_CV]
+    add si, WL_REC
+    and si, 3*WL_REC            ; B's side's
+    mov si, [wl_c+si+WL_CV]
     call wl_going
     mov [wl_dxb], ax
     mov [wl_dzb], dx
     mov byte [wl_upd], 1
     mov byte [wl_two], 0
-    mov word [wl_k], 2
-.t:
-    call wl_lowseen             ; from the low end when the player is past
-    mov ax, [wl_k]              ; it, else from the top (AX after the test:
-    jnz .fwd                    ; wl_lowseen takes AL and CL)
     mov ax, [wl_nt]
-    add ax, 2
-    sub ax, [wl_k]
-.fwd:
-    call wl_tread
-    inc word [wl_k]
-    mov ax, [wl_k]
-    cmp ax, [wl_nt]
-    jbe .t
+    dec ax
+    mov [wl_k], ax              ; N - 1 treads
+    call wl_lowseen             ; from the low end when the player is past
+    mov cx, 1                   ; it - tread 2, one going out - else from
+    mov ax, [wl_rise]           ; the top, tread N, stepping back
+    mov byte [wl_back], 0
+    jnz .first
+    mov cx, [wl_k]
+    neg ax
+    mov byte [wl_back], 1
+.first:
+    mov [wl_hst], ax
+    mov ax, cx                  ; the first's height: k rises
+    inc ax
+    mul word [wl_rise]
+    mov [wl_th], ax
+    mov si, [wl_ca]             ; ...its ends: k - 1 goings along each side
+    mov si, [wl_c+si+WL_CV]
+    mov ax, [wl_dxa]
+    imul cx
+    add ax, [wa_vx+si]
+    mov [wl_tx1], ax
+    mov ax, [wl_dza]
+    imul cx
+    add ax, [wa_vz+si]
+    mov [wl_tz1], ax
+    mov si, [wl_cb]
+    mov si, [wl_c+si+WL_CV]
+    mov ax, [wl_dxb]
+    imul cx
+    add ax, [wa_vx+si]
+    mov [wl_tx2], ax
+    mov ax, [wl_dzb]
+    imul cx
+    add ax, [wa_vz+si]
+    mov [wl_tz2], ax
+    cmp byte [wl_back], 0       ; (stepping back: the goings turned round)
+    je .t
+    neg word [wl_dxa]
+    neg word [wl_dza]
+    neg word [wl_dxb]
+    neg word [wl_dzb]
+.t:
+    mov ax, [wl_th]             ; its height's pair, both ends
+    call wa_hnum
+    mov [wl_n1], ax
+    mov [wl_n2], ax
+    mov [wl_s1], bl
+    mov [wl_s2], bl
+    mov si, wl_tx1              ; its ends, for wa_clip to cut (wa_x1, z1,
+    mov di, wa_x1               ; x2, z2 adjacent, as ours)
+    movsw
+    movsw
+    movsw
+    movsw
+    call wl_xedge
+    mov ax, [wl_hst]            ; the next
+    add [wl_th], ax
+    mov ax, [wl_dxa]
+    add [wl_tx1], ax
+    mov ax, [wl_dza]
+    add [wl_tz1], ax
+    mov ax, [wl_dxb]
+    add [wl_tx2], ax
+    mov ax, [wl_dzb]
+    add [wl_tz2], ax
+    dec word [wl_k]
+    jnz .t
 .out:
     ret
 
 ; wl_going - BX, SI = the vertices x 2 at a side's two ends: AX, DX = a
-; tread's going along it, camera x and z
+; tread's going along it, camera x and z ([wl_nt] >= 2: no fault)
 wl_going:
     mov ax, [wa_vx+si]
     sub ax, [wa_vx+bx]
@@ -952,37 +1017,3 @@ wl_going:
     mov dx, ax
     pop ax
     ret
-
-; wl_tread - AX = a tread, 2..N: its nosing, (k - 1) goings from the low end
-; at k risers' height, from one side to the other
-wl_tread:
-    push ax
-    mul word [wl_rise]          ; its height's pair, both ends
-    call wa_hnum
-    mov [wl_n1], ax
-    mov [wl_n2], ax
-    mov [wl_s1], bl
-    mov [wl_s2], bl
-    pop cx
-    dec cx                      ; k - 1 goings
-    mov si, [wl_ca]
-    mov si, [wl_cv+si]
-    mov ax, [wl_dxa]
-    imul cx
-    add ax, [wa_vx+si]
-    mov [wa_x1], ax
-    mov ax, [wl_dza]
-    imul cx
-    add ax, [wa_vz+si]
-    mov [wa_z1], ax
-    mov si, [wl_cb]
-    mov si, [wl_cv+si]
-    mov ax, [wl_dxb]
-    imul cx
-    add ax, [wa_vx+si]
-    mov [wa_x2], ax
-    mov ax, [wl_dzb]
-    imul cx
-    add ax, [wa_vz+si]
-    mov [wa_z2], ax
-    jmp wl_xedge
