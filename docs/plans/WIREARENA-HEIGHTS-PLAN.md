@@ -883,6 +883,39 @@ both 1bpp adapters looked at (SPEC.md §39.4, the rule CLAUDE.md repeats).
 
 ---
 
+## 7.1 The owner's answers (2026-11-13)
+
+These bind the waves. Where one changes a section above, it overrides it.
+
+- **Hiding the hallway from outside: yes, and it is a direction.** Larger
+  multi-area arenas or "levels" will come, and a view must not reach all the
+  way across them. Keep the building walls taller than any eye, so they
+  hide what is behind them. Leave room for an area-to-area visibility cut
+  later; do not build it now.
+- **Q1, frame rate:** lower fps on the tower is acceptable. Fewer pillars in
+  the open area is an available lever. Another optimisation round will come
+  once the remaining features are in (pickups, the AI), which will cost
+  frames of their own.
+- **Q2, building walls:** the higher walls (6 m).
+- **Q3, stairs:** a flight as one object with straight sides, as planned.
+  Screenshots in wave 2 decide whether it is good enough.
+- **Q4, pitch ±33°:** acceptable, and so is ground at the tower's base that
+  cannot be hit from the top. **But it must be SYMMETRIC.** If someone on the
+  tower cannot hit someone below, the one below must not be able to hit them
+  either. The design checks this both ways. Body heights against eye heights
+  make the two angles differ, and so does the tower's lip, which hides a
+  player standing back from the edge.
+- **Q5, central platform:** stairs only, at 1.25 m. It is a test of the
+  mechanics. The jump test is the platform in the small back room off the
+  hallways.
+- **Q6, tower:** 2.5 m.
+- **Q7, lifts:** bots may trigger them if it is cheap. The rudimentary AI
+  will need something like it later, at a cost of its own. The timings are
+  the owner's to judge by riding. As numbers they look a little long, so
+  start shorter, and make them constants that are easy to change.
+- **Q8, 80 columns:** already a mode for faster machines. Hercules has no
+  40-column choice, so it pays the 80-column price.
+
 ## 8. The instruments behind the numbers
 
 They are kept as written in `tools/wamodel/` (copied out of the session's
