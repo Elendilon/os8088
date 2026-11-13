@@ -512,60 +512,60 @@ wl_proj:
 ; tag, the one thing it would have left.
 wl_draw:
     mov ax, [wl_kc+si]
-    cmp ax, [wl_kc+di]
+    mov bp, [wl_kc+di]
+    cmp ax, bp
     jle .ord
     xchg si, di                 ; (left to right)
-    mov ax, [wl_kc+si]
-.ord:
-    mov [wa_c1], ax
+    xchg ax, bp
+.ord:                           ; AX = the left end, BP = the right
     mov cl, 4
     mov bx, ax
     add bx, 7
     sar bx, cl                  ; the first column
-    mov dx, [wl_kc+di]
+    mov dx, bp
     add dx, 7
     sar dx, cl
     dec dx                      ; the last
+    sub bp, ax                  ; BP = dc
     or bx, bx
     jns .lok
     xor bx, bx
 .lok:
-    mov cx, [wa_w]
-    dec cx
-    cmp dx, cx
-    jle .rok
-    mov dx, cx
+    cmp dx, [wa_w]
+    jl .rok
+    mov dx, [wa_w]
+    dec dx
 .rok:
     cmp bx, dx
     jg .none
-    shl bx, 1
-    mov [wa_cs], bx
+    shl bx, 1                   ; (x 2 from here)
     shl dx, 1
+    mov cx, dx
+    sub cx, bx
+    shr cx, 1
+    inc cx                      ; CX = the columns
     inc dx
     inc dx
     mov [wl_end], dx
-    mov ax, [wl_kt+si]          ; THE CULL: the highest half-row either edge
-    cmp ax, [wl_kt+di]          ; reaches (an end's, rounded as the loops
+    push ax
+    mov dx, [wl_kt+si]          ; THE CULL: the highest half-row either edge
+    cmp dx, [wl_kt+di]          ; reaches (an end's, rounded as the loops
     jle .c1                     ; round)...
-    mov ax, [wl_kt+di]
+    mov dx, [wl_kt+di]
 .c1:
     cmp byte [wl_two], 0
     je .c3
-    cmp ax, [wl_kf+si]
+    cmp dx, [wl_kf+si]
     jle .c2
-    mov ax, [wl_kf+si]
+    mov dx, [wl_kf+si]
 .c2:
-    cmp ax, [wl_kf+di]
+    cmp dx, [wl_kf+di]
     jle .c3
-    mov ax, [wl_kf+di]
+    mov dx, [wl_kf+di]
 .c3:
-    add ax, 2
-    sar ax, 1
-    sar ax, 1
-    xchg ax, dx                 ; DX = it, AX = one past the last x 2
-    sub ax, bx
-    shr ax, 1
-    xchg ax, cx                 ; CX = the columns
+    add dx, 2
+    sar dx, 1
+    sar dx, 1
     push si
     lea si, [wa_cclip+bx]
 .scan:
@@ -575,79 +575,84 @@ wl_draw:
 .snext:
     loop .scan
     pop si
+    pop ax
 .none:
     ret                         ; (hidden throughout: nothing to do)
 .hit:
     cmp word [si+wa_cov-wa_cclip-2], 0
     jne .snext                  ; (a shut column shows nothing either)
     pop si
+    pop cx                      ; CX = the left end
+    mov [wa_dc], bp
     mov ax, bx                  ; the first centre past the left end, x 16
+    push bx                     ; (the first column, for the loop)
     shl ax, 1
     shl ax, 1
     shl ax, 1
     add ax, 8
-    mov cx, [wa_c1]
     sub ax, cx
     mov [wa_fs], ax
-    mov ax, [wl_kc+di]
-    sub ax, cx
-    mov [wa_dc], ax
-    mov byte [wl_tag], 0        ; its tag (wa_span.reg's): its inverse
-    cmp byte [wl_upd], 0        ; depth's line
+    xor al, al                  ; its tag (wa_span.reg's): its inverse
+    cmp [wl_upd], al            ; depth's line
     je .notag
     mov bx, [wa_tag]
     add bx, 2
     cmp bx, WA_MAXSP*2
     jae .full
     mov [wa_tag], bx
-    mov [wl_tag], bl
     mov [wa_spcs+bx], cx
-    mov [wa_spsh+bx], ax
+    mov [wa_spsh+bx], bp
     mov ax, [wl_ki+si]
     mov [wa_spih+bx], ax
     neg ax
     add ax, [wl_ki+di]
     mov [wa_spsl+bx], ax
+    mov al, bl
 .notag:
+    mov [wl_tag], al
     push word [wl_kt+si]        ; (the top's ends, for after the floor's)
     push word [wl_kt+di]
+    xor dl, dl                  ; DL = the floor edge's steep, if drawn
+    mov [wa_steep], dl
     cmp byte [wl_two], 0        ; the floor edge's start and step: wa_span's
     je .nob                     ; own (exact at the first column; half-rows
-    mov byte [wa_steep], 0      ; with a 16-bit fraction, the whole part
-    mov ax, [wl_kf+si]          ; rounded)
-    mov bx, [wl_kf+di]
+    mov ax, [wl_kf+si]          ; with a 16-bit fraction, the whole part
+    mov bx, [wl_kf+di]          ; rounded)
     call wa_span.edge
     mov [wl_bsw], dx
     mov [wl_bsf], ax
     mov [wl_bw], bx
     mov [wl_bf], cx
-    mov al, [wa_steep]
-    mov [wl_bst], al
-.nob:
+    mov dl, [wa_steep]
+    mov [wl_bst], dl
     mov byte [wa_steep], 0      ; ...and the top's
+.nob:
     pop bx
     pop ax
+    push dx
     call wa_span.edge
     mov [wl_stw], dx
     mov [wl_stf], ax
     mov bp, cx                  ; the top: CX.BP
     mov cx, bx
-    mov byte [wl_havep], 0
-    mov si, [wa_cs]
-    mov di, [wa_lp]
-    mov dl, [wa_frame]
-    mov al, [wa_steep]          ; which of the four loops: the floor edge
-    mov [wl_tst], al
-    or al, [wl_bst]             ; too, a step to fill
+    pop ax                      ; which of the four loops: the floor edge
+    mov ah, [wa_steep]          ; too, a step to fill
+    mov [wl_tst], ah
+    or al, ah
     mov bl, [wl_two]
     shl bl, 1
     or bl, al
     xor bh, bh
     shl bx, 1
+    pop si                      ; SI = the first column x 2
+    mov byte [wl_havep], 0
+    mov di, [wa_lp]
+    mov dl, [wa_frame]
     call [wl_loops+bx]
     mov [wa_lp], di
     ret
 .full:
+    pop bx
     mov word [wa_left], 0       ; (more spans than the table holds: drawing
     ret                         ; stops this frame - never seen)
 wl_loops:   dw wl_l00, wl_l01, wl_l10, wl_l11
