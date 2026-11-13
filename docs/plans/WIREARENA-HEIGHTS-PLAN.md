@@ -1585,6 +1585,70 @@ Unchanged by the fix:
 - The game's region starts right after the part's, so an out-of-bounds
   write would have shown.
 
+### 9.6 The heights speed pass (2026-11-13)
+
+Three agents worked from `5f8c7514`: `hs-cols` on the outline path's
+per-column loops, `hs-box` on low-box and flight setup, and `hs-pass` on
+pass setup, the tall faces' clip passes, the figure queries and the flat
+arenas' overhead. `hs-pass` then integrated the three as `hs-merge`.
+
+**What landed:**
+
+- **The pass cull (`hs-pass`).** At pose A, 13 of 27 outline passes drew
+  nothing and cost ~3,100 clk each. `wl_draw` now scans the highest half-row
+  either edge reaches against each column's clip before any divide, and
+  drops the pass. This is exact: the interpolation stays between the ends.
+- **Column loops (`hs-cols`).** One clip test per edge. The colour and the
+  column countdown are kept in registers. The steep fill is tested on whole
+  half-rows. A pass wholly below the screen skips its setup. Loop work
+  fell 39%.
+- **Setup (`hs-box`).** Corners are 16-byte records, and only the corners in
+  use are projected. Treads step by addition, and a tread inside the view
+  skips `wa_clip`.
+- **The flat arenas' overhead is about halved.** The eye's products are
+  remade only when the eye or kyq changes. `.edge` is faster. The figure
+  queries skip rows above the lowest partial threshold.
+- **A drawing bug fixed (found twice, independently).** `wl_treads` lost the
+  tread number across `wl_lowseen`. So a flight seen from its low end (the
+  usual view from the floor) drew every inner tread as one phantom line in
+  the wrong place. `wacheck --arena 2` went from 46 to 32 columns off at 40
+  columns, and from 92 to 70 at 80.
+- **Dropped at the merge:** `hs-box`'s whole-box cull (`wl_hidden`) and its
+  per-face test. With the pass cull underneath them, they cost more than
+  they saved: mean render 247,808 clk with them, 244,641 without, over 260
+  posed frames.
+
+**Measured on MartyPC `os8088_5150_cga`:**
+
+| | 5f8c7514 | merged |
+|---|---|---|
+| heights bench, 40 columns, A/B/C/D/E | 8.7/7.7/18.6/7.8/24.4 | **10.4/9.1/20.4/9.0/24.5** |
+| heights bench, 80 columns | 7.1/6.0/15.2/6.2/19.6 | **8.3/7.0/16.9/7.2/19.6** |
+| P bench, 40/80 | 18.8/15.6 | 18.9/15.7 |
+| B bench, full/sparse | 32.8/36.1 | 33.0/36.2 |
+
+The forecast (2.4) was 15.2/11.5/19.3/12.0/23.0 at 40 columns. The busy
+views (A, B, D) are still ~30% short of it.
+
+**Correctness:**
+
+- The flat posed sets (720 frames) are byte-identical to `5f8c7514`.
+- The heights posed set (260 frames) is identical to the tread fix's
+  picture at every step of the merge.
+- `wacheck --arena 2` has 0 divide faults.
+
+**Bytes:** the renderer part is 54,242 (+399 on `5f8c7514`).
+
+**What is left, by the agents' measurements:**
+
+- Flight treads cost ~2.4k clk each in `wa_clip` and `wl_proj` before
+  `wl_draw` can cull them.
+- Posts are ~14k clk at A.
+- A culled pass still costs ~700 clk.
+- Runs of shut columns are stepped one at a time in `FLATPASS`.
+- A cheaper whole-box cull would pay if it ran only for boxes spanning many
+  columns.
+
 ### 9.3 Open, for the owner and the next waves
 
 1. **The symmetric dead ground** is decided (7.1.1). From wave 3 the pitch
