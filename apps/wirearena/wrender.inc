@@ -2723,10 +2723,13 @@ wa_figure:
     mov ax, [wa_eye]            ; ITS eye: the camera's less the floor it
     sub ax, [di+F_Z]            ; stands on (HEIGHTS-PLAN 3.3) - every joint
     mov [wa_feye], ax           ; is as high again over the camera's floor
-    mov si, dx
-    mov dx, 0x0007
-    mov ax, 0xFFF0
-    div si
+    mov si, dx                  ; the inverse depth, 0x7FFF0 / z: out of
+    cmp si, WA_ZMAX             ; wa_rcp (z >= 32 > NEAR), the same bits
+    jae .izd
+    mov bx, si
+    shl bx, 1
+    mov ax, [wa_rcp+bx-WA_NEAR*2]
+.izok:
     mov [wa_fiz], ax
     mov [di+F_PIZ], ax
     mov ax, [wa_wf]             ; sub-columns a unit: W x f / z (f the field
@@ -2747,6 +2750,11 @@ wa_figure:
     cmp ax, 9                   ; FAR: under ~4 half-rows tall. Nine limbs of
     jae .near                   ; a sub-pixel or two each read as a blob
     jmp wa_marker               ; anyway - draw that blob directly
+.izd:                           ; (past the room's diagonal: never, but
+    mov dx, 0x0007              ; exact)
+    mov ax, 0xFFF0
+    div si
+    jmp .izok
 .near:
     mov ax, [di+F_ANG]          ; facing, relative to the view, of 16
     sub ax, [wa_cang]
@@ -2754,9 +2762,9 @@ wa_figure:
     mov cl, 6
     shr ax, cl
     and ax, 15
-    mov cl, WA_NJ*2
-    mul cl
-    mov bx, ax                  ; BX = facing's offset in a frame
+    shl ax, 1
+    xchg ax, bx
+    mov bx, [wa_fco+bx]         ; BX = facing's offset in a frame
     mov ax, [di+F_PH]
     mov cl, al
     and cl, 3
@@ -2779,17 +2787,28 @@ wa_figure:
     add ax, dx
     add cx, dx
     push di
-    mov dx, WA_FRAMESZ
-    mul dx
-    add ax, wa_pose
-    add ax, bx
-    mov si, ax                  ; SI = keyframe A at this facing
-    mov ax, WA_FRAMESZ
-    mul cx
-    add ax, wa_pose
-    add ax, bx
-    mov di, ax                  ; DI = keyframe B
+    mov si, ax
+    shl si, 1
+    mov si, [wa_kfo+si]
+    add si, bx                  ; SI = keyframe A at this facing
+    mov di, cx
+    shl di, 1
+    mov di, [wa_kfo+di]
+    add di, bx                  ; DI = keyframe B
     jmp wa_fjl                  ; the joints (and back to wa_fjdone)
+; a keyframe's place, and a facing's offset in one (no multiply a figure)
+wa_kfo:
+%assign wa_i 0
+%rep WA_NFRAMES
+    dw wa_pose + wa_i*WA_FRAMESZ
+%assign wa_i wa_i+1
+%endrep
+wa_fco:
+%assign wa_i 0
+%rep WA_NFACE
+    dw wa_i*WA_NJ*2
+%assign wa_i wa_i+1
+%endrep
 wa_fjdone:                      ; (wa_fjl comes back here)
     pop di
     mov ax, [wa_jsx+4]          ; for the trigger: centre, extent, width
