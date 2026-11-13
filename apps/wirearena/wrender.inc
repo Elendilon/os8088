@@ -181,10 +181,10 @@ WA_VAR wa_mk, (WA_MAXKS+1)*8    ; ...and its products, cos and sin, 32 bits
 WA_VAR wa_nsht, 1               ; ...and wa_numt's, for the height in
 WA_VAR wa_ntht, 2               ; wa_ntht (wa_hnt)
 WA_VAR wa_gen, 1                ; held edges or heights: every span general
-WA_VAR wa_bxh, WA_MBOX*4        ; per box: height, kind, faces (the arena's)
 WA_VAR wa_roomh, 2              ; the room's height
 WA_VAR wa_nshb, 1               ; the shift wa_numb's product takes (3, or 1
                                 ; when it is / 4: wa_render)
+WA_VAR wa_feye, 2               ; a figure's eye: wa_eye less its F_Z
 WA_VAR wa_fvn, 2                ; wa_fjl's narrow path below this fv8
 WA_VAR wa_fhr, 1                ; wa_femit: the row's top half-row
 WA_VAR wa_fthlo, 1              ; ...and the lowest wa_fthr between 0 and
@@ -2720,6 +2720,9 @@ wa_figures:
 wa_figure:
     mov [wa_fcx], ax
     mov [di+F_PZ], dx
+    mov ax, [wa_eye]            ; ITS eye: the camera's less the floor it
+    sub ax, [di+F_Z]            ; stands on (HEIGHTS-PLAN 3.3) - every joint
+    mov [wa_feye], ax           ; is as high again over the camera's floor
     mov si, dx
     mov dx, 0x0007
     mov ax, 0xFFF0
@@ -3155,7 +3158,7 @@ wa_frowv:
     mov al, ah
     cbw
   %else
-    sub ax, [wa_eye]
+    sub ax, [wa_feye]
     imul word [wa_fv8]
     mov al, ah
     mov ah, dl
@@ -3181,7 +3184,9 @@ wa_fjl:
     jae .wide
     mov dx, [wa_fv8]
     cmp dx, [wa_fvn]            ; (128, or less where the narrow sum would
-    jae .wide                   ; leave 16 bits: wa_render)
+    jae .wide                   ; leave 16 bits: wa_render - the bound is
+    cmp word [wa_feye], 0       ; the camera's eye's, so a figure's own, at
+    jl .wide                    ; most that, is under it unless below 0)
     mov cl, al
     mov ch, dl
     imul word [wa_fcx]          ; K = fcx fs8 + 256 W...
@@ -3199,7 +3204,7 @@ wa_fjl:
     mov bp, ax                  ; ...and Khi
     mov al, ch                  ; E = eye fv8 + 256 hh + 255 (mod 2^16: the
     xor ah, ah                  ; difference it ends in fits)
-    mul word [wa_eye]
+    mul word [wa_feye]
     mov dh, [wa_hh]
     mov dl, 255
     add ax, dx
@@ -3504,7 +3509,7 @@ wa_marker:
     mov [di+F_PCX], ax
     mov si, ax                  ; SI = the sub-column
     mov ax, 112                 ; the head, 1.75 m
-    sub ax, [wa_eye]
+    sub ax, [wa_feye]
     imul word [wa_fv8]
     mov al, ah
     mov ah, dl
@@ -3512,7 +3517,7 @@ wa_marker:
     add ax, [wa_hh]
     mov [di+F_PTOP], ax
     mov cx, ax                  ; CX = top half-row
-    mov ax, [wa_eye]            ; the feet, the floor
+    mov ax, [wa_feye]           ; the feet, the floor
     imul word [wa_fv8]
     mov al, ah
     mov ah, dl

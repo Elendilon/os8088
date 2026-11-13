@@ -16,13 +16,15 @@
 ;     against the clip as it stood, then the top edge, raising it;
 ;  3. with the eye above the box, its other faces' top edges - the far side
 ;     of its top - raising it again;
-;  4. a FLIGHT (kind 1) is one object: its low end is a face as tall as the
-;     first tread, its sides rise straight from there to its top (the
-;     stringers), and its inner treads are lines across it at their heights,
-;     drawn nearest first.
+;  4. a FLIGHT (kind 1) is a RAMP (HEIGHTS-PLAN 7.4.2): its low end's
+;     corners on the floor, its sides straight from there to its top, its
+;     low face one edge, and no treads. With the T option (wa_treads) it is
+;     drawn STEPPED, as wave 2 drew a flight: its low end a face as tall as
+;     the first tread, its inner treads lines across it at their heights,
+;     nearest first. The walk is the ramp either way (wa_hat).
 ; A top edge at or above the screen's top shuts its column, wa_cov holding
 ; its tag as a wall's does. Each corner keeps its own height (wl_ch): a
-; flight's low-end corners stand as tall as its first tread. A corner in
+; ramp's low-end corners stand on the floor. A corner in
 ; the view is projected once a box (wl_kc..wl_kf); an edge with a corner out
 ; of it is clipped (wa_clip) and its ends projected on the spot.
 
@@ -43,6 +45,8 @@ WL_REC      equ 16
 WA_VAR wl_box, 2                ; the box (x0, y0, x1, y1)
 WA_VAR wl_h, 2                  ; its height (a flight's, its top tread's)
 WA_VAR wl_kind, 1               ; its kind byte and faces byte (wa_bxh)
+WA_VAR wl_lom, 1                ; a ramp's low face's bit (else 0): drawn
+                                ; as one edge, its top on the floor
 WA_VAR wl_faces, 1
 WA_VAR wl_seen, 1               ; the faces the player is outside of: bits
 WA_VAR wl_front, 1              ; ...of them, those drawn (posts, floors)
@@ -129,7 +133,8 @@ wa_lowbox:
     xor al, al                  ; by that index as a tread count: lift 0's
 .kind:                          ; divide fault, every frame it was in view
     mov [wl_kind], al           ; (HEIGHTS-PLAN 9.5). A lift draws as the
-                                ; solid low box it rests as, until wave 4
+                                ; low box it is at its current height
+    mov byte [wl_lom], 0
     xor bl, bl                  ; the faces seen, as wa_box chooses them
     mov ax, [wa_py]             ; (S 1, E 2, N 4, W 8)
     cmp ax, [si+2]
@@ -290,11 +295,16 @@ wa_lowbox:
     mov al, [wl_bit+bx]
     mov byte [wl_two], 1
     test al, [wl_front]
-    jnz .p2f
+    jz .p2top
+    test al, [wl_lom]           ; (a ramp's low face: its one edge)
+    jz .p2c
+    jmp .p2t
+.p2top:
     test al, [wl_topb]
     jz .p2n
+.p2t:
     mov byte [wl_two], 0
-.p2f:
+.p2c:
     call wl_face
 .p2n:
     inc bx
@@ -921,21 +931,30 @@ wl_flight0:
     mov [wl_hi], al
     xor al, 2
     mov [wl_lo], al
-    mov al, [wl_kind]
+    xor bh, bh                  ; the low face's two corners
+    mov bl, al
+    call wl_ends
+    cmp byte [wa_treads], 0     ; A RAMP (the default, HEIGHTS-PLAN 7.4.2):
+    jne .steps                  ; its low face's corners on the floor, its
+    mov word [wl_nt], 0         ; sides straight from there to its top, no
+    mov al, [wl_bit+bx]         ; treads, and that face drawn as its one
+    mov [wl_lom], al            ; edge (its top IS its floor edge)
+    mov ax, [wl_fn]
+    mov bl, [wl_fs]
+    jmp .set
+.steps:                         ; STEPPED: the low face as tall as the first
+    mov al, [wl_kind]           ; tread, the treads lines across it
     mov cl, 4
     shr al, cl
     xor ah, ah
     mov [wl_nt], ax
     mov cx, ax                  ; (1..15: arenagen refuses any other count,
-    mov ax, [wl_h]              ; and only a flight keeps its kind)
-    xor dx, dx
+    mov ax, [wl_h]              ; and only a flight keeps its kind - so no
+    xor dx, dx                  ; divide fault, HEIGHTS-PLAN 9.5)
     div cx
     mov [wl_rise], ax
-    xor bh, bh                  ; the low face's two corners
-    mov bl, [wl_lo]
-    call wl_ends
-    mov ax, [wl_rise]
     call wa_hnum
+.set:
     mov [wl_c+si+WL_CN], ax
     mov [wl_c+di+WL_CN], ax
     mov [wl_c+si+WL_CS], bl

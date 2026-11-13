@@ -17,8 +17,11 @@ WA_TICK     equ 39773           ; PIT counts (838 ns) in a 30 Hz sim tick
 WA_MSPD     equ 80              ; move: Q13 vector x 80 = 10 units a tick
 WA_JUMPV    equ 2432            ; 8.8 units a tick: about a 1 m jump
 WA_GRAV     equ 179             ; 8.8 units a tick a tick: 9.8 m/s^2
-WA_PITCH    equ 112             ; the pitch clamp, quarter half-rows (+-33
-                                ; degrees at 75; HEIGHTS-PLAN 1.6)
+WA_PITCHU   equ 112             ; the pitch clamp, quarter half-rows: up
+WA_PITCHD   equ 290             ; 33 degrees at 75, DOWN 59 - the same reach
+                                ; (1.4 m) from the tower's top and its foot
+                                ; (HEIGHTS-PLAN 7.1.1, 7.1.2: the owner
+                                ; judges them by play; change them here)
 WA_BLANK    equ 0x0720
 
 ; per-figure record
@@ -34,15 +37,17 @@ F_LOOP  equ 13                  ; byte: 1 loops, 0 holds the last frame
 F_PH    equ 14                  ; word: phase, quarter keyframes
 F_FLASH equ 16                  ; byte: hit-flash frames left
 F_DEAD  equ 17                  ; byte: ticks until respawn, 0 = alive
-F_HEAD  equ 18                  ; heading of the current leg
-F_PATH  equ 20                  ; -> its path
-F_PZ    equ 22                  ; last projection: z (0 = not drawn)
-F_PIZ   equ 24                  ;   inverse depth
-F_PCX   equ 26                  ;   centre, sub-columns
-F_PTOP  equ 28                  ;   head, half-rows
-F_PBOT  equ 30                  ;   feet, half-rows
-F_PWH   equ 32                  ;   half width, sub-columns
-F_VH    equ 34                  ; the heading F_VX/F_VY are for, | 0x8000
-F_VX    equ 36                  ;   (0: none yet): a tick's step, units
-F_VY    equ 38
-F_SIZE  equ 40
+F_Z     equ 18                  ; the floor it stands on, units (HEIGHTS-
+                                ; PLAN 3.3: wa_figtick, 0 on a flat arena)
+F_HEAD  equ 20                  ; heading of the current leg
+F_PATH  equ 22                  ; -> its path
+F_PZ    equ 24                  ; last projection: z (0 = not drawn)
+F_PIZ   equ 26                  ;   inverse depth
+F_PCX   equ 28                  ;   centre, sub-columns
+F_PTOP  equ 30                  ;   head, half-rows
+F_PBOT  equ 32                  ;   feet, half-rows
+F_PWH   equ 34                  ;   half width, sub-columns
+F_VH    equ 36                  ; the heading F_VX/F_VY are for, | 0x8000
+F_VX    equ 38                  ;   (0: none yet): a tick's step, units
+F_VY    equ 40
+F_SIZE  equ 42

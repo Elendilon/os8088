@@ -210,6 +210,7 @@ wa_loadarena:
     rep movsb
     mov ax, [bx+34]             ; HEIGHTS (HEIGHTS-PLAN 7.2.1): the tallest
     mov [es:wa_hmax], ax        ; height, and FLAT when no box is below it
+    mov [es:wa_ahmax], ax
     mov byte [es:wa_hflat], 0   ; and no lift moves
     mov si, [bx+36]
     cmp word [si], 0
@@ -231,6 +232,28 @@ wa_loadarena:
     mov cx, [bx+16]
     shl cx, 1
     mov di, wa_bxh
+    rep movsw
+    mov al, [es:wa_hflat]       ; ...the flat verdict, for the sim
+    mov [es:wa_aflat], al
+    mov word [es:wa_lift], -1   ; its lift, the first of the table: the
+    mov si, [bx+36]             ; sim moves it (arenagen allows one)
+    cmp word [si], 0
+    je .nolift
+    mov al, [si+2]
+    xor ah, ah
+    shl ax, 1
+    shl ax, 1
+    mov [es:wa_lift], ax
+    mov ax, [si+4]
+    mov [es:wa_lrest], ax
+    mov ax, [si+6]
+    mov [es:wa_ltop], ax
+.nolift:
+    mov si, [bx+38]             ; its own patrols (HEIGHTS-PLAN 7.4.5): the
+    mov cx, [bx+40]             ; block as it is, bytes [bx+40] - 0: the
+    mov [es:wa_apn], cx         ; primary's own (arenagen bounds it by
+    shr cx, 1                   ; WA_APATHSZ)
+    mov di, wa_apath
     rep movsw
     mov si, [bx+18]             ; the tree, WA_ROW bytes a node
     mov dx, wa_bsp

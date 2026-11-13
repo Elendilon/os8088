@@ -27,7 +27,9 @@ of the file adds only the data blocks the includer has asked for by then.
 World units are 1/64 m. Angles are 1024 to a turn, counter-clockwise from
 +x, the map's y axis pointing "north". Heights are units above the floor
 (docs/plans/WIREARENA-HEIGHTS-PLAN.md): a box is a 4-tuple, a 3 m solid
-block, or a Box with a height and a kind (solid, a flight of stairs, a lift),
+block, or a Box with a height and a kind (solid, a RAMP - kind FLIGHT, a
+slope from the floor at its low face to its height at the face it rises
+toward, HEIGHTS-PLAN 7.4.2 - or a lift),
 and an arena part carries each box's height, kind and drawn faces after its
 descriptor (WIREARENA-PARTS-PLAN 7.5, HEIGHTS-PLAN 7.2.1).
 
@@ -47,6 +49,8 @@ ROOM = (0, 0, 2048, 2048)
 WALL_H = 192                    # today's walls and blocks: 3 m
 STEPUP = 24                     # the most a step may rise and still walk
                                 # (0.375 m, HEIGHTS-PLAN 3.1)
+FRAD = 8                        # a dummy's feet: the square its floor is
+                                # read under (wa_figtick; WA_FRAD)
 SOLID, FLIGHT, LIFT = 0, 1, 2
 FACES = "SENW"                  # face order, as everywhere: S E N W
 
@@ -103,43 +107,84 @@ OPEN_BOXES = BOXES[:4]
 # south stub, so every step collided and WASD looked dead. arenas() checks.
 PLAYER_START = (1024, 480, 256)  # facing north, the patrols crossing ahead
 
-# The HEIGHTS demo (docs/plans/WIREARENA-HEIGHTS-PLAN.md 4.1): the building
-# with its loop corridor and back room in the west, the platform and its two
-# flights in the centre, the tower and its two lifts in the east, two pillars
-# in the open area. 19 boxes. Not on the Game menu until the renderer draws
-# heights (HEIGHTS-PLAN wave 2), its patrols wait for wave 5.
-HB = 384                        # the building and the pillars: 6 m, taller
+# The HEIGHTS demo (docs/plans/WIREARENA-HEIGHTS-PLAN.md 4.1, revised for wave
+# 3 in 7.4 from the owner's sketch): in the west an ANNEX, one plain block
+# narrower than the room, with two straight hallways into it joined by a
+# corridor along the room's west wall and, between the hallways, the back
+# room - an alcove off that corridor - holding the jump platform; in the
+# centre the platform with a RAMP up its south and north sides; in the east
+# the tower with ONE lift, narrower than it, on its north side; two pillars
+# in the open area. 13 boxes.
+HB = 384                        # the annex and the pillars: 6 m, taller
                                 # than any eye (HEIGHTS-PLAN 7.1)
 HEIGHTS_BOXES = [
-    Box(640, 512, 704, 640, HB, col=0, name="front wall, south"),
-    Box(640, 768, 704, 1280, HB, col=0, name="front wall, middle"),
-    Box(640, 1408, 704, 1536, HB, col=0, name="front wall, north"),
-    Box(256, 512, 640, 576, HB, col=0, name="south wall"),
-    Box(256, 1472, 640, 1536, HB, col=0, name="north wall"),
-    Box(384, 704, 512, 1344, HB, col=0, name="core"),
-    Box(0, 512, 256, 704, HB, col=0, name="south-west block"),
-    Box(0, 1344, 256, 1536, HB, col=0, name="north-west block"),
-    Box(192, 704, 256, 960, HB, col=0, name="back wall, south"),
-    Box(192, 1088, 256, 1344, HB, col=0, name="back wall, north"),
-    Box(0, 960, 128, 1088, 48, name="jump platform"),
+    Box(0, 0, 640, 384, HB, col=0, name="annex fill, south"),
+    Box(0, 1664, 640, 2048, HB, col=0, name="annex fill, north"),
+    Box(576, 576, 640, 1472, HB, col=0, name="annex front"),
+    Box(128, 576, 576, 832, HB, col=0, name="annex block, south"),
+    Box(128, 1216, 576, 1472, HB, col=0, name="annex block, north"),
+    Box(384, 960, 576, 1088, 48, name="jump platform"),
     Box(1088, 896, 1408, 1152, 80, name="platform"),
-    Box(1184, 768, 1312, 896, 64, FLIGHT, toward="N", treads=4,
-        name="south flight"),
-    Box(1184, 1152, 1312, 1280, 64, FLIGHT, toward="S", treads=4,
-        name="north flight"),
+    Box(1184, 704, 1312, 896, 80, FLIGHT, toward="N", treads=4,
+        name="south ramp"),
+    Box(1184, 1152, 1312, 1344, 80, FLIGHT, toward="S", treads=4,
+        name="north ramp"),
     Box(1856, 896, 2048, 1152, 160, name="tower"),
-    Box(1856, 640, 2048, 896, 16, LIFT, top=160, name="south lift"),
-    Box(1856, 1152, 2048, 1408, 16, LIFT, top=160, name="north lift"),
-    Box(1472, 448, 1600, 576, HB, name="pillar"),
-    Box(1472, 1472, 1600, 1600, HB, name="pillar"),
+    Box(1920, 1152, 2048, 1280, 16, LIFT, top=160, name="lift"),
+    Box(1472, 384, 1600, 512, HB, name="pillar"),
+    Box(1472, 1536, 1600, 1664, HB, name="pillar"),
 ]
-NOPATROL = {"a2"}               # (its patrols: HEIGHTS-PLAN wave 5)
+NOPATROL = set()
+# Arena 2's own patrols (HEIGHTS-PLAN 7.4.5), carried in its part: one up
+# the south ramp, across the platform and down the north one; one through
+# the annex's hallways and corridor; one round the tower. Checked for every
+# rise a walker meets (patrol_checks)
+HEIGHTS_PATHS = [
+    [(1248, 600), (1248, 1450), (1700, 1450), (1700, 600)],
+    [(800, 480), (64, 480), (64, 1568), (800, 1568)],
+    [(1000, 300), (1750, 300), (1750, 1750), (1000, 1750)],
+]
 
 
 def arenas():
     return [("a0", "Arena", BOXES, PLAYER_START),
             ("a1", "Open", OPEN_BOXES, PLAYER_START),
             ("a2", "Heights", HEIGHTS_BOXES, PLAYER_START)]
+
+
+# an arena's own patrols, carried in its part (the rest walk PATHS, which the
+# primary carries): every arena's are WA_NFIG loops
+ARENA_PATHS = {"a2": HEIGHTS_PATHS}
+
+
+def height_at(b, x, y, r):
+    """Box b's height under the square (x +- r, y +- r), which overlaps it -
+    for a RAMP (a FLIGHT) the height at the square's highest point on it,
+    the slope linear from 0 at its low face to b.h at the face it rises
+    TOWARD: the game's wa_hat, exactly (integer, rounded down)"""
+    b = bx(b)
+    if b.kind != FLIGHT:
+        return b.h
+    x0, y0, x1, y1 = b
+    if b.toward == "N":
+        num, ln = min(y + r, y1) - y0, y1 - y0
+    elif b.toward == "S":
+        num, ln = y1 - max(y - r, y0), y1 - y0
+    elif b.toward == "E":
+        num, ln = min(x + r, x1) - x0, x1 - x0
+    else:
+        num, ln = x1 - max(x - r, x0), x1 - x0
+    return int(b.h * num) // ln
+
+
+def floor_at(x, y, boxes, r):
+    """The floor under the square (x +- r, y +- r): the tallest height of
+    any box it overlaps, or 0 (wa_floor)"""
+    f = 0
+    for b in boxes:
+        if b[0] - r < x < b[2] + r and b[1] - r < y < b[3] + r:
+            f = max(f, height_at(b, x, y, r))
+    return f
 
 
 def room_h(boxes):
@@ -367,8 +412,11 @@ def face_bits(i, boxes):
                 continue
             if n.h >= mine:
                 tall.append((nlo, nhi))
-            if n.h == b.h and n.kind != LIFT and b.kind != LIFT:
-                same.append((nlo, nhi))
+            if n.h == b.h and n.kind != LIFT and b.kind not in (LIFT, FLIGHT):
+                same.append((nlo, nhi))     # (a ramp's top edge always: its
+                                            # high end is what closes the
+                                            # slope's columns, HEIGHTS-PLAN
+                                            # 7.4.2, as no neighbour's is)
         wall = v in ((ROOM[0], ROOM[2]) if ax == 0 else (ROOM[1], ROOM[3]))
         if not (wall or covered(lo, hi, tall)):
             bits |= 1 << k
@@ -441,14 +489,34 @@ def arena_tables(w, tag, boxes, start):
         raise SystemExit("arenagen: arena %s starts the player INSIDE a wall "
                          "at %r - every step would collide" % (tag, start))
     height_checks(tag, boxes)
-    for p in ([] if tag in NOPATROL else PATHS):
+    flat = all(b.h >= hmax(boxes) and b.kind == SOLID for b in boxes)
+    for p in ([] if tag in NOPATROL else ARENA_PATHS.get(tag, PATHS)):
         for j in range(len(p)):
             (x0, y0), (x1, y1) = p[j], p[(j + 1) % len(p)]
-            for k in range(33):
-                x, y = x0 + (x1 - x0) * k / 32, y0 + (y1 - y0) * k / 32
-                if inside(x, y, boxes, 12):
+            if flat:
+                for k in range(33):
+                    x, y = x0 + (x1 - x0) * k / 32, y0 + (y1 - y0) * k / 32
+                    if inside(x, y, boxes, 12):
+                        raise SystemExit("arenagen: arena %s: a patrol runs "
+                                         "into a wall near (%d, %d)" % (tag, x, y))
+                continue
+            # HEIGHTS: a dummy stands on the floor under its point (wa_figtick)
+            # and walks SPEED a tick, so each tick's rise is at most a step
+            # and no leg crosses a wall or a lift (which moves)
+            n = max(1, int(math.hypot(x1 - x0, y1 - y0) // SPEED))
+            prev = floor_at(x0, y0, boxes, FRAD)
+            for k in range(n + 1):
+                x, y = x0 + (x1 - x0) * k // n, y0 + (y1 - y0) * k // n
+                if inside(x, y, [b for b in boxes if b.h >= hmax(boxes)
+                                 or b.kind == LIFT], 12):
                     raise SystemExit("arenagen: arena %s: a patrol runs into "
-                                     "a wall near (%d, %d)" % (tag, x, y))
+                                     "a wall or a lift near (%d, %d)" % (tag, x, y))
+                f = floor_at(x, y, boxes, FRAD)
+                if abs(f - prev) > STEPUP:
+                    raise SystemExit("arenagen: arena %s: a patrol steps %d at "
+                                     "(%d, %d) - a walk takes %d" % (tag, f - prev,
+                                                                    x, y, STEPUP))
+                prev = f
     nodes = []
     box_tree(list(range(len(boxes))), nodes, boxes)
     pts = []
@@ -515,6 +583,9 @@ def arena_tables(w, tag, boxes, start):
     for b in boxes:
         w("    dw %d, %d, %d, %d" % b)
     lifts = [b for b in boxes if b.kind == LIFT]
+    if len(lifts) > 1:
+        raise SystemExit("arenagen: arena %s has %d lifts - the sim moves one "
+                         "(HEIGHTS-PLAN 7.4)" % (tag, len(lifts)))
     w(P + "bxh:                         ; per box: height (a lift's at rest),")
     w("                                ; kind, faces (HEIGHTS-PLAN 7.2.1)")
     for i, b in enumerate(boxes):
@@ -572,6 +643,8 @@ def main(out):
     w("WA_NJ equ %d" % NJ)
     w("WA_NFACE equ %d" % NFACE)
     w("WA_SPEED equ %d" % SPEED)
+    w("WA_STEPUP equ %d" % STEPUP)
+    w("WA_FRAD equ %d" % FRAD)
     w("WA_ROOM_X0 equ %d" % ROOM[0])
     w("WA_ROOM_Y0 equ %d" % ROOM[1])
     w("WA_ROOM_X1 equ %d" % ROOM[2])
@@ -586,6 +659,12 @@ def main(out):
     bsp_tables(w)
     # paths: per dummy, a count and per leg (x, y, heading, steps)
     w("WA_NFIG equ %d" % len(PATHS))
+    # an arena's own patrols, as its part carries them (path_block): the
+    # most bytes any takes, which the frame block's ARENA keeps room for
+    w("WA_APATHSZ equ %d" % max([2] + [2 * len(path_block(ARENA_PATHS[t],
+                                                         [bx(b) for b in bs]))
+                                       for t, _, bs, _ in arenas()
+                                       if t in ARENA_PATHS]))
     w("%ifdef WA_TAB_PATHS")
     w("wa_pathtab:")
     for i in range(len(PATHS)):
@@ -631,6 +710,32 @@ def main(out):
         f.write("\n".join(L) + "\n")
 
 
+def path_block(paths, boxes):
+    """An arena's own patrols as its part carries them (HEIGHTS-PLAN 7.4.5):
+    WA_NFIG words, each path's offset in the block, then per path a leg
+    count and per leg (x, y, heading, steps) - the primary's wa_pathN rows,
+    which wa_spawn and wa_figtick walk. -> the block's words"""
+    if len(paths) != len(PATHS):
+        raise SystemExit("arenagen: an arena's own patrols must be %d (WA_NFIG)"
+                         % len(PATHS))
+    words, offs = [], []
+    at = 2 * len(paths)
+    for p in paths:
+        offs.append(at)
+        words.append(len(p))
+        for j, (x, y) in enumerate(p):
+            nx, ny = p[(j + 1) % len(p)]
+            dx, dy = nx - x, ny - y
+            steps = max(1, int(round(math.hypot(dx, dy) / SPEED)))
+            # bit 15 of the heading: the leg leaves the ground somewhere
+            # (wa_figz reads the floor only on such a leg)
+            up = any(floor_at(x + dx * k / steps, y + dy * k / steps,
+                              boxes, FRAD) for k in range(steps + 1))
+            words += [x, y, angle_of(dx, dy) | (0x8000 if up else 0), steps]
+        at = 2 * len(paths) + 2 * len(words)
+    return offs + words
+
+
 def arena_part(n, out):
     """Arena N as an OP_ASSET part of WARENA.O88, assembled at org 0
     (docs/plans/WIREARENA-PARTS-PLAN.md 7.5): wa_arenas' descriptor row at
@@ -656,7 +761,15 @@ def arena_part(n, out):
                                                          P),
          "    dw %sboxes, %d, %sbsp, %d, %d, %d, %sbcol, %d" % (
              P, nb, P, start[0], start[1], start[2], P, nn),
-         "    dw %sbxh, %d, %d, %slifts" % (P, room_h(boxes), hmax(boxes), P)] + T
+         "    dw %sbxh, %d, %d, %slifts" % (P, room_h(boxes), hmax(boxes), P)]
+    pb = path_block(ARENA_PATHS[tag], [bx(b) for b in boxes]) \
+        if tag in ARENA_PATHS else []
+    L += ["    dw %s, %d                ; its own patrols: offset, bytes (0: the "
+          "primary's)" % (P + "paths" if pb else "0", 2 * len(pb))] + T
+    if pb:
+        L.append(P + "paths:")
+        for i in range(0, len(pb), 8):
+            L.append("    dw " + ", ".join(str(v) for v in pb[i:i + 8]))
     with open(out, "w") as f:
         f.write("\n".join(L) + "\n")
 

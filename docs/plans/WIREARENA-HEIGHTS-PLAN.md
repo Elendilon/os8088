@@ -1,7 +1,7 @@
 # WireArena with heights: stairs, platforms and lifts
 
-**STATUS: waves 0 to 2 BUILT** on branch `heights` (section 9); waves 3 to 5
-are the plan. Written first for discussion with the owner, it answers the
+**STATUS: waves 0 to 3 BUILT** (section 9; wave 3 with the owner's revised
+arena, ramps and the one lift, 7.4 and 9.7); waves 4 and 5 are the plan. Written first for discussion with the owner, it answers the
 owner's note of 2026-11-13:
 
 > *"Lets start on stairs, platforms, and moving platforms; with a more
@@ -638,6 +638,9 @@ reach from ~5 m out (down) and ~3 m out (up).
 
 ### 4.1 The layout, in arenagen units (64 a metre; heights above the floor)
 
+*Arena 2 as wave 2 built it. Wave 3 revised it from the owner's sketch:
+7.4.1 is the layout now; the heights here stand.*
+
 The room is unchanged: 0..2048 square, walls 3 m. Nothing stands behind a
 room wall, so the room shuts its columns whatever the eye.
 
@@ -814,7 +817,14 @@ low platform and miss one behind a lip.
 `wa_px`, `wa_py`, `wa_jz` and the floor as the guest has them, and the
 hits.
 
-**Wave 4. The lifts.**
+*As built (9.7):* with ramps for flights, the revised arena, the asymmetric
+pitch, the arena's own patrols and the one lift (wave 4's ride, landed
+here: 7.4.4). The scripted runs are scratch scripts, not suite rows yet.
+
+**Wave 4. The lifts.** *(Its ride landed in wave 3 for the one lift, 7.4.4:
+the lift's height goes G -> R as one ARENA word rather than in FRAME. Left
+for wave 4: dummies on lifts, more than one lift, and the host reference's
+raised lift.)*
 - Lift heights in the FRAME block.
 - The trigger, the rise, the hold and the return.
 - Riding a lift.
@@ -826,7 +836,7 @@ tick, and the renderer's picture of a raised lift against the host
 reference.
 
 **Wave 5. The demo arena complete.**
-- Patrols across the platform.
+- Patrols across the platform. *(Landed in wave 3: 7.4.5.)*
 - The start.
 - A heights play bench: an `H` bench with a fixed busy pose and the tower,
   like P (MULTIPLAYER-FPS-PLAN §16.7).
@@ -1199,6 +1209,180 @@ into the deepest.
   Its tower and platform poses set `wa_feet`, so the raised eye is the
   game's own: no poke.
 
+### 7.4 The contracts for wave 3 (pinned with the code)
+
+Wave 3 also takes the owner's batch of 2026-11-13: one lift, not full
+width; the maze made back into two hallways with no outside corner
+sections; RAMPS instead of stairs, the stepped look kept only as a graphics
+option that costs nothing when off; and any layout or speed suggestions.
+The owner's sketch is "an idea, NOT to scale".
+
+**7.4.1 The revised arena 2** (`tools/arenagen.py`'s `HEIGHTS_BOXES`; 4.1
+stands for the room and the heights, not for the layout).
+
+| box | x | y | h |
+|---|---|---|---|
+| annex fill, south / north (the room's corners west of the open area) | 0..640 | 0..384 / 1664..2048 | 384 |
+| annex front (one face to the open area) | 576..640 | 576..1472 | 384 |
+| annex block, south / north | 128..576 | 576..832 / 1216..1472 | 384 |
+| **jump platform**, in the back room | 384..576 | 960..1088 | **48** |
+| platform | 1088..1408 | 896..1152 | 80 |
+| south ramp (rises N) / north ramp (rises S) | 1184..1312 | 704..896 / 1152..1344 | 0 → 80 |
+| tower | 1856..2048 | 896..1152 | 160 |
+| **the lift**, north of the tower, half its width | 1920..2048 | 1152..1280 | 16 → 160 |
+| pillar, south / north | 1472..1600 | 384..512 / 1536..1664 | 384 |
+
+The annex is one rectangle (x 0..640, y 384..1664) inside the room:
+
+- a hallway runs west along each side of it (y 384..576 and 1472..1664);
+- the corridor along the room's west wall (x 0..128) joins them;
+- the back room (x 128..576, y 832..1216) opens off that corridor, between
+  the blocks, and its east side is the annex front: one face to the open
+  area, two corners, where the old front had three faces and six.
+
+Totals:
+
+| | wave 2 | wave 3 |
+|---|---|---|
+| boxes | 19 | **13** |
+| tree nodes | 37 | 25 |
+| vertices | 70 | 51 |
+| x / y values | 16 / 18 | 14 / 17 |
+
+The start (1024, 480) is clear. The picture is
+`tools/arenagen.py`'s layout plotted from above (9.7.2).
+
+**7.4.2 Ramps.** A box of kind 1 (`FLIGHT`) is a RAMP, kept in the same
+record (7.2.1):
+
+- its top runs from 0 at its low face to its height at the face it rises
+  TOWARD, linearly;
+- its tread count stays in the kind byte, for the stepped look.
+
+The floor on it is `h × num / len` (the sim's `wa_hat`, arenagen's
+`height_at`):
+
+- `len` is its extent along the slope;
+- `num` is how far the square under the walker reaches along it from the
+  low face.
+
+**Drawn** (`wl_flight0`):
+
+- its low face's two corners stand on the floor (the floor's pair);
+- its sides run straight from there to its top;
+- the low face is one edge, its top being its floor edge (`wl_lom`);
+- no treads.
+
+**The T key** sets `wa_treads`, a FRAME byte. The renderer then draws the
+ramp STEPPED, as wave 2 drew a flight: the low face a tread tall, and the
+treads as lines across. Its cost when off is **one byte test per ramp a
+frame**, in `wl_flight0`. Nothing per column or per pass reads it. The walk
+is the ramp either way.
+
+**A ramp's top edge is always drawn, its high end's included.** arenagen
+drops a top edge only where a neighbour of the same height covers it. A
+ramp's high end meets the platform at the platform's height, but it is the
+only edge that closes the slope's columns. Dropped, the platform's face
+behind it showed through the slope (found by `wacheck`, 9.7.4).
+
+arenagen refuses:
+
+- a ramp whose high end meets nothing within a step;
+- a tread count outside 1..15;
+- a tread rise over a step (`STEPUP`: the slope's limit);
+- more than one lift.
+
+**7.4.3 The floor, the step, the jump** (the sim, `wirearena.asm`). On a
+heights arena (`wa_aflat` 0) the player's tick works on three quantities:
+
+- **the floor** under the square (x ± `WA_RAD`, y ± `WA_RAD`): the tallest
+  height of any box it overlaps, a ramp's at the square's highest point on
+  it. `wa_floor` walks a table of the boxes WIDENED by the radius, built
+  once an arena is loaded (`wa_lists`):
+  - every box, for collision;
+  - the low ones, for the player's floor;
+  - the low ones widened by `WA_FRAD`, for a dummy's feet.
+
+  Overlap is then a point inside, four compares against registers.
+- **the feet**: `wa_feet` on the ground; in the air, `wa_feet` is a base and
+  `wa_jz` (8.8) the height above it. `wa_jz` is rebased into `wa_feet`
+  whenever it would go below 0, so a fall from any height stays in range.
+- **the eye**: feet + `WA_EYE` + `wa_jz`, as before.
+
+The rules:
+
+- **A move collides** where the floor is more than `WA_STEPUP` (24) above
+  the feet on the ground, or above the feet at all in the air. So a jump
+  (apex 69) reaches the back room's 48 and not the platform's 80.
+- **On the ground**, the feet follow the floor up (by at most a step,
+  which the collision guarantees) and down a step. Past a step down, they
+  fall.
+- **In the air**, gravity as before. The feet land on the floor they come
+  down onto (descending, at or below it).
+- **The floor is read again** only when the player has moved or stands on
+  the lift.
+
+A flat arena keeps today's collision, jump and landing, unchanged (one byte
+test a call).
+
+**7.4.4 The lift** (3.2, one per arena). The ARENA section carries:
+
+- its record's offset in `wa_bxh`;
+- its rest and raised heights.
+
+The sim moves its height in `wa_bxh`, which `wa_floor` reads, and copies
+that one word into the renderer's `wa_bxh` every frame (`wa_rframe`).
+
+- **Trigger:** standing on it, on the ground, for `WA_LWAIT` = 10 ticks
+  (1/3 s).
+- **Rise and return:** `WA_LSPD` = 5 a tick (1 s for 144).
+- **Hold:** it comes back down after `WA_LHOLD` = 45 ticks (1.5 s) empty.
+- **Riders** follow it by the step rule, since 5 is under a step.
+
+The owner asked for start values shorter than 3.2's; they are constants.
+The renderer draws it as the low box it is at its current height.
+
+**7.4.5 Patrols per arena.** An arena part may carry its own patrols
+(descriptor words 38 and 40: the block's offset and bytes, 0 = the
+primary's `PATHS`). `wa_loadarena` makes the block's offsets into
+addresses (`wa_aptab`, `wa_pptr`).
+
+- **Arena 2's three patrols:**
+  - up the south ramp, across the platform and down the north one;
+  - round the annex's hallways and corridor;
+  - round the tower.
+- **Leg check:** arenagen samples every tick of every leg. No rise or drop
+  may exceed a step, and no leg may cross a wall or the lift.
+- **Climbing legs:** a leg that leaves the ground anywhere carries bit 15
+  in its heading word. `wa_figz` reads the floor only on such a leg. Any
+  other leg is the ground, unread.
+
+**7.4.6 Figures at their floor** (3.3).
+
+- **The record:**
+  - `F_Z` is at 18, among the bytes copied G → R every frame
+    (`WA_FIGHEAD` 20);
+  - the rest moves up two, so `F_SIZE` is 42;
+  - `WR_ABI` is 3.
+- **Drawing:** the renderer draws a figure with its own eye, `wa_feye`
+  = `wa_eye` − `F_Z`. Every joint and the far marker read it.
+- **The narrow joint path** is taken only for `wa_feye` ≥ 0. Its bound,
+  the camera eye's, covers any smaller eye.
+
+**7.4.7 The pitch**: `WA_PITCHU` 112 up, `WA_PITCHD` 290 down
+(`waconst.inc`), on every arena (7.1.1, 7.1.2).
+
+**7.4.8 The frame block's ARENA section** grows (R writes, R → G at
+`wa_loadarena`):
+
+- `wa_aflat`;
+- `wa_ahmax`;
+- `wa_bxh`, moved out of the renderer's BSS;
+- the lift's three words;
+- the patrol block (`wa_apn`, `wa_apath`, `WA_APATHSZ`).
+
+FRAME's spare byte became `wa_treads`.
+
 ## 8. The instruments behind the numbers
 
 Wave 0 made them tools. The working scripts first kept in `tools/wamodel/`
@@ -1224,7 +1408,7 @@ are gone, their substance carried over.
 
 ---
 
-## 9. As built: waves 0 to 2 (2026-11-13, branch `heights` from `20d0cf89`)
+## 9. As built: waves 0 to 3 (2026-11-13, branches `heights` from `20d0cf89` and `wave3`)
 
 ### 9.1 Wave 0: the host tools and the demo arena
 
@@ -1649,22 +1833,221 @@ views (A, B, D) are still ~30% short of it.
 - A cheaper whole-box cull would pay if it ran only for boxes spanning many
   columns.
 
+### 9.7 Wave 3: walking on heights, ramps, the revised arena (2026-11-13, branch `wave3` from `a36d061f`)
+
+Built to 7.4. Every measurement is MartyPC `os8088_5150_cga`; the scripts
+are in the session's scratch directory, `w3/`.
+
+**9.7.1 What landed.**
+
+- **The arena:** the revised arena 2 (13 boxes, 7.4.1), with its own
+  patrols (7.4.5).
+- **Ramps** for flights, drawn and walked (7.4.2):
+  - the stepped look is the T option, one byte test per ramp a frame when
+    off;
+  - a ramp's high-end top edge is always drawn.
+- **The sim** (7.4.3):
+  - the floor;
+  - the step up and down;
+  - the jump that reaches the back room's 48 and not the platform's 80;
+  - the fall, the landing, the eye following the floor.
+- **The one lift** (7.4.4), ridden: wave 4's ride.
+- **Figures at their floor**: `F_Z`, `wa_feye` (7.4.6).
+- **The pitch** up 112, down 290 (7.4.7).
+- **Tools:**
+  - `wacheck --arena 2` casts ramps as slopes and pitches across the whole
+    clamp; `--treads 1` checks the stepped look for faults;
+  - `wamodel` prices ramps (no treads) and the new poses;
+  - arenagen checks every patrol tick for steps.
+
+**9.7.2 The layout** is plotted from arenagen's own records, with the
+patrols, the start and the bench poses: `w3/shots/layout.png`.
+
+**9.7.3 Walking, jumping, the lift, the pistol** (scripted held keys on the
+game's own sim, `walk.py`, sampled every 0.25 s or every tick; `shoot.py`
+for the pistol):
+
+| run | what the guest's state did |
+|---|---|
+| W from (1248, 560) north | feet 0 → 15 → 48 → 80 up the south ramp, across the platform, down the north ramp to 0; eye = feet + 102 throughout |
+| W into the jump platform | stopped at x 360 (its face less the radius) |
+| W + Space at it | rose (jz 13,265 → 17,685), landed on it: feet 48, eye 150 |
+| W + Space at the platform | could not get on (apex 69 < 80); the in-air collision has no step allowance |
+| W off the platform's east edge | fell 80 → 0 in ~0.5 s, the feet rebased each tick |
+| onto the lift from the north, standing | after 1/3 s it rose 16 → 160 in ~1 s with the feet on it; walked south onto the tower at 160; the lift went back to 16 after 1.5 s empty |
+| W off the tower | fell 160 → 0 in ~0.75 s |
+| shot over the platform at a dummy beyond it (pitch 0) | **hit** |
+| shot into the platform's lip at the same dummy (pitch −13) | **miss**; the same pitch with no lip between: **hit** |
+
+**The see-but-not-hit check of 7.1.1, from both ends:**
+
+| from | dummy | result |
+|---|---|---|
+| the tower's lip, pitch −290 (eye 262) | on the floor, 1.25 m from the player | shows at the bottom of the screen, **miss** |
+| the tower's lip, pitch −290 | on the floor, 1.9 m | **hit** |
+| the floor 1.2 m from the tower, pitch +112 | 0.94 m back on the tower (`F_Z` 160) | shows above the crosshair, **miss** |
+| the floor 1.9 m out, pitch +112 | 0.5 m back on the tower | **hit** |
+
+Screenshots: `w3/shots/dg-sheet-40.png`, `dg-sheet-80.png`.
+
+**9.7.4 Correctness.**
+
+- **The flat arenas:** the posed sets (720 frames, both arenas, both
+  widths, three fields of view) are byte-identical to `a36d061f`.
+- **`wacheck --arena 2`**, poses across the whole pitch clamp, 0 divide
+  faults everywhere:
+
+  | run | columns off | rate |
+  |---|---|---|
+  | 40 columns, 60 poses | 28 of 2,340 | 1.2% |
+  | 80 columns, 40 poses | 13 of 3,060 | 0.4% |
+  | stepped (T), 20 poses | 30 of 767 | (expected: the reference is the ramp) |
+  | today's arena | 6 poses in 30, as before | — |
+
+  - The columns off are single columns at a near corner, as on today's
+    arena.
+  - Ramps are exact, so wave 2's flight-side exemption counts nothing now.
+  - `wacheck` found one real error on the way: the platform's face showing
+    through a ramp from above, fixed by drawing the ramp's high-end top
+    edge (7.4.2).
+- **Every divide the wave adds is proved:**
+  - `wa_hat`: the quotient is at most the ramp's height, and the divisor is
+    its extent, never 0;
+  - stepped `wl_flight0`: tread count 1..15, which arenagen enforces;
+  - `wl_going`: guarded by at least 2 treads.
+
+**9.7.5 Speed.**
+
+| | a36d061f | wave 3 |
+|---|---|---|
+| P bench, 40 / 80 columns | 18.9 / 15.7 (MS 52.9 / 63.5) | 18.8 / 15.6 (MS 53.1 / 63.7) |
+| B bench, full / sparse | 33.0 / 36.2 | 33.0 / 36.2 |
+
+The flat cost is ~0.2 ms a frame:
+
+- the dummies' F_Z through the renderer: ~200 clk a frame, from the
+  figure-pose deltas without a timer tick in them;
+- the sim's flat tests: +180 clk a tick (4,472 against 4,291).
+
+The heights bench, measured against `wamodel --arena 2 --bench`:
+
+| pose | 40, wave 2 arena (9.6) | **40, wave 3** | 40, model | 80, wave 2 arena | **80, wave 3** | 80, model |
+|---|---|---|---|---|---|---|
+| A, the busiest floor | 10.4 | **12.8** | 17.0 | 8.3 | **10.3** | 12.9 |
+| B, the open floor across the platform | 9.1 | **13.7** | 16.2 | 7.0 | **10.0** | 11.9 |
+| C, on the platform | 20.4 | **25.9** | 23.6 | 16.9 | **20.5** | 18.9 |
+| D, on the tower | 9.0 | **11.8** | 15.1 | 7.2 | **9.2** | 11.5 |
+| E, in a hallway | 24.5 | **25.0** | 25.1 | 19.6 | **20.5** | 20.1 |
+
+E moved: the old hallway is gone, and E is now in the annex's north
+hallway looking west.
+
+- **The model** is right on C and E and 15–25% optimistic on A, B and D, as
+  in 9.6.
+- **The revised arena** is worth 23–51% on the busy views.
+- **The sim nearly undid it.** A naive floor walk over every box cost
+  **14,267 clk a tick** at pose A, against 5,008 on a flat arena. Three
+  changes brought it to **5,572**:
+  - the widened tables;
+  - the floor read only for low boxes;
+  - a dummy's floor read only on a leg that leaves the ground, and the
+    player's only when they moved.
+
+  At that cost the sim is ~1.6 ms of a frame at 12 fps (the HUD's MS less
+  R and P).
+
+**9.7.6 Bytes.**
+
+| | a36d061f | wave 3 |
+|---|---|---|
+| renderer part | 54,242 (image 22,500, BSS 31,742) | **53,863** (image 22,755, BSS 31,108) |
+| game | image 7,319, BSS 603 | **image 8,278, BSS 1,241** |
+| arena parts 0 / 1 / 2 | 534 / 261 / 1,032 | 538 / 265 / **848** |
+| WARENA.O88 on disk | 20,982 | 21,695 |
+
+- **The renderer's BSS shrinks** because its tables follow the largest
+  arena, now 13 boxes, not 19.
+- **The game's image** carries the sim's floor, collision, jump, lift and
+  patrol code, +959.
+- **The game's BSS** carries the three floor tables (480 bytes) and
+  ARENA's additions.
+
+**9.7.7 Screenshots** (the session's scratch, `w3/shots/`, each at `-40`
+and `-80`; `w3-sheet-40.png` and `w3-sheet-80.png` stack them):
+
+| view | file |
+|---|---|
+| the platform and its ramps, from the floor | `w3-platform-ramps` |
+| the same from the side | `w3-platform-side` |
+| the same with the stepped option (T) | `w3-platform-treads` |
+| the annex's south hallway, looking in | `w3-hallway-south` |
+| the annex from the open area's north-east | `w3-annex-front` |
+| the corridor along the west wall | `w3-corridor` |
+| the back room's jump platform, from the corridor | `w3-backroom-jump` |
+| the tower and the lift | `w3-tower-lift` |
+| from the tower, looking down | `w3-from-tower` |
+| walking up the south ramp, four frames of the walk | `ramp-sheet.png`, `ramp80-sheet.png` |
+| the see-but-not-hit check | `dg-sheet-40.png`, `dg-sheet-80.png` |
+| the layout from above | `layout.png` |
+
+**9.7.8 Suggestions for the owner** (Forecast, `wamodel`, bench poses at 40
+columns; the model is 15–25% optimistic on the busy poses, so read the
+differences, not the numbers):
+
+| layout | A | B | C | D | E |
+|---|---|---|---|---|---|
+| as built | 17.0 | 16.2 | 23.6 | 15.1 | 25.1 |
+| no pillars | **18.7** | 16.2 | 23.8 | 15.2 | 25.3 |
+| ramps as wide as the platform (sharing its corners) | 16.5 | 16.1 | 22.7 | 14.7 | 25.1 |
+| a tall pillar between the platform and the tower | 15.7 | 16.1 | 23.5 | 15.4 | 25.0 |
+| the pillars moved to block the long diagonals | 15.7 | 16.2 | 23.6 | 13.2 | 25.1 |
+
+- **In this renderer a box costs more than the view it hides,** unless it
+  closes the WHOLE view. A partly hidden box is still set up and walked.
+  So the cheap layout is the one with fewer boxes in the cone: **taking
+  the two pillars out** is the one change that pays (+10% at A).
+- **Wider ramps** cost more columns than their shared corners save.
+- **Code levers still open** (9.6's): posts (a ramp's low corners are
+  zero-length posts still set up), a culled pass's ~700 clk, and runs of
+  shut columns in `FLATPASS`.
+- **The back room** might want a door rather than an open alcove for feel
+  (7.4.1 dropped the door's two jamb boxes as "corners that buy nothing").
+  Seen only from the corridor, they would cost nothing in the open area.
+
+**9.7.9 What the plan got wrong.**
+
+1. **Section 3 did not price the sim.** A floor read over every box made a
+   heights tick 2.9 times a flat one. It needed the tables, the low-box
+   list, the leg flags and the cached player floor (9.7.5).
+2. **3.1's step-up applied in the air** would let a jump (69) reach the
+   platform (80): 69 + 24 > 80. In the air a move needs the feet above the
+   floor at all.
+3. **7.2.1's top-edge rule** (dropped where a same-height neighbour covers
+   it) is wrong for a ramp's high end (7.4.2).
+4. **The patrols could not wait for wave 5:** dummies standing at their
+   floor need patrols that walk the heights.
+5. **3.2's lift heights in FRAME:** one ARENA word, copied each frame,
+   sufficed.
+6. **The forecast** stays optimistic on the busy views (9.7.5). C and E
+   are right, now on the new arena too.
+
 ### 9.3 Open, for the owner and the next waves
 
-1. **The symmetric dead ground** is decided (7.1.1). From wave 3 the pitch
-   limit is up 112 and down 290: 1.4 m of reach from both ends.
+1. **The symmetric dead ground** is decided (7.1.1) and built in wave 3:
+   up 112, down 290 (7.4.7), the bands as derived (9.7.3). The owner
+   judges the limits by play; they are two constants.
 
    The question as it stood after wave 1, for the record:
    - at ±112 the screen's reach was not symmetric: 3.6 m from the tower,
      1.4 m from the floor;
    - two rules were offered: (a) the eye-to-eye angle, and (b) the lip and
      depth laid out to hide the gap.
-2. **The heights arena's rate** where many low boxes are in view: 7.7–8.7
-   fps at 40 columns (9.4.2), below section 2.4's forecast. Wave 5's
-   levers, 9.4.7.
+2. **The heights arena's rate:** 11.8–25.9 fps at 40 columns on the
+   revised arena (9.7.5). The busy views are still under the forecast.
+   9.7.8 has the owner's options; the pillars are the cheap one.
 3. **The room corners' views** (9.1), beside the tower's.
-4. **Flights as one object**: the owner's call from the wave-2 screenshots
-   (9.4.6).
+4. **Flights as one object:** settled as ramps (7.1.2, 7.4.2). The stepped
+   look is the T option.
 5. **Any package's divide fault, on an IBM ROM, kills the machine's IRQs**
    (9.5). The shipped kernels leave int 0 to the BIOS. CLAUDE.md's rule
    keeps the divide-fault panel behind a knob "until a field report says it
@@ -1673,3 +2056,7 @@ views (A, B, D) are still ~30% short of it.
 
    What the kernel does about it is the owner's call; it is not this
    plan's.
+6. **Wave 4's remainder** (6): dummies on lifts, more than one lift, the
+   host reference's raised lift. The walking runs of 9.7.3 are scratch
+   scripts; as suite rows they belong in `soak`
+   (docs/WRITING-TESTS.md).

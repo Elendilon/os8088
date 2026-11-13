@@ -61,6 +61,8 @@ CF = dict(col_clip=120,       # a visited column of a tall face: the clip
           ehid=60)            # ...a column of it, hidden or shut
 # --- the P bench measured at 20d0cf89 (MS, a frame), to scale model frames
 MEASURED = {40: 52.7, 80: 63.3}
+TREADS = False                # a ramp drawn stepped (the T option, HEIGHTS-
+                              # PLAN 7.4.2): off, the default
 BUDGET_BOXES = 20             # HEIGHTS-PLAN 4.2, as built (7.3): the demo
 BUDGET_EDGES = 40             # arena keeps 19 and 36 at its worst poses
 
@@ -251,7 +253,7 @@ def render(ar, v, heights=True, outline=True):
         if cheap:
             st["lowboxes"] += 1
             clk += CF["lowbox"] - C["leaf_in"] + 600
-            if b.kind == A.FLIGHT:      # a flight: its treads, as extra edges
+            if b.kind == A.FLIGHT and TREADS:   # stepped: treads as extra edges
                 (x1, z1), (x2, z2) = v.cam((b[0], b[1])), v.cam((b[2], b[1]))
                 if z1 > NEAR and z2 > NEAR:
                     ca = v.c16 + x1 * v.k16 / z1
@@ -261,7 +263,7 @@ def render(ar, v, heights=True, outline=True):
                     st["edges"] += b.treads
                     st["ecols"] += b.treads * ncol
                     clk += b.treads * (CF["edge"] + CF["ecol"] * ncol)
-        hh = h if b.kind != A.FLIGHT else h * 5 // 8   # (a flight's mean)
+        hh = h if b.kind != A.FLIGHT else h // 2   # (a ramp's mean)
         for k in fr[:2]:
             ok = span(*fs[k], hh, "front", tall, cheap)
             if cheap:
@@ -328,11 +330,11 @@ def pose_sets(ar, W=40, fov=75):
         S["on the platform, a jump's top"] = yaws(1248, 1024, 80 + EYE + A.jump_apex(), W=W, fov=fov)
         S["on the tower, west +-45 deg"] = yaws(1952, 1024, 160 + EYE, 9, 0, W, fov, 384, 256)
         S["on the tower, looking down"] = yaws(1952, 1024, 160 + EYE, 9, -60, W, fov, 384, 256)
-        S["on a raised lift, west"] = yaws(1952, 768, 160 + EYE, 9, -30, W, fov, 384, 256)
-        S["hallway, 4 places x 16 headings"] = sum(
+        S["on the raised lift, west"] = yaws(1984, 1216, 160 + EYE, 9, -30, W, fov, 384, 256)
+        S["hallways and corridor, 4 places x 16 headings"] = sum(
             [yaws(x, y, EYE, W=W, fov=fov) for (x, y) in
-             [(576, 1024), (320, 1024), (448, 640), (448, 1408)]], [])
-        S["back room"] = yaws(96, 1200, EYE, W=W, fov=fov)
+             [(600, 480), (300, 480), (64, 1000), (600, 1568)]], [])
+        S["back room"] = yaws(250, 1024, EYE, W=W, fov=fov)
     else:
         if ar.tag == "a0":
             S["P bench"] = pbench(W)
@@ -348,7 +350,7 @@ def pose_sets(ar, W=40, fov=75):
 # wa_pbposes): x, y, angle (1024ths), base pitch, the floor under the eye
 BENCH = [("A, busiest floor", 800, 400, 160, 0, 0), ("B, open floor", 1600, 1024, 512, 0, 0),
          ("C, on the platform", 1248, 1024, 512, 0, 80), ("D, on the tower", 1952, 1024, 512, -40, 160),
-         ("E, hallway", 576, 1024, 256, 0, 0)]
+         ("E, hallway", 600, 1568, 512, 0, 0)]
 
 
 def bench_sets(W=40):
