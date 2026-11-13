@@ -256809,6 +256809,1044 @@ beam, a lane entering stale - which `MILL`'s route does not give.
 phys 143, replay 58, exit 96, mega 25, wheel 57 (course 79 and assets 0.5
 as before).
 
+### 128.13 Wave 3b: the performance round
+
+Wave 3b is the optimisation round wave 3 left, in the spirit of wave 0b's
+(128.9). It adds no obstacle and keeps every byte the card holds what
+128.2 - 128.4 and 128.12.4.4 say it holds. It changes two things a player
+can see: the camera's heavy rule keeps only one clause of its first level
+(128.13.6), and the lift's box can be drawn one frame late on a crowded
+frame (128.13.4.3: the slab alone a line behind for one frame, where wave 3
+missed a refresh of the whole screen). The owner's decision (2026-11-13):
+"do the performance wave next, then move on past sound". The plan's story
+list is docs/plans/BOUNCE-BONANZA-PLAN.md section 11, wave 3b; it closes
+wave 3's open stories 3.2, 3.3, 3.8, 3.12 and 3.13.
+
+**Sound is another session's** (plan section 10, wave 4's speaker story,
+which takes a later 128.N). This section designs no sound. It leaves a
+stated budget for one on each card, names the place a sound may hook and
+what the engine asks of anything that runs elsewhere (128.13.10), and
+measures this round's targets with that budget SPENT, through a harness pad
+at the hook (`bz_spad`).
+
+**What does not change.** 128.2's ring and its rules; 128.12.4.4's order
+(rules 0 - 5), except that a commit's writes inside its own span are no
+longer in raster order (128.13.5: the beam bounds the whole span, never the
+order inside it); physics (128.10.7, 128.11.8, 128.12.6) - the step stays
+integer-exact with `bbcourse.Physics` and a `BZR1` log replays to the same
+state at every step (128.13.8 changes the step's CODE, not one result); the
+four courses' parts, byte for byte, identity words included; the
+occluder rule; at most FOUR boxes a frame; the wheel's credit, beam passes,
+LEAD, trim, promotion and step clock (128.12.5) but for the commit's writer,
+its preparation, its cost model and the walk's skip (128.13.5.3); kern_mega's rule (128.12.12: no
+`PKG_MEGA` arm); kern_small's refusal. No kernel byte, no `OSAPI_*` slot,
+no driver. The package stays `local` in `apps/RETIRED.txt`.
+
+**Wave 3's hand-overs (128.12.18 and the verifier), and what 3b does with
+each:**
+
+| hand-over | wave 3b |
+|---|---|
+| `MILL`'s lift stretch: 111 CGA and 13 Hercules misses; the ride's line-change frames 120% and 104% of a refresh (predicted 94% and 79%, O30); the lift's box redrawn whole | MEASURED where those frames' clocks go (128.13.3.1, 128.13.3.4). The RIDE (a ball the lift carries): two overlapping boxes, each composing the slab AND the ball, are 59k of a 96k frame; **the RIDE BOX** composes them ONCE, in one box of up to 32 lines (128.13.4.1). The ball BESIDE the lift (what `MILL`'s benchmark does): the slab's own box and the ball's, about 71k on both cards on this round's camera rule, no layer drawn twice; this round takes 6 - 7k off it (the box writer's whole-row path, the walk's skip), which leaves the CGA's tail over the refresh - REPORTED, with O33 the lever for the owner (128.13.4.5). The platform's box **waits one frame** on a crowded frame (128.13.4.3). WireBall's edge strips are taken where they apply, and the reason they do not apply to the slab's own pixels is written down (128.13.4.2) |
+| a rotor commit 13.4k clk on the CGA (9.2k predicted) and about 7.2k to prepare it | MEASURED part by part (128.13.3.2): the raster-order lane writer is 88% of the timed span, and the preparation's record reads, `MUL`s and `DIV` 3.2k of it. The commit becomes ONE column-major pass that stores the map's words and writes the card from the pose map (128.13.5.1), about 7.2k on the CGA against the 12.2k its spans measured; the preparation reads per-lane tables (128.13.5.2), about 5.3k |
+| `bonanzawheel` check (6) fails on the CGA: no commit lands on the corner's diagonal step (`bz_tw` 79 - 98k clk after the rise) | MEASURED part by part (128.13.3.4): the step frame began 16.5k after the rise (its predecessor's two ball boxes written after it) and took TWO rows before the wait. The corner leg is rebuilt on a LIGHT diagonal step - a held frame before it, one row (128.13.7 item 5): `bz_tw` about 57 - 60k, a post's preparation and commit about 9.3k, against the 73.1k deadline |
+| `TRIAL`'s heavy rule made misses worse: 14 / 9 against wave 2's 8 / 2 (O28) | MEASURED on wave 3's own build, the rule clause by clause (128.13.3.3, 128.13.3.4): level 1's occluder-pass and two-box clauses hurt `TRIAL` on both cards and help nothing on `MILL`; its slab-near-edge clause is what gives the Hercules' `MILL` its gain, and it also cuts the CGA's `MILL` misses. **Level 1 keeps only the slab-near-edge clause; level 2 stays** (128.13.6). `TRIAL` has no slab, so its camera is the no-rule camera. O28 is answered by the measurement, not by easing the ramp |
+| 6 of 51 red arms do not go red at their own check | each gets a scene or a check that puts its case in front of it (128.13.7) |
+| image 23,227 bytes against 17,900 - 18,800 predicted; bss 6,542; `BONANZA.O88` 68,235 | the step's two instances of its wall and floor macros become one (about -530, from the listing's spans), level 1's two clauses go (about -25), the raster lane writer goes (-323) against the new pass's +260 (128.13.8): about -210 net, **about 23,000 PREDICTED**; 128.12.10's prediction is retired and this one stated |
+| `bbcourse.Heavy` does not mirror the promotion; no README entry; stale "PREDICTED" text in seven `tests/suite.py` descriptions; unused locals in `tools/bbcourse.py` | 128.13.9 |
+| `BENCH` busy about 53 - 55% on the CGA; the box compose and the card-bound writers | the box writer's whole-row path for 3- and 4-word boxes (128.13.4.4, about -2.5k a `BENCH` frame), the walk's skip (128.13.5.3): priced, and the headroom stated for sound (128.13.10) |
+
+#### 128.13.1 The decisions, in one table
+
+| question | wave 3b's answer | why |
+|---|---|---|
+| the lift's line-change frame with the ball riding | when the platform's contact group and the ball's group fit 4 words x 32 lines between them they are ONE box - the RIDE BOX - composed once (the course, the slab under, the shadow, the ball, the occluders, the slab over) and written once (128.13.4.1) | MEASURED: two boxes each laying the slab (14.7k between them) and each the ball's sprite (11.8k), their overlap filled and written twice, is the bulk of the 96k frame |
+| the lift's line-change frame with the ball beside | the slab's own box and the ball's, each written by the whole-row path; the CGA's tail over the refresh is REPORTED, not asserted, and O33 (the slab on even lines) is the owner's lever (128.13.4.5) | MEASURED (128.13.3.4): 71.5k mean, 86.3k at the 95th percentile on the CGA; the slab's box is a stippled diamond over the course and has no layer to merge |
+| WireBall's edge strips | taken for what they are - "redraw only what changed" - which the platform's box already is (its drawn and its true footprints, nothing else); NOT taken as "keep the overlap, paint the end strips": the slab is a stippled, outlined diamond whose every line changes when it moves one line (128.13.4.2) | a solid paddle is the same picture at every line of its overlap; the slab is not, and anchoring its stipple to the world would make its texture slide over it |
+| a crowded frame with the lift's line changing | decided in `bz_props`, before the camera: the platform's box WAITS one frame - never two running, never under a ball it carries, never as its footprint leaves the window - when the ball's and the shadow's groups are two boxes; a post lighting on such a frame is the contact group and lights on its kick's frame (128.13.4.3) | the box can wait now: a buffer holds 32 lines, and its catch-up rectangle after one waited frame is at most 18 + 12 = 30 lines (the review's M1 was a 24-line buffer); a waited frame shows the slab a line late for one frame where a frame of three boxes and the slab misses a refresh of the whole screen |
+| the box buffers | four, each `BZ_BOXW` words by **32** lines (`BZ_BOXL`, +256 bytes of bss); the platform's merge with the ball's group is limited by `BZ_BOXL`, every other union by `BZ_BOXH` (24) | the ride box and the waited slab need the height; nothing else changes its layout, so `BENCH`'s boxes are wave 3's |
+| the box writer | a whole-row path for a 3- or 4-word box with no overlap band: a card row's lines by unrolled `movsw` with the bank step folded in, the ring's end tested once a card row (128.13.4.4) | MEASURED 490 clk a 4-word CGA line against the row writer's 284 for the same bytes: about 200 a line is the loop's, not the card's |
+| the commit's writer | ONE column-major pass from the POSE MAP: a block's pose word read once (through DS, `[ds:bp]`), stored into the map (`[bx]`) and its 8 lines written by `bz_col`'s unrolled row macros; the uncovered cells' map words in the same span, priced (128.13.5.1) | MEASURED: the raster writer pays about 330 clk a card row of loop and re-reads a block's map word on every one of its card rows; a commit is bounded by the beam as a whole span (AHEAD and BEHIND), so its inner order is free |
+| the commit's cost model | `cost = warr + (words x (wcw + lines x wlw)) >> 4 + BZ_WUC x uncovered (+ BZ_WRB)`, `bz_wcw` replacing `bz_wll`, calibrated by the same three spans (128.13.5.2) | the column-major pass has a per-column set-up and no per-line one; the uncovered cells are a cost no calibration rectangle has |
+| the preparation | per-lane tables filled once at `bz_pread`; a commit of a whole lane priced from a per-lane table filled after the calibration; `x 100 / trim` skipped at 100 (128.13.5.2) | MEASURED: the record reads with their `MUL` (1.05k), the pose's `MUL` (0.33k) and the cost's three `MUL`s and `DIV` (1.8k) every preparation |
+| the walk | a rotor whose drawn pose is its true one is skipped until its next change step (`bz_lnext`), a post DRAWN DARK with no lit frames and no unseen kick likewise (128.13.5.3) | MEASURED 4.4 - 5.5k a `MILL` frame; a rotor changes pose once in 8 steps |
+| `TRIAL`'s heavy rule (O28) and level 1 | level 1 keeps its slab-near-edge clause and loses the occluder-pass and two-box clauses; level 2 kept (128.13.6) | MEASURED (128.13.3.4): on `MILL` that rule misses 81 (CGA) and 16 / 18 (Hercules) against the full rule's 105 - 107 and 14, level 2 alone's 102 and 28, and no rule's 92 and 45; `TRIAL` has no slab, so it gets no rule's 9 / 1 |
+| the red arms | `defer`: a DEFER scene with the post really drawn lit; `nobeam`: a BEAM sweep keyed to due frames; `alias`: the light corner step's commit; `lanestale`: a STALE scene; `corner`: a light diagonal step; `shiftmap`: case 3's own fake-shift-release check (128.13.7) | each case put in front of its own check |
+| the image | the step's macros in one instance; level 1's two clauses gone; the raster lane writer gone (128.13.8) | bytes, each priced from the listing |
+| sound | a reserve of **2,048 clk a frame** (512 PIT counts) on each card, spent by a harness pad at the hook in the target legs; one hook (H1, after the LEAD) and the event counters physics already keeps; what the engine asks of a sound that runs anywhere else (128.13.10) | the other session designs the sound; this round leaves it the room and the constraints |
+| kern_mega | no arm: the pass reads the pose maps and stores the map's words through DS, the course part's own selector, and writes the card through the bracket's ES; the buffers are bss (128.13.11) | wave 1's - 3's rules |
+
+#### 128.13.2 What changes in the earlier subsections
+
+Each row names the sentence that changes; the new text is the subsection
+named, which is binding, and the old sentence is superseded.
+
+| subsection | the sentence | becomes |
+|---|---|---|
+| 128.11.10.1, 128.12.4.3 | "it merges with the ball group when their union fits `BZ_BOXW` x `BZ_BOXH`" (the contact group) | the PLATFORM's contact group merges when the union fits `BZ_BOXW` x `BZ_BOXL` (32 lines): the ride box (128.13.4.1); a contact LANE's merge keeps `BZ_BOXH` |
+| 128.9 item 1, 128.11.10.1 | `BZ_BOXB` is `BZ_BOXW` x 2 x `BZ_BOXH` | `BZ_BOXW` x 2 x `BZ_BOXL` (32 lines, 256 bytes); `BZ_BOXH` stays 24 as the union limit of every group but the platform's |
+| 128.11.10.1 (which amended 128.7's "TWO of" the box buffers) | "`bz_boxbuf` four buffers of `BZ_BOXB` (192) bytes: **768 bytes of bss**" | four buffers of 256 bytes, **1,024 bytes of bss** (+256); their first 512 still hold `BZ_HTAB` between a Hercules launch and the bracket |
+| 128.12.4.3, 128.12.5.2 | "the PLATFORM's box ... is never deferred"; "**It never waits** (the review's M1)" | it WAITS one frame on a crowded frame, never two running, never under a ball it carries, never as its footprint leaves the window (128.13.4.3) |
+| 128.12.4.3 (the second bullet), 128.12.17 (M1's row) | a post LIGHTING with the platform's box due: "when the frame has no room for both the post yields that frame and lights the frame after (the box cannot wait ...)"; M1's "with no room the POST waits a frame" | on a crowded frame (the ball's and the shadow's groups two boxes) the POST lights on its kick's frame and the slab's box waits; the post yields only when the box cannot wait (it waited the frame before, it carries the ball, or its footprint is leaving the window) (128.13.4.3) |
+| 128.12.4.6 (the bounds table) | "a lift's `v` ... its drawn and true footprints stay one box at `BZ_STEPS` (18 + 6 lines)" | the same bound; its reason now also covers one waited frame: 18 + 2 x 6 = 30 lines, within `BZ_BOXL` (128.13.4.3) |
+| 128.12.4.6 (the bounds table) | "a lift's shaft and a WINDMILL's rotor in one window: never - a must-draw rotor and the platform's box are the two contact groups that cannot wait" | the same bound; its reason is now that a must-draw rotor cannot wait and the platform's box would then have to (128.13.4.3 keeps a carrying box from waiting), and the tool's check keeps them apart |
+| 128.12.4.2, 128.12.4.4 rule 1a, 128.12.5.3 | a commit: "the map's words, then the lane's cells ... from the map, by the lane writer in raster order"; "the lane writer (`bz_lwrite`) ... a card row at a time" | ONE column-major pass from the pose map, the map's words stored as it reads them and the uncovered cells' after (128.13.5.1); which cells it writes is unchanged (rule 1a, `bz_lclip`) |
+| 128.12.5.4 | `bz_wll`, `cost = bz_warr + (lines x (bz_wll + words x bz_wlw)) >> 4` and its three formulas; `BZ_WMW` | `bz_wcw`, `cost = bz_warr + (words x (bz_wcw + lines x bz_wlw)) >> 4` plus `BZ_WUC` a cell no rectangle covers (128.13.5.2) |
+| 128.12.5.3 | `BZ_WPRP` 1,900 counts; "its descriptor, source, cells and `cost'` (`bz_wprep`, about 3.9k clk raw)" | the descriptor from per-lane tables; `BZ_WPRP` from the build's MEASURED preparation (128.13.5.2) |
+| 128.12.5.2 | "For each lane in the slice:" steps 0 - 4 every frame | a lane whose next change is after this frame's last step and which is drawn at its true pose with nothing pending is skipped (128.13.5.3) |
+| 128.12.7 | "else **level 1**, at most ONE row and NO column, when the frame runs the occluder pass ..., draws the ball's group as TWO boxes ..., or shows the slab within two char rows ..." | level 1 is the third clause alone: the slab within two char rows of the window's edge (128.13.6); level 2 and its edge clause stand |
+| 128.12.10 (`bz_step`) | "the macros' second instance (about 700, the price of a no-prop path that runs wave 2's instructions exactly)" | one instance (128.13.8) |
+| 128.10.9, 128.11.10.3 | the box writer's lines by `rep movsw` | the whole-row path for a 3- or 4-word box (128.13.4.4) |
+| 128.12.13.2 | the rows, their legs and red arms; `bonanzaperf`'s A/B against `848ade16` | 128.13.12: the A/B is against wave 3, `e781df53` |
+| 128.12.14 | O28, O30 | answered (128.13.6, 128.13.4); 128.13.13 |
+
+#### 128.13.3 The measurements this round was designed from (MEASURED)
+
+Scratch scripts, not rows, and not re-taken: the final pass's rows measure
+the result (CLAUDE.md, Testing). Each ran against `e781df53`'s build
+(`build/bonanza360.img`, `build/os8088-360.img`) on MartyPC's
+`os8088_5150_cga_gla` and `os8088_5150_herc_gla`, one boot a card, with
+LOGGED breakpoints only (MartyPC notes the cycle and runs on, so they cost
+the guest nothing). They are not in the tree; what follows is enough to
+take any of them again.
+
+- **The breakpoints.** The frame marks (`bz_t0`, `bz_ts`, `bz_tr`, `bz_tw`,
+  `bz_tv`, `bz_tf`, `bz_tb`, `bz_tc`, `bz_presented`), and for 128.13.3.1
+  22 routine entries besides: `bz_step`, `bz_foot`, `bz_props`,
+  `bz_camera`, `bz_mkboxes`, `bz_boxc`, `bz_pblit`, `bz_blit`, `bz_occ`,
+  `bz_pover`, `bz_boxw`, `bz_rows`, `bz_vr`, `bz_flip`, `bz_lead`,
+  `bz_cslab`, `bz_csync`, `bz_wheel`, `bz_col`, `bz_hvcam`, `bz_pstrip`,
+  `bz_povr`. For 128.13.3.2, the call-return points inside `bz_wcore`
+  (after its calls to `bz_lmap`, `bz_lwrite` and `bz_clk_sample`) and
+  `bz_wprep` (after `bz_ldesc`, `bz_lsrcp`, `bz_lclip`, `bz_lcost`), read
+  off `build/bonanza.lst`.
+- **The attribution.** The interval between two consecutive logged events
+  is charged to the event that OPENS it; a frame runs from one
+  `bz_presented` to the next. The parts and the busy time are
+  `tests/bonanza_perf.py`'s `frames_of` exactly (busy: the period less the
+  retrace wait and the wheel), and a frame is a MISS when its period passes
+  1.5 refreshes.
+- **The scenarios.** 128.13.3.1: `bonanza_perf.ride`. 128.13.3.2 - 128.13.3.4:
+  the benchmark on the course named, `bz_crs` and `bz_hvoff` poked at
+  `bz_launch`; level-1 clauses taken out by writing `CLC`, `RET` at
+  `bz_launch` over the first instruction of the first clause to go in
+  `bz_hv1`, whose tests run slab, occluder pass, two boxes - so that clause
+  and every one after it go (128.13.3.4). The corner
+  decomposition: `tests/bonanza_wheel.py`'s CORNER leg with the marks
+  logged. The key probe: `tests/bonanza_mega.py --red shiftmap` with
+  `kbd_dnmap` read between steps.
+
+##### 128.13.3.1 Where a lift line-change frame goes
+
+The ride leg's scenario (`bonanza_perf.ride`: `MILL`, the ball poked onto
+the slab at its low dock, carried up and down, no key, 296 steps). Means a
+frame:
+
+| interval opened by | CGA, line changed (83 frames) | CGA, unchanged (178) | Hercules, changed (95) | Hercules, unchanged (153) |
+|---|---|---|---|---|
+| the retrace wait (`bz_vr`) | 55,169 | 35,885 | 69,427 | 51,754 |
+| the steps (`bz_step`; steps a frame) | 14,720 (1.72) | 8,126 (0.94) | 16,127 (1.87) | 9,435 (1.10) |
+| `bz_t0` to the first step: the exit check and the keys | 5,850 | 5,890 | 5,917 | 5,897 |
+| the walk (`bz_props`, and its tail after `bz_cslab`) | 4,372 + 1,580 | 5,465 | 4,259 + 1,560 | 5,485 |
+| `bz_mkboxes` after `bz_povr` (the layout) | 6,395 | 2,559 | 6,329 | 2,255 |
+| a box's fill (`bz_boxc` to `bz_pblit`; boxes a frame) | 11,076 (1.96) | 1,893 (0.40) | 11,035 (1.94) | 1,205 (0.25) |
+| the slab's layer (`bz_pblit`) | 14,723 | 2,888 | 14,687 | 1,870 |
+| the shadow's and the ball's sprites (`bz_blit`) | 11,801 | 2,144 | 11,656 | 1,401 |
+| the box write (`bz_boxw`) | 15,306 | 2,627 | 14,151 | 1,559 |
+| the period | 151,205 | 80,419 | 165,341 | 93,661 |
+
+So a line-change frame's busy is about 96k on both cards (128.12.18's ride:
+95.8k and 97.7k), and **the boxes are 59k of it**: about 1.96 boxes - the
+ball's and the platform's, whose union is 27 - 30 lines and does not fit
+`BZ_BOXH` - each filled, each given the slab (one by the word path, one by
+the byte path: 14.7k between them), each the ball's sprite, both written,
+their overlap twice. The frame also runs 1.72 steps (1.87): the step clock
+catching up the refresh the last frame missed, at about 8.6k a carried step
+- a miss makes the next frame heavier, which is how the ride's misses run
+in strings. An unchanged riding frame is about 44.5k (41.9k): 56% (45%).
+
+##### 128.13.3.2 Where a commit and its preparation go
+
+`MILL`'s benchmark (the heavy rule on), the call-return points of 128.13.3's
+list (spans include the 24 calibration commits of the launch: 60 spans on
+the CGA, 70 on the Hercules):
+
+| part | CGA | Hercules |
+|---|---|---|
+| the map copy (`bz_lmap`) | 1,064 mean (852 - 1,179) | 1,068 (865 - 1,179) |
+| the lane writer (`bz_lwrite`) | 10,142 mean (5,188 - 12,722) | 7,752 (4,247 - 9,849) |
+| the closing clock sample | 265 | 264 |
+| the preparation: the descriptor (`bz_ldesc`: the record through ES, a `MUL`) | 1,046 | 1,052 |
+| ...the pose's source (`bz_lsrcp`: a `MUL`) | 328 | 326 |
+| ...the cells (`bz_lclip`) | 1,136 (972 - 3,837) | 1,177 (977 - 4,485) |
+| ...the cost (`bz_lcost`: three `MUL`s and a `DIV`) | 1,801 (1,752 - 3,138) | 1,781 (1,747 - 3,168) |
+| commits / preparations on the run | 36 / 63 | 46 / 65 |
+
+Over the same spans, **the lane writer is 88% of the timed span** on the
+CGA (10.1k of 1.06 + 10.1 + 0.27 = 11.5k) and 85% on the Hercules: per card
+row of a lane `bz_lwrite` pays its row step (`.next`, the stack-frame
+loads, the wrap compare, about 330 clk) and re-reads a block's map word on
+each of its four CGA card rows. Against a ROTOR: 128.12.18's calibration
+prices one at 13.4k on the CGA and 10.1k on the Hercules (`bz_warr` 923,
+`bz_wll` 663, `bz_wlw` 321 counts; 922, 350, 282), and its spans MEASURED
+0.91 and 0.88 of that - about **12.2k and 8.9k**. The preparation MEASURED
+**about 7.2k** (the comment beside `BZ_WPRP`, whose 1,900 counts, 7.6k, is
+that figure padded); the four parts above are 4.3k of it, and the rest -
+`bz_lrect`, the box filter (`bz_wboxm`), the slot's 17-word copy and the
+two bounds' `MUL`s (`bz_wahead`, `bz_wbehind`) - about 2.9k.
+
+##### 128.13.3.3 The heavy rule against no rule, on wave 3's own build
+
+`BENCH`, `TRIAL` and `MILL`'s benchmarks (1,199 measured frames each), each
+run with `bz_hvoff` 0 (the shipped rule, both levels) and 1 (none), the
+level of every frame read off `bz_hvcam`'s branches:
+
+| leg | CGA, the rule | CGA, no rule | Hercules, the rule | Hercules, no rule |
+|---|---|---|---|---|
+| `BENCH` busy, misses | 45,346 (57%), 1 | 44,303 (56%), 0 | 45,123 (48%), 0 | 44,663 (48%), 0 |
+| `TRIAL` busy, misses | 34,045 (43%), **15** | 33,524 (42%), **9** | 33,789 (36%), **9** | 33,077 (35%), **1** |
+| `TRIAL` heavy frames | 149 | 0 | 125 | 0 |
+| `MILL` busy, misses | 50,656 (64%), 111 | 41,742 (52%), 96 | 52,514 (56%), 10 | 42,605 (45%), 39 |
+| `MILL` heavy frames, columns | 464, 35 | 0, 90 | 567, 29 | 0, 73 |
+
+`TRIAL`'s misses with the rule come in runs on frames the rule did NOT make
+heavy (12 of 15 on the CGA; frames 106 - 116, 153 - 157, 170 - 171): the
+withheld rows and columns land on the next frames of the same fall, which
+are no lighter. Without it `TRIAL`'s misses are the fall's two runs (CGA
+frames 110 - 118 and 295 - 299; one Hercules frame, 241) - wave 2's
+allowance (8 and 2 on wave 2's engine). `BENCH`'s one CGA miss with the
+rule is frame 129, the same frame 128.12.18 recorded with the rule OFF (two
+steps against one: the step phase's), so it is not the rule's. On `MILL`
+the two cards disagreed and the busy differed by 9k a frame on both;
+128.13.3.4 separates it.
+
+##### 128.13.3.4 The review's measurements: level 1 clause by clause, the lift beside the ball, the corner step, the keyboard
+
+Taken after the design review (2026-11-13), the same build and machines,
+the same method. Run-to-run spread is part of the record: the same leg
+taken twice on one build gave 107 and 105 misses (CGA, the full rule) and
+16 and 18 (Hercules, the edge clause); 128.13.3.3's `MILL` legs read 111
+and 96 (CGA) where these read 105 - 107 and 92.
+
+**`MILL`'s benchmark, the rule clause by clause** (misses, mean busy):
+
+| rule | CGA | Hercules |
+|---|---|---|
+| wave 3's: level 1 (all three clauses) and level 2 | 107 and 105; 50.6k, 50.2k | 14; 52.3k |
+| **level 1's slab-near-edge clause alone, and level 2** | **81**; 49.2k (62%) | **16 and 18**; 50.0k, 49.6k |
+| the edge and occluder-pass clauses, and level 2 | - | 13; 52.2k |
+| level 2 alone | 102; 42.6k | 28; 52.5k |
+| no rule (`bz_hvoff` 1) | 92; 41.7k | 45; 42.5k |
+
+The two-box and occluder-pass clauses buy nothing on `MILL` (13 and 14
+against the edge clause's 16 and 18, inside the spread) and cost `TRIAL`
+its 15 / 9 (128.13.3.3). The edge clause is what holds the Hercules'
+`MILL` from 28 - 45 misses to 16 - 18, and on the CGA it gives the fewest
+of any rule (81). With it, the platform-box frames run fewer catch-up steps
+(1.06 a frame against the full rule's 1.14 on the CGA) and their tail is
+shorter.
+
+**The platform's box with the ball BESIDE the lift** (`MILL`'s benchmark
+never rides: every one of these frames is the slab's own box and the
+ball's), the edge clause's run, busy by frame (thousands of clocks):
+
+| frame | card | n | mean | p50 | p90 | p95 | max | over a refresh | misses |
+|---|---|---|---|---|---|---|---|---|---|
+| the platform's box | CGA | 280 | 71.5 (90%) | 69.3 | 79.4 | 86.3 | 96.3 | 26 | 20 |
+| the platform's box | Hercules | 314 | 70.1 (75%) | 68.2 | 76.6 | 81.3 | 98.9 | 2 | 1 |
+| a contact lane (a post or rotor beside the ball) | CGA | 28 | 85.9 (108%) | 86.2 | 101.1 | 102.1 | 108.8 | 17 | 11 |
+| a contact lane | Hercules | 12 | 83.7 (89%) | 84.6 | 96.4 | 97.4 | 97.4 | 2 | 0 |
+| a must-draw rotor | CGA | 4 | 86.4 (109%) | 94.9 | - | - | 99.0 | 2 | 2 |
+| a must-draw rotor | Hercules | 4 | 89.1 (95%) | 92.1 | - | - | 103.8 | 1 | 1 |
+| every other frame | CGA | 887 | 40.9 (51%) | 27.9 | 66.1 | 81.5 | 120.6 | 46 | 47 |
+| every other frame | Hercules | 869 | 41.6 (44%) | 30.7 | 67.8 | 76.8 | 127.5 | 17 | 16 |
+
+The platform-box frame's parts (CGA; Hercules within 2k of each): the
+simulation, walk and camera 21.6k at 1.06 steps, the compose 28.7k for 2.04
+boxes, the box write 18.4k, the rows 1.1k, the flip and columns 1.6k. The
+slab's own box - its fill, its layer by the word path, its 19 - 25 lines
+written - is about 20 - 24k of that; the ball's box the rest. The "every
+other" misses are the cannon's flight and the chute's fall (128.12.11's
+allowance).
+
+**The corner step** (`tests/bonanza_wheel.py`'s CORNER leg, the CGA, its
+three tries agreeing to 3.5k), clocks after the sync's rise:
+
+| the step frame | clocks |
+|---|---|
+| `bz_t0` - its predecessor (the poke's frame) wrote two ball boxes AFTER the rise (12.8k) | 16,500 |
+| the exit check, the keys and one step | 13,500 |
+| the walk (the lane due) | 9,600 - 13,000 |
+| the camera | 3,200 - 4,600 |
+| the layout and one box's compose | 16,900 - 18,300 |
+| TWO rows (6.9k each) and their set-up | 14,700 |
+| **`bz_tw`** | **76,400 - 79,900** |
+
+The wheel then found no room (`bz_wroom`) on all three tries. A light step
+(128.13.7 item 5) removes the predecessor's two boxes and one of the rows:
+**about 57 - 60k**.
+
+**The keyboard on 86Box** (`286-mega-multimon`, under the `shiftmap` red,
+case 3's play): Left Shift held alone, `kbd_dnmap`'s 2Ah set and the step's
+key byte 20h (Grip); then the grey Right pressed and held, 2Ah CLEAR at all
+six reads over 60 steps, 4Dh set, the key byte 02h - Grip lost. So 86Box
+sends the fake-shift RELEASE (`E0 AA`) before a grey arrow pressed with
+Left Shift held, and the map takes it for Left Shift's release
+(`kbd_track` skips the `E0` and clears 2Ah's bit on `AA`: kernel/mouse.inc,
+`kbd_track`, and its block comment on the 128-bit map). With NumLock on it
+sends no fake-shift PRESS (128.11.17). The shipped package reads Grip from
+the BIOS's flags, which ignore the `E0`-prefixed `AA`: wave 3's case 3
+recorded Grip with the grey Right held.
+
+#### 128.13.4 The lift
+
+##### 128.13.4.1 The RIDE BOX
+
+`bz_mkboxes` (128.11.10.1, 128.12.4.3) merges the CONTACT group into the
+ball's group when their union fits. For the PLATFORM's contact group - its
+box for a line change, or its box after a waited frame (128.13.4.3) - the
+limit is `BZ_BOXW` x `BZ_BOXL` (4 words by 32 lines); for a contact LANE it
+stays `BZ_BOXW` x `BZ_BOXH`. The merged box is the RIDE BOX: one
+descriptor, one buffer, composed exactly as 128.12.4.5 orders any box - the
+course from the map, the slab if it is under the ball (`bz_pov` 0), the
+shadow, the ball's sprite, the occluders, the slab if it is over (`bz_pov`
+1) - and written once, in raster order among the frame's boxes
+(128.11.10.3). Nothing it writes differs from what the two boxes wrote: the
+same pixels, from the same layers in the same order, each byte once.
+
+A ball the lift CARRIES (`bz_onp`) sits on the slab's top: its footprint's
+foot is inside the slab's rows, so the union is the slab's 18 lines, the
+line moved and the ball's 16 lines above the slab's top less their overlap
+- 27 - 30 lines. It is four words wide when the ball's three footprint
+words (`bz_foot`: x0 = px >> 3 to x0 + 2) are inside the slab's four - the
+ball's sprite in the slab's first two words - which a ball near the
+diamond's middle is. A ball riding near the diamond's left or right corner
+(boarded from a rim and still rolling) keeps wave 3's two boxes and their
+cost: that ride is a REPORTED residue (128.13.4.5), not this box's case. A
+ball BESIDE the lift merges when the union fits, which it rarely does: a
+ball beside the slab is usually beside it in `x`.
+
+**The beam.** A 32-line box takes about 10.6k clk to write on the CGA (0.33k
+a 4-word line on the whole-row path, 128.13.4.4) while the beam covers 32
+lines in 9.7k, so it is on time (128.9 item 6: started before the beam
+reaches its first line, done before it reaches its last) when it starts at
+least 0.9k clk before the beam reaches its first line. A carried ball is
+inside GLIDE's band (the middle third, from line 66 down), where the beam
+reaches the box 31k clk or more after the rise. The ride's frames are level
+2 (a contact group, 128.13.6): GLIDE's rows wait for a frame on which the
+slab's drawn line holds - while the lift moves, 1 step in 4 (0.75 lines a
+step: the line holds on every fourth step), so at most about three frames
+- in which the carried ball moves about 2 lines, which keeps the ride box
+below line 30; a ride box in the window's top 30 lines would be
+`bz_latechk`'s documented exception, counted (`bz_late`), and the ride leg
+asserts it 0 (128.13.12). The idle test (128.11.10.4) is unchanged.
+
+**Price, PREDICTED** from 128.13.3.1's MEASURED parts: one fill of about 28
+lines (7k, against 11.1k for the two), one slab layer by the word path
+(about 6.2k: its loop is 2 x (`lodsw` 16, `and ax, [es:di]` 20, `or ax,
+[si + d]` 22, `stosw` 15) + `loop` 17, about 326 clk a line, for 19 lines;
+against 14.7k), one pair of sprites by the whole-row paths (about 5k,
+against 11.8k), one write of 28 lines on the whole-row path (about 9.2k,
+against 15.3k), the layout without a second rectangle (about 3.5k, against
+6.4k): **about 30.9k against 59.3k, -28.4k a line-change frame** on the CGA,
+about -27.5k on the Hercules. The whole-row path is inside these figures,
+not beside them.
+
+##### 128.13.4.2 What WireBall's edge strips give here, and what they do not
+
+CLAUDE.md's VRAM-games section: "for a vertically moving solid paddle,
+retain the overlap, erase only the exposed end strip and paint only the
+newly covered strip." That holds because a solid paddle's pixels at a
+world line are the same wherever in the overlap the paddle stands. The
+slab's are not: its top is a diamond whose two sloped edges move 2 px a
+line, its stipple (`(x + 2y) mod 6`, `bbcourse.slab_pixels`) is the
+sprite's own, and its 2-line lip follows the bottom edges - so a one-line
+move changes every one of its 18 lines. Anchoring the stipple to the world
+would leave unchanged only the middle two words of about nine lines (the
+edges still move), at the cost of a texture that slides over the slab as it
+rises; that is refused. What WireBall's technique IS here is already the
+platform's box: it covers the slab's drawn and true footprints and nothing
+else, and a frame on which the drawn line does not move draws no slab box
+at all (128.12.4.3). Its damage history per page is the ring's one page.
+The cost wave 3 measured on the RIDE is not the slab's own box: it is the
+second box the ball's group made beside it, which 128.13.4.1 removes. With
+the ball BESIDE the lift the slab's own box is the cost (about 20 - 24k,
+128.13.3.4), and the one lever that halves how often it is paid is O33.
+
+##### 128.13.4.3 The platform's box waits ONE frame on a crowded frame
+
+128.12.5.2's contact order stands - a must-draw rotor, else the platform's
+box, else a post lighting, else a contact or promoted lane - with this
+change. The platform's box (a line change, the slab NOT carrying the ball)
+**waits** this frame, display only, when:
+
+- **(a)** the ball's and the shadow's groups are TWO boxes (their old and
+  new footprints do not fit one `BZ_BOXW` x `BZ_BOXH` box: `bz_conok`'s
+  union test, a fast or airborne ball), so the slab would make the frame
+  three boxes or more; or
+- **(b)** a post LIGHTS this frame (a must-draw post, `bz_mustp`) and (a)
+  holds too: the POST is the contact group and lights on its kick's frame,
+  and the slab's box waits. Where (a) does not hold, the box is the post's
+  second rectangle, as wave 3 drew it; or
+- **(c)** a promoted wheel lane takes the slot (`bz_wpro`): wave 3's
+  one-frame yield, unchanged.
+
+A must-draw ROTOR never meets the lift (no window holds both, 128.12.4.6).
+The wait is DECIDED in `bz_props`, with the contact choice and before the
+camera, so `bz_heavy` and `bz_pstrip` both see it: (a) is the same union
+`bz_conok` already computes there. It never waits two frames running (one
+flag for (a) - (c): `bz_pylp`, as the yield keeps it), never under a ball
+the lift carries (that frame is the ride box's), and not when its drawn or
+true footprint is leaving the window (128.12.5.2's W2 case). When it cannot
+wait, it is drawn: under (b) the post then waits a frame (128.12.17's rule,
+now the exception), and under (a) the frame takes its three boxes.
+
+On a waited frame the slab's map has nothing to restore (the slab is not
+in the map); its drawn line holds; every box that meets its drawn footprint
+composes it there; and the card stays the drawn line's. A STRIP that meets
+the slab's drawn footprint on a waited frame takes 128.12.4.3's clipped box
+at the DRAWN line (`bz_pstrip`, `bz_ctype` 3) as the contact group,
+unchanged: the slab's box is not chosen, so `bz_pstrip` runs. Under (b) the
+post is the contact group and the frame is level 2, so it takes no strip
+but at its edge clause - and there 128.12.4.3's rule stands (the strip's
+box takes the slot and the post lights the frame after). Under (a) the
+frame has no contact group and is level 0 (or 1, the slab near the edge,
+128.13.6).
+
+The next frame's rectangle is the drawn and the true footprints: at most 18
++ 2 x 6 = 30 lines at `BZ_STEPS` (0.75 lines a step), inside `BZ_BOXL`'s
+32, which is why the review's M1 (a box that could not wait) no longer
+binds. `bz_ndef` counts a waited slab box as it counts a waited lane, and
+`bz_npwt` (a word) counts the waits alone.
+
+**What a player sees.** The slab one line behind for one frame - where a
+frame of three boxes and the slab is about 90k on the CGA (128.13.3.4's
+platform-box frame plus a ball box) and would hold the whole screen for a
+second refresh. While a fast ball stays beside the moving lift the box
+alternates wait and draw, so the slab moves in steps of about 1.5 lines at
+half rate for those frames - the look O33 would give all the time. The
+perf row reports how often it happens (128.13.12), and the owner looks
+(O37).
+
+##### 128.13.4.4 The box writer's whole-row path
+
+`bz_boxw` writes a box with no overlap band (`[si + 10]` = 0) a line at a
+time by `rep movsw`, with a word load of `bz_bw`, a buffer step, a bank add
+and a bank compare a LINE: MEASURED 490 clk a 4-word CGA line where the row
+writer moves the same bytes in 284 (71 a word-line, 128.11.15). The loop's
+own share (`.wline`: `mov di, dx`, `add di, bx`, `mov cx, [bz_bw]`, the
+`rep` set-up, `add si, [bz_bstep]`, `dec bp`, `jz`, `add bx, 2000h`, `cmp
+bx, [bz_bend]`, `jb`: 27 bytes, at the 8088's fetch floor about 120 clk,
+the rest the `rep`'s start and the memory operands) is about 200 clk a
+line. For a box 3 or 4 words wide (the buffer's stride stays `BZ_BOXW`
+words, so a 3-word box steps its source by 2 bytes a line) its card rows go
+out by an unrolled block - the CGA's two lines, `movsw` x 3 or 4, the
+bank's `add di`, `movsw` x 3 or 4; the Hercules' four - the ring's end
+tested once a card row as now (a crossing row takes `bz_wseg`, unchanged).
+Any other width, and a banded box, take today's path. PREDICTED about 160
+clk a line less (the block keeps about 40 of the loop's 200, amortised over
+its lines): **-3.0k a 19-line slab box, about -2.5k a `BENCH` frame** (its
+box write part is 8.0k: about 18 lines a frame, nearly all on 3- or 4-word
+boxes, a lone ball's footprint being 3 words); about +110 bytes (four
+blocks and their dispatch).
+
+##### 128.13.4.5 The lift's frames, PREDICTED, and the target
+
+From 128.13.3.1, 128.13.3.4 and 128.12.18 (MEASURED), less this round's
+savings; the riding line-change row, most of whose price is this round's
+savings, then x 1.05 for the waves' habit of predicting low (the other rows
+start from a MEASURED frame type and are not scaled):
+
+| frame | CGA (refresh 79.6k) | Hercules (93.8k) |
+|---|---|---|
+| riding, the line changes (wave 3 MEASURED 95.8k / 97.7k at 1.72 / 1.87 steps) | 95.8 - 5.3 (the steps a line-change frame runs once the ride stops missing, about 1.1 against 1.72) - 28.4 (the ride box) - 1.5 (the walk) = 60.6k, **about 64k (80%)** | 97.7 - 5.8 (about 1.2 steps against 1.87) - 27.5 - 1.5 = 62.9k, **about 66k (70%)** |
+| riding, unchanged (44.2k / 41.7k) | about 42k (53%) | about 40k (43%) |
+| riding near the diamond's corner, the line changes (no ride box, 128.13.4.1) | wave 3's two boxes less the whole-row path and the walk: about 85k, a miss | about 87k (93%) |
+| the platform's box, the ball beside (128.13.3.4: mean 71.5k / 70.1k, p95 86.3k / 81.3k) | less the whole-row path on both boxes (3.0k + 2.9k) and the walk (1.5k): mean about 64k (81%), p95 about 79k; with the 2,048-clk pad about 16 - 19 of its 280 frames over a refresh (6 - 7%), PREDICTED from 128.13.3.4's frames shifted by this round's 5.9 - 7.4k less the pad's 2.0k | mean about 63.6k (68%), p95 about 75k (80%); with the pad 0 - 1 of 314 over |
+| the same frame when the ball's group is two boxes | the slab's box waits (128.13.4.3): that frame without it, the next with a box of up to 30 lines (about +3k) | the same |
+
+**The targets** (`bonanzaperf`, 128.13.12), each with `bz_spad`
+(128.13.10) spending sound's reserve on every frame:
+
+- **the ride's line-change frames: no miss on either card** - ASSERTED, a
+  centred ride (the ball poked onto the slab's middle);
+- **the lift stretch with the ball beside (`MILL`'s benchmark), the
+  Hercules: at most 3 missed refreshes** on the frames that draw the
+  platform's box or wait one, and the frame after each - ASSERTED, PREDICTED
+  0 - 1; the allowance is 128.13.3.4's run-to-run spread, not a margin for
+  the engine;
+- **the same on the CGA: REPORTED**, PREDICTED 15 - 20 missed frames of
+  about 280, each written into this section by the final pass with its
+  parts, boxes and steps. That frame type has no lever in this round that
+  removes its tail: its two boxes are two different pictures (the slab over
+  the course, the ball beside it), the whole-row path and the walk are
+  already in the prediction, and the slab's own box is about 20 - 24k. O33
+  (the slab drawn on even lines only: its box half as often) is the lever,
+  and a visible change, so it is the owner's (128.13.13);
+- the ride near the diamond's corner: REPORTED (a sub-leg), its
+  line-change frames a counted residue of 128.13.4.1's.
+
+Misses elsewhere on `MILL` (the cannon's flight and the chute's fall,
+128.12.11's allowance; the contact-lane and must-draw frames, 128.13.10)
+are reported as before.
+
+#### 128.13.5 The wheel: the commit, its preparation and the walk
+
+##### 128.13.5.1 THE COMMIT: one column-major pass from the pose map
+
+`bz_wcore` keeps its form - `PUSHF`, `CLI`, its calls, `POPF`, `RET` - with
+two calls where it had three: the first becomes the PASS (`bz_wpass`;
+`bz_lmap` and `bz_lwrite` are no longer called from it):
+
+1. **The shown blocks.** For each rectangle of `bz_lclip` (the shown cells,
+   then the entering rows' less the entering column - rule 1a's cells,
+   unchanged), for each of its word columns, from its first card row to its
+   last: the POSE MAP's word for the block read once, `mov si, [ds:bp + 0]`
+   (BP walks the pose map; a BP base defaults to SS, which is `LOW_SEG`
+   here and not the course part, so the `ds:` override is REQUIRED - one
+   byte and 2 clk a block), stored into the map's word for that cell,
+   `mov [bx], si` (BX walks the map, DS the course part), then the block's
+   lines in that column written from SI by `bz_col`'s own unrolled macros
+   (`BZ_CROW` four a block on the CGA, `BZ_HROW` two on the Hercules,
+   entered at the run's length for a block the rectangle cuts), the ring's
+   wrap row found once a column.
+2. **The uncovered cells.** Then the lane's cells no rectangle covered
+   (outside the window, and the entering column's: `w x h` less the written
+   blocks), walked a block row at a time with the covered words of that row
+   skipped as one range (each rectangle is a run of block rows by a run of
+   words), each by the same read and store - so the map holds the whole
+   pose when the span ends, as `bz_lmap`'s copy left it, before the
+   column writer reads it at `bz_tf`.
+3. Then the closing clock sample (`bz_wcore`'s second call).
+
+`bz_lmap` remains for the RAM syncs (128.12.5.2 step 2, a contact lane's
+sync, the full write); the calibration's idempotent commit uses the pass
+itself (the pose map is the rectangle's own map words, 128.12.5.4).
+
+**The order inside the span is free.** 128.12.5.3's AHEAD bound is the
+commit's END before the latest beam reaches its first shown line; BEHIND
+is its START after the earliest beam passed its last; the LEAD is AHEAD's.
+None constrains the order of the writes between, so column-major is as
+safe as raster order; rule 1a's cells, the trim, the counters and
+`bz_ldrw` are unchanged. `bonanzawheel` judges the pass at new probe points
+(128.13.12): its span is `bz_wcore`'s first call to its return.
+
+**Price, PREDICTED** from wave 3's calibration (128.13.3.2: a word-line
+`bz_wlw` 321 / 282 in 1/16 counts, 80 / 71 clk with the raster writer's
+loop share in it, about 20 a CGA word-line and 10 a Hercules one - so about
+60 clk a word-line written with the card, on both cards):
+
+| part | CGA | Hercules |
+|---|---|---|
+| a block in one column: the pose word read (`[ds:bp]`, about 23 with the override), the map store (`[bx]`, about 18), the lines (four `BZ_CROW`s at about 128: two word-lines and the row step; two `BZ_HROW`s at about 253), the block step (`add bp`, `add bx`, about 15) | about 0.57k | about 0.56k |
+| a column's set-up (the wrap row, the entry into the macros, the column's first addresses) | about 0.25k | about 0.25k |
+| the fixed part: `PUSHF`/`CLI`, the register saves and restores, the segment loads, each rectangle's set-up and `bz_rbR`, the uncovered walk's set-up, the closing sample (MEASURED 265) | about 1.2k | about 1.2k |
+| an uncovered cell (read, store, the walk) | about 70 clk (`BZ_WUC`) | the same |
+| **a rotor, unclipped** (3 words x 3 block rows: 9 blocks, 3 columns) | **about 7.2k** (its spans MEASURED 12.2k, calibrated 13.4k) | **about 7.0k** (8.9k, calibrated 10.1k) |
+| **a post, unclipped** (2 words x 2 block rows) | **about 4.0k** | **about 3.9k** |
+
+So about 41% off a rotor's commit on the CGA and about 21% on the
+Hercules, whose raster writer was already the cheaper. Bytes: the pass
+about +260 (the shown blocks, the uncovered walk), `bz_lwrite` (323) gone,
+the commit's `bz_lmap` call gone: about -66 net.
+
+##### 128.13.5.2 The cost model, the calibration and the preparation
+
+**The model.** The pass costs a fixed part, a per-COLUMN set-up and a
+per-word-line write; it has no per-line loop. So (in PIT counts, 1/16
+units as 128.12.5.4's):
+
+    cost = bz_warr + (words x (bz_wcw + lines x bz_wlw)) >> 4
+                   + BZ_WUC x (w h - written blocks)  [+ BZ_WRB, a second rectangle]
+
+`bz_wcw` (a column's set-up, 1/16 counts) replaces `bz_wll`. The
+calibration keeps its three spans - 1 block row x 4 words (`T1`), 3 x 4
+(`T3`), 3 x 2 (`T3n`), eight samples each - and its corner (128.12.5.4):
+
+    bz_wlw  = 16 (T3 - T1) / (16 x 4)                 the 16 lines more, over 4 words
+    bz_wcw  = 16 (T3 - T3n) / 2  -  24 bz_wlw         two columns more, less their lines
+    bz_warr = T1  -  (4 (bz_wcw + 8 bz_wlw)) >> 4
+
+each at least 1; `bonanzawheel` (5)'s formula is this one. A commit's
+`words` and `lines` are summed per rectangle as 128.12.5.3's are. Two terms
+are PREDICTED, never calibrated, because no calibration rectangle runs
+them: `BZ_WRB` (160 counts, a second rectangle's set-up, as wave 3) and
+**`BZ_WUC` (18 counts, about 70 clk, an uncovered cell)** - `BZ_WMW`, the
+map copy's word, is gone with the copy. The calibration's rectangles are
+wholly covered, so `BZ_WUC` is 0 there.
+
+**The preparation.** `bz_pread` fills, once a play, a table a lane:
+`bz_ltbr` (first block row, a word), `bz_ltcl`, `bz_ltw`, `bz_lth`
+(bytes), `bz_ltpm` (the pose maps' offset) and `bz_ltsz` (a pose's bytes,
+`2 w h`), eight bytes, 128 bytes of bss for 16 lanes; `bz_ldesc` reads them
+(no record through ES, no word `MUL`) and falls into `bz_lq` as now, and
+`bz_lsrcp` multiplies the pose by `bz_ltsz` as bytes (an 8-bit `MUL`, about
+75 clk against the word's 130). After the calibration `bz_wcalib` fills
+`bz_lcf` (16 words): each lane's WHOLE commit's `cost` (every cell shown,
+no entering rows); `bz_lcost` takes it when the commit's rectangles are
+exactly the lane (it compares `bz_lra`'s four words and `bz_lrb`'s first
+against the lane's), and the formula otherwise; `x 100 / trim` (a `MUL` and
+a `DIV`) only while `bz_trim` is under 100.
+
+PREDICTED, part by part from the MEASURED 7.2k (128.13.3.2):
+
+| part | wave 3 MEASURED | wave 3b PREDICTED | why |
+|---|---|---|---|
+| the descriptor (`bz_ldesc` and `bz_lq`) | 1.05k | about 0.6k | six table reads and stores, about 240; `bz_lq` stays (two `shl ax, cl` by 3, two `shr ax, cl`, the `CL` loads, its pushes), about 250; the pushes and pops |
+| the pose's source (`bz_lsrcp`) | 0.33k | about 0.27k | the byte `MUL` saves about 50; its pushes, pops, add, store and `ret` stay |
+| the cells (`bz_lclip`) | 1.14k | 1.14k | unchanged |
+| the cost (`bz_lcost`) | 1.8k | about 0.45k unclipped (1.8k clipped) | the shortcut's five compares and its push/pop pairs; the formula for a clipped lane |
+| the rest: `bz_lrect`, the box filter, the slot's copy, the bounds | 2.9k | 2.9k | unchanged |
+| **the preparation** | **7.2k** | **about 5.3k** (5.0 - 5.4k; 6.7k for a clipped lane) | |
+
+`BZ_WPRP` is set from the build's MEASURED preparation, as wave 3 set it.
+
+**What the wheel then affords** (128.12.11's arithmetic at the new
+prices): a rotor's preparation and commit about 12.5k on the CGA (5.3 +
+7.2) and 12.3k on the Hercules; a post's about 9.3k and 9.2k. The CGA's
+wait from `MILL`'s mean busy (about 47k after this round, from 128.13.3.4's
+49.2k) to the 73.1k deadline holds 26k: **two rotors** where it held one
+and a bit; the Hercules', about 47.5k to its 87.3k deadline, 39.8k:
+**three**. The promotion (128.12.18) stays - a starved wait still exists on
+a heavy frame - and the final pass reports how often it fires (`bz_ncon`
+less the platform's and must-draw groups).
+
+##### 128.13.5.3 The walk skips what cannot change this frame
+
+128.12.5.2's per-lane steps run every frame for every lane in the slice:
+MEASURED 4.4 - 5.5k a `MILL` frame. The walk keeps, per lane, `bz_lnext`
+(16 words), and SKIPS a lane after its range test - not due, not a
+candidate, its age 0 - when nothing about it can change this frame:
+
+- **a ROTOR** whose drawn pose equals its true one (`bz_ldrw` = `bz_ltru`)
+  and whose `bz_lnext` - the step count at which its true pose next changes
+  (the step whose `(n + seed)` crosses a pose boundary), set when it is
+  synced, committed or walked - is past this frame's last step (`bz_nstep`,
+  a 16-bit compare that tolerates the wrap);
+- **a POST** DRAWN DARK (`bz_ldrw` 0) with no lit frames left (`bz_lhold`
+  0) and no kick it has not seen (`bz_pkick` = `bz_lkick`). A post drawn
+  lit whose lit frames have run out is DUE (true dark, drawn lit) and is
+  walked, so it goes dark on the glass (its wheel commit, or a contact or
+  promoted group); a lit post is walked to count its lit frames off.
+
+A lane entering or leaving the slice, a due lane and a contact candidate are
+walked as before. PREDICTED about -1.5k a `MILL` frame (most rotors skip on
+8 frames of 9 on the CGA), +55 bytes, +32 of bss.
+
+#### 128.13.6 The heavy rule: level 1 keeps its slab-near-edge clause, level 2 kept (O28)
+
+**Level 1 loses two of its three clauses**: no frame withholds GLIDE's
+second row and its column because it runs the occluder pass or because its
+ball's group is two boxes. `bz_hv1` keeps only its slab test (128.12.7's
+third clause, the code's first test) - the slab within two char rows of
+the window's edge (`bz_pnear`, `bz_pflag` bit 1) -
+and 128.12.7's edge clause stays for both levels. The measurement
+(128.13.3.3, 128.13.3.4) is the reason, clause by clause: the occluder-pass
+and two-box clauses moved `TRIAL`'s misses from 9 to 15 on the CGA and 1 to
+9 on the Hercules, because a fall or a fast pan is a run of frames, none
+lighter than the one before, so a withheld strip lands on a frame that is
+no better placed to take it - and on `MILL` they bought nothing measurable.
+The slab-near-edge clause is what holds the Hercules' `MILL` at 16 - 18
+misses where level 2 alone gives 28 and no rule 45, and it gives the CGA's
+`MILL` 81 where the full rule gives 105 - 107: a strip meeting a moving
+slab costs its clipped box (about 6k, 128.12.4.3) as well as the strip,
+and the frames near the lift are the platform-box frames already near the
+refresh.
+
+**For play**: a fall gets GLIDE's whole pan and lead again unless the lift
+is near the window's edge, so the camera shows where the ball will land
+and does not lag toward the edge clause 16 lines from the window's edge.
+And the occluder-pass frame - a fall behind geometry, 1.06 - 1.11 CGA
+refreshes (128.11.15) - now has no camera relief: wave 4's courses must
+price that frame or route around it (the plan's risks, section 13).
+
+**Level 2 stays**: a frame that draws a contact group (a must-draw rotor, a
+post lighting, a contact or promoted lane, the platform's box or the ride
+box) takes no row and no column, each axis released near its edge (128.12.7).
+A contact LANE's group is a spike of 12 - 30k on one frame, so its
+neighbours are lighter and the withheld strip lands well. The LIFT's frames
+come in a run, but GLIDE's rows wait only for the next frame on which the
+slab's drawn line holds - at most about three frames while it moves
+(128.13.4.1) - and a ride frame with a row added would be about 71k on the
+CGA (89%), 73k with sound's pad, against a no-miss target (128.13.4.5):
+so the ride keeps level 2. The LEAD's gate (`bz_heavy` 0 and no contact
+group, 128.12.5.3) now admits the frames the two clauses made heavy; a lead
+still runs only inside its budget (`BZ_WLBUD`).
+
+**`TRIAL`** has no props, so no frame of it draws a contact group or shows
+a slab: its camera is `bz_hvoff` 1's exactly, and `bonanzaperf` ASSERTS
+`bz_nhvy` = 0 over `TRIAL`'s benchmark. Its misses are the fall's (about
+9 and 1, PREDICTED from 128.13.3.3 less the whole-row path's 2.5k),
+REPORTED against wave 2's 8 and 2; easing the ramp (`r` -4 to -3) is not
+taken - `TRIAL`'s bytes stay frozen (128.12.9) - and stays the owner's to
+ask for. `BENCH` likewise. `bbcourse.Heavy` and `bbcourse.Glide` drop the
+two clauses exactly (128.13.9); `BENCH`'s route is frozen and
+`--selfcheck` item 8 still proves its eight directions with the rule off
+and prints them with it on.
+
+#### 128.13.7 The six red arms, each in front of its check
+
+Each scene below is a harness's: pokes of display state, held balls and
+the existing harness bytes (`bz_hold`, `bz_tpoke`, `bz_hvoff`, `bz_cmode`),
+never a play path. The arm's leg list names the leg that carries the
+scene; the arm passes only if the row fails at its own check
+(docs/WRITING-TESTS.md 1).
+
+1. **`bonanzaring` `defer`** (every contact candidate synced): a **DEFER
+   scene** in the poked `MILL` play, with the post's drawn-lit state made
+   REAL, so the right build's card and the oracle (the map at `bz_ldrw`)
+   agree. The ball is HELD near a post of the cluster with its ball and
+   shadow ONE box; the post's kick is poked (`bz_pkick` + 1), so it lights
+   as a must-draw on that frame (drawn lit, its map lit); then its lit
+   frames are poked to 0 (`bz_lhold`), so it is true dark, drawn lit: due
+   (128.13.5.3 walks it). From the next frame the ball is held alternately
+   at two points far enough apart that its old and new footprints are two
+   boxes every frame (a frame that allows no contact lane, 128.12.4.3), one
+   of them meeting the post's rectangle at a corner while the ball's circle
+   stays clear of the post (no kick: the post's picture is wider than its 6
+   gu circle), for four frames - under `BZ_WPRF` (5), so it waits on each,
+   and the wheel drops it (its rect meets a box). Its cells outside both
+   boxes are on the glass LIT, its map lit, `bz_ldrw` lit: card = oracle.
+   The red syncs the map and `bz_ldrw` to dark and draws nothing there: the
+   card stays lit while the oracle reads dark at those cells. The scene
+   counts toward the `defer` feature (at least `FEAT_EACH`, both cards)
+   only on frames with at least one of the post's cells outside every box;
+   the row asserts at least one such frame.
+2. **`bonanzawheel` `nobeam`** (the AHEAD test and the BEHIND spin taken
+   out; CGA): a **BEAM sweep** in the LOW leg, keyed to DUE frames. On
+   each sweep frame, at `bz_t0`, the LOW post (window line 160) is made due
+   the way item 1 does it (a kick poked, then its lit frames poked to 0 on
+   the frame after it lit: due from the next), the ball held still and
+   idle (no box), and `bz_hold` set to the sweep's next value: 24 - 40 (x
+   256 counts: a spin of 24.6k - 41k clk in `bz_t0`), one value a due frame,
+   17 due frames. That puts `bz_tw` about 52 - 69k clk after the rise - the
+   beam at window lines 133 - 189, across the post's 160 - 175 (PREDICTED
+   from a light frame's 28k or so from the rise to `bz_tw`) - so on some of
+   them the beam is IN the post when the wheel decides. The row asserts
+   that at least 15 sweep frames had the post as a candidate. The right
+   build spins (BEHIND) and commits after the beam, or leaves the lane to a
+   later frame; the red commits at once, under the beam, and (3) - asserted
+   on the CGA - fails. These are BEAM holds, not late frames: (3)'s clause
+   "no wait commit on a frame made late" applies to `HOLD_VALS` (72 - 120),
+   as now.
+3. **`bonanzawheel` `alias`** (`bz_lclip`'s window clip taken out): judged
+   on the LIGHT CORNER step's commit (item 5) alone - the lane is made due
+   on the step frame only, so that commit is the one that writes a CLIPPED
+   lane across the window's edge - and the leg asserts that the commit
+   happened (else (6) fails naming `bz_tw`). (6) judges it; the red writes
+   the whole lane - cells outside the window and rule 1's - which (6)
+   refuses.
+4. **`bonanzawheel` `lanestale`** (the walk's RAM sync left out): a **STALE
+   scene**, a leg of its own. A centred full write (`bz_first` poked) puts
+   a ROTOR wholly above the window's top - its last card row the window's
+   `R0 - 1`, inside the walk's range - with the ball held; after at least
+   16 steps (its true pose has changed at least once while out of the
+   window) the ball is poked just over the band's top edge with `bz_cmode`
+   poked to TRICKLE (one row a crossing, 128.9), so the camera steps UP one
+   row and the entering row brings the rotor's lowest cells in from the
+   map. (9) judges them: the card shows the TRUE pose. The red leaves
+   the map stale and (9) fails. MILL's rotors stand near the course's top;
+   the scene needs a window with `R0` > the rotor's last row, which exists
+   on both cards (`rmax` is far below them); where it does not the leg
+   SKIPS naming the course, and the arm is unjudged and says so.
+5. **`bonanzawheel` `corner`** (the entering column's cells included):
+   the corner leg rebuilt on a **LIGHT diagonal step**. `bz_cmode` poked to
+   TRICKLE (wave 0's camera: it steps a row and a column on the frame the
+   ball crosses the band's and the dead zone's edges, and nothing before);
+   the centred full write, the ball held at the window's centre for two
+   frames (the frame after a full write has no wheel), then poked to just
+   inside the dead zone's left (right) edge and the band's bottom edge (a
+   frame of two ball boxes), then HELD there one frame (no box: the step
+   frame's predecessor writes nothing after the rise), then moved by 2 px
+   across both with `same_cell` (no refill), so the step frame takes one
+   row before its wait and the column after it. The lane is made due on the
+   step frame (its `bz_ldrw` poked one pose on: the wheel row's oracle is
+   the card's bytes against the commit's cells, not the map). PREDICTED
+   from 128.13.3.4's MEASURED step frame less its predecessor's two boxes
+   (12.8k) and one row (6.9k): **`bz_tw` about 57 - 60k clk after the rise**
+   on the CGA; the wheel's test about 0.7k and the post's preparation and
+   commit about 9.3k bring the commit's end to about 67 - 70k against the
+   73.1k deadline - a margin of 3 - 6k, so the leg asserts the commit
+   landed and reports `bz_tw` on every try. (6) then judges the corner: the
+   commit's cells and every byte it changed on the card; the red writes
+   the corner cell, which aliases the old window's last shown cell. The
+   Hercules: REPORTED as before (no window reaches the corner of a `MILL`
+   lane there).
+6. **`bonanzamega` `shiftmap`** (Grip read through the key map): MEASURED
+   (128.13.3.4), 86Box sends the fake-shift RELEASE before a grey arrow
+   pressed with Left Shift held, which is what made the red fail at check 3
+   in wave 3 - that case IS a fake-shift case on 86Box, and the arm is
+   moved to a check of its own there. Case 3's play holds Grip (Left Shift)
+   alone for 2 steps (so "Grip recorded" is judged apart), then the grey
+   Right with it, as now; and gains **"3. the fake-shift release"**: with
+   both held, `kbd_dnmap`'s 2Ah is read - CLEAR means this machine sent the
+   release, and then every step logged while both were held has bits 1 and
+   5 (Right and Grip), ASSERTED; 2Ah still set means it did not, and that
+   check SKIPS naming why (the case could not go red). The red loses Grip
+   under the grey arrow and fails there (`RED_WANT` "3. the fake-shift
+   release"). Case 4 (NumLock on, the fake-shift PRESS) is unchanged and
+   stays a SKIP on 86Box.
+
+And `bonanzaring`'s `defer` judge asks for the LOW features only when the
+play part runs (128.12.18), unchanged.
+
+#### 128.13.8 The image, the bss and the disk
+
+**The step's one instance.** `bz_step` instantiates `BZ_WALLS`,
+`BZ_FALLBACK` and `BZ_FLOOR` twice (128.12.10). At `e781df53` the no-prop
+instance is 573 bytes (`build/bonanza.lst`: `BZ_WALLS 0` 409Ch - 4184h,
+232; `BZ_FALLBACK` 4184h - 41F0h, 108; `BZ_FLOOR` 41F0h - 42D9h, 233). One
+instance, with the prop path's differences as tests of `bz_ps` inside it
+(the doorway's `BZ_WALLS 1` branch, the floor's kinds, the carry's head and
+solid labels: about 6 `test` / `jcc` pairs, 7 bytes each), saves about 530
+bytes and costs every step on a course with no props those tests: about 150
+clk raw a step (PREDICTED), +0.14k a `BENCH` CGA frame. **Taken** (O34):
+530 resident bytes against 0.14k a frame on the courses with no props,
+which wave 4's courses will not be. Integer-exactness is the proof:
+`bonanzaphys` against `bbcourse.Physics` at every frame, and the host's
+emulated-8086 cross-check of wave 3 (`MILL`'s autopilot with each ball, the
+gate from every phase, every tube, the posts, the lift, the 60 fuzzed runs,
+the second lift course, the undos) run on the merged step in the batch that
+makes it.
+
+**The sizes, PREDICTED** (`nasm` spans, against `e781df53`, each from the
+instruction bytes):
+
+| change | image | bss |
+|---|---|---|
+| the step's one instance | about -530 | - |
+| level 1's occluder-pass and two-box tests (`bz_hv1`'s two calls and branches) | about -25 | - |
+| the commit: the new pass +260, `bz_lwrite` -323, the commit's `bz_lmap` call -3 | about -66 | - |
+| the per-lane tables and `bz_lcf` (`bz_pread`'s fill, `bz_wcalib`'s fill loop, the reads, the shortcut's compares) | about +95 | +160 |
+| the walk's skip (`bz_lnext`, the rotor and post tests) | about +55 | +32 |
+| the ride box (the merge limit, the platform's group), the slab's wait in `bz_props` and the post rule | about +140 | +2 (`bz_npwt`) |
+| `BZ_BOXL` 32 (four buffers of 256) | - | +256 |
+| the box writer's whole-row path (four blocks, the dispatch) | about +110 | - |
+| `bz_spad` (128.13.10) | about +15 | +1 |
+| **total** | **about -206: 23,227 -> about 23,020** | **+451: 6,542 -> about 6,993** |
+
+The region (image and bss) grows about 245 bytes; `BONANZA.O88` about
+68,235 -> 68,105 (wave 3's code packed at about 0.63 of its image bytes,
+128.12.10); the course parts are unchanged, byte for byte. 128.12.10's
+17,900 - 18,800 is RETIRED: it priced the props' physics at 1,660 bytes
+where they are 2,865, and the slab's drawing at 310 where it is 729 - the
+build said why at each stage. The size a later wave reports against is
+this one. Moving launch-only code (the calibration, the Hercules
+translation, `bz_pread`) and the desktop face out of the resident image is
+wave 4's parting-out decision (plan section 11), not this round's. Still
+on the 360KB `bonanzadisk`.
+
+#### 128.13.9 The tidy items
+
+- **`bbcourse.Heavy`** mirrors the guest's contact choice as this round
+  leaves it: the promotion (`BZ_WPRO` 3 on a frame allowing a contact lane,
+  `BZ_WPRF` 5 on any), the platform's one-frame yield to a promoted lane,
+  its one-frame wait on a crowded frame and the post rule (128.13.4.3), the
+  age reset of a lane the contact group draws (`bz_csync`), and level 1 as
+  its slab-near-edge clause alone. `--selfcheck` item 8's lit-post proof
+  and `MILL`'s printed heavy counts run on it.
+- **README**: `make bonanzadisk` gets its line in the top-level README's
+  list of application disks (an isometric rolling-ball game for the 5150,
+  CGA and Hercules; `apps/bonanza/README.md`, SPEC.md 128), beside
+  Excitebike's and isoTron's; `tools/checkreadme.py` is its gate.
+- **`tests/suite.py`**: the seven BONANZA descriptions that still say "secs
+  PREDICTED for wave 3, the final pass measures it" say what the row
+  asserts at this round's measured `secs`.
+- **`tools/bbcourse.py`**: every unused local pyflakes names is removed
+  (seven at `e781df53`: `frame`'s `foots`, `_physics_checks`'s `p0`,
+  `_mouth_checks`'s `t`, `_trial_checks`'s `t`, `_route_checks`'s
+  `first_g` and `airs`, `selfcheck`'s `blkoff`); `python3 -m pyflakes
+  tools/bbcourse.py` clean is the batch's host check.
+
+#### 128.13.10 Headroom for sound, and where it may hook
+
+**The reserve.** Sound gets **2,048 clk a frame** (512 PIT counts: 2.6% of
+a CGA refresh, 2.2% of a Hercules one) on both cards. The targets of
+128.13.4.5 are measured with it SPENT: a harness byte, `bz_spad`, makes the
+frame set `bz_hold` to 2 and call `bz_hspin` at hook H1 below - the spin's
+existing unit, 256 counts, so 512 counts and no new loop; `bz_hspin`
+preserves every register but the flags. `bonanzaperf`'s padded `MILL` leg
+and its ride leg run with it set; its comparison legs run without it,
+engine against engine (128.13.12). The sound session may resize the
+reserve; a larger one is its contract's to re-measure against those legs.
+
+**What is left, PREDICTED after this round** (busy before the pad; the
+platform-box, contact and must-draw rows from 128.13.3.4's MEASURED
+distributions less this round's savings on them, about 6 - 7k):
+
+| frame | CGA (refresh 79.6k): mean, p95 | Hercules (93.8k): mean, p95 |
+|---|---|---|
+| `BENCH` (wave 3 MEASURED 44.6k / 44.8k; 0 misses) | about 42.2k (53%) | about 42.7k (46%) |
+| `MILL`, every frame | about 47k (59%); 86.4k at p95 before this round | about 47.5k (51%); 80.0k |
+| the ride's line change | about 64k (80%) | about 66k (70%) |
+| the platform's box, the ball beside | about 64k (81%), p95 about 79k (99%) | about 63.6k (68%), p95 about 75k (80%) |
+| a contact lane (a post or rotor beside the ball) | about 79k (99%), p95 about 95k (119%) | about 77k (82%), p95 about 91k (97%) |
+| a must-draw rotor (4 frames on the run) | about 79k (99%), max about 92k | about 82.6k (88%), max about 97k |
+
+**Which frames already miss without sound.** On the CGA: about half the
+contact-lane and must-draw frames, about 5 - 6% of the platform-box
+frames (6 - 7% with the reserve spent, 128.13.4.5), and the cannon's and the chute's (about 4% of the rest) - wave 3's
+allowances, which this round shrinks and does not remove. On the Hercules:
+the must-draw rotor's worst frame and a contact lane's tail. Sound's 2,048
+clk puts more of each of them over, about one point of each type's share
+for each 2k (128.13.3.4's frames shifted). The reserve does NOT fit the
+heaviest frames; it fits `BENCH`, the ride and the Hercules' lift stretch,
+which are this round's asserted targets, and the CGA's platform-box frame
+is where a larger sound would first cost more refreshes.
+
+**Where sound may hook:**
+
+- **H1, once a frame**: after `bz_lead` (rule 5) and before `bz_presented`'s
+  mark (`bzgame.inc`, between `bz_tc.lead`'s call and `bz_presented`). The
+  card writes of the frame are done and interrupts are open. The time is
+  BUSY, billed to the part the next mark closes, which depends on the path:
+  the box write's (BX = 5 x 4, `bz_lead`'s return) on most frames, flip +
+  columns' (BX = 4 x 4) on a frame whose entering column wrote rows after
+  the last box (`bz_tc` falls into `.lead` with BX = 4 x 4). **A hook at H1
+  preserves BX** - `bz_lead`'s contract is "preserves nothing but BX's
+  meaning", and the mark that follows bills by it - unless the sound
+  contract gives sound a part of its own (`BZ_NPART` 7 -> 8, `bz_acc` and
+  `bz_racc` growing by 4 bytes each, `BZ_LIVE` by its counters: that
+  contract's to write). `bz_spad`'s spin sits exactly here.
+- **The events** it keys off are physics' own counters and state, read at
+  H1 as differences from the last frame: `bz_nkick`, `bz_nknock`,
+  `bz_ntube` (128.12.6.6), `bz_nbnc` (a bounce), `bz_nstun`, `bz_nshat`,
+  `bz_goal`, `bz_tube` (in a tube), `bz_air`, the velocity and the cell's
+  surface (rolling). Sound READS physics; **physics never reads anything
+  sound writes**, so a `BZR1` log still is the run (128.12.8).
+- **The speaker** through `OSAPI_SND_*` (legal inside the bracket, §53.7)
+  or `apps/os88spkfx.inc`, as plan section 10 says; never channel 2 or port
+  61h directly.
+
+**What the engine asks of a sound that runs anywhere else** - constraints
+with their reasons, not decisions: the sound session chooses its design and
+states it in its 128.N.
+
+- **Not inside `bz_step`**: the step is integer-exact with the model and
+  its cost is multiplied by every catch-up step.
+- **Not inside the wheel's tests and commits, nor `bz_vr`'s spin** (both
+  with interrupts shut, or timed to the beam): `BZ_WMARG` lists every term
+  that may run between a commit and the wait, and a sound there is an
+  unlisted one.
+- **Not between `bz_tf` and the end of the box write** (the beam-raced
+  column and boxes, 128.2 rules 3 - 4), whose start times are budgeted.
+- **An interrupt-time voice** - an `FSXF_RATE` hook (§53.2.2, WireBall's
+  pattern) for sub-frame effects (a pitch sweep, an arpeggio, vibrato) -
+  runs inside every one of the above. It is not refused here: it is open
+  (O38). Its cost is: its time is an unlisted term in `BZ_WMARG` and in the
+  boxes' beam margins (128.9 item 6), it is held off by the wheel's
+  interrupts-shut spans (jitter up to one commit, about 7k clk), and every
+  busy and part figure of the perf legs carries it as noise. The session
+  that adds one measures it in `BZ_WMARG` and on the padded legs.
+- **The kernel's own sound service runs in the timer interrupt**
+  (`snd_tick`, on the clock's ticks), so whatever a playing sound costs
+  there lands in all of the places above, whatever hook started it. That
+  time is part of the reserve and of what `BZ_WMARG` and the beam margins
+  must absorb: the sound session measures it on the padded legs, or keeps to
+  calls whose per-tick cost is fixed and stated.
+
+#### 128.13.11 kern_mega, kern_small
+
+**kern_mega**: no `PKG_MEGA` arm. The commit's pass reads the pose maps and
+the block pool and stores the map's words through DS, the course part's own
+selector (`[ds:bp]` and `[bx]`, as `bz_lmap` and `bz_col` read it, offsets
+under `OP_PARTMAX`; never SS, which is the task stack's), and writes the
+card through the bracket's video selector (ES, as every writer); nothing
+through CS, no immediate patched. The per-lane tables, `bz_lcf`,
+`bz_lnext`, the 32-line buffers and `bz_spad` are bss in the package's
+region (DS). The ride box and the slab's wait are the same compose and
+writer. `bonanzamega` runs `MILL`'s ride and its replay as before; its red
+arm `mapcs` is re-pointed at the pass's map store (written through CS: a
+fault on kern_mega). A store through the wrong segment on kern_big is
+`bonanzaring`'s to see: its oracle check 5 (the map holds each lane's
+DRAWN pose) reads the course part's map words after every commit, and the
+`mapskip` arm proves that check sees a store that never reached them.
+**kern_small** refuses on the desktop as before (128.1).
+
+#### 128.13.12 The rows
+
+What each row asserts, and the red arms - new (N) and re-pointed (R) - each
+required to fail at its own check (`--red NAME`, a broken copy in a
+temporary tree, never `build/`). They run ONCE, in the final pass, as one
+scoped soak call over the nine BONANZA rows, then every red arm once
+(CLAUDE.md, Testing); a batch names them and runs host checks only.
+
+| row | changed | asserts (new in 3b) | red arms |
+|---|---|---|---|
+| `bonanzaring` | yes | the card equals the oracle at `bz_tf` and `bz_presented` (as before) on: the RIDE BOX's frames (feature `ridebox`, at least `FEAT_EACH` a card, from the poked ride); the platform's WAITED box and the frame after it (`pwait`: a **PWAIT scene**, the ball held airborne beside the moving lift's shaft alternately at two points, so every frame's ball group is two boxes, for 24 frames on the CGA and 21 on the Hercules, started on the lift's first moving step after a dock - its 64 moving steps a leg leave room - and ENDED on a frame with the ball held at one point (one box), so the slab's box is drawn there; the row asserts at least 20 lift steps inside the scene and, at least once a card, a waited frame on which an entering row meets the slab's drawn footprint, by `bz_cmode` TRICKLE and the ball poked across the band's edge on a waited frame: `bz_ctype` 3); the box writer's whole-row path across the ring's end (`wrapbox`: a 3- or 4-word box whose card rows cross 2000h, at least once a card on `BENCH` or a poked frame); the DEFER scene (128.13.7 item 1); **every box at most `BZ_BOXW` x `BZ_BOXL`, and every platform box at most 30 lines, read at the frame's first `bz_boxc` (after `bz_mkboxes`, before any compose)** | N `ridebox`: the ride box composed without the slab layer under the ball (`bz_pblit` skipped when merged): the card loses the slab under the ball; N `pwait2`: the wait's "never two running" taken out: the slab waits on every frame of the PWAIT scene, its drawn line falls behind by 0.75 lines a step, at least 15 lines after 20 steps, so the box drawn on the scene's last frame is 18 + 15 = 33 lines or more: the box-size check at that frame's first `bz_boxc`; N `fastwrap`: the whole-row path taken on a row that crosses the ring's end; N `mapskip`: the pass's map store left out (the map keeps the old pose: oracle check 5, and a later strip draws it); `defer` judged on the DEFER scene |
+| `bonanzawheel` | yes | its probe points re-pointed: `bz_wcore` is `PUSHF CLI CALL(bz_wpass) CALL(bz_clk_sample) POPF RET` (the row's shape check), (3) times the pass (`bz_wcore` + 2 to + 5), (6) reads the card's banks at those two points, (1)'s `bz_ldrw` writers unchanged; (5) with the new model (`bz_wcw`, `BZ_WUC`), and each commit's OWN `cost'` (its slot's, read at `bz_wcommit`, the trim apart): a WHOLE-LANE commit's within `CAL_TOL` of its span, ASSERTED on the CGA; a clipped commit's span at most (1 + `CAL_TOL`) times its cost, ASSERTED on the CGA, the ratio REPORTED by kind; (6) on the light CORNER step, the commit's landing ASSERTED (CGA) and `bz_tw` reported a try; (3) on the BEAM sweep, at least 15 sweep frames with the post a candidate ASSERTED; (9) on the STALE scene; (12) tightened: a kick's post drawn lit on the KICK's frame unless a second lighting post took the slot, a strip met the slab, or the slab's box could not wait (each REPORTED by reason; any other one-frame delay fails), and drawn DARK again within `BZ_WPRF` + 1 frames of its lit frames running out while shown; **(13) new**: after every walk, each rotor's `bz_lnext` in the walk's range equals the model's next change step (`bbcourse`, from the seed and the mask); each commit's span REPORTED by kind (rotor, post) against 128.13.5.1's prediction; the results' `bz_wover` and `bz_wlate` 0 (as before) | `alias` on the light step's commit; `lanestale` leg STALE; `nobeam` leg LOW's BEAM sweep; `corner` on the light step; N `costtab`: `bz_lcf` left unfilled (0), so a whole lane is priced at nothing: (5) on the whole-lane commits; N `lnext`: `bz_lnext` set one STEP late (a pose change drawn a frame late, no pose skipped): (13); N `pskip`: the post's skip without its drawn-dark clause (a post drawn lit, lit frames out, skipped): it never goes dark, (12) |
+| `bonanzaperf` | yes | the A/B against **`e781df53`** (wave 3, built out of git with its own tools and art; exit 77 when it cannot be had), WITHOUT the pad, engine against engine: `BENCH` with `bz_hvoff` 1 on both, 0 misses ASSERTED but a frame running more steps than `e781df53`'s same frame (REPORTED as the step phase's, 128.12.18's rule), busy reported; `MILL` three ways - this build, `bz_hvoff` 1, `e781df53` - with `bz_npbx`, `bz_ncon`, `bz_npwt` and the promotions, REPORTED; **the padded `MILL` leg** (`bz_spad` 1): the lift stretch (every frame that draws the platform's box or waits one, and the frame after each) at most 3 missed refreshes on the Hercules ASSERTED, the CGA's REPORTED with each missed frame's parts, boxes and steps (128.13.4.5); the share of the lift's line changes that waited and the longest wait / draw alternation REPORTED; `bz_wover` 0 and `bz_wlate` 0 ASSERTED; **the padded ride leg**: no miss on its line-change frames ASSERTED on both cards, `bz_late` 0 ASSERTED, GLIDE's withheld rows and their longest deferral REPORTED; a ride sub-leg with the ball held over the slab's left corner, its line-change frames REPORTED (128.13.4.1's residue); `TRIAL`: `bz_nhvy` 0 ASSERTED, misses reported against 8 / 2 | N `rideoff`: the ride merge's limit back to `BZ_BOXH` (the CGA's ride leg misses: about 85k against 79.6k, PREDICTED; on the Hercules about 87k fits its 93.8k, so the arm is the CGA's); N `level1`: the occluder-pass and two-box clauses restored (`TRIAL`'s `bz_nhvy` > 0); `halfcal` as before |
+| `bonanzaphys` | yes (the step) | unchanged: every frame against the model on all wave 2 and 3 scenarios, both cards | as before |
+| `bonanzareplay` | yes (the step) | unchanged: `MILL` recorded on the CGA, replayed on the Hercules equal at every frame | as before |
+| `bonanzaexit` | yes (the region) | unchanged; its heap reads see the new region size | as before |
+| `bonanzamega` | yes | case 3: Grip alone 2 steps, then the grey Right with it; "3. the fake-shift release" (128.13.7 item 6: 2Ah clear in the map with both held, then every step logged with both held has bits 1 and 5; SKIP when 2Ah stays set); `MILL`'s ride and replay as before | `shiftmap` at "3. the fake-shift release"; R `mapcs` re-pointed at the pass's map store |
+| `bonanzacourse` | yes (Heavy, Glide) | item 8 with `bbcourse.Heavy` mirroring the contact choice and level 1 as its edge clause alone; the course parts byte for byte `e781df53`'s | as before |
+| `bonanzaassets` | no | unchanged | as before |
+
+`secs` stay the measured ones (128.12.18) until the final pass re-measures
+them; the ring row grows by its PWAIT scene (PREDICTED +15 s), the wheel
+row by its STALE leg and BEAM sweep (+25 s), the perf row by the
+`e781df53` `MILL` legs, the no-rule `MILL` leg, the padded `MILL` leg and
+the corner ride (+130 s).
+
+#### 128.13.13 Open questions for the owner
+
+None blocks wave 3b; each has the default this round builds.
+
+| # | question | default |
+|---|---|---|
+| O28 | (wave 3's) `TRIAL`'s misses: the heavy rule or easing the ramp. **ANSWERED by measurement** (128.13.3.3, 128.13.3.4): level 1's occluder-pass and two-box clauses removed, its slab-near-edge clause kept, the ramp as it is; `TRIAL`'s misses are the fall's, about wave 2's allowance | the edge clause alone |
+| O30 | (wave 3's) the ride's line-change frames. **ANSWERED**: neither every second line nor a frame late - the ride box (128.13.4.1) | the ride box |
+| O33 | The CGA's platform-box frame with the ball BESIDE the lift misses on about 6 - 7% of those frames after this round with sound's reserve spent (PREDICTED; the final pass measures it, 128.13.4.5). The lever: draw the slab only on EVEN lines (its box half as often while it moves; a carried ball's drawn line snapped to the slab's, so the two still move together; the slab steps 2 lines at about 20 Hz, like the CGA's own vertical scroll), at the cost of a lift that moves less smoothly on both cards; or accept the counted residue | accept the residue, until the owner has seen the final pass's count and a look at both |
+| O34 | The step's two instances made one: -530 bytes for about +150 clk a step on a course with no props in the ball's window | one instance |
+| O35 | (was: level 2 alone on `MILL`.) **ANSWERED by measurement** (128.13.3.4): level 2 alone gives the Hercules' `MILL` 28 misses where the edge clause with it gives 16 - 18 | the edge clause kept |
+| O36 | Sound's reserve: 2,048 clk a frame on each card, at H1 | the sound session's to confirm or resize |
+| O37 | The slab's one-frame wait beside a fast ball (128.13.4.3): the slab a line behind on alternate frames while a fast ball stays beside the moving lift, instead of a missed refresh of the whole screen. A look on the CGA | the wait |
+| O38 | An interrupt-time voice (`FSXF_RATE`) for sub-frame speaker effects, at the costs 128.13.10 lists | the sound session's |
+
+
+#### 128.13.14 Eleven resolutions the consistency check left
+
+These amend the subsections they name and are binding.
+
+1. **Every PREDICTED frame row of 128.13.4.5 carries the x 1.05 margin**
+   (the platform-box, contact, must-draw and unchanged-ride rows, not only
+   the one that had it): waves 2 and 3 both came in 5+ points over their
+   first predictions. The asserted targets stand; if one fails in the
+   final pass, it is a failure to fix, reported with each frame's parts,
+   never a target to relax.
+2. **One quantity for the lift stretch**: the reported CGA figure and the
+   asserted Hercules one are MISSED FRAMES (`bz_miss`), not frames over a
+   refresh. 128.13.4.5's "16 - 19 of 280 over a refresh" is restated as
+   about 15 - 20 missed frames.
+3. **The lift-stretch figures include the sound reserve**: every
+   asserted or reported miss count on `MILL` is taken with `bz_spad`
+   spending 128.13.10's 2,048 clk.
+4. **The whole-row path on the Hercules is REPORTED** by the A/B, not
+   predicted; 3b.3's target is stated per card in item 11.
+5. **`BENCH`'s saving from the whole-row path is about -2.9k a CGA frame**
+   (160 clk x about 18 lines), not -2.5k; 3b.3's BENCH busy prediction
+   moves accordingly.
+6. **The CGA rotor commit is about 7.0k** (9 x 0.57k + 3 x 0.25k + 1.2k),
+   not 7.2k, in 128.13.1, plan 3b.4 and the preparation-plus-commit total.
+7. **The corner ride is about 83.1k on the CGA (87.3k with the margin) and
+   about 85.4k on the Hercules**; `rideoff`'s reasoning is unchanged, both
+   being a miss on the CGA.
+8. **The two unsourced p95 figures in 128.13.10 are withdrawn**; the final
+   pass measures `MILL`'s p95 busy on both cards before and after, and
+   writes them in.
+9. **The corner step's clock**: the light corner scene is CONSTRUCTED to
+   be light, so check (6) asserts on it. If the final pass measures its
+   `bz_tw` above about 70k after the rise, the scene is made lighter - not
+   the assertion weakened - and the frame's parts are reported.
+10. **The DEFER and BEAM scenes poke `bz_pkick`**, a physics field that the
+    guest itself writes only on a kick; poking it is equivalent to a kick
+    the replay would also contain, so the scenes are "pokes of display
+    state and of the kick request", not of display state alone.
+11. **3b.3 gets an asserted target**: in `bonanzaperf`'s A/B against
+    e781df53, `BENCH`'s mean busy is at least 2.0k clk lower on the CGA;
+    the Hercules figure is reported.
+
 ### 128.20 Sound and music (the sound wave, built beside waves 3 and 4)
 
 **Numbered 128.20, not 128.13, on purpose**: the sound was built by a second
