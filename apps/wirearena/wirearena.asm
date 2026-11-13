@@ -13,47 +13,7 @@
 %include "os88api.inc"
     OS88_HEADER 'WARENA', wa_entry, 0, OS88_HIGH | OS88_HIGHMEM
 
-WA_ROWS     equ 24              ; view rows; row 24 is the HUD
-WA_HR       equ 48              ; view half-rows
-WA_MAXW     equ 80
-WA_CELLS    equ WA_MAXW*WA_ROWS
-WA_NEAR     equ 16              ; near plane, units (1/64 m)
-WA_KYQ      equ 133             ; quarter half-rows a unit of y/z (33.3 x 4)
-WA_KYH256   equ 8533            ; half-rows a unit of y/z, x 256
-WA_HTOP     equ 192             ; wall height, 3 m
-WA_EYE      equ 102             ; eye height standing, 1.6 m
-WA_RAD      equ 20              ; player radius
-WA_TICK     equ 39773           ; PIT counts (838 ns) in a 30 Hz sim tick
-WA_MSPD     equ 80              ; move: Q13 vector x 80 = 10 units a tick
-WA_JUMPV    equ 2432            ; 8.8 units a tick: about a 1 m jump
-WA_GRAV     equ 179             ; 8.8 units a tick a tick: 9.8 m/s^2
-WA_BLANK    equ 0x0720
-
-; per-figure record
-F_X     equ 0
-F_Y     equ 2
-F_ANG   equ 4                   ; facing, 0..1023
-F_LEG   equ 6                   ; leg index * 8 (byte offset into the path)
-F_STEP  equ 8                   ; steps left on this leg
-F_HP    equ 10                  ; byte
-F_ANIM  equ 11                  ; byte: first keyframe of the animation
-F_NFR   equ 12                  ; byte: its keyframe count
-F_LOOP  equ 13                  ; byte: 1 loops, 0 holds the last frame
-F_PH    equ 14                  ; word: phase, quarter keyframes
-F_FLASH equ 16                  ; byte: hit-flash frames left
-F_DEAD  equ 17                  ; byte: ticks until respawn, 0 = alive
-F_HEAD  equ 18                  ; heading of the current leg
-F_PATH  equ 20                  ; -> its path
-F_PZ    equ 22                  ; last projection: z (0 = not drawn)
-F_PIZ   equ 24                  ;   inverse depth
-F_PCX   equ 26                  ;   centre, sub-columns
-F_PTOP  equ 28                  ;   head, half-rows
-F_PBOT  equ 30                  ;   feet, half-rows
-F_PWH   equ 32                  ;   half width, sub-columns
-F_VH    equ 34                  ; the heading F_VX/F_VY are for, | 0x8000
-F_VX    equ 36                  ;   (0: none yet): a tick's step, units
-F_VY    equ 38
-F_SIZE  equ 40
+%include "waconst.inc"
 
 wa_entry:
     mov byte [wa_fov], 1        ; 75 degrees: the owner's pick of the three
@@ -870,19 +830,7 @@ wa_collide:
     pop ax
     ret
 
-; wa_sincos - AX = an angle (any; taken mod 1024) -> AX = sin, DX = cos, Q14
-wa_sincos:
-    push bx
-    and ax, 1023
-    mov bx, ax
-    shl bx, 1
-    mov ax, [wa_sin+bx]
-    add bx, 512
-    and bx, 2047
-    mov dx, [wa_sin+bx]
-    pop bx
-    ret
-
+%include "wasin.inc"
 ; wa_figtick - DI = a figure: one 30 Hz step of its patrol and its animation
 wa_figtick:
     cmp word [di+F_FLASH], 0    ; (F_FLASH and F_DEAD, one word: the usual
@@ -1545,28 +1493,7 @@ wa_help:
 ;               0123456789012345678901234567890123456789
 wa_hudtpl:  db 'FPS       MS      R      P      N       ', 0
 
-; a wall edge's glyph by half-row: upper half the middle line, lower the
-; bottom one
-wa_hgl:     times WA_HR/2 db 0xC4, '_'
-; the figure layer's glyph for each 2x2 occupancy mask: bit 0 top-left,
-; 1 top-right, 2 bottom-left, 3 bottom-right
-wa_fglyph:  db 0x20, 0xDF, 0xDF, 0xDF, 0xDC, 0xDD, 0xDB, 0xDB
-            db 0xDC, 0xDB, 0xDE, 0xDB, 0xDC, 0xDB, 0xDB, 0xDB
-;              near   mid    far    figure flash  cross
-; COLOUR SAYS WHAT A THING IS, not how far (the owner's call: two shades of
-; blue never read as depth, and Hercules has no colour at all): a boundary
-; wall dark blue, an item - a pillar, a block, a stair to come - cyan, the
-; floor grid dark grey, the figures white. On mono every wall and dot is
-; normal intensity and the figures alone are bright.
-;              room   item   dot    figure flash  cross
-wa_attrc:   db 0x01,  0x03,  0x08,  0x0F,  0x0C,  0x0E
-wa_attrm:   db 0x07,  0x07,  0x07,  0x0F,  0x70,  0x0F
-A_ROOM  equ 0
-A_ITEM  equ 1
-A_DOT   equ 2
-A_FIG   equ 3
-A_FLASH equ 4
-A_CROSS equ 5
+%include "wrtab.inc"
 
 ; --- bss ------------------------------------------------------------------
 %assign WA_BSS 0

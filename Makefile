@@ -21298,7 +21298,7 @@ $(BUILD)/vbattle360.img: $(BUILD)/vbattle.o88 $(BUILD)/vbshort/BATTLE.VBT tools/
 wirearena: $(BUILD)/warena.o88
 $(BUILD)/watab.inc: tools/arenagen.py | $(BUILD)
 	python3 tools/arenagen.py $@
-$(BUILD)/wirearena.bin: apps/wirearena/wirearena.asm apps/wirearena/wrender.inc $(BUILD)/watab.inc apps/os88api.inc apps/os88pit.inc | $(BUILD)
+$(BUILD)/wirearena.bin: apps/wirearena/wirearena.asm apps/wirearena/wrender.inc apps/wirearena/waconst.inc apps/wirearena/wasin.inc apps/wirearena/wrtab.inc $(BUILD)/watab.inc apps/os88api.inc apps/os88pit.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/wirearena/ -I $(BUILD)/ -l $(BUILD)/wirearena.lst -o $@ $<
 $(BUILD)/warena.o88: $(BUILD)/wirearena.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
 	$(OS88PKGB) $< -o $@
