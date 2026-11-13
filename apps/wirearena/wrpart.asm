@@ -225,6 +225,13 @@ wa_loadarena:
 .flat:
     mov byte [es:wa_hflat], 1
 .hdone:
+    mov ax, [bx+32]             ; the room's height, and each box's record
+    mov [es:wa_roomh], ax       ; (height, kind, faces: HEIGHTS-PLAN 7.3.1)
+    mov si, [bx+30]
+    mov cx, [bx+16]
+    shl cx, 1
+    mov di, wa_bxh
+    rep movsw
     mov si, [bx+18]             ; the tree, WA_ROW bytes a node
     mov dx, wa_bsp
     sub dx, si                  ; DX = what each link moves by
@@ -256,6 +263,7 @@ WA_BSPROW equ 12                ; a node: db kind, box; dw value, low, high;
                                 ; db its boxes' bounds x 4
 
 %include "wrender.inc"
+%include "wrlow.inc"
 %include "wrtab.inc"
 
 ; the tables this half reads, out of build/watab.inc again: the constants
@@ -284,6 +292,7 @@ WA_VAR wa_bsp,WA_MNODE*WA_BSPROW  ; the tree, rebased (wa_loadarena)
 WA_VAR wa_tmp,2
 WA_VAR wa_rowo2,(WA_ROWS+1)*2
 WR_BSS
+WL_BSS
 WA_VAR wa_newp,2
 WA_VAR wa_oldp,2
 WA_VAR wa_newn,2

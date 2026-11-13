@@ -309,6 +309,7 @@ wa_reset:
     mov [wa_quit], al
     mov [wa_hits], ax
     mov [wa_kills], ax
+    mov [wa_feet], ax
     mov word [wa_eye], WA_EYE
     mov di, wa_figs
     xor bx, bx
@@ -639,7 +640,8 @@ wa_tick:
     mov al, ah                  ; 8.8 -> units
     cbw
     add ax, WA_EYE
-    mov [wa_eye], ax
+    add ax, [wa_feet]           ; (the floor under the player: 0 until
+    mov [wa_eye], ax            ; HEIGHTS-PLAN wave 3, but for the benches)
     cmp byte [wa_mflash], 0
     je .figs
     dec byte [wa_mflash]
@@ -962,8 +964,35 @@ WA_PB_YAW   equ 17 * 64         ; the circle: +-6 degrees of yaw (ang16)...
 WA_PB_PIT   equ 16              ; ...+-2 rows of pitch (quarter half-rows)
 WA_PB_STEP  equ 23              ; ...once round every ~1.5 s (1024 / 45)
 wa_pbstart:
-    mov word [wa_px], WA_PB_X
-    mov word [wa_py], WA_PB_Y
+    xor bx, bx                  ; the pose: P's own in arenas 0 and 1; in
+    cmp byte [wa_arena], 2      ; the heights arena five in turn, A to E
+    jb .pose                    ; (docs/plans/WIREARENA-HEIGHTS-PLAN.md 9)
+    mov bl, [wa_pbsel]
+    inc bx
+    mov al, bl
+    cmp al, WA_PBN
+    jb .nsel
+    xor al, al
+.nsel:
+    mov [wa_pbsel], al
+.pose:
+    mov ax, WA_PBSZ
+    mul bx
+    mov si, ax
+    add si, wa_pbposes
+    lodsw
+    mov [wa_px], ax
+    lodsw
+    mov [wa_py], ax
+    lodsw
+    mov [wa_pba], ax
+    mov [wa_ang], ax
+    lodsw
+    mov [wa_pbp], ax
+    lodsw
+    mov [wa_feet], ax
+    lodsw
+    mov [wa_pbm], al
     xor ax, ax
     mov [wa_pxf], ax
     mov [wa_pyf], ax
@@ -972,8 +1001,9 @@ wa_pbstart:
     mov [wa_pitch], ax
     mov [wa_pbtk], ax
     mov [wa_pbfr], ax
-    mov word [wa_eye], WA_EYE
-    mov word [wa_ang], WA_PB_A << 6
+    mov ax, WA_EYE
+    add ax, [wa_feet]
+    mov [wa_eye], ax
     mov di, wa_figs             ; the dummies from their starts, then on to
     mov si, wa_pbph             ; the bench's points along their patrols
     mov cx, WA_NFIG
@@ -1009,11 +1039,23 @@ wa_pbstart:
     mov byte [wa_pbon], 1
     mov si, wa_hudtpl           ; the HUD's numbers cleared while it runs,
     call wa_hudfix              ; so the screen shows only the run's result
-    mov al, 'P'
+    mov al, [wa_pbm]
     mov di, 32
     call wa_putc
     ret
 wa_pbph:    dw 160, 64, 80      ; ticks along each patrol (the host search)
+; the benches' poses: x, y, angle (ang16), pitch, the floor under the eye,
+; the HUD's mark. P's own, then the heights arena's (HEIGHTS-PLAN 9): A the
+; busiest floor view, B the open floor, C on the platform, D on the tower
+; looking down, E in the hallway
+WA_PBSZ     equ 12
+WA_PBN      equ 5
+wa_pbposes: dw WA_PB_X, WA_PB_Y, WA_PB_A << 6, 0, 0, 'P'
+            dw 800, 400, 160 << 6, 0, 0, 'A'
+            dw 1600, 1024, 512 << 6, 0, 0, 'B'
+            dw 1248, 1024, 512 << 6, 0, 80, 'C'
+            dw 1952, 1024, 512 << 6, -40, 160, 'D'
+            dw 576, 1024, 256 << 6, 0, 0, 'E'
 
 ; wa_pbview - the circle: yaw and pitch at the play bench's clock
 wa_pbview:
@@ -1029,7 +1071,7 @@ wa_pbview:
     rcl dx, 1
     shl ax, 1
     rcl dx, 1
-    add dx, WA_PB_A << 6
+    add dx, [wa_pba]
     mov [wa_ang], dx
     pop ax
     mov cx, WA_PB_PIT
@@ -1038,6 +1080,7 @@ wa_pbview:
     rcl dx, 1
     shl ax, 1
     rcl dx, 1
+    add dx, [wa_pbp]
     mov [wa_pitch], dx
     ret
 
@@ -1086,7 +1129,7 @@ wa_pbmeter:
     mov di, 33
     mov cx, 3
     call wa_putn
-    mov al, 'P'
+    mov al, [wa_pbm]
     mov di, 32
     call wa_putc
     mov byte [wa_hold], 1
@@ -1531,18 +1574,20 @@ wa_tpl:
     OS88_CLASS wa_cls, 0, PAINT, wa_paint
 
     OS88_MENUSET wa_menus, wa_name, wa_oncmd
-        OS88_MENU wa_m_game, wa_i_game, 4
+        OS88_MENU wa_m_game, wa_i_game, 6
     OS88_MENUSET_END wa_menus
 
 wa_name:
 wa_ttl:     db 'WireArena', 0
 wa_m_game:  db 'Game', 0
-wa_i_game:  dw wa_it_40, wa_it_80, wa_it_o40, wa_it_o80
+wa_i_game:  dw wa_it_40, wa_it_80, wa_it_o40, wa_it_o80, wa_it_h40, wa_it_h80
 wa_it_40:   db 'Play, 40 columns', 0
 wa_it_80:   db 'Play, 80 columns', 0
 wa_it_o40:  db 'Open arena, 40 columns', 0
 wa_it_o80:  db 'Open arena, 80 columns', 0
-wa_items:   db 1, 0, 0, 0, 1, 1, 0, 1  ; width (0 = 80, 1 = 40), arena
+wa_it_h40:  db 'Heights arena, 40 columns', 0
+wa_it_h80:  db 'Heights arena, 80 columns', 0
+wa_items:   db 1, 0, 0, 0, 1, 1, 0, 1, 1, 2, 0, 2  ; width (0 = 80, 1 = 40), arena
 
 wa_help:
     db 'WireArena - renderer prototype', 0
@@ -1599,6 +1644,11 @@ WA_VAR wa_want,1
 WA_VAR wa_quit,1
 WA_VAR wa_vsync,1
 WA_VAR wa_arena,1
+WA_VAR wa_feet,2                 ; the floor under the player (HEIGHTS-PLAN)
+WA_VAR wa_pbsel,1                ; the play bench: the heights arena's pose,
+WA_VAR wa_pba,2                  ;   the angle and pitch it circles round,
+WA_VAR wa_pbp,2                  ;   and its HUD mark
+WA_VAR wa_pbm,1
 WA_VAR wa_trig,1
 WA_VAR wa_frame,1                ; the renderer's, after each frame (wa_tick)
 WA_VAR wa_pxf,2

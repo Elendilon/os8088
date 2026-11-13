@@ -21,6 +21,21 @@ a regression for an hour.
 
 It found the far-wall precision bug: 15 poses in 30 with an edge two rows or
 more off before the fix, 5 in 30 after (single columns at a near corner).
+
+    python3 tools/wacheck.py --arena 2 [--poses N] [--width 40|80]
+
+HEIGHTS (docs/plans/WIREARENA-HEIGHTS-PLAN.md wave 2): the heights arena, its
+boxes at their heights, the reference cast per column as a ray through the
+boxes' footprints, nearest first - a box the eye is below the top of hides
+its column above as far as its top and no further; one the eye is above
+shows its top's far edge too; a wall at the arena's tallest (and the room)
+hides the rest. A FLIGHT is cast as its true steps, so a column whose ray
+meets a flight's side first - where the renderer draws a straight stringer
+- is counted apart. Poses: the free floor, the platform's top, the tower's,
+and the room's corners (where every box is in view), each a random heading
+and pitch. Every expected edge (the topmost and bottommost of a front face,
+the far top) must have a drawn edge (`─` `_` `/` and backslash) within a row, and
+every drawn edge an expected one: a column fails either way.
 """
 import argparse, math, os, random, struct, subprocess, sys, tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -38,7 +53,7 @@ NUMT = (192 - 102) * KYQ
 NUMB = 102 * KYQ
 SIN = [int(round(16384 * math.sin(2 * math.pi * j / 1024))) for j in range(1024)]
 VARS = dict(px="wa_px", py="wa_py", ang="wa_ang", pitch="wa_pitch",
-            jz="wa_jz", jv="wa_jv", eye="wa_eye")
+            jz="wa_jz", jv="wa_jv", eye="wa_eye", feet="wa_feet")
 GLYPH = {0xC4: '-', 0x5F: '_', 0xB3: '|', 0x2F: '/', 0x5C: '\\'}
 FIGURE = (0xDB, 0xDF, 0xDC, 0xDD, 0xDE)
 
@@ -104,13 +119,192 @@ def expect(px, py, a, ws):
     return res
 
 
+def hboxes():
+    """The heights arena's boxes for the cast: (x0, y0, x1, y1, h, flight
+    name or None); a flight as its N true steps"""
+    out = []
+    for b in A.HEIGHTS_BOXES:
+        b = A.bx(b)
+        if b.kind != A.FLIGHT:
+            out.append((b[0], b[1], b[2], b[3], b.h, None))
+            continue
+        x0, y0, x1, y1 = b
+        n, rise = b.treads, b.h // b.treads
+        for k in range(1, n + 1):           # step k: from its nosing to the top
+            f = (k - 1) / n
+            if b.toward == "N":
+                out.append((x0, y0 + (y1 - y0) * f, x1, y1, k * rise, b.name))
+            elif b.toward == "S":
+                out.append((x0, y0, x1, y1 - (y1 - y0) * f, k * rise, b.name))
+            elif b.toward == "E":
+                out.append((x0 + (x1 - x0) * f, y0, x1, y1, k * rise, b.name))
+            else:
+                out.append((x0, y0, x1 - (x1 - x0) * f, y1, k * rise, b.name))
+    return out
+
+
+def expect_h(px, py, a, eye, pitch, boxes, w, hmax, kyq, k16):
+    """-> per column (expected edge half-rows, a flight met first?)"""
+    s, c = SIN[a & 1023] / 16384.0, SIN[(a + 256) & 1023] / 16384.0
+    hq = 96 + pitch
+
+    def hr(h, z):
+        return math.floor((hq - (h - eye) * kyq / z + 2) / 4)
+    res = []
+    for col in range(w):
+        r = (16 * col + 8 - 8 * w) / k16
+        # the ray: camera (r z, z); in world, from (px, py) along d
+        dx, dy = r * s + c, -r * c + s       # (camera x = dx s - dy c ...)
+        hits = []
+        for (x0, y0, x1, y1, h, fl) in boxes:
+            t0, t1 = -1e18, 1e18
+            for o, d, lo, hi in ((px, dx, x0, x1), (py, dy, y0, y1)):
+                if abs(d) < 1e-12:
+                    if not lo <= o <= hi:
+                        t0 = 1e18
+                    continue
+                ta, tb = (lo - o) / d, (hi - o) / d
+                t0, t1 = max(t0, min(ta, tb)), min(t1, max(ta, tb))
+            if t0 < t1 and t1 > 0:
+                hits.append((t0, t1, h, fl))
+        hits.sort()
+        exp, clip, flight = set(), 48, False
+        for t0, t1, h, fl in hits:
+            if fl:                               # (the column crosses one)
+                flight = True
+            zi, zo = max(t0, 0.25), t1           # (z along the ray: |d| is 1
+            if t0 > 0.25:                        # in camera z, by construction)
+                for e in (hr(0, zi), hr(h, zi)):
+                    if 0 <= e < 48 and e < clip:
+                        exp.add(e)
+            tall = h >= hmax and eye < h
+            if tall:
+                clip = -1
+                break
+            top = hr(h, zi) if t0 > 0.25 else 48
+            if eye > h:
+                e = hr(h, zo)
+                if 0 <= e < 48 and e < min(clip, top):
+                    exp.add(e)
+                top = min(top, e)
+            clip = min(clip, top)
+            if clip <= 0:
+                break
+        if clip > 0:                             # the room
+            x0, y0, x1, y1 = A.ROOM
+            ts = []
+            for o, d, lo, hi in ((px, dx, x0, x1), (py, dy, y0, y1)):
+                if abs(d) > 1e-12:
+                    ts.append(max((lo - o) / d, (hi - o) / d))
+            z = min(ts)
+            for e in (hr(0, z), hr(A.WALL_H, z)):
+                if 0 <= e < 48 and e < clip:
+                    exp.add(e)
+        res.append((exp, flight))
+    return res
+
+
+def main_heights(a, off):
+    W = a.width
+    fovf = 334
+    k16 = (8 * W * fovf) >> 8
+    kyq = (133 * fovf) >> 8
+    boxes = hboxes()
+    hmax = A.hmax(A.HEIGHTS_BOXES)
+    random.seed(a.seed)
+    F = 4772727
+    item = "Heights arena, %d columns" % W
+    plats = [(A.bx(b), A.bx(b).h) for b in A.HEIGHTS_BOXES
+             if A.bx(b).h < hmax and A.bx(b).kind == A.SOLID and A.bx(b).h > 40]
+    stats = dict(poses=0, bad=0, badnf=0, cols=0, off=0, offnf=0)
+    with os88ui.boot(os.path.join(ROOT, "build/os8088-360.img"),
+                     apps=os.path.join(ROOT, "build/warena360.img"),
+                     machine=a.machine) as ui:
+        m = ui.m
+        ui.path("B:/WARENA.O88")
+        m.advance(cycles=F // 2)
+        m.go()
+        ui.menu_pick("Game", item)
+        m.advance(cycles=F * 2)
+        buf = m.read(0x10000, 0x90000)
+        base = None
+        for o in range(0, len(buf) - 32, 16):
+            if buf[o:o + 2] == b'O8' and buf[o + 2] == PKG_FMT and \
+                    buf[o + 16:o + 22] == b'WARENA':
+                base = 0x10000 + o
+        for n in range(a.poses):
+            kind = n % 4                 # floor, a platform's top, a corner,
+            feet = 0                     # the floor again
+            if kind == 1:
+                b, feet = random.choice(plats)
+                px = random.randint(b[0] + 16, b[2] - 16)
+                py = random.randint(b[1] + 16, b[3] - 16)
+            elif kind == 2:
+                px, py = random.choice([(80, 80), (1980, 80), (80, 1980), (1980, 1980),
+                                        (1980, 480), (1980, 1560)])
+            else:
+                while True:
+                    px, py = random.randint(60, 1988), random.randint(60, 1988)
+                    if not A.inside(px, py, A.HEIGHTS_BOXES, 40):
+                        break
+            ang = random.randint(0, 1023)
+            pitch = random.choice([0, 0, random.randint(-60, 40)])
+            eye = 102 + feet
+            m.pause()
+            for k, v in (('px', px), ('py', py), ('ang', (ang << 6) & 0xFFFF),
+                         ('pitch', pitch & 0xFFFF), ('jz', 0), ('jv', 0),
+                         ('feet', feet), ('eye', eye)):
+                m.write(base + off[k], struct.pack('<H', v))
+            m.advance(cycles=F // 2)
+            vr = m.read(0xB8000, W * 25 * 2)
+            exp = expect_h(px, py, ang, eye, pitch, boxes, W, hmax, kyq, k16)
+            badc, badnf = [], []
+            for c in range(W):
+                want, fl = exp[c]
+                cells = [vr[(r * W + c) * 2] for r in range(24)]
+                if any(ch in FIGURE for ch in cells):
+                    continue
+                got = {r for r in range(24) if cells[r] in (0xC4, 0x5F, 0x2F, 0x5C)}
+                rows = {e >> 1 for e in want}
+                if c == W // 2:                  # (the crosshair's cell)
+                    rows.discard(12)
+                miss = [r for r in rows if not any(abs(r - g) <= 1 for g in got)]
+                extra = [g for g in got if cells[g] in (0xC4, 0x5F)
+                         and not any(abs(r - g) <= 1 for r in rows)]
+                stats["cols"] += 1
+                if miss or extra:
+                    stats["off"] += 1
+                    badc.append((c, sorted(rows), sorted(got)))
+                    if not fl:
+                        stats["offnf"] += 1
+                        badnf.append(c)
+            stats["poses"] += 1
+            if badc:
+                stats["bad"] += 1
+            if badnf:
+                stats["badnf"] += 1
+                print("pose %d: px=%d py=%d a=%d pitch=%d eye=%d: %d column(s) off "
+                      "(%d at a flight's side), e.g. (col, want rows, got) %s"
+                      % (n, px, py, ang, pitch, eye, len(badc), len(badc) - len(badnf),
+                         [x for x in badc if x[0] in badnf][:3]))
+    print("wacheck heights: %d poses, %d with a column off (%d not at a flight's "
+          "side); %d of %d columns off (%d not at a flight's side)"
+          % (stats["poses"], stats["bad"], stats["badnf"], stats["off"], stats["cols"],
+             stats["offnf"]))
+    return 1 if stats["badnf"] else 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--arena", type=int, default=0)
+    ap.add_argument("--width", type=int, default=40)
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--poses", type=int, default=30)
     ap.add_argument("--machine", default="os8088_5150_cga")
     a = ap.parse_args()
     off = offsets()
+    if a.arena == 2:
+        return main_heights(a, off)
     ws = walls()
     random.seed(a.seed)
     F = 4772727

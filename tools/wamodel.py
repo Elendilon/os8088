@@ -344,6 +344,23 @@ def pose_sets(ar, W=40, fov=75):
     return S
 
 
+# the play bench's poses in the heights arena (apps/wirearena/wirearena.asm,
+# wa_pbposes): x, y, angle (1024ths), base pitch, the floor under the eye
+BENCH = [("A, busiest floor", 800, 400, 160, 0, 0), ("B, open floor", 1600, 1024, 512, 0, 0),
+         ("C, on the platform", 1248, 1024, 512, 0, 80), ("D, on the tower", 1952, 1024, 512, -40, 160),
+         ("E, hallway", 576, 1024, 256, 0, 0)]
+
+
+def bench_sets(W=40):
+    """The bench's circle (yaw +-17/1024, pitch +-16, MULTIPLAYER-FPS-PLAN
+    16.7) at each pose, as the guest's bench runs it"""
+    out = {}
+    for name, x, y, a, p, f in BENCH:
+        out[name] = [View(x, y, a + 17 * math.sin(2 * math.pi * i / 32), EYE + f,
+                          p + int(16 * math.cos(2 * math.pi * i / 32)), 75, W) for i in range(32)]
+    return out
+
+
 def budget_poses(ar, W=40):
     """Every free floor point on a 192-unit grid, and the middle of every box
     a walker can stand on (below the arena's tallest), 8 headings each"""
@@ -372,7 +389,7 @@ def budget(n):
     return mb, me
 
 
-def report(n, W, variant):
+def report(n, W, variant, bench=False):
     ar = Arena(n)
     base = render(Arena(0), pbench(W)[0], False)
     base_cells = sum(render(Arena(0), v, False)["cells"] for v in pbench(W)) / 32
@@ -385,7 +402,7 @@ def report(n, W, variant):
             "cols_hidden", "lowboxes", "edges", "ecols", "cells", "stackmax"]
     print("%-40s %6s %6s " % ("pose set", "fps", "worst") +
           " ".join("%8s" % k[:8] for k in keys))
-    for name, ps in pose_sets(ar, W).items():
+    for name, ps in (bench_sets(W) if bench else pose_sets(ar, W)).items():
         tot = {}
         ms = []
         for v in ps:
@@ -405,13 +422,15 @@ def main():
     ap.add_argument("--width", type=int, choices=(40, 80), default=40)
     ap.add_argument("--variant", choices=("G", "A"), default="G")
     ap.add_argument("--budget", type=int, metavar="N")
+    ap.add_argument("--bench", action="store_true",
+                    help="the heights arena's play-bench poses A-E")
     a = ap.parse_args()
     if a.budget is not None:
         (b, bp), (e, ep) = budget(a.budget)
         print("arena %d: at most %d boxes kept (at %r), %d outline edges (at %r); "
               "the budget is %d and %d" % (a.budget, b, bp, e, ep, BUDGET_BOXES, BUDGET_EDGES))
         return 0 if b <= BUDGET_BOXES and e <= BUDGET_EDGES else 1
-    report(a.arena, a.width, a.variant)
+    report(a.arena, a.width, a.variant, a.bench)
     return 0
 
 

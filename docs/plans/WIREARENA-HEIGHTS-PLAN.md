@@ -1,7 +1,8 @@
 # WireArena with heights: stairs, platforms and lifts
 
-**STATUS: PLAN, for discussion with the owner.** No code has changed. This
-plan answers the owner's note of 2026-11-13:
+**STATUS: waves 0 to 2 BUILT** on branch `heights` (section 9); waves 3 to 5
+are the plan. Written first for discussion with the owner, it answers the
+owner's note of 2026-11-13:
 
 > *"Lets start on stairs, platforms, and moving platforms; with a more
 > 'complete' arena as the demo in the end. The arena can have an open area,
@@ -916,6 +917,99 @@ These bind the waves. Where one changes a section above, it overrides it.
 - **Q8, 80 columns:** already a mode for faster machines. Hercules has no
   40-column choice, so it pays the 80-column price.
 
+### 7.1.1 The dead ground: the owner's decision, and the limits it derives
+
+The owner, on 9.3's open question:
+
+> *"I don't like A because then you can 'see' but not 'hit'. We might still
+> take it if nothing else is performant, but lets consider a 'you can look
+> down further than up' view angle, and if it doesn't hurt performance the
+> layout alternative."*
+
+The order of preference, then:
+
+1. **An asymmetric pitch**: a down limit deeper than the up limit, chosen so
+   the reach is the same from both ends.
+2. **The lip-and-depth layout** (9.3's (b)), if it costs no frame time.
+3. **The eye-to-eye rule** (9.3's (a)) only as a fallback. Say so before
+   building it.
+
+**The arithmetic** (Derived, host). The pitch is a SHEAR, so a limit in
+quarter half-rows is a limit on the tangent: `kyq` = 173 at 75° makes
+112 quarter half-rows tan 0.644, 32.8°.
+
+- **From the floor** (eye 102) the lowest part of a body at the tower's lip
+  is the lip, 58 above the eye. At an up limit U it is in reach from
+  58 / tan U out.
+- **From the tower** (eye 262) the highest part of a body on the floor is
+  its head, 112, 150 below the eye. At a down limit D it is in reach from
+  150 / tan D out.
+- **Equal reach** is tan D = (150 / 58) tan U, so **D = 2.586 U** in
+  quarter half-rows.
+
+| up limit U | down limit D | reach both ways |
+|---|---|---|
+| 112 (32.8°, today's) | **290 (59°)** | **1.4 m** |
+| 96 (29°) | 248 (55°) | 1.7 m |
+| 80 (25°) | 207 (50°) | 2.0 m |
+| 64 (20°) | 166 (44°) | 2.5 m |
+
+The first row keeps today's up limit and is the recommendation. A smaller
+U gives a smaller D and a wider dead ground round the tower, for no gain in
+cost: the cost below is the same for every row.
+
+**Does it still read at −290?** Screenshots from the tower at −290 and at
+−112, and from the floor at +112 looking at the lip, at both widths (9.4.6).
+A shear keeps verticals vertical and figures upright. At −290 the floor
+grid is steep and the horizon is far above the screen: the platform is at
+the top edge and the figures near the tower's base fill the middle. The
+owner judges whether that reads.
+
+**The 16-bit products at −290 with the tower's eye** (Derived):
+
+- the horizon is at −194 quarter half-rows (−48 half-rows), which every
+  product and the clip arrays carry signed;
+- `wa_numb` and the per-height pairs of 7.3.1 already choose their shift
+  per frame (7.2.3);
+- **the figures' narrow sum** is bounded by `wa_fvn`. Looking DOWN it
+  grows, so it stays narrow. Looking UP from the tower (horizon half-row
+  52) it drops to 73, and figures whose sum passes that take the 32-bit
+  wide path. That costs only in those frames: the tower looking up.
+
+**The cost** (Derived): none per frame beyond the clamp. A deeper pitch
+puts more floor and less wall in view, and floor is cheaper than wall in
+this renderer. The one added cost is the figures' wide path when looking
+up from the tower. Nothing was measured, because the clamp is not changed
+in wave 2.
+
+**What is visible but cannot be hit.** The crosshair is the screen's
+middle, so at a pitch limit the half-screen beyond it still shows bodies
+the crosshair cannot reach (Derived; the screen's edge is 96 quarter
+half-rows past the middle):
+
+- **from the tower at D = 290**, a floor body 1.06–1.4 m from the base
+  (standing at the lip) shows below the crosshair and cannot be hit;
+- **from the floor at U = 112**, a body standing 0.75–1.4 m back on the
+  tower shows above the crosshair and cannot be hit.
+
+The two bands are the same reach from both ends. Each is the rest of the
+screen past a limit, the band every FPS with a pitch clamp has. Inside
+1.06 m (from the tower) the lip begins to hide the body.
+
+**The layout alternative costs frame time.** A lip hides a body below only
+within 0.47 × the setback (150 / 102 − 1, from the tower's eye over its
+lip). Hiding the whole 1.4 m band from a player standing at the lip
+therefore needs a parapet about 1.25 m tall round the tower's top. That is
+a box, and every box in view costs frame time (9.4.2). It is not taken.
+
+**For wave 3:**
+
+- `WA_PITCH` becomes TWO limits: up 112, down 290.
+- The pistol's test stays the screen's: a hit is what the crosshair covers.
+- Figures cannot stand on the tower until wave 3's `F_Z`, so the from-the-floor
+  half was checked with a figure at the lip's height on the host only.
+- **It is not changed in wave 2.**
+
 ### 7.2 The contracts for waves 0 and 1 (pinned before the code)
 
 Waves 0 and 1 change three interfaces. Each is pinned here first: the
@@ -1011,6 +1105,88 @@ an arena:
 It also checks an arena against the visible budget of section 4.2:
 `arenagen --arena N` refuses one over it.
 
+### 7.3 The contracts for wave 2 (pinned before the code)
+
+Wave 2 draws heights. A flat arena keeps every path of wave 1: its posed
+frames are byte-identical (9.4.1).
+
+**7.3.1 Tall and low.** `wa_loadarena` copies the box records of 7.2.1 into
+`wa_bxh` (4 bytes a box) and the room's height into `wa_roomh`. On an arena
+that is not flat the leaves are walked by `wa_leafh`, a second copy of
+`wa_leaf`, which sorts each box:
+
+- **TALL**: its height is the arena's `hmax` and the eye is below it. It is
+  today's box (`wa_boxh`) with its own height's top. `wa_hnt` makes that
+  height's (product, shift) pair, `wa_numt` and `wa_nsht`, by 7.2.3's rule.
+  It keeps the pair for the next box of the same height (`wa_ntht`), so the
+  room and the building pay for it once a frame.
+- **LOW**: any other box. It is drawn in OUTLINE (7.3.3).
+
+The room's faces take the same pair at `wa_roomh`. On a flat arena the pair
+is fixed (shift 3, height 192) and `wa_boxh` is never reached.
+
+**7.3.2 The clip-tested passes.** On an arena that is not flat, every tall
+face's edges are tested against the column's clip before they are drawn.
+`wa_cclip` is the topmost half-row a nearer low box already covers.
+
+- **The spans** (`SPANLOOP`'s fourth argument): four more instances,
+  `wa_lc00`..`wa_lc11`, selected by `wa_loopsc`. The top edge is drawn only
+  below the clip, by `WPLOT` (the first plot in a cell wins). The bottom
+  edge is tested the same way.
+- **The flat passes** (`FLATPASS`'s third argument): `wa_foc` and `wa_fpc`.
+- **The corner posts** are clamped to the clip (`wa_cclp`).
+- **The steep fills** (`wa_slope`) are clamped to the clip as well.
+
+A tall face shuts its column (`wa_cov`), as today. Nothing behind it is
+drawn, so it needs no stack entry.
+
+**7.3.3 The outline path** (`apps/wirearena/wrlow.inc`, `wa_lowbox`). A low
+box is drawn in phases:
+
+1. **Corners.** Its four corners are transformed through the shared vertex
+   cache (`wa_vert`). Each keeps its own height (`wl_ch`). A corner in the
+   view is projected once a box: column, inverse depth, top row and floor
+   row (`wl_kc`..`wl_kf`). The floor's pair is made once a frame (`wl_ffr`)
+   and the box's once a box.
+2. **Posts** at the visible corners, against the clip as it stood.
+3. **The faces the player is outside of**, a pass each (`wl_draw`):
+   - the floor edge, against the clip as it stood;
+   - then the top edge, which RAISES the clip and pushes a stack entry (its
+     span tag and the half-row it covers from).
+
+   An edge with a corner out of the view is clipped (`wa_clip`) and its ends
+   projected on the spot (`wl_xedge`).
+4. **With the eye above the box**, its other faces' top edges, the far side
+   of its top, raising the clip again.
+
+A pass's columns are four loops (`WLLOOP`: one edge or two, shallow or
+steep), plotted cell by cell against the clip. A top edge at or above the
+screen's top shuts its column, holding its tag in `wa_cov` as a wall's
+does. The stack keeps `WA_CSTK` = 4 entries a column; a fifth is merged
+into the deepest.
+
+**7.3.4 Flights** (kind 1) are ONE object:
+
+- **The low end** is a face as tall as the first tread. Its two corners
+  take that height.
+- **The sides** (the stringers) are straight, from the low end's corners
+  to the top's.
+- **The inner treads** are lines across the flight at their heights. Their
+  ends are lerped in camera space along each side by the flight's going
+  (`wl_going`), and drawn nearest first: from the low end when the flight
+  is seen from below it, else after the top.
+
+**7.3.5 The game.**
+
+- **`wa_feet`** is the floor under the player, zero until wave 3, and
+  `eye = jz + WA_EYE + feet`.
+- **The Game menu** gains "Heights arena, 40 columns" and "Heights arena,
+  80 columns".
+- **The play bench** run in the heights arena cycles five poses, A to E,
+  marked on the HUD (`wa_pbposes`: position, heading, base pitch, feet).
+  Its tower and platform poses set `wa_feet`, so the raised eye is the
+  game's own: no poke.
+
 ## 8. The instruments behind the numbers
 
 Wave 0 made them tools. The working scripts first kept in `tools/wamodel/`
@@ -1036,7 +1212,7 @@ are gone, their substance carried over.
 
 ---
 
-## 9. As built: waves 0 and 1 (2026-11-13, branch `heights` from `20d0cf89`)
+## 9. As built: waves 0 to 2 (2026-11-13, branch `heights` from `20d0cf89`)
 
 ### 9.1 Wave 0: the host tools and the demo arena
 
@@ -1150,27 +1326,176 @@ thresholds 160. The game grows 10 bytes of image (a parts row) and 80 of
 BSS (`wa_boxes` at 19 boxes). The arena parts are 534, 261 and 1,032
 bytes.
 
+### 9.4 Wave 2: heights drawn (static)
+
+Built to 7.3. Arena 2 is on the Game menu at both widths. Its heights are
+fixed: the lifts rest at 16 and the player's eye is the floor's, except at
+the bench's poses (7.3.5).
+
+**9.4.1 The flat arenas** (MartyPC `os8088_5150_cga`, H off):
+
+- **Correctness.** The posed sets against wave 1 (`b9037950`): 720 poses
+  over both arenas, both widths and all three fields of view. **All 720 are
+  identical.**
+- **Speed.** It moved by 0.1 fps.
+
+| | wave 1 | wave 2 |
+|---|---|---|
+| P bench, 40 columns | 18.9 fps (MS 52.9) | 18.8 (MS 53.1) |
+| P bench, 80 columns | 15.7 (MS 63.5) | 15.6 (MS 63.7) |
+| B bench, 40 columns, full / sparse | 33.0 / 36.2 | 32.8 / 36.1 |
+| render cycles, the same 60 posed frames | — | **+420 clk a frame (+0.25%)** |
+
+The +420 is:
+
+- one test a span (`wa_gen`);
+- the flat test at the general path and at the leaves;
+- the room's flat test;
+- the per-frame setup of the pair.
+
+The faces, boxes and leaves were split into flat and heights copies
+(`FACEBODY`, `BOXBODY`, `LEAFBODY`) to keep it this small. **It is 0.5–0.6%
+on the benches, against wave 1's own 0.5% bar.**
+
+**9.4.2 The heights bench** (Measured, MartyPC `os8088_5150_cga`; the
+play bench's circle at each pose of 7.3.5), against `tools/wamodel.py
+--arena 2 --bench`:
+
+| pose | 40 columns, measured | 40, model | 80 columns, measured | 80, model |
+|---|---|---|---|---|
+| A, the busiest floor (800, 400) | **8.7** | 15.2 | **7.1** | 11.7 |
+| B, the open floor, across the platform (1600, 1024) | **7.7** | 11.5 | **6.0** | 8.8 |
+| C, on the platform (eye 182) | **18.6** | 19.3 | **15.2** | 16.0 |
+| D, on the tower (eye 262, pitch −40) | **7.8** | 12.0 | **6.2** | 9.4 |
+| E, in the hallway | **24.4** | 23.0 | **19.6** | 19.0 |
+
+The raised eyes are the bench's own: its C and D poses set `wa_feet`.
+
+**Where the model is right and where it is wrong.** It is right where few
+low boxes are in view (C, E). It is 35–43% optimistic where many are (A, B,
+D).
+
+A breakpoint count at pose A (`lcount`) prices the outline path against
+the model's units:
+
+| | measured | model's forecast |
+|---|---|---|
+| a pass's setup | ~3,100 clk | 700 |
+| a column of a pass | ~880 clk | 180 |
+| a low box's prelude (corners, pairs, seen faces) | ~11,000 clk | 5,200 |
+
+The column is the largest of them. Each cell is:
+
+- a clip test;
+- a `WPLOT`;
+- for a top edge, a clip write and a stack push;
+
+and the two edges of a face are walked together. The model priced it as
+today's span column.
+
+**Already taken against it:**
+
+- the four `WLLOOP` loops (one edge or two, shallow or steep);
+- the floor pair once a frame;
+- each box's pair once a box.
+
+Together they took pose A from 7.6 to 8.7.
+
+**9.4.3 `tools/wacheck.py` with heights** (`--arena 2`). The host reference
+casts each column as a ray through the boxes at their heights, flights as
+their true steps. Its poses cover the free floor, the platform's top, the
+tower's and the room's corners.
+
+| | poses | columns off | not at a flight's side |
+|---|---|---|---|
+| 40 columns | 60 | 46 of 2,338 | 9 |
+| 80 columns | 40 | 89 of 3,110 | 7 |
+| today's arena (unchanged) | 30 | 6 poses with an edge two rows off, as before | — |
+
+- **At a flight's side** the renderer draws the straight stringer of 7.1's
+  Q3 and the reference the true steps. That accounts for most of the
+  columns off.
+- **The rest** are single columns at a near corner, the kind today's arena
+  has.
+- **A stringer whose low end is clipped by the near plane** is projected
+  from the clipped point at the flight's low height. It runs straight to
+  the top, a slightly different line from the unclipped one.
+
+**9.4.4 Bytes.**
+
+| | image | BSS | part |
+|---|---|---|---|
+| renderer part, wave 1 | 17,657 | 31,246 | 48,903 |
+| renderer part, wave 2 | **22,115** | **31,716** | **53,831** |
+| of which `wrlow.inc` | 2,364 | 140 | |
+| of which the clip-tested and heights copies in `wrender.inc` | 2,094 | 82 | |
+| of which the span table, 96 → 127 spans a frame | — | 248 | |
+
+The span table grows because every outline pass registers a span tag (its
+stack entries name it). 127 is the most a tag byte (x 2) indexes. The game
+grows 7,125 → 7,319 bytes (+194: the menu items, `wa_feet`, the bench's
+pose table). The arena parts are unchanged.
+
+**9.4.5 The figures, the floor grid and the pistol** ask `wa_occl`, as wave
+1 wired them. Wave 2 is the first to WRITE low entries, so the figures
+show above a low platform and stop at its top. The screenshot is in 9.4.6.
+
+**9.4.6 Screenshots** (MartyPC `os8088_5150_cga`, posed by `shotpose.py`
+in the session's scratch directory). Each is in `shots/` at both widths
+(`-40`, `-80`):
+
+| view | file |
+|---|---|
+| the platform with its two flights, from the floor | `w2-platform`, `w2-platform-side` |
+| the hallway's entrance, and inside the hallway | `w2-hallway-entrances`, `w2-hallway-inside` |
+| the back room's jump platform | `w2-backroom-jump` |
+| the lifts and the tower, from the floor | `w2-lifts-tower` |
+| the view from the tower, looking down | `w2-from-tower` |
+| a figure behind the platform, showing above it | `w2-figure-behind-platform` |
+| all of these, stacked | `w2-sheet-40`, `w2-sheet-80` |
+| the dead ground of 7.1.1: the tower at −290 and −112, the floor at +112 | `w3-tower-down-290`, `w3-tower-down-112`, `w3-floor-up-112`, `w3-deadground-sheet` |
+
+**The flights as one object** are the owner's to judge from
+`w2-platform`. Each tread is one line and the sides are straight.
+
+**9.4.7 What the plan got wrong.**
+
+1. **The outline path's unit costs are 3–4× the forecast** (9.4.2). Section
+   2.4's G forecast is too optimistic wherever many low boxes are in view.
+   The tower is not the worst view; the open floor looking across the
+   platform is as slow (B, D).
+   The levers for wave 5, before section 2.5's:
+   - a column loop that tests the clip once a run rather than once a cell;
+   - top and floor edges walked as one span pair when both are unclipped;
+   - the prelude's corner projections shared with the tall path's vertex
+     cache.
+2. **7.2.3 said `wa_numt` needs no pair.** It does, per height, as wave 1
+   expected. It is `wa_hnt`, cached by height.
+3. **Not the plan's error, but worth keeping:** a view of the hallway's
+   entrances from straight in front shows nothing. The building's 6 m wall
+   fills the view from 4.6 m out, its top is off the screen, and only its
+   foot shows. The entrances read when seen obliquely
+   (`w2-hallway-entrances`).
+4. **9.1's room-corner caveat stands.** The corners keep every box in view.
+5. **The flat arenas pay 0.5% for the heights arena's presence.** Wave 1
+   paid 0.4%, so it is about 0.9% in all. The flat body is otherwise today's.
+6. **7.1's Q4 assumed ±112 could be made symmetric.** It cannot be with one
+   limit, because body and eye heights differ. 7.1.1 is the derivation:
+   **the down limit should be 290, the up limit stays 112**, from wave 3.
+
 ### 9.3 Open, for the owner and the next waves
 
-1. **The SYMMETRIC dead ground of 7.1 is a design decision, not yet made.**
-   The pistol's test is the screen's, and at ±112 (32.8° at 75°) it is not
-   symmetric.
-   - **From the tower** (eye 262) a body below (0..112 high) is in reach
-     only from 233 units (3.6 m) out.
-   - **From the floor** (eye 102) a body at the tower's lip (160..272) is
-     in reach from 90 units (1.4 m) out.
-   - **Between 1.4 and 3.6 m** the one below can hit the one above and not
-     the reverse.
+1. **The symmetric dead ground** is decided (7.1.1). From wave 3 the pitch
+   limit is up 112 and down 290: 1.4 m of reach from both ends.
 
-   Two symmetric rules are offered:
-   - **(a)** a hit needs the angle between the two EYES within the pitch
-     limit, the same number both ways;
-   - **(b)** the tower's lip and depth are laid out so the lip hides
-     whoever stands where the angle runs out.
-
-   This wants deciding before wave 3 builds the pistol through heights.
-2. **The room corners' ~11 fps** (9.1), beside the tower's.
-3. **The stack's writers**, the clip-tested passes and the outline path,
-   land in wave 2. Nothing before it can make a low entry, and wave 2
-   exercises them.
-
+   The question as it stood after wave 1, for the record:
+   - at ±112 the screen's reach was not symmetric: 3.6 m from the tower,
+     1.4 m from the floor;
+   - two rules were offered: (a) the eye-to-eye angle, and (b) the lip and
+     depth laid out to hide the gap.
+2. **The heights arena's rate** where many low boxes are in view: 7.7–8.7
+   fps at 40 columns (9.4.2), below section 2.4's forecast. Wave 5's
+   levers, 9.4.7.
+3. **The room corners' views** (9.1), beside the tower's.
+4. **Flights as one object**: the owner's call from the wave-2 screenshots
+   (9.4.6).
