@@ -2307,6 +2307,92 @@ the owner's choice. All are off.
   - Coarser distant columns.
   - A frame cap.
 
+### 9.10 The lift that jittered (fixed, 2026-11-13, branch `liftfix` from `e9ca8cff`)
+
+**The report** (the owner, 86Box pc5150, CGA, 40 columns, the Heights
+arena): "The ramps work well … The lift just 'jitters' me in place when I
+stand on it, never lifting me up to the tower."
+
+**Reproduced on MartyPC** `os8088_5150_cga` on the first try: walk onto the
+lift from the north and let go of W. Read every tick off the game's own
+variables:
+
+- the feet went 16, 0, 16, 0, every other tick;
+- `wa_fpx`, the cached floor's x, read **40** on the zero ticks. That is
+  the lift's record offset (box 10 × 4), not an x.
+
+**The cause** was in `wa_hjump`'s cached floor read (7.4.3). The floor is
+read again only if the player moved, or if the cached floor's box is the
+lift. The lift test loaded `wa_flrb` into AX and jumped to `.read` when it
+matched. But `.read` takes AX = x and BX = y, so it stored 40 as `wa_fpx`
+and read the floor at x = 40: the ground against the west wall.
+
+- The feet stepped down to 0, and `wa_flrb` became the ground.
+- `wa_ltick` saw nobody on the lift and reset its count.
+- On the next tick x ≠ 40, so the floor was read correctly: the lift, 16
+  (or 21 once it had started), and the feet stepped back up.
+- The count never reached `WA_LWAIT`.
+
+It worked only when the rider's x or y changed every tick. A moving rider
+reads the floor through the other branch, where AX is right. Every still
+case failed:
+
+- keys up;
+- turning with the mouse;
+- W held into the tower's face (the collision puts y back);
+- landing from a jump;
+- standing on either edge.
+
+The 40-column frame rate and the edges had nothing to do with it. Wave 3's
+scripted ride (9.7.3) must have kept the player moving.
+
+**The fix**: the lift test uses CX, not AX (+1 byte of the game's image).
+CX is free there, and `.have` reloads it.
+
+**Checked**: `tests/walift.py`, a soak row (`walift`, 14 s). It runs nine
+scripted rides on the Heights arena. Each ends with the player STILL on the
+lift, and each is checked tick by tick:
+
+| ride | e9ca8cff | liftfix |
+|---|---|---|
+| backed on, every key up | feet 16/0, lift stays at 16 | up in 32 ticks (1.07 s), feet 160, no drop; off onto the tower; the lift home |
+| walked on, the mouse turning the view | jitter, stays at 16 | up in 33 ticks |
+| W held into the tower's face | stuck at y 1180, feet 31 | carried up, walks onto the tower by itself in 46 ticks |
+| jumped on | jitter | up in 32 ticks |
+| on its west edge (the square half on the ground) | jitter | up in 31 ticks |
+| on its north edge | jitter | up in 39 ticks |
+| walked off west mid-rise (lift at 80) | never rose | fell to 0, and the lift went home |
+| back onto the raised lift from the tower | 41 of 90 still ticks off it | held up, feet 160, for 3 s |
+| dropped onto it from the tower as it came down | landed at 25, never rose again | stopped under the rider at 30, back up in 33 ticks |
+
+The row is red on `e9ca8cff` with 14 failures.
+
+Riding it DOWN is not a ride, by 3.2's design: the lift holds while
+occupied and returns only when empty. A rider who drops onto it as it comes
+down stops it, and is carried back up a third of a second later.
+
+**Nothing can be under it:**
+
+- A player whose square overlaps it stands on it. Its height is their
+  floor.
+- Its side collides like a wall while it is above a step.
+- No dummy reaches its column. arenagen keeps every patrol tick 12 units
+  from a lift, and a dummy's floor square is `WA_FRAD` 8.
+
+**The feet trail the lift by one tick**, by 7.4.4's step rule: `wa_ltick`
+moves it at the end of the tick, and the floor is read at the next one. So
+the eye is up to 5 units below the lift's top for one tick. This was left
+alone.
+
+**The flat arenas are byte-identical**:
+
+- the posed sets, 980 poses (flat 720, heights 260), match `e9ca8cff`
+  exactly, with render cycles within ±0.23%;
+- the P bench is 19.3 at 40 columns, as before.
+
+**The video** is in the session's scratch, `lift/wirearena-lift.mp4`:
+before and after, one frame a sim tick, from MartyPC.
+
 ### 9.3 Open, for the owner and the next waves
 
 1. **The symmetric dead ground** is decided (7.1.1) and built in wave 3:

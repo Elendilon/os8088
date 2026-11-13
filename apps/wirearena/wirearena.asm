@@ -1008,11 +1008,11 @@ wa_hjump:
     jne .read
     cmp bx, [wa_fpy]
     jne .read
-    mov ax, [wa_flrb]
-    or ax, ax
-    js .same                    ; (the ground)
-    cmp ax, [wa_lift]
-    je .read
+    mov cx, [wa_flrb]           ; (CX, not AX: .read takes AX = x and BX
+    or cx, cx                   ; = y. With the record in AX it read the
+    js .same                    ; floor at x = the record's offset - the
+    cmp cx, [wa_lift]           ; ground - every other tick a rider stood
+    je .read                    ; still: HEIGHTS-PLAN 9.10)
 .same:
     mov ax, [wa_flr]
     jmp .have

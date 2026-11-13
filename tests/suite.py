@@ -8630,6 +8630,21 @@ SOAK = [
         needs=("marty", "nasm"),
         wants=("build/os8088-360.img", "build/doscom360.img",
                "build/kerndos.bin")),
+    Row("walift", "soak", py("tests/walift.py"), 18.0,
+        "WIREARENA'S LIFT CARRIES A RIDER WHO STANDS STILL "
+        "(docs/plans/WIREARENA-HEIGHTS-PLAN.md 3.2, 9.10). `wa_hjump`'s "
+        "cached floor read branched to `.read` with the lift's RECORD in AX "
+        "where `.read` takes x, so a still rider's floor was read at x = 40 "
+        "every other tick: the feet went 16, 0, 16, 0, the lift's count "
+        "reset, and it never left the floor - the owner's 'jitters me in "
+        "place' on the pc5150. Nine scripted rides on the Heights arena, "
+        "each ending STILL on the lift (keys up, the mouse turning, W held "
+        "into the tower, a jump, each edge, off mid-rise, back on from the "
+        "tower, onto it coming down), checked tick by tick off the game's "
+        "own variables: up to its raised height with no drop of the feet, "
+        "off onto the tower, the lift home. Red on e9ca8cff: 14 failures.",
+        needs=("marty", "nasm"),
+        wants=("build/os8088-360.img", "build/warena360.img")),
     Row("kdmix", "soak", py("tests/kdmix.py"), 40.0,
         "A 1.44MB FLOPPY IN B: UNDER kern_dos (SPEC.md 96.40.5). Every other "
         "kd* row boots two 360KB drives - not by choice, but because every "
