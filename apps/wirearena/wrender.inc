@@ -2662,7 +2662,8 @@ wa_femit:
 ; limbs' walk, its head's cell a face (wa_flglyph). The head joint is
 ; blended and projected as wa_fjl does it, so the line leans, flashes in a
 ; flinch and sinks to the floor in a death.
-; SI, DI = keyframes A and B at this facing, BX = the facing's offset.
+; SI, DI = keyframes A and B at this facing (the facing's offset already
+; in both, so BX - which still holds it - is cleared before the reads).
 ; It fills what wa_fjdone reads of the joint table - joint 0 the head,
 ; joint 2 (the pelvis, the trigger's centre) and the feet the ground point -
 ; and sets wa_fgo, so wa_fjdone's trigger fields (the same rules as a whole
@@ -2672,6 +2673,7 @@ wa_femit:
 wa_fln:
     ; STKBALANCE-OK: never called - wa_figure's continuation, JMPed to with
     ; wa_figure's DI on the stack; it leaves by `jmp wa_fjdone`, which pops it
+    xor bx, bx                  ; (joint 0: SI and DI are at the facing)
     call .blend                 ; the head's lateral...
     add ax, [wa_fcx]
     imul word [wa_fs8]
