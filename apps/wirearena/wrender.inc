@@ -3723,8 +3723,9 @@ wa_cross:
 ; the loop's own cost is a quarter of a `loop` a cell.
 ; - A new cell's usual case in play is CHANGED (the view moves: two in three
 ;   on the P bench), so the write falls through and the unchanged one jumps.
-; - An old cell's usual case is DRAWN AGAIN (85 of 121 on the P bench), so
-;   that falls through and the blank is out of line. It is written without
+; - An old cell's usual case is DRAWN AGAIN (85 of 121 on the P bench), and
+;   by a wall, so that is one compare against the wall's stamp falling
+;   through; a figure's stamp and the blank are out of line. It is written without
 ;   asking whether the glass is blank already: an old-list cell was drawn last
 ;   frame, so it is not, and if it were, the write is a no-op.
 %macro PNEW 0                   ; this frame's cell: written if it differs
@@ -3738,16 +3739,16 @@ wa_cross:
 %%same:
 %endmacro
 %macro POLD 1                   ; last frame's: blanked unless drawn again
-    lodsw                       ; (DL = this frame, DI = wa_stamp)
-    xchg bx, ax
-    mov al, [bx+di]
-    and al, 0x7F
-    cmp al, dl
-    jne .ob%1
+    lodsw                       ; (DL = this frame, DH = a figure cell's
+    xchg bx, ax                 ; stamp this frame, DI = wa_stamp)
+    cmp [bx+di], dl             ; (a wall's cell drawn again: the usual
+    jne .ob%1                   ; case, one compare)
 .or%1:
 %endmacro
-%macro POLDB 1                  ; ...its blank, out of line
+%macro POLDB 1                  ; ...a figure's, or its blank, out of line
 .ob%1:
+    cmp [bx+di], dh
+    je .or%1
     mov word [es:bx], WA_BLANK
     inc bp
     jmp .or%1
@@ -3780,6 +3781,8 @@ wa_present:
     mov si, [wa_oldp]
     mov cx, [wa_oldn]
     mov dl, [wa_frame]
+    mov dh, dl
+    or dh, 0x80
     mov di, wa_stamp
     mov bx, cx
     and bx, 6
