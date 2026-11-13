@@ -3109,7 +3109,12 @@ wa_frowv:
 ;   >> 8) + Khi; and E = eye fv8 + 256 hh + 255, so y = (E - height fv8)
 ;   >> 8. The same numbers, so the same pixels;
 ; - WIDE: the 16-bit multiplies, as before.
-; Returns to wa_fjdone. Clobbers AX, BX, CX, DX, BP.
+; The narrow loops walk keyframe A with LODSW (AL = lateral, AH = height),
+; read B a fixed distance on (BX = B - A), blend in BYTES - B - A is a
+; signed byte for every pair, which tools/arenagen.py asserts - and STOSW
+; the joint's x (DI on wa_jsx, its y 22 bytes on): the same numbers in ~25
+; fewer bytes of code a joint. ES = DS (wa_femit's scan needs it too).
+; Returns to wa_fjdone. Clobbers AX, BX, CX, DX, SI, DI, BP.
 %macro WA_FBLEND 2              ; %1 = q, %2 = 0 lateral, 1 height
   %if %1 == 3
     mov al, [di+bx+%2]          ; (B + (A - B) / 4)
@@ -3172,6 +3177,54 @@ wa_frowv:
     jb .j%2%1
     jmp wa_fjdone
 %endmacro
+%macro WA_FJN 1                 ; narrow, %1 = q: SI = A, BX = B - A, DI =
+.j1%1:                          ; the joint's place in wa_jsx
+    lodsw                       ; AL, AH = A's lateral and height
+  %if %1 == 0
+    mov dh, ah
+  %else
+    mov dx, [si+bx-2]           ; DL, DH = B's
+    %if %1 == 3
+    sub al, dl                  ; B + (A - B) / 4
+    sar al, 1
+    sar al, 1
+    add al, dl
+    sub ah, dh
+    sar ah, 1
+    sar ah, 1
+    add dh, ah                  ; DH = the height
+    %else
+    sub dl, al                  ; A + (B - A) q / 4
+      %if %1 == 1
+    sar dl, 1
+      %endif
+    sar dl, 1
+    add al, dl
+    sub dh, ah
+      %if %1 == 1
+    sar dh, 1
+      %endif
+    sar dh, 1
+    add dh, ah                  ; DH = the height
+    %endif
+  %endif
+    imul cl
+    add ax, [wa_fk]
+    mov al, ah
+    cbw
+    add ax, bp
+    stosw                       ; x
+    mov al, dh
+    mul ch
+    neg ax
+    add ax, [wa_fe]
+    mov al, ah
+    cbw
+    mov [di+WA_NJ*2-2], ax      ; y (wa_jsy follows wa_jsx)
+    cmp di, wa_jsx+WA_NJ*2
+    jb .j1%1
+    jmp wa_fjdone
+%endmacro
 wa_fjl:
     ; STKBALANCE-OK: never called - wa_figure's continuation, JMPed to with
     ; wa_figure's DI on the stack; its table dispatch (`jmp ax`) and every
@@ -3209,10 +3262,13 @@ wa_fjl:
     mov dl, 255
     add ax, dx
     mov [wa_fe], ax
-    add bx, 8
+    mov ax, [.tab+8+bx]
+    mov bx, di
+    sub bx, si                  ; BX = B - A
+    mov di, wa_jsx
+    jmp ax
 .wide:
-    mov bx, [.tab+bx]
-    xchg ax, bx
+    mov ax, [.tab+bx]
     xor bx, bx                  ; (BX: the joint x 2)
     jmp ax
 .tab:
@@ -3221,10 +3277,10 @@ wa_fjl:
     WA_FJ 1, 0
     WA_FJ 2, 0
     WA_FJ 3, 0
-    WA_FJ 0, 1
-    WA_FJ 1, 1
-    WA_FJ 2, 1
-    WA_FJ 3, 1
+    WA_FJN 0
+    WA_FJN 1
+    WA_FJN 2
+    WA_FJN 3
 
 ; WA_FPIXI - SI = sub-column, DI = half-row: one sub-pixel into wa_fbuf,
 ; clipped (wa_fpix inline, for the clipped walk). Clobbers AX, BX, DX.

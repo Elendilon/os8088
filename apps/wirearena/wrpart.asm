@@ -330,6 +330,9 @@ WA_VAR wa_listb,WA_CELLS*2
 ; zeros the packer cuts off (OP_ZFILL) and op_unpack fills back
     times WA_BSS db 0
 wr_end:
+%if wa_jsy != wa_jsx + WA_NJ*2
+    %error "wrpart: wa_fjl's narrow loops store y at wa_jsx + 22"
+%endif
 %if (wr_end - wr_hdr) > 65024
     %error "wrpart: the renderer part passed the 65,024 bytes one part may hold"
 %endif
