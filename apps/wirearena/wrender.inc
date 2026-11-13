@@ -569,6 +569,10 @@ wa_fush:    db 0, 0, 3, 1, 2, 2 ; 90 (unused), 75: 7/32, 60: 13/32
 ; the position alone - which side of each split line it is on - so a frame
 ; whose position is still in the cell (turning, or moving inside it, which
 ; is most frames of play) reuses the list, and a frame walks no inner node.
+; THE PVS (docs/plans/WIREARENA-HEIGHTS-PLAN.md 9.8): an arena may carry, per
+; cell of a square grid, the boxes that can draw anything from somewhere in
+; it (tools/arenagen.py, pvs_masks); the rest are left off the list, so a
+; frame never visits them. The order's cell is then the grid's cell too.
 wa_order:
     mov ax, 32767
     mov [wa_rx1], ax
@@ -576,18 +580,78 @@ wa_order:
     inc ax
     mov [wa_rx0], ax
     mov [wa_ry0], ax
+    mov cl, [wa_pvsh]
+    or cl, cl
+    jz .walk
+    mov ax, [wa_px]             ; the grid's cell: [x0, x0 + g) x [y0, y0 + g)
+    mov si, wa_rx0
+    call .cell
+    mov bx, ax
+    mov ax, [wa_py]
+    mov si, wa_ry0
+    call .cell                  ; BX = its column, AX = its row
+    xchg ax, bx
+    mul byte [wa_pvsn]
+    add ax, bx
+%if WA_PVSB > 1
+    mov cx, WA_PVSB
+    mul cx
+%endif
+    add ax, wa_pvs
+    mov [wa_pvp], ax
+.walk:
     mov di, wa_lord
     mov bx, [wa_root]
     call .n
     xor ax, ax
     stosw
     ret
+.cell:                          ; AX = a coordinate, SI = its bounds, CL =
+    or ax, ax                   ; the shift -> AX = its cell, clamped, and
+    jns .c0                     ; the bounds the cell's
+    xor ax, ax
+.c0:
+    sar ax, cl
+    mov dl, [wa_pvsn]
+    xor dh, dh
+    cmp ax, dx
+    jb .c1
+    mov ax, dx
+    dec ax
+.c1:
+    mov dx, ax
+    shl dx, cl
+    mov [si], dx
+    mov di, 1
+    shl di, cl
+    add dx, di
+    mov [si+2], dx
+    ret
 .n:
     mov al, [bx]
     cmp al, 2
     jne .split
-    mov ax, bx                  ; a leaf: onto the list
+    cmp byte [wa_pvsh], 0       ; a leaf: onto the list - with a PVS, if
+    je .take                    ; its box is in the cell's (box x 8: its
+    mov al, [bx+1]              ; byte x 64, its bit x 8)
+    mov cl, 6
+    shr al, cl
+    cbw
+    mov si, ax
+    add si, [wa_pvp]
+    mov cl, [bx+1]
+    shr cl, 1
+    shr cl, 1
+    shr cl, 1
+    and cl, 7
+    mov al, 1
+    shl al, cl
+    test [si], al
+    jz .out
+.take:
+    mov ax, bx
     stosw
+.out:
     ret
 .split:
     mov si, [bx+4]              ; near = low, far = high...

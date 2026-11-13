@@ -79,14 +79,19 @@ class Arena:
         self.nodes = []
         A.box_tree(list(range(len(self.boxes))), self.nodes, self.boxes)
         self.flat = all(h >= self.hmax for h in self.hts)
+        self.pvs = A.pvs_masks(tag, boxes)    # (HEIGHTS-PLAN 9.8: wa_order's)
 
     def order(self, px, py):
         out = []
+        g = 1 << A.PVS_SHIFT
+        m = self.pvs[min(max(int(px), 0) // g, len(self.pvs) - 1)][
+            min(max(int(py), 0) // g, len(self.pvs[0]) - 1)] if self.pvs else -1
 
         def n(i):
             k, box, v, lo, hi, ids = self.nodes[i]
             if k == 2:
-                out.append(box)
+                if m >> box & 1:
+                    out.append(box)
                 return
             p = px if k == 0 else py
             a, b = (lo, hi) if p < v else (hi, lo)

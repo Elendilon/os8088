@@ -196,6 +196,177 @@ def hmax(boxes):
     a face at it, seen from below it, shuts its columns (HEIGHTS-PLAN 1.2)"""
     return max([room_h(boxes)] + [max(b.h, b.top or 0) for b in map(bx, boxes)])
 
+# --- the potentially-visible sets (docs/plans/WIREARENA-HEIGHTS-PLAN.md 9.8) --
+# Per cell of a square grid over the room, the boxes that can draw anything
+# from SOMEWHERE in the cell: the renderer's walk (wa_order) skips the rest
+# before their cone test, transforms or setup. Only TALL boxes occlude - a box
+# at the arena's tallest, which every eye the game allows is below
+# (pvs_eyemax), so occlusion is a question in 2D: a box is visible from a
+# point when some ray from it reaches the box before any tall box in front of
+# it. A box draws only in columns whose centre ray meets it, and a column a
+# nearer tall face covers is shut, so a box no ray reaches draws nothing.
+# Conservative against the renderer's own rounding: each box's angular
+# interval widened, each occluder's narrowed, by PVS_EPS radians (a column's
+# projection truncates to under 1/16 of a column: 0.0025 rad at 90 degrees and
+# 40 columns, the widest) plus PVS_EPSD / distance (a camera-space coordinate
+# truncates by under a unit in x and in z, under 2 / z rad on the screen; and
+# a point tested is within 2 units of any on its outline). From a cell, the
+# points tested are its outline and any tall box's outline (a unit out)
+# inside it at PVS_STEP units, and a PVS_GRIDP grid inside: a ray from an
+# inner point reaches the box from where, run backwards, it leaves the cell
+# or meets an occluder's face, as well.
+PVS_EPS = 0.003
+PVS_EPSD = 5.0
+PVS_STEP = 4
+PVS_GRIDP = 16
+PVS_MIN = 0.10                  # an arena carries one when it culls at
+                                # least this share of its box-cells
+PVS_SHIFT = 7                   # the grid: 128 units (2 m) a cell
+
+
+def pvs_eyemax(boxes):
+    """The highest eye the game allows: the highest floor anything stands
+    on (a low box's top, a lift raised), the eye above it, and a jump"""
+    top = hmax(boxes)
+    floor = max([0] + [max(b.h, b.top or 0) for b in boxes if b.h < top
+                       or b.kind == LIFT])
+    src = open(__file__.replace("tools/arenagen.py", "apps/wirearena/waconst.inc")
+               if __file__.endswith("tools/arenagen.py") else
+               "apps/wirearena/waconst.inc").read()
+    eye = int(re.search(r"WA_EYE\s+equ\s+(\d+)", src).group(1))
+    return floor + eye + jump_apex()
+
+
+def pvs_interval(p, r, ref):
+    """Box r's angular interval seen from p, relative to the direction ref,
+    and its distance - None when p is in it"""
+    a, b, c, d = r
+    px, py = p
+    if a <= px <= c and b <= py <= d:
+        return None
+    cd = math.atan2((b + d) / 2 - py, (a + c) / 2 - px)
+    ts = [(math.atan2(y - py, x - px) - cd + math.pi) % (2 * math.pi) - math.pi
+          for (x, y) in ((a, b), (c, b), (c, d), (a, d))]
+    s = (cd - ref + math.pi) % (2 * math.pi) - math.pi
+    return (min(ts) + s, max(ts) + s,
+            math.hypot(max(a - px, 0, px - c), max(b - py, 0, py - d)))
+
+
+def pvs_front(p, o, b):
+    """Box o can stand in front of box b on a ray from p: p is on o's side
+    of every axis line that separates them (on b's side of any, b is met
+    first on any ray meeting both)"""
+    px, py = p
+    if b[2] <= o[0] and not px > o[0]:
+        return False
+    if o[2] <= b[0] and not px < o[2]:
+        return False
+    if b[3] <= o[1] and not py > o[1]:
+        return False
+    if o[3] <= b[1] and not py < o[3]:
+        return False
+    return True
+
+
+def pvs_seen(p, boxes, tall, have):
+    """-> the boxes (bits) not in have that p sees some part of"""
+    got = 0
+    for i, B in enumerate(boxes):
+        if have >> i & 1:
+            continue
+        ref = math.atan2((B[1] + B[3]) / 2 - p[1], (B[0] + B[2]) / 2 - p[0])
+        bi = pvs_interval(p, B, ref)
+        if bi is None:
+            got |= 1 << i
+            continue
+        e = PVS_EPS + PVS_EPSD / max(bi[2], 1.0)
+        lo, hi = bi[0] - e, bi[1] + e
+        cov = []
+        for j in tall:
+            if j != i and pvs_front(p, boxes[j], B):
+                oi = pvs_interval(p, boxes[j], ref)
+                if oi is None:
+                    continue            # (never: no point is in a tall box)
+                f = PVS_EPS + PVS_EPSD / max(oi[2], 1.0)
+                a, b = oi[0] + f, oi[1] - f
+                for k in (-2 * math.pi, 0, 2 * math.pi):
+                    if a < b and a + k < hi and b + k > lo:
+                        cov.append((a + k, b + k))
+        at = lo
+        for a, b in sorted(cov):
+            if a > at:
+                break
+            at = max(at, b)
+        if at < hi:
+            got |= 1 << i
+    return got
+
+
+_PVS = {}
+
+
+def pvs_masks(tag, boxes):
+    """-> the grid's masks, [ix][iy] (bit i: box i may draw from the cell),
+    or None when the arena takes none (made once a run: tools/wamodel.py
+    walks with them too)"""
+    if tag not in _PVS:
+        _PVS[tag] = pvs_build(tag, boxes)
+    return _PVS[tag]
+
+
+def pvs_build(tag, boxes):
+    boxes = [bx(b) for b in boxes]
+    top = hmax(boxes)
+    if pvs_eyemax(boxes) >= top:
+        return None                     # (an eye over the tallest: no occluder)
+    tall = [i for i, b in enumerate(boxes) if b.h >= top]
+    occ = [boxes[i] for i in tall]
+    g = 1 << PVS_SHIFT
+    if (ROOM[2] - ROOM[0]) % g or (ROOM[3] - ROOM[1]) % g or ROOM[0] or ROOM[1]:
+        raise SystemExit("arenagen: the PVS grid wants the room at 0, 0 in "
+                         "whole cells")
+    full = (1 << len(boxes)) - 1
+    out, cut = [], 0
+    for x0 in range(ROOM[0], ROOM[2], g):
+        col = []
+        for y0 in range(ROOM[1], ROOM[3], g):
+            x1, y1 = x0 + g, y0 + g
+            pts = set()
+
+            def edge(ax, ay, bx_, by):
+                k = max(1, -(-max(abs(bx_ - ax), abs(by - ay)) // PVS_STEP))
+                for t in range(k + 1):
+                    pts.add((ax + (bx_ - ax) * t / k, ay + (by - ay) * t / k))
+            for (a, b, c, d) in [(x0, y0, x1, y1)] + [(a - 1, b - 1, c + 1, d + 1)
+                                                      for (a, b, c, d) in occ]:
+                a, b, c, d = max(a, x0), max(b, y0), min(c, x1), min(d, y1)
+                if a <= c and b <= d:
+                    edge(a, b, c, b), edge(c, b, c, d), edge(c, d, a, d), edge(a, d, a, b)
+            for gx in range(x0, x1 + 1, PVS_GRIDP):
+                for gy in range(y0, y1 + 1, PVS_GRIDP):
+                    pts.add((gx, gy))
+            vis = 0
+            for p in sorted(pts):
+                if vis == full:
+                    break
+                if any(a <= p[0] <= c and b <= p[1] <= d for (a, b, c, d) in occ):
+                    continue                # (no one stands in a wall, or on one)
+                vis |= pvs_seen(p, boxes, tall, vis)
+            col.append(vis)
+            cut += bin(full & ~vis).count("1")
+        out.append(col)
+    share = cut / float(len(boxes) * len(out) * len(out[0]))
+    sys.stderr.write("arenagen: arena %s: the PVS culls %.1f%% of box-cells%s\n"
+                     % (tag, 100 * share, "" if share >= PVS_MIN else
+                        " - under %d%%, none carried" % (100 * PVS_MIN)))
+    return out if share >= PVS_MIN else None
+
+
+def pvs_bytes():
+    """A cell's mask, bytes: one bit a box, for the largest arena"""
+    return (max(len(b) for _, _, b, _ in arenas()) + 7) // 8
+
+
 # --- the dummies' patrols: closed loops of waypoints clear of every block ----
 PATHS = [
     [(320, 384), (1728, 384), (1728, 768), (320, 768)],
@@ -619,6 +790,9 @@ def bsp_tables(w):
     w("WA_MBOX equ %d" % max(c[3] for c in counts))
     w("WA_MNODE equ %d" % max(c[4] for c in counts))
     w("WA_MAXKS equ %d" % MAXKS)
+    w("WA_PVSB equ %d" % pvs_bytes())   # (a cell's mask, and the most cells)
+    w("WA_PVSN equ %d" % (((ROOM[2] - ROOM[0]) >> PVS_SHIFT) *
+                          ((ROOM[3] - ROOM[1]) >> PVS_SHIFT)))
     # the deepest a point can be: the player and every wall are in the room,
     # so no z exceeds its diagonal (wa_rcp covers NEAR..WA_ZMAX-1)
     w("WA_ZMAX equ %d" % (int(math.hypot(ROOM[2] - ROOM[0],
@@ -765,7 +939,18 @@ def arena_part(n, out):
     pb = path_block(ARENA_PATHS[tag], [bx(b) for b in boxes]) \
         if tag in ARENA_PATHS else []
     L += ["    dw %s, %d                ; its own patrols: offset, bytes (0: the "
-          "primary's)" % (P + "paths" if pb else "0", 2 * len(pb))] + T
+          "primary's)" % (P + "paths" if pb else "0", 2 * len(pb))]
+    pv = wamodel.A.pvs_masks(tag, boxes)    # (the budget's walk made them)
+    L += ["    dw %s                    ; its PVS (0: none): grid shift, cells "
+          "a column, masks" % (P + "pvs" if pv else "0")] + T
+    if pv:
+        nb_ = pvs_bytes()
+        L.append(P + "pvs:")
+        L.append("    db %d, %d" % (PVS_SHIFT, len(pv[0])))
+        L.append("    dw %d" % (len(pv) * len(pv[0]) * nb_))
+        for col in pv:
+            L.append("    db " + ", ".join(str(m >> (8 * k) & 255) for m in col
+                                           for k in range(nb_)))
     if pb:
         L.append(P + "paths:")
         for i in range(0, len(pb), 8):

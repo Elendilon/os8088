@@ -255,6 +255,17 @@ wa_loadarena:
     shr cx, 1                   ; WA_APATHSZ)
     mov di, wa_apath
     rep movsw
+    mov byte [es:wa_pvsh], 0    ; ITS PVS (HEIGHTS-PLAN 9.8): the grid's
+    mov si, [bx+42]             ; shift and cells a column, and the cells'
+    or si, si                   ; masks (arenagen bounds them by WA_PVSN x
+    jz .nopvs                   ; WA_PVSB); none - shift 0 - every box
+    lodsw
+    mov [es:wa_pvsh], ax        ; (and wa_pvsn)
+    lodsw
+    mov cx, ax
+    mov di, wa_pvs
+    rep movsb
+.nopvs:
     mov si, [bx+18]             ; the tree, WA_ROW bytes a node
     mov dx, wa_bsp
     sub dx, si                  ; DX = what each link moves by
@@ -312,6 +323,10 @@ WA_VAR wa_vtx,WA_MVTX*2
 WA_VAR wa_corn,(WA_MBOX+1)*4
 WA_VAR wa_bcol,WA_MBOX+2
 WA_VAR wa_bsp,WA_MNODE*WA_BSPROW  ; the tree, rebased (wa_loadarena)
+WA_VAR wa_pvsh,1                 ; the PVS: the grid's shift (0: none)...
+WA_VAR wa_pvsn,1                 ; ...its cells a column...
+WA_VAR wa_pvp,2                  ; ...this cell's mask (wa_order)...
+WA_VAR wa_pvs,WA_PVSN*WA_PVSB    ; ...and every cell's, a bit a box
 WA_VAR wa_tmp,2
 WA_VAR wa_rowo2,(WA_ROWS+1)*2
 WR_BSS
