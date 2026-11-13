@@ -239,12 +239,10 @@ WA_BSPROW equ 12                ; a node: db kind, box; dw value, low, high;
                                 ; db its boxes' bounds x 4
 
 %include "wrender.inc"
-%include "wasin.inc"
 %include "wrtab.inc"
 
 ; the tables this half reads, out of build/watab.inc again: the constants
 ; are guarded to once, and the data blocks are asked for now
-%define WA_TAB_SIN
 %define WA_TAB_POSE
 %include "watab.inc"
 

@@ -1416,9 +1416,20 @@ wa_rsync:
 ; wa_rframe - the FRAME section and the head of each figure record (bytes
 ; 0..17: where it is, which way it faces, its animation, its flash, whether
 ; it is dead) into the renderer part: three runs, the first taking FRAME and
-; figure 0 together. Clobbers CX, SI, DI, ES (= the part)
+; figure 0 together - FRAME's camera sin and cos made here first. Clobbers
+; CX, SI, DI, ES (= the part)
 WA_FHW equ WA_FIGHEAD/2
 wa_rframe:
+    push ax
+    push dx
+    mov ax, [wa_ang]            ; the camera's sin and cos (the part has no
+    mov cl, 6                   ; table): wa_ang's 1024-step angle, as the
+    shr ax, cl                  ; renderer's wa_cang
+    call wa_sincos
+    mov [wa_fsn], ax
+    mov [wa_fcs], dx
+    pop dx
+    pop ax
     mov es, [wa_rds]
     cld
     mov si, wa_fb_frm

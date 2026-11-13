@@ -14,7 +14,8 @@ each take what they read):
 The constants come first, under a guard of their own, so a second include
 of the file adds only the data blocks the includer has asked for by then.
 
-  wa_sin        1024 words, sin in Q14 (16384 = 1.0); cos(a) = wa_sin[a+256]
+  wa_sin        257 words, a quarter wave of sin in Q14 (16384 = 1.0), sin(0..256);
+                wa_sincos (apps/wirearena/wasin.inc) mirrors it to all 1024 angles
   wa_boxes      the arena's solid blocks, axis-aligned, in world units
   wa_room       the room's inner bounds
   wa_paths      each dummy's patrol: waypoints with the leg's heading and
@@ -366,10 +367,11 @@ def main(out):
     w("WA_ROOM_X1 equ %d" % ROOM[2])
     w("WA_ROOM_Y1 equ %d" % ROOM[3])
     w("%ifdef WA_TAB_SIN")
-    w("wa_sin:")
-    for i in range(0, 1024, 8):
-        w("    dw " + ", ".join(str(int(round(16384 * math.sin(
-            2 * math.pi * j / 1024)))) for j in range(i, i + 8)))
+    w("wa_sin:")                          # a QUARTER wave, 0..256 inclusive:
+    for i in range(0, 257, 8):            # wa_sincos mirrors it, and every
+        w("    dw " + ", ".join(str(int(round(16384 * math.sin(  # angle comes
+            2 * math.pi * j / 1024))))     # out as the whole table's did
+            for j in range(i, min(i + 8, 257))))
     w("%endif")
     bsp_tables(w)
     # paths: per dummy, a count and per leg (x, y, heading, steps)

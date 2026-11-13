@@ -209,9 +209,10 @@ wa_render:
     mov cl, 6
     shr ax, cl
     mov [wa_cang], ax
-    call wa_sincos
-    mov [wa_sinv], ax
-    mov [wa_cos], dx
+    mov ax, [wa_fsn]            ; its sin and cos, from the frame block (the
+    mov [wa_sinv], ax           ; game's wa_sincos: the part has no table)
+    mov ax, [wa_fcs]
+    mov [wa_cos], ax
     mov ax, [wa_pitch]
     add ax, WA_HR*2
     mov [wa_hq], ax

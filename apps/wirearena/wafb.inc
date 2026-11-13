@@ -23,7 +23,7 @@
 WR_MAGIC0   equ 'WR'                ; +0: 'WRPART', then the ABI byte and the
 WR_MAGIC1   equ 'PA'                ;     verb count - checked by the primary
 WR_MAGIC2   equ 'RT'                ;     at launch, refused on a mismatch
-WR_ABI      equ 1
+WR_ABI      equ 2                   ; (2: the camera's sin/cos in FRAME)
 WR_H_ABI    equ 6
 WR_H_NV     equ 7
 WR_H_VERB   equ 8                   ; +8: a word per verb, its offset
@@ -64,6 +64,8 @@ WA_FBV wa_py, 2
 WA_FBV wa_ang, 2
 WA_FBV wa_pitch, 2
 WA_FBV wa_eye, 2
+WA_FBV wa_fsn, 2                    ; the camera's sin and cos, Q14, at wa_ang
+WA_FBV wa_fcs, 2                    ; >> 6 (G: wa_rframe, from its wa_sincos)
 WA_FBV wa_fov, 1
 WA_FBV wa_hyst, 1
 WA_FBV wa_grid, 1

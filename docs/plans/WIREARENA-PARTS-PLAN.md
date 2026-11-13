@@ -419,6 +419,10 @@ re-takes it.
    No facility exists for it, and none is proposed: 2 KB in G is cheap
    against its forecast.
 
+   **Resolved after the split (section 8.5):** R needs only the camera's
+   sin and cos, once a frame, so G hands them over in FRAME and R carries
+   no table. G's own is a quarter wave.
+
 3. **`OSAPI_DRV_CALL` from a part is not addressed by SPEC.md §20.12.5.**
    The X stub stamps ES from the caller's DS (SPEC.md §72.22.4). Every
    `DRV_CALL` site therefore stays in G with DS = G, which is design B.
@@ -910,3 +914,25 @@ figure access in the sim, which other branches are editing.
   it ships, the rows section 4.2 names; `pins`, `megapkg`, `partoff`,
   `stkapps` and `pkgdeps` already cover what this branch touched.
 - Section 3.4's version 2, if a later measurement wants the ~0.25%.
+
+### 8.5 The sine table: one quarter wave, in the game only (2026-11-13)
+
+The owner asked whether the duplicate `wa_sin` (2,048 bytes in each half) was
+there for speed. It was not: R looked it up once a frame, for the camera, and
+G a few times a tick. The owner: parts should be able to talk to each other,
+so passing the angle is fine, and so is a quarter table, as long as neither
+costs speed.
+
+- **R has no table.** G's `wa_rframe` puts the camera's sin and cos (Q14, at
+  `wa_ang >> 6`) into FRAME as `wa_fsn` and `wa_fcs`, 4 bytes more of the
+  per-frame copy. R's camera setup reads them where it called `wa_sincos`.
+  `WR_ABI` is now 2, because FRAME's layout moved.
+- **G's table is a quarter wave**, sin(0..256), 257 words. `wa_sincos`
+  (`wasin.inc`) mirrors it into the other three quadrants. A host check over
+  all 1,024 angles gives exactly the old table's entries.
+- **Bytes:** G's image 8,594 → 7,115. Part 0 48,282 → 46,214 in memory, and
+  13,055 → 11,100 bytes packed on disk.
+- **Speed:** P bench 18.9 fps at 40 columns and 15.7 at 80, unchanged.
+- **Picture:** the seven posed sets of section 8.3 (740 frames: both widths,
+  all three FOVs, sparse/hysteresis/grid mixed, far figures, the open arena
+  and Hercules) are identical to `a4edcb7f`, VRAM and trigger fields.
