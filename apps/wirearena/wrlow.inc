@@ -689,26 +689,39 @@ wl_draw:
     mov [wl_stf], ax
     mov bp, cx                  ; the top: CX.BP
     mov cx, bx
-    pop ax                      ; which of the four loops: the floor edge
-    mov ah, [wa_steep]          ; too, a step to fill
-    mov [wl_tst], ah
-    or al, ah
-    mov bl, [wl_two]
-    shl bl, 1
-    or bl, al
-    xor bh, bh
-    shl bx, 1
+    pop ax                      ; (AL: the floor edge's steep)
     pop si                      ; SI = the first column x 2
     mov di, [wa_lp]
     mov dl, [wa_frame]
-    call [wl_loops+bx]
+    cmp byte [wl_two], 0        ; THE FLOOR EDGE first, a loop of its own
+    je .top                     ; (r5): it is drawn against the clip as it
+    push si                     ; stood, which the top raises only after it
+    push cx                     ; in each column - and each column is its
+    push bp                     ; own, so all the floor's cells and then all
+    mov cx, [wl_bw]             ; the top's are the same cells, plotted in
+    mov bp, [wl_bf]             ; the same order within a column
+    mov bx, wl_f0
+    or al, al
+    jz .f
+    mov bx, wl_f1
+.f:
+    call bx
+    pop bp
+    pop cx
+    pop si
+.top:
+    mov bx, wl_l00              ; the top, raising the clip
+    cmp byte [wa_steep], 0
+    je .t
+    mov bx, wl_l01s
+.t:
+    call bx
     mov [wa_lp], di
     ret
 .full:
     pop bx
     mov word [wa_left], 0       ; (more spans than the table holds: drawing
     ret                         ; stops this frame - never seen)
-wl_loops:   dw wl_l00, wl_l01, wl_l10, wl_l11
 
 ; WLLOOP %1 = 1 the floor edge too, %2 = 1 an edge may be steep: wl_draw's
 ; columns (SI from the first x 2 to [wl_end]; CX.BP the top; DL the stamp, DI
@@ -867,12 +880,63 @@ wl_loops:   dw wl_l00, wl_l01, wl_l10, wl_l11
     call wl_shutc
     jmp %%next
 %endmacro
-wl_l01:     cmp byte [wl_tst], 0        ; (a floor flag left from another
-            jne wl_l01s                 ; pass chose this loop: the top's
-wl_l00:     WLLOOP 0, 0                 ; shallow)
+wl_l00:     WLLOOP 0, 0
 wl_l01s:    WLLOOP 0, 1
-wl_l10:     WLLOOP 1, 0
-wl_l11:     WLLOOP 1, 1
+
+; WLFLOOR %1 = 1 the edge may be steep: a floor edge alone (wl_draw's, r5),
+; its columns from SI to [wl_end], CX.BP its value, [wl_bsw].[wl_bsf] its
+; step; each cell plotted where it is under the column's clip (ONE unsigned
+; test: a row off either side reads as past it) and the column not shut, a
+; steep step filled down to the clip; nothing raised
+%macro WLFLOOR 1
+    mov ah, [wa_wcol]
+    mov bx, [wl_end]
+    sub bx, si
+    shr bx, 1
+    mov dh, bl
+%if %1
+    mov [wl_bprev], cx
+    jmp short %%col
+%%shut:
+    add bp, [wl_bsf]            ; (the next column's own value is the one
+    adc cx, [wl_bsw]            ; before it: no step filled across this one)
+    mov [wl_bprev], cx
+    jmp short %%adv
+%endif
+%%col:
+    cmp byte [wa_cov+si], 0
+%if %1
+    jne %%shut                  ; (shut)
+    push cx                     ; its step
+    mov ax, cx
+    mov cx, [wl_bprev]
+    mov [wl_bprev], ax
+    call wl_fillc
+    pop cx
+    mov ah, [wa_wcol]
+%else
+    jne %%next                  ; (shut)
+%endif
+    cmp cx, [wa_cclip+si]
+    jae %%next
+    mov bx, cx
+    mov al, [wa_hgl+bx]
+    shl bx, 1
+    mov bx, [wa_hroff+bx]
+    add bx, si
+    WPLOT
+%%next:
+    add bp, [wl_bsf]
+    adc cx, [wl_bsw]
+%%adv:
+    inc si
+    inc si
+    dec dh
+    jnz %%col
+    ret
+%endmacro
+wl_f0:      WLFLOOR 0
+wl_f1:      WLFLOOR 1
 wl_k160:    dw 0, 2*WA_MAXW, 4*WA_MAXW, 6*WA_MAXW
 
 ; wl_fillc - AX = a column's edge, CX = the last column's (half-rows), SI =
