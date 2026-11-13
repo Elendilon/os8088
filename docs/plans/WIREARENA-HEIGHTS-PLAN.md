@@ -1010,6 +1010,18 @@ a box, and every box in view costs frame time (9.4.2). It is not taken.
   half was checked with a figure at the lip's height on the host only.
 - **It is not changed in wave 2.**
 
+### 7.1.2 The owner after wave 2 (2026-11-13)
+
+- **A speed pass on the heights renderer comes before wave 3.** It is split
+  between agents: the outline path's per-column work, the low boxes'
+  per-box setup, and the pass setup with the flat arenas' overhead.
+- **Pitch at 33 degrees up and 59 degrees down:** the owner will judge it by
+  playing on the platforms. Wave 3 builds the asymmetric limits (7.1.1) as
+  easy-to-change constants.
+- **Flights drawn as straight-sided ramps are fine as a style** (Q3 settled).
+- **Not yet answered:** whether the kernel's divide-fault panel (9.3 item 5)
+  should be on in the shipped kernels.
+
 ### 7.2 The contracts for waves 0 and 1 (pinned before the code)
 
 Waves 0 and 1 change three interfaces. Each is pinned here first: the
