@@ -64,7 +64,7 @@ WA_VAR wl_prev, 2               ; the column before's half-rows (a steep
 WA_VAR wl_bprev, 2              ; step), and whether there was one
 WA_VAR wl_havep, 1
 WA_VAR wl_tag, 1
-WA_VAR wl_k, 2                  ; a flight: the tread, the count, the rise,
+WA_VAR wl_k, 2                  ; a flight: the treads left, the count, the rise,
 WA_VAR wl_nt, 2                 ; the low and high faces, and a tread's step
 WA_VAR wl_rise, 2               ; along each side, camera space
 WA_VAR wl_lo, 1
@@ -75,6 +75,12 @@ WA_VAR wl_dxb, 2
 WA_VAR wl_dzb, 2
 WA_VAR wl_ca, 2                 ; ...and its low end's two corners
 WA_VAR wl_cb, 2
+WA_VAR wl_th, 2                 ; ...and a tread's height (and its step)
+WA_VAR wl_trs, 2                ; and its ends'
+WA_VAR wl_oxa, 2                ; offsets from them, camera space (stepped
+WA_VAR wl_oza, 2                ; a tread at a time: wl_treads)
+WA_VAR wl_oxb, 2
+WA_VAR wl_ozb, 2
 %endmacro
 
 ; wa_lowbox - from wa_leaf: SI = a low box, DI = its record x 4 in wa_bxh,
@@ -472,7 +478,7 @@ wl_xedge:
 
 ; wl_proj - AX = x, BX = z (z >= NEAR, |x| <= 8z), CX, DL = a height's
 ; pair -> AX = column x 16, BX = that height's row, SI = the floor's (quarter
-; half-rows), DX = inverse depth
+; half-rows; with [wl_two] only), DX = inverse depth
 wl_proj:
     push cx
     push dx
@@ -481,12 +487,15 @@ wl_proj:
     add ax, [wa_c16]
     push ax
     call wl_iz
+    cmp byte [wl_two], 0        ; (a pass with no floor edge: no floor row)
+    je .nof
     mov ax, [wl_fn]
     mov cl, [wl_fs]
     push bx
     call wl_row
     pop bx
     mov si, ax                  ; SI = the floor's row
+.nof:
     pop di                      ; DI = the column
     pop cx                      ; CL = the shift
     pop ax                      ; AX = the product
@@ -837,20 +846,55 @@ wl_treads:
     mov [wl_dzb], dx
     mov byte [wl_upd], 1
     mov byte [wl_two], 0
-    mov word [wl_k], 2
-.t:
-    call wl_lowseen             ; from the low end when the player is past
-    mov ax, [wl_k]              ; it, else from the top (wl_lowseen takes
-    jnz .fwd                    ; AL)
+    mov ax, [wl_nt]             ; N - 1 treads, from the low end when the
+    dec ax                      ; player is past it (tread 2), else from the
+    mov [wl_k], ax              ; top (tread N)
+    call wl_lowseen             ; (it takes AL)
+    mov ax, 2
+    jnz .fwd
     mov ax, [wl_nt]
-    add ax, 2
-    sub ax, [wl_k]
 .fwd:
+    mov cx, ax                  ; the first tread's height, k risers, and
+    mul word [wl_rise]          ; its ends, k - 1 goings from the low end:
+    mov [wl_th], ax             ; after it each is the one before plus a
+    dec cx                      ; step - exactly the products, which wrap
+    mov ax, [wl_dxa]            ; alike
+    imul cx
+    mov [wl_oxa], ax
+    mov ax, [wl_dza]
+    imul cx
+    mov [wl_oza], ax
+    mov ax, [wl_dxb]
+    imul cx
+    mov [wl_oxb], ax
+    mov ax, [wl_dzb]
+    imul cx
+    mov [wl_ozb], ax
+    call wl_lowseen
+    mov ax, [wl_rise]
+    jnz .up
+    neg ax                      ; (stepping down: a tread less, a going
+    neg word [wl_dxa]           ; less)
+    neg word [wl_dza]
+    neg word [wl_dxb]
+    neg word [wl_dzb]
+.up:
+    mov [wl_trs], ax
+.t:
     call wl_tread
-    inc word [wl_k]
-    mov ax, [wl_k]
-    cmp ax, [wl_nt]
-    jbe .t
+    dec word [wl_k]
+    jz .out
+    mov ax, [wl_trs]
+    add [wl_th], ax
+    mov ax, [wl_dxa]
+    add [wl_oxa], ax
+    mov ax, [wl_dza]
+    add [wl_oza], ax
+    mov ax, [wl_dxb]
+    add [wl_oxb], ax
+    mov ax, [wl_dzb]
+    add [wl_ozb], ax
+    jmp .t
 .out:
     ret
 
@@ -870,36 +914,30 @@ wl_going:
     pop ax
     ret
 
-; wl_tread - AX = a tread, 2..N: its nosing, (k - 1) goings from the low end
-; at k risers' height, from one side to the other
+; wl_tread - a tread: [wl_th] its height, [wl_oxa]..[wl_ozb] its ends'
+; offsets from the low end's corners (wl_treads): its nosing, from one side
+; to the other
 wl_tread:
-    push ax
-    mul word [wl_rise]          ; its height's pair, both ends
+    mov ax, [wl_th]             ; its height's pair, both ends
     call wa_hnum
     mov [wl_n1], ax
     mov [wl_n2], ax
     mov [wl_s1], bl
     mov [wl_s2], bl
-    pop cx
-    dec cx                      ; k - 1 goings
     mov si, [wl_ca]
     mov si, [wl_cv+si]
-    mov ax, [wl_dxa]
-    imul cx
+    mov ax, [wl_oxa]
     add ax, [wa_vx+si]
     mov [wa_x1], ax
-    mov ax, [wl_dza]
-    imul cx
+    mov ax, [wl_oza]
     add ax, [wa_vz+si]
     mov [wa_z1], ax
     mov si, [wl_cb]
     mov si, [wl_cv+si]
-    mov ax, [wl_dxb]
-    imul cx
+    mov ax, [wl_oxb]
     add ax, [wa_vx+si]
     mov [wa_x2], ax
-    mov ax, [wl_dzb]
-    imul cx
+    mov ax, [wl_ozb]
     add ax, [wa_vz+si]
     mov [wa_z2], ax
     jmp wl_xedge
