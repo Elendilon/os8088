@@ -176,6 +176,24 @@ WA_VAR wa_ry0, 2                ; reaches the high end at +2
 WA_VAR wa_ry1, 2
 WA_VAR wa_kv, (WA_MAXKS+1)*8    ; per slot: the step x 4...
 WA_VAR wa_mk, (WA_MAXKS+1)*8    ; ...and its products, cos and sin, 32 bits
+WA_VAR wa_nshb, 1               ; the shift wa_numb's product takes (3, or 1
+                                ; when it is / 4: wa_render)
+WA_VAR wa_fvn, 2                ; wa_fjl's narrow path below this fv8
+WA_VAR wa_fhr, 1                ; wa_femit: the row's top half-row
+WA_VAR wa_fthr, WA_MAXW*2       ; heights: per column x 2, the first half-row
+                                ; of the figure a platform hides (wa_fthrs)
+WA_VAR wa_hflat, 1              ; 1: no box below the tallest (HEIGHTS-PLAN
+WA_VAR wa_hmax, 2               ; 7.2.5) - and the tallest, the room's too
+; THE COLUMN STATE OF HEIGHTS (docs/plans/WIREARENA-HEIGHTS-PLAN.md 1.2,
+; 7.2.5), per column x 2: the topmost half-row covered so far, and a stack
+; of the faces that raised it, front to back - entry k at wa_cst + k x
+; 2 x WA_MAXW, a word: its span tag (low byte), the row it covers from
+; (high). A column's TALL face is its wa_cov tag, as on a flat arena, which
+; has no entries at all. Cleared each frame on an arena that is not flat.
+WA_CSTK equ 4
+WA_VAR wa_cclip, WA_MAXW*2
+WA_VAR wa_cstn, WA_MAXW*2       ; entries in the column
+WA_VAR wa_cst, WA_CSTK*WA_MAXW*2
 %endmacro
 
 ; --- the frame --------------------------------------------------------------
@@ -223,15 +241,62 @@ wa_render:
     mov ax, WA_HTOP
     sub ax, [wa_eye]
     mov cx, [wa_kyq]            ; (the field of view's vertical scale)
-    imul cx
-    mov [wa_numt], ax
+    imul cx                     ; (the top, 3 m less the eye: |90| x 230
+    mov [wa_numt], ax           ; at most, never past 16 bits)
     mov ax, [wa_eye]
     imul cx
+    mov bx, dx                  ; THE BOTTOM, eye x kyq, as a (product,
+    cwd                         ; shift) pair (HEIGHTS-PLAN 7.2.3): the
+    cmp dx, bx                  ; product itself and >> 19 in all wherever
+    je .nfit                    ; it fits - the same bits as ever - or the
+    sar bx, 1                   ; product / 4 and >> 17 where it does not,
+    rcr ax, 1                   ; as from an eye raised by a jump at 60
+    sar bx, 1                   ; degrees (kyq 230 x eye 166 is 38,180),
+    rcr ax, 1                   ; which wrapped, and the floor rose over
+    mov bl, 1                   ; the walls' tops (the "squash")
+    jmp .nst
+.nfit:
+    mov bl, 3
+.nst:
     mov [wa_numb], ax
+    mov [wa_nshb], bl
+    mov ax, 128                 ; (eye at most 128 and hh 61: 128 x 127 +
+    cmp word [wa_eye], 128      ; 61 x 256 + 255 is under 32512, so 128 -
+    ja .fvd                     ; every frame of today's arenas, no divide)
+    cmp word [wa_hh], 61
+    jle .fvn
+.fvd:
+    mov ax, [wa_hh]             ; wa_fjl's narrow sum, eye fv8 + 256 hh +
+    mov ah, al                  ; 255 less a joint's height x fv8, must
+    xor al, al                  ; stay in 16 bits: for joints 0..111 above
+    neg ax                      ; the floor, fv8 at most (32512 - 256 hh) /
+    add ax, 32512               ; eye. 128 (every frame of today's arenas)
+    jg .fvp                     ; whenever that is more
+    xor ax, ax
+    jmp .fvn
+.fvp:
+    xor dx, dx
+    div word [wa_eye]
+    cmp ax, 128
+    jbe .fvn
+    mov ax, 128
+.fvn:
+    mov [wa_fvn], ax
     mov di, wa_colz             ; wall depth: not yet asked (wa_wallz)
     mov ax, 0xFFFF
     mov cx, [wa_w]
     rep stosw
+    cmp byte [wa_hflat], 0      ; (heights: the column state, HEIGHTS-PLAN
+    jne .flat                   ; 7.2.5)
+    mov di, wa_cclip
+    mov ax, WA_HR
+    mov cx, [wa_w]
+    rep stosw
+    mov di, wa_cstn
+    xor ax, ax
+    mov cx, [wa_w]
+    rep stosw
+.flat:
     mov di, wa_cov
     xor ax, ax
     mov [wa_tag], ax
@@ -816,9 +881,8 @@ wa_face:
     stosw
     mov ax, [wa_numb]
     imul bx
-    sar dx, 1
-    sar dx, 1
-    sar dx, 1
+    mov cl, [wa_nshb]           ; (3, or 1 for a product / 4)
+    sar dx, cl
     add dx, [wa_hq]
     mov [wa_vpb+si], dx
     xchg ax, dx
@@ -1051,12 +1115,13 @@ wa_ptbi:
     sar dx, 1
     mov cx, [wa_hq]
     sub cx, dx
+    push cx
     mov ax, [wa_numb]
     imul bx
-    sar dx, 1
-    sar dx, 1
-    sar dx, 1
+    mov cl, [wa_nshb]           ; (3, or 1 for a product / 4)
+    sar dx, cl
     add dx, [wa_hq]
+    pop cx
     xchg bx, cx                 ; BX = top, CX = iz
     xchg cx, dx                 ; CX = bottom, DX = iz
     ret
@@ -1894,6 +1959,74 @@ wa_wallz:
 .out:
     ret
 
+; wa_occl - BX = column x 2, AX = an inverse depth: AL = the first half-row
+; something nearer hides in that column - 0 the whole column (its tall face
+; is nearer: wa_wallz), 0xFF none - the one query the figures, the pistol's
+; ray and the floor grid ask (docs/plans/WIREARENA-HEIGHTS-PLAN.md 7.2.5).
+; On a flat arena that is wa_wallz's test and nothing more. Keeps every
+; register but AL.
+wa_occl:
+    push cx
+    call wa_wallz
+    xor cl, cl
+    cmp [wa_colz+bx], ax
+    ja .out                     ; the column's tall face is nearer
+    mov cl, 0xFF
+    cmp byte [wa_hflat], 0
+    jne .out
+    call wa_occlow
+.out:
+    mov al, cl
+    pop cx
+    ret
+
+; wa_occlow - BX = column x 2, AX = an inverse depth, CL = a half-row: CL
+; lowered to the row the column's depth stack hides from at that depth -
+; its entries front to back while they are nearer (wa_cst). Keeps every
+; register but CL.
+wa_occlow:
+    push ax
+    push dx
+    push si
+    push di
+    push bp
+    mov bp, ax                  ; BP = the depth asked about
+    mov dl, [wa_cstn+bx]        ; DL = the entries
+    mov di, bx                  ; DI = entry k's place, less wa_cst
+.e:
+    or dl, dl
+    jz .done
+    mov si, [wa_cst+di]
+    mov dh, [wa_cst+di+1]       ; DH = the row it hides from
+    and si, 0xFF                ; SI = its span's tag
+    mov ax, bx                  ; its inverse depth here, as wa_wallz
+    shl ax, 1                   ; makes it
+    shl ax, 1
+    shl ax, 1
+    add ax, 8
+    sub ax, [wa_spcs+si]
+    push dx
+    imul word [wa_spsl+si]
+    idiv word [wa_spsh+si]
+    pop dx
+    add ax, [wa_spih+si]
+    cmp ax, bp
+    jbe .done                   ; not nearer: nor is any after it
+    cmp dh, cl
+    jae .next
+    mov cl, dh
+.next:
+    add di, 2*WA_MAXW
+    dec dl
+    jmp .e
+.done:
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop ax
+    ret
+
 ; wa_slope - AX = this column's edge, CX = the last column's (half-rows),
 ; SI = column x 2: a step of two half-rows or more is filled down it,
 ; `\` falling to the right and `/` rising - one cell a row, the cell
@@ -2109,20 +2242,25 @@ wa_dots:
     cmp bx, [wa_w]
     jae .next                   ; (negative is huge, unsigned)
     shl bx, 1
-    call wa_wallz
     mov ax, [wa_diz]
-    cmp [wa_colz+bx], ax
-    ja .next                    ; a wall is nearer
+    call wa_occl                ; AL = the first half-row hidden there
+    or al, al
+    jz .next                    ; a wall is nearer
+    push ax
     mov ax, [wa_numb]           ; the floor's half-row: hh + numb/z/4 =
     imul word [wa_diz]          ; hh + (numb x 2^19/z) >> 21
     push cx
-    mov cl, 5
+    mov cl, [wa_nshb]           ; (>> 21, or >> 19 of numb / 4)
+    add cl, 2
     sar dx, cl
     pop cx
-    mov ax, dx
+    pop ax
+    xchg ax, dx
     add ax, [wa_hh]
     cmp ax, WA_HR
     jae .next
+    cmp al, dl
+    jae .next                   ; under a nearer platform's band
     mov si, ax
     shl si, 1
     add bx, [wa_hroff+si]       ; BX = the cell
@@ -2504,6 +2642,10 @@ wa_fjdone:                      ; (wa_fjl comes back here)
     inc bx
     inc bx
     loop .rc
+    cmp byte [wa_hflat], 0      ; heights: from which row a nearer platform
+    jne .fl                     ; hides it, per column (wa_fthr)
+    call wa_fthrs
+.fl:
     or dl, dl
     jz .out
     mov word [wa_flfn], wa_fline
@@ -2544,12 +2686,18 @@ wa_fjdone:                      ; (wa_fjl comes back here)
 WA_FSTO equ wa_stamp - wa_fbuf - 2
 WA_FMSO equ wa_fmask - wa_fbuf - 2
 WA_FCUO equ wa_cur - wa_fbuf - 2
-wa_femit:
+; FEMIT %1: the sweep, %1 = 0 on a flat arena; 1 with heights, where a
+; column's verdict depends on the row - each row first sets wa_fvis from the
+; first half-row a nearer platform hides (wa_fthr, wa_fthrs).
+%macro FEMIT 1
     mov dh, [wa_frame]
     or dh, 0x80                 ; DH = a figure cell's stamp this frame
     mov si, [wa_newp]
     add si, [wa_newn]           ; SI = the cell list's end
     mov bx, [wa_frow]
+%if %1
+    mov [wa_fhr], bl            ; (the row's top half-row)
+%endif
     mov bp, [wa_rowo2+bx]
     add bp, wa_fbuf             ; BP = the row's first cell in wa_fbuf
     mov ax, [wa_fbr]
@@ -2557,55 +2705,129 @@ wa_femit:
     shr ax, 1
     inc ax
     mov [wa_fnr], ax            ; rows
-.row:
+%%row:
+%if %1
+    call wa_frowv
+%endif
     mov di, bp
     add di, [wa_fbc]
     mov cx, [wa_fbw]
     xor ax, ax
     repe scasw                  ; (only a cell's even byte is ever set)
-    jne .found
-.nrow:
+    jne %%found
+%%nrow:
     add bp, [wa_w2]             ; (2W bytes: a row)
+%if %1
+    add byte [wa_fhr], 2
+%endif
     dec word [wa_fnr]
-    jnz .row
+    jnz %%row
     sub si, [wa_newp]
     mov [wa_newn], si
     pop di
     ret
-.found:                         ; DI = the cell's offset in wa_fbuf, + 2
+%%found:                        ; DI = the cell's offset in wa_fbuf, + 2
     mov dl, 0                   ; DL = its sub-pixels, taken out of the
     xchg dl, [di-2]             ; scratch
     mov bx, di
     sub bx, bp                  ; BX = its column x 2, + 2
     cmp byte [wa_fvis-2+bx], 0
-    je .hid                     ; the wall there is nearer
+    je %%hid                    ; the wall there is nearer
     mov al, [di+WA_FSTO]
     cmp al, dh
-    je .have                    ; a figure cell already: add the bits
+    je %%have                   ; a figure cell already: add the bits
     xor al, dh
     cmp al, 0x80
-    je .listed                  ; a wall cell this frame: already listed
+    je %%listed                 ; a wall cell this frame: already listed
     lea ax, [di-2-wa_fbuf]      ; the cell, onto this frame's list
     mov [si], ax
     inc si
     inc si
-.listed:
+%%listed:
     mov [di+WA_FSTO], dh
-.put:
+%%put:
     mov [di+WA_FMSO], dl
     mov bl, dl                  ; (BH is 0: BX was a column)
     mov al, [wa_fglyph+bx]
     mov ah, [wa_fatt]
     mov [di+WA_FCUO], ax
-.hid:
+%%hid:
     xor ax, ax
-    jcxz .nrow
+    jcxz %%nrow
     repe scasw
-    jne .found
-    jmp .nrow
-.have:                          ; (a cell two figures share: rarer)
+    jne %%found
+    jmp %%nrow
+%%have:                         ; (a cell two figures share: rarer)
     or dl, [di+WA_FMSO]
-    jmp .put
+    jmp %%put
+%endmacro
+wa_femit:
+    cmp byte [wa_hflat], 0
+    je wa_femith
+    FEMIT 0
+wa_femith:                      ; (heights: docs/plans/WIREARENA-HEIGHTS-PLAN.md
+    FEMIT 1                     ; 1.5)
+
+; wa_fthrs - heights, once a figure: per column of its box that is in front
+; of the column's tall face (wa_fvis 1), the first half-row a nearer
+; platform hides (wa_occlow) into wa_fthr - 0 where nothing of it shows,
+; which takes the column out (wa_fvis 0, DL the columns showing less one);
+; 0 too where the tall face hid it. SI = the figure's inverse depth.
+; Keeps every register but DL.
+wa_fthrs:
+    push ax
+    push bx
+    push cx
+    mov bx, [wa_fbc]
+    mov cx, [wa_fbw]
+.c:
+    xor al, al
+    cmp byte [wa_fvis+bx], 0
+    je .put
+    push cx
+    mov cl, 0xFF
+    mov ax, si
+    call wa_occlow
+    mov al, cl
+    pop cx
+    or al, al
+    jnz .put
+    mov byte [wa_fvis+bx], 0
+    dec dl
+.put:
+    mov [wa_fthr+bx], al
+    inc bx
+    inc bx
+    loop .c
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; wa_frowv - heights, each row of a figure's sweep: wa_fvis for the row
+; whose top half-row is [wa_fhr] - 1 where the column's platform verdict
+; (wa_fthr) hides nothing from there. Keeps every register.
+wa_frowv:
+    push ax
+    push bx
+    push cx
+    mov al, [wa_fhr]
+    mov bx, [wa_fbc]
+    mov cx, [wa_fbw]
+.c:
+    mov ah, 0
+    cmp [wa_fthr+bx], al
+    jbe .put
+    inc ah
+.put:
+    mov [wa_fvis+bx], ah
+    inc bx
+    inc bx
+    loop .c
+    pop cx
+    pop bx
+    pop ax
+    ret
 
 ; wa_fjl - wa_figure's joints: SI, DI = keyframes A and B at this facing.
 ; Each is A + (B - A) x q / 4 (q = [wa_fsub], rounded down as wa_blend's
@@ -2692,8 +2914,8 @@ wa_fjl:
     cmp ax, 128
     jae .wide
     mov dx, [wa_fv8]
-    cmp dx, 128
-    jae .wide
+    cmp dx, [wa_fvn]            ; (128, or less where the narrow sum would
+    jae .wide                   ; leave 16 bits: wa_render)
     mov cl, al
     mov ch, dl
     imul word [wa_fcx]          ; K = fcx fs8 + 256 W...
@@ -3035,15 +3257,20 @@ wa_marker:
     cmp si, [wa_w2]
     jae .out                    ; (unsigned: off either side)
     mov bx, si
-    and bx, 0xFFFE              ; BX = its column x 2: ONE wall depth for
-    call wa_wallz               ; the whole bar
-    mov ax, [wa_colz+bx]
-    cmp ax, [wa_fiz]
-    ja .out                     ; the wall there is nearer
-    mov ax, [wa_mbot]
+    and bx, 0xFFFE              ; BX = its column x 2: ONE verdict for
+    mov ax, [wa_fiz]            ; the whole bar
+    call wa_occl
+    or al, al
+    jz .out                     ; the wall there is nearer
+    xor ah, ah                  ; (a platform: the bar ends above its band)
+    dec ax
     cmp ax, WA_HR-1
-    jle .bot
+    jle .ok
     mov ax, WA_HR-1
+.ok:
+    cmp ax, [wa_mbot]
+    jle .bot
+    mov ax, [wa_mbot]
 .bot:
     mov [wa_mbot], ax           ; the last half-row, clipped
     or cx, cx

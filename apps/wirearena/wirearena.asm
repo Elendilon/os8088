@@ -434,14 +434,14 @@ wa_frame_input:
     jmp .clamp
 .nomouse:
     xor bl, bl
-.clamp:
-    cmp word [wa_pitch], 80
-    jle .lo
-    mov word [wa_pitch], 80
+.clamp:                         ; +-112 quarter half-rows: 33 degrees at 75,
+    cmp word [wa_pitch], WA_PITCH ; enough to shoot down off the tower
+    jle .lo                     ; (docs/plans/WIREARENA-HEIGHTS-PLAN.md 1.6)
+    mov word [wa_pitch], WA_PITCH
 .lo:
-    cmp word [wa_pitch], -80
+    cmp word [wa_pitch], -WA_PITCH
     jge .fire
-    mov word [wa_pitch], -80
+    mov word [wa_pitch], -WA_PITCH
 .fire:
     KEYMAP_TEST wa_kmap, 0x1D   ; Ctrl is a trigger too: the map the
     jz .btn                     ; frame's first tick took (wa_keys)

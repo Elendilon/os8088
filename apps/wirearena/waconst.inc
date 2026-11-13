@@ -17,6 +17,8 @@ WA_TICK     equ 39773           ; PIT counts (838 ns) in a 30 Hz sim tick
 WA_MSPD     equ 80              ; move: Q13 vector x 80 = 10 units a tick
 WA_JUMPV    equ 2432            ; 8.8 units a tick: about a 1 m jump
 WA_GRAV     equ 179             ; 8.8 units a tick a tick: 9.8 m/s^2
+WA_PITCH    equ 112             ; the pitch clamp, quarter half-rows (+-33
+                                ; degrees at 75; HEIGHTS-PLAN 1.6)
 WA_BLANK    equ 0x0720
 
 ; per-figure record

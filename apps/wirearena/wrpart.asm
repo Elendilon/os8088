@@ -112,10 +112,7 @@ wr_v_init:
 ; hit figure's offset in wa_figs, or -1.
 wr_v_trace:
     mov bx, [wa_w]
-    and bx, 0xFFFE              ; the crosshair column's word in wa_colz
-    call wa_wallz               ; (asked for: wa_colz fills on demand)
-    mov ax, [wa_colz+bx]        ; ...what the wall there is at
-    mov [wa_tmp], ax
+    and bx, 0xFFFE              ; the crosshair column x 2 (wa_occl)
     xor si, si                  ; best so far
     xor bp, bp                  ; ...and its inverse depth
     mov di, wa_figs
@@ -137,8 +134,11 @@ wr_v_trace:
     cmp word [di+F_PBOT], WA_HR/2
     jl .n
     mov ax, [di+F_PIZ]
-    cmp ax, [wa_tmp]
-    jb .n                       ; a wall is nearer
+    push ax
+    call wa_occl                ; AL = the first half-row hidden at its
+    cmp al, WA_HR/2             ; depth: the crosshair's at or below it,
+    pop ax                      ; and something nearer stops the shot - a
+    jbe .n                      ; wall, or a platform's lip
     cmp ax, bp
     jbe .n
     mov bp, ax
@@ -208,6 +208,23 @@ wa_loadarena:
     inc cx
     mov di, wa_bcol
     rep movsb
+    mov ax, [bx+34]             ; HEIGHTS (HEIGHTS-PLAN 7.2.1): the tallest
+    mov [es:wa_hmax], ax        ; height, and FLAT when no box is below it
+    mov byte [es:wa_hflat], 0   ; and no lift moves
+    mov si, [bx+36]
+    cmp word [si], 0
+    jne .hdone
+    mov si, [bx+30]             ; the box records, 4 bytes each
+    mov cx, [bx+16]
+    jcxz .flat
+.hb:
+    cmp [si], ax
+    jb .hdone
+    add si, 4
+    loop .hb
+.flat:
+    mov byte [es:wa_hflat], 1
+.hdone:
     mov si, [bx+18]             ; the tree, WA_ROW bytes a node
     mov dx, wa_bsp
     sub dx, si                  ; DX = what each link moves by

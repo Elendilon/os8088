@@ -989,7 +989,8 @@ section 1.6.
 
 **7.2.5 The column state** (section 1.2):
 
-- **`wa_clip`**: a byte a column.
+- **`wa_cclip`**: a word a column (`wa_clip` is the near-plane clipper's
+  name already).
 - **`wa_cst`**: per column a count and 4 entries of (span tag, row).
 - **Cleared each frame** on an arena that is not flat.
 - **Queried by one routine, `wa_occl`**: column, row, inverse depth → hidden
@@ -1032,3 +1033,144 @@ are gone, their substance carried over.
   - Its variant A prices today's span for every edge with each flight as
     one box. Section 2.4's A had four step boxes a flight, so A here is
     kinder than the table there.
+
+---
+
+## 9. As built: waves 0 and 1 (2026-11-13, branch `heights` from `20d0cf89`)
+
+### 9.1 Wave 0: the host tools and the demo arena
+
+- **`tools/arenagen.py`** takes the box schema of 7.2.2.
+  - Boxes may stand against the room wall.
+  - The arena parts carry the box records and the lift table of 7.2.1.
+  - New refusals:
+    - a flight whose tread or top rises more than the step-up (24 units);
+    - a lift resting above a step, or rising to no neighbour's top;
+    - a platform above the jump that no flight or lift reaches;
+    - an arena over the visible budget.
+  - The jump's apex comes from `waconst.inc` by the game's own
+    integration: **69 units**, not section 3.1's 64.5 from v²/2g.
+- **Arena 2** is section 4.1's layout:
+  - 19 boxes, a 37-node tree, 70 vertices, 16 x and 18 y values and 7
+    coordinate steps;
+  - its part `waa2.bin` is 1,032 bytes;
+  - it is a fourth parts row, and not on the Game menu (7.2.2).
+
+  Its face masks come out as section 1.7 expects:
+  - the tower's and the lifts' faces against the east wall are dropped;
+  - so are the lifts' faces against the tower and the flights' top ends
+    against the platform;
+  - the building's shared faces and the tops between its equal blocks are
+    dropped;
+  - the platform's faces behind the flights stay, because they show above
+    the top tread.
+- **`tools/wamodel.py`** reproduces section 2.4's G forecast exactly: the
+  same model, now on `arenagen`'s own arena. **`tools/watrace.py`** is the
+  trace.
+- **The working tables** follow the largest arena (`WA_MBOX` 19, `WA_MVTX`
+  70, `WA_MNODE` 37): +1,018 bytes of the renderer part's BSS. Posed text
+  VRAM of both current arenas was unchanged (c40 at 60°, 100 poses; the
+  open arena at 80 columns, 60 poses).
+
+**A correction to section 4.2.** The visible budget of ~15 boxes is broken
+by this arena's own room corners. From (2016, 96), looking across, all 19
+boxes are kept. The forecast there is ~11 fps at 40 columns, the same as the
+tower's (Forecast: `wamodel` over the budget's poses, worst 11.1 fps).
+
+So the arena's worst views are not only the tower's. The check is set at
+20 boxes and 40 outline edges, which this arena meets (19 and 36). It is
+still a check, and the owner's 7.1 accepts the tower's rate. **The room
+corners should be named to the owner beside it.**
+
+### 9.2 Wave 1: the eye, the pitch, the column state
+
+- **The eye.** `wa_numb`, the bottom's eye × kyq, is a (product, shift)
+  pair (7.2.3).
+  - `wa_numt` needs none: |3 m − eye| × kyq is at most ~21,000 for any eye
+    today.
+  - Per height in wave 2 it will need one. That is where a general routine
+    belongs, so none was kept.
+  - The floor grid takes the pair.
+  - The figures' narrow sum is bounded by `wa_fvn`: 128, the same every
+    frame of today's arenas, with a divide only when the eye is above 128
+    (or the horizon below half-row 61, which ±112 never reaches).
+- **The pitch** is clamped at ±112 (`WA_PITCH`, `waconst.inc`).
+- **The column state**, per 7.2.5:
+  - `wa_cclip` (renamed: `wa_clip` is the near-plane clipper);
+  - `wa_cstn` and `wa_cst`, cleared each frame on an arena that is not
+    flat;
+  - `wa_hflat` and `wa_hmax`, read from the arena part;
+  - `wa_occl` and `wa_occlow`, asked by the pistol's ray, the floor grid
+    and the far figures' bar;
+  - the near figures through `wa_fthrs` and `wa_frowv`. A figure's sweep
+    (`FEMIT`) is assembled twice, flat and heights, so a flat arena pays one
+    compare a figure.
+
+**Correctness** (MartyPC `os8088_5150_cga`, H off,
+`pdump_noh.py`-style posed sets against `20d0cf89`):
+
+- **The posed sets:** 720 poses over both arenas, both widths and all three
+  fields of view. **708 are identical.**
+- **The 12 that differ** are exactly the poses whose eye × kyq passes 32,767:
+  eye 146–150 at 60°. Of the 720 poses, 12 have that, and all 12 changed.
+  That is the overflow the fix is for: their floor lines wrapped above the
+  walls' tops.
+- **The heights paths:** with `wa_hflat` forced to 0 every frame, three
+  sets (300 poses) are identical to the flat run. That forced run takes
+  `FEMIT 1`, `wa_fthrs`, `wa_frowv` and `wa_occlow`, confirmed by
+  breakpoints.
+- **The jump at 60°:** the before and after screenshots are in the
+  session's scratch directory (`shots/jump60-before-after.png`).
+
+**Speed.** P and B are the benches; render cycles are per posed frame:
+
+| | 20d0cf89 | wave 1 |
+|---|---|---|
+| P bench, 40 columns | 18.9 fps (MS 52.7, R 45.3) | 18.9 fps (MS 52.9, R 45.5) |
+| P bench, 80 columns | 15.7 (MS 63.3, R 51.8) | 15.7 (MS 63.5, R 52.0) |
+| B bench, 40 columns, full / sparse | 33.1 / 36.3 | 33.0 / 36.2 |
+| render cycles, 60 posed frames (the same poses, interrupts left out) | — | **+640 clk a frame (+0.4%)** |
+
+That +640 is the cost of:
+
+- the bottom's variable shift, ~10 clk a vertex;
+- the narrow bound;
+- the flat tests: one a frame, two a figure;
+- the far figures' query as a call.
+
+**Bytes.** The renderer part grows 46,214 → 48,903:
+
+| | image | BSS |
+|---|---|---|
+| wave 0 | — | +1,018 |
+| wave 1 | +624 | +1,047 |
+
+Of wave 1's BSS, the column state is 960 bytes and the figures'
+thresholds 160. The game grows 10 bytes of image (a parts row) and 80 of
+BSS (`wa_boxes` at 19 boxes). The arena parts are 534, 261 and 1,032
+bytes.
+
+### 9.3 Open, for the owner and the next waves
+
+1. **The SYMMETRIC dead ground of 7.1 is a design decision, not yet made.**
+   The pistol's test is the screen's, and at ±112 (32.8° at 75°) it is not
+   symmetric.
+   - **From the tower** (eye 262) a body below (0..112 high) is in reach
+     only from 233 units (3.6 m) out.
+   - **From the floor** (eye 102) a body at the tower's lip (160..272) is
+     in reach from 90 units (1.4 m) out.
+   - **Between 1.4 and 3.6 m** the one below can hit the one above and not
+     the reverse.
+
+   Two symmetric rules are offered:
+   - **(a)** a hit needs the angle between the two EYES within the pitch
+     limit, the same number both ways;
+   - **(b)** the tower's lip and depth are laid out so the lip hides
+     whoever stands where the angle runs out.
+
+   This wants deciding before wave 3 builds the pistol through heights.
+2. **The room corners' ~11 fps** (9.1), beside the tower's.
+3. **The stack's writers**, the clip-tested passes and the outline path,
+   land in wave 2. Nothing before it can make a low entry, and wave 2
+   exercises them.
+
