@@ -826,7 +826,9 @@ the call, and a compressed lazy row can be fetched again after a drop
 |---|---|---|
 | 0 | 15 words | `wa_arenas`' descriptor row - xv, its count, yv, its count, vertices, their count, corners, boxes, their count, the tree, the start x, y and angle, the colours - with every table offset relative to the part, and the tree's NODE COUNT appended |
 | 30 | 4 words | the heights (WIREARENA-HEIGHTS-PLAN 7.2.1): the box records' offset, the room's height, the arena's tallest height, the lift table's offset |
-| 38 | | the tables it names, as `arena_tables` writes them for `watab.inc` |
+| 38 | 2 words | its own patrols (WIREARENA-HEIGHTS-PLAN 7.4.5): their block's offset and its bytes (0, 0: the primary's) |
+| 42 | 1 word | its PVS's offset, 0 for none (WIREARENA-HEIGHTS-PLAN 9.8): a byte the grid's shift, a byte its cells a column, a word the masks' bytes, then the masks, `WA_PVSB` bytes a cell (a bit a box), column by column. `WRV_ARENA` copies it into `wa_pvs` |
+| 44 | | the tables it names, as `arena_tables` writes them for `watab.inc` |
 
 `WRV_ARENA` copies the tables into the working ones exactly as the in-image
 `wa_loadarena` did, and the tree - 12 bytes a node - into `wa_bsp`

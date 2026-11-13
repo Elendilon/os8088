@@ -207,16 +207,18 @@ def hmax(boxes):
 # nearer tall face covers is shut, so a box no ray reaches draws nothing.
 # Conservative against the renderer's own rounding: each box's angular
 # interval widened, each occluder's narrowed, by PVS_EPS radians (a column's
-# projection truncates to 1/16 of a column: 0.003 rad at 90 degrees and 40
-# columns) plus PVS_EPSD / distance (a camera-space coordinate truncates to
-# a unit). From a cell, the points tested are its outline and any tall box's
-# outline inside it at PVS_STEP units, and a PVS_GRIDP grid inside: a ray
-# from an inner point reaches the box from where it leaves the cell, or from
-# an occluder's face, as well.
-PVS_EPS = 0.006
-PVS_EPSD = 3.0
-PVS_STEP = 8
-PVS_GRIDP = 32
+# projection truncates to under 1/16 of a column: 0.0025 rad at 90 degrees and
+# 40 columns, the widest) plus PVS_EPSD / distance (a camera-space coordinate
+# truncates by under a unit in x and in z, under 2 / z rad on the screen; and
+# a point tested is within 2 units of any on its outline). From a cell, the
+# points tested are its outline and any tall box's outline (a unit out)
+# inside it at PVS_STEP units, and a PVS_GRIDP grid inside: a ray from an
+# inner point reaches the box from where, run backwards, it leaves the cell
+# or meets an occluder's face, as well.
+PVS_EPS = 0.003
+PVS_EPSD = 5.0
+PVS_STEP = 4
+PVS_GRIDP = 16
 PVS_MIN = 0.10                  # an arena carries one when it culls at
                                 # least this share of its box-cells
 PVS_SHIFT = 7                   # the grid: 128 units (2 m) a cell
@@ -284,7 +286,7 @@ def pvs_seen(p, boxes, tall, have):
             if j != i and pvs_front(p, boxes[j], B):
                 oi = pvs_interval(p, boxes[j], ref)
                 if oi is None:
-                    continue            # (on its outline: it hides nothing)
+                    continue            # (never: no point is in a tall box)
                 f = PVS_EPS + PVS_EPSD / max(oi[2], 1.0)
                 a, b = oi[0] + f, oi[1] - f
                 for k in (-2 * math.pi, 0, 2 * math.pi):
@@ -325,7 +327,8 @@ def pvs_masks(tag, boxes):
                 k = max(1, -(-max(abs(bx_ - ax), abs(by - ay)) // PVS_STEP))
                 for t in range(k + 1):
                     pts.add((ax + (bx_ - ax) * t / k, ay + (by - ay) * t / k))
-            for (a, b, c, d) in [(x0, y0, x1, y1)] + occ:
+            for (a, b, c, d) in [(x0, y0, x1, y1)] + [(a - 1, b - 1, c + 1, d + 1)
+                                                      for (a, b, c, d) in occ]:
                 a, b, c, d = max(a, x0), max(b, y0), min(c, x1), min(d, y1)
                 if a <= c and b <= d:
                     edge(a, b, c, b), edge(c, b, c, d), edge(c, d, a, d), edge(a, d, a, b)
@@ -336,8 +339,8 @@ def pvs_masks(tag, boxes):
             for p in sorted(pts):
                 if vis == full:
                     break
-                if any(a < p[0] < c and b < p[1] < d for (a, b, c, d) in occ):
-                    continue                # (no one stands in a wall)
+                if any(a <= p[0] <= c and b <= p[1] <= d for (a, b, c, d) in occ):
+                    continue                # (no one stands in a wall, or on one)
                 vis |= pvs_seen(p, boxes, tall, vis)
             col.append(vis)
             cut += bin(full & ~vis).count("1")
