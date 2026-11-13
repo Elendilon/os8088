@@ -50,7 +50,10 @@ F_PCX   equ 26                  ;   centre, sub-columns
 F_PTOP  equ 28                  ;   head, half-rows
 F_PBOT  equ 30                  ;   feet, half-rows
 F_PWH   equ 32                  ;   half width, sub-columns
-F_SIZE  equ 34
+F_VH    equ 34                  ; the heading F_VX/F_VY are for, | 0x8000
+F_VX    equ 36                  ;   (0: none yet): a tick's step, units
+F_VY    equ 38
+F_SIZE  equ 40
 
 wa_entry:
     mov byte [wa_fov], 1        ; 75 degrees: the owner's pick of the three
@@ -545,56 +548,94 @@ wa_frame_input:
     ret
 
 ; --- the 30 Hz tick -------------------------------------------------------
+; The keys a tick reads, polled ONCE A FRAME (wa_keys): the ticks a frame
+; runs are its catch-up, all due at the same instant, so they read one
+; poll - nine OSAPI_KEY_DOWN far calls a frame rather than nine a tick.
+WA_K_LEFT   equ 1
+WA_K_RIGHT  equ 2
+WA_K_UP     equ 4
+WA_K_DOWN   equ 8
+WA_K_W      equ 16
+WA_K_S      equ 32
+WA_K_A      equ 64
+WA_K_D      equ 128
+WA_K_SPACE  equ 256
+wa_ktab:    db KSC_LEFT, KSC_RIGHT, KSC_UP, KSC_DOWN, 0x11, 0x1F, 0x1E, 0x20
+            db KSC_SPACE
+WA_NKEYS    equ 9
+
+; wa_keys - the held keys into [wa_kbits] (WA_K_*). Keeps all but the flags.
+wa_keys:
+    push ax
+    push bx
+    push cx
+    push si
+    mov si, wa_ktab
+    xor bx, bx
+    mov cx, WA_NKEYS
+.k:
+    lodsb
+    call OSAPI_KEY_DOWN         ; CF = 1 held
+    rcr bx, 1
+    loop .k
+    mov cl, 16 - WA_NKEYS
+    shr bx, cl
+    mov [wa_kbits], bx
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 wa_tick:
-    mov al, KSC_LEFT
-    call wa_key
-    jnc .r
+    mov al, [wa_frame]          ; this frame's first tick polls the keys
+    cmp al, [wa_kfr]
+    je .polled
+    mov [wa_kfr], al
+    call wa_keys
+.polled:
+    mov dx, [wa_kbits]
+    test dl, WA_K_LEFT
+    jz .r
     add word [wa_ang], 12 << 6
 .r:
-    mov al, KSC_RIGHT
-    call wa_key
-    jnc .u
+    test dl, WA_K_RIGHT
+    jz .u
     sub word [wa_ang], 12 << 6
 .u:
-    mov al, KSC_UP
-    call wa_key
-    jnc .d
+    test dl, WA_K_UP
+    jz .d
     add word [wa_pitch], 4
 .d:
-    mov al, KSC_DOWN
-    call wa_key
-    jnc .move
+    test dl, WA_K_DOWN
+    jz .move
     sub word [wa_pitch], 4
 .move:
     xor bx, bx                  ; BL = forward, BH = right, each -1/0/+1
-    mov al, 0x11                ; W
-    call wa_key
-    jnc .s
+    test dl, WA_K_W
+    jz .s
     inc bl
 .s:
-    mov al, 0x1F                ; S
-    call wa_key
-    jnc .a
+    test dl, WA_K_S
+    jz .a
     dec bl
 .a:
-    mov al, 0x1E                ; A
-    call wa_key
-    jnc .dk
+    test dl, WA_K_A
+    jz .dk
     dec bh
 .dk:
-    mov al, 0x20                ; D
-    call wa_key
-    jnc .walk
+    test dl, WA_K_D
+    jz .walk
     inc bh
 .walk:
+    or bx, bx
+    jz .jump                    ; standing: no step, nothing to collide
     mov ax, [wa_ang]
     mov cl, 6
     shr ax, cl
     call wa_sincos              ; AX = sin, DX = cos (Q14)
     sar ax, 1                   ; Q13, so forward + strafe cannot overflow
     sar dx, 1
-    mov [wa_s13], ax
-    mov [wa_c13], dx
     ; vx = fwd*cos + right*sin ; vy = fwd*sin - right*cos
     xor si, si                  ; vx
     xor di, di                  ; vy
@@ -618,6 +659,8 @@ wa_tick:
     sub si, ax
     add di, dx
 .apply:
+    or si, si
+    jz .ymove                   ; (no x step: the x position cannot collide)
     mov ax, si
     mov cx, WA_MSPD
     imul cx                     ; DX:AX = the step, 16.16 units
@@ -630,6 +673,8 @@ wa_tick:
     mov [wa_px], bx
     mov [wa_pxf], cx
 .ymove:
+    or di, di
+    jz .jump
     mov ax, di
     mov cx, WA_MSPD
     imul cx
@@ -646,9 +691,8 @@ wa_tick:
     jne .air
     cmp word [wa_jv], 0
     jne .air
-    mov al, KSC_SPACE
-    call wa_key
-    jnc .grounded
+    test word [wa_kbits], WA_K_SPACE
+    jz .grounded
     mov word [wa_jv], WA_JUMPV
 .air:
     mov ax, [wa_jv]
@@ -680,12 +724,15 @@ wa_tick:
     ret
 
 ; wa_collide - CF = 1 when the player at [wa_px],[wa_py] is inside a wall.
-; Keeps every register.
+; Keeps every register. The player's square is widened once (x +- R, y +-
+; R), so a box is four compares against its own corners.
 wa_collide:
     push ax
     push bx
     push cx
+    push dx
     push si
+    push bp
     mov ax, [wa_px]
     mov bx, [wa_py]
     cmp ax, WA_ROOM_X0 + WA_RAD
@@ -696,24 +743,22 @@ wa_collide:
     jl .hit
     cmp bx, WA_ROOM_Y1 - WA_RAD
     jg .hit
+    mov dx, ax
+    add dx, WA_RAD              ; DX = x + R, AX = x - R
+    sub ax, WA_RAD
+    mov bp, bx
+    add bp, WA_RAD              ; BP = y + R, BX = y - R
+    sub bx, WA_RAD
     mov si, wa_boxes
     mov cx, [wa_nbox]
 .box:
-    mov dx, [si]
-    sub dx, WA_RAD
-    cmp ax, dx
-    jle .next
-    mov dx, [si+4]
-    add dx, WA_RAD
-    cmp ax, dx
+    cmp dx, [si]                ; inside x0 - R < x < x1 + R, and the same
+    jle .next                   ; for y
+    cmp ax, [si+4]
     jge .next
-    mov dx, [si+2]
-    sub dx, WA_RAD
-    cmp bx, dx
+    cmp bp, [si+2]
     jle .next
-    mov dx, [si+6]
-    add dx, WA_RAD
-    cmp bx, dx
+    cmp bx, [si+6]
     jl .hit
 .next:
     add si, 8
@@ -723,7 +768,9 @@ wa_collide:
 .hit:
     stc
 .out:
+    pop bp
     pop si
+    pop dx
     pop cx
     pop bx
     pop ax
@@ -756,18 +803,26 @@ wa_figtick:
 .live:
     cmp byte [di+F_ANIM], WA_A_FLINCH
     je .anim                    ; a flinch stops it in its tracks
+    mov ax, [di+F_HEAD]         ; a leg's step is the same every tick of
+    or ah, 0x80                 ; it: worked out once per heading
+    cmp ax, [di+F_VH]
+    je .stepped
+    mov [di+F_VH], ax
     mov ax, [di+F_HEAD]
     call wa_sincos
+    push dx
     mov cx, WA_SPEED
     imul cx                     ; DX:AX = sin x 8, Q14
     call .q14                   ; -> AX units
-    add [di+F_Y], ax
-    mov ax, [di+F_HEAD]
-    call wa_sincos
-    xchg ax, dx
-    mov cx, WA_SPEED
+    mov [di+F_VY], ax
+    pop ax
     imul cx
     call .q14
+    mov [di+F_VX], ax
+.stepped:
+    mov ax, [di+F_VY]
+    add [di+F_Y], ax
+    mov ax, [di+F_VX]
     add [di+F_X], ax
     dec word [di+F_STEP]
     jnz .turn
@@ -1316,6 +1371,8 @@ WA_VAR wa_hold,1
 WA_VAR wa_rowoff,(WA_ROWS+1)*2
 WA_VAR wa_rowo2,(WA_ROWS+1)*2
 WA_VAR wa_figs,F_SIZE*WA_NFIG
+WA_VAR wa_kbits,2                ; the held keys this frame (wa_keys)
+WA_VAR wa_kfr,1                  ; ...polled in this frame
 WR_BSS
 WA_VAR wa_newp,2
 WA_VAR wa_oldp,2
