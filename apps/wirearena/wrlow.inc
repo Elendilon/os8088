@@ -352,20 +352,23 @@ wa_lowbox:
 ; the posts' rounding) the column shut, or its clip at or above the box's
 ; topmost row. That row is the top's at the corner its height makes the
 ; highest on the screen - the farthest with the eye above the top, the
-; nearest with it below - since every edge, post and tread of a box is
+; nearest with it below - since every edge and post of a box is
 ; interpolated between its corners' rows, and a floor row is under its
 ; top's; less one half-row for the edges' rounding. A flight's inner treads
-; stand above its stringers, so for one only shut columns count. Nothing it
+; stand above its stringers and may end a little off its sides, so for one
+; only shut columns count, over its columns widened by that. Nothing it
 ; skips would have drawn a cell, raised a clip or pushed an entry.
 wl_hidden:
     mov word [wl_vis0], 0
     cmp byte [wl_need], 0       ; (no corner wanted: inside it, under its top)
     je wl_scan.none
-    xor ax, ax                  ; the corner wanted: the largest z, or with
-    mov cx, [wa_eye]            ; the eye at or under the top the smallest
-    cmp cx, [wl_h]              ; (z xor -1 its key)
-    jg .zm
-    dec ax
+    mov ax, -1                  ; the corner wanted: the largest z with the
+    test byte [wl_kind], 3      ; eye above the top, else - and for a
+    jnz .zm                     ; flight - the smallest (z xor -1 its key)
+    mov cx, [wa_eye]
+    cmp cx, [wl_h]
+    jle .zm
+    inc ax
 .zm:
     mov [wl_zm], ax
     mov al, [wl_need]
@@ -399,12 +402,56 @@ wl_hidden:
     add si, WL_REC
     cmp si, wl_c+4*WL_REC
     jb .c
+    test byte [wl_kind], 3
+    jz .cols
+    ; A FLIGHT's inner treads end at its sides' low corners plus k - 1
+    ; goings, each going's x and z cut short by under a unit: an end lies up
+    ; to N - 1 units off its side (in each of x and z), so its column x 16
+    ; up to (N - 1)(k16 + R) / z off the side's, R the corners' farthest
+    ; column x 16 from the centre and z its least depth. The columns are
+    ; widened by that, and a unit more for each rounding
+    mov ax, [wa_c16]
+    sub dx, ax
+    sub cx, ax                  ; (from the centre)
+    push dx
+    push cx
+    or dx, dx                   ; R = max(|least|, |most|)
+    jns .r1
+    neg dx
+.r1:
+    or cx, cx
+    jns .r2
+    neg cx
+.r2:
+    cmp dx, cx
+    jge .r3
+    mov dx, cx
+.r3:
+    mov bx, [ds:bp+wa_vz]       ; BX = the least z of the four, BP's (all
+                                ; in the view: each >= NEAR)
+    mov ax, dx
+    add ax, [wa_k16]
+    add ax, 2                   ; (k16 + R + 2) < 10 k16: no carry
+    mov cx, [wl_nt]
+    dec cx
+    mul cx                      ; (N - 1 < 15: DX:AX < 2^18)
+    div bx                      ; (BX >= NEAR: no fault; the quotient
+    add ax, 2                   ; < 2^14 fits)
+    pop cx
+    pop dx
+    sub dx, ax
+    add cx, ax
+    mov ax, [wa_c16]
+    add dx, ax
+    add cx, ax
+    sub dx, 9
+    add cx, 7+16
+    mov ax, -32768              ; (any open column shows: the treads stand
+    jmp wl_scan                 ; above the stringers, no row bound)
+.cols:
     sub dx, 9                   ; the columns: wa_span's first past the
     add cx, 7+16                ; least, less one; its last short of the
-    mov ax, -32768              ; most, plus one. A flight: any open column
-    test byte [wl_kind], 3      ; shows
-    jnz wl_scan
-    push cx
+    push cx                     ; most, plus one
     push dx
     mov bx, bp
     mov bx, [wa_vz+bx]
