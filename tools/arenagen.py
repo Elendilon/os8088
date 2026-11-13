@@ -190,7 +190,7 @@ def box_tree(ids, nodes, BOXES):
     me = len(nodes)
     nodes.append(None)
     if len(ids) == 1:
-        nodes[me] = [2, ids[0], 0, -1, -1]
+        nodes[me] = [2, ids[0], 0, -1, -1, ids]
         return me
     best = None
     for axis in (0, 1):
@@ -208,7 +208,7 @@ def box_tree(ids, nodes, BOXES):
     _, axis, v, low, high = best
     lo = box_tree(low, nodes, BOXES)
     hi = box_tree(high, nodes, BOXES)
-    nodes[me] = [axis, 0, v, lo, hi]
+    nodes[me] = [axis, 0, v, lo, hi, ids]
     return me
 
 
@@ -277,11 +277,18 @@ def arena_tables(w, tag, boxes, start):
     w(P + "bsp:                         ; kind (0 x, 1 y, 2 leaf), box x 8 (a")
     w("                                ; leaf's, into wa_boxes), value, low,")
     w("                                ; high (0 = none) - ABSOLUTE: the tree")
-    w("                                ; is walked in place, not copied")
-    for (kind, box, v, lo, hi) in nodes:
+    w("                                ; is walked in place, not copied - and")
+    w("                                ; the bounds of the boxes under it, x0")
+    w("                                ; y0 x1 y1 as coordinate indices x 4,")
+    w("                                ; for wa_node's view-cone test")
+    for (kind, box, v, lo, hi, ids) in nodes:
+        bb = (min(boxes[i][0] for i in ids), min(boxes[i][1] for i in ids),
+              max(boxes[i][2] for i in ids), max(boxes[i][3] for i in ids))
         w("    db %d, %d" % (kind, box * 8))
-        w("    dw %d, %s, %s" % (v, P + "bsp+%d" % (lo * 8) if lo >= 0 else "0",
-                              P + "bsp+%d" % (hi * 8) if hi >= 0 else "0"))
+        w("    dw %d, %s, %s" % (v, P + "bsp+%d" % (lo * 12) if lo >= 0 else "0",
+                              P + "bsp+%d" % (hi * 12) if hi >= 0 else "0"))
+        w("    db %d, %d, %d, %d" % (xs.index(bb[0]) * 4, ys.index(bb[1]) * 4,
+                                    xs.index(bb[2]) * 4, ys.index(bb[3]) * 4))
     w(P + "bcol:                        ; per box (the room first): its colour")
     w("                                ; - 0 a boundary wall, 1 an item. The")
     w("                                ; owner's call: colour says WHAT a wall")
