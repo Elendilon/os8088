@@ -933,22 +933,21 @@ wa_ptbi:
 ; wa_span - the projected segment (c1,t1,b1,i1)-(c2,t2,b2,i2): stepped
 ; across its columns, drawn into the open ones, which it then closes.
 wa_span:
-    mov ax, [wa_c1]
+    mov bx, [wa_c1]             ; first column whose centre (16c+8) >= c1
     mov cl, 4
-    mov dx, ax                  ; first column whose centre (16c+8) >= c1
-    add dx, 7
-    sar dx, cl
+    add bx, 7
+    sar bx, cl
     mov si, [wa_c2]             ; last whose centre < c2
     add si, 7
     sar si, cl
     dec si
-    shl dx, 1                   ; (x 2 from here)
+    shl bx, 1                   ; (x 2 from here)
     shl si, 1
-    mov [wa_cs0], dx            ; (the segment's own ends, for its corners,
+    mov [wa_cs0], bx            ; (the segment's own ends, for its corners,
     mov [wa_ce0], si            ; before the screen clamps them)
-    or dx, dx                   ; ...and the screen
+    or bx, bx                   ; ...and the screen
     jns .lok
-    xor dx, dx
+    xor bx, bx
 .lok:
     cmp si, [wa_w2]
     jl .rok
@@ -957,14 +956,13 @@ wa_span:
     dec si
 .rok:
     mov cx, si                  ; ANY OPEN COLUMN? One scan of wa_cov, before
-    sub cx, dx                  ; a single divide: a wall wholly behind
+    sub cx, bx                  ; a single divide: a wall wholly behind
     jl .none                    ; nearer ones costs this and nothing more
     lea ax, [si+2]              ; (and c1 >= c2 has no columns at all)
     mov [wa_end], ax            ; (the flat passes' end: one past the last)
     shr cx, 1
     inc cx
-    mov di, dx
-    add di, wa_cov              ; (ES = DS through wa_render)
+    lea di, [bx+wa_cov]         ; (ES = DS through wa_render)
     xor ax, ax
     repne scasw
     je .open1
@@ -1481,8 +1479,13 @@ wa_loops:   dw 0,        wa_l001, wa_l010, wa_l011   ; (full and flat:
 ; (wa_span's sentinel). Out: DI; BP and [wa_fh] one column past the end;
 ; pass 1 counts the columns it found shut into wa_ncl. Clobbers AL, BX, SI.
 %macro FLATPASS 2
-    call wa_fcell
-    jc %%off
+    mov bx, [wa_fh]             ; (wa_fcell, inline)
+    cmp bx, WA_HR
+    jae %%off
+    mov al, [wa_hgl+bx]
+    shl bx, 1
+    mov bx, [wa_hroff+bx]
+    add bx, si
 %%col:
 %if %1
     cmp word [wa_cov+si], 0
