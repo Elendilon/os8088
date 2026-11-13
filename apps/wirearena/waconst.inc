@@ -23,6 +23,9 @@ WA_PITCHD   equ 290             ; 33 degrees at 75, DOWN 59 - the same reach
                                 ; (HEIGHTS-PLAN 7.1.1, 7.1.2: the owner
                                 ; judges them by play; change them here)
 WA_BLANK    equ 0x0720
+WA_FL_SNAP  equ 1               ; wa_flod: figures under WA_FLODV, keyframes
+WA_FL_FEW   equ 2               ; unblended (K); and the ends alone (J)
+WA_FLODV    equ 16              ; ...fv8 below this: under ~7 half-rows tall
 
 ; per-figure record
 F_X     equ 0

@@ -93,6 +93,14 @@ wr_v_init:
     inc si
     inc si
     loop .rows
+    mov si, wa_hroff            ; ...and in wa_fbuf (wa_flgo's start)
+    mov di, wa_hrfb
+    mov cx, WA_HR
+.fb:
+    lodsw
+    add ax, wa_fbuf
+    stosw
+    loop .fb
     mov di, wa_stamp
     xor ax, ax
     mov cx, WA_CELLS
@@ -345,6 +353,9 @@ WA_VAR wa_listb,WA_CELLS*2
 ; zeros the packer cuts off (OP_ZFILL) and op_unpack fills back
     times WA_BSS db 0
 wr_end:
+%if wa_jsy != wa_jsx + WA_NJ*2
+    %error "wrpart: wa_fjl's narrow loops store y at wa_jsx + 22"
+%endif
 %if (wr_end - wr_hdr) > 65024
     %error "wrpart: the renderer part passed the 65,024 bytes one part may hold"
 %endif

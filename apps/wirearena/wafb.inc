@@ -59,7 +59,8 @@ WA_FBV wa_kyq, 2
 WA_FBV wa_kyh, 2
 WA_FBV wa_wf, 2
 WA_FBV wa_mono, 1
-WA_FBV wa_fbpad0, 1
+WA_FBV wa_flod, 1                   ; figure detail options (keys K, J: G's
+                                    ; wa_frame_input; R's wa_figure)
 WA_FBV wa_fb_frm, 0                 ; FRAME
 WA_FBV wa_px, 2
 WA_FBV wa_py, 2
