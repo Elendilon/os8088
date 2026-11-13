@@ -885,9 +885,10 @@ both 1bpp adapters looked at (SPEC.md §39.4, the rule CLAUDE.md repeats).
 
 ## 8. The instruments behind the numbers
 
-They are in the session scratch directory of this plan's work,
-`/tmp/claude-0/-home-user-os8088/47d409e5-5983-5491-a0e9-309fed473eb6/scratchpad/heights-plan/`.
-Wave 0 brings the model into `tools/`.
+They are kept as written in `tools/wamodel/` (copied out of the session's
+scratch directory so they outlive it; `p40.json` is the trace section 2.1
+analysed). They are working scripts, not tools yet: wave 0 makes the model
+`tools/wamodel.py` proper.
 
 - **`trace.py` and `anal.py`**: the breakpoint trace of section 2.1, and its
   per-piece table and span regression. Run from a worktree root, on the
