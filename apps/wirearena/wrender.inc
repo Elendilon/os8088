@@ -148,7 +148,7 @@ WA_VAR wa_fbc, 2                ;   left column x 2, last row x 2
 WA_VAR wa_fbr, 2
 WA_VAR wa_frow, 2
 WA_VAR wa_fnr, 2                ;   rows left to sweep
-WA_VAR wa_flp, 2                ;   the cell list's end, while sweeping
+WA_VAR wa_fvis, WA_MAXW*2       ;   per column x 2: 1 = in front of its wall
 WA_VAR wa_flfn, 2               ;   wa_fline or wa_flinef
 WA_VAR wa_fon, 1                ;   1: every joint on the screen
 WA_VAR wa_fk, 2                 ; wa_fjl's narrow sums: Klo (fcx fs8 + 256 W),
@@ -1995,21 +1995,40 @@ wa_fjdone:                      ; (wa_fjl comes back here)
     jg .out
     mov [wa_fbr], dx            ; the last row x 2
     mov [wa_frow], bx           ; ...and the first
-    mov si, [wa_fiz]            ; the box's columns' walls, asked for once
-    mov bx, [wa_fbc]            ; here rather than per cell - and if every
-    mov cx, [wa_fbw]            ; one is nearer than the figure, nothing of
-    xor dl, dl                  ; it shows: no limbs, no sweep
+    mov si, [wa_fiz]            ; the box's columns: is the figure in front
+    mov bx, [wa_fbc]            ; of the wall there? (wa_fvis) - and if not
+    mov cx, [wa_fbw]            ; in one of them, nothing of it shows: no
+    xor dl, dl                  ; limbs, no sweep
 .rc:
     mov ax, [wa_colz+bx]
     cmp ax, 0xFFFF
-    jne .rz
-    call wa_wallz
+    jne .rz                     ; asked already this frame
+    mov di, [wa_cov+bx]
+    or di, di
+    jz .vis                     ; no wall at all
+    mov ax, [wa_spih+di]        ; A BOUND FIRST: a span opens only columns
+    mov bp, ax                  ; whose centres lie inside its ends (wa_span),
+    add bp, [wa_spsl+di]        ; so wa_wallz's value there lies between its
+    cmp ax, bp                  ; ends' inverse depths - and a figure in
+    jle .lo                     ; front of both, or behind both, needs no
+    xchg ax, bp                 ; divide to say so
+.lo:
+    cmp bp, si
+    jbe .vis                    ; nearer than the whole span
+    cmp ax, si
+    ja .hid                     ; farther than the whole span
+    call wa_wallz               ; (between: the exact depth)
     mov ax, [wa_colz+bx]
 .rz:
     cmp ax, si
-    ja .rh
+    ja .hid                     ; the wall there is nearer
+.vis:
+    mov byte [wa_fvis+bx], 1
     inc dx
-.rh:
+    jmp .rn
+.hid:
+    mov byte [wa_fvis+bx], 0
+.rn:
     inc bx
     inc bx
     loop .rc
@@ -2049,17 +2068,15 @@ wa_fjdone:                      ; (wa_fjl comes back here)
 ; against its column's wall (resolved above) and plotted - the old
 ; wa_plotf inline, every array addressed off DI (the cell's place in
 ; wa_fbuf, + 2) by a constant displacement, the stamp to match held in DH,
-; the inverse depth in SI, and the list's end in [wa_flp].
+; the column's verdict in wa_fvis, and the list's end in SI.
 WA_FSTO equ wa_stamp - wa_fbuf - 2
 WA_FMSO equ wa_fmask - wa_fbuf - 2
 WA_FCUO equ wa_cur - wa_fbuf - 2
 wa_femit:
-    mov si, [wa_fiz]
     mov dh, [wa_frame]
     or dh, 0x80                 ; DH = a figure cell's stamp this frame
-    mov ax, [wa_newp]
-    add ax, [wa_newn]
-    mov [wa_flp], ax
+    mov si, [wa_newp]
+    add si, [wa_newn]           ; SI = the cell list's end
     mov bx, [wa_frow]
     mov bp, [wa_rowo2+bx]
     add bp, wa_fbuf             ; BP = the row's first cell in wa_fbuf
@@ -2079,9 +2096,8 @@ wa_femit:
     add bp, [wa_w2]             ; (2W bytes: a row)
     dec word [wa_fnr]
     jnz .row
-    mov ax, [wa_flp]
-    sub ax, [wa_newp]
-    mov [wa_newn], ax
+    sub si, [wa_newp]
+    mov [wa_newn], si
     pop di
     ret
 .found:                         ; DI = the cell's offset in wa_fbuf, + 2
@@ -2089,8 +2105,8 @@ wa_femit:
     mov byte [di-2], 0          ; scratch
     mov bx, di
     sub bx, bp                  ; BX = its column x 2, + 2
-    cmp [wa_colz-2+bx], si
-    ja .hid                     ; the wall there is nearer
+    cmp byte [wa_fvis-2+bx], 0
+    je .hid                     ; the wall there is nearer
     mov al, [di+WA_FSTO]
     cmp al, dh
     je .have                    ; a figure cell already: add the bits
@@ -2098,12 +2114,9 @@ wa_femit:
     cmp al, 0x80
     je .listed                  ; a wall cell this frame: already listed
     lea ax, [di-2-wa_fbuf]      ; the cell, onto this frame's list
-    mov bx, [wa_flp]
-    mov [bx], ax
-    inc bx
-    inc bx
-    mov [wa_flp], bx
-    xor bx, bx
+    mov [si], ax
+    inc si
+    inc si
 .listed:
     mov [di+WA_FSTO], dh
     jmp .put
@@ -2111,7 +2124,7 @@ wa_femit:
     or dl, [di+WA_FMSO]
 .put:
     mov [di+WA_FMSO], dl
-    mov bl, dl                  ; (BH is 0: a column, or cleared)
+    mov bl, dl                  ; (BH is 0: BX was a column)
     mov al, [wa_fglyph+bx]
     mov ah, [wa_fatt]
     mov [di+WA_FCUO], ax
