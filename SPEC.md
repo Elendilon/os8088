@@ -257847,6 +257847,28 @@ These amend the subsections they name and are binding.
     e781df53, `BENCH`'s mean busy is at least 2.0k clk lower on the CGA;
     the Hercules figure is reported.
 
+#### 128.13.15 The sound arrived first (amends 128.13.10 and 128.13.12)
+
+128.20's sound landed on this branch (3f0d8081) before this round's build,
+so 128.13.10's reserve is replaced by the real thing:
+
+1. **No `bz_spad` pad and no H1.** The sound's `bzs_frame` stays where
+   128.20 put it, after the frame's steps and before `bz_foot`; 128.13.10's
+   list of places sound may not go (the step, the wheel, the wait, the
+   beam-raced writes) still binds, and this round moves none of the sound.
+2. **Every target is measured with the sound OFF and ON.** OFF is the like-
+   for-like leg (the A/B against e781df53 and `bonanzawheel`'s checks, as
+   128.20.7 does). ON is the speaker at S's AUTO - what a 5150 without an
+   AdLib plays, so what the owner hears. The asserted lift-stretch and
+   ride targets of 128.13.4.5 are asserted with the speaker ON; a miss that
+   happens only with the sound on is reported with the sound's share of
+   that frame (128.20.7's measured 3,319 clk mean, 13,446 worst on the
+   CGA) for the owner to weigh, not hidden. The AdLib arm is reported.
+3. **The retrace wait's idle time** is a lever both the wheel and the sound
+   could use (128.20.7). This round does not give it to the sound; its final
+   pass records the wheel's spare idle per card after the round, so that
+   decision can be made on numbers.
+
 ### 128.20 Sound and music (the sound wave, built beside waves 3 and 4)
 
 **Numbered 128.20, not 128.13, on purpose**: the sound was built by a second
