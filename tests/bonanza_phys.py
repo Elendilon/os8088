@@ -1044,16 +1044,15 @@ REDS = {
                  "    mov [bz_ghv], al\n    mov di, [bz_goff]           ; RED respawn: on the start, not bz_safe\n"
                  "    mov al, [es:di + BZG_WX]\n    mov ah, [es:di + BZG_WY]\n    mov [bz_safe], ax\n"
                  "    call bz_place\n")],
-    # (wave 3 writes steps 4 - 6 as macros instanced twice, SPEC.md 128.12.3.2: the
-    # patch is in the macro's body, so both instances - wave 2's path and the
-    # prop path - are broken alike)
-    "takeoff": [("bzphys.inc", "%%takeoff:                       ; over no floor: no bz_gh (bz_ghv cleared)\n"
+    # (steps 4 - 6 are written once and run by wave 2's path and the prop path
+    # alike, SPEC.md 128.13.8: the patch breaks both)
+    "takeoff": [("bzphys.inc", ".takeoff:                       ; over no floor: no bz_gh (bz_ghv cleared)\n"
                  "    call bz_toff\n",
-                 "%%takeoff:                       ; over no floor: no bz_gh (bz_ghv cleared)\n"
+                 ".takeoff:                       ; over no floor: no bz_gh (bz_ghv cleared)\n"
                  "    mov word [bz_gvz], 0        ; RED takeoff\n    call bz_toff\n"),
-                ("bzphys.inc", "    jle %%launch\n    mov ax, bx                  ; z = h: the ball follows the floor\n",
-                 "    jg %%redf\n    mov word [bz_gvz], 0        ; RED takeoff: off a falling floor too\n"
-                 "    jmp short %%launch\n%%redf:\n    mov ax, bx\n")],
+                ("bzphys.inc", "    jle .launch\n    mov ax, bx                  ; z = h: the ball follows the floor\n",
+                 "    jg .redf\n    mov word [bz_gvz], 0        ; RED takeoff: off a falling floor too\n"
+                 "    jmp short .launch\n.redf:\n    mov ax, bx\n")],
     "bounce": [("bzphys.inc", "    mov cl, [bz_se + 3]\n",
                 "    mov cl, [bz_mrec + BZM_EW]  ; RED bounce: the wall's restitution\n")],
     "edge": [("bzphys.inc", "    cmp ax, (16 - BZ_RAD) * 256 ; east when pu > 2,560: a true distance under\n",

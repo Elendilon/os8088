@@ -1312,7 +1312,7 @@ seeds where needed, and the Hercules beam checks reported, not asserted.
       cannot be had), its grammar and bound negative controls.*
       *Final pass: `bonanzacourse` ok (79.5 s): its eight items on `BZ_COURSES`, the byte identity against
       `848ade16`'s tool, the grammar and bound refusals and their negative controls.*
-- [ ] **3.2 Lanes on the glass.** A lane's pose is its map words; the
+- [x] **3.2 Lanes on the glass.** A lane's pose is its map words; the
       contact box draws a due lane beside the ball together with the ball,
       and a second lane touching the ball waits a frame; the wheel draws the
       rest in the retrace wait, only the cells in the shown window and the
@@ -1327,6 +1327,7 @@ seeds where needed, and the Hercules beam checks reported, not asserted.
       rotor-off-the-house refusal.*
       *Final pass: `bonanzaring`'s `MILL` leg ok on both cards (card = oracle; AHEAD and the CGA's LEAD from
       the LOW scenario, SPEC.md 128.12.18), red arm `contact` red - but red arm `defer` stayed GREEN: open.*
+      *Wave 3b's final pass: red arm `defer` red on the DEFER scene (SPEC.md 128.13.16).*
 - [ ] **3.3 The wheel.** Calibrated at the launch over the whole commit
       (three sizes, eight samples each, an idempotent commit), trimmed by its
       own overruns, ordered by the beam (ahead first, then behind, spinning
@@ -1342,6 +1343,8 @@ seeds where needed, and the Hercules beam checks reported, not asserted.
       step (its `bz_tw` 79 - 98k clk after the rise); red arms `nobeam` (green), `alias`, `lanestale` (red
       at (2)/(7), not their own) and `corner` (no valid leg) open. Everything else in the row passes: SPEC.md
       128.12.18.*
+      *Wave 3b's final pass: every red arm but `corner` and `alias` judged and red; (6) still FAILS on the
+      CGA (SPEC.md 128.13.16): open.*
 - [x] **3.4 The windmill.** A ball rolled at the doorway on the house face is
       knocked back while a blade is down (at 0.625 of its speed) and
       swallowed by the tunnel while it is up, from the front or along the
@@ -1402,7 +1405,7 @@ seeds where needed, and the Hercules beam checks reported, not asserted.
       *Final pass: `bonanzaphys` `keep`, `launch`, `drop` (three balls) equal to the model, red arm `exit` red;
       `bonanzaring`'s transit frames (19 / 18 checked) and each tube exit's footprint inside the window, red
       arm `hidden` red.*
-- [ ] **3.8 The heavy frame.** On a frame that runs the occluder pass, draws
+- [x] **3.8 The heavy frame.** On a frame that runs the occluder pass, draws
       the ball as two boxes or shows the slab at the window's edge, GLIDE
       takes at most one row and no column; on a frame that draws a contact
       box, none; each axis released near its edge, decided before the camera;
@@ -1413,6 +1416,8 @@ seeds where needed, and the Hercules beam checks reported, not asserted.
       of every missed frame.*
       *Final pass: measured, the claim NOT met: `TRIAL` with the heavy rule missed 14 (CGA) and 9 (Hercules)
       against wave 2's 8 and 2 (O28, the owner's).*
+      *Wave 3b's final pass: level 1 is the slab-near-edge clause alone (SPEC.md 128.13.6); `TRIAL` 5 - 8
+      (CGA) and 4 (Hercules) misses OFF, `bz_nhvy` 0 (SPEC.md 128.13.16).*
 - [x] **3.9 Replays with moving obstacles.** Obstacles are a function of the
       step count, so a `MILL` play recorded on the CGA replays on the Hercules
       to the same state at every step, through knock-backs, kicks and
@@ -1457,7 +1462,9 @@ seeds where needed, and the Hercules beam checks reported, not asserted.
       lane late (met, after the promotion); `MILL`'s misses 111 (CGA) and 13, on the lift's stretch, not
       only the flight and the fall; the ride's line-change frames 120% / 104%; the image 23,227 bytes, bss
       6,542, `MILL`'s part 33,906, `BONANZA.O88` 68,235, still on the 360KB disk. SPEC.md 128.12.18.*
-- [ ] **3.13 The record.** README and the face's course list, `BZ_COURSES`
+      *Wave 3b's final pass: `MILL` 47 (CGA) and 17 misses OFF, the ride's line changes 83% / 71% with no
+      miss; the CGA's lift stretch still misses 6 - 9 (SPEC.md 128.13.16): open.*
+- [x] **3.13 The record.** README and the face's course list, `BZ_COURSES`
       with `mill.bbc`, docs/HEAP-CLAIMS.md's Bonanza row with `MILL`'s size,
       the new row's registration in `tests/suite.py` with its predicted
       `secs`, the diary's wave-3 entries, `docs/INDEX.md` current. *Verify:
@@ -1466,6 +1473,7 @@ seeds where needed, and the Hercules beam checks reported, not asserted.
       *Final pass: the doc gates, `os88index --check` and `checkdocs` pass, `BZ_COURSES` carries `mill.bbc`,
       docs/HEAP-CLAIMS.md MILL's 33,906, the rows' `secs` registered MEASURED; README has carried no
       Bonanza entry since wave 0: left open.*
+      *Wave 3b: README lists `make bonanzadisk` (SPEC.md 128.13.9).*
 
 **Wave 3b: the performance round** (the contract is SPEC.md 128.13,
 written before the code; the owner, 2026-11-13: "do the performance wave
@@ -1485,7 +1493,7 @@ clk a frame, spent by a harness pad in the target legs, and names where it
 may hook and what the engine asks of it elsewhere. Every cost and size
 below is PREDICTED until the final pass; the rows run once, after the last
 batch.
-- [ ] **3b.1 The lift rides in one box.** A ball riding the lift and the
+- [x] **3b.1 The lift rides in one box.** A ball riding the lift and the
       slab are composed ONCE - the course, the slab under, the shadow, the
       ball, the occluders, the slab over - in one box of up to 4 words by
       32 lines, and written once, where wave 3 drew two overlapping boxes
@@ -1497,7 +1505,11 @@ batch.
       `ridebox`; `bonanzaperf`'s ride leg, no miss on a line-change frame
       and `bz_late` 0 ASSERTED with sound's reserve spent, red arm `rideoff`
       (CGA); the corner ride sub-leg reported.*
-- [ ] **3b.2 A crowded frame draws the lift a frame later, and a kicked
+      *Final pass: `bonanzaring`'s RIDE BOX frames card = oracle (49 CGA, 47 Hercules), red arm `ridebox`
+      red; the ride's line-change frames 65.8k (83%) and 66.7k (71%), no miss OFF and `bz_late` 0 on both
+      cards (ASSERTED; ON reported: 0 on the speaker, 7 with the AdLib machine's sound), red arm `rideoff`
+      red; the corner ride one box on every line change, 0 misses OFF. SPEC.md 128.13.16.*
+- [x] **3b.2 A crowded frame draws the lift a frame later, and a kicked
       post lights at once.** When the ball's and its shadow's groups are
       two boxes (a fast or airborne ball), the lift's box waits one frame
       (never two running, never under a ball it carries, never as it leaves
@@ -1513,6 +1525,10 @@ batch.
       red arm `pwait2`; `bonanzawheel` (12) tightened (a kicked post lit on
       its kick's frame); `bonanzaperf` reports the share of line changes
       that waited.*
+      *Final pass: the PWAIT scene card = oracle on both cards (13 / 12 waited frames, a waited frame with
+      an entering row meeting the slab on each, the platform box at most 21 / 22 lines), red arm `pwait2`
+      red at the one-wait rule; `bonanzawheel` (12) every kick lit on its frame; 4 - 5% of `MILL`'s lift line
+      changes waited (OFF). SPEC.md 128.13.16.*
 - [ ] **3b.3 Boxes go to the card faster.** A 3- or 4-word box with no
       overlap band is written a card row at a time by unrolled moves,
       about 160 clk a line less (wave 3 measured 490 a 4-word line where
@@ -1520,6 +1536,10 @@ batch.
       frame, -3.0k a slab box. *Verify: `bonanzaring` everywhere, its
       `wrapbox` frames (a box across the ring's end), red arm `fastwrap`;
       `bonanzaperf`'s A/B against wave 3.*
+      *Final pass: the whole-row path takes 1,385 clk off `BENCH`'s CGA box writes, but the A/B's asserted
+      2.0k is NOT met: mean busy 1,284 under `e781df53`'s (Hercules 514, reported) - BENCH's boxes are 3
+      words, where the block saves ~80 clk a line, not 4-word's 160. `wrapbox` frames (the ring's-end scene,
+      8 a card) card = oracle, red arm `fastwrap` red. Open: SPEC.md 128.13.16.*
 - [ ] **3b.4 The wheel commits faster.** A commit is one column-major pass
       from the pose map - the map's words stored as they are read (through
       DS, never the stack's SS), a block's lines by the column writer's
@@ -1533,6 +1553,11 @@ batch.
       oracle and the map on `MILL`, red arm `mapskip`; on kern_mega
       `bonanzamega`'s `mapcs` re-pointed at the pass's map store (SPEC.md
       128.13.11).*
+      *Final pass: a whole rotor's pass 8,917 / 8,890 clk (PREDICTED 7.0k), a post's 6,648 / 6,626; whole
+      commits 0.99 of their price after `BZ_WPATH`; card = oracle and oracle check 5 on `MILL`, red arms
+      `mapskip`, `costtab`, `mapcs` red. `bonanzawheel` (6) still FAILS on the CGA - the corner lane commits
+      only AHEAD (by 67.3k) and the step frame's test lands near 65k - so `alias` and `corner` are unjudged.
+      Open: SPEC.md 128.13.16.*
 - [ ] **3b.5 Less to prepare, less to walk.** Per-lane tables filled once
       a play, a whole lane's cost from a table filled after the
       calibration, the trim's MUL and DIV only under 100: a preparation
@@ -1543,7 +1568,15 @@ batch.
       new (13) (`bz_lnext` exact), red arms `lnext` and `pskip`;
       `bonanzaperf`'s padded `MILL` leg (`bz_wover` and `bz_wlate` 0
       ASSERTED, the promotions reported).*
-- [ ] **3b.6 `TRIAL` is no worse for the heavy rule** (O28 and O35,
+      *Final pass: `bonanzawheel` (2), (5), (7), (9), (12) and (13) pass on both cards (`bz_lnext` exact on
+      522 / 446 rotor-frames), red arms `lnext` and `pskip` red; `MILL`'s `bz_wover` and `bz_wlate` 0 on every
+      benchmark after `BZ_WPATH` (one overrun a run before it). SPEC.md 128.13.16.*
+      *The verification: UNTICKED - the checks pass, but the stated result does not hold. The preparation
+      measured 5.06k / 5.11k (met); the commit it is weighed with is 8.9k, not 7.2k (3b.4), so the CGA's wait
+      holds one rotor and a post, not two; the walk's -1.5k was never measured alone - `MILL`'s sim+camera fell
+      1.6k (CGA) and 0.4k (Hercules) against `e781df53`, the steps a frame not separated. Open with 3b.4:
+      SPEC.md 128.13.17 item 4.*
+- [x] **3b.6 `TRIAL` is no worse for the heavy rule** (O28 and O35,
       answered by measurement). Level 1 keeps only its slab-near-edge
       clause; the occluder-pass and two-box clauses go; level 2 (a frame
       drawing a contact group takes no strip) stays. `TRIAL` and `BENCH`
@@ -1553,7 +1586,13 @@ batch.
       misses reported), red arm `level1`; its three `MILL` legs (this
       build, no rule, wave 3), unpadded; `bonanzacourse` item 8 with
       `bbcourse.Heavy` and `Glide` changed.*
-- [ ] **3b.7 The lift stretch, measured with sound's reserve spent.** No
+      *Final pass: `TRIAL` `bz_nhvy` 0 (ASSERTED), misses 5 - 8 (CGA) and 4 (Hercules) OFF against wave 2's
+      8 / 2 and wave 3's 14 / 9; red arm `level1` red; `MILL` three ways reported; `bonanzacourse` passes.
+      SPEC.md 128.13.16.*
+      *The verification: the Hercules' 4 is OVER the PREDICTED ~1 and wave 2's allowance of 2 - GLIDE's
+      two-row frames down the steep ramp (frames 135 - 139), with no heavy frame; reported, a deviation from
+      the prediction, not from the story's claim. SPEC.md 128.13.17 item 7.*
+- [x] **3b.7 The lift stretch, measured with sound's reserve spent.** No
       miss on the ride's line-change frames on either card (3b.1); on
       `MILL`'s lift stretch with the ball beside the lift, at most 3 missed
       refreshes on the Hercules (PREDICTED 0 - 1); on the CGA a REPORTED
@@ -1562,6 +1601,12 @@ batch.
       removes that tail), each missed frame written into SPEC.md 128.13.4.5
       with its parts - the owner's O33 (the slab on even lines) is the
       lever. *Verify: `bonanzaperf`'s padded `MILL` and ride legs.*
+      *Final pass: the ride's line changes no miss (OFF, ASSERTED) on both cards; the Hercules' lift stretch
+      2 missed refreshes ON (at most 3 ASSERTED); the CGA's REPORTED: 6 - 9 OFF and 48 ON (PREDICTED 15 -
+      20), every missed frame the slab's box and the ball's - O33 stands. SPEC.md 128.13.16.*
+      *The verification: every missed frame (CGA OFF 9, ON 48; Hercules ON 2) is now written into SPEC.md
+      128.13.4.5 with its parts, boxes, steps and the sound's share; the CGA's ON tail is a two-step chain (45
+      of 48 over a refresh without the sound's own clk). SPEC.md 128.13.17 item 5.*
 - [ ] **3b.8 Every red arm meets its case.** `defer` on a DEFER scene (a
       post really drawn lit, then due and waiting with cells outside every
       box), `nobeam` on a BEAM sweep keyed to due frames, `alias` on the
@@ -1572,6 +1617,9 @@ batch.
       3's own fake-shift-release check (86Box sends the release with Left
       Shift held, MEASURED). `bonanzawheel` (6) passes on the CGA. *Verify:
       each arm run once in the final pass, red at its own check.*
+      *Final pass: all 63 red arms went red at their own check after three red-arm fixes (`contact`,
+      `litsteps`, `halfcal`) and the ring's-end scene - but `bonanzawheel` (6) still fails on the CGA, so
+      `corner` and `alias` are unjudged. Open: SPEC.md 128.13.16.*
 - [ ] **3b.9 A smaller image.** The step's wall and floor macros in one
       instance (-530 bytes, about +150 clk a step on a course with no
       props near the ball: O34), level 1's two clauses gone (-25), the
@@ -1581,7 +1629,12 @@ batch.
       for byte wave 3's. *Verify: `nasm` spans in SPEC.md 128.13.8's
       measured column; `bonanzaphys` and `bonanzareplay` equal to the model
       at every frame on the merged step; `bonanzaexit`'s heap reads.*
-- [ ] **3b.10 Room for sound, and what the engine asks of it.** Sound may
+      *Final pass: `bonanzaphys`, `bonanzareplay` and `bonanzaexit` pass on the merged step; but the image
+      is 27,362 bytes (23,706 without the sound's 3,656: +479 over wave 3, not the -206 PREDICTED), bss
+      7,357, `BONANZA.O88` 77,275. Open: not smaller. SPEC.md 128.13.8, 128.13.16.*
+      *The verification's fixes add 59 bytes (the results face's 13 lines on the CGA): 27,421, bss 7,358,
+      `BONANZA.O88` 77,323. SPEC.md 128.13.17.*
+- [~] **3b.10 Room for sound, and what the engine asks of it.** *SUPERSEDED by SPEC.md 128.13.15: the sound landed first, so no pad and no hook were built; its measured price is 128.20.7 and 128.13.16.* Sound may
       spend 2,048 clk a frame at one hook (after the LEAD, before the
       frame's last mark, BX preserved), reading physics' event counters;
       the step, the wheel, the wait and the beam-raced writes are places
@@ -1591,7 +1644,9 @@ batch.
       the reserve spent; the CGA's heaviest frames already miss without
       it, which the SPEC says plainly. *Verify: `bonanzaperf`'s `MILL` and
       ride legs run with `bz_spad` 1.*
-- [ ] **3b.11 The record.** `bbcourse.Heavy` mirrors the promotion, the
+      *Superseded by SPEC.md 128.13.15: the sound arrived first, so no pad and no hook were built; every
+      target was measured OFF and ON instead (128.13.16). Left open as written.*
+- [x] **3b.11 The record.** `bbcourse.Heavy` mirrors the promotion, the
       slab's waits and the post rule; the top-level README lists `make
       bonanzadisk`; the seven stale "PREDICTED" `tests/suite.py` texts say
       what each row asserts; `tools/bbcourse.py` pyflakes-clean; the
@@ -1599,6 +1654,9 @@ batch.
       *Verify: `make` (the doc gates, `checkreadme`), `tools/os88index.py
       --check`, `checkdocs` 0 problems, `python3 -m pyflakes
       tools/bbcourse.py`.*
+      *Final pass: `make` (the doc gates), `os88index --check`, `checkdocs` 0 problems, `pyflakes
+      tools/bbcourse.py` clean; README lists `make bonanzadisk`; the suite texts carry the measured secs;
+      the diary's 3b entry; SPEC.md 128.13.16.*
 
 **Wave 4: a game.**
 - [ ] Five courses, with the props from section 8 and section 5.5's

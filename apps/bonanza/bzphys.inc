@@ -195,8 +195,9 @@ VAR bz_disc,1                   ; 1: this frame is a centred full write (its
                                 ; elapsed sub-ticks are discarded, 128.10.8 item 3)
 VAR bz_wch,1                    ; step 4: bit 0 the cell's wx changed, bit 1 wy
 VAR bz_nprop,1                  ; wave 3: NPROP (bz_pinit; 16 at most) ...
-VAR bz_pdoor,1                  ; ...the prop path: the centre's doorway, 0 none,
-VAR bz_pdi,1                    ; 1 along -x, 2 along -y, and its windmill;
+VAR bz_pdoor,1                  ; ...the step's path, 0 wave 2's, and on the prop
+VAR bz_pdi,1                    ; path the centre's doorway: 1 none, 2 along -x,
+                                ; 3 along -y; and its windmill;
 VAR bz_fslab,1                  ; step 6's slab (index + 1, 0 none), the air
 VAR bz_fair,1                   ; state step 6 began with
 VAR bz_fnl,2                    ; ...and bz_nland then
@@ -291,11 +292,17 @@ bz_ramp:
 %endmacro
 
 ; -----------------------------------------------------------------------------
-; bz_step's steps 4 - 6 are written ONCE, as these macros, and instanced
-; twice: wave 2's path (no prop in the window) and the PROP path (SPEC.md
-; 128.12.6.5), which carries the doorway's hooks - so a ball with no prop near
-; runs wave 2's instructions exactly and pays bz_ps's two tests a step and
-; nothing else, and the two paths cannot drift apart.
+; bz_step's steps 4 - 6 are written ONCE and run by both paths (SPEC.md
+; 128.13.8): wave 2's (no prop in the window) and the PROP path (128.12.6.5),
+; told apart by bz_pdoor - 0 on wave 2's path, written at step 4 every step
+; that reaches it, and 1 - 3 on the prop path (no doorway, the doorway along
+; -x, along -y).  The prop path's own parts sit where they hook in - its
+; prefix (the START, the doorway, a drain's capture), the posts and the
+; window after the walls, the floor's prop cells, bz_onp - each behind a test
+; of bz_pdoor that wave 2's path jumps on and the prop path falls through;
+; the doorway's own branch is out of line (bz_step.wdoor, .ndoor).  A ball
+; with no prop near pays those four tests (about 133 clk raw a step, 128.13.8)
+; and nothing else, and the two paths cannot drift apart.
 ; -----------------------------------------------------------------------------
 ; BZ_START: the step's START ground position, for the fallback's undo, from
 ; the moved one (gx - gvx, gy - gvy).  Clobbers AX, DX.
@@ -318,292 +325,6 @@ bz_ramp:
     adc dx, [bz_gy + 2]
     mov [bz_sgy], ax
     mov [bz_sgy + 2], dx
-%endmacro
-
-; BZ_WALLS door: step 5's edges and corner (128.11.8.2, 128.11.8.3, 128.11.8.4);
-; door 1 adds the windmill's doorway on the -x and -y edges (128.12.6.2).
-%macro BZ_WALLS 1
-    mov dh, [bz_gy + 1]         ; DL = u, DH = v: integer gu inside C, BP their
-    and dh, 15                  ; copy for the y edges (u is the one before
-    mov ax, [bz_gx]             ; the x push, as the model)
-    and ah, 15                  ; AX = pu, the in-cell x in 1/256 gu
-    mov dl, ah
-    mov bp, dx
-    cmp ax, BZ_RAD * 256
-    jae %%xe
-    mov si, bz_nbr + BZN_W      ; west, at its point (16, v)
-    mov dl, 16
-    call bz_blocks
-    jnc %%y
-%if %1
-    cmp byte [bz_pdoor], 1      ; a windmill's DOORWAY along -x (128.12.6.2)
-    je %%wdoor
-%%wwall:
-%endif
-    mov ax, [bz_gx + 1]
-    and al, 0f0h
-    add al, BZ_RAD              ; the centre BZ_RAD from the edge, no fraction
-    mov [bz_gx + 1], ax
-    mov byte [bz_gx], 0
-    mov ax, [bz_gvx]            ; into the wall: reflected
-    or ax, ax
-    jns %%y
-    call bz_wrefl
-    mov [bz_gvx], ax
-    jmp short %%y
-%%xe:
-    cmp ax, (16 - BZ_RAD) * 256 ; east when pu > 2,560: a true distance under
-    jbe %%y                      ; 6 gu, as west (P1)
-    mov si, bz_nbr + BZN_E      ; east, at (0, v)
-    mov dl, 0
-    call bz_blocks
-    jnc %%y
-    mov ax, [bz_gx + 1]
-    and al, 0f0h
-    add al, 16 - BZ_RAD
-    mov [bz_gx + 1], ax
-    mov byte [bz_gx], 0
-    mov ax, [bz_gvx]
-    or ax, ax
-    jle %%y
-    call bz_wrefl
-    mov [bz_gvx], ax
-%%y:
-    mov dx, bp
-    mov ax, [bz_gy]
-    and ah, 15                  ; AX = pv
-    cmp ax, BZ_RAD * 256
-    jae %%ye
-    mov si, bz_nbr + BZN_N      ; north, at (u, 16)
-    mov dh, 16
-    call bz_blocks
-    jnc %%corner
-%if %1
-    cmp byte [bz_pdoor], 2      ; ...along -y
-    je %%ndoor
-%%nwall:
-%endif
-    mov ax, [bz_gy + 1]
-    and al, 0f0h
-    add al, BZ_RAD
-    mov [bz_gy + 1], ax
-    mov byte [bz_gy], 0
-    mov ax, [bz_gvy]
-    or ax, ax
-    jns %%corner
-    call bz_wrefl
-    mov [bz_gvy], ax
-    jmp short %%corner
-%%ye:
-    cmp ax, (16 - BZ_RAD) * 256
-    jbe %%corner
-    mov si, bz_nbr + BZN_S      ; south, at (u, 0)
-    mov dh, 0
-    call bz_blocks
-    jnc %%corner
-    mov ax, [bz_gy + 1]
-    and al, 0f0h
-    add al, 16 - BZ_RAD
-    mov [bz_gy + 1], ax
-    mov byte [bz_gy], 0
-    mov ax, [bz_gvy]
-    or ax, ax
-    jle %%corner
-    call bz_wrefl
-    mov [bz_gvy], ax
-%%corner:
-    mov ax, [bz_gx]             ; the corner: only within BZ_RAD of both a
-    and ah, 15                  ; west or east edge and a north or south one
-    sub ax, BZ_RAD * 256        ; (pu, pv outside 1,536 .. 2,560)
-    cmp ax, (16 - 2 * BZ_RAD) * 256
-    jbe %%nocorner
-    mov ax, [bz_gy]
-    and ah, 15
-    sub ax, BZ_RAD * 256
-    cmp ax, (16 - 2 * BZ_RAD) * 256
-    jbe %%nocorner
-    call bz_corner
-%%nocorner:
-%if %1
-    jmp short %%wend
-%%wdoor:                        ; the ball's circle touches the doorway: low
-    mov dx, bp                  ; enough (z <= IN's floor + BZ_CLIMB at its
-    call bz_ztouchp             ; point, u before the push) ...
-    mov si, bz_nbr + BZN_W
-    jnc %%wwall
-    call bz_gate                ; ...the gate at the step's n: OPEN swallows
-    jc %%dcap                   ; it, CLOSED knocks it back with eG
-    mov ax, [bz_gx + 1]
-    and al, 0f0h
-    add al, BZ_RAD
-    mov [bz_gx + 1], ax
-    mov byte [bz_gx], 0
-    mov ax, [bz_gvx]
-    or ax, ax
-    jns %%wy
-    call bz_refl
-    mov [bz_gvx], ax
-    inc word [bz_nknock]
-%%wy:
-    jmp %%y
-%%ndoor:
-    mov dx, bp
-    call bz_ztouchp
-    mov si, bz_nbr + BZN_N
-    jnc %%nwall
-    call bz_gate
-    jc %%dcap
-    mov ax, [bz_gy + 1]
-    and al, 0f0h
-    add al, BZ_RAD
-    mov [bz_gy + 1], ax
-    mov byte [bz_gy], 0
-    mov ax, [bz_gvy]
-    or ax, ax
-    jns %%ny
-    call bz_refl
-    mov [bz_gvy], ax
-    inc word [bz_nknock]
-%%ny:
-    jmp %%corner
-%%dcap:
-    jmp .pdcap
-%%wend:
-%endif
-%endmacro
-
-; BZ_FALLBACK floor: step 5's fallback - the centre in a new cell that blocks
-; is not entered - then on to the label floor.
-%macro BZ_FALLBACK 1
-    ; the fallback: the centre in a new cell that blocks is not entered.
-    ; (Step 5 never moves the centre's cell: the window is still on it.)
-    mov cl, [bz_wch]
-    or cl, cl
-    jz %1
-    mov si, bz_nbr + BZN_C
-    mov dl, [bz_gx + 1]
-    and dl, 15
-    mov dh, [bz_gy + 1]
-    and dh, 15
-    mov bp, cx
-    call bz_blocks
-    jnc %1
-    test bp, 1                  ; each velocity whose cell coordinate changed,
-    jz %%ux                      ; reflected off C
-    mov ax, [bz_gvx]
-    call bz_wrefl
-    mov [bz_gvx], ax
-%%ux:
-    test bp, 2
-    jz %%uy
-    mov ax, [bz_gvy]
-    call bz_wrefl
-    mov [bz_gvy], ax
-%%uy:
-    mov ax, [bz_sgx]            ; undo the move: x and y back, and z (gvz is
-    mov [bz_gx], ax             ; as the move found it)
-    mov ax, [bz_sgx + 2]
-    mov [bz_gx + 2], ax
-    mov ax, [bz_sgy]
-    mov [bz_gy], ax
-    mov ax, [bz_sgy + 2]
-    mov [bz_gy + 2], ax
-    cmp byte [bz_air], 0
-    je %%unz
-    mov ax, [bz_gvz]
-    cwd
-    sub [bz_gz], ax
-    sbb [bz_gz + 2], dx
-%%unz:
-    call bz_win9f               ; the window round the start's cell again
-%endmacro
-
-; BZ_FLOOR next, head, solid: step 6 (128.11.8.2, 128.11.8.5, 128.11.8.6).
-; head: from the window's centre cell; solid: a solid floor with BX = its h4
-; under the centre (the prop path's way in).  Every way out but a respawn
-; goes on to next.
-%macro BZ_FLOOR 3
-%2:
-    mov si, bz_nbr + BZN_C
-    mov al, [si + 2]
-    and al, 0fh
-    cmp al, BZ_KFLOOR
-    je %%solid
-    cmp al, BZ_KGOAL
-    je %%solid
-    mov byte [bz_ghv], 0        ; no floor under it: no shadow
-    cmp byte [bz_air], 0
-    je %%takeoff                 ; grounded over no floor: off it goes
-    or al, al
-    jnz %1                   ; (no other kind is under an airborne ball)
-    mov al, [si]                ; VOID: below its kill height, 4 z0 px?
-    cbw
-    shl ax, 1
-    shl ax, 1
-    cmp [bz_gz + 1], ax
-    jge %1
-    jmp .respawn
-%%solid:
-    mov dl, [bz_gx + 1]
-    and dl, 15
-    mov dh, [bz_gy + 1]
-    and dh, 15
-    call bz_h4
-    mov bx, ax                  ; BX = h4, the floor under the centre
-%3:
-    cmp byte [bz_air], 0
-    jne %%airsolid
-    cmp byte [bz_hopw], 0       ; the Hop from the ground (128.11.8.6): the
-    je %%follow                  ; window open, not stunned, on a FLOOR or GOAL
-    cmp byte [bz_mst], 0
-    jne %%follow
-    mov ax, [bz_gvz]            ; gvz = the floor's rate + HOP, at most
-    add ax, [bz_mrec + BZM_HOP] ; BZ_VZMAX
-    cmp ax, BZ_VZMAX
-    jle %%hg
-    mov ax, BZ_VZMAX
-%%hg:
-    mov [bz_gvz], ax
-    mov byte [bz_hopw], 0
-    inc word [bz_nhop]
-    jmp short %%launch
-%%follow:
-    ; grounded: off when h < z + gvz - BZ_G - BZ_STICK, i.e. when
-    ; h4 <= floor((z + gvz - BZ_G - 256 BZ_STICK - 1) / 64)
-    mov ax, [bz_gvz]
-    cwd
-    add ax, [bz_gz]
-    adc dx, [bz_gz + 2]
-    sub ax, BZ_G + 256 * BZ_STICK + 1
-    sbb dx, 0
-    BZ_Q64
-    cmp bx, ax
-    jle %%launch
-    mov ax, bx                  ; z = h: the ball follows the floor
-    call bz_setz
-    jmp short %%gh
-%%takeoff:                       ; over no floor: no bz_gh (bz_ghv cleared)
-    call bz_toff
-    jmp %1
-%%launch:
-    call bz_toff
-    jmp short %%gh
-%%airsolid:
-    ; airborne: LAND when z <= h, i.e. when h4 > floor((z - 1) / 64)
-    mov ax, [bz_gz]
-    mov dx, [bz_gz + 2]
-    sub ax, 1
-    sbb dx, 0
-    BZ_Q64
-    cmp bx, ax
-    jle %%gh
-    call bz_land
-%%gh:                            ; bz_gh, bz_ghv: the floor under an airborne
-    mov al, [bz_air]            ; ball over a FLOOR or GOAL (BX = its h4; not
-    mov [bz_ghv], al            ; reached over no floor, which cleared it)
-    or al, al
-    jz %1
-    mov [bz_gh], bx
 %endmacro
 
 ; -----------------------------------------------------------------------------
@@ -841,18 +562,367 @@ bz_step:
     cmp byte [si], BZ_ZOPEN
     jne .w4
     jmp .respawn                ; an OPEN cell (or outside the grid)
-.ptr4:
-    jmp .props
 .w4:
-    test byte [bz_ps], 5        ; wave 3 (128.12.6.5 step 4): an OBS cell in the
-    jnz .ptr4                   ; window, or carried - the PROP path; else wave
-                                ; 2's steps 4 - 6 exactly
+    mov al, [bz_ps]             ; wave 3 (128.12.6.5 step 4): an OBS cell in the
+    and al, 5                   ; window, or carried - the PROP path, which sets
+    mov [bz_pdoor], al          ; bz_pdoor 1 - 3 here; else 0: wave 2's steps
+    jz .walls                   ; 4 - 6, bz_pdoor 0 throughout
+    cmp byte [bz_wch], 0        ; the START for the fallback's undo, which
+    jne .pst0                   ; wave 2 keeps only on a cell change (a post's
+    BZ_START                    ; push can change it here) ...
+.pst0:                          ; (the lift's carry moves z alone, which the
+                                ; start does not keep: the undo takes it back)
+    mov byte [bz_pdoor], 1      ; the centre's cell's prop (bz_wol's cell 4):
+    mov ax, [bz_wcen]           ; a plain tube's IN, the capture test (step 4);
+    dec al                      ; a windmill's IN, its doorway (step 5)
+    js .walls
+    mov bl, al
+    xor bh, bh
+    cmp ah, BZ_PK_WINDMILL
+    jne .ptube
+    call bz_lrecsi
+    mov [bz_pdi], al
+    mov al, [es:si + BZP_TGVX]  ; 0 -x, 1 -y: bz_pdoor 2 or 3
+    add al, 2
+    mov [bz_pdoor], al
+    jmp short .walls
+.ptube:
+    cmp ah, BZ_PK_TUBE
+    jne .walls
+    push bx                     ; a DRAIN: grounded, or airborne with z at
+    cmp byte [bz_air], 0        ; most IN's floor + BZ_CLIMB at the centre's
+    je .pcap                    ; point (128.12.6.1)
+    call bz_ztouch
+    jc .pcap
+    pop bx
+    jmp short .walls
+.pcap:
+    pop bx
+    call bz_capture
+    jmp .end
+.walls:
     ; ---- 5. walls: the circle, the edge test SYMMETRIC (128.11.8.3), every
-    ; zeroing a REFLECTION (128.11.8.4) ----
-    BZ_WALLS 0
-    BZ_FALLBACK .floor
-    ; ---- 6. the floor ----
-    BZ_FLOOR .safe, .floor, .solidbx
+    ; zeroing a REFLECTION (128.11.8.4); the prop path adds the windmill's
+    ; doorway on the -x and -y edges (128.12.6.2) ----
+    mov dh, [bz_gy + 1]         ; DL = u, DH = v: integer gu inside C, BP their
+    and dh, 15                  ; copy for the y edges (u is the one before
+    mov ax, [bz_gx]             ; the x push, as the model)
+    and ah, 15                  ; AX = pu, the in-cell x in 1/256 gu
+    mov dl, ah
+    mov bp, dx
+    cmp ax, BZ_RAD * 256
+    jae .xe
+    mov si, bz_nbr + BZN_W      ; west, at its point (16, v)
+    mov dl, 16
+    call bz_blocks
+    jnc .y
+    cmp byte [bz_pdoor], 2      ; a windmill's DOORWAY along -x (128.12.6.2)
+    je .trwd
+.wwall:
+    mov ax, [bz_gx + 1]
+    and al, 0f0h
+    add al, BZ_RAD              ; the centre BZ_RAD from the edge, no fraction
+    mov [bz_gx + 1], ax
+    mov byte [bz_gx], 0
+    mov ax, [bz_gvx]            ; into the wall: reflected
+    or ax, ax
+    jns .y
+    call bz_wrefl
+    mov [bz_gvx], ax
+    jmp short .y
+.trwd:                          ; (the short jump's reach)
+    jmp .wdoor
+.xe:
+    cmp ax, (16 - BZ_RAD) * 256 ; east when pu > 2,560: a true distance under
+    jbe .y                      ; 6 gu, as west (P1)
+    mov si, bz_nbr + BZN_E      ; east, at (0, v)
+    mov dl, 0
+    call bz_blocks
+    jnc .y
+    mov ax, [bz_gx + 1]
+    and al, 0f0h
+    add al, 16 - BZ_RAD
+    mov [bz_gx + 1], ax
+    mov byte [bz_gx], 0
+    mov ax, [bz_gvx]
+    or ax, ax
+    jle .y
+    call bz_wrefl
+    mov [bz_gvx], ax
+.y:
+    mov dx, bp
+    mov ax, [bz_gy]
+    and ah, 15                  ; AX = pv
+    cmp ax, BZ_RAD * 256
+    jae .ye
+    mov si, bz_nbr + BZN_N      ; north, at (u, 16)
+    mov dh, 16
+    call bz_blocks
+    jnc .corner
+    cmp byte [bz_pdoor], 3      ; ...along -y
+    je .trnd
+.nwall:
+    mov ax, [bz_gy + 1]
+    and al, 0f0h
+    add al, BZ_RAD
+    mov [bz_gy + 1], ax
+    mov byte [bz_gy], 0
+    mov ax, [bz_gvy]
+    or ax, ax
+    jns .corner
+    call bz_wrefl
+    mov [bz_gvy], ax
+    jmp short .corner
+.trnd:
+    jmp .ndoor
+.ye:
+    cmp ax, (16 - BZ_RAD) * 256
+    jbe .corner
+    mov si, bz_nbr + BZN_S      ; south, at (u, 0)
+    mov dh, 0
+    call bz_blocks
+    jnc .corner
+    mov ax, [bz_gy + 1]
+    and al, 0f0h
+    add al, 16 - BZ_RAD
+    mov [bz_gy + 1], ax
+    mov byte [bz_gy], 0
+    mov ax, [bz_gvy]
+    or ax, ax
+    jle .corner
+    call bz_wrefl
+    mov [bz_gvy], ax
+.corner:
+    mov ax, [bz_gx]             ; the corner: only within BZ_RAD of both a
+    and ah, 15                  ; west or east edge and a north or south one
+    sub ax, BZ_RAD * 256        ; (pu, pv outside 1,536 .. 2,560)
+    cmp ax, (16 - 2 * BZ_RAD) * 256
+    jbe .nocorner
+    mov ax, [bz_gy]
+    and ah, 15
+    sub ax, BZ_RAD * 256
+    cmp ax, (16 - 2 * BZ_RAD) * 256
+    jbe .nocorner
+    call bz_corner
+.nocorner:
+    cmp byte [bz_pdoor], 0      ; the prop path: the posts, the window and
+    je .fb                      ; the cell change again, then the fallback
+    call bz_posts               ; each post on bz_wol: the circle (128.12.6.3)
+    mov ax, [bz_gx + 1]         ; a push into another cell: the window
+    and al, 0f0h                ; refilled before the fallback judges it
+    cmp ax, [bz_wgx]
+    jne .pmv
+    mov ax, [bz_gy + 1]
+    and al, 0f0h
+    cmp ax, [bz_wgy]
+    je .pfb
+.pmv:
+    call bz_win9f
+.pfb:
+    xor cl, cl                  ; the fallback's cell change is against the
+    mov ax, [bz_gx + 1]         ; START's cell
+    xor ax, [bz_sgx + 1]
+    and al, 0f0h
+    jz .pf1
+    inc cx
+.pf1:
+    mov ax, [bz_gy + 1]
+    xor ax, [bz_sgy + 1]
+    and al, 0f0h
+    jz .pf2
+    or cl, 2
+.pf2:
+    mov [bz_wch], cl
+.fb:
+    ; the fallback: the centre in a new cell that blocks is not entered.
+    ; (Step 5 never moves the centre's cell: the window is still on it.)
+    mov cl, [bz_wch]
+    or cl, cl
+    jz .floor
+    mov si, bz_nbr + BZN_C
+    mov dl, [bz_gx + 1]
+    and dl, 15
+    mov dh, [bz_gy + 1]
+    and dh, 15
+    mov bp, cx
+    call bz_blocks
+    jnc .floor
+    test bp, 1                  ; each velocity whose cell coordinate changed,
+    jz .ux                      ; reflected off C
+    mov ax, [bz_gvx]
+    call bz_wrefl
+    mov [bz_gvx], ax
+.ux:
+    test bp, 2
+    jz .uy
+    mov ax, [bz_gvy]
+    call bz_wrefl
+    mov [bz_gvy], ax
+.uy:
+    mov ax, [bz_sgx]            ; undo the move: x and y back, and z (gvz is
+    mov [bz_gx], ax             ; as the move found it)
+    mov ax, [bz_sgx + 2]
+    mov [bz_gx + 2], ax
+    mov ax, [bz_sgy]
+    mov [bz_gy], ax
+    mov ax, [bz_sgy + 2]
+    mov [bz_gy + 2], ax
+    cmp byte [bz_air], 0
+    je .unz
+    mov ax, [bz_gvz]
+    cwd
+    sub [bz_gz], ax
+    sbb [bz_gz + 2], dx
+.unz:
+    call bz_win9f               ; the window round the start's cell again
+    cmp byte [bz_onp], 0        ; the undo takes the lift's CARRY back too: z
+    je .floor                   ; to the step's start (the model's sgz; never
+    mov ax, [bz_cdd]            ; on wave 2's path, bz_onp 0 there)
+    cwd
+    sub [bz_gz], ax
+    sbb [bz_gz + 2], dx
+    ; ---- 6. the floor (128.11.8.2, 128.11.8.5, 128.11.8.6): the prop path
+    ; first finds a post cell's top or the slab's (after .floor, then .psolid with
+    ; BX = that h4), and sets bz_onp after it (.ponp) ----
+.floor:
+    cmp byte [bz_pdoor], 0
+    je .floorh
+    mov al, [bz_air]            ; the prop path: a post cell's top, the slab's -
+    mov [bz_fair], al           ; (what it began with, for that)
+    mov ax, [bz_nland]
+    mov [bz_fnl], ax
+    mov byte [bz_fslab], 0
+    mov ax, [bz_wcen]           ; (bz_wolf's: the centre's prop and its kind)
+    dec al
+    js .floorh
+    mov bl, al
+    xor bh, bh
+    call bz_lrecsi
+    cmp ah, BZ_PK_BUMPER
+    je .pfpost
+    cmp ah, BZ_PK_PLATFORM
+    jne .floorh
+    push bx                     ; the lift's SHAFT: the SLAB's top at n + 1
+    call bz_slabon              ; when the ball began at or over it less
+    pop ax                      ; BZ_CLIMB (128.12.6.4); else the shaft's
+    jnc .floorh                ; NEAR VOID
+    inc ax
+    mov [bz_fslab], al
+    jmp .psolid
+.pfpost:
+    call bz_ptop                ; a post cell: the post's top within 6 gu of
+    jmp .psolid                 ; it (128.12.6.3)
+.floorh:
+    mov si, bz_nbr + BZN_C
+    mov al, [si + 2]
+    and al, 0fh
+    cmp al, BZ_KFLOOR
+    je .solid
+    cmp al, BZ_KGOAL
+    je .solid
+    mov byte [bz_ghv], 0        ; no floor under it: no shadow
+    cmp byte [bz_air], 0
+    je .takeoff                 ; grounded over no floor: off it goes
+    or al, al
+    jnz .fnext                  ; (no other kind is under an airborne ball)
+    mov al, [si]                ; VOID: below its kill height, 4 z0 px?
+    cbw
+    shl ax, 1
+    shl ax, 1
+    cmp [bz_gz + 1], ax
+    jge .fnext
+    jmp .respawn
+.solid:
+    mov dl, [bz_gx + 1]
+    and dl, 15
+    mov dh, [bz_gy + 1]
+    and dh, 15
+    call bz_h4
+    mov bx, ax                  ; BX = h4, the floor under the centre
+.psolid:
+    cmp byte [bz_air], 0
+    jne .airsolid
+    cmp byte [bz_hopw], 0       ; the Hop from the ground (128.11.8.6): the
+    je .follow                  ; window open, not stunned, on a FLOOR or GOAL
+    cmp byte [bz_mst], 0
+    jne .follow
+    mov ax, [bz_gvz]            ; gvz = the floor's rate + HOP, at most
+    add ax, [bz_mrec + BZM_HOP] ; BZ_VZMAX
+    cmp ax, BZ_VZMAX
+    jle .hg
+    mov ax, BZ_VZMAX
+.hg:
+    mov [bz_gvz], ax
+    mov byte [bz_hopw], 0
+    inc word [bz_nhop]
+    jmp short .launch
+.follow:
+    ; grounded: off when h < z + gvz - BZ_G - BZ_STICK, i.e. when
+    ; h4 <= floor((z + gvz - BZ_G - 256 BZ_STICK - 1) / 64)
+    mov ax, [bz_gvz]
+    cwd
+    add ax, [bz_gz]
+    adc dx, [bz_gz + 2]
+    sub ax, BZ_G + 256 * BZ_STICK + 1
+    sbb dx, 0
+    BZ_Q64
+    cmp bx, ax
+    jle .launch
+    mov ax, bx                  ; z = h: the ball follows the floor
+    call bz_setz
+    jmp short .gh
+.takeoff:                       ; over no floor: no bz_gh (bz_ghv cleared)
+    call bz_toff
+    jmp short .fnext
+.launch:
+    call bz_toff
+    jmp short .gh
+.airsolid:
+    ; airborne: LAND when z <= h, i.e. when h4 > floor((z - 1) / 64)
+    mov ax, [bz_gz]
+    mov dx, [bz_gz + 2]
+    sub ax, 1
+    sbb dx, 0
+    BZ_Q64
+    cmp bx, ax
+    jle .gh
+    call bz_land
+.gh:                            ; bz_gh, bz_ghv: the floor under an airborne
+    mov al, [bz_air]            ; ball over a FLOOR or GOAL (BX = its h4; not
+    mov [bz_ghv], al            ; reached over no floor, which cleared it)
+    or al, al
+    jz .fnext
+    mov [bz_gh], bx
+.fnext:
+    cmp byte [bz_pdoor], 0      ; the prop path: bz_onp, then bz_ps
+    je .safe
+.ponp:                          ; bz_onp (128.12.6.4): SET grounded on, or
+    mov al, [bz_fslab]          ; landed on (a bounce too), the slab ...
+    or al, al
+    jz .pkeep
+    cmp byte [bz_fair], 0
+    jne .pland
+    cmp byte [bz_air], 0        ; (grounded: it followed the slab's top, no Hop
+    je .pset                    ; and no take-off)
+    jmp short .pkeep
+.pland:
+    mov dx, [bz_nland]
+    cmp dx, [bz_fnl]
+    je .pkeep
+.pset:
+    mov [bz_onp], al
+    jmp short .pps
+.pkeep:                         ; ...KEPT airborne over its slab - the centre
+    cmp byte [bz_onp], 0        ; in its SHAFT (one lift a window, so the
+    je .pps                     ; centre's prop is it) ...
+    cmp byte [bz_air], 0
+    je .pclr
+    cmp byte [bz_wcen + 1], BZ_PK_PLATFORM
+    je .pps
+.pclr:                          ; ...CLEARED otherwise
+    mov byte [bz_onp], 0
+.pps:
+    call bz_psync
     ; ---- 8. SAFE and the goal: not shattering ----
 .safe:
     cmp byte [bz_mst], BZ_ST_SHAT
@@ -915,134 +985,54 @@ bz_step:
 .transit:
     call bz_transit
     jmp .end
-.props:                         ; steps 4 - 6 with props in the window
-    cmp byte [bz_wch], 0        ; the START for the fallback's undo, which
-    jne .pst0                   ; wave 2 keeps only on a cell change (a post's
-    BZ_START                    ; push can change it here) ...
-.pst0:                          ; (the lift's carry moves z alone, which the
-.pst1:                          ; start does not keep: the undo takes it back)
-    mov byte [bz_pdoor], 0      ; the centre's cell's prop (bz_wol's cell 4):
-    mov ax, [bz_wcen]           ; a plain tube's IN, the capture test (step 4);
-    dec al                      ; a windmill's IN, its doorway (step 5)
-    js .pwalls
-    mov bl, al
-    xor bh, bh
-    cmp ah, BZ_PK_WINDMILL
-    jne .ptube
-    call bz_lrecsi
-    mov [bz_pdi], al
-    mov al, [es:si + BZP_TGVX]  ; 0 -x, 1 -y
-    inc ax
-    mov [bz_pdoor], al
-    jmp short .pwalls
-.ptube:
-    cmp ah, BZ_PK_TUBE
-    jne .pwalls
-    push bx                     ; a DRAIN: grounded, or airborne with z at
-    cmp byte [bz_air], 0        ; most IN's floor + BZ_CLIMB at the centre's
-    je .pcap                    ; point (128.12.6.1)
-    call bz_ztouch
-    jc .pcap
-    pop bx
-    jmp short .pwalls
-.pcap:
-    pop bx
-    call bz_capture
-    jmp .end
-.pdcap:                         ; (BZ_WALLS 1) the doorway open: swallowed
+.pdcap:                         ; the doorway open: swallowed
     mov bl, [bz_pdi]
     call bz_capture
     jmp .end
-.pwalls:
-    BZ_WALLS 1
-    call bz_posts               ; each post on bz_wol: the circle (128.12.6.3)
-    mov ax, [bz_gx + 1]         ; a push into another cell: the window
-    and al, 0f0h                ; refilled before the fallback judges it
-    cmp ax, [bz_wgx]
-    jne .pmv
+.wdoor:                         ; the ball's circle touches the doorway: low
+    mov dx, bp                  ; enough (z <= IN's floor + BZ_CLIMB at its
+    call bz_ztouchp             ; point, u before the push) ...
+    mov si, bz_nbr + BZN_W
+    jc .wd1
+    jmp .wwall
+.wd1:
+    call bz_gate                ; ...the gate at the step's n: OPEN swallows
+    jc .pdcap                   ; it, CLOSED knocks it back with eG
+    mov ax, [bz_gx + 1]
+    and al, 0f0h
+    add al, BZ_RAD
+    mov [bz_gx + 1], ax
+    mov byte [bz_gx], 0
+    mov ax, [bz_gvx]
+    or ax, ax
+    jns .wy
+    call bz_refl
+    mov [bz_gvx], ax
+    inc word [bz_nknock]
+.wy:
+    jmp .y
+.ndoor:
+    mov dx, bp
+    call bz_ztouchp
+    mov si, bz_nbr + BZN_N
+    jc .nd1
+    jmp .nwall
+.nd1:
+    call bz_gate
+    jc .pdcap
     mov ax, [bz_gy + 1]
     and al, 0f0h
-    cmp ax, [bz_wgy]
-    je .pfb
-.pmv:
-    call bz_win9f
-.pfb:
-    xor cl, cl                  ; the fallback's cell change is against the
-    mov ax, [bz_gx + 1]         ; START's cell
-    xor ax, [bz_sgx + 1]
-    and al, 0f0h
-    jz .pf1
-    inc cx
-.pf1:
-    mov ax, [bz_gy + 1]
-    xor ax, [bz_sgy + 1]
-    and al, 0f0h
-    jz .pf2
-    or cl, 2
-.pf2:
-    mov [bz_wch], cl
-    BZ_FALLBACK .pfloor
-    cmp byte [bz_onp], 0        ; the undo takes the lift's CARRY back too: z
-    je .pfloor                  ; to the step's start (the model's sgz)
-    mov ax, [bz_cdd]
-    cwd
-    sub [bz_gz], ax
-    sbb [bz_gz + 2], dx
-.pfloor:                        ; step 6: the floor under the centre - a post
-    mov al, [bz_air]            ; cell's top, the slab's - and bz_onp after it
-    mov [bz_fair], al           ; (what it began with, for that)
-    mov ax, [bz_nland]
-    mov [bz_fnl], ax
-    mov byte [bz_fslab], 0
-    mov ax, [bz_wcen]           ; (bz_wolf's: the centre's prop and its kind)
-    dec al
-    js .pfloorh
-    mov bl, al
-    xor bh, bh
-    call bz_lrecsi
-    cmp ah, BZ_PK_BUMPER
-    je .pfpost
-    cmp ah, BZ_PK_PLATFORM
-    jne .pfloorh
-    push bx                     ; the lift's SHAFT: the SLAB's top at n + 1
-    call bz_slabon              ; when the ball began at or over it less
-    pop ax                      ; BZ_CLIMB (128.12.6.4); else the shaft's
-    jnc .pfloorh                ; NEAR VOID
-    inc ax
-    mov [bz_fslab], al
-    jmp .psolid
-.pfpost:
-    call bz_ptop                ; a post cell: the post's top within 6 gu of
-    jmp .psolid                 ; it (128.12.6.3)
-    BZ_FLOOR .ponp, .pfloorh, .psolid
-.ponp:                          ; bz_onp (128.12.6.4): SET grounded on, or
-    mov al, [bz_fslab]          ; landed on (a bounce too), the slab ...
-    or al, al
-    jz .pkeep
-    cmp byte [bz_fair], 0
-    jne .pland
-    cmp byte [bz_air], 0        ; (grounded: it followed the slab's top, no Hop
-    je .pset                    ; and no take-off)
-    jmp short .pkeep
-.pland:
-    mov dx, [bz_nland]
-    cmp dx, [bz_fnl]
-    je .pkeep
-.pset:
-    mov [bz_onp], al
-    jmp short .pps
-.pkeep:                         ; ...KEPT airborne over its slab - the centre
-    cmp byte [bz_onp], 0        ; in its SHAFT (one lift a window, so the
-    je .pps                     ; centre's prop is it) ...
-    cmp byte [bz_air], 0
-    je .pclr
-    cmp byte [bz_wcen + 1], BZ_PK_PLATFORM
-    je .pps
-.pclr:                          ; ...CLEARED otherwise
-    mov byte [bz_onp], 0
-.pps:
-    call bz_psync
-    jmp .safe
+    add al, BZ_RAD
+    mov [bz_gy + 1], ax
+    mov byte [bz_gy], 0
+    mov ax, [bz_gvy]
+    or ax, ax
+    jns .ny
+    call bz_refl
+    mov [bz_gvy], ax
+    inc word [bz_nknock]
+.ny:
+    jmp .corner
 
 ; -----------------------------------------------------------------------------
 ; bz_land - step 6's LAND (SPEC.md 128.11.8.5): an airborne ball meets C's

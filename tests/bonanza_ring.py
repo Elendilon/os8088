@@ -101,6 +101,35 @@ model's (`spy`).
      level 1, no column), so its ball sits within the edge clause's 24 px of
      the right edge (PROBE_EDGE), and the frame BEFORE each split frame puts
      it 40 px back.
+  7  WAVE 3B (SPEC.md 128.13.12).  On the MILL leg and the MILL play every
+     frame's boxes are read at the frame's first bz_boxc (bz_ts + 9, after
+     bz_mkboxes, before any compose): each at most BZ_BOXW x BZ_BOXL (4 x
+     32), each PLATFORM box at most 30 lines (18 + 2 x 6), and the
+     platform's own rect (bz_crect when bz_ctype is 2, bz_crect2 beside a
+     lighting post) at most 30 before any clip.  ORACLE CHECK 5:
+     after every wheel commit (at bz_tf; the LEAD's at bz_presented) the
+     committed lane's map words in the course part are its DRAWN pose's.
+     THE RING'S END: every frame of any leg whose 3- or 4-word box has a
+     whole card row, not the whole-row path's first, crossing 2000h, and no
+     band (`wrapbox`) is checked at bz_presented, at least one a card; and
+     every frame with a WHEEL COMMIT whose rectangle's columns cross it
+     (`wrapcommit`: the pass's row-at-a-time path) at FEAT_EACH, required on
+     the Hercules (MILL's post 4), reported on the CGA.  The PWAIT scene
+     asserts the one-wait rule itself: no two frames running with bz_pyld.  The MILL
+     play adds: THE RIDE BOX (`ridebox`: the platform's box merged into the
+     riding ball's group, bz_ctype 2 with no rect of its own) - at least
+     FEAT_EACH checked a card; THE DEFER SCENE (128.13.7 item 1: a post
+     kicked so it is really drawn lit, its lit frames poked to 0, the ball
+     then two boxes every frame for four frames, one of them meeting the
+     post's corner - it WAITS with lit cells outside every box, card =
+     oracle, at least one such frame); and THE PWAIT SCENE (the ball
+     airborne at two points 48 px apart while the lift rises from its dock,
+     the window's bottom edge through the slab, TRICKLE: every WAITED frame
+     and the frame after it checked - `pwait`, at least FEAT_EACH a card -
+     at least 20 lift steps inside it, and a waited frame on which an
+     entering row meets the slab's drawn footprint, bz_ctype 3, by the ball
+     poked across the band's foot; ended at one point, so the slab's box is
+     drawn and sized).
 
 --red NAME is the row's red arm (docs/WRITING-TESTS.md 1): it copies
 apps/bonanza/ to a temporary directory, breaks one thing there, builds that
@@ -132,6 +161,19 @@ their own check:
              the box, the old outside it - a `defer` frame (the MILL leg)
   padfront   the platform never over the ball: a `pover` frame (the MILL play)
   hidden     the ball boxed and drawn in a transit: a `transit` frame
+  ridebox    (3b) the RIDE BOX composed without the slab's layer under the
+             ball: a `ridebox` frame of the MILL play
+  pwait2     (3b) the wait's "never two running" taken out: the slab waits on
+             every crowded frame - two PWAIT frames running with bz_pyld set,
+             caught at bz_tf by the rule itself (the box-size check sees it
+             only when the lift rose far enough during the scene)
+  fastwrap   (3b) bz_bwrows's ring test taken out: a crossing row written down
+             the unrolled block - a `wrapbox` frame (the MILL play's
+             ring's-end scene)
+  mapskip    (3b) the pass's map stores left out: oracle check 5 (MILL)
+  wrapmask   (3b review) the pass's row-at-a-time path across the ring's end
+             without its mask: a `wrapcommit` frame (MILL's post 4, Hercules)
+  (and `defer` is judged on the DEFER scene now: the MILL play)
 
 The module is also the LIBRARY the other BONANZA rows share (bonanza_perf,
 bonanza_phys, bonanza_exit, bonanza_mega, bonanza_replay, bonanza_wheel):
@@ -171,7 +213,10 @@ LOCAL_SYMS = (("bz_tb", "first"), ("bz_wbox", "wr"), ("bz_wbox", "out"), ("bz_vr
               # (BEHIND) between .p2 and .nofit, the LEAD inside bz_lead
               ("bz_wheel", "an"), ("bz_wheel", "p2"), ("bz_wheel", "nofit"), ("bz_wheel", "out"),
               ("bz_lead", "no"), ("bz_props", "choose"), ("bz_props", "mlane"),
-              ("bz_exitchk", "leave"))
+              ("bz_exitchk", "leave"),
+              # wave 3b (SPEC.md 128.13.4.3, 128.13.12): the platform's box WAITED and a lane
+              # PROMOTED (bz_props's two entries), and the sound's span a frame (128.20.7)
+              ("bz_props", "pwt"), ("bz_props", "promo"), ("bzs_frame", "fend"))
 DIRS = [(dr, dc) for dr in (-1, 0, 1) for dc in (-1, 0, 1) if (dr, dc) != (0, 0)]
 FIRST_EACH = 3                      # frames checked per direction, first ones
 LAY_EACH = 6                        # ...and the first frames that laid a record
@@ -918,7 +963,7 @@ def bench(g, ref, trial=False, mill=False, hvoff=None):
     order = trial or mill
     extra = ("bz_col", "bz_boxw", "bz_occ.gate") if order else ()
     if mill:
-        extra += ("bz_wcommit",)
+        extra += ("bz_wcommit", box_point(g))
     wk = Walker(g, t0=trial, extra=extra)
     if order or hvoff is not None:
         m.bp_exec(g.a("bz_launch"))
@@ -949,7 +994,10 @@ def bench(g, ref, trial=False, mill=False, hvoff=None):
     feat = {k: 0 for k in MILL_FEATS}       # MILL: the frames checked with each feature
     seen = {k: 0 for k in MILL_FEATS}       # ...and the frames that had it at all
     commits, exits, ndef0, tube0 = [], [], 0, 0
+    cwrap = False                           # a wheel commit across the ring's end since the last bz_presented
+    npwt0 = 0
     fview = None
+    wraps, tallest = 0, [0, 0]
     while True:
         k = wk.next()
         if first:
@@ -980,8 +1028,17 @@ def bench(g, ref, trial=False, mill=False, hvoff=None):
             continue
         if k == "bz_wcommit":
             commits.append(commit_kind(g, wk.r))
+            cwrap = cwrap or commit_wraps(g)
+            continue
+        if k == "bz_ts+9":
+            bad, tl, ptl = box_check(g, "%s frame %d" % (leg, g.w("bz_frames") + 1))
+            fails += bad
+            tallest = [max(tallest[0], tl), max(tallest[1], ptl)]
             continue
         if k == "tf":
+            if mill:                            # ORACLE CHECK 5: the wheel's commits' map words
+                fails += ["%s frame %d at bz_tf: %s" % (leg, g.w("bz_frames") + 1, x) for x in map_check(
+                    g, ref.c, [c[1] for c in commits if c[0] in ("ahead", "behind")])]
             if g.b("bz_mode") != 1:
                 raise AssertionError("B did not start the benchmark")
             if order and g.b("bz_crs") != CRS_K[leg.lower()]:
@@ -1007,8 +1064,9 @@ def bench(g, ref, trial=False, mill=False, hvoff=None):
             three = len(bxs) >= 3
             fview = None
             if mill:                            # what this frame shows of the props (128.12.13.2)
-                fview = mill_feats(g, ref, commits, ndef0, dk)
+                fview = mill_feats(g, ref, commits, ndef0, dk, npwt0)
                 ndef0 = g.w("bz_ndef")
+                npwt0 = g.w("bz_npwt") if "bz_npwt" in g.sym else 0
                 for f in fview:
                     seen[f] = seen.get(f, 0) + 1
             want = bool(full and not full_checked) or (dk in done and done[dk] < FIRST_EACH) or \
@@ -1025,8 +1083,7 @@ def bench(g, ref, trial=False, mill=False, hvoff=None):
                     fails.append("%s frame %d (%+d,%+d) at bz_tf: the shown window (S %d) is not the last "
                                  "frame's picture, card != oracle: %d px, lines %d-%d, x %d-%d" % (
                                      leg, g.w("bz_frames") + 1, dr, dc, prev[0][0], n, *box))
-            if want:
-                wk.dk, wk.full, wk.laid, wk.shd, wk.three, wk.shdin = dk, full, laid, shd_own, three, shd_in
+            wk.dk, wk.full, wk.laid, wk.shd, wk.three, wk.shdin = dk, full, laid, shd_own, three, shd_in
             wk.frame = (full, g.w("bz_wtop"), g.w("bz_H"), dc, bxs)
             wk.feats = fview or ()
             ev = []                             # (the pass ran before bz_tf: ngate is this frame's)
@@ -1036,7 +1093,15 @@ def bench(g, ref, trial=False, mill=False, hvoff=None):
         lk, _ = g.look(ref.c)
         view = ref.rule(g.view(), lk)
         fr = g.w("bz_frames")
+        # THE RING'S END (SPEC.md 128.13.4.4): a 3- or 4-word box whose whole rows cross 2000h - every such
+        # frame checked (the `fastwrap` red writes its crossing row down the unrolled block)
+        if not g.b("bz_full") and wrap_boxes(g, st, g.boxes()):
+            wraps += 1
+            want = True
+            wk.feats = tuple(getattr(wk, "feats", ())) + ("wrapbox",)
         if mill:
+            fails += ["%s frame %d at bz_presented: %s" % (leg, fr, x) for x in map_check(
+                g, ref.c, [c[1] for c in commits if c[0] == "lead"])]
             if any(c[0] == "lead" for c in commits):        # the LEAD is after bz_tf
                 wk.feats = tuple(wk.feats) + ("lead",)
                 seen["lead"] += 1
@@ -1045,6 +1110,10 @@ def bench(g, ref, trial=False, mill=False, hvoff=None):
                 wk.feats = tuple(wk.feats) + ("transit",)
                 seen["transit"] += 1
                 want = want or feat["transit"] < FEAT_EACH
+            if cwrap:                           # (a commit's rectangle crossing the ring's end: `wrapmask`)
+                wk.feats = tuple(wk.feats) + ("wrapcommit",)
+                seen["wrapcommit"] += 1
+                want = want or feat["wrapcommit"] < FEAT_EACH
             if tube0 and not lk.tube:           # a tube's exit: the ball's footprint in the window
                 x4, top, left = lk.px & ~3, st[1] * RL[tag], st[2] * 8
                 inside = left <= x4 and x4 + BB.FOOT_W <= left + W[tag] and top <= lk.py and \
@@ -1056,6 +1125,7 @@ def bench(g, ref, trial=False, mill=False, hvoff=None):
                                  % (fr, tube0, x4, lk.py, st[1], st[2]))
             tube0 = lk.tube
             commits = []
+            cwrap = False
         if order:
             walk_max = max(walk_max, ngate)
             if ngate > 1:
@@ -1076,6 +1146,8 @@ def bench(g, ref, trial=False, mill=False, hvoff=None):
             checks += 1
             for f in getattr(wk, "feats", ()) if mill else ():
                 feat[f] = feat.get(f, 0) + 1
+            if "wrapbox" in getattr(wk, "feats", ()) and not mill:
+                feat["wrapbox"] = feat.get("wrapbox", 0) + 1
             if wk.full:
                 full_checked += 1
             elif wk.dk in done:
@@ -1097,7 +1169,7 @@ def bench(g, ref, trial=False, mill=False, hvoff=None):
                              "%d,%d (s_b %d z_b %d air %d, sprite %s, shadow %s): %d px, lines %d-%d, x %d-%d" % (
                                  leg, fr, wk.dk[0], wk.dk[1], " FULL" if wk.full else "",
                                  " LAID" if wk.laid else "",
-                                 " [%s]" % "+".join(getattr(wk, "feats", ())) if mill else "",
+                                 " [%s]" % "+".join(getattr(wk, "feats", ())) if getattr(wk, "feats", ()) else "",
                                  *st, lk.sb, lk.zb, lk.air, lk.spr, lk.spy, n, *box))
             elif controls is None and wk.dk[0] and wk.dk[1] and not wk.full:
                 ref.view = view
@@ -1106,6 +1178,7 @@ def bench(g, ref, trial=False, mill=False, hvoff=None):
                 finally:
                     ref.view = None
             want = False
+        wk.feats = () if not mill else wk.feats
         prev = (st, lk, view)
         if fr >= 1199 or len(fails) >= 4:
             break
@@ -1126,8 +1199,12 @@ def bench(g, ref, trial=False, mill=False, hvoff=None):
           "laid over the run %s, frames the pass ran %s" % (
               tag, leg, laid_checked, hid_checked, hid_px, glaid, g.w("bz_rnlay") if late is not None else "-",
               g.w("bz_rnocf") if late is not None else "-"), flush=True)
-    print("%s %s boxes a frame %s; late boxes (bz_rlate) %s" % (
-        tag, leg, ", ".join("%d: %d" % kv for kv in sorted(nbox_seen.items())), late), flush=True)
+    print("%s %s boxes a frame %s; late boxes (bz_rlate) %s; frames with a 3- or 4-word box across the ring's end "
+          "(wrapbox) %d, checked %d%s" % (
+              tag, leg, ", ".join("%d: %d" % kv for kv in sorted(nbox_seen.items())), late, wraps,
+              feat.get("wrapbox", 0),
+              "; the tallest box %d lines, the tallest platform box %d (at most %d, %d)" % (
+                  tallest[0], tallest[1], BZ_BOXL, PBOX_MAX) if mill else ""), flush=True)
     if mill:
         print("%s MILL: frames checked (of frames seen) with each feature: %s" % (
             tag, ", ".join("%s %d/%d" % (f, feat[f], seen[f]) for f in MILL_FEATS)), flush=True)
@@ -1151,7 +1228,8 @@ def bench(g, ref, trial=False, mill=False, hvoff=None):
         print("%s negative controls: %s" % (tag, controls), flush=True)
     return {"fails": fails, "done": done, "full": full_checked, "controls": controls, "checks": checks,
             "hid": hid_checked, "shd": shd_checked, "b3": b3_checked, "orders": order_frames,
-            "shdin": shdin_checked, "feat": feat, "seen": seen, "exits": exits}
+            "shdin": shdin_checked, "feat": feat, "seen": seen, "exits": exits, "wraps": wraps,
+            "wrapck": feat.get("wrapbox", 0)}
 
 
 def order_check(ev, H, rl, wtop, ccol, dc):
@@ -1227,8 +1305,8 @@ def negative_controls(g, ref, st, lk):
 # poked play (mill_play) the slab's layer in a RIDING ball's box and the slab
 # OVER a ball under it
 MILL_FEATS = ("ahead", "behind", "lead", "crotor", "cpost", "defer", "pbox", "pclip", "enter_row", "enter_col",
-              "transit")
-PLAY_FEATS = ("ride", "pover")
+              "transit", "wrapcommit")
+PLAY_FEATS = ("ride", "pover", "ridebox", "pwait")     # (wave 3b's: the RIDE BOX, the slab's WAITED box)
 LOW_FEATS = ("ahead", "behind", "lead")     # the play's LOW scenario's: they count for the MILL leg's
 FEAT_EACH = 3
 # the LEAD on the Hercules: a wheel reckoned from a wait that SAW the rise
@@ -1238,7 +1316,11 @@ FEAT_EACH = 3
 # and a lane entering in a COLUMN on the Hercules: its 45-word window holds every MILL lane's columns
 # whatever c0 (cmax 19, the lanes in columns 21 - 35), so no column ever brings one in there (the final
 # pass) - reported on that card
-FEAT_OPTIONAL = {"herc": ("lead", "enter_col"), "cga": ()}
+# and a wheel commit whose columns cross the ring's end (`wrapcommit`, the pass's row-at-a-time path,
+# SPEC.md 128.13.5.1): card offsets are absolute, so it is a property of the lane - MILL's post 4 crosses
+# on the Hercules (card rows 88 - 93 at word 23), no MILL lane on the CGA - required on the Hercules,
+# reported on the CGA
+FEAT_OPTIONAL = {"herc": ("lead", "enter_col"), "cga": ("wrapcommit",)}
 
 # THE LOW SCENARIO (the final pass): MILL's route keeps its lanes high in the window and its frames
 # heavy, so a wheel commit AHEAD of the beam (and on the CGA the LEAD) never happens on the benchmark.
@@ -1264,7 +1346,15 @@ def low_plan(g, crs):
     Wc, rmax, cmax = g.w("bz_W"), g.w("bz_rmax"), g.w("bz_cmax")
     grid = BB.Grid(crs.cga)
     rects = lane_rects(crs)
-    for i in sorted(rects):
+    # a post whose columns cross the ring's end first (the Hercules' post 4, MILL's only one on either
+    # card): every LOW commit of it is then a `wrapcommit` (bz_wprect's row-at-a-time path, the
+    # `wrapmask` red's) - the MILL benchmark's own commits of it are one a run or none (the final pass)
+    herc = tag == "herc"
+
+    def crosses(i):
+        q = lane_cells(rects[i], lsh)
+        return BB.ring_cross(q[0], q[1], q[2], q[3], herc)
+    for i in sorted(rects, key=lambda j: (not crosses(j), j)):
         if crs.part["props"][i]["kind"] != BB.PK_BUMPER:
             continue
         col, brow, w = rects[i][:3]
@@ -1329,6 +1419,18 @@ def commit_kind(g, r):
     return kind, r["ax"] & 0xFF
 
 
+def commit_wraps(g):
+    """at bz_wcommit's entry: does a column of the loaded commit's rectangles
+    (bz_lra, bz_lrb: card rows r0 r1, words x0 x1) cross the ring's end -
+    bz_wprect's `.slow` path (SPEC.md 128.13.5.1), bbcourse.ring_cross's test"""
+    herc = g.tag == "herc"
+    for name in ("bz_lra", "bz_lrb"):
+        r0, r1, x0, x1 = struct.unpack("<4H", g.m.read(g.a(name), 8))
+        if r1 > r0 and x1 > x0 and BB.ring_cross(r0, r1, x0, x1, herc):
+            return True
+    return False
+
+
 def lane_cells(rect, lsh):
     """a lane's (first card row, end card row, first word column, end column)"""
     col, brow, w, h = rect[:4]
@@ -1346,8 +1448,10 @@ def entering(g):
     return rows, col, (R0n, c0n, H, Wc)
 
 
-def mill_feats(g, ref, commits, ndef0, dk):
-    """at bz_tf: the features of SPEC.md 128.12.13.2's MILL leg this frame has"""
+def mill_feats(g, ref, commits, ndef0, dk, npwt0=0):
+    """at bz_tf: the features of SPEC.md 128.12.13.2's MILL leg this frame has
+    (a DEFERRED contact lane: bz_ndef moved by more than the slab's waits, which
+    it counts too since wave 3b, 128.13.4.3)"""
     out = set(c[0] for c in commits if c[0] in ("ahead", "behind"))
     ct = g.b("bz_ctype")
     if ct == 1:
@@ -1357,7 +1461,7 @@ def mill_feats(g, ref, commits, ndef0, dk):
         out.add("pbox")
     elif ct == 3:
         out.add("pclip")
-    if g.w("bz_ndef") != ndef0:
+    if (g.w("bz_ndef") - ndef0) & 0xFFFF > ((g.w("bz_npwt") - npwt0) & 0xFFFF if "bz_npwt" in g.sym else 0):
         out.add("defer")
     # a wheel commit meeting the ball's or the shadow's OLD footprint, still on the
     # glass at bz_tf: never one in a right build (such a lane is a contact candidate,
@@ -1391,6 +1495,120 @@ def plat_rec(crs):
     return next((r for r in crs.part["props"] if r["kind"] == BB.PK_PLATFORM), None)
 
 
+# ---- wave 3b (SPEC.md 128.13.12): the box sizes, the ring's end, the map's words --------
+BZ_BOXW, BZ_BOXL, PBOX_MAX = 4, 32, 30   # bzvideo.inc; the platform's box: 18 + 2 x 6 lines (128.13.4.3)
+HDR_MAP, HDR_ROWB = 32, 24               # bonanza.asm BZC_MAP, BZC_ROWB
+
+
+def box_point(g):
+    """bz_ts + 9: the instruction after `call bz_mkboxes` - the frame's boxes
+    laid out, none composed (the frame's first bz_boxc is the next call)"""
+    a = g.a("bz_ts")
+    code = g.m.read(a, 12)
+    tgt = (g.sym["bz_ts"] + 9 + struct.unpack_from("<h", code, 7)[0]) & 0xFFFF
+    assert code[0] == 0xBB and code[3] == 0xE8 and code[6] == 0xE8 and tgt == g.sym["bz_mkboxes"], \
+        "bz_ts is not MOV BX, CALL bz_mark, CALL bz_mkboxes: the box check's point moved (%s)" % code.hex()
+    return ("bz_ts", 9)
+
+
+def box_check(g, where):
+    """at box_point: every box at most BZ_BOXW words x BZ_BOXL lines, and every
+    PLATFORM box (group 2 at the slab's first word, the frame's contact the
+    platform's or the lift's rect beside a post) at most PBOX_MAX lines (SPEC.md
+    128.13.12).  A box past BZ_BOXL would overrun its buffer, so a failing frame
+    has its boxes TAKEN AWAY ([bz_nbox] 0) before any compose: the harness keeps
+    the guest's memory whole so the row can end and report.  -> (failures, the
+    tallest box, the tallest platform box)"""
+    bxs = g.boxes()
+    plat = g.sym.get("bz_pidx") is not None and g.b("bz_pidx") != 0xFF
+    pw = (g.w("bz_pox") >> 3) if plat else None
+    ct, c2 = g.b("bz_ctype"), g.w("bz_cgr2")
+    bad, tall, ptall = [], 0, 0
+    for (x0, y0, w, h, grp) in bxs:
+        tall = max(tall, h)
+        isp = plat and grp == 2 and x0 == pw and (ct == 2 or c2)
+        if isp:
+            ptall = max(ptall, h)
+        if w > BZ_BOXW or h > BZ_BOXL or (isp and h > PBOX_MAX):
+            bad.append("%s: the box-size check at the frame's first bz_boxc: a %sbox of %d words x %d lines at line "
+                       "%d (at most %d x %d, a platform box %d lines: SPEC.md 128.13.12)" % (
+                           where, "PLATFORM " if isp else "", w, h, y0, BZ_BOXW, BZ_BOXL, PBOX_MAX))
+    # the platform's rect itself, before bz_addbox clips it: bz_crect when the contact group is the slab's
+    # box (bz_ctype 2), bz_crect2 when it is the lift's rect beside a lighting post (bz_pflag bit 2) - a
+    # box clipped at the window's left edge, or merged into the post's rect, is not found by its x0 above
+    for name, on in (("bz_crect", ct == 2), ("bz_crect2", plat and bool(g.b("bz_pflag") & 4))):
+        if not on:
+            continue
+        _, _, ya, yb = struct.unpack("<4h", g.m.read(g.a(name), 8))
+        ph = yb - ya + 1
+        ptall = max(ptall, ph)
+        if ph > PBOX_MAX:
+            bad.append("%s: the box-size check at the frame's first bz_boxc: the PLATFORM's rect %s is %d lines "
+                       "(lines %d - %d), past %d (SPEC.md 128.13.4.3: one wait, never two running)" % (
+                           where, name, ph, ya, yb, PBOX_MAX))
+    if bad:
+        g.put("bz_nbox", 0)
+    return bad, tall, ptall
+
+
+def wrap_boxes(g, st, bxs):
+    """the frame's boxes the WHOLE-ROW path writes across the ring's end
+    (SPEC.md 128.13.4.4): no band (bz_boxw's own gate), 3 or 4 words, a whole card row other than the path's
+    first that crosses 2000h (its offset + 2w past it) - the row bz_bwrows's
+    tail sends to bz_wseg.  ST: (S, R0, c0, ...) of the window the boxes were
+    written to.  -> [(x0, y0, w, h, the crossing row's offset)]"""
+    tag = g.tag
+    rl, rb = RL[tag], RB[tag]
+    S, R0, c0 = st[:3]
+    top = R0 * rl
+    out = []
+    raw = g.m.read(g.a("bz_boxes"), 4 * BZ_BOXD)
+    for i, (x0, y0, w, h, grp) in enumerate(bxs):
+        if w not in (3, 4) or x0 < c0:
+            continue
+        if struct.unpack_from("<H", raw, i * BZ_BOXD + 10)[0]:
+            continue                # a BANDED box: bz_boxw's per-line loop, never bz_bwrows (fastwrap's)
+        first = (y0 - top + rl - 1) // rl              # the first whole card row (its first line in bank 0)
+        last = (y0 + h - top) // rl - 1                # the last whole one
+        for r in range(first + 1, last + 1):
+            dx = (r * rb + 2 * S + 2 * (x0 - c0)) & 0x1FFF
+            if dx + 2 * w > 0x2000:
+                out.append((x0, y0, w, h, dx))
+                break
+    return out
+
+
+def map_check(g, crs, lanes):
+    """ORACLE CHECK 5 (SPEC.md 128.13.11): each of LANES' map words in the course
+    part (bz_cseg, BZC_MAP, a row BZC_ROWB) are its DRAWN pose's ([bz_ldrw]),
+    read after its commit - a store that never reached the map (the pass's,
+    `mapskip`) is seen here.  -> [what is wrong]"""
+    if "bz_ldrw" not in g.sym or not lanes:
+        return []
+    cs = g.w("bz_cseg") << 4
+    rowb = struct.unpack("<H", g.m.read(cs + HDR_ROWB, 2))[0]
+    rects = lane_rects(crs)
+    recs = {r["i"]: r for r in crs.part["props"]}
+    drawn = g.lanes()
+    out = []
+    for i in sorted(set(lanes)):
+        if i not in rects or i not in drawn:
+            continue
+        col, brow, w, h, poses = rects[i]
+        q = drawn[i]
+        if q >= poses:
+            continue
+        sz = 2 * w * h
+        pm = g.m.read(cs + recs[i]["lane"]["off"] + q * sz, sz)
+        mp = b"".join(g.m.read(cs + HDR_MAP + (brow + r) * rowb + 2 * col, 2 * w) for r in range(h))
+        if pm != mp:
+            bad = [k // 2 for k in range(0, sz, 2) if pm[k:k + 2] != mp[k:k + 2]]
+            out.append("oracle check 5: lane %d's map words are not its DRAWN pose %d's (%d of %d words differ, "
+                       "the first at block row %d word %d): a commit's map store never reached the course part"
+                       % (i, q, len(bad), w * h, brow + bad[0] // w, col + bad[0] % w))
+    return out
+
+
 def slab_ball(g, P, n, z_off, air, onp):
     """the ball poked at the LIFT's shaft's centre with the slab as it stands
     at step N: on it (z_off 0, grounded, carried: onp) or under it (z_off < 0,
@@ -1407,19 +1625,142 @@ def slab_ball(g, P, n, z_off, air, onp):
 RIDE_FRAMES = 150                   # a rise and its dock (P 256: 64 steps moving, 64 docked)
 OVER_FRAMES = 12
 
+# THE DEFER SCENE (SPEC.md 128.13.7 item 1): a post of the cluster made REALLY drawn lit and then due while
+# the ball's every frame is two boxes - so its contact candidacy waits (bz_ndef) and its cells outside the
+# boxes stay lit on the glass, as its map and bz_ldrw say.  At its K-th bz_t0 (TRICKLE, the window centred
+# on DF_Q1 by a full write): held at Q1 to DF_KICK, the KICK poked there (it lights as the must-draw), then
+# from DF_KICK + 1 its lit frames poked to 0 (DUE) and the ball alternately at Q2, Q1 for DF_ALT frames -
+# under BZ_WPRF (5) - then held at Q1 to DF_END (one box: it goes dark as the contact group)
+DF_KICK, DF_ALT, DF_END = 5, 4, 12
+# THE PWAIT SCENE (SPEC.md 128.13.12): the ball held airborne alternately at two points 48 px apart (every
+# frame's ball group two boxes: a CROWDED frame, 128.13.4.3 (a)) while the lift RISES from its low dock,
+# the window's bottom edge through the slab (TRICKLE), for PW_FRAMES frames; on a frame after one that did
+# not wait, the ball poked across the band's FOOT instead (the camera steps down a row, the entering row
+# meeting the slab's drawn footprint on a waited frame: bz_ctype 3), PW_TRIES times at most; then held at one
+# point PW_END frames (one box: the slab's is drawn - 18 + 2 x 6 lines at most)
+PW_FRAMES = {"cga": 24, "herc": 21}
+PW_END, PW_TRIES, PW_STEPS = 3, 4, 20
+PW_DX = 24                          # px either side of the window's centre
+
+
+def defer_plan(g, crs):
+    """-> (the post, Q1, Q2) for THE DEFER SCENE, or None: Q1 a point whose
+    footprint meets the post's lane rectangle at a CORNER (some of its cells
+    outside it) with the ball's centre clear of every post by 16 gu and over a
+    floor by 16 px (no kick), Q2 the same 48 px across (its footprint clear of
+    every lane)"""
+    grid = BB.Grid(crs.cga)
+    rects = lane_rects(crs)
+    recs = {r["i"]: r for r in crs.part["props"]}
+    posts = [i for i in sorted(rects) if recs[i]["kind"] == BB.PK_BUMPER]
+
+    def clear(gp):
+        return all((gp[0] / 256.0 - recs[j]["cx"]) ** 2 + (gp[1] / 256.0 - recs[j]["cy"]) ** 2 >= 16 ** 2
+                   for j in posts)
+
+    def meets(px, py, i):
+        col, brow, w, h = rects[i][:4]
+        return px >> 3 <= col + w - 1 and col <= (px + BB.FOOT_W - 1) >> 3 and py <= 8 * (brow + h) - 1 and \
+            8 * brow <= py + BB.FOOT_H - 1
+    for i in posts:
+        col, brow, w, h = rects[i][:4]
+        for dy in range(-BB.FOOT_H + 4, 2, 2):          # its top-left corner: the footprint's foot over the
+            for dx in range(-BB.FOOT_W + 4, 2, 2):      # lane's first lines and first word only
+                px, py = 8 * col + dx, 8 * brow + dy
+                if (px + BB.FOOT_W - 1) >> 3 != col or not meets(px, py, i):
+                    continue
+                q1 = probe_ground(crs, px, py, grid, 1, clear=16, flags=BB.FL_OCC | BB.FL_OCCG)
+                if not q1 or not clear(q1):
+                    continue
+                for ox in (-48, 48, -56, 56):
+                    if any(meets(px + ox, py, j) for j in rects):
+                        continue
+                    q2 = probe_ground(crs, px + ox, py, grid, 1, clear=16, flags=BB.FL_OCC | BB.FL_OCCG)
+                    if q2 and clear(q2):
+                        return i, q1, q2
+    return None
+
+
+def defer_poke(g, plan, k):
+    """THE DEFER SCENE's pokes at its K-th bz_t0: -> 'kick', 'due', 'alt' or None"""
+    lane, q1, q2 = plan
+    if DF_KICK < k <= DF_KICK + DF_ALT:
+        q = q2 if (k - DF_KICK) % 2 else q1
+        poke_ball(g, q[0], q[1], q[2], 0, 0, 0, air=1)
+    else:
+        poke_ball(g, q1[0], q1[1], q1[2], 0, 0, 0, air=1, same_cell=k > 0)
+    if k == 0:
+        g.putb("bz_cmode", 1)                   # TRICKLE: the window holds while the ball moves in the band
+        g.putb("bz_first", 1)                   # the next frame: a full write centred on Q1
+        return None
+    if k == DF_KICK:                            # the KICK (bz_pkick + 1, 128.13.14 item 10): drawn lit
+        a = g.a("bz_pkick") + 2 * lane
+        g.m.write(a, struct.pack("<H", (struct.unpack("<H", g.m.read(a, 2))[0] + 1) & 0xFFFF))
+        return "kick"
+    if k == DF_KICK + 1:                        # true dark, drawn lit: DUE, on a two-box frame
+        g.m.write(g.a("bz_lhold") + lane, b"\0")
+        return "due"
+    return "alt" if DF_KICK < k <= DF_KICK + DF_ALT else None
+
+
+def pwait_plan(g, crs, n_now):
+    """-> (n0, R0, c0, the full write's point, P1, P2) for THE PWAIT SCENE, or
+    None: n0 the step the lift next leaves its low dock (at least 12 on), R0 the
+    window whose bottom edge is 8 lines above the slab's foot at its dock, c0
+    the slab's columns centred; P1 and P2 PW_DX px either side of the centre,
+    airborne over floors (the shadow's box apart)"""
+    tag = g.tag
+    P = plat_rec(crs)
+    if P is None:
+        return None
+    lsh, rl = (1 if tag == "cga" else 2), RL[tag]
+    Wc, H, rmax, cmax = g.w("bz_W"), g.w("bz_H"), g.w("bz_rmax"), g.w("bz_cmax")
+    x0g, y0g = crs.part["grid"]["x0"], crs.part["grid"]["y0"]
+    n0 = next(n for n in range(n_now + 12, n_now + 12 + 2 * (P["mask"] + 1))
+              if BB.plat_pos(P, n) == BB.plat_pos(P, n - 1) and BB.plat_pos(P, n + 1) > BB.plat_pos(P, n))
+    x_l, y_t = BB.slab_xy(P, BB.plat_pos(P, n0) >> 8, x0g, y0g)
+    R0 = ((y_t + BB.PL_H - 8) >> lsh) - H
+    c0 = max(0, min((x_l >> 3) + 2 - Wc // 2, cmax))
+    if not (0 <= R0 <= rmax and c0 <= x_l >> 3 and (x_l >> 3) + 4 <= c0 + Wc):
+        return None
+    grid = BB.Grid(crs.cga)
+    top, left = R0 << lsh, 8 * c0
+    cen = p1 = p2 = None
+    for dy in range(rl):
+        for dx in range(8):
+            cen = cen or probe_ground(crs, left + 4 * Wc - 8 + dx, top + 92 + dy, grid, 1, clear=16,
+                                      flags=BB.FL_OCC | BB.FL_OCCG)
+    for dy in range(0, 8, 2):
+        p1 = p1 or probe_ground(crs, left + 4 * Wc - 8 - PW_DX, top + 92 + dy, grid, 1, clear=16,
+                                flags=BB.FL_OCC | BB.FL_OCCG)
+        p2 = p2 or probe_ground(crs, left + 4 * Wc - 8 + PW_DX, top + 92 + dy, grid, 1, clear=16,
+                                flags=BB.FL_OCC | BB.FL_OCCG)
+    if not (cen and p1 and p2):
+        return None
+    return n0, R0, c0, cen, p1, p2
+
+
+def lift_steps(P, n0, n1):
+    """the steps in [n0, n1) on which the lift's rise changes"""
+    return sum(1 for n in range(n0, n1) if BB.plat_pos(P, n + 1) != BB.plat_pos(P, n))
+
 
 def mill_play(g, ref):
-    """the MILL leg's POKED play (SPEC.md 128.12.13.2): Enter on MILL ([bz_crs]
-    poked at bz_launch), the ball poked onto the platform's slab at the first
-    bz_t0 (the frame's centred full write puts the window round it) and left
-    to RIDE with no key held - every riding frame whose ball box meets the slab
-    checked (its layer in the ball's box) - then poked UNDER the slab, in its
-    shaft, at each frame's bz_t0 for OVER_FRAMES frames: the slab drawn OVER it
-    ([bz_pov] 1), checked.  The card equals the oracle at bz_tf and
-    bz_presented on every checked frame.  -> (failures, {feature: frames checked})"""
+    """the MILL leg's POKED play (SPEC.md 128.12.13.2, 128.13.12): Enter on MILL
+    ([bz_crs] poked at bz_launch), the ball poked onto the platform's slab at
+    the first bz_t0 (the frame's centred full write puts the window round it)
+    and left to RIDE with no key held - every riding frame whose ball box meets
+    the slab checked (its layer in the ball's box), and every frame the ride
+    merges the slab's box with the ball's (THE RIDE BOX: bz_ctype 2, no rect of
+    its own) - then poked UNDER the slab, in its shaft, at each frame's bz_t0
+    for OVER_FRAMES frames: the slab drawn OVER it ([bz_pov] 1), checked; then
+    THE LOW SCENARIO; then THE DEFER SCENE and THE PWAIT SCENE (above).  The
+    card equals the oracle at bz_tf and bz_presented on every checked frame,
+    and every frame's boxes pass the box-size check at its first bz_boxc.
+    -> (failures, {feature: frames checked})"""
     m, tag, crs = g.m, g.tag, ref.c
     P = plat_rec(crs)
-    fails, cnt = [], {f: 0 for f in PLAY_FEATS}
+    fails, cnt = [], {f: 0 for f in PLAY_FEATS + ("wrapcommit",)}
     if P is None:
         return ["MILL has no platform"], cnt
     m.bp_exec(g.a("bz_launch"))
@@ -1427,21 +1768,80 @@ def mill_play(g, ref):
     assert m.wait_stop(60) == "breakpoint", "Enter did not reach bz_launch"
     g.putb("bz_crs", CRS_K["mill"])
     g.putb("bz_hvoff", 0)
-    wk = Walker(g, t0=True, extra=("bz_wcommit",))
+    wk = Walker(g, t0=True, extra=("bz_wcommit", box_point(g)))
     wk.arm()
     frames, prev, phase = 0, None, "ride"
     plan, commits = None, []
     for f in LOW_FEATS:
         cnt[f] = 0
-    while frames < RIDE_FRAMES + OVER_FRAMES + LOW_FRAMES:
+    # the scenes' state: the phase's own bz_t0 count, its plans and what each saw
+    sc = {"k": 0, "df": None, "pw": None, "pwj": 0, "pwend": 0, "pwn0": None, "pwn1": None, "tries": 0,
+          "strip": 0, "waits": 0, "dframes": 0, "tall": 0, "ptall": 0, "rideb": 0, "tfwait": False,
+          "wfr": set()}
+    low_end = RIDE_FRAMES + OVER_FRAMES + LOW_FRAMES
+    df_end = low_end + DF_END + 1
+    nmax = df_end + 600                         # (the pwait scene waits for the lift's next rise: at most a
+    tag_pw = PW_FRAMES[tag]                     # period, 256 steps)
+    while frames < nmax and phase != "done":
         k = wk.next()
         if k == "bz_wcommit":
             commits.append(commit_kind(g, wk.r))
+            sc["cwrap"] = sc.get("cwrap") or commit_wraps(g)
+            continue
+        if k == "bz_ts+9":
+            bad, tl, ptl = box_check(g, "MILL play frame %d (%s)" % (frames + 1, phase))
+            fails += bad
+            sc["tall"], sc["ptall"] = max(sc["tall"], tl), max(sc["ptall"], ptl)
+            if bad:
+                phase = "done"                  # (the boxes taken away: end the play here)
             continue
         if k == "t0":
             n = g.d("bz_nstep")
             if frames == 0:
                 slab_ball(g, P, n, 0, 0, True)
+            elif phase == "ringend":
+                a_, b_ = sc["re"]
+                q = a_ if sc["k"] % 2 == 0 else b_
+                poke_ball(g, q[0], q[1], q[2], 0, 0, 0, air=1, same_cell=sc["k"] > 0)
+                if sc["k"] == 0:
+                    g.putb("bz_first", 1)           # the next frame: a full write centred on it
+                sc["k"] += 1
+                if sc["k"] > RE_HOLD + 1:
+                    phase = "done"
+            elif frames >= df_end:
+                if phase != "pwait":
+                    phase, sc["k"] = "pwait", 0
+                    sc["pw"] = pwait_plan(g, crs, n & 0xFFFF)
+                    sc["crs"] = crs
+                    if getattr(crs, "_grid", None) is None:
+                        crs._grid = BB.Grid(crs.cga)
+                    if sc["pw"] is None:
+                        fails.append("MILL play: no window puts the lift's slab across its bottom edge with the ball "
+                                     "held in the band (the PWAIT scene)")
+                        phase = "done"
+                        continue
+                pwait_step(g, sc, n, tag_pw)
+                if sc["pwend"] > PW_END:
+                    phase, sc["k"] = "ringend", 0
+                    sc["re"] = ringend_plan(g, crs)
+                    if sc["re"] is None:
+                        fails.append("MILL play: no point of MILL puts a 3- or 4-word footprint's whole row "
+                                     "across the ring's end (the ring's-end scene)")
+                        phase = "done"
+                    continue
+                sc["k"] += 1
+            elif frames >= low_end:
+                if phase != "defer":
+                    phase, sc["k"] = "defer", 0
+                    sc["df"] = defer_plan(g, crs)
+                    if sc["df"] is None:
+                        fails.append("MILL play: no point meets a post's rectangle at a corner clear of it (the "
+                                     "DEFER scene)")
+                        phase = "done"
+                        continue
+                defer_poke(g, sc["df"], sc["k"])
+                sc["kcur"] = sc["k"]
+                sc["k"] += 1
             elif frames >= RIDE_FRAMES + OVER_FRAMES:
                 if phase != "low":
                     phase = "low"
@@ -1455,7 +1855,22 @@ def mill_play(g, ref):
                 slab_ball(g, P, n + 1, -12, 1, False)
             continue
         if k == "tf":
-            if prev is not None and not g.b("bz_full") and (phase in ("over", "low") or frames % 10 == 0):
+            sc["tfwait"] = phase == "pwait" and "bz_pyld" in g.sym and bool(g.b("bz_pyld"))
+            # THE RULE ITSELF (SPEC.md 128.13.4.3): the slab's box waits a frame, never two running -
+            # bz_pyld (cleared at every bz_props) set on this frame and the last; the box-size check
+            # sees the same fault only when the lift rose far enough during the scene (`pwait2`)
+            if sc["tfwait"] and sc.get("tfw_prev"):
+                fails.append("MILL play frame %d (pwait) at bz_tf: the slab's box waited two frames running "
+                             "(bz_pyld on this frame and the last; SPEC.md 128.13.4.3)" % (frames + 1))
+            sc["tfw_prev"] = sc["tfwait"]
+            sc["tfct"] = g.b("bz_ctype")
+            sc["tfcgr"] = g.w("bz_cgr")
+            sc["tfnd"] = g.w("bz_ndef")
+            sc["tfbx"] = g.boxes()
+            fails += ["MILL play frame %d (%s) at bz_tf: %s" % (frames + 1, phase, x) for x in map_check(
+                g, crs, [c[1] for c in commits if c[0] in ("ahead", "behind")])]
+            if prev is not None and not g.b("bz_full") and (phase in ("over", "low", "defer", "pwait", "ringend") or
+                                                            frames % 10 == 0 or sc.get("ridebox_last")):
                 n_, box = diff(g.decode(prev[0][0]), ref.picture(prev[0][1], prev[0][2], prev[1],
                                                                  g.view(True, prev[2])))
                 if n_:
@@ -1479,15 +1894,43 @@ def mill_play(g, ref):
         feats = []
         if phase == "ride" and meets and g.b("bz_onp"):
             feats.append("ride")
+        # THE RIDE BOX (SPEC.md 128.13.4.1): the platform's box merged into the riding ball's group
+        if phase == "ride" and sc["tfct"] == 2 and sc["tfcgr"] == 0 and g.b("bz_onp") and sc["tfbx"]:
+            feats.append("ridebox")
+        sc["ridebox_last"] = "ridebox" in feats
         if phase == "over" and meets and slab[2]:
             feats.append("pover")
         if phase == "low":
             feats += sorted(set(c[0] for c in commits if c[0] in LOW_FEATS))
+        if sc.get("cwrap"):
+            feats.append("wrapcommit")
+            sc["cwrap"] = False
+        if phase == "defer" and DF_KICK < sc.get("kcur", -1) <= DF_KICK + DF_ALT:
+            # the post's cells outside EVERY box, and bz_ndef moved: it WAITED with lit cells on the glass
+            lane = sc["df"][0]
+            col, brow, w, h = lane_rects(crs)[lane][:4]
+            out = [(x, y) for x in range(col, col + w) for y in range(8 * brow, 8 * (brow + h))
+                   if not any(b[0] <= x < b[0] + b[2] and b[1] <= y < b[1] + b[3] for b in sc["tfbx"])]
+            if out and (sc["tfnd"] - sc.get("nd0", sc["tfnd"])) & 0xFFFF and g.lanes().get(lane) == 1:
+                feats.append("defer")
+                sc["dframes"] += 1
+        sc["nd0"] = sc["tfnd"]
+        if phase == "ringend" and not g.b("bz_full") and wrap_boxes(g, st, g.boxes()):
+            sc["rewraps"] = sc.get("rewraps", 0) + 1
+            feats.append("wrapbox")             # (last: `fastwrap` wants "wrapbox) at bz_presented")
+        if phase == "pwait" and sc["pwn0"] is not None:
+            if sc["tfwait"] or (frames - 1) in sc["wfr"]:   # a WAITED frame, and the frame after it
+                feats.append("pwait")
+            if sc["tfwait"]:
+                sc["wfr"].add(frames)
+                sc["waits"] += 1
+                if sc["tfct"] == 3:
+                    sc["strip"] += 1
         commits = []
-        if feats or frames % 10 == 0 or phase == "low":
+        if feats or frames % 10 == 0 or phase in ("low", "defer", "pwait", "ringend"):
             n_, box = diff(g.decode(st[0]), ref.picture(st[1], st[2], lk, view))
             for f in feats:
-                cnt[f] += 1
+                cnt[f] = cnt.get(f, 0) + 1
             if n_:
                 fails.append("MILL play frame %d (%s%s) at bz_presented, card != oracle: S %d R0 %d c0 %d ball "
                              "%d,%d (z_b %d air %d, slab %s): %d px, lines %d-%d, x %d-%d" % (
@@ -1497,17 +1940,82 @@ def mill_play(g, ref):
         if len(fails) >= 4:
             break
     m.bp_exec()
+    g.putb("bz_cmode", 0)
     m.run()
     g.key("Escape")
     M.until(m, lambda _: g.b("bz_fs") == 0, "the MILL play ends on Esc", guest=60)
     dropped(g, "the MILL play")
+    nlift = lift_steps(P, sc["pwn0"], sc["pwn1"]) if sc["pwn0"] is not None and sc["pwn1"] is not None else 0
+    if sc["df"] and not fails and sc["dframes"] < 1:
+        fails.append("MILL play: the DEFER scene had no frame on which post %d WAITED drawn lit with a cell outside "
+                     "every box (bz_ndef moved): the defer case was never in front of the check (SPEC.md 128.13.7 "
+                     "item 1)" % sc["df"][0])
+    if sc["pw"] and not fails:
+        if nlift < PW_STEPS:
+            fails.append("MILL play: the PWAIT scene saw %d lift steps, at least %d asserted (SPEC.md 128.13.12)" % (
+                nlift, PW_STEPS))
+        if not sc["strip"]:
+            fails.append("MILL play: the PWAIT scene had no WAITED frame on which an entering row met the slab's "
+                         "drawn footprint (bz_ctype 3) in %d tries (SPEC.md 128.13.12)" % sc["tries"])
     print("%s MILL play: the ball poked onto the slab and ridden %d frames, then under it %d: frames checked with "
-          "the slab's layer in the riding ball's box %d, with the slab OVER the ball %d; then THE LOW SCENARIO "
-          "(post %s at window line %d, %d frames): checked frames with a wheel commit AHEAD %d, BEHIND %d, a LEAD "
-          "%d; card = oracle: %s" % (
-              tag, RIDE_FRAMES, OVER_FRAMES, cnt["ride"], cnt["pover"], plan[0] if plan else None, LOW_F, LOW_FRAMES,
-              cnt["ahead"], cnt["behind"], cnt["lead"], "yes" if not fails else "NO"), flush=True)
+          "the slab's layer in the riding ball's box %d, THE RIDE BOX %d, the slab OVER the ball %d; then THE LOW "
+          "SCENARIO (post %s at window line %d, %d frames): checked frames with a wheel commit AHEAD %d, BEHIND %d, "
+          "a LEAD %d; THE DEFER SCENE (post %s): %d frames waiting drawn lit with cells outside every box; THE PWAIT "
+          "SCENE (the lift from step %s): %d lift steps, %d waited frames, %d with an entering row meeting the slab "
+          "(%d tries), %d checked; THE RING'S-END SCENE: %d frames with a 3- or 4-word box's whole row across "
+          "2000h checked; the tallest box %d lines, the tallest platform box %d; card = oracle: %s" % (
+              tag, RIDE_FRAMES, OVER_FRAMES, cnt["ride"], cnt.get("ridebox", 0), cnt["pover"],
+              plan[0] if plan else None, LOW_F, LOW_FRAMES, cnt["ahead"], cnt["behind"], cnt["lead"],
+              sc["df"][0] if sc["df"] else None, sc["dframes"], sc["pwn0"], nlift, sc["waits"], sc["strip"],
+              sc["tries"], cnt.get("pwait", 0), cnt.get("wrapbox", 0), sc["tall"], sc["ptall"],
+              "yes" if not fails else "NO"), flush=True)
     return fails, cnt
+
+
+def pwait_step(g, sc, n, nfr):
+    """THE PWAIT SCENE's pokes at its bz_t0 (sc["k"] the scene's count, N bz_nstep)"""
+    n0, R0, c0, cen, p1, p2 = sc["pw"]
+    k = sc["k"]
+    if k == 0:
+        g.putb("bz_cmode", 1)                   # TRICKLE: the window holds; it steps a row on a crossing
+        g.putb("bz_first", 1)                   # the next frame: a full write centred on CEN
+        poke_ball(g, cen[0], cen[1], cen[2], 0, 0, 0, air=1)
+        return
+    if (n & 0xFFFF) < n0 and sc["pwn0"] is None:
+        poke_ball(g, p1[0], p1[1], p1[2], 0, 0, 0, air=1, same_cell=True)   # held, idle, until the rise
+        return
+    if sc["pwn0"] is None:
+        sc["pwn0"] = n & 0xFFFF
+    j = sc["pwj"]
+    if j < nfr:
+        sc["pwj"] += 1
+        S, R0n, c0n = g.state()[:3]
+        P = None
+        if sc["tries"] < PW_TRIES and j >= 2 and not sc["strip"] and not g.b("bz_pyld"):
+            # ACROSS THE BAND'S FOOT on a frame that may wait (the last one did not): the centre 2 lines past
+            # 2L/3 of the window as it stands - TRICKLE steps it down a row, the row entering at the foot
+            lsh = 1 if g.tag == "cga" else 2
+            top, left = R0n << lsh, 8 * c0n
+            crs = sc["crs"]
+            # the centre px first, then outward a px at a time to 16 either side (the band's foot, 2 lines
+            # past it, held: only the across moves - TRICKLE's row step is the line's, its column a word's
+            # band away): the CGA's centre over the slab's shaft has no floor clear of OCC (the final pass)
+            for dx in [0] + [s_ * d_ for d_ in range(1, 17) for s_ in (-1, 1)]:
+                P = probe_ground(crs, left + 4 * g.w("bz_W") - 8 + dx, top + 2 * 200 // 3 - 8 + 2, crs._grid, 1,
+                                 clear=16, flags=BB.FL_OCC | BB.FL_OCCG)
+                if P:
+                    break
+        if P:
+            sc["tries"] += 1
+            poke_ball(g, P[0], P[1], P[2], 0, 0, 0, air=1)
+        else:
+            q = p1 if j % 2 == 0 else p2
+            poke_ball(g, q[0], q[1], q[2], 0, 0, 0, air=1)
+        return
+    if sc["pwn1"] is None:
+        sc["pwn1"] = n & 0xFFFF
+    sc["pwend"] += 1                            # ENDED at one point: one box, the slab's drawn
+    poke_ball(g, p1[0], p1[1], p1[2], 0, 0, 0, air=1, same_cell=sc["pwend"] > 1)
 
 
 # ---- the row-0 probe (SPEC.md 128.10.11.2) ----------------------------------
@@ -1624,6 +2132,66 @@ def tpoke(g, crs):
 
 
 TPOKE_AT, TPOKE_EVERY, TPOKE_MAX = 300, 40, 12
+
+
+# THE RING'S-END SCENE (the final pass of wave 3b): BENCH's, TRIAL's and MILL's routes met no box whose
+# whole rows cross the ring's end on either card (0 frames in two runs) - the ring is WORLD-anchored (a card
+# row's offset is (rb R + 2 c) mod 8192 for world card row R and word column c, whatever the window), so
+# only a few world spots put a box's whole row past the path's first across 2000h, and no route passes
+# one.  The last scene of the MILL play: the ball poked (airborne, still, over a floor with OCC and OCCG
+# clear) to such a spot with a full write centred on it, then held there a line up and down for RE_HOLD
+# frames - each frame's box the union of the two footprints, 3 or 4 words, every frame checked
+RE_HOLD = 8
+
+
+def ringend_plan(g, crs):
+    """-> (A, B): two contact points a line apart whose ball footprints
+    (BB.FOOT_W x BB.FOOT_H at the picture's top-left) span 3 or 4 words and
+    both have a WHOLE card row other than their first whose offset plus 2w
+    passes 2000h (wrap_boxes's test, world-anchored); or None.  Of those, the
+    spots that let `fastwrap` show first: two words past the end rather than
+    one, the crossing row among the ball's quickly changing lines (its upper
+    or lower quarter, not its middle or its edge), and the footprint's first
+    word holding only its first 4 px (the crossing words then the ball's) -
+    the red writes the crossing words of a CGA row's two lines into each
+    other's places (its 16KB mirrored), which only lines that differ show
+    (the final pass of wave 3b: the first spot found was the ball's last two
+    lines, near alike, and the red stayed green)"""
+    tag = g.tag
+    rl, rb = RL[tag], RB[tag]
+    grid = getattr(crs, "_grid", None) or BB.Grid(crs.cga)
+    ylim, xlim = crs.brows * 8 - BB.FOOT_H - 8, crs.cols * 8 - BB.FOOT_W - 8
+
+    def crosses(px, y):
+        x4 = px & ~3                            # the footprint's left edge (a byte: 4 px, SPEC.md 128.4)
+        x0 = x4 >> 3
+        w = ((x4 + BB.FOOT_W - 1) >> 3) - x0 + 1
+        if w not in (3, 4):
+            return None
+        first = (y + rl - 1) // rl
+        last = (y + BB.FOOT_H) // rl - 1
+        for r in range(first + 1, last + 1):
+            o = (r * rb + 2 * x0) & 0x1FFF
+            if o + 2 * w > 0x2000:
+                return r, o, w
+        return None
+    cands = []
+    for y in range(8 + 8 * 4, ylim, 1):
+        for px in range(8 * 2, xlim, 2):
+            a, b = crosses(px, y), crosses(px, y + 1)
+            if not (a and b):
+                continue
+            r, o, w = a
+            ln = r * rl - y                     # the crossing row's first line, in the footprint
+            past = w - (0x2000 - o) // 2         # the words written past 2000h
+            score = 4 * past + 2 * (2 <= ln <= 5 or 9 <= ln <= 12) + ((px & 7) >= 4)
+            cands.append((-score, y, px))
+    for _, y, px in sorted(cands)[:400]:
+        a = probe_ground(crs, px, y, grid, 1, clear=16, flags=BB.FL_OCC | BB.FL_OCCG)
+        b = a and probe_ground(crs, px, y + 1, grid, 1, clear=16, flags=BB.FL_OCC | BB.FL_OCCG)
+        if a and b:
+            return a, b
+    return None
 
 
 PROBE_CLEAR = 10    # px over the floor: z - h about 10, so the shadow (spy = py + 10 + (z - h),
@@ -1906,8 +2474,19 @@ def verdict(tag, r):
             bad.append("MILL: no frame's raster order was checked")
     if "play" in r and not r["fails"]:
         for f in PLAY_FEATS:
-            if not r["play"][f]:
-                bad.append("MILL play: no checked frame with %s (SPEC.md 128.12.13.2)" % f)
+            need = FEAT_EACH if f in ("ridebox", "pwait") else 1
+            if r["play"].get(f, 0) < need:
+                bad.append("MILL play: %d checked frames with %s, at least %d (SPEC.md 128.12.13.2, 128.13.12)" % (
+                    r["play"].get(f, 0), f, need))
+    # THE RING'S END (SPEC.md 128.13.12): a 3- or 4-word box whose whole rows cross 2000h, checked at least
+    # once a card - on BENCH, TRIAL or MILL's benchmarks
+    # - on BENCH, TRIAL or MILL's benchmarks, or the MILL play's ring's-end scene (whose spot is the
+    # world's: no route passes one, the final pass of wave 3b)
+    legs = [r[x] for x in ("bench", "trial", "mill") if x in r]
+    if (legs or "play" in r) and not r["fails"] and ("bench" in r or "play" in r) and \
+            not sum(x.get("wrapck", 0) for x in legs) + (r.get("play") or {}).get("wrapbox", 0):
+        bad.append("the ring's end: no checked frame wrote a 3- or 4-word box's whole rows across it "
+                   "(%d frames had one; SPEC.md 128.13.12)" % sum(x.get("wraps", 0) for x in legs))
     return bad
 
 
@@ -1978,6 +2557,24 @@ def check_reds(reds, label):
     return out
 
 
+# the pass's six map stores (bz_wprect.col and .sl, the CGA's and the Hercules' column writers' block heads
+# and tails): `mapskip` leaves each out
+MAPSKIP = [
+    ("    mov [bx], si                ; ...into the map\n    add si, [bp + 8]            ; SI",
+     "    nop                         ; RED mapskip\n    nop\n    add si, [bp + 8]            ; SI"),
+    ("    mov si, [si]\n    mov [bx], si\n    jmp short .s2\n",
+     "    mov si, [si]\n    nop                         ; RED mapskip\n    nop\n    jmp short .s2\n"),
+    ("    mov si, [ds:bp]             ; the block's pose word (BP would be SS's)\n"
+     "    mov [bx], si                ; ...into the map\n",
+     "    mov si, [ds:bp]             ; the block's pose word (BP would be SS's)\n"
+     "    nop                         ; RED mapskip\n    nop\n"),
+    ("    inc cx\n    mov si, [ds:bp]\n    mov [bx], si\n    jmp short .disp\n",
+     "    inc cx\n    mov si, [ds:bp]\n    nop                         ; RED mapskip\n    nop\n    jmp short .disp\n"),
+    (".blk:\n    mov si, [ds:bp]\n    mov [bx], si\n.c2:\n",
+     ".blk:\n    mov si, [ds:bp]\n    nop                         ; RED mapskip\n    nop\n.c2:\n"),
+    ("    inc cx\n    mov si, [ds:bp]\n    mov [bx], si\n    jmp short .c1\n",
+     "    inc cx\n    mov si, [ds:bp]\n    nop                         ; RED mapskip\n    nop\n    jmp short .c1\n"),
+]
 COLFIRST_TV = ("    mov bx, BZ_PWHEEL * 4       ; (the wheel's part: appended, so the wave-2\n"
                "bz_tv:                          ; parts keep their numbers)\n    call bz_mark\n")
 COLFIRST_COL = ".col:\n    mov ax, [bz_dc]\n    or ax, ax\n    jz bz_tb\n"
@@ -2038,6 +2635,26 @@ REDS = {
     "defer": [("bzwheel.inc", "    jnc .wheel\n    inc byte [bz_ccnt]\n",
                "    jnc .wheel\n    push ax                     ; RED defer: every contact candidate synced\n"
                "    mov al, [bz_ltru + bx]\n    call bz_lsync\n    pop ax\n    inc byte [bz_ccnt]\n")],
+    # wave 3b (SPEC.md 128.13.12).  The RIDE BOX composed without the slab's layer under the ball (bz_pblit
+    # skipped when the platform's box merged into the ball's group): the card loses the slab under the ball
+    "ridebox": [("bzvideo.inc", "    cmp byte [bz_pov], 0\n    jne .shadow\n    call bz_pblit\n",
+                 "    cmp byte [bz_pov], 0\n    jne .shadow\n    cmp byte [bz_ctype], 2       ; RED ridebox: no slab "
+                 "under a ride box\n    jne .rpb\n    cmp word [bz_cgr], 0\n    je .shadow\n.rpb:\n    call bz_pblit\n")],
+    # the wait's "never two running" taken out: the slab waits on EVERY crowded frame, its drawn line falls
+    # behind, and the box drawn at the PWAIT scene's end is past 30 lines (past BZ_BOXL: the box-size check)
+    "pwait2": [("bzwheel.inc", "    mov al, [bz_pylp]           ; (which WAITS a frame - never two running,\n",
+                "    xor al, al                  ; RED pwait2: it waits two running\n")],
+    # the whole-row path taken on a row that crosses the ring's end (bz_bwrows's tail no longer stops
+    # there): the crossing row written down the unrolled block, past 2000h
+    "fastwrap": [("bzvideo.inc", "    cmp dx, bx\n    ja .fx                      ; (it crosses the ring's end: bz_wseg's)\n",
+                  "    nop                         ; RED fastwrap: no crossing test\n")],
+    # the pass's map store left out (every `mov [bx], si` of bz_wprect and its column writers): a whole
+    # commit's map keeps the old pose - oracle check 5
+    "mapskip": [("bzwheel.inc", o, n) for o, n in MAPSKIP],
+    # the pass's row-at-a-time path (a column across the ring's end) without its mask: the rows past 2000h
+    # land in the wrong bank (the review of wave 3b, P1) - a `wrapcommit` frame, MILL's post 4 on the Hercules
+    "wrapmask": [("bzwheel.inc", "    push ax\n    and di, 1fffh\n    call word [bp + 18]\n",
+                  "    push ax                     ; RED wrapmask: no mask\n    call word [bp + 18]\n")],
     # the platform (the lift) always UNDER the ball
     "padfront": [("bzwheel.inc", "    cmp ax, cx\n    jge .out\n    mov byte [bz_pov], 1\n",
                   "    cmp ax, cx\n    jge .out\n    mov byte [bz_pov], 0        ; RED padfront: never over\n")],
@@ -2050,7 +2667,9 @@ REDS = {
 }
 RED_PARTS = {"colright": ("bench",), "colfirst": ("bench",), "late": ("bench",), "row0": ("probe",),
              "occ": ("bench",), "shadow": ("trial",), "boxfirst": ("trial",), "htab": ("glass",),
-             "late2": ("probe",), "pass2": ("trial",), "contact": ("mill",), "defer": ("mill",),
+             "late2": ("probe",), "pass2": ("trial",), "contact": ("mill", "play"), "defer": ("play",),
+             "ridebox": ("play",), "pwait2": ("play",), "fastwrap": ("play",), "mapskip": ("mill",),
+             "wrapmask": ("mill", "play"),
              "padfront": ("play",), "hidden": ("mill",)}
 # ...the cards each CAN go red on: the Hercules has 16 + 82 lines of sync and
 # blank (~24.7k clocks) before its window's line 0, so the WHOLE column (at
@@ -2058,13 +2677,15 @@ RED_PARTS = {"colright": ("bench",), "colfirst": ("bench",), "late": ("bench",),
 # order is the CGA's alone to need (the final pass of wave 1 measured row0 at
 # 11 late boxes of 11 on the CGA, 0 of 7 on the Hercules); a later box is late
 # on the CGA alone for the same reason; and the table is the Hercules's
-RED_TAGS = {"row0": ("cga",), "late2": ("cga",), "htab": ("herc",)}
+RED_TAGS = {"row0": ("cga",), "late2": ("cga",), "htab": ("herc",), "wrapmask": ("herc",)}
 # ...and what each must go red FOR: a red arm that fails for another reason
 # proves nothing about the check it is the arm of
 RED_WANT = {"colright": "at bz_presented", "colfirst": "at bz_tf", "late": "bz_rlate", "row0": "FIRST box",
             "occ": " LAID ", "shadow": "card != oracle", "boxfirst": "RASTER ORDER",
             "htab": "card memory != the course", "late2": "cycle counter", "pass2": "walk entered",
-            "contact": "at bz_tf", "defer": "defer", "padfront": "pover", "hidden": "transit"}
+            "contact": "at bz_tf", "defer": "(defer", "padfront": "pover", "hidden": "transit",
+            "ridebox": "ridebox) at bz_presented", "pwait2": "waited two frames running", "fastwrap": "wrapbox) at bz_presented",
+            "mapskip": "oracle check 5", "wrapmask": "wrapcommit"}
 
 
 def main():

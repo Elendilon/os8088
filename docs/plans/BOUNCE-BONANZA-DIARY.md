@@ -1233,3 +1233,130 @@ Measured against the predictions:
   stays open for the owner, and O30 (the lift's cost) now has numbers.
 - **Sizes:** the image is 23,227 bytes (17.9 - 18.8k predicted), bss 6,542,
   and `BONANZA.O88` 68,235 bytes, still on one 360KB floppy.
+
+## 2026-11-13 (wave 3b, the performance round)
+
+Wave 3b added no obstacle. It went after what wave 3's final pass had
+measured: the lift's frames, the wheel's commit, the heavy rule's effect on
+`TRIAL`, and six red arms that never met their case. SPEC.md 128.13 is the
+contract; the sound (128.20), built by another session on the same branch,
+had landed first, so every target was measured with the sound off and on
+instead of through a harness pad (128.13.15).
+
+What was built, in four stages and a review round:
+
+- **The ride box.** A ball riding the lift and the slab are now one box of
+  up to 32 lines, composed once. The box buffers grew to 32 lines (+256
+  bytes of bss).
+- **The slab's wait.** On a crowded frame (the ball's and the shadow's
+  groups two boxes) the lift's box waits one frame - never two running,
+  never under a ball it carries, never as it leaves the window. A post
+  kicked on such a frame lights at once.
+- **The box writer's whole-row path.** A 3- or 4-word box with no overlap
+  band is written a card row at a time by unrolled moves.
+- **The wheel's commit.** One column-major pass from the pose map replaces
+  the raster-order lane writer; per-lane tables cut the preparation; the
+  walk skips a rotor until its next pose change.
+- **The heavy rule.** Level 1 keeps only its slab-near-edge clause.
+- **The step.** The physics step's two copies of steps 4 - 6 became one
+  (-560 bytes of image, -48 in the packed file).
+
+### Wave 3b, the final pass: what the rows measured (SPEC.md 128.13.16)
+
+The eleven BONANZA rows ran as one scoped soak, then every red arm once.
+Ten rows pass. Two things still fail, and both are written down with their
+numbers rather than eased.
+
+What the runs found, and what changed:
+
+- **The wheel overran once a run.** About one `MILL` benchmark in two
+  ended a commit just past its deadline, on either card. The cause was a
+  price about 1% short: the calibration times its own path from a clock
+  sample to the commit, and the wheel's real path from its test runs a
+  little more code. The calibration now adds those 50 PIT counts (3 bytes).
+  No benchmark has overrun since.
+- **The row timed some commits wrongly.** The wheel row's LOW leg did not
+  log the clock sample a commit's test is made on, so its posts looked 16%
+  cheaper than their price. It logs it now, as the benchmark leg does.
+- **No route crosses the ring's end.** The card's ring is anchored to the
+  world, so only a few places put a box's whole row across the 8 KB end,
+  and none of the three benchmarks passes one. The `MILL` play now ends in
+  a scene that holds the ball at such a place. The first place it picked
+  showed nothing when the red arm broke the writer: the red swaps two
+  lines' crossing words, and that ball's two lines were alike there. The
+  scene now prefers places where the lines differ, and the red goes red.
+- **Three red arms needed their scenes adjusted.** `contact` now runs the
+  play as well as the benchmark. `litsteps` had been swallowed by an
+  exemption meant for the LOW leg's own pokes. `halfcal` runs on the CGA
+  only, because no Hercules commit comes within its error of the deadline.
+  All 63 red arms then went red at their own check.
+
+What still fails:
+
+- **The corner check (6) on the CGA.** The light corner step never gets
+  its commit in. The lane sits at the window's bottom, so the wheel can
+  only commit it before the beam reaches it - by 67.3k clocks after the
+  rise - and the step frame's test lands near 65k with a 7.9k commit to
+  go. The scene cannot shed what makes it the case (the row, the ball's
+  box, the due lane). The wheel's preparation runs 10.9k from its mark to
+  its test, about twice what it budgets, and that is the lever.
+- **`BENCH`'s A/B target.** The SPEC asserted 2.0k clocks a frame less than
+  wave 3 on the CGA; the measurement is 1.3k. The new box writer saves
+  1.4k, as built, but `BENCH`'s boxes are 3 words wide, where the unrolled
+  rows save about 80 clocks a line rather than the 160 the prediction took
+  from a 4-word line.
+
+Measured against the predictions:
+
+- **The ride's line-change frames:** 83% of a refresh on the CGA and 71%
+  on the Hercules, against 80% and 70% predicted, with no miss.
+- **`MILL`:** the CGA's misses fell from wave 3's 111 to 47 and its 95th
+  percentile from 90k to 81k clocks. The CGA's lift stretch with the ball
+  beside the lift missed 6 - 9 refreshes with the sound off (15 - 20
+  predicted) and 48 with it on; that is O33's question for the owner.
+- **`TRIAL`:** 5 - 8 misses on the CGA and 4 on the Hercules, against wave
+  3's 14 and 9; the heavy rule no longer makes it worse.
+- **The wheel's commit:** 8.9k clocks for a rotor (7.0k predicted, 13.4k
+  in wave 3) and 6.6k for a post.
+- **Sizes:** the image is 27,362 bytes, 23,706 without the sound - 479 more
+  than wave 3, where 206 fewer was predicted. `BONANZA.O88` is 77,275
+  bytes, still on one 360KB floppy.
+
+### Wave 3b, the verification: what a second reader found (SPEC.md 128.13.17)
+
+An independent verifier rebuilt everything from clean, ran every host gate
+and every row's `--check`, and looked at both cards. Nothing it checked was
+broken. It still failed the round, on eight points, and they sort into
+three kinds.
+
+- **Two ticked stories claimed more than the record showed.** Story 3b.5
+  promised that the CGA's wait would hold two rotors. Its own measured
+  paragraph says one rotor and a post, because a rotor's commit came in at
+  8.9k clocks instead of 7.2k. The story is unticked now, and its note says
+  what it did deliver: the preparation hit its 5.3k target. Story 3b.7
+  asked for every missed frame of the lift stretch to be written into the
+  SPEC. They were in the row's log, not the SPEC, so the SPEC now has all
+  59 of them, each with its parts, boxes and steps.
+- **The missed frames showed something new once they were in a table.**
+  With the sound on, 45 of the CGA's 48 lift-stretch misses would still be
+  over a refresh without the sound's own time. One late frame leaves the
+  step clock owing the next frame a second step, and that frame then
+  misses too. The sound starts the chain; the two boxes keep it going.
+- **The results face lost a line on the CGA.** The sound added its line to
+  the face, and the CGA window holds 13 lines, so the last results line
+  fell off the bottom. The results' first line now goes where the adapter's
+  name was and names the adapter itself (`CGA: frames 1200  59.6 Hz
+  misses 6`), which brings the face back to 13. That cost 63 bytes. A
+  redundant test in `bz_hv1` gave back 4.
+
+Two findings are reported and not fixed. A lane waited 8 frames once on
+the CGA's `MILL` play with the speaker on. This stage's look boot drove the
+same route and could not repeat it, because the sound shifts the timing.
+The code shows how it can happen: one contact group a frame, and three
+kinds of group that go ahead of a waiting lane. Changing that order needs
+a scene that reproduces the case first. And `TRIAL` on the Hercules
+misses 4 frames, where about 1 was predicted. All four are on the steep
+ramp, with the heavy rule off as the story requires.
+
+The corner check, the `BENCH` A/B target and the image's size stay open,
+as the final pass left them.

@@ -2,8 +2,8 @@
 """BONANZA: the frame's cost on MartyPC's 4.77 MHz XT, CGA and Hercules (SPEC.md 128.4, 128.10.11.3, 128.11.15, 128.11.17.2).
 
     make bonanzadisk && python3 tests/bonanza_perf.py [--adapter cga|herc|both] [--ab [COMMIT]] [--no-trial]
-                                                      [--leg bench|heavy|trial|mill|ride ...]
-    python3 tests/bonanza_perf.py --red halfcal | --check
+                                                      [--leg bench|trial|mill|ride|corner ...] [--sound off|on]
+    python3 tests/bonanza_perf.py --red halfcal|rideoff|level1 | --check
     python3 tests/bonanza_perf.py --apps IMG --src DIR --art DIR   (another build, by hand)
 
 THE BENCHMARK (B: BENCH, the autopilot's fixed route, 1,200 frames,
@@ -60,21 +60,64 @@ commits, LEADs, skips, waits, the contact and platform boxes and the busy
 of every must-draw frame and every miss reported) and the RIDE (the ball
 poked onto the lift at its low dock, up and down, no key: the busy of its
 line-change frames and of the others, reported - O30).  --red halfcal
-(bz_wlw halved after the calibration) must fail the MILL leg at bz_wover.
+(bz_wlw halved after the calibration) must fail the MILL leg at bz_wover;
+--red rideoff (the ride merge's limit back to BZ_BOXH: two boxes a riding
+line change) the CGA's ride leg at its line-change misses; --red level1 (the
+occluder-pass and two-box clauses restored in bz_hv1) TRIAL's bz_nhvy.
 
---ab builds an EARLIER wave's package - wave 2's, commit 848ade16, by default
+WAVE 3B (SPEC.md 128.13.12, 128.13.15: the sound arrived first, so there is
+no pad - every leg runs with the sound OFF and with it ON, the speaker at S's
+AUTO, which is what a 5150 without an AdLib plays).  OFF is like for like:
+the A/B against wave 3.  ON is what the owner hears, and the asserted lift
+targets are taken there; a miss is printed with the sound's share of its
+frame (bzs_frame to its .fend, logged) for the owner to weigh.  The legs:
+
+  BENCH   OFF with [bz_hvoff] 1 on both builds (the A/B): 0 misses ASSERTED
+          but a frame running more steps than wave 3's same frame (the step
+          phase's, REPORTED), and the mean busy at least 2.0k clk under wave
+          3's on the CGA ASSERTED (128.13.14 item 11; the Hercules' REPORTED).
+          ON with the shipped camera: REPORTED.
+  TRIAL   bz_nhvy 0 ASSERTED, OFF and ON (no slab: the no-rule camera, 128.13.6);
+          misses REPORTED against wave 2's 8 / 2.  Then the camera replays.
+  MILL    OFF three ways - this build, this build with [bz_hvoff] 1, and wave
+          3 - REPORTED side by side (busy mean and p95, misses, bz_npbx,
+          bz_ncon, bz_npwt, the promotions); bz_wover 0 and bz_wlate 0
+          ASSERTED on this build's legs.  ON (this build): THE LIFT STRETCH -
+          every frame that draws the platform's box (bz_cslabr) or waits one
+          (bz_props.pwt), and the frame after each - at most 3 missed
+          refreshes on the Hercules ASSERTED, the CGA's REPORTED with each
+          missed frame's parts, boxes, steps and sound; the share of the lift's
+          line changes that waited and the longest wait / draw alternation
+          REPORTED.
+  RIDE    the ball poked onto the slab's middle (THE RIDE BOX): OFF (the
+          engine's figure), no miss on a line-change frame ASSERTED on both
+          cards and bz_late 0 ASSERTED (bz_tpoke 1: its boxes timed); ON the
+          same REPORTED, each miss with its sound share (a downbeat on a p95
+          line-change frame is a miss the song's phase decides); GLIDE's
+          withheld rows and their longest deferral REPORTED.
+  CORNER  the ride with the ball held over the slab's LEFT corner (two boxes,
+          128.13.4.1's residue): its line-change frames REPORTED, OFF and ON.
+
+and on every BENCH and MILL leg THE WHEEL'S SPARE RETRACE IDLE - the wait's
+part after the wheel - REPORTED per card (128.13.15 item 3).  THE ADLIB ARM
+(--no-adlib leaves it out): MILL and the ride with the sound at AUTO on
+os8088_5150_sb, the 5150 with an AdLib - REPORTED, nothing asserted.
+
+--ab builds an EARLIER wave's package - wave 3's, commit e781df53, by default
 - in a private temporary tree with ITS OWN art: that commit's apps/bonanza/,
 apps/os88*.inc, tools/bonanza_assets.py and tools/bbcourse.py out of git
 (`git archive`), its generators run into the tree, assembled and packed with
 that wave's part order and put on a 360KB floppy there (never build/).  The
-same breakpoints then run on its benchmark too, printed beside wave 2 part
-by part.  The commit is FETCHED first when this clone has not got it
-(unshallowing a shallow clone, docs/UPSTREAM.md Rule 0; else fetching it from
-origin).  If it still cannot be had - upstream squash-merges, so after the
-merge no clone of main has it - the A/B leg reports SKIP with the reason and
-the row EXITS 77 (tests/m83.py's convention): the suite has no runtime skip,
-so os88test scores it as not passing - never a pass, and never 128.10.9's
-recorded figures standing in for a measurement.
+same breakpoints then run on its BENCH and MILL benchmarks too, printed
+beside this build part by part.  The row never fetches: when this clone has
+not got the commit (a shallow clone, docs/UPSTREAM.md Rule 0, or after
+upstream's squash merge, when no clone of main has it) the A/B leg reports
+SKIP naming the command that would bring it, and the run EXITS 77
+(tests/m83.py's convention) - never a pass, and never 128.10.9's recorded
+figures standing in for a measurement.  So the REGISTERED row runs without
+--ab (a row that could only fail after the merge is no row): the A/B, with
+128.13.14 item 11's asserted 2.0k, is the final pass's by-hand run,
+`python3 tests/bonanza_perf.py --ab`.
 """
 import argparse
 import os
@@ -102,7 +145,12 @@ WRITERS = ["bz_row", "bz_col", "bz_fullw", "bz_boxw", "bz_step"]     # (bz_step:
 # group's lane (bz_csync: a must-draw rotor or a contact lane), a MUST-DRAW
 # lane - a rotor at its gate change or a post lighting (bz_props.mlane + 4: the
 # DEC AX only that branch runs) - and the platform's box (bz_cslab)
-PROPS = ["bz_wcommit", "bz_csync", "bz_cslab", ("bz_props.mlane", 4)]
+PROPS = ["bz_wcommit", "bz_csync", "bz_cslabr", ("bz_props.mlane", 4),
+         # wave 3b (SPEC.md 128.13.4.3): the platform's box WAITED (bz_props.pwt, its one entry) and a
+         # wheel lane PROMOTED to the contact slot (bz_props.promo); bz_cslabr is every platform box,
+         # the ride box's and the second rect beside a lighting post included
+         "bz_props.pwt", "bz_props.promo"]
+SOUND = ("bzs_frame", "bzs_frame.fend")     # the sound's span a frame (SPEC.md 128.20.7), logged
 PARTS = ["sim+camera", "box compose", "rows", "retrace wait", "flip+columns", "box write", "wheel"]
 # each mark CLOSES a part (bz_mark's accounting); wave 3 adds bz_tw: rows end
 # there, and bz_tw .. bz_tv is the WHEEL's (the 7th accumulator, SPEC.md 128.12.5.6)
@@ -110,7 +158,11 @@ CLOSES3 = {"bz_ts": 0, "bz_tr": 1, "bz_tw": 2, "bz_tv": 6, "bz_tf": 3, "bz_tb": 
 CLOSES2 = {"bz_ts": 0, "bz_tr": 1, "bz_tv": 2, "bz_tf": 3, "bz_tb": 4, "bz_tc": 5}
 AGREE = 0.10
 AGREE_ABS = 200
-AB_COMMIT = "848ade16"         # wave 2 (SPEC.md 128.11), the engine the A/B leg measures against
+AB_COMMIT = "e781df53815ed14939e66fc598599ffb05308518"   # wave 3 (SPEC.md 128.12), the engine the A/B leg
+                               # measures against (128.13.12) - the FULL id: git fetches an object only by it
+AB_BUSY = 2000                 # 128.13.14 item 11: BENCH's mean busy at least this much under wave 3's (CGA)
+LIFT_MISS = 3                  # 128.13.4.5: the Hercules' lift stretch, missed refreshes at most (sound ON)
+SND_OFF, SND_AUTO = 3, 0       # bzs_mode: OFF, and AUTO (the speaker on a 5150 without an AdLib)
 SKIP_RC = 77
 
 
@@ -129,9 +181,18 @@ def frames_of(hits, a):
     parts = [0] * 7
     marks, tc = {}, False
     prev = None                                 # the last mark's cycle
+    snd, s0 = 0, None
     for h in hits:
         n = by.get(h["addr"] & 0xFFFFF)
         c = h["cycles"]
+        if n == SOUND[0]:
+            s0 = c
+            continue
+        if n == SOUND[1]:
+            if s0 is not None:
+                snd += c - s0
+            s0 = None
+            continue
         if n in cnt:
             cnt[n] += 1
             if n == "bz_wcommit" and "bz_tb" in marks:
@@ -151,7 +212,8 @@ def frames_of(hits, a):
         rec = {"end": c, "period": None if last is None else c - last, "rows": cnt["bz_row"], "steps": cnt["bz_step"],
                "colcalls": cnt["bz_col"], "full": cnt["bz_fullw"] > 0, "boxes": cnt["bz_boxw"],
                "marks": dict(marks), "commits": cnt["bz_wcommit"], "lead": cnt.get("lead", 0),
-               "contact": cnt["bz_csync"], "must": cnt["bz_props.mlane+4"], "pbox": cnt["bz_cslab"]}
+               "contact": cnt["bz_csync"], "must": cnt["bz_props.mlane+4"], "pbox": cnt["bz_cslabr"],
+               "pwt": cnt["bz_props.pwt"], "promo": cnt["bz_props.promo"], "snd": snd, "hit": h.get("hit")}
         if last is not None and prev is not None and all(k in marks for k in ("bz_ts", "bz_tr", "bz_tv", "bz_tf",
                                                                                  "bz_tb")):
             parts[4 if tc else 5] += c - prev
@@ -161,6 +223,7 @@ def frames_of(hits, a):
             rec["busy"] = rec["period"] - parts[3] - parts[6]     # the wheel spends the wait, 128.12.5.6)
         out.append(rec)
         last, prev, marks, tc = c, c, {}, False
+        snd = 0
         parts = [0] * 7
         cnt = {n: 0 for n in WRITERS + [pname(x) for x in PROPS]}
     return out
@@ -170,16 +233,20 @@ def stats(xs):
     xs = sorted(xs)
     n = len(xs)
     if not n:
-        return {"n": 0, "mean": 0.0, "min": 0, "max": 0, "p99": 0}
-    return {"n": n, "mean": sum(xs) / n, "min": xs[0], "max": xs[-1], "p99": xs[min(n - 1, int(n * .99))]}
+        return {"n": 0, "mean": 0.0, "min": 0, "max": 0, "p99": 0, "p95": 0, "p10": 0}
+    return {"n": n, "mean": sum(xs) / n, "min": xs[0], "max": xs[-1], "p99": xs[min(n - 1, int(n * .99))],
+            "p95": xs[min(n - 1, int(n * .95))], "p10": xs[int(n * .10)]}
 
 
 def addrs(g):
     out = {n: g.a(n) for n in MARKS + WRITERS if n in g.sym}
+    out.update({n: g.a(n) for n in SOUND if n in g.sym})
     for x in PROPS:
         if isinstance(x, str):
             if x in g.sym:
                 out[x] = g.a(x)
+            elif x == "bz_cslabr" and "bz_cslab" in g.sym:      # (an earlier wave's: its one entry)
+                out[x] = g.a("bz_cslab")
         elif x[0] in g.sym:
             assert g.m.read(g.a(x[0]) + x[1], 1)[0] == 0x48, \
                 "%s + %d is not bz_props's must-draw DEC AX: the row's offset moved" % x
@@ -235,7 +302,7 @@ def measure(g, crs=None, pokes=None):
            "acc": [struct.unpack("<I", g.m.read(g.a("bz_racc") + 4 * i, 4))[0] * 4 for i in range(np)]}
     for n in ("bz_rnocf", "bz_rnlay", "bz_rn2bx", "bz_rn3bx", "bz_rnshd", "bz_rlate", "bz_nbnc", "bz_rwcom",
               "bz_rwover", "bz_rwlate", "bz_rwlead", "bz_rwskip", "bz_rncon", "bz_rnpbx", "bz_rndef", "bz_rnhvy",
-              "bz_rnwr", "bz_rnwc", "bz_rnhedge", "bz_rwtmin"):
+              "bz_rnwr", "bz_rnwc", "bz_rnhedge", "bz_rwtmin", "bz_rnpwt"):
         if n in g.sym:
             pkg[n[4:] if n.startswith("bz_r") else n[3:]] = g.w(n)
     refresh = (c1 - c0) / float(f1 - f0)
@@ -257,81 +324,133 @@ def feats(r):
     return "; " + ", ".join(out) if out else ""
 
 
-LEGS = ("bench", "heavy", "trial", "mill", "ride")
+LEGS = ("bench", "trial", "mill", "ride", "corner")
+SOUNDS = ("off", "on")
 
 
-def run(tag, apps=None, src=None, art=None, trial=True, legs=LEGS, ab_steps=None):
-    """-> [(label, failures, summary)].  Wave 3's legs (SPEC.md 128.12.13.2):
-    BENCH with [bz_hvoff] 1 (the A/B leg: wave 2's camera, so it measures the
-    engine; 0 misses ASSERTED), BENCH with the heavy rule (reported), TRIAL with
-    it (the busy of every miss, reported) and its camera, MILL (bz_wover and
-    bz_wlate 0 ASSERTED, the rest reported) and the poked RIDE.  A build without
-    the heavy rule (wave 2's, the A/B's other side) runs BENCH alone."""
+def set_snd(g, on):
+    """the sound OFF or at S's AUTO (bzs_mode, the player's own choice, which
+    persists across plays): a build without the sound (wave 3's) has neither"""
+    if "bzs_mode" not in g.sym:
+        return
+    g.m.pause()
+    g.putb("bzs_mode", SND_AUTO if on else SND_OFF)
+    g.m.run()
+
+
+ADLIB = "os8088_5150_sb"       # the 5150 with an AdLib (SOUND.DRV at boot): S's AUTO plays the chip there
+
+
+def run(tag, apps=None, src=None, art=None, trial=True, legs=LEGS, ab_steps=None, sounds=SOUNDS, old=False,
+        machine=None):
+    """-> [(label, failures, summary)].  Wave 3b's legs (SPEC.md 128.13.12,
+    128.13.15; the module's docstring).  OLD: the A/B's other side, wave 3's
+    build - BENCH ([bz_hvoff] 1) and MILL alone, no sound.  MACHINE: another
+    MartyPC machine of the card TAG (the AdLib arm's)."""
     sym = R.symbols(src, art)
-    w3 = "bz_hvoff" in sym
     out = []
     with os88ui.boot(R.at("build/os8088-360.img"), apps=apps or R.at("build/bonanza360.img"),
-                     machine=R.MACHINE[tag]) as ui:
+                     machine=machine or R.MACHINE[tag]) as ui:
         ui.open_drive("B")
         ui.open("BONANZA.O88")
         g = R.Bz(ui, tag, sym)
         ui.settle()
-        if "bench" in legs:
-            # THE A/B LEG IS LIKE FOR LIKE: wave 2 has no sound, so this tree's sound is OFF for it (S's own
-            # choice, SPEC.md 128.20.4) and back to AUTO for the legs after it, which price it as played.
-            # The sound's own price is bonanzasound's (SPEC.md 128.20.7)
-            snd = "bzs_mode" in sym
-            if snd:
-                g.m.pause()
-                g.putb("bzs_mode", 3)
-                g.m.run()
-            fr, pkg, refresh, npres = measure(g, pokes={"bz_hvoff": 1})
-            if snd:
-                g.m.pause()
-                g.putb("bzs_mode", 0)
-                g.m.run()
-            bad, summ = report(tag + (" BENCH (A/B: bz_hvoff 1)" if w3 else " BENCH"), fr, pkg, refresh, npres)
-            if w3 and summ["miss"]:
-                # a miss on a frame that ran MORE physics steps than wave 2's same frame is the step clock's
-                # phase against the refresh (each build catches up on its own frames), not the engine's:
-                # reported beside the A/B; every other miss fails it (the final pass)
-                own, phase = [], []
-                for m_ in summ["misses"]:
-                    i = m_[0] - 1
-                    s3 = summ["steps"][i]
-                    s2 = ab_steps[i] if ab_steps and i < len(ab_steps) else None
-                    (phase if s2 is not None and s3 > s2 else own).append((m_, s3, s2))
-                for m_, s3, s2 in phase:
-                    print("  the A/B leg's miss at frame %d (busy %d): %d physics steps against %d on %s's same "
-                          "frame - the step clock's phase, REPORTED" % (m_[0], m_[1], s3, s2, AB_COMMIT), flush=True)
-                if own:
-                    bad.append("%s BENCH, the A/B leg: %d missed refreshes on frames running no more steps than "
-                               "wave 2's, 0 asserted (SPEC.md 128.12.13.2): %s" % (
-                                   tag, len(own), ", ".join("frame %d busy %d%s" % m_ + " (%s steps, wave 2 %s)" % (
-                                       s3, s2) for m_, s3, s2 in own[:6])))
-            out.append(("BENCH", bad, summ))
-        if not w3:
-            return out
-        if "heavy" in legs:
-            fr, pkg, refresh, npres = measure(g, pokes={"bz_hvoff": 0})
-            bad, summ = report(tag + " BENCH (the heavy rule)", fr, pkg, refresh, npres)
-            heavy_line(tag, pkg, summ)
-            out.append(("BENCH heavy", bad, summ))
-        if trial and "trial" in legs:
-            fr, pkg, refresh, npres = measure(g, crs=R.CRS_K["trial"], pokes={"bz_hvoff": 0})
-            bad, summ = report(tag + " TRIAL (the heavy rule)", fr, pkg, refresh, npres)
-            heavy_line(tag, pkg, summ)
-            out.append(("TRIAL", bad, summ))
-            summ["camera"] = camera(g, tag)
-        if "mill" in legs:
-            fr, pkg, refresh, npres = measure(g, crs=R.CRS_K["mill"], pokes={"bz_hvoff": 0})
-            bad, summ = report(tag + " MILL", fr, pkg, refresh, npres)
-            heavy_line(tag, pkg, summ)
-            bad += mill_line(tag, fr, pkg, summ, refresh)
-            out.append(("MILL", bad, summ))
-        if "ride" in legs:
-            out.append(("ride",) + ride(g, tag))
+        if old:
+            sounds = ("off",)
+        for snd in sounds:
+            on = snd == "on"
+            set_snd(g, on)
+            lab = " (sound %s)" % snd.upper()
+            if "bench" in legs:
+                # OFF: THE A/B LEG, LIKE FOR LIKE - wave 3 has no sound, and both builds run [bz_hvoff] 1 (no
+                # heavy rule), engine against engine.  ON: the shipped camera, as played (REPORTED)
+                hv = 1 if not on else 0
+                fr, pkg, refresh, npres = measure(g, pokes={"bz_hvoff": hv})
+                bad, summ = report("%s BENCH (bz_hvoff %d)%s" % (tag, hv, lab), fr, pkg, refresh, npres)
+                idle_line(fr, refresh, summ)
+                if on:                          # (its busy and misses REPORTED; the floor and the
+                    heavy_line(tag, pkg, summ)  # instruments' agreement asserted as on every leg)
+                elif not old and summ["miss"]:
+                    bad += phase_misses(tag, summ, ab_steps)
+                out.append(("BENCH " + snd, bad, summ))
+            if old:
+                if "mill" in legs:
+                    fr, pkg, refresh, npres = measure(g, crs=R.CRS_K["mill"], pokes={"bz_hvoff": 0})
+                    bad, summ = report("%s MILL (%s)" % (tag, AB_COMMIT[:8]), fr, pkg, refresh, npres)
+                    mill_line(tag, fr, pkg, summ, refresh, assert_lift=False, assert_wheel=False)
+                    out.append(("MILL off", bad, summ))
+                continue
+            if trial and "trial" in legs:
+                fr, pkg, refresh, npres = measure(g, crs=R.CRS_K["trial"], pokes={"bz_hvoff": 0})
+                bad, summ = report("%s TRIAL (the shipped camera)%s" % (tag, lab), fr, pkg, refresh, npres)
+                heavy_line(tag, pkg, summ)
+                # TRIAL has no slab and no prop: its camera is bz_hvoff 1's exactly (SPEC.md 128.13.6)
+                if pkg.get("nhvy", 0):
+                    bad.append("%s TRIAL%s: bz_nhvy %d, 0 asserted - TRIAL has no slab, so no frame of it is "
+                               "heavy (SPEC.md 128.13.6)" % (tag, lab, pkg["nhvy"]))
+                print("  TRIAL's misses %d%s, against wave 2's 8 (CGA) / 2 (Hercules): REPORTED (128.13.6)" % (
+                    summ["miss"], lab), flush=True)
+                out.append(("TRIAL " + snd, bad, summ))
+                if not on:
+                    summ["camera"] = camera(g, tag)
+            if "mill" in legs:
+                ways = ((0, "this build"), (1, "this build, bz_hvoff 1")) if not on else ((0, "this build"),)
+                for hv, what in ways:
+                    fr, pkg, refresh, npres = measure(g, crs=R.CRS_K["mill"], pokes={"bz_hvoff": hv})
+                    bad, summ = report("%s MILL (%s)%s" % (tag, what, lab), fr, pkg, refresh, npres)
+                    heavy_line(tag, pkg, summ)
+                    bad += mill_line(tag, fr, pkg, summ, refresh, assert_lift=on and hv == 0)
+                    idle_line(fr, refresh, summ)
+                    out.append(("MILL %s%s" % (snd, "" if not hv else " hvoff"), bad, summ))
+            if "ride" in legs:
+                bad, summ = ride(g, tag, corner=False, on=on)
+                out.append(("ride " + snd, bad, summ))
+            if "corner" in legs:
+                bad, summ = ride(g, tag, corner=True, on=on)
+                out.append(("corner ride " + snd, bad, summ))
+        set_snd(g, True)                        # (S back at AUTO for whatever runs next)
     return out
+
+
+def phase_misses(tag, summ, ab_steps):
+    """the A/B leg's misses: one on a frame that ran MORE physics steps than
+    wave 3's same frame is the step clock's phase against the refresh (each
+    build catches up on its own frames), not the engine's - REPORTED; every
+    other miss fails it (SPEC.md 128.13.12).  With no A/B run (the registered
+    row: the A/B is the final pass's by-hand run, 128.13.14 item 11) there is
+    no same frame to compare, so a miss on a frame running MORE THAN ONE step
+    is that phase's by the same rule, REPORTED, and a one-step miss still
+    fails (the final pass of wave 3b: CGA frame 400 and the Hercules' frame
+    953, two steps each, missed in one run and not in the next).
+    -> failures"""
+    own, phase = [], []
+    for m_ in summ["misses"]:
+        i = m_[0] - 1
+        s3 = summ["steps"][i]
+        s2 = ab_steps[i] if ab_steps and i < len(ab_steps) else None
+        (phase if (s3 > s2 if s2 is not None else not ab_steps and s3 > 1) else own).append((m_, s3, s2))
+    for m_, s3, s2 in phase:
+        print("  the A/B leg's miss at frame %d (busy %d): %d physics steps against %s on %s's same "
+              "frame - the step clock's phase, REPORTED" % (
+                  m_[0], m_[1], s3, s2 if s2 is not None else "(no A/B run: more than one)", AB_COMMIT[:8]),
+              flush=True)
+    if not own:
+        return []
+    return ["%s BENCH, the A/B leg: %d missed refreshes on frames running no more steps than %s's, 0 "
+            "asserted (SPEC.md 128.13.12): %s" % (tag, len(own), AB_COMMIT[:8], ", ".join(
+                "frame %d busy %d%s" % m_ + " (%s steps, %s %s)" % (s3, AB_COMMIT[:8], s2) for m_, s3, s2 in own[:6]))]
+
+
+def idle_line(fr, refresh, summ):
+    """THE WHEEL'S SPARE RETRACE IDLE (SPEC.md 128.13.15 item 3): the retrace
+    wait's part - bz_tv .. bz_tf, the idle the wheel left - a frame, REPORTED"""
+    xs = [r["parts"]["retrace wait"] for r in fr if not r["full"] and "parts" in r]
+    wh = [r["parts"]["wheel"] for r in fr if not r["full"] and "parts" in r]
+    s, w = stats(xs), stats(wh)
+    summ["idle"] = s
+    print("  the wheel's SPARE retrace idle (the wait after the wheel), a frame: mean %.0f clk (%.1f%% of a refresh), "
+          "p10 %d, min %d; the wheel's own part mean %.0f clk" % (s["mean"], 100.0 * s["mean"] / refresh, s["p10"],
+                                                                 s["min"], w["mean"]), flush=True)
 
 
 def heavy_line(tag, pkg, summ):
@@ -341,83 +460,196 @@ def heavy_line(tag, pkg, summ):
               pkg.get("npbx", 0), pkg.get("ndef", 0)), flush=True)
 
 
-def mill_line(tag, fr, pkg, summ, refresh):
-    """MILL's leg: bz_wover and bz_wlate 0 ASSERTED; the wheel's, the contact
-    groups' and the must-draw frames' figures REPORTED.  -> failures"""
+def mill_line(tag, fr, pkg, summ, refresh, assert_lift=False, assert_wheel=True):
+    """a MILL leg: bz_wover and bz_wlate 0 ASSERTED (a build with the wheel's
+    3b counters, not the A/B's other side); the wheel's, the contact groups'
+    and the must-draw frames' figures, and THE LIFT STRETCH, REPORTED - and
+    with ASSERT_LIFT (the sound ON, this build's shipped camera) the
+    Hercules' stretch at most LIFT_MISS missed refreshes (SPEC.md 128.13.4.5,
+    128.13.14 items 2 and 3, 128.13.15 item 2).  -> failures"""
     bad = []
     meas = [r for r in fr if not r["full"] and "busy" in r]
     print("  the wheel: commits %d (the breakpoints %d), LEADs %d, skipped waits %d, overruns %d, lanes late %d, the "
           "trim's lowest %d" % (pkg.get("wcom", 0), sum(r["commits"] for r in fr), pkg.get("wlead", 0),
                                 pkg.get("wskip", 0), pkg.get("wover", 0), pkg.get("wlate", 0), pkg.get("wtmin", 0)),
           flush=True)
+    sb = stats([r["busy"] for r in meas])
+    summ["busy_p95"] = sb["p95"]
+    print("  MILL busy mean %.0f (%.0f%%), p95 %d (%.0f%%); contact groups %d, platform boxes %d (bz_npbx), waited "
+          "%d (bz_npwt), promotions %d (bz_props.promo), contact lanes that waited %d" % (
+              sb["mean"], 100.0 * sb["mean"] / refresh, sb["p95"], 100.0 * sb["p95"] / refresh, pkg.get("ncon", 0),
+              pkg.get("npbx", 0), pkg.get("npwt", 0), sum(r["promo"] for r in fr), pkg.get("ndef", 0)), flush=True)
+    summ["mill"] = {"npbx": pkg.get("npbx", 0), "ncon": pkg.get("ncon", 0), "npwt": pkg.get("npwt", 0),
+                    "promo": sum(r["promo"] for r in fr)}
     must = [r["busy"] for r in meas if r["must"]]
     con = [r["busy"] for r in meas if r["contact"] and not r["must"]]
     pbx = [r["busy"] for r in meas if r["pbox"]]
     for what, xs in (("must-draw rotor", must), ("contact lane", con), ("platform box", pbx)):
         s = stats(xs)
-        print("  %s frames %d: busy mean %.0f clk (%.0f%%), max %d (%.0f%%)%s" % (
-            what, s["n"], s["mean"], 100.0 * s["mean"] / refresh, s["max"], 100.0 * s["max"] / refresh,
+        print("  %s frames %d: busy mean %.0f clk (%.0f%%), p95 %d, max %d (%.0f%%)%s" % (
+            what, s["n"], s["mean"], 100.0 * s["mean"] / refresh, s["p95"], s["max"], 100.0 * s["max"] / refresh,
             "" if what != "must-draw rotor" else ": " + ", ".join("%d" % x for x in must[:12])), flush=True)
     print("  MILL's misses, each with its busy (REPORTED: SPEC.md 128.12.11's target is a miss only on the cannon's "
           "flight and the chute's fall): %s" % (", ".join("frame %d busy %d%s" % m_ for m_ in summ["misses"])
                                                  or "none"), flush=True)
+    bad += lift_line(tag, fr, refresh, summ, assert_lift)
     for n in ("wover", "wlate"):
-        if pkg.get(n, 0):
-            bad.append("%s MILL: bz_%s %d, 0 asserted (SPEC.md 128.12.13.2)" % (tag, n, pkg[n]))
+        if assert_wheel and pkg.get(n, 0):
+            bad.append("%s MILL: bz_%s %d, 0 asserted (SPEC.md 128.13.12)" % (tag, n, pkg[n]))
     return bad
 
 
+def lift_line(tag, fr, refresh, summ, assert_lift):
+    """THE LIFT STRETCH (SPEC.md 128.13.4.5): every frame that draws the
+    platform's box or waits one, and the frame after each; its MISSED frames
+    (period over 1.5 refreshes, bz_miss's rule), each with its parts, boxes,
+    steps and the sound's share; the share of the lift's line changes that
+    waited and the longest wait / draw alternation.  -> failures"""
+    lift = [i for i, r in enumerate(fr) if r.get("pbox") or r.get("pwt")]
+    span = sorted(set(lift) | {i + 1 for i in lift if i + 1 < len(fr)})
+    miss = [i for i in span if not fr[i]["full"] and fr[i]["period"] and fr[i]["period"] > 1.5 * refresh]
+    nw = sum(1 for r in fr if r.get("pwt"))
+    nd = sum(1 for r in fr if r.get("pbox"))
+    best = run_ = 0
+    last = None
+    for i, r in enumerate(fr):
+        k = "w" if r.get("pwt") else "d" if r.get("pbox") else None
+        if k and last and last[0] == i - 1 and last[1] != k:
+            run_ += 1
+        else:
+            run_ = 1 if k else 0
+        best = max(best, run_)
+        last = (i, k) if k else None
+    summ["lift"] = {"frames": len(span), "miss": len(miss), "waits": nw, "draws": nd, "alt": best}
+    print("  THE LIFT STRETCH: %d frames (the platform's box drawn on %d, WAITED on %d: %.0f%% of the lift's line "
+          "changes waited; the longest wait / draw alternation %d frames); missed refreshes %d%s" % (
+              len(span), nd, nw, 100.0 * nw / float(nw + nd or 1), best, len(miss),
+              " (ASSERTED at most %d on the Hercules, REPORTED on the CGA)" % LIFT_MISS if assert_lift else
+              " (REPORTED)"), flush=True)
+    for i in miss:
+        r = fr[i]
+        print("    lift miss: frame %d, period %d (%.2f refreshes), BUSY %d (%.0f%%): %s; %d steps, %d boxes, %s%s; "
+              "the sound %d clk of it" % (
+                  i + 1, r["period"], r["period"] / refresh, r["busy"], 100.0 * r["busy"] / refresh,
+                  ", ".join("%s %d" % (p, r["parts"][p]) for p in PARTS if p in r["parts"]), r["steps"], r["boxes"],
+                  "WAITED" if r.get("pwt") else "the box" if r.get("pbox") else "the frame after", feats(r),
+                  r.get("snd", 0)), flush=True)
+    if assert_lift and tag == "herc" and len(miss) > LIFT_MISS:
+        return ["%s MILL (sound ON): the lift stretch missed %d refreshes, at most %d asserted on the Hercules "
+                "(SPEC.md 128.13.4.5): frames %s" % (tag, len(miss), LIFT_MISS, [i + 1 for i in miss][:12])]
+    return []
+
+
 RIDE_STEPS = 32 + 2 * 128 + 8           # the low dock, a rise and a descent (P 256), and its last dock
+RIDE_CORNER = 5                         # gu: the corner ride's ball this far toward the diamond's LEFT
+                                        # corner (gx - d, gy + d: 2d px left on the screen) - its footprint's
+                                        # words leave the slab's four, so wave 3's two boxes (128.13.4.1)
 
 
-def ride(g, tag):
-    """the RIDE leg (SPEC.md 128.12.13.2): play on MILL, the ball poked onto
-    the LIFT's slab at its low dock at the first bz_t0 and carried, no key held,
-    up and down, under the logged marks: the busy of its frames whose slab line
-    changed (the platform's box: bz_cslab) and of those it did not, and its
-    misses - REPORTED (O30)"""
+def ride(g, tag, corner=False, on=True):
+    """THE RIDE (SPEC.md 128.13.4.1, 128.13.12): play on MILL, the ball poked
+    onto the LIFT's slab at its low dock at the first bz_t0 and carried, no key
+    held, up and down - its middle (the RIDE BOX), or with CORNER toward the
+    diamond's left corner (two boxes, the residue).  bz_tpoke 1 times its boxes
+    (bz_late); a stop at bz_presented reads GLIDE's withheld rows (bz_nwr).
+    The middle with the sound OFF (the engine's figure): no miss on a
+    line-change frame (the platform's box, bz_cslabr) and bz_late 0,
+    ASSERTED; with it ON, and the rest, REPORTED.
+    -> (failures, summary)"""
     m = g.m
     crs = R.course("mill")
     P_ = R.plat_rec(crs)
     a = addrs(g)
+    pres = a.pop("bz_presented")
     wk = R.Walker(g, t0=True)
     m.bp_exec(g.a("bz_launch"))
     g.key("Enter")
     assert m.wait_stop(60) == "breakpoint", "Enter did not reach bz_launch"
     g.putb("bz_crs", R.CRS_K["mill"])
     g.putb("bz_hvoff", 0)
+    g.putb("bz_tpoke", 1)                       # its boxes timed: bz_latechk counts bz_late (128.13.4.1)
     m.bp_exec(wk.t0)
     m.run()
     assert m.wait_stop(60) == "breakpoint", "the MILL play did not reach bz_t0"
-    R.slab_ball(g, P_, g.d("bz_nstep"), 0, 0, True)
+    n = g.d("bz_nstep")
+    R.slab_ball(g, P_, n, 0, 0, True)
+    if corner:                                  # toward the diamond's left corner: gx - d, gy + d
+        d = RIDE_CORNER << 8
+        gx, gy, gz = g.d("bz_gx") - d, g.d("bz_gy") + d, g.sd("bz_gz")
+        R.poke_ball(g, gx, gy, gz, 0, 0, 0, air=0, ztop=gz >> 8)
     m.bp_exec()
-    with M.bp_trace(m, *a.values(), log=list(a.values()), cap=RIDE_STEPS * 80 + 20000) as tr:
+
+    def on_hit(mm, rec):
+        return (g.w("bz_nwr"), g.w("bz_late"), g.b("bz_onp"))
+    with M.bp_trace(m, *(list(a.values()) + [pres]), log=list(a.values()), on_hit=on_hit,
+                    cap=RIDE_STEPS * 90 + 20000) as tr:
         m.run()
         M.until(m, lambda _: g.d("bz_nstep") >= RIDE_STEPS, "the ride's %d steps" % RIDE_STEPS, guest=120)
         m.pause()
         hits = tr.hits
         onp = g.b("bz_onp")
+        late = g.w("bz_late")
+        g.putb("bz_tpoke", 0)
         m.run()
     g.key("Escape")
     M.until(m, lambda _: g.b("bz_fs") == 0, "the ride ends on Esc", guest=60)
     R.dropped(g, "the ride")
+    a["bz_presented"] = pres
     fr = frames_of(hits, a)
     meas = [r for r in fr if not r["full"] and "busy" in r]
     refresh = R_REFRESH[tag]
     chg = [r for r in meas if r["pbox"]]
     same = [r for r in meas if not r["pbox"]]
-    miss = [(fr.index(r) + 1, r["busy"], bool(r["pbox"])) for r in meas if r["period"] > 1.5 * refresh]
+    miss = [(fr.index(r) + 1, r["busy"], bool(r["pbox"]), r["boxes"], r.get("snd", 0)) for r in meas
+            if r["period"] > 1.5 * refresh]
     s1, s2 = stats([r["busy"] for r in same]), stats([r["busy"] for r in chg])
-    print("\n%s RIDE (MILL, poked onto the slab, %d steps, still carried at the end: %s): %d frames; the slab's line "
-          "unchanged on %d, busy mean %.0f (%.0f%%) max %d (%.0f%%); its line changed (its box) on %d, busy mean %.0f "
-          "(%.0f%%) max %d (%.0f%%); misses %d%s (REPORTED, O30)" % (
-              tag.upper(), RIDE_STEPS, "yes" if onp else "NO", len(meas), s1["n"], s1["mean"],
-              100.0 * s1["mean"] / refresh, s1["max"], 100.0 * s1["max"] / refresh, s2["n"], s2["mean"],
-              100.0 * s2["mean"] / refresh, s2["max"], 100.0 * s2["max"] / refresh, len(miss),
-              ": " + ", ".join("frame %d busy %d%s" % (f, b, " (a line change)" if c else "") for f, b, c in miss)
-              if miss else ""), flush=True)
-    bad = [] if chg else ["%s RIDE: no frame drew the platform's box: the ride never rode" % tag]
-    return bad, {"same": s1, "change": s2, "miss": miss}
+    one = sum(1 for r in chg if r["boxes"] == 1)
+    # GLIDE's withheld rows: bz_nwr's growth a frame, and the longest run of frames that withheld one
+    nwr = [r["hit"][0] for r in fr if r.get("hit")]
+    grow = [max(0, b - a_) for a_, b in zip(nwr, nwr[1:])]
+    longest = cur = 0
+    for x in grow:
+        cur = cur + 1 if x else 0
+        longest = max(longest, cur)
+    what = "CORNER RIDE (the ball %d gu toward the slab's left corner)" % RIDE_CORNER if corner else \
+        "RIDE (the ball on the slab's middle: the ride box)"
+    lab = "sound %s" % ("ON" if on else "OFF")
+    print("\n%s %s, %s (MILL, %d steps, still carried at the end: %s): %d frames; the slab's line unchanged on %d, "
+          "busy mean %.0f (%.0f%%) max %d; its line changed on %d (%d of them ONE box), busy mean %.0f (%.0f%%) p95 %d "
+          "max %d (%.0f%%); misses %d%s; bz_late %d; GLIDE's rows withheld %d, the longest deferral %d frames" % (
+              tag.upper(), what, lab, RIDE_STEPS, "yes" if onp else "NO", len(meas), s1["n"], s1["mean"],
+              100.0 * s1["mean"] / refresh, s1["max"], s2["n"], one, s2["mean"], 100.0 * s2["mean"] / refresh,
+              s2["p95"], s2["max"], 100.0 * s2["max"] / refresh, len(miss),
+              ": " + ", ".join("frame %d busy %d%s, %d boxes, the sound %d" % (
+                  f, b, " (a LINE CHANGE)" if c else "", nb, sn) for f, b, c, nb, sn in miss) if miss else "", late,
+              sum(grow), longest), flush=True)
+    bad = []
+    if not chg:
+        bad.append("%s %s (%s): no frame drew the platform's box: the ride never rode" % (tag, what, lab))
+    if not onp:
+        bad.append("%s %s (%s): the ball is no longer carried at the ride's end" % (tag, what, lab))
+    # THE ENGINE'S figure is asserted - the ride with the sound OFF (the review of wave 3b, C6): the lift
+    # stage MEASURED its line-change p95 at 66.2k and max 67.4k on the CGA, and the speaker's worst frame
+    # (a downbeat, 13.4k, SPEC.md 128.20.7) on one of those is a miss decided by where the song's bar falls
+    # against the lift's phase, not by the engine - so ON is REPORTED, each miss with its sound share
+    # (128.13.15 item 2)
+    if not corner:
+        lc = [x for x in miss if x[2]]
+        if lc and not on:
+            bad.append("%s RIDE (sound OFF): %d missed refreshes on line-change frames, none asserted (SPEC.md "
+                       "128.13.4.5): %s" % (tag, len(lc), ", ".join("frame %d busy %d, %d boxes, the sound %d" % (
+                           x[0], x[1], x[3], x[4]) for x in lc[:6])))
+        elif lc:
+            print("  %s RIDE (sound ON): %d missed refreshes on line-change frames, REPORTED: %s" % (
+                tag.upper(), len(lc), ", ".join("frame %d busy %d (the sound %d of it), %d boxes" % (
+                    x[0], x[1], x[4], x[3]) for x in lc[:6])), flush=True)
+        if late and not on:
+            bad.append("%s RIDE (sound OFF): bz_late %d, 0 asserted (a ride box the beam overtook, SPEC.md "
+                       "128.13.4.1)" % (tag, late))
+        elif late:
+            print("  %s RIDE (sound ON): bz_late %d, REPORTED" % (tag.upper(), late), flush=True)
+    return bad, {"same": s1, "change": s2, "miss": miss, "late": late, "one": one, "withheld": sum(grow),
+                 "defer": longest}
 
 
 R_REFRESH = {"cga": 79648.0, "herc": 93790.0}     # clocks, MartyPC's cards (wave 2's measured periods)
@@ -550,23 +782,19 @@ def reachable(commit):
 
 
 def fetch(commit):
-    """the commit into this clone if it can be had: -> None, or why not
-    (docs/UPSTREAM.md Rule 0: a shallow clone answers ancestry wrongly, so
-    unshallow it first; then ask origin for the commit itself)"""
+    """-> None when the commit is in this clone, else why not and the command
+    that would bring it.  A ROW never fetches (the review of wave 3b, R1):
+    unshallowing or fetching is a network fetch and a change to the user's
+    repository as a side effect of a test, and its result changes what later
+    git ancestry answers say (docs/UPSTREAM.md Rule 0) - so the reason names
+    the command and the person runs it"""
     if reachable(commit):
         return None
-    tried = []
-    if git("rev-parse", "--is-shallow-repository").stdout.strip() == "true":
-        r = git("fetch", "--unshallow")
-        tried.append("git fetch --unshallow: %s" % ("ok" if r.returncode == 0 else r.stderr.strip()[-120:]))
-        if reachable(commit):
-            return None
-    r = git("fetch", "origin", commit)
-    tried.append("git fetch origin %s: %s" % (commit, "ok" if r.returncode == 0 else r.stderr.strip()[-120:]))
-    if reachable(commit):
-        return None
-    return "%s is not in this clone and could not be fetched (%s) - after upstream's squash merge no clone " \
-           "of main has it" % (commit, "; ".join(tried))
+    shallow = git("rev-parse", "--is-shallow-repository").stdout.strip() == "true"
+    return "%s is not in this clone (%s; `git fetch origin %s` asks for it by its full id) - after upstream's " \
+           "squash merge no clone of main has it" % (
+               commit, "SHALLOW: `git fetch --unshallow` first, docs/UPSTREAM.md Rule 0" if shallow else "not shallow",
+               commit)
 
 
 def ab_tree(td, commit=AB_COMMIT):
@@ -592,8 +820,8 @@ def ab_tree(td, commit=AB_COMMIT):
         if os.path.isdir(os.path.join(w, "apps", "bonanza", "courses")) else []
     mk = git("show", "%s:Makefile" % commit).stdout
     order = []
-    for line in mk.splitlines():
-        if line.startswith("BZ_COURSES :="):
+    for line in mk.replace("\\\n", " ").splitlines():      # (its continuation lines joined: wave 3's
+        if line.startswith("BZ_COURSES :="):                # list runs over two)
             order = line.split(":=", 1)[1].split()
     if order and "tools/bbcourse.py" in tools:
         subprocess.run([sys.executable, os.path.join(w, "tools", "bbcourse.py"), "-o", art] +
@@ -617,27 +845,74 @@ def ab_tree(td, commit=AB_COMMIT):
     return img, src, art
 
 
-def ab_print(tag, new, old, commit):
-    print("\n%s A/B: wave 3 (this tree, bz_hvoff 1) against %s, each on its own BENCH benchmark (busy: all but "
-          "the retrace wait and the wheel)" % (tag.upper(), commit))
-    print("  %-14s %9s %9s %9s" % ("", "wave 3", commit, "delta"))
-    for p in PARTS + ["busy", "period"]:
-        a = new["parts"].get(p, 0) if p in PARTS else new[p]
-        b = old["parts"].get(p, 0) if p in PARTS else old[p]
-        print("  %-14s %9.0f %9.0f %+9.0f" % (p, a, b, a - b))
-    print("  %-14s %8.1f%% %8.1f%%" % ("busy share", 100.0 * new["busy"] / new["refresh"],
-                                        100.0 * old["busy"] / old["refresh"]))
-    print("  %-14s %9d %9d" % ("misses", new["miss"], old["miss"]))
+def ab_print(tag, res, ores, commit):
+    """the A/B (SPEC.md 128.13.12): BENCH, sound OFF and bz_hvoff 1 on both,
+    part by part - its mean busy at least AB_BUSY under wave 3's on the CGA,
+    ASSERTED (128.13.14 item 11), the Hercules' REPORTED - and MILL three
+    ways, side by side.  -> failures"""
+    new = dict((lab, s) for lab, _, s in res)
+    old = dict((lab, s) for lab, _, s in ores)
+    bad = []
+    if "BENCH off" in new and "BENCH off" in old:
+        n, o = new["BENCH off"], old["BENCH off"]
+        print("\n%s A/B: BENCH, this build against %s, sound OFF and bz_hvoff 1 on both (busy: all but the retrace "
+              "wait and the wheel)" % (tag.upper(), commit))
+        print("  %-14s %9s %9s %9s" % ("", "wave 3b", commit, "delta"))
+        for p in PARTS + ["busy", "period"]:
+            a = n["parts"].get(p, 0) if p in PARTS else n[p]
+            b = o["parts"].get(p, 0) if p in PARTS else o[p]
+            print("  %-14s %9.0f %9.0f %+9.0f" % (p, a, b, a - b))
+        print("  %-14s %8.1f%% %8.1f%%" % ("busy share", 100.0 * n["busy"] / n["refresh"],
+                                            100.0 * o["busy"] / o["refresh"]))
+        print("  %-14s %9d %9d" % ("misses", n["miss"], o["miss"]))
+        d = o["busy"] - n["busy"]
+        print("  BENCH's mean busy %.0f clk under %s's (at least %d %s, SPEC.md 128.13.14 item 11)" % (
+            d, commit, AB_BUSY, "ASSERTED on the CGA" if tag == "cga" else "on the CGA; the Hercules REPORTED"))
+        if tag == "cga" and d < AB_BUSY:
+            bad.append("%s A/B: BENCH's mean busy %.0f clk against %s's %.0f, %.0f lower - at least %d asserted "
+                       "(SPEC.md 128.13.14 item 11)" % (tag, n["busy"], commit, o["busy"], d, AB_BUSY))
+    ways = [("this build", new.get("MILL off")), ("bz_hvoff 1", new.get("MILL off hvoff")),
+            (commit, old.get("MILL off"))]
+    if all(w[1] for w in ways):
+        print("\n%s MILL three ways, sound OFF (REPORTED, SPEC.md 128.13.12):" % tag.upper())
+        print("  %-12s %8s %8s %6s %6s %6s %6s %6s %9s" % ("", "busy", "p95", "misses", "npbx", "ncon", "npwt",
+                                                          "promo", "lift miss"))
+        for what, s in ways:
+            mi = s.get("mill", {})
+            print("  %-12s %8.0f %8d %6d %6d %6d %6s %6s %9s" % (
+                what, s["busy"], s.get("busy_p95", 0), s["miss"], mi.get("npbx", 0), mi.get("ncon", 0),
+                mi.get("npwt", "-") if what != commit else "-", mi.get("promo", "-") if what != commit else "-",
+                s.get("lift", {}).get("miss", "-")))
+    return bad
 
 
 REDS = {
     # the calibration's word-line HALVED after it runs: the wheel underprices its
     # commits and the late ones end past their deadline (SPEC.md 128.12.13.2)
-    "halfcal": [("bzwheel.inc", "    call .min1\n    mov [bz_warr], ax\n.out:\n    ret\n",
-                 "    call .min1\n    mov [bz_warr], ax\n    shr word [bz_wlw], 1        ; RED halfcal\n.out:\n    ret\n")],
+    "halfcal": [("bzwheel.inc", "    call .min1\n    mov [bz_warr], ax\n.lcf:\n",
+                 "    call .min1\n    mov [bz_warr], ax\n    shr word [bz_wlw], 1        ; RED halfcal (before bz_lcf)\n"
+                 ".lcf:\n")],
+    # wave 3b (SPEC.md 128.13.12): the ride merge's limit back to BZ_BOXH - the riding line change is two
+    # boxes again, each laying the slab and the ball: the CGA's ride misses (about 85k against 79.6k,
+    # PREDICTED; the Hercules' 87k fits its 93.8k, so the arm is the CGA's)
+    "rideoff": [("bzgame.inc", "    cmp ax, BZ_BOXL             ; CF = it fits ...\n",
+                 "    cmp ax, BZ_BOXH             ; RED rideoff: no ride box\n")],
+    # level 1's occluder-pass and two-box clauses restored (wave 3's bz_hv1, 128.13.6): TRIAL's frames
+    # heavy again
+    "level1": [("bzwheel.inc", "bz_hv1:\n    test byte [bz_pflag], 2     ; (CF = 0)\n    jz .x\n"
+                "    stc\n.x:\n    ret\n",
+                "bz_hv1:                         ; RED level1: wave 3's three clauses\n"
+                "    cmp byte [bz_tube], 0\n    jne .rn\n    test byte [bz_pflag], 2\n    jnz .ry\n"
+                "    push ax\n    push bx\n    push si\n    call bz_passon\n    jnz .rp\n"
+                "    cmp byte [bz_oldv], 0\n    je .rq\n    mov si, bz_nfx0\n    mov bx, bz_ofx0\n"
+                "    call bz_union\n    jmp short .rx\n.rp:\n    stc\n    jmp short .rx\n.rq:\n    clc\n"
+                ".rx:\n    pop si\n    pop bx\n    pop ax\n    ret\n.ry:\n    stc\n    ret\n.rn:\n    clc\n"
+                "    ret\n")],
 }
-RED_LEGS = {"halfcal": ("mill",)}
-RED_WANT = {"halfcal": "bz_wover"}
+# each arm's legs and sound: the ones its check is asserted in
+RED_LEGS = {"halfcal": (("mill",), ("off",)), "rideoff": (("ride",), ("off",)), "level1": (("trial",), ("off",))}
+RED_TAGS = {"rideoff": ("cga",)}
+RED_WANT = {"halfcal": "bz_wover", "rideoff": "line-change frames", "level1": "bz_nhvy"}
 
 
 def main():
@@ -647,9 +922,11 @@ def main():
     ap.add_argument("--src", help="the package source that floppy was built from (default apps/bonanza)")
     ap.add_argument("--art", help="the art directory that source assembled against (default build/bonanza-art)")
     ap.add_argument("--ab", nargs="?", const=AB_COMMIT, metavar="COMMIT",
-                    help="also measure COMMIT's package (default %s, wave 2) built with its own art" % AB_COMMIT)
+                    help="also measure COMMIT's package (default %s, wave 3) built with its own art" % AB_COMMIT)
     ap.add_argument("--no-trial", action="store_true", help="no TRIAL leg, no camera")
     ap.add_argument("--leg", choices=LEGS, action="append", help="only these legs (default all)")
+    ap.add_argument("--sound", choices=SOUNDS, action="append", help="only these sounds (default off and on)")
+    ap.add_argument("--no-adlib", action="store_true", help="no AdLib arm (the CGA's MILL and ride on %s)" % ADLIB)
     ap.add_argument("--red", choices=sorted(REDS))
     ap.add_argument("--check", action="store_true", help="the host half only: every red arm assembles")
     a = ap.parse_args()
@@ -659,11 +936,13 @@ def main():
             print(line)
         return
     if a.red:
+        tags = tuple(t_ for t_ in tags if t_ in RED_TAGS.get(a.red, tags)) or RED_TAGS.get(a.red, tags)
+        legs, sounds = RED_LEGS[a.red]
         with tempfile.TemporaryDirectory() as td:
             src, img = R.build_tree(td, REDS[a.red])
             for tag in tags:
                 try:
-                    bad = [b for _, bb, _ in run(tag, img, src, legs=RED_LEGS[a.red]) for b in bb]
+                    bad = [b for _, bb, _ in run(tag, img, src, legs=legs, sounds=sounds) for b in bb]
                 except AssertionError as e:
                     bad = ["assertion: %s" % e]
                 for b in bad:
@@ -680,7 +959,7 @@ def main():
     if a.ab:
         skip = fetch(a.ab)
         if skip:
-            print("bonanza_perf: SKIP the A/B leg: %s.  Wave 3 runs alone; the row exits %d, which is not a pass"
+            print("bonanza_perf: SKIP the A/B leg: %s.  This build runs alone; the row exits %d, which is not a pass"
                   % (skip, SKIP_RC), flush=True)
             a.ab = None
     td = tempfile.mkdtemp(prefix="bzab") if a.ab else None
@@ -688,26 +967,38 @@ def main():
         ab = ab_tree(td, a.ab) if a.ab else None
         for tag in tags:
             ores = None
-            if ab:                                  # wave 2 first: its frames' step counts judge the A/B's misses
-                ores = run(tag, *ab, trial=False, legs=("bench",))
+            if ab:                                  # wave 3 first: its frames' step counts judge the A/B's misses
+                ores = run(tag, *ab, trial=False, legs=tuple(x for x in legs if x in ("bench", "mill")), old=True)
                 for label, obad, _ in ores:
                     for b in obad:
                         print("FAIL %s (%s): %s" % (tag, a.ab, b))
                     allbad += ["%s: %s" % (a.ab, b) for b in obad]
+            ob = [s for lab, _, s in ores or () if lab == "BENCH off"]
             res = run(tag, a.apps, a.src, a.art, trial=not a.no_trial, legs=legs,
-                      ab_steps=ores[0][2]["steps"] if ores else None)
+                      ab_steps=ob[0]["steps"] if ob else None, sounds=tuple(a.sound) if a.sound else SOUNDS)
             for label, bad, _ in res:
                 for b in bad:
                     print("FAIL %s %s: %s" % (tag, label, b))
                 allbad += bad
-            if ores and res and res[0][0] == "BENCH":
-                ab_print(tag, res[0][2], ores[0][2], a.ab)
+            if ores:
+                bad = ab_print(tag, res, ores, a.ab)
+                for b in bad:
+                    print("FAIL %s A/B: %s" % (tag, b))
+                allbad += bad
+            if tag == "cga" and not a.no_adlib and "on" in (a.sound or SOUNDS):
+                # THE ADLIB ARM (SPEC.md 128.13.15 item 2): S's AUTO on the 5150 with an AdLib plays the
+                # chip - MILL's lift stretch and the ride, REPORTED (nothing asserted)
+                print("\nCGA, THE ADLIB ARM (%s, the sound at AUTO): REPORTED" % ADLIB, flush=True)
+                for label, bad, _ in run(tag, a.apps, a.src, a.art, trial=False, sounds=("on",), machine=ADLIB,
+                                         legs=tuple(x for x in legs if x in ("mill", "ride"))):
+                    for b in bad:
+                        print("  (AdLib, REPORTED) %s %s: %s" % (tag, label, b))
     finally:
         if td:
             shutil.rmtree(td, ignore_errors=True)
     assert not allbad, "%d failure(s)" % len(allbad)
     if skip:
-        print("\nbonanza_perf (%s): wave 3 measured; the A/B leg SKIPPED: %s" % (", ".join(tags), skip))
+        print("\nbonanza_perf (%s): this build measured; the A/B leg SKIPPED: %s" % (", ".join(tags), skip))
         sys.exit(SKIP_RC)
     print("\nbonanza_perf (%s%s): PASS" % (", ".join(tags), ", A/B against %s" % a.ab if a.ab else ""))
 
