@@ -21336,7 +21336,7 @@ BZ_CRSPARTS := $(foreach k,$(shell seq 0 $$(( $(words $(BZ_COURSES)) - 1 ))),$(B
 BZ_BALLS := $(addprefix $(BZ_ART)/,BZBALR.BIN BZBALS.BIN BZBALG.BIN)
 BZ_GEN := $(BZ_ART)/bzconst.inc $(BZ_BALLS)
 BZ_CGEN := $(BZ_ART)/bzcourse.inc $(BZ_CRSPARTS)
-.PHONY: bonanza bonanzadisk bonanza-art bonanza-check bonanza-course-check
+.PHONY: bonanza bonanzadisk bonanza-art bonanza-check bonanza-course-check bonanza-music-check
 # Each tool's run emits all of its generated files.  bonanza_assets.py writes
 # its stamp first and holds a hash of the tool; bbcourse.py compiles every
 # course in memory and writes its stamp (a hash of both tools and the courses)
@@ -21363,17 +21363,32 @@ bonanza-check:
 bonanza-course-check:
 	python3 tools/bbcourse.py --selfcheck $(BZ_COURSES)
 
+# THE SOUND (SPEC.md 128.20): tools/bbmusic.py packs the bank and the songs
+# under apps/bonanza/music/ into BZSND.BIN and one part a song, BZM<S>.BIN,
+# and writes bzsnd.inc.  BZ_SONGS is the tool's SONGS manifest, in its order.
+BZ_SONGS := title fairway trial windmill moonlit summit
+BZ_MUSSRC := apps/bonanza/music/bank.bmb $(addprefix apps/bonanza/music/,$(addsuffix .bmu,$(BZ_SONGS)))
+BZ_SNDPARTS := $(BZ_ART)/BZSND.BIN $(foreach i,0 1 2 3 4 5,$(BZ_ART)/BZM$(i).BIN)
+BZ_SGEN := $(BZ_SNDPARTS) $(BZ_ART)/bzsnd.inc
+$(BZ_ART)/.bz-snd: tools/bbmusic.py $(BZ_MUSSRC) | $(BUILD)
+	python3 tools/bbmusic.py -o $(BZ_ART)
+$(BZ_SGEN): $(BZ_ART)/.bz-snd ;
+#> [Applications] bonanza-music-check :: Bounce Bonanza's music packer's selfcheck: every song's notes, instruments and volumes as the guest's sequencer keys them (SPEC.md 128.20.2)
+bonanza-music-check:
+	python3 tools/bbmusic.py --selfcheck
+
 $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bonanza/bzgame.inc apps/bonanza/bzwheel.inc apps/bonanza/bzphys.inc \
+                      apps/bonanza/bzsound.inc drivers/sound/sndpkg.inc \
                       apps/os88api.inc apps/os88ui.inc apps/os88alt.inc apps/os88parts.inc \
                       apps/os88partsbody.inc apps/os88rseq.inc apps/os88pself.inc \
-                      $(BZ_ART)/bzconst.inc $(BZ_ART)/bzcourse.inc | $(BUILD)
+                      $(BZ_ART)/bzconst.inc $(BZ_ART)/bzcourse.inc $(BZ_ART)/bzsnd.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -l $(BUILD)/bonanza.lst -o $@ $<
 
 # THE ART FILES ARE PARTS OF IT (SPEC.md 128.11.3.1, 20.12), and this --part
 # order MUST equal the OS88_PART rows' order in apps/bonanza/bonanza.asm: rows
 # 0 - 2 the rubber, steel and glass balls, then row 3 + K course K of
-# BZ_COURSES.
-BZ_PARTS := $(BZ_BALLS) $(BZ_CRSPARTS)
+# BZ_COURSES, then the sound part and one part a song (SPEC.md 128.20.3).
+BZ_PARTS := $(BZ_BALLS) $(BZ_CRSPARTS) $(BZ_SNDPARTS)
 $(BUILD)/bonanza.o88: $(BUILD)/bonanza.bin $(BZ_PARTS) tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $< -o $@ $(foreach p,$(BZ_PARTS),--part $(p))
 
@@ -21414,7 +21429,7 @@ bonanzadisk: $(BUILD)/bonanza.img $(BUILD)/bonanza720.img $(BUILD)/bonanza120.im
 # `python3 tests/bonanza_perf.py --red halfcal`.  Each script's `--check`
 # (bonanza_ring's `--check-reds`) is the host half: every red arm's broken
 # copy assembles, and the scenarios are proved on the model.
-.PHONY: bonanzaring bonanzaperf bonanzaphys bonanzareplay bonanzaexit bonanzamega bonanzawheel
+.PHONY: bonanzaring bonanzaperf bonanzaphys bonanzareplay bonanzaexit bonanzamega bonanzawheel bonanzasound
 #> [Applications] bonanzaring :: Bounce Bonanza's ring on MartyPC, CGA and Hercules: card = the oracle with shadow, sprite, occluders, lanes at their drawn poses and the lift's slab; TRIAL's boxes in raster order; MILL's wheel, lead and contact frames; the row-0 probe (SPEC.md 128.11.17.2, 128.12.13.2)
 bonanzaring: bonanzadisk $(BUILD)/os8088-360.img
 	python3 tests/bonanza_ring.py
@@ -21436,3 +21451,6 @@ bonanzamega: bonanzadisk $(BUILD)/mega.img
 #> [Applications] bonanzawheel :: Bounce Bonanza's wheel on MartyPC, CGA and Hercules: MILL's commits ahead of and behind the beam, by the deadline, at their calibrated cost, in the allowed cells; the lead; lit posts (SPEC.md 128.12.13.2)
 bonanzawheel: bonanzadisk $(BUILD)/os8088-360.img
 	python3 tests/bonanza_wheel.py
+#> [Applications] bonanzasound :: Bounce Bonanza's sound on MartyPC, the speaker and the AdLib: the guest's sequencer held to tools/bbmusic.py's, every ball's impacts, S, the chip's shadows, the cost (SPEC.md 128.20.8)
+bonanzasound: bonanzadisk $(BUILD)/os8088-360.img
+	python3 tests/bonanza_sound.py

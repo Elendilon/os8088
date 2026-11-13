@@ -1,0 +1,95 @@
+; BOUNCE BONANZA - song 2, course 2: "Bounce Trial" (SPEC.md 128.20)
+;
+; D dorian at 136.5 BPM - a 16th is one row of SIX sub-ticks (110 ms),
+; straight 16ths, two 4/4 bars a pattern (3.5 s).
+;
+; The rubber ball's course, so the tune BOUNCES: its motif is an octave
+; spring - a low note, the same note an octave up a 16th later, then a
+; syncopated fall through the chord that lands a 16th before the beat.
+; Funk in D dorian: the Dm7 - G7 vamp (the dorian's major IV), a slap bass
+; that pops octaves on the off 16ths, and chord stabs on the "and"s.
+;
+; Intro: the slap bass alone (the speaker plays it: `spkbass`), the stabs
+; join, and the lead springs down a G7 scale onto the motif.
+; A  (4 patterns): the motif over Dm7 - G7, twice; a higher answer; then the
+;    funk turnaround Bb - C - Dm7 (the borrowed bVI - bVII - i).
+; B  (4 patterns): contrast - Fmaj7 G7 | Em7 Am7 | again | A7sus4 A7, long
+;    ARPEGGIATED notes (chiparp / chiparpm sparkle on both arms), disco
+;    octave bass, straight off-beat stabs, claps instead of snares.
+; C  (2 patterns): the BREAK - the lead only answers the bass with short
+;    octave bounces, then the bass drops out and the ball is pumped up:
+;    ten bounces, each higher and sooner than the last, under a snare roll,
+;    the last one (C6, the dorian's flat seventh) falling onto the loop's D.
+; Intro, A A A A, B B B B, C C - 35 s a loop.
+;
+; On the speaker the LEAD carries it (q0: no gaps, so the bass is heard
+; only in the lead's written rests - the octave pops between the motif's
+; notes); kick, snare and clap blip on the beats, hats are chip-only.
+
+song trial "Bounce Trial"
+groove 6
+unit 16
+rows 32
+measure 16
+spkbass
+voice lead chip
+voice bass pluckbass
+voice chord stab
+
+; A note followed by a written rest is spelled as ONE note with a `q` gap
+; (`q6 d8` = d16 r16): the same sound on both arms, two bytes fewer.
+
+; --- the intro: slap bass alone, then the lead springs down onto the motif ---
+lead LI  = q0 r:18 o4 q6 d8 >d8 <d8 q0 >d8 c16 <b16 a16 g16 f16 e16 |
+
+; --- A: the motif (Dm7 | G7) ------------------------------------------------------
+lead LA1 = q0 o4 d8 q6 >d8 q0 c8 <a16 >c8. <a8 g16 q12 a8. |
+           q0 g8 q6 >g8 q0 f8 d16 f8. d8 c16 q12 <b8. |
+lead LA2 = q0 o4 d8 q6 >d8 q0 c8 <a16 >c8. <a8 g16 q12 a8. |
+           q0 g8 a16 b16 >c16 q6 d8 q0 e16 f8 e16 q6 d8 q0 c16 <b8 |
+lead LA3 = q0 o4 a8 q6 >a8 q0 g8 f16 a8. f8 e16 q12 d8. |
+           q0 d8 <b16 q6 >d8 q0 d16 c16 <b16 a8 g8 f8 e8 |
+lead LA4 = q0 o4 f8 a16 q6 >d8 q0 c16 <a8 g8 >c16 q6 e8 q0 d16 c8 |
+           q6 d:7 q0 c16 d8 <a8 >d8 e8 |
+bass BA  = o2 d8. >d16 <d8 d16 >d8 c16 <a8 >c16 d8 <a16 |
+           g8. >g16 <g8 g16 >g8 f16 d8 f16 g8 d16 |
+bass BA4 = o2 b-8. >b-16 <b-8 >b-8 c8. >c16 <c8 >c8 |
+           o2 d8. >d16 <d8 >d16 c16 <a8 >c8 <d8 e8 |
+; the stabs: each a long event whose gate (q) is cut to about 8 sub-ticks
+chord CA = o4 v10 r8 q16 [f a >c]4 q10 [f a >c]:3 q4 [f a >c]8 q34 [f a >c]:7
+           q16 [f b >d]4 q10 [f b >d]:3 q4 [f b >d]8 q22 [f b >d]:5
+chord CA4 = o4 v10 q10 [f b- >d]8. [f b- >d]8. q4 [f b- >d]8 q10 [g >c e]8. [g >c e]8. q4 [g >c e]8 |
+            q28 [f a >c]4. q52 [f a >c]:10 |
+drum DA  = k4 s8. k8. k8 s4 | k4 s4 k16 k8. s8 c8 |
+drum DF  = k4 s8. k8. k8 s4 | k4 s8 k8 T16 T16 t16 t16 s16 s16 s8 |
+
+; --- B: Fmaj7 G7 | Em7 Am7 | Fmaj7 G7 | A7sus4 A7 - held, arpeggiated --------------
+lead LB1 = q0 o5 f8 e16 @chiparpm a16^4^8 @chip g8 e8 c8 | d8 e16 @chiparp g16^4^8 @chip f8 e8 d8 |
+lead LB2 = q0 o5 @chiparp g4 @chip e8 d8 @chiparpm e4 @chip g8 b8 | @chiparpm a4. @chip g16 e16 c8 d8 e8 g8 |
+lead LB4 = q0 o5 d8 e16 q6 g8 q0 e16 d8 @chiparpm q12 e:8 |
+           q0 @chiparp a8 @chip >c+16 q6 <a8 g8 q0 e16 c+8 q12 <a4 q0 >c+8 |
+bass BB1 = o2 f4. >f8 <f8 >f8 <f4 | g4. >g8 <g8 >g8 f8 e8 |
+bass BB2 = o2 e4. >e8 <e8 >e8 <e4 | a4. >a8 <a8 >a8 <g8 e8 |
+bass BB4 = o2 a4. >a8 <a8 >a8 <a4 | a4. >a8 g8 e8 c+8 <a8 |
+chord CB1 = o4 v10 q16 r8 [e a >c]4 [e a >c]4 [e a >c]4 [e a >c]4 [d g b]4 [d g b]4 [d g b]4 q4 [d g b]8
+chord CB2 = o4 v10 q16 r8 [d g b]4 [d g b]4 [d g b]4 [d g b]4 [e a >c]4 [e a >c]4 [e a >c]4 q4 [e a >c]8
+chord CB4 = o4 v10 q16 r8 [d e a]4 [d e a]4 [d e a]4 [d e a]4 [c+ e g]4 [c+ e g]4 [c+ e g]4 q4 [c+ e g]8
+drum DB  = k4 c4 k8 k8 c4 | k4 c4 k8. k16 c8 c8 |
+
+; --- C: the break - bounces answering the bass, then the ball pumped up ------------
+lead LC1 = q0 r2 o5 q6 d8 <d8 >c8 q0 <a8 | r2 q6 g8 >g8 f8 q0 d8 |
+lead LC2 = o4 q30 d:6 q24 f:5 g:5 | q18 a:4 q12 >c:3 d:3 q6 f:2 g:2 q0 a16 >c16 |
+chord CC2 = o4 v10 q4 [f a >c]8 r:30
+
+order LI  BA  CA  DF          ; 0: the intro
+order LA1 BA  CA  DA          ; 1: the loop comes back here
+order LA2 BA  CA  DA
+order LA3 BA  CA  DA
+order LA4 BA4 CA4 DF
+order LB1 BB1 CB1 DB
+order LB2 BB2 CB2 DB
+order LB1 BB1 CB1 DB
+order LB4 BB4 CB4 DF
+order LC1 BA  CA  DB
+order LC2 -   CC2 DF 
+loop 1

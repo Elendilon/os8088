@@ -718,6 +718,10 @@ against the lanes above.
 
 ## 10. Sound
 
+*Superseded by the owner's brief of 2026-11-13 - the speaker AND the AdLib,
+music and an impact a ball: SPEC.md 128.20 and
+[BOUNCE-BONANZA-SOUND.md](BOUNCE-BONANZA-SOUND.md). The original plan:*
+
 The PC speaker only, through `apps/os88spkfx.inc` and the `snd` slots. Both
 are legal in a bracket (§53.7); channel 2 is never touched directly.
 
@@ -1467,7 +1471,10 @@ seeds where needed, and the Hercules beam checks reported, not asserted.
 - [ ] Five courses, with the props from section 8 and section 5.5's
       ball-swap pads (SPEC.md 128.11.5.4). The HUD, timer, checkpoints and
       cup.
-- [ ] Speaker sound (section 10).
+- [x] Sound (section 10), widened by the owner to the speaker AND the AdLib, a
+      title and five course themes and an impact a ball: built in parallel,
+      SPEC.md 128.20 and [BOUNCE-BONANZA-SOUND.md](BOUNCE-BONANZA-SOUND.md),
+      whose stories S9 - S11 stay open.
 - [ ] The mouse as a tilt stick.
 - [ ] **Recorded demos as the benchmark** (the owner, 2026-11-12, SPEC.md
       128.11.18 O10 and O18). Wave 2's replay log saved to disk and loaded

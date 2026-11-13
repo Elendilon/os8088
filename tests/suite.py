@@ -5129,7 +5129,8 @@ SOAK = [
         "it. WAVE 3 (SPEC.md 128.12.13.2): the marks gain bz_tw (rows .. bz_tw, the WHEEL "
         "bz_tw .. bz_tv, idle: busy is reported WITHOUT it, the wheel's beside); the A/B is "
         "against WAVE 2 (848ade16, its own art, its BZ_PARTS order), this tree's BENCH leg "
-        "run with bz_hvoff 1 and 0 misses ASSERTED; a second BENCH leg and TRIAL's with the "
+        "run with bz_hvoff 1, the SOUND OFF (S poked: wave 2 has none; its price is SPEC.md "
+        "128.20.7's) and 0 misses ASSERTED; a second BENCH leg and TRIAL's with the "
         "heavy rule (busy, rows, columns, full writes, withheld, the busy of every miss: "
         "reported); the MILL leg ASSERTS bz_wover 0 and bz_wlate 0 and reports the wheel's "
         "commits, leads, skips, the contact and platform boxes, the must-draw frames' busy and "
@@ -5237,6 +5238,33 @@ SOAK = [
         "the final pass measures it",
         needs=("86box", "nasm"), timeout=900,
         wants=("build/mega.img", "build/bonanza.img")),
+    Row("bonanzamusic", "soak", ["python3", "tools/bbmusic.py", "--selfcheck"], 1.0,
+        "BONANZA's music and effects packer (SPEC.md 128.20.2, 128.20.8), host only: the "
+        "two one-octave pitch tables against the equal-tempered Hz and F-numbers, monotone "
+        "between notes; every song's notes, gates, instruments and volumes as bbmusic.Seq "
+        "keys them from the PACKED part, held to the ones the parse of the source keys, "
+        "tick for tick through a pass and the loop's first pattern; the speaker's tones in "
+        "19..20,000 Hz and sounding, the chip's batches never naming voice 8; every ball's "
+        "five impacts present and no two balls sharing one; packing twice the same bytes. "
+        "secs measured on the host (0.9 s, rounded up)"),
+    Row("bonanzasound", "soak", py("tests/bonanza_sound.py"), 37.0,
+        "BONANZA's SOUND held to tools/bbmusic.py's model on MartyPC (SPEC.md 128.20): "
+        "stopped at bzs_tp (a step just sounded), every voice's key, note, gate, "
+        "instrument, volume, macro place, age and pitch word and the song's order row, row, "
+        "groove step and sub-ticks left against bbmusic.Seq stepped bzs_nsub sub-ticks. "
+        "SPEAKER leg (os8088_5150_cga_gla): the title on the desktop and the Hz the "
+        "speaker last sent against the model's fold; S's four choices (OFF giving both "
+        "parts back); FIRST's song (row BZ_P_SONG + 1) in the bracket; each ball's bounce, "
+        "wall and bumper poked into bz_nbnc / bz_nwall - the slot holds that ball's effect "
+        "and the three balls' differ; Esc back to the title. ADLIB leg (os8088_5150_sb, "
+        "SOUND.DRV at boot): the same state checks, and whenever no voice is dirty every "
+        "channel's shadows equal the model's wanted A0h/B0h/40h/patch; the OPL's capture "
+        "loud; the window's close giving the chip back (opl_xown). Both legs price a "
+        "frame's sound over 120 frames (bzs_frame to .fend) and REPORT it. Red arms "
+        "`--red groove|mat` (by hand; `--check` assembles them), each red at its own "
+        "check. secs measured (37 s, both legs, in the final pass)",
+        needs=("marty", "nasm"), serial=True, timeout=900,
+        wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("bonanzawheel", "soak", py("tests/bonanza_wheel.py"), 57.0,
         "BONANZA's WHEEL (SPEC.md 128.12.5, 128.12.13.2, 128.12.15) on MartyPC's CGA and "
         "Hercules: MILL's benchmark (bz_crs poked) under stops on bz_ldrw's two writers "
@@ -5260,7 +5288,8 @@ SOAK = [
         "Hercules (128.12.15 item 5). Red arms "
         "`--red repeat|ahead|nobeam|kmod|halfcal|alias|corner|lanestale|gatelate|litsteps` (by hand; "
         "`--check` assembles them all), each required to fail at its own check. secs "
-        "PREDICTED, the final pass measures it",
+        "PREDICTED, the final pass measures it. The sound is OFF (S poked): with it on the rotors "
+        "show ~2 poses in 36 fewer, SPEC.md 128.20.7",
         needs=("marty", "nasm"), timeout=900,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("arclock", "soak", py("tests/arclock.py", "build/arcade/invcode.bin",

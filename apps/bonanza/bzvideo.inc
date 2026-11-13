@@ -99,7 +99,9 @@ bz_fullscreen:
     jc .refused
     mov byte [bz_fs], 1
     call bz_vinit
+    call bzs_open               ; the sound's arm and the course's song (128.20)
     call bz_play                ; the frame loop, until a key or the benchmark ends
+    call bzs_close
     xor ax, ax                  ; the start address home on the way out (the
     call bz_flip                ; kernel's restore re-sets the mode anyway)
     mov byte [bz_fs], 0

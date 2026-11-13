@@ -256808,3 +256808,267 @@ beam, a lane entering stale - which `MILL`'s route does not give.
 **`secs`**, registered at the measured run times: ring 127, perf 117,
 phys 143, replay 58, exit 96, mega 25, wheel 57 (course 79 and assets 0.5
 as before).
+
+### 128.20 Sound and music (the sound wave, built beside waves 3 and 4)
+
+**Numbered 128.20, not 128.13, on purpose**: the sound was built by a second
+session IN PARALLEL with waves 3 and 4's mechanics and courses, and 128.13 -
+128.19 are left to those waves so the two never take one number. Plan
+section 10 was the speaker alone; the owner widened it on 2026-11-13: **the PC
+speaker AND the AdLib**, an impact sound for every impact that is **different
+for each ball**, a title theme and a theme for each of the five planned
+courses, **costed in cycles and in bytes**, because the score shares the parts
+with everything still to come. The plan, its stories and the diary are
+[docs/plans/BOUNCE-BONANZA-SOUND.md](docs/plans/BOUNCE-BONANZA-SOUND.md).
+
+Nothing here spends a kernel byte or a driver byte: the speaker is
+`OSAPI_SND_TONE` (§34.3) and the AdLib is `SOUND.DRV`'s whole-chip claim and
+register batch (§34.12), the two doors ARCADE already drives from a bracket
+(docs/ARCADE-SPEC.md 8). Channel 2 and the OPL ports are never touched
+directly (§53.7).
+
+#### 128.20.1 One score, two renderers, one clock
+
+TITHE's design (its SPEC's 125.10, on `tithe-new`) is the model and its MML is
+the source grammar: songs are plain text, a host tool packs them, and **the
+packed bytes are played by the guest and by a Python copy of the guest's
+sequencer** (`tools/bbmusic.py`'s `Seq` and `Chip`), so a host render is the
+notes exactly and only the synthesis is approximate. What differs, and the
+musical ability each buys:
+
+1. **The clock is the PHYSICS SUB-TICK, 54.6 Hz** (`BZ_SUB` = 21,845 PIT
+   counts, exactly three to a system tick), not the frame and not the 18.2 Hz
+   tick. A frame steps the sound once per elapsed sub-tick, as the simulation
+   steps, so a song keeps one tempo on the CGA's 59.9 Hz and the Hercules's
+   50.4 Hz, and a 16th of 5, 6, 7, 8 or a swung 8 + 6 sub-ticks is 164, 136.5,
+   117, 102 or a swung 117 BPM. The desktop's title steps three a system tick
+   (128.20.6); a song marked `desktop` keeps every row a multiple of three.
+2. **Pitch is a word, 1/256 semitone.** Arpeggio and drum macros and the
+   effects' slides are pitch: smooth on the AdLib (a pitch moves with no
+   re-key), as fine as a sub-tick on the speaker. A VIBRATO is not written as
+   pitch on either arm - the AdLib's is the chip's own bit, and on the speaker
+   a written one re-sent a tone every other sub-tick of a held note, ~1.2k
+   cycles each, which the frame could not spare (128.20.7).
+3. **The speaker FOLDS the arrangement automatically** (128.20.4): an effect,
+   then a drum's short blip, then the lead, then the bass where the lead has
+   rested past an articulation gap. TITHE's speaker played the lead alone and
+   needed a second, hand-written speaker score to stop *"a blip then blank"*
+   (its 125.10.7); here the fold is a rule and costs no score bytes.
+4. **A note is two STAMPS, not two counters.** A voice holds the sub-tick it
+   was keyed and the sub-tick its key goes up; a sub-tick does nothing for a
+   held note unless its pitch moves (a macro, or the speaker's vibrato), and
+   one deadline (`bzs_next`) says when any key goes up. Counting six gates
+   down every sub-tick cost ~1.2k cycles before a note had done anything
+   (the diary's profile). **The speaker keys no chord voice**: its fold never
+   plays one, and a downbeat paid three key-ons for them.
+
+#### 128.20.2 The source and the tool
+
+`apps/bonanza/music/bank.bmb` is the instruments, the drum kit, the effects
+and the event map; `apps/bonanza/music/*.bmu` are the songs, in `SONGS` order
+(song 0 the title). `tools/bbmusic.py` packs, renders and checks them:
+
+```
+python3 tools/bbmusic.py -o build/bonanza-art      # the parts and bzsnd.inc (make runs this)
+python3 tools/bbmusic.py --selfcheck [--only F.bmu] # every note, gate, instrument and volume
+python3 tools/bbmusic.py wav -o DIR [--arm spk|fm] [--song N] [--sfx] [--only F.bmu]
+python3 tools/bbmusic.py sizes
+```
+
+The grammar is TITHE's (its 125.10.1): `o`, `l`, `<`, `>`, `r`, dots, `q` gap,
+`[c e g]` a chord, `|` a bar check, `&` a TIE between equal notes and a SLUR
+(re-pitched, not re-keyed) between different ones, `@name` an instrument, and
+`v0`-`v15` a note volume. **Every phrase starts from its channel's `voice`
+instrument, v12 and a single note** - the guest resets the channel at every
+pattern - so a phrase on another instrument names it. A row is a whole number
+of sub-ticks, cycled through a groove of one to four counts; a pattern is a
+whole number of grooves, so every gate is the tool's.
+
+#### 128.20.3 The parts
+
+All are `OP_LAZY | OP_COMP` rows AFTER the courses (`BZ_P_SND` = `BZ_P_CRS +
+BZ_NCRS`), so a course added by the other waves moves them and nothing else:
+
+| row | part | bytes | packed |
+|---|---|---|---|
+| `BZ_P_SND` | `BZSND.BIN`: tables, 28 instruments, 21 effects, the event map | 837 | 801 |
+| `BZ_P_SONG + 0` | `BZM0.BIN`, the title, *Bounce Bonanza* | 1,234 | 704 |
+| `+ 1` | *Fairway* (G, swung 117) | 831 | 528 |
+| `+ 2` | *Bounce Trial* (D dorian, 136.5) | 1,076 | 843 |
+| `+ 3` | *Windmill Lane* (C, a 3/4 street-organ waltz) | 898 | 581 |
+| `+ 4` | *Moonlit Green* (A minor, swung 102) | 972 | 684 |
+| `+ 5` | *Summit Rush* (E minor, 164) | 1,030 | 763 |
+
+**A part a song**, so only the song playing is in memory: at most the sound
+part and one song, **2,071 bytes**, in two claims - on the desktop the title's,
+in a play the course's. 4,904 bytes of the floppy. The sound part:
+
+```
++0  'BS', version 1, instruments
++4  dw Hz table   12 words: C7..B7       +6  dw OPL table  12 words: C4..B4's F-numbers
++8  dw instruments, 16 bytes each:
+      +0  the 11-byte OPL2 patch in SOUND.DRV's order (§34.2)
+      +11 macro: a byte offset into the macro pool, 0FFh none
+      +12 the patch's ID: instruments with the same 11 bytes share it
+      +13 vibrato delay (sub-ticks)   +14 depth (1/16 semitone)
+      +15 bits 0 - 6 a drum's speaker blip (sub-ticks), bit 7 `alt` (128.20.4)
++10 dw effects (a word each)   +12 dw the event map: 3 materials x 11 events
++14 dw the macro pool: length, loop, then signed semitones, one a sub-tick
+effect  instrument, priority, sensitivity, then 6-byte segments: sub-ticks
+        (0 ends), note (0 silent, bit 7 legato), slide (signed, 1/16 semitone
+        a sub-tick), volume (0 - 15), decay (1/16 a sub-tick), jitter mask
+```
+
+**A pitch is converted with ONE division**: note / 12 gives the octave and
+the semitone (`div`, not `aam 12`, which a V20 ignores the base of); the
+fraction is interpolated in the one octave's table, B's neighbour being C
+doubled; the Hz is shifted to the octave and rounded, the F-number takes the
+octave less one as its block. 24 words where two 128-word tables were 512.
+
+A song part:
+
+```
++0  'BM', version 1, groove length     +4  the groove: four sub-tick counts
++8  rows a pattern    +9  order length    +10 loop row   +11 flags
+      bit 0 `spkbass`: the speaker takes the bass where the lead rests
++12 dw order (4 bytes a row: lead, bass, chord, drum phrase; 0FFh silent)
++14 dw phrases (a word each)    +16 dw chord shapes (two intervals each)
++18 the four channels' instruments
+phrase  n (1 - 127) rows gate     a note: rows to the next event, gate in
+                                  sub-ticks (the tool's); a chord's ROOT
+        00 rows                   a rest
+        80 | i                    instrument i (0 - 31)
+        A0 | s                    chord shape s (0 - 31; 0 a single note)
+        C0 | v                    volume v (0 - 15)
+        D0                        the next note slurs from this one
+        FF                        the phrase ends
+```
+
+#### 128.20.4 The arms
+
+**Chosen when the sound opens, from `OSAPI_SND_CAPS`** - the AdLib where
+`SND_CAP_FM` is set AND BL is not 0 (the Control Panel's speaker route, the
+choice TITHE learned to read, its 125.10.3), `SNDV_IDENT` answers and
+`SND_FM_CLAIM` succeeds; otherwise the speaker. **S** on the face cycles the
+player's choice: AUTO (that rule), SPEAKER (forced), EFFECTS ONLY, OFF; the
+face's fifth line names it and, under AUTO, the arm found.
+
+| arm | plays | through |
+|---|---|---|
+| **speaker** | ONE voice: the effect (its silences too), else a drum's blip (`spk N` sub-ticks from its key), else the lead, else - `spkbass` - the bass once the lead has been silent 2 sub-ticks | `OSAPI_SND_TONE`, only when the PITCH or the note sounding it changes, every tone with a duration: the source's sub-ticks left in system ticks, plus one, so nothing drones when the loop stops |
+| **AdLib** | channels 0 - 4 lead, bass, chord; the drums on 5, or on 6 for an instrument marked `alt` (the noise family: snare, hat, clap); the effect on 7; 8 is the tone tier's (§34.12) | `SND_FM_CLAIM` (OPL2 mode), then at most ONE `SNDV_OPLW` batch a frame of only the registers a voice that changed (`bzs_dirty`) needs: A0h/B0h, the carrier's 40h for a volume, a patch when the channel's patch ID changes |
+
+**What a register costs decides the AdLib's design.** MEASURED on MartyPC's
+CGA 5150 with an AdLib (`os8088_5150_sb`): an `SNDV_OPLW` batch is **~2,300
+cycles plus ~1,050 a register** - SOUND.DRV's 6 + 35 status reads (§34.12.1)
+on an XT's ~2.5 us `in`. So:
+
+- **a drum hit never re-patches**: the kick's and the snare's families sit on
+  two channels, where one channel re-patched for every hit (11 registers,
+  ~14k cycles) was the measured worst frame of the first build;
+- **instruments that share a patch share its ID**, so the lead's `chip` and
+  its arpeggio `chiparp` switch for nothing;
+- **the AdLib's vibrato is the chip's own** (the carrier's VIB bit, written
+  with the patch, for an instrument marked `vib`), never pitch: a written
+  vibrato was a one-register batch every other sub-tick, ~3.4k cycles each;
+- **an effect sets its level once a segment** and the chip's envelope decays
+  it (the effects' patches are percussive), where a TL a sub-tick was a
+  register a sub-tick;
+- **the batch is CAPPED at `BZS_FMCAP` = 8 registers** and served in the order
+  effect, lead, drums, bass, chord; a voice not reached stays dirty for the
+  next frame, and **a patch is written a cap's worth at a time** (`H_PPOS`),
+  its note following a frame or two late, so no frame passes the cap.
+
+#### 128.20.5 The effects, and the events they key off
+
+The physics is never read for anything but counters it already keeps for the
+rows (128.11.5.2, 128.12.6.6): `bzs_events` adds them up once a frame and, only
+when the sum moved, finds which. One counter is added because nothing counted
+it: **`bz_nwall`**, with **`bz_lwv`** and **`bz_lwb`**, a reflection off a wall
+or a bumper face that left a speed (`bz_refl` past `BZ_WMIN`), that speed,
+and whether it was a bumper's - SOUND state, which physics never reads and
+`bonanzaphys` does not compare.
+
+| event | counter | strength | per ball? |
+|---|---|---|---|
+| LAND | `bz_nland`, with no bounce, stun, shatter or hop that frame, `bz_lvz` >= `BZS_LMIN` (48) | `bz_lvz` | yes |
+| BOUNCE | `bz_nbnc` | `bz_lvz` | yes |
+| WALL | `bz_nwall`, a stone face | `bz_lwv` | yes |
+| BUMPER | `bz_nwall` off a `bounce` face; `bz_nkick`, a post's kick | `bz_lwv` / - | yes |
+| KNOCK | `bz_nknock`, a windmill's knock-back | - | yes |
+| STUN | `bz_nstun` | `bz_lvz` | one |
+| SHATTER | `bz_nshat` | - | one |
+| HOP, FALL, TUBE | `bz_nhop`, `bz_nfall`, `bz_ntube` | - | one |
+| GOAL | `bz_goal` 0 to 1 - played by the DESKTOP over the title after a finish, the bracket closing on that frame | - | one |
+
+**Every impact is three effects, one a ball**: RUBBER a warm sine that bends
+up and back (the boing), STEEL a short inharmonic clank (its patch's ratio
+3.5 : 1; on the speaker two pitches a tritone apart, a sub-tick each, then
+the ring falling), GLASS a high, bright tink with a shimmer of jitter, and its
+shatter a cascade. A strength moves an effect up `strength >> sensitivity`
+semitones (at most 7) and half that in volume. **One effect at a time** on
+either arm (the AdLib's channel 7, the speaker's one voice): a new one takes
+the slot unless the one playing has the higher priority.
+
+#### 128.20.6 Where it runs
+
+| | |
+|---|---|
+| the bracket | `bzs_open` after the mode is set (the arm, the course's song from its top), `bzs_frame` once a frame after the steps, before `bz_foot` (events, a step per elapsed sub-tick - at most 8 - and the output), `bzs_close` on every way out (silence; the chip given back with verb 3) |
+| the desktop | the TITLE plays while the window is open: `bz_ontimer` re-arms itself every tick and steps three sub-ticks a call; a gap past two seconds restarts the title. Its two parts are held while it plays: `bz_launch` gives them back for the course's song and fetches them again after |
+| a benchmark, a replay | the course's song and the effects, as in a play: the perf rows price the sound |
+
+The song for course K is K for 1 - 5; course 0 (`BENCH`) plays song 1, and a
+course past five wraps. A course statement naming its song is the courses'
+waves' to add.
+
+#### 128.20.7 What it costs, MEASURED
+
+On MartyPC's 4.77 MHz 5150, FIRST's song in play, 120 frames, `bzs_frame` to
+its end (`tests/bonanza_sound.py`):
+
+| | average | worst frame |
+|---|---|---|
+| **speaker** (`os8088_5150_cga_gla`) | **3,319 cycles, 4.2%** of a CGA refresh | 13,446 (16.9%): a downbeat's reads and key-ons, and a tone |
+| **AdLib** (`os8088_5150_sb`) | **6,433 cycles, 8.1%** | 29,909 (37.6%): a downbeat's reads and keys, six F-numbers and the eight-register batch (~10.7k of it the driver's) |
+
+The first build measured 8,900 / 16,058 on the speaker and 8,492 / 36,101 on
+the AdLib; the diary has each step down and its profile.
+
+**What it costs THE GAME** - the same tree with the sound switched off, the
+counterfactual (`bonanzaperf`'s CGA BENCH, `bonanzawheel`'s MILL):
+
+| | sound OFF | sound ON (the speaker) |
+|---|---|---|
+| BENCH sim + camera, a frame | 15,913 | 19,331 (+3,418) |
+| BENCH busy share | 55.8% | 60.0% |
+| BENCH missed refreshes in 1,200 | 1 (the step clock's phase) | 7 |
+| MILL's rotors, poses shown / true | 33 / 36, 34 / 38 | 31 / 36, 33 / 38 |
+
+So `bonanzaperf`'s A/B leg (the engine against wave 2, which has no sound)
+and `bonanzawheel` run with the sound OFF - like for like - and this table,
+with `bonanzasound`'s report, is where the sound's price is kept. **It is the
+owner's to weigh**: S's EFFECTS ONLY costs only the frames an effect plays,
+OFF nothing; the levers left are `BZS_FMCAP`, half-rate sound (two sub-ticks
+a call), and sound in the retrace wait's idle time, which the wheel spends
+too and so is the two waves' to agree.
+
+| | |
+|---|---|
+| the image | **+3,656 bytes** (wave 3's 23,227 to 26,883), the engine about 3.5KB of it; bss +~750 |
+| memory while it plays | the sound part and one song: **at most 2,071 bytes**, two claims |
+| the floppy | **4,904 bytes** packed, the seven parts |
+| kern_small | refuses the game (128.1), so plays nothing |
+| kern_mega | the same doors; the batch is read through our own selector (ES = DS at the call), so no `PKG_MEGA` arm |
+
+**The worst AdLib frames are the owner's call too.** A downbeat can take 38%
+of a refresh; `BZS_FMCAP` is the knob (each register less is ~1,050 cycles,
+and the chord voices a frame later), and SOUND.DRV's OPL2 write delay, sized
+for a ~1 us ISA read where an XT's is ~2.5 us, is a driver-side saving.
+
+#### 128.20.8 The rows
+
+| row | tier | what |
+|---|---|---|
+| `bonanzamusic` | soak | `tools/bbmusic.py --selfcheck`, host only: the tables against the equal-tempered pitches; every song's notes, gates, instruments and volumes as the model keys them against the source's; the speaker's tones and the chip's registers well formed; every ball's impacts present and different; packing deterministic |
+| `bonanzasound` | soak | the guest held to the model on MartyPC: the title on the desktop, S's four choices, FIRST's song in the bracket, every ball's bounce, wall and bumper poked into the counters, the cost, Esc; on the AdLib machine the chip's shadows equal the model's registers whenever nothing is dirty, the OPL's capture loud, and the window's close giving the chip back. Red arms `--red groove` (every row the groove's first count) and `--red mat` (every event the rubber ball's), each red at its own check |

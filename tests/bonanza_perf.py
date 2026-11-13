@@ -277,7 +277,19 @@ def run(tag, apps=None, src=None, art=None, trial=True, legs=LEGS, ab_steps=None
         g = R.Bz(ui, tag, sym)
         ui.settle()
         if "bench" in legs:
+            # THE A/B LEG IS LIKE FOR LIKE: wave 2 has no sound, so this tree's sound is OFF for it (S's own
+            # choice, SPEC.md 128.20.4) and back to AUTO for the legs after it, which price it as played.
+            # The sound's own price is bonanzasound's (SPEC.md 128.20.7)
+            snd = "bzs_mode" in sym
+            if snd:
+                g.m.pause()
+                g.putb("bzs_mode", 3)
+                g.m.run()
             fr, pkg, refresh, npres = measure(g, pokes={"bz_hvoff": 1})
+            if snd:
+                g.m.pause()
+                g.putb("bzs_mode", 0)
+                g.m.run()
             bad, summ = report(tag + (" BENCH (A/B: bz_hvoff 1)" if w3 else " BENCH"), fr, pkg, refresh, npres)
             if w3 and summ["miss"]:
                 # a miss on a frame that ran MORE physics steps than wave 2's same frame is the step clock's

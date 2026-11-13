@@ -1,0 +1,79 @@
+; BOUNCE BONANZA - song 1, course 1 "First Roll": "Fairway" (SPEC.md 128.20)
+;
+; G major at 117 BPM, a gently SWUNG shuffle: a 16th is a row, and the rows
+; alternate eight and six sub-ticks (`groove 8 6`), so an 8th is always 14
+; and every off-beat 16th lands a little late - the lilt of a putt rolling
+; across a lawn. A pattern is two bars of 4/4, 4.1 s.
+;
+; The harmony is a ragtime lawn-party's: I - VI7 - II7 - V7 (G E7 A7 D7),
+; the secondary dominants walking round the circle of fifths back home. The
+; accompaniment is an oom-pah: the plucked bass on beats 1 and 3 with a
+; swung 16th pickup, the harp's chord on 2 and 4.
+;
+; The intro is a two-bar vamp on A7 - D7: the recorder hops (a note, a gap,
+; a note) like a ball being tapped onto the green, then strolls up into the
+; tune. A's MOTIF is a skip and a push - down a third, back up and HELD over
+; the swung "a", up to a chord tone, then a dotted step down to rest:
+;   d8 b16 d16&d8 g8 | e8. d16 b4      (over G)
+; stated three times climbing the circle (G, E7, A7) and answered by a long
+; question on D7 (A). The second A climbs once less and cadences with a run
+; up to the tonic, which the chiparp sparkles. B, the bridge, turns to the
+; GLOCKENSPIEL over a half-time beat and a falling bass (C B A D): a broad,
+; bouncing figure - a note, down a third, back, up a fourth - sequenced down
+; the chords, and a D7 run that spills back into A. Intro, A A' B A' for ever.
+;
+; THE SPEAKER: the lead carries it all. Kick and snare blip on the beats only
+; (the hats are silent there), and `spkbass` fills the intro's hops and the
+; breaths with the bass (only after 3+ silent sub-ticks, so the q1 gap between
+; notes stays a clean articulation). Every pattern starts each channel from
+; its `voice` and v12, so the lead phrases say v13, B's say @glock, and the
+; chords say v10, each at its own start.
+
+song fairway "Fairway"
+groove 8 6
+unit 16
+rows 32
+measure 16
+spkbass
+voice lead recorder
+voice bass pluckbass
+voice chord harp
+
+; --- the intro: the ball tapped onto the green, over A7 - D7 ------------------
+lead LI = v13 o5 e8 r16 a16 r8 >c+8 r16 <b16 a8 g8 e8 |
+          d8 r16 <a16 r8 f+8 e8 f+8 a8 b16 >c16 |
+
+; --- A: the theme ---------------------------------------------------------------
+lead LA1 = v13 o5 d8 <b16 >d16&d8 g8 e8. d16 <b4 |
+           >e8 <b16 >e16&e8 g+8 f+8. e16 d4 |
+lead LA2 = v13 o5 c+8 <a16 >c+16&c+8 e8 g8. f+16 e4 |
+           f+8 a8 >c4 <a4 r8 o4 b16 >c16 |
+lead LA3 = v13 o5 c8 <a16 >c16&c8 e8 d8. c16 <a8 f+8 |
+           g8 b8 >d8 e16 f+16 @chiparp g4. @recorder r8 |
+bass BA1 = o2 g4 r8. d16 g4 d4 | e4 r8. <b16 >e4 g+4 |
+bass BA2 = o2 a4 r8. e16 a4 e4 | d4 r8. <a16 >d4 e8 f+8 |
+bass BA3 = o2 a4 e4 d4 <a4 | >g4 r8. d16 g4 d4 |
+chord CA1 = v10 o4 r4 [d g b]4 r4 [d g b]4 | r4 [d g+ b]4 r4 [d g+ b]4 |
+chord CA2 = v10 o4 r4 [e g >c+]4 r4 [e g >c+]4 | r4 [d f+ >c]4 r4 [d f+ >c]4 |
+chord CA3 = v10 o4 r4 [e g >c]4 r4 [d f+ >c]4 | r4 [d g b]4 r4 [d g b]4 |
+drum DA = k8 h8 s8 h16 h16 k8 h8 s8 h16 h16 | k8 h8 s8 h16 h16 k8 h8 s8 h16 h16 |
+drum DF = k8 h8 s8 h16 h16 k8 h8 s8 h16 h16 | k8 h8 s8 h16 h16 T8. T16 t8 s8 |
+
+; --- B: the bridge, on the glockenspiel over a half-time beat --------------------
+lead LB1 = @glock v13 o5 g4 e8. g16 >c4 <g4 | d4 <b8. >d16 g4 f+4 |
+lead LB2 = @glock v13 o5 e4 c8. e16 a4 g4 | f+8 e8 d8 c8 <a8 f+8 a8 b16 >c16 |
+bass BB1 = o2 c4 r8. <g16 >c4 e4 | <b4 r8. g16 b4 >d4 |
+chord CB1 = v10 o4 r4 [e g >c]4 r4 [e g >c]4 | r4 [d g b]4 r4 [d g b]4 |
+chord CB2 = v10 o4 r4 [e g >c]4 r4 [e g >c]4 | r4 [d f+ >c]4 r4 [d f+ >c]4 |
+drum DB = k8 h8 h8 h16 h16 s8 h8 h8 h16 h16 | k8 h8 h8 h16 h16 s8 h8 h8 h16 h16 |
+
+order LI  BA2 CA2 DB          ; 0: the intro, A7 - D7
+order LA1 BA1 CA1 DA          ; 1: A  G E7 - the loop comes back here
+order LA2 BA2 CA2 DF          ; 2:    A7 D7, the question
+order LA1 BA1 CA1 DA          ; 3: A' G E7
+order LA3 BA3 CA3 DA          ; 4:    Am7 D7 G, the answer
+order LB1 BB1 CB1 DB          ; 5: B  C G/B
+order LB2 BA2 CB2 DF          ; 6:    Am7 D7, the run home
+order LA1 BA1 CA1 DA          ; 7: A' G E7
+order LA3 BA3 CA3 DA          ; 8:    Am7 D7 G
+loop 1

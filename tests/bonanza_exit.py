@@ -88,6 +88,21 @@ class Q(object):
         return self.m.read(linear, n)
 
 
+def nsong():
+    """the songs, one part each after the sound part (bbmusic's bzsnd.inc)"""
+    import re
+    inc = open(os.path.join(ROOT, R.at("build/bonanza-art"), "bzsnd.inc")).read()
+    return int(re.search(r"^BZS_NSONG\s+equ\s+(\d+)", inc, re.M).group(1))
+
+
+def title_rows():
+    """the two rows the desktop's title holds while the window is open: the
+    sound part and song 0 (SPEC.md 128.20.6) - after the courses' rows"""
+    R.CRS_K["bench"]
+    snd = CRS_ROW0 + dict.__len__(R.CRS_K)
+    return {snd, snd + 1}
+
+
 def rows(g):
     """[(flags, zkb)] for every part row, read out of the image's own table"""
     n = g.m.read(g.a("op_table") + 8, 1)[0]
@@ -258,9 +273,19 @@ def one(g, way, base_rows, base_claims, mat, crs="first"):
     # bz_launch's .drop writes bz_cseg and bz_bseg 0 LAST, after both op_drop calls
     M.until(m, lambda _: g.w("bz_cseg") == 0 and g.w("bz_bseg") == 0, "the launch to drop its parts (%s)" % way,
             guest=30)
+    if "bzs_desk" in g.sym:                     # ...and the title's parts READ BACK: bz_launch's last
+        M.until(m, lambda _: g.b("bzs_desk") == 1 or g.b("bzs_mode") == 3,   # act (SPEC.md 128.20.6)
+                "the title to be back (%s)" % way, guest=30)
     m.pause()
     r_out, c_out = rows(g), claims(g)
+    title = title_rows()
     for i, (before, after) in enumerate(zip(base_rows, r_out)):
+        if i in title:                      # the title's music, held on the desktop
+            if (after[0] & OP_FETCHED) != (before[0] & OP_FETCHED):
+                fails.append("%s: the title's part row %d is %s after the launch, %s before (SPEC.md 128.20.6)"
+                             % (way, i, "fetched" if after[0] & OP_FETCHED else "not fetched",
+                                "fetched" if before[0] & OP_FETCHED else "not fetched"))
+            continue
         if after[0] & OP_FETCHED:
             fails.append("%s: part row %d is still FETCHED after the launch (op_seg answers %04X)" % (
                 way, i, after[1]))
@@ -341,12 +366,16 @@ def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=Tr
         nlazy = sum(1 for f, _ in base_rows if f & OP_LAZY)
         print("%s: %d part rows (%d lazy), none fetched on the desktop: %s; the instance's claims %s" % (
             tag, len(base_rows), nlazy, all(not f & OP_FETCHED for f, _ in base_rows), base_claims), flush=True)
-        if any(f & OP_FETCHED for f, _ in base_rows):
+        title = title_rows()
+        if any(f & OP_FETCHED for i, (f, _) in enumerate(base_rows) if i not in title):
             fails.append("a part row is fetched on the desktop before any launch")
+        if any(not base_rows[i][0] & OP_FETCHED for i in title):
+            fails.append("the title's parts (rows %s) are not held on the desktop (SPEC.md 128.20.6)"
+                         % sorted(title))
         R.CRS_K["bench"]                    # (fills the course table: BZ_NCRS of them)
-        if len(base_rows) != CRS_ROW0 + dict.__len__(R.CRS_K):
-            fails.append("the package has %d part rows, not 3 balls and %d courses (SPEC.md 128.11.3.1)" % (
-                len(base_rows), dict.__len__(R.CRS_K)))
+        if len(base_rows) != CRS_ROW0 + dict.__len__(R.CRS_K) + 1 + nsong():
+            fails.append("the package has %d part rows, not 3 balls, %d courses, the sound and %d songs "
+                         "(SPEC.md 128.11.3.1, 128.20.3)" % (len(base_rows), dict.__len__(R.CRS_K), nsong()))
         for mat in mats if ways else ():
             choose_ball(g, mat)
             for way in ways:
