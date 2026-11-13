@@ -10,10 +10,13 @@ busy 46.5% of a CGA refresh and 39.4% of a Hercules one, no misses; its story
 1.3 waits on open question O8. WAVE 2 ("feel": three balls, bounce, stun
 and shatter, the keyboard's ramp, Hop and Grip, surfaces, the shadow,
 replays, and O8's answer, SPEC.md 128.11) DONE and measured: busy 53.4% of a
-CGA refresh and 45.5% of a Hercules one. WAVE 3 NEXT (obstacles and the
-wheel: windmills, bumpers, a moving platform, three tubes, lanes and TITHE's
-wheel adapted): its contract is SPEC.md 128.12. The owner's decisions are in
-section 12.** The package is `BONANZA` (`apps/bonanza/`). Below is the
+CGA refresh and 45.5% of a Hercules one. WAVE 3 (obstacles and the wheel,
+SPEC.md 128.12) and WAVE 3b (the performance round, SPEC.md 128.13) DONE and
+measured, with the open items 128.13.17 names; the SOUND (SPEC.md 128.20)
+built beside them by another session. WAVE 4 NEXT (a game: the tour, the
+HUD, flags, the cup, pads and springs, `MOON` and `SUMMIT`, demos on the
+disk as the benchmark, the mouse as a tilt stick): its contract is SPEC.md
+128.14. The owner's decisions are in section 12.** The package is `BONANZA` (`apps/bonanza/`). Below is the
 investigation as it was written, the answer to the owner's
 brief of 2026-11-12, on branch `bounce-bonanza`, cut from `elendilon`: is an
 overhead isometric rolling-ball game with a scrolling course feasible on the
@@ -267,6 +270,15 @@ list.
 The border colour (3D9h) is also free: for example, a flash when the time
 gets low.
 
+**Superseded by SPEC.md 128.14.5** (wave 4). The HUD is a 2-word x 6-line
+clock panel INSET from the window's bottom-left corner, not an 8 x 12 box
+in a corner, and it does not "scroll into the slack": the old copy leaves
+the window only when a step's lines reach the panel's height, which a CGA
+step never does (128.14.5.3 prices this placement and keeps the inset).
+It is a fifth box group that composes every layer and lays the panel last,
+and it defaults to REST on both cards because a box that follows the
+camera costs 8.3 - 11.5k on the frames that already miss (128.14.5.8).
+
 ### 2.8 Smoother options, considered
 
 | option | gives | why not now |
@@ -484,6 +496,14 @@ fit for this style of game, so neither row below is planned before wave 6.
 | **Mouse as a trackball** (Marble Madness's arcade control) | the mouse's *relative* motion becomes impulse | **a new slot.** `OSAPI_MOUSE` is clamped to the screen, and `OSAPI_MOUSE_FEED` is for drivers only. Its resident cost is tens of bytes on every budgeted kernel, to be priced exactly if chosen. **Owner decision D2** |
 | Game-port joystick (201h) | read once a frame. A full-scale poll is about 1.1 ms. §53.7 does not forbid the port | none. Optional; no game port is known on 5150 #1 |
 
+**Superseded in part by SPEC.md 128.14.8** (wave 4). The mouse as a tilt
+stick IS built in wave 4, not wave 6, and it is not centred on the screen:
+the neutral is the pointer at the play's first frame and at each respawn,
+the full range a quarter of the bracket display each way, read inside the
+bracket after the mode set, and it CAPS the arrows' force level rather
+than setting a tilt vector, so the log stays one key byte and one tilt
+byte a step. The trackball and the joystick are unchanged here.
+
 ### 5.5 The balls: one engine, three materials (D4)
 
 The ball type is a record of physics constants plus its own 4 KB texture
@@ -657,6 +677,14 @@ obstacle.
 | **Bumper** | a radial kick of fixed speed, which flashes and scores | one wheel obstacle, 2 poses (the contact lane while lit) |
 | **Spring pad** | sets v_z high to reach an upper tier; the shadow sells the height | static, plus the second shadow box |
 | **The cup** | the goal. The ball must arrive slower than a capture speed, or it lips out over the rim | static |
+
+**Superseded in part by SPEC.md 128.14.4** (wave 4). What wave 4 builds of
+this table: the CUP (a grounded ball under the capture speed holes out; a
+faster one lips out with a small pop and rolls on), the SPRING pad, the
+MOAT BRIDGE as a one-tile plank over VOID (no water), and the CLOWN MOUTH
+as three KEEP tubes behind a wall whose exits are the route, a shortcut and
+a dead end (no bonus points: the game is timed, O39). The loop, the
+volcano, the banks, the half-pipe and the funnel are not built (O49).
 
 ---
 
@@ -1658,28 +1686,196 @@ batch.
       tools/bbcourse.py` clean; README lists `make bonanzadisk`; the suite texts carry the measured secs;
       the diary's 3b entry; SPEC.md 128.13.16.*
 
-**Wave 4: a game.**
-- [ ] Five courses, with the props from section 8 and section 5.5's
-      ball-swap pads (SPEC.md 128.11.5.4). The HUD, timer, checkpoints and
-      cup.
+**Wave 4: a game** (the contract is SPEC.md 128.14, written before the
+code). A TOUR of the five courses after `BENCH`, raced for time against
+par, with no lives: a fall costs the way back from the last checkpoint
+(D4 stays a mechanic), and each new course has an optional hard-fall
+line. The desktop face is the scorecard, and the best times live in
+`SYSTEM\APPDATA\BONANZA.DAT` on the package's own disk. The courses gain
+flags, a cup, ball-swap pads and a spring pad, and two new longer courses
+arrive, `MOON` (K = 4) and `SUMMIT` (K = 5), which teach the pads, glass
+and the springs in that order. A HUD clock rides in the picture. Demos can
+be saved to disk and loaded back as hostile input, and the shipped demos
+become the benchmark. The mouse works as a tilt stick, and the
+parting-out question is decided with the bytes.
+
+The HUD's price was designed from two MEASURED things: `bz_boxc`'s fill
+and `bz_boxw` by box size on MartyPC, both cards (a box has about 1.6 -
+2.1k clk of fixed cost in each of its compose and its write), and a
+per-frame log of `MILL`'s and `TRIAL`'s benchmarks, both cards, sound OFF
+and ON (where each HUD box would land, and what a frame at that busy
+misses). From them a clock that follows the camera adds about 21 - 24
+misses a `MILL` leg on the CGA and 10 - 11 on the Hercules, and one that
+hides during pans (REST) adds 0 - 3 and still shows two thirds of the time
+or more. So REST is the default on both cards. Every other cost and size
+below is PREDICTED until the final pass, and the rows run once, after the
+last batch. **O39 (scoring) and O43 (cups on the old courses) are put to
+the owner before 4.5 and 4.6 are built**, and **O11's constants are settled
+before the owner records demos** (a retune changes the physics identity a
+demo carries).
+
+- [ ] **4.1 The tour and the scorecard.** `G` plays `FIRST`, `TRIAL`,
+      `MILL`, `MOON` and `SUMMIT` in order, each with its own ball. After
+      each finish the face shows the scorecard: every course's time,
+      falls, par and best, then `ENTER next`. After the fifth it shows the
+      total time. Esc in a course or on the face stops the tour; during a
+      tour only Enter, Esc, `W` and the settings act. Inside a course P
+      pauses and Backspace returns the ball to its flag. Outside a tour
+      Enter still plays the course `N` and `M` select, freely. *Verify:
+      `bonanzagame`'s autopilot tours on both cards (each time the
+      model's steps, the total their sum, the two stops, the withheld
+      keys, the pause).*
+- [ ] **4.2 Best times that survive the session.** A best course time and a
+      best tour are written to `SYSTEM\APPDATA\BONANZA.DAT`
+      (`apps/os88data.inc`) on the package's own volume; the four
+      `bonanza*.img` are built with that folder. Only a play that started
+      with the course's own ball posts a best - never a replay, a demo or
+      a loaded file. Each entry is keyed by its course's identity, and the
+      whole file is read as hostile: a foreign or damaged entry is ignored
+      on its own, and a course rebuilt with a new identity loses its best
+      by itself. A save that fails says so once. *Verify: `bonanzagame`
+      reads the file back off the floppy on the host and drives the
+      hostile set; red arms `besttime`, `datlen`, `replaybest` and
+      `noappdata`, each red at its own check.*
+- [ ] **4.3 Flags, the cup, pads and springs.** A flag flies once touched
+      and becomes the respawn point; a respawn there gets the ball the
+      flag names, and the tool refuses a flag or a pad from which that
+      ball cannot reach the cup. A slow grounded ball over the cup holes
+      out and a fast one pops and lips out. A pad swaps the ball, its
+      constants and its force tables. A spring lifts any ball six units,
+      the climb a bounce cannot make. Each is a `bbcourse.py` statement
+      with refusals, each is drawn on both cards and looked at, and each
+      is a step rule on the prop path that is integer-exact with
+      `bbcourse.Physics`; so is RETURN. *Verify: `bonanzacourse`'s items
+      and negative controls (`trap`, `underhud` among them);
+      `bonanzaphys` `flag`, `flagmat`, `padswap`, `cup`, `spring`,
+      `return` with red arms `ckpt`, `ckmat`, `padftg`, `cupv` and
+      `springsum`; one look boot a card.*
+- [ ] **4.4 The HUD clock on the glass - OPTIONAL, BUILT LAST** (the owner, SPEC.md 128.14.16: OFF by default; ships only if REST/FOLLOW add at most 2 `MILL` misses a card with the speaker on and none on `BENCH`, else removed; the clock is on the results face either way). The course time (`SS.T`) sits on
+      an opaque 2-word by 6-line panel, inset from the window's bottom-left
+      corner so no entering row or column ever meets it. It is drawn as a
+      fifth box group that composes every layer and lays the panel last,
+      and the panel is laid last in every box that meets it, so no card
+      byte ever receives two different values. A lane under it is drawn
+      only by a promotion to the contact group, never by the wheel. `H`
+      cycles REST, FOLLOW and OFF; the default is REST on both cards, its
+      boxes never on a scroll frame but a release, under either camera;
+      a full write is blanked; and `B` runs with the HUD off. *Verify:
+      `bonanzaring` (card = oracle with the panel, no byte two values, a
+      lane under it, a five-box frame, a full write shown and hidden, the
+      blank; red arms `hudinset`, `hudold`, `hudlane`, `hudfull` and
+      `noblank`); `bonanzagame`'s digits and REST's no-HUD-box-on-a-scroll-
+      frame under GLIDE and TRICKLE (red arms `hudhold` and `hudtime`);
+      `bonanzawheel` (14) with red arm `hudrect`.*
+- [ ] **4.5 Moonlit Green (`MOON`, K = 4).** A night round of about 100
+      block rows (PREDICTED 44 - 48KB). It teaches the flags, the cup and
+      the pads, glass last and gently: an ice approach, a steel pad for a
+      stone-rail corridor and a long coast (with an optional 2-unit drop
+      that trades a 1 s stun for half the zig-zag), a rubber pad before a
+      rubber-only ledge, a castle wall with three KEEP tubes (the route, a
+      shortcut, a dead end), then a glass pad and a terrace of one-unit
+      steps where a shatter costs only the way back to the flag just
+      before it, and the cup up a gentle ramp. Its shipped demo is
+      AUTHORED with the model (a fall, a RETURN, every swap). *Verify:
+      `bonanzacourse` (inside a part, three balls, the route to the cup
+      with no fall on both cards, NO TRAP, the branch printed);
+      `bonanzaphys` `cup`, `flag`, `flagmat` and `padswap`; a look on
+      both cards; its demo's legs.*
+- [ ] **4.6 Summit Rush (`SUMMIT`, NAME `PEAK`, K = 5; SPEC.md 128.14.17 item 1).** The long demo course, a
+      descent of about 128 block rows (PREDICTED 55 - 60KB, the largest a
+      part holds). Rubber down steep-ramp chains and an ice chute, a
+      windmill and a DROP (or an optional glass staircase past them),
+      spring 1 up six units, steel through the lift and the LAUNCH, glass
+      over the moat bridge and up spring 2, rubber to the cup at the
+      foot; four flags, each naming its ball. Its PREDICTED misses (CGA 60
+      - 100 OFF, 150 - 230 ON) are accepted in writing (O54) unless the
+      final pass measures more. Its shipped demo is AUTHORED (a fall, a
+      RETURN, every swap, both springs, the branch). *Verify: as 4.5,
+      plus `spring` and `return`.*
+- [ ] **4.7 Sound's counters.** `bz_nckpt`, `bz_npad`, `bz_nlip`,
+      `bz_nspr` and `bz_nret` are physics' own counters. A hole-out is
+      `bz_goal` with `bz_hid`, and the desktop has `bz_tour` 6 and
+      `bz_newb`. All are handed to the sound session, which maps them;
+      its two part fetches go through `bz_pfetch`. This wave designs no
+      sound. *Verify: `bonanzaphys` compares the counters with the model;
+      the sound session's own row.*
 - [x] Sound (section 10), widened by the owner to the speaker AND the AdLib, a
       title and five course themes and an impact a ball: built in parallel,
       SPEC.md 128.20 and [BOUNCE-BONANZA-SOUND.md](BOUNCE-BONANZA-SOUND.md),
       whose stories S9 - S11 stay open.
-- [ ] The mouse as a tilt stick.
-- [ ] **Recorded demos as the benchmark** (the owner, 2026-11-12, SPEC.md
-      128.11.18 O10 and O18). Wave 2's replay log saved to disk and loaded
-      back - a file read off a disk is hostile input, checked in full
-      before any part row is chosen - so the owner can record demos on the
-      longer courses; B plays a recorded demo and prices it with the same
-      instruments, and the perf row runs the shipped demos. Wave 0b's
-      autopilot route stays as the ENGINE benchmark until the demos replace
-      it.
-- [ ] **Part out further as the courses grow** (the owner, 2026-11-12, O8):
-      courses are already lazy parts, so only the course being played is
-      in memory, but every course still rides in `BONANZA.O88`. Decide
-      when five courses are measured: courses as separate files (O1, with
-      the hostile-input pass), a second disk, or a part set per course.
+- [ ] **4.8 Demos to and from the disk.** `W` saves the held log through
+      the Save dialog as `<NAME>.BZR`. `L` loads one through the Open
+      dialog. The loader refuses by extension and size before any read,
+      reads into a transient claim and checks every field - the course's
+      identity and the physics identity among them - before any part row
+      is chosen. Only then does it copy the log in, so a refused file
+      leaves the session's own log untouched. `.BZR` is BONANZA's
+      association, so a double-click opens the demo, through a read
+      bounded by its capacity. Every part fetch goes home first, so a
+      dialog that moved the instance never breaks the next launch.
+      *Verify: `bonanzademo` (the round trip into another folder and a
+      play after it, the double-click, the hostile set each refused with
+      nothing fetched or leaked, the first three refused with no read,
+      the double-click's size legs); red arms `nosum`, `readfirst`,
+      `stageleak`, `inplace`, `nohome` and `argsize`.*
+- [ ] **4.9 Demos as the benchmark.** `D` replays the held log with B's
+      instruments and shows the results page; its misses are an upper
+      bound on a play's, and it measures at most 65,535 frames. One demo
+      for each tour course ships as a part, from text: the owner's when
+      he has recorded one (`bbcourse.py demo` converts his `.BZR`; he
+      records after O11 is settled), `MOON`'s and `SUMMIT`'s authored
+      with the model, and the old courses' a route demo the build makes
+      from the autopilot. Every shipped demo is checked by the model at
+      build time; one recorded under other physics is re-stamped or
+      demoted, never a build failure. `V` cycles them. `B` stays the
+      autopilot ENGINE benchmark on `BENCH`. *Verify: `bonanzaperf`'s demo
+      legs (every shipped demo, both cards, sound OFF and ON, the HUD OFF
+      and REST, `MILL`'s also FOLLOW: the model's end state, `bz_wover`
+      and `bz_wlate` 0, every miss reported with its parts against its
+      prediction; D against R once); `bonanzacourse`'s demo item.*
+- [ ] **4.10 The mouse as a tilt stick.** With `T` at MOUSE, the pointer's
+      offset from where it was at the play's first frame (and at each
+      respawn) sets each axis's arrow and a CAP on 128.11.7.1's force
+      level, over a quarter of the bracket display each way. The left
+      button hops and the right grips. The log records the caps (TILT
+      runs of three bytes), so a replay reads no mouse, and a keyboard
+      step is wave 2's step exactly. *Verify: `bonanzaphys` `tilt` (red
+      arm `tiltcap`); `bonanzareplay`'s mouse play on `MOON` replayed on
+      the Hercules, its busy reported (red arm `tiltmap`).*
+- [ ] **4.11 Parting out, decided with the bytes.** One file, with a lazy
+      part a course, as now: about 127KB, about 134 of the 360KB floppy's
+      354 clusters with `ASSOC.DAT`, the README, the folders and the file. It is re-decided at
+      250 clusters or when the owner wants BONANZA on a shared disk.
+      Separate course files (O1), a second disk and a code part are priced
+      and not taken. *Verify: the build's printed part sizes and
+      `bonanza360.img`'s clusters, written into SPEC.md 128.14.9.1's table
+      as MEASURED.*
+- [ ] **4.12 kern_mega and every way out.** No `PKG_MEGA` arm is needed.
+      Three ball claims, the demo's staging claim and the dialogs are each
+      used whole through their own selectors. Every way out of a tour
+      course, `D`, `V`, `L`, `W` and the double-click drops what it
+      fetched. *Verify: `bonanzamega` (`SUMMIT` with its three balls on
+      the Hercules display, the HUD FOLLOW and REST, `W`, `L`, a
+      double-click, `D`; red arm `stageseg`); `bonanzaexit` (red arm
+      `padleak`).*
+- [ ] **4.13 The frame, measured.** `BENCH`'s A/B against 573eec83 costs
+      at most 0.5k clk a frame on the CGA (PREDICTED +0.15 - 0.3k), and B
+      draws no HUD box on either card. Every shipped demo is measured with
+      the HUD OFF and at REST on both cards, and `MILL`'s also with
+      FOLLOW, each set beside SPEC.md 128.14.5.8's and 128.14.6's
+      predictions; REST shows no HUD box on a scroll frame but a release.
+      *Verify: `bonanzaperf` (red arm `hudon`).*
+- [ ] **4.14 The record.** SPEC.md 128.14 gets its MEASURED columns, and
+      the diary its wave 4 entries. `apps/bonanza/README.md` gains the
+      tour, the keys and the demos. `tests/pins.txt` and
+      docs/HEAP-CLAIMS.md gain the three ball words and the staging claim.
+      The plan's stories are ticked with their evidence. *Verify: `make`
+      (the doc gates), `tools/os88index.py --check`, `checkdocs` 0
+      problems.*
+
+Still open from wave 3b, and not this wave's (SPEC.md 128.13.17): 3b.4
+and 3b.8 (`bonanzawheel` (6) on the CGA), 3b.3's BENCH 2.0k, and 3b.9's
+image.
 
 **Wave 5: the machines.**
 - [ ] Hercules polish (pair art, its blank budget).
