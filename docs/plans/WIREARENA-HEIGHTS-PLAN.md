@@ -2031,6 +2031,168 @@ differences, not the numbers):
 6. **The forecast** stays optimistic on the busy views (9.7.5). C and E
    are right, now on the new arena too.
 
+### 9.8 Speed round 5, architecture: the frame accounted, and a PVS (2026-11-13, branch `r5-arch` from `b507c171`)
+
+The architecture agent of round 5 looked at the whole pipeline for work
+that could be REMOVED rather than shaved. Three other agents tuned the
+outline path, the tall walls and the figures, present and sim in place.
+
+**9.8.1 The frame, accounted by measurement.** A whole-frame single-step
+trace (`framet.py` in the session's scratch `r5/arch/`) runs the game's own
+bench under MartyPC `os8088_5150_cga`. It steps from the main loop's head
+through four whole iterations: sim, input, the frame-block copy, render,
+present, HUD and the kernel's interrupts. `areas.py` and `split.py` give
+the exclusive cycles of every routine. `leafwin.py` splits `wa_render` by
+leaf (each box in walk order), the room, figures and setup. `incl.py` gives
+inclusive costs by call window. The figures are guest cycles a frame at
+`b507c171`, 40 columns:
+
+| | P | A | B | C | D | E |
+|---|---|---|---|---|---|---|
+| **frame (clk)** | 253,746 | 371,170 | 330,814 | 186,406 | 380,469 | 181,713 |
+| low boxes: per box (prelude, posts, flight, dispatch) | 0 | 51,035 | 36,903 | 19,412 | 49,210 | 0 |
+| low boxes: per pass setup (`wl_draw`) | 0 | 25,212 | 22,345 | 3,834 | 24,197 | 0 |
+| low boxes: per column (`wl_l*`, fills, shuts) | 0 | 40,289 | 61,492 | 0 | 46,614 | 20,657\* |
+| tall: per box and face (leaf, box, face, vertex, clip, projection) | 65,418 | 72,243 | 62,472 | 51,821 | 82,592 | 39,594 |
+| tall: per span setup (`wa_span`, corners) | 37,069 | 34,962 | 31,902 | 10,250 | 38,611 | 19,888 |
+| tall: per column (flat passes, span loops) | 39,442 | 31,202 | 33,131 | 31,113 | 37,318 | 38,487 |
+| frame setup (`wa_products`, clears, order) | 15,153 | 19,496 | 19,111 | 19,381 | 19,702 | 19,631 |
+| figures, floor grid, crosshair | 56,764 | 40,603 | 4,572 | 12,827 | 17,324 | 10,911 |
+| present | 22,981 | 29,468 | 34,620 | 20,100 | 38,597 | 15,702 |
+| game: the sim (ticks, dummies, lift, floor) | 6,085 | 13,266 | 12,150 | 7,700 | 13,338 | 7,663 |
+| game: input, HUD, loop, timers, glue, kernel | 10,723 | 13,395 | 12,115 | 9,969 | 12,967 | 9,179 |
+
+\* E's is `wa_slope`, the tall walls' steep fills, which the low path shares.
+
+At 80 columns, A is 455,551 clk and P 298,848. The columns' share grows
+(low columns 71,252 and tall 52,938 at A) and so does present (55,823 at A,
+42,841 at P).
+
+**Fixed against per column.** At 40 columns the per-column loops are 15–30%
+of a frame. Present, which is per listed cell, is another 8–11%. **Everything
+else, 60–75%, is a fixed cost per object:**
+
+- a low box pays ~10k clk of prelude, posts and dispatch, ~1.2k for its leaf
+  and ~3.6k for its corners' transforms, before its first pass;
+- a pass pays ~1.4k clk of setup before its first column;
+- a tall face pays ~4k clk (its vertices, face test, clip and projection),
+  and its span ~3.5k more before the first column;
+- a figure near enough for limbs pays ~20k clk.
+
+Per leaf at pose A, the platform and its two ramps cost 107k clk (29% of the
+frame): 50.6k for the near south ramp, 38.8k for the platform and 18.7k for
+the north ramp. The tower is 31k, the lift 23k, a tall pillar 24k, the room
+50.6k and two figures 45k. At B the platform alone is 77k, mostly columns.
+
+**What the accounting rules out:**
+
+- **Temporal coherence.** Every play frame moves the camera: the P bench's
+  circle turns it every frame, as the mouse does in play. Every vertex's
+  column and every edge's rows change. A frame-to-frame cache of
+  projections or spans would pay its own checks and hit nothing.
+- **Coarser columns at distance, or splitting the frame across two.** Columns
+  are at most a third of a frame. Halving the far ones buys a few percent and
+  costs the look.
+- **Hierarchical cone tests.** A box the cone drops costs ~450 clk. Pre-filtering
+  them by angle (per cell) saves under 2k clk a frame.
+- **Lazy products.** Measured slower in 16.2, and `wa_products` is ~260 clk a
+  coordinate.
+
+**What does remove work: not visiting what cannot be seen.** At B, the jump
+platform behind the annex's front costs 15.3k clk and the annex blocks
+6.3k each. All of that work draws nothing. A low box has no test that
+rejects it before its ~10k prelude, and a tall one pays its vertices
+before its face test.
+
+**9.8.2 The PVS.** Each cell of a 128-unit grid (2 m, 16 × 16 over the room)
+carries the boxes that can draw anything from SOMEWHERE in the cell.
+`wa_order`, which already caches the front-to-back walk per cell of the
+tree's split lines, leaves the rest off the list. Its cell is now the grid
+cell as well. A box off the list costs nothing: no cone test, no transform,
+no prelude. On a frame that does not cross a cell the cost is **zero**. A
+crossing pays one walk of the tree, a cell lookup and a bit test per leaf.
+
+`tools/arenagen.py` (`pvs_masks`) builds it at make time, in about 1.3 s for
+arena 2:
+
+- **Only TALL boxes occlude.** A low box shows what stands behind it above
+  its top. A tall box is at the arena's tallest, and arenagen refuses the
+  PVS unless every eye the game allows is below that (`pvs_eyemax`: the
+  highest floor, the eye, the jump). So occlusion is a 2D question.
+- **A box draws only in columns whose centre ray meets it.** A column a
+  nearer tall face covers is shut. So a box that no ray from the cell
+  reaches, before a tall box in front of it, draws nothing.
+- **Per point, an exact test.** For two disjoint axis-aligned boxes, the one
+  on the point's side of a separating line is met first on any ray that meets
+  both. So an occluder can hide a box only if the point is on the occluder's
+  side of every such line. Then the box is hidden exactly when the union of
+  those occluders' angular intervals covers its own.
+- **Conservative against the renderer's rounding.** A box's interval is
+  widened, and each occluder's narrowed, by 0.003 rad plus 5 / distance. A
+  column's projection truncates by under 1/16 of a column, 0.0025 rad at the
+  widest (90 degrees, 40 columns). A camera-space coordinate truncates by
+  under a unit, which is under 2 / z on the screen. And a tested point is
+  within 2 units of every point on the outline.
+- **The points tested.** A ray from inside the cell, run backwards, leaves
+  it or meets an occluder's face. So the points tested are the cell's outline
+  and the tall boxes' outlines inside it (a unit out) every 4 units, plus a
+  16-unit grid inside.
+- **Which arenas carry one.** An arena carries a PVS only when it culls at
+  least 10% of its box-cells. Arena 2's culls 31.4%; the flat arenas' 2.3%
+  and 0%, so they carry none and do not change.
+
+The part's descriptor gains a word at 42 (WIREARENA-PARTS-PLAN 7.5).
+`WRV_ARENA` copies the masks into `wa_pvs`, 512 bytes of BSS
+(`WA_PVSN` × `WA_PVSB`).
+
+**9.8.3 Measured** (MartyPC `os8088_5150_cga`, the games' own benches):
+
+BENCHTABLE
+
+What it culls at the bench poses: A the annex's north block and the jump
+platform (both already outside the cone there); B both annex blocks and the
+jump platform; C the same three; D the jump platform; E nothing.
+
+**9.8.4 Correctness.** Text VRAM against `b507c171`, byte for byte:
+
+- the heights posed set, 260 frames (the round's fixed `hpose.py`: `F_SIZE`
+  42, the figures' `F_Z` poked, wave 3's pose E, no lift poses);
+- a large random set, 510 poses at 40 columns and 410 at 80;
+- a targeted set: for every (cell, box) the PVS culls, a pose in that cell
+  (at its corners and edges, a player's radius in) turned toward the box, at
+  a random eye and pitch. That is 550 poses at 40 columns and 550 at 80.
+
+All were identical. CHECKS
+
+**9.8.5 Bytes.** BYTES
+
+**9.8.6 What the frame says to do next** (each Measured above, priced
+against the frame):
+
+1. **The low box's passes: ~2,400 clk of setup and ~770 a column** (least
+   squares over the 122 drawn passes of the A, B and D traces; the 90 culled
+   ones cost ~630 each). That is more than twice a tall flat span's
+   column (~320, 16.8). Merging a
+   box's adjacent edges into one pass would not save the per-edge part: each
+   edge still needs its own exact start, its own step and its own tag (the
+   inverse depth is linear along one edge only). It would save the glue, the
+   cull scan and the dispatch, ~1k clk a merge, so ~1–3% (Forecast). That
+   is not worth the risk now.
+2. **The low box's prelude, ~10k clk a box** (`wa_lowbox` alone is 6–7k):
+   larger than any of its passes.
+3. **Figures, ~20k clk each up close** — 22% of P's frame.
+4. **The room, 45–50k clk at P and A:** 4 clipped faces. The two that draw
+   little still cost 5–8k between them.
+5. **A PVS grid of 64 units** culls 36.0% of arena 2's box-cells against
+   31.4%. At the bench poses it adds only the annex's south block at D,
+   ~6k clk (1.7%), for 1.5 KB more BSS and part. It is one constant,
+   `PVS_SHIFT`, if a future arena wants it.
+6. **For multi-area levels** (the owner's wish not to see across the whole
+   map), the PVS is the mechanism, and its runtime cost does not grow with
+   the map. A wall that fills a doorway, or a tall partition, culls whole
+   rooms. Each box costs a bit per cell. At 31 boxes, `WA_PVSB` is 4 bytes
+   and the table 1 KB.
+
 ### 9.3 Open, for the owner and the next waves
 
 1. **The symmetric dead ground** is decided (7.1.1) and built in wave 3:
