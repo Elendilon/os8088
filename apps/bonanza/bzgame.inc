@@ -7,7 +7,8 @@
 ; =============================================================================
 ;   bz_mode     byte   0 play, 1 benchmark (B), 2 replay (R, SPEC.md 128.11.12)
 ;   bz_fs       byte   1 while the bracket is up (mode set .. the loop's end)
-;   bz_err      byte   0; 1 the mode was refused; 2 the display changed under us
+;   bz_err      byte   0; 1 the mode was refused; 2 the display changed under us;
+;                      3 a replay's log is another course's (SPEC.md 128.12.8)
 ;   bz_herc     byte   0 CGA, 1 Hercules
 ;   bz_S        word   the SHOWN start address, words, < 4096: (W*bz_R0 + bz_c0)
 ;                      mod 4096, written by bz_flip at bz_tf in the same frame
@@ -51,12 +52,14 @@
 ;   bz_miss     word   measured frames whose period passed 1.5 refreshes (a
 ;                      missed retrace: the frame showed for two or more)
 ;   bz_fmax     DWORD  the longest measured frame period, PIT counts
-;   bz_acc      6 DWORDS, PIT counts summed over the measured frames, one per
+;   bz_acc      7 DWORDS, PIT counts summed over the measured frames, one per
 ;                      part: 0 sim+camera (bz_t0..bz_ts), 1 box compose and the
-;                      occluder pass (..bz_tr), 2 rows (..bz_tv), 3 retrace wait,
-;                      IDLE (..bz_tf), 4 flip + columns (..bz_tb, and every run of
+;                      occluder pass (..bz_tr), 2 rows (..bz_tw), 3 retrace wait,
+;                      IDLE (bz_tv..bz_tf), 4 flip + columns (..bz_tb, and every run of
 ;                      column rows written after a box), 5 box write (bz_tb ..
-;                      bz_presented less those runs).  CPU clocks = counts x 4.
+;                      bz_presented less those runs, and a LEAD), 6 the WHEEL,
+;                      idle (bz_tw..bz_tv, wave 3, appended so 0 - 5 keep their
+;                      numbers: SPEC.md 128.12.5.6).  CPU clocks = counts x 4.
 ;   bz_cmode    byte   the camera MODE (SPEC.md 128.11.11.1): 0 GLIDE, 1 TRICKLE
 ;                      (FOLLOW is gone).  C toggles it, in play and on the desktop;
 ;                      it persists across plays (bss, never reset).  The benchmark
@@ -73,10 +76,15 @@
 ;   bz_nlay     word   records the pass laid back
 ;   bz_n2bx     word   frames with two or more boxes;  bz_n3bx three or more
 ;   bz_nshd     word   frames whose shadow was drawn (bz_snv)
+;   bz_wcom .. bz_wtmin words, wave 3's (SPEC.md 128.12.5.6): commits, overruns,
+;                      lanes late, LEADs, skipped wheels, contact groups,
+;                      platform boxes, deferred contact lanes, heavy frames, rows
+;                      and columns withheld, edge releases, the trim's lowest
 ;   bz_res      byte   1 = the bz_r* copy below holds a finished benchmark
 ;   bz_rframes, bz_rmfr, bz_rncol, bz_rnrow, bz_rnfull, bz_rmiss, bz_rfmax,
 ;                      bz_racc, bz_rlate, bz_rnocf, bz_rnlay, bz_rn2bx, bz_rn3bx,
-;                      bz_rnshd: that copy, the same layout as bz_frames .. bz_nshd
+;                      bz_rnshd, bz_rwcom .. bz_rwtmin: that copy, the same
+;                      layout as bz_frames .. bz_wtmin
 ;   bz_nbox     word   this frame's boxes (0 - 4), bz_boxes the descriptors (BZ_BOXD
 ;                      bytes each, bzvideo.inc), SORTED by first line
 ;   bz_csp      4 words the entering column's split rows: before box i, the
@@ -101,9 +109,14 @@
 ; bonanzaring decodes it there.
 ;
 ; THE FRAME (SPEC.md 128.4), marks as GLOBAL labels in this order:
-;   bz_t0 .. bz_ts .. bz_tr .. bz_tv .. bz_tf .. bz_tb [.. bz_tc] ..
+;   bz_t0 .. bz_ts .. bz_tr .. bz_tw .. bz_tv .. bz_tf .. bz_tb [.. bz_tc] ..
 ;   bz_presented
-; and bz_col / bz_row (bzvideo.inc) are the writers' entries.  The boxes are
+; and bz_col / bz_row (bzvideo.inc) are the writers' entries.  Wave 3
+; (bzwheel.inc, SPEC.md 128.12.4.4): bz_t0's RULE 0 is bz_foot (the ball's
+; screen state and new footprints), bz_props (the lanes' walk, the contact
+; group, bz_heavy), then the camera; the WHEEL commits lanes between bz_tw
+; and bz_tv, in the retrace wait's time; the LEAD follows the column and the
+; boxes, before bz_presented.  The boxes are
 ; written in the order of their first lines, INTERLEAVED in raster order with
 ; the entering column's rows (SPEC.md 128.11.10.3): the rows above the first
 ; box between bz_tf and bz_tb, then each box, each preceded by the column's
@@ -123,7 +136,8 @@
 
 BZ_MAXR     equ 2               ; rows the camera may step a frame (SPEC.md 128.2)
 BZ_MAXC     equ 1               ; ...and columns
-BZ_NPART    equ 6               ; the frame's measured parts (the marks' gaps)
+BZ_NPART    equ 7               ; the frame's measured parts (the marks' gaps)
+BZ_NFACE    equ 6               ; ...of which the face shows (the wheel's is the rows')
 BZ_BENCH    equ 1200            ; the benchmark's frames (SPEC.md 128.6)
 BZ_STEPS    equ 8               ; simulation steps a frame, at most
 BZ_SUB      equ 21845           ; PIT counts in one FASTTICK sub-tick
@@ -150,7 +164,7 @@ BZ_K_L      equ 1               ; bz_keys: the arrows held
 BZ_K_R      equ 2
 BZ_K_U      equ 4
 BZ_K_D      equ 8
-BZ_LIVE     equ 52              ; bytes of bz_frames .. bz_nshd (the results copy)
+BZ_LIVE     equ 82              ; bytes of bz_frames .. bz_wtmin (the results copy)
 BZ_SPR_SQ   equ 64              ; bz_spr: squash k is 64 + k ...
 BZ_SPR_SHA  equ 68              ; ...and shatter k 68 + k (roll frames 0 - 63)
 
@@ -215,7 +229,7 @@ VAR bz_ospr,1
 VAR bz_shc,1                    ; the shadow: a candidate; drawn this frame;
 VAR bz_snv,1                    ; drawn last frame (the old footprint's)
 VAR bz_sov,1
-VAR bz_hold,1                   ; 1: the old footprints are this frame's (bz_mkboxes)
+VAR bz_ohold,1                  ; 1: the old footprints are this frame's (bz_mkboxes)
 VAR bz_ogate,1                  ; 1: the occluder pass runs this frame
 VAR bz_grp,1                    ; bz_addbox: the box's group (0 the ball's)
 ; the replay log's recorder and player (SPEC.md 128.11.12)
@@ -241,6 +255,19 @@ VAR bz_nlay,2                   ; records the pass laid back (SPEC.md 128.10.8)
 VAR bz_n2bx,2                   ; frames with two boxes or more (SPEC.md 128.11.10)
 VAR bz_n3bx,2                   ; ...three or more
 VAR bz_nshd,2                   ; frames with the shadow drawn (128.11.9.4)
+VAR bz_wcom,2                   ; wave 3 (SPEC.md 128.12.5.6): the wheel's commits
+VAR bz_wover,2                  ; ...those that ended past their deadline
+VAR bz_wlate,2                  ; ...lanes due and shown for BZ_WLAG frames
+VAR bz_wlead,2                  ; ...LEAD commits
+VAR bz_wskip,2                  ; ...frames whose candidates the wheel skipped
+VAR bz_ncon,2                   ; contact groups (a lane, a must-draw rotor, the slab)
+VAR bz_npbx,2                   ; ...of which the platform's box
+VAR bz_ndef,2                   ; contact lanes that WAITED (display only)
+VAR bz_nhvy,2                   ; heavy frames (GLIDE, 128.12.7)
+VAR bz_nwr,2                    ; ...the rows they withheld
+VAR bz_nwc,2                    ; ...and the columns
+VAR bz_nhedge,2                 ; ...heavy frames whose edge clause released an axis
+VAR bz_wtmin,2                  ; the trim's lowest (100 when it never fell)
 VAR bz_rframes,2
 VAR bz_rmfr,2
 VAR bz_rncol,2
@@ -255,6 +282,19 @@ VAR bz_rnlay,2
 VAR bz_rn2bx,2
 VAR bz_rn3bx,2
 VAR bz_rnshd,2
+VAR bz_rwcom,2
+VAR bz_rwover,2
+VAR bz_rwlate,2
+VAR bz_rwlead,2
+VAR bz_rwskip,2
+VAR bz_rncon,2
+VAR bz_rnpbx,2
+VAR bz_rndef,2
+VAR bz_rnhvy,2
+VAR bz_rnwr,2
+VAR bz_rnwc,2
+VAR bz_rnhedge,2
+VAR bz_rwtmin,2
 VAR bz_tos,2
 ; the clock
 VAR bz_subs,2
@@ -341,7 +381,8 @@ VAR bz_boxes,4 * BZ_BOXD
 VAR bz_boxbuf,4 * BZ_BOXB          ; four box buffers (SPEC.md 128.11.10.1),
                                 ; whose first 512 bytes hold BZ_HTAB at a
                                 ; Hercules launch, before the bracket (128.11.3)
-%if bz_rframes - bz_frames != BZ_LIVE || bz_sox0 != bz_ofx0 + 8 || bz_snx0 != bz_nfx0 + 8 || bz_nfx0 != bz_sox0 + 8
+BZ_WHEEL_VARS                   ; wave 3's lanes and wheel (bzwheel.inc)
+%if bz_rframes - bz_frames != BZ_LIVE || bz_wtmin + 2 != bz_rframes || bz_sox0 != bz_ofx0 + 8 || bz_snx0 != bz_nfx0 + 8 || bz_nfx0 != bz_sox0 + 8
  %error "bz_play copies the instruments and the footprints as blocks: their layout moved"
 %endif
 %endmacro
@@ -534,6 +575,7 @@ bz_play:
     mov di, bz_frames
     mov cx, BZ_LIVE / 2
     rep stosw
+    call bz_pread               ; the props, their lanes in the map, the wheel
     mov word [bz_wp], 1         ; waypoint 0 is the start
     mov byte [bz_first], 1
     mov byte [bz_ckey], 0ffh    ; C must go down IN play to count (an edge)
@@ -559,6 +601,12 @@ bz_play:
     rep stosw
     mov [bz_rk], al
     mov [bz_rtr], al
+    push es                     ; the course's identity, which a replay
+    mov es, [bz_cseg]           ; compares (SPEC.md 128.12.8)
+    mov di, [bz_goff]
+    mov ax, [es:di + BZG_ID]
+    mov [bz_rlog + BZR_ID], ax
+    pop es
 .play:
     call bz_clk_sample
     mov ax, [bz_subs]
@@ -589,6 +637,10 @@ bz_t0:
     jne .steps
     call bz_input               ; play: the keys, once a frame
 .steps:
+    cmp byte [bz_hold], 0       ; a harness's late frame on demand (SPEC.md
+    je .nohold                  ; 128.12.5.6): a spin before the steps
+    call bz_hspin
+.nohold:
     mov byte [bz_resp], 0       ; (a respawn in this frame's steps: the cut)
     mov cx, [bz_subs]           ; (sampled at the last frame's end mark)
     sub cx, [bz_lsubs]
@@ -609,7 +661,13 @@ bz_t0:
     jne .camera                 ; its log ends on the same step (128.11.12.2)
     loop .step
 .camera:
-    call bz_camera
+    call bz_foot                ; RULE 0 (SPEC.md 128.12.4.4): the ball's screen
+    call bz_props               ; state and new footprints, the props' walk
+    call bz_camera              ; (the contact and bz_heavy), then the camera
+    cmp byte [bz_full], 0       ; a full write draws every lane from the map:
+    je bz_ts                    ; all of them brought to their true poses, and
+    call bz_lfull               ; the slab by its box after it (bzwheel.inc)
+    call bz_pfull
 bz_ts:
     mov bx, 0 * 4
     call bz_mark
@@ -622,15 +680,24 @@ bz_ts:
     add si, BZ_BOXD
     loop .comp
     call bz_occ                 ; ...and the occluders: ONE walk a frame, laid
-bz_tr:                          ; into every box (SPEC.md 128.11.10.2)
+    call bz_pover               ; into every box (SPEC.md 128.11.10.2); then the
+bz_tr:                          ; slab when it is OVER the ball (128.12.4.5)
     mov bx, 1 * 4
     call bz_mark
     cmp byte [bz_full], 0
-    jne bz_tv
+    jne bz_tw
     call bz_rows
-bz_tv:
-    mov bx, 2 * 4
+bz_tw:
+    mov bx, 2 * 4               ; the rows' part ends here (SPEC.md 128.12.5.6) -
+    mov byte [bz_wld], 0        ; or, with no candidate, runs on to bz_tv's
+    cmp byte [bz_wcn], 0        ; mark: no wheel and no mark of its own (a
+    je bz_tv                    ; benchmark's mark is 1.0k clk, MEASURED)
     call bz_mark
+    call bz_wheel               ; RULE 1a: the wheel, in the wait's time
+    mov bx, BZ_PWHEEL * 4       ; (the wheel's part: appended, so the wave-2
+bz_tv:                          ; parts keep their numbers)
+    call bz_mark
+    mov byte [bz_wvok], 0       ; (no rise to reckon from: bz_vr sets it)
     pushf                       ; IF, for the row-0 box's critical section:
     cmp byte [bz_full], 0       ; bz_vr may shut interrupts at the rise, and
     jne bz_tf                   ; bz_tb's POPF opens them after the FIRST box
@@ -666,6 +733,7 @@ bz_tf:
     cmp byte [bz_full], 0
     je .col
     call bz_fullw
+    call bz_wcalib              ; the launch's first: the wheel's calibration
     jmp short bz_tb
 .col:
     mov ax, [bz_dc]
@@ -712,13 +780,15 @@ bz_tb:
 .rest:
     mov cx, [bz_H]              ; the column's rows under the last box
     sub cx, [bz_cdone]
-    jbe bz_presented
+    jbe bz_tc.lead
 bz_tc:
     call bz_mark                ; BX = 5*4: the box write ends here
     mov ax, [bz_ccol]
     mov bx, [bz_cdone]
     call bz_col
     mov bx, 4 * 4               ; ...which are the flip+columns part's
+.lead:
+    call bz_lead                ; RULE 5 (bzwheel.inc): busy, the box write's
 bz_presented:
     call bz_mark
     cmp byte [bz_disc], 0       ; a CENTRED full write (the first frame, a
@@ -760,7 +830,12 @@ bz_presented:
     rep movsw
     mov al, [bz_snv]
     mov [bz_sov], al
-    mov byte [bz_oldv], 1
+    xor al, al                  ; (a HIDDEN ball, in a tube, left nothing of
+    cmp [bz_tube], al           ; itself on the card to restore: SPEC.md
+    jne .ov                     ; 128.12.6.1)
+    inc ax
+.ov:
+    mov [bz_oldv], al
     cmp byte [bz_mode], 1
     jne .next
     cmp word [bz_frames], BZ_BENCH
@@ -1132,8 +1207,51 @@ bz_want:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_camera - the ball's integer position, its sprite and shadow (bz_sprite),
-; then the new window.  Runs ONCE A FRAME, after the frame's steps (SPEC.md
+; bz_foot - RULE 0's first half (SPEC.md 128.12.4.4), once a frame after the
+; steps: the ball's cell row s_b (the idle test's and the occluders',
+; 128.10.8), its integer px and py, its sprite and shadow (bz_sprite), and its
+; NEW FOOTPRINTS as rects (bz_nfx0, and bz_snx0 the shadow's: the ball's
+; columns, lines spy .. spy + 5) - which depend on the picture, not on the
+; window, so bz_props reads them before the camera and bz_mkboxes after it,
+; computed once.  Clobbers AX, BX, CX, DX.
+; -----------------------------------------------------------------------------
+bz_foot:
+    mov ax, [bz_gx + 1]
+    mov dx, [bz_gy + 1]
+    mov cl, 4
+    shr ax, cl
+    shr dx, cl
+    add ax, dx
+    mov [bz_sb], ax
+    mov ax, [bz_bx + 1]
+    mov [bz_px], ax
+    mov ax, [bz_by + 1]
+    mov [bz_py], ax
+    call bz_sprite
+    mov ax, [bz_px]             ; the new footprints: the ball's ...
+    mov bx, ax
+    mov cl, 3
+    shr ax, cl
+    mov [bz_nfx0], ax
+    mov [bz_snx0], ax
+    shr bx, 1
+    shr bx, 1
+    add bx, BZ_BAL_RB - 1
+    shr bx, 1
+    mov [bz_nfx1], bx
+    mov [bz_snx0 + 2], bx
+    mov ax, [bz_py]
+    mov [bz_nfy0], ax
+    add ax, BZ_BAL_ROWS - 1
+    mov [bz_nfy1], ax
+    mov ax, [bz_spy]            ; ...and the shadow's, the same columns
+    mov [bz_snx0 + 4], ax
+    add ax, BZ_BAL_SHDROWS - 1
+    mov [bz_snx0 + 6], ax
+    ret
+
+; -----------------------------------------------------------------------------
+; bz_camera - the new window, from the ball's position (bz_foot, rule 0).  Runs ONCE A FRAME, after the frame's steps (SPEC.md
 ; 128.9: the camera is part of the simulation, and its cadence is the frame
 ; rate's).  The first frame centres the window on the ball and is a FULL WRITE,
 ; as is any step past BZ_MAXR/BZ_MAXC.  After it, the MODE (bz_cmode; GLIDE in
@@ -1150,22 +1268,12 @@ bz_want:
 ; course - so 128.2 rule 4's column split is the same in both.  GLIDE's "fast"
 ; is the ball's travel over the last four frames, kept in every mode (the
 ; ring bz_trx, bz_try: SPEC.md 128.11.11.1, bbcourse.Glide's).
-; Sets bz_sb, bz_px, bz_py, the sprite's state, bz_R0n, bz_c0n, bz_dr, bz_dc,
-; bz_full, bz_meas, bz_cuse.  Preserves nothing.
+; GLIDE's rows and column are withheld on a HEAVY frame (bz_hvcam, from
+; bz_props's bz_heavy, SPEC.md 128.12.7); TRICKLE is wave 0's exactly.
+; Sets bz_R0n, bz_c0n, bz_dr, bz_dc, bz_full, bz_meas, bz_cuse.  Preserves
+; nothing.
 ; -----------------------------------------------------------------------------
 bz_camera:
-    mov ax, [bz_gx + 1]         ; the ball's cell row s_b, once a frame (the
-    mov dx, [bz_gy + 1]         ; idle test's and the occluders', 128.10.8)
-    mov cl, 4
-    shr ax, cl
-    shr dx, cl
-    add ax, dx
-    mov [bz_sb], ax
-    mov ax, [bz_bx + 1]
-    mov [bz_px], ax
-    mov ax, [bz_by + 1]
-    mov [bz_py], ax
-    call bz_sprite
     mov al, [bz_cmode]          ; the mode this frame: the benchmark's is GLIDE
     cmp byte [bz_mode], 1       ; whatever the player chose, so its route and
     jne .muse                   ; its numbers stay comparable (bz_cmode is
@@ -1249,12 +1357,22 @@ bz_camera:
     jbe .tr
     add si, 100h
 .tr:
+    cmp byte [bz_tube], 0       ; wave 3: a hidden ball's GHOST is fast on both
+    je .trg                     ; axes, so GLIDE re-centres on it every frame
+    mov si, 0101h               ; (SPEC.md 128.12.6.1)
+.trg:
     mov [bz_gfast], si
     inc byte [bz_tri]
     and byte [bz_tri], 3
     cmp byte [bz_cuse], 0
     jne .trickle
+    mov al, [bz_gpar]           ; (the heavy rule puts the x pan's parity
+    mov [bz_kpar], al           ; back when it withholds a column)
     call bz_camglide
+    cmp byte [bz_heavy], 0      ; THE HEAVY FRAME (SPEC.md 128.12.7): GLIDE's
+    je .moved                   ; rows and column withheld, from the clamped
+    call bz_clampwin            ; step (a light frame is clamped once, at
+    call bz_hvcam               ; .moved: the final pass)
     jmp .moved
 .trickle:
     ; --- TRICKLE, wave 0's camera (SPEC.md 128.5) ---
@@ -1788,6 +1906,9 @@ bz_mkboxes:
     mov cl, [bz_lsh]            ; pass, the column's split, the lateness)
     shl ax, cl
     mov [bz_wtop], ax
+    call bz_pstrip              ; a strip meeting the slab: its clipped box
+    call bz_povr                ; (the contact group), and the slab's one
+                                ; decision, under or over (SPEC.md 128.12.4.5)
     mov ah, BZ_FOCC             ; the occluder pass's gate (bz_occ): AIRBORNE
     cmp byte [bz_air], 0        ; the centre's OCC; GROUNDED (so at its
     jne .og                     ; floor) its OCCG, set wherever a grounded
@@ -1837,33 +1958,17 @@ bz_mkboxes:
 .s1:
     xor ax, dx
     or bp, ax
-    mov ax, [bz_px]             ; the new footprints: the ball's ...
-    mov bx, ax
-    mov cl, 3
-    shr ax, cl
-    mov [bz_nfx0], ax
-    mov [bz_snx0], ax
-    shr bx, 1
-    shr bx, 1
-    add bx, BZ_BAL_RB - 1
-    shr bx, 1
-    mov [bz_nfx1], bx
-    mov [bz_snx0 + 2], bx
-    mov ax, [bz_py]
-    mov [bz_nfy0], ax
-    add ax, BZ_BAL_ROWS - 1
-    mov [bz_nfy1], ax
-    mov ax, [bz_spy]            ; ...and the shadow's, the same columns
-    mov [bz_snx0 + 4], ax
-    add ax, BZ_BAL_SHDROWS - 1
-    mov [bz_snx0 + 6], ax
-    mov word [bz_nbox], 0
-    mov byte [bz_hold], 0       ; the old footprints count unless a full write
+    mov al, [bz_ctype]          ; ...and no contact group: a frame with one
+    or al, [bz_tube]            ; is never idle (SPEC.md 128.12.4.3), nor a
+    cbw                         ; hidden ball's, whose capture frame restores
+    or bp, ax                   ; the footprint it was drawn in (128.12.6.1)
+    mov word [bz_nbox], 0       ; (the new footprints are bz_foot's, rule 0)
+    mov byte [bz_ohold], 0       ; the old footprints count unless a full write
     cmp byte [bz_full], 0       ; or the first frame
     jne .go
     cmp byte [bz_oldv], 0
     je .go
-    mov byte [bz_hold], 1
+    mov byte [bz_ohold], 1
     or bp, bp
     jnz .go
     ret                         ; idle: nothing to compose or write
@@ -1872,9 +1977,11 @@ bz_mkboxes:
     mov [bz_snv], al
 .groups:
     mov di, bz_gr               ; DI = the next rect
+    cmp byte [bz_tube], 0       ; a HIDDEN ball (in a tube) has no new
+    jne .hid                    ; footprint: its old one alone, restored
     ; THE BALL GROUP: the union of the old and the new, or each
     mov si, bz_nfx0
-    cmp byte [bz_hold], 0
+    cmp byte [bz_ohold], 0
     je .bput
     mov bx, bz_ofx0
     call bz_union
@@ -1887,9 +1994,10 @@ bz_mkboxes:
     mov si, bz_ur
 .bput:
     call bz_rput
+.sgrp:
     mov dx, di                  ; DX = the shadow group's first rect
     ; THE SHADOW GROUP: the old (drawn last frame) and the new (drawn now)
-    cmp byte [bz_hold], 0
+    cmp byte [bz_ohold], 0
     je .sn
     cmp byte [bz_sov], 0
     je .sn
@@ -1925,6 +2033,12 @@ bz_mkboxes:
     mov si, bz_ur
     call bz_rput                ; (DX = bz_gr + 8: the one rect is group 0)
     jmp short .emit
+.hid:
+    cmp byte [bz_ohold], 0      ; (SPEC.md 128.12.6.1: the capture's frame
+    je .sgrp                    ; restores it, the frames after compose
+    mov si, bz_ofx0             ; nothing for the ball)
+    call bz_rput
+    jmp short .sgrp
 .split:
     cmp byte [bz_ogate], 0      ; the pass runs and the shadow is not in the
     je .emit                    ; ball's box: not drawn this frame
@@ -1933,7 +2047,73 @@ bz_mkboxes:
     mov byte [bz_snv], 0
     jmp .groups
 .emit:
-    ; the rects as boxes, each clipped to the new window: group 0 the ball's
+    ; THE CONTACT GROUP (SPEC.md 128.12.4.3): bz_props's lane or slab, merged
+    ; into the ball's group when that is one rect and their union fits, else
+    ; a rect of its own - and when that would be a FIFTH, the shadow's new
+    ; footprint is left out and its old one restored, as on an OCC frame
+    mov word [bz_cgr], 0
+    cmp byte [bz_ctype], 0
+    je .eall
+    cmp dx, bz_gr + 8
+    jne .cadd
+    mov si, bz_gr
+    mov bx, bz_crect
+    call bz_union
+    jc .cadd
+    push di
+    mov di, bz_gr
+    mov si, bz_ur
+    call bz_rput
+    pop di
+    jmp short .ct2
+.cadd:
+    cmp di, bz_gr + 32
+    jb .cput
+    mov byte [bz_snv], 0        ; (four rects need the shadow's new one)
+    jmp .groups
+.cput:
+    mov [bz_cgr], di
+    mov si, bz_crect
+    call bz_rput
+.ct2:
+    ; THE LIFT'S BOX BESIDE A LIGHTING POST (bz_pflag bit 2, SPEC.md
+    ; 128.12.5.2): merged into the ball's group or the post's when the union
+    ; fits, else a rect of its own when there is room - else the post WAITS a
+    ; frame (bz_pyield: its map words back) and the box is the contact group
+    mov word [bz_cgr2], 0
+    test byte [bz_pflag], 4
+    jz .eall
+    mov bx, bz_crect2
+    mov si, bz_gr
+    cmp dx, bz_gr + 8
+    jne .ct2b
+    call bz_union
+    jnc .ct2m
+.ct2b:
+    mov si, [bz_cgr]
+    or si, si
+    jz .ct2c
+    call bz_union
+    jc .ct2c
+.ct2m:
+    push di
+    mov di, si
+    mov si, bz_ur
+    call bz_rput
+    pop di
+    jmp short .eall
+.ct2c:
+    cmp di, bz_gr + 32
+    jb .ct2p
+    call bz_pyield
+    jmp .groups
+.ct2p:
+    mov [bz_cgr2], di
+    mov si, bz_crect2
+    call bz_rput
+.eall:
+    ; the rects as boxes, each clipped to the new window: group 0 the ball's,
+    ; 1 the shadow's, 2 the contact's
     mov si, bz_gr
 .e:
     cmp si, di
@@ -1941,6 +2121,12 @@ bz_mkboxes:
     xor al, al
     cmp si, dx
     jb .g
+    inc ax
+    cmp si, [bz_cgr]
+    je .g2
+    cmp si, [bz_cgr2]
+    jne .g
+.g2:
     inc ax
 .g:
     mov [bz_grp], al

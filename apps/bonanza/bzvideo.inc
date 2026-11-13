@@ -132,7 +132,8 @@ bz_vinit:
     mov word [bz_vrlim], 2      ; ...given up after two sub-ticks
     mov word [bz_mlim], BZ_MLIMC
     mov word [bz_lblank], BZ_LBLC
-    jmp short .wtab
+    mov si, bz_wkc              ; the wheel's beam and refresh, and the
+    jmp short .wk               ; calibration's PREDICTED values until it runs
 .herc:
     mov word [bz_W], 45
     mov word [bz_H], 50
@@ -151,6 +152,13 @@ bz_vinit:
     out dx, ax
     mov ax, BZ_HR7 * 256 + 7
     out dx, ax
+    mov si, bz_wkh
+.wk:
+    push ds
+    pop es
+    mov di, bz_wb0              ; (SPEC.md 128.12.5.3, 128.12.5.4)
+    mov cx, BZ_WKN
+    rep movsw
 .wtab:
     ; the camera's limits, from the course's size (SPEC.md 128.10.8 item 4):
     ; cmax = COLS - W, rmax = BROWS * 8 lines / rl - H
@@ -218,6 +226,8 @@ bz_flip:
 ;      the beam), so the wait lets this sync go and takes the NEXT rise: the
 ;      frame a refresh late, never its row-0 box (wave 2's final pass,
 ;      SPEC.md 128.11.10.3).  The Hercules's 82 lines of blank hold the box.
+; [bz_wvok] = 1 unless the wait timed out: the next frame's wheel and this
+; frame's LEAD reckon from this sample (bzwheel.inc, SPEC.md 128.12.5.3).
 ; Preserves all but the flags.
 ; -----------------------------------------------------------------------------
 bz_vr:
@@ -225,6 +235,7 @@ bz_vr:
     push bx
     push cx
     push dx
+    mov byte [bz_wvok], 1
     call bz_clk_sample
     mov cx, [bz_subs]
     mov dx, [bz_vrport]
@@ -250,6 +261,7 @@ bz_vr:
     cmp ax, [bz_vrlim]
     jb .spin
     inc word [bz_tos]           ; no retrace at all: go on regardless
+    mov byte [bz_wvok], 0
     jmp short .done
 .rose:
     cmp byte [bz_r0p], 0        ; a box at window row 0 (bz_r0pend): no
@@ -278,6 +290,7 @@ bz_vr:
     cmp ax, [bz_vrlim]
     jb .hwait
     inc word [bz_tos]           ; never low: go on regardless
+    mov byte [bz_wvok], 0
     jmp short .hcli
 .hlow:
     mov byte [bz_vedge], 1
@@ -679,7 +692,7 @@ bz_col:
 ; line at a time.  Descriptor, BZ_BOXD bytes: +0 x0 (world word column), +2 y0
 ; (world line), +4 w (words), +6 h (lines), +8 the buffer, +10 the overlap
 ; band's xhi (0: none), +12 xlo, +14 xa, +16 xb (bz_boxw), +18 the box's
-; GROUP (0 the ball's, 1 the shadow's), +19 unused.  At most four boxes a
+; GROUP (0 the ball's, 1 the shadow's, 2 the contact's), +19 unused.  At most four boxes a
 ; frame (bzgame.inc bz_mkboxes).  A buffer's lines are BZ_BOXW words apart
 ; whatever the box's w (SPEC.md 128.9 item 1: a fixed stride is what lets the
 ; fill and the sprite step by a constant).
@@ -690,9 +703,11 @@ BZ_BOXB     equ BZ_BOXW * 2 * BZ_BOXH
 BZ_BOXD     equ 20
 
 ; bz_boxc - compose box SI (a descriptor): fill from the course, then the
+; slab when it is under the ball (bz_pov 0, bzwheel.inc bz_pblit), the
 ; shadow when it is drawn this frame (bz_snv: AND only), then the ball's
 ; sprite - each clipped to the box (bz_blit).  The occluders are laid after
-; every box is composed, once a frame (bz_occ).  DS = ours.  Preserves all.
+; every box is composed, once a frame (bz_occ), and the slab over the ball
+; after them (bz_pover).  DS = ours.  Preserves all.
 ;
 ; SPEC.md 128.9 item 1, no MUL anywhere.  THE FILL runs COLUMN-MAJOR: down one
 ; word column the map entry changes only every 8 lines, so each block's run of
@@ -784,6 +799,12 @@ bz_boxc:
     jmp .run
 .filled:
     pop si
+    ; --- the slab when it is UNDER the ball (SPEC.md 128.12.4.5; over it,
+    ; bz_pover lays it after the occluders) ---
+    cmp byte [bz_pov], 0
+    jne .shadow
+    call bz_pblit
+.shadow:
     ; --- the shadow, AND only (SPEC.md 128.11.10.2: before the ball) ---
     cmp byte [bz_snv], 0
     je .ball
@@ -793,12 +814,16 @@ bz_boxc:
     xor bx, bx
     call bz_blit
 .ball:
-    ; --- the ball's sprite: mask AND, frame OR ---
+    ; --- the ball's sprite: mask AND, frame OR; none while it is hidden in a
+    ; tube (SPEC.md 128.12.6.1) ---
+    cmp byte [bz_tube], 0
+    jne .nob
     mov ax, [bz_py]
     mov dx, BZ_BAL_ROWS
     mov di, [bz_smsk]
     mov bx, [bz_sfd]
     call bz_blit
+.nob:
     pop ds
     pop es
     pop bp

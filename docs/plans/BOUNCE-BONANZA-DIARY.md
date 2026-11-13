@@ -888,3 +888,348 @@ against wave 1's 64,509 (predicted 47 - 51KB).
 All of wave 2's stories are ticked, and wave 1's 1.3 with them (closed
 by 2.2's merge and per-block bounds). The one verification left undone
 is the fake shift on a real 101-key keyboard (2.4, 2.12).
+
+## 2026-11-13 (wave 3, the lanes and the wheel in the guest)
+
+The guest half of SPEC.md 128.12.4 and 128.12.5, in a new file,
+`apps/bonanza/bzwheel.inc`, with the frame loop rearranged round it:
+`bz_t0` now runs `bz_foot` (the ball's screen state and its new
+footprints, moved out of the camera and the box layout), `bz_props` (the
+walk), then the camera; the wheel commits between the new mark `bz_tw` and
+`bz_tv`; the LEAD follows the column and the boxes. Observations, not yet
+the final pass:
+
+- **A lane is map words, and that held.** Every writer that reads the map
+  drew the drawn pose with no change of its own. A host emulation of the
+  package's own walk, lane writer and wheel (unicorn, a simulated card, a
+  fake PIT) wrote 400 random commits a card - windows round each lane,
+  steps up and down, left and right - and the card came out exact: every
+  shown cell and every entering-row cell from the map, nothing else
+  touched, including rows that cross the 8KB ring's end.
+- **The first lane writer called the row writer once a card row.** It was
+  correct and cost about 13.8k clocks for a rotor on the CGA (the look
+  boot's calibration), against 9.2k predicted: nine pushes and pops, the
+  row multiply and the set-up, twelve times. Its own loop - the map entries
+  read once a card row, the line in the block stepped by 2 rl bytes, the
+  masked path only for a row that crosses the ring's end - cut the
+  emulated cost by about a third. The Hercules's look, with the new writer,
+  calibrated a rotor at 2,535 counts (10.1k clocks); its fixed part, about
+  3.0k clocks, is twice the prediction.
+- **The calibration timed the wrong span at first.** The wheel decides on a
+  clock sample and then does arithmetic before the commit starts; the
+  calibration timed only the commit. On the emulated Hercules that put one
+  commit 14 counts past AHEAD's two-line guard. The calibration now times
+  from a sample through the same reckoning (`bz_wnow`) to the commit's
+  closing sample.
+- **GLIDE's heavy rule matches the model to the frame.** The package's own
+  camera, run frame by frame under emulation with the card oracle of wave
+  2, agreed with `bbcourse.Glide` and its `Heavy` on `BENCH` and `TRIAL`
+  with all three balls and at 2.2 times the step rate, on both cards, and
+  with `bz_hvoff` set it is wave 2's camera exactly.
+- **The look boots.** `MILL` chosen with N twice on the desktop. On the
+  CGA, 819 frames: the two rotors through all eight poses, 153 commits,
+  one overrun, the card equal to the window drawn from the guest's LIVE map
+  on all 190 frames checked (outside the ball). On the Hercules, the ball
+  poked to the windmill's doorway: 27 contact frames drew the rotor in the
+  ball's box, and the card matched the live map on all 183 frames checked.
+- **What is not there yet.** The windmill's gate, the bumpers' kicks, the
+  tubes and the platform are the physics stage's: `bz_wol`, `bz_pkick` and
+  `bz_tube` are declared and read, and nothing writes them, so no rotor is
+  ever must-draw and no post ever lights. The slab's line is tracked and its
+  box is laid out, but nothing draws the slab yet.
+
+Sizes: image 18,373 bytes (14,236 at this stage's start: wave 2's 14,200
+and `MILL`'s rows in the course tables), bss 6,121 (5,805); `bzwheel.inc`
+alone 3,920 bytes against about 2.1KB the contract priced for these parts.
+
+### Wave 3, the obstacles' physics (SPEC.md 128.12.6)
+
+The windmill's gate, the tubes and their ghost, the bumpers' kick and the
+platform's carry went into `bzphys.inc`, step for step against
+`bbcourse.Physics`.
+
+- **Two tests a step, kept by writing the step twice.** The contract says a
+  ball with no prop near pays two byte tests a step and nothing else. The
+  doorway's hooks sit inside the edge tests, and the slab's and the post's
+  floors inside step 6, so a hook there would have been a third test on
+  every step. Steps 4 - 6 became three NASM macros instanced twice: wave 2's
+  path, which assembles to the same instructions as before, and the PROP
+  path with the hooks. That costs about 700 bytes and removes the risk that
+  the two paths drift apart. Priced from the code, `BENCH`'s step went from
+  5,999 to 6,055 clocks: exactly the two tests.
+- **The carry happens before the forces.** In the contract the carry is the
+  first part of step 3's move. The guest's forces read only the window, not
+  the position, so the carry runs where the step-1 test already branches,
+  and adding a third test was unnecessary. The fallback's undo still returns
+  the ball to the position before the carry: the prop path subtracts the
+  displacement from the saved start.
+- **Unicorn agreed on the first run.** The package's own `bz_step`, emulated
+  on the host, matched the model on every state variable at every step:
+  `MILL`'s autopilot for all three balls; the gate from every phase of both
+  windmills; the house-front approach; each tube at four entry speeds for
+  all three balls; post approaches from eight directions at four speeds;
+  drops onto and beside the posts; ride, Hop, drop, under, roll-off and
+  boarding across the platform's period; the drain's and the doorway's
+  touch at every 1/256 px either side of `BZ_CLIMB`; 60 fuzzed runs near the
+  props and 30 on the slab; a synthetic course with the platform beside
+  walls, a raised post and a cluster; and an undo with a poked carry. The
+  harness was tested by breaking the guest on purpose. Eight broken copies
+  (the gate's window, the carry, `KA`, `bz_onp` on a take-off, KEEP's
+  direction, the post's top, the drain's height, the undo's carry) each
+  produced mismatches. Two of them did so only after targeted scenarios were
+  added: the drain needed the z-boundary sweep, and the undo needed the
+  poked carry beside a wall. One more broken copy stayed green, but it
+  cannot change MILL: a platform owning cells two diagonals off its track
+  has no such `OBS` cell to own there.
+- **The model moved twice, harmlessly.** The doorway's knock-back now reads
+  the record's `eG` (160, as the constant was), and the slab's floor keeps
+  the track cell's surface, which is NORMAL everywhere. The guest reads the
+  surface from the window's centre, so the model and the guest now agree by
+  construction instead of by course content.
+- **The prop path costs more than priced.** A prop-path step is about
+  7.6k raw against wave 2's 5.4k on `MILL`. A carried step is 7.9k, after a
+  one-entry cache for the platform's position, a kind byte per `bz_wol`
+  pair and a faster `bz_lrecsi` brought it down from 10.2k. The contract
+  priced 0.2k plus 0.34k a post.
+- **The look.** On both cards: a windmill capture whose first touch fell on
+  an open gate, the ball hidden and the camera gliding after the ghost, the
+  KEEP exit, a knock-back at the other windmill, a kick on the green, the
+  DROP chute's fall and bounce, and the cannon's flight onto the goal ledge.
+  A second boot per card covered the ride, because the first ended at the
+  goal: the ball was carried exactly 48 gu along each axis, `PMAX`, from the
+  home dock to the far dock. The slab itself is not drawn yet. That is the
+  compose's work, as the previous entry says, so the ball rides over a black
+  moat.
+
+Sizes: image 18,373 -> 21,387 bytes (+3,014, of which the props' physics
+2,865), bss 6,121 -> 6,160, `BONANZA.O88` 64,597 -> 66,501.
+
+### Wave 3, the slab on the glass and the engine's last pieces (SPEC.md 128.12.4.3 - 128.12.4.5)
+
+The previous entry ended with the ball riding over a black moat. This stage
+drew the slab and checked the rest of the frame's new rules: the contact
+box's four-box limit, the heavy camera, the face's course list and the
+replay's identity check were already in the tree and were read against the
+contract rather than rewritten.
+
+- **The slab is a layer, not a lane.** Every box that meets its drawn
+  footprint composes it: under the ball after the course, or over it after
+  the occluders, by one decision a frame (`bz_povr`: below the slab's top
+  and not in front of its row). Three things put it on the card: its own
+  box when its line changes while it is shown, its box after a full write
+  (`bz_pfull` - the first version left that to the next frame, and a host
+  check with the slab expected at its TRUE line, rather than at the guest's
+  drawn one, caught the gap), and a box clipped to the cells a scroll brings
+  in (`bz_pstrip`). The Hercules gets its pixels from the fetch's
+  translation, a parity copy per line, like the ball's squash frames.
+- **One slot, two claimants.** The contract said the contact group is one
+  lane or the slab's box, and did not say which wins when a contact lane and
+  a strip meeting the slab fall on one frame. Under GLIDE they cannot (a
+  contact lane's frame scrolls nothing), but TRICKLE scrolls whatever the
+  heavy rule says. As built the lane yields: its map words go back to its
+  drawn pose and it waits a frame, as a second lane touching the ball
+  already does. SPEC.md 128.12.4.3 now says so.
+- **Checked by emulation, broken on purpose.** The package's own frame code
+  ran under unicorn on `MILL` against an independent card oracle: rides
+  from five phases of the slab's period, Hops, a ball under the slab (the
+  slab over it), the ball rolling away and back, a camera driven across the
+  slab and back in four patterns, and random keys, on both cards and both
+  cameras. Four broken copies (no clipped box, the slab always under, no
+  box at a full write, no layer under the ball) each failed it, and a
+  forced contact lane on a strip frame showed the yield.
+- **The slab's layer was slower than priced.** A byte loop cost about 10k
+  clocks a slab against the 5k the contract allowed. A box exactly the
+  slab's width - its own, and a ball riding it - now takes the rows as one
+  run of words, about half.
+- **A hidden ball is never idle.** The idle test compared the ball's
+  position; a ghost whose first screen position equalled the ball's last
+  would have left the ball drawn while it was in the tube.
+- **The look.** One boot per card: `MILL`'s autopilot end to end (the
+  rotor drawn on its must-draw frame before the capture, the transit, the
+  kicks, the platform beside the route), a play with the ball put on the
+  docked slab and carried to the far rim, and `TRIAL`'s benchmark under
+  GLIDE. The card equalled the live map with the slab composed on every
+  frame checked (440 and 330 and 200 on the CGA, 473, 330 and 200 on the
+  Hercules). What the look also showed, for the final pass to measure
+  rather than for this stage to argue: `MILL`'s autopilot missed refreshes
+  on the platform's box frames (128 on the CGA and 44 on the Hercules, before
+  the word path), the wheel overran once and let lanes wait 8 frames
+  (`bz_wover` 1, `bz_wlate` 7 and 4, which the final pass asserts at 0), and
+  `TRIAL` with the heavy rule missed 18 and 7 against wave 2's 8 and 2, the
+  Hercules's on light frames that caught up a withheld column and two rows
+  together.
+
+Sizes: image 21,387 -> 22,235 bytes (+848: 729 of routines, the rest hooks
+and the Hercules translation), bss 6,160 -> 6,179, `BONANZA.O88` 66,501 ->
+67,205. The contract priced the slab's drawing and translation at about 310.
+
+### Wave 3, the owner's preview: seven fixes (SPEC.md 128.12.16)
+
+The owner played a preview of the wave on 86Box (a 5150 with the CGA) before
+the rows ran. "Most of this looks very good." Then four defects, a tuning
+ask and two things about the platform. What each turned out to be:
+
+- **The windmill had no door out.** A windmill's tunnel is its house, so
+  its exit got neither a plain tube's rim nor a mouth: the ball came out of
+  a blank wall. Its house face now carries the doorway's arch where the
+  ball leaves (when that face is one the viewer sees).
+- **The bumpers rarely lit.** The lit pose lasted six physics STEPS, and a
+  post touching the ball waits whenever the frame is busy; by the time a
+  frame could draw it the post was dark again. The lit time is now the
+  display's, counted in frames that actually showed it (8), and a post
+  lighting is drawn whatever the frame. The look: every kick lit on its own
+  frame, for 26 and 75 frames on the CGA and 10 and 10 on the Hercules.
+- **The chute's ball came out above its door.** The mouth was drawn at the
+  foot of the wall, on the tier's floor line; the ball leaves 3 units up.
+  The mouth's sill is now the exit height, and the tool checks that the
+  ball at the exit stands in it.
+- **The tube blocks were missing a piece.** The chute's wall stands on the
+  lower tier with the void beside it: one face reached the tier, the other
+  hung the standard 3 units over the void, so the column had a bite out of
+  it. A tube wall's void face now reaches as deep as its other face.
+- **More push.** `K` 320 -> 384, the axis cap, +20%. The `kick` replay now
+  comes in diagonally, because along an axis the cap hides the rail's floor
+  and its red arm could no longer part from it.
+- **The ball rolled on the lift, and falling into the lift killed it.**
+  Both have one cause, and it is the projection's: a slab sliding along
+  `+s` and a slab moving straight down are the same picture. The owner saw
+  a LIFT. As a slide, the carry moved the ground line the roll frame reads
+  (so the ball turned), and a ball rolled off the near rim fell behind the
+  slab into a moat and died before it reached the slab's picture. So it IS
+  a lift now: one shaft cell, the slab moving in `z` between a low rim and
+  one six units over it, the shaft's kill under the low top. A ball riding
+  it keeps its roll frame (the frame never reads `z`), and a ball falling
+  down the shaft lands on the slab wherever it is. The guest got SMALLER
+  doing it - no square test, no track scan, no start correction (-147
+  bytes of physics) - while the lit posts cost 57 and their yield to a
+  strip 21: the image 22,235 -> 22,218 bytes, bss +50.
+
+How it was checked: the guest's own `bz_step` under an emulated 8086
+against the model at every step (`MILL`'s autopilot with each ball, the
+lift's rides, Hops and drops at every phase, boarding from both rims, and
+fuzz on a second lift course with a wall beside its shaft) - integer-exact;
+`--selfcheck` with new items for the mouths, the columns, the lift and the
+lit posts, each with a negative control built from what the preview showed;
+and one look boot a card. The rows are the final pass's.
+
+### Wave 3, the review: what four readers found (SPEC.md 128.12.17)
+
+Four reviewers read the built wave with different questions - what reaches
+the glass, what physics does, what it costs, and what the OS sees - and
+returned 22 findings. Every one was checked against the code and every one
+was real. The ones worth remembering:
+
+- **A box is a UNION, not a footprint.** The walk decided which due lanes
+  the wheel could take by testing them against the ball's footprints. But a
+  frame's boxes are unions - the old and new footprints together, the
+  shadow merged in, the contact merged in - composed before the wheel and
+  written after the flip. A post in the corner of a union but outside both
+  footprints was committed lit-to-dark by the wheel and then partly painted
+  back lit by the box. The wheel now drops a candidate that meets any of the
+  frame's boxes; it stays due, and the box has drawn its drawn pose.
+- **The slab could leave a stripe behind.** The walk asked only whether the
+  lift's TRUE footprint was on screen. When the lift sank out of a resting
+  window, its last drawn lines stayed. Now the drawn footprint counts too. A
+  scratch harness with the camera parked and the lift crossing the bottom
+  edge showed it: red with the old rule, green with the new.
+- **A lighting post could overrun a buffer.** The owner's fix made a
+  lighting post outrank everything but a rotor - including the lift's box,
+  which cannot wait: two frames of catch-up is more than 24 lines, and the
+  box buffer is 24 lines. The reviewer's fix was to put the lift first. That
+  would have starved a post next to a moving lift for the whole ride - the
+  very complaint the owner had just made - so both are drawn: the post is
+  the contact, the lift's box a second rectangle (merged into a neighbour
+  when it fits), and only on a frame with no room does the post wait one.
+- **The wheel could make its own frame late.** It prepared each candidate
+  (about 4k clocks) before each test, and only its entry looked at the
+  deadline. Now every candidate is prepared once, before the entry test,
+  into a slot; every test first stops the wheel when even the cheapest
+  candidate would not fit; and a test and its commit are one critical
+  section, so no tick can land between "it fits" and the first write.
+- **The identity was a plain sum**, so two windmills with their seeds
+  swapped had the same identity and a log would replay a different run
+  without complaint. It is a Fletcher pair now, and the swap is the
+  self-check's negative control.
+
+The image grew 745 bytes (22,218 -> 22,963) and bss 307 (six wheel slots,
+the walk's per-lane tables and the lift's second rectangle). The walk's own cost fell from the review's
+8 - 11k clocks a `MILL` frame to a mean of 3.9k (CGA) and 4.5k (Hercules)
+on the host's instruction pricing - still about twice what 128.12.11
+predicted, which the final pass will measure on MartyPC.
+
+How it was checked: the physics cross-check again (integer-exact over
+`MILL`, the lift, fuzz and a second lift course), the scratch harnesses for
+the walk, the wheel's beam and deadline, the lead, and the frame code
+against an independent card oracle (100 lift scenarios and 900 frames of
+`MILL`'s autopilot a card), plus one negative control per picture fix. No
+row ran; they are the final pass's.
+
+### Wave 3, the final pass: what the rows measured (SPEC.md 128.12.18)
+
+The nine rows ran once as one scoped soak call on MartyPC (and 86Box for
+kern_mega), after a first attempt at this pass was cut off by a container
+restart part-way through. Eight passed. `bonanzawheel` still fails one
+check on the CGA. What the rows found, and what changed:
+
+- **The wheel could not keep up on `MILL`.** On the benchmark, a rotor's
+  pose was late 8 frames running eight times on the CGA and four on the
+  Hercules, and only 69% and 84% of a rotor's poses ever reached the glass.
+  A diagnostic run that logged the wheel every frame showed why. A rotor's
+  commit costs about 13.4k clocks on the CGA (the prediction was 9.2k) and
+  preparing it about 7.2k. Where the lift moves in view, frames are 93% busy
+  on the CGA, so the retrace wait has no room for a commit. The fix is a
+  rule, not more speed: a lane the wait has not taken in 3 frames takes the
+  contact slot (a box) when the frame allows one, or in 5 frames on any
+  frame. The lift's box gives that frame up, for one frame at a time. A
+  bug came out with it: a lane drawn by a box kept counting its age, so its
+  next pose started "late". After both, no lane was late on either card,
+  and 92 - 97% of the rotors' poses reached the glass.
+- **The route never exercised half of the wheel.** `MILL`'s rotors stand
+  near the course's top, so they are always high in the window, and its
+  frames are heavy. The wheel therefore never committed ahead of the beam,
+  never made a LEAD, and on the CGA never committed a 2-word post. A
+  scripted scene now does those: a post placed low in a centred window,
+  the ball held still above it, the post lit and darkened every 6 frames.
+  Both `bonanzaring` (as a phase of its poked play) and `bonanzawheel` (as
+  a new leg) run it. On the CGA it gave 3 commits ahead of the beam and 3
+  LEADs; on the Hercules, 3 ahead and 4 behind. The card matched the
+  oracle on every checked frame.
+- **The replay recording got stuck.** The recorder steers the ball with an
+  autopilot that heads for one waypoint at a time. In one run a kick
+  carried the ball past a waypoint without touching it, and the autopilot
+  then pinned the ball against a wall for 750 steps, never reaching a tube.
+  The recorder's own copy of the autopilot now skips to the next waypoint
+  after 30 frames of the ball not moving. The game's autopilot is
+  unchanged.
+- **The A/B leg's one miss was not caused by the engine.** On the frame
+  that missed, wave 3 ran two physics steps where wave 2 ran one. Each
+  build decides how many steps a frame runs from its own timing, so the
+  two benchmarks land their two-step frames on different frames. Wave 2's
+  version of that frame had only 3.4k clocks to spare even with one step.
+  The leg now reports such a miss instead of failing on it; any other miss
+  still fails it. Wave 3's own cost on `BENCH` is +2.1k clocks a frame on
+  the CGA and +1.9k on the Hercules.
+- **The corner check never runs on the CGA, and cannot run on the
+  Hercules.** The Hercules's 45-word window always holds every `MILL`
+  lane's columns, so no lane can straddle its edge. That check is now
+  reported there, with the reason. On the CGA, the frames that scroll
+  diagonally reach the wheel 79 - 98k clocks after the retrace starts,
+  against the about 54k a post's commit needs. So the wheel skips them, and
+  the lane goes out in a box three frames later. This is the one check
+  still failing; it needs either a cheaper commit or a course built to
+  test it.
+
+Measured against the predictions:
+
+- **`BENCH`:** busy 44.6k on the CGA and 44.8k on the Hercules, against
+  44.3k and 44.6k predicted.
+- **`MILL`:** busy 50.7k and 52.3k, against 46 - 49k predicted. It missed
+  111 refreshes on the CGA and 13 on the Hercules, almost all of them on
+  the lift's stretch. Frames that draw the lift's box measured 93% busy,
+  as predicted, but the ride's frames where the lift's line changes
+  measured 120% against the 94% predicted.
+- **`TRIAL` with the heavy rule:** more misses than wave 2, not fewer (14
+  against 8 on the CGA, 9 against 2 on the Hercules). Open question O28
+  stays open for the owner, and O30 (the lift's cost) now has numbers.
+- **Sizes:** the image is 23,227 bytes (17.9 - 18.8k predicted), bss 6,542,
+  and `BONANZA.O88` 68,235 bytes, still on one 360KB floppy.

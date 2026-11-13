@@ -1,0 +1,89 @@
+# Windmill Lane - BONANZA's course 3 (SPEC.md 128.12.9): the course wave 3's
+# obstacles are judged on, built for the RUBBER ball.  Everything wave 3 adds
+# is on it:
+#  - two WINDMILLS, each a KEEP tunnel through one house to a tier beside it,
+#    entered along -y through a doorway on the house face with its rotor
+#    standing on it.  The route passes the right one (an explicit seed, 16, so
+#    the autopilot's first approach finds the gate open, SPEC.md 128.12.15
+#    item 4); the left one keeps its derived seed (36);
+#  - three BUMPERS, a cluster on a green walled with bumper rails: the route
+#    crosses it and ricochets off two posts;
+#  - a DROP chute down from the green onto F, the finishing tier, 3 units below
+#    its mouth (rubber bounces, steel is stunned, glass shatters: the tool
+#    prints it);
+#  - a LAUNCH cannon from F over a gap onto G, the goal ledge.  Its flight runs
+#    along a cell row (constant s) from a lone mouth tile to G's front corner,
+#    with nothing in front of it, so it and the chute's fall cross no OCC cell
+#    (the layout 128.11.13 item 8 asked of TRIAL's flights); a wall at the end
+#    of the row and a lower terrace in front of G keep a bounce off the corner
+#    on the course;
+#  - a LIFT (L 6, P 256, the default dwell: v 192) in a shaft on F's east
+#    edge, between F (its high dock, 2 units) and a low island 6 units
+#    below it (-4), beside the route and in no window a windmill shares: a
+#    ball rolled off F into the shaft lands on the slab wherever it is.
+# F is sand, so the chute's bounces die on it before the cannon's drain.
+course MILL "Windmill Lane"
+width 64
+ball rubber
+
+# A, the start tier, and the windmills' house behind it
+floor rect  6  9 11 14  flat 16
+wall  rect  6  5 12  9  flat 22
+# B, east of the house, 4 units up; C west of it
+floor rect 12  5 16  9  flat 20
+floor rect  3  5  6  9  flat 18
+# B's descent along +y to the green
+floor rect 14  9 16 17  ramp y 9 17 20 8
+# the green, walled with bumper rails
+floor rect 12 17 18 22  flat 8
+wall  rect 12 16 14 17  flat 10
+wall  rect 16 16 18 17  flat 10
+wall  rect 11 17 12 22  flat 9
+wall  rect 18 17 19 22  flat 9
+wall  rect 12 22 19 23  flat 9
+surface bounce rect 11 17 12 22
+surface bounce rect 18 17 19 22
+surface bounce rect 12 22 19 23
+# the chute's last wall, F the finishing tier, the cannon's body and its mouth
+wall  tile 19 20        flat 9
+floor rect 20 15 26 23  flat 2
+surface sand rect 20 15 26 23
+wall  tile 23 23        flat 2.5
+floor tile 23 24        flat 2
+# the lift's low rim, an island in front of its shaft
+floor rect 27 18 29 20  flat -4
+# G, the goal ledge, over the gap
+floor rect 18 24 22 27  flat 1
+floor rect 18 27 22 28  flat 0.5
+wall  rect 18 28 22 29  flat 1
+wall  rect 17 24 18 27  flat 1.5
+goal  rect 18 24 20 26  flat 1
+
+tube keep   9 9  12 6  via 9 6
+prop windmill 9 9  seed 16
+tube keep   7 9   5 7  via 7 7
+prop windmill 7 9
+prop bumper 14 19
+prop bumper 16 18
+prop bumper 16 20
+tube drop  17 20  20 20  out +x  height 3
+tube launch 23 22  23 24  speed -192 192 480
+prop platform 26 18 6
+
+start 9 12
+
+# The autopilot's route (the benchmark's MILL leg, SPEC.md 128.12.9): into the
+# windmill, over the green, down the chute, through the cannon to the goal - no
+# fall in 1,289 steps (`bbcourse.py --selfcheck` item 8).
+way  9 12
+way  9  9
+way 12  6
+way 14  7
+way 14 13
+way 14 18
+way 17 20
+way 20 20
+way 23 20
+way 23 22
+way 23 24
+way 19 25
