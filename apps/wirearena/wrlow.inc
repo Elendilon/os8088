@@ -83,12 +83,9 @@ WA_VAR wl_e2i, 2
 WA_VAR wl_e2f, 2
 WA_VAR wl_stw, 2                ; the top's step a column (its value: CX.BP)
 WA_VAR wl_stf, 2
-WA_VAR wl_bw, 2                 ; the floor edge: half-row, fraction, step
-WA_VAR wl_bf, 2
-WA_VAR wl_bsw, 2
+WA_VAR wl_bsw, 2                ; the floor edge's step
 WA_VAR wl_bsf, 2
-WA_VAR wl_tst, 1                ; ...steep, each
-WA_VAR wl_bst, 1
+WA_VAR wl_col0, 2               ; a pass's first column x 2
 WA_VAR wl_end, 2                ; one past the last column, x 2
 WA_VAR wl_prev, 2               ; the column before's half-rows (a steep
 WA_VAR wl_bprev, 2              ; step)
@@ -750,53 +747,42 @@ wl_draw:
     mov al, bl
 .notag:
     mov [wl_tag], al
-    push word [si+2]        ; (the top's ends, for after the floor's)
+    pop word [wl_col0]          ; (the first column x 2)
+    push word [si+2]            ; (the top's ends, for after the floor's)
     push word [di+2]
-    xor dl, dl                  ; DL = the floor edge's steep, if drawn
-    mov [wa_steep], dl
-    cmp byte [wl_two], 0        ; the floor edge's start and step: wa_span's
-    je .nob                     ; own (exact at the first column; half-rows
-    mov ax, [si+6]          ; with a 16-bit fraction, the whole part
-    mov bx, [di+6]          ; rounded)
-    call wa_span.edge
-    mov [wl_bsw], dx
-    mov [wl_bsf], ax
-    mov [wl_bw], bx
-    mov [wl_bf], cx
-    mov dl, [wa_steep]
-    mov [wl_bst], dl
-    mov byte [wa_steep], 0      ; ...and the top's
-.nob:
-    pop bx
-    pop ax
-    push dx
-    call wa_span.edge
-    mov [wl_stw], dx
-    mov [wl_stf], ax
-    mov bp, cx                  ; the top: CX.BP
-    mov cx, bx
-    pop ax                      ; (AL: the floor edge's steep)
-    pop si                      ; SI = the first column x 2
-    mov di, [wa_lp]
-    mov dl, [wa_frame]
     cmp byte [wl_two], 0        ; THE FLOOR EDGE first, a loop of its own
     je .top                     ; (r5): it is drawn against the clip as it
-    push si                     ; stood, which the top raises only after it
-    push cx                     ; in each column - and each column is its
-    push bp                     ; own, so all the floor's cells and then all
-    mov cx, [wl_bw]             ; the top's are the same cells, plotted in
-    mov bp, [wl_bf]             ; the same order within a column
+    mov ax, [si+6]              ; stood, which the top raises only after it
+    mov bx, [di+6]              ; in each column - and each column is its
+    mov byte [wa_steep], 0      ; own, so all the floor's cells and then all
+    call wa_span.edge           ; the top's are the same cells, plotted in
+    mov [wl_bsw], dx            ; the same order within a column. Its start
+    mov [wl_bsf], ax            ; and step are wa_span's own (exact at the
+    mov bp, cx                  ; first column; half-rows with a 16-bit
+    mov cx, bx                  ; fraction, the whole part rounded): CX.BP
+    mov si, [wl_col0]
+    mov di, [wa_lp]
+    mov dl, [wa_frame]
     mov bx, wl_f0
-    or al, al
-    jz .f
+    cmp byte [wa_steep], 0
+    je .f
     mov bx, wl_f1
 .f:
     call bx
-    pop bp
-    pop cx
-    pop si
+    mov [wa_lp], di
 .top:
-    mov bx, wl_l00              ; the top, raising the clip
+    pop bx                      ; THE TOP, raising the clip
+    pop ax
+    mov byte [wa_steep], 0
+    call wa_span.edge
+    mov [wl_stw], dx
+    mov [wl_stf], ax
+    mov bp, cx                  ; CX.BP
+    mov cx, bx
+    mov si, [wl_col0]
+    mov di, [wa_lp]
+    mov dl, [wa_frame]
+    mov bx, wl_l00
     cmp byte [wa_steep], 0
     je .t
     mov bx, wl_l01s
@@ -809,16 +795,14 @@ wl_draw:
     mov word [wa_left], 0       ; (more spans than the table holds: drawing
     ret                         ; stops this frame - never seen)
 
-; WLLOOP %1 = 1 the floor edge too, %2 = 1 an edge may be steep: wl_draw's
-; columns (SI from the first x 2 to [wl_end]; CX.BP the top; DL the stamp, DI
-; the list). For the columns AH holds the colour and DH counts them down.
+; WLLOOP %1 = 1 the edge may be steep: wl_draw's top edge, its columns (SI
+; from the first x 2 to [wl_end]; CX.BP the top; DL the stamp, DI the list). For the columns AH holds the colour and DH counts them down.
 ; A column's top is ONE signed test against its clip (the clip is 1..WA_HR in
 ; an open column): at or under it nothing is drawn nor raised; over it the
 ; cell is plotted when on the screen, the clip raised and an entry pushed - or,
-; at or over the screen's top, the column shut (wl_shutc). The floor edge is
-; ONE unsigned test (a row off either side reads as past the clip). Where only
-; a shallow top is walked the clip is tested first: a column it is hidden in
-; needs no shut test. A steep step is filled where the whole half-rows of two
+; at or over the screen's top, the column shut (wl_shutc). Where the top is
+; shallow the clip is tested first: a column it is hidden in needs no shut
+; test. A steep step is filled where the whole half-rows of two
 ; neighbouring columns are two or more apart - which a shallow edge's never
 ; are, so the test stands for the flag - unless both ends are at or under the
 ; clip, where wa_slope fills nothing; a shut column leaves the next column's
@@ -845,82 +829,31 @@ wl_draw:
 %%no:
 %endmacro
 
-%macro WLLOOP 2
+%macro WLLOOP 1
     mov ah, [wa_wcol]
     mov bx, [wl_end]
     sub bx, si
     shr bx, 1
     mov dh, bl
-%if %2
+%if %1
     mov [wl_prev], cx
-  %if %1
-    mov bx, [wl_bw]
-    mov [wl_bprev], bx
-  %endif
-%endif
-%if %1 || %2
     jmp short %%col
 %%shut:
-%endif
-%if %2
     add bp, [wl_stf]            ; (the next column's own values are the ones
     adc cx, [wl_stw]            ; before it: no step filled across this one)
     mov [wl_prev], cx
-  %if %1
-    mov bx, [wl_bsf]
-    add [wl_bf], bx
-    mov bx, [wl_bsw]
-    adc [wl_bw], bx
-    mov bx, [wl_bw]
-    mov [wl_bprev], bx
-  %endif
     jmp %%adv
-%elif %1
-    jmp %%next
-%endif
 %%col:
-%if %1 || %2
     cmp byte [wa_cov+si], 0
     jne %%shut                  ; (shut)
-%endif
-%if %1
-    mov bx, [wl_bw]             ; the floor edge, against the clip as it was
-  %if %2
-    push cx                     ; (its step, rarely walked: out of line)
-    mov ax, bx
-    mov cx, [wl_bprev]
-    mov [wl_bprev], bx
-    call wl_fillc
-    pop cx
-    mov ah, [wa_wcol]
-    mov bx, [wl_bw]
-  %endif
-    cmp bx, [wa_cclip+si]
-    jae %%top
-    mov al, [wa_hgl+bx]
-    shl bx, 1
-    mov bx, [wa_hroff+bx]
-    add bx, si
-    WPLOT
-%%top:
-%endif
-%if %2
-  %if %1
-    push cx                     ; the top's step
-    mov ax, cx
-    mov cx, [wl_prev]
-    call wl_fillc
-    pop cx
-    mov ah, [wa_wcol]
-  %else
     WLFILL cx, [wl_prev]        ; the top's step
-  %endif
     mov [wl_prev], cx
+%else
+%%col:
 %endif
     cmp cx, [wa_cclip+si]
     jge %%next                  ; under something nearer, or below the screen
-%if %1 || %2
-%else
+%if %1 == 0
     cmp byte [wa_cov+si], 0
     jne %%next                  ; (shut)
 %endif
@@ -947,12 +880,6 @@ wl_draw:
 %%next:
     add bp, [wl_stf]
     adc cx, [wl_stw]
-%if %1
-    mov bx, [wl_bsf]
-    add [wl_bf], bx
-    mov bx, [wl_bsw]
-    adc [wl_bw], bx
-%endif
 %%adv:
     inc si
     inc si
@@ -966,8 +893,8 @@ wl_draw:
     call wl_shutc
     jmp %%next
 %endmacro
-wl_l00:     WLLOOP 0, 0
-wl_l01s:    WLLOOP 0, 1
+wl_l00:     WLLOOP 0
+wl_l01s:    WLLOOP 1
 
 ; WLFLOOR %1 = 1 the edge may be steep: a floor edge alone (wl_draw's, r5),
 ; its columns from SI to [wl_end], CX.BP its value, [wl_bsw].[wl_bsf] its
