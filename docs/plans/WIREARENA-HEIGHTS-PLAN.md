@@ -2074,7 +2074,9 @@ else, 60–75%, is a fixed cost per object:**
 
 - a low box pays ~10k clk of prelude, posts and dispatch, ~1.2k for its leaf
   and ~3.6k for its corners' transforms, before its first pass;
-- a pass pays ~1.4k clk of setup before its first column;
+- a pass pays ~2.4k clk of setup before its first column, and ~770 clk a
+  column (least squares, 9.8.6); a pass culled before its setup still costs
+  ~630;
 - a tall face pays ~4k clk (its vertices, face test, clip and projection),
   and its span ~3.5k more before the first column;
 - a figure near enough for limbs pays ~20k clk.
