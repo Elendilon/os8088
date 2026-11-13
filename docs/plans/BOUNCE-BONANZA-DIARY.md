@@ -1360,3 +1360,78 @@ ramp, with the heavy rule off as the story requires.
 
 The corner check, the `BENCH` A/B target and the image's size stay open,
 as the final pass left them.
+
+## 2026-11-13 (wave 4, the contract)
+
+SPEC.md 128.14 was written before any code, from four questions. What is
+a game here? How does a clock get onto a card with no split screen? What
+does a demo on the disk have to survive? And does the package have to be
+split up?
+
+**Decided.** A game is a TOUR of the five courses after `BENCH`, raced
+for time against par. There are no lives, because a fall that cost a
+life would turn the owner's D4 mechanic into a thing to avoid. A fall
+costs the way back from the last checkpoint flag instead, and each flag
+names the ball a respawn there gets, so no flag can respawn a ball that
+cannot finish. The scorecard is the desktop face, and the best times are
+kept in `SYSTEM\APPDATA` on the package's own disk through the OS's own
+include, keyed by each course's identity. A demo file is the log's own
+bytes. It is saved and loaded through the Standard File dialog, refused
+by its size before any read, and checked field by field in a transient
+claim, so a bad file cannot damage the session's own log. The package
+stays one file with a lazy part a course: about 134 of the 360KB floppy's
+354 clusters, predicted, with six courses, five demos and the save folder.
+
+**Measured** (MartyPC, scratch scripts, not rows). First, the box
+compose's fill and the box writer, by box size, over `BENCH`'s 1,200
+frames on both cards. A 3-word box at 16 lines fills in about 4.5k clocks
+and writes in about 4.8k. The useful part is the fixed cost: about 1.6 -
+2.1k for the fill and as much for the write, whatever the box's size. A
+2-word clock panel that follows the camera therefore costs about 8 - 11k
+on every frame the camera moves.
+
+Second, after the review asked for it: every frame of `MILL`'s and
+`TRIAL`'s benchmarks on both cards, sound off and on, with its busy, its
+rows and column, and whether the heavy rule held it. The legs' miss counts
+agreed with the 3b final pass's within a run's spread. The log showed where a clock box would land.
+Half the CGA's two-row frames already miss, and with the speaker on so do
+half its one-row frames. Played over the log, a clock that follows the
+camera adds about 21 - 24 misses a `MILL` leg on the CGA and 10 - 11 on
+the Hercules. A clock that hides while the camera moves (REST) adds 0 -
+3, and it is still shown on two thirds of the frames or more. The first
+draft had kept the following clock on the Hercules because its refresh
+has about 15k more room. The log said the Hercules doubles its `MILL`
+misses that way, so both cards now default to REST.
+
+The same log tested one idea and threw it out. Letting GLIDE pan only
+one row a frame on the long descents was meant to rescue `SUMMIT`'s
+two-row frames. On the log a two-row frame misses because of everything
+on it, not its second row, and splitting it into two frames predicts more
+misses on the CGA, not fewer. `SUMMIT`'s predicted misses are accepted in
+writing instead, and the shipped demos will measure them.
+
+**The review** (forty-nine findings on budget, the OS and the game) changed
+more than the numbers. The HUD's box buffer had been sized at its own
+width, and every box buffer in the package is laid out at a fixed stride,
+so it would have overrun. A lane under the clock would have been drawn
+only inside the clock's opaque rect, so its visible cells would never
+have been drawn. The save folder is not created by the OS's include, and
+`bonanza360.img` did not have one, so best times would never have been
+written. The Save and Open dialogs move the program's folder, and the
+package reads its own parts by name in that folder, so the next launch
+after a save elsewhere would have failed. The new courses had taught
+steel first in course 4 and glass first in course 5, with no choice of
+ball anywhere. Now `MOON` brings in glass gently, and each new course has
+an optional hard-fall line.
+
+**Not yet true**, and each one is predicted rather than measured: the two
+new courses' sizes (`MOON` 44 - 48KB, `SUMMIT` 55 - 60KB), the image's
+growth (about 5.4KB), every HUD box price, and every miss count above
+except the logged legs' own.
+
+**The owner on the HUD (2026-11-13):** "Since the HUD inherently has to
+scroll, we can keep it very minimal or even not have one. Gameplay and on
+course features outrank it." So wave 4 builds the HUD last, OFF by default,
+and ships it only if it costs MILL at most two missed frames a card with the
+speaker on (SPEC.md 128.14.16); otherwise it is removed and the clock lives on
+the results face.
