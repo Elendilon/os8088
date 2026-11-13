@@ -677,3 +677,40 @@ applies, and these are the rows the split itself makes worth having:
 8. **Frame-block version 1 first, or straight to version 2?** Version 1
    costs ~0.6% of a play frame today, measured in step 3 and replaced in
    step 4 if it grows.
+
+## 6. The owner's answers (2026-11-13)
+
+These answers bind the plan. Where one contradicts a section above, it
+overrides that section, and that section is to be rewritten when step 0
+lands.
+
+- **At most three figures, ever.** Every "8 figures" scale point above (3.4's
+  frame-block cost, the forecast's figure records) is replaced by 3. Copying
+  the world each frame stays near today's ~0.6% of a play frame plus the
+  projectiles.
+- **A heap claim is fine wherever it beats a part.** Anything that need not
+  be a part (a buffer, a table built at start, a page) may be a claim of its
+  own, if that is faster, smaller on disk or otherwise better. A part is the
+  answer for CODE and for data that ships; a claim is the answer for what is
+  built or zeroed at run time. Section 3.3's D was set aside for its hot-loop
+  cost, not because a claim was ruled out.
+- **Q1, the shape:** approved — design B.
+- **Q2, arenas:** loaded from disk when a match starts.
+- **Q3, keyframes:** they share the renderer's claim if the two fit together
+  and that is faster; otherwise POSE gets its own. Decide at step 2 from the
+  measured sizes at that point.
+- **Q4, page flipping:** not on the 8088. Page flipping is usually slower,
+  and there is no room for slower. It may come back for a 286, or anywhere a
+  second page makes the game FASTER (some scheme that does). A second page
+  would be a heap claim, not a part.
+- **Q5, kern_small:** refuse. WireArena is kern_big and kern_mega only.
+- **Q6, memory:** design for 640 KB. The end product has ETHER.DRV, likely a
+  sound driver and a hard-disk driver loaded, plus the renderer, arena and
+  animations. Running on 256 KB is welcome, not required.
+- **Q7, the lobby:** a windowed desktop interface, in a part of its own.
+- **Q8, the frame block:** whichever is fastest. Measure version 1 in step 3
+  and take version 2 if it wins.
+
+**Since this plan was written:** the round-4 present work (perf-present)
+removed `wa_vis` and folded `wa_fmask` into `wa_stamp`'s odd bytes, which
+cuts the renderer's BSS by 7,680 bytes. Section 1.2's table predates it.
