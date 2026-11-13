@@ -131,6 +131,7 @@ wa_main:
 .go:
     mov al, [wa_arena]
     call wa_loadarena
+    call wa_geominit
     call wa_reset
     call OSAPI_MOUSE_REL        ; the desktop's motion is not ours: discard
     call pit_now

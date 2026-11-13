@@ -219,6 +219,9 @@ def inside(x, y, boxes, r):
                for (a, b, c, d) in boxes)
 
 
+MAXKS = 8          # distinct steps between coordinates (wa_products)
+
+
 def arena_tables(w, tag, boxes, start):
     """One arena's tables, every label prefixed wa_<tag>_; -> its counts."""
     if inside(start[0], start[1], boxes, 20):
@@ -247,6 +250,18 @@ def arena_tables(w, tag, boxes, start):
     if len(verts) * 2 > 255 or len(boxes) * 8 > 255 or len(xs) * 4 > 255 \
             or len(ys) * 4 > 255:
         raise SystemExit("arenagen: the arena outgrew a byte index")
+    # wa_products makes a coordinate's products from the one before it, by
+    # adding the products of the STEP between them, made once a frame: so
+    # the distinct steps an arena has are few, and each fits x 4 in 16 bits
+    steps = {b - a for vals in (xs, ys) for a, b in zip(vals, vals[1:])}
+    if len(steps) > MAXKS or max(steps) * 4 > 32767:
+        raise SystemExit("arenagen: arena %s: %d distinct coordinate steps, "
+                         "largest %d - wa_products takes at most %d, each "
+                         "under 8192" % (tag, len(steps), max(steps), MAXKS))
+    for (a, b, c, d) in boxes:
+        if not (ROOM[0] < a < c < ROOM[2] and ROOM[1] < b < d < ROOM[3]):
+            raise SystemExit("arenagen: arena %s: a box outside the room - "
+                             "WA_ZMAX assumes none is" % tag)
     P = "wa_%s_" % tag
     w(P + "xv:      dw " + ", ".join(str(x) for x in xs))
     w(P + "yv:      dw " + ", ".join(str(y) for y in ys))
@@ -295,6 +310,11 @@ def bsp_tables(w):
     w("WA_MYV equ %d" % max(c[1] for c in counts))
     w("WA_MVTX equ %d" % max(c[2] for c in counts))
     w("WA_MBOX equ %d" % max(c[3] for c in counts))
+    w("WA_MAXKS equ %d" % MAXKS)
+    # the deepest a point can be: the player and every wall are in the room,
+    # so no z exceeds its diagonal (wa_rcp covers NEAR..WA_ZMAX-1)
+    w("WA_ZMAX equ %d" % (int(math.hypot(ROOM[2] - ROOM[0],
+                                         ROOM[3] - ROOM[1])) + 2))
     w("wa_arenas:                      ; xv, nxv, yv, nyv, vtx, nvtx, corn,")
     w("                                ; boxes, nbox, root, start x, y, angle,")
     w("                                ; colours")

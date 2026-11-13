@@ -145,6 +145,12 @@ WA_VAR wa_ldy, 2
 WA_VAR wa_lsx, 2
 WA_VAR wa_lsy, 2
 WA_VAR wa_nwr, 2                ; video writes this frame
+WA_VAR wa_rcp, (WA_ZMAX-WA_NEAR)*2 ; 0x7FFF0 / z, z = NEAR.. (wa_ptbi)
+WA_VAR wa_xk, WA_MXV+1          ; per coordinate: the step from the one
+WA_VAR wa_yk, WA_MYV+1          ; before, as a slot x 8 (wa_products)
+WA_VAR wa_nk, 2                 ; the last slot used, x 8
+WA_VAR wa_kv, (WA_MAXKS+1)*8    ; per slot: the step x 4...
+WA_VAR wa_mk, (WA_MAXKS+1)*8    ; ...and its products, cos and sin, 32 bits
 %endmacro
 
 ; --- the frame --------------------------------------------------------------
@@ -235,45 +241,119 @@ wa_render:
     call wa_cross
     ret
 
-; wa_products - per distinct coordinate, (v - p) cos and (v - p) sin. All of
-; them, every frame: doing it lazily per coordinate was measured SLOWER (19.5
-; -> 19.0 fps at 40 columns) - nearly every coordinate is used, so the stamp
-; tests were pure cost
+; wa_geominit - once an arena is loaded (wa_main): the reciprocal table
+; wa_ptbi reads in place of a divide, and each axis's coordinate steps for
+; wa_products. ~2,900 divides, about a tenth of a second on the XT.
+wa_geominit:
+    push ds
+    pop es
+    mov di, wa_rcp              ; 0x7FFF0 / z for every z a point can have:
+    mov bx, WA_NEAR             ; exactly what the divide gave
+.r:
+    mov ax, 0xFFF0
+    mov dx, 0x0007
+    div bx
+    stosw
+    inc bx
+    cmp bx, WA_ZMAX
+    jb .r
+    mov word [wa_nk], 0
+    mov si, wa_xv
+    mov di, wa_xk
+    mov cx, [wa_nxv2]
+    call .steps
+    mov si, wa_yv
+    mov di, wa_yk
+    mov cx, [wa_nyv2]
+.steps:                         ; SI = values, CX = their count x 2, DI = the
+    shr cx, 1                   ; axis's steps: per value after the first,
+    dec cx                      ; its step's slot x 8 (from 8), then 0
+.s:
+    inc di
+    mov ax, [si+2]
+    sub ax, [si]
+    shl ax, 1
+    shl ax, 1                   ; the step x 4
+    mov bx, 8
+.f:
+    cmp bx, [wa_nk]
+    ja .new
+    cmp ax, [wa_kv+bx]
+    je .have
+    add bx, 8
+    jmp .f
+.new:
+    mov [wa_kv+bx], ax          ; (arenagen refuses more than WA_MAXKS)
+    mov [wa_nk], bx
+.have:
+    mov [di], bl
+    inc si
+    inc si
+    loop .s
+    mov byte [di+1], 0
+    ret
+
+; WA_AXIS values, the player's coordinate, steps, cos products, sin products
+%macro WA_AXIS 5
+    mov ax, [%1]
+    sub ax, [%2]
+    shl ax, 1
+    shl ax, 1
+    mov bx, ax
+    imul word [wa_sinv]
+    mov bp, ax
+    mov cx, dx
+    mov ax, bx
+    imul word [wa_cos]          ; DX:AX, CX:BP = the first value's products
+    mov di, %4
+    mov si, %3
+    xor bx, bx
+    jmp %%put
+%%next:
+    add ax, [wa_mk+bx]          ; ...and each after it, the step's added
+    adc dx, [wa_mk+bx+2]
+    add bp, [wa_mk+bx+4]
+    adc cx, [wa_mk+bx+6]
+%%put:
+    mov [di], ax
+    mov [di+2], dx
+    mov [di+%5-%4], bp
+    mov [di+%5-%4+2], cx
+    add di, 4
+    inc si
+    mov bl, [si]
+    or bl, bl
+    jnz %%next
+%endmacro
+
+; wa_products - per distinct coordinate, (v - p) x 4 cos and (v - p) x 4 sin:
+; x 4 so a vertex's camera z and x are the HIGH words of two 32-bit sums,
+; with no shifts (wa_vert). All of them, every frame: doing it lazily per
+; coordinate was measured SLOWER (19.5 -> 19.0 fps at 40 columns) - nearly
+; every coordinate is used, so the stamp tests were pure cost. But not by a
+; multiply each: the first value of an axis is multiplied, and each after it
+; is the one before plus the products of the STEP between them - an arena
+; has few distinct steps (wa_geominit, at most WA_MAXKS), multiplied here
+; once a frame. 12 multiplies in the full arena, where there were 52; the
+; sums are exact, so every product is the same bits as before
 wa_products:
-    xor si, si                  ; value x 2
-    xor di, di                  ; product x 4
-.x:
-    mov ax, [wa_xv+si]
-    sub ax, [wa_px]
-    push ax
+    mov si, 8                   ; the steps: slot x 8, from 8
+.k:
+    cmp si, [wa_nk]
+    ja .kd
+    mov ax, [wa_kv+si]          ; the step x 4
     imul word [wa_cos]
-    mov [wa_xc+di], ax
-    mov [wa_xc+di+2], dx
-    pop ax
+    mov [wa_mk+si], ax
+    mov [wa_mk+si+2], dx
+    mov ax, [wa_kv+si]
     imul word [wa_sinv]
-    mov [wa_xs+di], ax
-    mov [wa_xs+di+2], dx
-    add si, 2
-    add di, 4
-    cmp si, [wa_nxv2]
-    jb .x
-    xor si, si
-    xor di, di
-.y:
-    mov ax, [wa_yv+si]
-    sub ax, [wa_py]
-    push ax
-    imul word [wa_cos]
-    mov [wa_yc+di], ax
-    mov [wa_yc+di+2], dx
-    pop ax
-    imul word [wa_sinv]
-    mov [wa_ys+di], ax
-    mov [wa_ys+di+2], dx
-    add si, 2
-    add di, 4
-    cmp si, [wa_nyv2]
-    jb .y
+    mov [wa_mk+si+4], ax
+    mov [wa_mk+si+6], dx
+    add si, 8
+    jmp .k
+.kd:
+    WA_AXIS wa_xv, wa_px, wa_xk, wa_xc, wa_xs
+    WA_AXIS wa_yv, wa_py, wa_yk, wa_yc, wa_ys
     ret
 
 ; wa_node - BX = a node of the box tree (0 = none): front to back, while any
@@ -323,54 +403,40 @@ wa_node:
     ret
 
 ; wa_box - SI = a box (x0, y0, x1, y1), [wa_crow] its corners: the faces
-; the player is outside of - at most two
+; the player is outside of - at most two, out of wa_boxf
 wa_box:
-    xor cl, cl                  ; CL = the faces we see: 1 S, 2 E, 4 N, 8 W
-    mov ax, [wa_py]
+    xor bx, bx                  ; BX = the faces we see, x 8: S 8, E 16,
+    mov ax, [wa_py]             ; N 32, W 64
     cmp ax, [si+2]
-    jge .e
-    or cl, 1
-.e:
+    jge .s1
+    mov bl, 8
+    jmp .ew
+.s1:
+    cmp ax, [si+6]
+    jle .ew
+    mov bl, 32
+.ew:
     mov ax, [wa_px]
     cmp ax, [si+4]
-    jle .n
-    or cl, 2
-.n:
-    mov ax, [wa_py]
-    cmp ax, [si+6]
-    jle .w
-    or cl, 4
-.w:
-    mov ax, [wa_px]
+    jle .w1
+    or bl, 16
+    jmp .go
+.w1:
     cmp ax, [si]
     jge .go
-    or cl, 8
+    or bl, 64
 .go:
-    mov [wa_bvis], cl           ; a face's END corner is drawn only when the
-    mov ax, (1 << 8) | 0        ; next face round (S E N W) is NOT seen: a
-    mov ch, 1                   ; corner two faces share is the second one's
-    call .face                  ; START, and drawing both put `││` there
-    mov ax, (2 << 8) | 1
-    mov ch, 2
+    add bx, wa_boxf
+    push bx
     call .face
-    mov ax, (3 << 8) | 2
-    mov ch, 4
-    call .face
-    mov ax, (0 << 8) | 3
-    mov ch, 8
-.face:                          ; AL/AH = corners, CH = this face's bit
-    test [wa_bvis], ch
-    jz .out
-    mov byte [wa_endok], 1
-    shl ch, 1                   ; the next face's bit (W wraps to S)
-    test ch, 15
-    jnz .nb
-    mov ch, 1
-.nb:
-    test [wa_bvis], ch
-    jz .last
-    mov byte [wa_endok], 0
-.last:
+    pop bx
+    add bx, 4
+.face:                          ; BX = a slot: from, to (corners), endok
+    mov al, [bx+2]              ; (0xFF: no face)
+    or al, al
+    js .out
+    mov [wa_endok], al
+    mov ax, [bx]
     mov bx, [wa_crow]           ; corner numbers -> vertex x 2
     xlatb
     xchg al, ah
@@ -380,9 +446,35 @@ wa_box:
 .out:
     ret
 
+; wa_boxf - per set of faces seen (S 1, E 2, N 4, W 8), two slots, in the
+; order S E N W: the face's corners and whether its END corner is drawn -
+; only when the next face round is NOT seen, since a corner two faces share
+; is the second one's START, and drawing both put `││` there
+wa_boxf:
+%assign wbf_m 0
+%rep 16
+ %assign wbf_n 0
+ %assign wbf_f 0
+ %rep 4
+  %if ((wbf_m >> wbf_f) & 1) && wbf_n < 2
+   %assign wbf_g (wbf_f + 1) & 3
+    db wbf_f, wbf_g, ((wbf_m >> wbf_g) & 1) ^ 1, 0
+   %assign wbf_n wbf_n + 1
+  %endif
+  %assign wbf_f wbf_f + 1
+ %endrep
+ %rep 2 - wbf_n
+    db 0, 0, 0xFF, 0
+ %endrep
+ %assign wbf_m wbf_m + 1
+%endrep
+
 ; wa_face - AL = from vertex x 2, AH = to vertex x 2 (a face we see the front
 ; of): transform, and unless every column it could reach is already closed,
 ; project (clipping only when a vertex is outside the view) and step it.
+; A vertex's column is made with its transform (wa_vert); its top, bottom
+; and inverse depth only here, past the occlusion test, once a frame - a
+; face wholly behind nearer walls never pays for them.
 wa_face:
     mov [wa_fv], ax
     mov bl, al
@@ -391,8 +483,31 @@ wa_face:
     mov bl, [wa_fv+1]
     xor bh, bh
     call wa_vert
+    mov cl, 4                   ; THE PRE-CHECK: the columns it could reach,
+    xor bh, bh                  ; from the columns (a vertex in view is its
+    mov bl, [wa_fv+1]           ; own, one beside the view is that edge, one
+    call .reach                 ; behind is anywhere)
+    mov dx, ax
     mov bl, [wa_fv]
-    xor bh, bh
+    call .reach
+    cmp ax, dx
+    jle .lohi
+    xchg ax, dx
+.lohi:
+    or ax, ax                   ; (-1: behind - anywhere)
+    js .open
+    mov cx, dx
+    sub cx, ax
+    inc cx
+    mov di, ax
+    shl di, 1
+    add di, wa_cov
+    xor ax, ax
+    repne scasw
+    je .open                    ; an open column: carry on
+    ret                         ; every one closed: nothing more
+.open:
+    mov bl, [wa_fv]
     mov di, bx                  ; DI = v1 x 2, BX = v2 x 2
     mov bl, [wa_fv+1]
     mov al, [wa_vok+di]
@@ -400,53 +515,16 @@ wa_face:
     mov ah, [wa_vok+bx]
     and ah, [wa_endok]          ; (the end corner, only on a silhouette)
     mov [wa_e2], ah
-    mov ah, [wa_vok+bx]
-    and al, ah
+    and al, [wa_vok+bx]
     jz .clip
-    mov ax, [wa_vpc+di]         ; both inside the view: the cache
-    mov [wa_c1], ax
-    mov ax, [wa_vpt+di]
-    mov [wa_t1], ax
-    mov ax, [wa_vpb+di]
-    mov [wa_b1], ax
-    mov ax, [wa_vpi+di]
-    mov [wa_i1], ax
-    mov ax, [wa_vpc+bx]
-    mov [wa_c2], ax
-    mov ax, [wa_vpt+bx]
-    mov [wa_t2], ax
-    mov ax, [wa_vpb+bx]
-    mov [wa_b2], ax
-    mov ax, [wa_vpi+bx]
-    mov [wa_i2], ax
+    mov si, di                  ; both inside the view: the cache
+    mov di, wa_c1
+    push bx
+    call .put
+    pop si
+    call .put                   ; (DI has run on to wa_c2)
     jmp wa_span
 .clip:
-    push bx                     ; THE PRE-CHECK: the columns it could reach,
-    call .reach                 ; from camera space alone - a vertex in view
-    mov cx, ax                  ; is its own column, one beside the view is
-    mov bx, di                  ; that edge, one behind is anywhere
-    call .reach
-    pop bx
-    cmp ax, cx
-    jle .lohi
-    xchg ax, cx
-.lohi:
-    or ax, ax                   ; (-1: behind - anywhere)
-    js .reachall
-    or cx, cx
-    js .reachall
-    push di
-    mov di, ax
-    sub cx, ax
-    inc cx
-    shl di, 1
-    add di, wa_cov
-    xor ax, ax
-    repne scasw
-    pop di
-    je .reachall                ; an open column: carry on
-    ret                         ; every one closed: never clipped, never cut
-.reachall:
     mov ax, [wa_vx+di]
     mov [wa_x1], ax
     mov ax, [wa_vz+di]
@@ -455,36 +533,62 @@ wa_face:
     mov [wa_x2], ax
     mov ax, [wa_vz+bx]
     mov [wa_z2], ax
-    call wa_clip
+    push bx
+    push di
+    call wa_clip                ; (it never moves an end inside the view)
+    pop si
     jc .gone
-    mov ax, [wa_x1]
-    mov bx, [wa_z1]
-    call wa_proj
-    mov [wa_c1], ax
-    mov [wa_t1], bx
-    mov [wa_b1], cx
-    mov [wa_i1], dx
-    mov ax, [wa_x2]
-    mov bx, [wa_z2]
-    call wa_proj
-    mov [wa_c2], ax
-    mov [wa_t2], bx
-    mov [wa_b2], cx
-    mov [wa_i2], dx
+    mov di, wa_c1
+    mov bx, wa_x1
+    call .end
+    pop si
+    mov bx, wa_x2
+    call .end
     jmp wa_span
 .gone:
+    pop bx
     ret
-.reach:                         ; BX = vertex x 2 -> AX = a column, or -1
-    cmp byte [wa_vok+bx], 0
-    je .rout
+.end:                           ; SI = a vertex, BX = its clipped (x, z),
+    test byte [wa_vok+si], 1    ; DI = wa_c1 or wa_c2: projected
+    jnz .put
+    mov ax, [bx]
+    mov bx, [bx+2]
+    call wa_proj
+    stosw
+    xchg ax, bx
+    stosw
+    xchg ax, cx
+    stosw
+    xchg ax, dx
+    stosw
+    ret
+.put:                           ; SI = a vertex in view, DI = wa_c1 or wa_c2:
+    test byte [wa_vok+si], 2    ; its column, top, bottom, inverse depth -
+    jnz .have                   ; the last three made the first time a face
+    or byte [wa_vok+si], 2      ; of it gets this far in a frame
+    mov bx, [wa_vz+si]
+    call wa_ptbi
+    mov [wa_vpt+si], bx
+    mov [wa_vpb+si], cx
+    mov [wa_vpi+si], dx
+.have:
+    mov ax, [wa_vpc+si]
+    stosw
+    mov ax, [wa_vpt+si]
+    stosw
+    mov ax, [wa_vpb+si]
+    stosw
+    mov ax, [wa_vpi+si]
+    stosw
+    ret
+.reach:                         ; BX = vertex x 2, CL = 4 -> AX = a column,
+    test byte [wa_vok+bx], 1    ; or -1
+    jz .rout
     mov ax, [wa_vpc+bx]
-    push cx
-    mov cl, 4
     sar ax, cl
-    pop cx
-    or ax, ax
     jns .rpos
     xor ax, ax
+    ret
 .rpos:
     cmp ax, [wa_w]
     jl .rret
@@ -503,62 +607,48 @@ wa_face:
     dec ax                      ; ...or right
     ret
 
-; wa_vert - BX = a vertex x 2: into camera space and, inside the view,
-; projected - once a frame (wa_vst). Clobbers AX, BX, CX, DX, SI, DI.
+; wa_vert - BX = a vertex x 2: into camera space and, inside the view (the
+; guard band), its column - once a frame (wa_vst). [wa_vok]: 0 outside,
+; 1 the column made, 3 the rest too (wa_face). Clobbers AX, BX, CX, DX, SI,
+; DI.
 wa_vert:
     mov al, [wa_frame]
     cmp [wa_vst+bx], al
     je .out
     mov [wa_vst+bx], al
     mov di, bx                  ; DI = vertex x 2
-    mov al, [wa_vtx+bx]         ; x index x 4
+    mov ax, [wa_vtx+bx]         ; AL = x index x 4, AH = y index x 4
+    mov bl, ah
+    xor bh, bh
     xor ah, ah
     mov si, ax
-    mov al, [wa_vtx+bx+1]       ; y index x 4
-    mov bp, ax
-    mov ax, [wa_xc+si]          ; z = ((x-px) cos + (y-py) sin) >> 14
-    mov dx, [wa_xc+si+2]
-    add ax, [ds:wa_ys+bp]
-    adc dx, [ds:wa_ys+bp+2]
-    shl ax, 1
-    rcl dx, 1
-    shl ax, 1
-    rcl dx, 1
-    mov [wa_vz+di], dx
-    mov cx, dx
-    mov ax, [wa_xs+si]          ; x = ((x-px) sin - (y-py) cos) >> 14
-    mov dx, [wa_xs+si+2]
-    sub ax, [ds:wa_yc+bp]
-    sbb dx, [ds:wa_yc+bp+2]
-    shl ax, 1
-    rcl dx, 1
-    shl ax, 1
-    rcl dx, 1
-    mov [wa_vx+di], dx
+    mov ax, [wa_xc+si]          ; z = ((x-px) 4 cos + (y-py) 4 sin) >> 16
+    add ax, [wa_ys+bx]
+    mov cx, [wa_xc+si+2]
+    adc cx, [wa_ys+bx+2]
+    mov ax, [wa_xs+si]          ; x = ((x-px) 4 sin - (y-py) 4 cos) >> 16
+    sub ax, [wa_yc+bx]
+    mov ax, [wa_xs+si+2]
+    sbb ax, [wa_yc+bx+2]
+    mov [wa_vz+di], cx
+    mov [wa_vx+di], ax
     mov byte [wa_vok+di], 0
     cmp cx, WA_NEAR             ; projectable: z >= NEAR, |x| <= 8z (the
     jl .out                     ; guard band - the screen is |x| <= z)
-    mov ax, dx
-    or ax, ax
-    jns .abs
-    neg ax
-.abs:
     mov bx, cx
     shl bx, 1
     shl bx, 1
     shl bx, 1
     cmp ax, bx
     jg .out
+    neg bx
+    cmp ax, bx
+    jl .out
     mov byte [wa_vok+di], 1
-    push di
-    mov ax, dx
-    mov bx, cx
-    call wa_proj
-    pop di
+    imul word [wa_k16]          ; the column, x16 (wa_proj)
+    idiv cx
+    add ax, [wa_c16]
     mov [wa_vpc+di], ax
-    mov [wa_vpt+di], bx
-    mov [wa_vpb+di], cx
-    mov [wa_vpi+di], dx
 .out:
     ret
 
@@ -599,122 +689,139 @@ wa_xform:
     ret
 
 ; wa_clip - the segment (x1,z1)-(x2,z2) against z >= NEAR and the guard
-; band x >= -8z, x <= 8z. CF = 1: nothing left. Clobbers AX, BX, CX, DX, BP.
+; band x >= -8z, x <= 8z. CF = 1: nothing left. An end inside all three is
+; never moved. A cut at the near plane sets z to NEAR (the interpolation
+; gave exactly that) and interpolates x alone. Clobbers AX, BX, CX, DX, SI,
+; DI, BP.
 wa_clip:
-    xor bp, bp
-.plane:
-    mov ax, [wa_x1]
-    mov bx, [wa_z1]
-    call .d
-    mov [wa_d1], ax
-    mov ax, [wa_x2]
-    mov bx, [wa_z2]
-    call .d
-    mov [wa_d2], ax
-    cmp word [wa_d1], 0
-    jge .in1
-    or ax, ax
-    js .rej                     ; both outside
-    mov cx, [wa_d1]             ; p1 += (p2 - p1) d1 / (d1 - d2)
-    sub cx, ax
-    mov ax, [wa_x2]
-    sub ax, [wa_x1]
-    imul word [wa_d1]
-    idiv cx
-    add [wa_x1], ax
-    mov ax, [wa_z2]
-    sub ax, [wa_z1]
-    imul word [wa_d1]
-    idiv cx
-    add [wa_z1], ax
-    jmp .next
-.in1:
-    or ax, ax
-    jns .next
-    mov cx, ax                  ; p2 += (p1 - p2) d2 / (d2 - d1)
-    sub cx, [wa_d1]
-    mov ax, [wa_x1]
-    sub ax, [wa_x2]
-    imul word [wa_d2]
-    idiv cx
-    add [wa_x2], ax
     mov ax, [wa_z1]
-    sub ax, [wa_z2]
-    imul word [wa_d2]
-    idiv cx
-    add [wa_z2], ax
-.next:
-    inc bp
-    cmp bp, 3
-    jb .plane
-    cmp word [wa_z1], WA_NEAR   ; rounding can leave a unit short
-    jge .z2
-    mov word [wa_z1], WA_NEAR
-.z2:
-    cmp word [wa_z2], WA_NEAR
-    jge .ok
-    mov word [wa_z2], WA_NEAR
+    sub ax, WA_NEAR
+    mov dx, [wa_z2]
+    sub dx, WA_NEAR
+    call .order
+    jc .rej
+    jz .left
+    xor bx, bx
+    call .lerp
+    add [si], ax
+    mov word [si+2], WA_NEAR
+.left:                          ; the GUARD BAND, |x| <= 8z, not the view
+    mov cl, 3                   ; (|x| <= z): a vertex beside the view projects
+    mov ax, [wa_z1]             ; to a column off the screen and the span
+    shl ax, cl                  ; clamps it, so only a vertex far outside -
+    add ax, [wa_x1]             ; whose column would overflow - is clipped
+    mov dx, [wa_z2]
+    shl dx, cl
+    add dx, [wa_x2]
+    call .order
+    jc .rej
+    jz .right
+    call .side
+.right:
+    mov cl, 3
+    mov ax, [wa_z1]
+    shl ax, cl
+    sub ax, [wa_x1]
+    mov dx, [wa_z2]
+    shl dx, cl
+    sub dx, [wa_x2]
+    call .order
+    jc .rej
+    jz .ok
+    call .side
 .ok:
     clc
-    ret
 .rej:
+    ret
+.order:                         ; AX = d1, DX = d2 -> CF: both outside; else
+    or ax, ax                   ; ZF: neither; else SI = the end outside,
+    js .o1                      ; DI = the one inside, BP = -d(out),
+    or dx, dx                   ; CX = d(in) - d(out)
+    jns .none
+    mov si, wa_x2
+    mov di, wa_x1
+    neg dx
+    mov bp, dx
+    add ax, dx
+    mov cx, ax
+    or si, si                   ; (NZ, NC)
+    ret
+.o1:
+    or dx, dx
+    js .both
+    mov si, wa_x1
+    mov di, wa_x2
+    neg ax
+    mov bp, ax
+    add dx, ax
+    mov cx, dx
+    or si, si
+    ret
+.both:
     stc
     ret
-.d:                             ; AX = x, BX = z, BP = plane -> AX = d
-    or bp, bp
-    jnz .lr
-    mov ax, bx
-    sub ax, WA_NEAR
+.none:
+    xor si, si                  ; (ZF, NC)
     ret
-.lr:                            ; the GUARD BAND, |x| <= 8z, not the view
-    push bx                     ; (|x| <= z): a vertex beside the view projects
-    shl bx, 1                   ; to a column off the screen and the span
-    shl bx, 1                   ; clamps it, so only a vertex far outside -
-    shl bx, 1                   ; whose column would overflow - is clipped
-    cmp bp, 1
-    jne .r
-    add ax, bx
-    pop bx
+.side:                          ; a cut at a side plane: x and z
+    xor bx, bx
+    call .lerp
+    push ax
+    mov bx, 2
+    call .lerp
+    add [si+2], ax
+    pop ax
+    add [si], ax
     ret
-.r:
-    neg ax
-    add ax, bx
-    pop bx
+.lerp:                          ; BX = 0 (x) or 2 (z) -> AX = the change:
+    mov ax, [di+bx]             ; (in - out) d(out) / (d(out) - d(in))
+    sub ax, [si+bx]
+    imul bp
+    idiv cx
     ret
 
 ; wa_proj - AX = x, BX = z (>= NEAR, |x| <= 8z) -> AX = column x16,
 ; BX = top and CX = bottom (quarter half-rows), DX = inverse depth
 wa_proj:
-    push si
-    mov si, bx
     imul word [wa_k16]          ; the column, x16: NOT clamped - a vertex in
-    idiv si                     ; the guard band lands off the screen and
+    idiv bx                     ; the guard band lands off the screen and
     add ax, [wa_c16]            ; the span clamps to it. (The CENTRE, 8W -
-                                ; not the scale, 8Wf: at 90 degrees they are
-                                ; one number, and using the scale for both put
-                                ; every wall six columns right at 75)
-    push ax
-    mov dx, 0x0007              ; 0x7FFF0 / z: 32767 at the near plane
-    mov ax, 0xFFF0
-    div si
-    mov si, ax                  ; SI = inverse depth (2^19 / z)
-    mov ax, [wa_numt]           ; top = hq - numt / z = hq - (numt x iz) >> 19:
-    imul si                     ; a multiply where a divide was
-    push cx
-    mov cl, 3
-    sar dx, cl
-    mov bx, [wa_hq]
-    sub bx, dx
-    mov ax, [wa_numb]
-    imul si
-    sar dx, cl
-    pop cx
-    mov cx, [wa_hq]
-    add cx, dx
-    mov dx, si
-    pop ax
-    pop si
+    push ax                     ; not the scale, 8Wf: at 90 degrees they are
+    call wa_ptbi                ; one number, and using the scale for both put
+    pop ax                      ; every wall six columns right at 75)
     ret
+
+; wa_ptbi - BX = z (>= NEAR) -> BX = top, CX = bottom (quarter half-rows),
+; DX = inverse depth, 0x7FFF0 / z (32767 at the near plane) - out of
+; wa_rcp, the same bits the divide gave. Clobbers AX
+wa_ptbi:
+    cmp bx, WA_ZMAX
+    jae .div
+    shl bx, 1
+    mov bx, [wa_rcp+bx-WA_NEAR*2]
+.iz:
+    mov ax, [wa_numt]           ; top = hq - numt / z = hq - (numt x iz) >> 19:
+    imul bx                     ; a multiply where a divide was
+    sar dx, 1
+    sar dx, 1
+    sar dx, 1
+    mov cx, [wa_hq]
+    sub cx, dx
+    mov ax, [wa_numb]
+    imul bx
+    sar dx, 1
+    sar dx, 1
+    sar dx, 1
+    add dx, [wa_hq]
+    xchg bx, cx                 ; BX = top, CX = iz
+    xchg cx, dx                 ; CX = bottom, DX = iz
+    ret
+.div:                           ; (deeper than the room: never, but exact)
+    mov ax, 0xFFF0
+    mov dx, 0x0007
+    div bx
+    mov bx, ax
+    jmp .iz
 
 ; --- spans --------------------------------------------------------------
 ; The hot loop of a frame. Plotting is INLINE (WPLOT): DL = the frame's
