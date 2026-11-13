@@ -392,19 +392,39 @@ wa_products:
     mov [wa_sel+5], al          ; ...and over y
     ret
 
-; wa_node - BX = a node of the box tree (0 = none): front to back, while any
-; column is open. A leaf is one box.
+; wa_node - BX = a node of the box tree: front to back, while any column is
+; open. A leaf is one box.
 wa_node:
-    or bx, bx
-    jz .out
     cmp word [wa_left], 0
     je .out
-    ; THE VIEW CONE: a node whose bounds lie wholly right of x = z, left of
-    ; x = -z or behind the near plane holds nothing that could reach the
-    ; screen (90 degrees, the widest view), so neither do its boxes. Each is
-    ; a sum of the products' high words (wa_products) at the bounds' extreme
-    ; corner (wa_sel); the margins cover the four truncated words, so a node
-    ; is dropped only when the exact walk would have drawn none of it.
+    mov al, [bx]
+    cmp al, 2
+    je .leaf
+    mov si, [bx+4]              ; near = low, far = high...
+    mov di, [bx+6]
+    mov cx, [wa_px]
+    or al, al
+    jz .axis
+    mov cx, [wa_py]
+.axis:
+    cmp cx, [bx+2]
+    jl .order
+    xchg si, di                 ; ...or the other way about
+.order:
+    push di
+    mov bx, si
+    call wa_node
+    pop bx
+    jmp wa_node                 ; (a tail call: the far side)
+.leaf:
+    ; THE VIEW CONE: a box wholly right of x = z, left of x = -z or behind
+    ; the near plane cannot reach the screen (90 degrees, the widest view).
+    ; Each is a sum of the products' high words (wa_products) at the box's
+    ; extreme corner (wa_sel); the margins cover the four truncated words,
+    ; so a box is dropped only when the exact walk would have drawn none of
+    ; it. Only LEAVES are tested: an inner node's bounds are most of the
+    ; room, and over P's poses (and nearly all of B's) not one inner test
+    ; in the full arena dropped anything - 8 tests a frame for nothing.
     ; (Storing the per-coordinate sums with the products measured slower:
     ; most coordinates' are never read)
     mov si, wa_sel
@@ -443,28 +463,7 @@ wa_node:
     add dx, [wa_ys+di+2]
     cmp dx, WA_NEAR-2
     jle .out
-    mov al, [bx]
-    cmp al, 2
-    je .leaf
-    mov si, [bx+4]              ; near = low, far = high...
-    mov di, [bx+6]
-    mov cx, [wa_px]
-    or al, al
-    jz .axis
-    mov cx, [wa_py]
-.axis:
-    cmp cx, [bx+2]
-    jl .order
-    xchg si, di                 ; ...or the other way about
-.order:
-    push di
-    mov bx, si
-    call wa_node
-    pop bx
-    jmp wa_node                 ; (a tail call: the far side)
-.leaf:
     mov al, [bx+1]              ; box x 8
-    xor ah, ah
     mov si, ax
     mov cl, 3
     shr si, cl
