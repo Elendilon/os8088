@@ -2109,8 +2109,8 @@ wa_femit:
     pop di
     ret
 .found:                         ; DI = the cell's offset in wa_fbuf, + 2
-    mov dl, [di-2]              ; DL = its sub-pixels, taken out of the
-    mov byte [di-2], 0          ; scratch
+    mov dl, 0                   ; DL = its sub-pixels, taken out of the
+    xchg dl, [di-2]             ; scratch
     mov bx, di
     sub bx, bp                  ; BX = its column x 2, + 2
     cmp byte [wa_fvis-2+bx], 0
@@ -2127,9 +2127,6 @@ wa_femit:
     inc si
 .listed:
     mov [di+WA_FSTO], dh
-    jmp .put
-.have:
-    or dl, [di+WA_FMSO]
 .put:
     mov [di+WA_FMSO], dl
     mov bl, dl                  ; (BH is 0: BX was a column)
@@ -2142,6 +2139,9 @@ wa_femit:
     repe scasw
     jne .found
     jmp .nrow
+.have:                          ; (a cell two figures share: rarer)
+    or dl, [di+WA_FMSO]
+    jmp .put
 
 ; wa_fjl - wa_figure's joints: SI, DI = keyframes A and B at this facing.
 ; Each is A + (B - A) x q / 4 (q = [wa_fsub], rounded down as wa_blend's
