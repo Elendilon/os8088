@@ -231,22 +231,27 @@ wa_lowbox:
 .shows:
     mov si, wl_c                ; each corner wanted and in the view: its
     mov ch, 1                   ; column, inverse depth and top row, and for
-.k:                             ; a drawn face's its floor row (wa_ptbi's
-    test [wl_need], ch          ; arithmetic, the pairs scaled by 4 where
-    jz .kn                      ; they would pass 16 bits)
+    mov di, [wa_hq]             ; a drawn face's its floor row (wa_ptbi's
+.k:                             ; arithmetic, the pairs scaled by 4 where
+    test [wl_need], ch          ; they would pass 16 bits). DI = the horizon
+    jz .kn
     mov bx, [si+WL_CV]
     test byte [wa_vok+bx], 1
     jz .kn
     mov ax, [wa_vpc+bx]
     mov [si+WL_KC], ax
     mov bx, [wa_vz+bx]
-    call wl_iz
+    cmp bx, WA_ZMAX             ; (wl_iz, inline)
+    jae .kdiv
+    shl bx, 1
+    mov bx, [wa_rcp+bx-WA_NEAR*2]
+.kiz:
     mov [si+WL_KI], bx
     mov ax, [si+WL_CN]
     mov cl, [si+WL_CS]
     imul bx
     sar dx, cl
-    mov ax, [wa_hq]
+    mov ax, di
     sub ax, dx
     mov [si+WL_KT], ax
     test [wl_fneed], ch
@@ -255,7 +260,7 @@ wa_lowbox:
     mov cl, [wl_fs]
     imul bx
     sar dx, cl
-    mov ax, [wa_hq]
+    mov ax, di
     sub ax, dx
     mov [si+WL_KF], ax
 .kn:
@@ -263,6 +268,11 @@ wa_lowbox:
     shl ch, 1
     test ch, 16
     jz .k
+    jmp .posts
+.kdiv:
+    call wl_iz.div
+    jmp .kiz
+.posts:
     ; 1. POSTS, against the clip as it stood: a drawn face's start corner,
     ; and its end where the next face round is not seen (wa_boxf's rule)
     xor bx, bx
