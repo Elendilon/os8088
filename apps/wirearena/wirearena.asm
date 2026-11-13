@@ -31,11 +31,13 @@ wa_entry:
     mov al, OP_CARVE            ; ...and its claim may move: wa_partsmv
     call op_movable             ; re-reads the two words wa_rbind banked
     mov byte [wa_fov], 1        ; 75 degrees: the owner's pick of the three
-    call OSAPI_CPU_INFO         ; the floor grid costs a 4.77 MHz 8088 ~13 ms
-    cmp al, CPU_8086            ; a frame: on by default on a 286 or better,
-    je .nogrid                  ; off on the target machine (G either way)
-    mov byte [wa_grid], 1
-.nogrid:
+    call OSAPI_CPU_INFO         ; THE DETAIL LEVEL (HEIGHTS-PLAN 9.10): Medium
+    cmp al, CPU_8086            ; on the target machine, High (Medium and the
+    mov al, 2                   ; floor grid, ~13 ms a frame on a 4.77 MHz
+    je .lev                     ; 8088) on a 286 or better; keys 1..5
+    mov al, 3
+.lev:
+    call wa_setlevel
     mov si, wa_tpl
     call OSAPI_WM_CREATE
     jc .out
@@ -397,7 +399,7 @@ wa_frame_input:
     jmp .drain
 .b:
     cmp ah, 0x21                ; F: the field of view, 90 -> 75 -> 60
-    jne .bh
+    jne .bg
     inc byte [wa_fov]
     cmp byte [wa_fov], 3
     jb .fov
@@ -405,19 +407,14 @@ wa_frame_input:
 .fov:
     call wa_setfov
     jmp .drain
-.bh:
-    cmp ah, 0x23                ; H: hold far edges (EDGE)
-    jne .bg
-    xor byte [wa_hyst], 1
-    jmp .drain
 .bg:
     cmp ah, 0x22                ; G: the floor grid
     jne .bl
     xor byte [wa_grid], 1
     jmp .drain
 .bl:
-    cmp ah, 0x26                ; L: the wall detail level, full or sparse
-    jne .bb
+    cmp ah, 0x26                ; L: the walls' tops off (sparse): a debug
+    jne .bb                     ; key, in no detail level
     xor byte [wa_sparse], 1
     jmp .drain
 .bb:
@@ -436,15 +433,16 @@ wa_frame_input:
     call wa_pbstart
     jmp .drain
 .bk:
-    mov al, WA_FL_SNAP          ; K: a small figure's keyframe, unblended;
-    cmp ah, 0x25                ; J: and seven joints, five limbs (the look
-    je .lod                     ; options, wa_flod: the renderer's
-    mov al, WA_FL_FEW           ; wa_figure)
-    cmp ah, 0x24
-    jne .drain
-.lod:
-    xor [wa_flod], al
-    call wa_rsync
+    cmp ah, 0x13                ; R: a ramp drawn as its two sides (RAMP2,
+    jne .bn                     ; its own key while the owner judges it)
+    xor byte [wa_look], LK_RAMP2
+    jmp .drain
+.bn:
+    mov al, ah                  ; 1..5: the DETAIL LEVEL (HEIGHTS-PLAN 9.10)
+    sub al, 0x02
+    cmp al, WA_NLEV
+    jae .drain
+    call wa_setlevel
     jmp .drain
 .typed:
     cmp byte [wa_pbon], 0
@@ -1685,11 +1683,8 @@ wa_meter:
     mov al, [wa_fovc+bx]
     mov di, 36
     call wa_putc
-    mov al, '-'                 ; H: held edges
-    cmp byte [wa_hyst], 0
-    je .h
-    mov al, 'H'
-.h:
+    mov al, [wa_level]          ; the detail level, 1..5
+    add al, '1'
     call wa_putc
     mov al, 'F'                 ; the detail level
     cmp byte [wa_sparse], 0
@@ -1896,6 +1891,36 @@ wa_rretv:   dw wa_rret
 
 ; wa_rsync - the CONFIG section into the renderer part (after a mode set, a
 ; field-of-view change). Keeps every register but the flags.
+; THE DETAIL LEVELS (docs/plans/WIREARENA-HEIGHTS-PLAN.md 9.10): per level,
+; Very Low to Very High, the options it turns on - wa_look's LK_ bits (RAMP2
+; apart: its own key), then the floor grid (G) and the stepped treads (T),
+; which their keys still override until the next level is chosen. Moving
+; an option between levels is a change to this table and nothing else.
+WA_NLEV equ 5
+wa_levtab:
+    db LK_FEW|LK_ROUND|LK_COARSE|LK_NOPOST|LK_ROOMF|LK_FARTOP, 0, 0 ; 1 Very Low
+    db LK_FEW|LK_ROUND|LK_COARSE|LK_NOPOST, 0, 0                    ; 2 Low
+    db LK_FEW|LK_ROUND|LK_COARSE, 0, 0                              ; 3 Medium
+    db LK_FEW|LK_ROUND|LK_COARSE, 1, 0                              ; 4 High
+    db 0, 1, 1                                                      ; 5 Very High
+
+; wa_setlevel - AL = a level, 0..WA_NLEV-1: its options into the frame
+; block (wa_look keeps RAMP2, its own key's). Clobbers AX, BX
+wa_setlevel:
+    mov [wa_level], al
+    mov bl, 3
+    mul bl
+    xchg ax, bx
+    mov al, [wa_look]
+    and al, LK_RAMP2
+    or al, [wa_levtab+bx]
+    mov [wa_look], al
+    mov al, [wa_levtab+bx+1]
+    mov [wa_grid], al
+    mov al, [wa_levtab+bx+2]
+    mov [wa_treads], al
+    ret
+
 wa_rsync:
     push cx
     push si
@@ -2078,10 +2103,11 @@ wa_help:
     db 'Mouse looks; W A S D move; arrows', 0
     db 'turn and pitch; Space jumps; click', 0
     db 'or Ctrl fires; Tab: 80/40; V: vsync;', 0
-    db 'B: bench. L: walls full/sparse. F: view', 0
-    db '90/75/60. H: hold far edges. G: floor', 0
-    db 'grid. P: play bench (8 s). Esc leaves.', 0
-    db 'T: heights ramps as stepped treads.', 0
+    db 'B: bench. P: play bench (8 s). F: view', 0
+    db '90/75/60. 1-5: detail, very low to', 0
+    db 'very high (HUD). G: floor grid. T: ramps', 0
+    db 'as treads. R: ramps as two sides. L:', 0
+    db 'no wall tops (debug). Esc leaves.', 0
     db 'HUD: fps, frame, render, present ms,', 0
     db 'video writes a frame.', 0
     db 0
@@ -2126,6 +2152,7 @@ WA_VAR wa_mode,1
 WA_VAR wa_want,1
 WA_VAR wa_quit,1
 WA_VAR wa_vsync,1
+WA_VAR wa_level,1                ; the detail level, 0..WA_NLEV-1 (keys 1..5)
 WA_VAR wa_arena,1
 WA_VAR wa_feet,2                 ; the floor under the player (HEIGHTS-PLAN
                                  ; 3.1): on the ground the feet, in the air

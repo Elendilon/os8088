@@ -23,9 +23,16 @@ WA_PITCHD   equ 290             ; 33 degrees at 75, DOWN 59 - the same reach
                                 ; (HEIGHTS-PLAN 7.1.1, 7.1.2: the owner
                                 ; judges them by play; change them here)
 WA_BLANK    equ 0x0720
-WA_FL_SNAP  equ 1               ; wa_flod: figures under WA_FLODV, keyframes
-WA_FL_FEW   equ 2               ; unblended (K); and the ends alone (J)
-WA_FLODV    equ 16              ; ...fv8 below this: under ~7 half-rows tall
+; wa_look (the FRAME block): the DETAIL LEVEL's options (HEIGHTS-PLAN 9.10),
+; a bit each - the game's wa_levtab makes them from the level, keys 1..5
+LK_ROUND    equ 1               ; the products' rounded high words
+LK_COARSE   equ 2               ; an edge moving under a half-row: level
+LK_NOPOST   equ 4               ; no posts on walls under WA_POSTMIN
+LK_ROOMF    equ 8               ; the room's walls as floor lines alone
+LK_FARTOP   equ 16              ; a low box's far top only well above it
+LK_RAMP2    equ 32              ; a ramp as its two sides (its own key, R)
+LK_FEW      equ 64              ; J: a small figure's 7 joints, 5 limbs
+WA_FLODV    equ 16              ; LK_FEW: fv8 below this: under ~7 half-rows tall
 
 ; per-figure record
 F_X     equ 0
