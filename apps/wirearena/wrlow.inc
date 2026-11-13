@@ -56,9 +56,6 @@ WA_VAR wl_fs, 1                 ; wl_ffr)
 WA_VAR wl_ffr, 1
 WA_VAR wl_hn, 2                 ; the box's height's
 WA_VAR wl_hs, 1
-WA_VAR wl_zm, 2                 ; wl_hidden: 0, or -1 for the nearest corner
-WA_VAR wl_vis0, 2               ; ...the first column x 2 it found showing
-WA_VAR wl_wx2, 2                ; the last column x 2 (made with wl_fn)
 WA_VAR wl_upd, 1                ; this pass raises the clip
 WA_VAR wl_two, 1                ; ...and draws a floor edge with its top
 WA_VAR wl_n1, 2                 ; a clipped edge's ends' pairs
@@ -203,10 +200,6 @@ wa_lowbox:
     call wa_hnum
     mov [wl_fn], ax
     mov [wl_fs], bl
-    mov ax, [wa_w]              ; (and the last column, x 2)
-    dec ax
-    shl ax, 1
-    mov [wl_wx2], ax
 .hpair:
     mov ax, [wl_h]              ; the box's own height's, every corner's -
     call wa_hnum                ; but a flight's low end's (wl_flight0)
@@ -224,10 +217,6 @@ wa_lowbox:
     jz .hid
     call wl_flight0
 .hid:
-    call wl_hidden              ; nothing of it can show: done
-    jnc .shows
-    ret
-.shows:
     mov si, wl_c                ; each corner wanted and in the view: its
     mov ch, 1                   ; column, inverse depth and top row, and for
     mov di, [wa_hq]             ; a drawn face's its floor row (wa_ptbi's
@@ -345,176 +334,6 @@ wa_lowbox:
 .done:
     ret
 
-; wl_hidden - CF = 1 when nothing of the box can show, decided before its
-; corners are projected: every corner wanted in the view, and in each column
-; its outline could reach (one either side of those corners' columns, for
-; the posts' rounding) the column shut, or its clip at or above the box's
-; topmost row. That row is the top's at the corner its height makes the
-; highest on the screen - the farthest with the eye above the top, the
-; nearest with it below - since every edge and post of a box is
-; interpolated between its corners' rows, and a floor row is under its
-; top's; less one half-row for the edges' rounding. A flight's inner treads
-; stand above its stringers and may end a little off its sides, so for one
-; only shut columns count, over its columns widened by that. Nothing it
-; skips would have drawn a cell, raised a clip or pushed an entry.
-wl_hidden:
-    mov word [wl_vis0], 0
-    cmp byte [wl_need], 0       ; (no corner wanted: inside it, under its top)
-    je wl_scan.none
-    mov ax, -1                  ; the corner wanted: the largest z with the
-    test byte [wl_kind], 3      ; eye above the top, else - and for a
-    jnz .zm                     ; flight - the smallest (z xor -1 its key)
-    mov cx, [wa_eye]
-    cmp cx, [wl_h]
-    jle .zm
-    inc ax
-.zm:
-    mov [wl_zm], ax
-    mov al, [wl_need]
-    mov [wl_m], al
-    mov dx, 32767               ; DX, CX = the columns x 16, least and most
-    mov cx, -32767
-    mov di, -32768              ; DI = the best key, BP its vertex
-    mov si, wl_c
-.c:
-    shr byte [wl_m], 1
-    jnc .c3
-    mov bx, [si+WL_CV]
-    test byte [wa_vok+bx], 1
-    jz .shows                   ; (a corner out of the view: no test)
-    mov ax, [wa_vpc+bx]
-    cmp ax, dx
-    jge .c1
-    mov dx, ax
-.c1:
-    cmp ax, cx
-    jle .c2
-    mov cx, ax
-.c2:
-    mov ax, [wa_vz+bx]
-    xor ax, [wl_zm]
-    cmp ax, di
-    jle .c3
-    mov di, ax
-    mov bp, bx
-.c3:
-    add si, WL_REC
-    cmp si, wl_c+4*WL_REC
-    jb .c
-    test byte [wl_kind], 3
-    jz .cols
-    ; A FLIGHT's inner treads end at its sides' low corners plus k - 1
-    ; goings, each going's x and z cut short by under a unit: an end lies up
-    ; to N - 1 units off its side (in each of x and z), so its column x 16
-    ; up to (N - 1)(k16 + R) / z off the side's, R the corners' farthest
-    ; column x 16 from the centre and z its least depth. The columns are
-    ; widened by that, and a unit more for each rounding
-    mov ax, [wa_c16]
-    sub dx, ax
-    sub cx, ax                  ; (from the centre)
-    push dx
-    push cx
-    or dx, dx                   ; R = max(|least|, |most|)
-    jns .r1
-    neg dx
-.r1:
-    or cx, cx
-    jns .r2
-    neg cx
-.r2:
-    cmp dx, cx
-    jge .r3
-    mov dx, cx
-.r3:
-    mov bx, [ds:bp+wa_vz]       ; BX = the least z of the four, BP's (all
-                                ; in the view: each >= NEAR)
-    mov ax, dx
-    add ax, [wa_k16]
-    add ax, 2                   ; (k16 + R + 2) < 10 k16: no carry
-    mov cx, [wl_nt]
-    dec cx
-    mul cx                      ; (N - 1 < 15: DX:AX < 2^18)
-    div bx                      ; (BX >= NEAR: no fault; the quotient
-    add ax, 2                   ; < 2^14 fits)
-    pop cx
-    pop dx
-    sub dx, ax
-    add cx, ax
-    mov ax, [wa_c16]
-    add dx, ax
-    add cx, ax
-    sub dx, 9
-    add cx, 7+16
-    mov ax, -32768              ; (any open column shows: the treads stand
-    jmp wl_scan                 ; above the stringers, no row bound)
-.cols:
-    sub dx, 9                   ; the columns: wa_span's first past the
-    add cx, 7+16                ; least, less one; its last short of the
-    push cx                     ; most, plus one
-    push dx
-    mov bx, bp
-    mov bx, [wa_vz+bx]
-    call wl_iz                  ; (clobbers AX, DX)
-    mov ax, [wl_hn]
-    mov cl, [wl_hs]
-    call wl_row
-    sar ax, 1
-    sar ax, 1
-    dec ax                      ; AX = the topmost half-row, less one
-    pop dx
-    pop cx
-    jmp wl_scan
-.shows:
-    clc
-    ret
-
-; wl_scan - DX, CX = an outline's least and most columns x 16, as (c + 7)
-; >> 4 makes its first and last columns, AX = a half-row at or under its
-; topmost less one: CF = 1 when each of those columns on the screen is shut,
-; or its clip is at or above AX - so nothing of it would draw a cell, raise a
-; clip or push an entry; else [wl_vis0] the first that is not, x 2.
-; Clobbers CX, DX, SI, DI
-wl_scan:
-    push ax
-    mov ax, cx
-    mov cl, 4
-    sar dx, cl
-    sar ax, cl
-    or dx, dx
-    jns .lo
-    xor dx, dx
-.lo:
-    mov cx, [wa_w]
-    dec cx
-    cmp ax, cx
-    jle .hi
-    mov ax, cx
-.hi:
-    shl dx, 1
-    shl ax, 1
-    mov si, dx
-    mov di, ax
-    pop ax
-    cmp si, di
-    jg .none                    ; (off the screen, or nothing wanted)
-.scan:
-    cmp word [wa_cov+si], 0
-    jne .n
-    cmp [wa_cclip+si], ax
-    jg .shows
-.n:
-    inc si
-    inc si
-    cmp si, di
-    jbe .scan
-.none:
-    stc
-    ret
-.shows:
-    mov [wl_vis0], si           ; (the first that showed: wl_face's start)
-    clc
-    ret
-
 ; wl_lowseen - ZF = 0 when the box is a flight and the player stands past
 ; its low end. Clobbers AL, CL
 wl_lowseen:
@@ -549,50 +368,9 @@ wl_face:
     mov bx, [wl_c+di+WL_CV]
     test byte [wa_vok+bx], 1
     jz .clip
-    mov bx, [wl_c+si+WL_KC]     ; both corners in the view: unless each
-    mov dx, [wl_c+di+WL_KC]     ; column it spans, as wl_draw takes them,
-    mov ax, [wl_c+si+WL_KT]     ; is shut or clipped at or above its higher
-    cmp bx, dx                  ; top less a half-row (wl_scan's test), as
-    jle .f1                     ; projected
-    xchg bx, dx
-.f1:
-    cmp ax, [wl_c+di+WL_KT]
-    jle .f2
-    mov ax, [wl_c+di+WL_KT]
-.f2:
-    sar ax, 1
-    sar ax, 1
-    dec ax
-    mov cl, 3
-    add bx, 7                   ; BX = the first column x 2, DX the last:
-    sar bx, cl                  ; (c + 7) >> 4, x 2
-    and bl, 0xFE
-    sub dx, 9
-    sar dx, cl
-    and dl, 0xFE
-    cmp bx, [wl_vis0]           ; (none before the box's first that showed
-    jge .f3                     ; can show now: clips only rise)
-    mov bx, [wl_vis0]
-.f3:
-    cmp dx, [wl_wx2]
-    jle .fs
-    mov dx, [wl_wx2]
-.fs:
-    cmp bx, dx
-    jg .hid
-    cmp word [wa_cov+bx], 0
-    jne .fn
-    cmp [wa_cclip+bx], ax
-    jg .shows
-.fn:
-    inc bx
-    inc bx
-    jmp .fs
-.shows:
-    add si, wl_c+WL_KC          ; (the two records' projections, in place)
-    add di, wl_c+WL_KC
-    call wl_draw
-.hid:
+    add si, wl_c+WL_KC          ; both corners in the view: the two
+    add di, wl_c+WL_KC          ; records' projections, in place (wl_draw
+    call wl_draw                ; culls a pass hidden in all its columns)
     pop bx
     ret
 .clip:
