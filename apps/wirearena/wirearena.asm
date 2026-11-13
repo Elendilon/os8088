@@ -97,10 +97,13 @@ wa_oncmd:                       ; Game menu: wa_items maps the item
     mov [wa_want], al
     mov al, [wa_items+bx+1]
     mov [wa_arena], al
+    call wa_loadarena           ; off its part, before the bracket: CF = 1
+    jc .out                     ; it could not be read, and a toast said why
     mov ax, wa_main
     mov bx, [wa_win]
     xor cx, cx
     call OSAPI_FSX_RUN
+.out:
     ret
 
 ; --- the bracket ----------------------------------------------------------
@@ -114,9 +117,7 @@ wa_main:
     call wa_setmode
     jc .out
 .go:
-    mov al, [wa_arena]
-    call wa_loadarena
-    call wa_geominit
+    call wa_geominit            ; (wa_oncmd loaded the arena)
     call wa_reset
     call OSAPI_MOUSE_REL        ; the desktop's motion is not ours: discard
     call pit_now
@@ -1543,10 +1544,23 @@ wa_geominit:
     pop es
     ret
 
-; wa_loadarena - AL = an arena, into the part's working tables; then its
-; ARENA section - the boxes the collision walks and the start wa_reset takes
-; - back into ours
+; wa_loadarena - arena [wa_arena], a part of its own (WIREARENA-PARTS-PLAN
+; 7.5): fetched, read into the renderer part's working tables (ARENA), its
+; ARENA section - the boxes the collision walks, the start wa_reset takes -
+; copied back into ours, and dropped again: both halves keep what they need,
+; so no claim outlives the call. CF = 1: it could not be had, and the parts
+; standard's toast has said why. UI task (a menu command): op_fetch's rule.
+WA_PARTA equ 1                  ; arena 0's row; the renderer is row 0
 wa_loadarena:
+    mov al, [wa_arena]
+    add al, WA_PARTA
+    push ax
+    call op_fetch
+    pop ax
+    jc .out
+    push ax
+    call op_seg
+    mov dx, ax
     mov bx, WRV_ARENA
     call wa_rcall
     push ds
@@ -1559,6 +1573,10 @@ wa_loadarena:
     cld
     rep movsw
     pop ds
+    pop ax
+    call op_drop
+    clc
+.out:
     ret
 
 %include "os88pit.inc"
@@ -1608,10 +1626,14 @@ wa_hudtpl:  db 'FPS       MS      R      P      N       ', 0
 TOASTSTR wa_t_small, 'Needs kern_big or mega'
 TOASTSTR wa_t_part, 'Renderer part mismatch'
 
-; --- the parts (SPEC.md 20.12.3): ONE, the renderer, with its BSS as zeros
-; neither stored nor decoded (OP_ZFILL, 20.12.7.5)
-    OS88_PARTS_BEGIN 1
+; --- the parts (SPEC.md 20.12.3): the renderer, with its BSS as zeros
+; neither stored nor decoded (OP_ZFILL, 20.12.7.5), and an arena a row, read
+; when a match starts and dropped again (wa_loadarena)
+    OS88_PARTS_BEGIN 1 + WA_NARENA
       OS88_PART OP_SEG, OP_COMP | OP_ZFILL  ; 0 build/wrpart.bin
+%rep WA_NARENA
+      OS88_PART OP_ASSET, OP_LAZY | OP_COMP ; 1.. build/waa<n>.bin
+%endrep
     OS88_PARTS_END
 
 ; --- bss ------------------------------------------------------------------

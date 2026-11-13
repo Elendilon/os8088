@@ -733,8 +733,8 @@ of 7.2 and 7.3, included by both halves.
 
 | row | kind | flags | file | contents |
 |---|---|---|---|---|
-| 0 | `OP_SEG` | `OP_COMP \| OP_ZFILL` | `build/wrpart.bin` from `apps/wirearena/wrpart.asm` | the header, the frame block, `wrender.inc`, the glyph and attribute tables (`wrtab.inc`), `wa_sin` and `wa_sincos`, the keyframes `wa_pose`, the arenas until step 4, and the renderer's BSS as zeros |
-| 1.. | `OP_ASSET` | `OP_LAZY \| OP_COMP` | one per arena, from step 4 | 7.5 |
+| 0 | `OP_SEG` | `OP_COMP \| OP_ZFILL` | `build/wrpart.bin` from `apps/wirearena/wrpart.asm` | the header, the frame block, `wrender.inc`, the glyph and attribute tables (`wrtab.inc`), `wa_sin` and `wa_sincos`, the keyframes `wa_pose`, and the renderer's BSS as zeros (the arenas too, in step 3 only) |
+| 1.. | `OP_ASSET` | `OP_LAZY \| OP_COMP` | `build/waa<n>.bin`, one per arena, from `tools/arenagen.py --arena N` | 7.5 |
 
 **The keyframes ride in row 0** (the owner's Q3): measured at step 2, the
 renderer's image is ~19.2 KB and its BSS ~28.9 KB, ~48 KB of the 65,024 a
@@ -772,7 +772,7 @@ glue, and every other register, ES included, is the verb's to clobber.
 |---|---|---|---|
 | `WRV_INIT` 0 | after a mode set | the CONFIG section | the row tables, the stamps, the vertex cache and the lists started again |
 | `WRV_GEOM` 1 | after `WRV_ARENA` | | `wa_geominit`: the reciprocal table and the coordinate steps |
-| `WRV_ARENA` 2 | a match starts | AL = the arena (step 4: DX = its part's segment) | the working tables, and the ARENA section |
+| `WRV_ARENA` 2 | a match starts | DX = the arena part's segment (step 3: AL = the arena) | the working tables, the tree rebased into `wa_bsp`, and the ARENA section |
 | `WRV_RENDER` 3 | every frame | the FRAME section and the figures | AL = the frame number |
 | `WRV_PRESENT` 4 | every frame | | AX = the text cells written |
 | `WRV_TRACE` 5 | a shot | the figures' heads | AX = the hit figure's offset in `wa_figs`, or -1 |
@@ -810,9 +810,21 @@ and asks the part for the ray.
 
 ### 7.5 An arena part (step 4)
 
-One `OP_ASSET` row per arena, assembled at org 0 by `tools/arenagen.py`,
-fetched by the Game menu's command before the bracket, read by `WRV_ARENA`
-and dropped again. It is `wa_arenas`' descriptor at offset 0 - the table
-offsets relative to the part, the BSP's links too - followed by the tables
-it names. `WRV_ARENA` copies the tables into the working ones and the tree
-into `wa_bsp`, rebasing each link by `wa_bsp - (the part's tree)`.
+One `OP_ASSET` row per arena (`OP_LAZY | OP_COMP`), written by
+`tools/arenagen.py --arena N` as NASM source and assembled at org 0. The Game
+menu's command fetches it before the bracket (`wa_loadarena`, `op_fetch`),
+hands its segment to `WRV_ARENA`, copies the ARENA section back and drops it
+again (`op_drop`): both halves keep what they need, so no claim outlives
+the call, and a compressed lazy row can be fetched again after a drop
+(SPEC.md §20.12.7.4.1).
+
+| offset | | |
+|---|---|---|
+| 0 | 15 words | `wa_arenas`' descriptor row - xv, its count, yv, its count, vertices, their count, corners, boxes, their count, the tree, the start x, y and angle, the colours - with every table offset relative to the part, and the tree's NODE COUNT appended |
+| 30 | | the tables it names, as `arena_tables` writes them for `watab.inc` |
+
+`WRV_ARENA` copies the tables into the working ones exactly as the in-image
+`wa_loadarena` did, and the tree - 12 bytes a node - into `wa_bsp`
+(`WA_MNODE` nodes, the largest arena's), adding `wa_bsp - (the part's tree)`
+to every non-zero link; the root is the first node. The tree is then walked
+there, by `wrender.inc` unchanged.

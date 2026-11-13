@@ -7,7 +7,8 @@
 ; FRONT shape (apps/xtmp3/x3front.asm): a header naming its verbs, the FRAME
 ; BLOCK the primary stages into (apps/wirearena/wafb.inc), then the renderer
 ; (wrender.inc, included UNCHANGED), its tables, the sine table and the
-; keyframes it reads in place, and its BSS - shipped as zeros that OP_ZFILL
+; keyframes it reads in place, and its BSS - the arenas are parts of their
+; own (rows 1.., WIREARENA-PARTS-PLAN 7.5), copied in by ARENA - shipped as zeros that OP_ZFILL
 ; neither stores nor decodes (SPEC.md 20.12.7.5).
 ;
 ; THE RULES THIS PART KEEPS, because the primary declares its claim movable
@@ -63,7 +64,7 @@ wr_v_geom:
     call wa_geominit
     retf
 
-wr_v_arena:
+wr_v_arena:                     ; DX = the arena part's segment
     call wa_loadarena
     retf
 
@@ -153,30 +154,30 @@ wr_v_trace:
 .out:
     retf
 
-; wa_loadarena - AL = an arena: its coordinate tables, vertices, corner rows
-; and boxes into the working tables (the renderer reads those, and the
-; primary takes the boxes and the start back for its collision and reset),
-; its counts, its tree's root and its start. The tree is walked where it was
-; assembled.
+; wa_loadarena - DX = an arena part's segment (WIREARENA-PARTS-PLAN 7.5):
+; its coordinate tables, vertices, corner rows and boxes into the working
+; tables (the renderer reads those, and the primary takes the boxes and the
+; start back for its collision and reset), its counts, its start, and its
+; tree - copied into wa_bsp and REBASED, each link and the root moved by
+; wa_bsp less the part's own tree, which is what they were assembled against.
+; DS is the arena's for the copies and ours again before the rebase.
 wa_loadarena:
-    mov ah, WA_ARENASZ
-    mul ah
-    add ax, wa_arenas
-    mov bx, ax
     push ds
-    pop es
+    pop es                      ; ES = ours, DS = the arena's, BX = its
+    mov ds, dx                  ; descriptor at offset 0
+    xor bx, bx
     mov si, [bx]                ; x values
     mov cx, [bx+2]
     mov ax, cx
     shl ax, 1
-    mov [wa_nxv2], ax
+    mov [es:wa_nxv2], ax
     mov di, wa_xv
     rep movsw
     mov si, [bx+4]              ; y values
     mov cx, [bx+6]
     mov ax, cx
     shl ax, 1
-    mov [wa_nyv2], ax
+    mov [es:wa_nyv2], ax
     mov di, wa_yv
     rep movsw
     mov si, [bx+8]              ; vertices, two bytes each
@@ -184,7 +185,7 @@ wa_loadarena:
     mov di, wa_vtx
     rep movsw
     mov cx, [bx+16]             ; boxes
-    mov [wa_nbox], cx
+    mov [es:wa_nbox], cx
     mov si, [bx+12]             ; corner rows, the room's and one a box
     inc cx
     shl cx, 1
@@ -196,20 +197,46 @@ wa_loadarena:
     shl cx, 1
     mov di, wa_boxes
     rep movsw
-    mov ax, [bx+18]
-    mov [wa_root], ax
     mov ax, [bx+20]
-    mov [wa_sx], ax
+    mov [es:wa_sx], ax
     mov ax, [bx+22]
-    mov [wa_sy], ax
+    mov [es:wa_sy], ax
     mov ax, [bx+24]
-    mov [wa_sa], ax
+    mov [es:wa_sa], ax
     mov si, [bx+26]             ; the boxes' colours, the room's first
-    mov cx, [wa_nbox]
+    mov cx, [bx+16]
     inc cx
     mov di, wa_bcol
     rep movsb
+    mov si, [bx+18]             ; the tree, WA_ROW bytes a node
+    mov dx, wa_bsp
+    sub dx, si                  ; DX = what each link moves by
+    mov cx, [bx+28]
+    mov bx, cx                  ; BX = its nodes
+    shl cx, 1
+    add cx, bx
+    shl cx, 1                   ; x 6: words
+    mov di, wa_bsp
+    rep movsw
+    push es
+    pop ds                      ; ours again
+    mov word [wa_root], wa_bsp  ; the root is the first node
+    mov si, wa_bsp
+    mov cx, bx
+.node:
+    cmp word [si+4], 0          ; low and high, 0 = none
+    je .lo
+    add [si+4], dx
+.lo:
+    cmp word [si+6], 0
+    je .hi
+    add [si+6], dx
+.hi:
+    add si, WA_BSPROW
+    loop .node
     ret
+WA_BSPROW equ 12                ; a node: db kind, box; dw value, low, high;
+                                ; db its boxes' bounds x 4
 
 %include "wrender.inc"
 %include "wasin.inc"
@@ -218,7 +245,6 @@ wa_loadarena:
 ; the tables this half reads, out of build/watab.inc again: the constants
 ; are guarded to once, and the data blocks are asked for now
 %define WA_TAB_SIN
-%define WA_TAB_ARENAS
 %define WA_TAB_POSE
 %include "watab.inc"
 
@@ -239,6 +265,7 @@ WA_VAR wa_yv,WA_MYV*2
 WA_VAR wa_vtx,WA_MVTX*2
 WA_VAR wa_corn,(WA_MBOX+1)*4
 WA_VAR wa_bcol,WA_MBOX+2
+WA_VAR wa_bsp,WA_MNODE*WA_BSPROW  ; the tree, rebased (wa_loadarena)
 WA_VAR wa_tmp,2
 WA_VAR wa_rowo2,(WA_ROWS+1)*2
 WR_BSS

@@ -21305,8 +21305,15 @@ $(BUILD)/wirearena.bin: apps/wirearena/wirearena.asm apps/wirearena/waconst.inc 
 	$(NASM) -f bin -w+error -I apps/ -I apps/wirearena/ -I $(BUILD)/ -l $(BUILD)/wirearena.lst -o $@ $<
 $(BUILD)/wrpart.bin: apps/wirearena/wrpart.asm apps/wirearena/wrender.inc apps/wirearena/waconst.inc apps/wirearena/wasin.inc apps/wirearena/wrtab.inc apps/wirearena/wafb.inc $(BUILD)/watab.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/wirearena/ -I $(BUILD)/ -l $(BUILD)/wrpart.lst -o $@ $<
-$(BUILD)/warena.o88: $(BUILD)/wirearena.bin $(BUILD)/wrpart.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
-	$(OS88PKGB) $< -o $@ --part $(BUILD)/wrpart.bin --part-compress $(PKGZBFMT)
+# ...and each arena a part of its own (WIREARENA-PARTS-PLAN 7.5), in
+# arenagen's order: one row per arena in wirearena.asm's table (WA_NARENA)
+WAARENAS := $(BUILD)/waa0.bin $(BUILD)/waa1.bin
+$(BUILD)/waa%.asm: tools/arenagen.py | $(BUILD)
+	python3 tools/arenagen.py --arena $* $@
+$(BUILD)/waa%.bin: $(BUILD)/waa%.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ $<
+$(BUILD)/warena.o88: $(BUILD)/wirearena.bin $(BUILD)/wrpart.bin $(WAARENAS) tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
+	$(OS88PKGB) $< -o $@ --part $(BUILD)/wrpart.bin $(addprefix --part ,$(WAARENAS)) --part-compress $(PKGZBFMT)
 #> [Applications] wirearenadisk :: its own floppies, warena{,720,120,360}.img
 wirearenadisk: $(BUILD)/warena.img $(BUILD)/warena720.img $(BUILD)/warena120.img $(BUILD)/warena360.img
 $(BUILD)/warena.img: $(BUILD)/warena.o88 tools/os88disk.py
