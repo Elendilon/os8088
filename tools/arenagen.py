@@ -510,9 +510,15 @@ def pose(hipL, kneeL, hipR, kneeR, shL, elL, shR, elR, lean=0.0, bob=0.0,
     pts = [head, neck, pel, eL, hL, eR, hR, kL, fL, kR, fR]
     if fall:
         pts = [rot_x(p, (0, 0, 0), -r(fall)) for p in pts]
-        low = min(p[1] for p in pts)
-        if low < 0:             # nothing sinks through the floor
-            pts = [(p[0], p[1] - low, p[2]) for p in pts]
+        pts = on_floor(pts)
+    return pts
+
+
+def on_floor(pts):
+    """Nothing sinks through the floor: the whole pose lifted onto it"""
+    low = min(p[1] for p in pts)
+    if low < 0:
+        pts = [(p[0], p[1] - low, p[2]) for p in pts]
     return pts
 
 
@@ -548,10 +554,10 @@ def collapse_frame(i, n):
     body folds FORWARD onto them - where DEATH goes over backward, straight"""
     k = (i + 1) / n
     over = max(0.0, (k - 0.4) / 0.6)
-    return pose(hipL=70 * k, kneeL=125 * k, hipR=60 * k, kneeR=135 * k,
+    return on_floor(pose(hipL=70 * k, kneeL=125 * k, hipR=60 * k, kneeR=135 * k,
                 shL=-20 + 110 * k, elL=30 + 50 * k, shR=-10 + 100 * k,
                 elR=20 + 60 * k, lean=50 * k, fall=-70 * over * over,
-                sink=0.5 * k)
+                sink=0.5 * k))         # (the crouch's knees: under it)
 
 
 def gib_frame(i, n):
@@ -568,7 +574,7 @@ def gib_frame(i, n):
         up = 1.1
         b = y + up - 0.04
         out.append((x + s * math.cos(a) * t,
-                    min(1.9, max(0.04, y + up * t - b * t * t)),
+                    min(JTOP - 0.02, max(0.04, y + up * t - b * t * t)),
                     z + s * math.sin(a) * t))
     return out
 
@@ -582,6 +588,14 @@ ANIMS = [                       # name, keyframes, builder, loops
     ("GIB", 6, gib_frame, False),
 ]
 
+
+# The narrow joint path (wrender.inc's WA_FJN) multiplies a joint's height as
+# an UNSIGNED byte, and its 16-bit sum holds for heights 0..111 units
+# (wa_render's wa_fvn): every keyframe stays inside, or arenagen refuses it.
+# (A COLLAPSE that sank two joints 4 below the floor drew them as 252 at
+# medium range: two red lines into the sky - WEAPONS-PLAN 3.5)
+JMAXY = 111
+JTOP = JMAXY / UNIT             # the highest a joint may be, metres
 
 # The joints' order in wa_pose: pose()'s, regrouped so a figure's first
 # SEVEN are the ends - head, neck, pelvis, the hands, the feet - and the
@@ -994,6 +1008,14 @@ def main(out):
         # BYTES: B - A must be a signed byte for each coordinate between
         # every pair it can blend - the next keyframe, and the first after
         # the last when it loops (one that holds blends its last with itself)
+        for i in range(n):
+            for k in range(NFACE):
+                for (a, b) in frames[i][k]:
+                    if not 0 <= b <= JMAXY:
+                        raise SystemExit("arenagen: %s %d facing %d: a "
+                                         "joint %d units up - the narrow "
+                                         "path takes 0..%d (WA_FJN)"
+                                         % (name, i, k, b, JMAXY))
         for i in range(n if loops else n - 1):
             for k in range(NFACE):
                 for (a, b), (c, d) in zip(frames[i][k],

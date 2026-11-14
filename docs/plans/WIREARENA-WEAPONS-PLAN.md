@@ -320,6 +320,33 @@ same bench frames, `04ae112` against now):
   arena's. Weapons other than the pistol are there only.
 - **A reload is automatic**: R is RAMP2's (HEIGHTS-PLAN 9.11).
 
+### 3.5 Two red lines into the sky (fixed, 2026-11-14)
+
+**The report** (the owner): "The shotgun kill sometimes has a bug, at a
+medium distance its kill animation will draw two red lines up into the sky
+briefly."
+
+**The cause.** Beyond ~1.6 m a figure's joints take the renderer's NARROW
+path (`WA_FJN`, MULTIPLAYER-FPS-PLAN 16), whose height multiply is
+`mul ch`: the keyframe's height is an UNSIGNED byte. That path's contract is
+joint heights 0..111 units (`wa_fvn`'s bound), but nothing checked it.
+COLLAPSE's crouch put two joints 4 units under the floor. Read as 252, they
+projected far above the screen, and their limbs drew up to them, red, for
+the frames they were under it. Up close the 16-bit path multiplies signed,
+so it never showed there. GIB broke the bound at the other end (116 up).
+
+**The fix, in the data, at no run-time cost** (`tools/arenagen.py`):
+
+- COLLAPSE is lifted onto the floor (`on_floor`), as a fall always was;
+- GIB's bits fly no higher than the bound;
+- arenagen REFUSES any keyframe with a joint outside 0..111 (`JMAXY`).
+
+Every other animation's keyframes are byte-identical.
+
+**Checked**: `waweapons` gains a medium-range shotgun kill (at 260 units)
+and counts red cells in the view's top third over the whole collapse:
+**128 on `88910746`, 0 now**.
+
 ## 4. Open
 
 1. **Pickups visible from a platform-heavy view cost ~1.5 ms each** (A and
@@ -336,3 +363,25 @@ same bench frames, `04ae112` against now):
    occluded, not culled.
 4. **Dummies do not shoot back**, so only the player's own rockets hurt the
    player: health and the shield pack matter once there are opponents.
+
+## 5. Proposed: the next weapons (for the owner, 2026-11-14)
+
+Each is priced against what the first round measured (3.3). None is built.
+
+| weapon | what it is | what it reuses | its cost a frame |
+|---|---|---|---|
+| **Railgun** | one shot then a long reload; hitscan that PIERCES every figure on the crosshair's ray; a beam drawn for ~3 frames from the weapon to the far wall | TRACE's mask already lists every figure hit (cone 0, 0); the beam is a screen-space line of cells, through the overlay's stamp-and-list | **0** when not firing; ~20 cells for 3 frames after a shot |
+| **Grenade launcher** | a lob that ARCS (gravity on the rocket's climb), bounces off floors and walls, and goes off after a fuse or on a figure | the rocket's flight, collision, splash, billboard and live count; a bounce is the climb negated and halved, a wall's an axis reflected (the player's two-axis collide) | as a rocket: ~1.5k a visible grenade, nothing with none |
+| **Chaingun** | held trigger, ~8 shots a second, low damage (~12), a slight alternating spread; spins down | TRACE with a small cone, alternated; the trigger's held state | **none for drawing**; one TRACE a shot (a few hundred clk) while held |
+
+How each fits the levels:
+
+- **The railgun** wants long sightlines: the tower, the open area, a long
+  hall. It is the theme's own: a line of light across a wireframe.
+- **The grenade launcher** wants heights and corners: lobbing onto the
+  platform, over a lip, round the annex's hallways.
+- **The chaingun** wants close quarters: corridors, small rooms.
+
+A fourth, if a level wants a trap: **proximity mines**. A mine is dropped,
+drawn as a pickup's billboard (a small block), and goes off when a figure
+comes within reach. It costs what a pickup costs while in view.

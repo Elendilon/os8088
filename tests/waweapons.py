@@ -12,7 +12,10 @@ assembled with a map, refused unless byte-identical to the build):
   - the shotgun pickup on the ramp platform: taken, held, 3 and 3, gone
     from the arena; key 2 selects it again after key 1;
   - the shotgun: one direct close shot kills, red the whole time (F_FLASH
-    held with F_DEAD) and by its own collapse (COLLAPSE, `F_KILL` 1);
+    held with F_DEAD) and by its own collapse (COLLAPSE, `F_KILL` 1); and
+    at medium range, where the joints take the narrow path, nothing of the
+    collapse is drawn above the figure (it once drew two lines into the
+    sky: a joint below the floor, multiplied unsigned);
   - the rocket launcher on the tower: taken and held; key 3 selects it;
   - dummy 0 lives with a shield (`F_SH` 100); a rocket flies (state 1, not
     instant), hits it directly and kills it outright through the shield,
@@ -181,6 +184,38 @@ def main():
               "(%r)" % f)
         g.tick(6)
         shot("03-shotgun-kill")
+
+        # ...and at MEDIUM range, where the joints take the renderer's
+        # narrow path (WA_FJN): its height multiply is unsigned, and a
+        # COLLAPSE that sank two joints below the floor drew them far above
+        # it - two red lines into the sky while it fell (WEAPONS-PLAN 3.5).
+        # Dummy 1, back from the dead, softened by the pistol, then one
+        # shotgun shot at 260: no red cell above the view's top third while
+        # it collapses (the figure's head is near the middle row).
+        for _ in range(120):
+            if not g.fig(1)["dead"]:
+                break
+            g.tick(2)
+        g.press("Digit1")
+        for _ in range(2):
+            g.ahead(1, 300)
+            g.press("ControlLeft")
+            g.tick(4)
+        g.press("Digit2")
+        g.tick(12)
+        g.ahead(1, 260)
+        g.press("ControlLeft", ticks=2)
+        f = g.fig(1)
+        sky = 0
+        for _ in range(26):
+            d = m.read(0xB8000, 40 * 8 * 2)
+            sky += sum(1 for c in range(40 * 8) if d[c * 2 + 1] == 0x0C)
+            g.tick(1)
+        check(f["dead"] and f["kill"] == 1 and sky == 0,
+              "the shotgun at medium range: a collapse, and nothing of it "
+              "above the view's top third (%d red cells there; %r)"
+              % (sky, f))
+        shot("03b-shotgun-medium")
 
         g.at(1952, 1000, 160, ang=512)
         g.tick(2)
