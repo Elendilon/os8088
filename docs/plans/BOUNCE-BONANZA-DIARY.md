@@ -1659,3 +1659,116 @@ Continues, which go to the owner as a default with the trade stated.
 
 The owner's open questions are grouped by the gate they block (the
 physics, the shell, later), each with a recommended default.
+
+## 2026-11-14 (the size hunt, and the owner's course-design notes)
+
+**The owner's words, after reading the release roadmap:**
+
+> Do measure, and also start an agent on "what else is smaller but does
+> the same thing at the same speed". They can look at more than just
+> occlusion, too. Then we can move on, the rest of the plan sounds pretty
+> good.
+>
+> Some comments on maps:
+>
+> Right now, the springs are all completely hidden. Doing that for a
+> "Hidden route" might be ok, but in general our mechanics need to be
+> visible, and not have the viewer guessing about what is going on hidden.
+> We could implement see-through tiles for this if that is not too
+> expensive, or if it is, then we need to design courses so that when the
+> ball is hidden its mostly straight or obvious where to go. I couldn't
+> even find the end to PEAK.
+>
+> For course design as well: Increasing levels of challenge. Ramps that
+> guide you to the center, early, and then later do the opposite. Things
+> like needing to fling yourself with speed to cross a pit that ramps into
+> a drop hole.
+>
+> Generally longer courses, which is why I want to downsize them as much
+> as possible. Target ~30s for the early courses, ~60s for the middle
+> levels, and ~90s for the last few.
+>
+> Q61-Q63: I'll need to test these to see how they feel, but this seems
+> like a fine starting point.
+
+**Five agents measured in parallel, on the host only:** the occluders,
+the rest of the course, the image, the other parts, and visibility.
+Nothing in the guest or the tools changed. Every packed figure used the
+build's own LZ4 call, and every lossless form was decoded back and
+compared byte for byte, in place where the guest would expand it in
+place. The result is a dated report,
+[BONANZA-SIZE-2026-11-14](../reports/BONANZA-SIZE-2026-11-14.md).
+
+**The surprise was in the records, and it was not their size.** The plan's
+answer to the disk question had been to shrink each occluder record from
+8 bytes to 4. Measured inside the whole packed part, that saves 11.6KB of
+the six courses' 83KB. Storing each record as the word DIFFERENCE from the
+one before it saves 32.6KB, on today's records and at exactly 0 clocks a
+frame. The reason is that the column steps by 0 or 1 about 95% of the
+time, and the screen line, top and mask repeat. A record that differs from
+its neighbour by one column cannot be matched by LZ4, but a run of
+identical differences can. Both together save 35.4KB. The 4-byte records
+kept in RAM free 13KB of PEAK's 65KB part, at about +30 clocks on a
+typical occluder frame (ESTIMATED). The expansion is a 10-byte loop at
+load, `rec[i] += rec[i-1]`: 81 ms for PEAK.
+
+**What else was smaller:**
+- The map stored as index planes, ROWTAB computed, the route as tiles,
+  one shared copy of the lift's sprite, and the grid's derivable fields
+  rebuilt together save a further 5KB. With the records, the six courses
+  go from 83,152 to 42,792 bytes packed, measured in combination.
+- The three ball parts can be regenerated at fetch, byte for byte. Each
+  material's texture turns out to be a separable sum against a threshold,
+  `A[x][fx] + A[y][fy] < T`, so 7,380 packed bytes become 1,668. Rubber
+  needs 16-bit tables, because its closest pixel is 0.00065 from the
+  threshold.
+- The demos as a bit stream halve, which is worth about 8.5KB at twenty
+  courses.
+- Wave 8a's code part was re-measured at 5.6-5.9KB, not the plan's
+  7-8KB.
+
+The load work the shortlist adds to PEAK (about 0.37 s, PREDICTED) is
+less than the disk reading it saves (about 0.77 s), so a launch should
+get faster.
+
+**RAM is the wall now, not the disk.** At MOON's and PEAK's pace, a
+block row is 0.37 s and about 381 bytes of RAM. With the 4-byte records
+one part holds about 73 s of course. A 90 s course needs the two
+zero-clock RAM levers (overlapped grid rows and a constant map stride)
+and a slower design pace, or the grid moved to a claim of its own. On the
+disk, twenty courses at the owner's 30/60/90 s mix come to about 490 KiB
+in today's form and about 253 KiB in the 5b form, against about 239 KiB
+available. LZB for the parts closes the remaining gap (about 206 KiB), at
+about +0.9 s on a long course's launch. That is the owner's call after
+5b.1's real figures.
+
+**Why the springs vanished.** Geometry toward the viewer that stands dh
+units above a floor hides that floor for about dh block rows behind it.
+PEAK's springs launch +x onto a tier 5-6 units higher and a few rows in
+front, so both are 0% visible. Its cup sits two rows behind a rail 4
+units above the green. The visibility agent priced every see-through
+idea:
+- **A dithered ghost costs nothing at all.** The occluder pass lays
+  `((buffer XOR block) AND mask) XOR block` whatever the mask holds, so a
+  checker ORed into every mask by the tool shows a hidden ball as a 50%
+  ghost: 0 clocks, 0 guest bytes, and the masks deduplicate 710 bytes
+  smaller.
+- **Real low rails fix PEAK's end.** On a scratch copy, rails one or two
+  units above the floor they guard cut the steps with the ball hidden from
+  475 to 98, and made the cup and the pad fully visible.
+- The rest were refused: run-time see-through, outlines and cutaways cost
+  clocks, or draw a picture that lies about the physics.
+
+**What changed in the plan:**
+- The owner's notes are binding course-design rules CD1-CD4 in R1.
+- Wave 5b's stories now follow the report's shortlist:
+  - 5b.2 is the difference-coded 4-byte records, measured against the
+    HUD rule on MILL and PEAK, with the 0-clock form as the fallback;
+  - 5b.6 is the ghost dither with the visibility audit in report mode.
+- Wave 9's 9.1 regenerates the balls.
+- Wave 11 gains three stories:
+  - 11.5, the visibility rule, refusing;
+  - 11.6, the RAM levers and the replay log's check for 90 s courses;
+  - 11.7, the demo bit stream.
+- The design sheet now states each course's target time, pace, place on
+  the challenge curve and how its mechanics stay visible.

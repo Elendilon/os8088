@@ -127,6 +127,51 @@ SPEC.md 128 before its code, as waves 1 to 4 did.
 | 7 | **Ghost: only if affordable.** Measure it | Wave 10, story T12, a one-off measurement |
 | 8 | **Traps and more props and tiles**: wind, magnets, cracked tiles, water, DISAPPEARING GLASS PATHWAYS (a slight hint, then it appears when rolled onto), "and more of these". They must NOT cost the whole disk or the 64KB segment: SCOPE them to the courses that use them, and LIMIT how many one course may use | Wave 9's family framework and per-course limits; the families land with their worlds (waves 12, 13, 16, 17) |
 
+**The owner's course-design notes (2026-11-14), binding on waves 11-13,
+16 and 17 and on the course pipeline.** The diary has them verbatim.
+
+- **CD1. Mechanics must be VISIBLE.** "Our mechanics need to be visible,
+  and not have the viewer guessing about what is going on hidden." A
+  hidden route is acceptable only as a deliberate SECRET (a hidden finish,
+  decision 6).
+  - Today every spring is completely hidden, and the owner could not find
+    PEAK's end. MEASURED in
+    [BONANZA-SIZE-2026-11-14](../reports/BONANZA-SIZE-2026-11-14.md)
+    section 3.5:
+    - PEAK's two springs, its rubber pad and its cup are 0% visible. The
+      cup sits behind the x = 57 rail, 4 units above the green.
+    - PEAK's drop tube mouths are 0% visible, and so are two of MOON's
+      tube INs.
+    - The ball is more than half hidden on 475 of PEAK's 1,902 route
+      steps, 3.00 s of them in one stretch.
+  - The owner offered two remedies: see-through tiles "if that is not too
+    expensive", or, if it is, courses where a hidden ball goes mostly
+    straight or plainly somewhere. Both are taken, at 0 clocks a frame:
+    - story 11.5's tool rule and design rules;
+    - story 5b.6's ghost dither.
+- **CD2. INCREASING CHALLENGE.** The tutorial's and world 1's courses
+  help the player, and later courses take the help away. For example:
+  - early ramps guide the ball to the CENTRE, and later ones throw it to
+    the edge;
+  - later, the player needs speed to FLING the ball across a pit, onto a
+    ramp that ends in a drop hole.
+  - Each design sheet (wave 11's pipeline, step 1) names its place on
+    this curve and the one new demand it makes.
+- **CD3. LONGER COURSES.** About **30 s** for the early courses, **60 s**
+  for the middle ones and **90 s** for the last few. This is why the
+  course format must shrink (wave 5b), and why RAM, not the disk, becomes
+  the wall:
+  - one part holds about 73 s at MOON's and PEAK's pace with wave 5b's
+    4-byte records;
+  - so a 90 s course needs wave 11's RAM levers AND a slower pace, at
+    least 0.425 s a block row, or the grid in a claim of its own (the
+    report's section 6).
+  - Each design sheet states its target time and its pace, and `--sizes`
+    prints both against the part and the disk.
+- **CD4. Q-61 to Q-63's defaults are the starting point.** "I'll need to
+  test these to see how they feel, but this seems like a fine starting
+  point." Wave 6 ships them as the defaults, and gate 1's play tunes them.
+
 ### R2 The disk question: a shared tile and prop map?
 
 **The short answer.** Building a course out at load time is the right
@@ -233,6 +278,22 @@ A writer that writes 8 bytes per 4 bytes read, with the reader starting 4
 bytes per record ahead, never passes the reader. That is the proof, and
 `--selfcheck` asserts it. On the Hercules the expansion runs before
 `bz_hxlat`.
+
+**Superseded by measurement (2026-11-14):**
+[BONANZA-SIZE-2026-11-14](../reports/BONANZA-SIZE-2026-11-14.md) measured
+the records inside the WHOLE packed part, and the structure-of-arrays
+layout above is not the best form.
+- Records stored IN PLACE as word DIFFERENCES from the record before pack
+  far better, because the column steps by 0 or 1 about 95% of the time
+  and LZ4 then matches whole records.
+- On today's 8-byte records this saves -32,616 bytes packed at 0 clk a
+  frame.
+- With 4-byte records kept in RAM as well, it saves -35,379 packed and
+  13,156 bytes of PEAK's RAM.
+- With the four small items in wave 5b, all six courses go from 83,152 to
+  42,792 bytes packed.
+
+Wave 5b's stories follow the report.
 
 **Recommendation:** take (b-prime) now, in wave 5b. Keep (b)'s world block
 pool as an option for when worlds exist and their art is drawn from a
@@ -386,6 +447,25 @@ plan is:
 With today's encoding, the same 10.8KB would hold only courses smaller
 than MILL (13.9KB today; PEAK is 23.6KB).
 
+**Restated for the owner's longer courses (CD3; the report's section 7,
+PREDICTED).** Take a set of six 30 s courses, nine 60 s and five 90 s, at
+MOON's and PEAK's pace:
+- In today's form it needs about 490 KiB.
+- In wave 5b's form it needs about 253 KiB, against about 239 KiB
+  available. That 239 is this table's 217, plus what the demo bit stream,
+  ball V2, a smaller BENCH and LZB for the image give back. So it is
+  about 14 KiB over.
+- With LZB for the parts as well, it needs about 206 KiB and fits.
+
+So the shortlist does most of the work, and one large lever is still the
+owner's choice after 5b.1 reports the real figures:
+- LZB for the parts, at about +0.9 s on a long course's launch;
+- rendering the picture at load (high risk);
+- this section's "Worlds" disk.
+
+The 10.5KB-average and 16KB-maximum budget above was set for today's
+course lengths. 5b.3 re-derives it from the target times.
+
 **The fallback, if the budget breaks:** a world's courses as hostile-read
 files on a second "Worlds" disk, with a disk swap at a world gate on the
 pathway. O1's price: about 1KB of resident code and about 0.13 s a load
@@ -417,7 +497,10 @@ grown from 27,421 at wave 3b. Twenty courses add about 31 bytes each of
 names and titles, plus part rows for courses, demos, songs and families:
 **about 1-1.5KB resident** (PREDICTED). Wave 10's T9 is restated as a byte
 budget that includes it. Wave 8a's code part takes about 7-8KB of
-launch- and desktop-only code out of the image first.
+launch- and desktop-only code out of the image first. Re-measured on
+2026-11-14 (BONANZA-SIZE-2026-11-14 section 3.3), that is about
+5.6-5.9KB: the other 2.7KB is code that runs once a launch inside the
+bracket, and it stays resident.
 
 ### R5 Process, for every wave
 
@@ -459,22 +542,50 @@ Host work and row edits only; no change to the package's bytes.
 
 #### Wave 5b: The compact course format and the disk plan (M)
 
-**Goal:** a disk format sized for twenty courses (R2).
+**Goal:** a disk format sized for twenty LONGER courses (R2, CD3), and the
+RAM to hold them.
+
+**The measurement this wave follows:**
+[BONANZA-SIZE-2026-11-14](../reports/BONANZA-SIZE-2026-11-14.md), taken
+host-side at `28b13cce` after the owner asked "what else is smaller but
+does the same thing at the same speed". Its section 5 is the shortlist,
+and the stories below are that shortlist. The six courses, measured
+together: **83,152 -> 42,792 bytes packed (-48.5%)**, and RAM 223,420 ->
+179,608.
 
 | # | story | verified by |
 |---|---|---|
-| 5b.1 | `bbcourse.py --sizes`: each course's sections raw and packed, the real padded part packed with its row's `OP_COMP` format and `OP_ZFILL`, the world pool's saving, the disk total against R4's plan | host; its figures replace R2's section-by-section estimates in SPEC.md 128 |
-| 5b.2 | **BZC2.** Compact occluder records (4 bytes, structure-of-arrays per block row) at the part's tail behind an `OP_ZFILL` hole, expanded in place, forward, at load, into today's BZC1 bytes. BZC2 has a **tagged section directory**, so waves 7 to 9 add sections (finishes, families, the per-play state list) additively, rather than reserving fixed fields now. Non-physics settings (palette, song, clock frame, limit, medal times) live in the package's course table OUTSIDE the part, so tuning them changes no course identity | `--selfcheck`: `expand(BZC2) == BZC1` for every course, and the writer-never-passes-reader proof. One `bonanzacourse` leg reads the guest's expanded claim against the tool's BZC1 bytes. A red arm: an expander off by one record |
-| 5b.3 | The course budget: the tool prints each course's packed size against about 10.5KB average and 16KB maximum (R4), and refuses past the maximum | a host refusal test as a red arm |
-| 5b.4 | The disk layout decided with the owner (Q-L2): BENCH stays in the package by default (O48). If the owner retires it from the play disk, BENCH's presence becomes a build knob that leaves the engine byte-identical (a `cmp` of the image without its part table), and `D` on the shipped package stays the performance instrument | `bonanza360.img`'s cluster count |
+| 5b.1 | `bbcourse.py --sizes`. It prints, for every course: each section raw and packed; the real padded part packed with its row's `OP_COMP` format and `OP_ZFILL`; the part's RAM against 65,024; the course's target time and pace (CD3); and the disk total against R4's plan. Its figures replace the report's and R2's in SPEC.md 128 | host; the figures match the report's section 4 within a few bytes |
+| 5b.2 | **BZC2: the occluder records as word DIFFERENCES, in place** (the report's idea D). The 4-byte record `[col, s - br + SB, top - TB, mask index]` is kept in RAM. On disk each record is stored as the word difference from the record before it. OCCIDX ships as one count byte a block row. The load runs `rec[i] += rec[i-1]` (a 10-byte loop, 115 clk a record: PEAK 81 ms) and rebuilds OCCIDX. `bz_occ`, `bz_oand` and the binary search read the 4-byte records, through a 2 x NMASK word table of mask offsets. **Cost per occluder frame: about +30 clk typical, about +450 at the worst reachable position (ESTIMATED; 0 on frames where the gate is closed and 0 a step).** BZC2 has a **tagged section directory**, so waves 7 to 9 add sections (finishes, families, the per-play state list) additively. Non-physics settings (palette, song, clock frame, limit, medal times) live in the package's course table OUTSIDE the part. **The fallback is idea C**: the same disk form expanded into today's 8-byte records, at exactly 0 clk a frame and -32,616 packed, with the RAM half left to T10 | `--selfcheck`: the in-place decode equals the RAM target byte for byte on every course, and SB is checked against the tool's reach queries. One `bonanzacourse` leg reads the guest's expanded claim against the tool. **`bonanzaperf` on MILL's and PEAK's demos, both cards, speaker ON: at most 2 more misses a card (the HUD rule), or ship C.** Red arms: an expander off by one record, and a missing mask-table entry |
+| 5b.3 | **The small course items**, expanded at load into the same RAM bytes, at 0 clk a frame and a step: the map as a low-byte plane plus a 2-bit high plane (-1,934 packed, 0.13 s on PEAK); ROWTAB computed (-852); the route as way tiles (-316), or dropped on courses where only the autopilot reads it. **Then, as a follow-up once those are green**, the grid's derivable fields (VOID kill heights, OPEN and SAFE) rebuilt at load (-1,791, 0.15 s on PEAK, PREDICTED) | `--selfcheck`: `expand(BZC2) == RAM` on every course |
+| 5b.4 | **The course budget, re-derived for CD3.** The tool prints each course's packed size and RAM against the target time and refuses a part over 65,024 bytes. The per-course packed budget is restated from 5b.1's real figures and the owner's 30/60/90 s mix, in place of R4's 10.5KB average and 16KB maximum. The report predicts about 6.5 / 13.0 / 19.5 KiB for a 30 / 60 / 90 s course, and about 253 KiB for twenty, against about 239 KiB free | a host refusal test as a red arm |
+| 5b.5 | **The disk plan, decided with the owner** (Q-L2, and now the big lever). BENCH stays in the package by default (O48). If the owner retires it from the play disk, it becomes a build knob that leaves the engine byte-identical. The owner chooses how to close the remaining gap of about 14 KiB, if 5b.1 confirms it: **LZB for the parts** (-8,188 more on the six courses; about +0.9 s on PEAK's launch), rendering the picture at load (a prototype, high risk), or R4's "Worlds" disk. **LZB for the image** (-3,248 bytes; +0.64 s when the window opens) is offered at the same time | `bonanza360.img`'s cluster count |
+| 5b.6 | **The ghost dither** (CD1; the report's section 3.5 (a)). The tool ORs a checker (0xCC and 0x33 on alternate lines) into every occluder mask, so a ball behind anything shows as a 50% ghost. It costs **0 clk and 0 guest bytes**, and makes the masks -710 bytes packed. The tool's models (`composite('records')`, the merge, `bonanzaring`'s oracle) lay the mask minus the checker. **The visibility audit lands with it in REPORT mode**: every course prints its props' visibility and its hidden stretches (story 11.5 turns it into a refusal) | `--selfcheck`; a look boot on MILL (the lift slab must not be half-ghosted) and on PEAK, both cards; `bonanzaring` |
+
+**Not in 5b, placed by the report:**
+- ball V1 and V2 go to wave 9 with 9.1;
+- the demo bit stream and the joined demo part go to wave 11;
+- the RAM levers for long courses go to wave 11, story 11.6;
+- wave 8a is restated at 5.6-5.9KB;
+- the `bz_boxbuf` bss overlay (-170 bytes of RAM) can land any time.
+
+**Identity.** The course identity (SPEC.md 128.12.8) is computed over the
+part as it sits in RAM, so 5b.2's 4-byte records, and 5b.6's masks, change
+it. The shipped demos are re-stamped by the tool: they are authored
+scripts and autopilot routes, and the physics is not frozen until wave 6
+anyway.
 
 **Rows reached:** `bonanzacourse`, `bonanzaring`, `bonanzaexit`,
-`bonanzaperf`, `bonanzamega`.
+`bonanzaperf`, `bonanzamega`, `bonanzademo`, `bonanzawheel` (it reads the
+records from guest memory).
 
-**Bytes:** +150-250 bytes of launch-only code. About -28.8KB on the disk
-at today's six courses (PREDICTED until 5b.1).
+**Bytes:** about +110 image bytes for 5b.2's frame code and mask table
+(ESTIMATED), about +100 bytes of launch-only expanders, and up to 512
+bytes of bss for the mask table. On the disk: -40.4KB packed at today's
+six courses (MEASURED in combination; 5b.1 confirms it).
 
-**Inventory:** H6's layout, D11 (the part cap stays; T10 relieves it).
+**Inventory:** H6's layout, D11 (the part cap stays; 5b.2's RAM records
+relieve it by 13KB on PEAK, and T10 is folded in).
 
 #### Wave 6: Feel. Three balls, one Hop, one boost (M-L)
 
@@ -552,7 +663,7 @@ screen" is true and the heavy frames are measured before the wave closes.
 
 | # | story | verified by |
 |---|---|---|
-| 8a.1 | **O46 decided this way**: the launch-, desktop- and front-end code (the faces, the save, the demo checks, the calibration), about 7-8KB, moves into a CODE PART fetched by the front end and dropped before any course fetch | the image figure; the claims count |
+| 8a.1 | **O46 decided this way**: the launch-, desktop- and front-end code (the faces, the save, the demo checks, the calibration), about 7-8KB (re-measured 2026-11-14: **about 5.6-5.9KB net**, because the once-per-launch code inside the bracket and the calibration stay resident; the per-course titles, names and pars move with it, -45 resident bytes a course; disk +0.45KB; about +0.4 s for each return to the desktop), moves into a CODE PART fetched by the front end and dropped before any course fetch | the image figure; the claims count |
 | 8a.2 | Running code from a part on kern_mega, checked first, as CWORD's overlay part does it | `bonanzamega` on 86Box |
 
 **Inventory:** A19 (O46).
@@ -621,7 +732,7 @@ pickup kind**; at most 6 lanes meeting a window (O24); the part at most
 
 | # | story | verified by |
 |---|---|---|
-| 9.1 | The framework; the three ball parts in one carved claim; a red arm: a course using an undeclared family is refused by the tool | host; `bonanzaphys` |
+| 9.1 | The framework; the three ball parts in one carved claim; a red arm: a course using an undeclared family is refused by the tool. **With the ball claim, the ball parts are regenerated at fetch** (BONANZA-SIZE-2026-11-14 section 3.4): V1 stores every mask and frame once at shift 0 and builds the shifts, parity copies, shadow and shatter cut; V2 generates the 64 roll frames from a per-material template and phase table. The balls go from 7,380 to 1,668 bytes packed, at 0 clk a frame and about +150 ms for a three-ball launch (PREDICTED) | host; `bonanzaphys`; the generator held bit-exact against `build_ball2` under an emulated 8086, every material, as `bz_hxlat` is |
 | 9.2 | **The per-play state contract** (a resident engine change, a review finding). Today every prop's pose is a function of the step, its seed and the course (SPEC.md 128.12.8). A cracked tile, a revealed path, a collected pickup and a used hourglass depend on the ball's history instead. So: a per-play STATE BITSET (broken, revealed, collected), reset at the play's start, a retry and a respawn exactly as SPEC.md 128.12.6.6's state is; **the grid is never written**, and physics reads the bitset over the grid; the true-pose routine reads the bitset; the reach model and the occluder build cover the broken-cell superset. A retry clears the bitset and re-poses the lanes: no re-fetch | `bonanzaphys` and `bonanzareplay` red arms for "retry after a crack" and "a respawn after a pickup" |
 | 9.3 | **Pickups** (decision 5, Q-92): an HOURGLASS (+10 s, once per attempt); a SPEED pickup (more acceleration for N s and a bounded raise of the top speed, priced by the tool, so it is not read as broken once at the cap); a JUMP pickup (rubber's Hop amount for N s, never stacked with the boost, never over 2 units). The tool proves every finish is reachable with NO pickup, so a pickup only shortens a route, and a boosted reach stays inside the bounds or is refused. Cued by sound, not a HUD | `bonanzaphys`; the tool's routes; red arms |
 | 9.4 | A test course for the framework and the pickups, built from an existing course, not a world course | `bonanzacourse`; owner look |
@@ -648,7 +759,7 @@ measured against wave 6's re-baseline (6.10).
 | T7 | Half-rate sound, and sound in the retrace wait's idle time (G4) | speaker 3.3k average | measured; the owner listens and decides |
 | T8 | Box writes (A4), wheel commits (A2), the preparation and the walk (A3), `bz_wlate` (A13), TRIAL on the Hercules (A14), the two-box rotor frame (A15, priced at 88k and never measured) | open | each measured; fixed or recorded |
 | T9 | The image (A5): a byte budget with the 20 courses' resident rows in it (R4) | 32,640 and growing | set from 8a's code part |
-| T10 | (SUGGESTION) 4-byte occluder records in RAM as well | 8 bytes a record | about -13KB of RAM on PEAK; +8-15 clk a record laid (1.11 laid on an average OCC frame, MEASURED) |
+| T10 | 4-byte occluder records in RAM as well | **moved into wave 5b's story 5b.2** (2026-11-14, BONANZA-SIZE-2026-11-14); held here only if 5b ships its fallback C | about -13KB of RAM on PEAK; about +30 clk on a typical occluder frame, about +450 worst (ESTIMATED) |
 | T11 | **A per-course miss budget** for the pipeline, set from T3 and T4 (for example at most X misses per 1,000 steps, CGA, speaker ON) | none | a course acceptance criterion |
 | T12 | **The ghost, measured** (decision 7): a knob build draws a second ball box from a recorded log on FIRST's, MILL's and PEAK's demos, both cards, speaker ON; misses, box-bound refusals and lane lateness reported. Taken once, since it decides the design | predicted +12-15k a frame | Q-L6 answered from it |
 
@@ -665,7 +776,12 @@ measurements.
 1. **A design sheet**, `docs/plans/bonanza-courses/<NAME>.md`: the world,
    its families (at most 3), the start ball, its finishes and their exits
    (a secret one?), the time-limit target, the palette, the clock's frame,
-   the song, and the new idea it teaches. **The design principle**
+   the song, and the new idea it teaches. **Under the owner's notes
+   (CD1-CD3, binding):** the sheet also states the course's target time
+   (about 30, 60 or 90 s) and its pace in seconds a block row; its place
+   on the challenge curve and the one new demand it makes (CD2); and how
+   every mechanic stays visible, naming any declared `hidden` stretch
+   (CD1, story 11.5). **The design principle**
    (SUGGESTION, a review finding): a branching course's harder or hidden
    exit is usually MATERIAL-gated, by a pad, a rung of the step ladder or a
    family that sorts balls. Every branching course has an easier exit to
@@ -691,6 +807,9 @@ measurements.
 | 11.2 | **TRIAL** becomes tutorial 2, no branch: Hop, ramps, rubber's "and again", a spring | owner play |
 | 11.3 | The graph source (8b.2) filled in (SUGGESTION): 2 single nodes, then columns of 2-3 nodes, about 10 courses on any path to the final course, 20 in all, including 2 secrets reached by hidden finishes | `bonanzapath` |
 | 11.4 | The pipeline's tool support: per-finish `author` scripts, the budget, a playtest-disk target | host |
+| 11.5 | **The visibility rule** (CD1; BONANZA-SIZE-2026-11-14 section 3.5 (c)). It runs in `bbcourse.py` at compile and in `--selfcheck`, and switches 5b.6's report into a REFUSAL. Every spring, pad and cup (mark, pin and flag) must be at least 75% visible in the static picture, and every tube mouth at least 50%. The route demo and every authored demo are run through the model. Any stretch outside a tube where the ball is more than 50% hidden for over 0.5 s (27 steps) is refused, unless the course declares it `hidden` (a deliberate secret); a declared stretch must turn less than 30 degrees. Every course prints its hidden stretches and what hides them. BENCH is exempt. **Cost: 0 on the 5150; about 0.6 s a course on the host.** The design rules go into the design sheet: springs, climbs, tube runs and drop landings go AWAY from the camera (-x or -y); a near rail stands one or two units above the floor it guards, and flat where it can (one unit still stops a roll and a rubber Hop) | a red arm: today's PEAK refused (springs, cup and pad at 0%, a 3.00 s hidden stretch); MOON refused until retrofitted |
+| 11.6 | **The RAM levers for long courses** (CD3; the report's section 6), landed before the first course over about 70 s. Both cost 0 clk a frame and a step. Grid rows overlapped through ROWTAB: PEAK -788 bytes of RAM, and ROWTAB then ships one byte a row. Map rows at a constant stride of 108 bytes with a row-base table: PEAK -2.4KB, and the tool refuses art or a lane in a row's outer 10 words. With 5b.2, one part then holds about 212 block rows, about 79 s at MOON's and PEAK's pace. **A 90 s course is designed at 0.425 s a block row or slower**, or the owner chooses the grid in a claim of its own (the eighth of eight). **And the replay log is checked**: `bz_rlog`'s 4,096 bytes could truncate a jittery mouse play after about 25 s (PREDICTED), so a 90 s course's log is sized or its encoding tightened before its demos are recorded | `--selfcheck`; `bonanzacourse`; `bonanzaring`; a long mouse play through `W` |
+| 11.7 | **The demos as a bit stream** (the report's section 3.4): a Huffman code for the key (with an escape for any other key) and Elias gamma for the run count, expanded into BZR1 pairs when a demo is copied into `bz_rlog`, with the header trimmed. The demos are joined into one indexed part. This saves about 8.5KB at twenty courses, at 0 clk a frame and about 28 ms at the copy | `bonanzademo`; the tool's round trip |
 
 **Inventory:** D1, D2, D5 (as each course is retrofitted), D9, D10
 (watch items the tool enforces).
@@ -768,6 +887,10 @@ elements tuned as the courses use them).
 | Q-62 | The boost: where it acts and how high | Once per Hop, at the Hop's landing, on level floors only; a fixed apex of about 9 px that reaches 1.5 units and never 2. Because a real fall already rebounds higher than that, it adds nothing after a fall: "and again" is a Hop's second bounce. Its cue is a sound and a stretch |
 | Q-63 | Grip per ball | Rubber 8, steel 5, glass 3 |
 | Q-64 | Palettes | Per world, with a per-course override |
+
+**Q-61 to Q-63 answered for now (2026-11-14, CD4):** "I'll need to test
+these to see how they feel, but this seems like a fine starting point."
+Wave 6 ships the defaults, and gate 1's play tunes them.
 
 **Needed before wave 8 (gate 2):**
 
