@@ -12,8 +12,9 @@
 Wave 4 (SPEC.md 128.14.4, 128.14.18): `par`, `checkpoint`, `pad`, `cup`,
 `spring` and `way ... branch`; prop kinds 5 - 8 (a flag a two-pose lane, the
 rest static marks), BZG1 +28 / +29, BZ_CRS_PARS, BZ_CRS_IDS and BZ_PHYSV;
-the model's RETURN, flags, pads, cup, springs and tilt caps; NO TRAP and
-NOTHING UNDER THE HUD; the shipped demos BZD<K>.BIN from text or the route.
+the model's RETURN, flags, pads, cup, springs and tilt caps; NO TRAP (wave
+4's NOTHING UNDER THE HUD went with the HUD in wave 5a, SPEC.md 128.15.3);
+the shipped demos BZD<K>.BIN from text or the route.
 
 A course is TEXT (`apps/bonanza/courses/*.bbc`, SPEC.md 128.10.3, with
 wave 2's `surface` and `ball`, 128.11.6.1).  ONE run compiles the whole list:
@@ -80,10 +81,20 @@ Host reference for the rows (import this module):
     encode_log(keys, course, mat), decode_log(log)   BZR1 (128.11.12.1)
     ledge_gaps(), gap_table_text()  -> 128.11.5.3's table, from Physics
     htab(), herc_translate_course(part)              128.11.3
-    laid_at(course, px, py, sb, zb, air)   the records the guest's pass lays
-    composite(course, px, py, sb, zb, air) the ball over the picture with the
+    laid_at(course, px, py, sb, zb, air, card=False)
+                                    the records the guest's pass lays (card:
+                                       the pixels the CARD lays, less the
+                                       ghost checker's, 128.15.10.3)
+    composite(course, px, py, sb, zb, air, via, ghost=False)
+                                    the ball over the picture with the
                                        occluders laid back through the RECORDS
-                                       (the ring's oracle, SPEC.md 128.10.11.3)
+                                       (the ring's oracle, SPEC.md 128.10.11.3;
+                                       ghost: the card's model, the dither)
+    ghost(x, y), CHK, dither(mask)  the ghost dither (SPEC.md 128.15.10.1)
+    card_composite(course, ...)     the card's composite read out of the RAM
+                                       part's dithered masks (item 11)
+    visibility(course, k, demo)     the visibility audit, REPORT mode
+                                       (SPEC.md 128.15.10.4)
 """
 import argparse
 import functools
@@ -98,15 +109,37 @@ from fractions import Fraction
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bonanza_assets as BA                      # noqa: E402
+import os88lz                                    # noqa: E402  (the course budget packs as os88pkg packs a part)
 from bonanza_assets import BLK, CYN, MAG, WHT, CGA1, cga_bytes, herc_pair, herc_bytes   # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOL = os.path.abspath(__file__)
 COURSE_DIR = os.path.join(ROOT, "apps", "bonanza", "courses")
 
-# --- formats (SPEC.md 128.10.5) -----------------------------------------------
-HDR = 32                      # BZC1's header
+# --- formats (SPEC.md 128.10.5, 128.15.4) --------------------------------------
+HDR = 48                      # BZC2's header: the map's offset, BZC_MAP (SPEC.md 128.15.4.1)
+HDR1 = 32                     # BZC1's (wave 4's parts; the item 1 comparison writes it back)
 GHDR = 32                     # BZG1's header
+REC = 8                       # RECB, the occluder record's RAM size: 8, C, SHIPS (128.15.5.4's verdict:
+                              # D, 4, failed the CGA); `--rec 4` still writes D's form for the host checks
+DIRENT = 8                    # a directory entry (128.15.4.2)
+NSEC_MAX = 16
+F_PLAIN, F_ROWPLANES, F_COUNTS, F_WDIFF, F_MASKTAB, F_ROWTAB, F_WAYS, F_CELLS = range(8)
+FORM_NAMES = ("PLAIN", "ROWPLANES", "COUNTS", "WDIFF", "MASKTAB", "ROWTAB", "WAYS", "CELLS")
+SEC_FORM = {"M": F_ROWPLANES, "B": F_PLAIN, "I": F_COUNTS, "R": F_WDIFF, "K": F_PLAIN, "O": F_MASKTAB,
+            "G": F_PLAIN, "C": F_CELLS, "T": F_ROWTAB, "W": F_WAYS, "P": F_PLAIN}   # RAM order
+SEC_NAMES = {"M": "the map", "B": "the blocks", "I": "OCCIDX", "R": "the records", "K": "the masks",
+             "O": "the mask table", "G": "the grid's header", "C": "the cells", "T": "ROWTAB",
+             "W": "the route", "P": "the props"}
+COLS_MAX = 128                # ROWPLANES' scratch: COLS / 4 <= 32 bytes of bz_boxbuf
+BLK_MAX = 1024                # a map word's index: 8 low bits and 2 high
+ROWREC_MAX = 255              # COUNTS: a block row's records in a byte
+KW_MAX = 33                   # CELLS' scratch rows, KW + 2 <= bz_cxcel's 36-byte stride (128.15.6)
+# the course budget (SPEC.md 128.15.8): ROOM bytes for the planned 1,170 target seconds on the play disk
+ROOM = 239 * 1024             # 244,736: the report's section 7
+PLAN_SECS = 1170              # CD3's set: six of 30 s, nine of 60 s, five of 90 s
+TARGETS = (30, 60, 90)
+PLAN_SET = ((30, 6), (60, 9), (90, 5))
 PARTMAX = 0xFE00              # 65,024: one part (SPEC.md 20.12.11's OP_PARTMAX)
 MINLINES = 200                # a picture is at least the CGA field
 # SPEC.md 128.11.4.2's bounds, on the records the part ships (after the
@@ -348,6 +381,7 @@ class Source:
         self.cups = []              # [dict at capture line]
         self.springs = []           # [dict at gvz line]
         self.par = None             # (seconds, line)
+        self.target = None          # wave 5b (SPEC.md 128.15.8): (30|60|90, line), the tool's alone
         self.branches = {}          # name -> [((wx, wy), line)], the tool's alone
 
 
@@ -643,6 +677,12 @@ def parse(text, fname="<course>"):
                     or not 1 <= int(toks[1][1]) <= PAR_MAX:
                 raise CourseError("%s: par takes whole seconds, 1 - %d" % (where, PAR_MAX))
             src.par = (int(toks[1][1]), ln)
+        elif st == "target":                        # wave 5b (SPEC.md 128.15.8): the design time, CD3
+            if src.target is not None:
+                raise CourseError("%s: target given twice" % where)
+            if len(toks) != 2 or toks[1][0] != 'w' or toks[1][1] not in ("30", "60", "90"):
+                raise CourseError("%s: target takes 30, 60 or 90 (seconds, the course's design time)" % where)
+            src.target = (int(toks[1][1]), ln)
         elif st == "checkpoint":
             if len(toks) not in (3, 5) or (len(toks) == 5 and (toks[3][1] != "ball" or toks[4][1] not in MAT_NAMES)):
                 raise CourseError("%s: checkpoint takes <wx> <wy> [ball rubber|steel|glass]" % where)
@@ -1865,6 +1905,7 @@ def prop_ops(tiles, ops, props, x0):
             t = tiles[p["at"]]
             if p["kind"] != PK_CHECKPOINT:          # the mark on its top
                 pix = _top_mark(tiles, ops, p, x0)
+                p["mark_pix"] = pix                 # the visibility audit's mark (128.15.10.4)
                 add(p["at"], "top", _paint_op(pix, wx + wy, t, p["at"]))
             geo = _staff_pix(p, x0)                 # a flag's pole, the cup's pin and its flag
             p["geo"] = geo
@@ -2076,6 +2117,30 @@ def _blocks(pic, cols, brows):
             mp.append(n)
     _blocks.index = index
     return blocks, mp
+
+
+def ghost(x, y):
+    """SPEC.md 128.15.10.3, the one definition of the ghost dither: True at
+    picture pixel (x, y) where the checker KEEPS the buffer - x + y ODD - so
+    a record lays nothing there and the ball shows through as a 50% ghost.
+    ODD, not even: the shadow's dark pixels are the world checker's EVEN ones
+    (bonanza_assets' shadow masks), so a record laid in front of a low
+    flight lays its block over every one of them and hides the shadow whole,
+    as before the dither; on the even lattice the shadow printed through"""
+    return bool((x + y) & 1)
+
+
+_ghost_px = ghost                   # composite()'s name for it, whose `ghost` argument shadows it
+CHK = (0x33, 0xCC)                  # 128.15.10.1: CHK(y), a mask line's byte on an even, an odd picture line
+ALLKEEP = b"\xff" * 16              # a dithered mask that lays nothing: its record is dropped from the part
+
+
+def dither(mask):
+    """an occluder mask (16 bytes: 8 lines of a word, the left four pixels in
+    the first byte) ORed with the checker, line i with CHK(i) - a block row
+    starts on a line that is a multiple of 8, so line i is picture line
+    8 br + i and the checker is fixed in the world (128.15.10.1)"""
+    return bytes(b | CHK[(i >> 1) & 1] for i, b in enumerate(mask))
 
 
 def _occluders(cv, reach, x0, y0, cols, brows):
@@ -2325,10 +2390,11 @@ def herc_translate_course(part):
     return bytes(p)
 
 
-def compile_course(source, fname=None, occluders=True, _hack=None):
+def compile_course(source, fname=None, occluders=True, _hack=None, _rec=None):
     """source: a path, or the text itself (with fname for messages).
     occluders=False cuts no records (a host model that wants only the grid).
-    _hack: --selfcheck's negative controls' switches, and nothing else's"""
+    _hack: --selfcheck's negative controls' switches, and nothing else's.
+    _rec: the RAM form's RECB, 4 or 8 (default REC, the run's --rec)"""
     hack = _hack or {}
     if fname is None:
         ab = os.path.abspath(source)
@@ -2607,62 +2673,42 @@ def compile_course(source, fname=None, occluders=True, _hack=None):
         sx_ = 16 * (wx - wy) + x0
         sy_ = 8 * (wx + wy) + 8 - (4 * t.z0 + 2 * (t.sx + t.sy)) + y0
         route.append((sx_ - 8, sy_ - 13))
-    # ---- the part -----------------------------------------------------------
-    mapoff = HDR
-    blkoff = mapoff + 2 * cols * brows
-    occidx = blkoff + 16 * len(blocks)
-    occrec = occidx + 2 * (brows + 1)
+    # ---- the part (SPEC.md 128.15.4): its MODEL, then the RAM forms and the stored form -------------
+    # the ghost dither (SPEC.md 128.15.10.1): the checker ORed into every MERGED record's mask - the
+    # merge ran on the undithered masks, and r["mask"] stays undithered for the rule's models - and the
+    # masks deduplicated again on what the part holds.  _hack no_dither: the undithered part (the
+    # previews' "before", and the dither's size measurement), never a shipped one
+    # A record whose pixels all lie on the checker's kept lattice lays NOTHING once dithered (its kmask
+    # all-keep): it stays in c.records for the rule's models (OCC, OCCG and the flags are the rule's, so
+    # they stay as they are, 128.15.10.1) and is left out of the part, where the guest's pass would walk,
+    # AND and lay it for nothing (the review's S1)
     masks = []
     mindex = {}
     for r in records:
-        if r["mask"] not in mindex:
-            mindex[r["mask"]] = len(masks)
-            masks.append(r["mask"])
-    maskoff = occrec + 8 * len(records)
-    gridoff = maskoff + 16 * len(masks)
-    celloff = gridoff + GHDR
-    rowtab = celloff + 4 * nrows * kw
-    routeoff = rowtab + 2 * nrows
-    end = routeoff + 4 * len(route)
+        r["kmask"] = r["mask"] if hack.get("no_dither") else dither(r["mask"])
+        if r["kmask"] == ALLKEEP:
+            continue
+        if r["kmask"] not in mindex:
+            mindex[r["kmask"]] = len(masks)
+            masks.append(r["kmask"])
     # the props after the grid (SPEC.md 128.12.3.1): the records, lanes first
-    # by first block row, then the rest, each in the file's order
+    # by first block row, then the rest, each in the file's order.  Every
+    # offset in the table is written RELATIVE (to PROPOFF, or to BLKOFF for a
+    # pose map word) and made absolute by the form that lays the part out
     lane_of = {L["prop"]: L for L in lanes}
     order = sorted((i for i in range(len(props)) if i in lane_of),
                    key=lambda i: (lane_of[i]["rect"][1], props[i]["line"]))
     order += sorted((i for i in range(len(props)) if i not in lane_of), key=lambda i: props[i]["line"])
-    propoff = end if props else 0
-    pmoff = end + PROPREC * len(props)
+    pmoff = PROPREC * len(props)
     segoff = pmoff + sum(2 * len(L["poses"]) * L["rect"][2] * L["rect"][3] for L in lanes)
     spoff = segoff + SEGREC * sum(len(props[i]["segs"]) for i in order if "segs" in props[i])
-    pend = spoff + PL_SPR * sum(1 for p in props if p["kind"] == PK_PLATFORM)
-    if props:
-        end = pend
-    if end > PARTMAX:
-        raise CourseError("%s: the course part is %d bytes, over the %d one part may be, by %d"
-                          % (fname, end, PARTMAX, end - PARTMAX))
-    hdr = b"BZC1" + struct.pack("<13H", cols, brows, len(blocks), 4 if cols == 64 else 5, blkoff,
-                                occidx, occrec, len(records), maskoff, len(masks), 2 * cols,
-                                gridoff, propoff) + struct.pack("<H", len(props))
-    assert len(hdr) == HDR
-    mapb = b"".join(struct.pack("<H", blkoff + 16 * n) for n in mp)
-    idx = bytearray()
-    ri = 0
-    for br in range(brows + 1):
-        while ri < len(records) and records[ri]["brow"] < br:
-            ri += 1
-        idx += struct.pack("<H", occrec + 8 * ri)
-    recb = b"".join(struct.pack("<BBHhH", r["col"], 0, r["s"], r["top"], maskoff + 16 * mindex[r["mask"]])
-                    for r in records)
     gflags = (GF_CKPT if any(p["kind"] in (PK_CHECKPOINT, PK_CUP) for p in props) else 0) \
         | (GF_CUP if cups else 0)
     padmask = 0
     for p in props:
         if p["kind"] == PK_PAD:
             padmask |= 1 << p["mat"]
-    grid = bytearray(b"BZG1" + struct.pack("<HhhHHHhH", nrows, smin, amin, kw, rowtab, x0, y0, 0)
-                     + struct.pack("<HHHH", swx, swy, len(route), routeoff)
-                     + struct.pack("<BBH", gflags, padmask, 0))
-    assert len(grid) == GHDR
+    cellb = bytearray()
     for r in range(nrows):
         s = smin + r
         for k in range(kw):
@@ -2670,19 +2716,16 @@ def compile_course(source, fname=None, occluders=True, _hack=None):
             wx, wy = (s + a) >> 1, (s - a) >> 1
             c = cells.get((wx, wy))
             if c is None:
-                grid += struct.pack("<bBBB", Z_OPEN, 0, KIND_VOID, 0)
+                cellb += struct.pack("<bBBB", Z_OPEN, 0, KIND_VOID, 0)
             else:
-                grid += struct.pack("<bBBB", c[0], c[1], c[2], c[3])
-    for r in range(nrows):
-        grid += struct.pack("<H", celloff + 4 * kw * r)
-    for (bx, by) in route:
-        grid += struct.pack("<HH", bx, by)
+                cellb += struct.pack("<bBBB", c[0], c[1], c[2], c[3])
     recp, pmb, segb, sprb = bytearray(), bytearray(), bytearray(), bytearray()
+    selfp, blkp = [], []
     so = segoff
     spo = spoff
     pmo = pmoff
     slab_b = slab_bytes(slab) if slab else b""
-    for i in order:
+    for j, i in enumerate(order):
         p = props[i]
         L = lane_of.get(i)
         flags = PF_LANE if L else 0
@@ -2690,10 +2733,12 @@ def compile_course(source, fname=None, occluders=True, _hack=None):
         if L:
             bx, by, w, h = L["rect"]
             rec += struct.pack("<HBBBBH", by, bx, w, h, len(L["poses"]), pmo)
+            selfp.append(PROPREC * j + 14)
             p["lane"] = {"brow": by, "col": bx, "w": w, "h": h, "poses": len(L["poses"]), "off": pmo}
             for qq in range(len(L["poses"])):
                 for n in L["words"][qq]:
-                    pmb += struct.pack("<H", blkoff + 16 * n)
+                    blkp.append(pmoff + len(pmb))
+                    pmb += struct.pack("<H", 16 * n)
             pmo += 2 * len(L["poses"]) * w * h
         else:
             rec += bytes(8)
@@ -2709,6 +2754,7 @@ def compile_course(source, fname=None, occluders=True, _hack=None):
                 g = (0, 0, 0)
             rec += struct.pack("<BBBBHHhhhBB", p["sub"], p["dir"], len(p["segs"]), p["eG"], so, p["T"],
                                g[0], g[1], g[2], p["closed"][0], p["closed"][1])
+            selfp.append(PROPREC * j + 20)
             p["segoff"] = so
             for sg in p["segs"]:
                 segb += struct.pack("<Hhhhhhhh", sg["m"], sg["incx"], sg["incy"], sg["incz"], sg["ex"], sg["ey"],
@@ -2726,36 +2772,78 @@ def compile_course(source, fname=None, occluders=True, _hack=None):
             rec += struct.pack("<H14x", p["gvz"])
         else:
             rec += struct.pack("<HBBhHH6x", p["v"], p["W"], p["L"], p["hP"], spo, p["pmax"])
+            selfp.append(PROPREC * j + 22)
             p["spoff"] = spo
             sprb += slab_b
             spo += PL_SPR
         assert len(rec) == PROPREC
         recp += rec
-    cga = bytearray(hdr + mapb)
+    blkb = bytearray()
     for blk in blocks:
         for y in range(8):
-            cga += cga_bytes(blk[y * 8:y * 8 + 8])
-    cga += bytes(idx) + recb + b"".join(masks) + bytes(grid)
-    if props:
-        cga += recp + pmb + segb + sprb
-    assert len(cga) == end, (len(cga), end)
-    # the course's IDENTITY at BZG1 +18 (SPEC.md 128.12.8)
-    ident = part_identity(cga, gridoff)
+            blkb += cga_bytes(blk[y * 8:y * 8 + 8])
+    model = {"cols": cols, "brows": brows, "idx": list(mp), "blocks": bytes(blkb),
+             "recs": [(r["brow"], r["col"], r["s"], r["top"], mindex[r["kmask"]]) for r in records
+                      if r["kmask"] != ALLKEEP],
+             "masks": list(masks),
+             "grid": {"nrows": nrows, "smin": smin, "amin": amin, "kw": kw, "x0": x0, "y0": y0, "swx": swx,
+                      "swy": swy, "gflags": gflags, "padmask": padmask},
+             "cells": bytes(cellb), "route": list(route), "ways": [t for t, ln in src.ways],
+             "props": {"n": len(props), "blob": bytes(recp + pmb + segb + sprb), "self": selfp, "blk": blkp}
+             if props else None}
+    if len(blocks) > BLK_MAX:
+        raise CourseError("%s: %d blocks, over the %d a map word's 10-bit index reaches (ROWPLANES, 128.15.4.4)"
+                          % (fname, len(blocks), BLK_MAX))
+    if kw > KW_MAX or cols > COLS_MAX:
+        raise CourseError("%s: KW %d and COLS %d, over %d and %d (the expanders' scratch, 128.15.4.2)"
+                          % (fname, kw, cols, KW_MAX, COLS_MAX))
+    # WAYS (128.15.4.4 form 6): the guest finds each way's cell through ROWTAB; the tool's route comes
+    # from the tile, so the two must agree, and a way tile must fit its two bytes
+    for (wx, wy), ln in src.ways:
+        if not (0 <= wx <= 255 and 0 <= wy <= 255):
+            raise CourseError("%s:%d: way (%d, %d): a way's tile is stored in two bytes, 0 - 255 each"
+                              % (fname, ln, wx, wy))
+        cl, t = cells.get((wx, wy)), tiles[(wx, wy)]
+        if cl is None or (cl[0], _nib(cl[1] & 15), _nib(cl[1] >> 4)) != (t.z0, t.sx, t.sy):
+            raise CourseError("%s:%d: way (%d, %d): its cell holds z0 %s, sx %s, sy %s, where the tile says %d, %d, "
+                              "%d - the guest's route (found through ROWTAB) would differ from the tool's"
+                              % (fname, ln, wx, wy, cl and cl[0], cl and _nib(cl[1] & 15), cl and _nib(cl[1] >> 4),
+                                 t.z0, t.sx, t.sy))
+    rec_ = REC if _rec is None else _rec
+    cga8 = encode_part(model, 8, fname)
+    cga4 = encode_part(model, 4, fname)       # D's bounds are a course's under either knob
+    cga = bytearray(cga4 if rec_ == 4 else cga8)
+    end = len(cga)
+    if end > PARTMAX or len(cga8) > PARTMAX:
+        raise CourseError("%s: the course part is %d bytes, over the %d one part may be, by %d"
+                          % (fname, max(end, len(cga8)), PARTMAX, max(end, len(cga8)) - PARTMAX))
+    gridoff = struct.unpack_from("<H", cga, 26)[0]
+    propoff = struct.unpack_from("<H", cga, 28)[0]
+    ident = struct.unpack_from("<H", cga, gridoff + 18)[0]
+    for p in props:                           # the props' offsets, absolute in THIS build's RAM form
+        if p.get("lane"):
+            p["lane"]["off"] += propoff
+        if "segoff" in p and p["kind"] in (PK_TUBE, PK_WINDMILL):
+            p["segoff"] += propoff
+        if p["kind"] == PK_PLATFORM:
+            p["spoff"] += propoff
     if ident == 0:                            # BONANZA.DAT files nothing under 0 (128.14.25 item 6)
         raise CourseError("%s: the course's identity is 0, which BONANZA.DAT reserves for no course: "
                           "change anything in it (a seed, a tile)" % fname)
-    struct.pack_into("<H", cga, gridoff + 18, ident)
     c = Course()
     c.fname, c.name, c.title = fname, src.name, src.title
     c.src, c.tiles, c.cells, c.reach = src, tiles, cells, reach
     c.x0, c.y0, c.width, c.lines, c.cols, c.brows = x0, y0, width, lines, cols, brows
     c.pic, c.sbuf, c.tbuf = pic, cv.sbuf, cv.tbuf
+    c.ops = ops                             # the drawing, for an owners' render (the visibility audit)
     c.blocks, c.map = blocks, mp
     c.nblk_pic = nblk_pic
     c.records, c.occpix, c.by_block = records, occpix, by_block
     c.raw, c.queries = raw, q
-    c.masks = masks
+    c.masks = masks                         # the K section's: DITHERED (128.15.10.1), deduplicated again
     c.raw_masks = len({r["mask"] for r in raw})
+    c.umasks = len({r["mask"] for r in records})     # the merged records' masks before the dither
+    c.dithered = not hack.get("no_dither")
     c.laid, c.worst, c.occg = laid, worst, occg
     c.per_row, c.per_block = per_row, per_block
     c.raw_row, c.raw_block = {}, {}
@@ -2772,10 +2860,31 @@ def compile_course(source, fname=None, occluders=True, _hack=None):
     c.par = src.par[0] if src.par else 0
     c.nflags = len(src.ckpts)
     c.branches = src.branches
+    # the forms (SPEC.md 128.15.12.1): .cga the RAM form under this build's RECB (the bytes the guest
+    # holds after bz_cexp and before bz_hxlat), .stored BZ<K>.BIN's, .herc the RAM form through htab();
+    # .cga8/.cga4 and .stored8/.stored4 both RECBs', .model what they all serialise
+    c.rec = rec_
+    c.model = model
+    # the model as it was before the dither (5b.6): item 1's comparison with the last BZC1 tree, which
+    # proves that 5b moved the container and that the dither moved the masks and nothing else
+    umasks, uidx = [], {}
+    for r in records:
+        if r["mask"] not in uidx:
+            uidx[r["mask"]] = len(umasks)
+            umasks.append(r["mask"])
+    c.model_u = dict(model, masks=umasks,
+                     recs=[(r["brow"], r["col"], r["s"], r["top"], uidx[r["mask"]]) for r in records])
+    c.cga8, c.cga4 = cga8, cga4
+    c.stored8 = stored_form(model, 8, cga8, fname)
+    c.stored4 = stored_form(model, 4, cga4, fname)
     c.cga = bytes(cga)
-    c.part_bytes = c.cga                # the ONE part (BZ<K>.BIN, SPEC.md 128.11.3)
+    c.stored = c.stored4 if rec_ == 4 else c.stored8
+    if expand(c.stored, fname) != c.cga:        # the build's own check; --selfcheck item 10 does both and more
+        raise CourseError("%s: the stored form does not expand to the RAM form" % fname)
+    c.part_bytes = c.stored             # the ONE part, BZ<K>.BIN (SPEC.md 128.11.3), as STORED (128.15.4.3)
     c.herc = herc_translate_course(c.cga)   # what the guest makes of it on the Hercules
     c.gtop, c.ftop = gtop, ftop
+    c.target = src.target[0] if src.target else None
     c.part = read_part(c.cga, fname)
     c.exits = {}
     if props and not hack.get("no_exits"):
@@ -2789,20 +2898,24 @@ def compile_course(source, fname=None, occluders=True, _hack=None):
                           % (fname, cups[0]["line"]))
     if not has_goal and not cups and occluders and not hack.get("no_finish"):
         raise CourseError("%s: no GOAL cell and no cup: the course has no finish" % fname)
-    # wave 4 (SPEC.md 128.14.4.1): NOTHING UNDER THE HUD, and NO TRAP
+    # wave 4 (SPEC.md 128.14.4.1): NO TRAP.  c.prop_pix: each prop's MARKS, {prop: {what: {(x, y)}}} in
+    # picture pixels - a spring's, a pad's and the cup's mark on its top ("spring", "pad", "cup"), the cup's
+    # pin and flag ("pin"), a flag's pole and pennants ("flag") and, from 5b.6, a tube's two mouths ("IN",
+    # "OUT": the hole and the rim, not the paint round them).  NOTHING UNDER THE HUD read it until wave 5a
+    # removed that refusal (SPEC.md 128.15.3); it is the mark set 128.15.10.4's visibility audit counts
     c.prop_pix = {}
     for i, p in enumerate(props):
-        if p["kind"] in (PK_CHECKPOINT, PK_PAD, PK_CUP, PK_SPRING):
-            sp = _op_spans(ops, p["at"], "top")
-            pix = {(x, y + y0) for y, runs in sp.items() for a, b in runs for x in range(a, b)}
-            pix |= {(x, y + y0) for (x, y) in p.get("geo", {})}
-            pix |= {(x, y + y0) for (x, y) in list(p.get("furl", {})) + list(p.get("fly", {}))}
-            c.prop_pix[i] = pix
-    if not hack.get("no_hud"):
-        bad = hud_conflicts(c)
-        if bad:
-            raise CourseError("%s:%d: %s under the HUD's shown rect at a clamped camera (%s, pixel %s)"
-                              % (fname, bad[0], bad[1], bad[2], bad[3]))
+        mk = {}
+        if p["kind"] in (PK_PAD, PK_CUP, PK_SPRING):
+            mk[PK_NAMES[p["kind"]]] = p["mark_pix"]
+        if p["kind"] == PK_CUP:
+            mk["pin"] = p["geo"]
+        elif p["kind"] == PK_CHECKPOINT:
+            mk["flag"] = list(p["geo"]) + list(p["furl"]) + list(p["fly"])
+        elif p["kind"] == PK_TUBE:
+            mk["IN"], mk["OUT"] = p["hole_pix"][0], p["rim_pix"][0]
+        if mk:
+            c.prop_pix[i] = {w: frozenset((x, y + y0) for (x, y) in pix) for w, pix in mk.items()}
     if occluders and not hack.get("no_trap") and any(p["kind"] in (PK_CHECKPOINT, PK_PAD) for p in props):
         bad = trap_check(c)
         if bad:
@@ -2813,55 +2926,8 @@ def compile_course(source, fname=None, occluders=True, _hack=None):
 
 
 # =============================================================================
-# wave 4's course checks (SPEC.md 128.14.4.1): the HUD's rect, NO TRAP
+# wave 4's course checks (SPEC.md 128.14.4.1): NO TRAP
 # =============================================================================
-
-HUD_COLS = (8, 24)                        # the panel's word columns 1 - 2, px in the window
-HUD_LINE = (190, 186)                     # its first window line, CGA and Hercules (128.14.5.3)
-HUD_LINES = 6
-
-
-def hud_zones(c):
-    """the picture's px rects the HUD's shown rect covers at every camera the
-    course CLAMPS to - the window against the left edge (any row), at the foot
-    (any column), or both - on either card: [(x0, y0, x1, y1, what)]"""
-    out = []
-    for herc in (0, 1):
-        W, H, rl, lsh = CARDS[herc]
-        rmax = max(0, c.brows * 8 // rl - H)
-        cmax = max(0, c.cols - W)
-        yl = HUD_LINE[herc]
-        name = "Hercules" if herc else "CGA"
-        out.append((HUD_COLS[0], yl, HUD_COLS[1], rmax * rl + yl + HUD_LINES, "%s, the window at the left edge" % name))
-        out.append((HUD_COLS[0], rmax * rl + yl, 8 * cmax + HUD_COLS[1], rmax * rl + yl + HUD_LINES,
-                    "%s, the window at the foot" % name))
-    return out
-
-
-def hud_conflicts(c):
-    """NOTHING UNDER THE HUD (item 8): a cup, flag, pad or spring (its top, its
-    pole or pin and its pennant) or a `way` waypoint (the ball's contact
-    point on it) inside a clamped HUD rect.  -> None or (line, what, zone, px)"""
-    zones = hud_zones(c)
-    def inz(x, y):
-        for z in zones:
-            if z[0] <= x < z[2] and z[1] <= y < z[3]:
-                return z[4]
-        return None
-    for i in sorted(c.prop_pix):
-        p = c.props[i]
-        for (x, y) in sorted(c.prop_pix[i]):
-            z = inz(x, y)
-            if z:
-                return (p["line"], "the %s at (%d, %d)" % (PK_NAMES[p["kind"]], p["at"][0], p["at"][1]), z, (x, y))
-    ways = list(c.src.ways) + [w for b in sorted(c.src.branches) for w in c.src.branches[b]]
-    for (wx, wy), ln in ways:
-        x, y = _way_point(c, (wx, wy))
-        z = inz(x + 8, y + 13)
-        if z:
-            return (ln, "the way (%d, %d)" % (wx, wy), z, (x + 8, y + 13))
-    return None
-
 
 TRAP_RUN = 128                            # steps a run holds its direction
 TRAP_DIRS = (K_R | K_D, K_L | K_U, K_L | K_D, K_R | K_U, K_R, K_L, K_U, K_D)
@@ -3140,16 +3206,12 @@ def part_identity(part, gridoff):
     2^16), and the identity s2 XOR s1 with its bytes swapped.  A plain sum
     missed two words exchanged (two windmills' seeds swapped: the review's
     case, which replays a different run); a pair sees an exchange of words
-    i < j unless (j - i)(w_j - w_i) is 0 mod 2^16"""
+    i < j unless (j - i)(w_j - w_i) is 0 mod 2^16.  This is BZC1's rule, over the
+    whole part; BZC2's (SPEC.md 128.15.7) is ram_identity's, the same pair over
+    C's RAM form with the directory's disk-only fields taken as 0"""
     b = bytearray(part)
     b[gridoff + 18:gridoff + 20] = b"\0\0"
-    if len(b) & 1:
-        b.append(0)
-    s1 = s2 = 0
-    for w in struct.unpack_from("<%dH" % (len(b) // 2), b, 0):
-        s1 = (s1 + w) & 0xFFFF
-        s2 = (s2 + s1) & 0xFFFF
-    return s2 ^ (((s1 << 8) | (s1 >> 8)) & 0xFFFF)
+    return _fletcher(b)
 
 
 def lane_pose_verdicts(L, reach, x0, y0, cv):
@@ -3191,22 +3253,569 @@ def lane_pose_verdicts(L, reach, x0, y0, cv):
 
 
 # =============================================================================
+# BZC2 (SPEC.md 128.15.4): the part's MODEL, its RAM forms (RECB 8 and 4), its
+# stored form, the host's model of the guest's expander, and the identity
+# =============================================================================
+#
+# A course compiles to a MODEL - what the part says, with no offset in it - and
+# every form is a serialisation of the model: the RAM form under either record
+# size (`encode_part`), wave 4's BZC1 (the item 1 comparison), and the stored
+# form BZ<K>.BIN carries (`stored_form`).  `decode_part` reads any of the RAM
+# forms back into the model, so read_part can take the identity over C's RAM
+# form whatever the part's RECB, and can require a part to be exactly its own
+# model's serialisation (the canonical-layout check).
+#
+# The model: cols, brows; idx (the map's block indices, row-major); blocks (the
+# CGA bytes, 16 a block); recs [(br, col, s, top, mask index)] in the part's
+# order; masks [16 bytes]; grid {nrows smin amin kw x0 y0 swx swy gflags
+# padmask}; cells (4 KW NROWS bytes); route [(x, y)]; ways [(wx, wy)] or None
+# (a RAM form does not carry them: only a compile has them, and only the
+# stored form needs them); props None or {n, blob, self, blk}: the prop
+# table's bytes with every offset word held RELATIVE - `self` the positions
+# of the words relative to PROPOFF (a lane's pose maps +14, a tube's segments
+# +20, a lift's sprite +22), `blk` the pose map words, relative to BLKOFF.
+
+def _fletcher(b):
+    """128.12.8's pair over a byte string's words, an odd last byte a word's low byte"""
+    b = bytearray(b)
+    if len(b) & 1:
+        b.append(0)
+    s1 = s2 = 0
+    for w in struct.unpack_from("<%dH" % (len(b) // 2), b, 0):
+        s1 = (s1 + w) & 0xFFFF
+        s2 = (s2 + s1) & 0xFFFF
+    return s2 ^ (((s1 << 8) | (s1 >> 8)) & 0xFFFF)
+
+
+def rec_biases(recs, fname="<course>"):
+    """SPEC.md 128.15.5.1: SB = 1 - min(s - br), TB = min(top) - 1 over the
+    course's records, and the bounds, refused naming the course"""
+    if not recs:
+        return 0, 0
+    SB = 1 - min(s - br for br, col, s, top, mi in recs)
+    TB = min(top for br, col, s, top, mi in recs) - 1
+    if not -128 <= SB <= 127:
+        raise CourseError("%s: the 4-byte records' s bias SB = %d is outside -128 - 127 (a record's s - br "
+                          "spans %d - %d)" % (fname, SB, 1 - SB, max(s - br for br, col, s, top, mi in recs)))
+    for br, col, s, top, mi in recs:
+        if not 1 <= s - br + SB <= 255:
+            raise CourseError("%s: the record of block row %d, column %d (s %d) has s' = %d, outside 1 - 255: "
+                              "the course's records span more than 255 cell rows about their block rows"
+                              % (fname, br, col, s, s - br + SB))
+        if not 1 <= top - TB <= 255:
+            raise CourseError("%s: the record of block row %d, column %d (top %d) has t' = %d, outside 1 - 255: "
+                              "the course's records' tops span more than 255 px" % (fname, br, col, top, top - TB))
+    return SB, TB
+
+
+def part_layout(m, recb, bzc2=True):
+    """-> (the tags in RAM order, {tag: (offset, RAM length)}, the end of the
+    sections): 128.15.4.2's table, empty sections included (the directory
+    leaves them out; `O` only under RECB 4, and never in BZC1)"""
+    g = m["grid"]
+    lens = [("M", 2 * m["cols"] * m["brows"]), ("B", len(m["blocks"])), ("I", 2 * (m["brows"] + 1)),
+            ("R", recb * len(m["recs"])), ("K", 16 * len(m["masks"]))]
+    if bzc2 and recb == 4:
+        lens.append(("O", 2 * len(m["masks"])))
+    lens += [("G", GHDR), ("C", len(m["cells"])), ("T", 2 * g["nrows"]), ("W", 4 * len(m["route"]))]
+    if m["props"]:
+        lens.append(("P", len(m["props"]["blob"])))
+    off = HDR if bzc2 else HDR1
+    sec = {}
+    for t, n in lens:
+        sec[t] = (off, n)
+        off += n
+    return [t for t, n in lens], sec, off
+
+
+def stored_len(tag, m, ram_len):
+    """a section's STORED length, its form's (128.15.4.2's table)"""
+    f = SEC_FORM[tag]
+    if f == F_ROWPLANES:
+        return 5 * m["cols"] * m["brows"] // 4
+    if f == F_COUNTS:
+        return m["brows"]
+    if f in (F_MASKTAB, F_ROWTAB):
+        return 0
+    if f == F_WAYS:
+        return 2 * len(m["route"])
+    return ram_len
+
+
+def _encode(m, recb, bzc2=True, ident=0, fname="<course>"):
+    order, sec, end = part_layout(m, recb, bzc2)
+    cols, brows, g = m["cols"], m["brows"], m["grid"]
+    recs, masks = m["recs"], m["masks"]
+    blkoff, occidx, occrec = sec["B"][0], sec["I"][0], sec["R"][0]
+    maskoff, gridoff = sec["K"][0], sec["G"][0]
+    celloff, rowtab, routeoff = sec["C"][0], sec["T"][0], sec["W"][0]
+    propoff = sec["P"][0] if "P" in sec else 0
+    nprop = m["props"]["n"] if m["props"] else 0
+    SB, TB = rec_biases(recs, fname) if recb == 4 else (0, 0)
+    present = [t for t in order if sec[t][1]] if bzc2 else []
+    diroff = end
+    b = bytearray(end + DIRENT * len(present))
+    b[0:4] = b"BZC2" if bzc2 else b"BZC1"
+    struct.pack_into("<13H", b, 4, cols, brows, len(m["blocks"]) // 16, 4 if cols == 64 else 5, blkoff, occidx,
+                     occrec, len(recs), maskoff, len(masks), 2 * cols, gridoff, propoff)
+    struct.pack_into("<H", b, 30, nprop)
+    if bzc2:
+        struct.pack_into("<BbhHHH", b, 32, recb, SB, TB, sec["O"][0] if recb == 4 else 0, diroff, len(present))
+    struct.pack_into("<%dH" % len(m["idx"]), b, sec["M"][0], *[blkoff + 16 * i for i in m["idx"]])
+    b[blkoff:blkoff + len(m["blocks"])] = m["blocks"]
+    cnt = [0] * brows
+    for r in recs:
+        cnt[r[0]] += 1
+    x = 0
+    for br in range(brows + 1):
+        struct.pack_into("<H", b, occidx + 2 * br, occrec + recb * x)
+        if br < brows:
+            x += cnt[br]
+    for i, (br, col, s, top, mi) in enumerate(recs):
+        if recb == 8:
+            struct.pack_into("<BBHhH", b, occrec + 8 * i, col, 0, s, top, maskoff + 16 * mi)
+        else:
+            b[occrec + 4 * i:occrec + 4 * i + 4] = bytes((col, s - br + SB, top - TB, mi))
+    for i, mk in enumerate(masks):
+        b[maskoff + 16 * i:maskoff + 16 * i + 16] = mk
+    if bzc2 and recb == 4:
+        for i in range(len(masks)):
+            struct.pack_into("<H", b, sec["O"][0] + 2 * i, maskoff + 16 * i)
+    b[gridoff:gridoff + GHDR] = (b"BZG1" + struct.pack("<HhhHHHhH", g["nrows"], g["smin"], g["amin"], g["kw"],
+                                                        rowtab, g["x0"], g["y0"], ident)
+                                 + struct.pack("<HHHH", g["swx"], g["swy"], len(m["route"]), routeoff)
+                                 + struct.pack("<BBH", g["gflags"], g["padmask"], 0))
+    b[celloff:celloff + len(m["cells"])] = m["cells"]
+    for r in range(g["nrows"]):
+        struct.pack_into("<H", b, rowtab + 2 * r, celloff + 4 * g["kw"] * r)
+    for i, (x, y) in enumerate(m["route"]):
+        struct.pack_into("<HH", b, routeoff + 4 * i, x, y)
+    if m["props"]:
+        pb = bytearray(m["props"]["blob"])
+        for o in m["props"]["self"]:
+            struct.pack_into("<H", pb, o, struct.unpack_from("<H", pb, o)[0] + propoff)
+        for o in m["props"]["blk"]:
+            struct.pack_into("<H", pb, o, struct.unpack_from("<H", pb, o)[0] + blkoff)
+        b[propoff:propoff + len(pb)] = pb
+    for j, t in enumerate(present):
+        off, ln = sec[t]
+        struct.pack_into("<BBHHH", b, diroff + DIRENT * j, ord(t), SEC_FORM[t], off, ln, stored_len(t, m, ln))
+    return b
+
+
+def _ident_bytes(p8):
+    """SPEC.md 128.15.7: a RECB 8 BZC2 part's words for the identity - the
+    identity word (BZG1 +18) and every directory entry's FORM byte (+1) and
+    STORED LENGTH (+6) taken as 0"""
+    b = bytearray(p8)
+    g = struct.unpack_from("<H", b, 26)[0]
+    b[g + 18:g + 20] = b"\0\0"
+    diroff, nsec = struct.unpack_from("<HH", b, 38)
+    for j in range(nsec):
+        e = diroff + DIRENT * j
+        b[e + 1] = 0
+        b[e + 6:e + 8] = b"\0\0"
+    return b
+
+
+def ram_identity(p):
+    """the course's identity from any BZC2 RAM form: Fletcher's pair over the
+    RAM form AS RECB 8 LAYS IT OUT (128.15.7), whatever this part's RECB"""
+    if p[32] != 8:
+        p = _encode(decode_part(p), 8)
+    return _fletcher(_ident_bytes(p))
+
+
+def encode_part(m, recb, fname="<course>"):
+    """the model's RAM form under RECB `recb`, its identity stamped (128.15.7)"""
+    ident = _fletcher(_ident_bytes(_encode(m, 8, fname=fname)))
+    return bytes(_encode(m, recb, ident=ident, fname=fname))
+
+
+def encode_bzc1(m):
+    """the model as wave 4's BZC1 (SPEC.md 128.10.5.1): the header's first 32
+    bytes, 8-byte records, no directory, 128.12.8's identity over the whole
+    part - selfcheck item 1's comparison with the last BZC1 tree's parts"""
+    b = _encode(m, 8, bzc2=False)
+    g = struct.unpack_from("<H", b, 26)[0]
+    struct.pack_into("<H", b, g + 18, part_identity(b, g))
+    return bytes(b)
+
+
+def decode_part(p):
+    """a RAM form (BZC2 under either RECB, or BZC1) -> its model.  Reads; does
+    not check (read_part checks, and then calls this)"""
+    bzc2 = p[:4] == b"BZC2"
+    hdr = HDR if bzc2 else HDR1
+    (cols, brows, nblk, mapsh, blkoff, occidx, occrec, nocc, maskoff, nmask, rowb, gridoff,
+     propoff) = struct.unpack_from("<13H", p, 4)
+    nprop = struct.unpack_from("<H", p, 30)[0]
+    recb, SB, TB, mtab, diroff, nsec = struct.unpack_from("<BbhHHH", p, 32) if bzc2 else (8, 0, 0, 0, len(p), 0)
+    idx = [(w - blkoff) // 16 for w in struct.unpack_from("<%dH" % (cols * brows), p, hdr)]
+    oi = struct.unpack_from("<%dH" % (brows + 1), p, occidx)
+    recs = []
+    for br in range(brows):
+        for k in range((oi[br] - occrec) // recb, (oi[br + 1] - occrec) // recb):
+            if recb == 8:
+                col, z, s, top, moff = struct.unpack_from("<BBHhH", p, occrec + 8 * k)
+                recs.append((br, col, s, top, (moff - maskoff) // 16))
+            else:
+                col, s_, t_, mi = p[occrec + 4 * k:occrec + 4 * k + 4]
+                recs.append((br, col, s_ + br - SB, t_ + TB, mi))
+    masks = [bytes(p[maskoff + 16 * i:maskoff + 16 * i + 16]) for i in range(nmask)]
+    nrows, smin, amin, kw, rowtab, x0, y0, ident = struct.unpack_from("<HhhHHHhH", p, gridoff + 4)
+    swx, swy, nway, routeoff = struct.unpack_from("<HHHH", p, gridoff + 20)
+    gflags, padmask = p[gridoff + 28], p[gridoff + 29]
+    celloff = gridoff + GHDR
+    m = {"cols": cols, "brows": brows, "idx": idx, "blocks": bytes(p[blkoff:blkoff + 16 * nblk]),
+         "recs": recs, "masks": masks,
+         "grid": {"nrows": nrows, "smin": smin, "amin": amin, "kw": kw, "x0": x0, "y0": y0, "swx": swx, "swy": swy,
+                  "gflags": gflags, "padmask": padmask},
+         "cells": bytes(p[celloff:celloff + 4 * kw * nrows]),
+         "route": [struct.unpack_from("<HH", p, routeoff + 4 * i) for i in range(nway)], "ways": None,
+         "props": None}
+    if nprop:
+        end = diroff if bzc2 else len(p)
+        pb = bytearray(p[propoff:end])
+        selfp, blkp = [], []
+        for i in range(nprop):
+            r = PROPREC * i
+            kind, flags = pb[r], pb[r + 1]
+            if flags & PF_LANE:
+                brow, col, w, h, poses, pmo = struct.unpack_from("<HBBBBH", pb, r + 8)
+                selfp.append(r + 14)
+                for k in range(poses * w * h):
+                    blkp.append(pmo - propoff + 2 * k)
+            if kind in (PK_TUBE, PK_WINDMILL):
+                selfp.append(r + 20)
+            elif kind == PK_PLATFORM:
+                selfp.append(r + 22)
+        for o in selfp:
+            struct.pack_into("<H", pb, o, (struct.unpack_from("<H", pb, o)[0] - propoff) & 0xFFFF)
+        for o in blkp:
+            struct.pack_into("<H", pb, o, (struct.unpack_from("<H", pb, o)[0] - blkoff) & 0xFFFF)
+        m["props"] = {"n": nprop, "blob": bytes(pb), "self": selfp, "blk": blkp}
+    return m
+
+
+# --- the stored form (128.15.4.3, 128.15.4.4) --------------------------------
+
+def _rowplanes(m, _low_first=False):
+    """1 ROWPLANES: a block row's C/4 high bytes (cell j's two high bits at bits
+    2 (j AND 3) of byte j >> 2), then its C low bytes.  _low_first: item 10's
+    negative control, the order that does NOT expand in place"""
+    C = m["cols"]
+    out = bytearray()
+    for r in range(m["brows"]):
+        row = m["idx"][C * r:C * (r + 1)]
+        hi = bytearray(C // 4)
+        for j, v in enumerate(row):
+            hi[j >> 2] |= (v >> 8) << (2 * (j & 3))
+        lo = bytes(v & 255 for v in row)
+        out += (lo + hi) if _low_first else (hi + lo)
+    return bytes(out)
+
+
+def _wdiff(ram, stride):
+    """3 WDIFF: the first record as it is, then each word as its difference
+    from the same word of the record before, mod 2^16"""
+    w = struct.unpack("<%dH" % (len(ram) // 2), ram)
+    st = stride // 2
+    return struct.pack("<%dH" % len(w), *[w[k] if k < st else (w[k] - w[k - st]) & 0xFFFF for k in range(len(w))])
+
+
+def _s8(v):
+    return ((v + 128) & 255) - 128
+
+
+# the eight cells within one tile of a cell's four EDGE neighbours, and the 25
+# within two tiles: (dx, dy) in wx and wy
+_EDGE4 = ((1, 0), (-1, 0), (0, 1), (0, -1))
+_CHEB2 = tuple((dx, dy) for dy in range(-2, 3) for dx in range(-2, 3))
+
+
+def cells_rule(cells, nrows, kw, smin, _no_obs=False):
+    """the follow-up's RULE (SPEC.md 128.15.6) over a grid's cells (4 KW NROWS
+    bytes, row r's s = SMIN + r, cell k's a = AMIN + 2 k + (s AND 1)), exactly
+    as bz_cxcel computes it -> (rz, rs), a list each: rz the rule's z0 for a
+    VOID cell (None for the rest), rs its SAFE bit (0 or 1).  It reads only the
+    fields neither the RAM nor the stored form changes (a VOID cell's z0 and
+    SAFE are the two it does not read), so the stored cells give the same rule
+    as the RAM ones.
+      V = a cell's lowest corner + 79h, z0 + min(0, sx) + min(0, sy) + 79h in
+          8 bits, UNSIGNED, for a cell that is not VOID; FFh for a VOID cell
+          and outside the grid
+      rz = the least V within two tiles (Chebyshev, in wx and wy) + 81h, in 8
+          bits: the least corner less 6 (NEAR), or -128 where no cell within
+          two tiles is solid (OPEN, FFh + 81h).  For corners -122 .. 127, the
+          ones a NEAR cell can be built from, that is 128.10.4.3's rule
+      rs = 1 on a FLOOR cell with sx = sy = 0, OBS clear and none of its four
+          edge neighbours VOID or outside the grid
+    _no_obs: --selfcheck item 10's negative control, the red arm cellsafe's
+    rule (SAFE's OBS clause taken out)"""
+    n = nrows * kw
+
+    def at(r, k, dx, dy):
+        ds, da = dx + dy, dx - dy
+        r2 = r + ds
+        p, p2 = (smin + r) & 1, (smin + r2) & 1
+        k2 = k + (p + da - p2) // 2
+        return kw * r2 + k2 if 0 <= r2 < nrows and 0 <= k2 < kw else None
+    V = []
+    for i in range(n):
+        z0, sl, kd = cells[4 * i], cells[4 * i + 1], cells[4 * i + 2]
+        if kd & 15 == KIND_VOID:
+            V.append(0xFF)
+        else:
+            sx, sy = _nib(sl & 15), _nib(sl >> 4)
+            V.append((z0 + min(0, sx) + min(0, sy) + 0x79) & 0xFF)
+    rz, rs = [None] * n, [0] * n
+    for r in range(nrows):
+        for k in range(kw):
+            i = kw * r + k
+            kd, sl, fl = cells[4 * i + 2], cells[4 * i + 1], cells[4 * i + 3]
+            if kd & 15 == KIND_VOID:
+                b = min([V[j] for j in (at(r, k, dx, dy) for dx, dy in _CHEB2) if j is not None] + [0xFF])
+                rz[i] = _s8(b + 0x81)
+            elif kd & 15 == KIND_FLOOR and not sl and (_no_obs or not fl & FL_OBS):
+                nb = [at(r, k, dx, dy) for dx, dy in _EDGE4]
+                rs[i] = int(all(j is not None and cells[4 * j + 2] & 15 != KIND_VOID for j in nb))
+    return rz, rs
+
+
+def _cells(ram_cells, nrows, kw, smin, _no_obs=False):
+    """7 CELLS: each cell as in RAM but two fields, each stored as its
+    DIFFERENCE from the rule: a VOID cell's z0 as (z0 - rule_z0) mod 256, and
+    every cell's flags bit 0 (SAFE) XOR rule_safe.  -> (stored bytes, the
+    exceptions: [(r, k, what)] where the stored field is not 0)"""
+    rz, rs = cells_rule(ram_cells, nrows, kw, smin, _no_obs)
+    out = bytearray(ram_cells)
+    exc = []
+    for i in range(nrows * kw):
+        if rz[i] is not None:
+            out[4 * i] = (ram_cells[4 * i] - rz[i]) & 255
+            if out[4 * i]:
+                exc.append((i // kw, i % kw, "z0"))
+        out[4 * i + 3] ^= rs[i]
+        if out[4 * i + 3] & FL_SAFE:
+            exc.append((i // kw, i % kw, "SAFE"))
+    return bytes(out), exc
+
+
+def cells_exceptions(ram, _no_obs=False):
+    """a RAM form's CELLS exceptions (SPEC.md 128.15.6): [(wx, wy, what)], the
+    cells whose stored field is not 0 - the cells the rule does not reproduce"""
+    g = struct.unpack_from("<H", ram, 26)[0]
+    nrows, smin, amin, kw = struct.unpack_from("<HhhH", ram, g + 4)
+    co = g + GHDR
+    _, exc = _cells(ram[co:co + 4 * kw * nrows], nrows, kw, smin, _no_obs)
+    out = []
+    for r, k, what in exc:
+        s = smin + r
+        a = amin + 2 * k + (s & 1)
+        out.append(((s + a) >> 1, (s - a) >> 1, what))
+    return out
+
+
+def stored_form(m, recb, ram=None, fname="<course>", _hack=None):
+    """the STORED form (128.15.4.3): the RAM form with every section's slot
+    holding its own zero HOLE and then its stored bytes; the header and the
+    directory as they sit in RAM.  _hack: item 10's negative controls"""
+    hack = _hack or {}
+    ram = ram if ram is not None else encode_part(m, recb, fname)
+    st = bytearray(ram)
+    diroff, nsec = struct.unpack_from("<HH", ram, 38)
+    for j in range(nsec):
+        tag, form, off, ln, dl = struct.unpack_from("<BBHHH", ram, diroff + DIRENT * j)
+        tag = chr(tag)
+        if form == F_PLAIN:
+            data = ram[off:off + ln]
+        elif form == F_ROWPLANES:
+            data = _rowplanes(m, hack.get("low_first", False))
+        elif form == F_COUNTS:
+            cnt = [0] * m["brows"]
+            for r in m["recs"]:
+                cnt[r[0]] += 1
+            for br, n in enumerate(cnt):
+                if n > ROWREC_MAX:
+                    raise CourseError("%s: block row %d has %d occluder records, over the %d a COUNTS byte holds"
+                                      % (fname, br, n, ROWREC_MAX))
+            data = bytes(cnt)
+        elif form == F_WDIFF:
+            data = _wdiff(ram[off:off + ln], recb)
+        elif form in (F_MASKTAB, F_ROWTAB):
+            data = b""
+        elif form == F_CELLS:
+            g = struct.unpack_from("<H", ram, 26)[0]
+            nrows, smin, _, kw = struct.unpack_from("<HhhH", ram, g + 4)
+            data = _cells(ram[off:off + ln], nrows, kw, smin, hack.get("no_obs", False))[0]
+        elif form == F_WAYS:
+            if m["ways"] is None:
+                raise CourseError("%s: the route's way tiles are not in a RAM form: only a compile writes the "
+                                  "stored form" % fname)
+            data = b"".join(bytes((wx, wy)) for wx, wy in m["ways"])
+        else:
+            raise CourseError("%s: section %s's form %d is not one this tool writes" % (fname, tag, form))
+        if len(data) != dl:
+            raise CourseError("%s: section %s's stored bytes are %d, its entry says %d" % (fname, tag, len(data), dl))
+        st[off:off + ln] = bytes(ln - dl) + data
+    return bytes(st)
+
+
+def expand(st, fname="<part>", sim=False, _hack=None):
+    """bz_cexp's model (128.15.4.5): the stored form -> the RAM form, IN
+    PLACE, walking the directory from entry 0, each form counting with the
+    header's, BZG1's or its own entry's fields, never with a value it is
+    expanding.  sim: the IN-PLACE SIMULATION (--selfcheck item 10) - every
+    stored byte read before anything is written over it, and every one read;
+    a failure names the course, the section and the offset.  _hack: item
+    10's negative controls (an expander off by one record, MTAB one entry
+    short, ROWPLANES read low bytes first)"""
+    hack = _hack or {}
+    b = bytearray(st)
+    (cols, brows, nblk, mapsh, blkoff, occidx, occrec, nocc, maskoff, nmask, rowb, gridoff,
+     propoff) = struct.unpack_from("<13H", b, 4)
+    recb, SB, TB, mtab, diroff, nsec = struct.unpack_from("<BbhHHH", b, 32)
+    pend = set()
+    where = ["?"]
+
+    def rd(i):
+        if sim:
+            pend.discard(i)
+        return b[i]
+
+    def wr(i, v):
+        if sim and i in pend:
+            raise CourseError("%s: section %s (%s): the expander writes offset %d before it has read the stored "
+                              "byte there" % (fname, where[0], SEC_NAMES.get(where[0], "?"), i))
+        b[i] = v & 0xFF
+
+    def wrw(i, v):
+        wr(i, v)
+        wr(i + 1, v >> 8)
+
+    def rdw(i):
+        return rd(i) | (rd(i + 1) << 8)
+    for e in range(nsec):
+        tag, form, S, ln, dl = struct.unpack_from("<BBHHH", b, diroff + DIRENT * e)
+        where[0] = chr(tag)
+        H = ln - dl
+        if sim:
+            pend = set(range(S + H, S + ln))
+        if form == F_PLAIN:
+            pend = set()
+        elif form == F_ROWPLANES:
+            q = cols // 4
+            for r in range(brows):
+                src = S + H + r * (q + cols)
+                hi_at, lo_at = (src + cols, src) if hack.get("low_first") else (src, src + q)
+                scratch = [rd(hi_at + k) for k in range(q)]           # bz_boxbuf
+                for c in range(cols):
+                    lo = rd(lo_at + c)
+                    hi = (scratch[c >> 2] >> (2 * (c & 3))) & 3
+                    wrw(S + 2 * (cols * r + c), blkoff + 16 * (lo + 256 * hi))
+        elif form == F_COUNTS:
+            x = 0
+            for br in range(brows + 1):
+                wrw(S + 2 * br, occrec + recb * x)
+                if br < brows:
+                    x += rd(S + H + br)
+        elif form == F_WDIFF:
+            st_ = recb // 2
+            nw = recb * nocc // 2 - (st_ if hack.get("wdiff_short") else 0)
+            for k in range(st_, nw):
+                o = S + 2 * k
+                v = rdw(o)
+                wrw(o, v + (b[o - recb] | (b[o - recb + 1] << 8)))
+            if sim:
+                pend -= set(range(S, S + 2 * st_))                  # the first record is in place as it is
+        elif form == F_MASKTAB:
+            for mm in range(nmask - (1 if hack.get("mtab_short") else 0)):
+                wrw(S + 2 * mm, maskoff + 16 * mm)
+        elif form == F_ROWTAB:
+            nrows, kw = struct.unpack_from("<H", b, gridoff + 4)[0], struct.unpack_from("<H", b, gridoff + 10)[0]
+            for r in range(nrows):
+                wrw(S + 2 * r, gridoff + GHDR + 4 * kw * r)
+        elif form == F_CELLS:
+            # bz_cxcel's order is a window of rows (each row's SAFE, then 4 rows behind it each VOID cell's
+            # z0); the model takes the cells in order.  Either way every cell is read before it is written,
+            # and the rule reads only fields this form does not change, so the order cannot matter
+            nrows, smin, _, kw = struct.unpack_from("<HhhH", b, gridoff + 4)
+            if ln != 4 * kw * nrows:
+                raise CourseError("%s: section C is %d bytes, not 4 KW NROWS" % (fname, ln))
+            rz, rs = cells_rule(bytes(b[S:S + ln]), nrows, kw, smin, hack.get("no_obs", False))
+            for i in range(nrows * kw):
+                o = S + 4 * i
+                z0, sl, kd, fl = rd(o), rd(o + 1), rd(o + 2), rd(o + 3)
+                if rz[i] is not None:
+                    wr(o, z0 + rz[i])
+                wr(o + 3, fl ^ rs[i])
+        elif form == F_WAYS:
+            nrows, smin, amin, kw, rtab, x0, y0 = struct.unpack_from("<HhhHHHh", b, gridoff + 4)
+            nway = struct.unpack_from("<H", b, gridoff + 24)[0]
+            for w in range(nway):
+                wx, wy = rd(S + H + 2 * w), rd(S + H + 2 * w + 1)
+                s, a = wx + wy, wx - wy
+                r, k = s - smin, (a - amin) >> 1
+                if not (0 <= r < nrows and 0 <= k < kw):
+                    raise CourseError("%s: way %d (%d, %d) is outside the grid" % (fname, w, wx, wy))
+                co = struct.unpack_from("<H", b, rtab + 2 * r)[0] + 4 * k
+                z0 = struct.unpack_from("<b", b, co)[0]
+                sl = b[co + 1]
+                y = 8 * s + 8 - (4 * z0 + 2 * (_nib(sl & 15) + _nib(sl >> 4))) + y0 - 13
+                wrw(S + 4 * w, 16 * a + x0 - 8)
+                wrw(S + 4 * w + 2, y)
+        else:
+            raise CourseError("%s: section %s's form %d is not one this expander knows" % (fname, chr(tag), form))
+        if sim and pend:
+            raise CourseError("%s: section %s (%s): stored byte at offset %d never read" % (
+                fname, chr(tag), SEC_NAMES.get(chr(tag), "?"), min(pend)))
+    return bytes(b)
+
+
+def part_forms(courses):
+    """BZ_FORMS: a mask of the forms the parts use (128.15.4.5)"""
+    mask = 0
+    for c in courses:
+        p = c.cga
+        diroff, nsec = struct.unpack_from("<HH", p, 38)
+        for j in range(nsec):
+            mask |= 1 << p[diroff + DIRENT * j + 1]
+    return mask
+
+
+def restamp(b):
+    """a changed RAM part's identity re-stamped (--selfcheck's controls)"""
+    g = struct.unpack_from("<H", b, 26)[0]
+    struct.pack_into("<H", b, g + 18, ram_identity(bytes(b)))
+    return b
+
+
+# =============================================================================
 # the reader: what the guest reads, checked (SPEC.md 128.10.4, 128.10.5)
 # =============================================================================
 
 def read_part(p, fname="<part>"):
+    """a BZC2 part's RAM form (SPEC.md 128.15.4), under either RECB, as the
+    guest reads it, checked: wave 4's fields, plus the BZC2 header, the
+    directory's rules (128.15.4.2), each entry's place and size against its
+    header fields among them, the 4-byte records' bounds and MTAB's words, the
+    identity over C's RAM form (128.15.7), and finally the part being its own
+    model's serialisation byte for byte (the canonical layout).  The records
+    come back as (col, s, top, mask offset) whatever the RECB"""
     def bad(field, why):
         raise CourseError("%s: part field %s: %s" % (fname, field, why))
 
     n = len(p)
-    if n < HDR or p[:4] != b"BZC1":
-        bad("magic", "not BZC1")
+    if n < HDR or p[:4] != b"BZC2":
+        bad("magic", "not BZC2")
     if n > PARTMAX:
         bad("length", "%d over %d" % (n, PARTMAX))
     (cols, brows, nblk, mapsh, blkoff, occidx, occrec, nocc, maskoff, nmask, rowb, gridoff,
      propoff) = struct.unpack_from("<13H", p, 4)
     nprop = struct.unpack_from("<H", p, 30)[0]
-    if cols not in (64, 128):
+    recb, SB, TB, mtab, diroff, nsec = struct.unpack_from("<BbhHHH", p, 32)
+    if cols not in (64, 128) or cols > COLS_MAX:
         bad("COLS", str(cols))
     if mapsh != (4 if cols == 64 else 5):
         bad("MAPSH", str(mapsh))
@@ -3214,20 +3823,82 @@ def read_part(p, fname="<part>"):
         bad("ROWB", "%d, not 2 COLS" % rowb)
     if brows < 25:
         bad("BROWS", str(brows))
+    if nblk > BLK_MAX:
+        bad("N", "%d blocks, over the %d a map word's 10-bit index reaches" % (nblk, BLK_MAX))
+    if recb not in (4, 8):
+        bad("RECB", str(recb))
+    if recb == 8 and (SB or TB or mtab):
+        bad("RECB", "8 with SB %d, TB %d, MTAB %d (all 0 under C)" % (SB, TB, mtab))
+    if p[42:48] != bytes(6):
+        bad("+42", "the six reserved bytes are not 0")
     if blkoff != HDR + 2 * cols * brows:
         bad("BLKOFF", str(blkoff))
     if occidx != blkoff + 16 * nblk:
         bad("OCCIDX", "offset %d" % occidx)
     if occrec != occidx + 2 * (brows + 1):
         bad("OCCREC", str(occrec))
-    if maskoff != occrec + 8 * nocc:
+    if maskoff != occrec + recb * nocc:
         bad("MASKOFF", str(maskoff))
-    if gridoff != maskoff + 16 * nmask:
+    if recb == 4 and mtab != maskoff + 16 * nmask:
+        bad("MTAB", "offset %d, not MASKOFF + 16 NMASK" % mtab)
+    if recb == 4 and nmask > 256:
+        bad("NMASK", "%d, over the 256 a record's index byte names" % nmask)
+    if gridoff != maskoff + 16 * nmask + (2 * nmask if recb == 4 else 0):
         bad("GRIDOFF", str(gridoff))
     if bool(propoff) != bool(nprop) or nprop > PROP_ALL:
         bad("PROPOFF", "offset %d with %d props" % (propoff, nprop))
     if gridoff + GHDR > n:
         bad("GRIDOFF", "past the part")
+    # the directory (128.15.4.2): the part's last 8 NSEC bytes, the entries in RAM order tiling [48, DIROFF)
+    if nsec > NSEC_MAX or diroff + DIRENT * nsec != n:
+        bad("DIROFF", "%d with %d entries, the part %d bytes" % (diroff, nsec, n))
+    nrows, kw, rowtab = struct.unpack_from("<H", p, gridoff + 4)[0], struct.unpack_from("<H", p, gridoff + 10)[0], \
+        struct.unpack_from("<H", p, gridoff + 12)[0]
+    nway, routeoff = struct.unpack_from("<HH", p, gridoff + 24)
+    if kw > KW_MAX:
+        bad("KW", "%d, over %d" % (kw, KW_MAX))
+    want = [("M", HDR, 2 * cols * brows), ("B", blkoff, 16 * nblk), ("I", occidx, 2 * (brows + 1)),
+            ("R", occrec, recb * nocc), ("K", maskoff, 16 * nmask)]
+    if recb == 4:
+        want.append(("O", mtab, 2 * nmask))
+    want += [("G", gridoff, GHDR), ("C", gridoff + GHDR, 4 * kw * nrows), ("T", rowtab, 2 * nrows),
+             ("W", routeoff, 4 * nway)]
+    if nprop:
+        want.append(("P", propoff, diroff - propoff))
+    wantd = {t: (o, ln) for t, o, ln in want}
+    ents, at, seen = [], HDR, set()
+    for j in range(nsec):
+        tag, form, off, ln, dl = struct.unpack_from("<BBHHH", p, diroff + DIRENT * j)
+        t = chr(tag)
+        ents.append({"tag": t, "form": form, "off": off, "len": ln, "dlen": dl})
+        where = "directory entry %d (%s)" % (j, t if t in SEC_FORM else "tag %02Xh" % tag)
+        if t not in SEC_FORM:
+            bad(where, "an unknown tag")
+        if t in seen:
+            bad(where, "the tag a second time")
+        seen.add(t)
+        if not ln:
+            bad(where, "a section of length 0 has no entry")
+        if off != at:
+            bad(where, "at %d, where the entries before it end at %d (sorted, no gap)" % (off, at))
+        if t not in wantd:
+            bad(where, "%s, which a RECB %d part does not have" % (SEC_NAMES[t], recb))
+        if (off, ln) != wantd[t]:
+            bad(where, "(%d, %d), where its header fields put %s at (%d, %d)" % (off, ln, SEC_NAMES[t],
+                                                                              wantd[t][0], wantd[t][1]))
+        if form != SEC_FORM[t]:
+            bad(where, "form %d, not %d (%s)" % (form, SEC_FORM[t], FORM_NAMES[SEC_FORM[t]]))
+        at = off + ln
+    if at != diroff:
+        bad("directory", "the entries end at %d, DIROFF is %d" % (at, diroff))
+    for t, o, ln in want:
+        if ln and t not in seen:
+            bad("directory", "no entry for %s (%s, %d bytes at %d)" % (t, SEC_NAMES[t], ln, o))
+    m_ = {"cols": cols, "brows": brows, "route": [None] * nway}
+    for e in ents:
+        if e["dlen"] != stored_len(e["tag"], m_, e["len"]) or e["dlen"] > e["len"]:
+            bad("directory entry %s" % e["tag"], "stored length %d, its form's is %d" % (
+                e["dlen"], stored_len(e["tag"], m_, e["len"])))
     # the map: every word a block offset inside the part
     mp = struct.unpack_from("<%dH" % (cols * brows), p, HDR)
     for i, w in enumerate(mp):
@@ -3239,18 +3910,35 @@ def read_part(p, fname="<part>"):
     if idx[-1] != maskoff or idx[0] != occrec:
         bad("OCCIDX", "does not run from the first record to the records' end")
     for i in range(brows):
-        if idx[i + 1] < idx[i] or (idx[i] - occrec) % 8:
+        if idx[i + 1] < idx[i] or (idx[i] - occrec) % recb:
             bad("OCCIDX[%d]" % i, "decreasing or not a record")
+        if (idx[i + 1] - idx[i]) // recb > ROWREC_MAX:
+            bad("OCCIDX[%d]" % i, "%d records in a block row, over %d" % ((idx[i + 1] - idx[i]) // recb, ROWREC_MAX))
     recs = []
     for i in range(nocc):
-        col, z, s, top, moff = struct.unpack_from("<BBHhH", p, occrec + 8 * i)
-        if col >= cols or z:
-            bad("record %d" % i, "column %d" % col)
-        if moff < maskoff or moff + 16 > gridoff or (moff - maskoff) % 16:
-            bad("record %d" % i, "mask offset %d" % moff)
-        recs.append((col, s, top, moff))
+        if recb == 8:
+            col, z, s, top, moff = struct.unpack_from("<BBHhH", p, occrec + 8 * i)
+            if col >= cols or z:
+                bad("record %d" % i, "column %d" % col)
+            if moff < maskoff or moff + 16 > gridoff or (moff - maskoff) % 16:
+                bad("record %d" % i, "mask offset %d" % moff)
+            recs.append((col, s, top, moff))
+        else:
+            br = next(k for k in range(brows) if idx[k + 1] > occrec + 4 * i)
+            col, s_, t_, mi = p[occrec + 4 * i:occrec + 4 * i + 4]
+            if col >= cols:
+                bad("record %d" % i, "column %d" % col)
+            if not s_ or not t_:
+                bad("record %d" % i, "s' %d, t' %d: each must be 1 - 255" % (s_, t_))
+            if mi >= nmask:
+                bad("record %d" % i, "mask index %d of %d" % (mi, nmask))
+            recs.append((col, s_ + br - SB, t_ + TB, maskoff + 16 * mi))
+    if recb == 4:
+        for i in range(nmask):
+            if struct.unpack_from("<H", p, mtab + 2 * i)[0] != maskoff + 16 * i:
+                bad("MTAB[%d]" % i, "word %d, not MASKOFF + 16 x %d" % (struct.unpack_from("<H", p, mtab + 2 * i)[0], i))
     for br in range(brows):
-        row = recs[(idx[br] - occrec) // 8:(idx[br + 1] - occrec) // 8]
+        row = recs[(idx[br] - occrec) // recb:(idx[br + 1] - occrec) // recb]
         if [r[:2] for r in row] != sorted(r[:2] for r in row):
             bad("records of block row %d" % br, "not sorted by column, then s")
     g = gridoff
@@ -3261,8 +3949,6 @@ def read_part(p, fname="<part>"):
     gflags, padmask, gz = struct.unpack_from("<BBH", p, g + 28)
     if gflags & ~(GF_CKPT | GF_CUP) or padmask & ~7 or gz or (gflags & GF_CUP and not gflags & GF_CKPT):
         bad("BZG1 +28", "FLAGS %02Xh, PAD MASK %02Xh, reserved %04Xh" % (gflags, padmask, gz))
-    if ident != part_identity(p, g):
-        bad("BZG1 +18", "identity %04Xh is not the part's sum %04Xh" % (ident, part_identity(p, g)))
     if amin & 1:
         bad("AMIN", "odd")
     celloff = g + GHDR
@@ -3272,7 +3958,7 @@ def read_part(p, fname="<part>"):
     for r, o in enumerate(rt):
         if o < celloff or o + 4 * kw > rowtab:
             bad("ROWTAB[%d]" % r, "row outside the cells")
-    if routeoff != rowtab + 2 * nrows or routeoff + 4 * nway != (propoff if nprop else n):
+    if routeoff != rowtab + 2 * nrows or routeoff + 4 * nway != (propoff if nprop else diroff):
         bad("route", "offset %d, %d ways" % (routeoff, nway))
     route = [struct.unpack_from("<HH", p, routeoff + 4 * i) for i in range(nway)]
     for (bx, by) in route:
@@ -3283,7 +3969,17 @@ def read_part(p, fname="<part>"):
         if kd & 15 > KIND_GOAL or kd >> 4 > SURF_BOUNCE or fl & ~(FL_SAFE | FL_OCC | FL_OCCG | FL_OBS) \
                 or (fl & FL_OCCG and not fl & FL_OCC):
             bad("cell %d" % i, "kind %d flags %d" % (kd, fl))
-    props = read_props(p, propoff, nprop, blkoff, occidx, bad) if nprop else []
+        # CELLS (128.15.6): bz_cxcel reads a cell's edge neighbours with no bound and lays its lowest corner
+        # one row and one cell either side of it, so every cell that is not VOID has the cells within two
+        # tiles of it inside the grid (the tool's grid is their bounding box, and NEAR is two tiles wide)
+        if kd & 15 != KIND_VOID:
+            r, k = divmod(i, kw)
+            s_ = smin + r
+            a_ = amin + 2 * k + (s_ & 1)
+            if not (4 <= r < nrows - 4 and amin + 4 <= a_ < amin + 2 * kw - 4):
+                bad("cell %d" % i, "row %d, cell %d: a cell that is not VOID has a cell within two tiles of it "
+                    "outside the grid" % (r, k))
+    props = read_props(p, propoff, nprop, blkoff, occidx, bad, diroff) if nprop else []
     # wave 4: the header's flags and pad mask are the records' (SPEC.md 128.14.4.2)
     kinds = [d["kind"] for d in props]
     want_f = (GF_CKPT if PK_CHECKPOINT in kinds or PK_CUP in kinds else 0) | (GF_CUP if PK_CUP in kinds else 0)
@@ -3302,22 +3998,31 @@ def read_part(p, fname="<part>"):
                 else (0, 0, 0, 0)
             if kd & 15 != KIND_FLOOR or sl or not fl & FL_OBS:
                 bad("prop %d" % d["i"], "a %s's cell is not a flat FLOOR with OBS" % PK_NAMES[d["kind"]])
+    # the identity, over C's RAM form (128.15.7), and the canonical layout
+    model = decode_part(p)
+    if ident != ram_identity(p):
+        bad("BZG1 +18", "identity %04Xh is not the part's sum %04Xh" % (ident, ram_identity(p)))
+    if _encode(model, recb, ident=ident) != p:
+        q = _encode(model, recb, ident=ident)
+        k = next((i for i in range(min(len(p), len(q))) if p[i] != q[i]), min(len(p), len(q)))
+        bad("layout", "the part is not its own model's serialisation (first difference at offset %d)" % k)
     return {"cols": cols, "brows": brows, "nblk": nblk, "mapsh": mapsh, "blkoff": blkoff,
             "occidx": occidx, "occrec": occrec, "nocc": nocc, "maskoff": maskoff, "nmask": nmask,
             "rowb": rowb, "gridoff": gridoff, "map": mp, "idx": idx, "recs": recs,
-            "propoff": propoff, "nprop": nprop, "props": props, "ident": ident,
+            "recb": recb, "sb": SB, "tb": TB, "mtab": mtab, "diroff": diroff, "nsec": nsec, "dir": ents,
+            "propoff": propoff, "nprop": nprop, "props": props, "ident": ident, "model": model,
             "grid": {"nrows": nrows, "smin": smin, "amin": amin, "kw": kw, "rowtab": rt,
                      "x0": x0, "y0": y0, "start": (swx, swy), "route": route, "ident": ident,
                      "gflags": gflags, "padmask": padmask,
                      "cells_raw": bytes(p[celloff:rowtab]), "celloff": celloff}}
 
 
-def read_props(p, propoff, nprop, blkoff, occidx, bad):
+def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None):
     """the prop table (SPEC.md 128.12.3.1) as the guest reads it, checked: every
     offset inside the part, every pose map word a block offset, the kinds,
     the flags (UNDERSIDE refused), the segments' and sprites' places, and the
     records, pose maps, segments and sprites filling the part's tail exactly"""
-    n = len(p)
+    n = len(p) if end is None else end          # BZC2: the props end at the directory
     out = []
     if propoff + PROPREC * nprop > n:
         bad("PROPOFF", "the records run past the part")
@@ -5137,12 +5842,14 @@ def ball_pixels(px, py):
     return out
 
 
-def composite(course, px, py, sb, zb, air, via="records"):
+def composite(course, px, py, sb, zb, air, via="records", ghost=False):
     """the footprint (20 x 16 from px & ~3) with the ball drawn and 128.10.4.4's
     rule applied: via 'records' (what the guest does), 'pixels' (the per-pixel
     buffer, each pixel's top raised to its record's) or 'none' (the ball whole:
     what the guest draws when its OCC gate is off, 128.10.8 item 1).
-    -> {(x, y): index}"""
+    ghost: the CARD's model (SPEC.md 128.15.10.3) - a record lays its pixels
+    LESS the checker's, (x, y) only where ghost(x, y) is false; without it the
+    RULE's (the undithered pixels, every verdict's model).  -> {(x, y): index}"""
     m = 0 if air else CLIMB
     x4 = px & ~3
     out = {}
@@ -5157,7 +5864,7 @@ def composite(course, px, py, sb, zb, air, via="records"):
                 for r in course.by_block.get((br, bc), ()):
                     if sb < r["s"] and zb + m < r["top"]:
                         for (x, y) in r["pix"]:
-                            if (x, y) in out:
+                            if (x, y) in out and not (ghost and _ghost_px(x, y)):
                                 out[(x, y)] = course.pic[y][x]
     elif via == "pixels":
         raised = course._raised
@@ -5193,6 +5900,11 @@ def emit_inc(courses):
         "",
         "BZ_NCRS         equ %d        ; courses, BZ_COURSES's order" % len(courses),
         "BZ_P_CRS        equ 3        ; course 0's row; course K's is BZ_P_CRS + K",
+        "BZ_REC          equ %d        ; RECB, the occluder record's RAM size: 8 (C, shipped) or 4 (D, "
+        "not shipped; SPEC.md 128.15.5.4)" % courses[0].rec,
+        "BZ_FORMS        equ %04Xh    ; the stored forms the parts use, a bit a form (SPEC.md 128.15.4.5)"
+        % part_forms(courses),
+        "BZ_KWMAX        equ %d       ; the most cells a grid row has (CELLS' scratch rows, SPEC.md 128.15.6)" % KW_MAX,
         "BZ_CRS_NAMEB    equ 6        ; BZ_CRS_NAMES: a row, the NAME NUL-padded",
         "BZ_CRS_TITLEB   equ 25       ; BZ_CRS_TITLES: a row, the title NUL-padded",
     ]
@@ -5411,8 +6123,9 @@ def emit_inc(courses):
     return "\n".join(lines)
 
 
-def stamp(paths):
+def stamp(paths, rec=None):
     h = hashlib.sha256()
+    h.update(b"BZREC %d\0" % (REC if rec is None else rec))   # the course stamp carries the RECB (128.15.5.3)
     for name, path in (("tools/bbcourse.py", TOOL),
                        ("tools/bonanza_assets.py", os.path.abspath(BA.__file__))):
         h.update(name.encode() + b"\0")
@@ -5430,14 +6143,64 @@ def stamp(paths):
     return h.hexdigest()
 
 
+# --- the course budget (SPEC.md 128.15.8) ------------------------------------
+
+def budget(t):
+    """a course's packed budget for its target t seconds: ROOM x t / 1,170"""
+    return ROOM * t // PLAN_SECS
+
+
+def budget_cap(t):
+    """the refusal: 1.5 times the budget (R4's ratio)"""
+    return 3 * budget(t) // 2
+
+
+_PACKED = {}
+
+
+def packed_len(data, fmt="lz4"):
+    """the bytes os88pkg's compress_part packs `data` to (the near-call filter
+    tried), in LZ4 or LZB - remembered by content, so a second compile of the
+    same part (item 1's) costs nothing"""
+    key = (hashlib.sha256(bytes(data)).digest(), fmt)
+    if key not in _PACKED:
+        _PACKED[key] = os88lz.compress(bytes(data), os88lz.LZ4 if fmt == "lz4" else os88lz.LZB, filt=True)
+    return len(_PACKED[key])
+
+
+def check_budget(c, k):
+    """128.15.8: a course's `target` (every course but course 0), and its part
+    packed as LZ4 - whatever BZPARTZ is - at most 1.5 times its budget.  The
+    part read is the RECB 4 stored form whatever --rec is, as the contract was
+    written while BZREC was a knob (C's 8-byte records pack larger: MILL's
+    9,439 against its 9,412 cap before the follow-up).  C ships now
+    (128.15.5.4); which form the budget reads is SPEC.md 128.15.15's open
+    question.  -> the packed bytes, or
+    None for a course 0 with no target"""
+    if c.target is None:
+        if k:
+            raise CourseError("%s: no `target` statement: every course but course 0 (the benchmark's) gives its "
+                              "design time, target 30, 60 or 90 (SPEC.md 128.15.8)" % c.fname)
+        return None
+    n = packed_len(c.stored4, "lz4")
+    cap = budget_cap(c.target)
+    if n > cap:
+        raise CourseError("%s:%d: the course packs to %d bytes (LZ4), over its cap of %d, 1.5 times the %d-byte "
+                          "budget of a %d s course (ROOM %d x %d / %d, SPEC.md 128.15.8)"
+                          % (c.fname, c.src.target[1], n, cap, budget(c.target), c.target, ROOM, c.target, PLAN_SECS))
+    return n
+
+
 def compile_all(paths, demo_dir=None):
     courses = [compile_course(p) for p in paths]
     names = [c.name for c in courses]
     if len(set(names)) != len(names):
         raise CourseError("two courses share a NAME: %s" % names)
+    for k, c in enumerate(courses):
+        c.packed4 = check_budget(c, k)
     files = {}
     for k, c in enumerate(courses):
-        files["BZ%d.BIN" % k] = c.cga
+        files["BZ%d.BIN" % k] = c.stored       # the STORED form (SPEC.md 128.15.12.1); os88pkg packs it
     demos = build_demos(courses, paths, demo_dir)
     for k, d in sorted(demos.items()):
         files["BZD%d.BIN" % k] = d["log"]
@@ -5725,14 +6488,25 @@ def report(c, k=None):
           "settled in %d rounds, EMAX %d" % (
               head, c.width, c.lines, c.cols, c.brows, c.x0, c.y0, top.wx, top.wy, top.zhi,
               "%s of cell %s" % (top.src[1], top.src[0]) if top.src else "its own floor", c.rounds, c.emax))
-    print("    part %d bytes: header 32, map %d, blocks %d x 16 = %d, OCCIDX %d, records %d x 8 = %d, masks "
-          "%d x 16 = %d, grid %d (%d rows x %d cells x 4 + %d header, ROWTAB %d, route %d)" % (
-              len(c.cga), 2 * c.cols * c.brows, len(c.blocks), 16 * len(c.blocks), 2 * (c.brows + 1),
-              len(c.records), 8 * len(c.records), len(c.masks), 16 * len(c.masks),
-              len(c.cga) - c.part["gridoff"], g["nrows"], g["kw"], GHDR, 2 * g["nrows"], 4 * len(c.route)))
-    print("    records %d -> %d merged (masks %d -> %d); most in a block %d -> %d (bound %d), in a block row "
-          "%d -> %d (bound %d); most laid at a position %d%s; %d OCC cells (%d OCCG) of %d reachable" % (
-              len(c.raw), len(c.records), c.raw_masks, len(c.masks), most(c.raw_block), most(c.per_block),
+    pt = c.part
+    print("    part %d bytes in RAM (BZC2, RECB %d): header %d, map %d, blocks %d x 16 = %d, OCCIDX %d, records "
+          "%d x %d = %d, masks %d x 16 = %d%s, grid %d (%d rows x %d cells x 4 + %d header, ROWTAB %d, route %d)%s, "
+          "directory %d x %d; stored %d bytes, %d of them zero holes%s" % (
+              len(c.cga), c.rec, HDR, 2 * c.cols * c.brows, len(c.blocks), 16 * len(c.blocks), 2 * (c.brows + 1),
+              len(c.model["recs"]), c.rec, c.rec * len(c.model["recs"]), len(c.masks), 16 * len(c.masks),
+              ", MTAB %d" % (2 * len(c.masks)) if c.rec == 4 else "",
+              (pt["propoff"] or pt["diroff"]) - pt["gridoff"], g["nrows"], g["kw"], GHDR, 2 * g["nrows"],
+              4 * len(c.route), ", props %d" % (pt["diroff"] - pt["propoff"]) if pt["nprop"] else "",
+              pt["nsec"], DIRENT, len(c.stored), sum(e["len"] - e["dlen"] for e in pt["dir"]),
+              "; LZ4 %d as RECB 4 (target %d s: budget %d, cap %d)" % (c.packed4, c.target, budget(c.target),
+                                                              budget_cap(c.target))
+              if getattr(c, "packed4", None) else ""))
+    print("    records %d -> %d merged (masks %d -> %d, %d with the ghost dither; %d records laying nothing once "
+          "dithered left out of the part); most in a block %d -> %d (bound "
+          "%d), in a block row %d -> %d (bound %d); most laid at a position %d%s; %d OCC cells (%d OCCG) of %d "
+          "reachable" % (
+              len(c.raw), len(c.records), c.raw_masks, c.umasks, len(c.masks),
+              len(c.records) - len(c.model["recs"]), most(c.raw_block), most(c.per_block),
               REC_BLOCK_MAX, most(c.raw_row), most(c.per_row), REC_ROW_MAX, c.worst[0],
               " (cell %s at %d px)" % (c.worst[1], c.worst[2]) if c.worst[1] else "",
               sum(1 for v in c.cells.values() if v[3] & FL_OCC), sum(1 for v in c.cells.values() if v[3] & FL_OCCG),
@@ -5753,7 +6527,7 @@ def write_out(out, paths):
     # the stamp before the files: a run that dies writing leaves a stamp and a
     # missing file, which make's fallback turns back into a re-run
     with open(st, "w") as f:
-        f.write(stamp(paths) + "\n")
+        f.write(stamp(paths, courses[0].rec if courses else None) + "\n")
     for name in sorted(files):
         with open(os.path.join(out, name), "wb") as f:
             f.write(files[name])
@@ -5762,6 +6536,9 @@ def write_out(out, paths):
             f.write(texts[name])
     for k, c in enumerate(courses):
         report(c, k)
+    for k, c in enumerate(courses):         # the visibility audit, REPORT mode (SPEC.md 128.15.10.4)
+        d = compile_all.demos.get(k)
+        print("\n".join(visibility(c, k, d["log"] if d and d["kind"] == "file" else None)[0]))
     for K, d in sorted(compile_all.demos.items()):
         _K, mat, fl, pv, steps, N, ident = struct.unpack_from("<BBBBIHH", d["log"], 4)
         print("  demo %d %s (%s): %d bytes, %d runs, %d steps (%.2f s), %s, %s%s; the model's replay ends with %d "
@@ -5953,9 +6730,11 @@ def _decode(part, herc=False):
     return rows
 
 
-def laid_at(course, px, py, sb, zb, air):
+def laid_at(course, px, py, sb, zb, air, card=False):
     """the records the guest's pass lays for a ball at picture top-left (px, py)
-    in cell row sb at whole height zb (SPEC.md 128.10.8 item 1)"""
+    in cell row sb at whole height zb (SPEC.md 128.10.8 item 1).  card: the
+    CARD's count instead (128.15.10.3) - the set of the footprint's pixels
+    those records lay on the card, their pixels less the checker's"""
     m = 0 if air else CLIMB
     x4 = px & ~3
     out = []
@@ -5964,7 +6743,243 @@ def laid_at(course, px, py, sb, zb, air):
             for r in course.by_block.get((br, bc), ()):
                 if sb < r["s"] and zb + m < r["top"]:
                     out.append(r)
+    if not card:
+        return out
+    return {(x, y) for r in out for (x, y) in r["pix"]
+            if py <= y < py + FOOT_H and x4 <= x < x4 + FOOT_W and not ghost(x, y)}
+
+
+def card_composite(course, px, py, sb, zb, air, _strip=True, laid=None):
+    """the footprint as the CARD lays it, read independently of the tool's
+    records: the records and masks out of the RAM part (decode_part, which
+    reads the bytes the guest holds), each laid as the guest lays a mask -
+    ((buf XOR blk) AND mask) XOR blk, pixel by pixel - over the ball drawn on
+    the picture.  The masks hold the checker (128.15.10.1), so this is the
+    dithered composite composite(..., ghost=True) must equal (item 11).
+    _strip=False: the masks with the checker taken back out (the oracle with
+    the checker NOT stripped, the control's other half).  laid: a set, which
+    gets every footprint pixel a mask lays (its pair 0).  -> {(x, y): index}"""
+    if getattr(course, "_cm", None) is None or course._cm[0] is not course.cga:
+        m = decode_part(course.cga)
+        byb = {}
+        for br, col, s_, top, mi in m["recs"]:
+            byb.setdefault((br, col), []).append((s_, top, m["masks"][mi]))
+        course._cm = (course.cga, byb)
+    byb = course._cm[1]
+    mg = 0 if air else CLIMB
+    x4 = px & ~3
+    out = {}
+    for y in range(py, py + FOOT_H):
+        for x in range(x4, x4 + FOOT_W):
+            out[(x, y)] = course.pic[y][x]
+    for p, c in ball_pixels(px, py).items():
+        out[p] = c
+    for br in range(py >> 3, ((py + FOOT_H - 1) >> 3) + 1):
+        for bc in range(x4 >> 3, ((x4 + FOOT_W - 1) >> 3) + 1):
+            for s_, top, mask in byb.get((br, bc), ()):
+                if not (sb < s_ and zb + mg < top):
+                    continue
+                if not _strip:
+                    mask = bytes(b & ~CHK[(i >> 1) & 1] & 0xFF for i, b in enumerate(mask))
+                for ly in range(8):
+                    y = 8 * br + ly
+                    for lx in range(8):
+                        x = 8 * bc + lx
+                        if (x, y) not in out:
+                            continue
+                        mb = (mask[2 * ly + (lx >> 2)] >> (6 - 2 * (lx & 3))) & 3
+                        if laid is not None and not mb:
+                            laid.add((x, y))
+                        blk = course.pic[y][x]
+                        out[(x, y)] = ((out[(x, y)] ^ blk) & mb) ^ blk
     return out
+
+
+# =============================================================================
+# the visibility audit (SPEC.md 128.15.10.4): REPORT mode - it prints and never
+# refuses, until story 11.5 makes it a refusal
+# =============================================================================
+
+VIS_MARK = 75                    # % of a spring's, a pad's, the cup's mark (and its pin) that must be seen
+VIS_MOUTH = 50                   # % of a tube mouth's
+VIS_STEPS = 27                   # a hidden stretch longer than this many steps (0.5 s) is printed
+VIS_CHORD = 8                    # the turn: headings over chords of this many steps
+
+
+def owners_canvas(c):
+    """the course's picture rendered with each pixel's OWNER (256 wx + wy of
+    the cell whose drawing put it there last, -1 none): render(owners=True)
+    over the very ops the picture was drawn with"""
+    if getattr(c, "_obuf", None) is None:
+        c._obuf = render(c.tiles, c.ops, c.x0, c.y0, c.width, c.lines, owners=True).obuf
+    return c._obuf
+
+
+def _own_name(o):
+    return "nothing" if o < 0 else "(%d, %d)" % (o >> 8, o & 255)
+
+
+def vis_marks(c):
+    """-> [{prop, what, cell, px, seen, pct, need, below, cover [(owner, n)] most first}]: every
+    spring's, pad's and the cup's mark and the cup's pin against VIS_MARK, every tube mouth against
+    VIS_MOUTH.  Seen: owned in the picture by the prop's own cell"""
+    ob = owners_canvas(c)
+    out = []
+    for i in sorted(c.prop_pix):
+        p = c.props[i]
+        for what, pix in sorted(c.prop_pix[i].items()):
+            if what == "flag":                  # a flag has its own refusal (HIDDEN, 128.14.25 item 1)
+                continue
+            cell = p["inn"] if what == "IN" else p["out"] if what == "OUT" else p["at"]
+            own = 256 * cell[0] + cell[1]
+            seen, cov = 0, {}
+            for (x, y) in pix:
+                o = ob[y][x]
+                if o == own:
+                    seen += 1
+                else:
+                    cov[o] = cov.get(o, 0) + 1
+            need = VIS_MOUTH if what in ("IN", "OUT") else VIS_MARK
+            pct = 100.0 * seen / len(pix) if pix else 100.0
+            out.append({"prop": i, "what": ("tube " + what) if what in ("IN", "OUT") else what, "cell": cell,
+                        "px": len(pix), "seen": seen, "pct": pct, "need": need, "below": pct < need,
+                        "cover": sorted(cov.items(), key=lambda kv: (-kv[1], kv[0]))})
+    return out
+
+
+def vis_run(c, keys=None, mat=None):
+    """one run through the model: the autopilot's route (keys None: until the goal or DEMO_STEPS) or
+    a log's (keys [(k, t)]).  -> [(n, kind, opaque px, laid px, gx, gy, cell, {owner: laid px})] a step;
+    kind 'tube' (not drawn, never a stretch), 'holed' (holed out: not drawn), 'ground' or 'air'.  The
+    laid pixels are the RULE's (the undithered records, 128.15.10.3)"""
+    ob = owners_canvas(c)
+    p = Physics(c, play=True, mat=mat)
+    out = []
+    it = iter(keys) if keys is not None else None
+    while True:
+        if it is None:
+            if len(out) >= DEMO_STEPS or p.goal:
+                break
+            p.step(p.auto())
+        else:
+            kt = next(it, None)
+            if kt is None:
+                break
+            p.step(*kt)
+        if p.tube:
+            out.append((p.nstep, "tube", 0, 0, p.gx, p.gy, None, {}))
+            continue
+        cell = (p.gx >> 12, p.gy >> 12)
+        if p.hid:
+            out.append((p.nstep, "holed", 0, 0, p.gx, p.gy, cell, {}))
+            continue
+        bp = ball_pixels(p.px, p.py)
+        laid = set()
+        for r in laid_at(c, p.px, p.py, p.sb, p.zb, p.air):
+            laid |= r["pix"]
+        ow = {}
+        n = 0
+        for q in bp:
+            if q in laid:
+                n += 1
+                o = ob[q[1]][q[0]]
+                ow[o] = ow.get(o, 0) + 1
+        out.append((p.nstep, "air" if p.air else "ground", len(bp), n, p.gx, p.gy, cell, ow))
+    return out
+
+
+def _turn(pos):
+    """the largest change in the direction of motion along a run, in degrees: the headings of chords
+    VIS_CHORD steps long (a chord under a quarter of a cell is no heading), compared pairwise"""
+    hs = []
+    for i in range(0, len(pos) - VIS_CHORD, VIS_CHORD):
+        dx = pos[i + VIS_CHORD][0] - pos[i][0]
+        dy = pos[i + VIS_CHORD][1] - pos[i][1]
+        if dx * dx + dy * dy < (4 << 8) ** 2:
+            continue
+        hs.append(math.degrees(math.atan2(dy, dx)))
+    return max((abs((a - b + 180) % 360 - 180) for a in hs for b in hs), default=0.0)
+
+
+def vis_stretches(steps):
+    """the runs of HIDDEN steps outside a tube - more than half of the sprite's opaque pixels laid by
+    the rule, or holed - longer than VIS_STEPS.  -> [{a, b, steps, secs, kind, turn, cells, behind}]"""
+    out = []
+    cur = None
+
+    def close(cur):
+        if cur and cur["b"] - cur["a"] + 1 > VIS_STEPS:
+            cells = []
+            for cc in cur["cells"]:
+                if not cells or cells[-1] != cc:
+                    cells.append(cc)
+            n = cur["b"] - cur["a"] + 1
+            out.append({"a": cur["a"], "b": cur["b"], "steps": n, "secs": n * STEP_PIT / float(PIT_HZ),
+                        "kind": "+".join(k for k in ("ground", "air", "holed") if k in cur["kind"]),
+                        "turn": _turn(cur["pos"]), "cells": cells,
+                        "behind": sorted(cur["ow"].items(), key=lambda kv: (-kv[1], kv[0]))})
+    for n, kind, tot, hid, gx, gy, cell, ow in steps:
+        hidden = kind == "holed" or (kind in ("ground", "air") and 2 * hid > tot)
+        if not hidden:
+            close(cur)
+            cur = None
+            continue
+        if cur is None:
+            cur = {"a": n, "b": n, "kind": set(), "cells": [], "pos": [], "ow": {}}
+        cur["b"] = n
+        cur["kind"].add(kind)
+        cur["pos"].append((gx, gy))
+        cur["cells"].append(cell)
+        for o, k in ow.items():
+            cur["ow"][o] = cur["ow"].get(o, 0) + k
+    close(cur)
+    return out
+
+
+def visibility(c, k=None, demo=None):
+    """SPEC.md 128.15.10.4's audit of one course: its marks, the autopilot's route and its authored
+    demo (DEMO: a log's bytes, or None) through the model.  -> (lines, summary dict).  Course 0
+    (BENCH) is printed and exempt"""
+    lines = []
+    marks = vis_marks(c)
+    for mk in marks:
+        lines.append("      %-9s %-9s %3d px, %3d seen (%3.0f%% against %d%%)%s%s" % (
+            mk["what"], "(%d, %d)" % mk["cell"], mk["px"], mk["seen"], mk["pct"], mk["need"],
+            "  BELOW" if mk["below"] else "",
+            "; the rest under %s" % ", ".join("%s %d" % (_own_name(o), n) for o, n in mk["cover"][:4])
+            if mk["cover"] else ""))
+    runs = [("route", None, None)]
+    if demo is not None:
+        _K, mat, kt, _fl = decode_log_t(demo)
+        runs.append(("demo", kt, mat))
+    allst = []
+    for name, keys, mat in runs:
+        steps = vis_run(c, keys, mat)
+        drawn = [s_ for s_ in steps if s_[1] in ("ground", "air")]
+        half = sum(1 for s_ in drawn if 2 * s_[3] > s_[2])
+        whole = sum(1 for s_ in drawn if s_[2] and s_[3] == s_[2])
+        st = vis_stretches(steps)
+        lines.append("      %s: %d steps (%.2f s); the ball over half hidden on %d, wholly on %d, in a tube %d; %d "
+                     "hidden stretch%s over %.1f s" % (
+                         name, len(steps), len(steps) * STEP_PIT / float(PIT_HZ), half, whole,
+                         sum(1 for s_ in steps if s_[1] == "tube"), len(st), "" if len(st) == 1 else "es",
+                         VIS_STEPS * STEP_PIT / float(PIT_HZ)))
+        for h in st:
+            cs = ", ".join("(%d, %d)" % cc for cc in h["cells"][:6]) + (" ... (%d, %d)" % h["cells"][-1]
+                                                                          if len(h["cells"]) > 6 else "")
+            lines.append("        steps %d - %d (%.2f s), %s, turning %.0f deg; cells %s; behind (pixel-steps) %s" % (
+                h["a"], h["b"], h["secs"], h["kind"], h["turn"], cs,
+                ", ".join("%s %d" % (_own_name(o), n) for o, n in h["behind"][:4]) or "nothing laid (holed)"))
+            allst.append((name, h))
+    ghost_on = c.dithered and all(dither(m_) == m_ for m_ in c.masks)
+    longest = max(allst, key=lambda nh: nh[1]["steps"]) if allst else None
+    nb = sum(1 for mk in marks if mk["below"])
+    head = "    visibility %s: %d of %d marks BELOW, %d hidden stretch%s over 0.5 s%s; ghost %s%s" % (
+        c.name, nb, len(marks), len(allst), "" if len(allst) == 1 else "es",
+        ", the longest %.2f s from %s step %d" % (longest[1]["secs"], longest[0], longest[1]["a"]) if longest else "",
+        "on" if ghost_on else "OFF", " (course 0: exempt)" if k == 0 else "")
+    return [head] + lines, {"below": nb, "marks": len(marks), "stretches": len(allst), "ghost": ghost_on,
+                            "longest": longest and longest[1]["secs"], "detail": marks}
 
 
 def _ev(p, *kinds):
@@ -7531,7 +8546,6 @@ def _route_checks(bench, res, trial=None, first=None):
 # wave 4's selfcheck (SPEC.md 128.14.4, 128.14.6, 128.14.7.4, 128.14.17 item 5)
 # =============================================================================
 
-W3B_COMMIT = "573eec83"         # 3b's tree: BENCH, TRIAL and MILL byte for byte its parts (128.14.6)
 # a small course with a cup: A (4 .. 13 x 4 .. 8) at 4, its back rail, a ramp east of it
 _W4C = ('course W "w"\nwidth 64\norigin 224\nfloor rect 4 4 14 9 flat 4\nwall rect 4 3 14 4 flat 5\n'
         'floor rect 14 4 16 9 ramp x 14 16 4 3\nstart 5 6\ncup 12 6\n')
@@ -7613,7 +8627,7 @@ def _w4_records(c, res):
         o = pt["propoff"] + PROPREC * fr["i"]
         bb[o + 1] &= ~PF_LANE
         bb[o + 8:o + 16] = bytes(8)
-        struct.pack_into("<H", bb, pt["gridoff"] + 18, part_identity(bb, pt["gridoff"]))
+        restamp(bb)
         try:
             read_part(bytes(bb))
             caught = False
@@ -7624,7 +8638,7 @@ def _w4_records(c, res):
                     caught))
     bb = bytearray(c.cga)
     bb[pt["gridoff"] + 29] ^= 4 if not wm & 4 else 1
-    struct.pack_into("<H", bb, pt["gridoff"] + 18, part_identity(bb, pt["gridoff"]))
+    restamp(bb)
     try:
         read_part(bytes(bb))
         caught = False
@@ -7737,7 +8751,7 @@ def _w4_course_report(c, res):
 def _w4_route(c, res):
     """item 8 (wave 4): the autopilot on the course's route reaches the goal or
     the cup without a fall within DEMO_STEPS; prints the airborne steps over OCC
-    and what the route met; NOTHING UNDER THE HUD"""
+    and what the route met"""
     p = Physics(c, play=True)
     air_occ = 0
     while p.nstep < DEMO_STEPS and not p.goal:
@@ -7756,10 +8770,6 @@ def _w4_route(c, res):
                     p.nstep * STEP_PIT / float(PIT_HZ), DEMO_STEPS, kinds.get("flag", 0), p.npad, p.nspr,
                     kinds.get("capture", 0), air_occ),
                 p.goal == 1 and p.nfall == 0 and kinds.get("flag", 0) == want["flag"]))
-    bad = hud_conflicts(c)
-    res.append(("8 %s: NOTHING UNDER THE HUD - no flag, pad, cup or spring (top, pole, pin, pennant) and no "
-                "waypoint inside the panel's shown rect at a clamped camera, either card%s" % (
-                    c.name, "" if bad is None else " -- %s" % (bad,)), bad is None))
     return p
 
 
@@ -7957,93 +8967,15 @@ def _w4_demos(courses, paths, res):
 
 
 W2_COMMIT = "848ade16"          # wave 2's tree (SPEC.md 128.12.9)
+W5_COMMIT = "ef59209a"          # the last BZC1 tree: 5a moved no package byte from it (SPEC.md 128.15.3)
 
 
-def opening_regions(c):
-    """every opening's rectangle on the glass (x0, y0, x1, y1 inclusive, glass
-    lines) - an arch's columns and a pixel beyond, from two lines over its
-    top to a line under its sill; a tube cell's top hole or ring 13 px either
-    side of its centre and 7 lines over and under - the pixels the owner's
-    round openings (SPEC.md 128.14.20) may change, wave 3's shapes included"""
-    out = []
-    for p in c.props:
-        for hole in (p.get("door_pix"), p.get("mouth_pix")):
-            if hole:
-                xs = [x for x, _ in hole]
-                ys = [y + c.y0 for _, y in hole]
-                out.append((min(xs) - 1, min(ys) - 3, max(xs) + 1, max(ys) + 1))
-        if p["kind"] == PK_TUBE:
-            for cell in (p["inn"], p["out"]):
-                t = c.tiles[cell]
-                cx = 16 * (cell[0] - cell[1]) + c.x0
-                cy = 8 * (cell[0] + cell[1]) + 8 - 4 * t.z0 + c.y0
-                out.append((cx - 13, cy - 7, cx + 12, cy + 7))
-    return out
-
-
-def openings_only(c, old, regions=None):
-    """-> None when the part `old` (3b's, before the owner's round openings)
-    differs from c's only by the openings (SPEC.md 128.14.20): every pixel of
-    the picture and of every lane's every pose that differs inside
-    opening_regions(), and nothing else changed - the grid but for its
-    identity and offsets, the records with their masks, the props but for a
-    lane's map offset and the sprite's; else why not"""
-    po, pn = read_part(old), read_part(c.cga)
-    regs = opening_regions(c) if regions is None else regions
-
-    def inside(x, y):
-        return any(a <= x <= b and t <= y <= u for a, t, b, u in regs)
-    ao, an = _decode(old), _decode(c.cga)
-    if len(ao) != len(an) or len(ao[0]) != len(an[0]):
-        return "the picture's size"
-    nd = 0
-    for y in range(len(an)):
-        for x in range(len(an[0])):
-            if ao[y][x] != an[y][x]:
-                nd += 1
-                if not inside(x, y):
-                    return "picture pixel (%d, %d) outside every opening" % (x, y)
-    for ro, rn in zip(po["props"], pn["props"]):
-        Lo, Ln = ro["lane"], rn["lane"]
-        if {k: v for k, v in ro.items() if k not in ("lane", "spoff")} != \
-                {k: v for k, v in rn.items() if k not in ("lane", "spoff")}:
-            return "prop %d's record" % ro["i"]
-        if bool(Lo) != bool(Ln) or (Lo and any(Lo[k] != Ln[k] for k in ("brow", "col", "w", "h", "poses"))):
-            return "prop %d's lane" % ro["i"]
-        if not Lo:
-            continue
-        w, h = Ln["w"], Ln["h"]
-        for q in range(Ln["poses"]):
-            for part, L, P in ((old, Lo, "o"), (c.cga, Ln, "n")):
-                words = struct.unpack_from("<%dH" % (w * h), part, L["off"] + 2 * q * w * h)
-                pic = [[(part[off + 2 * yy + (xx >> 2)] >> (6 - 2 * (xx & 3))) & 3 for xx in range(8)]
-                       for off in words for yy in range(8)]
-                if P == "o":
-                    po_pic = pic
-                else:
-                    for i, (a, b) in enumerate(zip(po_pic, pic)):
-                        k, yy = divmod(i, 8)
-                        r, cc = divmod(k, w)
-                        for xx in range(8):
-                            if a[xx] != b[xx] and not inside(8 * (Ln["col"] + cc) + xx, 8 * (Ln["brow"] + r) + yy):
-                                return "prop %d pose %d's pixel outside every opening" % (rn["i"], q)
-    go = {k: v for k, v in po["grid"].items() if k not in ("ident", "celloff", "rowtab")}
-    gn = {k: v for k, v in pn["grid"].items() if k not in ("ident", "celloff", "rowtab")}
-    if go != gn:
-        return "the grid"
-
-    def recs(p, raw):
-        return [(r[0], r[1], r[2], bytes(raw[r[3]:r[3] + 16])) for r in p["recs"]]
-    if recs(po, old) != recs(pn, c.cga) or po["idx"][1:] and [i - po["idx"][0] for i in po["idx"]] != \
-            [i - pn["idx"][0] for i in pn["idx"]]:
-        return "the occluder records"
-    return None
-
-
-def wave2_parts(names, commit=W2_COMMIT):
+def wave2_parts(names, commit=W2_COMMIT, files=None):
     """the parts of the named courses as a commit's own tool compiled them
-    (848ade16, wave 2's; 573eec83, 3b's), out of git in a temporary tree:
-    -> ({NAME: bytes}, None) or (None, why it cannot be had)"""
+    (848ade16, wave 2's; 573eec83, 3b's; ef59209a, the last BZC1 tree's), out
+    of git in a temporary tree: -> ({NAME: bytes}, None) or (None, why it
+    cannot be had).  files: the courses' file names, in BZ_COURSES's order
+    (default each NAME's lower case)"""
     W2_COMMIT = commit
     import subprocess
     import tempfile
@@ -8054,8 +8986,11 @@ def wave2_parts(names, commit=W2_COMMIT):
             return None, "commit %s is not in this clone (a shallow one? `git fetch --unshallow`)" % W2_COMMIT
         with tempfile.TemporaryDirectory() as td:
             tar = os.path.join(td, "w.tar")
+            dem = subprocess.run(["git", "cat-file", "-e", W2_COMMIT + ":apps/bonanza/demos"], cwd=ROOT,
+                                 capture_output=True).returncode == 0
             r = subprocess.run(["git", "archive", "-o", tar, W2_COMMIT, "tools/bbcourse.py", "tools/bonanza_assets.py",
-                                "apps/bonanza/courses"], cwd=ROOT, capture_output=True)
+                                "apps/bonanza/courses"] + (["apps/bonanza/demos"] if dem else []), cwd=ROOT,
+                               capture_output=True)
             if r.returncode:
                 return None, "git archive of %s failed" % W2_COMMIT
             w = os.path.join(td, "w")
@@ -8064,14 +8999,349 @@ def wave2_parts(names, commit=W2_COMMIT):
                     tf.extractall(w, filter="data")
                 else:
                     tf.extractall(w)
-            paths = [os.path.join(w, "apps", "bonanza", "courses", n.lower() + ".bbc") for n in names]
+            paths = [os.path.join(w, "apps", "bonanza", "courses", f) for f in (files or [n.lower() + ".bbc"
+                                                                                     for n in names])]
             r = subprocess.run([sys.executable, os.path.join(w, "tools", "bbcourse.py"), "-o",
                                 os.path.join(td, "art")] + paths, cwd=w, capture_output=True)
             if r.returncode:
-                return None, "848ade16's tool failed: %s" % r.stderr.decode(errors="replace")[-200:]
+                return None, "%s's tool failed: %s" % (W2_COMMIT, r.stderr.decode(errors="replace")[-200:])
             return {n: open(os.path.join(td, "art", "BZ%d.BIN" % k), "rb").read() for k, n in enumerate(names)}, None
     except OSError as e:
         return None, "git is not to be had (%s)" % e
+
+
+# =============================================================================
+# wave 5b's items (SPEC.md 128.15.12.3): 10, the compact form; 12, the budget
+# =============================================================================
+
+def rec4_compare(sb, zm, br, s_, t_, SB, TB, wrap=False):
+    """the guest's byte compare under RECB 4 (SPEC.md 128.15.5.1): the keys
+    ks = clamp(s_b + SB - br) and kt = clamp(z_b + m - TB) to 0 - 255, laid
+    iff ks < s' and kt < t' (unsigned).  wrap: the negative control's key that
+    wraps mod 256 instead of clamping"""
+    ks, kt = sb + SB - br, zm - TB
+    if wrap:
+        ks, kt = ks & 255, kt & 255
+    else:
+        ks, kt = min(max(ks, 0), 255), min(max(kt, 0), 255)
+    return ks < s_ and kt < t_
+
+
+def rec4_verdicts(c, sb_delta=0, wrap=False):
+    """every record of the course under its D biases, at every query of its
+    block (block_queries) and at poked keys either side of both clamps: the
+    byte compare against the rule.  -> (verdicts compared, first mismatch or
+    None).  sb_delta, wrap: the negative controls (SB one lower; a key that
+    wraps)"""
+    SB, TB = rec_biases(c.model["recs"], c.name)
+    n = 0
+    for br, col, s, top, mi in c.model["recs"]:
+        s_, t_ = s - br + SB, top - TB
+        qs = set(c.queries.get((br, col), ()))
+        ks = (-300, -129, -1, 0, 1, s_ - 1, s_, s_ + 1, 254, 255, 256, 300, 511, 600)
+        kt = (-300, -129, -1, 0, 1, t_ - 1, t_, t_ + 1, 254, 255, 256, 300, 511, 600)
+        qs |= {(k - SB + br, j + TB) for k in ks for j in kt}
+        for sb, zm in qs:
+            n += 1
+            if rec4_compare(sb, zm, br, s_, t_, SB + sb_delta, TB, wrap) != (sb < s and zm < top):
+                return n, (br, col, s, top, sb, zm)
+    return n, None
+
+
+def _w5_compact(courses, res):
+    """item 10 (SPEC.md 128.15.12.3): the compact form, and its eight controls"""
+    ctl = {"low_first": [], "sb": [], "wrap": [], "wdiff": [], "mtab": [], "irmove": [], "no_obs": []}
+    for c in courses:
+        why = []
+        for rec, ram, st in ((8, c.cga8, c.stored8), (4, c.cga4, c.stored4)):
+            try:
+                if expand(st, c.name, sim=True) != ram:
+                    why.append("RECB %d: expand(stored) != RAM" % rec)
+                pt = read_part(ram, c.name)
+            except CourseError as e:
+                why.append("RECB %d: %s" % (rec, e))
+                continue
+            if rec == 4 and [struct.unpack_from("<H", ram, pt["mtab"] + 2 * i)[0] for i in range(pt["nmask"])] \
+                    != [pt["maskoff"] + 16 * i for i in range(pt["nmask"])]:
+                why.append("MTAB")
+        holes = sum(e["len"] - e["dlen"] for e in c.part["dir"])
+        res.append(("10 %s: expand(stored) == RAM byte for byte under RECB 8 and 4 (%d and %d bytes), the IN-PLACE "
+                    "simulation clean (every stored byte read before anything is written over it), the directory's "
+                    "rules (%d entries, each in its header fields' place and size), the records' s' and t' bounds "
+                    "and MTAB (%d words); %d bytes of holes%s" % (
+                        c.name, len(c.cga8), len(c.cga4), c.part["nsec"], len(c.masks), holes,
+                        "" if not why else " -- " + "; ".join(why)), not why))
+        n, bad = rec4_verdicts(c)
+        SB, TB = rec_biases(c.model["recs"], c.name)
+        res.append(("10 %s: the 4-byte records' byte compares (SB %d, TB %d) give the rule's verdict on all %d "
+                    "(record, query) pairs - every query of the merge's set, and keys poked either side of both "
+                    "clamps%s" % (c.name, SB, TB, n, "" if bad is None else " -- differs at %s" % (bad,)),
+                    bad is None))
+        if c.model["recs"]:
+            ctl["sb"].append(rec4_verdicts(c, sb_delta=-1)[1] is not None)
+            ctl["wrap"].append(rec4_verdicts(c, wrap=True)[1] is not None)
+        # the identity, three ways (128.15.7)
+        b8 = bytearray(c.cga8)
+        diroff = struct.unpack_from("<H", b8, 38)[0]
+        b8[diroff + 1] ^= 5
+        struct.pack_into("<H", b8, diroff + 6, struct.unpack_from("<H", b8, diroff + 6)[0] ^ 0x0101)
+        moved = bytearray(c.cga8)
+        cell = struct.unpack_from("<H", moved, 26)[0] + GHDR
+        moved[cell] ^= 1
+        id3 = (ram_identity(bytes(b8)) == c.ident, ram_identity(bytes(moved)) != c.ident,
+               ram_identity(c.cga4) == ram_identity(c.cga8) == c.ident)
+        res.append(("10 %s: the identity %04Xh three ways - a directory entry's form byte and stored length changed "
+                    "leave it, one changed RAM byte moves it, and RECB 4's and 8's RAM forms give the same one%s"
+                    % (c.name, c.ident, "" if all(id3) else " -- %s" % (id3,)), all(id3)))
+        # CELLS (128.15.6): the exceptions, the cells whose stored difference from the rule is not 0, every
+        # one a lift's shaft cell; and the control, the rule without SAFE's OBS clause (red arm cellsafe's)
+        exc = cells_exceptions(c.cga)
+        shaft = set(c.slabcells)
+        nvoid = sum(1 for i in range(2, len(c.part["grid"]["cells_raw"]), 4)
+                    if c.part["grid"]["cells_raw"][i] & 15 == KIND_VOID)
+        res.append(("10 %s: CELLS - %d VOID cells' z0 and every cell's SAFE stored as their difference from the "
+                    "rule, %d exception%s%s, every one a lift's shaft cell (%d shaft cell%s)" % (
+                        c.name, nvoid, len(exc), "" if len(exc) == 1 else "s",
+                        "" if not exc else " (%s)" % ", ".join("(%d, %d) %s" % e for e in exc),
+                        len(shaft), "" if len(shaft) == 1 else "s"),
+                    all((wx, wy) in shaft for wx, wy, _ in exc)))
+        if any(fl & FL_OBS for fl in c.part["grid"]["cells_raw"][3::4]):
+            ctl["no_obs"].append(any((wx, wy) not in shaft for wx, wy, _ in cells_exceptions(c.cga, _no_obs=True)))
+        # the controls
+        try:
+            expand(stored_form(c.model, 4, c.cga4, c.name, _hack={"low_first": True}), c.name, sim=True,
+                   _hack={"low_first": True})
+            ctl["low_first"].append(False)
+        except CourseError as e:
+            ctl["low_first"].append("section M" in str(e))
+        if len(c.model["recs"]) > 1:
+            ctl["wdiff"].append(expand(c.stored4, c.name, _hack={"wdiff_short": True}) != c.cga4)
+        if c.masks:
+            ctl["mtab"].append(expand(c.stored4, c.name, _hack={"mtab_short": True}) != c.cga4)
+        bb = bytearray(c.cga4)
+        pt = c.part if c.rec == 4 else read_part(c.cga4)
+        ji = next(j for j, e in enumerate(pt["dir"]) if e["tag"] == "I")
+        jr = next(j for j, e in enumerate(pt["dir"]) if e["tag"] == "R") if any(
+            e["tag"] == "R" for e in pt["dir"]) else None
+        if jr == ji + 1:
+            ei, er = pt["diroff"] + DIRENT * ji, pt["diroff"] + DIRENT * jr
+            struct.pack_into("<H", bb, ei + 4, struct.unpack_from("<H", bb, ei + 4)[0] + 2)
+            struct.pack_into("<HH", bb, er + 2, struct.unpack_from("<H", bb, er + 2)[0] + 2,
+                             struct.unpack_from("<H", bb, er + 4)[0] - 2)
+            try:
+                read_part(bytes(bb), c.name)
+                ctl["irmove"].append(False)
+            except CourseError as e:
+                ctl["irmove"].append("(I)" in str(e))
+    for key, what in (("low_first", "ROWPLANES stored and read with the low bytes first fails the in-place "
+                                    "simulation, naming the map (the last row's last quarter)"),
+                      ("sb", "SB one lower in the guest's key fails the byte compares"),
+                      ("wrap", "a key that wraps instead of clamping fails the byte compares"),
+                      ("wdiff", "an expander off by one record (WDIFF one record short) fails expand == RAM"),
+                      ("mtab", "MTAB one entry short fails expand == RAM"),
+                      ("irmove", "the I and R entries' boundary moved by a word (still tiling the part) is refused "
+                                 "by the place-and-size rule, naming I"),
+                      ("no_obs", "the CELLS rule with SAFE's OBS clause taken out (the red arm cellsafe's) has "
+                                 "exceptions outside the shafts (the courses with a prop's cell)")):
+        v = ctl[key]
+        res.append(("10 negative control: %s, on every course (%d)" % (what, len(v)), bool(v) and all(v)))
+
+
+def _mask_pix(mask, br, bc):
+    """the picture pixels a 16-byte mask of block (br, bc) LAYS: its pairs 0"""
+    return frozenset((8 * bc + lx, 8 * br + ly) for ly in range(8) for lx in range(8)
+                     if not (mask[2 * ly + (lx >> 2)] >> (6 - 2 * (lx & 3))) & 3)
+
+
+def _w5_dither(courses, res, demos=None):
+    """item 11 (SPEC.md 128.15.12.3, 128.15.10): the dither and the audit"""
+    import bonanza_assets as _BA
+    # every K mask holds the checker, in both RAM forms' bytes; deduplicated again after the dither
+    bad, figs = [], []
+    for c in courses:
+        for form in (c.cga4, c.cga8):
+            ms = decode_part(form)["masks"]
+            if any(dither(mk) != mk for mk in ms) or len(set(ms)) != len(ms):
+                bad.append(c.name)
+        if any(r["kmask"] != dither(r["mask"]) for r in c.records) or len(c.masks) > c.umasks:
+            bad.append(c.name)
+        figs.append("%s %d -> %d" % (c.name, c.umasks, len(c.masks)))
+    res.append(("11 every K mask has the checker set (mask OR CHK = mask, 3333h on an even line and CCCCh on an odd "
+                "one: the kept lattice x + y odd, the shadow's dark pixels' complement) in both RAM forms, each "
+                "record's mask its merged mask ORed with it, and the masks deduplicated again (%s)%s" % (
+                    ", ".join(figs), "" if not bad else " -- %s" % sorted(set(bad))), not bad))
+    # no record in the part lays nothing: an all-keep kmask is left out with its record (S1), and every record
+    # the rule holds and the part leaves out is exactly such a one
+    dbad, dfig = [], []
+    for c in courses:
+        m = decode_part(c.cga)
+        kept = [r for r in c.records if r["kmask"] != ALLKEEP]
+        if ALLKEEP in m["masks"] or len(m["recs"]) != len(kept) or \
+                [(r["brow"], r["col"], r["s"], r["top"]) for r in kept] != [q[:4] for q in m["recs"]]:
+            dbad.append(c.name)
+        dfig.append("%s %d" % (c.name, len(c.records) - len(kept)))
+    res.append(("11 no K mask is all-keep and no record points at one: the records whose pixels all lie on the kept "
+                "lattice are left out of the part and kept by the rule (%s)%s" % (
+                    ", ".join(dfig), "" if not dbad else " -- %s" % dbad), not dbad))
+    # what is not dithered: the balls' masks and the lift's slab, each its generator's bytes
+    bbad = []
+    for mat in range(len(MAT_NAMES)):
+        part = _BA.build_ball2(mat)
+        sil = _BA.material_frame(mat, 0, 0)
+        for sh in range(_BA.SHIFTS):
+            for r in range(_BA.D):
+                slots = [None] * (_BA.RB * 4)
+                for x, cc in enumerate(sil[r]):
+                    if cc is not None and 0 <= x + sh < len(slots):
+                        slots[x + sh] = cc
+                want = _BA.cga_bytes([3 if cc is None or cc == _BA.SEE else 0 for cc in slots])
+                o = _BA.B2_MASKOFF + (sh * _BA.D + r) * _BA.RB
+                if part[o:o + _BA.RB] != want:
+                    bbad.append(MAT_NAMES[mat])
+    sbad, nslab = [], 0
+    for c in courses:
+        for p in c.props:
+            if p["kind"] == PK_PLATFORM:
+                nslab += 1
+                for form in (c.cga4, c.cga8):
+                    po = struct.unpack_from("<H", form, 28)[0]
+                    so = p["spoff"] - struct.unpack_from("<H", c.cga, 28)[0] + po
+                    if form[so:so + PL_SPR] != slab_bytes(slab_pixels()):
+                        sbad.append(c.name)
+    res.append(("11 not dithered: the three balls' masks are their silhouettes' at every shift (bonanza_assets' "
+                "generator's bytes, no checker added), and the lift's slab sprite in every part with one (%d) is "
+                "slab_bytes() of its pixels, both RAM forms%s" % (
+                    nslab, "" if not (bbad or sbad) else " -- %s" % sorted(set(bbad + sbad))),
+                not bbad and not sbad and nslab))
+    # the merge's exactness, re-run on the UNDITHERED masks: each merged record's mask the AND of its members',
+    # its laid pixels those the mask clears, and the merged masks lay what the unmerged ones lay at every query
+    mbad = []
+    for c in courses:
+        def from_masks(recs, key):
+            out = []
+            for r in recs:
+                d = dict(r)
+                d["pix"] = _mask_pix(r[key], r["brow"], r["col"])
+                out.append(d)
+            return out
+        for r in c.records:
+            andm = bytearray(b"\xff" * 16)
+            for mb in r["members"]:
+                for i in range(16):
+                    andm[i] &= mb["mask"][i]
+            if bytes(andm) != r["mask"] or _mask_pix(r["mask"], r["brow"], r["col"]) != r["pix"]:
+                mbad.append(c.name)
+                break
+        tried, diff = merge_exact(from_masks(c.raw, "mask"), from_masks(c.records, "mask"), c.queries)
+        if diff is not None:
+            mbad.append(c.name)
+    res.append(("11 the merge is exact on the UNDITHERED masks: every merged mask the AND of its members', laying "
+                "exactly its pixels, and every query's laid set the unmerged masks' (%s)%s" % (
+                    ", ".join(c.name for c in courses), "" if not mbad else " -- %s" % mbad), not mbad))
+    # the CARD's composite (records less the checker) against the dithered masks laid as the guest lays them,
+    # and laid_at's card count against the pixels those masks lay: reach centres, lowest and highest, both
+    # air states, and every fourth step of the autopilot's route
+    for c in courses:
+        pos = []
+        for rc in c.reach:
+            gx, gy = (16 * rc.wx + 8) << 8, (16 * rc.wy + 8) << 8
+            for z in sorted({rc.zlo, rc.zhi}):
+                for air in ((1,) if rc.kind == KIND_VOID else (0, 1)):
+                    pos.append((((gx - gy) >> 8) + c.x0 - 8, (((gx + gy) >> 1) >> 8) - z + c.y0 - 13, rc.s, z, air))
+        ph = Physics(c, play=True)
+        while ph.nstep < DEMO_STEPS and not ph.goal:
+            ph.step(ph.auto())
+            if not ph.nstep & 3 and not ph.tube and not ph.hid:
+                pos.append((ph.px, ph.py, ph.sb, ph.zb, ph.air))
+        diff = cnt = ghosts = 0
+        for px, py, sb, z, air in pos:
+            lset = set()
+            if composite(c, px, py, sb, z, air, ghost=True) != card_composite(c, px, py, sb, z, air, laid=lset):
+                diff += 1
+            card = laid_at(c, px, py, sb, z, air, card=True)
+            if card != lset:
+                cnt += 1
+            ghosts += sum(1 for q in ball_pixels(px, py) if ghost(*q) and any(
+                q in r["pix"] for r in laid_at(c, px, py, sb, z, air)))
+        res.append(("11 %s: the card's composite (records less the checker) equals the dithered masks laid as the "
+                    "guest lays them, and laid_at's card count their laid pixels (%d positions, %d differ, %d counts "
+                    "differ; %d ball pixels kept as ghosts)" % (c.name, len(pos), diff, cnt, ghosts),
+                    diff == 0 and cnt == 0))
+        c._vis_pos = pos
+    # the negative controls (128.15.10.3)
+    mill = next((c for c in courses if c.name == "MILL"), None)
+    if mill is not None:
+        hit = next((q for q in mill._vis_pos if composite(mill, *q, ghost=False) != card_composite(mill, *q)), None)
+        res.append(("11 MILL negative control: the card's model with the checker NOT stripped disagrees with the "
+                    "dithered composite%s" % (" (first at px %d, py %d)" % hit[:2] if hit else ""), hit is not None))
+        if getattr(mill, "_raised", None) is None:
+            mill._raised = _raised_tops(mill)
+        keep = mill.by_block
+        fed = {}
+        for r in mill.records:
+            d = dict(r)
+            d["pix"] = _mask_pix(r["kmask"], r["brow"], r["col"])
+            fed.setdefault((r["brow"], r["col"]), []).append(d)
+        mill.by_block = fed
+        try:
+            hit = next((q for q in mill._vis_pos if composite(mill, *q, via="records")
+                        != composite(mill, *q, via="pixels")), None)
+        finally:
+            mill.by_block = keep
+        res.append(("11 MILL negative control: the rule's composite fed the DITHERED masks fails item 5's comparison "
+                    "with the per-pixel buffer%s" % (" (first at px %d, py %d)" % hit[:2] if hit else ""),
+                    hit is not None))
+    # the audit, in REPORT mode, for every course
+    sums = []
+    for k, c in enumerate(courses):
+        d = (demos or {}).get(k)
+        lines, sm = visibility(c, k, d["log"] if d and d["kind"] == "file" else None)
+        print("\n".join(lines))
+        sums.append("%s %d/%d BELOW, %d stretches" % (c.name, sm["below"], sm["marks"], sm["stretches"]))
+        c.vis = sm
+    res.append(("11 the visibility audit printed for every course, REPORT mode (%s); BENCH exempt"
+                % "; ".join(sums), all(c.vis["ghost"] for c in courses)))
+
+
+def _w5_budget(courses, res):
+    """item 12 (SPEC.md 128.15.12.3): the `target` statement and the budget"""
+    import copy
+    peak = next((c for c in courses if c.name == "PEAK"), None)
+    if peak is not None and peak.src.target:
+        cc = copy.copy(peak)
+        cc.src = copy.copy(peak.src)
+        cc.target, cc.src.target = 30, (30, peak.src.target[1])
+        try:
+            check_budget(cc, 1)
+            got, caught = "accepted", False
+        except CourseError as e:
+            got, caught = str(e), "budget" in str(e) and "cap" in str(e)
+        res.append(("12 refused: PEAK as a 30 s course (its %d LZ4 bytes over the %d cap) - %s" % (
+            packed_len(peak.stored4), budget_cap(30), got), caught))
+    first = _first_text()
+    for what, text, want in (("target 45", _swap(first, "target 30", "target 45"), "target takes 30, 60 or 90"),
+                             ("target given twice", first + "target 60\n", "target given twice")):
+        try:
+            compile_course(text, "<FIRST, %s>" % what)
+            got, fired = "compiled", False
+        except CourseError as e:
+            got, fired = str(e), want in str(e)
+        res.append(("12 refused: %s%s" % (what, "" if fired else " -- got: " + got), fired))
+    try:
+        check_budget(compile_course(_swap(first, "target 30", ""), "<FIRST, no target>"), 1)
+        got, fired = "accepted", False
+    except CourseError as e:
+        got, fired = str(e), "no `target`" in str(e)
+    res.append(("12 refused: a course (not course 0) with no target%s" % ("" if fired else " -- got: " + got), fired))
+    for k, c in enumerate(courses):
+        if c.target is None:
+            res.append(("12 %s (course %d): no target, the benchmark's: no budget" % (c.name, k), k == 0))
+            continue
+        n, z = packed_len(c.stored4, "lz4"), packed_len(c.stored4, "lzb")
+        bg = budget(c.target)
+        res.append(("12 %s: target %d s, budget %d, cap %d: RECB 4's stored form LZ4 %d (%s), LZB %d (%s); RAM %d of %d" % (
+            c.name, c.target, bg, budget_cap(c.target), n, "over" if n > bg else "under", z,
+            "over" if z > bg else "under", len(c.cga), PARTMAX), n <= budget_cap(c.target)))
 
 
 def selfcheck(paths=None):
@@ -8087,10 +9357,15 @@ def selfcheck(paths=None):
     byname = {c.name: c for c in courses}
     for k, c in enumerate(courses):
         report(c, k)
-    idok = all(struct.unpack_from("<H", c.cga, c.part["gridoff"] + 18)[0] == part_identity(c.cga, c.part["gridoff"])
-               for c in courses)
-    res.append(("1 every course's identity at BZG1 +18 is 128.12.8's checksum of its part's words, that word taken as 0 "
-                "(%s)" % ", ".join("%s %04Xh" % (c.name, c.ident) for c in courses), idok))
+    idok = all(struct.unpack_from("<H", c.cga, c.part["gridoff"] + 18)[0] == ram_identity(c.cga) == c.ident
+               and _fletcher(_ident_bytes(c.cga8)) == c.ident for c in courses)
+    res.append(("1 every course's identity at BZG1 +18 is 128.15.7's checksum of its RAM form's words as RECB 8 lays "
+                "them out, that word and the directory's form bytes and stored lengths taken as 0 (%s)"
+                % ", ".join("%s %04Xh" % (c.name, c.ident) for c in courses), idok))
+    st1 = all(expand(c.stored, c.name) == c.cga for c in courses) and all(
+        a[1]["BZ%d.BIN" % k] == c.stored for k, c in enumerate(courses))
+    res.append(("1 every BZ<K>.BIN is the course's STORED form and expands to its RAM form (both compiles' files "
+                "compared above)", st1))
     if "MILL" in byname:                    # the negative control: two windmills' seeds exchanged
         src = open(byname["MILL"].fname if os.path.isabs(byname["MILL"].fname)
                    else os.path.join(ROOT, byname["MILL"].fname)).read()
@@ -8109,38 +9384,20 @@ def selfcheck(paths=None):
                         swp != src and cs[0].ident != cs[1].ident))
         except CourseError as e:
             res.append(("1 negative control: MILL with its seeds exchanged compiles (%s)" % e, False))
-    # wave 4 (SPEC.md 128.14.6): BENCH, TRIAL and MILL are 3b's parts byte for byte (their identities
-    # with them), and FIRST differs only by its route: its text without its `way` lines is 3b's part
-    w3names = [n for n in ("BENCH", "FIRST", "TRIAL", "MILL") if n in byname]
-    if w3names:
-        old, why = wave2_parts(w3names, W3B_COMMIT)
-        if old is None:
-            skipped.append("1 SKIPPED: %s against 3b's parts: %s" % (", ".join(w3names), why))
-        else:
-            same = [n for n in w3names if n not in ("FIRST", "MILL")]
-            diff = [n for n in same if byname[n].cga != old[n]]
-            res.append(("1 %s compile to 3b's parts (%s's tool, run from git in a temporary tree) byte for byte, their "
-                        "identities with them%s" % (", ".join(same), W3B_COMMIT,
-                                                    "" if not diff else " -- DIFFER: %s" % diff), not diff))
-            if "MILL" in w3names:               # the owner's round openings (128.14.20): MILL's openings alone
-                m = byname["MILL"]
-                why = openings_only(m, old["MILL"])
-                ctl = openings_only(m, old["MILL"], regions=opening_regions(m)[1:])
-                res.append(("1 MILL differs from 3b's part only by the owner's round openings (128.14.20): %d "
-                            "regions, every changed pixel of its picture and its lanes' poses inside one, its grid, "
-                            "records and prop records 3b's but for the offsets and its identity (%04Xh)%s; negative "
-                            "control: its first region taken out fails it (%s)" % (
-                                len(opening_regions(m)), m.ident, " -- " + why if why else "", ctl),
-                            why is None and ctl is not None))
-            if "FIRST" in w3names:
-                f = byname["FIRST"]
-                bare = compile_course("\n".join(ln for ln in open(os.path.join(ROOT, f.fname) if not
-                                                                 os.path.isabs(f.fname) else f.fname).read().split("\n")
-                                                if not ln.startswith("way ")), "<FIRST, no route>")
-                res.append(("1 FIRST differs from 3b's part only by its route and its identity: without its %d `way` "
-                            "lines it compiles to 3b's part byte for byte (identity %04Xh -> %04Xh)" % (
-                                len(f.route), bare.ident, f.ident),
-                            bare.cga == old["FIRST"] and len(f.route) >= 2 and f.ident != bare.ident))
+    # wave 5b (SPEC.md 128.15.7, 128.15.12.3): every course's MODEL, written back as BZC1, is the last BZC1
+    # tree's part byte for byte (ef59209a's tool, run from git in a temporary tree) - 5b changed the
+    # container and nothing it holds.  (Wave 4's own comparisons with 3b's parts, MILL's openings and
+    # FIRST's route, were that wave's and are carried by this chain.)
+    old, why = wave2_parts([c.name for c in courses], W5_COMMIT, [os.path.basename(c.fname) for c in courses])
+    if old is None:
+        skipped.append("1 SKIPPED: the courses against %s's BZC1 parts: %s" % (W5_COMMIT, why))
+    else:
+        diff = [c.name for c in courses if encode_bzc1(c.model_u) != old[c.name]]
+        res.append(("1 every course's model, its masks before the ghost dither (item 11 checks the dither), written "
+                    "back as BZC1 is %s's part byte for byte (%s), their BZC1 identities with them: 5b moved the "
+                    "container and the masks' checker, not a byte it holds%s" % (
+                        W5_COMMIT, ", ".join(c.name for c in courses), "" if not diff else " -- DIFFER: %s" % diff),
+                    not diff))
     # 2. the grammar and the bounds
     for what, text, want in _grammar_cases():
         try:
@@ -8179,7 +9436,7 @@ def selfcheck(paths=None):
         if c.part["nprop"]:
             bb = bytearray(c.cga)
             bb[c.part["propoff"] + 1] |= PF_UNDER
-            struct.pack_into("<H", bb, c.part["gridoff"] + 18, part_identity(bb, c.part["gridoff"]))
+            restamp(bb)
             try:
                 read_part(bytes(bb))
                 fired = False
@@ -8459,7 +9716,7 @@ def selfcheck(paths=None):
         _route_checks(byname["BENCH"], res, byname.get("TRIAL"), byname.get("FIRST"))
     if "MILL" in byname:
         _mill_route(byname["MILL"], res)
-    # wave 4 (SPEC.md 128.14): the props' rules, NO TRAP, the new courses' routes, the HUD, the demos
+    # wave 4 (SPEC.md 128.14): the props' rules, NO TRAP, the new courses' routes, the demos
     _w4_physics(byname, res)
     for c in courses:
         if getattr(c, "trap", None):
@@ -8470,9 +9727,6 @@ def selfcheck(paths=None):
         if any(p["kind"] >= PK_CHECKPOINT for p in c.props) or c.branches:
             _w4_course_report(c, res)
             _w4_route(c, res)
-        elif c.name != "BENCH":
-            bad = hud_conflicts(c)
-            res.append(("8 %s: NOTHING UNDER THE HUD (its route's waypoints)" % c.name, bad is None))
     # item 5, the flags (128.14.25 item 1): a pennant is clipped by what is drawn in front of its flag, and
     # a flag the player cannot see is refused - every shipped flag's two poses clear of nearer geometry
     def _pfront(c):
@@ -8504,20 +9758,19 @@ def selfcheck(paths=None):
                 "6's spring test, which the same course passes with it" % (
                     spring_bounds(cs)[0][0][1], spring_bounds(cs)[0][0][2]),
                 not spring_bounds(cs)[1] and spring_bounds(cf)[1]))
-    cupc = next((c for c in courses if c.gflags & GF_CUP), None)
-    if cupc is not None:                      # item 8's control: the HUD's rect put over the cup
-        cp = next(i for i, p in enumerate(cupc.props) if p["kind"] == PK_CUP)
-        x, y = min(cupc.prop_pix[cp])
-        global HUD_COLS, HUD_LINE
-        old_c, old_l = HUD_COLS, HUD_LINE
-        try:
-            HUD_COLS = (x - 2, x + 14)
-            HUD_LINE = (y - 1, y - 1)             # (the left-edge strip then runs from the cup's line down)
-            caught = hud_conflicts(cupc) is not None
-        finally:
-            HUD_COLS, HUD_LINE = old_c, old_l
-        res.append(("8 negative control (underhud): %s's cup under the clamped rect (the rect moved onto it) is "
-                    "caught by the check" % cupc.name, caught))
+    # item 8 (SPEC.md 128.15.3): NOTHING UNDER THE HUD went with the HUD, and its `underhud` control (which had
+    # to MOVE the rect onto a cup) with it. No compilable cup reached the real rect: the reach's two-cell moat
+    # keeps a cup's mark at least 41 px from the picture's left edge (the rect ended at 24) and the fall margin
+    # keeps it far above the foot strip. What stays is a cup put as far toward the old panel's corner as a
+    # green allows - its front-left cell - compiling
+    try:
+        cw = compile_course(_W4C.replace("cup 12 6", "cup 5 7"), "<a cup at the front-left>")
+        why = "its mark %d px from the picture's left edge" % min(x for x, y in cw.prop_pix[
+            next(i for i, p in enumerate(cw.props) if p["kind"] == PK_CUP)]["cup"])
+        cok = True
+    except CourseError as e:
+        why, cok = "refused: %s" % e, False
+    res.append(("8 no HUD refusal: a cup on the green's front-left cell compiles (%s)" % why, cok))
     _w4_demos(courses, paths, res)
     # the tables bzcourse.inc carries (128.14.4.2, 128.14.7.2): BZ_CRS_PARS, BZ_CRS_IDS, BZ_PHYSV - the
     # physics identity recomputed with the standard library's own CRC-CCITT (binascii.crc_hqx)
@@ -8552,6 +9805,10 @@ def selfcheck(paths=None):
     if caught is not None:
         res.append(("5 MILL negative control: a rotor whose blades are drawn IN FRONT of the doorway (a moving part "
                     "before the ball in one pose and not another) is REFUSED by the pose check", caught))
+    # wave 5b (SPEC.md 128.15.12.3): item 10, the compact form; item 12, the budget
+    _w5_compact(courses, res)
+    _w5_dither(courses, res, getattr(compile_all, "demos", None))
+    _w5_budget(courses, res)
     ok = True
     for what, good in res:
         print("  %-4s %s" % ("ok" if good else "FAIL", what))
@@ -8562,6 +9819,203 @@ def selfcheck(paths=None):
                                       "ok, but %d item%s SKIPPED (exit 77)" % (len(skipped), "s" if len(skipped) > 1
                                                                                else "")))
     return 1 if not ok else 77 if skipped else 0
+
+
+# =============================================================================
+# --sizes (SPEC.md 128.15.12.2): what each course and the package cost, both formats
+# =============================================================================
+
+def _ff(clk, nbytes):
+    """an 8088 instruction's clocks with the fetch floor: max(clk, 4.34 x its bytes) (PERFORMANCE.md Part 2)"""
+    return max(clk, 4.34 * nbytes)
+
+
+# LZB's decode, PRICED from kernel/lz.inc's lz_lzb as kern_big assembles it (KHP_LZ), 8088 timings (the
+# 8086's plus 4 a word access), each instruction at its fetch floor, all x 1.05 (ESTIMATED):
+#   a literal:  cmp si,bp / jae / add dl,dl / jz / jc (each 2 bytes, 8.68) + sub bx,1 (3 bytes, 13.02)
+#               + jb (8.68) + movsb (18) + jmp short .loop (15)                          = 98.1
+#   a tag bit's refill, one bit in eight: the jz taken (+7.3), mov dl,[si] (13), inc si (4.34),
+#               adc dl,dl (8.68), jmp short .bit (15) = 48.3, so 6.04 a bit
+#   a match:    the head (four 8.68s, jc .match taken 16, its bit 6.04) = 56.8; two `call .gamma` (23)
+#               and `ret` (20), two `mov ax,1` (13.02); mov cx,ax; the offset's dec ax x2, mov ah,al,
+#               lodsb (12); dec ax, cmp ax,di, jae, sub bx,cx, jb; push ds (14), xchg, neg si, add si,di,
+#               dec si, push es (14), pop ds (12), rep movsb's 9, pop ds (12), xchg, jmp short (15)
+#   a gamma round (two bits: add/jz/adc/jc/add/jz and jc .g, two bit refills): 80.2 when it continues,
+#               72.8 the last; a value v takes bit_length(v) - 1 rounds
+#   a copied byte: rep movsb's 17 (a match's, and the tail's)
+LZB_LIT = (5 * _ff(3, 2) + _ff(4, 3) + _ff(4, 2) + 18 + 15) + (16 - _ff(4, 2) + 13 + _ff(2, 1) + _ff(3, 2) + 15) / 8.0
+_LZB_BIT = (16 - _ff(4, 2) + 13 + _ff(2, 1) + _ff(3, 2) + 15) / 8.0
+LZB_MATCH0 = ((4 * _ff(3, 2) + 16 + _LZB_BIT) + 2 * 23 + 2 * 20 + 2 * _ff(4, 3) + _ff(2, 2)
+              + 2 * _ff(2, 1) + _ff(2, 2) + 12 + _ff(2, 1) + 4 * _ff(3, 2) + 14 + _ff(3, 1) + 2 * _ff(3, 2)
+              + _ff(2, 1) + 14 + 12 + 9 + 12 + _ff(3, 1) + 15)
+LZB_ROUND = 6 * _ff(3, 2) + 2 * _LZB_BIT        # + the last jc: 16 taken, 8.68 not
+LZB_COPY = 17
+LZ4_BYTE = 63.8                                 # LZ4's clocks an output byte (SPEC.md 20.13.6, Calc)
+SIZE_MARGIN = 1.05
+
+
+def lzb_cost(stream, outlen):
+    """-> (clocks, literals, matches, copied bytes): the decode's price from the
+    real stream's symbols (ESTIMATED; the constants above)"""
+    filt = os88lz.is_filtered(stream, outlen)
+    buf = stream[2:] if filt else stream
+    r = os88lz._BitIn(buf)
+    r.p, end = os88lz._tail_bounds(buf)
+    lits = matches = copied = 0
+    clk = 0.0
+    n = 0
+    while r.p < end:
+        if r.bit() == 0:
+            r.byte()
+            lits += 1
+            n += 1
+            continue
+        ml = r.gamma()
+        hi = r.gamma()
+        r.byte()
+        matches += 1
+        copied += ml
+        n += ml
+        clk += LZB_MATCH0 + ml * LZB_COPY
+        for v in (ml, hi):                      # bit_length - 1 rounds, every jc .g taken but the last
+            rounds = v.bit_length() - 1
+            clk += rounds * LZB_ROUND + (rounds - 1) * 16 + _ff(4, 2)
+    tail = len(buf) - end
+    clk += lits * LZB_LIT + tail * LZB_COPY
+    return clk * SIZE_MARGIN, lits, matches, copied + tail
+
+
+def _o88_arms(courses, demo_files):
+    """BONANZA.O88 packed both ways (os88pkg, as the Makefile's rule runs it) from
+    build/bonanza.bin, the built art's other parts and these courses' stored
+    forms, and bonanza360.img's clusters with each: -> {fmt: (o88 bytes, clusters,
+    of)} or None when the package is not built"""
+    import subprocess
+    import tempfile
+    bdir = os.path.join(ROOT, "build")
+    art = os.path.join(bdir, "bonanza-art")
+    binf = os.path.join(bdir, "bonanza.bin")
+    need = [os.path.join(art, n) for n in ("BZBALR.BIN", "BZBALS.BIN", "BZBALG.BIN", "BZSND.BIN")]
+    if not os.path.exists(binf) or not all(os.path.exists(p) for p in need):
+        return None
+    songs = sorted((n for n in os.listdir(art) if re.match(r"^BZM\d+\.BIN$", n)), key=lambda n: int(n[3:-4]))
+    readme = os.path.join(bdir, "zdata-lz4", "bonanza", "README.md")
+    if not os.path.exists(readme):
+        readme = os.path.join(ROOT, "apps", "bonanza", "README.md")
+    out = {}
+    with tempfile.TemporaryDirectory() as td:
+        parts = need[:3]
+        for k, c in enumerate(courses):
+            p = os.path.join(td, "BZ%d.BIN" % k)
+            with open(p, "wb") as f:
+                f.write(c.stored)
+            parts.append(p)
+        parts += [need[3]] + [os.path.join(art, n) for n in songs]
+        for name in sorted(demo_files, key=lambda n: int(n[3:-4])):
+            p = os.path.join(td, name)
+            with open(p, "wb") as f:
+                f.write(demo_files[name])
+            parts.append(p)
+        for fmt in ("lz4", "lzb"):
+            o88 = os.path.join(td, "BONANZA.O88")
+            r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "os88pkg.py"), "--compress-if=lz4", binf,
+                                "-o", o88, "--part-compress", fmt] + [a for p in parts for a in ("--part", p)],
+                               cwd=ROOT, capture_output=True, text=True)
+            if r.returncode:
+                return {"error": (r.stderr or r.stdout)[-300:]}
+            img = os.path.join(td, "b360.img")
+            r2 = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "os88disk.py"), "-o", img, "--size", "360",
+                                 o88, readme, "--folder", "SYSTEM/APPDATA"], cwd=ROOT, capture_output=True, text=True)
+            m = re.search(r"(\d+)/(\d+) clusters", r2.stdout)
+            out[fmt] = (os.path.getsize(o88), int(m.group(1)) if m else None, int(m.group(2)) if m else None)
+    return out
+
+
+def sizes(paths):
+    """SPEC.md 128.15.12.2: every course's sections, its stored form packed
+    both ways with its predicted decode, its RAM and its budget; then the
+    package's.  Figures are MEASURED on the host (the packers are the
+    shipped ones) except the decode times, which are PREDICTED"""
+    courses, files, texts = compile_all(paths)
+    fmts = (("lz4", "LZ4"), ("lzb", "LZB"))
+    tot = {"lz4": 0, "lzb": 0, "ram": 0}
+    print("bbcourse --sizes: RECB %d (%s), the stored form of SPEC.md 128.15.4.3; packed as os88pkg packs a part "
+          "(os88lz, the near-call filter tried); KiB = 1,024 bytes" % (REC, "D" if REC == 4 else "C"))
+    for k, c in enumerate(courses):
+        pt = c.part
+        whole = {f: packed_len(c.stored, f) for f, _ in fmts}
+        print("\n  course %d %s (%s): RAM %d bytes, stored %d (%d of them holes), %d sections" % (
+            k, c.name, os.path.basename(c.fname), len(c.cga), len(c.stored),
+            sum(e["len"] - e["dlen"] for e in pt["dir"]), pt["nsec"]))
+        print("    %-3s %-18s %-10s %7s %7s %9s %9s" % ("tag", "section", "form", "RAM", "stored", "LZ4 share",
+                                                       "LZB share"))
+        for e in pt["dir"]:
+            z = bytearray(c.stored)
+            z[e["off"] + e["len"] - e["dlen"]:e["off"] + e["len"]] = bytes(e["dlen"])
+            sh = {f: whole[f] - packed_len(bytes(z), f) if e["dlen"] else 0 for f, _ in fmts}
+            print("    %-3s %-18s %-10s %7d %7d %9d %9d" % (e["tag"], SEC_NAMES[e["tag"]], FORM_NAMES[e["form"]],
+                                                         e["len"], e["dlen"], sh["lz4"], sh["lzb"]))
+        print("    header %d, directory %d x %d = %d" % (HDR, pt["nsec"], DIRENT, DIRENT * pt["nsec"]))
+        z4 = _PACKED[(hashlib.sha256(bytes(c.stored)).digest(), "lz4")]
+        zb = _PACKED[(hashlib.sha256(bytes(c.stored)).digest(), "lzb")]
+        lzbclk, lits, mats, cop = lzb_cost(zb, len(c.stored))
+        print("    the whole stored form: LZ4 %d (%d with its paragraph padding)%s, LZB %d (%d)%s" % (
+            whole["lz4"], (whole["lz4"] + 15) & ~15, " +E8" if os88lz.is_filtered(z4, len(c.stored)) else "",
+            whole["lzb"], (whole["lzb"] + 15) & ~15, " +E8" if os88lz.is_filtered(zb, len(c.stored)) else ""))
+        print("    its decode, PREDICTED: LZ4 %.0f ms (%d bytes at %.1f clk), LZB %.0f ms (%d literals, %d matches, "
+              "%d bytes copied; %.0f clk a byte)" % (
+                  len(c.stored) * LZ4_BYTE / 4770.0, len(c.stored), LZ4_BYTE, lzbclk / 4770.0, lits, mats, cop,
+                  lzbclk / len(c.stored)))
+        print("    RAM %d bytes against %d: %d of headroom; %.0f bytes a block row (%d rows)" % (
+            len(c.cga), PARTMAX, PARTMAX - len(c.cga), len(c.cga) / float(c.brows), c.brows))
+        if c.target is None:
+            print("    no target (course 0, the benchmark's): no budget")
+        else:
+            bg, cap = budget(c.target), budget_cap(c.target)
+            pace = c.target / float(c.brows)
+            rows = int((PARTMAX - HDR) / (len(c.cga) / float(c.brows)))
+            print("    target %d s: %.3f s a block row; one part holds about %d rows at this density, about %.0f s at "
+                  "this pace" % (c.target, pace, rows, rows * pace))
+            if c.target == 90:
+                print("    a 90 s course needs wave 11's levers (story 11.6) and a pace of at least 0.425 s a row")
+            print("    budget %d bytes (ROOM %d x %d / %d), cap %d (LZ4): LZ4 %d, %s; LZB %d, %s" % (
+                bg, ROOM, c.target, PLAN_SECS, cap, whole["lz4"], "OVER" if whole["lz4"] > bg else "under",
+                whole["lzb"], "OVER" if whole["lzb"] > bg else "under"))
+        tot["lz4"] += whole["lz4"]
+        tot["lzb"] += whole["lzb"]
+        tot["ram"] += len(c.cga)
+    print("\n  the %d courses: LZ4 %d, LZB %d packed; RAM %d" % (len(courses), tot["lz4"], tot["lzb"], tot["ram"]))
+    planned = 0
+    have = {}
+    for c in courses:
+        if c.target:
+            have[c.target] = have.get(c.target, 0) + 1
+    for t, n in PLAN_SET:
+        planned += max(0, n - have.get(t, 0)) * budget(t)
+    shipped = sum(packed_len(c.stored, "lz4") for c in courses if c.target)
+    shippedb = sum(packed_len(c.stored, "lzb") for c in courses if c.target)
+    print("  the set: the shipped tour courses (%d LZ4, %d LZB) and the plan's courses still to come at their "
+          "budgets (%d: %s) against ROOM %d (%.0f KiB): LZ4 %.1f KiB, LZB %.1f KiB" % (
+              shipped, shippedb, planned, ", ".join("%d x %d s" % (max(0, n - have.get(t, 0)), t)
+                                                    for t, n in PLAN_SET),
+              ROOM, ROOM / 1024.0, (shipped + planned) / 1024.0, (shippedb + planned) / 1024.0))
+    arms = _o88_arms(courses, {n: d for n, d in files.items() if n.startswith("BZD")})
+    if arms is None:
+        print("  the package: build/bonanza.bin or the built art's other parts are missing - `make bonanza` "
+              "first for BONANZA.O88's figures")
+    elif "error" in arms:
+        print("  the package: os88pkg refused: %s" % arms["error"])
+    else:
+        for fmt, name in fmts:
+            o, used, of = arms[fmt]
+            print("  BONANZA.O88 with %s parts: %d bytes; bonanza360.img %s/%s clusters" % (name, o, used, of))
+        o, used, of = arms["lzb"]
+        crs = sum(packed_len(c.stored, "lzb") for c in courses)
+        print("  the live derivation of ROOM: the 360KB disk's %d clusters, less what is not a course today (%d "
+              "clusters with LZB parts, of which the courses are about %.0f KiB) leaves about %.0f KiB for courses "
+              "before the plan's later items (the pathway, the front art, the family parts and 10%% slack) - "
+              "ROOM is %.0f KiB" % (of, used, crs / 1024.0, of - used + crs / 1024.0, ROOM / 1024.0))
+    return 0
 
 
 def previews(paths, out):
@@ -8598,8 +10052,60 @@ def previews(paths, out):
                 data += [255 * (pr >> 1), 255 * (pr & 1)]
         h.putdata(data)
         h.save(base + "-herc.png")
+        ghost_previews(c, base, Image)
     print("bbcourse: previews in %s" % out)
     return 0
+
+
+GHOST_ZOOM = 6                  # the ghost previews' zoom, in game pixels
+
+
+def ghost_previews(c, base, Image, at=None):
+    """the ghost dither (SPEC.md 128.15.10), side by side: the ball behind
+    scenery BEFORE (every record laying its pixels, the undithered masks) and
+    AFTER (the dithered masks out of the RAM part, laid as the guest lays
+    them: card_composite), on the CGA's palette and through herc_pair, zoomed
+    GHOST_ZOOM times.  AT: (px, py, sb, zb, air); default the autopilot
+    route's step whose ball the rule hides most (its first such step).
+    Writes BASE-ghost-cga.png and BASE-ghost-herc.png; -> the step, or None
+    when no step of the route lays a record over the ball"""
+    if at is None:
+        best = (0, None)
+        p = Physics(c, play=True)
+        while p.nstep < DEMO_STEPS and not p.goal:
+            p.step(p.auto())
+            if p.tube or p.hid:
+                continue
+            laid = set()
+            for r in laid_at(c, p.px, p.py, p.sb, p.zb, p.air):
+                laid |= r["pix"]
+            k = sum(1 for q in ball_pixels(p.px, p.py) if q in laid)
+            if k > best[0]:
+                best = (k, (p.px, p.py, p.sb, p.zb, p.air, p.nstep))
+        if best[1] is None:
+            return None
+        at = best[1]
+    px, py, sb, zb, air = at[:5]
+    before = composite(c, px, py, sb, zb, air, "records", ghost=False)
+    after = card_composite(c, px, py, sb, zb, air)
+    x0, y0 = max(0, (px & ~3) - 16), max(0, py - 12)
+    x1, y1 = min(c.width, (px & ~3) + 36), min(c.lines, py + 28)
+    w, h = x1 - x0, y1 - y0
+    gap = 2
+    cga = Image.new("RGB", (2 * w + gap, h), (128, 128, 128))
+    herc = Image.new("L", (2 * (2 * w + gap), h), 128)
+    for i, comp in enumerate((before, after)):
+        for y in range(y0, y1):
+            for x in range(x0, x1):
+                v = comp.get((x, y), c.pic[y][x])
+                cga.putpixel((i * (w + gap) + x - x0, y - y0), CGA1[v])
+                pr = herc_pair(v, y, x)
+                hx = 2 * (i * (w + gap) + x - x0)
+                herc.putpixel((hx, y - y0), 255 * (pr >> 1))
+                herc.putpixel((hx + 1, y - y0), 255 * (pr & 1))
+    cga.resize((cga.width * GHOST_ZOOM, h * GHOST_ZOOM), Image.NEAREST).save(base + "-ghost-cga.png")
+    herc.resize((herc.width * GHOST_ZOOM // 2, h * GHOST_ZOOM), Image.NEAREST).save(base + "-ghost-herc.png")
+    return at
 
 
 def default_paths():
@@ -8688,6 +10194,7 @@ def main_author(argv):
 
 
 def main():
+    global REC
     if len(sys.argv) > 1 and sys.argv[1] in ("demo", "author"):
         try:
             return (main_demo if sys.argv[1] == "demo" else main_author)(sys.argv[2:])
@@ -8700,9 +10207,16 @@ def main():
     ap.add_argument("-o", "--out", help="output directory")
     ap.add_argument("--selfcheck", action="store_true")
     ap.add_argument("--png", metavar="DIR", help="write preview PNGs (needs Pillow)")
+    ap.add_argument("--rec", type=int, choices=(4, 8), default=REC,
+                    help="RECB, the occluder record's RAM size: 8 (C, the default and the shipped form) or 4 "
+                         "(D, not shipped: SPEC.md 128.15.5.4's verdict); the stride is data, so both are kept")
+    ap.add_argument("--sizes", action="store_true",
+                    help="every course's sections, stored and packed both ways, its decode time, RAM and budget, "
+                         "then the package's (SPEC.md 128.15.12.2); about a minute a course")
     a = ap.parse_args()
-    if not (a.out or a.selfcheck or a.png):
-        ap.error("need -o OUT, --selfcheck or --png DIR")
+    if not (a.out or a.selfcheck or a.png or a.sizes):
+        ap.error("need -o OUT, --selfcheck, --sizes or --png DIR")
+    REC = a.rec
     paths = a.courses or default_paths()
     try:
         rc = 0
@@ -8710,6 +10224,8 @@ def main():
             rc |= selfcheck(paths)
         if a.out:
             write_out(a.out, paths)
+        if a.sizes:
+            rc |= sizes(paths)
         if a.png:
             rc |= previews(paths, a.png)
         return rc

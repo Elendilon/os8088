@@ -2,7 +2,7 @@
 """BONANZA on kern_mega: correct on selectors, RUN (SPEC.md 128.10.6.4, 128.11.14, 128.11.17.2).
 
     make mega bonanzadisk && python3 tests/bonanza_mega.py [--keep]
-    python3 tests/bonanza_mega.py --red segadd|hxcs|shiftmap|mapcs|stageseg     (a red arm, below)
+    python3 tests/bonanza_mega.py --red segadd|hxcs|shiftmap|mapcs|stageseg|expcs   (a red arm, below)
     python3 tests/bonanza_mega.py --check                        (the host half: the red arms assemble)
 
 Under kern_mega a claim is an LDT SELECTOR, so every segment wave 1 added -
@@ -63,8 +63,7 @@ BONANZA plays on a CGA or a Hercules only - and then:
      the end state the model's;
 
   7  WAVE 4 (SPEC.md 128.14.14): PEAK's shipped demo (V) through D on the
-     Hercules with the HUD FOLLOW and then REST (while the build carries
-     it): each launch fetches the course and ALL THREE ball parts (four
+     Hercules: the launch fetches the course and ALL THREE ball parts (four
      claims inside), its end state the model's replay of the demo, and at
      least one respawn's cut after the first full write - each blanked by
      an OUT to 3B8h, no fault;
@@ -110,6 +109,19 @@ the row FAILS at its own check:
             Left Shift held (MEASURED, SPEC.md 128.13.3.4), so the map loses
             Grip under it: red at "3. the fake-shift release" (a SKIP of
             that check leaves this arm unjudged, and it says so)
+  expcs     (wave 5b, SPEC.md 128.15.11) ROWTAB's stores (bz_cexp's form 5)
+            through a CS override: on kern_mega a code selector takes no
+            write - a #GP charged to BONANZA at the first launch (B)
+
+WAVE 5B (SPEC.md 128.15.11, 128.15.13): every launch above fetches its course
+part in BZC2's STORED form and expands it in place (bz_cexp) through the
+part's own LDT selector, before bz_hgen and bz_hxlat - B's BENCH, FIRST, MILL
+and PEAK among them - so the no-fault and no-leak checks are the expansion's
+on kern_mega too; and the parts are packed in the shipped build's format
+(the table's byte, printed: LZB unless a single-format kernel forced LZ4),
+decoded there through OSAPI_DECOMP.  A red tree packs its parts in the same
+format (R.build_tree).  Every launch is the Hercules': BONANZA refuses the
+Paradise VGA (bz_adapter), and the expansion runs before anything card's.
 Needs a built 86Box (python3 tools/os88box.py build).
 """
 import argparse
@@ -363,7 +375,7 @@ def check_after(what, pkg, base_rows, base_claims, got_claims):
     want(got_claims == base_claims, "%s: the instance's claims as before the launch: %s" % (what, got_claims))
 
 
-# ---- wave 4 (SPEC.md 128.14.14): PEAK, the HUD, W, L, D and the double-click -------------------------
+# ---- wave 4 (SPEC.md 128.14.14): PEAK, W, L, D and the double-click -------------------------
 SAVENAME = "PEAKA.BZR"
 
 
@@ -428,8 +440,7 @@ def demo_run(b, pkg, key, what, demo, crs, inside=None, base_claims=None, hs=Non
 
 def w4_cases(b, pkg, img_b, base_rows, base_claims, hs, eq):
     """7 - 9 (SPEC.md 128.14.14 bonanzamega): PEAK's shipped demo by D on the
-    Hercules with its three balls, the HUD FOLLOW and then REST (while the build
-    carries it) - every launch fetching the course and all three ball parts
+    Hercules with its three balls - the launch fetching the course and all three ball parts
     through their own selectors, a respawn's cut blanking the card (an OUT to
     3B8h, no fault); W into the instance's folder through the Save form and L
     of it back through the Open form (the staging claim used whole through its
@@ -441,22 +452,16 @@ def w4_cases(b, pkg, img_b, base_rows, base_claims, hs, eq):
     b.tap("v", gap=300)
     b.until(lambda: bytes(b.memr(pkg.a("bz_rlog"), len(demo))) == demo, "V to load PEAK's demo", 20000, 50)
     b.ui_done(limit_ms=20000)
-    modes = ((2, "FOLLOW"), (1, "REST")) if "bz_hmode" in pkg.sym else ((None, "no HUD built"),)
-    for hm, lab in modes:
-        if hm is not None:
-            memw(b, pkg.a("bz_hmode"), bytes([hm]))
-        cuts = demo_run(b, pkg, "d", "7. D of PEAK's demo (the HUD %s)" % lab, demo, "peak", inside=4,
-                        base_claims=base_claims, hs=hs, eq=eq)
-        # the first full write ASSERTED, a respawn's cut REPORTED: not every
-        # respawn cuts (one inside the window scrolls instead), and which of
-        # PEAK's do on the Hercules moved between two runs of the final pass of
-        # wave 4 (1 and 2 full writes) - as bonanzaring's W4 replays already
-        # report it (SPEC.md 128.14.24 item 2)
-        want(cuts >= 1, "7. D of PEAK's demo (the HUD %s): %d full write(s) - the first, BLANKED (bz_blank's OUT "
-             "to 3B8h), with no fault; respawn cuts %d (REPORTED)" % (lab, cuts, max(cuts - 1, 0)))
-        check_after("7. D of PEAK's demo (the HUD %s)" % lab, pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
-    if "bz_hmode" in pkg.sym:
-        memw(b, pkg.a("bz_hmode"), b"\0")
+    cuts = demo_run(b, pkg, "d", "7. D of PEAK's demo", demo, "peak", inside=4,
+                    base_claims=base_claims, hs=hs, eq=eq)
+    # the first full write ASSERTED, a respawn's cut REPORTED: not every
+    # respawn cuts (one inside the window scrolls instead), and which of
+    # PEAK's do on the Hercules moved between two runs of the final pass of
+    # wave 4 (1 and 2 full writes) - as bonanzaring's W4 replays already
+    # report it (SPEC.md 128.14.24 item 2)
+    want(cuts >= 1, "7. D of PEAK's demo: %d full write(s) - the first, BLANKED (bz_blank's OUT "
+         "to 3B8h), with no fault; respawn cuts %d (REPORTED)" % (cuts, max(cuts - 1, 0)))
+    check_after("7. D of PEAK's demo", pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
     # 8. W through the Save form, L through the Open form, D of what it read
     b.tap("w", gap=300)
     b.ui_done(limit_ms=20000)
@@ -823,8 +828,14 @@ REDS["stageseg"] = [("bonanza.asm", "    pop ds                      ; DS = the 
                      "    xor si, si\n    mov di, bz_rlog\n    sub cx, 16                  ; RED stageseg\n"
                      "    push cx\n    mov cx, 16\n    rep movsb\n    pop cx\n    mov si, ds\n    inc si\n"
                      "    mov ds, si\n    xor si, si\n    rep movsb\n")]
+# wave 5b (SPEC.md 128.15.11): ROWTAB's stores through a CS override - written where the part's selector
+# is meant, a code selector on kern_mega: a #GP at the first launch's expansion
+REDS["expcs"] = [("bonanza.asm", "    lea ax, [bx + 32]\nbz_cxramp:                      ; CX words from AX, DX apart\n",
+                  "    lea ax, [bx + 32]\n.red:\n    mov [cs:di], ax             ; RED expcs: ROWTAB through CS\n"
+                  "    inc di\n    inc di\n    add ax, dx\n    loop .red\n    ret\n"
+                  "bz_cxramp:                      ; CX words from AX, DX apart\n")]
 RED_WANT = {"segadd": None, "hxcs": None, "shiftmap": "3. the fake-shift release", "mapcs": None,
-            "stageseg": None}
+            "stageseg": None, "expcs": None}
 
 
 def main():
@@ -842,6 +853,9 @@ def main():
             sys.exit("bonanza_mega: build/%s is not built - `make mega bonanzadisk`" % f)
     tmp = tempfile.mkdtemp(prefix="bonanzamega")
     try:
+        print("bonanza_mega: the parts are %s (the parts table's format byte, SPEC.md 128.15.9): every course "
+              "part decoded through OSAPI_DECOMP and expanded through its selector" % R.part_fmt().upper(),
+              flush=True)
         if a.red:
             _, img_b = R.build_tree(tmp, REDS[a.red], size=1440)
             mine = run(img_b, a.keep, tmp)

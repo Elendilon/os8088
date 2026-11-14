@@ -30,8 +30,10 @@ bonanzadisk builds it, and nothing else):
           falls in bz_tfall, bz_tour the next course; bz_tour 6 after the fifth
           and the total their sum; BONANZA.DAT read back = the expected 64
           bytes (`BZT1`, the count, each course's identity, best and falls,
-          the tour's XOR and total); SUMMIT's launch time and every course's
-          floppy reads REPORTED
+          the tour's XOR and total); every course's launch time to its
+          bracket and floppy reads REPORTED - wave 5b (SPEC.md 128.15.13): on
+          the BZC2 parts, stored compact and expanded at the fetch, in the
+          shipped parts' format (printed)
   stop    a second tour: course 1 as before, course 2 (TRIAL) played SLOWER
           (the autopilot withheld for a guest second: its steps the idle ones
           plus the model's from rest), Esc in course 3 - bz_tour 7 (stopped),
@@ -50,20 +52,6 @@ bonanzadisk builds it, and nothing else):
           autopilot) REWRITES THE FILE WHOLE as this build's 64 bytes
   noapp   a disk built WITHOUT SYSTEM\\APPDATA: a best toasts `Best times not
           saved` once (bz_toast reached once over two bests, bz_datw 1)
-  hud     ONLY WHEN THE BUILD CARRIES THE HUD (bz_hmode among the symbols;
-          SPEC.md 128.14.16 item 4): MILL's shipped route demo replayed (R)
-          with the HUD at REST under GLIDE and under TRICKLE, FOLLOW and OFF;
-          at every bz_presented bz_htn = floor(nstep x 218,450 / 1,193,182)
-          (held at 65,535); at every 5th where the panel is on the card the
-          card's rect - word columns 1 - 2 of the six lines ending BZ_MAXR card
-          rows above the window's foot, decoded from the SHOWN start address -
-          equal to the panel the host renders for bz_hdisp's tenths, and
-          bz_hdisp = bz_htn but within BZ_HUDLAG + 2 frames of a change; OFF:
-          the panel never on; in REST no HUD box (bz_hwk) on a frame with an
-          entering row or column (breakpoints on bz_row and bz_col) but a
-          RELEASE (a HIDE counted in bz_nhrel), and a glyph or SHOW box never
-          on a heavy frame nor one with a row or column; REPORTED the shown
-          share of each leg, the boxes by kind and the releases
 
 --red NAME builds a broken package (or image) in a temporary directory (never
 build/) and PASSES only if the row FAILS - at its own check:
@@ -71,8 +59,6 @@ build/) and PASSES only if the row FAILS - at its own check:
   datlen      BONANZA.DAT's length check removed: the 32-byte file's best is shown
   replaybest  a replay posts a best: the posts leg's R
   noappdata   the leg's image built without SYSTEM\\APPDATA: the tour's read-back
-  hudhold     REST's one-frame hold removed: a HIDE on a scroll frame (HUD only)
-  hudtime     the tenths from the FRAME count: bz_htn parts from the steps' (HUD only)
 """
 import argparse
 import os
@@ -93,15 +79,7 @@ DAT = "SYSTEM/APPDATA/BONANZA.DAT"
 NTOUR = 5                       # bonanza.asm BZ_NTOUR (BZ_NCRS - 1)
 NENT = 8                        # BZD_NENT
 TOURMAX = NTOUR * 65534
-HTN_ADD, HTN_DIV = 218450, 1193182      # bzhud.inc: tenths a step
-HUDREST, HUDLAG, MAXR = 12, 6, 2         # bzhud.inc BZ_HUDREST, BZ_HUDLAG; bzgame.inc BZ_MAXR
-HK = {1: "union", 2: "glyph", 3: "hide", 4: "show", 5: "full"}
-LEGS = ("posts", "pause", "tour", "stop", "face", "hostile", "noapp", "hud")
-# the HUD's glyphs as SPEC.md 128.14.5.2 draws them, 3 x 5 (a second reader of
-# bzhud.inc's bz_hfont, written from the spec's shapes): 0 - 9, '.', ':', blank
-GLYPH = ((7, 5, 5, 5, 7), (2, 6, 2, 2, 7), (7, 1, 7, 4, 7), (7, 1, 3, 1, 7), (5, 5, 7, 1, 1),
-         (7, 4, 7, 1, 7), (7, 4, 7, 5, 7), (7, 1, 1, 1, 1), (7, 5, 7, 5, 7), (7, 5, 7, 1, 7),
-         (0, 0, 0, 0, 2), (0, 2, 0, 2, 0), (0, 0, 0, 0, 0))
+LEGS = ("posts", "pause", "tour", "stop", "face", "hostile", "noapp")
 
 
 # ---- the model's side -----------------------------------------------------------
@@ -421,8 +399,9 @@ def leg_tour(g, best):
             d.hex() if d else "ABSENT", exp.hex()))
     if bytes(g.m.read(g.a("bz_dat"), 64)) != exp:
         fails.append("tour: [bz_dat] is not the expected image")
-    print("%s tour: %s; total %d steps; BONANZA.DAT the expected 64 bytes: %s" % (
-        g.tag, "; ".join(rep), total, "yes" if not fails else "NO"), flush=True)
+    print("%s tour (the parts %s, the courses BZC2's, expanded at each fetch: SPEC.md 128.15.13, the launch times "
+          "REPORTED): %s; total %d steps; BONANZA.DAT the expected 64 bytes: %s" % (
+              g.tag, R.part_fmt().upper(), "; ".join(rep), total, "yes" if not fails else "NO"), flush=True)
     return fails, best, total
 
 
@@ -561,138 +540,12 @@ def leg_noapp(tag, sym, td, o88=None):
     return fails
 
 
-def panel(tn):
-    """the panel's 24 bytes for TN tenths, as SPEC.md 128.14.5.1 - 128.14.5.2 draw it"""
-    s, t = divmod(tn, 10)
-    if s < 100:
-        ng = (s // 10 if s >= 10 else 12, s % 10, 10, t)
-    else:
-        s = min(s, 599)
-        ng = (s // 60, 11, (s % 60) // 10, s % 10)
-    out = bytearray(4)
-    for r in range(5):
-        for gl in ng:
-            v = GLYPH[gl][r]
-            out.append(((v >> 2) & 1) * 0xC0 | ((v >> 1) & 1) * 0x30 | (v & 1) * 0x0C)
-    return bytes(out)
-
-
-def card_rect(g):
-    """the HUD rect's 24 bytes as the card SHOWS them (word columns 1 - 2 of the
-    six lines ending BZ_MAXR card rows above the window's foot), decoded from
-    the shown start address bz_S"""
-    tag = g.tag
-    raw = g.m.read(0xB8000, 0x4000) if tag == "cga" else g.m.read(0xB0000, 0x8000)
-    rb, nb, S = R.RB[tag], R.RL[tag], g.w("bz_S")
-    y1 = 200 - MAXR * nb
-    out = bytearray()
-    for y in range(y1 - 6, y1):
-        bank = (y % nb) * 0x2000
-        o = ((y // nb) * rb + 2 * S + 2) % 8192
-        out += bytes(raw[bank + ((o + i) % 8192)] for i in range(4))
-    return bytes(out)
-
-
-def leg_hud(g):
-    """the HUD's digits, its modes and REST's frames (only when the HUD ships)"""
-    fails = []
-    m = g.m
-    m.pause()
-    g.putb("bz_vk", R.CRS_K["mill"] - 1)        # V loads BZD<vk + 1>: MILL's route demo
-    m.run()
-    guard(g)
-    g.key("KeyV")
-    demo = open(os.path.join(ROOT, R.at("build/bonanza-art"), "BZD%d.BIN" % R.CRS_K["mill"]), "rb").read()
-    M.until(m, lambda _: bytes(m.read(g.a("bz_rlog"), len(demo))) == demo, "V to load MILL's shipped demo",
-            guest=20)
-    report = []
-    for mode, cmode, label in ((1, 0, "REST GLIDE"), (1, 1, "REST TRICKLE"), (2, 0, "FOLLOW"), (0, 0, "OFF")):
-        m.pause()
-        g.putb("bz_hmode", mode)
-        g.putb("bz_cmode", cmode)
-        m.run()
-        wk = R.Walker(g, t0=True, extra=("bz_row", "bz_col"))
-        wk.arm()
-        g.key("KeyR")
-        frames = shown = checked = 0
-        kinds, rel0, lastchg, rowcol = {}, None, 0, 0
-        lastn = None
-        while True:
-            k = wk.next()
-            if k == "t0":
-                if g.b("bz_goal") or not (g.b("bz_rn") or g.w("bz_rruns")):
-                    break                       # the replay's end: this bz_t0 leaves the bracket
-                continue
-            if k in ("bz_row", "bz_col"):
-                rowcol += 1
-                continue
-            if k != "pr":
-                continue
-            frames += 1
-            n = g.d("bz_nstep")
-            htn, hon, hwk, hdisp = g.w("bz_htn"), g.b("bz_hon"), g.b("bz_hwk"), g.w("bz_hdisp")
-            nrel = g.w("bz_nhrel")
-            if rel0 is None:
-                rel0 = nrel
-            want = min(0xFFFF, n * HTN_ADD // HTN_DIV)
-            if mode and htn != want:
-                fails.append("hud %s frame %d: bz_htn %d at step %d, the steps' tenths are %d (SPEC.md 128.14.5.1)"
-                             % (label, frames, htn, n, want))
-                break
-            if lastn is None or want // 1 != lastn:
-                lastchg, lastn = frames, want
-            if hwk:
-                kinds[HK.get(hwk, hwk)] = kinds.get(HK.get(hwk, hwk), 0) + 1
-            if mode == 0 and (hon or hwk):
-                fails.append("hud OFF frame %d: the panel on the card (bz_hon %d, bz_hwk %d)" % (frames, hon, hwk))
-                break
-            if mode == 1 and hwk and rowcol and not (hwk == 3 and nrel != rel0):
-                fails.append("hud %s frame %d: a %s box on a frame with %d entering row(s)/column(s), not a "
-                             "release (SPEC.md 128.14.5.6)" % (label, frames, HK.get(hwk, hwk), rowcol))
-                break
-            if hwk in (2, 4) and (rowcol or g.b("bz_heavy")):
-                fails.append("hud %s frame %d: a %s box on a frame %s" % (
-                    label, frames, HK[hwk], "with a row or column" if rowcol else "that is HEAVY"))
-                break
-            rel0 = nrel
-            rowcol = 0
-            if hon:
-                shown += 1
-                if frames % 5 == 0:
-                    checked += 1
-                    card, pan = card_rect(g), panel(hdisp)
-                    if card != pan:
-                        fails.append("hud %s frame %d: the card's rect %s is not the panel for %d tenths %s" % (
-                            label, frames, card.hex(), hdisp, pan.hex()))
-                        break
-                    if hdisp != htn and frames - lastchg > HUDLAG + 2:
-                        fails.append("hud %s frame %d: the panel shows %d tenths, the clock %d for %d frames" % (
-                            label, frames, hdisp, htn, frames - lastchg))
-                        break
-        m.bp_exec()
-        m.run()
-        bracket(g, "the HUD's %s leg" % label)
-        report.append("%s %d frames, shown %d (%d%%), %d checked, boxes %s, releases %d, holds %d" % (
-            label, frames, shown, 100 * shown // max(1, frames), checked,
-            ", ".join("%s %d" % kv for kv in sorted(kinds.items())) or "none",
-            g.w("bz_nhrel"), g.w("bz_nhhold")))
-        if fails:
-            break
-    m.pause()
-    g.putb("bz_hmode", 0)
-    g.putb("bz_cmode", 0)
-    m.run()
-    print("%s hud: %s: %s" % (g.tag, "; ".join(report), "yes" if not fails else "NO"), flush=True)
-    return fails
-
-
 def run(tag, legs=LEGS, src=None, img_main=None, appdata=True, o88=None):
     sym = R.symbols(src)
     fails = []
-    hud = "bz_hmode" in sym
     with tempfile.TemporaryDirectory() as td:
         img = img_main or R.disk(td, appdata=appdata, name="game", o88=o88)
-        if set(legs) & {"posts", "pause", "tour", "stop", "face", "hud"}:
+        if set(legs) & {"posts", "pause", "tour", "stop", "face"}:
             with boot(tag, img) as ui:
                 g = open_game(ui, tag, sym)
                 best, total = {}, 0
@@ -708,11 +561,6 @@ def run(tag, legs=LEGS, src=None, img_main=None, appdata=True, o88=None):
                     fails += leg_stop(g, best, total)
                 if "face" in legs and not fails:
                     fails += leg_face(g)
-                if "hud" in legs and hud and not fails:
-                    fails += leg_hud(g)
-                elif "hud" in legs and not hud:
-                    print("%s hud: the build carries no HUD (SPEC.md 128.14.16 item 3): its checks are not "
-                          "asserted" % tag, flush=True)
         if "hostile" in legs and not fails:
             fails += leg_hostile(tag, sym, td, o88=o88)
         if "noapp" in legs and not fails:
@@ -736,18 +584,11 @@ REDS = {
     "replaybest": [("bonanza.asm", "    cmp byte [bz_mode], 0       ; a replay posts nothing\n    jne .out\n",
                     "    nop                         ; RED replaybest: a replay posts\n")],
     "noappdata": [],
-    # REST's one-frame hold removed: the HIDE lands on the scroll frame
-    "hudhold": [("bzhud.inc", "bz_hhold:\n    cmp byte [bz_hon], 0\n",
-                 "bz_hhold:\n    ret                         ; RED hudhold: no hold\n    cmp byte [bz_hon], 0\n")],
-    # the tenths from the FRAME count, not the steps
-    "hudtime": [("bzhud.inc", "    mov ax, [bz_nstep]\n    mov cx, ax\n    sub cx, [bz_hlst]\n    mov [bz_hlst], ax\n",
-                 "    mov cx, 1                   ; RED hudtime: a frame, not its steps\n")],
 }
 RED_LEGS = {"besttime": ("pause", "tour", "stop"), "datlen": ("hostile",), "replaybest": ("posts",),
-            "noappdata": ("tour",), "hudhold": ("hud",), "hudtime": ("hud",)}
+            "noappdata": ("tour",)}
 RED_WANT = {"besttime": "stop: BONANZA.DAT", "datlen": "hostile short", "replaybest": "posts: after R",
-            "noappdata": "tour: BONANZA.DAT", "hudhold": "hud REST", "hudtime": "bz_htn"}
-HUD_REDS = ("hudhold", "hudtime")
+            "noappdata": "tour: BONANZA.DAT"}
 
 
 def check():
@@ -776,8 +617,7 @@ def check():
     other = [mt for mt in range(3) if mt != R.course_k(1).ball and auto_steps(1, mt)[0]]
     print("bonanza_game posts: FIRST finished by the autopilot with %s" % (
         ", ".join(BB.MAT_NAMES[mt] for mt in other) or "no other ball"))
-    for line in R.check_reds({k: v for k, v in REDS.items() if v and (k not in HUD_REDS or "bz_hmode" in R.symbols())},
-                             "bonanza_game"):
+    for line in R.check_reds({k: v for k, v in REDS.items() if v}, "bonanza_game"):
         print(line)
     for b in bad:
         print("FAIL %s" % b)
@@ -797,10 +637,6 @@ def main():
     tags = ("cga", "herc") if a.adapter == "both" else (a.adapter,)
     legs = tuple(a.leg) if a.leg else LEGS
     if a.red:
-        if a.red in HUD_REDS and "bz_hmode" not in R.symbols():
-            print("bonanza_game --red %s: the build carries no HUD, so its check is not asserted (SPEC.md 128.14.16 "
-                  "item 4) - nothing to run" % a.red)
-            return
         with tempfile.TemporaryDirectory() as td:
             o88 = None
             if a.red == "noappdata":

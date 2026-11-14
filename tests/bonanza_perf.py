@@ -2,6 +2,7 @@
 """BONANZA: the frame's cost on MartyPC's 4.77 MHz XT, CGA and Hercules (SPEC.md 128.4, 128.10.11.3, 128.11.15, 128.11.17.2).
 
     make bonanzadisk && python3 tests/bonanza_perf.py [--adapter cga|herc|both] [--ab [COMMIT]] [--no-trial]
+                                                      [--fmt-ab]
                                                       [--leg bench|trial|mill|ride|corner ...] [--sound off|on]
     python3 tests/bonanza_perf.py --red halfcal|rideoff|level1 | --check
     python3 tests/bonanza_perf.py --apps IMG --src DIR --art DIR   (another build, by hand)
@@ -123,25 +124,45 @@ WAVE 4 (SPEC.md 128.14.14, 128.14.16, 128.14.17 item 7).  --ab's default is now
 3b's head, 573eec83, built with ITS OWN art and sound (its bbmusic.py and part
 order: the balls, the courses, the sound, the songs): BENCH OFF with bz_hvoff 1
 on both, and THIS build's mean busy at most +0.5k over 3b's ASSERTED ON BOTH
-CARDS (PREDICTED +0.15 - 0.3k on the CGA, 128.14.12).  B runs with H at FOLLOW
-on every BENCH leg and draws NO HUD box (bz_nhud 0) ASSERTED.  THE DEMO LEGS
-(`demo`): every shipped demo (V with bz_vk poked, BZD1 - BZD5) through D on both
-cards, sound OFF and ON, the HUD OFF and - when the build carries it - REST, and
-MILL's route demo also FOLLOW: ASSERTED the replay's end the model's
-(bonanza_demo.model_end), bz_wover and bz_wlate 0, and in REST no HUD box on a
-frame with an entering row or column but a release (bz_presented a STOP reading
-bz_hwk and bz_nhrel); REPORTED busy mean and p95, the misses with their parts,
-the HUD's boxes by kind and the releases, pads, springs and lip-outs, each HUD
-leg against its HUD-OFF twin.  THE HUD'S FIT (`hudfit`, 128.14.16 item 3): MILL's
-route demo with the speaker on, the HUD OFF against REST on the CGA and FOLLOW
-on the Hercules - the misses may rise by at most 2 a card, ASSERTED (a failure
-there is the measurement that REMOVES the HUD).  D's OVERHEAD (`dover`): MILL's
-route demo through D and through R under the same outside trace, busy compared,
-REPORTED.  Red arm `--red hudon` (bz_hinit's B test taken out: bz_nhud non-zero
-on the B leg) - built only while the HUD is.
+CARDS (PREDICTED +0.15 - 0.3k on the CGA, 128.14.12).  THE DEMO LEGS (`demo`): every
+shipped demo (V with bz_vk poked, BZD1 - BZD5) through D on both cards, sound
+OFF and ON: ASSERTED the replay's end the model's (bonanza_demo.model_end),
+bz_wover and bz_wlate 0; REPORTED busy mean and p95, the misses with their
+parts, pads, springs and lip-outs.  D's OVERHEAD (`dover`): MILL's route demo
+through D and through R under the same outside trace, busy compared, REPORTED.
+(Wave 4's HUD legs - the HUD's fit, REST and FOLLOW, and B's no-HUD-box check
+with its red arm `hudon` - went in wave 5a with the HUD, which was not built:
+SPEC.md 128.14.26, 128.15.3.)
+
+WAVE 5B (SPEC.md 128.15.13): two A/Bs, each a by-hand run at one commit, not
+the registered row's (which runs this build's legs alone):
+
+    python3 tests/bonanza_perf.py --ab --fmt-ab
+
+(The third, --rec-ab, THE D/C ACCEPTANCE of SPEC.md 128.15.5.4, ran once in
+5b's final pass and left with the losing arm, as that subsection says: on
+the CGA the 4-byte record (D) missed 23.5 more refreshes than C on MILL's
+and PEAK's demos summed, past the owner's +2, so C ships.  Its figures are
+128.15.5.4's, and the leg was deleted before 5b's commit, as that
+subsection asks.)
+
+  --ab      BENCH against the ANCHOR, ef59209a - the last BZC1 tree, whose
+            package wave 5a's is byte for byte - built out of git with its own
+            art, sound, demos and part order: this build's mean busy at most
+            +0.5k over it ASSERTED on both cards, the standing guard on the
+            frame's cost (re-anchored at 5b's commit only for later waves).
+  --fmt-ab  THE PARTS' FORMAT (128.15.9), REPORTED: the shipped parts' format
+            (the table's, R.part_fmt) against the other in a private tree -
+            bonanza360.img's clusters with each, and PEAK's and MOON's launch
+            timed from bz_launch's entry to the kernel's fsx_run (every part
+            fetched and expanded) on both cards.
+
+Every private tree here packs its parts in the shipped build's format (its
+part table's byte, R.part_fmt), not os88pkg's default (128.15.9).
 """
 import argparse
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -179,14 +200,26 @@ CLOSES3 = {"bz_ts": 0, "bz_tr": 1, "bz_tw": 2, "bz_tv": 6, "bz_tf": 3, "bz_tb": 
 CLOSES2 = {"bz_ts": 0, "bz_tr": 1, "bz_tv": 2, "bz_tf": 3, "bz_tb": 4, "bz_tc": 5}
 AGREE = 0.10
 AGREE_ABS = 200
-AB_COMMIT = "573eec831342c34c1c1489894845fe8b0f005bc8"   # wave 3b (SPEC.md 128.13), the engine wave 4's A/B
-                               # measures against (128.14.14) - the FULL id: git fetches an object only by it
-AB_OVER = 500                  # 128.14.17 item 7: BENCH's mean busy at most this much OVER 3b's, BOTH cards
-HUD_MISS = 2                   # 128.14.16 item 3: MILL's misses (speaker on) the HUD may add, a card
+AB_COMMIT = "ef59209a4a012caa3e1b55f80c62e54b9a92dee4"   # wave 5b's ANCHOR (SPEC.md 128.15.13): the last BZC1
+                               # tree, whose package is wave 5a's byte for byte (5a moves no package byte,
+                               # 128.15.3) - the FULL id: git fetches an object only by it.  (Wave 4's was 3b's
+                               # head, 573eec83, 128.14.14.)
+AB_OVER = 500                  # 128.14.17 item 7, kept by 128.15.13: BENCH's mean busy at most this much OVER
+                               # the anchor's, BOTH cards - the standing guard on the frame's cost
 DEMO_CAP = 4000                # frames a shipped demo's D presents at most (MOON's: ~2,300 on the CGA)
 LIFT_MISS = 3                  # 128.13.4.5: the Hercules' lift stretch, missed refreshes at most (sound ON)
 SND_OFF, SND_AUTO = 3, 0       # bzs_mode: OFF, and AUTO (the speaker on a 5150 without an AdLib)
 SKIP_RC = 77
+# WAVE 5B (SPEC.md 128.15.5.4, 128.15.9): the occluder pass's span a frame - its gate open (bz_occ.gate) to
+# the call after it (bz_pover, called every frame) - logged like the writers
+OCC = ("bz_occ.gate", "bz_pover")
+# ...and inside that span, with measure(framed=True) (5b's D/C A/B used it; kept as the instrument): every bz_olay (a group laid into a
+# box: its count moves with the box layout, which follows the LAST PRESENTED frame and so differs between
+# two builds at one step n) and every entry to the kernel's int 08h handler (sch_isr, 54.6 Hz under
+# FSXF_FASTTICK: an IRQ inside the span adds its whole cost) - so D - C is compared only on frames where
+# both builds laid as many groups and took no tick inside the pass (the review's S3)
+OLAY, IRQ0 = "bz_olay", "sch_isr"
+FMT_COURSES = ("peak", "moon")  # 128.15.9: the launches the format A/B times
 
 
 def pname(n):
@@ -205,9 +238,25 @@ def frames_of(hits, a):
     marks, tc = {}, False
     prev = None                                 # the last mark's cycle
     snd, s0 = 0, None
+    occ, o0, nsum, nolay, oirq = 0, None, 0, 0, 0
     for h in hits:
         n = by.get(h["addr"] & 0xFFFFF)
         c = h["cycles"]
+        if n in (OLAY, IRQ0):                   # (logged only by the D/C A/B: inside the span or not at all)
+            if o0 is not None:
+                if n == OLAY:
+                    nolay += 1
+                else:
+                    oirq += 1
+            continue
+        if n == OCC[0]:                         # the occluder pass, its gate open ...
+            o0 = c
+            continue
+        if n == OCC[1]:                         # ... to the call after it
+            if o0 is not None:
+                occ += c - o0
+            o0 = None
+            continue
         if n == SOUND[0]:
             s0 = c
             continue
@@ -236,7 +285,10 @@ def frames_of(hits, a):
                "colcalls": cnt["bz_col"], "full": cnt["bz_fullw"] > 0, "boxes": cnt["bz_boxw"],
                "marks": dict(marks), "commits": cnt["bz_wcommit"], "lead": cnt.get("lead", 0),
                "contact": cnt["bz_csync"], "must": cnt["bz_props.mlane+4"], "pbox": cnt["bz_cslabr"],
-               "pwt": cnt["bz_props.pwt"], "promo": cnt["bz_props.promo"], "snd": snd, "hit": h.get("hit")}
+               "pwt": cnt["bz_props.pwt"], "promo": cnt["bz_props.promo"], "snd": snd, "hit": h.get("hit"),
+               "occ": occ, "n": nsum + cnt["bz_step"], "olay": nolay, "oirq": oirq}
+        nsum += cnt["bz_step"]                  # (n: the steps run by this frame's end, the same in two
+        occ = nolay = oirq = 0                  # builds that replay one log: the occluder A/B's key)
         if last is not None and prev is not None and all(k in marks for k in ("bz_ts", "bz_tr", "bz_tv", "bz_tf",
                                                                                  "bz_tb")):
             parts[4 if tc else 5] += c - prev
@@ -264,6 +316,7 @@ def stats(xs):
 def addrs(g):
     out = {n: g.a(n) for n in MARKS + WRITERS if n in g.sym}
     out.update({n: g.a(n) for n in SOUND if n in g.sym})
+    out.update({n: g.a(n) for n in OCC if n in g.sym})
     for x in PROPS:
         if isinstance(x, str):
             if x in g.sym:
@@ -280,21 +333,21 @@ def addrs(g):
 NPART = {True: 7, False: 6}
 
 
-def measure(g, crs=None, pokes=None, key="KeyB", hud=False, frames_cap=BENCH):
+def measure(g, crs=None, pokes=None, key="KeyB", frames_cap=BENCH, framed=False):
     """one benchmark under logged breakpoints: -> (frames, the package's
     instruments, the refresh in clocks, presented hits).  CRS: the course
     poked into [bz_crs] at bz_launch's entry; POKES {bss byte: value} poked
     there too (a name the build lacks is skipped: wave 2's).  Wave 4: KEY
     `KeyD` measures the held log's DEMO benchmark (128.14.7.3) and `KeyR` its
-    plain replay (the package's instruments then not filled: pkg None); HUD
-    makes bz_presented a STOP that reads the frame's HUD box (bz_hwk), its
-    releases (bz_nhrel) and bz_hon into each frame (fr[i]["hud"])"""
+    plain replay (the package's instruments then not filled: pkg None).
+    FRAMED (wave 5b, SPEC.md 128.15.5.4): the guest paused, stepped to the
+    card's next COMPLETED frame and the key pressed there, so its phase
+    against the refresh is the same in every run"""
     m = g.m
     a = addrs(g)
     pres = a["bz_presented"]
     launch = g.a("bz_launch")
     poked = []
-    hudrec = []
 
     def on_launch(mm, rec):                     # (a STOP, the guest paused: poke the course)
         if rec["addr"] == launch & 0xFFFFF:
@@ -304,12 +357,23 @@ def measure(g, crs=None, pokes=None, key="KeyB", hud=False, frames_cap=BENCH):
                 if n in g.sym:
                     g.putb(n, v)
             poked.append(rec["cycles"])
-        elif rec["addr"] == pres & 0xFFFFF:
-            hudrec.append((g.b("bz_hwk"), g.w("bz_nhrel"), g.b("bz_hon")))
-    logged = [x for x in a.values() if not (hud and x == pres)]
+    if framed:                                  # the D/C A/B's span instruments (OLAY, IRQ0 above)
+        if OLAY in g.sym:
+            a[OLAY] = g.a(OLAY)
+        a[IRQ0] = m.sym(IRQ0)
+    logged = list(a.values())
+    if framed:
+        m.pause()
+        m.advance(frames=1)                     # (it ends stopped, on the frame's completion)
+        m.key(key, up=False)
+        m.run()
     with M.bp_trace(m, *(list(a.values()) + [launch]), log=logged, on_hit=on_launch,
-                    cap=frames_cap * 64 + 20000) as tr:
-        g.key(key)
+                    cap=frames_cap * (128 if framed else 64) + 20000) as tr:
+        if framed:
+            M.pace(m, .04)
+            m.key(key, down=False)
+        else:
+            g.key(key)
         M.until(m, lambda _: g.b("bz_fs") == 1, "the benchmark starts", guest=60)
         m.pause()
         g.check_base()
@@ -325,9 +389,6 @@ def measure(g, crs=None, pokes=None, key="KeyB", hud=False, frames_cap=BENCH):
         m.run()
     R.dropped(g, "the benchmark")
     fr = frames_of(hits, a)
-    if hud:
-        for r, h in zip(fr, hudrec):
-            r["hud"] = h
     if key == "KeyR":                           # a replay: no instruments of the package's
         return fr, None, (c1 - c0) / float(f1 - f0), sum(1 for h in hits if h["addr"] == pres)
     assert g.b("bz_res") == 1 and g.b("bz_err") == 0, "the benchmark did not finish (res %d, err %d)" % (
@@ -342,9 +403,6 @@ def measure(g, crs=None, pokes=None, key="KeyB", hud=False, frames_cap=BENCH):
               "bz_rnwr", "bz_rnwc", "bz_rnhedge", "bz_rwtmin", "bz_rnpwt"):
         if n in g.sym:
             pkg[n[4:] if n.startswith("bz_r") else n[3:]] = g.w(n)
-    for n in ("bz_nhud", "bz_nhhold", "bz_nhrel"):
-        if n in g.sym:
-            pkg[n[3:]] = g.w(n)
     refresh = (c1 - c0) / float(f1 - f0)
     return fr, pkg, refresh, sum(1 for h in hits if h["addr"] == pres)
 
@@ -364,7 +422,7 @@ def feats(r):
     return "; " + ", ".join(out) if out else ""
 
 
-LEGS = ("bench", "trial", "mill", "ride", "corner", "demo", "hudfit", "dover")
+LEGS = ("bench", "trial", "mill", "ride", "corner", "demo", "dover")
 SOUNDS = ("off", "on")
 
 
@@ -405,20 +463,9 @@ def run(tag, apps=None, src=None, art=None, trial=True, legs=LEGS, ab_steps=None
                 # OFF: THE A/B LEG, LIKE FOR LIKE - wave 3 has no sound, and both builds run [bz_hvoff] 1 (no
                 # heavy rule), engine against engine.  ON: the shipped camera, as played (REPORTED)
                 hv = 1 if not on else 0
-                if "bz_hmode" in g.sym:         # wave 4: H at FOLLOW - B must still draw no HUD box
-                    g.m.pause()
-                    g.putb("bz_hmode", 2)
-                    g.m.run()
                 fr, pkg, refresh, npres = measure(g, pokes={"bz_hvoff": hv})
                 bad, summ = report("%s BENCH (bz_hvoff %d)%s" % (tag, hv, lab), fr, pkg, refresh, npres)
                 summ["busy_p95"] = busy_of(fr)["p95"]
-                if "bz_hmode" in g.sym:
-                    g.m.pause()
-                    g.putb("bz_hmode", 0)
-                    g.m.run()
-                    if pkg.get("nhud", 0):
-                        bad.append("%s BENCH%s: bz_nhud %d with H at FOLLOW - B runs with the HUD OFF, so it draws "
-                                   "no HUD box (SPEC.md 128.14.14)" % (tag, lab, pkg["nhud"]))
                 idle_line(fr, refresh, summ)
                 if on:                          # (its busy and misses REPORTED; the floor and the
                     heavy_line(tag, pkg, summ)  # instruments' agreement asserted as on every leg)
@@ -460,15 +507,13 @@ def run(tag, apps=None, src=None, art=None, trial=True, legs=LEGS, ab_steps=None
             if "corner" in legs:
                 bad, summ = ride(g, tag, corner=True, on=on)
                 out.append(("corner ride " + snd, bad, summ))
-        if not old and set(legs) & {"demo", "hudfit", "dover"}:
+        if not old and set(legs) & {"demo", "dover"}:
             out += demo_legs(g, tag, legs, sounds)
         set_snd(g, True)                        # (S back at AUTO for whatever runs next)
     return out
 
 
-# ---- WAVE 4 (SPEC.md 128.14.7.3, 128.14.14, 128.14.16): the DEMO legs ------------
-HMODES = {0: "OFF", 1: "REST", 2: "FOLLOW"}
-FIT_MODE = {"cga": 1, "herc": 2}        # 128.14.16 item 3: H at REST on the CGA, FOLLOW on the Hercules
+# ---- WAVE 4 (SPEC.md 128.14.7.3, 128.14.14): the DEMO legs ------------
 
 
 def load_demo(g, kd):
@@ -489,20 +534,14 @@ def busy_of(fr):
     return stats([r["busy"] for r in meas])
 
 
-def demo_leg(g, tag, kd, hmode, snd):
+def demo_leg(g, tag, kd, snd):
     """one shipped demo through D: -> (failures, summary).  ASSERTED its end the
-    model's, bz_wover and bz_wlate 0, and in REST no HUD box on a frame with an
-    entering row or column but a release; REPORTED the rest"""
+    model's, bz_wover and bz_wlate 0; REPORTED the rest"""
     import bonanza_demo as DM
-    m = g.m
     demo = load_demo(g, kd)
     set_snd(g, snd == "on")
-    if "bz_hmode" in g.sym:
-        m.pause()
-        g.putb("bz_hmode", hmode)
-        m.run()
-    lab = "%s D of BZD%d (HUD %s, sound %s)" % (tag, kd, HMODES[hmode], snd.upper())
-    fr, pkg, refresh, npres = measure(g, key="KeyD", hud=hmode != 0 and "bz_hmode" in g.sym, frames_cap=DEMO_CAP)
+    lab = "%s D of BZD%d (sound %s)" % (tag, kd, snd.upper())
+    fr, pkg, refresh, npres = measure(g, key="KeyD", frames_cap=DEMO_CAP)
     bad, summ = report(lab, fr, pkg, refresh, npres)
     got, want = DM.end_state(g), DM.model_end(demo)
     if got != want:
@@ -511,74 +550,24 @@ def demo_leg(g, tag, kd, hmode, snd):
         if pkg.get(n, 0):
             bad.append("%s: bz_r%s %d, 0 asserted (SPEC.md 128.14.14)" % (lab, n, pkg[n]))
     summ["busy_p95"] = busy_of(fr)["p95"]
-    if hmode == 1:
-        rel0, kinds, nrel = None, {}, 0
-        for i, r in enumerate(fr):
-            hw = r.get("hud")
-            if hw is None:
-                continue
-            hwk, rel, _hon = hw
-            if hwk:
-                kinds[hwk] = kinds.get(hwk, 0) + 1
-            if hwk and (r["rows"] or r["column"]) and not r["full"] and not (hwk == 3 and rel0 is not None
-                                                                               and rel != rel0):
-                bad.append("%s frame %d: a HUD box (kind %d) on a frame with an entering row or column, not a "
-                           "release (SPEC.md 128.14.5.6)" % (lab, i + 1, hwk))
-                break
-            nrel += rel0 is not None and rel != rel0
-            rel0 = rel
-        summ["hudboxes"] = kinds
-        print("  HUD REST: boxes by kind %s, releases %d" % (kinds, nrel), flush=True)
-    print("  %s: busy mean %.0f p95 %d, misses %d (%s), HUD boxes %s, pads %s, springs %s, lip-outs %s" % (
+    print("  %s: busy mean %.0f p95 %d, misses %d (%s), pads %s, springs %s, lip-outs %s" % (
         lab, summ["busy"], summ["busy_p95"], summ["miss"],
-        "; ".join("frame %d busy %d%s" % x for x in summ["misses"][:8]) or "none", pkg.get("nhud", "-"),
+        "; ".join("frame %d busy %d%s" % x for x in summ["misses"][:8]) or "none",
         g.w("bz_npad") if "bz_npad" in g.sym else "-", g.w("bz_nspr") if "bz_nspr" in g.sym else "-",
         g.w("bz_nlip") if "bz_nlip" in g.sym else "-"), flush=True)
-    if "bz_hmode" in g.sym:
-        m.pause()
-        g.putb("bz_hmode", 0)
-        m.run()
     return bad, summ
 
 
 def demo_legs(g, tag, legs, sounds):
-    """every shipped demo through D, sound OFF and ON, the HUD OFF and REST
-    (the HUD's legs only when it is built), MILL's also FOLLOW; the HUD-fit
-    comparison (128.14.16 item 3) and D's overhead against R.  -> [(label,
-    failures, summary)]"""
+    """every shipped demo through D, sound OFF and ON, and D's overhead
+    against R.  -> [(label, failures, summary)]"""
     out = []
-    hud = "bz_hmode" in g.sym
     mill = R.CRS_K["mill"]
-    res = {}
     if "demo" in legs:
         for snd in sounds:
             for kd in range(1, len(R.CRS_K)):
-                for hm in ((0, 1) if hud else (0,)) + ((2,) if hud and kd == mill else ()):
-                    bad, summ = demo_leg(g, tag, kd, hm, snd)
-                    res[(kd, hm, snd)] = summ
-                    out.append(("D BZD%d %s %s" % (kd, HMODES[hm], snd), bad, summ))
-                    if (kd, 0, snd) in res and hm:
-                        o = res[(kd, 0, snd)]
-                        print("  BZD%d sound %s: HUD %s against OFF - busy %+.0f, misses %+d" % (
-                            kd, snd.upper(), HMODES[hm], summ["busy"] - o["busy"], summ["miss"] - o["miss"]))
-    if "hudfit" in legs and hud:
-        fm = FIT_MODE[tag]
-        for hm in (0, fm):
-            if (mill, hm, "on") not in res:
-                bad, summ = demo_leg(g, tag, mill, hm, "on")
-                res[(mill, hm, "on")] = summ
-                out.append(("D BZD%d %s on" % (mill, HMODES[hm]), bad, summ))
-        o, h = res[(mill, 0, "on")], res[(mill, fm, "on")]
-        bad = []
-        d = h["miss"] - o["miss"]
-        print("\n%s THE HUD'S FIT (SPEC.md 128.14.16 item 3): MILL's route demo, the speaker on - misses %d with the "
-              "HUD OFF, %d at %s (%+d; at most %d asserted)" % (tag.upper(), o["miss"], h["miss"], HMODES[fm], d,
-                                                                 HUD_MISS), flush=True)
-        if d > HUD_MISS:
-            bad.append("%s HUD fit: MILL's misses with the speaker on rise by %d at %s over the HUD OFF (at most %d: "
-                       "SPEC.md 128.14.16 item 3 - the HUD does not fit and is to be REMOVED)" % (
-                           tag, d, HMODES[fm], HUD_MISS))
-        out.append(("HUD fit", bad, h))
+                bad, summ = demo_leg(g, tag, kd, snd)
+                out.append(("D BZD%d %s" % (kd, snd), bad, summ))
     if "dover" in legs:
         load_demo(g, mill)
         set_snd(g, False)
@@ -590,6 +579,105 @@ def demo_legs(g, tag, legs, sounds):
                   tag.upper(), bd["mean"], bd["p95"], br["mean"], br["p95"], bd["mean"] - br["mean"]), flush=True)
         set_snd(g, True)
     return out
+
+
+# ---- WAVE 5B (SPEC.md 128.15.5.4, 128.15.9): the D/C A/B and the parts' format A/B ------------------
+def course_paths():
+    """the shipped courses' files in BZ_COURSES's order (bzcourse.inc's own list, R.COURSES)"""
+    R.CRS_K["bench"]
+    R.COURSES["bench"]
+    order = sorted(dict.keys(R.CRS_K), key=lambda n: dict.__getitem__(R.CRS_K, n))
+    return [os.path.join(R.ROOT, dict.__getitem__(R.COURSES, n)) for n in order]
+
+
+def clusters(o88):
+    """bonanza360.img's clusters with O88: the package, the README as bonanzadisk ships it and
+    SYSTEM\\APPDATA, by os88disk.py's own count -> (used, of)"""
+    readme = R.at("build/zdata-lz4/bonanza/README.md")
+    if not os.path.exists(os.path.join(R.ROOT, readme)):
+        readme = os.path.join(R.ROOT, "apps", "bonanza", "README.md")
+    with tempfile.TemporaryDirectory() as td:
+        r = subprocess.run([sys.executable, "tools/os88disk.py", "-o", os.path.join(td, "b.img"), "--size", "360",
+                            o88, readme, "--folder", "SYSTEM/APPDATA"], cwd=R.ROOT, capture_output=True, text=True,
+                           check=True)
+    m_ = re.search(r"(\d+)/(\d+) clusters", r.stdout)
+    return (int(m_.group(1)), int(m_.group(2))) if m_ else (None, None)
+
+
+def launch_times(tag, apps, src, art, label):
+    """FMT_COURSES' launches on one boot: Enter with [bz_crs] and [bz_matsel]
+    (the course's own ball) poked at bz_launch's entry, the launch timed by
+    MartyPC's cycle counter from that entry to the kernel's fsx_run (the
+    OSAPI_FSX_RUN call: every part fetched and expanded), then Esc.
+    -> {course: (seconds, floppy reads)}"""
+    sym = R.symbols(src, art)
+    out = {}
+    with os88ui.boot(R.at("build/os8088-360.img"), apps=apps or R.at("build/bonanza360.img"),
+                     machine=R.MACHINE[tag]) as ui:
+        ui.open_drive("B")
+        ui.open("BONANZA.O88")
+        g = R.Bz(ui, tag, sym, live=True)      # (a launch claims and drops: the region may move)
+        ui.settle()
+        m = g.m
+        for name in FMT_COURSES:
+            launch, fsx = g.a("bz_launch"), m.sym("fsx_run")
+            stops = []
+            ball = R.course(name).ball          # (compiled HERE: on_hit runs with the guest stopped, and a
+            #                                      course's compile there outlasts every pause's backstop)
+
+            def on_hit(mm, rec, name=name, launch=launch, stops=stops, ball=ball):
+                if rec["addr"] == launch & 0xFFFFF:
+                    g.putb("bz_crs", R.CRS_K[name])
+                    g.putb("bz_matsel", ball)
+                    stops.append(rec["cycles"])
+            M.until(m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)
+            m.disk(reset=True)
+            with M.bp_trace(m, launch, fsx, log=[fsx], on_hit=on_hit) as tr:
+                g.key("Enter")
+                M.until(m, lambda _: g.b("bz_fs") == 1, "%s's bracket (%s)" % (name, label), guest=60)
+                hits = list(tr.hits)
+            reads = m.disk()["reads"]
+            c0 = stops or [h["cycles"] for h in hits if h["addr"] == launch & 0xFFFFF]
+            c1 = [h["cycles"] for h in hits if h["addr"] == fsx & 0xFFFFF]
+            assert c0 and c1, "%s %s: the launch's marks were not both hit (%d, %d)" % (label, name, len(c0), len(c1))
+            out[name] = ((c1[0] - c0[0]) / float(CLK), reads)
+            g.key("Escape")
+            M.until(m, lambda _: g.b("bz_fs") == 0, "%s's play to end on Esc" % name, guest=60)
+            M.until(m, lambda _: g.w("bz_cseg") == 0 and g.w("bz_bseg") == 0, "%s's parts dropped" % name, guest=30)
+            if "bzs_desk" in g.sym:
+                M.until(m, lambda _: g.b("bzs_desk") == 1 or g.b("bzs_mode") == 3, "the title back", guest=30)
+            print("  %s %s: %s's launch, bz_launch to fsx_run, %.2f s; %d floppy reads" % (
+                tag, label, name.upper(), out[name][0], reads), flush=True)
+    return out
+
+
+def fmt_ab(tags, td):
+    """THE PARTS' FORMAT A/B (SPEC.md 128.15.9), REPORTED: the shipped build
+    (its parts in the table's format, LZB unless a single-format kernel
+    forced LZ4) against the same package with every part LZ4 (BZPARTZ=lz4: a
+    private tree, R.build_tree's fmt) - bonanza360.img's clusters with each,
+    and PEAK's and MOON's launch to the bracket on both cards.  -> failures
+    (none: it reports)"""
+    ship = R.part_fmt()
+    other = "lz4" if ship == "lzb" else "lzb"
+    src, img = R.build_tree(td, [], name="bonanzafmt", fmt=other)
+    o88s = {ship: os.path.join(R.ROOT, R.at("build/bonanza.o88")), other: os.path.join(td, "BONANZA.O88")}
+    cl = dict((f, clusters(p)) for f, p in o88s.items())
+    res = {}
+    for tag in tags:
+        res[(tag, ship)] = launch_times(tag, None, None, None, ship.upper() + " (shipped)")
+        res[(tag, other)] = launch_times(tag, img, src, None, other.upper())
+    print("\nTHE PARTS' FORMAT A/B (SPEC.md 128.15.9), REPORTED:")
+    for f in (ship, other):
+        print("  %s parts: BONANZA.O88 %d bytes, bonanza360.img %s of %s clusters" % (
+            f.upper(), os.path.getsize(o88s[f]), cl[f][0], cl[f][1]))
+    for tag in tags:
+        for name in FMT_COURSES:
+            a_, b_ = res[(tag, ship)][name], res[(tag, other)][name]
+            print("  %s %s's launch to its bracket: %s %.2f s (%d reads), %s %.2f s (%d reads): %s %+.2f s" % (
+                tag.upper(), name.upper(), ship.upper(), a_[0], a_[1], other.upper(), b_[0], b_[1], ship.upper(),
+                a_[0] - b_[0]), flush=True)
+    return []
 
 
 def phase_misses(tag, summ, ab_steps):
@@ -1023,11 +1111,14 @@ def ab_tree(td, commit=AB_COMMIT):
         ns = int(re.search(r"^BZS_NSONG\s+equ\s+(\d+)", open(os.path.join(art, "bzsnd.inc")).read(),
                            re.M).group(1))
         plist += ["BZSND.BIN"] + ["BZM%d.BIN" % i for i in range(ns)]
+    if "BZ_DEMOPARTS" in mk:                    # wave 4's: a shipped demo a tour course, after the songs
+        plist += ["BZD%d.BIN" % k for k in range(1, nc)]
     parts = []
     for p in plist:
         parts += ["--part", os.path.join(art, p)]
-    subprocess.run([sys.executable, "tools/os88pkg.py", "--compress-if=lz4", binp, "-o", o88] + parts,
-                   cwd=R.ROOT, check=True, stdout=subprocess.DEVNULL)
+    # packed in the SHIPPED build's parts format (SPEC.md 128.15.9), never os88pkg's default
+    subprocess.run([sys.executable, "tools/os88pkg.py", "--compress-if=lz4", binp, "-o", o88] + parts
+                   + ["--part-compress", R.part_fmt()], cwd=R.ROOT, check=True, stdout=subprocess.DEVNULL)
     subprocess.run([sys.executable, "tools/os88disk.py", "-o", img, "--size", "360", o88], cwd=R.ROOT,
                    check=True, stdout=subprocess.DEVNULL)
     return img, src, art
@@ -1045,7 +1136,7 @@ def ab_print(tag, res, ores, commit):
         n, o = new["BENCH off"], old["BENCH off"]
         print("\n%s A/B: BENCH, this build against %s, sound OFF and bz_hvoff 1 on both (busy: all but the retrace "
               "wait and the wheel)" % (tag.upper(), commit))
-        print("  %-14s %9s %9s %9s" % ("", "wave 4", commit[:8], "delta"))
+        print("  %-14s %9s %9s %9s" % ("", "this", commit[:8], "delta"))
         for p in PARTS + ["busy", "period"]:
             a = n["parts"].get(p, 0) if p in PARTS else n[p]
             b = o["parts"].get(p, 0) if p in PARTS else o[p]
@@ -1055,10 +1146,11 @@ def ab_print(tag, res, ores, commit):
         print("  %-14s %9d %9d" % ("misses", n["miss"], o["miss"]))
         d = n["busy"] - o["busy"]
         print("  BENCH's mean busy %+.0f clk against %s's (at most +%d ASSERTED on both cards, SPEC.md 128.14.17 "
-              "item 7; PREDICTED +150 - 300 on the CGA, 128.14.12)" % (d, commit, AB_OVER))
+              "item 7 and 128.15.13: the standing guard on the frame's cost; C ships, wave 4's occluder walk "
+              "byte for byte, SPEC.md 128.15.5.4)" % (d, commit, AB_OVER))
         if d > AB_OVER:
             bad.append("%s A/B: BENCH's mean busy %.0f clk against %s's %.0f, %+.0f - at most +%d asserted "
-                       "(SPEC.md 128.14.17 item 7)" % (tag, n["busy"], commit, o["busy"], d, AB_OVER))
+                       "(SPEC.md 128.14.17 item 7, 128.15.13)" % (tag, n["busy"], commit, o["busy"], d, AB_OVER))
     ways = [("this build", new.get("MILL off")), ("bz_hvoff 1", new.get("MILL off hvoff")),
             (commit, old.get("MILL off"))]
     if all(w[1] for w in ways):
@@ -1096,15 +1188,11 @@ REDS = {
                 "    call bz_union\n    jmp short .rx\n.rp:\n    stc\n    jmp short .rx\n.rq:\n    clc\n"
                 ".rx:\n    pop si\n    pop bx\n    pop ax\n    ret\n.ry:\n    stc\n    ret\n.rn:\n    clc\n"
                 "    ret\n")],
-    # wave 4 (SPEC.md 128.14.14): B's HUD not forced OFF - B with H at FOLLOW draws the HUD
-    "hudon": [("bzhud.inc", "    cmp byte [bz_mode], 1\n    jne .u\n    mov al, BZ_HOFF\n.u:\n",
-               "    nop                         ; RED hudon: B keeps H's mode\n.u:\n")],
 }
 # each arm's legs and sound: the ones its check is asserted in
-RED_LEGS = {"halfcal": (("mill",), ("off",)), "rideoff": (("ride",), ("off",)), "level1": (("trial",), ("off",)),
-            "hudon": (("bench",), ("off",))}
+RED_LEGS = {"halfcal": (("mill",), ("off",)), "rideoff": (("ride",), ("off",)), "level1": (("trial",), ("off",))}
 RED_TAGS = {"rideoff": ("cga",)}
-RED_WANT = {"halfcal": "bz_wover", "rideoff": "line-change frames", "level1": "bz_nhvy", "hudon": "bz_nhud"}
+RED_WANT = {"halfcal": "bz_wover", "rideoff": "line-change frames", "level1": "bz_nhvy"}
 
 
 def main():
@@ -1114,7 +1202,11 @@ def main():
     ap.add_argument("--src", help="the package source that floppy was built from (default apps/bonanza)")
     ap.add_argument("--art", help="the art directory that source assembled against (default build/bonanza-art)")
     ap.add_argument("--ab", nargs="?", const=AB_COMMIT, metavar="COMMIT",
-                    help="also measure COMMIT's package (default %s, wave 3) built with its own art" % AB_COMMIT)
+                    help="also measure COMMIT's package (default %s, wave 5b's anchor: 5a's package) built with "
+                         "its own art" % AB_COMMIT)
+    ap.add_argument("--fmt-ab", action="store_true",
+                    help="wave 5b's parts' format A/B (SPEC.md 128.15.9): the other format in a private tree, the "
+                         "clusters and PEAK's and MOON's launch to the bracket REPORTED")
     ap.add_argument("--no-trial", action="store_true", help="no TRIAL leg, no camera")
     ap.add_argument("--leg", choices=LEGS, action="append", help="only these legs (default all)")
     ap.add_argument("--sound", choices=SOUNDS, action="append", help="only these sounds (default off and on)")
@@ -1124,8 +1216,7 @@ def main():
     a = ap.parse_args()
     tags = ("cga", "herc") if a.adapter == "both" else (a.adapter,)
     if a.check:
-        for line in R.check_reds({k: v for k, v in REDS.items() if k != "hudon" or "bz_hmode" in R.symbols()},
-                                 "bonanza_perf"):
+        for line in R.check_reds(REDS, "bonanza_perf"):
             print(line)
         return
     if a.red:
@@ -1147,6 +1238,8 @@ def main():
         print("bonanza_perf --red %s: PASS (the row fails against the broken package)" % a.red)
         return
     legs = tuple(a.leg) if a.leg else LEGS
+    if a.fmt_ab and not a.leg:                  # (5b's A/B alone: this build's legs only as --ab needs them)
+        legs = ("bench", "mill") if a.ab else ()
     allbad = []
     skip = None
     if a.ab:
@@ -1158,7 +1251,7 @@ def main():
     td = tempfile.mkdtemp(prefix="bzab") if a.ab else None
     try:
         ab = ab_tree(td, a.ab) if a.ab else None
-        for tag in tags:
+        for tag in tags if legs else ():
             ores = None
             if ab:                                  # wave 3 first: its frames' step counts judge the A/B's misses
                 ores = run(tag, *ab, trial=False, legs=tuple(x for x in legs if x in ("bench", "mill")), old=True)
@@ -1189,11 +1282,19 @@ def main():
     finally:
         if td:
             shutil.rmtree(td, ignore_errors=True)
+    for flag, fn in ((a.fmt_ab, fmt_ab),):
+        if flag:
+            with tempfile.TemporaryDirectory(prefix="bz5b") as td5:
+                bad = fn(tags, td5)
+            for b in bad:
+                print("FAIL %s" % b)
+            allbad += bad
     assert not allbad, "%d failure(s)" % len(allbad)
     if skip:
         print("\nbonanza_perf (%s): this build measured; the A/B leg SKIPPED: %s" % (", ".join(tags), skip))
         sys.exit(SKIP_RC)
-    print("\nbonanza_perf (%s%s): PASS" % (", ".join(tags), ", A/B against %s" % a.ab if a.ab else ""))
+    print("\nbonanza_perf (%s%s%s): PASS" % (", ".join(tags), ", A/B against %s" % a.ab if a.ab else "",
+                                           ", the format A/B reported" if a.fmt_ab else ""))
 
 
 if __name__ == "__main__":

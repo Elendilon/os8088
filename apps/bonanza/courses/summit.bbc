@@ -180,3 +180,7 @@ way 25 32 branch GLASS
 
 # par: the autopilot's time on the route and a third (128.14.3.1, PROVISIONAL)
 par 47
+# Wave 5b (SPEC.md 128.15.8): the design time (CD3), the middle class until its retrofit; the
+# course budget reads it (12550 bytes packed, refused past 1.5 times).  Tool-only:
+# it writes nothing into the part, so no identity moves.
+target 60

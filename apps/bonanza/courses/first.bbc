@@ -20,3 +20,7 @@ way  4 5
 way 11 4
 way 13 4
 par  4
+# Wave 5b (SPEC.md 128.15.8): the design time (CD3), the early class until its retrofit; the
+# course budget reads it (6275 bytes packed, refused past 1.5 times).  Tool-only:
+# it writes nothing into the part, so no identity moves.
+target 30

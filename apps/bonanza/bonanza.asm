@@ -46,8 +46,9 @@ OS88_DOCGLYPH8_END
 ; The art files are PARTS of this file (SPEC.md 128.11.3.1, 20.12), every one
 ; lazy and compressed: only the play's course and ball are ever read, on the
 ; DESKTOP before the bracket (so op_fetch's refusal toast can be drawn), the
-; Hercules translates both in place there (bz_hxlat), and both are dropped
-; when the bracket returns (SPEC.md 128.7, 128.11.3).
+; course's stored form is expanded in place there (bz_cexp, SPEC.md
+; 128.15.4.5), the Hercules translates both in place after it (bz_hxlat), and
+; both are dropped when the bracket returns (SPEC.md 128.7, 128.11.3).
 %define OP_NO_LAZYOK            ; (the fetch itself asks; no pre-check is used)
 %include "os88parts.inc"
 %include "bzconst.inc"          ; the ball part's layout (tools/bonanza_assets.py)
@@ -86,23 +87,38 @@ BZ_P_BALS   equ 1               ; BZBALS.BIN  is BZ_P_BALR + the material
 BZ_P_BALG   equ 2               ; BZBALG.BIN
                                 ; course K: BZ_P_CRS + K, bzcourse.inc's rows
 
-; --- the course part's header (SPEC.md 128.10.5.1, 128.10.5.2) ------------------
+; --- the course part's header (BZC2: SPEC.md 128.15.4.1, 128.10.5.2) -----------
 ; Byte offsets from the part's first byte; the grid's from GRIDOFF.  Nothing
 ; here is checked on the guest: tools/bbcourse.py checked every one of them at
-; build time (SPEC.md 128.10.6.2).
+; build time (SPEC.md 128.10.6.2).  BZC1's fields keep their offsets; the map
+; moved from +32 to +48 behind BZC2's own (128.15.4.1).
 BZC_COLS    equ 4               ; word columns: 64 or 128
 BZC_BROWS   equ 6               ; block rows
 BZC_NBLK    equ 8               ; N, blocks (bz_hxlat)
 BZC_MAPSH   equ 10              ; 4 for 64 columns, 5 for 128
-BZC_BLKOFF  equ 12              ; block 0's offset (bz_hxlat)
+BZC_BLKOFF  equ 12              ; block 0's offset (bz_hxlat, bz_cexp)
 BZC_OCCIDX  equ 14              ; OCCIDX: BROWS + 1 words, each the offset of
                                 ; the block row's first occluder record
+BZC_OCCREC  equ 16              ; the first record (bz_cexp's COUNTS)
+BZC_MASKOFF equ 20              ; mask 0 (D's MASKTAB read it; D was deleted, 128.15.5.3)
+BZC_NMASK   equ 22              ; the masks
 BZC_ROWB    equ 24              ; 2 COLS: the map row's byte stride, READ by the
                                 ; column writer through DS = the part (128.10.6.4)
 BZC_GRID    equ 26              ; GRIDOFF
 BZC_PROPOFF equ 28              ; the prop table (SPEC.md 128.12.3.1): its first
 BZC_NPROP   equ 30              ; record, and the records (0: none)
-BZC_MAP     equ 32              ; the map: COLS x BROWS words, absolute offsets
+BZC_RECB    equ 32              ; byte: the record's size in RAM, 4 or 8
+BZC_SB      equ 33              ; signed byte: the s bias (0 when RECB is 8)
+BZC_TB      equ 34              ; the top bias, signed px (0 when RECB is 8)
+BZC_MTAB    equ 36              ; the mask table (0 when RECB is 8)
+BZC_DIROFF  equ 38              ; the section directory (SPEC.md 128.15.4.2):
+BZC_NSEC    equ 40              ; its offset and its 8-byte entries
+BZC_MAP     equ 48              ; the map: COLS x BROWS words, absolute offsets
+BZX_FORM    equ 1               ; (a directory entry's) byte: its stored form
+BZX_OFF     equ 2               ; its RAM offset
+BZX_LEN     equ 4               ; its RAM length
+BZX_DLEN    equ 6               ; its STORED length, at the end of its slot
+BZX_ENTB    equ 8               ; an entry's size (BZX_: not BONANZA.DAT's BZD_)
 BZG_NROWS   equ 4               ; (at GRIDOFF +) the rows
 BZG_SMIN    equ 6               ; row 0's s = wx + wy
 BZG_AMIN    equ 8               ; signed, even: the first cell's a = wx - wy
@@ -450,7 +466,8 @@ bz_adapter:
 ; ([bz_matsel], M), a benchmark the course's own (BENCH's for B; the course a
 ; harness poked at this entry otherwise), a replay the log's.  Course K's part
 ; (row BZ_P_CRS + K) and the material's (BZ_P_BALR + [bz_mat]) are fetched -
-; the same rows on both cards - and on the Hercules both are translated in
+; the same rows on both cards - the course's expanded in place at once
+; (bz_cexp, SPEC.md 128.15.4.5), and on the Hercules both are translated in
 ; place (bz_hgen, bz_hxlat, SPEC.md 128.11.3); the bracket runs, and both are
 ; dropped on every way out.  Every fetch here - the course's, the balls', the
 ; sound's song and the title's after the bracket - is made at HOME (bz_home,
@@ -502,8 +519,11 @@ bz_launch:
     mov al, [bz_pc]             ; (each fetch's segment stored before the next
     call op_seg                 ; fetch, so tests/pins.txt keys each claim by
     mov [bz_cseg], ax           ; its own word: bz_cseg, bz_bsegs)
+    call bz_cexp                ; the STORED form expanded in place, ONCE: this
+                                ; fetch decoded, every exit below dropping the
+                                ; part (SPEC.md 128.15.4.5)
     push es                     ; THE BALLS (wave 4, SPEC.md 128.14.4.4): the
-    mov es, ax                  ; starting one and every one the course's
+    mov es, [bz_cseg]           ; starting one and every one the course's
     mov di, [es:BZC_GRID]       ; PAD MASK names (BZG1 +29), up to three, each
     mov ah, [es:di + BZG_PADS]  ; its own claim - and every FLAG's own ball,
     mov si, [es:BZC_PROPOFF]    ; which a respawn there gets (bz_rflag) whether
@@ -672,6 +692,476 @@ bz_crshdr:
     xchg ax, dx
     ret
 
+; -----------------------------------------------------------------------------
+; bz_cexp - THE COURSE PART EXPANDED IN PLACE (SPEC.md 128.15.4.4, 128.15.4.5),
+; right after the fetch that DECODED it and before anything reads it.  The
+; part is BZC2's STORED form: each section's slot [off, off + len) holds a
+; zero hole and then its dlen stored bytes; the directory (the part's last
+; 8 NSEC bytes) names each section's form.  The walk takes the entries in
+; order, which is also the order the forms depend on (ROWTAB reads G, WAYS
+; reads G, C and T, all before it).  Each form runs FORWARD through its own
+; slot and never reaches a stored byte it has not read (the tool's in-place
+; proof, --selfcheck item 10), and every loop counts with a field of the
+; header, of BZG1 or of its own entry, never with a byte it is expanding.
+; NOT idempotent (WDIFF adds), so it runs exactly once a decoding fetch: the
+; caller drops the part on every way out, so every fetch decodes.  The
+; Hercules translates AFTER it (bz_hgen's table lives in bz_boxbuf, which
+; ROWPLANES and CELLS use as scratch first).  The part is read and written through its
+; own segment (kern_mega: its LDT selector) in DS or ES, at offsets inside its
+; length; nothing through CS, no segment arithmetic (128.15.11).
+; DS = ours, [bz_cseg] the part.  Preserves BP, DS, ES.
+; -----------------------------------------------------------------------------
+bz_cexp:
+    push bp
+    push es
+    cld
+    mov es, [bz_cseg]           ; ES = the part (the walk reads it with ES:)
+    mov bx, [es:BZC_DIROFF]
+    mov cx, [es:BZC_NSEC]
+.ent:
+    push cx
+    push bx
+    mov di, [es:bx + BZX_OFF]   ; DI = S, the slot
+    mov cx, [es:bx + BZX_LEN]   ; CX = its RAM length
+    mov si, di
+    add si, cx
+    sub si, [es:bx + BZX_DLEN]  ; SI = S + H: its stored bytes
+    mov bl, [es:bx + BZX_FORM]
+    xor bh, bh
+    shl bx, 1
+    push ds
+    call [bx + bz_cxtab]        ; (DS = ours: the table is ours)
+    pop ds
+    pop bx
+    pop cx
+    add bx, BZX_ENTB
+    loop .ent
+    pop es
+    pop bp
+    ret
+
+; THE FORMS: SI = the stored bytes, DI = the slot, CX = its RAM length, DS =
+; ours, ES = the part.  Each may change DS (bz_cexp restores it), and
+; clobbers AX, BX, CX, DX, SI, DI, BP.
+bz_cxtab:
+    dw bz_cxret                 ; 0 PLAIN: in place already
+    dw bz_cxmap                 ; 1 ROWPLANES
+    dw bz_cxcnt                 ; 2 COUNTS
+    dw bz_cxdif                 ; 3 WDIFF
+    dw bz_cxret                 ; 4 MASKTAB: the 4-byte record's (D), not
+BZ_CXFORMS  equ 0EFh            ; shipped - C's parts carry no mask table
+                                ; (SPEC.md 128.15.5.3, 128.15.5.4's verdict)
+    dw bz_cxrtb                 ; 5 ROWTAB
+    dw bz_cxway                 ; 6 WAYS
+    dw bz_cxcel                 ; 7 CELLS
+%if BZ_FORMS & ~BZ_CXFORMS
+ %error "bz_cexp: a course part uses a stored form its dispatch table does not hold"
+%endif
+%if BZ_REC != 8
+ %error "bonanza: the occluder pass reads C's 8-byte records (SPEC.md 128.15.5.4); bzcourse.inc's BZ_REC is not 8"
+%endif
+
+; 1 ROWPLANES: block row r stored as C/4 high bytes (cell j's two high bits at
+; bits 2 (j AND 3) of byte j >> 2) and then C low bytes; map word j = BLKOFF +
+; 16 (low + 256 high).  The row's high bytes go to scratch (bz_boxbuf, at most
+; 32) first, because the words of a late row overrun them.  COLS and BROWS
+; count.
+bz_cxmap:
+    mov bp, [es:BZC_BLKOFF]
+    mov dx, [es:BZC_BROWS]
+.row:
+    push dx                     ; (the rows left)
+    mov cx, [es:BZC_COLS]
+    shr cx, 1
+    shr cx, 1
+    mov dx, cx                  ; DL = C/4: the row's high bytes
+    mov bx, bz_boxbuf
+.hi:
+    es lodsb                    ; ...to scratch, before the words overrun them
+    mov [bx], al
+    inc bx
+    loop .hi
+    mov ch, dl                  ; CH = the high bytes left
+    mov cl, 4
+    mov bx, bz_boxbuf
+.grp:
+    mov dl, [bx]                ; DL = four cells' high bits
+    inc bx
+    mov dh, 4
+.cell:
+    es lodsb                    ; AL = the cell's low byte
+    mov ah, dl
+    and ah, 3
+    shl ax, cl
+    add ax, bp
+    stosw                       ; BLKOFF + 16 (low + 256 high)
+    shr dl, 1
+    shr dl, 1
+    dec dh
+    jnz .cell
+    dec ch
+    jnz .grp
+    pop dx
+    dec dx
+    jnz .row
+bz_cxret:
+    ret
+
+; 2 COUNTS: a count byte a block row; OCCIDX[br] = OCCREC + RECB x (the
+; records before row br), br = 0 .. BROWS.  BROWS counts.
+bz_cxcnt:
+    mov dx, [es:BZC_OCCREC]
+    mov cx, [es:BZC_BROWS]
+    mov ax, dx
+.w:
+    stosw                       ; word br: it ends before count br's byte
+    es lodsb
+    mul byte [es:BZC_RECB]      ; (a count is a byte: AX = RECB count)
+    add dx, ax
+    mov ax, dx
+    loop .w
+    stosw                       ; word BROWS: OCCREC + RECB NOCC
+    ret
+
+; 3 WDIFF: the first record as it is, then each word the difference from the
+; same word of the record before.  w[i] += w[i - RECB / 2], forward, so it
+; reads only what it has already written.  ONE loop for both strides: RECB
+; from the header; the entry's length (RECB NOCC) counts.
+bz_cxdif:
+    push es
+    pop ds                      ; DS = the part
+    mov bl, [BZC_RECB]
+    xor bh, bh
+    add si, bx                  ; (SI = S: stored as long as it is in RAM)
+    sub cx, bx
+    shr cx, 1                   ; the words after the first record
+    jcxz .out                   ; (one record)
+    neg bx                      ; BX = -RECB
+.w:
+    mov ax, [bx + si]
+    add [si], ax
+    inc si
+    inc si
+    loop .w
+.out:
+    ret
+
+; 5 ROWTAB: ROWTAB[r] = GRIDOFF + 32 + 4 KW r, NROWS counts (BZG1, before it)
+bz_cxrtb:
+    mov bx, [es:BZC_GRID]
+    mov cx, [es:bx + BZG_NROWS]
+    mov dx, [es:bx + BZG_KW]
+    shl dx, 1
+    shl dx, 1
+    lea ax, [bx + 32]
+bz_cxramp:                      ; CX words from AX, DX apart
+    stosw
+    add ax, dx
+    loop bz_cxramp
+    ret
+
+; 6 WAYS: each way's tile (wx, wy), a byte each; written as the ball's picture
+; top-left on the tile's centre (the tool's rule, 128.10.4.5):
+;   x = 16 a + X0 - 8,  y = 8 s - 2 (2 z0 + sx + sy) + Y0 - 5,
+; s = wx + wy, a = wx - wy, z0, sx and sy the tile's CELL's, found as
+; bzphys.inc finds a cell: ROWTAB[s - SMIN] + 4 ((a - AMIN) >> 1).  NWAY
+; counts; way w's words end before way w + 1's stored pair.
+bz_cxway:
+    push es
+    pop ds                      ; DS = ES = the part
+    mov bx, [BZC_GRID]
+    mov cx, [bx + BZG_NWAY]
+.way:
+    push cx
+    lodsw                       ; AL = wx, AH = wy
+    mov cl, ah
+    xor ch, ch
+    xor ah, ah
+    mov dx, ax
+    add dx, cx                  ; DX = s
+    sub ax, cx                  ; AX = a
+    mov bp, ax
+    mov cl, 4
+    shl ax, cl
+    add ax, [bx + BZG_X0]
+    sub ax, 8
+    stosw                       ; x
+    sub bp, [bx + BZG_AMIN]
+    and bp, byte -2
+    shl bp, 1                   ; BP = 4 k
+    mov ax, dx
+    sub ax, [bx + BZG_SMIN]
+    shl ax, 1
+    add ax, [bx + BZG_ROWTAB]
+    push si
+    xchg ax, si
+    mov si, [si]                ; ROWTAB[r]
+    add si, bp
+    lodsw                       ; AL = z0, AH = sy : sx (signed nibbles)
+    pop si
+    mov ch, ah
+    sar ch, cl                  ; CH = sy
+    shl ah, cl
+    sar ah, cl                  ; AH = sx
+    add ch, ah                  ; CH = sx + sy
+    cbw
+    shl ax, 1                   ; AX = 2 z0
+    xchg ax, cx
+    mov al, ah
+    cbw
+    add ax, cx
+    shl ax, 1                   ; AX = 2 (2 z0 + sx + sy)
+    mov cl, 3
+    shl dx, cl
+    sub dx, ax
+    add dx, [bx + BZG_Y0]
+    sub dx, 5
+    xchg ax, dx
+    stosw                       ; y
+    pop cx
+    loop .way
+    ret
+; 7 CELLS (SPEC.md 128.15.6): each cell as in RAM but two fields, each stored
+; as its difference from the RULE: a VOID cell's z0 as z0 - rule_z0 (8 bits),
+; and every cell's SAFE bit XOR rule_safe.  The rule, as the tool builds the
+; grid (bbcourse.cells_rule is this routine's model):
+;   V = a cell's lowest corner + 79h, z0 + min(0, sx) + min(0, sy) + 79h in
+;       8 bits, UNSIGNED, for a cell that is not VOID; FFh for a VOID cell
+;       and outside the grid
+;   rule_z0 = the least V within two tiles (Chebyshev in wx and wy) + 81h:
+;       the least corner less 6 (NEAR), or FFh + 81h = -128 (OPEN).  The bias
+;       makes OPEN's value the sentinel's and the order the corners' for every
+;       corner a NEAR cell can hold (-122 .. 127; -122's NEAR z0 IS -128)
+;   rule_safe = a FLOOR cell with sx = sy = 0, OBS clear and its four edge
+;       neighbours not VOID
+; The 5 x 5 least is SEPARABLE: A = the least V on the wx diagonal's 5 cells
+; through a cell, then the least A on the wy diagonal's.  In the grid's rows
+; a wx step is (row + 1, k + p) and a wy step (row + 1, k + p - 1), p the
+; row's parity (SMIN + row, AND 1), so each reaches 2 rows and a cell either
+; way.  The A rows are scratch in bz_boxbuf, BZ_CXRW bytes a row with a pad
+; (FFh) either side of KW cells, in a window that slides down the buffer and
+; is copied back to its start at the end.  Iteration j = 0 .. NROWS + 3 holds
+; A rows j - 6 .. j + 2: it sets row j + 2 to FFh; lays each non-VOID cell of
+; grid row j into A rows j - 2 .. j + 2 and XORs its SAFE; then takes A rows
+; j - 6 .. j - 2 for each VOID cell of grid row j - 4.  The rule reads only
+; fields the form does not change (a VOID cell's z0 and every SAFE bit are the
+; two it never reads), so its order is free.  NROWS and KW count; the A
+; writes stay inside the window (one cell either side of KW, the pads), and
+; the grid writes inside the slot, whatever the bytes.  The tool keeps every
+; non-VOID cell two tiles inside the grid (read_part), so the edge reads stay
+; in the grid.  DS = ours (the A rows), ES = the part; the frame is SS:BP.
+; About 0.19 s on PEAK, with bz_cxsafe (priced, 128.15.6).
+BZ_CXRW     equ 36              ; an A row's stride: a pad, KW cells, a pad
+BZ_CXNS     equ 4 * BZ_BOXB / BZ_CXRW   ; the A rows bz_boxbuf holds
+%if BZ_CXRW < BZ_KWMAX + 2 || BZ_CXNS < 10 || BZ_CXRW & 1
+ %error "bz_cxcel: bz_boxbuf does not hold its window of A rows"
+%endif
+BZ_CXF_R    equ 0               ; A row j - 6's first byte (its left pad)
+BZ_CXF_J    equ 2               ; j
+BZ_CXF_P    equ 4               ; row j's parity
+BZ_CXF_RS   equ 6               ; 4 KW: a grid row's bytes
+BZ_CXF_G    equ 8               ; grid row j
+BZ_CXF_N    equ 10              ; NROWS
+BZ_CXF_KW   equ 12              ; KW
+BZ_CXF_U    equ 14              ; from cell k, row j - 1's cell k + p - 1: 4 p - 4 - 4 KW
+BZ_CXF_D    equ 16              ; and row j + 1's: 4 p - 4 + 4 KW
+BZ_CXF      equ 18
+%if BZ_CXF != 18
+ %error "bz_cxcel: .out's add sp is the frame's size"
+%endif
+bz_cxcel:
+    mov bx, [es:BZC_GRID]
+    mov cx, [es:bx + BZG_KW]
+    mov dx, cx
+    shl dx, 1
+    shl dx, 1                   ; DX = 4 KW
+    mov ax, [es:bx + BZG_SMIN]
+    and ax, 1                   ; AX = p, row 0's
+    mov si, ax
+    shl si, 1
+    shl si, 1
+    sub si, 4
+    add si, dx
+    push si                     ; D: 4 p - 4 + 4 KW
+    sub si, dx
+    sub si, dx
+    push si                     ; U: 4 p - 4 - 4 KW
+    push cx                     ; KW
+    push word [es:bx + BZG_NROWS]       ; N
+    push di                     ; G: grid row 0, the slot
+    push dx                     ; RS
+    push ax                     ; P
+    xor ax, ax
+    push ax                     ; J
+    mov di, bz_boxbuf
+    push di                     ; R
+    mov bp, sp
+    mov cx, 9 * BZ_CXRW / 2     ; A rows -6 .. 2: FFh
+.fill:
+    push es
+    push ds
+    pop es
+    mov ax, 0FFFFh
+    rep stosw
+    pop es
+    mov bx, [bp + BZ_CXF_P]     ; BX = p, both passes'
+; row j: lay each cell that is not VOID into the A rows j - 2 .. j + 2
+    mov ax, [bp + BZ_CXF_J]
+    cmp ax, [bp + BZ_CXF_N]
+    jae .gat                    ; (past the grid: no row j)
+    mov si, [bp + BZ_CXF_G]
+    mov di, [bp + BZ_CXF_R]
+    add di, 6 * BZ_CXRW + 1     ; A row j, cell 0
+    mov ch, [bp + BZ_CXF_KW]
+    mov cl, 4
+.sc:
+    mov ax, [es:si + 2]         ; AL = surface : kind, AH = flags
+    test al, 15
+    jz .scn                     ; VOID: no corner
+    call bz_cxsafe
+    mov dx, [es:si]             ; DL = z0, DH = sy : sx
+    mov al, 79h
+    add al, dl
+    test dh, 8
+    jz .lx
+    mov dl, dh
+    or dl, 0F0h                 ; sx < 0
+    add al, dl
+.lx:
+    sar dh, cl                  ; DH = sy
+    jns .ly
+    add al, dh
+.ly:                            ; AL = V, what this cell lays
+    cmp [di + 2 * BZ_CXRW + 1], al      ; A(j + 2, k + 1)
+    jbe .s1
+    mov [di + 2 * BZ_CXRW + 1], al
+.s1:
+    cmp [bx + di + BZ_CXRW], al         ; A(j + 1, k + p)
+    jbe .s2
+    mov [bx + di + BZ_CXRW], al
+.s2:
+    cmp [di], al                        ; A(j, k)
+    jbe .s3
+    mov [di], al
+.s3:
+    cmp [bx + di - BZ_CXRW - 1], al     ; A(j - 1, k + p - 1)
+    jbe .s4
+    mov [bx + di - BZ_CXRW - 1], al
+.s4:
+    cmp [di - 2 * BZ_CXRW - 1], al      ; A(j - 2, k - 1)
+    jbe .scn
+    mov [di - 2 * BZ_CXRW - 1], al
+.scn:
+    add si, 4
+    inc di
+    dec ch
+    jnz .sc
+; row j - 4: each VOID cell's z0, from the A rows j - 6 .. j - 2
+.gat:
+    cmp word [bp + BZ_CXF_J], 4
+    jb .nx
+    mov si, [bp + BZ_CXF_RS]
+    shl si, 1
+    shl si, 1
+    neg si
+    add si, [bp + BZ_CXF_G]     ; grid row j - 4 (its parity is row j's)
+    mov di, [bp + BZ_CXF_R]
+    add di, 2 * BZ_CXRW + 1     ; A row j - 4, cell 0
+    mov cx, [bp + BZ_CXF_KW]
+.ga:
+    test byte [es:si + 2], 15
+    jnz .gan                    ; not VOID: its z0 is stored as it is
+    mov al, [di - 2 * BZ_CXRW + 1]      ; A(s - 2, k + 1)
+    cmp al, [bx + di - BZ_CXRW]         ; A(s - 1, k + p)
+    jbe .g1
+    mov al, [bx + di - BZ_CXRW]
+.g1:
+    cmp al, [di]                        ; A(s, k)
+    jbe .g2
+    mov al, [di]
+.g2:
+    cmp al, [bx + di + BZ_CXRW - 1]     ; A(s + 1, k + p - 1)
+    jbe .g3
+    mov al, [bx + di + BZ_CXRW - 1]
+.g3:
+    cmp al, [di + 2 * BZ_CXRW - 1]      ; A(s + 2, k - 1)
+    jbe .g4
+    mov al, [di + 2 * BZ_CXRW - 1]
+.g4:
+    add al, 81h                 ; the least corner - 6, or FFh + 81h = -128
+    add [es:si], al             ; z0 = the stored difference + rule_z0
+.gan:
+    add si, 4
+    inc di
+    loop .ga
+.nx:
+    mov ax, [bp + BZ_CXF_RS]
+    add [bp + BZ_CXF_G], ax
+    mov ax, 4
+    xor byte [bp + BZ_CXF_P], 1
+    jnz .np
+    neg ax
+.np:
+    add [bp + BZ_CXF_U], ax     ; the edge neighbours' cells move with p
+    add [bp + BZ_CXF_D], ax
+    mov ax, [bp + BZ_CXF_N]
+    add ax, 4
+    inc word [bp + BZ_CXF_J]
+    cmp [bp + BZ_CXF_J], ax     ; j = 0 .. NROWS + 3
+    jae .out
+; the window moves down a row; at the buffer's end, rows j - 6 .. j + 1 go
+; back to its start
+    mov si, [bp + BZ_CXF_R]
+    add si, BZ_CXRW
+    mov di, si
+    cmp si, bz_boxbuf + (BZ_CXNS - 9) * BZ_CXRW
+    jbe .fit
+    push es
+    push ds
+    pop es
+    mov di, bz_boxbuf
+    mov cx, 4 * BZ_CXRW
+    rep movsw
+    pop es
+    mov di, bz_boxbuf
+.fit:
+    mov [bp + BZ_CXF_R], di
+    add di, 8 * BZ_CXRW         ; row j + 2: FFh
+    mov cx, BZ_CXRW / 2
+    jmp .fill
+.out:
+    add sp, 18                  ; BZ_CXF: the frame's nine words (spelled as
+    ret                         ; a number, which tools/stkbalance.py reads)
+
+; bz_cxcel's SAFE: AL = the cell's surface : kind, AH = its flags, ES:SI =
+; the cell, SS:BP bz_cxcel's frame; XORs rule_safe into the cell's flags.
+; Clobbers AL and DX.
+bz_cxsafe:
+    and al, 15
+    cmp al, 1                   ; FLOOR
+    jne .no
+    test ah, BZ_FL_OBS          ; a prop's cell: never SAFE
+    jnz .no
+    cmp byte [es:si + 1], 0     ; sx = sy = 0
+    jne .no
+    mov dx, si
+    add si, [bp + BZ_CXF_U]     ; row j - 1: cells k + p - 1 and k + p ...
+    mov ah, 2
+.nbr:
+    test byte [es:si + 2], 15
+    jz .nb
+    test byte [es:si + 6], 15
+    jz .nb
+    mov si, dx
+    add si, [bp + BZ_CXF_D]     ; ... then row j + 1's two
+    dec ah
+    jnz .nbr
+    mov si, dx
+    xor byte [es:si + 3], BZ_FL_SAFE
+.nb:
+    mov si, dx
+.no:
+    ret
 ; -----------------------------------------------------------------------------
 ; THE HERCULES MADE AT THE FETCH (SPEC.md 128.11.3).  A Hercules byte is the
 ; CGA byte with each 2-bit pixel c replaced by herc_pair(c, line, column): 00

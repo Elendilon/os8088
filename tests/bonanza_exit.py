@@ -2,7 +2,7 @@
 """BONANZA: nothing is left behind, and a held key is one press (SPEC.md 128.10.6.2, 128.11.11.2, 128.11.17.2).
 
     make bonanzadisk && python3 tests/bonanza_exit.py [--adapter cga|herc|both] [--no-keys]
-    python3 tests/bonanza_exit.py --red leak|crepeat|overswallow     (a red arm, below)
+    python3 tests/bonanza_exit.py --red leak|crepeat|overswallow|padleak|expoff1|rowtab1|cellsafe   (a red arm)
     python3 tests/bonanza_exit.py --check                            (the host half: the red arms assemble)
 
 A launch fetches TWO lazy, compressed parts on the desktop - course K's row
@@ -69,6 +69,27 @@ through the Open dialog and the DOUBLE-CLICK of the saved .BZR (a new
 instance): every row as before and the claims as before after each.
   padleak      the glass ball's row not dropped at a cup: MOON's goal leaves
                row 2 fetched
+
+WAVE 5B (SPEC.md 128.15.4.5, 128.15.13): THE CLAIM LEG.  A course part is
+fetched in its STORED form and expanded in place by bz_cexp; between that
+(and bz_hxlat on the Hercules) and OSAPI_FSX_RUN nothing writes it, and inside
+the bracket the lanes' writer does.  So EVERY launch the row makes - FIRST,
+MILL, MOON, PEAK, BENCH (B), the tour's (FIRST, and MOON at the cup), D's
+(FIRST's demo) and one launch of TRIAL added for this leg (Enter, then Esc) -
+stops at the kernel's fsx_run (a kernel address: the package's region may
+move while the launch claims), and there the course claim ([bz_cseg], found
+in the heap map, at least the part's length) must equal byte for byte the
+tool's RAM form under the build's RECB (bbcourse's cga4 / cga8; the art's
+BZ<K>.BIN checked to be the same compile's stored form) on the CGA, or its
+htab() translation on the Hercules; a difference names the first offset and
+its BZC2 section.  The full run must have compared all six shipped courses.
+V opens no bracket and is checked as before.  Red arms, each red at the claim
+leg's first differing offset:
+  expoff1      WDIFF's count one record short (the last record left as its
+               differences): the first launch (FIRST)
+  rowtab1      ROWTAB writes NROWS - 1 words: the first launch (FIRST)
+  cellsafe     the guest's SAFE rule without its OBS test (bz_cxsafe): a prop's
+               cell made SAFE - MILL (the first course with props)
 """
 import argparse
 import os
@@ -190,11 +211,99 @@ def leave(g, way):
         m.key("AltLeft", down=False)
 
 
-def launch(g, way, crs=None):
-    """Start the launch that WAY leaves by - on course CRS ([bz_crs] poked at
-    bz_launch's entry; a replay's course is its log's) - ; -> the floppy reads
-    it took, once the bracket is up (both parts fetched)."""
+# ---- WAVE 5B (SPEC.md 128.15.13): THE CLAIM LEG --------------------------------------
+CLAIMED = {}                    # tag -> the courses whose claim was compared, by name
+
+
+def build_rec(art=None):
+    """the build's RECB (bonanza_ring.build_rec: one reader of bzcourse.inc)"""
+    return R.build_rec(art)
+
+
+_RAM = {}
+
+
+def ram_form(k, tag, art=None):
+    """course K's part as the card holds it between bz_cexp (and bz_hxlat on
+    the Hercules) and OSAPI_FSX_RUN (SPEC.md 128.15.4.5): THE TOOL'S RAM FORM
+    under the build's RECB (bbcourse's cga4 / cga8), or its htab() translation
+    (herc_translate_course).  The art's BZ<K>.BIN must be the same compile's
+    STORED form, or the comparison would be with another tree's courses."""
+    art = art or R.at("build/bonanza-art")
+    key = (k, tag, art)
+    if key not in _RAM:
+        c = R.course_k(k)
+        rec = build_rec(art)
+        ram, stored = (c.cga4, c.stored4) if rec == 4 else (c.cga8, c.stored8)
+        with open(os.path.join(ROOT, art, "BZ%d.BIN" % k), "rb") as f:
+            if f.read() != stored:
+                raise SystemExit("%s/BZ%d.BIN is not this tree's course %s as stored under RECB %d: the art is "
+                                 "stale (`make bonanzadisk`)" % (art, k, c.name, rec))
+        _RAM[key] = BB.herc_translate_course(ram) if tag == "herc" else bytes(ram)
+    return _RAM[key]
+
+
+def section_at(ram, off):
+    """the BZC2 section holding OFF (its directory's tag), or the header / the directory"""
+    if off < 48:
+        return "the header"
+    diroff, nsec = struct.unpack_from("<HH", ram, 38)
+    for i in range(nsec):
+        tg, _fm, so, sl, _dl = struct.unpack_from("<BBHHH", ram, diroff + 8 * i)
+        if so <= off < so + sl:
+            return "section %s (+%d)" % (chr(tg), off - so)
+    return "the directory" if off >= diroff else "no section"
+
+
+def claim_check(g, what):
+    """THE CLAIM LEG (SPEC.md 128.15.13), at the kernel's fsx_run - the
+    launch's OSAPI_FSX_RUN call, after bz_cexp and bz_hxlat, before the lanes'
+    writer: the course claim ([bz_cseg], found in the heap map, its claim at
+    least the part's length) equal byte for byte to the tool's RAM form (CGA)
+    or its htab() translation (Hercules).  -> failures"""
     m = g.m
+    k = g.b("bz_crs")
+    R.CRS_K["bench"]                            # (fills the course table)
+    name = [n for n in R.CRS_K if R.CRS_K[n] == k][0]
+    want = ram_form(k, g.tag)
+    seg = g.w("bz_cseg")
+    mp = heapmap.Map(Q(m), {n: m.sym(n) for n in ("mem_base", "mem_top", "spl_live", "mem_tab")})
+    cl = [c for c in mp.claims if c.seg == seg]
+    if not cl:
+        return ["%s: claim leg, %s: [bz_cseg] %04X is no claim of the heap map" % (what, name.upper(), seg)]
+    if cl[0].para * 16 < len(want):
+        return ["%s: claim leg, %s: the course claim at %04X is %d bytes, the RAM form %d" % (
+            what, name.upper(), seg, cl[0].para * 16, len(want))]
+    got = bytes(m.read(seg * 16, len(want)))
+    CLAIMED.setdefault(g.tag, set()).add(name)
+    if got == want:
+        return []
+    bad = [i for i in range(len(want)) if got[i] != want[i]]
+    return ["%s: claim leg, %s: the course claim differs from the tool's RAM form%s at %d byte(s), the first at "
+            "offset %d in %s (%02Xh, the tool's %02Xh) - SPEC.md 128.15.13" % (
+                what, name.upper(), " through htab()" if g.tag == "herc" else "", len(bad), bad[0],
+                section_at(want if g.tag == "cga" else ram_form(k, "cga"), bad[0]), got[bad[0]], want[bad[0]])]
+
+
+def at_fsx(g, what, fails):
+    """the launch armed with a STOP at the kernel's fsx_run (a kernel address:
+    the package's region may move while the launch claims), already under way:
+    wait for it, run the claim leg into FAILS, and let the bracket run"""
+    m = g.m
+    st = m.wait_stop(60)
+    assert st == "breakpoint", "%s: the launch never reached OSAPI_FSX_RUN (state %r)" % (what, st)
+    fails += claim_check(g, what)
+    m.bp_exec()
+    m.run()
+
+
+def launch(g, way, crs=None, fails=None):
+    """Start the launch that WAY leaves by - on course CRS ([bz_crs] poked at
+    bz_launch's entry; a replay's course is its log's) - with THE CLAIM LEG at
+    its OSAPI_FSX_RUN call (failures into FAILS); -> the floppy reads it took,
+    once the bracket is up (both parts fetched)."""
+    m = g.m
+    fails = [] if fails is None else fails
     m.disk(reset=True)
     key = "KeyB" if way == "bench" else "KeyR" if way.startswith("replay") else "Enter"
     if crs and not way.startswith("replay"):
@@ -202,13 +311,22 @@ def launch(g, way, crs=None):
         g.key(key)
         assert m.wait_stop(60) == "breakpoint", "%s did not reach bz_launch" % key
         g.putb("bz_crs", R.CRS_K[crs])
-        m.bp_exec()
+        m.bp_exec(m.sym("fsx_run"))
         m.run()
     else:
+        m.bp_exec(m.sym("fsx_run"))
         g.key(key)
+    at_fsx(g, way, fails)
     M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "the bracket is up (%s)" % way, guest=60)
     m.pause()
     return m.disk()["reads"]
+
+
+def keyed_launch(g, key, what, fails):
+    """KEY (G, Enter, D: a launch of the package's own choosing) with the claim leg at its fsx_run"""
+    g.m.bp_exec(g.m.sym("fsx_run"))
+    g.key(key)
+    at_fsx(g, what, fails)
 
 
 def at_t0(g, poke):
@@ -264,7 +382,7 @@ def one(g, way, base_rows, base_claims, mat, crs="first"):
         want_mat = m.read(g.a("bz_rlog") + 5, 1)[0]   # R the log's (SPEC.md 128.11.12.2)
     else:
         want_mat = mat                              # a play M's
-    reads = launch(g, way, None if crs == "first" else crs)
+    reads = launch(g, way, None if crs == "first" else crs, fails)
     pc, pb = g.b("bz_pc"), g.b("bz_pb")
     r_in, c_in = rows(g), claims(g)
     crs_b = "bench" if (way == "bench" and crs == "first") else crs
@@ -394,7 +512,7 @@ def wave4_exits(g, ui, base_rows, base_claims):
     m.run()
     for way in ("esc", "f", "altenter"):
         guard(g)
-        g.key("KeyG")
+        keyed_launch(g, "KeyG", "tour %s" % way, fails)
         M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "tour course 1 (%s)" % way, guest=60)
         leave(g, way)
         M.until(m, lambda _: g.b("bz_fs") == 0, "tour course 1 to end on %s" % way, guest=60)
@@ -404,7 +522,7 @@ def wave4_exits(g, ui, base_rows, base_claims):
     m.pause()
     g.putb("bz_tour", R.CRS_K["moon"])          # a tour standing at MOON: Enter plays it
     m.run()
-    g.key("Enter")
+    keyed_launch(g, "Enter", "tour MOON", fails)
     M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "tour MOON", guest=60)
     goal(g, "moon")
     M.until(m, lambda _: g.b("bz_fs") == 0, "tour MOON to end at its cup", guest=60)
@@ -422,7 +540,7 @@ def wave4_exits(g, ui, base_rows, base_claims):
     M.until(m, lambda _: g.b("bz_vk") == 1, "V to load FIRST's shipped demo", guest=20)
     fails += after(g, "V", base_rows, base_claims)
     guard(g)
-    g.key("KeyD")
+    keyed_launch(g, "KeyD", "D of FIRST's demo", fails)
     M.until(m, lambda _: g.b("bz_fs") == 1, "D's bracket", guest=60)
     M.until(m, lambda _: g.b("bz_fs") == 0, "D to its end", guest=120)
     fails += after(g, "D's end", base_rows, base_claims)
@@ -498,7 +616,8 @@ def held_keys(g):
     return fails
 
 
-def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=True, mill=True, w4=True):
+def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=True, mill=True, w4=True,
+        trial=True, cover=True):
     sym = R.symbols(src)
     fails = []
     with os88ui.boot(R.at("build/os8088-360.img"), apps=apps or R.at("build/bonanza360.img"),
@@ -558,10 +677,22 @@ def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=Tr
                         break
                 if fails:
                     break
+        if trial and not fails:                 # wave 5b: TRIAL's one launch, for the claim leg (Enter, Esc)
+            choose_ball(g, R.course("trial").ball)
+            f, line = one(g, "esc", base_rows, base_claims, R.course("trial").ball, crs="trial")
+            print("%s %s" % (tag, line), flush=True)
+            fails += f
         if keys and not fails:
             fails += held_keys(g)
         if w4 and not fails:                    # (last: it closes the window)
             fails += wave4_exits(g, ui, base_rows, base_claims)
+        R.CRS_K["bench"]
+        seen = CLAIMED.get(tag, set())
+        print("%s THE CLAIM LEG (SPEC.md 128.15.13): the course claim = the tool's RAM form at fsx_run on %s" % (
+            tag, ", ".join(sorted(n.upper() for n in seen)) or "no launch"), flush=True)
+        if cover and not fails and seen != set(dict.keys(R.CRS_K)):
+            fails.append("the claim leg compared %s, not all %d shipped courses (SPEC.md 128.15.13)" % (
+                sorted(seen), dict.__len__(R.CRS_K)))
     return fails
 
 
@@ -582,12 +713,30 @@ REDS["padleak"] = [("bonanza.asm", ".dball:                         ; of a part 
                     ".dball:                         ; RED padleak: the glass ball kept at the cup\n"
                     "    cmp al, BZ_P_BALG\n    jne .rpl\n    cmp byte [bz_hid], 0\n    jne .rpl2\n.rpl:\n"
                     "    call op_drop\n.rpl2:\n")]
+# wave 5b (SPEC.md 128.15.13): the expansion broken, each red at the CLAIM LEG's first differing offset -
+# WDIFF's count one record short (the last record left as differences), ROWTAB's last word never written,
+# and the guest's SAFE rule without its OBS test (a prop's cell made SAFE: MILL's first)
+REDS["expoff1"] = [("bonanza.asm", "    sub cx, bx\n    shr cx, 1                   ; the words after the first record\n",
+                    "    sub cx, bx\n    sub cx, bx                  ; RED expoff1: one record short\n"
+                    "    shr cx, 1                   ; the words after the first record\n")]
+REDS["rowtab1"] = [("bonanza.asm", "bz_cxrtb:\n    mov bx, [es:BZC_GRID]\n    mov cx, [es:bx + BZG_NROWS]\n",
+                    "bz_cxrtb:\n    mov bx, [es:BZC_GRID]\n    mov cx, [es:bx + BZG_NROWS]\n"
+                    "    dec cx                      ; RED rowtab1: NROWS - 1 words\n")]
+REDS["cellsafe"] = [("bonanza.asm", "    test ah, BZ_FL_OBS          ; a prop's cell: never SAFE\n    jnz .no\n",
+                     "    ; RED cellsafe: no OBS test\n")]
 RED_RUN = {"leak": {"keys": False}, "crepeat": {"ways": (), "bench": False, "mill": False},
            "overswallow": {"ways": (), "bench": False, "mill": False}}
 RED_RUN["padleak"] = {"keys": False, "mats": (), "bench": False, "mill": False, "w4": True}
 RED_RUN["leak"]["w4"] = False
 RED_RUN["crepeat"]["w4"] = RED_RUN["overswallow"]["w4"] = False
-RED_WANT = {"padleak": "part row 2 is still FETCHED", "leak": "goal:", "crepeat": "held 1.5 s advanced", "overswallow": "pressed twice"}
+for _r in ("expoff1", "rowtab1"):               # the first launch: FIRST, Esc
+    RED_RUN[_r] = {"ways": ("esc",), "mats": (0,), "bench": False, "mill": False, "w4": False, "keys": False}
+RED_RUN["cellsafe"] = {"ways": ("esc",), "mats": (), "bench": False, "mill": True, "w4": False, "keys": False}
+for _r in RED_RUN:                              # (only the full run covers all six courses, and only the
+    RED_RUN[_r].setdefault("cover", False)      # claim reds' own runs need TRIAL's launch)
+    RED_RUN[_r].setdefault("trial", False)
+RED_WANT = {"padleak": "part row 2 is still FETCHED", "leak": "goal:", "crepeat": "held 1.5 s advanced", "overswallow": "pressed twice",
+            "expoff1": "claim leg, FIRST", "rowtab1": "claim leg, FIRST", "cellsafe": "claim leg, MILL"}
 
 
 def main():
