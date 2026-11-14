@@ -4754,31 +4754,33 @@ wa_cross:
     ret
 
 ; --- present ---------------------------------------------------------------
-; Write this frame's cells that differ from the glass; blank last frame's
-; cells this frame did not draw. Nothing else. The glass is compared against
-; itself, in text VRAM: a RAM copy of it (wa_vis, 3,840 bytes of BSS) cost a
-; second write for every cell written and bought nothing - a VRAM read is a
-; RAM read and a few wait states on MartyPC. (On a real IBM CGA at 80
-; columns a read snows like a write does: this reads every listed cell once.
-; 40 columns, Hercules and EGA/VGA text do not snow.) Each list is walked four cells
-; an iteration, entered part-way for the remainder (a jump table, once), so
-; the loop's own cost is a quarter of a `loop` a cell.
-; - A new cell's usual case in play is CHANGED (the view moves: two in three
-;   on the P bench), so the write falls through and the unchanged one jumps.
+; Write this frame's cells; blank last frame's cells this frame did not draw.
+; Nothing else. Each list is walked four cells an iteration, entered part-way
+; for the remainder (a jump table, once), so the loop's own cost is a quarter
+; of a `loop` a cell.
+; - A new cell is WRITTEN, whatever the glass holds. It used to be compared
+;   with the glass first (a read of text VRAM) and written only where it
+;   differed - but in play two cells in three have changed (the view moves),
+;   so the compare was a VRAM read and a branch for every cell to save a
+;   write for one in three: 77 clk a changed cell and 69 an unchanged one,
+;   against 53 for the write alone. The card sees FEWER bus cycles this way
+;   (a write a cell, where there was a read a cell and a write for most),
+;   which on a real IBM CGA at 80 columns is less snow, not more: there a
+;   read snows as a write does. Writing a cell the value it holds shows
+;   nothing. (Before that the glass had a RAM copy, wa_vis: 3,840 bytes and
+;   a second write a cell.)
 ; - An old cell's usual case is DRAWN AGAIN (85 of 121 on the P bench), and
 ;   by a wall, so that is one compare against the wall's stamp falling
 ;   through; a figure's stamp and the blank are out of line. It is written without
 ;   asking whether the glass is blank already: an old-list cell was drawn last
 ;   frame, so it is not, and if it were, the write is a no-op.
-%macro PNEW 0                   ; this frame's cell: written if it differs
+; wa_nwr, the meter's N, counts the writes made: every listed cell and every
+; blank (it used to count the cells that had changed).
+%macro PNEW 0                   ; this frame's cell: written
     lodsw
     xchg bx, ax
     mov ax, [bx+di]             ; (DI = wa_cur)
-    cmp ax, [es:bx]
-    je %%same
     mov [es:bx], ax
-    inc bp
-%%same:
 %endmacro
 %macro POLD 1                   ; last frame's: blanked unless drawn again
     lodsw                       ; (DL = this frame, DH = a figure cell's
@@ -4798,10 +4800,11 @@ wa_cross:
 wa_present:
     push es
     mov es, [wa_vseg]
-    xor bp, bp                  ; writes, for the meter
     mov si, [wa_newp]
     mov di, wa_cur
     mov cx, [wa_newn]           ; bytes: 2 a cell
+    mov bp, cx
+    shr bp, 1                   ; BP = writes, for the meter
     mov bx, cx
     and bx, 6                   ; (cells mod 4) x 2
     add cx, 6
