@@ -51096,14 +51096,14 @@ LAZY, because eager would make the art a reason to refuse the launch.
 `op_fetch` writes `op_want`'s high word and hands `op_read` its capacity in
 paragraphs; a lazy part is one row, so its own bounds are unchanged.
 
-**ONE part is still at most 65,024 bytes** (`OP_PARTMAX` in `os88pkg.py`):
+**ONE part is still at most 65,024 bytes** unless its row says `OP_BIG` (§20.12.15; `OP_PARTMAX` in `os88pkg.py`):
 `op_size` rounds a row up to a sector in a word and refuses the carry, which
 the packer now says at pack time instead of accepting 65,535. **An asset
 bigger than that is two adjacent rows**, and for a PLAIN one that costs
 nothing, because rows are laid back to back at `roundup512(len)` and a row of
 65,024 bytes is a whole number of sectors — the second begins where the first
-ends. A COMPRESSED asset that big pays a stream boundary per row;
-docs/plans/LARGE-LZ4-PLAN.md §4.1 prices lifting that, and the owner deferred it.
+ends. A COMPRESSED asset that big paid a stream boundary per row, and §20.12.15
+lifts the bound for a row that says `OP_BIG`.
 
 **The `OP_XMS` span keeps its 128 sectors.** `op_xload` is a loop of its own
 that still climbs in a word of bytes, nothing in the tree declares `OP_XMS`,
@@ -51457,6 +51457,113 @@ row pays its shift — `pxstein` 3,143 → 3,149, RealDMG 37,822 → 37,824 — 
 XTMP3 its conversion back to KB, 45,168 → 45,179. WireFleet, at
 `APP_MAX_SIZE` with 3 bytes of slack, is byte-for-byte the size it was. No
 kernel byte.
+
+##### 20.12.15 ONE part passes 64KB (`OP_BIG`)
+
+**A row described at most 65,024 bytes** (§20.12.11): its `len` and `zkb`
+were words, and `op_size` rounded `len` up in a word and refused the carry.
+For a plain asset that cost nothing — two adjacent rows are one block — but a
+COMPRESSED asset paid a stream boundary per row (a match cannot reach back
+across one, docs/plans/LARGE-LZ4-PLAN.md §2), and a lazy one paid a claim,
+a fetch and a disk operation per row. A game level that is 90KB in RAM and
+has to be compressed on the disk to fit is that case.
+
+**`OP_BIG` (flags bit 7) says the row's lengths are 20 bits**, and the high
+bits live in the row's own `kind` byte, of which `kind` uses bit 0:
+
+| byte 0 bits | meaning |
+|---|---|
+| 0 | the kind: `OP_SEG` 0, `OP_ASSET` 1 |
+| 1–3 | the PACKED length's bits 16–18, on an `OP_COMP` row; 0 on a plain one |
+| 4–7 | `len`'s bits 16–19 |
+
+`len` and `zkb` keep their low words where they always were, so a row
+without the flag reads exactly as before, and **every table without an
+`OP_BIG` row assembles to the byte it did**: the 32-bit arms are under the
+derived `OP_HAS_BIG` (§20.12.9's rule — the flag is on the row, so it is the
+declaration). Nothing in the kernel changes and no `PKG_FMT` moves: the part
+table is the package's own data, read only by the package's own copy of the
+standard (§20.12.3).
+
+**The bounds:**
+
+- **`len` at most `OP_BIGMAX` = 983,040** (`OP_SECMAX` sectors). An eager
+  row is held to the carve's own ceiling anyway, and a lazy one to its fetch's
+  claim fitting a word of paragraphs (`op_lazyp`).
+- **The packed length under 512KB**, the three bits there are. A part that
+  packs to more than that unpacks to more than any conventional heap holds.
+- **Not with `OP_ZERO`, `OP_XMS` or `OP_ZFILL`**: a scratch row's `zkb` is
+  KB and its 1,024KB bound is the macro's already; the `OP_XMS` climb still
+  counts a word of bytes (§20.12.11); and `OP_ZFILL`'s head is four words.
+  The macro refuses each pairing at the row.
+- **A row over 65,024 bytes without the flag is refused by `os88pkg.py`**, and
+  the message names the flag. A row WITH it may be any size: the flag is a
+  declaration about the code, not about the data.
+- **A compressed LAZY big row's packed low word is never 0 or `OP_SPENT`**:
+  `zkb` is the packed length until the fetch and that sentinel after a drop
+  with no shadow (§20.12.7.4.1), and a low word of either would read as
+  spent. `os88pkg.py` re-encodes with the near-call filter toggled when it
+  meets one, and refuses if that collides too (two in 65,536 each way).
+
+**What changes in the standard, every arm under `OP_HAS_BIG`:** three helpers,
+`op_lenx` (DX:AX = the unpacked length), `op_pkx` (DX:AX = the bytes on the
+disk: packed on an `OP_COMP` row, `len` on a plain one) and `op_gr` (DX:AX
+bytes to a word of paragraphs, CF on a megabyte), and each place that read a
+word now asks them:
+
+| routine | the word it read | now |
+|---|---|---|
+| `op_size` | `len` into `op_usecs`, the disk extent into `op_bend` and the run | 32 bits through `op_gr`; the run's granule sums were already words |
+| `op_unpack` | `zkb`/`len` into `OSAPI_DECOMP` and the two steps | `AL \| OSAPI_LZ_BIG` with the packed length's high byte in `AH`, `BX:DX` the 32-bit output (§20.13.3); a PLAIN big row moves down in `OP_CHUNK` pieces, both windows re-aimed per piece |
+| `op_seg` | `len` in the unpacked walk | `op_lenx` + `op_gr` |
+| `op_lazyp`, `op_zrpara` | the read and `len − packed` | 32 bits, `op_gr`'s carry the refusal |
+| `op_fetch` | `op_want`'s low word, `OSAPI_DECOMP`'s lengths, the move-down and the shrink | `op_want` is 32 bits; the decode as `op_unpack`'s; the move-down and `op_hilift`'s copy are `op_bmove`, `OP_CHUNK` at a time through `op_wa`/`op_wb` |
+| `OS88_REHOME` | `len` into the keep | the same helpers, which a macro expanded before the table cannot gate on: a re-homing loader whose table has an `OP_BIG` row `%define`s `OP_WANT_BIG` before the include, and the table's closing checks refuse the build when it did not |
+| `op_fetch` under `OP_WANT_ASSETHI` | `kind = OP_ASSET` | `kind & 1` |
+
+**What a package does with a part past 64KB is its own segment arithmetic**,
+as for any claim that big: on a real-mode kernel `op_seg + 0x1000` is the
+next 64KB; under kern_mega's protected mode `op_seg` answers a selector over
+the part's first 64KB (`SEG_SUB`, §20.12.13) and the package asks
+`OSAPI_SEG` for the rest (`SEG_AT` or `OSAPI_MEM_SUBSEG`, §50.3.6). The
+standard's own walks already use windows (`op_at`), which is why its copies
+step through one `OP_CHUNK` at a time rather than with one `rep movsb`.
+
+**kern_mega's decoder learned one thing.** It refused any output past 64KB
+through an LDT selector from the allocator's range, because a POOL selector
+above 1MB has no segment beyond it and `lz_dbump` would wrap onto the same
+64KB. The carve and a fetched part are conventional claims (`MEMP_CONV`),
+whose selectors DO have a segment - `mega_s2segc` answers it and `lz_dbump`
+steps through `mega_oddsegc` exactly as for a plain segment - so the entry
+asks `mega_s2segc` and refuses only its `0xFFFF`, a base above 1MB
+(`kernel/lz.inc`, kern_mega only: kern_big and kern_small are
+byte-identical). Before it, `mega-msegbz` was refused at `op_load`
+(`ld_status` 4) while `mega-msegb`, whose rows are plain, passed.
+
+**What it costs is package code, and only a package with an `OP_BIG` row
+pays it.** Measured on MSEG's own source, the image up to its padding:
+**3,325 → 3,470 (+145)** for its plain table (two big rows in the carve, one
+lazy), and **3,911 → 4,163 (+252)** with `OP_COMP` on parts 0, 2 and 6 —
+the decode, the chunked move-down through a compressed carve and the lazy
+row's expansion. docs/plans/LARGE-LZ4-PLAN.md §4.1 had estimated +60–90; what
+it did not count is that a part past 64KB cannot be copied with one `rep
+movsb` on any kernel, so both copies became `op_bmove`. Every package in the
+tree without the flag is byte-identical — all 280 images and binaries `make`
+builds, compared by hash before and after. No kernel byte.
+
+**The host side**: `os88pkg.py` writes the bits and refuses the bounds above;
+`tools/os88parts.py`'s `rows()` answers the 32-bit `len` and `zkb` and the
+masked `kind`, so every host reader that goes through it is right without
+knowing; `os88wire.py`, which unpacks rows itself, masks `kind`.
+
+**`tests/multiseg.py --big` is the gate** (`make msegb`): MSEG built
+`-DMSEG_BIG`, with `OP_BIG` on parts 1 and 2, padded past 64KB each by
+`tests/multiseg/mkwide.py` — part 1 plain noise, part 2 text, compressed in
+the `z` build — so the carve holds one plain and one compressed row each over
+64KB, the plain one taking `op_unpack`'s chunked move-down in the compressed
+build. The row reads each whole part back out of guest memory and compares it
+with the padded module byte for byte, and asserts both rows are past 65,024,
+so a padding that shrank cannot make it pass on rows the old bound allowed.
 
 #### 20.13.1 What stays in the clear, and why it is the whole design
 

@@ -281,10 +281,13 @@ def _pieces(blob):
             n = img[at + os88pkg.PARTS_HDR - 2]
             fid = os88lz.LZ4 if img[at + os88pkg.PART_FMT_AT] == 0 else os88lz.LZB
             for i in range(n):
-                kind, pfl, off, ulen, zkb = struct.unpack_from(
+                b0, pfl, off, ulen, zkb = struct.unpack_from(
                     "<BBHHH", img, at + os88pkg.PARTS_HDR + os88pkg.PART_ROW * i)
-                if kind != os88pkg.PK_SEG or pfl & os88pkg.OPF_ZERO or not off:
+                if (os88pkg.row_kind(b0) != os88pkg.PK_SEG
+                        or pfl & os88pkg.OPF_ZERO or not off):
                     continue
+                ulen, pk = os88pkg.row_lens(b0, ulen, zkb, pfl)  # 20.12.15
+                zkb = zkb if pk is None else pk
                 start = off * gran
                 if pfl & os88pkg.OPF_COMP:
                     pieces.append(os88lz.decompress(blob[start:start + zkb],
