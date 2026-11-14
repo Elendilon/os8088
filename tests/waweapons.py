@@ -271,7 +271,9 @@ def main():
         g.press("ControlLeft")
         f = g.fig(2)
         check(f["dead"] and f["kill"] == 1 and f["anim"] == A["COLLAPSE"]
-              and f["flash"] > 0 and abs(f["flash"] - f["dead"]) <= 1,
+              and f["flash"] > 0 and abs(f["flash"] + 150 - f["dead"]) <= 1,
+              # (its body lies 90 ticks of the 240 to its respawn: red for
+              # all 90 - AI-PLAN 8.5)
               "the shotgun: one close shot kills, red as long as it lies "
               "(%r)" % f)
         g.tick(6)

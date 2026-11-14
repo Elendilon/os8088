@@ -108,10 +108,19 @@ def main():
         park(0)
         park(2)
         g.at(1024, 480, 0, ang=256)
-        for _ in range(60):
+        t0 = g.word("wa_tkn")
+        gone = None
+        for _ in range(150):
             g.tick(2)
-            if not fig(1)["dead"]:
+            f = fig(1)
+            if f["dead"] and not f["nfr"] and gone is None:
+                gone = g.word("wa_tkn") - t0
+            if not f["dead"]:
                 break
+        back = g.word("wa_tkn") - t0
+        check(gone is not None and 80 <= gone <= 100 and 225 <= back <= 250,
+              "A BOT'S RESPAWN: its body lies %r ticks (~90, 3 s), it is back "
+              "after %d (~240, 8 s)" % (gone, back))
         f = fig(1)
         far = max(rsp, key=lambda r: abs(r[0] - 1024) + abs(r[1] - 480))
         nx, ny = nodes[far[3]]
@@ -124,6 +133,7 @@ def main():
         g.put("wa_hp", 20)
         g.at(1000, 300, 0, ang=0)
         setb(1, 46, bytes([1, 0, 0]))
+        setb(1, 55, bytes([0]))         # (its target: the player)
         dead = None
         for t in range(300):
             g.freeze(1, 1300, 300)

@@ -536,3 +536,64 @@ before (P 20.0 / 16.6; heights 40 13.1 / 14.8 / 32.7 / 12.5 / 25.9).
 **Bytes**: the game 14,096 (+2,705 over the four waves: routes, sight,
 states, the score and board, the arms), the renderer part 61,780,
 `WARENA.O88` 34,114.
+
+### 8.5 Play notes: a longer respawn, any seen target (2026-11-14)
+
+The owner's first play of B4: *"Bots turn to me, fire, and generally follow
+me."* Two changes asked for:
+
+**A dead bot is gone 8 seconds, not 3.** Three let a bot back before the
+player could cross the arena after the kill. `F_DEAD` now starts at
+`WA_BDEADT` (240 ticks). The body lies `WA_BBODYT` (90 ticks, 3 s) and is
+then taken off (`F_NFR` = 0, nothing drawn) for the rest of the wait. The
+shotgun's red collapse still lasts as long as the body lies: its `F_FLASH`
+stays 90, so it ends with the body.
+
+**A bot picks whoever it sees: the player or another bot.** `F_BTGT` (byte
+55, the record's last spare) names the target: 0 the player, 1..3 a bot.
+It costs no extra sight walk. A bot still walks one line of sight a look
+(every 8th tick); the look's TARGET alternates. An engaged bot keeps its
+target. Any other bot looks at the player one look and at the next live
+bot the next (`wa_bnextt`). `wa_btpos` puts the target's place in
+`wa_tx`/`wa_ty` and its chest's height in `wa_tz`, or says there is none:
+the player dead, the bot dead, or itself. `wa_sight`, `wa_bear`,
+`wa_bshoot` and `wa_blaunch` read those instead of the player's place.
+
+- A target that dies: the engaged bot roams at its next look. The player
+  dead is now only that case, so the old early exit is gone. Bots keep
+  fighting each other while the player waits to respawn.
+- `wa_btpos` runs again just before a shot. The target may have died since
+  the look, and `wa_tx` is shared, holding whichever bot looked last.
+- A hitscan hit on a bot is `wa_hurt` with the weapon's damage (the
+  shotgun a flat 35, its kill the red collapse) and the shooter as
+  `wa_killer`. The score's kill and death are the bots'. A bot target
+  always counts as moving: a quarter off the roll.
+- **Shot, it shoots back**: a bot hit by another bot and not already
+  fighting turns on the shooter (ENGAGE, its target the shooter, a
+  reaction first). It fires once its next look sees them. The player's
+  hits are as before.
+- Projectiles needed nothing: `wa_rkhit` and `wa_boom` already hit any
+  figure but the owner. A bot's rocket now aims at the target's chest.
+
+**Checked**: the six WireArena rows pass. Their changes:
+
+- `wabots` gains BOT AGAINST BOT: the player in the back tunnel, two bots
+  face to face. They pick each other (engaged, targets 2 and 1). One kills
+  the other, and the kill and the death are both bots'. The player is
+  unhurt. **Red** with the bot looks fixed on the player: neither picks
+  the other and nobody dies.
+- `wascore`'s bot respawn now measures the times: the body lies 87 ticks
+  and the bot is back after 236. (The kill lands a few ticks before the
+  clock starts.)
+- Rows that stage a bot engaged on the player write `F_BTGT` = 0.
+- `wabots`' SIGHT keeps the other two bots dead. A HUNT-ing bot's second
+  look may be at one of them, and that look is not the check's.
+- `waroutes`' lift ride parks bots 1 and 2. Otherwise bot 0 stops on the
+  lift to finish a fight from the ROAM run.
+- `waweapons`' shotgun check reads the red as the body's 90 ticks, not
+  `F_DEAD`'s.
+
+**In play**, by the same breakpoint trace, `wa_bthink` is 648 clk a call,
+1.23% of the frame (B4: 698, 1.3%). The renderer is untouched.
+
+**Bytes**: the game 14,352 (+256), `WARENA.O88` 34,306 (+192).

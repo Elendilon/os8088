@@ -76,4 +76,6 @@ F_BWPN  equ 50                  ; byte: its weapon
 F_BGOAL equ 51                  ; byte: the node it heads for (hunting)
 F_BTA   equ 52                  ; the bearing it last saw the player on
 F_BAMMO equ 54                  ; byte: its weapon's rounds left (B4)
+F_BTGT  equ 55                  ; byte: its target - 0 the player, 1.. a
+                                ; bot (its index + 1): the owner's play note
 F_SIZE  equ 56

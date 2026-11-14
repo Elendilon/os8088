@@ -145,6 +145,7 @@ def main():
         g.freeze(0, 1400, 300)
         setb(0, 4, struct.pack('<h', 512))
         setb(0, F_BST, bytes([1, 0, 0]))
+        setb(0, 55, bytes([0]))         # (its target: the player)
         setb(0, F_BWPN, bytes([4]))
         setb(0, F_BAMMO, bytes([6]))
         setb(0, 10, bytes([0]))
@@ -204,6 +205,7 @@ def main():
             g.freeze(0, 1000 + dist, 300)
             setb(0, 4, struct.pack('<h', 512))
             setb(0, F_BST, bytes([1, 0, 0]))
+            setb(0, 55, bytes([0]))         # (its target: the player)
             setb(0, F_BWPN, bytes([wpn]))
             g.put("wa_bshots", 0)
             drops = []

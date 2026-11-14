@@ -18,7 +18,11 @@ build):
     45, 60 and 75%); each hit flashes the HUD's heart (wa_phit);
   - THE HUNT: a bot that sees the player, and then does not (the player
     taken out of its sight), hunts the node nearest where it saw them, gets
-    there and roams again.
+    there and roams again;
+  - BOT AGAINST BOT: the player out of sight, two bots face to face pick
+    each other as targets (the owner's play note: alternate looks, player
+    and bots), fight, and one kills the other - the kill and the death a
+    bot's, the player unhurt.
 
 A bot that never turns, never fires, or hits at a wrong rate is red, and so
 is a sight walk that disagrees with the host's.
@@ -37,7 +41,7 @@ import os88ui                                                   # noqa: E402
 from os88fixture import need                                    # noqa: E402
 from waweapons import Arena, amap, SYS, APPS, FS, ITEM, A_, anims  # noqa
 
-F_BST, F_BSEE, F_BGOAL = 46, 49, 51
+F_BST, F_BSEE, F_BGOAL, F_BTGT = 46, 49, 51, 55
 
 
 def main():
@@ -91,6 +95,7 @@ def main():
                 setb(i, 4, struct.pack('<h', ang))
             if st is not None:
                 setb(i, F_BST, bytes([st]))
+                setb(i, F_BTGT, bytes([0]))     # (its target: the player)
 
         def free(rnd):
             while True:
@@ -112,6 +117,8 @@ def main():
             g.put("wa_hp", 30000)
             g.at(px, py, 0, ang=0)
             place(0, bx_, by_, st=1)
+            out_of_play(1)              # (the others kept dead: a look at
+            out_of_play(2)              # one of them is not this check's)
             g.tick(10)                  # (it looks every 8th tick)
             seen = fb(0, F_BSEE)[0] & 1
             want = arenagen.sight_clear(grid, (bx_, by_), (px, py))
@@ -189,6 +196,50 @@ def main():
               "THE HUNT: engaged (%d), lost it, hunted node %r (%r) and, "
               "there (%d, %d), roams again (%s)"
               % (st0, goal, (nx, ny), x, y, back))
+
+        # BOT AGAINST BOT: the player out of everyone's sight, bots 0 and 1
+        # face to face in the open. They pick each other, fight, and one
+        # kills the other - a bot's kill and a bot's death, the player's
+        # health and deaths untouched
+        g.put("wa_diff", 2)
+        g.put("wa_hp", 30000)
+        g.at(64, 1024, 0, ang=0)
+        out_of_play(2)
+        k0 = list(g.p.read(sym["wa_kills"], 4))
+        d0 = list(g.p.read(sym["wa_deaths"], 4))
+        for i, (x, a) in enumerate(((1000, 0), (1400, 512))):
+            setb(i, 17, bytes([0]))             # (alive, whole)
+            setb(i, 10, bytes([0]))
+            setb(i, 42, bytes([100]))
+            setb(i, 50, bytes([0]))             # (the pistol)
+            place(i, x, 300, ang=a, st=0)
+        mutual = False
+        dead = None
+        for t in range(400):
+            g.tick(2)
+            if t % 5 == 0:
+                for i, x in ((0, 1000), (1, 1400)):
+                    if not fb(i, 17)[0]:
+                        g.freeze(i, x, 300)
+                out_of_play(2)
+            if (fb(0, F_BST)[0], fb(0, F_BTGT)[0], fb(1, F_BST)[0],
+                    fb(1, F_BTGT)[0]) == (1, 2, 1, 1):
+                mutual = True
+            if fb(0, 17)[0] or fb(1, 17)[0]:
+                dead = 0 if fb(0, 17)[0] else 1
+                break
+        g.tick(1)
+        k1 = list(g.p.read(sym["wa_kills"], 4))
+        d1 = list(g.p.read(sym["wa_deaths"], 4))
+        check(mutual, "BOT AGAINST BOT: each picks the other (engaged, "
+              "targets 2 and 1)")
+        check(dead is not None and k1[2 - dead] == k0[2 - dead] + 1
+              and d1[1 + dead] == d0[1 + dead] + 1,
+              "BOT AGAINST BOT: bot %r killed, by the other - kills %r -> "
+              "%r, deaths %r -> %r" % (dead, k0, k1, d0, d1))
+        check(g.word("wa_hp") == 30000 and d1[0] == d0[0],
+              "BOT AGAINST BOT: the player unhurt (%d), no death of theirs"
+              % g.word("wa_hp"))
 
     if fails:
         print("wabots: FAIL - %d of the bots' checks:" % len(fails))

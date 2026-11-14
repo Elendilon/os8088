@@ -130,11 +130,22 @@ def main():
         g.p.write(base + 8, struct.pack('<H', e[6]))
         g.p.write(base + 45, bytes([1]))
         g.p.write(base + 16, bytes([0, 0]))     # (alive, not flashing)
+        g.p.write(base + 46, bytes([0]))        # (roaming: not still in
+                                                # a fight from the ROAM run)
+
+        def park():
+            """bots 1 and 2 dead and away: nobody for bot 0 to fight"""
+            for i in (1, 2):
+                g.p.write(base + i * FS + 17, bytes([250]))
+                g.p.write(base + i * FS, struct.pack('<hh', 1000, 1900))
+        park()
         lrest, ltop = g.word("wa_lrest"), g.word("wa_ltop")
         rose = top_z = dropped = False
         maxlh = 0
         for t in range(400):
             g.tick(2)
+            if t % 50 == 0:
+                park()
             x, y, z, ed, dead, wait = figs()[0]
             lh = lifth()
             maxlh = max(maxlh, lh)

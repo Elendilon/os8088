@@ -396,7 +396,7 @@ wa_spawne:                      ; AL = the edge it starts on
     mov word [di+F_BST], 0      ; (roaming, no reaction, no gap,
     mov word [di+F_BGAP], 0     ; unseeing, the pistol)
     mov byte [di+F_BWPN], 0
-    mov byte [di+F_BAMMO], 0
+    mov word [di+F_BAMMO], 0    ; (and its target: the player)
     mov byte [di+F_HP], WA_FHP
     xor ax, ax                  ; dummy 0 lives with a full shield: its chest
     cmp di, wa_figs             ; yellow and a second pool to shoot through
@@ -1278,6 +1278,8 @@ WA_BROAM    equ 0
 WA_BENG     equ 1
 WA_BHUNT    equ 2
 WA_BFETCH   equ 3               ; (B4: to a pickup's node)
+WA_BDEADT   equ 240             ; a dead figure's ticks to its respawn: 8 s
+WA_BBODYT   equ 90              ; ...its body's, lying: 3 s
 WA_SGRID    equ 128             ; the sight grid's bytes (32 x 32 bits)
 WA_BDMG     equ 20              ; a bot's round (its pistol: wave B4 arms it)
 WA_BLOST    equ 19              ; looks (8 ticks each) a hunt lasts: 5 s
@@ -1293,8 +1295,6 @@ wa_bacc:    db 45,  60,    75   ; % at 4 m, the player standing
 wa_bthink:
     cmp byte [wa_bdet], 0
     jne .out
-    cmp byte [wa_pdead], 0      ; (the player dead: nothing to shoot)
-    jne .out
     cmp byte [di+F_DEAD], 0
     jne .out
     mov ax, [wa_tkn]            ; its turn to look: (tick + index x 3) & 7,
@@ -1303,7 +1303,23 @@ wa_bthink:
     add ax, cx
     test al, 7
     jnz .acted
-    call wa_sight               ; CF = 1: it sees the player
+    cmp byte [di+F_BST], WA_BENG ; WHAT IT LOOKS AT (the owner, play-testing:
+    je .tgt                     ; "pick a seen target"): engaged, its target;
+    test al, 8                  ; else the player one look and the next live
+    jnz .bots                   ; bot the next - one sight walk a look, as
+    mov byte [di+F_BTGT], 0     ; ever
+    jmp .tgt
+.bots:
+    call wa_bnextt
+.tgt:
+    call wa_btpos               ; CF = 0: it is dead, or gone
+    jc .there
+    cmp byte [di+F_BST], WA_BENG
+    jne .acted
+    mov byte [di+F_BST], WA_BROAM ; (its target dead: it roams)
+    jmp .acted
+.there:
+    call wa_sight               ; CF = 1: it sees the target
 .c_s:                           ; (tools' stops)
     jnc .unseen
     call wa_bear                ; AX = the bearing to the player
@@ -1319,8 +1335,8 @@ wa_bthink:
 .seen:
     mov [di+F_BTA], ax
     mov byte [di+F_BSEE], 1
-    mov ax, [wa_px]             ; (the node nearest the player, the hunt's
-    mov bx, [wa_py]             ; goal should it lose them)
+    mov ax, [wa_tx]             ; (the node nearest the target, the hunt's
+    mov bx, [wa_ty]             ; goal should it lose them)
     call wa_bcell
     mov [di+F_BGOAL], al
     cmp byte [di+F_BST], WA_BENG
@@ -1376,6 +1392,8 @@ wa_bthink:
 .fire:
     cmp byte [di+F_BSEE], 0
     je .out
+    call wa_btpos               ; (its target's place now - and it may have
+    jnc .out                    ; died since the look)
     jmp wa_bshoot
 .left:
     mov ax, 48
@@ -1397,9 +1415,9 @@ wa_bthink:
 ; one divide, through a 65-byte arctangent table: no sines, no products.
 ; Keeps DI
 wa_bear:
-    mov ax, [wa_px]
+    mov ax, [wa_tx]
     sub ax, [di+F_X]
-    mov bx, [wa_py]
+    mov bx, [wa_ty]
     sub bx, [di+F_Y]
     xor si, si                  ; SI: bit 0 dx < 0, bit 1 dy < 0
     or ax, ax
@@ -1449,6 +1467,70 @@ wa_bear:
 wa_atan:                        ; atan(r / 64), 1024 to the turn, r 0..64
     db 0, 3, 5, 8, 10, 13, 15, 18, 20, 23, 25, 28, 30, 33, 35, 38, 40, 42, 45, 47, 49, 52, 54, 56, 58, 61, 63, 65, 67, 69, 71, 74, 76, 78, 80, 82, 84, 85, 87, 89, 91, 93, 95, 96, 98, 100, 102, 103, 105, 106, 108, 110, 111, 113, 114, 116, 117, 119, 120, 121, 123, 124, 125, 127, 128
 
+; wa_btpos - DI = a bot: its target's place into wa_tx, wa_ty and its
+; chest's height wa_tz; CF = 0 when there is none to look at (the player
+; dead, the bot dead, or itself). Keeps all but AX, BX
+wa_btpos:
+    mov bl, [di+F_BTGT]
+    or bl, bl
+    jnz .bot
+    cmp byte [wa_pdead], 0
+    jne .none
+    mov ax, [wa_px]
+    mov [wa_tx], ax
+    mov ax, [wa_py]
+    mov [wa_ty], ax
+    mov ax, [wa_eye]
+    sub ax, 40
+    mov [wa_tz], ax
+    stc
+    ret
+.bot:
+    dec bl
+    mov al, F_SIZE
+    mul bl
+    add ax, wa_figs
+    cmp ax, di
+    je .none
+    xchg ax, bx
+    cmp byte [bx+F_DEAD], 0
+    jne .none
+    mov ax, [bx+F_X]
+    mov [wa_tx], ax
+    mov ax, [bx+F_Y]
+    mov [wa_ty], ax
+    mov ax, [bx+F_Z]
+    add ax, 60
+    mov [wa_tz], ax
+    stc
+    ret
+.none:
+    clc
+    ret
+
+; wa_bnextt - DI = a bot: its target the next live bot after its last, in
+; turn (none: the player). Keeps all but AX, BX
+wa_bnextt:
+    push cx
+    mov cx, WA_NFIG
+    mov bl, [di+F_BTGT]
+.n:
+    inc bl
+    cmp bl, WA_NFIG
+    jbe .k
+    mov bl, 1
+.k:
+    mov [di+F_BTGT], bl
+    push bx
+    call wa_btpos
+    pop bx
+    jc .out
+    loop .n
+    mov byte [di+F_BTGT], 0
+.out:
+    pop cx
+    ret
+
 ; wa_bcell - AX, BX = x, y: AL = the route node nearest the PVS cell there
 ; (arenagen's table). Keeps all but AX, BX
 wa_bcell:
@@ -1470,9 +1552,9 @@ wa_bcell:
 ; Keeps DI
 wa_sight:
     push di
-    mov ax, [wa_px]
+    mov ax, [wa_tx]
     sub ax, [di+F_X]            ; AX = dx
-    mov bx, [wa_py]
+    mov bx, [wa_ty]
     sub bx, [di+F_Y]            ; BX = dy
     mov cx, ax                  ; the steps: max(|dx|, |dy|) / 64 + 1
     or cx, cx
@@ -1613,11 +1695,11 @@ wa_bshoot:
     mov bl, [wa_diff]
     add al, [wa_bacc+bx]
     mov [wa_bacc2], al
-    mov ax, [wa_px]             ; the distance, near enough
+    mov ax, [wa_tx]             ; the distance, near enough
     sub ax, [di+F_X]
     call wa_abs
     mov bx, ax
-    mov ax, [wa_py]
+    mov ax, [wa_ty]
     sub ax, [di+F_Y]
     call wa_abs
     cmp ax, bx
@@ -1638,8 +1720,11 @@ wa_bshoot:
     jae .miss
     sub bl, al
 .near:
+    cmp byte [di+F_BTGT], 0     ; (a bot target: always moving)
+    jne .moving
     test word [wa_kbits], WA_K_W | WA_K_S | WA_K_A | WA_K_D
     jz .roll                    ; (the player moving: a quarter less)
+.moving:
     mov al, bl
     shr al, 1
     shr al, 1
@@ -1651,15 +1736,51 @@ wa_bshoot:
     mul cx
     cmp ah, bl
     jae .miss
+    inc word [wa_bhits]
+    call wa_bidx                ; (who: the score's kill if it is one)
+    inc al
+    mov [wa_hurtby], al
+    mov [wa_killer], al
+    cmp byte [di+F_BTGT], 0
+    je .player
+    mov bl, [wa_bw]             ; A BOT HIT: its damage, the shotgun's
+    xor bh, bh                  ; flat 35 (its kill the red collapse)
+    mov al, [wa_bwdmg+bx]
+    xor ah, ah
+    cmp bl, 1
+    jne .bdmg
+    mov ax, 0x0123
+.bdmg:
+    push di
+    push ax
+    mov al, [di+F_BTGT]
+    dec ax
+    mov cl, F_SIZE
+    mul cl
+    add ax, wa_figs
+    mov di, ax
+    cmp byte [di+F_BST], WA_BENG
+    je .hit                     ; (not fighting already: it turns on whoever
+    mov al, [wa_killer]         ; shot it, its reaction first, and fires
+    mov [di+F_BTGT], al         ; once its next look sees them)
+    mov byte [di+F_BST], WA_BENG
+    mov byte [di+F_BSEE], 0
+    mov byte [di+F_BGAP], 0
+    mov bl, [wa_diff]
+    xor bh, bh
+    mov al, [wa_brx+bx]
+    mov [di+F_BRX], al
+.hit:
+    pop ax
+    call wa_hurt
+    pop di
+    ret
+.player:
     mov ax, 120                 ; hit: the player hurts
     mov cx, 2
     mov dl, 0x40
     call OSAPI_SND_TONE
     mov byte [wa_phit], 6
-    inc word [wa_bhits]
-    call wa_bidx                ; (who: the score's kill if it is one)
-    inc al
-    mov [wa_hurtby], al
     mov bl, [wa_bw]
     xor bh, bh
     mov al, [wa_bwdmg+bx]
@@ -1752,11 +1873,11 @@ wa_blaunch:
 .v:
     mov [di+RG_VX], dx
     mov [di+RG_VY], ax
-    mov ax, [wa_px]             ; the ticks there: its distance / speed
+    mov ax, [wa_tx]             ; the ticks there: its distance / speed
     sub ax, [bx+F_X]
     call wa_abs
     mov dx, ax
-    mov ax, [wa_py]
+    mov ax, [wa_ty]
     sub ax, [bx+F_Y]
     call wa_abs
     add ax, dx                  ; (the axes' sum: a little long - it
@@ -1765,8 +1886,7 @@ wa_blaunch:
     inc ax
 .t:
     mov cx, ax                  ; CX = ticks
-    mov ax, [wa_eye]            ; the climb: to the player's chest
-    sub ax, 40
+    mov ax, [wa_tz]             ; the climb: to the target's chest
     sub ax, [si+WA_RKZ]
     cmp ax, 120                 ; (bounded: the quotient stays in 16 bits)
     jle .z1
@@ -2246,6 +2366,10 @@ wa_figtick:
     je .live
     dec byte [di+F_DEAD]
     jz .resp
+    cmp byte [di+F_DEAD], WA_BDEADT - WA_BBODYT
+    jne .body                   ; (its body lies 3 s, then is gone - no
+    mov byte [di+F_NFR], 0      ; drawing for the rest)
+.body:
     cmp byte [di+F_NFR], 0      ; (gone: nothing to animate)
     jne .anim
     ret
@@ -2825,7 +2949,9 @@ wa_kill:
     mov byte [di+F_HP], 0
     mov byte [di+F_LOOP], 0
     mov word [di+F_PH], 0
-    mov byte [di+F_DEAD], 90    ; three seconds before it respawns
+    mov byte [di+F_DEAD], WA_BDEADT ; eight seconds before it respawns (the
+                                ; owner, play-testing: three let the bots
+                                ; back before the player could cross)
     mov al, WA_A_DEATH
     mov ah, WA_N_DEATH
     cmp byte [di+F_KILL], 1
@@ -4784,6 +4910,9 @@ WA_VAR wa_bw,1                   ; a bot's shot: its weapon, accuracy,
 WA_VAR wa_bacc2,1                ;   distance
 WA_VAR wa_bdist,2
 WA_VAR wa_bfig,2                 ; wa_blaunch's bot
+WA_VAR wa_tx,2                   ; a bot's target: where, its chest's
+WA_VAR wa_ty,2                   ;   height (wa_btpos)
+WA_VAR wa_tz,2
 WA_VAR wa_sgrid,1024              ; the sight grid, a byte a 64-unit cell
 WA_VAR wa_bshots,2               ; the bots' shots fired, and hits
 WA_VAR wa_bhits,2
