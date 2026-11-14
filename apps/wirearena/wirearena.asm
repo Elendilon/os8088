@@ -86,6 +86,8 @@ wa_oncmd:                       ; Game menu: wa_items maps the item
     ret
 .diff:
     mov [wa_diff], al
+    mov [wa_lkdiff], al
+    mov byte [wa_lkfull], 1
     xor ah, ah
     shl ax, 1
     mov bx, ax
@@ -118,6 +120,8 @@ wa_oncmd:                       ; Game menu: wa_items maps the item
     ret
 .alone:
     mov [wa_arena], al
+    mov al, [wa_lkbots]         ; (the setup's bots)
+    mov [wa_lknb], al
     call wa_loadarena           ; off its part, before the bracket: CF = 1
     jc .out                     ; it could not be read, and a toast said why
     mov ax, wa_main
@@ -2519,11 +2523,16 @@ wa_figz:
 %include "wasin.inc"
 ; wa_figtick - DI = a figure: one 30 Hz step of its patrol and its animation
 wa_figtick:
-    cmp byte [wa_lkon], 0       ; A LINKED MATCH (LINK-PLAN 6, 8): a bot
-    je .solo                    ; the match has none of off the board; a
-    call wa_lkabsent            ; figure the other machine owns drawn from
-    je .off                     ; its record; the host's own bots its own
-    call wa_lkremote
+    cmp byte [wa_lkon], 0       ; (a bench alone: its three dummies, always)
+    jne .count
+    cmp byte [wa_bdet], 0
+    jne .solo
+.count:
+    call wa_lkabsent            ; a bot the match has none of: off the
+    je .off                     ; board (the setup's count, or LINK-PLAN 8)
+    cmp byte [wa_lkon], 0       ; A LINKED MATCH (LINK-PLAN 6, 8): a figure
+    je .solo                    ; the other machine owns drawn from its
+    call wa_lkremote            ; record; the host's own bots its own
     jne .solo
     push si
     call wa_bidx
@@ -5123,12 +5132,16 @@ wa_loadarena:
 %include "watab.inc"
 
 %include "walink.inc"           ; two machines over a null modem (LINK-PLAN)
+%include "wasetup.inc"          ; the opening window: the match setup
+%include "os88ui.inc"           ; (its buttons)
 
 wa_tpl:
-    dw 120, 60, 330, 200
+    dw 120, 20, 330, 160
     dw wa_ttl, wa_cls
     OS88_CLASS wa_cls, 0, PAINT, wa_paint, ONKEY, wa_lkkey, \
-               ONCLOSE, wa_lkclose, ONTIMER, wa_lktimer
+               ONCLOSE, wa_lkclose, ONTIMER, wa_lktimer, \
+               ONCLICK, os88ui_btnclick, ONMOUSEUP, wa_sbtnup, \
+               ONDRAG, wa_sbtndrag
 
     OS88_MENUSET wa_menus, wa_name, wa_oncmd
         OS88_MENU wa_m_game, wa_i_game, 9
@@ -5164,22 +5177,18 @@ wa_it_h40:  db 'Heights arena, 40 columns', 0
 wa_it_h80:  db 'Heights arena, 80 columns', 0
 wa_items:   db 1, 0, 0, 0, 1, 1, 0, 1, 1, 2, 0, 2  ; width (0 = 80, 1 = 40), arena
 
-wa_help:
-    db 'WireArena - arena shooter prototype', 0
-    db 'Game menu: 40 or 80 columns; the full', 0
-    db 'arena, the open one, or the heights.', 0
+wa_help:                        ; (the Keys view: eleven rows)
     db 'Mouse looks; W A S D move; arrows', 0
-    db 'turn and pitch; Space jumps; click', 0
-    db 'or Ctrl fires; R reloads. 1-6: pistol,', 0
-    db 'shotgun, chaingun, grenades, rockets,', 0
-    db 'railgun (picked up: heights arena).', 0
-    db '-/+: 40/80 col.; Tab: scores; V: vsync', 0
-    db 'B, P: benches. F: view 90/75/60.', 0
-    db 'F1-F5: detail, very low to very high', 0
-    db '(HUD). G: floor grid. T: ramps as', 0
-    db 'treads. L: no wall tops (debug).', 0
-    db 'Esc leaves. HUD: fps, frame, render,', 0
-    db 'present ms, video writes a frame.', 0
+    db 'turn and pitch; Space jumps.', 0
+    db 'Click or Ctrl fires; R reloads.', 0
+    db '1-6: pistol, shotgun, chaingun,', 0
+    db 'grenades, rockets, railgun.', 0
+    db 'Tab: scores. -/+: 40/80 columns.', 0
+    db 'F1-F5 detail. F: view. V: vsync.', 0
+    db 'G: floor grid. T: treads. L: tops.', 0
+    db 'B, P: benches (HUD: fps, frame,', 0
+    db 'render, present ms, writes).', 0
+    db 'Esc leaves the arena.', 0
     db 0
 
 ;               0         1         2         3
@@ -5273,6 +5282,11 @@ WA_VAR wa_bfig,2                 ; wa_blaunch's bot
 WA_VAR lk_blk,LK_SIZE             ; THE LINK (walink.inc, os88cable.inc)
 WA_VAR lk_sbuf,SER_BUFFER_SIZE     ; the lease's rings: in our own region
 WA_VAR lk_crct,512                 ; the CRC's table
+WA_VAR wa_sfoc,2                   ; THE SETUP (wasetup.inc): the focused row,
+WA_VAR wa_splay,1                  ;   Play (0 alone, 1 serial, 2 Ethernet),
+WA_VAR wa_keysv,1                  ;   1: the key list shown, the buttons'
+WA_VAR wa_sblab,4                  ;   labels as drawn, their rects
+WA_VAR wa_sbrects,16
 WA_VAR rw_blk,RW_SIZE              ; the card (os88raw.inc)
 WA_VAR wa_lknet,1                  ; 1: linking on the card, not the cable
 WA_VAR wa_lkpmac,6                 ; the peer's station address

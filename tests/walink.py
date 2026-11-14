@@ -219,6 +219,14 @@ class Arena(W.Machine):
         self.setf(i, 36, (head | 0x8000) | 0, 2)
         self.setf(i, 38, 0, 4)
 
+    def setup_play(self, n):
+        """the match setup (NET-PLAN 2): Down to Play, Right n times"""
+        for _ in range(4):
+            self.key('down')
+        for _ in range(n):
+            self.key('right')
+        Q.pace(self, .3)
+
     def fire(self):
         self.key_state('ctrl', True)
         Q.pace(self, .15)
@@ -243,8 +251,8 @@ def main():
             b = Arena(d, 1, net=cable)
             t.join(30)
             cable.start()
-            for m in (a, b):            # Link > Ethernet: E in the window
-                m.key('e')
+            for m in (a, b):            # the setup: Play, Ethernet
+                m.setup_play(2)
             for m in (a, b):
                 m.wait_for(lambda m=m: m.v('wa_lknet') == 1 and m.v(
                     'rw_blk', 8) >> 48 & 0xFF == 1, 'ETHERNET: %s claimed '
@@ -252,6 +260,8 @@ def main():
         else:
             a, b = Arena(d, 0), Arena(d, 1)
             cable = W.Cable([a, b])
+            for m in (a, b):            # the setup: Play, serial cable
+                m.setup_play(1)
         try:
             run(a, b, cable)
         finally:

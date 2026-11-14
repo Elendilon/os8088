@@ -37,7 +37,8 @@ WR_Z        equ 4               ;   its height (-1: the floor's), facing,
 WR_A        equ 6               ;   its flags (SNAP byte 9's)
 WR_F        equ 8
 WR_SZ       equ 10
-WL_ROWS     equ 17              ; the window's rows of text
+WL_ROWS     equ 14              ; the window's rows of text (the setup's
+                                ; buttons over rows 7 and 8, WS_BTNY)
 WL_COLS     equ 38
 
 %include "os88cable.inc"
@@ -125,12 +126,13 @@ wa_lkcable:
 ; wa_lkinit - the window is open: an identity, Automatic, the timer
 wa_lkinit:
     call wa_lknewid
-    mov byte [wa_lkfull], 1
-    call lk_auto
-    mov word [lk_blk+LK_MSG], lk_m_search
+    call lk_crcinit             ; (the CRC's table: both carriers' - it was
+    mov byte [wa_lkfull], 1     ; built only when a serial port opened)
     mov byte [wa_lkarena], 2    ; (the heights, two normal bots: the host
     mov byte [wa_lkdiff], 1     ; may change all three)
-    mov byte [wa_lkbots], 2
+    mov byte [wa_lkbots], WA_NFIG ; (alone: all three; linked, two)
+    mov word [lk_blk+LK_MSG], wa_ms_setup ; (no carrier until Play says so:
+    call wa_sinit               ; the match setup, NET-PLAN 2)
     mov bx, [wa_win]
     mov ax, 1
     call OSAPI_WM_TIMER
@@ -379,15 +381,10 @@ wa_lkready:
 
 ; wa_lkkey - ONKEY: Space and Enter toggle Ready
 wa_lkkey:
-    mov ah, al                  ; E: Ethernet
-    or ah, 0x20
-    cmp ah, 'e'
-    jne .sp
     push si
-    call wa_lknetgo
+    call wa_skey                ; (the setup's keys, wasetup.inc)
     pop si
-    ret
-.sp:
+    jc .out
     cmp al, ' '
     je .r
     cmp al, 13
@@ -552,6 +549,7 @@ wa_lkrows:
     inc bp
     cmp bp, WL_ROWS
     jb .row
+    call wa_sbtns               ; (the setup's buttons, where they changed)
     mov byte [wa_lkfull], 0
     pop bp
 .out:
@@ -575,6 +573,10 @@ wa_lkput:
     add dx, ax
     mov si, wa_lkln
     mov ax, (CWHITE << 8) | CBLACK
+    cmp byte [si], '>'          ; (the setup's focused row: inverted)
+    jne .ink
+    mov ax, (CBLACK << 8) | CWHITE
+.ink:
     call OSAPI_FONT_RUN
     ret
 
@@ -607,9 +609,22 @@ wa_lkline:
 .body:
     cmp bp, 1
     je .out
+    cmp byte [wa_keysv], 0      ; KEYS: the key list, row 2 its first line
+    jne .help
+    cmp bp, WS_LAST             ; the settings (wasetup.inc), then once
+    ja .players                 ; linked the players
+    jmp wa_sline
+.players:
     call wa_lklinked
     jnz .lobby
-    mov si, wa_help             ; the help: row 2 is its first line
+    ret
+.help:
+    cmp bp, WL_ROWS - 1         ; (its last row: the way back)
+    jne .hl
+    mov si, wa_lt_back
+    jmp wa_lkcpy
+.hl:
+    mov si, wa_help
     mov cx, bp
     sub cx, 2
     jcxz .copy
@@ -626,13 +641,14 @@ wa_lkline:
     ret
 .lobby:
     mov bx, bp
-    sub bx, 2
-    cmp bx, 7
+    sub bx, 10
+    jb .out
+    cmp bx, 4
     jae .out
     shl bx, 1
     jmp [wa_lkrow+bx]
 
-wa_lkrow:   dw .you, .them, .out, .arena, .width, .out, .hint
+wa_lkrow:   dw .you, .them, .out, .hint
 .out:
     ret
 .you:
@@ -769,6 +785,8 @@ wa_lkpname:
     ret
 
 wa_lt_on1:      db 'Linked on COM', 0
+wa_lt_back:     db 'A key or a click: back.', 0
+wa_ms_setup:    db 'WireArena - match setup', 0
 wa_lt_onet:     db 'Linked on Ethernet', 0
 wa_lm_neth:     db 'Looking on Ethernet...', 0
 wa_lm_nonet:    db 'No Ethernet card (ETHER.DRV)', 0
@@ -790,8 +808,8 @@ wa_lt_d1:       db 'normal', 0
 wa_lt_d2:       db 'hard', 0
 wa_lt_w40:      db 'You play 40 columns (Game menu)', 0
 wa_lt_w80:      db 'You play 80 columns (Game menu)', 0
-wa_lt_hhost:    db 'Space: ready. Game menu: the arena.', 0
-wa_lt_hguest:   db 'Space: ready. The host picks the arena.', 0
+wa_lt_hhost:    db 'Ready on both, and the match starts.', 0
+wa_lt_hguest:   db 'Ready, and the host starts the match.', 0
 
 ; --- the match ---------------------------------------------------------------
 
@@ -1633,6 +1651,21 @@ wa_lkremote:
 ; wa_lkabsent - DI = a figure: ZF = 1 when it is a bot the match has none
 ; of (beyond the host's count). Keeps every register
 wa_lkabsent:
+    cmp byte [wa_lkon], 0       ; ALONE: figures 0 to the setup's count - 1
+    jne .linked                 ; are the bots
+    push ax
+    push dx
+    mov ax, di
+    sub ax, wa_figs
+    mov dl, F_SIZE
+    div dl
+    cmp al, [wa_lknb]
+    pop dx
+    pop ax
+    jb .here
+    cmp al, al
+    ret
+.linked:
     cmp di, wa_figs
     je .here
     push ax
