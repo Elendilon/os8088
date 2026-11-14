@@ -508,6 +508,11 @@ cannot tolerate.
 
 ## 9. The computer opponent (proposed)
 
+*Replaced by [WIREARENA-AI-PLAN](WIREARENA-AI-PLAN.md), to the owner's brief
+of 2026-11-14: fast more than good - routes with branches, a time to shoot
+and an accuracy. Its section 1 records the owner's rulings on everything
+left.*
+
 - **It is a "virtual remote player".** It produces the same input the net
   code consumes, so bot matches exercise the multiplayer path, and a 1v1
   against a bot needs no second machine.
@@ -627,6 +632,9 @@ kern_big and kern_mega only (kern_small refuses), at most three figures, and
 1. **Real IBM CGA in 80 columns.** Contention may be ~1.3x MartyPC's, and
    there is snow. Snow, 40-column mode or vertical-blank writes: which is the
    default?
+   *The owner (2026-11-14): accept the snow; the user picks the width. 80
+   columns is not performant on a 5150 today, and the 5150 is the only
+   machine with a snowing card.*
 2. **The relative-mouse cell.** It costs ~10 resident bytes plus a cell on
    every kernel, and INT 33h wants it too. Approve, or should the package
    borrow the UART?
