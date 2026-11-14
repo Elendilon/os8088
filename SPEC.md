@@ -112367,7 +112367,11 @@ first thing to rely on it.
 
 Legal throughout: the file slots (UI-task context — this is it),
 `osapi_mouse`, `osapi_get_ticks`, `osapi_serial` Read/Write on a lease
-opened before entry (§115), the snd slots, mem/cm/xm slots,
+opened before entry (§115), `osapi_drv_call` to a driver attached before
+entry for a verb that reads no disk (ETHER.DRV's raw verbs, §72.22: a
+claim taken before entry, frames sent and drained inside; the NE2000 is
+polled, so the verb is all the service the card gets), the snd slots,
+mem/cm/xm slots,
 `cpu_info`, `osapi_video`, `wm_top`, `osapi_font_glyphs` (the glyph
 *data* — how an app letters mode 13h without a renderer of its own), and
 the four `fsx_*` slots. Legal **until the first `fsx_mode` call**, and

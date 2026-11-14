@@ -520,7 +520,8 @@ The owner: *"Either sync the bots hearing gunshots or remove that (so we
 don't disadvantage the host)."* Synced, and the lift with it.
 
 - **Hearing**: a guest's shot sets a latch (`wa_lkfired`) that its next
-  SNAP sends as the firing flag and clears. On the host, a SNAP with that
+  two SNAPs send as the firing flag (two, since one lost would lose the
+  shot: the Ethernet row heard 3 of 4 once with one). On the host, a SNAP with that
   flag is a shot heard where the guest stands (`wa_bheara`, the hearing
   routine given the shooter's place and code). The host's roaming bots
   within `WA_HEAR` hunt the guest, as they hunt the host's player.
@@ -542,3 +543,97 @@ don't disadvantage the host)."* Synced, and the lift with it.
   two machines' sims run apart under QEMU on a loaded host, and one
   machine's clock had been used for both): no bots ~180 / 180 bytes a sim
   second, two bots ~180 / 125.
+
+## 12. Ethernet (wave E1, 2026-11-14)
+
+The owner: *"Then continue to ethernet."* MULTIPLAYER-FPS-PLAN 8.2 is the
+proposal; this is what E1 builds on it.
+
+### 12.1 What E1 is, and what it is not
+
+- **The same match over the card.** Two players, the host's bots, every
+  frame of section 4 unchanged: the bodies, their types and lengths, and
+  their CRC. Only the carrier differs. The CRC is redundant on Ethernet,
+  whose FCS covers the frame, but keeping it means one validator for both
+  carriers (`lk_frame`, factored out of `os88cable.inc`'s framer).
+- **Not yet three or four players.** That is E2. Section 4's protocol is a
+  host and a guest throughout: one damage word, one remote player, the
+  codes 0 to 3. Four players need the protocol generalised, and E1 does
+  not pretend otherwise.
+
+### 12.2 The carrier
+
+- **`ETHER.DRV`'s raw verbs** (SPEC.md 72.22): `NETV_RAW` claims the card
+  and answers our station address; `NETV_RAWTX` sends a frame;
+  `NETV_RAWRX` drains one. The claim is exclusive and stops the driver's
+  own pump (DHCP, TCP) while it is held. So it is taken when the user
+  picks Link > Ethernet and released at Disconnect or close, never held by
+  a window that is not linking.
+- **The driver is attached on demand**: `OSAPI_DRV_USE` with `DRVU_UP`
+  loads `ETHER.DRV` off the system disk if it is not up. Nothing is
+  written to `SYSTEM.CFG`.
+- **A frame**: destination, source, EtherType 88B5h (IEEE 802's local
+  experimental type: never forwarded off a LAN as anything else's), then
+  one byte giving the body's length, the body with its CRC, and padding
+  to the 60-byte minimum. The length byte is the one addition: a padded
+  frame does not say where the body ends.
+- **HELLO is broadcast; everything else goes to the peer's station
+  address**, learned from the source of its HELLO when it is bound.
+- **`apps/os88raw.inc`** (`rw_` prefix) is that carrier, written once:
+  `rw_open` (attach, claim, our address), `rw_close`, `rw_send` (a body to
+  a station address) and `rw_poll` (drain up to N frames, the includer's
+  `rw_take` called with each body of our EtherType and its source).
+- **In the bracket**: SPEC.md 53.7 now lists `OSAPI_DRV_CALL` to a driver
+  attached before entry, for a verb that reads no disk. This closes the
+  gap MULTIPLAYER-FPS-PLAN 8.2 named. The card is polled, so the game's
+  drain is all the service it gets: once a frame, as the cable's read is.
+
+### 12.3 The lobby
+
+Link > **Ethernet** (or E in the window) leaves the serial port and
+claims the card. Row 0 says "Looking on Ethernet..." and then "Linked on
+Ethernet". Everything after binding is section 4.1's. Link > Automatic
+returns to the cable; Disconnect lets both go.
+
+### 12.4 How it is checked
+
+`tests/walink.py --net`: the same row, the two QEMUs on `ne2k_isa` cards
+whose `-netdev socket` ends are a Python relay. The relay is the cable's
+analogue: it counts, it can be pulled, and it can inject a garbage frame.
+QEMU is the instrument by the closed list (CLAUDE.md, entry 5: MartyPC has
+no NIC).
+
+### 12.5 E1 as built
+
+Built as 12.1 to 12.4 say:
+
+- **`apps/os88raw.inc`** carries the bodies. `lk_frame`, the validator
+  factored out of `os88cable.inc`'s framer, checks them for both carriers.
+  `lk_seal` appends the CRC for a carrier that sends whole bodies.
+- **WireArena switches carriers in one place each**: `wa_lksend`,
+  `wa_lkpoll` and `wa_lkup`. Link > Ethernet (or E) claims the card;
+  Automatic, COM1, COM2 and Disconnect give it back. Closing the window
+  gives back both.
+- **HELLO goes to everyone; the rest goes to the peer**, whose station
+  address `wa_lkhtake` records from each HELLO of its bound peer.
+
+**Checked**: `tests/walink.py --net`, soak row `walinknet` (~35 s). The
+whole of `walink`'s match passes on two QEMUs' `ne2k_isa` cards behind a
+Python relay; the checks that are the cable's own (the budget, the older
+SERIAL.DRV) are skipped there. On the wire A sent 386 frames and B 421,
+every one valid. **Red** with the peer's station address never recorded:
+the HELLOs cross, so both bind, and nothing after them arrives. The serial
+`walink` still passes beside it.
+
+**What the card costs is not measured**: MartyPC has no NIC.
+MULTIPLAYER-FPS-PLAN 8.2's figure is ~1 to 1.6 ms a verb on a 5150. A
+linked frame drains what came (about one frame at 10 fps) plus the empty
+answer, and sends a third of a SNAP's frame, so about 2.5 verbs: an
+estimate of 3 to 4 ms, near 4% of a frame. `vm/xt-wire` (86Box, an NE1000
+in an XT) or the iron is where it can be timed, and 86Box is not
+cycle-accurate.
+
+**Next, E2**: three and four players. The protocol stops being a host and
+a guest: a damage word per pair, a remote player per peer, codes past 3.
+With players and bots together, a match of more than four figures is
+also more than WireArena's three figure records.

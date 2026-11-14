@@ -84,10 +84,101 @@ def frames(wire):
             yield None, bytes(raw)
 
 
+class NetCable:
+    """The cable's analogue for --net (LINK-PLAN 12.4): both QEMUs' `-netdev
+    socket` ends connect here (QEMU's stream: a 4-byte big-endian length,
+    then the frame), and frames go across while `enabled` - counted, kept
+    for THE WIRE, and a frame can be injected."""
+    def __init__(self):
+        import socket as so
+        import threading
+        self.srv = so.socket()
+        self.srv.setsockopt(so.SOL_SOCKET, so.SO_REUSEADDR, 1)
+        self.srv.bind(('127.0.0.1', 0))
+        self.srv.listen(2)
+        self.port = self.srv.getsockname()[1]
+        self.socks = [None, None]
+        self.enabled = True
+        self.counts = [0, 0]
+        self.observed = [[], []]
+        self.stop = False
+        self.lock = threading.Lock()
+        self.threads = []
+
+    def accept(self, k):
+        self.socks[k], _ = self.srv.accept()
+
+    def start(self):
+        import threading
+        for k in (0, 1):
+            t = threading.Thread(target=self.run, args=(k,), daemon=True)
+            t.start()
+            self.threads.append(t)
+
+    def run(self, k):
+        sk = self.socks[k]
+        buf = b''
+        while not self.stop:
+            try:
+                d = sk.recv(4096)
+            except OSError:
+                return
+            if not d:
+                return
+            buf += d
+            while len(buf) >= 4:
+                n = int.from_bytes(buf[:4], 'big')
+                if len(buf) < 4 + n:
+                    break
+                fr, buf = buf[4:4 + n], buf[4 + n:]
+                self.counts[k] += n
+                self.observed[k].append(fr)
+                if self.enabled:
+                    self.send(1 - k, fr)
+
+    def send(self, k, fr):
+        with self.lock:
+            self.socks[k].sendall(len(fr).to_bytes(4, 'big') + fr)
+
+    def inject(self, k, data):
+        """a garbage frame of our EtherType to machine k"""
+        fr = (b'\xff' * 6 + b'\x02\x00\x00\x00\x00\x09' + b'\x88\xb5' +
+              bytes([len(data)]) + data)
+        self.send(k, fr + bytes(max(0, 60 - len(fr))))
+
+    def close(self):
+        self.stop = True
+        for sk in self.socks:
+            if sk:
+                sk.close()
+        self.srv.close()
+
+
+def net_frames(frs):
+    """(type, body) of each frame of ours; bad ones as (None, frame)"""
+    for fr in frs:
+        if fr[12:14] != b'\x88\xb5':
+            continue
+        n = fr[14]
+        out = fr[15:15 + n]
+        if (len(out) == n and out and LENS.get(out[0]) == n and
+                binascii.crc_hqx(bytes(out[:-2]), 0xffff) ==
+                int.from_bytes(out[-2:], 'little')):
+            yield out[0], bytes(out)
+        else:
+            yield None, bytes(fr)
+
+
 class Arena(W.Machine):
-    def __init__(self, d, i):
+    def __init__(self, d, i, net=None):
+        extra = ()
+        if net:
+            extra = ('-netdev', 'socket,id=n0,connect=127.0.0.1:%d' % net.port,
+                     '-device', 'ne2k_isa,netdev=n0,iobase=0x300,irq=5,'
+                     'mac=52:54:00:12:34:%02x' % (0x50 + i))
         super().__init__(d, i, app='wirearena', filename='WARENA.O88',
-                         disk=W.artifact('warena.img'), prefix='wa_')
+                         disk=W.artifact('warena.img'), prefix='wa_',
+                         extra=extra)
 
     def v(self, name, n=1, signed=False):
         return int.from_bytes(self.readseg(self.seg, self.sy[name], n),
@@ -135,12 +226,32 @@ class Arena(W.Machine):
         Q.pace(self, .25)
 
 
+NET = '--net' in sys.argv
+
+
 def main():
     ANIM.update(anims())
     with tempfile.TemporaryDirectory() as d:
         d = Path(d)
-        a, b = Arena(d, 0), Arena(d, 1)
-        cable = W.Cable([a, b])
+        if NET:
+            import threading
+            cable = NetCable()
+            t = threading.Thread(target=lambda: (cable.accept(0),
+                                                 cable.accept(1)))
+            t.start()
+            a = Arena(d, 0, net=cable)
+            b = Arena(d, 1, net=cable)
+            t.join(30)
+            cable.start()
+            for m in (a, b):            # Link > Ethernet: E in the window
+                m.key('e')
+            for m in (a, b):
+                m.wait_for(lambda m=m: m.v('wa_lknet') == 1 and m.v(
+                    'rw_blk', 8) >> 48 & 0xFF == 1, 'ETHERNET: %s claimed '
+                    'its card (E)' % ('A' if m is a else 'B'), secs=20)
+        else:
+            a, b = Arena(d, 0), Arena(d, 1)
+            cable = W.Cable([a, b])
         try:
             run(a, b, cable)
         finally:
@@ -159,7 +270,8 @@ def run(a, b, cable):
     # THE LOBBY
     for m in (a, b):
         m.wait_for(lambda m=m: m.v('wa_lkpeer', 4) != 0 and
-                   m.v('lk_blk') == 1, 'THE LOBBY: %s finds its peer'
+                   (NET or m.v('lk_blk') == 1),
+                   'THE LOBBY: %s finds its peer'
                    % ('A' if m is a else 'B'), secs=20)
     ida, idb = a.v('wa_lkid', 4), b.v('wa_lkid', 4)
     check(a.v('wa_lkpeer', 4) == idb and b.v('wa_lkpeer', 4) == ida,
@@ -275,7 +387,7 @@ def run(a, b, cable):
 
     r = rate(a, 4)
     k = 0 if host is a else 1
-    check(max(r) <= 230, 'THE BUDGET, no bots: the host %d, the guest %d '
+    check(NET or max(r) <= 230, 'THE BUDGET, no bots: the host %d, the guest %d '
           'bytes a sim second (2400 baud: 240)' % (r[k], r[1 - k]))
 
     # FAULTS: garbage, then the cable pulled for three seconds
@@ -295,16 +407,17 @@ def run(a, b, cable):
     a.wait_for(lambda: a.v('wa_lklost') == 0, 'FAULTS: back - the match '
                'resumes', secs=4)
 
-    # AN OLDER SERIAL.DRV: B told its module has no block verbs - a byte a
-    # call, the link the same (SPEC.md 115.1.2's fallback)
-    b.sy['wa_lkold'] = b.sy['lk_blk'] + 9
-    b.put([('lkold', 1, 1)])
-    b.at(1200, 300, 256)
-    a.wait_for(lambda: near(a, 1200, 300), 'AN OLDER SERIAL.DRV: B a byte '
-               'a call, and A still sees it move', secs=4)
-    check(b.v('lk_blk', 10) >> 72 & 0xFF == 1, 'AN OLDER SERIAL.DRV: B '
-          'stayed on the fallback')
-    b.put([('lkold', 0, 1)])
+    if not NET:
+        # AN OLDER SERIAL.DRV: B told its module has no block verbs - a byte a
+        # call, the link the same (SPEC.md 115.1.2's fallback)
+        b.sy['wa_lkold'] = b.sy['lk_blk'] + 9
+        b.put([('lkold', 1, 1)])
+        b.at(1200, 300, 256)
+        a.wait_for(lambda: near(a, 1200, 300), 'AN OLDER SERIAL.DRV: B a byte '
+                   'a call, and A still sees it move', secs=4)
+        check(b.v('lk_blk', 10) >> 72 & 0xFF == 1, 'AN OLDER SERIAL.DRV: B '
+              'stayed on the fallback')
+        b.put([('lkold', 0, 1)])
 
     # ESC: B leaves; A says so
     b.key('esc')
@@ -442,14 +555,14 @@ def run(a, b, cable):
     host.put([('bdet', 0, 1)])
 
     r = rate(a, 4)
-    check(max(r) <= 230, 'THE BUDGET, two bots: the host %d, the guest %d '
+    check(NET or max(r) <= 230, 'THE BUDGET, two bots: the host %d, the guest %d '
           'bytes a sim second (2400 baud: 240)' % (r[k], r[1 - k]))
 
 
     # THE WIRE
     every = set()
     for k in (0, 1):
-        got = list(frames(cable.observed[k]))
+        got = list((net_frames if NET else frames)(cable.observed[k]))
         badf = [r for t, r in got if t is None]
         kinds = sorted(set(t for t, _ in got if t))
         every |= set(kinds)

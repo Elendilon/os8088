@@ -75,7 +75,8 @@ def amap():
     mp, bn = os.path.join(d, "m"), os.path.join(d, "b")
     subprocess.check_call(
         ["nasm", "-f", "bin", "-I", os.path.join(ROOT, "apps/"),
-         "-I", os.path.join(ROOT, "apps/wirearena/"), "-I", bdir + "/",
+         "-I", os.path.join(ROOT, "apps/wirearena/"),
+         "-I", os.path.join(ROOT, "drivers/net/"), "-I", bdir + "/",
          "--before", "[map all %s]" % mp, "-o", bn,
          os.path.join(ROOT, "apps/wirearena/wirearena.asm")], cwd=ROOT)
     mine = open(bn, "rb").read()

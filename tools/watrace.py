@@ -72,7 +72,7 @@ item, nfr, out = sys.argv[1], int(sys.argv[2]), sys.argv[3]
 pre = sys.argv[4:]
 def amap(path, binp):
     d = tempfile.mkdtemp(); mp, bn = os.path.join(d, "m"), os.path.join(d, "b")
-    subprocess.check_call(["nasm", "-f", "bin", "-w+error", "-I", "apps/", "-I", "apps/wirearena/",
+    subprocess.check_call(["nasm", "-f", "bin", "-w+error", "-I", "apps/", "-I", "apps/wirearena/", "-I", "drivers/net/",
                            "-I", "build/", "--before", "[map all %s]" % mp, "-o", bn, path])
     assert open(bn, "rb").read() == open(binp, "rb").read(), "stale " + binp
     o = {}

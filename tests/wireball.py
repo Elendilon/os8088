@@ -73,7 +73,7 @@ def settle(m, **kw):
 
 
 class Machine(Qemu):
-    def __init__(self, directory, index, *, app='wireball', filename='WIREBALL.O88', disk=None, prefix='wb_', ps2=False):
+    def __init__(self, directory, index, *, app='wireball', filename='WIREBALL.O88', disk=None, prefix='wb_', ps2=False, extra=()):
         self.directory = directory
         self.app = app
         self.varprefix = prefix
@@ -95,6 +95,7 @@ class Machine(Qemu):
                 '-device', f'isa-serial,chardev=link,index={self.linkport}',
                 '-qmp', f'unix:{path},server=on,wait=off',
                 '-gdb', f'unix:{self.gdbpath},server=on,wait=off']
+        args += list(extra)     # (tests/walink.py --net: an NE2000 on a relay)
         self.log = open(directory / f'qemu{index}.log', 'w')
         self.proc = subprocess.Popen(args, cwd=ROOT, stdout=self.log, stderr=self.log)
         Path(self.pidfile).write_text(str(self.proc.pid))

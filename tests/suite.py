@@ -8718,6 +8718,18 @@ SOAK = [
         "hits ignored or the damage word's attribution dropped.",
         needs=("qemu", "nasm"),
         wants=("build/warena.img", "build/os8088.img"), timeout=200),
+    Row("walinknet", "soak", py("tests/walink.py", "--net"), 35.0,
+        "WIREARENA OVER ETHERNET (docs/plans/WIREARENA-LINK-PLAN.md 12, "
+        "E1): walink's whole match - lobby, SNAP, kills on both boards, a "
+        "rocket, pickups, faults, Esc, two host bots, hearing, the lift - "
+        "on two QEMUs' ne2k_isa cards whose -netdev socket ends are a "
+        "Python relay (the cable's analogue: counted, pullable, a garbage "
+        "frame injected). E in each window claims its card through "
+        "ETHER.DRV's raw verbs (SPEC.md 72.22, attached on demand); every "
+        "frame of the EtherType on the wire parses with binascii's CRC. "
+        "Red with the peer's station address never recorded.",
+        needs=("qemu", "nasm"),
+        wants=("build/warena.img", "build/os8088.img"), timeout=220),
     Row("waweapons", "soak", py("tests/waweapons.py"), 26.0,
         "WIREARENA'S WEAPONS AND PICKUPS (docs/plans/WIREARENA-WEAPONS-"
         "PLAN.md). One boot into the Heights arena, every piece checked off "

@@ -367,29 +367,55 @@ lk_byte:
     jne .drop
     or cl, cl
     jz .out                     ; (two delimiters: an idle line)
+    mov si, lk_blk+LK_RXB
+    jmp lk_frame
+.drop:
+    inc word [lk_blk+LK_STBAD]
+.out:
+    ret
+
+; lk_frame - SI = a body, CL = its length with its CRC: checked - a known
+; type, that type's length, its CRC - and handed to lk_take, or dropped and
+; counted. The framer's last step, and a whole carrier's for one that
+; delivers bodies already delimited (apps/os88raw.inc's Ethernet)
+lk_frame:
     cmp cl, LK_MAXF
     ja .drop
-    mov bl, [lk_blk+LK_RXB]
+    mov bl, [si]
     cmp bl, LK_NTYPES
     jae .drop
     xor bh, bh
     cmp cl, [lk_lens+bx]
     jne .drop
+    push si
     xor ch, ch
     dec cx
     dec cx
-    mov si, lk_blk+LK_RXB
     mov ax, 0xFFFF
     call lk_crc                 ; (SI past the body: its CRC)
     cmp ax, [si]
+    pop si
     jne .drop
     inc word [lk_blk+LK_STFR]
-    mov al, [lk_blk+LK_RXB]
-    mov si, lk_blk+LK_RXB
+    mov al, [si]
     jmp lk_take
 .drop:
     inc word [lk_blk+LK_STBAD]
-.out:
+    ret
+
+; lk_seal - SI = a body, CL = its length WITHOUT the CRC: the CRC stored
+; after it, CL = the length with it (a carrier that sends whole bodies).
+; Keeps all but AX, CX
+lk_seal:
+    push si
+    push cx
+    xor ch, ch
+    mov ax, 0xFFFF
+    call lk_crc
+    mov [si], ax                ; (SI past the body)
+    pop cx
+    pop si
+    add cl, 2
     ret
 
 ; lk_send - SI = a body, CL = its length WITHOUT the CRC: framed, its CRC
