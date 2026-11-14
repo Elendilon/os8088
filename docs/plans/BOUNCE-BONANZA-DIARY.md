@@ -1564,3 +1564,98 @@ better window before the game: one artwork, the few setup options, the keys.
 Open from the engine's side: the double bounce is the pumping wave 2 forbade
 (the reach model needs a cap), Space's meaning differs per ball, and twenty
 courses will not fit one 360KB floppy (parting out becomes real).
+
+## 2026-11-14 (the regroup toward a release)
+
+After wave 4 the owner set the end goal: lives as timeouts, a course
+pathway with several finish lines, about twenty courses, physics per ball,
+course clocks, a palette per course, and a better front window. Then,
+reading a first list of what was left, they made eight further decisions.
+This entry is how that became a roadmap. The roadmap itself is the plan's
+new section, "Toward a release". It supersedes the old wave 5 and wave 6
+lists and the "Next" list, whose items are kept and marked with their new
+homes.
+
+**The owner's eight decisions, in their words where it matters.**
+1. At most ONE boost: "otherwise every course with rubber becomes a jump
+   timing challenge, followed by flying over any obstacles we make. I
+   just want a unique mechanic, not a flying ball."
+2. Space and Shift mean the same for every ball, Hop and brake as today.
+   Only the amount differs: rubber a decent jump with its "and again"
+   second, higher bounce; steel today's tiny hop; glass in between.
+3. Reuse a tile and prop map across courses, built out at load time; "feedback
+   on if this works please, or if there is a better idea."
+4. Medals: yes, as a "completed" icon beside the course on the pathway.
+5. Pickups: yes, an hourglass and timed ones such as speed or jump height,
+   "carefully, to not break a course; that will be a theme in course
+   design."
+6. Hidden finish lines: yes, with careful course design.
+7. A ghost only if it is affordable: measure it.
+8. Traps, more props and tiles (wind, magnets, cracked tiles, water,
+   disappearing glass paths), scoped to the courses that use them so they
+   do not cost the whole disk or the 64KB segment, with a limit per course.
+
+**The disk question had a better answer than the one asked.** The owner
+proposed shared tiles, built out at load. Measuring the six parts showed
+where the bytes are: 59% of a course on the floppy is its occluder
+records, 17% its blocks. Only 224 of 1,413 distinct blocks appear in more
+than one course, because a block is cut from the composited picture, so a
+pool shared by all six saves 4.8%. Building out at load time is the right
+mechanism, though, and applied to the RECORDS it saves about 35%: a 4-byte
+record on the disk instead of 8, expanded in place into today's exact
+bytes, so no writer, row or course identity changes. Rendering a course on
+the 5150 itself was priced and refused: the tool takes 15 s for PEAK on a
+modern host, which predicts an hour on a 4.77 MHz 8088.
+
+**The draft was reviewed through three lenses**, the engine, the game and
+the scope, and they returned 49 findings. The ones that changed the plan
+most:
+- **The claim cap.** A play already holds seven of the kernel's eight
+  claims per owner, so mechanic families share one claim, and the balls
+  merge into one.
+- **The step ladder was wrong as first drawn.** A climb is the Hop's apex
+  plus a 4 px landing margin, so glass at the first figure climbed
+  nothing, and a "rubber only" 1-unit step was a frame-perfect trick. The
+  ladder is now derived from the tool's own sweep and printed with each
+  rung's take-off window.
+- **A boost that raises a rebound does nothing after a real fall**, because
+  a 2-unit fall already rebounds higher. So "and again" is defined as a
+  Hop's second bounce, on level floors only, once, never reaching 2 units.
+- **History-dependent props break a binding contract.** Every prop's pose
+  is a function of time today; a cracked tile or a collected pickup is not.
+  That needs a per-play state bitset over a grid that is never written,
+  which also makes a retry instant.
+- **Water cannot be a family.** A ball in the water's cell is drawn whole
+  over it, and "steel sinks, the others float" needs two heights in a cell.
+  It is an engine change, priced on its own, in release 2.
+- **Order.** The walk's column narrowing moves forward, so a clock off to
+  the side really costs nothing. The clocks are measured on MILL and PEAK
+  before their wave closes, remembering the HUD's +65 misses against a
+  predicted 0-3.
+- **A release-1 cut** (the tutorial and two worlds, with MOON and PEAK as
+  world 2's finales) instead of waiting for twenty courses, and a
+  playground course for the owner to judge the physics on before it is
+  frozen.
+
+One finding was rejected, because it added scope the owner had not asked
+for: gems in exploration mode for release 1. Exploration's goal there is
+hunting hidden finishes. A few more were taken in part, among them limited
+Continues, which go to the owner as a default with the trade stated.
+
+**The roadmap in one line a wave:**
+- 5a: clear the HUD's dead code.
+- 5b: the compact course format.
+- 6: feel, ending with a physics freeze.
+- 7: clocks and time limits.
+- 8a to 8c: the shell (its code part, then the pathway loop, then the front
+  window and medals).
+- 9: mechanics as parts, and pickups.
+- 10: performance, and the ghost measured.
+- 11: the tutorial and the course pipeline.
+- 12 and 13: worlds 1 and 2.
+- 14: the machines.
+- 15: release 1.
+- 16 and 17: worlds 3 and 4, release 2.
+
+The owner's open questions are grouped by the gate they block (the
+physics, the shell, later), each with a recommended default.
