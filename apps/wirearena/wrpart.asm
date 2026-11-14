@@ -341,12 +341,6 @@ wa_loadarena:
     mov ax, [si+6]
     mov [es:wa_ltop], ax
 .nolift:
-    mov si, [bx+38]             ; its own patrols (HEIGHTS-PLAN 7.4.5): the
-    mov cx, [bx+40]             ; block as it is, bytes [bx+40] - 0: the
-    mov [es:wa_apn], cx         ; primary's own (arenagen bounds it by
-    shr cx, 1                   ; WA_APATHSZ)
-    mov di, wa_apath
-    rep movsw
     mov byte [es:wa_pvsh], 0    ; ITS PVS (HEIGHTS-PLAN 9.8): the grid's
     mov si, [bx+42]             ; shift and cells a column, and the cells'
     or si, si                   ; masks (arenagen bounds them by WA_PVSN x

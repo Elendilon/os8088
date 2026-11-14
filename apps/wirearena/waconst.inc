@@ -38,7 +38,7 @@ WA_FLODV    equ 16              ; LK_FEW: fv8 below this: under ~7 half-rows tal
 F_X     equ 0
 F_Y     equ 2
 F_ANG   equ 4                   ; facing, 0..1023
-F_LEG   equ 6                   ; leg index * 8 (byte offset into the path)
+F_LEG   equ 6                   ; its route edge x 12 (into the edges)
 F_STEP  equ 8                   ; steps left on this leg
 F_SH    equ 10                  ; byte: its shield (WEAPONS-PLAN 2.3) - the
                                 ; renderer draws a chest yellow while it
@@ -52,7 +52,7 @@ F_DEAD  equ 17                  ; byte: ticks until respawn, 0 = alive
 F_Z     equ 18                  ; the floor it stands on, units (HEIGHTS-
                                 ; PLAN 3.3: wa_figtick, 0 on a flat arena)
 F_HEAD  equ 20                  ; heading of the current leg
-F_PATH  equ 22                  ; -> its path
+F_PATH  equ 22                  ; -> its route's edges, less 2 (AI-PLAN 3)
 F_PZ    equ 24                  ; last projection: z (0 = not drawn)
 F_PIZ   equ 26                  ;   inverse depth
 F_PCX   equ 28                  ;   centre, sub-columns
@@ -64,4 +64,16 @@ F_VX    equ 38                  ;   (0: none yet): a tick's step, units
 F_VY    equ 40
 F_HP    equ 42                  ; byte: its health (the game's alone)
 F_KILL  equ 43                  ; byte: the weapon that killed it (0..2)
-F_SIZE  equ 44
+; ...and the BOT's, the game's alone (docs/plans/WIREARENA-AI-PLAN.md)
+F_HOME  equ 44                  ; byte: its home loop's first edge
+F_BWAIT equ 45                  ; byte: waiting to walk its edge (its kind:
+                                ; 1 the lift down, 2 the lift up), 0 not
+F_BST   equ 46                  ; byte: its state (AI-PLAN 4.4)
+F_BRX   equ 47                  ; byte: ticks of its reaction left
+F_BGAP  equ 48                  ; byte: ticks to its next shot
+F_BSEE  equ 49                  ; byte: it sees the player (bit 0)...
+F_BWPN  equ 50                  ; byte: its weapon
+F_BGOAL equ 51                  ; byte: the node it heads for (hunting)
+F_BLX   equ 52                  ; where it last saw the player
+F_BLY   equ 54
+F_SIZE  equ 56

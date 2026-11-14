@@ -8645,6 +8645,19 @@ SOAK = [
         "off onto the tower, the lift home. Red on e9ca8cff: 14 failures.",
         needs=("marty", "nasm"),
         wants=("build/os8088-360.img", "build/warena360.img")),
+    Row("waroutes", "soak", py("tests/waroutes.py"), 50.0,
+        "WIREARENA'S BOTS WALK THE ROUTE GRAPH (docs/plans/WIREARENA-AI-"
+        "PLAN.md 3). arenagen's graph replaced the dummies' three patrol "
+        "loops: a branch taken at every node, the lift ridden. Two minutes "
+        "of the Heights arena's sim, sampled every 8 ticks: every bot leaves "
+        "its home loop, most of the graph's edges are walked, no figure "
+        "stands in a tall box, and each stands on the floor under it on "
+        "every climbing edge. Then bot 0 at the lift's foot: it waits, "
+        "rides it up (a rider: the lift rises under it), walks onto the "
+        "tower, drops off, and the lift goes home. Red with the branch "
+        "never taken (4 checks) or the bot not counted as a rider.",
+        needs=("marty", "nasm"),
+        wants=("build/os8088-360.img", "build/warena360.img")),
     Row("waweapons", "soak", py("tests/waweapons.py"), 26.0,
         "WIREARENA'S WEAPONS AND PICKUPS (docs/plans/WIREARENA-WEAPONS-"
         "PLAN.md). One boot into the Heights arena, every piece checked off "

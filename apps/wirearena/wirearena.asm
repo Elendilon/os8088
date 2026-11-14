@@ -328,35 +328,31 @@ wa_reset:
     mov [wa_seed], ax
     mov byte [wa_pkdet], 0
     call wa_pkreset             ; every pickup there, no rocket flying
+    mov byte [wa_bdet], 0       ; (the bots branch at random: AI-PLAN 3.2)
     mov di, wa_figs
     xor bx, bx
 .fig:
-    mov si, [wa_pptr]           ; the arena's own patrols, or ours
-    mov si, [si+bx]
-    mov [di+F_PATH], si
+    mov ax, [wa_gep]            ; ITS ROUTE: the arena's graph, from its
+    dec ax                      ; home loop's first edge (AI-PLAN 3.1)
+    dec ax
+    mov [di+F_PATH], ax
+    mov al, [wa_gph+2+bx]
+    mov [di+F_HOME], al
     call wa_spawn
     add di, F_SIZE
     inc bx
-    inc bx
-    cmp bx, WA_NFIG*2
+    cmp bx, WA_NFIG
     jb .fig
     ret
 
-; wa_spawn - DI = a figure: to its path's first waypoint, running, 3 hits
+; wa_spawn - DI = a figure: at its home loop's first edge, running, whole
 wa_spawn:
     push si
-    mov si, [di+F_PATH]
-    mov ax, [si+2]
-    mov [di+F_X], ax
-    mov ax, [si+4]
-    mov [di+F_Y], ax
-    mov ax, [si+6]
-    and ax, 1023                ; (bit 15: the leg climbs, wa_figz)
-    mov [di+F_HEAD], ax
+    mov al, [di+F_HOME]
+    call wa_bset
+    mov ax, [di+F_HEAD]
     mov [di+F_ANG], ax
-    mov ax, [si+8]
-    mov [di+F_STEP], ax
-    mov word [di+F_LEG], 0
+    mov byte [di+F_BWAIT], 0
     mov byte [di+F_HP], WA_FHP
     xor ax, ax                  ; dummy 0 lives with a full shield: its chest
     cmp di, wa_figs             ; yellow and a second pool to shoot through
@@ -696,7 +692,8 @@ wa_tick:
     je .figs
     dec byte [wa_mflash]
 .figs:
-    mov di, wa_figs
+    mov byte [wa_lbn], 0        ; (the bots on the lift this tick: the
+    mov di, wa_figs             ; lift's riders the next, wa_ltick)
     mov cx, WA_NFIG
 .fig:
     push cx
@@ -704,6 +701,8 @@ wa_tick:
     pop cx
     add di, F_SIZE
     loop .fig
+    mov al, [wa_lbn]
+    mov [wa_lbot], al
 .c_w:                           ; (the labels: tools/watrace.py's stops)
     call wa_wtick               ; the weapon's reload and its next shot,
 .c_rk:                          ; the rockets, the pickups (WEAPONS-PLAN)
@@ -1105,11 +1104,14 @@ wa_ltick:
     mov bx, [wa_lift]
     or bx, bx
     js .out
+    cmp byte [wa_lbot], 0       ; a bot riding it (AI-PLAN 3.4), or the
+    jne .on                     ; player on it, on the ground
     mov ax, [wa_jz]
     or ax, [wa_jv]
     jnz .empty
     cmp bx, [wa_flrb]
     jne .empty
+.on:
     mov word [wa_loff], 0
     inc word [wa_lon]
     cmp word [wa_lon], WA_LWAIT
@@ -1143,6 +1145,137 @@ wa_lset0:
     mov ax, [wa_lrest]
     mov [wa_bxh+bx], ax
 .out:
+    ret
+
+; --- routes (docs/plans/WIREARENA-AI-PLAN.md 3) --------------------------------
+; The arena's route graph (tools/arenagen.py graph_block), copied whole into
+; wa_gph by wa_loadarena: a byte of nodes, of edges, a figure's home edge
+; each; then a node a WA_GNSZ (x, y, its four edges out, 0xFF none), an edge
+; a WA_GESZ (x, y, heading | 0x8000 climbing, steps - a patrol leg's row, at
+; F_PATH + F_LEG + 2 - then its far node, its kind, its reverse). A figure
+; walks an edge as it walked a leg; at its end it takes one of the node's.
+WA_GNSZ     equ 8
+WA_GESZ     equ 12
+WA_GETO     equ 10              ; (from the edge's row, +2: its far node...
+WA_GEKIND   equ 11              ; ...its kind - 0 walk, 1 onto the lift at
+WA_GEREV    equ 12              ; rest, 2 off it raised, 3 a drop...)
+
+; wa_bset - DI = a figure, AL = an edge: on it, at its start
+; Keeps all but AX
+wa_bset:
+    push si
+    mov ah, WA_GESZ
+    mul ah
+    mov [di+F_LEG], ax
+    mov si, [di+F_PATH]
+    add si, ax
+    mov ax, [si+2]
+    mov [di+F_X], ax
+    mov ax, [si+4]
+    mov [di+F_Y], ax
+    mov ax, [si+6]
+    and ax, 1023                ; (bit 15: the edge climbs, wa_figz)
+    mov [di+F_HEAD], ax
+    mov ax, [si+8]
+    mov [di+F_STEP], ax
+    mov al, [si+WA_GEKIND]      ; a lift's edge: wait for it (wa_bwait)
+    cmp al, 2
+    jbe .k
+    xor al, al
+.k:
+    mov [di+F_BWAIT], al
+    pop si
+    ret
+
+; wa_bnext - DI = a figure at the end of its edge: the next, from the node
+; it reached - in a bench (wa_bdet) the node's first, its home loop's next
+; leg, so the dummies walk their patrols; else any but the way back, at
+; random, or the way back from a dead end (AI-PLAN 3.2's ROAM). Keeps all
+; but AX, BX, CX, DX
+wa_bnext:
+    push si
+    mov si, [di+F_PATH]
+    add si, [di+F_LEG]
+    mov bl, [si+WA_GETO]
+    mov ch, [si+WA_GEREV]       ; CH = the way back
+    xor bh, bh
+    mov cl, 3
+    shl bx, cl
+    add bx, [wa_gnp]            ; BX = the node
+    mov al, [bx+4]
+    cmp byte [wa_bdet], 0
+    jne .take
+    xor cl, cl                  ; CL = the ways out but back
+    xor si, si
+.cnt:
+    mov al, [bx+4+si]
+    cmp al, 0xFF
+    je .ncnt
+    cmp al, ch
+    je .ncnt
+    inc cl
+.ncnt:
+    inc si
+    cmp si, 4
+    jb .cnt
+    mov al, ch
+    or cl, cl
+    jz .take                    ; a dead end: back
+    call wa_rand8               ; AL = 0..255
+    mul cl
+    mov dl, ah                  ; DL = which of them
+    xor si, si
+.pick:
+    mov al, [bx+4+si]
+    inc si
+    cmp al, 0xFF
+    je .pick
+    cmp al, ch
+    je .pick
+    or dl, dl
+    jz .take
+    dec dl
+    jmp .pick
+.take:
+    call wa_bset
+    pop si
+    ret
+
+; wa_bwait - DI = a figure waiting at its edge's start: CF = 1 while it
+; still must (kind 1: the lift not yet at rest; 2: it rides the lift, not
+; yet at the top - a rider, wa_lbn). Keeps all but AX, BX
+wa_bwait:
+    mov bx, [wa_lift]
+    or bx, bx
+    js .go
+    mov ax, [wa_bxh+bx]
+    cmp byte [di+F_BWAIT], 1
+    jne .up
+    cmp ax, [wa_lrest]
+    jne .wait
+.go:
+    mov byte [di+F_BWAIT], 0
+    clc
+    ret
+.up:
+    inc byte [wa_lbn]
+    cmp ax, [wa_ltop]
+    je .go
+.wait:
+    stc
+    ret
+
+; wa_rand8 - AL = a random byte (the LCG the weapon spawns roll; its high
+; byte). Keeps all but AX
+wa_rand8:
+    push dx
+    mov ax, [wa_seed]
+    mov dx, 25173
+    mul dx
+    add ax, 13849
+    mov [wa_seed], ax
+    mov al, ah
+    pop dx
     ret
 
 ; wa_figz - DI = a figure: F_Z, the floor under its feet (WA_FRAD), 0 on a
@@ -1182,6 +1315,13 @@ wa_figtick:
 .live:
     cmp byte [di+F_ANIM], WA_A_FLINCH
     je .anim                    ; a flinch stops it in its tracks
+    cmp byte [di+F_BWAIT], 0    ; waiting for the lift (AI-PLAN 3.4): it
+    je .go                      ; stands, on the lift a rider, its floor
+    call wa_bwait               ; read as the lift moves it
+    jnc .go
+    call wa_figz
+    jmp .anim
+.go:
     mov ax, [di+F_HEAD]         ; a leg's step is the same every tick of
     or ah, 0x80                 ; it: worked out once per heading
     cmp ax, [di+F_VH]
@@ -1205,28 +1345,7 @@ wa_figtick:
     add [di+F_X], ax
     dec word [di+F_STEP]
     jnz .turn
-    mov si, [di+F_PATH]         ; next leg: snap to its waypoint
-    mov bx, [di+F_LEG]
-    add bx, 8
-    mov ax, bx
-    shr ax, 1
-    shr ax, 1
-    shr ax, 1
-    cmp ax, [si]
-    jb .leg
-    xor bx, bx
-.leg:
-    mov [di+F_LEG], bx
-    add si, bx
-    mov ax, [si+2]
-    mov [di+F_X], ax
-    mov ax, [si+4]
-    mov [di+F_Y], ax
-    mov ax, [si+6]
-    and ax, 1023
-    mov [di+F_HEAD], ax
-    mov ax, [si+8]
-    mov [di+F_STEP], ax
+    call wa_bnext               ; the next edge: a branch at the node
 .turn:
     cmp byte [wa_aflat], 0      ; the floor it now stands on (none on a
     jne .flatz                  ; flat arena: F_Z stays 0)
@@ -1416,13 +1535,8 @@ wa_pkroll:
     xor dl, dl                  ; DL = the one taken: the first...
     cmp byte [wa_pkdet], 0
     jne .pick
-    mov ax, [wa_seed]           ; ...or one at random (an LCG, seeded from
-    mov bx, 25173               ; the clock at the match's start)
-    mul bx
-    add ax, 13849
-    mov [wa_seed], ax
-    mov al, ah
-    mul cl
+    call wa_rand8               ; ...or one at random (an LCG, seeded from
+    mul cl                      ; the clock at the match's start)
     mov dl, ah                  ; (its high byte x choices / 256)
 .pick:
     mov ah, [si+7]
@@ -2707,6 +2821,7 @@ wa_pbstart:
     mov byte [wa_pkdet], 1      ; (every pickup there, its first choice, no
     call wa_pkreset             ; rocket; none taken while it runs:
                                 ; wa_pktick)
+    mov byte [wa_bdet], 1       ; (the dummies walk their home loops)
     mov di, wa_figs             ; the dummies from their starts, then on to
     mov si, wa_pbph             ; the bench's points along their patrols
     mov cx, WA_NFIG
@@ -2800,6 +2915,7 @@ wa_pbmeter:
     ret
 .done:
     mov byte [wa_pbon], 0
+    mov byte [wa_bdet], 0       ; (the bots roam again)
     mov cx, [wa_pbfr]
     mov si, wa_tfr
     call wa_avgn                ; AX = ms x 10 a frame
@@ -3318,20 +3434,27 @@ wa_loadarena:
     shl ax, cl
     mov [wa_nbox8], ax
     call wa_lists               ; the boxes the floor and the walls read
-    mov word [wa_pptr], wa_pathtab ; the patrols: the arena's own, if its
-    cmp word [wa_apn], 0        ; part carries them (HEIGHTS-PLAN 7.4.5) -
-    je .own                     ; their offsets in the block made addresses
-    mov word [wa_pptr], wa_aptab
-    xor bx, bx
-.ap:
-    mov ax, [wa_apath+bx]
-    add ax, wa_apath
-    mov [wa_aptab+bx], ax
-    inc bx
-    inc bx
-    cmp bx, WA_NFIG*2
-    jb .ap
-.own:
+    pop ax                      ; ITS ROUTE GRAPH (AI-PLAN 3.1), straight
+    push ax                     ; out of the part: descriptor words 38
+    call op_seg                 ; and 40, its offset and bytes
+    push ds
+    push ds
+    pop es
+    mov ds, ax
+    mov si, [38]
+    mov cx, [40]
+    mov di, wa_gph
+    cld
+    rep movsb
+    pop ds
+    mov al, [wa_gph]            ; ...and where its nodes and edges are
+    xor ah, ah
+    mov cl, 3
+    shl ax, cl
+    mov bx, wa_gph + 2 + WA_NFIG + (WA_NFIG & 1)
+    mov [wa_gnp], bx
+    add ax, bx
+    mov [wa_gep], ax
     pop ax
     call op_drop
     clc
@@ -3342,7 +3465,7 @@ wa_loadarena:
 
 ; --- tables -----------------------------------------------------------------
 %define WA_TAB_SIN               ; the tables this half reads (the renderer
-%define WA_TAB_PATHS             ; part takes the arenas and the keyframes)
+                                ; part takes the arenas and the keyframes)
 %include "watab.inc"
 
 wa_tpl:
@@ -3442,8 +3565,12 @@ WA_VAR wa_loff,2                 ;   ticks it has stood empty
 WA_VAR wa_allp,4+WA_MBOX*WA_LTE  ; wa_floor's box tables (wa_lists): every
 WA_VAR wa_lowp,4+WA_MBOX*WA_LTE  ;   box and the low ones for the player,
 WA_VAR wa_lowf,4+WA_MBOX*WA_LTE  ;   the low ones for a dummy's feet
-WA_VAR wa_pptr,2                 ; -> the patrols' table: wa_pathtab, or
-WA_VAR wa_aptab,WA_NFIG*2        ;   this, the arena's own (wa_loadarena)
+WA_VAR wa_gph,WA_GPHSZ           ; the arena's route graph (AI-PLAN 3.1)...
+WA_VAR wa_gnp,2                  ; ...its nodes...
+WA_VAR wa_gep,2                  ; ...and its edges
+WA_VAR wa_bdet,1                 ; 1: the bots walk their home loops
+WA_VAR wa_lbn,1                  ; bots on the lift this tick, and the
+WA_VAR wa_lbot,1                 ;   last (wa_ltick's riders)
 WA_VAR wa_pbsel,1                ; the play bench: the heights arena's pose,
 WA_VAR wa_pba,2                  ;   the angle and pitch it circles round,
 WA_VAR wa_pbp,2                  ;   and its HUD mark

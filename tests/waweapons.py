@@ -47,7 +47,7 @@ from os88fixture import need                                   # noqa: E402
 from walift import Game, amap, SYS, APPS                       # noqa: E402
 
 ITEM = "Heights arena, 40 columns"
-FS = 44                         # F_SIZE (apps/wirearena/waconst.inc)
+FS = 56                         # F_SIZE (apps/wirearena/waconst.inc)
 
 
 def anims():
@@ -199,6 +199,13 @@ def main():
                 os88marty.write_png_rgb(os.path.join(a.shots, name + ".png"),
                                         wd, ht, d)
 
+        g.tick(4)
+        # (the bots on their home loops, as the benches walk them - this row
+        # is about the weapons, tests/waroutes.py about where bots go - and
+        # each back at its loop's start: dead a tick, then respawned)
+        g.p.write(sym["wa_bdet"], bytes([1]))
+        for i in range(3):
+            g.p.write(sym["wa_figs"] + i * FS + 17, bytes([1]))
         g.tick(4)
         s = g.arms()
         check(s["wpn"] == 0 and s["mag"][0] == 6 and s["hp"] == 100

@@ -1,9 +1,9 @@
 # WireArena: bots that shoot back, and the match around them
 
-**STATUS: a plan, for the owner's review.** Nothing in it is built. Section
-1 records the owner's rulings on what is left of WireArena (2026-11-14);
-sections 2–6 are the bots and the match flow, priced; section 7 is the
-questions.
+**STATUS: building, wave by wave.** Section 1 records the owner's rulings
+on what is left of WireArena (2026-11-14); sections 2–6 are the bots and the
+match flow, priced; section 7 the questions and the owner's answers;
+section 8 what was built and measured, wave by wave.
 
 WireArena is `apps/wirearena/`. Its history is
 [MULTIPLAYER-FPS-PLAN](MULTIPLAYER-FPS-PLAN.md) §16,
@@ -264,3 +264,80 @@ against dummies, and the heights poses.
    and remote players?
 5. **The bots' names** on the scoreboard: fixed (Bot 1-3), or a short list
    of names?
+
+### 7.1 The owner's answers (2026-11-14)
+
+1. **64** - "slightly seeing around corners is not a big issue".
+2. **Over the view** - try it, and see whether it is both readable and
+   performant.
+3. **The Game menu**, yes - though the menu "will need a lot of work in
+   general before we go live (match setup)".
+4. **Three, shared** with remote players. More might be a 286+ thing later,
+   if it is easy.
+5. **A short list of robotic names.**
+
+## 8. As built
+
+### 8.1 B1: routes, and bots on the lift (2026-11-14)
+
+**The graph** (`tools/arenagen.py`: `graph_of`, `graph_edges`,
+`graph_block`). The Heights arena's is laid by hand (`HEIGHTS_GRAPH`):
+
+- 18 nodes, 27 legs, 51 one-way edges;
+- its three old patrol loops, unchanged, as the bots' HOME loops: over the
+  ramps (split at the platform's middle, the shotgun spawn), the annex's
+  hallways and corridor (through the health pack), and round it all;
+- seven legs between the loops;
+- the lift: a leg onto it at rest (`LIFT_ON`), one off it raised onto the
+  tower (`LIFT_UP`, through the rocket spawn), and a DROP off the tower's
+  west face.
+
+The flat arenas' graphs are PATHS' three loops joined by four legs
+(`PATH_LINKS`): 14 nodes, 36 edges.
+
+arenagen refuses a leg that runs into a wall or climbs more than a step (a
+drop may fall any height), a node with more than four ways out, a node that
+cannot reach every other, and a home loop that is not walkable. The checks
+replace the patrols' own.
+
+**The bytes**: the graph rides in the arena's part (descriptor words 38 and
+40, where its patrols were): 762 bytes for arena 2, 550 for the flat ones.
+The game copies it straight out of the part at load, into `wa_gph`
+(`WA_GPHSZ`). The renderer never sees it, so the patrols' block is gone from
+ARENA in both halves.
+
+**The walk** (`wirearena.asm`):
+
+- a figure's `F_PATH` names the edges and `F_LEG` its edge, x 12;
+- an edge's first 8 bytes are a patrol leg's row, so `wa_figtick` walks an
+  edge as it walked a leg;
+- at an edge's end, `wa_bnext` takes the node's next edge: at random, any
+  but the way back (the way back from a dead end);
+- in a bench (`wa_bdet`) it takes the node's FIRST edge, its home loop's
+  next, so the benches' dummies walk their old patrols exactly. The graph
+  puts each loop's own leg first.
+
+**The lift**: an edge onto it waits at its start (`F_BWAIT` 1) for the lift
+at rest. One off it waits ON it (`F_BWAIT` 2), and a waiting bot counts as
+a rider (`wa_lbn`, read by `wa_ltick` the next tick). So the lift rises
+under the bot, and the bot walks off at the top. While waiting, its floor
+is read every tick, so it rides up with the lift.
+
+**`F_SIZE` is 56** (the bots' bytes, 44–55, the game's alone; `WR_ABI` 6).
+
+**Checked**: `tests/waroutes.py`, a soak row (~45 s).
+
+- **Two minutes of roaming**: every bot left its home loop, 50 of 51 edges
+  were walked, no figure stood in a tall box, and on every climbing edge
+  every figure stood on its floor.
+- **Bot 0 at the lift's foot**: it waited, rode to 160, walked onto the
+  tower, dropped off, and the lift went home.
+- **Red** with the branch never taken (4 checks) or the bot not counted as
+  a rider (2).
+- `waweapons` now stands the bots on their home loops: it is about the
+  weapons.
+
+**Speed**: the benches as before within 0.3 ms (P 20.1 / 16.7; heights 40
+13.2 / 14.9 / 33.0 / 12.5 / 26.0). The benches walk the home loops, so
+their scenes are the same; the cost is a call at each edge's end and a byte
+test a figure a tick.

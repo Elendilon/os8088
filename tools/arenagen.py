@@ -8,7 +8,6 @@ each take what they read):
 
   WA_TAB_SIN     wa_sin
   WA_TAB_ARENAS  every arena's tables and wa_arenas
-  WA_TAB_PATHS   wa_pathtab and the patrols
   WA_TAB_POSE    wa_pose
 
 The constants come first, under a guard of their own, so a second include
@@ -38,6 +37,7 @@ descriptor (WIREARENA-PARTS-PLAN 7.5, HEIGHTS-PLAN 7.2.1).
 """
 import math
 import re
+import struct
 import sys
 
 UNIT = 64.0                     # world units a metre
@@ -146,15 +146,177 @@ HEIGHTS_PATHS = [
 ]
 
 
+# --- ROUTES (docs/plans/WIREARENA-AI-PLAN.md 3): a graph of nodes and legs the
+# dummies (the bots) walk, a branch picked at each node. A leg is walkable
+# both ways (WALK), or one way: onto the lift at its rest (LIFT_ON: the
+# walker waits at its start for the lift to be down), off the raised lift
+# onto the tower (LIFT_UP: it waits on the lift, a rider, for the top), or a
+# drop off a platform (DROP: any fall, no climb). Each figure has a HOME
+# loop: the benches walk it, and a node's first leg out is its loop's next
+# one, so a bench's dummies walk their old patrols exactly.
+WALK, LIFT_ON, LIFT_UP, DROP = 0, 1, 2, 3
+WA_MGN = 32                     # nodes an arena's graph may have
+HEIGHTS_GRAPH = dict(
+    nodes=[(1248, 600), (1248, 1024), (1248, 1450), (1700, 1450),
+           (1700, 600),                                 # 0-4: over the ramps
+           (800, 480), (64, 480), (64, 1024), (64, 1568),
+           (800, 1568),                                 # 5-9: the annex
+           (1000, 300), (1750, 300), (1750, 1750),
+           (1000, 1750),                                # 10-13: round it all
+           (1984, 1216),                                # 14: on the lift
+           (1750, 1216),                                # 15: beside it
+           (1952, 1024),                                # 16: the tower's top
+           (1800, 1024)],                               # 17: under its face
+    legs=[(0, 1), (1, 2), (2, 3), (3, 4), (4, 0),
+          (5, 6), (6, 7), (7, 8), (8, 9), (9, 5),
+          (10, 11), (11, 12), (12, 13), (13, 10),
+          (5, 10), (9, 13), (0, 10), (4, 11), (3, 12), (2, 13), (0, 5),
+          (3, 15), (15, 17), (17, 4),
+          (15, 14, LIFT_ON), (14, 16, LIFT_UP), (16, 17, DROP)],
+    homes=[[0, 1, 2, 3, 4], [5, 6, 7, 8, 9], [10, 11, 12, 13]])
+
+
+def graph_of(tag):
+    """An arena's route graph: its own, or its patrols' loops as one"""
+    if tag in ARENA_GRAPHS:
+        return ARENA_GRAPHS[tag]
+    nodes, legs, homes = [], [], []
+    for p in ARENA_PATHS.get(tag, PATHS):
+        b = len(nodes)
+        nodes += list(p)
+        legs += [(b + j, b + (j + 1) % len(p)) for j in range(len(p))]
+        homes.append(list(range(b, b + len(p))))
+    return dict(nodes=nodes, legs=legs + PATH_LINKS, homes=homes)
+
+
+def graph_edges(tag, boxes):
+    """-> (nodes, edges, home edges): the DIRECTED edges, each (a, b, kind,
+    x, y, heading | climb, steps, rev), every node's own in its HOME loop's
+    order first. Refused: a leg no walker can walk, a node with more than
+    four ways out, a node some other cannot reach, a home loop not walkable"""
+    boxes = [bx(b) for b in boxes]
+    g = graph_of(tag)
+    nodes = g["nodes"]
+    if len(nodes) > WA_MGN:
+        raise SystemExit("arenagen: arena %s: %d route nodes - at most %d"
+                         % (tag, len(nodes), WA_MGN))
+    top = hmax(boxes)
+    lift = [b for b in boxes if b.kind == LIFT]
+    raised = [Box(*b, h=b.top, kind=SOLID) if b.kind == LIFT else b
+              for b in boxes]
+    dirs = []
+    for leg in g["legs"]:
+        a, b_, kind = (leg + (WALK,))[:3]
+        dirs.append((a, b_, kind))
+        if kind == WALK:
+            dirs.append((b_, a, kind))
+    flat = all(b.h >= top and b.kind == SOLID for b in boxes)
+    for (a, b_, kind) in dirs:
+        (x0, y0), (x1, y1) = nodes[a], nodes[b_]
+        n = max(1, int(math.hypot(x1 - x0, y1 - y0) // SPEED))
+        bs = raised if kind == LIFT_UP else boxes
+        walls = [b for b in bs if b.h >= top or (b.kind == LIFT and
+                                                 kind == WALK)]
+        prev = None if flat else floor_at(x0, y0, bs, FRAD)
+        for k in range(n + 1):
+            x, y = x0 + (x1 - x0) * k / n, y0 + (y1 - y0) * k / n
+            if inside(x, y, walls, 12):
+                raise SystemExit("arenagen: arena %s: route leg %d -> %d runs "
+                                 "into a wall near (%d, %d)" % (tag, a, b_, x, y))
+            if flat:
+                continue
+            f = floor_at(x, y, bs, FRAD)
+            if f - prev > STEPUP or (prev - f > STEPUP and kind != DROP):
+                raise SystemExit("arenagen: arena %s: route leg %d -> %d steps "
+                                 "%d at (%d, %d) - a walk takes %d"
+                                 % (tag, a, b_, f - prev, x, y, STEPUP))
+            prev = f
+    if lift and any(k in (LIFT_ON, LIFT_UP) for _, _, k in dirs) is False:
+        pass
+    for k_ in (LIFT_ON, LIFT_UP):
+        for (a, b_, kind) in dirs:
+            if kind == k_ and not lift:
+                raise SystemExit("arenagen: arena %s: a lift leg, no lift"
+                                 % tag)
+    # each node's ways out, its home loop's next first
+    nxt = {}
+    for loop in g["homes"]:
+        for j, a in enumerate(loop):
+            nxt[a] = loop[(j + 1) % len(loop)]
+    order = []
+    for a in range(len(nodes)):
+        out = [d for d in dirs if d[0] == a]
+        out.sort(key=lambda d: 0 if nxt.get(a) == d[1] else 1)
+        if a in nxt and (not out or out[0][1] != nxt[a] or out[0][2] != WALK):
+            raise SystemExit("arenagen: arena %s: home loop leg %d -> %d is "
+                             "not a walk" % (tag, a, nxt[a]))
+        if len(out) > 4:
+            raise SystemExit("arenagen: arena %s: route node %d has %d ways "
+                             "out - at most 4" % (tag, a, len(out)))
+        order += out
+    for a in range(len(nodes)):         # every node reaches every other
+        seen, todo = {a}, [a]
+        while todo:
+            c = todo.pop()
+            for (u, v, _) in order:
+                if u == c and v not in seen:
+                    seen.add(v)
+                    todo.append(v)
+        if len(seen) != len(nodes):
+            raise SystemExit("arenagen: arena %s: route node %d reaches only "
+                             "%d of %d" % (tag, a, len(seen), len(nodes)))
+    edges = []
+    for (a, b_, kind) in order:
+        (x0, y0), (x1, y1) = nodes[a], nodes[b_]
+        dx, dy = x1 - x0, y1 - y0
+        steps = max(1, int(round(math.hypot(dx, dy) / SPEED)))
+        bs = raised if kind == LIFT_UP else boxes
+        up = any(floor_at(x0 + dx * k / steps, y0 + dy * k / steps, bs, FRAD)
+                 for k in range(steps + 1))
+        edges.append([a, b_, kind, x0, y0,
+                      angle_of(dx, dy) | (0x8000 if up else 0), steps, 0xFF])
+    for i, e in enumerate(edges):
+        for j, f in enumerate(edges):
+            if f[0] == e[1] and f[1] == e[0]:
+                e[7] = j
+    homes = []
+    for loop in g["homes"]:
+        homes.append(next(i for i, e in enumerate(edges)
+                          if e[0] == loop[0] and e[1] == loop[1]))
+    if len(homes) != len(PATHS):
+        raise SystemExit("arenagen: arena %s: %d home loops - WA_NFIG is %d"
+                         % (tag, len(homes), len(PATHS)))
+    return nodes, edges, homes
+
+
+def graph_block(tag, boxes):
+    """The route graph as the arena's part carries it and the game copies it
+    (wa_loadarena): nodes, edges, then each figure's home edge -> bytes"""
+    nodes, edges, homes = graph_edges(tag, boxes)
+    out = bytearray([len(nodes), len(edges)] + homes)
+    if len(out) & 1:
+        out.append(0)
+    outs = {a: [] for a in range(len(nodes))}
+    for i, e in enumerate(edges):
+        outs[e[0]].append(i)
+    for a, (x, y) in enumerate(nodes):
+        o = outs[a] + [0xFF] * (4 - len(outs[a]))
+        out += struct.pack('<hh4B', x, y, *o)
+    for (a, b_, kind, x, y, head, steps, rev) in edges:
+        out += struct.pack('<hhHH4B', x, y, head, steps, b_, kind, rev, 0)
+    return bytes(out)
+
+
 def arenas():
     return [("a0", "Arena", BOXES, PLAYER_START),
             ("a1", "Open", OPEN_BOXES, PLAYER_START),
             ("a2", "Heights", HEIGHTS_BOXES, PLAYER_START)]
 
 
-# an arena's own patrols, carried in its part (the rest walk PATHS, which the
-# primary carries): every arena's are WA_NFIG loops
+# an arena's own patrols (the rest walk PATHS): every arena's are WA_NFIG
+# loops - an arena with no route graph of its own walks them as one
 ARENA_PATHS = {"a2": HEIGHTS_PATHS}
+ARENA_GRAPHS = {"a2": HEIGHTS_GRAPH}
 
 
 def height_at(b, x, y, r):
@@ -457,6 +619,11 @@ def pvs_bytes():
     """A cell's mask, bytes: one bit a box, for the largest arena"""
     return (max(len(b) for _, _, b, _ in arenas()) + 7) // 8
 
+
+# ...and the legs that join PATHS' three loops into one route graph (AI-PLAN
+# 3.1): (320, 768)-(320, 1280), (1728, 768)-(1728, 1280), (768, 1280)-(704,
+# 800) and (768, 1664)-(320, 1664), by node: loop 0 is 0-3, 1 is 4-7, 2 is 8-13
+PATH_LINKS = [(3, 12), (2, 9), (4, 11), (7, 13)]
 
 # --- the dummies' patrols: closed loops of waypoints clear of every block ----
 PATHS = [
@@ -804,34 +971,7 @@ def arena_tables(w, tag, boxes, start):
         raise SystemExit("arenagen: arena %s starts the player INSIDE a wall "
                          "at %r - every step would collide" % (tag, start))
     height_checks(tag, boxes)
-    flat = all(b.h >= hmax(boxes) and b.kind == SOLID for b in boxes)
-    for p in ([] if tag in NOPATROL else ARENA_PATHS.get(tag, PATHS)):
-        for j in range(len(p)):
-            (x0, y0), (x1, y1) = p[j], p[(j + 1) % len(p)]
-            if flat:
-                for k in range(33):
-                    x, y = x0 + (x1 - x0) * k / 32, y0 + (y1 - y0) * k / 32
-                    if inside(x, y, boxes, 12):
-                        raise SystemExit("arenagen: arena %s: a patrol runs "
-                                         "into a wall near (%d, %d)" % (tag, x, y))
-                continue
-            # HEIGHTS: a dummy stands on the floor under its point (wa_figtick)
-            # and walks SPEED a tick, so each tick's rise is at most a step
-            # and no leg crosses a wall or a lift (which moves)
-            n = max(1, int(math.hypot(x1 - x0, y1 - y0) // SPEED))
-            prev = floor_at(x0, y0, boxes, FRAD)
-            for k in range(n + 1):
-                x, y = x0 + (x1 - x0) * k // n, y0 + (y1 - y0) * k // n
-                if inside(x, y, [b for b in boxes if b.h >= hmax(boxes)
-                                 or b.kind == LIFT], 12):
-                    raise SystemExit("arenagen: arena %s: a patrol runs into "
-                                     "a wall or a lift near (%d, %d)" % (tag, x, y))
-                f = floor_at(x, y, boxes, FRAD)
-                if abs(f - prev) > STEPUP:
-                    raise SystemExit("arenagen: arena %s: a patrol steps %d at "
-                                     "(%d, %d) - a walk takes %d" % (tag, f - prev,
-                                                                    x, y, STEPUP))
-                prev = f
+    graph_edges(tag, boxes)             # (the routes' checks: AI-PLAN 3.1)
     nodes = []
     box_tree(list(range(len(boxes))), nodes, boxes)
     pts = []
@@ -978,25 +1118,11 @@ def main(out):
     bsp_tables(w)
     # paths: per dummy, a count and per leg (x, y, heading, steps)
     w("WA_NFIG equ %d" % len(PATHS))
-    # an arena's own patrols, as its part carries them (path_block): the
-    # most bytes any takes, which the frame block's ARENA keeps room for
-    w("WA_APATHSZ equ %d" % max([2] + [2 * len(path_block(ARENA_PATHS[t],
-                                                         [bx(b) for b in bs]))
-                                       for t, _, bs, _ in arenas()
-                                       if t in ARENA_PATHS]))
-    w("%ifdef WA_TAB_PATHS")
-    w("wa_pathtab:")
-    for i in range(len(PATHS)):
-        w("    dw wa_path%d" % i)
-    for i, p in enumerate(PATHS):
-        w("wa_path%d:" % i)
-        w("    dw %d                      ; legs" % len(p))
-        for j, (x, y) in enumerate(p):
-            nx, ny = p[(j + 1) % len(p)]
-            dx, dy = nx - x, ny - y
-            steps = max(1, int(round(math.hypot(dx, dy) / SPEED)))
-            w("    dw %d, %d, %d, %d" % (x, y, angle_of(dx, dy), steps))
-    w("%endif")
+    # an arena's route graph, as its part carries it and the game copies it
+    # (graph_block): the most bytes any takes, which the game keeps room for
+    w("WA_GPHSZ equ %d" % ((max(len(graph_block(t, bs)) for t, _, bs, _
+                                in arenas()) + 1) & ~1))
+    w("WA_MGN equ %d" % WA_MGN)
     # poses
     first = 0
     for name, n, _, _ in ANIMS:
@@ -1104,10 +1230,9 @@ def arena_part(n, out):
          "    dw %sboxes, %d, %sbsp, %d, %d, %d, %sbcol, %d" % (
              P, nb, P, start[0], start[1], start[2], P, nn),
          "    dw %sbxh, %d, %d, %slifts" % (P, room_h(boxes), hmax(boxes), P)]
-    pb = path_block(ARENA_PATHS[tag], [bx(b) for b in boxes]) \
-        if tag in ARENA_PATHS else []
-    L += ["    dw %s, %d                ; its own patrols: offset, bytes (0: the "
-          "primary's)" % (P + "paths" if pb else "0", 2 * len(pb))]
+    gb = graph_block(tag, boxes)
+    L += ["    dw %s, %d                ; its route graph: offset, bytes "
+          "(AI-PLAN 3.1)" % (P + "graph", len(gb))]
     pv = wamodel.A.pvs_masks(tag, boxes)    # (the budget's walk made them)
     L += ["    dw %s                    ; its PVS (0: none): grid shift, cells "
           "a column, masks" % (P + "pvs" if pv else "0")]
@@ -1134,10 +1259,9 @@ def arena_part(n, out):
         for col in pv:
             L.append("    db " + ", ".join(str(m >> (8 * k) & 255) for m in col
                                            for k in range(nb_)))
-    if pb:
-        L.append(P + "paths:")
-        for i in range(0, len(pb), 8):
-            L.append("    dw " + ", ".join(str(v) for v in pb[i:i + 8]))
+    L.append(P + "graph:")
+    for i in range(0, len(gb), 12):
+        L.append("    db " + ", ".join(str(v) for v in gb[i:i + 12]))
     with open(out, "w") as f:
         f.write("\n".join(L) + "\n")
 
