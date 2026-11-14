@@ -87,3 +87,7 @@ way 23 20
 way 23 22
 way 23 24
 way 19 25
+
+# Wave 4 (SPEC.md 128.14.3.1): par, the autopilot's time on the route (676 steps,
+# 12.4 s) and a third, PROVISIONAL (O41).  It writes nothing into the part.
+par 17

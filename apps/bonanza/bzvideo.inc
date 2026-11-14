@@ -58,7 +58,7 @@ BZ_LBLH     equ 82 * 63         ; first window line: the CGA's 6845 syncs 16 lin
 bz_fullscreen:
     cld
     OS88_ALTENTER_SEED
-    ; Let the key that got us here (Enter, F, B or R) release before the mode set
+    ; Let the key that got us here (Enter, F, B, R, G or D) release before the mode set
     ; can mask its break.  The wait is the bracket's, never the scheduler's,
     ; and BOUNDED: OSAPI_KEY_DOWN is advice (a break lost in a long
     ; interrupts-off stretch leaves a key reading down for good), so after
@@ -76,6 +76,12 @@ bz_fullscreen:
     call OSAPI_KEY_DOWN
     jc .wait
     mov al, BZ_KSC_R
+    call OSAPI_KEY_DOWN
+    jc .wait
+    mov al, BZ_KSC_G            ; (G starts a tour's first course, 128.14.3.4)
+    call OSAPI_KEY_DOWN
+    jc .wait
+    mov al, BZ_KSC_D            ; (D, the demo benchmark, 128.14.7.3)
     call OSAPI_KEY_DOWN
     jnc .mode
 .wait:
@@ -101,7 +107,8 @@ bz_fullscreen:
     call bz_vinit
     call bzs_open               ; the sound's arm and the course's song (128.20)
     call bz_play                ; the frame loop, until a key or the benchmark ends
-    call bzs_close
+    call bz_post                ; the tour, the bests, the face's page: memory
+    call bzs_close              ; only, before the kernel's restore paints it
     xor ax, ax                  ; the start address home on the way out (the
     call bz_flip                ; kernel's restore re-sets the mode anyway)
     mov byte [bz_fs], 0
@@ -820,8 +827,8 @@ bz_boxc:
     call bz_blit
 .ball:
     ; --- the ball's sprite: mask AND, frame OR; none while it is hidden in a
-    ; tube (SPEC.md 128.12.6.1) ---
-    cmp byte [bz_tube], 0
+    ; tube (SPEC.md 128.12.6.1) or holed out (128.14.4.3) ---
+    cmp byte [bz_hidn], 0
     jne .nob
     mov ax, [bz_py]
     mov dx, BZ_BAL_ROWS

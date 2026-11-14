@@ -158,6 +158,19 @@ VAR bz_wcen,1                   ; bz_wolf's own: the centre cell's prop (index +
 VAR bz_wckd,1                   ; 1, 0 none) and its kind, the bumpers on bz_wol,
 VAR bz_wbmp,1                   ; and each pair's prop's kind - read by the step
 VAR bz_wkd,9                    ; instead of the records (not the model's state)
+VAR bz_nckpt,2                  ; wave 4 (SPEC.md 128.14.4.7): flags first
+VAR bz_npad,2                   ; touched, pad swaps, lip-outs, spring launches
+VAR bz_nlip,2                   ; and RETURNs this play - physics' own, compared
+VAR bz_nspr,2                   ; with the model and read by the sound (128.14.10)
+VAR bz_nret,2
+VAR bz_ckpt,1                   ; ...the last flag touched + 1 (0: none, the start)
+VAR bz_ckmat,1                  ; ...the ball a respawn gets (the start's, then
+                                ; the last flag's record +17)
+VAR bz_cksn,1                   ; ...the flags touched, a bit each (their lanes'
+                                ; TRUE pose, bzwheel.inc bz_ltrue)
+VAR bz_inmo,1                   ; ...1 while the centre is in the cup's mouth
+VAR bz_hid,1                    ; ...1 once the ball has HOLED OUT (not drawn)
+VAR bz_gfl,1                    ; ...the course's BZG1 FLAGS (bz_pinit's copy)
 VAR bz_ppad,1
 VAR bz_phe,0
 ; the rest: written before they are read
@@ -205,6 +218,12 @@ VAR bz_cdd,2                    ; the carry's displacement this step, 1/256 gu
 %if (bz_phe - bz_phs) & 1
  %error "bz_pinit zeroes the state as words: BZ_PHSN must be even"
 %endif
+%if BZ_CKPTMAX > 8
+ %error "bz_cksn holds a course's flags as the bits of a byte"
+%endif
+%if BZ_PK_CKPT > BZ_PK_PAD || BZ_PK_CKPT > BZ_PK_CUP || BZ_PK_CKPT > BZ_PK_SPRING || BZ_PK_CKPT <= BZ_PK_PLATFORM || BZ_PK_CKPT <= BZ_PK_BUMPER || BZ_PK_CKPT <= BZ_PK_WINDMILL || BZ_PK_CKPT <= BZ_PK_TUBE
+ %error "bz_prule tells wave 4's kinds from wave 3's by one compare against BZ_PK_CKPT"
+%endif
 %if bz_nshat != bz_nstun + 2 || bz_mst != bz_hopw + 1 || bz_mct != bz_hopw + 2 || bz_sqf != bz_hopw + 3 || bz_ghv != bz_hopw + 4
  %error "bz_land and bz_step's .respawn rely on the order of their variables"
 %endif
@@ -250,6 +269,10 @@ bz_pinit:
     mov al, [es:BZC_NPROP]      ; bz_pread reads it again for the lanes)
     mov [bz_nprop], al
     mov di, [bz_goff]
+    mov al, [es:di + BZG_FLAGS] ; wave 4 (128.14.4.2): respawns go to the
+    mov [bz_gfl], al            ; last flag on a CKPT course; and the ball a
+    mov al, [bz_mat]            ; respawn gets is the one the play STARTED
+    mov [bz_ckmat], al          ; with (128.14.18 item 3), until a flag
     mov al, [es:di + BZG_WX]
     mov ah, [es:di + BZG_WY]
     mov [bz_safe], ax           ; the start is SAFE (128.10.4.5)
@@ -345,10 +368,17 @@ bz_step:
     cmp al, 1
     je .auto
     ja .replay
-    mov bl, [bz_keys]           ; PLAY: the frame's (bz_input), RECORDED - the
-    cmp bl, [bz_rk]             ; current run extended while it is the same
-    jne .rec                    ; byte and under 255 steps (SPEC.md
-    cmp byte [bz_rn], 255       ; 128.11.12.1), else bz_rrec
+    mov bl, [bz_keys]           ; PLAY: the frame's key byte and tilt byte
+    mov bh, [bz_tilt]           ; (bz_input),
+    cmp byte [bz_apilot], 0     ; ...or, under a HARNESS's bz_apilot, the
+    jne .apil                   ; autopilot's (SPEC.md 128.14.14 bonanzagame)
+.apild:
+    mov [bz_tby], bh
+    cmp bl, [bz_rk]             ; RECORDED - the current run extended while
+    jne .rec                    ; both are the same and it is under 255 steps
+    cmp bh, [bz_rt]             ; (SPEC.md 128.11.12.1, 128.14.8.3), else
+    jne .rec                    ; bz_rrec
+    cmp byte [bz_rn], 255
     jae .rec
     inc byte [bz_rn]
     jmp short .key
@@ -356,15 +386,29 @@ bz_step:
     call bz_rrec
     jmp short .key
 .replay:
-    call bz_rnext               ; a REPLAY: the log's next byte
+    call bz_rnext               ; a REPLAY: the log's next byte and tilt byte
     jmp short .key
+.apil:                          ; a play whose key bytes are the autopilot's,
+    call bz_auto                ; recorded as a play's: the tour row's driver
+    mov bh, BZ_TILT_KEYS        ; (out of the hot path: never set by the
+    jmp short .apild            ; package itself)
 .auto:
-    call bz_auto                ; the benchmark: BL = the arrows it would hold
+    call bz_auto                ; the benchmark: BL = the arrows it would hold -
+    mov [bz_kstep], bl          ; never RETURN and never a tilt, so straight to
+    mov si, bz_lvl              ; the keyboard's ramp: no bit-6 test, no tilt
+    mov bh, bl                  ; byte stored or compared (128.14.12's BENCH
+    mov cx, 4                   ; row; bz_play sets bz_tby to the keyboard's
+    jmp short .lv               ; once, and only a play or a replay moves it)
 .key:
+    test bl, BZ_K_RET           ; wave 4: RETURN (Backspace) first, and the
+    jnz .kret                   ; step runs nothing else (128.14.4.5)
+.key2:
     mov [bz_kstep], bl
     mov si, bz_lvl              ; the ramp (128.11.7.1): a held arrow's level
     mov bh, bl                  ; up one to 8, a released one's down two to 0
     mov cx, 4
+    cmp byte [bz_tby], BZ_TILT_KEYS ; a TILT step's caps (128.14.8.2): out of
+    jne .tilt                   ; the keyboard's path, which is this compare
 .lv:
     lodsb
     shr bh, 1
@@ -380,6 +424,7 @@ bz_step:
 .lvs:
     mov [si - 1], al
     loop .lv
+.hopw:
     mov al, bl                  ; the Hop's window: Space's key-down EDGE opens
     xchg al, [bz_kprev]         ; it, else it counts down (128.11.7.2)
     not al
@@ -392,7 +437,9 @@ bz_step:
     cmp byte [bz_hopw], 0
     je .st
     dec byte [bz_hopw]
-.st:                            ; ...then the ball's state
+.st:                            ; ...then the ball's state - none once it has
+    cmp byte [bz_hid], 0        ; HOLED OUT: the keys ran, nothing else does
+    jne .ptr2                   ; (128.14.18 item 3)
     cmp byte [bz_sqf], 0
     je .sq
     dec byte [bz_sqf]
@@ -412,6 +459,8 @@ bz_step:
     jmp .end
 .ptr1:                          ; (the short jump's reach)
     jmp .pst
+.ptr2:
+    jmp .end
     ; ---- 2. forces ----
 .forces:
     test byte [bz_ps], 6        ; wave 3 (SPEC.md 128.12.6.5 step 1): in a tube,
@@ -894,8 +943,16 @@ bz_step:
     jz .fnext
     mov [bz_gh], bx
 .fnext:
-    cmp byte [bz_pdoor], 0      ; the prop path: bz_onp, then bz_ps
-    je .safe
+    cmp byte [bz_pdoor], 0      ; the prop path: wave 4's four prop rules
+    je .safe                    ; (BX = the floor's h4 when it is solid),
+    cmp byte [bz_wcen + 1], BZ_PK_CKPT ; then bz_onp, then bz_ps (128.14.18
+    jb .pw3                     ; item 3) - wave 3's kinds and none pay this
+    call bz_prule               ; compare and no call (bz_prule's .clr, here)
+    jmp short .ponp
+.pw3:
+    test byte [bz_ps], 1
+    jz .ponp
+    mov byte [bz_inmo], 0
 .ponp:                          ; bz_onp (128.12.6.4): SET grounded on, or
     mov al, [bz_fslab]          ; landed on (a bounce too), the slab ...
     or al, al
@@ -957,16 +1014,23 @@ bz_step:
     mov byte [bz_pokd], 0       ; window round the ball's cell, whatever it was
     call bz_win9f
     jmp .unpoked
-    ; ---- 7. RESPAWN, on the last SAFE cell ----
+    ; ---- 7. RESPAWN, on the last SAFE cell; on a CKPT course on the last
+    ; flag touched (the start before any) with the flag's ball (128.14.4.5) ----
 .respawn:
+    mov di, bz_nfall            ; a fall's (a RETURN counts bz_nret instead)
+.resp:
     xor ax, ax                  ; wave 2's state zeroed (128.11.8.1): the
     mov [bz_lvl], ax            ; levels, the window, the ball's state, the
-    mov [bz_lvl + 2], ax        ; squash and bz_ghv
+    mov [bz_lvl + 2], ax        ; squash and bz_ghv; wave 4's bz_inmo
     mov [bz_hopw], ax
     mov [bz_mct], ax
+    mov [bz_inmo], al
+    test byte [bz_gfl], BZ_GF_CKPT
+    jnz .rflag
     mov [bz_ghv], al
     call bz_place
-    inc word [bz_nfall]
+.rdone:
+    inc word [di]
     mov byte [bz_resp], 1
     call bz_derive
     xor ax, ax                  ; a respawn's screen velocity is 0
@@ -985,6 +1049,66 @@ bz_step:
 .transit:
     call bz_transit
     jmp .end
+    ; ---- wave 4 (SPEC.md 128.14.8.2): a TILT step's ramp, each held arrow's
+    ; level capped by its axis's cap - the x cap (the tilt byte's high
+    ; nibble) for Left and Right, the y cap for Up and Down: a level above
+    ; the cap falls by two a step to it, else it rises by one to it ----
+.tilt:
+    mov dl, [bz_tby]
+    mov dh, dl
+    shr dh, 1
+    shr dh, 1
+    shr dh, 1
+    shr dh, 1                   ; DH = the x cap, DL = the y cap
+    and dl, 0fh
+.tl:
+    mov ah, dh                  ; CL 4, 3: Left, Right; 2, 1: Up, Down
+    cmp cl, 2
+    ja .tc
+    mov ah, dl
+.tc:
+    lodsb
+    shr bh, 1
+    jnc .trel
+    cmp al, ah
+    jbe .tup
+    sub al, 2                   ; above the cap: max(c, lvl - 2)
+    cmp al, ah
+    jge .tst
+    mov al, ah
+    jmp short .tst
+.tup:
+    jae .tst                    ; at the cap: stays
+    inc ax                      ; under it: min(c, lvl + 1)
+    jmp short .tst
+.trel:
+    sub al, 2                   ; released: max(0, lvl - 2), as the keyboard's
+    jnc .tst
+    xor al, al
+.tst:
+    mov [si - 1], al
+    loop .tl
+    jmp .hopw
+    ; ---- wave 4 (SPEC.md 128.14.4.5), out of the hot path ----
+.kret:                          ; RETURN: one press is one step's bit (a
+    and byte [bz_keys], ~BZ_K_RET & 0ffh ; play's bz_input set it for the frame)
+    cmp byte [bz_mst], BZ_ST_SHAT ; the ball neither shattering, in a
+                                ; tube nor holed - else the key byte runs
+    je .kr2                     ; as any other (its bit 6 tested by nothing)
+    cmp byte [bz_tube], 0
+    jne .kr2
+    cmp byte [bz_hid], 0
+    jne .kr2
+    mov di, bz_nret             ; ...respawns as step 7 does, a RETURN's count
+    jmp .resp
+.kr2:
+    jmp .key2
+.rflag:                         ; a CKPT course's respawn: the flag's cell or
+    mov [bz_ghv], al            ; the start's, and its ball
+    push di
+    call bz_rflag
+    pop di
+    jmp .rdone
 .pdcap:                         ; the doorway open: swallowed
     mov bl, [bz_pdi]
     call bz_capture
@@ -1168,6 +1292,262 @@ bz_toff:
     ret
 
 ; =============================================================================
+; WAVE 4's PROPS (SPEC.md 128.14.4, 128.14.18 item 3): bbcourse.Physics's
+; _cup, _spring, the pad's and the flag's rules, _respawn and _setmat,
+; integer-exact.  ES = the course throughout.
+; =============================================================================
+
+; bz_prule - the four rules on the PROP path, after step 6's floor, landing or
+; bounce and before bz_onp and bz_ps, for the centre's cell's OBS owner
+; (bz_wcen: the window is on the centre's cell here) - a SPRING, the CUP, a
+; PAD, a FLAG; one cell has one prop, so at most one fires.  On the prop path
+; a centre whose owner is not the cup clears bz_inmo.  BX = the floor's h4
+; under the centre when its cell is solid (a spring's and the cup's always
+; are); bz_fair the air state step 6 began with, bz_fnl bz_nland then.  A
+; rule that launches the ball sets bz_ghv and bz_gh as step 6 would have for
+; an airborne ball (the model's shadow update comes after the rules).
+; Preserves BX.  Clobbers AX, CX, DX, SI, DI.
+bz_prule:
+    test byte [bz_ps], 1        ; (the model's `if self.wol`)
+    jz .out
+    mov ax, [bz_wcen]           ; AL = the centre's prop + 1, AH = its kind
+    cmp ah, BZ_PK_CKPT          ; (both 0: no owner) none, or wave 3's -
+    jb .clr                     ; MILL's whole cost here
+    dec ax                      ; AL = its index
+    cmp ah, BZ_PK_CUP
+    je .cup
+    mov byte [bz_inmo], 0
+    cmp ah, BZ_PK_SPRING
+    je .spring
+    cmp ah, BZ_PK_PAD
+    je .pad
+    cmp ah, BZ_PK_CKPT
+    je .flag
+.out:
+    ret
+.clr:
+    mov byte [bz_inmo], 0
+    ret
+.flag:                          ; A FLAG (128.14.4.5), grounded or airborne,
+    cmp byte [bz_mst], BZ_ST_SHAT ; not shattering: the respawn point and its
+    je .out                     ; ball; first touched, its bit and bz_nckpt
+    call .rec
+    mov cl, [es:si + BZP_CNUM]
+    mov al, cl
+    inc ax
+    mov [bz_ckpt], al
+    mov al, [es:si + BZP_CBALL] ; the FLAG's ball, not the one it was
+    mov [bz_ckmat], al          ; touched with
+    mov al, 1
+    shl al, cl
+    test [bz_cksn], al
+    jnz .out
+    or [bz_cksn], al
+    inc word [bz_nckpt]
+    ret
+.rec:                           ; SI = record AL's offset in the course
+    push bx
+    mov bl, al
+    xor bh, bh
+    call bz_lrecsi
+    pop bx
+    ret
+.pad:                           ; A PAD (128.14.4.4): grounded, not
+    cmp byte [bz_air], 0        ; shattering, a material other than the
+    jne .out                    ; ball's - the swap, its record and tables
+    cmp byte [bz_mst], BZ_ST_SHAT
+    je .out
+    call .rec
+    mov al, [es:si + BZP_DMAT]
+    cmp al, [bz_mat]
+    je .out
+    call bz_setmat
+    inc word [bz_npad]
+    ret
+.cup:                           ; THE CUP (128.14.4.3): in its MOUTH, |u - 8|
+    call .rec                   ; and |v - 8| at most the half-width
+    mov cl, [es:si + BZP_UHW]
+    mov al, [bz_gx + 1]
+    call .mouth
+    ja .nomo
+    mov al, [bz_gy + 1]
+    call .mouth
+    ja .nomo
+    mov al, [bz_fair]           ; began the step grounded, ends it grounded,
+    or al, [bz_air]             ; neither stunned nor shattering
+    or al, [bz_mst]
+    jnz .inmo
+    call bz_vmax                ; max(|gvx|, |gvy|) <= capture: HOLES OUT
+    cmp ax, [es:si + BZP_UCAP]
+    ja .lip
+    cmp byte [bz_mode], 1       ; ...in a play or a replay (the goal line's
+    je .inmo                    ; rule: the benchmark rolls over it)
+    xor ax, ax
+    mov [bz_gvx], ax
+    mov [bz_gvy], ax
+    mov [bz_gvz], ax
+    inc ax
+    mov [bz_hid], al
+    mov [bz_goal], al
+    jmp short .inmo
+.lip:                           ; faster, on the step it ENTERS the mouth: it
+    cmp byte [bz_inmo], 0       ; LIPS OUT, a pop of BZ_LIPZ the ground Hop's
+    jne .inmo                   ; shape, its ground velocity kept
+    mov word [bz_gvz], BZ_LIPZ
+    call bz_toff
+    inc word [bz_nlip]
+    call .launched
+.inmo:
+    mov byte [bz_inmo], 1
+    ret
+.nomo:
+    mov byte [bz_inmo], 0
+    ret
+.mouth:                         ; CF/ZF: |(AL AND 15) - 8| above CL (JA)
+    and al, 15
+    sub al, 8
+    jns .m1
+    neg al
+.m1:
+    cmp al, cl
+    ret
+.launched:                      ; the shadow's floor for the now airborne ball
+    mov byte [bz_ghv], 1        ; (its cell solid: BX the h4)
+    mov [bz_gh], bx
+    ret
+.spring:                        ; A SPRING (128.14.4.6), never under a
+    cmp byte [bz_mst], BZ_ST_SHAT ; shattering ball
+    je .out
+    call .rec
+    mov ax, [bz_nland]          ; this step's CONTACT (a landing, a bounce, a
+    cmp ax, [bz_fnl]            ; Hop at the contact, a stun): gvz =
+    je .sgr                     ; min(VZMAX, max(SPRING, the gvz it left, 0
+    xor ax, ax                  ; when it stopped)), airborne, ztop = z, z not
+    cmp [bz_air], al            ; moved - never the SUM (O13)
+    je .s0
+    mov ax, [bz_gvz]
+.s0:
+    cmp ax, [es:si + BZP_SGVZ]
+    jge .s1
+    mov ax, [es:si + BZP_SGVZ]
+.s1:
+    cmp ax, BZ_VZMAX
+    jle .s2
+    mov ax, BZ_VZMAX
+.s2:
+    mov [bz_gvz], ax
+    mov byte [bz_air], 1
+    mov ax, [bz_gz + 1]
+    mov [bz_ztop], ax
+    jmp short .sl
+.sgr:                           ; a ball that BEGAN the step grounded on it:
+    cmp byte [bz_fair], 0       ; z its floor (a Hop this step does not add),
+    jne .out                    ; gvz = SPRING, the ground Hop's take-off
+    mov al, [bz_nbr + BZN_C + 2]
+    and al, 0fh
+    cmp al, BZ_KFLOOR
+    je .sg1
+    cmp al, BZ_KGOAL
+    jne .out
+.sg1:
+    mov ax, bx
+    push bx
+    call bz_setz
+    pop bx
+    mov ax, [es:si + BZP_SGVZ]
+    mov [bz_gvz], ax
+    call bz_toff
+.sl:
+    inc word [bz_nspr]
+    jmp short .launched
+
+; bz_vmax - AX = max(|gvx|, |gvy|): a tube's entry speed, the cup's test.
+; Clobbers CX, DX.
+bz_vmax:
+    mov ax, [bz_gvx]
+    cwd
+    xor ax, dx
+    sub ax, dx
+    xchg ax, cx
+    mov ax, [bz_gvy]
+    cwd
+    xor ax, dx
+    sub ax, dx
+    cmp ax, cx
+    jae .s
+    xchg ax, cx
+.s:
+    ret
+
+; bz_setmat - the ball becomes material AL (a pad's swap, a respawn's flag
+; ball; bbcourse.Physics._setmat): bz_mat, its BZ_MATTAB record copied into
+; bz_mrec, the air's force table rebuilt, the ground's and bz_se for the
+; window centre's surface (bz_surfset), and the sprite's part bz_bseg =
+; bz_bsegs[AL] (the display's, from the next frame).  Preserves BX and ES.
+; Clobbers AX, CX, DX, SI, DI.
+bz_setmat:
+    push bx
+    push es
+    push ds
+    pop es
+    mov [bz_mat], al
+    mov bl, al
+    xor bh, bh
+    shl bx, 1
+    mov si, [bz_bsegs + bx]
+    mov [bz_bseg], si
+    mov ah, BZ_MATREC
+    mul ah
+    add ax, bz_mattab
+    xchg ax, si
+    mov di, bz_mrec
+    mov cx, BZ_MATREC / 2
+    rep movsw
+    mov al, [bz_mrec + BZM_ACC]
+    mov di, bz_fta
+    mov cl, 4
+    call bz_ramp
+    mov al, [bz_surf]
+    call bz_surfset
+    pop es
+    pop bx
+    ret
+
+; bz_rflag - step 7 on a CKPT course (SPEC.md 128.14.4.5): the ball placed on
+; flag bz_ckpt - 1's cell (the start's when bz_ckpt is 0), and given bz_ckmat
+; when it has another.  bz_safe is not read.  ES = the course.  Clobbers
+; AX, BX, CX, DX, SI, DI.
+bz_rflag:
+    mov di, [bz_goff]
+    mov al, [es:di + BZG_WX]
+    mov ah, [es:di + BZG_WY]
+    mov dl, [bz_ckpt]
+    sub dl, 1
+    jc .at
+    mov si, [bz_poff]           ; the flag numbered DL: the record of kind
+    mov cl, [bz_nprop]          ; CHECKPOINT with that number (the tool wrote
+.r:                             ; one, 128.14.4.2)
+    cmp byte [es:si + BZP_KIND], BZ_PK_CKPT
+    jne .n
+    cmp [es:si + BZP_CNUM], dl
+    je .f
+.n:
+    add si, BZ_PROPREC
+    dec cl
+    jnz .r
+    jmp short .at
+.f:
+    mov ax, [es:si + BZP_WX]
+.at:
+    call bz_placeat
+    mov al, [bz_ckmat]
+    cmp al, [bz_mat]
+    je .out
+    call bz_setmat
+.out:
+    ret
+
+; =============================================================================
 ; WAVE 3's PROPS (SPEC.md 128.12.6), bbcourse.Physics's _capture, _transit,
 ; _circle, _floor and the carry, integer-exact.  ES = the course throughout;
 ; a record is reached by its index through bz_lrecsi (bzwheel.inc).
@@ -1344,19 +1724,7 @@ bz_capture:
     call bz_lrecsi
     inc bx
     mov [bz_tube], bl
-    mov ax, [bz_gvx]
-    cwd
-    xor ax, dx
-    sub ax, dx
-    xchg ax, cx
-    mov ax, [bz_gvy]
-    cwd
-    xor ax, dx
-    sub ax, dx
-    cmp ax, cx
-    jae .s
-    xchg ax, cx
-.s:
+    call bz_vmax
     mov [bz_tsin], ax
     mov bx, 0808h               ; BL = u, BH = v: the centre ...
     cmp byte [es:si + BZP_KIND], BZ_PK_WINDMILL
@@ -2426,11 +2794,14 @@ bz_wrt:
 
 ; -----------------------------------------------------------------------------
 ; bz_place - the ball on bz_safe's centre (16 wx + 8, 16 wy + 8) on its floor,
-; at rest and grounded, the window filled round it (128.10.7.1, step 7).  ES =
+; at rest and grounded, the window filled round it (128.10.7.1, step 7).
+; bz_placeat: on the cell AL = wx, AH = wy (wave 4's flag respawn).  ES =
 ; the course.  Clobbers AX, BX, CX, DX, SI.
 ; -----------------------------------------------------------------------------
 bz_place:
     mov ax, [bz_safe]
+bz_placeat:
+    push ax
     mov dl, ah
     xor ah, ah
     xor dh, dh
@@ -2454,7 +2825,7 @@ bz_place:
     mov [bz_tseg], al           ; 128.12.6.5: a respawn changes no prop)
     mov [bz_onp], al
     mov [bz_tcnt], ax
-    mov ax, [bz_safe]
+    pop ax
     call bz_fill
     mov si, bz_nbr + BZN_C
     mov dx, 0808h
@@ -2496,44 +2867,6 @@ bz_derive:
     xchg ax, [bz_by]
     sub bx, ax
     mov [bz_vy], bx
-    ret
-
-; -----------------------------------------------------------------------------
-; bz_ftime - the last play's time to the goal, in HUNDREDTHS of a second, from
-; its steps: floor(nstep x 21,845 x 100 / 1,193,182) (SPEC.md 128.10.6.2; a
-; play past 65,535 steps, 20 minutes, reads as that).  1,193,182 = 82 x 14,551,
-; and floor(floor(X / a) / b) = floor(X / ab), so two chained 16-bit divides
-; do it.  The desktop's, once a face.  -> DX:AX.  Clobbers BX, CX, SI, DI.
-; -----------------------------------------------------------------------------
-bz_ftime:
-    mov ax, [bz_nstep]
-    cmp word [bz_nstep + 2], 0
-    je .w
-    mov ax, 0ffffh
-.w:
-    mov cx, 21845
-    mul cx                      ; DX:AX = n 21,845
-    mov bx, dx
-    mov cx, 100
-    mul cx
-    mov si, ax                  ; W0
-    mov di, dx
-    mov ax, bx
-    mul cx
-    add ax, di                  ; DX:AX = W2:W1 (W2 < 34)
-    adc dx, 0
-    mov cx, 14551
-    div cx                      ; W2:W1 / 14,551: under 150
-    mov bx, ax
-    mov ax, si
-    div cx                      ; BX:AX = X / 14,551
-    mov cx, 82
-    xchg ax, bx
-    xor dx, dx
-    div cx
-    xchg ax, bx
-    div cx                      ; BX:AX = X / 1,193,182
-    mov dx, bx
     ret
 
 ; the products of bz_h4: T[(n & 15) << 4 | u] = n u, n -8 .. 7, u 0 .. 15

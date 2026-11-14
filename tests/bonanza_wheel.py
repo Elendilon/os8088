@@ -5,7 +5,7 @@
     python3 tests/bonanza_wheel.py --red NAME      (a red arm, below)
     python3 tests/bonanza_wheel.py --check         (the host half: the gate logs proved, every red arm assembled)
 
-On MartyPC's CGA and Hercules XTs, five legs a card:
+On MartyPC's CGA and Hercules XTs, six legs a card (the sixth, HUD, under (14) below):
 
   BENCH  the benchmark on MILL ([bz_crs] poked at bz_launch's entry, [bz_hvoff]
          0: the shipped camera), its 1,200 frames under breakpoints - STOPS
@@ -119,7 +119,18 @@ with its number:
        frames of its lit frames running out while shown; on BENCH and LOW;
   (13) after every walk, each rotor in the walk's range has bz_lnext equal to
        the model's next change step - the step at which its pose, from the
-       seed and the mask, next differs (SPEC.md 128.13.5.3).
+       seed and the mask, next differs (SPEC.md 128.13.5.3);
+  (14) WAVE 4 (SPEC.md 128.14.14, 128.14.5.5), only while the build carries
+       the HUD (128.14.16 item 4): the HUD leg - play mode on MILL with the
+       HUD FOLLOW and TRICKLE, a centred full write putting a rotor or post
+       under the HUD's shown rect (word columns 1 - 2 of the six lines ending
+       BZ_MAXR card rows above the window's foot), the ball held, the lane
+       poked DUE every HUD_DUE_EVERY frames - no wheel commit and no LEAD
+       changes a byte of the rect (read at bz_wcore's pass, +2 and +5): a lane
+       under the panel is drawn only by a PROMOTION (REPORTED).  The Hercules'
+       45-word window cannot put a MILL lane at its words 1 - 2: REPORTED.
+       EVERY OTHER LEG RUNS WITH THE HUD OFF ([bz_hmode] 0 poked at the start),
+       so (6) and 3b's assertions measure what they did.
 
 --red NAME builds a broken package in a temporary directory (never build/)
 and PASSES only if the row FAILS at its own check:
@@ -129,7 +140,7 @@ and PASSES only if the row FAILS at its own check:
   kmod       the first-sync rule taken out - the deadline never reached, so a
              frame made late commits at once, reckoned as if no sync had
              passed: (3) on a bz_hold frame, the CGA
-  halfcal    the calibration's bz_wlw halved after it runs: commits overrun (4)
+  halfcal    the calibration's bz_wlw halved after it runs: priced 30% under (5)
   alias      bz_lclip's window clip taken out - the whole lane: (6) on the
              LIGHT corner step's commit (the corner leg), the CGA
   corner     the commit's entering-row cells include the entering column's:
@@ -146,6 +157,9 @@ and PASSES only if the row FAILS at its own check:
   litsteps   the post's lit hold never counted down by the walk but cleared
              after its first frame (wave 3's first rule, a few STEPS lit, the
              preview's "rarely lights up"): (12)
+  hudrect    (wave 4) the HUD's rect left out of the wheel's box test: the due
+             lane under the panel is committed over it - (14), the CGA (a red
+             arm the HUD-less build does not run, 128.14.16 item 4)
 """
 import argparse
 import os
@@ -1230,6 +1244,180 @@ def corner_leg(g, ref):
     return fails, rep
 
 
+# ---- the HUD leg: (14), the wheel and the LEAD never write the HUD's shown rect (SPEC.md 128.14.14) ----
+HUD_MAXR = 2                    # bzgame.inc BZ_MAXR: the rect's foot this many card rows above the window's
+HUD_FRAMES = 48                 # frames the scene runs after its full write
+HUD_DUE_EVERY = 4               # ...the lane made due (its [bz_ldrw] poked one pose on) every this many
+
+
+def hud_rows(tag):
+    """the HUD rect's window card rows [r0, r1) - the six lines ending BZ_MAXR
+    card rows above the window's foot (SPEC.md 128.14.5.3) - and its words [1, 3)"""
+    rl, lsh = R.RL[tag], LSH[tag]
+    y1 = 200 - HUD_MAXR * rl
+    return (y1 - 6) >> lsh, ((y1 - 1) >> lsh) + 1
+
+
+def hud_bytes(g, S):
+    """the rect's 24 card bytes at the window whose start address is S"""
+    tag = g.tag
+    vb, vn = VRAM[tag]
+    raw = g.m.read(vb, vn)
+    rb, rl = R.RB[tag], R.RL[tag]
+    y1 = 200 - HUD_MAXR * rl
+    out = bytearray()
+    for y in range(y1 - 6, y1):
+        bank = (y % rl) * 0x2000
+        o = ((y // rl) * rb + 2 * S + 2) % 8192
+        out += bytes(raw[bank + ((o + i) % 8192)] for i in range(4))
+    return bytes(out)
+
+
+def hud_plan(g, crs):
+    """a centred window putting a ROTOR or POST of CRS under the HUD's rect
+    (SPEC.md 128.14.5.5's scene: bonanzawheel (14), bonanzaring's lane scene),
+    the guest in play on CRS: -> ((lane, R0, c0, the ball's poke at the
+    window's centre) or None, (H, W, rmax, cmax))"""
+    tag = g.tag
+    lsh, rl = LSH[tag], R.RL[tag]
+    recs = {r["i"]: r for r in crs.part["props"]}
+    rects = R.lane_rects(crs)
+    grid = BB.Grid(crs.cga)
+    H, Wc, rmax, cmax = g.w("bz_H"), g.w("bz_W"), g.w("bz_rmax"), g.w("bz_cmax")
+    hr0, hr1 = hud_rows(tag)
+    plan = None
+    for i in sorted(rects, key=lambda j: (recs[j]["kind"] != BB.PK_WINDMILL, j)):
+        if recs[i]["kind"] not in (BB.PK_WINDMILL, BB.PK_BUMPER):
+            continue
+        q = lane_cells(rects, i, lsh)
+        for dc in (1, 2, 0):                      # the lane's first word at window word 1 (or 2, or 0: it
+            for dr in range(0, hr1 - hr0):        # still meets words 1 - 2), its first row in the rect's
+                c0, R0 = q[2] - dc, q[0] - hr0 - dr
+                if not (0 <= R0 <= rmax - 1 and 0 <= c0 <= cmax):
+                    continue
+                if not cells((R0 + hr0, R0 + hr1, c0 + 1, c0 + 3)) & cells(q):
+                    continue
+                top, left = R0 << lsh, 8 * c0
+                cen = None
+                for yy in range(rl):
+                    for xx in range(8):
+                        cen = cen or R.probe_ground(crs, left + 4 * Wc - 8 + xx, top + 92 + yy, grid, 1, clear=16,
+                                                    flags=BB.FL_OCC | BB.FL_OCCG)
+                if cen:
+                    plan = (i, R0, c0, cen)
+                    break
+            if plan:
+                break
+        if plan:
+            break
+    return plan, (H, Wc, rmax, cmax)
+
+
+def hud_leg(g, ref):
+    """(14) (SPEC.md 128.14.14, 128.14.5.5): play mode on MILL with the HUD
+    FOLLOW and TRICKLE, a centred full write that puts a ROTOR or POST under the
+    HUD's shown rect (word columns 1 - 2 of its six lines), the ball then HELD
+    (no camera step: the panel stays where it is) and the lane made DUE every
+    HUD_DUE_EVERY frames ([bz_ldrw] poked one pose on).  Every wheel commit and
+    LEAD is read at bz_wcore's pass (+2, its call; +5, its return): the rect's
+    24 card bytes must be the same after the pass as before it - the wheel and
+    the LEAD treat the rect as a box, so a lane under it is drawn only by a
+    PROMOTION's contact box, whose panel is laid last (REPORTED: the
+    promotions, the lane's commits).  Only while the build carries the HUD
+    (SPEC.md 128.14.16 item 4).  -> (failures, reports)"""
+    m, tag, crs = g.m, g.tag, ref.c
+    if "bz_hmode" not in g.sym:
+        return [], ["(14) the build carries no HUD (SPEC.md 128.14.16 item 3): its check is not asserted"]
+    recs = {r["i"]: r for r in crs.part["props"]}
+    fails, rep = [], []
+    m.pause()
+    g.putb("bz_hmode", 2)                         # FOLLOW (the session's: put back at the leg's end)
+    m.run()
+    launch_mill(g, "Enter", 0)
+    m.run()
+    M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "the MILL play runs", guest=60)
+    m.pause()
+    g.putb("bz_cmode", 1)                         # TRICKLE: a ball held at the centre moves no camera
+    plan, (H, Wc, rmax, cmax) = hud_plan(g, crs)
+    wc = g.a("bz_wcore")
+
+    def leave():
+        g.putb("bz_cmode", 0)
+        m.run()
+        g.key("Escape")
+        M.until(m, lambda _: g.b("bz_fs") == 0, "the HUD leg's play ends on Esc", guest=60)
+        R.dropped(g, "the HUD leg")
+        m.pause()
+        g.putb("bz_hmode", 0)
+        m.run()
+    if plan is None:
+        leave()
+        why = ("(14) no rotor or post of MILL can be put under the HUD's rect by a centred window (H %d, W %d, "
+               "rmax %d, cmax %d)" % (H, Wc, rmax, cmax))
+        if tag == "herc":                         # the Hercules's 45-word window: cmax 19, MILL's lanes in
+            return [], [why + ": REPORTED - no window on this card can (SPEC.md 128.12.13.2)"]   # columns 21 - 35
+        return [why], rep
+    lane, R0w, c0w, cen = plan
+    poses = recs[lane]["lane"]["poses"]
+    st = {"k": 0}
+    got = []
+    A = {n: g.a(n) for n in ("bz_t0", "bz_wcommit", "bz_presented")}
+    promo = g.a("bz_props.promo") if "bz_props.promo" in g.sym else None
+
+    def on_hit(mm, rec):
+        a, r = rec["addr"], rec.get("regs") or {}
+        if a == A["bz_t0"]:
+            st["k"] += 1
+            k = st["k"]
+            if k == 1:                            # the centred full write (the frame after this poke)
+                R.poke_ball(g, cen[0], cen[1], cen[2], 0, 0, 0, air=1)
+                g.putb("bz_first", 1)
+            else:                                 # HELD: no camera step, the panel where it was
+                R.poke_ball(g, cen[0], cen[1], cen[2], 0, 0, 0, air=1, same_cell=k > 3)
+                if k > 3 and k % HUD_DUE_EVERY == 0:
+                    pose = mm.read(g.a("bz_ldrw") + lane, 1)[0]
+                    mm.write(g.a("bz_ldrw") + lane, bytes([(pose + 1) % poses]))
+            return {"t0": k}
+        if a == A["bz_wcommit"]:
+            kind, ln = R.commit_kind(g, r)
+            w = Snap(g, WIN)
+            got.append({"kind": kind, "lane": ln, "S": w.w("bz_S"), "k": st["k"]})
+            return None
+        if a == wc + 2 and got and "before" not in got[-1]:
+            got[-1]["before"] = hud_bytes(g, got[-1]["S"])
+            return None
+        if a == wc + 5 and got and "before" in got[-1] and "after" not in got[-1]:
+            got[-1]["after"] = hud_bytes(g, got[-1]["S"])
+            return None
+        if a == A["bz_presented"]:
+            return {"pr": st["k"], "hon": g.b("bz_hon"), "R0": g.w("bz_R0"), "c0": g.w("bz_c0"),
+                    "hxr": struct.unpack("<4h", m.read(g.a("bz_hxr"), 8))}
+        return None
+    targets = [A["bz_t0"], A["bz_wcommit"], wc + 2, wc + 5, A["bz_presented"]] + ([promo] if promo else [])
+    with M.bp_trace(m, *targets, regs=True, on_hit=on_hit, cap=8000) as tr:
+        m.run()
+        M.until(m, lambda _: st["k"] >= HUD_FRAMES + 3, "the HUD leg's frames", guest=60)
+        m.pause()
+        hits = tr.hits
+    pres = [h["hit"] for h in hits if h["addr"] == A["bz_presented"] and h.get("hit") and h["hit"]["pr"] >= 3]
+    npromo = sum(1 for h in hits if promo and h["addr"] == promo)
+    under = [p for p in pres if p["hon"] and p["R0"] == R0w and p["c0"] == c0w]
+    if not under:
+        fails.append("(14) the scene never held the panel on the card over lane %d (window R0 %d c0 %d asked; "
+                     "presented %s)" % (lane, R0w, c0w, [(p["R0"], p["c0"], p["hon"]) for p in pres[:4]]))
+    bad = [d for d in got if d.get("before") is not None and d.get("after") is not None and d["before"] != d["after"]]
+    for d in bad[:3]:
+        fails.append("(14) a %s commit of lane %d (frame %d) wrote the HUD's shown rect: its bytes %s before the "
+                     "pass, %s after (SPEC.md 128.14.5.5: the rect is a box to the wheel and the LEAD)" % (
+                         d["kind"], d["lane"], d["k"], d["before"].hex(), d["after"].hex()))
+    rep.append("(14) HUD FOLLOW over lane %d at R0 %d c0 %d: %d presented frames with the panel shown over it, "
+               "%d commits judged (%d of the lane), %d wrote the rect; the lane drawn by %d promotion(s)" % (
+                   lane, R0w, c0w, len(under), sum(1 for d in got if "after" in d),
+                   sum(1 for d in got if d["lane"] == lane), len(bad), npromo))
+    leave()
+    return fails, rep
+
+
 # ---- the STALE leg: (9) on a rotor brought in by a row after its pose changed off the glass ----
 STALE_STEPS = 16                # steps after the full write before the row (its true pose changed off screen)
 STALE_AFTER = 3                 # frames held at the new point after the step
@@ -1440,7 +1628,7 @@ def gate_scen():
     return [s for s in P.mill_replays() if s["name"] in ("knock", "pass")]
 
 
-LEGS = ("bench", "low", "corner", "stale", "gate")
+LEGS = ("bench", "low", "corner", "stale", "gate", "hud")
 
 
 def run(tag, legs=LEGS, apps=None, src=None):
@@ -1459,6 +1647,12 @@ def run(tag, legs=LEGS, apps=None, src=None):
             # 128.20.7): a trade the owner weighs, priced by bonanzasound, not this row's verdict
             g.m.pause()
             g.putb("bzs_mode", 3)
+            g.m.run()
+        if "bz_hmode" in sym:
+            # EVERY EXISTING LEG PINNED TO THE HUD OFF (SPEC.md 128.14.14): (6) and 3b's assertions measure
+            # what they did; the HUD leg sets FOLLOW for itself and puts OFF back
+            g.m.pause()
+            g.putb("bz_hmode", 0)
             g.m.run()
         ref = R.Ref(tag, R.course("mill"))
         cover = {"beam": [], "cost": {2: [], 3: []}}
@@ -1492,6 +1686,10 @@ def run(tag, legs=LEGS, apps=None, src=None):
             rep += r
         if "gate" in legs:
             f, r = gate_leg(g, scen)
+            fails += f
+            rep += r
+        if "hud" in legs:
+            f, r = hud_leg(g, ref)
             fails += f
             rep += r
     for line in rep:
@@ -1545,6 +1743,11 @@ REDS = {
     "pskip": [("bzwheel.inc", "    or al, al                   ; ...or a POST is drawn dark, its lit frames\n"
                "    jnz .w0                     ; none, every kick seen\n    cmp [bz_lhold + bx], al\n",
                "    xor al, al                  ; RED pskip: no drawn-dark clause\n    cmp [bz_lhold + bx], al\n")],
+    # wave 4 (SPEC.md 128.14.14): the HUD's rect left out of the wheel's box test - a due lane under the
+    # panel is the wheel's (or the LEAD's), which writes it over the panel: (14)
+    "hudrect": [("bzwheel.inc", "    cmp byte [bz_hxon], 0       ; THE HUD's SHOWN RECT is a box to the wheel\n"
+                 "    je .nh                      ; and the LEAD on every frame it is on the\n",
+                 "    jmp short .nh               ; RED hudrect: the rect is no box to the wheel\n")],
 }
 # each arm's leg is the one that puts its case in front of its check (SPEC.md 128.13.7): `nobeam` the LOW
 # leg's BEAM sweep, `alias` and `corner` the LIGHT corner step, `lanestale` the STALE scene, `pskip` the
@@ -1552,16 +1755,19 @@ REDS = {
 RED_LEGS = {"repeat": ("bench",), "ahead": ("bench",), "nobeam": ("low",), "kmod": ("bench",),
             "halfcal": ("bench",), "alias": ("corner",), "corner": ("corner",), "lanestale": ("stale",),
             "gatelate": ("gate",), "litsteps": ("bench",), "costtab": ("low",), "lnext": ("bench",),
-            "pskip": ("low",)}
+            "pskip": ("low",), "hudrect": ("hud",)}
 # the Hercules' beam checks are reported (128.12.15 item 5); the corner's (6) and (5) are asserted on the CGA
 # ...and `halfcal` the CGA's: on the Hercules every MILL commit leaves more than the halved price's ~600
 # counts before its deadline, so nothing overruns there (the final pass of wave 3b: bz_wover 0, (5)'s
 # ratio 1.31 reported)
 RED_TAGS = {"nobeam": ("cga",), "kmod": ("cga",), "corner": ("cga",), "alias": ("cga",), "costtab": ("cga",),
-            "halfcal": ("cga",)}
-RED_WANT = {"repeat": "(1)", "ahead": "(2)", "nobeam": "(3)", "kmod": "(3)", "halfcal": "(4)", "alias": "(6)",
+            "halfcal": ("cga",), "hudrect": ("cga",)}
+# `halfcal` at (5) since wave 4's final pass: the halved word-line prices every whole rotor 30% under
+# its span, which (5) asserts within 15%; wave 4's MILL frames leave no commit near its deadline, so
+# (4)'s overrun no longer follows on the CGA (bonanzaperf's `halfcal` still meets bz_wover)
+RED_WANT = {"repeat": "(1)", "ahead": "(2)", "nobeam": "(3)", "kmod": "(3)", "halfcal": "(5)", "alias": "(6)",
             "corner": "(6)", "lanestale": "(9)", "gatelate": "(10)", "litsteps": "(12)", "costtab": "(5)",
-            "lnext": "(13)", "pskip": "(12)"}
+            "lnext": "(13)", "pskip": "(12)", "hudrect": "(14)"}
 
 
 def main():
@@ -1582,13 +1788,18 @@ def main():
         wr = writers()
         print("bonanza_wheel: bz_ldrw's writers at image offsets %s" % ", ".join("%04Xh" % o for o in wr))
         assert len(wr) == 2, "bz_ldrw has %d writers, not bz_lsync's and bz_wcommit's" % len(wr)
-        for line in R.check_reds(REDS, "bonanza_wheel"):
+        for line in R.check_reds({k: v for k, v in REDS.items() if k != "hudrect" or "bz_hmode" in R.symbols()},
+                                 "bonanza_wheel"):
             print(line)
         assert not bad, "%d gate log(s) not proved on the model" % len(bad)
         return
     tags = ("cga", "herc") if a.adapter == "both" else (a.adapter,)
     legs = LEGS if a.leg == "all" else (a.leg,)
     if a.red:
+        if a.red == "hudrect" and "bz_hmode" not in R.symbols():
+            print("bonanza_wheel --red hudrect: the build carries no HUD, so (14) is not asserted (SPEC.md "
+                  "128.14.16 item 4) - nothing to run")
+            return
         tags = tuple(t for t in tags if t in RED_TAGS.get(a.red, tags)) or RED_TAGS.get(a.red, tags)
         with tempfile.TemporaryDirectory() as td:
             src, img = R.build_tree(td, REDS[a.red])

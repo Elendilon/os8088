@@ -11,3 +11,12 @@ floor rect  11 4 14 7  flat 0             # C the foot: B's lip is 2 units (16 p
 goal  rect  13 4 14 7  flat 0             # C's last column is the goal
 hole  tile  12 5                          # a pit in C
 start 4 5
+
+# Wave 4 (SPEC.md 128.14.6): the route its ROUTE DEMO is the autopilot's run on
+# (128.14.7.4), along the plateau's back rail and C's back row, clear of the
+# pit, to the goal column - and its par, the autopilot's time and a third
+# (128.14.3.1, PROVISIONAL).
+way  4 5
+way 11 4
+way 13 4
+par  4

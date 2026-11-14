@@ -55,6 +55,20 @@ and PASSES only if the row FAILS - at its own check:
                goal, and only there
   crepeat      the held-key guard taken out: a held key advances more than once
   overswallow  bz_dkk never cleared: the second press is swallowed
+
+WAVE 4 (SPEC.md 128.14.14): a launch fetches the course and EVERY ball its pad
+mask names with the starting one (128.14.4.4), so the positive control is the
+course's row and each of those balls' rows FETCHED and 1 + that many claims
+more; the part rows are 3 + BZ_NCRS + 1 + BZS_NSONG + BZ_NDEMO; MOON and PEAK
+(SUMMIT) take every way out above (their GOAL is the CUP: the ball poked at
+rest in its mouth holes out, bz_hid); then, with the autopilot driving
+(bz_apilot), every way out of a TOUR course - Esc, F, Alt+Enter (each stops
+the tour: bz_tour 7) and the cup (a tour poked to stand at MOON) - and a tour
+stopped on the face, V's fetch and drop, D's end, W through the Save dialog, L
+through the Open dialog and the DOUBLE-CLICK of the saved .BZR (a new
+instance): every row as before and the claims as before after each.
+  padleak      the glass ball's row not dropped at a cup: MOON's goal leaves
+               row 2 fetched
 """
 import argparse
 import os
@@ -67,7 +81,24 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 import os88marty as M          # noqa: E402
 import os88ui                  # noqa: E402
-import heapmap                 # noqa: E402
+import importlib.util          # noqa: E402
+
+
+def _tools_heapmap():
+    """tools/heapmap.py BY PATH: tests/ is first on sys.path, and
+    tests/heapmap.py (QEMU's census, a different module of the same name)
+    shadows it whenever nothing imported the tools one first - as when
+    bonanzademo imports this row (the final pass of wave 4)"""
+    mod = sys.modules.get("heapmap")
+    if mod is not None and hasattr(mod, "Map"):
+        return mod
+    spec = importlib.util.spec_from_file_location("os88_tools_heapmap", os.path.join(ROOT, "tools", "heapmap.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+heapmap = _tools_heapmap()
 import bbcourse as BB          # noqa: E402
 import bonanza_ring as R       # noqa: E402
 import bonanza_phys as P       # noqa: E402
@@ -93,6 +124,20 @@ def nsong():
     import re
     inc = open(os.path.join(ROOT, R.at("build/bonanza-art"), "bzsnd.inc")).read()
     return int(re.search(r"^BZS_NSONG\s+equ\s+(\d+)", inc, re.M).group(1))
+
+
+def ndemo():
+    """the shipped demos, one part each after the songs (bzcourse.inc's BZ_NDEMO, SPEC.md 128.14.7.4)"""
+    import re
+    inc = open(os.path.join(ROOT, R.at("build/bonanza-art"), "bzcourse.inc")).read()
+    m_ = re.search(r"^BZ_NDEMO\s+equ\s+(\d+)", inc, re.M)
+    return int(m_.group(1)) if m_ else 0
+
+
+def balls(crs, mat):
+    """the ball rows a launch of CRS fetches (SPEC.md 128.14.4.4): the starting
+    material's and every one its PAD MASK names"""
+    return sorted({mat} | {r["mat"] for r in R.course(crs).part["props"] if r["kind"] == BB.PK_PAD})
 
 
 def title_rows():
@@ -181,8 +226,11 @@ def at_t0(g, poke):
 def goal(g, crs="first"):
     """Play to the goal: FIRST's ball poked onto its goal column at bz_t0; on
     another course, onto the centre of its first GOAL cell, at rest."""
+    cup = [r for r in R.course(crs).part["props"] if r["kind"] == BB.PK_CUP]
     if crs == "first":
         (wx, wy), gvx, gvy, _ = P.SCEN["goal"]
+    elif cup:                                   # wave 4: the CUP, the ball at rest in its mouth
+        (wx, wy), gvx, gvy = cup[0]["at"], 0, 0
     else:
         grid = BB.Grid(R.course(crs).cga)
         wx, wy = next((x, y) for y in range(256) for x in range(256) if grid.cell(x, y)[3] == BB.KIND_GOAL)
@@ -219,7 +267,9 @@ def one(g, way, base_rows, base_claims, mat, crs="first"):
     reads = launch(g, way, None if crs == "first" else crs)
     pc, pb = g.b("bz_pc"), g.b("bz_pb")
     r_in, c_in = rows(g), claims(g)
-    for i in (pc, pb):
+    crs_b = "bench" if (way == "bench" and crs == "first") else crs
+    nb = balls(crs_b, want_mat)
+    for i in [pc] + [BALL_ROW0 + b_ for b_ in nb]:
         f, z = r_in[i]
         if not f & OP_FETCHED or not z:
             fails.append("%s: inside the bracket row %d is not fetched (flags %02X zkb %04X): the control cannot "
@@ -228,9 +278,9 @@ def one(g, way, base_rows, base_claims, mat, crs="first"):
         fails.append("%s: the launch rolls material %d from row %d with course row %d; want material %d, rows %d "
                      "and %d (SPEC.md 128.11.3.1)" % (way, g.b("bz_mat"), pb, pc, want_mat, BALL_ROW0 + want_mat,
                                                      CRS_ROW0 + g.b("bz_crs")))
-    if len(c_in) != len(base_claims) + 2:
-        fails.append("%s: inside the bracket the instance holds %d claims, not the desktop's %d + 2: %s" % (
-            way, len(c_in), len(base_claims), c_in))
+    if len(c_in) != len(base_claims) + 1 + len(nb):
+        fails.append("%s: inside the bracket the instance holds %d claims, not the desktop's %d + 1 + %d balls: %s" % (
+            way, len(c_in), len(base_claims), len(nb), c_in))
     if way == "bench":
         m.run()
         M.until(m, lambda _: g.b("bz_fs") == 0, "the benchmark's 1,200 frames", guest=120)
@@ -239,6 +289,8 @@ def one(g, way, base_rows, base_claims, mat, crs="first"):
         M.until(m, lambda _: g.b("bz_fs") == 0, "the play to end at the goal", guest=60)
         if not g.b("bz_fin"):
             fails.append("goal: the play ended but [bz_fin] is clear - it did not end at the goal")
+        if [r for r in R.course(crs).part["props"] if r["kind"] == BB.PK_CUP] and not g.b("bz_hid"):
+            fails.append("goal: %s's play ended without holing out ([bz_hid] 0)" % crs.upper())
     elif way == "replayend":
         m.run()
         M.until(m, lambda _: g.b("bz_fs") == 0, "the replay to reach its end", guest=60)
@@ -301,6 +353,102 @@ def one(g, way, base_rows, base_claims, mat, crs="first"):
     return fails, line
 
 
+def after(g, what, base_rows, base_claims):
+    """every part row back as it was on the desktop and the claims as before:
+    -> failures (one()'s post-launch checks, for a leg that is not one launch)"""
+    m = g.m
+    fails = []
+    M.until(m, lambda _: g.w("bz_cseg") == 0 and g.w("bz_bseg") == 0, "%s: the parts dropped" % what, guest=30)
+    if "bzs_desk" in g.sym:
+        M.until(m, lambda _: g.b("bzs_desk") == 1 or g.b("bzs_mode") == 3, "%s: the title back" % what, guest=30)
+    m.pause()
+    r_out, c_out = rows(g), claims(g)
+    m.run()
+    title = title_rows()
+    for i, (before, aft) in enumerate(zip(base_rows, r_out)):
+        if i in title:
+            continue
+        if aft[0] & OP_FETCHED:
+            fails.append("%s: part row %d is still FETCHED" % (what, i))
+        if aft[1] != before[1]:
+            fails.append("%s: part row %d's zkb is %04X, %04X before" % (what, i, aft[1], before[1]))
+    if c_out != base_claims:
+        fails.append("%s: the instance's claims %s, before %s" % (what, c_out, base_claims))
+    print("%s %s: every part row and the claims as before: %s" % (g.tag, what, "yes" if not fails else "NO"),
+          flush=True)
+    return fails
+
+
+def guard(g):
+    M.until(g.m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)
+
+
+def wave4_exits(g, ui, base_rows, base_claims):
+    """SPEC.md 128.14.14: every way out of a TOUR course (Esc, F, Alt+Enter, the
+    cup) and a tour stopped on the face; V's fetch and drop, D's end, W, L and
+    the double-click - each with the rows and the claims as before"""
+    m = g.m
+    fails = []
+    m.pause()
+    g.putb("bz_apilot", 1)
+    m.run()
+    for way in ("esc", "f", "altenter"):
+        guard(g)
+        g.key("KeyG")
+        M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "tour course 1 (%s)" % way, guest=60)
+        leave(g, way)
+        M.until(m, lambda _: g.b("bz_fs") == 0, "tour course 1 to end on %s" % way, guest=60)
+        fails += after(g, "tour %s" % way, base_rows, base_claims)
+        if g.b("bz_tour") != 7:
+            fails.append("tour %s: [bz_tour] %d after the way out, not 7 (stopped)" % (way, g.b("bz_tour")))
+    m.pause()
+    g.putb("bz_tour", R.CRS_K["moon"])          # a tour standing at MOON: Enter plays it
+    m.run()
+    g.key("Enter")
+    M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "tour MOON", guest=60)
+    goal(g, "moon")
+    M.until(m, lambda _: g.b("bz_fs") == 0, "tour MOON to end at its cup", guest=60)
+    fails += after(g, "tour cup", base_rows, base_claims)
+    if not g.b("bz_hid"):
+        fails.append("tour cup: MOON's play did not hole out")
+    g.key("Escape")
+    M.until(m, lambda _: g.b("bz_tour") == 7, "Esc on the face to stop the tour", guest=10)
+    fails += after(g, "tour stopped on the face", base_rows, base_claims)
+    m.pause()
+    g.putb("bz_vk", 0)
+    m.run()
+    guard(g)
+    g.key("KeyV")
+    M.until(m, lambda _: g.b("bz_vk") == 1, "V to load FIRST's shipped demo", guest=20)
+    fails += after(g, "V", base_rows, base_claims)
+    guard(g)
+    g.key("KeyD")
+    M.until(m, lambda _: g.b("bz_fs") == 1, "D's bracket", guest=60)
+    M.until(m, lambda _: g.b("bz_fs") == 0, "D to its end", guest=120)
+    fails += after(g, "D's end", base_rows, base_claims)
+    guard(g)
+    g.key("KeyW")
+    ui.chooser_save("EXIT.BZR")
+    ui.wait_toast(says="Demo saved")
+    fails += after(g, "W", base_rows, base_claims)
+    guard(g)
+    g.key("KeyL")
+    ui.chooser_open("EXIT.BZR")
+    M.guest_sleep(m, 1.0)
+    fails += after(g, "L", base_rows, base_claims)
+    ui.close(g.win)
+    dw = R.disk_b(ui)
+    ui.open("SYSTEM", expect="nav", win=dw)      # (in and out: the listing re-read with EXIT.BZR)
+    ui.open("..", expect="nav", win=dw)
+    ui.open("EXIT.BZR")                          # the double-click: a new instance with the log
+    g2 = R.Bz(ui, g.tag, g.sym, live=True)
+    ui.settle()
+    if bytes(m.read(g2.a("bz_rlog"), 4)) != b"BZR1":
+        fails.append("double-click: BONANZA opened without EXIT.BZR's log")
+    fails += after(g2, "the double-click", base_rows, base_claims)
+    return fails
+
+
 def choose_ball(g, mat):
     """M until [bz_matsel] is MAT (one press each: the guard needs the key UP
     between presses, so the next waits for [bz_dkk] to clear)"""
@@ -350,7 +498,7 @@ def held_keys(g):
     return fails
 
 
-def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=True, mill=True):
+def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=True, mill=True, w4=True):
     sym = R.symbols(src)
     fails = []
     with os88ui.boot(R.at("build/os8088-360.img"), apps=apps or R.at("build/bonanza360.img"),
@@ -373,9 +521,10 @@ def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=Tr
             fails.append("the title's parts (rows %s) are not held on the desktop (SPEC.md 128.20.6)"
                          % sorted(title))
         R.CRS_K["bench"]                    # (fills the course table: BZ_NCRS of them)
-        if len(base_rows) != CRS_ROW0 + dict.__len__(R.CRS_K) + 1 + nsong():
-            fails.append("the package has %d part rows, not 3 balls, %d courses, the sound and %d songs "
-                         "(SPEC.md 128.11.3.1, 128.20.3)" % (len(base_rows), dict.__len__(R.CRS_K), nsong()))
+        if len(base_rows) != CRS_ROW0 + dict.__len__(R.CRS_K) + 1 + nsong() + ndemo():
+            fails.append("the package has %d part rows, not 3 balls, %d courses, the sound, %d songs and %d "
+                         "shipped demos (SPEC.md 128.11.3.1, 128.20.3, 128.14.7.4)" % (
+                             len(base_rows), dict.__len__(R.CRS_K), nsong(), ndemo()))
         for mat in mats if ways else ():
             choose_ball(g, mat)
             for way in ways:
@@ -398,26 +547,47 @@ def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=Tr
                 fails += f
                 if f:
                     break
+        if w4 and not fails:                    # wave 4: MOON and PEAK (SUMMIT), their three balls
+            for crs in ("moon", "peak"):
+                choose_ball(g, R.course(crs).ball)
+                for way in [w for w in ways if w in WAYS]:
+                    f, line = one(g, way, base_rows, base_claims, R.course(crs).ball, crs=crs)
+                    print("%s %s" % (tag, line), flush=True)
+                    fails += f
+                    if f:
+                        break
+                if fails:
+                    break
         if keys and not fails:
             fails += held_keys(g)
+        if w4 and not fails:                    # (last: it closes the window)
+            fails += wave4_exits(g, ui, base_rows, base_claims)
     return fails
 
 
 BALL_ROW0, CRS_ROW0 = 0, 3                  # SPEC.md 128.11.3.1: BZ_P_BALR, BZ_P_CRS
 REDS = {
     # the goal path does not drop the course's row: bz_fin is set only by a play that reached the goal
-    "leak": [("bonanza.asm", "    mov al, [bz_pc]\n    call op_drop\n",
-              "    cmp byte [bz_fin], 0         ; RED leak: the goal keeps the course\n    jne .redleak\n"
-              "    mov al, [bz_pc]\n    call op_drop\n.redleak:\n")],
+    "leak": [("bonanza.asm", "    jb .dball\n    mov al, [bz_pc]\n    call op_drop\n",
+              "    jb .dball\n    cmp byte [bz_fin], 0         ; RED leak: the goal keeps the course\n"
+              "    jne .redleak\n    mov al, [bz_pc]\n    call op_drop\n.redleak:\n")],
     # the held-key guard taken out: every typed C, M or N acts
     "crepeat": [("bonanza.asm", "    call bz_dkey                ; AH = the make code: CF = 1 a repeat, swallowed\n"
                  "    jc .done\n", "    ; RED crepeat: no guard\n")],
     # bz_dkk never cleared: the key never reads as come up
     "overswallow": [("bonanza.asm", ".up:\n    mov byte [bz_dkk], 0\n", ".up:                            ; RED overswallow\n")],
 }
+REDS["padleak"] = [("bonanza.asm", ".dball:                         ; of a part that is not here is a no-op, so\n"
+                    "    call op_drop                ; all go whichever failed; it preserves AX)\n",
+                    ".dball:                         ; RED padleak: the glass ball kept at the cup\n"
+                    "    cmp al, BZ_P_BALG\n    jne .rpl\n    cmp byte [bz_hid], 0\n    jne .rpl2\n.rpl:\n"
+                    "    call op_drop\n.rpl2:\n")]
 RED_RUN = {"leak": {"keys": False}, "crepeat": {"ways": (), "bench": False, "mill": False},
            "overswallow": {"ways": (), "bench": False, "mill": False}}
-RED_WANT = {"leak": "goal:", "crepeat": "held 1.5 s advanced", "overswallow": "pressed twice"}
+RED_RUN["padleak"] = {"keys": False, "mats": (), "bench": False, "mill": False, "w4": True}
+RED_RUN["leak"]["w4"] = False
+RED_RUN["crepeat"]["w4"] = RED_RUN["overswallow"]["w4"] = False
+RED_WANT = {"padleak": "part row 2 is still FETCHED", "leak": "goal:", "crepeat": "held 1.5 s advanced", "overswallow": "pressed twice"}
 
 
 def main():
