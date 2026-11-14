@@ -341,3 +341,88 @@ is read every tick, so it rides up with the lift.
 13.2 / 14.9 / 33.0 / 12.5 / 26.0). The benches walk the home loops, so
 their scenes are the same; the cost is a call at each edge's end and a byte
 test a figure a tick.
+
+### 8.2 B2: seeing, facing, shooting back (2026-11-14)
+
+**The tables** (arenagen, after the graph's edges in its block):
+
+- **the sight grid**: the tall boxes, a bit a 64-unit cell, 128 bytes.
+  arenagen refuses a tall box off the grid. The game spreads it to a byte a
+  cell at load (`wa_sgrow`, 1 KB), so the walk tests a byte, with no shift
+  or mask;
+- **the nearest node to each PVS cell's middle**, among the nodes it sees
+  (256 bytes);
+- **the next hop**: for each node and goal, the edge to take first, by
+  shortest steps (a lift's legs dearer) - 18 x 18 bytes for arena 2.
+
+**A bot's thinking** (`wa_bthink`, a call a bot a tick, after its walk):
+
+- **Its look**, every eighth tick on its own turn (the three bots'
+  staggered):
+  - the SIGHT WALK (`wa_sight`): quarter-unit fixed point, so a cell's
+    column and row are whole high bytes; a column table; about ten
+    instructions a 64-unit step;
+  - the BEARING (`wa_bear`): an octant's ratio by one divide, through a
+    65-byte arctangent table;
+  - a roaming bot notices only within 90 degrees of its facing.
+- **Its states**: ROAM; ENGAGE on sight (its reaction starts, and the node
+  nearest the player is noted); HUNT when lost - the next hop toward that
+  node at each node (`wa_bnext`) - and ROAM again there, or after 5 s.
+- **Its turn**: an engaged bot turns toward the bearing of its last look,
+  48 a tick, onto it when within that; `wa_figtick` leaves its facing
+  alone. Already on it, the tick costs one compare.
+- **Its shot** (`wa_bshoot`), on the bearing, past its reaction and gap,
+  seeing the player:
+  - a dice roll against its accuracy: 5 points less each further 4 m (the
+    axes' larger distance and half the smaller), a quarter less while the
+    player moves;
+  - a hit is 20 to the player (`wa_phurt`: the shield first), a low tone,
+    and the HUD's heart white on red for 6 ticks;
+  - its CUE: `F_FLASH` 0x80 + 6, which the renderer draws in `A_FIRE` -
+    yellow; on Hercules and MDA normal intensity against the body's bright.
+    Five ticks, so a 10 fps frame at 80 columns cannot miss it (three were
+    missed on Hercules, looked at).
+
+| | easy | normal (the default) | hard |
+|---|---|---|---|
+| reaction, ticks | 24 | 15 | 9 |
+| between shots | 30 | 20 | 14 |
+| accuracy at 4 m | 45% | 60% | 75% |
+
+The Game menu has three items, **Bots: easy, normal, hard**, each with a
+toast. A bench (and `walift`, `waweapons`) runs with `wa_bdet` set: the
+bots walk their home loops and do not think.
+
+**What it costs, measured** (MartyPC `os8088_5150_cga`, a breakpoint trace
+of `wa_bthink` in play, Heights 40, the player standing at the start, the
+bots roaming and mostly engaged; 149 frames):
+
+| build | a call | a frame | of the frame |
+|---|---|---|---|
+| first (facing by sin, cos and four 32-bit products every tick; a look every 4th) | 3,131 clk | 22,691 | **5.9%** |
+| the bearing by table, the turn by compare | 1,693 | 11,728 | 3.2% |
+| the byte grid, quarter units; non-engaged bots look every 8th | 1,302 | 9,465 | 2.5% |
+| **every look every 8th; on the bearing, one compare** | **845** | **5,889** | **1.6%** |
+
+A look is now ~2,160 clk for the sight walk and ~720 for the bearing. The
+benches are as before within 0.4 ms (P 20.0 / 16.6; heights 40 13.1 /
+14.8 / 32.7 / 12.5 / 25.9).
+
+**Checked**: `tests/wabots.py`, a soak row (~32 s).
+
+- **The menu**: 'Bots: hard' sets the difficulty.
+- **Sight**: 40 of 40 random placements agree with arenagen's
+  `sight_clear`, the same walk on the host. On the host that walk is wrong
+  in 1.73% of random lines against exact geometry, never calling a clear
+  line blocked.
+- **The duels**, at each difficulty, a bot 400 units off, 600 ticks: it
+  turns onto the player (0 degrees off once on it); 20 / 29 / 40 shots
+  against 19 / 29 / 40 expected; 45% / 72% / 75% hits against 45 / 60 / 75;
+  its cue and the heart's flash seen.
+- **The hunt**: lost, it went to the node nearest the last sighting and
+  roamed again.
+- **Red** with the turn's sign reversed: it never comes on target, so it
+  never fires.
+
+The routes', weapons' and lift's rows still pass. `walift` now holds the
+bots on their home loops: a bot's shot killed the rider.

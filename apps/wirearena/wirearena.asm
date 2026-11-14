@@ -31,6 +31,7 @@ wa_entry:
     mov al, OP_CARVE            ; ...and its claim may move: wa_partsmv
     call op_movable             ; re-reads the two words wa_rbind banked
     mov byte [wa_fov], 1        ; 75 degrees: the owner's pick of the three
+    mov byte [wa_diff], 1       ; the bots: normal (AI-PLAN 4.3)
     call OSAPI_CPU_INFO         ; THE DETAIL LEVEL (HEIGHTS-PLAN 9.11): Medium
     cmp al, CPU_8086            ; on the target machine, High (Medium and the
     mov al, 2                   ; floor grid, ~13 ms a frame on a 4.77 MHz
@@ -92,7 +93,21 @@ wa_paint:
     ret
 
 wa_oncmd:                       ; Game menu: wa_items maps the item
-    xor ah, ah                  ; to (width, arena)
+    cmp al, 6                   ; to (width, arena); 6.. the bots'
+    jb .play                    ; difficulty (AI-PLAN 4.3)
+    sub al, 6
+    mov [wa_diff], al
+    xor ah, ah
+    shl ax, 1
+    mov bx, ax
+    mov si, [wa_t_diff+bx]
+    push ds
+    pop es
+    xor cx, cx
+    call OSAPI_TOAST
+    ret
+.play:
+    xor ah, ah
     shl ax, 1
     mov bx, ax
     mov al, [wa_items+bx]
@@ -353,6 +368,8 @@ wa_spawn:
     mov ax, [di+F_HEAD]
     mov [di+F_ANG], ax
     mov byte [di+F_BWAIT], 0
+    mov word [di+F_BST], 0      ; (roaming, no reaction, no gap,
+    mov word [di+F_BGAP], 0     ; unseeing)
     mov byte [di+F_HP], WA_FHP
     xor ax, ax                  ; dummy 0 lives with a full shield: its chest
     cmp di, wa_figs             ; yellow and a second pool to shoot through
@@ -699,8 +716,13 @@ wa_tick:
     push cx
     call wa_figtick
     pop cx
+    push cx
+    call wa_bthink              ; (AI-PLAN 4: sees, faces, shoots)
+.c_bt:                          ; (tools' stop: its cost, by breakpoints)
+    pop cx
     add di, F_SIZE
     loop .fig
+    inc word [wa_tkn]
     mov al, [wa_lbn]
     mov [wa_lbot], al
 .c_w:                           ; (the labels: tools/watrace.py's stops)
@@ -1147,6 +1169,369 @@ wa_lset0:
 .out:
     ret
 
+; --- the bots: seeing, facing, shooting (docs/plans/WIREARENA-AI-PLAN.md 4) -----
+; Fast more than good (the owner): every fourth tick a bot looks along a
+; 64-unit grid of the tall boxes to the player (wa_sight); seen, it ENGAGES -
+; faces the player by a cross product's sign as it walks its edge, and after
+; its reaction fires at its gap, a dice roll against its accuracy deciding
+; the hit; lost, it HUNTS toward where it saw the player (wa_bnext's next
+; hops), and after 5 s roams again. No ray, no square root, no arctangent.
+WA_BROAM    equ 0
+WA_BENG     equ 1
+WA_BHUNT    equ 2
+WA_SGRID    equ 128             ; the sight grid's bytes (32 x 32 bits)
+WA_BDMG     equ 20              ; a bot's round (its pistol: wave B4 arms it)
+WA_BLOST    equ 19              ; looks (8 ticks each) a hunt lasts: 5 s
+;               easy normal hard
+wa_brx:     db 24,  15,    9    ; its reaction, ticks
+wa_bgap:    db 30,  20,    14   ; between its shots
+wa_bacc:    db 45,  60,    75   ; % at 4 m, the player standing
+
+; wa_bthink - DI = a figure, CX = WA_NFIG less its index: its look (every
+; fourth tick, its own: the sight walk and the bearing to the player), its
+; state, its turn (every tick, toward the bearing it looked along) and its
+; shot. Nothing in a bench or dead. Keeps DI
+wa_bthink:
+    cmp byte [wa_bdet], 0
+    jne .out
+    cmp byte [di+F_DEAD], 0
+    jne .out
+    mov ax, [wa_tkn]            ; its turn to look: (tick + index x 3) & 7,
+    add ax, cx                  ; every 0.27 s, the three bots' turns
+    add ax, cx                  ; apart
+    add ax, cx
+    test al, 7
+    jnz .acted
+    call wa_sight               ; CF = 1: it sees the player
+.c_s:                           ; (tools' stops)
+    jnc .unseen
+    call wa_bear                ; AX = the bearing to the player
+.c_b:
+    cmp byte [di+F_BST], WA_BROAM
+    jne .seen                   ; (roaming: only within 90 degrees of its
+    mov dx, ax                  ; facing)
+    sub dx, [di+F_ANG]
+    add dx, 256
+    and dx, 1023
+    cmp dx, 512
+    jae .unseen
+.seen:
+    mov [di+F_BTA], ax
+    mov byte [di+F_BSEE], 1
+    mov ax, [wa_px]             ; (the node nearest the player, the hunt's
+    mov bx, [wa_py]             ; goal should it lose them)
+    call wa_bcell
+    mov [di+F_BGOAL], al
+    cmp byte [di+F_BST], WA_BENG
+    je .acted
+    mov byte [di+F_BST], WA_BENG ; first sight: its reaction starts
+    mov byte [di+F_BGAP], 0
+    mov bl, [wa_diff]
+    xor bh, bh
+    mov al, [wa_brx+bx]
+    mov [di+F_BRX], al
+    jmp .acted
+.unseen:
+    mov byte [di+F_BSEE], 0
+    cmp byte [di+F_BST], WA_BENG
+    jne .hunt
+    mov byte [di+F_BST], WA_BHUNT ; lost: hunt where it was last seen
+    mov byte [di+F_BGAP], WA_BLOST
+    jmp .acted
+.hunt:
+    cmp byte [di+F_BST], WA_BHUNT
+    jne .acted
+    dec byte [di+F_BGAP]
+    jnz .acted
+    mov byte [di+F_BST], WA_BROAM
+.acted:
+    cmp byte [di+F_BST], WA_BENG
+    jne .out
+    mov ax, [di+F_BTA]          ; THE TURN: toward the bearing, 48 a tick,
+    cmp ax, [di+F_ANG]          ; onto it when within that (on it already:
+    je .on                      ; the usual tick)
+    sub ax, [di+F_ANG]
+    and ax, 1023
+    cmp ax, 512
+    jb .pos
+    sub ax, 1024
+.pos:
+    cmp ax, 48
+    jg .left
+    cmp ax, -48
+    jl .right
+    mov ax, [di+F_BTA]          ; on it: it may fire
+    mov [di+F_ANG], ax
+.on:
+    cmp byte [di+F_BRX], 0
+    je .ready
+    dec byte [di+F_BRX]
+    ret
+.ready:
+    cmp byte [di+F_BGAP], 0
+    je .fire
+    dec byte [di+F_BGAP]
+    ret
+.fire:
+    cmp byte [di+F_BSEE], 0
+    je .out
+    jmp wa_bshoot
+.left:
+    mov ax, 48
+    jmp .turn
+.right:
+    mov ax, -48
+.turn:
+    add ax, [di+F_ANG]
+    and ax, 1023
+    mov [di+F_ANG], ax
+    cmp byte [di+F_BGAP], 0
+    je .out
+    dec byte [di+F_BGAP]
+.out:
+    ret
+
+; wa_bear - DI = a figure: AX = the bearing from it to the player, 0..1023
+; (wa_ang's 1024 to the turn, x right, y up). An octant's ratio, x 64 by
+; one divide, through a 65-byte arctangent table: no sines, no products.
+; Keeps DI
+wa_bear:
+    mov ax, [wa_px]
+    sub ax, [di+F_X]
+    mov bx, [wa_py]
+    sub bx, [di+F_Y]
+    xor si, si                  ; SI: bit 0 dx < 0, bit 1 dy < 0
+    or ax, ax
+    jns .x
+    neg ax
+    or si, 1
+.x:
+    or bx, bx
+    jns .y
+    neg bx
+    or si, 2
+.y:
+    xor cl, cl                  ; CL = 1: the steep octant (|dy| > |dx|)
+    cmp bx, ax
+    jbe .r
+    xchg ax, bx
+    inc cx
+.r:
+    or ax, ax
+    jz .zero                    ; (on top of it: any bearing)
+    xchg ax, bx                 ; r = small x 64 / large: 0..64
+    mov dx, 64
+    mul dx
+    div bx
+    mov bx, ax
+    mov al, [wa_atan+bx]        ; 0..128: the angle in the octant
+    xor ah, ah
+    or cl, cl
+    jz .q
+    neg ax                      ; (steep: 256 less it)
+    add ax, 256
+.q:
+    test si, 1
+    jz .q2
+    neg ax                      ; (x < 0: 512 less it)
+    add ax, 512
+.q2:
+    test si, 2
+    jz .q3
+    neg ax                      ; (y < 0: the turn less it)
+.q3:
+    and ax, 1023
+    ret
+.zero:
+    mov ax, [di+F_ANG]
+    ret
+wa_atan:                        ; atan(r / 64), 1024 to the turn, r 0..64
+    db 0, 3, 5, 8, 10, 13, 15, 18, 20, 23, 25, 28, 30, 33, 35, 38, 40, 42, 45, 47, 49, 52, 54, 56, 58, 61, 63, 65, 67, 69, 71, 74, 76, 78, 80, 82, 84, 85, 87, 89, 91, 93, 95, 96, 98, 100, 102, 103, 105, 106, 108, 110, 111, 113, 114, 116, 117, 119, 120, 121, 123, 124, 125, 127, 128
+
+; wa_bcell - AX, BX = x, y: AL = the route node nearest the PVS cell there
+; (arenagen's table). Keeps all but AX, BX
+wa_bcell:
+    push cx
+    mov cl, 7
+    shr ax, cl
+    shr bx, cl
+    mov cl, 4
+    shl ax, cl
+    add bx, ax
+    add bx, [wa_gcp]
+    mov al, [bx]
+    pop cx
+    ret
+
+; wa_sight - DI = a figure: CF = 1 when the line from it to the player
+; enters no tall cell of the sight grid, a 64-unit step at a time (AI-PLAN
+; 4.1: wrong in 1.7% of lines, all of them grazing a corner, seen past it).
+; Keeps DI
+wa_sight:
+    push di
+    mov ax, [wa_px]
+    sub ax, [di+F_X]            ; AX = dx
+    mov bx, [wa_py]
+    sub bx, [di+F_Y]            ; BX = dy
+    mov cx, ax                  ; the steps: max(|dx|, |dy|) / 64 + 1
+    or cx, cx
+    jns .ax
+    neg cx
+.ax:
+    mov dx, bx
+    or dx, dx
+    jns .ay
+    neg dx
+.ay:
+    cmp cx, dx
+    jae .mx
+    mov cx, dx
+.mx:
+    push ax
+    mov ax, cx
+    mov cl, 6
+    shr ax, cl
+    inc ax
+    mov cx, ax                  ; CX = the steps
+    pop ax
+    shl ax, 1                   ; quarter units: a 64-unit cell is a whole
+    shl ax, 1                   ; high byte
+    cwd
+    idiv cx
+    mov si, ax                  ; SI = x's step
+    mov ax, bx
+    shl ax, 1
+    shl ax, 1
+    cwd
+    idiv cx
+    mov bp, ax                  ; BP = y's
+    mov ax, [di+F_X]
+    mov dx, [di+F_Y]
+    shl ax, 1
+    shl ax, 1
+    shl dx, 1
+    shl dx, 1
+    mov di, wa_sgrid
+.step:
+    add ax, si                  ; AH = the column, DH = the row
+    add dx, bp
+    mov bl, ah
+    xor bh, bh
+    shl bx, 1
+    mov bx, [wa_colb+bx]        ; (the column x 32)
+    add bl, dh
+    cmp byte [di+bx], 0
+    jne .wall
+    loop .step
+    pop di
+    stc
+    ret
+.wall:
+    pop di
+    clc
+    ret
+wa_colb:                        ; a column's first cell in wa_sgrid
+%assign wa_i 0
+%rep 32
+    dw wa_i*32
+%assign wa_i wa_i+1
+%endrep
+
+; wa_sgrow - once an arena is loaded: its sight grid (a bit a cell, column
+; by column, 4 bytes each) as a byte a cell (wa_sgrid), which wa_sight
+; reads with no shift or mask
+wa_sgrow:
+    push es
+    push ds
+    pop es
+    mov si, [wa_gtp]
+    mov di, wa_sgrid
+    mov cx, WA_SGRID
+.b:
+    lodsb
+    mov dl, 8
+.bit:
+    mov ah, al
+    and ah, 1
+    xchg al, ah
+    stosb
+    xchg al, ah
+    shr al, 1
+    dec dl
+    jnz .bit
+    loop .b
+    pop es
+    ret
+
+; wa_bshoot - DI = an engaged bot on target, its reaction and gap past: it
+; fires - its cue (yellow, two ticks), its tone - and the dice say whether
+; it hit: its difficulty's accuracy at 4 m, 5 points less each further 4 m
+; (the axes' larger distance and half the smaller), a quarter less if the
+; player is moving. Keeps DI
+wa_bshoot:
+    inc word [wa_bshots]        ; (the bots' shots and hits: the score's,
+    mov bl, [wa_diff]           ; and tests/wabots.py's)
+    xor bh, bh
+    mov al, [wa_bgap+bx]
+    mov [di+F_BGAP], al
+    mov byte [di+F_FLASH], 0x86 ; (its cue: five ticks, so a 10 fps frame
+                                ; at 80 columns cannot miss it)
+    mov al, [wa_bacc+bx]
+    push ax
+    mov ax, 900
+    mov cx, 1
+    mov dl, 0x40
+    call OSAPI_SND_TONE
+    mov ax, [wa_px]             ; the distance, near enough
+    sub ax, [di+F_X]
+    call wa_abs
+    mov bx, ax
+    mov ax, [wa_py]
+    sub ax, [di+F_Y]
+    call wa_abs
+    cmp ax, bx
+    jae .big
+    xchg ax, bx
+.big:
+    shr bx, 1
+    add ax, bx                  ; AX = the distance, units
+    pop bx                      ; BL = the accuracy, %
+    sub ax, 256
+    jbe .near
+    mov cl, 8                   ; 5 points a further 256 units (4 m)
+    shr ax, cl
+    mov ah, 5
+    mul ah
+    cmp al, bl
+    jae .miss
+    sub bl, al
+.near:
+    test word [wa_kbits], WA_K_W | WA_K_S | WA_K_A | WA_K_D
+    jz .roll                    ; (the player moving: a quarter less)
+    mov al, bl
+    shr al, 1
+    shr al, 1
+    sub bl, al
+.roll:
+    call wa_rand8               ; 0..255, against the accuracy x 2.56
+    mov ah, 0
+    mov cx, 100
+    mul cx
+    cmp ah, bl
+    jae .miss
+    mov ax, 120                 ; hit: the player hurts
+    mov cx, 2
+    mov dl, 0x40
+    call OSAPI_SND_TONE
+    mov byte [wa_phit], 6
+    inc word [wa_bhits]
+    mov al, WA_BDMG
+    push di
+    call wa_phurt
+    pop di
+.miss:
+    ret
+
 ; --- routes (docs/plans/WIREARENA-AI-PLAN.md 3) --------------------------------
 ; The arena's route graph (tools/arenagen.py graph_block), copied whole into
 ; wa_gph by wa_loadarena: a byte of nodes, of edges, a figure's home edge
@@ -1198,6 +1583,23 @@ wa_bnext:
     add si, [di+F_LEG]
     mov bl, [si+WA_GETO]
     mov ch, [si+WA_GEREV]       ; CH = the way back
+    cmp byte [di+F_BST], WA_BHUNT ; HUNTING (AI-PLAN 3.2): the next hop
+    jne .roam                   ; toward where it last saw the player -
+    mov al, [di+F_BGOAL]        ; there, it roams again
+    cmp al, bl
+    je .there
+    mov dl, bl
+    mov al, [wa_gph]
+    mul dl
+    add al, [di+F_BGOAL]
+    adc ah, 0
+    mov si, ax
+    add si, [wa_ghp]
+    mov al, [si]
+    jmp .take
+.there:
+    mov byte [di+F_BST], WA_BROAM
+.roam:
     xor bh, bh
     mov cl, 3
     shl bx, cl
@@ -1358,6 +1760,8 @@ wa_figtick:
 .zread:
     call wa_figz
 .flatz:
+    cmp byte [di+F_BST], WA_BENG ; (engaged: it faces the player - wa_bthink)
+    je .anim
     mov ax, [di+F_HEAD]         ; face the way it is going, 48 a tick at most
     sub ax, [di+F_ANG]
     jz .anim                    ; (it does, most ticks)
@@ -1403,9 +1807,15 @@ wa_figtick:
 .out:
     ret
 .flash:
-    cmp byte [di+F_FLASH], 0
+    mov al, [di+F_FLASH]        ; (0x80 + n: a bot's firing cue, yellow:
+    or al, al                   ; its count runs to 0x80, which is 0)
     je .alive
-    dec byte [di+F_FLASH]
+    dec ax
+    cmp al, 0x80
+    jne .fl
+    xor al, al
+.fl:
+    mov [di+F_FLASH], al
 .alive:
     cmp byte [di+F_DEAD], 0
     je .live
@@ -1616,6 +2026,12 @@ wa_wready:
 ; shots, a reload - which at its end tops the magazine up from the reserve
 ; - and the chaingun, which fires while the trigger is held
 wa_wtick:
+    cmp byte [wa_phit], 0       ; the heart's flash, a hit taken
+    je .h
+    dec byte [wa_phit]
+    jnz .h
+    mov byte [wa_ovd], 1
+.h:
     cmp byte [wa_beam], 0
     je .b
     dec byte [wa_beam]
@@ -2553,7 +2969,11 @@ wa_ovbuild:
 .nobeam:
     mov dx, WA_ROWS-1           ; row 23: the health
     xor bx, bx
-    mov ax, 0x0C03              ; (a heart, red)
+    mov ax, 0x0C03              ; (a heart, red - and white on red while a
+    cmp byte [wa_phit], 0       ; hit is fresh: AI-PLAN 4.3)
+    je .heart
+    mov ah, 0x4F
+.heart:
     call wa_ovatt
     call wa_ovput
     mov word [wa_ovat], 0x0F0F
@@ -3455,6 +3875,17 @@ wa_loadarena:
     mov [wa_gnp], bx
     add ax, bx
     mov [wa_gep], ax
+    mov bx, ax                  ; ...and the bots' tables after the edges:
+    mov al, [wa_gph+1]          ; the sight grid, the cells' nearest nodes,
+    mov ah, WA_GESZ             ; the next hops (AI-PLAN 4.1, 3.2)
+    mul ah
+    add ax, bx
+    mov [wa_gtp], ax
+    add ax, WA_SGRID
+    mov [wa_gcp], ax
+    add ax, WA_PVSN
+    mov [wa_ghp], ax
+    call wa_sgrow
     pop ax
     call op_drop
     clc
@@ -3474,13 +3905,18 @@ wa_tpl:
     OS88_CLASS wa_cls, 0, PAINT, wa_paint
 
     OS88_MENUSET wa_menus, wa_name, wa_oncmd
-        OS88_MENU wa_m_game, wa_i_game, 6
+        OS88_MENU wa_m_game, wa_i_game, 9
     OS88_MENUSET_END wa_menus
 
 wa_name:
 wa_ttl:     db 'WireArena', 0
 wa_m_game:  db 'Game', 0
 wa_i_game:  dw wa_it_40, wa_it_80, wa_it_o40, wa_it_o80, wa_it_h40, wa_it_h80
+            dw wa_it_be, wa_it_bn, wa_it_bh
+wa_it_be:   db 'Bots: easy', 0
+wa_it_bn:   db 'Bots: normal', 0
+wa_it_bh:   db 'Bots: hard', 0
+wa_t_diff:  dw wa_t_be, wa_t_bn, wa_t_bh
 wa_it_40:   db 'Play, 40 columns', 0
 wa_it_80:   db 'Play, 80 columns', 0
 wa_it_o40:  db 'Open arena, 40 columns', 0
@@ -3513,6 +3949,9 @@ wa_hudtpl:  db 'FPS       MS      R      P      N       ', 0
 
 TOASTSTR wa_t_small, 'Needs kern_big or mega'
 TOASTSTR wa_t_part, 'Renderer part mismatch'
+TOASTSTR wa_t_be, 'Bots: easy'
+TOASTSTR wa_t_bn, 'Bots: normal'
+TOASTSTR wa_t_bh, 'Bots: hard'
 
 ; --- the parts (SPEC.md 20.12.3): the renderer, with its BSS as zeros
 ; neither stored nor decoded (OP_ZFILL, 20.12.7.5), and an arena a row, read
@@ -3569,6 +4008,15 @@ WA_VAR wa_gph,WA_GPHSZ           ; the arena's route graph (AI-PLAN 3.1)...
 WA_VAR wa_gnp,2                  ; ...its nodes...
 WA_VAR wa_gep,2                  ; ...and its edges
 WA_VAR wa_bdet,1                 ; 1: the bots walk their home loops
+WA_VAR wa_gtp,2                  ; the bots' tables: the sight grid, the
+WA_VAR wa_gcp,2                  ;   cells' nearest nodes, the next hops
+WA_VAR wa_ghp,2
+WA_VAR wa_tkn,2                  ; ticks, for the bots' turns to look
+WA_VAR wa_diff,1                 ; the bots' difficulty: 0 easy..2 hard
+WA_VAR wa_phit,1                 ; ticks of the heart's hit flash
+WA_VAR wa_sgrid,1024              ; the sight grid, a byte a 64-unit cell
+WA_VAR wa_bshots,2               ; the bots' shots fired, and hits
+WA_VAR wa_bhits,2
 WA_VAR wa_lbn,1                  ; bots on the lift this tick, and the
 WA_VAR wa_lbot,1                 ;   last (wa_ltick's riders)
 WA_VAR wa_pbsel,1                ; the play bench: the heights arena's pose,

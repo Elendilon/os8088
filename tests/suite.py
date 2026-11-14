@@ -8658,6 +8658,18 @@ SOAK = [
         "never taken (4 checks) or the bot not counted as a rider.",
         needs=("marty", "nasm"),
         wants=("build/os8088-360.img", "build/warena360.img")),
+    Row("wabots", "soak", py("tests/wabots.py"), 40.0,
+        "WIREARENA'S BOTS SEE, FACE AND SHOOT BACK (docs/plans/WIREARENA-"
+        "AI-PLAN.md 4). The Game menu sets the difficulty; a bot's look "
+        "agrees with the host's walk of the same sight grid at 40 random "
+        "placements; in a staged duel at each difficulty it turns onto the "
+        "player, fires at its gap, shows its cue and hits at its accuracy "
+        "(45/60/75%, within 15 points), and each hit flashes the HUD's "
+        "heart; a bot that loses the player hunts the node nearest where it "
+        "saw them, gets there and roams again. Red with the turn's sign "
+        "reversed (no turn, no shot) or a wrong accuracy table.",
+        needs=("marty", "nasm"),
+        wants=("build/os8088-360.img", "build/warena360.img")),
     Row("waweapons", "soak", py("tests/waweapons.py"), 26.0,
         "WIREARENA'S WEAPONS AND PICKUPS (docs/plans/WIREARENA-WEAPONS-"
         "PLAN.md). One boot into the Heights arena, every piece checked off "

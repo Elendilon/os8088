@@ -289,9 +289,50 @@ def graph_edges(tag, boxes):
     return nodes, edges, homes
 
 
+SIGHT_G = 64                    # the sight grid's cell (AI-PLAN 4.1)
+
+
+def sight_grid(tag, boxes):
+    """The tall boxes as a bit a 64-unit cell, column-major: bit (y & 7) of
+    byte x * 4 + y / 8 (wa_sight). Refused: a tall box off the grid"""
+    boxes = [bx(b) for b in boxes]
+    top = hmax(boxes)
+    n = (ROOM[2] - ROOM[0]) // SIGHT_G
+    out = bytearray(n * n // 8)
+    for b in boxes:
+        if b.h < top:
+            continue
+        if any(v % SIGHT_G for v in b):
+            raise SystemExit("arenagen: arena %s: %s is off the sight grid "
+                             "(%d units)" % (tag, b.name or str(tuple(b)),
+                                             SIGHT_G))
+        for x in range(b[0] // SIGHT_G, b[2] // SIGHT_G):
+            for y in range(b[1] // SIGHT_G, b[3] // SIGHT_G):
+                out[x * n // 8 + y // 8] |= 1 << (y & 7)
+    return bytes(out)
+
+
+def sight_clear(grid, p, q):
+    """wa_sight's walk on the host: a 64-unit step at a time, x 16 fixed
+    point, from p to q - True when no tall cell is entered"""
+    dx, dy = int(q[0]) - int(p[0]), int(q[1]) - int(p[1])
+    n = max(abs(dx), abs(dy)) // SIGHT_G + 1
+    sx, sy = int(dx * 16 / n), int(dy * 16 / n)
+    x, y = int(p[0]) * 16, int(p[1]) * 16
+    for _ in range(n):
+        x += sx
+        y += sy
+        c, r = x >> 10, y >> 10
+        if grid[c * 4 + (r >> 3)] >> (r & 7) & 1:
+            return False
+    return True
+
+
 def graph_block(tag, boxes):
     """The route graph as the arena's part carries it and the game copies it
-    (wa_loadarena): nodes, edges, then each figure's home edge -> bytes"""
+    (wa_loadarena): nodes, edges, each figure's home edge; then the bots'
+    tables (AI-PLAN 3.1, 4.1): the sight grid, the nearest node to each PVS
+    cell, and for each node and goal the edge to take first -> bytes"""
     nodes, edges, homes = graph_edges(tag, boxes)
     out = bytearray([len(nodes), len(edges)] + homes)
     if len(out) & 1:
@@ -304,6 +345,36 @@ def graph_block(tag, boxes):
         out += struct.pack('<hh4B', x, y, *o)
     for (a, b_, kind, x, y, head, steps, rev) in edges:
         out += struct.pack('<hhHH4B', x, y, head, steps, b_, kind, rev, 0)
+    grid = sight_grid(tag, boxes)
+    out += grid
+    g = 1 << PVS_SHIFT                  # the nearest node each cell's middle
+    for cx in range(ROOM[0], ROOM[2], g):   # sees (or, seeing none, the
+        for cy in range(ROOM[1], ROOM[3], g):   # nearest)
+            c = (cx + g / 2, cy + g / 2)
+            d = sorted(range(len(nodes)), key=lambda k: math.hypot(
+                nodes[k][0] - c[0], nodes[k][1] - c[1]))
+            seen = [k for k in d if sight_clear(grid, c, nodes[k])]
+            out.append((seen or d)[0])
+    nn = len(nodes)                     # next hop: Dijkstra on steps (a
+    hop = [[0xFF] * nn for _ in range(nn)]  # lift's leg dearer), back from
+                                        # each goal
+    for goal in range(nn):
+        dist = {goal: 0}
+        todo = [goal]
+        while todo:
+            todo.sort(key=lambda k: -dist[k])
+            v = todo.pop()
+            for i, e in enumerate(edges):
+                if e[1] == v:
+                    u = e[0]
+                    nd = dist[v] + e[6] + (60 if e[2] in (LIFT_ON, LIFT_UP)
+                                           else 0)
+                    if u not in dist or nd < dist[u]:
+                        dist[u] = nd
+                        hop[u][goal] = i
+                        todo.append(u)
+    for a in range(nn):
+        out += bytes(hop[a])
     return bytes(out)
 
 

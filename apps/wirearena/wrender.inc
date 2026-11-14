@@ -3119,6 +3119,9 @@ wa_figure:
     cmp byte [di+F_FLASH], 0    ; used to draw in the last near figure's
     je .att                     ; (a hit far one did not flash, and a near
     mov bl, A_FLASH             ; one's flash coloured the far ones)
+    test byte [di+F_FLASH], 0x80 ; (a bot firing: yellow, AI-PLAN 4.3)
+    jz .att
+    mov bl, A_FIRE
 .att:
     mov bl, [wa_at+bx]
     mov [wa_fatt], bl

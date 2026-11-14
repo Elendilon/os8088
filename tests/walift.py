@@ -249,6 +249,10 @@ def main():
                         and p.word(sym["wa_lift"]) < 0x8000,
                         "the Heights arena's first frames", guest=20)
         m.pause()
+        # (the bots on their home loops and holding their fire, as in the
+        # benches: this row is about the lift, and a bot's shot kills the
+        # rider - docs/plans/WIREARENA-AI-PLAN.md)
+        p.write(sym["wa_bdet"], b"\x01")
         g = Game(ui, w, sym, a.frames)
         if g.ltop <= g.lrest or g.lift < 0:
             sys.exit("walift: no lift in this arena (lift %d, %d -> %d)"
