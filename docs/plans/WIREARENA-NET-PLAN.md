@@ -163,7 +163,8 @@ The checks are v1's: one length per type, the CRC.
 
 ## 7. Waves
 
-- [ ] **N1 the setup window**: the lines, the buttons, Keys..., the IP
+- [x] **N1 the setup window** (the IP field, its address remembered and the
+  match list come with N4, where they have something to do): the lines, the buttons, Keys..., the IP
   field, the settings remembered. Alone and Serial work as now (Serial is
   v1's lobby, shown in the window).
 - [ ] **N2 UDP for packages**: SPEC.md 72.23, the three verbs, the queue,
@@ -188,4 +189,43 @@ The checks are v1's: one length per type, the CRC.
 
 ## 9. As built
 
-(Each wave adds its record here.)
+### 9.1 N1: the match setup (2026-11-14)
+
+- **`apps/wirearena/wasetup.inc`**:
+  - Five settings, Arena, Bots, Skill, Width and Play (alone, serial
+    cable, Ethernet), each a value between `<` and `>`.
+  - Up and Down move the focus, which is drawn as an inverted row; Left
+    and Right change the value, and so does a click on either half of the
+    row.
+  - Two os88ui buttons: Play (alone) or Ready / Not ready (linked), and
+    Keys.
+  - Keys fills the rows with the key list (eleven lines, from the old
+    fifteen) and hides the buttons; a key or a click goes back.
+- **The rows are walink.inc's**: built as text, compared, and drawn with
+  `font_run` only where they changed. The buttons are redrawn only when a
+  label changes. The players' rows (YOU and the other) sit under the
+  buttons once linked.
+- **The window opens on no carrier.** The cable's search starts when Play
+  says serial, the card is claimed when it says Ethernet, and both are let
+  go when it says alone. Before, the window searched the cable as soon as
+  it opened.
+- **Bots: 0 to 3 alone, 0 to 2 linked** (four participants). The setup's
+  count is `wa_lknb` in every mode now: alone, figures past it stay off
+  the board as in a linked match. A bench keeps its three dummies.
+- **A joined player's arena, bots and skill are the host's**: the row
+  says "(host)", and changing one toasts "The host picks the arena".
+- **It fits a CGA's 200 lines**: the window is 160 high at y = 20, the
+  buttons under the settings. A first layout put them under fifteen rows
+  of text, below the dock, where a CGA could not show them. The font has
+  no triangles, hence `<` and `>`.
+- **The Game and Link menus keep their items.** The solo rows still start
+  from the Game menu, and it starts with the setup's bot count.
+- **Found on the way**: the CRC's table was built only when a serial port
+  opened. With the window no longer opening one, both machines on
+  Ethernet computed CRCs from an empty table and agreed with each other.
+  The game accepted its own frames; `walink --net`'s independent parser
+  (binascii) did not. The table is built when the window opens now.
+- **Registered**: `tests/btnsites.txt` (2 record calls). `tests/btnall.py`
+  does not drive WireArena's buttons yet; the link rows drive the setup by
+  its keys.
+
