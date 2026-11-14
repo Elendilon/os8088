@@ -1772,3 +1772,80 @@ idea:
   - 11.7, the demo bit stream.
 - The design sheet now states each course's target time, pace, place on
   the challenge curve and how its mechanics stay visible.
+
+## 2026-11-14 (wave 5b's contract, checked cold, and the owner's answers)
+
+SPEC.md 128.15 was written before any code, and a cold consistency check
+read it against the code and re-took its sizes. It left three things to
+fix, and the owner answered the open questions the same day.
+
+**The sizes were re-measured, not re-predicted.** The first figures in
+128.15.14 were a layout measurement plus two adjustments, and both
+adjustments were wrong. The check built each course's stored form from
+its real part at `ef59209a` (the real header and directory, row planes
+with the high bits first, each section's own hole, the follow-up's
+zeroing, the dither, P not taken; the ways modelled as zero pairs, so the
+real figures are slightly higher) and packed it:
+- the six courses are **43,264 bytes LZ4 and 35,038 LZB** under D, not
+  about 42.4KB and 34.2KB; RAM is 180,156; `bonanza360.img` comes to
+  about 91 clusters with LZ4 parts and about 80 with LZB;
+- the platform sprite had been counted twice: +313 was added to a
+  measurement that already held the props as they ship;
+- the ghost dither's -710 was today's form's. On the 5b form it saves
+  about -220 LZ4 (-266 LZB). It is still 0 clk and 0 guest bytes, so it
+  stays;
+- `PEAK` packs to 12,676 LZ4, which is **over** its 60 s budget of 12,550.
+  It is far under its 18,825 cap, and under budget with LZB at 10,377.
+  The tool's budget printout will say "over" for it, and that is correct.
+
+**Two hazards in the code the contract describes.**
+- `op_fetch` answers CF = 0 without decoding when the part is already
+  here, and the expansion is not idempotent (WDIFF run twice corrupts the
+  records). Today every launch drops the course on the way out, so 5b is
+  safe. Wave 8b fetches inside one bracket, so it must drop before a
+  re-fetch or keep an "expanded" flag per claim. That is now a written
+  requirement in 128.15.4.5 and in the plan's wave 8b.
+- In `bz_oand`, AX already holds `bz_ofl2` when the mask is read. D's
+  table lookup needs AX, so it moves in front of that load. Same
+  instructions, same price.
+
+**The owner's answers.**
+
+On LZB for the course parts:
+
+> "'a stronger compression mode for the courses': lzb I assume? That would
+> be fine."
+
+So LZB is decided and stays the default. The owner was quoted +0.9 s on a
+long course's launch; the contract's own finding is an UPPER BOUND of
+about +1.6 s on `PEAK` (about 5.0 s against 3.4 s, today about 3.9-4.0 s),
+because the balls go LZB with the parts table. The final pass measures it,
+and the owner is told the measured figure. LZB for the image is still only
+offered.
+
+On a second disk:
+
+> "'a second Worlds disk': I'd prefer not, but we can see what we need in
+> the end. 20 is a rough want, too; it could be 19, or 18 total."
+
+So the target is 18-20 courses on one disk, and the Worlds disk (8b.11)
+is a last resort. The 239 KiB of room was sized for twenty; at 18 every
+budget would be about 11% looser, and the pinned budgets stay as they are.
+
+On "each course has to fit about 64 KB of memory":
+
+> "This seems like we could make a larger claim, and split out art/sound
+> from occlusion data? Or is there some speed penalty I'm not seeing
+> there? ... we can look into the option if we actually need it."
+
+It can be done, and it is now written down as the escape for a course
+past one part: the **two-part course**, with the picture (map and block
+pool) in one part and the occluders, masks, grid and props in another,
+each up to 65,024 bytes. Priced from the code, not measured: one more
+fetch and claim at the launch; nothing for the row writer, physics or the
+wheel, which read one kind of data and only load a different segment
+word; and a segment switch for each laid group in the occluder lay, the
+one routine that reads the picture and the masks together, which is tens
+of clocks each and a few hundred a frame at worst. It is not built in 5b.
+It is taken only when a course really outgrows one part (about 73 s at
+MOON's and PEAK's pace under D), and measured then.
