@@ -49,15 +49,20 @@ WA_VAR wa_spih, WA_MAXSP*2      ; c2 - c1 and i2 - i1: wa_wallz's line
 WA_VAR wa_spsh, WA_MAXSP*2
 WA_VAR wa_spsl, WA_MAXSP*2
 WA_VAR wa_wcol, 1               ; the colour of the walls being drawn
-WA_VAR wa_dxc, 9*4              ; the floor grid's products (wa_dots)
-WA_VAR wa_dxs, 9*4
-WA_VAR wa_dyc, 9*4
-WA_VAR wa_dys, 9*4
-WA_VAR wa_dnx, 2
-WA_VAR wa_diz, 2
-WA_VAR wa_dny, 2
-WA_VAR wa_dix, 2
-WA_VAR wa_diy, 2
+WA_VAR wa_drz, 4                ; the floor grid (wa_dots): a line's first
+WA_VAR wa_drx, 4                ;   dot's sums, Z and XK, 32 bits
+WA_VAR wa_dxz, 4                ;   the step a line on in x adds to each...
+WA_VAR wa_dxx, 4
+WA_VAR wa_dyz, 2                ;   ...and a dot on in y (Z x 32, XK x 2)
+WA_VAR wa_dyx, 2
+WA_VAR wa_dms, 2                ;   sin k16 >> 10, cos k16 >> 10
+WA_VAR wa_dmc, 2
+WA_VAR wa_dwh, 2                ;   W / 2
+WA_VAR wa_dnx, 1                ;   lines left in x, dots in a line,
+WA_VAR wa_dny, 1                ;   dots left in this one
+WA_VAR wa_dcnt, 1
+WA_VAR wa_dsh, 1                ;   the row's shift
+WA_VAR wa_dlim, 1               ;   the first hidden half-row in the column
 WA_VAR wa_vt0, 2
 WA_VAR wa_stl, 2
 WA_VAR wa_sbl, 2
@@ -2796,172 +2801,259 @@ wa_plotf:
 
 ; --- the floor grid (G) -------------------------------------------------------
 ; A dim dot every 2 m, (64 + 128i, 64 + 128j), within ~6 m on each axis: a
-; depth cue that does not depend on a wall's height. Behind walls (wa_wallz)
-; and under figures (drawn after). Off by default: the owner's question is
-; whether it costs the black ground's readability.
+; depth cue that does not depend on a wall's height. Behind walls and under
+; figures (drawn after). On by default from the High level up.
+;
+; The dots are a regular grid, so in camera space each one is the one before
+; plus a constant: two running sums, a line's first dot in 32 bits and its
+; dots in 16, holding its depth z (units) and its XK = x k16 / 64 - the
+; column's scale folded into the sum,
+; so the column is ONE multiply, W/2 + (XK x 1/z) >> 17, with 1/z out of
+; wa_rcp (no divide). A dot outside the view leaves on two compares; one in
+; it asks the column's wall for its depth only when the span's two ends do
+; not settle it (wa_docc), and pays its second multiply (the row) only when
+; it is not hidden. The first version made four products a grid line and a
+; divide and three multiplies a dot, ~99,000 clk a frame on the play bench
+; (docs/plans/MULTIPLAYER-FPS-PLAN.md 16.9).
 WA_DOTSP    equ 128
 wa_dots:
     cmp byte [wa_grid], 0
     jne .on
     ret
 .on:
-    mov ax, [wa_px]             ; the lines within 4 of the player's
-    mov si, wa_dxc
-    mov di, wa_dxs
+    mov ax, [wa_cos]            ; MS, MC = sin k16 >> 10, cos k16 >> 10: the
+    call .mk16                  ; XK sum's multipliers (|x| k16 / 64 < 2^15
+    mov [wa_dmc], ax            ; for a dot within 6 m at any width and view)
+    mov ax, [wa_sinv]
+    call .mk16
+    mov [wa_dms], ax
+    mov ax, [wa_px]             ; the lines within three of the player's, x
     call .lines
-    mov [wa_dnx], cx
+    mov [wa_dnx], cl
+    mov bx, ax                  ; BX = X0 - px
     mov ax, [wa_py]
-    mov si, wa_dyc
-    mov di, wa_dys
     call .lines
-    mov [wa_dny], cx
-    mov word [wa_dix], 0
-.ix:
-    mov word [wa_diy], 0
-.iy:
-    mov si, [wa_dix]
-    mov bp, [wa_diy]
-    mov ax, [wa_dxc+si]         ; z = (Xc + Ys) >> 14
-    mov dx, [wa_dxc+si+2]
-    add ax, [ds:wa_dys+bp]
-    adc dx, [ds:wa_dys+bp+2]
+    mov [wa_dny], cl
+    mov cx, ax                  ; CX = Y0 - py
+    ; the first dot's sums: Z = (X0-px) 4 cos + (Y0-py) 4 sin (the high word
+    ; is z), XK = ((X0-px) 64) MS - ((Y0-py) 64) MC
+    mov ax, bx
     shl ax, 1
-    rcl dx, 1
     shl ax, 1
-    rcl dx, 1
-    cmp dx, 48
-    jl .next                    ; behind, or at our feet
-    mov cx, dx                  ; CX = z
-    mov ax, [wa_dxs+si]         ; x = (Xs - Yc) >> 14
-    mov dx, [wa_dxs+si+2]
-    sub ax, [ds:wa_dyc+bp]
-    sbb dx, [ds:wa_dyc+bp+2]
+    imul word [wa_cos]
+    mov si, ax
+    mov di, dx
+    mov ax, cx
     shl ax, 1
-    rcl dx, 1
     shl ax, 1
-    rcl dx, 1
-    mov ax, dx                  ; AX = x
-    mov bx, ax
-    or bx, bx
-    jns .xa
-    neg bx
-.xa:
-    cmp bx, cx
-    jg .next                    ; outside even the widest view
-    push ax                     ; ONE divide a dot: 1/z, then multiplies
-    mov dx, 0x0007
-    mov ax, 0xFFF0
-    div cx
-    mov [wa_diz], ax            ; (2^19 / z)
-    pop ax
-    imul word [wa_diz]          ; x / z x 2^19 - |x| <= z, so 20 bits: >> 3
-    sar dx, 1                   ; is x/z x 65536 in 16
-    rcr ax, 1
-    sar dx, 1
-    rcr ax, 1
-    sar dx, 1
-    rcr ax, 1
-    imul word [wa_k16]          ; x 8Wf / 65536: the column's offset, x16
-    mov bx, dx
-    add bx, [wa_c16]            ; the centre, not the scale
+    imul word [wa_sinv]
+    add si, ax
+    adc di, dx
+    mov [wa_drz], si
+    mov [wa_drz+2], di
     push cx
-    mov cl, 4
-    sar bx, cl
-    pop cx
-    cmp bx, [wa_w]
-    jae .next                   ; (negative is huge, unsigned)
+    mov cl, 6
+    shl bx, cl
+    pop ax
+    shl ax, cl
+    imul word [wa_dmc]
+    mov si, ax
+    mov di, dx
+    mov ax, bx
+    imul word [wa_dms]
+    sub ax, si
+    sbb dx, di
+    mov [wa_drx], ax
+    mov [wa_drx+2], dx
+    ; the steps: a line on in x adds 512 cos to Z and 8192 MS to XK; a line
+    ; on in y adds 512 sin to Z and takes 8192 MC from XK (kept negated)
+    mov ax, 512
+    imul word [wa_cos]
+    mov [wa_dxz], ax
+    mov [wa_dxz+2], dx
+    mov ax, 8192
+    imul word [wa_dms]
+    mov [wa_dxx], ax
+    mov [wa_dxx+2], dx
+    mov ax, [wa_sinv]           ; ...which a line's own dots take in 16 bits,
+    sar ax, 1                   ; Z x 32 and XK x 2 (the steps sin / 4 and
+    sar ax, 1                   ; -MC / 4: at most six a line, so under a
+    mov [wa_dyz], ax            ; fifth of a unit of z adrift at its far end)
+    mov ax, [wa_dmc]
+    neg ax
+    sar ax, 1
+    sar ax, 1
+    mov [wa_dyx], ax
+    mov al, [wa_nshb]           ; the floor's half-row: hh + (numb x iz) >>
+    add al, 2                   ; 21 (or >> 19 of numb / 4)
+    mov [wa_dsh], al
+    mov ax, [wa_w]
+    shr ax, 1
+    mov [wa_dwh], ax
+    push bp
+    mov di, [wa_lp]
+.ix:
+    mov si, [wa_drz+2]          ; a line of dots: SI = z x 32, BP = XK x 2
+    mov ax, [wa_drz]
+    mov cl, 5
+    shl si, cl
+    mov cl, 11
+    shr ax, cl
+    or si, ax
+    mov ax, [wa_drx]
+    shl ax, 1
+    mov bp, [wa_drx+2]
+    rcl bp, 1
+    mov al, [wa_dny]
+    mov [wa_dcnt], al
+.dot:
+    cmp si, 48*32
+    jl .next                    ; behind, or at our feet
+    mov bx, si
+    mov cl, 5
+    shr bx, cl                  ; BX = z
+    mov ax, bx                  ; in the view: |x| k16 / z <= 8W, which is
+    shl ax, 1                   ; |XK| <= z W / 8 - 5 z at 40 columns, 10 z
+    shl ax, 1                   ; at 80 (and BP is XK x 2)
+    add ax, bx
+    shl ax, 1
+    cmp byte [wa_w], 40
+    je .w40
+    shl ax, 1
+.w40:
+    mov dx, bp
+    or dx, dx
+    jns .xa
+    neg dx
+.xa:
+    cmp dx, ax
+    ja .next
     shl bx, 1
-    mov ax, [wa_diz]
-    call wa_occl                ; AL = the first half-row hidden there
+    mov cx, [wa_rcp+bx-WA_NEAR*2] ; CX = 1/z (z < 700: inside the table)
+    mov ax, bp
+    imul cx
+    sar dx, 1                   ; (XK x iz) >> 17: columns from the centre
+    sar dx, 1
+    add dx, [wa_dwh]
+    cmp dx, [wa_w]
+    jae .next                   ; (negative is huge, unsigned)
+    mov bx, dx
+    shl bx, 1                   ; BX = the column x 2
+    call wa_docc                ; AL = the first half-row hidden there
     or al, al
     jz .next                    ; a wall is nearer
-    push ax
-    mov ax, [wa_numb]           ; the floor's half-row: hh + numb/z/4 =
-    imul word [wa_diz]          ; hh + (numb x 2^19/z) >> 21
-    push cx
-    mov cl, [wa_nshb]           ; (>> 21, or >> 19 of numb / 4)
-    add cl, 2
+    mov [wa_dlim], al
+    mov ax, [wa_numb]
+    imul cx
+    mov cl, [wa_dsh]
     sar dx, cl
-    pop cx
-    pop ax
-    xchg ax, dx
-    add ax, [wa_hh]
-    cmp ax, WA_HR
+    add dx, [wa_hh]
+    cmp dx, WA_HR
     jae .next
-    cmp al, dl
+    cmp dl, [wa_dlim]
     jae .next                   ; under a nearer platform's band
-    mov si, ax
-    shl si, 1
-    add bx, [wa_hroff+si]       ; BX = the cell
-    mov ah, [wa_at+A_DOT]
     mov al, 0xFA                ; upper half: the middle dot...
-    test si, 2
+    test dl, 1
     jz .gl
     mov al, '.'                 ; ...lower: the full stop
 .gl:
+    xchg bx, dx
+    shl bx, 1
+    mov bx, [wa_hroff+bx]
+    add bx, dx                  ; BX = the cell
+    mov ah, [wa_at+A_DOT]
     mov dl, [wa_frame]
-    mov di, [wa_lp]
     WPLOT
-    mov [wa_lp], di
 .next:
-    add word [wa_diy], 4
-    mov ax, [wa_diy]
-    cmp ax, [wa_dny]
-    jb .iy
-    add word [wa_dix], 4
-    mov ax, [wa_dix]
-    cmp ax, [wa_dnx]
-    jb .ix
+    add si, [wa_dyz]            ; the next dot of the line
+    add bp, [wa_dyx]
+    dec byte [wa_dcnt]
+    jnz .dot
+    mov ax, [wa_dxz]            ; the next line
+    add [wa_drz], ax
+    mov ax, [wa_dxz+2]
+    adc [wa_drz+2], ax
+    mov ax, [wa_dxx]
+    add [wa_drx], ax
+    mov ax, [wa_dxx+2]
+    adc [wa_drx+2], ax
+    dec byte [wa_dnx]
+    jnz .ix
+    mov [wa_lp], di
+    pop bp
     ret
-; .lines - AX = the player's coordinate, SI/DI = cos/sin product tables: the
-; grid lines within three of it, (v - p) cos and (v - p) sin each. CX = their
-; count x 4.
+; .lines - AX = the player's coordinate: AX = the first grid line's
+; coordinate less it (the lines within three of the player's), CL = how many
 .lines:
-    mov bx, ax
+    mov dx, ax
     mov cl, 7
-    shr bx, cl                  ; the line nearest below, roughly
-    sub bx, 3
+    shr ax, cl                  ; the line nearest below, roughly
+    sub ax, 3
     jns .l0
-    xor bx, bx
+    xor ax, ax
 .l0:
-    mov dx, bx
-    add dx, 7
-    cmp dx, 16
+    mov ch, 16                  ; (the room is 16 lines across)
+    sub ch, al
+    cmp ch, 7
     jbe .l1
-    mov dx, 16
+    mov ch, 7
 .l1:
-    xor cx, cx
-.l2:
-    push ax
-    push dx
-    mov dx, bx                  ; the line's coordinate: 64 + 128 k
-    push cx
-    mov cl, 7
-    shl dx, cl
-    pop cx
-    add dx, 64
-    sub dx, ax
-    push dx
+    shl ax, cl                  ; the line's coordinate: 64 + 128 k
+    add ax, 64
+    sub ax, dx
+    mov cl, ch
+    ret
+; .mk16 - AX = a Q14 sin or cos: AX = it x k16 >> 10
+.mk16:
+    imul word [wa_k16]
+    mov cx, 6
+.m1:
+    shl ax, 1
+    rcl dx, 1
+    loop .m1
     mov ax, dx
-    imul word [wa_cos]
-    push bx
-    mov bx, cx
-    mov [si+bx], ax
-    mov [si+bx+2], dx
-    pop bx
-    pop ax
-    imul word [wa_sinv]
-    push bx
-    mov bx, cx
-    mov [di+bx], ax
-    mov [di+bx+2], dx
-    pop bx
-    pop dx
-    pop ax
-    add cx, 4
-    inc bx
-    cmp bx, dx
-    jb .l2
+    ret
+
+; wa_docc - BX = column x 2, CX = a floor dot's inverse depth: AL = the first
+; half-row something nearer hides in that column (0 the whole column, 0xFF
+; none), as wa_occl answers - but where the ends of the span that drew the
+; column's wall settle it (both nearer than the dot, or neither), without
+; wa_wallz's multiply and divide. Keeps every register but AX and DX.
+wa_docc:
+    push si
+    mov si, [wa_cov+bx]
+    or si, si
+    jz .open                    ; no wall in the column
+    mov ax, [wa_spih+si]
+    mov dx, [wa_spsl+si]
+    add dx, ax
+    cmp ax, dx
+    jbe .ord
+    xchg ax, dx                 ; AX = the span's farther end, DX its nearer
+.ord:
+    cmp cx, dx
+    ja .open                    ; the dot is nearer than all of it
+    cmp cx, ax
+    jb .hid                     ; ...farther than all of it
+    pop si
+    mov ax, cx                  ; between: the column's own depth
+    jmp wa_occl
+.hid:
+    pop si
+    xor al, al
+    ret
+.open:
+    pop si
+    mov al, 0xFF
+    cmp byte [wa_hflat], 0
+    jne .out
+    push cx                     ; (heights: a low box's band)
+    mov ax, cx
+    mov cl, 0xFF
+    call wa_occlow
+    mov al, cl
+    pop cx
+.out:
     ret
 
 ; --- figures ----------------------------------------------------------------
