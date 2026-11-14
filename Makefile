@@ -21326,16 +21326,18 @@ BZ_ART := $(BUILD)/bonanza-art
 # THE COURSES, IN ORDER, NEVER A GLOB (SPEC.md 128.10.3): course K is the K-th
 # of this list - 0 the benchmark's, 1 the one Enter plays, 2 the rubber ball's
 # trial, 3 the obstacles' (SPEC.md 128.12.9), 4 and 5 wave 4's (MOON, Moonlit
-# Green, and PEAK, Summit Rush, SPEC.md 128.14.6); 1 - 5 are the tour - and
+# Green, and PEAK, Summit Rush, SPEC.md 128.14.6), 6 wave 6's PLAYGROUND (PLAY,
+# SPEC.md 128.16.8); 1 - 6 are the tour - and
 # everything under apps/bonanza/courses/ ships.  ONE bbcourse.py
 # run compiles the whole list and writes bzcourse.inc WHOLE, its OS88_PART rows
 # included, and the --part list below is built from the same list, so the
 # rows' order and the file's order cannot drift.
 BZ_COURSES := apps/bonanza/courses/bench.bbc apps/bonanza/courses/first.bbc apps/bonanza/courses/trial.bbc \
-              apps/bonanza/courses/mill.bbc apps/bonanza/courses/moon.bbc apps/bonanza/courses/summit.bbc
+              apps/bonanza/courses/mill.bbc apps/bonanza/courses/moon.bbc apps/bonanza/courses/summit.bbc \
+              apps/bonanza/courses/playground.bbc
 BZ_CRSPARTS := $(foreach k,$(shell seq 0 $$(( $(words $(BZ_COURSES)) - 1 ))),$(BZ_ART)/BZ$(k).BIN)
 # The SHIPPED DEMOS (SPEC.md 128.14.7.4): one a tour course, BZD<K>.BIN for K
-# 1 - 5, written by the same run - a course's apps/bonanza/demos/<file>.bzd
+# 1 - 6, written by the same run - a course's apps/bonanza/demos/<file>.bzd
 # when it has one (text, checked by the model), else the ROUTE DEMO the tool
 # makes from the course's route.  Their part rows follow the songs'
 # (BZ_P_DEMO = BZ_P_SONG + BZS_NSONG, bzcourse.inc's BZ_DEMO_PARTS).
@@ -21423,7 +21425,7 @@ $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bon
 # order MUST equal the OS88_PART rows' order in apps/bonanza/bonanza.asm: rows
 # 0 - 2 the rubber, steel and glass balls, then row 3 + K course K of
 # BZ_COURSES, then the sound part and one part a song (SPEC.md 128.20.3), then
-# one shipped demo a tour course, BZD1 - BZD5 (SPEC.md 128.14.7.4).
+# one shipped demo a tour course, BZD1 - BZD6 (SPEC.md 128.14.7.4, 128.16.2).
 BZ_PARTS := $(BZ_BALLS) $(BZ_CRSPARTS) $(BZ_SNDPARTS) $(BZ_DEMOPARTS)
 $(BUILD)/bonanza.o88: $(BUILD)/bonanza.bin $(BZ_PARTS) tools/os88pkg.py $(PKGZSTAMP) $(BZPARTZSTAMP)
 	$(OS88PKG) $< -o $@ $(foreach p,$(BZ_PARTS),--part $(p)) --part-compress $(BZPARTZF)

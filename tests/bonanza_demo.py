@@ -21,9 +21,12 @@ wrote), the autopilot driving the play (bz_apilot, tests/bonanza_game.py):
            (bz_lsv 2, bz_lfn); R to the model's end state (bbcourse.replay_log);
            D: the RESULTS page (bz_page, bz_res) and its measured frames those
            its replay presented (bz_rframes = bz_frames at its end)
-  ship     V through the five shipped demos (bz_vk 0 - 4): each BZD<K>.BIN in
-           bz_rlog byte for byte, D'd to its recorded end equal to the model's
-           replay of it (nstep, the position, the velocities, the falls); each
+  ship     V through the shipped demos (bz_vk 0 - BZ_NDEMO - 1: six since wave 6,
+           the PLAYGROUND's BZD6 the one that BOOSTS, SPEC.md 128.16.8): each
+           BZD<K>.BIN in bz_rlog byte for byte, D'd to its recorded end equal
+           to the model's replay of it (nstep, the position, the velocities,
+           the falls, and bz_nboost - BZD6's at least 1, the boost's guest/model
+           proof in a whole play); each
            carries its course's identity, wave 5b's (SPEC.md 128.15.10.5),
            not a wave 4 one
   wave4    (wave 5b, SPEC.md 128.15.7) MOON's demo as a wave 4 build wrote it
@@ -36,7 +39,9 @@ wrote), the autopilot driving the play (bz_apilot, tests/bonanza_game.py):
            shipped demo as a wave 4 build wrote it: EB84h, wave 5b), +7 another
            physics, N = 0, a length one byte off 16 + 2N, a TILT log one off
            16 + 3N, steps one off the sum, a count of 0, a key byte with bit 7,
-           a tilt nibble of 9 - each REFUSED with its toast (`Not a Bonanza
+           a tilt nibble of 9, and (wave 6, SPEC.md 128.16.14) +7 = A0h (5b's
+           BZ_PHYSV) and +7 = 00h, each THIS build's log with only +7 changed as
+           H09 is - each REFUSED with its toast (`Not a Bonanza
            demo` for the first three, `Demo from other physics` for +7, `Damaged
            demo file` for the rest), bz_rlog unchanged byte for byte, no part
            row fetched, the instance's claims as before (tools/heapmap.py), and
@@ -83,6 +88,7 @@ SAVENAME = "MILLA.BZR"
 # WAVE 5B (SPEC.md 128.15.7, 128.15.10.5): the identities BZC2's RAM form and the dither moved - MOON's and
 # PEAK's as a wave 4 build stamped them (0e5e46ca's bzcourse.inc, the shipped demos' old `ident` lines)
 W4_IDENT = {"moon": 0xEB84, "peak": 0x7D69}
+PHYSV_5B = 0xA0                 # wave 5b's BZ_PHYSV (SPEC.md 128.16.9: PHYSV_SHIPPED's last before wave 6)
 
 
 def wave4_log():
@@ -137,6 +143,11 @@ def hostile_set():
     out.append(("H08.BZR", wave4_log(), "bz_t_dmg", None, False))     # another BUILD's identity: MOON's wave 4
                                                                     # demo, EB84h (SPEC.md 128.15.13)
     mut("H09.BZR", lambda b: b.__setitem__(7, (BB.PHYSV ^ 0x5A) & 0xFF), "bz_t_phys")
+    # wave 6 (SPEC.md 128.16.14): THIS build's log with +7 5b's BZ_PHYSV (A0h) and the unset 00h - a real 5b log
+    # of a course whose identity moved fails check 4 first (128.16.9), so it cannot be this case
+    for nm, v in (("H17.BZR", PHYSV_5B), ("H18.BZR", 0x00)):
+        assert v != BB.PHYSV, "BZ_PHYSV %02Xh is an earlier physics' value" % v
+        mut(nm, lambda b, v=v: b.__setitem__(7, v), "bz_t_phys")
 
     def n0(b):
         struct.pack_into("<H", b, 12, 0)
@@ -191,14 +202,15 @@ def rows_fetched(base, now):
 
 
 def end_state(g):
+    """the guest's end state; wave 6 (SPEC.md 128.16.14): with bz_nboost"""
     return (g.d("bz_nstep"), g.d("bz_gx"), g.d("bz_gy"), g.sd("bz_gz"), g.s("bz_gvx"), g.s("bz_gvy"),
-            g.s("bz_gvz"), g.w("bz_nfall"))
+            g.s("bz_gvz"), g.w("bz_nfall")) + ((g.w("bz_nboost"),) if "bz_nboost" in g.sym else ())
 
 
-def model_end(log):
+def model_end(log, boost=True):
     k = log[4]
     p, _first = BB.replay_log(R.course_k(k), bytes(log))
-    return (p.nstep, p.gx, p.gy, p.gz, p.gvx, p.gvy, p.gvz, p.nfall)
+    return (p.nstep, p.gx, p.gy, p.gz, p.gvx, p.gvy, p.gvz, p.nfall) + ((p.nboost,) if boost else ())
 
 
 def pick(ui, path):
@@ -299,13 +311,19 @@ def leg_ship(g):
         GM.guard(g)
         g.key("KeyD")
         GM.bracket(g, "D of BZD%d.BIN" % kd, guest=200)
-        got, want = end_state(g), model_end(demo)
-        rep.append("BZD%d %d steps (identity %04Xh)" % (kd, got[0], BB.log_ident(demo)))
+        got = end_state(g)
+        want = model_end(demo, len(got) > 8)
+        rep.append("BZD%d %d steps (identity %04Xh%s)" % (kd, got[0], BB.log_ident(demo),
+                                                         ", %d boost(s)" % got[8] if len(got) > 8 else ""))
         if got != want:
             fails.append("ship: D of BZD%d.BIN ended at %s, the model's replay at %s" % (kd, got, want))
         if BB.log_ident(demo) != R.course_k(kd).ident or BB.log_ident(demo) in W4_IDENT.values():
             fails.append("ship: BZD%d.BIN carries identity %04Xh, its course's is %04Xh (wave 5b's new ones, "
                          "SPEC.md 128.15.10.5)" % (kd, BB.log_ident(demo), R.course_k(kd).ident))
+    if "bz_nboost" in g.sym and not any(model_end(open(os.path.join(ROOT, art, "BZD%d.BIN" % kd), "rb").read())[8]
+                                        for kd in range(1, GM.ncrs())):
+        fails.append("ship: no shipped demo BOOSTS in the model (BZD%d, the PLAYGROUND's, must: SPEC.md 128.16.8)"
+                     % R.CRS_K["play"])
     print("%s ship: %s, each D'd to the model's end: %s" % (g.tag, ", ".join(rep), "yes" if not fails else "NO"),
           flush=True)
     return fails

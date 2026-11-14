@@ -8,6 +8,16 @@
     python3 tools/bbcourse.py COURSE.bbc --png DIR         # previews (Pillow, behind a try)
     python3 tools/bbcourse.py demo IN.BZR [-o OUT.bzd]     # a saved log as a .bzd (128.14.7.4)
     python3 tools/bbcourse.py author COURSE.bbc [-o OUT]   # an AUTHOR script's .bzd (128.14.18 item 7)
+    python3 tools/bbcourse.py --tune HOP=r,s,g BOOST=b ... # a retune checked first, nothing written
+                                                          # (SPEC.md 128.16.13)
+
+Wave 6 (SPEC.md 128.16): the material table with BOOST (BZ_MATTAB +12) and
+its import-time bound; the fractional drag and the boost's token in
+Physics (state6()); the reach's BOOST launch from every firm level floor;
+axis_feel(), the independent axis model item 7 asserts Physics against;
+the STEP and GAP LADDERS; PHYS_REV and PHYSV_SHIPPED; the `palette`
+statement and BZ_CRS_PALS; AUTHOR's hop, boost and grip verbs; a shipped
+.bzd under other physics REFUSED; --tune.
 
 Wave 4 (SPEC.md 128.14.4, 128.14.18): `par`, `checkpoint`, `pad`, `cup`,
 `spring` and `way ... branch`; prop kinds 5 - 8 (a flag a two-pose lane, the
@@ -183,20 +193,27 @@ AUTO_REACH = 12               # BZ_REACH
 K_L, K_R, K_U, K_D = 1, 2, 4, 8   # bz_keys
 K_HOP, K_GRIP = 0x10, 0x20         # Space, Left Shift (SPEC.md 128.11.7.2)
 
-# --- wave 2: the materials (SPEC.md 128.11.5.1), PROVISIONAL --------------------
+# --- the materials (SPEC.md 128.11.5.1 as wave 6 amends it, 128.16.3), PROVISIONAL
+# until gate 1's freeze (128.16.11) --------------------------------------------------
 # THE one place they are written: bzcourse.inc's BZ_MATTAB and BZ_SURFTAB are
 # generated from these, and Physics reads the same.  The owner tunes them by
-# feel inside 128.10.7.2's caps (a tune is a table edit and a rebuild).
+# feel inside 128.10.7.2's caps (a tune is a table edit and a rebuild; check it
+# first with `bbcourse.py --tune`, 128.16.13).  Wave 6: Space = Hop and Left
+# Shift = Grip for every ball, only the amounts differ (decision 2): HOP rubber
+# 252 (the nearest to Q-61's 256 that every course compiles under, 128.16.3.2),
+# glass 224, steel 160; GRIP rubber 8, steel 5, glass 3 (Q-63); BOOST, rubber's
+# "and again" (decision 1, 128.16.4), 350: a CONTACT flight's apex of 9.3 px.
 MAT_RUBBER, MAT_STEEL, MAT_GLASS = 0, 1, 2
 MAT_NAMES = ("rubber", "steel", "glass")
 HARD_NONE, HARD_STUN, HARD_SHATTER = 0, 1, 2
 MATERIALS = (
-    # ACC  K  EF   EW  BMIN HOP GRIP  hard          threshold steps
-    dict(ACC=4, K=6, EF=205, EW=96, BMIN=128, HOP=224, GRIP=6, HARD=HARD_NONE, HTHR=0, HSTEPS=0),
-    dict(ACC=2, K=8, EF=38, EW=32, BMIN=128, HOP=160, GRIP=5, HARD=HARD_STUN, HTHR=432, HSTEPS=55),
-    dict(ACC=6, K=5, EF=102, EW=64, BMIN=96, HOP=176, GRIP=10, HARD=HARD_SHATTER, HTHR=552, HSTEPS=24),
+    # ACC  K  EF   EW  BMIN HOP GRIP  hard          threshold steps   the boost
+    dict(ACC=4, K=6, EF=205, EW=96, BMIN=128, HOP=252, GRIP=8, HARD=HARD_NONE, HTHR=0, HSTEPS=0, BOOST=350),
+    dict(ACC=2, K=8, EF=38, EW=32, BMIN=128, HOP=160, GRIP=5, HARD=HARD_STUN, HTHR=432, HSTEPS=55, BOOST=0),
+    dict(ACC=6, K=5, EF=102, EW=64, BMIN=96, HOP=224, GRIP=3, HARD=HARD_SHATTER, HTHR=552, HSTEPS=24, BOOST=0),
 )
 MATREC = 16                   # BZ_MATTAB: bytes a material
+BZ_STRS = 4                   # the boost's STRETCH, steps (128.16.4.4): bz_stf's start
 SQTHR = 384                   # a landing at lvz >= this squashes (but a shatter)
 SQSTEPS = 6                   # ...for this many steps
 HOPWIN = 6                    # the Hop's window, steps (Space's key-down edge)
@@ -230,16 +247,18 @@ def mattab():
     """BZ_MATTAB: 16 bytes a material (SPEC.md 128.11.5.1's layout):
     +0 ACC, +1 drag shift, +2 EF, +3 EW, +4 BMIN, +5 GRIP, +6 HOP (word),
     +8 the hard landing (0 none, 1 stun, 2 shatter), +9 its steps,
-    +10 its threshold (word, 1/256 px a step), +12 four zero bytes"""
+    +10 its threshold (word, 1/256 px a step), +12 BOOST (word, 0 none:
+    wave 6, 128.16.2), +14 two zero bytes"""
     out = bytearray()
     for m in MATERIALS:
-        out += struct.pack("<BBBBBBHBBH4x", m["ACC"], m["K"], m["EF"], m["EW"], m["BMIN"], m["GRIP"],
-                           m["HOP"], m["HARD"], m["HSTEPS"], m["HTHR"])
+        out += struct.pack("<BBBBBBHBBHH2x", m["ACC"], m["K"], m["EF"], m["EW"], m["BMIN"], m["GRIP"],
+                           m["HOP"], m["HARD"], m["HSTEPS"], m["HTHR"], m["BOOST"])
     assert len(out) == MATREC * len(MATERIALS)
     return bytes(out)
 
 
 HOPMAX = max(m["HOP"] for m in MATERIALS)
+BOOSTMAX = max(m["BOOST"] for m in MATERIALS)   # the reach's BOOST launch (128.16.5.1): rubber's
 # a SHATTER's sprite: frame (SHA_STEPS - mct) // SHA_FSTEPS of the ball part's
 # BA.NSH (SPEC.md 128.11.9.2) - so every shattering material's steps are
 # exactly the frames' (bzgame.inc's bz_sprite reads these, and guards them
@@ -305,6 +324,7 @@ MOUTH_HW = 4                  # the mouth's half-width, gu: a 9 x 9 gu mouth rou
 LIPZ = 160                    # BZ_LIPZ: a lip-out's pop, 1/256 px a step
 SPRING_LO = 256               # a spring's launch: 256 - BZ_VZMAX
 PAR_MAX = 999                 # par: 1 - 999 whole seconds
+PAL_DEFAULT = 0x30            # wave 6 (SPEC.md 128.16.6): mode 4's BIOS colour select, palette 1, bright, black
 GF_CKPT, GF_CUP = 1, 2        # BZG1 +28: FLAGS (respawns go to the last flag; the goal is the cup)
 K_RET = 0x40                  # the key byte's bit 6: RETURN (Backspace, SPEC.md 128.14.4.5)
 TILT_KEYS = 0x88              # a keyboard step's tilt byte: both caps 8 (SPEC.md 128.14.8.2)
@@ -384,6 +404,7 @@ class Source:
         self.par = None             # (seconds, line)
         self.target = None          # wave 5b (SPEC.md 128.15.8): (30|60|90, line), the tool's alone
         self.branches = {}          # name -> [((wx, wy), line)], the tool's alone
+        self.palette = None         # wave 6 (SPEC.md 128.16.6): (the 3D9h byte, line); never in the part
 
 
 def _int(tok, where, what):
@@ -684,6 +705,23 @@ def parse(text, fname="<course>"):
             if len(toks) != 2 or toks[1][0] != 'w' or toks[1][1] not in ("30", "60", "90"):
                 raise CourseError("%s: target takes 30, 60 or 90 (seconds, the course's design time)" % where)
             src.target = (int(toks[1][1]), ln)
+        elif st == "palette":                       # wave 6 (SPEC.md 128.16.6): the CGA's colour select
+            if src.palette is not None:
+                raise CourseError("%s: palette given twice" % where)
+            words = [t[1] for t in toks[1:]]
+            if not words or words[0] not in ("0", "1"):
+                raise CourseError("%s: palette takes 0|1 [dim] [ground <0-15>]" % where)
+            pb, rest = int(words[0]) << 5, words[1:]
+            if rest[:1] == ["dim"]:
+                rest = rest[1:]
+            else:
+                pb |= 0x10
+            if rest:
+                if len(rest) != 2 or rest[0] != "ground" or not _INT.match(rest[1]) or not 0 <= int(rest[1]) <= 15:
+                    raise CourseError("%s: palette takes 0|1 [dim] [ground <0-15>] (a ground outside 0 - 15, or "
+                                      "words out of order)" % where)
+                pb |= int(rest[1])
+            src.palette = (pb, ln)
         elif st == "checkpoint":
             if len(toks) not in (3, 5) or (len(toks) == 5 and (toks[3][1] != "ball" or toks[4][1] not in MAT_NAMES)):
                 raise CourseError("%s: checkpoint takes <wx> <wy> [ball rubber|steel|glass]" % where)
@@ -1214,6 +1252,37 @@ def IMP(d):
     return -g
 
 
+# The boost's bound (SPEC.md 128.16.4.2), asserted at IMPORT so no build can
+# carry a bad table: a boost leaves AT a contact (z = h on the contact step, gvz =
+# BOOST), so its first rise is BOOST - BZ_G and its flight is the ground flight
+# of BOOST - G.  Its apex must reach 1.5 units (a 12 px face less BZ_CLIMB's 4 px
+# margin: 8 px) and must never reach 2 units (16 px less 4: 12 px).  "Never 2"
+# is a REFUSAL, not a print.
+BOOST_LO = (12 - CLIMB) * 256         # 8 px in 1/256
+BOOST_HI = (16 - CLIMB) * 256         # 12 px: the apex must be UNDER this
+
+
+def check_boosts(materials=None):
+    """SPEC.md 128.16.4.2's import assertion on every non-zero BOOST: raises
+    CourseError naming the material, its BOOST and its contact apex"""
+    for i, m in enumerate(materials if materials is not None else MATERIALS):
+        b = m["BOOST"]
+        if not b:
+            continue
+        top = flight(b - G)[0]
+        if b - G <= 0 or top < BOOST_LO:
+            raise CourseError("%s's BOOST %d: its contact flight's apex is %.2f px, under the %d px a 1.5-unit "
+                              "face needs (it must reach 1.5 units, SPEC.md 128.16.4.2)"
+                              % (MAT_NAMES[i], b, max(top, 0) / 256.0, BOOST_LO // 256))
+        if top >= BOOST_HI:
+            raise CourseError("%s's BOOST %d: its contact flight's apex is %.2f px, at least the %d px a 2-unit "
+                              "face needs (it must NEVER reach 2 units, SPEC.md 128.16.4.2)"
+                              % (MAT_NAMES[i], b, top / 256.0, BOOST_HI // 256))
+
+
+check_boosts()
+
+
 REACH_ROUNDS = 16             # a course whose reach has not settled by then is refused
 
 
@@ -1226,12 +1295,20 @@ class Reach:
         self.zlo, self.zhi, self.kind, self.src = zlo, zhi, kind, src
 
 
-def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False):
+def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False, _hopmax=None, _boost=None):
     """-> ([Reach], rounds, EMAX): every cell a contact point can be in, its
     lowest whole px (128.10.4.1's) and its highest (128.11.4.4's zhi: every
     launch with the largest Hop, and every bounce bounded by the energy that
     reached the cell it bounces on, iterated to a fixed point).  .src is
-    (the cell, 'launch' or 'bounce') of what set zhi, or None (its own floor)."""
+    (the cell, 'launch' or 'bounce') of what set zhi, or None (its own floor).
+    Wave 6 (SPEC.md 128.16.5.1): HOPMAX is the table's (252), and the boost is
+    ONE more launch, of BOOSTMAX, from every FIRM LEVEL floor (rule 4 on the
+    GRID cell: FLOOR or GOAL, level, normal or ice, no prop's cell) - never
+    added to a floor's rate, a spring, a tube's exit, a post's top, the lift's
+    slab or a bounce.  _hopmax, _boost: wave 5b's inputs (224, 0) for item 1's
+    cross-commit check (128.16.13)."""
+    hopmax = HOPMAX if _hopmax is None else _hopmax
+    boost = BOOSTMAX if _boost is None else _boost
     sol = {k: t for k, t in tiles.items() if t.kind != KIND_WALL}
     hi = {k: 4 * max(t.corners()) for k, t in sol.items()}
     lo = {k: 4 * min(t.corners()) for k, t in sol.items()}
@@ -1241,8 +1318,15 @@ def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False):
     srcs = []
     for k in sorted(sol):
         t = sol[k]
-        U = (abs(t.sx) + abs(t.sy)) * VMAXG // 4 + HOPMAX
+        U = (abs(t.sx) + abs(t.sy)) * VMAXG // 4 + hopmax
         srcs.append((k, hi[k] + UP(U), RADIUS(U), "launch"))
+    if boost:
+        obs = prop_cells(props)
+        for k in sorted(sol):
+            t = sol[k]
+            if t.kind in (KIND_FLOOR, KIND_GOAL) and t.sx == 0 and t.sy == 0 \
+                    and t.surf in (SURF_NORMAL, SURF_ICE) and k not in obs:
+                srcs.append((k, hi[k] + UP(boost - G), RADIUS(boost - G), "boost"))
     # wave 3 (SPEC.md 128.12.6.7): a LAUNCH exit, a DROP's fall, a post's top
     # and the platform's top over its track are launches too; the slab is a
     # floor the bounces see
@@ -1255,12 +1339,12 @@ def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False):
             srcs.append((p["out"], p["zexit"], max(3, -(-(_fall_steps(p["zexit"] - p["zfloor_out"]) * VMAXG)
                                                         // (256 * TILE))), "drop tube"))
         elif p["kind"] == PK_BUMPER:
-            srcs.append((p["at"], p["top"] + UP(HOPMAX), RADIUS(HOPMAX), "post"))
+            srcs.append((p["at"], p["top"] + UP(hopmax), RADIUS(hopmax), "post"))
         elif p["kind"] == PK_SPRING and not _no_spring:   # wave 4: a LAUNCH from its cell (128.14.4.6)
             srcs.append((p["at"], hi[p["at"]] + UP(p["gvz"]), RADIUS(p["gvz"]), "spring"))
         elif p["kind"] == PK_PLATFORM:            # a LIFT: a floor from hP to hT over its shaft
             for c in p["track"]:
-                srcs.append((c, p["hT"] + UP(HOPMAX), RADIUS(HOPMAX), "lift"))
+                srcs.append((c, p["hT"] + UP(hopmax), RADIUS(hopmax), "lift"))
                 bfl[c] = (p["hP"], p["hT"])
     for c, (h0, h1) in bfl.items():
         lo[c], hi[c] = h0, h1
@@ -2420,7 +2504,8 @@ def compile_course(source, fname=None, occluders=True, _hack=None, _rec=None):
             for t in p["track"]:
                 cells[t] = [p["h2"] - 6, 0, KIND_VOID, 0]
                 slabcells[t] = (p["hP"], p["hT"])
-    reach, rounds, emax = build_reach(tiles, cells, fname, props, _no_spring=hack.get("no_spring_reach", False))
+    reach, rounds, emax = build_reach(tiles, cells, fname, props, _no_spring=hack.get("no_spring_reach", False),
+                                      _hopmax=hack.get("hopmax"), _boost=hack.get("boost"))
     width = src.width * 8
     x0 = src.origin[0] if src.origin else src.width * 4
     # the start: SAFE
@@ -2859,6 +2944,7 @@ def compile_course(source, fname=None, occluders=True, _hack=None, _rec=None):
     c.ident = ident
     c.gflags, c.padmask = gflags, padmask
     c.par = src.par[0] if src.par else 0
+    c.pal = src.palette[0] if src.palette else PAL_DEFAULT     # wave 6: not in the part (128.16.6)
     c.nflags = len(src.ckpts)
     c.branches = src.branches
     # the forms (SPEC.md 128.15.12.1): .cga the RAM form under this build's RECB (the bytes the guest
@@ -4222,11 +4308,30 @@ OCTANT = bumper_table()
 
 
 def _drag(v, k=6):
-    """ceil(|v| / 2^k) toward 0; k = 0 is NO drag (ice)"""
+    """WAVE 2's drag, ceil(|v| / 2^k) toward 0; k = 0 is NO drag (ice).  Wave 6
+    replaced it in the step with _fdrag (SPEC.md 128.16.3.1); kept for the axis
+    model's proof of independence (wave 2's written row) and the `ceildrag` arm"""
     if not k:
         return v
     a = (abs(v) + (1 << k) - 1) >> k
     return v + a if v < 0 else v - a
+
+
+def _fdrag(v, k, rem, _wide=False):
+    """the FRACTIONAL drag (SPEC.md 128.16.3.1) on one ground axis: -> (v, rem).
+    rem <= 2^k - 1 at every call (bz_surfset cuts it where the mask changes).
+    k = 0 (ice) or v = 0: no drag, the remainder left alone.
+        t = |v| + rem;  d = t >> k;  rem = t & (2^k - 1);  d = 0: d = 1, rem = 0
+    _wide: the `remwide` control, the remainder stored as the low BYTE of t
+    with no mask (a red arm, never the step)"""
+    if not k or not v:
+        return v, rem
+    t = abs(v) + rem
+    d = t >> k
+    rem = (t & 0xFF) if _wide else t & ((1 << k) - 1)
+    if not d:
+        d, rem = 1, 0
+    return (v - d if v > 0 else v + d), rem
 
 
 def _clamp(v, m):
@@ -4275,7 +4380,8 @@ class Physics:
                  _east_w1=False, _no_stun=False, _abs_impact=False, _no_airclimb=False, _hop_add=False,
                  _gate_late=False, _kick_k=False, _no_carry=False, _stick=False, _exit_vel=False,
                  _carry_s=False, _ckpt_safe=False, _ckmat_touch=False, _pad_noftg=False, _cup_nov=False,
-                 _spring_sum=False, _tilt_min=False):
+                 _spring_sum=False, _tilt_min=False, _ceil_drag=False, _rem_wide=False, _slab_boost=False,
+                 _no_clear=False, _boost_rise=False, _pump=False, _spring_tok=False):
         part = course.cga if isinstance(course, Course) else course
         if mat is None:
             mat = course.ball if isinstance(course, Course) else MAT_RUBBER
@@ -4329,6 +4435,17 @@ class Physics:
         self.nckpt = self.npad = self.nlip = self.nspr = self.nret = 0
         self._ckpt_safe, self._ckmat_touch, self._pad_noftg = _ckpt_safe, _ckmat_touch, _pad_noftg
         self._cup_nov, self._spring_sum, self._tilt_min = _cup_nov, _spring_sum, _tilt_min
+        self._spring_tok = _spring_tok              # (the `springtok` arm: a spring keeps the Hop's token)
+        # wave 6's state (SPEC.md 128.16.4.3): the boost's token, the stretch's
+        # steps, the boosts, the drag's remainders; and what bz_surfset holds
+        # (the window centre's surface, 0FFh before the first fill as bz_pinit
+        # leaves it, and the derived mask), so the remainders are cut where
+        # the guest cuts them
+        self.btok = self.stf = self.nboost = 0
+        self.drx = self.dry = 0
+        self.surf, self.dmask = 0xFF, 0
+        self._ceil_drag, self._rem_wide, self._slab_boost = _ceil_drag, _rem_wide, _slab_boost
+        self._no_clear, self._boost_rise, self._pump = _no_clear, _boost_rise, _pump
         self.flags_at = {}                       # a flag's number -> its cell
         for pr in self.props:
             if pr["kind"] == PK_CHECKPOINT:
@@ -4395,8 +4512,13 @@ class Physics:
     WORDER = ((-1, -1), (-1, 0), (0, -1), (-1, 1), (0, 0), (1, -1), (0, 1), (1, 0), (1, 1))
 
     def _fill(self, wx, wy):
-        """the window refill round (wx, wy): bz_wol and bz_ps bit 0"""
+        """the window refill round (wx, wy): bz_wol and bz_ps bit 0; and, as
+        bz_fill does, bz_surfset when the centre's surface (whatever its kind:
+        an OPEN cell's is 0) differs from the one in use"""
         self.wcell = (wx, wy)
+        sf = self.cell(wx, wy)[5]
+        if sf != self.surf:
+            self._surfset(sf)
         self.wol = []
         if self.props:
             for dx, dy in self.WORDER:
@@ -4405,6 +4527,16 @@ class Physics:
                     if pr is not None:
                         self.wol.append((3 * (dy + 1) + dx + 1, pr["i"]))
         self._ps()
+
+    def _surfset(self, surf):
+        """bz_surfset (SPEC.md 128.16.3.1): the surface in use, its entry's
+        drag mask 2^k - 1 (0 on ice), and both remainders CUT to it - the one
+        place the mask changes, so rem <= mask holds at every drag"""
+        self.surf = surf
+        k = surf_entry(self.mat, surf)[1]
+        self.dmask = (1 << k) - 1 if k else 0
+        self.drx &= self.dmask
+        self.dry &= self.dmask
 
     def _ps(self):
         self.ps = (1 if self.wol else 0) | (2 if self.tube else 0) | (4 if self.onp else 0)
@@ -4439,6 +4571,7 @@ class Physics:
         self.ghv = 0
         self.onp = 0
         self.tube, self.tseg, self.tcnt = pr["i"] + 1, 0, pr["segs"][0]["m"]
+        self.btok = 0                               # wave 6: a tube's capture spends the token
         self.ntube += 1
         self._ps()
         self.events.append(("capture", self.nstep + 1, pr["i"], self.tsin))
@@ -4559,6 +4692,7 @@ class Physics:
         through the guest's variables)"""
         self._place(wx, wy)
         self.gvx, self.gvy = gvx, gvy
+        self.drx = self.dry = 0                     # a poke zeroes the remainders (128.16.3.1)
         self._ps()
         self._derive(True)
         return self
@@ -4570,6 +4704,7 @@ class Physics:
         self.m = MATERIALS[mat]
         if not self._pad_noftg:
             self.fta = fta_table(self.m["ACC"])
+        self._surfset(self.surf)                    # bz_setmat calls bz_surfset: k may change
 
     def _respawn(self, ret=False):
         """step 7 (SPEC.md 128.10.7.3, 128.14.4.5): on a course whose FLAGS bit 0
@@ -4589,12 +4724,18 @@ class Physics:
             self.nfall += 1
         self.respawned = True
         self.mst = self.mct = self.sqf = 0
+        self.btok = self.stf = self.drx = self.dry = 0   # wave 6 (128.16.4.3): all but nboost
         self.lvl = [0, 0, 0, 0]
         self.hopw = 0
         self.ghv = 0
         self.inmo = 0
         self._ps()
         self.events.append(("return" if ret else "respawn", self.nstep + 1, at))
+
+    def state6(self):
+        """wave 6's state as bonanzaphys compares it (SPEC.md 128.16.4.3):
+        bz_btok, bz_stf, bz_nboost, bz_drx, bz_dry"""
+        return (self.btok, self.stf, self.nboost, self.drx, self.dry)
 
     def state4(self):
         """wave 4's state as bonanzaphys compares it (SPEC.md 128.14.4.7)"""
@@ -4716,6 +4857,8 @@ class Physics:
         # ...then the ball's state
         if self.sqf:
             self.sqf -= 1
+        if self.stf:                                # wave 6: the stretch's steps (128.16.4.4)
+            self.stf -= 1
         if self.mst == ST_SHATTER:
             self.mct -= 1
             if self.mct == 0:
@@ -4743,8 +4886,12 @@ class Physics:
             sx, sy = (C[1], C[2]) if C[3] in (KIND_FLOOR, KIND_GOAL) else (0, 0)
             self.gvx -= self._slope_sign * GSL * sx
             self.gvy -= self._slope_sign * GSL * sy
-            self.gvx = _drag(self.gvx, dk)
-            self.gvy = _drag(self.gvy, dk)
+            if self._ceil_drag:                     # (a red arm: wave 2's round-up)
+                self.gvx = _drag(self.gvx, dk)
+                self.gvy = _drag(self.gvy, dk)
+            else:                                   # the fractional drag (128.16.3.1)
+                self.gvx, self.drx = _fdrag(self.gvx, dk, self.drx, self._rem_wide)
+                self.gvy, self.dry = _fdrag(self.gvy, dk, self.dry, self._rem_wide)
             if K & K_GRIP and not stun:
                 self.gvx = _brake(self.gvx, brake)
                 self.gvy = _brake(self.gvy, brake)
@@ -4916,6 +5063,7 @@ class Physics:
                 self.gz += self.gvz
                 self.hopw = 0
                 self.nhop += 1
+                self.btok = 1                       # wave 6: the boost's token (128.16.4.1)
                 lifted = True
                 self.events.append(("hop", self.nstep + 1, self.gvz))
             elif not solid or h < self.gz + self.gvz - G - (STICK << 8):
@@ -4931,7 +5079,7 @@ class Physics:
                 onslab = slab is not None
         else:
             if solid and self.gz <= h:
-                contact = self._land(C, h, K, stun)
+                contact = self._land(C, h, K, stun, Cv, slab)
                 onslab = slab is not None
             elif Cv[3] == KIND_VOID and not solid and self.gz < (4 * Cv[0]) << 8:
                 self._respawn()
@@ -4988,10 +5136,24 @@ class Physics:
                 self.goal = 1
         return self._end()
 
-    def _land(self, C, h, K, stun):
-        """SPEC.md 128.11.8.5: a contact with a floor, judged RELATIVE to it"""
+    def firm_level(self, Cv, slab):
+        """SPEC.md 128.16.4.1's rule 4 on the GRID cell Cv (the one the step
+        reads before step 6 substitutes the lift's slab): kind FLOOR or GOAL,
+        level, surface normal or ice, OBS clear, and no platform carrying"""
+        return (Cv[3] in (KIND_FLOOR, KIND_GOAL) and Cv[1] == 0 and Cv[2] == 0
+                and Cv[5] in (SURF_NORMAL, SURF_ICE) and not Cv[4] & FL_OBS and slab is None)
+
+    def _land(self, C, h, K, stun, Cv=None, slab=None):
+        """SPEC.md 128.11.8.5: a contact with a floor, judged RELATIVE to it.
+        Cv: the GRID cell (before the slab's substitution), slab: the platform
+        _floor returned (wave 6's boost reads both, 128.16.4.1)"""
         m = self.m
         surf = C[5]
+        if Cv is None:
+            Cv = C
+        tok = self.btok                             # the token as the contact BEGAN (rule 1) ...
+        if not self._no_clear:
+            self.btok = 0                           # ... and cleared at EVERY contact
         fr = (C[1] * self.gvx + C[2] * self.gvy) >> 2
         lvz = max(0, fr - self.gvz) if not self._abs_impact else -self.gvz
         e = surf_entry(self.mat, surf)[3] if not self._ef_zero else 0
@@ -5018,12 +5180,31 @@ class Physics:
             self.nshat += 1
             self.events.append(("shatter", self.nstep + 1, lvz))
             out = "shatter"
+        elif (tok and self.hopw and not stun and m["BOOST"]
+              and (self.firm_level(C, None) if self._slab_boost else
+                   (C[3] in (KIND_FLOOR, KIND_GOAL) and C[5] in (SURF_NORMAL, SURF_ICE) and not Cv[4] & FL_OBS
+                    and slab is None) if self._boost_rise else self.firm_level(Cv, slab))
+              and (r if r >= bmin else 0) < m["BOOST"]):
+            # 2a. the BOOST (SPEC.md 128.16.4.1): still airborne at BOOST (a level
+            # floor has no rate to add; the `boostrise` arm adds the ramp's), the
+            # stretch's cue, and NO squash on this contact (sqf keeps what it held)
+            self.gvz = m["BOOST"] + (base if self._boost_rise else 0)
+            self.ztop = self.gz >> 8
+            self.hopw = 0
+            self.nboost += 1
+            self.stf = BZ_STRS
+            if self._no_clear:                      # (the `noclear` arm: cleared only by a boost)
+                self.btok = 0
+            self.events.append(("boost", self.nstep + 1, lvz, self.gvz))
+            return "boost"
         elif self.hopw and not stun:
             rr = r if r >= bmin else 0
             self.gvz = (m["HOP"] + rr if self._hop_add else max(m["HOP"], rr)) + base
             self.ztop = self.gz >> 8
             self.hopw = 0
             self.nhop += 1
+            if self._pump:                          # (the `pump` arm: a contact Hop re-arms the token)
+                self.btok = 1
             self.events.append(("hopc", self.nstep + 1, lvz, self.gvz))
             out = "hopc"
         elif r >= bmin and not K & K_GRIP:
@@ -5085,6 +5266,8 @@ class Physics:
         elif not was_air and solid:
             self.gz = h                             # the floor (a Hop this step does not add)
             self.gvz = pr["gvz"]
+            if not self._spring_tok:
+                self.btok = 0                       # wave 6: the launch spends a ground Hop's token
             self.air = 1
             self.ztop = self.gz >> 8
             self.gz += self.gvz
@@ -5101,9 +5284,12 @@ class Physics:
 
 def sprite(p, herc):
     """bz_spr, SPEC.md 128.11.9.2: the sprite a frame draws from the state its
-    last step left - ('shatter', k), ('squash', k) or ('roll', f) - with the
-    vertical phase off the GROUND line (the CGA's G & 7; the Hercules keeps
-    py's parity: (G & 6) | (py & 1))"""
+    last step left - ('shatter', k), ('squash', k), ('stretch', 0) or
+    ('roll', f) - with the vertical phase off the GROUND line (the CGA's G &
+    7; the Hercules keeps py's parity: (G & 6) | (py & 1)).  Wave 6
+    (128.16.4.4): the boost's STRETCH while stf > 0 and the ball is rubber
+    (the only part with one), after the shatter and the squash; its entry is
+    the table at bonanza_assets.B2_STROFF (= B2_SHAOFF), entry 0"""
     G8 = p.G8
     phy = (G8 & 6) | (p.py & 1) if herc else G8 & 7
     if p.mst == ST_SHATTER:
@@ -5111,6 +5297,8 @@ def sprite(p, herc):
     at_floor = not p.air or (p.ghv and (p.gz >> 8) <= (p.gh >> 2))
     if p.sqf and at_floor:
         return ("squash", 0 if p.sqf in (6, 5, 2, 1) else 1)
+    if getattr(p, "stf", 0) and getattr(p, "mat", MAT_RUBBER) == MAT_RUBBER:
+        return ("stretch", 0)
     if p.mst == ST_STUN:
         phy = (phy + 2 * ((p.mct >> 2) & 1)) & 7
     return ("roll", phy * 8 + (p.px & 7))
@@ -5148,9 +5336,22 @@ RL_COMPLETE, RL_TRUNC, RL_TILT = 1, 2, 4
 # window, the squash, the wall's dead band, the bumper rail's and the mat's
 # restitutions and the mat's floor, sand's drag, the shatter's steps (the stun's
 # are BZ_MATTAB's), the tubes' least speed, a blade's restitution, the posts'
-# radius, kick and its add, the lift's top speed and BZ_LIPZ.
+# radius, kick and its add, the lift's top speed and BZ_LIPZ; and (wave 6,
+# SPEC.md 128.16.9) PHYS_REV, the step's RULE revision: a change to a rule that
+# changes no table (the fractional drag alone would have been one) bumps it, so
+# the CRC moves.
+PHYS_REV = 6
 PHYS_CONSTS = (VMAXG, VZMAX, G, CLIMB, STICK, RAD, GSL, LVL_MAX, HOPWIN, SQTHR, SQSTEPS, WMIN, E_BUMPER, E_MAT,
-               BMIN_MAT, SAND_K, SHA_STEPS, TMIN, E_GATE, PRAD, KICK_K, KICK_A, PL_VMAX, LIPZ)
+               BMIN_MAT, SAND_K, SHA_STEPS, TMIN, E_GATE, PRAD, KICK_K, KICK_A, PL_VMAX, LIPZ, PHYS_REV)
+# The BZ_PHYSV values of EARLIER physics (SPEC.md 128.16.9).  The fold is a byte,
+# so a new CRC can land on an old value: the build refuses a BZ_PHYSV in this
+# list.  00h is the unset value (every pre-wave-6 BONANZA.DAT has +5 = 0), 9Ah
+# the value 128.14.7.4's .bzd format shows, E6h the value before 128.14.25 item
+# 4's tables joined the hash, A0h wave 5b's.  A commit that moves BZ_PHYSV
+# APPENDS THE VALUE IT REPLACES, in the same commit; this build's own value is
+# never in it (bzcourse.inc is generated and untracked, so SPEC.md and this list
+# are where the values are recorded).
+PHYSV_SHIPPED = (0x00, 0x9A, 0xE6, 0xA0)
 
 
 def crc16_ccitt(data, crc=0xFFFF):
@@ -5182,6 +5383,18 @@ def phys_ident(_mt=None, _consts=None, _tabs=None):
 
 
 PHYSV = phys_ident()
+
+
+def check_physv(physv=None, shipped=None):
+    """SPEC.md 128.16.9: refuse a BZ_PHYSV that EARLIER physics carried (or 00h,
+    the unset value) - a .BZR or a BONANZA.DAT best written under them would
+    read as this build's.  -> None, or raises CourseError"""
+    physv = PHYSV if physv is None else physv
+    shipped = PHYSV_SHIPPED if shipped is None else shipped
+    if physv in shipped:
+        raise CourseError("BZ_PHYSV %02Xh is a value earlier physics carried (PHYSV_SHIPPED: %s): a log or a "
+                          "best saved under them would read as this build's; bump PHYS_REV (SPEC.md 128.16.9)"
+                          % (physv, ", ".join("%02Xh" % v for v in shipped)))
 
 
 def encode_log(keys, course=0, mat=MAT_RUBBER, complete=True, ident=0, physv=None, tilts=None):
@@ -5344,6 +5557,7 @@ CARDS = ((40, 100, 2, 1), (45, 50, 4, 2))   # W (columns), H (rows), rl (lines a
 WIN_LINES = 200               # BZ_LINES
 MAXR, MAXC = 2, 1             # BZ_MAXR, BZ_MAXC
 GLIDE_FX, GLIDE_FY = 4 * 4 * 256, 4 * 2 * 256   # 4 px / 2 lines a frame, over four frames
+CAM_SAFE = 16                 # BZ_CSAFE: the ground line's latched edge fallback (SPEC.md 128.16.7)
 DIRS = tuple((a, b) for a in (-1, 0, 1) for b in (-1, 0, 1) if (a, b) != (0, 0))
 
 
@@ -5355,13 +5569,26 @@ class Glide:
     frames; the camera reads the slot written four frames ago, compares, and
     then writes the present position into that slot (a full write fills all
     four with it).  _w1: wave 1's |v| against the per-card constants (the
-    negative control's)."""
+    negative control's).
+
+    Wave 6 (SPEC.md 128.16.7): the vertical decision reads the GROUND LINE,
+    cy = py + z - zg, zg the ground's height (the ball's own grounded or in a
+    tube; the floor's, gh >> 2, airborne over a FLOOR or GOAL; else held in
+    cgz), with the ball's own line as a LATCHED fallback near the window's
+    top or bottom (clat: None, or nland's low byte when it tripped; released
+    when the ball is grounded at a frame or nland has moved since).  The ring
+    stays on the ball's own line.  _camz: wave 2's vertical (py), the red
+    arm's model."""
 
     GFX1 = (1124, 954)
     GFY1 = (562, 477)
 
-    def __init__(self, phys, herc, brows, cols, _w1=False, heavy=None):
-        self.p, self.herc, self._w1 = phys, herc, _w1
+    def __init__(self, phys, herc, brows, cols, _w1=False, heavy=None, _camz=False, _nosafe=False,
+                 _nolatch=False):
+        self.p, self.herc, self._w1, self._camz = phys, herc, _w1, _camz
+        self._nosafe, self._nolatch = _nosafe, _nolatch   # the `nosafe` and `nolatch` arms' models
+        self.cgz = 0                           # bz_cgz: zg, the last frame's (wave 6)
+        self.clat = None                       # bz_clat: the latch (nland's low byte), or None
         self.heavy = heavy                     # a Heavy (wave 3's rule, 128.12.7), or None: wave 2's camera
         self.nhvy = self.nwr = self.nwc = self.nhedge = 0
         self.want = (False, False)             # this frame: a row, a column outstanding (GLIDE's pans)
@@ -5379,6 +5606,34 @@ class Glide:
     def _clamp(self, R, C):
         return max(0, min(R, self.rmax)), max(0, min(C, self.cmax))
 
+    def ground_line(self, R0):
+        """bz_camera's GROUND LINE block (SPEC.md 128.16.7), once a frame after
+        the ring: -> the camera's centre line, cy + 8.  Updates cgz and the
+        latch as the guest does."""
+        p = self.p
+        c = p.py + 8
+        if self._camz:
+            return c
+        z = _s16(p.gz >> 8)
+        if getattr(p, "tube", 0) or not p.air:
+            zg = z
+        elif p.ghv:
+            zg = p.gh >> 2
+        else:
+            zg = self.cgz
+        self.cgz = _s16(zg)
+        if self.clat is not None:
+            if not p.air or (p.nland & 0xFF) != self.clat:
+                self.clat = None
+            else:
+                return c
+        t = c - (R0 << self.lsh)
+        if not self._nosafe and not CAM_SAFE <= t < WIN_LINES - CAM_SAFE:
+            if not self._nolatch:
+                self.clat = p.nland & 0xFF
+            return c
+        return c + _s16(z - zg)
+
     def camera(self):
         p = self.p
         px, py = p.px, p.py
@@ -5391,6 +5646,7 @@ class Glide:
             self.R0, self.c0 = self._clamp(R, C)
             self.gpx = self.gpar = self.gpy = 0
             self.gdy = 0
+            self.cgz, self.clat = _s16(p.gz >> 8), None      # (the ground line from the ball)
             self.trx = [bxl] * 4
             self.try_ = [byl] * 4
             return 0, 0, True
@@ -5408,6 +5664,7 @@ class Glide:
         if getattr(p, "tube", 0):              # wave 3: a ghost is fast on both axes (128.12.6.1)
             fastx = fasty = True
         R0, c0 = self.R0, self.c0
+        cyc = self.ground_line(R0)
         hv = self.heavy.frame(self) if self.heavy is not None else (0, True, True)
         keep = (self.gpx, self.gpar, self.gpy)
         # ---- across ----
@@ -5441,7 +5698,7 @@ class Glide:
         # ---- down ----
         if p.vy:
             self.gdy = 0 if p.vy > 0 else 1
-        c = py + 8
+        c = cyc                                # wave 6: the ground line's centre line
         off = c - (R0 << lsh)
         if off < L // 3 or off > 2 * L // 3:
             self.gpy = 1
@@ -5781,7 +6038,7 @@ def _gap_run(c, D, xb, edge, mat=MAT_RUBBER):
     return "flying"
 
 
-def ledge_gaps(step=128):
+def ledge_gaps(step=128, mat=MAT_RUBBER):
     """-> {(D, X): (lo, hi) in gu, or None}: the distance from the bounce point
     on F to G's edge over which a rubber ball that fell D units onto F at the
     cap lands its first rebound on a ledge G X units above F.  G at F's
@@ -5801,7 +6058,7 @@ def ledge_gaps(step=128):
                 for f in range(0, 16 << 8, step):
                     xb = ((_GAP_LIP - 1) * 16 << 8) + f
                     d = (edge * 16 << 8) - xb
-                    (good if _gap_run(c, D, xb, edge) == "G" else bad)[D].append(d)
+                    (good if _gap_run(c, D, xb, edge, mat) == "G" else bad)[D].append(d)
         for D in GAP_DROPS:
             g = good[D]
             if not g:
@@ -5813,11 +6070,252 @@ def ledge_gaps(step=128):
     return out
 
 
-def gap_table_text(t):
+# =============================================================================
+# wave 6: the STEP LADDER and the GAP LADDER (SPEC.md 128.16.5.3), from Physics
+# =============================================================================
+
+LAD_PTS = 70                  # take-off points, 1.5 gu apart at the cap (the chord's +x speed)
+LAD_X0, LAD_LIP = 14, 20      # the ball starts on tile 14's centre; the near floor ends at tile 20
+LAD_STEPS = (("half a unit", 0.5), ("1 unit", 1), ("1.5 units", 1.5), ("2 units", 2))
+LAD_GAPS = ((1, 0), (2, 0), (2, -0.5), (3, 0), (3, -0.5),       # (tiles, the far floor's height against the near;
+            (3, -1), (3, -1.5), (3, -2), (3, -3))                # the 3-tile drops: wave 6's review, 128.16.4.2)
+_LAD_C = {}
+
+
+def _lad_course(gap, dz):
+    """the near floor (flat 4, tiles 3 - 19 along +wx) and, `gap` void tiles on,
+    the far floor dz units up (a STEP when gap is 0)"""
+    key = (gap, dz)
+    if key not in _LAD_C:
+        t = ('course LAD "ladder"\nwidth 128\norigin 352\nfloor rect 3 10 %d 14 flat 4\n'
+             'floor rect %d 10 %d 14 flat %g\nstart 5 12\n' % (LAD_LIP, LAD_LIP + gap, LAD_LIP + gap + 8, 4 + dz))
+        _LAD_C[key] = compile_course(t, "<ladder %d %g>" % key, occluders=False)
+    return _LAD_C[key]
+
+
+def _lad_run(c, far, mat, at, space2=None, n=260, **kw):
+    """a ball at the cap with a chord from tile LAD_X0's centre, Space's edge on
+    step `at` (None: no Hop) and its second edge on step `space2`: -> (True when
+    it gets onto the far floor - grounded there, or a contact there - False
+    when it falls or never does, the Physics)"""
+    p = Physics(c, mat=mat, **kw).poke(LAD_X0, 12, VMAXG, 0)
+    p.lvl = [0, LVL_MAX, 0, LVL_MAX]
+    for i in range(n):
+        n0 = len(p.events)
+        p.step(K_R | K_D | (K_HOP if i == at or i == space2 else 0))
+        if p.nfall:
+            return False, p
+        if (p.gx >> 12) >= far and (not p.air or any(e[0] in ("land", "bounce", "hopc", "boost")
+                                                      for e in p.events[n0:])):
+            return True, p
+    return False, p
+
+
+def _lad_contact(c, mat, at, **kw):
+    """the step index of the first contact of the Hop pressed on step `at`, or
+    None (no Hop: the ball had left the floor)"""
+    p = Physics(c, mat=mat, **kw).poke(LAD_X0, 12, VMAXG, 0)
+    p.lvl = [0, LVL_MAX, 0, LVL_MAX]
+    hopped = False
+    for i in range(260):
+        n0 = len(p.events)
+        p.step(K_R | K_D | (K_HOP if i == at else 0))
+        for e in p.events[n0:]:
+            if e[0] == "hop":
+                hopped = True
+            elif hopped and e[0] in ("land", "bounce", "hopc", "boost", "stun", "shatter"):
+                return i
+        if p.nfall or (i > at and not hopped):
+            return None
+    return None
+
+
+def _lad_cell(c, far, mat, **kw):
+    """one rung or gap: -> {'hop': [take-off points], 'boost2': [points whose
+    Hop and boost, Space's second edge 2 steps before the first contact, get
+    there], 'boost': [points from which ANY window position does],
+    'noboost': [points where every window position fails]}"""
+    out = {"hop": [], "boost2": [], "boost": []}
+    for at in range(LAD_PTS):
+        if _lad_run(c, far, mat, at, **kw)[0]:
+            out["hop"].append(at)
+    if MATERIALS[mat]["BOOST"]:
+        for at in range(LAD_PTS):
+            land = _lad_contact(c, mat, at, **kw)
+            if land is None:
+                continue
+            good = [e for e in range(max(at + 2, land - HOPWIN + 1), land + 1)
+                    if _lad_run(c, far, mat, at, e, **kw)[0]]
+            if good:
+                out["boost"].append(at)
+            if land - 2 in good:
+                out["boost2"].append(at)
+    return out
+
+
+def _lad_gu(at):
+    """a take-off point's distance before the lip, gu"""
+    return (LAD_LIP * 16) - (LAD_X0 * 16 + 8) - 1.5 * (at + 1)
+
+
+def step_ladder(**kw):
+    """-> {(height, mat): _lad_cell}: each rung a face `height` units up at the
+    lip, plus 'roll' (no Hop at all) per ball"""
+    out = {}
+    for _name, H in LAD_STEPS:
+        c = _lad_course(0, H)
+        for m in range(len(MATERIALS)):
+            cell = _lad_cell(c, LAD_LIP, m, **kw)
+            cell["roll"] = _lad_run(c, LAD_LIP, m, None, **kw)[0]
+            out[(H, m)] = cell
+    return out
+
+
+def gap_ladder(**kw):
+    """-> {(tiles, dz, mat): _lad_cell} over LAD_GAPS"""
+    out = {}
+    for g, dz in LAD_GAPS:
+        c = _lad_course(g, dz)
+        for m in range(len(MATERIALS)):
+            out[(g, dz, m)] = _lad_cell(c, LAD_LIP + g, m, **kw)
+    return out
+
+
+def _lad_word(cell, key, boost=False):
+    pts = cell[key]
+    if not pts:
+        return "none"
+    ms = len(pts) * STEP_PIT * 1000.0 / PIT_HZ
+    return "%d (%.1f - %.1f gu, %d ms)" % (len(pts), _lad_gu(pts[-1]), _lad_gu(pts[0]), round(ms))
+
+
+def ladder_text(st, gp):
+    """the two ladders as 128.16.5.3's tables"""
+    L = ["the STEP LADDER (take-off points of %d, 1.5 gu apart at the cap with a chord; the gu are before the "
+         "face):" % LAD_PTS,
+         "| step | rubber's Hop | rubber's Hop and boost (2 before; any window) | glass's Hop | steel's Hop |",
+         "|---|---|---|---|---|"]
+    for name, H in LAD_STEPS:
+        r, s_, g = st[(H, MAT_RUBBER)], st[(H, MAT_STEEL)], st[(H, MAT_GLASS)]
+        rolls = all(st[(H, m)]["roll"] for m in range(3))
+        L.append("| %s | %s | %s; %d | %s | %s |" % (
+            name, "rolls up" if r["roll"] else _lad_word(r, "hop"), _lad_word(r, "boost2"), len(r["boost"]),
+            "rolls up" if g["roll"] else _lad_word(g, "hop"), "rolls up" if s_["roll"] else _lad_word(s_, "hop"))
+            + ("" if not rolls else ""))
+    L += ["the GAP LADDER (the same approach; the gu are before the near lip):",
+          "| gap | rubber's Hop | rubber's Hop and boost (2 before; any window) | glass's Hop | steel's Hop |",
+          "|---|---|---|---|---|"]
+    for g, dz in LAD_GAPS:
+        r, s_, gl = gp[(g, dz, MAT_RUBBER)], gp[(g, dz, MAT_STEEL)], gp[(g, dz, MAT_GLASS)]
+        L.append("| %d tile%s, %s | %s | %s; %d | %s | %s |" % (
+            g, "s" if g > 1 else "", "level" if not dz else "half a unit down" if dz == -0.5 else
+            "%g unit%s down" % (-dz, "s" if dz != -1 else ""), _lad_word(r, "hop"),
+            _lad_word(r, "boost2"), len(r["boost"]), _lad_word(gl, "hop"), _lad_word(s_, "hop")))
+    return "\n".join(L)
+
+
+def ladder_verdicts(st, gp):
+    """128.16.5.3's asserted shapes: -> [(what, ok)]"""
+    R, S, Gl = MAT_RUBBER, MAT_STEEL, MAT_GLASS
+    out = []
+    out.append(("half a unit: every ball rolls up, no Hop needed, and its Hop gets there from every take-off point",
+                all(st[(0.5, m)]["roll"] and len(st[(0.5, m)]["hop"]) == LAD_PTS for m in range(3))))
+    out.append(("1 unit: rubber's Hop and glass's at least 1 take-off point (%d, %d), steel's none (%d)" % (
+        len(st[(1, R)]["hop"]), len(st[(1, Gl)]["hop"]), len(st[(1, S)]["hop"])),
+        st[(1, R)]["hop"] and st[(1, Gl)]["hop"] and not st[(1, S)]["hop"]))
+    out.append(("1.5 units: rubber's Hop and boost at least 1 (%d, Space 2 before the contact); no ball's Hop alone"
+                % len(st[(1.5, R)]["boost2"]),
+                st[(1.5, R)]["boost2"] and not any(st[(1.5, m)]["hop"] for m in range(3))))
+    out.append(("2 units: no ball, no take-off point, no window position, the boost included",
+                not any(st[(2, m)]["hop"] or st[(2, m)]["boost"] or st[(2, m)]["roll"] for m in range(3))))
+    out.append(("gap 1 tile: every ball's Hop at least 1 (%s)" % ", ".join(
+        "%s %d" % (MAT_NAMES[m], len(gp[(1, 0, m)]["hop"])) for m in range(3)),
+        all(gp[(1, 0, m)]["hop"] for m in range(3))))
+    out.append(("gap 2 tiles, level: rubber's Hop at least 1 (%d), steel's none (%d); glass %d printed" % (
+        len(gp[(2, 0, R)]["hop"]), len(gp[(2, 0, S)]["hop"]), len(gp[(2, 0, Gl)]["hop"])),
+        gp[(2, 0, R)]["hop"] and not gp[(2, 0, S)]["hop"]))
+    out.append(("gap 3 tiles, level: no ball, no take-off point, no window position, the boost included",
+                not any(gp[(3, 0, m)]["hop"] or gp[(3, 0, m)]["boost"] for m in range(3))))
+    # (SPEC.md 128.16.4.2 as wave 6 found it: onto a floor half a unit LOWER, rubber's Hop and boost cross
+    # three tiles from a point or two at EVERY BOOST that climbs 1.5 units - 332 to 358 - so the two bounds
+    # cannot both hold there; the level gap and the Hop alone stay asserted, and the conflict is printed for
+    # the owner (128.16.16), never relaxed quietly)
+    out.append(("gap 3 tiles, half a unit down: no ball's Hop alone (rubber's Hop and boost: %d take-off point(s), "
+                "the KNOWN CONFLICT printed above for the owner)" % len(gp[(3, -0.5, R)]["boost"]),
+                not any(gp[(3, -0.5, m)]["hop"] for m in range(3))))
+    # (wave 6's review: onto a floor further down the boost crosses three tiles from more points the deeper
+    # the drop, and rubber's Hop ALONE at 252 crosses onto a floor 2 units down - wave 5b's 224 crossed
+    # none there.  The table is printed; what is asserted is the shape that bounds a course author: steel
+    # never crosses three tiles at any drop, and no ball's Hop alone crosses onto a floor 1.5 units down or less)
+    drops = [dz for g, dz in LAD_GAPS if g == 3 and dz < 0]
+    out.append(("gap 3 tiles onto a lower floor (%s units down): steel never, Hop or boost; no ball's Hop alone at "
+                "1.5 units down or less; rubber's Hop and boost from %s take-off point(s), glass's Hop %s, rubber's "
+                "Hop alone %s (the KNOWN CONFLICT table)" % (
+                    ", ".join("%g" % -d for d in drops),
+                    "/".join(str(len(gp[(3, d, R)]["boost"])) for d in drops),
+                    "/".join(str(len(gp[(3, d, Gl)]["hop"])) for d in drops),
+                    "/".join(str(len(gp[(3, d, R)]["hop"])) for d in drops)),
+                not any(gp[(3, d, S)]["hop"] or gp[(3, d, S)]["boost"] for d in drops)
+                and not any(gp[(3, d, m)]["hop"] for d in drops if d >= -1.5 for m in range(3))))
+    return out
+
+
+def _gap3_report(byname):
+    print("    3-tile gaps onto a lower floor on the shipped courses (SPEC.md 128.16.4.2, for the owner at gate 1; "
+          "the take-off points are the gap ladder's at that drop, the ladder's own approach):")
+    memo = {}
+    any_ = False
+    for name in sorted(byname):
+        for dz, d, cells in gap3_scan(byname[name]):
+            if dz not in memo:
+                try:
+                    lc = _lad_course(3, -dz)
+                    rc = _lad_cell(lc, LAD_LIP + 3, MAT_RUBBER)
+                    memo[dz] = (len(rc["boost"]), len(rc["hop"]), len(_lad_cell(lc, LAD_LIP + 3, MAT_GLASS)["hop"]))
+                except CourseError:
+                    memo[dz] = None
+            w = memo[dz]
+            any_ = True
+            xs = [x for x, _ in cells]
+            ys = [y for _, y in cells]
+            print("      %s: %d take-off cell(s) wx %d-%d wy %d-%d, toward %s, %g units down: %s" % (
+                name, len(cells), min(xs), max(xs), min(ys), max(ys), {(1, 0): "+wx", (-1, 0): "-wx",
+                                                                        (0, 1): "+wy", (0, -1): "-wy"}[d], dz,
+                "deeper than the ladder reaches" if w is None else
+                "rubber's Hop and boost %d point(s), its Hop alone %d, glass's Hop %d" % w))
+    if not any_:
+        print("      none")
+
+
+def gap3_scan(c):
+    """wave 6's review (SPEC.md 128.16.4.2): every edge of a shipped course
+    where a level floor cell looks across exactly three void tiles, along a
+    grid axis, onto a floor LOWER than it - the places the boost (and, two
+    units down or more, rubber's Hop alone) can now cross where wave 5b could
+    not.  -> [(dz units down, direction, [take-off cells])], one entry an
+    edge's run of cells with one drop and direction"""
+    gd = Grid(c.cga)
+    found = {}
+    solid = (KIND_FLOOR, KIND_GOAL)
+    for wx in range(0, 160):
+        for wy in range(0, 160):
+            a = gd.cell(wx, wy)
+            if a[3] not in solid or a[1] or a[2]:
+                continue
+            for d in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                if any(gd.cell(wx + k * d[0], wy + k * d[1])[3] != KIND_VOID for k in (1, 2, 3)):
+                    continue
+                b = gd.cell(wx + 4 * d[0], wy + 4 * d[1])
+                if b[3] in solid and b[0] < a[0]:
+                    found.setdefault(((a[0] - b[0]) / 2.0, d), []).append((wx, wy))
+    return [(k[0], k[1], v) for k, v in sorted(found.items())]
+
+
+def gap_table_text(t, mat=MAT_RUBBER):
     lines = ["| fall onto `F` | rebound | ledge level with `F` (a gap of a tile or more) | 1 unit up | 2 units up "
              "| 3 units up |", "|---|---|---|---|---|---|"]
     for D in GAP_DROPS:
-        r = (MATERIALS[MAT_RUBBER]["EF"] * IMP(8 * D)) >> 8
+        r = (MATERIALS[mat]["EF"] * IMP(8 * D)) >> 8
         cells = []
         for X in GAP_LEDGES:
             w = t[(D, X)]
@@ -5936,6 +6434,12 @@ def emit_inc(courses):
               "%macro BZ_CRS_NCKS 0",
               "    db " + ", ".join(str(c.nflags) for c in courses),
               "%endmacro",
+              "; wave 6 (SPEC.md 128.16.6): each course's CGA colour select, a byte a course, for",
+              "; port 3D9h after the mode set (bits 0 - 3 the ground, 4 bright, 5 the palette);",
+              "; 30h without a `palette` statement.  Not in the part: no identity moves",
+              "%macro BZ_CRS_PALS 0",
+              "    db " + ", ".join("%03Xh" % c.pal for c in courses),
+              "%endmacro",
               "; the face's field widths (SPEC.md 128.14.17 item 2: every face line fits",
               "; the CGA's 42 cells, which bonanza.asm asserts from these): the longest",
               "; title and NAME, the widest par in digits, and the TOUR's identity - the",
@@ -5967,7 +6471,7 @@ def emit_inc(courses):
               "BZ_MAT_GLASS    equ %d" % MAT_GLASS,
               "BZ_MATREC       equ %d       ; BZ_MATTAB: bytes a material" % MATREC,
               "BZM_ACC         equ 0        ; the arrows' force at full ramp, normal ground",
-              "BZM_K           equ 1        ; the drag shift: ceil(|v| / 2^K) toward 0",
+              "BZM_K           equ 1        ; the drag shift: the FRACTIONAL drag, |v| / 2^K on average",
               "BZM_EF          equ 2        ; floor restitution, /256",
               "BZM_EW          equ 3        ; restitution off a STONE wall, /256",
               "BZM_BMIN        equ 4        ; a rebound under this lands",
@@ -5976,6 +6480,9 @@ def emit_inc(courses):
               "BZM_HARD        equ 8        ; 0 none, 1 STUN, 2 SHATTER",
               "BZM_HSTEPS      equ 9        ; ...its steps",
               "BZM_HTHR        equ 10       ; word: ...its threshold on lvz",
+              "BZM_BOOST       equ 12       ; word: wave 6's boost, 0 none (SPEC.md 128.16.4)",
+              "BZ_STRS         equ %d        ; the boost's STRETCH, steps (bz_stf's start)" % BZ_STRS,
+              "BZ_PHYS_REV     equ %d        ; the step's rule revision (PHYS_CONSTS' last)" % PHYS_REV,
               "BZ_HARD_STUN    equ %d" % HARD_STUN,
               "BZ_HARD_SHATTER equ %d" % HARD_SHATTER,
               "BZ_SURF_NORMAL  equ %d        ; grid byte +2's high nibble" % SURF_NORMAL,
@@ -6192,6 +6699,8 @@ def check_budget(c, k):
 
 
 def compile_all(paths, demo_dir=None):
+    check_boosts()
+    check_physv()                              # wave 6 (SPEC.md 128.16.9): no earlier physics' value
     courses = [compile_course(p) for p in paths]
     names = [c.name for c in courses]
     if len(set(names)) != len(names):
@@ -6338,12 +6847,13 @@ def replay_log(c, log):
 
 
 def check_demo(c, K, log, idents, where):
-    """SPEC.md 128.14.7.4's build check of a demo for course K: -> (the bytes
-    to ship, [warnings]).  A demo of another build of the COURSE fails the
-    build; one recorded under other PHYSICS is re-stamped with this build's
-    and replayed, and ships as it is when it still ends where it says, or
-    DEMOTED (COMPLETE cleared) when it does not"""
-    warn = []
+    """SPEC.md 128.14.7.4's build check of a demo for course K, as wave 6
+    amends it (128.16.9): -> (the bytes to ship, [warnings], the replay).  A
+    demo of another build of the COURSE fails the build; so, from wave 6 on,
+    does one recorded under other PHYSICS (it was re-stamped or demoted: a
+    retune that forgets to re-author cannot ship), naming `bbcourse.py
+    author`; and so does one that would be DEMOTED (it says COMPLETE and the
+    model's replay does not end at its goal or cup on its last step)"""
     log = bytearray(log)
     if log[4] != K:
         raise CourseError("%s: the demo names course %d, its place is %d" % (where, log[4], K))
@@ -6351,22 +6861,20 @@ def check_demo(c, K, log, idents, where):
     if bad:
         raise CourseError("%s: check %d: %s%s" % (where, bad[0], bad[1], " - a demo of an earlier build of %s: "
                                                   "record it again" % c.name if bad[0] == 4 else ""))
-    restamped = log[7] != PHYSV
-    if restamped:
-        warn.append("%s: recorded under physics %02X, re-stamped %02X" % (where, log[7], PHYSV))
-        log[7] = PHYSV
+    if log[7] != PHYSV:
+        raise CourseError("%s: recorded under physics %02Xh, this build's is %02Xh: a shipped demo is never "
+                          "re-stamped or demoted (SPEC.md 128.16.9) - write it again with `python3 "
+                          "tools/bbcourse.py author %s`" % (where, log[7], PHYSV, os.path.relpath(
+                              c.fname, ROOT) if os.path.isabs(c.fname) else c.fname))
     steps = struct.unpack_from("<I", log, 8)[0]
     p, first = replay_log(c, bytes(log))
     ends = first == steps if log[6] & RL_COMPLETE else (first is None or first == steps)
     if log[6] & RL_COMPLETE and not ends:
-        if not restamped:
-            raise CourseError("%s: the model's replay %s, not at its last step %d (it says COMPLETE)" % (
-                where, "reaches the goal at step %d" % first if first else "never reaches the goal", steps))
-        log[6] &= ~RL_COMPLETE
-        warn.append("%s: DEMOTED - under this build's physics its replay %s; it ships INPUTS-ONLY and wants "
-                    "re-recording" % (where, "reaches the goal at step %d" % first if first else
-                                      "does not reach the goal"))
-    return bytes(log), warn, p
+        raise CourseError("%s: the model's replay %s, not at its last step %d (it says COMPLETE): it would be "
+                          "DEMOTED, and a demo is never shipped demoted (SPEC.md 128.16.9) - author it again" % (
+                              where, "reaches the goal at step %d" % first if first else "never reaches the goal",
+                              steps))
+    return bytes(log), [], p
 
 
 # The AUTHORED demos (SPEC.md 128.14.7.4: MOON's and PEAK's until the owner
@@ -6377,6 +6885,19 @@ def check_demo(c, K, log, idents, where):
 #   ("ret",)           one step with RETURN held (Backspace), then wait for the respawn
 #   ("wp", w)          the course's route again, from waypoint w
 #   ("cup",)           the autopilot on to the goal or the cup
+# wave 6 (SPEC.md 128.16.8):
+#   ("hop", cell)      the autopilot until the ball's centre reaches the tile, then Space's
+#                      edge on the next step (with the autopilot's arrows)
+#   ("boost",)         Space's edge 2 steps before the model's predicted first contact of
+#                      the current Hop (a copy of the model stepped forward finds it), the
+#                      autopilot steering; RAISES when that contact does not boost in the
+#                      model, naming the step and the rule, so a press never turns quietly
+#                      into a contact Hop
+#   ("grip",)          Left Shift held (no arrow) until the ball is at rest on the ground
+#   ("grip", cell)     the autopilot until the ball's centre reaches the tile, then ("grip",)
+#   ("aim", cells)     the autopilot's route set to these tiles' points, no step taken (the
+#                      PLAYGROUND's: `hop` and `grip` steer by it at speed, where `route`
+#                      would slow to a stop at its last point)
 # `python3 tools/bbcourse.py author COURSE.bbc -o DEMO.bzd` writes the .bzd; the
 # build only CHECKS it (a re-built course fails the build until it is authored
 # again, as an owner's recording would).
@@ -6393,7 +6914,391 @@ AUTHOR = {
              ("route", ((22, 26), (23, 27), (23, 28), (23, 30), (23, 32), (25, 32), (24, 33))), ("wp", 14),
              ("auto", 17),
              ("steer", (36, 32)), ("route", ((25, 32), (24, 33))), ("wp", 14), ("cup",)],
+    # PLAY (wave 6, SPEC.md 128.16.8): the 1-unit rung by a Hop; the 1.5-unit ledge by a
+    # Hop and its BOOST (the only demo that boosts); back along the apron in front of the
+    # rungs (clear of the notches); the brake strip at speed, Grip held from its first
+    # tile to rest; the steel pad (one pad); the course's rolling route to the goal
+    "PLAY": [("route", ((18, 18),)), ("aim", ((18, 12),)), ("hop", (18, 14)), ("route", ((18, 12),)),
+             ("route", ((18, 17), (12, 18), (11, 18))), ("aim", ((11, 12),)), ("hop", (11, 16)), ("boost",),
+             ("route", ((11, 12),)),
+             ("route", ((11, 15), (16, 16), (28, 16))), ("aim", ((28, 25),)), ("grip", (28, 23)),
+             ("route", ((28, 21), (22, 21), (22, 24), (22, 25))), ("route", ((20, 26),)), ("wp", 2), ("cup",)],
 }
+
+
+# The PLAYGROUND (SPEC.md 128.16.8): where its elements are, so item 7 can sweep
+# them on the course itself and assert their shapes.  play_geometry() checks
+# these against the compiled course, so a course edit that moves an element
+# fails at that check, naming it, rather than sweeping empty floor.
+PLAY_RUNGS = ((1.5, (10, 11, 13, 14)), (1, (17, 11, 20, 14)), (0.5, (24, 11, 27, 14)), (2, (31, 11, 34, 14)))
+PLAY_FRONT = 19               # the apron's front row: each rung is approached along -wy from it, at the cap
+PLAY_GAPS = ((1, (10, 13)), (2, (13, 16)), (3, (16, 19)))   # the notches' wx; the near lip is the apron's front
+PLAY_GAPROW = 14              # ...approached along +wy from the apron's back row, at the cap
+PLAY_LANE, PLAY_STRIP = 28, (23, 26)   # the brake strip: its middle lane's wx, and its three tiles' wy
+PLAY_MAT = (7, 15, 10, 18)    # the mat, at the apron's left end
+_PLAY_DIRK = {(0, -1): K_R | K_U, (0, 1): K_L | K_D, (1, 0): K_R | K_D, (-1, 0): K_L | K_U}
+
+
+def _rect(r):
+    return {(x, y) for x in range(r[0], r[2]) for y in range(r[1], r[3])}
+
+
+def play_geometry(c):
+    """-> [what is not where PLAY_* say]: the apron level, each rung a level
+    floor its height above it, the apron's front row in front of each, each
+    notch `g` void tiles then the far floor at the apron's level, the strip"""
+    t, bad = c.tiles, []
+    ap = t.get((PLAY_LANE, PLAY_FRONT))
+    if ap is None or ap.kind != KIND_FLOOR or ap.sx or ap.sy:
+        return ["the apron's front row at (%d, %d)" % (PLAY_LANE, PLAY_FRONT)]
+    h = ap.z0
+    for H, r in PLAY_RUNGS:
+        for k in _rect(r):
+            u = t.get(k)
+            if u is None or u.kind != KIND_FLOOR or u.sx or u.sy or u.z0 != h + int(2 * H):
+                bad.append("the %g-unit rung's cell %s" % (H, k))
+        for x in range(r[0], r[2]):
+            for y in range(r[3], PLAY_FRONT + 1):
+                u = t.get((x, y))
+                if u is None or u.z0 != h or u.sx or u.sy:
+                    bad.append("the %g-unit rung's run-up cell %s" % (H, (x, y)))
+    for g, (x0, x1) in PLAY_GAPS:
+        for x in range(x0, x1):
+            if any((x, PLAY_FRONT + 1 + i) in t for i in range(g)):
+                bad.append("the %d-tile notch at wx %d is not void" % (g, x))
+            u = t.get((x, PLAY_FRONT + 1 + g))
+            if u is None or u.z0 != h or u.kind != KIND_FLOOR:
+                bad.append("the %d-tile notch's far floor at wx %d" % (g, x))
+    for y in range(PLAY_STRIP[0], PLAY_STRIP[1]):
+        u = t.get((PLAY_LANE, y))
+        if u is None or u.z0 != h or u.surf != SURF_NORMAL:
+            bad.append("the brake strip's cell %s" % ((PLAY_LANE, y),))
+    if (PLAY_LANE, PLAY_STRIP[1]) in t:
+        bad.append("the brake strip does not end at the void")
+    if any(t.get(k) is None or t[k].surf != SURF_BOUNCE or t[k].z0 != h for k in _rect(PLAY_MAT)):
+        bad.append("the mat")
+    return bad
+
+
+def reach_closure(tiles, start, props=()):
+    """SPEC.md 128.11.4.4's reach RESTRICTED to what the start can get to (the
+    PLAYGROUND's dead ends, 128.16.8): a launch (HOPMAX on a floor's rate), a
+    BOOST launch from a firm level floor and a bounce only from a cell already
+    reached, each bounce at ITS floor's best restitution (a mat's E_MAT, sand's
+    half, else the best EF: the reach's own global EMAX would put a mat's
+    bounce on every floor); a cell is reached when a flight there is at least
+    its low corner less BZ_CLIMB, or it rolls on from a reached 4-neighbour
+    (its low corner within BZ_CLIMB of that one's top).  An over-approximation
+    still, as the reach is: a cell it leaves out is unreachable.  -> the set"""
+    sol = {k: u for k, u in tiles.items() if u.kind != KIND_WALL}
+    hi = {k: 4 * max(u.corners()) for k, u in sol.items()}
+    lo = {k: 4 * min(u.corners()) for k, u in sol.items()}
+    obs = prop_cells(props)
+    efmax = max(m["EF"] for m in MATERIALS)
+
+    def ef(k):
+        u = sol[k].surf
+        return E_MAT if u == SURF_BOUNCE else efmax >> 1 if u == SURF_SAND else efmax
+
+    def spread(sl):
+        best = {}
+        for (k, h, r) in sl:
+            for dy in range(-r, r + 1):
+                for dx in range(-r, r + 1):
+                    c_ = (k[0] + dx, k[1] + dy)
+                    if c_ in sol and (c_ not in best or h > best[c_]):
+                        best[c_] = h
+        return best
+    R = {start}
+    while True:
+        srcs = []
+        for k in sorted(R):
+            u = sol[k]
+            U = (abs(u.sx) + abs(u.sy)) * VMAXG // 4 + HOPMAX
+            srcs.append((k, hi[k] + UP(U), RADIUS(U)))
+            if BOOSTMAX and u.kind in (KIND_FLOOR, KIND_GOAL) and not u.sx and not u.sy \
+                    and u.surf in (SURF_NORMAL, SURF_ICE) and k not in obs:
+                srcs.append((k, hi[k] + UP(BOOSTMAX - G), RADIUS(BOOSTMAX - G)))
+        best = spread(srcs)
+        while True:
+            extra = []
+            for k in sorted(R):
+                E = max(best.get(k, hi[k]), hi[k])
+                if E > hi[k]:
+                    e = ef(k)
+                    rh = min(e * IMP(E - hi[k]) >> 8, e * VZMAX >> 8)
+                    rl = min(e * IMP(E - lo[k]) >> 8, e * VZMAX >> 8)
+                    extra.append((k, hi[k] + UP(rh), RADIUS(rl)))
+            nb = spread(srcs + extra)
+            if nb == best:
+                break
+            best = nb
+        R2 = set(R) | {k for k, h in best.items() if h >= lo[k] - CLIMB}
+        todo = list(R2)
+        while todo:
+            k = todo.pop()
+            for d in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                n = (k[0] + d[0], k[1] + d[1])
+                if n in sol and n not in R2 and lo[n] <= hi[k] + CLIMB:
+                    R2.add(n)
+                    todo.append(n)
+        if R2 == R:
+            return R
+        R = R2
+
+
+def reach_from(tiles, cells):
+    """the heights a launch, a BOOST launch or a bounce ON the given cells alone
+    puts over every solid cell (no rolling off them): -> {cell: px}"""
+    sol = {k: u for k, u in tiles.items() if u.kind != KIND_WALL}
+    best = {}
+    for k in cells:
+        u = sol[k]
+        hk = 4 * max(u.corners())
+        for h, r in ((hk + UP(HOPMAX), RADIUS(HOPMAX)), (hk + UP(BOOSTMAX - G), RADIUS(BOOSTMAX - G))):
+            for dy in range(-r, r + 1):
+                for dx in range(-r, r + 1):
+                    n = (k[0] + dx, k[1] + dy)
+                    if n in sol and h > best.get(n, -9999):
+                        best[n] = h
+    return best
+
+
+def _play_run(c, mat, start, d, target, at=None, space2=None, n=300, keys=None):
+    """a ball poked at the cap at `start` along d with the chord held (or
+    `keys`), Space's edges on steps `at` and `space2`: -> (True when it is
+    grounded on, or makes a contact with, a target cell; the Physics)"""
+    p = Physics(c, mat=mat).poke(start[0], start[1], VMAXG * d[0], VMAXG * d[1])
+    p.lvl = [LVL_MAX] * 4
+    k0 = _PLAY_DIRK[d] if keys is None else keys
+    for i in range(n):
+        n0 = len(p.events)
+        p.step(k0 | (K_HOP if i == at or i == space2 else 0))
+        if p.nfall:
+            return False, p
+        if (p.gx >> 12, p.gy >> 12) in target and (not p.air or any(
+                e[0] in ("land", "bounce", "hopc", "boost") for e in p.events[n0:])):
+            return True, p
+    return False, p
+
+
+def _play_contact(c, mat, start, d, at):
+    """the step of the first contact of the Hop pressed on step `at`, or None"""
+    p = Physics(c, mat=mat).poke(start[0], start[1], VMAXG * d[0], VMAXG * d[1])
+    p.lvl = [LVL_MAX] * 4
+    hopped = False
+    for i in range(300):
+        n0 = len(p.events)
+        p.step(_PLAY_DIRK[d] | (K_HOP if i == at else 0))
+        for e in p.events[n0:]:
+            if e[0] == "hop":
+                hopped = True
+            elif hopped and e[0] in ("land", "bounce", "hopc", "boost", "stun", "shatter"):
+                return i
+        if p.nfall or (i > at and not hopped):
+            return None
+    return None
+
+
+def play_sweep(c, start, d, target):
+    """one of the PLAYGROUND's rungs or notches swept as item 7's ladders are
+    (LAD_PTS take-off points at the cap; the boost at EVERY window position):
+    -> {mat: {'roll', 'hop', 'boost2', 'boost'}}"""
+    out = {}
+    for m in range(len(MATERIALS)):
+        cell = {"roll": _play_run(c, m, start, d, target)[0], "boost2": [], "boost": [],
+                "hop": [a for a in range(LAD_PTS) if _play_run(c, m, start, d, target, a)[0]]}
+        if MATERIALS[m]["BOOST"]:
+            for a in range(LAD_PTS):
+                land = _play_contact(c, m, start, d, a)
+                if land is None:
+                    continue
+                good = [e for e in range(max(a + 2, land - HOPWIN + 1), land + 1)
+                        if _play_run(c, m, start, d, target, a, e)[0]]
+                if good:
+                    cell["boost"].append(a)
+                if land - 2 in good:
+                    cell["boost2"].append(a)
+        out[m] = cell
+    return out
+
+
+def play_fall(c, herc, keys=None, **kw):
+    """the brake strip's overrun (SPEC.md 128.16.8): a ball from rest on the
+    apron's back row in the strip's lane, the chord down it held, no Grip, into
+    the pit - GLIDE (kw: Glide's `_nosafe`, `_nolatch`) a frame at a time:
+    -> dict(kill: the frame the fall respawned it, or None; land: it touched a
+    floor on the way; lost: the first airborne frame the footprint is not in
+    the window, or None; rev: the row direction reversed while airborne)"""
+    p = Physics(c, play=True).poke(PLAY_LANE, PLAY_GAPROW + 1, 0, 0)
+    g = Glide(p, herc, c.brows, c.cols, **kw)
+    spf = (PIT_HZ / CARD_HZ[herc]) / STEP_PIT
+    acc, nl, out, dirs = 0.0, p.nland, {"kill": None, "land": False, "lost": None, "rev": False}, set()
+    g.camera()
+    for fr in range(1, 1200):
+        acc += spf
+        n = int(acc)
+        acc -= n
+        for _ in range(n):
+            p.step(_PLAY_DIRK[(0, 1)] if keys is None else keys)
+            if p.nfall:
+                out["kill"] = fr
+                out["rev"] = len(dirs) > 1
+                return out
+        dr, _dc, _f = g.camera()
+        if p.air:
+            if p.nland != nl:
+                out["land"] = True
+            if dr:
+                dirs.add(dr > 0)
+            top = g.R0 << g.lsh
+            if out["lost"] is None and not (top <= p.py and p.py + BALL_D <= top + WIN_LINES):
+                out["lost"] = fr
+        nl = p.nland
+    out["rev"] = len(dirs) > 1
+    return out
+
+
+def play_grip(c, mat):
+    """Grip held from the strip's first tile, the ball from rest on the apron's
+    back row with the chord down the lane until then: -> (stopped on the strip,
+    the tiles from the strip's first edge to where it rests)"""
+    p = Physics(c, play=True, mat=mat).poke(PLAY_LANE, PLAY_GAPROW + 1, 0, 0)
+    for _ in range(600):
+        g = (p.gy >> 12) >= PLAY_STRIP[0]
+        p.step(K_GRIP if g else _PLAY_DIRK[(0, 1)])
+        if p.nfall:
+            return False, None
+        if g and not p.air and not p.gvx and not p.gvy:
+            return True, (p.gy - (PLAY_STRIP[0] << 12)) / 4096.0
+    return False, None
+
+
+def _play_checks(c, res):
+    """item 7 on the PLAYGROUND (SPEC.md 128.16.8): its elements where PLAY_*
+    say; the 2-unit top outside the reachable set, every other top reached,
+    and no top reaching another; the rungs' and the notches' sweeps on the
+    course itself; the brake strip's Grip and its fall into the void, the
+    camera's fallback case; no boost on the mat"""
+    bad = play_geometry(c)
+    res.append(("7 PLAY: its elements are where bbcourse.PLAY_* say (%s)" % ("; ".join(bad[:3]) if bad else
+                                                                           "rungs, notches, strip, mat"), not bad))
+    if bad:
+        return
+    src = c.src
+    props = build_props(src, c.tiles, c.fname)
+    R = reach_closure(c.tiles, src.start[0], props)
+    tops = {H: _rect(r) for H, r in PLAY_RUNGS}
+    seen = {H: len(cs & R) for H, cs in tops.items()}
+    res.append(("7 PLAY: the 2-unit top is outside the reachable set with the Hop and the boost (%d of 9 cells "
+                "reached), and the 1.5-, 1- and half-unit tops are reached (%d, %d, %d of 9)" % (
+                    seen[2], seen[1.5], seen[1], seen[0.5]),
+                seen[2] == 0 and seen[1.5] == seen[1] == seen[0.5] == 9))
+    cross = []
+    for Ha, ca in tops.items():
+        rf = reach_from(c.tiles, ca)
+        for Hb, cb in tops.items():
+            if Hb != Ha and any(rf.get(k, -9999) >= 4 * min(c.tiles[k].corners()) - CLIMB for k in cb):
+                cross.append((Ha, Hb))
+    res.append(("7 PLAY: every rung a dead end - no rung's top reaches another's by a launch, a boost or a bounce "
+                "from it (%s)" % (", ".join("%g -> %g" % x for x in cross) or "none"), not cross))
+    # the control: the 2-unit rung where the half-unit one stands, 5 tiles from the 1-unit top
+    t2 = dict(c.tiles)
+    r2, rh = dict(PLAY_RUNGS)[2], dict(PLAY_RUNGS)[0.5]
+    h2 = t2[(r2[0], r2[1])].z0
+    for k in _rect(r2):
+        del t2[k]
+    for k in _rect(rh):
+        t2[k] = Tile(KIND_FLOOR, h2, 0, 0, 0)
+    R2 = reach_closure(t2, src.start[0], props)
+    res.append(("7 PLAY negative control `deadend` (the 2-unit rung moved to the half-unit one's place, 5 tiles from "
+                "the 1-unit top): the reachable set takes its top (%d of 9 cells)" % len(_rect(rh) & R2),
+                bool(_rect(rh) & R2)))
+    st = {}
+    for H, r in PLAY_RUNGS:
+        st[H] = play_sweep(c, ((r[0] + r[2] - 1) // 2, PLAY_FRONT), (0, -1), _rect(r))
+    gp = {}
+    for g, (x0, x1) in PLAY_GAPS:
+        gp[g] = play_sweep(c, ((x0 + x1 - 1) // 2, PLAY_GAPROW), (0, 1),
+                           {(x, y) for x in range(x0, x1) for y in range(PLAY_FRONT + 1 + g, PLAY_FRONT + 5 + g)})
+    R_, S, Gl = MAT_RUBBER, MAT_STEEL, MAT_GLASS
+    print("    PLAY's own rungs and notches (take-off points of %d at the cap; rubber's boost Space 2 before / any "
+          "window): %s; %s" % (LAD_PTS, "; ".join(
+              "%g unit%s: rubber %s %d/%d/%d, glass %s %d, steel %s %d" % (
+                  H, "" if H == 1 else "s", "rolls" if st[H][R_]["roll"] else "-", len(st[H][R_]["hop"]),
+                  len(st[H][R_]["boost2"]), len(st[H][R_]["boost"]), "rolls" if st[H][Gl]["roll"] else "-",
+                  len(st[H][Gl]["hop"]), "rolls" if st[H][S]["roll"] else "-", len(st[H][S]["hop"]))
+              for H, _r in PLAY_RUNGS), "; ".join(
+              "gap %d: rubber %d/%d/%d, glass %d, steel %d" % (
+                  g, len(gp[g][R_]["hop"]), len(gp[g][R_]["boost2"]), len(gp[g][R_]["boost"]),
+                  len(gp[g][Gl]["hop"]), len(gp[g][S]["hop"])) for g, _x in PLAY_GAPS)))
+    res.append(("7 PLAY's own rungs: half a unit rolls up for every ball; 1 unit rubber's and glass's Hop, never "
+                "steel's; 1.5 units rubber's Hop and boost, no Hop alone; 2 units nobody's, no window position",
+                all(st[0.5][m]["roll"] for m in range(3)) and st[1][R_]["hop"] and st[1][Gl]["hop"]
+                and not st[1][S]["hop"] and st[1.5][R_]["boost2"] and not any(st[1.5][m]["hop"] for m in range(3))
+                and not any(st[2][m]["roll"] or st[2][m]["hop"] or st[2][m]["boost"] for m in range(3))))
+    res.append(("7 PLAY's own notches: every ball Hops 1 tile; rubber 2, steel never; nobody crosses 3, the boost "
+                "included, at any window position",
+                all(gp[1][m]["hop"] for m in range(3)) and gp[2][R_]["hop"] and not gp[2][S]["hop"]
+                and not any(gp[3][m]["hop"] or gp[3][m]["boost"] for m in range(3))))
+    grips = [play_grip(c, m) for m in range(3)]
+    print("    PLAY's brake strip, Grip from its first tile at the speed the apron gives: %s" % ", ".join(
+        "%s %s" % (MAT_NAMES[m], "stops %.1f tiles in" % g[1] if g[0] else "goes over") for m, g in enumerate(grips)))
+    res.append(("7 PLAY's brake strip: Grip held from its first tile stops rubber and glass on it (%s)" % ", ".join(
+        "%.1f" % g[1] for g in grips if g[0]), grips[R_][0] and grips[Gl][0]))
+    nolatch = []
+    for herc in (0, 1):
+        on, off, nol = play_fall(c, herc), play_fall(c, herc, _nosafe=True), play_fall(c, herc, _nolatch=True)
+        card = ("CGA", "Hercules")[herc]
+        res.append(("7 PLAY's brake strip, %s: overrun at speed it falls into the VOID and respawns (frame %s, no "
+                    "floor touched); with the camera's fallback the footprint stays in the window and the row "
+                    "direction never reverses while it falls" % (card, on["kill"]),
+                    on["kill"] and not on["land"] and on["lost"] is None and not on["rev"]))
+        res.append(("7 PLAY's brake strip, %s, control `nosafe` (the fallback left out): the footprint leaves the "
+                    "window at frame %s, before the kill at %s - the depth the basin was chosen for" % (
+                        card, off["lost"], off["kill"]), off["kill"] and off["lost"] and off["lost"] < off["kill"]))
+        nolatch.append(nol["rev"])
+    res.append(("7 PLAY's brake strip, control `nolatch` (the fallback not latched): the row direction reverses "
+                "while it falls (CGA %s, Hercules %s: the CGA's leg is the arm's)" % tuple(nolatch), nolatch[0]))
+    # the mat: a Hop from the apron whose first contact is ON it, Space 2 before that contact: a contact Hop
+    # there, never a boost (the Hops whose first contact is on the apron boost there, as they should)
+    mstart, md, mat_c = (PLAY_MAT[2] + 2, (PLAY_MAT[1] + PLAY_MAT[3]) // 2), (-1, 0), _rect(PLAY_MAT)
+    on, boosted = 0, 0
+    for a in range(LAD_PTS):
+        land = _play_contact(c, MAT_RUBBER, mstart, md, a)
+        if land is None or land - 2 <= a:
+            continue
+        p = Physics(c, mat=MAT_RUBBER).poke(mstart[0], mstart[1], VMAXG * md[0], VMAXG * md[1])
+        p.lvl = [LVL_MAX] * 4
+        for i in range(land + 1):
+            p.step(_PLAY_DIRK[md] | (K_HOP if i in (a, land - 2) else 0))
+        if (p.gx >> 12, p.gy >> 12) in mat_c:
+            on += 1
+            boosted += p.nboost
+    res.append(("7 PLAY's mat: a Hop from the apron whose first contact is on the mat, Space 2 steps before it, "
+                "never boosts (%d take-off points, %d boosts)" % (on, boosted), on > 0 and not boosted))
+
+
+def _clone(p):
+    """a copy of a Physics a script can step ahead without touching the real one"""
+    import copy
+    q = copy.copy(p)
+    q.lvl, q.events, q.pkick, q.wol = list(p.lvl), list(p.events), list(p.pkick), list(p.wol)
+    return q
+
+
+def _boost_rule(p, tok, hopw, C):
+    """why the contact just stepped did not boost (SPEC.md 128.16.4.1's rules):
+    tok, hopw: the token and the window as it began; C: the centre's grid cell"""
+    if not tok:
+        return "rule 1: no Hop from the ground set the token (this is not its first contact)"
+    if not hopw or p.mst == ST_STUN:
+        return "rule 2: the window was closed (or the ball stunned)"
+    if not p.m["BOOST"]:
+        return "rule 3: %s has no BOOST" % MAT_NAMES[p.mat]
+    if not p.firm_level(C, None) or p.onp:
+        return "rule 4: the contact's grid cell %s is not a firm level floor" % ((p.gx >> 12, p.gy >> 12),)
+    return "rule 5: the rebound was already at least BOOST"
 
 
 def author_demo(c, K, script):
@@ -6446,6 +7351,60 @@ def author_demo(c, K, script):
         elif act[0] == "cup":
             while not p.goal:
                 step(p.auto())
+        elif act[0] == "hop":                   # wave 6 (SPEC.md 128.16.8)
+            n0 = p.nstep
+            while (p.gx >> 12, p.gy >> 12) != tuple(act[1]):
+                step(p.auto())
+                if p.nstep - n0 > DEMO_STEPS:
+                    raise CourseError("%s: the authored `hop` never reaches %s" % (c.name, act[1]))
+            nh = p.nhop
+            step(p.auto() | K_HOP)
+            if p.nhop == nh:
+                raise CourseError("%s: the authored `hop` at %s did not Hop (step %d)" % (c.name, act[1], p.nstep))
+        elif act[0] == "boost":
+            if not p.air or not p.btok:
+                raise CourseError("%s: the authored `boost` at step %d: no Hop from the ground in flight (rule 1)"
+                                  % (c.name, p.nstep))
+            q = _clone(p)
+            ahead = 0
+            while True:
+                n0 = len(q.events)
+                q.step(q.auto())
+                ahead += 1
+                if any(e[0] in _CONTACTS for e in q.events[n0:]) or q.nfall or q.nret or ahead > 400:
+                    break
+            if ahead > 400 or q.nfall or q.nret:
+                raise CourseError("%s: the authored `boost` at step %d: the Hop has no first contact (it falls)"
+                                  % (c.name, p.nstep))
+            if ahead < 3:
+                raise CourseError("%s: the authored `boost` at step %d: the first contact is %d step(s) away, too "
+                                  "close for Space 2 steps before it" % (c.name, p.nstep, ahead))
+            for _ in range(ahead - 3):
+                step(p.auto())
+            step(p.auto() | K_HOP)
+            step(p.auto())
+            tok, hopw = p.btok, p.hopw
+            nb = p.nboost
+            step(p.auto())
+            if p.nboost == nb:
+                raise CourseError("%s: the authored `boost`'s contact at step %d did not boost: %s" % (
+                    c.name, p.nstep, _boost_rule(p, tok, hopw, p.cell(p.gx >> 12, p.gy >> 12))))
+        elif act[0] == "aim":
+            p.route = [_way_point(c, t) for t in act[1]]
+            p.wp = 0
+        elif act[0] == "grip":
+            n0 = p.nstep
+            if len(act) > 1:
+                while (p.gx >> 12, p.gy >> 12) != tuple(act[1]):
+                    step(p.auto())
+                    if p.nstep - n0 > DEMO_STEPS:
+                        raise CourseError("%s: the authored `grip` never reaches %s" % (c.name, act[1]))
+            while p.air or p.gvx or p.gvy:
+                step(K_GRIP)
+                if p.nstep - n0 > DEMO_STEPS:
+                    raise CourseError("%s: the authored `grip` never brings the ball to rest" % c.name)
+        else:
+            raise CourseError("%s: unknown AUTHOR verb %r" % (c.name, act[0]))
     return encode_log(keys, K, c.ball, bool(p.goal), c.ident), p
 
 
@@ -6464,9 +7423,17 @@ def build_demos(courses, paths, demo_dir=None):
             if d["name"] != c.name:
                 raise CourseError("%s: the demo names course %s; this file is %s's" % (rel, d["name"], c.name))
             log, warn, p = check_demo(c, K, bzd_log(d, K), idents, rel)
+            if c.name == "PLAY":                    # wave 6 (SPEC.md 128.16.8): the demo that boosts
+                ok, why = play_demo_verdict(c, log)
+                if not ok:
+                    raise CourseError("%s: the PLAYGROUND's demo must boost and end at its goal: %s" % (rel, why))
             kind = "file"
         else:
             rel = "%s's route demo" % c.name
+            if c.name in AUTHOR:                    # wave 6 (SPEC.md 128.16.8): never a quiet route demo
+                raise CourseError("%s: an AUTHORED course with no demo file (%s): write it with `python3 "
+                                  "tools/bbcourse.py author %s`" % (c.name, os.path.relpath(dp, ROOT),
+                                                                    os.path.relpath(paths[K], ROOT)))
             if len(c.route) < 2:
                 raise CourseError("%s: no demo file (%s) and no route to make one from" % (
                     c.name, os.path.relpath(dp, ROOT)))
@@ -6511,6 +7478,51 @@ def report(c, k=None):
               " (cell %s at %d px)" % (c.worst[1], c.worst[2]) if c.worst[1] else "",
               sum(1 for v in c.cells.values() if v[3] & FL_OCC), sum(1 for v in c.cells.values() if v[3] & FL_OCCG),
               len(c.reach)))
+
+
+def pans(c, log, herc):
+    """the HOST'S PREDICTION of GLIDE's pans over a demo LOG on course C on a
+    card (SPEC.md 128.16.13's --pans): the log through Physics at the card's
+    nominal step rate, Glide (the heavy rule on) once a frame -> (columns,
+    rows, two-row frames, seconds of play)"""
+    _k, mat, kt, _fl = decode_log_t(log)
+    p = Physics(c, play=True, mat=mat)
+    gl = Glide(p, herc, c.brows, c.cols, heavy=Heavy(p))
+    spf = (PIT_HZ / CARD_HZ[herc]) / STEP_PIT
+    acc, i, cols, rows, two = 0.0, 0, 0, 0, 0
+    gl.camera()
+    while i < len(kt) and not p.goal:
+        acc += spf
+        n = int(acc)
+        acc -= n
+        for _ in range(n):
+            if i < len(kt) and not p.goal:
+                p.step(kt[i][0], kt[i][1])
+                i += 1
+        dr, dc, full = gl.camera()
+        if not full:
+            cols += abs(dc)
+            rows += abs(dr)
+            two += abs(dr) >= 2
+    return cols, rows, two, p.nstep * STEP_PIT / float(PIT_HZ)
+
+
+def main_pans(paths):
+    """--pans (SPEC.md 128.16.13): each tour course's demo, both cards: the
+    columns and rows GLIDE pans and their rates, the host's prediction the
+    re-baseline compares bonanzaperf's MEASURED pans against"""
+    courses, _files, _texts = compile_all(paths)
+    print("GLIDE's pans over each demo, the host's prediction (SPEC.md 128.16.13, 128.16.15): the log through "
+          "Physics at the card's step rate, Glide with the heavy rule once a frame")
+    print("| demo | card | seconds | columns | a second | rows | a second | two-row frames |")
+    print("|---|---|---|---|---|---|---|---|")
+    for K, d in sorted(compile_all.demos.items()):
+        for herc in (0, 1):
+            cols, rows, two, secs = pans(courses[K], d["log"], herc)
+            print("| %d %s | %s | %.2f | %d | %.2f | %d | %.2f | %d |" % (
+                K, courses[K].name, ("CGA", "Hercules")[herc], secs, cols, cols / secs if secs else 0, rows,
+                rows / secs if secs else 0, two))
+    return 0
 
 
 def write_out(out, paths):
@@ -6599,8 +7611,11 @@ def _grammar_cases():
         ("an unknown ball", F + "ball wood\n", "unknown ball 'wood'"),
         ("a second ball", F + "ball glass\n", "a second 'ball' statement"),
         ("a part over 65,024 bytes", BIG, "one part may be"),
+        # (wave 6: this course trips the block bound under wave 5b's reach inputs, HOPMAX 224 and no BOOST
+        # launch, and its records swing under 252's with Y0's alignment, 128.11.4.4 - so the case pins them:
+        # it proves the REFUSAL, which the reach's inputs do not touch)
         ("a block over %d records (a steep ramp's faces over the void)" % REC_BLOCK_MAX, STEEP,
-         "occluder records, over %d" % REC_BLOCK_MAX),
+         "occluder records, over %d" % REC_BLOCK_MAX, {"hopmax": W5_HOPMAX, "boost": W5_BOOST}),
         ("a block row over %d records" % REC_ROW_MAX, RIDGES, "occluder records, over %d" % REC_ROW_MAX),
     ]
 
@@ -6628,7 +7643,7 @@ def _corner_case():
     """a start window with no free calibration corner on the CGA: posts
     placed (by the window's own arithmetic) in all four corners"""
     base = _W3F % (60, 20, 20)
-    c = compile_course(base, "<corners>", _hack={"no_finish": True})
+    c = compile_course(base, "<corners>", _hack={"no_finish": True, "hopmax": W5_HOPMAX, "boost": W5_BOOST})
     p = Physics(c)
     W, H, rl, lsh = CARDS[0]
     rmax, cmax = c.brows * 8 // rl - H, c.cols - W
@@ -6708,7 +7723,8 @@ def _wave3_cases():
         ("bound: two lifts in a course", P + "floor tile 6 11 flat 1\nprop platform 6 10 3\n",
          "a second lift"),
         ("bound: a lane meeting the slab", P + "prop bumper 9 8\n", "meets the platform's sprite"),
-        ("bound: a start window with no free calibration corner", _corner_case(), "no calibration corner"),
+        ("bound: a start window with no free calibration corner", _corner_case(), "no calibration corner",
+         {"hopmax": W5_HOPMAX, "boost": W5_BOOST}),
     ]
 
 
@@ -6988,7 +8004,8 @@ def _ev(p, *kinds):
 
 _FLAT_LONG = 'course T "t"\nwidth 128\norigin 320\nfloor rect 3 10 33 14 flat 0\nstart 5 12\n%s'
 _FLAT_WIDE = 'course T "t"\nwidth 128\norigin 512\nfloor band -26 26 40 52 flat 0\nstart 23 23\n%s'
-_STEP = ('course T "t"\nwidth 64\nfloor rect 4 10 10 14 flat 4\nfloor rect 10 10 14 14 flat 4.5\nstart 5 12\n')
+_STEP = ('course T "t"\nwidth 128\norigin 320\nfloor rect 4 10 10 14 flat 4\nfloor rect 10 10 20 14 flat 4.5\n'
+         'start 5 12\n')
 
 
 def _flat(kind, surf=None):
@@ -7024,6 +8041,119 @@ def _feel(long_, wide, mat):
     return (t300, top, top1, mv, len(oc), tiles(oc), len(og), tiles(og))
 
 
+# --- wave 6: the AXIS MODEL (SPEC.md 128.16.3), the independent reference -------
+# One ground axis of the step: the ramp of 128.11.7.1 (each held arrow's level
+# up a step to LVL_MAX, its force ftg[level]), the drag, Grip's brake, the clamp,
+# in the step's order; a chord is twice one arrow's force on one axis (screen
+# right pushes +x and -y, right-and-down +x twice).  Written from the SPEC's
+# words and NOT from Physics, so item 7 asserts Physics against it; under wave
+# 2's round-up drag and wave 2's Grips it gives wave 2's written row exactly
+# (its proof of independence).  A mismatch is a defect to explain, never a figure
+# to paste (128.16.3).
+W2_GRIP = (6, 5, 10)                  # wave 2's Grips (128.11.5.1), for that proof
+FEEL_N = 3000                         # steps a "top" is run for: steel's time constant is 2^8
+
+
+def _axis_drag(v, k, st, ceil):
+    """the axis model's drag, written out again from 128.16.3.1's words"""
+    if not k or not v:
+        return v
+    a = abs(v)
+    if ceil:
+        d = -(-a // (1 << k))
+    else:
+        t = a + st[0]
+        d, st[0] = t // (1 << k), t % (1 << k)
+        if d == 0:
+            d, st[0] = 1, 0
+    return v - d if v > 0 else v + d
+
+
+def _axis(acc, k, mult, n, v0=0, grip=0, ceil=False, stop=None):
+    ftg = [(acc * lv + 4) >> 3 for lv in range(LVL_MAX + 1)]
+    lvl, v, st, out = 0, v0, [0], []
+    for _ in range(n):
+        if mult:
+            lvl = min(LVL_MAX, lvl + 1)
+            v += mult * ftg[lvl]
+        v = _axis_drag(v, k, st, ceil)
+        if grip:
+            v = v - grip if v > grip else v + grip if v < -grip else 0
+        v = max(-VMAXG, min(VMAXG, v))
+        out.append(v)
+        if stop is not None and stop(v):
+            break
+    return out
+
+
+def _feel_figs(seq_chord, seq_one, seq_above, seq_coast, seq_grip):
+    """the feel row from five speed sequences (the axis model's or Physics'):
+    (a chord's steps to 300, its top; one arrow's top from rest, its settled
+    speed from above (the top of its last 256 steps); the coast from the cap,
+    steps and tiles; Grip from the cap, steps and tiles)"""
+    t300 = next((i + 1 for i, v in enumerate(seq_chord) if v >= 300), None)
+    tiles = lambda q: round(sum(q) / 4096.0, 1)
+    return (t300, max(seq_chord), max(seq_one), max(seq_above[-256:]), len(seq_coast), tiles(seq_coast),
+            len(seq_grip), tiles(seq_grip))
+
+
+def axis_feel(mat, ceil=False, grip=None, surf=SURF_NORMAL):
+    """SPEC.md 128.16.3's feel row of material `mat` on surface `surf`, by the
+    AXIS MODEL (see above).  ceil: wave 2's round-up drag; grip: another Grip"""
+    acc, k, brake, _e = surf_entry(mat, surf)
+    if grip is not None:
+        brake = grip
+    zero = lambda v: v == 0
+    return _feel_figs(_axis(acc, k, 2, FEEL_N, ceil=ceil), _axis(acc, k, 1, FEEL_N, ceil=ceil),
+                      _axis(acc, k, 1, FEEL_N, v0=VMAXG, ceil=ceil),
+                      _axis(acc, k, 0, FEEL_N, v0=VMAXG, ceil=ceil, stop=zero),
+                      _axis(acc, k, 0, FEEL_N, v0=VMAXG, grip=brake, ceil=ceil, stop=zero))
+
+
+_FEEL_C = {}
+
+
+def _feel_course(surf):
+    if surf not in _FEEL_C:
+        _FEEL_C[surf] = compile_course(_FLAT_WIDE % (("surface %s band -26 26 40 52\n" % SURFACES[surf])
+                                                     if surf else ""), "<feel, %s>" % SURFACES[surf],
+                                       occluders=False)
+    return _FEEL_C[surf]
+
+
+def physics_axis(mat, keys, n, gv=(0, 0), stop=None, surf=SURF_NORMAL, **kw):
+    """Physics on a uniform flat floor of `surf`, the ball kept on it by moving
+    it back whole tiles toward the start (the floor is the same under it, the
+    velocity, levels and remainders untouched): -> [gvx a step]"""
+    c = _feel_course(surf)
+    at = (23, 23)
+    p = Physics(c, mat=mat, **kw).poke(at[0], at[1], *gv)
+    out = []
+    for _ in range(n):
+        p.step(keys)
+        if p.air or p.nfall:
+            raise CourseError("physics_axis: the ball left the floor at step %d" % p.nstep)
+        out.append(p.gvx)
+        if stop is not None and stop(p.gvx):
+            break
+        dx, dy = (p.gx >> 12) - at[0], (p.gy >> 12) - at[1]
+        if max(abs(dx), abs(dy)) >= 4:
+            p.gx -= dx << 12
+            p.gy -= dy << 12
+            p._fill(*at)
+    return out
+
+
+def physics_feel(mat, surf=SURF_NORMAL, **kw):
+    """the same feel row as axis_feel, from Physics (item 7 asserts the two equal)"""
+    zero = lambda v: v == 0
+    return _feel_figs(physics_axis(mat, K_R | K_D, FEEL_N, surf=surf, **kw),
+                      physics_axis(mat, K_R, FEEL_N, surf=surf, **kw),
+                      physics_axis(mat, K_R, FEEL_N, (VMAXG, -VMAXG), surf=surf, **kw),
+                      physics_axis(mat, 0, FEEL_N, (VMAXG, 0), stop=zero, surf=surf, **kw),
+                      physics_axis(mat, K_GRIP, FEEL_N, (VMAXG, 0), stop=zero, surf=surf, **kw))
+
+
 def _drop(c, at, units, mat, keys=0, n=400, space_at=None, upto=None):
     """a ball held at rest `units` above the floor of tile `at`, let go"""
     p = Physics(c, mat=mat).poke(*at)
@@ -7036,6 +8166,242 @@ def _drop(c, at, units, mat, keys=0, n=400, space_at=None, upto=None):
         if upto and upto(p):
             break
     return p
+
+
+# --- wave 6: the boost's scenarios (SPEC.md 128.16.5.3's item 7 list) ----------
+_CONTACTS = ("land", "bounce", "hopc", "boost", "stun", "shatter")
+
+
+def _run_keys(make, keys, n=300, **kw):
+    """make(**kw) -> a Physics; step it n steps on keys(i): -> (the Physics, the
+    step indices with a contact)"""
+    p = make(**kw)
+    out = []
+    for i in range(n):
+        n0 = len(p.events)
+        p.step(keys(i))
+        if any(e[0] in _CONTACTS for e in p.events[n0:]):
+            out.append(i)
+        if p.nfall:
+            break
+    return p, out
+
+
+def _drop_course(D):
+    """a ledge D units over a floor below it, the ledge along +wx to LAD_LIP"""
+    t = ('course DRP "drop"\nwidth 128\norigin 352\nfloor rect 3 10 %d 14 flat %g\n'
+         'floor rect %d 10 %d 14 flat 4\nstart 5 12\n' % (LAD_LIP, 4 + D, LAD_LIP, LAD_LIP + 10))
+    return compile_course(t, "<a %g-unit drop>" % D, occluders=False)
+
+
+def boost_threshold(mat=MAT_RUBBER):
+    """the least drop below a Hop's take-off floor, px, whose rebound off a level
+    floor of the material reaches its BOOST: a drop that deep or deeper gains
+    nothing from Space (SPEC.md 128.16.4.1's *Falls*), by the step's own flight"""
+    m = MATERIALS[mat]
+    for d in range(0, 64):
+        z = g = m["HOP"]
+        while z > -(d << 8):
+            g = max(g - G, -VZMAX)
+            z += g
+        if (m["EF"] * -g) >> 8 >= m["BOOST"]:
+            return d
+    return None
+
+
+def _fall_case(D, **kw):
+    """a rubber Hop off a D-unit ledge (from the first take-off point whose first
+    contact is on the floor below), Space 2 steps before that contact: -> the
+    Physics at the contact, the contact's event, the apex after it (px)"""
+    c = _drop_course(D)
+    for at in range(LAD_PTS):
+        mk = lambda **k: _lad_ball(c, MAT_RUBBER, **k)
+        p, cs = _run_keys(mk, lambda i: K_R | K_D | (K_HOP if i == at else 0), 120, **kw)
+        if not p.nhop or not cs or not _lad_after(c, at, cs[0]):
+            continue
+        land = cs[0]
+        q = mk(**kw)
+        for i in range(land + 1):
+            q.step(K_R | K_D | (K_HOP if i in (at, land - 2) else 0))
+        ev = [e for e in q.events if e[0] in _CONTACTS][0]
+        snap = (q.nboost, q.nhop, q.sqf, q.stf, q.lvz, q.gvz)
+        top = q.gz
+        for _ in range(60):                     # the flight out of that contact, to the next
+            n0 = len(q.events)
+            q.step(K_R | K_D)
+            top = max(top, q.gz)
+            if not q.air or any(e[0] in _CONTACTS for e in q.events[n0:]):
+                break
+        return snap, ev, top >> 8, int(8 * (4 + D))
+    return None, None, None, None
+
+
+def _lad_ball(c, mat, **kw):
+    p = Physics(c, mat=mat, **kw).poke(LAD_X0, 12, VMAXG, 0)
+    p.lvl = [0, LVL_MAX, 0, LVL_MAX]
+    return p
+
+
+def _lad_after(c, at, land):
+    """the Hop pressed on `at` has its first contact past the lip (on the floor below)"""
+    q = _lad_ball(c, MAT_RUBBER)
+    for i in range(land + 1):
+        q.step(K_R | K_D | (K_HOP if i == at else 0))
+    return (q.gx >> 12) >= LAD_LIP
+
+
+def _flat_hop(c, at=(6, 12), mat=MAT_RUBBER, **kw):
+    return lambda **k: Physics(c, mat=mat, **dict(kw, **k)).poke(*at)
+
+
+def _surface_case(c, far, **kw):
+    """Hops toward floor kind under test from every take-off point whose Hop's
+    first contact is past `far` (on it), Space 2 steps before that contact:
+    -> (the contacts tried, the boosts among them)"""
+    tried = boosts = 0
+    for at in range(LAD_PTS):
+        mk = lambda **k: _lad_ball(c, MAT_RUBBER, **k)
+        p, cs = _run_keys(mk, lambda i: K_R | K_D | (K_HOP if i == at else 0), 120, **kw)
+        if not p.nhop or not cs:
+            continue
+        land = cs[0]
+        q = mk(**kw)
+        for i in range(land + 1):
+            q.step(K_R | K_D | (K_HOP if i in (at, land - 2) else 0))
+        if (q.gx >> 12) < far:
+            continue
+        tried += 1
+        boosts += q.nboost
+    return tried, boosts
+
+
+def _boost_checks(res, mill=None):
+    """SPEC.md 128.16.5.3's item 7 list for the boost, with the model's controls"""
+    long_ = _flat("long")
+    R = MAT_RUBBER
+    B = MATERIALS[R]["BOOST"]
+    # no gain after a real fall; the 1-unit drop's boost with no squash
+    th = boost_threshold()
+    cases = {D: _fall_case(D) for D in (1, 1.5, 2)}
+    print("    the boost after a fall (SPEC.md 128.16.4.1): a Hop's rebound reaches BOOST %d below a drop of %d px "
+          "(%.2f units); %s" % (B, th, th / 8.0, "; ".join(
+              "%g units: %s at impact %d, out at %d, nboost %d, nhop %d, sqf %d, stf %d, apex %s px (the take-off "
+              "floor %d)" % (D, v[1][0], v[0][4], v[0][5], v[0][0], v[0][1], v[0][2], v[0][3], v[2], v[3])
+              for D, v in cases.items() if v[0])))
+    one = cases[1]
+    ok1 = one[0] is not None and one[1][0] == "boost" and one[0][0] == 1 and one[0][2] == 0 \
+        and one[0][3] == BZ_STRS and one[0][4] >= SQTHR and one[2] < one[3] + 12
+    okf = all(cases[D][0] is not None and cases[D][1][0] == "hopc" and cases[D][0][0] == 0 and cases[D][0][1] == 2
+              for D in (1.5, 2))
+    res.append(("7 the boost after a fall: off a 1-unit drop it boosts (nboost 1), its apex under the take-off floor "
+                "plus 1.5 units, sqf 0 and stf %d although its impact passes %d; off 1.5 and 2 units Space gives a "
+                "contact Hop at the rebound (nboost 0, nhop 2); the threshold is %d px, between 1 and 1.5 units"
+                % (BZ_STRS, SQTHR, th), ok1 and okf and th is not None and 8 < th <= 12))
+    # one boost a chain: Space's edge every other step from the Hop on
+    p, _cs = _run_keys(_flat_hop(long_), lambda i: K_HOP if i % 2 == 0 else 0, 400)
+    hc = len(_ev(p, "hopc"))
+    res.append(("7 one boost a chain: Space at every contact of a Hop's chain on a level floor gives exactly one "
+                "boost, then contact Hops (%d of them, nboost %d)" % (hc, p.nboost), p.nboost == 1 and hc >= 3
+                and [e[0] for e in p.events if e[0] in ("boost", "hopc")][0] == "boost"))
+    # the token at the FIRST contact only
+
+    def second(**kw):
+        p, cs = _run_keys(_flat_hop(long_), lambda i: K_HOP if i == 0 else 0, 200, **kw)
+        if len(cs) < 2:
+            return None
+        q, _ = _run_keys(_flat_hop(long_), lambda i: K_HOP if i in (0, cs[1] - 2) else 0, cs[1] + 1, **kw)
+        return q
+    q = second()
+    res.append(("7 the token at the first contact only: a Hop, no Space at its first contact (a bounce), Space at its "
+                "second: a contact Hop, nboost 0", q is not None and q.nboost == 0 and _ev(q, "bounce")
+                and _ev(q, "hopc")))
+    qn = second(_no_clear=True)
+    res.append(("7 negative control `noclear` (the token cleared only by a boost): the second-contact case boosts",
+                qn is not None and qn.nboost == 1))
+    # a spring's launch spends a ground Hop's token (128.16.4.1 rule 1): a Hop
+    # taken on a spring's cell rides the spring, and Space at that flight's
+    # first contact (a floor a unit above) is a contact Hop, never a boost
+    spc = compile_course('course SPR "s"\nwidth 128\norigin 352\nfloor rect 3 10 9 14 flat 4\n'
+                         'floor rect 9 10 40 14 flat 5\nspring 6 12 300\nstart 5 12\n', "<a Hop on a spring>",
+                         occluders=False)
+
+    def spring_hop(**kw):
+        mk = lambda **k: Physics(spc, **dict(kw, **k)).poke(6, 12, 160, 0)
+        p, cs = _run_keys(mk, lambda i: K_HOP if i == 0 else 0, 200)
+        if not p.nspr or not p.nhop or not cs:
+            return None
+        q, _ = _run_keys(mk, lambda i: K_HOP if i in (0, cs[0] - 2) else 0, cs[0] + 1)
+        return q
+    sq, sqa = spring_hop(), spring_hop(_spring_tok=True)
+    res.append(("7 a Hop on a spring's cell never boosts: the spring's launch spends the Hop's token, and Space at "
+                "the spring flight's first contact is a contact Hop (nboost %s)" % (sq.nboost if sq else None),
+                sq is not None and sq.nboost == 0 and _ev(sq, "hopc")))
+    res.append(("7 negative control `springtok` (the spring keeps the Hop's token): the same press boosts",
+                sqa is not None and sqa.nboost == 1))
+    # the Grip chain
+    p, cs = _run_keys(_flat_hop(long_), lambda i: K_HOP if i == 0 else 0, 100)
+    L1 = cs[0]
+    keys = {0: K_HOP, L1 - 2: K_HOP}
+    p, cs2 = _run_keys(_flat_hop(long_), lambda i: keys.get(i, K_GRIP if i > L1 else 0), 200)
+    L2 = next(i for i in cs2 if i > L1)
+    keys2 = dict(keys)
+
+    def k2(i):
+        if i in keys2:
+            return keys2[i]
+        return K_GRIP if L1 < i <= L2 else 0
+    keys2[L2 + 1] = K_HOP
+    p, cs3 = _run_keys(_flat_hop(long_), k2, 300)
+    L3 = next((i for i in cs3 if i > L2), None)
+    grip_ok = False
+    if L3 is not None:
+        keys2[L3 - 2] = K_HOP
+        p, _ = _run_keys(_flat_hop(long_), k2, L3 + 1)
+        ev = [e[0] for e in p.events if e[0] in ("hop", "boost", "land", "bounce", "hopc")]
+        grip_ok = p.nboost == 2 and ev == ["hop", "boost", "land", "hop", "boost"]
+    print("    the Grip chain: a Hop, its boost, Grip through the boost's landing (step %d), Space the next step: the "
+          "second boost on step %s, %s steps after the first Hop" % (L2 + 1, L3 + 1 if L3 else None,
+                                                                    L3 + 1 if L3 else None))
+    res.append(("7 the Grip chain: a Hop and its boost, Grip held through the boost's landing (a land), then Space: a "
+                "ground Hop whose contact boosts again, nboost 2, no roll between (%s steps from the first Hop to "
+                "the second boost)" % (L3 + 1 if L3 else None), grip_ok))
+    # firm level floors only
+
+    def floors(**kw):
+        out = {}
+        base = 'course FLR "f"\nwidth 128\norigin 352\nfloor rect 3 10 %d 14 flat 4\n' % LAD_LIP
+        for what, extra in (("a ramp", "floor rect %d 10 %d 14 ramp x %d %d 4 1\n"
+                             % (LAD_LIP, LAD_LIP + 6, LAD_LIP, LAD_LIP + 6)),
+                            ("sand", "floor rect %d 10 %d 14 flat 4\nsurface sand rect %d 10 %d 14\n"
+                             % (LAD_LIP, LAD_LIP + 8, LAD_LIP, LAD_LIP + 8)),
+                            ("a mat", "floor rect %d 10 %d 14 flat 4\nsurface bounce rect %d 10 %d 14\n"
+                             % (LAD_LIP, LAD_LIP + 8, LAD_LIP, LAD_LIP + 8)),
+                            ("a pad's cell", "floor rect %d 10 %d 14 flat 4\n" % (LAD_LIP, LAD_LIP + 8)
+                             + "".join("pad rubber %d %d\n" % (x, y) for x in range(LAD_LIP, LAD_LIP + 4)
+                                       for y in (11, 12)))):
+            c = compile_course(base + extra + "start 5 12\n", "<boost on %s>" % what, occluders=False)
+            out[what] = _surface_case(c, LAD_LIP, **kw)
+        if mill is not None:
+            P = _mill_rec(mill, PK_PLATFORM)
+            n0 = 0
+            p, cs = _run_keys(lambda **k: _plat_at(mill, P, n0, **k), lambda i: K_HOP if i == 0 else 0, 80, **kw)
+            q = None
+            if p.nhop and cs:
+                q, _ = _run_keys(lambda **k: _plat_at(mill, P, n0, **k),
+                                 lambda i: K_HOP if i in (0, cs[0] - 2) else 0, cs[0] + 1, **kw)
+            out["MILL's lift slab"] = (1 if q is not None and q.onp else 0, q.nboost if q is not None else 0)
+        return out
+    fl = floors()
+    res.append(("7 firm level floors only: a Hop's first contact on %s, Space 2 steps before it, never boosts"
+                % "; ".join("%s (%d contacts)" % (k, v[0]) for k, v in fl.items()),
+                all(v[0] and not v[1] for v in fl.values())))
+    flr = floors(_boost_rise=True)
+    res.append(("7 negative control `boostrise` (the slope test left out, the boost added to the ramp's rate): the "
+                "ramp case boosts (%d of %d)" % (flr["a ramp"][1], flr["a ramp"][0]), flr["a ramp"][1] > 0))
+    if mill is not None:
+        fls = floors(_slab_boost=True)
+        res.append(("7 negative control `slabboost` (rule 4 on _floor's substituted cell): the lift slab boosts",
+                    fls["MILL's lift slab"][1] > 0))
 
 
 def _hop487(c, **kw):
@@ -7058,7 +8424,16 @@ def _hop487(c, **kw):
     return e[0] if e else ("none", 0, 0, 0)
 
 
-def _physics_checks(first, res, trial=None):
+def upramp_table():
+    """SPEC.md 128.16.5.2: an up-ramp's lip at the cap with each ball's Hop at it,
+    and with none: [(who, the launch, steps back to it, RADIUS)]"""
+    lip = 4 * VMAXG // 4
+    out = [(MAT_NAMES[m], lip + MATERIALS[m]["HOP"]) for m in (MAT_RUBBER, MAT_GLASS, MAT_STEEL)]
+    out.append(("no Hop", lip))
+    return [(w, U, flight(U)[1], RADIUS(U)) for w, U in out]
+
+
+def _physics_checks(first, res, trial=None, mill=None):
     """item 7 (SPEC.md 128.11.17.1): scripted runs against states written here"""
     # --- wave 1's on FIRST, as amended -------------------------------------
     def slope(**kw):
@@ -7071,7 +8446,7 @@ def _physics_checks(first, res, trial=None):
         p = Physics(first, **kw).poke(4, 6)
         for _ in range(130):
             p.step(K_R | K_D)
-        return (_ev(p, "takeoff", "land", "bounce") == [("takeoff", 109, -96), ("bounce", 124, 456, 365)]
+        return (_ev(p, "takeoff", "land", "bounce") == [("takeoff", 106, -96), ("bounce", 121, 456, 365)]
                 and (p.lfall, p.lvz, p.nland, p.nbnc) == (16, 456, 1, 1))
     res.append(("7 FIRST: B's slope pulls a ball at rest downhill (+wx): after 20 steps gvx 60, gvz -15", slope()))
     p = Physics(first)
@@ -7082,8 +8457,10 @@ def _physics_checks(first, res, trial=None):
         if g0 < 0 <= p.gvy:
             contact = (p.nstep, p.gy, p.gvx, p.gvy, g0)
             break
-    res.append(("7 FIRST: Up drives it into the rail at step 64 and it REBOUNDS (gvy -132 -> 49 = 96/256 of it, at "
-                "v = 6; gvx -133 kept)", contact == (64, (16 * 4 + RAD) << 8, -133, 49, -132)))
+    # (wave 6 re-took FIRST's scripted states under the fractional drag, SPEC.md 128.16.3.1: each run rolls
+    # faster than wave 2's, whose round-up over-dragged; the slope's start and the west-side run are unchanged)
+    res.append(("7 FIRST: Up drives it into the rail at step 61 and it REBOUNDS (gvy -145 -> 54 = 96/256 of it, at "
+                "v = 6; gvx -145 kept)", contact == (61, (16 * 4 + RAD) << 8, -145, 54, -143)))
     p = Physics(first).poke(6, 4)
     got = None
     for _ in range(80):
@@ -7093,14 +8470,14 @@ def _physics_checks(first, res, trial=None):
             got = (p.nstep, _ev(p, "corner")[0][2], p.gy - gy0, p.gvx, p.gvy)
             break
     res.append(("7 FIRST: Right from (6, 4): the rail's last cell (6, 3) is a corner neighbour and pushes the "
-                "ball out along its normal (0, 1) at step 42", got == (42, (0, 5), 253, 97, 0)))
-    res.append(("7 FIRST: B's lip: airborne at step 109 with the floor's gvz -96; on C at 124 with lfall 16, lvz 456, "
+                "ball out along its normal (0, 1) at step 41", got == (41, (0, 5), 253, 106, 0)))
+    res.append(("7 FIRST: B's lip: airborne at step 106 with the floor's gvz -96; on C at 121 with lfall 16, lvz 456, "
                 "and a rubber ball BOUNCES at 365", lip()))
     p = Physics(first)
-    for _ in range(135):
+    for _ in range(132):
         p.step(K_R | K_D)
     res.append(("7 FIRST: R+D from the start flies the lip, bounces into the pit (12, 5) and reappears on the last "
-                "SAFE cell (6, 5) at step 135", _ev(p, "respawn") == [("respawn", 135, (6, 5))] and p.nfall == 1
+                "SAFE cell (6, 5) at step 132", _ev(p, "respawn") == [("respawn", 132, (6, 5))] and p.nfall == 1
                 and (p.gx >> 12, p.gy >> 12) == (6, 5) and not p.air))
     p = Physics(first).poke(3, 5, gvx=-VMAXG)
     trail = []
@@ -7115,13 +8492,14 @@ def _physics_checks(first, res, trial=None):
                 trail[-1][0] == 29 and trail[-1][3] and trail[-2][2] == 1 and trail[-2][1] > kill
                 and p.cell(0, 5)[0] == Z_OPEN))
     p = Physics(first, play=True).poke(4, 6)
-    for _ in range(130):
+    for _ in range(128):
         p.step(K_R | K_D)
     q = Physics(first).poke(4, 6)
-    for _ in range(130):
+    for _ in range(128):
         q.step(K_R | K_D)
-    res.append(("7 FIRST: the goal column sets the goal at step 130 in play, IN THE AIR (a finish line); the "
-                "benchmark ignores it", _ev(p, "goal") == [("goal", 130, None)] and p.goal == 1 and q.goal == 0))
+    res.append(("7 FIRST: the goal column sets the goal at step 128 in play, IN THE AIR (a finish line); the "
+                "benchmark ignores it", _ev(p, "goal") == [("goal", 128, None)] and p.goal == 1 and q.goal == 0
+                and p.air))
     # --- the ramp ---------------------------------------------------------------
     want = {MAT_RUBBER: [1, 1, 2, 2, 3, 3, 4, 4], MAT_STEEL: [0, 1, 1, 1, 1, 2, 2, 2],
             MAT_GLASS: [1, 2, 2, 3, 4, 5, 5, 6]}
@@ -7149,14 +8527,32 @@ def _physics_checks(first, res, trial=None):
                 "%s); released two steps the level is 4 and a re-press resumes at 5"
                 % (seqs[0], seqs[1], seqs[2]), ok and lv[7:] == [8, 6, 4, 5]))
     # --- every material on every surface ----------------------------------------
-    feel_want = {MAT_RUBBER: (68, 384, 189, 3, 156, 4.7, 42, 1.7),
-                 MAT_STEEL: (112, 384, 255, 6, 320, 13.0, 61, 2.7),
-                 MAT_GLASS: (62, 341, 155, 2, 98, 2.5, 25, 0.9)}
+    # wave 6 (SPEC.md 128.16.3): the material table PRINTED from Physics and asserted against the AXIS MODEL,
+    # axis_feel(), on every surface; and the axis model under wave 2's round-up drag and Grips equal to
+    # wave 2's WRITTEN row (128.11.5.1), its proof of independence from Physics
+    w2_row = {MAT_RUBBER: (68, 384, 189, 156, 4.7, 42, 1.7), MAT_STEEL: (112, 384, 255, 320, 13.0, 61, 2.7),
+              MAT_GLASS: (62, 341, 155, 98, 2.5, 25, 0.9)}
+    print("    the material table (SPEC.md 128.16.3), from Physics: a chord's steps to 300 and its top; one arrow's "
+          "top from rest and from above; the coast from 384 (steps, tiles); Grip from 384 (steps, tiles)")
+    agree = True
     for m in range(3):
-        f = _feel(long_, wide, m)
-        print("    feel %-6s: a chord to 300 in %s steps, top %d; one arrow top %d, moving on step %s; the coast "
-              "from 384 %d steps, %.1f tiles; Grip from 384 %d steps, %.1f tiles" % ((MAT_NAMES[m],) + f))
-        res.append(("7 feel, %s (128.11.5.1's row): %s" % (MAT_NAMES[m], f), f == feel_want[m]))
+        for sf in range(3):
+            f = physics_feel(m, sf)
+            ax = axis_feel(m, surf=sf)
+            agree = agree and f == ax
+            print("      %-6s on %-6s: %s%s" % (MAT_NAMES[m], SURFACES[sf], f, "" if f == ax else
+                                                  "  -- the axis model says %s" % (ax,)))
+    w2 = {m: axis_feel(m, ceil=True, grip=W2_GRIP[m]) for m in range(3)}
+    w2ok = all(w2[m][:3] + w2[m][4:] == w2_row[m] for m in range(3))
+    res.append(("7 the material table: Physics' feel rows (a chord, one arrow from rest and from above, the coast, "
+                "Grip) on normal ground, ice and sand equal the AXIS MODEL's (axis_feel(), SPEC.md 128.16.3): %s"
+                % "; ".join("%s %s" % (MAT_NAMES[m], physics_feel(m)) for m in range(3)), agree))
+    res.append(("7 the axis model's independence: under wave 2's round-up drag and Grips it gives wave 2's WRITTEN "
+                "row (128.11.5.1): %s" % "; ".join("%s %s" % (MAT_NAMES[m], w2[m]) for m in range(3)), w2ok))
+    rw = [physics_feel(m, _rem_wide=True) for m in range(3)]
+    res.append(("7 negative control `remwide` (the remainder kept unmasked after the split): the drag's figures "
+                "differ from the axis model's (%s)" % "; ".join("%s %s" % (MAT_NAMES[m], rw[m]) for m in range(3)),
+                any(rw[m] != axis_feel(m) for m in range(3))))
     moving = True
     for sf in range(4):
         cw = _flat("wide", sf) if sf else wide
@@ -7176,19 +8572,28 @@ def _physics_checks(first, res, trial=None):
             left = i + 1
             break
     sand = _flat("wide", SURF_SAND)
-    sd = []
+    sd, sdw = [], []
     for m in range(3):
+        top = axis_feel(m, surf=SURF_SAND)[2]          # the one-arrow top on sand, by the axis model
+        acc, k, _b, _e = surf_entry(m, SURF_SAND)
+        v, st = VMAXG, [0]
+        for i in range(FEEL_N):                         # ...and its steps down to it from the cap, the same way
+            v = max(-VMAXG, min(VMAXG, _axis_drag(v + ftg_table(acc)[LVL_MAX], k, st, False)))
+            if v <= top:
+                break
+        sdw.append((i + 1, v))
         p = Physics(sand, mat=m).poke(20, 26, VMAXG, -VMAXG)
         p.lvl = [0, LVL_MAX, 0, 0]
-        for i in range(200):
+        for i in range(FEEL_N):
             p.step(K_R)
-            if p.gvx <= 62 + (31 if m == MAT_GLASS else 0):
+            if p.gvx <= top:
                 break
         sd.append((i + 1, p.gvx))
     res.append(("7 every material on every surface moves from rest with one arrow and with a chord; a steel ball "
                 "stopped dead on ice leaves it (step %s); sand takes a ball arriving at the cap with one arrow to "
-                "62 in %d steps (rubber, steel) and glass to 93 in %d" % (left, sd[0][0], sd[2][0]),
-                moving and left is not None and sd == [(93, 62), (93, 62), (90, 93)]))
+                "%d in %d steps (rubber), %d in %d (steel) and glass to %d in %d, the axis model's figures" % (
+                    left, sd[0][1], sd[0][0], sd[1][1], sd[1][0], sd[2][1], sd[2][0]),
+                moving and left is not None and sd == sdw))
     # --- Hop ---------------------------------------------------------------------
     hops = []
     for m in range(3):
@@ -7206,24 +8611,35 @@ def _physics_checks(first, res, trial=None):
     p = _drop(long_, (6, 12), 1, MAT_STEEL, space_at=None, upto=lambda p: not p.air)
     n_land = p.nstep
     q = _drop(long_, (6, 12), 1, MAT_STEEL, space_at=n_land - 3, n=n_land)
-    p2 = Physics(long_).poke(6, 12)
-    for i in range(30):
-        p2.step(K_HOP if i in (0, 17) else 0)
-    again = _ev(p2, "hopc")
+    # (wave 6: each Hop's apex and contact step are its flight's, flight(HOP), 128.16.3; Space at a Hop's
+    # own landing hops again for glass and steel, and for rubber it is the BOOST, 128.11.7.2 as amended)
+    agn = {}
+    for m in range(3):
+        p2 = Physics(long_, mat=m).poke(6, 12)
+        n1 = flight(MATERIALS[m]["HOP"])[1]
+        for i in range(n1 + 2):
+            p2.step(K_HOP if i in (0, n1 - 3) else 0)
+        agn[m] = [e for e in p2.events if e[0] in ("hopc", "boost")]
+    fl_ok = all(hops[m][0] == round(flight(MATERIALS[m]["HOP"])[0] / 256.0, 1)
+                and hops[m][1] == flight(MATERIALS[m]["HOP"])[1] for m in range(3))
     res.append(("7 Hop from rest: rubber %s, steel %s, glass %s (apex px, the contact's step, what it does there, "
-                "its impact); steel dropped 1 unit with Space 3 steps before its landing hops AT the contact (160); "
-                "Space at a rubber Hop's own landing hops again (224, not its 185 rebound)" % tuple(hops),
-                hops == [(4.5, 20, "bounce", 232), (2.4, 15, "land", (2, 176)), (2.9, 16, "land", (2, 184))]
-                and _ev(q, "hopc") and _ev(q, "hopc")[0][3] == 160 and again and again[0][3] == 224))
+                "its impact: each its flight(HOP)); steel dropped 1 unit with Space 3 steps before its landing hops "
+                "AT the contact (%d); Space at a Hop's own landing hops again for glass (%s) and steel (%s), and "
+                "BOOSTS rubber (%s)" % (tuple(hops) + (MATERIALS[MAT_STEEL]["HOP"], agn[2], agn[1], agn[0])),
+                fl_ok and [h[2] for h in hops] == ["bounce", "land", "land"]
+                and _ev(q, "hopc") and _ev(q, "hopc")[0][3] == MATERIALS[MAT_STEEL]["HOP"]
+                and [e[0] for e in agn[2]] == ["hopc"] and agn[2][0][3] == MATERIALS[MAT_GLASS]["HOP"]
+                and [e[0] for e in agn[1]] == ["hopc"] and agn[1][0][3] == MATERIALS[MAT_STEEL]["HOP"]
+                and [e[0] for e in agn[0]] == ["boost"] and agn[0][0][3] == MATERIALS[MAT_RUBBER]["BOOST"]))
 
     def stepup(**kw):
         c = compile_course(_STEP, "<a half-unit step>", occluders=False)
         for at in range(0, 40):
             p = Physics(c, **kw).poke(8, 12, 200, 0)
             p.lvl = [0, LVL_MAX, 0, LVL_MAX]
-            for i in range(60):
+            for i in range(70):
                 p.step(K_R | K_D | (K_HOP if i == at else 0))
-            if any(e[0] in ("land", "bounce", "hopc") for e in p.events) and p.gx >> 12 >= 10 \
+            if any(e[0] in ("land", "bounce", "hopc", "boost") for e in p.events) and p.gx >> 12 >= 10 \
                     and not any(e[0] == "undo" for e in p.events) and p.gvx > 150:
                 pass
             else:
@@ -7232,24 +8648,42 @@ def _physics_checks(first, res, trial=None):
     su = stepup()
     res.append(("7 a Hop toward a half-unit step lands on it (the airborne margin, 128.11.8.2 step 5) from every "
                 "take-off point of 40 (no undo, its speed kept)", su[0]))
-    # a 1-unit step: a rubber-only height (rubber's Hop, 4.5 px, and the 4 px
-    # margin), never steel's (2.4 px) or glass's (2.9 px) - every take-off point
-    unit = compile_course(_STEP.replace("flat 4.5", "flat 5"), "<a one-unit step>", occluders=False)
-    ups = {}
-    for m in range(3):
-        n = 0
-        for at in range(0, 60):
-            p = Physics(unit, mat=m).poke(7, 12, VMAXG, 0)
-            p.lvl = [0, LVL_MAX, 0, LVL_MAX]
-            for i in range(80):
-                p.step(K_R | K_D | (K_HOP if i == at else 0))
-                if p.gx >> 12 >= 10 and not p.air:
-                    n += 1
-                    break
-        ups[m] = n
-    res.append(("7 a 1-unit step is a rubber-only height: of 60 take-off points at the cap, rubber's Hop gets onto "
-                "it from %d, steel's and glass's from %d and %d" % (ups[0], ups[1], ups[2]),
-                ups[0] > 0 and ups[1] == 0 and ups[2] == 0))
+    # wave 6 (SPEC.md 128.16.5.3): the STEP LADDER and the GAP LADDER, printed and their shapes asserted (they
+    # replace wave 2's "a 1-unit step is a rubber-only height": 1 unit is rubber's and glass's now)
+    t0 = __import__("time").time()
+    st, gp = step_ladder(), gap_ladder()
+    print("    the ladders, from Physics (%.1f s):" % (__import__("time").time() - t0))
+    for line in ladder_text(st, gp).split("\n"):
+        print("      " + line)
+    for what, good in ladder_verdicts(st, gp):
+        res.append(("7 the ladders: " + what, good))
+    print("    KNOWN CONFLICT (SPEC.md 128.16.4.2, for the owner at gate 1): a 3-tile gap onto a floor half a unit "
+          "LOWER is crossed by rubber's Hop and boost from %d take-off point(s) (Space 2 before: %d)"
+          % (len(gp[(3, -0.5, MAT_RUBBER)]["boost"]), len(gp[(3, -0.5, MAT_RUBBER)]["boost2"])))
+    old_b = MATERIALS[MAT_RUBBER]["BOOST"]
+    try:                                        # `gap3`: BOOST 366, the level 3-tile gap crossed
+        MATERIALS[MAT_RUBBER]["BOOST"] = 366
+        g3 = _lad_cell(_lad_course(3, 0), LAD_LIP + 3, MAT_RUBBER)
+    finally:
+        MATERIALS[MAT_RUBBER]["BOOST"] = old_b
+    res.append(("7 negative control `gap3` (BOOST 366): the level 3-tile gap is crossed (%d take-off point(s))"
+                % len(g3["boost"]), bool(g3["boost"])))
+    for name, bv, want in (("boost400", 400, "NEVER reach 2"), ("boost300", 300, "must reach 1.5")):
+        mats = [dict(m) for m in MATERIALS]
+        mats[MAT_RUBBER]["BOOST"] = bv
+        try:
+            check_boosts(mats)
+            why = "accepted"
+        except CourseError as e:
+            why = str(e)
+        res.append(("4 negative control `%s` (BOOST %d, a contact apex of %.2f px): the import assertion refuses it "
+                    "(%s)" % (name, bv, flight(bv - G)[0] / 256.0, why), want in why))
+    _boost_checks(res, mill)
+    upr = upramp_table()
+    print("    the up-ramp distance per ball (SPEC.md 128.16.5.2): %s" % "; ".join(
+        "%s: the lip at %d, %d steps back to its launch height, RADIUS %d tiles" % r for r in upr))
+    res.append(("7 the up-ramp distance per ball: rubber 6 tiles, glass 5, steel 5, any ball with no Hop 4 (%s)"
+                % ", ".join("%s %d" % (r[0], r[3]) for r in upr), [r[3] for r in upr] == [6, 5, 5, 4]))
     p = _drop(long_, (6, 12), 6, MAT_RUBBER, upto=lambda p: p.nbnc == 1)
     t1 = p.nstep
     h487 = _hop487(long_)
@@ -7303,10 +8737,10 @@ def _physics_checks(first, res, trial=None):
             q.step(K_L | K_U)
             ws.append(q.gx & 0xFFF)
         return set(us[-40:]) == {(16 - RAD) << 8} and set(ws[-40:]) == {RAD << 8}
-    res.append(("7 the walls: FIRST's rail held into with one arrow, rubber rebounds 70 then 19 and rests 39 steps "
+    res.append(("7 the walls: FIRST's rail held into with one arrow, rubber rebounds 80 then 22 and rests 46 steps "
                 "after the first contact; a bumper returns 230/256 to steel (%d -> %d); P1: a ball held into an "
                 "east wall rests at u = 10.00 every step, as its mirror at 6.00" % (bump_in, p.gvy),
-                rails[0] == ([70, 19], 39) and p.gvy == (E_BUMPER * bump_in) >> 8 and eastwall()))
+                rails[0] == ([80, 22], 46) and p.gvy == (E_BUMPER * bump_in) >> 8 and eastwall()))
     # --- TRIAL ---------------------------------------------------------------------
     if trial is not None:
         _trial_checks(trial, res)
@@ -8672,10 +10106,11 @@ def _ones(c, mat, surf=SURF_NORMAL):
     (screen right) from rest for 400 steps on a flat floor"""
     f, dk, _b, _e = surf_entry(mat, surf)
     tab = ftg_table(f)
-    vx = vy = 0
-    for _ in range(400):
-        vx = _clamp(_drag(vx + tab[LVL_MAX], dk), VMAXG)
-        vy = _clamp(_drag(vy - tab[LVL_MAX], dk), VMAXG)
+    vx = vy = rx = ry = 0
+    for _ in range(FEEL_N):                         # (wave 6: the fractional drag, 128.16.3.1)
+        vx, rx = _fdrag(vx + tab[LVL_MAX], dk, rx)
+        vy, ry = _fdrag(vy - tab[LVL_MAX], dk, ry)
+        vx, vy = _clamp(vx, VMAXG), _clamp(vy, VMAXG)
     return max(abs(vx), abs(vy))
 
 
@@ -8911,6 +10346,55 @@ def _w4_physics(byname, res):
                 found is not None and found[3] == MAT_GLASS and Tok.trap and all(t_[3] for t_ in Tok.trap)))
 
 
+def play_demo_verdict(c, log):
+    """SPEC.md 128.16.8 item 9: a PLAYGROUND demo's model replay boosts at least
+    once, rests on the 1.5-unit ledge (PLAY_RUNGS) at some step, and ends at its
+    goal on its last step.  -> (ok, what it did)"""
+    steps = struct.unpack_from("<I", log, 8)[0]
+    _K, mat, kt, _fl = decode_log_t(log)
+    p = Physics(c, play=True, mat=mat)
+    ledge = _rect(dict(PLAY_RUNGS)[1.5])
+    first = on = None
+    for k, t in kt:
+        p.step(k, t)
+        if p.goal and first is None:
+            first = p.nstep
+        if on is None and not p.air and (p.gx >> 12, p.gy >> 12) in ledge:
+            on = p.nstep
+    ok = p.nboost >= 1 and on is not None and first == steps
+    return ok, "its replay boosts %d time(s), %s the 1.5-unit ledge%s, %s" % (
+        p.nboost, "reaches" if on else "never reaches", " at step %d" % on if on else "",
+        "ends at the goal on its last step %d" % steps if first == steps else "goal at %s of %d steps" % (first, steps))
+
+
+def no_boost_log(c, log):
+    """the log with the Space press that made its first boost cleared (the key
+    byte's Space bit, from that press's edge to its release): -> bytes, or None"""
+    _K, mat, kt, fl = decode_log_t(log)
+    p = Physics(c, play=True, mat=mat)
+    at = None
+    for i, (k, t) in enumerate(kt):
+        p.step(k, t)
+        if p.nboost:
+            at = i
+            break
+    if at is None:
+        return None
+    e = at
+    while e >= 0 and not kt[e][0] & K_HOP:
+        e -= 1
+    if e < 0:
+        return None
+    while e > 0 and kt[e - 1][0] & K_HOP:
+        e -= 1
+    keys = [k for k, _t in kt]
+    while e < len(keys) and keys[e] & K_HOP:
+        keys[e] &= ~K_HOP
+        e += 1
+    tilts = [t for _k, t in kt] if fl & RL_TILT else None
+    return encode_log(keys, log[4], mat, bool(fl & RL_COMPLETE), log_ident(log), log[7], tilts)
+
+
 def _w4_demos(courses, paths, res):
     """item 9 (SPEC.md 128.14.7.4, 128.14.17 item 5): every shipped demo"""
     demos = build_demos(courses, paths)
@@ -8931,21 +10415,45 @@ def _w4_demos(courses, paths, res):
     res.append(("9 the route demos are deterministic (two builds byte-identical: %s)" % ", ".join(
         "%s %d bytes" % (courses[K].name, len(d["log"])) for K, d in sorted(again.items()) if d["kind"] == "route"),
         all(again[K]["log"] == demos[K]["log"] for K in demos)))
-    # a demo under other PHYSICS: re-stamped and ships when it still ends; DEMOTED when it does not
+    # wave 6 (SPEC.md 128.16.9): a shipped demo under other PHYSICS is REFUSED by the build (it was re-stamped
+    # or demoted, never failing: 128.14.18 item 9's assertion is replaced and its control flips), and so is
+    # one that would be DEMOTED
     K = next(K for K, d in sorted(demos.items()) if d["log"][6] & RL_COMPLETE)
     c = courses[K]
-    other = bytearray(demos[K]["log"])
-    other[7] ^= 0x5A
-    out, warn, _p = check_demo(c, K, bytes(other), idents, "<re-stamp>")
-    short = bytearray(other)
+
+    def refused(log, what):
+        try:
+            check_demo(c, K, bytes(log), idents, "<%s>" % what)
+            return "accepted"
+        except CourseError as e:
+            return str(e)
+    for what, pv in (("5b's physics A0h", 0xA0), ("BZ_PHYSV ^ 5Ah", PHYSV ^ 0x5A)):
+        other = bytearray(demos[K]["log"])
+        other[7] = pv
+        why = refused(other, what)
+        res.append(("9 a shipped demo with a stale `physics` line (%s) is REFUSED by the build, naming `bbcourse.py "
+                    "author` (it was re-stamped)" % what, "bbcourse.py author" in why and "physics" in why))
+    short = bytearray(demos[K]["log"])
     struct.pack_into("<I", short, 8, struct.unpack_from("<I", short, 8)[0] - short[RLOG_HDR + 1] + 1)
     short[RLOG_HDR + 1] = 1                       # the first run cut to one step: it no longer ends at the goal
-    out2, warn2, _p = check_demo(c, K, bytes(short), idents, "<demote>")
-    res.append(("9 a demo recorded under other physics never fails the build: re-stamped %02Xh and shipped when it "
-                "still ends at the goal (%d warning), DEMOTED to inputs-only when it does not (%s)" % (
-                    PHYSV, len(warn), "COMPLETE cleared" if not out2[6] & RL_COMPLETE else "still COMPLETE"),
-                out[7] == PHYSV and out[6] & RL_COMPLETE and len(warn) == 1 and not out2[6] & RL_COMPLETE
-                and out2[7] == PHYSV and len(warn2) == 2))
+    why = refused(short, "would be demoted")
+    res.append(("9 a shipped demo that would be DEMOTED (it says COMPLETE and no longer ends at its goal) is REFUSED",
+                "DEMOTED" in why))
+    # `stalebzd` (SPEC.md 128.16.14): moon.bzd's own text with its `physics` line left at A0h, built as the
+    # build builds it - refused at item 9
+    mk = next((k for k in range(1, len(courses)) if courses[k].name == "MOON"), None)
+    if mk is not None and os.path.exists(demo_path(paths[mk])):
+        with open(demo_path(paths[mk]), encoding="ascii") as f:
+            txt = f.read()
+        stale = re.sub(r"(?m)^physics\s+\S+", "physics A0", txt)
+        try:
+            check_demo(courses[mk], mk, bzd_log(parse_bzd(stale, "<moon.bzd, physics A0>"), mk), idents,
+                       "<moon.bzd, physics A0>")
+            why = "accepted"
+        except CourseError as e:
+            why = str(e)
+        res.append(("9 control `stalebzd`: moon.bzd with its `physics` line left at A0h is refused (%s)"
+                    % why[:90], stale != txt and "bbcourse.py author" in why))
     # the demo's COURSE identity: another build's demo FAILS the build ...
     wrong = bytearray(demos[K]["log"])
     struct.pack_into("<H", wrong, 14, c.ident ^ 0x0101)
@@ -8960,6 +10468,28 @@ def _w4_demos(courses, paths, res):
     acc = check_log(bytes(wrong), len(courses), [i if k != K else c.ident ^ 0x0101 for k, i in enumerate(idents)])
     res.append(("9 negative control: the identity check removed (the demo-identity control), the demo is accepted by "
                 "the reader and this item's identity test fails it", acc is None and log_ident(wrong) != c.ident))
+    # wave 6 (SPEC.md 128.16.8): the PLAYGROUND's authored demo is the only one that boosts - its model replay
+    # boosts and ends at its goal; its control is the same log with the boost's Space press removed
+    pk = next((k for k in range(1, len(courses)) if courses[k].name == "PLAY"), None)
+    if pk is not None and pk in demos:
+        ok, why = play_demo_verdict(courses[pk], demos[pk]["log"])
+        res.append(("9 BZD%d (PLAY): %s" % (pk, why), ok))
+        nb = no_boost_log(courses[pk], demos[pk]["log"])
+        ok2, why2 = play_demo_verdict(courses[pk], nb) if nb is not None else (True, "no boost to remove")
+        res.append(("9 control `noboostdemo`: BZD%d's log with its boost's Space press removed is refused (%s)"
+                    % (pk, why2), nb is not None and not ok2))
+    # wave 6 (SPEC.md 128.16.8): a course in AUTHOR whose .bzd is missing is REFUSED, never quietly given a
+    # route demo - the demos' folder swapped for an empty one
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            build_demos(courses, paths, td)
+            why = "accepted"
+        except CourseError as e:
+            why = str(e)
+    authored = [c.name for c in courses if c.name in AUTHOR]
+    res.append(("9 a course in AUTHOR (%s) without its .bzd is REFUSED, never given a route demo (%s)" % (
+        ", ".join(authored), why[:80]), "AUTHORED course with no demo file" in why))
     # the .bzd text round-trips
     rt = all(bzd_log(parse_bzd(demo_text(d["log"], courses[K].name), "<rt>"), K) == d["log"]
              for K, d in demos.items())
@@ -8967,15 +10497,17 @@ def _w4_demos(courses, paths, res):
 
 
 W2_COMMIT = "848ade16"          # wave 2's tree (SPEC.md 128.12.9)
-W5_COMMIT = "ef59209a"          # the last BZC1 tree: 5a moved no package byte from it (SPEC.md 128.15.3)
+W5_COMMIT = "503031d4"          # wave 5b's tree: wave 6 moved only the reach's inputs from it (SPEC.md 128.16.13)
+W5_HOPMAX, W5_BOOST = 224, 0    # ...and those inputs as 5b had them
 
 
-def wave2_parts(names, commit=W2_COMMIT, files=None):
+def wave2_parts(names, commit=W2_COMMIT, files=None, texts=None):
     """the parts of the named courses as a commit's own tool compiled them
     (848ade16, wave 2's; 573eec83, 3b's; ef59209a, the last BZC1 tree's), out
     of git in a temporary tree: -> ({NAME: bytes}, None) or (None, why it
     cannot be had).  files: the courses' file names, in BZ_COURSES's order
-    (default each NAME's lower case)"""
+    (default each NAME's lower case); texts: THIS tree's course files (absolute
+    paths) to compile with that commit's tool instead of its own (128.16.13)"""
     W2_COMMIT = commit
     import subprocess
     import tempfile
@@ -8988,9 +10520,11 @@ def wave2_parts(names, commit=W2_COMMIT, files=None):
             tar = os.path.join(td, "w.tar")
             dem = subprocess.run(["git", "cat-file", "-e", W2_COMMIT + ":apps/bonanza/demos"], cwd=ROOT,
                                  capture_output=True).returncode == 0
+            lz = subprocess.run(["git", "cat-file", "-e", W2_COMMIT + ":tools/os88lz.py"], cwd=ROOT,
+                                capture_output=True).returncode == 0
             r = subprocess.run(["git", "archive", "-o", tar, W2_COMMIT, "tools/bbcourse.py", "tools/bonanza_assets.py",
-                                "apps/bonanza/courses"] + (["apps/bonanza/demos"] if dem else []), cwd=ROOT,
-                               capture_output=True)
+                                "apps/bonanza/courses"] + (["apps/bonanza/demos"] if dem else [])
+                               + (["tools/os88lz.py"] if lz else []), cwd=ROOT, capture_output=True)
             if r.returncode:
                 return None, "git archive of %s failed" % W2_COMMIT
             w = os.path.join(td, "w")
@@ -9001,6 +10535,10 @@ def wave2_parts(names, commit=W2_COMMIT, files=None):
                     tf.extractall(w)
             paths = [os.path.join(w, "apps", "bonanza", "courses", f) for f in (files or [n.lower() + ".bbc"
                                                                                      for n in names])]
+            if texts is not None:
+                for src, dst in zip(texts, paths):
+                    with open(src, "rb") as fi, open(dst, "wb") as fo:
+                        fo.write(fi.read())
             r = subprocess.run([sys.executable, os.path.join(w, "tools", "bbcourse.py"), "-o",
                                 os.path.join(td, "art")] + paths, cwd=w, capture_output=True)
             if r.returncode:
@@ -9384,31 +10922,42 @@ def selfcheck(paths=None):
                         swp != src and cs[0].ident != cs[1].ident))
         except CourseError as e:
             res.append(("1 negative control: MILL with its seeds exchanged compiles (%s)" % e, False))
-    # wave 5b (SPEC.md 128.15.7, 128.15.12.3): every course's MODEL, written back as BZC1, is the last BZC1
-    # tree's part byte for byte (ef59209a's tool, run from git in a temporary tree) - 5b changed the
-    # container and nothing it holds.  (Wave 4's own comparisons with 3b's parts, MILL's openings and
-    # FIRST's route, were that wave's and are carried by this chain.)
-    old, why = wave2_parts([c.name for c in courses], W5_COMMIT, [os.path.basename(c.fname) for c in courses])
+    # wave 6 (SPEC.md 128.16.13): item 1's cross-commit check RE-ANCHORED on 503031d4.  That commit's tool,
+    # run from git in a temporary tree on THIS tree's course texts (the PLAYGROUND, which that tree lacks,
+    # excluded by name), and this tool with the reach's wave 5b inputs (HOPMAX 224, no BOOST launch) give the
+    # same stored parts byte for byte: so the proof is that only the reach's inputs moved.  (5b's own check,
+    # against ef59209a's BZC1 parts, and wave 4's before it, are carried by this chain.)  A SKIP is a FAILURE.
+    w5 = [c for c in courses if c.name != "PLAY"]
+    old, why = wave2_parts([c.name for c in w5], W5_COMMIT, [os.path.basename(c.fname) for c in w5],
+                           texts=[c.fname if os.path.isabs(c.fname) else os.path.join(ROOT, c.fname) for c in w5])
     if old is None:
-        skipped.append("1 SKIPPED: the courses against %s's BZC1 parts: %s" % (W5_COMMIT, why))
+        res.append(("1 the courses against %s's parts: %s (a SKIP of this item is a failure, 128.16.13)"
+                    % (W5_COMMIT, why), False))
     else:
-        diff = [c.name for c in courses if encode_bzc1(c.model_u) != old[c.name]]
-        res.append(("1 every course's model, its masks before the ghost dither (item 11 checks the dither), written "
-                    "back as BZC1 is %s's part byte for byte (%s), their BZC1 identities with them: 5b moved the "
-                    "container and the masks' checker, not a byte it holds%s" % (
-                        W5_COMMIT, ", ".join(c.name for c in courses), "" if not diff else " -- DIFFER: %s" % diff),
-                    not diff))
+        diff = []
+        for c in w5:
+            c5 = compile_course(c.fname if os.path.isabs(c.fname) else os.path.join(ROOT, c.fname),
+                                _hack={"hopmax": W5_HOPMAX, "boost": W5_BOOST})
+            if c5.stored != old[c.name]:
+                diff.append(c.name)
+        res.append(("1 every course compiled with the reach's wave 5b inputs (HOPMAX %d, no BOOST launch) is %s's "
+                    "stored part byte for byte, that commit's tool run from git on this tree's course texts (%s): "
+                    "wave 6 moved the reach's inputs and nothing else in a part%s" % (
+                        W5_HOPMAX, W5_COMMIT, ", ".join(c.name for c in w5), "" if not diff else
+                        " -- DIFFER: %s" % diff), not diff))
     # 2. the grammar and the bounds
-    for what, text, want in _grammar_cases():
+    for case in _grammar_cases():
+        what, text, want = case[:3]
         try:
-            compile_course(text, fname="<%s>" % what)
+            compile_course(text, fname="<%s>" % what, _hack=case[3] if len(case) > 3 else None)
             fired, msg = False, "compiled"
         except CourseError as e:
             fired, msg = want in str(e), str(e)
         res.append(("2 refused: %s%s" % (what, "" if fired else " -- got: " + msg), fired))
-    for what, text, want in _wave3_cases():
+    for case in _wave3_cases():
+        what, text, want = case[:3]
         try:
-            compile_course(text, fname="<%s>" % what)
+            compile_course(text, fname="<%s>" % what, _hack=case[3] if len(case) > 3 else None)
             fired, msg = False, "compiled"
         except CourseError as e:
             fired, msg = want in str(e), str(e)
@@ -9420,6 +10969,27 @@ def selfcheck(paths=None):
         except CourseError as e:
             fired, msg = want in str(e), str(e)
         res.append(("2 refused (wave 4): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+    # wave 6 (SPEC.md 128.16.6): the palette statement's refusals, and its byte
+    ft = _first_text()
+    for what, text, want in (("palette given twice", ft + "palette 1\npalette 0\n", "palette given twice"),
+                             ("palette 2", ft + "palette 2\n", "palette takes 0|1"),
+                             ("palette 1 ground 16", ft + "palette 1 ground 16\n", "ground outside 0 - 15"),
+                             ("palette 0 ground", ft + "palette 0 ground\n", "ground outside 0 - 15")):
+        try:
+            compile_course(text, fname="<%s>" % what, occluders=False)
+            fired, msg = False, "compiled"
+        except CourseError as e:
+            fired, msg = want in str(e), str(e)
+        res.append(("2 refused (wave 6): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+    pals = {}
+    for txt, want in (("", 0x30), ("palette 0\n", 0x10), ("palette 1 dim ground 9\n", 0x29),
+                      ("palette 0 dim\n", 0x00)):
+        cp = compile_course(ft + txt, fname="<palette %r>" % txt.strip(), occluders=False)
+        pals[txt.strip() or "none"] = (cp.pal, want)
+    res.append(("2 the palette byte (128.16.6): %s; the part is the same with any palette (no identity moves)" % (
+        ", ".join("%s %02Xh" % (k, v[0]) for k, v in pals.items())),
+        all(v[0] == v[1] for v in pals.values()) and compile_course(ft + "palette 0\n", "<pal>", occluders=False).cga
+        == compile_course(ft, "<no pal>", occluders=False).cga))
     for what, sw, text, want in (("a cup on a ramp", "flat", _swap(_W4C, "cup 12 6", "cup 14 6"), "not a FLAT FLOOR"),
                                  ("a second cup", "cupmax", _W4C + "cup 9 6\n", "a second cup")):
         _CHECKS_OFF.add(sw)                     # the refusal (and the reader's) switched off: the item fails
@@ -9445,15 +11015,37 @@ def selfcheck(paths=None):
             res.append(("2 refused: %s's first record with the UNDERSIDE flag (the reader's own check)" % c.name, fired))
             break
     # 4. the tables the guest reads, against 128.11.6.2's table written out here
-    want_st = bytes([4, 6, 6, 205, 1, 0, 1, 205, 2, 5, 6, 102, 4, 6, 6, 224,
+    # (wave 6, SPEC.md 128.16.3: the Grips 8, 5, 3 - so ice's brakes 2, 1, 1 - the Hops 252, 160, 224, and
+    # BZ_MATTAB +12 rubber's BOOST 350 as a word)
+    want_st = bytes([4, 6, 8, 205, 1, 0, 2, 205, 2, 5, 8, 102, 4, 6, 8, 224,
                      2, 8, 5, 38, 1, 0, 1, 38, 2, 5, 5, 19, 2, 8, 5, 224,
-                     6, 5, 10, 102, 1, 0, 2, 102, 3, 5, 10, 51, 6, 5, 10, 224])
-    want_mt = bytes([4, 6, 205, 96, 128, 6, 224, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                     6, 5, 3, 102, 1, 0, 1, 102, 3, 5, 3, 51, 6, 5, 3, 224])
+    want_mt = bytes([4, 6, 205, 96, 128, 8, 252, 0, 0, 0, 0, 0, 0x5E, 1, 0, 0,
                      2, 8, 38, 32, 128, 5, 160, 0, 1, 55, 176, 1, 0, 0, 0, 0,
-                     6, 5, 102, 64, 96, 10, 176, 0, 2, 24, 40, 2, 0, 0, 0, 0])
+                     6, 5, 102, 64, 96, 3, 224, 0, 2, 24, 40, 2, 0, 0, 0, 0])
     res.append(("4 BZ_SURFTAB (48 bytes: force, drag shift, brake, floor restitution of each material on normal, ice, "
-                "sand and a mat) and BZ_MATTAB (3 x 16) are 128.11.6.2's and 128.11.5.1's tables",
+                "sand and a mat) and BZ_MATTAB (3 x 16, +12 BOOST) are 128.11.6.2's and 128.16.3's tables",
                 surftab() == want_st and mattab() == want_mt))
+    # item 4 (SPEC.md 128.16.9): BZ_PHYSV is not 00h and not any EARLIER physics' value, with its controls
+    try:
+        check_physv()
+        pv_ok = PHYSV not in PHYSV_SHIPPED and PHYSV != 0
+    except CourseError:
+        pv_ok = False
+    res.append(("4 BZ_PHYSV %02Xh is not 00h and not in PHYSV_SHIPPED (%s); PHYS_REV %d is PHYS_CONSTS' last" % (
+        PHYSV, ", ".join("%02Xh" % v for v in PHYSV_SHIPPED), PHYS_REV), pv_ok and PHYS_CONSTS[-1] == PHYS_REV))
+    for name, pv, shipped in (("physv", PHYSV, PHYSV_SHIPPED + (PHYSV,)), ("physv0", 0, PHYSV_SHIPPED)):
+        try:
+            check_physv(pv, shipped)
+            fired = False
+        except CourseError:
+            fired = True
+        res.append(("4 negative control `%s` (%s): refused" % (
+            name, "PHYSV_SHIPPED holding this build's value" if name == "physv" else "BZ_PHYSV forced to 00h"),
+            fired))
+    res.append(("4 a rule-only change moves BZ_PHYSV: PHYS_REV %d -> %d gives %02Xh against %02Xh" % (
+        PHYS_REV, PHYS_REV + 1, phys_ident(_consts=PHYS_CONSTS[:-1] + (PHYS_REV + 1,)), PHYSV),
+        phys_ident(_consts=PHYS_CONSTS[:-1] + (PHYS_REV + 1,)) != PHYSV))
     t = htab()
     for k, c in enumerate(courses):
         tag = "%s" % c.name
@@ -9708,14 +11300,32 @@ def selfcheck(paths=None):
                 "from 22.5 to 60, and no fall of 2 units reaches 2 up; no window has a hole",
                 gaps[(6, 2)][:2] == (15.0, 67.5) and gaps[(6, 3)][:2] == (22.5, 60.0) and gaps[(2, 2)] is None
                 and all(w is None or w[2] == 0 for w in gaps.values())))
+    # wave 6 (SPEC.md 128.16.5.3): the airborne step did not change, so rubber's table is wave 2's, ASSERTED
+    # equal (128.11.5.3's written table, every cell); glass's is printed beside it
+    W2_GAPS = {(2, 0): (16.5, 46.5), (2, 1): (12, 37.5), (2, 2): None, (2, 3): None,
+               (3, 0): (16.5, 58.5), (3, 1): (10.5, 51), (3, 2): (21, 39), (3, 3): None,
+               (4, 0): (16.5, 64.5), (4, 1): (10.5, 58.5), (4, 2): (18, 49.5), (4, 3): None,
+               (6, 0): (16.5, 78), (6, 1): (9, 73.5), (6, 2): (15, 67.5), (6, 3): (22.5, 60)}
+    res.append(("7 ledge_gaps() for rubber unchanged by wave 6: all sixteen windows are 128.11.5.3's written table "
+                "(the airborne step did not change)", all((gaps[k] is None and v is None) or (
+                    gaps[k] is not None and v is not None and gaps[k][:2] == v) for k, v in W2_GAPS.items())))
+    gg = ledge_gaps(mat=MAT_GLASS)
+    print("    glass's ledge-gap table (SPEC.md 128.16.5.3), printed beside rubber's:")
+    for line in gap_table_text(gg, MAT_GLASS).split("\n"):
+        print("      " + line)
     if "FIRST" in byname:
-        _physics_checks(byname["FIRST"], res, byname.get("TRIAL"))
+        _physics_checks(byname["FIRST"], res, byname.get("TRIAL"), byname.get("MILL"))
     if "MILL" in byname:
         _props_physics(byname["MILL"], res)
     if "BENCH" in byname:
         _route_checks(byname["BENCH"], res, byname.get("TRIAL"), byname.get("FIRST"))
     if "MILL" in byname:
         _mill_route(byname["MILL"], res)
+    if "PLAY" in byname:                        # wave 6 (SPEC.md 128.16.8)
+        _play_checks(byname["PLAY"], res)
+    # wave 6's review (SPEC.md 128.16.4.2): the shipped courses' 3-tile gaps onto a LOWER floor, each with the
+    # gap ladder's count at its drop - printed for the owner at gate 1, every one a potential new shortcut
+    _gap3_report(byname)
     # wave 4 (SPEC.md 128.14): the props' rules, NO TRAP, the new courses' routes, the demos
     _w4_physics(byname, res)
     for c in courses:
@@ -10130,11 +11740,120 @@ def _course_list(paths):
     return out
 
 
+# 128.16.5.4's figures (as built by wave 6, rule 4 exactly): --tune prints a trial against them
+W6_SIZES = {"BENCH": (2747, 38732, 7223, 5770), "FIRST": (332, 8822, 2103, 1685), "TRIAL": (854, 15056, 3785, 3054),
+            "MILL": (1324, 28690, 8801, 7153), "MOON": (2694, 42030, 9710, 7903),
+            "PEAK": (3081, 45804, 11402, 9285)}
+TUNE_FIELDS = ("ACC", "K", "EF", "EW", "BMIN", "HOP", "GRIP", "HTHR", "HSTEPS", "BOOST")
+
+
+def apply_tune(assigns):
+    """--tune's NAME=VALUE list onto MATERIALS (rubber, steel, glass in that
+    order: NAME=a,b,c; BOOST=b alone sets rubber's), and the globals derived
+    from it (HOPMAX, BOOSTMAX, BZ_PHYSV).  -> [what changed]"""
+    global HOPMAX, BOOSTMAX, PHYSV
+    out = []
+    for a in assigns:
+        if "=" not in a:
+            raise CourseError("--tune: %r is not NAME=VALUE" % a)
+        name, val = a.split("=", 1)
+        name = name.upper()
+        if name not in TUNE_FIELDS:
+            raise CourseError("--tune: %s is not a MATERIALS field (%s)" % (name, ", ".join(TUNE_FIELDS)))
+        vals = [int(v) for v in val.split(",")]
+        if len(vals) == 1 and name == "BOOST":
+            vals = [vals[0], MATERIALS[MAT_STEEL]["BOOST"], MATERIALS[MAT_GLASS]["BOOST"]]
+        if len(vals) != len(MATERIALS):
+            raise CourseError("--tune: %s takes %d values (rubber, steel, glass)" % (name, len(MATERIALS)))
+        for m, v in enumerate(vals):
+            if MATERIALS[m][name] != v:
+                out.append("%s's %s %d -> %d" % (MAT_NAMES[m], name, MATERIALS[m][name], v))
+                MATERIALS[m][name] = v
+    HOPMAX = max(m["HOP"] for m in MATERIALS)
+    BOOSTMAX = max(m["BOOST"] for m in MATERIALS)
+    PHYSV = phys_ident()
+    return out
+
+
+def main_tune(assigns, paths):
+    """bbcourse.py --tune NAME=VALUE ... (SPEC.md 128.16.13): every course
+    compiled under trial values of MATERIALS, NOTHING written; each course's
+    verdict under the bounds, its records and sizes against 128.16.5.4's, the
+    step ladder and the gap ladder, every route proof and every AUTHOR script"""
+    import time
+    t0 = time.time()
+    ch = apply_tune(assigns)
+    print("bbcourse --tune: %s; HOPMAX %d, BOOSTMAX %d, BZ_PHYSV %02Xh%s" % (
+        "; ".join(ch) or "no change", HOPMAX, BOOSTMAX, PHYSV,
+        " (an EARLIER physics' value: bump PHYS_REV)" if PHYSV in PHYSV_SHIPPED else ""))
+    bad = []
+    try:
+        check_boosts()
+    except CourseError as e:
+        print("  REFUSED at import: %s" % e)
+        bad.append("the boost's bound")
+    courses = []
+    for k, path in enumerate(paths):
+        try:
+            c = compile_course(path)
+            c.packed4 = check_budget(c, k)
+            was = W6_SIZES.get(c.name)
+            print("  %-5s compiles: %d records, RAM %d, LZ4 %d, LZB %d%s" % (
+                c.name, len(c.records), len(c.cga), packed_len(c.stored4, "lz4"), packed_len(c.stored4, "lzb"),
+                "" if was is None else " (128.16.5.4: %d, %d, %d, %d)" % was))
+            courses.append(c)
+        except CourseError as e:
+            print("  %-5s REFUSED: %s" % (os.path.basename(path), e))
+            bad.append(os.path.basename(path))
+            courses.append(None)
+    st, gp = step_ladder(), gap_ladder()
+    for line in ladder_text(st, gp).split("\n"):
+        print("  " + line)
+    for what, good in ladder_verdicts(st, gp):
+        print("  %-4s the ladders: %s" % ("ok" if good else "FAIL", what))
+        if not good:
+            bad.append("the ladders")
+    byname = {c.name: c for c in courses if c is not None}
+    res = []
+    if "BENCH" in byname:
+        _route_checks(byname["BENCH"], res, byname.get("TRIAL"), byname.get("FIRST"))
+    if "MILL" in byname:
+        _mill_route(byname["MILL"], res)
+    for c in courses:
+        if c is not None and (any(p["kind"] >= PK_CHECKPOINT for p in c.props) or c.branches):
+            _w4_route(c, res)
+    for k, c in enumerate(courses):
+        if c is None or k == 0:
+            continue
+        if c.name in AUTHOR:
+            try:
+                _log, p = author_demo(c, k, AUTHOR[c.name])
+                res.append(("AUTHOR %s: %d steps, %s" % (c.name, p.nstep, "to the goal" if p.goal else "NOT to the "
+                                                                                                    "goal"), p.goal))
+            except CourseError as e:
+                res.append(("AUTHOR %s: %s" % (c.name, e), False))
+        elif len(c.route) >= 2:
+            p = Physics(c, play=True)
+            while p.nstep < DEMO_STEPS and not p.goal:
+                p.step_auto()
+            res.append(("route demo %s: %d steps, %s" % (c.name, p.nstep, "to the goal" if p.goal else
+                                                          "NOT to the goal"), p.goal))
+    for what, good in res:
+        print("  %-4s %s" % ("ok" if good else "FAIL", what))
+        if not good:
+            bad.append(what.split(":")[0])
+    print("bbcourse --tune: %s (%.0f s; nothing written)" % ("every course, ladder, route and script passes" if not bad
+                                                            else "REFUSED or FAILED: %s" % ", ".join(bad),
+                                                            time.time() - t0))
+    return 1 if bad else 0
+
+
 def main_demo(argv):
     """bbcourse.py demo IN.BZR [-o OUT.bzd]: a log the owner saved (W, on a
     5150 or in 86Box) as a .bzd (SPEC.md 128.14.7.4).  The course is the log's
     K in BZ_COURSES; the file is checked as the guest's L checks it, except
-    for its physics byte, which the build re-stamps or demotes."""
+    for its physics byte: a log under other physics converts, and the build
+    then REFUSES it (SPEC.md 128.16.9) until it is recorded again."""
     ap = argparse.ArgumentParser(prog="bbcourse.py demo")
     ap.add_argument("log")
     ap.add_argument("-o", "--out")
@@ -10210,14 +11929,37 @@ def main():
     ap.add_argument("--rec", type=int, choices=(4, 8), default=REC,
                     help="RECB, the occluder record's RAM size: 4 (D, the default and the shipped form) or 8 "
                          "(C, not shipped: SPEC.md 128.15.5.4's verdict); the stride is data, so both are kept")
+    ap.add_argument("--tune", nargs="+", metavar="NAME=VALUE",
+                    help="compile every course under trial values of MATERIALS (HOP=r,s,g BOOST=b ...), write "
+                         "nothing, and print each course's verdict, the step and gap ladders, every route proof and "
+                         "every AUTHOR script (SPEC.md 128.16.13)")
+    ap.add_argument("--pans", action="store_true",
+                    help="GLIDE's columns and rows panned over each demo on both cards, the host's prediction "
+                         "(SPEC.md 128.16.13); writes nothing")
     ap.add_argument("--sizes", action="store_true",
                     help="every course's sections, stored and packed both ways, its decode time, RAM and budget, "
                          "then the package's (SPEC.md 128.15.12.2); about a minute a course")
     a = ap.parse_args()
-    if not (a.out or a.selfcheck or a.png or a.sizes):
-        ap.error("need -o OUT, --selfcheck, --sizes or --png DIR")
+    if not (a.out or a.selfcheck or a.png or a.sizes or a.tune or a.pans):
+        ap.error("need -o OUT, --selfcheck, --sizes, --tune, --pans or --png DIR")
     REC = a.rec
     paths = a.courses or default_paths()
+    if a.pans:
+        if a.out or a.selfcheck or a.png or a.sizes or a.tune:
+            ap.error("--pans writes nothing and runs alone")
+        try:
+            return main_pans(paths)
+        except CourseError as e:
+            print("bbcourse: %s" % e, file=sys.stderr)
+            return 1
+    if a.tune:
+        if a.out or a.selfcheck or a.png or a.sizes:
+            ap.error("--tune writes nothing and runs alone")
+        try:
+            return main_tune(a.tune, paths)
+        except CourseError as e:
+            print("bbcourse: %s" % e, file=sys.stderr)
+            return 1
     try:
         rc = 0
         if a.selfcheck:

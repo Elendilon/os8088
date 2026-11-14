@@ -31,12 +31,14 @@ kept as the reference the rubber part is held to.
 
 Ball part, BZB2 (SPEC.md 128.11.9.1): +0 'BZB2', +4 frames (64), +6 rows (16),
 +8 bytes a row (5), +10 the material, +11 squash frames (2), +12 shatter
-frames (0 or 4), +13 shadow rows (6), +14 two zero bytes; +16 the masks (4
+frames (0 or 4), +13 shadow rows (6), +14 stretch frames (1 rubber, else 0,
+wave 6), +15 a zero byte; +16 the masks (4
 shifts x 16 rows x 5, the material's silhouette, a SET bit keeps); +336 the
 64 roll frames, frame f at shift f & 3; +5,456 the squash entries (2 x 4
 shifts x 2 line parities x (mask 80 + frame 80)); +8,016 the shadow masks (2
 parities x 4 shifts x 6 rows x 5, AND only); +8,256 glass's shatter entries
-(4 x 4 x 2 x 160).  8,256 bytes, glass 13,376.
+(4 x 4 x 2 x 160), or rubber's STRETCH entry (1 x 4 x 2 x 160, wave 6, SPEC.md
+128.16.4.4).  Steel 8,256 bytes, rubber 9,536, glass 13,376.
 
 Wave 1's ball part, BZB1 (SPEC.md 128.10.5.3), the reference:
     +0 'BZB1'  +4 word frames (64)  +6 word rows (16)  +8 word bytes a row (5)
@@ -281,13 +283,22 @@ NSQ = 2                       # squash frames
 SQ_ROWS = (13, 11)            # each one's height, bottom-anchored in the 16 rows
 NSH = 4                       # glass's shatter frames: crack, burst, spread, glints
 SHD_ROWS = 6                  # the shadow: a 16 x 6 ellipse, AND only
+NST = 1                       # rubber's STRETCH frames (wave 6, the boost's cue)
+ST_W = 12                     # the stretch: an ellipse 12 wide, 16 tall, centred
 ENT = 2 * D * RB              # a squash or shatter entry: mask 80 + frame 80
 B2_MASKOFF = HDR                                   # 16
 B2_FRMOFF = B2_MASKOFF + SHIFTS * D * RB           # 336
 B2_SQOFF = B2_FRMOFF + NFRAMES * D * RB            # 5,456
 B2_SHDOFF = B2_SQOFF + NSQ * SHIFTS * 2 * ENT      # 8,016
 B2_SHAOFF = B2_SHDOFF + 2 * SHIFTS * SHD_ROWS * RB  # 8,256
-B2_SIZE = (B2_SHAOFF, B2_SHAOFF, B2_SHAOFF + NSH * SHIFTS * 2 * ENT)   # 8,256, 8,256, 13,376
+B2_STROFF = B2_SHAOFF                              # 8,256: rubber's stretch, where glass's shatter is
+B2_SIZE = (B2_STROFF + NST * SHIFTS * 2 * ENT, B2_SHAOFF,
+           B2_SHAOFF + NSH * SHIFTS * 2 * ENT)     # 9,536, 8,256, 13,376
+
+
+def nstretch(mat):
+    """BZB2 +14: the material's stretch frames (SPEC.md 128.16.4.4)"""
+    return NST if mat == MAT_RUBBER else 0
 
 
 def _rim(x, y):
@@ -400,6 +411,43 @@ def squash_frame(mat, k):
     return tuple(rows)
 
 
+def _stretch_shape(x, y):
+    """the stretch (SPEC.md 128.16.4.4): an ellipse ST_W wide and 16 tall,
+    centred in the 16 x 16 frame"""
+    cx = cy = (D - 1) / 2.0
+    ax, ay = ST_W / 2.0, D / 2.0
+    return ((x - cx) / ax) ** 2 + ((y - cy) / ay) ** 2 <= 1.0 + 1e-9
+
+
+def stretch_frame(mat):
+    """the boost's STRETCH frame: roll frame 0's look pressed in ACROSS into
+    the 12 x 16 ellipse (squash_frame's method, across instead of down), its
+    outermost ring black"""
+    base = material_frame(mat, 0, 0)
+    x0 = (D - ST_W) // 2
+    rows = []
+    for y in range(D):
+        row = []
+        for x in range(D):
+            if not _stretch_shape(x, y):
+                row.append(None)
+                continue
+            if any(not _stretch_shape(x + dx, y + dy) or not 0 <= x + dx < D or not 0 <= y + dy < D
+                   for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+                row.append(BLK)
+                continue
+            if mat == MAT_GLASS and (x + y) & 1 == 0:
+                row.append(SEE)
+                continue
+            sx = min(D - 1, int((x - x0 + 0.5) * D / ST_W))   # sample the round frame, pressed in
+            c = base[y][sx]
+            if c is None or c == SEE:
+                c = CYN if mat != MAT_RUBBER else MAG
+            row.append(c)
+        rows.append(tuple(row))
+    return tuple(rows)
+
+
 def shatter_frame(k):
     """glass's shatter frame k, in footprint slots x = -2 .. 17 (ball pixels;
     clipped to the 20 slots at each shift), 16 rows: crack, burst, spread,
@@ -490,7 +538,8 @@ def _rows_of(frame):
 def build_ball2(mat):
     """BZB2, the CGA's (SPEC.md 128.11.9.1); the Hercules one is made at the fetch"""
     nsh = NSH if mat == MAT_GLASS else 0
-    hdr = b"BZB2" + struct.pack("<HHHBBBBH", NFRAMES, D, RB, mat, NSQ, nsh, SHD_ROWS, 0)
+    nst = nstretch(mat)
+    hdr = b"BZB2" + struct.pack("<HHHBBBBBB", NFRAMES, D, RB, mat, NSQ, nsh, SHD_ROWS, nst, 0)
     assert len(hdr) == HDR
     out = bytearray(hdr)
     sil = _rows_of(material_frame(mat, 0, 0))
@@ -517,6 +566,12 @@ def build_ball2(mat):
             ringed = _ring_slots([_slots(rows[r], s) for r in range(D)])
             for p in range(2):
                 enc = [_encode(sl) for sl in ringed]
+                out += b"".join(e[0] for e in enc) + b"".join(e[1] for e in enc)
+    for k in range(nst):                           # STRETCH (rubber): the squash's entry
+        rows = _rows_of(stretch_frame(mat))        # format, at +8,256
+        for s in range(SHIFTS):
+            for p in range(2):
+                enc = [_encode(_slots(rows[r], s)) for r in range(D)]
                 out += b"".join(e[0] for e in enc) + b"".join(e[1] for e in enc)
     if len(out) != B2_SIZE[mat]:
         raise AssetError("%s ball part is %d bytes, not %d" % (MAT_NAMES[mat], len(out), B2_SIZE[mat]))
@@ -547,11 +602,11 @@ def shadow_mask(p, s):
 def herc_translate_ball(part, table=None):
     """the Hercules ball part bz_hxlat makes at the fetch (SPEC.md 128.11.3):
     roll frame f's row r through table ((f >> 3) + r) & 1; the FRAME half of a
-    squash or shatter entry of parity copy p, row r, through (p + r) & 1;
+    squash, shatter or stretch entry of parity copy p, row r, through (p + r) & 1;
     masks and the shadow untouched (a mask is the same bytes on both cards)"""
     t = table if table is not None else htab()
     b = bytearray(part)
-    nsh = b[12]
+    nsh = b[12] + b[14]                    # shatter or stretch: never both, one table
     for f in range(NFRAMES):
         for r in range(D):
             o = B2_FRMOFF + (f * D + r) * RB
@@ -600,7 +655,10 @@ def emit_const():
         "BZ_BAL_SHDB     equ %d       ; bytes a shadow mask" % (SHD_ROWS * RB),
         "BZ_BAL_SHAOFF   equ %d      ; glass's shatter: frame x shift x parity x (mask, frame)" % B2_SHAOFF,
         "BZ_BAL_NSHA     equ %d" % NSH,
-        "BZ_BAL_SIZE     equ %d      ; rubber and steel" % B2_SIZE[0],
+        "BZ_BAL_STROFF   equ %d      ; rubber's stretch (wave 6): shift x parity x (mask, frame)" % B2_STROFF,
+        "BZ_BAL_NSTR     equ %d        ; ...its frames, BZB2 +14" % NST,
+        "BZ_BAL_SIZER    equ %d      ; rubber" % B2_SIZE[0],
+        "BZ_BAL_SIZE     equ %d      ; steel" % B2_SIZE[1],
         "BZ_BAL_SIZEG    equ %d     ; glass" % B2_SIZE[2],
         "",
     ]
@@ -737,10 +795,11 @@ def _check_ball2(mat, part, results, tag=None):
     """BZB2's own checks for one material (SPEC.md 128.11.17.2's bonanzaassets)"""
     name = tag or "%s (%s)" % (BALL_FILES[mat], MAT_NAMES[mat])
     nsh = NSH if mat == MAT_GLASS else 0
-    hdr = struct.unpack_from("<HHHBBBBH", part, 4)
+    nst = nstretch(mat)
+    hdr = struct.unpack_from("<HHHBBBBBB", part, 4)
     results.append(("%s header: BZB2, 64 frames, 16 rows, 5 bytes, material %d, %d squash, %d shatter, %d shadow "
-                    "rows, %d bytes" % (name, mat, NSQ, nsh, SHD_ROWS, B2_SIZE[mat]),
-                    part[:4] == b"BZB2" and hdr == (NFRAMES, D, RB, mat, NSQ, nsh, SHD_ROWS, 0)
+                    "rows, %d stretch, %d bytes" % (name, mat, NSQ, nsh, SHD_ROWS, nst, B2_SIZE[mat]),
+                    part[:4] == b"BZB2" and hdr == (NFRAMES, D, RB, mat, NSQ, nsh, SHD_ROWS, nst, 0)
                     and len(part) == B2_SIZE[mat]))
     ok_mask = stray = 0
     good = True
@@ -835,6 +894,45 @@ def _check_ball2(mat, part, results, tag=None):
                         good = False
     results.append(("%s shadow masks: a 16 x 6 ellipse clearing the world checker (x + y even) at each parity "
                     "and shift" % name, good))
+    if nst:
+        _check_stretch(mat, part, results, name)
+
+
+def _check_stretch(mat, part, results, name):
+    """the boost's STRETCH entry (SPEC.md 128.16.4.4, wave 6): at every shift
+    and line parity the mask is the stretch's 12 x 16 ellipse, the frame
+    decodes to stretch_frame() there, no frame bit lies under a kept pixel,
+    the two parity copies are identical and the outer ring is black"""
+    fr = stretch_frame(mat)
+    good = ring = True
+    stray = 0
+    for s in range(SHIFTS):
+        e0 = B2_STROFF + (s * 2) * ENT
+        if part[e0:e0 + ENT] != part[e0 + ENT:e0 + 2 * ENT]:
+            good = False
+        for p in range(2):
+            e = e0 + p * ENT
+            for r in range(D):
+                mrow = part[e + r * RB:e + r * RB + RB]
+                frow = part[e + D * RB + r * RB:e + D * RB + r * RB + RB]
+                got = _decode_pix(mrow, frow)
+                for j, v in enumerate(got):
+                    x = j - s
+                    c = fr[r][x] if 0 <= x < D else None
+                    want = None if c is None or c == SEE else c
+                    if v != want:
+                        good = False
+                    if v is None and (frow[j >> 2] >> (6 - 2 * (j & 3))) & 3:
+                        stray += 1
+                    if (c is not None and c != SEE and v != BLK and any(
+                            not (0 <= x + dx < D and 0 <= r + dy < D) or fr[r + dy][x + dx] is None
+                            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))):
+                        ring = False
+    wide = max(sum(1 for c in row if c is not None) for row in fr)
+    tall = sum(1 for row in fr if any(c is not None for c in row))
+    results.append(("%s stretch: a %d x %d ellipse (12 x 16); mask and frame consistent at every shift and parity, "
+                    "the copies identical, a black outer ring; no frame bit under a kept pixel (%d stray)"
+                    % (name, wide, tall, stray), good and ring and stray == 0 and (wide, tall) == (ST_W, D)))
 
 
 def selfcheck():
@@ -926,6 +1024,17 @@ def selfcheck():
     _check_ball2(MAT_GLASS, bytes(gs), sub, "glass, a burst shard's ring pixel cyan")
     results.append(("negative control: one ring pixel of glass's burst frame made cyan is caught (at the ring check)",
                     hit is not None and [w for w, g in sub if not g] == [w for w, _ in sub if "outer ring" in w]))
+    nz = all(a_files[BALL_FILES[m]][14] == 0 for m in (MAT_STEEL, MAT_GLASS)) and a_files["BZBALR.BIN"][14] == NST
+    results.append(("BZB2 +14: rubber's stretch count %d, steel's and glass's 0" % NST, nz))
+    rs = bytearray(a_files["BZBALR.BIN"])              # one stretch frame pixel flipped
+    e = B2_STROFF + ((2 * 2) + 1) * ENT                # against its mask: shift 2, parity 1,
+    r = 0                                              # row 0's first KEPT slot gains a frame bit
+    j = next(j for j in range(RB * 4) if (rs[e + r * RB + (j >> 2)] >> (6 - 2 * (j & 3))) & 3 == 3)
+    rs[e + D * RB + r * RB + (j >> 2)] |= WHT << (6 - 2 * (j & 3))
+    sub = []
+    _check_ball2(MAT_RUBBER, bytes(rs), sub, "rubber, one stretch frame pixel flipped")
+    results.append(("negative control: one stretch frame pixel flipped against its mask is caught (at the stretch "
+                    "check)", [w for w, g in sub if not g] == [w for w, _ in sub if " stretch:" in w]))
     ok = True
     for what, good in results:
         print("  %-4s %s" % ("ok" if good else "FAIL", what))
@@ -979,7 +1088,8 @@ def previews(out):
     files, _ = compile_all()
     for herc in (0, 1):
         cw, ch = 28, 40
-        sprites = ["roll"] + ["squash%d" % k for k in range(NSQ)] + ["shatter%d" % k for k in range(NSH)]
+        sprites = (["roll"] + ["squash%d" % k for k in range(NSQ)] + ["shatter%d" % k for k in range(NSH)]
+                   + ["stretch%d" % k for k in range(NST)])
         img = Image.new("RGB", ((cw * len(GROUNDS)) * (2 if herc else 1), ch * 3 * len(sprites)), (40, 40, 40))
         ip = img.load()
         for m in range(3):
@@ -987,7 +1097,7 @@ def previews(out):
             if herc:
                 part = herc_translate_ball(part)
             for si, spn in enumerate(sprites):
-                if spn.startswith("shatter") and m != MAT_GLASS:
+                if (spn.startswith("shatter") and m != MAT_GLASS) or (spn.startswith("stretch") and not nstretch(m)):
                     continue
                 for g in range(len(GROUNDS)):
                     ox, oy = g * cw, (m * len(sprites) + si) * ch
@@ -1009,7 +1119,7 @@ def previews(out):
                         mo = B2_MASKOFF + s * D * RB
                         fo = B2_FRMOFF + f * D * RB
                     else:
-                        base = B2_SQOFF if spn.startswith("squash") else B2_SHAOFF
+                        base = B2_SQOFF if spn.startswith("squash") else B2_SHAOFF   # (the stretch's too)
                         k = int(spn[-1])
                         e = base + ((k * SHIFTS + s) * 2 + (py & 1)) * ENT
                         mo, fo = e, e + D * RB

@@ -2088,3 +2088,83 @@ records) had never run on the emulator. On BENCH it stayed green on the
 CGA: none of BENCH's six occluded frames met a skipped record. Its leg is
 now the W4 part, and there it went red on MOON's demo on both cards. A red
 arm that is only assembled is not yet known to work; this is why.
+
+## 2026-11-14 (wave 6, the final pass: the rows, the arms, and what feel costs)
+
+Wave 6 built the owner's per-ball physics. Space Hops and Shift Grips for
+every ball, in different amounts. Rubber gets one boost a Hop. The drag is
+now fractional. There is a CGA palette per course, a camera that follows
+the ground line rather than the ball, and a seventh course, the
+PLAYGROUND, for gate 1. This entry is its final pass: every BONANZA row
+once, every red arm once, and the measurements SPEC.md 128.16.10 asks of
+this pass. The re-baseline is the freeze's, after the owner plays.
+
+**The rows.** One scoped soak: ten rows passed and three failed. None of
+the three found a fault in the guest; all three were in how the rows
+drive it.
+
+- **`bonanzamega` hung for 37 minutes.** Its new PLAYGROUND case waited
+  for the Hop's flight in a loop that read the 86Box machine's memory, but
+  86Box is HELD between commands. Nothing stepped it, so the ball never
+  moved. The loop now steps the machine once a pass.
+- **`bonanzaring` and `bonanzawheel` failed on coverage**, all from one
+  cause. Their scenes held the ball AIRBORNE over a floor far below:
+  186 px in one case. That was fine while the camera followed the ball,
+  but wave 6's camera follows the GROUND line under an airborne ball. So
+  GLIDE and TRICKLE panned the window 36 - 44 rows down after the floor,
+  and the scene's post or rotor was no longer where the scene needed it.
+  The cure keeps the scenes' meaning: the cut still centres on the ball
+  (the cut uses the ball's own line), and from the next frame the ball is
+  held RESTING in the window's band. A grounded ball's camera line is its
+  own.
+- **The row-0 probe** lost a frame on the Hercules. The reach's taller top
+  puts BENCH's floor 20 px further below world line 0, so the fifth
+  frame's shadow fell off the window. Those frames are now put 40 px back,
+  as the probe's split frames already were.
+
+All three rows passed when re-run alone. `bonanzawheel` still fails its
+check (6) on the CGA, as it has since 3b.
+
+**The arms.** All 107 emulator arms ran, and every one went red at its
+own check. Three needed a change:
+- `contact` now runs on the CGA alone. The Hercules' MILL route under the
+  new drag never puts a contact candidate under the wheel.
+- `nosafe` is now compared against its own model, so it fails at the
+  footprint and not at the window a frame earlier.
+- `nolatch` could not be made to fail at its intended check. Its model,
+  paced at the card's average rate, reverses the rows two frames before
+  the kill. The guest's own pacing reaches the kill first, and so does the
+  model paced as the guest ran. It now goes red at the window check
+  against the shipped camera model instead. The row's reversal check stays
+  in place, but no arm proves it.
+
+**What the new code costs, MEASURED.**
+- The fractional drag: worst 335 cycles a call, mean 325, against a price
+  of 428 (priced from its instructions, the fetch floor and x 1.05).
+- The camera's ground line: worst 470 cycles, means 360 - 436, against
+  527.
+- BENCH against 5b's commit (not like for like: the ball is faster and the
+  route moved): the CGA's sim+camera part +654 clk a frame, inside the
+  predicted +0.65 - 0.75k.
+
+**What the owner will feel.** The rates held: every demo is within one
+missed refresh a second of 5b's. MILL on the CGA, which the host had
+predicted might cost about +5 a second, missed 8.90 against 5b's 8.52 (its
+low camera mode) and 12.48 (its high one), although it now always plays
+in the high mode's columns. PEAK rose 0.69 a second on the CGA and 0.37 on
+the Hercules.
+
+What changed is the SHAPE of the misses. No frame was ever held for more
+than two refreshes. But where 5b's misses were scattered, wave 6's come
+in runs: half-rate stretches up to 43 frames long on PEAK (about 1.4 s at
+30 Hz), and 45 such runs in its 40 s, where 5b had 2. The likely cause,
+not yet separated by a measurement, is the feedback 5b first saw on MILL:
+a faster ball pans more, a missed frame makes the camera step further,
+and the next frame costs more. Under the owner's smoothness rule this is
+the stutter half. It goes to gate 1 beside the levers that would change
+it, each ball's `K` and `ACC`.
+
+**The ladders and the numbers** the owner needs at gate 1 are on one page,
+[BOUNCE-BONANZA-GATE1.md](BOUNCE-BONANZA-GATE1.md): what to try on the
+PLAYGROUND, both ladders, every tunable with its limits, and how a retune
+is asked for and checked before it is committed.

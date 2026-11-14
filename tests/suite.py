@@ -5012,6 +5012,7 @@ SOAK = [
         "guard nobody knows is alive",
         needs=("nasm",)),
     Row("bonanzaassets", "soak", ["python3", "tools/bonanza_assets.py", "--selfcheck"], 0.5,
+        "WAVE 6 (SPEC.md 128.16.4.4, 128.16.14): rubber's STRETCH frame at +8,256 (BZB2 +14 = 1 rubber, 0 steel and glass), its ellipse 12 x 16 with its black ring, mask and frame at every shift and parity, the copies identical, no frame bit under a kept pixel; the part sizes 9,536 / 8,256 / 13,376; control: one stretch frame bit set under a kept pixel, caught at the stretch check alone. "
         "BONANZA's three balls (SPEC.md 128.11.9, 128.11.17.2), host only: two "
         "runs byte-identical file for file; BZB2's layout for rubber, steel "
         "and glass; every roll frame decoded back to the material's look at "
@@ -5026,7 +5027,8 @@ SOAK = [
         "flipped (the table and the translated part both fail), glass's "
         "interior mask made solid, a squash parity copy altered, one rim pixel "
         "of steel made cyan. secs measured on the host (0.4 s, rounded up)"),
-    Row("bonanzacourse", "soak", ["python3", "tools/bbcourse.py", "--selfcheck"], 180.0,
+    Row("bonanzacourse", "soak", ["python3", "tools/bbcourse.py", "--selfcheck"], 260.0,
+        "WAVE 6 (SPEC.md 128.16.13, 128.16.14): ITEM 7 - the material table printed from Physics and asserted against axis_feel() (the axis model under the round-up drag equal to wave 2's written row), the STEP LADDER and the GAP LADDER (no ball crosses three tiles level, the boost included, every window position; onto a lower floor - half a unit to 3 units down - steel never and no Hop alone down to 1.5 units, the boost's and the deeper Hop's crossings PRINTED as the KNOWN CONFLICT; the shipped courses' 3-tile gaps onto lower floors listed by gap3_scan()), a Hop on a spring's cell never boosts (the spring's launch spends the token), no gain after a 1.5- or 2-unit drop and the 1-unit drop's boost with sqf 0, one boost a chain, the token at the first contact only, the Grip chain, firm level floors only (MILL's lift slab among them), the PLAYGROUND's rungs dead ends and its 2-unit top outside reach_closure(), its rungs' and notches' sweeps, the brake strip's Grip and play_fall() with nosafe and nolatch, ledge_gaps() per ball, the up-ramp distance per ball, all seven courses under their bounds and budgets; ITEM 1 re-anchored on 503031d4 (that commit's tool from git on this tree's six course texts against this tool with the reach's 5b inputs, the stored parts byte for byte; a SKIP is a failure); ITEM 4 BZ_PHYSV not 00h and not in PHYSV_SHIPPED; ITEM 8 BENCH's eight directions with the ground-line Glide; ITEM 9 a stale or demoted shipped .bzd refused, BZD6 boosting, reaching the ledge and ending at the goal, a course in AUTHOR without its .bzd refused; the palette statement's refusals (item 2). Host controls, each at its own item: boost400 and boost300 (the import assertions), boostrise, slabboost, noclear, springtok, remwide, gap3, physv, physv0, stalebzd, noboostdemo, deadend. The RAM forms' identities (wave 6): BENCH C0B1h, FIRST E9F8h, TRIAL 465Bh, MILL DAE0h, MOON 4472h, PEAK 57DBh, PLAY 18E6h; the six courses 179,134 bytes of RAM, 43,024 LZ4, 34,850 LZB, the PLAYGROUND 34,024 / 5,371 / 4,352 (MEASURED on the host by the tool). secs: the tool stage's 4 min 20 s over the seven courses (re-taken in the final pass). "
         "WAVE 5b (SPEC.md 128.15.12.3, 128.15.13): every course's model written back as BZC1 is "
         "ef59209a's part byte for byte (that commit's tool run from git; EXIT 77 when it cannot be "
         "had) and every BZ<K>.BIN is its STORED form; ITEM 10, the compact form: expand(stored) == "
@@ -5095,7 +5097,8 @@ SOAK = [
         "TRIAL's, FIRST with each ball, and GLIDE's eight directions at step "
         "rates 0.96 - 1.04. secs MEASURED on the host for wave 3 (78.9 s; 64 s at the tool "
         "stage, the review's seed-exchange control compiling MILL twice more)"),
-    Row("bonanzaring", "soak", py("tests/bonanza_ring.py"), 294.0,
+    Row("bonanzaring", "soak", py("tests/bonanza_ring.py"), 410.0,
+        "WAVE 6 (SPEC.md 128.16.7, 128.16.14): THE GROUND LEG (part `ground`), each scenario PROVED on the model first (--check-reds) - the PLAYGROUND's bounce chain onto the 1.5-unit ledge (bonanzaphys's boostclimb) and its boostdrop (the boost at an impact past 384), TRIAL's 6-unit drop (bonanzaphys's bounce) and the brake strip's fall into the void (bbcourse.play_fall's run, to the step before the kill) - replayed in GLIDE and in TRICKLE on both cards: in GLIDE the window (bz_R0, bz_c0) equals bbcourse.Glide's off the same log every frame; in both the footprint inside the window and, on the void fall, no row reversal while airborne; every stretch frame (bz_stf > 0) card = oracle with the oracle composing the stretch; the ground-line block's span (bz_camera.gline .. .cyd, MartyPC's cycles) at most CAM_PRICE 527 (the block's worst path, SPEC.md 128.16.7) + 25%, spans with an sch_isr entry inside left out. TRICKLE has no host model, so its windows are not compared (a deviation, SPEC.md 128.16.14 amended). Red arms: camz (the bounce chain), nosafe (the void fall's footprint, against its own model Glide(_nosafe)), nolatch (the CGA's void fall, at the window against the SHIPPED Glide: on the guest's pacing the unlatched camera reaches the kill before it reverses a row), ringcy (TRIAL's drop), nostretch (card = oracle), campad (the span, a ~430-clk pad); `contact` runs on the CGA alone (the Hercules' MILL route brings no candidate under the wheel). THE FINAL PASS (SPEC.md 128.16.14): the LOW scenario and bonanzawheel's STALE scene cut on an airborne point and then hold the ball RESTING (rest_in_window: an airborne ball's camera line is the GROUND line), and a probe frame whose shadow would fall off the window goes 40 px back; MEASURED the block's worst 470 cycles, means 360 - 436; the probe 13 multi-box frames on the CGA, 8 on the Hercules. secs: 325 s re-run alone beside two rows, x 1.25. "
         "BONANZA's two-way ring on MartyPC's CGA and Hercules (SPEC.md 128.2, "
         "128.11.10, 128.11.17.2). The ORACLE is bbcourse's picture with the "
         "SHADOW (an AND mask of the ball part), the MATERIAL's sprite (its "
@@ -5175,7 +5178,8 @@ SOAK = [
         "128.15.9). " + "secs MEASURED in 5b's re-take on the shipped D build (293.7 s, PEAK's demo leg in; SPEC.md 128.15.13)",
         needs=("marty", "nasm"), timeout=900,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
-    Row("bonanzaperf", "soak", py("tests/bonanza_perf.py"), 355.0,
+    Row("bonanzaperf", "soak", py("tests/bonanza_perf.py"), 575.0,
+        "WAVE 6 (SPEC.md 128.16.10, 128.16.14): every shipped demo BZD1 - BZD6 through D, both cards, REPORTED: missed refreshes a second off each frame's flip, runs of two or more misses and the longest run, MILL's columns panned against the host's prediction (no longer 5b's two modes), GLIDE's columns and rows panned a second against the host's prediction (the demo through bbcourse.Glide at the card's step rate), the occluder pass's span a frame; TRIAL's camera replays against wave 2's 251 / 137; --ab's default 5b's commit 503031d4, its BENCH and its own demos REPORTED beside (no like-for-like assertion until the freeze re-anchors it). --baseline is the FREEZE commit's (108 runs, a new dated report), not this wave's. THE FINAL PASS (SPEC.md 128.16.10, one run each, speaker ON): CGA MILL 8.90 missed refreshes a second (108 columns, the host's 106), PEAK 8.76; Hercules 1.68 and 3.24; the misses CLUSTER (CGA PEAK 45 runs of two or more, the longest 43 frames) - REPORTED for gate 1; --ab's BENCH +1,056 clk busy on the CGA, +47 on the Hercules (its archive now carries tools/os88lz.py, which 503031d4's bbcourse imports). secs: 573 s in the soak's lane beside three arm runs on four cores. "
         "BONANZA's frame cost on MartyPC's 4.77 MHz XT, CGA and Hercules "
         "(SPEC.md 128.11.15, 128.11.17.2): the BENCH benchmark's 1,200 frames "
         "under LOGGED breakpoints on the frame marks (wave 2's bz_tcmid and its "
@@ -5235,7 +5239,8 @@ SOAK = [
         "secs MEASURED in 5b's re-take on the shipped D build (354.5 s, SPEC.md 128.15.13)",
         needs=("marty", "nasm"), timeout=1800,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
-    Row("bonanzaphys", "soak", py("tests/bonanza_phys.py"), 250.0,
+    Row("bonanzaphys", "soak", py("tests/bonanza_phys.py"), 430.0,
+        "WAVE 6 (SPEC.md 128.16.3.1, 128.16.4, 128.16.14): every frame also bz_btok, bz_stf, bz_nboost, bz_drx and bz_dry against Physics.state6(); new replays FOUND and PROVED on the model (--check), both cards: boost, boostclimb, boostdrop, boostfall, pumpchk, bouncefirst, gripchain, rampnot (a ramp of TRIAL's, searched), sandnot, matnot, liftnot (MILL), springnot (a Hop on PEAK's spring: the launch spends the token), steelglass-steel/-glass, drag-rest, drag-cap, gripglass; every expected value the model's or MATERIALS' (no retunable literal); THE DRAG'S COST: drag-rest replayed again under breakpoints at bz_gax's entry and return, every CLEAN dragged call (no sch_isr entry inside) at most DRAG_PRICE 428 + 25%; hopagain is glass's now. Red arms: pump (pumpchk), rampboost (rampnot), tokbst (bouncefirst), slabcell (liftnot), ceildrag (drag-rest), slowdrag (the drag's span), springtok (springnot). "
         "BONANZA's physics on the guest EQUALS bbcourse.Physics (SPEC.md "
         "128.11.8, 128.11.17.2) on MartyPC's CGA and Hercules, EXACTLY, at "
         "every frame's bz_presented - the eight values and 128.11.8.1's (the "
@@ -5270,7 +5275,8 @@ SOAK = [
         "arms `--red ckpt|ckmat|padftg|cupv|springsum|tiltcap`. secs MEASURED in 5b's re-take on the shipped D build (249.3 s, SPEC.md 128.15.13)",
         needs=("marty", "nasm"), timeout=900,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
-    Row("bonanzareplay", "soak", py("tests/bonanza_replay.py"), 79.0,
+    Row("bonanzareplay", "soak", py("tests/bonanza_replay.py"), 135.0,
+        "WAVE 6 (SPEC.md 128.16.14): leg `play` - the PLAYGROUND recorded on the CGA with keys decided at each bz_presented off the guest's own state (a Hop, Space inside its window for the BOOST, Right + Down to the brake strip's lane, Left Shift, Left + Down onto the strip, Left Shift to rest), the model run off the log equal to the play every frame, its run boosting and holding Grip on the strip; replayed on the Hercules; the inject leg's rubber log boosts at its Hop's contact now. No new red: hopbit covers Space's bit. "
         "BONANZA's replays (SPEC.md 128.11.12, 128.11.17.2) on MartyPC: "
         "RECORD on the CGA - N to TRIAL, Enter, real keys held and released "
         "through the debug server for 600 frames (every arrow, Space, Left "
@@ -5300,7 +5306,8 @@ SOAK = [
         "tiltmap`. secs MEASURED in 5b's re-take on the shipped D build (78.9 s, SPEC.md 128.15.13)",
         needs=("marty", "nasm"), timeout=900,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
-    Row("bonanzaexit", "soak", py("tests/bonanza_exit.py"), 207.0,
+    Row("bonanzaexit", "soak", py("tests/bonanza_exit.py"), 295.0,
+        "WAVE 6 (SPEC.md 128.16.6, 128.16.14): the PLAYGROUND every way out (its three ball rows fetched and dropped), the claim leg over seven courses, a stopped tour at BZ_NTOUR + 2; THE PALETTE: on the CGA bz_vinit.vpal reached first with AL the course's BZ_CRS_PALS byte and the ball's body RENDERED (m.fbuf, nearest of the CGA's sixteen) in the colour that byte selects - the PLAYGROUND's 10h light red, FIRST's 30h light magenta - every index in its byte's colour; on the Hercules bz_vinit.vpal never hit; after each bracket the desktop renders only the colours (both of them) its capture before it held, the menu band left out (not the bitmap: BONANZA's window is in it and its face changes after a play). Red arms: nopal (the CGA), hercpal (the Hercules). "
         "BONANZA leaves nothing behind and a held key is one press (SPEC.md "
         "128.10.6.2, 128.11.3.1, 128.11.11.2) on MartyPC's CGA and Hercules: "
         "with EACH BALL (M: rubber, steel, glass), every way out - Esc, F and "
@@ -5333,7 +5340,8 @@ SOAK = [
         "5b's re-take on the shipped D build (207.0 s, TRIAL's launch and the claim leg in; SPEC.md 128.15.13)",
         needs=("marty", "nasm"), timeout=900,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
-    Row("bonanzamega", "soak", py("tests/bonanza_mega.py"), 64.0,
+    Row("bonanzamega", "soak", py("tests/bonanza_mega.py"), 95.0,
+        "WAVE 6 (SPEC.md 128.16.12, 128.16.14): case 10, the PLAYGROUND on kern_mega's Hercules - the course and its three ball rows through their selectors (rubber's stretch translated), a play with a Hop and its BOOST (Space held for steps, the second press when a model poked from the guest's state puts the contact 1 - 3 steps off), bz_nboost >= 1, the model's run of its log its end, its replay by R the same end; no fault, no leak. Red arm stretchcs (the stretch entry's translation through CS): case 10 alone, an exception charged to BONANZA at the PLAYGROUND's launch. THE FINAL PASS: the Hop's flight loop steps the HELD 86Box machine one step a pass (at most 120; it read the held machine and hung 37 minutes in the soak); secs: 74 s re-run, x 1.25. "
         "BONANZA on kern_mega needs no PKG_MEGA arm (SPEC.md 128.11.14) and "
         "this RUNS it: build/mega.img on 86Box's 286-mega-multimon with "
         "build/bonanza.img in B:, BONANZA's window DRAGGED onto the Hercules, "
@@ -5376,6 +5384,7 @@ SOAK = [
         needs=("86box", "nasm"), timeout=900,
         wants=("build/mega.img", "build/bonanza.img")),
     Row("bonanzamusic", "soak", ["python3", "tools/bbmusic.py", "--selfcheck"], 1.0,
+        "WAVE 6 (SPEC.md 128.16.4.4): rubber's BOOST effect present and not its HOP's (by name or by content), steel's and glass's none; control: rubber's BOOST mapped to its HOP's effect, caught. "
         "BONANZA's music and effects packer (SPEC.md 128.20.2, 128.20.8), host only: the "
         "two one-octave pitch tables against the equal-tempered Hz and F-numbers, monotone "
         "between notes; every song's notes, gates, instruments and volumes as bbmusic.Seq "
@@ -5384,7 +5393,8 @@ SOAK = [
         "19..20,000 Hz and sounding, the chip's batches never naming voice 8; every ball's "
         "five impacts present and no two balls sharing one; packing twice the same bytes. "
         "secs measured on the host (0.9 s, rounded up)"),
-    Row("bonanzasound", "soak", py("tests/bonanza_sound.py"), 33.0,
+    Row("bonanzasound", "soak", py("tests/bonanza_sound.py"), 50.0,
+        "WAVE 6 (SPEC.md 128.16.4.4, 128.16.14): bz_nboost poked with each ball - rubber's slot holds its BOOST effect (another record than its HOP's), steel's and glass's key nothing, and a landing poked in the same frame keys no LAND (one effect keyed). Red arm noboost (bz_nboost out of bzs_ctab): the rubber poke keys no effect. "
         "BONANZA's SOUND held to tools/bbmusic.py's model on MartyPC (SPEC.md 128.20): "
         "stopped at bzs_tp (a step just sounded), every voice's key, note, gate, "
         "instrument, volume, macro place, age and pitch word and the song's order row, row, "
@@ -5404,7 +5414,8 @@ SOAK = [
         "tree packs in the same format. secs MEASURED in 5b's final pass (32.3 s, both legs)",
         needs=("marty", "nasm"), serial=True, timeout=900,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
-    Row("bonanzagame", "soak", py("tests/bonanza_game.py"), 322.0,
+    Row("bonanzagame", "soak", py("tests/bonanza_game.py"), 630.0,
+        "WAVE 6 (SPEC.md 128.16.9, 128.16.14): the tour is six courses with the PLAYGROUND; leg physdat - a BONANZA.DAT with this build's identities and a best on every course at +5 = 00h and at +5 = A0h loads with every best and the tour's cleared and is rewritten whole with +5 = BZ_PHYSV at the next best; the same file at +5 = BZ_PHYSV keeps them (BZ_PHYSV read out of the build's bzcourse.inc). Red arm physdat (+5 not checked): the cleared-bests check. "
         "BONANZA's GAME (SPEC.md 128.14.3, 128.14.14) on MartyPC's CGA and Hercules, driven by "
         "the AUTOPILOT (bz_apilot, a harness byte: a play takes its key bytes from bz_auto, "
         "recorded as a play's): V, R and D of FIRST's demo, D of MOON's to its cup and a free play "
@@ -5423,7 +5434,8 @@ SOAK = [
         "besttime|datlen|replaybest|noappdata`. secs MEASURED in 5b's re-take on the shipped D build (321.2 s, SPEC.md 128.15.13)",
         needs=("marty", "nasm"), timeout=1800,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
-    Row("bonanzademo", "soak", py("tests/bonanza_demo.py"), 284.0,
+    Row("bonanzademo", "soak", py("tests/bonanza_demo.py"), 485.0,
+        "WAVE 6 (SPEC.md 128.16.8, 128.16.14): V's six demos each D'd to the model's end on both cards, bz_nboost among the end state (BZD6, the PLAYGROUND's, boosts); the hostile set's physics cases H09 (+7 = BZ_PHYSV ^ 5Ah), H17 (+7 = A0h, 5b's) and H18 (+7 = 00h), each THIS build's log with only +7 changed, refused at check 5 with bz_t_phys. "
         "BONANZA's recorded demos on the disk (SPEC.md 128.14.7, 128.14.14) on MartyPC's CGA and "
         "Hercules: a free play of MILL by the autopilot, W through the Save dialog into SYSTEM, the "
         "file read back on the host equal to bz_rlog and the model's log, then a play of MILL "
@@ -5445,7 +5457,8 @@ SOAK = [
         "5b's re-take on the shipped D build (283.9 s, the wave4 leg in; SPEC.md 128.15.13)",
         needs=("marty", "nasm"), timeout=1200,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
-    Row("bonanzawheel", "soak", py("tests/bonanza_wheel.py"), 69.0,
+    Row("bonanzawheel", "soak", py("tests/bonanza_wheel.py"), 95.0,
+        "WAVE 6 (SPEC.md 128.16.14): unchanged in logic; re-run on the new parts and physics (MILL's benchmark rolls under the fractional drag). THE FINAL PASS: the STALE scene (9) cuts on its airborne point, then holds the ball RESTING in the band and puts the row's point at rest above it (bonanza_ring.rest_in_window): held airborne, the camera followed the GROUND line under it and TRICKLE panned 36 rows before the row; (9) now judges the rotor on both cards. (6) still fails on the CGA, as since 3b. secs: 76 s re-run, x 1.25. "
         "BONANZA's WHEEL (SPEC.md 128.12.5, 128.12.13.2, 128.12.15) on MartyPC's CGA and "
         "Hercules: MILL's benchmark (bz_crs poked) under stops on bz_ldrw's two writers "
         "(found by their bytes), bz_wcommit (its return address: AHEAD, BEHIND or the LEAD) "

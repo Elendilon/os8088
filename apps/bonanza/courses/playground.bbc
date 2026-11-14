@@ -1,0 +1,81 @@
+# Playground - BONANZA's course 6 (SPEC.md 128.16.8): wave 6's feel on one
+# course, the owner's freeze course at gate 1 and later exploration's sandbox.
+# Built for the RUBBER ball; every element sits where a ball from the start
+# meets it:
+#  - the STEP LADDER: four terraces behind one level apron (4 units), faces
+#    of 1.5, 1, half and 2 units, each 3 tiles wide with the apron's 6 tiles
+#    of run-up in front of it, so a ball approaches at the cap.  Half a unit
+#    rolls up; 1 unit is rubber's Hop and glass's; 1.5 units is rubber's Hop
+#    and boost (the BOUNCE CHAIN onto its ledge); 2 units is nobody's.  Every
+#    rung is a DEAD END: four tiles of void between neighbours (the boost's
+#    radius is 3), and the 2-unit top is outside the reachable set with the
+#    Hop and the boost (`bbcourse.py --selfcheck` item 7) - it stands 12 and
+#    19 tiles from the 1-unit and 1.5-unit tops, beyond a boosted fall's
+#    rebound off the apron, and 5 from the half-unit one;
+#  - the GAP LADDER: three notches cut into the apron's front edge, 1, 2 and
+#    3 tiles across onto the far floor FF at the same level, with the apron as
+#    the run-up.  Every ball Hops 1; rubber Hops 2 (and Hops and boosts it from
+#    a wide band); nobody crosses 3, the boost included;
+#  - the BRAKE STRIP: off the apron's front right, a run-up three lanes wide -
+#    ICE, normal and SAND, the side lanes ending at rails - then three tiles of
+#    level floor ending at the VOID, not a rail: a pit sunk in a BASIN 12 units
+#    down, so its kill is 15 units under the strip and a ball that overruns
+#    falls deep with the camera's ground line held (SPEC.md 128.16.7's
+#    fallback case; the depth chosen on the model: GLIDE without the fallback
+#    loses the footprint before the kill, with it keeps it and never reverses);
+#  - the MAT, level, at the apron's left end beside the 1.5-unit ledge, so a
+#    Hop lands on it (no boost on a mat);
+#  - a PAD for each ball on FF beside the goal;
+#  - the GOAL, at the end of a ROLLING route (the apron, FF's right, no Hop).
+# No ramp anywhere, so no up-ramp is within 6 tiles of the rungs or the gaps
+# (SPEC.md 128.16.5.2).  Width 128: the apron and its four rungs need 24
+# tiles along +wx, which width 64's footprints cannot hold.
+course PLAY "Playground"
+width  128
+ball   rubber
+# the PLAYGROUND shows the CGA's other palette at gate 1 (SPEC.md 128.16.6): 10h
+palette 0
+
+# the apron, and behind it the step ladder, left to right 1.5, 1, half and 2 units
+floor rect  10 14 34 20  flat 4
+floor rect  10 11 13 14  flat 5.5
+floor rect  17 11 20 14  flat 5
+floor rect  24 11 27 14  flat 4.5
+floor rect  31 11 34 14  flat 6
+# the mat, level with the apron, at its left end
+floor rect   7 15 10 18  flat 4
+surface bounce rect 7 15 10 18
+# FF, the gap ladder's far floor, joined to the apron on its right; the three
+# notches, 1, 2 and 3 tiles; FF's rails and the goal
+floor rect  10 20 23 29  flat 4
+hole  rect  10 20 19 21
+hole  rect  13 21 19 22
+hole  rect  16 22 19 23
+wall  rect  10 29 19 30  flat 4.5
+wall  rect  23 23 24 29  flat 4.5
+goal  rect  19 29 23 31  flat 4
+# the brake strip's run-up, ice | normal | sand, the side lanes' rails, the
+# strip itself, and the pit in the basin
+floor rect  23 20 33 23  flat 4
+surface ice  rect 24 20 27 23
+surface sand rect 30 20 33 23
+floor rect  24 24 34 34  flat -8
+wall  rect  24 23 27 24  flat 4.5
+wall  rect  30 23 33 24  flat 4.5
+floor rect  27 23 30 26  flat 4
+hole  rect  27 26 30 33
+# a pad for each ball
+pad rubber 22 23
+pad steel  22 25
+pad glass  22 27
+
+start 21 16
+# The ROLLING route (the tour's and the route proofs'): FF's right side to the goal
+way 21 16
+way 20 22
+way 20 30
+
+# Par: the AUTHORED demo's time rounded up (SPEC.md 128.16.8, as MOON's and PEAK's).
+par 28
+# The design time (CD3); the course budget reads it (SPEC.md 128.15.8).
+target 30

@@ -273,7 +273,11 @@ LOCAL_SYMS = (("bz_tb", "first"), ("bz_wbox", "wr"), ("bz_wbox", "out"), ("bz_vr
               ("bz_props", "pwt"), ("bz_props", "promo"), ("bzs_frame", "fend"),
               # wave 4 (SPEC.md 128.14.14): a demo file's read (bonanzademo: the disk is touched
               # there, and FERR_BIG lands in .rerr), the tour's post and the respawn's blank
-              ("bz_lfile", "read"), ("bz_lfile", "rerr"))
+              ("bz_lfile", "read"), ("bz_lfile", "rerr"),
+              # wave 6 (SPEC.md 128.16.14): the camera's GROUND LINE block, bracketed for its span
+              ("bz_camera", "gline"), ("bz_camera", "cyd"),
+              # ...and the CGA's colour select, the one `out` to 3D9h (128.16.6; bonanzaexit)
+              ("bz_vinit", "vpal"))
 DIRS = [(dr, dc) for dr in (-1, 0, 1) for dc in (-1, 0, 1) if (dr, dc) != (0, 0)]
 FIRST_EACH = 3                      # frames checked per direction, first ones
 LAY_EACH = 6                        # ...and the first frames that laid a record
@@ -746,7 +750,8 @@ class Bz:
         lk = Look(grid=grid, gx=f("bz_gx", "<I"), gy=f("bz_gy", "<I"), gz=f("bz_gz", "<i"), air=f("bz_air", "B"),
                   mst=f("bz_mst", "B"), mct=f("bz_mct", "B"), sqf=f("bz_sqf", "B"), ghv=f("bz_ghv", "B"),
                   gh=f("bz_gh", "<h"), sb=f("bz_sb", "<H"), pokd=f("bz_pokd", "B"),
-                  mat=self.b("bz_mat"), px=self.w("bz_px"), py=self.w("bz_py"), y0=grid.y0)
+                  mat=self.b("bz_mat"), px=self.w("bz_px"), py=self.w("bz_py"), y0=grid.y0,
+                  stf=f("bz_stf", "B") if "bz_stf" in self.sym else 0)    # (wave 6: the stretch, 128.16.4.4)
         lk.zb = lk.gz >> 8
         # the HIDDEN ball (SPEC.md 128.14.19 item 4): bz_hidn, in a tube or HOLED OUT - its capture frame
         # restores its footprint; an earlier wave's build has bz_tube alone
@@ -1423,6 +1428,9 @@ LOW_SETTLE = 10                     # the full write and a few held frames befor
 LOW_CYCLE = 6
 LOW_CYCLES = 6
 LOW_HOLD = {"cga": 16, "herc": 24}  # x 256 PIT counts: the held dark frame past the wheel's room (skipped)
+# (wave 6's final pass: the held ball RESTS on a level floor, rest_in_window - held 186 px over its floor it
+# put the GROUND line, the camera's since 128.16.7, off the window, GLIDE panned 44 rows and no wheel commit
+# came; grounded, the camera's line is the ball's own as in wave 2)
 
 
 def low_plan(g, crs):
@@ -1457,20 +1465,26 @@ def low_plan(g, crs):
                 for dx in range(8):
                     pt = pt or probe_ground(crs, left + 4 * Wc - 8 + dx, top + 92 + dy, grid, 1, clear=16,
                                             flags=BB.FL_OCC | BB.FL_OCCG)
-            if pt:
-                return i, R0, c0, pt
+            # ...and from the frame after it, HELD resting in the window's band and dead zone (wave 6's
+            # final pass: an airborne ball's camera line is the GROUND line, SPEC.md 128.16.7, and the old
+            # hold 186 px over its floor panned GLIDE 44 rows; grounded, it moves no camera)
+            rest = pt and rest_in_window(crs, grid, top, left, Wc, range(70, 112), flags=BB.FL_OCC | BB.FL_OCCG)
+            if pt and rest:
+                return i, R0, c0, pt, rest
     return None
 
 
 def low_poke(g, plan, k):
     """THE LOW SCENARIO's pokes at its K-th bz_t0 (0 the first): -> 'lit', 'dark', 'held' or None"""
-    lane, _, _, pt = plan
-    poke_ball(g, pt[0], pt[1], pt[2], 0, 0, 0, air=1, same_cell=k > 0)   # HELD there every frame: MILL's
-    if k == 0:                                                           # ground near the green slopes, and a
-        g.putb("bz_first", 1)                                            # rolling ball scrolls the window
+    lane, _, _, pt, rest = plan
+    if k == 0:                                  # the centred full write's point (airborne: the cut centres
+        poke_ball(g, pt[0], pt[1], pt[2], 0, 0, 0, air=1)       # the window on the BALL)...
+        g.putb("bz_first", 1)
         return None
-    if k < LOW_SETTLE:
-        return None
+    poke_ball(g, rest[0], rest[1], rest[2], 0, 0, 0, air=0, same_cell=k > 1)  # ...then HELD at rest every
+    if k < LOW_SETTLE:                                                        # frame: MILL's ground near the
+        return None                                                           # green slopes, and a rolling
+                                                                              # ball scrolls the window
     j, r = divmod(k - LOW_SETTLE, LOW_CYCLE)
     if j >= LOW_CYCLES:
         return None
@@ -2244,6 +2258,45 @@ def probe_ground(crs, px, py, grid, sx=1, clear=16, flags=0):
     return best
 
 
+def rest_in_window(crs, grid, top, left, Wc, lines, flags=0, slopes=False):
+    """a RESTING point (24.8 gx, gy, gz): the ball GROUNDED on a level FLOOR
+    cell (or, SLOPES, any floor: re-poked every frame, a step's roll is a
+    fraction of a pixel), none of FLAGS set, its circle wholly inside the cell, its picture
+    top on one of the window lines LINES (from TOP, the window's first world
+    line) and its centre in GLIDE's and TRICKLE's dead zone ([2W, 6W] px from
+    LEFT), nearest the window's centre first.  A ball held there moves no
+    camera: grounded, its line is the camera's (wave 6, SPEC.md 128.16.7),
+    where a ball held AIRBORNE puts the camera on the GROUND line under it.
+    -> the point, or None"""
+    kx, ky = (grid.x0 - 8) << 8, (grid.y0 - 13) << 8
+    lo, hi = min(lines), max(lines)
+    best = None
+    for r in range(grid.nrows):
+        for k in range(grid.kw):
+            for par in (0, 1):
+                d = r + grid.smin
+                a = 2 * k + grid.amin + par
+                if (d + a) & 1:
+                    continue
+                wx, wy = (d + a) >> 1, (d - a) >> 1
+                c = grid.cell(wx, wy)
+                if c[3] != BB.KIND_FLOOR or c[4] & flags or (not slopes and (c[1] or c[2])):
+                    continue
+                for u in range(BB.RAD, 17 - BB.RAD):
+                    for v in range(BB.RAD, 17 - BB.RAD):
+                        gz8 = BB.Physics.h4(c, u, v) << 6
+                        gx8, gy8 = (wx << 12) | (u << 8) | 0x80, (wy << 12) | (v << 8) | 0x80
+                        px = (gx8 - gy8 + kx) >> 8
+                        py = (((gx8 + gy8) >> 1) - gz8 + ky) >> 8
+                        y, x = py - top, px - left
+                        if not lo <= y <= hi or not 2 * Wc <= x + 8 <= 6 * Wc:
+                            continue
+                        dist = abs(x + 8 - 4 * Wc) + abs(y - (lo + hi) // 2)
+                        if best is None or dist < best[0]:
+                            best = (dist, (gx8, gy8, gz8))
+    return best and best[1]
+
+
 def tpoke(g, crs):
     """The TRIAL leg's frame of THREE boxes (SPEC.md 128.11.10.1, 128.11.17.2):
     at bz_t0 of a frame that runs a step, the ball poked AIRBORNE 40 - 56 px
@@ -2399,6 +2452,25 @@ PROBE_CLEAR = 10    # px over the floor: z - h about 10, so the shadow (spy = py
                     # over BZ_BOXH's 24) - the CGA's late case of 128.11.10.3
 
 
+PROBE_SHADOW_H = 8  # lines: the probe's shadow box at most this tall where the window ends (MEASURED)
+
+
+def probe_shadow_top(grid, gp):
+    """the window line of the probe's shadow box's first line, for a ball poked
+    at GP with its picture's top on window line 0: z - h + 7 (MEASURED on
+    BENCH at wave 6's final pass: the probe's frames 2 - 4 put the box at lines
+    168, 172, 176 on the CGA and 188, 192, 196 on the Hercules, this formula's
+    figures at their window positions)"""
+    gx8, gy8, gz8 = gp
+    c = grid.cell(gx8 >> 12, gy8 >> 12)
+    return ((gz8 >> 6) - BB.Physics.h4(c, (gx8 >> 8) & 15, (gy8 >> 8) & 15)) // 4 + 7
+
+
+def win_lines(g):
+    """the window's picture lines: bz_H rows of 2 lines (the CGA) or 4 (the Hercules)"""
+    return g.w("bz_H") * (2 if g.tag == "cga" else 4)
+
+
 PROBE_EDGE = 40     # px: the probe's ball 40 px left of the window's right edge - its 20 px footprint
                     # ends 20 px from it, inside the edge clause's 24 (SPEC.md 128.12.7), and its centre
                     # is right of GLIDE's dead zone (6W: 240 of 320 px, 270 of 360)
@@ -2482,6 +2554,20 @@ def probe(g, ref):
             if gp is None and back:     # no ground there: the next frame is not split
                 back, tpx = False, tpx + 40
                 gp = probe_ground(crs, tpx, 0, grid, 1, clear=PROBE_CLEAR, flags=BB.FL_OCC | BB.FL_OCCG)
+            # wave 6: the reach's taller top (HOPMAX 252 and the BOOST launch, 128.16.5) puts BENCH's
+            # floor about 20 px further below world line 0, so at the edge the shadow of a frame
+            # that is not split falls off the window's 200 lines (the Hercules' fifth frame), and a
+            # split frame there finds no ground at all: such a frame is put 40 px BACK instead
+            # (a column still enters, its shadow a box of its own on the window)
+            if gp is not None and not back and not split and \
+                    probe_shadow_top(grid, gp) + PROBE_SHADOW_H > win_lines(g):
+                gb = probe_ground(crs, tpx - 40, 0, grid, 1, clear=PROBE_CLEAR, flags=BB.FL_OCC | BB.FL_OCCG)
+                if gb is not None:
+                    gp, back, tpx = gb, True, tpx - 40
+            if gp is None and split:
+                gb = probe_ground(crs, tpx - 40, 0, grid, 1, clear=PROBE_CLEAR, flags=BB.FL_OCC | BB.FL_OCCG)
+                if gb is not None:
+                    gp, back, split, tpx = gb, True, False, tpx - 40
             if gp is None:              # the ball's screen column has left the course: the probe is over
                 break
             poke_ball(g, gp[0], gp[1], gp[2], 64, -64, 36, same_cell=True)
@@ -2604,7 +2690,264 @@ def probe(g, ref):
     return fails
 
 
-PARTS = ("glass", "bench", "trial", "mill", "play", "probe", "w4")
+# ---- wave 6 (SPEC.md 128.16.7, 128.16.14): THE GROUND LEG ------------------------------
+CAM_PRICE = 527             # the ground-line block's as-built price at WORST, clocks: a latched ball released by a
+                            # contact while airborne and re-tripped on that frame, Hercules (the fetch floor, x 1.05:
+                            # SPEC.md 128.16.7's per-path table; airborne over a floor unlatched is 384/388) - a COST,
+                            # not a retunable
+CAM_SLACK = 1.25            # ...and the span assertion's 25% (SPEC.md 128.16.14)
+MODES = ((0, "GLIDE"), (1, "TRICKLE"))
+
+
+def ground_scenarios():
+    """the GROUND leg's replays, each a log on its course and a poke, PROVED on
+    the model: -> [dict(name, crs, mat, poke, keys, fall, stretch)].  The
+    PLAYGROUND's bounce chain onto the 1.5-unit ledge and its `boostdrop` are
+    bonanzaphys's (a Hop and its boost: the stretch drawn); TRIAL's 6-unit drop
+    is bonanzaphys's `bounce` (rubber off H's lip onto F); the brake strip's
+    fall into the void is bbcourse.play_fall's run (the chord down the lane
+    from the apron's back row, no Grip) to its respawn"""
+    import bonanza_phys as P
+    sc = {s["name"]: s for s in P.replays() if s["name"] in ("boostclimb", "boostdrop", "bounce")}
+    out = []
+    for name in ("boostclimb", "boostdrop", "bounce"):
+        s = sc.get(name)
+        if s and s["ok"]:
+            out.append({"name": {"bounce": "trialdrop"}.get(name, name), "crs": s["crs"], "mat": s["mat"],
+                        "poke": s["poke"], "keys": s["keys"], "fall": False, "stretch": name != "bounce"})
+    c = course("play")
+    pk = P.pl_poke("play", (BB.PLAY_LANE, BB.PLAY_GAPROW + 1), c.ball)
+    dk = BB._PLAY_DIRK[(0, 1)]
+    q = P.model("play", c.ball, pk)
+    n = None
+    for i in range(1200):
+        q.step(dk)
+        if q.nfall:
+            n = i + 1
+            break
+    if n:
+        # (to the step BEFORE the kill: the respawn's cut re-centres the window on the ball, which
+        # bbcourse.Glide does not model - the fallback's case is the fall, not the respawn)
+        out.append({"name": "voidfall", "crs": "play", "mat": c.ball, "poke": pk, "keys": [dk] * (n - 1),
+                    "fall": True, "stretch": False})
+    return out
+
+
+class RingCyGlide(BB.Glide):
+    """the `ringcy` arm's model: GLIDE's travel ring fed cy (by + (z - zg) << 8,
+    zg the last frame's) rather than the ball's own line"""
+
+    def camera(self):
+        p = self.p
+        if self.first:
+            return BB.Glide.camera(self)
+        by = p.by
+        p.by = by + ((BB._s16(p.gz >> 8) - self.cgz) << 8)
+        try:
+            return BB.Glide.camera(self)
+        finally:
+            p.by = by
+
+
+def ground_glide(s, herc, kind=None):
+    """the GLIDE model's windows over scenario S at the card's nominal rate:
+    -> [(R0, c0)] a frame (KIND: 'camz' or 'ringcy', a red arm's model)"""
+    import bonanza_phys as P
+    c = course(s["crs"])
+    p = P.model(s["crs"], s["mat"], s["poke"])
+    G = RingCyGlide if kind == "ringcy" else BB.Glide
+    g = G(p, herc, c.brows, c.cols, heavy=BB.Heavy(p), _camz=kind == "camz")
+    spf = (BB.PIT_HZ / BB.CARD_HZ[herc]) / BB.STEP_PIT
+    acc, out, i = 0.0, [], 0
+    keys = s["keys"]
+    while i < len(keys):
+        acc += spf
+        n = int(acc)
+        acc -= n
+        for _ in range(n):
+            if i < len(keys):
+                p.step(keys[i])
+                i += 1
+        g.camera()
+        out.append((g.R0, g.c0))
+    return out
+
+
+def ground_check():
+    """the host half of the GROUND leg (SPEC.md 128.16.14): each scenario
+    proved, and each arm's model PARTING where its check is - `camz` on the
+    PLAYGROUND's bounce chain, `ringcy` on TRIAL's drop, `nosafe` and `nolatch`
+    on the void fall (bbcourse.play_fall, the CGA's for nolatch).  -> (fails, lines)"""
+    bad, say = [], []
+    S = {s["name"]: s for s in ground_scenarios()}
+    for name in ("boostclimb", "boostdrop", "trialdrop", "voidfall"):
+        if name not in S:
+            bad.append("GROUND: the model proves no `%s` scenario" % name)
+    if bad:
+        return bad, say
+    for name, kind in (("boostclimb", "camz"), ("trialdrop", "ringcy")):
+        for herc in (0, 1):
+            a, b = ground_glide(S[name], herc), ground_glide(S[name], herc, kind)
+            at = next((i + 1 for i, (x, y) in enumerate(zip(a, b)) if x != y), None)
+            say.append("GROUND %s on the %s: the `%s` arm's GLIDE parts at frame %s" % (
+                name, ("CGA", "Hercules")[herc], kind, at))
+            if at is None:
+                bad.append("GROUND %s: the `%s` arm's model never parts from GLIDE on the %s" % (
+                    name, kind, ("CGA", "Hercules")[herc]))
+    c = course("play")
+    for herc in (0, 1):
+        on, off, nol = BB.play_fall(c, herc), BB.play_fall(c, herc, _nosafe=True), BB.play_fall(c, herc,
+                                                                                               _nolatch=True)
+        say.append("GROUND voidfall on the %s: the kill at frame %s; `nosafe` loses the footprint at %s; `nolatch` "
+                   "reverses the rows: %s" % (("CGA", "Hercules")[herc], on["kill"], off["lost"], nol["rev"]))
+        if not (on["kill"] and on["lost"] is None and not on["rev"] and off["lost"]):
+            bad.append("GROUND voidfall on the %s: the model's fall is not the fallback's case" % (
+                ("CGA", "Hercules")[herc]))
+        if not herc and not nol["rev"]:
+            bad.append("GROUND voidfall: `nolatch` reverses no row on the CGA's fall")
+    for s in S.values():
+        say.append("GROUND %s: %s, %s, %d steps%s" % (s["name"], s["crs"], BB.MAT_NAMES[s["mat"]], len(s["keys"]),
+                                                     ", a fall into the void" if s["fall"] else ""))
+    return bad, say
+
+
+def ground_replay(g, s, mode, art=None):
+    """one GROUND replay in MODE (0 GLIDE, 1 TRICKLE): every frame the guest's
+    window equals Glide's off the same log (GLIDE), the footprint inside the
+    window, no row reversal while airborne on a void fall; the stretch's frames
+    card = oracle; the ground-line block's span.  -> (fails, tallies)"""
+    import bonanza_phys as P
+    tag = g.tag
+    c = course(s["crs"], art=art)
+    ref = Ref(tag, c, art)
+    m = g.m
+    m.pause()
+    g.putb("bz_cmode", mode)
+    m.run()
+    label = "%s GROUND %s %s" % (tag, s["name"], dict(MODES)[mode])
+    start_replay(g, make_log(s["keys"], CRS_K[s["crs"]], s["mat"]), s["poke"])
+    p = P.model(s["crs"], s["mat"], s["poke"])
+    gl = BB.Glide(p, tag == "herc", c.brows, c.cols, heavy=BB.Heavy(p), **GROUND_ONLY.get("glide", {}))
+    Wc, rl = g.w("bz_W"), RL[tag]
+    # (the review's C2: an int 08h - sch_isr, 54.6 Hz under FSXF_FASTTICK - inside a span adds its whole cost,
+    # bonanzaperf's lesson; such a span is counted apart and only the CLEAN spans are held to the price)
+    lp = Loop(g, ("bz_t0", "bz_presented", "bz_camera.gline", "bz_camera.cyd"), kernel=("sch_isr",))
+    lp.arm()
+    fails, tal = [], {"frames": 0, "stretch": 0, "spans": [], "ticked": 0, "rows": 0, "rev": False}
+    t0, dirs, R0p, dirty = None, set(), None, False
+    while not fails:
+        k = lp.next()
+        cyc = m.status()["cycles"]
+        if k == "sch_isr":
+            dirty = t0 is not None
+            continue
+        if k == "bz_t0":
+            if replay_end(g):
+                break
+            continue
+        if k == "bz_camera.gline":
+            t0, dirty = cyc, False
+            continue
+        if k == "bz_camera.cyd":
+            if t0 is not None:
+                if dirty:
+                    tal["ticked"] += 1
+                else:
+                    tal["spans"].append(cyc - t0)
+            t0, dirty = None, False
+            continue
+        tal["frames"] += 1                      # bz_presented
+        fr = tal["frames"]
+        n = g.d("bz_nstep")
+        P.advance(p, n, s["keys"])
+        R0, c0 = g.w("bz_R0"), g.w("bz_c0")
+        if mode == 0:
+            gl.camera()
+            if (R0, c0) != (gl.R0, gl.c0):
+                fails.append("%s frame %d (step %d): the window (bz_R0, bz_c0) = (%d, %d), bbcourse.Glide's (%d, %d) "
+                             "off the same log" % (label, fr, n, R0, c0, gl.R0, gl.c0))
+                break
+        px, py = g.w("bz_px"), g.w("bz_py")
+        if not p.nfall and P.outwin(px, py, R0, c0, Wc, rl):
+            fails.append("%s frame %d (step %d): the ball's footprint (%d, %d) is not inside the window (R0 %d, c0 "
+                         "%d)" % (label, fr, n, px, py, R0, c0))
+            break
+        if R0p is not None and R0 != R0p:
+            tal["rows"] += abs(R0 - R0p)
+            if s["fall"] and p.air and not p.nfall:
+                dirs.add(R0 > R0p)
+                if len(dirs) > 1:
+                    tal["rev"] = True
+                    fails.append("%s frame %d (step %d): the row direction REVERSED while the ball falls into the "
+                                 "void (SPEC.md 128.16.7's latch)" % (label, fr, n))
+                    break
+        R0p = R0
+        if s["stretch"] and g.b("bz_stf"):
+            S_, R0_, c0_ = g.state()[:3]
+            lk, why = g.look(ref.c)
+            if why:
+                fails.append("%s frame %d (the stretch) at bz_presented: %s" % (label, fr, why))
+                break
+            nd, box = diff(g.decode(S_), ref.picture(R0_, c0_, lk, g.view()))
+            tal["stretch"] += 1
+            if lk.spr != ("stretch", 0):
+                fails.append("%s frame %d: bz_stf %d with the model's sprite %s, not the stretch" % (
+                    label, fr, g.b("bz_stf"), lk.spr))
+            elif nd:
+                fails.append("%s frame %d (the stretch) at bz_presented: card != oracle: %d px, lines %d-%d, x %d-%d"
+                             % (label, fr, nd, *box))
+        if fr > len(s["keys"]) * 5 // 4 + 50:
+            fails.append("%s: the replay ran %d frames past its %d steps" % (label, fr, len(s["keys"])))
+    end_replay(g, label)
+    m.pause()
+    g.putb("bz_cmode", 0)
+    m.run()
+    sp = tal["spans"]
+    bound = int(CAM_PRICE * CAM_SLACK)
+    if not fails and sp and max(sp) > bound:
+        fails.append("%s: the ground-line block's span: the worst %d cycles, over its price %d + 25%% (%d; SPEC.md "
+                     "128.16.7)" % (label, max(sp), CAM_PRICE, bound))
+    print("%s: %d frames, the window %s, the footprint inside, %d row(s) panned, %d stretch frame(s) card = oracle; "
+          "the ground line's span worst %s, mean %s cycles over %d clean frames (%d with a tick inside, left out; "
+          "bound %d): %s" % (
+              label, tal["frames"], "bbcourse.Glide's every frame" if mode == 0 else "TRICKLE's", tal["rows"],
+              tal["stretch"], max(sp) if sp else None, "%.0f" % (sum(sp) / len(sp)) if sp else None, len(sp),
+              tal["ticked"], bound,
+              "yes" if not fails else "NO"), flush=True)
+    return fails, tal
+
+
+def ground_part(g, art=None, only=None, modes=(0, 1)):
+    """the GROUND leg (SPEC.md 128.16.14 bonanzaring): every scenario in GLIDE
+    and in TRICKLE.  -> (fails, tallies)"""
+    fails, out = [], {}
+    pre, _say = ground_check()
+    if pre:
+        return pre, out
+    for s in ground_scenarios():
+        if only and s["name"] not in only:
+            continue
+        for mode, mn in MODES:
+            if mode not in modes:
+                continue
+            f, out[(s["name"], mn)] = ground_replay(g, s, mode, art)
+            fails += f
+            if fails:
+                return fails, out
+    return fails, out
+
+
+def ground_verdict(tag, out):
+    bad = []
+    st = sum(t["stretch"] for (nm, _md), t in out.items() if nm in ("boostclimb", "boostdrop"))
+    if out and not st:
+        bad.append("GROUND: no stretch frame checked card = oracle (the boost's cue, SPEC.md 128.16.4.4)")
+    if out and not any(t["spans"] for t in out.values()):
+        bad.append("GROUND: the ground-line block's span was never measured")
+    return bad
+
+
+PARTS = ("glass", "bench", "trial", "mill", "play", "probe", "w4", "ground")
 
 
 def run(tag, apps=None, src=None, art=None, parts=PARTS):
@@ -2636,6 +2979,10 @@ def run(tag, apps=None, src=None, art=None, parts=PARTS):
             out["fails"] += probe(g, Ref(tag, course("bench", art=art), art))
         if "w4" in parts and not out["fails"]:  # wave 4 (SPEC.md 128.14.14): the props, the blank
             f, out["w4"] = w4_part(g, art)
+            out["fails"] += f
+        if "ground" in parts and not out["fails"]:    # wave 6 (SPEC.md 128.16.14): the ground line
+            f, out["ground"] = ground_part(g, art, only=GROUND_ONLY.get("only"), modes=GROUND_ONLY.get("modes",
+                                                                                                    (0, 1)))
             out["fails"] += f
     return out
 
@@ -2692,6 +3039,8 @@ def verdict(tag, r):
                    "(%d frames had one; SPEC.md 128.13.12)" % sum(x.get("wraps", 0) for x in legs))
     if "w4" in r and not r["fails"]:
         bad += w4_verdict(tag, r["w4"])
+    if "ground" in r and not r["fails"]:
+        bad += ground_verdict(tag, r["ground"])
     return bad
 
 
@@ -2710,9 +3059,10 @@ class Loop:
     start of the next step (os88marty.breakpoints), so whatever is not an exec
     address is the io one."""
 
-    def __init__(self, g, names, io=None):
+    def __init__(self, g, names, io=None, kernel=()):
         self.g, self.m = g, g.m
         self.ex = {g.a(n): n for n in names}
+        self.ex.update({g.m.sym(n): n for n in kernel})     # (KERNEL names: the int 08h handler's sch_isr)
         self.io = io
 
     def arm(self):
@@ -3193,6 +3543,38 @@ REDS = {
                ("bzvideo.inc", "    cmp byte [bz_hidn], 0\n    jne .nob\n    mov ax, [bz_py]\n",
                 "    mov ax, [bz_py]             ; RED hidden: its sprite composed in a tube\n")],
 }
+# wave 6 (SPEC.md 128.16.14): the camera's ground line broken five ways, and the stretch never drawn
+REDS["camz"] = [("bzgame.inc", ".cgl:\n    add bp, ax                  ; BP = cy + 8\n",
+                 ".cgl:\n    nop                         ; RED camz: the ball's own line, wave 2's\n")]
+REDS["nosafe"] = [("bzgame.inc", "    jb .cgl                     ; trips too): the ground line\n",
+                   "    jmp short .cgl              ; RED nosafe: no edge fallback\n")]
+REDS["nolatch"] = [("bzgame.inc", "    mov dh, 1                   ; ball's own line\n",
+                    "    mov dh, 0                   ; RED nolatch: the fallback not latched\n")]
+REDS["ringcy"] = [("bzgame.inc", ".ty:\n    mov ax, [bz_by]\n    mov dx, ax\n",
+                   ".ty:\n    mov ax, [bz_gz + 1]         ; RED ringcy: the ring fed cy, by + (z - zg) << 8\n"
+                   "    sub ax, [bz_cgz]\n    mov ah, al\n    xor al, al\n    add ax, [bz_by]\n    mov dx, ax\n")]
+REDS["nostretch"] = [("bzgame.inc", "    mov al, BZ_SPR_STR\n    mov dx, BZ_BAL_STROFF\n    jmp short .ent\n",
+                      "    jmp .roll                   ; RED nostretch: bz_sprite ignores stf\n")]
+REDS["campad"] = [("bzgame.inc", ".gline:\n    mov ax, [bz_gz + 1]         ; AX = z, whole px\n",
+                   ".gline:\n    push cx                     ; RED campad: the block padded by a ~430-clk loop\n"
+                   "    mov cx, 24\n.rpad:\n    loop .rpad\n    pop cx\n"
+                   "    mov ax, [bz_gz + 1]         ; AX = z, whole px\n")]
+GROUND_ONLY = {}                    # a red arm's run: its scenario and mode alone (set by main)
+# `nosafe` compares the window against ITS OWN model (Glide's `_nosafe`, the arm's model), so the window
+# check holds and the arm goes red at ITS check, the footprint (wave 6's final pass: against the shipped
+# model the window parted first, 16 frames early).  `nolatch` goes red at the window check against the
+# SHIPPED model, where it parts at the trip (CGA frame 223, step 203): on the guest's own frame pacing the
+# unlatched camera reaches the kill before it reverses a row (its model, paced at the card's mean rate,
+# reverses 2 frames before the kill; paced as the guest ran, against `_nolatch`, never), so the row's
+# reversal check cannot be its own (128.16.14 as built)
+GROUND_RED = {"camz": {"only": ("boostclimb",), "modes": (0,)},
+              "nosafe": {"only": ("voidfall",), "modes": (0,), "glide": {"_nosafe": True}},
+              "nolatch": {"only": ("voidfall",), "modes": (0,)},
+              "ringcy": {"only": ("trialdrop",), "modes": (0,)},
+              "nostretch": {"only": ("boostclimb",), "modes": (0,)},
+              "campad": {"only": ("boostclimb",), "modes": (0,)}}
+
+
 def nodither_art(td):
     """`nodither`'s data (SPEC.md 128.15.13): build/bonanza-art copied into TD
     with every BZ<K>.BIN replaced by the TOOL'S UNDITHERED compile of the same
@@ -3236,13 +3618,21 @@ RED_PARTS = {"colright": ("bench",), "colfirst": ("bench",), "late": ("bench",),
              "wrapmask": ("mill", "play"),
              "padfront": ("play",), "hidden": ("mill",),
              "noblank": ("w4",), "nodither": ("bench",), "recstep": ("w4",)}
+RED_PARTS.update({k: ("ground",) for k in GROUND_RED})
 # ...the cards each CAN go red on: the Hercules has 16 + 82 lines of sync and
 # blank (~24.7k clocks) before its window's line 0, so the WHOLE column (at
 # most ~22k on the benchmark) fits ahead of a row-0 box there and item 6's
 # order is the CGA's alone to need (the final pass of wave 1 measured row0 at
 # 11 late boxes of 11 on the CGA, 0 of 7 on the Hercules); a later box is late
 # on the CGA alone for the same reason; and the table is the Hercules's
-RED_TAGS = {"row0": ("cga",), "late2": ("cga",), "htab": ("herc",), "wrapmask": ("herc",)}
+RED_TAGS = {"row0": ("cga",), "late2": ("cga",), "htab": ("herc",), "wrapmask": ("herc",),
+            # wave 6: `nolatch` reverses the rows on the CGA's fall alone (the Hercules' rows are 4 lines and
+            # the ball's own line stays inside the band there, SPEC.md 128.16.8)
+            "nolatch": ("cga",),
+            # wave 6's final pass: the Hercules' MILL route under the new drag brings no contact candidate
+            # under the wheel on a checked frame, so there `contact` goes red only at the DEFER scene (the
+            # candidate committed rather than deferred), not at its own check; the CGA's frame 91 is its case
+            "contact": ("cga",)}
 # ...and what each must go red FOR: a red arm that fails for another reason
 # proves nothing about the check it is the arm of
 RED_WANT = {"colright": "at bz_presented", "colfirst": "at bz_tf", "late": "bz_rlate", "row0": "FIRST box",
@@ -3251,7 +3641,9 @@ RED_WANT = {"colright": "at bz_presented", "colfirst": "at bz_tf", "late": "bz_r
             "contact": "at bz_tf", "defer": "(defer", "padfront": "pover", "hidden": "transit",
             "ridebox": "ridebox) at bz_presented", "pwait2": "waited two frames running", "fastwrap": "wrapbox) at bz_presented",
             "mapskip": "oracle check 5", "wrapmask": "wrapcommit",
-            "noblank": "blank", "nodither": "card != oracle", "recstep": "card != oracle"}
+            "noblank": "blank", "nodither": "card != oracle", "recstep": "card != oracle",
+            "camz": "bbcourse.Glide's", "nosafe": "footprint", "nolatch": "bbcourse.Glide's", "ringcy": "bbcourse.Glide's",
+            "nostretch": "card != oracle", "campad": "ground-line block's span"}
 
 
 def main():
@@ -3266,6 +3658,12 @@ def main():
     if a.check_reds:
         for line in check_reds(REDS, "bonanza_ring"):
             print(line)
+        gbad, gsay = ground_check()             # wave 6: the GROUND leg's host half
+        for line in gsay:
+            print("bonanza_ring %s" % line)
+        for line in gbad:
+            print("FAIL bonanza_ring %s" % line)
+        assert not gbad, "%d GROUND scenario(s) not proved on the model" % len(gbad)
         for name, mk in sorted(RED_DATA.items()):
             with tempfile.TemporaryDirectory() as td:
                 art = mk(td)
@@ -3277,6 +3675,7 @@ def main():
     tags = ("cga", "herc") if a.adapter == "both" else (a.adapter,)
     if a.red:
         tags = tuple(t for t in tags if t in RED_TAGS.get(a.red, tags)) or RED_TAGS.get(a.red, tags)
+        GROUND_ONLY.update(GROUND_RED.get(a.red, {}))
         with tempfile.TemporaryDirectory() as td:
             if a.red in RED_DATA:
                 src, img = build_tree(td, [], art=RED_DATA[a.red](td))

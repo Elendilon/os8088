@@ -122,13 +122,25 @@ bz_fullscreen:
 
 ; -----------------------------------------------------------------------------
 ; bz_vinit - the card's geometry, after OSAPI_FSX_MODE.  The Hercules is put on
-; Excitebike's 200-line field (R6 = 50, R7 = 68).  Preserves nothing.
+; Excitebike's 200-line field (R6 = 50, R7 = 68).  On the CGA first the
+; course's COLOUR SELECT (wave 6, SPEC.md 128.16.6): its BZ_CRS_PALS byte to
+; port 3D9h, the one write, labelled bz_vinit.vpal (a row breaks on it through
+; os88sym), since the mode set leaves the BIOS's 30h.  Never on the Hercules,
+; whose picture is a function of the colour INDEX.  On an EGA or VGA that
+; came up VID_CGA no register answers 3D9h and the BIOS's palette stays: a
+; cosmetic loss, no wrong pixel (128.16.6).  Preserves nothing.
 ; -----------------------------------------------------------------------------
 bz_vinit:
     mov ax, [bz_fsi + FSI_SEG]
     mov [bz_vseg], ax
     cmp byte [bz_herc], 0
     jne .herc
+    mov bl, [bz_crs]            ; the CGA: the course's colour select
+    xor bh, bh
+    mov al, [bz_cpals + bx]
+    mov dx, 3d9h
+.vpal:
+    out dx, al
     mov word [bz_W], 40
     mov word [bz_H], 100
     mov word [bz_rb], 80

@@ -43,6 +43,8 @@ BZS_MAXT    equ 8               ; sub-ticks a call steps, at most (the rest of
 BZS_STALL   equ 36              ; desktop: a gap past 2 s (36 ticks) restarts
                                 ; the title rather than chasing it
 BZS_LMIN    equ 48              ; a LANDING's bz_lvz under this is silent
+BZS_NCTR    equ 11              ; the counters bzs_events compares (bzs_ctab;
+                                ; DX holds a bit each, so at most 16)
 BZS_PRI     equ 40h             ; the tone priority: the package default
 
 BZS_M_AUTO  equ 0               ; [bzs_mode], S cycles them
@@ -182,7 +184,7 @@ VAR bzs_fmn,2                   ; the batch's registers
 VAR bzs_fmb,2 * BZS_FMBUF
 VAR bzs_lsub,2                  ; the bracket: [bz_subs] at the last frame
 VAR bzs_snap,1                  ; 0 until the counters have been read once
-VAR bzs_last,20                 ; the counters, the last frame's (bzs_ctr0..)
+VAR bzs_last,2 * BZS_NCTR       ; the counters, the last frame's (bzs_ctr0..)
 VAR bzs_lgoal,1                 ; bz_goal, the last frame's
 VAR bzs_lsum,2                  ; ...and the counters' sum
 VAR bzs_dtk,2                   ; the desktop: [ticks] at the last call
@@ -570,9 +572,9 @@ bzs_frame:
 %define bzs_ctr7    bz_nkick    ; (wave 3's, SPEC.md 128.12.6.6)
 %define bzs_ctr8    bz_nknock
 %define bzs_ctr9    bz_ntube
-BZS_NCTR    equ 10              ; (bzs_last holds 10, and DX has 16 bits)
+%define bzs_ctr10   bz_nboost   ; (wave 6's, SPEC.md 128.16.4.4)
 bzs_ctab:   dw bzs_ctr0, bzs_ctr1, bzs_ctr2, bzs_ctr3, bzs_ctr4, bzs_ctr5, bzs_ctr6
-            dw bzs_ctr7, bzs_ctr8, bzs_ctr9
+            dw bzs_ctr7, bzs_ctr8, bzs_ctr9, bzs_ctr10
 %if ($ - bzs_ctab) / 2 != BZS_NCTR
  %error "bzs_ctab names every counter"
 %endif
@@ -586,6 +588,7 @@ BZS_C_FALL  equ 64
 BZS_C_KICK  equ 128
 BZS_C_KNOCK equ 256
 BZS_C_TUBE  equ 512
+BZS_C_BOOST equ 1024
 
 bzs_events:
     push cx
@@ -650,18 +653,23 @@ bzs_events:
     mov al, BZS_E_BOUNCE
     call bzs_trigz
 .land:
-    test dx, BZS_C_LAND         ; a LANDING alone: not a bounce, stun, shatter
-    jz .hop                     ; or hop of the same contact, and hard enough
-    test dx, BZS_C_BNC | BZS_C_STUN | BZS_C_SHAT | BZS_C_HOP
-    jnz .hop
+    test dx, BZS_C_LAND         ; a LANDING alone: not a bounce, stun, shatter,
+    jz .hop                     ; hop or boost of the same contact, and hard
+    test dx, BZS_C_BNC | BZS_C_STUN | BZS_C_SHAT | BZS_C_HOP | BZS_C_BOOST
+    jnz .hop                    ; enough
     cmp word [bz_lvz], BZS_LMIN
     jl .hop
     mov al, BZS_E_LAND
     call bzs_trigz
 .hop:
     test dx, BZS_C_HOP
-    jz .wall
+    jz .boost
     mov al, BZS_E_HOP
+    call bzs_trig0
+.boost:
+    test dx, BZS_C_BOOST        ; wave 6: rubber's boost (only rubber's column
+    jz .wall                    ; names an effect, 128.16.4.4)
+    mov al, BZS_E_BOOST
     call bzs_trig0
 .wall:
     test dx, BZS_C_WALL         ; a wall, or a bumper's face (bz_lwb)

@@ -25,9 +25,10 @@ bonanzadisk builds it, and nothing else):
           step for a guest second, the log unchanged; P again: the play ends at
           the model's goal step (the pause added none) with the model's log,
           and BONANZA.DAT holds FIRST's best alone
-  tour    G: the five courses, each played by the autopilot with its own ball
+  tour    G: every course but BENCH (six with the PLAYGROUND, SPEC.md 128.16.8),
+          each played by the autopilot with its own ball
           (bz_cballs): after each its time in bz_ttime (the model's steps), its
-          falls in bz_tfall, bz_tour the next course; bz_tour 6 after the fifth
+          falls in bz_tfall, bz_tour the next course; bz_tour 7 after the sixth
           and the total their sum; BONANZA.DAT read back = the expected 64
           bytes (`BZT1`, the count, each course's identity, best and falls,
           the tour's XOR and total); every course's launch time to its
@@ -36,13 +37,13 @@ bonanzadisk builds it, and nothing else):
           shipped parts' format (printed)
   stop    a second tour: course 1 as before, course 2 (TRIAL) played SLOWER
           (the autopilot withheld for a guest second: its steps the idle ones
-          plus the model's from rest), Esc in course 3 - bz_tour 7 (stopped),
+          plus the model's from rest), Esc in course 3 - bz_tour 8 (stopped),
           the finished courses entered, no total, and BONANZA.DAT UNCHANGED
           (neither course's time is under its best; no tour total)
   face    a third tour: course 1, then on the face G, N, M, B, R, D, L and V
           each DO NOTHING (bz_tour, bz_crsel, bz_matsel, bz_vk and bz_rlog as
           they were, no launch reached bz_launch, no chooser), then Esc on the
-          face stops it (bz_tour 7)
+          face stops it (bz_tour 8, BZ_NTOUR + 2)
   hostile one boot a file: a BONANZA.DAT the host wrote onto SYSTEM\\APPDATA
           (a 32-byte file whose bytes are a valid head with a best - the
           length; a bad magic; an entry of another identity; a best of 0; a
@@ -52,6 +53,17 @@ bonanzadisk builds it, and nothing else):
           autopilot) REWRITES THE FILE WHOLE as this build's 64 bytes
   noapp   a disk built WITHOUT SYSTEM\\APPDATA: a best toasts `Best times not
           saved` once (bz_toast reached once over two bests, bz_datw 1)
+  physdat wave 6 (SPEC.md 128.16.9, 128.16.14): BONANZA.DAT +5 is BZ_PHYSV.
+          One boot a file, each carrying THIS build's course identities and
+          tour XOR and a best on every course and a tour total: +5 = 00h (5b's
+          unset value) and +5 = A0h (5b's physics) load with the identities
+          kept and EVERY best and the tour's cleared (bz_dat the first run's
+          image), and the next best (FIRST by the autopilot) rewrites the
+          file whole with +5 = BZ_PHYSV and FIRST's best alone; the same file
+          with +5 = BZ_PHYSV keeps every best (the control: the clear is the
+          physics test's, not the identities').  Every expected byte is
+          DERIVED - BZ_PHYSV out of the build's bzcourse.inc, the course count
+          and the tour out of BZ_COURSES - so a retune turns nothing red
 
 --red NAME builds a broken package (or image) in a temporary directory (never
 build/) and PASSES only if the row FAILS - at its own check:
@@ -59,6 +71,8 @@ build/) and PASSES only if the row FAILS - at its own check:
   datlen      BONANZA.DAT's length check removed: the 32-byte file's best is shown
   replaybest  a replay posts a best: the posts leg's R
   noappdata   the leg's image built without SYSTEM\\APPDATA: the tour's read-back
+  physdat     wave 6: bz_dnorm's +5 test left out (a file under other physics
+              keeps its bests): the physdat leg's cleared-bests check, a best kept
 """
 import argparse
 import os
@@ -76,10 +90,9 @@ import bbcourse as BB          # noqa: E402
 import bonanza_ring as R       # noqa: E402
 
 DAT = "SYSTEM/APPDATA/BONANZA.DAT"
-NTOUR = 5                       # bonanza.asm BZ_NTOUR (BZ_NCRS - 1)
 NENT = 8                        # BZD_NENT
-TOURMAX = NTOUR * 65534
-LEGS = ("posts", "pause", "tour", "stop", "face", "hostile", "noapp")
+LEGS = ("posts", "pause", "tour", "stop", "face", "hostile", "noapp", "physdat")
+PHYSV_5B = 0xA0                 # wave 5b's BZ_PHYSV (SPEC.md 128.16.9: PHYSV_SHIPPED's last before wave 6)
 
 
 # ---- the model's side -----------------------------------------------------------
@@ -89,6 +102,20 @@ _AUTO = {}
 def ncrs():
     R.CRS_K["bench"]
     return dict.__len__(R.CRS_K)
+
+
+def ntour():
+    """bonanza.asm BZ_NTOUR, BZ_NCRS - 1: every course but BENCH (six with the
+    PLAYGROUND, SPEC.md 128.16.8)"""
+    return ncrs() - 1
+
+
+def physv():
+    """this build's BZ_PHYSV, read out of the GENERATED bzcourse.inc (never a
+    literal: a retune moves it, SPEC.md 128.16.11)"""
+    import re
+    inc = open(os.path.join(ROOT, R.at("build/bonanza-art"), "bzcourse.inc")).read()
+    return int(re.search(r"^BZ_PHYSV\s+equ\s+0?([0-9A-Fa-f]+)h", inc, re.M).group(1), 16)
 
 
 def name_k(k):
@@ -128,16 +155,17 @@ def ids():
 
 def tourx():
     x = 0
-    for k in range(1, NTOUR + 1):
+    for k in range(1, ntour() + 1):
         x ^= R.course_k(k).ident
     return x
 
 
-def dat_image(best=None, tour=0, count=None):
-    """the 64 bytes bz_dat holds and a save writes (SPEC.md 128.14.3.3): BEST
-    {K: (steps, falls)}, TOUR the total (0 none)"""
+def dat_image(best=None, tour=0, count=None, pv=None):
+    """the 64 bytes bz_dat holds and a save writes (SPEC.md 128.14.3.3, +5
+    BZ_PHYSV since wave 6, 128.16.9): BEST {K: (steps, falls)}, TOUR the total
+    (0 none), PV +5 (this build's BZ_PHYSV by default)"""
     best = best or {}
-    b = bytearray(b"BZT1" + bytes([ncrs() if count is None else count, 0, 0, 0]))
+    b = bytearray(b"BZT1" + bytes([ncrs() if count is None else count, physv() if pv is None else pv, 0, 0]))
     idt = ids()
     for k in range(NENT):
         t, f = best.get(k, (0, 0))
@@ -361,14 +389,17 @@ def leg_pause(g):
 
 
 def tour_state(g):
-    raw = g.m.read(g.a("bz_ttime"), 4 * NTOUR)
-    return g.b("bz_tour"), struct.unpack("<5H", raw[:10]), struct.unpack("<5H", raw[10:])
+    n = ntour()
+    raw = g.m.read(g.a("bz_ttime"), 4 * n)
+    return g.b("bz_tour"), struct.unpack("<%dH" % n, raw[:2 * n]), struct.unpack("<%dH" % n, raw[2 * n:])
 
 
 def leg_tour(g, best):
-    """G: the five courses by the autopilot; bz_ttime, bz_tour, the total, the file"""
+    """G: every course but BENCH by the autopilot (six with the PLAYGROUND);
+    bz_ttime, bz_tour, the total, the file"""
     fails = []
     m = g.m
+    NTOUR = ntour()
     want = [auto_steps(k)[0] for k in range(1, NTOUR + 1)]
     guard(g)
     m.disk(reset=True)
@@ -442,9 +473,9 @@ def leg_stop(g, best, total):
             guest=30)
     motor_off(g)
     tour, tt, _tf = tour_state(g)
-    if tour != NTOUR + 2 or tt[2] != 0 or tt[0] != auto_steps(1)[0]:
-        fails.append("stop: Esc in course 3 left bz_tour %d and the times %s; want 7 (stopped), course 3 not "
-                     "entered" % (tour, tt))
+    if tour != ntour() + 2 or tt[2] != 0 or tt[0] != auto_steps(1)[0]:
+        fails.append("stop: Esc in course 3 left bz_tour %d and the times %s; want %d (stopped), course 3 "
+                     "not entered" % (tour, tt, ntour() + 2))
     exp = dat_image(best, total)
     d = read_dat(g)
     if d != exp:
@@ -481,7 +512,7 @@ def leg_face(g):
                      "%d launch(es), chooser %04X (SPEC.md 128.14.3.4: they do nothing)" % (
                          before[:4], after[:4], ", the log changed" if before[4] != after[4] else "", n, dlg))
     g.key("Escape")
-    M.until(m, lambda _: g.b("bz_tour") == NTOUR + 2, "Esc on the face to stop the tour", guest=10)
+    M.until(m, lambda _: g.b("bz_tour") == ntour() + 2, "Esc on the face to stop the tour", guest=10)
     print("%s face: the eight keys withheld in a tour, Esc on the face stopped it: %s" % (
         g.tag, "yes" if not fails else "NO"), flush=True)
     return fails
@@ -540,6 +571,54 @@ def leg_noapp(tag, sym, td, o88=None):
     return fails
 
 
+def physdat_set():
+    """[(name, the file's bytes, the bz_dat image the entry proc must make, the
+    best the next FIRST play files)] - SPEC.md 128.16.9's three cases: each file
+    carries THIS build's course identities and tour XOR, a best on every course
+    and a tour total, and differs only at +5"""
+    t1, _ = auto_steps(1)
+    best = {k: (t1 + 50 + k, 1) for k in range(1, ntour() + 1)}      # every best SLOWER than FIRST's play
+    pv = physv()
+    out = []
+    for name, v in (("unset", 0x00), ("5b", PHYSV_5B)):
+        out.append((name, dat_image(best, 99999, pv=v), dat_image(), {1: (t1, 0)}))
+    out.append(("same", dat_image(best, 99999, pv=pv), dat_image(best, 99999),
+                {k: ((t1, 0) if k == 1 else v) for k, v in best.items()}))
+    assert pv not in (0x00, PHYSV_5B), "BZ_PHYSV %02Xh is an earlier physics' value (bbcourse refuses it)" % pv
+    return out, best
+
+
+def leg_physdat(tag, sym, td, o88=None):
+    """one boot a BONANZA.DAT under other physics (+5 00h, A0h) and one under
+    this build's: the bests cleared, then rewritten whole; or kept"""
+    fails = []
+    cases, best = physdat_set()
+    for name, raw, want, nxt in cases:
+        p = os.path.join(td, "BONANZA.DAT")
+        open(p, "wb").write(raw)
+        img = R.disk(td, ["SYSTEM/APPDATA:" + p], name="pv" + name, o88=o88)
+        with boot(tag, img) as ui:
+            g = open_game(ui, tag, sym)
+            got = bytes(g.m.read(g.a("bz_dat"), 64))
+            if got != want:
+                kept = [k for k in range(1, ntour() + 1) if struct.unpack_from("<H", got, 8 + 6 * k + 2)[0]]
+                fails.append("physdat %s: [bz_dat] after the entry proc %s, want %s (+5 %02Xh, this build's "
+                             "BZ_PHYSV %02Xh: %s; a best kept on course(s) %s)" % (
+                                 name, got.hex(), want.hex(), raw[5], physv(),
+                                 "every best and the tour CLEARED" if raw[5] != physv() else "every best KEPT",
+                                 kept or "none"))
+            free_play(g, 1, R.course_k(1).ball, "physdat %s: FIRST" % name)
+            d = read_dat(g)
+            exp = dat_image(nxt, 99999 if name == "same" else 0)
+            if d != exp:
+                fails.append("physdat %s: the next best did not rewrite the file whole with +5 = BZ_PHYSV: %s, "
+                             "want %s" % (name, d.hex() if d else "ABSENT", exp.hex()))
+        print("%s physdat %s (+5 %02Xh, BZ_PHYSV %02Xh): bz_dat %s and the file rewritten whole: %s" % (
+            tag, name, raw[5], physv(), "cleared" if want == dat_image() else "kept",
+            "yes" if not [f for f in fails if ("physdat %s:" % name) in f] else "NO"), flush=True)
+    return fails
+
+
 def run(tag, legs=LEGS, src=None, img_main=None, appdata=True, o88=None):
     sym = R.symbols(src)
     fails = []
@@ -565,6 +644,8 @@ def run(tag, legs=LEGS, src=None, img_main=None, appdata=True, o88=None):
             fails += leg_hostile(tag, sym, td, o88=o88)
         if "noapp" in legs and not fails:
             fails += leg_noapp(tag, sym, td, o88=o88)
+        if "physdat" in legs and not fails:
+            fails += leg_physdat(tag, sym, td, o88=o88)
     return fails
 
 
@@ -584,17 +665,20 @@ REDS = {
     "replaybest": [("bonanza.asm", "    cmp byte [bz_mode], 0       ; a replay posts nothing\n    jne .out\n",
                     "    nop                         ; RED replaybest: a replay posts\n")],
     "noappdata": [],
+    # wave 6 (SPEC.md 128.16.14): +5 not checked - a file under other physics keeps its bests
+    "physdat": [("bonanza.asm", "    cmp byte [bz_dat + 5], BZ_PHYSV\n    je .phys\n    xor cl, cl\n.phys:\n",
+                 "    nop                         ; RED physdat: +5 not checked\n.phys:\n")],
 }
 RED_LEGS = {"besttime": ("pause", "tour", "stop"), "datlen": ("hostile",), "replaybest": ("posts",),
-            "noappdata": ("tour",)}
+            "noappdata": ("tour",), "physdat": ("physdat",)}
 RED_WANT = {"besttime": "stop: BONANZA.DAT", "datlen": "hostile short", "replaybest": "posts: after R",
-            "noappdata": "tour: BONANZA.DAT"}
+            "noappdata": "tour: BONANZA.DAT", "physdat": "every best and the tour CLEARED"}
 
 
 def check():
     """the host half: the model's tour, the hostile set decided, the reds assembled"""
     bad = []
-    for k in range(1, NTOUR + 1):
+    for k in range(1, ntour() + 1):
         t, f = auto_steps(k)
         print("bonanza_game tour course %d %s: the autopilot's play %s steps, %d falls" % (
             k, name_k(k).upper(), t, f))
@@ -614,6 +698,11 @@ def check():
     for name, raw, want, nxt in hostile_set():
         print("bonanza_game hostile %-6s %2d bytes -> bz_dat %s; the next best files %s" % (
             name, len(raw), "the first run's" if want == dat_image() else "kept in part", nxt))
+    cases, _best = physdat_set()
+    for name, raw, want, nxt in cases:
+        print("bonanza_game physdat %-5s +5 %02Xh (BZ_PHYSV %02Xh) -> bz_dat %s; the next best files %s" % (
+            name, raw[5], physv(), "the first run's (every best cleared)" if want == dat_image() else
+            "the file's (every best kept)", sorted(nxt)))
     other = [mt for mt in range(3) if mt != R.course_k(1).ball and auto_steps(1, mt)[0]]
     print("bonanza_game posts: FIRST finished by the autopilot with %s" % (
         ", ".join(BB.MAT_NAMES[mt] for mt in other) or "no other ball"))

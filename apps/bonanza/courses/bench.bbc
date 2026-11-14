@@ -69,12 +69,17 @@ start 6 14
 # one of the eight scroll directions occurs at least 8 times on both cards
 # at step rates 0.96 - 1.04 of the real one (ten phases each).  The 1,200
 # frames reach the first twelve (the CGA's 1,093 steps) with no fall in the
-# Hercules's 1,289; `bbcourse.py --selfcheck` item 8 holds both.
+# Hercules's 1,289; `bbcourse.py --selfcheck` item 8 holds both.  Wave 6
+# (SPEC.md 128.16.9) re-proved it under the fractional drag, whose faster
+# rolling left one alignment of the CGA (rate 1.00, phase 0.9) with no
+# up-left or down-left pan: the second way moved from (16, 14) to (16, 15)
+# and the fifth from (20, 16) to (20, 15), found by a host search of one-tile
+# moves on the model, and every direction occurs at least 7 times again.
 way   6 14
-way  16 14
+way  16 15
 way  17 15
 way  19 21
-way  20 16
+way  20 15
 way  19 19
 way  15 20
 way  15 13

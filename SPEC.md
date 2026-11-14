@@ -258825,15 +258825,15 @@ open):
 
 | line | holds |
 |---|---|
-| 0 | `BOUNCE BONANZA` |
+| 0 | `BOUNCE BONANZA`; *wave 6 (128.16.8): on MAIN the TOUR's line, line 12's text below - the PLAYGROUND made the tour six, the scorecard took line 12, and the window's title bar already says the title (RESULTS keeps it here)* |
 | 1 | `G GAME  ENTER <title>  N NEXT`; during a tour `ENTER next  ESC stop tour` |
 | 2 | the adapter, or the refusal's reason (as now) |
 | 3 | the settings: `C <camera>  M <ball>  T <control>` - `GLIDE`/`TRICKLE`, `RUBBER`/`STEEL`/`GLASS`, `KEYS`/`MOUSE` (during a tour `M` is not shown); no `H <HUD>`: the HUD was not built (128.14.26 item 1) |
 | 4 | the sound (128.20.4, unchanged) |
 | 5 | the demo keys: `B BENCH  L LOAD  V DEMO`, and when a log is held `  R PLAY  D TIME  W SAVE`; during a tour `W SAVE` alone |
 | 6 | the HELD LOG: `<NAME> <s.hh> s  falls <n> stuns <n> broke <n>` after a play or replay to its finish; `<NAME> <s.hh> s  <8.3 name>` after `L`; `<NAME> <s.hh> s  demo` after `V`; with no log, the keys' hint (`Arrows roll  Space hop  L.Shift grip`, or `Mouse tilts  left hop  right grip` under `T MOUSE`) |
-| 7 - 11 | the SCORECARD, a line a tour course: `<K> <title> <time> <*> f<falls> par <p> best <b>`, a time `-` where there is none |
-| 12 | `Tour <total>  best <b>`; or during a tour `ENTER next: <title>`; or `Tour stopped`; or, after a refused replay, `Another course's log` (128.12.8) or `Other physics' log` (128.14.7.2) |
+| 7 - 11 (*7 - 12 from wave 6, six tour courses*) | the SCORECARD, a line a tour course: `<K> <title> <time> <*> f<falls> par <p> best <b>`, a time `-` where there is none |
+| 12 (*line 0 from wave 6*) | `Tour <total>  best <b>`; or during a tour `ENTER next: <title>`; or `Tour stopped`; or, after a refused replay, `Another course's log` (128.12.8) or `Other physics' log` (128.14.7.2) |
 
 **RESULTS** (after `B` or `D`, until the next key, which is then acted on
 as on MAIN and returns the face to it): line 0 and 1 as MAIN, line 2 the
@@ -263935,8 +263935,10 @@ the rest are amended here only.
   steel's; 1.5 units is rubber's boost; 2 units is nobody's from level
   ground. The up-ramp distance is per ball (128.16.5.2). And its gap
   table: rubber's two-tile Hop is no longer a hard trick, because a Hop and
-  its boost cross two tiles easily; three tiles stay nobody's, the boost
-  included (128.16.5.3's GAP LADDER).
+  its boost cross two tiles easily; three tiles LEVEL stay nobody's, the
+  boost included, but three tiles onto a LOWER floor are rubber's boost's
+  (and, 2 units down or more, its Hop's alone): 128.16.5.3's GAP LADDER and
+  the KNOWN CONFLICT of 128.16.4.2.
 - **128.11.6.2**: Grip's brake on ice, `max(1, GRIP >> 2)`, becomes 2, 1, 1
   (was 1, 1, 2), from the new Grips. The table is otherwise unchanged.
 - **128.11.7.2** *(in place)*: "Space pressed at a Hop's own landing ...
@@ -263964,6 +263966,10 @@ the rest are amended here only.
   refusing the file. The tour is SIX courses with the PLAYGROUND, so its
   total is 1 - 393,204 (six courses under the clamp each); the code already
   derives it (`BZ_TOURMAX` from `BZ_NTOUR`), so only the text moves.
+- **128.14.3.2** *(in place)*: the CGA's content holds thirteen lines and
+  the tour is six, so MAIN's line 0 is the TOUR's line (the title's until
+  now: the window's title bar says it, and RESULTS keeps it), lines 7 - 12
+  the scorecard's six (128.16.8, as built).
 - **128.14.7.4** *(in place)*: a seventh course adds a sixth demo,
   `BZD6.BIN`; `V` cycles demos 1 - 6. The Makefile's comment "BZD1 - BZD5"
   moves to "BZD1 - BZD6" with the code that adds it. A shipped `.bzd` under
@@ -264069,8 +264075,11 @@ not 0:
   refill when the centre's surface differs, its pad swap and flag ball,
   `bz_pinit`). `bonanzaphys` compares both remainders at every frame, so a
   cut in one place and not the other diverges at once.
-- The air has no drag, as before, and does not touch the remainders. A
-  RESPAWN, `bz_pinit` and a poke zero them.
+- The air has no drag, as before. It does not touch the remainders itself,
+  but a window refill IN THE AIR onto a cell whose surface entry differs
+  still calls `bz_surfset`, which cuts them (guest and model alike: a Hop
+  over one ice tile lands with both remainders 0). A RESPAWN, `bz_pinit`
+  and a poke zero them.
 - **`t` fits a word.** The drag comes BEFORE the clamp in the step
   (128.11.8.2 step 2), so `|v|` at the drag is up to 384 plus the arrows'
   force (a chord's 12) plus the slope's (`BZ_GSL x 4` = 16), about 412,
@@ -264087,6 +264096,25 @@ clk" counted the arithmetic and not the fetch; this corrects it, and
 cutting at the change rather than masking at every read saves about 35 clk
 a grounded step and about 8 bytes over the first version of this
 subsection.
+
+*As built (wave 6's guest; bytes MEASURED from the listing against
+`571a21ad`'s, clocks PRICED from its instructions, the fetch floor, x 1.05):*
+`bz_gax` takes the axis's remainder in SI (`bz_drx`, then `inc si` for
+`bz_dry`), keeps v's sign from one `cwd` in DH, and stores the remainder
+as `t AND bz_dmask`; v = 0 skips the drag and its `shr` (68 clk, where wave
+2's paid its shift anyway: 113). A dragged axis is 213 - 232 clk (k 5 - 8)
+against wave 2's 92 - 122, **+104 to +121 an axis, +226 to +261 a grounded
+step** with the two call-site instructions, about 5 - 20% over the 215
+predicted (wave 2's negative path was cheaper than the prediction assumed);
+`bz_surfset`'s cut is 113 clk at a change of surface entry. Bytes: `bz_gax`
+**+19**, `bz_surfset` **+16** (the mask's `1 << k` is computed, not looked
+up), the call site +4, the zeroing in `bz_step`'s RESPAWN +3 and in its
+POKE path (`.poked`, a harness's) +6: **+48 for the drag**, against about
+36 predicted.
+`bonanzaphys`'s span assertion (128.16.14) prices the whole routine, call
+to return: about **342 clk** for a dragged axis with no Grip (k 6), and
+**428 clk at worst** (k 8, `d` 0, Grip braking it to 0, the clamp's two
+tests), so its bound is 428 x 1.25, about 535 clk.
 
 ##### 128.16.3.2 The Hop amounts, and why rubber's is 252
 
@@ -264129,7 +264157,9 @@ The boost is rubber's "and again": a second, higher bounce out of a Hop.
 
 **The TOKEN.** `bz_btok` is set to 1 by a **Hop from the ground**
 (128.11.8.6), and cleared to 0 at **every contact** with a floor (128.11.8.5,
-whatever the contact does), by a RESPAWN, by RETURN and by a tube's capture.
+whatever the contact does), by a RESPAWN, by RETURN, by a tube's capture and
+by a spring's launch (a Hop taken on a spring's cell spends the token, so
+the spring's flight never boosts: review F1, `springtok`, 128.16.5.3).
 Nothing else sets it: not a contact Hop, a bounce, a spring, a tube's
 LAUNCH exit, a take-off off an edge, or the boost itself. A wall or a
 post that reflects the ball in flight leaves it.
@@ -264253,6 +264283,56 @@ at which the 1.5-unit rung and the 3-tile bound both hold, and says so to
 the owner; the bound is never relaxed quietly. Whether three tiles should
 become rubber's boost rung is the owner's call (128.16.16).
 
+**What the full sweep found (MEASURED on the host, the tool as built, wave
+6's implementation): a KNOWN CONFLICT, for the owner at gate 1.** Item 7's
+gap ladder counts a crossing when the ball reaches the far floor (grounded
+there, or a contact there: a bounce on the far floor is a crossing, where
+the scratch step required the ball to come to rest on a far floor six tiles
+long), with every window position. With that, **onto a floor half a unit
+LOWER a 3-tile gap is crossed by rubber's Hop and boost at 350, from 2
+take-off points (37 ms)**: the Hop's first contact about 2.5 gu before the
+lip, the boost's 29-step flight and the half unit's extra fall carry the
+centre 0.5 gu onto the far floor. And the fallback the paragraph above
+prescribes has no solution: swept in steps of 2, **every `BOOST` that
+climbs 1.5 units crosses it** (332 - 358: 1 - 2 points; 330 and below
+climb no 1.5-unit face), while the LEVEL 3-tile gap stays uncrossed from
+332 to 358 (366 crosses it from 1 point, the `gap3` control). So the two
+bounds cannot both hold on that gap. Wave 6 ships **350** (the climbing
+rung's 7-point window, the ladder's point), ASSERTS the level 3-tile gap
+nobody's (every ball, every take-off point, every window position) and the
+half-unit-down one nobody's by a Hop alone, and PRINTS the half-unit-down
+crossing as a KNOWN CONFLICT on every `--selfcheck` and `--tune`: not
+relaxed quietly, but not refused either, since refusing would leave no
+shippable `BOOST`. It is first among the boost's questions at gate 1
+(128.16.16): accept "three tiles onto a lower floor is rubber's boost's"
+as a course rule, or change the boost (a lower `BOOST` loses the 1.5-unit
+rung; a rule that keys the boost to the floor's height is a physics change
+before the freeze).
+
+**The conflict is wider than half a unit (the review's F2, MEASURED by item
+7's gap ladder, which since then carries the deeper drops).** The deeper
+the far floor, the more take-off points cross three tiles, and below 2
+units rubber's Hop ALONE crosses too, at the new Hop of 252 (wave 5b's 224
+crossed none of these down to 2 units):
+
+| 3 tiles onto a floor ... | rubber's Hop and boost | rubber's Hop alone | glass's Hop | steel |
+|---|---|---|---|---|
+| half a unit down | 2 (37 ms) | none | none | none |
+| 1 unit down | 4 (73 ms) | none | none | none |
+| 1.5 units down | 7 (128 ms) | none | none | none |
+| 2 units down | 13 (238 ms) | **2** (37 ms) | none | none |
+| 3 units down | 22 (403 ms) | **7** (128 ms) | **4** (73 ms) | none |
+
+Item 7 ASSERTS the shape a course author is bound by: steel never crosses
+three tiles at any drop, and no ball's Hop alone crosses onto a floor 1.5
+units down or less; the rest is PRINTED. And it SCANS the shipped courses
+(`gap3_scan()`): every edge where a level floor looks across exactly three
+void tiles, along a grid axis, onto a lower floor, printed with the
+ladder's counts at its drop, so the owner sees each potential new shortcut
+at gate 1. On this tree it finds two, both on `MILL` at wx 10 toward +wx:
+wy 12 half a unit down (the boost from 2 points) and wy 13 **2 units down**
+(the boost from 13 points, rubber's Hop alone from 2).
+
 **The tool's assertions**, at the import of `bbcourse.py` (so no build can
 carry a bad table): for every material with `BOOST` not 0, the contact
 flight's apex `flight(BOOST - BZ_G)` is **at least 8 px** (it reaches 1.5
@@ -264272,7 +264352,8 @@ bound by its gap ladder (128.16.5.3).
 
 6 bytes of bss and one derived byte (`bz_dmask`): 7 in all, and with the
 camera's 3 (128.16.7) and the sound's 2 (`bzs_last`'s word, 128.16.4.4)
-wave 6's +12 (128.16.15). A RESPAWN zeroes `bz_btok`,
+wave 6's +12 (128.16.15). *As built the camera's is 4* (`bz_clat` is a
+word, 128.16.7's note), so wave 6's bss is **+13**. A RESPAWN zeroes `bz_btok`,
 `bz_stf`, `bz_drx` and `bz_dry` with 128.11.8.1's block. `bonanzaphys`
 compares all five state values at every frame.
 
@@ -264293,6 +264374,28 @@ on the common zero path, as `sqf`'s already is, about 40 clk a step. About
 tests both would save about 20 clk a step, but `bz_sqf` is pinned at
 `bz_hopw + 3` and `bz_ghv` at `+ 4` by `bzphys.inc`'s layout assertion,
 and the saving is not worth moving them.)
+
+*As built (wave 6's guest; MEASURED and PRICED as 128.16.3.1's note):*
+`bz_btok`, `bz_stf`, `bz_drx` and `bz_dry` are four consecutive bytes (an
+assembly-time assertion), so a RESPAWN zeroes them as two words and a
+boost writes the token's 0 and `BZ_STRS` as one; `bz_dmask` is outside
+the block `bz_pinit` zeroes (`bz_surfset` writes it before any read). The
+token is tested in `bz_land` only once the Hop's window is open and the
+ball is not stunned (so a contact without Space pays no test), and cleared
+at the shared squash test every contact passes (a boost returns before
+it): **+23 clk a contact**, +32 more with the window open and the token
+clear. Rules 3 and 5 are ONE unsigned compare (`rr < BOOST` is false when
+`BOOST` is 0), rule 4 is a word test of the grid cell's +2 and +3 (OBS
+clear, kind FLOOR or GOAL, surface `normal` or `ice`) and a byte test of
+its slopes. A **boosting contact is about 330 clk** from the token's test
+to its `ret`, and a token-set contact that fails rule 4 about 160 more
+than wave 2's contact Hop: both the fetch floor's (60 and 30 bytes), and
+both a few times a play, against the 170 predicted. `stf`'s countdown is
+40 clk a step at 0 (58 while it counts). Bytes: `bz_land` **+64**, the
+countdown +11, the token's set +5, `bz_capture`'s clear +3, the RESPAWN's
+word +3: **+86 for the boost**, against about 70; with the drag's +48 the
+physics is **+134** of image (33,469 -> 33,603 bytes of `bonanza.bin`, both
+assembled on this tree's generated includes), +7 of bss.
 
 ##### 128.16.4.4 The cue: a sound and a stretch
 
@@ -264323,6 +264426,59 @@ ones included; `bz_sprite`'s `stf` test is a 5-byte compare and a branch,
 about 40 clk a frame. It is the ball's own
 16 x 16 footprint, so no box, mask or occluder rule changes. On the
 Hercules it is translated at the fetch with the rest of the part (128.11.3).
+
+*As built (wave 6's cue; bytes MEASURED from the listing and the parts,
+clocks PRICED from the instructions, the fetch floor, x 1.05):*
+- **The part.** `tools/bonanza_assets.py`'s `stretch_frame()` samples roll
+  frame 0 ACROSS (`sx = (x - 2 + 0.5) x 16 / 12`) into a 12 x 16 ellipse
+  centred in the frame, its 4-neighbour ring black; the entry is the
+  squash's format at `B2_STROFF` = `B2_SHAOFF` = +8,256. `BZB2` +14 is
+  `nstretch(mat)` (1 rubber, 0 steel and glass), +15 zero. **Rubber's part
+  is 9,536 bytes, steel's 8,256, glass's 13,376** (MEASURED). `bzconst.inc`
+  gains `BZ_BAL_STROFF`, `BZ_BAL_NSTR`, and `BZ_BAL_SIZER` (rubber) beside
+  `BZ_BAL_SIZE` (now steel's). `--selfcheck` adds the stretch check (the
+  ellipse's measured 12 x 16, mask and frame at every shift and parity, the
+  copies identical, the ring, no frame bit under a kept pixel), the +14
+  check, and the control (one frame bit set under a kept pixel of shift 2,
+  parity 1: caught at the stretch check and only there). `--png`'s
+  composites show it.
+- **The Hercules.** Shatter and stretch share one table at +8,256, so
+  `bz_hxball` translates `[+12] + [+14]` entries there (never both): +5
+  bytes, an assembly-time assertion that the offsets agree.
+  `herc_translate_ball()` does the same.
+- **`bz_sprite`.** The stretch is `bz_spr` **72** (`BZ_SPR_STR`), entry 0 of
+  the table at `BZ_BAL_STROFF`, through the squash's `.ent`. A squash that is
+  pending but off its floor now falls to the stretch test rather than
+  straight to the roll. **One guard the design did not name:** the stretch
+  shows only while the ball is RUBBER (`bz_mat` 0), the only part with an
+  entry there. A pad's swap inside the stretch's four steps (possible only
+  when a boosted ball lands on a pad's cell within 4 steps of the boost)
+  would otherwise read steel's part PAST ITS END (8,256 + 160 bytes), and
+  on kern_mega past the selector's limit. The test is on the stretch's
+  path only (`stf > 0`), so the common frame pays the `stf` compare alone:
+  **about 40 clk a frame**, as predicted; **+21 bytes**. `bbcourse.sprite`
+  returns `('stretch', 0)` under the same rule and guard (its entry the
+  table at `B2_STROFF`, which the ring row's oracle already reads for a
+  kind other than `squash`); the row's `Look` must carry `bz_stf` and
+  `bz_mat` for it.
+- **The sound.** `BZS_E_BOOST` = 11, `BZS_NEV` 12 (generated); `bz_nboost`
+  is `bzs_ctr10` in `bzs_ctab`, `BZS_NCTR` 11 (moved beside `BZS_LMIN`, since
+  `bzs_last` is now `2 x BZS_NCTR` bytes), `BZS_C_BOOST` 1024. LAND's mask
+  gains `BZS_C_BOOST`; the trigger is `bzs_trig0` after HOP's. Rubber's
+  `boost` effect (`inst rubber prio 3 sens 255`: g3 sliding up fast, then a
+  long d4 sliding on, legato) sits above HOP's priority 1, level with a
+  bounce's. `BZSND.BIN` **837 -> 852 bytes**; code **+17** (the sum's add,
+  the table's word, the test and the trigger); about **+20 clk a frame**
+  (the sum's one more add), the loop's one more counter only on a frame
+  something happened. `bbmusic.py --selfcheck` asserts rubber's BOOST
+  effect present and not its HOP's (by name or by content) and steel's and
+  glass's absent, with the control (rubber's BOOST mapped to its HOP's
+  effect: caught).
+- **Look (MartyPC, one boot a card, FIRST, a Hop and Space at its first
+  contact):** on the CGA `gvz` 350, `nboost` 1, `stf` 4, 3, 2, 1 with
+  `bz_spr` 72 on four frames and the roll after; the same on the Hercules,
+  the stretch translated with the part's checker mid tones and its black
+  ring.
 
 #### 128.16.5 The reach, regenerated (story 6.5)
 
@@ -264375,14 +264531,16 @@ Each rung is a step face of the height, approached at the cap with a chord,
 from 70 take-off points 1.5 gu apart; a boost is Space's second edge
 during the Hop's flight, inside the window before its first contact. The
 window is the count of take-off points (and its milliseconds at 54.6 steps
-a second). PREDICTED by the scratch step with wave 2's drag; item 7's
-print replaces it:
+a second). MEASURED by item 7's print (the tool as built, wave 6's
+implementation; the gu are before the face; the boost column counts Space
+2 steps before the Hop's first contact, and ANY window position gives the
+same counts):
 
 | step | rubber's Hop | rubber's Hop and boost | glass's Hop | steel's Hop | asserted |
 |---|---|---|---|---|---|
-| half a unit | rolls up | rolls up | rolls up | rolls up | every ball, every take-off point, no Hop needed |
-| 1 unit | **7** (about 10.5 gu, 128 ms) | about 20 (a wide band; item 7's printed ladder gives its width) | **4** (6 gu, 73 ms) | **none** | rubber and glass at least 1; steel none |
-| 1.5 units | none | **7** (128 ms) | none | none | rubber's boost at least 1; no Hop alone |
+| half a unit | rolls up | rolls up | rolls up | rolls up | every ball rolls up with no Hop, and every ball's Hop gets there from every take-off point |
+| 1 unit | **7** (14.5 - 23.5 gu, 128 ms) | 29 (531 ms) | **3** (14.5 - 17.5 gu, 55 ms) | **none** | rubber and glass at least 1; steel none |
+| 1.5 units | none | **7** (52.0 - 61.0 gu, 128 ms) | none | none | rubber's boost at least 1; no Hop alone |
 | 2 units | none | **none** | none | none | no ball, no take-off point, no window position |
 
 So the ladder the plan aimed at holds, with one change it predicted:
@@ -264398,21 +264556,30 @@ floor level with the near one and half a unit lower, for each ball's Hop
 and for rubber's Hop and boost; approached at the cap with a chord, from
 the same 70 take-off points, and for the boost EVERY window position (Space's
 second edge at each of the steps that keep it inside the window before the
-Hop's first contact, not only 2 steps before). PREDICTED by the review's
-scratch step at Hop 252 and `BOOST_V` 350 (Space 2 steps before the
-contact only; item 7's print replaces it):
+Hop's first contact, not only 2 steps before). MEASURED by item 7's print
+at Hop 252 and `BOOST_V` 350 (a crossing: the ball grounded on, or a
+contact with, the far floor; the gu are before the near lip):
 
 | gap | rubber's Hop | rubber's Hop and boost | glass's Hop | steel's Hop | asserted |
 |---|---|---|---|---|---|
-| 1 tile | every point near the edge | yes | yes | yes | every ball at least 1 |
-| 2 tiles, level | 4 points (the last 6 gu before the lip) | 15 - 21 points | at most a point or two (wave 2's rubber Hop, at glass's chord top of 372) | none | rubber at least 1; steel none; glass printed |
-| 2 tiles, half a unit down | reported | reported | reported | none | printed only |
-| 3 tiles, level or half a unit down | none | **none** | none | none | **no ball, no take-off point, no window position, the boost included** |
+| 1 tile | 30 (1.0 - 64.0 gu) | 42 | 12 | 7 | every ball at least 1 |
+| 2 tiles, level | 4 (1.0 - 5.5 gu, 73 ms) | 19 (1.0 - 82.0 gu, 348 ms) | 2 (37 ms) | none | rubber at least 1; steel none; glass printed |
+| 2 tiles, half a unit down | 10 | 28 | 5 | 1 | printed only |
+| 3 tiles, level | none | **none** | none | none | **no ball, no take-off point, no window position, the boost included** |
+| 3 tiles, half a unit down | none | **2** (32.5 - 34.0 gu, 37 ms) | none | none | **no ball's Hop alone**; the boost's crossing PRINTED, the KNOWN CONFLICT of 128.16.4.2 |
+| 3 tiles, 1 unit down | none | 4 (32.5 - 37.0 gu, 73 ms) | none | none | no ball's Hop alone; steel none; the rest PRINTED (the review's F2) |
+| 3 tiles, 1.5 units down | none | 7 (32.5 - 76.0 gu, 128 ms) | none | none | no ball's Hop alone; steel none |
+| 3 tiles, 2 units down | **2** (1.0 - 2.5 gu, 37 ms) | 13 (1.0 - 79.0 gu, 238 ms) | none | none | steel none; rubber's Hop alone PRINTED (wave 5b's 224: none) |
+| 3 tiles, 3 units down | **7** (1.0 - 34.0 gu, 128 ms) | 22 (1.0 - 83.5 gu, 403 ms) | **4** (73 ms) | none | steel none; the rest PRINTED |
 
 So the two-tile gap stops being "a hard trick" for rubber (128.11.5.3, as
-amended): a Hop and its boost cross it from a wide band of take-off points (item 7's ladder prints its width). Three
-tiles stay nobody's; `--tune` prints this ladder too, and a value that
-crosses three is refused.
+amended): a Hop and its boost cross it from a wide band of take-off points
+(19 of 70). Three tiles LEVEL stay nobody's; three tiles onto a floor half
+a unit lower are rubber's boost's from a 37 ms window, and the deeper the
+far floor the wider (403 ms at 3 units down; rubber's Hop alone crosses
+from 2 units down): the known conflict 128.16.4.2 records for the owner,
+with the shipped courses' instances `gap3_scan()` prints. `--tune` prints this ladder too, and a
+value that crosses the level three tiles is refused.
 
 Item 7 also asserts, by the model:
 - **no gain after a real fall**: a Hop off a 1.5-unit drop and off a
@@ -264427,11 +264594,24 @@ Item 7 also asserts, by the model:
 - **the Grip chain**: a Hop and its boost, Grip held through the boost's
   landing (a land, no bounce), then Space: a ground Hop whose contact
   boosts again, `nboost` 2, with no roll between; the steps from the first
-  Hop to the second boost are printed (about 52);
+  Hop to the second boost are printed (MEASURED 73: the boost's landing at
+  step 51 with Grip, the ground Hop at 52, its boost at 73 - so the cycle,
+  Hop to Hop, is the 52 steps 128.16.4.1 gives);
 - **firm level floors only**: a Hop landing on a ramp, on sand, on a mat,
   on a pad's cell and on `MILL`'s lift slab, Space at the contact, gives no
   boost (the slab's case is rule 4 on the GRID cell: a model that tested
   `_floor`'s substituted cell would boost there);
+- **a spring's launch spends the token** (the review's F1): a Hop taken on
+  a spring's cell rides the spring (`.sgr`: a ball that began the step
+  grounded on it), and Space at that flight's first contact is a contact
+  Hop, never a boost; the `springtok` control (the spring keeps the Hop's
+  token) boosts there. Rule 1 says "the flight is a ground Hop's"; a
+  spring's launch makes it the spring's, so the guest's `.sgr` path clears
+  `bz_btok` (`mov [bz_btok], dl`, DX 0 out of `bz_toff` since the spring's
+  `gvz` is positive; +2 bytes net, the shadow's `.launched` tail moved
+  under the spring's own path to keep its jumps short) and the model's
+  `_spring` does the same. A spring met at a contact found the token spent
+  already. `bonanzaphys`'s `springnot` replays it on `PEAK`'s spring 1;
 - **the drag's figures** of 128.16.3's table, from rest and from above,
   equal the AXIS MODEL's (`axis_feel()`, 128.16.3), not figures copied
   from `Physics`; and the axis model under the round-up drag and wave 2's
@@ -264493,7 +264673,12 @@ excludes it; so its BOOST launches are a superset of the real ones. Fewer
 launches can still move a record either way, because the records swing
 with `Y0`'s alignment to the blocks (128.11.4.4), and the bounds' verdict
 on the real reach is the build's to give. The tool's `--sizes`, with rule
-4 exactly, replaces this table in the final pass.
+4 exactly, replaces this table in the final pass. **MEASURED with rule 4
+exactly** (wave 6's implementation, `--sizes`): every figure of the table
+above, unchanged - `Y0`, records, RAM, LZ4 and LZB of all six, the six's
+**179,134 / 43,024 / 34,850** - and `BENCH`'s two moved `way` lines
+(128.16.9) move none of them; `MILL`'s identity is DAE0h, unmoved;
+`bonanza360.img` stays at 81 clusters with today's ball parts.
 
 #### 128.16.6 A CGA palette per course (story 6.6)
 
@@ -264526,7 +264711,7 @@ world; the world's palette is a line of the world's source then), else
 30h. The guest reads one byte a course either way, so the world default
 costs no guest byte.
 
-**Where it is written.** One `out dx, al` to 3D9h, labelled `bz_vpal` (so
+**Where it is written.** One `out dx, al` to 3D9h, labelled `bz_vinit.vpal` (so
 a row can break on it through `os88sym`), in `bz_vinit` right after
 `OSAPI_FSX_MODE` (the mode set leaves the BIOS's 30h, so every mode set must
 be followed by it), and, when wave 8b's single bracket plays several
@@ -264570,6 +264755,26 @@ balls on the PLAYGROUND.
 
 The PLAYGROUND ships **palette 0, bright, ground 0** (10h), so the owner sees
 the other palette at gate 1; every other course stays 30h.
+
+*As built (wave 6):* the table is `bz_cpals` (`BZ_CRS_PALS`, a byte a
+course, after `bz_cids`). The write sits in `bz_vinit`'s own CGA arm, after
+its Hercules test (`jne .herc`): `[bz_cpals + bz_crs]` goes out to 3D9h at
+the LOCAL label `.vpal`, which a row reaches as `bz_vinit.vpal` through
+`os88sym`. **+21 bytes: 14 of code and 7 of table**, a byte a course, so
+the table grows with the course list; about 20 clk once a launch, 0 a
+frame. (The first build put the write at the routine's head behind a
+second Hercules test, under a global label `bz_vpal` and a second global
+`bz_vgeom` to carry the locals: 7 bytes of code more, 28 in all with the
+seventh course's table byte. The review's B1 and F4 moved it into the CGA
+arm and re-took the figure.)
+MEASURED on MartyPC: on the CGA, `FIRST`'s byte poked to 10h before Enter
+shows palette 0 bright (green and yellow tiles, red faces, the rubber ball
+red with yellow spots); on the Hercules a breakpoint on the write is never
+hit. On the host, the three balls in both palettes over the ground colours
+read apart by pattern as this subsection says (rubber's spots, steel's
+seams and hard highlight, glass's checker); glass on a ground of its own
+body colour (cyan in palette 1, green in palette 0) is faint in both
+palettes alike, which is the course author's rule above.
 
 #### 128.16.7 The camera's ground line (story 6.7)
 
@@ -264652,6 +264857,69 @@ and the latch's, two or three word loads and stores (`bz_gz`'s high word,
 `bz_gh`, `bz_cgz`), the shifts and the subtraction, `bz_R0`'s shift and the
 two edge compares. About 70 bytes, and 3 of bss (`bz_cgz`, `bz_clat`). 0 a
 step.
+
+*As built (wave 6; bytes MEASURED from the listing, clocks PRICED from the
+instructions, the fetch floor, x 1.05):*
+- **The block** sits in `bz_camera` after the travel ring and before the
+  mode's dispatch, so GLIDE and TRICKLE read one value: BP = cy + 8, the
+  camera's centre line (BP is free in `bz_camera`, `bz_camglide` and
+  TRICKLE, and is never an address there). GLIDE's band test, its target
+  row and its second-row test, and TRICKLE's band, read BP where they read
+  `bz_py + 8`. The ring is untouched.
+- **The latch's "since the last frame"** is kept as "since it tripped":
+  `bz_clat` is a WORD, +1 the latch, +0 `bz_nland`'s low byte when it
+  tripped. While latched no frame can have moved `bz_nland` without
+  releasing, so the two are the same test, and the trip-time copy costs a
+  store only at a trip rather than every frame. That is **one byte of bss
+  more than designed: 4** (`bz_cgz` 2, `bz_clat` 2). A low byte is enough:
+  256 contacts inside one latched frame cannot happen.
+- **The edge test** is one unsigned compare: the ball's own centre line t
+  lines into the window is inside when `16 <= t < 184` (`t - 16` below
+  168, so a ball above the window trips too). A release is tested before
+  the trip on the same frame, so a contact that releases near the edge
+  re-latches at once on the ball's own line, which is where the released
+  line already was.
+- **The first frame and a cut** clear the latch and set `bz_cgz` from the
+  ball (`[bz_gz + 1]`). A respawn that is not a cut places the ball
+  grounded, which releases the latch by the grounded rule; no separate
+  respawn test is spent.
+- **`bbcourse.Glide.ground_line(R0)`** is the same block, called after the
+  ring; `_camz` is wave 2's vertical (the `camz` red arm's model). The
+  selfcheck (item 8's eight directions on `BENCH`, both cards) passes with
+  it. MEASURED on the host (the benchmark's autopilot, 1,800 frames, the
+  heavy rule on): `TRIAL` pans **220 -> 144 rows on the CGA and 118 -> 65
+  on the Hercules** against wave 2's vertical, the columns unchanged (58,
+  44); `BENCH`, which rolls, is unchanged (335 and 156 rows), as predicted.
+  No frame of either latched.
+- **Bytes: +109** of image (the block 113, the first frame's 9, less the
+  three `bz_py + 8` loads it replaced, 12), against about 70 predicted.
+  **Clocks, per path** (re-priced at the review, its C3: the first note
+  priced only the two common paths, and too low), the span from `.gline`
+  to `.cyd`, CGA / Hercules (one more bit of `bz_lsh`'s shift):
+
+  | path | bytes run | clk |
+  |---|---|---|
+  | grounded, unlatched, in the band | 60 | 304 / 308 |
+  | airborne over no floor (`bz_cgz` held), unlatched | 71 | 355 / 359 |
+  | latched and kept (airborne, no contact) | 75 | 354 / 354 |
+  | airborne over a floor, unlatched, in the band | 79 | 384 / 388 |
+  | grounded, latched: released by the touch and re-tripped | 82 | 405 / 409 |
+  | airborne over a floor, unlatched: TRIPS | 89 | 431 / 435 |
+  | latched, released by a contact while airborne, in the band | 101 | 477 / 481 |
+  | latched, released by a contact while airborne and RE-TRIPPED | 111 | **523 / 527** |
+
+  Less about 22 clk at each of the one or two `bz_py + 8` reloads it
+  replaced. The common frames (the first four rows) sit inside the
+  predicted 0.35 - 0.4k; the release rows are a frame a latched episode,
+  and the worst, 527, is what `bonanzaring`'s span assertion is held to
+  (`CAM_PRICE`, plus 25%). Testing the edge before the latch, so a release
+  that would re-trip skipped the second test, would save about 45 clk on
+  that one frame for more bytes; it is not done.
+- **Look (MartyPC):** on `FIRST` a Hop and its boost (an apex of 9 px) leave
+  `bz_cgz` at the floor's 32 on every frame of both flights, both cards, and
+  `bz_clat` 0. The window stays at row 0 there, but `FIRST`'s start is at
+  the course's top, so the clamp would hold it anyway: the proof that a
+  bounce does not bob the view is the ring row's GROUND leg (128.16.14).
 
 #### 128.16.8 The PLAYGROUND (story 6.8)
 
@@ -264768,6 +265036,121 @@ replay has `nboost` 0 and is refused. And a course named in `AUTHOR`
 whose `.bzd` is missing is REFUSED, never quietly given a route demo. Its par is the authored demo's time
 rounded up to whole seconds, as `MOON`'s and `PEAK`'s were (128.14.18).
 
+*As built (wave 6; every figure MEASURED on the host by the tool, at the
+build, unless marked):*
+
+- **Width 128, not 64** (a deviation from the five courses' 64). A width-64
+  picture holds every reachable footprint only for cells with `wx - wy` in
+  about -10 .. 10 (the NEAR void two tiles out included), and the ladder's
+  four rungs, three tiles each with four tiles of void between them, need
+  24 tiles along one edge of the apron: no compact arrangement found kept
+  the 2-unit top as far from the 1- and 1.5-unit tops as the dead-end
+  check needs (below) inside 21 diagonals. Width 128 costs RAM, not disk:
+  the map is 2 x COLS x BROWS (19,200 bytes of the 34,024), and empty
+  blocks pack to almost nothing (TRIAL rebuilt at 128 packs 9 bytes larger
+  in LZ4). GLIDE pans the wider picture as any other; the window is the
+  same.
+- **The layout** (`playground.bbc`, world tiles): the APRON level at 4
+  units, wx 10 - 33, wy 14 - 19 (six tiles of run-up); behind it, on its
+  -wy edge, the rungs left to right at 1.5, 1, half and 2 units (wx 10 -
+  12, 17 - 19, 24 - 26, 31 - 33; tops 3 x 3); the 2-unit top is 12 and 19
+  tiles from the 1- and 1.5-unit tops and 5 from the half-unit one. **The
+  bounce chain onto the 1.5-unit ledge is that rung itself**, and its
+  2-unit wall the ladder's own 2-unit rung beside the same apron, as the
+  text above allows. The MAT (3 x 3, level) at the apron's left end beside
+  the 1.5-unit ledge. The GAP LADDER: three notches, 3 tiles wide, cut
+  into the apron's front edge, 1, 2 and 3 tiles across onto the far floor
+  FF (level, wx 10 - 22, wy 20 - 28), the apron itself the run-up; FF's
+  right part joins the apron with no gap, carries the three PADS (rubber,
+  steel, glass at (22, 23), (22, 25), (22, 27)) and ends at the GOAL, two
+  rows at wy 29 - 30; rails close FF's front and its side above the basin.
+  The BRAKE STRIP: off the apron's front right, a run-up three lanes wide
+  (ICE, normal, SAND, wy 20 - 22), the side lanes ending at rails, the
+  middle lane going on three tiles (wy 23 - 25, level, normal) to the
+  VOID: a pit 3 x 7 sunk in a BASIN 12 units under the strip (-8), which
+  flanks the pit on both sides, so every pit cell's kill is 15 units under
+  the strip. **No ramp anywhere**: the route is rolling and level (start
+  (21, 16), FF's right, the goal), so no up-ramp is within 6 tiles of any
+  rung or notch. A ball in the basin (off the strip's sides, or off FF over
+  its rail) is out of the course: RETURN (Backspace) puts it back, as
+  `MOON`'s dead-end pocket does.
+- **"Outside the reachable set" is `reach_closure()`**: the reach of
+  128.11.4.4 RESTRICTED to what the start can get to (a launch, a BOOST
+  launch from a firm level floor and a bounce only from a cell already
+  reached; a neighbour rolled onto within `BZ_CLIMB`), with each bounce at
+  ITS floor's restitution (the mat's 224, sand's half, else the best EF),
+  where the reach takes one EMAX for every floor once any mat exists. With
+  the reach's global EMAX a mat anywhere puts a mat's bounce on every
+  floor, and a boosted fall off the 1.5-unit top (22 px over the apron)
+  "rebounds" to 12 px or more for about 16 tiles; with each floor's own,
+  the 2-unit top needs about 8 tiles from the 1- and 1.5-unit tops and 4
+  from the half-unit one, which is real physics (rubber off that fall
+  rebounds about 14 px). Still an over-approximation: a cell it leaves out
+  is unreachable. Item 7 asserts the 2-unit top's nine cells outside it and
+  the other three tops inside it; that no top reaches another's by a
+  launch, a boost or a bounce from it (`reach_from()`); and the control
+  `deadend` (the 2-unit rung moved to the half-unit one's place, 5 tiles
+  from the 1-unit top): the closure takes all nine of its cells.
+- **Item 7's sweeps on the course's own rungs and notches** (the 70
+  take-off points at the cap, from the apron's front row for the rungs and
+  its back row for the notches, the boost at every window position) equal
+  128.16.5.3's synthetic ladders exactly: 1 unit rubber 7 (29 with the
+  boost), glass 3, steel none; 1.5 units rubber's boost 7, no Hop alone;
+  half a unit every ball rolls; 2 units nothing; gaps 1 tile 30 / 12 / 7,
+  2 tiles rubber 4 (19 with the boost), glass 2, steel none; 3 tiles
+  nothing, the boost included. The geometry they sweep is `bbcourse.PLAY_*`,
+  which `play_geometry()` checks against the compiled course first, so an
+  edit that moves an element fails there, naming it.
+- **The brake strip**: Grip held from its first tile, at the speed the
+  apron gives, stops rubber 1.5 tiles in, glass 1.6, steel 2.9 (the
+  strip is 3). The FALL (`play_fall()`, the chord held down the lane from
+  the apron's back row, no Grip, GLIDE a frame at a time): into the void,
+  no floor touched, respawned at frame 228 on the CGA and 193 on the
+  Hercules; with the latched fallback the footprint never leaves the
+  window and the row direction never reverses; **without it (`nosafe`)
+  the footprint leaves the window at frame 212 (CGA) and 175 (Hercules),
+  16 and 18 frames before the kill** - the depth the basin was chosen
+  for; **`nolatch` reverses the row direction on the CGA's fall and not on
+  the Hercules'** (its rows are 4 lines and the ball's own line stays
+  inside the band there), so that arm's leg is the CGA's (128.16.14).
+- **The mat**: of the Hops from the apron whose first contact is on the
+  mat, Space 2 steps before it, 32 take-off points, none boosts.
+- **The demo** (`BZD6`, `playground.bzd`): 1,489 steps, 27.26 s, rubber,
+  305 runs, 626 bytes (377 packed); the 1-unit rung by a Hop at step 179,
+  the 1.5-unit ledge by a Hop and its boost (the boost at step 508, on the
+  ledge at 526), along the apron in front of the rungs, Grip from the
+  strip's first tile to rest, the steel pad, the route to the goal; no
+  fall, no RETURN. `par 28`. Two verbs joined `AUTHOR` for it: `aim`
+  (the autopilot's route set to tiles' points, no step taken: `hop` and
+  `grip` steer by it at speed, where `route` would slow to a stop at its
+  last point) and `grip <tile>` (the autopilot until the centre reaches
+  the tile, then `grip`). Item 9: it boosts once, rests on the ledge from
+  step 526 and ends at the goal on its last step; `noboostdemo`'s replay
+  boosts 0 times, never reaches the ledge or the goal, and is refused; a
+  course in `AUTHOR` without its `.bzd` (the demos' folder swapped for an
+  empty one) is refused. The look boots replayed it on both cards to step
+  1,489 with `bz_nboost` 1 and the face's `PLAY 27.26 s goal falls 0`.
+- **Its size**: RAM **34,024** bytes (BZC2, RECB 4; map 19,200, 224
+  blocks, 1,251 merged records of 2,026, grid 5,768); stored LZ4 **5,371**
+  (budget 6,275, cap 9,412: under), LZB **4,352**; 1,024 x 600 px, BROWS
+  75; identity **18E6h**. Over the PREDICTED 15 - 20KB of RAM and 3 -
+  4.5KB packed: the width's map, and the void's edges - four rungs and
+  their gaps behind the apron, three notches, the strip's pit and the
+  basin's rim - are about one record a block along every one of them.
+- **The guest** (128.16.2's table, as built): `BZ_NCRS` 7 moves the sound,
+  the songs and the demos' rows by the formulas (`BZ_P_SND` 10, songs 11 -
+  16, `BZ_P_DEMO` 17, 23 rows), `N` cycles six, the tour is six
+  (`BZ_CRS_TOURX` 7E0Ch), `V` six demos, the song for course 6 is song 1
+  (*Fairway*, `bzs_gfetch`'s wrap). **MAIN's line 0 is the tour's line**
+  (128.14.3.2, amended in place): a fourteenth line does not fit - the
+  window sits above the dock, so the CGA's content holds thirteen, and the
+  look boot showed a fourteenth clipped - and the title is the title bar's
+  already. `bz_ftab` begins with `bz_ltour`; `BZ_LTOUR` 0 names the line in
+  the redraw lists; the build asserts `BZ_NLINE = 7 + BZ_NTOUR`. **+60 bytes
+  of image** against the same source at six courses (the course tables'
+  row 38 - a title is 25 bytes - the two part rows 20, the face 0, the save's
+  +2 below) and **+4 of bss** (`bz_ttime`, `bz_tfall`).
+
 #### 128.16.9 `BZ_PHYSV`, the identities, the demos and the saves (story 6.9)
 
 **`BZ_PHYSV` moves.** It is the CRC of `BZ_MATTAB`, `PHYS_CONSTS` and the
@@ -264845,6 +265228,39 @@ byte moved. A palette never moves one (128.16.6).
   or replaced by an authored one at the next contract change: the owner's
   call then.)
 
+**As built (the tool, wave 6's implementation; MEASURED on the host).**
+The three route demos regenerate and every route proof passes under the new
+physics (`FIRST` 154 steps, `TRIAL` 499, `MILL` 778, the goal reached with
+no fall); `MOON`'s and `PEAK`'s `.bzd` were written again by `bbcourse.py
+author` (2,130 and 2,172 steps, the same falls, RETURNs, pad swaps and
+springs as 5b's, their `ident` 4472h and 57DBh and `physics` 25h, this
+build's `BZ_PHYSV`). One route proof broke: item 8's GLIDE directions on
+`BENCH`, where the faster rolling left one CGA alignment (rate 1.00, phase
+0.9) with no up-left or down-left pan; `BENCH`'s second way moved from
+(16, 14) to (16, 15) and its fifth from (20, 16) to (20, 15) (a host search
+of one-tile moves on the model), every direction occurs at least 7 times
+again, and `BENCH`'s identity, moving anyway, is C0B1h. `FIRST`'s scripted
+item 7 states (the rail at step 61, the corner at 41, the lip at 106 /
+121, the pit at 132, the goal at 128, the rail rebounds 80 and 22) were
+re-taken under the fractional drag: each run rolls faster than wave 2's,
+whose round-up over-dragged. Two item 2 refusals (a block over 4 records,
+a start window with no calibration corner) are records that swing with
+`Y0`'s alignment, so they pin the reach's wave 5b inputs, as item 1 does:
+they prove the refusal, which the reach's inputs do not touch.
+
+**`BONANZA.DAT` as built** (wave 6's PLAYGROUND pass): `bz_dnorm` first
+compares +5 with `BZ_PHYSV` and, when they differ, files as the first run's
+image does (`CL` 0: every entry under this build's identity with no best,
+the tour's XOR and no total) - the same bytes as "keeps its identities and
+loses every best", since the identities filed are this build's whatever the
+file held; then it writes +4 and +5 in one word store, `BZ_NCRS | BZ_PHYSV
+<< 8`, and +6 a zero word. `bz_dchk` no longer tests +5 (+6 - +7 zero, as
+amended). The build refuses a `BZ_PHYSV` of 0 (`%error`, beside the tool's
+`physv0`). **+2 bytes** of image (the test, 9; `bz_dchk`'s byte test, -7),
+against about +12 predicted. A 5b file (+5 = 0) is cleared once and
+rewritten whole at the next best; a file under this build's physics keeps
+its bests (`bonanzagame`'s `physdat` leg drives the three cases).
+
 **The owner's own recordings** wait for the freeze (128.14.7.4: "record
 demos AFTER O11's constants are settled"), which is gate 1's.
 
@@ -264906,6 +265322,87 @@ report, never an edit), and into 128.16.10 here.
   course use the new row. The old row stays the anchor for anything
   measured on the old log.
 
+**MEASURED, wave 6's final pass (2026-11-14, before gate 1; not the
+re-baseline).** `bonanzaperf` in the scoped soak, MartyPC's
+`os8088_5150_cga_gla` and `os8088_5150_herc_gla`, ONE run of each demo
+through `D` with the speaker OFF and ON. These are single runs, so a
+figure carries the run-to-run spread 128.15.5.4 measured: PEAK on the CGA
+spread 7.71 - 8.23 a second over six runs. The freeze's 108 runs replace
+them. Missed refreshes a second, off each frame's flip:
+
+| demo (log) | CGA OFF | CGA ON | Hercules OFF | Hercules ON | 5b, speaker ON (128.15.5.4) |
+|---|---|---|---|---|---|
+| `FIRST` (E9F8h, 154 steps) | 1.41 | 1.41 | 0.00 | 0.35 | - |
+| `TRIAL` (465Bh, 499) | 1.31 | 2.95 | 0.00 | 0.66 | - |
+| **`MILL`** (DAE0h, 778) | 6.46 | **8.90** | 1.19 | **1.68** | CGA 8.52 (49 columns) / 12.48 (84 - 88); Hercules 2.46 |
+| `MOON` (4472h, 2,130) | 0.51 | 1.28 | 0.28 | 0.44 | - |
+| **`PEAK`** (57DBh, 2,172) | 5.98 | **8.76** | 1.60 | **3.24** | CGA 8.07; Hercules 2.87 |
+| `PLAY` (18E6h, 1,489) | 0.11 | 0.48 | 0.04 | 0.07 | - |
+
+- **The rate, against 5b's.** CGA: `MILL` +0.38 over 5b's low mode and
+  -3.58 under its high mode, `PEAK` **+0.69**. Hercules: `MILL` -0.78,
+  `PEAK` **+0.37**. Every figure is inside 128.16.15's "+1 missed refresh a
+  second" line, but each is ONE run against 5b's six.
+- **`MILL`'s camera mode.** On the CGA it panned 128 columns (speaker OFF)
+  and 108 (ON), against the host's 106 (`--pans`). That is 5b's HIGH mode
+  every time, past the 84 - 88 of 5b's high runs. Its rate, 8.90, is still
+  below 5b's high mode's 12.48; this pass does not separate why. The
+  Hercules panned 37 columns, the host's 37, the same single mode as 5b's.
+- **The stutter half: a CHANGE for the owner.** `smooth()` counts runs of
+  consecutive MISSED FRAMES. A missed frame here is always held exactly two
+  refreshes: no frame was held three or more on any demo, either card. So a
+  "run" is a stretch at half rate, not a hitch. With 5b's six runs as the
+  reference (1 run of two or more on each `MILL` run, 2 on each `PEAK`
+  run, the longest 13 on the CGA and 10 - 11 on the Hercules), speaker ON:
+
+  | | runs of two or more | the longest |
+  |---|---|---|
+  | CGA `MILL` | 15 | 33 |
+  | CGA `PEAK` | 45 | 43 |
+  | Hercules `MILL` | 4 | 11 |
+  | Hercules `PEAK` | 16 | 24 |
+
+  The missed frames now CLUSTER into half-rate stretches (`PEAK` on the
+  CGA: 43 frames running at 30 Hz, about 1.4 s) where 5b's were
+  scattered. The likely mechanism is the one 5b saw on `MILL`'s high mode
+  (128.15.5.4), PREDICTED, not separated by a measurement: the faster
+  balls pan more, a missed frame makes GLIDE step further, and the next
+  frame costs more. Under 128.15.5.4's rule this would fail the stutter
+  clause. Wave 6 asserts no A/B (no like for like), so it is REPORTED,
+  first after glass's grip on gate 1's smoothness list (128.16.16). The
+  re-baseline measures it with its spread.
+- **The pans** (columns and rows a second of play, against the host's
+  `--pans`): the columns match the prediction to 0.1 on every demo but
+  three. CGA `MILL` ran 9.0 OFF and 7.6 ON against 7.4. CGA `PEAK` ran
+  3.1 / 3.0 against 3.9, and Hercules `PEAK` 1.9 / 1.9 against 2.3; on
+  both cards `PEAK` pans fewer columns than the prediction. The rows match
+  with the speaker OFF; with it ON the CGA's `FIRST`, `TRIAL` and `MOON`
+  pan more rows (20.6, 21.0, 13.5 against 12.8, 15.8, 10.3). GLIDE's
+  "fast" verdict follows the presented frames, and the speaker's frames
+  present fewer.
+- **TRIAL's bounces under the ground line.** Over TRIAL's 264-step flight
+  and its 5 bounces: CGA GLIDE 219 rows (43.8 a bounce), TRICKLE 139
+  (27.8); Hercules GLIDE 73 (14.6), TRICKLE 70 (14.0). Wave 2's GLIDE was
+  251 and TRICKLE 137 (CGA). So GLIDE pans 13% fewer rows over the flight
+  on the CGA, and TRICKLE about the same.
+- **The occluder pass's span a frame** (speaker ON, mean over the frames
+  it ran): CGA `MILL` 10,088 and `PEAK` 12,965; Hercules `MILL` 10,075 and
+  `PEAK` 13,528. 5b's D build was `MILL` 8,157 / 8,053 and `PEAK` 13,267 /
+  13,504. 128.16.15 predicted about -0.8k on `PEAK`; it measured -0.3k on
+  the CGA and +0.02k on the Hercules. On `MILL` it is +1.9k, where the
+  prediction was no change. The faster ball spends its frames near other
+  records.
+- **`BENCH`'s A/B against 5b** (`bonanzaperf --ab --leg bench`, `503031d4`
+  built from git with its own art, sound OFF, `bz_hvoff` 1, REPORTED, not
+  like for like: `BENCH`'s route moved two `way` lines and the ball is
+  faster). Mean busy: CGA **+1,056 clk** (sim+camera +654, box compose
+  +225, box write +122), Hercules **+47** (sim+camera +713, box compose
+  -359). Misses: CGA 0 against 0, Hercules 0 against 1. The CGA's
+  sim+camera +654 is the size of the instructions' prediction (+0.65 -
+  0.75k, 128.16.15). Q-L8's +0.5k bound is not asserted until the freeze
+  re-anchors it on its own package. Measured against 5b, the CGA would be
+  past it.
+
 #### 128.16.11 Gate 1 and the freeze (story 6.11)
 
 **What the owner gets.** The playtest disk: `bonanza360.img` and
@@ -264939,7 +265436,7 @@ prints each one's verdict under the bounds, the step ladder and the gap
 ladder, and runs every ROUTE proof (item 8's, `BENCH`'s CGA and Hercules
 step coverage and `FIRST` with each ball among them) and every `AUTHOR`
 script to its goal, each passed or failed; so a value that tips `MOON` or
-`PEAK` (128.16.3.2), crosses three tiles, or breaks a route or a script is
+`PEAK` (128.16.3.2), crosses three LEVEL tiles (or crosses more of the 3-tile gaps onto lower floors, which the ladder prints), or breaks a route or a script is
 known before it is committed. **A retune that breaks a route is no longer
 constants-only**: its cure is a route edit (`way` lines) or a script edit,
 which moves that course's identity and clears its best (128.16.9), and
@@ -265055,8 +265552,31 @@ replacement re-takes that demo's re-baseline rows (128.16.10).
   step counts, and prints GLIDE's columns and rows panned a second of
   play and its two-row frames. It is the host's prediction of the faster
   balls' pan cost before the code (128.16.15), and `bonanzaperf`'s
-  measured pans are reported against it;
+  measured pans are reported against it. *As built (at the review, its
+  C1; the tool stage had not built it):* `bbcourse.py --pans` prints this
+  tree's demos, both cards, from `bbcourse.pans()`, which `bonanzaperf`'s
+  prediction calls; 5b's side is not a flag (it needs 5b's own tool and
+  courses), so it was taken once by running the same loop through
+  `503031d4`'s tool on that commit's tree, and both are written in
+  128.16.15;
 - `--sizes` prints the PLAYGROUND's row with the others.
+
+*As built (wave 6's tool):* item 1 compares the STORED parts (`BZ<K>.BIN`,
+BZC2), which `503031d4`'s tool writes, byte for byte, and passes on all six;
+the PLAYGROUND's checks arrived with the course (128.16.8, as built): item 7's
+`_play_checks()` (its elements where `PLAY_*` say, `reach_closure()` and the
+2-unit top outside it, no top reaching another's and the control `deadend`,
+the sweeps on its own rungs and notches, the strip's Grip, `play_fall()` on
+both cards with `nosafe` and `nolatch`, the mat), and item 9's `BZD6`
+boosting, reaching the ledge and ending at the goal, its `noboostdemo`
+control, and a course in `AUTHOR` without its `.bzd` refused - all keyed on
+the NAME `PLAY`, the build refusing a PLAYGROUND demo that does not boost or
+reach the ledge. The selfcheck over the seven courses took 4 min 20 s on
+this host. `Glide` gained `_nosafe` and `_nolatch`, the models of
+`bonanzaring`'s two arms, which `play_fall()` drives. `--tune` takes `NAME=r,s,g` (rubber, steel, glass) for every field
+and `BOOST=b` alone for rubber's; MEASURED, `--tune HOP=256,160,224` (the
+six compiles, `MOON` refused at block row 23, column 29 as 128.16.3.2 says,
+the ladders, the route proofs and `PEAK`'s script) took 53 s on this host.
 
 `tools/bonanza_assets.py` gains the stretch frame, `BZB2` +14, and its
 check in `--selfcheck` (the stretch's mask and frame consistent at every
@@ -265083,11 +265603,11 @@ byte (128.16.11).
 
 | row | tier | what changes | new red arms, and the check each must fail at |
 |---|---|---|---|
-| `bonanzacourse` | soak, host | item 7: the material table printed from `Physics` and asserted against `axis_feel()` (128.16.3), with the axis model under the round-up equal to wave 2's written row; the STEP LADDER and the GAP LADDER and their asserted shapes (no ball crosses three tiles, the boost included, every window position); no gain after a 1.5- or 2-unit drop, the 1-unit drop's boost with `sqf` 0, the threshold printed; one boost a chain; the token at the first contact only; the Grip chain; firm level floors only, `MILL`'s lift slab among them; the PLAYGROUND's rungs dead ends and its 2-unit top unreachable; `ledge_gaps()` for rubber (asserted unchanged) and glass; the up-ramp distance per ball; the reach with the BOOST launch on the grid cell; all seven courses under their bounds and budgets. Item 1 re-anchored on `503031d4` with the reach's 5b inputs (128.16.13; a SKIP is a failure). Item 4: `BZ_PHYSV` not 00h and not in `PHYSV_SHIPPED`. Item 8: `BENCH`'s eight directions with the ground-line `Glide`. Item 9: a stale or demoted shipped `.bzd` refused; `BZD6` boosts, reaches the ledge and ends at the goal; a course in `AUTHOR` without its `.bzd` refused. The palette statement's refusals (item 2). The row's registered text and identities re-taken from the final pass | host controls, each at its own item: `boost400` (`BOOST` 400, a contact apex of 12.25 px: the import assertion refuses "never 2"); `boost300` (`BOOST` 300, 6.75 px: the import assertion refuses "reaches 1.5"); `boostrise` (the boost added to a ramp's rate in the model: item 7's firm-level check); `slabboost` (rule 4 on `_floor`'s substituted cell: item 7's lift case boosts); `noclear` (the token cleared only by a boost: item 7's second-contact case boosts); `remwide` (the remainder left unmasked after the split: item 7's drag figures differ from `axis_feel()`); `gap3` (`BOOST` 366: item 7's 3-tile gap is crossed); `physv` (`PHYSV_SHIPPED` holding this build's value) and `physv0` (`BZ_PHYSV` forced to 00h): item 4; `stalebzd` (`moon.bzd`'s `physics` line left at A0h) and `noboostdemo` (`BZD6`'s log with its boost press removed): item 9 |
+| `bonanzacourse` | soak, host | item 7: the material table printed from `Physics` and asserted against `axis_feel()` (128.16.3), with the axis model under the round-up equal to wave 2's written row; the STEP LADDER and the GAP LADDER and their asserted shapes (no ball crosses three LEVEL tiles, the boost included, every window position; onto a lower floor steel never and no Hop alone down to 1.5 units, the boost's crossings and the deeper Hop crossings PRINTED as the KNOWN CONFLICT; the shipped courses' 3-tile gaps onto lower floors listed, `gap3_scan()`); a Hop on a spring's cell never boosts (the `springtok` control); no gain after a 1.5- or 2-unit drop, the 1-unit drop's boost with `sqf` 0, the threshold printed; one boost a chain; the token at the first contact only; the Grip chain; firm level floors only, `MILL`'s lift slab among them; the PLAYGROUND's rungs dead ends and its 2-unit top unreachable; `ledge_gaps()` for rubber (asserted unchanged) and glass; the up-ramp distance per ball; the reach with the BOOST launch on the grid cell; all seven courses under their bounds and budgets. Item 1 re-anchored on `503031d4` with the reach's 5b inputs (128.16.13; a SKIP is a failure). Item 4: `BZ_PHYSV` not 00h and not in `PHYSV_SHIPPED`. Item 8: `BENCH`'s eight directions with the ground-line `Glide`. Item 9: a stale or demoted shipped `.bzd` refused; `BZD6` boosts, reaches the ledge and ends at the goal; a course in `AUTHOR` without its `.bzd` refused. The palette statement's refusals (item 2). The row's registered text and identities re-taken from the final pass | host controls, each at its own item: `boost400` (`BOOST` 400, a contact apex of 12.25 px: the import assertion refuses "never 2"); `boost300` (`BOOST` 300, 6.75 px: the import assertion refuses "reaches 1.5"); `boostrise` (the boost added to a ramp's rate in the model: item 7's firm-level check); `slabboost` (rule 4 on `_floor`'s substituted cell: item 7's lift case boosts); `noclear` (the token cleared only by a boost: item 7's second-contact case boosts); `remwide` (the remainder left unmasked after the split: item 7's drag figures differ from `axis_feel()`); `gap3` (`BOOST` 366: item 7's 3-tile gap is crossed); `physv` (`PHYSV_SHIPPED` holding this build's value) and `physv0` (`BZ_PHYSV` forced to 00h): item 4; `stalebzd` (`moon.bzd`'s `physics` line left at A0h) and `noboostdemo` (`BZD6`'s log with its boost press removed): item 9 |
 | `bonanzaphys` | soak, MartyPC | 128.16.4.3's five state values compared at every frame; new replays, found and proved on the model first (`--check`), each on both cards: `boost` (rubber on the PLAYGROUND's apron: a Hop, Space before its contact; `nboost` 1, `gvz` = `BOOST`, `stf` = `BZ_STRS`); `boostclimb` (onto the 1.5-unit ledge); `boostdrop` (a Hop off a 1-unit drop, Space at the contact: a boost with `sqf` 0 although the impact passes 384); `boostfall` (a Hop off the 2-unit drop, Space at the contact: a contact Hop, `nboost` 0); `pumpchk` (Space at every contact of the chain: one boost, then contact Hops); `bouncefirst` (a Hop, no Space at its first contact, a bounce; Space at its second: a contact Hop, `nboost` 0); `gripchain` (a Hop and its boost, Grip held through the boost's landing, then Space: a land, a ground Hop and a second boost, `nboost` 2, no roll between); `rampnot`, `sandnot` and `matnot` (the PLAYGROUND's mat), `liftnot` (`MILL`'s lift: a Hop landing on the slab, Space at the contact: no boost); `steelglass` (steel and glass: contact Hops, never a boost); `drag` (one arrow from rest settles at the model's top; from a chord's cap falls back to it; the remainders every frame); `gripglass` (glass's Grip from the cap stops in the model's steps). **The drag's cost, ASSERTED**: on the `drag` replay a breakpoint at `bz_gax`'s entry and return gives every grounded call's span in MartyPC's cycles, and the worst is at most the as-built routine's price (from its instructions, the fetch floor, x 1.05) plus 25% | `pump` (the token set again by a contact Hop): red at `pumpchk`'s second boost. `rampboost` (rule 4's slope test left out): red at `rampnot`. `tokbst` (the token cleared only by a boost, not at every contact): red at `bouncefirst`'s boost. `slabcell` (rule 4 on the cell after the slab's substitution): red at `liftnot`'s boost. `ceildrag` (the guest keeps wave 2's round-up drag): red at `drag`, one arrow from rest settling at 189 against the model's top. `slowdrag` (the remainder's split done twice): red at the span assertion |
 | `bonanzareplay` | soak, MartyPC | a real-key play on the PLAYGROUND recorded on the CGA (Space twice: a Hop and its boost; Shift on the brake strip), the model off the log equal to the play every frame; replayed on the Hercules | none new: `hopbit` covers Space's bit |
-| `bonanzaring` | soak, MartyPC | **the GROUND leg**: the PLAYGROUND's bounce chain onto the ledge, `TRIAL`'s 6-unit drop and the PLAYGROUND's brake-strip fall into the void (the fallback case, 128.16.8, proved on the model first), in GLIDE and in TRICKLE, both cards: at every frame the guest's window (`bz_R0`, `bz_c0`) equals `bbcourse.Glide`'s off the same log, the ball's footprint is inside the window, and on the void fall the row direction never reverses while the ball is airborne; the stretch frame drawn: the PLAYGROUND's demo card = oracle (the oracle composes the stretch while `stf > 0`), the `boostdrop` boost (impact past 384) among the frames. **The camera's cost, ASSERTED**: a breakpoint round the ground-line block of `bz_camera` on these legs, its worst span at most its as-built price plus 25% | `camz` (the vertical reads `bz_py`, wave 2's): red at the first bounce frame whose `bz_R0` differs from `Glide`'s. `nosafe` (the edge fallback left out): red at the footprint-inside check on the brake-strip void fall, at the frame the model named. `nolatch` (the fallback not latched): red at the row-reversal check on that fall. `ringcy` (the travel ring fed `cy`): red at the first frame on `TRIAL`'s drop whose `bz_R0` differs from `Glide`'s (a false "fast", two rows). `nostretch` (`bz_sprite` ignores `stf`): red at card = oracle on the first boost frame. `campad` (the block padded by a 200-clk loop): red at the span assertion |
-| `bonanzaexit` | soak, MartyPC | the PLAYGROUND's launches (its three ball rows fetched and dropped), every way out; the claim leg over seven courses; **the palette**: in the PLAYGROUND's bracket on the CGA, MartyPC's rendered pixel at the ball's body is the colour its `BZ_CRS_PALS` byte selects (palette 0's red as shipped), in `FIRST`'s its byte's (palette 1's magenta); after each bracket the desktop's rendered pixels equal the capture before it; on the Hercules a breakpoint on `bz_vpal`, the label on `bz_vinit`'s `out` to 3D9h resolved through `os88sym`, is never hit | `nopal` (the `out` left out): red at the PLAYGROUND's rendered colour. `hercpal` (the `bz_herc` branch round the labelled `out` removed, so the arm's own write runs on the Hercules): red at the `bz_vpal` breakpoint |
+| `bonanzaring` | soak, MartyPC | **the GROUND leg**: the PLAYGROUND's bounce chain onto the ledge, `TRIAL`'s 6-unit drop and the PLAYGROUND's brake-strip fall into the void (the fallback case, 128.16.8, proved on the model first), in GLIDE and in TRICKLE, both cards: at every frame the guest's window (`bz_R0`, `bz_c0`) equals `bbcourse.Glide`'s off the same log, the ball's footprint is inside the window, and on the void fall the row direction never reverses while the ball is airborne; the stretch frame drawn: the PLAYGROUND's demo card = oracle (the oracle composes the stretch while `stf > 0`), the `boostdrop` boost (impact past 384) among the frames. **The camera's cost, ASSERTED**: a breakpoint round the ground-line block of `bz_camera` on these legs, its worst span at most its as-built price plus 25% | `camz` (the vertical reads `bz_py`, wave 2's): red at the first bounce frame whose `bz_R0` differs from `Glide`'s. `nosafe` (the edge fallback left out): red at the footprint-inside check on the brake-strip void fall, at the frame the model named. `nolatch` (the fallback not latched): red at the row-reversal check on that fall. `ringcy` (the travel ring fed `cy`): red at the first frame on `TRIAL`'s drop whose `bz_R0` differs from `Glide`'s (a false "fast", two rows). `nostretch` (`bz_sprite` ignores `stf`): red at card = oracle on the first boost frame. `campad` (the block padded by a ~430-clk loop, past the worst path's bound): red at the span assertion. Both span assertions (this one and `bonanzaphys`'s drag) hold only the CLEAN spans to the price: a span with an entry to the kernel's `sch_isr` inside it is counted apart and left out, as `bonanzaperf`'s are (the review's C2) |
+| `bonanzaexit` | soak, MartyPC | the PLAYGROUND's launches (its three ball rows fetched and dropped), every way out; the claim leg over seven courses; **the palette**: in the PLAYGROUND's bracket on the CGA, MartyPC's rendered pixel at the ball's body is the colour its `BZ_CRS_PALS` byte selects (palette 0's red as shipped), in `FIRST`'s its byte's (palette 1's magenta); after each bracket the desktop renders only the colours its capture before the bracket held, both of them (not the bitmap: BONANZA's own window is in the frame and its face is rewritten after every play, Esc included; the review's F1); on the Hercules a breakpoint on `bz_vinit.vpal`, the local label on `bz_vinit`'s `out` to 3D9h resolved through `os88sym`, is never hit | `nopal` (the `out` left out): red at the PLAYGROUND's rendered colour. `hercpal` (the `bz_herc` branch round the labelled `out` removed, so the arm's own write runs on the Hercules): red at the `bz_vinit.vpal` breakpoint |
 | `bonanzaperf` | soak, MartyPC | wave 6's final pass: every demo, six, through `D`, both cards, speaker ON, REPORTED against 5b's figures and 128.16.15's predictions (no end-to-end A/B: no like for like, 128.16.10): misses, missed refreshes a second, runs of two or more, the longest run, `MILL`'s mode, GLIDE's columns and rows panned a second of play against `--pans`' prediction, and the occluder pass's span a frame against 5b's (128.15.5.4); `TRIAL`'s bounce leg REPORTS the rows panned per bounce under the ground line against wave 2's 251 / 137; the `BENCH` A/B against 5b's commit REPORTED. **`--baseline`**, at the freeze commit only (128.16.10): the 108 runs with their spreads, keyed to each demo's log, written to the report | none new: its arms re-run |
 | `bonanzademo` | soak, MartyPC | `V`'s six demos, each `D`'d to the model's end on both cards (the PLAYGROUND's boosts among them); the hostile set's physics cases are all THIS build's log with only +7 changed, as `tests/bonanza_demo.py`'s H09 mutation is today (`BZ_PHYSV ^ 5Ah`): H09 kept, and two more with +7 = A0h (5b's value) and +7 = 00h, each refused at check 5 with `bz_t_phys` (a real 5b log of a course whose identity moved fails check 4 first, 128.16.9, so it cannot be this case) | none new |
 | `bonanzagame` | soak, MartyPC | the tour's six courses; `BONANZA.DAT` +5: a file carrying THIS build's course identities and tour XOR with +5 = 0 (5b's unset value) and a best on each course, which loads with its identities kept and every best and the tour's cleared, then is rewritten whole with +5 = `BZ_PHYSV` at the next best; a second such file with +5 = A0h, the same; and the same file with +5 = `BZ_PHYSV`, whose bests are KEPT (the control that the clear is the physics test's, not the identities') | `physdat` (+5 not checked): red at the cleared-bests check, a best kept |
@@ -265100,6 +265620,122 @@ byte (128.16.11).
 The final pass's union is every row above. **Rows the wave cannot reach**:
 every row outside BONANZA's (no kernel, driver or shared include changes).
 
+*As built (the rows, wave 6; each row's `--check` passed on the host, every
+red tree assembles; nothing here has run on an emulator yet - that is the
+final pass's):*
+- **`bonanzaring`'s GROUND leg compares the window in GLIDE only.** There is
+  no host model of TRICKLE (`bbcourse.Glide` is GLIDE's), so in TRICKLE the
+  leg asserts the footprint inside the window and, on the void fall, no row
+  reversal, and REPORTS the rows panned; in GLIDE it asserts all three. The
+  stretch's card = oracle is checked on every frame with `bz_stf > 0` of the
+  `boostclimb` and `boostdrop` replays (bonanzaphys's, re-used), not on
+  `BZD6`'s demo; `boostdrop`'s boost lands at an impact past 384, as the row
+  asks. The void fall is replayed to the step BEFORE its kill: the respawn's
+  cut re-centres the window, which `Glide` does not model. The camera's span
+  is `bz_camera.gline` (a zero-byte local label added before the block) to
+  `.cyd`, bounded by 527 clk (the block's worst path, a latched ball
+  released by an airborne contact and re-tripped, 128.16.7's table) plus
+  25%, over the CLEAN spans only: a span the kernel's `sch_isr` entered is
+  counted apart (the review's C2, `bonanzaperf`'s rule); `bonanzaphys`'s
+  drag span is held the same way. `nolatch` runs on the CGA alone (128.16.8);
+  `ringcy`'s model (the ring fed `cy`) parts on both cards. On the host,
+  `camz`'s GLIDE parts at frame 47 (CGA) and 41 (Hercules) of the bounce
+  chain, `ringcy`'s at 21 and 16 of `TRIAL`'s drop.
+- **`bonanzaphys`** finds its wave-6 replays on the model: the drag runs on
+  the PLAYGROUND's longest level run for one arrow (13, 28), 304 steps from
+  rest to 250 (`axis_feel`'s 252) and 203 steps from the cap back to 257;
+  `rampnot` on `TRIAL`'s ramp cell (16, 13); `sandnot` (30, 20); `matnot`
+  (7, 15). `slowdrag` is the split done twice more by `DIV` (functionally
+  inert, about +300 clk a dragged axis) so the span bound, 428 + 25%, can
+  catch it; `hopagain` became glass's (rubber's Space at its Hop's landing is
+  the boost now, 128.11.7.2 as amended).
+- **`bonanzamega`**'s PLAYGROUND case runs before cases 7 - 9 (case 9 opens a
+  second instance); `stretchcs` runs case 10 alone, since every launch on the
+  Hercules that fetches rubber's part would fault the same way.
+- **`bonanzaperf`** takes the pans' prediction from `bbcourse.pans`, the
+  body of `bbcourse.py --pans` (128.16.13; the flag was built at the
+  review, its C1). `--ab` defaults to `503031d4` and REPORTS; the +0.5k
+  guard is not asserted until the freeze re-anchors it. MILL's camera is no
+  longer classified into 5b's two modes (the 67-column split would have
+  called wave 6's predicted 106 columns 5b's "84 - 88-column mode"): its
+  columns are reported against the host's prediction. `--baseline` writes
+  the report and was not run.
+- **`bonanzareplay`**'s PLAYGROUND leg drives real keys off the guest's own
+  state (a model poked from it predicts the Hop's contact and the Grip's
+  stop); simulated on the host at both cards' step rates it boosts once and
+  grips on the strip at step 374 - 375 with no fall.
+- **`bonanzaexit`**'s palette leg judges the rendered colour as the nearest of
+  the CGA's sixteen, and compares the desktop before and after each bracket
+  below the top eighth of the rendered frame (the menu bar's clock).
+
+*Final pass (MEASURED, 2026-11-14; the rows' and the arms' runs, and what
+the pass changed in the rows to make them run).* One `os88test.py soak -k
+'bonanza*'`: ten rows ok, three not. Each failure was fixed in the ROW,
+never by weakening a check against this subsection, and the failing rows
+were re-run alone; all 13 now pass. `bonanzawheel` still fails its check
+(6) on the CGA, the known failure since 3b.
+- **`bonanzaring`** failed on three coverage checks, each caused by the
+  new physics or camera, none by a defect in the guest:
+  - **The CGA's `MILL`: no frame with `ahead` or `lead`.** The LOW
+    scenario held its ball AIRBORNE, 186 px over its floor. Since 128.16.7
+    an airborne ball's camera line is the GROUND line, so GLIDE panned 44
+    rows after the floor, and no wheel commit came. The scenario now cuts
+    on its airborne point, since the cut centres the window on the BALL.
+    From the next frame it holds the ball RESTING on a level floor in the
+    window's band and dead zone (`rest_in_window`), and a grounded ball's
+    line is its own. Result: CGA `ahead` 3 and `lead` 3; Hercules `ahead` 3
+    and `behind` 3.
+  - **The Hercules' row-0 probe: 4 multi-box frames of 5.** The reach's
+    taller top (`HOPMAX` 252 and the BOOST launch) puts `BENCH`'s floor
+    about 20 px further below world line 0. So at the window's edge the
+    shadow of the probe's fifth frame fell off the Hercules' 200 lines, and
+    at frame 7 a split frame found no ground. Such frames are now put 40 px
+    BACK, as the frame before a split already is: their shadow stays on
+    the window and a column still enters. Result: CGA 16 frames, 13
+    multi-box; Hercules 11, 8 multi-box.
+  - **`bonanzawheel`'s STALE scene (9)** failed on the same ground-line
+    cause: TRICKLE panned 36 rows after the floor before the row. The
+    scene's held points now rest too (sloped floors allowed, re-poked every
+    frame). Result: the rotor enters by the row on both cards and is
+    judged.
+- **`bonanzamega` hung** in case 10: the Hop's flight loop read the HELD
+  86Box machine without stepping it. It now steps the machine one step a
+  pass, at most 120 passes. Result: case 10 passes, the PLAYGROUND's
+  three ball rows dropped, its replay ending where the play did.
+- **`bonanzaexit`** was green in the soak, but its arms read
+  `bz_vinit.vpal`, which the row's symbol table lacked after the review's
+  B1 move. It joined `LOCAL_SYMS`.
+- **`bonanzaperf --ab`** could not build `503031d4`, whose `bbcourse.py`
+  imports `os88lz`. The archive now carries `tools/os88lz.py`.
+- **The arms:** every arm of the eleven emulator rows ran once, 107 in
+  all, and every one went red at its own check. Three needed a change in
+  the row:
+  - `contact` runs on the CGA alone. The Hercules' `MILL` route under the
+    new drag brings no contact candidate under the wheel on a checked
+    frame, so there it went red only at the DEFER scene.
+  - `nosafe` compares the window against its own model (`Glide(_nosafe)`)
+    and goes red at the footprint check, at frame 210.
+  - `nolatch` goes red at the window check against the SHIPPED `Glide`:
+    CGA frame 224, step 203, window (151, 41) against (153, 41). On the
+    guest's own frame pacing the unlatched camera reaches the kill before
+    it reverses a row. Its model reverses 2 frames before the kill when
+    paced at the card's mean rate, and never when paced as the guest ran.
+    So the row's reversal check, which still runs, has no arm of its own.
+    This amends the table's "red at the row-reversal check".
+  - The host controls of `bonanzacourse`, `bonanzamusic` and
+    `bonanzaassets` each fail at their own item inside the rows.
+- **The spans, ASSERTED and MEASURED** (MartyPC's cycles, the CLEAN spans):
+  - `bz_gax`'s dragged calls on `drag-rest`: worst **335** cycles, mean
+    **325**, over 606 - 607 calls a card. The bound is 535 (428 + 25%).
+  - The camera's ground-line block (`.gline` to `.cyd`) over every GROUND
+    leg, both cards, GLIDE and TRICKLE: worst **470** cycles, means **360 -
+    436**. The bound is 658 (527 + 25%).
+  - Each is under its as-built price.
+- **The new identities** hold in the rows: BENCH C0B1h, FIRST E9F8h, TRIAL
+  465Bh, MILL DAE0h, MOON 4472h, PEAK 57DBh, PLAY 18E6h. `BZ_PHYSV` is
+  25h. `bonanza360.img` is at 87 of 354 clusters. `BONANZA.O88` is 80,201
+  bytes and `bonanza.bin` 33,837.
+
 #### 128.16.15 Bytes and clocks (PREDICTED; the courses' figures MEASURED on the host)
 
 **The resident image**, PREDICTED:
@@ -265111,17 +265747,20 @@ every row outside BONANZA's (no kernel, driver or shared include changes).
 | the stretch in `bz_sprite` | about +25 | |
 | the camera's ground line and its latch | about +70 | +3 (`bz_cgz`, `bz_clat`) |
 | the palette (the write and `BZ_CRS_PALS`) | about +27 | |
-| the PLAYGROUND's course-table rows and its two part rows | about +50 | |
-| `BONANZA.DAT`'s +5 (the byte writes, the physics test in `bz_dnorm`) | about +12 | |
+| the PLAYGROUND's course-table rows and its two part rows | about +50 (MEASURED +58: the tables 38, a title row being 25, the part rows 20; the face 0) | +4 (`bz_ttime`, `bz_tfall`: a sixth tour course, MEASURED) |
+| `BONANZA.DAT`'s +5 (the byte writes, the physics test in `bz_dnorm`) | about +12 (MEASURED +2, 128.16.9) | |
 | the sound's BOOST event | about +12 | +2 (`bzs_last`'s word for `bz_nboost`) |
 | **wave 6** | **about +300** (+250 - 350) | **+12** |
+| **wave 6, AS BUILT** (MEASURED, `bonanza.bin` 33,469 -> 33,837) | **+368**: the physics +136 (the drag +48, the boost +86, the spring's token +2), the look +172 (the stretch +26, the sound +17, the camera +109, the palette +21 less its seventh table byte, which is counted in the PLAYGROUND's tables), the PLAYGROUND and `BONANZA.DAT` +60 | **+13** (the camera's `bz_clat` a word, 128.16.7), and +4 for the sixth tour course |
 
 **The parts** (RAM), PREDICTED but for the six courses:
 - rubber's ball: +1,280 (8,256 -> 9,536); the play's claim for it grows
   the same;
 - the six courses: **-546** (179,680 -> 179,134, MEASURED, 128.16.5.4);
-- the PLAYGROUND: about 15 - 20KB, a claim of its own while it plays;
-- `BZD6.BIN`: about 0.3 - 1.0KB, fetched by `V` and `D` only;
+- the PLAYGROUND: about 15 - 20KB, a claim of its own while it plays
+  (MEASURED **34,024**, width 128's map 19,200 of it, 128.16.8);
+- `BZD6.BIN`: about 0.3 - 1.0KB, fetched by `V` and `D` only (MEASURED
+  626);
 - `BZSND.BIN`: about +30.
 
 **The disk**, PREDICTED (LZB parts, the shipped format): the six courses
@@ -265129,7 +265768,9 @@ every row outside BONANZA's (no kernel, driver or shared include changes).
 PLAYGROUND about 2.5 - 3.8KB; its demo about 0.2 - 0.4KB; the sound about
 +30; the image about +0.2KB. So **about +3 - 4.5KB**: `bonanza360.img` from
 81 clusters to **about 85 - 86** of 354 (PREDICTED; the final pass measures
-it).
+it). MEASURED with the PLAYGROUND: its part **4,352** bytes LZB (over the
+2.5 - 3.8KB predicted, 128.16.8), its demo 377 packed, and `bonanza360.img`
+**86 of 354 clusters** (87 when re-taken after the review's fixes: `BONANZA.O88` 80,201 bytes).
 
 **Clocks**, PREDICTED (8088, the fetch floor, times 1.05):
 
@@ -265152,6 +265793,24 @@ the missed refreshes a second by -0.14 to +0.16. So the honest prediction
 for the instructions alone is a change of that order, well inside "a few
 dropped frames".
 
+*As built:* the image came in **+368 bytes against "about +300"**, 5% past
+the range's top (+350): the drag and the boost spent the fetch-floor lines
+and call sites the prediction left out (128.16.3.1, 128.16.4.3), and the
+camera +109 against about 70 (128.16.7). The clocks a frame in the table
+above stand except the camera's, whose common frames are 0.30 - 0.39k and
+whose worst (a release re-tripped) 0.53k (128.16.7's per-path table).
+
+*MEASURED, the final pass* (MartyPC's cycles, 128.16.14's spans):
+- the drag: `bz_gax`'s dragged call worst **335** clk, mean **325**,
+  against its as-built price of 428;
+- the camera's ground-line block: worst **470** clk, means **360 - 436**
+  over the GROUND legs on both cards, against 527 at its worst path.
+
+So both cost less than priced. `BENCH`'s sim+camera part a frame is +654
+clk on the CGA and +713 on the Hercules against `503031d4`, not like for
+like. That is inside the instructions' predicted +0.65 - 0.75k a frame
+(128.16.10).
+
 **Two larger terms, which move with the PATH, not the code.**
 
 - **The faster balls' pans.** The fractional drag raises one-arrow cruise
@@ -265170,6 +265829,38 @@ dropped frames".
   or `PEAK` rises enough to predict more than about +1 missed refresh a
   second** (scaled by 128.15.5.4's figures), that is an owner conversation
   at gate 1, beside `K` and `ACC`, not a quiet ship.
+
+  *PREDICTED on the host* (`bbcourse.py --pans`; 5b's side the same loop
+  through `503031d4`'s tool, its route demos and its `MOON`/`PEAK` `.bzd`,
+  its own physics; the review's C1). Columns and rows panned a second of
+  play, 5b -> wave 6:
+
+  | demo | card | 5b: s, cols/s, rows/s | wave 6: s, cols/s, rows/s |
+  |---|---|---|---|
+  | FIRST | CGA | 2.89, 4.84, 11.06 | 2.82, 4.97, 12.77 |
+  | FIRST | Hercules | 2.89, 4.15, 5.53 | 2.82, 4.26, 6.38 |
+  | TRIAL | CGA | 9.15, 6.12, 23.81 | 9.14, 6.35, 15.76 |
+  | TRIAL | Hercules | 9.15, 4.81, 12.34 | 9.14, 4.82, 5.80 |
+  | **MILL** | **CGA** | 12.38, **3.96** (49 cols), 17.53 | 14.24, **7.44** (106 cols), 15.09 |
+  | MILL | Hercules | 12.38, 2.99, 13.66 | 14.24, 2.60, 8.00 |
+  | MOON | CGA | 39.11, 3.86, 11.87 | 39.00, 3.72, 10.33 |
+  | MOON | Hercules | 39.11, 3.17, 5.63 | 39.00, 3.13, 5.03 |
+  | PEAK | CGA | 40.35, 3.97, 17.45 | 39.77, 3.92, 16.37 |
+  | PEAK | Hercules | 40.35, 2.50, 9.34 | 39.77, 2.34, 7.62 |
+  | PLAY | CGA | - | 27.26, 6.27, 11.26 |
+  | PLAY | Hercules | - | 27.26, **6.79**, 5.76 |
+
+  The rows fall almost everywhere (the ground line, 128.16.7). The columns
+  hold but on **`MILL`'s CGA, which crosses the threshold above**: +3.5
+  columns a second, which 128.15.5.4's scale (about 35 columns in 12.4 s
+  for about 4 misses a second, some 1.4 misses per column a second) prices
+  at **about +5 missed refreshes a second** over 5b's 49-column mode (8.5
+  a second to about 13, near 5b's 84 - 88-column mode's 12.5), less what
+  the 2.4 fewer rows a second save, which that scale does not price. So it
+  is on gate 1's list (128.16.16). `PEAK` and `MILL`'s Hercules do not
+  cross it. The PLAYGROUND's demo pans 6.79 columns a second on the
+  Hercules, about twice any other demo there; it has no 5b figure to rise
+  from, and the final pass measures it.
 - **The occluder pass**, whose records the reach moved (128.16.5.4). Its
   clocks a frame follow the records tested near the footprint, not the
   course's total, so this is a proportion and not a model: at 128.15.5.4's
@@ -265209,13 +265900,27 @@ Each with the default wave 6 ships; gate 1's play decides (128.16.11).
   change to the bound, and that is a design conversation, not a retune.
 - **Q-62, the boost**: shipped at **350**, the contact apex 9.3 px (the
   plan's "about 318" was a ground take-off's figure; at a contact 318 rises
-  7.6 px and misses 1.5 units). All of 342 - 366 compile the courses, but
-  of the four tried only 350 keeps three tiles uncrossable (128.16.4.2), so
-  a move is checked by `--tune`'s gap ladder. The cue (the sound and the
+  7.6 px and misses 1.5 units). All of 342 - 366 compile the courses; 366
+  crosses three LEVEL tiles, and none of 332 - 358 that climbs 1.5 units
+  keeps three tiles onto a lower floor uncrossed (128.16.4.2), so a move is
+  checked by `--tune`'s gap ladder. The cue (the sound and the
   stretch) is his to judge by feel.
-- **Three tiles** (128.16.5.3): *default: nobody's, the boost included,
-  ASSERTED.* Making a 3-tile gap rubber's boost rung would be a new
-  course-design rule, the owner's to make, not a tuning result.
+- **Three tiles** (128.16.5.3): *default: nobody's on the LEVEL, the boost
+  included, ASSERTED.* Making a 3-tile gap rubber's boost rung would be a new
+  course-design rule, the owner's to make, not a tuning result. **And the
+  KNOWN CONFLICT** (128.16.4.2, MEASURED): onto a LOWER floor rubber's Hop
+  and boost cross three tiles at 350, from 2 take-off points (37 ms) half a
+  unit down, 4 at 1 unit, 7 at 1.5, 13 (238 ms) at 2 and 22 (403 ms) at 3;
+  rubber's Hop ALONE crosses from 2 units down (2 points; 7 at 3 units),
+  which wave 5b's Hop of 224 did not, and glass's Hop at 3 units down (4).
+  Every `BOOST` that climbs 1.5 units (332 - 358) crosses the half-unit
+  case; no value keeps both the 1.5-unit rung and that bound. *Default:
+  350 ships, the crossings printed, not refused.* `gap3_scan()` lists the
+  shipped courses' instances: two on `MILL` at wx 10 (wy 12 half a unit
+  down; wy 13 **2 units down**, the boost from 13 points and the Hop alone
+  from 2), each a potential new shortcut for the owner to try. The owner
+  decides at gate 1: a course rule (no 3-tile gap onto a lower floor where
+  rubber must not cross), a course edit, or a change to the boost.
 - **The two-tile gap is easy for rubber now** (128.11.5.3 as amended): a
   Hop and its boost cross it from a wide band of take-off points (item 7's ladder prints its width). *Default: accepted,
   and the course rules say so.*
@@ -265227,9 +265932,30 @@ Each with the default wave 6 ships; gate 1's play decides (128.16.11).
   the freeze.
 - **Q-63, the Grips**: rubber 8, steel 5, glass 3, as accepted; how they
   feel depends on glass's `K` above.
-- **The pans** (128.16.15): *default: report.* If `--pans` predicts more
-  than about +1 missed refresh a second on `MILL` or `PEAK` from the faster
-  balls, the owner hears it at gate 1 with `K` and `ACC`.
+- **The pans** (128.16.15), **PREDICTED OVER THE THRESHOLD on `MILL`'s
+  CGA**: its demo pans 7.44 columns a second against 5b's 3.96 (106
+  columns in 14.24 s against 49 in 12.38 s), priced at about +5 missed
+  refreshes a second by 128.15.5.4's scale, before the rows it saves.
+  `PEAK` and `MILL`'s Hercules do not cross it. *Default: ships; the final
+  pass measures it.* The owner hears it at gate 1 with `K` and `ACC`: the
+  levers are the drag's `K` (slower cruise), `MILL`'s demo (a slower
+  route), or accepting it as the faster game's price.
+
+  *MEASURED, the final pass* (128.16.10; one run each, speaker ON):
+  - **The rate.** `MILL`'s CGA demo panned 108 columns (7.6 a second) and
+    missed 8.90 refreshes a second. That is +0.38 over 5b's low mode and
+    under its high mode's 12.48, so the +5 the scale priced did not
+    happen. `PEAK` was +0.69 on the CGA and +0.37 on the Hercules. Every
+    rate is inside the +1 line.
+  - **The STUTTER** is the new question. A missed frame is still held only
+    two refreshes, but the misses now come in long half-rate stretches.
+    CGA: 15 runs on `MILL` (the longest 33 frames) and 45 on `PEAK` (the
+    longest 43). 5b had 1 and 2 runs, the longest 13. That would fail
+    128.15.5.4's stutter clause.
+
+  *Default: ships to gate 1 as built.* The owner plays `MILL` and `PEAK` on
+  the CGA and says whether it stays smooth. The re-baseline measures it
+  with six runs, and the lever is the same: `K` and `ACC`.
 - **Q-64, palettes**: the per-course byte ships; the PLAYGROUND shows
   palette 0. Per-world defaults arrive with the worlds (wave 11's
   pipeline).

@@ -134,6 +134,10 @@ BZG_ROUTE   equ 26              ; picture top-left (px), at this offset
 ; --- the ball part's header (BZB2, SPEC.md 128.11.9.1); its layout is
 ; bzconst.inc's BZ_BAL_* -------------------------------------------------------
 BZB_NSHA    equ 12              ; byte: shatter frames, 4 for glass, else 0
+BZB_NSTR    equ 14              ; byte: stretch frames, 1 for rubber, else 0
+%if BZ_BAL_STROFF != BZ_BAL_SHAOFF
+ %error "bz_hxball translates the shatter and stretch entries as one table"
+%endif
 ; --- the replay log's header (SPEC.md 128.11.12.1), in [bz_rlog] ---------------
 BZR_CRS     equ 4               ; byte: the course K
 BZR_MAT     equ 5               ; byte: the material
@@ -152,13 +156,14 @@ BZR_TILT    equ 4               ; (bzcourse.inc's BZ_RL_TILT, the tool's)
 %if BZR_TILT != BZ_RL_TILT || (BZR_SIZE - BZR_RUNS) % 6
  %error "the log's TILT flag is +6 bit 2, and both run widths fill bz_rlog exactly"
 %endif
-BZ_P_DEMO   equ BZ_P_SONG + BZS_NSONG ; shipped demo K (1 - 5): BZ_P_DEMO + K - 1
+BZ_P_DEMO   equ BZ_P_SONG + BZS_NSONG ; shipped demo K (1 - 6): BZ_P_DEMO + K - 1
 ; --- the game (SPEC.md 128.14.3) ------------------------------------------------
 BZ_NTOUR    equ BZ_NCRS - 1     ; the TOUR: courses 1 .. BZ_NCRS - 1, in order
 BZ_TOURMAX  equ BZ_NTOUR * 65534 ; a tour's total a file may hold: each under
                                 ; the 65,535-step clamp (128.14.3.3)
 ; --- BONANZA.DAT (SPEC.md 128.14.3.3): SYSTEM\APPDATA, 64 bytes, in [bz_dat] ---
-BZD_SIZE    equ 64              ; `BZT1`, +4 the course count, +5 three zeros
+BZD_SIZE    equ 64              ; `BZT1`, +4 the course count, +5 BZ_PHYSV
+                                ; (wave 6, SPEC.md 128.16.9), +6 two zeros
 BZD_ENT     equ 8               ; 8 entries, K 0 - 7 (BENCH's unused): +0 the
 BZD_ENTB    equ 6               ; course's IDENTITY, +2 its best in STEPS (0
 BZD_NENT    equ 8               ; none), +4 that best's falls
@@ -1226,8 +1231,8 @@ bz_hgen:
 ;     lines a block, even: one run of 8 N rows of 2 bytes from table 0);
 ;   the ball's ROLL frames: frame f's row r through ((f >> 3) + r) & 1, so each
 ;     run of 8 frames is 128 rows of 5 bytes from table (f >> 3) & 1;
-;   the FRAME half of each squash and shatter entry (frame x shift x parity
-;     copy p x (mask 80, frame 80)): 16 rows from table p;
+;   the FRAME half of each squash, shatter and stretch entry (frame x shift
+;     x parity copy p x (mask 80, frame 80)): 16 rows from table p;
 ;   a PLATFORM's sprite (wave 3, SPEC.md 128.12.6.4): parity copy p x (mask
 ;     144, frame 144), the frame's row r through table (p + r) AND 1.
 ; Every ball part this launch fetched (bz_bsegs, wave 4), each the same way.
@@ -1304,8 +1309,9 @@ bz_hxball:
     mov si, BZ_BAL_SQOFF        ; the squash entries
     mov al, BZ_BAL_NSQ
     call bz_hxents
-    mov si, BZ_BAL_SHAOFF       ; ...and glass's shatter entries: +12 counts
-    mov al, [es:BZB_NSHA]       ; them, 0 for rubber and steel
+    mov si, BZ_BAL_SHAOFF       ; ...and glass's shatter entries or rubber's
+    mov al, [es:BZB_NSHA]       ; stretch (wave 6), one table at the same
+    add al, [es:BZB_NSTR]       ; offset: +12 and +14 count them, never both
 ; AL = frames of entries at SI: each frame's BZ_BAL_SHIFTS x 2 parity copies,
 ; every copy's frame half 16 rows from table p (copies alternate p = 0, 1)
 bz_hxents:
@@ -1370,6 +1376,11 @@ TOASTSTR bz_t_nofs, 'Bonanza: no full screen'
 ; under the strings (BZ_FIT), so a longer string fails the build.
 ; -----------------------------------------------------------------------------
 BZ_NLINE    equ 13              ; the CGA's content holds 13 lines of 42 cells
+                                ; (the window sits above the dock): MAIN's are the
+                                ; tour's, six, then a scorecard line a tour course
+                                ; - six since the PLAYGROUND (SPEC.md 128.16.8),
+                                ; which took the title's line: the title bar says it
+BZ_LTOUR    equ 0               ; the tour's line
 BZ_FACEW    equ 42
 BZ_TIMEW    equ 6               ; a time: `ss.hh`, `ssss.h` (from 100 s) or `20:00+`
 BZ_FALLMAX  equ 9999            ; falls are shown, and filed, to four digits
@@ -1479,10 +1490,10 @@ bz_fline:
     mov [bz_fy], ax
     shl bx, 1
     jmp [bz_ftab + bx]
-bz_ftab:    dw bz_l0, bz_l1, bz_l2, bz_l3, bz_l4, bz_l5, bz_l6
-            dw bz_sc, bz_sc, bz_sc, bz_sc, bz_sc, bz_l12
-%if ($ - bz_ftab) / 2 != BZ_NLINE || BZ_NTOUR != 5
- %error "MAIN is thirteen lines, five of them the scorecard's (SPEC.md 128.14.3.2)"
+bz_ftab:    dw bz_ltour, bz_l1, bz_l2, bz_l3, bz_l4, bz_l5, bz_l6
+            dw bz_sc, bz_sc, bz_sc, bz_sc, bz_sc, bz_sc
+%if ($ - bz_ftab) / 2 != BZ_NLINE || BZ_NLINE != 7 + BZ_NTOUR
+ %error "MAIN is the tour's line, six more and a scorecard line a tour course (SPEC.md 128.14.3.2, 128.16.8)"
 %endif
 
 ; MAIN's lines in the 0FFh-ended list at SI, redrawn outside a paint (the clip
@@ -1544,10 +1555,10 @@ bz_crskey:
     mov si, bz_crsl             ; Enter's title (1) and the ball (3)
     jmp bz_redraw
 bz_crsl:    db 1, 3, 0ffh
-bz_stopl:   db 1, 3, 5, 12, 0ffh ; a tour stopped on the face: the keys, M,
+bz_stopl:   db 1, 3, 5, BZ_LTOUR, 0ffh ; a tour stopped on the face: the keys, M,
                                 ; the demo keys and the tour's line
 
-; CF = 1 while a tour's course is next or playing ([bz_tour] 1 - 5, SPEC.md
+; CF = 1 while a tour's course is next or playing ([bz_tour] 1 - 6, SPEC.md
 ; 128.14.3.1).  Preserves all but the flags.
 bz_intour:
     push ax
@@ -1558,7 +1569,7 @@ bz_intour:
     ret
 
 ; ---- MAIN's builders: each draws its line at [bz_fy] and steps it -------------
-; line 0: the title
+; RESULTS's line 0: the title (MAIN's line 0 is the tour's since SPEC.md 128.16.8)
 bz_l0:
     mov si, bz_s_title
 ; SI's string as a whole line
@@ -1774,7 +1785,7 @@ bz_l6:
 .l:
     jmp bz_line
 
-; lines 7 - 11: THE SCORECARD, tour course K = line - 6: `K NAME  <time>[*]
+; lines 7 - 12: THE SCORECARD, tour course K = line - 6: `K NAME  <time>[*]
 ; f<falls>  par <p>  best <b>` (SPEC.md 128.14.3.1 - 128.14.3.3): the tour's
 ; time (`-` none), `*` at or under par, its falls, the par, BONANZA.DAT's best.
 ; The NAME, not the title: the title's 24 cells and the rest are 61.
@@ -1782,7 +1793,7 @@ bz_sc:
     mov ax, [bz_fy]
     mov cl, BZ_LH
     div cl
-    sub al, 6                   ; K, 1 - 5
+    sub al, 6                   ; K, 1 - 6
     xor ah, ah
     mov si, ax
     shl si, 1                   ; SI = 2K
@@ -1849,10 +1860,12 @@ bz_sc:
     call bz_lbest
     jmp bz_line
 
-; line 12: the tour.  During one `ENTER next: <title>`; stopped `Tour
+; line 0 (BZ_LTOUR; the title's until the PLAYGROUND made the tour six, SPEC.md
+; 128.16.8 - RESULTS keeps the title there): the tour.  During one `ENTER
+; next: <title>`; stopped `Tour
 ; stopped`; else `Tour <total>  best <b>` (`-` for none).  A refused replay's
 ; reason takes it (SPEC.md 128.12.8): R is not offered in a tour.
-bz_l12:
+bz_ltour:
     mov si, bz_s_err3
     cmp byte [bz_err], 3
     je bz_lline
@@ -2435,7 +2448,7 @@ bz_fillrect:
 ; only.  B: its RESULTS page.  A play or a replay: the held log's line (line
 ; 6).  A PLAY alone: in a tour, its time entered (a finish) or the tour
 ; STOPPED (Esc, F, Alt+Enter); and a best, when it finished with the course's
-; own ball under the 65,535-step clamp - and the tour's, at its fifth.
+; own ball under the 65,535-step clamp - and the tour's, at its last (BZ_NTOUR's).
 ; [bz_newb] = 1 when a best was set: bz_dsave writes the file on the desktop.
 ; Preserves nothing.
 bz_post:
@@ -2562,11 +2575,22 @@ bz_dload:
     cmp ax, BZD_SIZE
     jne bz_dnorm
     call bz_dchk
-; CL = 1: keep what this build can file; 0: nothing (the first run's image)
+; CL = 1: keep what this build can file; 0: nothing (the first run's image).
+; A file written under OTHER PHYSICS (+5 not this build's BZ_PHYSV: a 5b
+; file's 0 among them, which is never BZ_PHYSV) keeps nothing either: its
+; bests were times under other physics (SPEC.md 128.16.9) - the identities
+; filed are this build's whatever it held, so that is the first run's image.
+%if BZ_PHYSV == 0
+ %error "BZ_PHYSV 0 is the unset value a 5b BONANZA.DAT holds (SPEC.md 128.16.9)"
+%endif
 bz_dnorm:
-    mov word [bz_dat], 'BZ'     ; `BZT1`, the count, three zero bytes
+    cmp byte [bz_dat + 5], BZ_PHYSV
+    je .phys
+    xor cl, cl
+.phys:
+    mov word [bz_dat], 'BZ'     ; `BZT1`, the count and BZ_PHYSV, two zero bytes
     mov word [bz_dat + 2], 'T1'
-    mov word [bz_dat + 4], BZ_NCRS
+    mov word [bz_dat + 4], BZ_NCRS | (BZ_PHYSV << 8)
     mov word [bz_dat + 6], 0
     mov si, bz_dat + BZD_ENT
     xor bx, bx                  ; BX = 2K
@@ -2602,7 +2626,7 @@ bz_dnorm:
     cmp bx, 2 * BZD_NENT
     jb .e
     or cl, cl                   ; THE TOUR: this build's XOR and a total 1 -
-    jz .tclr                    ; 327,670
+    jz .tclr                    ; BZ_TOURMAX (393,204)
     cmp word [bz_dat + BZD_TOUR], BZ_CRS_TOURX
     jne .tclr
     mov ax, [bz_dat + BZD_TOUR + 2]
@@ -2625,8 +2649,8 @@ bz_dnorm:
     ret
 
 ; bz_dchk - BONANZA.DAT's 64 bytes in [bz_dat], checked IN FULL (SPEC.md
-; 128.14.17 item 6): `BZT1`; the count it was written with 1 - 8; +5 - +7
-; zero; every entry's falls at most 9,999; every UNUSED entry (BENCH's, and
+; 128.14.17 item 6): `BZT1`; the count it was written with 1 - 8; +6 - +7
+; zero (+5, the physics, any value: bz_dnorm judges it, 128.16.9); every entry's falls at most 9,999; every UNUSED entry (BENCH's, and
 ; K at or past the count) all zero; the tour's +6 zero.  -> CL = 1 it passes,
 ; 0 it is refused whole.  Clobbers AX, BX, SI.
 bz_dchk:
@@ -2640,8 +2664,6 @@ bz_dchk:
     cmp al, BZD_NENT
     jae .out
     inc ax
-    cmp byte [bz_dat + 5], 0
-    jne .out
     cmp word [bz_dat + 6], 0
     jne .out
     mov si, bz_dat + BZD_ENT
@@ -3293,12 +3315,12 @@ bz_vkey:
     ret
 
 ; a new held log (L, V): the lines that name it and offer its keys - the demo
-; keys, the log's line, and line 12's refused-replay reason, now stale
+; keys, the log's line, and the tour line's refused-replay reason, now stale
 bz_dheld:
     mov byte [bz_err], 0
     mov si, bz_heldl
     jmp bz_redraw
-bz_heldl:   db 5, 6, 12, 0ffh
+bz_heldl:   db 5, 6, BZ_LTOUR, 0ffh
 
 ; T (one press, in a tour too): the control, KEYS or MOUSE (SPEC.md 128.14.8)
 bz_tkey:
@@ -3357,6 +3379,8 @@ bz_cballs:  BZ_CRS_BALLS        ; ...their balls, a byte each
 bz_cncks:   BZ_CRS_NCKS         ; ...their flags, a byte each
 bz_cpars:   BZ_CRS_PARS         ; ...their pars, whole seconds, a word each
 bz_cids:    BZ_CRS_IDS          ; ...their identities, a word each
+bz_cpals:   BZ_CRS_PALS         ; ...their CGA colour selects, a byte each (3D9h,
+                                ; wave 6, SPEC.md 128.16.6: bz_vinit)
 BZS bz_s_cga,   'Adapter: CGA, 320x200 four colours'
 BZS bz_s_herc,  'Adapter: Hercules, 360x200 pair pixels'
 BZS bz_s_noad,  'CGA OR HERC ONLY'
@@ -3549,8 +3573,8 @@ VAR bz_dat,BZD_SIZE             ; BONANZA.DAT's image, always this build's whole
                                 ; file (bz_dnorm): what the face shows and the
                                 ; save writes
 VAR bz_homevol,1                ; ...and its volume (os88data.inc's OD_TVOL)
-VAR bz_tour,1                   ; 0 none, k 1 - 5 course k next or playing, 6
-                                ; finished, 7 stopped (128.14.3.1)
+VAR bz_tour,1                   ; 0 none, k 1 - BZ_NTOUR course k next or playing,
+                                ; BZ_NTOUR + 1 finished, + 2 stopped (128.14.3.1)
 VAR bz_lsv,1                    ; line 6: 1 = a play or a replay ran (bz_post)
 VAR bz_lsk,1                    ; ...its course
 VAR bz_lsc,1                    ; ...the flags it reached

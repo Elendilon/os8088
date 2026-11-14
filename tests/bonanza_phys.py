@@ -145,6 +145,53 @@ and PASSES only if the row FAILS - at its own check:
   cupv       the capture without the speed test: cup-lip holes out
   springsum  the spring ADDS to the rebound: spring-max's apex
   tiltcap    the min before the decay: tilt's 8, 6, 4, 2 become 8, 2
+
+  6  WAVE 6 (SPEC.md 128.16.3.1, 128.16.4, 128.16.14): every frame also compares
+     128.16.4.3's five - bz_btok, bz_stf, bz_nboost, bz_drx, bz_dry
+     (Physics.state6) - and these replays, FOUND and PROVED on the model (the
+     take-off steps and the contacts searched, so a re-laid course or a retuned
+     constant re-finds them; every expected value the model's or MATERIALS',
+     never a literal, SPEC.md 128.16.11):
+       boost         rubber on the PLAYGROUND's apron: a Hop, Space 2 steps before
+                     its first contact: nboost 1, gvz = BOOST, stf = BZ_STRS
+       boostclimb    onto the 1.5-unit ledge from the apron at the cap, a Hop and
+                     its boost
+       boostdrop     a Hop off the 1-unit top onto the apron, Space at the contact:
+                     a boost with sqf 0 although its impact passes 384
+       boostfall     a Hop off the 2-unit top, Space at the contact: a contact
+                     Hop at the rebound, nboost 0
+       pumpchk       Space at every contact of the chain: one boost, then contact Hops
+       bouncefirst   a Hop, no Space at its first contact (a bounce), Space at its
+                     second: a contact Hop, nboost 0
+       gripchain     a Hop and its boost, Grip held through the boost's landing,
+                     then Space: a land, a ground Hop and a second boost, nboost 2
+       rampnot       a Hop whose first contact is on a ramp (TRIAL's, searched),
+                     Space before it: no boost
+       sandnot, matnot  the same on the PLAYGROUND's sand lane and its mat
+       liftnot       a Hop on MILL's lift slab, Space before its contact: no boost
+       springnot     a Hop on PEAK's spring (searched): the spring's launch spends
+                     the token, Space at its flight's first contact a contact Hop
+       steelglass-*  steel and glass: contact Hops, never a boost
+       drag-rest     one arrow from rest on the PLAYGROUND's longest level run
+                     (searched): |gvx| reaches axis_feel's top (the remainders
+                     compared every frame); and THE DRAG'S COST, ASSERTED: a
+                     second replay of it breaks at bz_gax's entry and at its
+                     return (off the stack), every DRAGGED call's span in
+                     MartyPC's cycles, the worst at most DRAG_PRICE (the as-built
+                     routine's 428, SPEC.md 128.16.3.1) plus 25%
+       drag-cap      one arrow from the cap: |gvx| falls back to the top
+       gripglass     glass at the cap, Grip held: stopped in axis_feel's steps
+     and their red arms:
+  pump       the token set again by a contact Hop: pumpchk's second boost
+  rampboost  rule 4's slope test left out: rampnot boosts
+  tokbst     the token cleared only by a boost: bouncefirst boosts
+  slabcell   rule 4 on the slab's substituted cell (bz_fslab): liftnot boosts
+  springtok  the spring's launch keeps a ground Hop's token: springnot boosts
+  ceildrag   the guest keeps wave 2's round-up drag: drag-rest (|gvx| settles
+             at 189, the remainders 0)
+  slowdrag   the remainder's split done twice more, by DIV: the drag's span
+  (`hopagain` is glass's since wave 6: rubber's Space at the Hop's own landing
+  is the `boost` replay's)
 """
 import argparse
 import os
@@ -227,7 +274,15 @@ class Reader:
         ext["resp"], ext["goal"] = raw[o["bz_resp"]], raw[o["bz_goal"]]
         ext["s3"] = self.state3(raw) if "bz_ps" in self.g.sym else None
         ext["s4"] = self.state4(raw) if "bz_ckpt" in self.g.sym else None
+        ext["s6"] = self.state6(raw) if "bz_btok" in self.g.sym else None
         return st, s2, ext
+
+    def state6(self, raw):
+        """wave 6's state (SPEC.md 128.16.4.3) in Physics.state6()'s shape: the
+        boost's token, the stretch's steps, the boosts, the drag's remainders"""
+        s, lo = self.g.sym, self.lo
+        return (raw[s["bz_btok"] - lo], raw[s["bz_stf"] - lo], struct.unpack_from("<H", raw, s["bz_nboost"] - lo)[0],
+                raw[s["bz_drx"] - lo], raw[s["bz_dry"] - lo])
 
     def state4(self, raw):
         """wave 4's state (SPEC.md 128.14.4.7) in Physics.state4()'s shape: the
@@ -310,6 +365,11 @@ def compare(name, frames, st, s2, ext, p):
         return "%s frame %d: wave 4's state differs from the model's after %d steps: %s" % (
             name, frames, st[0], "; ".join("%s guest %s model %s" % (n, a, b)
                                            for n, a, b in zip(names, ext["s4"], p.state4()) if a != b))
+    if ext.get("s6") is not None and ext["s6"] != p.state6():
+        names = ("btok", "stf", "nboost", "drx", "dry")
+        return "%s frame %d: wave 6's state differs from the model's after %d steps: %s" % (
+            name, frames, st[0], "; ".join("%s guest %s model %s" % (n, a, b)
+                                           for n, a, b in zip(names, ext["s6"], p.state6()) if a != b))
     want = counts(p)
     got = {k: ext[k] for k in want}
     if got != want:
@@ -629,7 +689,8 @@ def parts(crs, mat, poke, keys, tilts=None, **red):
         t_ = tilts[i] if tilts else BB.TILT_KEYS
         a.step(k, t_)
         b.step(k, t_)
-        if a.state() + a.state2() + a.state3() + a.state4() != b.state() + b.state2() + b.state3() + b.state4():
+        if a.state() + a.state2() + a.state3() + a.state4() + a.state6() != \
+                b.state() + b.state2() + b.state3() + b.state4() + b.state6():
             return i + 1
         if a.goal:
             break
@@ -686,14 +747,14 @@ def replays():
     keys = [0] * 5 + [K.K_HOP] * 3 + [0] * 40
     p, ev = ev_of("trial", 0, None, keys)
     add("hop", "trial", 0, None, keys, "a Hop from the ground", "hop" in ev)
-    base = [0] * 5 + [K.K_HOP] * 2 + [0] * 60
-    p, ev = ev_of("trial", 0, None, base)
+    base = [0] * 5 + [K.K_HOP] * 2 + [0] * 60       # (glass: rubber's is a BOOST since wave 6, the
+    p, ev = ev_of("trial", BB.MAT_GLASS, None, base)  # `boost` replay's; SPEC.md 128.11.7.2 as amended)
     c1 = [e[1] for e in p.events if e[0] in ("bounce", "land")]
     t = c1[0] if c1 else 30
     keys = [0] * 5 + [K.K_HOP] * 2 + [0] * (t - 9) + [K.K_HOP] * 2 + [0] * 40
-    p, ev = ev_of("trial", 0, None, keys)
-    add("hopagain", "trial", 0, None, keys, "Space at the Hop's own landing (step %d) hops at the contact" % t,
-        ev.count("hop") == 1 and "hopc" in ev)
+    p, ev = ev_of("trial", BB.MAT_GLASS, None, keys)
+    add("hopagain", "trial", BB.MAT_GLASS, None, keys, "glass: Space at the Hop's own landing (step %d) hops at "
+        "the contact" % t, ev.count("hop") == 1 and "hopc" in ev and not p.nboost)
     pk = tile("first", 0, 8, 4, -200, 0, (BB.LVL_MAX, 0, BB.LVL_MAX, 0))
     keys = [CHORD_MX] * 2 + [CHORD_MX | K.K_HOP] + [CHORD_MX] * 47
     p, ev = ev_of("first", 0, pk, keys)
@@ -764,7 +825,7 @@ def replays():
         p, ev = ev_of("trial", mat, pk, keys)
         add("ramphop-%s" % BB.MAT_NAMES[mat], "trial", mat, pk, keys, "a Hop down the steep ramp, unhurt",
             "hop" in ev and "stun" not in ev and "shatter" not in ev, red={"_abs_impact": True})
-    return S + mill_replays() + w4_replays()
+    return S + mill_replays() + w4_replays() + w6_replays()
 
 
 # ---- MILL (SPEC.md 128.12.6, 128.12.13.2): every obstacle, as replays ------------
@@ -1154,6 +1215,432 @@ def w4_replays():
     return S
 
 
+# ---- WAVE 6 (SPEC.md 128.16.4, 128.16.14 bonanzaphys): the boost, its token, the drag ----
+CONTACT = ("land", "bounce", "hopc", "boost", "stun", "shatter")
+DRAG_PRICE = 428            # bz_gax's as-built price at worst, clocks (k 8, d 0, Grip to 0, the clamp's two
+                            # tests; the fetch floor, x 1.05: SPEC.md 128.16.3.1) - a COST, not a retunable
+DRAG_SLACK = 1.25           # ...and the span assertion's 25% (SPEC.md 128.16.14)
+
+
+def pl_poke(crs, at, mat, d=(0, 0), v=None, gv=None):
+    """a poke on tile AT's centre at V (the cap) along D, every level full when
+    it moves (bbcourse._play_run's ball); GV an explicit (gvx, gvy)"""
+    v = BB.VMAXG if v is None else v
+    gvx, gvy = gv if gv is not None else (v * d[0], v * d[1])
+    p = BB.Physics(R.course(crs), play=True, mat=mat).poke(at[0], at[1], gvx, gvy)
+    p.lvl = [BB.LVL_MAX] * 4 if (gvx or gvy) else [0] * 4
+    p._derive(True)
+    return poke_of(p)
+
+
+def run_ix(crs, mat, poke, keys, **red):
+    """the model over KEYS: -> (the Physics, [(key index, contact kind)])"""
+    p = model(crs, mat, poke, **red)
+    out = []
+    for i, k in enumerate(keys):
+        n0 = len(p.events)
+        p.step(k)
+        out += [(i, e[0]) for e in p.events[n0:] if e[0] in CONTACT]
+        if p.goal:
+            break
+    return p, out
+
+
+def with_space(keys, *at):
+    """KEYS with Space's bit added on the steps AT (each an edge: the step before it clear)"""
+    k = list(keys)
+    for i in at:
+        if i is not None and 0 <= i < len(k):
+            k[i] |= K.K_HOP
+    return k
+
+
+def first_after(cs, i0, kinds=CONTACT):
+    return next((i for i, kind in cs if i > i0 and kind in kinds), None)
+
+
+def play_rect(H):
+    r = dict(BB.PLAY_RUNGS)[H]
+    return BB._rect(r), r
+
+
+def hop_off(crs, mat, start, d, want_off, space, n=90):
+    """a Hop off a top along d, searched over its take-off step: the first whose
+    FIRST contact is on a cell of WANT_OFF, Space SPACE steps before that contact
+    (None: none): -> (poke, keys, contact index) or None"""
+    pk = pl_poke(crs, start, mat, d)
+    dk = BB._PLAY_DIRK[d]
+    for a in range(1, 40):
+        keys = with_space([dk] * n, a)
+        p, cs = run_ix(crs, mat, pk, keys)
+        c = first_after(cs, a)
+        if c is None or not p.nhop:
+            continue
+        q = model(crs, mat, pk)
+        for i in range(c + 1):
+            q.step(keys[i])
+        if (q.gx >> 12, q.gy >> 12) not in want_off:
+            continue
+        keys = with_space(keys, None if space is None else c - space)
+        return pk, keys[:c + 12], c
+    return None
+
+
+def w6_replays():
+    """wave 6's replays (SPEC.md 128.16.14 bonanzaphys), each FOUND and PROVED on
+    the model - on the PLAYGROUND (its apron, rungs, mat and sand lane), TRIAL's
+    and FIRST's ramps and MILL's lift - with each red arm's broken model shown to
+    part.  Every expected value is the model's or MATERIALS': a retune turns
+    nothing red by itself (SPEC.md 128.16.11)"""
+    S = []
+    R_, ST, GL = BB.MAT_RUBBER, BB.MAT_STEEL, BB.MAT_GLASS
+    BOOST = BB.MATERIALS[R_]["BOOST"]
+
+    def add(name, crs, mat, poke, keys, what, ok, red=None, span=False):
+        S.append({"name": name, "crs": crs, "mat": mat, "poke": poke, "keys": keys, "what": what,
+                  "ok": bool(ok), "red": red, "span": span})
+    pc = R.course("play")
+    start = BB.Grid(pc.cga).start
+    rest = pl_poke("play", start, R_)
+    # boost: a Hop from rest on the apron, Space 2 steps before its first contact
+    base = [0] * 3 + [K.K_HOP] + [0] * 80
+    _p, cs = run_ix("play", R_, rest, base)
+    c = first_after(cs, 3)
+    keys = with_space(base, c - 2 if c else None)
+    p, cs2 = run_ix("play", R_, rest, keys)
+    q = model("play", R_, rest)
+    for i in range((c or 0) + 1):
+        q.step(keys[i])
+    ev = [e for e in p.events if e[0] == "boost"]
+    add("boost", "play", R_, rest, keys, "a Hop on the apron, Space before its contact (step %s): nboost %d, gvz %s "
+        "(BOOST %d), stf %d (BZ_STRS %d)" % (c, p.nboost, ev[0][3] if ev else None, BOOST, q.stf, BB.BZ_STRS),
+        c and p.nboost == 1 and ev and ev[0][3] == BOOST and q.stf == BB.BZ_STRS and not p.nfall)
+    # boostclimb: onto the 1.5-unit ledge, a Hop and its boost at the cap from the apron's front row
+    top, r = play_rect(1.5)
+    st_ = ((r[0] + r[2] - 1) // 2, BB.PLAY_FRONT)
+    found = None
+    for a in range(BB.LAD_PTS):
+        land = BB._play_contact(pc, R_, st_, (0, -1), a)
+        if land is None or land - 2 <= a:
+            continue
+        ok, _q = BB._play_run(pc, R_, st_, (0, -1), top, a, land - 2)
+        if ok:
+            found = (a, land)
+            break
+    if found:
+        a, land = found
+        pk = pl_poke("play", st_, R_, (0, -1))
+        keys = with_space([BB._PLAY_DIRK[(0, -1)]] * (land + 30), a, land - 2) + [K.K_GRIP] * 40
+        p = model("play", R_, pk)
+        on = None
+        for i, k_ in enumerate(keys):
+            p.step(k_)
+            if on is None and not p.air and (p.gx >> 12, p.gy >> 12) in top:
+                on = i
+    add("boostclimb", "play", R_, pk if found else rest, keys if found else [0],
+        "onto the 1.5-unit ledge %s: Hop at %s, boost at %s, on the ledge at step %s" % (
+            r, found and found[0], found and found[1], on if found else None),
+        found and on is not None and p.nboost == 1 and not p.nfall)
+    # boostdrop: a Hop off the 1-unit top onto the apron, Space at its contact: a boost though its impact passes 384
+    t1, r1 = play_rect(1)
+    apron = {(x, y) for x in range(r1[0] - 2, r1[2] + 2) for y in range(r1[3], BB.PLAY_FRONT + 1)}
+    hd = hop_off("play", R_, ((r1[0] + r1[2] - 1) // 2, r1[1]), (0, 1), apron, 2)
+    if hd:
+        pk, keys, c = hd
+        q = model("play", R_, pk)
+        for i in range(c + 1):
+            q.step(keys[i])
+        bev = [e for e in q.events if e[0] == "boost"]
+    add("boostdrop", "play", R_, hd[0] if hd else rest, hd[1] if hd else [0],
+        "a Hop off the 1-unit top onto the apron, Space at the contact (step %s): %s at impact %s, sqf %s, stf %s" % (
+            hd and hd[2], "boost" if hd and bev else "NO boost", bev[0][2] if hd and bev else None,
+            q.sqf if hd else None, q.stf if hd else None),
+        hd and bev and bev[0][2] >= BB.SQTHR and q.sqf == 0 and q.stf == BB.BZ_STRS and q.nboost == 1)
+    # boostfall: a Hop off the 2-unit top, Space at its contact: a contact Hop at the rebound, no boost
+    t2, r2 = play_rect(2)
+    apron2 = {(x, y) for x in range(r2[0] - 2, r2[2] + 2) for y in range(r2[3], BB.PLAY_FRONT + 1)}
+    hf = hop_off("play", R_, ((r2[0] + r2[2] - 1) // 2, r2[1]), (0, 1), apron2, 2)
+    if hf:
+        p, cs = run_ix("play", R_, hf[0], hf[1])
+    add("boostfall", "play", R_, hf[0] if hf else rest, hf[1] if hf else [0],
+        "a Hop off the 2-unit top onto the apron, Space at the contact (step %s): %s" % (
+            hf and hf[2], [k_ for _i, k_ in cs][:2] if hf else None),
+        hf and [k_ for _i, k_ in cs][:1] == ["hopc"] and p.nboost == 0 and p.nhop == 2)
+    # pumpchk: Space at every contact of the chain: one boost, then contact Hops
+    keys = [0] * 3 + [K.K_HOP if i % 2 == 0 else 0 for i in range(300)]
+    p, cs = run_ix("play", R_, rest, keys)
+    kinds = [k_ for _i, k_ in cs if k_ in ("boost", "hopc")]
+    add("pumpchk", "play", R_, rest, keys, "Space at every contact: %d boost(s), then %d contact Hops" % (
+        p.nboost, kinds.count("hopc")), p.nboost == 1 and kinds[:1] == ["boost"] and kinds.count("hopc") >= 3,
+        red={"_pump": True})
+    # bouncefirst: a Hop, no Space at its first contact (a bounce), Space at its second: a contact Hop
+    base = [0] * 3 + [K.K_HOP] + [0] * 120
+    _p, cs = run_ix("play", R_, rest, base)
+    c1 = first_after(cs, 3)
+    c2 = first_after(cs, c1) if c1 is not None else None
+    keys = with_space(base, c2 - 2 if c2 else None)
+    p, cs = run_ix("play", R_, rest, keys)
+    add("bouncefirst", "play", R_, rest, keys, "a Hop, a bounce at %s, Space before the second contact %s: %s" % (
+        c1, c2, [k_ for _i, k_ in cs][:2]), c2 and [k_ for _i, k_ in cs][:2] == ["bounce", "hopc"]
+        and p.nboost == 0, red={"_no_clear": True})
+    # gripchain: a Hop and its boost, Grip through the boost's landing, then Space: a second boost
+    base = [0] * 3 + [K.K_HOP] + [0] * 200
+    _p, cs = run_ix("play", R_, rest, base)
+    L1 = first_after(cs, 3)
+    keys = with_space(base, L1 - 2)
+    _p, cs = run_ix("play", R_, rest, [k_ | (K.K_GRIP if i > L1 else 0) for i, k_ in enumerate(keys)])
+    L2 = first_after(cs, L1)
+    keys = [k_ | (K.K_GRIP if L1 < i <= L2 else 0) for i, k_ in enumerate(keys)]
+    keys = with_space(keys, L2 + 1)
+    _p, cs = run_ix("play", R_, rest, keys)
+    L3 = first_after(cs, L2 + 1)
+    keys = with_space(keys, L3 - 2 if L3 else None)[:(L3 or 0) + 30]
+    p, cs = run_ix("play", R_, rest, keys)
+    ev = [e[0] for e in p.events if e[0] in ("hop", "boost", "land", "bounce", "hopc")]
+    add("gripchain", "play", R_, rest, keys, "Hop, boost (%s), Grip through its landing (%s), Hop (%s), boost (%s): "
+        "%s" % (L1, L2, L2 + 1, L3, ev[:6]), p.nboost == 2 and ev[:5] == ["hop", "boost", "land", "hop", "boost"])
+    # rampnot: a Hop whose first contact is on a RAMP (TRIAL's or FIRST's), Space before it: no boost
+    found = None
+    for crs in ("trial", "first"):
+        gr = BB.Grid(R.course(crs).cga)
+        for y in range(64):
+            for x in range(64):
+                cl = gr.cell(x, y)
+                if cl[3] != BB.KIND_FLOOR or not (cl[1] or cl[2]) or cl[4] & BB.FL_OBS:
+                    continue
+                pk = pl_poke(crs, (x, y), R_)
+                base = [K.K_HOP] + [0] * 60
+                _p, cs = run_ix(crs, R_, pk, base)
+                c = first_after(cs, 0)
+                if c is None or c < 3:
+                    continue
+                keys = with_space(base, c - 2)[:c + 20]
+                q = model(crs, R_, pk)
+                for i in range(c + 1):
+                    q.step(keys[i])
+                ccell = gr.cell(q.gx >> 12, q.gy >> 12)
+                p, cs = run_ix(crs, R_, pk, keys)
+                pr, _cs = run_ix(crs, R_, pk, keys, _boost_rise=True)
+                if (ccell[1] or ccell[2]) and [k_ for _i, k_ in cs][:1] == ["hopc"] and not p.nboost \
+                        and pr.nboost:
+                    found = (crs, pk, keys, (x, y), c)
+                    break
+            if found:
+                break
+        if found:
+            break
+    crs, pk, keys, at, c = found if found else ("trial", rest, [0], None, None)
+    add("rampnot", crs, R_, pk, keys, "a Hop from %s's ramp cell %s, its first contact (step %s) on a ramp, Space "
+        "before it: a contact Hop, no boost" % (crs.upper(), at, c), found, red={"_boost_rise": True})
+    # sandnot, matnot: a Hop from rest on the PLAYGROUND's sand lane and on its mat, Space before the contact
+    gr = BB.Grid(pc.cga)
+    for name, test in (("sandnot", lambda cl: cl[5] == BB.SURF_SAND),
+                       ("matnot", lambda cl: cl[5] == BB.SURF_BOUNCE)):
+        cells = [(x, y) for y in range(64) for x in range(64) if gr.cell(x, y)[3] == BB.KIND_FLOOR
+                 and test(gr.cell(x, y)) and not gr.cell(x, y)[1] and not gr.cell(x, y)[2]]
+        res = None
+        for at in cells:
+            pk = pl_poke("play", at, R_)
+            base = [0] * 3 + [K.K_HOP] + [0] * 60
+            _p, cs = run_ix("play", R_, pk, base)
+            c = first_after(cs, 3)
+            if c is None:
+                continue
+            keys = with_space(base, c - 2)[:c + 20]
+            p, cs = run_ix("play", R_, pk, keys)
+            if [k_ for _i, k_ in cs][:1] == ["hopc"] and not p.nboost:
+                res = (at, pk, keys, c)
+                break
+        at, pk, keys, c = res if res else (None, rest, [0], None)
+        add(name, "play", R_, pk, keys, "a Hop from rest on the PLAYGROUND's %s %s, Space before its contact (step "
+            "%s): a contact Hop, no boost" % ("sand" if name == "sandnot" else "mat", at, c), res)
+    # liftnot: a Hop on MILL's lift slab, Space before its contact on the slab: no boost
+    pk = slab_poke(0)
+    base = [K.K_HOP] + [0] * 80
+    _p, cs = run_ix("mill", R_, pk, base)
+    c = first_after(cs, 0)
+    keys = with_space(base, c - 2 if c else None)[:(c or 0) + 20]
+    p, cs = run_ix("mill", R_, pk, keys)
+    add("liftnot", "mill", R_, pk, keys, "a Hop on MILL's lift slab, Space before its contact (step %s) on it: %s, "
+        "onp %d" % (c, [k_ for _i, k_ in cs][:1], p.onp), c and [k_ for _i, k_ in cs][:1] == ["hopc"]
+        and not p.nboost and p.onp, red={"_slab_boost": True})
+    # springnot (wave 6's review): a Hop taken on PEAK's spring rides the spring's launch, which spends the
+    # Hop's token, so Space at that flight's first contact is a contact Hop, never a boost (128.16.4.1 rule 1)
+    found = None
+    for spr in [r for r in R.course("peak").part["props"] if r["kind"] == BB.PK_SPRING]:
+        for gv in ((160, 0), (-160, 0), (0, 160), (0, -160), (200, 0), (0, 0)):
+            pk = pl_poke("peak", spr["at"], R_, gv=gv)
+            base = [K.K_HOP] + [0] * 120
+            _p, cs = run_ix("peak", R_, pk, base)
+            c = first_after(cs, 0)
+            if c is None or c < 3 or not _p.nspr:
+                continue
+            keys = with_space(base, c - 2)[:c + 20]
+            p, cs = run_ix("peak", R_, pk, keys)
+            pr, _cs = run_ix("peak", R_, pk, keys, _spring_tok=True)
+            if p.nspr and [k_ for _i, k_ in cs][:1] == ["hopc"] and not p.nboost and pr.nboost:
+                found = (pk, keys, spr["at"], gv, c)
+                break
+        if found:
+            break
+    pk, keys, at, gv, c = found if found else (rest, [0], None, None, None)
+    add("springnot", "peak" if found else "play", R_, pk, keys, "a Hop on PEAK's spring %s at %s, the spring's "
+        "launch, Space before its flight's first contact (step %s): a contact Hop, no boost" % (at, gv, c), found,
+        red={"_spring_tok": True})
+    # steelglass: steel and glass Hop on the apron, Space before the contact: contact Hops, never a boost
+    for mat in (ST, GL):
+        pk = pl_poke("play", start, mat)
+        base = [0] * 3 + [K.K_HOP] + [0] * 60
+        _p, cs = run_ix("play", mat, pk, base)
+        c = first_after(cs, 3)
+        keys = with_space(base, c - 2 if c else None)[:(c or 0) + 20]
+        p, cs = run_ix("play", mat, pk, keys)
+        add("steelglass-%s" % BB.MAT_NAMES[mat], "play", mat, pk, keys, "%s: Space before the Hop's contact (step "
+            "%s): %s" % (BB.MAT_NAMES[mat], c, [k_ for _i, k_ in cs][:1]),
+            c and [k_ for _i, k_ in cs][:1] == ["hopc"] and not p.nboost)
+    # drag: one arrow from rest settles at the model's top; from the cap it falls back to it (the remainders
+    # compared every frame); the longest level run on the PLAYGROUND, searched
+    feel = BB.axis_feel(R_)
+    top = feel[2]
+    best = None
+    for y in range(8, 40):
+        for x in range(4, 40):
+            cl = gr.cell(x, y)
+            if cl[3] != BB.KIND_FLOOR or cl[1] or cl[2] or cl[5] != BB.SURF_NORMAL or cl[4] & BB.FL_OBS:
+                continue
+            q = BB.Physics(pc, play=True, mat=R_).poke(x, y, 0, 0)
+            n = 0
+            for i in range(400):
+                n0 = len(q.events)
+                q.step(K.K_R)
+                cl2 = q.cell(q.gx >> 12, q.gy >> 12)
+                if q.nfall or q.air or q.goal or any(e[0] != "corner" for e in q.events[n0:]) or cl2[1] \
+                        or cl2[2] or cl2[5] != BB.SURF_NORMAL:
+                    break
+                n = i + 1
+            if best is None or n > best[0]:
+                best = (n, (x, y))
+    n, at = best
+    pk = pl_poke("play", at, R_)
+    keys = [K.K_R] * n
+    p = model("play", R_, pk)
+    mx = 0
+    for k_ in keys:
+        p.step(k_)
+        mx = max(mx, abs(p.gvx))
+    add("drag-rest", "play", R_, pk, keys, "one arrow (Right) from rest at %s, %d steps on level ground: |gvx| %d, "
+        "the axis model's top %d" % (at, n, mx, top), mx >= top - 3 and mx <= top and not p.nfall,
+        red={"_ceil_drag": True}, span=True)
+    pk = pl_poke("play", at, R_, gv=(BB.VMAXG, -BB.VMAXG))
+    p = model("play", R_, pk)
+    seq = []
+    for i in range(400):
+        n0 = len(p.events)
+        p.step(K.K_R)
+        cl2 = p.cell(p.gx >> 12, p.gy >> 12)
+        if p.nfall or p.air or any(e[0] != "corner" for e in p.events[n0:]) or cl2[1] or cl2[2] \
+                or cl2[5] != BB.SURF_NORMAL:
+            break
+        seq.append(abs(p.gvx))
+    keys = [K.K_R] * len(seq)
+    add("drag-cap", "play", R_, pk, keys, "one arrow from the cap at %s, %d steps: |gvx| 384 -> %s, the axis "
+        "model's settled top %d" % (at, len(seq), seq[-1] if seq else None, feel[3]),
+        seq and top <= seq[-1] <= top + 8, red={"_ceil_drag": True})
+    # gripglass: glass at the cap along the apron, Grip held: stopped in the axis model's steps
+    gfeel = BB.axis_feel(GL)
+    found = None
+    for y in range(14, 20):
+        for x in range(4, 20):
+            pk = pl_poke("play", (x, y), GL, gv=(BB.VMAXG, 0))
+            p = model("play", GL, pk)
+            for i in range(gfeel[6] + 5):
+                p.step(K.K_GRIP)
+                if not p.gvx:
+                    break
+            if not p.gvx and not p.nfall and not [e for e in p.events if e[0] not in ("corner",)] \
+                    and i + 1 == gfeel[6]:
+                found = (pk, (x, y), i + 1)
+                break
+        if found:
+            break
+    pk, at, n = found if found else (rest, None, None)
+    add("gripglass", "play", GL, pk, [K.K_GRIP] * (gfeel[6] + 20), "glass at the cap at %s, Grip held: stopped "
+        "in %s steps, the axis model's %d" % (at, n, gfeel[6]), found)
+    return S
+
+
+def drag_span(g, s):
+    """SPEC.md 128.16.14: bz_gax's every DRAGGED call (CL, the drag shift, not 0)
+    on the replay S, entry to return, in MartyPC's cycles: the worst at most
+    DRAG_PRICE x DRAG_SLACK.  -> (failures, (calls, worst, mean))"""
+    m = g.m
+    log = R.make_log(s["keys"], R.CRS_K[s["crs"]], s["mat"])
+    m.pause()
+    g.write_log(log)
+    wk = R.Walker(g, t0=True)
+    m.bp_exec(wk.t0)
+    m.run()
+    g.key("KeyR")
+    assert m.wait_stop(60) == "breakpoint", "R did not start the replay (the drag's span)"
+    if s["poke"]:
+        pk = s["poke"]
+        R.poke_ball(g, pk["gx"], pk["gy"], pk["gz"], pk["gvx"], pk["gvy"], pk["gvz"], air=pk["air"],
+                    ztop=pk["ztop"], lvl=pk["lvl"])
+    gax = g.a("bz_gax")
+    # (the review's C2: the kernel's int 08h handler, 54.6 Hz under FSXF_FASTTICK, adds its whole cost to a
+    # span it lands in - bonanzaperf's lesson - so a span with an sch_isr entry inside it is counted apart
+    # and only the CLEAN spans are held to the price)
+    irq = m.sym("sch_isr")
+    rets, spans, t0, cl, dirty, ntick = set(), [], None, 0, False, 0
+    m.bp_exec(gax, wk.t0, irq)
+    while True:
+        m.run()
+        assert m.wait_stop(60) == "breakpoint", "the replay stopped reaching bz_gax"
+        r = m.regs()
+        at = ((r["cs"] << 4) + r["ip"]) & 0xFFFFF
+        cyc = m.status()["cycles"]
+        if at == irq:
+            dirty = t0 is not None
+            continue
+        if at == wk.t0:
+            if g.b("bz_goal") or not (g.b("bz_rn") or g.w("bz_rruns")):
+                break
+            continue
+        if at == gax:
+            ret = ((r["cs"] << 4) + struct.unpack("<H", bytes(m.read(((r["ss"] << 4) + r["sp"]) & 0xFFFFF, 2)))[0]) \
+                & 0xFFFFF
+            if ret not in rets:
+                rets.add(ret)
+                m.bp_exec(gax, wk.t0, irq, *sorted(rets))
+            t0, cl, dirty = cyc, r["cx"] & 0xFF, False
+            continue
+        if at in rets and t0 is not None:
+            if cl:
+                if dirty:
+                    ntick += 1
+                else:
+                    spans.append(cyc - t0)
+            t0, dirty = None, False
+    m.bp_exec()
+    m.run()
+    M.until(m, lambda _: g.b("bz_fs") == 0, "the drag's span replay to end", guest=60)
+    dropped(g, "the drag's span")
+    fails = []
+    bound = int(DRAG_PRICE * DRAG_SLACK)
+    if not spans:
+        fails.append("%s: the drag's span: no CLEAN dragged bz_gax call measured (%d with a tick inside)"
+                     % (s["name"], ntick))
+    elif max(spans) > bound:
+        fails.append("%s: the drag's span: the worst dragged bz_gax call took %d cycles, over its price %d + 25%% "
+                     "(%d; SPEC.md 128.16.3.1)" % (s["name"], max(spans), DRAG_PRICE, bound))
+    out = (len(spans), max(spans) if spans else None, sum(spans) / len(spans) if spans else None)
+    print("%s the drag's span on %s: %d clean dragged bz_gax calls (%d more with a tick inside, left out), worst "
+          "%s cycles, mean %s (bound %d): %s" % (
+        g.tag, s["name"], out[0], ntick, out[1], "%.0f" % out[2] if out[2] else None, bound,
+        "yes" if not fails else "NO"), flush=True)
+    return fails, out
+
+
 def prove(S):
     """the host's proof of each scenario: -> failure lines (empty: all proved)"""
     bad = []
@@ -1339,6 +1826,8 @@ def run(tag, legs, apps=None, src=None, only=None):
         if "replay" in legs and not [f for f in fails if "benchmark" in f]:
             for s in S:
                 fails += replay(g, s)
+                if s.get("span") and "bz_dmask" in g.sym:     # wave 6: the drag's cost, ASSERTED
+                    fails += drag_span(g, s)[0]
     return fails, outs
 
 
@@ -1440,6 +1929,64 @@ RED_WANT = {"slope": "the benchmark frame", "respawn": "pit", "takeoff": "lip", 
             "carry": "hop frame", "carrys": "ride frame", "stick": "hop frame", "exit": "keep frame",
             "ckpt": "flag frame", "ckmat": "flagmat-moon frame", "padftg": "padswap-",
             "cupv": "cup-lip frame", "springsum": "spring-max frame", "tiltcap": "tilt frame"}
+
+# wave 6 (SPEC.md 128.16.14): the token set again by a contact Hop (a boost every other contact)
+REDS["pump"] = [("bzphys.inc", ".hp:\n    mov byte [bz_hopw], 0\n    inc word [bz_nhop]\n    jmp short .leave\n",
+                 ".hp:\n    mov byte [bz_hopw], 0\n    inc word [bz_nhop]\n    add ax, di                  ; RED pump: "
+                 "the token set again by a contact Hop\n    mov [bz_gvz], ax\n    mov ax, [bz_gz + 1]\n"
+                 "    mov [bz_ztop], ax\n    mov byte [bz_btok], 1\n    jmp short .sqr\n"),
+                ("bzphys.inc", "    mov byte [bz_btok], 0       ; every contact spends the token (a boost's\n"
+                 "    cmp word [bz_lvz], BZ_SQTHR ; own, .boost); the squash, but a shatter's\n",
+                 "    mov byte [bz_btok], 0       ; every contact spends the token (a boost's\n.sqr:\n"
+                 "    cmp word [bz_lvz], BZ_SQTHR ; own, .boost); the squash, but a shatter's\n")]
+# rule 4's slope test left out: a ramp's contact boosts
+REDS["rampboost"] = [("bzphys.inc", "    cmp byte [bz_nbr + BZN_C + 1], 0 ; 0EDh is 01h: kind 1 or 3, surface 0\n"
+                      "    jne .chop                   ; or 1), level (+1, both slopes 0); a failing\n",
+                      "    nop                         ; RED rampboost: no slope test\n")]
+# the token cleared only by a boost, not at every contact
+REDS["tokbst"] = [("bzphys.inc", "    mov byte [bz_btok], 0       ; every contact spends the token (a boost's\n",
+                   "    nop                         ; RED tokbst: kept past a contact\n")]
+# rule 4 on the cell after the slab's substitution: the slab (level, FLOOR, flags 0) boosts
+REDS["slabcell"] = [("bzphys.inc", "    jae .chop                   ; rebound rr (BP) under BOOST, never so when\n"
+                     "    mov dx, [bz_nbr + BZN_C + 2] ; BOOST is 0; rule 4 on the centre's GRID\n",
+                     "    jae .chop                   ; rebound rr (BP) under BOOST, never so when\n"
+                     "    cmp byte [bz_fslab], 0      ; RED slabcell: the slab's substituted cell\n"
+                     "    jne .redslab\n"
+                     "    mov dx, [bz_nbr + BZN_C + 2] ; BOOST is 0; rule 4 on the centre's GRID\n"),
+                    ("bzphys.inc", "                                ; test is a contact Hop, with no cue\n"
+                     "    mov [bz_gvz], ax            ; still airborne at BOOST (a level floor adds\n",
+                     "                                ; test is a contact Hop, with no cue\n.redslab:\n"
+                     "    mov [bz_gvz], ax            ; still airborne at BOOST (a level floor adds\n")]
+# wave 2's round-up drag kept in the guest (no remainder)
+GAX_NEW = ("    mov bx, ax\n    cwd                         ; DX = v's sign (DH keeps it below)\n"
+           "    xor bx, dx\n    sub bx, dx                  ; BX = |v|: 0, no drag\n    jz .brake\n"
+           "    add bl, [si]\n    adc bh, 0                   ; BX = t = |v| + rem\n"
+           "    mov dl, [bz_dmask]\n    and dl, bl                  ; DL = t AND (2^k - 1), the new remainder\n"
+           "    shr bx, cl                  ; BX = d = t >> k\n    jnz .d\n"
+           "    inc bx                      ; d = 0: 1, and the remainder 0 (BH is 0)\n    mov dl, bh\n.d:\n"
+           "    mov [si], dl\n    mov dl, dh                  ; DX = the sign again\n    xor bx, dx\n"
+           "    sub bx, dx                  ; BX = d with v's sign\n"
+           "    sub ax, bx                  ; v moves d toward 0 (never past it: d <= |v|)\n")
+REDS["ceildrag"] = [("bzphys.inc", GAX_NEW,
+                     "    mov dx, ax                  ; RED ceildrag: wave 2's ceil(|v| / 2^k), no remainder\n"
+                     "    or ax, ax\n    js .dn\n    neg dx\n    sar dx, cl\n    add ax, dx\n    jmp short .brake\n"
+                     ".dn:\n    sar dx, cl\n    sub ax, dx\n")]
+# the remainder's split done twice more, by DIV: the same results, about 300 clocks a dragged axis more
+REDS["slowdrag"] = [("bzphys.inc", "    adc bh, 0                   ; BX = t = |v| + rem\n",
+                     "    adc bh, 0                   ; BX = t = |v| + rem\n"
+                     "    push ax                     ; RED slowdrag: the split twice more, by DIV\n"
+                     "    push dx\n    push cx\n    mov ax, 1\n    shl ax, cl\n    mov cx, ax\n"
+                     "    mov ax, bx\n    xor dx, dx\n    div cx\n    mov ax, bx\n    xor dx, dx\n    div cx\n"
+                     "    pop cx\n    pop dx\n    pop ax\n")]
+# a spring's launch keeps a ground Hop's token (wave 6's review): springnot boosts
+REDS["springtok"] = [("bzphys.inc", "    mov [bz_btok], dl           ; wave 6: the launch spends a ground Hop's\n",
+                      "    nop                         ; RED springtok: the spring keeps the Hop's token\n")]
+RED_ONLY.update({"springtok": ("springnot",)})
+RED_WANT.update({"springtok": "springnot frame"})
+RED_ONLY.update({"pump": ("pumpchk",), "rampboost": ("rampnot",), "tokbst": ("bouncefirst",),
+                 "slabcell": ("liftnot",), "ceildrag": ("drag",), "slowdrag": ("drag-rest",)})
+RED_WANT.update({"pump": "pumpchk frame", "rampboost": "rampnot frame", "tokbst": "bouncefirst frame",
+                 "slabcell": "liftnot frame", "ceildrag": "drag-rest frame", "slowdrag": "the drag's span"})
 
 
 def main():

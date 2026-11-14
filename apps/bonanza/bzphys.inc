@@ -163,6 +163,7 @@ VAR bz_npad,2                   ; touched, pad swaps, lip-outs, spring launches
 VAR bz_nlip,2                   ; and RETURNs this play - physics' own, compared
 VAR bz_nspr,2                   ; with the model and read by the sound (128.14.10)
 VAR bz_nret,2
+VAR bz_nboost,2                 ; wave 6 (SPEC.md 128.16.4.3): boosts this play
 VAR bz_ckpt,1                   ; ...the last flag touched + 1 (0: none, the start)
 VAR bz_ckmat,1                  ; ...the ball a respawn gets (the start's, then
                                 ; the last flag's record +17)
@@ -171,6 +172,11 @@ VAR bz_cksn,1                   ; ...the flags touched, a bit each (their lanes'
 VAR bz_inmo,1                   ; ...1 while the centre is in the cup's mouth
 VAR bz_hid,1                    ; ...1 once the ball has HOLED OUT (not drawn)
 VAR bz_gfl,1                    ; ...the course's BZG1 FLAGS (bz_pinit's copy)
+VAR bz_btok,1                   ; wave 6 (128.16.4.3): the boost's TOKEN, set by
+VAR bz_stf,1                    ; a Hop from the ground; the STRETCH's steps
+VAR bz_drx,1                    ; left; the fractional drag's REMAINDERS, gvx's
+VAR bz_dry,1                    ; and gvy's (128.16.3.1).  A RESPAWN zeroes the
+                                ; four as two words: keep the order
 VAR bz_ppad,1
 VAR bz_phe,0
 ; the rest: written before they are read
@@ -178,6 +184,8 @@ VAR bz_mrec,BZ_MATREC           ; the material's BZ_MATTAB record (bz_pinit)
 VAR bz_se,BZ_SURFREC            ; BZ_SURFTAB's entry for it on the centre's
                                 ; surface: force, drag shift, brake, floor e
 VAR bz_surf,1                   ; ...that surface (0FFh: none yet, bz_pinit)
+VAR bz_dmask,1                  ; ...its drag shift's mask 2^k - 1 (0 on ice):
+                                ; bz_surfset's, derived (128.16.3.1)
 VAR bz_kstep,1                  ; this step's key byte
 VAR bz_ftg,BZ_LVLMAX + 1        ; the arrows' force a level, ground and air
 VAR bz_fta,BZ_LVLMAX + 1        ; (128.11.7.1)
@@ -223,6 +231,12 @@ VAR bz_cdd,2                    ; the carry's displacement this step, 1/256 gu
 %endif
 %if BZ_PK_CKPT > BZ_PK_PAD || BZ_PK_CKPT > BZ_PK_CUP || BZ_PK_CKPT > BZ_PK_SPRING || BZ_PK_CKPT <= BZ_PK_PLATFORM || BZ_PK_CKPT <= BZ_PK_BUMPER || BZ_PK_CKPT <= BZ_PK_WINDMILL || BZ_PK_CKPT <= BZ_PK_TUBE
  %error "bz_prule tells wave 4's kinds from wave 3's by one compare against BZ_PK_CKPT"
+%endif
+%if bz_stf != bz_btok + 1 || bz_drx != bz_btok + 2 || bz_dry != bz_btok + 3
+ %error "bz_step's .resp zeroes bz_btok .. bz_dry as two words, bz_land writes bz_btok and bz_stf as one, bz_surfset cuts bz_drx and bz_dry as one"
+%endif
+%if BZ_SURF_NORMAL != 0 || BZ_SURF_ICE != 1 || BZ_KFLOOR != 1 || BZ_KGOAL != 3 || BZ_KVOID != 0 || BZ_KWALL != 2
+ %error "bz_land's FIRM LEVEL test reads a cell's +2 under one mask (0EDh = 01h): re-derive it"
 %endif
 %if bz_nshat != bz_nstun + 2 || bz_mst != bz_hopw + 1 || bz_mct != bz_hopw + 2 || bz_sqf != bz_hopw + 3 || bz_ghv != bz_hopw + 4
  %error "bz_land and bz_step's .respawn rely on the order of their variables"
@@ -444,6 +458,10 @@ bz_step:
     je .sq
     dec byte [bz_sqf]
 .sq:
+    cmp byte [bz_stf], 0        ; wave 6: the stretch's steps (128.16.4.4)
+    je .sf
+    dec byte [bz_stf]
+.sf:
     mov al, [bz_mst]
     or al, al
     jz .forces
@@ -524,6 +542,7 @@ bz_step:
     neg ax
     add ax, di
     add ax, [bz_gvx]
+    mov si, bz_drx              ; (the drag's remainder for gvx)
     call bz_gax
     mov [bz_gvx], ax
     mov ax, [bz_tsy]            ; gvy the same with sy
@@ -532,6 +551,7 @@ bz_step:
     neg ax
     add ax, bp
     add ax, [bz_gvy]
+    inc si                      ; (bz_dry: bz_gax keeps SI)
     call bz_gax
     mov [bz_gvy], ax
     call bz_frate               ; gvz: the floor's own rate under the ball
@@ -904,6 +924,7 @@ bz_step:
     mov [bz_gvz], ax
     mov byte [bz_hopw], 0
     inc word [bz_nhop]
+    mov byte [bz_btok], 1       ; wave 6: the boost's TOKEN (128.16.4.1)
     jmp short .launch
 .follow:
     ; grounded: off when h < z + gvz - BZ_G - BZ_STICK, i.e. when
@@ -1011,8 +1032,9 @@ bz_step:
     pop cx
     ret
 .poked:                         ; (out of the hot path) a harness's POKE: the
-    mov byte [bz_pokd], 0       ; window round the ball's cell, whatever it was
-    call bz_win9f
+    mov byte [bz_pokd], 0       ; window round the ball's cell, whatever it was,
+    call bz_win9f               ; and the drag's remainders zeroed after it
+    mov word [bz_drx], 0        ; (bbcourse.Physics.poke, 128.16.3.1)
     jmp .unpoked
     ; ---- 7. RESPAWN, on the last SAFE cell; on a CKPT course on the last
     ; flag touched (the start before any) with the flag's ball (128.14.4.5) ----
@@ -1025,6 +1047,8 @@ bz_step:
     mov [bz_hopw], ax
     mov [bz_mct], ax
     mov [bz_inmo], al
+    mov [bz_btok], ax           ; wave 6 (128.16.4.3): the token, the stretch
+    mov [bz_drx], ax            ; and both remainders; not bz_nboost
     test byte [bz_gfl], BZ_GF_CKPT
     jnz .rflag
     mov [bz_ghv], al
@@ -1164,10 +1188,14 @@ bz_step:
 ; TO THE FLOOR: fr = (sx gvx + sy gvy) >> 2, lvz = max(0, fr - gvz), and the
 ; rebound r = (e min(lvz, -gvz)) >> 8, e the surface's floor restitution for
 ; the material (bz_se).  Then, in order: a STUN or a SHATTER (not on a mat);
-; a Hop at the contact (the window open, not stunned) leaving at
+; wave 6's BOOST (128.16.4.1: the token, the window open, not stunned, the
+; material's BOOST above the rebound, the centre's grid cell a firm level
+; floor) leaving at BOOST with the stretch and no squash; a Hop at the
+; contact (the window open, not stunned) leaving at
 ; max(HOP, r if r >= BMIN else 0) + min(fr, 0); a BOUNCE (r >= BMIN, Grip not
 ; held) at r + min(fr, 0); else it lands.  A landing at lvz >= BZ_SQTHR
-; squashes, but a shatter.  DS = ours.  Preserves BX and SI.
+; squashes, but a shatter's and a boost's.  Every contact clears bz_btok.
+; DS = ours.  Preserves BX and SI.
 ; Clobbers AX, CX, DX, DI, BP.
 ; -----------------------------------------------------------------------------
 bz_land:
@@ -1245,6 +1273,9 @@ bz_land:
     je .bnc                     ; never a sum (O13)
     cmp byte [bz_mst], 0
     jne .bnc
+    cmp byte [bz_btok], 0       ; 2a. (wave 6) the token: the first contact
+    jne .boost                  ; of a Hop from the ground (128.16.4.1)
+.chop:
     mov ax, [bz_mrec + BZM_HOP]
     cmp ax, bp
     jae .hp
@@ -1271,12 +1302,31 @@ bz_land:
     mov [bz_gvz], ax
     mov [bz_air], al
 .sq:
-    cmp word [bz_lvz], BZ_SQTHR ; the squash, but a shatter's
+    mov byte [bz_btok], 0       ; every contact spends the token (a boost's
+    cmp word [bz_lvz], BZ_SQTHR ; own, .boost); the squash, but a shatter's
     jl .out
     cmp byte [bz_mst], BZ_ST_SHAT
     je .out
     mov byte [bz_sqf], BZ_SQSTEPS
 .out:
+    ret
+.boost:                         ; 2a. the BOOST (wave 6, 128.16.4.1), the
+    mov ax, [bz_mrec + BZM_BOOST] ; window open and not stunned (.base's): rules
+    cmp bp, ax                  ; 3 and 5 in one UNSIGNED compare - the
+    jae .chop                   ; rebound rr (BP) under BOOST, never so when
+    mov dx, [bz_nbr + BZN_C + 2] ; BOOST is 0; rule 4 on the centre's GRID
+    and dx, (BZ_FL_OBS << 8) | 0edh ; cell, never the lift's slab (whose shaft
+    cmp dx, 1                   ; carries OBS): OBS clear (+3), FLOOR or GOAL
+    jne .chop                   ; with a `normal` or `ice` surface (+2 AND
+    cmp byte [bz_nbr + BZN_C + 1], 0 ; 0EDh is 01h: kind 1 or 3, surface 0
+    jne .chop                   ; or 1), level (+1, both slopes 0); a failing
+                                ; test is a contact Hop, with no cue
+    mov [bz_gvz], ax            ; still airborne at BOOST (a level floor adds
+    mov ax, [bz_gz + 1]         ; no rate), ztop = z, the window closed; the
+    mov [bz_ztop], ax           ; token spent and the STRETCH's steps set in
+    mov byte [bz_hopw], 0       ; one word; and NO squash on this contact
+    inc word [bz_nboost]        ; (128.16.4.4: sqf keeps what it held)
+    mov word [bz_btok], BZ_STRS << 8
     ret
 
 ; bz_toff - TAKE OFF (128.10.7.3, and the Hop's, 128.11.8.6): airborne,
@@ -1411,10 +1461,6 @@ bz_prule:
 .m1:
     cmp al, cl
     ret
-.launched:                      ; the shadow's floor for the now airborne ball
-    mov byte [bz_ghv], 1        ; (its cell solid: BX the h4)
-    mov [bz_gh], bx
-    ret
 .spring:                        ; A SPRING (128.14.4.6), never under a
     cmp byte [bz_mst], BZ_ST_SHAT ; shattering ball
     je .out
@@ -1456,10 +1502,15 @@ bz_prule:
     pop bx
     mov ax, [es:si + BZP_SGVZ]
     mov [bz_gvz], ax
-    call bz_toff
-.sl:
+    call bz_toff                ; (DX = 0 out of it: gvz = SPRING > 0)
+    mov [bz_btok], dl           ; wave 6: the launch spends a ground Hop's
+.sl:                            ; token (128.16.4.1 rule 1; a contact's
+                                ; launch found it spent already)
     inc word [bz_nspr]
-    jmp short .launched
+.launched:                      ; the shadow's floor for the now airborne ball
+    mov byte [bz_ghv], 1        ; (its cell solid: BX the h4)
+    mov [bz_gh], bx
+    ret
 
 ; bz_vmax - AX = max(|gvx|, |gvy|): a tube's entry speed, the cup's test.
 ; Clobbers CX, DX.
@@ -1757,6 +1808,7 @@ bz_capture:
     mov [bz_gvz], ax
     mov [bz_air], al
     mov [bz_sqf], al
+    mov [bz_btok], al           ; wave 6: a capture spends the boost's token
     mov [bz_ghv], al
     mov [bz_onp], al
     mov [bz_tseg], al
@@ -2228,23 +2280,38 @@ bz_frate:
 
 ; -----------------------------------------------------------------------------
 ; bz_gax - one ground axis after its forces (128.11.8.2 step 2): AX through
-; the DRAG ceil(|v| / 2^CL) toward 0 (CL = 0: none, ice), then the BRAKE CH
+; the FRACTIONAL DRAG (CL = its shift k, 0: none, ice; SI = the axis's
+; remainder byte, bz_drx or bz_dry; SPEC.md 128.16.3.1), then the BRAKE CH
 ; toward 0 and never past it (0: none), then clamped to +-BZ_VMAXG.  The
-; airborne axis passes CX = 0: the clamp alone.  -> AX.  Clobbers DX.
+; drag, for v not 0 (a ball at rest is not dragged, its remainder kept):
+;     t = |v| + rem;  d = t >> k;  rem = t AND bz_dmask;  d = 0: d = 1, rem = 0
+; and v moves d toward 0.  rem <= bz_dmask holds at every call (bz_surfset
+; cuts it where the mask changes), so the read needs no mask; t < 700.  The
+; airborne axis passes CX = 0: the clamp alone.  -> AX.  Preserves SI.
+; Clobbers DX, and BX when CL is not 0.
 ; -----------------------------------------------------------------------------
 bz_gax:
     or cl, cl
     jz .brake
-    mov dx, ax                  ; ceil(|v| / 2^k) = -((-|v|) >> k), arithmetic
-    or ax, ax
-    js .dn
-    neg dx
-    sar dx, cl
-    add ax, dx
-    jmp short .brake
-.dn:
-    sar dx, cl
-    sub ax, dx
+    mov bx, ax
+    cwd                         ; DX = v's sign (DH keeps it below)
+    xor bx, dx
+    sub bx, dx                  ; BX = |v|: 0, no drag
+    jz .brake
+    add bl, [si]
+    adc bh, 0                   ; BX = t = |v| + rem
+    mov dl, [bz_dmask]
+    and dl, bl                  ; DL = t AND (2^k - 1), the new remainder
+    shr bx, cl                  ; BX = d = t >> k
+    jnz .d
+    inc bx                      ; d = 0: 1, and the remainder 0 (BH is 0)
+    mov dl, bh
+.d:
+    mov [si], dl
+    mov dl, dh                  ; DX = the sign again
+    xor bx, dx
+    sub bx, dx                  ; BX = d with v's sign
+    sub ax, bx                  ; v moves d toward 0 (never past it: d <= |v|)
 .brake:
     or ch, ch
     jz .clamp
@@ -2760,7 +2827,10 @@ bz_fill:
 
 ; bz_surfset - AL = the window centre's surface: [bz_surf] = it, bz_se =
 ; BZ_SURFTAB's entry for [bz_mat] on it (force, drag shift, brake, floor e),
-; and bz_ftg rebuilt from its force, ftg[l] = (A l + 4) >> 3 (128.11.7.1).
+; and bz_ftg rebuilt from its force, ftg[l] = (A l + 4) >> 3 (128.11.7.1);
+; bz_dmask = 2^k - 1 for its drag shift k and bz_drx, bz_dry cut to it
+; (128.16.3.1: its callers are bz_fill, on a change of the centre's surface,
+; and bz_setmat, whose new material can change k on the same surface).
 ; A surface 4 - 15 is RESERVED and the tool refuses it: nothing is checked.
 ; DS = ours.  Clobbers AX, BX, CX, DX, DI.
 bz_surfset:
@@ -2774,6 +2844,13 @@ bz_surfset:
     shl bx, 1                   ; 4 (4 mat + surface)
     mov ax, [bz_surftab + bx]
     mov [bz_se], ax
+    mov cl, ah                  ; wave 6 (128.16.3.1): the drag's mask, 2^k - 1
+    mov al, 1                   ; (k 8: 0FFh; ice's 0: 0), and BOTH remainders
+    shl al, cl                  ; CUT to it, the one place the mask changes
+    dec ax
+    mov ah, al
+    mov [bz_dmask], al
+    and [bz_drx], ax
     mov ax, [bz_surftab + bx + 2]
     mov [bz_se + 2], ax
     mov al, [bz_se]             ; the force at full ramp
