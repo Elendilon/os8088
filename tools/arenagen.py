@@ -330,27 +330,10 @@ def pvs_build(tag, boxes):
     for x0 in range(ROOM[0], ROOM[2], g):
         col = []
         for y0 in range(ROOM[1], ROOM[3], g):
-            x1, y1 = x0 + g, y0 + g
-            pts = set()
-
-            def edge(ax, ay, bx_, by):
-                k = max(1, -(-max(abs(bx_ - ax), abs(by - ay)) // PVS_STEP))
-                for t in range(k + 1):
-                    pts.add((ax + (bx_ - ax) * t / k, ay + (by - ay) * t / k))
-            for (a, b, c, d) in [(x0, y0, x1, y1)] + [(a - 1, b - 1, c + 1, d + 1)
-                                                      for (a, b, c, d) in occ]:
-                a, b, c, d = max(a, x0), max(b, y0), min(c, x1), min(d, y1)
-                if a <= c and b <= d:
-                    edge(a, b, c, b), edge(c, b, c, d), edge(c, d, a, d), edge(a, d, a, b)
-            for gx in range(x0, x1 + 1, PVS_GRIDP):
-                for gy in range(y0, y1 + 1, PVS_GRIDP):
-                    pts.add((gx, gy))
             vis = 0
-            for p in sorted(pts):
+            for p in pvs_points(x0, y0, x0 + g, y0 + g, occ):
                 if vis == full:
                     break
-                if any(a <= p[0] <= c and b <= p[1] <= d for (a, b, c, d) in occ):
-                    continue                # (no one stands in a wall, or on one)
                 vis |= pvs_seen(p, boxes, tall, vis)
             col.append(vis)
             cut += bin(full & ~vis).count("1")
@@ -360,6 +343,104 @@ def pvs_build(tag, boxes):
                      % (tag, 100 * share, "" if share >= PVS_MIN else
                         " - under %d%%, none carried" % (100 * PVS_MIN)))
     return out if share >= PVS_MIN else None
+
+
+def pvs_points(x0, y0, x1, y1, occ):
+    """The points a cell's visibility is tested from, sorted (pvs_build's
+    comment): its outline and the occluders' inside it every PVS_STEP, and
+    a PVS_GRIDP grid - none inside an occluder (no one stands in a wall)"""
+    pts = set()
+
+    def edge(ax, ay, bx_, by):
+        k = max(1, -(-max(abs(bx_ - ax), abs(by - ay)) // PVS_STEP))
+        for t in range(k + 1):
+            pts.add((ax + (bx_ - ax) * t / k, ay + (by - ay) * t / k))
+    for (a, b, c, d) in [(x0, y0, x1, y1)] + [(a - 1, b - 1, c + 1, d + 1)
+                                              for (a, b, c, d) in occ]:
+        a, b, c, d = max(a, x0), max(b, y0), min(c, x1), min(d, y1)
+        if a <= c and b <= d:
+            edge(a, b, c, b), edge(c, b, c, d), edge(c, d, a, d), edge(a, d, a, b)
+    for gx in range(x0, x1 + 1, PVS_GRIDP):
+        for gy in range(y0, y1 + 1, PVS_GRIDP):
+            pts.add((gx, gy))
+    return [p for p in sorted(pts)
+            if not any(a <= p[0] <= c and b <= p[1] <= d for (a, b, c, d) in occ)]
+
+
+# --- pickups (docs/plans/WIREARENA-WEAPONS-PLAN.md 2.4) ----------------------
+# kind: the renderer's shape and colour (wa_pkdraw's table) and the game's
+# effect (wa_pktake's); a weapon's kind is its weapon number less one
+PK_SHOTGUN, PK_ROCKET, PK_HEALTH, PK_SHIELD = 0, 1, 2, 3
+PK_HALF = (24, 32, 16, 12)      # half its width, units (wa_pkshape's)
+PK_PVSR = 16                    # the square its PVS bit is for: at least
+                                # every half width but the lines' - a line
+                                # is drawn only where its middle's column is
+                                # open, so its middle is what must be seen
+WA_MPK = 8                      # the most an arena carries: a bit each
+# Arena 2's (the owner's placement, 2026-11-13): the health pack in the back
+# tunnel (the corridor along the west wall, behind the annex, opposite the
+# back room's mouth); the shield pack on the jump platform in the back room;
+# the shotgun on the ramp platform; the rocket launcher on the tower's top,
+# the platform the lift goes up to
+HEIGHTS_PICKUPS = [
+    (PK_HEALTH, 64, 1024),
+    (PK_SHIELD, 480, 1024),
+    (PK_SHOTGUN, 1248, 1024),
+    (PK_ROCKET, 1952, 1024),
+]
+ARENA_PICKUPS = {"a2": HEIGHTS_PICKUPS}
+
+
+def pickups(tag, boxes):
+    """An arena's pickups: [(kind, x, y, z)], z the floor under it. Refused
+    in a tall box, outside the room, or past WA_MPK"""
+    boxes = [bx(b) for b in boxes]
+    out = []
+    for k, x, y in ARENA_PICKUPS.get(tag, []):
+        if not (ROOM[0] < x < ROOM[2] and ROOM[1] < y < ROOM[3]) or \
+                any(b[0] < x < b[2] and b[1] < y < b[3] and b.h >= hmax(boxes)
+                    for b in boxes):
+            raise SystemExit("arenagen: arena %s: a pickup at (%d, %d) is in a "
+                             "wall" % (tag, x, y))
+        out.append((k, x, y, floor_at(x, y, boxes, 0)))
+    if len(out) > WA_MPK:
+        raise SystemExit("arenagen: arena %s has %d pickups - at most %d"
+                         % (tag, len(out), WA_MPK))
+    return out
+
+
+def pvs_pickups(tag, boxes, pks):
+    """-> per cell [ix][iy] a byte, bit i: pickup i may be seen from the cell
+    (the boxes' test: pvs_seen, over the tall boxes, at each pickup's
+    PK_PVSR square) - or None, when the arena carries no PVS"""
+    boxes = [bx(b) for b in boxes]
+    if not pks or pvs_masks(tag, boxes) is None:
+        return None
+    top = hmax(boxes)
+    tall = [i for i, b in enumerate(boxes) if b.h >= top]
+    occ = [boxes[i] for i in tall]
+    nb = len(boxes)
+    targets = boxes + [Box(x - PK_PVSR, y - PK_PVSR, x + PK_PVSR, y + PK_PVSR)
+                       for (_, x, y, _) in pks]
+    have0 = (1 << nb) - 1
+    full = (1 << len(pks)) - 1
+    g = 1 << PVS_SHIFT
+    out, cut = [], 0
+    for x0 in range(ROOM[0], ROOM[2], g):
+        col = []
+        for y0 in range(ROOM[1], ROOM[3], g):
+            vis = 0
+            for p in pvs_points(x0, y0, x0 + g, y0 + g, occ):
+                if vis == full:
+                    break
+                vis |= pvs_seen(p, targets, tall, have0 | vis << nb) >> nb
+            col.append(vis)
+            cut += bin(full & ~vis).count("1")
+        out.append(col)
+    sys.stderr.write("arenagen: arena %s: the pickups' PVS culls %.1f%% of "
+                     "pickup-cells\n" % (tag, 100.0 * cut /
+                                          (len(pks) * len(out) * len(out[0]))))
+    return out
 
 
 def pvs_bytes():
@@ -462,11 +543,43 @@ def death_frame(i, n):
                 -40 * k, 50 * k, lean=-15 * k, fall=88 * e, sink=0.3 * k)
 
 
-ANIMS = [                       # name, keyframes, builder
-    ("IDLE", 4, idle_frame),
-    ("RUN", 8, run_frame),
-    ("FLINCH", 3, flinch_frame),
-    ("DEATH", 8, death_frame),
+def collapse_frame(i, n):
+    """The shotgun's kill (WIREARENA-WEAPONS-PLAN 2.3): the knees go and the
+    body folds FORWARD onto them - where DEATH goes over backward, straight"""
+    k = (i + 1) / n
+    over = max(0.0, (k - 0.4) / 0.6)
+    return pose(hipL=70 * k, kneeL=125 * k, hipR=60 * k, kneeR=135 * k,
+                shL=-20 + 110 * k, elL=30 + 50 * k, shR=-10 + 100 * k,
+                elR=20 + 60 * k, lean=50 * k, fall=-70 * over * over,
+                sink=0.5 * k)
+
+
+def gib_frame(i, n):
+    """The rocket's kill (WIREARENA-WEAPONS-PLAN 2.3): every joint flies
+    apart from where it stood - outward, up and back down to the floor -
+    and the renderer draws the joints alone, the bits. Each joint's
+    direction and speed are fixed (a golden-angle spread), so the eleven
+    scatter evenly; nothing leaves a signed byte (1.98 m) of the feet"""
+    t = (i + 1) / n
+    out = []
+    for j, (x, y, z) in enumerate(pose(0, 0, 0, 0, 0, 0, 0, 0)):
+        a = j * 2.39996 + 0.3
+        s = 1.25 * (0.55 + 0.45 * ((j * 37) % 10) / 10.0)
+        up = 1.1
+        b = y + up - 0.04
+        out.append((x + s * math.cos(a) * t,
+                    min(1.9, max(0.04, y + up * t - b * t * t)),
+                    z + s * math.sin(a) * t))
+    return out
+
+
+ANIMS = [                       # name, keyframes, builder, loops
+    ("IDLE", 4, idle_frame, True),
+    ("RUN", 8, run_frame, True),
+    ("FLINCH", 3, flinch_frame, False),
+    ("DEATH", 8, death_frame, False),
+    ("COLLAPSE", 6, collapse_frame, False),
+    ("GIB", 6, gib_frame, False),
 ]
 
 
@@ -797,6 +910,7 @@ def bsp_tables(w):
     w("WA_MBOX equ %d" % max(c[3] for c in counts))
     w("WA_MNODE equ %d" % max(c[4] for c in counts))
     w("WA_MAXKS equ %d" % MAXKS)
+    w("WA_MPK equ %d" % WA_MPK)
     w("WA_PVSB equ %d" % pvs_bytes())   # (a cell's mask, and the most cells)
     w("WA_PVSN equ %d" % (((ROOM[2] - ROOM[0]) >> PVS_SHIFT) *
                           ((ROOM[3] - ROOM[1]) >> PVS_SHIFT)))
@@ -861,7 +975,7 @@ def main(out):
     w("%endif")
     # poses
     first = 0
-    for name, n, _ in ANIMS:
+    for name, n, _, _ in ANIMS:
         w("WA_A_%s equ %d" % (name, first))
         w("WA_N_%s equ %d" % (name, n))
         first += n
@@ -870,7 +984,7 @@ def main(out):
       % (NFACE * NJ * 2))
     w("%ifdef WA_TAB_POSE")
     w("wa_pose:")
-    for name, n, fn in ANIMS:
+    for name, n, fn, loops in ANIMS:
         frames = []
         for i in range(n):
             pts = fn(i, n)
@@ -879,8 +993,8 @@ def main(out):
         # wa_fjl's narrow path blends a joint between two keyframes in
         # BYTES: B - A must be a signed byte for each coordinate between
         # every pair it can blend - the next keyframe, and the first after
-        # the last (a loop)
-        for i in range(n):
+        # the last when it loops (one that holds blends its last with itself)
+        for i in range(n if loops else n - 1):
             for k in range(NFACE):
                 for (a, b), (c, d) in zip(frames[i][k],
                                           frames[(i + 1) % n][k]):
@@ -964,7 +1078,22 @@ def arena_part(n, out):
           "primary's)" % (P + "paths" if pb else "0", 2 * len(pb))]
     pv = wamodel.A.pvs_masks(tag, boxes)    # (the budget's walk made them)
     L += ["    dw %s                    ; its PVS (0: none): grid shift, cells "
-          "a column, masks" % (P + "pvs" if pv else "0")] + T
+          "a column, masks" % (P + "pvs" if pv else "0")]
+    pk = pickups(tag, boxes)
+    pkv = pvs_pickups(tag, boxes, pk)
+    L += ["    dw %s, %s               ; its pickups (0: none), and their PVS "
+          "bytes (0: none - every pickup tested)" % (
+              P + "pks" if pk else "0", P + "pkv" if pkv else "0")] + T
+    if pk:
+        L.append(P + "pks:                     ; count; x, y, z, kind, 0")
+        L.append("    dw %d" % len(pk))
+        for (k, x, y, z) in pk:
+            L.append("    dw %d, %d, %d" % (x, y, z))
+            L.append("    db %d, 0" % k)
+    if pkv:
+        L.append(P + "pkv:                     ; a byte a PVS cell, column-major")
+        for col in pkv:
+            L.append("    db " + ", ".join(str(m) for m in col))
     if pv:
         nb_ = pvs_bytes()
         L.append(P + "pvs:")

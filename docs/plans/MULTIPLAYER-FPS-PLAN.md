@@ -353,6 +353,9 @@ This is arithmetic and not a measurement. Wave 0 measures it.
 
 ## 6. Weapons and projectiles (proposed)
 
+*The first round is built: the pistol, the shotgun and the rocket launcher,
+with pickups - [WIREARENA-WEAPONS-PLAN](WIREARENA-WEAPONS-PLAN.md).*
+
 | weapon | kind | what makes it interesting here |
 |---|---|---|
 | **Pistol** | hitscan | the baseline. Its ray uses the same BSP as rendering |

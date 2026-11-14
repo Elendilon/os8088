@@ -40,7 +40,9 @@ F_Y     equ 2
 F_ANG   equ 4                   ; facing, 0..1023
 F_LEG   equ 6                   ; leg index * 8 (byte offset into the path)
 F_STEP  equ 8                   ; steps left on this leg
-F_HP    equ 10                  ; byte
+F_SH    equ 10                  ; byte: its shield (WEAPONS-PLAN 2.3) - the
+                                ; renderer draws a chest yellow while it
+                                ; holds any
 F_ANIM  equ 11                  ; byte: first keyframe of the animation
 F_NFR   equ 12                  ; byte: its keyframe count
 F_LOOP  equ 13                  ; byte: 1 loops, 0 holds the last frame
@@ -60,4 +62,6 @@ F_PWH   equ 34                  ;   half width, sub-columns
 F_VH    equ 36                  ; the heading F_VX/F_VY are for, | 0x8000
 F_VX    equ 38                  ;   (0: none yet): a tick's step, units
 F_VY    equ 40
-F_SIZE  equ 42
+F_HP    equ 42                  ; byte: its health (the game's alone)
+F_KILL  equ 43                  ; byte: the weapon that killed it (0..2)
+F_SIZE  equ 44

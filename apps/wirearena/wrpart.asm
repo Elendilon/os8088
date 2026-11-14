@@ -111,18 +111,27 @@ wr_v_init:
     mov [wa_frame], al
     mov [wa_newn], ax
     mov [wa_oldn], ax
+    mov [wa_ovoldn], ax         ; (the overlay comes again: no old cells)
     mov word [wa_newp], wa_lista
     mov word [wa_oldp], wa_listb
     retf
 
-; TRACE - the pistol's ray through the crosshair against the figures as the
-; last frame drew them (the primary's wa_fire applies the hit). Out AX = the
-; hit figure's offset in wa_figs, or -1.
+; TRACE - the crosshair's ray, or a CONE round it (the shotgun's: WEAPONS-
+; PLAN 2.2), against the figures as the last frame drew them (the primary's
+; wa_fire applies the hits). In CX = the cone's half width in sub-columns,
+; DX its half height in half-rows (0, 0: the pistol's ray). A figure is hit
+; when its extent overlaps the widened crosshair and nothing nearer covers
+; the point of it nearest the crosshair - a wall, or a platform's lip;
+; DIRECTLY when it covers the crosshair itself. Out AX = the nearest figure
+; hit, its offset in wa_figs, or -1; DX = a bit a figure hit, bit 8 + i
+; when directly.
 wr_v_trace:
-    mov bx, [wa_w]
-    and bx, 0xFFFE              ; the crosshair column x 2 (wa_occl)
+    mov [wa_tcw], cx
+    mov [wa_tch], dx
     xor si, si                  ; best so far
     xor bp, bp                  ; ...and its inverse depth
+    mov word [wa_tmask], 0
+    mov word [wa_tbit], 0x0101
     mov di, wa_figs
     mov cx, WA_NFIG
 .f:
@@ -130,30 +139,84 @@ wr_v_trace:
     je .n
     cmp byte [di+F_DEAD], 0
     jne .n
-    mov ax, [di+F_PCX]
-    sub ax, [wa_w]
-    jns .abs
+    mov bx, [wa_w]              ; BX = the point's sub-column: the
+    mov ax, [di+F_PCX]          ; crosshair's, or the figure's edge nearest
+    sub ax, bx                  ; it
+    mov dx, [di+F_PWH]
+    mov byte [wa_tdir], 1       ; (direct, so far)
+    or ax, ax
+    jns .right
     neg ax
-.abs:
-    cmp ax, [di+F_PWH]
+    cmp ax, dx
+    jle .hx
+    sub ax, [wa_tcw]
+    cmp ax, dx
     jg .n
-    cmp word [di+F_PTOP], WA_HR/2
+    mov bx, [di+F_PCX]          ; left of the crosshair: its right edge
+    add bx, dx
+    jmp .off
+.right:
+    cmp ax, dx
+    jle .hx
+    sub ax, [wa_tcw]
+    cmp ax, dx
     jg .n
-    cmp word [di+F_PBOT], WA_HR/2
-    jl .n
+    mov bx, [di+F_PCX]          ; right of it: its left edge
+    sub bx, dx
+.off:
+    mov byte [wa_tdir], 0
+.hx:
+    mov dx, WA_HR/2             ; DX = the point's half-row: the
+    mov ax, [di+F_PTOP]         ; crosshair's, or the figure's end
+    cmp ax, dx                  ; nearest it
+    jle .top
+    sub ax, dx
+    cmp ax, [wa_tch]
+    jg .n
+    mov dx, [di+F_PTOP]
+    mov byte [wa_tdir], 0
+    jmp .vy
+.top:
+    mov ax, [di+F_PBOT]
+    cmp ax, dx
+    jge .vy
+    neg ax
+    add ax, dx
+    cmp ax, [wa_tch]
+    jg .n
+    mov dx, [di+F_PBOT]
+    mov byte [wa_tdir], 0
+.vy:
+    cmp bx, [wa_w2]             ; (unsigned: the point off the screen -
+    jb .col                     ; the crosshair's own column then)
+    mov bx, [wa_w]
+.col:
+    and bx, 0xFFFE              ; its column x 2 (wa_occl)
     mov ax, [di+F_PIZ]
     push ax
     call wa_occl                ; AL = the first half-row hidden at its
-    cmp al, WA_HR/2             ; depth: the crosshair's at or below it,
-    pop ax                      ; and something nearer stops the shot - a
-    jbe .n                      ; wall, or a platform's lip
+    xor ah, ah                  ; depth: the point's at or below it, and
+    cmp ax, dx                  ; something nearer stops the shot
+    pop ax
+    jbe .n
+    mov dx, [wa_tbit]           ; hit: its bit, and its direct bit when so
+    cmp byte [wa_tdir], 0
+    jne .dir
+    xor dh, dh
+.dir:
+    or [wa_tmask], dx
     cmp ax, bp
     jbe .n
     mov bp, ax
     mov si, di
 .n:
+    shl word [wa_tbit], 1
     add di, F_SIZE
-    loop .f
+    dec cx
+    jz .end
+    jmp .f
+.end:
+    mov dx, [wa_tmask]
     mov ax, -1
     or si, si
     jz .out
@@ -243,6 +306,27 @@ wa_loadarena:
     rep movsw
     mov al, [es:wa_hflat]       ; ...the flat verdict, for the sim
     mov [es:wa_aflat], al
+    mov word [es:wa_npk], 0     ; ITS PICKUPS (WEAPONS-PLAN 2.4): the
+    mov word [es:wa_pkvp], wa_pkall ; records into ARENA, and their PVS
+    mov byte [es:wa_pkvh], 0    ; bytes (none: every pickup is tested -
+    mov si, [bx+44]             ; wa_pkall's 0xFF)
+    or si, si
+    jz .nopk
+    lodsw
+    mov [es:wa_npk], ax
+    mov cx, ax
+    shl cx, 1
+    shl cx, 1                   ; (WA_PKSZ / 2 words each)
+    mov di, wa_pks
+    rep movsw
+    mov si, [bx+46]
+    or si, si
+    jz .nopk
+    mov byte [es:wa_pkvh], 1
+    mov cx, WA_PVSN / 2
+    mov di, wa_pkv
+    rep movsw
+.nopk:
     mov word [es:wa_lift], -1   ; its lift, the first of the table: the
     mov si, [bx+36]             ; sim moves it (arenagen allows one)
     cmp word [si], 0
@@ -335,6 +419,14 @@ WA_VAR wa_pvsh,1                 ; the PVS: the grid's shift (0: none)...
 WA_VAR wa_pvsn,1                 ; ...its cells a column...
 WA_VAR wa_pvp,2                  ; ...this cell's mask (wa_order)...
 WA_VAR wa_pvs,WA_PVSN*WA_PVSB    ; ...and every cell's, a bit a box
+WA_VAR wa_pkvh,1                 ; the pickups' PVS: carried...
+WA_VAR wa_pkvp,2                 ; ...this cell's byte (wa_order), or
+WA_VAR wa_pkv,WA_PVSN            ; wa_pkall... and every cell's
+WA_VAR wa_tcw,2                  ; TRACE: the cone's half width, half
+WA_VAR wa_tch,2                  ;   height, the figures hit, this
+WA_VAR wa_tmask,2                ;   figure's bits, and whether it was hit
+WA_VAR wa_tbit,2                 ;   directly
+WA_VAR wa_tdir,1
 WA_VAR wa_tmp,2
 WA_VAR wa_rowo2,(WA_ROWS+1)*2
 WR_BSS

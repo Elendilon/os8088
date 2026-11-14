@@ -251,6 +251,7 @@ wa_setmode:
     mov [wa_ncells+2], ax
     mov si, wa_hudtpl           ; the HUD's fixed text
     call wa_hudfix
+    mov byte [wa_ovd], 1        ; (the overlay's cells move with the width)
     clc
 .out:
     ret
@@ -322,6 +323,8 @@ wa_reset:
     mov [wa_fpx], ax            ; (the floor: read afresh)
     inc ax
     call wa_lset0
+    call wa_arm0                ; the pistol alone, full health, no shield
+    call wa_pkreset             ; every pickup there, no rocket flying
     mov di, wa_figs
     xor bx, bx
 .fig:
@@ -351,7 +354,13 @@ wa_spawn:
     mov ax, [si+8]
     mov [di+F_STEP], ax
     mov word [di+F_LEG], 0
-    mov byte [di+F_HP], 3
+    mov byte [di+F_HP], WA_FHP
+    xor ax, ax                  ; dummy 0 lives with a full shield: its chest
+    cmp di, wa_figs             ; yellow and a second pool to shoot through
+    jne .nsh                    ; (WEAPONS-PLAN 2.3)
+    mov al, WA_FHP
+.nsh:
+    mov [di+F_SH], al
     mov byte [di+F_DEAD], 0
     mov byte [di+F_FLASH], 0
     mov word [di+F_PZ], 0
@@ -438,11 +447,18 @@ wa_frame_input:
     xor byte [wa_look], LK_RAMP2
     jmp .drain
 .bn:
-    mov al, ah                  ; 1..5: the DETAIL LEVEL (HEIGHTS-PLAN 9.11)
-    sub al, 0x02
+    mov al, ah                  ; F1..F5: the DETAIL LEVEL (HEIGHTS-PLAN
+    sub al, 0x3B                ; 9.11; WEAPONS-PLAN 2.1)
     cmp al, WA_NLEV
-    jae .drain
+    jae .bw
     call wa_setlevel
+    jmp .drain
+.bw:
+    mov al, ah                  ; 1..3: a weapon (WEAPONS-PLAN 2.1; 4 and 5
+    sub al, 0x02                ; are the next ones')
+    cmp al, WA_NWPN
+    jae .drain
+    call wa_wsel
     jmp .drain
 .typed:
     cmp byte [wa_pbon], 0
@@ -685,7 +701,12 @@ wa_tick:
     pop cx
     add di, F_SIZE
     loop .fig
-    ret
+.c_w:                           ; (the labels: tools/watrace.py's stops)
+    call wa_wtick               ; the weapon's reload and its next shot,
+.c_rk:                          ; the rockets, the pickups (WEAPONS-PLAN)
+    call wa_rktick
+.c_pk:
+    jmp wa_pktick
 
 ; wa_collide - CF = 1 when the player at [wa_px],[wa_py] is inside a wall.
 ; Keeps every register. The player's square is widened once (x +- R, y +-
@@ -1249,6 +1270,11 @@ wa_figtick:
 .hold:
     dec ax
     mov [di+F_PH], ax
+    cmp byte [di+F_ANIM], WA_A_GIB
+    jne .hf
+    mov byte [di+F_NFR], 0      ; blown to bits: gone until it respawns (the
+    ret                         ; renderer skips it, WEAPONS-PLAN 2.3)
+.hf:
     cmp byte [di+F_ANIM], WA_A_FLINCH
     jne .out
     jmp wa_runanim              ; the flinch is over: run again
@@ -1262,7 +1288,11 @@ wa_figtick:
     cmp byte [di+F_DEAD], 0
     je .live
     dec byte [di+F_DEAD]
-    jnz .anim
+    jz .resp
+    cmp byte [di+F_NFR], 0      ; (gone: nothing to animate)
+    jne .anim
+    ret
+.resp:
     jmp wa_spawn
 .q14:                           ; DX:AX Q14 -> AX, rounding toward -inf
     shl ax, 1
@@ -1272,14 +1302,176 @@ wa_figtick:
     mov ax, dx
     ret
 
-; wa_fire - the pistol: hitscan through the crosshair, against the figures
-; as the last frame drew them
+; --- weapons (docs/plans/WIREARENA-WEAPONS-PLAN.md 2.2) -----------------------
+; Three: the pistol (hitscan), the shotgun (a hitscan CONE, its damage the
+; figure's inverse depth) and the rocket launcher (a projectile the sim flies,
+; with splash). Each has a magazine that reloads by itself when it empties
+; and a gap between shots; the shotgun and the launcher have a reserve the
+; pickups fill. Times are 30 Hz ticks.
+WA_NWPN     equ 3
+WA_FHP      equ 100             ; a figure's health, and the player's
+WA_PDMG     equ 34              ; the pistol: three shots kill
+WA_RESMAX   equ 24              ; a reserve's cap
+WA_PKAMMO   equ 6               ; ammunition a weapon pickup gives
+WA_RKLIFE   equ 120             ; ticks a rocket flies before it is gone
+WA_SPLR     equ 128             ; the splash's reach, units (2 m)
+WA_HITR     equ 24              ; a rocket inside a figure's square: direct
+WA_RKEYE    equ 8               ; a rocket leaves this far below the eye
+wa_wmag:    db 6, 3, 3          ; magazine
+wa_wrld:    db 15, 36, 75       ; reload: quick, medium, long
+wa_wcool:   db 4, 15, 18        ; between shots
+wa_pkresp:  dw 300, 300, 600, 900 ; a pickup's respawn, by kind (10, 10,
+                                ; 20, 30 s): shotgun, launcher, health, shield
+
+; wa_arm0 - the player as they start: the pistol, loaded, nothing else; full
+; health, no shield. Keeps all but AX
+wa_arm0:
+    xor ax, ax
+    mov [wa_wpn], al
+    mov [wa_rld], al
+    mov [wa_cool], al
+    mov [wa_sh], ax
+    mov [wa_res], ax
+    mov [wa_res+2], al
+    mov [wa_mag+1], ax
+    mov byte [wa_mag], 6
+    mov byte [wa_own], 1
+    mov word [wa_hp], WA_FHP
+    mov byte [wa_ovd], 1
+    ret
+
+; wa_pkreset - every pickup there, every timer stopped, no rocket in flight.
+; Clobbers AX, CX, DI
+wa_pkreset:
+    mov cx, [wa_npk]
+    mov al, 1
+    shl al, cl
+    dec al
+    mov [wa_pkon], al
+    push es
+    push ds
+    pop es
+    xor ax, ax
+    mov di, wa_pkt
+    mov cx, WA_MPK
+    rep stosw
+    mov di, wa_rks
+    mov cx, WA_NRK*WA_RKSZ/2
+    rep stosw
+    mov [wa_rkn], al
+    pop es
+    ret
+
+; wa_wsel - AL = a weapon: chosen, if the player has it and it has anything
+; to fire (the pistol always). Clobbers AX, BX, CX
+wa_wsel:
+    cmp al, [wa_wpn]
+    je .out
+    mov cl, al
+    mov bl, 1
+    shl bl, cl
+    test [wa_own], bl
+    jz .out
+    xor bx, bx
+    mov bl, al
+    or bl, bl
+    jz wa_wset
+    mov ah, [wa_mag+bx]
+    or ah, [wa_res+bx]
+    jz .out
+    jmp wa_wset
+.out:
+    ret
+
+; wa_wset - AL = a weapon, held now: any reload of the last is dropped, a
+; short gap before its first shot, and one that is empty starts to reload
+wa_wset:
+    mov [wa_wpn], al
+    mov byte [wa_rld], 0
+    mov byte [wa_cool], 6
+    mov byte [wa_ovd], 1
+    ; (falls through)
+
+; wa_wready - the weapon held, if its magazine is empty: reloads, or with
+; nothing in reserve, the pistol instead. Clobbers AX, BX
+wa_wready:
+    mov bl, [wa_wpn]
+    xor bh, bh
+    cmp byte [wa_mag+bx], 0
+    jne .out
+    or bl, bl
+    jz .rl                      ; (the pistol's reserve is endless)
+    cmp byte [wa_res+bx], 0
+    jne .rl
+    xor al, al                  ; nothing left: the pistol
+    jmp wa_wset
+.rl:
+    mov al, [wa_wrld+bx]
+    mov [wa_rld], al
+    mov byte [wa_ovd], 1
+.out:
+    ret
+
+; wa_wtick - a tick of the weapon: the gap between shots, and a reload,
+; which at its end fills the magazine from the reserve
+wa_wtick:
+    cmp byte [wa_cool], 0
+    je .c
+    dec byte [wa_cool]
+.c:
+    cmp byte [wa_rld], 0
+    je .out
+    dec byte [wa_rld]
+    jnz .out
+    mov bl, [wa_wpn]
+    xor bh, bh
+    mov al, [wa_wmag+bx]
+    or bl, bl
+    jz .fill                    ; (the pistol: from nowhere)
+    cmp al, [wa_res+bx]
+    jbe .take
+    mov al, [wa_res+bx]
+.take:
+    sub [wa_res+bx], al
+.fill:
+    mov [wa_mag+bx], al
+    mov byte [wa_ovd], 1
+.out:
+    ret
+
+; wa_fire - the trigger, pressed (one shot a press): the weapon held fires if
+; it is loaded, not reloading and past its gap; an empty one reloads
 wa_fire:
+    cmp byte [wa_rld], 0
+    jne .out
+    cmp byte [wa_cool], 0
+    jne .out
+    mov bl, [wa_wpn]
+    xor bh, bh
+    cmp byte [wa_mag+bx], 0
+    je wa_wready
+    dec byte [wa_mag+bx]
+    mov al, [wa_wcool+bx]
+    mov [wa_cool], al
+    mov byte [wa_ovd], 1
     mov byte [wa_mflash], 2
-    mov ax, 1200
-    mov cx, 1
-    mov dl, 0x40
-    call OSAPI_SND_TONE
+    push bx
+    shl bx, 1
+    call [wa_wfire+bx]
+    pop bx
+    cmp byte [wa_mag+bx], 0
+    je wa_wready                ; empty: reload, or back to the pistol
+.out:
+    ret
+wa_wfire:   dw wa_fpis, wa_fshg, wa_frkt
+
+; wa_trace - CX, DX = the cone (0, 0: the ray): TRACE in the renderer part,
+; against the figures as the last frame drew them, and one respawned since
+; then never hit where its body lay. AX = the nearest hit (its offset in
+; wa_figs, or -1), DX = the hits (WRV_TRACE). ES = DS out
+wa_trace:
+    push cx
+    push dx
     call wa_rframe              ; the figures as they stand (F_DEAD)...
 %assign wa_i 0
 %rep WA_NFIG
@@ -1289,31 +1481,734 @@ wa_fire:
 .drawn%[wa_i]:                  ; where the part's projection says
 %assign wa_i wa_i+1
 %endrep
-    mov bx, WRV_TRACE           ; the ray, in the renderer part: AX = the
-    call wa_rcall               ; figure hit, or -1
+    pop dx
+    pop cx
+    mov bx, WRV_TRACE
+    call wa_rcall
     push ds
     pop es
+    ret
+
+; wa_fpis - the pistol: the crosshair's ray, the nearest figure on it
+wa_fpis:
+    mov ax, 1200
+    mov cx, 1
+    mov dl, 0x40
+    call OSAPI_SND_TONE
+    xor cx, cx
+    xor dx, dx
+    call wa_trace
     or ax, ax
-    js .miss
+    js .out
     add ax, wa_figs
     mov di, ax
+    mov ax, WA_PDMG             ; (AH 0: the pistol's kill)
+    jmp wa_hurt
+.out:
+    ret
+
+; wa_fshg - the shotgun: a cone W/8 sub-columns and 3 half-rows either side
+; of the crosshair (about 5 degrees at any width and view), every figure in
+; it hit, by its inverse depth: / 32 directly (128 at 2 m - a kill close
+; up), / 64 when only the cone reaches it
+wa_fshg:
+    mov ax, 220
+    mov cx, 2
+    mov dl, 0x40
+    call OSAPI_SND_TONE
+    mov cx, [wa_w]
+    shr cx, 1
+    shr cx, 1
+    shr cx, 1
+    mov dx, 3
+    call wa_trace
+    mov di, wa_figs
+    mov bx, WA_RAT(wa_figs) + F_PIZ
+    mov cx, WA_NFIG
+.f:
+    shr dl, 1
+    jnc .n
+    push cx
+    push dx
+    push bx
+    mov es, [wa_rds]
+    mov ax, [es:bx]             ; its inverse depth, as the part drew it
+    push ds
+    pop es
+    mov cl, 5
+    test dh, 1
+    jnz .sh
+    inc cl                      ; (the cone alone: half)
+.sh:
+    shr ax, cl
+    or ah, ah
+    jz .lo
+    mov al, 255
+.lo:
+    or al, al
+    jnz .d
+    inc ax
+.d:
+    mov ah, 1                   ; (the shotgun's kill)
+    call wa_hurt
+    pop bx
+    pop dx
+    pop cx
+.n:
+    shr dh, 1
+    add di, F_SIZE
+    add bx, F_SIZE
+    loop .f
+    ret
+
+; wa_frkt - the rocket launcher: a rocket from below the eye, along the
+; crosshair's ray - the yaw's direction at 32 units a tick, and the pitch's
+; shear as its climb (pitch x 2^19 / kyh, 8.8 a tick)
+wa_frkt:
+    mov ax, 150
+    mov cx, 3
+    mov dl, 0x40
+    call OSAPI_SND_TONE
+    mov si, wa_rks
+    mov di, wa_rkg
+.slot:
+    cmp byte [si+WA_RKST], 0
+    je .have
+    add si, WA_RKSZ
+    add di, WA_RKGSZ
+    cmp si, wa_rks + WA_NRK*WA_RKSZ
+    jb .slot
+    ret                         ; (three in flight: rare - the shot is spent)
+.have:
+    inc byte [wa_rkn]
+    mov ax, [wa_px]
+    mov [si+WA_RKX], ax
+    mov ax, [wa_py]
+    mov [si+WA_RKY], ax
+    mov ax, [wa_eye]
+    sub ax, WA_RKEYE
+    mov [si+WA_RKZ], ax
+    mov byte [si+WA_RKST], WA_RKFLY
+    xor ax, ax
+    mov [di+RG_XF], ax
+    mov [di+RG_YF], ax
+    mov [di+RG_ZF], ax
+    mov word [di+RG_LIFE], WA_RKLIFE
+    mov ax, [wa_ang]
+    mov cl, 6
+    shr ax, cl
+    call wa_sincos              ; AX = sin, DX = cos, Q14
+    sar dx, 1                   ; Q14 / 2 = 8.8 x 32
+    mov [di+RG_VX], dx
+    sar ax, 1
+    mov [di+RG_VY], ax
+    mov dx, [wa_pitch]          ; the climb: (pitch << 19) / kyh
+    shl dx, 1
+    shl dx, 1
+    shl dx, 1
+    xor ax, ax
+    idiv word [wa_kyh]          ; (|pitch| <= 290: at most ~18,000)
+    mov [di+RG_VZ], ax
+    ret
+
+; wa_hurt - DI = a figure, AL = damage, AH = the weapon's kill (0..2): its
+; shield takes it first, then its health; at 0 it dies, by that weapon's
+; death. Clobbers AX, CX
+wa_hurt:
+    cmp byte [di+F_DEAD], 0
+    jne .out
     inc word [wa_hits]
     mov byte [di+F_FLASH], 5
-    dec byte [di+F_HP]
-    jz .kill
+    mov cl, [di+F_SH]
+    sub cl, al
+    jb .through
+    mov [di+F_SH], cl           ; the shield took it all
+    jmp .flinch
+.through:
+    neg cl                      ; CL = what the shield did not take
+    mov byte [di+F_SH], 0
+    cmp cl, [di+F_HP]
+    jae wa_kill
+    sub [di+F_HP], cl
+.flinch:
     mov byte [di+F_ANIM], WA_A_FLINCH
     mov byte [di+F_NFR], WA_N_FLINCH
     mov byte [di+F_LOOP], 0
     mov word [di+F_PH], 0
+.out:
     ret
-.kill:
+
+; wa_kill - DI = a figure, AH = the weapon (0..2): dead, by its death - the
+; pistol's fall, the shotgun's red collapse (F_FLASH held as long as F_DEAD,
+; which the renderer draws in A_FLASH), the rocket's bits (GIB, then gone:
+; wa_figtick). Keeps all but AX
+wa_kill:
     inc word [wa_kills]
-    mov byte [di+F_ANIM], WA_A_DEATH
-    mov byte [di+F_NFR], WA_N_DEATH
+    mov [di+F_KILL], ah
+    mov byte [di+F_SH], 0
+    mov byte [di+F_HP], 0
     mov byte [di+F_LOOP], 0
     mov word [di+F_PH], 0
-    mov byte [di+F_DEAD], 90    ; three seconds on the floor
-.miss:
+    mov byte [di+F_DEAD], 90    ; three seconds before it respawns
+    mov al, WA_A_DEATH
+    mov ah, WA_N_DEATH
+    cmp byte [di+F_KILL], 1
+    jb .set
+    mov al, WA_A_GIB
+    mov ah, WA_N_GIB
+    ja .set
+    mov byte [di+F_FLASH], 90   ; the shotgun's: red all the while
+    mov al, WA_A_COLLAPSE
+    mov ah, WA_N_COLLAPSE
+.set:
+    mov [di+F_ANIM], al
+    mov [di+F_NFR], ah
+    ret
+
+; wa_phurt - AL = damage to the player (their own rockets' splash, until
+; there are other players): the shield first, then the health; at 0 they
+; start again at the arena's start with the pistol alone. Clobbers AX, BX
+wa_phurt:
+    xor ah, ah
+    mov byte [wa_ovd], 1
+    sub [wa_sh], ax
+    jae .out
+    mov ax, [wa_sh]             ; (what the shield did not take, negative)
+    mov word [wa_sh], 0
+    add [wa_hp], ax
+    jg .out
+    call wa_arm0                ; dead: again from the start
+    mov ax, [wa_sx]
+    mov [wa_px], ax
+    mov ax, [wa_sy]
+    mov [wa_py], ax
+    mov ax, [wa_sa]
+    mov cl, 6
+    shl ax, cl
+    mov [wa_ang], ax
+    xor ax, ax
+    mov [wa_pxf], ax
+    mov [wa_pyf], ax
+    mov [wa_jz], ax
+    mov [wa_jv], ax
+    mov [wa_feet], ax
+    mov [wa_pitch], ax
+    mov word [wa_fpx], -1
+    mov ax, 90
+    mov cx, 6
+    mov dl, 0x40
+    call OSAPI_SND_TONE
+.out:
+    ret
+
+; --- rockets (WEAPONS-PLAN 2.2) -----------------------------------------------
+; FRAME holds each one's whole position and its state (the renderer draws
+; it); wa_rkg the game's own rest: the fractions, the velocity, its life.
+RG_XF       equ 0               ; fractions, 8.8's low byte in the high byte
+RG_YF       equ 2
+RG_ZF       equ 4
+RG_VX       equ 6               ; velocity, 8.8 units a tick
+RG_VY       equ 8
+RG_VZ       equ 10
+RG_LIFE     equ 12
+WA_RKGSZ    equ 14
+
+; wa_rktick - each rocket a tick: an explosion's count; a flight's step, and
+; what it meets - out of the room (gone over the walls, or into them), the
+; floor or a box under it (wa_floor over every box, the player's radius
+; out), a live figure (killed outright, and the explosion)
+wa_rktick:
+    cmp byte [wa_rkn], 0        ; (none live: the usual tick, nothing to do)
+    je .done
+    mov si, wa_rks
+    mov di, wa_rkg
+.r:
+    mov al, [si+WA_RKST]
+    or al, al
+    jz .n
+    cmp al, WA_RKFLY
+    je .fly
+    dec al                      ; an explosion: its ticks, 8 down to 2
+    cmp al, WA_RKFLY
+    jne .st
+    xor al, al
+    dec byte [wa_rkn]
+.st:
+    mov [si+WA_RKST], al
+    jmp .n
+.fly:
+    dec word [di+RG_LIFE]
+    jz .gone
+    xor bx, bx
+.ax:                            ; x, y, z: + v (8.8) into the whole and
+    mov ax, [di+RG_VX+bx]       ; the fraction
+    mov dl, ah
+    mov dh, 0
+    or dl, dl
+    jns .pos
+    mov dh, 0xFF                ; DX = v >> 8, AX = (v & 255) << 8
+.pos:
+    mov ah, al
+    xor al, al
+    add [di+RG_XF+bx], ax
+    adc [si+WA_RKX+bx], dx
+    inc bx
+    inc bx
+    cmp bx, 6
+    jb .ax
+    mov ax, [si+WA_RKX]
+    mov bx, [si+WA_RKY]
+    cmp ax, WA_ROOM_X0
+    jle .out
+    cmp ax, WA_ROOM_X1
+    jge .out
+    cmp bx, WA_ROOM_Y0
+    jle .out
+    cmp bx, WA_ROOM_Y1
+    jl .in
+.out:
+    cmp word [si+WA_RKZ], WA_HTOP ; out of the room: over its walls, gone;
+    jge .gone                   ; into them, an explosion
+    jmp .boom
+.in:
+    cmp word [si+WA_RKZ], 0
+    jle .boom                   ; the floor
+    push si
+    mov si, wa_allp
+    call wa_floor               ; AX = the tallest box under it (widened)
+    pop si
+    cmp [si+WA_RKZ], ax
+    jle .boom
+    push di                     ; a figure: inside its square and between
+    mov di, wa_figs             ; its feet and its head - killed outright
+    mov cx, WA_NFIG
+.f:
+    cmp byte [di+F_DEAD], 0
+    jne .fn
+    mov ax, [si+WA_RKX]
+    sub ax, [di+F_X]
+    call wa_abs
+    cmp ax, WA_HITR
+    jge .fn
+    mov ax, [si+WA_RKY]
+    sub ax, [di+F_Y]
+    call wa_abs
+    cmp ax, WA_HITR
+    jge .fn
+    mov ax, [si+WA_RKZ]
+    sub ax, [di+F_Z]
+    js .fn
+    cmp ax, 120
+    jg .fn
+    mov ah, 2
+    call wa_kill
+    pop di
+    jmp .boom
+.fn:
+    add di, F_SIZE
+    loop .f
+    pop di
+    jmp .n
+.gone:
+    mov byte [si+WA_RKST], 0
+    dec byte [wa_rkn]
+    jmp .n
+.boom:
+    call wa_boom
+.n:
+    add si, WA_RKSZ
+    add di, WA_RKGSZ
+    cmp si, wa_rks + WA_NRK*WA_RKSZ
+    jae .done
+    jmp .r
+.done:
+    ret
+
+; wa_abs - AX = |AX|
+wa_abs:
+    or ax, ax
+    jns .p
+    neg ax
+.p:
+    ret
+
+; wa_boom - SI = a rocket (FRAME's): it explodes there. The splash: each
+; live figure and the player within WA_SPLR (the largest of the three axis
+; distances, from their middle 56 up) take WA_SPLR less it - the player
+; half. Keeps SI, DI
+wa_boom:
+    push di
+    mov byte [si+WA_RKST], WA_RKBOOM
+    mov ax, 80
+    mov cx, 5
+    mov dl, 0x40
+    call OSAPI_SND_TONE
+    mov di, wa_figs
+    mov cx, WA_NFIG
+.f:
+    cmp byte [di+F_DEAD], 0
+    jne .fn
+    mov ax, [di+F_X]
+    mov bx, [di+F_Y]
+    mov dx, [di+F_Z]
+    call wa_reach
+    jae .fn
+    push cx
+    mov ah, 2
+    call wa_hurt
+    pop cx
+.fn:
+    add di, F_SIZE
+    loop .f
+    call wa_fabs                ; the player: DX = the feet
+    mov ax, [wa_px]
+    mov bx, [wa_py]
+    call wa_reach
+    jae .out
+    shr al, 1
+    jz .out
+    call wa_phurt
+.out:
+    pop di
+    ret
+
+; wa_reach - AX, BX = x, y, DX = the floor of someone whose middle is 56 up;
+; SI = a rocket: CF = 1 and AL = WA_SPLR less the distance when within
+; reach. Clobbers AX, BX, DX
+wa_reach:
+    sub ax, [si+WA_RKX]
+    call wa_abs
+    xchg ax, bx
+    sub ax, [si+WA_RKY]
+    call wa_abs
+    cmp ax, bx
+    jae .y
+    mov ax, bx
+.y:
+    xchg ax, dx
+    add ax, 56
+    sub ax, [si+WA_RKZ]
+    call wa_abs
+    cmp ax, dx
+    jae .z
+    mov ax, dx
+.z:
+    cmp ax, WA_SPLR             ; CF = within
+    jae .out
+    neg ax
+    add ax, WA_SPLR
+    stc
+.out:
+    ret
+
+; --- pickups (WEAPONS-PLAN 2.4) ------------------------------------------------
+; wa_pktick - each tick: a taken pickup's respawn counted down; a present one
+; the player stands at (the square within WA_PKR: the player's radius and
+; the pickup's; the feet from 8 below its floor to 48 above) taken - if it
+; helps. Not during a bench
+WA_PKR      equ 40
+wa_pktick:
+    cmp byte [wa_pbon], 0
+    jne .out
+    mov cx, [wa_npk]
+    jcxz .out
+    mov si, wa_pks
+    xor bx, bx                  ; BX = the pickup x 2
+    mov dl, 1                   ; DL = its bit
+.p:
+    cmp word [wa_pkt+bx], 0
+    je .here
+    dec word [wa_pkt+bx]
+    jnz .n
+    or [wa_pkon], dl            ; back
+    jmp .n
+.here:
+    mov ax, [wa_px]
+    sub ax, [si]
+    call wa_abs
+    cmp ax, WA_PKR
+    jae .n
+    mov ax, [wa_py]
+    sub ax, [si+2]
+    call wa_abs
+    cmp ax, WA_PKR
+    jae .n
+    push dx
+    call wa_fabs                ; DX = the feet
+    mov ax, dx
+    pop dx
+    sub ax, [si+4]
+    cmp ax, -8
+    jl .n
+    cmp ax, 48
+    jg .n
+    push bx
+    push cx
+    push dx
+    mov al, [si+6]
+    call wa_pktake
+    pop dx
+    pop cx
+    pop bx
+    jnc .n
+    not dl                      ; taken: gone until its time is up
+    and [wa_pkon], dl
+    not dl
+    push bx
+    mov bl, [si+6]
+    xor bh, bh
+    shl bx, 1
+    mov ax, [wa_pkresp+bx]
+    pop bx
+    mov [wa_pkt+bx], ax
+    mov byte [wa_ovd], 1
+.n:
+    add si, WA_PKSZ
+    inc bx
+    inc bx
+    shl dl, 1
+    loop .p
+.out:
+    ret
+
+; wa_pktake - AL = a pickup's kind: CF = 1 it was taken (it helped). A
+; weapon the first time: it, loaded (3 and 3), and in hand; again: 6 more
+; for its reserve, up to WA_RESMAX. Health: to 100. Shield: to 100.
+; Clobbers AX, BX, CX
+wa_pktake:
+    cmp al, 2
+    jb .wpn
+    je .health
+    cmp word [wa_sh], WA_FHP
+    jae .no
+    mov word [wa_sh], WA_FHP
+    jmp .yes
+.health:
+    cmp word [wa_hp], WA_FHP
+    jae .no
+    mov word [wa_hp], WA_FHP
+    jmp .yes
+.wpn:
+    inc ax                      ; AL = the weapon
+    xor bx, bx
+    mov bl, al
+    mov cl, al
+    mov ah, 1
+    shl ah, cl
+    test [wa_own], ah
+    jnz .more
+    or [wa_own], ah             ; new: loaded, and in hand
+    mov cl, [wa_wmag+bx]
+    mov [wa_mag+bx], cl
+    mov [wa_res+bx], cl
+    call wa_wset
+    jmp .yes
+.more:
+    cmp byte [wa_res+bx], WA_RESMAX
+    jae .no
+    add byte [wa_res+bx], WA_PKAMMO
+    cmp byte [wa_res+bx], WA_RESMAX
+    jbe .held
+    mov byte [wa_res+bx], WA_RESMAX
+.held:
+    cmp bl, [wa_wpn]            ; held, and waiting for this: reload
+    jne .yes
+    cmp byte [wa_rld], 0
+    jne .yes
+    call wa_wready
+.yes:
+    mov ax, 1800
+    mov cx, 2
+    mov dl, 0x40
+    call OSAPI_SND_TONE
+    stc
+    ret
+.no:
+    clc
+    ret
+
+; --- the overlay (WEAPONS-PLAN 2.5) ---------------------------------------------
+; Built here when something it shows changed (wa_ovd), copied into the part
+; with the frame, drawn there every frame: the weapon held in front of the
+; player, right of the centre at the bottom of the view (a row lower while
+; it reloads); the health and the shield at row 23's left; the magazine and
+; the reserve at its right.
+; A sprite: row, column from W/2 + 3, glyph, colour attribute; 0xFF ends it
+wa_spr:     dw wa_spr0, wa_spr1, wa_spr2
+wa_spr0:                        ; the pistol
+    db 21, 1, 0xDC, 0x0F
+    db 22, 0, 0xDE, 0x07, 22, 1, 0xDB, 0x0F, 22, 2, 0xDD, 0x07
+    db 23, 0, 0xDE, 0x07, 23, 1, 0xDB, 0x07, 23, 2, 0xDD, 0x07
+    db 0xFF
+wa_spr1:                        ; the shotgun: two barrels, a brown stock
+    db 20, 1, 0xDC, 0x07, 20, 2, 0xDC, 0x07
+    db 21, 1, 0xDB, 0x07, 21, 2, 0xDB, 0x07
+    db 22, 0, 0xDE, 0x06, 22, 1, 0xDB, 0x06, 22, 2, 0xDB, 0x06, 22, 3, 0xDD, 0x06
+    db 23, 0, 0xDE, 0x06, 23, 1, 0xDB, 0x06, 23, 2, 0xDB, 0x06, 23, 3, 0xDD, 0x06
+    db 0xFF
+wa_spr2:                        ; the rocket launcher: a green tube
+    db 20, 0, 0xDC, 0x0A, 20, 1, 0xDC, 0x0A, 20, 2, 0xDC, 0x0A, 20, 3, 0xDC, 0x0A
+    db 21, 0, 0xDB, 0x02, 21, 1, 0xB1, 0x02, 21, 2, 0xB1, 0x02, 21, 3, 0xDB, 0x02
+    db 22, 0, 0xDB, 0x02, 22, 1, 0xDB, 0x02, 22, 2, 0xDB, 0x02, 22, 3, 0xDB, 0x02
+    db 23, 0, 0xDF, 0x02, 23, 1, 0xDB, 0x0A, 23, 2, 0xDB, 0x0A, 23, 3, 0xDF, 0x02
+    db 0xFF
+
+wa_ovbuild:
+    mov byte [wa_ovd], 0
+    mov word [wa_ovfresh], 1    ; (the renderer shows it, then clears this)
+    mov word [wa_ovn], 0
+    mov bl, [wa_wpn]            ; the weapon
+    xor bh, bh
+    shl bx, 1
+    mov si, [wa_spr+bx]
+    mov cx, [wa_w]
+    shr cx, 1
+    add cx, 3                   ; CX = its column 0
+.spr:
+    lodsb
+    cmp al, 0xFF
+    je .status
+    xor dh, dh
+    mov dl, al
+    cmp byte [wa_rld], 0
+    je .up
+    inc dx                      ; (reloading: a row lower)
+.up:
+    lodsb
+    xor bh, bh
+    mov bl, al
+    add bx, cx
+    lodsw
+    cmp dx, WA_ROWS-1
+    ja .spr
+    cmp byte [wa_mono], 0
+    je .sp
+    mov ah, 0x07
+.sp:
+    call wa_ovput
+    jmp .spr
+.status:
+    mov dx, WA_ROWS-1           ; row 23: the health
+    xor bx, bx
+    mov ax, 0x0C03              ; (a heart, red)
+    call wa_ovatt
+    call wa_ovput
+    mov word [wa_ovat], 0x0F0F
+    mov ax, [wa_hp]
+    mov cx, 3
+    call wa_ovnum
+    cmp word [wa_sh], 0         ; the shield, when there is one
+    je .ammo
+    inc bx
+    mov ax, 0x0E04              ; (a diamond, yellow)
+    call wa_ovatt
+    call wa_ovput
+    mov word [wa_ovat], 0x0E07
+    mov ax, [wa_sh]
+    mov cx, 3
+    call wa_ovnum
+.ammo:
+    mov bl, [wa_wpn]            ; at the right: magazine / reserve (or the
+    xor bh, bh                  ; pistol's endless one)
+    mov si, bx
+    mov al, [wa_mag+bx]
+    xor ah, ah
+    mov bx, [wa_w]
+    sub bx, 5
+    mov word [wa_ovat], 0x0F0F
+    mov cx, 2
+    call wa_ovnum
+    mov ax, 0x072F              ; '/'
+    call wa_ovput
+    or si, si
+    jnz .res
+    mov ax, 0x0FEC              ; (infinity)
+    call wa_ovatt
+    jmp wa_ovput
+.res:
+    mov al, [wa_res+si]
+    xor ah, ah
+    mov cx, 2
+    jmp wa_ovnum
+
+; wa_ovatt - AH = a colour attribute: bright, on Hercules or MDA
+wa_ovatt:
+    cmp byte [wa_mono], 0
+    je .out
+    mov ah, 0x0F
+.out:
+    ret
+
+; wa_ovput - AL = a glyph, AH = its attribute, at row DX, column BX: onto
+; the overlay (past the screen's edge or WA_MOV cells, dropped); BX moves on.
+; Keeps every other register
+wa_ovput:
+    cmp bx, [wa_w]
+    jae .skip
+    push di
+    mov di, [wa_ovn]
+    cmp di, WA_MOV
+    jae .full
+    inc word [wa_ovn]
+    shl di, 1
+    mov [wa_ovg+di], ax
+    push bx
+    push si
+    mov si, dx
+    shl si, 1
+    add bx, [wa_rowoff+si]      ; the cell, and x 2: the renderer's offset
+    shl bx, 1
+    mov [wa_ov+di], bx
+    pop si
+    pop bx
+.full:
+    pop di
+.skip:
+    inc bx
+    ret
+
+; wa_ovnum - AX = a number, CX = its digits, at row DX from column BX (BX
+; moves on past them), [wa_ovat] its attributes (colour high, mono low):
+; leading zeros are left as the view behind them. Clobbers AX, CX
+wa_ovnum:
+    push si
+    push di
+    push dx
+    mov di, cx
+    mov si, 10
+.mk:
+    dec di
+    xor dx, dx
+    div si
+    add dl, '0'
+    mov [wa_ovdig+di], dl
+    or di, di
+    jnz .mk
+    pop dx
+    mov ax, [wa_ovat]
+    cmp byte [wa_mono], 0
+    jne .m
+    mov al, ah
+.m:
+    mov ah, al                  ; AH = the attribute
+    xor si, si
+    dec cx                      ; CX = the last digit's index
+.lead:
+    cmp si, cx
+    jae .p                      ; (the last digit always shows)
+    cmp byte [wa_ovdig+si], '0'
+    jne .p
+    inc bx                      ; a leading zero: the view
+    inc si
+    jmp .lead
+.p:
+    mov al, [wa_ovdig+si]
+    call wa_ovput
+    inc si
+    cmp si, cx
+    jbe .p
+    pop di
+    pop si
     ret
 
 ; --- the bench --------------------------------------------------------------
@@ -1331,6 +2226,7 @@ wa_bench:
     mov word [wa_py], 700
     mov word [wa_pitch], 0
     mov word [wa_eye], WA_EYE
+    call wa_pkreset             ; (every pickup there, no rocket)
     mov di, wa_figs             ; the dummies from their starts, frozen
     mov cx, WA_NFIG
 .fig:
@@ -1458,6 +2354,8 @@ wa_pbstart:
     mov ax, WA_EYE
     add ax, [wa_feet]
     mov [wa_eye], ax
+    call wa_pkreset             ; (every pickup there, no rocket; none taken
+                                ; while it runs: wa_pktick)
     mov di, wa_figs             ; the dummies from their starts, then on to
     mov si, wa_pbph             ; the bench's points along their patrols
     mov cx, WA_NFIG
@@ -1941,8 +2839,9 @@ wa_rsync:
 ; wa_rframe - the FRAME section and the head of each figure record (bytes
 ; 0..19: where it is, which way it faces, its animation, its flash, whether
 ; it is dead, the floor it stands on) into the renderer part: three runs, the first taking FRAME and
-; figure 0 together - FRAME's camera sin and cos made here first. Clobbers
-; CX, SI, DI, ES (= the part)
+; figure 0 together - FRAME's camera sin and cos made here first; then the
+; lift's height, and the rockets while any is live. Clobbers CX, SI, DI,
+; ES (= the part)
 WA_FHW equ WA_FIGHEAD/2
 wa_rframe:
     push ax
@@ -1975,6 +2874,17 @@ wa_rframe:
     mov cx, [wa_bxh+si]
     mov [es:WA_RAT(wa_bxh)+si], cx
 .nolift:
+    mov cl, [wa_rkn]            ; the rockets, while any is live and once
+    mov ch, cl                  ; more after (WEAPONS-PLAN 2.6): no frame
+                                ; without one pays their copy
+    or cl, [wa_rkcp]
+    mov [wa_rkcp], ch
+    jz .norock
+    mov si, wa_rks
+    mov di, WA_RAT(wa_rks)
+    mov cx, WA_NRK*WA_RKSZ/2
+    rep movsw
+.norock:
     ret
 
 ; wa_render - a frame: the frame state into the part, the renderer, and back
@@ -1983,6 +2893,16 @@ wa_rframe:
 ; projection itself stays in the part, where TRACE reads it. ES = DS out, as
 ; the renderer left it.
 wa_render:
+    cmp byte [wa_ovd], 0        ; the overlay, rebuilt and copied across
+    je .ov                      ; only when something it shows changed
+    call wa_ovbuild
+    mov es, [wa_rds]
+    mov si, wa_fb_ovl
+    mov di, WA_RAT(wa_fb_ovl)
+    mov cx, (wa_fb_oend - wa_fb_ovl) / 2
+    cld
+    rep movsw
+.ov:
     call wa_rframe
     mov bx, WRV_RENDER
     call wa_rcall
@@ -2076,7 +2996,7 @@ wa_loadarena:
 %include "watab.inc"
 
 wa_tpl:
-    dw 120, 80, 330, 150
+    dw 120, 70, 330, 170
     dw wa_ttl, wa_cls
     OS88_CLASS wa_cls, 0, PAINT, wa_paint
 
@@ -2097,15 +3017,17 @@ wa_it_h80:  db 'Heights arena, 80 columns', 0
 wa_items:   db 1, 0, 0, 0, 1, 1, 0, 1, 1, 2, 0, 2  ; width (0 = 80, 1 = 40), arena
 
 wa_help:
-    db 'WireArena - renderer prototype', 0
+    db 'WireArena - arena shooter prototype', 0
     db 'Game menu: 40 or 80 columns; the full', 0
-    db 'arena, or the open one (pillars only).', 0
+    db 'arena, the open one, or the heights.', 0
     db 'Mouse looks; W A S D move; arrows', 0
     db 'turn and pitch; Space jumps; click', 0
-    db 'or Ctrl fires; Tab: 80/40; V: vsync;', 0
-    db 'B: bench. P: play bench (8 s). F: view', 0
-    db '90/75/60. 1-5: detail, very low to', 0
-    db 'very high (HUD). G: floor grid. T:', 0
+    db 'or Ctrl fires. 1-3: pistol, shotgun,', 0
+    db 'rockets (pick them up: heights arena).', 0
+    db 'Tab: 80/40; V: vsync; B: bench. P:', 0
+    db 'play bench (8 s). F: view 90/75/60.', 0
+    db 'F1-F5: detail, very low to very high', 0
+    db '(HUD). G: floor grid. T:', 0
     db 'ramps as treads. R: ramps as two sides.', 0
     db 'L: no wall tops (debug). Esc leaves.', 0
     db 'HUD: fps, frame, render, present ms,', 0
@@ -2207,5 +3129,20 @@ WA_VAR wa_rowoff,(WA_ROWS+1)*2
 WA_VAR wa_kbits,2                ; the held keys this frame (wa_keys)
 WA_VAR wa_kfr,1                  ; ...polled in this frame
 WA_VAR wa_kmap,KEYMAP_BYTES      ; ...and the whole map they came from
+WA_VAR wa_hp,2                   ; THE PLAYER (WEAPONS-PLAN 2.3): health,
+WA_VAR wa_sh,2                   ;   shield
+WA_VAR wa_wpn,1                  ; the weapon held (0..2)...
+WA_VAR wa_own,1                  ; ...those had, a bit each...
+WA_VAR wa_mag,4                  ; ...each's magazine...
+WA_VAR wa_res,4                  ; ...and reserve (the pistol's unused)
+WA_VAR wa_rld,1                  ; ticks of a reload left (0: none)
+WA_VAR wa_cool,1                 ; ticks before the next shot
+WA_VAR wa_ovd,1                  ; the overlay wants rebuilding
+WA_VAR wa_ovat,2                 ; wa_ovnum's attributes
+WA_VAR wa_ovdig,4                ; ...and its digits
+WA_VAR wa_pkt,WA_MPK*2           ; a taken pickup's ticks to its return
+WA_VAR wa_rkg,WA_NRK*WA_RKGSZ    ; the rockets' fractions, velocity, life
+WA_VAR wa_rkcp,1                 ; a rocket was live at the last copy
+WA_VAR wa_rkn,1                  ; rockets live (flying or exploding)
     OS88_BSS OP_BSS+WA_BSS
     OS88_IMAGE_END

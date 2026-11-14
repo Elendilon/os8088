@@ -15,11 +15,15 @@ wa_fglyph:  db 0x20, 0xDF, 0xDF, 0xDF, 0xDC, 0xDD, 0xDB, 0xDB
 ; floor grid dark grey, the figures white. On mono every wall and dot is
 ; normal intensity and the figures alone are bright.
 ;              room   item   dot    figure flash  cross
-wa_attrc:   db 0x01,  0x03,  0x08,  0x0F,  0x0C,  0x0E
-wa_attrm:   db 0x07,  0x07,  0x07,  0x0F,  0x70,  0x0F
+; ...and a shielded figure's chest: yellow, or normal intensity against the
+; body's bright on mono (WEAPONS-PLAN 2.3)
+;              room   item   dot    figure flash  cross  shield (pad)
+wa_attrc:   db 0x01,  0x03,  0x08,  0x0F,  0x0C,  0x0E,  0x0E,  0
+wa_attrm:   db 0x07,  0x07,  0x07,  0x0F,  0x70,  0x0F,  0x07,  0
 A_ROOM  equ 0
 A_ITEM  equ 1
 A_DOT   equ 2
 A_FIG   equ 3
 A_FLASH equ 4
 A_CROSS equ 5
+A_SHLD  equ 6

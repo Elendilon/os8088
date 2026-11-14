@@ -98,7 +98,7 @@ WA_VAR wa_cht, WA_MAXW*2        ; an opened column's edges, half-rows
 WA_VAR wa_chb, WA_MAXW*2
 WA_VAR wa_crow, 2               ; this box's corner row (wa_corn)
 WA_VAR wa_ce0, 2
-WA_VAR wa_at, 6                 ; this frame's attributes (A_*)
+WA_VAR wa_at, 8                 ; this frame's attributes (A_*)
 WA_VAR wa_cos, 2
 WA_VAR wa_sinv, 2
 WA_VAR wa_cang, 2
@@ -138,6 +138,26 @@ WA_VAR wa_shi, 2
 WA_VAR wa_vb, 2
 WA_VAR wa_vil, 2
 WA_VAR wa_vih, 2
+WA_VAR wa_fgib, 1               ; the figure being drawn: its bits alone
+WA_VAR wa_fshl, 1               ;   (GIB), its chest yellow (a shield)
+WA_VAR wa_thw, 2                ; wa_thing's shape: half width, from and
+WA_VAR wa_th0, 2                ;   to above its z, units; attribute
+WA_VAR wa_th1, 2
+WA_VAR wa_tha, 1
+WA_VAR wa_thhb, 1               ;   a column's quadrant bits
+WA_VAR wa_pkm, 1                ;   the pickups still to draw
+WA_VAR wa_thz, 2                ;   its z
+WA_VAR wa_thdx, 2               ;   its offset from the eye, x and y
+WA_VAR wa_thdy, 2
+WA_VAR wa_ovoldn, 2             ; the overlay's cells as it last came in:
+WA_VAR wa_ovold, WA_MOV*2       ;   how many, and each's offset
+WA_VAR wa_thiz, 2               ;   its inverse depth
+WA_VAR wa_thfs, 2               ;   sub-columns a unit, 8.8
+WA_VAR wa_thl0, 2               ;   its sub-columns, first and last
+WA_VAR wa_thr0, 2
+WA_VAR wa_tht, 2                ;   its half-rows, first and last
+WA_VAR wa_thb, 2
+WA_VAR wa_thl, 2                ;   this column's last
 WA_VAR wa_fiz, 2                ; the figure being drawn: inverse depth
 WA_VAR wa_fatt, 1               ;   its attribute
 WA_VAR wa_fsub, 1               ;   keyframe blend, quarters
@@ -237,6 +257,7 @@ wa_render:
     mov si, wa_attrm
 .attr:
     mov di, wa_at
+    movsw
     movsw
     movsw
     movsw
@@ -416,7 +437,15 @@ wa_render:
     mov ax, [wa_lp]
     sub ax, [wa_newp]
     mov [wa_newn], ax
-    call wa_figures
+.c_pk:                          ; (the labels: tools/watrace.py's stops)
+    call wa_pickups             ; (WEAPONS-PLAN 2.4, 2.5: under the figures,
+.c_fig:                         ; the rockets over them, the overlay over
+    call wa_figures             ; everything but the crosshair)
+.c_rk:
+    call wa_rockets
+.c_ov:
+    call wa_overlay
+.c_cr:
     call wa_cross
     ret
 
@@ -623,6 +652,12 @@ wa_order:
     xchg ax, bx
     mul byte [wa_pvsn]
     add ax, bx
+    cmp byte [wa_pkvh], 0       ; (the cell's pickups' byte, when carried:
+    je .nopk                    ; WEAPONS-PLAN 2.4)
+    mov dx, ax
+    add dx, wa_pkv
+    mov [wa_pkvp], dx
+.nopk:
 %if WA_PVSB > 1
     mov cx, WA_PVSB
     mul cx
@@ -2937,6 +2972,8 @@ wa_figures:
     xor bp, bp                  ; BP = how many are in view, x 2
 .proj:
     mov word [di+F_PZ], 0
+    cmp byte [di+F_NFR], 0      ; (no keyframes: blown to bits and gone,
+    je .nxt                     ; WEAPONS-PLAN 2.3)
     push bx
     push di
     mov ax, [di+F_X]
@@ -3094,6 +3131,14 @@ wa_figure:
     div si
     jmp .izok
 .near:
+    mov al, [di+F_SH]           ; a shield: the chest yellow (WEAPONS-PLAN
+    mov [wa_fshl], al           ; 2.3)...
+    xor al, al
+    cmp byte [di+F_ANIM], WA_A_GIB
+    jb .ngib
+    inc ax                      ; ...GIB: its joints alone, the bits
+.ngib:
+    mov [wa_fgib], al
     mov ax, [di+F_ANG]          ; facing, relative to the view, of 16
     sub ax, [wa_cang]
     add ax, 32
@@ -3277,6 +3322,15 @@ wa_fjdone:                      ; (wa_fjl comes back here)
     je .limbs
     mov word [wa_flfn], wa_flinef
 .limbs:
+    cmp byte [wa_fgib], 0
+    jne .gib
+    cmp byte [wa_fshl], 0
+    je .limbs0
+    call .body                  ; A SHIELD (WEAPONS-PLAN 2.3): the figure
+    jmp wa_fchest               ; swept as ever, then its chest recoloured
+.body:                          ; (wa_femit pops this and returns)
+    push di
+.limbs0:
     cmp byte [wa_fsub], 4       ; (J: a small figure's ends alone)
     je .few
     WA_LIMB 2, 4                ; pass 2: the limbs into wa_fbuf (joint x 2
@@ -3311,6 +3365,109 @@ wa_fjdone:                      ; (wa_fjl comes back here)
     WA_LIMB 4, 10
     WA_LIMB 4, 12
     jmp .head
+.gib:                           ; GIB (WEAPONS-PLAN 2.3): each joint alone,
+    mov si, wa_jsx              ; a 2x2 block when near (the head's) - the
+.gj:                            ; bits; the joints' box allows for the
+    push si                     ; reach, as for the head
+    mov di, [si+WA_NJ*2]
+    mov si, [si]
+    call wa_fpix
+    cmp word [wa_fv8], 40
+    jb .gn
+    inc si
+    call wa_fpix
+    dec di
+    call wa_fpix
+    dec si
+    call wa_fpix
+.gn:
+    pop si
+    inc si
+    inc si
+    cmp si, wa_jsx + WA_NJ*2
+    jb .gj
+    jmp wa_femit
+; wa_fchest - a shielded figure's chest (WEAPONS-PLAN 2.3), after its sweep:
+; down its neck-pelvis limb a cell row at a time, the cell under the limb
+; takes the shield's attribute if the figure drew it this frame (its stamp:
+; so whatever hid the figure hides its chest too). No second sweep of the
+; box - a few compares a row. Ends wa_figure: pops its DI.
+wa_fchest:
+    mov si, [wa_jsx+2]          ; (SI, BX) the neck, (CX, DX) the pelvis -
+    mov bx, [wa_jsy+2]          ; the upper one first
+    mov cx, [wa_jsx+4]
+    mov dx, [wa_jsy+4]
+    cmp bx, dx
+    jle .ord
+    xchg si, cx
+    xchg bx, dx
+.ord:
+    sub cx, si                  ; CX = its run, sub-columns
+    mov ax, dx
+    sub ax, bx                  ; AX = its fall, half-rows (>= 0)
+    mov word [wa_thw], 0        ; (the step a cell row, 8.8: 0 for a limb
+    cmp ax, 2                   ; under a row)
+    jb .go
+    push dx
+    mov bp, ax
+    mov ax, cx
+    or ax, ax
+    jns .ab
+    neg ax
+.ab:
+    mov dx, bp                  ; (|run| under 64 x fall, or the limb is
+    mov cl, 6                   ; all but level - none is: then not
+    shl dx, cl                  ; recoloured. So the quotient below is
+    cmp ax, dx                  ; under 32768 and the divide cannot fault)
+    jae .flat
+    mov ax, [wa_jsx+4]
+    cmp bx, [wa_jsy+2]
+    je .sx
+    mov ax, [wa_jsx+2]
+.sx:
+    sub ax, si                  ; (the run again, signed)
+    mov cx, 512
+    imul cx                     ; DX:AX = run x 2 half-rows x 256
+    idiv bp
+    mov [wa_thw], ax
+    pop dx
+.go:
+    mov al, [wa_thw+1]          ; the step's whole part, signed
+    cbw
+    mov [wa_thb], ax
+    mov al, [wa_frame]
+    or al, 0x80
+    mov [wa_tht], al            ; a figure cell's stamp this frame
+    xor cl, cl                  ; CL = x's fraction, SI its whole
+    mov ch, [wa_at+A_SHLD]
+.row:
+    cmp bx, dx
+    jg .done
+    cmp bx, WA_HR
+    jae .next                   ; (unsigned: above or below the view)
+    cmp si, [wa_w2]
+    jae .next
+    mov di, bx
+    shl di, 1
+    mov di, [wa_hroff+di]
+    mov ax, si
+    and al, 0xFE                ; its column x 2
+    add di, ax                  ; DI = the cell
+    mov al, [wa_tht]
+    cmp [wa_stamp+di], al
+    jne .next                   ; (not the figure's this frame)
+    mov [wa_cur+di+1], ch
+.next:
+    add bx, 2
+    add cl, [wa_thw]
+    adc si, [wa_thb]
+    jmp .row
+.flat:
+    pop dx
+.done:
+    pop di
+    ret
+
 ; wa_femit - pass 3: the box swept with `repe scasw`, a row at a time. Each
 ; cell the limbs touched is cleared out of wa_fbuf, depth-tested once
 ; against its column's wall (resolved above) and plotted - the old
@@ -4023,6 +4180,447 @@ wa_marker:
 .done:
     pop di
 .out:
+    ret
+
+; --- pickups, rockets, explosions (WEAPONS-PLAN 2.4, 2.5) -----------------
+; Each a BILLBOARD through the figures' sub-pixel layer (wa_plotf): a box
+; facing the eye, so its shape is a half width and a band of heights. A
+; pickup costs nothing unless it is present and the player's PVS cell can
+; see it (wa_pkvp, wa_order's); a drawn one is one transform, two divides,
+; and per column it covers one wa_occl - the far marker's verdict - and a
+; plot a cell.
+wa_pkall:   db 0xFF             ; (no PVS carried: every pickup tested)
+; per pickup kind: half width, from, to (units above its floor), colour and
+; mono attributes. Lines for the weapons, blocks for the packs; on mono the
+; proportions tell them apart
+wa_pkshape:
+    dw 24, 4, 10                ; shotgun: a thin line, brown
+    db 0x06, 0x0F
+    dw 32, 4, 20                ; rocket launcher: longer and thicker, green
+    db 0x0A, 0x0F
+    dw 16, 0, 28                ; health: a square block, light red
+    db 0x0C, 0x0F
+    dw 12, 0, 44                ; shield: a tall block, yellow
+    db 0x0E, 0x0F
+WA_PKSH equ 8
+
+wa_pickups:
+    cmp word [wa_npk], 0
+    je .out
+    mov si, [wa_pkvp]
+    mov al, [si]                ; the ones this cell may see...
+    and al, [wa_pkon]           ; ...that are there
+    jz .out
+    mov [wa_pkm], al
+    mov si, wa_pks
+.p:
+    shr byte [wa_pkm], 1
+    jnc .next
+    push si
+    mov bl, [si+6]              ; its kind's shape
+    xor bh, bh
+    shl bx, 1
+    shl bx, 1
+    shl bx, 1
+    add bx, wa_pkshape
+    call wa_thshape
+    mov ax, [si]
+    mov cx, [si+4]
+    mov bx, [si+2]
+    call wa_thing
+    pop si
+.next:
+    add si, WA_PKSZ
+    cmp byte [wa_pkm], 0
+    jne .p
+.out:
+    ret
+
+; wa_thshape - BX = a shape row (wa_pkshape's): into wa_thw..wa_tha, the
+; attribute the adapter's. Keeps all but BX
+wa_thshape:
+    push ax
+    mov ax, [bx]
+    mov [wa_thw], ax
+    mov ax, [bx+2]
+    mov [wa_th0], ax
+    mov ax, [bx+4]
+    mov [wa_th1], ax
+    mov al, [bx+6]
+    cmp byte [wa_mono], 0
+    je .c
+    mov al, [bx+7]
+.c:
+    mov [wa_tha], al
+    pop ax
+    ret
+
+; wa_rockets - after the figures: each rocket a bright dot, each explosion a
+; block growing over its ticks, yellow and red by turns
+wa_rockets:
+    mov si, wa_rks
+.r:
+    mov al, [si+WA_RKST]
+    or al, al
+    jz .n
+    push si
+    mov bx, wa_rkshape
+    cmp al, WA_RKFLY
+    je .shape
+    mov ah, WA_RKBOOM           ; an explosion: e = its ticks so far
+    sub ah, al
+    mov bl, ah
+    shl bl, 1
+    add bl, ah
+    shl bl, 1                   ; (6e)
+    xor bh, bh
+    add bx, 12                  ; half width 12 + 6e, as tall either way
+    mov [wa_thw], bx
+    mov [wa_th1], bx
+    neg bx
+    mov [wa_th0], bx
+    mov bx, (0x0C << 8) | 0x07  ; (red, or dim on mono)
+    test al, 1
+    jz .att
+    mov bx, (0x0E << 8) | 0x0F  ; (yellow, or bright)
+.att:
+    mov al, bh
+    cmp byte [wa_mono], 0
+    je .a2
+    mov al, bl
+.a2:
+    mov [wa_tha], al
+    jmp .draw
+.shape:
+    call wa_thshape
+.draw:
+    mov ax, [si+WA_RKX]
+    mov bx, [si+WA_RKY]
+    mov cx, [si+WA_RKZ]
+    call wa_thing
+    pop si
+.n:
+    add si, WA_RKSZ
+    cmp si, wa_rks + WA_NRK*WA_RKSZ
+    jb .r
+    ret
+wa_rkshape:
+    dw 6, -5, 5                 ; a rocket in flight: a bright dot
+    db 0x0F, 0x0F
+
+; wa_thing - AX = x, BX = y, CX = z (its floor, or its middle), its shape in
+; wa_thw..wa_tha: drawn, behind what is nearer per column (wa_occl).
+; Clobbers every register.
+wa_thing:
+    mov [wa_thz], cx
+    sub ax, [wa_px]             ; wa_xform's sums, z first: one behind the
+    sub bx, [wa_py]             ; eye (half of them, turning round) costs
+    mov [wa_thdx], ax           ; two multiplies, not four
+    mov [wa_thdy], bx
+    imul word [wa_cos]          ; z = (dx cos + dy sin) >> 14
+    mov cx, ax
+    mov si, dx
+    mov ax, bx
+    imul word [wa_sinv]
+    add ax, cx
+    adc dx, si
+    shl ax, 1
+    rcl dx, 1
+    shl ax, 1
+    rcl dx, 1
+    cmp dx, 24
+    jl .out                     ; (at the eye, or behind it)
+    mov di, dx
+    mov ax, [wa_thdx]           ; x = (dx sin - dy cos) >> 14
+    imul word [wa_sinv]
+    mov cx, ax
+    mov si, dx
+    mov ax, [wa_thdy]
+    imul word [wa_cos]
+    sub cx, ax
+    sbb si, dx
+    shl cx, 1
+    rcl si, 1
+    shl cx, 1
+    rcl si, 1
+    mov ax, si
+    mov dx, di                  ; AX = camera x, DX = z
+    mov bx, ax
+    or bx, bx
+    jns .ax
+    neg bx
+.ax:
+    mov cx, dx
+    add cx, [wa_thw]
+    cmp bx, cx
+    jg .out                     ; outside 90 degrees, with its width
+    cmp dx, WA_ZMAX
+    jae .out
+    mov bx, dx
+    shl bx, 1
+    mov bx, [wa_rcp+bx-WA_NEAR*2]
+    mov [wa_thiz], bx           ; its inverse depth, 0x7FFF0 / z: so the
+    mov [wa_thdx], ax           ; scales at its depth are multiplies, not
+    mov ax, [wa_wf]             ; divides - wf / z = wf iz >> 19, to the
+    mul bx                      ; unit's 1/65536 (wa_thdx: camera x now)
+    mov cl, 3
+    shr dx, cl
+    mov [wa_thfs], dx           ; sub-columns a unit, 8.8
+    mov ax, [wa_kyh]
+    mul bx
+    shr dx, cl
+    mov di, dx                  ; DI = half-rows a unit, 8.8
+    mov ax, [wa_thdx]
+    imul word [wa_thfs]
+    mov al, ah
+    mov ah, dl
+    add ax, [wa_w]
+    mov si, ax                  ; SI = its middle's sub-column
+    mov ax, [wa_thw]
+    mul word [wa_thfs]
+    mov al, ah
+    mov ah, dl                  ; AX = its half width, sub-columns
+    mov bx, si
+    mov dx, si
+    or ax, ax
+    jz .w
+    sub bx, ax
+    add dx, ax
+    dec dx
+.w:
+    or bx, bx
+    jns .l
+    xor bx, bx
+.l:
+    mov ax, [wa_w2]
+    dec ax
+    cmp dx, ax
+    jle .r
+    mov dx, ax
+.r:
+    cmp bx, dx
+    jg .out
+    mov [wa_thl0], bx
+    mov [wa_thr0], dx
+    mov ax, [wa_thz]            ; the top: hh + (eye - (z + to)) fv8
+    add ax, [wa_th1]
+    call .hrow
+    mov [wa_tht], ax
+    mov ax, [wa_thz]            ; the bottom: the half-row above (z + from)
+    add ax, [wa_th0]
+    call .hrow
+    dec ax
+    cmp ax, [wa_tht]
+    jge .b
+    mov ax, [wa_tht]            ; (at least one half-row)
+.b:
+    cmp ax, WA_HR-1
+    jle .b1
+    mov ax, WA_HR-1
+.b1:
+    mov [wa_thb], ax
+    cmp word [wa_tht], 0
+    jge .t
+    mov word [wa_tht], 0
+.t:
+    mov ax, [wa_tht]
+    cmp ax, [wa_thb]
+    jg .out
+.cols:
+    mov bp, [wa_thl0]
+    and bp, 0xFFFE              ; BP = the column x 2
+.col:
+    cmp bp, [wa_thr0]
+    jg .out
+    mov bx, bp
+    mov ax, [wa_thiz]
+    call wa_thocc               ; AL = the first half-row hidden there
+.occd:
+    xor ah, ah
+    dec ax
+    cmp ax, [wa_thb]
+    jle .lim
+    mov ax, [wa_thb]
+.lim:
+    mov [wa_thl], ax
+    xor dl, dl                  ; the quadrants of this column it covers:
+    cmp bp, [wa_thl0]           ; the left half's (bits 0 and 2), the
+    jl .hr                      ; right's (1 and 3)
+    or dl, 5
+.hr:
+    mov ax, bp
+    inc ax
+    cmp ax, [wa_thr0]
+    jg .hd
+    or dl, 10
+.hd:
+    mov [wa_thhb], dl
+    mov cx, [wa_tht]
+.cell:
+    cmp cx, [wa_thl]
+    jg .ncol
+    mov bx, cx
+    shl bx, 1
+    mov bx, [wa_hroff+bx]
+    add bx, bp                  ; BX = the cell
+    test cl, 1
+    jnz .lo
+    mov dl, 3                   ; its upper half-row...
+    inc cx
+    cmp cx, [wa_thl]
+    jg .put
+    mov dl, 15                  ; ...and its lower
+    inc cx
+    jmp .put
+.lo:
+    mov dl, 12
+    inc cx
+.put:
+    and dl, [wa_thhb]
+    mov ah, [wa_tha]
+    call wa_plotf
+    jmp .cell
+.ncol:
+    inc bp
+    inc bp
+    jmp .col
+.out:
+    ret
+.hrow:                          ; AX = a height -> the half-row it projects
+    neg ax                      ; to at fv8 = DI: hh + (eye - h) fv8 >> 8
+    add ax, [wa_eye]
+    imul di
+    mov al, ah
+    mov ah, dl
+    add ax, [wa_hh]
+    ret
+
+; wa_thocc - BX = a column x 2, AX = an inverse depth: wa_occl's answer (AL
+; = the first half-row something nearer hides there, 0 all of it, 0xFF
+; none), with the figures' BOUND first (wa_figure): the column's tall face
+; lies between its span's ends' inverse depths, so a thing nearer than both,
+; or farther than both, needs no divide to say so. Keeps all but AL
+wa_thocc:
+    push dx
+    push si
+    push di
+    mov dx, [wa_colz+bx]
+    cmp dx, 0xFFFF
+    jne .have                   ; (asked already this frame)
+    mov di, [wa_cov+bx]
+    or di, di
+    jz .open                    ; no tall face there at all
+    mov dx, [wa_spih+di]
+    mov si, dx
+    add si, [wa_spsl+di]
+    cmp dx, si
+    jle .lo
+    xchg dx, si                 ; DX = the ends' least, SI their most
+.lo:
+    cmp si, ax
+    jbe .open                   ; nearer than the whole span
+    cmp dx, ax
+    ja .hid                     ; farther than the whole span
+    call wa_wallz               ; (between: the exact depth)
+    mov dx, [wa_colz+bx]
+.have:
+    cmp dx, ax
+    ja .hid                     ; the tall face there is nearer
+.open:
+    push cx                     ; nothing tall: what a platform hides
+    mov cl, 0xFF
+    cmp byte [wa_hflat], 0
+    jne .flat
+    call wa_occlow
+.flat:
+    mov al, cl
+    pop cx
+    jmp .out
+.hid:
+    xor al, al
+.out:
+    pop di
+    pop si
+    pop dx
+    ret
+
+; --- the overlay (WEAPONS-PLAN 2.5) ------------------------------------------
+; The game's cells - the weapon in front of the player, the health, the
+; ammunition - over the view. They change only when the game says so
+; (wa_ovfresh), so they reach the glass ONCE: a fresh overlay lists every
+; cell (and puts back the last one's cells it no longer has, blank where the
+; view drew nothing), and on any other frame a cell is only stamped - so
+; present's old list never blanks it - and given its glyph again where the
+; view drew under it this frame (its stamp already says so, and the cell is
+; listed). Present compares none of the rest: the glass holds them.
+WA_OVGD equ wa_ovg - wa_ov - 2  ; (a cell's glyph, off SI past its offset)
+wa_overlay:
+    mov dl, [wa_frame]
+    mov dh, dl
+    or dh, 0x80                 ; DL, DH: this frame's stamps, wall, figure
+    cmp byte [wa_ovfresh], 0
+    jne .fresh
+    mov cx, [wa_ovn]
+    jcxz .out
+    mov si, wa_ov
+.c:
+    lodsw
+    xchg ax, bx
+    mov al, [wa_stamp+bx]
+    and al, 0x7F
+    cmp al, dl
+    je .put                     ; the view drew here: listed, ours again
+    mov [wa_stamp+bx], dl       ; (kept off present's old list's blanks)
+    loop .c
+    ret
+.put:
+    mov ax, [si+WA_OVGD]
+    mov [wa_cur+bx], ax
+    loop .c
+.out:
+    ret
+.fresh:
+    mov cx, [wa_ovoldn]         ; the last overlay's cells, back to the view
+    mov si, wa_ovold
+.o:
+    jcxz .new
+    lodsw
+    xchg ax, bx
+    cmp [wa_stamp+bx], dl
+    je .on
+    cmp [wa_stamp+bx], dh
+    je .on
+    mov [wa_stamp+bx], dl
+    call wa_list
+    mov word [wa_cur+bx], WA_BLANK
+.on:
+    dec cx
+    jmp .o
+.new:
+    mov cx, [wa_ovn]            ; ...then this one's, every cell listed
+    mov [wa_ovoldn], cx
+    mov si, wa_ov
+    mov di, wa_ovold
+.n:
+    jcxz .done
+    lodsw
+    mov [di], ax
+    inc di
+    inc di
+    xchg ax, bx
+    mov ax, [si+WA_OVGD]
+    cmp [wa_stamp+bx], dl
+    je .nput
+    cmp [wa_stamp+bx], dh
+    je .nput
+    mov [wa_stamp+bx], dl
+    call wa_list
+.nput:
+    mov [wa_cur+bx], ax
+    dec cx
+    jmp .n
+.done:
+    mov byte [wa_ovfresh], 0
     ret
 
 ; --- the crosshair ----------------------------------------------------------

@@ -8645,6 +8645,21 @@ SOAK = [
         "off onto the tower, the lift home. Red on e9ca8cff: 14 failures.",
         needs=("marty", "nasm"),
         wants=("build/os8088-360.img", "build/warena360.img")),
+    Row("waweapons", "soak", py("tests/waweapons.py"), 16.0,
+        "WIREARENA'S WEAPONS AND PICKUPS (docs/plans/WIREARENA-WEAPONS-"
+        "PLAN.md). One boot into the Heights arena, every piece checked off "
+        "the game's own variables: the pistol kills in three (34 each) by "
+        "the fall; the shotgun on the ramp platform and the rocket launcher "
+        "on the tower are taken, held, loaded 3 and 3 and gone from the "
+        "arena; keys 1-3 select; one close shotgun shot kills, red as long "
+        "as it lies and by its COLLAPSE; a rocket flies (not instant), kills "
+        "the shielded dummy 0 outright into bits (GIB) and it is gone after; "
+        "a rocket into a wall close by hurts the player; the health and "
+        "shield packs fill to 100; a taken pickup returns after its time; "
+        "F1/F3 set the detail level. Red with the pickup reach broken (10 "
+        "checks) or the shotgun's death mapped to the rocket's (1).",
+        needs=("marty", "nasm"),
+        wants=("build/os8088-360.img", "build/warena360.img")),
     Row("kdmix", "soak", py("tests/kdmix.py"), 40.0,
         "A 1.44MB FLOPPY IN B: UNDER kern_dos (SPEC.md 96.40.5). Every other "
         "kd* row boots two 360KB drives - not by choice, but because every "

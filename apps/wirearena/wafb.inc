@@ -16,6 +16,9 @@
 ;            a 0 there zeroes the part's, so a figure respawned since the
 ;            frame is not hit where its body lay
 ;   arena    R writes (ARENA); R -> G by wa_loadarena
+;   overlay  G writes (wa_ovbuild: the weapon, the health, the ammo); G -> R
+;            by wa_render when the game has rebuilt it, and not otherwise
+;   rockets  G writes (the sim); G -> R by wa_rframe while any is live
 ; A variable the RENDERER reads that the primary writes belongs in config
 ; or frame, and nowhere else: R reads only its own copy.
 
@@ -23,10 +26,13 @@
 WR_MAGIC0   equ 'WR'                ; +0: 'WRPART', then the ABI byte and the
 WR_MAGIC1   equ 'PA'                ;     verb count - checked by the primary
 WR_MAGIC2   equ 'RT'                ;     at launch, refused on a mismatch
-WR_ABI      equ 4                   ; (2: the camera's sin/cos in FRAME;
+WR_ABI      equ 5                   ; (2: the camera's sin/cos in FRAME;
                                     ; 3: F_Z, the treads, ARENA's heights;
                                     ; 4: wa_look, the detail level's bits,
-                                    ; where wa_hyst was; wa_flod gone)
+                                    ; where wa_hyst was; wa_flod gone;
+                                    ; 5: WEAPONS-PLAN 2.6 - F_SH at 10,
+                                    ; F_SIZE 44, the pickups, the rockets,
+                                    ; OVERLAY, TRACE's cone)
 WR_H_ABI    equ 6
 WR_H_NV     equ 7
 WR_H_VERB   equ 8                   ; +8: a word per verb, its offset
@@ -40,14 +46,30 @@ WRV_GEOM    equ 2                   ; after ARENA: wa_geominit
 WRV_ARENA   equ 4                   ; AL = an arena: its working tables
 WRV_RENDER  equ 6                   ; out AL = the frame number (wa_frame)
 WRV_PRESENT equ 8                   ; out AX = text cells written (wa_nwr)
-WRV_TRACE   equ 10                  ; out AX = the hit figure's offset in
-                                    ; wa_figs, or -1 (the pistol's ray)
+WRV_TRACE   equ 10                  ; in CX = the cone's half width, sub-
+                                    ; columns, DX its half height, half-
+                                    ; rows (0, 0: the pistol's ray); out
+                                    ; AX = the nearest figure hit, its
+                                    ; offset in wa_figs, or -1, and DX a
+                                    ; bit each figure hit (bit 8 + i: and
+                                    ; DIRECTLY, through the crosshair)
 WR_NVERB    equ 6
 
 WA_FIGHEAD  equ 20                  ; figs: the bytes G -> R every frame
                                     ; (F_X..F_Z)
 
 %define WA_RAT(x) ((x) - wa_fb_cfg + WR_FB)
+
+WA_NRK      equ 3                   ; rockets in flight at once
+WA_RKSZ     equ 8                   ; FRAME's rocket: x, y, z, state
+WA_RKX      equ 0
+WA_RKY      equ 2
+WA_RKZ      equ 4
+WA_RKST     equ 6
+WA_RKFLY    equ 1                   ; state: flying; 2..: exploding
+WA_RKBOOM   equ 8                   ; an explosion's first state (7 ticks)
+WA_PKSZ     equ 8                   ; ARENA's pickup: x, y, z, kind, 0
+WA_MOV      equ 32                  ; OVERLAY's most cells
 
 ; --- the block: WA_FBLOCK, expanded where the includer keeps it -------------
 %macro WA_FBLOCK 0
@@ -77,6 +99,8 @@ WA_FBV wa_sparse, 1
 WA_FBV wa_mflash, 1
 WA_FBV wa_treads, 1                 ; a ramp drawn as stepped treads (T: the
                                     ; graphics option, HEIGHTS-PLAN 7.4.2)
+WA_FBV wa_pkon, 1                   ; the pickups present, a bit each
+WA_FBV wa_fbpad3, 1                 ; (WEAPONS-PLAN 2.4)
 WA_FBV wa_figs, F_SIZE*WA_NFIG      ; FIGS (follows FRAME: one copy)
 WA_FBV wa_fb_arn, 0                 ; ARENA
 WA_FBV wa_sx, 2
@@ -95,5 +119,18 @@ WA_FBV wa_lrest, 2                  ; wa_bxh (-1: none), its rest and raised
 WA_FBV wa_ltop, 2                   ; heights (HEIGHTS-PLAN 3.2)
 WA_FBV wa_apn, 2                    ; the arena's own patrols: bytes (0: the
 WA_FBV wa_apath, WA_APATHSZ         ; primary's), and their block
+WA_FBV wa_npk, 2                    ; its pickups (WEAPONS-PLAN 2.4): how
+WA_FBV wa_pks, WA_MPK*WA_PKSZ       ; many, and each's x, y, z, kind
 WA_FBV wa_fb_end, 0
+WA_FBV wa_fb_ovl, 0                 ; OVERLAY: G writes (wa_ovbuild), G -> R
+WA_FBV wa_ovfresh, 2                ; when it is rebuilt: 1 (R clears it
+WA_FBV wa_ovn, 2                    ; once it has shown it), cells, each's
+WA_FBV wa_ov, WA_MOV*2              ; offset (x 2), and its glyph and
+WA_FBV wa_ovg, WA_MOV*2             ; attribute
+WA_FBV wa_fb_oend, 0
+WA_FBV wa_rks, WA_NRK*WA_RKSZ       ; ROCKETS: G -> R by wa_rframe while any
+                                    ; flies or explodes, and once more after:
+                                    ; each's x, y, z, state (0 none, 1
+                                    ; flying, 2.. an explosion's ticks left:
+                                    ; WEAPONS-PLAN 2.2, 2.5)
 %endmacro
