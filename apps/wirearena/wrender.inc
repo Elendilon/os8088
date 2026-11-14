@@ -2827,12 +2827,27 @@ wa_dots:
     mov ax, [wa_sinv]
     call .mk16
     mov [wa_dms], ax
-    mov ax, [wa_px]             ; the lines within three of the player's, x
+    mov ax, [wa_cos]            ; the lines within three of the player's -
+    mov bx, [wa_sinv]           ; less, on the axis the view runs along, the
+    call .dir                   ; ones behind the player (.dir)
+    mov ax, [wa_px]
     call .lines
+    or cx, cx
+    jnz .hx
+    ret                         ; (no line ahead: against a wall)
+.hx:
     mov [wa_dnx], cl
-    mov bx, ax                  ; BX = X0 - px
+    push ax
+    mov ax, [wa_sinv]
+    mov bx, [wa_cos]
+    call .dir
     mov ax, [wa_py]
     call .lines
+    pop bx                      ; BX = X0 - px
+    or cx, cx
+    jnz .hy
+    ret
+.hy:
     mov [wa_dny], cl
     mov cx, ax                  ; CX = Y0 - py
     ; the first dot's sums: Z = (X0-px) 4 cos + (Y0-py) 4 sin (the high word
@@ -2982,26 +2997,79 @@ wa_dots:
     mov [wa_lp], di
     pop bp
     ret
-; .lines - AX = the player's coordinate: AX = the first grid line's
-; coordinate less it (the lines within three of the player's), CL = how many
+; .dir - AX = the view direction's component along an axis, BX = its other
+; (Q14): DI = +1 when nothing in the view lies behind the player on that
+; axis, -1 when nothing lies ahead, 0 when it has both. A point in the
+; widest view (|x| <= z) lies z (a - |b|) to z (a + |b|) along the axis, so
+; a >= |b| means none is behind: the half of the lines there are not walked
+; at all - 21 of the 49 dots, whichever way the player faces. (A margin of
+; 1/64 keeps a dot at the view's very edge.)
+.dir:
+    xor di, di
+    or bx, bx
+    jns .d0
+    neg bx
+.d0:
+    add bx, 256
+    cmp ax, bx
+    jl .d1
+    inc di
+    ret
+.d1:
+    neg ax
+    cmp ax, bx
+    jl .d2
+    dec di
+.d2:
+    ret
+; .lines - AX = the player's coordinate, DI = .dir's answer for the axis: AX
+; = the first grid line's coordinate less the player's, CX = how many lines
+; (0: none). Clobbers BX, DX, SI
 .lines:
-    mov dx, ax
+    mov dx, ax                  ; DX = p
     mov cl, 7
-    shr ax, cl                  ; the line nearest below, roughly
-    sub ax, 3
+    mov bx, ax
+    shr bx, cl                  ; the line nearest below, roughly
+    sub bx, 3
     jns .l0
-    xor ax, ax
-.l0:
-    mov ch, 16                  ; (the room is 16 lines across)
-    sub ch, al
-    cmp ch, 7
+    xor bx, bx
+.l0:                            ; BX = the first line
+    mov si, bx
+    add si, 7
+    cmp si, 16                  ; (the room is 16 lines across)
     jbe .l1
-    mov ch, 7
-.l1:
+    mov si, 16
+.l1:                            ; SI = one past the last
+    or di, di
+    jz .l4
+    js .l2
+    mov ax, dx                  ; ahead only: from the first line at or past
+    add ax, 63                  ; the player, 64 + 128 k >= p
+    shr ax, cl
+    cmp ax, bx
+    jbe .l4
+    mov bx, ax
+    jmp .l4
+.l2:
+    mov ax, dx                  ; behind only: to the last line at or before
+    sub ax, 64
+    jb .l5
+    shr ax, cl
+    inc ax
+    cmp ax, si
+    jae .l4
+    mov si, ax
+.l4:
+    sub si, bx
+    jg .l6
+.l5:
+    xor si, si
+.l6:
+    mov ax, bx
     shl ax, cl                  ; the line's coordinate: 64 + 128 k
     add ax, 64
     sub ax, dx
-    mov cl, ch
+    mov cx, si
     ret
 ; .mk16 - AX = a Q14 sin or cos: AX = it x k16 >> 10
 .mk16:
