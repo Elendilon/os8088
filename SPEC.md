@@ -251503,6 +251503,10 @@ pushes it out along the corner's normal.
 
 #### 128.10.4 `tools/bbcourse.py`
 
+*Amended by 128.15 (waves 5a and 5b): the tool writes `BZC2`'s STORED form
+into `BZ<K>.BIN` and keeps the RAM form as the course's `cga`, and gains
+`--sizes`, `--rec` and the `target` statement (128.15.12).*
+
     python3 tools/bbcourse.py -o DIR COURSE.bbc ...       # what `make` runs: every course, in BZ_COURSES's order
     python3 tools/bbcourse.py --selfcheck [COURSE.bbc ...] # 128.10.4.6; `make bonanza-course-check`
     python3 tools/bbcourse.py COURSE.bbc --png DIR        # previews (Pillow, behind a try)
@@ -251672,6 +251676,10 @@ record each would lay the same pixels on the same verdicts.) Nothing is
 refused for its shape: every pixel is keyed, and what the tool refuses is the
 BOUNDS below.
 
+*Amended by 128.15.5: this 8-byte record is the RAM record of `BZREC=8`
+(idea C, 128.15.5.3). Under `BZREC=4` the record is 4 bytes (128.15.5.1).
+The rule, the bounds and the merge below are unchanged.*
+
 | record, 8 bytes | |
 |---|---|
 | +0 | the block's word column (byte); +1 zero |
@@ -251798,6 +251806,10 @@ first byte**, the grid's included. Nothing the guest reads is checked by
 the guest (128.10.6.2); the tool checks it all at build time (128.10.4).
 
 ##### 128.10.5.1 `BZC1`, a course part (`BZ<K>C.BIN`, `BZ<K>H.BIN`)
+
+*Replaced by `BZC2` (128.15.4): the fields below keep their offsets and
+meanings, the header grows to 48 bytes, the map moves from +32 to +48, the
+records' stride is `RECB`, and a section directory ends the part.*
 
 | at | |
 |---|---|
@@ -256002,6 +256014,11 @@ rule off, as wave 2 did, and reports them with it on (128.12.9).
 
 #### 128.12.8 Determinism, replays and the course's identity
 
+*Amended by 128.15.7: the identity is taken over `BZC2`'s RAM form as
+`RECB` = 8 lays it out, whatever the build's `RECB`, with the section
+directory's form bytes and stored lengths taken as 0 as well as the
+identity word.*
+
 **Physics reads only**: the state of 128.10.7.1, 128.11.8.1 and 128.12.6.6;
 the course part; the key byte; and `n`, the step count. Every prop's position,
 gate and pose is a function of `n`, its seed and the course; a bumper's kick
@@ -258911,7 +258928,8 @@ props. Each refusal names the line:
 - **NOTHING UNDER THE HUD** (item 8): no cup, flag, pad or spring cell and
   no `way` waypoint inside the HUD's shown rect (128.14.5.3) at any camera
   position the course CLAMPS to (the window against the course's left
-  edge, its foot, or both), on either card.
+  edge, its foot, or both), on either card. *Removed by wave 5a (128.15.3):
+  there is no HUD to be under.*
 
 The tool PRINTS, as it prints a tube exit's landings: for each cup, the
 capture against each ball's one-arrow top on the cup green's surface (does
@@ -259975,6 +259993,9 @@ refuses the game (128.1).
 #### 128.14.9 Parting out
 
 ##### 128.14.9.1 What the six courses weigh (all six measured)
+
+*Amended by 128.15.2: at `ef59209a` `PEAK`'s part packs to 23,649 bytes,
+not the 23,676 below, and the six to 83,152 (128.15.14).*
 
 | course | part (bytes) | packed | block rows | source |
 |---|---|---|---|---|
@@ -261382,6 +261403,1438 @@ open for the owner. Binding where it amends.
    - **`bonanzaperf`'s Hercules `MILL` lift stretch**, speaker on, at its
      bound: 3 and 4 in two runs against at most 3 (128.13.4.5; 3b 2).
    - **`bonanzawheel` (6) on the CGA**, 128.13.17's item.
+
+### 128.15 Waves 5a and 5b: clear the decks, and the compact course format
+
+The first two waves of the release roadmap
+([docs/plans/BOUNCE-BONANZA-PLAN.md](docs/plans/BOUNCE-BONANZA-PLAN.md),
+*Toward a release*, stories 5a.1 - 5a.4 and 5b.1 - 5b.6). Binding where it
+amends, and each amendment is listed in 128.15.2.
+
+- **Wave 5a** removes what the HUD's removal left behind (128.14.26 item 1)
+  and brings the records up to date. **No byte of the package moves**, and
+  `cmp` proves it (128.15.3).
+- **Wave 5b** makes the course part smaller on the disk and in RAM, gives it
+  a tagged section directory that later waves extend, and settles the disk
+  plan. It follows a host measurement,
+  [docs/reports/BONANZA-SIZE-2026-11-14.md](docs/reports/BONANZA-SIZE-2026-11-14.md)
+  ("the report" below), taken at `28b13cce` after the owner asked "what
+  else is smaller but does the same thing at the same speed". The report's
+  section 5 is the shortlist, and this subsection is its contract.
+
+**The rule this wave is held to**: code that runs every frame or every step
+must not get slower, except the occluder pass under 128.15.5, which states
+its clocks and is accepted only by a measurement (128.15.5.4). Work done
+once at a course's fetch may grow if it is priced (128.15.4.6). Physics
+does not change: `BZ_PHYSV` stays **A0h** (128.15.7).
+
+Figures are marked as the report marks them: **MEASURED** (from the real
+parts, the image or assembled code), **PREDICTED** (arithmetic), and
+**ESTIMATED** (clocks for code written down but not assembled). One design
+figure was taken for this subsection, host-side, at `ef59209a`, by the
+architect choosing (CLAUDE.md's rule for a number that decides a design):
+where the zeros go and the map's stored form (128.15.4.3).
+
+#### 128.15.1 The decisions, in one table
+
+| decision | chosen | why, and where |
+|---|---|---|
+| 5a's HUD code | removed from five rows, `tests/suite.py` and `bbcourse.py`; the package untouched | 128.15.3 |
+| the part's name | **`BZC2`**: `BZC1`'s header fields at their offsets, 16 bytes more of header, the map at 48 | 128.15.4.1 |
+| sections | a **tagged directory** at the part's end, 8 bytes an entry, in RAM order | 128.15.4.2; waves 7 - 9 add entries |
+| where the zeros go | **each section's stored bytes at the END of its own slot**, a zero hole in front of them inside the slot | every section expands inside its own slot, so no section is moved (128.15.4.3) |
+| the occluder record | **4 bytes in RAM**: column, `s - br + SB`, `top - TB`, a mask index; the mask's offset from a table in the part | the report's idea D: -43.8KB of RAM on the six courses, -35.4KB packed (128.15.5) |
+| the record's fallback | **idea C**: the same stored form, today's 8-byte records in RAM, today's frame code | one knob, `BZREC=4|8` (128.15.5.3) |
+| D or C | **D ships only if** `bonanzaperf` on `MILL`'s and `PEAK`'s demos, both cards, speaker ON, shows at most 2 more misses a card than C, the two demos' misses summed on each card | the owner's HUD rule (128.15.5.4) |
+| the map | block indices as **row planes**: a block row's 2-bit high bits, then its low bytes | 1.25 bytes a cell; the order that expands in place (128.15.4.4) |
+| `ROWTAB`, the mask table | **computed** at the fetch, nothing stored | 128.15.4.4 |
+| the route | **way tiles**, 2 bytes a way, kept on every course | the rows' autopilot drives every course (128.15.4.4) |
+| the grid's derivable fields | **the follow-up**: stored as their difference from the rule, rebuilt at the fetch | after the rest is green (128.15.6) |
+| the identity | over the RAM form **as `RECB` = 8 lays it out**, whatever the build's `RECB`, with the directory's disk-only fields taken as 0 | a stored form, or the record's stride, can change without moving it, so C and D share every identity and every demo (128.15.7) |
+| `BZ_PHYSV` | **unchanged**, A0h | physics reads the same values (128.15.7) |
+| the course budget | a `target 30|60|90` statement; a packed budget of about 209 bytes a target second, refused past 1.5 times it; RAM refused past 65,024 as now | CD3 (128.15.8) |
+| the parts' format | **LZB**, decided by the owner on 2026-11-14 (`BZPARTZ=lzb|lz4`, `lzb` the default); measured both ways; the course budget is read in LZ4 whatever the knob | the table's format byte covers every part; `PEAK`'s launch cost is an upper bound the final pass measures (128.15.9) |
+| the image's format | LZ4; LZB **offered** through the existing `LZBPKGS`, not taken | 128.15.9 |
+| a "Worlds" disk | not built: the target is 18 - 20 courses on ONE disk, and a second disk (story 8b.11) is a last resort, only if one disk cannot hold the final set (the owner, 2026-11-14) | 128.15.9 |
+| a course past one part | the **two-part course**, documented and not built: the picture in one part, everything else in another | 128.15.8 |
+| `BENCH` | kept in the package (O48) | 128.15.9 |
+| the ghost | a checker ORed into **every occluder mask** by the tool: 0 guest bytes, 0 clk | CD1 (128.15.10) |
+| the visibility audit | lands in REPORT mode; story 11.5 makes it refuse | 128.15.10.4 |
+
+#### 128.15.2 What changes in the earlier subsections
+
+Each of these is amended by this subsection. The ones marked *(in place)*
+carry a one-line pointer at the amended text; the rest are amended here
+only.
+
+- **128.10.4** *(in place)*: the tool writes the STORED form of 128.15.4.3
+  into `BZ<K>.BIN`, keeps the RAM form as the course's `cga`, gains
+  `--sizes`, `--rec` and the `target` statement, and its build checks gain
+  the directory's (128.15.12).
+- **128.10.4.4** *(in place)*: the record table describes `BZREC=8`'s RAM
+  record (idea C). Under `BZREC=4` the record is 128.15.5.1's. The rule,
+  the bounds and the merge are unchanged.
+- **128.10.4.6**: `--selfcheck` gains items 10, 11 and 12 (128.15.12.3);
+  item 8 loses its HUD clause and its `underhud` control (128.15.3).
+- **128.10.5.1** *(in place)*: `BZC1` is replaced by `BZC2` (128.15.4).
+  `BZC1`'s fields keep their offsets and meanings, the map moves from +32
+  to +48, and `OCCREC`'s stride is `RECB`.
+- **128.10.5.2**: `BZG1` is unchanged, byte for byte. `ROWTAB` and the
+  route are stored as 128.15.4.4 says and sit in RAM exactly where
+  `BZG1`'s offsets say.
+- **128.10.6.2**: after the course's fetch, `bz_launch` expands the part in
+  place (128.15.4.5) before anything reads it.
+- **128.10.6.4**: the expansion is held to the same kern_mega rule
+  (128.15.11).
+- **128.10.9, 128.11.15**: the occluder pass's cost under `BZREC=4` is
+  128.15.5.2's.
+- **128.11.4.1**: the merge runs on the UNDITHERED masks. The checker is
+  ORed in after it, and the masks are deduplicated again (128.15.10.1).
+- **128.12.8** *(in place)*: the identity is taken over the RAM form as
+  `RECB` = 8 lays it out, whatever the build's `RECB`, with the directory's
+  form bytes and stored lengths taken as 0 (128.15.7).
+- **128.14.4.1** *(in place)*: the refusal NOTHING UNDER THE HUD is
+  removed (128.15.3).
+- **128.14.9**: its figures are superseded by 128.15.14 and its "re-decided"
+  condition by 128.15.9's disk plan. *(In place)* 128.14.9.1's `PEAK`
+  packed figure, 23,676, is an earlier wave 4 build's; at `ef59209a` the
+  part packs to **23,649** (MEASURED, `os88pkg.compress_part`), which is
+  the figure 128.15.14 starts from.
+- **128.14.14**: six of its rows lose their HUD legs and arms (128.15.3,
+  128.15.13):
+  - `bonanzacourse`: NOTHING UNDER THE HUD and `underhud`;
+  - `bonanzaring`: the HUD composed into the oracle, the `MILL` demo with
+    the HUD FOLLOW, REST and OFF, and red arms `hudinset`, `hudold`,
+    `hudlane` and `hudfull`;
+  - `bonanzaperf`: the HUD OFF/REST/FOLLOW demo legs and the REST release
+    check, and red arm `hudon`;
+  - `bonanzagame`: the HUD clauses of the tour and the saves, and red arms
+    `hudhold` and `hudtime`;
+  - `bonanzamega`: `PEAK`'s demo with the HUD FOLLOW and REST;
+  - `bonanzawheel`: the legs' pin to the HUD OFF, check (14), and red arm
+    `hudrect`.
+
+#### 128.15.3 Wave 5a: clear the decks
+
+**What is removed from the rows.** The HUD was not built (128.14.26 item 1),
+and every row that tested it now skips those legs. They go, with the eight
+red arms that skip themselves when no HUD is built (128.14.26 item 11).
+MEASURED at `ef59209a` (`grep -ci hud`):
+
+| file | HUD lines | what goes |
+|---|---|---|
+| `tests/bonanza_ring.py` | 91 | the HUD part of the W4 leg (FOLLOW, REST and OFF with the panel in the oracle, the write-once check on the rect, the lane scene under the panel); red arms `hudinset`, `hudold`, `hudlane`, `hudfull` |
+| `tests/bonanza_perf.py` | 56 | the HUD's legs (REST and FOLLOW, the HUD-fit measurement on `MILL`, the HUD boxes counted, `bz_nhud`); red arm `hudon` |
+| `tests/bonanza_wheel.py` | 50 | check (14)'s HUD play; red arm `hudrect` |
+| `tests/bonanza_game.py` | 39 | the HUD clauses of the tour and the saves; red arms `hudhold`, `hudtime` |
+| `tests/bonanza_mega.py` | 7 | PEAK's demo with the HUD FOLLOW and REST |
+
+The host checks lose the eight names: `bonanza_ring.py --check-reds`, and
+`--check` in the other four. `tests/suite.py`'s texts for `bonanzaring`,
+`bonanzaperf`, `bonanzagame`, `bonanzamega` and `bonanzawheel` lose their
+HUD sentences, and `bonanzacourse`'s list of refusals loses NOTHING UNDER
+THE HUD (its item 8, below). The `noblank`
+red arm STAYS: it is the full write's blank, not the HUD's. Nothing else in
+the rows changes. A row that read a HUD symbol (`bz_nhud`, `bz_hdec`,
+`bz_hlay`) through the map would fail to resolve it in a build without the
+HUD: none is left after this.
+
+**What is removed from the tool.** `bbcourse.py`'s refusal NOTHING UNDER
+THE HUD (128.14.4.1) refuses layouts under a panel that does not exist.
+These go:
+- `HUD_COLS`, `HUD_LINE`, `HUD_LINES`, `hud_zones()` and `hud_conflicts()`;
+- the refusal in `compile_course` and its `_hack` key `no_hud`;
+- in `--selfcheck`, item 8's per-course NOTHING UNDER THE HUD line (two
+  places: `_w4_course_report` and the courses without a game prop) and its
+  negative control `underhud`.
+
+A test string with a cup inside the old panel's rect at a clamped camera
+compiles after this (item 8 keeps it as the proof that the refusal is gone).
+
+**What stays**: `c.prop_pix`, the pixels of each checkpoint's, pad's, cup's
+and spring's mark. Its only readers today are `hud_conflicts` and the
+`underhud` control, which both go, but it is exactly the mark set that
+128.15.10.4's visibility audit counts, and item 8's new cup test may place
+its cup from it. 5b.6 extends it with the tube mouths rather than
+building a second copy.
+
+**What records change.**
+- `apps/bonanza/README.md`: brought to wave 4 as built. N cycles all six
+  courses (128.14.21), and the line saying "the rest of this file predates
+  some of it" goes. **The README ships on BONANZA's disks**, so the
+  `bonanza*.img` images change, although the package does not.
+- `apps/RETIRED.txt`: BONANZA's `local` comment says "wave 4, a game", not
+  "wave 0: the engine spike".
+- docs/HEAP-CLAIMS.md: the course-part row gains `MOON` (51,240 bytes) and
+  `PEAK` (60,856), `MILL`'s 33,906 becomes 33,858 (128.14.20), and
+  `FIRST`'s 9,736 becomes 9,748 (with its route, 128.14.9.1). Wave 5b
+  replaces these figures with its RAM forms' (128.15.14).
+- 128.14.4.1's NOTHING UNDER THE HUD paragraph carries a pointer here, and
+  128.14.14's `bonanzacourse` row is amended by 128.15.13.
+- The plan's ticks (story 5a.4).
+
+**The proof that no package byte moves.** Two private trees
+(`make BUILD=<dir> bonanzadisk`): one built from 5a's commit, and one built
+from a `git worktree` of its parent. `cmp` equal on `BONANZA.O88`, every
+`BZ<K>.BIN`, every `BZD<K>.BIN` and `bzcourse.inc`. The comparison is valid
+across that one commit because none of these files carries the build
+number (§14.2 puts it in the kernel). Only the tool's stamp
+(`.bz-crs`, a hash of the tool) differs, and it ships nothing.
+`--selfcheck` passes, less its HUD lines.
+
+**Rows reached**: `bonanzaring`, `bonanzaperf`, `bonanzawheel`,
+`bonanzagame`, `bonanzamega` (the legs removed) and `bonanzacourse` (item
+8). They run once in 5b's final pass, not here (R5).
+
+#### 128.15.4 `BZC2`: the part as it sits in RAM, and as it is stored
+
+A course part has two forms:
+- the **RAM form**, which the guest reads after the fetch: the frame code,
+  physics, the wheel and the rows' oracles read exactly this;
+- the **stored form**, which the tool writes into `BZ<K>.BIN` and
+  `os88pkg.py` compresses into `BONANZA.O88` (its row's `OP_COMP`). It is
+  the RAM form's length, and it is what `op_fetch` decodes into the claim.
+
+The fetch is unchanged: `op_fetch` claims the row's `len` (the RAM form's
+length) and decodes the stored form into it (§20.12.7.4). Then the guest
+expands each section in place (128.15.4.5). **`OP_ZFILL` is not used**: it
+is refused on a lazy row (§20.12.7.5, `apps/os88parts.inc`), and a course
+part is lazy. The zero holes are inside the LZ4 or LZB stream instead. They
+cost about 136 bytes of LZ4 over the six courses, against the same stored
+bytes with no holes, and 23 of those are for a hole in each section rather
+than one for the part (MEASURED, host, at `ef59209a`; 128.15.4.3). The
+decoder writes them as match copies.
+
+##### 128.15.4.1 The header
+
+| at | |
+|---|---|
+| +0 | `BZC2` |
+| +4 - +31 | `BZC1`'s fields at `BZC1`'s offsets (128.10.5.1): `COLS`, `BROWS`, `N`, `MAPSH`, `BLKOFF`, `OCCIDX`, `OCCREC`, `NOCC`, `MASKOFF`, `NMASK`, `ROWB`, `GRIDOFF`, `PROPOFF`, `NPROP`. Every offset is a RAM offset |
+| +32 | `RECB`: the record's size in RAM, 4 or 8 (byte) |
+| +33 | `SB`: the s bias, a SIGNED byte, -128 - 127 (0 when `RECB` is 8) |
+| +34 | `TB`: the top bias, signed px (word; 0 when `RECB` is 8) |
+| +36 | `MTAB`: the mask table's offset (word; 0 when `RECB` is 8) |
+| +38 | `DIROFF`: the directory's offset (word) |
+| +40 | `NSEC`: the directory's entries (word, at most 16) |
+| +42 | six zero bytes |
+| +48 | the map (`BZC_MAP` = 48, was 32) |
+
+**Why the map moves rather than the directory.** The map's offset is an
+assembled constant in seven writers (`add ax, BZC_MAP`), and a larger
+constant costs nothing. The directory's size varies with the course, so it
+cannot sit in front of the map without making that offset a variable.
+
+Every reader of a `BZC1` field keeps its constant. Under `BZREC=4`,
+`bz_crshdr` also copies three fields into the package's data for the
+occluder pass: `SB` sign-extended (`cbw`) into the word `bz_osb`, `TB` into
+`bz_otb` and `MTAB` into `bz_mtab`. 128.15.14 lists every new cell.
+
+##### 128.15.4.2 The section directory
+
+The directory is the part's last `8 NSEC` bytes, at `DIROFF`. One entry a
+section, in RAM order:
+
+| at | |
+|---|---|
+| +0 | the TAG, one ASCII byte: what the section is |
+| +1 | the FORM: how it is stored (128.15.4.4) |
+| +2 | its RAM offset (word) |
+| +4 | its RAM length (word) |
+| +6 | its STORED length (word): the bytes at the end of its slot (128.15.4.3) |
+
+**The tags of 5b**, in the order they sit in RAM:
+
+| tag | section | RAM length | form | stored length |
+|---|---|---|---|---|
+| `M` | the map | `2 COLS BROWS` | 1 ROWPLANES | `5 COLS BROWS / 4` |
+| `B` | the blocks | `16 N` | 0 PLAIN | the same |
+| `I` | `OCCIDX` | `2 (BROWS + 1)` | 2 COUNTS | `BROWS` |
+| `R` | the records | `RECB NOCC` | 3 WDIFF | the same |
+| `K` | the masks (with the checker, 128.15.10) | `16 NMASK` | 0 PLAIN | the same |
+| `O` | the mask table, only when `RECB` is 4 | `2 NMASK` | 4 MASKTAB | 0 |
+| `G` | the grid's header (`BZG1`) | 32 | 0 PLAIN | the same |
+| `C` | the cells | `4 KW NROWS` | 0 PLAIN; 7 CELLS once the follow-up lands (128.15.6) | the same |
+| `T` | `ROWTAB` | `2 NROWS` | 5 ROWTAB | 0 |
+| `W` | the route | `4 NWAY` | 6 WAYS | `2 NWAY` |
+| `P` | the props: records, pose maps, tube segments, sprites (128.12.3.1), only when `NPROP` > 0 | as 128.12.3.1 | 0 PLAIN | the same |
+
+**The rules the tool checks at build time** (the guest checks none of them,
+128.10.6.2). `read_part` checks the same rules on every part it reads:
+- the entries are sorted by RAM offset and tile `[48, DIROFF)` with no gap,
+  and `DIROFF + 8 NSEC` is the part's length;
+- a tag appears at most once, and a section of length 0 has no entry;
+- `NSEC` is at most 16;
+- **each entry's RAM offset and length are the ones its header fields
+  imply**, because every expander counts with those fields (128.15.4.5):
+  - `M` = (48, `2 COLS BROWS`);
+  - `B` = (`BLKOFF`, `16 N`);
+  - `I` = (`OCCIDX`, `2 (BROWS + 1)`);
+  - `R` = (`OCCREC`, `RECB NOCC`);
+  - `K` = (`MASKOFF`, `16 NMASK`);
+  - `O` = (`MTAB`, `2 NMASK`), present if and only if `RECB` is 4;
+  - `G` = (`GRIDOFF`, 32);
+  - `C` = (`GRIDOFF + 32`, `4 KW NROWS`);
+  - `T` = (`BZG1`'s `ROWTAB`, `2 NROWS`);
+  - `W` = (`BZG1`'s route offset, `4 NWAY`);
+  - `P` = (`PROPOFF`, to the end of the props), present if and only if
+    `NPROP` > 0;
+- each entry's stored length is its form's (the table above), and at most
+  its RAM length;
+- the bounds the forms need: `COLS` at most 128 (ROWPLANES' scratch, 32
+  bytes), at most 1,024 blocks, at most 255 records in one block row (a
+  count is a byte), every way's tile `wx` and `wy` in 0 - 255, `KW` at most
+  33 (the follow-up's scratch, 128.15.6), and 128.15.5.1's record bounds;
+- the in-place proof of 128.15.4.4 holds by simulation (`--selfcheck` item
+  10).
+
+MEASURED at `ef59209a`: the most records in one block row is 67 (`BENCH`);
+`PEAK` has 46.
+
+**How a later wave adds a section**: a new tag, placed in RAM order before
+the directory, PLAIN unless it needs a form of its own. The map never moves
+and no `BZC1` field changes meaning, so nothing that reads today's sections
+changes. The tags reserved now: `F` the finishes (wave 8b, story 8b.4), `H`
+a course's family data (wave 9), `S` the per-play state list (wave 9,
+story 9.2). A section with no header field is found at the launch by its
+tag. That lookup (about 25 bytes, launch-only) lands with the first such
+section, in 8b, not in 5b, because no 5b section needs it.
+
+**What does NOT go in the part**: a setting physics does not read (the
+palette, the song, the clock's frame, the limit, the medal times). Those
+live in the package's course table, `bzcourse.inc`, outside the part, so
+changing one never moves the course's identity (128.15.7).
+
+##### 128.15.4.3 The stored form: each section at the end of its own slot
+
+The stored form is the RAM form with every section's slot `[off, off +
+len)` holding:
+- `len - dlen` zero bytes (the section's own HOLE), then
+- its `dlen` stored bytes.
+
+The header and the directory are stored as they sit in RAM.
+
+**Why each section's own hole, and not one hole for the whole part.** The
+measurement (MEASURED, host, at `ef59209a`; the six courses with D, M, R, W
+and G, packed by `os88lz` as `os88pkg` packs a part; P not taken, no
+dither, and the route and the directory as zeros of their size):
+
+| where the zeros go, and the map's form | LZ4, six courses | LZB, six courses |
+|---|---|---|
+| one hole after the header; the map as two whole planes (the report's form) | 42,738 | 34,419 |
+| one hole after the header; row planes | 42,749 | 34,520 |
+| **each section's own hole; row planes, the high bits first** | **42,772** | **34,543** |
+| each section's own hole; 4 low bytes and their high byte in turn | 43,578 | 35,280 |
+
+The chosen form costs **34 bytes** of LZ4 over the best one, and it buys
+two things:
+- **No section moves.** With one hole for the whole part, every PLAIN
+  section would be copied down by the hole's size at each fetch: about 30KB
+  on `PEAK`, about 80 ms. With its own hole, a PLAIN section is already in
+  place.
+- **The whole-plane map cannot expand in place** behind a hole smaller than
+  its cell count (128.15.4.4), and `PEAK`'s hole (7,045 bytes under D) is
+  smaller than its 8,512 cells.
+
+##### 128.15.4.4 The forms, and why each one expands in place
+
+Each form is one expander. Each runs FORWARD through its own slot: it reads
+the stored bytes at the end of the slot and writes the RAM bytes from the
+start. "In place" means the writer never reaches a stored byte that has not
+been read yet. For each form, `S` is the slot's first byte, `H = len - dlen`
+the hole, `n = COLS BROWS` the cells and `C = COLS`.
+
+- **0 PLAIN** (`dlen = len`): nothing to do.
+- **1 ROWPLANES**. Block row `r` is stored as `C/4` high bytes (cell `j`'s
+  two high bits at bits `2 (j AND 3)` of byte `j >> 2`) and then `C` low
+  bytes. Map word `j` is `BLKOFF + 16 (low + 256 high)`, so a course has
+  at most 1,024 blocks (refused past; `MILL` has 469). For each row, the
+  expander first copies the row's `C/4` high bytes to scratch
+  (`bz_boxbuf`, at most 32 bytes, free at the fetch), and then turns its
+  low bytes into words.
+  - **The proof.** Word `c` of row `r` ends at `S + 2 (C r + c + 1)`. The
+    next unread byte is low byte `c + 1` of that row, at
+    `S + 0.75 n + 1.25 C r + C/4 + c + 1`. So the writer stays behind when
+    `0.75 C r + c + 1 <= 0.75 n + C/4`, which holds with equality at the
+    last word of the last row (`r = BROWS - 1`, `c = C - 1`).
+  - The row's high bytes are copied out before the writer reaches them,
+    because `2 C r <= 0.75 n + 1.25 C r`.
+  - Stored the other way round (low bytes first), the writer passes the
+    unread low bytes in the last row's last quarter: the condition becomes
+    `0.75 C r + c + 1 <= 0.75 n`, which fails for `c >= 0.75 C` when
+    `r = BROWS - 1` (on `PEAK`, the last 15 low bytes). `--selfcheck` item
+    10 keeps that order as a negative control.
+- **2 COUNTS** (`dlen = BROWS`, `H = BROWS + 2`). Stored: a count byte for
+  each block row (at most 255, refused past, 128.15.4.2). Written:
+  `OCCIDX[br] = OCCREC + RECB x` (the records before row `br`), and the
+  final word, `br = BROWS`, is `OCCREC + RECB NOCC`. Count `i` sits at
+  `S + BROWS + 2 + i`. Word `br` needs counts `0` to `br - 1` and ends at
+  `S + 2 br + 2`, and the next unread count, count `br`, is at
+  `S + BROWS + 2 + br`. So the writer stays behind when `br <= BROWS`, which
+  is every word.
+- **3 WDIFF** (`dlen = len`, stride `RECB`). Stored: the first record as
+  it is, then each word as its difference from the same word of the record
+  before, mod 2^16. Expanded: `w[i] += w[i - RECB/2]` for every word from
+  `RECB/2` on, in place. It reads behind the write, so nothing is read
+  after it is written. The stride is read from the header, so one expander
+  serves C and D.
+- **4 MASKTAB** (`dlen = 0`): `MTAB[m] = MASKOFF + 16 m` for `m < NMASK`.
+- **5 ROWTAB** (`dlen = 0`): `ROWTAB[r] = GRIDOFF + 32 + 4 KW r` for `r <
+  NROWS`, from `BZG1`'s fields (the `G` section, before it).
+- **6 WAYS** (`dlen = 2 NWAY`, `H = 2 NWAY`). Stored: each way's tile
+  `(wx, wy)`, a byte each (0 - 255, refused past). Written: the ball's
+  picture top-left on the tile's centre, which is the tool's own rule
+  (128.10.4.5):
+  - `x = 16 (wx - wy) + X0 - 8`;
+  - `y = 8 (wx + wy) + 8 - (4 z0 + 2 (sx + sy)) + Y0 - 13`;
+  - `z0`, `sx` and `sy` are the tile's CELL's (signed half units and
+    signed nibbles), read through `ROWTAB` (the `T` section, before it):
+    with `s = wx + wy` and `a = wx - wy`, the cell is row `s - SMIN`, cell
+    `k = (a - AMIN) >> 1` (an arithmetic shift; `AMIN` is even, so this is
+    `(a - AMIN - (s AND 1)) / 2`), at `ROWTAB[s - SMIN] + 4 k`, as
+    `bzphys.inc` finds a cell.
+  - The tool computes its route from the tile's own description
+    (`tiles[(wx, wy)]`), so it also checks, for every way, that the cell
+    found that way holds the same `z0`, `sx` and `sy`, and refuses the
+    course naming the way if not. On today's courses the two agree on all
+    88 ways (checked by the review, at `ef59209a`). Item 10's
+    `expand == RAM` would catch a disagreement as well, but only as a
+    differing byte.
+  - Way `w` ends at `S + 4 w + 4`, and its next stored byte is at
+    `S + 2 NWAY + 2 w + 2`. That holds for every `w < NWAY`.
+  - Kept on every course: the rows' autopilot drives every course
+    (`bonanzagame`'s tour, `bonanzaexit`), and the route costs about 200
+    bytes packed over the six.
+- **7 CELLS**: the follow-up's form (128.15.6).
+
+##### 128.15.4.5 Where the expansion runs, its order and its bounds
+
+`bz_cexp` runs in `bz_launch` right after the course's `op_fetch` and
+`op_seg`, before anything reads the part (`bz_crshdr`, the props walk for
+the balls, the identity check). It walks the directory from entry 0 to
+`NSEC - 1`, calling each entry's form. **Directory order is also the order
+the forms depend on**:
+- ROWPLANES reads `BLKOFF`, and COUNTS reads `OCCREC` and `RECB`, from the
+  header;
+- ROWTAB reads the `G` section;
+- WAYS reads the `G`, `C` and `T` sections, all before it.
+
+On the Hercules it runs on the CGA bytes **before** `bz_hgen` and
+`bz_hxlat`. `bz_hgen` builds `BZ_HTAB` in `bz_boxbuf`, which ROWPLANES and
+the follow-up use as scratch first. The blocks are PLAIN and in place, so
+`bz_hxlat` finds them where it always did.
+
+**The expansion runs exactly once per fetch.** It is not idempotent: WDIFF
+adds each record to the one before it, so a second run corrupts the
+records, and every form whose stored length is short of its slot (1, 2, 6)
+would read RAM bytes as stored ones.
+
+**`op_fetch` does not say whether it decoded.** A row that is already
+fetched answers CF = 0 having done nothing (`apps/os88partsbody.inc`,
+`op_fetch`'s `OP_FETCHED` test, about line 1949: "IDEMPOTENT"), exactly as
+a fetch that decoded the part answers. So **`bz_cexp` may run only after a
+fetch that actually decoded**; after a CF = 0 on a part that was already
+here, it would expand the expanded bytes a second time.
+- **5b is safe as built**: `bz_launch` drops the course part on every exit
+  (its `.drop`, every ball row and the course's), so every launch's fetch
+  decodes.
+- **The rule that binds wave 8b** (one session fetching inside a bracket,
+  story 8b.1): EITHER the course part is dropped (`op_drop`) before it is
+  fetched again, OR the claim carries an "expanded" flag that `bz_cexp`
+  checks before it runs and sets when it is done. 8b's contract names which,
+  and a red arm that fetches the same course twice without the drop (or
+  with the flag ignored) must fail at `bonanzaexit`'s claim compare.
+
+And play DOES write the part afterwards: inside the bracket the
+lanes' writer (`bz_lfull`, `bz_lsync`, `bz_lmap`) writes each lane's pose
+words into the map through the part's segment, so a seeded windmill,
+rotor or flag leaves the map differing from the tool's at its lane cells.
+So:
+- what equals the tool's RAM form is the part between `bz_cexp` (and
+  `bz_hxlat` on the Hercules) and `OSAPI_FSX_RUN`; `bonanzaexit`'s claim
+  leg compares it there (128.15.13);
+- wave 8b fetches inside one bracket. The expansion runs at each fetch
+  there, and a Retry without a re-fetch does not run it again. The Retry
+  re-syncs the lanes from `n` as today, which rewrites their map words
+  (story 8b.1).
+
+**Bounded, though the bytes are the package's own** (128.10.6.2: the guest
+checks nothing). The argument has two halves, and the tool checks the
+second (128.15.4.2):
+- every loop counts with a field of the header, of `BZG1` or of its own
+  entry, never with a value it is expanding: `COLS` and `BROWS` for
+  ROWPLANES, `BROWS` for COUNTS, `NOCC` and `RECB` for WDIFF, `NMASK` for
+  MASKTAB, `NROWS` and `KW` for ROWTAB, `NWAY` for WAYS, `NROWS` and `KW`
+  for CELLS;
+- each entry's slot is exactly the place and size those fields imply, so
+  each expander writes only inside its entry's slot `[off, off + len)`.
+  ROWPLANES and the follow-up also write `bz_boxbuf`'s first 32 and
+  `9 KW` (at most 297) bytes;
+- COUNTS' running sum reaches `NOCC` by the tool's check, and WAYS reads
+  only the cells the tool checked every way lies on (128.10.4.6 item 4, and
+  the cell check of form 6);
+- the time is the next table's: at most about 0.4 s on `PEAK` under D with
+  the follow-up, about 0.5 s under C.
+
+**The forms the guest knows are assembled from the tool's list.**
+`bzcourse.inc` defines `BZ_FORMS`, a mask of the forms the shipped parts
+use, and `bonanza.asm` refuses at assembly a form its dispatch table does
+not hold. So a part can never carry a form the build's expander lacks.
+
+##### 128.15.4.6 Load cost, per course (PREDICTED)
+
+PREDICTED at 4,770 clk a millisecond. WDIFF is ONE loop for both strides
+(the stride read from `RECB`): `mov ax, [bx + si]` with `BX = -RECB`,
+`add [si], ax`, two `inc si` and `loop`, about 73 clk a word, so about
+**146 clk a D record and about 290 a C record**. (The report's 115 a D record
+and 213 a C record were loops specialised to each stride; one loop for
+both is a few bytes smaller and is chosen, at about 20 ms more on `PEAK`
+under D and about 50 ms more under C.) ROWPLANES is about 75 clk a cell, COUNTS 63 a row, a
+computed word about 25 and a way about 150. The records: `FIRST` 290,
+`TRIAL` 786, `MILL` 1,324, `MOON` 2,619, `PEAK` 3,289, `BENCH` 2,645
+(MEASURED at `ef59209a`).
+
+| course | WDIFF, D | WDIFF, C | ROWPLANES | the rest | total, D | total, C | the follow-up (128.15.6) |
+|---|---|---|---|---|---|---|---|
+| `FIRST` | 9 ms | 18 ms | 33 ms | under 1 ms | about 0.04 s | about 0.05 s | about 0.02 s |
+| `TRIAL` | 24 ms | 48 ms | 50 ms | 1 ms | about 0.08 s | about 0.10 s | about 0.04 s |
+| `MILL` | 41 ms | 81 ms | 78 ms | 2 ms | about 0.12 s | about 0.16 s | about 0.07 s |
+| `MOON` | 80 ms | 159 ms | 128 ms | 3 ms | about 0.21 s | about 0.29 s | about 0.14 s |
+| `PEAK` | 101 ms | 200 ms | 134 ms | 3 ms | about 0.24 s | about 0.34 s | about 0.15 s |
+| `BENCH` | 81 ms | 161 ms | 127 ms | 3 ms | about 0.21 s | about 0.29 s | about 0.13 s |
+
+**Against what the launch saves** (PREDICTED, for `PEAK` under LZ4 parts):
+- its packed part falls from 23,649 to 12,676 bytes under D (128.15.14),
+  about 21 sectors fewer at 35.6 ms each, which is about -0.76 s;
+- the decoder writes about 13KB less at 63.8 clk a byte, which is about
+  -0.17 s;
+- so with the expansion and the follow-up (about 0.39 s) a launch gets
+  about **0.5 s shorter under D**. Under C the expansion is about 0.49 s,
+  the part packs to 13,562, about 0.9KB larger (about 20 sectors fewer,
+  -0.70 s), and the decoder writes as many bytes as today, because C's RAM
+  form is today's length, so about **0.2 s shorter**. Both
+  are MEASURED in the final pass (128.15.9 has LZB's figure).
+
+#### 128.15.5 The 4-byte occluder record
+
+##### 128.15.5.1 The record and its biases
+
+Under `BZREC=4` a record is 4 bytes in RAM. It holds the same facts as
+128.10.4.4's 8:
+
+| at | |
+|---|---|
+| +0 | the block's word column (unchanged) |
+| +1 | `s' = s_C - br + SB`: the depth key, relative to its own block row `br` |
+| +2 | `t' = top_C - TB`: the top, relative to the course's lowest |
+| +3 | `m`, the mask's INDEX: its offset is `MTAB[m]` |
+
+**The biases** are the tool's: `SB = 1 - min(s_C - br)` and `TB = min(top_C)
+- 1`, over the course's records. **The bounds**, refused at build time
+naming the course:
+- `SB` in **-128 - 127** (a signed byte in the header, 128.15.4.1);
+- every `s'` in **1 - 255**;
+- every `t'` in **1 - 255**;
+- `NMASK` at most 256.
+
+MEASURED at `ef59209a` from the built parts: `s_C - br` spans at most 30
+(`MILL`: -25 to 5), so `s'` reaches at most 31, and `SB` is 9 - 26 on the six
+courses (`MILL` 26). The tops span at most 208 (`MILL`).
+
+**The keys and the rule.** A record is laid when `s_b < s_C` and
+`z_b + m < top_C` (128.10.4.4, unchanged). With bytes, that is:
+
+    ks = clamp(s_b + SB - br, 0, 255)       the key of block row br
+    kt = clamp(z_b + m - TB, 0, 255)        the frame's key
+    lay  iff  ks < s'  and  kt < t'         (unsigned)
+
+The clamps keep the verdict exact for ANY ball position, including one a
+harness pokes outside the reachable set. Every `s'` and `t'` is at least 1,
+so a key clamped up from below 0 still lays. A key clamped down to 255
+lays nothing, because no `s'` or `t'` is over 255.
+
+**`ks` is computed for each block row from that row's `br`**, never carried
+from the row before and lowered. A carried key has to be lowered on EVERY
+row step, including a row with no record in the footprint's columns, which
+jumps from `.bsd` straight to `.nrow` and never reaches the key loads; a
+lowering put beside the key loads would skip it, and the next row would
+test with a key one too high. Computing it from `br` has no such path, and
+the model is the rule itself.
+
+`--selfcheck` item 10 models the byte compare. On every course it must give
+the rule's verdict for every record at every query in the merge's set
+(`block_queries`) and at poked keys either side of the clamps. Its
+negative controls are `SB` one lower, and a key that wraps instead of
+clamping.
+
+##### 128.15.5.2 `bz_occ`, `bz_oand` and the search on it, priced
+
+What changes, from 128.10.8 item 1's pass (`apps/bonanza/bzvideo.inc`).
+Under D the frame keeps two keys in the package's data, and `.lines` loads
+them into registers for each row, as today's code loads `s_b` and
+`z_b + m`:
+- **At `.key`, once a frame**: `kt` as above, clamped, into the byte
+  `bz_okt`; and `s_b + SB` (`bz_sb` plus `bz_osb`, unclamped) into the word
+  `bz_ozk`, which today holds `z_b + m` and under D holds this instead.
+- **At `.lines`, each block row with a record in the footprint's
+  columns**, where today's `mov cx, [es:bz_sb]` and `mov di, [es:bz_ozk]`
+  stand: `ks = clamp(bz_ozk - (bz_obr >> 3))` into CL, `bz_okt` into CH,
+  and `MTAB` (`bz_mtab`) into DI. CL and DI are reloaded for each row
+  because `.lines` itself uses CL (`shl ax, cl` for the map row) and the
+  binary search uses DI, exactly as today's two loads are.
+- **The walk's two tests** become `cmp cl, [si + 1]` / `jae` and
+  `cmp ch, [si + 2]` / `jae`, where they were `cmp cx, [si + 2]` / `jge`
+  and `cmp di, [si + 4]` / `jge`.
+- **The stride is 4**: `add si, 4`, and the binary search's `and ax, byte
+  -4` and `lea si, [di + 4]`, each the same instruction as before.
+- **The group's first laid record**: `mov bl, [si + 3]` / `xor bh, bh` /
+  `shl bx, 1` / `mov bx, [bx + di]`, through the course part (DS), where it
+  was `mov bx, [si + 6]`.
+- **`bz_oand`** (a second or later laid record) cannot read it that way,
+  because BX is its input, the group's mask so far, and `[si + di]` is not
+  an 8086 address. It reads `mov al, [si + 3]` / `xor ah, ah` / `shl ax, 1`
+  / `add di, ax` / `mov si, [di]`, where it read `mov si, [si + 6]`. DI is
+  saved on entry and set to `bz_omsk` next, so it may be used here.
+  **AX is the catch**: today `bz_oand` loads `mov ax, [es:bz_ofl2]` BEFORE
+  `mov si, [si + 6]`, and AX then carries `bz_ofl2` into `add si, ax` and
+  `add di, ax` (`apps/bonanza/bzvideo.inc`, `bz_oand`, about lines 1233 -
+  1236). The table lookup uses AX, so under D it comes FIRST: the five
+  instructions above, then `mov ax, [es:bz_ofl2]`, `add si, ax`, `mov di,
+  bz_omsk`, `add di, ax`. That is the same instructions in a different
+  order, so the price below is unchanged; reloading `bz_ofl2` after the
+  lookup instead would cost one more word load.
+
+**Priced** from the 8088's instruction table (8086 timing plus 4 for each
+word access), each instruction at least 4.34 clk a byte for the fetch,
+ESTIMATED:
+
+| where | clk |
+|---|---|
+| each frame the pass runs: `kt` with its clamp, and `s_b + SB` | about +95 |
+| each block row that reaches `.lines`: `ks` from `br`, with its clamp | about +105 |
+| each record tested: a byte compare for a word one | -4 |
+| each record that passes the `s` test | -4 |
+| each group's first laid record: the table read | about +30 |
+| each further laid record of a group (`bz_oand`): the table read | about +40 |
+| a frame where the gate is closed, and every step | 0 |
+
+- **A typical occluder frame** (9 records tested, 4 passing, 1.1 laid, 2
+  block rows with records; the report's footprint figures): about
+  **+280 clk**.
+- **The worst reachable position** (28 tested and passing, 28 laid, so at
+  least 19 of them ANDed into a group, 3 block rows): about **+1,200 clk**,
+  about 4% of that pass's 28 - 34k and about 1.5% of a 79.6k refresh.
+
+This is well above the report's +30 and +450, which priced the frame's
+keys at +45 and a row at +3, and read `bz_oand`'s mask the same way as the
+walk's. The prices here are taken from the code as it stands (the
+registers `.lines` and the search already use). 128.15.5.4 is what
+decides, and it reports the occluder pass's clocks beside its verdict.
+
+##### 128.15.5.3 The fallback C, and the switch
+
+**C** is the same stored form with `RECB` = 8. In RAM, C has today's
+records (`BZC1`'s 8 bytes, absolute mask offsets), no `O` section, and
+`SB`, `TB` and `MTAB` 0. Its occluder pass is **today's code, byte for
+byte**: 0 clk a frame. It saves -32,616 bytes packed on its own (the
+report), and it gives none of D's 43.8KB of RAM back. That RAM waits for
+T10 (wave 10).
+
+**The switch is one Makefile knob**, `BZREC ?= 4`, stamp-tracked like every
+knob and carrying a `#> [Knobs]` line for `make help`.
+- It reaches the tool as `--rec $(BZREC)`, and the tool writes `BZ_REC
+  equ 4` or `8` into `bzcourse.inc`. The course stamp (`.bz-crs`) carries
+  `BZREC`, so changing it recompiles the courses.
+- `bz_occ` and `bz_oand` carry two arms, `%if BZ_REC = 4` and the 8 arm,
+  which is today's code. `bz_crshdr`'s three copies and their cells are in
+  the 4 arm only. The expander is the same code for both: WDIFF's stride
+  is the header's `RECB`, and MASKTAB is simply absent.
+- **The identities do not depend on `BZREC`** (128.15.7), so both arms
+  build from the same committed demos, and `BZD1` - `BZD5` play the same
+  trajectories on both.
+- So a C build is `make BUILD=<dir> BZREC=8`, and nothing else changes
+  between the two.
+
+**After 128.15.5.4 decides**, the decision's commit deletes the losing arm
+from `bz_occ`, `bz_oand` and `bz_crshdr`, and `BZREC` with it, so the
+shipped source has one occluder walk. The tool keeps both strides, since
+the stride is data, so a later return to C is the other arm out of git and
+nothing else: no identity, demo or best moves.
+- If D wins, the deletion changes no byte of the shipped build (`cmp`), so
+  the final pass stands.
+- If C wins, the shipped build becomes C's. The identities, the demos and
+  the bests are unchanged, so no `.bzd` is re-authored. The red arms that
+  name D's walk go with it: `recstep` (`bonanzaring`) is deleted, and
+  every other arm of 128.15.13 has a target under both strides. The rows
+  128.15.13 names run once more on the C build.
+
+##### 128.15.5.4 The acceptance measurement (the owner's HUD rule)
+
+At ONE commit, build the default tree (`BZREC=4`) and a private tree with
+`BZREC=8`. The identities and demos are the same in both (128.15.7), so
+the two `D` runs of a demo play the same trajectory.
+
+- **What runs.** `bonanzaperf`'s `D` legs: `BZD3` (`MILL`) and `BZD5`
+  (`PEAK`), on the CGA and on the Hercules, speaker ON, **three runs
+  each** on each build: 24 runs.
+- **How `D` is pressed.** The row pauses the guest, steps it to the card's
+  next completed frame (`frame_count()` increments), and injects `D` there,
+  so the key's phase against the refresh is the same in every run. The
+  disk's rotation and the timer at that moment still differ between runs,
+  so runs of one build are not identical, and the C - C spread below is
+  what measures that.
+- **The rule, as the owner gave it: "at most 2 more misses a card".** For
+  each card, the two demos' misses are SUMMED (`BZD3` + `BZD5`), and D
+  ships if, on both cards, the mean of D's three sums is **at most 2 more**
+  than the mean of C's. Otherwise C ships. This is the stricter of the two
+  readings: D may not spend 2 misses on each demo, 4 on a card.
+- **When the runs are too noisy to decide.** Beside the rule the row
+  reports C's own spread on each card (the largest minus the smallest of
+  its three sums). If that spread is over 4, twice the margin, three more
+  runs a leg are taken on both builds and the rule is applied to the
+  means of six. That is the only extension; its verdict stands.
+- **Reported beside it** (not deciding): every run's misses, the busy
+  mean, the occluder pass's part of `D`'s breakdown and its worst frame,
+  and the occluder pass's clocks D - C on frames drawn at the same step `n`
+  in both builds (the deterministic part of the difference: the same ball
+  position, the same records).
+- **Where the figures go.** They and the verdict are written into this
+  subsection as MEASURED. The losing arm then goes, as 128.15.5.3 says, and
+  the A/B leg goes with it: it is 5b's final pass's measurement, not a
+  standing check.
+
+The rest of 5b (the stored forms, the dither, the disk plan) is the same
+under both, so it does not wait for this.
+
+#### 128.15.6 The grid's derivable fields (the follow-up)
+
+Lands after 128.15.4's forms are green on the host (`--selfcheck` item 10
+and `make`), in a commit of its own, and BEFORE 5b's final pass, so the
+final pass runs on it. **It changes the stored form only.** The RAM form, and so the identity, do
+not move, and no demo is re-stamped.
+
+**Form 7 CELLS** (`dlen = len`). Each cell is stored as in RAM except two
+fields, each stored as its DIFFERENCE from the rule:
+- a VOID cell's `z0` is stored as `(z0 - rule_z0) mod 256`;
+- every cell's flags bit 0 (SAFE) is stored XOR `rule_safe`.
+
+The guest computes the rule, adds `rule_z0` and XORs `rule_safe`.
+Wherever the rule agrees with the tool, the stored byte is 0, which LZ4
+packs. **A cell the rule does not reproduce is stored as its non-zero
+difference**, so a special case costs bytes, never correctness. The one
+place the tool builds a VOID cell by a rule of its own is the lift's
+shaft, whose kill height is 3 units under the slab's low top (128.12.3.2).
+On today's courses the rule reproduces it anyway: the shaft's tile is not
+in the course's `tiles`, so the tool's grid makes it a NEAR void, and the
+slab's low top less 3 units happens to equal the neighbours' lowest corner
+less 6 (`MILL`'s shaft cell (26, 18) is -14 both ways, `PEAK`'s (39, 35) 24
+both ways). So the six courses have **no exceptions** (the review ran the
+rule host-side over all six at `ef59209a`), and a later lift can have one.
+
+**The rule** (128.10.4.3 and 128.12.3.2, as the tool builds the grid):
+- A VOID cell is NEAR when some non-VOID cell lies within two tiles
+  (Chebyshev in `wx` and `wy`). Then `rule_z0` is the lowest corner of
+  those cells, in half units, less 6: `z0 + min(0, sx) + min(0, sy)` over
+  them. Otherwise the cell is OPEN, and `rule_z0` is -128.
+- `rule_safe` is 1 on a FLOOR cell (kind nibble 1) with `sx = sy = 0`,
+  `OBS` clear, and no VOID cell among its four edge neighbours. A
+  neighbour outside the grid counts as VOID.
+
+**Scratch, time and bytes:**
+- only `bz_boxbuf`, at most `9 KW` bytes: for example a ring of nine cell
+  rows' lowest corners. The tool refuses `KW` over 33 (128.15.4.2; today's
+  courses are at most 15), so that is at most 297, and `bonanza.asm`
+  asserts by `%if` that `bz_boxbuf` holds 297. The algorithm is the
+  implementer's;
+- PREDICTED 0.7M clk, about 0.15 s, on `PEAK` (the report's separable
+  form), and at most 0.25 s, which the final pass measures;
+- about 150 - 230 launch-only image bytes, PREDICTED.
+
+**The saving**: -1,791 bytes packed on the six courses (MEASURED in
+combination, the report's section 4).
+
+**The guards.**
+- **On the host**, item 10's `expand == RAM` on every course. Item 10 also
+  prints each course's exceptions and requires them to be a SUBSET of the
+  lifts' shaft cells (none on today's courses). A host rule that has
+  drifted from the tool's shows up as more exceptions, never as a wrong
+  grid.
+- **On the guest**, `bonanzaexit`'s claim leg (128.15.13) compares the
+  expanded part with the tool's RAM form. A guest rule that differs from
+  the host's gives a wrong grid, which only that compare sees, so its red
+  arm `cellsafe` (the guest's SAFE rule without the `OBS` test) must fail
+  it on `MILL`.
+
+#### 128.15.7 The identity, the demos and `BZ_PHYSV`
+
+**The identity** (128.12.8) is still Fletcher's pair over the CGA part's
+words, now over the RAM form **as `RECB` = 8 lays it out**, whatever the
+build's `RECB`: C's RAM form, which the tool builds for every course
+anyway (item 10 expands both). These are taken as 0:
+- the identity word (`BZG1` +18), as before;
+- every directory entry's FORM byte (+1);
+- every directory entry's STORED LENGTH word (+6).
+
+The guest never computes an identity: it compares the stored word with a
+log's (`bz_launch`, 128.12.8), so the tool may take it over any form it
+chooses. Taking it over C's form makes it independent of the record's
+stride, which buys two things:
+- **C and D share every identity.** The `BZREC=8` tree of 128.15.5.4 builds
+  from the same committed `.bzd` files, so the A/B's `BZD5` leg exists in
+  both trees, and a C win re-authors nothing (128.15.5.3).
+- The identity word sits at `GRIDOFF + 18` in each form, so a D part
+  carries the same value at D's offset.
+
+The form bytes and stored lengths describe how the bytes are stored, not
+the course, so a change to a stored form alone (128.15.4.3's choices, the
+follow-up) leaves every identity, every best and every shipped log valid.
+`--selfcheck` item 10 checks the rule three ways: an entry's form byte and
+stored length changed leave the identity unchanged; one changed RAM byte
+moves it; and the identity is the same under `RECB` 4 and 8.
+
+**What moves the identities in 5b**:
+- `BZC2`'s RAM form (5b.2): the header and the directory (C's form has no
+  `MTAB` and no 4-byte records, so those do not);
+- the dither (5b.6): the masks.
+
+They are best landed in one commit, so the authored demos are re-written
+once.
+
+**The demos** (128.14.7.4):
+- The ROUTE demos (`FIRST`, `TRIAL`, `MILL`) are stamped by the build, so
+  nothing in the tree changes for them.
+- `MOON`'s and `PEAK`'s AUTHORED demos fail the build (check 4: another
+  build of the course) until `python3 tools/bbcourse.py author` writes them
+  again. The scripts are `bbcourse.AUTHOR`'s, and physics is unchanged, so
+  their `run` lines and `steps` are unchanged and only `ident` moves. The
+  diff of each `.bzd` is its `ident` line, and the commit says so.
+
+**Lost, deliberately**: a `.BZR` saved by a wave 4 build is refused as
+"Another course's log", and `BONANZA.DAT`'s bests filed under the old
+identities match no course and are cleared (`bz_dnorm`, 128.14.25 item 4).
+Nothing is migrated: the only player is the owner, and wave 6's physics
+freeze moves `BZ_PHYSV` anyway.
+
+**`BZ_PHYSV` stays A0h.** It hashes `BZ_MATTAB`, `PHYS_CONSTS`,
+`BZ_SURFTAB`, the corner table and the octant table (128.14.25 item 4), and
+5b moves none of them. `--selfcheck` item 4 asserts it. Physics reads the
+same cells, ROWTAB, route, props and grid header as before, at the RAM
+form's offsets.
+
+#### 128.15.8 The course budget (story 5b.4)
+
+**The `target` statement**: `target 30|60|90`, the course's design time in
+seconds (CD3).
+- Required on every course except course 0 (the benchmark's), and refused
+  if missing, given twice, or not 30, 60 or 90.
+- It is the tool's only. It is written neither into the part nor into
+  `bzcourse.inc`, so it never moves an identity.
+- The shipped courses take `FIRST` 30, `TRIAL` 30, `MILL` 30, `MOON` 60
+  and `PEAK` 60. They are the early and the middle classes until their
+  retrofits (waves 11 and 13).
+
+**The packed budget**: `budget(t) = ROOM x t / 1,170` bytes.
+- `ROOM` is the room for courses on the 360KB play disk, a constant in the
+  tool: **239 KiB**, the report's section 7. That is R4's 217 KiB after
+  code, demos, songs, the pathway, the front art, the family parts and 10%
+  slack, plus what the report's other items give back.
+- 1,170 s is the planned set of CD3: six courses of 30 s, nine of 60 s
+  and five of 90 s.
+- So the budget is about **209 bytes a target second**: `floor(244,736 t /
+  1,170)` is 6,275 bytes for a 30 s course, 12,550 for 60 s and 18,825 for
+  90 s.
+- **`ROOM` was sized for twenty courses**, and twenty is the owner's rough
+  want: "it could be 19, or 18 total" (2026-11-14). At 18 courses of the
+  same mix each budget would be about 11% looser. The pinned figures above
+  are NOT changed for that: they stay the refusal's, and the slack is the
+  margin that keeps all of them on one disk (128.15.9).
+- `ROOM` is re-derived by any wave that moves a non-course item by more
+  than 2 KiB. `--sizes` prints the live derivation from the built package,
+  for comparison, but the refusal reads only the constant, so a build
+  never depends on a previous build's files.
+
+**Refused**:
+- a course whose packed part, **packed as LZ4** whatever `BZPARTZ` is, is
+  over **1.5 x** its budget (`floor`, so 9,412 for 30 s). That is R4's
+  ratio of 16KB to 10.5KB. LZ4 is the larger of the two formats, so a
+  course that passes fits under either, and whether the tree builds never
+  depends on a knob: the tool takes no format flag, and neither
+  `bzcourse.inc` nor the course stamp depends on `BZPARTZ`;
+- as now, a RAM form over 65,024 bytes (§20.12.11's `OP_PARTMAX`).
+
+**Printed against each course's budget** ("over" is printed, not refused),
+in both formats. The figures are 128.15.14's (MEASURED on the host at
+`ef59209a`, with the ways modelled as zero pairs, so the real parts pack
+slightly larger):
+
+| course | target | budget | LZB | LZ4 |
+|---|---|---|---|---|
+| `FIRST` | 30 s | 6,275 | 1,699 | 2,112 |
+| `TRIAL` | 30 s | 6,275 | 3,145 | 3,903 |
+| `MILL` | 30 s | 6,275 | 7,127, **over**, under its 9,412 cap | 8,775, **over**, under its cap |
+| `MOON` | 60 s | 12,550 | 7,219 | 8,914 |
+| `PEAK` | 60 s | 12,550 | 10,377 | 12,676, **over** by 126, under its 18,825 cap |
+
+`MILL` is dense for its 12.4 s route: a lift, two windmills and two tubes
+on 78 block rows. It is printed over its budget, which is the cue for its
+rebuild in wave 13.
+
+**`PEAK` is printed over its budget too, in LZ4 only**: 12,676 against
+12,550. It is far under its 18,825 cap, so nothing refuses it, and under
+its budget in LZB (10,377), the format that ships (128.15.9). The printout
+above will show the word "over" on `PEAK`'s LZ4 column, and that is the
+correct reading, not a fault in the tool.
+
+**RAM, printed for each course** (the refusal is 65,024 as now):
+- the RAM form's bytes, and the headroom under 65,024;
+- the bytes a block row, `RAM / BROWS`;
+- the pace, `target / BROWS` seconds a block row;
+- the longest course one part holds at this density and pace, in block
+  rows and seconds.
+
+For `PEAK` (the RAM form MEASURED on the host, 128.15.14): 47,796 bytes,
+17,228 of headroom, about 359 bytes a row, 0.45 s a row, and so about 181
+rows or about 81 s. **A 90 s course needs wave 11's levers (story 11.6)
+and a pace of at least 0.425 s a row**, as the plan's CD3 says. The tool
+prints that line under every 90 s course.
+
+**The two-part course: the documented escape for a course past one part.**
+The owner asked (2026-11-14) whether a course could "make a larger claim,
+and split out art/sound from occlusion data", and said "we can look into
+the option if we actually need it". It is recorded here and NOT built in
+5b:
+- **The shape.** The course is two parts and two claims, each at most
+  65,024 bytes: the PICTURE (the map and the block pool) in one, and the
+  occluders, the masks, the grid and the props and lanes in the other.
+- **Its costs, ESTIMATED from the code as it stands:**
+  - at the launch, one more fetch and one more claim;
+  - the routines that read one kind of data only (the row writer, physics,
+    the wheel) load a different segment word into DS or ES, where they load
+    `bz_cseg` today: 0 clk;
+  - the one place that reads both at once is the occluder lay: `bz_olay`
+    reads the picture's block and the record's mask in one pass, with DS =
+    the course (`apps/bonanza/bzvideo.inc`, `bz_occ`, about line 1111).
+    Split, it switches segment once for each laid group: tens of clocks
+    each, and a few hundred clocks a frame at worst.
+- **When it is taken**: only when a course actually exceeds one part, which
+  under D is about 73 s at MOON's and PEAK's pace (the plan's CD3), and
+  about 81 s at `PEAK`'s own. Its clocks are measured then, against the
+  owner's HUD rule (128.15.5.4's shape).
+- **kern_mega**: each part is a selector of its own (128.15.11), and no
+  segment arithmetic is done between them.
+
+**The set, printed by `--sizes`**: the shipped courses' packed total, plus
+the planned courses still to come at their budgets, against `ROOM`.
+
+#### 128.15.9 The disk plan (story 5b.5)
+
+**The parts' format is one switch**, `BZPARTZ ?= lzb`, a `#> [Knobs]`
+line in the Makefile, stamp-tracked.
+- `BONANZA.O88`'s rule passes `--part-compress` (os88pkg's existing flag,
+  §20.12.7) with the EFFECTIVE format, `BZPARTZF`, and the stamp names
+  that.
+- `BZPARTZF` follows the kernel when the kernel reads one format only
+  (§20.13.6): `lz4` on a `COMPRESS=lz4` build and `lzb` on a
+  `COMPRESS=lzb` one, whatever `BZPARTZ` says, as `$(OS88PKGB)` falls back
+  for the image (§20.13.5). Otherwise it is `BZPARTZ`. So no build ships a
+  part its own kernel refuses.
+- The courses' compile does not read it (128.15.8), so changing it re-packs
+  `BONANZA.O88` and recompiles nothing.
+- **The rows' private trees pack with the shipped build's format.** Every
+  row that builds a package of its own (`tests/bonanza_ring.py`'s
+  `build_tree`, `tests/bonanza_perf.py`'s out-of-git builder, and each red
+  arm built through them) passes `--part-compress` with the format read
+  from the shipped `build/bonanza.o88`'s parts table (`OP_T_FMT`), not
+  os88pkg's default. Those two builders are among 5b's row edits.
+- The format byte is the parts TABLE's, not the row's (`OP_T_FMT`), so
+  every `OP_COMP` row goes LZB together: the courses, the three balls, the
+  sound part, the songs and the demos.
+- **LZB is decided** (the owner, 2026-11-14): "'a stronger compression
+  mode for the courses': lzb I assume? That would be fine." So
+  `BZPARTZ=lzb` is the default and the shipped format. **The owner was
+  quoted +0.9 s** on a long course's launch (the report's figure, the
+  course alone), and this contract's finding is higher: `PEAK`'s LZB launch
+  is an UPPER BOUND of about +1.6 s over LZ4 (about 5.0 s against about
+  3.4 s; about 3.9 - 4.0 s today), because the balls go LZB with the table
+  (below). The final pass MEASURES it, and the owner is told the measured
+  figure.
+
+**The image's format** stays LZ4. LZB for the image is OFFERED through the
+existing mechanism and is not taken until the owner says so. Taking it is
+three edits:
+- `bonanza` joins `LZBPKGS`, and its rule packs through `$(OS88PKGB)`
+  (§20.13.5);
+- `tests/unit/t_lzbclust.py` gains a BONANZA entry. That gate re-packs each
+  listed package as LZ4 to compare, and `os88pkg.py` refuses a re-pack of
+  a parted package without its parts, so its `PARTS` table gets BONANZA's
+  parts in the Makefile's `BZ_PARTS` order (read from the Makefile or the
+  build dir, not copied, since there are 21 today and they are generated)
+  and its `PART_ARGS` gets `--part-compress` with the shipped format;
+- the gate then holds it to its own test: **`BONANZA.O88` takes fewer 1KB
+  clusters as LZB than as LZ4**.
+
+The report MEASURED -3,248 bytes, 3 clusters, at about +0.64 s each time
+the window opens.
+
+**The two arms, PREDICTED** (`PEAK`, the heaviest launch; the stored forms
+of 5b with the follow-up; clusters of `bonanza360.img`'s 354, with the
+README and `SYSTEM\APPDATA`; MEASURED inputs in 128.15.14):
+
+| | today (MEASURED) | 5b, LZ4 parts | **5b, LZB parts (decided)** | and LZB for the image |
+|---|---|---|---|---|
+| the six courses, packed | 83,152 | about 43.3KB | about 35.0KB | the same |
+| the balls, sound, songs, demos | 13,911 | 13,911 | about 11.4KB | the same |
+| `bonanza360.img`, clusters used | 130 | about 91 | about 80 | about 77 |
+| `PEAK`'s launch to its bracket | 3.9 - 4.0 s | about 3.4 s | **up to about 5.0 s** (an upper bound) | the same; +0.64 s at the window's opening |
+
+**Why LZB costs `PEAK` up to about 1.6 s, not the plan's 0.9 s.** The
+figure multiplies the output bytes by Calc's mean, about 191 clk an output
+byte for LZB against LZ4's 63.8 (§20.13.6), so it is an UPPER BOUND: LZB
+has no literal runs, so its cost is per SYMBOL (each literal a tagged
+symbol, each match a symbol and its copy), and Calc is code, which is
+literal-heavy. A course part is match-heavy (WDIFF's small differences,
+the deduplicated blocks, the zero holes), so its cost an output byte is
+likely well under Calc's. `--sizes` prints the prediction from the real
+streams (128.15.12.2), and the final pass MEASURES it.
+- The course alone is the report's +0.9 s: about 41KB of non-zero output,
+  less a shorter read.
+- **The three balls are LZB too**, because the format byte is the
+  table's: 29,888 bytes of output, about +0.7 s less their shorter read.
+- Wave 9's ball V2 shrinks what the balls expand by about three quarters,
+  and takes most of that back.
+- **The sound part and the title's song are LZB too.** They are fetched
+  on the desktop when the window opens and fetched again after every
+  launch (128.20.6), at most 2,071 bytes: about 83 ms of LZB against about
+  28 ms of LZ4, so about **+55 ms** at the window's opening and at each
+  return to the desktop (PREDICTED, the same upper bound).
+- A per-ROW format bit in the parts standard (§20.12) would let the balls
+  stay LZ4. That is a change to the OS's standard, not to this package,
+  and it is not proposed here.
+
+**MEASURED both ways in the final pass**, at one commit, the second arm in a
+private tree (`make BUILD=<dir> BZPARTZ=lz4`):
+- `bonanza360.img`'s clusters;
+- `PEAK`'s and `MOON`'s launch to the bracket on MartyPC's CGA and
+  Hercules (`bonanzaperf`, 128.15.13).
+
+The measured launch figures go to the owner (Q-L2, 128.15.15). They
+confirm or correct the upper bound above; they do not reopen the format.
+
+**The "Worlds" disk is a last resort, and it is not built in 5b.** The
+owner, 2026-11-14: "'a second Worlds disk': I'd prefer not, but we can see
+what we need in the end. 20 is a rough want, too; it could be 19, or 18
+total."
+- **The target is 18 - 20 courses on ONE disk**, `bonanza360.img`. With
+  LZB parts the CD3 set of twenty needs about 206 KiB against `ROOM`'s 239
+  (the report's section 7), so it fits; with LZ4 parts it needed about 253
+  KiB, about 19 of the 20.
+- A second disk is taken only if one disk cannot hold the final set. It
+  would carry courses as files read as hostile input: O1's reader, about
+  1KB of resident code and about 0.13 s a load (128.14.9.2 (b)), with the
+  disk swap at a world gate on the pathway.
+- A world gate exists only from wave 8b, and nothing needs a second disk
+  before the play disk is full, so it stays story 8b.11, a conditional
+  story.
+
+**`BENCH` stays in the package** (O48). Compact, it is 6,884 bytes (LZ4)
+or 5,471 (LZB) (128.15.14). Retiring it from the play disk would be a knob that leaves
+the engine byte-identical, and nobody has asked for that.
+
+**128.14.9.2's re-decision** (at 250 clusters, or a shared disk) is
+replaced by this subsection's: the play disk is BONANZA's own
+`bonanza360.img`, and its budget is 128.15.8's.
+
+#### 128.15.10 The ghost dither and the visibility audit (story 5b.6)
+
+##### 128.15.10.1 The checker, in the masks
+
+A mask line is a word: the line's 8 pixels, two bits each, the left four
+in the first byte. The checker `CHK(y)` is **`CCCCh` on an even picture
+line and `3333h` on an odd one**. So at picture pixel `(x, y)` the checker
+KEEPS the buffer where `x + y` is even. A block row starts on a line that
+is a multiple of 8 and a word column on a pixel that is a multiple of 8,
+so a mask's line `i` is picture line `8 br + i`, and the checker is fixed
+in the world.
+
+**Every occluder mask is stored ORed with the checker**: line `i` is
+`mask(i) OR CHK(i)`. The tool does this after the merge (128.11.4.1, which
+ANDs the undithered masks), and then deduplicates the masks again and
+re-indexes the records. ANDing two dithered masks keeps the checker, since
+`(a OR C) AND (b OR C) = (a AND b) OR C`, so `bz_oand`'s group still lays
+a dithered mask.
+
+MEASURED by the report (section 3.5 (a), today's form): the six courses'
+masks fall from 478 to 422 (PEAK 122 to 108), -896 bytes raw and **-710
+packed**. **That packed figure is TODAY's form's only.** On 5b's D form
+the same dither saves about **-220 bytes LZ4 (-266 LZB)** over the six
+(MEASURED on the host at `ef59209a`, the checker's measurement of
+128.15.14). It still costs 0 clk and 0 guest bytes, which is why it is
+taken.
+
+**On the guest it costs 0 bytes and 0 clocks.** The lay is `((buf XOR
+blk) AND mask) XOR blk` whatever the mask holds. A laid pixel where the
+checker is set keeps the box's buffer:
+- **the ball's pixel there**, so a ball behind anything shows as a 50%
+  ghost;
+- or the block's own pixel, where the ball's sprite leaves the course, so
+  nothing changes.
+
+No record lays over the shadow, because the shadow is drawn only where
+`OCCG` is clear (128.11.4.3).
+
+How it looks: glass reads as a dotted ring, and a moving ghost shimmers,
+because the checker stays put in the world. On the Hercules each game
+pixel is two Hercules pixels, so the ghost is a 2 x 1 grey.
+
+##### 128.15.10.2 What is not dithered
+
+The checker goes into the `K` section, the occluder masks, and nowhere
+else:
+- **The lift's slab** is drawn by its own sprite (the `P` section's
+  platform sprite, 128.12.6.4), with its own mask.
+  - The slab OVER the ball is laid after the occluders, and stays opaque.
+  - The slab UNDER the ball cannot meet a laid record: the tool refuses a
+    lift whose slab overlaps a pixel of a nearer cell that rises above its
+    top (128.12.4.5), so no record is ever laid over the slab.
+  - So the slab is never half-ghosted. The look boot on `MILL` checks it,
+    and so does `bonanzaring`'s lift leg.
+- **The ball's masks** (`BZB2`) are not dithered.
+- **The lanes' pose maps** are block offsets, not masks. A rotor or a flag
+  in front of the ball lays its drawn pose's block through a dithered
+  record mask like any wall, so the ball ghosts through it too.
+- **A ball in a tube, or holed out,** is not drawn at all (`bz_hidn`), and
+  has no ghost.
+- **A ball falling into a pit** ghosts through the rim until its kill
+  height. The report priced restricting the dither to walls (+986 bytes
+  packed) and did not recommend it unless the owner dislikes ghosts in
+  pits.
+
+##### 128.15.10.3 The models: the rule's, and the card's
+
+There is one definition, `bbcourse.ghost(x, y)`: `(x + y) AND 1 = 0`. Two
+kinds of model read it:
+- **The RULE's models** use the UNDITHERED pixels: each record's `pix`,
+  and the masks before the OR. They are the merge's exactness, `OCC` and
+  `OCCG`, the laid bound, `--selfcheck` item 5's composite (records
+  against the per-pixel buffer) and the visibility audit's "hidden". The
+  dither changes no verdict, so none of them changes.
+- **The CARD's models** lay a record's pixels LESS the checker's: they lay
+  `(x, y)` only where `ghost(x, y)` is false. They are
+  `composite(..., ghost=True)`, `laid_at`'s card count, and
+  `bonanzaring`'s oracle (`tests/bonanza_ring.py`'s `foot`). The plan's
+  "the mask minus the checker" means this.
+
+Item 11's negative controls:
+- the card's model with the checker not stripped disagrees with the
+  dithered composite on `MILL`;
+- the rule's composite fed the dithered masks fails item 5's comparison.
+
+##### 128.15.10.4 The visibility audit, in REPORT mode
+
+It runs for every course except course 0, at compile time and in
+`--selfcheck`. It prints and never refuses until story 11.5 switches it.
+
+**The marks.** For every spring, pad and cup (the cup's mark and pin) and
+every tube mouth (IN and OUT), it prints:
+- the mark's pixels;
+- how many are seen: owned in the picture by the prop's own cell
+  (`render(owners=True)`);
+- the percentage, against **75%** (springs, pads, cups) or **50%** (tube
+  mouths), and `BELOW` when under it;
+- the cells covering the rest, with their pixel counts, most first.
+
+**The hidden stretches.** It runs the autopilot's route and every authored
+demo (`MOON`'s, `PEAK`'s) through the model. A step's ball is HIDDEN when
+more than half of its sprite's opaque pixels are laid by the RULE
+(undithered). A stretch is a run of hidden steps outside a tube. Every
+stretch over 27 steps (0.5 s) is printed with:
+- its first and last steps and its seconds;
+- its kind: ground, air, or holed;
+- its turn: the largest change in the direction of motion along it, in
+  degrees;
+- its cells, and the cells it is hidden behind.
+
+**A summary line**, for example:
+
+    visibility PEAK: 6 of 11 marks BELOW, 7 hidden stretches over 0.5 s, the longest 3.00 s from step 1396; ghost on
+
+"Ghost on" says that the dither leaves the ball at least half drawn
+through every record. On today's courses the figures are the report's
+section 3.5 (MEASURED), for example `PEAK`'s two springs, pad and cup at
+0%, and a 3.00 s stretch. `BENCH` is printed too, and exempt.
+
+#### 128.15.11 kern_mega, kern_small, the Hercules
+
+- **kern_mega**:
+  - The expanders read and write the course part through its own segment
+    from `op_seg` (on kern_mega an LDT selector), in DS or ES, at offsets
+    inside its `len`. `MTAB` holds part offsets read with DS = the part.
+  - Nothing is written through CS, nothing is added to a segment, and no
+    immediate is patched (128.10.6.4's rule), so **no `PKG_MEGA` arm is
+    needed**.
+  - LZB parts expand through `OSAPI_DECOMP` there as on kern_big.
+  - `bonanzamega` runs it on 86Box, and its red arm `expcs` is the check
+    (128.15.13).
+- **kern_small** refuses on the desktop as before (128.1).
+- **The Hercules**: the expansion runs on the CGA bytes before `bz_hgen`
+  and `bz_hxlat` (128.15.4.5). The records, the masks and `MTAB` are the
+  same bytes on both cards.
+
+#### 128.15.12 The tool
+
+##### 128.15.12.1 What it writes, and what the rows read
+
+- **`BZ<K>.BIN` is the STORED form.** `os88pkg.py` packs it.
+- **`c.cga` stays the RAM form** (CGA), the bytes the guest holds before
+  `bz_hxlat`. `c.stored` is the stored form, and `c.herc` the RAM form
+  through `htab()`.
+- **`expand(stored) -> RAM`** is the host's model of `bz_cexp`, in the
+  guest's order. A row that reads a `BZ<K>.BIN` from the disk calls it
+  first.
+- **`read_part`** reads a RAM form. It checks every field it checks today,
+  plus:
+  - the `BZC2` header (`RECB`, `SB`, `TB`, `MTAB`, `DIROFF`, `NSEC`);
+  - the directory's rules (128.15.4.2), each entry's place and size against
+    its header fields among them;
+  - every record's `s'` and `t'` bounds;
+  - `MTAB`'s words.
+- **`--rec 4|8`** comes from `BZREC`, and `bzcourse.inc` gains `BZ_REC`
+  and `BZ_FORMS`. The tool takes no format flag (128.15.8).
+- **The packed size** of each shipped course, packed as LZ4, is computed
+  when the courses are compiled, for 128.15.8's refusal: about 3 s a
+  course on the host, LZ4's optimal parse included, so about 20 s for the
+  six, paid when the course stamp (`.bz-crs`) rebuilds and not on every
+  `make`. `--selfcheck`'s fixtures (test strings compiled to check a rule)
+  are NOT packed; only the shipped courses and item 12's over-budget
+  control are. `bonanzacourse`'s `secs` is re-measured in the final pass.
+
+##### 128.15.12.2 `--sizes`
+
+    python3 tools/bbcourse.py --sizes [COURSE.bbc ...]     # on demand, about a minute a course
+
+It prints, for every course:
+- **each section**: its RAM bytes, its stored bytes and its PACKED SHARE
+  (the whole stored form packed, less the same with that section's stored
+  bytes zeroed), in LZ4 and in LZB;
+- **the whole stored form** packed as `os88pkg.compress_part` packs it
+  (the near-call filter tried), in both formats, with its paragraph
+  padding;
+- **its decode time in each format, PREDICTED from the stream**: LZ4 at
+  63.8 clk an output byte, and LZB from the symbol counts `os88lz.py`
+  reads off the real stream, `literals x c_lit + matches x c_match +
+  copied bytes x c_copy`, with the three constants taken from
+  `kernel/lz.inc`'s `lz_lzb` loop (ESTIMATED, their derivation beside them
+  in the tool's source);
+- **the RAM form** against 65,024, and the target, pace and long-course
+  line (128.15.8);
+- **the budget**, with "over" or "under" in each format, and the cap,
+  which is read against LZ4 (128.15.8).
+
+Then, for the package:
+- the courses' total in both formats;
+- `BONANZA.O88`'s other parts and image from the built package when it
+  exists (the live derivation of `ROOM`);
+- the clusters of `bonanza360.img` in both arms;
+- the set against `ROOM` (128.15.8).
+
+**Its figures replace 128.15.14's host measurement** once run, which
+already replaced the report's and the plan's R2 figures. They should agree
+with 128.15.14 to within the ways (modelled there as zero pairs, so the
+real figures are slightly higher), and with the report's section 4 within
+about 1% (128.15.14's six: 43,264 LZ4 against the report's 42,792), once
+these differences from the report are accounted for:
+- P is not taken (+313 against the report, which took it; nothing is
+  added for it on top of a measurement of the real part, which already
+  holds the props as they ship);
+- the dither, about -220 LZ4 on this form (-710 only on today's form,
+  128.15.10.1);
+- each section's zero hole and the row planes (128.15.4.3);
+- the `BZC2` header and directory (+16 and 8 bytes an entry, RAM);
+- the mask table (2 bytes a mask, RAM, zeros on the disk).
+
+##### 128.15.12.3 `--selfcheck` items 10 - 12
+
+- **10, the compact form**:
+  - on every course and under both `RECB`, `expand(stored)` equals the RAM
+    form byte for byte;
+  - the IN-PLACE SIMULATION: one bytearray, the guest's order, every
+    stored byte read before anything is written over it. A failure names
+    the course, the section and the offset;
+  - the directory's rules, each entry's place and size against its header
+    fields among them;
+  - the 4-byte records' byte compares against the rule (128.15.5.1);
+  - `MTAB`;
+  - the identity rule three ways (128.15.7), the identity equal under
+    `RECB` 4 and 8 among them;
+  - after the follow-up, each course's exceptions printed, and every one
+    of them a lift's shaft cell (none on today's courses).
+
+  Its negative controls, each required to fail at item 10:
+  - ROWPLANES with the low bytes first (the simulation);
+  - `SB` one lower (the byte compares);
+  - a key that wraps instead of clamping;
+  - an expander off by one record (`expand != RAM`);
+  - `MTAB` one entry short (`expand != RAM`);
+  - the boundary between the `I` and `R` entries moved by one word (`I`
+    two bytes longer, `R` two shorter and two later), so the entries still
+    tile the part: the place-and-size rule must name `I`;
+  - after the follow-up, the CELLS rule with SAFE's `OBS` clause taken out
+    (exceptions outside the shafts).
+- **11, the dither and the audit**:
+  - every `K` mask has the checker set (`mask OR CHK = mask`);
+  - the ball's masks and the slab's sprite mask carry no added checker
+    (each equals its generator's bytes);
+  - the merge's exactness, re-run on the undithered masks;
+  - the card's composite with the dither equal to `laid_at`'s card count;
+  - the audit printed for every course.
+
+  Its negative controls are 128.15.10.3's two.
+- **12, the budget**:
+  - a course over its cap is refused, naming the budget;
+  - `target 45` is refused, a missing `target` is refused, and `target`
+    given twice is refused;
+  - each shipped course's packed size and budget line is printed.
+
+Item 1 (determinism) covers the stored forms and the RAM forms. Item 8
+loses its HUD clause and `underhud` (128.15.3).
+
+#### 128.15.13 The rows
+
+Each row changes as below. Every red arm builds a broken copy into a
+private tree and must go red **at its own check**
+([docs/WRITING-TESTS.md](docs/WRITING-TESTS.md)). The private trees pack
+their parts in the shipped build's format (128.15.9). The rows run once,
+in 5b's final pass: one `os88test.py soak -k ...` of their union, with the
+A/B legs in that same pass (R5). The follow-up (128.15.6) lands before it.
+
+Every arm below has a target under both strides, except `recstep`, which
+is D's walk and goes with D's arm if C wins (128.15.5.3).
+
+| row | tier | what changes | new red arms, and the check each must fail at |
+|---|---|---|---|
+| `bonanzacourse` | soak, host | items 10 - 12; item 8's HUD clause and `underhud` gone; item 1 over both forms; the row text's "BENCH ... byte for byte 573eec83's parts" replaced by the RAM forms' new identities and `--sizes`' figures; its `secs` re-measured (128.15.12.1) | host controls only (item 10's seven, item 11's two, item 12's), each at its item |
+| `bonanzaring` | soak, MartyPC | the oracle lays records less the checker (128.15.10.3); `MILL`'s lift frames card = oracle with the slab whole, over and under the ball; `PEAK`'s demo card = oracle through the moat stretch (ghosts drawn); 5a's HUD legs gone | `nodither`, made at the DATA, not the tool: a copy of `build/bonanza-art` whose `K` section in each `BZ<K>.BIN` has every mask line ANDed with `NOT CHK(i)` (the `K` slot is PLAIN, so its bytes sit at their RAM offsets in the stored form), packed into a package by `build_tree` from that copy. The identity word is left alone, so the demos still play and nothing is re-authored. It fails card = oracle on the first frame that lays a record over a ball pixel where `ghost` is true. `recstep` (D only): the walk steps 8 over 4-byte records, so it skips every second record of a block word. It fails card = oracle on the first frame whose pass should lay a record it skips |
+| `bonanzaexit` | soak, MartyPC | **the CLAIM leg**: at a breakpoint on `bz_launch`'s `OSAPI_FSX_RUN` call (after `bz_cexp`, and `bz_hxlat` on the Hercules; before the lanes' writer, 128.15.4.5), on both cards, the course claim (`bz_cseg`, read through the heap map) equals the tool's RAM form (CGA) or its `htab()` translation (Hercules), byte for byte. At every launch the row makes: `FIRST`, `MILL`, `MOON`, `PEAK`, `BENCH` (B), the tour's (`FIRST`, and `MOON` at the cup) and `D`'s (`FIRST`'s demo); and one launch of `TRIAL` added for this leg (Enter, then Esc), so all six shipped courses are compared. `V` opens no bracket and is checked as before | `expoff1`: WDIFF's count one record short. `rowtab1`: ROWTAB writes `NROWS - 1` words. `cellsafe` (with the follow-up): the guest's SAFE rule without the `OBS` test. Each fails the claim leg at its first differing offset: `expoff1` and `rowtab1` on the first launch, `cellsafe` on `MILL` |
+| `bonanzaperf` | soak, MartyPC | **the A/B of 128.15.5.4**, in 5b's final pass only (C in a private tree, `D` injected on a frame boundary, three runs a leg and six if C's spread is over 4, the rule ASSERTED on each card's summed misses, every figure REPORTED; it leaves with the losing arm); **the format A/B of 128.15.9** (`PEAK`'s and `MOON`'s launch to the bracket, `BZPARTZ=lz4` in a private tree, both cards, REPORTED); **the BENCH A/B anchored at 5a's commit** in this pass (its package is `ef59209a`'s byte for byte), so its assertion, BENCH's mean busy at most 0.5k over the anchor, is the standing guard on D's frame cost; it is re-anchored at 5b's commit only for later waves; 5a's HUD legs gone | none new: its existing arms re-run |
+| `bonanzamega` | soak, 86Box | the launches expand through their selectors on kern_mega (CGA arm on the Paradise VGA and the Hercules); LZB parts decoded there; no fault, no leak; 5a's HUD legs gone | `expcs`: ROWTAB's stores through a CS override. It fails the no-fault check: a #GP charged to BONANZA at the launch |
+| `bonanzademo` | soak, MartyPC | `V`'s five demos with the new identities, each `D`'d to the model's end; the hostile set's "another build's identity" file now carries `MOON`'s wave 4 identity (EB84h); a `.BZR` written by a wave 4 build refused with "Another course's log" | none new |
+| `bonanzawheel` | soak, MartyPC | unchanged in logic: it reads the prop records and cells through the RAM form's offsets, which moved; re-run on the new parts; 5a's HUD check (14) gone | none new |
+| `bonanzagame` | soak, MartyPC | 5a's HUD clauses gone; the tour's launch times REPORTED on the new parts | none new |
+| `bonanzasound` | soak, MartyPC | unchanged in logic: it fetches and plays the sound part and the songs, which go LZB with the table (128.15.9); re-run on the new parts | none new |
+
+`bonanzaphys` and `bonanzareplay` read physics, which does not change.
+Their logs are made on the build they run, so they need no edit. They run
+in the final pass because the course parts they fetch changed.
+
+#### 128.15.14 Bytes and clocks (the sizes MEASURED on the host, the rest PREDICTED)
+
+**The six courses, packed** (bytes), MEASURED on the host at `ef59209a`
+by the consistency check's script, which replaced this subsection's first
+figures:
+- today, LZ4: the report's, at `28b13cce`, which `ef59209a`'s parts
+  reproduce byte for byte (`PEAK` 23,649; 128.14.9.1 has an earlier build's
+  23,676);
+- 5b: each course's stored form built from its real part, as 128.15.4
+  lays it out: the real `BZC2` header and directory, the map as row
+  planes with the high bits first, each section's own hole, the grid's
+  derivable fields zeroed (the follow-up, 128.15.6, with no exceptions),
+  the dither in, P not taken; packed by `os88lz` as `os88pkg` packs a part.
+  The ways are modelled as zero pairs, so the real figures are slightly
+  higher;
+- **P is counted once.** The first figures here added P's +313 to a layout
+  measurement that already held the props as they ship, so they counted
+  the platform sprite twice. The measurement holds the props section as
+  it ships (P, one shared copy of the sprite, not taken), and nothing is
+  added for it;
+- **the dither is measured on this form**, about -220 LZ4 (-266 LZB) over
+  the six. The report's -710 is today's form's (128.15.10.1).
+
+| course | today LZ4 (MEASURED) | **5b D, LZ4** | **5b D, LZB** | 5b C, LZ4 | 5b C, LZB |
+|---|---|---|---|---|---|
+| `BENCH` | 17,930 | 6,884 | 5,471 | 7,348 | 5,906 |
+| `FIRST` | 3,040 | 2,112 | 1,699 | 2,228 | 1,792 |
+| `TRIAL` | 6,614 | 3,903 | 3,145 | 4,128 | 3,319 |
+| `MILL` | 13,937 | 8,775 | 7,127 | 9,137 | 7,426 |
+| `MOON` | 17,982 | 8,914 | 7,219 | 9,517 | 7,761 |
+| `PEAK` | 23,649 | 12,676 | 10,377 | 13,562 | 11,219 |
+| **six** | **83,152** | **43,264** | **35,038** | **45,920** | **37,423** |
+
+So the six courses are **about 43.3KB LZ4 and about 35.0KB LZB** under D,
+with the follow-up. Without the follow-up they would be about 1.8KB more
+(the report's -1,791, MEASURED in combination; not re-taken on this form).
+`PEAK` at 12,676 LZ4 is printed over its 60 s budget (128.15.8).
+
+**RAM, the course claim** (bytes; under D MEASURED on the host by the same
+script, the real header and directory included; under C PREDICTED):
+
+| course | today | under C (`BZREC=8`) | **under D (`BZREC=4`)** | headroom under 65,024, D |
+|---|---|---|---|---|
+| `BENCH` | 49,272 | about 49,220 | 38,810 | 26,214 |
+| `FIRST` | 9,748 | about 9,810 | 8,718 | 56,306 |
+| `TRIAL` | 18,446 | about 18,430 | 15,360 | 49,664 |
+| `MILL` | 33,858 | about 33,830 | 28,662 | 36,362 |
+| `MOON` | 51,240 | about 51,090 | 40,810 | 24,214 |
+| `PEAK` | 60,856 | about 60,740 | **47,796** | **17,228 (today 4,168)** |
+| **six** | 223,420 | about 223.1KB | **180,156** | |
+
+C and D both carry the 16 header bytes and the directory, and both carry
+the dither's fewer masks. D also carries `MTAB`. A play of `PEAK` leaves
+about 20.5KB free on a 256KB 5150 today (128.14.25 item 9), and under D
+it leaves about 33.5KB.
+
+**The image and bss** (PREDICTED; MEASURED today: 32,640 and 7,653):
+
+| | image bytes | bss |
+|---|---|---|
+| 5a | 0 | 0 |
+| D's occluder pass (the keys and their clamps, `ks` a row, the table reads, the stride) | about +70 | +1: `bz_okt`, a byte, `kt` (written by `bz_occ` at `.key`) |
+| `bz_crshdr`'s three new fields (D only) | about +15 | +6: `bz_osb`, a word, `SB` sign-extended; `bz_otb`, a word, `TB`; `bz_mtab`, a word, `MTAB` (all three written by `bz_crshdr`) |
+| `bz_ozk`, today `z_b + m` (a word, `bz_occ`) | 0 | 0: under D it holds `s_b + SB` instead (128.15.5.2) |
+| `bz_cexp`: the directory walk and forms 1 - 6 | about +225 (+210 under C, no MASKTAB) | 0 (scratch in `bz_boxbuf`) |
+| the follow-up, form 7 | about +150 - 230 | 0 |
+| **5b in all, D** | **about +310, then about +510 with the follow-up** | **+7** |
+| **5b in all, C** | **about +210, then about +410 with the follow-up** | **0** |
+
+`bz_cexp` is resident, because it runs at every course fetch. Wave 8a's
+shell part is dropped before a course is fetched, so the expander cannot
+live there (R4's restated 5.6 - 5.9KB is unchanged by this).
+
+**The disk** (PREDICTED from the figures above): `bonanza360.img` from 130
+clusters (MEASURED) to about 91 (LZ4 parts), about 80 (LZB parts, decided),
+and about 77 with LZB for the image (128.15.9).
+
+**Clocks**:
+- a frame: 0 under C. Under D, about +280 typical and about +1,200 at the
+  worst position on frames whose occluder gate is open, and 0 on the rest
+  (ESTIMATED, 128.15.5.2);
+- a step: 0;
+- a course's fetch, with the follow-up: under D, about +0.06 s (`FIRST`)
+  to +0.39 s (`PEAK`) of expansion; under C, about +0.07 s to +0.49 s
+  (128.15.4.6). That is inside a launch that is about 0.5 s (D) or 0.2 s
+  (C) shorter with LZ4 parts, and up to about 1 s longer with LZB parts
+  (an upper bound, 128.15.9).
+
+#### 128.15.15 Open questions for the owner
+
+- **Q-L2, the disk plan** (128.15.9): **ANSWERED, 2026-11-14.** LZB for
+  the parts is decided. The target is 18 - 20 courses on one disk, and the
+  Worlds disk (story 8b.11) is a last resort. What is still owed the owner
+  is a figure, not a choice: `PEAK`'s launch is PREDICTED at up to about
+  5.0 s with LZB (an upper bound, about +1.6 s over LZ4's about 3.4 s,
+  against the +0.9 s the owner was quoted; 3.9 - 4.0 s today), and the
+  final pass measures it and reports it.
+- **A course past one part** (128.15.8): the two-part course is the
+  documented escape, taken only if a course needs it ("we can look into
+  the option if we actually need it", the owner, 2026-11-14).
+- **LZB for the image** (128.15.9): -3 clusters, +0.64 s at each opening of
+  the window. Offered, not taken.
+- **D or C** is not a question. 128.15.5.4's measurement decides it by
+  the owner's HUD rule, read as each card's misses summed over the two
+  demos: D may add at most 2 on a card, not 2 a demo. If the owner meant
+  2 a demo, that is the one reading to correct.
+- **The ghost in pits** (128.15.10.2): the dither covers pits too. The
+  first look boot shows it, and narrowing it to walls (+986 bytes packed)
+  is the owner's call if it reads badly.
 
 ### 128.20 Sound and music (the sound wave, built beside waves 3 and 4)
 
