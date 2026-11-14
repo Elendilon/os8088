@@ -8696,6 +8696,22 @@ SOAK = [
         "and the fetch) or a bot's rocket passing through the player.",
         needs=("marty", "nasm"),
         wants=("build/os8088-360.img", "build/warena360.img")),
+    Row("walink", "soak", py("tests/walink.py"), 28.0,
+        "WIREARENA OVER A NULL MODEM (docs/plans/WIREARENA-LINK-PLAN.md, "
+        "L1): two QEMUs on a socket cable, the shipped package. Each window "
+        "finds and binds the other, the lower identity hosts, Space on both "
+        "starts the host's arena on both; a player put on one machine is "
+        "figure 0 on the other; three pistol shots kill the other machine's "
+        "player there and both scoreboards agree after a SCORE; a rocket's "
+        "FIRE flies on the victim's machine, owned by figure 0, and kills "
+        "there; a pickup taken on the host goes on the guest (TAKE) and "
+        "comes back on the host's ROLL; garbage is dropped and counted; a "
+        "pulled cable says LINK LOST and the match resumes; Esc on one says "
+        "OPPONENT LEFT on the other; every byte either way parses as a "
+        "valid frame (binascii's CRC). Red with the damage word ignored or "
+        "TAKE unsent.",
+        needs=("qemu", "nasm"),
+        wants=("build/warena.img", "build/os8088.img"), timeout=200),
     Row("waweapons", "soak", py("tests/waweapons.py"), 26.0,
         "WIREARENA'S WEAPONS AND PICKUPS (docs/plans/WIREARENA-WEAPONS-"
         "PLAN.md). One boot into the Heights arena, every piece checked off "

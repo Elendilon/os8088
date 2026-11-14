@@ -329,6 +329,15 @@ INCLUDES = [
      "the folder if need be, so the program it names is opened at every boot "
      "(Shift held skips it). Over os88data.inc's walk, so it needs "
      "`OD_BOOTVOL`; REDLINE's Apply on boot is the worked example."),
+    ("os88cable.inc", "115",
+     "TWO MACHINES OVER A NULL MODEM, on the desktop serial lease: `lk_auto` "
+     "and `lk_connect` find the port (SPEC.md 114.9's search: COM2 first, the "
+     "lease MOVED between the ports after a random dwell), `lk_tick` runs it "
+     "from the window, and `lk_poll`/`lk_send` - legal inside a SPEC.md 53 "
+     "bracket - carry typed frames of up to 32 bytes: 7Eh/7Dh framing, "
+     "CRC-16/CCITT-FALSE, a length per type from your `lk_lens`. WireArena "
+     "is the user (docs/plans/WIREARENA-LINK-PLAN.md); WireFleet's own copy "
+     "moves onto it later."),
     ("os88inflate.inc", "106.18",
      "INFLATE for a raw DEFLATE stream held WHOLE: `inflate` takes DS:SI, "
      "writes exactly CX bytes at ES:DI and sets carry on a bad stream. zlib's "

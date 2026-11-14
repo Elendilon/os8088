@@ -40,7 +40,7 @@ section 9 records what was built against it, wave by wave.
 - **What is missing: a shared link include.** WireFleet's search, framer
   and CRC are `wf_`-prefixed inside `apps/wirefleet/wflink.inc`, written
   around its 64-byte frame. They are written once more here as
-  `apps/os88link.inc` (`lk_` prefix): the search, a framer for frames of
+  `apps/os88cable.inc` (`lk_` prefix): the search, a framer for frames of
   any length up to 32 bytes, and the CRC. WireArena is its first user.
   Moving WireFleet onto it is story L3.1, so the copy does not stay two.
 
@@ -147,7 +147,7 @@ out of the new match.
 | 6 | feet height / 2 (`wa_feet` + jump, 0..510) |
 | 7 | yaw, `wa_ang`'s high byte (256 to the turn) |
 | 8 | pitch, -128..127 |
-| 9 | flags: bit 0 alive, 1 firing, 2 shielded, 3..5 the weapon held, 6..7 the last hit's kill kind (0 pistol fall, 1 shotgun collapse, 2 bits) |
+| 9 | flags: bit 0 alive, 1 firing, 2 shielded, 3..5 the weapon held, 6..7 how the sender last died (0 pistol fall, 1 shotgun collapse, 2 bits) |
 | 10, 11 | cumulative damage dealt TO the receiver, mod 65536 |
 | 12 | the last EVENT sequence applied from the receiver |
 | 13, 14 | CRC |
@@ -162,7 +162,6 @@ eight bytes of payload, CRC.
   / 2, yaw, pitch.
 - **TAKE** (kind 2): pickup index.
 - **ROLL** (kind 3, from the host): pickup index, kind.
-- **LEAVE** (kind 4): I am back in the lobby.
 
 An event is resent every 9 ticks until the receiver's SNAP byte 12 reaches
 its sequence. A receiver applies only the sequence one past the last it
@@ -174,7 +173,8 @@ events wait, and a ninth waits for room.
 - **55 ticks (1.8 s) without a valid frame** in the match: "LINK LOST" in
   the overlay. The other player stands where last seen, drawn as a still
   figure, and nothing hits them. Frames resuming clear it.
-- **LEAVE**, or a HELLO with state 0 or 1 from the peer: "OPPONENT LEFT".
+- A HELLO with state 0 or 1 from the peer (it is back in its window):
+  "OPPONENT LEFT".
   The figure is gone. The match goes on alone until Esc.
 - In the lobby, a peer silent for 55 ticks is shown as gone. It stays bound
   until another identity is heard (114.9's turn-0 rebind).
@@ -198,8 +198,8 @@ no link it shows the help text as now.
   toggles Ready.
 - **The host's Game menu chooses** the arena and the bots' difficulty while
   linked. Its Play items no longer start a game; they set the arena, and
-  the lobby says so. A guest's arena items are greyed with the reason (§47:
-  "The host chooses the arena").
+  the lobby says so. A guest's arena items set its width and toast "The
+  host picks the arena".
 - **The width** (40 or 80) stays each player's own. A machine plays the
   width it picked last.
 - **The opponent's name** is a robot name from the bots' list plus four hex
@@ -228,8 +228,8 @@ no link it shows the help text as now.
 - **My hit on figure 0** shows the flinch at once (my feedback) but changes
   no health here. The damage goes on the wire.
 - **The scoreboard** (Tab) lists YOU and the opponent's name.
-- **Esc** sends LEAVE (until acked, up to a second) and returns to the
-  window, where the lobby still holds the link.
+- **Esc** returns to the window, where the lobby still holds the link, and
+  its next HELLO tells the other machine.
 
 ## 7. Cost
 
@@ -271,27 +271,27 @@ no link it shows the help text as now.
 
 ### L1: two players
 
-- [ ] **L1.1 `apps/os88link.inc`**: the lease search (automatic, COM1,
+- [x] **L1.1 `apps/os88cable.inc`**: the lease search (automatic, COM1,
   COM2, disconnect), its refusal lines, a framer for typed fixed-length
   frames up to 32 bytes, the CRC, the RX drain and TX flush. **Verify**:
   `tests/walink.py`'s host parser decodes every frame type the game sends.
-- [ ] **L1.2 The lobby**: the Link menu, HELLO exchange and binding, host
+- [x] **L1.2 The lobby**: the Link menu, HELLO exchange and binding, host
   by identity, the host's arena and difficulty, Ready, START, the lobby
   text redrawn by line. **Verify**: two QEMUs on a socket pair reach "in
   the match" with the host's arena on both.
-- [ ] **L1.3 SNAP**: sent every 3 ticks; the other player as figure 0,
+- [x] **L1.3 SNAP**: sent every 3 ticks; the other player as figure 0,
   interpolated, running, standing, its firing cue, its shield.
   **Verify**: a player walked on one machine is figure 0 on the other,
   within one SNAP of the place, the same arena.
-- [ ] **L1.4 Damage, death and score**: the cumulative damage word, death
+- [x] **L1.4 Damage, death and score**: the cumulative damage word, death
   by kill kind, respawn, SCORE, the scoreboard with the opponent's name.
   **Verify**: one machine's pistol kills the other's player. Both
   scoreboards then read 1 kill and 1 death on the right rows.
-- [ ] **L1.5 Events**: FIRE (both fly it, the victim judges it), TAKE,
-  ROLL, LEAVE, the resend and the ack. **Verify**: a rocket fired on one
+- [x] **L1.5 Events**: FIRE (both fly it, the victim judges it), TAKE,
+  ROLL, the resend and the ack. **Verify**: a rocket fired on one
   machine flies on both and kills on the victim's; a pickup taken on one is
   gone on both; Esc on one says OPPONENT LEFT on the other.
-- [ ] **L1.6 Faults**: garbage bytes, a truncated frame, a pulled cable for
+- [x] **L1.6 Faults**: garbage bytes, a truncated frame, a pulled cable for
   3 s. **Verify**: no state changes on garbage; LINK LOST, then the match
   resumes.
 - [ ] **L1.7 Cost**: the link's cycles a frame on MartyPC; the frame rate
@@ -310,7 +310,7 @@ no link it shows the help text as now.
 
 ### L3: after
 
-- [ ] **L3.1 WireFleet onto `os88link.inc`**: its search and framer
+- [ ] **L3.1 WireFleet onto `os88cable.inc`**: its search and framer
   replaced by the shared include, its rows (`wirefleetlink`,
   `wirefleetsystem`, `wirefleetnomouse`) the check.
 - [ ] **L3.2 86Box XT pair** (`tools/wireball-pair.py`'s pattern): 2400
@@ -331,3 +331,71 @@ no link it shows the help text as now.
   for one machine; a pair's timing is the 86Box pair's (L3.2) or the iron's.
 - **The rows are named as each story lands**; the soak union runs once
   after the last batch (CLAUDE.md, Testing).
+
+## 11. As built
+
+### 11.1 L1: two players (2026-11-14)
+
+All of L1.1 to L1.6 work between two QEMUs. L1.7, the cost on an 8088, is
+taken in the final pass with L2's budget (section 2), when the two numbers
+decide the snapshot rate together.
+
+**`apps/os88cable.inc`** is the shared include (L1.1). It is
+`os88cable.inc`, not the `os88link.inc` this plan first named: that name
+already belongs to the `.LNK` links and autostart include (SPEC.md
+26.10.6). Its messages are short enough for a 38-column window row.
+
+**`apps/wirearena/walink.inc`** is WireArena's half:
+
+- **The window**: a one-tick timer runs the search, HELLO every 9 ticks,
+  binding and START. Row 0 always says what the link is doing. With a peer
+  bound and heard, the help gives way to the lobby. Each row is built as
+  text, compared with what was drawn, and drawn only if it changed
+  (`font_run`, ground and glyph in one pass).
+- **Automatic from the start**, as WireFleet's is: opening the window looks
+  for the cable. With no peer, the Game menu plays alone as before.
+- **The match**: `wa_lktick` at the head of every sim tick polls the cable
+  (24 bytes at most) and sends a SNAP on every third tick, otherwise the
+  next waiting event; a SCORE every 30. In a match, figure 0 is the other
+  player (`wa_lkfig`). Figures 1 and 2 are held off the board, and the
+  bots do not think or hear.
+- **The shooter's hits** on figure 0 add to the damage word and flinch
+  it. Nothing changes its health here (`wa_hurt`). A rocket at figure 0
+  goes off there and kills nothing (`wa_rkhit`). Its splash skips figure 0
+  (`wa_boom`). The victim's machine judges both from FIRE.
+- **The victim's kill kind** comes from the shooter's held weapon in the
+  same SNAP: the shotgun's collapse, else the fall. A splash death is the
+  bits. A SNAP's bits 6..7 say how its sender last died, so the other
+  machine draws the same death.
+- **The score**: each machine counts its own deaths and who caused them.
+  SCORE carries "my deaths" and "my deaths by you". So my kills are the
+  other's "deaths by you" less my suicides (`wa_lksui`).
+- **Pickups**: at the start the host sends a ROLL for every pickup, and
+  the guest starts with all of them off. A guest's pickup that comes back
+  waits at its last tick for the host's ROLL.
+- **No LEAVE event**: the HELLO the window sends again after Esc says the
+  same, and a lost one is followed by the next.
+
+**Checked**: `tests/walink.py` (soak row `walink`, ~28 s): every check in
+its docstring passes. On the wire, A sent 275 frames and B 294, every one
+valid under binascii's CRC; HELLO, SNAP, SCORE and EVENT all crossed.
+**Red** with the damage word ignored (A KILL's four checks) and with TAKE
+unsent (the pickup's). The rocket still passes then, rightly: splash is
+judged from FIRE, not from the word.
+
+**Found on the way**:
+
+- The row's first rocket check wanted the rocket to kill a player at full
+  health. A rocket's splash is 128 less the distance (WEAPONS-PLAN), so at
+  100 health it left B at 10. The game was right; the check was wrong. B
+  now stands at 50.
+- `wirearena.bin`'s Makefile rule did not name the two new includes. A
+  deliberately broken include then built nothing and tested the old
+  binary. They are prerequisites now.
+- `tests/dispapps.py`'s symbol map cannot unwrap a parted image whose part
+  0 is `OP_ZFILL`. The row uses `tests/walift.py`'s `amap()`, which
+  assembles WireArena and holds the result to the build.
+
+**Not yet**: names entered by the players (a robot name and four hex
+digits for now), the 86Box pair (L3.2), kern_mega (L3.3), WireFleet on the
+shared include (L3.1).

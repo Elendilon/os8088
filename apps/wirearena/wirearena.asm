@@ -46,7 +46,8 @@ wa_entry:
     mov [wa_win], bx
     mov si, wa_menus
     call OSAPI_MENU_SET
-    mov bx, [wa_win]
+    call wa_lkinit              ; the link: Automatic, the window's tick
+    mov bx, [wa_win]            ; (LINK-PLAN 5)
     clc
 .out:
     ret
@@ -60,42 +61,29 @@ wa_entry:
     ret
 
 ; --- the window ---------------------------------------------------------------
-wa_paint:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    mov bx, si
-    call OSAPI_WM_CONTENT       ; AX = left, DX = top
-    mov bx, ax
-    add bx, 8
-    add dx, 6
-    mov si, wa_help
-.line:
-    cmp byte [si], 0
-    je .done
-    mov cx, bx
-    mov ax, (CWHITE << 8) | CBLACK  ; AL = ink, AH = the ground
-    call OSAPI_FONT_RUN
-.skip:
-    lodsb
-    or al, al
-    jnz .skip
-    add dx, 10
-    jmp .line
-.done:
+wa_paint:                       ; the link's line, then the help or the
+    push si                     ; lobby (walink.inc's rows)
+    call wa_lkpaint
     pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
+    cld
     ret
 
 wa_oncmd:                       ; Game menu: wa_items maps the item
-    cmp al, 6                   ; to (width, arena); 6.. the bots'
-    jb .play                    ; difficulty (AI-PLAN 4.3)
+    cmp ah, 1                   ; to (width, arena); 6.. the bots'
+    jne .game                   ; difficulty (AI-PLAN 4.3). The Link menu
+    jmp wa_lkcmd                ; is walink.inc's
+.game:
+    cmp al, 6
+    jb .play
     sub al, 6
+    call wa_lklinked            ; LINKED: the host's choice for the match,
+    jz .diff                    ; the guest told it is the host's
+    call wa_lkhost
+    jz .hosts
+    mov [wa_lkdiff], al
+    mov byte [wa_lkfull], 1
+    ret
+.diff:
     mov [wa_diff], al
     xor ah, ah
     shl ax, 1
@@ -113,6 +101,21 @@ wa_oncmd:                       ; Game menu: wa_items maps the item
     mov al, [wa_items+bx]
     mov [wa_want], al
     mov al, [wa_items+bx+1]
+    call wa_lklinked            ; linked: the width is ours, the arena the
+    jz .alone                   ; host's - no game starts from here
+    mov byte [wa_lkfull], 1
+    call wa_lkhost
+    jz .hosts
+    mov [wa_lkarena], al
+    ret
+.hosts:
+    mov si, wa_t_host
+    push ds
+    pop es
+    xor cx, cx
+    call OSAPI_TOAST
+    ret
+.alone:
     mov [wa_arena], al
     call wa_loadarena           ; off its part, before the bracket: CF = 1
     jc .out                     ; it could not be read, and a toast said why
@@ -136,6 +139,10 @@ wa_main:
 .go:
     call wa_geominit            ; (wa_oncmd loaded the arena)
     call wa_reset
+    cmp byte [wa_lkon], 0       ; a linked match: its side of things
+    je .alone                   ; (walink.inc)
+    call wa_lkmstart
+.alone:
     call OSAPI_MOUSE_REL        ; the desktop's motion is not ours: discard
     xor ax, ax
     mov [wa_acc], ax
@@ -672,6 +679,7 @@ wa_keys:
     ret
 
 wa_tick:
+    call wa_lktick              ; (a linked match: the cable, LINK-PLAN 4.2)
     mov al, [wa_frame]          ; this frame's first tick polls the keys
     cmp al, [wa_kfr]
     je .polled
@@ -1309,6 +1317,8 @@ wa_bacc:    db 45,  60,    75   ; % at 4 m, the player standing
 wa_bthink:
     cmp byte [wa_bdet], 0
     jne .out
+    cmp byte [wa_lkon], 0       ; (a linked match: no bots, L1)
+    jne .out
     cmp byte [di+F_DEAD], 0
     jne .out
     mov ax, [wa_tkn]            ; its turn to look: (tick + index x 3) & 7,
@@ -1709,6 +1719,8 @@ wa_bstruck:
 ; each other forget the player). Keeps every register
 wa_bhear:
     cmp byte [wa_bdet], 0
+    jne .r
+    cmp byte [wa_lkon], 0
     jne .r
     push ax
     push bx
@@ -2462,6 +2474,16 @@ wa_figz:
 %include "wasin.inc"
 ; wa_figtick - DI = a figure: one 30 Hz step of its patrol and its animation
 wa_figtick:
+    cmp byte [wa_lkon], 0       ; A LINKED MATCH (L1): figure 0 the other
+    je .solo                    ; player, the bots off the board
+    cmp di, wa_figs
+    jne .off
+    jmp wa_lkfig
+.off:
+    mov byte [di+F_DEAD], 250
+    mov byte [di+F_NFR], 0
+    ret
+.solo:
     cmp word [di+F_FLASH], 0    ; (F_FLASH and F_DEAD, one word: the usual
     jne .flash                  ; tick has neither)
 .live:
@@ -3073,7 +3095,8 @@ wa_launch:
     mov [di+RG_YF], ax
     mov [di+RG_ZF], ax
     mov word [di+RG_LIFE], WA_RKLIFE
-    mov byte [di+RG_OWN], 0     ; (the player's)
+    mov al, [wa_lown]           ; (the player's, or the other player's:
+    mov [di+RG_OWN], al         ; walink.inc's FIRE)
     mov ax, [wa_ang]
     mov cl, 6
     shr ax, cl
@@ -3102,6 +3125,10 @@ wa_launch:
     add ax, WA_GLOB
 .vzd:
     mov [di+RG_VZ], ax
+    cmp byte [wa_lown], 0       ; ours, in a linked match: FIRE
+    jne .out
+    jmp wa_lkqfire
+.out:
     ret
 
 ; wa_hurt - DI = a figure, AL = damage, AH = the weapon's kill (0..2): its
@@ -3110,6 +3137,17 @@ wa_launch:
 wa_hurt:
     cmp byte [di+F_DEAD], 0
     jne .out
+    cmp byte [wa_lkon], 0       ; THE OTHER PLAYER (LINK-PLAN 3): the
+    je .here                    ; shooter judges - its damage on the wire,
+    cmp di, wa_figs             ; the flinch here, no health changed
+    jne .here
+    push ax
+    xor ah, ah
+    add [wa_lkdout], ax
+    pop ax
+    mov byte [di+F_FLASH], 5
+    jmp .flinch
+.here:
     call wa_bstruck             ; (AI-PLAN 8.6: it turns on whoever shot it)
     inc word [wa_hits]
     mov byte [di+F_FLASH], 5
@@ -3151,6 +3189,10 @@ wa_kill:
     xchg ax, si
     pop cx
     pop ax
+    ; (falls through)
+; wa_dieanim - DI = a figure, AH = its kill: dead by it (no score: the
+; other player's death, walink.inc, comes this way too). Keeps all but AX
+wa_dieanim:
     mov [di+F_KILL], ah
     mov byte [di+F_SH], 0
     mov byte [di+F_HP], 0
@@ -3196,6 +3238,7 @@ wa_phurt:
     xor bh, bh
     or bl, bl
     jnz .credit
+    inc byte [wa_lksui]         ; (linked: SCORE takes these off)
     cmp byte [wa_kills], 0
     je .tone
     dec byte [wa_kills]
@@ -3513,8 +3556,14 @@ wa_rkhit:
     js .fn
     cmp ax, 120
     jg .fn
+    cmp byte [wa_lkon], 0       ; (the other player: it goes off, and the
+    je .kill                    ; other machine judges it - LINK-PLAN 3)
+    cmp di, wa_figs
+    je .met
+.kill:
     mov ah, 2
     call wa_kill
+.met:
     pop di
     stc
     ret
@@ -3590,6 +3639,11 @@ wa_boom:
     mov dx, [di+F_Z]
     call wa_reach
     jae .fn
+    cmp byte [wa_lkon], 0       ; (the other player's splash is its own
+    je .near                    ; machine's to judge)
+    cmp di, wa_figs
+    je .fn
+.near:
     push cx
     mov ah, 2
     call wa_hurt
@@ -3609,6 +3663,7 @@ wa_boom:
     shr al, 1
     jz .out
 .whole:
+    mov byte [wa_lkpkk], 2      ; (in bits, as the other machine draws us)
     call wa_phurt
 .out:
     pop di
@@ -3666,10 +3721,13 @@ wa_pktick:
 .p:
     cmp word [wa_pkt+bx], 0
     je .here
+    call wa_lkpkhold            ; (a linked guest: back when the host says)
+    je .n
     dec word [wa_pkt+bx]
     jnz .n
     or [wa_pkon], dl            ; back - a weapon spawn with its weapon
     call wa_pkroll              ; picked again
+    call wa_lkpkback            ; (the host: ROLL)
     jmp .n
 .here:
     mov ax, [wa_px]
@@ -3711,12 +3769,15 @@ wa_pktick:
     pop bx
     mov [wa_pkt+bx], ax
     mov byte [wa_ovd], 1
+    call wa_lkpktaken           ; (linked: TAKE)
 .n:
     add si, WA_PKSZ
     inc bx
     inc bx
     shl dl, 1
-    loop .p
+    dec cx
+    jz .out
+    jmp .p
 .out:
     ret
 
@@ -3841,6 +3902,7 @@ wa_ovbuild:
     je .alive
     call wa_ovrsp
 .alive:
+    call wa_lkmsg               ; (linked: WAITING, LINK LOST, LEFT)
     mov bl, [wa_wpn]            ; the weapon
     xor bh, bh
     shl bx, 1
@@ -3981,8 +4043,14 @@ wa_ovboard:
     call wa_ovrow
     xor bp, bp
 .row:
-    inc dx
     mov bl, [ds:bp+wa_sord]     ; (DS: BP would address the stack)
+    cmp byte [wa_lkon], 0       ; (linked: YOU and the other player, L1)
+    je .rw
+    cmp bl, 2
+    jae .skip
+.rw:
+    inc dx
+    mov bl, [ds:bp+wa_sord]
     xor bh, bh
     mov di, wa_sbbuf
     push ds
@@ -3995,6 +4063,10 @@ wa_ovboard:
     mov ax, 0x1A0F              ; (YOU: bright green, or plain on mono)
     or bx, bx
     jz .nm
+    mov si, wa_lkpnam           ; (linked: the other player's name)
+    mov ax, 0x1F70
+    cmp byte [wa_lkon], 0
+    jne .nm
     mov al, [wa_bname-1+bx]
     xor ah, ah
     mov cl, 3
@@ -4016,6 +4088,7 @@ wa_ovboard:
     pop ax
     mov si, wa_sbbuf
     call wa_ovrow
+.skip:
     inc bp
     cmp bp, 4
     jb .row
@@ -4986,18 +5059,29 @@ wa_loadarena:
                                 ; part takes the arenas and the keyframes)
 %include "watab.inc"
 
+%include "walink.inc"           ; two machines over a null modem (LINK-PLAN)
+
 wa_tpl:
-    dw 120, 60, 330, 185
+    dw 120, 60, 330, 200
     dw wa_ttl, wa_cls
-    OS88_CLASS wa_cls, 0, PAINT, wa_paint
+    OS88_CLASS wa_cls, 0, PAINT, wa_paint, ONKEY, wa_lkkey, \
+               ONCLOSE, wa_lkclose, ONTIMER, wa_lktimer
 
     OS88_MENUSET wa_menus, wa_name, wa_oncmd
         OS88_MENU wa_m_game, wa_i_game, 9
+        OS88_MENU wa_m_link, wa_i_link, 5
     OS88_MENUSET_END wa_menus
 
 wa_name:
 wa_ttl:     db 'WireArena', 0
 wa_m_game:  db 'Game', 0
+wa_m_link:  db 'Link', 0
+wa_i_link:  dw wa_il_auto, wa_il_c1, wa_il_c2, wa_il_off, wa_il_rdy
+wa_il_auto: db 'Automatic', 0
+wa_il_c1:   db 'Connect COM1', 0
+wa_il_c2:   db 'Connect COM2', 0
+wa_il_off:  db 'Disconnect', 0
+wa_il_rdy:  db 'Ready', 0
 wa_i_game:  dw wa_it_40, wa_it_80, wa_it_o40, wa_it_o80, wa_it_h40, wa_it_h80
             dw wa_it_be, wa_it_bn, wa_it_bh
 wa_it_be:   db 'Bots: easy', 0
@@ -5036,6 +5120,7 @@ wa_hudtpl:  db 'FPS       MS      R      P      N       ', 0
 
 TOASTSTR wa_t_small, 'Needs kern_big or mega'
 TOASTSTR wa_t_part, 'Renderer part mismatch'
+TOASTSTR wa_t_host, 'The host picks the arena'
 TOASTSTR wa_t_be, 'Bots: easy'
 TOASTSTR wa_t_bn, 'Bots: normal'
 TOASTSTR wa_t_bh, 'Bots: hard'
@@ -5117,6 +5202,46 @@ WA_VAR wa_bw,1                   ; a bot's shot: its weapon, accuracy,
 WA_VAR wa_bacc2,1                ;   distance
 WA_VAR wa_bdist,2
 WA_VAR wa_bfig,2                 ; wa_blaunch's bot
+WA_VAR lk_blk,LK_SIZE             ; THE LINK (walink.inc, os88cable.inc)
+WA_VAR lk_sbuf,SER_BUFFER_SIZE     ; the lease's rings: in our own region
+WA_VAR wa_lkid,4                   ; our identity, and the peer bound
+WA_VAR wa_lkpeer,4
+WA_VAR wa_lkst,1                   ; our lobby state (0, 1 ready, 2 in), its
+WA_VAR wa_lkps,1
+WA_VAR wa_lkpheard,2               ; OS ticks: its last HELLO; our last sent
+WA_VAR wa_lkbeat,2
+WA_VAR wa_lkarena,1                ; the match: the host's arena, difficulty,
+WA_VAR wa_lkdiff,1                 ;   tag; the host's tag as the guest heard
+WA_VAR wa_lktag,1                  ;   it; 1: go in (wa_lkstart)
+WA_VAR wa_lkptag,1
+WA_VAR wa_lkgo,1
+WA_VAR wa_lkfull,1                 ; the window's rows all to draw
+WA_VAR wa_lkon,1                   ; 1: in a linked match
+WA_VAR wa_lklost,1                 ; silent WL_QUIET ticks; left; seen yet
+WA_VAR wa_lkgone,1
+WA_VAR wa_lkrseen,1
+WA_VAR wa_lkheard,2                ; sim ticks: its last frame
+WA_VAR wa_lkdin,2                  ; the damage words: its to us, ours to it
+WA_VAR wa_lkdout,2
+WA_VAR wa_lkin,1                   ; events: the last applied, ours next out,
+WA_VAR wa_lkseq,1                  ;   waiting, sent this pass, when
+WA_VAR wa_lkqn,1
+WA_VAR wa_lkqs,1
+WA_VAR wa_lkqt,2
+WA_VAR wa_lkq,WL_EVQ*WL_EVSZ
+WA_VAR wa_lkev,WL_EVSZ
+WA_VAR wa_lkfr,LK_MAXF             ; a body being built
+WA_VAR wa_lkrx,2                   ; the other player as its SNAP said
+WA_VAR wa_lkry,2
+WA_VAR wa_lkrz,2
+WA_VAR wa_lkra,2
+WA_VAR wa_lkrf,1
+WA_VAR wa_lksui,1                  ; our suicides; how we died (0..2)
+WA_VAR wa_lkpkk,1
+WA_VAR wa_lkpnam,8                 ; its name
+WA_VAR wa_lkln,WL_COLS+1           ; a window row, and the rows as drawn
+WA_VAR wa_lkcache,WL_ROWS*WL_COLS
+WA_VAR wa_lown,1                   ; wa_launch's owner: 0 us, 1 the other
 WA_VAR wa_grudge,WA_NFIG          ; each bot's grudge against the player, ticks
 WA_VAR wa_tx,2                   ; a bot's target: where, its chest's
 WA_VAR wa_ty,2                   ;   height (wa_btpos)
