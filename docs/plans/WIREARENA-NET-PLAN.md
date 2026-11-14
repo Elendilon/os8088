@@ -74,7 +74,7 @@ replaced by the match setup:
   set.
 - **The width** stays each player's own, as in v1.
 
-## 3. UDP for packages (ETHER.DRV, SPEC.md 72.23)
+## 3. UDP for packages (ETHER.DRV, SPEC.md 72.24 - 72.23 was taken)
 
 | verb | in | out |
 |---|---|---|
@@ -167,7 +167,8 @@ The checks are v1's: one length per type, the CRC.
   match list come with N4, where they have something to do): the lines, the buttons, Keys..., the IP
   field, the settings remembered. Alone and Serial work as now (Serial is
   v1's lobby, shown in the window).
-- [ ] **N2 UDP for packages**: SPEC.md 72.23, the three verbs, the queue,
+- [x] **N2 UDP for packages** (the verbs; their row is N3's, which runs the
+  match over them): SPEC.md 72.24, the three verbs, the queue,
   and a host check. Its row: two QEMUs exchanging datagrams through the
   relay, which also answers DHCP.
 - [ ] **N3 protocol v2 and slots**: NSNAP, NSCORE, NEVENT, the

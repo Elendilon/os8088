@@ -135530,6 +135530,44 @@ program** under DOS gets no network, because mTCP speaks packet driver and
 nothing else. §96.23 is a card feature until somebody wants item 1 enough to
 pay item 2's price.
 
+### 72.24 UDP for a package — one port, a small queue
+
+Packages had TCP only (§72.22 says so of the raw verbs' first reader). A
+game that finds matches by broadcast and by address, and sends a snapshot
+ten times a second to each other player, wants datagrams: a lost one is
+replaced by the next, where TCP would stall every later one behind it.
+The stack already speaks UDP inside (`udp_send`, `udp_in`, for DHCP and
+DNS). What these verbs add is a **package's port** and a queue for it.
+
+| verb | in | out |
+|---|---|---|
+| `NETV_UDP` 18 | `AL` = 1 bind `CX` = a port, 0 release | CF=0. CF=1 `AX=NETE_BUSY` (another port is bound: one at a time) or `NETE_ARG` (port 0) |
+| `NETV_UDPTX` 19 | `SI` = the payload, `CX` = its length (<= 512), `DI` = six bytes: the IP address, then the port (a little-endian word) | CF=0 sent. CF=1 `AX=NETE_NOLINK`: no port bound, or no ARP answer yet (a request has gone out: send again on the next tick) |
+| `NETV_UDPRX` 20 | `DI` = a buffer, `CX` = its capacity, `BX` = six bytes for the source (as `UDPTX`'s `DI`) | CF=0 `CX` = the datagram's **true** length (72.22.2's rule) and the source at `BX`; CF=1 = none queued |
+
+- **The destination 255.255.255.255 is a broadcast**: `ip_start` already
+  sends it to the broadcast station address with no ARP (DHCP needs that
+  before there is an address at all).
+- **The queue is 8 datagrams of up to 64 bytes**, filled by `udp_in` as
+  `NETV_UDPRX` pumps the card. A full queue drops the newest and counts
+  it (`eth_uqdrop`). A longer datagram queues its first 64 bytes and its
+  true length. It is the driver's bss, so it is paid for whenever
+  ETHER.DRV is loaded: about 600 bytes of a driver that grew ~1KB, and
+  its `DRVM_*` rows and the `DRVM_CEIL_NET*` ceilings moved with it.
+- **`NETV_UDPRX` is the card's service**: it pumps the ring, as every verb
+  does. So a game polling it once a frame keeps the stack alive inside a
+  §53 bracket, by §53.7's rule for a driver attached before entry.
+- **The instance's teardown releases its port** (`NETV_GONE`), as its
+  sockets are dropped.
+- **They need no socket pool** and do not claim one (`eth_user`: every
+  verb from `NETV_RAW` up). They cannot run with a raw claim held, which
+  stops the pump and so the stack (72.22.1): UDP and raw frames are two
+  ways to the card, never at once.
+- **The parallel cable refuses all three** (`NET.DRV`): `nwire.inc` has no
+  datagram, as it has no raw frame (72.22.3).
+
+WireArena is the first user (docs/plans/WIREARENA-NET-PLAN.md 3).
+
 ## 73. The C toolchain — compiling C into an `.o88` package
 
 Everything in this OS is hand-written assembly, and that is a choice rather
