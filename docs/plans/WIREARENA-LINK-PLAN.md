@@ -505,7 +505,7 @@ fixes above (three runs in a row).
 boards) and with the damage word's attribution dropped (hurt by 1, not
 by bot 2). Red with the damage word ignored or TAKE unsent, as in L1.
 
-**Not yet**:
+**Not yet** (as L2 landed; 11.3 closed the first two):
 - The lift is each machine's own: it rises for its own riders. The other
   player standing on it is not one of them, so the two machines can
   disagree about where it is.
@@ -513,3 +513,32 @@ by bot 2). Red with the damage word ignored or TAKE unsent, as in L1.
   alone.
 - kern_mega has built SERIAL.DRV's new verbs (`make mega`) but has not
   run them (L3.3).
+
+### 11.3 The guest's shots heard, the host's lift (2026-11-14)
+
+The owner: *"Either sync the bots hearing gunshots or remove that (so we
+don't disadvantage the host)."* Synced, and the lift with it.
+
+- **Hearing**: a guest's shot sets a latch (`wa_lkfired`) that its next
+  SNAP sends as the firing flag and clears. On the host, a SNAP with that
+  flag is a shot heard where the guest stands (`wa_bheara`, the hearing
+  routine given the shooter's place and code). The host's roaming bots
+  within `WA_HEAR` hunt the guest, as they hunt the host's player.
+  - **The latch is the point**: the muzzle flash lasts 2 ticks and a SNAP
+    comes every 5, so the flash alone would carry about 2 shots in 5.
+  - The row checks four separate shots, each heard by a bot that cannot
+    see the guest. With the latch removed it heard **1 of 4** (red); a
+    first broken run heard 4 of 4 by luck, which is why it is four shots
+    and not one. Without any shot: 0 of 4.
+- **The lift is the host's**: the guest standing on it is a rider there
+  (`wa_lkonlift`: figure 0 inside the lift's box and within 40 units of
+  its top; 8 units' slack stalled the climb, since its height comes a
+  SNAP late). The host's SNAP byte 8 carries the lift's height / 2 in
+  place of the pitch, which no receiver reads. The guest's lift follows
+  that height at up to twice its speed. The row stands the guest on it:
+  the host's lift rises to the top, and the guest's follows and carries
+  the guest up. **Red** with the rider check removed.
+- **The budget**, counted against each sender's own sim ticks now (the
+  two machines' sims run apart under QEMU on a loaded host, and one
+  machine's clock had been used for both): no bots ~180 / 180 bytes a sim
+  second, two bots ~180 / 125.

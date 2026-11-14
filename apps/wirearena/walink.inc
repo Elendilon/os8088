@@ -710,6 +710,12 @@ wa_lkmstart:
     mov ax, [wa_tkn]
     mov [wa_lkheard], ax
     mov [wa_lkqt], ax
+    mov bx, [wa_lift]           ; (the guest's lift where it starts, until
+    or bx, bx                   ; the host's SNAPs say)
+    js .nolift
+    mov ax, [wa_bxh+bx]
+    mov [wa_lklift], ax
+.nolift:
     mov di, wa_figs             ; off the board until the other machine
     mov cx, WA_NFIG             ; says where they are: the other player, and
 .f:                             ; on the guest the host's bots (the host's
@@ -903,18 +909,33 @@ wa_lksnap:
     stosb
     mov al, [wa_ang+1]
     stosb
+    call wa_lkhost              ; byte 8: the host's lift's height / 2, the
+    jz .pitch                   ; guest's pitch / 4 (nobody reads a pitch)
+    xor al, al
+    mov bx, [wa_lift]
+    or bx, bx
+    js .b8
+    mov ax, [wa_bxh+bx]
+    shr ax, 1
+    jmp .b8
+.pitch:
     mov ax, [wa_pitch]
     sar ax, 1
     sar ax, 1
+.b8:
     stosb
     xor al, al                  ; the flags
     cmp byte [wa_pdead], 0
     jne .f1
     or al, 1
 .f1:
-    cmp byte [wa_mflash], 0
+    cmp byte [wa_mflash], 0     ; firing: its flash, or a shot since the
+    jne .f1s                    ; last SNAP (the guest's, for the host's
+    cmp byte [wa_lkfired], 0    ; bots to hear)
     je .f2
+.f1s:
     or al, 2
+    mov byte [wa_lkfired], 0
 .f2:
     cmp word [wa_sh], 0
     je .f3
@@ -1153,6 +1174,23 @@ wa_lksnapin:
     mov [wa_lkr+WR_A], ax
     mov al, [si+9]
     mov [wa_lkr+WR_F], al
+    call wa_lkhost              ; the guest: the host's lift; the host: the
+    jnz .heard                  ; guest's shot, heard by its bots
+    mov al, [si+8]
+    xor ah, ah
+    shl ax, 1
+    mov [wa_lklift], ax
+    jmp .lifted
+.heard:
+    test byte [si+9], 2
+    jz .lifted
+    push dx
+    mov ax, [si+2]
+    mov bx, [si+4]
+    mov dl, 1
+    call wa_bhear_far
+    pop dx
+.lifted:
     mov byte [wa_lkhby], 1      ; who hurt us: the other player, or (the
     cmp byte [si], WL_HSNAP     ; host's, with bots) whom it names
     jne .who
@@ -1396,6 +1434,11 @@ wa_lkfig:
     cmp ax, -1
     je .floor
     mov [di+F_Z], ax
+    cmp di, wa_figs             ; (the other player on the host's lift: a
+    jne .zd                     ; rider)
+    call wa_lkhost
+    jz .zd
+    call wa_lkonlift
     jmp .zd
 .floor:
     call wa_figz                ; (a bot: on the floor where it stands)
@@ -1671,6 +1714,41 @@ wa_lkbhits:
     jb .b
     pop di
     pop si
+    ret
+
+; wa_bhear_far - wa_bheara, which the host's bots hear by (a near call
+; across the file)
+wa_bhear_far:
+    jmp wa_bheara
+
+; wa_lkonlift - DI = figure 0 on the host: one of the lift's riders when it
+; stands on top of it (wa_lbn, which wa_ltick counts) - so the lift rises
+; for the guest as it does for anyone here. Keeps every register
+wa_lkonlift:
+    push ax
+    push bx
+    mov bx, [wa_lift]
+    or bx, bx
+    js .out
+    mov ax, [di+F_Z]            ; on its top: 40 units' slack, as its
+    add ax, 40                  ; height comes a SNAP late while it rises
+    cmp ax, [wa_bxh+bx]
+    jl .out
+    shl bx, 1                   ; (its box: x 8)
+    mov ax, [di+F_X]
+    cmp ax, [wa_boxes+bx]
+    jl .out
+    cmp ax, [wa_boxes+bx+4]
+    jg .out
+    mov ax, [di+F_Y]
+    cmp ax, [wa_boxes+bx+2]
+    jl .out
+    cmp ax, [wa_boxes+bx+6]
+    jg .out
+    inc byte [wa_lbn]
+.out:
+    pop bx
+    pop ax
     ret
 
 ; wa_lkhalf - AX = a distance: half of it, the whole within 2 (so it ends)

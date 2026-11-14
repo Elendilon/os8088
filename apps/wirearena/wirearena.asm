@@ -1244,6 +1244,25 @@ wa_ltick:
     mov bx, [wa_lift]
     or bx, bx
     js .out
+    cmp byte [wa_lkon], 0       ; LINKED, the guest: the host's lift, as its
+    je .ours                    ; SNAPs say, followed at twice its speed
+    call wa_lkhost              ; (LINK-PLAN 11.3)
+    jnz .ours
+    mov ax, [wa_bxh+bx]
+    mov dx, [wa_lklift]
+    sub dx, ax
+    jz .out
+    cmp dx, WA_LSPD * 2
+    jle .lo
+    mov dx, WA_LSPD * 2
+.lo:
+    cmp dx, -WA_LSPD * 2
+    jge .hi
+    mov dx, -WA_LSPD * 2
+.hi:
+    add ax, dx
+    jmp .set
+.ours:
     cmp byte [wa_lbot], 0       ; a bot riding it (AI-PLAN 3.4), or the
     jne .on                     ; player on it, on the ground
     mov ax, [wa_jz]
@@ -1717,37 +1736,58 @@ wa_bstruck:
 
 ; wa_bhear - the player's shot: every live roaming bot within WA_HEAR of it
 ; hunts the node nearest the player (the owner's worry: bots that fight
-; each other forget the player). Keeps every register
+; each other forget the player). Linked, the bots are the host's: the
+; guest's shot is said in its next SNAP and heard there (LINK-PLAN 11.3).
+; Keeps every register
 wa_bhear:
     cmp byte [wa_bdet], 0
-    jne .r
+    jne wa_bheara.r
     cmp byte [wa_lkon], 0
-    jne .r
+    je .us
+    call wa_lkhost
+    jnz .us
+    mov byte [wa_lkfired], 1    ; (the guest: its SNAP says so)
+    ret
+.us:
+    push ax
+    push bx
+    push dx
+    mov ax, [wa_px]
+    mov bx, [wa_py]
+    xor dl, dl
+    call wa_bheara
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; wa_bheara - AX, BX = where a shot was fired, DL = the shooter's code (0
+; the player, 1 figure 0): our live roaming bots within WA_HEAR hunt there.
+; Keeps every register
+wa_bheara:
     push ax
     push bx
     push cx
     push di
-    mov ax, [wa_px]
-    mov bx, [wa_py]
+    mov [wa_tx], ax
+    mov [wa_ty], bx
     call wa_bcell
-    mov ah, al                  ; AH = the player's node
+    mov ah, al                  ; AH = the shot's node
     mov di, wa_figs
     mov cx, WA_NFIG
 .f:
     cmp byte [di+F_DEAD], 0
     jne .n
+    call wa_lkremote            ; (linked: not the other machine's)
+    je .n
     cmp byte [di+F_BST], WA_BROAM
     jne .n
     push ax
-    mov ax, [wa_px]
-    mov [wa_tx], ax
-    mov ax, [wa_py]
-    mov [wa_ty], ax
     call wa_tdist
     cmp ax, WA_HEAR
     pop ax
     jae .n
-    mov byte [di+F_BTGT], 0
+    mov [di+F_BTGT], dl
     mov byte [di+F_BST], WA_BHUNT
     mov byte [di+F_BGAP], WA_BLOST
     mov [di+F_BGOAL], ah
@@ -5231,6 +5271,8 @@ WA_VAR lk_blk,LK_SIZE             ; THE LINK (walink.inc, os88cable.inc)
 WA_VAR lk_sbuf,SER_BUFFER_SIZE     ; the lease's rings: in our own region
 WA_VAR lk_crct,512                 ; the CRC's table
 WA_VAR wa_lkpf,1                   ; the frame the cable was last read in
+WA_VAR wa_lkfired,1                ; the guest fired since its last SNAP
+WA_VAR wa_lklift,2                 ; the guest: the host's lift's height
 WA_VAR wa_lkid,4                   ; our identity, and the peer bound
 WA_VAR wa_lkpeer,4
 WA_VAR wa_lkst,1                   ; our lobby state (0, 1 ready, 2 in), its

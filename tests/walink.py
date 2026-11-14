@@ -41,6 +41,7 @@ import os88qemu as Q                                            # noqa: E402
 import dispapps                                                 # noqa: E402
 from walift import amap                                         # noqa: E402
 from waweapons import anims                                     # noqa: E402
+import arenagen                                                 # noqa: E402
 
 # The package's symbols: walift's map, assembled and held to the build
 # (dispapps cannot unwrap a parted image whose part 0 is OP_ZFILL)
@@ -179,15 +180,18 @@ def run(a, b, cable):
              b.v('wa_lktag')))
 
     def rate(m, secs):
-        """bytes each way a SIM second (30 of the game's ticks): counted on
-        the wire against the game's own clock, which is what the line has
-        to carry on the iron, where the sim keeps real time. QEMU's guest
-        clock under a loaded host does not (the sim made 37 to 42 ticks a
-        'second' of it here)"""
-        c0, k0 = list(cable.counts), m.v('wa_tkn', 2)
+        """bytes each way a SIM second (30 of the game's ticks): each
+        direction counted on the wire against its SENDER's own clock - the
+        line has to carry them at the rate the sender's sim makes them, and
+        on the iron each sim keeps real time. Under QEMU on a loaded host
+        neither does, and the two run apart (37 to 42 ticks a 'second'; one
+        machine sent 66 SNAPs to the other's 56 in the same window)"""
+        c0 = list(cable.counts)
+        k0 = [a.v('wa_tkn', 2), b.v('wa_tkn', 2)]
         Q.pace(m, secs)
-        dk = (m.v('wa_tkn', 2) - k0) & 0xFFFF
-        return [(c - c0[j]) * 30.0 / dk for j, c in enumerate(cable.counts)]
+        k1 = [a.v('wa_tkn', 2), b.v('wa_tkn', 2)]
+        return [(c - c0[j]) * 30.0 / ((k1[j] - k0[j]) & 0xFFFF)
+                for j, c in enumerate(cable.counts)]
 
 
     # SNAP: B somewhere; A's figure 0 there
@@ -393,6 +397,50 @@ def run(a, b, cable):
             break
     check(hurt == 3, 'L2: the host\'s bot 2 shoots the guest - hurt on the '
           'guest\'s machine, by bot 2 (hurt by %r)' % hurt)
+    # HEARING: the guest's shot, heard by the host's bot 1 roaming 300 off
+    # and facing away (it cannot see the guest) - four shots, each heard:
+    # the latch, not the muzzle flash a SNAP may or may not land in
+    heard = 0
+    for _ in range(4):
+        host.setf(1, 20, 0, 2)              # (heading east - it turns to
+        host.freeze(1, 1300, 300)           # face its heading - and facing
+        host.setf(1, 4, 0, 2)               # east: away from the guest)
+        host.setf(1, 16, 0, 2)
+        host.setf(1, 46, 0)                 # (roaming)
+        host.freeze(2, 64, 1024)
+        guest.at(1000, 300, 256)            # (firing north, at nothing)
+        guest.put([('cool', 0, 1), ('rld', 0, 1), ('wpn', 0, 1),
+                   ('mag', 6, 1)])          # (the pistol, loaded)
+        guest.key_state('ctrl', True)
+        Q.pace(guest, .05)
+        guest.key_state('ctrl', False)
+        if Q.acted(host, lambda: host.readseg(     # (hunting: it cannot
+                host.seg, host.sy['wa_figs'] + FS + 46, 1)[0] == 2,  # see)
+                secs=1.5, what='heard'):
+            heard += 1
+    check(heard == 4, 'HEARING: each of the guest\'s four shots sends the '
+          'host\'s bot hunting the guest (%d of 4)' % heard)
+
+    # THE LIFT: the guest on it; the host's lift rises, the guest rides up
+    lift = [arenagen.bx(x) for x in arenagen.HEIGHTS_BOXES
+            if arenagen.bx(x).kind == arenagen.LIFT][0]
+    lx, ly = (lift[0] + lift[2]) // 2, (lift[1] + lift[3]) // 2
+    lrest, ltop = host.v('wa_lrest', 2), host.v('wa_ltop', 2)
+    hl = lambda m: m.v('wa_bxh', 2) if False else struct.unpack(
+        '<h', m.readseg(m.seg, m.sy['wa_bxh'] + m.v('wa_lift', 2), 2))[0]
+    host.put([('bdet', 1, 1)])              # (the host's bots off the lift)
+    host.at(64, 1024, 0)
+    guest.at(lx, ly, 0)
+    guest.put([('feet', lrest, 2), ('fpx', 0xFFFF, 2)])
+    host.wait_for(lambda: hl(host) == ltop, 'THE LIFT: the guest stands on '
+                  'it - the host\'s lift rises to the top (%d)' % ltop,
+                  secs=6)
+    guest.wait_for(lambda: hl(guest) == ltop and
+                   guest.v('wa_feet', 2) >= ltop - 4,
+                   'THE LIFT: the guest\'s lift follows, and the guest rides '
+                   'it up', secs=4)
+    host.put([('bdet', 0, 1)])
+
     r = rate(a, 4)
     check(max(r) <= 230, 'THE BUDGET, two bots: the host %d, the guest %d '
           'bytes a sim second (2400 baud: 240)' % (r[k], r[1 - k]))
